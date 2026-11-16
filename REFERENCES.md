@@ -58,6 +58,7 @@ These sources gave methods or formats. zslice does not copy their code. Each zsl
 | Scanline polygon fill (sort the edge crossings on each line, fill between them by winding number) | General computer graphics technique | `src/infill.zig` | The line infill. |
 | Triangle, cubic, and concentric infill, as in CuraEngine and PrusaSlicer | General slicer technique (the patterns, not code) | `src/layer.zig`, `src/infill.zig` | The triangles, cubic, and concentric infill patterns. |
 | Greedy nearest-neighbor path order | General technique | `src/layer.zig` | The order of the paths in a layer. |
+| Order by island: all paths of one connected part of a layer before the next part, as the "layer parts" of CuraEngine (AGPL-3.0) and the islands of PrusaSlicer (AGPL-3.0) | General slicer technique (the order, not code) | `src/layer.zig` | The plan prints the walls, skin, infill, and ironing of one island, then goes to the nearest island that is not done. |
 | Mathematical morphology "opening" (erode, then dilate) | General technique | `src/offset.zig`, `src/layer.zig` | Removes skin areas that are too thin to print. |
 | Slab index (bucket edges into equal bands of one axis, then cast a ray only against one band) | General technique | `src/clip.zig` | Finds the edges that a winding ray crosses. |
 | Compressed sparse row (CSR) layout: one array of items and one array of start offsets | General technique | `src/clip.zig`, `src/slicer.zig` | The slab index and the per-layer face index. |

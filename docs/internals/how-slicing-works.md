@@ -58,7 +58,7 @@ The plan of a layer has the paths that the nozzle follows.
 
 **Ironing** (if on). The top surfaces of a layer are its outline minus the outline of the layer above. After the other paths, the nozzle goes over the top surfaces again with close lines and a small flow, to melt the surface flat.
 
-**Order.** The nozzle prints the inner walls, then the outer wall, then the skin, then the infill, then the ironing. In each group, the next path is the nearest one to the nozzle.
+**Order.** The nozzle prints the part one island after the other. An island is an outer boundary of the layer with its holes. In each island, the nozzle prints the inner walls, then the outer wall, then the skin, then the infill, then the ironing. Then it goes to the nearest island that is not done. A move between two islands leaves the part and retracts, so this order has the fewest of these moves. In each group, the next path is the nearest one to the nozzle.
 
 ## 6. Write G-code (`src/gcode.zig`)
 

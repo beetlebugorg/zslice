@@ -42,17 +42,23 @@
 //!    direction for the support body, and dense lines across them for the
 //!    interface.
 //! 9. Order. The plan prints the skirt and the brim first (outermost loop
-//!    first), then the support, then the inner walls, then the outer wall, then the skin,
-//!    then the infill, then the ironing. Inside each group, the next path is
-//!    the nearest one to the current nozzle position (a greedy nearest
-//!    neighbor search). A loop starts at its vertex nearest to the nozzle.
-//!    A line starts at its nearer end.
+//!    first), then the support, then the part, one island after the other.
+//!    An island is an outer boundary of the outline with its holes. The
+//!    next island is the one with the boundary vertex nearest to the
+//!    nozzle. In each island, the plan prints the inner walls, then the
+//!    outer wall, then the skin, then the infill, then the ironing. A move
+//!    from one island to another leaves the part, so it retracts. With
+//!    this order, there is one such move for each island. Inside each group, the next path is the
+//!    nearest one to the current nozzle position (a greedy nearest
+//!    neighbor search). A loop starts at its seam vertex, or at its vertex
+//!    nearest to the nozzle. A line starts at its nearer end.
 //!
 //! Each layer only reads the outlines of the other layers, so many layers
 //! can be planned at the same time on different threads.
 //!
 //! References (see REFERENCES.md): the greedy nearest-neighbor order with
-//! a uniform grid search, the opening, and memoization (see `Memo`).
+//! a uniform grid search, the order by island, the opening, and
+//! memoization (see `Memo`).
 
 const std = @import("std");
 const Allocator = std.mem.Allocator;
@@ -753,22 +759,47 @@ pub fn plan(gpa: Allocator, ctx: Context, i: usize) Allocator.Error!LayerPlan {
     try addOrdered(s, a, &lp, &pos, sup_walls, true, .support);
     try addOrdered(s, a, &lp, &pos, sup_lines, false, .support);
     try addOrdered(s, a, &lp, &pos, sup_iface, false, .support_interface);
-    var k = wall_n;
-    while (k > 1) {
-        k -= 1;
-        try addOrderedSeam(s, a, &lp, &pos, walls[k], true, .inner_wall, seam);
+    // The paths of the part, one island after the other: all features of
+    // an island before the next island. Each move between islands is a
+    // travel out of the part (a retraction), so the islands go in the
+    // nearest order, and each island once.
+    const isl = try Islands.init(s, outline);
+    const wall_ids = try s.alloc([]const u32, wall_n);
+    const wall_seams = try s.alloc(?[]const u32, wall_n);
+    for (0..wall_n) |k| {
+        wall_ids[k] = try isl.ids(s, walls[k]);
+        wall_seams[k] = try seamsFor(s, walls[k], seam);
     }
-    if (wall_n > 0) try addOrderedSeam(s, a, &lp, &pos, walls[0], true, .outer_wall, seam);
-    try addThin(a, &lp, &pos, &reg);
-    if (p.skin_pattern == .monotonic) {
-        try addMonotonic(s, a, &lp, &pos, skin_lines, skin_angle, .skin);
-    } else {
-        try addOrdered(s, a, &lp, &pos, skin_lines, false, .skin);
+    const thin_ids = try isl.ids(s, reg.thin);
+    const skin_ids = try isl.ids(s, skin_lines);
+    const skin_loop_ids = try isl.ids(s, skin_loops);
+    const sparse_ids = try isl.ids(s, sparse_lines);
+    const sparse_loop_ids = try isl.ids(s, sparse_loops);
+    const ironing_ids = try isl.ids(s, ironing_lines);
+    const done = try s.alloc(bool, isl.count() + 1);
+    @memset(done, false);
+    for (0..isl.count() + 1) |_| {
+        // The island nearest to the nozzle. The paths in no island (on an
+        // edge, by rounding) go last.
+        const id = isl.nearest(pos, done);
+        done[id] = true;
+        var k = wall_n;
+        while (k > 1) {
+            k -= 1;
+            try addGroup(s, a, &lp, &pos, walls[k], true, .inner_wall, wall_seams[k], .{ .ids = wall_ids[k], .id = id });
+        }
+        if (wall_n > 0) try addGroup(s, a, &lp, &pos, walls[0], true, .outer_wall, wall_seams[0], .{ .ids = wall_ids[0], .id = id });
+        try addThin(a, &lp, &pos, &reg, .{ .ids = thin_ids, .id = id });
+        if (p.skin_pattern == .monotonic) {
+            try addMonotonic(s, a, &lp, &pos, try subset(s, skin_lines, .{ .ids = skin_ids, .id = id }), skin_angle, .skin);
+        } else {
+            try addGroup(s, a, &lp, &pos, skin_lines, false, .skin, null, .{ .ids = skin_ids, .id = id });
+        }
+        try addGroup(s, a, &lp, &pos, skin_loops, true, .skin, null, .{ .ids = skin_loop_ids, .id = id });
+        try addGroup(s, a, &lp, &pos, sparse_lines, false, .infill, null, .{ .ids = sparse_ids, .id = id });
+        try addGroup(s, a, &lp, &pos, sparse_loops, true, .infill, null, .{ .ids = sparse_loop_ids, .id = id });
+        try addGroup(s, a, &lp, &pos, ironing_lines, false, .ironing, null, .{ .ids = ironing_ids, .id = id });
     }
-    try addOrdered(s, a, &lp, &pos, skin_loops, true, .skin);
-    try addOrdered(s, a, &lp, &pos, sparse_lines, false, .infill);
-    try addOrdered(s, a, &lp, &pos, sparse_loops, true, .infill);
-    try addOrdered(s, a, &lp, &pos, ironing_lines, false, .ironing);
     return lp;
 }
 
@@ -1220,8 +1251,89 @@ const StartGrid = struct {
     }
 };
 
+/// The islands of a layer: the outer boundaries of the outline. An island
+/// has the holes in its boundary, but not the islands in those holes.
+const Islands = struct {
+    polys: []const []const Point,
+    boxes: []const geom.Box,
+    areas: []const i128,
+
+    fn init(s: Allocator, outline: Paths) Allocator.Error!Islands {
+        var polys: std.ArrayList([]const Point) = .empty;
+        var boxes: std.ArrayList(geom.Box) = .empty;
+        var areas: std.ArrayList(i128) = .empty;
+        for (0..outline.count()) |j| {
+            const poly = outline.get(j);
+            const ar = geom.area2(poly);
+            if (ar <= 0) continue;
+            var b = geom.Box.empty;
+            for (poly) |q| b.extend(q);
+            try polys.append(s, poly);
+            try boxes.append(s, b);
+            try areas.append(s, ar);
+        }
+        return .{ .polys = polys.items, .boxes = boxes.items, .areas = areas.items };
+    }
+
+    fn count(self: Islands) usize {
+        return self.polys.len;
+    }
+
+    /// The island of a point: the smallest outer boundary around it. A
+    /// point in no boundary gets `count()`.
+    fn of(self: Islands, p: Point) u32 {
+        var best: u32 = @intCast(self.polys.len);
+        var best_area: i128 = std.math.maxInt(i128);
+        for (self.polys, self.boxes, self.areas, 0..) |poly, b, ar, j| {
+            if (ar >= best_area) continue;
+            if (p.x < b.min.x or p.x > b.max.x or p.y < b.min.y or p.y > b.max.y) continue;
+            if (!insidePoly(poly, p)) continue;
+            best = @intCast(j);
+            best_area = ar;
+        }
+        return best;
+    }
+
+    /// The island of each path of a set, by its first point.
+    fn ids(self: Islands, s: Allocator, set: Paths) Allocator.Error![]const u32 {
+        const out = try s.alloc(u32, set.count());
+        for (out, 0..) |*o, j| o.* = if (self.polys.len <= 1) 0 else self.of(set.get(j)[0]);
+        return out;
+    }
+
+    /// The island that is not done with the boundary vertex nearest to p.
+    /// The paths in no island (`count()`) go last.
+    fn nearest(self: Islands, p: Point, done: []const bool) u32 {
+        var best: u32 = @intCast(self.polys.len);
+        var best_d: i128 = std.math.maxInt(i128);
+        for (self.polys, 0..) |poly, j| {
+            if (done[j]) continue;
+            for (poly) |q| {
+                const d = p.distSq(q);
+                if (d < best_d) {
+                    best_d = d;
+                    best = @intCast(j);
+                }
+            }
+        }
+        return best;
+    }
+};
+
+/// True if p is inside one polygon (its winding number is not 0).
+fn insidePoly(poly: []const Point, p: Point) bool {
+    var winding: i32 = 0;
+    for (poly, 0..) |q, i| {
+        const r = poly[(i + 1) % poly.len];
+        if (q.y <= p.y) {
+            if (r.y > p.y and geom.cross3(q, r, p) > 0) winding += 1;
+        } else if (r.y <= p.y and geom.cross3(q, r, p) < 0) winding -= 1;
+    }
+    return winding != 0;
+}
+
 fn addOrdered(s: Allocator, a: Allocator, lp: *LayerPlan, pos: *Point, set: Paths, closed: bool, feature: Feature) Allocator.Error!void {
-    return addOrderedSeam(s, a, lp, pos, set, closed, feature, null);
+    return addGroup(s, a, lp, pos, set, closed, feature, null, null);
 }
 
 const Seam = struct {
@@ -1258,29 +1370,48 @@ fn seamIndices(set: Paths, rule: Seam, out: []u32) Allocator.Error!void {
         seamIndex(set.get(j), rule.mode, rule.layer *% 1_000_003 +% j));
 }
 
-/// `addOrdered`, with a seam rule for loops. With a rule, each loop starts at
-/// its seam vertex (see `seamIndex`), and the greedy order uses the distance
-/// to that vertex.
-fn addOrderedSeam(s: Allocator, a: Allocator, lp: *LayerPlan, pos: *Point, set: Paths, closed: bool, feature: Feature, seam: ?Seam) Allocator.Error!void {
+/// The seam vertex of each loop of a wall set, or null for the `nearest`
+/// rule (each loop starts at its vertex nearest to the nozzle).
+fn seamsFor(s: Allocator, set: Paths, rule: Seam) Allocator.Error!?[]const u32 {
+    if (rule.mode == .nearest or set.count() == 0) return null;
+    if (rule.memo) |m| if (try m.seams(set, rule)) |f| return f;
+    const f = try s.alloc(u32, set.count());
+    try seamIndices(set, rule, f);
+    return f;
+}
+
+/// A part of a path set: the paths j with `ids[j] == id`.
+const Group = struct { ids: []const u32, id: u32 };
+
+/// The paths of `set` in `group`, as a new set.
+fn subset(s: Allocator, set: Paths, group: Group) Allocator.Error!Paths {
+    var out: Paths = .empty;
+    for (0..set.count()) |j| if (group.ids[j] == group.id) try out.append(s, set.get(j));
+    return out;
+}
+
+/// Adds the paths of `set` (or of `group` only) to the plan in greedy
+/// nearest-neighbor order. With `fixed` (the seam vertex of each loop),
+/// each loop starts at its seam vertex, and the order uses the distance to
+/// that vertex. Without it, a loop starts at its vertex nearest to the
+/// nozzle.
+fn addGroup(s: Allocator, a: Allocator, lp: *LayerPlan, pos: *Point, set: Paths, closed: bool, feature: Feature, fixed: ?[]const u32, group: ?Group) Allocator.Error!void {
     const n = set.count();
     if (n == 0) return;
     const used = try s.alloc(bool, n);
-    @memset(used, false);
-    var fixed: ?[]const u32 = null;
-    if (closed) if (seam) |rule| if (rule.mode != .nearest) {
-        fixed = if (rule.memo) |m| try m.seams(set, rule) else null;
-        if (fixed == null) {
-            const f = try s.alloc(u32, n);
-            try seamIndices(set, rule, f);
-            fixed = f;
-        }
-    };
+    var m: usize = 0;
+    for (used, 0..) |*u, j| {
+        u.* = if (group) |g| g.ids[j] != g.id else false;
+        if (!u.*) m += 1;
+    }
+    if (m == 0) return;
     // Many paths: find the nearest start with a grid. The result is the
     // same as the search over all paths below.
     var grid: ?StartGrid = null;
-    if (n >= StartGrid.min_paths) {
+    if (m >= StartGrid.min_paths) {
         var cands: std.ArrayList(StartGrid.Cand) = .empty;
         for (0..n) |j| {
+            if (used[j]) continue;
             const path = set.get(j);
             const jj: u32 = @intCast(j);
             if (fixed) |f| {
@@ -1294,7 +1425,7 @@ fn addOrderedSeam(s: Allocator, a: Allocator, lp: *LayerPlan, pos: *Point, set: 
         }
         grid = try .init(s, cands.items);
     }
-    for (0..n) |_| {
+    for (0..m) |_| {
         var best: usize = 0;
         var best_d: i128 = std.math.maxInt(i128);
         var best_at: usize = 0;
@@ -1361,8 +1492,9 @@ fn addOrderedSeam(s: Allocator, a: Allocator, lp: *LayerPlan, pos: *Point, set: 
 }
 
 /// Adds the thin wall loops, each with its own line width.
-fn addThin(a: Allocator, lp: *LayerPlan, pos: *Point, reg: *const Regions) Allocator.Error!void {
+fn addThin(a: Allocator, lp: *LayerPlan, pos: *Point, reg: *const Regions, group: Group) Allocator.Error!void {
     for (0..reg.thin.count()) |k| {
+        if (group.ids[k] != group.id) continue;
         const loop = reg.thin.get(k);
         try lp.points.append(a, loop);
         try lp.paths.append(a, .{ .feature = .outer_wall, .closed = true, .width = reg.thin_width[k] });
@@ -1570,6 +1702,50 @@ test "hidden seam" {
     defer testing.allocator.free(index.starts);
     defer testing.allocator.free(index.edges);
     try testing.expectEqual(@as(usize, 3), hiddenIndex(&sq, &index));
+}
+
+test "the plan prints all paths of one island before the next island" {
+    const gpa = testing.allocator;
+    const mesh = @import("mesh.zig");
+    var b: mesh.Builder = .init(gpa);
+    defer b.deinit();
+    try mesh.shapes.addBox(&b, 0, 0, 0, 20, 20, 10);
+    try mesh.shapes.addBox(&b, 40, 0, 0, 60, 20, 10);
+    var m = try b.finish();
+    defer m.deinit(gpa);
+    var st: settings_mod.Settings = .{};
+    st.project.wall_count = 2;
+    const r = try st.resolve();
+    const layers = try slicer.layerTable(gpa, 10, 0.3, 0.2);
+    defer gpa.free(layers);
+    var idx = try slicer.FaceIndex.build(gpa, &m, layers, 0);
+    defer idx.deinit(gpa);
+    const outlines = try gpa.alloc(Paths, layers.len);
+    defer {
+        for (outlines) |*o| o.deinit(gpa);
+        gpa.free(outlines);
+    }
+    for (outlines, 0..) |*o, li| o.* = try slicer.sliceAt(gpa, &m, idx.get(li), layers[li].sliceZ(), 5, 1000);
+    const ctx: Context = .{ .resolved = &r, .layers = layers, .outlines = outlines };
+    // A middle layer (walls and infill) and the first layer (walls and
+    // skin): the box of each path changes side once. The skirt goes
+    // around both boxes.
+    for ([_]usize{ 0, 20 }) |li| {
+        var lp = try plan(gpa, ctx, li);
+        defer lp.deinit();
+        try testing.expect(lp.count() > 4);
+        var changes: usize = 0;
+        var side: ?bool = null;
+        for (0..lp.count()) |k| {
+            if (lp.paths.items[k].feature == .skirt) continue;
+            const right = lp.points.get(k)[0].x > geom.fromMm(30);
+            if (side) |sd| {
+                if (sd != right) changes += 1;
+            }
+            side = right;
+        }
+        try testing.expectEqual(@as(usize, 1), changes);
+    }
 }
 
 test "monotonic skin: the lines go from one side to the other" {
