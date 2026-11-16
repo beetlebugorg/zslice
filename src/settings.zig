@@ -378,7 +378,8 @@ pub const Project = struct {
     z_hop_only_crossing: bool = true,
     /// Retract at each layer change. Off: the travel to the first path of
     /// the layer retracts by the rules of the other travels (combing).
-    retract_layer_change: bool = true,
+    /// Off by default, as in Cura.
+    retract_layer_change: bool = false,
 
     // Support
     /// Support under overhangs. `off`: no support. `everywhere`: support

@@ -265,8 +265,8 @@ M84</code></pre>
 <p>Lift the nozzle by this distance during a travel move with a retraction. 0 turns it off.</p>
 <p><strong><code>project.z_hop_only_crossing</code></strong> (true or false). Default: <code>true</code></p>
 <p>Lift the nozzle (<code>z_hop</code>) only for a travel that crosses an edge of the layer: it leaves the part, or it goes over a hole. A travel in a straight line inside the part (it retracts because it is longer than <code>combing_max_distance</code>) does not lift. Off: each travel with a retraction lifts.</p>
-<p><strong><code>project.retract_layer_change</code></strong> (true or false). Default: <code>true</code></p>
-<p>Retract at each layer change. Off: the travel to the first path of the layer retracts by the rules of the other travels (combing).</p>
+<p><strong><code>project.retract_layer_change</code></strong> (true or false). Default: <code>false</code></p>
+<p>Retract at each layer change. Off: the travel to the first path of the layer retracts by the rules of the other travels (combing). Off by default, as in Cura.</p>
 <h3 id="support">Support</h3>
 <p><strong><code>project.support</code></strong> (one of: <code>off</code>, <code>everywhere</code>, <code>buildplate</code>). Default: <code>off</code></p>
 <p>Support under overhangs. <code>off</code>: no support. <code>everywhere</code>: support can stand on the bed or on the part. <code>buildplate</code>: only support that stands on the bed.</p>

@@ -1649,6 +1649,7 @@ test "z hop only on travels that cross an edge, and no retraction at a layer cha
     try s.set("project.combing_max_distance", "0");
     var lc: std.Io.Writer.Allocating = .init(gpa);
     defer lc.deinit();
+    try s.set("project.retract_layer_change", "true");
     _ = try slice(gpa, &mesh, s, &lc.writer);
     try s.set("project.retract_layer_change", "false");
     _ = try slice(gpa, &mesh, s, &no_lc.writer);
