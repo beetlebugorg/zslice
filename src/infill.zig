@@ -112,10 +112,12 @@ pub fn linesPhase(gpa: Allocator, region: Paths, spacing: i64, angle_deg: f64, p
 
 /// Joins parallel lines (from `lines`, with the same spacing and angle)
 /// into zigzag paths: at the end of a line, the path goes on to the nearest
-/// end of a line on the next scan line, if the link is short (at most two
-/// spacings along the lines) and inside the region. The nozzle then prints
-/// many lines with no travel and no retraction between them, and the links
-/// along the walls tie the lines to the walls.
+/// end of a line on the next scan line. The link follows the boundary of
+/// the region, the shorter way around, so it runs along the walls and
+/// never cuts across the open infill. A link longer than 2.5 spacings is
+/// not made. The nozzle then prints many lines with no travel and no
+/// retraction between them, and the links along the walls tie the lines
+/// to the walls.
 pub fn connect(gpa: Allocator, region: Paths, set: Paths, spacing: i64, angle_deg: f64) Allocator.Error!Paths {
     var out: Paths = .empty;
     errdefer out.deinit(gpa);
@@ -128,14 +130,29 @@ pub fn connect(gpa: Allocator, region: Paths, set: Paths, spacing: i64, angle_de
     const c = @cos(a);
     const s = @sin(a);
 
-    // Each line in the turned frame: one y, and x0 < x1.
-    const Line = struct { y: i64, x0: i64, x1: i64, used: bool = false };
+    // Each line in the turned frame (one y, and x0 < x1, for the order and
+    // the search), with its ends in the frame of the region and their
+    // places on the boundary.
+    const Line = struct {
+        y: i64,
+        x0: i64,
+        x1: i64,
+        p0: Point,
+        p1: Point,
+        at0: ?Spot,
+        at1: ?Spot,
+        used: bool = false,
+    };
+    const bound: Boundary = try .init(arena, region);
     const ls = try arena.alloc(Line, n);
     for (ls, 0..) |*l, i| {
         const p = set.get(i);
         const q0 = rotate(p[0], c, -s);
         const q1 = rotate(p[p.len - 1], c, -s);
-        l.* = .{ .y = q0.y, .x0 = @min(q0.x, q1.x), .x1 = @max(q0.x, q1.x) };
+        const lo_first = q0.x <= q1.x;
+        const p0 = if (lo_first) p[0] else p[p.len - 1];
+        const p1 = if (lo_first) p[p.len - 1] else p[0];
+        l.* = .{ .y = q0.y, .x0 = @min(q0.x, q1.x), .x1 = @max(q0.x, q1.x), .p0 = p0, .p1 = p1, .at0 = bound.locate(p0), .at1 = bound.locate(p1) };
     }
     std.mem.sort(Line, ls, {}, struct {
         fn lt(_: void, l: Line, r: Line) bool {
@@ -143,48 +160,245 @@ pub fn connect(gpa: Allocator, region: Paths, set: Paths, spacing: i64, angle_de
             return l.x0 < r.x0;
         }
     }.lt);
-    const max_link = 2 * spacing;
-    // The edges of the region in bands, for the tests of the links.
+    const max_walk: f64 = 2.5 * @as(f64, @floatFromInt(spacing));
+    // For the ends that are not on the boundary: the old test of a
+    // straight link.
     const index: geom.EdgeIndex = try .init(arena, region, link_tolerance);
     var chain: std.ArrayList(Point) = .empty;
+    var walk: std.ArrayList(Point) = .empty;
+    var best_walk: std.ArrayList(Point) = .empty;
     for (ls, 0..) |*first, fi| {
         if (first.used) continue;
         chain.clearRetainingCapacity();
         first.used = true;
-        try chain.append(arena, .{ .x = first.x0, .y = first.y });
-        try chain.append(arena, .{ .x = first.x1, .y = first.y });
-        var end: Point = .{ .x = first.x1, .y = first.y };
+        try chain.append(arena, first.p0);
+        try chain.append(arena, first.p1);
+        var end_x = first.x1;
+        var end_y = first.y;
+        var end_p = first.p1;
+        var end_at = first.at1;
         var at = fi;
         while (true) {
             // The lines of the next scan line come after `at` in the order.
             var best: ?usize = null;
-            var best_d: i64 = max_link + 1;
+            var best_from_low = true;
+            var best_len: f64 = max_walk + 1;
             var j = at + 1;
-            while (j < ls.len and ls[j].y <= end.y) : (j += 1) {}
-            while (j < ls.len and ls[j].y - end.y <= spacing + @divTrunc(spacing, 4)) : (j += 1) {
-                if (ls[j].used or ls[j].y == end.y) continue;
-                const d = @min(iabs(ls[j].x0 - end.x), iabs(ls[j].x1 - end.x));
-                if (d < best_d and linkInside(&index, end, if (iabs(ls[j].x0 - end.x) <= iabs(ls[j].x1 - end.x)) Point{ .x = ls[j].x0, .y = ls[j].y } else Point{ .x = ls[j].x1, .y = ls[j].y }, c, s)) {
-                    best = j;
-                    best_d = d;
+            while (j < ls.len and ls[j].y <= end_y) : (j += 1) {}
+            while (j < ls.len and ls[j].y - end_y <= spacing + @divTrunc(spacing, 4)) : (j += 1) {
+                if (ls[j].used or ls[j].y == end_y) continue;
+                // A quick test first: an end far along the lines is out.
+                if (@min(iabs(ls[j].x0 - end_x), iabs(ls[j].x1 - end_x)) > 3 * spacing) continue;
+                for ([_]bool{ true, false }) |low| {
+                    const to_p = if (low) ls[j].p0 else ls[j].p1;
+                    const to_at = if (low) ls[j].at0 else ls[j].at1;
+                    walk.clearRetainingCapacity();
+                    const len = if (end_at != null and to_at != null)
+                        (try bound.walk(arena, end_at.?, to_at.?, max_walk, &walk)) orelse continue
+                    else blk: {
+                        // Not on the boundary: a straight link inside.
+                        const e: Point = .{ .x = end_x, .y = end_y };
+                        const t: Point = .{ .x = if (low) ls[j].x0 else ls[j].x1, .y = ls[j].y };
+                        if (!linkInside(&index, e, t, c, s)) continue;
+                        try walk.append(arena, end_p);
+                        try walk.append(arena, to_p);
+                        break :blk Point.dist(end_p, to_p);
+                    };
+                    if (len < best_len) {
+                        best = j;
+                        best_from_low = low;
+                        best_len = len;
+                        best_walk.clearRetainingCapacity();
+                        try best_walk.appendSlice(arena, walk.items);
+                    }
                 }
             }
             const b = best orelse break;
             ls[b].used = true;
-            const from_low = iabs(ls[b].x0 - end.x) <= iabs(ls[b].x1 - end.x);
-            const p0: Point = .{ .x = if (from_low) ls[b].x0 else ls[b].x1, .y = ls[b].y };
-            const p1: Point = .{ .x = if (from_low) ls[b].x1 else ls[b].x0, .y = ls[b].y };
-            try chain.append(arena, p0);
-            try chain.append(arena, p1);
-            end = p1;
+            // The points of the walk between the two ends.
+            if (best_walk.items.len > 2) try chain.appendSlice(arena, best_walk.items[1 .. best_walk.items.len - 1]);
+            const l = ls[b];
+            try chain.append(arena, if (best_from_low) l.p0 else l.p1);
+            try chain.append(arena, if (best_from_low) l.p1 else l.p0);
+            end_x = if (best_from_low) l.x1 else l.x0;
+            end_y = l.y;
+            end_p = if (best_from_low) l.p1 else l.p0;
+            end_at = if (best_from_low) l.at1 else l.at0;
             at = b;
         }
-        const path = try arena.alloc(Point, chain.items.len);
-        for (chain.items, path) |q, *o| o.* = rotate(q, c, s);
-        try out.append(gpa, path);
+        try out.append(gpa, chain.items);
     }
     return out;
 }
+
+/// A place on the boundary of a region: polygon `poly`, on the edge from
+/// point `edge` to the next point, at `pos`.
+const Spot = struct { poly: u32, edge: u32, pos: Point, t: f64 };
+
+/// The edges of a region in bands of y, with their polygon and their
+/// index, to find the place of a point on the boundary, and to walk along
+/// the boundary from one place to another.
+const Boundary = struct {
+    region: Paths,
+    min: i64,
+    width: i64,
+    starts: []u32,
+    edges: [][2]u32, // polygon, edge
+
+    fn init(arena: Allocator, region: Paths) Allocator.Error!Boundary {
+        var lo: i64 = std.math.maxInt(i64);
+        var hi: i64 = std.math.minInt(i64);
+        for (region.points.items) |q| {
+            lo = @min(lo, q.y - link_tolerance);
+            hi = @max(hi, q.y + link_tolerance);
+        }
+        const pts = region.points.items.len;
+        const want: usize = std.math.clamp(2 * std.math.sqrt(pts), 1, 4096);
+        const span: i64 = @max(hi - lo + 1, 1);
+        const width: i64 = @max(1, @divFloor(span + @as(i64, @intCast(want)) - 1, @as(i64, @intCast(want))));
+        const bands: usize = @intCast(@divFloor(span + width - 1, width));
+        var b: Boundary = .{ .region = region, .min = lo, .width = width, .starts = try arena.alloc(u32, bands + 1), .edges = &.{} };
+        @memset(b.starts, 0);
+        var fill: []u32 = &.{};
+        for (0..2) |pass| {
+            if (pass == 1) {
+                for (1..b.starts.len) |k| b.starts[k] += b.starts[k - 1];
+                b.edges = try arena.alloc([2]u32, b.starts[bands]);
+                fill = try arena.dupe(u32, b.starts[0..bands]);
+            }
+            for (0..region.count()) |k| {
+                const poly = region.get(k);
+                for (poly, 0..) |p, i| {
+                    const q = poly[(i + 1) % poly.len];
+                    const b0 = b.band(@min(p.y, q.y) - link_tolerance);
+                    const b1 = b.band(@max(p.y, q.y) + link_tolerance);
+                    for (b0..b1 + 1) |bi| {
+                        if (pass == 0) {
+                            b.starts[bi + 1] += 1;
+                        } else {
+                            b.edges[fill[bi]] = .{ @intCast(k), @intCast(i) };
+                            fill[bi] += 1;
+                        }
+                    }
+                }
+            }
+        }
+        return b;
+    }
+
+    fn band(b: Boundary, y: i64) usize {
+        const k = @divFloor(y - b.min, b.width);
+        return @intCast(std.math.clamp(k, 0, @as(i64, @intCast(b.starts.len - 2))));
+    }
+
+    /// The place of p on the boundary: the nearest edge within the
+    /// tolerance, or null.
+    fn locate(b: Boundary, p: Point) ?Spot {
+        const k = b.band(p.y);
+        var best: ?Spot = null;
+        var best_d: f64 = @floatFromInt(link_tolerance * link_tolerance);
+        for (b.edges[b.starts[k]..b.starts[k + 1]]) |e| {
+            const poly = b.region.get(e[0]);
+            const u = poly[e[1]];
+            const v = poly[(e[1] + 1) % poly.len];
+            const ux: f64 = @floatFromInt(v.x - u.x);
+            const uy: f64 = @floatFromInt(v.y - u.y);
+            const px: f64 = @floatFromInt(p.x - u.x);
+            const py: f64 = @floatFromInt(p.y - u.y);
+            const len2 = ux * ux + uy * uy;
+            const t = if (len2 > 0) std.math.clamp((px * ux + py * uy) / len2, 0, 1) else 0;
+            const dx = px - t * ux;
+            const dy = py - t * uy;
+            const d = dx * dx + dy * dy;
+            if (d <= best_d) {
+                best_d = d;
+                best = .{ .poly = e[0], .edge = e[1], .pos = p, .t = t };
+            }
+        }
+        return best;
+    }
+
+    /// The walk along the boundary from `from` to `to`, the shorter way
+    /// around: its points (both ends too) go in `out`, and the result is
+    /// its length. Null if the two places are on different polygons, or
+    /// the walk is longer than `limit`.
+    fn walk(b: Boundary, arena: Allocator, from: Spot, to: Spot, limit: f64, out: *std.ArrayList(Point)) Allocator.Error!?f64 {
+        if (from.poly != to.poly) return null;
+        const poly = b.region.get(from.poly);
+        const m = poly.len;
+        // The same edge, with `to` ahead of `from`: a straight link (the
+        // way back around the polygon is the long one).
+        const same = from.edge == to.edge;
+        // Forward: from.pos, the points after from.edge up to to.edge,
+        // to.pos.
+        var fwd: f64 = 0;
+        var fwd_ok = true;
+        if (same and to.t >= from.t) {
+            fwd = Point.dist(from.pos, to.pos);
+        } else {
+            var prev = from.pos;
+            var i = (from.edge + 1) % m;
+            var steps: usize = 0;
+            while (true) : (steps += 1) {
+                fwd += Point.dist(prev, poly[i]);
+                prev = poly[i];
+                if (fwd > limit or steps > m) {
+                    fwd_ok = false;
+                    break;
+                }
+                if (i == to.edge) break;
+                i = (i + 1) % m;
+            }
+            if (fwd_ok) fwd += Point.dist(prev, to.pos);
+        }
+        if (fwd > limit) fwd_ok = false;
+        // Backward: from.pos, the points from from.edge down to the point
+        // after to.edge, to.pos.
+        var bwd: f64 = 0;
+        var bwd_ok = true;
+        if (same and to.t <= from.t) {
+            bwd = Point.dist(from.pos, to.pos);
+        } else {
+            var prev = from.pos;
+            var i: usize = from.edge;
+            const stop = (to.edge + 1) % m;
+            var steps: usize = 0;
+            while (true) : (steps += 1) {
+                bwd += Point.dist(prev, poly[i]);
+                prev = poly[i];
+                if (bwd > limit or steps > m) {
+                    bwd_ok = false;
+                    break;
+                }
+                if (i == stop) break;
+                i = (i + m - 1) % m;
+            }
+            if (bwd_ok) bwd += Point.dist(prev, to.pos);
+        }
+        if (bwd > limit) bwd_ok = false;
+        if (!fwd_ok and !bwd_ok) return null;
+        const forward = fwd_ok and (!bwd_ok or fwd <= bwd);
+        try out.append(arena, from.pos);
+        if (forward and !(same and to.t >= from.t)) {
+            var i = (from.edge + 1) % m;
+            while (true) {
+                try out.append(arena, poly[i]);
+                if (i == to.edge) break;
+                i = (i + 1) % m;
+            }
+        } else if (!forward and !(same and to.t <= from.t)) {
+            var i: usize = from.edge;
+            const stop = (to.edge + 1) % m;
+            while (true) {
+                try out.append(arena, poly[i]);
+                if (i == stop) break;
+                i = (i + m - 1) % m;
+            }
+        }
+        try out.append(arena, to.pos);
+        return if (forward) fwd else bwd;
+    }
+};
 
 fn iabs(x: i64) i64 {
     return if (x < 0) -x else x;
@@ -488,6 +702,20 @@ test "connect: the lines of a square join into one zigzag" {
     var lj = try connect(gpa, l, lset, 1000, 90);
     defer lj.deinit(gpa);
     try testing.expect(lj.count() <= 3);
+    // Each link (a segment that is not along a scan line) follows the
+    // boundary: its middle is on an edge, so it never cuts the inside.
+    var idx: geom.EdgeIndex = try .init(gpa, l, link_tolerance);
+    defer idx.deinit(gpa);
+    var links: usize = 0;
+    for (0..lj.count()) |k| {
+        const path = lj.get(k);
+        for (path[0 .. path.len - 1], path[1..]) |u, v| {
+            if (u.x == v.x) continue; // along a scan line (angle 90)
+            links += 1;
+            try testing.expect(idx.near(.{ .x = @divTrunc(u.x + v.x, 2), .y = @divTrunc(u.y + v.y, 2) }, link_tolerance));
+        }
+    }
+    try testing.expect(links > 10);
 }
 
 test "honeycomb: the density is near the target" {
