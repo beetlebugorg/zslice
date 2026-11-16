@@ -14,6 +14,7 @@ const usage =
     \\  zslice preview <model.stl> --layer N [options] [-o out.svg]
     \\  zslice profiles
     \\  zslice profile <machine|filament|project> [options]
+    \\  zslice import cura <stack folder> -o <profiles folder>
     \\  zslice settings
     \\  zslice demo <out.stl>
     \\
@@ -23,6 +24,9 @@ const usage =
     \\  profiles  List the built-in profiles and where profile files go.
     \\  profile   Write the settings of one group as a profile file, with
     \\            the options applied. Start a new profile from this output.
+    \\  import    Convert a Cura profile stack (a folder with cura.json, as in
+    \\            the printdeck profiles) to zslice profiles. The output folder
+    \\            gets machine/, filament/, and project/ files.
     \\  settings  List all settings and their default values.
     \\  demo      Write the demo part as an STL file.
     \\
@@ -91,6 +95,12 @@ pub fn main(init: std.process.Init) !void {
         return;
     }
 
+    if (std.mem.eql(u8, cmd, "import")) {
+        if (args.len != 6 or !std.mem.eql(u8, args[2], "cura") or !std.mem.eql(u8, args[4], "-o")) fail(err, "{s}", .{usage});
+        try importCura(arena, io, err, args[3], args[5]);
+        return;
+    }
+
     if (std.mem.eql(u8, cmd, "demo")) {
         if (args.len != 3) fail(err, "{s}", .{usage});
         var m = try zslice.mesh.shapes.demo(gpa);
@@ -113,6 +123,8 @@ pub fn main(init: std.process.Init) !void {
 
     // The settings: the profiles, in order, then the -s changes.
     var settings: zslice.Settings = .{};
+    // {job_name} in the start G-code is the model file name.
+    if (opts.input) |in| settings.engine.job_name = std.fs.path.basename(in);
     var diag: profile.Diagnostic = .{};
     const loads = [_]struct { group: profile.Group, name: ?[]const u8 }{
         .{ .group = .machine, .name = opts.machine },
@@ -222,6 +234,30 @@ fn parseOptions(arena: std.mem.Allocator, err: *Io.Writer, args: []const [:0]con
         } else {
             try opts.sets.append(arena, v);
         }
+    }
+}
+
+fn importCura(arena: std.mem.Allocator, io: Io, err: *Io.Writer, stack: []const u8, out_dir: []const u8) !void {
+    const Src = struct {
+        io: Io,
+        dir: []const u8,
+        fn read(ctx: ?*anyopaque, a: std.mem.Allocator, path: []const u8) ?[]const u8 {
+            const self: *@This() = @ptrCast(@alignCast(ctx.?));
+            const full = std.fs.path.join(a, &.{ self.dir, path }) catch return null;
+            return Io.Dir.cwd().readFileAlloc(self.io, full, a, .limited(16 << 20)) catch null;
+        }
+    };
+    var src: Src = .{ .io = io, .dir = stack };
+    var diag: zslice.import_cura.Diagnostic = .{};
+    const outs = zslice.import_cura.importStack(arena, .{ .ctx = &src, .read = Src.read }, &diag) catch |e| {
+        fail(err, "{s}: {s} ({s})\n", .{ diag.file, diag.message, @errorName(e) });
+    };
+    for (outs) |o| {
+        const dir = try std.fs.path.join(arena, &.{ out_dir, o.group });
+        try Io.Dir.cwd().createDirPath(io, dir);
+        const path = try std.fmt.allocPrint(arena, "{s}/{s}.toml", .{ dir, o.name });
+        try Io.Dir.cwd().writeFile(io, .{ .sub_path = path, .data = o.text });
+        try err.print("wrote {s}\n", .{path});
     }
 }
 

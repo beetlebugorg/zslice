@@ -21,7 +21,7 @@ pub const all = [_]Meta{
     .{ .name = "machine.extruder", .section = "Extruder", .doc = "The extruder type. `direct`: the motor is on the print head. `bowden`: the motor pushes the filament through a long tube." },
     .{ .name = "machine.retract_length", .section = "Extruder", .doc = "The retraction length of this extruder. A bowden extruder needs more." },
     .{ .name = "machine.retract_speed", .section = "Extruder", .doc = "The speed of the filament during a retraction." },
-    .{ .name = "machine.start_gcode", .section = "G-code", .doc = "The text before the print. {nozzle_temp}, {first_layer_nozzle_temp}, and {bed_temp} are replaced with the filament values." },
+    .{ .name = "machine.start_gcode", .section = "G-code", .doc = "The text before the print. These variables are replaced: {nozzle_temp}, {first_layer_nozzle_temp}, {bed_temp}, {standby_temp}, {layer_height}, {first_layer_height}, {first_layer_speed} (mm/s), {nozzle_diameter}, {filament_diameter}, {filament_name}, {machine_name}, and {job_name}." },
     .{ .name = "machine.end_gcode", .section = "G-code", .doc = "The text after the print. The same values as in `start_gcode` are replaced." },
     .{ .name = "filament.name", .section = "Filament", .doc = "The name of the filament, for the G-code header." },
     .{ .name = "filament.diameter", .section = "Filament", .doc = "The diameter of the filament." },
@@ -37,6 +37,7 @@ pub const all = [_]Meta{
     .{ .name = "filament.fan_boost_time", .section = "Cooling", .doc = "A layer that takes less time than this (s) gets the fan at `fan_max_speed`." },
     .{ .name = "filament.min_layer_time", .section = "Cooling", .doc = "The shortest time (s) for one layer. A layer that takes less time prints slower, so that the plastic below has time to cool." },
     .{ .name = "filament.min_speed", .section = "Cooling", .doc = "The lowest print speed (mm/s) for the slow-down of `min_layer_time`." },
+    .{ .name = "filament.standby_temp", .section = "Cooling", .doc = "A lower nozzle temperature for waits, for example while the printer probes the bed. The start G-code can use it as {standby_temp}. 0 is off." },
     .{ .name = "filament.retract_ratio", .section = "Retraction", .doc = "A multiplier for the retraction length of the machine. Soft filament needs less." },
     .{ .name = "project.layer_height", .section = "Layers", .doc = "The height of each layer after the first. A smaller value gives a smoother surface and a longer print." },
     .{ .name = "project.first_layer_height", .section = "Layers", .doc = "The height of the first layer. A thicker first layer sticks to the bed better." },
@@ -78,4 +79,5 @@ pub const all = [_]Meta{
     .{ .name = "engine.resolution", .section = "Slicer", .doc = "The largest change to the shape (mm) that the slicer makes when it removes points from the mesh outlines." },
     .{ .name = "engine.gap_closing", .section = "Slicer", .doc = "The largest gap (mm) that the slicer closes in a mesh with holes." },
     .{ .name = "engine.threads", .section = "Slicer", .doc = "The number of threads. 0 uses one thread for each CPU." },
+    .{ .name = "engine.job_name", .section = "Slicer", .doc = "The name of the print, for {job_name} in the start and end G-code. The command line tool sets it to the model file name." },
 };

@@ -63,8 +63,11 @@ pub const Machine = struct {
     retract_speed: f64 = 40,
 
     // G-code
-    /// The text before the print. {nozzle_temp}, {first_layer_nozzle_temp},
-    /// and {bed_temp} are replaced with the filament values.
+    /// The text before the print. These variables are replaced:
+    /// {nozzle_temp}, {first_layer_nozzle_temp}, {bed_temp}, {standby_temp},
+    /// {layer_height}, {first_layer_height}, {first_layer_speed} (mm/s),
+    /// {nozzle_diameter}, {filament_diameter}, {filament_name},
+    /// {machine_name}, and {job_name}.
     start_gcode: []const u8 =
         \\G90 ; absolute positions
         \\M83 ; relative extrusion
@@ -126,6 +129,10 @@ pub const Filament = struct {
     min_layer_time: f64 = 6,
     /// The lowest print speed (mm/s) for the slow-down of `min_layer_time`.
     min_speed: f64 = 10,
+    /// A lower nozzle temperature for waits, for example while the printer
+    /// probes the bed. The start G-code can use it as {standby_temp}. 0 is
+    /// off.
+    standby_temp: f64 = 0,
 
     // Retraction
     /// A multiplier for the retraction length of the machine. Soft filament
@@ -266,6 +273,9 @@ pub const EngineOptions = struct {
     gap_closing: f64 = 1.0,
     /// The number of threads. 0 uses one thread for each CPU.
     threads: u32 = 0,
+    /// The name of the print, for {job_name} in the start and end G-code.
+    /// The command line tool sets it to the model file name.
+    job_name: []const u8 = "",
 };
 
 pub const Settings = struct {

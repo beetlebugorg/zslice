@@ -78,7 +78,7 @@ M190 S{bed_temp}
 M109 S{first_layer_nozzle_temp}
 ```
 
-The text before the print. {nozzle_temp}, {first_layer_nozzle_temp}, and {bed_temp} are replaced with the filament values.
+The text before the print. These variables are replaced: {nozzle_temp}, {first_layer_nozzle_temp}, {bed_temp}, {standby_temp}, {layer_height}, {first_layer_height}, {first_layer_speed} (mm/s), {nozzle_diameter}, {filament_diameter}, {filament_name}, {machine_name}, and {job_name}.
 
 **`machine.end_gcode`** (text). Default: (multi-line text)
 
@@ -161,6 +161,10 @@ The shortest time (s) for one layer. A layer that takes less time prints slower,
 **`filament.min_speed`** (number). Default: `10`
 
 The lowest print speed (mm/s) for the slow-down of `min_layer_time`.
+
+**`filament.standby_temp`** (number). Default: `0`
+
+A lower nozzle temperature for waits, for example while the printer probes the bed. The start G-code can use it as {standby_temp}. 0 is off.
 
 ### Retraction
 
@@ -359,4 +363,8 @@ The largest gap (mm) that the slicer closes in a mesh with holes.
 **`engine.threads`** (integer). Default: `0`
 
 The number of threads. 0 uses one thread for each CPU.
+
+**`engine.job_name`** (text). Default: `""`
+
+The name of the print, for {job_name} in the start and end G-code. The command line tool sets it to the model file name.
 

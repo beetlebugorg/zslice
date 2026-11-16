@@ -72,7 +72,9 @@ The goal is the features that people use in PrusaSlicer and Cura. zslice designs
 ### Profiles and workflow
 - [x] Machine, filament, and project profiles in TOML, with `extends` and overrides (command line)
 - [ ] Profiles in the app: pick, edit, and save profiles, through the C API with a resolver callback
-- [ ] Import of Cura and PrusaSlicer profiles
+- [x] Import of Cura profile stacks (the printdeck layout with cura.json)
+- [ ] Import of PrusaSlicer and OrcaSlicer profiles, and of a Cura profile export (.curaprofile)
+- [ ] Shrinkage compensation and XY offsets for holes and outlines (the printdeck rolls have calibrated values)
 - [ ] A printer profile library
 - [ ] Send to printer: printdeck, OctoPrint, Moonraker
 - [ ] Calibration prints: temperature tower, flow, retraction, pressure advance

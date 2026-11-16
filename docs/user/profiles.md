@@ -22,7 +22,7 @@ zslice applies the settings in this order. Each step replaces the values of the 
 4. The project profile (`-p`).
 5. Each `-s group.name=value` on the command line.
 
-`zslice profiles` lists the built-in profiles.
+`zslice profiles` lists the built-in profiles. To convert Cura profiles, see [Import from Cura](#import-from-cura).
 
 ## Write a profile
 
@@ -92,6 +92,33 @@ For a name (not a path), zslice looks in this order:
 4. The built-in profiles.
 
 A value with a `/` or a `.toml` ending is a path: `-f ./acme-pla.toml`. A relative path in `extends` is relative to the file that names it.
+
+## Import from Cura
+
+`zslice import cura` converts a Cura profile stack to zslice profiles:
+
+```sh
+zslice import cura printdeck/profiles/taz-workhorse-se -o profiles
+```
+
+The stack folder has the layout of the printdeck profiles: a `cura.json` that names the machine definition, the machine changes, the quality profiles, and the materials (see `printdeck/profiles/README.md`). The output folder gets:
+
+- `machine/<definition>.toml`: the printer, from the definition chain and the machine changes.
+- `filament/<material>.toml`: one for each material.
+- `project/<profile>.toml`: one for each quality profile.
+
+What the import does:
+
+| Cura | zslice |
+|---|---|
+| A percentage (infill, fan) | A ratio |
+| A speed in mm/s | A ratio of `machine.max_speed`. The import sets `max_speed` to the highest print speed of the quality profiles, so the speeds stay the same. A comment keeps the mm/s value. |
+| A per-profile travel speed, retraction, or cooling value | A `[machine]` or `[filament]` table in the project profile |
+| G-code variables, for example `{material_bed_temperature_layer_0}` | The zslice variables, for example `{bed_temp}` (see `machine.start_gcode` in the [settings reference](settings.md)) |
+| A value that is an expression (it starts with `=`) | Not imported |
+| The settings of a material for other printers (`<machine>` blocks) | Not imported |
+
+Each Cura setting that has no zslice setting yet is in a comment at the end of the profile. Read these comments: they show what the import did not keep.
 
 ## Errors
 

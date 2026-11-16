@@ -71,6 +71,7 @@ pub const Emitter = struct {
         try self.w.print(";LAYER_COUNT:{d}\n", .{layer_count});
         try self.writeTemplate(s.machine.start_gcode);
         try self.w.writeAll("\nM83 ; relative extrusion\nM107\n");
+        self.fan = 0;
     }
 
     pub fn end(self: *Emitter) Writer.Error!void {
@@ -276,8 +277,10 @@ pub const Emitter = struct {
 
     /// Writes `text` and replaces {nozzle_temp}, {first_layer_nozzle_temp},
     /// and {bed_temp}.
+    /// Writes `text` and replaces the variables that `Machine.start_gcode`
+    /// lists. An unknown {name} stays as it is.
     fn writeTemplate(self: *Emitter, text: []const u8) Writer.Error!void {
-        const f = self.r.settings.filament;
+        const s = self.r.settings;
         var rest = text;
         while (std.mem.indexOfScalar(u8, rest, '{')) |open| {
             try self.w.writeAll(rest[0..open]);
@@ -286,16 +289,44 @@ pub const Emitter = struct {
                 break;
             };
             const key = rest[open + 1 .. close];
-            const value: ?f64 = if (std.mem.eql(u8, key, "nozzle_temp"))
-                f.nozzle_temp
-            else if (std.mem.eql(u8, key, "first_layer_nozzle_temp"))
-                f.first_layer_nozzle_temp
-            else if (std.mem.eql(u8, key, "bed_temp"))
-                f.bed_temp
-            else
-                null;
-            if (value) |v| try writeNum(self.w, v, 0) else try self.w.writeAll(rest[open .. close + 1]);
             rest = rest[close + 1 ..];
+            const Num = struct { name: []const u8, value: f64, decimals: u8 };
+            const first_speed = self.r.speed(.inner_wall, self.r.first_layer_line_width, s.project.first_layer_height, true);
+            const nums = [_]Num{
+                .{ .name = "nozzle_temp", .value = s.filament.nozzle_temp, .decimals = 0 },
+                .{ .name = "first_layer_nozzle_temp", .value = s.filament.first_layer_nozzle_temp, .decimals = 0 },
+                .{ .name = "bed_temp", .value = s.filament.bed_temp, .decimals = 0 },
+                .{ .name = "standby_temp", .value = s.filament.standby_temp, .decimals = 0 },
+                .{ .name = "layer_height", .value = s.project.layer_height, .decimals = 3 },
+                .{ .name = "first_layer_height", .value = s.project.first_layer_height, .decimals = 3 },
+                .{ .name = "first_layer_speed", .value = first_speed, .decimals = 0 },
+                .{ .name = "nozzle_diameter", .value = s.machine.nozzle_diameter, .decimals = 3 },
+                .{ .name = "filament_diameter", .value = s.filament.diameter, .decimals = 3 },
+            };
+            const texts = [_][2][]const u8{
+                .{ "filament_name", s.filament.name },
+                .{ "machine_name", s.machine.name },
+                .{ "job_name", s.engine.job_name },
+            };
+            const done = blk: {
+                for (nums) |n| if (std.mem.eql(u8, key, n.name)) {
+                    switch (n.decimals) {
+                        0 => try writeNum(self.w, n.value, 0),
+                        else => try writeNum(self.w, n.value, 3),
+                    }
+                    break :blk true;
+                };
+                for (texts) |t| if (std.mem.eql(u8, key, t[0])) {
+                    try self.w.writeAll(t[1]);
+                    break :blk true;
+                };
+                break :blk false;
+            };
+            if (!done) {
+                try self.w.writeByte('{');
+                try self.w.writeAll(key);
+                try self.w.writeByte('}');
+            }
         }
         try self.w.writeAll(rest);
     }
