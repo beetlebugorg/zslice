@@ -380,33 +380,14 @@ const Grid = struct {
 };
 
 /// Sorts the entries by cell, and keeps the order of entries in the same
-/// cell. The method is a least significant digit radix sort: one stable
-/// counting sort for each 11 bits of the cell index, from the low bits to
-/// the high bits. It costs O(n) for each digit, and a cell index has at
-/// most 3 digits.
+/// cell (see `radixSort`).
 fn radixSortByCell(arena: Allocator, items: []CellEntry, cell_count: u32) !void {
-    if (items.len < 2) return;
-    const bits = 11;
-    const radix = 1 << bits;
-    var src = items;
-    var dst = try arena.alloc(CellEntry, items.len);
-    var shift: u5 = 0;
-    var passes: usize = 0;
-    while (true) {
-        var count: [radix + 1]u32 = @splat(0);
-        for (src) |e| count[((e.cell >> shift) & (radix - 1)) + 1] += 1;
-        for (1..radix + 1) |k| count[k] += count[k - 1];
-        for (src) |e| {
-            const d = (e.cell >> shift) & (radix - 1);
-            dst[count[d]] = e;
-            count[d] += 1;
+    const bits: u7 = @intCast(32 - @clz(@max(cell_count, 2) - 1));
+    return radixSort(CellEntry, u32, arena, items, bits, struct {
+        fn key(e: CellEntry) u32 {
+            return e.cell;
         }
-        std.mem.swap([]CellEntry, &src, &dst);
-        passes += 1;
-        if (shift + bits >= 32 or (cell_count - 1) >> (shift + bits) == 0) break;
-        shift += bits;
-    }
-    if (src.ptr != items.ptr) @memcpy(items, src);
+    }.key);
 }
 
 /// Adds the cells that the segment from a to b passes through (the
@@ -940,26 +921,64 @@ const KeySpace = struct {
 const KeyIdx = struct { k: u64, i: u32 };
 
 /// Sorts by key with a least significant digit radix sort (see
-/// `radixSortByCell`), and keeps the order of equal keys.
+/// `radixSort`), and keeps the order of equal keys.
 fn radixSortKeys(arena: Allocator, items: []KeyIdx, bits: u7) Allocator.Error!void {
+    return radixSort(KeyIdx, u64, arena, items, bits, struct {
+        fn key(e: KeyIdx) u64 {
+            return e.k;
+        }
+    }.key);
+}
+
+/// A stable sort of `items` by an unsigned key of `bits` bits. The method
+/// is a least significant digit radix sort: one stable counting sort for
+/// each digit of the key, from the low digits to the high digits. Each
+/// pass costs O(n + r) for r values of a digit, so a short list gets
+/// 8-bit digits, a long list 11-bit digits, and a very short list an
+/// insertion sort. A pass where all keys have the same digit is skipped.
+/// Each of these is stable, so the order is the same in each case.
+fn radixSort(comptime T: type, comptime K: type, arena: Allocator, items: []T, bits: u7, comptime keyOf: fn (T) K) Allocator.Error!void {
     if (items.len < 2 or bits == 0) return;
-    const digit = 11;
+    if (items.len <= 24) {
+        // Insertion sort: stable, and fast for a few items.
+        for (1..items.len) |i| {
+            const v = items[i];
+            const kv = keyOf(v);
+            var j = i;
+            while (j > 0 and keyOf(items[j - 1]) > kv) : (j -= 1) items[j] = items[j - 1];
+            items[j] = v;
+        }
+        return;
+    }
+    if (items.len < 4096) {
+        try radixPasses(T, K, 8, arena, items, bits, keyOf);
+    } else {
+        try radixPasses(T, K, 11, arena, items, bits, keyOf);
+    }
+}
+
+fn radixPasses(comptime T: type, comptime K: type, comptime digit: u7, arena: Allocator, items: []T, bits: u7, comptime keyOf: fn (T) K) Allocator.Error!void {
     const radix = 1 << digit;
+    const S = std.math.Log2Int(K);
     var src = items;
-    var dst = try arena.alloc(KeyIdx, items.len);
+    var dst = try arena.alloc(T, items.len);
     var shift: u7 = 0;
     while (shift < bits) : (shift += digit) {
-        const sh: u6 = @intCast(shift);
+        const sh: S = @intCast(shift);
         var count: [radix + 1]u32 = @splat(0);
-        for (src) |e| count[@as(usize, @intCast((e.k >> sh) & (radix - 1))) + 1] += 1;
-        for (1..radix + 1) |k| count[k] += count[k - 1];
-        for (src) |e| {
-            const d: usize = @intCast((e.k >> sh) & (radix - 1));
-            dst[count[d]] = e;
-            count[d] += 1;
+        for (src) |e| count[@as(usize, @intCast((keyOf(e) >> sh) & (radix - 1))) + 1] += 1;
+        // All keys have the same digit: the pass changes nothing.
+        const same = count[@as(usize, @intCast((keyOf(src[0]) >> sh) & (radix - 1))) + 1] == src.len;
+        if (!same) {
+            for (1..radix + 1) |k| count[k] += count[k - 1];
+            for (src) |e| {
+                const d: usize = @intCast((keyOf(e) >> sh) & (radix - 1));
+                dst[count[d]] = e;
+                count[d] += 1;
+            }
+            std.mem.swap([]T, &src, &dst);
         }
-        std.mem.swap([]KeyIdx, &src, &dst);
-        if (shift + digit >= 64) break;
+        if (shift + digit >= @bitSizeOf(K)) break;
     }
     if (src.ptr != items.ptr) @memcpy(items, src);
 }
@@ -1368,6 +1387,36 @@ test "the 64-bit and the 128-bit products give the same splits" {
         for (a.items, b.items) |x, y| {
             try std.testing.expectEqual(x.edge, y.edge);
             try std.testing.expect(x.p.eql(y.p));
+        }
+    }
+}
+
+test "radixSort gives the order of a stable sort" {
+    var arena_state = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer arena_state.deinit();
+    const arena = arena_state.allocator();
+    var prng = std.Random.DefaultPrng.init(5);
+    const rnd = prng.random();
+    // Sizes for the insertion sort and for both digit sizes, with few and
+    // with many key bits.
+    for ([_]usize{ 2, 20, 300, 5000 }) |n| {
+        for ([_]u7{ 3, 20, 64 }) |bits| {
+            const a = try arena.alloc(KeyIdx, n);
+            for (a, 0..) |*e, i| {
+                const k = rnd.int(u64);
+                e.* = .{ .k = if (bits == 64) k else k & ((@as(u64, 1) << @intCast(bits)) - 1), .i = @intCast(i) };
+            }
+            const b = try arena.dupe(KeyIdx, a);
+            try radixSortKeys(arena, a, bits);
+            std.sort.block(KeyIdx, b, {}, struct {
+                fn lt(_: void, x: KeyIdx, y: KeyIdx) bool {
+                    return x.k < y.k;
+                }
+            }.lt);
+            for (a, b) |x, y| {
+                try std.testing.expectEqual(y.k, x.k);
+                try std.testing.expectEqual(y.i, x.i);
+            }
         }
     }
 }
