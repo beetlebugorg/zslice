@@ -445,6 +445,74 @@ export fn zs_app_override_set(a: ?*App, z_min: f64, z_max: f64, name: ?[*:0]cons
     return ok;
 }
 
+/// The number of overrides, and override i: its range, setting, and value.
+/// The strings are valid until the next change of the overrides.
+export fn zs_app_override_count(a: ?*const App) usize {
+    const app = a orelse return 0;
+    return app.overrides.items.len;
+}
+
+pub const Override = extern struct {
+    z_min: f64,
+    z_max: f64,
+    name: [*]const u8,
+    name_len: usize,
+    value: [*]const u8,
+    value_len: usize,
+};
+
+export fn zs_app_override_get(a: ?*const App, i: usize, out: ?*Override) c_int {
+    const app = a orelse return @intFromEnum(Status.invalid_argument);
+    const o = out orelse return @intFromEnum(Status.invalid_argument);
+    if (i >= app.overrides.items.len) return @intFromEnum(Status.invalid_argument);
+    const v = app.overrides.items[i];
+    o.* = .{ .z_min = v.z_min, .z_max = v.z_max, .name = v.name.ptr, .name_len = v.name.len, .value = v.value.ptr, .value_len = v.value.len };
+    return ok;
+}
+
+/// Removes the override of a setting for exactly the range z_min..z_max.
+/// Returns 1 if there was one.
+export fn zs_app_override_remove(a: ?*App, z_min: f64, z_max: f64, name: ?[*:0]const u8) c_int {
+    const app = a orelse return 0;
+    return @intFromBool(app.removeOverride(z_min, z_max, std.mem.span(name orelse return 0)));
+}
+
+/// Layer profiles: a name for a layer range. The overrides with the same
+/// range are its changes.
+export fn zs_app_profile_set(a: ?*App, z_min: f64, z_max: f64, name: ?[*:0]const u8) c_int {
+    const app = a orelse return @intFromEnum(Status.invalid_argument);
+    app.setProfile(z_min, z_max, std.mem.span(name orelse return @intFromEnum(Status.invalid_argument))) catch |e| return status(e);
+    return ok;
+}
+
+export fn zs_app_profile_count(a: ?*const App) usize {
+    const app = a orelse return 0;
+    return app.profiles.items.len;
+}
+
+pub const Profile = extern struct {
+    z_min: f64,
+    z_max: f64,
+    name: [*]const u8,
+    name_len: usize,
+};
+
+export fn zs_app_profile_get(a: ?*const App, i: usize, out: ?*Profile) c_int {
+    const app = a orelse return @intFromEnum(Status.invalid_argument);
+    const o = out orelse return @intFromEnum(Status.invalid_argument);
+    if (i >= app.profiles.items.len) return @intFromEnum(Status.invalid_argument);
+    const p = app.profiles.items[i];
+    o.* = .{ .z_min = p.z_min, .z_max = p.z_max, .name = p.name.ptr, .name_len = p.name.len };
+    return ok;
+}
+
+/// Removes a layer range: its name and all its overrides. Returns the
+/// number of overrides removed.
+export fn zs_app_profile_remove(a: ?*App, z_min: f64, z_max: f64) usize {
+    const app = a orelse return 0;
+    return app.removeProfile(z_min, z_max);
+}
+
 /// Removes the overrides of a setting that cover z. Returns how many.
 export fn zs_app_override_clear_at(a: ?*App, z: f64, name: ?[*:0]const u8) usize {
     const app = a orelse return 0;

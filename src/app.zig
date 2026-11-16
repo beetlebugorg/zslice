@@ -150,6 +150,10 @@ pub const App = struct {
     overrides: std.ArrayList(zs.settings.Override) = .empty,
     /// A copy of `overrides` for the running slice.
     slice_overrides: []zs.settings.Override = &.{},
+    /// The names of layer ranges (layer profiles): the overrides with the
+    /// same range are the changes of the profile. A profile can have no
+    /// changes yet. The names are in `strings`.
+    profiles: std.ArrayList(Profile) = .empty,
     /// The support marks of the user (see support.Mark), and a copy for
     /// the running slice. A new model clears them.
     marks: std.ArrayList(zs.support.Mark) = .empty,
@@ -171,6 +175,7 @@ pub const App = struct {
         app.gpa.free(app.spare_gcode);
         app.spare_paths.deinit(app.gpa);
         app.overrides.deinit(app.gpa);
+        app.profiles.deinit(app.gpa);
         app.gpa.free(app.slice_overrides);
         app.gpa.free(app.file_bytes);
         app.marks.deinit(app.gpa);
@@ -213,6 +218,7 @@ pub const App = struct {
         app.clearResults();
         // The overrides were for the old parts.
         app.overrides.clearRetainingCapacity();
+        app.profiles.clearRetainingCapacity();
         app.marks.clearRetainingCapacity();
         app.plate.clear(app.gpa);
     }
@@ -249,6 +255,14 @@ pub const App = struct {
         try app.plateChanged();
         var lines = std.mem.tokenizeAny(u8, loaded.overrides, "\r\n");
         while (lines.next()) |line| {
+            // "profile <tab> z_min <tab> z_max <tab> name": a layer profile.
+            if (std.mem.startsWith(u8, line, "profile\t")) {
+                var f = std.mem.splitScalar(u8, line["profile\t".len..], '\t');
+                const lo = std.fmt.parseFloat(f64, f.next() orelse continue) catch continue;
+                const hi = std.fmt.parseFloat(f64, f.next() orelse continue) catch continue;
+                try app.setProfile(lo, hi, f.rest());
+                continue;
+            }
             var f = std.mem.splitScalar(u8, line, '\t');
             const lo = std.fmt.parseFloat(f64, f.next() orelse continue) catch continue;
             const hi = std.fmt.parseFloat(f64, f.next() orelse continue) catch continue;
@@ -265,6 +279,7 @@ pub const App = struct {
         if (app.plate.count() == 0) return error.NoModel;
         var text: std.Io.Writer.Allocating = .init(app.gpa);
         defer text.deinit();
+        for (app.profiles.items) |p| try text.writer.print("profile\t{d}\t{d}\t{s}\n", .{ p.z_min, p.z_max, p.name });
         for (app.overrides.items) |o| try text.writer.print("{d}\t{d}\t{s}\t{s}\n", .{ o.z_min, o.z_max, o.name, o.value });
         var out: std.Io.Writer.Allocating = .init(app.gpa);
         errdefer out.deinit();
@@ -297,11 +312,13 @@ pub const App = struct {
     pub const PlateSlot = struct {
         plate: zs.plate.Plate = .{},
         overrides: std.ArrayList(zs.settings.Override) = .empty,
+        profiles: std.ArrayList(Profile) = .empty,
         marks: std.ArrayList(zs.support.Mark) = .empty,
 
         fn deinit(s: *PlateSlot, gpa: Allocator) void {
             s.plate.deinit(gpa);
             s.overrides.deinit(gpa);
+            s.profiles.deinit(gpa);
             s.marks.deinit(gpa);
         }
     };
@@ -330,9 +347,11 @@ pub const App = struct {
         // The active plate to its slot, and plate i out of its slot.
         std.mem.swap(zs.plate.Plate, &app.plate, &app.plates.items[app.active].plate);
         std.mem.swap(std.ArrayList(zs.settings.Override), &app.overrides, &app.plates.items[app.active].overrides);
+        std.mem.swap(std.ArrayList(Profile), &app.profiles, &app.plates.items[app.active].profiles);
         std.mem.swap(std.ArrayList(zs.support.Mark), &app.marks, &app.plates.items[app.active].marks);
         std.mem.swap(zs.plate.Plate, &app.plate, &app.plates.items[i].plate);
         std.mem.swap(std.ArrayList(zs.settings.Override), &app.overrides, &app.plates.items[i].overrides);
+        std.mem.swap(std.ArrayList(Profile), &app.profiles, &app.plates.items[i].profiles);
         std.mem.swap(std.ArrayList(zs.support.Mark), &app.marks, &app.plates.items[i].marks);
         app.active = i;
         if (app.mesh) |*old| old.deinit(app.gpa);
@@ -455,6 +474,7 @@ pub const App = struct {
     pub fn clearPlate(app: *App) Allocator.Error!void {
         app.stopWorker();
         app.overrides.clearRetainingCapacity();
+        app.profiles.clearRetainingCapacity();
         app.plate.clear(app.gpa);
         try app.plateChanged();
     }
@@ -532,6 +552,53 @@ pub const App = struct {
             }
         }
         try app.overrides.append(app.gpa, .{ .z_min = z_min, .z_max = z_max, .name = n, .value = v });
+    }
+
+    pub const Profile = struct { z_min: f64, z_max: f64, name: []const u8 };
+
+    fn sameRange(a_min: f64, a_max: f64, b_min: f64, b_max: f64) bool {
+        return @abs(a_min - b_min) < 1e-6 and @abs(a_max - b_max) < 1e-6;
+    }
+
+    /// Names the layer range from z_min to z_max (a layer profile), or
+    /// gives it a new name.
+    pub fn setProfile(app: *App, z_min: f64, z_max: f64, name: []const u8) Allocator.Error!void {
+        const n = try app.strings.allocator().dupe(u8, name);
+        for (app.profiles.items) |*p| if (sameRange(p.z_min, p.z_max, z_min, z_max)) {
+            p.name = n;
+            return;
+        };
+        try app.profiles.append(app.gpa, .{ .z_min = z_min, .z_max = z_max, .name = n });
+    }
+
+    /// Removes a layer range: its name and all its changes. Returns the
+    /// number of changes removed.
+    pub fn removeProfile(app: *App, z_min: f64, z_max: f64) usize {
+        var i: usize = 0;
+        while (i < app.profiles.items.len) {
+            const p = app.profiles.items[i];
+            if (sameRange(p.z_min, p.z_max, z_min, z_max)) _ = app.profiles.orderedRemove(i) else i += 1;
+        }
+        var removed: usize = 0;
+        i = 0;
+        while (i < app.overrides.items.len) {
+            const o = app.overrides.items[i];
+            if (sameRange(o.z_min, o.z_max, z_min, z_max)) {
+                _ = app.overrides.orderedRemove(i);
+                removed += 1;
+            } else i += 1;
+        }
+        return removed;
+    }
+
+    /// Removes the change of one setting in one range. Returns true if
+    /// there was one.
+    pub fn removeOverride(app: *App, z_min: f64, z_max: f64, name: []const u8) bool {
+        for (app.overrides.items, 0..) |o, i| if (std.mem.eql(u8, o.name, name) and sameRange(o.z_min, o.z_max, z_min, z_max)) {
+            _ = app.overrides.orderedRemove(i);
+            return true;
+        };
+        return false;
     }
 
     /// The islands of the last slice (shapes that start in the air), or
@@ -1274,6 +1341,41 @@ test "app: plates keep their parts, and a switch slices the active plate" {
     try app.removePlate(0);
     try testing.expectEqual(@as(usize, 1), app.plateCount());
     try testing.expectEqual(@as(usize, 2), app.plate.count());
+}
+
+test "app: layer profiles name a range, keep their changes, and go in a 3MF file" {
+    const gpa = testing.allocator;
+    var mesh = try zs.mesh.shapes.demo(gpa);
+    var bytes: std.Io.Writer.Allocating = .init(gpa);
+    defer bytes.deinit();
+    try mesh.writeStl(&bytes.writer);
+    mesh.deinit(gpa);
+    const app = try App.create(gpa, null, null);
+    defer app.destroy();
+    try app.loadStl("demo.stl", bytes.written());
+    try app.setProfile(2, 1e6, "Top part");
+    try app.setOverride(2, 1e6, "project.infill_density", "0.5");
+    try app.setOverride(2, 1e6, "project.wall_count", "4");
+    try app.setOverride(0, 1, "project.infill_density", "0.1");
+    // A new name for the same range replaces the name.
+    try app.setProfile(2, 1e6, "Upper");
+    try testing.expectEqual(@as(usize, 1), app.profiles.items.len);
+    try testing.expectEqualStrings("Upper", app.profiles.items[0].name);
+    // A 3MF file keeps the profile and its changes.
+    const file = try gpa.dupe(u8, try app.write3mf());
+    defer gpa.free(file);
+    const other = try App.create(gpa, null, null);
+    defer other.destroy();
+    try other.loadStl("demo.3mf", file);
+    try testing.expectEqual(@as(usize, 1), other.profiles.items.len);
+    try testing.expectEqualStrings("Upper", other.profiles.items[0].name);
+    try testing.expectEqual(@as(usize, 3), other.overrides.items.len);
+    // One change of the profile goes; then the profile with the rest.
+    try testing.expect(app.removeOverride(2, 1e6, "project.wall_count"));
+    try testing.expect(!app.removeOverride(2, 1e6, "project.wall_count"));
+    try testing.expectEqual(@as(usize, 1), app.removeProfile(2, 1e6));
+    try testing.expectEqual(@as(usize, 0), app.profiles.items.len);
+    try testing.expectEqual(@as(usize, 1), app.overrides.items.len);
 }
 
 test "app: the G-code lines of a path, and the report for AI" {

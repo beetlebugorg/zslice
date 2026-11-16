@@ -310,6 +310,37 @@ int zs_app_inspect(zs_app *app, size_t path, zs_inspect *out);
  * override with the same range and setting is replaced. The next slice
  * uses it (zs_app_request_slice). A new model clears all overrides. */
 int zs_app_override_set(zs_app *app, double z_min, double z_max, const char *name, const char *value);
+/* The overrides: their number, and override i (its range, its setting,
+ * and its value; the strings are not NUL-terminated and stay valid until
+ * the next change of the overrides). */
+typedef struct {
+    double z_min, z_max;
+    const char *name;
+    size_t name_len;
+    const char *value;
+    size_t value_len;
+} zs_override;
+size_t zs_app_override_count(const zs_app *app);
+int zs_app_override_get(const zs_app *app, size_t i, zs_override *out);
+/* Removes the override of a setting for exactly the range z_min..z_max.
+ * Returns 1 if there was one. */
+int zs_app_override_remove(zs_app *app, double z_min, double z_max, const char *name);
+
+/* Layer profiles: a name for a layer range (z_min..z_max, as for the
+ * overrides). The overrides with the same range are the changes of the
+ * profile. A 3MF file keeps them. A new model clears them. */
+typedef struct {
+    double z_min, z_max;
+    const char *name;
+    size_t name_len;
+} zs_layer_profile;
+int zs_app_profile_set(zs_app *app, double z_min, double z_max, const char *name);
+size_t zs_app_profile_count(const zs_app *app);
+int zs_app_profile_get(const zs_app *app, size_t i, zs_layer_profile *out);
+/* Removes the profile of the range and all its overrides. Returns the
+ * number of overrides removed. */
+size_t zs_app_profile_remove(zs_app *app, double z_min, double z_max);
+
 /* Removes the overrides of a setting that cover z. Returns how many. */
 size_t zs_app_override_clear_at(zs_app *app, double z, const char *name);
 /* 1 if an override of the setting covers z. */
