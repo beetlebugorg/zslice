@@ -462,6 +462,7 @@ const char *zg_status_text(int status) {
     case ZS_INVALID_VALUE: return "The value has the wrong type";
     case ZS_INVALID_SETTINGS: return "The settings cannot make a print";
     case ZS_PART_TOO_LARGE: return "The part is higher than the printer";
+    case ZS_PART_TOO_THIN: return "The part is lower than half of the first layer, so no layer cuts it";
     case ZS_WRITE_FAILED: return "Write failed";
     case ZS_CANCELED: return "Canceled";
     case ZS_BUSY: return "A slice is running";

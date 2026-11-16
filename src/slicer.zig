@@ -56,13 +56,14 @@ pub fn layerTable(gpa: Allocator, part_height: f64, first_height: f64, height: f
     if (part_height <= 0 or first_height <= 0 or height <= 0) return layers.toOwnedSlice(gpa);
     // Add a layer while its cut plane is inside the part. The z values come
     // from a multiply, and not from a sum, so that rounding errors do not
-    // add up. The small margin makes a plane exactly at the top of the part
-    // count as outside.
+    // add up. The margin of 1 um makes a plane at the top of the part count
+    // as outside: an STL stores float32 values, so a top at 0.4 mm is
+    // 0.400000006 mm in the file.
     var i: usize = 0;
     while (true) : (i += 1) {
         const h = if (i == 0) first_height else height;
         const z = if (i == 0) first_height else first_height + @as(f64, @floatFromInt(i)) * height;
-        if (z - h / 2 >= part_height - 1e-9) break;
+        if (z - h / 2 >= part_height - 1e-3) break;
         try layers.append(gpa, .{ .z = z, .height = h });
     }
     return layers.toOwnedSlice(gpa);

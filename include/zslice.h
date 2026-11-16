@@ -47,7 +47,8 @@ enum zs_status {
     ZS_NO_RESULT = 13,
     ZS_OUT_OF_RANGE = 14,
     ZS_NOT_SUPPORTED = 15, /* for example, no Vulkan for a 3D view */
-    ZS_GPU_FAILED = 16
+    ZS_GPU_FAILED = 16,
+    ZS_PART_TOO_THIN = 17 /* lower than half of the first layer */
 };
 
 typedef struct zs_mesh zs_mesh;

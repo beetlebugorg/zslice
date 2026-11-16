@@ -35,6 +35,7 @@ pub const Status = enum(c_int) {
     out_of_range = 14,
     not_supported = 15,
     gpu_failed = 16,
+    part_too_thin = 17,
 };
 
 fn status(e: anyerror) c_int {
@@ -46,6 +47,7 @@ fn status(e: anyerror) c_int {
         error.InvalidValue => .invalid_value,
         error.InvalidSettings => .invalid_settings,
         error.PartTooLarge => .part_too_large,
+        error.PartTooThin => .part_too_thin,
         error.WriteFailed => .write_failed,
         error.Canceled => .canceled,
         error.Busy => .busy,

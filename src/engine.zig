@@ -88,6 +88,9 @@ pub const Error = error{
     InvalidSettings,
     EmptyMesh,
     PartTooLarge,
+    /// The part is lower than half of the first layer: no cut plane of a
+    /// layer is inside it.
+    PartTooThin,
     WriteFailed,
 } || Allocator.Error;
 
@@ -98,6 +101,112 @@ pub fn slice(gpa: Allocator, mesh: *const Mesh, settings: Settings, out: *Writer
     var job = try Job.init(gpa, mesh, settings);
     defer job.deinit();
     return job.writeGcode(out);
+}
+
+/// The layers and the outlines of a part (steps 3 and 4 of the engine),
+/// with the mesh cut from z_base up (in the units of the mesh).
+const Sliced = struct {
+    layers: []slicer.Layer,
+    outlines: []Paths,
+
+    fn deinit(self: *Sliced, gpa: Allocator) void {
+        for (self.outlines) |*o| o.deinit(gpa);
+        gpa.free(self.outlines);
+        gpa.free(self.layers);
+    }
+};
+
+fn slicePart(gpa: Allocator, mesh: *const Mesh, settings: Settings, height: f64, z_base: f64, b: mesh_mod.Bounds3, dx: f64, dy: f64, threads: usize, monitor: Monitor) Error!Sliced {
+        // Step 3.
+        const f = settings.filament;
+        const layers = try slicer.layerTable(gpa, height, settings.project.first_layer_height, settings.project.layer_height);
+        // The part center on the bed: the center of the XY shrinkage scale.
+        const center_x = (b.min[0] + b.max[0]) / 2 + dx;
+        const center_y = (b.min[1] + b.max[1]) / 2 + dy;
+        errdefer gpa.free(layers);
+        if (layers.len == 0) return error.PartTooThin;
+
+        const outlines = try gpa.alloc(Paths, layers.len);
+        for (outlines) |*o| o.* = .empty;
+        errdefer {
+            for (outlines) |*o| o.deinit(gpa);
+            gpa.free(outlines);
+        }
+
+        // Step 4.
+        var index = try slicer.FaceIndex.buildScaled(gpa, mesh, layers, z_base, f.shrinkage_z);
+        defer index.deinit(gpa);
+        var reporter: Reporter = .{ .monitor = monitor, .base = 0, .span = pass1_share, .total = layers.len };
+        const Pass1 = struct {
+            gpa: Allocator,
+            mesh: *const Mesh,
+            index: *const slicer.FaceIndex,
+            layers: []const slicer.Layer,
+            outlines: []Paths,
+            z_offset: f64,
+            dx: i64,
+            dy: i64,
+            tolerance: i64,
+            gap: i64,
+            reporter: *Reporter,
+            z_scale: f64,
+            xy_scale: f64,
+            center_x: f64,
+            center_y: f64,
+            xy_offset: i64,
+            hole_offset: i64,
+            first_offset: i64,
+
+            fn run(c: *const @This(), i: usize) anyerror!void {
+                if (c.reporter.monitor.canceled()) return error.Canceled;
+                defer c.reporter.step(1);
+                var o = try slicer.sliceAt(c.gpa, c.mesh, c.index.get(i), c.layers[i].sliceZ() / c.z_scale + c.z_offset, c.tolerance, c.gap);
+                for (o.points.items) |*p| {
+                    p.x += c.dx;
+                    p.y += c.dy;
+                }
+                // Shrinkage: scale about the part center.
+                if (c.xy_scale != 1) {
+                    const cx = geom.fromMm(c.center_x);
+                    const cy = geom.fromMm(c.center_y);
+                    for (o.points.items) |*p| {
+                        p.x = cx + @as(i64, @intFromFloat(@round(@as(f64, @floatFromInt(p.x - cx)) * c.xy_scale)));
+                        p.y = cy + @as(i64, @intFromFloat(@round(@as(f64, @floatFromInt(p.y - cy)) * c.xy_scale)));
+                    }
+                }
+                // XY offsets.
+                const xy = c.xy_offset + (if (i == 0) c.first_offset else 0);
+                if (xy != 0 or c.hole_offset != 0) {
+                    const moved = try compensate(c.gpa, o, xy, c.hole_offset);
+                    o.deinit(c.gpa);
+                    o = moved;
+                }
+                c.outlines[i] = o;
+            }
+        };
+        const ctx: Pass1 = .{
+            .gpa = gpa,
+            .mesh = mesh,
+            .index = &index,
+            .layers = layers,
+            .outlines = outlines,
+            .z_offset = z_base,
+            .dx = geom.fromMm(dx),
+            .dy = geom.fromMm(dy),
+            .tolerance = geom.fromMm(settings.engine.resolution),
+            .gap = geom.fromMm(settings.engine.gap_closing),
+            .reporter = &reporter,
+            .z_scale = f.shrinkage_z,
+            .xy_scale = f.shrinkage_xy,
+            .center_x = center_x,
+            .center_y = center_y,
+            .xy_offset = geom.fromMm(f.xy_offset),
+            .hole_offset = geom.fromMm(f.hole_xy_offset),
+            .first_offset = geom.fromMm(settings.project.first_layer_xy_offset),
+        };
+        parallel.forEach(threads, layers.len, &ctx, Pass1.run) catch |e| return @as(Error, @errorCast(e));
+        if (monitor.canceled()) return error.Canceled;
+        return .{ .layers = layers, .outlines = outlines };
 }
 
 /// A slice job after pass 1: the resolved settings, the layer table, and
@@ -206,94 +315,33 @@ pub const Job = struct {
         const margin = pr.brim_width + skirt + fw / 2;
         const dx, const dy = placementOffset(pr.placement, b.min, b.max, m.bed_size_x, m.bed_size_y, margin);
 
-        // Step 3.
-        const layers = try slicer.layerTable(gpa, height, settings.project.first_layer_height, settings.project.layer_height);
-        // The part center on the bed: the center of the XY shrinkage scale.
-        const center_x = (b.min[0] + b.max[0]) / 2 + dx;
-        const center_y = (b.min[1] + b.max[1]) / 2 + dy;
-        errdefer gpa.free(layers);
-        if (layers.len == 0) return error.EmptyMesh;
-
-        const outlines = try gpa.alloc(Paths, layers.len);
-        for (outlines) |*o| o.* = .empty;
+        // Steps 3 and 4. If the first layers have no material (a tiny tip
+        // of the mesh at the bottom, thinner than the resolution), the
+        // print would start in the air: slice again from the first layer
+        // with material, as the part sits on the bed there.
+        var z_base = b.min[2];
+        var sliced = try slicePart(gpa, mesh, settings, height, z_base, b, dx, dy, threads, monitor);
+        var empty: usize = 0;
+        while (empty < sliced.outlines.len and sliced.outlines[empty].isEmpty()) empty += 1;
+        if (empty == sliced.outlines.len) {
+            sliced.deinit(gpa);
+            return error.EmptyMesh;
+        }
+        if (empty > 0) {
+            // The first cut plane with material becomes the cut plane of
+            // the first layer.
+            const lift = sliced.layers[empty].sliceZ() - settings.project.first_layer_height / 2;
+            sliced.deinit(gpa);
+            z_base = b.min[2] + lift / f.shrinkage_z;
+            sliced = try slicePart(gpa, mesh, settings, height - lift, z_base, b, dx, dy, threads, monitor);
+        }
+        const layers = sliced.layers;
+        const outlines = sliced.outlines;
         errdefer {
             for (outlines) |*o| o.deinit(gpa);
             gpa.free(outlines);
+            gpa.free(layers);
         }
-
-        // Step 4.
-        var index = try slicer.FaceIndex.buildScaled(gpa, mesh, layers, b.min[2], f.shrinkage_z);
-        defer index.deinit(gpa);
-        var reporter: Reporter = .{ .monitor = monitor, .base = 0, .span = pass1_share, .total = layers.len };
-        const Pass1 = struct {
-            gpa: Allocator,
-            mesh: *const Mesh,
-            index: *const slicer.FaceIndex,
-            layers: []const slicer.Layer,
-            outlines: []Paths,
-            z_offset: f64,
-            dx: i64,
-            dy: i64,
-            tolerance: i64,
-            gap: i64,
-            reporter: *Reporter,
-            z_scale: f64,
-            xy_scale: f64,
-            center_x: f64,
-            center_y: f64,
-            xy_offset: i64,
-            hole_offset: i64,
-            first_offset: i64,
-
-            fn run(c: *const @This(), i: usize) anyerror!void {
-                if (c.reporter.monitor.canceled()) return error.Canceled;
-                defer c.reporter.step(1);
-                var o = try slicer.sliceAt(c.gpa, c.mesh, c.index.get(i), c.layers[i].sliceZ() / c.z_scale + c.z_offset, c.tolerance, c.gap);
-                for (o.points.items) |*p| {
-                    p.x += c.dx;
-                    p.y += c.dy;
-                }
-                // Shrinkage: scale about the part center.
-                if (c.xy_scale != 1) {
-                    const cx = geom.fromMm(c.center_x);
-                    const cy = geom.fromMm(c.center_y);
-                    for (o.points.items) |*p| {
-                        p.x = cx + @as(i64, @intFromFloat(@round(@as(f64, @floatFromInt(p.x - cx)) * c.xy_scale)));
-                        p.y = cy + @as(i64, @intFromFloat(@round(@as(f64, @floatFromInt(p.y - cy)) * c.xy_scale)));
-                    }
-                }
-                // XY offsets.
-                const xy = c.xy_offset + (if (i == 0) c.first_offset else 0);
-                if (xy != 0 or c.hole_offset != 0) {
-                    const moved = try compensate(c.gpa, o, xy, c.hole_offset);
-                    o.deinit(c.gpa);
-                    o = moved;
-                }
-                c.outlines[i] = o;
-            }
-        };
-        const ctx: Pass1 = .{
-            .gpa = gpa,
-            .mesh = mesh,
-            .index = &index,
-            .layers = layers,
-            .outlines = outlines,
-            .z_offset = b.min[2],
-            .dx = geom.fromMm(dx),
-            .dy = geom.fromMm(dy),
-            .tolerance = geom.fromMm(settings.engine.resolution),
-            .gap = geom.fromMm(settings.engine.gap_closing),
-            .reporter = &reporter,
-            .z_scale = f.shrinkage_z,
-            .xy_scale = f.shrinkage_xy,
-            .center_x = center_x,
-            .center_y = center_y,
-            .xy_offset = geom.fromMm(f.xy_offset),
-            .hole_offset = geom.fromMm(f.hole_xy_offset),
-            .first_offset = geom.fromMm(settings.project.first_layer_xy_offset),
-        };
-        parallel.forEach(threads, layers.len, &ctx, Pass1.run) catch |e| return @as(Error, @errorCast(e));
-        if (monitor.canceled()) return error.Canceled;
 
         // The support areas need the outlines of all layers.
         const sup = support_mod.compute(gpa, outlines, layers, &r, threads) catch |e| return @as(Error, @errorCast(e));
