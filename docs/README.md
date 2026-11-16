@@ -24,6 +24,7 @@
 - [How a slicer works](internals/how-slicing-works.md): the stages from mesh to G-code.
 - [Architecture](internals/architecture.md): the modules, the data types, the memory model, and the threads.
 - [Contributing](internals/contributing.md): the rules, the tests, and step-by-step guides to add a setting, a feature, or an infill pattern.
+- [Code quality](internals/code-quality.md): the plan to make the code clearer, ranked by value.
 
 ## Documentation
 

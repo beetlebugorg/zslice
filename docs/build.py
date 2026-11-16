@@ -51,6 +51,7 @@ SOURCES = [
     ("docs/internals/how-slicing-works.md", "internals/how-slicing-works/", "Internals", "How slicing works"),
     ("docs/internals/cura-compare.md", "internals/cura-compare/", "Internals", "Cura comparison"),
     ("docs/internals/contributing.md", "internals/contributing/", "Internals", "Contributing"),
+    ("docs/internals/code-quality.md", "internals/code-quality/", "Internals", "Code quality"),
     ("docs/app/README.md", "app/", "Project", "App"),
     ("REFERENCES.md", "references/", "Project", "References"),
     ("ROADMAP.md", "roadmap/", "Project", "Roadmap"),
