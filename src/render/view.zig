@@ -269,9 +269,18 @@ pub const View = struct {
         try v.renderer.setInstances(boxes.items, v.marks.items);
 
         if (app.partBounds()) |b| {
-            v.home = .{ @floatCast((b[0] + b[2]) / 2), @floatCast((b[1] + b[3]) / 2), zmax / 2 };
+            // The camera turns around the center of the bed (as in other
+            // slicers), at half the height of the part. The distance shows
+            // all of the part, also when it is not at the center.
+            const bx: f32 = @floatCast(s.machine.bed_size_x / 2);
+            const by: f32 = @floatCast(s.machine.bed_size_y / 2);
+            v.home = .{ bx, by, zmax / 2 };
             if (first_load) v.target = v.home;
-            v.extent = @max(@max(@as(f32, @floatCast(b[2] - b[0])), @as(f32, @floatCast(b[3] - b[1]))), zmax);
+            var reach: f32 = 0;
+            for ([_]f64{ b[0], b[2] }) |x| for ([_]f64{ b[1], b[3] }) |y| {
+                reach = @max(reach, std.math.hypot(@as(f32, @floatCast(x)) - bx, @as(f32, @floatCast(y)) - by));
+            };
+            v.extent = @max(2 * reach, zmax);
         }
         if (first_load) {
             v.reset();

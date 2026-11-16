@@ -103,7 +103,8 @@ static void load_layer(Preview *p, size_t layer) {
             layer_s = t1 - t0;
             slowed = tp.layer_slowed[layer] != 0;
         }
-        char *text = g_strdup_printf("%zu/%zu\n%.2f\n%s%.0f s", layer + 1, p->layer_count, p->paths.z, slowed ? "❄" : "", layer_s);
+        /* Only the layer number on the slider; the rest is in its tooltip. */
+        char *text = g_strdup_printf("%s%zu", slowed ? "❄" : "", layer + 1);
         char *tip = g_strdup_printf("Layer %zu of %zu, at z %.2f mm. It prints in %.1f s%s. Drag, or use the arrow keys for one layer.",
                                     layer + 1, p->layer_count, p->paths.z, layer_s,
                                     slowed ? ", slower than planned, so that it cools (filament minimum layer time)" : "");
@@ -289,7 +290,7 @@ static void stop_replay(Preview *p) {
 static void show_time(Preview *p, size_t layer) {
     double total = zg_view3d_duration(p->view3d);
     int t = (int)p->time, d = (int)total;
-    char *text = g_strdup_printf("%zu/%zu\n%d:%02d:%02d", layer + 1, p->layer_count, t / 3600, t / 60 % 60, t % 60);
+    char *text = g_strdup_printf("%zu", layer + 1);
     char *tip = g_strdup_printf("Replay: %d:%02d:%02d of %d:%02d:%02d", t / 3600, t / 60 % 60, t % 60, d / 3600, d / 60 % 60, d % 60);
     gtk_widget_set_tooltip_text(p->slider_box, tip);
     g_free(tip);
@@ -583,13 +584,14 @@ GtkWidget *zg_preview_new(ZgModel *model) {
     p->slider_box = gtk_box_new(GTK_ORIENTATION_VERTICAL, 2);
     gtk_widget_add_css_class(p->slider_box, "zg-float");
     gtk_widget_add_css_class(p->slider_box, "zg-layers");
-    gtk_box_append(GTK_BOX(p->slider_box), p->label);
+    /* The number under the bar: the knob is at the top for the top layer. */
     gtk_box_append(GTK_BOX(p->slider_box), p->slider);
+    gtk_box_append(GTK_BOX(p->slider_box), p->label);
+    /* A short, thin bar in the middle of the right edge. */
     gtk_widget_set_halign(p->slider_box, GTK_ALIGN_END);
-    gtk_widget_set_valign(p->slider_box, GTK_ALIGN_FILL);
-    gtk_widget_set_margin_end(p->slider_box, 10);
-    gtk_widget_set_margin_top(p->slider_box, 10);
-    gtk_widget_set_margin_bottom(p->slider_box, 10);
+    gtk_widget_set_valign(p->slider_box, GTK_ALIGN_CENTER);
+    gtk_widget_set_size_request(p->slider_box, -1, 340);
+    gtk_widget_set_margin_end(p->slider_box, 8);
 
     GtkWidget *box = gtk_overlay_new();
     gtk_overlay_set_child(GTK_OVERLAY(box), stack);
