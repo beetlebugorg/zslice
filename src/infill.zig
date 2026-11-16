@@ -239,6 +239,116 @@ pub fn connectWith(gpa: Allocator, region: Paths, set: Paths, spacing: i64, angl
     return out;
 }
 
+/// Joins open paths of any shape (gyroid curves, honeycomb rows) where
+/// they end on the boundary of the region: from the end of a path, the
+/// chain goes on to the nearest free end of another path (that path is
+/// turned if needed) by a walk along the boundary, if the walk is at most
+/// `max_walk` long. Then a path that is still alone and shorter than
+/// `min_len` goes: a lone short piece costs a travel for little infill.
+pub fn joinPaths(gpa: Allocator, region: Paths, set: Paths, max_walk: i64, min_len: i64) Allocator.Error!Paths {
+    var out: Paths = .empty;
+    errdefer out.deinit(gpa);
+    const n = set.count();
+    if (n == 0) return out;
+    var arena_state = std.heap.ArenaAllocator.init(gpa);
+    defer arena_state.deinit();
+    const arena = arena_state.allocator();
+    const bound: Boundary = try .init(arena, region);
+    const End = struct { at: ?Spot, p: Point };
+    const ends = try arena.alloc([2]End, n);
+    const used = try arena.alloc(bool, n);
+    @memset(used, false);
+    for (0..n) |i| {
+        const p = set.get(i);
+        ends[i] = .{ .{ .at = bound.locate(p[0]), .p = p[0] }, .{ .at = bound.locate(p[p.len - 1]), .p = p[p.len - 1] } };
+    }
+    const limit: f64 = @floatFromInt(max_walk);
+    // The ends in a grid of cells as wide as the walk limit: a walk of the
+    // limit ends at most one cell away, so a search looks at 9 cells.
+    const cell: i64 = @max(max_walk, 1);
+    const Key = struct { x: i64, y: i64 };
+    var grid: std.AutoHashMapUnmanaged(Key, std.ArrayList(u32)) = .empty;
+    for (ends, 0..) |pair, i| for (pair, 0..) |e, k| {
+        if (e.at == null) continue;
+        const key: Key = .{ .x = @divFloor(e.p.x, cell), .y = @divFloor(e.p.y, cell) };
+        const slot = try grid.getOrPut(arena, key);
+        if (!slot.found_existing) slot.value_ptr.* = .empty;
+        try slot.value_ptr.append(arena, @intCast(2 * i + k));
+    };
+    const Cand = struct { d: f64, code: u32 };
+    var cands: std.ArrayList(Cand) = .empty;
+    var chain: std.ArrayList(Point) = .empty;
+    var walk: std.ArrayList(Point) = .empty;
+    var best_walk: std.ArrayList(Point) = .empty;
+    for (0..n) |first| {
+        if (used[first]) continue;
+        used[first] = true;
+        chain.clearRetainingCapacity();
+        try chain.appendSlice(arena, set.get(first));
+        var pieces: usize = 1;
+        // Grow the chain at its end, then (turned) at its start.
+        for (0..2) |side| {
+            if (side == 1) std.mem.reverse(Point, chain.items);
+            var tail: End = .{ .at = bound.locate(chain.items[chain.items.len - 1]), .p = chain.items[chain.items.len - 1] };
+            while (tail.at) |from| {
+                var best: ?usize = null;
+                var best_rev = false;
+                var best_len: f64 = limit + 1;
+                const cx = @divFloor(tail.p.x, cell);
+                const cy = @divFloor(tail.p.y, cell);
+                // The candidates by straight distance: the walk is at least
+                // that long, so the search stops when no closer end can win.
+                cands.clearRetainingCapacity();
+                for (0..9) |c9| {
+                    const key: Key = .{ .x = cx + @as(i64, @intCast(c9 % 3)) - 1, .y = cy + @as(i64, @intCast(c9 / 3)) - 1 };
+                    const list = grid.get(key) orelse continue;
+                    for (list.items) |code| {
+                        if (used[code / 2]) continue;
+                        const d = Point.dist(tail.p, ends[code / 2][code % 2].p);
+                        if (d <= limit) try cands.append(arena, .{ .d = d, .code = code });
+                    }
+                }
+                std.mem.sort(Cand, cands.items, {}, struct {
+                    fn lt(_: void, l: Cand, r: Cand) bool {
+                        return l.d < r.d;
+                    }
+                }.lt);
+                for (cands.items) |cand| {
+                    if (cand.d >= best_len) break;
+                    const j: usize = cand.code / 2;
+                    const e: usize = cand.code % 2;
+                    const to = ends[j][e].at.?;
+                    walk.clearRetainingCapacity();
+                    const len = (try bound.walk(arena, from, to, @min(limit, best_len), &walk)) orelse continue;
+                    if (len < best_len) {
+                        best = j;
+                        best_rev = e == 1;
+                        best_len = len;
+                        best_walk.clearRetainingCapacity();
+                        try best_walk.appendSlice(arena, walk.items);
+                    }
+                }
+                const b = best orelse break;
+                used[b] = true;
+                pieces += 1;
+                if (best_walk.items.len > 2) try chain.appendSlice(arena, best_walk.items[1 .. best_walk.items.len - 1]);
+                const piece = set.get(b);
+                const start = chain.items.len;
+                try chain.appendSlice(arena, piece);
+                if (best_rev) std.mem.reverse(Point, chain.items[start..]);
+                tail = ends[b][if (best_rev) 0 else 1];
+            }
+        }
+        if (pieces == 1) {
+            var len: f64 = 0;
+            for (chain.items[0 .. chain.items.len - 1], chain.items[1..]) |u, v| len += Point.dist(u, v);
+            if (len < @as(f64, @floatFromInt(min_len))) continue;
+        }
+        try out.append(gpa, chain.items);
+    }
+    return out;
+}
+
 /// The paths of `set` without the lone short lines: a path of two points
 /// shorter than `min_len`.
 pub fn dropLone(gpa: Allocator, set: Paths, min_len: i64) Allocator.Error!Paths {

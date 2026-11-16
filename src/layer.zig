@@ -657,14 +657,22 @@ pub fn plan(gpa: Allocator, ctx: Context, i: usize) Allocator.Error!LayerPlan {
             },
             .gyroid => {
                 const period = infill.gyroid_k * width_mm / p.infill_density;
-                sparse_lines = try infill.gyroid(s, region, period, layer.z, w);
+                const set = try infill.gyroid(s, region, period, layer.z, w);
+                // The curves end at the walls: join them along the walls
+                // (half a period at most), and drop the lone short pieces.
+                const half = geom.fromMm(period / 2);
+                sparse_lines = if (p.infill_connect) try infill.joinPaths(s, region, set, half, half) else set;
             },
             .concentric => {
                 const spacing = geom.fromMm(width_mm / p.infill_density);
                 sparse_loops = try infill.concentric(s, region, spacing);
             },
             .honeycomb => {
-                sparse_lines = try infill.honeycomb(s, region, w, p.infill_density, p.infill_angle, w);
+                const set = try infill.honeycomb(s, region, w, p.infill_density, p.infill_angle, w);
+                // The rows end at the walls: join them along the walls (two
+                // row spacings at most), and drop the lone short pieces.
+                const row = geom.fromMm(width_mm / p.infill_density);
+                sparse_lines = if (p.infill_connect) try infill.joinPaths(s, region, set, 2 * row, row) else set;
             },
             .zigzag, .flow => {
                 const angle = p.infill_angle + @as(f64, if (i % 2 == 0) 0 else 90);
@@ -720,19 +728,27 @@ pub fn plan(gpa: Allocator, ctx: Context, i: usize) Allocator.Error!LayerPlan {
                 }
             },
         }
+        // The last step for the line patterns. With infill_connect, the
+        // ends of the chains (also of different line sets, as in grid)
+        // join along the walls. Then a lone short line goes: it adds
+        // little strength, and costs a travel and often a retraction (a
+        // line at a notch or a corner where the next line is out of
+        // reach). Short is less than one line spacing, 8 mm at most.
+        switch (p.infill_pattern) {
+            .lines, .grid, .triangles, .cubic, .zigzag, .flow => if (sparse_lines.count() > 0) {
+                const sp = geom.fromMm(width_mm / p.infill_density);
+                const lone_min = @min(sp, geom.fromMm(8));
+                // Cubic keeps its chains as they are: its three line sets
+                // move with the height, and a join across them gave more
+                // travels and retractions on the Benchy.
+                sparse_lines = if (p.infill_connect and p.infill_pattern != .cubic)
+                    try infill.joinPaths(s, region, sparse_lines, @divTrunc(5 * sp, 2), lone_min)
+                else
+                    try infill.dropLone(s, sparse_lines, lone_min);
+            },
+            else => {},
+        }
     }
-
-    // A lone short line (one segment, no join) of a line pattern adds
-    // little strength, and costs a travel and often a retraction: it is a
-    // line at a notch or a corner where the next line is out of reach.
-    // Lines shorter than one line spacing (8 mm at most) go.
-    if (sparse_lines.count() > 0 and p.infill_density > 0) switch (p.infill_pattern) {
-        .lines, .grid, .triangles, .cubic, .zigzag, .flow => {
-            const lone_min = @min(geom.fromMm(width_mm / p.infill_density), geom.fromMm(8));
-            sparse_lines = try infill.dropLone(s, sparse_lines, lone_min);
-        },
-        else => {},
-    };
 
     // The top support lines: dense, one direction on each layer, turned 90
     // degrees on the next, and joined at the walls.
