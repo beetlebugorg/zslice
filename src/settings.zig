@@ -24,7 +24,7 @@
 const std = @import("std");
 const flow = @import("flow.zig");
 
-pub const InfillPattern = enum { lines, grid, triangles, cubic, gyroid, concentric, honeycomb, zigzag, flow };
+pub const InfillPattern = enum { lines, grid, triangles, cubic, gyroid, concentric, honeycomb, zigzag, flow, lightning };
 pub const SeamMode = enum { hidden, sharpest, rear, nearest, random };
 /// How the top and bottom skin is filled. See `Project.skin_pattern`.
 pub const SkinPattern = enum { lines, monotonic, concentric };
@@ -294,7 +294,12 @@ pub const Project = struct {
     /// so the nozzle does not travel or retract between them. `flow`: the
     /// zigzag, with twice the density under each top surface (a band of 3
     /// times the top thickness, at least 2 mm), where the top skin needs
-    /// it, and the density of the setting in the middle.
+    /// it, and the density of the setting in the middle. `lightning`:
+    /// thin branches only under the top surfaces; they grow down from each
+    /// top, join into trees, and end at the walls, so most of the inside
+    /// stays empty. For display parts: it is fast and uses little plastic,
+    /// but it is weak. The density sets the distance between the branches
+    /// under a top.
     infill_pattern: InfillPattern = .grid,
     /// The angle of the infill and skin lines, in degrees from the X axis.
     infill_angle: f64 = 45,
@@ -303,6 +308,13 @@ pub const Project = struct {
     /// the nozzle prints a zigzag with no travel and no retraction, and the
     /// joints tie the infill to the walls. Off: each line on its own.
     infill_connect: bool = true,
+    /// The lightning infill: how far a branch leans from vertical, in
+    /// degrees. On each layer down, the end of a branch gets shorter by
+    /// the layer height times tan(angle), and a bent branch gets
+    /// straighter by at most the same distance. A larger angle gives
+    /// smaller trees and less plastic, but the lines hang out more over
+    /// the layer below.
+    lightning_angle: f64 = 40,
     /// Top support: the layers under each top skin that get denser
     /// infill lines (one direction on each layer, turned 90 degrees on the
     /// next), so that the skin lies on a flat grid and bridges less. 0:
@@ -872,6 +884,7 @@ pub const limits = [_]struct { []const u8, f64, f64 }{
     .{ "project.skin_overlap", 0, 1 },
     .{ "project.infill_density", 0, 1 },
     .{ "project.infill_angle", -360, 360 },
+    .{ "project.lightning_angle", 0, 80 },
     .{ "project.top_support_layers", 0, 20 },
     .{ "project.top_support_density", 0, 1 },
     .{ "project.infill_overlap", 0, 1 },

@@ -1257,6 +1257,18 @@ test "app: load, slice, preview, and export" {
     try testing.expectEqual(State.done, app.getState());
     try testing.expectEqual(@as(usize, 69), app.layerCount());
 
+    // Lightning infill: the inspector of an infill path says what the
+    // branch does.
+    try app.setSetting("project.infill_pattern", "lightning");
+    try app.requestSlice();
+    app.stopWorkerForTest();
+    try testing.expectEqual(State.done, app.getState());
+    const feats = app.allToolpaths().?.path_features.items;
+    const fill = std.mem.indexOfScalar(u8, feats, @intFromEnum(zs.settings.Feature.infill)).?;
+    const fill_info = try app.inspect(fill);
+    try testing.expect(std.mem.indexOf(u8, fill_info.explain, "Lightning infill") != null);
+    try testing.expect(std.mem.indexOf(u8, fill_info.settings, "project.lightning_angle") != null);
+
     // A new model clears the result.
     try app.loadStl("demo.stl", stl.written());
     try testing.expectEqual(@as(usize, 0), app.layerCount());

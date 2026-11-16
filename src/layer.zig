@@ -158,6 +158,9 @@ pub const Context = struct {
     /// `layer_resolved[k - 1]`. Empty: all layers use `resolved`.
     layer_set: []const u16 = &.{},
     layer_resolved: []const Resolved = &.{},
+    /// The lightning branches of each layer (see lightning.zig), or an
+    /// empty slice. The engine makes them for all layers before the plans.
+    lightning: []const Paths = &.{},
     /// When this becomes true, `plan` stops early and returns a plan that
     /// is not complete (the caller drops it). The memos get only complete
     /// results.
@@ -561,6 +564,20 @@ pub fn patternRegion(ctx: Context, i: usize, memo: *Memo, reg: Regions) Allocato
     return full_region;
 }
 
+/// The area of the lightning infill of layer i (see `patternRegion`), with
+/// the results in `memo`. Empty if the layer has another pattern, or no
+/// sparse infill. Null if `ctx.cancel` became true. The result belongs to
+/// the memo.
+pub fn lightningRegion(gpa: Allocator, ctx: Context, i: usize, memo: *Memo) Allocator.Error!?Paths {
+    const p = ctx.resolvedAt(i).settings.project;
+    if (p.infill_pattern != .lightning or !(p.infill_density > 0) or ctx.outlines[i].isEmpty()) return .empty;
+    var scratch_state = scratch.get(gpa);
+    defer scratch_state.release();
+    const reg = try regions(gpa, ctx, i, memo, scratch_state.allocator());
+    if (ctx.canceled()) return null;
+    if (reg.sparse.isEmpty()) return .empty;
+    return try patternRegion(ctx, i, memo, reg);
+}
 
 /// Plans layer `i`. `gpa` must be thread-safe if more than one thread plans
 /// layers at the same time. Call `deinit` on the result.
@@ -710,6 +727,16 @@ pub fn plan(gpa: Allocator, ctx: Context, i: usize) Allocator.Error!LayerPlan {
                 // row spacings at most), and drop the lone short pieces.
                 const row = geom.fromMm(width_mm / p.infill_density);
                 sparse_lines = if (p.infill_connect) try infill.joinPaths(s, region, set, 2 * row, row) else set;
+            },
+            .lightning => {
+                // The branches come from the engine (see lightning.zig). A
+                // branch ends at a wall: the ends join along the walls
+                // (1.5 line spacings at most, so the short branches next to
+                // a wall join into one path). Each piece stays, also a
+                // short one: it holds up a line of the layer above.
+                const set: Paths = if (i < ctx.lightning.len) ctx.lightning[i] else .empty;
+                const sp = geom.fromMm(width_mm / p.infill_density);
+                sparse_lines = if (p.infill_connect and set.count() > 0) try infill.joinPaths(s, region, set, @divTrunc(3 * sp, 2), 0) else set;
             },
             .zigzag, .flow => {
                 const angle = p.infill_angle + @as(f64, if (i % 2 == 0) 0 else 90);

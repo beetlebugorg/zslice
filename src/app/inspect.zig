@@ -81,6 +81,9 @@ pub fn inspect(arena: Allocator, t: *const Toolpaths, job: *const zs.Job, path: 
     try out.print("{s}, layer {d} of {d}, at z {d:.2} mm.\n\n", .{ name, layer + 1, t.layerCount(), t.layer_z.items[layer] });
     try out.print("The bead is {d:.3} mm wide and {d:.2} mm tall. The line width is {d:.3} mm. The cross section is {d:.4} mm\u{b2}.\n", .{ bead, h, w, area });
     try out.print("The path is {d:.1} mm long, and it uses {d:.2} mm\u{b3} of plastic.\n\n", .{ length, length * area });
+    if (feature == .infill and s.project.infill_pattern == .lightning) {
+        try out.print("Lightning infill: this branch holds up a top surface above it. The branches start {d:.1} mm apart under each top (the density), and on each layer down the end of a branch gets {d:.2} mm shorter (the lightning angle, {d:.0}\u{b0}), until the branch ends at a wall.\n\n", .{ w / s.project.infill_density, h * @tan(s.project.lightning_angle * std.math.pi / 180.0), s.project.lightning_angle });
+    }
     if (feature == .slope_smoothing) {
         try out.print("Slope smoothing: after the layer, this bead fills the steps of a sloped top surface, on the ledge of the layer below (top at z {d:.2} mm). Its plastic is the volume of the triangle of each step: the layer height \u{d7} the ledge width / 2, \u{d7} the smoothing flow ({d:.0} %). The nozzle tip goes from z {d:.3} to {d:.3} mm: half the step height, or higher where the nozzle cone needs room from this layer (tip radius {d} mm, cone angle {d}\u{b0}).\n\n", .{ z_low, s.project.slope_smoothing_flow * 100, z_range[0], z_range[1], s.machine.nozzle_tip_radius, s.machine.nozzle_cone_angle });
     }

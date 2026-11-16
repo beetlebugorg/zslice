@@ -18,7 +18,7 @@ pub const feature_settings = [_][]const []const u8{
     &.{ "project.wall_count", "project.seam", "project.thin_walls", "project.line_width", "project.layer_height", "filament.xy_offset", "filament.hole_xy_offset" },
     &.{ "project.wall_count", "project.line_width", "project.layer_height" },
     &.{ "project.top_thickness", "project.bottom_thickness", "project.skin_expand_distance", "project.skin_removal_width", "project.solid_infill_width", "project.skin_pattern", "project.skin_angle", "project.skin_angle_step", "project.skin_overlap", "project.line_width", "project.layer_height" },
-    &.{ "project.infill_density", "project.solid_infill_width", "project.skin_expand_distance", "project.infill_pattern", "project.infill_connect", "project.top_support_layers", "project.top_support_density", "project.infill_angle", "project.infill_overlap", "project.line_width", "project.layer_height" },
+    &.{ "project.infill_density", "project.solid_infill_width", "project.skin_expand_distance", "project.infill_pattern", "project.infill_connect", "project.lightning_angle", "project.top_support_layers", "project.top_support_density", "project.infill_angle", "project.infill_overlap", "project.line_width", "project.layer_height" },
     &.{ "project.ironing", "project.ironing_flow", "project.ironing_spacing", "project.ironing_inset", "project.skin_angle" },
     &.{ "project.skirt_loops", "project.skirt_distance", "project.skirt_layers", "project.brim_width", "project.line_width" },
     &.{ "project.support", "project.support_style", "project.support_angle", "project.support_density", "project.support_xy_gap", "project.support_z_gap_layers", "project.support_tree_angle", "project.support_tree_spacing", "project.support_tree_tip" },

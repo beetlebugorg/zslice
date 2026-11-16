@@ -31,6 +31,7 @@ const layer_mod = @import("layer.zig");
 const gcode = @import("gcode.zig");
 const parallel = @import("parallel.zig");
 const support_mod = @import("support.zig");
+const lightning_mod = @import("lightning.zig");
 const islands_mod = @import("islands.zig");
 const clip = @import("clip.zig");
 const offset_mod = @import("offset.zig");
@@ -256,6 +257,9 @@ pub const Job = struct {
     /// empty slices if no layer has skin.
     tops: []Paths = &.{},
     bottoms: []Paths = &.{},
+    /// The lightning branches of each layer (see lightning.zig), or an
+    /// empty slice if no layer has lightning infill.
+    lightning: []Paths = &.{},
     /// The memo of each layer (see layer.Memo): the results of the slow
     /// steps of a plan. A plan adds to it. `initReuse` takes the memos of
     /// an older job.
@@ -313,6 +317,7 @@ pub const Job = struct {
         // height must fit the line width of its layer.
         for (job.layers[1..], 1..) |l, i| if (l.height > job.resolvedAt(i).line_width + 1e-9) return error.InvalidSettings;
         if (job.tops.len == 0) try job.makeSurfaces();
+        try job.makeLightning();
         // The work memory goes back to the operating system (see
         // scratch.zig).
         scratch.trim();
@@ -345,6 +350,45 @@ pub const Job = struct {
         };
         const c: Pass = .{ .job = self };
         parallel.forEach(self.threads, n - 1, &c, Pass.run) catch |e| return @as(Error, @errorCast(e));
+    }
+
+    /// The lightning branches of all layers (see lightning.zig). The
+    /// infill area of each layer comes first, on all threads, with the
+    /// memo of the layer (the plan uses the same results again). Then the
+    /// trees grow from the top layer down.
+    fn makeLightning(self: *Job) Error!void {
+        var any = self.resolved.settings.project.infill_pattern == .lightning;
+        for (self.layer_resolved) |r| any = any or r.settings.project.infill_pattern == .lightning;
+        if (!any) return;
+        const gpa = self.gpa;
+        const n = self.layers.len;
+        const ins = try gpa.alloc(lightning_mod.Layer, n);
+        defer gpa.free(ins);
+        @memset(ins, .{});
+        const Pass = struct {
+            job: *Job,
+            ins: []lightning_mod.Layer,
+            fn run(c: *const @This(), i: usize) anyerror!void {
+                const job = c.job;
+                var ctx = job.planContext();
+                ctx.cancel = job.monitor.cancel;
+                const region = try layer_mod.lightningRegion(job.gpa, ctx, i, &job.memos[i]) orelse return error.Canceled;
+                const r = job.resolvedAt(i);
+                const p = r.settings.project;
+                const width_mm = if (i == 0) r.first_layer_line_width else r.line_width;
+                c.ins[i] = .{
+                    .region = region,
+                    .reach = if (p.infill_density > 0) geom.fromMm(width_mm / p.infill_density / 2) else 0,
+                    .width = geom.fromMm(width_mm),
+                    .height = geom.fromMm(job.layers[i].height),
+                };
+            }
+        };
+        const c: Pass = .{ .job = self, .ins = ins };
+        parallel.forEach(self.threads, n, &c, Pass.run) catch |e| return @as(Error, @errorCast(e));
+        const p = self.resolved.settings.project;
+        const tan_angle = @tan(p.lightning_angle * std.math.pi / 180.0);
+        self.lightning = lightning_mod.grow(gpa, self.threads, ins, tan_angle, self.monitor.cancel) catch |e| return @as(Error, @errorCast(e));
     }
 
     /// The settings of each layer: one Resolved for each set of overrides.
@@ -486,6 +530,8 @@ pub const Job = struct {
         self.gpa.free(self.layer_resolved);
         for (self.memos) |*mm| mm.deinit();
         self.gpa.free(self.memos);
+        for (self.lightning) |*l| l.deinit(self.gpa);
+        self.gpa.free(self.lightning);
         for (self.tops) |*t| t.deinit(self.gpa);
         self.gpa.free(self.tops);
         for (self.bottoms) |*b| b.deinit(self.gpa);
@@ -513,6 +559,7 @@ pub const Job = struct {
             .bottoms = self.bottoms,
             .layer_set = self.layer_set,
             .layer_resolved = self.layer_resolved,
+            .lightning = self.lightning,
         };
     }
 
@@ -964,6 +1011,46 @@ test "the same G-code with 1 thread and with 8 threads" {
     s.engine.threads = 8;
     _ = try slice(gpa, &m, s, &b.writer);
     try testing.expectEqualStrings(a.written(), b.written());
+}
+
+test "lightning infill: only under the top, and the same on 1 and 8 threads" {
+    const gpa = testing.allocator;
+    // A 20 mm box, 40 mm tall. A path of a tree from the wall to the end
+    // of a branch is at most about 15 mm long, and it gets shorter by
+    // 0.2 tan(40) mm on each layer, so the trees end within about 18 mm
+    // under the top.
+    var m = try mesh_mod.shapes.box(gpa, 20, 20, 40);
+    defer m.deinit(gpa);
+    var s: Settings = .{};
+    try s.set("project.infill_pattern", "lightning");
+    var texts: [2][]u8 = undefined;
+    for ([_]u32{ 1, 8 }, 0..) |threads, k| {
+        s.engine.threads = threads;
+        var out: Writer.Allocating = .init(gpa);
+        defer out.deinit();
+        _ = try slice(gpa, &m, s, &out.writer);
+        texts[k] = try out.toOwnedSlice();
+    }
+    defer for (texts) |t| gpa.free(t);
+    try testing.expectEqualStrings(texts[0], texts[1]);
+    const layers = try layerTexts(gpa, texts[0]);
+    defer gpa.free(layers);
+    var fill_low: usize = 0;
+    var fill_high: usize = 0;
+    for (layers, 0..) |t, i| {
+        const z = 0.3 + 0.2 * @as(f64, @floatFromInt(i));
+        const has = std.mem.indexOf(u8, t, ";TYPE:FILL") != null;
+        if (has and z < 20) fill_low += 1;
+        if (has and z > 30 and z < 38) fill_high += 1;
+    }
+    try testing.expectEqual(@as(usize, 0), fill_low);
+    try testing.expect(fill_high > 30);
+    // Less plastic than the grid.
+    var grid: Writer.Allocating = .init(gpa);
+    defer grid.deinit();
+    s.project.infill_pattern = .grid;
+    _ = try slice(gpa, &m, s, &grid.writer);
+    try testing.expect(extrusion(texts[0]) < 0.8 * extrusion(grid.written()));
 }
 
 test "the work of the planning threads gives the same G-code" {

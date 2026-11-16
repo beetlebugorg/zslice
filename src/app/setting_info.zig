@@ -151,6 +151,7 @@ const units = [_][2][]const u8{
     .{ "project.skin_overlap", "%" },
     .{ "project.infill_density", "%" },
     .{ "project.infill_angle", "\u{b0}" },
+    .{ "project.lightning_angle", "\u{b0}" },
     .{ "project.top_support_layers", "layers" },
     .{ "project.top_support_density", "%" },
     .{ "project.infill_overlap", "%" },
@@ -251,6 +252,7 @@ const sliders = [_]struct { []const u8, f64, f64, f64 }{
     .{ "project.skin_overlap", 0, 0.5, 0.01 },
     .{ "project.infill_density", 0, 1, 0.01 },
     .{ "project.infill_angle", 0, 180, 5 },
+    .{ "project.lightning_angle", 0, 75, 1 },
     .{ "project.top_support_layers", 0, 6, 1 },
     .{ "project.top_support_density", 0.05, 1, 0.05 },
     .{ "project.infill_overlap", 0, 0.5, 0.01 },
@@ -373,7 +375,7 @@ test "each setting has help text" {
         }
     }
     try testing.expectEqualStrings("Nozzle temp", findInfo("filament.nozzle_temp").label);
-    try testing.expectEqualStrings("lines\ngrid\ntriangles\ncubic\ngyroid\nconcentric\nhoneycomb\nzigzag\nflow", findInfo("project.infill_pattern").choices);
+    try testing.expectEqualStrings("lines\ngrid\ntriangles\ncubic\ngyroid\nconcentric\nhoneycomb\nzigzag\nflow\nlightning", findInfo("project.infill_pattern").choices);
 }
 
 fn findInfo(name: []const u8) SettingInfo {

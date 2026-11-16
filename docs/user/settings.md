@@ -326,9 +326,9 @@ Skin lines go this far into the walls, as a fraction of the line width, so that 
 
 The fraction of the inside that the sparse infill fills, as a ratio. 0 makes the part hollow.
 
-**`project.infill_pattern`** (one of: `lines`, `grid`, `triangles`, `cubic`, `gyroid`, `concentric`, `honeycomb`, `zigzag`, `flow`; per layer). Default: `grid`
+**`project.infill_pattern`** (one of: `lines`, `grid`, `triangles`, `cubic`, `gyroid`, `concentric`, `honeycomb`, `zigzag`, `flow`, `lightning`; per layer). Default: `grid`
 
-The sparse infill pattern. `lines`: one direction on each layer, turned 90 degrees on the next layer. `grid`: two directions on each layer. `triangles`: three directions at 60 degrees on each layer. `cubic`: three directions that move with the height, so the infill makes cubes in 3D. `gyroid`: smooth curves that change with the height, strong in all directions. `concentric`: loops that follow the outline. `honeycomb`: hexagon cells, the same on all layers. `zigzag`: the lines of `lines`, joined at the walls into one path, so the nozzle does not travel or retract between them. `flow`: the zigzag, with twice the density under each top surface (a band of 3 times the top thickness, at least 2 mm), where the top skin needs it, and the density of the setting in the middle.
+The sparse infill pattern. `lines`: one direction on each layer, turned 90 degrees on the next layer. `grid`: two directions on each layer. `triangles`: three directions at 60 degrees on each layer. `cubic`: three directions that move with the height, so the infill makes cubes in 3D. `gyroid`: smooth curves that change with the height, strong in all directions. `concentric`: loops that follow the outline. `honeycomb`: hexagon cells, the same on all layers. `zigzag`: the lines of `lines`, joined at the walls into one path, so the nozzle does not travel or retract between them. `flow`: the zigzag, with twice the density under each top surface (a band of 3 times the top thickness, at least 2 mm), where the top skin needs it, and the density of the setting in the middle. `lightning`: thin branches only under the top surfaces; they grow down from each top, join into trees, and end at the walls, so most of the inside stays empty. For display parts: it is fast and uses little plastic, but it is weak. The density sets the distance between the branches under a top.
 
 **`project.infill_angle`** (number; per layer). Default: `45`
 
@@ -337,6 +337,10 @@ The angle of the infill and skin lines, in degrees from the X axis.
 **`project.infill_connect`** (true or false; per layer). Default: `true`
 
 Join the infill lines (lines, grid, triangles, cubic) at their ends with a short line along the edge, as "Connect Infill Lines" in Cura: the nozzle prints a zigzag with no travel and no retraction, and the joints tie the infill to the walls. Off: each line on its own.
+
+**`project.lightning_angle`** (number). Default: `40`
+
+The lightning infill: how far a branch leans from vertical, in degrees. On each layer down, the end of a branch gets shorter by the layer height times tan(angle), and a bent branch gets straighter by at most the same distance. A larger angle gives smaller trees and less plastic, but the lines hang out more over the layer below.
 
 **`project.top_support_layers`** (integer; per layer). Default: `2`
 
