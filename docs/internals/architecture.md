@@ -16,6 +16,7 @@ src/
   mesh.zig       Mesh, Builder (vertex weld), STL load and write, test shapes.
   slicer.zig     Layer table, face index, mesh -> layer outline.
   layer.zig      Layer plan: walls, skin, infill, path order.
+  slope.zig      Slope smoothing: beads in the steps of sloped tops.
   support.zig    Support areas under overhangs (grid support).
   tree_support.zig  Tree support: branches that join on the way down.
   gcode.zig      Emitter: layer plans -> G-code, statistics.

@@ -58,6 +58,8 @@ The plan of a layer has the paths that the nozzle follows.
 
 **Ironing** (if on). The top surfaces of a layer are its outline minus the outline of the layer above. After the other paths, the nozzle goes over the top surfaces again with close lines and a small flow, to melt the surface flat.
 
+**Slope smoothing** (if on, `src/slope.zig`). A sloped top surface prints as a stair: each layer is a little smaller than the layer below, so the layer below has a narrow flat ledge outside it. In a cut across the edge, each step has an empty triangle between the corner and the ideal surface, with the area h x L / 2 (h: the layer height, L: the ledge width). After all other paths of a layer, the nozzle goes back along the edge of the layer and lays one bead in each corner, with the volume of the triangle. The bead is over the middle of the ledge, and its top is at half the step height. The nozzle is a cone on a flat tip. Where the cone has no room there, the nozzle stays higher, up to the top of the layer. So each point of the bead has its own Z, between the two layers. The normal paths of each layer stay planar. A ledge wider than `slope_smoothing_max_width` line widths is a flat top, and a ledge with no ledge above or below it is a shelf: they get no bead.
+
 **Order.** The nozzle prints the part one island after the other. An island is an outer boundary of the layer with its holes. In each island, the nozzle prints the inner walls, then the outer wall, then the skin, then the infill, then the ironing. Then it goes to the nearest island that is not done. A move between two islands leaves the part and retracts, so this order has the fewest of these moves. In each group, the next path is the nearest one to the nozzle.
 
 ## 6. Write G-code (`src/gcode.zig`)
@@ -68,6 +70,8 @@ For each path, the slicer writes:
 2. An extrusion move (`G1 ... E`) for each segment. E is the length of filament to push. The nozzle presses the plastic on the layer below, so the bead has a flat top and bottom and round sides: its cross section is a rectangle with a half circle on each side, with the area (w - h) x h + pi x h^2 / 4 (`src/flow.zig`). The volume is that area times the length. The filament is a cylinder, so the filament length is that volume divided by the area of the filament circle.
 
 The speed of each move comes from limits (`src/settings.zig`). The machine has a maximum speed. The filament has a maximum flow: the volume of plastic that the hot end can melt in one second. A wide, tall line uses more flow for each millimeter, so it must go slower. The project gives a ratio of the allowed speed for each feature. For example, the outer wall goes at 50 % of the allowed speed, for a better surface.
+
+A slope smoothing path has a Z at each point. The nozzle goes down to its first point, writes `G1 X Y Z E` for each segment, and goes back up to the layer at the end. The speed and the acceleration of these moves are limited so that Z stays within `max_z_speed` and `max_z_accel`.
 
 **Time.** The slicer plans the speed of each move as the printer firmware does (see `motion.zig`): each move speeds up and slows down with the acceleration, and each corner has a speed limit from its angle. Retractions and Z moves are stops.
 

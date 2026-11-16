@@ -265,6 +265,19 @@ zslice slice part.stl -o part.gcode -s project.ironing=true
 
 Ironing adds time: each top surface gets about 4 times as many lines as its skin. The settings `project.ironing_flow`, `project.ironing_spacing`, `project.ironing_inset`, and `project.ironing_speed` control it (see the [settings reference](settings.md#ironing)).
 
+## Smooth the sloped tops
+
+A sloped top surface prints as a stair of thin layers. Slope smoothing fills the steps. After each layer, the nozzle goes back along the edge of the layer, over the narrow ledge of the layer below, and lays a small bead in the corner of each step. The bead has the volume of the empty triangle there. The nozzle height can change along the bead, between the two layers, so the G-code of these beads has a Z on each move. In the previews, these beads are teal.
+
+```sh
+zslice slice part.stl -o part.gcode -s project.slope_smoothing=true
+```
+
+- Only ledges from `slope_smoothing_min_width` to `slope_smoothing_max_width` line widths get a bead (0.3 to 2 by default). With 0.2 mm layers and 0.5 mm lines, that is a slope from about 11 to 53 degrees. A wider ledge is a flat top: the skin covers it.
+- The nozzle must not touch the layer that it just printed. `machine.nozzle_tip_radius` (the flat face around the hole) and `machine.nozzle_cone_angle` describe your nozzle. Where the nozzle has no room to go down into the corner, it stays at the top of the layer, and the plastic fills the corner under the flat tip. A nozzle with a small tip goes lower.
+- `project.slope_smoothing_flow` scales the plastic, and `project.slope_smoothing_speed` sets the speed.
+- It adds time: about 7 % on a Benchy (a travel, a retraction, and two Z moves for each bead).
+
 ## Where the part goes on the bed
 
 zslice moves the part so that its bottom is at z = 0. The X and Y come from `project.placement`:
