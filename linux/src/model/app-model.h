@@ -112,8 +112,18 @@ char *zg_model_get_for(ZgModel *self, const char *key, gboolean scoped);
 gboolean zg_model_set_for(ZgModel *self, const char *key, const char *value, gboolean scoped, GError **error);
 /* TRUE if an override of the setting covers z_show of the scope. */
 gboolean zg_model_overridden(ZgModel *self, const char *key);
-/* Removes the overrides of the setting at z_show, and slices again. */
+/* Removes the change of the setting for the scope (or, if there is none
+ * for exactly the scope, the changes at z_show), and slices again. */
 void zg_model_clear_override(ZgModel *self, const char *key);
+
+/* Layer profiles (see zs_app_profile_set): names a layer range, or
+ * removes it with all its changes (and slices again). Both emit
+ * "profiles-changed". */
+void zg_model_profile_set(ZgModel *self, double z_min, double z_max, const char *name);
+void zg_model_profile_remove(ZgModel *self, double z_min, double z_max);
+/* Asks the settings browser to edit the profile of the range
+ * ("open-profile"). */
+void zg_model_open_profile(ZgModel *self, double z_min, double z_max);
 
 /* Makes printer `id` the current printer: saves the machine settings of
  * the printer before, and loads the machine profile of the new one.

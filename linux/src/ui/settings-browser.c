@@ -17,6 +17,7 @@ static const struct {
     const char *group;
     const char *title;
 } groups[] = {
+    {"profiles", "Layer profiles"},
     {"project", "Project"},
     {"filament", "Filament"},
     {"machine", "Machine"},
@@ -44,7 +45,15 @@ typedef struct {
     const char *group;   /* the selected section */
     const char *section;
     int feature;         /* the feature whose settings column 2 lists, or -1 */
+    /* A layer profile in edit: the edits go to its layer range. */
+    gboolean in_profile;
+    double p_min, p_max;
+    gboolean profile_list; /* column 2 lists the changes of the profile */
+    GtkWidget *pbar, *pbar_title, *pbar_note, *rename_entry;
 } Browser;
+
+static void fill_profiles(Browser *b);
+static void update_bar(Browser *b);
 
 
 static const char *feature_titles[] = {"Outer wall", "Inner wall", "Skin", "Sparse infill",
@@ -230,11 +239,37 @@ static void fill_effect(Browser *b) {
 }
 
 /* The default line and the reset button follow the value. */
+static gboolean range_has(Browser *b, const char *key);
+
 static void show_default(GtkWidget *box) {
     const zs_setting_info *info = g_object_get_data(G_OBJECT(box), "zg-info");
     ZgModel *model = g_object_get_data(G_OBJECT(box), "zg-model");
     GtkWidget *label = g_object_get_data(G_OBJECT(box), "zg-label");
     GtkWidget *reset = g_object_get_data(G_OBJECT(box), "zg-reset");
+    Browser *b = g_object_get_data(G_OBJECT(box), "zg-browser");
+    if (b && b->in_profile) {
+        /* In a profile: changed for these layers, or the value of all
+         * layers. */
+        gboolean changed = range_has(b, info->name);
+        if (!info->per_layer) {
+            gtk_label_set_text(GTK_LABEL(label), "This setting is for the whole print. It cannot change for some layers.");
+        } else if (changed) {
+            gtk_label_set_text(GTK_LABEL(label), "Changed in this profile.");
+        } else {
+            char *all = zg_model_get(model, info->name);
+            char *v = zg_setting_value_with_unit(info, all);
+            char *text = g_strdup_printf("The same as for all layers (%s).", v);
+            gtk_label_set_text(GTK_LABEL(label), text);
+            g_free(text);
+            g_free(v);
+            g_free(all);
+        }
+        gtk_button_set_label(GTK_BUTTON(reset), "Remove the change");
+        gtk_widget_set_opacity(reset, changed ? 1 : 0);
+        gtk_widget_set_sensitive(reset, changed);
+        return;
+    }
+    gtk_button_set_label(GTK_BUTTON(reset), "Reset");
     char *value = zg_model_get(model, info->name);
     gboolean same = strcmp(value, info->default_value) == 0 ||
                     (zg_parses_as_number(value) && zg_parses_as_number(info->default_value) &&
@@ -260,6 +295,12 @@ static void on_reset(GtkButton *button, gpointer data) {
     GtkWidget *box = data;
     const zs_setting_info *info = g_object_get_data(G_OBJECT(box), "zg-info");
     ZgModel *model = g_object_get_data(G_OBJECT(box), "zg-model");
+    Browser *b = g_object_get_data(G_OBJECT(box), "zg-browser");
+    if (b && b->in_profile) {
+        zg_model_clear_override(model, info->name);
+        show_default(box);
+        return;
+    }
     zg_model_set(model, info->name, info->default_value, NULL);
 }
 
@@ -295,7 +336,7 @@ static void show_detail(Browser *b, const char *key) {
     gtk_widget_add_css_class(path, "dim-label");
     gtk_widget_add_css_class(path, "caption");
     gtk_grid_attach(GTK_GRID(grid), path, 0, row++, 3, 1);
-    zg_setting_row_free(zg_setting_row_add(grid, &row, b->model, info, 0));
+    zg_setting_row_free(zg_setting_row_add(grid, &row, b->model, info, b->in_profile ? ZG_ROW_SCOPED : 0));
 
     GtkWidget *def = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 6);
     GtkWidget *def_label = gtk_label_new("");
@@ -310,6 +351,7 @@ static void show_detail(Browser *b, const char *key) {
     gtk_box_append(GTK_BOX(def), reset);
     g_object_set_data_full(G_OBJECT(def), "zg-info", info, free_info);
     g_object_set_data(G_OBJECT(def), "zg-model", b->model);
+    g_object_set_data(G_OBJECT(def), "zg-browser", b);
     g_object_set_data(G_OBJECT(def), "zg-label", def_label);
     g_object_set_data(G_OBJECT(def), "zg-reset", reset);
     g_signal_connect(reset, "clicked", G_CALLBACK(on_reset), def);
@@ -337,7 +379,13 @@ static void on_row_value_changed(ZgModel *model, const char *key, gpointer data)
     GtkWidget *label = data;
     const zs_setting_info *info = g_object_get_data(G_OBJECT(label), "zg-info");
     if (strcmp(key, info->name) != 0) return;
-    char *value = zg_model_get(model, key);
+    Browser *b = g_object_get_data(G_OBJECT(label), "zg-browser");
+    GtkWidget *name = g_object_get_data(G_OBJECT(label), "zg-name");
+    if (name) {
+        if (b->in_profile && range_has(b, key)) gtk_widget_add_css_class(name, "zg-overridden");
+        else gtk_widget_remove_css_class(name, "zg-overridden");
+    }
+    char *value = zg_model_get_for(model, key, b->in_profile);
     char *text = zg_setting_value_with_unit(info, value);
     gtk_label_set_text(GTK_LABEL(label), text);
     g_free(text);
@@ -375,9 +423,15 @@ static GtkWidget *setting_row(Browser *b, const zs_setting_info *src, gboolean w
         gtk_widget_add_css_class(w, "caption");
         gtk_box_append(GTK_BOX(names), w);
     }
-    char *value = zg_model_get(b->model, info->name);
+    char *value = zg_model_get_for(b->model, info->name, b->in_profile);
     char *text = zg_setting_value_with_unit(info, value);
     GtkWidget *v = gtk_label_new(text);
+    g_object_set_data(G_OBJECT(v), "zg-browser", b);
+    g_object_set_data(G_OBJECT(v), "zg-name", name);
+    /* In a profile: a changed setting has the accent color, and a setting
+     * for the whole print is dim (it cannot change for some layers). */
+    if (b->in_profile && range_has(b, info->name)) gtk_widget_add_css_class(name, "zg-overridden");
+    if (b->in_profile && !info->per_layer) gtk_widget_add_css_class(names, "dim-label");
     g_free(text);
     g_free(value);
     gtk_label_set_ellipsize(GTK_LABEL(v), PANGO_ELLIPSIZE_END);
@@ -469,11 +523,343 @@ static void on_setting_activated(GtkListBox *box, GtkListBoxRow *row, gpointer d
     show_column(b, 2);
 }
 
+/* ---- layer profiles ---- */
+
+static gboolean same_range(double a0, double a1, double b0, double b1) {
+    return fabs(a0 - b0) < 1e-6 && fabs(a1 - b1) < 1e-6;
+}
+
+/* TRUE if the profile in edit changes the setting. */
+static gboolean range_has(Browser *b, const char *key) {
+    zs_app *core = zg_model_core(b->model);
+    size_t n = zs_app_override_count(core);
+    for (size_t i = 0; i < n; i++) {
+        zs_override o;
+        if (zs_app_override_get(core, i, &o) == ZS_OK && same_range(o.z_min, o.z_max, b->p_min, b->p_max) &&
+            strlen(key) == o.name_len && strncmp(key, o.name, o.name_len) == 0)
+            return TRUE;
+    }
+    return FALSE;
+}
+
+static size_t range_changes(Browser *b, double z_min, double z_max) {
+    zs_app *core = zg_model_core(b->model);
+    size_t n = zs_app_override_count(core), count = 0;
+    for (size_t i = 0; i < n; i++) {
+        zs_override o;
+        if (zs_app_override_get(core, i, &o) == ZS_OK && same_range(o.z_min, o.z_max, z_min, z_max)) count++;
+    }
+    return count;
+}
+
+/* The layers of a range, as the user counts them (from 1). */
+static char *range_layers(Browser *b, double z_min, double z_max) {
+    zs_toolpaths tp;
+    if (zs_app_toolpaths(zg_model_core(b->model), &tp) != ZS_OK || tp.layer_count == 0) {
+        if (z_min < -1e5) return g_strdup_printf("up to z %.2f mm", z_max);
+        if (z_max > 1e5) return g_strdup_printf("from z %.2f mm up", z_min);
+        return g_strdup_printf("z %.2f to %.2f mm", z_min, z_max);
+    }
+    size_t first = tp.layer_count, last = 0;
+    for (size_t i = 0; i < tp.layer_count; i++) {
+        double z = tp.layer_z[i];
+        if (z >= z_min - 1e-4 && z <= z_max + 1e-4) {
+            if (first == tp.layer_count) first = i;
+            last = i;
+        }
+    }
+    if (first == tp.layer_count) return g_strdup("no layers of this part");
+    if (first == last) return g_strdup_printf("layer %zu", first + 1);
+    return g_strdup_printf("layers %zu to %zu", first + 1, last + 1);
+}
+
+/* The name of a range: its profile name, or its layers. */
+static char *range_name(Browser *b, double z_min, double z_max) {
+    zs_app *core = zg_model_core(b->model);
+    size_t n = zs_app_profile_count(core);
+    for (size_t i = 0; i < n; i++) {
+        zs_layer_profile p;
+        if (zs_app_profile_get(core, i, &p) == ZS_OK && same_range(p.z_min, p.z_max, z_min, z_max)) return g_strndup(p.name, p.name_len);
+    }
+    char *layers = range_layers(b, z_min, z_max);
+    layers[0] = g_ascii_toupper(layers[0]);
+    return layers;
+}
+
+static void update_bar(Browser *b) {
+    if (!b->pbar) return;
+    gtk_revealer_set_reveal_child(GTK_REVEALER(b->pbar), b->in_profile);
+    if (!b->in_profile) return;
+    char *name = range_name(b, b->p_min, b->p_max);
+    char *layers = range_layers(b, b->p_min, b->p_max);
+    layers[0] = g_ascii_toupper(layers[0]);
+    size_t n = range_changes(b, b->p_min, b->p_max);
+    char *note = n == 0 ? g_strdup_printf("%s · no changes yet. A change here applies only to these layers.", layers)
+                        : g_strdup_printf("%s · %zu change%s. A change here applies only to these layers.", layers, n, n == 1 ? "" : "s");
+    gtk_label_set_text(GTK_LABEL(b->pbar_title), name);
+    gtk_label_set_text(GTK_LABEL(b->pbar_note), note);
+    g_free(note);
+    g_free(layers);
+    g_free(name);
+}
+
+/* Column 2: the changes of the profile in edit. */
+static void fill_profile_changes(Browser *b) {
+    gtk_list_box_remove_all(GTK_LIST_BOX(b->settings));
+    zs_app *core = zg_model_core(b->model);
+    size_t n = zs_app_override_count(core);
+    for (size_t i = 0; i < n; i++) {
+        zs_override o;
+        if (zs_app_override_get(core, i, &o) != ZS_OK || !same_range(o.z_min, o.z_max, b->p_min, b->p_max)) continue;
+        char *key = g_strndup(o.name, o.name_len);
+        zs_setting_info info;
+        if (zg_setting_find(key, &info)) gtk_list_box_append(GTK_LIST_BOX(b->settings), setting_row(b, &info, TRUE));
+        g_free(key);
+    }
+}
+
+/* Edits go to the range of the profile now: the scope of the model. */
+static void apply_profile_scope(Browser *b) {
+    if (!b->in_profile) return;
+    double show = b->p_min < -1e5 ? b->p_max : b->p_min;
+    zg_model_set_scope(b->model, TRUE, b->p_min, b->p_max, show);
+}
+
+/* Shows all the values of the columns again (for a profile, or not). */
+static void refresh_columns(Browser *b) {
+    if (b->profile_list) fill_profile_changes(b);
+    else if (b->feature >= 0) show_feature(b, b->feature);
+    else if (gtk_editable_get_text(GTK_EDITABLE(b->search))[0]) fill_settings(b, NULL, NULL, gtk_editable_get_text(GTK_EDITABLE(b->search)));
+    else if (b->section) fill_settings(b, b->group, b->section, NULL);
+    if (b->key) show_detail(b, b->key);
+}
+
+static void enter_profile(Browser *b, double z_min, double z_max) {
+    b->in_profile = TRUE;
+    b->p_min = z_min;
+    b->p_max = z_max;
+    apply_profile_scope(b);
+    update_bar(b);
+    fill_profiles(b);
+}
+
+static void leave_profile(Browser *b) {
+    if (!b->in_profile) return;
+    b->in_profile = FALSE;
+    b->profile_list = FALSE;
+    /* The edits of the browser are for all prints again. */
+    zg_model_set_scope(b->model, FALSE, 0, 0, 0);
+    update_bar(b);
+    fill_profiles(b);
+    show_column(b, 0);
+    refresh_columns(b);
+}
+
+static void on_profile_done(GtkButton *button, gpointer data) {
+    leave_profile(data);
+}
+
+static void on_profile_delete(GtkButton *button, gpointer data) {
+    Browser *b = data;
+    double lo = b->p_min, hi = b->p_max;
+    leave_profile(b);
+    zg_model_profile_remove(b->model, lo, hi);
+}
+
+static void on_rename_activate(GtkEntry *entry, gpointer data) {
+    Browser *b = data;
+    const char *text = gtk_editable_get_text(GTK_EDITABLE(entry));
+    if (b->in_profile && text[0]) zg_model_profile_set(b->model, b->p_min, b->p_max, text);
+    GtkWidget *pop = gtk_widget_get_ancestor(GTK_WIDGET(entry), GTK_TYPE_POPOVER);
+    if (pop) gtk_popover_popdown(GTK_POPOVER(pop));
+}
+
+static void on_rename_show(GtkPopover *pop, gpointer data) {
+    Browser *b = data;
+    char *name = range_name(b, b->p_min, b->p_max);
+    gtk_editable_set_text(GTK_EDITABLE(b->rename_entry), name);
+    g_free(name);
+    gtk_widget_grab_focus(b->rename_entry);
+}
+
+/* The bar over the columns while a profile is in edit. */
+static GtkWidget *make_bar(Browser *b) {
+    GtkWidget *box = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 6);
+    gtk_widget_add_css_class(box, "zg-profile-bar");
+    GtkWidget *text = gtk_box_new(GTK_ORIENTATION_VERTICAL, 0);
+    gtk_widget_set_hexpand(text, TRUE);
+    gtk_widget_set_valign(text, GTK_ALIGN_CENTER);
+    b->pbar_title = gtk_label_new("");
+    gtk_widget_add_css_class(b->pbar_title, "heading");
+    gtk_label_set_xalign(GTK_LABEL(b->pbar_title), 0);
+    gtk_label_set_ellipsize(GTK_LABEL(b->pbar_title), PANGO_ELLIPSIZE_END);
+    b->pbar_note = zg_wrapped_label_new("");
+    gtk_widget_add_css_class(b->pbar_note, "caption");
+    gtk_box_append(GTK_BOX(text), b->pbar_title);
+    gtk_box_append(GTK_BOX(text), b->pbar_note);
+    GtkWidget *rename = gtk_menu_button_new();
+    gtk_menu_button_set_icon_name(GTK_MENU_BUTTON(rename), "document-edit-symbolic");
+    gtk_widget_add_css_class(rename, "flat");
+    gtk_widget_set_tooltip_text(rename, "Rename the profile");
+    gtk_widget_set_valign(rename, GTK_ALIGN_CENTER);
+    GtkWidget *pop = gtk_popover_new();
+    b->rename_entry = gtk_entry_new();
+    gtk_entry_set_activates_default(GTK_ENTRY(b->rename_entry), FALSE);
+    gtk_widget_set_size_request(b->rename_entry, 200, -1);
+    g_signal_connect(b->rename_entry, "activate", G_CALLBACK(on_rename_activate), b);
+    gtk_popover_set_child(GTK_POPOVER(pop), b->rename_entry);
+    g_signal_connect(pop, "show", G_CALLBACK(on_rename_show), b);
+    gtk_menu_button_set_popover(GTK_MENU_BUTTON(rename), pop);
+    GtkWidget *del = gtk_button_new_from_icon_name("user-trash-symbolic");
+    gtk_widget_add_css_class(del, "flat");
+    gtk_widget_set_tooltip_text(del, "Delete the profile and all its changes");
+    gtk_widget_set_valign(del, GTK_ALIGN_CENTER);
+    g_signal_connect(del, "clicked", G_CALLBACK(on_profile_delete), b);
+    GtkWidget *done = gtk_button_new_with_label("Done");
+    gtk_widget_add_css_class(done, "suggested-action");
+    gtk_widget_set_tooltip_text(done, "Stop the edit of this profile. Changes then go to all prints again.");
+    gtk_widget_set_valign(done, GTK_ALIGN_CENTER);
+    g_signal_connect(done, "clicked", G_CALLBACK(on_profile_done), b);
+    gtk_box_append(GTK_BOX(box), text);
+    gtk_box_append(GTK_BOX(box), rename);
+    gtk_box_append(GTK_BOX(box), del);
+    gtk_box_append(GTK_BOX(box), done);
+    b->pbar = gtk_revealer_new();
+    gtk_revealer_set_transition_type(GTK_REVEALER(b->pbar), GTK_REVEALER_TRANSITION_TYPE_SLIDE_DOWN);
+    gtk_revealer_set_child(GTK_REVEALER(b->pbar), box);
+    return b->pbar;
+}
+
+/* The rows of the layer profiles, at the top of column 1: the named
+ * profiles and the other layer ranges with changes (from the Selected
+ * page), lowest first. */
+typedef struct {
+    double z_min, z_max;
+} Range;
+
+static gint range_cmp(gconstpointer a, gconstpointer b) {
+    const Range *x = a, *y = b;
+    if (x->z_min != y->z_min) return x->z_min < y->z_min ? -1 : 1;
+    return x->z_max < y->z_max ? -1 : x->z_max > y->z_max;
+}
+
+static void add_range(GArray *list, double z_min, double z_max) {
+    /* The whole part is not a layer range (the part page has it). */
+    if (z_min < -1e5 && z_max > 1e5) return;
+    for (guint i = 0; i < list->len; i++) {
+        Range *r = &g_array_index(list, Range, i);
+        if (same_range(r->z_min, r->z_max, z_min, z_max)) return;
+    }
+    Range r = {z_min, z_max};
+    g_array_append_val(list, r);
+}
+
+static void fill_profiles(Browser *b) {
+    /* The old rows. */
+    for (;;) {
+        GtkListBoxRow *row = gtk_list_box_get_row_at_index(GTK_LIST_BOX(b->sections), 0);
+        if (!row || g_strcmp0(g_object_get_data(G_OBJECT(row), "zg-group"), "profiles") != 0) break;
+        gtk_list_box_remove(GTK_LIST_BOX(b->sections), GTK_WIDGET(row));
+    }
+    zs_app *core = zg_model_core(b->model);
+    GArray *list = g_array_new(FALSE, FALSE, sizeof(Range));
+    size_t n = zs_app_profile_count(core);
+    for (size_t i = 0; i < n; i++) {
+        zs_layer_profile p;
+        if (zs_app_profile_get(core, i, &p) == ZS_OK) add_range(list, p.z_min, p.z_max);
+    }
+    n = zs_app_override_count(core);
+    for (size_t i = 0; i < n; i++) {
+        zs_override o;
+        if (zs_app_override_get(core, i, &o) == ZS_OK) add_range(list, o.z_min, o.z_max);
+    }
+    g_array_sort(list, range_cmp);
+    int at = 0;
+    if (list->len == 0) {
+        GtkWidget *hint = zg_wrapped_label_new("None yet. Right-click a line in the 3D view, then \u201cNew profile from here up\u201d, to change any settings for some layers.");
+        gtk_widget_add_css_class(hint, "dim-label");
+        gtk_widget_add_css_class(hint, "caption");
+        gtk_widget_set_margin_start(hint, 18);
+        gtk_widget_set_margin_end(hint, 10);
+        gtk_widget_set_margin_top(hint, 2);
+        gtk_widget_set_margin_bottom(hint, 4);
+        GtkWidget *row = gtk_list_box_row_new();
+        gtk_list_box_row_set_child(GTK_LIST_BOX_ROW(row), hint);
+        gtk_list_box_row_set_selectable(GTK_LIST_BOX_ROW(row), FALSE);
+        gtk_list_box_row_set_activatable(GTK_LIST_BOX_ROW(row), FALSE);
+        g_object_set_data(G_OBJECT(row), "zg-group", (gpointer) "profiles");
+        gtk_list_box_insert(GTK_LIST_BOX(b->sections), row, at++);
+    }
+    for (guint i = 0; i < list->len; i++) {
+        Range r = g_array_index(list, Range, i);
+        char *name = range_name(b, r.z_min, r.z_max);
+        char *layers = range_layers(b, r.z_min, r.z_max);
+        size_t c = range_changes(b, r.z_min, r.z_max);
+        char *sub = g_strdup_printf("%s · %zu change%s", layers, c, c == 1 ? "" : "s");
+        GtkWidget *texts = gtk_box_new(GTK_ORIENTATION_VERTICAL, 0);
+        gtk_widget_set_hexpand(texts, TRUE);
+        GtkWidget *t = gtk_label_new(name);
+        gtk_label_set_xalign(GTK_LABEL(t), 0);
+        gtk_label_set_ellipsize(GTK_LABEL(t), PANGO_ELLIPSIZE_END);
+        GtkWidget *s = gtk_label_new(sub);
+        gtk_label_set_xalign(GTK_LABEL(s), 0);
+        gtk_widget_add_css_class(s, "dim-label");
+        gtk_widget_add_css_class(s, "caption");
+        gtk_box_append(GTK_BOX(texts), t);
+        gtk_box_append(GTK_BOX(texts), s);
+        GtkWidget *line = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 8);
+        gtk_widget_set_margin_start(line, 18);
+        gtk_widget_set_margin_top(line, 4);
+        gtk_widget_set_margin_bottom(line, 4);
+        gtk_box_append(GTK_BOX(line), texts);
+        GtkWidget *mark = chevron();
+        gtk_widget_set_margin_end(mark, 10);
+        gtk_box_append(GTK_BOX(line), mark);
+        if (b->in_profile && same_range(r.z_min, r.z_max, b->p_min, b->p_max)) gtk_widget_add_css_class(t, "heading");
+        GtkWidget *row = gtk_list_box_row_new();
+        gtk_list_box_row_set_child(GTK_LIST_BOX_ROW(row), line);
+        g_object_set_data(G_OBJECT(row), "zg-group", (gpointer) "profiles");
+        Range *keep = g_new(Range, 1);
+        *keep = r;
+        g_object_set_data_full(G_OBJECT(row), "zg-range", keep, g_free);
+        gtk_list_box_insert(GTK_LIST_BOX(b->sections), row, at++);
+        g_free(sub);
+        g_free(layers);
+        g_free(name);
+    }
+    g_array_free(list, TRUE);
+}
+
+/* A click on a profile: edit it, and list its changes. */
+static void open_range(Browser *b, double z_min, double z_max) {
+    enter_profile(b, z_min, z_max);
+    b->profile_list = TRUE;
+    b->feature = -1;
+    b->section = NULL;
+    fill_profile_changes(b);
+    if (gtk_list_box_get_row_at_index(GTK_LIST_BOX(b->settings), 0)) show_column(b, 1);
+    else show_column(b, 0);
+}
+
+static void on_open_profile(ZgModel *model, double z_min, double z_max, gpointer data) {
+    Browser *b = data;
+    if (b->stack) gtk_stack_set_visible_child(GTK_STACK(b->stack), b->page);
+    open_range(b, z_min, z_max);
+    refresh_columns(b);
+}
+
+static void on_profiles_changed(ZgModel *model, gpointer data) {
+    Browser *b = data;
+    fill_profiles(b);
+    update_bar(b);
+}
+
 /* ---- column 1 ---- */
 
 static void on_section_selected(GtkListBox *box, GtkListBoxRow *row, gpointer data) {
     Browser *b = data;
-    if (!row) return;
+    if (!row || g_object_get_data(G_OBJECT(row), "zg-range")) return;
+    b->profile_list = FALSE;
     /* A section ends a search. */
     if (gtk_editable_get_text(GTK_EDITABLE(b->search))[0]) {
         g_object_set_data(G_OBJECT(b->search), "zg-quiet", GINT_TO_POINTER(1));
@@ -499,6 +885,15 @@ static void on_section_selected(GtkListBox *box, GtkListBoxRow *row, gpointer da
 /* A click or Enter on a section opens its settings. */
 static void on_section_activated(GtkListBox *box, GtkListBoxRow *row, gpointer data) {
     Browser *b = data;
+    Range *r = g_object_get_data(G_OBJECT(row), "zg-range");
+    if (r) {
+        open_range(b, r->z_min, r->z_max);
+        if (b->column == 1) {
+            GtkListBoxRow *first = gtk_list_box_get_row_at_index(GTK_LIST_BOX(b->settings), 0);
+            if (first) gtk_widget_grab_focus(GTK_WIDGET(first));
+        }
+        return;
+    }
     on_section_selected(box, row, b);
     show_column(b, 1);
 }
@@ -595,6 +990,9 @@ static gboolean on_column_key(GtkEventControllerKey *ctrl, guint key, guint code
 static void on_page_changed(GObject *stack, GParamSpec *pspec, gpointer data) {
     Browser *b = data;
     send_focus(b);
+    /* The Selected page sets its own scope; a profile in edit takes it
+     * back when this page shows. */
+    if (gtk_stack_get_visible_child(GTK_STACK(b->stack)) == b->page) apply_profile_scope(b);
 }
 
 /* A new slice: new times for the lines in column 3. */
@@ -695,6 +1093,7 @@ GtkWidget *zg_settings_browser_new(ZgModel *model, GtkWidget *panel_stack) {
     GtkWidget *page = gtk_box_new(GTK_ORIENTATION_VERTICAL, 0);
     gtk_box_append(GTK_BOX(page), nav);
     gtk_box_append(GTK_BOX(page), gtk_separator_new(GTK_ORIENTATION_HORIZONTAL));
+    gtk_box_append(GTK_BOX(page), make_bar(b));
     /* The search stays in view on all columns. */
     gtk_box_append(GTK_BOX(page), b->search);
     gtk_box_append(GTK_BOX(page), b->columns);
@@ -706,6 +1105,9 @@ GtkWidget *zg_settings_browser_new(ZgModel *model, GtkWidget *panel_stack) {
     if (first) gtk_list_box_select_row(GTK_LIST_BOX(b->sections), first);
     g_signal_connect(panel_stack, "notify::visible-child", G_CALLBACK(on_page_changed), b);
     g_signal_connect(model, "core-event", G_CALLBACK(on_browser_core_event), b);
+    g_signal_connect(model, "profiles-changed", G_CALLBACK(on_profiles_changed), b);
+    g_signal_connect(model, "open-profile", G_CALLBACK(on_open_profile), b);
+    fill_profiles(b);
     /* For development and screenshots: ZSLICE_SETTING=project.layer_height
      * opens the browser at that setting. */
     const char *start = g_getenv("ZSLICE_SETTING");

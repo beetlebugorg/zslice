@@ -22,7 +22,10 @@
 #include "../model/app-model.h"
 
 /* The flags of zg_setting_row_add. */
-enum { ZG_ROW_COMPACT = 1 };
+/* COMPACT: the inspector row (scoped, short). SCOPED: the full row, and
+ * the editor reads and sets the value for the scope of the model (a
+ * layer profile in the settings browser). */
+enum { ZG_ROW_COMPACT = 1, ZG_ROW_SCOPED = 2 };
 
 /* The widgets of one row, for a filter. */
 typedef struct {

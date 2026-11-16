@@ -147,7 +147,7 @@ static void load_group(ZgModel *self, int g) {
 
 G_DEFINE_FINAL_TYPE(ZgModel, zg_model, G_TYPE_OBJECT)
 
-enum { SIGNAL_CORE_EVENT, SIGNAL_SELECTION_CHANGED, SIGNAL_PICKED, SIGNAL_SETTING_CHANGED, SIGNAL_FOCUS_CHANGED, SIGNAL_SCOPE_CHANGED, SIGNAL_PRINTER_CHANGED, SIGNAL_PRINTERS_EDITED, SIGNAL_PART_SELECTED, SIGNAL_PLATE_CHANGED, SIGNAL_SEGMENT_CHANGED, N_SIGNALS };
+enum { SIGNAL_CORE_EVENT, SIGNAL_SELECTION_CHANGED, SIGNAL_PICKED, SIGNAL_SETTING_CHANGED, SIGNAL_FOCUS_CHANGED, SIGNAL_SCOPE_CHANGED, SIGNAL_PRINTER_CHANGED, SIGNAL_PRINTERS_EDITED, SIGNAL_PART_SELECTED, SIGNAL_PLATE_CHANGED, SIGNAL_SEGMENT_CHANGED, SIGNAL_PROFILES_CHANGED, SIGNAL_OPEN_PROFILE, N_SIGNALS };
 static guint signals[N_SIGNALS];
 
 typedef struct {
@@ -317,6 +317,14 @@ static void zg_model_class_init(ZgModelClass *klass) {
     /* focus-changed(): see zg_model_set_focus. */
     signals[SIGNAL_FOCUS_CHANGED] = g_signal_new("focus-changed", G_TYPE_FROM_CLASS(klass),
         G_SIGNAL_RUN_LAST, 0, NULL, NULL, NULL, G_TYPE_NONE, 0);
+    /* profiles-changed(): after a change of the layer profiles or of the
+     * overrides (zg_model_profile_*, a scoped edit, a reset). */
+    signals[SIGNAL_PROFILES_CHANGED] = g_signal_new("profiles-changed", G_TYPE_FROM_CLASS(klass),
+        G_SIGNAL_RUN_LAST, 0, NULL, NULL, NULL, G_TYPE_NONE, 0);
+    /* open-profile(double z_min, double z_max): a request to edit the
+     * layer profile of that range (zg_model_open_profile). */
+    signals[SIGNAL_OPEN_PROFILE] = g_signal_new("open-profile", G_TYPE_FROM_CLASS(klass),
+        G_SIGNAL_RUN_LAST, 0, NULL, NULL, NULL, G_TYPE_NONE, 2, G_TYPE_DOUBLE, G_TYPE_DOUBLE);
     /* setting-changed(const char *key): after zg_model_set changes a value,
      * so that each editor of the setting shows the new value. */
     signals[SIGNAL_SETTING_CHANGED] = g_signal_new("setting-changed", G_TYPE_FROM_CLASS(klass),
@@ -419,6 +427,7 @@ gboolean zg_model_set_for(ZgModel *self, const char *key, const char *value, gbo
     }
     if (rc != ZS_OK) return fail(error, rc);
     g_signal_emit(self, signals[SIGNAL_SETTING_CHANGED], 0, key);
+    g_signal_emit(self, signals[SIGNAL_PROFILES_CHANGED], 0);
     slice_soon(self);
     return TRUE;
 }
@@ -428,9 +437,39 @@ gboolean zg_model_overridden(ZgModel *self, const char *key) {
 }
 
 void zg_model_clear_override(ZgModel *self, const char *key) {
-    if (zs_app_override_clear_at(self->core, self->scope_show, key) == 0) return;
+    /* The change for exactly the scope (a layer profile), else all the
+     * changes that cover the selection. */
+    if (!zs_app_override_remove(self->core, self->scope_min, self->scope_max, key) &&
+        zs_app_override_clear_at(self->core, self->scope_show, key) == 0)
+        return;
     g_signal_emit(self, signals[SIGNAL_SETTING_CHANGED], 0, key);
+    g_signal_emit(self, signals[SIGNAL_PROFILES_CHANGED], 0);
     slice_soon(self);
+}
+
+void zg_model_profile_set(ZgModel *self, double z_min, double z_max, const char *name) {
+    if (zs_app_profile_set(self->core, z_min, z_max, name) != ZS_OK) return;
+    g_signal_emit(self, signals[SIGNAL_PROFILES_CHANGED], 0);
+}
+
+void zg_model_open_profile(ZgModel *self, double z_min, double z_max) {
+    g_signal_emit(self, signals[SIGNAL_OPEN_PROFILE], 0, z_min, z_max);
+}
+
+void zg_model_profile_remove(ZgModel *self, double z_min, double z_max) {
+    /* The names of the changed settings, for their editors. */
+    GPtrArray *names = g_ptr_array_new_with_free_func(g_free);
+    size_t n = zs_app_override_count(self->core);
+    for (size_t i = 0; i < n; i++) {
+        zs_override o;
+        if (zs_app_override_get(self->core, i, &o) == ZS_OK && fabs(o.z_min - z_min) < 1e-6 && fabs(o.z_max - z_max) < 1e-6)
+            g_ptr_array_add(names, g_strndup(o.name, o.name_len));
+    }
+    size_t removed = zs_app_profile_remove(self->core, z_min, z_max);
+    for (guint i = 0; i < names->len; i++) g_signal_emit(self, signals[SIGNAL_SETTING_CHANGED], 0, (const char *)names->pdata[i]);
+    g_ptr_array_free(names, TRUE);
+    g_signal_emit(self, signals[SIGNAL_PROFILES_CHANGED], 0);
+    if (removed) slice_soon(self);
 }
 
 void zg_model_set_focus(ZgModel *self, guint32 features, gboolean first_layer_only) {

@@ -228,6 +228,9 @@ static void show_stats(Inspector *ins, const zs_inspect *info) {
 
 /* Sends the scope to the model, for the z of the selection. */
 static void apply_scope(Inspector *ins) {
+    /* The Settings page can have a scope of its own (a layer profile in
+     * edit): set the scope only while this page shows. */
+    if (ins->stack && gtk_stack_get_visible_child(GTK_STACK(ins->stack)) != ins->slots) return;
     double z = ins->scope_z;
     /* Inline changes are always for the loaded part: an override of the
      * whole part, or of some layers. The defaults for all prints are in
@@ -449,9 +452,16 @@ static void on_core_event(ZgModel *model, int event, double progress, int status
     else gtk_widget_remove_css_class(ins->slots, "zg-stale");
 }
 
+/* This page shows again: its scope comes back. */
+static void on_panel_page(GObject *stack, GParamSpec *pspec, gpointer data) {
+    Inspector *ins = data;
+    if (ins->built && zg_model_selected(ins->model) >= 0) apply_scope(ins);
+}
+
 static void inspector_free(gpointer data) {
     Inspector *ins = data;
     g_signal_handlers_disconnect_by_data(ins->model, ins);
+    if (ins->stack) g_signal_handlers_disconnect_by_data(ins->stack, ins);
     if (ins->rows) g_ptr_array_free(ins->rows, TRUE);
     if (ins->sections) g_ptr_array_free(ins->sections, TRUE);
     g_free(ins->signature);
@@ -473,5 +483,6 @@ GtkWidget *zg_inspector_new(ZgModel *model, GtkWidget *panel_stack) {
     g_signal_connect(model, "picked", G_CALLBACK(on_picked), ins);
     g_signal_connect(model, "part-selected", G_CALLBACK(on_part_selected), ins);
     g_signal_connect(model, "core-event", G_CALLBACK(on_core_event), ins);
+    g_signal_connect(panel_stack, "notify::visible-child", G_CALLBACK(on_panel_page), ins);
     return ins->slots;
 }

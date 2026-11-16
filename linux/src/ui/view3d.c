@@ -156,6 +156,7 @@ static void on_focus_changed(ZgModel *model, gpointer data) {
 }
 
 static void on_copy_for_ai(GSimpleAction *a, GVariant *p, gpointer data);
+static void on_new_profile(GSimpleAction *a, GVariant *p, gpointer data);
 
 static void load_data(View3d *v) {
     if (!v->view) return;
@@ -211,6 +212,18 @@ static void load_data(View3d *v) {
             if (path != (size_t)-1) zg_model_select(v->model, (gint64)path);
             /* For tests: ZSLICE_COPY_FOR_AI=1 runs "Copy for AI" on it. */
             if (path != (size_t)-1 && g_getenv("ZSLICE_COPY_FOR_AI")) on_copy_for_ai(NULL, NULL, v);
+            /* ZSLICE_PROFILE=up (or down): "New profile from here up". */
+            const char *prof = g_getenv("ZSLICE_PROFILE");
+            if (path != (size_t)-1 && prof) {
+                GVariant *dir = g_variant_ref_sink(g_variant_new_int32(strcmp(prof, "down") == 0 ? -1 : 1));
+                on_new_profile(NULL, dir, v);
+                g_variant_unref(dir);
+                /* ZSLICE_PROFILE_SET=name=value: one change in it. */
+                const char *set = g_getenv("ZSLICE_PROFILE_SET");
+                char **kv = set ? g_strsplit(set, "=", 2) : NULL;
+                if (kv && kv[0] && kv[1]) zg_model_set_for(v->model, kv[0], kv[1], TRUE, NULL);
+                g_strfreev(kv);
+            }
             /* As after a click: the keys go to the preview. */
             GtkWidget *preview = gtk_widget_get_ancestor(v->area, GTK_TYPE_OVERLAY);
             if (preview) gtk_widget_grab_focus(preview);
@@ -594,6 +607,21 @@ static void on_copy_for_ai(GSimpleAction *a, GVariant *p, gpointer data) {
     g_free(dir);
 }
 
+/* "New profile from here up" (1) or "down" (-1): a layer profile from
+ * the layer of the selected line, opened in the settings browser. */
+static void on_new_profile(GSimpleAction *a, GVariant *p, gpointer data) {
+    View3d *v = data;
+    int dir = g_variant_get_int32(p);
+    gint64 path = zg_model_selected(v->model);
+    zs_inspect info;
+    if (path < 0 || zs_app_inspect(zg_model_core(v->model), (size_t)path, &info) != ZS_OK) return;
+    double z_min = dir > 0 ? info.z : -1e6, z_max = dir > 0 ? 1e6 : info.z;
+    char *name = g_strdup_printf(dir > 0 ? "Layers %zu and up" : "Layers 1 to %zu", info.layer + 1);
+    zg_model_profile_set(v->model, z_min, z_max, name);
+    g_free(name);
+    zg_model_open_profile(v->model, z_min, z_max);
+}
+
 static void on_clear_marks(GSimpleAction *a, GVariant *p, gpointer data) {
     zg_model_marks_clear(((View3d *)data)->model);
 }
@@ -670,6 +698,11 @@ static void show_menu(View3d *v, double x, double y) {
         g_menu_prepend_item(here, cut);
         g_object_unref(cut);
         g_menu_append_section(menu, NULL, G_MENU_MODEL(here));
+        GMenu *prof = g_menu_new();
+        g_menu_append(prof, "New profile from here up", "view3d.new-profile(1)");
+        g_menu_append(prof, "New profile from here down", "view3d.new-profile(-1)");
+        g_menu_append_section(menu, NULL, G_MENU_MODEL(prof));
+        g_object_unref(prof);
         g_object_unref(kinds);
         g_object_unref(here);
         /* The part of the line: its placement. */
@@ -809,6 +842,7 @@ GtkWidget *zg_view3d_new(ZgModel *model) {
         {.name = "clear-marks", .activate = on_clear_marks},
         {.name = "put-down", .activate = on_put_down},
         {.name = "copy-for-ai", .activate = on_copy_for_ai},
+        {.name = "new-profile", .activate = on_new_profile, .parameter_type = "i"},
         {.name = "place", .activate = on_place, .parameter_type = "i"},
         {.name = "reset-view", .activate = on_reset_view},
     };

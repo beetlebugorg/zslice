@@ -42,6 +42,7 @@ static const char *ZG_CSS =
     "label.zg-overridden { color: @accent_color; font-weight: bold; }"
     /* The navigation bar of the settings browser. */
     ".zg-nav { padding: 2px 6px; }"
+    ".zg-profile-bar { padding: 8px 12px; background: alpha(@accent_bg_color, 0.14); }"
     "button.zg-crumb { padding: 2px 6px; min-height: 24px; font-weight: normal; }"
     "button.zg-crumb-here { font-weight: bold; }"
     "progressbar.zg-thin trough, progressbar.zg-thin progress { min-height: 3px; }"

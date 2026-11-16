@@ -171,6 +171,7 @@ Right-click a line in the 3D view (or press Shift+F10 with a line selected) for 
 
 - **Preview to this layer** (C): the layer slider goes to the layer of the line, so the part shows as printed up to there. Click the side of the part at a height, then press C.
 - **Show all layers** (Shift+C), when the slider hides some layers.
+- **New profile from here up** (or **from here down**): a layer profile from the layer of the line. See "Layer profiles" below.
 - **Add support here** › Grid, Tree, or Bridge (a pad): support of that kind under a 3 mm disk at that place, on that layer. It works also when support is off in the settings.
 - **Block support here**: no support from the settings under that place.
 - **Remove the support marks here**, and **Clear all support marks**.
@@ -199,6 +200,16 @@ Click in the preview first, so that it gets the keys.
 | Esc | Clears the selection | — |
 
 A click on a line selects the line (yellow) and the segment under the pointer (orange). After the last segment of a line, → goes on to the first segment of the next line. Shift with ↑ or ↓ (or k or j) moves the bottom knob of the layer slider. A line of the same feature (for example an outer wall) wins over a line of another feature that is a little nearer. The layer slider follows the selection.
+
+## Layer profiles
+
+A layer profile changes settings for some layers only, for example a denser infill from layer 48 up.
+
+1. Right-click a line in the 3D view at the height where the change starts, and pick **New profile from here up** (or **from here down**).
+2. The Settings page opens with a bar at the top: the name of the profile and its layers. Each setting shows its value for these layers. A change goes only to these layers, and it shows in the accent color.
+3. Click **Done** to stop. Then a change in the Settings page goes to all prints again.
+
+The **Layer profiles** section at the top of the Settings page lists each profile: its layers and how many changes it has. Click a profile to see its changes and edit it. In the bar, the pen renames the profile, and the trash deletes it with all its changes. A change for "This layer and up" on the Selected page shows in the list too. A 3MF file keeps the profiles. A setting for the whole print (for example the bed temperature) cannot change for some layers; the page says so.
 
 ## More than one part
 

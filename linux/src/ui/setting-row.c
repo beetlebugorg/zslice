@@ -186,7 +186,7 @@ ZgSettingRow *zg_setting_row_add(GtkWidget *grid, int *row, ZgModel *model, cons
     ZgSettingRow *r = g_new0(ZgSettingRow, 1);
     r->needle = g_utf8_strdown(info->label, -1);
     r->widgets[0] = label;
-    GtkWidget *editor = zg_setting_editor_new(model, info, compact);
+    GtkWidget *editor = zg_setting_editor_new(model, info, compact || (flags & ZG_ROW_SCOPED));
     if (compact) gtk_widget_add_css_class(editor, "zg-compact");
     gboolean number = info->kind == ZS_SETTING_NUMBER || info->kind == ZS_SETTING_INTEGER;
     if (number) zg_setting_editor_add_scrub(editor, label);
