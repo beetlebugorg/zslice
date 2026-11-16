@@ -64,6 +64,8 @@ pub const View = struct {
     /// beads of path i are path_start[i] to path_start[i + 1].
     path_start: std.ArrayList(u32) = .empty,
     highlight: [2]f32 = .{ 0, 0 },
+    /// With a selection: the other beads are ghosts.
+    isolate: bool = false,
     /// The features in focus (a bit for each), or 0 for no focus. The
     /// other beads fade. See `setFocus`.
     focus_mask: u32 = 0,
@@ -86,6 +88,8 @@ pub const View = struct {
     /// frame on the bed around it.
     part_box: ?[4]f32 = null,
     layer: usize = 0,
+    /// The lowest layer that shows (the bottom of the layer range).
+    layer_lo: usize = 0,
     grid_vertices: u32 = 0,
     width: u32,
     height: u32,
@@ -448,6 +452,13 @@ pub const View = struct {
         v.time = null;
     }
 
+    /// Shows the layers `lo` to `hi`, and stops the replay.
+    pub fn setLayerRange(v: *View, lo: usize, hi: usize) void {
+        v.layer_lo = @min(lo, hi);
+        v.layer = hi;
+        v.time = null;
+    }
+
     /// Shows the print as it is at `t` seconds after the start: each bead
     /// that is done, and the part of the bead that the nozzle is printing.
     pub fn setTime(v: *View, t: f32) void {
@@ -670,7 +681,9 @@ pub const View = struct {
         if (v.layer_end.items.len > 0) count = v.layer_end.items[@min(v.layer, v.layer_end.items.len - 1)];
         var best: ?usize = null;
         var best_t: f32 = std.math.inf(f32);
-        for (v.beads.items[0..count], 0..) |b, i| {
+        var start: usize = 0;
+        if (v.layer_lo > 0 and v.layer_lo - 1 < v.layer_end.items.len) start = @min(count, v.layer_end.items[@min(v.layer_lo, v.layer) - 1]);
+        for (v.beads.items[start..count], start..) |b, i| {
             const zc = b.z - b.h / 2;
             const k = if (b.h > 0) b.w / b.h else 1;
             const o = [3]f32{ cam.eye[0], cam.eye[1], zc + (cam.eye[2] - zc) * k };
@@ -727,12 +740,22 @@ pub const View = struct {
         } else if (v.layer_end.items.len > 0) {
             count = v.layer_end.items[@min(v.layer, v.layer_end.items.len - 1)];
         }
+        // The bottom of the layer range: the beads and marks of the layers
+        // under it do not show (not in a replay).
+        var first: u32 = 0;
+        var mark_skip: u32 = 0;
+        if (v.time == null and v.layer_lo > 0) {
+            const lo = @min(v.layer_lo, v.layer);
+            if (lo > 0 and lo - 1 < v.layer_end.items.len) first = v.layer_end.items[lo - 1];
+            if (lo > 0 and lo - 1 < v.mark_layer_end.items.len) mark_skip = v.mark_layer_end.items[lo - 1];
+        }
         // The marks of the layers that show.
         var mark_count: u32 = 0;
         if (v.mark_layer_end.items.len > 0) {
             const top = if (v.time) |t| v.layerAtTime(t) else v.layer;
             mark_count = v.mark_layer_end.items[@min(top, v.mark_layer_end.items.len - 1)];
         }
+        mark_count -|= mark_skip;
         try v.renderer.draw(.{
             .extras = blk: {
                 // The frame of the selected part: four thin beads on the bed.
@@ -753,10 +776,11 @@ pub const View = struct {
                 .mvp = mvp,
                 .vec = .{ 0.35, -0.45, 0.82, 0 },
                 .eye = .{ eye[0], eye[1], eye[2], if (std.math.isInf(v.focus_zmax)) 1e9 else v.focus_zmax },
-                .params = .{ v.highlight[0], v.highlight[1], @floatFromInt(v.focus_mask), 0 },
+                .params = .{ v.highlight[0], v.highlight[1], if (v.isolate and v.highlight[1] > v.highlight[0]) -1 else @as(f32, @floatFromInt(v.focus_mask)), 0 },
             },
             .box_count = count,
-            .mark_first = @intCast(v.beads.items.len),
+            .box_first = first,
+            .mark_first = @intCast(v.beads.items.len + mark_skip),
             .mark_count = mark_count,
             .grid = .{ .mvp = mvp, .vec = .{ 0.80, 0.82, 0.85, 1 } },
             .grid_vertices = v.grid_vertices,

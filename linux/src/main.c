@@ -46,9 +46,10 @@ static const char *ZG_CSS =
     /* The controls that float over the preview. */
     ".zg-float { background: alpha(@theme_bg_color, 0.88); border-radius: 10px; padding: 4px;"
     "  box-shadow: 0 1px 4px alpha(black, 0.25); }"
-    ".zg-layers { padding: 4px 0; min-width: 28px; border-radius: 14px; }"
+    ".zg-layers { padding: 6px 0 4px; min-width: 28px; border-radius: 14px; }"
     ".zg-layers label { font-size: 0.7em; font-feature-settings: 'tnum'; }"
     ".zg-layers scale { padding: 0 6px; }"
+    ".zg-layers label { margin-top: 2px; }"
     ".zg-legend { font-size: 0.8em; padding: 0 6px; font-feature-settings: 'tnum'; }"
     ".zg-inspector, .zg-status-text { transition: opacity 200ms ease-out; }"
     ".zg-stale { opacity: 0.55; }"

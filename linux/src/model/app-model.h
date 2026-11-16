@@ -55,6 +55,10 @@ char *zg_model_get(ZgModel *self, const char *key);
  * clears it. "selection-changed" follows each change. */
 void zg_model_select(ZgModel *self, gint64 path);
 gint64 zg_model_selected(ZgModel *self);
+/* With a selected line: TRUE fades all other lines (ghosts), so only the
+ * selection is solid. FALSE (the default) keeps their colors. */
+void zg_model_set_isolate(ZgModel *self, gboolean on);
+gboolean zg_model_isolate(ZgModel *self);
 
 /* The focus of the previews: the features whose lines a setting changes
  * (a bit for each enum zs_feature, 0 for no focus), and if only the first

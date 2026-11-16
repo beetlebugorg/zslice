@@ -374,6 +374,12 @@ void zs_view_resize(zs_view *view, uint32_t width_px, uint32_t height_px);
 int zs_view_load(zs_view *view, const zs_app *app);
 /* Shows the layers from 0 to `layer`. */
 void zs_view_set_layer(zs_view *view, size_t layer);
+/* Shows the layers lo to hi (the layers under lo do not show, so the
+ * inside of the part at lo is visible), and stops the replay. */
+/* With a highlight: on = 1 shows the other beads as ghosts, so only the
+ * selected path is solid. on = 0 (the default) keeps their colors. */
+void zs_view_isolate(zs_view *view, int on);
+void zs_view_set_layer_range(zs_view *view, size_t lo, size_t hi);
 /* Turns the camera by a drag of dx, dy pixels. */
 void zs_view_orbit(zs_view *view, float dx, float dy);
 /* Moves the camera nearer (factor < 1) or further (factor > 1). */

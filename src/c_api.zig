@@ -892,6 +892,18 @@ export fn zs_view_load(view: ?*View, a: ?*const App) c_int {
     return ok;
 }
 
+export fn zs_view_isolate(view: ?*View, on: c_int) void {
+    if (!render_on) return;
+    const v = view orelse return;
+    v.isolate = on != 0;
+}
+
+export fn zs_view_set_layer_range(view: ?*View, lo: usize, hi: usize) void {
+    if (!render_on) return;
+    const v = view orelse return;
+    v.setLayerRange(lo, hi);
+}
+
 export fn zs_view_set_layer(view: ?*View, layer: usize) void {
     if (!render_on) return;
     const v = view orelse return;

@@ -31,7 +31,7 @@ typedef struct {
     ZgNativeSurface *native;
     zs_view *view;
     char *error;
-    size_t layer;
+    size_t layer, layer_lo;
     int mode; /* enum zs_view_mode */
     gboolean zoomed;
     gboolean picked;
@@ -145,7 +145,7 @@ static void load_data(View3d *v) {
         g_warning("zslice: the 3D view did not load the toolpaths: %s", zg_status_text(rc));
         return;
     }
-    zs_view_set_layer(v->view, v->layer);
+    zs_view_set_layer_range(v->view, v->layer_lo, v->layer);
     gint64 sel = zg_model_selected(v->model);
     zs_view_highlight(v->view, sel < 0 ? (size_t)-1 : (size_t)sel);
     apply_focus(v);
@@ -171,7 +171,7 @@ static void load_data(View3d *v) {
             int scale = gtk_widget_get_scale_factor(v->area);
             /* The preview sets the layer after the load: pick on all layers. */
             v->layer = zs_app_layer_count(zg_model_core(v->model)) - 1;
-            zs_view_set_layer(v->view, v->layer);
+            zs_view_set_layer_range(v->view, v->layer_lo, v->layer);
             size_t path = zs_view_pick(v->view, (float)(g_ascii_strtod(xy[0], NULL) * scale), (float)(g_ascii_strtod(xy[1], NULL) * scale));
             v->picked = TRUE;
             if (path != (size_t)-1) zg_model_select(v->model, (gint64)path);
@@ -285,9 +285,18 @@ size_t zg_view3d_layer_at_time(GtkWidget *view, double t) {
     return v->view ? zs_view_layer_at_time(v->view, t) : 0;
 }
 
+void zg_view3d_set_layer_range(GtkWidget *view, size_t lo, size_t hi) {
+    View3d *v = g_object_get_data(G_OBJECT(view), "zg-view3d");
+    v->layer = hi;
+    v->layer_lo = lo;
+    if (v->view) zs_view_set_layer_range(v->view, lo, hi);
+    queue_frame(v);
+}
+
 void zg_view3d_set_layer(GtkWidget *view, size_t layer) {
     View3d *v = g_object_get_data(G_OBJECT(view), "zg-view3d");
     v->layer = layer;
+    v->layer_lo = 0;
     if (v->view) zs_view_set_layer(v->view, layer);
 
     queue_frame(v);
@@ -440,6 +449,7 @@ static void on_selection(ZgModel *model, gint64 path, gpointer data) {
     View3d *v = data;
     if (!v->view) return;
     zs_view_highlight(v->view, path < 0 ? (size_t)-1 : (size_t)path);
+    zs_view_isolate(v->view, zg_model_isolate(model));
     queue_frame(v);
 }
 

@@ -33,6 +33,8 @@ struct _ZgModel {
     Bridge *bridge;
     char *name;
     gint64 selected;
+    /* With a selected line: the other lines fade (see zg_model_set_isolate). */
+    gboolean isolate;
     /* The place of the selection (a layer and a point of the path), so
      * that a new slice can pick the path at the same place again. */
     gboolean anchored;
@@ -387,6 +389,17 @@ double zg_model_slice_ms(ZgModel *self) {
 
 gint64 zg_model_selected(ZgModel *self) {
     return self->selected;
+}
+
+void zg_model_set_isolate(ZgModel *self, gboolean on) {
+    if (self->isolate == on) return;
+    self->isolate = on;
+    /* The previews read the flag when the selection changes. */
+    g_signal_emit(self, signals[SIGNAL_SELECTION_CHANGED], 0, self->selected);
+}
+
+gboolean zg_model_isolate(ZgModel *self) {
+    return self->isolate;
 }
 
 static void zg_model_init(ZgModel *self) {

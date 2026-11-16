@@ -26,7 +26,7 @@ void main() {
     // A focus (params.z != 0) draws in two passes: the beads in focus,
     // solid (params.w < 2), then the other beads as faint ghosts that do
     // not hide what is behind them (params.w = 2, blended, no depth write).
-    bool focus = pc.params.z > 0.5;
+    bool focus = pc.params.z > 0.5 || pc.params.z < -0.5;
     if (focus && pc.params.w > 1.5) {
         if (vfocus > 0.5) discard;
         float rim = 1.0 - abs(dot(normalize(vnormal), normalize(pc.eye.xyz - vpos)));
@@ -39,10 +39,10 @@ void main() {
     vec3 v = normalize(pc.eye.xyz - vpos);
     vec3 base = toLinear(vcolor);
     // A selection (params.x < params.y): the selected path in a strong
-    // yellow, and all other beads in a neutral gray, so the selection is
-    // the only color in the view.
-    if (pc.params.y > pc.params.x && vhigh > -0.5) {
-        base = vhigh > 0.5 ? toLinear(vec3(1.0, 0.78, 0.05)) : toLinear(vec3(0.74, 0.75, 0.77));
+    // yellow. The other beads keep their colors (to fade them, the view
+    // isolates the selection: params.z < 0).
+    if (pc.params.y > pc.params.x && vhigh > 0.5) {
+        base = toLinear(vec3(1.0, 0.78, 0.05));
     }
     // More light from the sky (up) than from the ground.
     float ambient = mix(0.18, 0.32, 0.5 + 0.5 * n.z);

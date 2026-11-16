@@ -98,10 +98,14 @@ void main() {
     float idx = float(gl_InstanceIndex);
     vhigh = (idx >= pc.params.x && idx < pc.params.y) ? 1.0 : 0.0;
     // The alpha byte of the color has the feature of the bead.
-    uint mask = uint(pc.params.z + 0.5);
+    // params.z < 0: isolate the selection: the selected path is solid,
+    // and all other beads are ghosts.
+    bool isolate = pc.params.z < -0.5;
+    uint mask = isolate ? 0u : uint(pc.params.z + 0.5);
     uint feature = uint(color.a * 255.0 + 0.5);
     bool in_mask = ((mask >> feature) & 1u) != 0u;
     vfocus = (mask == 0u || (in_mask && zhw.x <= pc.eye.w + 1e-4)) ? 1.0 : 0.0;
+    if (isolate) vfocus = vhigh;
     if (mask != 0u && vfocus > 0.5) vcolor = feature_rgb[min(feature, 10u)];
     // The travel and retraction marks show only in a focus on them: they
     // are not part of the printed part. A mark that does not show goes

@@ -927,6 +927,9 @@ pub const Renderer = struct {
         clear: [3]f32,
         box: Push,
         box_count: u32,
+        /// The beads before this one do not show (the bottom of a layer
+        /// range): the draw is of beads box_first .. box_count.
+        box_first: u32 = 0,
         /// The marks to draw: instances mark_first .. mark_first + mark_count.
         mark_first: u32 = 0,
         mark_count: u32 = 0,
@@ -1000,7 +1003,7 @@ pub const Renderer = struct {
             const offs = [_]c.VkDeviceSize{ 0, 0 };
             d.vkCmdBindVertexBuffers.?(cmd, 0, 2, &bufs, &offs);
             d.vkCmdBindIndexBuffer.?(cmd, r.box_index.buf, 0, c.VK_INDEX_TYPE_UINT16);
-            d.vkCmdDrawIndexed.?(cmd, r.box_index_count, frame.box_count, 0, 0, 0);
+            d.vkCmdDrawIndexed.?(cmd, r.box_index_count, frame.box_count - @min(frame.box_first, frame.box_count), 0, 0, @min(frame.box_first, frame.box_count));
             if (frame.mark_count > 0) d.vkCmdDrawIndexed.?(cmd, r.box_index_count, frame.mark_count, 0, 0, frame.mark_first);
             // With a focus (params.z != 0): the beads out of the focus, as
             // ghosts, after the solid beads (params.w = 2 in the shader).
@@ -1009,7 +1012,7 @@ pub const Renderer = struct {
                 ghost.params[3] = 2;
                 d.vkCmdBindPipeline.?(cmd, c.VK_PIPELINE_BIND_POINT_GRAPHICS, r.ghost_pipeline);
                 d.vkCmdPushConstants.?(cmd, r.layout, stages, 0, @sizeOf(Push), &ghost);
-                d.vkCmdDrawIndexed.?(cmd, r.box_index_count, frame.box_count, 0, 0, 0);
+                d.vkCmdDrawIndexed.?(cmd, r.box_index_count, frame.box_count - @min(frame.box_first, frame.box_count), 0, 0, @min(frame.box_first, frame.box_count));
                 if (frame.mark_count > 0) d.vkCmdDrawIndexed.?(cmd, r.box_index_count, frame.mark_count, 0, 0, frame.mark_first);
                 d.vkCmdBindPipeline.?(cmd, c.VK_PIPELINE_BIND_POINT_GRAPHICS, r.box_pipeline);
                 d.vkCmdPushConstants.?(cmd, r.layout, stages, 0, @sizeOf(Push), &frame.box);

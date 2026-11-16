@@ -35,3 +35,5 @@ size_t zg_view3d_layer_at_time(GtkWidget *view, double t);
 
 /* Shows the layers from 0 to `layer`. */
 void zg_view3d_set_layer(GtkWidget *view, size_t layer);
+/* Shows the layers from lo to hi. */
+void zg_view3d_set_layer_range(GtkWidget *view, size_t lo, size_t hi);

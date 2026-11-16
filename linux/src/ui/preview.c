@@ -21,6 +21,7 @@
 
 #include "colors.h"
 #include "view3d.h"
+#include "layer-range.h"
 
 typedef struct {
     ZgModel *model;
@@ -36,10 +37,10 @@ typedef struct {
     double drag_ox, drag_oy;
     double press_x, press_y;
     gboolean fitted;
-    gboolean updating_slider;
     /* The replay. */
     GtkWidget *stack;
     GtkWidget *slider_box;
+    GtkWidget *isolate;
     GtkWidget *colors;
     GtkWidget *legend;
     GtkWidget *play;
@@ -104,8 +105,10 @@ static void load_layer(Preview *p, size_t layer) {
             slowed = tp.layer_slowed[layer] != 0;
         }
         /* Only the layer number on the slider; the rest is in its tooltip. */
-        char *text = g_strdup_printf("%s%zu", slowed ? "❄" : "", layer + 1);
-        char *tip = g_strdup_printf("Layer %zu of %zu, at z %.2f mm. It prints in %.1f s%s. Drag, or use the arrow keys for one layer.",
+        size_t lo = zg_layer_range_get_lo(ZG_LAYER_RANGE(p->slider));
+        char *text = lo > 0 && lo < layer ? g_strdup_printf("%zu\n%s%zu", layer + 1, slowed ? "❄" : "", lo + 1)
+                                          : g_strdup_printf("%s%zu", slowed ? "❄" : "", layer + 1);
+        char *tip = g_strdup_printf("Layer %zu of %zu, at z %.2f mm. It prints in %.1f s%s. Drag a knob: the top knob is the top layer, and the bottom knob the lowest layer that shows. Arrow keys: the top knob; Shift+arrow keys: the bottom knob.",
                                     layer + 1, p->layer_count, p->paths.z, layer_s,
                                     slowed ? ", slower than planned, so that it cools (filament minimum layer time)" : "");
         gtk_widget_set_tooltip_text(p->slider_box, tip);
@@ -189,7 +192,7 @@ static void draw(GtkDrawingArea *area, cairo_t *cr, int w, int h, gpointer data)
         gint64 sel = zg_model_selected(p->model);
         zs_toolpaths tp;
         if (sel >= 0 && zs_app_toolpaths(core, &tp) == ZS_OK) {
-            size_t layer = (size_t)gtk_range_get_value(GTK_RANGE(p->slider));
+            size_t layer = zg_layer_range_get_hi(ZG_LAYER_RANGE(p->slider));
             uint32_t first = layer == 0 ? 0 : tp.layer_ends[layer - 1];
             if ((uint32_t)sel >= first && (uint32_t)sel < tp.layer_ends[layer]) {
                 size_t i = (size_t)sel - first;
@@ -205,7 +208,7 @@ static void draw(GtkDrawingArea *area, cairo_t *cr, int w, int h, gpointer data)
         /* The focus of the settings browser: the other features fade. */
         gboolean first_only = FALSE;
         guint32 focus = zg_model_focus(p->model, &first_only);
-        size_t shown = (size_t)gtk_range_get_value(GTK_RANGE(p->slider));
+        size_t shown = zg_layer_range_get_hi(ZG_LAYER_RANGE(p->slider));
         for (size_t f = 0; f < ZG_N_FEATURES; f++) {
             for (size_t i = 0; i < lp->path_count; i++) {
                 if (lp->path_features[i] != f) continue;
@@ -213,15 +216,15 @@ static void draw(GtkDrawingArea *area, cairo_t *cr, int w, int h, gpointer data)
                 add_polyline(cr, lp->points, start, lp->path_ends[i], lp->path_closed[i]);
             }
             gboolean in_focus = focus == 0 || ((focus >> f) & 1 && (!first_only || shown == 0));
-            /* A selected line: the other lines are gray, so it is the
-             * only color. */
-            if (sel >= 0) cairo_set_source_rgba(cr, 0.70, 0.72, 0.74, 0.55);
+            /* A selected line with "Fade others": the other lines are
+             * faint. Else they keep their colors. */
+            if (sel >= 0 && zg_model_isolate(p->model)) cairo_set_source_rgba(cr, zg_feature_rgb[f][0], zg_feature_rgb[f][1], zg_feature_rgb[f][2], 0.12);
             else cairo_set_source_rgba(cr, zg_feature_rgb[f][0], zg_feature_rgb[f][1], zg_feature_rgb[f][2], in_focus ? 0.9 : 0.12);
             cairo_stroke(cr);
         }
         /* The selected line again, on top, in its own color. */
         if (sel >= 0 && zs_app_toolpaths(core, &tp) == ZS_OK) {
-            size_t layer = (size_t)gtk_range_get_value(GTK_RANGE(p->slider));
+            size_t layer = zg_layer_range_get_hi(ZG_LAYER_RANGE(p->slider));
             uint32_t first = layer == 0 ? 0 : tp.layer_ends[layer - 1];
             if ((uint32_t)sel >= first && (uint32_t)sel < tp.layer_ends[layer]) {
                 size_t i = (size_t)sel - first;
@@ -309,9 +312,8 @@ static gboolean on_tick(GtkWidget *w, GdkFrameClock *clock, gpointer data) {
     if (p->time >= total) p->time = total;
     zg_view3d_set_time(p->view3d, p->time);
     size_t layer = zg_view3d_layer_at_time(p->view3d, p->time);
-    p->updating_slider = TRUE;
-    gtk_range_set_value(GTK_RANGE(p->slider), (double)layer);
-    p->updating_slider = FALSE;
+    /* The replay shows all layers up to the nozzle. */
+    zg_layer_range_set(ZG_LAYER_RANGE(p->slider), 0, layer);
     show_time(p, layer);
     if (p->time >= total) {
         p->tick = 0;
@@ -369,15 +371,22 @@ static void on_color_mode(GObject *dd, GParamSpec *pspec, gpointer data) {
 }
 
 
-static void on_slider(GtkRange *range, gpointer data) {
+static void on_isolate(GtkToggleButton *b, gpointer data) {
     Preview *p = data;
-    if (p->updating_slider) return;
-    /* A move of the slider stops the replay, and shows whole layers. */
+    gboolean on = gtk_toggle_button_get_active(b);
+    zg_pref_set("isolate", on ? "1" : "0");
+    zg_model_set_isolate(p->model, on);
+}
+
+static void on_slider(ZgLayerRange *range, gpointer data) {
+    Preview *p = data;
+    /* A move of the slider stops the replay, and shows whole layers. The
+     * 2D view shows the top layer; the 3D view shows lo to hi. */
     stop_replay(p);
     p->time = 0;
-    size_t layer = (size_t)gtk_range_get_value(range);
+    size_t layer = zg_layer_range_get_hi(range);
     load_layer(p, layer);
-    zg_view3d_set_layer(p->view3d, layer);
+    zg_view3d_set_layer_range(p->view3d, zg_layer_range_get_lo(range), layer);
 }
 
 static gboolean on_scroll(GtkEventControllerScroll *ctrl, double dx, double dy, gpointer data) {
@@ -431,13 +440,15 @@ static void on_release(GtkGestureClick *g, int n, double x, double y, gpointer d
     int h = gtk_widget_get_height(p->area);
     double mx = (x - p->ox) / p->scale;
     double my = ((h - y) - p->oy) / p->scale;
-    size_t layer = (size_t)gtk_range_get_value(GTK_RANGE(p->slider));
+    size_t layer = zg_layer_range_get_hi(ZG_LAYER_RANGE(p->slider));
     size_t path = zs_app_pick_layer(core, layer, mx, my);
     zg_model_select(p->model, path == (size_t)-1 ? -1 : (gint64)path);
 }
 
 static void on_selection(ZgModel *model, gint64 path, gpointer data) {
     Preview *p = data;
+    /* "Fade others" shows only while a line is selected. */
+    gtk_widget_set_visible(p->isolate, path >= 0);
     gtk_widget_queue_draw(p->area);
 }
 
@@ -494,14 +505,11 @@ GtkWidget *zg_preview_new(ZgModel *model) {
     g_signal_connect(click, "released", G_CALLBACK(on_release), p);
     gtk_widget_add_controller(p->area, GTK_EVENT_CONTROLLER(click));
 
-    p->slider = gtk_scale_new_with_range(GTK_ORIENTATION_VERTICAL, 0, 1, 1);
-    gtk_range_set_inverted(GTK_RANGE(p->slider), TRUE);
-    gtk_scale_set_digits(GTK_SCALE(p->slider), 0);
-    gtk_scale_set_draw_value(GTK_SCALE(p->slider), FALSE);
+    /* Two knobs: the top layer and the bottom layer that show. */
+    p->slider = zg_layer_range_new();
     gtk_widget_set_vexpand(p->slider, TRUE);
     gtk_widget_set_sensitive(p->slider, FALSE);
-    gtk_widget_set_tooltip_text(p->slider, "The layer to show. Use the arrow keys for one layer.");
-    g_signal_connect(p->slider, "value-changed", G_CALLBACK(on_slider), p);
+    g_signal_connect(p->slider, "changed", G_CALLBACK(on_slider), p);
 
     p->label = gtk_label_new("");
     gtk_label_set_justify(GTK_LABEL(p->label), GTK_JUSTIFY_CENTER);
@@ -574,6 +582,12 @@ GtkWidget *zg_preview_new(ZgModel *model) {
     gtk_box_append(GTK_BOX(bar), p->legend);
     gtk_box_append(GTK_BOX(bar), p->play);
     gtk_box_append(GTK_BOX(bar), p->speed);
+    /* With a selected line: fade the other lines, or keep their colors. */
+    p->isolate = gtk_toggle_button_new_with_label("Fade others");
+    gtk_widget_set_tooltip_text(p->isolate, "Show only the selected line solid, and the other lines as faint ghosts");
+    gtk_widget_set_visible(p->isolate, FALSE);
+    g_signal_connect(p->isolate, "toggled", G_CALLBACK(on_isolate), p);
+    gtk_box_append(GTK_BOX(bar), p->isolate);
     gtk_widget_set_halign(bar, GTK_ALIGN_START);
     gtk_widget_set_valign(bar, GTK_ALIGN_START);
     gtk_widget_set_margin_start(bar, 10);
@@ -582,7 +596,9 @@ GtkWidget *zg_preview_new(ZgModel *model) {
     /* The layer slider: a thin bar on the right edge, with the layer and
      * the z (or the replay time) above it. */
     p->slider_box = gtk_box_new(GTK_ORIENTATION_VERTICAL, 2);
-    gtk_widget_add_css_class(p->slider_box, "zg-float");
+    /* The on-screen-display style of the theme: the native look of
+     * controls over content (as the controls of a video). */
+    gtk_widget_add_css_class(p->slider_box, "osd");
     gtk_widget_add_css_class(p->slider_box, "zg-layers");
     /* The number under the bar: the knob is at the top for the top layer. */
     gtk_box_append(GTK_BOX(p->slider_box), p->slider);
@@ -600,6 +616,10 @@ GtkWidget *zg_preview_new(ZgModel *model) {
     gtk_widget_set_size_request(stack, 200, -1);
     g_object_set_data_full(G_OBJECT(box), "zg-preview", p, preview_free);
     g_signal_connect(model, "selection-changed", G_CALLBACK(on_selection), p);
+    /* The last choice of "Fade others". */
+    char *iso = zg_pref_get("isolate", "0");
+    if (strcmp(iso, "1") == 0) gtk_toggle_button_set_active(GTK_TOGGLE_BUTTON(p->isolate), TRUE);
+    g_free(iso);
     g_signal_connect(model, "focus-changed", G_CALLBACK(on_focus_changed), p);
     return box;
 }
@@ -619,21 +639,28 @@ void zg_preview_refresh(GtkWidget *preview) {
         return;
     }
     size_t old_count = p->layer_count;
-    size_t old_layer = (size_t)gtk_range_get_value(GTK_RANGE(p->slider));
+    size_t old_layer = zg_layer_range_get_hi(ZG_LAYER_RANGE(p->slider));
     p->layer_count = zs_app_layer_count(core);
     if (p->layer_count == 0) return;
 
     /* Keep the same layer if it still exists. On the first result, show the
      * top layer. */
     size_t layer = (old_count == 0 || old_layer >= p->layer_count) ? p->layer_count - 1 : old_layer;
-    p->updating_slider = TRUE;
-    gtk_range_set_range(GTK_RANGE(p->slider), 0, (double)(p->layer_count > 1 ? p->layer_count - 1 : 1));
-    gtk_range_set_value(GTK_RANGE(p->slider), (double)layer);
-    p->updating_slider = FALSE;
+    ZgLayerRange *range = ZG_LAYER_RANGE(p->slider);
+    size_t lo = old_count == 0 ? 0 : MIN(zg_layer_range_get_lo(range), layer);
+    /* For development and screenshots: ZSLICE_LAYERS=lo,hi on the first
+     * result. */
+    const char *env = old_count == 0 ? g_getenv("ZSLICE_LAYERS") : NULL;
+    if (env && strchr(env, ',')) {
+        lo = (size_t)atol(env);
+        layer = MIN((size_t)atol(strchr(env, ',') + 1), p->layer_count - 1);
+    }
+    zg_layer_range_set_count(range, p->layer_count);
+    zg_layer_range_set(range, lo, layer);
     gtk_widget_set_sensitive(p->slider, p->layer_count > 1);
     if (old_count == 0) p->fitted = FALSE;
     load_layer(p, layer);
     zg_view3d_reload(p->view3d);
     show_legend(p);
-    zg_view3d_set_layer(p->view3d, layer);
+    zg_view3d_set_layer_range(p->view3d, zg_layer_range_get_lo(range), layer);
 }
