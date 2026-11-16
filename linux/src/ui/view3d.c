@@ -467,6 +467,104 @@ static void on_release(GtkGestureClick *g, int n, double x, double y, gpointer d
     else zg_model_select_segment(v->model, (gint64)path, (gint64)seg);
 }
 
+/* ---- the context menu ----
+ *
+ * A right click on a line selects it (and its segment), and the menu acts
+ * at the middle of that segment, on its layer: support of a kind there, no
+ * support there, or no marks there. */
+
+/* The place of the menu: x, y, z in mm, from the selected segment. */
+static gboolean mark_place(View3d *v, double *x, double *y, double *z) {
+    gint64 path = zg_model_selected(v->model);
+    zs_toolpaths tp;
+    if (path < 0 || zs_app_toolpaths(zg_model_core(v->model), &tp) != ZS_OK || (size_t)path >= tp.path_count) return FALSE;
+    uint32_t a = path == 0 ? 0 : tp.path_ends[path - 1], b = tp.path_ends[path];
+    if (b <= a) return FALSE;
+    gint64 seg = zg_model_segment(v->model);
+    uint32_t i = seg >= 0 && a + (uint32_t)seg + 1 < b ? a + (uint32_t)seg : a + (b - a) / 2 - ((b - a) > 1 ? 1 : 0);
+    uint32_t j = i + 1 < b ? i + 1 : i;
+    *x = (tp.points[2 * i] + tp.points[2 * j]) / 2;
+    *y = (tp.points[2 * i + 1] + tp.points[2 * j + 1]) / 2;
+    size_t layer = 0;
+    while (layer < tp.layer_count && tp.layer_ends[layer] <= (uint32_t)path) layer++;
+    *z = layer < tp.layer_count ? tp.layer_z[layer] : 0;
+    return TRUE;
+}
+
+static void on_add_support(GSimpleAction *a, GVariant *p, gpointer data) {
+    View3d *v = data;
+    double x, y, z;
+    if (mark_place(v, &x, &y, &z)) zg_model_mark_add(v->model, x, y, z, 3, g_variant_get_int32(p));
+}
+
+static void on_remove_marks(GSimpleAction *a, GVariant *p, gpointer data) {
+    View3d *v = data;
+    double x, y, z;
+    if (mark_place(v, &x, &y, &z)) zg_model_mark_remove_near(v->model, x, y, z, 3);
+}
+
+static void on_clear_marks(GSimpleAction *a, GVariant *p, gpointer data) {
+    zg_model_marks_clear(((View3d *)data)->model);
+}
+
+static void on_reset_view(GSimpleAction *a, GVariant *p, gpointer data) {
+    View3d *v = data;
+    if (!v->view) return;
+    zs_view_reset_smooth(v->view);
+    start_animation(v);
+}
+
+static void show_menu(View3d *v, double x, double y);
+
+static void on_menu_click(GtkGestureClick *g, int n, double x, double y, gpointer data) {
+    View3d *v = data;
+    if (!v->view) return;
+    int scale = gtk_widget_get_scale_factor(v->area);
+    size_t seg = 0;
+    size_t path = zs_view_pick_segment(v->view, (float)(x * scale), (float)(y * scale), &seg);
+    if (path != (size_t)-1) zg_model_select_segment(v->model, (gint64)path, (gint64)seg);
+    show_menu(v, x, y);
+}
+
+/* The menu from the keyboard (the Menu key, or Shift+F10): for the line
+ * that is selected now, in the middle of the view. */
+void zg_view3d_context_menu(GtkWidget *view) {
+    View3d *v = g_object_get_data(G_OBJECT(view), "zg-view3d");
+    if (!v || !v->view) return;
+    show_menu(v, gtk_widget_get_width(v->area) / 2.0, gtk_widget_get_height(v->area) / 2.0);
+}
+
+static void show_menu(View3d *v, double x, double y) {
+    gboolean on_line = zg_model_selected(v->model) >= 0;
+    GMenu *menu = g_menu_new();
+    if (on_line) {
+        GMenu *kinds = g_menu_new();
+        g_menu_append(kinds, "Grid", "view3d.add-support(0)");
+        g_menu_append(kinds, "Tree", "view3d.add-support(1)");
+        g_menu_append(kinds, "Bridge (a pad)", "view3d.add-support(2)");
+        GMenu *here = g_menu_new();
+        g_menu_append_submenu(here, "Add support here", G_MENU_MODEL(kinds));
+        g_menu_append(here, "Block support here", "view3d.add-support(3)");
+        g_menu_append(here, "Remove the support marks here", "view3d.remove-marks");
+        g_menu_append_section(menu, NULL, G_MENU_MODEL(here));
+        g_object_unref(kinds);
+        g_object_unref(here);
+    }
+    GMenu *general = g_menu_new();
+    if (zs_app_mark_count(zg_model_core(v->model)) > 0) g_menu_append(general, "Clear all support marks", "view3d.clear-marks");
+    g_menu_append(general, "Reset the view", "view3d.reset-view");
+    g_menu_append_section(menu, NULL, G_MENU_MODEL(general));
+    g_object_unref(general);
+    GtkWidget *pop = gtk_popover_menu_new_from_model(G_MENU_MODEL(menu));
+    g_object_unref(menu);
+    gtk_widget_set_parent(pop, v->area);
+    gtk_popover_set_has_arrow(GTK_POPOVER(pop), FALSE);
+    GdkRectangle at = {(int)x, (int)y, 1, 1};
+    gtk_popover_set_pointing_to(GTK_POPOVER(pop), &at);
+    g_signal_connect(pop, "closed", G_CALLBACK(gtk_widget_unparent), NULL);
+    gtk_popover_popup(GTK_POPOVER(pop));
+}
+
 static void on_selection(ZgModel *model, gint64 path, gpointer data) {
     View3d *v = data;
     if (!v->view) return;
@@ -518,7 +616,6 @@ GtkWidget *zg_view3d_new(ZgModel *model) {
     const struct { guint button; int mode; } drags[] = {
         {GDK_BUTTON_PRIMARY, DRAG_ORBIT},
         {GDK_BUTTON_MIDDLE, DRAG_PAN},
-        {GDK_BUTTON_SECONDARY, DRAG_ROTATE},
     };
     for (size_t i = 0; i < G_N_ELEMENTS(drags); i++) {
         GtkGesture *drag = gtk_gesture_drag_new();
@@ -535,6 +632,21 @@ GtkWidget *zg_view3d_new(ZgModel *model) {
     GtkEventController *scroll = gtk_event_controller_scroll_new(GTK_EVENT_CONTROLLER_SCROLL_VERTICAL);
     g_signal_connect(scroll, "scroll", G_CALLBACK(on_scroll), v);
     gtk_widget_add_controller(v->area, scroll);
+    /* A right click: the context menu. */
+    GtkGesture *menu_click = gtk_gesture_click_new();
+    gtk_gesture_single_set_button(GTK_GESTURE_SINGLE(menu_click), GDK_BUTTON_SECONDARY);
+    g_signal_connect(menu_click, "pressed", G_CALLBACK(on_menu_click), v);
+    gtk_widget_add_controller(v->area, GTK_EVENT_CONTROLLER(menu_click));
+    static const GActionEntry menu_actions[] = {
+        {.name = "add-support", .activate = on_add_support, .parameter_type = "i"},
+        {.name = "remove-marks", .activate = on_remove_marks},
+        {.name = "clear-marks", .activate = on_clear_marks},
+        {.name = "reset-view", .activate = on_reset_view},
+    };
+    GSimpleActionGroup *group = g_simple_action_group_new();
+    g_action_map_add_action_entries(G_ACTION_MAP(group), menu_actions, G_N_ELEMENTS(menu_actions), v);
+    gtk_widget_insert_action_group(v->area, "view3d", G_ACTION_GROUP(group));
+    g_object_unref(group);
     GtkGesture *click = gtk_gesture_click_new();
     g_signal_connect(click, "pressed", G_CALLBACK(on_click), v);
     g_signal_connect(click, "released", G_CALLBACK(on_release), v);

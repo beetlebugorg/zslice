@@ -165,6 +165,17 @@ A value out of the usual range shows in the warning color, and its tooltip gives
 | Double-click | Reset the view (also removes a roll) |
 | Left click | Pick a line (see below) |
 
+## The context menu
+
+Right-click a line in the 3D view (or press Shift+F10 with a line selected) for the menu:
+
+- **Add support here** › Grid, Tree, or Bridge (a pad): support of that kind under a 3 mm disk at that place, on that layer. It works also when support is off in the settings.
+- **Block support here**: no support from the settings under that place.
+- **Remove the support marks here**, and **Clear all support marks**.
+- **Reset the view**.
+
+A left drag turns the view, and a middle drag moves it. Right drag no longer turns the view; the right button opens the menu.
+
 ## Scrub through a layer
 
 The bar at the bottom of the preview moves the nozzle through the top layer of the layer slider. At the left end, the layer starts; at the right end, the layer is done. The label gives the time in the layer. Play moves the bar, and a drag of the bar pauses the replay. A nozzle in the 3D view shows where the print is.

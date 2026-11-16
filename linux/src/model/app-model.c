@@ -411,6 +411,22 @@ double zg_model_slice_ms(ZgModel *self) {
     return self->slice_ms;
 }
 
+void zg_model_mark_add(ZgModel *self, double x, double y, double z, double r, int kind) {
+    if (zs_app_mark_add(self->core, x, y, z, r, kind) == ZS_OK) request_slice(self);
+}
+
+size_t zg_model_mark_remove_near(ZgModel *self, double x, double y, double z, double r) {
+    size_t n = zs_app_mark_remove_near(self->core, x, y, z, r);
+    if (n > 0) request_slice(self);
+    return n;
+}
+
+void zg_model_marks_clear(ZgModel *self) {
+    if (zs_app_mark_count(self->core) == 0) return;
+    zs_app_marks_clear(self->core);
+    request_slice(self);
+}
+
 gboolean zg_model_selection_lost(ZgModel *self) {
     return self->selected < 0 && self->anchored;
 }

@@ -652,6 +652,15 @@ static gboolean on_preview_key(GtkEventControllerKey *c, guint key, guint code, 
     case GDK_KEY_Down: case GDK_KEY_j: case GDK_KEY_J: layer_dir = -1; break;
     case GDK_KEY_Page_Up: layer_dir = 1; jump = 10; break;
     case GDK_KEY_Page_Down: layer_dir = -1; jump = 10; break;
+    case GDK_KEY_Menu:
+        gtk_stack_set_visible_child_name(GTK_STACK(p->stack), "3d");
+        zg_view3d_context_menu(p->view3d);
+        return TRUE;
+    case GDK_KEY_F10:
+        if (!(mods & GDK_SHIFT_MASK)) return FALSE;
+        gtk_stack_set_visible_child_name(GTK_STACK(p->stack), "3d");
+        zg_view3d_context_menu(p->view3d);
+        return TRUE;
     case GDK_KEY_Escape:
         if (sel < 0) return FALSE;
         zg_model_select(p->model, -1);

@@ -58,6 +58,10 @@ gint64 zg_model_selected(ZgModel *self);
 /* TRUE if the user selected a line, and the last slice has no line of that
  * kind at its place (the next slice can bring it back). */
 gboolean zg_model_selection_lost(ZgModel *self);
+/* Support marks (see zs_app_mark_add): each call slices again. */
+void zg_model_mark_add(ZgModel *self, double x, double y, double z, double r, int kind);
+size_t zg_model_mark_remove_near(ZgModel *self, double x, double y, double z, double r);
+void zg_model_marks_clear(ZgModel *self);
 /* With a selected line: TRUE fades all other lines (ghosts), so only the
  * selection is solid. FALSE (the default) keeps their colors. */
 /* Selects one segment of a line (segment k goes from point k to point

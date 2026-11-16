@@ -71,6 +71,14 @@
 <p>The speed of travel moves (moves with no extrusion).</p>
 <p><strong><code>machine.max_z_speed</code></strong> (number). Default: <code>10</code></p>
 <p>The speed of Z moves at each layer change.</p>
+<p><strong><code>machine.max_accel</code></strong> (number). Default: <code>1500</code></p>
+<p>The acceleration of the print head in X and Y, in mm/s². The time estimate uses it, and it is the acceleration of each feature that has no acceleration of its own (0 in the project).</p>
+<p><strong><code>machine.corner_speed</code></strong> (number). Default: <code>8</code></p>
+<p>The speed at which the head turns a corner with no stop (jerk in Marlin, square corner velocity in Klipper), in mm/s. The time estimate uses it.</p>
+<p><strong><code>machine.accel_control</code></strong> (true or false). Default: <code>false</code></p>
+<p>Write acceleration commands in the G-code: the acceleration of each feature (project <code>*_accel</code>), and the corner speed at the start. Off: the printer uses its own values; the time estimate still uses <code>max_accel</code> and <code>corner_speed</code>.</p>
+<p><strong><code>machine.gcode_flavor</code></strong> (one of: <code>marlin</code>, <code>klipper</code>). Default: <code>marlin</code></p>
+<p>The G-code dialect of the acceleration commands. <code>marlin</code>: M204 S and M205 X Y. <code>klipper</code>: SET_VELOCITY_LIMIT ACCEL and SQUARE_CORNER_VELOCITY.</p>
 <h3 id="extruder">Extruder</h3>
 <p><strong><code>machine.extruder</code></strong> (one of: <code>direct</code>, <code>bowden</code>). Default: <code>direct</code></p>
 <p>The extruder type. <code>direct</code>: the motor is on the print head. <code>bowden</code>: the motor pushes the filament through a long tube.</p>
@@ -164,6 +172,8 @@ M84</code></pre>
 <h3 id="walls">Walls</h3>
 <p><strong><code>project.wall_count</code></strong> (integer). Default: <code>2</code></p>
 <p>The number of walls (loops) around the outline of each layer.</p>
+<p><strong><code>project.wall_thickness</code></strong> (number). Default: <code>0</code></p>
+<p>The thickness of the walls, in mm, as in Cura: the wall count is this thickness divided by the line width, rounded (at least 1). 0: use <code>wall_count</code>.</p>
 <p><strong><code>project.thin_walls</code></strong> (true or false). Default: <code>true</code></p>
 <p>Print parts of the outline that are thinner than one line width (a thin fin, a sheet, a label): a loop inside each thin part, with a narrower line, so that its two sides fill the thickness. Without it, these parts print nothing.</p>
 <p><strong><code>project.seam</code></strong> (one of: <code>hidden</code>, <code>sharpest</code>, <code>rear</code>, <code>nearest</code>, <code>random</code>). Default: <code>hidden</code></p>
@@ -194,6 +204,12 @@ M84</code></pre>
 <p>The sparse infill pattern. <code>lines</code>: one direction on each layer, turned 90 degrees on the next layer. <code>grid</code>: two directions on each layer. <code>triangles</code>: three directions at 60 degrees on each layer. <code>cubic</code>: three directions that move with the height, so the infill makes cubes in 3D. <code>gyroid</code>: smooth curves that change with the height, strong in all directions. <code>concentric</code>: loops that follow the outline. <code>honeycomb</code>: hexagon cells, the same on all layers. <code>zigzag</code>: the lines of <code>lines</code>, joined at the walls into one path, so the nozzle does not travel or retract between them. <code>flow</code>: the zigzag, with twice the density under each top surface (a band of 3 times the top thickness, at least 2 mm), where the top skin needs it, and the density of the setting in the middle.</p>
 <p><strong><code>project.infill_angle</code></strong> (number). Default: <code>45</code></p>
 <p>The angle of the infill and skin lines, in degrees from the X axis.</p>
+<p><strong><code>project.infill_connect</code></strong> (true or false). Default: <code>true</code></p>
+<p>Join the infill lines (lines, grid, triangles, cubic) at their ends with a short line along the edge, as "Connect Infill Lines" in Cura: the nozzle prints a zigzag with no travel and no retraction, and the joints tie the infill to the walls. Off: each line on its own.</p>
+<p><strong><code>project.top_support_layers</code></strong> (integer). Default: <code>2</code></p>
+<p>Top support: the layers under each top skin that get denser infill lines (one direction on each layer, turned 90 degrees on the next), so that the skin lies on a flat grid and bridges less. 0: off. The flow pattern has its own band.</p>
+<p><strong><code>project.top_support_density</code></strong> (number). Default: <code>0.5</code></p>
+<p>The density of the top support lines, as a ratio. It works only if it is more than <code>infill_density</code>.</p>
 <p><strong><code>project.infill_overlap</code></strong> (number). Default: <code>0.2</code></p>
 <p>Sparse infill lines go this far into the walls, as a fraction of the line width.</p>
 <h3 id="ironing">Ironing</h3>
@@ -218,16 +234,35 @@ M84</code></pre>
 <p>The sparse infill speed, as a ratio of the allowed speed.</p>
 <p><strong><code>project.first_layer_speed</code></strong> (number). Default: <code>0.3</code></p>
 <p>The speed of all lines on the first layer, as a ratio of the allowed speed.</p>
+<p><strong><code>project.slow_layers</code></strong> (integer). Default: <code>0</code></p>
+<p>The layers after the first that print slower: their speed goes up in even steps from the first layer speed to the full speed, so that the part bonds to the bed. 0: the second layer prints at full speed.</p>
+<h3 id="acceleration">Acceleration</h3>
+<p><strong><code>project.outer_wall_accel</code></strong> (number). Default: <code>0</code></p>
+<p>The acceleration of the outer wall, in mm/s². A lower value gives a cleaner surface. 0: the machine <code>max_accel</code>. The G-code has it only with machine <code>accel_control</code>.</p>
+<p><strong><code>project.inner_wall_accel</code></strong> (number). Default: <code>0</code></p>
+<p>The acceleration of the inner walls and the skirt, in mm/s². 0: the machine <code>max_accel</code>.</p>
+<p><strong><code>project.skin_accel</code></strong> (number). Default: <code>0</code></p>
+<p>The acceleration of the skin, in mm/s². 0: the machine <code>max_accel</code>.</p>
+<p><strong><code>project.infill_accel</code></strong> (number). Default: <code>0</code></p>
+<p>The acceleration of the sparse infill and the support, in mm/s². 0: the machine <code>max_accel</code>.</p>
+<p><strong><code>project.travel_accel</code></strong> (number). Default: <code>0</code></p>
+<p>The acceleration of travel moves, in mm/s². 0: the machine <code>max_accel</code>.</p>
+<p><strong><code>project.first_layer_accel</code></strong> (number). Default: <code>0</code></p>
+<p>The acceleration of all lines on the first layer, in mm/s². 0: the acceleration of each feature.</p>
 <h3 id="travel">Travel</h3>
 <p><strong><code>project.retract_min_travel</code></strong> (number). Default: <code>1.5</code></p>
 <p>Travel moves shorter than this do not retract.</p>
+<p><strong><code>project.combing</code></strong> (true or false). Default: <code>true</code></p>
+<p>Combing: a travel move that stays inside the part (it crosses no outline of the layer) does not retract, because an ooze there is inside the part. Off: each travel longer than <code>retract_min_travel</code> retracts.</p>
+<p><strong><code>project.combing_max_distance</code></strong> (number). Default: <code>0</code></p>
+<p>A travel inside the part that is longer than this retracts all the same (a long move can ooze a string over a top surface). 0: no limit.</p>
 <p><strong><code>project.z_hop</code></strong> (number). Default: <code>0</code></p>
 <p>Lift the nozzle by this distance during a travel move with a retraction. 0 turns it off.</p>
 <h3 id="support">Support</h3>
 <p><strong><code>project.support</code></strong> (one of: <code>off</code>, <code>everywhere</code>, <code>buildplate</code>). Default: <code>off</code></p>
 <p>Support under overhangs. <code>off</code>: no support. <code>everywhere</code>: support can stand on the bed or on the part. <code>buildplate</code>: only support that stands on the bed.</p>
-<p><strong><code>project.support_style</code></strong> (one of: <code>grid</code>, <code>tree</code>). Default: <code>grid</code></p>
-<p>The shape of the support. <code>grid</code>: all the space under each overhang, filled with lines. <code>tree</code>: branches from points under each overhang down to the bed or the part; they join on the way, get thicker as they go down, and thinner in narrow spaces (so a branch can go down a deep, narrow hole). A tree uses less plastic and comes off more easily.</p>
+<p><strong><code>project.support_style</code></strong> (one of: <code>grid</code>, <code>tree</code>, <code>bridge</code>). Default: <code>grid</code></p>
+<p>The shape of the support. <code>grid</code>: all the space under each overhang, filled with lines. <code>tree</code>: branches from points under each overhang down to the bed or the part; they join on the way, get thicker as they go down, and thinner in narrow spaces (so a branch can go down a deep, narrow hole). A tree uses less plastic and comes off more easily. <code>bridge</code>: only a sacrificial pad under each overhang (the interface layers, with the Z gap over it), with nothing under the pad. The pad bridges from the part around it, as a bridge does, and breaks off easily. For overhangs over a hole or a short gap, where a column down to the bed would be a waste.</p>
 <p><strong><code>project.support_tree_angle</code></strong> (number). Default: <code>40</code></p>
 <p>Tree support: the largest angle of a branch from vertical, in degrees. A larger angle lets branches reach farther, with less strength.</p>
 <p><strong><code>project.support_tree_spacing</code></strong> (number). Default: <code>3</code></p>
