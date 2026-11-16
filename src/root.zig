@@ -25,6 +25,7 @@ pub const clip = @import("clip.zig");
 pub const clip_open = @import("clip_open.zig");
 pub const offset = @import("offset.zig");
 pub const mesh = @import("mesh.zig");
+pub const plate = @import("plate.zig");
 pub const slicer = @import("slicer.zig");
 pub const settings = @import("settings.zig");
 pub const infill = @import("infill.zig");

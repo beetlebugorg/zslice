@@ -29,6 +29,22 @@ const char *zg_model_name(ZgModel *self);
 /* Loads an STL file from memory and starts a slice. */
 gboolean zg_model_load(ZgModel *self, const char *name, const void *data, gsize len, GError **error);
 
+/* Adds a model to the plate as a new part (or loads it, if the plate is
+ * empty), and starts a new slice. */
+gboolean zg_model_add(ZgModel *self, const char *name, const void *data, gsize len, GError **error);
+
+/* The selected part of the plate (Shift+click), or -1. "part-selected"
+ * follows each change. */
+void zg_model_select_part(ZgModel *self, gint64 part);
+gint64 zg_model_selected_part(ZgModel *self);
+/* The plate: each call changes the core, emits "plate-changed", and
+ * starts a new slice. */
+void zg_model_part_move(ZgModel *self, size_t i, double x, double y);
+void zg_model_part_rotate(ZgModel *self, size_t i, double degrees);
+void zg_model_part_remove(ZgModel *self, size_t i);
+gboolean zg_model_plate_arrange(ZgModel *self);
+void zg_model_plate_clear(ZgModel *self);
+
 /* Sets a setting and starts a new slice. */
 gboolean zg_model_set(ZgModel *self, const char *key, const char *value, GError **error);
 

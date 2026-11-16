@@ -70,6 +70,9 @@ comptime {
 /// the beads: the light direction, the camera position, and the highlight
 /// range. For the grid: the color. 112 bytes: within the 128 bytes that
 /// each device supports.
+/// The spare instance slots for Frame.extras.
+pub const max_extras = 8;
+
 pub const Push = extern struct {
     mvp: [16]f32,
     vec: [4]f32,
@@ -732,7 +735,7 @@ pub const Renderer = struct {
         _ = r.d.vkDeviceWaitIdle.?(r.device);
         const bytes = std.mem.sliceAsBytes(items);
         const mark_bytes = std.mem.sliceAsBytes(marks);
-        const need = bytes.len + mark_bytes.len + @sizeOf(Instance);
+        const need = bytes.len + mark_bytes.len + max_extras * @sizeOf(Instance);
         if (need > r.instances.size) try r.makeBuffer(&r.instances, need, c.VK_BUFFER_USAGE_VERTEX_BUFFER_BIT);
         @memcpy(r.instances.map.?[0..bytes.len], bytes);
         @memcpy(r.instances.map.?[bytes.len .. bytes.len + mark_bytes.len], mark_bytes);
@@ -929,7 +932,10 @@ pub const Renderer = struct {
         mark_count: u32 = 0,
         /// A bead drawn after the first box_count beads: the bead that the
         /// replay is printing, cut to its printed part.
-        partial: ?Instance = null,
+        /// Beads drawn after all others, written each frame into spare
+        /// slots (at most max_extras): the bead that the replay is
+        /// printing, and the frame of a selected part.
+        extras: []const Instance = &.{},
         grid: Push,
         grid_vertices: u32,
     };
@@ -1009,12 +1015,13 @@ pub const Renderer = struct {
                 d.vkCmdPushConstants.?(cmd, r.layout, stages, 0, @sizeOf(Push), &frame.box);
             }
         }
-        if (frame.partial != null and r.instances.buf != null and r.box_index_count > 0) {
-            const p = frame.partial.?;
-            // The spare slot after the beads. The previous frame is done
-            // (the fence), so the CPU can write it.
+        if (frame.extras.len > 0 and r.instances.buf != null and r.box_index_count > 0) {
+            const extras = frame.extras[0..@min(frame.extras.len, max_extras)];
+            // The spare slots after the beads. The previous frame is done
+            // (the fence), so the CPU can write them.
             const off = @as(usize, r.instance_count) * @sizeOf(Instance);
-            @memcpy(r.instances.map.?[off .. off + @sizeOf(Instance)], std.mem.asBytes(&p));
+            const eb = std.mem.sliceAsBytes(extras);
+            @memcpy(r.instances.map.?[off .. off + eb.len], eb);
             if (frame.box_count == 0) {
                 d.vkCmdBindPipeline.?(cmd, c.VK_PIPELINE_BIND_POINT_GRAPHICS, r.box_pipeline);
                 d.vkCmdPushConstants.?(cmd, r.layout, stages, 0, @sizeOf(Push), &frame.box);
@@ -1023,7 +1030,7 @@ pub const Renderer = struct {
                 d.vkCmdBindVertexBuffers.?(cmd, 0, 2, &bufs, &offs);
                 d.vkCmdBindIndexBuffer.?(cmd, r.box_index.buf, 0, c.VK_INDEX_TYPE_UINT16);
             }
-            d.vkCmdDrawIndexed.?(cmd, r.box_index_count, 1, 0, 0, r.instance_count);
+            d.vkCmdDrawIndexed.?(cmd, r.box_index_count, @intCast(extras.len), 0, 0, r.instance_count);
         }
         d.vkCmdEndRenderPass.?(cmd);
         try check(d.vkEndCommandBuffer.?(cmd));

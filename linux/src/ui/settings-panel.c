@@ -1008,6 +1008,142 @@ static void on_selection(ZgModel *model, gint64 path, gpointer data) {
     fill_inspector(data);
 }
 
+/* ---- the part page (Shift+click on a part) ---- */
+
+typedef struct {
+    ZgModel *model;
+    GtkWidget *title, *size, *x, *y, *rot;
+    gboolean filling;
+} PartPage;
+
+static void part_fill(PartPage *pp) {
+    gint64 i = zg_model_selected_part(pp->model);
+    zs_part p;
+    if (i < 0 || zs_app_part_get(zg_model_core(pp->model), (size_t)i, &p) != ZS_OK) return;
+    pp->filling = TRUE;
+    gtk_label_set_text(GTK_LABEL(pp->title), p.name);
+    char *size = g_strdup_printf("%.1f × %.1f × %.1f mm", p.size_x, p.size_y, p.size_z);
+    gtk_label_set_text(GTK_LABEL(pp->size), size);
+    g_free(size);
+    gtk_spin_button_set_value(GTK_SPIN_BUTTON(pp->x), p.x);
+    gtk_spin_button_set_value(GTK_SPIN_BUTTON(pp->y), p.y);
+    gtk_spin_button_set_value(GTK_SPIN_BUTTON(pp->rot), p.rotation);
+    pp->filling = FALSE;
+}
+
+static void on_part_value(GtkSpinButton *spin, gpointer data) {
+    PartPage *pp = data;
+    gint64 i = zg_model_selected_part(pp->model);
+    if (pp->filling || i < 0) return;
+    if (GTK_WIDGET(spin) == pp->rot) {
+        zg_model_part_rotate(pp->model, (size_t)i, gtk_spin_button_get_value(spin));
+    } else {
+        zg_model_part_move(pp->model, (size_t)i, gtk_spin_button_get_value(GTK_SPIN_BUTTON(pp->x)),
+                           gtk_spin_button_get_value(GTK_SPIN_BUTTON(pp->y)));
+    }
+}
+
+static void on_part_turn(GtkButton *b, gpointer data) {
+    PartPage *pp = data;
+    gint64 i = zg_model_selected_part(pp->model);
+    if (i >= 0) zg_model_part_rotate(pp->model, (size_t)i, gtk_spin_button_get_value(GTK_SPIN_BUTTON(pp->rot)) + 90);
+}
+
+static void on_part_remove(GtkButton *b, gpointer data) {
+    PartPage *pp = data;
+    gint64 i = zg_model_selected_part(pp->model);
+    if (i >= 0) zg_model_part_remove(pp->model, (size_t)i);
+}
+
+static void on_part_arrange(GtkButton *b, gpointer data) {
+    PartPage *pp = data;
+    zg_model_plate_arrange(pp->model);
+}
+
+static void on_part_plate_changed(ZgModel *model, gpointer data) {
+    PartPage *pp = g_object_get_data(G_OBJECT(data), "zg-part-page");
+    if (pp) part_fill(pp);
+}
+
+static GtkWidget *part_spin(PartPage *pp, double lo, double hi, double step) {
+    GtkWidget *s = gtk_spin_button_new_with_range(lo, hi, step);
+    gtk_spin_button_set_digits(GTK_SPIN_BUTTON(s), 1);
+    g_signal_connect(s, "value-changed", G_CALLBACK(on_part_value), pp);
+    return s;
+}
+
+static GtkWidget *build_part_page(Inspector *ins) {
+    PartPage *pp = g_new0(PartPage, 1);
+    pp->model = ins->model;
+    GtkWidget *grid = new_grid();
+    int row = 0;
+    pp->title = add_heading(grid, &row, "");
+    gtk_widget_add_css_class(pp->title, "zg-insp-title");
+    pp->size = wrapped_label("");
+    gtk_widget_add_css_class(pp->size, "dim-label");
+    gtk_grid_attach(GTK_GRID(grid), pp->size, 0, row++, 4, 1);
+    const char *names[] = {"X (center)", "Y (center)", "Turn"};
+    const char *units[] = {"mm", "mm", "°"};
+    pp->x = part_spin(pp, -1000, 3000, 1);
+    pp->y = part_spin(pp, -1000, 3000, 1);
+    pp->rot = part_spin(pp, -720, 720, 15);
+    GtkWidget *spins[] = {pp->x, pp->y, pp->rot};
+    for (int k = 0; k < 3; k++) {
+        GtkWidget *l = gtk_label_new(names[k]);
+        gtk_label_set_xalign(GTK_LABEL(l), 0);
+        gtk_widget_set_hexpand(l, TRUE);
+        GtkWidget *u = gtk_label_new(units[k]);
+        gtk_widget_add_css_class(u, "dim-label");
+        gtk_grid_attach(GTK_GRID(grid), l, 0, row, 1, 1);
+        gtk_grid_attach(GTK_GRID(grid), spins[k], 1, row, 1, 1);
+        gtk_grid_attach(GTK_GRID(grid), u, 2, row++, 1, 1);
+    }
+    GtkWidget *buttons = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 6);
+    gtk_widget_set_margin_top(buttons, 8);
+    GtkWidget *turn = gtk_button_new_with_label("Turn 90°");
+    g_signal_connect(turn, "clicked", G_CALLBACK(on_part_turn), pp);
+    GtkWidget *arrange = gtk_button_new_with_label("Arrange the plate");
+    g_signal_connect(arrange, "clicked", G_CALLBACK(on_part_arrange), pp);
+    GtkWidget *remove = gtk_button_new_with_label("Remove");
+    gtk_widget_add_css_class(remove, "destructive-action");
+    g_signal_connect(remove, "clicked", G_CALLBACK(on_part_remove), pp);
+    gtk_box_append(GTK_BOX(buttons), turn);
+    gtk_box_append(GTK_BOX(buttons), arrange);
+    gtk_box_append(GTK_BOX(buttons), remove);
+    gtk_grid_attach(GTK_GRID(grid), buttons, 0, row++, 4, 1);
+    GtkWidget *hint = wrapped_label("Shift+drag the part in the 3D view to move it, and Shift+wheel to turn it. Click a line to see its settings.");
+    gtk_widget_add_css_class(hint, "dim-label");
+    gtk_widget_set_margin_top(hint, 8);
+    gtk_grid_attach(GTK_GRID(grid), hint, 0, row++, 4, 1);
+    g_object_set_data_full(G_OBJECT(grid), "zg-part-page", pp, g_free);
+    /* The handler goes away with the page (the grid). */
+    g_signal_connect_object(ins->model, "plate-changed", G_CALLBACK(on_part_plate_changed), grid, G_CONNECT_DEFAULT);
+    part_fill(pp);
+    return grid;
+}
+
+/* Shift+click on a part: the part page. */
+static void on_part_selected(ZgModel *model, gint64 part, gpointer data) {
+    Inspector *ins = data;
+    if (part < 0) {
+        /* Back to the line, or the hint. */
+        g_clear_pointer(&ins->signature, g_free);
+        ins->built = FALSE;
+        fill_inspector(ins);
+        return;
+    }
+    const char *next = ins->in_a ? "b" : "a";
+    GtkWidget *old = gtk_stack_get_child_by_name(GTK_STACK(ins->slots), next);
+    if (old) gtk_stack_remove(GTK_STACK(ins->slots), old);
+    gtk_stack_add_named(GTK_STACK(ins->slots), scrolled(build_part_page(ins)), next);
+    gtk_stack_set_visible_child_name(GTK_STACK(ins->slots), next);
+    ins->in_a = !ins->in_a;
+    /* The next line selection builds the line page again. */
+    g_clear_pointer(&ins->signature, g_free);
+    ins->signature = g_strdup("part");
+    gtk_stack_set_visible_child_name(GTK_STACK(ins->stack), "selected");
+}
+
 /* Only a click on a line opens the page. */
 static void on_picked(ZgModel *model, gint64 path, gpointer data) {
     Inspector *ins = data;
@@ -1747,6 +1883,7 @@ GtkWidget *zg_settings_panel_new(ZgModel *model) {
     fill_inspector(ins);
     g_signal_connect(model, "selection-changed", G_CALLBACK(on_selection), ins);
     g_signal_connect(model, "picked", G_CALLBACK(on_picked), ins);
+    g_signal_connect(model, "part-selected", G_CALLBACK(on_part_selected), ins);
     g_signal_connect(model, "core-event", G_CALLBACK(on_core_event), ins);
     gtk_stack_add_titled(GTK_STACK(stack), ins->slots, "selected", "Selected");
     GtkWidget *browser = make_browser(model, stack);

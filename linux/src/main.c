@@ -125,7 +125,8 @@ static void on_activate(GApplication *app, gpointer data) {
 
 static void on_open(GApplication *app, GFile **files, int n, const char *hint, gpointer data) {
     GtkWindow *w = main_window(GTK_APPLICATION(app));
-    if (n > 0) zg_window_open_file(w, files[0]);
+    /* Each file is a part of the plate. */
+    for (int i = 0; i < n; i++) zg_window_open_file(w, files[i]);
     gtk_window_present(w);
 }
 

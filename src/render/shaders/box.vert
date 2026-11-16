@@ -106,7 +106,12 @@ void main() {
     // The travel and retraction marks show only in a focus on them: they
     // are not part of the printed part. A mark that does not show goes
     // behind the camera (w = 0 clips it).
-    if (feature >= 9u && !in_mask) {
+    // Feature 11 and up: overlays (the frame of a selected part). They
+    // are always solid, in their own color.
+    if (feature >= 11u) {
+        vfocus = 1.0;
+        vhigh = -1.0;
+    } else if (feature >= 9u && !in_mask) {
         gl_Position = vec4(0.0, 0.0, 0.0, 0.0);
         return;
     }

@@ -626,6 +626,91 @@ export fn zs_app_setting_get_at(a: ?*const App, z: f64, name: ?[*:0]const u8, bu
     return ok;
 }
 
+// ---- the plate ----
+
+export fn zs_app_add_stl(a: ?*App, name: ?[*:0]const u8, data: ?[*]const u8, len: usize) isize {
+    const app = a orelse return -@as(isize, @intFromEnum(Status.invalid_argument));
+    const d = data orelse return -@as(isize, @intFromEnum(Status.invalid_argument));
+    const i = app.addStl(std.mem.span(name orelse "part.stl"), d[0..len]) catch |e| return -@as(isize, status(e));
+    return @intCast(i);
+}
+
+pub const Part = extern struct {
+    name: [*:0]const u8,
+    x: f64,
+    y: f64,
+    rotation: f64,
+    size_x: f64,
+    size_y: f64,
+    size_z: f64,
+};
+
+export fn zs_app_part_count(a: ?*const App) usize {
+    const app = a orelse return 0;
+    return app.plate.count();
+}
+
+/// The name stays valid until the plate changes.
+export fn zs_app_part_get(a: ?*App, i: usize, out: ?*Part) c_int {
+    const app = a orelse return @intFromEnum(Status.invalid_argument);
+    const o = out orelse return @intFromEnum(Status.invalid_argument);
+    if (i >= app.plate.count()) return @intFromEnum(Status.out_of_range);
+    const p = &app.plate.parts.items[i];
+    const name = app.strings.allocator().dupeZ(u8, p.name) catch return @intFromEnum(Status.out_of_memory);
+    o.* = .{ .name = name.ptr, .x = p.x, .y = p.y, .rotation = p.rot, .size_x = 2 * p.half[0], .size_y = 2 * p.half[1], .size_z = p.height };
+    return ok;
+}
+
+export fn zs_app_part_move(a: ?*App, i: usize, x: f64, y: f64) c_int {
+    const app = a orelse return @intFromEnum(Status.invalid_argument);
+    if (i >= app.plate.count()) return @intFromEnum(Status.out_of_range);
+    app.movePart(i, x, y) catch |e| return status(e);
+    return ok;
+}
+
+export fn zs_app_part_rotate(a: ?*App, i: usize, degrees: f64) c_int {
+    const app = a orelse return @intFromEnum(Status.invalid_argument);
+    if (i >= app.plate.count()) return @intFromEnum(Status.out_of_range);
+    app.rotatePart(i, degrees) catch |e| return status(e);
+    return ok;
+}
+
+export fn zs_app_part_remove(a: ?*App, i: usize) c_int {
+    const app = a orelse return @intFromEnum(Status.invalid_argument);
+    if (i >= app.plate.count()) return @intFromEnum(Status.out_of_range);
+    app.removePart(i) catch |e| return status(e);
+    return ok;
+}
+
+/// 1 if all parts fit on the bed, 0 if not.
+export fn zs_app_plate_arrange(a: ?*App) c_int {
+    const app = a orelse return 0;
+    return @intFromBool(app.arrangePlate() catch false);
+}
+
+export fn zs_app_plate_clear(a: ?*App) c_int {
+    const app = a orelse return @intFromEnum(Status.invalid_argument);
+    app.clearPlate() catch |e| return status(e);
+    return ok;
+}
+
+/// The part whose footprint holds (x, y) on the bed, or -1.
+export fn zs_app_part_at(a: ?*const App, x: f64, y: f64) isize {
+    const app = a orelse return -1;
+    const i = app.plate.partAt(x, y) orelse return -1;
+    return @intCast(i);
+}
+
+/// The part of a path of the toolpaths (by its first point), or -1.
+export fn zs_app_part_of_path(a: ?*const App, path: usize) isize {
+    const app = a orelse return -1;
+    const t = app.allToolpaths() orelse return -1;
+    if (path >= t.path_ends.items.len) return -1;
+    const start: usize = if (path == 0) 0 else t.path_ends.items[path - 1];
+    const i = app.plate.partAt(t.points.items[2 * start], t.points.items[2 * start + 1]) orelse return -1;
+    return @intCast(i);
+}
+
 fn groupOf(group: c_int) ?zs.profile.Group {
     return switch (group) {
         0 => .machine,
@@ -834,6 +919,25 @@ export fn zs_view_focus(view: ?*View, features: u32, zmax: f64) void {
     if (!render_on) return;
     const v = view orelse return;
     v.setFocus(features, if (zmax < 0) std.math.inf(f32) else @floatCast(zmax));
+}
+
+/// A frame on the bed around (x0, y0)-(x1, y1), for a selected part; no
+/// frame if x1 < x0.
+export fn zs_view_part_box(view: ?*View, x0: f64, y0: f64, x1: f64, y1: f64) void {
+    if (!render_on) return;
+    const v = view orelse return;
+    v.setPartBox(if (x1 < x0) null else .{ @floatCast(x0), @floatCast(y0), @floatCast(x1), @floatCast(y1) });
+}
+
+/// The point of the bed (z = 0) under the pixel (px, py). Returns 0 if the
+/// ray does not meet the bed.
+export fn zs_view_bed_point(view: ?*const View, px: f32, py: f32, x: ?*f64, y: ?*f64) c_int {
+    if (!render_on) return 0;
+    const v = view orelse return 0;
+    const p = v.bedPoint(px, py) orelse return 0;
+    if (x) |o| o.* = p[0];
+    if (y) |o| o.* = p[1];
+    return 1;
 }
 
 export fn zs_view_rotate(view: ?*View, dx: f32, dy: f32) void {

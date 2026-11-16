@@ -19,6 +19,8 @@
  */
 #include "view3d.h"
 
+#include <stdlib.h>
+
 #include <math.h>
 
 #include "native-surface.h"
@@ -37,6 +39,11 @@ typedef struct {
     /* TRUE while the widget is unmapped: no frames, the subsurface is
      * hidden. */
     gboolean hidden;
+    /* A Shift+drag that moves a part: the part, its place at the start,
+     * and the bed point under the pointer at the start. */
+    gint64 moving;
+    gboolean part_picked;
+    double move_x0, move_y0, bed_x0, bed_y0;
     /* The tick callback of the camera animation, or 0. */
     guint anim;
     gint64 anim_last;
@@ -142,6 +149,13 @@ static void load_data(View3d *v) {
     gint64 sel = zg_model_selected(v->model);
     zs_view_highlight(v->view, sel < 0 ? (size_t)-1 : (size_t)sel);
     apply_focus(v);
+    /* For development and screenshots: ZSLICE_PART=1 selects that part of
+     * the plate after the first load. */
+    const char *part = g_getenv("ZSLICE_PART");
+    if (part && !v->part_picked && zs_app_part_count(zg_model_core(v->model)) > (size_t)atoi(part)) {
+        v->part_picked = TRUE;
+        zg_model_select_part(v->model, atoi(part));
+    }
     /* For development and screenshots: ZSLICE_ZOOM=0.3 starts nearer. */
     const char *zoom = g_getenv("ZSLICE_ZOOM");
     if (zoom && !v->zoomed && zs_app_layer_count(zg_model_core(v->model)) > 0) {
@@ -284,15 +298,73 @@ void zg_view3d_set_layer(GtkWidget *view, size_t layer) {
  * any direction (with roll). The scroll wheel zooms toward the pointer. */
 enum { DRAG_ORBIT, DRAG_PAN, DRAG_ROTATE };
 
+/* The part under a pixel: the part of the path there, or the part whose
+ * footprint holds the bed point there. */
+static gint64 part_at(View3d *v, double x, double y, double *bx, double *by) {
+    int scale = gtk_widget_get_scale_factor(v->area);
+    zs_app *core = zg_model_core(v->model);
+    double px = 0, py = 0;
+    gboolean on_bed = zs_view_bed_point(v->view, (float)(x * scale), (float)(y * scale), &px, &py);
+    if (bx) *bx = px;
+    if (by) *by = py;
+    size_t path = zs_view_pick(v->view, (float)(x * scale), (float)(y * scale));
+    if (path != (size_t)-1) {
+        ptrdiff_t part = zs_app_part_of_path(core, path);
+        if (part >= 0) return part;
+    }
+    return on_bed ? zs_app_part_at(core, px, py) : -1;
+}
+
+/* The frame of the selected part on the bed. */
+static void show_part_box(View3d *v) {
+    if (!v->view) return;
+    gint64 i = zg_model_selected_part(v->model);
+    zs_part p;
+    if (i >= 0 && zs_app_part_get(zg_model_core(v->model), (size_t)i, &p) == ZS_OK) {
+        zs_view_part_box(v->view, p.x - p.size_x / 2, p.y - p.size_y / 2, p.x + p.size_x / 2, p.y + p.size_y / 2);
+    } else {
+        zs_view_part_box(v->view, 1, 1, 0, 0);
+    }
+    queue_frame(v);
+}
+
+static void on_part_selected(ZgModel *model, gint64 part, gpointer data) {
+    show_part_box(data);
+}
+
+static void on_plate_changed(ZgModel *model, gpointer data) {
+    show_part_box(data);
+}
+
 static void on_drag_begin(GtkGestureDrag *g, double x, double y, gpointer data) {
     View3d *v = data;
     v->drag_x = 0;
     v->drag_y = 0;
+    v->moving = -1;
+    /* Shift and the left button on a part: move the part. */
+    GdkModifierType mods = gtk_event_controller_get_current_event_state(GTK_EVENT_CONTROLLER(g));
+    int mode = GPOINTER_TO_INT(g_object_get_data(G_OBJECT(g), "zg-drag"));
+    if (v->view && mode == DRAG_ORBIT && (mods & GDK_SHIFT_MASK)) {
+        double bx, by;
+        gint64 part = part_at(v, x, y, &bx, &by);
+        zs_part p;
+        if (part >= 0 && zs_app_part_get(zg_model_core(v->model), (size_t)part, &p) == ZS_OK) {
+            zg_model_select_part(v->model, part);
+            v->moving = part;
+            v->move_x0 = p.x;
+            v->move_y0 = p.y;
+            v->bed_x0 = bx;
+            v->bed_y0 = by;
+            gtk_widget_set_cursor_from_name(v->area, "move");
+            return;
+        }
+    }
     gtk_widget_set_cursor_from_name(v->area, "grabbing");
 }
 
 static void on_drag_end(GtkGestureDrag *g, double dx, double dy, gpointer data) {
     View3d *v = data;
+    v->moving = -1;
     gtk_widget_set_cursor(v->area, NULL);
 }
 
@@ -301,6 +373,17 @@ static void on_drag_update(GtkGestureDrag *g, double dx, double dy, gpointer dat
     int mode = GPOINTER_TO_INT(g_object_get_data(G_OBJECT(g), "zg-drag"));
     int scale = gtk_widget_get_scale_factor(v->area);
     float ddx = (float)(dx - v->drag_x), ddy = (float)(dy - v->drag_y);
+    if (v->view && v->moving >= 0) {
+        /* The part follows the bed point under the pointer. */
+        double sx, sy, bx, by;
+        gtk_gesture_drag_get_start_point(g, &sx, &sy);
+        if (zs_view_bed_point(v->view, (float)((sx + dx) * scale), (float)((sy + dy) * scale), &bx, &by)) {
+            zg_model_part_move(v->model, (size_t)v->moving, v->move_x0 + bx - v->bed_x0, v->move_y0 + by - v->bed_y0);
+        }
+        v->drag_x = dx;
+        v->drag_y = dy;
+        return;
+    }
     if (v->view) {
         switch (mode) {
         case DRAG_PAN: zs_view_pan(v->view, ddx * scale, ddy * scale); break;
@@ -322,6 +405,18 @@ static void on_motion(GtkEventControllerMotion *c, double x, double y, gpointer 
 static gboolean on_scroll(GtkEventControllerScroll *c, double dx, double dy, gpointer data) {
     View3d *v = data;
     int scale = gtk_widget_get_scale_factor(v->area);
+    /* Shift and the wheel: turn the selected part by 15 degrees a step. */
+    GdkModifierType mods = gtk_event_controller_get_current_event_state(GTK_EVENT_CONTROLLER(c));
+    gint64 part = zg_model_selected_part(v->model);
+    if ((mods & GDK_SHIFT_MASK) && part >= 0) {
+        zs_part p;
+        if (zs_app_part_get(zg_model_core(v->model), (size_t)part, &p) == ZS_OK) {
+            /* GTK can turn a vertical wheel with Shift into dx. */
+            double step = dy != 0 ? dy : dx;
+            zg_model_part_rotate(v->model, (size_t)part, p.rotation + (step > 0 ? -15 : 15));
+        }
+        return TRUE;
+    }
     if (v->view) zs_view_zoom_at(v->view, powf(1.15f, (float)dy), (float)(v->pointer_x * scale), (float)(v->pointer_y * scale));
     start_animation(v);
     return TRUE;
@@ -331,6 +426,12 @@ static void on_release(GtkGestureClick *g, int n, double x, double y, gpointer d
     View3d *v = data;
     if (n != 1 || !v->view || fabs(x - v->press_x) > 4 || fabs(y - v->press_y) > 4) return;
     int scale = gtk_widget_get_scale_factor(v->area);
+    /* Shift+click: select a part (to move or turn it). A click: a line. */
+    GdkModifierType mods = gtk_event_controller_get_current_event_state(GTK_EVENT_CONTROLLER(g));
+    if (mods & GDK_SHIFT_MASK) {
+        zg_model_select_part(v->model, part_at(v, x, y, NULL, NULL));
+        return;
+    }
     size_t path = zs_view_pick(v->view, (float)(x * scale), (float)(y * scale));
     zg_model_select(v->model, path == (size_t)-1 ? -1 : (gint64)path);
 }
@@ -400,6 +501,8 @@ GtkWidget *zg_view3d_new(ZgModel *model) {
 
     g_object_set_data_full(G_OBJECT(v->area), "zg-view3d", v, view_free);
     g_signal_connect(model, "selection-changed", G_CALLBACK(on_selection), v);
+    g_signal_connect(model, "part-selected", G_CALLBACK(on_part_selected), v);
+    g_signal_connect(model, "plate-changed", G_CALLBACK(on_plate_changed), v);
     g_signal_connect(model, "focus-changed", G_CALLBACK(on_focus_changed), v);
     return v->area;
 }

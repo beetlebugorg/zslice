@@ -276,6 +276,36 @@ int zs_app_override_at(const zs_app *app, double z, const char *name);
  * buffer rules as zs_app_setting_get. */
 int zs_app_setting_get_at(const zs_app *app, double z, const char *name, char *buf, size_t cap, size_t *out_len);
 
+/* ---- the plate: more than one part ---- */
+
+/* zs_app_load_stl replaces all parts; zs_app_add_stl adds one. A new part
+ * keeps the place of its file if it is on the bed there and touches no
+ * other part (unless project.placement is center), else it goes to a free
+ * place. Returns the index of the part, or minus a zs_status. */
+ptrdiff_t zs_app_add_stl(zs_app *app, const char *name, const void *data, size_t len);
+
+typedef struct zs_part {
+    const char *name;   /* valid until the plate changes */
+    double x, y;        /* the center of the footprint on the bed, mm */
+    double rotation;    /* degrees around the vertical axis */
+    double size_x, size_y, size_z; /* the footprint and the height, mm */
+} zs_part;
+
+size_t zs_app_part_count(const zs_app *app);
+int zs_app_part_get(zs_app *app, size_t i, zs_part *out);
+/* Moves a part (the center of its footprint) to (x, y) on the bed. */
+int zs_app_part_move(zs_app *app, size_t i, double x, double y);
+/* Sets the turn of a part, in degrees, around the center of its footprint. */
+int zs_app_part_rotate(zs_app *app, size_t i, double degrees);
+int zs_app_part_remove(zs_app *app, size_t i);
+/* Packs all parts on the bed, the largest first. 1 if all fit. */
+int zs_app_plate_arrange(zs_app *app);
+int zs_app_plate_clear(zs_app *app);
+/* The part under (x, y) on the bed, or -1. */
+ptrdiff_t zs_app_part_at(const zs_app *app, double x, double y);
+/* The part of a path of the toolpaths, or -1. */
+ptrdiff_t zs_app_part_of_path(const zs_app *app, size_t path);
+
 /* ---- saved state ---- */
 
 enum zs_group { ZS_GROUP_MACHINE = 0, ZS_GROUP_FILAMENT = 1, ZS_GROUP_PROJECT = 2 };
@@ -348,6 +378,10 @@ void zs_view_reset_smooth(zs_view *view);
 int zs_view_animate(zs_view *view, double dt);
 /* Moves the view by a drag of dx, dy pixels: the scene follows the pointer. */
 void zs_view_pan(zs_view *view, float dx, float dy);
+/* A frame on the bed around a selected part; none if x1 < x0. */
+void zs_view_part_box(zs_view *view, double x0, double y0, double x1, double y1);
+/* The point of the bed under the pixel (px, py) of a 3D view. 0 if none. */
+int zs_view_bed_point(const zs_view *view, float px, float py, double *x, double *y);
 /* Shows the beads of some features clearly, and fades the others: a bit
  * (1 << enum zs_feature) for each feature, or 0 to end the focus. Only the
  * beads with a top at or under zmax (mm) are in focus; a negative zmax is

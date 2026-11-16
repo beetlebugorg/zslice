@@ -66,6 +66,10 @@ pub const App = struct {
     event_fn: ?EventFn,
     user: ?*anyopaque,
 
+    /// The parts on the bed. `mesh` is all of them in one mesh, for the
+    /// engine; startSlice makes it again after a change of the plate.
+    plate: zs.plate.Plate = .{},
+    plate_changed: bool = false,
     mesh: ?zs.Mesh = null,
     model_name: []u8 = &.{},
     settings: Settings = .{},
@@ -116,6 +120,7 @@ pub const App = struct {
         app.overrides.deinit(app.gpa);
         app.gpa.free(app.slice_overrides);
         if (app.mesh) |*m| m.deinit(app.gpa);
+        app.plate.deinit(app.gpa);
         app.gpa.free(app.model_name);
         app.strings.deinit();
         app.gpa.destroy(app);
@@ -125,26 +130,105 @@ pub const App = struct {
         return app.state.load(.acquire);
     }
 
-    /// Loads an STL model. It replaces the current model and stops a slice
-    /// that runs.
+    /// Loads an STL model. It replaces all parts of the plate and stops a
+    /// slice that runs.
     pub fn loadStl(app: *App, name: []const u8, bytes: []const u8) zs.mesh.Error!void {
         const m = try zs.Mesh.fromStl(app.gpa, bytes);
-        const n = app.gpa.dupe(u8, name) catch |e| {
-            var mm = m;
-            mm.deinit(app.gpa);
-            return e;
-        };
         app.stopWorker();
         app.clearResults();
-        // The regions of the old mesh are of no use for the new mesh, and
-        // the overrides were for the old part.
-        app.dropPrevJob();
+        // The overrides were for the old parts.
         app.overrides.clearRetainingCapacity();
-        if (app.mesh) |*old| old.deinit(app.gpa);
-        app.gpa.free(app.model_name);
-        app.mesh = m;
-        app.model_name = n;
+        app.plate.clear(app.gpa);
+        _ = try app.addMesh(name, m);
+        // The old result is gone: there is a model, and no slice of it.
         app.state.store(.ready, .release);
+    }
+
+    /// Adds an STL model to the plate, as a new part. Returns its index.
+    pub fn addStl(app: *App, name: []const u8, bytes: []const u8) zs.mesh.Error!usize {
+        const m = try zs.Mesh.fromStl(app.gpa, bytes);
+        app.stopWorker();
+        return app.addMesh(name, m);
+    }
+
+    fn addMesh(app: *App, name: []const u8, m: zs.Mesh) zs.mesh.Error!usize {
+        const s = app.settings;
+        const i = try app.plate.add(app.gpa, name, m, app.bedSize(), app.partGap(), s.project.placement != .center);
+        try app.plateChanged();
+        return i;
+    }
+
+    fn bedSize(app: *const App) [2]f64 {
+        return .{ app.settings.machine.bed_size_x, app.settings.machine.bed_size_y };
+    }
+
+    /// The gap between parts: the skirt and the brim go around each part.
+    fn partGap(app: *const App) f64 {
+        const p = app.settings.project;
+        const w = if (p.first_layer_line_width > 0) p.first_layer_line_width else 1.25 * app.settings.machine.nozzle_diameter;
+        const skirt = if (p.skirt_loops > 0 and p.skirt_layers > 0) p.skirt_distance + @as(f64, @floatFromInt(p.skirt_loops)) * w else 0;
+        return @max(3, p.brim_width * 2 + skirt);
+    }
+
+    /// After each change of the plate: a new name, and the next slice
+    /// makes the mesh again (with no regions of the old one).
+    fn plateChanged(app: *App) Allocator.Error!void {
+        app.plate_changed = true;
+        app.dropPrevJob();
+        const n = app.plate.count();
+        const name = if (n == 0)
+            try app.gpa.dupe(u8, "")
+        else if (n == 1)
+            try app.gpa.dupe(u8, app.plate.parts.items[0].name)
+        else
+            try std.fmt.allocPrint(app.gpa, "{s} and {d} more", .{ app.plate.parts.items[0].name, n - 1 });
+        app.gpa.free(app.model_name);
+        app.model_name = name;
+        if (n == 0) {
+            app.stopWorker();
+            app.clearResults();
+            if (app.mesh) |*old| old.deinit(app.gpa);
+            app.mesh = null;
+            app.state.store(.empty, .release);
+        } else if (app.getState() == .empty) {
+            app.state.store(.ready, .release);
+        }
+        // A non-empty plate has a mesh at once (for the model size), and
+        // startSlice makes it again after later changes.
+        if (n > 0 and app.mesh == null) {
+            app.mesh = try app.plate.combined(app.gpa);
+            app.plate_changed = false;
+        }
+    }
+
+    pub fn removePart(app: *App, i: usize) Allocator.Error!void {
+        app.stopWorker();
+        app.plate.remove(app.gpa, i);
+        try app.plateChanged();
+    }
+
+    pub fn movePart(app: *App, i: usize, x: f64, y: f64) Allocator.Error!void {
+        app.plate.move(i, x, y);
+        try app.plateChanged();
+    }
+
+    pub fn rotatePart(app: *App, i: usize, deg: f64) Allocator.Error!void {
+        app.plate.rotate(i, deg);
+        try app.plateChanged();
+    }
+
+    /// Packs all parts on the bed. Returns false if they do not all fit.
+    pub fn arrangePlate(app: *App) Allocator.Error!bool {
+        const ok = try app.plate.arrange(app.gpa, app.bedSize(), app.partGap());
+        try app.plateChanged();
+        return ok;
+    }
+
+    pub fn clearPlate(app: *App) Allocator.Error!void {
+        app.stopWorker();
+        app.overrides.clearRetainingCapacity();
+        app.plate.clear(app.gpa);
+        try app.plateChanged();
     }
 
     pub const ModelInfo = struct {
@@ -269,7 +353,7 @@ pub const App = struct {
         return error.UnknownSetting;
     }
 
-    pub const StartError = error{ NoModel, Busy, ThreadSpawnFailed };
+    pub const StartError = error{ NoModel, Busy, ThreadSpawnFailed, OutOfMemory };
 
     /// Starts a slice on a worker thread. Events go to the callback.
     pub fn startSlice(app: *App) StartError!void {
@@ -283,6 +367,14 @@ pub const App = struct {
             app.job = null;
         }
         app.clearResults();
+        // The mesh of the plate, made again after a change.
+        if (app.plate_changed) {
+            const m = try app.plate.combined(app.gpa);
+            if (app.mesh) |*old| old.deinit(app.gpa);
+            app.mesh = m;
+            app.plate_changed = false;
+            app.dropPrevJob();
+        }
         app.slice_settings = app.settings;
         app.gpa.free(app.slice_overrides);
         app.slice_overrides = app.gpa.dupe(zs.settings.Override, app.overrides.items) catch &.{};
@@ -373,6 +465,8 @@ pub const App = struct {
         // The overrides of the whole part change the settings of the slice;
         // the others change some layers.
         var part = app.slice_settings;
+        // The plate has placed the parts: the engine keeps their places.
+        part.project.placement = .file;
         var layer_overrides: std.ArrayList(zs.settings.Override) = .empty;
         defer layer_overrides.deinit(app.gpa);
         for (app.slice_overrides) |o| {
@@ -1451,4 +1545,35 @@ test "an override of the whole part changes the slice, and not the global settin
     // 0.2 mm).
     try testing.expectEqual(@as(usize, 47), app.allToolpaths().?.layer_ends.items.len);
     try testing.expectEqual(@as(f64, 0.2), app.settings.project.layer_height);
+}
+
+
+test "a plate of two parts slices as one print" {
+    const gpa = testing.allocator;
+    var mesh = try zs.mesh.shapes.demo(gpa);
+    var bytes: std.Io.Writer.Allocating = .init(gpa);
+    defer bytes.deinit();
+    try mesh.writeStl(&bytes.writer);
+    mesh.deinit(gpa);
+    const app = try App.create(gpa, null, null);
+    defer app.destroy();
+    try app.loadStl("a.stl", bytes.written());
+    const second = try app.addStl("b.stl", bytes.written());
+    try testing.expectEqual(@as(usize, 1), second);
+    try testing.expectEqualStrings("a.stl and 1 more", app.model_name);
+    // The two parts do not touch.
+    const fa = app.plate.parts.items[0].footprint();
+    const fb = app.plate.parts.items[1].footprint();
+    try testing.expect(fa[2] <= fb[0] or fb[2] <= fa[0] or fa[3] <= fb[1] or fb[3] <= fa[1]);
+    try app.startSlice();
+    app.stopWorkerForTest();
+    try testing.expectEqual(State.done, app.getState());
+    // Twice the paths of one part on the first layer (and two skirts).
+    const pb = app.partBounds().?;
+    try testing.expect(pb[2] - pb[0] > 2 * 39 or pb[3] - pb[1] > 2 * 29);
+    // The part of a path: a path at the center of part b is in part b.
+    try testing.expectEqual(@as(?usize, 1), app.plate.partAt(app.plate.parts.items[1].x, app.plate.parts.items[1].y));
+    // Remove a part: one left.
+    try app.removePart(0);
+    try testing.expectEqualStrings("b.stl", app.model_name);
 }

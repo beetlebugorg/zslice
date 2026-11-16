@@ -41,7 +41,7 @@ void main() {
     // A selection (params.x < params.y): the selected path in a strong
     // yellow, and all other beads in a neutral gray, so the selection is
     // the only color in the view.
-    if (pc.params.y > pc.params.x) {
+    if (pc.params.y > pc.params.x && vhigh > -0.5) {
         base = vhigh > 0.5 ? toLinear(vec3(1.0, 0.78, 0.05)) : toLinear(vec3(0.74, 0.75, 0.77));
     }
     // More light from the sky (up) than from the ground.

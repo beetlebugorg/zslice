@@ -46,6 +46,8 @@ struct _ZgModel {
     /* The scope of the inspector edits (see zg_model_set_scope). */
     gboolean scope_on;
     double scope_min, scope_max, scope_show;
+    /* The selected part of the plate (Shift+click), or -1. */
+    gint64 part;
     /* The time of the last slice request, and of the last slice (ms). */
     gint64 slice_start;
     double slice_ms;
@@ -134,7 +136,7 @@ static void load_group(ZgModel *self, int g) {
 
 G_DEFINE_FINAL_TYPE(ZgModel, zg_model, G_TYPE_OBJECT)
 
-enum { SIGNAL_CORE_EVENT, SIGNAL_SELECTION_CHANGED, SIGNAL_PICKED, SIGNAL_SETTING_CHANGED, SIGNAL_FOCUS_CHANGED, SIGNAL_SCOPE_CHANGED, SIGNAL_PRINTER_CHANGED, SIGNAL_PRINTERS_EDITED, N_SIGNALS };
+enum { SIGNAL_CORE_EVENT, SIGNAL_SELECTION_CHANGED, SIGNAL_PICKED, SIGNAL_SETTING_CHANGED, SIGNAL_FOCUS_CHANGED, SIGNAL_SCOPE_CHANGED, SIGNAL_PRINTER_CHANGED, SIGNAL_PRINTERS_EDITED, SIGNAL_PART_SELECTED, SIGNAL_PLATE_CHANGED, N_SIGNALS };
 static guint signals[N_SIGNALS];
 
 typedef struct {
@@ -229,6 +231,12 @@ static void zg_model_class_init(ZgModelClass *klass) {
      * view can react to it (switch a tab, for example). */
     signals[SIGNAL_PICKED] = g_signal_new("picked", G_TYPE_FROM_CLASS(klass),
         G_SIGNAL_RUN_LAST, 0, NULL, NULL, NULL, G_TYPE_NONE, 1, G_TYPE_INT64);
+    /* part-selected(gint64 part): see zg_model_select_part. */
+    signals[SIGNAL_PART_SELECTED] = g_signal_new("part-selected", G_TYPE_FROM_CLASS(klass),
+        G_SIGNAL_RUN_LAST, 0, NULL, NULL, NULL, G_TYPE_NONE, 1, G_TYPE_INT64);
+    /* plate-changed(): a part was added, removed, moved, or turned. */
+    signals[SIGNAL_PLATE_CHANGED] = g_signal_new("plate-changed", G_TYPE_FROM_CLASS(klass),
+        G_SIGNAL_RUN_LAST, 0, NULL, NULL, NULL, G_TYPE_NONE, 0);
     /* printers-edited(): a printer was added, removed, or renamed. */
     signals[SIGNAL_PRINTERS_EDITED] = g_signal_new("printers-edited", G_TYPE_FROM_CLASS(klass),
         G_SIGNAL_RUN_LAST, 0, NULL, NULL, NULL, G_TYPE_NONE, 0);
@@ -383,6 +391,7 @@ gint64 zg_model_selected(ZgModel *self) {
 
 static void zg_model_init(ZgModel *self) {
     self->selected = -1;
+    self->part = -1;
     self->bridge = g_atomic_rc_box_new0(Bridge);
     g_weak_ref_init(&self->bridge->model, self);
     int rc = zs_app_new(on_core_event, self->bridge, &self->core);
@@ -407,14 +416,82 @@ static gboolean fail(GError **error, int rc) {
     return FALSE;
 }
 
+/* The name for the title: the first part, and how many more. */
+static void update_name(ZgModel *self) {
+    g_free(self->name);
+    self->name = NULL;
+    size_t n = zs_app_part_count(self->core);
+    zs_part p;
+    if (n == 0 || zs_app_part_get(self->core, 0, &p) != ZS_OK) return;
+    self->name = n == 1 ? g_strdup(p.name) : g_strdup_printf("%s and %zu more", p.name, n - 1);
+}
+
+static void plate_changed(ZgModel *self) {
+    update_name(self);
+    if ((size_t)self->part >= zs_app_part_count(self->core)) zg_model_select_part(self, -1);
+    g_signal_emit(self, signals[SIGNAL_PLATE_CHANGED], 0);
+    if (zs_app_part_count(self->core) > 0) slice_soon(self);
+}
+
 gboolean zg_model_load(ZgModel *self, const char *name, const void *data, gsize len, GError **error) {
     int rc = zs_app_load_stl(self->core, name, data, len);
     if (rc != ZS_OK) return fail(error, rc);
-    g_free(self->name);
-    self->name = g_strdup(name);
+    zg_model_select_part(self, -1);
+    update_name(self);
+    g_signal_emit(self, signals[SIGNAL_PLATE_CHANGED], 0);
     rc = request_slice(self);
     if (rc != ZS_OK) return fail(error, rc);
     return TRUE;
+}
+
+gboolean zg_model_add(ZgModel *self, const char *name, const void *data, gsize len, GError **error) {
+    if (zs_app_part_count(self->core) == 0) return zg_model_load(self, name, data, len, error);
+    ptrdiff_t i = zs_app_add_stl(self->core, name, data, len);
+    if (i < 0) return fail(error, (int)-i);
+    plate_changed(self);
+    return TRUE;
+}
+
+void zg_model_select_part(ZgModel *self, gint64 part) {
+    if (self->part == part) return;
+    /* A part, or a line: not both. The line goes first, so the part page
+     * comes after it. */
+    if (part >= 0 && self->selected >= 0) zg_model_select(self, -1);
+    self->part = part;
+    g_signal_emit(self, signals[SIGNAL_PART_SELECTED], 0, part);
+}
+
+gint64 zg_model_selected_part(ZgModel *self) {
+    return self->part;
+}
+
+void zg_model_part_move(ZgModel *self, size_t i, double x, double y) {
+    if (zs_app_part_move(self->core, i, x, y) == ZS_OK) plate_changed(self);
+}
+
+void zg_model_part_rotate(ZgModel *self, size_t i, double degrees) {
+    if (zs_app_part_rotate(self->core, i, degrees) == ZS_OK) plate_changed(self);
+}
+
+void zg_model_part_remove(ZgModel *self, size_t i) {
+    if (zs_app_part_remove(self->core, i) != ZS_OK) return;
+    zg_model_select_part(self, -1);
+    zg_model_select(self, -1);
+    plate_changed(self);
+}
+
+gboolean zg_model_plate_arrange(ZgModel *self) {
+    int ok = zs_app_plate_arrange(self->core);
+    plate_changed(self);
+    return ok;
+}
+
+void zg_model_plate_clear(ZgModel *self) {
+    zs_app_plate_clear(self->core);
+    zg_model_select_part(self, -1);
+    zg_model_select(self, -1);
+    plate_changed(self);
+    g_signal_emit(self, signals[SIGNAL_CORE_EVENT], 0, ZS_EVENT_CANCELED, 0.0, 0);
 }
 
 gboolean zg_model_set(ZgModel *self, const char *key, const char *value, GError **error) {

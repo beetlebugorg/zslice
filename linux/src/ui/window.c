@@ -158,7 +158,8 @@ static void on_loaded(GObject *source, GAsyncResult *res, gpointer data) {
     gsize len = 0;
     GError *error = NULL;
     if (g_file_load_contents_finish(G_FILE(source), res, &contents, &len, NULL, &error)) {
-        if (!zg_model_load(w->model, job->name, contents, len, &error)) {
+        /* A new part on the plate (the first one loads the plate). */
+        if (!zg_model_add(w->model, job->name, contents, len, &error)) {
             show_error(w, "The model did not open", error->message);
             g_error_free(error);
         }
@@ -183,17 +184,21 @@ void zg_window_open_file(GtkWindow *window, GFile *file) {
 
 static void on_open_chosen(GObject *source, GAsyncResult *res, gpointer data) {
     GtkWindow *window = data;
-    GFile *file = gtk_file_dialog_open_finish(GTK_FILE_DIALOG(source), res, NULL);
-    if (file) {
-        zg_window_open_file(window, file);
-        g_object_unref(file);
+    GListModel *files = gtk_file_dialog_open_multiple_finish(GTK_FILE_DIALOG(source), res, NULL);
+    if (files) {
+        for (guint i = 0; i < g_list_model_get_n_items(files); i++) {
+            GFile *file = g_list_model_get_item(files, i);
+            zg_window_open_file(window, file);
+            g_object_unref(file);
+        }
+        g_object_unref(files);
     }
     g_object_unref(window);
 }
 
 void zg_window_open_dialog(GtkWindow *window) {
     GtkFileDialog *dialog = gtk_file_dialog_new();
-    gtk_file_dialog_set_title(dialog, "Open a model");
+    gtk_file_dialog_set_title(dialog, "Add models to the plate");
     GtkFileFilter *stl = gtk_file_filter_new();
     gtk_file_filter_set_name(stl, "STL files");
     gtk_file_filter_add_suffix(stl, "stl");
@@ -201,7 +206,7 @@ void zg_window_open_dialog(GtkWindow *window) {
     GListStore *filters = g_list_store_new(GTK_TYPE_FILE_FILTER);
     g_list_store_append(filters, stl);
     gtk_file_dialog_set_filters(dialog, G_LIST_MODEL(filters));
-    gtk_file_dialog_open(dialog, window, NULL, on_open_chosen, g_object_ref(window));
+    gtk_file_dialog_open_multiple(dialog, window, NULL, on_open_chosen, g_object_ref(window));
     g_object_unref(filters);
     g_object_unref(stl);
     g_object_unref(dialog);
@@ -426,9 +431,26 @@ static void on_prefs_action(GSimpleAction *a, GVariant *v, gpointer data) {
 /* ---- drop ---- */
 
 static gboolean on_drop(GtkDropTarget *target, const GValue *value, double x, double y, gpointer data) {
+    if (G_VALUE_HOLDS(value, GDK_TYPE_FILE_LIST)) {
+        for (GSList *l = gdk_file_list_get_files(g_value_get_boxed(value)); l; l = l->next) {
+            zg_window_open_file(GTK_WINDOW(data), l->data);
+        }
+        return TRUE;
+    }
     if (!G_VALUE_HOLDS(value, G_TYPE_FILE)) return FALSE;
     zg_window_open_file(GTK_WINDOW(data), g_value_get_object(value));
     return TRUE;
+}
+
+static void on_arrange_action(GSimpleAction *a, GVariant *v, gpointer data) {
+    Window *w = get(data);
+    if (!zg_model_plate_arrange(w->model)) {
+        show_error(w, "The parts do not all fit on the bed", "Some parts are past the edge of the bed. Remove a part, or use a printer with a larger bed.");
+    }
+}
+
+static void on_clear_action(GSimpleAction *a, GVariant *v, gpointer data) {
+    zg_model_plate_clear(get(data)->model);
 }
 
 /* ---- window ---- */
@@ -483,7 +505,7 @@ GtkWindow *zg_window_new(GtkApplication *app, ZgModel *model) {
     /* Header bar. */
     GtkWidget *header = gtk_header_bar_new();
     GtkWidget *open = gtk_button_new_from_icon_name("document-open-symbolic");
-    gtk_widget_set_tooltip_text(open, "Open a model (Ctrl+O)");
+    gtk_widget_set_tooltip_text(open, "Add models to the plate (Ctrl+O). Shift+click a part to select it; Shift+drag moves it, and Shift+wheel turns it.");
     g_signal_connect(open, "clicked", G_CALLBACK(on_open_clicked), w->window);
     gtk_header_bar_pack_start(GTK_HEADER_BAR(header), open);
 
@@ -518,10 +540,14 @@ GtkWindow *zg_window_new(GtkApplication *app, ZgModel *model) {
         {.name = "send-only", .activate = on_send_only},
         {.name = "export", .activate = on_export_action},
         {.name = "preferences", .activate = on_prefs_action},
+        {.name = "arrange", .activate = on_arrange_action},
+        {.name = "clear-plate", .activate = on_clear_action},
     };
     g_action_map_add_action_entries(G_ACTION_MAP(w->window), win_actions, G_N_ELEMENTS(win_actions), w->window);
 
     GMenu *menu = g_menu_new();
+    g_menu_append(menu, "Arrange the plate", "win.arrange");
+    g_menu_append(menu, "Clear the plate", "win.clear-plate");
     g_menu_append(menu, "Preferences", "win.preferences");
     g_menu_append(menu, "Licenses", "app.licenses");
     g_menu_append(menu, "About zslice", "app.about");
@@ -583,11 +609,14 @@ GtkWindow *zg_window_new(GtkApplication *app, ZgModel *model) {
     gtk_box_append(GTK_BOX(body), bar);
     gtk_window_set_child(w->window, body);
 
-    GtkDropTarget *drop = gtk_drop_target_new(G_TYPE_FILE, GDK_ACTION_COPY);
+    GtkDropTarget *drop = gtk_drop_target_new(G_TYPE_INVALID, GDK_ACTION_COPY);
+    GType drop_types[] = {GDK_TYPE_FILE_LIST, G_TYPE_FILE};
+    gtk_drop_target_set_gtypes(drop, drop_types, G_N_ELEMENTS(drop_types));
     g_signal_connect(drop, "drop", G_CALLBACK(on_drop), w->window);
     gtk_widget_add_controller(GTK_WIDGET(w->window), GTK_EVENT_CONTROLLER(drop));
 
     g_signal_connect(model, "core-event", G_CALLBACK(on_core_event), w);
+    g_signal_connect_swapped(model, "plate-changed", G_CALLBACK(update), w);
     g_signal_connect(model, "printer-changed", G_CALLBACK(on_printers_changed), w);
     g_signal_connect(model, "printers-edited", G_CALLBACK(on_printers_changed), w);
     update_printer_ui(w);

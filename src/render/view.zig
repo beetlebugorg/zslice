@@ -82,6 +82,9 @@ pub const View = struct {
     bead_end: std.ArrayList(f32) = .empty,
     /// The replay time (s), or null to show whole layers.
     time: ?f32 = null,
+    /// The footprint of the selected part (x0, y0, x1, y1), or null: a
+    /// frame on the bed around it.
+    part_box: ?[4]f32 = null,
     layer: usize = 0,
     grid_vertices: u32 = 0,
     width: u32,
@@ -424,6 +427,12 @@ pub const View = struct {
         v.grid_vertices = @intCast(pts.items.len / 3);
     }
 
+    /// Shows a frame on the bed around the footprint of a selected part, or
+    /// none (null).
+    pub fn setPartBox(v: *View, box: ?[4]f32) void {
+        v.part_box = box;
+    }
+
     /// Shows the beads of some features clearly and fades the others: a
     /// bit (1 << feature) for each feature in `mask`, or 0 to end the
     /// focus. Only beads with a top at or under `zmax` are in focus (pass
@@ -624,6 +633,17 @@ pub const View = struct {
         return .{ .eye = eye, .f = .{ -b[0], -b[1], -b[2] }, .s = s_, .u = u };
     }
 
+    /// The point of the bed (z = 0) under the pixel, or null if the ray
+    /// does not meet the bed in front of the camera.
+    pub fn bedPoint(v: *const View, px: f32, py: f32) ?[2]f64 {
+        const cam = v.camera();
+        const dir = v.pixelRay(cam, px, py);
+        if (@abs(dir[2]) < 1e-6) return null;
+        const t = -cam.eye[2] / dir[2];
+        if (t <= 0) return null;
+        return .{ cam.eye[0] + dir[0] * t, cam.eye[1] + dir[1] * t };
+    }
+
     /// The unit direction of the ray from the camera through pixel (px, py).
     fn pixelRay(v: *const View, cam: anytype, px: f32, py: f32) [3]f32 {
         const aspect = @as(f32, @floatFromInt(v.width)) / @as(f32, @floatFromInt(v.height));
@@ -687,7 +707,8 @@ pub const View = struct {
         const view = lookAt(eye, v.target, cam.u);
         const mvp = mul(proj, view);
         var count: u32 = 0;
-        var partial: ?vk.Instance = null;
+        var extras: [vk.max_extras]vk.Instance = undefined;
+        var n_extras: usize = 0;
         if (v.time) |t| {
             const done = v.beadsDoneAt(t);
             count = @intCast(done);
@@ -699,7 +720,8 @@ pub const View = struct {
                     const f = @min(1, (t - t_start) / (t_end - t_start));
                     b.bx = b.ax + (b.bx - b.ax) * f;
                     b.by = b.ay + (b.by - b.ay) * f;
-                    partial = b;
+                    extras[n_extras] = b;
+                    n_extras += 1;
                 }
             }
         } else if (v.layer_end.items.len > 0) {
@@ -712,7 +734,19 @@ pub const View = struct {
             mark_count = v.mark_layer_end.items[@min(top, v.mark_layer_end.items.len - 1)];
         }
         try v.renderer.draw(.{
-            .partial = partial,
+            .extras = blk: {
+                // The frame of the selected part: four thin beads on the bed.
+                if (v.part_box) |pb| {
+                    const corners = [_][2]f32{ .{ pb[0], pb[1] }, .{ pb[2], pb[1] }, .{ pb[2], pb[3] }, .{ pb[0], pb[3] } };
+                    for (0..4) |k| {
+                        const a = corners[k];
+                        const b = corners[(k + 1) % 4];
+                        extras[n_extras] = .{ .ax = a[0], .ay = a[1], .bx = b[0], .by = b[1], .z = 0.25, .h = 0.25, .w = 0.7, .rgba = .{ 0x33, 0x88, 0xff, 11 } };
+                        n_extras += 1;
+                    }
+                }
+                break :blk extras[0..n_extras];
+            },
             .clear = .{ 0.965, 0.969, 0.973 },
             // A light from above, in front, and to the right.
             .box = .{

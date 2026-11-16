@@ -165,6 +165,16 @@ A value out of the usual range shows in the warning color, and its tooltip gives
 | Double-click | Reset the view (also removes a roll) |
 | Left click | Pick a line (see below) |
 
+## More than one part
+
+Open adds each model to the plate (Ctrl+O, or drop files on the window). The first part keeps the place of its file if it is on the bed there; a new part goes to a free place. "Arrange the plate" in the menu packs all parts in rows.
+
+- A click on a line selects the line (its settings are on the Selected page).
+- Shift+click on a part selects the part: a blue frame shows it on the bed, and the Selected page has its place, its turn, and "Turn 90°", "Arrange the plate", and "Remove".
+- Shift+drag moves the selected part, and Shift+wheel turns it by 15°.
+
+"Clear the plate" in the menu removes all parts.
+
 ## Watch the print
 
 In the app, press the play button under the 3D and 2D switch. The 3D view shows the print as it grows, line by line, at the speed in the list (1x is the real speed). The layer slider follows. Move the slider to stop.
