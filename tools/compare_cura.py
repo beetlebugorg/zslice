@@ -16,9 +16,10 @@ again; --rescan makes a new list.
 
 Each unique file is sliced by zslice and by CuraEngine, one after the
 other, with one thread each, at nice level 10. N files are sliced in
-parallel. The default N is 3, so that the desktop stays responsive. Each slice has a time limit (default 120 s). The
-results go in <out>/results.csv, one row for each file, as each file
-finishes. A new run skips the files that are in results.csv already, so
+parallel. The default N is 2. Each slicer process has an address space
+limit of 3 GB (MEMORY_CAP). These limits keep the computer usable.
+Each slice has a time limit (default 120 s). The results go in
+<out>/results.csv, one row for each file, as each file finishes. A new run skips the files that are in results.csv already, so
 the script can stop and continue. At the end, the script writes
 <out>/summary.md.
 
@@ -30,7 +31,7 @@ bottom, 20 % grid infill, no support, a 1-loop skirt, and the part at the
 center of the bed. The speeds are the same. CuraEngine gets a very high
 acceleration, because the zslice time estimate is distance / speed.
 
-For each slicer, the row has: the status (ok, error, crash, timeout), the
+For each slicer, the row has: the status (ok, error, crash, timeout, oom), the
 wall time, the CPU time, the peak memory (ru_maxrss of the child), the
 layer count, the filament length, the print time estimate, the filament of
 each feature type (from the ;TYPE: comments of the G-code), and the error
@@ -77,6 +78,12 @@ TAZ_MACHINE = "lulzbot_taz_workhorse_se"
 SKIP_DIRS = {".git", "node_modules", ".zig-cache", "zig-out"}
 
 BED = 2000
+
+# The address space limit of each slicer process. A slice that needs more
+# gets the status "oom". The cap keeps the computer usable.
+MEMORY_CAP = 3 * 1024 ** 3
+
+OOM_TEXT = ("OutOfMemory", "bad_alloc", "out of memory", "Cannot allocate memory")
 
 ZSLICE_SETTINGS = [
     "machine.bed_size_x=%d" % BED,
@@ -183,6 +190,8 @@ CURA_SETTINGS = [
     "brim_line_count=0",
     # Cura adds skirt loops up to this length. zslice has no such setting.
     "skirt_brim_minimal_length=0",
+    # The default is 3 layers when skirt_gap > 0. zslice prints 1 layer.
+    "skirt_height=1",
     "retraction_enable=true",
     "retraction_amount=1.5",
     "retraction_speed=35",
@@ -218,10 +227,15 @@ PROBE = r"""
 import os, resource, subprocess, sys, time
 os.nice(10)
 timeout = float(sys.argv[1])
+limit = int(sys.argv[2])
+
+def cap():
+    resource.setrlimit(resource.RLIMIT_AS, (limit, limit))
+
 t0 = time.monotonic()
 try:
-    p = subprocess.run(sys.argv[2:], stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
-                       timeout=timeout)
+    p = subprocess.run(sys.argv[3:], stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
+                       timeout=timeout, preexec_fn=cap)
     code, err = p.returncode, p.stdout
 except subprocess.TimeoutExpired as e:
     code, err = "timeout", (e.stdout or b"")
@@ -371,7 +385,7 @@ def gcode_facts(path):
 # ---------------------------------------------------------------- slicing
 
 def run_probe(cmd, gcode, timeout, env=None):
-    probe = [sys.executable, "-I", "-c", PROBE, str(timeout)] + cmd
+    probe = [sys.executable, "-I", "-c", PROBE, str(timeout), str(MEMORY_CAP)] + cmd
     p = subprocess.run(probe, capture_output=True, env=env, timeout=timeout + 60)
     lines = p.stdout.decode("utf-8", "replace").split("\n", 4)
     code, wall, cpu, rss = lines[0], float(lines[1]), float(lines[2]), int(lines[3])
@@ -383,6 +397,8 @@ def run_probe(cmd, gcode, timeout, env=None):
         status = "ok" if code == 0 else ("crash" if code < 0 or code >= 128 else "error")
     if status == "ok" and not os.path.exists(gcode):
         status = "error"
+    if status in ("error", "crash") and any(t in err for t in OOM_TEXT):
+        status = "oom"
     return {"status": status, "wall_s": round(wall, 3), "cpu_s": round(cpu, 3),
             "peak_mb": round(rss / 1024, 1)}, err
 
@@ -427,7 +443,10 @@ def finish(r, err, gcode, cura):
         except (OSError, ValueError) as e:
             r["status"] = "error"
             r["error"] = "G-code read: %s" % e
-    if r["status"] != "ok":
+    if r["status"] == "oom":
+        r["error"] = "out of memory at %d GB: %s" % (
+            MEMORY_CAP // 1024 ** 3, last_error(err, cura)[:200])
+    elif r["status"] != "ok":
         r["error"] = last_error(err, cura) or r["status"]
     elif not cura:
         r["error"] = ""
@@ -478,7 +497,7 @@ def prepare(ctx, out):
 def cmd_run(args):
     zslice, out = os.path.abspath(args[0]), os.path.abspath(args[1])
     opts = {"--root": os.path.expanduser("~/Projects"),
-            "--jobs": str(max(1, min(3, (os.cpu_count() or 4) - 2))),
+            "--jobs": "2",
             "--timeout": "120", "--limit": "0"}
     rescan = "--rescan" in args
     rest = [a for a in args[2:] if a != "--rescan"]
@@ -559,7 +578,7 @@ def write_summary(out, total=None, unique=None):
     md.append("Files: %d. Unique files: %d. Sliced: %d." % (total, unique, len(rows)))
     md.append("")
     names = {"z": "zslice", "c": "CuraEngine"}
-    head = ["", "ok", "error", "crash", "timeout", "wall s (sum)", "wall s (median)",
+    head = ["", "ok", "error", "crash", "timeout", "oom", "wall s (sum)", "wall s (median)",
             "CPU s (sum)", "peak MB (median)", "peak MB (max)"]
     table = []
     for s in SLICERS:
@@ -568,7 +587,7 @@ def write_summary(out, total=None, unique=None):
         wall = [num(r[s + "_wall_s"]) or 0 for r in rows]
         cpu = [num(r[s + "_cpu_s"]) or 0 for r in rows]
         mem = [num(r[s + "_peak_mb"]) or 0 for r in ok] or [0]
-        table.append([names[s]] + [st.count(k) for k in ("ok", "error", "crash", "timeout")]
+        table.append([names[s]] + [st.count(k) for k in ("ok", "error", "crash", "timeout", "oom")]
                      + ["%.0f" % sum(wall), "%.3f" % statistics.median(wall or [0]),
                         "%.0f" % sum(cpu), "%.1f" % statistics.median(mem), "%.0f" % max(mem)])
     md += [md_table(head, table), ""]
