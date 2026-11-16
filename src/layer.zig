@@ -175,7 +175,14 @@ pub const Memo = struct {
     bands: std.ArrayList(BandEntry) = .empty,
     fills: std.ArrayList(FillEntry) = .empty,
 
-    const OffsetEntry = struct { delta: i64, paths: Paths, gen: u32 };
+    const OffsetEntry = struct {
+        delta: i64,
+        paths: Paths,
+        gen: u32,
+        /// The seam vertex of each loop for `seam_mode` (for a wall).
+        seam_mode: ?settings_mod.SeamMode = null,
+        seams: []u32 = &.{},
+    };
     const ThinEntry = struct { w: i64, thin: Paths, widths: []f32, gen: u32 };
     const PartEntry = struct { delta: i64, layer: u32, top: bool, paths: Paths, gen: u32 };
     const SkinEntry = struct { key: [6]i64, skin: Paths, sparse: Paths, gen: u32 };
@@ -199,6 +206,7 @@ pub const Memo = struct {
         for (self.offsets.items) |e| if (e.gen >= min_gen) {
             var c = e;
             c.paths = try e.paths.clone(a);
+            c.seams = try a.dupe(u32, e.seams);
             try out.offsets.append(a, c);
         };
         for (self.thins.items) |e| if (e.gen >= min_gen) {
@@ -241,6 +249,21 @@ pub const Memo = struct {
         const paths = try offset_mod.offset(a, outline, delta, .{});
         try self.offsets.append(a, .{ .delta = delta, .paths = paths, .gen = gen });
         return paths;
+    }
+
+    /// The seam vertex of each loop of `walls` (a result of `offset`), from
+    /// the memo or new. Null if `walls` is not in the memo.
+    fn seams(self: *Memo, walls: Paths, rule: Seam) Allocator.Error!?[]const u32 {
+        for (self.offsets.items) |*e| {
+            if (e.paths.points.items.ptr != walls.points.items.ptr or e.paths.count() != walls.count()) continue;
+            if (e.seam_mode != rule.mode) {
+                e.seams = try self.arena.allocator().alloc(u32, walls.count());
+                try seamIndices(walls, rule, e.seams);
+                e.seam_mode = rule.mode;
+            }
+            return e.seams;
+        }
+        return null;
     }
 
     /// The skin (or sparse) area of `reg` moved by `delta`.
@@ -636,9 +659,9 @@ pub fn plan(gpa: Allocator, ctx: Context, i: usize) Allocator.Error!LayerPlan {
 
     // Step 9.
     var pos: Point = if (outline.points.items.len > 0) outline.points.items[0] else .init(0, 0);
-    var below_index: ?InsideIndex = null;
-    if (p.seam == .hidden and i > 0 and !ctx.outlines[i - 1].isEmpty()) below_index = try .init(s, ctx.outlines[i - 1]);
-    const seam: Seam = .{ .mode = p.seam, .layer = i, .below = if (below_index) |*b| b else null };
+    // The index of the layer below, made when a hidden seam needs it.
+    var below: BelowIndex = .{ .s = s, .outline = if (i > 0) ctx.outlines[i - 1] else .empty };
+    const seam: Seam = .{ .mode = p.seam, .layer = i, .below = &below, .memo = memo };
     for (rings.items) |ring| try addOrdered(s, a, &lp, &pos, ring, true, .skirt);
     try addOrdered(s, a, &lp, &pos, sup_walls, true, .support);
     try addOrdered(s, a, &lp, &pos, sup_lines, false, .support);
@@ -978,10 +1001,36 @@ fn addOrdered(s: Allocator, a: Allocator, lp: *LayerPlan, pos: *Point, set: Path
 const Seam = struct {
     mode: settings_mod.SeamMode,
     layer: usize,
-    /// The outline of the layer below, or null for the first layer: the
-    /// hidden seam avoids a point over air.
-    below: ?*const InsideIndex = null,
+    /// The outline of the layer below: the hidden seam avoids a point over
+    /// air.
+    below: *BelowIndex,
+    /// The memo that keeps the seams of the walls of the layer.
+    memo: ?*Memo = null,
 };
+
+/// The index of the outline below (see `InsideIndex`), made on the first
+/// use.
+const BelowIndex = struct {
+    s: Allocator,
+    outline: Paths,
+    index: ?InsideIndex = null,
+
+    /// The index, or null if there is no layer below.
+    fn get(self: *BelowIndex) Allocator.Error!?*const InsideIndex {
+        if (self.outline.isEmpty()) return null;
+        if (self.index == null) self.index = try .init(self.s, self.outline);
+        return &self.index.?;
+    }
+};
+
+/// The seam vertex of each loop of `set` for `rule` (see `Seam`).
+fn seamIndices(set: Paths, rule: Seam, out: []u32) Allocator.Error!void {
+    const below = if (rule.mode == .hidden) try rule.below.get() else null;
+    for (out, 0..) |*v, j| v.* = @intCast(if (rule.mode == .hidden)
+        hiddenIndex(set.get(j), below)
+    else
+        seamIndex(set.get(j), rule.mode, rule.layer *% 1_000_003 +% j));
+}
 
 /// `addOrdered`, with a seam rule for loops. With a rule, each loop starts at
 /// its seam vertex (see `seamIndex`), and the greedy order uses the distance
@@ -991,14 +1040,14 @@ fn addOrderedSeam(s: Allocator, a: Allocator, lp: *LayerPlan, pos: *Point, set: 
     if (n == 0) return;
     const used = try s.alloc(bool, n);
     @memset(used, false);
-    var fixed: ?[]usize = null;
+    var fixed: ?[]const u32 = null;
     if (closed) if (seam) |rule| if (rule.mode != .nearest) {
-        const f = try s.alloc(usize, n);
-        for (f, 0..) |*v, j| v.* = if (rule.mode == .hidden)
-            hiddenIndex(set.get(j), rule.below)
-        else
-            seamIndex(set.get(j), rule.mode, rule.layer *% 1_000_003 +% j);
-        fixed = f;
+        fixed = if (rule.memo) |m| try m.seams(set, rule) else null;
+        if (fixed == null) {
+            const f = try s.alloc(u32, n);
+            try seamIndices(set, rule, f);
+            fixed = f;
+        }
     };
     for (0..n) |_| {
         var best: usize = 0;
@@ -1372,3 +1421,4 @@ test "the skin from the surfaces is the inner area minus the supported area" {
         try testing.expectApproxEqAbs(want.areaMm2(), got.areaMm2(), 0.01);
     }
 }
+
