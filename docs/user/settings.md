@@ -430,9 +430,9 @@ Lift the nozzle by this distance during a travel move with a retraction. 0 turns
 
 Support under overhangs. `off`: no support. `everywhere`: support can stand on the bed or on the part. `buildplate`: only support that stands on the bed.
 
-**`project.support_style`** (one of: `grid`, `tree`). Default: `grid`
+**`project.support_style`** (one of: `grid`, `tree`, `bridge`). Default: `grid`
 
-The shape of the support. `grid`: all the space under each overhang, filled with lines. `tree`: branches from points under each overhang down to the bed or the part; they join on the way, get thicker as they go down, and thinner in narrow spaces (so a branch can go down a deep, narrow hole). A tree uses less plastic and comes off more easily.
+The shape of the support. `grid`: all the space under each overhang, filled with lines. `tree`: branches from points under each overhang down to the bed or the part; they join on the way, get thicker as they go down, and thinner in narrow spaces (so a branch can go down a deep, narrow hole). A tree uses less plastic and comes off more easily. `bridge`: only a sacrificial pad under each overhang (the interface layers, with the Z gap over it), with nothing under the pad. The pad bridges from the part around it, as a bridge does, and breaks off easily. For overhangs over a hole or a short gap, where a column down to the bed would be a waste.
 
 **`project.support_tree_angle`** (number). Default: `40`
 

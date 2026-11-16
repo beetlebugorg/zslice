@@ -120,6 +120,10 @@ pub fn compute(
         try treeSupport(gpa, threads, outlines, layers, r, need, blocked, out);
         return out;
     }
+    if (p.support_style == .bridge) {
+        try addPads(gpa, need, blocked, p.support_z_gap_layers, @max(1, p.support_interface_layers), out);
+        return out;
+    }
 
     // Step 2: the columns, from the top down. Each layer depends on the
     // layer above, so this loop is on one thread. It does only the union
@@ -233,7 +237,6 @@ fn treeSupport(
     out: []SupportLayer,
 ) !void {
     const p = r.settings.project;
-    const n = outlines.len;
     const gap = p.support_z_gap_layers;
     const pads = p.support_interface_layers;
     const tip_mm = if (p.support_tree_tip > 0) p.support_tree_tip else 2 * r.line_width;
@@ -249,8 +252,13 @@ fn treeSupport(
     const branches = try tree.grow(gpa, threads, outlines, layers, need, blocked, 1 + gap + pads, params);
     defer gpa.free(branches);
     for (out, branches) |*o, b| o.body = b;
-    // The pads: the overhang area, on the interface layers between the
-    // tips and the overhang.
+    try addPads(gpa, need, blocked, gap, pads, out);
+}
+
+/// The pads: the overhang area, on the `pads` interface layers under each
+/// overhang (under the Z gap). Tree support and bridge support use them.
+fn addPads(gpa: Allocator, need: []const Paths, blocked: []const Paths, gap: usize, pads: usize, out: []SupportLayer) !void {
+    const n = need.len;
     if (pads == 0) return;
     var arena_state = std.heap.ArenaAllocator.init(gpa);
     defer arena_state.deinit();

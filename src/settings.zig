@@ -34,7 +34,7 @@ pub const SupportMode = enum { off, everywhere, buildplate };
 /// How a short layer gets its cooling time. See `Filament.cooling_mode`.
 pub const CoolingMode = enum { slow_down, lap };
 /// The shape of the support. See `Project.support_style`.
-pub const SupportStyle = enum { grid, tree };
+pub const SupportStyle = enum { grid, tree, bridge };
 /// The G-code dialect for the acceleration commands. See `Machine.gcode_flavor`.
 pub const GcodeFlavor = enum { marlin, klipper };
 pub const ExtruderKind = enum { direct, bowden };
@@ -378,7 +378,11 @@ pub const Project = struct {
     /// down to the bed or the part; they join on the way, get thicker as
     /// they go down, and thinner in narrow spaces (so a branch can go down
     /// a deep, narrow hole). A tree uses less plastic and comes off more
-    /// easily.
+    /// easily. `bridge`: only a sacrificial pad under each overhang (the
+    /// interface layers, with the Z gap over it), with nothing under the
+    /// pad. The pad bridges from the part around it, as a bridge does, and
+    /// breaks off easily. For overhangs over a hole or a short gap, where
+    /// a column down to the bed would be a waste.
     support_style: SupportStyle = .grid,
     /// Tree support: the largest angle of a branch from vertical, in
     /// degrees. A larger angle lets branches reach farther, with less
