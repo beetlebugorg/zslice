@@ -110,7 +110,7 @@ The goal is the features that people use in PrusaSlicer and Cura. zslice designs
 - [ ] 3MF: save the parts with their changes and overrides; with more than one STL, one new 3MF with all of them
 - [x] Preferences window: printers (more than one, each with its machine settings), connections (printdeck, OctoPrint, Moonraker, USB serial), a connection test that reads the bed, the nozzle, and the filament of the printer, global app settings (theme, first view, threads)
 - [x] Send to the printer (upload, or upload and print), and the state of the printer in the status bar
-- [ ] Seam mode "hidden": the most hidden point (inside corners, the back, aligned with the layer below, not on an overhang)
+- [x] Seam mode "hidden" (the default): the most hidden point (inside corners over about 1 mm, the back, not over air; ties to the back, so the seams line up)
 - [ ] More infill: honeycomb, lightning, adaptive cubic, and a new connected pattern (one path for each area, dense under the top and near the walls) with no travel
 - [ ] printdeck web module: the core in wasm, a WebGPU backend for the 3D view, the slicer in the printdeck web UI and cloud
 - [ ] Combing: travel inside the part over the infill and the inner walls, with no retraction, and faster

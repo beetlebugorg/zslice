@@ -138,12 +138,17 @@ pub fn regions(gpa: Allocator, ctx: Context, i: usize) Allocator.Error!Regions {
     const outline = ctx.outlines[i];
     if (outline.isEmpty()) return reg;
 
+    // The offsets and the booleans keep their work memory in the arena
+    // that they get, so they run in the scratch arena, and only the results
+    // go to the arena of the regions (the cache keeps it for all layers).
+
     // Step 1.
     const walls = try a.alloc(Paths, p.wall_count);
     var wall_n: usize = 0;
     for (walls, 0..) |*wall, k| {
-        wall.* = try offset_mod.offset(a, outline, -(@divTrunc(w, 2) + @as(i64, @intCast(k)) * w), .{});
-        if (wall.isEmpty()) break;
+        const loop = try offset_mod.offset(s, outline, -(@divTrunc(w, 2) + @as(i64, @intCast(k)) * w), .{});
+        if (loop.isEmpty()) break;
+        wall.* = try loop.clone(a);
         wall_n += 1;
     }
     reg.walls = walls[0..wall_n];
@@ -168,8 +173,10 @@ pub fn regions(gpa: Allocator, ctx: Context, i: usize) Allocator.Error!Regions {
             else
                 try clip.intersect(s, above.?, below.?);
             const raw_skin = try clip.difference(s, inner, supported);
-            reg.skin = try offset_mod.opening(a, raw_skin, @divTrunc(w, 4), .{});
-            reg.sparse = try clip.difference(a, inner, reg.skin);
+            const skin = try offset_mod.opening(s, raw_skin, @divTrunc(w, 4), .{});
+            const sparse = try clip.difference(s, inner, skin);
+            reg.skin = try skin.clone(a);
+            reg.sparse = try sparse.clone(a);
         }
     }
     return reg;
@@ -341,7 +348,7 @@ pub fn plan(gpa: Allocator, ctx: Context, i: usize) Allocator.Error!LayerPlan {
 
     // Step 9.
     var pos: Point = if (outline.points.items.len > 0) outline.points.items[0] else .init(0, 0);
-    const seam: Seam = .{ .mode = p.seam, .layer = i };
+    const seam: Seam = .{ .mode = p.seam, .layer = i, .below = if (i > 0) ctx.outlines[i - 1] else .empty };
     for (rings.items) |ring| try addOrdered(s, a, &lp, &pos, ring, true, .skirt);
     try addOrdered(s, a, &lp, &pos, sup_walls, true, .support);
     try addOrdered(s, a, &lp, &pos, sup_lines, false, .support);
@@ -375,6 +382,7 @@ pub fn plan(gpa: Allocator, ctx: Context, i: usize) Allocator.Error!LayerPlan {
 fn seamIndex(path: []const Point, mode: settings_mod.SeamMode, salt: u64) usize {
     switch (mode) {
         .nearest => unreachable,
+        .hidden => return hiddenIndex(path, .empty),
         .rear => return rearIndex(path),
         .random => {
             var prng = std.Random.DefaultPrng.init(salt);
@@ -406,6 +414,90 @@ fn seamIndex(path: []const Point, mode: settings_mod.SeamMode, salt: u64) usize 
             return best orelse rearIndex(path);
         },
     }
+}
+
+/// The hidden seam: the vertex with the best score.
+///
+/// - The turn of the loop at the vertex, over about 1 mm on each side, so
+///   that a corner of many short segments (a curved CAD export) is still a
+///   corner. An inside corner hides the seam best: the blob is in the
+///   corner, and the eye does not see it. An outside corner hides it less.
+/// - Toward the back (a larger y): the front of a part faces the user.
+/// - A vertex that is not over the layer below (an overhang) loses: the
+///   seam blob would sag there.
+/// A tie goes to the vertex further back, so similar layers pick the same
+/// vertex, and the seam is one straight line.
+fn hiddenIndex(path: []const Point, below: Paths) usize {
+    const n = path.len;
+    if (n < 3) return 0;
+    const reach: f64 = 1000; // 1 mm, in µm
+    var ymin = path[0].y;
+    var ymax = path[0].y;
+    for (path) |q| {
+        ymin = @min(ymin, q.y);
+        ymax = @max(ymax, q.y);
+    }
+    const yspan: f64 = @floatFromInt(@max(ymax - ymin, 1));
+    var best: usize = 0;
+    var best_score: f64 = -std.math.inf(f64);
+    for (path, 0..) |v, i| {
+        // The points about 1 mm back and 1 mm on along the loop (or the
+        // next vertex, for a short loop).
+        const back = walkFrom(path, i, reach, false);
+        const on = walkFrom(path, i, reach, true);
+        const ax: f64 = @floatFromInt(v.x - back.x);
+        const ay: f64 = @floatFromInt(v.y - back.y);
+        const bx: f64 = @floatFromInt(on.x - v.x);
+        const by: f64 = @floatFromInt(on.y - v.y);
+        // Counterclockwise loops: a right turn (negative) is an inside
+        // corner.
+        const turn = std.math.atan2(ax * by - ay * bx, ax * bx + ay * by);
+        var score: f64 = if (turn < 0) 3.0 * -turn else 0.6 * turn;
+        score += 0.35 * @as(f64, @floatFromInt(v.y - ymin)) / yspan;
+        if (!below.isEmpty() and !insideAny(below, v)) score -= 2;
+        const better = score > best_score + 1e-9 or (@abs(score - best_score) <= 1e-9 and rearBefore(v, path[best]));
+        if (better) {
+            best = i;
+            best_score = score;
+        }
+    }
+    return best;
+}
+
+/// The first point at least `dist` µm along the loop from vertex i (on, or
+/// back), or the farthest vertex if the loop is short.
+fn walkFrom(path: []const Point, i: usize, dist: f64, forward: bool) Point {
+    const n = path.len;
+    var j = i;
+    var run: f64 = 0;
+    var steps: usize = 0;
+    while (steps + 1 < n) : (steps += 1) {
+        const next = if (forward) (j + 1) % n else (j + n - 1) % n;
+        run += std.math.hypot(@as(f64, @floatFromInt(path[next].x - path[j].x)), @as(f64, @floatFromInt(path[next].y - path[j].y)));
+        j = next;
+        if (run >= dist) break;
+        if (steps + 2 >= n / 2) break;
+    }
+    return path[j];
+}
+
+/// True if p is inside the set of polygons (a winding number other than 0).
+fn insideAny(paths: Paths, p: Point) bool {
+    var winding: i32 = 0;
+    for (0..paths.count()) |k| {
+        const poly = paths.get(k);
+        for (poly, 0..) |a, i| {
+            const b = poly[(i + 1) % poly.len];
+            if (a.y <= p.y) {
+                if (b.y > p.y and cross3(a, b, p) > 0) winding += 1;
+            } else if (b.y <= p.y and cross3(a, b, p) < 0) winding -= 1;
+        }
+    }
+    return winding != 0;
+}
+
+fn cross3(a: Point, b: Point, p: Point) i128 {
+    return @as(i128, b.x - a.x) * @as(i128, p.y - a.y) - @as(i128, p.x - a.x) * @as(i128, b.y - a.y);
 }
 
 fn rearBefore(a: Point, b: Point) bool {
@@ -505,7 +597,13 @@ fn addOrdered(s: Allocator, a: Allocator, lp: *LayerPlan, pos: *Point, set: Path
     return addOrderedSeam(s, a, lp, pos, set, closed, feature, null);
 }
 
-const Seam = struct { mode: settings_mod.SeamMode, layer: usize };
+const Seam = struct {
+    mode: settings_mod.SeamMode,
+    layer: usize,
+    /// The outline of the layer below: the hidden seam avoids a point over
+    /// air.
+    below: Paths = .empty,
+};
 
 /// `addOrdered`, with a seam rule for loops. With a rule, each loop starts at
 /// its seam vertex (see `seamIndex`), and the greedy order uses the distance
@@ -518,7 +616,10 @@ fn addOrderedSeam(s: Allocator, a: Allocator, lp: *LayerPlan, pos: *Point, set: 
     var fixed: ?[]usize = null;
     if (closed) if (seam) |rule| if (rule.mode != .nearest) {
         const f = try s.alloc(usize, n);
-        for (f, 0..) |*v, j| v.* = seamIndex(set.get(j), rule.mode, rule.layer *% 1_000_003 +% j);
+        for (f, 0..) |*v, j| v.* = if (rule.mode == .hidden)
+            hiddenIndex(set.get(j), rule.below)
+        else
+            seamIndex(set.get(j), rule.mode, rule.layer *% 1_000_003 +% j);
         fixed = f;
     };
     for (0..n) |_| {
@@ -744,6 +845,39 @@ test "seam placement" {
     try testing.expectEqual(@as(usize, 90), seamIndex(&circle, .sharpest, 0));
     // Random is the same for the same salt.
     try testing.expectEqual(seamIndex(&circle, .random, 7), seamIndex(&circle, .random, 7));
+}
+
+test "hidden seam" {
+    // The L: the inside corner.
+    const l = [_]Point{ .init(0, 0), .init(20_000, 0), .init(20_000, 10_000), .init(10_000, 10_000), .init(10_000, 20_000), .init(0, 20_000) };
+    try testing.expectEqual(@as(usize, 3), hiddenIndex(&l, .empty));
+    // An L with the inside corner made of 20 short segments (a round
+    // fillet of 0.5 mm): still in the corner.
+    var fillet: std.ArrayList(Point) = .empty;
+    defer fillet.deinit(testing.allocator);
+    try fillet.appendSlice(testing.allocator, &.{ .init(0, 0), .init(20_000, 0), .init(20_000, 10_000) });
+    for (0..21) |k| {
+        const a = std.math.pi / 2.0 * @as(f64, @floatFromInt(k)) / 20.0;
+        // From (10.5, 10) around the center (10.5, 10.5) to (10, 10.5).
+        try fillet.append(testing.allocator, .{ .x = @intFromFloat(@round(10_500 - 500 * @sin(a))), .y = @intFromFloat(@round(10_500 - 500 * @cos(a))) });
+    }
+    try fillet.appendSlice(testing.allocator, &.{ .init(10_000, 20_000), .init(0, 20_000) });
+    const fi = hiddenIndex(fillet.items, .empty);
+    try testing.expect(fi >= 3 and fi <= 23);
+    // A circle: no corner, so the back.
+    var circle: [360]Point = undefined;
+    for (&circle, 0..) |*q, i| {
+        const a = 2 * std.math.pi * @as(f64, @floatFromInt(i)) / 360.0;
+        q.* = .{ .x = @intFromFloat(@round(10_000 * @cos(a))), .y = @intFromFloat(@round(10_000 * @sin(a))) };
+    }
+    try testing.expectEqual(@as(usize, 90), hiddenIndex(&circle, .empty));
+    // A square over a layer below that has only its left half: the seam
+    // goes to a back corner over the support (the left one).
+    const sq = [_]Point{ .init(0, 0), .init(10_000, 0), .init(10_000, 10_000), .init(0, 10_000) };
+    var below: Paths = .empty;
+    defer below.deinit(testing.allocator);
+    try below.append(testing.allocator, &.{ .init(-1000, -1000), .init(5_000, -1000), .init(5_000, 11_000), .init(-1000, 11_000) });
+    try testing.expectEqual(@as(usize, 3), hiddenIndex(&sq, below));
 }
 
 test "monotonic skin: the lines go from one side to the other" {

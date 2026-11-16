@@ -232,9 +232,9 @@ The line width on the first layer. 0 uses 1.25 x the nozzle diameter.
 
 The number of walls (loops) around the outline of each layer.
 
-**`project.seam`** (one of: `sharpest`, `rear`, `nearest`, `random`). Default: `sharpest`
+**`project.seam`** (one of: `hidden`, `sharpest`, `rear`, `nearest`, `random`). Default: `hidden`
 
-Where each wall loop starts and ends (the seam). `sharpest`: in the deepest inside corner, where the seam is hard to see, or else in the sharpest outside corner, or else at the rear. `rear`: at the back of the part (the largest y), in one straight line. `nearest`: at the point nearest to the nozzle, which is the fastest. `random`: at a different point on each layer, so that no seam line shows.
+Where each wall loop starts and ends (the seam). `hidden`: at the point where the seam is hardest to see: an inside corner first, then an outside corner, toward the back, and not where the wall hangs over air; similar layers pick the same point, so the seam is one clean line. `sharpest`: in the deepest inside corner, or else in the sharpest outside corner, or else at the rear. `rear`: at the back of the part (the largest y), in one straight line. `nearest`: at the point nearest to the nozzle, which is the fastest. `random`: at a different point on each layer, so that no seam line shows.
 
 ### Top and bottom skin
 

@@ -25,7 +25,7 @@ const std = @import("std");
 const flow = @import("flow.zig");
 
 pub const InfillPattern = enum { lines, grid, triangles, cubic, gyroid, concentric };
-pub const SeamMode = enum { sharpest, rear, nearest, random };
+pub const SeamMode = enum { hidden, sharpest, rear, nearest, random };
 /// How the top and bottom skin is filled. See `Project.skin_pattern`.
 pub const SkinPattern = enum { lines, monotonic, concentric };
 /// Where the part goes on the bed. See `Project.placement`.
@@ -185,13 +185,16 @@ pub const Project = struct {
     // Walls
     /// The number of walls (loops) around the outline of each layer.
     wall_count: u32 = 2,
-    /// Where each wall loop starts and ends (the seam). `sharpest`: in the
-    /// deepest inside corner, where the seam is hard to see, or else in the
+    /// Where each wall loop starts and ends (the seam). `hidden`: at the
+    /// point where the seam is hardest to see: an inside corner first, then
+    /// an outside corner, toward the back, and not where the wall hangs
+    /// over air; similar layers pick the same point, so the seam is one
+    /// clean line. `sharpest`: in the deepest inside corner, or else in the
     /// sharpest outside corner, or else at the rear. `rear`: at the back of
     /// the part (the largest y), in one straight line. `nearest`: at the
     /// point nearest to the nozzle, which is the fastest. `random`: at a
     /// different point on each layer, so that no seam line shows.
-    seam: SeamMode = .sharpest,
+    seam: SeamMode = .hidden,
 
     // Top and bottom skin, as a thickness. The engine computes the number
     // of layers, so a change of the layer height keeps the strength.
