@@ -38,7 +38,12 @@ void main() {
     vec3 l = normalize(pc.light.xyz);
     vec3 v = normalize(pc.eye.xyz - vpos);
     vec3 base = toLinear(vcolor);
-    if (vhigh > 0.5) base = mix(base, vec3(1.0, 0.85, 0.1), 0.65);
+    // A selection (params.x < params.y): the selected path in a strong
+    // yellow, and all other beads in a neutral gray, so the selection is
+    // the only color in the view.
+    if (pc.params.y > pc.params.x) {
+        base = vhigh > 0.5 ? toLinear(vec3(1.0, 0.78, 0.05)) : toLinear(vec3(0.74, 0.75, 0.77));
+    }
     // More light from the sky (up) than from the ground.
     float ambient = mix(0.18, 0.32, 0.5 + 0.5 * n.z);
     float diffuse = max(dot(n, l), 0.0);

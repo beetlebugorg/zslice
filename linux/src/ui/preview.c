@@ -212,8 +212,23 @@ static void draw(GtkDrawingArea *area, cairo_t *cr, int w, int h, gpointer data)
                 add_polyline(cr, lp->points, start, lp->path_ends[i], lp->path_closed[i]);
             }
             gboolean in_focus = focus == 0 || ((focus >> f) & 1 && (!first_only || shown == 0));
-            cairo_set_source_rgba(cr, zg_feature_rgb[f][0], zg_feature_rgb[f][1], zg_feature_rgb[f][2], in_focus ? 0.9 : 0.12);
+            /* A selected line: the other lines are gray, so it is the
+             * only color. */
+            if (sel >= 0) cairo_set_source_rgba(cr, 0.70, 0.72, 0.74, 0.55);
+            else cairo_set_source_rgba(cr, zg_feature_rgb[f][0], zg_feature_rgb[f][1], zg_feature_rgb[f][2], in_focus ? 0.9 : 0.12);
             cairo_stroke(cr);
+        }
+        /* The selected line again, on top, in its own color. */
+        if (sel >= 0 && zs_app_toolpaths(core, &tp) == ZS_OK) {
+            size_t layer = (size_t)gtk_range_get_value(GTK_RANGE(p->slider));
+            uint32_t first = layer == 0 ? 0 : tp.layer_ends[layer - 1];
+            if ((uint32_t)sel >= first && (uint32_t)sel < tp.layer_ends[layer]) {
+                size_t i = (size_t)sel - first;
+                uint32_t start = i == 0 ? 0 : lp->path_ends[i - 1];
+                add_polyline(cr, lp->points, start, lp->path_ends[i], lp->path_closed[i]);
+                cairo_set_source_rgba(cr, 1.0, 0.78, 0.05, 1.0);
+                cairo_stroke(cr);
+            }
         }
         /* The marks of a focus: the seams, the travel moves, and the
          * retractions (as in the 3D view). */
