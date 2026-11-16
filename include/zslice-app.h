@@ -229,6 +229,9 @@ typedef struct zs_toolpaths {
     const uint32_t *path_z_start;
     const float *point_z;
     const float *point_area;
+    const float *path_height;     /* the bead height, mm: the layer height, or
+                                     the height of the layers of combined
+                                     infill (project.infill_layers) */
 } zs_toolpaths;
 #define ZS_NO_Z 0xffffffffu
 

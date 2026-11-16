@@ -6,8 +6,11 @@
 //! - The cross section has a flat top and bottom and round sides (see
 //!   flow.zig). The width comes from the plastic that is really deposited:
 //!   the bead area of the path (with the flow ratio and the ironing flow)
-//!   and the layer height give the width. A thread with less plastic than a
-//!   round thread of the layer height is drawn round.
+//!   and the bead height give the width. A thread with less plastic than a
+//!   round thread of the bead height is drawn round. The bead height is the
+//!   layer height, or for combined infill the height of all the layers of
+//!   its group (project.infill_layers): the bead goes down from the nozzle
+//!   through the layers below.
 //! - The ends are round: the profile turns around the end point, as the
 //!   plastic flows around the nozzle. Where two segments of a path meet,
 //!   their round ends overlap, so the corners look like printed corners.
@@ -254,7 +257,6 @@ pub const View = struct {
         for (tp.layer_ends.items, 0..) |layer_end, l| {
             const p0: u32 = if (l == 0) 0 else tp.layer_ends.items[l - 1];
             const z = tp.layer_z.items[l] * sz;
-            const h = tp.layer_height.items[l] * sz;
             zmax = @max(zmax, z);
             for (p0..layer_end) |pi| {
                 v.path_start.append(gpa, @intCast(boxes.items.len)) catch return error.OutOfMemory;
@@ -267,7 +269,11 @@ pub const View = struct {
                     .features => feature_rgb[if (f < feature_rgb.len) f else 0],
                     else => ramp(v.legend, values[pi], v.mode == .layer_time),
                 };
-                const w: f32 = @floatCast(@import("../flow.zig").beadWidth(tp.path_area.items[pi], tp.layer_height.items[l]) * sxy);
+                // The bead height of the path: the layer height, or the
+                // height of all the layers of combined infill.
+                const ph = tp.pathHeight(pi, l);
+                const h = ph * sz;
+                const w: f32 = @floatCast(@import("../flow.zig").beadWidth(tp.path_area.items[pi], ph) * sxy);
                 if (!(w > 0)) continue;
                 const closed = tp.path_closed.items[pi] != 0 and end - start > 2;
                 const segs = end - start - 1 + @as(u32, @intFromBool(closed));
@@ -367,7 +373,7 @@ pub const View = struct {
             values[pi] = switch (v.mode) {
                 .speed => speed,
                 .flow => speed * tp.path_area.items[pi],
-                .width => @floatCast(@import("../flow.zig").beadWidth(tp.path_area.items[pi], tp.layer_height.items[l])),
+                .width => @floatCast(@import("../flow.zig").beadWidth(tp.path_area.items[pi], tp.pathHeight(pi, l))),
                 .layer_time => blk: {
                     const last = tp.layer_ends.items[l];
                     const t_end = if (last > 0) tp.path_end_time.items[last - 1] else 0;

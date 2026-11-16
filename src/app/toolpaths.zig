@@ -11,8 +11,8 @@ const feature_names = @import("feature_settings.zig").feature_names;
 /// The paths of all layers of a slice, for a 3D view. The arrays are flat,
 /// in mm, and in print order:
 /// - path i has the points from path_ends[i - 1] to path_ends[i] (x, y
-///   pairs in `points`), the feature path_features[i], and is closed if
-///   path_closed[i] is 1;
+///   pairs in `points`), the feature path_features[i], the bead height
+///   path_height[i], and is closed if path_closed[i] is 1;
 /// - layer j has the paths from layer_ends[j - 1] to layer_ends[j], at the
 ///   height layer_z[j], with the layer height layer_height[j] and the line
 ///   width layer_width[j];
@@ -28,6 +28,9 @@ pub const Toolpaths = struct {
     path_closed: std.ArrayList(u8) = .empty,
     /// The cross-section area (mm^2) of the bead of each path.
     path_area: std.ArrayList(f32) = .empty,
+    /// The bead height (mm) of each path: the layer height, or for
+    /// combined infill the height of its layers (project.infill_layers).
+    path_height: std.ArrayList(f32) = .empty,
     /// The print time (s) from the start to the start of the extrusion of
     /// each path, and to its end.
     path_start_time: std.ArrayList(f32) = .empty,
@@ -57,6 +60,7 @@ pub const Toolpaths = struct {
         t.path_features.deinit(gpa);
         t.path_closed.deinit(gpa);
         t.path_area.deinit(gpa);
+        t.path_height.deinit(gpa);
         t.path_start_time.deinit(gpa);
         t.path_end_time.deinit(gpa);
         t.path_retract.deinit(gpa);
@@ -184,6 +188,12 @@ pub const Toolpaths = struct {
         return best;
     }
 
+    /// The bead height of a path (mm).
+    pub fn pathHeight(t: *const Toolpaths, path: usize, layer: usize) f32 {
+        if (path < t.path_height.items.len) return t.path_height.items[path];
+        return t.layer_height.items[layer];
+    }
+
     /// The time, length, and plastic of each feature.
     pub fn featureStats(t: *const Toolpaths) [feature_names.len]FeatureStats {
         var out: [feature_names.len]FeatureStats = @splat(.{});
@@ -215,6 +225,7 @@ pub const Toolpaths = struct {
         const features = try t.path_features.addManyAsSlice(gpa, n);
         const closed = try t.path_closed.addManyAsSlice(gpa, n);
         const area = try t.path_area.addManyAsSlice(gpa, n);
+        const height = try t.path_height.addManyAsSlice(gpa, n);
         const start_time = try t.path_start_time.addManyAsSlice(gpa, n);
         const end_time = try t.path_end_time.addManyAsSlice(gpa, n);
         const retract = try t.path_retract.addManyAsSlice(gpa, n);
@@ -234,6 +245,7 @@ pub const Toolpaths = struct {
             features[i] = @intFromEnum(p.feature);
             closed[i] = @intFromBool(p.closed);
             area[i] = @floatCast(info.area);
+            height[i] = if (p.height > 0) p.height else @floatCast(plan.height);
             start_time[i] = @floatCast(info.start_time);
             end_time[i] = @floatCast(info.end_time);
             retract[i] = @intFromBool(info.retracted);

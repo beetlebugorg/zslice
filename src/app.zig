@@ -1487,6 +1487,36 @@ test "app: the G-code lines of a path, and the report for AI" {
     try testing.expect(std.mem.indexOf(u8, r, "```gcode") != null);
 }
 
+test "app: combined infill shows its height, and the inspector says why" {
+    const gpa = testing.allocator;
+    var mesh = try zs.mesh.shapes.demo(gpa);
+    var bytes: std.Io.Writer.Allocating = .init(gpa);
+    defer bytes.deinit();
+    try mesh.writeStl(&bytes.writer);
+    mesh.deinit(gpa);
+    const app = try App.create(gpa, null, null);
+    defer app.destroy();
+    try app.settings.set("project.infill_layers", "2");
+    try app.loadStl("demo.stl", bytes.written());
+    try app.startSlice();
+    app.stopWorkerForTest();
+    const t = app.allToolpaths().?;
+    var path: ?usize = null;
+    for (t.path_height.items, 0..) |h, i| {
+        const l = t.layerOfPath(i).?;
+        if (h > t.layer_height.items[l] + 1e-4) {
+            try testing.expectApproxEqAbs(@as(f32, 0.4), h, 1e-5);
+            path = i;
+        }
+    }
+    const info = try app.inspect(path.?);
+    try testing.expectApproxEqAbs(@as(f64, 0.4), info.height, 1e-6);
+    try testing.expect(std.mem.indexOf(u8, info.explain, "Combined: 2 layers, 0.40 mm") != null);
+    try testing.expect(std.mem.indexOf(u8, info.why_flow, "Combined: 2 layers, 0.40 mm") != null);
+    const r = try app.lineReport(path.?, "/tmp/x.gcode");
+    try testing.expect(std.mem.indexOf(u8, r, "Combined: 2 layers, 0.40 mm") != null);
+}
+
 test "app: a 3MF file keeps the parts, the places, and the changes" {
     const gpa = std.testing.allocator;
     const app = try App.create(gpa, null, null);

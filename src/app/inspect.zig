@@ -51,7 +51,12 @@ pub fn inspect(arena: Allocator, t: *const Toolpaths, job: *const zs.Job, path: 
 
     const feature: zs.settings.Feature = @enumFromInt(t.path_features.items[path]);
     const first = layer == 0;
+    // The bead height of a planar path: the layer height, or for combined
+    // infill the height of all the layers of its group.
+    const planar_h: f64 = t.pathHeight(path, layer);
     const layer_h: f64 = t.layer_height.items[layer];
+    const combined = planar_h > layer_h + 1e-4;
+    const group_n: usize = if (combined and layer < job.groups.len) job.groups[layer].count() else 1;
     const w: f64 = t.layer_width.items[layer];
     const area: f64 = t.path_area.items[path];
     // A path with a z for each point (slope smoothing): the bead is under
@@ -66,7 +71,7 @@ pub fn inspect(arena: Allocator, t: *const Toolpaths, job: *const zs.Job, path: 
         var sum: f64 = 0;
         for (t.point_z.items[k..][0..n]) |z| sum += z;
         break :blk @max(sum / @as(f64, @floatFromInt(n)) - z_low, 0.01);
-    } else layer_h;
+    } else planar_h;
     const bead = zs.flow.beadWidth(area, h);
     const length = t.pathLength(path);
     const t0: f64 = t.path_start_time.items[path];
@@ -79,6 +84,9 @@ pub fn inspect(arena: Allocator, t: *const Toolpaths, job: *const zs.Job, path: 
     const out = &text.writer;
     const name = fs.feature_names[@intFromEnum(feature)];
     try out.print("{s}, layer {d} of {d}, at z {d:.2} mm.\n\n", .{ name, layer + 1, t.layerCount(), t.layer_z.items[layer] });
+    if (combined) {
+        try out.print("Combined: {d} layers, {d:.2} mm. The sparse infill of layers {d} to {d} prints here as one bead (project.infill_layers). The nozzle is at the z of this layer, and the bead goes down to the bottom of layer {d}.\n\n", .{ group_n, h, layer + 2 - group_n, layer + 1, layer + 2 - group_n });
+    }
     try out.print("The bead is {d:.3} mm wide and {d:.2} mm tall. The line width is {d:.3} mm. The cross section is {d:.4} mm\u{b2}.\n", .{ bead, h, w, area });
     try out.print("The path is {d:.1} mm long, and it uses {d:.2} mm\u{b3} of plastic.\n\n", .{ length, length * area });
     if (feature == .infill and s.project.infill_pattern == .lightning) {
@@ -169,6 +177,9 @@ pub fn inspect(arena: Allocator, t: *const Toolpaths, job: *const zs.Job, path: 
     var wf: std.Io.Writer.Allocating = .init(arena);
     const fw = &wf.writer;
     try fw.print("{d:.1} mm\u{b3}/s = the bead area, {d:.4} mm\u{b2} ({d:.2} mm wide, {d:.2} mm high), \u{d7} {d:.0} mm/s.\n\nThe hot end melts at most {d:.1} mm\u{b3}/s of this filament ({{{{filament.max_flow}}}}). This line uses {d:.0} % of it.", .{ real * area, area, bead, h, real, s.filament.max_flow, if (s.filament.max_flow > 0) real * area / s.filament.max_flow * 100 else 0 });
+    if (combined) {
+        try fw.print("\n\nCombined: {d} layers, {d:.2} mm ({{{{project.infill_layers}}}}). The bead is as tall as the {d} layers, so it has more plastic for each mm, and the flow limit gives a lower speed.", .{ group_n, h, group_n });
+    }
 
     return .{
         .feature = feature,
