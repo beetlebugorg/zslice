@@ -382,7 +382,7 @@ GtkWidget *zg_preview_new(ZgModel *model) {
     if (g_strcmp0(g_getenv("ZSLICE_VIEW"), "3d") == 0) gtk_stack_set_visible_child_name(GTK_STACK(stack), "3d");
     GtkWidget *switcher = gtk_stack_switcher_new();
     gtk_stack_switcher_set_stack(GTK_STACK_SWITCHER(switcher), GTK_STACK(stack));
-    gtk_widget_set_tooltip_text(switcher, "2D: one layer. 3D: the layers up to the slider (drag to turn, scroll to zoom).");
+    gtk_widget_set_tooltip_text(switcher, "2D: one layer. 3D: the layers up to the slider. In 3D: left drag to orbit, middle drag to pan, right drag to turn, scroll to zoom, double-click to reset.");
 
     /* Padding, and not margins: the window is transparent (for the 3D
      * view), so each part must paint all of its area. */

@@ -28,7 +28,8 @@ meson runs `build-core.sh`, which runs `zig build lib` and puts `libzslice.a`, `
 - Open a model with the Open button, Ctrl+O, or drag and drop an STL file on the window.
 - Change a setting: press Enter, or move to another field. The app slices again at once.
 - Pick a layer with the slider on the right, or with the arrow keys.
-- Scroll to zoom, drag to pan, and double-click to fit the part.
+- In the 2D view: scroll to zoom, drag to pan, and double-click to fit the part.
+- In the 3D view: left drag to orbit (turn and tilt), middle drag to pan, right drag to turn around the vertical axis (a turntable), scroll to zoom toward the pointer, and double-click to reset the view. A left click picks a line.
 - Export the G-code with the Export G-code button or Ctrl+E.
 
 ## Files

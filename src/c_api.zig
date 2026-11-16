@@ -640,6 +640,24 @@ export fn zs_view_zoom(view: ?*View, factor: f32) void {
     v.zoom(factor);
 }
 
+export fn zs_view_zoom_at(view: ?*View, factor: f32, px: f32, py: f32) void {
+    if (!render_on) return;
+    const v = view orelse return;
+    v.zoomAt(factor, px, py);
+}
+
+export fn zs_view_pan(view: ?*View, dx: f32, dy: f32) void {
+    if (!render_on) return;
+    const v = view orelse return;
+    v.pan(dx, dy);
+}
+
+export fn zs_view_turn(view: ?*View, dx: f32) void {
+    if (!render_on) return;
+    const v = view orelse return;
+    v.turn(dx);
+}
+
 export fn zs_view_reset(view: ?*View) void {
     if (!render_on) return;
     const v = view orelse return;

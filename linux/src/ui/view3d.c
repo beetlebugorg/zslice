@@ -35,6 +35,7 @@ typedef struct {
     guint idle;
     double drag_x, drag_y;
     double press_x, press_y;
+    double pointer_x, pointer_y;
 } View3d;
 
 static gboolean draw_now(gpointer data) {
@@ -220,23 +221,50 @@ void zg_view3d_set_layer(GtkWidget *view, size_t layer) {
     queue_frame(v);
 }
 
+/* The mouse, as in CAD programs: a left drag orbits (turn and tilt), a
+ * middle drag pans, and a right drag turns the view around the vertical
+ * axis only (a turntable). The scroll wheel zooms toward the pointer. */
+enum { DRAG_ORBIT, DRAG_PAN, DRAG_TURN };
+
 static void on_drag_begin(GtkGestureDrag *g, double x, double y, gpointer data) {
     View3d *v = data;
     v->drag_x = 0;
     v->drag_y = 0;
+    gtk_widget_set_cursor_from_name(v->area, "grabbing");
+}
+
+static void on_drag_end(GtkGestureDrag *g, double dx, double dy, gpointer data) {
+    View3d *v = data;
+    gtk_widget_set_cursor(v->area, NULL);
 }
 
 static void on_drag_update(GtkGestureDrag *g, double dx, double dy, gpointer data) {
     View3d *v = data;
-    if (v->view) zs_view_orbit(v->view, (float)(dx - v->drag_x), (float)(dy - v->drag_y));
+    int mode = GPOINTER_TO_INT(g_object_get_data(G_OBJECT(g), "zg-drag"));
+    int scale = gtk_widget_get_scale_factor(v->area);
+    float ddx = (float)(dx - v->drag_x), ddy = (float)(dy - v->drag_y);
+    if (v->view) {
+        switch (mode) {
+        case DRAG_PAN: zs_view_pan(v->view, ddx * scale, ddy * scale); break;
+        case DRAG_TURN: zs_view_turn(v->view, ddx); break;
+        default: zs_view_orbit(v->view, ddx, ddy); break;
+        }
+    }
     v->drag_x = dx;
     v->drag_y = dy;
     queue_frame(v);
 }
 
+static void on_motion(GtkEventControllerMotion *c, double x, double y, gpointer data) {
+    View3d *v = data;
+    v->pointer_x = x;
+    v->pointer_y = y;
+}
+
 static gboolean on_scroll(GtkEventControllerScroll *c, double dx, double dy, gpointer data) {
     View3d *v = data;
-    if (v->view) zs_view_zoom(v->view, powf(1.15f, (float)dy));
+    int scale = gtk_widget_get_scale_factor(v->area);
+    if (v->view) zs_view_zoom_at(v->view, powf(1.15f, (float)dy), (float)(v->pointer_x * scale), (float)(v->pointer_y * scale));
     queue_frame(v);
     return TRUE;
 }
@@ -287,10 +315,23 @@ GtkWidget *zg_view3d_new(ZgModel *model) {
     g_signal_connect(v->area, "unmap", G_CALLBACK(on_unmap), v);
     g_signal_connect(v->area, "resize", G_CALLBACK(on_resize), v);
 
-    GtkGesture *drag = gtk_gesture_drag_new();
-    g_signal_connect(drag, "drag-begin", G_CALLBACK(on_drag_begin), v);
-    g_signal_connect(drag, "drag-update", G_CALLBACK(on_drag_update), v);
-    gtk_widget_add_controller(v->area, GTK_EVENT_CONTROLLER(drag));
+    const struct { guint button; int mode; } drags[] = {
+        {GDK_BUTTON_PRIMARY, DRAG_ORBIT},
+        {GDK_BUTTON_MIDDLE, DRAG_PAN},
+        {GDK_BUTTON_SECONDARY, DRAG_TURN},
+    };
+    for (size_t i = 0; i < G_N_ELEMENTS(drags); i++) {
+        GtkGesture *drag = gtk_gesture_drag_new();
+        gtk_gesture_single_set_button(GTK_GESTURE_SINGLE(drag), drags[i].button);
+        g_object_set_data(G_OBJECT(drag), "zg-drag", GINT_TO_POINTER(drags[i].mode));
+        g_signal_connect(drag, "drag-begin", G_CALLBACK(on_drag_begin), v);
+        g_signal_connect(drag, "drag-update", G_CALLBACK(on_drag_update), v);
+        g_signal_connect(drag, "drag-end", G_CALLBACK(on_drag_end), v);
+        gtk_widget_add_controller(v->area, GTK_EVENT_CONTROLLER(drag));
+    }
+    GtkEventController *motion = gtk_event_controller_motion_new();
+    g_signal_connect(motion, "motion", G_CALLBACK(on_motion), v);
+    gtk_widget_add_controller(v->area, motion);
     GtkEventController *scroll = gtk_event_controller_scroll_new(GTK_EVENT_CONTROLLER_SCROLL_VERTICAL);
     g_signal_connect(scroll, "scroll", G_CALLBACK(on_scroll), v);
     gtk_widget_add_controller(v->area, scroll);

@@ -68,6 +68,8 @@ pub const View = struct {
     width: u32,
     height: u32,
     target: [3]f32 = .{ 110, 110, 0 },
+    /// The target of `reset`: the center of the part.
+    home: [3]f32 = .{ 110, 110, 0 },
     extent: f32 = 100,
     yaw: f32 = 0,
     pitch: f32 = 0,
@@ -229,7 +231,8 @@ pub const View = struct {
         try v.renderer.setInstances(boxes.items);
 
         if (app.partBounds()) |b| {
-            v.target = .{ @floatCast((b[0] + b[2]) / 2), @floatCast((b[1] + b[3]) / 2), zmax / 2 };
+            v.home = .{ @floatCast((b[0] + b[2]) / 2), @floatCast((b[1] + b[3]) / 2), zmax / 2 };
+            if (first_load) v.target = v.home;
             v.extent = @max(@max(@as(f32, @floatCast(b[2] - b[0])), @as(f32, @floatCast(b[3] - b[1]))), zmax);
         }
         if (first_load) {
@@ -318,7 +321,40 @@ pub const View = struct {
         v.dist = @max(v.extent * 0.05 + 1, v.dist * factor);
     }
 
+    /// Zooms toward the pixel (px, py): the point under the pixel, on the
+    /// plane through the target that faces the camera, stays under it.
+    pub fn zoomAt(v: *View, factor: f32, px: f32, py: f32) void {
+        // The point on the target plane under the pixel, with the camera
+        // before the zoom.
+        const old = v.dist;
+        const cam = v.camera();
+        const dir = v.pixelRay(cam, px, py);
+        const along = old / dot(dir, cam.f);
+        const p = [3]f32{ cam.eye[0] + dir[0] * along, cam.eye[1] + dir[1] * along, cam.eye[2] + dir[2] * along };
+        v.zoom(factor);
+        // The eye moves toward p by the same factor as the distance, so p
+        // stays on the same ray.
+        const f = v.dist / old;
+        for (0..3) |k| v.target[k] = p[k] + (v.target[k] - p[k]) * f;
+    }
+
+    /// Moves the view sideways and up or down by a drag of dx, dy pixels.
+    /// The scene moves with the pointer.
+    pub fn pan(v: *View, dx: f32, dy: f32) void {
+        const cam = v.camera();
+        // The size of one pixel on the plane through the target.
+        const unit = 2 * v.dist * @tan(@as(f32, fov) / 2) / @as(f32, @floatFromInt(v.height));
+        for (0..3) |k| v.target[k] += (-cam.s[k] * dx + cam.u[k] * dy) * unit;
+    }
+
+    /// Turns the camera around the vertical axis only, by a drag of dx
+    /// pixels (a turntable).
+    pub fn turn(v: *View, dx: f32) void {
+        v.yaw -= dx * 0.008;
+    }
+
     pub fn reset(v: *View) void {
+        v.target = v.home;
         v.yaw = -1.9;
         v.pitch = 0.6;
         v.dist = v.extent * 2.8;
@@ -336,6 +372,19 @@ pub const View = struct {
         return .{ .eye = eye, .f = f, .s = s, .u = cross(s, f) };
     }
 
+    /// The unit direction of the ray from the camera through pixel (px, py).
+    fn pixelRay(v: *const View, cam: anytype, px: f32, py: f32) [3]f32 {
+        const aspect = @as(f32, @floatFromInt(v.width)) / @as(f32, @floatFromInt(v.height));
+        const tan_half = @tan(@as(f32, fov) / 2);
+        const x = (2 * px / @as(f32, @floatFromInt(v.width)) - 1) * tan_half * aspect;
+        const y = (1 - 2 * py / @as(f32, @floatFromInt(v.height))) * tan_half;
+        return normalize(.{
+            cam.f[0] + cam.s[0] * x + cam.u[0] * y,
+            cam.f[1] + cam.s[1] * x + cam.u[1] * y,
+            cam.f[2] + cam.s[2] * x + cam.u[2] * y,
+        });
+    }
+
     /// The path under the pixel (px, py), or null. The ray from the camera
     /// through the pixel is tested against each bead that the view shows.
     /// A bead is a flattened capsule: the test scales z by width / height
@@ -344,15 +393,7 @@ pub const View = struct {
     /// segment. The nearest hit along the ray wins.
     pub fn pick(v: *const View, px: f32, py: f32) ?usize {
         const cam = v.camera();
-        const aspect = @as(f32, @floatFromInt(v.width)) / @as(f32, @floatFromInt(v.height));
-        const tan_half = @tan(@as(f32, fov) / 2);
-        const x = (2 * px / @as(f32, @floatFromInt(v.width)) - 1) * tan_half * aspect;
-        const y = (1 - 2 * py / @as(f32, @floatFromInt(v.height))) * tan_half;
-        const dir = normalize(.{
-            cam.f[0] + cam.s[0] * x + cam.u[0] * y,
-            cam.f[1] + cam.s[1] * x + cam.u[1] * y,
-            cam.f[2] + cam.s[2] * x + cam.u[2] * y,
-        });
+        const dir = v.pixelRay(cam, px, py);
         var count: usize = 0;
         if (v.layer_end.items.len > 0) count = v.layer_end.items[@min(v.layer, v.layer_end.items.len - 1)];
         var best: ?usize = null;
@@ -563,4 +604,31 @@ test "the replay shows the beads that are done" {
     try std.testing.expectEqual(@as(usize, 2), v.beadsDoneAt(2.5));
     try std.testing.expectEqual(@as(usize, 4), v.beadsDoneAt(9));
     try std.testing.expectEqual(@as(f32, 4), v.duration());
+}
+
+test "zoom at a pixel keeps the point under it" {
+    var v: View = .{ .renderer = undefined, .width = 200, .height = 100 };
+    v.target = .{ 0, 0, 0 };
+    v.extent = 10;
+    v.yaw = -1.9;
+    v.pitch = 0.6;
+    v.dist = 50;
+    // The point on the target plane under pixel (150, 30), before and after.
+    const before = v.camera();
+    const d0 = v.pixelRay(before, 150, 30);
+    const a0 = 50 / dot(d0, before.f);
+    const p0 = [3]f32{ before.eye[0] + d0[0] * a0, before.eye[1] + d0[1] * a0, before.eye[2] + d0[2] * a0 };
+    v.zoomAt(0.5, 150, 30);
+    const after = v.camera();
+    const d1 = v.pixelRay(after, 150, 30);
+    const a1 = v.dist / dot(d1, after.f);
+    const p1 = [3]f32{ after.eye[0] + d1[0] * a1, after.eye[1] + d1[1] * a1, after.eye[2] + d1[2] * a1 };
+    for (0..3) |k| try std.testing.expectApproxEqAbs(p0[k], p1[k], 1e-3);
+    try std.testing.expectApproxEqAbs(@as(f32, 25), v.dist, 1e-4);
+    // A pan of one view height moves the target by the view height at the
+    // target distance.
+    const t0 = v.target;
+    v.pan(0, 100);
+    const moved = @sqrt((v.target[0] - t0[0]) * (v.target[0] - t0[0]) + (v.target[1] - t0[1]) * (v.target[1] - t0[1]) + (v.target[2] - t0[2]) * (v.target[2] - t0[2]));
+    try std.testing.expectApproxEqAbs(2 * v.dist * @tan(@as(f32, fov) / 2), moved, 1e-3);
 }

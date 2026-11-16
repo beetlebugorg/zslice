@@ -246,6 +246,14 @@ void zs_view_set_layer(zs_view *view, size_t layer);
 void zs_view_orbit(zs_view *view, float dx, float dy);
 /* Moves the camera nearer (factor < 1) or further (factor > 1). */
 void zs_view_zoom(zs_view *view, float factor);
+/* Zooms toward the pixel (px, py): the point under it stays in place. */
+void zs_view_zoom_at(zs_view *view, float factor, float px, float py);
+/* Moves the view by a drag of dx, dy pixels: the scene follows the pointer. */
+void zs_view_pan(zs_view *view, float dx, float dy);
+/* Turns the camera around the vertical axis only (a turntable), by a drag
+ * of dx pixels. */
+void zs_view_turn(zs_view *view, float dx);
+/* Returns the camera to the start view around the part. */
 void zs_view_reset(zs_view *view);
 enum zs_view_mode {
     ZS_VIEW_PRINT = 0,   /* the filament color: the print as it will look */
