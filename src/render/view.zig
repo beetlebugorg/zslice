@@ -644,16 +644,8 @@ pub const View = struct {
             f = v.dist / old;
         } else v.dist = old * f;
         for (0..3) |k| v.target[k] = p[k] + (v.target[k] - p[k]) * f;
-        // The orbit center goes to the depth of the surface, so a turn
-        // after a zoom turns around the point that the user looks at.
-        if (hit != null) {
-            const eye = [3]f32{ v.target[0] - cam.f[0] * v.dist, v.target[1] - cam.f[1] * v.dist, v.target[2] - cam.f[2] * v.dist };
-            const depth = (along * f) * dot(dir, cam.f);
-            if (depth > 0.5) {
-                for (0..3) |k| v.target[k] = eye[k] + cam.f[k] * depth;
-                v.dist = depth;
-            }
-        }
+        // The orbit center stays as the zoom moves it (it does not jump to
+        // the surface): the user turns the view around the same center.
     }
 
     /// Moves the view sideways and up or down by a drag of dx, dy pixels.
