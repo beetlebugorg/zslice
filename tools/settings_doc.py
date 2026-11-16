@@ -80,8 +80,8 @@ def main_zig(groups):
     out = sys.stdout
     out.write("//! The section and the help text of each setting, for the settings panel\n")
     out.write("//! of each app. Made by tools/settings_doc.py from src/settings.zig.\n")
-    out.write("//! Do not edit by hand. A test in src/app.zig checks that each setting\n")
-    out.write("//! has an entry.\n\n")
+    out.write("//! Do not edit by hand. A test in src/app/setting_info.zig checks that each\n")
+    out.write("//! setting has an entry.\n\n")
     out.write("pub const Meta = struct {\n    name: []const u8,\n    section: []const u8,\n    doc: []const u8,\n};\n\n")
     out.write("pub const all = [_]Meta{\n")
     for struct, key, _ in GROUPS:

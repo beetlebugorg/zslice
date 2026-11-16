@@ -1,7 +1,7 @@
 //! The section and the help text of each setting, for the settings panel
 //! of each app. Made by tools/settings_doc.py from src/settings.zig.
-//! Do not edit by hand. A test in src/app.zig checks that each setting
-//! has an entry.
+//! Do not edit by hand. A test in src/app/setting_info.zig checks that each
+//! setting has an entry.
 
 pub const Meta = struct {
     name: []const u8,

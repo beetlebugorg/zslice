@@ -670,8 +670,9 @@ test "resolve derives layers and speeds" {
 /// The hard limits of the number settings: a value out of its limits is an
 /// error (`Settings.set` returns error.OutOfRange). The limits are wide:
 /// they stop values that no print needs (a 300 mm brim), not unusual ones.
-/// The usual values are the slider ranges in src/app.zig. A test checks
-/// that each number setting has a limit, and each default is in it.
+/// The usual values are the slider ranges in src/app/setting_info.zig. A
+/// test checks that each number setting has a limit, and each default is
+/// in it.
 pub const limits = [_]struct { []const u8, f64, f64 }{
     // machine
     .{ "machine.bed_size_x", 10, 2000 },           .{ "machine.bed_size_y", 10, 2000 },
