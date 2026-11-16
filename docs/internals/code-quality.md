@@ -11,6 +11,7 @@ Mark an item done when its commit is in `master`. Add an item when you find a pr
 - [x] Move each concern to its own file in `src/app/`. `src/app.zig` keeps `App` and the state, and exports the names that `c_api/` and `render/view.zig` use.
 - [x] Compute the length of a path in one function (`Toolpaths.pathLength`). `featureStats` and `inspect` had the same loop.
 - [x] Move logic out of the C API into the core: the part of a path (`App.partOfPath`), the clear of the marks (`App.clearMarks`), and the name of a part (a part keeps its name with a 0 at the end).
+- [ ] `src/app.zig` grows again (1360 lines): the plates (`PlateSlot`, `selectPlate`, `addPlate`, `removePlate`) and the part placement (`placePart`, `turnPart`, `scalePart`) are in `App`. Move the list of plates and the switch between them to `src/app/plates.zig`, and keep in `App` only the calls that also stop the worker and mark the plate as changed.
 - [ ] `App.statusOf` is a second, shorter copy of `status` in `c_api.zig`. The failure event of a slice gives status 2 for some errors that `status` knows, for example `PartTooThin` (17). Use one function. This changes the status of some failure events, so it needs the approval of the owner.
 
 ## 2. The GTK settings panel: `linux/src/ui/settings-panel.c`
@@ -26,6 +27,7 @@ Mark an item done when its commit is in `master`. Add an item when you find a pr
 - [x] Move the cairo drawing of a layer to `layer-draw.c`.
 - [x] Move the search for the next line of the keyboard navigation to `toolpath-nav.c`.
 - [ ] The keyboard navigation decides which line comes next. By the rule of `docs/app/README.md`, this decision goes in the core, so that each shell behaves the same. Move `toolpath-nav.c` into `app/toolpaths.zig` (with tests), and add C API calls for it. The core already has `Toolpaths.layerOfPath`.
+- [ ] The plate bar (the tabs of the plates) is in `preview.c`. Move it to its own unit, as `layer-range.c`.
 - [ ] The replay and the scrub bar can go to their own unit. They use many fields of the `Preview` struct, so they need a small interface first.
 
 ## 4. The GTK window: `linux/src/ui/window.c`
@@ -47,7 +49,7 @@ Mark an item done when its commit is in `master`. Add an item when you find a pr
 - [x] The plate in the app: the name, a turn, the arrangement, remove, clear, and the part of a path.
 - [x] Support marks: the layer, the radius, replace, remove, and clear.
 - [x] Profiles in the app: the round trip of a group through `writeState` and `applyProfile`, a bad text that changes nothing, and `resetGroup`.
-- [ ] Combing: a travel with combing on does not cross a wall. The test goes at the end of `src/gcode.zig`, which changes often for performance work now.
+- [ ] Combing: `src/gcode.zig` now tests that the combing index gives the same answers as `combClear`. An end-to-end test is still missing: a slice with combing on has no travel that crosses a wall.
 - [ ] The GTK shell has no unit tests. `toolpath-nav.c` and `layer-draw.c` have no widgets, so they can have tests first. A move of the navigation into the core (item 3) gives Zig tests.
 
 ## 7. Consistency
@@ -69,4 +71,4 @@ Mark an item done when its commit is in `master`. Add an item when you find a pr
 These files change often. Change them only in small, safe steps.
 
 - `src/layer.zig` (1690 lines) and `src/engine.zig` (1210 lines) are the largest stage files.
-- `linux/src/ui/view3d.c` (780 lines) has the 3D view widget, the drag of a part, the context menu, the support marks, and the test hooks. Split it when the work on the 3D view is stable.
+- `linux/src/ui/view3d.c` (780 lines) has the 3D view widget, the drag of a part, the context menu, the support marks, the multiple selection, and the test hooks. Split it when the work on the 3D view is stable: the context menu and the support marks first.
