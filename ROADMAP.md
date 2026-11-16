@@ -34,7 +34,7 @@ The goal is the features that people use in PrusaSlicer and Cura. zslice designs
 - [x] Walls, top and bottom skin, sparse infill (lines, grid)
 - [x] Ironing
 - [ ] Support: normal (grid) and tree, with interface layers, support blockers and enforcers
-- [ ] Skirt and brim
+- [x] Skirt and brim
 - [ ] Bridges: find them, print them with their own direction, speed, flow, and fan
 - [ ] Overhang walls: slower speed and more fan for overhang
 - [ ] Seam placement: nearest, aligned, rear, random, and hidden in corners

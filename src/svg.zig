@@ -16,11 +16,15 @@ fn color(f: Feature) []const u8 {
         .skin => "#1c7ed6",
         .infill => "#2b8a3e",
         .ironing => "#ae3ec9",
+        .skirt => "#8d6e63",
     };
 }
 
 pub fn writeLayer(w: *Writer, lp: *const layer_mod.LayerPlan) Writer.Error!void {
+    // The frame fits the outline and all paths (the skirt and the brim are
+    // outside the outline).
     var box = lp.outline.bounds();
+    for (lp.points.points.items) |q| box.extend(q);
     if (box.isEmpty()) box = .{ .min = .init(0, 0), .max = .init(1000, 1000) };
     const margin: i64 = 2000;
     const x0 = box.min.x - margin;

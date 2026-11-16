@@ -244,6 +244,7 @@ fn typeName(f: Feature) []const u8 {
         .skin => "SKIN",
         .infill => "FILL",
         .ironing => "IRONING",
+        .skirt => "SKIRT",
     };
 }
 

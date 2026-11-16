@@ -85,6 +85,7 @@ zslice preview part.stl --layer 20 -o layer20.svg
 | Blue | Skin (solid top and bottom fill) |
 | Green | Sparse infill |
 | Purple | Ironing |
+| Brown | Skirt and brim |
 | Gray dashes | Travel moves |
 
 The light gray area is the outline of the layer. Each line is drawn at the line width, so you can see gaps and overlaps.

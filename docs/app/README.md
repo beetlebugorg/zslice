@@ -44,6 +44,7 @@ All shells use the same colors, in the order of `enum zs_feature`:
 | Skin | `#1c7ed6` |
 | Infill | `#2b8a3e` |
 | Ironing | `#ae3ec9` |
+| Skirt and brim | `#8d6e63` |
 
 ## Add a shell
 

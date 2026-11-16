@@ -268,6 +268,24 @@ Travel moves shorter than this do not retract.
 
 Lift the nozzle by this distance during a travel move with a retraction. 0 turns it off.
 
+### Skirt and brim
+
+**`project.skirt_loops`** (integer). Default: `1`
+
+The number of skirt loops. A skirt is a loop around the part on the first layers, at a distance from it. It primes the nozzle before the part starts. 0 turns it off.
+
+**`project.skirt_distance`** (number). Default: `3`
+
+The distance from the part (or from the brim) to the skirt.
+
+**`project.skirt_layers`** (integer). Default: `1`
+
+The number of layers with a skirt.
+
+**`project.brim_width`** (number). Default: `0`
+
+The width of the brim. A brim is loops on the first layer around the outside of the part, joined to it. It holds the part on the bed, and helps against warping. 0 turns it off.
+
 ### Placement
 
 **`project.auto_center`** (true or false). Default: `true`

@@ -262,6 +262,8 @@ test "slice the demo part" {
     defer out.deinit();
     var s: Settings = .{};
     s.engine.threads = 4;
+    // No skirt: the test checks the position of the part.
+    s.project.skirt_loops = 0;
     const stats = try slice(gpa, &m, s, &out.writer);
     const text = out.written();
     // 14 mm: one 0.3 mm layer, then 0.2 mm layers. The tops are 0.3 to 13.9.

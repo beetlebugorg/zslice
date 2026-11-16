@@ -194,6 +194,20 @@ pub const Project = struct {
     /// Lift the nozzle by this distance during a travel move with a retraction. 0 turns it off.
     z_hop: f64 = 0,
 
+    // Skirt and brim
+    /// The number of skirt loops. A skirt is a loop around the part on the
+    /// first layers, at a distance from it. It primes the nozzle before the
+    /// part starts. 0 turns it off.
+    skirt_loops: u32 = 1,
+    /// The distance from the part (or from the brim) to the skirt.
+    skirt_distance: f64 = 3,
+    /// The number of layers with a skirt.
+    skirt_layers: u32 = 1,
+    /// The width of the brim. A brim is loops on the first layer around the
+    /// outside of the part, joined to it. It holds the part on the bed, and
+    /// helps against warping. 0 turns it off.
+    brim_width: f64 = 0,
+
     // Placement
     /// Move the part so that the center of its bounding box is at the
     /// center of the bed, and its bottom is at z = 0.
@@ -287,6 +301,8 @@ pub const Feature = enum(u8) {
     skin,
     infill,
     ironing,
+    /// The skirt and the brim.
+    skirt,
 };
 
 /// Settings after `Settings.resolve`, with the derived values.
@@ -313,6 +329,7 @@ pub const Resolved = struct {
             .inner_wall => p.inner_wall_speed,
             .skin => p.skin_speed,
             .infill => p.infill_speed,
+            .skirt => p.inner_wall_speed,
             .ironing => unreachable,
         };
         return limit * ratio;

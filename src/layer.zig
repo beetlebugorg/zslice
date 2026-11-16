@@ -19,8 +19,13 @@
 //! 6. Ironing (if on). The top surfaces of the layer are the outline minus
 //!    the outline of the layer above. The nozzle goes over them again with
 //!    close lines, turned 90 degrees from the skin lines of this layer.
-//! 7. Order. The plan prints the inner walls first, then the outer wall,
-//!    then the skin, then the infill, then the ironing. Inside each group, the next path is
+//! 7. Skirt and brim (first layers only). The brim is loops around the
+//!    outer boundaries of the first layer (not around holes), one line
+//!    width apart, to `brim_width`. The skirt is loops around the first
+//!    layer and the brim, at `skirt_distance`.
+//! 8. Order. The plan prints the skirt and the brim first (outermost loop
+//!    first), then the inner walls, then the outer wall, then the skin,
+//!    then the infill, then the ironing. Inside each group, the next path is
 //!    the nearest one to the current nozzle position (a greedy nearest
 //!    neighbor search). A loop starts at its vertex nearest to the nozzle.
 //!    A line starts at its nearer end.
@@ -177,7 +182,35 @@ pub fn plan(gpa: Allocator, ctx: Context, i: usize) Allocator.Error!LayerPlan {
     }
 
     // Step 7.
+    var rings: std.ArrayList(Paths) = .empty;
+    if (i < p.skirt_layers or (first and p.brim_width > 0)) {
+        const w0 = geom.fromMm(r.first_layer_line_width);
+        const base = try outerBoundaries(s, ctx.outlines[0]);
+        const brim_n: usize = if (p.brim_width > 0) @intFromFloat(@ceil(p.brim_width / r.first_layer_line_width - 1e-6)) else 0;
+        const brim_edge = @as(i64, @intCast(brim_n)) * w0;
+        // The skirt, outermost loop first.
+        if (i < p.skirt_layers) {
+            var k: usize = p.skirt_loops;
+            while (k > 0) {
+                k -= 1;
+                const d = brim_edge + geom.fromMm(p.skirt_distance) + @divTrunc(w, 2) + @as(i64, @intCast(k)) * w;
+                try rings.append(s, try offset_mod.offset(s, base, d, .{ .join = .round }));
+            }
+        }
+        // The brim, outermost loop first, so that it ends at the part.
+        if (first) {
+            var k: usize = brim_n;
+            while (k > 0) {
+                k -= 1;
+                const d = @divTrunc(w0, 2) + @as(i64, @intCast(k)) * w0;
+                try rings.append(s, try offset_mod.offset(s, base, d, .{ .join = .round }));
+            }
+        }
+    }
+
+    // Step 8.
     var pos: Point = if (outline.points.items.len > 0) outline.points.items[0] else .init(0, 0);
+    for (rings.items) |ring| try addOrdered(s, a, &lp, &pos, ring, true, .skirt);
     var k = wall_n;
     while (k > 1) {
         k -= 1;
@@ -188,6 +221,17 @@ pub fn plan(gpa: Allocator, ctx: Context, i: usize) Allocator.Error!LayerPlan {
     try addOrdered(s, a, &lp, &pos, sparse_lines, false, .infill);
     try addOrdered(s, a, &lp, &pos, ironing_lines, false, .ironing);
     return lp;
+}
+
+/// The outer boundaries (counterclockwise loops) of a set of polygons,
+/// without the holes.
+fn outerBoundaries(s: Allocator, paths: Paths) Allocator.Error!Paths {
+    var out: Paths = .empty;
+    for (0..paths.count()) |j| {
+        const poly = paths.get(j);
+        if (geom.area2(poly) > 0) try out.append(s, poly);
+    }
+    return out;
 }
 
 const Direction = enum { up, down };
@@ -301,7 +345,7 @@ test "plan a layer of a box" {
         .outer_wall, .inner_wall => walls += 1,
         .skin => skin += 1,
         .infill => fill += 1,
-        .ironing => unreachable,
+        .ironing, .skirt => unreachable,
     };
     try testing.expectEqual(@as(usize, 2), walls);
     try testing.expectEqual(@as(usize, 0), skin);
@@ -366,4 +410,49 @@ test "ironing covers only the top surface" {
     var mid = try plan(gpa, ctx, 5);
     defer mid.deinit();
     for (mid.paths.items) |path| try testing.expect(path.feature != .ironing);
+}
+
+test "skirt and brim on the first layer" {
+    const gpa = testing.allocator;
+    const mesh = @import("mesh.zig");
+    var m = try mesh.shapes.box(gpa, 20, 20, 2);
+    defer m.deinit(gpa);
+    var st: settings_mod.Settings = .{};
+    st.project.brim_width = 3;
+    st.project.skirt_loops = 2;
+    st.project.skirt_distance = 3;
+    const r = try st.resolve();
+    const layers = try slicer.layerTable(gpa, 2, 0.3, 0.2);
+    defer gpa.free(layers);
+    var idx = try slicer.FaceIndex.build(gpa, &m, layers, 0);
+    defer idx.deinit(gpa);
+    const outlines = try gpa.alloc(Paths, layers.len);
+    defer {
+        for (outlines) |*o| o.deinit(gpa);
+        gpa.free(outlines);
+    }
+    for (outlines, 0..) |*o, li| o.* = try slicer.sliceAt(gpa, &m, idx.get(li), layers[li].sliceZ(), 5, 1000);
+    const ctx: Context = .{ .resolved = &r, .layers = layers, .outlines = outlines };
+
+    var lp = try plan(gpa, ctx, 0);
+    defer lp.deinit();
+    // The first paths are the skirt and the brim: 2 skirt loops, then
+    // ceil(3 / 0.5) = 6 brim loops, before any wall.
+    var n: usize = 0;
+    while (n < lp.paths.items.len and lp.paths.items[n].feature == .skirt) n += 1;
+    try testing.expectEqual(@as(usize, 8), n);
+    // The outermost skirt loop: brim edge 3 mm + distance 3 mm + half a
+    // line width (0.25 mm) + one line width (0.5 mm) for the second loop.
+    var box = geom.Box.empty;
+    for (lp.points.get(0)) |q| box.extend(q);
+    try testing.expectApproxEqAbs(@as(f64, -6.75), geom.toMm(box.min.x), 0.01);
+    // The last brim loop is half a line width from the part.
+    box = geom.Box.empty;
+    for (lp.points.get(7)) |q| box.extend(q);
+    try testing.expectApproxEqAbs(@as(f64, -0.25), geom.toMm(box.min.x), 0.01);
+
+    // Layer 1 has no skirt (skirt_layers is 1) and no brim.
+    var l1 = try plan(gpa, ctx, 1);
+    defer l1.deinit();
+    for (l1.paths.items) |path| try testing.expect(path.feature != .skirt);
 }
