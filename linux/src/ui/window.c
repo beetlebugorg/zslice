@@ -46,6 +46,12 @@ typedef struct {
     guint poll;
     GCancellable *poll_cancel;
     GCancellable *send_cancel;
+    /* The estimate of a printdeck printer for the last slice: its timer,
+     * the request, and the result (deck_ok). */
+    guint deck_timer;
+    GCancellable *deck_cancel;
+    ZgEstimate deck;
+    gboolean deck_ok;
     gboolean send_print;
     gboolean send_pending;
     /* "Send all plates" and "Export all plates": the plate now, the
@@ -148,8 +154,17 @@ static void update(Window *w) {
             if (ms < 1000) g_snprintf(took, sizeof took, "   sliced in %.0f ms", ms);
             else g_snprintf(took, sizeof took, "   sliced in %.1f s", ms / 1000);
         }
-        g_snprintf(text, sizeof text, "%u layers   %.2f m filament (%.1f g)   about %s%s",
-                   st.layer_count, st.filament_mm / 1000.0, st.filament_g, t, took);
+        /* A printdeck printer: its time of the print, with the start
+         * macro and the factor that it learned from its past prints. */
+        char deck[96] = "";
+        if (w->deck_ok) {
+            char total[32], prep[32];
+            format_time(total, sizeof total, w->deck.total);
+            format_time(prep, sizeof prep, w->deck.prep);
+            g_snprintf(deck, sizeof deck, "   %s: %s (%s start)", zg_printers_current()->name, total, prep);
+        }
+        g_snprintf(text, sizeof text, "%u layers   %.2f m filament (%.1f g)   about %s%s%s",
+                   st.layer_count, st.filament_mm / 1000.0, st.filament_g, t, deck, took);
         g_free(w->last_stats);
         w->last_stats = g_strdup(text);
         break;
@@ -167,6 +182,44 @@ static void update(Window *w) {
 
 static void batch_take(Window *w);
 
+/* ---- the estimate of a printdeck printer ---- */
+
+static void on_deck_estimate(const ZgEstimate *est, const char *error, gpointer data) {
+    Window *w = data;
+    if (!est) return; /* an older printdeck, or no connection: the status stays */
+    w->deck = *est;
+    w->deck_ok = TRUE;
+    update(w);
+}
+
+/* Some time after the last slice (a slider makes many slices), sends the
+ * G-code to the printer for its estimate. */
+static gboolean deck_estimate_now(gpointer data) {
+    Window *w = data;
+    w->deck_timer = 0;
+    ZgPrinter *pr = zg_printers_current();
+    const uint8_t *gcode = NULL;
+    size_t len = 0;
+    if (!pr || pr->kind != ZG_LINK_PRINTDECK || zs_app_state(zg_model_core(w->model)) != ZS_STATE_DONE ||
+        zs_app_gcode(zg_model_core(w->model), &gcode, &len) != ZS_OK)
+        return G_SOURCE_REMOVE;
+    GBytes *bytes = g_bytes_new(gcode, len);
+    w->deck_cancel = g_cancellable_new();
+    zg_link_estimate(pr, bytes, w->deck_cancel, on_deck_estimate, w);
+    g_bytes_unref(bytes);
+    return G_SOURCE_REMOVE;
+}
+
+/* A new slice or another printer: the old estimate goes, and a new one
+ * comes later. */
+static void deck_estimate_soon(Window *w) {
+    w->deck_ok = FALSE;
+    if (w->deck_cancel) g_cancellable_cancel(w->deck_cancel);
+    g_clear_object(&w->deck_cancel);
+    if (w->deck_timer) g_source_remove(w->deck_timer);
+    w->deck_timer = g_timeout_add(800, deck_estimate_now, w);
+}
+
 static void on_core_event(ZgModel *model, int event, double progress, int status, gpointer data) {
     Window *w = data;
     if (event == ZS_EVENT_PROGRESS) {
@@ -183,6 +236,7 @@ static void on_core_event(ZgModel *model, int event, double progress, int status
         if (zs_app_state(zg_model_core(model)) == ZS_STATE_DONE) send_now(w);
     }
     if (w->batch.on && event == ZS_EVENT_SLICED) batch_take(w);
+    if (event == ZS_EVENT_SLICED) deck_estimate_soon(w);
     if (w->export_pending && zs_app_state(zg_model_core(model)) != ZS_STATE_SLICING) {
         w->export_pending = FALSE;
         if (zs_app_state(zg_model_core(model)) == ZS_STATE_DONE) zg_window_export_dialog(w->window);
@@ -665,6 +719,7 @@ static void on_printer_dd(GObject *dd, GParamSpec *pspec, gpointer data) {
 
 static void on_printers_changed(ZgModel *model, gpointer data) {
     update_printer_ui(data);
+    deck_estimate_soon(data);
 }
 
 static void on_prefs_action(GSimpleAction *a, GVariant *v, gpointer data) {
@@ -720,6 +775,9 @@ static void window_free(gpointer data) {
     if (w->poll) g_source_remove(w->poll);
     if (w->poll_cancel) g_cancellable_cancel(w->poll_cancel);
     if (w->send_cancel) g_cancellable_cancel(w->send_cancel);
+    if (w->deck_timer) g_source_remove(w->deck_timer);
+    if (w->deck_cancel) g_cancellable_cancel(w->deck_cancel);
+    g_clear_object(&w->deck_cancel);
     g_clear_object(&w->poll_cancel);
     w->printer_state = NULL;
     g_object_unref(w->model);

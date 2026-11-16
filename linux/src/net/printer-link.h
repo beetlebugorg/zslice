@@ -53,6 +53,23 @@ void zg_link_query(const ZgPrinter *p, GCancellable *cancel, ZgInfoFn fn, gpoint
 void zg_link_send(const ZgPrinter *p, const char *filename, GBytes *gcode, gboolean print, GCancellable *cancel,
                   ZgProgressFn progress, ZgDoneFn done, gpointer data);
 
+/* The time of a print of a G-code file on a printdeck printer, from its
+ * history: the moves (the plan times the factor that the printer learned),
+ * the steps of its start macro (home, heat, probe, prime), and the total,
+ * in seconds. plan_prints: the past prints in the factor. */
+typedef struct {
+    double moves, prep, total;
+    int plan_prints;
+} ZgEstimate;
+
+/* The estimate is NULL on an error, or when the printer has no estimates
+ * (an older printdeck, or another kind of printer). */
+typedef void (*ZgEstimateFn)(const ZgEstimate *estimate, const char *error, gpointer data);
+
+/* Asks a printdeck printer for the time of a print of `gcode`
+ * (POST /api/plugin/printdeck/estimate, with gzip). */
+void zg_link_estimate(const ZgPrinter *p, GBytes *gcode, GCancellable *cancel, ZgEstimateFn fn, gpointer data);
+
 /* The serial ports of the computer, for the USB choice. Free with
  * g_strfreev. */
 char **zg_link_serial_ports(void);

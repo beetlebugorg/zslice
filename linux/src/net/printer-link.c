@@ -329,6 +329,119 @@ static void on_sent(GObject *source, GAsyncResult *res, gpointer data) {
 static void send_serial(const ZgPrinter *p, GBytes *gcode, GCancellable *cancel, ZgProgressFn progress,
                         ZgDoneFn done, gpointer data);
 
+/* ---- the estimate of a printdeck printer ---- */
+
+typedef struct {
+    ZgPrinter *printer; /* a copy of the fields that the request uses */
+    GBytes *gcode;
+    GCancellable *cancel;
+    ZgEstimateFn fn;
+    gpointer data;
+} Estimate;
+
+static void estimate_free(Estimate *e) {
+    g_free(e->printer->url);
+    g_free(e->printer->api_key);
+    g_free(e->printer);
+    if (e->gcode) g_bytes_unref(e->gcode);
+    if (e->cancel) g_object_unref(e->cancel);
+    g_free(e);
+}
+
+/* On a worker thread: the G-code with gzip (a file of some MB goes down
+ * to a few hundred kB). */
+static void gzip_thread(GTask *task, gpointer source, gpointer data, GCancellable *cancel) {
+    GBytes *in = data;
+    GZlibCompressor *z = g_zlib_compressor_new(G_ZLIB_COMPRESSOR_FORMAT_GZIP, 6);
+    GOutputStream *mem = g_memory_output_stream_new_resizable();
+    GOutputStream *out = g_converter_output_stream_new(mem, G_CONVERTER(z));
+    gsize len = 0;
+    const void *p = g_bytes_get_data(in, &len);
+    GError *error = NULL;
+    if (!g_output_stream_write_all(out, p, len, NULL, cancel, &error) || !g_output_stream_close(out, cancel, &error)) {
+        g_task_return_error(task, error);
+    } else {
+        g_task_return_pointer(task, g_memory_output_stream_steal_as_bytes(G_MEMORY_OUTPUT_STREAM(mem)), (GDestroyNotify)g_bytes_unref);
+    }
+    g_object_unref(out);
+    g_object_unref(mem);
+    g_object_unref(z);
+}
+
+static void on_estimate_reply(GObject *source, GAsyncResult *res, gpointer data) {
+    Estimate *e = data;
+    GError *error = NULL;
+    GBytes *body = soup_session_send_and_read_finish(SOUP_SESSION(source), res, &error);
+    SoupMessage *msg = soup_session_get_async_result_message(SOUP_SESSION(source), res);
+    if (!body) {
+        if (!g_error_matches(error, G_IO_ERROR, G_IO_ERROR_CANCELLED)) e->fn(NULL, error->message, e->data);
+        g_error_free(error);
+        estimate_free(e);
+        return;
+    }
+    guint status = msg ? soup_message_get_status(msg) : 0;
+    JsonParser *parser = json_parser_new();
+    gsize len = 0;
+    const char *text = g_bytes_get_data(body, &len);
+    if (status == 200 && json_parser_load_from_data(parser, text, (gssize)len, NULL)) {
+        JsonNode *root = json_parser_get_root(parser);
+        ZgEstimate est = {.moves = num(root, "moves"), .prep = num(root, "prep"), .total = num(root, "total"),
+                          .plan_prints = (int)num(root, "plan_prints")};
+        e->fn(est.total > 0 ? &est : NULL, est.total > 0 ? NULL : "no estimate", e->data);
+    } else {
+        char *m = g_strdup_printf("The printer answered %u", status);
+        e->fn(NULL, m, e->data);
+        g_free(m);
+    }
+    g_object_unref(parser);
+    g_bytes_unref(body);
+    estimate_free(e);
+}
+
+static void on_gzipped(GObject *source, GAsyncResult *res, gpointer data) {
+    Estimate *e = data;
+    GError *error = NULL;
+    GBytes *zipped = g_task_propagate_pointer(G_TASK(res), &error);
+    if (!zipped) {
+        if (!g_error_matches(error, G_IO_ERROR, G_IO_ERROR_CANCELLED)) e->fn(NULL, error->message, e->data);
+        g_error_free(error);
+        estimate_free(e);
+        return;
+    }
+    SoupMessage *msg = request(e->printer, "POST", "/api/plugin/printdeck/estimate");
+    if (!msg) {
+        g_bytes_unref(zipped);
+        e->fn(NULL, "The address of the printer is not valid.", e->data);
+        estimate_free(e);
+        return;
+    }
+    soup_message_headers_append(soup_message_get_request_headers(msg), "Content-Encoding", "gzip");
+    soup_message_set_request_body_from_bytes(msg, "text/plain", zipped);
+    g_bytes_unref(zipped);
+    soup_session_send_and_read_async(session(), msg, G_PRIORITY_LOW, e->cancel, on_estimate_reply, e);
+    g_object_unref(msg);
+}
+
+void zg_link_estimate(const ZgPrinter *p, GBytes *gcode, GCancellable *cancel, ZgEstimateFn fn, gpointer data) {
+    if (p->kind != ZG_LINK_PRINTDECK || !p->url || !p->url[0]) {
+        fn(NULL, "no estimates", data);
+        return;
+    }
+    Estimate *e = g_new0(Estimate, 1);
+    e->printer = g_new0(ZgPrinter, 1);
+    e->printer->kind = p->kind;
+    e->printer->url = g_strdup(p->url);
+    e->printer->api_key = g_strdup(p->api_key ? p->api_key : "");
+    e->gcode = g_bytes_ref(gcode);
+    e->cancel = cancel ? g_object_ref(cancel) : NULL;
+    e->fn = fn;
+    e->data = data;
+    GTask *task = g_task_new(NULL, cancel, on_gzipped, e);
+    g_task_set_task_data(task, g_bytes_ref(gcode), (GDestroyNotify)g_bytes_unref);
+    g_task_run_in_thread(task, (GTaskThreadFunc)gzip_thread);
+    g_object_unref(task);
+}
+
 void zg_link_send(const ZgPrinter *p, const char *filename, GBytes *gcode, gboolean print, GCancellable *cancel,
                   ZgProgressFn progress, ZgDoneFn done, gpointer data) {
     if (p->kind == ZG_LINK_NONE) {

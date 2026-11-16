@@ -123,6 +123,8 @@ Open Preferences (the menu, or Ctrl+,). The Printers page lists your printers. E
 
 "Test the connection" shows what the printer tells: its state, its bed and nozzle (OctoPrint, Moonraker), and the filament in it (printdeck). "Use the bed and nozzle of the printer" and "Use the filament in the printer" copy them to your settings.
 
+With a printdeck printer, the status bar also shows the printer's own estimate after each slice, for example "LulzBot TAZ Workhorse: 1 h 41 min (3 min start)". printdeck learns it from its past prints: the time of the start macro (homing, heating, probing, priming), and how its real move times compare with the plan. zslice sends the G-code to the printer for this (compressed), and only reads the answer: the printer does not keep the file or print it.
+
 Pick the printer in the menu at the left of the header bar. With a connection, "Send to" puts the G-code on the printer; its menu has "Send and print" and "Export a G-code file". The status bar shows the state of the printer and the progress of its print.
 
 The API keys are in `~/.config/zslice/app.ini`, which only you can read.
