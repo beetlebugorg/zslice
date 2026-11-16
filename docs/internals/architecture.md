@@ -8,12 +8,16 @@ Read [How a slicer works](how-slicing-works.md) first. It explains the stages. T
 src/
   root.zig       The public Zig API. It exports the modules and the main types.
   main.zig       The command line tool.
-  c_api.zig      The C API and the wasm exports.
+  c_api.zig      The C API of the slicer (zslice.h), the status codes, and
+                 the wasm exports. c_api/app.zig and c_api/view.zig have the
+                 app API and the 3D view API (zslice-app.h).
 
   Stages, in pipeline order:
   mesh.zig       Mesh, Builder (vertex weld), STL load and write, test shapes.
   slicer.zig     Layer table, face index, mesh -> layer outline.
   layer.zig      Layer plan: walls, skin, infill, path order.
+  support.zig    Support areas under overhangs (grid support).
+  tree_support.zig  Tree support: branches that join on the way down.
   gcode.zig      Emitter: layer plans -> G-code, statistics.
   engine.zig     Job: runs all stages with threads, and reuses the work
                  of an older job.
@@ -21,15 +25,39 @@ src/
   Tools that the stages use:
   geom.zig       Point, Paths (flat polygon store), area, simplify.
   clip.zig       Polygon booleans.
+  clip_open.zig  Clip open polylines to a region.
   offset.zig     Polygon offset.
-  infill.zig     Scanline line fill.
+  infill.zig     Scanline line fill, and the other infill patterns.
+  flow.zig       The shape and the volume of a bead.
   settings.zig   Settings, Resolved (derived values), Feature.
+  settings_meta.zig  The section and the help text of each setting (made by
+                 tools/settings_doc.py).
   parallel.zig   Parallel for loop, and a signal that threads wait on.
   scratch.zig    A pool of arenas for work memory.
   svg.zig        SVG picture of a layer plan.
+
+  Models, plates, and profiles:
+  plate.zig      The parts on the bed, their places, and the arrangement.
+  orient.zig     The orientation of a part with the least support.
+  islands.zig    Shapes that start in the air.
+  threemf.zig    3MF load and save. zipfile.zig: the zip container.
+  profile.zig    Profiles in TOML files. toml.zig: the parser.
+  import_cura.zig  Import of Cura profile stacks.
+
+  The app core (see docs/app/README.md):
+  app.zig        The state of the app: the plates, the settings, the
+                 overrides, the support marks, and the slice worker.
+  app/toolpaths.zig  The paths of a slice for the previews, and the pick.
+  app/inspect.zig    The values of one path and the reasons for them.
+  app/feature_settings.zig  The settings that change each feature.
+  app/setting_effect.zig    What a setting changes in the preview.
+  app/setting_info.zig      The description of each setting for a panel.
+  app/licenses.zig          The licenses for a Licenses screen.
+  render/view.zig  The 3D view: the scene, the camera, the beads.
+  render/vk.zig    The Vulkan backend of the 3D view.
 ```
 
-The dependencies go one way: stages use tools, and later stages use earlier stages. No tool uses a stage, with two exceptions: `svg.zig` reads a layer plan (it is an output, like `gcode.zig`), and a test in `offset.zig` uses `slicer.zig` to make a real input.
+The dependencies go one way: stages use tools, and later stages use earlier stages. No tool uses a stage, with two exceptions: `svg.zig` reads a layer plan (it is an output, like `gcode.zig`), and a test in `offset.zig` uses `slicer.zig` to make a real input. The app core uses the stages and the tools. No stage or tool uses the app core.
 
 ## Data flow
 
@@ -108,7 +136,7 @@ On wasm, `parallel.has_threads` is false and the loop runs on the calling thread
 
 ## The C API layer
 
-`c_api.zig` is a thin layer:
+`c_api.zig` and the files in `c_api/` are a thin layer:
 
 - Each exported function checks its pointers, calls the Zig API, and changes the Zig error to a status code.
 - `CSettings` has `Settings` and an arena for the string values, because `Settings.set` does not copy strings.

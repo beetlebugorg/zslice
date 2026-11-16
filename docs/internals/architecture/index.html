@@ -49,12 +49,16 @@
 <pre><code>src/
   root.zig       The public Zig API. It exports the modules and the main types.
   main.zig       The command line tool.
-  c_api.zig      The C API and the wasm exports.
+  c_api.zig      The C API of the slicer (zslice.h), the status codes, and
+                 the wasm exports. c_api/app.zig and c_api/view.zig have the
+                 app API and the 3D view API (zslice-app.h).
 
   Stages, in pipeline order:
   mesh.zig       Mesh, Builder (vertex weld), STL load and write, test shapes.
   slicer.zig     Layer table, face index, mesh -&gt; layer outline.
   layer.zig      Layer plan: walls, skin, infill, path order.
+  support.zig    Support areas under overhangs (grid support).
+  tree_support.zig  Tree support: branches that join on the way down.
   gcode.zig      Emitter: layer plans -&gt; G-code, statistics.
   engine.zig     Job: runs all stages with threads, and reuses the work
                  of an older job.
@@ -62,13 +66,37 @@
   Tools that the stages use:
   geom.zig       Point, Paths (flat polygon store), area, simplify.
   clip.zig       Polygon booleans.
+  clip_open.zig  Clip open polylines to a region.
   offset.zig     Polygon offset.
-  infill.zig     Scanline line fill.
+  infill.zig     Scanline line fill, and the other infill patterns.
+  flow.zig       The shape and the volume of a bead.
   settings.zig   Settings, Resolved (derived values), Feature.
+  settings_meta.zig  The section and the help text of each setting (made by
+                 tools/settings_doc.py).
   parallel.zig   Parallel for loop, and a signal that threads wait on.
   scratch.zig    A pool of arenas for work memory.
-  svg.zig        SVG picture of a layer plan.</code></pre>
-<p>The dependencies go one way: stages use tools, and later stages use earlier stages. No tool uses a stage, with two exceptions: <code>svg.zig</code> reads a layer plan (it is an output, like <code>gcode.zig</code>), and a test in <code>offset.zig</code> uses <code>slicer.zig</code> to make a real input.</p>
+  svg.zig        SVG picture of a layer plan.
+
+  Models, plates, and profiles:
+  plate.zig      The parts on the bed, their places, and the arrangement.
+  orient.zig     The orientation of a part with the least support.
+  islands.zig    Shapes that start in the air.
+  threemf.zig    3MF load and save. zipfile.zig: the zip container.
+  profile.zig    Profiles in TOML files. toml.zig: the parser.
+  import_cura.zig  Import of Cura profile stacks.
+
+  The app core (see docs/app/README.md):
+  app.zig        The state of the app: the plates, the settings, the
+                 overrides, the support marks, and the slice worker.
+  app/toolpaths.zig  The paths of a slice for the previews, and the pick.
+  app/inspect.zig    The values of one path and the reasons for them.
+  app/feature_settings.zig  The settings that change each feature.
+  app/setting_effect.zig    What a setting changes in the preview.
+  app/setting_info.zig      The description of each setting for a panel.
+  app/licenses.zig          The licenses for a Licenses screen.
+  render/view.zig  The 3D view: the scene, the camera, the beads.
+  render/vk.zig    The Vulkan backend of the 3D view.</code></pre>
+<p>The dependencies go one way: stages use tools, and later stages use earlier stages. No tool uses a stage, with two exceptions: <code>svg.zig</code> reads a layer plan (it is an output, like <code>gcode.zig</code>), and a test in <code>offset.zig</code> uses <code>slicer.zig</code> to make a real input. The app core uses the stages and the tools. No stage or tool uses the app core.</p>
 <h2 id="data-flow">Data flow</h2>
 <pre><code>STL bytes
   -&gt; Mesh                     (mesh.zig)
@@ -101,7 +129,7 @@
 <h2 id="error-handling">Error handling</h2>
 <ul><li>Allocation errors go up to the caller as <code>error.OutOfMemory</code>.</li><li>Bad input (a broken STL file, bad settings) returns an error from <code>Mesh.fromStl</code> or <code>Settings.resolve</code>.</li><li>Bad geometry is not an error. A mesh with holes or overlaps gives the best output that the code can make: open chains are closed or removed, and overlaps are joined by a union.</li></ul>
 <h2 id="the-c-api-layer">The C API layer</h2>
-<p><code>c_api.zig</code> is a thin layer:</p>
+<p><code>c_api.zig</code> and the files in <code>c_api/</code> are a thin layer:</p>
 <ul><li>Each exported function checks its pointers, calls the Zig API, and changes the Zig error to a status code.</li><li><code>CSettings</code> has <code>Settings</code> and an arena for the string values, because <code>Settings.set</code> does not copy strings.</li><li><code>CallbackWriter</code> is a <code>std.Io.Writer</code> that sends its buffer to the C callback.</li><li>The wasm build compiles the same file for <code>wasm32-freestanding</code>.</li></ul><nav class="pager"><a class="prev" href="../../embedding/javascript/"><span>Previous</span><b>JavaScript</b></a><a class="next" href="../../internals/how-slicing-works/"><span>Next</span><b>How slicing works</b></a></nav>
 </main>
 </div>

@@ -48,7 +48,7 @@ The backend is Vulkan on Linux (and later Windows and Android), and Metal on App
 
 On Linux, the GTK window is transparent, and the view widget draws nothing: the subsurface shows through it. Each other part of the window must paint its whole area (use padding, not margins).
 
-Development options of the GTK shell: `ZSLICE_VIEW=3d` opens the 3D view, and `ZSLICE_NON_UNIQUE=1` starts a separate instance.
+The GTK shell has options for development and tests. See [Test hooks of the GTK shell](#test-hooks-of-the-gtk-shell).
 
 ## Inspect a path
 
@@ -56,13 +56,62 @@ A click on a path in a view picks it: `zs_app_pick_layer` in a 2D layer view (a 
 
 After a new slice, the path numbers change. The GTK shell keeps the layer and a point of the selected path, and picks the path at that place again, so that the inspector stays on the same line after a setting changes.
 
-Development option of the GTK shell: `ZSLICE_PICK=x,y` picks at a pixel of the 3D view after the first load.
-
 ## Replay
 
 `zs_view_set_time(view, t)` shows the print as it is t seconds after the start: each bead that is done, and the part of the bead that the nozzle is printing. The times come from the G-code emitter, with the cooling slow-down, so the replay follows the G-code. A shell moves t on each frame while it plays (GTK: a frame-clock tick callback, at a speed of 1x to 100x), and shows `zs_view_layer_at_time` on its layer slider. `zs_view_set_layer` ends the replay.
 
-Development option of the GTK shell: `ZSLICE_TIME=t` shows the replay at t seconds before the first frame.
+## The GTK shell
+
+The GTK shell is in `linux/src`. Each `.c` file has a header that explains its interface:
+
+| Folder | File | What it has |
+|---|---|---|
+| | `main.c` | The application, and a watchdog of the UI thread |
+| `model/` | `app-model` | The core as a GObject: signals on the UI thread, the saved state |
+| `prefs/` | `printers` | The printers of the user, and the app settings file |
+| `net/` | `printer-link` | HTTP and USB connections to printers |
+| `ui/` | `window` | The main window: the header bar, the file dialogs, the send to a printer, and the status bar |
+| | `preview` | The 2D and 3D preview with the layer slider, the replay, and the keyboard navigation |
+| | `layer-draw` | The cairo drawing of one layer in the 2D view |
+| | `toolpath-nav` | The next segment and the nearest line, for the keyboard navigation |
+| | `layer-range` | The slider with two knobs for the layers that show |
+| | `view3d` | The widget of the 3D view, and the drag of a part |
+| | `native-surface` | The Wayland subsurface for the 3D view |
+| | `settings-panel` | The panel with the two pages below |
+| | `inspector` | The "Selected" page: the values of a line and the settings that change it |
+| | `part-page` | The page of a part: its place, turn, and scale, and the placement |
+| | `settings-browser` | The "Settings" page: all settings in three columns |
+| | `setting-row` | One setting as a row of a grid |
+| | `setting-editor` | The editor of one setting, and the text of a value |
+| | `widgets` | Small widget helpers that the pages share |
+| | `preferences`, `licenses` | The Preferences and the Licenses windows |
+| | `colors.h` | The feature colors |
+
+## Test hooks of the GTK shell
+
+These environment variables change the start of the GTK shell, for development, tests, and screenshots. They are the only hidden options of the shell. The last column names the file that reads each one.
+
+| Variable | Effect | Read in |
+|---|---|---|
+| `ZSLICE_STATE_DIR=dir` | Keeps the settings and the printers in `dir`, not in `~/.config/zslice`. | `prefs/printers.c` |
+| `ZSLICE_NON_UNIQUE=1` | Starts a separate instance. Without it, a second start sends its file to the running instance. | `main.c` |
+| `ZSLICE_TEST_HANG=s` | Stops the UI thread for `s` seconds, 3 s after the start, to test the watchdog. | `main.c` |
+| `ZSLICE_VIEW=2d` or `3d` | Opens the 2D or the 3D view. | `ui/preview.c` |
+| `ZSLICE_COLORS=n` | Starts with the color mode `n` (`enum zs_view_mode`). | `ui/preview.c` |
+| `ZSLICE_LAYERS=lo,hi` | Shows the layers from `lo` to `hi` after the first slice. | `ui/preview.c` |
+| `ZSLICE_TIME=t` | Shows the replay at `t` seconds before the first frame. | `ui/view3d.c` |
+| `ZSLICE_PICK=x,y` | Picks the path at the pixel x, y of the 3D view after the first load. | `ui/view3d.c` |
+| `ZSLICE_PART=i` | Selects part `i` of the plate after the first load. | `ui/view3d.c` |
+| `ZSLICE_ZOOM=z` | Starts the 3D view at the zoom `z` (for example 0.3: nearer). | `ui/view3d.c` |
+| `ZSLICE_ZOOM_AT=x,y,n` | Zooms `n` wheel steps toward the pixel x, y after the first load. | `ui/view3d.c` |
+| `ZSLICE_INSPECT_FOCUS=name` | Puts the focus on the row of the setting `name` in the inspector after the first selection. | `ui/inspector.c` |
+| `ZSLICE_SETTING=name` | Opens the Settings page at the setting `name`. | `ui/settings-browser.c` |
+
+To run the app for a check without your own settings:
+
+```sh
+ZSLICE_STATE_DIR=$(mktemp -d) ZSLICE_NON_UNIQUE=1 ZSLICE_VIEW=2d linux/build/zslice-gtk part.stl
+```
 
 ## The preview colors
 

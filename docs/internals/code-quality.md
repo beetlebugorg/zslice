@@ -6,73 +6,67 @@ Mark an item done when its commit is in `master`. Add an item when you find a pr
 
 ## 1. The app core: `src/app.zig`
 
-`src/app.zig` has 1840 lines with six concerns in one file:
+`src/app.zig` had 1840 lines with six concerns in one file: the state of the app, the toolpaths and the pick, the inspection of a path, the effect of each setting on the preview, the setting descriptions, and the licenses.
 
-- the state of the app, the plate, and the slice worker;
-- the toolpaths of a slice, the layer paths, and the pick of a path;
-- the inspection of a path (the text and the settings);
-- the effect of each setting on the preview;
-- the setting descriptions for a settings panel (units, sliders, defaults, labels);
-- the licenses.
-
-Plan:
-
-- [ ] Move each concern to its own file in `src/app/`. `src/app.zig` keeps `App` and the state, and exports the names that `c_api.zig` and `render/view.zig` use.
-- [ ] Compute the length of a path in one function. `featureStats` and `inspect` have the same loop.
-- [ ] Move logic out of `c_api.zig` into the core: the part of a path (`zs_app_part_of_path`), the clear of the marks, and the name of a part.
+- [x] Move each concern to its own file in `src/app/`. `src/app.zig` keeps `App` and the state, and exports the names that `c_api/` and `render/view.zig` use.
+- [x] Compute the length of a path in one function (`Toolpaths.pathLength`). `featureStats` and `inspect` had the same loop.
+- [x] Move logic out of the C API into the core: the part of a path (`App.partOfPath`), the clear of the marks (`App.clearMarks`), and the name of a part (a part keeps its name with a 0 at the end).
+- [ ] `App.statusOf` is a second, shorter copy of `status` in `c_api.zig`. The failure event of a slice gives status 2 for some errors that `status` knows, for example `PartTooThin` (17). Use one function. This changes the status of some failure events, so it needs the approval of the owner.
 
 ## 2. The GTK settings panel: `linux/src/ui/settings-panel.c`
 
-2100 lines. It has the setting editors (entries, sliders, the drag on a label), the inspector page, the part page, and the settings browser.
-
-- [ ] Split it into `setting-editor.c` (one editor for one setting), `inspector.c` (the "Selected" page), `part-page.c` (the page of a part), and `settings-browser.c` (the "Settings" page). Each file gets a header that documents its interface.
-- [ ] Correct the header comment of `settings-panel.h`. It describes one page for each group, which the panel no longer has.
+- [x] Split the 2100 lines into `setting-editor`, `setting-row`, `inspector`, `part-page`, `settings-browser`, and `widgets`, each with a header that documents its interface.
+- [x] One function for the display text of a value (`zg_setting_display_value`). The editors and the browser had a copy each.
+- [x] The "why" text uses the title of the inspection. It had its own list of the feature names.
+- [x] Free the row of the browser detail. It leaked.
+- [ ] `settings-browser.c` has a list of the feature and mark names (`feature_titles`). The core has the feature names in `app/feature_settings.zig`. A C API call for the names (features and marks) removes the copy.
 
 ## 3. The GTK preview: `linux/src/ui/preview.c`
 
-950 lines: the 2D drawing, the replay and scrub bar, the color modes, and the keyboard navigation.
-
-- [ ] Move the keyboard navigation to its own unit.
-- [ ] Move the replay and the scrub bar to their own unit.
-- [ ] Later: the navigation decides which line comes next (`segments_of`, `nearest_on_layer`, `layer_of_path`). By the rule of `docs/app/README.md`, this decision goes in the core, so that each shell behaves the same. The core already has `App.layerOfPath`. This needs new C API functions.
+- [x] Move the cairo drawing of a layer to `layer-draw.c`.
+- [x] Move the search for the next line of the keyboard navigation to `toolpath-nav.c`.
+- [ ] The keyboard navigation decides which line comes next. By the rule of `docs/app/README.md`, this decision goes in the core, so that each shell behaves the same. Move `toolpath-nav.c` into `app/toolpaths.zig` (with tests), and add C API calls for it. The core already has `Toolpaths.layerOfPath`.
+- [ ] The replay and the scrub bar can go to their own unit. They use many fields of the `Preview` struct, so they need a small interface first.
 
 ## 4. The GTK window: `linux/src/ui/window.c`
 
-690 lines: the status bar, the file dialogs (open, export, save the plate), the send to a printer, and the layout.
+890 lines: the status bar, the islands warning, the file dialogs, the send to a printer, the "all plates" send and export, and the layout.
 
-- [ ] Move the send to a printer and the printer poll to their own unit.
+- [ ] Move the printer chooser, the send, the poll of the printer state, and the "all plates" batch to a unit `printer-bar.c`. The window then places the widgets and calls the unit after each core event. This work waits until the plates feature is stable on `master`.
+- [ ] Check `on_poll_info` after the window closes. `window_free` cancels the poll and frees the `Window`. If the HTTP layer calls the callback after a cancel, the callback reads freed memory.
 
 ## 5. The C API: `src/c_api.zig`
 
-1140 lines with three APIs: the slicer (`zslice.h`), the app (`zslice-app.h`), and the 3D view.
-
-- [ ] Split it into one file for each header part. The exported symbols do not change.
+- [x] Split it into the slicer API (`c_api.zig`), the app API (`c_api/app.zig`), and the view API (`c_api/view.zig`). The exported symbols do not change.
+- [ ] `zs_app_part_get` takes a `zs_app *`. It no longer changes the app, so it can take a `const zs_app *`. This changes the header, so it waits for the next change of the API.
 
 ## 6. Tests
 
-These paths matter and have few or no tests:
-
-- [ ] Settings validation: `Settings.set` with a bad value, a value out of the limits, an unknown name; `resolve` with bad combinations.
-- [ ] 3MF in the app: a bad file keeps the old plate; overrides that the version does not know are left out.
-- [ ] The plate in the app: rotate, arrange, clear, the name of the plate.
-- [ ] Support marks: the z tolerance, the radius, replace and remove.
-- [ ] Profiles in the app: `applyProfile` with a bad text keeps the settings; `writeState` and `applyProfile` give the same settings back; `resetGroup`.
-- [ ] Combing: a travel with combing on does not cross a wall.
+- [x] Settings validation: the text forms of each kind, a bad value keeps the old one, the combinations that `resolve` rejects, the wall count from a wall thickness.
+- [x] 3MF in the app: a bad file keeps the plate; an override of an unknown setting is left out.
+- [x] The plate in the app: the name, a turn, the arrangement, remove, clear, and the part of a path.
+- [x] Support marks: the layer, the radius, replace, remove, and clear.
+- [x] Profiles in the app: the round trip of a group through `writeState` and `applyProfile`, a bad text that changes nothing, and `resetGroup`.
+- [ ] Combing: a travel with combing on does not cross a wall. The test goes at the end of `src/gcode.zig`, which changes often for performance work now.
+- [ ] The GTK shell has no unit tests. `toolpath-nav.c` and `layer-draw.c` have no widgets, so they can have tests first. A move of the navigation into the core (item 3) gives Zig tests.
 
 ## 7. Consistency
 
-- [ ] Each source file that uses a source in `REFERENCES.md` names it in its header comment.
-- [ ] One list of the `ZSLICE_*` test hooks of the GTK shell, in `docs/app/README.md`.
-- [ ] No TODO without an entry in `ROADMAP.md`. (Now: no TODO in the code.)
+- [x] The source files that use a source in `REFERENCES.md` name it in their header comment: `import_cura.zig`, `profile.zig`, `plate.zig`, and `native-surface.c` did not.
+- [ ] `src/engine.zig` uses memoization (see `REFERENCES.md`) and does not name it in its header.
+- [x] One list of the `ZSLICE_*` test hooks of the GTK shell, in `docs/app/README.md`.
+- [x] No TODO without an entry in `ROADMAP.md`. There is no TODO in the code.
+- [x] `docs/internals/architecture.md` lists all modules, with `app/`, `c_api/`, and `render/`.
 
 ## 8. Build hygiene
 
-- [ ] No warnings from `zig build`, `zig build test`, `zig build wasm`, and `ninja -C linux/build` (meson `warning_level=2`).
+- [x] No warnings from `zig build`, `zig build test`, `zig build wasm`, and `ninja -C linux/build` (meson `warning_level=2`).
+- [x] `zig fmt` for the files outside the slicing stages.
+- [ ] `zig fmt --check` fails for `src/engine.zig`, `src/layer.zig`, and `src/support.zig`. Run `zig fmt` on them when no other branch changes them.
 
-## Later: files that the slicing work changes now
+## Later: files that other work changes now
 
-These files change often for performance work. Change them only in small, safe steps.
+These files change often. Change them only in small, safe steps.
 
-- `src/layer.zig` (1690 lines) and `src/engine.zig` (1200 lines) are the largest stage files.
-- `zig fmt --check` fails for `src/engine.zig`, `src/layer.zig`, and `src/support.zig`. Run `zig fmt` on them when no other branch changes them.
-- `linux/src/ui/view3d.c` (550 lines) has the 3D view widget, the drag of a part, and the test hooks. It changes on `master` now. Split it after that work.
+- `src/layer.zig` (1690 lines) and `src/engine.zig` (1210 lines) are the largest stage files.
+- `linux/src/ui/view3d.c` (780 lines) has the 3D view widget, the drag of a part, the context menu, the support marks, and the test hooks. Split it when the work on the 3D view is stable.
