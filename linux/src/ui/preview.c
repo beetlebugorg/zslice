@@ -356,7 +356,12 @@ static void show_legend(Preview *p) {
 
 static void on_color_mode(GObject *dd, GParamSpec *pspec, gpointer data) {
     Preview *p = data;
-    zg_view3d_set_color_mode(p->view3d, (int)gtk_drop_down_get_selected(GTK_DROP_DOWN(dd)));
+    guint mode = gtk_drop_down_get_selected(GTK_DROP_DOWN(dd));
+    zg_view3d_set_color_mode(p->view3d, (int)mode);
+    /* The next start uses the same colors. */
+    char buf[8];
+    g_snprintf(buf, sizeof buf, "%u", mode);
+    zg_pref_set("colors", buf);
     /* A color mode is for the 3D view. */
     gtk_stack_set_visible_child_name(GTK_STACK(p->stack), "3d");
     show_legend(p);
@@ -539,12 +544,20 @@ GtkWidget *zg_preview_new(ZgModel *model) {
     p->colors = colors;
     gtk_widget_set_tooltip_text(colors, "The colors of the 3D view: the filament (as the print will look), one color for each feature, or a ramp from blue (low) to red (high) of the speed, the flow, the layer time (red: short layers, which cool badly), or the line width.");
     g_signal_connect(colors, "notify::selected", G_CALLBACK(on_color_mode), p);
-    /* For development and screenshots: ZSLICE_COLORS=4 starts with a color
-     * mode (enum zs_view_mode). */
-    if (g_getenv("ZSLICE_COLORS")) gtk_drop_down_set_selected(GTK_DROP_DOWN(colors), (guint)atoi(g_getenv("ZSLICE_COLORS")));
     p->legend = gtk_label_new("");
     gtk_widget_add_css_class(p->legend, "zg-legend");
     gtk_widget_set_visible(p->legend, FALSE);
+    /* For development and screenshots: ZSLICE_COLORS=4 starts with a color
+     * mode (enum zs_view_mode). */
+    if (g_getenv("ZSLICE_COLORS")) {
+        gtk_drop_down_set_selected(GTK_DROP_DOWN(colors), (guint)atoi(g_getenv("ZSLICE_COLORS")));
+    } else {
+        /* The colors of the last session. */
+        char *saved = zg_pref_get("colors", "0");
+        guint mode = (guint)atoi(saved);
+        g_free(saved);
+        if (mode > 0 && mode < 6) gtk_drop_down_set_selected(GTK_DROP_DOWN(colors), mode);
+    }
     /* The replay: play and pause, and the speed. */
     p->play = gtk_button_new_from_icon_name("media-playback-start-symbolic");
     gtk_widget_set_tooltip_text(p->play, "Replay the print in the 3D view, line by line, at the speed beside it.");

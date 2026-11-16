@@ -17,7 +17,10 @@ pub const has_threads = !builtin.single_threaded and !builtin.cpu.arch.isWasm();
 pub fn threadCount(requested: u32) usize {
     if (!has_threads) return 1;
     if (requested > 0) return requested;
-    return std.Thread.getCpuCount() catch 1;
+    // One core stays free, so that the app (and the desktop) can answer
+    // while a slice runs.
+    const cpus = std.Thread.getCpuCount() catch 1;
+    return if (cpus > 2) cpus - 1 else cpus;
 }
 
 pub fn forEach(threads: usize, n: usize, ctx: anytype, comptime func: fn (@TypeOf(ctx), usize) anyerror!void) anyerror!void {

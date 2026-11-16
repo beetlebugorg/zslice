@@ -94,6 +94,6 @@ pub const all = [_]Meta{
     .{ .name = "project.placement", .section = "Placement", .doc = "Where the part goes on the bed. auto: at the X and Y of the file if the part is fully on the bed there, else at the center of the bed. file: always at the X and Y of the file. center: always at the center of the bed. The bottom of the part always goes to z = 0." },
     .{ .name = "engine.resolution", .section = "Slicer", .doc = "The largest change to the shape (mm) that the slicer makes when it removes points from the mesh outlines." },
     .{ .name = "engine.gap_closing", .section = "Slicer", .doc = "The largest gap (mm) that the slicer closes in a mesh with holes." },
-    .{ .name = "engine.threads", .section = "Slicer", .doc = "The number of threads. 0 uses one thread for each CPU." },
+    .{ .name = "engine.threads", .section = "Slicer", .doc = "The number of threads. 0 uses one thread for each CPU but one, so that the app and the desktop can answer while a slice runs." },
     .{ .name = "engine.job_name", .section = "Slicer", .doc = "The name of the print, for {job_name} in the start and end G-code. The command line tool sets it to the model file name." },
 };

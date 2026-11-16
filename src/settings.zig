@@ -358,7 +358,8 @@ pub const EngineOptions = struct {
     resolution: f64 = 0.005,
     /// The largest gap (mm) that the slicer closes in a mesh with holes.
     gap_closing: f64 = 1.0,
-    /// The number of threads. 0 uses one thread for each CPU.
+    /// The number of threads. 0 uses one thread for each CPU but one, so
+    /// that the app and the desktop can answer while a slice runs.
     threads: u32 = 0,
     /// The name of the print, for {job_name} in the start and end G-code.
     /// The command line tool sets it to the model file name.

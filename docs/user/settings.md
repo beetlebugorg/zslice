@@ -430,7 +430,7 @@ The largest gap (mm) that the slicer closes in a mesh with holes.
 
 **`engine.threads`** (integer). Default: `0`
 
-The number of threads. 0 uses one thread for each CPU.
+The number of threads. 0 uses one thread for each CPU but one, so that the app and the desktop can answer while a slice runs.
 
 **`engine.job_name`** (text). Default: `""`
 
