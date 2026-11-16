@@ -134,7 +134,8 @@ pub const Emitter = struct {
             s.filament.fan_speed;
         try self.setFan(@intFromFloat(@round(255 * ratio)));
         var slow: f64 = 1;
-        if (layer_time < s.filament.min_layer_time and est.extrude_s > 0) {
+        const lap = s.filament.cooling_mode == .lap;
+        if (!lap and layer_time < s.filament.min_layer_time and est.extrude_s > 0) {
             const want = @max(s.filament.min_layer_time - est.travel_s, 1e-3);
             slow = @min(1, est.extrude_s / want);
         }
@@ -173,8 +174,61 @@ pub const Emitter = struct {
             const e = if (path.feature == .ironing) e_per_mm * lr.settings.project.ironing_flow else e_per_mm;
             for (pts[1..]) |q| try self.extrude(geom.toMm(q.x), geom.toMm(q.y), e, speed);
             if (path.closed and pts.len > 2) try self.extrude(geom.toMm(pts[0].x), geom.toMm(pts[0].y), e, speed);
-            if (self.record) |rec| rec.appendAssumeCapacity(.{ .start_time = start_time, .end_time = self.stats.print_time_s, .area = e * self.r.filament_area, .retracted = retracted, .slowed = slow < 1 });
+            if (self.record) |rec| rec.appendAssumeCapacity(.{ .start_time = start_time, .end_time = self.stats.print_time_s, .area = e * self.r.filament_area, .retracted = retracted, .slowed = slow < 1 or (lap and layer_time < s.filament.min_layer_time) });
         }
+        if (lap and lp.index >= s.filament.fan_off_layers and layer_time < s.filament.min_layer_time) {
+            try self.coolingLap(lp, s.filament.min_layer_time - layer_time);
+        }
+    }
+
+    /// The cooling lap: the nozzle goes up 1 mm, and moves around the box
+    /// of the layer with the fan at full for `seconds`. The part fan blows
+    /// on the plastic of the layer all the time.
+    fn coolingLap(self: *Emitter, lp: *const LayerPlan, seconds: f64) Writer.Error!void {
+        const box = lp.points.bounds();
+        if (box.isEmpty()) return;
+        try self.retract();
+        try self.w.writeAll(";TYPE:COOLING-LAP\n");
+        const fan = self.fan;
+        try self.setFan(@intFromFloat(@round(255 * self.r.settings.filament.fan_max_speed)));
+        try self.w.writeAll("G0 Z");
+        try writeNum(self.w, self.z + 1, 3);
+        try self.w.writeAll("\n");
+        // A slow lap: the air has time on each spot, and the head does not
+        // shake the part.
+        const speed = @min(self.r.settings.machine.travel_speed, 40);
+        const corners = [_][2]f64{
+            .{ geom.toMm(box.min.x), geom.toMm(box.min.y) }, .{ geom.toMm(box.max.x), geom.toMm(box.min.y) },
+            .{ geom.toMm(box.max.x), geom.toMm(box.max.y) }, .{ geom.toMm(box.min.x), geom.toMm(box.max.y) },
+        };
+        var left = seconds;
+        var k: usize = 0;
+        while (left > 0.05) : (k += 1) {
+            const c = corners[k % 4];
+            var x = c[0];
+            var y = c[1];
+            const d = std.math.hypot(x - self.x, y - self.y);
+            if (d / speed > left) {
+                // The last move: only as far as the time goes.
+                const f = left * speed / d;
+                x = self.x + (x - self.x) * f;
+                y = self.y + (y - self.y) * f;
+            }
+            const step = std.math.hypot(x - self.x, y - self.y);
+            try self.w.writeAll("G0 X");
+            try writeNum(self.w, x + self.r.settings.machine.origin_x, 3);
+            try self.w.writeAll(" Y");
+            try writeNum(self.w, y + self.r.settings.machine.origin_y, 3);
+            try self.writeFeed(speed);
+            try self.w.writeAll("\n");
+            self.x = x;
+            self.y = y;
+            self.stats.print_time_s += step / speed;
+            self.stats.travel_mm += step;
+            left -= step / speed;
+            if (step < 1e-6) break;
+        }
+        try self.setFan(fan);
     }
 
     fn setFan(self: *Emitter, value: i32) Writer.Error!void {

@@ -174,6 +174,10 @@ The shortest time (s) for one layer. A layer that takes less time prints slower,
 
 The lowest print speed (mm/s) for the slow-down of `min_layer_time`.
 
+**`filament.cooling_mode`** (one of: `slow_down`, `lap`). Default: `slow_down`
+
+How a layer that takes less than `min_layer_time` gets its time to cool. `slow_down`: it prints slower. `lap`: it prints at the planned speed; then the nozzle goes up 1 mm and moves around the layer with the fan at full until the time is over, so the air blows on the new plastic. The lap keeps the planned speed of the walls.
+
 **`filament.standby_temp`** (number). Default: `0`
 
 A lower nozzle temperature for waits, for example while the printer probes the bed. The start G-code can use it as {standby_temp}. 0 is off.

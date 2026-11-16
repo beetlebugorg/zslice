@@ -762,6 +762,7 @@ const preview_notes = [_]struct { []const u8, [:0]const u8 }{
     .{ "filament.fan_off_layers", "The fan in the G-code on the first layers. It changes no line." },
     .{ "filament.fan_max_speed", "The fan in the G-code on short layers. It changes no line." },
     .{ "filament.fan_boost_time", "The fan in the G-code on short layers. It changes no line." },
+    .{ "filament.cooling_mode", "How a short layer cools: slower lines, or a lap of the nozzle over the layer with the fan at full. The layer time and the speed color modes show the effect." },
     .{ "engine.threads", "The number of threads of the slicer. The result is the same." },
     .{ "engine.job_name", "The name of the print, for the start G-code." },
 };

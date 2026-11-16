@@ -691,7 +691,7 @@ const late_settings = [_][]const u8{
     "filament.bed_temp",                "filament.standby_temp",      "filament.max_flow",
     "filament.flow_ratio",              "filament.fan_speed",         "filament.fan_off_layers",
     "filament.fan_max_speed",           "filament.fan_boost_time",    "filament.min_layer_time",
-    "filament.min_speed",               "filament.retract_ratio",
+    "filament.min_speed",               "filament.retract_ratio",     "filament.cooling_mode",
     // machine: motion, retraction, and G-code
     "machine.name",                     "machine.max_speed",          "machine.travel_speed",
     "machine.max_z_speed",              "machine.retract_length",     "machine.retract_speed",
@@ -850,4 +850,23 @@ test "a job takes the regions of an older job, and the result is the same" {
     defer out_reuse.deinit();
     _ = try reuse.writeGcode(&out_reuse.writer);
     try std.testing.expectEqualStrings(out_fresh.written(), out_reuse.written());
+}
+
+test "the cooling lap fills the min layer time with moves over the layer" {
+    const gpa = std.testing.allocator;
+    var mesh = try mesh_mod.shapes.demo(gpa);
+    defer mesh.deinit(gpa);
+    var s: Settings = .{};
+    try s.set("filament.min_layer_time", "20");
+    var slow: std.Io.Writer.Allocating = .init(gpa);
+    defer slow.deinit();
+    const st_slow = try slice(gpa, &mesh, s, &slow.writer);
+    try s.set("filament.cooling_mode", "lap");
+    var lap: std.Io.Writer.Allocating = .init(gpa);
+    defer lap.deinit();
+    const st_lap = try slice(gpa, &mesh, s, &lap.writer);
+    try std.testing.expect(std.mem.indexOf(u8, lap.written(), ";TYPE:COOLING-LAP") != null);
+    try std.testing.expect(std.mem.indexOf(u8, slow.written(), ";TYPE:COOLING-LAP") == null);
+    // Both meet the min layer time: the print times are close.
+    try std.testing.expectApproxEqRel(st_slow.print_time_s, st_lap.print_time_s, 0.15);
 }

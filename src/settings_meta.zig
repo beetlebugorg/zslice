@@ -40,6 +40,7 @@ pub const all = [_]Meta{
     .{ .name = "filament.fan_boost_time", .section = "Cooling", .doc = "A layer that takes less time than this (s) gets the fan at `fan_max_speed`." },
     .{ .name = "filament.min_layer_time", .section = "Cooling", .doc = "The shortest time (s) for one layer. A layer that takes less time prints slower, so that the plastic below has time to cool." },
     .{ .name = "filament.min_speed", .section = "Cooling", .doc = "The lowest print speed (mm/s) for the slow-down of `min_layer_time`." },
+    .{ .name = "filament.cooling_mode", .section = "Cooling", .doc = "How a layer that takes less than `min_layer_time` gets its time to cool. `slow_down`: it prints slower. `lap`: it prints at the planned speed; then the nozzle goes up 1 mm and moves around the layer with the fan at full until the time is over, so the air blows on the new plastic. The lap keeps the planned speed of the walls." },
     .{ .name = "filament.standby_temp", .section = "Cooling", .doc = "A lower nozzle temperature for waits, for example while the printer probes the bed. The start G-code can use it as {standby_temp}. 0 is off." },
     .{ .name = "filament.shrinkage_xy", .section = "Size compensation", .doc = "The part is printed larger by this ratio in X and Y, because the plastic shrinks as it cools. Example: 1.003 for 0.3 % shrinkage." },
     .{ .name = "filament.shrinkage_z", .section = "Size compensation", .doc = "The part is printed taller by this ratio, for shrinkage in Z." },

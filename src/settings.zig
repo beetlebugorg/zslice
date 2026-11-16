@@ -31,6 +31,8 @@ pub const SkinPattern = enum { lines, monotonic, concentric };
 /// Where the part goes on the bed. See `Project.placement`.
 pub const Placement = enum { auto, file, center };
 pub const SupportMode = enum { off, everywhere, buildplate };
+/// How a short layer gets its cooling time. See `Filament.cooling_mode`.
+pub const CoolingMode = enum { slow_down, lap };
 /// The shape of the support. See `Project.support_style`.
 pub const SupportStyle = enum { grid, tree };
 pub const ExtruderKind = enum { direct, bowden };
@@ -146,6 +148,12 @@ pub const Filament = struct {
     min_layer_time: f64 = 6,
     /// The lowest print speed (mm/s) for the slow-down of `min_layer_time`.
     min_speed: f64 = 10,
+    /// How a layer that takes less than `min_layer_time` gets its time to
+    /// cool. `slow_down`: it prints slower. `lap`: it prints at the planned
+    /// speed; then the nozzle goes up 1 mm and moves around the layer with
+    /// the fan at full until the time is over, so the air blows on the new
+    /// plastic. The lap keeps the planned speed of the walls.
+    cooling_mode: CoolingMode = .slow_down,
     /// A lower nozzle temperature for waits, for example while the printer
     /// probes the bed. The start G-code can use it as {standby_temp}. 0 is
     /// off.
