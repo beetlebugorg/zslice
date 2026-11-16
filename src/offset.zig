@@ -35,6 +35,7 @@
 const std = @import("std");
 const Allocator = std.mem.Allocator;
 const geom = @import("geom.zig");
+const scratch = @import("scratch.zig");
 const clip = @import("clip.zig");
 const Point = geom.Point;
 const Paths = geom.Paths;
@@ -60,8 +61,8 @@ pub fn offset(gpa: Allocator, paths: Paths, delta: i64, opts: Options) Allocator
     if (paths.isEmpty()) return .empty;
     if (delta == 0) return paths.clone(gpa);
 
-    var arena_state = std.heap.ArenaAllocator.init(gpa);
-    defer arena_state.deinit();
+    var arena_state = scratch.get(gpa);
+    defer arena_state.release();
     const arena = arena_state.allocator();
 
     var raw: Paths = .empty;

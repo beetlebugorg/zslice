@@ -46,6 +46,7 @@
 const std = @import("std");
 const Allocator = std.mem.Allocator;
 const geom = @import("geom.zig");
+const scratch = @import("scratch.zig");
 const Point = geom.Point;
 const Paths = geom.Paths;
 const cross3 = geom.cross3;
@@ -68,8 +69,8 @@ pub const FillRule = enum {
 /// the result.
 pub fn boolean(gpa: Allocator, subject: Paths, clip: Paths, op: Op, rule: FillRule) Allocator.Error!Paths {
     // All temporary memory comes from one arena and is freed in one step.
-    var arena_state = std.heap.ArenaAllocator.init(gpa);
-    defer arena_state.deinit();
+    var arena_state = scratch.get(gpa);
+    defer arena_state.release();
     const arena = arena_state.allocator();
 
     // Step 1: collect the edges.

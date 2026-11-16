@@ -23,6 +23,7 @@ const std = @import("std");
 const Allocator = std.mem.Allocator;
 const Writer = std.Io.Writer;
 const geom = @import("geom.zig");
+const scratch = @import("scratch.zig");
 const mesh_mod = @import("mesh.zig");
 const slicer = @import("slicer.zig");
 const settings_mod = @import("settings.zig");
@@ -346,6 +347,7 @@ pub const Job = struct {
         // The support areas need the outlines of all layers.
         const sup = support_mod.compute(gpa, outlines, layers, &r, threads) catch |e| return @as(Error, @errorCast(e));
 
+        scratch.trim();
         const regs = try gpa.alloc(?layer_mod.Regions, layers.len);
         @memset(regs, null);
         return .{
@@ -473,6 +475,9 @@ pub const Job = struct {
             reporter.step(n);
         }
         try em.end();
+        // The work memory of the booleans and offsets goes back to the
+        // operating system (see scratch.zig).
+        scratch.trim();
         return em.stats;
     }
 };

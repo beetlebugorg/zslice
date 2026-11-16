@@ -35,6 +35,7 @@ pub const infill = @import("infill.zig");
 pub const layer = @import("layer.zig");
 pub const gcode = @import("gcode.zig");
 pub const parallel = @import("parallel.zig");
+pub const scratch = @import("scratch.zig");
 pub const engine = @import("engine.zig");
 pub const svg = @import("svg.zig");
 pub const support = @import("support.zig");

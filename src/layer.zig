@@ -39,6 +39,7 @@
 const std = @import("std");
 const Allocator = std.mem.Allocator;
 const geom = @import("geom.zig");
+const scratch = @import("scratch.zig");
 const clip = @import("clip.zig");
 const offset_mod = @import("offset.zig");
 const infill = @import("infill.zig");
@@ -143,8 +144,8 @@ pub fn regions(gpa: Allocator, ctx: Context, i: usize) Allocator.Error!Regions {
     var reg: Regions = .{ .arena = .init(gpa) };
     errdefer reg.deinit();
     const a = reg.arena.allocator();
-    var scratch_state = std.heap.ArenaAllocator.init(gpa);
-    defer scratch_state.deinit();
+    var scratch_state = scratch.get(gpa);
+    defer scratch_state.release();
     const s = scratch_state.allocator();
     const outline = ctx.outlines[i];
     if (outline.isEmpty()) return reg;
@@ -265,8 +266,8 @@ pub fn plan(gpa: Allocator, ctx: Context, i: usize) Allocator.Error!LayerPlan {
     const a = lp.arena.allocator();
 
     // Intermediate shapes go in a scratch arena, freed at the end.
-    var scratch_state = std.heap.ArenaAllocator.init(gpa);
-    defer scratch_state.deinit();
+    var scratch_state = scratch.get(gpa);
+    defer scratch_state.release();
     const s = scratch_state.allocator();
 
     const outline = ctx.outlines[i];
@@ -999,9 +1000,9 @@ test "monotonic skin: the lines go from one side to the other" {
     const gpa = testing.allocator;
     var lp: LayerPlan = .{ .arena = .init(gpa), .index = 0, .z = 0.2, .height = 0.2, .width = 0.4 };
     defer lp.deinit();
-    var scratch = std.heap.ArenaAllocator.init(gpa);
-    defer scratch.deinit();
-    const s = scratch.allocator();
+    var scratch_arena = std.heap.ArenaAllocator.init(gpa);
+    defer scratch_arena.deinit();
+    const s = scratch_arena.allocator();
     // Four horizontal lines (angle 0) out of order: y = 2, 0, 3, 1.
     var set: Paths = .empty;
     for ([_]i64{ 2, 0, 3, 1 }) |y| try set.append(s, &.{ .init(0, y * 1000), .init(10000, y * 1000) });

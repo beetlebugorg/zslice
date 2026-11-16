@@ -31,6 +31,7 @@
 const std = @import("std");
 const Allocator = std.mem.Allocator;
 const geom = @import("geom.zig");
+const scratch = @import("scratch.zig");
 const clip = @import("clip.zig");
 const mesh_mod = @import("mesh.zig");
 const Mesh = mesh_mod.Mesh;
@@ -164,8 +165,8 @@ fn edgeKey(a: u32, b: u32) u64 {
 /// tolerance, and `gap` (micrometers) is the largest gap that the code
 /// closes in a mesh with holes.
 pub fn sliceAt(gpa: Allocator, m: *const Mesh, faces: []const u32, z: f64, tolerance: i64, gap: i64) Allocator.Error!Paths {
-    var arena_state = std.heap.ArenaAllocator.init(gpa);
-    defer arena_state.deinit();
+    var arena_state = scratch.get(gpa);
+    defer arena_state.release();
     const arena = arena_state.allocator();
 
     // Steps 2 and 3: one segment for each crossing triangle.

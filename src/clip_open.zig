@@ -18,6 +18,7 @@
 const std = @import("std");
 const Allocator = std.mem.Allocator;
 const geom = @import("geom.zig");
+const scratch = @import("scratch.zig");
 const Point = geom.Point;
 const Paths = geom.Paths;
 
@@ -30,8 +31,8 @@ pub fn clipPolylines(gpa: Allocator, region: Paths, lines: Paths, min_length: i6
     errdefer out.deinit(gpa);
     if (region.isEmpty() or lines.isEmpty()) return out;
 
-    var arena_state = std.heap.ArenaAllocator.init(gpa);
-    defer arena_state.deinit();
+    var arena_state = scratch.get(gpa);
+    defer arena_state.release();
     const arena = arena_state.allocator();
 
     // Step 1.

@@ -21,6 +21,7 @@
 const std = @import("std");
 const Allocator = std.mem.Allocator;
 const geom = @import("geom.zig");
+const scratch = @import("scratch.zig");
 const Point = geom.Point;
 const Paths = geom.Paths;
 
@@ -40,8 +41,8 @@ pub fn linesPhase(gpa: Allocator, region: Paths, spacing: i64, angle_deg: f64, p
     errdefer out.deinit(gpa);
     if (region.isEmpty() or spacing <= 0) return out;
 
-    var arena_state = std.heap.ArenaAllocator.init(gpa);
-    defer arena_state.deinit();
+    var arena_state = scratch.get(gpa);
+    defer arena_state.release();
     const arena = arena_state.allocator();
 
     const a = angle_deg * std.math.pi / 180.0;
@@ -300,8 +301,8 @@ pub const gyroid_k: f64 = 2.43;
 /// y, and the polyline ends.
 pub fn gyroid(gpa: Allocator, region: Paths, period_mm: f64, z_mm: f64, min_length: i64) Allocator.Error!Paths {
     if (region.isEmpty() or !(period_mm > 0)) return .empty;
-    var arena_state = std.heap.ArenaAllocator.init(gpa);
-    defer arena_state.deinit();
+    var arena_state = scratch.get(gpa);
+    defer arena_state.release();
     const arena = arena_state.allocator();
 
     const box = region.bounds();
