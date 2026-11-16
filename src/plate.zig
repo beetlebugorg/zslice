@@ -46,7 +46,8 @@ pub const PlaceMode = enum(u8) {
 };
 
 pub const Part = struct {
-    name: []u8,
+    /// The name, with a 0 at the end for the C API.
+    name: [:0]u8,
     /// The mesh on the plate: `source` with the pose and the scale.
     mesh: Mesh,
     /// The mesh of the file, kept after the first change of the pose or
@@ -151,7 +152,7 @@ pub const Plate = struct {
     /// on the bed there (with `gap` around it) and touches no other part.
     pub fn add(self: *Plate, gpa: Allocator, name: []const u8, mesh: Mesh, bed: [2]f64, gap: f64, keep_file: bool) Allocator.Error!usize {
         var m = mesh;
-        const n = gpa.dupe(u8, name) catch |e| {
+        const n = gpa.dupeZ(u8, name) catch |e| {
             m.deinit(gpa);
             return e;
         };

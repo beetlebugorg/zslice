@@ -565,6 +565,19 @@ pub const App = struct {
         return removed;
     }
 
+    pub fn clearMarks(app: *App) void {
+        app.marks.clearRetainingCapacity();
+    }
+
+    /// The part of the plate that has a path of the last slice (the part
+    /// under the first point of the path), or null.
+    pub fn partOfPath(app: *const App, path: usize) ?usize {
+        const t = app.allToolpaths() orelse return null;
+        if (path >= t.pathCount()) return null;
+        const start = t.pathStart(path);
+        return app.plate.partAt(t.points.items[2 * start], t.points.items[2 * start + 1]);
+    }
+
     /// Removes the overrides of a setting that cover z. Returns how many.
     pub fn clearOverridesAt(app: *App, z: f64, name: []const u8) usize {
         var removed: usize = 0;

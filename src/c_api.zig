@@ -435,7 +435,7 @@ export fn zs_app_mark_count(a: ?*const App) usize {
 
 export fn zs_app_marks_clear(a: ?*App) void {
     const app = a orelse return;
-    app.marks.clearRetainingCapacity();
+    app.clearMarks();
 }
 
 export fn zs_app_write_3mf(a: ?*App, out: ?*?[*]const u8, out_len: ?*usize) c_int {
@@ -732,8 +732,7 @@ export fn zs_app_part_get(a: ?*App, i: usize, out: ?*Part) c_int {
     const o = out orelse return @intFromEnum(Status.invalid_argument);
     if (i >= app.plate.count()) return @intFromEnum(Status.out_of_range);
     const p = &app.plate.parts.items[i];
-    const name = app.strings.allocator().dupeZ(u8, p.name) catch return @intFromEnum(Status.out_of_memory);
-    o.* = .{ .name = name.ptr, .x = p.x, .y = p.y, .rotation = p.rot, .size_x = 2 * p.half[0], .size_y = 2 * p.half[1], .size_z = p.height, .scale_x = p.scale[0], .scale_y = p.scale[1], .scale_z = p.scale[2] };
+    o.* = .{ .name = p.name.ptr, .x = p.x, .y = p.y, .rotation = p.rot, .size_x = 2 * p.half[0], .size_y = 2 * p.half[1], .size_z = p.height, .scale_x = p.scale[0], .scale_y = p.scale[1], .scale_z = p.scale[2] };
     return ok;
 }
 
@@ -857,10 +856,7 @@ export fn zs_app_part_at(a: ?*const App, x: f64, y: f64) isize {
 /// The part of a path of the toolpaths (by its first point), or -1.
 export fn zs_app_part_of_path(a: ?*const App, path: usize) isize {
     const app = a orelse return -1;
-    const t = app.allToolpaths() orelse return -1;
-    if (path >= t.path_ends.items.len) return -1;
-    const start: usize = if (path == 0) 0 else t.path_ends.items[path - 1];
-    const i = app.plate.partAt(t.points.items[2 * start], t.points.items[2 * start + 1]) orelse return -1;
+    const i = app.partOfPath(path) orelse return -1;
     return @intCast(i);
 }
 
