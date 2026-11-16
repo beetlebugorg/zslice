@@ -227,11 +227,16 @@ pub const Job = struct {
     /// empty slices if no layer has skin.
     tops: []Paths = &.{},
     bottoms: []Paths = &.{},
-    /// The regions of each layer (see layer.Regions), made when a plan
-    /// needs them. `takeRegions` moves them from an older job.
-    regions: []?layer_mod.Regions = &.{},
-    /// A hash of the settings that change the regions (`regionKey`).
-    region_key: u64 = 0,
+    /// The memo of each layer (see layer.Memo): the results of the slow
+    /// steps of a plan. A plan adds to it. `initReuse` takes the memos of
+    /// an older job.
+    memos: []layer_mod.Memo = &.{},
+    /// A hash of all inputs of the outlines (see `outlineKey`). Two jobs of
+    /// the same mesh with the same key have the same outlines.
+    outline_key: u64 = 0,
+    /// The generation of the job: one more than the job that it took its
+    /// memos from (see layer.Memo).
+    gen: u32 = 0,
     /// The settings of the layers with overrides (see layer.Context).
     layer_set: []u16 = &.{},
     layer_resolved: []settings_mod.Resolved = &.{},
@@ -251,11 +256,22 @@ pub const Job = struct {
     /// Only settings.layer_settings can have overrides. The strings of the
     /// overrides must live as long as the job.
     pub fn initFull(gpa: Allocator, mesh: *const Mesh, settings: Settings, overrides: []const settings_mod.Override, monitor: Monitor) Error!Job {
+        return initReuse(gpa, mesh, settings, overrides, monitor, null);
+    }
+
+    /// `initFull`, and the job uses the work of `old`, a job of the same
+    /// mesh (the caller knows). If the outlines are the same (the same
+    /// `outline_key`), the job takes the outlines, the surfaces, and the
+    /// memos of `old`, and skips pass 1. A change of a setting that does
+    /// not change the outlines (walls, skin, infill, speeds) then slices
+    /// again in much less time. `old` stays valid, but it has no outlines
+    /// after this call. Free it after this call.
+    pub fn initReuse(gpa: Allocator, mesh: *const Mesh, settings: Settings, overrides: []const settings_mod.Override, monitor: Monitor, old: ?*Job) Error!Job {
         for (overrides) |o| if (!settings_mod.isLayerSetting(o.name)) return error.InvalidSettings;
-        var job = try initBase(gpa, mesh, settings, monitor);
+        var job = try initBase(gpa, mesh, settings, monitor, old);
         errdefer job.deinit();
         if (overrides.len > 0) try job.resolveLayers(settings, overrides);
-        try job.makeSurfaces();
+        if (job.tops.len == 0) try job.makeSurfaces();
         // The work memory goes back to the operating system (see
         // scratch.zig).
         scratch.trim();
@@ -318,20 +334,9 @@ pub const Job = struct {
             self.layer_set[i] = @intCast(list.items.len);
         }
         self.layer_resolved = try list.toOwnedSlice(gpa);
-        // The overrides that change the regions go into the key.
-        var h = std.hash.Wyhash.init(self.region_key);
-        var any = false;
-        for (overrides) |o| if (!isLateName(o.name)) {
-            any = true;
-            h.update(o.name);
-            h.update(o.value);
-            h.update(std.mem.asBytes(&o.z_min));
-            h.update(std.mem.asBytes(&o.z_max));
-        };
-        if (any) self.region_key = h.final();
     }
 
-    fn initBase(gpa: Allocator, mesh: *const Mesh, settings: Settings, monitor: Monitor) Error!Job {
+    fn initBase(gpa: Allocator, mesh: *const Mesh, settings: Settings, monitor: Monitor, old: ?*Job) Error!Job {
         // Step 1.
         const r = settings.resolve() catch return error.InvalidSettings;
         const threads = parallel.threadCount(settings.engine.threads);
@@ -352,62 +357,84 @@ pub const Job = struct {
         const margin = pr.brim_width + skirt + fw / 2;
         const dx, const dy = placementOffset(pr.placement, b.min, b.max, m.bed_size_x, m.bed_size_y, margin);
 
-        // Steps 3 and 4. If the first layers have no material (a tiny tip
-        // of the mesh at the bottom, thinner than the resolution), the
-        // print would start in the air: slice again from the first layer
-        // with material, as the part sits on the bed there.
-        var z_base = b.min[2];
-        var sliced = try slicePart(gpa, mesh, settings, height, z_base, b, dx, dy, threads, monitor);
-        var empty: usize = 0;
-        while (empty < sliced.outlines.len and sliced.outlines[empty].isEmpty()) empty += 1;
-        if (empty == sliced.outlines.len) {
-            sliced.deinit(gpa);
-            return error.EmptyMesh;
-        }
-        if (empty > 0) {
-            // The first cut plane with material becomes the cut plane of
-            // the first layer.
-            const lift = sliced.layers[empty].sliceZ() - settings.project.first_layer_height / 2;
-            sliced.deinit(gpa);
-            z_base = b.min[2] + lift / f.shrinkage_z;
-            sliced = try slicePart(gpa, mesh, settings, height - lift, z_base, b, dx, dy, threads, monitor);
-        }
-        const layers = sliced.layers;
-        const outlines = sliced.outlines;
-        errdefer {
-            for (outlines) |*o| o.deinit(gpa);
-            gpa.free(outlines);
-            gpa.free(layers);
-        }
-
-        // The support areas need the outlines of all layers.
-        const sup = support_mod.compute(gpa, outlines, layers, &r, threads) catch |e| return @as(Error, @errorCast(e));
-
-        const regs = try gpa.alloc(?layer_mod.Regions, layers.len);
-        @memset(regs, null);
-        return .{
+        // The outlines depend only on the mesh and these values. If an
+        // older job has the same key, its outlines are good.
+        const key = outlineKey(settings, height, b, dx, dy);
+        var job: Job = .{
             .gpa = gpa,
             .resolved = r,
             .monitor = monitor,
             .threads = threads,
-            .layers = layers,
-            .outlines = outlines,
-            .support = sup,
-            .regions = regs,
-            .region_key = regionKey(settings),
+            .layers = &.{},
+            .outlines = &.{},
+            .outline_key = key,
         };
+        errdefer job.deinit();
+
+        if (old) |o| if (o.outline_key == key and o.outlines.len > 0) {
+            // The same outlines: take them, with the surfaces and the memos.
+            job.layers = o.layers;
+            o.layers = &.{};
+            job.outlines = o.outlines;
+            o.outlines = &.{};
+            job.tops = o.tops;
+            o.tops = &.{};
+            job.bottoms = o.bottoms;
+            o.bottoms = &.{};
+            job.gen = o.gen +% 1;
+            job.memos = try gpa.alloc(layer_mod.Memo, job.layers.len);
+            for (job.memos) |*mm| mm.* = .init(gpa);
+            // Keep the results that the old job or the job before it used.
+            const min_gen = o.gen -| 1;
+            for (job.memos, o.memos) |*mine, *theirs| {
+                const kept = try theirs.keep(gpa, min_gen);
+                mine.deinit();
+                mine.* = kept;
+            }
+        };
+
+        if (job.outlines.len == 0) {
+            // Steps 3 and 4. If the first layers have no material (a tiny
+            // tip of the mesh at the bottom, thinner than the resolution),
+            // the print would start in the air: slice again from the first
+            // layer with material, as the part sits on the bed there.
+            var z_base = b.min[2];
+            var sliced = try slicePart(gpa, mesh, settings, height, z_base, b, dx, dy, threads, monitor);
+            var empty: usize = 0;
+            while (empty < sliced.outlines.len and sliced.outlines[empty].isEmpty()) empty += 1;
+            if (empty == sliced.outlines.len) {
+                sliced.deinit(gpa);
+                return error.EmptyMesh;
+            }
+            if (empty > 0) {
+                // The first cut plane with material becomes the cut plane of
+                // the first layer.
+                const lift = sliced.layers[empty].sliceZ() - settings.project.first_layer_height / 2;
+                sliced.deinit(gpa);
+                z_base = b.min[2] + lift / f.shrinkage_z;
+                sliced = try slicePart(gpa, mesh, settings, height - lift, z_base, b, dx, dy, threads, monitor);
+            }
+            job.layers = sliced.layers;
+            job.outlines = sliced.outlines;
+            job.memos = try gpa.alloc(layer_mod.Memo, job.layers.len);
+            for (job.memos) |*mm| mm.* = .init(gpa);
+        }
+
+        // The support areas need the outlines of all layers.
+        job.support = support_mod.compute(gpa, job.outlines, job.layers, &r, threads) catch |e| return @as(Error, @errorCast(e));
+        return job;
     }
 
-    /// Moves the regions of `old` to this job if they are the same: the
-    /// same mesh (the caller knows) and the same region settings. Then
-    /// the plans of this job skip steps 1 to 4. Returns true if it moved
-    /// them.
+    /// Moves the memos of `old` to this job if the outlines are the same.
+    /// Returns true if it moved them. `initReuse` does more: it also skips
+    /// pass 1.
     pub fn takeRegions(self: *Job, old: *Job) bool {
-        if (old.region_key != self.region_key or old.regions.len != self.regions.len) return false;
-        for (self.regions, old.regions) |*mine, *theirs| {
-            if (mine.*) |*m| m.deinit();
+        if (old.outline_key != self.outline_key or old.memos.len != self.memos.len) return false;
+        self.gen = old.gen +% 1;
+        for (self.memos, old.memos) |*mine, *theirs| {
+            mine.deinit();
             mine.* = theirs.*;
-            theirs.* = null;
+            theirs.* = .init(self.gpa);
         }
         return true;
     }
@@ -415,8 +442,8 @@ pub const Job = struct {
     pub fn deinit(self: *Job) void {
         self.gpa.free(self.layer_set);
         self.gpa.free(self.layer_resolved);
-        for (self.regions) |*reg| if (reg.*) |*rg| rg.deinit();
-        self.gpa.free(self.regions);
+        for (self.memos) |*mm| mm.deinit();
+        self.gpa.free(self.memos);
         for (self.tops) |*t| t.deinit(self.gpa);
         self.gpa.free(self.tops);
         for (self.bottoms) |*b| b.deinit(self.gpa);
@@ -437,7 +464,8 @@ pub const Job = struct {
             .layers = self.layers,
             .outlines = self.outlines,
             .support = self.support,
-            .cache = self.regions,
+            .cache = self.memos,
+            .gen = self.gen,
             .tops = self.tops,
             .bottoms = self.bottoms,
             .layer_set = self.layer_set,
@@ -522,6 +550,24 @@ pub const Job = struct {
         return em.stats;
     }
 };
+
+/// A hash of all inputs of the outlines, except the mesh: the part height
+/// and bottom, the placement, and the settings that pass 1 uses.
+fn outlineKey(settings: Settings, height: f64, b: mesh_mod.Bounds3, dx: f64, dy: f64) u64 {
+    var h = std.hash.Wyhash.init(0);
+    const f = settings.filament;
+    const p = settings.project;
+    const e = settings.engine;
+    const values = [_]f64{
+        height,               b.min[0],             b.min[1],          b.min[2],
+        b.max[0],             b.max[1],             b.max[2],          dx,
+        dy,                   p.first_layer_height, p.layer_height,    f.shrinkage_z,
+        f.shrinkage_xy,       f.xy_offset,          f.hole_xy_offset,  p.first_layer_xy_offset,
+        e.resolution,         e.gap_closing,
+    };
+    h.update(std.mem.sliceAsBytes(&values));
+    return h.final();
+}
 
 /// Moves the outer boundaries of an outline by `xy`, and its holes by
 /// `hole - xy` more (a positive `hole` makes the holes larger). A hole is a
@@ -760,73 +806,6 @@ test "placement: the file position if it is on the bed, else the center" {
     try std.testing.expectEqual([2]f64{ -5, -5 }, placementOffset(.center, .{ 100, 100, 0 }, .{ 130, 130, 5 }, 220, 220, 0));
 }
 
-/// The settings that do not change the regions of a layer (the walls, the
-/// skin area, the sparse area): they act in later steps or only in the
-/// G-code. A setting that is not in this list goes into `regionKey`. So a
-/// missing name costs time (a new region pass), and never a wrong result.
-const late_settings = [_][]const u8{
-    // project: the fill, the speeds, ironing, travel, support, skirt
-    "project.infill_density",           "project.infill_pattern",     "project.infill_angle",
-    "project.infill_overlap",           "project.skin_overlap",       "project.ironing",
-    "project.skin_pattern",             "project.skin_angle",         "project.skin_angle_step",
-    "project.ironing_flow",             "project.ironing_spacing",    "project.ironing_inset",
-    "project.ironing_speed",            "project.outer_wall_speed",   "project.inner_wall_speed",
-    "project.skin_speed",               "project.infill_speed",       "project.first_layer_speed",
-    "project.retract_min_travel",       "project.z_hop",              "project.seam",
-    "project.support",                  "project.support_angle",      "project.support_density",
-    "project.support_xy_gap",           "project.support_z_gap_layers", "project.support_interface_layers",
-    "project.support_interface_density", "project.skirt_loops",       "project.skirt_distance",
-    "project.support_style",            "project.support_tree_angle", "project.support_tree_spacing",
-    "project.support_tree_tip",
-    "project.skirt_layers",             "project.brim_width",
-    // filament: all but the size compensation
-    "filament.name",                    "filament.color",             "filament.diameter",
-    "filament.density",                 "filament.nozzle_temp",       "filament.first_layer_nozzle_temp",
-    "filament.bed_temp",                "filament.standby_temp",      "filament.max_flow",
-    "filament.flow_ratio",              "filament.fan_speed",         "filament.fan_off_layers",
-    "filament.fan_max_speed",           "filament.fan_boost_time",    "filament.min_layer_time",
-    "filament.min_speed",               "filament.retract_ratio",     "filament.cooling_mode",
-    // machine: motion, retraction, and G-code
-    "machine.name",                     "machine.max_speed",          "machine.travel_speed",
-    "machine.max_z_speed",              "machine.retract_length",     "machine.retract_speed",
-    "machine.origin_x",                 "machine.origin_y",
-    "machine.start_gcode",              "machine.end_gcode",          "machine.extruder",
-    // engine
-    "engine.threads",                   "engine.job_name",
-};
-
-fn isLateName(name: []const u8) bool {
-    for (late_settings) |n| if (std.mem.eql(u8, n, name)) return true;
-    return false;
-}
-
-fn isLate(comptime name: []const u8) bool {
-    @setEvalBranchQuota(100_000);
-    for (late_settings) |n| if (std.mem.eql(u8, n, name)) return true;
-    return false;
-}
-
-/// A hash of all settings that can change the regions of a layer.
-pub fn regionKey(settings: Settings) u64 {
-    var h = std.hash.Wyhash.init(0);
-    inline for (@typeInfo(Settings).@"struct".fields) |g| {
-        const group = @field(settings, g.name);
-        inline for (@typeInfo(g.type).@"struct".fields) |f| {
-            if (comptime isLate(g.name ++ "." ++ f.name)) continue;
-            const v = @field(group, f.name);
-            switch (@typeInfo(f.type)) {
-                .float => h.update(std.mem.asBytes(&@as(u64, @bitCast(@as(f64, v))))),
-                .int => h.update(std.mem.asBytes(&@as(u64, @intCast(v)))),
-                .bool => h.update(&.{@intFromBool(v)}),
-                .@"enum" => h.update(@tagName(v)),
-                .pointer => h.update(v),
-                else => @compileError("regionKey: add a case for " ++ f.name),
-            }
-            h.update(f.name);
-        }
-    }
-    return h.final();
-}
 
 test "the machine origin moves the G-code, and not the part on the bed" {
     const gpa = std.testing.allocator;
@@ -864,8 +843,8 @@ test "an override changes only its layers, and keeps the region cache" {
     const o = [_]settings_mod.Override{.{ .z_min = 3, .z_max = 4, .name = "project.infill_density", .value = "0.6" }};
     var job = try Job.initFull(gpa, &mesh, s, &o, .{});
     defer job.deinit();
-    // An infill override does not change the region key.
-    try std.testing.expectEqual(base.region_key, job.region_key);
+    // An override does not change the outlines.
+    try std.testing.expectEqual(base.outline_key, job.outline_key);
     var in_range: usize = 0;
     for (job.layers, 0..) |layer, i| {
         const d = job.resolvedAt(i).settings.project.infill_density;
@@ -885,61 +864,77 @@ test "an override changes only its layers, and keeps the region cache" {
     var b = try job.planLayer(i_mid);
     defer b.deinit();
     try std.testing.expect(b.count() > a.count());
-    // A wall override changes the key; a setting for the whole print is an
-    // error.
-    const w = [_]settings_mod.Override{.{ .z_min = 3, .z_max = 4, .name = "project.wall_count", .value = "3" }};
-    var job2 = try Job.initFull(gpa, &mesh, s, &w, .{});
-    defer job2.deinit();
-    try std.testing.expect(job2.region_key != base.region_key);
+    // A setting for the whole print is an error.
     const bad = [_]settings_mod.Override{.{ .z_min = 3, .z_max = 4, .name = "project.layer_height", .value = "0.1" }};
     try std.testing.expectError(error.InvalidSettings, Job.initFull(gpa, &mesh, s, &bad, .{}));
 }
 
-test "region key: late settings do not change it" {
-    var a: Settings = .{};
-    const k0 = regionKey(a);
-    try a.set("project.infill_density", "0.5");
-    try a.set("project.outer_wall_speed", "0.3");
-    try a.set("filament.nozzle_temp", "230");
-    try std.testing.expectEqual(k0, regionKey(a));
-    try a.set("project.wall_count", "3");
-    try std.testing.expect(k0 != regionKey(a));
-}
-
-test "late setting names exist" {
-    const app_meta = @import("settings_meta.zig");
-    for (late_settings) |n| {
-        const found = for (app_meta.all) |m| {
-            if (std.mem.eql(u8, m.name, n)) break true;
-        } else false;
-        if (!found) std.debug.print("late_settings: no setting {s}\n", .{n});
-        try std.testing.expect(found);
-    }
-}
-
-test "a job takes the regions of an older job, and the result is the same" {
+test "a job that reuses the work of an older job gives the same G-code" {
     const gpa = std.testing.allocator;
     var mesh = try mesh_mod.shapes.demo(gpa);
     defer mesh.deinit(gpa);
+    // Each step changes one setting, and keeps the changes before it. The
+    // last steps go back to values from before, so the memos have results
+    // of two generations. `same` is true if the outlines stay the same.
+    const steps = [_]struct { name: []const u8, value: []const u8, same: bool }{
+        .{ .name = "project.infill_density", .value = "0.35", .same = true },
+        .{ .name = "project.wall_count", .value = "3", .same = true },
+        .{ .name = "project.top_thickness", .value = "1.2", .same = true },
+        .{ .name = "project.bottom_thickness", .value = "0.2", .same = true },
+        .{ .name = "project.line_width", .value = "0.5", .same = true },
+        .{ .name = "project.wall_count", .value = "2", .same = true },
+        .{ .name = "project.line_width", .value = "0", .same = true },
+        .{ .name = "project.top_thickness", .value = "0", .same = true },
+        .{ .name = "project.layer_height", .value = "0.25", .same = false },
+        .{ .name = "filament.xy_offset", .value = "0.05", .same = false },
+        .{ .name = "project.top_thickness", .value = "0.8", .same = true },
+    };
     var s: Settings = .{};
+    s.engine.threads = 2;
+    var prev = try Job.init(gpa, &mesh, s);
+    defer prev.deinit();
+    var discard: std.Io.Writer.Discarding = .init(&.{});
+    _ = try prev.writeGcode(&discard.writer);
+    for (steps) |step| {
+        try s.set(step.name, step.value);
+        var fresh = try Job.init(gpa, &mesh, s);
+        defer fresh.deinit();
+        var out_fresh: std.Io.Writer.Allocating = .init(gpa);
+        defer out_fresh.deinit();
+        _ = try fresh.writeGcode(&out_fresh.writer);
+
+        var reuse = try Job.initReuse(gpa, &mesh, s, &.{}, .{}, &prev);
+        try std.testing.expectEqual(step.same, reuse.gen > prev.gen);
+        var out_reuse: std.Io.Writer.Allocating = .init(gpa);
+        defer out_reuse.deinit();
+        _ = reuse.writeGcode(&out_reuse.writer) catch |e| {
+            reuse.deinit();
+            return e;
+        };
+        prev.deinit();
+        prev = reuse;
+        try std.testing.expectEqualStrings(out_fresh.written(), out_reuse.written());
+    }
+}
+
+test "a job with overrides reuses the work of an older job" {
+    const gpa = std.testing.allocator;
+    var mesh = try mesh_mod.shapes.demo(gpa);
+    defer mesh.deinit(gpa);
+    const s: Settings = .{};
     var old = try Job.init(gpa, &mesh, s);
     defer old.deinit();
-    var sink_old: std.Io.Writer.Allocating = .init(gpa);
-    defer sink_old.deinit();
-    _ = try old.writeGcode(&sink_old.writer);
-    try std.testing.expect(old.regions[10] != null);
-
-    try s.set("project.infill_density", "0.35");
-    var fresh = try Job.init(gpa, &mesh, s);
+    var discard: std.Io.Writer.Discarding = .init(&.{});
+    _ = try old.writeGcode(&discard.writer);
+    const o = [_]settings_mod.Override{.{ .z_min = 3, .z_max = 8, .name = "project.wall_count", .value = "4" }};
+    var fresh = try Job.initFull(gpa, &mesh, s, &o, .{});
     defer fresh.deinit();
     var out_fresh: std.Io.Writer.Allocating = .init(gpa);
     defer out_fresh.deinit();
     _ = try fresh.writeGcode(&out_fresh.writer);
-
-    var reuse = try Job.init(gpa, &mesh, s);
+    var reuse = try Job.initReuse(gpa, &mesh, s, &o, .{}, &old);
     defer reuse.deinit();
-    try std.testing.expect(reuse.takeRegions(&old));
-    try std.testing.expect(old.regions[10] == null);
+    try std.testing.expectEqual(@as(u32, 1), reuse.gen);
     var out_reuse: std.Io.Writer.Allocating = .init(gpa);
     defer out_reuse.deinit();
     _ = try reuse.writeGcode(&out_reuse.writer);

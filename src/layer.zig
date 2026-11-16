@@ -107,11 +107,12 @@ pub const Context = struct {
     outlines: []const Paths,
     /// The support areas of each layer, or an empty slice (no support).
     support: []const support_mod.SupportLayer = &.{},
-    /// A slot for the regions of each layer, or an empty slice (no cache).
-    /// `plan` fills an empty slot and uses a full one. Each layer has its
-    /// own slot, so plans of different layers can run on different
-    /// threads.
-    cache: []?Regions = &.{},
+    /// The memo of each layer (see `Memo`), or an empty slice (no cache).
+    /// Each layer has its own memo, so plans of different layers can run
+    /// on different threads.
+    cache: []Memo = &.{},
+    /// The generation of the slice (see `Memo`).
+    gen: u32 = 0,
     /// The top and bottom surfaces of each layer (see `surfaces`), or empty
     /// slices. Without them, `regions` makes the surfaces that it needs.
     tops: []const Paths = &.{},
@@ -129,12 +130,8 @@ pub const Context = struct {
 };
 
 /// The areas of a layer (steps 1 to 4): the wall loops, the skin area, and
-/// the sparse infill area. They are the slow part of a plan (polygon
-/// offsets and booleans), and many settings do not change them (infill,
-/// speeds, ironing, skirt, temperatures). An app keeps them between
-/// slices, so a change of such a setting slices again in a short time.
+/// the sparse infill area. The memory belongs to a `Memo`.
 pub const Regions = struct {
-    arena: std.heap.ArenaAllocator,
     /// The wall loops, outer wall first.
     walls: []Paths = &.{},
     skin: Paths = .empty,
@@ -142,44 +139,152 @@ pub const Regions = struct {
     /// Thin walls: loops in the parts thinner than one line width, and the
     /// line width of each loop (mm).
     thin: Paths = .empty,
-    thin_width: []f32 = &.{},
-    /// For the flow infill: the area of all the layers of the band above
-    /// (an intersection of their outlines), made when a plan first needs
-    /// it. It depends only on region settings, so it stays in the cache.
-    under_band: ?Paths = null,
+    thin_width: []const f32 = &.{},
+};
 
-    pub fn deinit(self: *Regions) void {
+/// The results of steps 1 to 4 of one layer, kept between slices. Steps 1
+/// to 4 are the slow part of a plan (polygon offsets and booleans). Each
+/// result has the values that made it (its key), so a new slice uses each
+/// result whose key is the same and makes only the others:
+///
+/// - An offset of the outline, by its distance. The walls and the inner
+///   area are offsets. A change of the wall count keeps the walls that
+///   stay, and a change of the infill keeps all.
+/// - The thin walls, by the line width.
+/// - The part of the inner area on the top or bottom surface of a layer
+///   (see the file comment), by the inner offset and the layer. A change
+///   of the top thickness adds or removes layers, and keeps the parts.
+/// - The skin and sparse areas, by the inner offset, the top and bottom
+///   layer counts, and the widths of the skin steps.
+/// - The area under the band above, for the flow infill, by the band.
+///
+/// All results are for one outline. A new outline (for example, a new
+/// layer height) needs a new memo. Each result has the generation of the
+/// last slice that used it (see `Job.gen` in engine.zig), so that `keep`
+/// can drop old results.
+pub const Memo = struct {
+    arena: std.heap.ArenaAllocator,
+    offsets: std.ArrayList(OffsetEntry) = .empty,
+    thins: std.ArrayList(ThinEntry) = .empty,
+    parts: std.ArrayList(PartEntry) = .empty,
+    skins: std.ArrayList(SkinEntry) = .empty,
+    bands: std.ArrayList(BandEntry) = .empty,
+
+    const OffsetEntry = struct { delta: i64, paths: Paths, gen: u32 };
+    const ThinEntry = struct { w: i64, thin: Paths, widths: []f32, gen: u32 };
+    const PartEntry = struct { delta: i64, layer: u32, top: bool, paths: Paths, gen: u32 };
+    const SkinEntry = struct { key: [6]i64, skin: Paths, sparse: Paths, gen: u32 };
+    const BandEntry = struct { band: u32, paths: Paths, gen: u32 };
+
+    pub fn init(gpa: Allocator) Memo {
+        return .{ .arena = .init(gpa) };
+    }
+
+    pub fn deinit(self: *Memo) void {
         self.arena.deinit();
+    }
+
+    /// A new memo with the results that a slice of generation `min_gen` or
+    /// later used. The copy also frees the memory of the dropped results.
+    pub fn keep(self: *const Memo, gpa: Allocator, min_gen: u32) Allocator.Error!Memo {
+        var out: Memo = .init(gpa);
+        errdefer out.deinit();
+        const a = out.arena.allocator();
+        for (self.offsets.items) |e| if (e.gen >= min_gen) {
+            var c = e;
+            c.paths = try e.paths.clone(a);
+            try out.offsets.append(a, c);
+        };
+        for (self.thins.items) |e| if (e.gen >= min_gen) {
+            var c = e;
+            c.thin = try e.thin.clone(a);
+            c.widths = try a.dupe(f32, e.widths);
+            try out.thins.append(a, c);
+        };
+        for (self.parts.items) |e| if (e.gen >= min_gen) {
+            var c = e;
+            c.paths = try e.paths.clone(a);
+            try out.parts.append(a, c);
+        };
+        for (self.skins.items) |e| if (e.gen >= min_gen) {
+            var c = e;
+            c.skin = try e.skin.clone(a);
+            c.sparse = try e.sparse.clone(a);
+            try out.skins.append(a, c);
+        };
+        for (self.bands.items) |e| if (e.gen >= min_gen) {
+            var c = e;
+            c.paths = try e.paths.clone(a);
+            try out.bands.append(a, c);
+        };
+        return out;
+    }
+
+    /// The outline moved by `delta`.
+    fn offset(self: *Memo, outline: Paths, delta: i64, gen: u32) Allocator.Error!Paths {
+        for (self.offsets.items) |*e| if (e.delta == delta) {
+            e.gen = gen;
+            return e.paths;
+        };
+        const a = self.arena.allocator();
+        const paths = try offset_mod.offset(a, outline, delta, .{});
+        try self.offsets.append(a, .{ .delta = delta, .paths = paths, .gen = gen });
+        return paths;
+    }
+
+    /// The inner area (the outline moved by `delta`) on the top (or bottom)
+    /// surface of layer j.
+    fn part(self: *Memo, inner: Paths, delta: i64, j: usize, top: bool, surface: Paths, gen: u32) Allocator.Error!Paths {
+        for (self.parts.items) |*e| if (e.delta == delta and e.layer == j and e.top == top) {
+            e.gen = gen;
+            return e.paths;
+        };
+        const a = self.arena.allocator();
+        const paths = try clip.intersect(a, inner, surface);
+        try self.parts.append(a, .{ .delta = delta, .layer = @intCast(j), .top = top, .paths = paths, .gen = gen });
+        return paths;
+    }
+
+    /// For the flow infill: the area of all the layers of the band above
+    /// layer i (an intersection of their outlines).
+    fn underBand(self: *Memo, outlines: []const Paths, i: usize, band: u32, gen: u32) Allocator.Error!Paths {
+        for (self.bands.items) |*e| if (e.band == band) {
+            e.gen = gen;
+            return e.paths;
+        };
+        const a = self.arena.allocator();
+        var scratch_state = scratch.get(a);
+        defer scratch_state.release();
+        const u = try stackedIntersection(scratch_state.allocator(), outlines, i, band, .up);
+        const paths = if (u) |v| try v.clone(a) else Paths.empty;
+        try self.bands.append(a, .{ .band = band, .paths = paths, .gen = gen });
+        return paths;
     }
 };
 
-/// Steps 1 to 4 for layer i. `gpa` must be thread-safe if more than one
-/// thread calls it at the same time.
-pub fn regions(gpa: Allocator, ctx: Context, i: usize) Allocator.Error!Regions {
+/// Steps 1 to 4 for layer i, with the results in `memo`. The list of walls
+/// goes in `list_alloc`. `gpa` must be thread-safe if more than one thread
+/// calls it at the same time.
+pub fn regions(gpa: Allocator, ctx: Context, i: usize, memo: *Memo, list_alloc: Allocator) Allocator.Error!Regions {
     const r = ctx.resolvedAt(i);
     const p = r.settings.project;
     const first = i == 0;
     const w = geom.fromMm(if (first) r.first_layer_line_width else r.line_width);
-    var reg: Regions = .{ .arena = .init(gpa) };
-    errdefer reg.deinit();
-    const a = reg.arena.allocator();
+    var reg: Regions = .{};
+    const a = memo.arena.allocator();
     var scratch_state = scratch.get(gpa);
     defer scratch_state.release();
     const s = scratch_state.allocator();
     const outline = ctx.outlines[i];
     if (outline.isEmpty()) return reg;
-
-    // The offsets and the booleans keep their work memory in the arena
-    // that they get, so they run in the scratch arena, and only the results
-    // go to the arena of the regions (the cache keeps it for all layers).
+    const gen = ctx.gen;
 
     // Step 1.
-    const walls = try a.alloc(Paths, p.wall_count);
+    const walls = try list_alloc.alloc(Paths, p.wall_count);
     var wall_n: usize = 0;
     for (walls, 0..) |*wall, k| {
-        const loop = try offset_mod.offset(s, outline, -(@divTrunc(w, 2) + @as(i64, @intCast(k)) * w), .{});
-        if (loop.isEmpty()) break;
-        wall.* = try loop.clone(a);
+        wall.* = try memo.offset(outline, -(@divTrunc(w, 2) + @as(i64, @intCast(k)) * w), gen);
+        if (wall.isEmpty()) break;
         wall_n += 1;
     }
     reg.walls = walls[0..wall_n];
@@ -188,7 +293,14 @@ pub fn regions(gpa: Allocator, ctx: Context, i: usize) Allocator.Error!Regions {
     // width removes. Each gets a loop t/4 inside it, with a line of width
     // t/2, where t (2 area / perimeter) is its thickness: the two sides of
     // the loop fill the part.
-    if (p.thin_walls and p.wall_count > 0) {
+    if (p.thin_walls and p.wall_count > 0) thin: {
+        for (memo.thins.items) |*e| if (e.w == w) {
+            e.gen = gen;
+            reg.thin = e.thin;
+            reg.thin_width = e.widths;
+            break :thin;
+        };
+        var thin_loops: Paths = .empty;
         const thick = try offset_mod.opening(s, outline, @divTrunc(w, 2), .{});
         const thin = try clip.difference(s, outline, thick);
         var widths: std.ArrayList(f32) = .empty;
@@ -209,73 +321,83 @@ pub fn regions(gpa: Allocator, ctx: Context, i: usize) Allocator.Error!Regions {
             const loop = try offset_mod.offset(s, one, -@as(i64, @intFromFloat(t / 4)), .{});
             const use = if (loop.isEmpty()) one else loop;
             for (0..use.count()) |j| {
-                try reg.thin.append(a, use.get(j));
+                try thin_loops.append(a, use.get(j));
                 try widths.append(a, @floatCast(@min(geom.toMm(@intFromFloat(t / 2)), geom.toMm(w))));
             }
         }
+        reg.thin = thin_loops;
         reg.thin_width = widths.items;
+        try memo.thins.append(a, .{ .w = w, .thin = thin_loops, .widths = widths.items, .gen = gen });
     }
 
-    // Step 2.
-    const inner = if (p.wall_count == 0)
-        try outline.clone(s)
-    else
-        try offset_mod.offset(s, outline, -@as(i64, @intCast(p.wall_count)) * w, .{});
+    // Step 2. With no walls, the offset of 0 is the outline.
+    const inner_delta = -@as(i64, @intCast(p.wall_count)) * w;
+    const inner = try memo.offset(outline, inner_delta, gen);
 
     // Steps 3 and 4.
-    if (!inner.isEmpty()) {
-        if (r.top_layers == 0 and r.bottom_layers == 0) {
-            reg.sparse = try inner.clone(a);
-        } else {
-            // The parts of the inner area on the surfaces near the layer
-            // (see the file comment). The parts can overlap, so a union
-            // joins them if there is more than one.
-            var exposed: Paths = .empty;
-            var sets: usize = 0;
-            const n = ctx.outlines.len;
-            for (0..r.top_layers) |m| {
-                const j = i + m;
-                if (j >= n) break;
-                const t = if (ctx.tops.len > 0) ctx.tops[j] else (try surfaces(s, ctx.outlines, j))[0];
-                const part = try clip.intersect(s, inner, t);
-                if (!part.isEmpty()) sets += 1;
-                try exposed.appendAll(s, part);
-            }
-            for (0..r.bottom_layers) |m| {
-                if (m > i) break;
-                const j = i - m;
-                const t = if (ctx.bottoms.len > 0) ctx.bottoms[j] else (try surfaces(s, ctx.outlines, j))[1];
-                const part = try clip.intersect(s, inner, t);
-                if (!part.isEmpty()) sets += 1;
-                try exposed.appendAll(s, part);
-            }
-            const raw_skin = if (sets > 1) try clip.unionAll(s, exposed, .non_zero) else exposed;
-            // 1. Remove slivers narrower than the removal width.
-            const removal = @divTrunc(geom.fromMm(p.skin_removal_width), 2);
-            const kept = if (removal > 0) try offset_mod.opening(s, raw_skin, removal, .{}) else raw_skin;
-            // 2. Expand into the sparse area, inside the walls.
-            const expand = geom.fromMm(p.skin_expand_distance);
-            var skin = if (expand > 0 and !kept.isEmpty())
-                try clip.intersect(s, try offset_mod.offset(s, kept, expand, .{}), inner)
-            else
-                kept;
-            // 3. Sparse areas too narrow for infill lines print solid.
-            var sparse = try clip.difference(s, inner, skin);
-            const solid = @divTrunc(geom.fromMm(p.solid_infill_width), 2);
-            if (solid > 0 and !sparse.isEmpty()) {
-                const wide = try offset_mod.opening(s, sparse, solid, .{});
-                const narrow = try clip.difference(s, sparse, wide);
-                if (!narrow.isEmpty()) {
-                    skin = try clip.unite(s, skin, narrow);
-                    sparse = wide;
-                }
-            }
-            reg.skin = try skin.clone(a);
-            reg.sparse = try sparse.clone(a);
+    if (inner.isEmpty()) return reg;
+    if (r.top_layers == 0 and r.bottom_layers == 0) {
+        reg.sparse = inner;
+        return reg;
+    }
+    const removal = @divTrunc(geom.fromMm(p.skin_removal_width), 2);
+    const expand = geom.fromMm(p.skin_expand_distance);
+    const solid = @divTrunc(geom.fromMm(p.solid_infill_width), 2);
+    const skin_key = [6]i64{ inner_delta, r.top_layers, r.bottom_layers, removal, expand, solid };
+    for (memo.skins.items) |*e| {
+        if (std.mem.eql(i64, &e.key, &skin_key)) {
+            e.gen = gen;
+            reg.skin = e.skin;
+            reg.sparse = e.sparse;
+            return reg;
         }
     }
+    // The parts of the inner area on the surfaces near the layer (see the
+    // file comment). The parts can overlap, so a union joins them if there
+    // is more than one.
+    var exposed: Paths = .empty;
+    var sets: usize = 0;
+    const n = ctx.outlines.len;
+    for (0..r.top_layers) |m| {
+        const j = i + m;
+        if (j >= n) break;
+        const t = if (ctx.tops.len > 0) ctx.tops[j] else (try surfaces(s, ctx.outlines, j))[0];
+        const piece = try memo.part(inner, inner_delta, j, true, t, gen);
+        if (!piece.isEmpty()) sets += 1;
+        try exposed.appendAll(s, piece);
+    }
+    for (0..r.bottom_layers) |m| {
+        if (m > i) break;
+        const j = i - m;
+        const t = if (ctx.bottoms.len > 0) ctx.bottoms[j] else (try surfaces(s, ctx.outlines, j))[1];
+        const piece = try memo.part(inner, inner_delta, j, false, t, gen);
+        if (!piece.isEmpty()) sets += 1;
+        try exposed.appendAll(s, piece);
+    }
+    const raw_skin = if (sets > 1) try clip.unionAll(s, exposed, .non_zero) else exposed;
+    // 1. Remove slivers narrower than the removal width.
+    const kept = if (removal > 0) try offset_mod.opening(s, raw_skin, removal, .{}) else raw_skin;
+    // 2. Expand into the sparse area, inside the walls.
+    var skin = if (expand > 0 and !kept.isEmpty())
+        try clip.intersect(s, try offset_mod.offset(s, kept, expand, .{}), inner)
+    else
+        kept;
+    // 3. Sparse areas too narrow for infill lines print solid.
+    var sparse = try clip.difference(s, inner, skin);
+    if (solid > 0 and !sparse.isEmpty()) {
+        const wide = try offset_mod.opening(s, sparse, solid, .{});
+        const narrow = try clip.difference(s, sparse, wide);
+        if (!narrow.isEmpty()) {
+            skin = try clip.unite(s, skin, narrow);
+            sparse = wide;
+        }
+    }
+    reg.skin = try skin.clone(a);
+    reg.sparse = try sparse.clone(a);
+    try memo.skins.append(a, .{ .key = skin_key, .skin = reg.skin, .sparse = reg.sparse, .gen = gen });
     return reg;
 }
+
 
 /// Plans layer `i`. `gpa` must be thread-safe if more than one thread plans
 /// layers at the same time. Call `deinit` on the result.
@@ -333,33 +455,20 @@ pub fn plan(gpa: Allocator, ctx: Context, i: usize) Allocator.Error!LayerPlan {
         return lp;
     }
 
-    // Steps 1 to 4: from the cache, or new.
-    var own: ?Regions = null;
+    // Steps 1 to 4: with the memo of the job, or with a new memo.
+    var own: ?Memo = null;
     defer if (own) |*o| o.deinit();
-    const reg: *const Regions = blk: {
-        if (ctx.cache.len > i) {
-            if (ctx.cache[i] == null) ctx.cache[i] = try regions(gpa, ctx, i);
-            break :blk &ctx.cache[i].?;
-        }
-        own = try regions(gpa, ctx, i);
+    const memo: *Memo = if (ctx.cache.len > i) &ctx.cache[i] else blk: {
+        own = .init(gpa);
         break :blk &own.?;
     };
-    // The flow infill needs the area under the band above; the first plan
-    // of the layer makes it and keeps it with the regions.
+    const reg = try regions(gpa, ctx, i, memo, s);
+    // The flow infill needs the area under the band above.
     var under_band: ?Paths = null;
     if (p.infill_pattern == .flow and p.infill_density > 0 and !reg.sparse.isEmpty()) {
         const band_mm = @max(2.0, 3 * p.top_thickness);
         const band: u32 = @intFromFloat(@ceil(band_mm / p.layer_height));
-        if (ctx.cache.len > i and ctx.cache[i] != null) {
-            const slot = &ctx.cache[i].?;
-            if (slot.under_band == null) {
-                const u = try stackedIntersection(s, ctx.outlines, i, band, .up);
-                slot.under_band = if (u) |v| try v.clone(slot.arena.allocator()) else Paths.empty;
-            }
-            under_band = slot.under_band;
-        } else {
-            under_band = (try stackedIntersection(s, ctx.outlines, i, band, .up)) orelse Paths.empty;
-        }
+        under_band = try memo.underBand(ctx.outlines, i, band, ctx.gen);
     }
     const walls = reg.walls;
     const wall_n = walls.len;
@@ -515,7 +624,7 @@ pub fn plan(gpa: Allocator, ctx: Context, i: usize) Allocator.Error!LayerPlan {
         try addOrderedSeam(s, a, &lp, &pos, walls[k], true, .inner_wall, seam);
     }
     if (wall_n > 0) try addOrderedSeam(s, a, &lp, &pos, walls[0], true, .outer_wall, seam);
-    try addThin(a, &lp, &pos, reg);
+    try addThin(a, &lp, &pos, &reg);
     if (p.skin_pattern == .monotonic) {
         try addMonotonic(s, a, &lp, &pos, skin_lines, skin_angle, .skin);
     } else {

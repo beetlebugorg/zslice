@@ -87,10 +87,11 @@ pub const App = struct {
     // The results. The worker writes them before it sets the state to
     // `done` or `failed`.
     job: ?zs.Job = null,
-    /// The job of the slice before, kept for its layer regions: if the new
-    /// settings give the same regions (for example, only the infill
-    /// density changed), the new slice takes them and skips the slow steps
-    /// (see Job.takeRegions). Only the worker uses it while a slice runs.
+    /// The job of the slice before, kept for its work: if the new settings
+    /// give the same outlines (for example, only the infill density or the
+    /// wall count changed), the new slice takes the outlines and the
+    /// results of the slow steps that are still good (see Job.initReuse).
+    /// Only the worker uses it while a slice runs.
     prev_job: ?zs.Job = null,
     gcode_bytes: []u8 = &.{},
     stats: zs.Stats = .{},
@@ -544,11 +545,13 @@ pub const App = struct {
                 layer_overrides.append(app.gpa, o) catch |e| return app.finishFailed(e);
             }
         }
-        var job = zs.Job.initFull(app.gpa, &app.mesh.?, part, layer_overrides.items, monitor) catch |e| return app.finishFailed(e);
-        if (app.prev_job) |*prev| {
-            _ = job.takeRegions(prev);
-            app.dropPrevJob();
-        }
+        const prev: ?*zs.Job = if (app.prev_job) |*j| j else null;
+        const job_or = zs.Job.initReuse(app.gpa, &app.mesh.?, part, layer_overrides.items, monitor, prev);
+        // The new job took what it could use. A job that failed (for
+        // example, a cancel) can leave the old job without outlines, so the
+        // old job goes in each case.
+        app.dropPrevJob();
+        var job = job_or catch |e| return app.finishFailed(e);
         var out: std.Io.Writer.Allocating = .init(app.gpa);
         var store: Toolpaths = .{ .gpa = app.gpa, .z_hop = @floatCast(part.project.z_hop) };
         const sink: zs.engine.Job.LayerSink = .{ .ctx = &store, .func = Toolpaths.addLayer };
