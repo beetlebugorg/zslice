@@ -605,6 +605,120 @@ pub const App = struct {
         return writeSettingOf(s, name, w);
     }
 
+    /// A report of path `path` for a person or a language model that is
+    /// asked why it prints as it does: what it is, its numbers, the "why"
+    /// texts, the values of the settings that change it (at its layer), the
+    /// printer and the filament, and the first points of the path. Plain
+    /// text; valid until the next call or inspection.
+    pub fn lineReport(app: *App, path: usize, gcode_file: []const u8) ![]const u8 {
+        const info = try app.inspect(path);
+        const arena = app.inspect_arena.?.allocator();
+        const t = app.allToolpaths() orelse return error.NoResult;
+        var out: std.Io.Writer.Allocating = .init(arena);
+        const w = &out.writer;
+        try w.print("zslice report of one line of a 3D print slice ({s}).\n\n", .{app.model_name});
+        try w.print("## The line\n{s}\n\n", .{info.explain});
+        const whys = [_][2][]const u8{ .{ "Planned speed", info.why_planned }, .{ "Real speed", info.why_real }, .{ "Flow", info.why_flow } };
+        for (whys) |wy| {
+            // The {{name}} marks as plain names.
+            const plain = try std.mem.replaceOwned(u8, arena, try std.mem.replaceOwned(u8, arena, wy[1], "{{", "`"), "}}", "`");
+            try w.print("## Why the {s}\n{s}\n\n", .{ wy[0], plain });
+        }
+        try w.print("## The settings that change this line (values at z {d:.2} mm)\n", .{info.z});
+        var it = std.mem.tokenizeScalar(u8, info.settings, '\n');
+        while (it.next()) |name| {
+            if (name.len > 0 and name[0] == '#') continue;
+            var v: std.Io.Writer.Allocating = .init(arena);
+            app.getSettingAt(info.z, name, &v.writer) catch continue;
+            try w.print("- {s} = {s}\n", .{ name, v.written() });
+        }
+        const s = app.settings;
+        try w.print("\n## The printer and the filament\n- printer: {s}, bed {d} x {d} mm, nozzle {d} mm, max speed {d} mm/s, max acceleration {d} mm/s2, corner speed {d} mm/s\n- filament: {s}, {d} mm, nozzle {d} C, bed {d} C, max flow {d} mm3/s\n", .{ s.machine.name, s.machine.bed_size_x, s.machine.bed_size_y, s.machine.nozzle_diameter, s.machine.max_speed, s.machine.max_accel, s.machine.corner_speed, s.filament.name, s.filament.diameter, s.filament.nozzle_temp, s.filament.bed_temp, s.filament.max_flow });
+        try w.print("\n## The path (x, y in mm on the bed; the first 40 points)\n", .{});
+        const start: usize = if (path == 0) 0 else t.path_ends.items[path - 1];
+        const end: usize = t.path_ends.items[path];
+        var k = start;
+        while (k < end and k < start + 40) : (k += 1) try w.print("{d:.2},{d:.2}\n", .{ t.points.items[2 * k], t.points.items[2 * k + 1] });
+        if (end - start > 40) try w.print("... ({d} points in all)\n", .{end - start});
+        // Where the line is in the G-code: the file, the line numbers, and
+        // the lines.
+        if (app.gcodeLines(path)) |lines| {
+            try w.print("\n## The G-code\nFile: {s}\nThis line is lines {d} to {d} of the file (layer {d}: the block after \";LAYER:{d}\"). X and Y in the file include the bed origin ({d}, {d}).\n```gcode\n", .{ gcode_file, lines[0] + 1, lines[1] + 1, info.layer + 1, info.layer, s.machine.origin_x, s.machine.origin_y });
+            const g = app.gcode().?;
+            var n: usize = 0;
+            var from: usize = 0;
+            var shown: usize = 0;
+            while (from < g.len) : (n += 1) {
+                const nl = std.mem.indexOfScalarPos(u8, g, from, '\n') orelse g.len;
+                if (n >= lines[0] and n <= lines[1]) {
+                    if (shown < 60) try w.print("{s}\n", .{g[from..nl]});
+                    shown += 1;
+                }
+                if (n > lines[1]) break;
+                from = nl + 1;
+            }
+            if (shown > 60) try w.print("... ({d} lines in all)\n", .{shown});
+            try w.writeAll("```\n");
+        } else {
+            try w.print("\n## The G-code\nFile: {s} (the line was not found in it).\n", .{gcode_file});
+        }
+        return out.written();
+    }
+
+    /// The first and the last line (from 0) of the G-code of path `path`:
+    /// in the block of its layer, the extrusion to its second point, and
+    /// the line before it (the travel or the type comment), to the
+    /// extrusion to its last point. Null if not found.
+    pub fn gcodeLines(app: *const App, path: usize) ?[2]usize {
+        const t = app.allToolpaths() orelse return null;
+        const g = app.gcode() orelse return null;
+        const layer = app.layerOfPath(path) orelse return null;
+        const start: usize = if (path == 0) 0 else t.path_ends.items[path - 1];
+        const end: usize = t.path_ends.items[path];
+        if (end < start + 2) return null;
+        const ox = app.settings.machine.origin_x;
+        const oy = app.settings.machine.origin_y;
+        const p1 = [2]f64{ t.points.items[2 * (start + 1)] + ox, t.points.items[2 * (start + 1) + 1] + oy };
+        // A closed path ends with the move back to its first point.
+        const closed = t.path_closed.items[path] != 0;
+        const li = if (closed) start else end - 1;
+        const pn = [2]f64{ t.points.items[2 * li] + ox, t.points.items[2 * li + 1] + oy };
+        var marker_buf: [32]u8 = undefined;
+        const marker = std.fmt.bufPrint(&marker_buf, ";LAYER:{d}\n", .{layer}) catch return null;
+        var n: usize = 0;
+        var from: usize = 0;
+        var in_layer = false;
+        var first: ?usize = null;
+        while (from < g.len) : (n += 1) {
+            const nl = std.mem.indexOfScalarPos(u8, g, from, '\n') orelse g.len;
+            const line = g[from..nl];
+            if (std.mem.startsWith(u8, line, ";LAYER:")) {
+                if (in_layer) break;
+                in_layer = std.mem.eql(u8, line, marker[0 .. marker.len - 1]);
+            } else if (in_layer and std.mem.startsWith(u8, line, "G1 X")) {
+                if (parseXY(line)) |xy| {
+                    if (first == null) {
+                        if (@abs(xy[0] - p1[0]) < 0.002 and @abs(xy[1] - p1[1]) < 0.002) first = n;
+                    } else if (@abs(xy[0] - pn[0]) < 0.002 and @abs(xy[1] - pn[1]) < 0.002) {
+                        return .{ first.? -| 1, n };
+                    }
+                }
+            }
+            from = nl + 1;
+        }
+        return null;
+    }
+
+    fn parseXY(line: []const u8) ?[2]f64 {
+        const xi = std.mem.indexOf(u8, line, " X") orelse return null;
+        const yi = std.mem.indexOf(u8, line, " Y") orelse return null;
+        const xe = std.mem.indexOfScalarPos(u8, line, xi + 2, ' ') orelse line.len;
+        const ye = std.mem.indexOfScalarPos(u8, line, yi + 2, ' ') orelse line.len;
+        const x = std.fmt.parseFloat(f64, line[xi + 2 .. xe]) catch return null;
+        const y = std.fmt.parseFloat(f64, line[yi + 2 .. ye]) catch return null;
+        return .{ x, y };
+    }
+
     /// Writes the value of a setting as text.
     pub fn getSetting(app: *const App, name: []const u8, w: *std.Io.Writer) (Settings.SetError || std.Io.Writer.Error)!void {
         return writeSettingOf(app.settings, name, w);
@@ -1160,6 +1274,39 @@ test "app: plates keep their parts, and a switch slices the active plate" {
     try app.removePlate(0);
     try testing.expectEqual(@as(usize, 1), app.plateCount());
     try testing.expectEqual(@as(usize, 2), app.plate.count());
+}
+
+test "app: the G-code lines of a path, and the report for AI" {
+    const gpa = testing.allocator;
+    var mesh = try zs.mesh.shapes.demo(gpa);
+    var bytes: std.Io.Writer.Allocating = .init(gpa);
+    defer bytes.deinit();
+    try mesh.writeStl(&bytes.writer);
+    mesh.deinit(gpa);
+    const app = try App.create(gpa, null, null);
+    defer app.destroy();
+    try app.loadStl("demo.stl", bytes.written());
+    try app.startSlice();
+    app.stopWorkerForTest();
+    const t = app.allToolpaths().?;
+    const g = app.gcode().?;
+    var found: usize = 0;
+    var path: usize = 0;
+    while (path < t.path_ends.items.len) : (path += 37) {
+        const lines = app.gcodeLines(path) orelse continue;
+        found += 1;
+        // The last line is an extrusion to the last point of the path.
+        var n: usize = 0;
+        var from: usize = 0;
+        while (n < lines[1]) : (n += 1) from = std.mem.indexOfScalarPos(u8, g, from, '\n').? + 1;
+        const nl = std.mem.indexOfScalarPos(u8, g, from, '\n') orelse g.len;
+        try testing.expect(std.mem.startsWith(u8, g[from..nl], "G1 X"));
+        try testing.expect(lines[0] < lines[1]);
+    }
+    try testing.expect(found > 5);
+    const r = try app.lineReport(37, "/tmp/x.gcode");
+    try testing.expect(std.mem.indexOf(u8, r, "File: /tmp/x.gcode") != null);
+    try testing.expect(std.mem.indexOf(u8, r, "```gcode") != null);
 }
 
 test "app: a 3MF file keeps the parts, the places, and the changes" {

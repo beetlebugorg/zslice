@@ -154,6 +154,8 @@ static void on_focus_changed(ZgModel *model, gpointer data) {
     queue_frame(v);
 }
 
+static void on_copy_for_ai(GSimpleAction *a, GVariant *p, gpointer data);
+
 static void load_data(View3d *v) {
     if (!v->view) return;
     zs_view_set_mode(v->view, v->mode);
@@ -206,6 +208,8 @@ static void load_data(View3d *v) {
             size_t path = zs_view_pick(v->view, (float)(g_ascii_strtod(xy[0], NULL) * scale), (float)(g_ascii_strtod(xy[1], NULL) * scale));
             v->picked = TRUE;
             if (path != (size_t)-1) zg_model_select(v->model, (gint64)path);
+            /* For tests: ZSLICE_COPY_FOR_AI=1 runs "Copy for AI" on it. */
+            if (path != (size_t)-1 && g_getenv("ZSLICE_COPY_FOR_AI")) on_copy_for_ai(NULL, NULL, v);
             /* As after a click: the keys go to the preview. */
             GtkWidget *preview = gtk_widget_get_ancestor(v->area, GTK_TYPE_OVERLAY);
             if (preview) gtk_widget_grab_focus(preview);
@@ -557,6 +561,38 @@ static void on_place(GSimpleAction *a, GVariant *p, gpointer data) {
     else zg_model_part_place(v->model, (size_t)part, code, 0);
 }
 
+/* "Copy for AI": the G-code of the slice to a file in the cache folder,
+ * and a report of the selected line (what it is, why, its settings, and
+ * its lines in that file) to the clipboard, to paste into an AI chat. */
+static void on_copy_for_ai(GSimpleAction *a, GVariant *p, gpointer data) {
+    View3d *v = data;
+    gint64 path = zg_model_selected(v->model);
+    zs_app *core = zg_model_core(v->model);
+    const uint8_t *gcode = NULL;
+    size_t glen = 0;
+    if (path < 0 || zs_app_gcode(core, &gcode, &glen) != ZS_OK) return;
+    char *dir = g_build_filename(g_get_user_cache_dir(), "zslice", NULL);
+    g_mkdir_with_parents(dir, 0700);
+    char *file = g_build_filename(dir, "last-slice.gcode", NULL);
+    GError *error = NULL;
+    if (!g_file_set_contents(file, (const char *)gcode, (gssize)glen, &error)) {
+        g_warning("zslice: the G-code was not saved for the report: %s", error->message);
+        g_clear_error(&error);
+    }
+    const char *report = NULL;
+    size_t rlen = 0;
+    if (zs_app_line_report(core, (size_t)path, file, &report, &rlen) == ZS_OK) {
+        char *text = g_strndup(report, rlen);
+        gdk_clipboard_set_text(gdk_display_get_clipboard(gtk_widget_get_display(v->area)), text);
+        /* The test hook (no input event, so Wayland may refuse the
+         * clipboard): the text to the log too. */
+        if (g_getenv("ZSLICE_COPY_FOR_AI")) g_printerr("%s\n", text);
+        g_free(text);
+    }
+    g_free(file);
+    g_free(dir);
+}
+
 static void on_clear_marks(GSimpleAction *a, GVariant *p, gpointer data) {
     zg_model_marks_clear(((View3d *)data)->model);
 }
@@ -627,6 +663,7 @@ static void show_menu(View3d *v, double x, double y) {
         g_menu_append_submenu(here, "Add support here", G_MENU_MODEL(kinds));
         g_menu_append(here, "Block support here", "view3d.add-support(3)");
         g_menu_append(here, "Remove the support marks here", "view3d.remove-marks");
+        g_menu_append(here, "Copy for AI", "view3d.copy-for-ai");
         g_menu_append_section(menu, NULL, G_MENU_MODEL(here));
         g_object_unref(kinds);
         g_object_unref(here);
@@ -758,6 +795,7 @@ GtkWidget *zg_view3d_new(ZgModel *model) {
         {.name = "remove-marks", .activate = on_remove_marks},
         {.name = "clear-marks", .activate = on_clear_marks},
         {.name = "put-down", .activate = on_put_down},
+        {.name = "copy-for-ai", .activate = on_copy_for_ai},
         {.name = "place", .activate = on_place, .parameter_type = "i"},
         {.name = "reset-view", .activate = on_reset_view},
     };

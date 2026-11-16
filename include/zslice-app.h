@@ -259,6 +259,13 @@ typedef struct zs_inspect {
     int slow_reason;
 } zs_inspect;
 
+/* A plain-text report of path `path`, for "Copy for AI": what it is, its
+ * numbers, why, the values of the settings that change it, the printer,
+ * the filament, its first points, and its place in the G-code: the file
+ * `gcode_file` (the shell writes the G-code of the slice there), the line
+ * numbers, and the lines. Valid until the next call or zs_app_inspect. */
+int zs_app_line_report(zs_app *app, size_t path, const char *gcode_file, const char **out, size_t *out_len);
+
 /* What a setting changes in the toolpaths. */
 typedef struct zs_setting_effect {
     uint32_t features;    /* a bit (1 << enum zs_feature) for each feature

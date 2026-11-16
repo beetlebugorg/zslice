@@ -351,6 +351,19 @@ pub const Inspect = extern struct {
     slow_reason: c_int,
 };
 
+/// A plain-text report of a line, for "Copy for AI". Valid until the next
+/// call or inspection.
+export fn zs_app_line_report(a: ?*App, path: usize, gcode_file: ?[*:0]const u8, out: ?*?[*]const u8, out_len: ?*usize) c_int {
+    const app = a orelse return @intFromEnum(Status.invalid_argument);
+    const file = if (gcode_file) |f| std.mem.span(f) else "(not saved)";
+    const o = out orelse return @intFromEnum(Status.invalid_argument);
+    const l = out_len orelse return @intFromEnum(Status.invalid_argument);
+    const r = app.lineReport(path, file) catch |e| return status(e);
+    o.* = r.ptr;
+    l.* = r.len;
+    return ok;
+}
+
 export fn zs_app_inspect(a: ?*App, path: usize, out: ?*Inspect) c_int {
     const app = a orelse return @intFromEnum(Status.invalid_argument);
     const o = out orelse return @intFromEnum(Status.invalid_argument);

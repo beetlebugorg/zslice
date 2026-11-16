@@ -76,8 +76,11 @@ pub fn inspect(arena: Allocator, t: *const Toolpaths, job: *const zs.Job, path: 
         const limit = @min(s.machine.max_speed, flow_limit);
         try out.print("Planned speed: {d:.0} mm/s. That is {d:.0} % (the speed setting) of {d:.0} mm/s: the lower of the machine limit ({d:.0} mm/s) and the flow limit ({d} mm\u{b3}/s / {d:.4} mm\u{b2} = {d:.0} mm/s).\n", .{ planned, planned / limit * 100, limit, s.machine.max_speed, s.filament.max_flow, bead_area, flow_limit });
     }
-    if (real < planned * 0.98) {
+    const layer_slowed = t.layer_slowed.items.len > layer and t.layer_slowed.items[layer] != 0;
+    if (layer_slowed) {
         try out.print("Real speed: {d:.0} mm/s. The layer prints in less than the minimum layer time of the filament ({d} s), so it prints slower, to cool.\n", .{ real, s.filament.min_layer_time });
+    } else if (real < planned * 0.95) {
+        try out.print("Real speed: {d:.0} mm/s on average: the segments are short, so the head does not reach the planned speed between the corners (acceleration).\n", .{real});
     } else {
         try out.print("Real speed: {d:.0} mm/s.\n", .{real});
     }

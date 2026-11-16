@@ -172,6 +172,7 @@ Right-click a line in the 3D view (or press Shift+F10 with a line selected) for 
 - **Add support here** › Grid, Tree, or Bridge (a pad): support of that kind under a 3 mm disk at that place, on that layer. It works also when support is off in the settings.
 - **Block support here**: no support from the settings under that place.
 - **Remove the support marks here**, and **Clear all support marks**.
+- **Copy for AI**: copies a report of the line to the clipboard, to paste into an AI chat and ask why it prints as it does. The report has what the line is, its numbers and why, the values of the settings that change it, the printer and the filament, its points, and its place in the G-code: zslice writes the G-code of the slice to `~/.cache/zslice/last-slice.gcode`, and the report gives the line numbers in that file and the lines.
 - **Reset the view**.
 
 A left drag turns the view, and a middle drag moves it. Right drag no longer turns the view; the right button opens the menu.
