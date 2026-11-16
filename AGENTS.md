@@ -1,0 +1,48 @@
+# Agent instructions
+
+## Goals
+
+zslice is a slicer written from scratch in Zig. The goals are:
+
+1. A clean API for embedding, in Zig and in C.
+2. WebAssembly support.
+3. A modern code base.
+4. High performance.
+5. Low memory use.
+6. Advanced slicing features, for example ironing.
+7. Code that teaches how a slicer works. Each module explains its algorithm in its header comment.
+
+## Licenses and references
+
+zslice is licensed under AGPL-3.0-or-later. The main slicer engines (CuraEngine, PrusaSlicer, Slic3r, OrcaSlicer, Bambu Studio, SuperSlicer) use AGPL-3.0.
+
+Follow these rules for all work:
+
+1. Record each reference. A reference is any source that the work uses: an algorithm, a paper, a file format, a convention, another project, or code. Add it to `REFERENCES.md`. Give the name, the link, the license, and how zslice uses it.
+2. Name the reference in the header comment of each source file that uses it. Point to `REFERENCES.md`.
+3. Obey the license of each dependency and each source that zslice copies or ports. Before you copy or port code, check that its license is compatible with AGPL-3.0-or-later. Keep its copyright notice in the file.
+4. Put the license text of each dependency whose code goes into a zslice binary or wasm file in `licenses/`. List it in `REFERENCES.md` under "Code in the binaries".
+5. Do not add a dependency or copy code with an unknown license, or with a license that is incompatible with AGPL-3.0. Ask first.
+6. The Zig standard library has ports of Go code (BSD-3-Clause), for example `std.math.pow`. Do not call these functions until the Go license text is in `licenses/`.
+
+## Writing
+
+Write comments, docs, and commit messages in short, plain sentences. Use one idea per sentence, active voice, and present tense. Do not use em dashes.
+
+## Documentation
+
+The docs have three parts. Keep each part current with the code.
+
+- `docs/user/`: for people who slice with zslice.
+- `docs/embedding/`: for developers who use the library.
+- `docs/internals/`: for developers who change or extend the library.
+
+After a change to `src/settings.zig`, run `python3 -I tools/settings_doc.py > docs/user/settings.md`. Each setting needs a `///` doc comment.
+
+Each source file starts with a `//!` comment that explains its algorithm in plain words.
+
+## Checks
+
+Run `zig build test` before each commit. The tests must pass.
+
+Before a change to geometry or slicing code is done, also run the corpus: `python3 -I tools/corpus.py zig-out/bin/zslice ../printdeck report.tsv`. Each file must slice with status `ok`.

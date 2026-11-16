@@ -1,0 +1,90 @@
+# C API
+
+The header is `include/zslice.h`. The library has no dependencies, not even libc.
+
+## Build
+
+```sh
+zig build lib -Doptimize=ReleaseFast
+```
+
+This makes `zig-out/lib/libzslice.a`, `zig-out/lib/libzslice.so`, and `zig-out/include/zslice.h`.
+
+For another target, add `-Dtarget`. Example: `zig build lib -Doptimize=ReleaseFast -Dtarget=aarch64-linux-gnu` for a Raspberry Pi.
+
+## Example
+
+```c
+#include <stdio.h>
+#include <zslice.h>
+
+static int write_file(void *user, const uint8_t *data, size_t len) {
+    return fwrite(data, 1, len, (FILE *)user) == len ? 0 : 1;
+}
+
+int slice(const uint8_t *stl, size_t stl_len, FILE *out) {
+    zs_mesh *mesh = NULL;
+    zs_settings *settings = NULL;
+    zs_stats stats;
+    int rc;
+
+    rc = zs_mesh_load_stl(stl, stl_len, &mesh);
+    if (rc != ZS_OK) goto done;
+
+    rc = zs_settings_new(&settings);
+    if (rc != ZS_OK) goto done;
+    rc = zs_settings_set(settings, "project.wall_count", "3");
+    if (rc != ZS_OK) goto done;
+
+    rc = zs_slice(mesh, settings, write_file, out, &stats);
+    if (rc == ZS_OK) {
+        printf("%u layers, %.2f m filament\n", stats.layer_count, stats.filament_mm / 1000.0);
+    }
+
+done:
+    if (rc != ZS_OK) fprintf(stderr, "zslice: %s\n", zs_status_string(rc));
+    zs_settings_free(settings);
+    zs_mesh_free(mesh);
+    return rc;
+}
+```
+
+Link with `-lzslice`. The free functions accept NULL. `examples/c/slice.c` has this example with a `main` function.
+
+## Functions
+
+| Function | What it does |
+|---|---|
+| `zs_version()` | The version text, for example `"0.1.0"`. |
+| `zs_status_string(status)` | The name of a status code. |
+| `zs_setting_names()` | All setting names, one on each line. |
+| `zs_mesh_load_stl(data, len, &mesh)` | Loads a binary or ASCII STL file from memory. |
+| `zs_mesh_from_triangles(xyz, count, &mesh)` | Makes a mesh from 9 floats for each triangle. |
+| `zs_mesh_free(mesh)` | Frees a mesh. |
+| `zs_settings_new(&settings)` | Makes settings with all defaults. |
+| `zs_settings_set(settings, key, value)` | Sets one setting from text. The library copies the text. |
+| `zs_settings_free(settings)` | Frees settings. |
+| `zs_slice(mesh, settings, write, user, &stats)` | Slices, and sends the G-code to `write` in parts while it runs. |
+| `zs_slice_to_buffer(mesh, settings, &ptr, &len, &stats)` | Slices into one buffer. Free it with `zs_buffer_free(ptr, len)`. |
+| `zs_alloc(len)`, `zs_free(ptr, len)` | Memory for data that the host passes in. For wasm hosts. |
+
+`settings` can be NULL in `zs_slice` and `zs_slice_to_buffer`: the slice then uses all defaults. `stats` can be NULL.
+
+## The write callback
+
+```c
+typedef int (*zs_write_fn)(void *user, const uint8_t *data, size_t len);
+```
+
+- The library calls it many times, with parts of the G-code in order. Most parts are about 64 KB. Do not depend on a part size.
+- Return 0 to continue. Any other value stops the slice, and `zs_slice` returns `ZS_WRITE_FAILED`.
+- The library calls it from the thread that called `zs_slice`.
+- `data` is valid only during the call. Copy it if you need it later.
+
+## Threads
+
+The library uses one thread for each CPU. Set `engine.threads` to change it. The functions are safe to call from more than one thread at the same time, with different objects or with the same mesh and settings. Do not change a settings object while a slice uses it.
+
+## Memory
+
+The library uses its own allocator. Free each object with its free function, and each buffer with `zs_buffer_free`. Do not free them with `free()`.
