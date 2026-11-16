@@ -82,7 +82,7 @@ zig build -Doptimize=ReleaseFast</code></pre>
 <h2 id="look-at-the-layers">Look at the layers</h2>
 <p><code>preview</code> writes an SVG picture of one layer. Open it in a web browser.</p>
 <pre><code>zslice preview part.stl --layer 20 -o layer20.svg</code></pre>
-<div class="table-wrap"><table><thead><tr><th>Color</th><th>Feature</th></tr></thead><tbody><tr><td>Orange</td><td>Outer wall</td></tr><tr><td>Yellow</td><td>Inner walls</td></tr><tr><td>Blue</td><td>Skin (solid top and bottom fill)</td></tr><tr><td>Green</td><td>Sparse infill</td></tr><tr><td>Purple</td><td>Ironing</td></tr><tr><td>Brown</td><td>Skirt and brim</td></tr><tr><td>Light gray</td><td>Support</td></tr><tr><td>Dark gray</td><td>Support interface</td></tr><tr><td>Gray dashes</td><td>Travel moves</td></tr></tbody></table></div>
+<div class="table-wrap"><table><thead><tr><th>Color</th><th>Feature</th></tr></thead><tbody><tr><td>Orange</td><td>Outer wall</td></tr><tr><td>Yellow</td><td>Inner walls</td></tr><tr><td>Blue</td><td>Skin (solid top and bottom fill)</td></tr><tr><td>Green</td><td>Sparse infill</td></tr><tr><td>Purple</td><td>Ironing</td></tr><tr><td>Brown</td><td>Skirt and brim</td></tr><tr><td>Light gray</td><td>Support</td></tr><tr><td>Dark gray</td><td>Support interface</td></tr><tr><td>Teal</td><td>Slope smoothing (beads in the steps of a sloped top)</td></tr><tr><td>Gray dashes</td><td>Travel moves</td></tr></tbody></table></div>
 <p>The light gray area is the outline of the layer. Each line is drawn at the line width, so you can see gaps and overlaps.</p>
 <p>Layer numbers start at 0. If the number is too large, zslice shows the number of layers in the part.</p>
 <h2 id="printers">Printers</h2>

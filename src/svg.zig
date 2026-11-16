@@ -19,6 +19,7 @@ fn color(f: Feature) []const u8 {
         .skirt => "#8d6e63",
         .support => "#adb5bd",
         .support_interface => "#495057",
+        .slope_smoothing => "#0ca6ae",
     };
 }
 

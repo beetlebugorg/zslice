@@ -42,11 +42,11 @@ pub const SettingEffect = struct {
 
 /// Marks that the previews draw for settings with no line of their own,
 /// in the bits after the features (see SettingEffect.features).
-pub const mark_seam: u32 = 1 << 8;
+pub const mark_seam: u32 = 1 << feature_names.len;
 /// The travel moves between the paths.
-pub const mark_travel: u32 = 1 << 9;
+pub const mark_travel: u32 = 1 << (feature_names.len + 1);
 /// The retractions (at the start of a retracted travel).
-pub const mark_retract: u32 = 1 << 10;
+pub const mark_retract: u32 = 1 << (feature_names.len + 2);
 
 /// Settings whose effect is a mark: the seam points, the travel moves, and
 /// the retractions.
@@ -163,7 +163,8 @@ test "setting effects" {
     // The skirt uses the inner wall speed.
     try testing.expectEqual(bit(.inner_wall) | bit(.skirt), settingEffect("project.inner_wall_speed").features);
     try testing.expect(settingEffect("project.first_layer_height").first_layer_only);
-    try testing.expectEqual(@as(u32, 0xff), settingEffect("project.layer_height").features);
+    try testing.expectEqual(@as(u32, 0x1ff), settingEffect("project.layer_height").features);
+    try testing.expectEqual(bit(.slope_smoothing), settingEffect("project.slope_smoothing_flow").features);
     // A temperature changes no line.
     try testing.expectEqual(@as(u32, 0), settingEffect("filament.bed_temp").features);
     try testing.expectEqual(bit(.ironing), settingEffect("project.ironing_spacing").features & bit(.ironing));
@@ -183,6 +184,7 @@ pub fn ratioSpeed(settings: Settings, name: []const u8, value: []const u8) ?f64 
         .{ .n = "project.infill_speed", .f = .infill, .first = false },
         .{ .n = "project.first_layer_speed", .f = .outer_wall, .first = true },
         .{ .n = "project.ironing_speed", .f = .ironing, .first = false },
+        .{ .n = "project.slope_smoothing_speed", .f = .slope_smoothing, .first = false },
     };
     for (cases) |c| if (std.mem.eql(u8, c.n, name)) {
         var s = settings;

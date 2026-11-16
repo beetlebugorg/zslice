@@ -46,6 +46,14 @@ The highest part that the printer can make.
 
 The diameter of the nozzle hole. The default line width comes from it.
 
+**`machine.nozzle_tip_radius`** (number). Default: `0.5`
+
+The radius of the flat face at the tip of the nozzle, around the hole. A common brass nozzle has a face about 1 mm across. Slope smoothing uses it to keep the nozzle off the layer that it just printed.
+
+**`machine.nozzle_cone_angle`** (number). Default: `45`
+
+The angle between the axis of the nozzle and the side of its cone, in degrees. Slope smoothing uses it with `nozzle_tip_radius`.
+
 ### Motion
 
 **`machine.max_speed`** (number). Default: `150`
@@ -359,6 +367,28 @@ The ironing area is this far inside the edges of the top surface, so that the no
 **`project.ironing_speed`** (number; per layer). Default: `0.15`
 
 The ironing speed, as a ratio of `machine.max_speed`. The flow limit of the filament does not apply, because the flow is small.
+
+### Slope smoothing
+
+**`project.slope_smoothing`** (true or false; per layer). Default: `false`
+
+Fill the steps on gently sloped top surfaces. After each layer, the nozzle goes back along the edge of the layer, over the narrow ledge of the layer below. It lays a bead in the corner of each step, with the volume of the triangle there. The nozzle height can change along the bead, between the two layers.
+
+**`project.slope_smoothing_min_width`** (number; per layer). Default: `0.3`
+
+The narrowest ledge that gets a bead, as a ratio of the line width. A narrower step is small, and its bead is too small to meter.
+
+**`project.slope_smoothing_max_width`** (number; per layer). Default: `2`
+
+The widest ledge that gets a bead, as a ratio of the line width. A wider ledge is a flat top, or needs more than one bead.
+
+**`project.slope_smoothing_flow`** (number; per layer). Default: `1`
+
+The plastic of a smoothing bead, as a ratio of the volume of the triangle in the step.
+
+**`project.slope_smoothing_speed`** (number; per layer). Default: `0.3`
+
+The speed of the smoothing beads, as a ratio of the allowed speed.
 
 ### Speed ratios
 

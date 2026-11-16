@@ -67,6 +67,10 @@
 <h3 id="nozzle">Nozzle</h3>
 <p><strong><code>machine.nozzle_diameter</code></strong> (number). Default: <code>0.4</code></p>
 <p>The diameter of the nozzle hole. The default line width comes from it.</p>
+<p><strong><code>machine.nozzle_tip_radius</code></strong> (number). Default: <code>0.5</code></p>
+<p>The radius of the flat face at the tip of the nozzle, around the hole. A common brass nozzle has a face about 1 mm across. Slope smoothing uses it to keep the nozzle off the layer that it just printed.</p>
+<p><strong><code>machine.nozzle_cone_angle</code></strong> (number). Default: <code>45</code></p>
+<p>The angle between the axis of the nozzle and the side of its cone, in degrees. Slope smoothing uses it with <code>nozzle_tip_radius</code>.</p>
 <h3 id="motion">Motion</h3>
 <p><strong><code>machine.max_speed</code></strong> (number). Default: <code>150</code></p>
 <p>The maximum speed of the print head in X and Y.</p>
@@ -228,6 +232,17 @@ M84</code></pre>
 <p>The ironing area is this far inside the edges of the top surface, so that the nozzle does not push plastic over the edges.</p>
 <p><strong><code>project.ironing_speed</code></strong> (number; per layer). Default: <code>0.15</code></p>
 <p>The ironing speed, as a ratio of <code>machine.max_speed</code>. The flow limit of the filament does not apply, because the flow is small.</p>
+<h3 id="slope-smoothing">Slope smoothing</h3>
+<p><strong><code>project.slope_smoothing</code></strong> (true or false; per layer). Default: <code>false</code></p>
+<p>Fill the steps on gently sloped top surfaces. After each layer, the nozzle goes back along the edge of the layer, over the narrow ledge of the layer below. It lays a bead in the corner of each step, with the volume of the triangle there. The nozzle height can change along the bead, between the two layers.</p>
+<p><strong><code>project.slope_smoothing_min_width</code></strong> (number; per layer). Default: <code>0.3</code></p>
+<p>The narrowest ledge that gets a bead, as a ratio of the line width. A narrower step is small, and its bead is too small to meter.</p>
+<p><strong><code>project.slope_smoothing_max_width</code></strong> (number; per layer). Default: <code>2</code></p>
+<p>The widest ledge that gets a bead, as a ratio of the line width. A wider ledge is a flat top, or needs more than one bead.</p>
+<p><strong><code>project.slope_smoothing_flow</code></strong> (number; per layer). Default: <code>1</code></p>
+<p>The plastic of a smoothing bead, as a ratio of the volume of the triangle in the step.</p>
+<p><strong><code>project.slope_smoothing_speed</code></strong> (number; per layer). Default: <code>0.3</code></p>
+<p>The speed of the smoothing beads, as a ratio of the allowed speed.</p>
 <h3 id="speed-ratios">Speed ratios</h3>
 <p><strong><code>project.outer_wall_speed</code></strong> (number; per layer). Default: <code>0.5</code></p>
 <p>The outer wall speed, as a ratio of the allowed speed. A slower outer wall gives a better surface.</p>

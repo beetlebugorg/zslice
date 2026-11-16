@@ -1636,7 +1636,7 @@ test "plan a layer of a box" {
         .outer_wall, .inner_wall => walls += 1,
         .skin => skin += 1,
         .infill => fill += 1,
-        .ironing, .skirt, .support, .support_interface => unreachable,
+        .ironing, .skirt, .support, .support_interface, .slope_smoothing => unreachable,
     };
     try testing.expectEqual(@as(usize, 2), walls);
     try testing.expectEqual(@as(usize, 0), skin);

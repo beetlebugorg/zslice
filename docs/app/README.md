@@ -129,6 +129,7 @@ All shells use the same colors, in the order of `enum zs_feature`:
 | Skirt and brim | `#8d6e63` |
 | Support | `#adb5bd` |
 | Support interface | `#495057` |
+| Slope smoothing | `#0ca6ae` |
 
 ## Add a shell
 

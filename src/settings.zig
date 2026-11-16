@@ -63,6 +63,14 @@ pub const Machine = struct {
     // Nozzle
     /// The diameter of the nozzle hole. The default line width comes from it.
     nozzle_diameter: f64 = 0.4,
+    /// The radius of the flat face at the tip of the nozzle, around the
+    /// hole. A common brass nozzle has a face about 1 mm across. Slope
+    /// smoothing uses it to keep the nozzle off the layer that it just
+    /// printed.
+    nozzle_tip_radius: f64 = 0.5,
+    /// The angle between the axis of the nozzle and the side of its cone,
+    /// in degrees. Slope smoothing uses it with `nozzle_tip_radius`.
+    nozzle_cone_angle: f64 = 45,
 
     // Motion
     /// The maximum speed of the print head in X and Y.
@@ -320,6 +328,25 @@ pub const Project = struct {
     /// of the filament does not apply, because the flow is small.
     ironing_speed: f64 = 0.15,
 
+    // Slope smoothing
+    /// Fill the steps on gently sloped top surfaces. After each layer, the
+    /// nozzle goes back along the edge of the layer, over the narrow ledge
+    /// of the layer below. It lays a bead in the corner of each step,
+    /// with the volume of the triangle there. The nozzle height can change
+    /// along the bead, between the two layers.
+    slope_smoothing: bool = false,
+    /// The narrowest ledge that gets a bead, as a ratio of the line width.
+    /// A narrower step is small, and its bead is too small to meter.
+    slope_smoothing_min_width: f64 = 0.3,
+    /// The widest ledge that gets a bead, as a ratio of the line width. A
+    /// wider ledge is a flat top, or needs more than one bead.
+    slope_smoothing_max_width: f64 = 2,
+    /// The plastic of a smoothing bead, as a ratio of the volume of the
+    /// triangle in the step.
+    slope_smoothing_flow: f64 = 1,
+    /// The speed of the smoothing beads, as a ratio of the allowed speed.
+    slope_smoothing_speed: f64 = 0.3,
+
     // Speed ratios: the fraction of the speed that the machine and the
     // filament allow.
     /// The outer wall speed, as a ratio of the allowed speed. A slower outer wall gives a better surface.
@@ -518,10 +545,12 @@ pub const Settings = struct {
             f.fan_speed,     p.infill_density, p.outer_wall_speed,  p.inner_wall_speed,
             p.skin_speed,    p.infill_speed,   p.first_layer_speed, p.ironing_flow,
             p.ironing_speed, f.fan_max_speed,  p.support_density,   p.support_interface_density,
+            p.slope_smoothing_speed,
         };
         for (ratios) |v| if (!(v >= 0 and v <= 1)) return error.InvalidValue;
         if (p.outer_wall_speed == 0 or p.inner_wall_speed == 0 or p.skin_speed == 0 or p.infill_speed == 0 or p.first_layer_speed == 0) return error.InvalidValue;
         if (p.ironing and (p.ironing_speed == 0 or !(p.ironing_spacing > 0))) return error.InvalidValue;
+        if (p.slope_smoothing and (p.slope_smoothing_speed == 0 or !(p.slope_smoothing_min_width < p.slope_smoothing_max_width))) return error.InvalidValue;
         if (p.support != .off and (p.support_density == 0 or p.support_interface_density == 0 or !(p.support_angle > 0 and p.support_angle < 90))) return error.InvalidValue;
 
         const w = if (p.line_width > 0) p.line_width else 1.1 * m.nozzle_diameter;
@@ -555,6 +584,9 @@ pub const Feature = enum(u8) {
     skirt,
     support,
     support_interface,
+    /// The beads in the steps of a sloped top surface (see
+    /// `Project.slope_smoothing`).
+    slope_smoothing,
 };
 
 /// Settings after `Settings.resolve`, with the derived values.
@@ -576,7 +608,7 @@ pub const Resolved = struct {
     pub fn speedAt(self: Resolved, feature: Feature, width: f64, height: f64, layer: usize) f64 {
         const full = self.speed(feature, width, height, layer == 0);
         const n = self.settings.project.slow_layers;
-        if (layer == 0 or layer > n or feature == .ironing) return full;
+        if (layer == 0 or layer > n or feature == .ironing or feature == .slope_smoothing) return full;
         // From the first layer speed (layer 0) up to the full speed (layer
         // n + 1), in even steps.
         const first = self.speed(feature, width, height, true);
@@ -592,7 +624,7 @@ pub const Resolved = struct {
         const max = self.settings.machine.max_accel;
         if (first_layer and p.first_layer_accel > 0 and feature != null) return @min(max, p.first_layer_accel);
         const a = if (feature) |f| switch (f) {
-            .outer_wall => p.outer_wall_accel,
+            .outer_wall, .slope_smoothing => p.outer_wall_accel,
             .inner_wall, .skirt => p.inner_wall_accel,
             .skin, .support_interface, .ironing => p.skin_accel,
             .infill, .support => p.infill_accel,
@@ -613,6 +645,7 @@ pub const Resolved = struct {
             .skirt => p.inner_wall_speed,
             .support => p.infill_speed,
             .support_interface => p.skin_speed,
+            .slope_smoothing => p.slope_smoothing_speed,
             .ironing => unreachable,
         };
         return limit * ratio;
@@ -767,6 +800,8 @@ pub const limits = [_]struct { []const u8, f64, f64 }{
     .{ "machine.origin_y", -2000, 2000 },
     .{ "machine.max_height", 10, 2000 },
     .{ "machine.nozzle_diameter", 0.1, 2 },
+    .{ "machine.nozzle_tip_radius", 0, 5 },
+    .{ "machine.nozzle_cone_angle", 0, 85 },
     .{ "machine.max_speed", 1, 2000 },
     .{ "machine.travel_speed", 1, 2000 },
     .{ "machine.max_z_speed", 0.1, 200 },
@@ -819,6 +854,10 @@ pub const limits = [_]struct { []const u8, f64, f64 }{
     .{ "project.ironing_spacing", 0.01, 2 },
     .{ "project.ironing_inset", 0, 10 },
     .{ "project.ironing_speed", 0.01, 1 },
+    .{ "project.slope_smoothing_min_width", 0.05, 5 },
+    .{ "project.slope_smoothing_max_width", 0.1, 10 },
+    .{ "project.slope_smoothing_flow", 0, 2 },
+    .{ "project.slope_smoothing_speed", 0.01, 1 },
     .{ "project.outer_wall_speed", 0.01, 1 },
     .{ "project.inner_wall_speed", 0.01, 1 },
     .{ "project.skin_speed", 0.01, 1 },
@@ -946,6 +985,11 @@ pub const layer_settings = [_][]const u8{
     "project.inner_wall_speed",
     "project.skin_speed",
     "project.infill_speed",
+    "project.slope_smoothing",
+    "project.slope_smoothing_min_width",
+    "project.slope_smoothing_max_width",
+    "project.slope_smoothing_flow",
+    "project.slope_smoothing_speed",
     // The G-code writer reads these from the settings of each layer.
     "filament.nozzle_temp",
     "filament.bed_temp",

@@ -1332,6 +1332,7 @@ fn typeName(f: Feature) []const u8 {
         .skirt => "SKIRT",
         .support => "SUPPORT",
         .support_interface => "SUPPORT-INTERFACE",
+        .slope_smoothing => "SLOPE-SMOOTHING",
     };
 }
 

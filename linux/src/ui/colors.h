@@ -14,6 +14,7 @@ static const double zg_feature_rgb[][3] = {
     {0.553, 0.431, 0.388}, /* skirt and brim: brown */
     {0.678, 0.710, 0.741}, /* support: light gray */
     {0.286, 0.314, 0.341}, /* support interface: dark gray */
+    {0.047, 0.651, 0.682}, /* slope smoothing: teal */
 };
 
 #define ZG_N_FEATURES (sizeof zg_feature_rgb / sizeof zg_feature_rgb[0])
