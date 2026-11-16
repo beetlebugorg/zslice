@@ -70,3 +70,12 @@ These sources gave methods or formats. zslice does not copy their code. Each zsl
 | Lookout Marine (same author): a Zig core with a C API and one native shell for each platform | Same author | `src/app.zig`, `linux/` | The structure of the app: the core has the logic, and each shell draws widgets, does file I/O, and moves events to its UI thread. |
 | Grid ("normal") support: overhang by angle, columns down to the bed or the part, XY and Z gaps, dense interface layers. As in CuraEngine and PrusaSlicer | General slicer technique (the method, not code) | `src/support.zig` | The support areas of each layer. |
 | Iterated snap rounding (repeat the intersection pass on the rounded result) | General computational geometry technique | `src/clip.zig` | Makes the boolean operations robust after crossing points are rounded to the grid. |
+
+## Test tools
+
+zslice runs these programs in its test tools. No code of these programs
+is in zslice.
+
+| Program | License | Used in | How zslice uses it |
+|---|---|---|---|
+| CuraEngine (Ultimaker Cura 5.x), https://github.com/Ultimaker/CuraEngine, and the Cura definition files `fdmprinter.def.json` and `fdmextruder.def.json` | AGPL-3.0 (CuraEngine), LGPL-3.0 (the definitions) | `tools/compare_cura.py` | A test oracle. The script slices each STL file of the corpus with zslice and with CuraEngine, and compares the layer count, the filament, the time estimate, the speed, and the memory. |
