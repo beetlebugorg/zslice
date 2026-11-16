@@ -22,6 +22,9 @@ typedef struct {
     ZgModel *model;
     GtkWindow *window;
     GtkWidget *title;
+    /* The island warning in the status bar, and the island it shows next. */
+    GtkWidget *islands;
+    size_t island_next;
     GtkWidget *export_button;
     GtkWidget *preview;
     GtkWidget *status;
@@ -60,6 +63,44 @@ static void format_time(char *buf, size_t cap, double seconds) {
     } else {
         g_snprintf(buf, cap, "%d h %d min", minutes / 60, minutes % 60);
     }
+}
+
+/* ---- islands ---- */
+
+/* The island warning: shapes that start in the air (see islands.zig). */
+static void show_islands(Window *w, int state) {
+    zs_app *core = zg_model_core(w->model);
+    size_t n = state == ZS_STATE_DONE ? zs_app_island_count(core) : 0;
+    gtk_widget_set_visible(w->islands, n > 0);
+    if (n == 0) {
+        w->island_next = 0;
+        return;
+    }
+    if (w->island_next >= n) w->island_next = 0;
+    char *label = g_strdup_printf("\u26a0 %zu island%s", n, n == 1 ? "" : "s");
+    gtk_button_set_label(GTK_BUTTON(w->islands), label);
+    g_free(label);
+    GString *tip = g_string_new("Shapes that start in the air: nothing is under them on the layer below, so they fall or make strings. Add support there (right-click a line), or check the model. Click to go to each one.\n");
+    for (size_t i = 0; i < n && i < 8; i++) {
+        size_t layer;
+        double x, y, area;
+        if (zs_app_island_get(core, i, &layer, &x, &y, &area) != ZS_OK) continue;
+        g_string_append_printf(tip, "\nLayer %zu: %.1f mm\u00b2 at %.1f, %.1f mm", layer + 1, area, x, y);
+    }
+    if (n > 8) g_string_append_printf(tip, "\n... and %zu more", n - 8);
+    gtk_widget_set_tooltip_text(w->islands, tip->str);
+    g_string_free(tip, TRUE);
+}
+
+static void on_islands_clicked(GtkButton *b, gpointer data) {
+    Window *w = data;
+    zs_app *core = zg_model_core(w->model);
+    size_t n = zs_app_island_count(core);
+    if (n == 0) return;
+    size_t layer;
+    if (zs_app_island_get(core, w->island_next % n, &layer, NULL, NULL, NULL) != ZS_OK) return;
+    zg_preview_show_layer(w->preview, layer);
+    w->island_next = (w->island_next + 1) % n;
 }
 
 static void update(Window *w) {
@@ -114,6 +155,7 @@ static void update(Window *w) {
     }
     gtk_label_set_text(GTK_LABEL(w->status), text);
     zg_preview_refresh(w->preview);
+    show_islands(w, state);
 }
 
 static void on_core_event(ZgModel *model, int event, double progress, int status, gpointer data) {
@@ -657,6 +699,13 @@ GtkWindow *zg_window_new(GtkApplication *app, ZgModel *model) {
     gtk_widget_add_css_class(bar, "zg-status");
     gtk_widget_add_css_class(bar, "zg-panel");
     gtk_box_append(GTK_BOX(bar), w->status);
+    /* Islands: a warning that goes to each island in turn. */
+    w->islands = gtk_button_new();
+    gtk_widget_add_css_class(w->islands, "flat");
+    gtk_widget_add_css_class(w->islands, "zg-islands");
+    gtk_widget_set_visible(w->islands, FALSE);
+    g_signal_connect(w->islands, "clicked", G_CALLBACK(on_islands_clicked), w);
+    gtk_box_append(GTK_BOX(bar), w->islands);
     w->printer_state = gtk_label_new("");
     gtk_widget_add_css_class(w->printer_state, "dim-label");
     gtk_label_set_ellipsize(GTK_LABEL(w->printer_state), PANGO_ELLIPSIZE_END);

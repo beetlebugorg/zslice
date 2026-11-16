@@ -382,6 +382,14 @@ pub const App = struct {
         try app.overrides.append(app.gpa, .{ .z_min = z_min, .z_max = z_max, .name = n, .value = v });
     }
 
+    /// The islands of the last slice (shapes that start in the air), or
+    /// none.
+    pub fn islands(app: *const App) []const zs.islands.Island {
+        if (app.getState() != .done) return &.{};
+        const j = app.job orelse return &.{};
+        return j.islands;
+    }
+
     /// Adds a support mark (support of a kind under a disk at x, y on the
     /// layer at z, or a block of support there). A mark at the same place
     /// (closer than its radius, on the same layer) is replaced.

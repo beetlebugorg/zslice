@@ -42,6 +42,9 @@ typedef struct {
     /* A Shift+drag that moves a part: the part, its place at the start,
      * and the bed point under the pointer at the start. */
     gint64 moving;
+    /* A timeout that draws again after a skipped frame, or 0. */
+    guint retry;
+    gboolean menu_open;
     gboolean part_picked;
     gboolean zoomed_at;
     double move_x0, move_y0, bed_x0, bed_y0;
@@ -55,6 +58,15 @@ typedef struct {
     double pointer_x, pointer_y;
 } View3d;
 
+static void queue_frame(View3d *v);
+
+static gboolean retry_frame(gpointer data) {
+    View3d *v = data;
+    v->retry = 0;
+    queue_frame(v);
+    return G_SOURCE_REMOVE;
+}
+
 static gboolean draw_now(gpointer data) {
     View3d *v = data;
     v->idle = 0;
@@ -67,7 +79,11 @@ static gboolean draw_now(gpointer data) {
     }
     if (v->view) {
         int rc = zs_view_draw(v->view);
-        if (rc != ZS_OK) g_warning("zslice: the 3D view did not draw: %s", zg_status_text(rc));
+        /* No free image now (the compositor holds them, for example while a
+         * popup covers the window): draw again a moment later. */
+        if (rc == ZS_BUSY) {
+            if (!v->retry) v->retry = g_timeout_add(16, retry_frame, v);
+        } else if (rc != ZS_OK) g_warning("zslice: the 3D view did not draw: %s", zg_status_text(rc));
     }
     return G_SOURCE_REMOVE;
 }
@@ -516,6 +532,32 @@ static void on_reset_view(GSimpleAction *a, GVariant *p, gpointer data) {
 
 static void show_menu(View3d *v, double x, double y);
 
+static gboolean on_menu_key(GtkEventControllerKey *c, guint key, guint code, GdkModifierType mods, gpointer data) {
+    if (key != GDK_KEY_Escape) return FALSE;
+    gtk_popover_popdown(GTK_POPOVER(data));
+    return TRUE;
+}
+
+static gboolean unparent_later(gpointer data) {
+    gtk_widget_unparent(data);
+    g_object_unref(data);
+    return G_SOURCE_REMOVE;
+}
+
+static void on_menu_closed(GtkPopover *pop, gpointer data) {
+    View3d *v = data;
+    v->menu_open = FALSE;
+    /* The keys go to the preview again (the arrows, h j k l). */
+    GtkWidget *preview = gtk_widget_get_ancestor(v->area, GTK_TYPE_OVERLAY);
+    if (preview) gtk_widget_grab_focus(preview);
+    g_idle_add(unparent_later, g_object_ref(pop));
+}
+
+gboolean zg_view3d_menu_open(GtkWidget *view) {
+    View3d *v = g_object_get_data(G_OBJECT(view), "zg-view3d");
+    return v && v->menu_open;
+}
+
 static void on_menu_click(GtkGestureClick *g, int n, double x, double y, gpointer data) {
     View3d *v = data;
     if (!v->view) return;
@@ -561,7 +603,14 @@ static void show_menu(View3d *v, double x, double y) {
     gtk_popover_set_has_arrow(GTK_POPOVER(pop), FALSE);
     GdkRectangle at = {(int)x, (int)y, 1, 1};
     gtk_popover_set_pointing_to(GTK_POPOVER(pop), &at);
-    g_signal_connect(pop, "closed", G_CALLBACK(gtk_widget_unparent), NULL);
+    /* Esc closes the menu (also from a submenu). */
+    GtkEventController *keys = gtk_event_controller_key_new();
+    gtk_event_controller_set_propagation_phase(keys, GTK_PHASE_CAPTURE);
+    g_signal_connect(keys, "key-pressed", G_CALLBACK(on_menu_key), pop);
+    gtk_widget_add_controller(pop, keys);
+    /* Removed after the close, not in its handler. */
+    g_signal_connect(pop, "closed", G_CALLBACK(on_menu_closed), v);
+    v->menu_open = TRUE;
     gtk_popover_popup(GTK_POPOVER(pop));
 }
 
@@ -595,6 +644,7 @@ static void view_free(gpointer data) {
     View3d *v = data;
     g_signal_handlers_disconnect_by_data(v->model, v);
     if (v->idle) g_source_remove(v->idle);
+    if (v->retry) g_source_remove(v->retry);
     if (v->view) zs_view_free(v->view);
     zg_native_surface_free(v->native);
     g_free(v->error);

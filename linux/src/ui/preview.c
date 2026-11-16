@@ -529,7 +529,8 @@ static void on_focus_changed(ZgModel *model, gpointer data) {
 
 static void preview_free(gpointer data) {
     Preview *p = data;
-    if (p->tick) gtk_widget_remove_tick_callback(p->view3d, p->tick);
+    /* The 3D view can be gone already (its tick callback with it). */
+    if (p->tick && GTK_IS_WIDGET(p->view3d)) gtk_widget_remove_tick_callback(p->view3d, p->tick);
     g_signal_handlers_disconnect_by_data(p->model, p);
     free_paths(p);
     g_object_unref(p->model);
@@ -636,9 +637,12 @@ static gint64 nearest_on_layer(const zs_toolpaths *tp, size_t path, size_t layer
 static gboolean on_preview_key(GtkEventControllerKey *c, guint key, guint code, GdkModifierType mods, gpointer data) {
     Preview *p = data;
     if (mods & (GDK_CONTROL_MASK | GDK_ALT_MASK | GDK_SUPER_MASK)) return FALSE;
-    /* Typing in a text field of the preview (none now) keeps its keys. */
+    /* Typing in a text field, and a popup menu (the context menu, the
+     * color menu), keep their keys: Esc closes the menu, the arrows move
+     * in it. */
     GtkWidget *focus = gtk_root_get_focus(gtk_widget_get_root(p->area));
-    if (focus && GTK_IS_EDITABLE(focus)) return FALSE;
+    if (focus && (GTK_IS_EDITABLE(focus) || gtk_widget_get_ancestor(focus, GTK_TYPE_POPOVER))) return FALSE;
+    if (zg_view3d_menu_open(p->view3d)) return FALSE;
     zs_toolpaths tp;
     if (zs_app_toolpaths(zg_model_core(p->model), &tp) != ZS_OK || tp.layer_count == 0) return FALSE;
     gint64 sel = zg_model_selected(p->model);
@@ -960,4 +964,10 @@ void zg_preview_refresh(GtkWidget *preview) {
     zg_view3d_set_layer_range(p->view3d, zg_layer_range_get_lo(range), layer);
     double t0, t1;
     if (layer_times(p, layer, &t0, &t1)) show_scrub(p, layer, t1);
+}
+
+void zg_preview_show_layer(GtkWidget *preview, size_t layer) {
+    Preview *p = g_object_get_data(G_OBJECT(preview), "zg-preview");
+    if (!p || layer >= p->layer_count) return;
+    show_layer(p, layer);
 }

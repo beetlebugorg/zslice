@@ -31,6 +31,7 @@ const layer_mod = @import("layer.zig");
 const gcode = @import("gcode.zig");
 const parallel = @import("parallel.zig");
 const support_mod = @import("support.zig");
+const islands_mod = @import("islands.zig");
 const clip = @import("clip.zig");
 const offset_mod = @import("offset.zig");
 const Mesh = mesh_mod.Mesh;
@@ -224,6 +225,8 @@ pub const Job = struct {
     outlines: []Paths,
     /// The support areas of each layer, or an empty slice.
     support: []support_mod.SupportLayer = &.{},
+    /// The shapes that start in the air (see islands.zig).
+    islands: []islands_mod.Island = &.{},
     /// The top and bottom surfaces of each layer (see layer.surfaces), or
     /// empty slices if no layer has skin.
     tops: []Paths = &.{},
@@ -428,6 +431,7 @@ pub const Job = struct {
 
         // The support areas need the outlines of all layers.
         job.support = support_mod.compute(gpa, job.outlines, job.layers, &r, threads, marks) catch |e| return @as(Error, @errorCast(e));
+        job.islands = islands_mod.find(gpa, job.outlines, job.support, @divTrunc(geom.fromMm(r.line_width), 4), 0.5, threads) catch |e| return @as(Error, @errorCast(e));
         return job;
     }
 
@@ -455,6 +459,7 @@ pub const Job = struct {
         for (self.bottoms) |*b| b.deinit(self.gpa);
         self.gpa.free(self.bottoms);
         if (self.support.len > 0) support_mod.deinitAll(self.gpa, self.support);
+        self.gpa.free(self.islands);
         for (self.outlines) |*o| o.deinit(self.gpa);
         self.gpa.free(self.outlines);
         self.gpa.free(self.layers);

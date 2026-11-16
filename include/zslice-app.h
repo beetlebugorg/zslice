@@ -143,6 +143,12 @@ int zs_app_gcode(const zs_app *app, const uint8_t **out, size_t *out_len);
  * as they are. ZS_UNKNOWN_SETTING if the setting is not a speed ratio. */
 int zs_app_ratio_speed(const zs_app *app, const char *name, const char *value, double *mm_s);
 
+/* Islands: shapes of the last slice that start in the air (no outline and
+ * no support under them on the layer below). They fall or make strings:
+ * add support there, or check the model. In layer order. */
+size_t zs_app_island_count(const zs_app *app);
+int zs_app_island_get(const zs_app *app, size_t i, size_t *layer, double *x, double *y, double *area);
+
 /* Support marks, from the context menu of a selected line: support of a
  * kind under a disk (radius r, mm) at x, y on the layer at nozzle z, or no
  * support there. They work also when support is off. A mark at the same

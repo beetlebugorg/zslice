@@ -41,6 +41,9 @@ pub const Error = error{
     VulkanFailed,
     SurfaceFailed,
     OutOfMemory,
+    /// No image is free now (the compositor holds them): the frame is
+    /// skipped, and the shell draws again a moment later.
+    FrameBusy,
 };
 
 /// The window surface that the shell gives.
@@ -97,6 +100,7 @@ const Instance_ = struct {
     vkGetPhysicalDeviceSurfaceSupportKHR: c.PFN_vkGetPhysicalDeviceSurfaceSupportKHR,
     vkGetPhysicalDeviceSurfaceCapabilitiesKHR: c.PFN_vkGetPhysicalDeviceSurfaceCapabilitiesKHR,
     vkGetPhysicalDeviceSurfaceFormatsKHR: c.PFN_vkGetPhysicalDeviceSurfaceFormatsKHR,
+    vkGetPhysicalDeviceSurfacePresentModesKHR: c.PFN_vkGetPhysicalDeviceSurfacePresentModesKHR,
     vkDestroySurfaceKHR: c.PFN_vkDestroySurfaceKHR,
     vkCreateDevice: c.PFN_vkCreateDevice,
     vkGetDeviceProcAddr: c.PFN_vkGetDeviceProcAddr,
@@ -447,6 +451,21 @@ pub const Renderer = struct {
         r.want_width = @max(width, 1);
         r.want_height = @max(height, 1);
         r.stale = true;
+    }
+
+    /// MAILBOX if the driver has it: a present never waits for the
+    /// compositor, so the UI thread never blocks (with FIFO, a window that
+    /// does not repaint, for example under a popup, holds all images).
+    /// Else FIFO, which each driver has.
+    fn pickPresentMode(r: *Renderer) c.VkPresentModeKHR {
+        var n: u32 = 0;
+        const get = r.i.vkGetPhysicalDeviceSurfacePresentModesKHR orelse return c.VK_PRESENT_MODE_FIFO_KHR;
+        if (get(r.phys, r.surface, &n, null) != c.VK_SUCCESS) return c.VK_PRESENT_MODE_FIFO_KHR;
+        var modes: [16]c.VkPresentModeKHR = undefined;
+        n = @min(n, modes.len);
+        if (get(r.phys, r.surface, &n, &modes) != c.VK_SUCCESS) return c.VK_PRESENT_MODE_FIFO_KHR;
+        for (modes[0..n]) |m| if (m == c.VK_PRESENT_MODE_MAILBOX_KHR) return m;
+        return c.VK_PRESENT_MODE_FIFO_KHR;
     }
 
     fn pickFormat(r: *Renderer) Error!c.VkSurfaceFormatKHR {
@@ -812,7 +831,7 @@ pub const Renderer = struct {
             .imageSharingMode = c.VK_SHARING_MODE_EXCLUSIVE,
             .preTransform = caps.currentTransform,
             .compositeAlpha = alpha,
-            .presentMode = c.VK_PRESENT_MODE_FIFO_KHR,
+            .presentMode = r.pickPresentMode(),
             .clipped = c.VK_TRUE,
             .oldSwapchain = old,
         }, null, &r.swapchain));
@@ -949,9 +968,16 @@ pub const Renderer = struct {
         if (r.stale or r.swapchain == null) try r.makeSwapchain();
         if (r.image_count == 0) return;
 
-        try check(d.vkWaitForFences.?(r.device, 1, &r.fence, c.VK_TRUE, std.math.maxInt(u64)));
+        // Short waits only: the UI thread draws, and must not block. The
+        // last frame's GPU work ends in a few ms; an image can stay held by
+        // the compositor for as long as the window does not repaint. In
+        // both cases this frame is skipped, and the shell tries again.
+        const fw = d.vkWaitForFences.?(r.device, 1, &r.fence, c.VK_TRUE, 50 * std.time.ns_per_ms);
+        if (fw == c.VK_TIMEOUT) return error.FrameBusy;
+        try check(fw);
         var index: u32 = 0;
-        const acq = d.vkAcquireNextImageKHR.?(r.device, r.swapchain, std.math.maxInt(u64), r.acquired, null, &index);
+        const acq = d.vkAcquireNextImageKHR.?(r.device, r.swapchain, 2 * std.time.ns_per_ms, r.acquired, null, &index);
+        if (acq == c.VK_TIMEOUT or acq == c.VK_NOT_READY) return error.FrameBusy;
         if (acq == c.VK_ERROR_OUT_OF_DATE_KHR) {
             r.stale = true;
             return;

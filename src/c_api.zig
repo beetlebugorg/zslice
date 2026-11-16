@@ -51,7 +51,7 @@ fn status(e: anyerror) c_int {
         error.PartTooThin => .part_too_thin,
         error.WriteFailed => .write_failed,
         error.Canceled => .canceled,
-        error.Busy => .busy,
+        error.Busy, error.FrameBusy => .busy,
         error.NoModel => .no_model,
         error.NoResult => .no_result,
         error.OutOfRange => .out_of_range,
@@ -395,6 +395,25 @@ export fn zs_app_stats(a: ?*const App, out: ?*Stats) c_int {
 
 /// The G-code of the last slice. The bytes stay valid until the next
 /// slice, the next model, or zs_app_free.
+/// The number of islands of the last slice (see islands.zig).
+export fn zs_app_island_count(a: ?*const App) usize {
+    const app = a orelse return 0;
+    return app.islands().len;
+}
+
+/// Island i: its layer, its place (mm), and its area (mm²).
+export fn zs_app_island_get(a: ?*const App, i: usize, layer: ?*usize, x: ?*f64, y: ?*f64, area: ?*f64) c_int {
+    const app = a orelse return @intFromEnum(Status.invalid_argument);
+    const all = app.islands();
+    if (i >= all.len) return @intFromEnum(Status.invalid_argument);
+    const isl = all[i];
+    if (layer) |p| p.* = isl.layer;
+    if (x) |p| p.* = isl.x;
+    if (y) |p| p.* = isl.y;
+    if (area) |p| p.* = isl.area;
+    return ok;
+}
+
 /// Adds a support mark: kind 0 grid, 1 tree, 2 bridge (a pad), 3 block.
 export fn zs_app_mark_add(a: ?*App, x: f64, y: f64, z: f64, r: f64, kind: c_int) c_int {
     const app = a orelse return @intFromEnum(Status.invalid_argument);

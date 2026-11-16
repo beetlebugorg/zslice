@@ -38,5 +38,7 @@ void zg_view3d_set_layer(GtkWidget *view, size_t layer);
 /* Opens the context menu (support marks for the selected line, and the
  * view), in the middle of the view. */
 void zg_view3d_context_menu(GtkWidget *view);
+/* TRUE while the context menu is open (its keys are its own). */
+gboolean zg_view3d_menu_open(GtkWidget *view);
 /* Shows the layers from lo to hi. */
 void zg_view3d_set_layer_range(GtkWidget *view, size_t lo, size_t hi);
