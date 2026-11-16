@@ -15,7 +15,12 @@ const feature_names = @import("feature_settings.zig").feature_names;
 ///   path_closed[i] is 1;
 /// - layer j has the paths from layer_ends[j - 1] to layer_ends[j], at the
 ///   height layer_z[j], with the layer height layer_height[j] and the line
-///   width layer_width[j].
+///   width layer_width[j];
+/// - a path whose nozzle height changes along it (slope smoothing) has
+///   path_z_start[i] < no_z: its point k has the nozzle z
+///   point_z[path_z_start[i] + k] and the bead area
+///   point_area[path_z_start[i] + k]. The bead is under the nozzle, down
+///   to the top of the layer below (layer_z - layer_height).
 pub const Toolpaths = struct {
     points: std.ArrayList(f32) = .empty,
     path_ends: std.ArrayList(u32) = .empty,
@@ -38,7 +43,13 @@ pub const Toolpaths = struct {
     layer_z: std.ArrayList(f32) = .empty,
     layer_height: std.ArrayList(f32) = .empty,
     layer_width: std.ArrayList(f32) = .empty,
+    path_z_start: std.ArrayList(u32) = .empty,
+    point_z: std.ArrayList(f32) = .empty,
+    /// The deposited bead area (mm²), with the flow ratio.
+    point_area: std.ArrayList(f32) = .empty,
     gpa: ?Allocator = null,
+
+    pub const no_z = std.math.maxInt(u32);
 
     pub fn deinit(t: *Toolpaths, gpa: Allocator) void {
         t.points.deinit(gpa);
@@ -54,6 +65,9 @@ pub const Toolpaths = struct {
         t.layer_z.deinit(gpa);
         t.layer_height.deinit(gpa);
         t.layer_width.deinit(gpa);
+        t.path_z_start.deinit(gpa);
+        t.point_z.deinit(gpa);
+        t.point_area.deinit(gpa);
         t.* = .{};
     }
 
@@ -83,6 +97,21 @@ pub const Toolpaths = struct {
     /// The first path of a layer.
     fn layerStart(t: *const Toolpaths, layer: usize) usize {
         return if (layer == 0) 0 else t.layer_ends.items[layer - 1];
+    }
+
+    /// The nozzle z range of a path: the layer z for a planar path.
+    pub fn pathZRange(t: *const Toolpaths, path: usize, layer: usize) [2]f32 {
+        const zl = t.layer_z.items[layer];
+        const k = t.path_z_start.items[path];
+        if (k == no_z) return .{ zl, zl };
+        const n = t.path_ends.items[path] - t.pathStart(path);
+        var lo: f32 = std.math.inf(f32);
+        var hi: f32 = -std.math.inf(f32);
+        for (t.point_z.items[k..][0..n]) |z| {
+            lo = @min(lo, z);
+            hi = @max(hi, z);
+        }
+        return .{ lo, hi };
     }
 
     /// The length of a path in mm, with the closing segment of a closed
@@ -189,6 +218,18 @@ pub const Toolpaths = struct {
         const start_time = try t.path_start_time.addManyAsSlice(gpa, n);
         const end_time = try t.path_end_time.addManyAsSlice(gpa, n);
         const retract = try t.path_retract.addManyAsSlice(gpa, n);
+        const z_start = try t.path_z_start.addManyAsSlice(gpa, n);
+        const flow_ratio: f32 = @floatCast(if (plan.resolved) |r| r.settings.filament.flow_ratio else 1);
+        for (plan.paths.items, 0..) |p, i| {
+            z_start[i] = no_z;
+            if (p.z_start == zs.layer.Path.planar) continue;
+            z_start[i] = @intCast(t.point_z.items.len);
+            const len = plan.points.get(i).len;
+            for (plan.point_z.items[p.z_start..][0..len]) |d| {
+                try t.point_z.append(gpa, d.z);
+                try t.point_area.append(gpa, d.area * flow_ratio);
+            }
+        }
         for (plan.paths.items, infos, 0..) |p, info, i| {
             features[i] = @intFromEnum(p.feature);
             closed[i] = @intFromBool(p.closed);

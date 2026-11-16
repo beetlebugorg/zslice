@@ -701,11 +701,22 @@ pub const App = struct {
         }
         const s = app.settings;
         try w.print("\n## The printer and the filament\n- printer: {s}, bed {d} x {d} mm, nozzle {d} mm, max speed {d} mm/s, max acceleration {d} mm/s2, corner speed {d} mm/s\n- filament: {s}, {d} mm, nozzle {d} C, bed {d} C, max flow {d} mm3/s\n", .{ s.machine.name, s.machine.bed_size_x, s.machine.bed_size_y, s.machine.nozzle_diameter, s.machine.max_speed, s.machine.max_accel, s.machine.corner_speed, s.filament.name, s.filament.diameter, s.filament.nozzle_temp, s.filament.bed_temp, s.filament.max_flow });
-        try w.print("\n## The path (x, y in mm on the bed; the first 40 points)\n", .{});
         const start: usize = if (path == 0) 0 else t.path_ends.items[path - 1];
         const end: usize = t.path_ends.items[path];
+        const z0 = if (path < t.path_z_start.items.len) t.path_z_start.items[path] else Toolpaths.no_z;
+        if (z0 == Toolpaths.no_z) {
+            try w.print("\n## The path (x, y in mm on the bed; the first 40 points)\n", .{});
+        } else {
+            try w.print("\n## The path (x, y, and the nozzle z in mm on the bed; the first 40 points)\n", .{});
+        }
         var k = start;
-        while (k < end and k < start + 40) : (k += 1) try w.print("{d:.2},{d:.2}\n", .{ t.points.items[2 * k], t.points.items[2 * k + 1] });
+        while (k < end and k < start + 40) : (k += 1) {
+            if (z0 == Toolpaths.no_z) {
+                try w.print("{d:.2},{d:.2}\n", .{ t.points.items[2 * k], t.points.items[2 * k + 1] });
+            } else {
+                try w.print("{d:.2},{d:.2},{d:.3}\n", .{ t.points.items[2 * k], t.points.items[2 * k + 1], t.point_z.items[z0 + (k - start)] });
+            }
+        }
         if (end - start > 40) try w.print("... ({d} points in all)\n", .{end - start});
         // Where the line is in the G-code: the file, the line numbers, and
         // the lines.
@@ -1118,6 +1129,44 @@ test {
     _ = setting_effect;
     _ = setting_info;
     _ = @import("app/feature_settings.zig");
+}
+
+test "app: slope smoothing paths carry a z for each point" {
+    const gpa = testing.allocator;
+    var mesh = try zs.mesh.shapes.wedge(gpa, 20, 20, 1, 6);
+    defer mesh.deinit(gpa);
+    var stl: std.Io.Writer.Allocating = .init(gpa);
+    defer stl.deinit();
+    try mesh.writeStl(&stl.writer);
+    const app = try App.create(gpa, null, null);
+    defer app.destroy();
+    try app.loadStl("wedge.stl", stl.written());
+    try app.setSetting("project.slope_smoothing", "true");
+    try app.setSetting("machine.nozzle_tip_radius", "0.35");
+    try app.startSlice();
+    app.stopWorkerForTest();
+    try testing.expectEqual(State.done, app.getState());
+    const tp = app.allToolpaths().?;
+    try testing.expectEqual(tp.pathCount(), tp.path_z_start.items.len);
+    try testing.expectEqual(tp.point_z.items.len, tp.point_area.items.len);
+    var found: ?usize = null;
+    for (tp.path_features.items, 0..) |f, pi| {
+        const smooth = f == @intFromEnum(zs.settings.Feature.slope_smoothing);
+        try testing.expectEqual(smooth, tp.path_z_start.items[pi] != Toolpaths.no_z);
+        if (!smooth) continue;
+        found = pi;
+        const l = tp.layerOfPath(pi).?;
+        const zr = tp.pathZRange(pi, l);
+        try testing.expect(zr[0] >= tp.layer_z.items[l] - tp.layer_height.items[l] / 2 - 1e-4);
+        try testing.expect(zr[1] <= tp.layer_z.items[l] + 1e-4);
+    }
+    const pi = found.?;
+    const info = try app.inspect(pi);
+    try testing.expectEqualStrings("Slope smoothing", info.title);
+    try testing.expect(std.mem.indexOf(u8, info.explain, "Slope smoothing: after the layer") != null);
+    try testing.expect(info.height < tp.layer_height.items[info.layer]);
+    const report = try app.lineReport(pi, "wedge.gcode");
+    try testing.expect(std.mem.indexOf(u8, report, "nozzle z") != null);
 }
 
 test "app: load, slice, preview, and export" {

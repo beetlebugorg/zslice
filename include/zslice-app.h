@@ -220,7 +220,16 @@ typedef struct zs_toolpaths {
     float z_hop;                  /* the nozzle lift of a retracted travel, mm */
     const uint8_t *layer_slowed;  /* 1 if the layer prints slower than planned,
                                      to cool (filament.min_layer_time) */
+    /* A path whose nozzle z changes along it (slope smoothing) has
+     * path_z_start[i] != ZS_NO_Z. Its point k has the nozzle z
+     * point_z[path_z_start[i] + k] and the bead area (mm^2)
+     * point_area[path_z_start[i] + k]. The bead is under the nozzle, down
+     * to the top of the layer below (layer_z - layer_height). */
+    const uint32_t *path_z_start;
+    const float *point_z;
+    const float *point_area;
 } zs_toolpaths;
+#define ZS_NO_Z 0xffffffffu
 
 int zs_app_toolpaths(const zs_app *app, zs_toolpaths *out);
 

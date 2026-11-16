@@ -299,6 +299,9 @@ pub const Toolpaths = extern struct {
     path_retract: [*]const u8,
     z_hop: f32,
     layer_slowed: [*]const u8,
+    path_z_start: [*]const u32,
+    point_z: [*]const f32,
+    point_area: [*]const f32,
 };
 
 /// The paths of all layers, for a 3D view. The arrays stay valid until the
@@ -324,6 +327,9 @@ export fn zs_app_toolpaths(a: ?*const App, out: ?*Toolpaths) c_int {
         .path_retract = t.path_retract.items.ptr,
         .z_hop = t.z_hop,
         .layer_slowed = t.layer_slowed.items.ptr,
+        .path_z_start = t.path_z_start.items.ptr,
+        .point_z = t.point_z.items.ptr,
+        .point_area = t.point_area.items.ptr,
     };
     return ok;
 }

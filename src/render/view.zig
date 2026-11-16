@@ -280,20 +280,36 @@ pub const View = struct {
                 }
                 const t0 = tp.path_start_time.items[pi];
                 const t1 = tp.path_end_time.items[pi];
+                // A path with a z for each point (slope smoothing): each
+                // bead has the mean z and area of its two ends, and goes
+                // down to the top of the layer below.
+                const z_start = if (pi < tp.path_z_start.items.len) tp.path_z_start.items[pi] else app_mod.Toolpaths.no_z;
+                const z_low = (tp.layer_z.items[l] - tp.layer_height.items[l]) * sz;
                 var run: f32 = 0;
                 for (0..segs) |k| {
                     const a = start + @as(u32, @intCast(k));
                     const b = if (a + 1 < end) a + 1 else start;
                     run += std.math.hypot(pts[2 * b] - pts[2 * a], pts[2 * b + 1] - pts[2 * a + 1]);
                     v.bead_end.append(gpa, if (path_len > 0) t0 + (t1 - t0) * run / path_len else t1) catch return error.OutOfMemory;
+                    var bz = z;
+                    var bh = h;
+                    var bw = w;
+                    if (z_start != app_mod.Toolpaths.no_z) {
+                        const ia = z_start + (a - start);
+                        const ib = z_start + (b - start);
+                        bz = (tp.point_z.items[ia] + tp.point_z.items[ib]) / 2 * sz;
+                        bh = @max(bz - z_low, 0.01);
+                        const area = (tp.point_area.items[ia] + tp.point_area.items[ib]) / 2;
+                        bw = @floatCast(@import("../flow.zig").beadWidth(area, bh / sz) * sxy);
+                    }
                     boxes.append(gpa, .{
                         .ax = center[0] + (pts[2 * a] - center[0]) * sxy,
                         .ay = center[1] + (pts[2 * a + 1] - center[1]) * sxy,
                         .bx = center[0] + (pts[2 * b] - center[0]) * sxy,
                         .by = center[1] + (pts[2 * b + 1] - center[1]) * sxy,
-                        .z = z,
-                        .h = h,
-                        .w = w,
+                        .z = bz,
+                        .h = bh,
+                        .w = bw,
                         // The alpha byte has the feature, for `setFocus`.
                         .rgba = .{ rgb[0], rgb[1], rgb[2], f },
                     }) catch return error.OutOfMemory;
