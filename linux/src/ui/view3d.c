@@ -175,6 +175,9 @@ static void load_data(View3d *v) {
             size_t path = zs_view_pick(v->view, (float)(g_ascii_strtod(xy[0], NULL) * scale), (float)(g_ascii_strtod(xy[1], NULL) * scale));
             v->picked = TRUE;
             if (path != (size_t)-1) zg_model_select(v->model, (gint64)path);
+            /* As after a click: the keys go to the preview. */
+            GtkWidget *preview = gtk_widget_get_ancestor(v->area, GTK_TYPE_OVERLAY);
+            if (preview) gtk_widget_grab_focus(preview);
         }
         g_strfreev(xy);
     }

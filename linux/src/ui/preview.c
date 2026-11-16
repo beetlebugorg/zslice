@@ -480,6 +480,151 @@ static void on_stack_page(GObject *stack, GParamSpec *pspec, gpointer data) {
     }
 }
 
+/* ---- keyboard navigation ----
+ *
+ * With a selected line: Left/Right (h/l) select the line before or after it
+ * in print order, and Up/Down (k/j) the nearest line on the layer above or
+ * below (a line of the same feature wins a near tie). Escape clears the
+ * selection. With no selection: Up/Down (k/j) move the top layer, and with
+ * Shift the bottom layer; Page Up/Page Down move 10 layers. */
+
+static size_t layer_of_path(const zs_toolpaths *tp, size_t path) {
+    size_t lo = 0, hi = tp->layer_count;
+    while (lo < hi) {
+        size_t mid = (lo + hi) / 2;
+        if (tp->layer_ends[mid] <= path) lo = mid + 1;
+        else hi = mid;
+    }
+    return lo;
+}
+
+/* Shows the layer range after a change from the keys. */
+static void apply_range(Preview *p) {
+    ZgLayerRange *r = ZG_LAYER_RANGE(p->slider);
+    stop_replay(p);
+    p->time = 0;
+    load_layer(p, zg_layer_range_get_hi(r));
+    zg_view3d_set_layer_range(p->view3d, zg_layer_range_get_lo(r), zg_layer_range_get_hi(r));
+}
+
+/* The top layer goes to the layer of the selection, so the 2D view shows
+ * it and nothing hides it in 3D. */
+static void show_layer(Preview *p, size_t layer) {
+    ZgLayerRange *r = ZG_LAYER_RANGE(p->slider);
+    if (layer == zg_layer_range_get_hi(r)) return;
+    zg_layer_range_set(r, MIN(zg_layer_range_get_lo(r), layer), layer);
+    apply_range(p);
+}
+
+static double seg_dist2(double px, double py, double ax, double ay, double bx, double by) {
+    double dx = bx - ax, dy = by - ay;
+    double l2 = dx * dx + dy * dy;
+    double t = l2 > 0 ? ((px - ax) * dx + (py - ay) * dy) / l2 : 0;
+    t = CLAMP(t, 0, 1);
+    double ex = ax + t * dx - px, ey = ay + t * dy - py;
+    return ex * ex + ey * ey;
+}
+
+/* The line on `layer` nearest to the middle point of `path`, or -1. */
+static gint64 nearest_on_layer(const zs_toolpaths *tp, size_t path, size_t layer) {
+    uint32_t a = path == 0 ? 0 : tp->path_ends[path - 1], b = tp->path_ends[path];
+    if (b <= a) return -1;
+    uint32_t m = a + (b - a) / 2;
+    double px = tp->points[2 * m], py = tp->points[2 * m + 1];
+    uint8_t feature = tp->path_features[path];
+    size_t first = layer == 0 ? 0 : tp->layer_ends[layer - 1];
+    gint64 best = -1;
+    double best_d = G_MAXDOUBLE;
+    for (size_t i = first; i < tp->layer_ends[layer]; i++) {
+        uint32_t s = i == 0 ? 0 : tp->path_ends[i - 1], e = tp->path_ends[i];
+        double d = G_MAXDOUBLE;
+        for (uint32_t k = s; k + 1 < e; k++)
+            d = MIN(d, seg_dist2(px, py, tp->points[2 * k], tp->points[2 * k + 1], tp->points[2 * k + 2], tp->points[2 * k + 3]));
+        if (e == s + 1) d = MIN(d, seg_dist2(px, py, tp->points[2 * s], tp->points[2 * s + 1], tp->points[2 * s], tp->points[2 * s + 1]));
+        d = sqrt(d);
+        /* Another feature counts as 1 mm farther. */
+        if (tp->path_features[i] != feature) d += 1.0;
+        if (d < best_d) {
+            best_d = d;
+            best = (gint64)i;
+        }
+    }
+    return best;
+}
+
+static gboolean on_preview_key(GtkEventControllerKey *c, guint key, guint code, GdkModifierType mods, gpointer data) {
+    Preview *p = data;
+    if (mods & (GDK_CONTROL_MASK | GDK_ALT_MASK | GDK_SUPER_MASK)) return FALSE;
+    /* Typing in a text field of the preview (none now) keeps its keys. */
+    GtkWidget *focus = gtk_root_get_focus(gtk_widget_get_root(p->area));
+    if (focus && GTK_IS_EDITABLE(focus)) return FALSE;
+    zs_toolpaths tp;
+    if (zs_app_toolpaths(zg_model_core(p->model), &tp) != ZS_OK || tp.layer_count == 0) return FALSE;
+    gint64 sel = zg_model_selected(p->model);
+    int dir = 0;      /* -1 back, +1 forward: along the print */
+    int layer_dir = 0; /* -1 down, +1 up */
+    int jump = 1;
+    switch (key) {
+    case GDK_KEY_Left: case GDK_KEY_h: dir = -1; break;
+    case GDK_KEY_Right: case GDK_KEY_l: dir = 1; break;
+    case GDK_KEY_Up: case GDK_KEY_k: case GDK_KEY_K: layer_dir = 1; break;
+    case GDK_KEY_Down: case GDK_KEY_j: case GDK_KEY_J: layer_dir = -1; break;
+    case GDK_KEY_Page_Up: layer_dir = 1; jump = 10; break;
+    case GDK_KEY_Page_Down: layer_dir = -1; jump = 10; break;
+    case GDK_KEY_Escape:
+        if (sel < 0) return FALSE;
+        zg_model_select(p->model, -1);
+        return TRUE;
+    default: return FALSE;
+    }
+    if (sel >= 0 && (size_t)sel < tp.path_count) {
+        if (dir != 0) {
+            gint64 next = sel + dir;
+            if (next < 0 || (size_t)next >= tp.path_count) return TRUE;
+            zg_model_select(p->model, next);
+            show_layer(p, layer_of_path(&tp, (size_t)next));
+            return TRUE;
+        }
+        /* Up or down: the nearest line, jump layers away (a layer with no
+         * lines is passed). */
+        long layer = (long)layer_of_path(&tp, (size_t)sel);
+        long target = CLAMP(layer + layer_dir * jump, 0, (long)tp.layer_count - 1);
+        while (target != layer) {
+            gint64 hit = nearest_on_layer(&tp, (size_t)sel, (size_t)target);
+            if (hit >= 0) {
+                zg_model_select(p->model, hit);
+                show_layer(p, (size_t)target);
+                return TRUE;
+            }
+            target += layer_dir;
+            if (target < 0 || target >= (long)tp.layer_count) break;
+        }
+        return TRUE;
+    }
+    /* No selection: the keys move the layers. */
+    if (layer_dir == 0) return FALSE;
+    ZgLayerRange *r = ZG_LAYER_RANGE(p->slider);
+    long lo = (long)zg_layer_range_get_lo(r), hi = (long)zg_layer_range_get_hi(r);
+    long n = (long)tp.layer_count;
+    if (mods & GDK_SHIFT_MASK) {
+        lo = CLAMP(lo + layer_dir * jump, 0, n - 1);
+        if (hi < lo) hi = lo;
+    } else {
+        hi = CLAMP(hi + layer_dir * jump, 0, n - 1);
+        if (lo > hi) lo = hi;
+    }
+    zg_layer_range_set(r, (size_t)lo, (size_t)hi);
+    apply_range(p);
+    return TRUE;
+}
+
+/* A press in the preview gives it the keyboard focus, so the keys work
+ * after a click on a line. */
+static void on_preview_press(GtkGestureClick *g, int n, double x, double y, gpointer data) {
+    GtkWidget *box = gtk_event_controller_get_widget(GTK_EVENT_CONTROLLER(g));
+    gtk_widget_grab_focus(box);
+}
+
 GtkWidget *zg_preview_new(ZgModel *model) {
     Preview *p = g_new0(Preview, 1);
     p->model = g_object_ref(model);
@@ -610,6 +755,17 @@ GtkWidget *zg_preview_new(ZgModel *model) {
     gtk_widget_set_margin_end(p->slider_box, 8);
 
     GtkWidget *box = gtk_overlay_new();
+    gtk_widget_set_focusable(box, TRUE);
+    /* The keys of the preview: before its children (the slider) see them. */
+    GtkEventController *keys = gtk_event_controller_key_new();
+    gtk_event_controller_set_propagation_phase(keys, GTK_PHASE_CAPTURE);
+    g_signal_connect(keys, "key-pressed", G_CALLBACK(on_preview_key), p);
+    gtk_widget_add_controller(box, keys);
+    GtkGesture *press = gtk_gesture_click_new();
+    gtk_gesture_single_set_button(GTK_GESTURE_SINGLE(press), 0);
+    gtk_event_controller_set_propagation_phase(GTK_EVENT_CONTROLLER(press), GTK_PHASE_CAPTURE);
+    g_signal_connect(press, "pressed", G_CALLBACK(on_preview_press), NULL);
+    gtk_widget_add_controller(box, GTK_EVENT_CONTROLLER(press));
     gtk_overlay_set_child(GTK_OVERLAY(box), stack);
     gtk_overlay_add_overlay(GTK_OVERLAY(box), bar);
     gtk_overlay_add_overlay(GTK_OVERLAY(box), p->slider_box);

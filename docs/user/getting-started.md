@@ -165,6 +165,21 @@ A value out of the usual range shows in the warning color, and its tooltip gives
 | Double-click | Reset the view (also removes a roll) |
 | Left click | Pick a line (see below) |
 
+## Keys in the preview
+
+Click in the preview first, so that it gets the keys.
+
+| Key | With a selected line | With no selection |
+|---|---|---|
+| ← or h | The line before it, in print order | — |
+| → or l | The line after it, in print order | — |
+| ↑ or k | The nearest line on the layer above | The top layer up one |
+| ↓ or j | The nearest line on the layer below | The top layer down one |
+| Page Up, Page Down | 10 layers up or down | 10 layers up or down |
+| Esc | Clears the selection | — |
+
+Shift with ↑ or ↓ (or k or j) moves the bottom knob of the layer slider. A line of the same feature (for example an outer wall) wins over a line of another feature that is a little nearer. The layer slider follows the selection.
+
 ## More than one part
 
 Open adds each model to the plate (Ctrl+O, or drop files on the window). The first part keeps the place of its file if it is on the bed there; a new part goes to a free place. "Arrange the plate" in the menu packs all parts in rows.
