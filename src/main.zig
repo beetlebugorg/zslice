@@ -33,7 +33,7 @@ const usage =
     \\  bench     Slice in the app core: once from the start, then again
     \\            after a change of each kind of setting. Print the times
     \\            and the peak memory. --only KIND times one kind: full,
-    \\            late, walls, top, width, height, or xy. --runs N sets
+    \\            late, walls, top, width, height, xy, or cancel. --runs N sets
     \\            the slices of each kind (default 6).
     \\
     \\Options:
@@ -277,7 +277,39 @@ fn bench(backing: std.mem.Allocator, io: Io, err: *Io.Writer, name: []const u8, 
         }
         try printTimes(err, c.kind, times);
     }
+    if (only == null or std.mem.eql(u8, only.?, "cancel")) try benchCancel(app, io, err, settings);
     try err.print("peak memory: {d} MB resident (VmHWM), {d} MB allocated\n", .{ peakMb(io), counter.peak.load(.monotonic) >> 20 });
+}
+
+/// The time from a cancel to the end of the slice. A slice of new
+/// outlines starts, and after a delay a new value of the layer height
+/// cancels it, as in the app.
+fn benchCancel(app: *zslice.app.App, io: Io, err: *Io.Writer, settings: zslice.Settings) !void {
+    const delays = [_]i64{ 2, 5, 10, 20, 40, 80, 120, 160 };
+    var worst: f64 = 0;
+    var sum: f64 = 0;
+    var n: usize = 0;
+    for (0..3) |round| {
+        for (delays, 0..) |d, k| {
+            app.settings = settings;
+            const h = 0.2 + 0.001 * @as(f64, @floatFromInt(round * delays.len + k + 1));
+            var buf: [32]u8 = undefined;
+            try app.setSetting("project.layer_height", try std.fmt.bufPrint(&buf, "{d:.3}", .{h}));
+            try app.requestSlice();
+            try io.sleep(.fromMilliseconds(d), .awake);
+            const t0 = Io.Clock.awake.now(io);
+            app.cancel();
+            if (app.worker) |t| {
+                t.join();
+                app.worker = null;
+            }
+            const ms = @as(f64, @floatFromInt(t0.untilNow(io, .awake).toNanoseconds())) / 1e6;
+            worst = @max(worst, ms);
+            sum += ms;
+            n += 1;
+        }
+    }
+    try err.print("{s:<14} mean {d:>7.1} ms   worst {d:>7.1} ms\n", .{ "cancel", sum / @as(f64, @floatFromInt(n)), worst });
 }
 
 /// An allocator that counts the bytes in use and keeps the peak. It is
