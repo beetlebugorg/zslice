@@ -612,7 +612,7 @@ GtkWindow *zg_window_new(GtkApplication *app, ZgModel *model) {
     /* Header bar. */
     GtkWidget *header = gtk_header_bar_new();
     GtkWidget *open = gtk_button_new_from_icon_name("document-open-symbolic");
-    gtk_widget_set_tooltip_text(open, "Add models to the plate (Ctrl+O). Shift+click a part to select it; Shift+drag moves it, and Shift+wheel turns it.");
+    gtk_widget_set_tooltip_text(open, "Add models to the plate (Ctrl+O). Ctrl+click a part to select it; Ctrl+drag moves it, and Ctrl+wheel turns it. Shift+click adds a line to the selection.");
     g_signal_connect(open, "clicked", G_CALLBACK(on_open_clicked), w->window);
     gtk_header_bar_pack_start(GTK_HEADER_BAR(header), open);
 

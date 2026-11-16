@@ -67,6 +67,9 @@ pub const View = struct {
     /// The rings of the support marks of the app (see support.Mark): 12
     /// beads each, drawn as extras.
     mark_rings: std.ArrayList(vk.Instance) = .empty,
+    /// The other selected paths (a multiple selection): their beads are
+    /// yellow in the instance buffer. A load clears them.
+    more: std.ArrayList(usize) = .empty,
     /// The bead of a selected segment (see setSegment), or null.
     seg_bead: ?usize = null,
     /// With a selection: the other beads are ghosts.
@@ -130,6 +133,7 @@ pub const View = struct {
     pub fn destroy(v: *View) void {
         v.layer_end.deinit(gpa);
         v.mark_rings.deinit(gpa);
+        v.more.deinit(gpa);
         v.path_start.deinit(gpa);
         v.beads.deinit(gpa);
         v.bead_end.deinit(gpa);
@@ -299,6 +303,7 @@ pub const View = struct {
         v.path_start.append(gpa, @intCast(boxes.items.len)) catch return error.OutOfMemory;
         try v.loadMarks(tp, filament, center, sxy, sz);
         try v.renderer.setInstances(boxes.items, v.marks.items);
+        v.more.clearRetainingCapacity();
 
         if (app.partBounds()) |b| {
             // The camera turns around the center of the bed (as in other
@@ -766,6 +771,22 @@ pub const View = struct {
         var p = lo - 1;
         while (p + 1 < v.path_start.items.len and v.path_start.items[p + 1] <= i) p += 1;
         return .{ p, i - v.path_start.items[p] };
+    }
+
+    /// The other paths of a multiple selection: yellow, as the highlighted
+    /// path. The beads go to the GPU again (only on a change of the
+    /// selection).
+    pub fn setMore(v: *View, paths: []const usize) Error!void {
+        v.more.clearRetainingCapacity();
+        v.more.appendSlice(gpa, paths) catch return error.OutOfMemory;
+        if (paths.len == 0) return v.renderer.setInstances(v.beads.items, v.marks.items);
+        const copy = gpa.dupe(vk.Instance, v.beads.items) catch return error.OutOfMemory;
+        defer gpa.free(copy);
+        for (paths) |p| {
+            if (p + 1 >= v.path_start.items.len) continue;
+            for (copy[v.path_start.items[p]..v.path_start.items[p + 1]]) |*b| b.rgba = .{ 0xff, 0xc7, 0x0d, b.rgba[3] };
+        }
+        try v.renderer.setInstances(copy, v.marks.items);
     }
 
     /// Marks one segment of the highlighted path (the bead `seg` of path

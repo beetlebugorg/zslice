@@ -1140,6 +1140,15 @@ export fn zs_view_pick_segment(view: ?*View, px: f32, py: f32, seg: ?*usize) usi
     return hit[0];
 }
 
+/// The other paths of a multiple selection (yellow), or none (n = 0).
+export fn zs_view_highlight_more(view: ?*View, paths: ?[*]const usize, n: usize) c_int {
+    if (!render_on) return @intFromEnum(Status.not_supported);
+    const v = view orelse return @intFromEnum(Status.invalid_argument);
+    const list: []const usize = if (paths) |p| p[0..n] else &.{};
+    v.setMore(list) catch |e| return status(e);
+    return ok;
+}
+
 export fn zs_view_highlight_segment(view: ?*View, path: usize, seg: isize) void {
     if (!render_on) return;
     const v = view orelse return;

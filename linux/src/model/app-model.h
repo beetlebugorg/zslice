@@ -33,7 +33,7 @@ gboolean zg_model_load(ZgModel *self, const char *name, const void *data, gsize 
  * empty), and starts a new slice. */
 gboolean zg_model_add(ZgModel *self, const char *name, const void *data, gsize len, GError **error);
 
-/* The selected part of the plate (Shift+click), or -1. "part-selected"
+/* The selected part of the plate (Ctrl+click), or -1. "part-selected"
  * follows each change. */
 void zg_model_select_part(ZgModel *self, gint64 part);
 gint64 zg_model_selected_part(ZgModel *self);
@@ -66,6 +66,13 @@ gint64 zg_model_selected(ZgModel *self);
 /* TRUE if the user selected a line, and the last slice has no line of that
  * kind at its place (the next slice can bring it back). */
 gboolean zg_model_selection_lost(ZgModel *self);
+/* A multiple selection (Shift+click): adds the line, or removes it if it
+ * is in the selection. The first line stays the line of the inspector.
+ * A plain zg_model_select clears the other lines. */
+void zg_model_toggle_more(ZgModel *self, gint64 path);
+/* The other lines of the selection (n of them; valid until the next
+ * change of the selection). */
+const gint64 *zg_model_more(ZgModel *self, guint *n);
 /* Support marks (see zs_app_mark_add): each call slices again. */
 void zg_model_mark_add(ZgModel *self, double x, double y, double z, double r, int kind);
 size_t zg_model_mark_remove_near(ZgModel *self, double x, double y, double z, double r);

@@ -226,6 +226,22 @@ static void draw(GtkDrawingArea *area, cairo_t *cr, int w, int h, gpointer data)
             else cairo_set_source_rgba(cr, zg_feature_rgb[f][0], zg_feature_rgb[f][1], zg_feature_rgb[f][2], in_focus ? 0.9 : 0.12);
             cairo_stroke(cr);
         }
+        /* The other lines of a multiple selection on this layer: yellow. */
+        guint n_more = 0;
+        const gint64 *more = zg_model_more(p->model, &n_more);
+        if (n_more > 0 && zs_app_toolpaths(core, &tp) == ZS_OK) {
+            size_t layer = zg_layer_range_get_hi(ZG_LAYER_RANGE(p->slider));
+            uint32_t first = layer == 0 ? 0 : tp.layer_ends[layer - 1];
+            for (guint k = 0; k < n_more; k++) {
+                gint64 m = more[k];
+                if (m < (gint64)first || m >= (gint64)tp.layer_ends[layer]) continue;
+                size_t i = (size_t)m - first;
+                uint32_t start = i == 0 ? 0 : lp->path_ends[i - 1];
+                add_polyline(cr, lp->points, start, lp->path_ends[i], lp->path_closed[i]);
+            }
+            cairo_set_source_rgba(cr, 1.0, 0.78, 0.05, 1.0);
+            cairo_stroke(cr);
+        }
         /* The selected line again, on top, in its own color. */
         if (sel >= 0 && zs_app_toolpaths(core, &tp) == ZS_OK) {
             size_t layer = zg_layer_range_get_hi(ZG_LAYER_RANGE(p->slider));
@@ -512,6 +528,12 @@ static void on_release(GtkGestureClick *g, int n, double x, double y, gpointer d
     double my = ((h - y) - p->oy) / p->scale;
     size_t layer = zg_layer_range_get_hi(ZG_LAYER_RANGE(p->slider));
     size_t path = zs_app_pick_layer(core, layer, mx, my);
+    /* Shift+click: add the line to the selection, or take it out. */
+    GdkModifierType mods = gtk_event_controller_get_current_event_state(GTK_EVENT_CONTROLLER(g));
+    if (mods & GDK_SHIFT_MASK) {
+        if (path != (size_t)-1) zg_model_toggle_more(p->model, (gint64)path);
+        return;
+    }
     zg_model_select(p->model, path == (size_t)-1 ? -1 : (gint64)path);
 }
 

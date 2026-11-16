@@ -986,7 +986,11 @@ static void on_scope_dd(GObject *dd, GParamSpec *pspec, gpointer data) {
 static void show_text(Inspector *ins, const zs_inspect *info) {
     ins->scope_z = info->z;
     apply_scope(ins);
-    char *title = g_strdup_printf("%s · layer %zu", info->title, info->layer + 1);
+    /* A multiple selection: the first line, and how many more. */
+    guint n_more = 0;
+    zg_model_more(ins->model, &n_more);
+    char *title = n_more > 0 ? g_strdup_printf("%s · layer %zu, and %u more line%s", info->title, info->layer + 1, n_more, n_more == 1 ? "" : "s")
+                             : g_strdup_printf("%s · layer %zu", info->title, info->layer + 1);
     gtk_label_set_text(GTK_LABEL(ins->title), title);
     g_free(title);
     gtk_label_set_text(GTK_LABEL(ins->explain), info->explain);
@@ -1153,7 +1157,7 @@ static void on_selection(ZgModel *model, gint64 path, gpointer data) {
     fill_inspector(ins);
 }
 
-/* ---- the part page (Shift+click on a part) ---- */
+/* ---- the part page (Ctrl+click on a part) ---- */
 
 typedef struct {
     ZgModel *model;
@@ -1320,7 +1324,7 @@ static GtkWidget *build_part_page(Inspector *ins) {
     }
     gtk_widget_set_tooltip_text(turns, "Reset: the orientation and the size of the file.");
     gtk_grid_attach(GTK_GRID(grid), turns, 0, row++, 4, 1);
-    GtkWidget *hint = wrapped_label("Shift+drag the part in the 3D view to move it, and Shift+wheel to turn it. Click a line to see its settings.");
+    GtkWidget *hint = wrapped_label("Ctrl+drag the part in the 3D view to move it, and Ctrl+wheel to turn it. Click a line to see its settings.");
     gtk_widget_add_css_class(hint, "dim-label");
     gtk_widget_set_margin_top(hint, 8);
     gtk_grid_attach(GTK_GRID(grid), hint, 0, row++, 4, 1);
@@ -1331,7 +1335,7 @@ static GtkWidget *build_part_page(Inspector *ins) {
     return grid;
 }
 
-/* Shift+click on a part: the part page. */
+/* Ctrl+click on a part: the part page. */
 static void on_part_selected(ZgModel *model, gint64 part, gpointer data) {
     Inspector *ins = data;
     if (part < 0) {

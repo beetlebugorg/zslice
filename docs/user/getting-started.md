@@ -200,8 +200,9 @@ A click on a line selects the line (yellow) and the segment under the pointer (o
 Open adds each model to the plate (Ctrl+O, or drop files on the window). The first part keeps the place of its file if it is on the bed there; a new part goes to a free place. "Arrange the plate" in the menu packs all parts in rows.
 
 - A click on a line selects the line (its settings are on the Selected page).
-- Shift+click on a part selects the part: a blue frame shows it on the bed, and the Selected page has its place, its turn, and "Turn 90°", "Arrange the plate", and "Remove".
-- Shift+drag moves the selected part, and Shift+wheel turns it by 15°.
+- Shift+click adds a line to the selection (or takes it out). With more than one line, a change for "This layer" goes to the layers of all of them, and "This layer and up" (or down) starts at the lowest (or ends at the highest) of them.
+- Ctrl+click on a part selects the part: a blue frame shows it on the bed, and the Selected page has its place, its turn, its scale, the placement, and "Remove".
+- Ctrl+drag moves the selected part, and Ctrl+wheel turns it by 15°.
 
 "Clear the plate" in the menu removes all parts.
 

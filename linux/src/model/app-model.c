@@ -46,6 +46,10 @@ struct _ZgModel {
     double anchor_z; /* the nozzle z of the selected line, mm */
     double anchor_x, anchor_y;
     int anchor_feature;
+    /* The other lines of a multiple selection (Shift+click), and their
+     * anchors (the same as the anchor of the first line). */
+    GArray *more;        /* gint64 */
+    GArray *more_anchor; /* Anchor */
     guint32 focus;
     gboolean focus_first;
     /* A setting changed while a slice ran: slice again when it ends. */
@@ -53,7 +57,7 @@ struct _ZgModel {
     /* The scope of the inspector edits (see zg_model_set_scope). */
     gboolean scope_on;
     double scope_min, scope_max, scope_show;
-    /* The selected part of the plate (Shift+click), or -1. */
+    /* The selected part of the plate (Ctrl+click), or -1. */
     gint64 part;
     /* The time of the last slice request, and of the last slice (ms). */
     gint64 slice_start;
@@ -158,6 +162,37 @@ static void bridge_clear(gpointer data) {
     g_weak_ref_clear(&b->model);
 }
 
+/* The place of a selected line, to find it again after a slice. */
+typedef struct {
+    double z, x, y;
+    int feature;
+} Anchor;
+
+static gboolean anchor_of(ZgModel *self, gint64 path, Anchor *a) {
+    zs_toolpaths tp;
+    if (path < 0 || zs_app_toolpaths(self->core, &tp) != ZS_OK || (size_t)path >= tp.path_count) return FALSE;
+    uint32_t start = path == 0 ? 0 : tp.path_ends[path - 1];
+    size_t layer = 0;
+    while (layer < tp.layer_count && tp.layer_ends[layer] <= (uint32_t)path) layer++;
+    a->z = layer < tp.layer_count ? tp.layer_z[layer] : 0;
+    a->x = tp.points[2 * start];
+    a->y = tp.points[2 * start + 1];
+    a->feature = tp.path_features[path];
+    return TRUE;
+}
+
+/* The line at an anchor in the new slice, or -1. */
+static gint64 find_anchor(ZgModel *self, const Anchor *a) {
+    zs_toolpaths tp;
+    if (zs_app_toolpaths(self->core, &tp) != ZS_OK || tp.layer_count == 0) return -1;
+    size_t layer = 0;
+    for (size_t l = 1; l < tp.layer_count; l++)
+        if (fabs(tp.layer_z[l] - a->z) < fabs(tp.layer_z[layer] - a->z)) layer = l;
+    size_t path = zs_app_pick_layer(self->core, layer, a->x, a->y);
+    if (path == (size_t)-1 || tp.path_features[path] != a->feature) path = zs_app_pick_feature(self->core, layer, a->feature, a->x, a->y);
+    return path == (size_t)-1 ? -1 : (gint64)path;
+}
+
 static gboolean deliver(gpointer data) {
     Pending *p = data;
     ZgModel *model = g_weak_ref_get(&p->bridge->model);
@@ -192,6 +227,12 @@ static gboolean deliver(gpointer data) {
             /* No line of that kind there now (for example no skin at
              * this top thickness): the anchor stays, so the next slice
              * can find the line again, and the inspector keeps its page. */
+            /* The other lines of a multiple selection, the same way. */
+            if (model->more) {
+                for (guint k = 0; k < model->more->len; k++) {
+                    g_array_index(model->more, gint64, k) = find_anchor(model, &g_array_index(model->more_anchor, Anchor, k));
+                }
+            }
             g_signal_emit(model, signals[SIGNAL_SELECTION_CHANGED], 0, model->selected);
         }
         g_signal_emit(model, signals[SIGNAL_CORE_EVENT], 0, p->event, p->progress, p->status);
@@ -219,6 +260,9 @@ static void on_core_event(void *user, int event, double progress, int status) {
 
 static void zg_model_dispose(GObject *object) {
     ZgModel *self = ZG_MODEL(object);
+    if (self->more) g_array_free(self->more, TRUE);
+    if (self->more_anchor) g_array_free(self->more_anchor, TRUE);
+    self->more = self->more_anchor = NULL;
     if (self->save_timer) {
         g_source_remove(self->save_timer);
         self->save_timer = 0;
@@ -280,6 +324,8 @@ static void zg_model_class_init(ZgModelClass *klass) {
 }
 
 void zg_model_select(ZgModel *self, gint64 path) {
+    if (self->more) g_array_set_size(self->more, 0);
+    if (self->more_anchor) g_array_set_size(self->more_anchor, 0);
     self->selected = path;
     self->segment = -1;
     self->anchored = FALSE;
@@ -342,7 +388,32 @@ gboolean zg_model_set_for(ZgModel *self, const char *key, const char *value, gbo
         }
     }
     if (!scoped || !self->scope_on || !per_layer) return zg_model_set(self, key, value, error);
-    int rc = zs_app_override_set(self->core, self->scope_min, self->scope_max, key, value);
+    int rc = ZS_OK;
+    guint n_more = self->more ? self->more->len : 0;
+    if (n_more == 0) {
+        rc = zs_app_override_set(self->core, self->scope_min, self->scope_max, key, value);
+    } else {
+        /* A multiple selection: the scope covers the layers of all lines.
+         * This layer: each of their layers. And up, and down: from the
+         * lowest or to the highest of them. */
+        double lo = self->scope_min, hi = self->scope_max;
+        gboolean up = hi > 1e5, down = lo < -1e5;
+        double zmin = self->scope_show, zmax = self->scope_show;
+        for (guint k = 0; k < n_more; k++) {
+            double z = g_array_index(self->more_anchor, Anchor, k).z;
+            zmin = MIN(zmin, z);
+            zmax = MAX(zmax, z);
+        }
+        if (up || down) {
+            rc = zs_app_override_set(self->core, up ? zmin - 1e-3 : lo, down ? zmax + 1e-3 : hi, key, value);
+        } else {
+            rc = zs_app_override_set(self->core, lo, hi, key, value);
+            for (guint k = 0; k < n_more && rc == ZS_OK; k++) {
+                double z = g_array_index(self->more_anchor, Anchor, k).z;
+                rc = zs_app_override_set(self->core, z - 1e-3, z + 1e-3, key, value);
+            }
+        }
+    }
     if (rc != ZS_OK) return fail(error, rc);
     g_signal_emit(self, signals[SIGNAL_SETTING_CHANGED], 0, key);
     slice_soon(self);
@@ -425,6 +496,52 @@ void zg_model_marks_clear(ZgModel *self) {
     if (zs_app_mark_count(self->core) == 0) return;
     zs_app_marks_clear(self->core);
     request_slice(self);
+}
+
+void zg_model_toggle_more(ZgModel *self, gint64 path) {
+    if (path < 0) return;
+    if (self->selected < 0) {
+        zg_model_select(self, path);
+        return;
+    }
+    if (!self->more) {
+        self->more = g_array_new(FALSE, FALSE, sizeof(gint64));
+        self->more_anchor = g_array_new(FALSE, FALSE, sizeof(Anchor));
+    }
+    /* The first line again: the next line becomes the first. */
+    if (path == self->selected) {
+        if (self->more->len == 0) return;
+        gint64 next = g_array_index(self->more, gint64, 0);
+        GArray *rest = g_array_new(FALSE, FALSE, sizeof(gint64));
+        GArray *rest_a = g_array_new(FALSE, FALSE, sizeof(Anchor));
+        g_array_append_vals(rest, self->more->data ? (gint64 *)self->more->data + 1 : NULL, self->more->len - 1);
+        g_array_append_vals(rest_a, (Anchor *)self->more_anchor->data + 1, self->more_anchor->len - 1);
+        zg_model_select(self, next);
+        g_array_append_vals(self->more, rest->data, rest->len);
+        g_array_append_vals(self->more_anchor, rest_a->data, rest_a->len);
+        g_array_free(rest, TRUE);
+        g_array_free(rest_a, TRUE);
+        g_signal_emit(self, signals[SIGNAL_SELECTION_CHANGED], 0, self->selected);
+        return;
+    }
+    for (guint k = 0; k < self->more->len; k++) {
+        if (g_array_index(self->more, gint64, k) == path) {
+            g_array_remove_index(self->more, k);
+            g_array_remove_index(self->more_anchor, k);
+            g_signal_emit(self, signals[SIGNAL_SELECTION_CHANGED], 0, self->selected);
+            return;
+        }
+    }
+    Anchor a;
+    if (!anchor_of(self, path, &a)) return;
+    g_array_append_val(self->more, path);
+    g_array_append_val(self->more_anchor, a);
+    g_signal_emit(self, signals[SIGNAL_SELECTION_CHANGED], 0, self->selected);
+}
+
+const gint64 *zg_model_more(ZgModel *self, guint *n) {
+    *n = self->more ? self->more->len : 0;
+    return self->more ? (const gint64 *)self->more->data : NULL;
 }
 
 gboolean zg_model_selection_lost(ZgModel *self) {

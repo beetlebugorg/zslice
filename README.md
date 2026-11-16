@@ -55,7 +55,8 @@ A slicer for FDM 3D printers, written from scratch in Zig. It is fast enough to 
 
 ### Plate, files, and printers
 
-- More than one part on the plate: Shift+click selects a part, Shift+drag moves it, and Shift+wheel turns it. "Arrange the plate" packs the parts.
+- More than one part on the plate: Ctrl+click selects a part, Ctrl+drag moves it, and Ctrl+wheel turns it. "Smart placement" turns each part for less support and packs the plate; a part can also be placed for less support only, or to be strong along an axis, and turned, scaled, or put down on a picked side.
+- Shift+click adds lines to the selection: a change for "This layer" goes to the layers of all of them.
 - STL and 3MF files. A 3MF save keeps the parts, their places, and their changes.
 - Printers: OctoPrint, Moonraker (Klipper), Printdeck, and USB serial. Send a file, or send it and print. The Printdeck link reads the filaments of the printer. Moonraker and USB are not tested on real printers yet.
 - Profiles for the machine, the filament, and the project, in TOML, with inheritance. A Cura profile can be imported.

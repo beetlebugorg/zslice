@@ -488,6 +488,9 @@ size_t zs_view_pick_segment(zs_view *view, float x, float y, size_t *seg);
 /* Marks one segment of the highlighted path in orange; seg < 0: none.
  * zs_view_highlight clears it. */
 void zs_view_highlight_segment(zs_view *view, size_t path, ptrdiff_t seg);
+/* The other paths of a multiple selection, in yellow too (n = 0: none).
+ * A new load clears them. */
+int zs_view_highlight_more(zs_view *view, const size_t *paths, size_t n);
 /* Draws and presents one frame. Call it after a change. */
 int zs_view_draw(zs_view *view);
 

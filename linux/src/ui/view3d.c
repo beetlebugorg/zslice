@@ -39,12 +39,13 @@ typedef struct {
     /* TRUE while the widget is unmapped: no frames, the subsurface is
      * hidden. */
     gboolean hidden;
-    /* A Shift+drag that moves a part: the part, its place at the start,
+    /* A Ctrl+drag that moves a part: the part, its place at the start,
      * and the bed point under the pointer at the start. */
     gint64 moving;
     /* A timeout that draws again after a skipped frame, or 0. */
     guint retry;
     gboolean menu_open;
+    double menu_x, menu_y; /* the press of a right click */
     gboolean part_picked;
     gboolean zoomed_at;
     double move_x0, move_y0, bed_x0, bed_y0;
@@ -384,10 +385,10 @@ static void on_drag_begin(GtkGestureDrag *g, double x, double y, gpointer data) 
     v->drag_x = 0;
     v->drag_y = 0;
     v->moving = -1;
-    /* Shift and the left button on a part: move the part. */
+    /* Ctrl and the left button on a part: move the part. */
     GdkModifierType mods = gtk_event_controller_get_current_event_state(GTK_EVENT_CONTROLLER(g));
     int mode = GPOINTER_TO_INT(g_object_get_data(G_OBJECT(g), "zg-drag"));
-    if (v->view && mode == DRAG_ORBIT && (mods & GDK_SHIFT_MASK)) {
+    if (v->view && mode == DRAG_ORBIT && (mods & GDK_CONTROL_MASK)) {
         double bx, by;
         gint64 part = part_at(v, x, y, &bx, &by);
         zs_part p;
@@ -448,10 +449,10 @@ static void on_motion(GtkEventControllerMotion *c, double x, double y, gpointer 
 static gboolean on_scroll(GtkEventControllerScroll *c, double dx, double dy, gpointer data) {
     View3d *v = data;
     int scale = gtk_widget_get_scale_factor(v->area);
-    /* Shift and the wheel: turn the selected part by 15 degrees a step. */
+    /* Ctrl and the wheel: turn the selected part by 15 degrees a step. */
     GdkModifierType mods = gtk_event_controller_get_current_event_state(GTK_EVENT_CONTROLLER(c));
     gint64 part = zg_model_selected_part(v->model);
-    if ((mods & GDK_SHIFT_MASK) && part >= 0) {
+    if ((mods & GDK_CONTROL_MASK) && part >= 0) {
         zs_part p;
         if (zs_app_part_get(zg_model_core(v->model), (size_t)part, &p) == ZS_OK) {
             /* GTK can turn a vertical wheel with Shift into dx. */
@@ -469,9 +470,10 @@ static void on_release(GtkGestureClick *g, int n, double x, double y, gpointer d
     View3d *v = data;
     if (n != 1 || !v->view || fabs(x - v->press_x) > 4 || fabs(y - v->press_y) > 4) return;
     int scale = gtk_widget_get_scale_factor(v->area);
-    /* Shift+click: select a part (to move or turn it). A click: a line. */
+    /* Ctrl+click: select a part (to move, turn, or remove it). A click: a
+     * line. Shift+click: add a line to the selection, or take it out. */
     GdkModifierType mods = gtk_event_controller_get_current_event_state(GTK_EVENT_CONTROLLER(g));
-    if (mods & GDK_SHIFT_MASK) {
+    if (mods & GDK_CONTROL_MASK) {
         zg_model_select_part(v->model, part_at(v, x, y, NULL, NULL));
         return;
     }
@@ -479,6 +481,10 @@ static void on_release(GtkGestureClick *g, int n, double x, double y, gpointer d
      * go on from there). */
     size_t seg = 0;
     size_t path = zs_view_pick_segment(v->view, (float)(x * scale), (float)(y * scale), &seg);
+    if (mods & GDK_SHIFT_MASK) {
+        if (path != (size_t)-1) zg_model_toggle_more(v->model, (gint64)path);
+        return;
+    }
     if (path == (size_t)-1) zg_model_select(v->model, -1);
     else zg_model_select_segment(v->model, (gint64)path, (gint64)seg);
 }
@@ -583,9 +589,15 @@ gboolean zg_view3d_menu_open(GtkWidget *view) {
     return v && v->menu_open;
 }
 
+static void on_menu_press(GtkGestureClick *g, int n, double x, double y, gpointer data) {
+    View3d *v = data;
+    v->menu_x = x;
+    v->menu_y = y;
+}
+
 static void on_menu_click(GtkGestureClick *g, int n, double x, double y, gpointer data) {
     View3d *v = data;
-    if (!v->view) return;
+    if (!v->view || fabs(x - v->menu_x) > 4 || fabs(y - v->menu_y) > 4) return;
     int scale = gtk_widget_get_scale_factor(v->area);
     size_t seg = 0;
     size_t path = zs_view_pick_segment(v->view, (float)(x * scale), (float)(y * scale), &seg);
@@ -630,6 +642,13 @@ static void show_menu(View3d *v, double x, double y) {
         g_object_unref(modes);
         g_object_unref(part);
     }
+    GMenu *plate = g_menu_new();
+    g_menu_append(plate, "Smart placement", "win.smart-place");
+    g_menu_append(plate, "Arrange the plate", "win.arrange");
+    g_menu_append(plate, "Add models\u2026", "app.open");
+    g_menu_append(plate, "Clear the plate", "win.clear-plate");
+    g_menu_append_section(menu, NULL, G_MENU_MODEL(plate));
+    g_object_unref(plate);
     GMenu *general = g_menu_new();
     if (zs_app_mark_count(zg_model_core(v->model)) > 0) g_menu_append(general, "Clear all support marks", "view3d.clear-marks");
     g_menu_append(general, "Reset the view", "view3d.reset-view");
@@ -658,6 +677,14 @@ static void on_selection(ZgModel *model, gint64 path, gpointer data) {
     zs_view_highlight(v->view, path < 0 ? (size_t)-1 : (size_t)path);
     zs_view_isolate(v->view, zg_model_isolate(model));
     if (path >= 0) zs_view_highlight_segment(v->view, (size_t)path, (ptrdiff_t)zg_model_segment(model));
+    /* The other lines of a multiple selection. */
+    guint n = 0;
+    const gint64 *more = zg_model_more(model, &n);
+    size_t *list = g_new(size_t, n + 1);
+    size_t k = 0;
+    for (guint i = 0; i < n; i++) if (more[i] >= 0) list[k++] = (size_t)more[i];
+    zs_view_highlight_more(v->view, list, k);
+    g_free(list);
     queue_frame(v);
 }
 
@@ -704,6 +731,7 @@ GtkWidget *zg_view3d_new(ZgModel *model) {
     const struct { guint button; int mode; } drags[] = {
         {GDK_BUTTON_PRIMARY, DRAG_ORBIT},
         {GDK_BUTTON_MIDDLE, DRAG_PAN},
+        {GDK_BUTTON_SECONDARY, DRAG_ROTATE},
     };
     for (size_t i = 0; i < G_N_ELEMENTS(drags); i++) {
         GtkGesture *drag = gtk_gesture_drag_new();
@@ -720,10 +748,12 @@ GtkWidget *zg_view3d_new(ZgModel *model) {
     GtkEventController *scroll = gtk_event_controller_scroll_new(GTK_EVENT_CONTROLLER_SCROLL_VERTICAL);
     g_signal_connect(scroll, "scroll", G_CALLBACK(on_scroll), v);
     gtk_widget_add_controller(v->area, scroll);
-    /* A right click: the context menu. */
+    /* A right click: the context menu. It opens on the release, and only
+     * if the pointer did not move: a right drag turns the view. */
     GtkGesture *menu_click = gtk_gesture_click_new();
     gtk_gesture_single_set_button(GTK_GESTURE_SINGLE(menu_click), GDK_BUTTON_SECONDARY);
-    g_signal_connect(menu_click, "pressed", G_CALLBACK(on_menu_click), v);
+    g_signal_connect(menu_click, "pressed", G_CALLBACK(on_menu_press), v);
+    g_signal_connect(menu_click, "released", G_CALLBACK(on_menu_click), v);
     gtk_widget_add_controller(v->area, GTK_EVENT_CONTROLLER(menu_click));
     static const GActionEntry menu_actions[] = {
         {.name = "add-support", .activate = on_add_support, .parameter_type = "i"},
