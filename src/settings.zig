@@ -195,6 +195,11 @@ pub const Project = struct {
     // Walls
     /// The number of walls (loops) around the outline of each layer.
     wall_count: u32 = 2,
+    /// Print parts of the outline that are thinner than one line width
+    /// (a thin fin, a sheet, a label): a loop inside each thin part, with a
+    /// narrower line, so that its two sides fill the thickness. Without
+    /// it, these parts print nothing.
+    thin_walls: bool = true,
     /// Where each wall loop starts and ends (the seam). `hidden`: at the
     /// point where the seam is hardest to see: an inside corner first, then
     /// an outside corner, toward the back, and not where the wall hangs

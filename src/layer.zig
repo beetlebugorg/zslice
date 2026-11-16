@@ -53,6 +53,9 @@ const Resolved = settings_mod.Resolved;
 pub const Path = struct {
     feature: Feature,
     closed: bool,
+    /// The line width of this path in mm, or 0 for the width of the layer
+    /// (a thin wall has a narrower line).
+    width: f32 = 0,
 };
 
 pub const LayerPlan = struct {
@@ -116,6 +119,10 @@ pub const Regions = struct {
     walls: []Paths = &.{},
     skin: Paths = .empty,
     sparse: Paths = .empty,
+    /// Thin walls: loops in the parts thinner than one line width, and the
+    /// line width of each loop (mm).
+    thin: Paths = .empty,
+    thin_width: []f32 = &.{},
     /// For the flow infill: the area of all the layers of the band above
     /// (an intersection of their outlines), made when a plan first needs
     /// it. It depends only on region settings, so it stays in the cache.
@@ -156,6 +163,38 @@ pub fn regions(gpa: Allocator, ctx: Context, i: usize) Allocator.Error!Regions {
         wall_n += 1;
     }
     reg.walls = walls[0..wall_n];
+
+    // Thin walls: the parts of the outline that an opening of half a line
+    // width removes. Each gets a loop t/4 inside it, with a line of width
+    // t/2, where t (2 area / perimeter) is its thickness: the two sides of
+    // the loop fill the part.
+    if (p.thin_walls and p.wall_count > 0) {
+        const thick = try offset_mod.opening(s, outline, @divTrunc(w, 2), .{});
+        const thin = try clip.difference(s, outline, thick);
+        var widths: std.ArrayList(f32) = .empty;
+        for (0..thin.count()) |k| {
+            const poly = thin.get(k);
+            const area2 = geom.area2(poly);
+            if (area2 <= 0) continue; // a hole
+            var perim: f64 = 0;
+            for (poly, 0..) |q, qi| {
+                const r2 = poly[(qi + 1) % poly.len];
+                perim += std.math.hypot(@as(f64, @floatFromInt(r2.x - q.x)), @as(f64, @floatFromInt(r2.y - q.y)));
+            }
+            const t = @as(f64, @floatFromInt(area2)) / perim; // area2 is twice the area
+            // Thinner than 0.1 mm (noise), or a short piece: skip.
+            if (t < 100 or perim < 4 * @as(f64, @floatFromInt(w))) continue;
+            var one: Paths = .empty;
+            try one.append(s, poly);
+            const loop = try offset_mod.offset(s, one, -@as(i64, @intFromFloat(t / 4)), .{});
+            const use = if (loop.isEmpty()) one else loop;
+            for (0..use.count()) |j| {
+                try reg.thin.append(a, use.get(j));
+                try widths.append(a, @floatCast(@min(geom.toMm(@intFromFloat(t / 2)), geom.toMm(w))));
+            }
+        }
+        reg.thin_width = widths.items;
+    }
 
     // Step 2.
     const inner = if (p.wall_count == 0)
@@ -442,6 +481,7 @@ pub fn plan(gpa: Allocator, ctx: Context, i: usize) Allocator.Error!LayerPlan {
         try addOrderedSeam(s, a, &lp, &pos, walls[k], true, .inner_wall, seam);
     }
     if (wall_n > 0) try addOrderedSeam(s, a, &lp, &pos, walls[0], true, .outer_wall, seam);
+    try addThin(a, &lp, &pos, reg);
     if (p.skin_pattern == .monotonic) {
         try addMonotonic(s, a, &lp, &pos, skin_lines, skin_angle, .skin);
     } else {
@@ -746,6 +786,16 @@ fn addOrderedSeam(s: Allocator, a: Allocator, lp: *LayerPlan, pos: *Point, set: 
     }
 }
 
+/// Adds the thin wall loops, each with its own line width.
+fn addThin(a: Allocator, lp: *LayerPlan, pos: *Point, reg: *const Regions) Allocator.Error!void {
+    for (0..reg.thin.count()) |k| {
+        const loop = reg.thin.get(k);
+        try lp.points.append(a, loop);
+        try lp.paths.append(a, .{ .feature = .outer_wall, .closed = true, .width = reg.thin_width[k] });
+        pos.* = loop[0];
+    }
+}
+
 const testing = std.testing;
 
 test "plan a layer of a box" {
@@ -969,4 +1019,45 @@ test "monotonic skin: the lines go from one side to the other" {
             try testing.expectEqual(prev[prev.len - 1].x, path[0].x);
         }
     }
+}
+
+
+test "thin walls: a sheet thinner than a line prints" {
+    const gpa = testing.allocator;
+    const mesh = @import("mesh.zig");
+    // A sheet 0.3 mm thick (a line is 0.44 mm), 20 mm long, 5 mm tall.
+    var b: mesh.Builder = .init(gpa);
+    try mesh.shapes.addBox(&b, 0, 0, 0, 20, 0.3, 5);
+    var m = try b.finish();
+    defer m.deinit(gpa);
+    var st: settings_mod.Settings = .{};
+    const r = try st.resolve();
+    const layers = try slicer.layerTable(gpa, 5, 0.3, 0.2);
+    defer gpa.free(layers);
+    var idx = try slicer.FaceIndex.build(gpa, &m, layers, 0);
+    defer idx.deinit(gpa);
+    const outlines = try gpa.alloc(Paths, layers.len);
+    defer {
+        for (outlines) |*o| o.deinit(gpa);
+        gpa.free(outlines);
+    }
+    for (outlines, 0..) |*o, li| o.* = try slicer.sliceAt(gpa, &m, idx.get(li), layers[li].sliceZ(), 5, 1000);
+    const ctx: Context = .{ .resolved = &r, .layers = layers, .outlines = outlines };
+    var lp = try plan(gpa, ctx, 10);
+    defer lp.deinit();
+    var thin: usize = 0;
+    for (lp.paths.items) |path| {
+        if (path.feature == .outer_wall and path.width > 0) {
+            thin += 1;
+            try testing.expect(path.width > 0.1 and path.width < 0.2);
+        }
+    }
+    try testing.expect(thin >= 1);
+    // Off: nothing.
+    st.project.thin_walls = false;
+    const r2 = try st.resolve();
+    const ctx2: Context = .{ .resolved = &r2, .layers = layers, .outlines = outlines };
+    var lp2 = try plan(gpa, ctx2, 10);
+    defer lp2.deinit();
+    for (lp2.paths.items) |path| try testing.expect(path.feature != .outer_wall);
 }

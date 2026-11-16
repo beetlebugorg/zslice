@@ -171,7 +171,9 @@ pub const Emitter = struct {
             const speed = if (slow < 1) @max(full * slow, @min(full, s.filament.min_speed)) else full;
             const start_time = self.stats.print_time_s;
             // Ironing lines use a fraction of the flow of a normal line.
-            const e = if (path.feature == .ironing) e_per_mm * lr.settings.project.ironing_flow else e_per_mm;
+            // A path with its own width (a thin wall) has its own flow.
+            const base_e = if (path.width > 0) flow.beadArea(path.width, lp.height) / self.r.filament_area * s.filament.flow_ratio else e_per_mm;
+            const e = if (path.feature == .ironing) base_e * lr.settings.project.ironing_flow else base_e;
             for (pts[1..]) |q| try self.extrude(geom.toMm(q.x), geom.toMm(q.y), e, speed);
             if (path.closed and pts.len > 2) try self.extrude(geom.toMm(pts[0].x), geom.toMm(pts[0].y), e, speed);
             if (self.record) |rec| rec.appendAssumeCapacity(.{ .start_time = start_time, .end_time = self.stats.print_time_s, .area = e * self.r.filament_area, .retracted = retracted, .slowed = slow < 1 or (lap and layer_time < s.filament.min_layer_time) });
