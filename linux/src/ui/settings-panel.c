@@ -99,12 +99,65 @@ static char *to_core(GtkWidget *editor, const char *text) {
     return g_strdup(buf);
 }
 
+static const zs_setting_info *info_of(GtkWidget *w) {
+    return g_object_get_data(G_OBJECT(w), "zg-info");
+}
+
+/* A range in the units that the editors show (a ratio as a percentage). */
+static char *range_text(const zs_setting_info *info, double lo, double hi) {
+    double k = strcmp(info->unit, "%") == 0 ? 100 : 1;
+    char a[G_ASCII_DTOSTR_BUF_SIZE], b[G_ASCII_DTOSTR_BUF_SIZE];
+    format_number(a, sizeof a, lo * k);
+    format_number(b, sizeof b, hi * k);
+    return g_strdup_printf("%s to %s %s", a, b, info->unit);
+}
+
+/* A value out of the usual range (the slider range) is valid, but the
+ * editor says that it is unusual. */
+static void show_unusual(GtkWidget *editor) {
+    const zs_setting_info *info = info_of(editor);
+    if (!info || !is_number(editor) || !(info->slider_max > info->slider_min)) return;
+    char *value = zg_model_get(model_of(editor), key_of(editor));
+    gboolean unusual = parses_as_number(value) &&
+                       (g_ascii_strtod(value, NULL) < info->slider_min - 1e-9 || g_ascii_strtod(value, NULL) > info->slider_max + 1e-9);
+    g_free(value);
+    if (unusual == gtk_widget_has_css_class(editor, "zg-unusual")) return;
+    if (unusual) {
+        gtk_widget_add_css_class(editor, "zg-unusual");
+        char *range = range_text(info, info->slider_min, info->slider_max);
+        char *tip = g_strdup_printf("An unusual value: most prints use %s.\n\n%s", range, info->doc);
+        gtk_widget_set_tooltip_text(editor, tip);
+        g_free(tip);
+        g_free(range);
+    } else {
+        gtk_widget_remove_css_class(editor, "zg-unusual");
+        gtk_widget_set_tooltip_text(editor, info->doc);
+    }
+}
+
 /* Sends the text of an editor to the core. With `quiet`, a rejected value
  * gets no error style: the user is still typing. Returns TRUE if the core
  * has the value. */
 static gboolean commit_value(GtkWidget *editor, const char *text, gboolean quiet) {
     GError *error = NULL;
     char *value = to_core(editor, text);
+    /* Out of the hard limits: say what the limits are. */
+    const zs_setting_info *info = info_of(editor);
+    if (info && is_number(editor) && info->limit_max > info->limit_min && parses_as_number(value)) {
+        double v = g_ascii_strtod(value, NULL);
+        if (v < info->limit_min - 1e-12 || v > info->limit_max + 1e-12) {
+            if (!quiet) {
+                char *range = range_text(info, info->limit_min, info->limit_max);
+                char *tip = g_strdup_printf("Out of the limits: use %s.", range);
+                gtk_widget_add_css_class(editor, "error");
+                gtk_widget_set_tooltip_text(editor, tip);
+                g_free(tip);
+                g_free(range);
+            }
+            g_free(value);
+            return FALSE;
+        }
+    }
     char *old = zg_model_get(model_of(editor), key_of(editor));
     gboolean same = g_strcmp0(old, value) == 0;
     if (!same && is_number(editor) && parses_as_number(old) && parses_as_number(value)) {
@@ -117,6 +170,7 @@ static gboolean commit_value(GtkWidget *editor, const char *text, gboolean quiet
     } else if (zg_model_set(model_of(editor), key_of(editor), value, &error)) {
         gtk_widget_remove_css_class(editor, "error");
         gtk_widget_set_tooltip_text(editor, g_object_get_data(G_OBJECT(editor), "zg-doc"));
+        show_unusual(editor);
     } else {
         if (!quiet) {
             gtk_widget_add_css_class(editor, "error");
@@ -253,6 +307,52 @@ static void add_scrub(GtkWidget *label, GtkWidget *entry) {
     gtk_widget_set_cursor_from_name(label, "ew-resize");
 }
 
+/* ---- sliders ---- */
+
+/* The slider of a number: it moves the value in the entry, and the value
+ * goes to the core at once (the model slices the newest value when the
+ * running slice ends). */
+static void on_slider(GtkRange *range, gpointer data) {
+    GtkWidget *entry = data;
+    if (g_object_get_data(G_OBJECT(range), "zg-setting")) return;
+    double step = gtk_adjustment_get_step_increment(gtk_range_get_adjustment(range));
+    int d = step >= 1 ? 0 : (int)ceil(-log10(step) - 1e-9);
+    char fmt[16], buf[G_ASCII_DTOSTR_BUF_SIZE];
+    g_snprintf(fmt, sizeof fmt, "%%.%df", d);
+    g_ascii_formatd(buf, sizeof buf, fmt, gtk_range_get_value(range));
+    set_entry_text(entry, buf);
+    /* No wait: the model queues the value while a slice runs. */
+    cancel_live(entry);
+    commit_value(entry, buf, TRUE);
+}
+
+/* Moves the slider to the value of the entry, after a change from an other
+ * place. */
+static void sync_slider(GtkWidget *entry) {
+    GtkWidget *slider = g_object_get_data(G_OBJECT(entry), "zg-slider");
+    if (!slider) return;
+    const char *text = gtk_editable_get_text(GTK_EDITABLE(entry));
+    if (!parses_as_number(text)) return;
+    g_object_set_data(G_OBJECT(slider), "zg-setting", GINT_TO_POINTER(1));
+    gtk_range_set_value(GTK_RANGE(slider), g_ascii_strtod(text, NULL));
+    g_object_set_data(G_OBJECT(slider), "zg-setting", NULL);
+}
+
+static GtkWidget *make_slider(const zs_setting_info *info, GtkWidget *entry) {
+    double scale = strcmp(info->unit, "%") == 0 ? 100 : 1;
+    double lo = info->slider_min * scale, hi = info->slider_max * scale;
+    double step = info->kind == ZS_SETTING_INTEGER ? 1 : pow(10, floor(log10((hi - lo) / 100)));
+    GtkWidget *slider = gtk_scale_new_with_range(GTK_ORIENTATION_HORIZONTAL, lo, hi, step);
+    gtk_scale_set_draw_value(GTK_SCALE(slider), FALSE);
+    gtk_widget_set_hexpand(slider, TRUE);
+    gtk_widget_add_css_class(slider, "zg-slider");
+    gtk_widget_set_tooltip_text(slider, info->doc);
+    g_object_set_data(G_OBJECT(entry), "zg-slider", slider);
+    sync_slider(entry);
+    g_signal_connect(slider, "value-changed", G_CALLBACK(on_slider), entry);
+    return slider;
+}
+
 /* ---- the other editors ---- */
 
 static void on_focus_leave(GtkEventControllerFocus *ctrl, gpointer data) {
@@ -303,6 +403,10 @@ static void show_value(GtkWidget *editor) {
         char *shown = to_display(editor, value);
         if (!typing && strcmp(gtk_editable_get_text(GTK_EDITABLE(editor)), shown) != 0) set_entry_text(editor, shown);
         g_free(shown);
+        show_unusual(editor);
+        /* A slider in a drag keeps its place under the pointer. */
+        GtkWidget *slider = g_object_get_data(G_OBJECT(editor), "zg-slider");
+        if (slider && !(gtk_widget_get_state_flags(slider) & GTK_STATE_FLAG_ACTIVE)) sync_slider(editor);
     }
     g_free(value);
 }
@@ -318,6 +422,9 @@ static void tag(GtkWidget *editor, ZgModel *model, const zs_setting_info *info) 
     g_object_set_data(G_OBJECT(editor), "zg-doc", (gpointer)info->doc);
     g_object_set_data(G_OBJECT(editor), "zg-kind", GINT_TO_POINTER(info->kind));
     g_object_set_data(G_OBJECT(editor), "zg-unit", (gpointer)info->unit);
+    zs_setting_info *copy = g_new(zs_setting_info, 1);
+    *copy = *info;
+    g_object_set_data_full(G_OBJECT(editor), "zg-info", copy, g_free);
     gtk_widget_set_tooltip_text(editor, info->doc);
     /* The handler goes away with the editor. */
     g_signal_connect_object(model, "setting-changed", G_CALLBACK(on_setting_changed), editor, 0);
@@ -388,6 +495,7 @@ static GtkWidget *make_editor(ZgModel *model, const zs_setting_info *info) {
     }
     }
     gtk_widget_set_valign(editor, GTK_ALIGN_CENTER);
+    show_unusual(editor);
     g_free(value);
     return editor;
 }
@@ -438,6 +546,9 @@ static void add_row(GtkWidget *grid, int *row, ZgModel *model, const zs_setting_
         gtk_widget_add_css_class(unit, "zg-unit");
         gtk_label_set_xalign(GTK_LABEL(unit), 0);
         gtk_grid_attach(GTK_GRID(grid), unit, 2, (*row)++, 1, 1);
+        if (info->slider_max > info->slider_min) {
+            gtk_grid_attach(GTK_GRID(grid), make_slider(info, editor), 0, (*row)++, 3, 1);
+        }
     } else {
         gtk_widget_set_halign(editor, GTK_ALIGN_END);
         gtk_grid_attach(GTK_GRID(grid), editor, 1, (*row)++, 2, 1);
@@ -687,7 +798,10 @@ static char *display_value(const zs_setting_info *info, const char *value) {
 
 static char *value_with_unit(const zs_setting_info *info, const char *value) {
     char *shown = display_value(info, value);
-    char *text = info->unit[0] ? g_strdup_printf("%s %s", shown, info->unit) : g_strdup(shown);
+    /* A count of one: "1 layer", not "1 layers". */
+    size_t n = strlen(info->unit);
+    gboolean one = strcmp(shown, "1") == 0 && n > 1 && info->unit[n - 1] == 's' && info->kind == ZS_SETTING_INTEGER;
+    char *text = info->unit[0] ? g_strdup_printf("%s %.*s", shown, (int)(one ? n - 1 : n), info->unit) : g_strdup(shown);
     g_free(shown);
     return text;
 }

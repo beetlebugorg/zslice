@@ -29,6 +29,8 @@ struct _ZgModel {
     double anchor_x, anchor_y;
     guint32 focus;
     gboolean focus_first;
+    /* A setting changed while a slice ran: slice again when it ends. */
+    gboolean slice_pending;
 };
 
 G_DEFINE_FINAL_TYPE(ZgModel, zg_model, G_TYPE_OBJECT)
@@ -61,6 +63,11 @@ static gboolean deliver(gpointer data) {
             g_signal_emit(model, signals[SIGNAL_SELECTION_CHANGED], 0, model->selected);
         }
         g_signal_emit(model, signals[SIGNAL_CORE_EVENT], 0, p->event, p->progress, p->status);
+        /* The slice for the newest settings. */
+        if (p->event != ZS_EVENT_PROGRESS && model->slice_pending && zs_app_state(model->core) != ZS_STATE_SLICING) {
+            model->slice_pending = FALSE;
+            zs_app_request_slice(model->core);
+        }
         g_object_unref(model);
     }
     g_atomic_rc_box_release_full(p->bridge, bridge_clear);
@@ -190,7 +197,13 @@ gboolean zg_model_set(ZgModel *self, const char *key, const char *value, GError 
     int rc = zs_app_setting_set(self->core, key, value);
     if (rc != ZS_OK) return fail(error, rc);
     g_signal_emit(self, signals[SIGNAL_SETTING_CHANGED], 0, key);
-    if (zs_app_state(self->core) != ZS_STATE_EMPTY) {
+    int state = zs_app_state(self->core);
+    if (state == ZS_STATE_SLICING) {
+        /* Let the running slice end and show, then slice the newest
+         * settings. A stop and a restart for each change of a fast drag
+         * would show nothing until the drag ends. */
+        self->slice_pending = TRUE;
+    } else if (state != ZS_STATE_EMPTY) {
         rc = zs_app_request_slice(self->core);
         if (rc != ZS_OK) return fail(error, rc);
     }

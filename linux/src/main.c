@@ -30,6 +30,8 @@ static const char *ZG_CSS =
     ".zg-note { font-size: 0.85em; color: @warning_color; transition: opacity 150ms; }"
     ".zg-explain { font-size: 0.9em; opacity: 0.85; }"
     ".zg-unit { font-size: 0.9em; min-width: 3.2em; }"
+    ".zg-slider { margin-top: -4px; margin-bottom: 2px; }"
+    "entry.zg-unusual { color: @warning_color; }"
     ".zg-inspector, .zg-status-text { transition: opacity 200ms ease-out; }"
     ".zg-stale { opacity: 0.55; }"
     /* The slice indicator over the preview. */

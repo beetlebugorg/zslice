@@ -113,6 +113,11 @@ pub const Job = struct {
     outlines: []Paths,
     /// The support areas of each layer, or an empty slice.
     support: []support_mod.SupportLayer = &.{},
+    /// The regions of each layer (see layer.Regions), made when a plan
+    /// needs them. `takeRegions` moves them from an older job.
+    regions: []?layer_mod.Regions = &.{},
+    /// A hash of the settings that change the regions (`regionKey`).
+    region_key: u64 = 0,
 
     /// Steps 1 to 4.
     pub fn init(gpa: Allocator, mesh: *const Mesh, settings: Settings) Error!Job {
@@ -234,10 +239,38 @@ pub const Job = struct {
         // The support areas need the outlines of all layers.
         const sup = support_mod.compute(gpa, outlines, layers, &r, threads) catch |e| return @as(Error, @errorCast(e));
 
-        return .{ .gpa = gpa, .resolved = r, .monitor = monitor, .threads = threads, .layers = layers, .outlines = outlines, .support = sup };
+        const regs = try gpa.alloc(?layer_mod.Regions, layers.len);
+        @memset(regs, null);
+        return .{
+            .gpa = gpa,
+            .resolved = r,
+            .monitor = monitor,
+            .threads = threads,
+            .layers = layers,
+            .outlines = outlines,
+            .support = sup,
+            .regions = regs,
+            .region_key = regionKey(settings),
+        };
+    }
+
+    /// Moves the regions of `old` to this job if they are the same: the
+    /// same mesh (the caller knows) and the same region settings. Then
+    /// the plans of this job skip steps 1 to 4. Returns true if it moved
+    /// them.
+    pub fn takeRegions(self: *Job, old: *Job) bool {
+        if (old.region_key != self.region_key or old.regions.len != self.regions.len) return false;
+        for (self.regions, old.regions) |*mine, *theirs| {
+            if (mine.*) |*m| m.deinit();
+            mine.* = theirs.*;
+            theirs.* = null;
+        }
+        return true;
     }
 
     pub fn deinit(self: *Job) void {
+        for (self.regions) |*reg| if (reg.*) |*rg| rg.deinit();
+        self.gpa.free(self.regions);
         if (self.support.len > 0) support_mod.deinitAll(self.gpa, self.support);
         for (self.outlines) |*o| o.deinit(self.gpa);
         self.gpa.free(self.outlines);
@@ -249,7 +282,7 @@ pub const Job = struct {
     }
 
     fn planContext(self: *const Job) layer_mod.Context {
-        return .{ .resolved = &self.resolved, .layers = self.layers, .outlines = self.outlines, .support = self.support };
+        return .{ .resolved = &self.resolved, .layers = self.layers, .outlines = self.outlines, .support = self.support, .cache = self.regions };
     }
 
     /// The plan of layer i. Call `deinit` on the result.
@@ -556,4 +589,114 @@ test "placement: the file position if it is on the bed, else the center" {
     // "file" and "center" do not look at the bed.
     try std.testing.expectEqual([2]f64{ 0, 0 }, placementOffset(.file, .{ -10, -10, 0 }, .{ 10, 10, 5 }, 220, 220, 0));
     try std.testing.expectEqual([2]f64{ -5, -5 }, placementOffset(.center, .{ 100, 100, 0 }, .{ 130, 130, 5 }, 220, 220, 0));
+}
+
+/// The settings that do not change the regions of a layer (the walls, the
+/// skin area, the sparse area): they act in later steps or only in the
+/// G-code. A setting that is not in this list goes into `regionKey`. So a
+/// missing name costs time (a new region pass), and never a wrong result.
+const late_settings = [_][]const u8{
+    // project: the fill, the speeds, ironing, travel, support, skirt
+    "project.infill_density",           "project.infill_pattern",     "project.infill_angle",
+    "project.infill_overlap",           "project.skin_overlap",       "project.ironing",
+    "project.ironing_flow",             "project.ironing_spacing",    "project.ironing_inset",
+    "project.ironing_speed",            "project.outer_wall_speed",   "project.inner_wall_speed",
+    "project.skin_speed",               "project.infill_speed",       "project.first_layer_speed",
+    "project.retract_min_travel",       "project.z_hop",              "project.seam",
+    "project.support",                  "project.support_angle",      "project.support_density",
+    "project.support_xy_gap",           "project.support_z_gap_layers", "project.support_interface_layers",
+    "project.support_interface_density", "project.skirt_loops",       "project.skirt_distance",
+    "project.skirt_layers",             "project.brim_width",
+    // filament: all but the size compensation
+    "filament.name",                    "filament.color",             "filament.diameter",
+    "filament.density",                 "filament.nozzle_temp",       "filament.first_layer_nozzle_temp",
+    "filament.bed_temp",                "filament.standby_temp",      "filament.max_flow",
+    "filament.flow_ratio",              "filament.fan_speed",         "filament.fan_off_layers",
+    "filament.fan_max_speed",           "filament.fan_boost_time",    "filament.min_layer_time",
+    "filament.min_speed",               "filament.retract_ratio",
+    // machine: motion, retraction, and G-code
+    "machine.name",                     "machine.max_speed",          "machine.travel_speed",
+    "machine.max_z_speed",              "machine.retract_length",     "machine.retract_speed",
+    "machine.start_gcode",              "machine.end_gcode",          "machine.extruder",
+    // engine
+    "engine.threads",                   "engine.job_name",
+};
+
+fn isLate(comptime name: []const u8) bool {
+    @setEvalBranchQuota(100_000);
+    for (late_settings) |n| if (std.mem.eql(u8, n, name)) return true;
+    return false;
+}
+
+/// A hash of all settings that can change the regions of a layer.
+pub fn regionKey(settings: Settings) u64 {
+    var h = std.hash.Wyhash.init(0);
+    inline for (@typeInfo(Settings).@"struct".fields) |g| {
+        const group = @field(settings, g.name);
+        inline for (@typeInfo(g.type).@"struct".fields) |f| {
+            if (comptime isLate(g.name ++ "." ++ f.name)) continue;
+            const v = @field(group, f.name);
+            switch (@typeInfo(f.type)) {
+                .float => h.update(std.mem.asBytes(&@as(u64, @bitCast(@as(f64, v))))),
+                .int => h.update(std.mem.asBytes(&@as(u64, @intCast(v)))),
+                .bool => h.update(&.{@intFromBool(v)}),
+                .@"enum" => h.update(@tagName(v)),
+                .pointer => h.update(v),
+                else => @compileError("regionKey: add a case for " ++ f.name),
+            }
+            h.update(f.name);
+        }
+    }
+    return h.final();
+}
+
+test "region key: late settings do not change it" {
+    var a: Settings = .{};
+    const k0 = regionKey(a);
+    try a.set("project.infill_density", "0.5");
+    try a.set("project.outer_wall_speed", "0.3");
+    try a.set("filament.nozzle_temp", "230");
+    try std.testing.expectEqual(k0, regionKey(a));
+    try a.set("project.wall_count", "3");
+    try std.testing.expect(k0 != regionKey(a));
+}
+
+test "late setting names exist" {
+    const app_meta = @import("settings_meta.zig");
+    for (late_settings) |n| {
+        const found = for (app_meta.all) |m| {
+            if (std.mem.eql(u8, m.name, n)) break true;
+        } else false;
+        if (!found) std.debug.print("late_settings: no setting {s}\n", .{n});
+        try std.testing.expect(found);
+    }
+}
+
+test "a job takes the regions of an older job, and the result is the same" {
+    const gpa = std.testing.allocator;
+    var mesh = try mesh_mod.shapes.demo(gpa);
+    defer mesh.deinit(gpa);
+    var s: Settings = .{};
+    var old = try Job.init(gpa, &mesh, s);
+    defer old.deinit();
+    var sink_old: std.Io.Writer.Allocating = .init(gpa);
+    defer sink_old.deinit();
+    _ = try old.writeGcode(&sink_old.writer);
+    try std.testing.expect(old.regions[10] != null);
+
+    try s.set("project.infill_density", "0.35");
+    var fresh = try Job.init(gpa, &mesh, s);
+    defer fresh.deinit();
+    var out_fresh: std.Io.Writer.Allocating = .init(gpa);
+    defer out_fresh.deinit();
+    _ = try fresh.writeGcode(&out_fresh.writer);
+
+    var reuse = try Job.init(gpa, &mesh, s);
+    defer reuse.deinit();
+    try std.testing.expect(reuse.takeRegions(&old));
+    try std.testing.expect(old.regions[10] == null);
+    var out_reuse: std.Io.Writer.Allocating = .init(gpa);
+    defer out_reuse.deinit();
+    _ = try reuse.writeGcode(&out_reuse.writer);
+    try std.testing.expectEqualStrings(out_fresh.written(), out_reuse.written());
 }

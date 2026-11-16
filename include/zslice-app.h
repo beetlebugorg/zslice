@@ -94,6 +94,11 @@ typedef struct zs_setting_info {
                             100. "" for the other kinds. */
     const char *default_value; /* the built-in default, as zs_app_setting_get
                                   writes it */
+    double slider_min, slider_max; /* the usual values, for a slider, in the
+                                      units of the core (a ratio is 0..1);
+                                      equal: no slider */
+    double limit_min, limit_max;   /* the hard limits: a value out of them
+                                      is ZS_OUT_OF_RANGE; equal: none */
 } zs_setting_info;
 
 /* The settings, in the order to show them. */

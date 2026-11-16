@@ -123,6 +123,9 @@ To change a number:
 - Type it. The app uses the value after a short pause, on Enter, or when you leave the field.
 - Press Up or Down to step it by one unit of its last decimal place. Hold Shift for 10 steps, or Ctrl for a tenth of a step.
 - Drag the name of the setting to the left or the right.
+- Drag its slider. The slider covers the usual values. The preview follows as fast as the slicer can go: a change of the infill or the speeds keeps the walls and the skin areas of the last slice, so a new slice of a mid-size part takes less than 0.1 s.
+
+A value out of the usual range shows in the warning color, and its tooltip gives the usual range. A value out of the limits of the setting (for example a 300 mm brim) is an error, and the tooltip gives the limits.
 
 ## Move the 3D view
 

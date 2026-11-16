@@ -83,6 +83,11 @@ pub const App = struct {
     // The results. The worker writes them before it sets the state to
     // `done` or `failed`.
     job: ?zs.Job = null,
+    /// The job of the slice before, kept for its layer regions: if the new
+    /// settings give the same regions (for example, only the infill
+    /// density changed), the new slice takes them and skips the slow steps
+    /// (see Job.takeRegions). Only the worker uses it while a slice runs.
+    prev_job: ?zs.Job = null,
     gcode_bytes: []u8 = &.{},
     stats: zs.Stats = .{},
     part_box: [4]f64 = .{ 0, 0, 0, 0 },
@@ -102,6 +107,7 @@ pub const App = struct {
         if (app.inspect_arena) |*a| a.deinit();
         app.stopWorker();
         app.clearResults();
+        app.dropPrevJob();
         if (app.mesh) |*m| m.deinit(app.gpa);
         app.gpa.free(app.model_name);
         app.strings.deinit();
@@ -123,6 +129,8 @@ pub const App = struct {
         };
         app.stopWorker();
         app.clearResults();
+        // The regions of the old mesh are of no use for the new mesh.
+        app.dropPrevJob();
         if (app.mesh) |*old| old.deinit(app.gpa);
         app.gpa.free(app.model_name);
         app.mesh = m;
@@ -176,6 +184,12 @@ pub const App = struct {
         if (app.mesh == null) return error.NoModel;
         if (app.getState() == .slicing) return error.Busy;
         app.stopWorker();
+        // Keep the last job for its regions, and free the rest.
+        if (app.job) |j| {
+            app.dropPrevJob();
+            app.prev_job = j;
+            app.job = null;
+        }
         app.clearResults();
         app.slice_settings = app.settings;
         app.cancel_flag.store(false, .release);
@@ -228,6 +242,18 @@ pub const App = struct {
         }
     }
 
+    fn dropPrevJob(app: *App) void {
+        if (app.prev_job) |*j| j.deinit();
+        app.prev_job = null;
+    }
+
+    /// A job that did not finish: its regions are still good for its
+    /// settings, so keep it for the next slice.
+    fn keepForRegions(app: *App, job: zs.Job) void {
+        app.dropPrevJob();
+        app.prev_job = job;
+    }
+
     fn clearResults(app: *App) void {
         app.toolpaths.deinit(app.gpa);
         if (app.job) |*j| j.deinit();
@@ -251,13 +277,17 @@ pub const App = struct {
     fn work(app: *App) void {
         const monitor: zs.engine.Monitor = .{ .ctx = app, .progress = onProgress, .cancel = &app.cancel_flag };
         var job = zs.Job.initWith(app.gpa, &app.mesh.?, app.slice_settings, monitor) catch |e| return app.finishFailed(e);
+        if (app.prev_job) |*prev| {
+            _ = job.takeRegions(prev);
+            app.dropPrevJob();
+        }
         var out: std.Io.Writer.Allocating = .init(app.gpa);
         var store: Toolpaths = .{ .gpa = app.gpa };
         const sink: zs.engine.Job.LayerSink = .{ .ctx = &store, .func = Toolpaths.addLayer };
         const stats = job.writeGcodeWith(&out.writer, sink) catch |e| {
             store.deinit(app.gpa);
             out.deinit();
-            job.deinit();
+            app.keepForRegions(job);
             return app.finishFailed(e);
         };
         const bytes = out.toOwnedSlice() catch |e| {
@@ -831,11 +861,22 @@ pub const SettingInfo = struct {
     unit: [:0]const u8 = "",
     /// The built-in default value, as text (as `getSetting` writes it).
     default_value: [:0]const u8 = "",
+    /// A useful range for a slider, in the units of the value (a ratio
+    /// from 0 to 1, not a percentage). min == max: no slider. A value out
+    /// of the range is still valid; the slider only covers the usual
+    /// values.
+    slider_min: f64 = 0,
+    slider_max: f64 = 0,
+    /// The hard limits (see settings.limits); min == max: none.
+    limit_min: f64 = 0,
+    limit_max: f64 = 0,
     /// For text: true if the value can have more than one line.
     multiline: bool,
 };
 
 pub const settings_info: []const SettingInfo = blk: {
+    // The text of the float defaults takes many comptime steps.
+    @setEvalBranchQuota(2_000_000);
     var list: []const SettingInfo = &.{};
     for (@typeInfo(Settings).@"struct".fields) |g| {
         for (@typeInfo(g.type).@"struct".fields) |f| {
@@ -866,6 +907,10 @@ pub const settings_info: []const SettingInfo = blk: {
                 .multiline = std.mem.endsWith(u8, f.name, "gcode"),
                 .unit = unitOf(name),
                 .default_value = defaultText(g.type, f.name),
+                .slider_min = sliderOf(name)[0],
+                .slider_max = sliderOf(name)[1],
+                .limit_min = (zs.settings.limitOf(name) orelse [2]f64{ 0, 0 })[0],
+                .limit_max = (zs.settings.limitOf(name) orelse [2]f64{ 0, 0 })[1],
             }};
         }
     }
@@ -914,6 +959,58 @@ const units = [_][2][]const u8{
     .{ "engine.resolution", "mm" },            .{ "engine.gap_closing", "mm" },
     .{ "engine.threads", "threads" },
 };
+
+/// The slider ranges: the usual values of the settings that a user tunes
+/// by eye. A test checks that each name exists.
+const sliders = [_]struct { []const u8, f64, f64 }{
+    .{ "project.infill_density", 0, 1 },          .{ "project.outer_wall_speed", 0.05, 1 },
+    .{ "project.inner_wall_speed", 0.05, 1 },     .{ "project.skin_speed", 0.05, 1 },
+    .{ "project.infill_speed", 0.05, 1 },         .{ "project.first_layer_speed", 0.05, 1 },
+    .{ "project.ironing_speed", 0.05, 1 },        .{ "project.ironing_flow", 0, 0.3 },
+    .{ "project.ironing_spacing", 0.05, 0.5 },    .{ "project.ironing_inset", 0, 2 },
+    .{ "project.skin_overlap", 0, 0.5 },          .{ "project.infill_overlap", 0, 0.5 },
+    .{ "project.support_density", 0.05, 0.5 },    .{ "project.support_interface_density", 0.1, 1 },
+    .{ "project.support_angle", 0, 89 },          .{ "project.wall_count", 0, 8 },
+    .{ "project.top_thickness", 0, 3 },           .{ "project.bottom_thickness", 0, 3 },
+    .{ "project.infill_angle", 0, 180 },          .{ "project.brim_width", 0, 20 },
+    .{ "project.skirt_loops", 0, 10 },            .{ "project.skirt_distance", 0, 20 },
+    .{ "project.layer_height", 0.05, 0.4 },       .{ "filament.flow_ratio", 0.8, 1.2 },
+    .{ "filament.fan_speed", 0, 1 },              .{ "filament.fan_max_speed", 0, 1 },
+    .{ "filament.nozzle_temp", 160, 300 },        .{ "filament.first_layer_nozzle_temp", 160, 300 },
+    .{ "filament.bed_temp", 0, 120 },             .{ "filament.min_layer_time", 0, 30 },
+    .{ "project.first_layer_height", 0.1, 0.5 },  .{ "project.line_width", 0, 1 },
+    .{ "project.first_layer_line_width", 0, 1.2 }, .{ "project.support_xy_gap", 0, 2 },
+    .{ "project.support_z_gap_layers", 0, 3 },    .{ "project.support_interface_layers", 0, 5 },
+    .{ "project.skirt_layers", 0, 5 },            .{ "project.retract_min_travel", 0, 10 },
+    .{ "project.z_hop", 0, 1 },                   .{ "project.first_layer_xy_offset", -0.5, 0.5 },
+    .{ "filament.xy_offset", -0.3, 0.3 },         .{ "filament.hole_xy_offset", -0.3, 0.3 },
+    .{ "filament.shrinkage_xy", 0.99, 1.02 },     .{ "filament.shrinkage_z", 0.99, 1.02 },
+    .{ "filament.retract_ratio", 0, 2 },          .{ "filament.fan_off_layers", 0, 5 },
+    .{ "filament.fan_boost_time", 0, 30 },        .{ "filament.min_speed", 5, 50 },
+    .{ "filament.max_flow", 2, 40 },              .{ "filament.standby_temp", 0, 250 },
+    .{ "machine.max_speed", 20, 500 },            .{ "machine.travel_speed", 20, 500 },
+    .{ "machine.max_z_speed", 1, 30 },            .{ "machine.retract_length", 0, 8 },
+    .{ "machine.retract_speed", 10, 80 },         .{ "machine.nozzle_diameter", 0.2, 1.2 },
+    .{ "engine.gap_closing", 0, 3 },
+};
+
+fn sliderOf(comptime name: []const u8) [2]f64 {
+    @setEvalBranchQuota(100_000);
+    for (sliders) |sl| if (std.mem.eql(u8, sl[0], name)) return .{ sl[1], sl[2] };
+    return .{ 0, 0 };
+}
+
+test "each slider is for a number setting" {
+    for (sliders) |sl| {
+        const info = for (settings_info) |s| {
+            if (std.mem.eql(u8, s.name, sl[0])) break s;
+        } else return error.TestUnexpectedResult;
+        try testing.expect(info.kind == .number or info.kind == .integer);
+        try testing.expect(sl[1] < sl[2]);
+        // The usual values are in the hard limits.
+        try testing.expect(sl[1] >= info.limit_min and sl[2] <= info.limit_max);
+    }
+}
 
 /// The default of field `name` of the settings group T, as text.
 fn defaultText(comptime T: type, comptime name: []const u8) [:0]const u8 {

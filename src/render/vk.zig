@@ -233,6 +233,9 @@ pub const Renderer = struct {
     render_pass: c.VkRenderPass,
     layout: c.VkPipelineLayout,
     box_pipeline: c.VkPipeline,
+    /// The beads out of a focus: blended, with no depth write, so they do
+    /// not hide the beads in focus behind them.
+    ghost_pipeline: c.VkPipeline = null,
     grid_pipeline: c.VkPipeline,
     pool: c.VkCommandPool,
     cmd: c.VkCommandBuffer,
@@ -423,6 +426,7 @@ pub const Renderer = struct {
         if (r.acquired != null) d.vkDestroySemaphore.?(r.device, r.acquired, null);
         if (r.pool != null) d.vkDestroyCommandPool.?(r.device, r.pool, null);
         if (r.box_pipeline != null) d.vkDestroyPipeline.?(r.device, r.box_pipeline, null);
+        if (r.ghost_pipeline != null) d.vkDestroyPipeline.?(r.device, r.ghost_pipeline, null);
         if (r.grid_pipeline != null) d.vkDestroyPipeline.?(r.device, r.grid_pipeline, null);
         if (r.layout != null) d.vkDestroyPipelineLayout.?(r.device, r.layout, null);
         if (r.render_pass != null) d.vkDestroyRenderPass.?(r.device, r.render_pass, null);
@@ -580,8 +584,9 @@ pub const Renderer = struct {
         const grid_attrs = [_]c.VkVertexInputAttributeDescription{
             .{ .location = 0, .binding = 0, .format = c.VK_FORMAT_R32G32B32_SFLOAT, .offset = 0 },
         };
-        r.box_pipeline = try r.pipeline(bv, bf, &box_bindings, &box_attrs, c.VK_PRIMITIVE_TOPOLOGY_TRIANGLE_LIST);
-        r.grid_pipeline = try r.pipeline(gv, gf, &grid_bindings, &grid_attrs, c.VK_PRIMITIVE_TOPOLOGY_LINE_LIST);
+        r.box_pipeline = try r.pipeline(bv, bf, &box_bindings, &box_attrs, c.VK_PRIMITIVE_TOPOLOGY_TRIANGLE_LIST, false);
+        r.ghost_pipeline = try r.pipeline(bv, bf, &box_bindings, &box_attrs, c.VK_PRIMITIVE_TOPOLOGY_TRIANGLE_LIST, true);
+        r.grid_pipeline = try r.pipeline(gv, gf, &grid_bindings, &grid_attrs, c.VK_PRIMITIVE_TOPOLOGY_LINE_LIST, false);
     }
 
     fn pipeline(
@@ -591,6 +596,8 @@ pub const Renderer = struct {
         bindings: []const c.VkVertexInputBindingDescription,
         attrs: []const c.VkVertexInputAttributeDescription,
         topology: c.VkPrimitiveTopology,
+        /// Blend with alpha, and no depth write.
+        ghost: bool,
     ) Error!c.VkPipeline {
         const stages = [_]c.VkPipelineShaderStageCreateInfo{
             .{ .sType = c.VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO, .stage = c.VK_SHADER_STAGE_VERTEX_BIT, .module = vs, .pName = "main" },
@@ -626,11 +633,18 @@ pub const Renderer = struct {
         const depth: c.VkPipelineDepthStencilStateCreateInfo = .{
             .sType = c.VK_STRUCTURE_TYPE_PIPELINE_DEPTH_STENCIL_STATE_CREATE_INFO,
             .depthTestEnable = c.VK_TRUE,
-            .depthWriteEnable = c.VK_TRUE,
+            .depthWriteEnable = if (ghost) c.VK_FALSE else c.VK_TRUE,
             .depthCompareOp = c.VK_COMPARE_OP_LESS_OR_EQUAL,
         };
         const blend_attachment: c.VkPipelineColorBlendAttachmentState = .{
             .colorWriteMask = c.VK_COLOR_COMPONENT_R_BIT | c.VK_COLOR_COMPONENT_G_BIT | c.VK_COLOR_COMPONENT_B_BIT | c.VK_COLOR_COMPONENT_A_BIT,
+            .blendEnable = if (ghost) c.VK_TRUE else c.VK_FALSE,
+            .srcColorBlendFactor = c.VK_BLEND_FACTOR_SRC_ALPHA,
+            .dstColorBlendFactor = c.VK_BLEND_FACTOR_ONE_MINUS_SRC_ALPHA,
+            .colorBlendOp = c.VK_BLEND_OP_ADD,
+            .srcAlphaBlendFactor = c.VK_BLEND_FACTOR_ONE,
+            .dstAlphaBlendFactor = c.VK_BLEND_FACTOR_ONE_MINUS_SRC_ALPHA,
+            .alphaBlendOp = c.VK_BLEND_OP_ADD,
         };
         const blend: c.VkPipelineColorBlendStateCreateInfo = .{
             .sType = c.VK_STRUCTURE_TYPE_PIPELINE_COLOR_BLEND_STATE_CREATE_INFO,
@@ -974,6 +988,17 @@ pub const Renderer = struct {
             d.vkCmdBindVertexBuffers.?(cmd, 0, 2, &bufs, &offs);
             d.vkCmdBindIndexBuffer.?(cmd, r.box_index.buf, 0, c.VK_INDEX_TYPE_UINT16);
             d.vkCmdDrawIndexed.?(cmd, r.box_index_count, frame.box_count, 0, 0, 0);
+            // With a focus (params.z != 0): the beads out of the focus, as
+            // ghosts, after the solid beads (params.w = 2 in the shader).
+            if (frame.box.params[2] != 0) {
+                var ghost = frame.box;
+                ghost.params[3] = 2;
+                d.vkCmdBindPipeline.?(cmd, c.VK_PIPELINE_BIND_POINT_GRAPHICS, r.ghost_pipeline);
+                d.vkCmdPushConstants.?(cmd, r.layout, stages, 0, @sizeOf(Push), &ghost);
+                d.vkCmdDrawIndexed.?(cmd, r.box_index_count, frame.box_count, 0, 0, 0);
+                d.vkCmdBindPipeline.?(cmd, c.VK_PIPELINE_BIND_POINT_GRAPHICS, r.box_pipeline);
+                d.vkCmdPushConstants.?(cmd, r.layout, stages, 0, @sizeOf(Push), &frame.box);
+            }
         }
         if (frame.partial != null and r.instances.buf != null and r.box_index_count > 0) {
             const p = frame.partial.?;

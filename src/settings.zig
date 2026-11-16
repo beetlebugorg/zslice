@@ -318,7 +318,7 @@ pub const Settings = struct {
     project: Project = .{},
     engine: EngineOptions = .{},
 
-    pub const SetError = error{ UnknownSetting, InvalidValue };
+    pub const SetError = error{ UnknownSetting, InvalidValue, OutOfRange };
 
     /// Sets a field from a dotted name ("project.wall_count") and a text
     /// value. String values are not copied: the caller keeps them alive
@@ -327,6 +327,10 @@ pub const Settings = struct {
         const dot = std.mem.indexOfScalar(u8, name, '.') orelse return error.UnknownSetting;
         const group = name[0..dot];
         const field = name[dot + 1 ..];
+        if (limitOf(name)) |l| {
+            const v = std.fmt.parseFloat(f64, std.mem.trim(u8, value, " ")) catch return error.InvalidValue;
+            if (!(v >= l[0] and v <= l[1])) return error.OutOfRange;
+        }
         inline for (@typeInfo(Settings).@"struct".fields) |g| {
             if (std.mem.eql(u8, g.name, group)) return setField(&@field(self, g.name), field, value);
         }
@@ -486,4 +490,85 @@ test "resolve derives layers and speeds" {
     const a = flow.beadArea(0.44, 0.2);
     try testing.expectApproxEqAbs(@min(150, 12.0 / a), r.speed(.infill, 0.44, 0.2, false), 1e-9);
     try testing.expectApproxEqAbs(0.5 * @min(150, 12.0 / a), r.speed(.outer_wall, 0.44, 0.2, false), 1e-9);
+}
+
+/// The hard limits of the number settings: a value out of its limits is an
+/// error (`Settings.set` returns error.OutOfRange). The limits are wide:
+/// they stop values that no print needs (a 300 mm brim), not unusual ones.
+/// The usual values are the slider ranges in src/app.zig. A test checks
+/// that each number setting has a limit, and each default is in it.
+pub const limits = [_]struct { []const u8, f64, f64 }{
+    // machine
+    .{ "machine.bed_size_x", 10, 2000 },           .{ "machine.bed_size_y", 10, 2000 },
+    .{ "machine.max_height", 10, 2000 },           .{ "machine.nozzle_diameter", 0.1, 2 },
+    .{ "machine.max_speed", 1, 2000 },             .{ "machine.travel_speed", 1, 2000 },
+    .{ "machine.max_z_speed", 0.1, 200 },          .{ "machine.retract_length", 0, 20 },
+    .{ "machine.retract_speed", 1, 200 },
+    // filament
+    .{ "filament.diameter", 1, 3.5 },              .{ "filament.density", 0.5, 3 },
+    .{ "filament.nozzle_temp", 0, 450 },           .{ "filament.first_layer_nozzle_temp", 0, 450 },
+    .{ "filament.bed_temp", 0, 150 },              .{ "filament.standby_temp", 0, 450 },
+    .{ "filament.max_flow", 0.5, 100 },            .{ "filament.flow_ratio", 0.5, 2 },
+    .{ "filament.fan_speed", 0, 1 },               .{ "filament.fan_off_layers", 0, 100 },
+    .{ "filament.fan_max_speed", 0, 1 },           .{ "filament.fan_boost_time", 0, 120 },
+    .{ "filament.min_layer_time", 0, 120 },        .{ "filament.min_speed", 1, 100 },
+    .{ "filament.shrinkage_xy", 0.9, 1.1 },        .{ "filament.shrinkage_z", 0.9, 1.1 },
+    .{ "filament.xy_offset", -2, 2 },              .{ "filament.hole_xy_offset", -2, 2 },
+    .{ "filament.retract_ratio", 0, 5 },
+    // project
+    .{ "project.layer_height", 0.02, 1 },          .{ "project.first_layer_height", 0.02, 1 },
+    .{ "project.line_width", 0, 2 },               .{ "project.first_layer_line_width", 0, 2 },
+    .{ "project.wall_count", 0, 50 },              .{ "project.top_thickness", 0, 20 },
+    .{ "project.bottom_thickness", 0, 20 },        .{ "project.skin_overlap", 0, 1 },
+    .{ "project.infill_density", 0, 1 },           .{ "project.infill_angle", -360, 360 },
+    .{ "project.infill_overlap", 0, 1 },           .{ "project.ironing_flow", 0, 1 },
+    .{ "project.ironing_spacing", 0.01, 2 },       .{ "project.ironing_inset", 0, 10 },
+    .{ "project.ironing_speed", 0.01, 1 },         .{ "project.outer_wall_speed", 0.01, 1 },
+    .{ "project.inner_wall_speed", 0.01, 1 },      .{ "project.skin_speed", 0.01, 1 },
+    .{ "project.infill_speed", 0.01, 1 },          .{ "project.first_layer_speed", 0.01, 1 },
+    .{ "project.retract_min_travel", 0, 100 },     .{ "project.z_hop", 0, 10 },
+    .{ "project.support_angle", 0, 90 },           .{ "project.support_density", 0.01, 1 },
+    .{ "project.support_xy_gap", 0, 10 },          .{ "project.support_z_gap_layers", 0, 10 },
+    .{ "project.support_interface_layers", 0, 20 }, .{ "project.support_interface_density", 0.01, 1 },
+    .{ "project.skirt_loops", 0, 50 },             .{ "project.skirt_distance", 0, 50 },
+    .{ "project.skirt_layers", 0, 50 },            .{ "project.brim_width", 0, 50 },
+    .{ "project.first_layer_xy_offset", -2, 2 },
+    // engine
+    .{ "engine.resolution", 0.0005, 0.5 },         .{ "engine.gap_closing", 0, 10 },
+    .{ "engine.threads", 0, 256 },
+};
+
+/// The limits of a setting, or null for a setting with none.
+pub fn limitOf(name: []const u8) ?[2]f64 {
+    for (limits) |l| if (std.mem.eql(u8, l[0], name)) return .{ l[1], l[2] };
+    return null;
+}
+
+test "limits: each number has one, and each default is in it" {
+    const d: Settings = .{};
+    inline for (@typeInfo(Settings).@"struct".fields) |g| {
+        const group = @field(d, g.name);
+        inline for (@typeInfo(g.type).@"struct".fields) |f| {
+            const is_number = switch (@typeInfo(f.type)) {
+                .float, .int => true,
+                else => false,
+            };
+            if (is_number) {
+                const name = g.name ++ "." ++ f.name;
+                const l = limitOf(name) orelse {
+                    std.debug.print("no limit for {s}: add it to `limits` in src/settings.zig\n", .{name});
+                    return error.TestUnexpectedResult;
+                };
+                const v: f64 = switch (@typeInfo(f.type)) {
+                    .float => @field(group, f.name),
+                    else => @floatFromInt(@field(group, f.name)),
+                };
+                try std.testing.expect(v >= l[0] and v <= l[1]);
+            }
+        }
+    }
+    var s: Settings = .{};
+    try std.testing.expectError(error.OutOfRange, s.set("project.brim_width", "300"));
+    try s.set("project.brim_width", "8");
+    try std.testing.expectEqual(@as(f64, 8), s.project.brim_width);
 }

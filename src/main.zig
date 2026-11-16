@@ -170,6 +170,7 @@ pub fn main(init: std.process.Init) !void {
     const t0 = Io.Clock.awake.now(io);
     var job = zslice.engine.Job.init(gpa, &m, settings) catch |e| fail(err, "slice failed: {s}\n", .{@errorName(e)});
     defer job.deinit();
+    const pass1 = t0.untilNow(io, .awake);
 
     if (std.mem.eql(u8, cmd, "preview")) {
         const n = opts.layer orelse fail(err, "preview needs --layer N\n", .{});
@@ -191,12 +192,15 @@ pub fn main(init: std.process.Init) !void {
     }.f);
     const elapsed = t0.untilNow(io, .awake);
     const ms = @as(f64, @floatFromInt(elapsed.toNanoseconds())) / 1e6;
-    try err.print("{d} layers, {d:.2} m filament ({d:.1} g), about {d:.0} min, sliced in {d:.0} ms\n", .{
+    const ms1 = @as(f64, @floatFromInt(pass1.toNanoseconds())) / 1e6;
+    try err.print("{d} layers, {d:.2} m filament ({d:.1} g), about {d:.0} min, sliced in {d:.0} ms (outlines {d:.0} ms, plan and G-code {d:.0} ms)\n", .{
         stats.layer_count,
         stats.filament_mm / 1000,
         stats.filament_g,
         stats.print_time_s / 60,
         ms,
+        ms1,
+        ms - ms1,
     });
 }
 

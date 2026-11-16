@@ -95,7 +95,11 @@ The goal is the features that people use in PrusaSlicer and Cura. zslice designs
 - [x] Live settings: a value goes to the core after a pause in the typing; Up, Down, and a drag on the label step it; units on each value, ratios as percentages; all editors of a setting stay in sync
 - [x] A stable UI during a new slice: the inspector updates in place, the tab stays, the status bar keeps its size and dims the old numbers
 - [x] Settings browser in columns: sections, then settings, then the help and the lines of the project that the setting changes, highlighted in the preview, with their share of the print time; search; defaults with reset
-- [ ] Realtime sliders: drag a value (infill density, speeds) and see the slice change as fast as the slicer can go
+- [x] Realtime sliders: drag a value (infill density, speeds) and see the slice change as fast as the slicer can go (the layer regions stay between slices; the shell queues values instead of a restart)
+- [x] Usual ranges (sliders, a warning out of them) and hard limits (an error) for the number settings
+- [x] Focus: the lines that a setting changes are solid, and the other lines are ghosts that do not hide them
+- [ ] Faster skin regions: a sliding window for the stacked intersection, then SIMD in the boolean
+- [ ] Machine origin: the G-code position of the front left bed corner (center origin printers, Cura machine_center_is_zero)
 - [ ] Top and bottom skin patterns: monotonic, concentric, lines (now: lines in nearest order)
 - [ ] Preview color modes: feature, speed, flow, layer time, line width, layer height, filament color
 - [ ] Ironing in the preview: the ironed top skin looks flat; the inspector shows what ironing costs in time

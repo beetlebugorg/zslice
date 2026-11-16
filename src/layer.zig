@@ -85,7 +85,82 @@ pub const Context = struct {
     outlines: []const Paths,
     /// The support areas of each layer, or an empty slice (no support).
     support: []const support_mod.SupportLayer = &.{},
+    /// A slot for the regions of each layer, or an empty slice (no cache).
+    /// `plan` fills an empty slot and uses a full one. Each layer has its
+    /// own slot, so plans of different layers can run on different
+    /// threads.
+    cache: []?Regions = &.{},
 };
+
+/// The areas of a layer (steps 1 to 4): the wall loops, the skin area, and
+/// the sparse infill area. They are the slow part of a plan (polygon
+/// offsets and booleans), and many settings do not change them (infill,
+/// speeds, ironing, skirt, temperatures). An app keeps them between
+/// slices, so a change of such a setting slices again in a short time.
+pub const Regions = struct {
+    arena: std.heap.ArenaAllocator,
+    /// The wall loops, outer wall first.
+    walls: []Paths = &.{},
+    skin: Paths = .empty,
+    sparse: Paths = .empty,
+
+    pub fn deinit(self: *Regions) void {
+        self.arena.deinit();
+    }
+};
+
+/// Steps 1 to 4 for layer i. `gpa` must be thread-safe if more than one
+/// thread calls it at the same time.
+pub fn regions(gpa: Allocator, ctx: Context, i: usize) Allocator.Error!Regions {
+    const r = ctx.resolved;
+    const p = r.settings.project;
+    const first = i == 0;
+    const w = geom.fromMm(if (first) r.first_layer_line_width else r.line_width);
+    var reg: Regions = .{ .arena = .init(gpa) };
+    errdefer reg.deinit();
+    const a = reg.arena.allocator();
+    var scratch_state = std.heap.ArenaAllocator.init(gpa);
+    defer scratch_state.deinit();
+    const s = scratch_state.allocator();
+    const outline = ctx.outlines[i];
+    if (outline.isEmpty()) return reg;
+
+    // Step 1.
+    const walls = try a.alloc(Paths, p.wall_count);
+    var wall_n: usize = 0;
+    for (walls, 0..) |*wall, k| {
+        wall.* = try offset_mod.offset(a, outline, -(@divTrunc(w, 2) + @as(i64, @intCast(k)) * w), .{});
+        if (wall.isEmpty()) break;
+        wall_n += 1;
+    }
+    reg.walls = walls[0..wall_n];
+
+    // Step 2.
+    const inner = if (p.wall_count == 0)
+        try outline.clone(s)
+    else
+        try offset_mod.offset(s, outline, -@as(i64, @intCast(p.wall_count)) * w, .{});
+
+    // Steps 3 and 4.
+    if (!inner.isEmpty()) {
+        const above = try stackedIntersection(s, ctx.outlines, i, r.top_layers, .up);
+        const below = try stackedIntersection(s, ctx.outlines, i, r.bottom_layers, .down);
+        if (above == null and below == null) {
+            reg.sparse = try inner.clone(a);
+        } else {
+            const supported = if (above == null)
+                below.?
+            else if (below == null)
+                above.?
+            else
+                try clip.intersect(s, above.?, below.?);
+            const raw_skin = try clip.difference(s, inner, supported);
+            reg.skin = try offset_mod.opening(a, raw_skin, @divTrunc(w, 4), .{});
+            reg.sparse = try clip.difference(a, inner, reg.skin);
+        }
+    }
+    return reg;
+}
 
 /// Plans layer `i`. `gpa` must be thread-safe if more than one thread plans
 /// layers at the same time. Call `deinit` on the result.
@@ -142,41 +217,21 @@ pub fn plan(gpa: Allocator, ctx: Context, i: usize) Allocator.Error!LayerPlan {
         return lp;
     }
 
-    // Step 1.
-    const walls = try s.alloc(Paths, p.wall_count);
-    var wall_n: usize = 0;
-    for (walls, 0..) |*wall, k| {
-        wall.* = try offset_mod.offset(s, outline, -(@divTrunc(w, 2) + @as(i64, @intCast(k)) * w), .{});
-        if (wall.isEmpty()) break;
-        wall_n += 1;
-    }
-
-    // Step 2.
-    const inner = if (p.wall_count == 0)
-        try outline.clone(s)
-    else
-        try offset_mod.offset(s, outline, -@as(i64, @intCast(p.wall_count)) * w, .{});
-
-    // Steps 3 and 4.
-    var skin: Paths = .empty;
-    var sparse: Paths = .empty;
-    if (!inner.isEmpty()) {
-        const above = try stackedIntersection(s, ctx.outlines, i, r.top_layers, .up);
-        const below = try stackedIntersection(s, ctx.outlines, i, r.bottom_layers, .down);
-        if (above == null and below == null) {
-            sparse = inner;
-        } else {
-            const supported = if (above == null)
-                below.?
-            else if (below == null)
-                above.?
-            else
-                try clip.intersect(s, above.?, below.?);
-            const raw_skin = try clip.difference(s, inner, supported);
-            skin = try offset_mod.opening(s, raw_skin, @divTrunc(w, 4), .{});
-            sparse = try clip.difference(s, inner, skin);
+    // Steps 1 to 4: from the cache, or new.
+    var own: ?Regions = null;
+    defer if (own) |*o| o.deinit();
+    const reg: *const Regions = blk: {
+        if (ctx.cache.len > i) {
+            if (ctx.cache[i] == null) ctx.cache[i] = try regions(gpa, ctx, i);
+            break :blk &ctx.cache[i].?;
         }
-    }
+        own = try regions(gpa, ctx, i);
+        break :blk &own.?;
+    };
+    const walls = reg.walls;
+    const wall_n = walls.len;
+    const skin = reg.skin;
+    const sparse = reg.sparse;
 
     // Step 5.
     const skin_inset = -@divTrunc(w, 2) + geom.fromMm(p.skin_overlap * width_mm);

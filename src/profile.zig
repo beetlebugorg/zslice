@@ -50,7 +50,7 @@ pub const Diagnostic = struct {
     message: []const u8 = "",
 };
 
-pub const Error = error{ ProfileNotFound, ProfileLoop, ProfileTooDeep, SyntaxError, UnknownSetting, InvalidValue, OutOfMemory };
+pub const Error = error{ ProfileNotFound, ProfileLoop, ProfileTooDeep, SyntaxError, UnknownSetting, InvalidValue, OutOfRange, OutOfMemory };
 
 /// Applies the profile `name` of `group` to `settings`. The profile and
 /// its bases come from `resolver`, then from the built-in profiles. All
@@ -119,7 +119,11 @@ fn applyDepth(arena: Allocator, settings: *Settings, group: Group, name: []const
             diag.* = .{
                 .profile = name,
                 .line = e.line,
-                .message = if (err == error.UnknownSetting) "unknown setting" else "the value has the wrong type for this setting",
+                .message = switch (err) {
+                    error.UnknownSetting => "unknown setting",
+                    error.OutOfRange => "the value is out of the limits of this setting (see docs/user/settings.md)",
+                    else => "the value has the wrong type for this setting",
+                },
             };
             return err;
         };

@@ -300,6 +300,10 @@ pub const SettingInfo = extern struct {
     choices: [*:0]const u8,
     unit: [*:0]const u8,
     default_value: [*:0]const u8,
+    slider_min: f64,
+    slider_max: f64,
+    limit_min: f64,
+    limit_max: f64,
 };
 
 export fn zs_setting_count() usize {
@@ -321,6 +325,10 @@ export fn zs_setting_get_info(index: usize, out: ?*SettingInfo) c_int {
         .choices = s.choices.ptr,
         .unit = s.unit.ptr,
         .default_value = s.default_value.ptr,
+        .slider_min = s.slider_min,
+        .slider_max = s.slider_max,
+        .limit_min = s.limit_min,
+        .limit_max = s.limit_max,
     };
     return ok;
 }
