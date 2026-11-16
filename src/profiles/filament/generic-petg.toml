@@ -1,0 +1,13 @@
+# PETG: tougher than PLA, and it strings more. Less fan, and a slower
+# retraction. The temperatures are typical values. Check the label of your
+# filament.
+name = "Generic PETG"
+diameter = 1.75
+density = 1.27
+nozzle_temp = 240
+first_layer_nozzle_temp = 240
+bed_temp = 80
+max_flow = 10
+fan_speed = 0.5
+fan_off_layers = 2
+min_layer_time = 8

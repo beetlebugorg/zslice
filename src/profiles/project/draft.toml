@@ -1,0 +1,5 @@
+# A fast print to check the shape: thick layers and little infill.
+extends = "standard"
+layer_height = 0.28
+infill_density = 0.1
+outer_wall_speed = 0.7

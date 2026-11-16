@@ -26,9 +26,11 @@ zig build wasm                      # zig-out/web/zslice.wasm and zslice.mjs
 ## Command line
 
 ```sh
+zslice slice part.stl -m generic -f generic-petg -p fine -o part.gcode
 zslice slice part.stl -o part.gcode -s project.wall_count=3 -s filament.nozzle_temp=220
 zslice preview part.stl --layer 20 -o layer20.svg
 zslice settings                     # all settings and their defaults
+zslice profiles                     # the built-in profiles
 zslice demo demo.stl                # write a test part
 ```
 
@@ -39,6 +41,8 @@ The settings have three groups, with different owners:
 - `machine.*`: facts about the printer. Examples: the bed size, the nozzle, and the speed limits.
 - `filament.*`: facts about the material. Examples: the temperatures, and the maximum flow that the hot end can melt.
 - `project.*`: what you want for this part. Examples: the layer height, the walls, and the infill.
+
+Each group can come from a profile file (TOML), with inheritance (`extends`) and overrides. See [Profiles](docs/user/profiles.md).
 
 A project does not set speeds in mm/s. It sets a ratio of the speed that the machine and the filament allow. One project then works on different printers and with different filaments.
 

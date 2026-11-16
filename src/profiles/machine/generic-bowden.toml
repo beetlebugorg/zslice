@@ -1,0 +1,7 @@
+# The generic printer with a bowden extruder: the motor pushes the filament
+# through a long tube, so it needs a longer and faster retraction.
+extends = "generic"
+name = "Generic 220 mm printer, bowden"
+extruder = "bowden"
+retract_length = 5
+retract_speed = 45

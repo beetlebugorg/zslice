@@ -4,6 +4,7 @@
 
 - [Getting started](user/getting-started.md): build zslice, slice a part, look at the layers.
 - [Settings reference](user/settings.md): each setting, its unit, and its default.
+- [Profiles](user/profiles.md): machine, filament, and project files, with inheritance and overrides.
 - [Problems and errors](user/troubleshooting.md): what each error means and what to do.
 
 ## For developers who use the library

@@ -1,0 +1,8 @@
+# A general print: 0.2 mm layers, 2 walls, 20 % grid infill.
+layer_height = 0.2
+first_layer_height = 0.3
+wall_count = 2
+top_thickness = 0.8
+bottom_thickness = 0.6
+infill_density = 0.2
+infill_pattern = "grid"

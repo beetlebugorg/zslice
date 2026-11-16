@@ -1,0 +1,6 @@
+# A strong part: more walls, thicker skin, and 40 % infill.
+extends = "standard"
+wall_count = 4
+top_thickness = 1.2
+bottom_thickness = 1.0
+infill_density = 0.4

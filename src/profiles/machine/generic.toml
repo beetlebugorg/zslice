@@ -1,0 +1,11 @@
+# A generic printer with a 220 x 220 x 250 mm bed, a 0.4 mm nozzle, and a
+# direct-drive extruder. Copy this file to make the profile of your printer.
+name = "Generic 220 mm printer"
+bed_size_x = 220
+bed_size_y = 220
+max_height = 250
+nozzle_diameter = 0.4
+max_speed = 150
+travel_speed = 150
+extruder = "direct"
+retract_length = 0.8

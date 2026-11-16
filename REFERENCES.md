@@ -40,6 +40,7 @@ These sources gave methods or formats. zslice does not copy their code. Each zsl
 | Shoelace formula for polygon area | Mathematics | `src/geom.zig` | The signed area of a polygon. |
 | John Amanatides and Andrew Woo, "A Fast Voxel Traversal Algorithm for Ray Tracing", Eurographics 1987 | Paper | `src/clip.zig` | The walk of an edge through the cells of the uniform grid that finds candidate crossings. |
 | Doubly connected edge list (half-edge structure), as in de Berg et al., "Computational Geometry: Algorithms and Applications" | Textbook method | `src/clip.zig` | The faces of the arrangement, walked to find the winding numbers. |
+| TOML v1.0.0, https://toml.io/en/v1.0.0 | MIT (the specification) | `src/toml.zig`, `src/profile.zig` | The profile file format. zslice parses a subset. |
 | STL file format, 3D Systems. Description: https://en.wikipedia.org/wiki/STL_(file_format) | File format | `src/mesh.zig` | The binary and ASCII STL loader and the binary STL writer. |
 | Integer coordinates in micrometers, as in CuraEngine (https://github.com/Ultimaker/CuraEngine) | AGPL-3.0 | `src/geom.zig` | The coordinate unit. CuraEngine uses 1 unit = 1 micrometer (`include/types/Coord_t.h`). zslice uses the same unit. No code is copied. |
 | CuraEngine G-code comments: `;FLAVOR:`, `;LAYER_COUNT:`, `;LAYER:n`, `;TYPE:WALL-OUTER`, `WALL-INNER`, `SKIN`, `FILL` | AGPL-3.0 (the convention, not code) | `src/gcode.zig` | The comment names, so that G-code viewers and printdeck (`deck/internal/gcode/gcode.go`) find the layers and features. |

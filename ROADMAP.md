@@ -21,8 +21,8 @@
 
 - Support structures, for overhangs and bridges.
 - [x] Ironing on top surfaces (`project.ironing`).
-- Profiles. Machine, filament, and project profiles are separate files. Load order: machine, then filament, then project, then overrides. An override can change any field, for example `filament.nozzle_temp=230` for one project. Later: overrides for each object in a project.
-- Profile format: TOML (a subset: comments, `key = value`, strings, numbers, booleans, multi-line strings), with a small parser in zslice. `extends = "name"` loads a base profile first. Example: a brand PLA profile, and a gray PLA profile that extends it and changes one value.
+- [x] Profiles. Machine, filament, and project profiles are separate files. Load order: machine, then filament, then project, then overrides. An override can change any field, for example `filament.nozzle_temp=230` for one project. Later: overrides for each object in a project.
+- [x] Profile format: TOML (a subset: comments, `key = value`, strings, numbers, booleans, multi-line strings), with a small parser in zslice. `extends = "name"` loads a base profile first. Example: a brand PLA profile, and a gray PLA profile that extends it and changes one value.
 - Profile importers. Read Cura profiles (and other slicers) and convert them into zslice machine, filament, and project profiles. The printdeck TAZ profile (`printdeck/profiles/taz-workhorse-se`) is the first test case.
 - 3MF load.
 
@@ -70,7 +70,8 @@ The goal is the features that people use in PrusaSlicer and Cura. zslice designs
 - [ ] Sliced layer preview in 3D, with speed, flow, and feature views
 
 ### Profiles and workflow
-- [ ] Machine, filament, and project profiles in TOML, with `extends` and overrides
+- [x] Machine, filament, and project profiles in TOML, with `extends` and overrides (command line)
+- [ ] Profiles in the app: pick, edit, and save profiles, through the C API with a resolver callback
 - [ ] Import of Cura and PrusaSlicer profiles
 - [ ] A printer profile library
 - [ ] Send to printer: printdeck, OctoPrint, Moonraker

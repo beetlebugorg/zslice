@@ -1,0 +1,7 @@
+# A detailed print: thin layers, a slow outer wall, and ironed top surfaces.
+extends = "standard"
+layer_height = 0.12
+first_layer_height = 0.2
+wall_count = 3
+outer_wall_speed = 0.35
+ironing = true

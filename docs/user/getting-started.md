@@ -45,7 +45,7 @@ To see all settings and their default values:
 zslice settings
 ```
 
-The [settings reference](settings.md) explains each one.
+The [settings reference](settings.md) explains each one. To keep settings in files (one for your printer, one for each filament), see [Profiles](profiles.md).
 
 ### The three groups
 

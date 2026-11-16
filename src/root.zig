@@ -32,6 +32,8 @@ pub const parallel = @import("parallel.zig");
 pub const engine = @import("engine.zig");
 pub const svg = @import("svg.zig");
 pub const support = @import("support.zig");
+pub const toml = @import("toml.zig");
+pub const profile = @import("profile.zig");
 pub const app = @import("app.zig");
 
 pub const Mesh = mesh.Mesh;
