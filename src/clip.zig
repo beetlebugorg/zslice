@@ -545,10 +545,10 @@ fn splitAndMerge(arena: Allocator, edges: []const InEdge, splits: []Split, sorte
     var items: []Merged = undefined;
     if (!sorted_input) {
         items = subs[0 .. old_n + new_n];
-        sortMerged(items);
+        try sortMergedFast(arena, items);
     } else {
         // Merge the two sorted lists.
-        sortMerged(new_buf[0..new_n]);
+        try sortMergedFast(arena, new_buf[0..new_n]);
         items = try arena.alloc(Merged, old_n + new_n);
         var x: usize = 0;
         var y: usize = 0;
@@ -594,6 +594,30 @@ fn subPiece(a: Point, b: Point, d: [2]i32, fresh: bool) ?Merged {
 fn mergedLess(a: Merged, b: Merged) bool {
     if (!a.lo.eql(b.lo)) return a.lo.lessThan(b.lo);
     return a.hi.lessThan(b.hi);
+}
+
+/// Sorts edges by (lo, hi). A radix sort orders the keys of lo, and an
+/// insertion sort orders each group with the same lo by hi (most groups
+/// have one or two edges). Then the edges move to the new order.
+fn sortMergedFast(arena: Allocator, items: []Merged) Allocator.Error!void {
+    const ks = KeySpace.of(items) orelse return sortMerged(items);
+    const keys = try arena.alloc(KeyIdx, items.len);
+    for (keys, items, 0..) |*k, e, i| k.* = .{ .k = ks.key(e.lo), .i = @intCast(i) };
+    try radixSortKeys(arena, keys, ks.bits);
+    var g: usize = 0;
+    while (g < keys.len) {
+        var end = g + 1;
+        while (end < keys.len and keys[end].k == keys[g].k) : (end += 1) {}
+        for (g + 1..end) |i| {
+            const v = keys[i];
+            var j = i;
+            while (j > g and items[v.i].hi.lessThan(items[keys[j - 1].i].hi)) : (j -= 1) keys[j] = keys[j - 1];
+            keys[j] = v;
+        }
+        g = end;
+    }
+    const copy = try arena.dupe(Merged, items);
+    for (items, keys) |*e, k| e.* = copy[k.i];
 }
 
 fn sortMerged(items: []Merged) void {
@@ -736,7 +760,7 @@ fn computeWinding(arena: Allocator, edges: []Merged) !void {
         }
     };
     const ctx: Ctx = .{ .edges = edges };
-    std.mem.sortUnstable(u32, order, ctx, Ctx.lt);
+    if (!try sortHalfEdges(arena, edges, order)) std.mem.sortUnstable(u32, order, ctx, Ctx.lt);
     const pos = try arena.alloc(u32, h_count);
     const group_start = try arena.alloc(u32, h_count);
     const group_len = try arena.alloc(u32, h_count);
@@ -831,6 +855,114 @@ fn computeWinding(arena: Allocator, edges: []Merged) !void {
     }
 
     for (edges, 0..) |*e, i| e.left = wind[face[2 * i]];
+}
+
+/// Points as 64-bit keys with the same order as `Point.lessThan`: x above
+/// y, both from the corner of the bounding box, with only as many bits as
+/// the box needs. Fewer bits make the radix sort shorter.
+const KeySpace = struct {
+    min: Point,
+    y_bits: u6,
+    bits: u7,
+
+    /// The key space of the edges, or null if the keys need more than 64
+    /// bits.
+    fn of(edges: []const Merged) ?KeySpace {
+        if (edges.len == 0) return null;
+        var box = geom.Box.empty;
+        for (edges) |e| {
+            box.extend(e.lo);
+            box.extend(e.hi);
+        }
+        const xb = bitsFor(box.max.x - box.min.x);
+        const yb = bitsFor(box.max.y - box.min.y);
+        if (xb + yb > 64) return null;
+        return .{ .min = box.min, .y_bits = @intCast(yb), .bits = @intCast(xb + yb) };
+    }
+
+    fn bitsFor(span: i64) u32 {
+        return 64 - @clz(@as(u64, @intCast(span)));
+    }
+
+    fn key(ks: KeySpace, p: Point) u64 {
+        const x: u64 = @intCast(p.x - ks.min.x);
+        const y: u64 = @intCast(p.y - ks.min.y);
+        return if (ks.y_bits == 64) y else (x << ks.y_bits) | y;
+    }
+};
+
+const KeyIdx = struct { k: u64, i: u32 };
+
+/// Sorts by key with a least significant digit radix sort (see
+/// `radixSortByCell`), and keeps the order of equal keys.
+fn radixSortKeys(arena: Allocator, items: []KeyIdx, bits: u7) Allocator.Error!void {
+    if (items.len < 2 or bits == 0) return;
+    const digit = 11;
+    const radix = 1 << digit;
+    var src = items;
+    var dst = try arena.alloc(KeyIdx, items.len);
+    var shift: u7 = 0;
+    while (shift < bits) : (shift += digit) {
+        const sh: u6 = @intCast(shift);
+        var count: [radix + 1]u32 = @splat(0);
+        for (src) |e| count[@as(usize, @intCast((e.k >> sh) & (radix - 1))) + 1] += 1;
+        for (1..radix + 1) |k| count[k] += count[k - 1];
+        for (src) |e| {
+            const d: usize = @intCast((e.k >> sh) & (radix - 1));
+            dst[count[d]] = e;
+            count[d] += 1;
+        }
+        std.mem.swap([]KeyIdx, &src, &dst);
+        if (shift + digit >= 64) break;
+    }
+    if (src.ptr != items.ptr) @memcpy(items, src);
+}
+
+/// Sorts the half-edges by origin, then by angle (as `computeWinding`
+/// needs), with less work than a comparison sort of all of them. The
+/// edges are in (lo, hi) order, so the half-edges that start at lo (even
+/// numbers) are already in origin order. Only the half-edges that start
+/// at hi need a sort, by a 64-bit key. A merge joins the two lists, and an
+/// insertion sort puts each vertex group (most have 2 to 4 half-edges) in
+/// angle order. Returns false if the coordinates are too large for the
+/// keys; then the caller sorts.
+fn sortHalfEdges(arena: Allocator, edges: []const Merged, order: []u32) Allocator.Error!bool {
+    const ks = KeySpace.of(edges) orelse return false;
+    const odd = try arena.alloc(KeyIdx, edges.len);
+    for (odd, 0..) |*o, i| o.* = .{ .k = ks.key(edges[i].hi), .i = @intCast(2 * i + 1) };
+    try radixSortKeys(arena, odd, ks.bits);
+    var x: usize = 0; // the next even half-edge: edge x, from lo
+    var y: usize = 0; // the next odd half-edge
+    var n: usize = 0;
+    while (n < order.len) {
+        // The next origin, and all half-edges that start there.
+        const kx: u64 = if (x < edges.len) ks.key(edges[x].lo) else std.math.maxInt(u64);
+        const ky: u64 = if (y < odd.len) odd[y].k else std.math.maxInt(u64);
+        const k = @min(kx, ky);
+        const start = n;
+        while (x < edges.len and ks.key(edges[x].lo) == k) : (x += 1) {
+            order[n] = @intCast(2 * x);
+            n += 1;
+        }
+        while (y < odd.len and odd[y].k == k) : (y += 1) {
+            order[n] = odd[y].i;
+            n += 1;
+        }
+        // Insertion sort by angle.
+        const group = order[start..n];
+        for (1..group.len) |i| {
+            const h = group[i];
+            var j = i;
+            while (j > 0 and angleLess(halfDir(edges, h), halfDir(edges, group[j - 1]))) : (j -= 1) group[j] = group[j - 1];
+            group[j] = h;
+        }
+    }
+    return true;
+}
+
+fn halfDir(edges: []const Merged, h: u32) Point {
+    const e = edges[h >> 1];
+    return if (h & 1 == 0) e.hi.sub(e.lo) else e.lo.sub(e.hi);
 }
 
 /// The order of directions by angle, counterclockwise from +x. Exact: it
