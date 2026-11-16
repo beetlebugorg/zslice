@@ -40,7 +40,8 @@ The goal is the features that people use in PrusaSlicer and Cura. zslice designs
 - [ ] Overhang walls: slower speed and more fan for overhang
 - [x] Seam placement: sharpest corner (hidden), rear, nearest, random
 - [ ] Gap fill and thin walls (variable line width, like Arachne)
-- [ ] Infill patterns: gyroid, honeycomb, cubic, triangles, concentric, lightning, adaptive cubic
+- [x] Infill patterns: gyroid, cubic, triangles, concentric
+- [ ] Infill patterns: honeycomb, lightning, adaptive cubic
 - [ ] Top and bottom patterns: monotonic, concentric
 - [ ] Infill only where needed, and denser infill under top surfaces
 - [ ] Wall order (inner first or outer first) and extra walls on alternate layers

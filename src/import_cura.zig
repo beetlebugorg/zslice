@@ -361,7 +361,12 @@ fn convert(arena: Allocator, conv: Conv, text: []const u8, max_speed: f64) !?[]c
         .gcode => return try quoteMultiline(arena, try translateGcode(arena, text)),
         .infill_pattern => {
             if (std.mem.eql(u8, text, "lines") or std.mem.eql(u8, text, "zigzag")) return "\"lines\"";
-            if (std.mem.eql(u8, text, "grid")) return "\"grid\"";
+            for ([_][]const u8{ "grid", "triangles", "cubic", "gyroid", "concentric" }) |same| {
+                if (std.mem.eql(u8, text, same)) return try std.fmt.allocPrint(arena, "\"{s}\"", .{same});
+            }
+            for ([_][]const u8{ "cubicsubdiv", "quarter_cubic", "tetrahedral", "octet" }) |like| {
+                if (std.mem.eql(u8, text, like)) return try std.fmt.allocPrint(arena, "\"cubic\" # Cura: {s}", .{like});
+            }
             // zslice has no such pattern yet: grid is the nearest.
             return try std.fmt.allocPrint(arena, "\"grid\" # Cura: {s}, which zslice has no pattern for yet", .{text});
         },

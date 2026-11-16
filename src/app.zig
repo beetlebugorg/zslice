@@ -515,7 +515,7 @@ test "each setting has help text" {
         }
     }
     try testing.expectEqualStrings("Nozzle temp", findInfo("filament.nozzle_temp").label);
-    try testing.expectEqualStrings("lines\ngrid", findInfo("project.infill_pattern").choices);
+    try testing.expectEqualStrings("lines\ngrid\ntriangles\ncubic\ngyroid\nconcentric", findInfo("project.infill_pattern").choices);
 }
 
 fn findInfo(name: []const u8) SettingInfo {

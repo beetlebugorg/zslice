@@ -23,7 +23,7 @@
 
 const std = @import("std");
 
-pub const InfillPattern = enum { lines, grid };
+pub const InfillPattern = enum { lines, grid, triangles, cubic, gyroid, concentric };
 pub const SeamMode = enum { sharpest, rear, nearest, random };
 pub const SupportMode = enum { off, everywhere, buildplate };
 pub const ExtruderKind = enum { direct, bowden };
@@ -191,7 +191,13 @@ pub const Project = struct {
     // Infill
     /// The fraction of the inside that the sparse infill fills, as a ratio. 0 makes the part hollow.
     infill_density: f64 = 0.2,
-    /// The sparse infill pattern. `lines`: one direction on each layer, turned 90 degrees on the next layer. `grid`: two directions on each layer.
+    /// The sparse infill pattern. `lines`: one direction on each layer,
+    /// turned 90 degrees on the next layer. `grid`: two directions on each
+    /// layer. `triangles`: three directions at 60 degrees on each layer.
+    /// `cubic`: three directions that move with the height, so the infill
+    /// makes cubes in 3D. `gyroid`: smooth curves that change with the
+    /// height, strong in all directions. `concentric`: loops that follow
+    /// the outline.
     infill_pattern: InfillPattern = .grid,
     /// The angle of the infill and skin lines, in degrees from the X axis.
     infill_angle: f64 = 45,

@@ -185,6 +185,7 @@ pub fn plan(gpa: Allocator, ctx: Context, i: usize) Allocator.Error!LayerPlan {
     const skin_lines = try infill.lines(s, skin_region, w, skin_angle, w);
 
     var sparse_lines: Paths = .empty;
+    var sparse_loops: Paths = .empty;
     if (p.infill_density > 0 and !sparse.isEmpty()) {
         const inset = -@divTrunc(w, 2) + geom.fromMm(p.infill_overlap * width_mm);
         const region = try offset_mod.offset(s, sparse, inset, .{});
@@ -200,6 +201,29 @@ pub fn plan(gpa: Allocator, ctx: Context, i: usize) Allocator.Error!LayerPlan {
                 var cross = try infill.lines(s, region, spacing, p.infill_angle + 90, w);
                 try sparse_lines.appendAll(s, cross);
                 cross.deinit(s);
+            },
+            .triangles, .cubic => {
+                // Three line sets, so each set is 3 times as far apart as
+                // one set of the same density.
+                const spacing = geom.fromMm(3 * width_mm / p.infill_density);
+                const step: f64 = if (p.infill_pattern == .triangles) 60 else 120;
+                // Cubic: each set moves along its normal by the layer
+                // height, so the lines of the layers make planes at 45
+                // degrees, and three such planes make cubes on a corner.
+                const phase: i64 = if (p.infill_pattern == .cubic) geom.fromMm(layer.z) else 0;
+                for (0..3) |k| {
+                    var set = try infill.linesPhase(s, region, spacing, p.infill_angle + step * @as(f64, @floatFromInt(k)), phase, w);
+                    try sparse_lines.appendAll(s, set);
+                    set.deinit(s);
+                }
+            },
+            .gyroid => {
+                const period = infill.gyroid_k * width_mm / p.infill_density;
+                sparse_lines = try infill.gyroid(s, region, period, layer.z, w);
+            },
+            .concentric => {
+                const spacing = geom.fromMm(width_mm / p.infill_density);
+                sparse_loops = try infill.concentric(s, region, spacing);
             },
         }
     }
@@ -255,6 +279,7 @@ pub fn plan(gpa: Allocator, ctx: Context, i: usize) Allocator.Error!LayerPlan {
     if (wall_n > 0) try addOrderedSeam(s, a, &lp, &pos, walls[0], true, .outer_wall, seam);
     try addOrdered(s, a, &lp, &pos, skin_lines, false, .skin);
     try addOrdered(s, a, &lp, &pos, sparse_lines, false, .infill);
+    try addOrdered(s, a, &lp, &pos, sparse_loops, true, .infill);
     try addOrdered(s, a, &lp, &pos, ironing_lines, false, .ironing);
     return lp;
 }

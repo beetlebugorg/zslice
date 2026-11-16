@@ -244,9 +244,9 @@ Skin lines go this far into the walls, as a fraction of the line width, so that 
 
 The fraction of the inside that the sparse infill fills, as a ratio. 0 makes the part hollow.
 
-**`project.infill_pattern`** (one of: `lines`, `grid`). Default: `grid`
+**`project.infill_pattern`** (one of: `lines`, `grid`, `triangles`, `cubic`, `gyroid`, `concentric`). Default: `grid`
 
-The sparse infill pattern. `lines`: one direction on each layer, turned 90 degrees on the next layer. `grid`: two directions on each layer.
+The sparse infill pattern. `lines`: one direction on each layer, turned 90 degrees on the next layer. `grid`: two directions on each layer. `triangles`: three directions at 60 degrees on each layer. `cubic`: three directions that move with the height, so the infill makes cubes in 3D. `gyroid`: smooth curves that change with the height, strong in all directions. `concentric`: loops that follow the outline.
 
 **`project.infill_angle`** (number). Default: `45`
 
