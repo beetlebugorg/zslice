@@ -445,9 +445,13 @@ pub fn regions(gpa: Allocator, ctx: Context, i: usize, memo: *Memo, list_alloc: 
     const removal = @divTrunc(geom.fromMm(p.skin_removal_width), 2);
     const expand = geom.fromMm(p.skin_expand_distance);
     const solid = @divTrunc(geom.fromMm(p.solid_infill_width), 2);
-    const skin_key = [6]i64{ inner_delta, r.top_layers, r.bottom_layers, removal, expand, solid };
+    // The layer counts come from the heights of the layers, so a top
+    // thickness in mm has enough layers where the layer height changes.
+    const top_layers = layersFor(ctx.layers, i, p.top_thickness, .up);
+    const bottom_layers = layersFor(ctx.layers, i, p.bottom_thickness, .down);
+    const skin_key = [6]i64{ inner_delta, top_layers, bottom_layers, removal, expand, solid };
     reg.key = skin_key;
-    if (r.top_layers == 0 and r.bottom_layers == 0) {
+    if (top_layers == 0 and bottom_layers == 0) {
         reg.sparse = inner;
         return reg;
     }
@@ -465,7 +469,7 @@ pub fn regions(gpa: Allocator, ctx: Context, i: usize, memo: *Memo, list_alloc: 
     var exposed: Paths = .empty;
     var sets: usize = 0;
     const n = ctx.outlines.len;
-    for (0..r.top_layers) |m| {
+    for (0..top_layers) |m| {
         const j = i + m;
         if (j >= n) break;
         if (ctx.canceled()) return reg;
@@ -474,7 +478,7 @@ pub fn regions(gpa: Allocator, ctx: Context, i: usize, memo: *Memo, list_alloc: 
         if (!piece.isEmpty()) sets += 1;
         try exposed.appendAll(s, piece);
     }
-    for (0..r.bottom_layers) |m| {
+    for (0..bottom_layers) |m| {
         if (m > i) break;
         const j = i - m;
         const t = if (ctx.bottoms.len > 0) ctx.bottoms[j] else (try surfaces(s, ctx.outlines, j))[1];
@@ -579,7 +583,7 @@ pub fn plan(gpa: Allocator, ctx: Context, i: usize) Allocator.Error!LayerPlan {
     var under_band: ?Paths = null;
     if (p.infill_pattern == .flow and p.infill_density > 0 and !reg.sparse.isEmpty()) {
         const band_mm = @max(2.0, 3 * p.top_thickness);
-        const band: u32 = @intFromFloat(@ceil(band_mm / p.layer_height));
+        const band = layersForTol(ctx.layers, i + 1, band_mm, .up, 0);
         under_band = try memo.underBand(ctx.outlines, i, band, ctx.gen, ctx.cancel) orelse return lp;
     }
     const walls = reg.walls;
@@ -615,7 +619,7 @@ pub fn plan(gpa: Allocator, ctx: Context, i: usize) Allocator.Error!LayerPlan {
         // fills the rest (`region`). The flow pattern has its own band.
         var region = full_region;
         if (p.top_support_layers > 0 and p.top_support_density > p.infill_density and p.infill_pattern != .flow) {
-            const split = try memo.topSplit(reg, inset, ctx.outlines, i, r.top_layers + p.top_support_layers, ctx.gen, ctx.cancel) orelse return lp;
+            const split = try memo.topSplit(reg, inset, ctx.outlines, i, layersFor(ctx.layers, i, p.top_thickness, .up) + p.top_support_layers, ctx.gen, ctx.cancel) orelse return lp;
             region = split.rest;
         }
         switch (p.infill_pattern) {
@@ -732,7 +736,7 @@ pub fn plan(gpa: Allocator, ctx: Context, i: usize) Allocator.Error!LayerPlan {
     // degrees on the next, and joined at the walls.
     if (p.top_support_layers > 0 and p.top_support_density > p.infill_density and p.infill_pattern != .flow and p.infill_density > 0 and !sparse.isEmpty()) {
         const inset = -@divTrunc(w, 2) + geom.fromMm(p.infill_overlap * width_mm);
-        const split = try memo.topSplit(reg, inset, ctx.outlines, i, r.top_layers + p.top_support_layers, ctx.gen, ctx.cancel) orelse return lp;
+        const split = try memo.topSplit(reg, inset, ctx.outlines, i, layersFor(ctx.layers, i, p.top_thickness, .up) + p.top_support_layers, ctx.gen, ctx.cancel) orelse return lp;
         const band = split.band;
         if (!band.isEmpty()) {
             const spacing = geom.fromMm(width_mm / p.top_support_density);
@@ -978,6 +982,51 @@ fn outerBoundaries(s: Allocator, paths: Paths) Allocator.Error!Paths {
 }
 
 const Direction = enum { up, down };
+
+/// The height that layer j counts for in a thickness. The first layer
+/// counts as the layer above it: its extra height is for the bed, and not
+/// for the skin.
+fn countHeight(layers: []const slicer.Layer, j: usize) f64 {
+    if (j == 0 and layers.len > 1) return layers[1].height;
+    return layers[j].height;
+}
+
+/// The number of layers from layer `start` (up or down, `start` included)
+/// that make `thickness` mm. For layers of one height h, it is
+/// ceil(thickness / h). Where the height changes, each run of layers of
+/// one height gets its part of the thickness. A count past the end of
+/// the layers goes on with the height of the last layer.
+pub fn layersFor(layers: []const slicer.Layer, start: usize, thickness: f64, dir: Direction) u32 {
+    return layersForTol(layers, start, thickness, dir, 1e-6);
+}
+
+/// `layersFor`, with a tolerance on the ratio of thickness to height: a
+/// ratio less than tol over a whole number counts as that number. The
+/// band of the flow infill has no tolerance.
+fn layersForTol(layers: []const slicer.Layer, start: usize, thickness: f64, dir: Direction, tol: f64) u32 {
+    if (!(thickness > 0) or layers.len == 0) return 0;
+    var n: u32 = 0;
+    var left = thickness;
+    var j: usize = @min(start, layers.len - 1);
+    while (true) {
+        const h = countHeight(layers, j);
+        const need: u32 = @intFromFloat(@max(0, @ceil(left / h - tol)));
+        if (need == 0) return n;
+        // The layers of height h from j on, up to `need`.
+        var k: u32 = 0;
+        while (k < need and countHeight(layers, j) == h) {
+            k += 1;
+            const next = switch (dir) {
+                .up => if (j + 1 < layers.len) j + 1 else null,
+                .down => if (j > 0) j - 1 else null,
+            };
+            j = next orelse return n + need;
+        }
+        if (k == need) return n + need;
+        n += k;
+        left -= @as(f64, @floatFromInt(k)) * h;
+    }
+}
 
 /// The intersection of the outlines of the `n` layers above (or below)
 /// layer i. Returns null if n is 0 (no limit). Returns an empty set if the
@@ -1959,4 +2008,26 @@ test "the start grid finds the same start as a search over all starts" {
         try testing.expectEqual(best.at, got.at);
         used[got.path] = true;
     }
+}
+
+test "layersFor: the layers that make a thickness" {
+    // A 0.3 mm first layer, four layers of 0.2 mm, then 0.1 mm layers.
+    var layers: [12]slicer.Layer = undefined;
+    var z: f64 = 0;
+    for (&layers, 0..) |*l, k| {
+        const h: f64 = if (k == 0) 0.3 else if (k < 5) 0.2 else 0.1;
+        z += h;
+        l.* = .{ .z = z, .height = h };
+    }
+    // One height: ceil(thickness / h), with the first layer as 0.2 mm.
+    try testing.expectEqual(@as(u32, 4), layersFor(&layers, 0, 0.8, .up));
+    try testing.expectEqual(@as(u32, 3), layersFor(&layers, 3, 0.6, .down));
+    try testing.expectEqual(@as(u32, 0), layersFor(&layers, 3, 0, .down));
+    // From layer 3 up: 0.2 + 0.2 (layers 3 and 4), then 0.4 mm in four
+    // layers of 0.1 mm.
+    try testing.expectEqual(@as(u32, 6), layersFor(&layers, 3, 0.8, .up));
+    // From layer 6 down: 0.1 + 0.1, then 0.2 mm in one layer of 0.2 mm.
+    try testing.expectEqual(@as(u32, 3), layersFor(&layers, 6, 0.4, .down));
+    // Past the top: the height of the last layer.
+    try testing.expectEqual(@as(u32, 10), layersFor(&layers, 10, 1.0, .up));
 }
