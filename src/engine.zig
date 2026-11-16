@@ -1259,3 +1259,28 @@ test "the cooling lap fills the min layer time with moves over the layer" {
     // Both meet the min layer time: the print times are close.
     try std.testing.expectApproxEqRel(st_slow.print_time_s, st_lap.print_time_s, 0.15);
 }
+
+test "the retraction at a layer change has no z hop" {
+    const gpa = std.testing.allocator;
+    var mesh = try mesh_mod.shapes.demo(gpa);
+    defer mesh.deinit(gpa);
+    var s: Settings = .{};
+    try s.set("project.z_hop", "1");
+    var out: std.Io.Writer.Allocating = .init(gpa);
+    defer out.deinit();
+    _ = try slice(gpa, &mesh, s, &out.writer);
+    const text = out.written();
+    // From each layer mark to the first travel of the layer: one Z move
+    // (the layer change), and no lift.
+    var layers: usize = 0;
+    var at: usize = 0;
+    while (std.mem.indexOfPos(u8, text, at, ";LAYER:")) |mark| {
+        at = mark + 1;
+        const travel = std.mem.indexOfPos(u8, text, mark, "G0 X") orelse continue;
+        try std.testing.expectEqual(@as(usize, 1), std.mem.count(u8, text[mark..travel], "G0 Z"));
+        layers += 1;
+    }
+    try std.testing.expect(layers > 10);
+    // The z hop is still on the travels that retract.
+    try std.testing.expect(std.mem.indexOf(u8, text, "G1 E-") != null);
+}

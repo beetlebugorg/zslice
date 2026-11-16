@@ -361,6 +361,8 @@ pub const Emitter = struct {
     y: f64 = 0,
     z: f64 = 0,
     retracted: bool = false,
+    /// The nozzle is up by `z_hop` after a retraction.
+    hopped: bool = false,
     /// The outline of the layer that `layer` writes, its line width, and
     /// the boxes of its polygons (for combing).
     outline: ?*const geom.Paths = null,
@@ -502,8 +504,10 @@ pub const Emitter = struct {
             slow = @min(1, est.extrude_s / want);
         }
 
-        // Go up to the new layer.
-        try self.retract();
+        // Go up to the new layer. The retraction has no z hop: the layer
+        // change moves the nozzle up, and the travel to the first path
+        // goes at the height of the new layer.
+        try self.retractHop(false);
         self.setOutline(lp);
         defer self.outline = null;
         self.comb_index = if (self.prep) |pr| (if (pr.index) |*ix| ix else null) else null;
@@ -697,6 +701,11 @@ pub const Emitter = struct {
     }
 
     fn retract(self: *Emitter) Writer.Error!void {
+        return self.retractHop(true);
+    }
+
+    /// A retraction, and a z hop if `hop` and `z_hop` is on.
+    fn retractHop(self: *Emitter, hop: bool) Writer.Error!void {
         const len = self.r.retract_length;
         if (self.retracted or !self.extruded or len <= 0) return;
         try self.w.writeAll("G1 E-");
@@ -708,19 +717,21 @@ pub const Emitter = struct {
         self.feed = -1;
         self.stats.retractions += 1;
         self.stats.print_time_s += len / self.r.settings.machine.retract_speed;
-        if (self.r.settings.project.z_hop > 0) {
+        if (hop and self.r.settings.project.z_hop > 0) {
             try self.w.writeAll("G0 Z");
             try writeNum(self.w, self.z + self.r.settings.project.z_hop, 3);
             try self.w.writeAll("\n");
+            self.hopped = true;
         }
     }
 
     fn unretract(self: *Emitter) Writer.Error!void {
         if (!self.retracted) return;
-        if (self.r.settings.project.z_hop > 0) {
+        if (self.hopped) {
             try self.w.writeAll("G0 Z");
             try writeNum(self.w, self.z, 3);
             try self.w.writeAll("\n");
+            self.hopped = false;
         }
         const len = self.r.retract_length;
         try self.w.writeAll("G1 E");
