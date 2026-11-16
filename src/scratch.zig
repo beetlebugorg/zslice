@@ -17,6 +17,8 @@
 //! needs work memory inside another call (an offset calls a union) takes a
 //! second arena. If all slots are busy, `get` makes a new arena that
 //! `release` frees.
+//!
+//! Reference (see REFERENCES.md): arena allocators kept in a pool.
 
 const std = @import("std");
 const Allocator = std.mem.Allocator;

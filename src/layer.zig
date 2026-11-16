@@ -50,6 +50,9 @@
 //!
 //! Each layer only reads the outlines of the other layers, so many layers
 //! can be planned at the same time on different threads.
+//!
+//! References (see REFERENCES.md): the greedy nearest-neighbor order with
+//! a uniform grid search, the opening, and memoization (see `Memo`).
 
 const std = @import("std");
 const Allocator = std.mem.Allocator;

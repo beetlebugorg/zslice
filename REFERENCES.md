@@ -72,6 +72,12 @@ These sources gave methods or formats. zslice does not copy their code. Each zsl
 | PKWARE, ".ZIP File Format Specification" (APPNOTE.TXT), https://pkware.cachefly.net/webdocs/casestudies/APPNOTE.TXT | Public specification | `src/zipfile.zig` | The zip records (local header, central directory, end record, and the zip64 records and extra field). The header structs and deflate come from the Zig standard library (MIT). |
 | 3MF Consortium, "3MF Core Specification" 1.3 and "Production Extension", https://github.com/3MFConsortium/spec_core | BSD-2-Clause (the specification) | `src/threemf.zig` | The 3MF package, the model file, objects, components, build items, transforms, and units. The code is new. |
 | Iterated snap rounding (repeat the intersection pass on the rounded result) | General computational geometry technique | `src/clip.zig` | Makes the boolean operations robust after crossing points are rounded to the grid. |
+| Least significant digit radix sort (a stable counting sort for each digit, from the low digit to the high digit) | General technique | `src/clip.zig` | Sorts the cell entries of the crossing grid by cell. |
+| A. M. Andrew, "Another efficient algorithm for convex hulls in two dimensions", Information Processing Letters 9(5), 1979 (the monotone chain) | Paper | `src/offset.zig` | The convex hull of a loop, for the test that a loop vanishes in an offset. |
+| A convex shape with an inscribed circle of radius r has area A >= r P / 2 (P is the perimeter) | Mathematics | `src/offset.zig` | The bound r <= 2 A / P on the largest circle in a convex hull. |
+| Uniform grid search for the nearest point, ring by ring | General technique | `src/layer.zig` | Finds the nearest path start in the greedy path order. |
+| Memoization: keep a result with the inputs that made it, and use it again for the same inputs | General technique | `src/layer.zig`, `src/engine.zig` | The memo of each layer, which keeps the slow results between slices. |
+| Arena allocators kept in a pool and reset between uses | General technique | `src/scratch.zig` | The work memory of the booleans and offsets. |
 
 ## Test tools
 

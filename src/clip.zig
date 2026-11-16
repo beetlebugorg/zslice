@@ -35,7 +35,7 @@
 //! polygons, shared edges, and polygons that touch at one point.
 //!
 //! References (see REFERENCES.md): winding numbers and fill rules, the
-//! uniform grid with the Amanatides-Woo walk, the half-edge structure
+//! uniform grid with the Amanatides-Woo walk and a radix sort, the half-edge structure
 //! (DCEL), iterated snap rounding, the slab index, and the CSR layout.
 //!
 //! Known limit: a crossing point is rounded to the nearest micrometer. The

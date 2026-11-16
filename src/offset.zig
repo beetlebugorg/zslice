@@ -28,6 +28,10 @@
 //! made of many very short edges gives many closing corners, and each one
 //! makes a thin loop. Fewer points give fewer thin loops, and the union is
 //! faster and more robust.
+//! Also before step 1, the code drops each loop that surely vanishes: a
+//! boundary that shrinks (or a hole that grows) by more than the radius of
+//! the largest circle in its convex hull (see `vanishes`; the hull is
+//! Andrew's monotone chain, see REFERENCES.md).
 //! 3. A union with the "positive" fill rule removes all parts that turn the
 //!    wrong way. These parts include the small loops from step 2 and all of
 //!    a shape that the offset made smaller than zero.
@@ -76,6 +80,7 @@ pub fn offset(gpa: Allocator, paths: Paths, delta: i64, opts: Options) Allocator
         try clean.appendSlice(arena, paths.get(pi));
         const poly = clean.items[0..geom.simplifyClosed(clean.items, opts.clean_tolerance)];
         if (poly.len < 3) continue;
+        if (try vanishes(arena, poly, delta)) continue;
 
         // The unit normal of each edge i, from poly[i] to poly[i + 1].
         normals.clearRetainingCapacity();
@@ -104,6 +109,63 @@ pub fn offset(gpa: Allocator, paths: Paths, delta: i64, opts: Options) Allocator
     }
 
     return clip.unionAll(gpa, raw, .positive);
+}
+
+/// True if the offset of the loop by `delta` is surely empty: a boundary
+/// (counterclockwise) that shrinks, or a hole (clockwise) that grows, by
+/// at least the radius of the largest circle in it.
+///
+/// The test uses the convex hull of the loop. The hull is convex, so it
+/// has the largest circle radius r <= 2 A / P (its area A is at least
+/// r P / 2: each edge and the center of the circle make a triangle of
+/// height r or more). The loop is inside its hull, so its largest circle
+/// is not larger. A margin of 4 units covers the rounding: a circle that
+/// small has less area than the smallest loop that a union keeps.
+///
+/// Without this test, a loop that vanishes makes a raw offset whose edges
+/// all cross each other, and the union of these crossings is slow (the
+/// time grows as the square of the number of points).
+fn vanishes(arena: Allocator, poly: []const Point, delta: i64) Allocator.Error!bool {
+    const a2 = geom.area2(poly);
+    if (!((a2 > 0 and delta < 0) or (a2 < 0 and delta > 0))) return false;
+    const hull = try convexHull(arena, poly);
+    const ha2: f64 = @floatFromInt(@abs(geom.area2(hull)));
+    var perimeter: f64 = 0;
+    for (hull, 0..) |q, i| perimeter += q.dist(hull[(i + 1) % hull.len]);
+    if (perimeter == 0) return true;
+    // 2 A / P, with 2 A = ha2.
+    const r = ha2 / perimeter;
+    return @as(f64, @floatFromInt(@abs(delta))) >= r + 4;
+}
+
+/// The convex hull of a set of points, counterclockwise (Andrew's monotone
+/// chain: sort the points by x, then make the lower and the upper chain,
+/// and remove each point where a chain does not turn left).
+fn convexHull(arena: Allocator, pts: []const Point) Allocator.Error![]Point {
+    const sorted = try arena.dupe(Point, pts);
+    std.mem.sortUnstable(Point, sorted, {}, struct {
+        fn lt(_: void, a: Point, b: Point) bool {
+            return a.lessThan(b);
+        }
+    }.lt);
+    const hull = try arena.alloc(Point, 2 * sorted.len);
+    var k: usize = 0;
+    for (sorted) |p| {
+        while (k >= 2 and geom.cross3(hull[k - 2], hull[k - 1], p) <= 0) k -= 1;
+        hull[k] = p;
+        k += 1;
+    }
+    const lower = k + 1;
+    var i = sorted.len - 1;
+    while (i > 0) {
+        i -= 1;
+        const p = sorted[i];
+        while (k >= lower and geom.cross3(hull[k - 2], hull[k - 1], p) <= 0) k -= 1;
+        hull[k] = p;
+        k += 1;
+    }
+    // The last point is the first point again.
+    return hull[0 .. k - 1];
 }
 
 fn movePoint(p: Point, n: [2]f64, d: f64) Point {
@@ -354,4 +416,32 @@ test "dense circles give one loop" {
         const r_out = (c.r + @as(f64, @floatFromInt(c.d))) / 1000;
         try testing.expectApproxEqAbs(want, r.areaMm2(), 0.01 * want + 2 * std.math.pi * r_out * 0.006);
     }
+}
+
+test "a hole that grows past its size closes, and a small boundary vanishes" {
+    const gpa = testing.allocator;
+    var p: Paths = .empty;
+    defer p.deinit(gpa);
+    try p.append(gpa, &.{ .init(0, 0), .init(30_000, 0), .init(30_000, 30_000), .init(0, 30_000) });
+    // A clockwise hole of 1 mm.
+    try p.append(gpa, &.{ .init(10_000, 10_000), .init(10_000, 11_000), .init(11_000, 11_000), .init(11_000, 10_000) });
+    try testing.expect(try vanishesTest(p.get(1), 600));
+    try testing.expect(!try vanishesTest(p.get(1), 400));
+    try testing.expect(!try vanishesTest(p.get(0), 600));
+    var r = try offset(gpa, p, 600, .{});
+    defer r.deinit(gpa);
+    try testing.expectEqual(@as(usize, 1), r.count());
+    // A dense circle of radius 1 mm shrinks by 1.2 mm: empty.
+    var c = try circle(gpa, 1000, 512);
+    defer c.deinit(gpa);
+    try testing.expect(try vanishesTest(c.get(0), -1200));
+    var e = try offset(gpa, c, -1200, .{});
+    defer e.deinit(gpa);
+    try testing.expectEqual(@as(usize, 0), e.count());
+}
+
+fn vanishesTest(poly: []const Point, delta: i64) !bool {
+    var arena = std.heap.ArenaAllocator.init(testing.allocator);
+    defer arena.deinit();
+    return vanishes(arena.allocator(), poly, delta);
 }
