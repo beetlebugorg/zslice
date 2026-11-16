@@ -53,22 +53,102 @@ pub const Layer = struct {
 
 /// Returns the layers for a part of height `part_height`, in mm.
 pub fn layerTable(gpa: Allocator, part_height: f64, first_height: f64, height: f64) Allocator.Error![]Layer {
+    return layerTableSpans(gpa, part_height, first_height, height, &.{});
+}
+
+/// A layer height for the layers that start in a z range (mm): a layer
+/// starts at the top of the layer below it. The range has the same ends as
+/// a `settings.Override`.
+pub const HeightSpan = struct {
+    z_min: f64,
+    z_max: f64,
+    height: f64,
+
+    pub fn covers(sp: HeightSpan, z: f64) bool {
+        return z >= sp.z_min - 1e-6 and z <= sp.z_max + 1e-6;
+    }
+};
+
+/// The height of a layer that starts at z: `height`, or the height of the
+/// last span that covers z.
+pub fn heightAt(height: f64, spans: []const HeightSpan, z: f64) f64 {
+    var h = height;
+    for (spans) |sp| if (sp.covers(z)) {
+        h = sp.height;
+    };
+    return h;
+}
+
+/// `layerTable`, with other layer heights in some z ranges (see
+/// `HeightSpan`). Each source of layer heights gives spans: the overrides
+/// of the user, and later an adaptive pass. The first layer always has
+/// `first_height`.
+///
+/// The z values come from a multiply, and not from a sum, so that rounding
+/// errors do not add up: in a run of layers of one height h that starts
+/// at z0, layer k of the run has its top at z0 + k h.
+pub fn layerTableSpans(gpa: Allocator, part_height: f64, first_height: f64, height: f64, spans: []const HeightSpan) Allocator.Error![]Layer {
     var layers: std.ArrayList(Layer) = .empty;
     errdefer layers.deinit(gpa);
     if (part_height <= 0 or first_height <= 0 or height <= 0) return layers.toOwnedSlice(gpa);
-    // Add a layer while its cut plane is inside the part. The z values come
-    // from a multiply, and not from a sum, so that rounding errors do not
-    // add up. The margin of 1 um makes a plane at the top of the part count
-    // as outside: an STL stores float32 values, so a top at 0.4 mm is
-    // 0.400000006 mm in the file.
-    var i: usize = 0;
-    while (true) : (i += 1) {
-        const h = if (i == 0) first_height else height;
-        const z = if (i == 0) first_height else first_height + @as(f64, @floatFromInt(i)) * height;
+    for (spans) |sp| if (!(sp.height > 0)) return layers.toOwnedSlice(gpa);
+    // Add a layer while its cut plane is inside the part. The margin of 1
+    // um makes a plane at the top of the part count as outside: an STL
+    // stores float32 values, so a top at 0.4 mm is 0.400000006 mm in the
+    // file.
+    if (first_height / 2 >= part_height - 1e-3) return layers.toOwnedSlice(gpa);
+    try layers.append(gpa, .{ .z = first_height, .height = first_height });
+    var run_z = first_height;
+    var h = heightAt(height, spans, run_z);
+    var k: usize = 0;
+    while (true) {
+        k += 1;
+        const z = run_z + @as(f64, @floatFromInt(k)) * h;
         if (z - h / 2 >= part_height - 1e-3) break;
         try layers.append(gpa, .{ .z = z, .height = h });
+        // The next layer starts at z. A new height starts a new run.
+        const next = heightAt(height, spans, z);
+        if (next != h) {
+            run_z = z;
+            h = next;
+            k = 0;
+        }
     }
     return layers.toOwnedSlice(gpa);
+}
+
+test "layer table: a span of another height, with exact z values" {
+    const gpa = std.testing.allocator;
+    // 0.2 mm layers, and 0.1 mm layers for the layers that start from z 2
+    // to 3.
+    const spans = [_]HeightSpan{.{ .z_min = 2, .z_max = 3, .height = 0.1 }};
+    const t = try layerTableSpans(gpa, 5, 0.3, 0.2, &spans);
+    defer gpa.free(t);
+    const plain = try layerTable(gpa, 5, 0.3, 0.2);
+    defer gpa.free(plain);
+    var below: usize = 0;
+    for (t, 0..) |l, i| {
+        const start = l.z - l.height;
+        if (i == 0) continue;
+        const want: f64 = if (start >= 2 - 1e-6 and start <= 3 + 1e-6) 0.1 else 0.2;
+        try std.testing.expectEqual(want, l.height);
+        // Below the span, the same layers as with no span.
+        if (start < 2 - 1e-6) {
+            try std.testing.expectEqual(plain[i].z, l.z);
+            below += 1;
+        }
+    }
+    try std.testing.expect(below > 5);
+    // The layer that starts at 2.1 has its top at 2.1 + 0.1 (one multiply
+    // from the start of its run at 2.1, the top of the layer that starts
+    // at 1.9).
+    for (t, 0..) |l, i| if (i > 0 and @abs(l.z - 2.6) < 0.01) {
+        try std.testing.expectEqual(t[i - 5].z + 5 * @as(f64, 0.1), l.z);
+    };
+    // 0.3, then 0.2 mm to 2.1 (9 layers), 0.1 mm while the start is up
+    // to 3 (10 layers, to 3.1), then 0.2 mm to 4.9 (9 layers).
+    try std.testing.expectEqual(@as(usize, 1 + 9 + 10 + 9), t.len);
+    try std.testing.expectApproxEqAbs(@as(f64, 4.9), t[t.len - 1].z, 1e-9);
 }
 
 /// For each layer, the list of triangles that cross its plane. The lists
