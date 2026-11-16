@@ -104,6 +104,10 @@ Facts about the material.
 
 The name of the filament, for the G-code header.
 
+**`filament.color`** (text). Default: `"#d0d0cc"`
+
+The color of the filament, as "#rrggbb". The 3D view draws the print in this color.
+
 **`filament.diameter`** (number). Default: `1.75`
 
 The diameter of the filament.

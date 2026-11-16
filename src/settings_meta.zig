@@ -24,6 +24,7 @@ pub const all = [_]Meta{
     .{ .name = "machine.start_gcode", .section = "G-code", .doc = "The text before the print. These variables are replaced: {nozzle_temp}, {first_layer_nozzle_temp}, {bed_temp}, {standby_temp}, {layer_height}, {first_layer_height}, {first_layer_speed} (mm/s), {nozzle_diameter}, {filament_diameter}, {filament_name}, {machine_name}, and {job_name}." },
     .{ .name = "machine.end_gcode", .section = "G-code", .doc = "The text after the print. The same values as in `start_gcode` are replaced." },
     .{ .name = "filament.name", .section = "Filament", .doc = "The name of the filament, for the G-code header." },
+    .{ .name = "filament.color", .section = "Filament", .doc = "The color of the filament, as \"#rrggbb\". The 3D view draws the print in this color." },
     .{ .name = "filament.diameter", .section = "Filament", .doc = "The diameter of the filament." },
     .{ .name = "filament.density", .section = "Filament", .doc = "g/cm^3. For the filament weight in the statistics." },
     .{ .name = "filament.nozzle_temp", .section = "Temperatures", .doc = "The nozzle temperature from the second layer." },

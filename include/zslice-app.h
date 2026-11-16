@@ -165,6 +165,8 @@ typedef struct zs_toolpaths {
     const uint32_t *path_ends;
     const uint8_t *path_features; /* enum zs_feature */
     const uint8_t *path_closed;
+    const float *path_area;     /* the bead cross section, mm^2 */
+    const float *path_end_time; /* seconds from the start of the print */
     size_t path_count;
     const uint32_t *layer_ends;
     const float *layer_z;
@@ -216,6 +218,16 @@ void zs_view_orbit(zs_view *view, float dx, float dy);
 /* Moves the camera nearer (factor < 1) or further (factor > 1). */
 void zs_view_zoom(zs_view *view, float factor);
 void zs_view_reset(zs_view *view);
+enum zs_view_mode {
+    ZS_VIEW_PRINT = 0,   /* the filament color: the print as it will look */
+    ZS_VIEW_FEATURES = 1 /* one color for each feature */
+};
+
+/* The colors of the view. Call zs_view_load again after a change. */
+void zs_view_set_mode(zs_view *view, int mode);
+/* Highlights the beads of one path (an index into zs_app_toolpaths), or
+ * nothing if path is (size_t)-1. */
+void zs_view_highlight(zs_view *view, size_t path);
 /* Draws and presents one frame. Call it after a change. */
 int zs_view_draw(zs_view *view);
 

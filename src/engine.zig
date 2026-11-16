@@ -260,7 +260,9 @@ pub const Job = struct {
     /// all layers for a 3D view, with no second planning pass.
     pub const LayerSink = struct {
         ctx: ?*anyopaque,
-        func: *const fn (ctx: ?*anyopaque, plan: *const LayerPlan) anyerror!void,
+        /// `paths` has the end time and the bead area of each path of the
+        /// plan, from the emitter.
+        func: *const fn (ctx: ?*anyopaque, plan: *const LayerPlan, paths: []const gcode.PathInfo) anyerror!void,
     };
 
     /// Step 5.
@@ -272,6 +274,9 @@ pub const Job = struct {
     pub fn writeGcodeWith(self: *const Job, out: *Writer, sink: ?LayerSink) Error!Stats {
         const gpa = self.gpa;
         var em: gcode.Emitter = .init(out, &self.resolved);
+        var record: std.ArrayList(gcode.PathInfo) = .empty;
+        defer record.deinit(gpa);
+        if (sink != null) em.record = &record;
         try em.begin(self.layers.len);
 
         var reporter: Reporter = .{ .monitor = self.monitor, .base = pass1_share, .span = 1 - pass1_share, .total = self.layers.len };
@@ -298,8 +303,12 @@ pub const Job = struct {
             const c: Pass2 = .{ .gpa = gpa, .ctx = self.planContext(), .plans = plans[0..n], .start = start };
             parallel.forEach(self.threads, n, &c, Pass2.run) catch |e| return @as(Error, @errorCast(e));
             for (plans[0..n]) |*p| {
+                if (sink != null) {
+                    record.clearRetainingCapacity();
+                    try record.ensureTotalCapacity(gpa, p.*.?.paths.items.len);
+                }
                 try em.layer(&p.*.?);
-                if (sink) |sk| sk.func(sk.ctx, &p.*.?) catch |e| return @as(Error, @errorCast(e));
+                if (sink) |sk| sk.func(sk.ctx, &p.*.?, record.items) catch |e| return @as(Error, @errorCast(e));
                 p.*.?.deinit();
                 p.* = null;
             }

@@ -22,6 +22,7 @@
 //! line with no more code.
 
 const std = @import("std");
+const flow = @import("flow.zig");
 
 pub const InfillPattern = enum { lines, grid, triangles, cubic, gyroid, concentric };
 pub const SeamMode = enum { sharpest, rear, nearest, random };
@@ -94,6 +95,9 @@ pub const Filament = struct {
     // Filament
     /// The name of the filament, for the G-code header.
     name: []const u8 = "generic PLA",
+    /// The color of the filament, as "#rrggbb". The 3D view draws the
+    /// print in this color.
+    color: []const u8 = "#d0d0cc",
     /// The diameter of the filament.
     diameter: f64 = 1.75,
     /// g/cm^3. For the filament weight in the statistics.
@@ -403,7 +407,7 @@ pub const Resolved = struct {
     pub fn speed(self: Resolved, feature: Feature, width: f64, height: f64, first_layer: bool) f64 {
         const p = self.settings.project;
         if (feature == .ironing) return self.settings.machine.max_speed * p.ironing_speed;
-        const flow_limit = self.settings.filament.max_flow / (width * height);
+        const flow_limit = self.settings.filament.max_flow / flow.beadArea(width, height);
         const limit = @min(self.settings.machine.max_speed, flow_limit);
         const ratio = if (first_layer) p.first_layer_speed else switch (feature) {
             .outer_wall => p.outer_wall_speed,
@@ -473,7 +477,9 @@ test "resolve derives layers and speeds" {
     const r = try s.resolve();
     try testing.expectEqual(@as(u32, 4), r.top_layers);
     try testing.expectApproxEqAbs(@as(f64, 0.44), r.line_width, 1e-9);
-    // 12 mm^3/s over 0.44 x 0.2 mm is 136 mm/s, less than the 150 mm/s limit.
-    try testing.expectApproxEqAbs(12.0 / 0.088, r.speed(.infill, 0.44, 0.2, false), 1e-9);
-    try testing.expectApproxEqAbs(0.5 * 12.0 / 0.088, r.speed(.outer_wall, 0.44, 0.2, false), 1e-9);
+    // 12 mm^3/s over the bead area of 0.44 x 0.2 mm (0.0794 mm^2) is
+    // 151 mm/s, so the machine limit (150 mm/s) applies.
+    const a = flow.beadArea(0.44, 0.2);
+    try testing.expectApproxEqAbs(@min(150, 12.0 / a), r.speed(.infill, 0.44, 0.2, false), 1e-9);
+    try testing.expectApproxEqAbs(0.5 * @min(150, 12.0 / a), r.speed(.outer_wall, 0.44, 0.2, false), 1e-9);
 }

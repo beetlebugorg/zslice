@@ -550,6 +550,7 @@ fn materialProfile(arena: Allocator, xml: []const u8, file: []const u8, version:
     const w = &out.writer;
     try w.print("# Imported from Cura {s}: material {s} ({s}).\n", .{ version, key, file });
     try w.print("name = {f}\n", .{quote(try std.fmt.allocPrint(arena, "{s} {s} {s}", .{ brand, material, color }))});
+    if (tagText(top, "color_code")) |cc| if (cc.len == 7 and cc[0] == '#') try w.print("color = \"{s}\"\n", .{cc});
     if (tagText(top, "diameter")) |d| if (number(d)) |n| try w.print("diameter = {d}\n", .{n});
     if (tagText(top, "density")) |d| if (number(d)) |n| try w.print("density = {d}\n", .{n});
     const xml_map = [_][2][]const u8{

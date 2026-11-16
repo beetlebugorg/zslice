@@ -452,6 +452,8 @@ pub const Toolpaths = extern struct {
     path_ends: [*]const u32,
     path_features: [*]const u8,
     path_closed: [*]const u8,
+    path_area: [*]const f32,
+    path_end_time: [*]const f32,
     path_count: usize,
     layer_ends: [*]const u32,
     layer_z: [*]const f32,
@@ -471,6 +473,8 @@ export fn zs_app_toolpaths(a: ?*const App, out: ?*Toolpaths) c_int {
         .path_ends = t.path_ends.items.ptr,
         .path_features = t.path_features.items.ptr,
         .path_closed = t.path_closed.items.ptr,
+        .path_area = t.path_area.items.ptr,
+        .path_end_time = t.path_end_time.items.ptr,
         .path_count = t.path_ends.items.len,
         .layer_ends = t.layer_ends.items.ptr,
         .layer_z = t.layer_z.items.ptr,
@@ -590,6 +594,20 @@ export fn zs_view_reset(view: ?*View) void {
     if (!render_on) return;
     const v = view orelse return;
     v.reset();
+}
+
+export fn zs_view_set_mode(view: ?*View, mode: c_int) void {
+    if (!render_on) return;
+    const v = view orelse return;
+    v.setMode(if (mode == 1) .features else .print);
+}
+
+/// Highlights the beads of one path (an index into zs_app_toolpaths), or
+/// nothing if path is (size_t)-1.
+export fn zs_view_highlight(view: ?*View, path: usize) void {
+    if (!render_on) return;
+    const v = view orelse return;
+    v.setHighlight(if (path == std.math.maxInt(usize)) null else path);
 }
 
 export fn zs_view_draw(view: ?*View) c_int {

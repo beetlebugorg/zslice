@@ -65,7 +65,7 @@ The plan of a layer has the paths that the nozzle follows.
 For each path, the slicer writes:
 
 1. A travel move (`G0`) to the start of the path. Before a long travel, the extruder pulls the filament back a little (a retraction), so that the nozzle does not ooze on the way.
-2. An extrusion move (`G1 ... E`) for each segment. E is the length of filament to push. The line of plastic is about length x width x height in volume. The filament is a cylinder, so the filament length is that volume divided by the area of the filament circle.
+2. An extrusion move (`G1 ... E`) for each segment. E is the length of filament to push. The nozzle presses the plastic on the layer below, so the bead has a flat top and bottom and round sides: its cross section is a rectangle with a half circle on each side, with the area (w - h) x h + pi x h^2 / 4 (`src/flow.zig`). The volume is that area times the length. The filament is a cylinder, so the filament length is that volume divided by the area of the filament circle.
 
 The speed of each move comes from limits (`src/settings.zig`). The machine has a maximum speed. The filament has a maximum flow: the volume of plastic that the hot end can melt in one second. A wide, tall line uses more flow for each millimeter, so it must go slower. The project gives a ratio of the allowed speed for each feature. For example, the outer wall goes at 50 % of the allowed speed, for a better surface.
 

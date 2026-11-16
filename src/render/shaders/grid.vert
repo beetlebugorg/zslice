@@ -7,6 +7,8 @@ layout(location = 0) in vec3 pos;
 layout(push_constant) uniform Push {
     mat4 mvp;
     vec4 color;
+    vec4 eye;
+    vec4 params;
 } pc;
 
 void main() {

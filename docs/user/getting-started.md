@@ -59,6 +59,12 @@ The settings have three groups. Each group has a different owner:
 
 The `engine` group has options that do not change the print, for example the number of threads.
 
+### How much plastic
+
+zslice computes the plastic for each line from the shape of a real bead: the nozzle presses it flat on the top and the bottom, and its sides are round. A line 0.44 mm wide and 0.2 mm tall has a cross section of 0.079 mm². If your lines come out too thin or too thick, calibrate `filament.flow_ratio`.
+
+zslice 0.1 used a rectangle (width x height) for this area, as Cura does. That is about 11 % more plastic for this line. If you calibrated `flow_ratio` with zslice 0.1, calibrate it again.
+
 ### Speeds
 
 A project does not set speeds in mm/s. It sets a ratio (0 to 1) for each feature, for example `project.outer_wall_speed=0.5`. zslice computes the allowed speed of each line from two limits:

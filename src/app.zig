@@ -347,6 +347,10 @@ pub const Toolpaths = struct {
     path_ends: std.ArrayList(u32) = .empty,
     path_features: std.ArrayList(u8) = .empty,
     path_closed: std.ArrayList(u8) = .empty,
+    /// The cross-section area (mm^2) of the bead of each path.
+    path_area: std.ArrayList(f32) = .empty,
+    /// The print time (s) from the start to the end of each path.
+    path_end_time: std.ArrayList(f32) = .empty,
     layer_ends: std.ArrayList(u32) = .empty,
     layer_z: std.ArrayList(f32) = .empty,
     layer_height: std.ArrayList(f32) = .empty,
@@ -358,6 +362,8 @@ pub const Toolpaths = struct {
         t.path_ends.deinit(gpa);
         t.path_features.deinit(gpa);
         t.path_closed.deinit(gpa);
+        t.path_area.deinit(gpa);
+        t.path_end_time.deinit(gpa);
         t.layer_ends.deinit(gpa);
         t.layer_z.deinit(gpa);
         t.layer_height.deinit(gpa);
@@ -366,7 +372,7 @@ pub const Toolpaths = struct {
     }
 
     /// A Job.LayerSink function. `ctx` is a *Toolpaths whose `gpa` is set.
-    fn addLayer(ctx: ?*anyopaque, plan: *const zs.layer.LayerPlan) anyerror!void {
+    fn addLayer(ctx: ?*anyopaque, plan: *const zs.layer.LayerPlan, infos: []const zs.gcode.PathInfo) anyerror!void {
         const t: *Toolpaths = @ptrCast(@alignCast(ctx.?));
         const gpa = t.gpa.?;
         for (plan.points.points.items) |p| {
@@ -375,9 +381,11 @@ pub const Toolpaths = struct {
         }
         const base: u32 = if (t.path_ends.items.len == 0) 0 else t.path_ends.items[t.path_ends.items.len - 1];
         for (plan.points.ends.items) |e| try t.path_ends.append(gpa, base + e);
-        for (plan.paths.items) |p| {
+        for (plan.paths.items, infos) |p, info| {
             try t.path_features.append(gpa, @intFromEnum(p.feature));
             try t.path_closed.append(gpa, @intFromBool(p.closed));
+            try t.path_area.append(gpa, @floatCast(info.area));
+            try t.path_end_time.append(gpa, @floatCast(info.end_time));
         }
         try t.layer_ends.append(gpa, @intCast(t.path_ends.items.len));
         try t.layer_z.append(gpa, @floatCast(plan.z));

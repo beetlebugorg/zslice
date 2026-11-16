@@ -1,9 +1,23 @@
 //! The 3D view of a slice: the scene, the camera, and the renderer.
 //!
-//! Each toolpath segment is one box: one line width wide and one layer
-//! height tall, with its top at the nozzle height of its layer. The boxes
-//! are in print order, so the layers 0 to n are the first `layer_end[n]`
-//! boxes, and the slider of a shell only changes a count.
+//! The goal is a preview that looks like the finished print. Each toolpath
+//! segment is drawn as the bead of plastic that the printer lays down:
+//!
+//! - The cross section has a flat top and bottom and round sides (see
+//!   flow.zig). The width comes from the plastic that is really deposited:
+//!   the bead area of the path (with the flow ratio and the ironing flow)
+//!   and the layer height give the width. A thread with less plastic than a
+//!   round thread of the layer height is drawn round.
+//! - The ends are round: the profile turns around the end point, as the
+//!   plastic flows around the nozzle. Where two segments of a path meet,
+//!   their round ends overlap, so the corners look like printed corners.
+//! - The shape is the cooled shape: the slice is larger by the shrinkage of
+//!   the filament (shrinkage compensation), and the view scales it back.
+//! - The color is the filament color (the "print" mode), or one color for
+//!   each feature (the "features" mode, to see what the slicer made).
+//!
+//! The beads are in print order, so the layers 0 to n are the first
+//! `layer_end[n]` beads, and the slider of a shell only changes a count.
 //!
 //! The camera orbits a target point (the center of the part): yaw turns
 //! around the vertical axis, pitch tilts up and down, and the distance
@@ -33,9 +47,16 @@ pub const feature_rgb = [_][3]u8{
 pub const Surface = vk.Surface;
 pub const Error = vk.Error;
 
+pub const Mode = enum(c_int) { print = 0, features = 1 };
+
 pub const View = struct {
     renderer: *vk.Renderer,
+    mode: Mode = .print,
     layer_end: std.ArrayList(u32) = .empty,
+    /// The first bead of each path, and one more item at the end: the
+    /// beads of path i are path_start[i] to path_start[i + 1].
+    path_start: std.ArrayList(u32) = .empty,
+    highlight: [2]f32 = .{ 0, 0 },
     layer: usize = 0,
     grid_vertices: u32 = 0,
     width: u32,
@@ -53,12 +74,15 @@ pub const View = struct {
         errdefer r.deinit();
         const v = gpa.create(View) catch return error.OutOfMemory;
         v.* = .{ .renderer = r, .width = width, .height = height };
+        errdefer gpa.destroy(v);
+        try v.makeMesh();
         v.reset();
         return v;
     }
 
     pub fn destroy(v: *View) void {
         v.layer_end.deinit(gpa);
+        v.path_start.deinit(gpa);
         v.renderer.deinit();
         gpa.destroy(v);
     }
@@ -70,43 +94,105 @@ pub const View = struct {
         v.renderer.resize(v.width, v.height);
     }
 
+    /// The template mesh of a bead (see shaders/box.vert): a loop in the
+    /// plan view around the segment (a half circle at each end), times the
+    /// profile angles from the bottom to the top, and a flat top face and a
+    /// flat bottom face.
+    fn makeMesh(v: *View) Error!void {
+        const cap = 4; // segments in each half circle
+        const prof = 4; // segments in the profile
+        const pi = std.math.pi;
+        var verts: std.ArrayList([4]f32) = .empty;
+        defer verts.deinit(gpa);
+        var idx: std.ArrayList(u16) = .empty;
+        defer idx.deinit(gpa);
+        // The plan loop: around the end b (u = 1) from -90 to 90 degrees,
+        // then around the end a (u = 0) from 90 to 270 degrees.
+        var loop: [2 * (cap + 1)][2]f32 = undefined;
+        for (0..cap + 1) |k| {
+            const t: f32 = @as(f32, @floatFromInt(k)) / cap;
+            loop[k] = .{ 1, -pi / 2.0 + pi * t };
+            loop[cap + 1 + k] = .{ 0, pi / 2.0 + pi * t };
+        }
+        const n_loop = loop.len;
+        for (loop) |l| {
+            for (0..prof + 1) |j| {
+                const phi: f32 = -pi / 2.0 + pi * @as(f32, @floatFromInt(j)) / prof;
+                verts.append(gpa, .{ l[0], l[1], phi, 0 }) catch return error.OutOfMemory;
+            }
+        }
+        for (0..n_loop) |i| {
+            const next = (i + 1) % n_loop;
+            for (0..prof) |j| {
+                const q0: u16 = @intCast(i * (prof + 1) + j);
+                const q1: u16 = @intCast(next * (prof + 1) + j);
+                idx.appendSlice(gpa, &.{ q0, q1, q1 + 1, q0, q1 + 1, q0 + 1 }) catch return error.OutOfMemory;
+            }
+        }
+        // The flat top and bottom: a fan from the middle of the segment to
+        // the top (and bottom) row of the loop.
+        for ([_]f32{ 1, -1 }) |face| {
+            const center: u16 = @intCast(verts.items.len);
+            verts.append(gpa, .{ 0.5, 0, 0, face }) catch return error.OutOfMemory;
+            const row: usize = if (face > 0) prof else 0;
+            for (0..n_loop) |i| {
+                const a: u16 = @intCast(i * (prof + 1) + row);
+                const b: u16 = @intCast(((i + 1) % n_loop) * (prof + 1) + row);
+                idx.appendSlice(gpa, &.{ center, a, b }) catch return error.OutOfMemory;
+            }
+        }
+        try v.renderer.setMesh(verts.items, idx.items);
+    }
+
     /// Reads the toolpaths of the last slice of `app`, and the bed size.
     pub fn load(v: *View, app: *const app_mod.App) Error!void {
         const s = app.settings;
         try v.loadGrid(@floatCast(s.machine.bed_size_x), @floatCast(s.machine.bed_size_y));
         const tp = app.allToolpaths() orelse {
             v.layer_end.clearRetainingCapacity();
+            v.path_start.clearRetainingCapacity();
             return;
         };
         const first_load = v.layer_end.items.len == 0;
+        const filament = parseColor(s.filament.color) orelse .{ 0xd0, 0xd0, 0xcc };
+
+        // The cooled shape: the slice is larger by the shrinkage, about the
+        // center of the part.
+        var center = [2]f32{ 0, 0 };
+        if (app.partBounds()) |b| center = .{ @floatCast((b[0] + b[2]) / 2), @floatCast((b[1] + b[3]) / 2) };
+        const sxy: f32 = @floatCast(1 / s.filament.shrinkage_xy);
+        const sz: f32 = @floatCast(1 / s.filament.shrinkage_z);
 
         var boxes: std.ArrayList(vk.Instance) = .empty;
         defer boxes.deinit(gpa);
         v.layer_end.clearRetainingCapacity();
+        v.path_start.clearRetainingCapacity();
         var zmax: f32 = 0;
         const pts = tp.points.items;
         for (tp.layer_ends.items, 0..) |layer_end, l| {
             const p0: u32 = if (l == 0) 0 else tp.layer_ends.items[l - 1];
-            const z = tp.layer_z.items[l];
-            const h = tp.layer_height.items[l];
-            const w = tp.layer_width.items[l];
+            const z = tp.layer_z.items[l] * sz;
+            const h = tp.layer_height.items[l] * sz;
             zmax = @max(zmax, z);
             for (p0..layer_end) |pi| {
+                v.path_start.append(gpa, @intCast(boxes.items.len)) catch return error.OutOfMemory;
                 const start: u32 = if (pi == 0) 0 else tp.path_ends.items[pi - 1];
                 const end = tp.path_ends.items[pi];
                 if (end - start < 2) continue;
                 const f = tp.path_features.items[pi];
-                const rgb = feature_rgb[if (f < feature_rgb.len) f else 0];
+                const rgb = if (v.mode == .print) filament else feature_rgb[if (f < feature_rgb.len) f else 0];
+                const w: f32 = @floatCast(@import("../flow.zig").beadWidth(tp.path_area.items[pi], tp.layer_height.items[l]) * sxy);
+                if (!(w > 0)) continue;
                 const closed = tp.path_closed.items[pi] != 0 and end - start > 2;
                 const segs = end - start - 1 + @as(u32, @intFromBool(closed));
                 for (0..segs) |k| {
                     const a = start + @as(u32, @intCast(k));
                     const b = if (a + 1 < end) a + 1 else start;
                     boxes.append(gpa, .{
-                        .ax = pts[2 * a],
-                        .ay = pts[2 * a + 1],
-                        .bx = pts[2 * b],
-                        .by = pts[2 * b + 1],
+                        .ax = center[0] + (pts[2 * a] - center[0]) * sxy,
+                        .ay = center[1] + (pts[2 * a + 1] - center[1]) * sxy,
+                        .bx = center[0] + (pts[2 * b] - center[0]) * sxy,
+                        .by = center[1] + (pts[2 * b + 1] - center[1]) * sxy,
                         .z = z,
                         .h = h,
                         .w = w,
@@ -116,6 +202,7 @@ pub const View = struct {
             }
             v.layer_end.append(gpa, @intCast(boxes.items.len)) catch return error.OutOfMemory;
         }
+        v.path_start.append(gpa, @intCast(boxes.items.len)) catch return error.OutOfMemory;
         try v.renderer.setInstances(boxes.items);
 
         if (app.partBounds()) |b| {
@@ -126,6 +213,26 @@ pub const View = struct {
             v.reset();
             v.layer = if (v.layer_end.items.len > 0) v.layer_end.items.len - 1 else 0;
         }
+    }
+
+    /// The colors: the filament color, or one color for each feature. Call
+    /// `load` again after a change.
+    pub fn setMode(v: *View, mode: Mode) void {
+        v.mode = mode;
+    }
+
+    /// Highlights the beads of path `path` (an index into the toolpaths of
+    /// the app), or nothing if `path` is null.
+    pub fn setHighlight(v: *View, path: ?usize) void {
+        const p = path orelse {
+            v.highlight = .{ 0, 0 };
+            return;
+        };
+        if (p + 1 >= v.path_start.items.len) {
+            v.highlight = .{ 0, 0 };
+            return;
+        }
+        v.highlight = .{ @floatFromInt(v.path_start.items[p]), @floatFromInt(v.path_start.items[p + 1]) };
     }
 
     fn loadGrid(v: *View, bed_x: f32, bed_y: f32) Error!void {
@@ -177,13 +284,21 @@ pub const View = struct {
         try v.renderer.draw(.{
             .clear = .{ 0.965, 0.969, 0.973 },
             // A light from above, in front, and to the right.
-            .box = .{ .mvp = mvp, .vec = .{ 0.35, -0.45, 0.82, 0 } },
+            .box = .{ .mvp = mvp, .vec = .{ 0.35, -0.45, 0.82, 0 }, .eye = .{ eye[0], eye[1], eye[2], 0 }, .params = .{ v.highlight[0], v.highlight[1], 0, 0 } },
             .box_count = count,
             .grid = .{ .mvp = mvp, .vec = .{ 0.80, 0.82, 0.85, 1 } },
             .grid_vertices = v.grid_vertices,
         });
     }
 };
+
+/// Parses "#rrggbb".
+fn parseColor(text: []const u8) ?[3]u8 {
+    if (text.len != 7 or text[0] != '#') return null;
+    var out: [3]u8 = undefined;
+    for (0..3) |k| out[k] = std.fmt.parseInt(u8, text[1 + 2 * k .. 3 + 2 * k], 16) catch return null;
+    return out;
+}
 
 // ---- matrices, column-major ----
 

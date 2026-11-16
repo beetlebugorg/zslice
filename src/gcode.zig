@@ -5,11 +5,11 @@
 //!   so that the nozzle does not ooze on the way.
 //! - An extrusion move (G1 with E) goes along each path. The E value is the
 //!   length of filament to push, in mm. The plastic that comes out of the
-//!   nozzle is a line of the line width and the layer height. Its volume
-//!   is about length x width x height. The filament has the cross section
-//!   of a circle, so the filament length is that volume divided by the
-//!   circle area. The output uses relative E (M83): each E is the amount
-//!   for that move only.
+//!   nozzle is a bead with a flat top and bottom and round sides (see
+//!   flow.zig). Its volume is the bead area times the length. The filament
+//!   has the cross section of a circle, so the filament length is that
+//!   volume divided by the circle area. The output uses relative E (M83):
+//!   each E is the amount for that move only.
 //! - Comments mark each layer (";LAYER:n") and each feature
 //!   (";TYPE:WALL-OUTER"). These follow the CuraEngine convention (see
 //!   REFERENCES.md), which G-code viewers and printdeck read.
@@ -26,6 +26,7 @@
 const std = @import("std");
 const Writer = std.Io.Writer;
 const geom = @import("geom.zig");
+const flow = @import("flow.zig");
 const layer_mod = @import("layer.zig");
 const settings_mod = @import("settings.zig");
 const Feature = settings_mod.Feature;
@@ -44,7 +45,19 @@ pub const Stats = struct {
     retractions: u32 = 0,
 };
 
+/// What the emitter records for each path of a layer, if `record` is set.
+pub const PathInfo = struct {
+    /// The print time (s) from the start of the print to the end of the path.
+    end_time: f64,
+    /// The cross-section area (mm^2) of the deposited bead, with the flow
+    /// ratio and the ironing flow.
+    area: f64,
+};
+
 pub const Emitter = struct {
+    /// If set, `layer` puts one PathInfo for each path here. The caller
+    /// reserves the space (one item for each path) before `layer`.
+    record: ?*std.ArrayList(PathInfo) = null,
     w: *Writer,
     r: *const Resolved,
     x: f64 = 0,
@@ -128,11 +141,14 @@ pub const Emitter = struct {
         self.stats.layer_count += 1;
 
         // The filament length for 1 mm of line.
-        const e_per_mm = lp.width * lp.height / self.r.filament_area * s.filament.flow_ratio;
+        const e_per_mm = flow.beadArea(lp.width, lp.height) / self.r.filament_area * s.filament.flow_ratio;
 
         for (lp.paths.items, 0..) |path, i| {
             const pts = lp.points.get(i);
-            if (pts.len == 0) continue;
+            if (pts.len == 0) {
+                if (self.record) |rec| rec.appendAssumeCapacity(.{ .end_time = self.stats.print_time_s, .area = 0 });
+                continue;
+            }
             try self.travel(geom.toMm(pts[0].x), geom.toMm(pts[0].y));
             if (self.feature != path.feature) {
                 self.feature = path.feature;
@@ -144,6 +160,7 @@ pub const Emitter = struct {
             const e = if (path.feature == .ironing) e_per_mm * s.project.ironing_flow else e_per_mm;
             for (pts[1..]) |q| try self.extrude(geom.toMm(q.x), geom.toMm(q.y), e, speed);
             if (path.closed and pts.len > 2) try self.extrude(geom.toMm(pts[0].x), geom.toMm(pts[0].y), e, speed);
+            if (self.record) |rec| rec.appendAssumeCapacity(.{ .end_time = self.stats.print_time_s, .area = e * self.r.filament_area });
         }
     }
 

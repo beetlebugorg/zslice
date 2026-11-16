@@ -18,5 +18,9 @@ GtkWidget *zg_view3d_new(ZgModel *model);
 /* Reads the toolpaths of the last slice from the core again. */
 void zg_view3d_reload(GtkWidget *view);
 
+/* The colors: FALSE for the filament color (the print as it will look),
+ * TRUE for one color for each feature. */
+void zg_view3d_set_feature_colors(GtkWidget *view, gboolean features);
+
 /* Shows the layers from 0 to `layer`. */
 void zg_view3d_set_layer(GtkWidget *view, size_t layer);

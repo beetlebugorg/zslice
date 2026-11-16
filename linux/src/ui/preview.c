@@ -165,6 +165,11 @@ static void draw(GtkDrawingArea *area, cairo_t *cr, int w, int h, gpointer data)
     if (state == ZS_STATE_FAILED) draw_message(cr, w, h, "The slice failed. See the status bar.");
 }
 
+static void on_colors(GtkToggleButton *b, gpointer data) {
+    Preview *p = data;
+    zg_view3d_set_feature_colors(p->view3d, gtk_toggle_button_get_active(b));
+}
+
 static void on_slider(GtkRange *range, gpointer data) {
     Preview *p = data;
     if (p->updating_slider) return;
@@ -276,6 +281,10 @@ GtkWidget *zg_preview_new(ZgModel *model) {
     gtk_widget_add_css_class(side, "zg-panel");
     gtk_widget_add_css_class(side, "zg-side");
     gtk_box_append(GTK_BOX(side), switcher);
+    GtkWidget *colors = gtk_toggle_button_new_with_label("Feature colors");
+    gtk_widget_set_tooltip_text(colors, "Off: the filament color, as the print will look. On: one color for each feature (walls, skin, infill, ...).");
+    g_signal_connect(colors, "toggled", G_CALLBACK(on_colors), p);
+    gtk_box_append(GTK_BOX(side), colors);
     gtk_box_append(GTK_BOX(side), p->label);
     gtk_box_append(GTK_BOX(side), p->slider);
 

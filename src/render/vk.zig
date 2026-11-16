@@ -66,11 +66,15 @@ comptime {
     std.debug.assert(@sizeOf(Instance) == 32);
 }
 
-/// The push constants of both pipelines: a matrix and a vector (the light
-/// direction for the boxes, the color for the grid).
+/// The push constants of both pipelines: a matrix and three vectors. For
+/// the beads: the light direction, the camera position, and the highlight
+/// range. For the grid: the color. 112 bytes: within the 128 bytes that
+/// each device supports.
 pub const Push = extern struct {
     mvp: [16]f32,
     vec: [4]f32,
+    eye: [4]f32 = .{ 0, 0, 0, 0 },
+    params: [4]f32 = .{ 0, 0, 0, 0 },
 };
 
 // ---------------------------------------------------------------------------
@@ -251,6 +255,11 @@ pub const Renderer = struct {
 
     box_mesh: Buffer = .{},
     box_index: Buffer = .{},
+    box_index_count: u32 = 0,
+    samples: c.VkSampleCountFlagBits = c.VK_SAMPLE_COUNT_1_BIT,
+    msaa_image: c.VkImage = null,
+    msaa_mem: c.VkDeviceMemory = null,
+    msaa_view: c.VkImageView = null,
     instances: Buffer = .{},
     grid: Buffer = .{},
 
@@ -381,6 +390,11 @@ pub const Renderer = struct {
     /// The parts that do not depend on the window size.
     fn setup(r: *Renderer) Error!void {
         r.format = try r.pickFormat();
+        // 4x multisampling if the device has it for color and depth.
+        var props: c.VkPhysicalDeviceProperties = undefined;
+        r.i.vkGetPhysicalDeviceProperties.?(r.phys, &props);
+        const counts = props.limits.framebufferColorSampleCounts & props.limits.framebufferDepthSampleCounts;
+        r.samples = if (counts & c.VK_SAMPLE_COUNT_4_BIT != 0) c.VK_SAMPLE_COUNT_4_BIT else c.VK_SAMPLE_COUNT_1_BIT;
         try r.makeRenderPass();
         try r.makePipelines();
         try check(r.d.vkCreateCommandPool.?(r.device, &.{
@@ -396,7 +410,6 @@ pub const Renderer = struct {
         }, &r.cmd));
         try check(r.d.vkCreateSemaphore.?(r.device, &.{ .sType = c.VK_STRUCTURE_TYPE_SEMAPHORE_CREATE_INFO }, null, &r.acquired));
         try check(r.d.vkCreateFence.?(r.device, &.{ .sType = c.VK_STRUCTURE_TYPE_FENCE_CREATE_INFO, .flags = c.VK_FENCE_CREATE_SIGNALED_BIT }, null, &r.fence));
-        try r.makeBoxMesh();
     }
 
     pub fn deinit(r: *Renderer) void {
@@ -451,21 +464,25 @@ pub const Renderer = struct {
         return error.VulkanFailed;
     }
 
+    /// With multisampling: a multisampled color image (0) and depth (1),
+    /// resolved into the swapchain image (2). Without: the swapchain image
+    /// (0) and depth (1).
     fn makeRenderPass(r: *Renderer) Error!void {
+        const msaa = r.samples != c.VK_SAMPLE_COUNT_1_BIT;
         const attachments = [_]c.VkAttachmentDescription{
             .{
                 .format = r.format.format,
-                .samples = c.VK_SAMPLE_COUNT_1_BIT,
+                .samples = r.samples,
                 .loadOp = c.VK_ATTACHMENT_LOAD_OP_CLEAR,
-                .storeOp = c.VK_ATTACHMENT_STORE_OP_STORE,
+                .storeOp = if (msaa) c.VK_ATTACHMENT_STORE_OP_DONT_CARE else c.VK_ATTACHMENT_STORE_OP_STORE,
                 .stencilLoadOp = c.VK_ATTACHMENT_LOAD_OP_DONT_CARE,
                 .stencilStoreOp = c.VK_ATTACHMENT_STORE_OP_DONT_CARE,
                 .initialLayout = c.VK_IMAGE_LAYOUT_UNDEFINED,
-                .finalLayout = c.VK_IMAGE_LAYOUT_PRESENT_SRC_KHR,
+                .finalLayout = if (msaa) c.VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL else c.VK_IMAGE_LAYOUT_PRESENT_SRC_KHR,
             },
             .{
                 .format = depth_format,
-                .samples = c.VK_SAMPLE_COUNT_1_BIT,
+                .samples = r.samples,
                 .loadOp = c.VK_ATTACHMENT_LOAD_OP_CLEAR,
                 .storeOp = c.VK_ATTACHMENT_STORE_OP_DONT_CARE,
                 .stencilLoadOp = c.VK_ATTACHMENT_LOAD_OP_DONT_CARE,
@@ -473,13 +490,25 @@ pub const Renderer = struct {
                 .initialLayout = c.VK_IMAGE_LAYOUT_UNDEFINED,
                 .finalLayout = c.VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL,
             },
+            .{
+                .format = r.format.format,
+                .samples = c.VK_SAMPLE_COUNT_1_BIT,
+                .loadOp = c.VK_ATTACHMENT_LOAD_OP_DONT_CARE,
+                .storeOp = c.VK_ATTACHMENT_STORE_OP_STORE,
+                .stencilLoadOp = c.VK_ATTACHMENT_LOAD_OP_DONT_CARE,
+                .stencilStoreOp = c.VK_ATTACHMENT_STORE_OP_DONT_CARE,
+                .initialLayout = c.VK_IMAGE_LAYOUT_UNDEFINED,
+                .finalLayout = c.VK_IMAGE_LAYOUT_PRESENT_SRC_KHR,
+            },
         };
         const color_ref: c.VkAttachmentReference = .{ .attachment = 0, .layout = c.VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL };
         const depth_ref: c.VkAttachmentReference = .{ .attachment = 1, .layout = c.VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL };
+        const resolve_ref: c.VkAttachmentReference = .{ .attachment = 2, .layout = c.VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL };
         const subpass: c.VkSubpassDescription = .{
             .pipelineBindPoint = c.VK_PIPELINE_BIND_POINT_GRAPHICS,
             .colorAttachmentCount = 1,
             .pColorAttachments = &color_ref,
+            .pResolveAttachments = if (msaa) &resolve_ref else null,
             .pDepthStencilAttachment = &depth_ref,
         };
         // The color and depth writes wait for the image (from the acquire
@@ -494,7 +523,7 @@ pub const Renderer = struct {
         };
         try check(r.d.vkCreateRenderPass.?(r.device, &.{
             .sType = c.VK_STRUCTURE_TYPE_RENDER_PASS_CREATE_INFO,
-            .attachmentCount = attachments.len,
+            .attachmentCount = if (msaa) 3 else 2,
             .pAttachments = &attachments,
             .subpassCount = 1,
             .pSubpasses = &subpass,
@@ -535,12 +564,11 @@ pub const Renderer = struct {
         defer r.d.vkDestroyShaderModule.?(r.device, gf, null);
 
         const box_bindings = [_]c.VkVertexInputBindingDescription{
-            .{ .binding = 0, .stride = 24, .inputRate = c.VK_VERTEX_INPUT_RATE_VERTEX },
+            .{ .binding = 0, .stride = 16, .inputRate = c.VK_VERTEX_INPUT_RATE_VERTEX },
             .{ .binding = 1, .stride = @sizeOf(Instance), .inputRate = c.VK_VERTEX_INPUT_RATE_INSTANCE },
         };
         const box_attrs = [_]c.VkVertexInputAttributeDescription{
-            .{ .location = 0, .binding = 0, .format = c.VK_FORMAT_R32G32B32_SFLOAT, .offset = 0 },
-            .{ .location = 1, .binding = 0, .format = c.VK_FORMAT_R32G32B32_SFLOAT, .offset = 12 },
+            .{ .location = 0, .binding = 0, .format = c.VK_FORMAT_R32G32B32A32_SFLOAT, .offset = 0 },
             .{ .location = 2, .binding = 1, .format = c.VK_FORMAT_R32G32B32A32_SFLOAT, .offset = @offsetOf(Instance, "ax") },
             .{ .location = 3, .binding = 1, .format = c.VK_FORMAT_R32G32B32_SFLOAT, .offset = @offsetOf(Instance, "z") },
             .{ .location = 4, .binding = 1, .format = c.VK_FORMAT_R8G8B8A8_UNORM, .offset = @offsetOf(Instance, "rgba") },
@@ -592,7 +620,7 @@ pub const Renderer = struct {
         };
         const multisample: c.VkPipelineMultisampleStateCreateInfo = .{
             .sType = c.VK_STRUCTURE_TYPE_PIPELINE_MULTISAMPLE_STATE_CREATE_INFO,
-            .rasterizationSamples = c.VK_SAMPLE_COUNT_1_BIT,
+            .rasterizationSamples = r.samples,
         };
         const depth: c.VkPipelineDepthStencilStateCreateInfo = .{
             .sType = c.VK_STRUCTURE_TYPE_PIPELINE_DEPTH_STENCIL_STATE_CREATE_INFO,
@@ -666,34 +694,17 @@ pub const Renderer = struct {
         b.* = .{};
     }
 
-    /// The unit box: 6 faces of 4 vertices (corner xyz, normal xyz), and 36
-    /// indices. See shaders/box.vert for the frame.
-    fn makeBoxMesh(r: *Renderer) Error!void {
-        const faces = [6][4][3]f32{
-            .{ .{ 0, -1, 0 }, .{ 1, -1, 0 }, .{ 1, 1, 0 }, .{ 0, 1, 0 } }, // top
-            .{ .{ 0, -1, -1 }, .{ 0, 1, -1 }, .{ 1, 1, -1 }, .{ 1, -1, -1 } }, // bottom
-            .{ .{ 0, 1, -1 }, .{ 0, 1, 0 }, .{ 1, 1, 0 }, .{ 1, 1, -1 } }, // left side
-            .{ .{ 0, -1, -1 }, .{ 1, -1, -1 }, .{ 1, -1, 0 }, .{ 0, -1, 0 } }, // right side
-            .{ .{ 1, -1, -1 }, .{ 1, 1, -1 }, .{ 1, 1, 0 }, .{ 1, -1, 0 } }, // end
-            .{ .{ 0, -1, -1 }, .{ 0, -1, 0 }, .{ 0, 1, 0 }, .{ 0, 1, -1 } }, // start
-        };
-        const normals = [6][3]f32{ .{ 0, 0, 1 }, .{ 0, 0, -1 }, .{ 0, 1, 0 }, .{ 0, -1, 0 }, .{ 1, 0, 0 }, .{ -1, 0, 0 } };
-        var verts: [24 * 6]f32 = undefined;
-        var idx: [36]u16 = undefined;
-        for (0..6) |f| {
-            for (0..4) |k| {
-                const o = (f * 4 + k) * 6;
-                @memcpy(verts[o .. o + 3], &faces[f][k]);
-                @memcpy(verts[o + 3 .. o + 6], &normals[f]);
-            }
-            const b: u16 = @intCast(f * 4);
-            const q = [6]u16{ b, b + 1, b + 2, b, b + 2, b + 3 };
-            @memcpy(idx[f * 6 .. f * 6 + 6], &q);
-        }
-        try r.makeBuffer(&r.box_mesh, @sizeOf(@TypeOf(verts)), c.VK_BUFFER_USAGE_VERTEX_BUFFER_BIT);
-        @memcpy(r.box_mesh.map.?[0..@sizeOf(@TypeOf(verts))], std.mem.asBytes(&verts));
-        try r.makeBuffer(&r.box_index, @sizeOf(@TypeOf(idx)), c.VK_BUFFER_USAGE_INDEX_BUFFER_BIT);
-        @memcpy(r.box_index.map.?[0..@sizeOf(@TypeOf(idx))], std.mem.asBytes(&idx));
+    /// Replaces the template mesh of a bead: vertices of 4 floats (see
+    /// shaders/box.vert) and triangle indices.
+    pub fn setMesh(r: *Renderer, verts: []const [4]f32, indices: []const u16) Error!void {
+        _ = r.d.vkDeviceWaitIdle.?(r.device);
+        const vb = std.mem.sliceAsBytes(verts);
+        try r.makeBuffer(&r.box_mesh, vb.len, c.VK_BUFFER_USAGE_VERTEX_BUFFER_BIT);
+        @memcpy(r.box_mesh.map.?[0..vb.len], vb);
+        const ib = std.mem.sliceAsBytes(indices);
+        try r.makeBuffer(&r.box_index, ib.len, c.VK_BUFFER_USAGE_INDEX_BUFFER_BIT);
+        @memcpy(r.box_index.map.?[0..ib.len], ib);
+        r.box_index_count = @intCast(indices.len);
     }
 
     /// Replaces the boxes. Waits for the GPU, because the buffer can be in
@@ -723,6 +734,12 @@ pub const Renderer = struct {
             d.vkDestroySemaphore.?(r.device, r.rendered[k], null);
         }
         r.image_count = 0;
+        if (r.msaa_view != null) d.vkDestroyImageView.?(r.device, r.msaa_view, null);
+        if (r.msaa_image != null) d.vkDestroyImage.?(r.device, r.msaa_image, null);
+        if (r.msaa_mem != null) d.vkFreeMemory.?(r.device, r.msaa_mem, null);
+        r.msaa_view = null;
+        r.msaa_image = null;
+        r.msaa_mem = null;
         if (r.depth_view != null) d.vkDestroyImageView.?(r.device, r.depth_view, null);
         if (r.depth_image != null) d.vkDestroyImage.?(r.device, r.depth_image, null);
         if (r.depth_mem != null) d.vkFreeMemory.?(r.device, r.depth_mem, null);
@@ -781,6 +798,13 @@ pub const Renderer = struct {
         n = @min(n, max_images);
         try check(d.vkGetSwapchainImagesKHR.?(r.device, r.swapchain, &n, &r.images));
 
+        // The multisampled color image (it lives only during the render
+        // pass, so it can be transient).
+        const msaa = r.samples != c.VK_SAMPLE_COUNT_1_BIT;
+        if (msaa) {
+            try r.makeImage(extent, r.format.format, c.VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT | c.VK_IMAGE_USAGE_TRANSIENT_ATTACHMENT_BIT, c.VK_IMAGE_ASPECT_COLOR_BIT, &r.msaa_image, &r.msaa_mem, &r.msaa_view);
+        }
+
         // The depth buffer.
         try check(d.vkCreateImage.?(r.device, &.{
             .sType = c.VK_STRUCTURE_TYPE_IMAGE_CREATE_INFO,
@@ -789,7 +813,7 @@ pub const Renderer = struct {
             .extent = .{ .width = extent.width, .height = extent.height, .depth = 1 },
             .mipLevels = 1,
             .arrayLayers = 1,
-            .samples = c.VK_SAMPLE_COUNT_1_BIT,
+            .samples = r.samples,
             .tiling = c.VK_IMAGE_TILING_OPTIMAL,
             .usage = c.VK_IMAGE_USAGE_DEPTH_STENCIL_ATTACHMENT_BIT,
             .sharingMode = c.VK_SHARING_MODE_EXCLUSIVE,
@@ -819,11 +843,11 @@ pub const Renderer = struct {
                 .format = r.format.format,
                 .subresourceRange = .{ .aspectMask = c.VK_IMAGE_ASPECT_COLOR_BIT, .levelCount = 1, .layerCount = 1 },
             }, null, &r.views[k]));
-            const atts = [_]c.VkImageView{ r.views[k], r.depth_view };
+            const atts = if (msaa) [_]c.VkImageView{ r.msaa_view, r.depth_view, r.views[k] } else [_]c.VkImageView{ r.views[k], r.depth_view, null };
             try check(d.vkCreateFramebuffer.?(r.device, &.{
                 .sType = c.VK_STRUCTURE_TYPE_FRAMEBUFFER_CREATE_INFO,
                 .renderPass = r.render_pass,
-                .attachmentCount = atts.len,
+                .attachmentCount = if (msaa) 3 else 2,
                 .pAttachments = &atts,
                 .width = extent.width,
                 .height = extent.height,
@@ -836,6 +860,39 @@ pub const Renderer = struct {
             r.image_count += 1;
         }
         r.stale = false;
+    }
+
+    /// A device-local image with one view, for a render target.
+    fn makeImage(r: *Renderer, extent: c.VkExtent2D, format: c.VkFormat, usage: c.VkImageUsageFlags, aspect: c.VkImageAspectFlags, image: *c.VkImage, mem: *c.VkDeviceMemory, view: *c.VkImageView) Error!void {
+        const d = r.d;
+        try check(d.vkCreateImage.?(r.device, &.{
+            .sType = c.VK_STRUCTURE_TYPE_IMAGE_CREATE_INFO,
+            .imageType = c.VK_IMAGE_TYPE_2D,
+            .format = format,
+            .extent = .{ .width = extent.width, .height = extent.height, .depth = 1 },
+            .mipLevels = 1,
+            .arrayLayers = 1,
+            .samples = r.samples,
+            .tiling = c.VK_IMAGE_TILING_OPTIMAL,
+            .usage = usage,
+            .sharingMode = c.VK_SHARING_MODE_EXCLUSIVE,
+            .initialLayout = c.VK_IMAGE_LAYOUT_UNDEFINED,
+        }, null, image));
+        var req: c.VkMemoryRequirements = undefined;
+        d.vkGetImageMemoryRequirements.?(r.device, image.*, &req);
+        try check(d.vkAllocateMemory.?(r.device, &.{
+            .sType = c.VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_INFO,
+            .allocationSize = req.size,
+            .memoryTypeIndex = try r.memoryType(req.memoryTypeBits, c.VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT),
+        }, null, mem));
+        try check(d.vkBindImageMemory.?(r.device, image.*, mem.*, 0));
+        try check(d.vkCreateImageView.?(r.device, &.{
+            .sType = c.VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO,
+            .image = image.*,
+            .viewType = c.VK_IMAGE_VIEW_TYPE_2D,
+            .format = format,
+            .subresourceRange = .{ .aspectMask = aspect, .levelCount = 1, .layerCount = 1 },
+        }, null, view));
     }
 
     // ---- frame ----
@@ -873,13 +930,14 @@ pub const Renderer = struct {
         const clears = [_]c.VkClearValue{
             .{ .color = .{ .float32 = .{ frame.clear[0], frame.clear[1], frame.clear[2], 1 } } },
             .{ .depthStencil = .{ .depth = 1, .stencil = 0 } },
+            .{ .color = .{ .float32 = .{ 0, 0, 0, 1 } } },
         };
         d.vkCmdBeginRenderPass.?(cmd, &.{
             .sType = c.VK_STRUCTURE_TYPE_RENDER_PASS_BEGIN_INFO,
             .renderPass = r.render_pass,
             .framebuffer = r.framebuffers[index],
             .renderArea = .{ .offset = .{ .x = 0, .y = 0 }, .extent = r.extent },
-            .clearValueCount = clears.len,
+            .clearValueCount = if (r.samples != c.VK_SAMPLE_COUNT_1_BIT) 3 else 2,
             .pClearValues = &clears,
         }, c.VK_SUBPASS_CONTENTS_INLINE);
         d.vkCmdSetViewport.?(cmd, 0, 1, &.{
@@ -900,14 +958,14 @@ pub const Renderer = struct {
             d.vkCmdBindVertexBuffers.?(cmd, 0, 1, &r.grid.buf, &zero);
             d.vkCmdDraw.?(cmd, frame.grid_vertices, 1, 0, 0);
         }
-        if (frame.box_count > 0 and r.instances.buf != null) {
+        if (frame.box_count > 0 and r.instances.buf != null and r.box_index_count > 0) {
             d.vkCmdBindPipeline.?(cmd, c.VK_PIPELINE_BIND_POINT_GRAPHICS, r.box_pipeline);
             d.vkCmdPushConstants.?(cmd, r.layout, stages, 0, @sizeOf(Push), &frame.box);
             const bufs = [_]c.VkBuffer{ r.box_mesh.buf, r.instances.buf };
             const offs = [_]c.VkDeviceSize{ 0, 0 };
             d.vkCmdBindVertexBuffers.?(cmd, 0, 2, &bufs, &offs);
             d.vkCmdBindIndexBuffer.?(cmd, r.box_index.buf, 0, c.VK_INDEX_TYPE_UINT16);
-            d.vkCmdDrawIndexed.?(cmd, 36, frame.box_count, 0, 0, 0);
+            d.vkCmdDrawIndexed.?(cmd, r.box_index_count, frame.box_count, 0, 0, 0);
         }
         d.vkCmdEndRenderPass.?(cmd);
         try check(d.vkEndCommandBuffer.?(cmd));

@@ -86,8 +86,11 @@ The goal is the features that people use in PrusaSlicer and Cura. zslice designs
 - [x] App core (`src/app.zig`, `include/zslice-app.h`): model, settings with descriptions, background slice with progress and cancel, layer paths for the preview, G-code export, license list
 - [x] Linux shell: GTK4 (`linux/`): open (button, drop, command line), settings panel from core data, slice after each change, layer preview with zoom and pan, export, licenses
 - [x] 3D view of the toolpaths: Vulkan renderer in the core, Wayland subsurface in the GTK shell
-- [ ] 3D view: X11, antialiasing (the box ends z-fight), the model mesh before the slice, pan
+- [x] 3D view: beads with the real cross section and round ends, the deposited width, the cooled size, the filament color with PLA-like light, 4x MSAA
+- [ ] 3D view: X11, the model mesh before the slice, pan, a level of detail for beads smaller than a pixel
+- [ ] 3D view, physics not modeled yet: the seam blob, sag on overhangs and bridges, stringing, corner rounding by acceleration
 - [ ] Click a path in the preview to see the settings that affect it (walls, brim, ...)
+- [ ] Replay: play the print in the 3D view, line by line, at 1x, 2x, 3x (and faster), from the move times of the G-code
 - [ ] macOS and iOS shell: SwiftUI (`apple/`)
 - [ ] Windows shell: Win32 C++ (`windows/`)
 - [ ] Android shell: Kotlin (`android/`)

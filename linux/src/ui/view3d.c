@@ -27,6 +27,8 @@ typedef struct {
     zs_view *view;
     char *error;
     size_t layer;
+    gboolean features;
+    gboolean zoomed;
     gboolean have_data;
     guint idle;
     double drag_x, drag_y;
@@ -72,13 +74,26 @@ static void sync_geometry(View3d *v) {
 
 static void load_data(View3d *v) {
     if (!v->view) return;
+    zs_view_set_mode(v->view, v->features ? ZS_VIEW_FEATURES : ZS_VIEW_PRINT);
     int rc = zs_view_load(v->view, zg_model_core(v->model));
     if (rc != ZS_OK) {
         g_warning("zslice: the 3D view did not load the toolpaths: %s", zg_status_text(rc));
         return;
     }
     zs_view_set_layer(v->view, v->layer);
+    /* For development and screenshots: ZSLICE_ZOOM=0.3 starts nearer. */
+    const char *zoom = g_getenv("ZSLICE_ZOOM");
+    if (zoom && !v->zoomed && zs_app_layer_count(zg_model_core(v->model)) > 0) {
+        zs_view_zoom(v->view, (float)g_ascii_strtod(zoom, NULL));
+        v->zoomed = TRUE;
+    }
     queue_frame(v);
+}
+
+void zg_view3d_set_feature_colors(GtkWidget *view, gboolean features) {
+    View3d *v = g_object_get_data(G_OBJECT(view), "zg-view3d");
+    v->features = features;
+    load_data(v);
 }
 
 static void on_map(GtkWidget *w, gpointer data) {

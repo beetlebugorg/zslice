@@ -20,6 +20,7 @@
 //!     const stats = try zslice.slice(gpa, &mesh, settings, writer);
 
 pub const geom = @import("geom.zig");
+pub const flow = @import("flow.zig");
 pub const clip = @import("clip.zig");
 pub const clip_open = @import("clip_open.zig");
 pub const offset = @import("offset.zig");
