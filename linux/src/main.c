@@ -50,6 +50,8 @@ static const char *ZG_CSS =
     ".zg-layers label { font-size: 0.7em; font-feature-settings: 'tnum'; }"
     ".zg-layers scale { padding: 0 6px; }"
     ".zg-layers label { margin-top: 2px; }"
+    ".zg-scrub { padding: 2px 12px; border-radius: 14px; }"
+    ".zg-scrub-label { font-size: 0.8em; font-feature-settings: 'tnum'; min-width: 120px; }"
     ".zg-legend { font-size: 0.8em; padding: 0 6px; font-feature-settings: 'tnum'; }"
     ".zg-inspector, .zg-status-text { transition: opacity 200ms ease-out; }"
     ".zg-stale { opacity: 0.55; }"

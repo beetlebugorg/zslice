@@ -165,14 +165,18 @@ A value out of the usual range shows in the warning color, and its tooltip gives
 | Double-click | Reset the view (also removes a roll) |
 | Left click | Pick a line (see below) |
 
+## Scrub through a layer
+
+The bar at the bottom of the preview moves the nozzle through the top layer of the layer slider. At the left end, the layer starts; at the right end, the layer is done. The label gives the time in the layer. Play moves the bar, and a drag of the bar pauses the replay.
+
 ## Keys in the preview
 
 Click in the preview first, so that it gets the keys.
 
 | Key | With a selected line | With no selection |
 |---|---|---|
-| ← or h | The segment before it, in print order (Shift: the line before) | — |
-| → or l | The segment after it, in print order (Shift: the line after) | — |
+| ← or h | The segment before it, in print order (Shift: the line before) | The nozzle back 2 % of the layer |
+| → or l | The segment after it, in print order (Shift: the line after) | The nozzle on 2 % of the layer |
 | ↑ or k | The nearest line on the layer above | The top layer up one |
 | ↓ or j | The nearest line on the layer below | The top layer down one |
 | Page Up, Page Down | 10 layers up or down | 10 layers up or down |

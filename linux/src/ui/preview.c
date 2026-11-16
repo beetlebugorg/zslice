@@ -41,6 +41,10 @@ typedef struct {
     GtkWidget *stack;
     GtkWidget *slider_box;
     GtkWidget *isolate;
+    /* The scrub bar: the nozzle through the top layer (0 its start, 1 the
+     * layer done), and its time label. */
+    GtkWidget *scrub, *scrub_label, *scrub_box;
+    gboolean scrub_quiet;
     GtkWidget *colors;
     GtkWidget *legend;
     GtkWidget *play;
@@ -306,6 +310,53 @@ static void stop_replay(Preview *p) {
     gtk_button_set_icon_name(GTK_BUTTON(p->play), "media-playback-start-symbolic");
 }
 
+/* The start and the end time of a layer, in seconds from the print start. */
+static gboolean layer_times(Preview *p, size_t layer, double *t0, double *t1) {
+    zs_toolpaths tp;
+    if (zs_app_toolpaths(zg_model_core(p->model), &tp) != ZS_OK || layer >= tp.layer_count) return FALSE;
+    uint32_t last = tp.layer_ends[layer];
+    uint32_t prev = layer > 0 ? tp.layer_ends[layer - 1] : 0;
+    *t0 = prev > 0 ? tp.path_end_time[prev - 1] : 0;
+    *t1 = last > 0 ? tp.path_end_time[last - 1] : *t0;
+    return TRUE;
+}
+
+/* The scrub bar and its label for time t in a layer. */
+static void show_scrub(Preview *p, size_t layer, double t) {
+    double t0 = 0, t1 = 0;
+    if (!p->scrub || !layer_times(p, layer, &t0, &t1)) return;
+    double f = t1 > t0 ? CLAMP((t - t0) / (t1 - t0), 0, 1) : 1;
+    p->scrub_quiet = TRUE;
+    gtk_range_set_value(GTK_RANGE(p->scrub), f);
+    p->scrub_quiet = FALSE;
+    double in = CLAMP(t - t0, 0, t1 - t0), len = t1 - t0;
+    char *text = g_strdup_printf("Layer %zu · %d:%02d / %d:%02d", layer + 1, (int)in / 60, (int)in % 60, (int)len / 60, (int)len % 60);
+    gtk_label_set_text(GTK_LABEL(p->scrub_label), text);
+    g_free(text);
+}
+
+/* A drag of the scrub bar: the nozzle goes to that time in the top layer
+ * (the 3D view), and a replay pauses. */
+static void on_scrub(GtkRange *range, gpointer data) {
+    Preview *p = data;
+    if (p->scrub_quiet) return;
+    size_t layer = zg_layer_range_get_hi(ZG_LAYER_RANGE(p->slider));
+    double t0, t1;
+    if (!layer_times(p, layer, &t0, &t1)) return;
+    stop_replay(p);
+    gtk_stack_set_visible_child_name(GTK_STACK(p->stack), "3d");
+    double f = gtk_range_get_value(range);
+    p->time = t0 + f * (t1 - t0);
+    /* At the end of the layer: whole layers again, as the layer slider
+     * shows them (with its bottom knob). */
+    if (f >= 1) {
+        zg_view3d_set_layer_range(p->view3d, zg_layer_range_get_lo(ZG_LAYER_RANGE(p->slider)), layer);
+    } else {
+        zg_view3d_set_time(p->view3d, p->time);
+    }
+    show_scrub(p, layer, p->time);
+}
+
 static void show_time(Preview *p, size_t layer) {
     double total = zg_view3d_duration(p->view3d);
     int t = (int)p->time, d = (int)total;
@@ -328,6 +379,7 @@ static gboolean on_tick(GtkWidget *w, GdkFrameClock *clock, gpointer data) {
     if (p->time >= total) p->time = total;
     zg_view3d_set_time(p->view3d, p->time);
     size_t layer = zg_view3d_layer_at_time(p->view3d, p->time);
+    show_scrub(p, layer, p->time);
     /* The replay shows all layers up to the nozzle. */
     zg_layer_range_set(ZG_LAYER_RANGE(p->slider), 0, layer);
     show_time(p, layer);
@@ -403,6 +455,8 @@ static void on_slider(ZgLayerRange *range, gpointer data) {
     size_t layer = zg_layer_range_get_hi(range);
     load_layer(p, layer);
     zg_view3d_set_layer_range(p->view3d, zg_layer_range_get_lo(range), layer);
+    double t0, t1;
+    if (layer_times(p, layer, &t0, &t1)) show_scrub(p, layer, t1);
 }
 
 static gboolean on_scroll(GtkEventControllerScroll *ctrl, double dx, double dy, gpointer data) {
@@ -530,6 +584,8 @@ static void apply_range(Preview *p) {
     p->time = 0;
     load_layer(p, zg_layer_range_get_hi(r));
     zg_view3d_set_layer_range(p->view3d, zg_layer_range_get_lo(r), zg_layer_range_get_hi(r));
+    double t0, t1;
+    if (layer_times(p, zg_layer_range_get_hi(r), &t0, &t1)) show_scrub(p, zg_layer_range_get_hi(r), t1);
 }
 
 /* The top layer goes to the layer of the selection, so the 2D view shows
@@ -649,7 +705,13 @@ static gboolean on_preview_key(GtkEventControllerKey *c, guint key, guint code, 
         }
         return TRUE;
     }
-    /* No selection: the keys move the layers. */
+    /* No selection: ← and → move the nozzle through the top layer (2 % of
+     * the layer a step), and the other keys move the layers. */
+    if (dir != 0 && p->scrub) {
+        double f = gtk_range_get_value(GTK_RANGE(p->scrub)) + dir * 0.02;
+        gtk_range_set_value(GTK_RANGE(p->scrub), CLAMP(f, 0, 1));
+        return TRUE;
+    }
     if (layer_dir == 0) return FALSE;
     ZgLayerRange *r = ZG_LAYER_RANGE(p->slider);
     long lo = (long)zg_layer_range_get_lo(r), hi = (long)zg_layer_range_get_hi(r);
@@ -817,6 +879,25 @@ GtkWidget *zg_preview_new(ZgModel *model) {
     gtk_overlay_set_child(GTK_OVERLAY(box), stack);
     gtk_overlay_add_overlay(GTK_OVERLAY(box), bar);
     gtk_overlay_add_overlay(GTK_OVERLAY(box), p->slider_box);
+
+    /* The scrub bar: a short bar in the middle of the bottom edge. */
+    p->scrub = gtk_scale_new_with_range(GTK_ORIENTATION_HORIZONTAL, 0, 1, 0.001);
+    gtk_scale_set_draw_value(GTK_SCALE(p->scrub), FALSE);
+    gtk_range_set_value(GTK_RANGE(p->scrub), 1);
+    gtk_widget_set_size_request(p->scrub, 300, -1);
+    gtk_widget_set_tooltip_text(p->scrub, "Move the nozzle through the top layer: the left end is the start of the layer, the right end the layer done. ← and → with no selected line move it too.");
+    g_signal_connect(p->scrub, "value-changed", G_CALLBACK(on_scrub), p);
+    p->scrub_label = gtk_label_new("");
+    gtk_widget_add_css_class(p->scrub_label, "zg-scrub-label");
+    p->scrub_box = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 8);
+    gtk_widget_add_css_class(p->scrub_box, "osd");
+    gtk_widget_add_css_class(p->scrub_box, "zg-scrub");
+    gtk_box_append(GTK_BOX(p->scrub_box), p->scrub);
+    gtk_box_append(GTK_BOX(p->scrub_box), p->scrub_label);
+    gtk_widget_set_halign(p->scrub_box, GTK_ALIGN_CENTER);
+    gtk_widget_set_valign(p->scrub_box, GTK_ALIGN_END);
+    gtk_widget_set_margin_bottom(p->scrub_box, 10);
+    gtk_overlay_add_overlay(GTK_OVERLAY(box), p->scrub_box);
     gtk_widget_set_size_request(stack, 200, -1);
     g_object_set_data_full(G_OBJECT(box), "zg-preview", p, preview_free);
     g_signal_connect(model, "selection-changed", G_CALLBACK(on_selection), p);
