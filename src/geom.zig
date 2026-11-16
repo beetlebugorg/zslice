@@ -483,6 +483,30 @@ pub const EdgeIndex = struct {
         }
         return false;
     }
+
+    /// The distance (units) from p to the nearest edge, or `limit` if no
+    /// edge is nearer. `limit` must not be more than the pad of the index,
+    /// and the pad must be more than 0.
+    pub fn distance(idx: EdgeIndex, p: Point, limit: i64) f64 {
+        var best: f64 = @floatFromInt(limit);
+        var best2 = best * best;
+        for (idx.bandEdges(p.y)) |e| {
+            const a = e[0];
+            const b = e[1];
+            const abx: f64 = @floatFromInt(b.x - a.x);
+            const aby: f64 = @floatFromInt(b.y - a.y);
+            const apx: f64 = @floatFromInt(p.x - a.x);
+            const apy: f64 = @floatFromInt(p.y - a.y);
+            const len2 = abx * abx + aby * aby;
+            const t = if (len2 > 0) std.math.clamp((apx * abx + apy * aby) / len2, 0, 1) else 0;
+            const dx = apx - t * abx;
+            const dy = apy - t * aby;
+            const d2 = dx * dx + dy * dy;
+            if (d2 < best2) best2 = d2;
+        }
+        if (best2 < best * best) best = @sqrt(best2);
+        return best;
+    }
 };
 
 test "EdgeIndex gives the same answers as the tests over all edges" {
@@ -506,6 +530,8 @@ test "EdgeIndex gives the same answers as the tests over all edges" {
         try std.testing.expect(idx.near(p, 50));
     }
     try std.testing.expect(!idx.near(.init(5000, 5000), 50));
+    try std.testing.expectApproxEqAbs(@as(f64, 30), idx.distance(.init(-30, 5000), 50), 1e-9);
+    try std.testing.expectApproxEqAbs(@as(f64, 50), idx.distance(.init(5000, 5000), 50), 1e-9);
 }
 
 test "insideAny: a square with a hole" {

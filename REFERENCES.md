@@ -83,6 +83,11 @@ These sources gave methods or formats. zslice does not copy their code. Each zsl
 | Uniform grid search for the nearest point, ring by ring | General technique | `src/layer.zig` | Finds the nearest path start in the greedy path order. |
 | Memoization: keep a result with the inputs that made it, and use it again for the same inputs | General technique | `src/layer.zig`, `src/engine.zig` | The memo of each layer, which keeps the slow results between slices. |
 | Arena allocators kept in a pool and reset between uses | General technique | `src/scratch.zig` | The work memory of the booleans and offsets. |
+| Extra beads at Z heights between the layers, to fill the stair of a sloped surface: IBM, US 5,402,351 (filed 1991, expired) | Expired; free to use | `src/slope.zig` | The idea of the slope smoothing pass: after a layer, beads at heights between two layers fill the steps. |
+| Hai-Chuan Song, Nicolas Ray, Dmitry Sokolov, Sylvain Lefebvre, "Anti-aliasing for fused filament deposition", Computer-Aided Design 89, 2017 | Paper | `src/slope.zig` | Small Z changes inside a layer, so that the edge of each layer follows the true surface between the layers. zslice uses the idea for its smoothing beads: a Z for each point between two layers. |
+| Daniel Ahlers, Florens Wasserfall, Norman Hendrich, Jianwei Zhang, "3D Printing of Nonplanar Layers for Smooth Surface Generation", IEEE CASE 2019 | Paper | `src/slope.zig` | Non-planar moves on top surfaces, and the check of the nozzle shape (a cone) against the printed part. zslice uses a cone on a flat tip, and checks it against the layer that it just printed. |
+| Debapriya Chakraborty, B. Aneesh Reddy, A. Roy Choudhury, "Extruder path generation for Curved Layer Fused Deposition Modeling", Computer-Aided Design 40(2), 2008 | Paper | `src/slope.zig` | Extrusion paths with a Z that changes along the path. |
+| Volume of a triangle (h * L / 2) and the distance from a point to a segment | Mathematics | `src/slope.zig`, `src/geom.zig` | The plastic of a smoothing bead, and the room for the nozzle. |
 
 ## Test tools
 

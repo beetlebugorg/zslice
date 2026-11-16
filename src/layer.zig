@@ -54,6 +54,10 @@
 //!    nearest one to the current nozzle position (a greedy nearest
 //!    neighbor search). A loop starts at its seam vertex, or at its vertex
 //!    nearest to the nozzle. A line starts at its nearer end.
+//! 10. Slope smoothing (if on, see slope.zig). After all other paths of
+//!    the layer, beads fill the steps of the sloped top surfaces. Their
+//!    nozzle height changes along the path, between the top of the layer
+//!    below and the top of this layer.
 //!
 //! Each layer only reads the outlines of the other layers, so many layers
 //! can be planned at the same time on different threads.
@@ -72,6 +76,7 @@ const infill = @import("infill.zig");
 const settings_mod = @import("settings.zig");
 const slicer = @import("slicer.zig");
 const support_mod = @import("support.zig");
+const slope = @import("slope.zig");
 const Point = geom.Point;
 const Paths = geom.Paths;
 const Feature = settings_mod.Feature;
@@ -83,6 +88,23 @@ pub const Path = struct {
     /// The line width of this path in mm, or 0 for the width of the layer
     /// (a thin wall has a narrower line).
     width: f32 = 0,
+    /// For a path whose nozzle height changes from point to point (slope
+    /// smoothing): the index in `LayerPlan.point_z` of the data of its
+    /// first point. `planar` for a path at the z of the layer.
+    z_start: u32 = planar,
+
+    pub const planar = std.math.maxInt(u32);
+};
+
+/// The nozzle height and the bead of one point of a path that is not
+/// planar (see `Path.z_start`).
+pub const PointZ = struct {
+    /// The z of the nozzle tip, in mm. The bead is under it, down to the
+    /// top of the layer below.
+    z: f32,
+    /// The cross-section area of the bead at this point, in mm², before
+    /// the flow ratio of the filament.
+    area: f32,
 };
 
 pub const LayerPlan = struct {
@@ -102,6 +124,9 @@ pub const LayerPlan = struct {
     /// One entry for each path in `points`, in print order.
     paths: std.ArrayList(Path) = .empty,
     points: Paths = .empty,
+    /// The data of each point of the paths that are not planar, from
+    /// `Path.z_start` on, one entry for each point of the path.
+    point_z: std.ArrayList(PointZ) = .empty,
 
     pub fn deinit(self: *LayerPlan) void {
         self.arena.deinit();
@@ -856,7 +881,58 @@ pub fn plan(gpa: Allocator, ctx: Context, i: usize) Allocator.Error!LayerPlan {
         try addGroup(s, a, &lp, &pos, sparse_loops, true, .infill, null, .{ .ids = sparse_loop_ids, .id = id });
         try addGroup(s, a, &lp, &pos, ironing_lines, false, .ironing, null, .{ .ids = ironing_ids, .id = id });
     }
+
+    // Step 10: slope smoothing, after all other paths of the layer.
+    if (p.slope_smoothing and !first) {
+        const set = try slope.beads(s, .{ .resolved = r, .layers = ctx.layers, .outlines = ctx.outlines, .tops = ctx.tops }, i);
+        try addBeads(s, a, &lp, &pos, set, .slope_smoothing);
+    }
     return lp;
+}
+
+/// Adds paths that are not planar (see `Path.z_start`) in greedy
+/// nearest-neighbor order. A loop starts at its vertex nearest to the
+/// nozzle, and an open path at its nearer end.
+fn addBeads(s: Allocator, a: Allocator, lp: *LayerPlan, pos: *Point, set: []const slope.Bead, feature: Feature) Allocator.Error!void {
+    const done = try s.alloc(bool, set.len);
+    @memset(done, false);
+    for (0..set.len) |_| {
+        var best: usize = 0;
+        var best_d: i128 = std.math.maxInt(i128);
+        var best_k: usize = 0;
+        for (set, 0..) |b, bi| {
+            if (done[bi]) continue;
+            if (b.closed) {
+                for (b.points, 0..) |q, k| {
+                    const d = q.distSq(pos.*);
+                    if (d < best_d) {
+                        best_d = d;
+                        best = bi;
+                        best_k = k;
+                    }
+                }
+            } else for ([_]usize{ 0, b.points.len - 1 }) |k| {
+                const d = b.points[k].distSq(pos.*);
+                if (d < best_d) {
+                    best_d = d;
+                    best = bi;
+                    best_k = k;
+                }
+            }
+        }
+        done[best] = true;
+        const b = set[best];
+        const n = b.points.len;
+        try lp.paths.append(a, .{ .feature = feature, .closed = b.closed, .z_start = @intCast(lp.point_z.items.len) });
+        for (0..n) |j| {
+            // A loop from vertex best_k; an open path from its nearer end.
+            const k = if (b.closed) (best_k + j) % n else if (best_k == 0) j else n - 1 - j;
+            try lp.points.appendPoint(a, b.points[k]);
+            try lp.point_z.append(a, b.data[k]);
+        }
+        try lp.points.endPath(a, 0);
+        pos.* = if (b.closed) b.points[best_k] else lp.points.points.items[lp.points.points.items.len - 1];
+    }
 }
 
 /// The vertex where a wall loop starts (its seam). See `Project.seam`.

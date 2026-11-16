@@ -297,6 +297,40 @@ pub const shapes = struct {
         }
     }
 
+    /// A wedge: a box of sx by sy whose top slopes along X, from z_lo at
+    /// x = 0 up to z_hi at x = sx. The sides are vertical.
+    pub fn wedge(gpa: Allocator, sx: f64, sy: f64, z_lo: f64, z_hi: f64) !Mesh {
+        var b: Builder = .init(gpa);
+        errdefer b.deinit();
+        try b.addQuad(v(0, 0, 0), v(0, sy, 0), v(sx, sy, 0), v(sx, 0, 0)); // bottom
+        try b.addQuad(v(0, 0, z_lo), v(sx, 0, z_hi), v(sx, sy, z_hi), v(0, sy, z_lo)); // top
+        try b.addQuad(v(0, 0, 0), v(sx, 0, 0), v(sx, 0, z_hi), v(0, 0, z_lo)); // front
+        try b.addQuad(v(0, sy, 0), v(0, sy, z_lo), v(sx, sy, z_hi), v(sx, sy, 0)); // back
+        try b.addQuad(v(0, 0, 0), v(0, 0, z_lo), v(0, sy, z_lo), v(0, sy, 0)); // left
+        try b.addQuad(v(sx, 0, 0), v(sx, sy, 0), v(sx, sy, z_hi), v(sx, 0, z_hi)); // right
+        return b.finish();
+    }
+
+    /// A cone with a flat top (a frustum) around (cx, cy): radius r0 at
+    /// z = 0 and r1 at z = height.
+    pub fn frustum(gpa: Allocator, cx: f64, cy: f64, r0: f64, r1: f64, height: f64, segments: usize) !Mesh {
+        var b: Builder = .init(gpa);
+        errdefer b.deinit();
+        const n: f64 = @floatFromInt(segments);
+        for (0..segments) |i| {
+            const a0 = 2 * std.math.pi * @as(f64, @floatFromInt(i)) / n;
+            const a1 = 2 * std.math.pi * @as(f64, @floatFromInt((i + 1) % segments)) / n;
+            const p00 = v(cx + r0 * @cos(a0), cy + r0 * @sin(a0), 0);
+            const p01 = v(cx + r0 * @cos(a1), cy + r0 * @sin(a1), 0);
+            const p10 = v(cx + r1 * @cos(a0), cy + r1 * @sin(a0), height);
+            const p11 = v(cx + r1 * @cos(a1), cy + r1 * @sin(a1), height);
+            try b.addQuad(p00, p01, p11, p10); // side
+            try b.addTriangle(v(cx, cy, height), p10, p11); // top
+            try b.addTriangle(v(cx, cy, 0), p01, p00); // bottom
+        }
+        return b.finish();
+    }
+
     pub fn box(gpa: Allocator, sx: f64, sy: f64, sz: f64) !Mesh {
         var b: Builder = .init(gpa);
         errdefer b.deinit();

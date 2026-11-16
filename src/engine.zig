@@ -1097,6 +1097,79 @@ test "a short layer prints slower" {
     try testing.expect(std.mem.indexOf(u8, out.written(), "M106 S255") != null);
 }
 
+test "slope smoothing: moves with Z between the layers, and back up after" {
+    const gpa = testing.allocator;
+    // The top rises 5 mm over 20 mm: each 0.2 mm layer steps 0.8 mm.
+    var m = try mesh_mod.shapes.wedge(gpa, 20, 20, 1, 6);
+    defer m.deinit(gpa);
+    var s: Settings = .{};
+    s.engine.threads = 1;
+    s.project.skirt_loops = 0;
+    var off: Writer.Allocating = .init(gpa);
+    defer off.deinit();
+    const st_off = try slice(gpa, &m, s, &off.writer);
+    s.project.slope_smoothing = true;
+    // A tip that lets the nozzle go part of the way down.
+    s.machine.nozzle_tip_radius = 0.35;
+    var on: Writer.Allocating = .init(gpa);
+    defer on.deinit();
+    const st_on = try slice(gpa, &m, s, &on.writer);
+    try testing.expect(std.mem.indexOf(u8, off.written(), "SLOPE-SMOOTHING") == null);
+    try testing.expect(st_on.print_time_s > st_off.print_time_s);
+    try testing.expect(st_on.filament_mm > st_off.filament_mm);
+
+    var lines = std.mem.splitScalar(u8, on.written(), '\n');
+    var layer_z: f64 = 0;
+    var z: f64 = 0;
+    var in_smooth = false;
+    var paths: usize = 0;
+    var below: usize = 0;
+    var e_sum: f64 = 0;
+    const h = s.project.layer_height;
+    while (lines.next()) |line| {
+        if (std.mem.startsWith(u8, line, ";TYPE:")) {
+            in_smooth = std.mem.eql(u8, line, ";TYPE:SLOPE-SMOOTHING");
+            if (in_smooth) paths += 1;
+        }
+        if (!std.mem.startsWith(u8, line, "G0 ") and !std.mem.startsWith(u8, line, "G1 ")) continue;
+        var has_xy = false;
+        var e: f64 = 0;
+        var tok = std.mem.tokenizeScalar(u8, line[3..], ' ');
+        while (tok.next()) |w| {
+            const v = std.fmt.parseFloat(f64, w[1..]) catch continue;
+            switch (w[0]) {
+                'X', 'Y' => has_xy = true,
+                'Z' => z = v,
+                'E' => e = v,
+                else => {},
+            }
+        }
+        // A layer change: a Z move with no X and Y outside a smoothing
+        // path, upward.
+        if (!in_smooth and !has_xy and z > layer_z + 1e-6) layer_z = z;
+        if (has_xy and e > 0) {
+            if (in_smooth) {
+                try testing.expect(z >= layer_z - h / 2 - 1e-3 and z <= layer_z + 1e-6);
+                if (z < layer_z - 1e-3) below += 1;
+                e_sum += e;
+            } else {
+                // All other extrusions are at the z of the layer.
+                try testing.expectApproxEqAbs(layer_z, z, 1e-6);
+            }
+        }
+        // Each travel is at the z of the layer, or above it (a z hop).
+        if (has_xy and std.mem.startsWith(u8, line, "G0 ")) try testing.expect(z >= layer_z - 1e-6);
+    }
+    try testing.expect(paths > 10);
+    try testing.expect(below > 10);
+    // The plastic of the beads: the triangle of each step, h * L / 2 with
+    // L = 0.8 mm, along a bead almost 20 mm long on each layer.
+    const r = try s.resolve();
+    const vol = e_sum * r.filament_area;
+    const want = @as(f64, @floatFromInt(paths)) * 0.5 * h * 0.8 * 20;
+    try testing.expect(vol > 0.85 * want and vol < 1.02 * want);
+}
+
 test "shrinkage and XY offsets change the outline" {
     const gpa = testing.allocator;
     // A tube: outer radius 10 mm, hole radius 4 mm.

@@ -10,6 +10,11 @@
 //!   has the cross section of a circle, so the filament length is that
 //!   volume divided by the circle area. The output uses relative E (M83):
 //!   each E is the amount for that move only.
+//! - A path that is not planar (slope smoothing, see slope.zig) has a z
+//!   and a bead area at each point. The nozzle goes down to its first
+//!   point, each move has X, Y, Z, and E, and the nozzle goes back up to
+//!   the z of the layer at its end. Z limits the speed and the
+//!   acceleration of these moves (`max_z_speed`, `max_z_accel`).
 //! - Comments mark each layer (";LAYER:n") and each feature
 //!   (";TYPE:WALL-OUTER"). These follow the CuraEngine convention (see
 //!   REFERENCES.md), which G-code viewers and printdeck read.
@@ -361,7 +366,11 @@ pub const Emitter = struct {
     lr: *const Resolved,
     x: f64 = 0,
     y: f64 = 0,
+    /// The z of the layer.
     z: f64 = 0,
+    /// The z of the nozzle in a path that is not planar, or null at the
+    /// z of the layer.
+    nozzle_z: ?f64 = null,
     retracted: bool = false,
     /// The length of the last retraction. The push back after it uses the
     /// same length, also if the next layer has another one.
@@ -674,6 +683,11 @@ pub const Emitter = struct {
             const e = if (path.feature == .ironing) base_e * lr.settings.project.ironing_flow else base_e;
             const x0 = geom.toMm(pts[0].x);
             const y0 = geom.toMm(pts[0].y);
+            if (path.z_start != layer_mod.Path.planar) {
+                const area = try self.nonPlanar(lp, path, pts, speed);
+                if (self.record) |rec| rec.appendAssumeCapacity(.{ .start_time = start_time, .end_time = self.stats.print_time_s, .area = area, .retracted = retracted, .slowed = slow < 1 or lapped });
+                continue;
+            }
             if (self.prep != null and self.x == x0 and self.y == y0) {
                 // The lengths of the moves from this start are known.
                 const pr = self.prep.?;
@@ -687,6 +701,98 @@ pub const Emitter = struct {
             }
             if (self.record) |rec| rec.appendAssumeCapacity(.{ .start_time = start_time, .end_time = self.stats.print_time_s, .area = e * self.r.filament_area, .retracted = retracted, .slowed = slow < 1 or lapped });
         }
+    }
+
+    /// A path with a z and a bead area at each point (slope smoothing):
+    /// the nozzle goes down to the first point, moves with X, Y, Z, and E
+    /// along the path, and goes back up to the z of the layer. The speed
+    /// of each move is at most the speed at which Z moves at
+    /// `max_z_speed`, and its acceleration at most the one at which Z
+    /// moves at `max_z_accel`. Returns the mean deposited bead area (mm²),
+    /// by length.
+    fn nonPlanar(self: *Emitter, lp: *const LayerPlan, path: layer_mod.Path, pts: []const geom.Point, speed: f64) Error!f64 {
+        const m = self.r.settings.machine;
+        const data = lp.point_z.items[path.z_start..][0..pts.len];
+        const e_scale = self.r.settings.filament.flow_ratio / self.r.filament_area;
+        try self.unretract();
+        try self.zTo(data[0].z);
+        var cz: f64 = data[0].z;
+        var len_sum: f64 = 0;
+        var area_sum: f64 = 0;
+        const n = pts.len + @as(usize, @intFromBool(path.closed and pts.len > 2));
+        for (1..n) |k| {
+            const j = k % pts.len;
+            const prev = data[k - 1];
+            const x = geom.toMm(pts[j].x);
+            const y = geom.toMm(pts[j].y);
+            const z: f64 = data[j].z;
+            const dx = x - self.x;
+            const dy = y - self.y;
+            const dz = z - cz;
+            const d = @sqrt(dx * dx + dy * dy + dz * dz);
+            if (d < 1e-4) continue;
+            const area = (@as(f64, prev.area) + data[j].area) / 2;
+            const e = d * area * e_scale;
+            var v = speed;
+            if (@abs(dz) > 0) v = @min(v, m.max_z_speed * d / @abs(dz));
+            var line: Line = .{ .skip = self.dry };
+            line.add("G1 X");
+            line.num(x + m.origin_x, 3);
+            line.add(" Y");
+            line.num(y + m.origin_y, 3);
+            line.add(" Z");
+            line.num(z, 3);
+            line.add(" E");
+            line.num(e, 5);
+            self.addFeed(&line, v);
+            line.add("\n");
+            try self.w.writeAll(line.text());
+            const accel = if (self.accel > 0) self.accel else m.max_accel;
+            const a = if (@abs(dz) > 0) @min(accel, m.max_z_accel * d / @abs(dz)) else accel;
+            try self.addMove3(dx, dy, dz, d, v, a, e / d);
+            self.x = x;
+            self.y = y;
+            cz = z;
+            self.stats.filament_mm += e;
+            len_sum += d;
+            area_sum += d * area;
+        }
+        self.extruded = true;
+        try self.zTo(self.z);
+        return if (len_sum > 0) area_sum / len_sum * self.r.settings.filament.flow_ratio else data[0].area * self.r.settings.filament.flow_ratio;
+    }
+
+    /// A Z move to z, from rest to rest, with no extrusion. The emitter
+    /// keeps `self.z` as the z of the layer.
+    fn zTo(self: *Emitter, z: f64) Writer.Error!void {
+        // The nozzle is at the z of the layer, or at the z of the last
+        // point of a path that is not planar.
+        const from = self.nozzle_z orelse self.z;
+        if (@abs(z - from) < 1e-6) return;
+        self.zMove(z - from);
+        const f = @round(self.r.settings.machine.max_z_speed * 60);
+        if (!self.dry) {
+            try self.w.writeAll("G1 Z");
+            try writeNum(self.w, z, 3);
+            try self.w.writeAll(" F");
+            try writeNum(self.w, f, 0);
+            try self.w.writeAll("\n");
+        }
+        self.feed = f;
+        self.nozzle_z = if (@abs(z - self.z) < 1e-9) null else z;
+    }
+
+    /// `addMove` for a move with a Z part, and its own acceleration.
+    fn addMove3(self: *Emitter, dx: f64, dy: f64, dz: f64, d: f64, v: f64, a: f64, e_ratio: f64) Error!void {
+        if (self.collect) |list| {
+            try list.append(self.gpa, .{ .dir = .{ dx / d, dy / d }, .dir_z = dz / d, .len = d, .speed = v, .accel = a, .e_ratio = e_ratio, .stop_before = self.stop });
+        } else if (self.next_move < self.planned.len) {
+            self.stats.print_time_s += self.planned[self.next_move].time;
+            self.next_move += 1;
+        } else {
+            self.stats.print_time_s += motion.restTime(d, v, a);
+        }
+        self.stop = false;
     }
 
     /// The cooling lap: the nozzle goes up 1 mm, and moves around the box

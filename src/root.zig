@@ -33,6 +33,7 @@ pub const slicer = @import("slicer.zig");
 pub const settings = @import("settings.zig");
 pub const infill = @import("infill.zig");
 pub const layer = @import("layer.zig");
+pub const slope = @import("slope.zig");
 pub const gcode = @import("gcode.zig");
 pub const motion = @import("motion.zig");
 pub const parallel = @import("parallel.zig");
