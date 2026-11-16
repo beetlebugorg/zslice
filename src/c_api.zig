@@ -572,6 +572,17 @@ pub const SettingEffect = extern struct {
     note: [*:0]const u8,
 };
 
+/// The speed in mm/s of a speed ratio setting with the value `value`, and
+/// the other settings of the app.
+export fn zs_app_ratio_speed(a: ?*const App, name: ?[*:0]const u8, value: ?[*:0]const u8, out: ?*f64) c_int {
+    const app = a orelse return @intFromEnum(Status.invalid_argument);
+    const n = std.mem.span(name orelse return @intFromEnum(Status.invalid_argument));
+    const v = std.mem.span(value orelse return @intFromEnum(Status.invalid_argument));
+    const o = out orelse return @intFromEnum(Status.invalid_argument);
+    o.* = app_mod.ratioSpeed(app.settings, n, v) orelse return @intFromEnum(Status.unknown_setting);
+    return ok;
+}
+
 export fn zs_setting_get_effect(name: ?[*:0]const u8, out: ?*SettingEffect) c_int {
     const n = std.mem.span(name orelse return @intFromEnum(Status.invalid_argument));
     const o = out orelse return @intFromEnum(Status.invalid_argument);

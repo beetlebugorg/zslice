@@ -1001,6 +1001,40 @@ pub const FeatureStats = struct {
 };
 
 /// The speed ratio that a line of `feature` uses (see Resolved.speed).
+/// The speed in mm/s that a speed ratio gives, with the value `value`
+/// and the other settings as they are. Null if the setting is not a speed
+/// ratio, or the value is not valid. The speed is for a line of the line
+/// width of the feature at the layer height (the flow limit can make it
+/// lower than the ratio of the machine limit).
+pub fn ratioSpeed(settings: Settings, name: []const u8, value: []const u8) ?f64 {
+    const Case = struct { n: []const u8, f: zs.settings.Feature, first: bool };
+    const cases = [_]Case{
+        .{ .n = "project.outer_wall_speed", .f = .outer_wall, .first = false },
+        .{ .n = "project.inner_wall_speed", .f = .inner_wall, .first = false },
+        .{ .n = "project.skin_speed", .f = .skin, .first = false },
+        .{ .n = "project.infill_speed", .f = .infill, .first = false },
+        .{ .n = "project.first_layer_speed", .f = .outer_wall, .first = true },
+        .{ .n = "project.ironing_speed", .f = .ironing, .first = false },
+    };
+    for (cases) |c| if (std.mem.eql(u8, c.n, name)) {
+        var s = settings;
+        s.set(name, value) catch return null;
+        const r = s.resolve() catch return null;
+        const w = if (c.first) r.first_layer_line_width else r.line_width;
+        const h = if (c.first) s.project.first_layer_height else s.project.layer_height;
+        return r.speed(c.f, w, h, c.first);
+    };
+    return null;
+}
+
+test "ratioSpeed" {
+    var s: Settings = .{};
+    s.machine.max_speed = 100;
+    s.filament.max_flow = 1000;
+    try std.testing.expectApproxEqAbs(@as(f64, 50), ratioSpeed(s, "project.outer_wall_speed", "0.5").?, 1e-9);
+    try std.testing.expect(ratioSpeed(s, "project.layer_height", "0.2") == null);
+}
+
 fn speedRatioSetting(feature: zs.settings.Feature, first_layer: bool) []const u8 {
     if (feature == .ironing) return "project.ironing_speed";
     if (first_layer) return "project.first_layer_speed";

@@ -138,6 +138,11 @@ int zs_app_gcode(const zs_app *app, const uint8_t **out, size_t *out_len);
  * the part and for some layers. The bytes stay valid until the next call
  * or zs_app_destroy. zs_app_load_stl and zs_app_add_stl read 3MF files
  * too (the parts stay at their places). */
+/* The speed in mm/s that a speed ratio setting (for example
+ * "project.outer_wall_speed") gives with `value`, and the other settings
+ * as they are. ZS_UNKNOWN_SETTING if the setting is not a speed ratio. */
+int zs_app_ratio_speed(const zs_app *app, const char *name, const char *value, double *mm_s);
+
 int zs_app_write_3mf(zs_app *app, const uint8_t **out, size_t *out_len);
 size_t zs_app_layer_count(const zs_app *app);
 /* The part on the bed: min x, min y, max x, max y, in mm. */

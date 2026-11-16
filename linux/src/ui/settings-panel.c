@@ -404,8 +404,30 @@ static void on_dropdown(GObject *dd, GParamSpec *pspec, gpointer data) {
 
 /* Shows the value of the core in an editor, after a set from an other
  * editor of the same setting. An editor with the focus keeps its text. */
+/* A speed ratio: the unit label also gives the speed that it makes, for
+ * example "% = 45 mm/s". */
+static void show_ratio_speed(GtkWidget *editor, const char *value) {
+    GtkWidget *unit = g_object_get_data(G_OBJECT(editor), "zg-unit-label");
+    if (!unit) return;
+    double mm_s = 0;
+    if (zs_app_ratio_speed(zg_model_core(model_of(editor)), key_of(editor), value, &mm_s) != ZS_OK) return;
+    char *text = g_strdup_printf("%% = %.0f mm/s", mm_s);
+    gtk_label_set_text(GTK_LABEL(unit), text);
+    g_free(text);
+}
+
+/* Other settings (the machine speed, the flow limit, the line width) change
+ * the speed of a ratio too. */
+static void on_any_setting(ZgModel *model, const char *key, gpointer data) {
+    GtkWidget *editor = data;
+    char *value = zg_model_get_for(model, key_of(editor), is_scoped(editor));
+    show_ratio_speed(editor, value);
+    g_free(value);
+}
+
 static void show_value(GtkWidget *editor) {
     char *value = zg_model_get_for(model_of(editor), key_of(editor), is_scoped(editor));
+    show_ratio_speed(editor, value);
     if (GTK_IS_SWITCH(editor)) {
         gboolean on = strcmp(value, "true") == 0;
         if (gtk_switch_get_active(GTK_SWITCH(editor)) != on) gtk_switch_set_active(GTK_SWITCH(editor), on);
@@ -692,6 +714,14 @@ static Row *add_row(GtkWidget *grid, int *row, ZgModel *model, const zs_setting_
         gtk_label_set_xalign(GTK_LABEL(unit), 0);
         gtk_grid_attach(GTK_GRID(grid), unit, 2, (*row)++, 1, 1);
         r->widgets[2] = unit;
+        double probe;
+        if (zs_app_ratio_speed(zg_model_core(model), info->name, "1", &probe) == ZS_OK) {
+            g_object_set_data(G_OBJECT(editor), "zg-unit-label", unit);
+            g_signal_connect_object(model, "setting-changed", G_CALLBACK(on_any_setting), editor, 0);
+            char *value = zg_model_get_for(model, info->name, compact);
+            show_ratio_speed(editor, value);
+            g_free(value);
+        }
         if (info->slider_max > info->slider_min) {
             GtkWidget *slider = make_slider(info, editor);
             if (compact) {
@@ -1201,6 +1231,7 @@ typedef struct {
     GtkWidget *crumbs;
     const char *group;   /* the selected section */
     const char *section;
+    int feature;         /* the feature whose settings column 2 lists, or -1 */
 } Browser;
 
 enum { COL1_WIDTH = 165, COL2_WIDTH = 235, COL3_WIDTH = 300 };
@@ -1280,6 +1311,7 @@ static gboolean on_scroll_tick(GtkWidget *w, GdkFrameClock *clock, gpointer data
 }
 
 static void update_crumbs(Browser *b);
+static void on_feature_clicked(GtkButton *button, gpointer data);
 
 static void show_column(Browser *b, int c) {
     b->column = CLAMP(c, 0, 2);
@@ -1327,6 +1359,10 @@ static void update_crumbs(Browser *b) {
     add_crumb(b, "Settings", 0);
     if (b->section) {
         char *text = g_strdup_printf("%s · %s", group_title(b->group), b->section[0] ? b->section : "General");
+        add_crumb(b, text, 1);
+        g_free(text);
+    } else if (b->feature >= 0) {
+        char *text = g_strdup_printf("%s lines", feature_titles[b->feature]);
         add_crumb(b, text, 1);
         g_free(text);
     } else if (gtk_editable_get_text(GTK_EDITABLE(b->search))[0]) {
@@ -1415,7 +1451,17 @@ static void fill_effect(Browser *b) {
             gtk_widget_add_css_class(t, "numeric");
             gtk_box_append(GTK_BOX(row), t);
         }
-        gtk_box_append(GTK_BOX(b->effect), row);
+        /* A click on the row lists the settings of these lines. */
+        GtkWidget *button = gtk_button_new();
+        gtk_widget_add_css_class(button, "flat");
+        gtk_widget_add_css_class(button, "zg-feature-row");
+        gtk_button_set_child(GTK_BUTTON(button), row);
+        char *tip = g_strdup_printf("Show all settings that change the %s lines", feature_titles[f]);
+        gtk_widget_set_tooltip_text(button, tip);
+        g_free(tip);
+        g_object_set_data(G_OBJECT(button), "zg-feature", GINT_TO_POINTER(f));
+        g_signal_connect(button, "clicked", G_CALLBACK(on_feature_clicked), b);
+        gtk_box_append(GTK_BOX(b->effect), button);
         shown++;
     }
     if (shown == 0) {
@@ -1615,6 +1661,37 @@ static void fill_settings(Browser *b, const char *group, const char *section, co
     g_free(needle);
 }
 
+/* Column 2 lists the settings that change the lines of feature f (or the
+ * marks after the features): not the settings that change all lines (for
+ * example the layer height), because they are in each list. */
+static void show_feature(Browser *b, int f) {
+    b->feature = f;
+    b->section = NULL;
+    gtk_list_box_unselect_all(GTK_LIST_BOX(b->sections));
+    gtk_list_box_remove_all(GTK_LIST_BOX(b->settings));
+    guint32 all = (1u << ZS_FEATURE_COUNT) - 1;
+    size_t n = zs_setting_count();
+    for (size_t i = 0; i < n; i++) {
+        zs_setting_info info;
+        if (zs_setting_get_info(i, &info) != ZS_OK) continue;
+        zs_setting_effect e = {0};
+        zs_setting_get_effect(info.name, &e);
+        if (!((e.features >> f) & 1) || (e.features & all) == all) continue;
+        GtkWidget *row = setting_row(b, &info, TRUE);
+        gtk_list_box_append(GTK_LIST_BOX(b->settings), row);
+        if (b->key && strcmp(b->key, info.name) == 0) gtk_list_box_select_row(GTK_LIST_BOX(b->settings), GTK_LIST_BOX_ROW(row));
+    }
+    b->focus = 1u << f;
+    b->focus_first = FALSE;
+    send_focus(b);
+    show_column(b, 1);
+    update_crumbs(b);
+}
+
+static void on_feature_clicked(GtkButton *button, gpointer data) {
+    show_feature(data, GPOINTER_TO_INT(g_object_get_data(G_OBJECT(button), "zg-feature")));
+}
+
 static void on_setting_selected(GtkListBox *box, GtkListBoxRow *row, gpointer data) {
     Browser *b = data;
     if (!row) return;
@@ -1637,6 +1714,7 @@ static void on_section_selected(GtkListBox *box, GtkListBoxRow *row, gpointer da
     }
     const char *group = g_object_get_data(G_OBJECT(row), "zg-group");
     const char *section = g_object_get_data(G_OBJECT(row), "zg-section");
+    b->feature = -1;
     b->group = group;
     b->section = section;
     fill_settings(b, group, section, NULL);
@@ -1656,6 +1734,7 @@ static void on_search(GtkSearchEntry *entry, gpointer data) {
     Browser *b = data;
     if (g_object_get_data(G_OBJECT(entry), "zg-quiet")) return;
     const char *text = gtk_editable_get_text(GTK_EDITABLE(entry));
+    b->feature = -1;
     if (text[0]) {
         gtk_list_box_unselect_all(GTK_LIST_BOX(b->sections));
         b->section = NULL;
@@ -1782,6 +1861,7 @@ static void select_setting(Browser *b, const char *key) {
 static GtkWidget *make_browser(ZgModel *model, GtkWidget *stack) {
     Browser *b = g_new0(Browser, 1);
     b->model = model;
+    b->feature = -1;
     b->stack = stack;
 
     b->search = gtk_search_entry_new();
