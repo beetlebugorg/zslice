@@ -223,6 +223,11 @@ ZgSettingRow *zg_setting_row_add(GtkWidget *grid, int *row, ZgModel *model, cons
         gtk_widget_add_css_class(unit, "dim-label");
         gtk_widget_add_css_class(unit, "zg-unit");
         gtk_label_set_xalign(GTK_LABEL(unit), 0);
+        /* One width for the unit column in all sections (each section
+         * is its own grid), so the fields line up down the page. */
+        gtk_label_set_width_chars(GTK_LABEL(unit), 12);
+        gtk_label_set_max_width_chars(GTK_LABEL(unit), 12);
+        gtk_label_set_ellipsize(GTK_LABEL(unit), PANGO_ELLIPSIZE_END);
         gtk_grid_attach(GTK_GRID(grid), unit, 2, (*row)++, 1, 1);
         r->widgets[2] = unit;
         zg_setting_editor_show_speed(editor, unit);
