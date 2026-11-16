@@ -26,6 +26,64 @@
 - Profile importers. Read Cura profiles (and other slicers) and convert them into zslice machine, filament, and project profiles. The printdeck TAZ profile (`printdeck/profiles/taz-workhorse-se`) is the first test case.
 - 3MF load.
 
+## Feature parity with PrusaSlicer and Cura
+
+The goal is the features that people use in PrusaSlicer and Cura. zslice designs each one again, and does not copy their code or always their method. The order is by how often a print needs the feature.
+
+### Print quality and strength
+- [x] Walls, top and bottom skin, sparse infill (lines, grid)
+- [x] Ironing
+- [ ] Support: normal (grid) and tree, with interface layers, support blockers and enforcers
+- [ ] Skirt and brim
+- [ ] Bridges: find them, print them with their own direction, speed, flow, and fan
+- [ ] Overhang walls: slower speed and more fan for overhang
+- [ ] Seam placement: nearest, aligned, rear, random, and hidden in corners
+- [ ] Gap fill and thin walls (variable line width, like Arachne)
+- [ ] Infill patterns: gyroid, honeycomb, cubic, triangles, concentric, lightning, adaptive cubic
+- [ ] Top and bottom patterns: monotonic, concentric
+- [ ] Infill only where needed, and denser infill under top surfaces
+- [ ] Wall order (inner first or outer first) and extra walls on alternate layers
+- [ ] Fuzzy skin
+- [ ] Spiral vase mode
+- [ ] Variable layer height (adaptive and by hand)
+- [ ] Holes and pins: polyhole and size compensation (XY compensation, elephant foot)
+
+### Motion and extrusion
+- [ ] Avoid crossing walls (combing) on travel
+- [ ] Wipe on retraction, retraction on layer change, z hop only above parts
+- [ ] Coasting
+- [ ] Acceleration and jerk control for each feature; a time estimate with acceleration
+- [ ] Arc fitting (G2/G3)
+- [ ] Pressure advance and input shaper calibration prints
+- [ ] Cooling: minimum layer time, fan speed from layer time, slow down for small layers
+- [ ] Firmware flavors: Marlin, Klipper, RepRapFirmware, Bambu, with exclude-object labels
+
+### Models and plate
+- [ ] More than one object on the plate, with automatic arrangement
+- [ ] 3MF, OBJ, and STEP load; 3MF project save
+- [ ] Rotate, scale, mirror, place on face, cut
+- [ ] Modifiers (per-region settings), and settings for each object
+- [ ] Mesh repair
+- [ ] Sequential printing (one object at a time)
+- [ ] Multi-material: tool changes, wipe tower, ooze shield, painted regions
+- [ ] Sliced layer preview in 3D, with speed, flow, and feature views
+
+### Profiles and workflow
+- [ ] Machine, filament, and project profiles in TOML, with `extends` and overrides
+- [ ] Import of Cura and PrusaSlicer profiles
+- [ ] A printer profile library
+- [ ] Send to printer: printdeck, OctoPrint, Moonraker
+- [ ] Calibration prints: temperature tower, flow, retraction, pressure advance
+
+## App
+
+- [x] App core (`src/app.zig`, `include/zslice-app.h`): model, settings with descriptions, background slice with progress and cancel, layer paths for the preview, G-code export, license list
+- [ ] Linux shell: GTK4 (`linux/`)
+- [ ] 3D preview of the model and the toolpaths
+- [ ] macOS and iOS shell: SwiftUI (`apple/`)
+- [ ] Windows shell: Win32 C++ (`windows/`)
+- [ ] Android shell: Kotlin (`android/`)
+
 ## Performance
 
 - The polygon boolean is O(n^2) for long edges (the sweep keeps an edge active for its whole x range, and the slab index puts it in each slab it crosses). Use a sweep status in y order, or a 2D grid. The offset of curved outlines makes many thin loops at closing corners, and the boolean is slow on them: the corpus takes 18 % longer since the offset fix.

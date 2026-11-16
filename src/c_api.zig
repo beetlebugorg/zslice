@@ -28,6 +28,11 @@ pub const Status = enum(c_int) {
     invalid_settings = 7,
     part_too_large = 8,
     write_failed = 9,
+    canceled = 10,
+    busy = 11,
+    no_model = 12,
+    no_result = 13,
+    out_of_range = 14,
 };
 
 fn status(e: anyerror) c_int {
@@ -40,6 +45,11 @@ fn status(e: anyerror) c_int {
         error.InvalidSettings => .invalid_settings,
         error.PartTooLarge => .part_too_large,
         error.WriteFailed => .write_failed,
+        error.Canceled => .canceled,
+        error.Busy => .busy,
+        error.NoModel => .no_model,
+        error.NoResult => .no_result,
+        error.OutOfRange => .out_of_range,
         else => .invalid_argument,
     };
     return @intFromEnum(s);
@@ -228,6 +238,245 @@ export fn zs_alloc(len: usize) ?[*]u8 {
 export fn zs_free(ptr: ?[*]u8, len: usize) void {
     const p = ptr orelse return;
     gpa.free(p[0..len]);
+}
+
+// ---------------------------------------------------------------------------
+// The app core (include/zslice-app.h). See src/app.zig.
+
+const app_mod = zs.app;
+const App = app_mod.App;
+
+export fn zs_app_new(event_fn: ?app_mod.EventFn, user: ?*anyopaque, out: ?*?*App) c_int {
+    const o = out orelse return @intFromEnum(Status.invalid_argument);
+    o.* = App.create(gpa, event_fn, user) catch |e| return status(e);
+    return ok;
+}
+
+export fn zs_app_free(a: ?*App) void {
+    const app = a orelse return;
+    app.destroy();
+}
+
+export fn zs_app_state(a: ?*const App) c_int {
+    const app = a orelse return 0;
+    return @intFromEnum(app.getState());
+}
+
+export fn zs_app_load_stl(a: ?*App, name: ?[*:0]const u8, data: ?[*]const u8, len: usize) c_int {
+    const app = a orelse return @intFromEnum(Status.invalid_argument);
+    const d = data orelse return @intFromEnum(Status.invalid_argument);
+    const n = if (name) |p| std.mem.span(p) else "";
+    app.loadStl(n, d[0..len]) catch |e| return status(e);
+    return ok;
+}
+
+pub const ModelInfo = extern struct {
+    triangles: u64,
+    size_x: f64,
+    size_y: f64,
+    size_z: f64,
+};
+
+export fn zs_app_model_info(a: ?*const App, out: ?*ModelInfo) c_int {
+    const app = a orelse return @intFromEnum(Status.invalid_argument);
+    const o = out orelse return @intFromEnum(Status.invalid_argument);
+    const info = app.modelInfo() orelse return @intFromEnum(Status.no_model);
+    o.* = .{ .triangles = info.triangles, .size_x = info.size[0], .size_y = info.size[1], .size_z = info.size[2] };
+    return ok;
+}
+
+pub const SettingInfo = extern struct {
+    name: [*:0]const u8,
+    group: [*:0]const u8,
+    section: [*:0]const u8,
+    label: [*:0]const u8,
+    doc: [*:0]const u8,
+    kind: c_int,
+    multiline: c_int,
+    choices: [*:0]const u8,
+};
+
+export fn zs_setting_count() usize {
+    return app_mod.settings_info.len;
+}
+
+export fn zs_setting_get_info(index: usize, out: ?*SettingInfo) c_int {
+    const o = out orelse return @intFromEnum(Status.invalid_argument);
+    if (index >= app_mod.settings_info.len) return @intFromEnum(Status.out_of_range);
+    const s = app_mod.settings_info[index];
+    o.* = .{
+        .name = s.name.ptr,
+        .group = s.group.ptr,
+        .section = s.section.ptr,
+        .label = s.label.ptr,
+        .doc = s.doc.ptr,
+        .kind = @intFromEnum(s.kind),
+        .multiline = @intFromBool(s.multiline),
+        .choices = s.choices.ptr,
+    };
+    return ok;
+}
+
+/// Writes the value as text with a NUL at the end. If `cap` is too small,
+/// the text is cut. `out_len` (can be NULL) gets the full length without
+/// the NUL.
+export fn zs_app_setting_get(a: ?*const App, name: ?[*:0]const u8, buf: ?[*]u8, cap: usize, out_len: ?*usize) c_int {
+    const app = a orelse return @intFromEnum(Status.invalid_argument);
+    const n = std.mem.span(name orelse return @intFromEnum(Status.invalid_argument));
+    var aw: Writer.Allocating = .init(gpa);
+    defer aw.deinit();
+    app.getSetting(n, &aw.writer) catch |e| return status(e);
+    const text = aw.written();
+    if (out_len) |l| l.* = text.len;
+    if (buf) |b| {
+        if (cap > 0) {
+            const k = @min(text.len, cap - 1);
+            @memcpy(b[0..k], text[0..k]);
+            b[k] = 0;
+        }
+    }
+    return ok;
+}
+
+export fn zs_app_setting_set(a: ?*App, name: ?[*:0]const u8, value: ?[*:0]const u8) c_int {
+    const app = a orelse return @intFromEnum(Status.invalid_argument);
+    const n = std.mem.span(name orelse return @intFromEnum(Status.invalid_argument));
+    const v = std.mem.span(value orelse return @intFromEnum(Status.invalid_argument));
+    app.setSetting(n, v) catch |e| return status(e);
+    return ok;
+}
+
+export fn zs_app_slice(a: ?*App) c_int {
+    const app = a orelse return @intFromEnum(Status.invalid_argument);
+    app.startSlice() catch |e| return status(e);
+    return ok;
+}
+
+export fn zs_app_request_slice(a: ?*App) c_int {
+    const app = a orelse return @intFromEnum(Status.invalid_argument);
+    app.requestSlice() catch |e| return status(e);
+    return ok;
+}
+
+export fn zs_app_cancel(a: ?*App) void {
+    const app = a orelse return;
+    app.cancel();
+}
+
+export fn zs_app_stats(a: ?*const App, out: ?*Stats) c_int {
+    const app = a orelse return @intFromEnum(Status.invalid_argument);
+    const o = out orelse return @intFromEnum(Status.invalid_argument);
+    o.* = cStats(app.result() orelse return @intFromEnum(Status.no_result));
+    return ok;
+}
+
+/// The G-code of the last slice. The bytes stay valid until the next
+/// slice, the next model, or zs_app_free.
+export fn zs_app_gcode(a: ?*const App, out: ?*?[*]const u8, out_len: ?*usize) c_int {
+    const app = a orelse return @intFromEnum(Status.invalid_argument);
+    const o = out orelse return @intFromEnum(Status.invalid_argument);
+    const l = out_len orelse return @intFromEnum(Status.invalid_argument);
+    const g = app.gcode() orelse return @intFromEnum(Status.no_result);
+    o.* = g.ptr;
+    l.* = g.len;
+    return ok;
+}
+
+export fn zs_app_layer_count(a: ?*const App) usize {
+    const app = a orelse return 0;
+    return app.layerCount();
+}
+
+export fn zs_app_part_bounds(a: ?*const App, out: ?*[4]f64) c_int {
+    const app = a orelse return @intFromEnum(Status.invalid_argument);
+    const o = out orelse return @intFromEnum(Status.invalid_argument);
+    o.* = app.partBounds() orelse return @intFromEnum(Status.no_result);
+    return ok;
+}
+
+pub const LayerPaths = extern struct {
+    points: [*]const f32,
+    path_ends: [*]const u32,
+    path_features: [*]const u8,
+    path_closed: [*]const u8,
+    path_count: usize,
+    outline_points: [*]const f32,
+    outline_ends: [*]const u32,
+    outline_count: usize,
+    z: f32,
+    height: f32,
+    width: f32,
+    owner: ?*anyopaque,
+};
+
+export fn zs_app_layer_paths(a: ?*const App, layer: usize, out: ?*LayerPaths) c_int {
+    const app = a orelse return @intFromEnum(Status.invalid_argument);
+    const o = out orelse return @intFromEnum(Status.invalid_argument);
+    const lp = gpa.create(app_mod.LayerPaths) catch |e| return status(e);
+    lp.* = app.layerPaths(gpa, layer) catch |e| {
+        gpa.destroy(lp);
+        return status(e);
+    };
+    o.* = .{
+        .points = lp.points.ptr,
+        .path_ends = lp.ends.ptr,
+        .path_features = lp.features.ptr,
+        .path_closed = lp.closed.ptr,
+        .path_count = lp.ends.len,
+        .outline_points = lp.outline_points.ptr,
+        .outline_ends = lp.outline_ends.ptr,
+        .outline_count = lp.outline_ends.len,
+        .z = lp.z,
+        .height = lp.height,
+        .width = lp.width,
+        .owner = lp,
+    };
+    return ok;
+}
+
+export fn zs_layer_paths_free(paths: ?*LayerPaths) void {
+    const p = paths orelse return;
+    const owner = p.owner orelse return;
+    const lp: *app_mod.LayerPaths = @ptrCast(@alignCast(owner));
+    lp.deinit();
+    gpa.destroy(lp);
+    p.owner = null;
+}
+
+pub const License = extern struct {
+    name: [*:0]const u8,
+    license: [*:0]const u8,
+    text: [*:0]const u8,
+};
+
+export fn zs_license_count() usize {
+    return app_mod.licenses.len;
+}
+
+export fn zs_license_get(index: usize, out: ?*License) c_int {
+    const o = out orelse return @intFromEnum(Status.invalid_argument);
+    if (index >= app_mod.licenses.len) return @intFromEnum(Status.out_of_range);
+    const l = app_mod.licenses[index];
+    o.* = .{ .name = l.name.ptr, .license = l.license.ptr, .text = l.text.ptr };
+    return ok;
+}
+
+test "C API: the app" {
+    var app: ?*App = null;
+    try std.testing.expectEqual(ok, zs_app_new(null, null, &app));
+    defer zs_app_free(app);
+    try std.testing.expectEqual(@intFromEnum(Status.no_model), zs_app_slice(app));
+    var info: SettingInfo = undefined;
+    try std.testing.expectEqual(ok, zs_setting_get_info(0, &info));
+    try std.testing.expectEqualStrings("machine.name", std.mem.span(info.name));
+    var buf: [8]u8 = undefined;
+    var len: usize = 0;
+    try std.testing.expectEqual(ok, zs_app_setting_get(app, "machine.name", &buf, buf.len, &len));
+    try std.testing.expectEqual(@as(usize, 7), len);
+    try std.testing.expectEqualStrings("generic", std.mem.span(@as([*:0]u8, @ptrCast(&buf))));
+    var lic: License = undefined;
+    try std.testing.expectEqual(ok, zs_license_get(0, &lic));
+    try std.testing.expect(std.mem.indexOf(u8, std.mem.span(lic.text), "AFFERO") != null);
 }
 
 test "C API: slice a box to a buffer and with a callback" {

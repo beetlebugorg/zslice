@@ -1,6 +1,6 @@
 # C API
 
-The header is `include/zslice.h`. The library has no dependencies, not even libc.
+The headers are `include/zslice.h` (the slicer) and `include/zslice-app.h` (the app core, for app shells; see `docs/app/README.md`). The library depends only on libc. It links libc so that its threads are the same kind (pthreads) as the threads of the host program.
 
 ## Build
 
@@ -8,7 +8,7 @@ The header is `include/zslice.h`. The library has no dependencies, not even libc
 zig build lib -Doptimize=ReleaseFast
 ```
 
-This makes `zig-out/lib/libzslice.a`, `zig-out/lib/libzslice.so`, and `zig-out/include/zslice.h`.
+This makes `zig-out/lib/libzslice.a`, `zig-out/lib/libzslice.so`, `zig-out/include/zslice.h`, and `zig-out/include/zslice-app.h`. Link a program with the static library and `-lc -lpthread`, or with the shared library.
 
 For another target, add `-Dtarget`. Example: `zig build lib -Doptimize=ReleaseFast -Dtarget=aarch64-linux-gnu` for a Raspberry Pi.
 

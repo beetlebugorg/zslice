@@ -13,6 +13,10 @@
 - [C API](embedding/c.md)
 - [JavaScript and WebAssembly](embedding/javascript.md)
 
+## The app
+
+- [The app](app/README.md): the core and the native shells, and the contract between them.
+
 ## For developers who change or extend zslice
 
 - [How a slicer works](internals/how-slicing-works.md): the stages from mesh to G-code.

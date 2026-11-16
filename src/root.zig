@@ -31,6 +31,7 @@ pub const gcode = @import("gcode.zig");
 pub const parallel = @import("parallel.zig");
 pub const engine = @import("engine.zig");
 pub const svg = @import("svg.zig");
+pub const app = @import("app.zig");
 
 pub const Mesh = mesh.Mesh;
 pub const Settings = settings.Settings;

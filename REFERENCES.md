@@ -18,6 +18,7 @@ The zslice library, command line tool, and wasm module contain code from these p
 
 zslice copies no code from other projects.
 
+
 ## Algorithms, formats, and conventions
 
 These sources gave methods or formats. zslice does not copy their code. Each zslice file that uses a source names it in its header comment.
@@ -41,4 +42,5 @@ These sources gave methods or formats. zslice does not copy their code. Each zsl
 | Joining cut segments by the ID of the mesh edge that they cross | General mesh technique | `src/slicer.zig` | Makes closed loops from the segments of a layer without a coordinate tolerance. |
 | Polyline simplification with an anchor point and a distance bound | General technique | `src/geom.zig` | Removes points that change a shape by less than the tolerance. |
 | PrusaSlicer G-code comment name `;TYPE:Ironing` (https://github.com/prusa3d/PrusaSlicer) | AGPL-3.0 (the convention, not code) | `src/gcode.zig` | zslice writes `;TYPE:IRONING`. printdeck reads the name in lowercase. |
+| Lookout Marine (same author): a Zig core with a C API and one native shell for each platform | Same author | `src/app.zig`, `linux/` | The structure of the app: the core has the logic, and each shell draws widgets, does file I/O, and moves events to its UI thread. |
 | Iterated snap rounding (repeat the intersection pass on the rounded result) | General computational geometry technique | `src/clip.zig` | Makes the boolean operations robust after crossing points are rounded to the grid. |

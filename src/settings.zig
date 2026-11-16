@@ -27,28 +27,40 @@ pub const InfillPattern = enum { lines, grid };
 pub const ExtruderKind = enum { direct, bowden };
 
 pub const Machine = struct {
+
+    // Printer
     /// The name of the printer, for the G-code header.
     name: []const u8 = "generic",
+
+    // Bed
     /// The size of the bed in X.
     bed_size_x: f64 = 220,
     /// The size of the bed in Y.
     bed_size_y: f64 = 220,
     /// The highest part that the printer can make.
     max_height: f64 = 250,
+
+    // Nozzle
     /// The diameter of the nozzle hole. The default line width comes from it.
     nozzle_diameter: f64 = 0.4,
+
+    // Motion
     /// The maximum speed of the print head in X and Y.
     max_speed: f64 = 150,
     /// The speed of travel moves (moves with no extrusion).
     travel_speed: f64 = 150,
     /// The speed of Z moves at each layer change.
     max_z_speed: f64 = 10,
+
+    // Extruder
     /// The extruder type. `direct`: the motor is on the print head. `bowden`: the motor pushes the filament through a long tube.
     extruder: ExtruderKind = .direct,
     /// The retraction length of this extruder. A bowden extruder needs more.
     retract_length: f64 = 0.8,
     /// The speed of the filament during a retraction.
     retract_speed: f64 = 40,
+
+    // G-code
     /// The text before the print. {nozzle_temp}, {first_layer_nozzle_temp},
     /// and {bed_temp} are replaced with the filament values.
     start_gcode: []const u8 =
@@ -73,27 +85,37 @@ pub const Machine = struct {
 };
 
 pub const Filament = struct {
+
+    // Filament
     /// The name of the filament, for the G-code header.
     name: []const u8 = "generic PLA",
     /// The diameter of the filament.
     diameter: f64 = 1.75,
     /// g/cm^3. For the filament weight in the statistics.
     density: f64 = 1.24,
+
+    // Temperatures
     /// The nozzle temperature from the second layer.
     nozzle_temp: f64 = 210,
     /// The nozzle temperature on the first layer.
     first_layer_nozzle_temp: f64 = 215,
     /// The bed temperature.
     bed_temp: f64 = 60,
+
+    // Flow
     /// The maximum plastic flow that the hot end melts with this filament.
     /// This limits the speed of wide and tall lines.
     max_flow: f64 = 12,
     /// A multiplier for all extrusion, to calibrate the flow.
     flow_ratio: f64 = 1.0,
+
+    // Cooling
     /// The part cooling fan speed, as a ratio.
     fan_speed: f64 = 1.0,
     /// The fan is off for this number of layers at the start.
     fan_off_layers: u32 = 1,
+
+    // Retraction
     /// A multiplier for the retraction length of the machine. Soft filament
     /// needs less.
     retract_ratio: f64 = 1.0,
@@ -106,6 +128,7 @@ pub const Project = struct {
     /// The height of the first layer. A thicker first layer sticks to the bed better.
     first_layer_height: f64 = 0.3,
 
+    // Lines
     /// The line width. 0 uses 1.1 x the nozzle diameter.
     line_width: f64 = 0,
     /// The line width on the first layer. 0 uses 1.25 x the nozzle diameter.
@@ -165,6 +188,7 @@ pub const Project = struct {
     /// The speed of all lines on the first layer, as a ratio of the allowed speed.
     first_layer_speed: f64 = 0.3,
 
+    // Travel
     /// Travel moves shorter than this do not retract.
     retract_min_travel: f64 = 1.5,
     /// Lift the nozzle by this distance during a travel move with a retraction. 0 turns it off.
@@ -178,6 +202,8 @@ pub const Project = struct {
 
 /// Options for the engine. They do not change the print.
 pub const EngineOptions = struct {
+
+    // Slicer
     /// The largest change to the shape (mm) that the slicer makes when it
     /// removes points from the mesh outlines.
     resolution: f64 = 0.005,
@@ -214,8 +240,8 @@ pub const Settings = struct {
         const f = self.filament;
         const p = self.project;
         const positive = [_]f64{
-            m.nozzle_diameter, m.max_speed,          m.travel_speed, m.max_z_speed,
-            f.diameter,        f.max_flow,           f.flow_ratio,   p.layer_height,
+            m.nozzle_diameter,    m.max_speed, m.travel_speed, m.max_z_speed,
+            f.diameter,           f.max_flow,  f.flow_ratio,   p.layer_height,
             p.first_layer_height,
         };
         // Each number must be finite and of a size that the integer
@@ -231,9 +257,9 @@ pub const Settings = struct {
         }
         for (positive) |v| if (!(v > 0)) return error.InvalidValue;
         const ratios = [_]f64{
-            f.fan_speed,         p.infill_density,   p.outer_wall_speed, p.inner_wall_speed,
-            p.skin_speed,        p.infill_speed,     p.first_layer_speed,
-            p.ironing_flow,      p.ironing_speed,
+            f.fan_speed,     p.infill_density, p.outer_wall_speed,  p.inner_wall_speed,
+            p.skin_speed,    p.infill_speed,   p.first_layer_speed, p.ironing_flow,
+            p.ironing_speed,
         };
         for (ratios) |v| if (!(v >= 0 and v <= 1)) return error.InvalidValue;
         if (p.outer_wall_speed == 0 or p.inner_wall_speed == 0 or p.skin_speed == 0 or p.infill_speed == 0 or p.first_layer_speed == 0) return error.InvalidValue;

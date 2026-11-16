@@ -40,7 +40,12 @@ enum zs_status {
     ZS_INVALID_VALUE = 6,
     ZS_INVALID_SETTINGS = 7,
     ZS_PART_TOO_LARGE = 8,
-    ZS_WRITE_FAILED = 9
+    ZS_WRITE_FAILED = 9,
+    ZS_CANCELED = 10,
+    ZS_BUSY = 11,
+    ZS_NO_MODEL = 12,
+    ZS_NO_RESULT = 13,
+    ZS_OUT_OF_RANGE = 14
 };
 
 typedef struct zs_mesh zs_mesh;

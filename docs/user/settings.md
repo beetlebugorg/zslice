@@ -10,9 +10,13 @@ Units: lengths in mm, speeds in mm/s, flow in mm³/s, temperatures in °C. A rat
 
 Facts about the printer. They change only when the printer changes.
 
+### Printer
+
 **`machine.name`** (text). Default: `"generic"`
 
 The name of the printer, for the G-code header.
+
+### Bed
 
 **`machine.bed_size_x`** (number). Default: `220`
 
@@ -26,9 +30,13 @@ The size of the bed in Y.
 
 The highest part that the printer can make.
 
+### Nozzle
+
 **`machine.nozzle_diameter`** (number). Default: `0.4`
 
 The diameter of the nozzle hole. The default line width comes from it.
+
+### Motion
 
 **`machine.max_speed`** (number). Default: `150`
 
@@ -42,6 +50,8 @@ The speed of travel moves (moves with no extrusion).
 
 The speed of Z moves at each layer change.
 
+### Extruder
+
 **`machine.extruder`** (one of: `direct`, `bowden`). Default: `direct`
 
 The extruder type. `direct`: the motor is on the print head. `bowden`: the motor pushes the filament through a long tube.
@@ -53,6 +63,8 @@ The retraction length of this extruder. A bowden extruder needs more.
 **`machine.retract_speed`** (number). Default: `40`
 
 The speed of the filament during a retraction.
+
+### G-code
 
 **`machine.start_gcode`** (text). Default: (multi-line text)
 
@@ -86,6 +98,8 @@ The text after the print. The same values as in `start_gcode` are replaced.
 
 Facts about the material.
 
+### Filament
+
 **`filament.name`** (text). Default: `"generic PLA"`
 
 The name of the filament, for the G-code header.
@@ -97,6 +111,8 @@ The diameter of the filament.
 **`filament.density`** (number). Default: `1.24`
 
 g/cm^3. For the filament weight in the statistics.
+
+### Temperatures
 
 **`filament.nozzle_temp`** (number). Default: `210`
 
@@ -110,6 +126,8 @@ The nozzle temperature on the first layer.
 
 The bed temperature.
 
+### Flow
+
 **`filament.max_flow`** (number). Default: `12`
 
 The maximum plastic flow that the hot end melts with this filament. This limits the speed of wide and tall lines.
@@ -118,6 +136,8 @@ The maximum plastic flow that the hot end melts with this filament. This limits 
 
 A multiplier for all extrusion, to calibrate the flow.
 
+### Cooling
+
 **`filament.fan_speed`** (number). Default: `1.0`
 
 The part cooling fan speed, as a ratio.
@@ -125,6 +145,8 @@ The part cooling fan speed, as a ratio.
 **`filament.fan_off_layers`** (integer). Default: `1`
 
 The fan is off for this number of layers at the start.
+
+### Retraction
 
 **`filament.retract_ratio`** (number). Default: `1.0`
 
@@ -144,6 +166,8 @@ The height of each layer after the first. A smaller value gives a smoother surfa
 
 The height of the first layer. A thicker first layer sticks to the bed better.
 
+### Lines
+
 **`project.line_width`** (number). Default: `0`
 
 The line width. 0 uses 1.1 x the nozzle diameter.
@@ -158,7 +182,7 @@ The line width on the first layer. 0 uses 1.25 x the nozzle diameter.
 
 The number of walls (loops) around the outline of each layer.
 
-### of layers, so a change of the layer height keeps the strength
+### Top and bottom skin
 
 **`project.top_thickness`** (number). Default: `0.8`
 
@@ -212,7 +236,7 @@ The ironing area is this far inside the edges of the top surface, so that the no
 
 The ironing speed, as a ratio of `machine.max_speed`. The flow limit of the filament does not apply, because the flow is small.
 
-### filament allow
+### Speed ratios
 
 **`project.outer_wall_speed`** (number). Default: `0.5`
 
@@ -234,6 +258,8 @@ The sparse infill speed, as a ratio of the allowed speed.
 
 The speed of all lines on the first layer, as a ratio of the allowed speed.
 
+### Travel
+
 **`project.retract_min_travel`** (number). Default: `1.5`
 
 Travel moves shorter than this do not retract.
@@ -251,6 +277,8 @@ Move the part so that the center of its bounding box is at the center of the bed
 ## engine
 
 Options for the engine. They do not change the print.
+
+### Slicer
 
 **`engine.resolution`** (number). Default: `0.005`
 

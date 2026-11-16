@@ -1,5 +1,5 @@
 /* The example from docs/embedding/c.md, with a main function.
- * Build: zig build lib && zig cc -Izig-out/include examples/c/slice.c zig-out/lib/libzslice.a -o slice
+ * Build: zig build lib && zig cc -Izig-out/include examples/c/slice.c zig-out/lib/libzslice.a -lc -lpthread -o slice
  *
  * SPDX-License-Identifier: AGPL-3.0-or-later
  */

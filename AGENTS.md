@@ -12,6 +12,10 @@ zslice is a slicer written from scratch in Zig. The goals are:
 6. Advanced slicing features, for example ironing.
 7. Code that teaches how a slicer works. Each module explains its algorithm in its header comment.
 
+## The app
+
+The app has one core (`src/app.zig`, `include/zslice-app.h`) and one native shell for each platform (`linux/` GTK4 first). Read `docs/app/README.md` before you change a shell. App logic goes in the core. A shell only draws widgets, reads and writes files, and moves events to its UI thread.
+
 ## Licenses and references
 
 zslice is licensed under AGPL-3.0-or-later. The main slicer engines (CuraEngine, PrusaSlicer, Slic3r, OrcaSlicer, Bambu Studio, SuperSlicer) use AGPL-3.0.

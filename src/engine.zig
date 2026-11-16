@@ -35,7 +35,52 @@ const LayerPlan = layer_mod.LayerPlan;
 
 pub const Stats = gcode.Stats;
 
+/// Progress and cancel hooks for a slice. All fields are optional.
+pub const Monitor = struct {
+    ctx: ?*anyopaque = null,
+    /// Gets the done fraction, 0 to 1, at most once for each percent. It
+    /// can run on any thread of the slice, so it must be thread-safe.
+    progress: ?*const fn (ctx: ?*anyopaque, fraction: f64) void = null,
+    /// When this becomes true, the slice stops with `error.Canceled`.
+    cancel: ?*const std.atomic.Value(bool) = null,
+
+    fn canceled(m: Monitor) bool {
+        const c = m.cancel orelse return false;
+        return c.load(.acquire);
+    }
+};
+
+/// Sends progress to a Monitor, at most once for each percent.
+const Reporter = struct {
+    monitor: Monitor,
+    /// The fraction of the slice before this stage, and the size of this
+    /// stage, as fractions of the whole slice.
+    base: f64,
+    span: f64,
+    total: usize,
+    done: std.atomic.Value(usize) = .init(0),
+    last_percent: std.atomic.Value(u32) = .init(0),
+
+    fn step(r: *Reporter, n: usize) void {
+        const f = r.monitor.progress orelse return;
+        const done = r.done.fetchAdd(n, .monotonic) + n;
+        const fraction = r.base + r.span * @as(f64, @floatFromInt(done)) / @as(f64, @floatFromInt(@max(r.total, 1)));
+        const percent: u32 = @intFromFloat(@floor(fraction * 100));
+        var last = r.last_percent.load(.monotonic);
+        while (percent > last) {
+            last = r.last_percent.cmpxchgWeak(last, percent, .monotonic, .monotonic) orelse {
+                f(r.monitor.ctx, fraction);
+                return;
+            };
+        }
+    }
+};
+
+/// Pass 1 is about this fraction of the time of a slice.
+const pass1_share = 0.3;
+
 pub const Error = error{
+    Canceled,
     InvalidSettings,
     EmptyMesh,
     PartTooLarge,
@@ -58,12 +103,19 @@ pub fn slice(gpa: Allocator, mesh: *const Mesh, settings: Settings, out: *Writer
 pub const Job = struct {
     gpa: Allocator,
     resolved: settings_mod.Resolved,
+    monitor: Monitor = .{},
     threads: usize,
     layers: []slicer.Layer,
     outlines: []Paths,
 
     /// Steps 1 to 4.
     pub fn init(gpa: Allocator, mesh: *const Mesh, settings: Settings) Error!Job {
+        return initWith(gpa, mesh, settings, .{});
+    }
+
+    /// `init`, with progress and cancel hooks. `writeGcode` uses the same
+    /// hooks.
+    pub fn initWith(gpa: Allocator, mesh: *const Mesh, settings: Settings, monitor: Monitor) Error!Job {
         // Step 1.
         const r = settings.resolve() catch return error.InvalidSettings;
         const threads = parallel.threadCount(settings.engine.threads);
@@ -97,6 +149,7 @@ pub const Job = struct {
         // Step 4.
         var index = try slicer.FaceIndex.build(gpa, mesh, layers, b.min[2]);
         defer index.deinit(gpa);
+        var reporter: Reporter = .{ .monitor = monitor, .base = 0, .span = pass1_share, .total = layers.len };
         const Pass1 = struct {
             gpa: Allocator,
             mesh: *const Mesh,
@@ -108,8 +161,11 @@ pub const Job = struct {
             dy: i64,
             tolerance: i64,
             gap: i64,
+            reporter: *Reporter,
 
             fn run(c: *const @This(), i: usize) anyerror!void {
+                if (c.reporter.monitor.canceled()) return error.Canceled;
+                defer c.reporter.step(1);
                 const o = try slicer.sliceAt(c.gpa, c.mesh, c.index.get(i), c.layers[i].sliceZ() + c.z_offset, c.tolerance, c.gap);
                 for (o.points.items) |*p| {
                     p.x += c.dx;
@@ -129,10 +185,11 @@ pub const Job = struct {
             .dy = geom.fromMm(dy),
             .tolerance = geom.fromMm(settings.engine.resolution),
             .gap = geom.fromMm(settings.engine.gap_closing),
+            .reporter = &reporter,
         };
         parallel.forEach(threads, layers.len, &ctx, Pass1.run) catch |e| return @as(Error, @errorCast(e));
 
-        return .{ .gpa = gpa, .resolved = r, .threads = threads, .layers = layers, .outlines = outlines };
+        return .{ .gpa = gpa, .resolved = r, .monitor = monitor, .threads = threads, .layers = layers, .outlines = outlines };
     }
 
     pub fn deinit(self: *Job) void {
@@ -160,6 +217,7 @@ pub const Job = struct {
         var em: gcode.Emitter = .init(out, &self.resolved);
         try em.begin(self.layers.len);
 
+        var reporter: Reporter = .{ .monitor = self.monitor, .base = pass1_share, .span = 1 - pass1_share, .total = self.layers.len };
         const batch = @max(8, self.threads * 4);
         const plans = try gpa.alloc(?LayerPlan, batch);
         defer gpa.free(plans);
@@ -178,6 +236,7 @@ pub const Job = struct {
         };
         var start: usize = 0;
         while (start < self.layers.len) : (start += batch) {
+            if (self.monitor.canceled()) return error.Canceled;
             const n = @min(batch, self.layers.len - start);
             const c: Pass2 = .{ .gpa = gpa, .ctx = self.planContext(), .plans = plans[0..n], .start = start };
             parallel.forEach(self.threads, n, &c, Pass2.run) catch |e| return @as(Error, @errorCast(e));
@@ -186,6 +245,7 @@ pub const Job = struct {
                 p.*.?.deinit();
                 p.* = null;
             }
+            reporter.step(n);
         }
         try em.end();
         return em.stats;
@@ -246,4 +306,32 @@ test "the same G-code with 1 thread and with 8 threads" {
     s.engine.threads = 8;
     _ = try slice(gpa, &m, s, &b.writer);
     try testing.expectEqualStrings(a.written(), b.written());
+}
+
+test "progress goes to 100 % and cancel stops the slice" {
+    const gpa = testing.allocator;
+    var m = try mesh_mod.shapes.demo(gpa);
+    defer m.deinit(gpa);
+    const Probe = struct {
+        last: std.atomic.Value(u32) = .init(0),
+        calls: std.atomic.Value(u32) = .init(0),
+        fn f(ctx: ?*anyopaque, fraction: f64) void {
+            const self: *@This() = @ptrCast(@alignCast(ctx.?));
+            _ = self.calls.fetchAdd(1, .monotonic);
+            _ = self.last.fetchMax(@intFromFloat(@round(fraction * 100)), .monotonic);
+        }
+    };
+    var probe: Probe = .{};
+    var s: Settings = .{};
+    s.engine.threads = 4;
+    var job = try Job.initWith(gpa, &m, s, .{ .ctx = &probe, .progress = Probe.f });
+    defer job.deinit();
+    var out: Writer.Allocating = .init(gpa);
+    defer out.deinit();
+    _ = try job.writeGcode(&out.writer);
+    try testing.expectEqual(@as(u32, 100), probe.last.load(.monotonic));
+    try testing.expect(probe.calls.load(.monotonic) <= 101);
+
+    var cancel: std.atomic.Value(bool) = .init(true);
+    try testing.expectError(error.Canceled, Job.initWith(gpa, &m, s, .{ .cancel = &cancel }));
 }
