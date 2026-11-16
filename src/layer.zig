@@ -613,7 +613,9 @@ pub fn plan(gpa: Allocator, ctx: Context, i: usize) Allocator.Error!LayerPlan {
 
     // Step 9.
     var pos: Point = if (outline.points.items.len > 0) outline.points.items[0] else .init(0, 0);
-    const seam: Seam = .{ .mode = p.seam, .layer = i, .below = if (i > 0) ctx.outlines[i - 1] else .empty };
+    var below_index: ?InsideIndex = null;
+    if (p.seam == .hidden and i > 0 and !ctx.outlines[i - 1].isEmpty()) below_index = try .init(s, ctx.outlines[i - 1]);
+    const seam: Seam = .{ .mode = p.seam, .layer = i, .below = if (below_index) |*b| b else null };
     for (rings.items) |ring| try addOrdered(s, a, &lp, &pos, ring, true, .skirt);
     try addOrdered(s, a, &lp, &pos, sup_walls, true, .support);
     try addOrdered(s, a, &lp, &pos, sup_lines, false, .support);
@@ -648,7 +650,7 @@ pub fn plan(gpa: Allocator, ctx: Context, i: usize) Allocator.Error!LayerPlan {
 fn seamIndex(path: []const Point, mode: settings_mod.SeamMode, salt: u64) usize {
     switch (mode) {
         .nearest => unreachable,
-        .hidden => return hiddenIndex(path, .empty),
+        .hidden => return hiddenIndex(path, null),
         .rear => return rearIndex(path),
         .random => {
             var prng = std.Random.DefaultPrng.init(salt);
@@ -693,7 +695,7 @@ fn seamIndex(path: []const Point, mode: settings_mod.SeamMode, salt: u64) usize 
 ///   seam blob would sag there.
 /// A tie goes to the vertex further back, so similar layers pick the same
 /// vertex, and the seam is one straight line.
-fn hiddenIndex(path: []const Point, below: Paths) usize {
+fn hiddenIndex(path: []const Point, below: ?*const InsideIndex) usize {
     const n = path.len;
     if (n < 3) return 0;
     const reach: f64 = 1000; // 1 mm, in µm
@@ -720,7 +722,9 @@ fn hiddenIndex(path: []const Point, below: Paths) usize {
         const turn = std.math.atan2(ax * by - ay * bx, ax * bx + ay * by);
         var score: f64 = if (turn < 0) 3.0 * -turn else 0.6 * turn;
         score += 0.35 * @as(f64, @floatFromInt(v.y - ymin)) / yspan;
-        if (!below.isEmpty() and !geom.insideAny(below, v)) score -= 2;
+        if (below) |b| if (!b.inside(v)) {
+            score -= 2;
+        };
         const better = score > best_score + 1e-9 or (@abs(score - best_score) <= 1e-9 and rearBefore(v, path[best]));
         if (better) {
             best = i;
@@ -745,6 +749,85 @@ fn walkFrom(path: []const Point, i: usize, dist: f64, forward: bool) Point {
         if (steps + 2 >= n / 2) break;
     }
     return path[j];
+}
+
+/// The edges of a set of polygons in bands of y, for a fast test if a point
+/// is inside (a winding number other than 0). A horizontal ray from the
+/// point crosses only edges whose y range holds the y of the point, and
+/// these edges are all in the band of that y. Each edge goes in each band
+/// that its y range touches.
+const InsideIndex = struct {
+    min: i64,
+    width: i64,
+    /// Band k has the edges from starts[k] to starts[k + 1].
+    starts: []u32,
+    edges: [][2]Point,
+
+    fn init(s: Allocator, paths: Paths) Allocator.Error!InsideIndex {
+        var lo: i64 = std.math.maxInt(i64);
+        var hi: i64 = std.math.minInt(i64);
+        for (paths.points.items) |q| {
+            lo = @min(lo, q.y);
+            hi = @max(hi, q.y);
+        }
+        const n = paths.points.items.len;
+        const want: usize = std.math.clamp(2 * std.math.sqrt(n), 1, 4096);
+        const span: i64 = @max(hi - lo + 1, 1);
+        const width: i64 = @max(1, @divFloor(span + @as(i64, @intCast(want)) - 1, @as(i64, @intCast(want))));
+        const bands: usize = @intCast(@divFloor(span + width - 1, width));
+        var idx: InsideIndex = .{ .min = lo, .width = width, .starts = try s.alloc(u32, bands + 1), .edges = &.{} };
+        @memset(idx.starts, 0);
+        // Two passes over the edges: count, then fill.
+        var fill: []u32 = &.{};
+        defer s.free(fill);
+        for (0..2) |pass| {
+            if (pass == 1) {
+                for (1..idx.starts.len) |k| idx.starts[k] += idx.starts[k - 1];
+                idx.edges = try s.alloc([2]Point, idx.starts[bands]);
+                fill = try s.dupe(u32, idx.starts[0..bands]);
+            }
+            for (0..paths.count()) |k| {
+                const poly = paths.get(k);
+                for (poly, 0..) |a, i| {
+                    const b = poly[(i + 1) % poly.len];
+                    if (a.y == b.y) continue;
+                    const b0 = idx.band(@min(a.y, b.y));
+                    const b1 = idx.band(@max(a.y, b.y) - 1);
+                    for (b0..b1 + 1) |bi| {
+                        if (pass == 0) {
+                            idx.starts[bi + 1] += 1;
+                        } else {
+                            idx.edges[fill[bi]] = .{ a, b };
+                            fill[bi] += 1;
+                        }
+                    }
+                }
+            }
+        }
+        return idx;
+    }
+
+    fn band(idx: InsideIndex, y: i64) usize {
+        const k = @divFloor(y - idx.min, idx.width);
+        return @intCast(std.math.clamp(k, 0, @as(i64, @intCast(idx.starts.len - 2))));
+    }
+
+    fn inside(idx: InsideIndex, p: Point) bool {
+        const k = idx.band(p.y);
+        var winding: i32 = 0;
+        for (idx.edges[idx.starts[k]..idx.starts[k + 1]]) |e| {
+            const a = e[0];
+            const b = e[1];
+            if (a.y <= p.y) {
+                if (b.y > p.y and cross3(a, b, p) > 0) winding += 1;
+            } else if (b.y <= p.y and cross3(a, b, p) < 0) winding -= 1;
+        }
+        return winding != 0;
+    }
+};
+
+fn cross3(a: Point, b: Point, p: Point) i128 {
+    return @as(i128, b.x - a.x) * @as(i128, p.y - a.y) - @as(i128, p.x - a.x) * @as(i128, b.y - a.y);
 }
 
 fn rearBefore(a: Point, b: Point) bool {
@@ -872,9 +955,9 @@ fn addOrdered(s: Allocator, a: Allocator, lp: *LayerPlan, pos: *Point, set: Path
 const Seam = struct {
     mode: settings_mod.SeamMode,
     layer: usize,
-    /// The outline of the layer below: the hidden seam avoids a point over
-    /// air.
-    below: Paths = .empty,
+    /// The outline of the layer below, or null for the first layer: the
+    /// hidden seam avoids a point over air.
+    below: ?*const InsideIndex = null,
 };
 
 /// `addOrdered`, with a seam rule for loops. With a rule, each loop starts at
@@ -1133,7 +1216,7 @@ test "seam placement" {
 test "hidden seam" {
     // The L: the inside corner.
     const l = [_]Point{ .init(0, 0), .init(20_000, 0), .init(20_000, 10_000), .init(10_000, 10_000), .init(10_000, 20_000), .init(0, 20_000) };
-    try testing.expectEqual(@as(usize, 3), hiddenIndex(&l, .empty));
+    try testing.expectEqual(@as(usize, 3), hiddenIndex(&l, null));
     // An L with the inside corner made of 20 short segments (a round
     // fillet of 0.5 mm): still in the corner.
     var fillet: std.ArrayList(Point) = .empty;
@@ -1145,7 +1228,7 @@ test "hidden seam" {
         try fillet.append(testing.allocator, .{ .x = @intFromFloat(@round(10_500 - 500 * @sin(a))), .y = @intFromFloat(@round(10_500 - 500 * @cos(a))) });
     }
     try fillet.appendSlice(testing.allocator, &.{ .init(10_000, 20_000), .init(0, 20_000) });
-    const fi = hiddenIndex(fillet.items, .empty);
+    const fi = hiddenIndex(fillet.items, null);
     try testing.expect(fi >= 3 and fi <= 23);
     // A circle: no corner, so the back.
     var circle: [360]Point = undefined;
@@ -1153,14 +1236,17 @@ test "hidden seam" {
         const a = 2 * std.math.pi * @as(f64, @floatFromInt(i)) / 360.0;
         q.* = .{ .x = @intFromFloat(@round(10_000 * @cos(a))), .y = @intFromFloat(@round(10_000 * @sin(a))) };
     }
-    try testing.expectEqual(@as(usize, 90), hiddenIndex(&circle, .empty));
+    try testing.expectEqual(@as(usize, 90), hiddenIndex(&circle, null));
     // A square over a layer below that has only its left half: the seam
     // goes to a back corner over the support (the left one).
     const sq = [_]Point{ .init(0, 0), .init(10_000, 0), .init(10_000, 10_000), .init(0, 10_000) };
     var below: Paths = .empty;
     defer below.deinit(testing.allocator);
     try below.append(testing.allocator, &.{ .init(-1000, -1000), .init(5_000, -1000), .init(5_000, 11_000), .init(-1000, 11_000) });
-    try testing.expectEqual(@as(usize, 3), hiddenIndex(&sq, below));
+    const index: InsideIndex = try .init(testing.allocator, below);
+    defer testing.allocator.free(index.starts);
+    defer testing.allocator.free(index.edges);
+    try testing.expectEqual(@as(usize, 3), hiddenIndex(&sq, &index));
 }
 
 test "monotonic skin: the lines go from one side to the other" {
