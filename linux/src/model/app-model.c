@@ -41,12 +41,24 @@ struct _ZgModel {
     gboolean focus_first;
     /* A setting changed while a slice ran: slice again when it ends. */
     gboolean slice_pending;
+    /* The scope of the inspector edits (see zg_model_set_scope). */
+    gboolean scope_on;
+    double scope_min, scope_max, scope_show;
+    /* The time of the last slice request, and of the last slice (ms). */
+    gint64 slice_start;
+    double slice_ms;
     /* The groups to save (a bit for each enum zs_group), and the timer. */
     guint dirty;
     guint save_timer;
 };
 
 static const char *group_files[] = {"machine", "filament", "project"};
+
+/* Starts a slice, and notes the time for the slice time in the status bar. */
+static int request_slice(ZgModel *self) {
+    self->slice_start = g_get_monotonic_time();
+    return zs_app_request_slice(self->core);
+}
 
 static char *state_path(int group) {
     const char *dir = g_getenv("ZSLICE_STATE_DIR");
@@ -109,7 +121,7 @@ static void load_state(ZgModel *self) {
 
 G_DEFINE_FINAL_TYPE(ZgModel, zg_model, G_TYPE_OBJECT)
 
-enum { SIGNAL_CORE_EVENT, SIGNAL_SELECTION_CHANGED, SIGNAL_PICKED, SIGNAL_SETTING_CHANGED, SIGNAL_FOCUS_CHANGED, N_SIGNALS };
+enum { SIGNAL_CORE_EVENT, SIGNAL_SELECTION_CHANGED, SIGNAL_PICKED, SIGNAL_SETTING_CHANGED, SIGNAL_FOCUS_CHANGED, SIGNAL_SCOPE_CHANGED, N_SIGNALS };
 static guint signals[N_SIGNALS];
 
 typedef struct {
@@ -130,6 +142,9 @@ static gboolean deliver(gpointer data) {
     if (model) {
         /* A new slice has new paths: pick the path at the place of the old
          * selection again, so the inspector stays on the same line. */
+        if (p->event == ZS_EVENT_SLICED && model->slice_start) {
+            model->slice_ms = (g_get_monotonic_time() - model->slice_start) / 1000.0;
+        }
         if (p->event == ZS_EVENT_SLICED && model->anchored) {
             size_t path = zs_app_pick_layer(model->core, model->anchor_layer, model->anchor_x, model->anchor_y);
             /* The line moved (for example a new skirt distance): the
@@ -147,7 +162,7 @@ static gboolean deliver(gpointer data) {
         /* The slice for the newest settings. */
         if (p->event != ZS_EVENT_PROGRESS && model->slice_pending && zs_app_state(model->core) != ZS_STATE_SLICING) {
             model->slice_pending = FALSE;
-            zs_app_request_slice(model->core);
+            request_slice(model);
         }
         g_object_unref(model);
     }
@@ -201,6 +216,9 @@ static void zg_model_class_init(ZgModelClass *klass) {
      * view can react to it (switch a tab, for example). */
     signals[SIGNAL_PICKED] = g_signal_new("picked", G_TYPE_FROM_CLASS(klass),
         G_SIGNAL_RUN_LAST, 0, NULL, NULL, NULL, G_TYPE_NONE, 1, G_TYPE_INT64);
+    /* scope-changed(): see zg_model_set_scope. */
+    signals[SIGNAL_SCOPE_CHANGED] = g_signal_new("scope-changed", G_TYPE_FROM_CLASS(klass),
+        G_SIGNAL_RUN_LAST, 0, NULL, NULL, NULL, G_TYPE_NONE, 0);
     /* focus-changed(): see zg_model_set_focus. */
     signals[SIGNAL_FOCUS_CHANGED] = g_signal_new("focus-changed", G_TYPE_FROM_CLASS(klass),
         G_SIGNAL_RUN_LAST, 0, NULL, NULL, NULL, G_TYPE_NONE, 0);
@@ -228,6 +246,66 @@ void zg_model_select(ZgModel *self, gint64 path) {
     g_signal_emit(self, signals[SIGNAL_PICKED], 0, path);
 }
 
+void zg_model_set_scope(ZgModel *self, gboolean on, double z_min, double z_max, double z_show) {
+    if (self->scope_on == on && self->scope_min == z_min && self->scope_max == z_max && self->scope_show == z_show) return;
+    self->scope_on = on;
+    self->scope_min = z_min;
+    self->scope_max = z_max;
+    self->scope_show = z_show;
+    g_signal_emit(self, signals[SIGNAL_SCOPE_CHANGED], 0);
+}
+
+gboolean zg_model_scope(ZgModel *self, double *z_min, double *z_max, double *z_show) {
+    if (z_min) *z_min = self->scope_min;
+    if (z_max) *z_max = self->scope_max;
+    if (z_show) *z_show = self->scope_show;
+    return self->scope_on;
+}
+
+char *zg_model_get_for(ZgModel *self, const char *key, gboolean scoped) {
+    if (!scoped || !self->scope_on) return zg_model_get(self, key);
+    size_t len = 0;
+    if (zs_app_setting_get_at(self->core, self->scope_show, key, NULL, 0, &len) != ZS_OK) return g_strdup("");
+    char *buf = g_malloc(len + 1);
+    zs_app_setting_get_at(self->core, self->scope_show, key, buf, len + 1, NULL);
+    return buf;
+}
+
+static gboolean fail(GError **error, int rc);
+
+static void slice_soon(ZgModel *self) {
+    int state = zs_app_state(self->core);
+    if (state == ZS_STATE_SLICING) self->slice_pending = TRUE;
+    else if (state != ZS_STATE_EMPTY) request_slice(self);
+}
+
+gboolean zg_model_set_for(ZgModel *self, const char *key, const char *value, gboolean scoped, GError **error) {
+    zs_setting_info info;
+    gboolean per_layer = FALSE;
+    for (size_t i = 0; i < zs_setting_count(); i++) {
+        if (zs_setting_get_info(i, &info) == ZS_OK && strcmp(info.name, key) == 0) {
+            per_layer = info.per_layer;
+            break;
+        }
+    }
+    if (!scoped || !self->scope_on || !per_layer) return zg_model_set(self, key, value, error);
+    int rc = zs_app_override_set(self->core, self->scope_min, self->scope_max, key, value);
+    if (rc != ZS_OK) return fail(error, rc);
+    g_signal_emit(self, signals[SIGNAL_SETTING_CHANGED], 0, key);
+    slice_soon(self);
+    return TRUE;
+}
+
+gboolean zg_model_overridden(ZgModel *self, const char *key) {
+    return self->scope_on && zs_app_override_at(self->core, self->scope_show, key);
+}
+
+void zg_model_clear_override(ZgModel *self, const char *key) {
+    if (zs_app_override_clear_at(self->core, self->scope_show, key) == 0) return;
+    g_signal_emit(self, signals[SIGNAL_SETTING_CHANGED], 0, key);
+    slice_soon(self);
+}
+
 void zg_model_set_focus(ZgModel *self, guint32 features, gboolean first_layer_only) {
     first_layer_only = features != 0 && first_layer_only;
     if (self->focus == features && self->focus_first == first_layer_only) return;
@@ -239,6 +317,10 @@ void zg_model_set_focus(ZgModel *self, guint32 features, gboolean first_layer_on
 guint32 zg_model_focus(ZgModel *self, gboolean *first_layer_only) {
     if (first_layer_only) *first_layer_only = self->focus_first;
     return self->focus;
+}
+
+double zg_model_slice_ms(ZgModel *self) {
+    return self->slice_ms;
 }
 
 gint64 zg_model_selected(ZgModel *self) {
@@ -276,7 +358,7 @@ gboolean zg_model_load(ZgModel *self, const char *name, const void *data, gsize 
     if (rc != ZS_OK) return fail(error, rc);
     g_free(self->name);
     self->name = g_strdup(name);
-    rc = zs_app_request_slice(self->core);
+    rc = request_slice(self);
     if (rc != ZS_OK) return fail(error, rc);
     return TRUE;
 }
@@ -301,7 +383,7 @@ gboolean zg_model_set(ZgModel *self, const char *key, const char *value, GError 
          * would show nothing until the drag ends. */
         self->slice_pending = TRUE;
     } else if (state != ZS_STATE_EMPTY) {
-        rc = zs_app_request_slice(self->core);
+        rc = request_slice(self);
         if (rc != ZS_OK) return fail(error, rc);
     }
     return TRUE;

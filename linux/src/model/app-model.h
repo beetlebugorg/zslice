@@ -47,6 +47,25 @@ gint64 zg_model_selected(ZgModel *self);
 void zg_model_set_focus(ZgModel *self, guint32 features, gboolean first_layer_only);
 guint32 zg_model_focus(ZgModel *self, gboolean *first_layer_only);
 
+/* The scope of the edits of the inspector: all layers (on = FALSE), or
+ * the layers with a top z from z_min to z_max (an override for each edit,
+ * zs_app_override_set). z_show is the z of the selection: the editors show
+ * the values there. "scope-changed" follows each change. */
+void zg_model_set_scope(ZgModel *self, gboolean on, double z_min, double z_max, double z_show);
+gboolean zg_model_scope(ZgModel *self, double *z_min, double *z_max, double *z_show);
+
+/* zg_model_get and zg_model_set for an editor of the inspector (scoped):
+ * in a layer scope, they read the value at z_show and set an override. */
+char *zg_model_get_for(ZgModel *self, const char *key, gboolean scoped);
+gboolean zg_model_set_for(ZgModel *self, const char *key, const char *value, gboolean scoped, GError **error);
+/* TRUE if an override of the setting covers z_show of the scope. */
+gboolean zg_model_overridden(ZgModel *self, const char *key);
+/* Removes the overrides of the setting at z_show, and slices again. */
+void zg_model_clear_override(ZgModel *self, const char *key);
+
+/* The time of the last slice, from the request to the result, in ms. */
+double zg_model_slice_ms(ZgModel *self);
+
 /* The text for a core status code. */
 const char *zg_status_text(int status);
 

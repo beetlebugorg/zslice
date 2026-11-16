@@ -96,6 +96,11 @@ pub const App = struct {
     inspect_arena: ?std.heap.ArenaAllocator = null,
     failure: anyerror = error.Unexpected,
     slice_settings: Settings = .{},
+    /// Changes of settings for z ranges (see settings.Override). The
+    /// strings are in `strings`. A new model clears them.
+    overrides: std.ArrayList(zs.settings.Override) = .empty,
+    /// A copy of `overrides` for the running slice.
+    slice_overrides: []zs.settings.Override = &.{},
 
     pub fn create(gpa: Allocator, event_fn: ?EventFn, user: ?*anyopaque) Allocator.Error!*App {
         const app = try gpa.create(App);
@@ -108,6 +113,8 @@ pub const App = struct {
         app.stopWorker();
         app.clearResults();
         app.dropPrevJob();
+        app.overrides.deinit(app.gpa);
+        app.gpa.free(app.slice_overrides);
         if (app.mesh) |*m| m.deinit(app.gpa);
         app.gpa.free(app.model_name);
         app.strings.deinit();
@@ -129,8 +136,10 @@ pub const App = struct {
         };
         app.stopWorker();
         app.clearResults();
-        // The regions of the old mesh are of no use for the new mesh.
+        // The regions of the old mesh are of no use for the new mesh, and
+        // the overrides were for the old part.
         app.dropPrevJob();
+        app.overrides.clearRetainingCapacity();
         if (app.mesh) |*old| old.deinit(app.gpa);
         app.gpa.free(app.model_name);
         app.mesh = m;
@@ -179,12 +188,68 @@ pub const App = struct {
         app.settings = s;
     }
 
+    pub const OverrideError = Settings.SetError || error{ NotPerLayer, OutOfMemory };
+
+    /// Changes a setting for the layers with a top z from z_min to z_max.
+    /// An override for the same range and setting is replaced. Only
+    /// settings.layer_settings can change for some layers.
+    pub fn setOverride(app: *App, z_min: f64, z_max: f64, name: []const u8, value: []const u8) OverrideError!void {
+        const whole = z_min <= -zs.settings.part_z and z_max >= zs.settings.part_z;
+        if (whole) {
+            if (!zs.settings.isPartSetting(name)) return error.NotPerLayer;
+        } else if (!zs.settings.isLayerSetting(name)) return error.NotPerLayer;
+        const a = app.strings.allocator();
+        const n = try a.dupe(u8, name);
+        const v = try a.dupe(u8, value);
+        // Check the value.
+        var check = app.settings;
+        try check.set(n, v);
+        for (app.overrides.items) |*o| {
+            if (std.mem.eql(u8, o.name, name) and @abs(o.z_min - z_min) < 1e-6 and @abs(o.z_max - z_max) < 1e-6) {
+                o.value = v;
+                return;
+            }
+        }
+        try app.overrides.append(app.gpa, .{ .z_min = z_min, .z_max = z_max, .name = n, .value = v });
+    }
+
+    /// Removes the overrides of a setting that cover z. Returns how many.
+    pub fn clearOverridesAt(app: *App, z: f64, name: []const u8) usize {
+        var removed: usize = 0;
+        var i: usize = 0;
+        while (i < app.overrides.items.len) {
+            const o = app.overrides.items[i];
+            if (std.mem.eql(u8, o.name, name) and o.covers(z)) {
+                _ = app.overrides.orderedRemove(i);
+                removed += 1;
+            } else i += 1;
+        }
+        return removed;
+    }
+
+    /// True if an override of the setting covers z.
+    pub fn hasOverrideAt(app: *const App, z: f64, name: []const u8) bool {
+        for (app.overrides.items) |o| if (std.mem.eql(u8, o.name, name) and o.covers(z)) return true;
+        return false;
+    }
+
+    /// Writes the value of a setting for the layers at z: with the
+    /// overrides that cover z.
+    pub fn getSettingAt(app: *const App, z: f64, name: []const u8, w: *std.Io.Writer) (Settings.SetError || std.Io.Writer.Error)!void {
+        const s = try zs.settings.withOverrides(app.settings, app.overrides.items, z);
+        return writeSettingOf(s, name, w);
+    }
+
     /// Writes the value of a setting as text.
     pub fn getSetting(app: *const App, name: []const u8, w: *std.Io.Writer) (Settings.SetError || std.Io.Writer.Error)!void {
+        return writeSettingOf(app.settings, name, w);
+    }
+
+    fn writeSettingOf(settings: Settings, name: []const u8, w: *std.Io.Writer) (Settings.SetError || std.Io.Writer.Error)!void {
         const dot = std.mem.indexOfScalar(u8, name, '.') orelse return error.UnknownSetting;
         inline for (@typeInfo(Settings).@"struct".fields) |g| {
             if (std.mem.eql(u8, g.name, name[0..dot])) {
-                const group = @field(app.settings, g.name);
+                const group = @field(settings, g.name);
                 inline for (@typeInfo(g.type).@"struct".fields) |f| {
                     if (std.mem.eql(u8, f.name, name[dot + 1 ..])) {
                         return writeValue(w, @field(group, f.name));
@@ -210,6 +275,8 @@ pub const App = struct {
         }
         app.clearResults();
         app.slice_settings = app.settings;
+        app.gpa.free(app.slice_overrides);
+        app.slice_overrides = app.gpa.dupe(zs.settings.Override, app.overrides.items) catch &.{};
         app.cancel_flag.store(false, .release);
         app.state.store(.slicing, .release);
         if (comptime !has_threads) {
@@ -294,13 +361,25 @@ pub const App = struct {
 
     fn work(app: *App) void {
         const monitor: zs.engine.Monitor = .{ .ctx = app, .progress = onProgress, .cancel = &app.cancel_flag };
-        var job = zs.Job.initWith(app.gpa, &app.mesh.?, app.slice_settings, monitor) catch |e| return app.finishFailed(e);
+        // The overrides of the whole part change the settings of the slice;
+        // the others change some layers.
+        var part = app.slice_settings;
+        var layer_overrides: std.ArrayList(zs.settings.Override) = .empty;
+        defer layer_overrides.deinit(app.gpa);
+        for (app.slice_overrides) |o| {
+            if (o.wholePart()) {
+                part.set(o.name, o.value) catch return app.finishFailed(error.InvalidSettings);
+            } else {
+                layer_overrides.append(app.gpa, o) catch |e| return app.finishFailed(e);
+            }
+        }
+        var job = zs.Job.initFull(app.gpa, &app.mesh.?, part, layer_overrides.items, monitor) catch |e| return app.finishFailed(e);
         if (app.prev_job) |*prev| {
             _ = job.takeRegions(prev);
             app.dropPrevJob();
         }
         var out: std.Io.Writer.Allocating = .init(app.gpa);
-        var store: Toolpaths = .{ .gpa = app.gpa, .z_hop = @floatCast(app.slice_settings.project.z_hop) };
+        var store: Toolpaths = .{ .gpa = app.gpa, .z_hop = @floatCast(part.project.z_hop) };
         const sink: zs.engine.Job.LayerSink = .{ .ctx = &store, .func = Toolpaths.addLayer };
         const stats = job.writeGcodeWith(&out.writer, sink) catch |e| {
             store.deinit(app.gpa);
@@ -471,7 +550,7 @@ pub const App = struct {
         if (app.inspect_arena) |*a| a.deinit();
         app.inspect_arena = .init(app.gpa);
         const arena = app.inspect_arena.?.allocator();
-        const r = &app.job.?.resolved;
+        const r = app.job.?.resolvedAt(layer);
         const s = r.settings;
 
         const feature: zs.settings.Feature = @enumFromInt(t.path_features.items[path]);
@@ -595,9 +674,9 @@ pub const feature_names = [_][]const u8{ "Outer wall", "Inner wall", "Skin", "Sp
 const feature_settings = [_][]const []const u8{
     &.{ "project.wall_count", "project.seam", "project.line_width", "project.layer_height", "filament.xy_offset", "filament.hole_xy_offset" },
     &.{ "project.wall_count", "project.line_width", "project.layer_height" },
-    &.{ "project.top_thickness", "project.bottom_thickness", "project.skin_overlap", "project.infill_angle", "project.line_width", "project.layer_height" },
+    &.{ "project.top_thickness", "project.bottom_thickness", "project.skin_pattern", "project.skin_angle", "project.skin_angle_step", "project.skin_overlap", "project.line_width", "project.layer_height" },
     &.{ "project.infill_density", "project.infill_pattern", "project.infill_angle", "project.infill_overlap", "project.line_width", "project.layer_height" },
-    &.{ "project.ironing", "project.ironing_flow", "project.ironing_spacing", "project.ironing_inset" },
+    &.{ "project.ironing", "project.ironing_flow", "project.ironing_spacing", "project.ironing_inset", "project.skin_angle" },
     &.{ "project.skirt_loops", "project.skirt_distance", "project.skirt_layers", "project.brim_width", "project.line_width" },
     &.{ "project.support", "project.support_angle", "project.support_density", "project.support_xy_gap", "project.support_z_gap_layers" },
     &.{ "project.support_interface_layers", "project.support_interface_density", "project.support_z_gap_layers" },
@@ -974,6 +1053,8 @@ pub const SettingInfo = struct {
     unit: [:0]const u8 = "",
     /// The built-in default value, as text (as `getSetting` writes it).
     default_value: [:0]const u8 = "",
+    /// The setting can change for some layers (an override).
+    per_layer: bool = false,
     /// A useful range for a slider, in the units of the value (a ratio
     /// from 0 to 1, not a percentage). min == max: no slider. A value out
     /// of the range is still valid; the slider only covers the usual
@@ -1021,6 +1102,7 @@ pub const settings_info: []const SettingInfo = blk: {
                 .choices = std.fmt.comptimePrint("{s}", .{choices}),
                 .multiline = std.mem.endsWith(u8, f.name, "gcode"),
                 .unit = unitOf(name),
+                .per_layer = zs.settings.isLayerSetting(name),
                 .default_value = defaultText(g.type, f.name),
                 .slider_min = sliderOf(name)[0],
                 .slider_max = sliderOf(name)[1],
@@ -1060,6 +1142,7 @@ const units = [_][2][]const u8{
     .{ "project.wall_count", "walls" },        .{ "project.top_thickness", "mm" },
     .{ "project.bottom_thickness", "mm" },     .{ "project.skin_overlap", "%" },
     .{ "project.infill_density", "%" },        .{ "project.infill_angle", "\u{b0}" },
+    .{ "project.skin_angle", "\u{b0}" },       .{ "project.skin_angle_step", "\u{b0}" },
     .{ "project.infill_overlap", "%" },        .{ "project.ironing_flow", "%" },
     .{ "project.ironing_spacing", "mm" },      .{ "project.ironing_inset", "mm" },
     .{ "project.ironing_speed", "%" },         .{ "project.outer_wall_speed", "%" },
@@ -1090,7 +1173,8 @@ const sliders = [_]struct { []const u8, f64, f64, f64 }{
     .{ "project.support_density", 0.05, 0.5, 0.01 },    .{ "project.support_interface_density", 0.1, 1, 0.05 },
     .{ "project.support_angle", 0, 89, 1 },          .{ "project.wall_count", 0, 8, 1 },
     .{ "project.top_thickness", 0, 3, 0.1 },           .{ "project.bottom_thickness", 0, 3, 0.1 },
-    .{ "project.infill_angle", 0, 180, 5 },          .{ "project.brim_width", 0, 20, 0.5 },
+    .{ "project.infill_angle", 0, 180, 5 },        .{ "project.skin_angle", 0, 180, 5 },
+    .{ "project.skin_angle_step", 0, 90, 5 },          .{ "project.brim_width", 0, 20, 0.5 },
     .{ "project.skirt_loops", 0, 10, 1 },            .{ "project.skirt_distance", 0, 20, 0.5 },
     .{ "project.layer_height", 0.05, 0.4, 0.01 },       .{ "filament.flow_ratio", 0.8, 1.2, 0.01 },
     .{ "filament.fan_speed", 0, 1, 0.05 },              .{ "filament.fan_max_speed", 0, 1, 0.05 },
@@ -1320,4 +1404,27 @@ test "app: cancel a slice" {
     app.stopWorkerForTest();
     const st = app.getState();
     try testing.expect(st == .ready or st == .done);
+}
+
+test "an override of the whole part changes the slice, and not the global settings" {
+    const gpa = testing.allocator;
+    var mesh = try zs.mesh.shapes.demo(gpa);
+    var bytes: std.Io.Writer.Allocating = .init(gpa);
+    defer bytes.deinit();
+    try mesh.writeStl(&bytes.writer);
+    mesh.deinit(gpa);
+    const app = try App.create(gpa, null, null);
+    defer app.destroy();
+    try app.loadStl("demo.stl", bytes.written());
+    // The layer height is not a layer setting, but the part can change it.
+    try testing.expectError(error.NotPerLayer, app.setOverride(1, 2, "project.layer_height", "0.3"));
+    try testing.expectError(error.NotPerLayer, app.setOverride(-1e6, 1e6, "machine.bed_size_x", "300"));
+    try app.setOverride(-1e6, 1e6, "project.layer_height", "0.3");
+    try app.startSlice();
+    app.stopWorkerForTest();
+    try testing.expectEqual(State.done, app.getState());
+    // 14 mm: a 0.3 mm first layer, then 46 layers of 0.3 mm (not 69 of
+    // 0.2 mm).
+    try testing.expectEqual(@as(usize, 47), app.allToolpaths().?.layer_ends.items.len);
+    try testing.expectEqual(@as(f64, 0.2), app.settings.project.layer_height);
 }

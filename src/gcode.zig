@@ -112,6 +112,8 @@ pub const Emitter = struct {
 
     pub fn layer(self: *Emitter, lp: *const LayerPlan) Writer.Error!void {
         const s = self.r.settings;
+        // The speeds and the ironing flow can change for each layer.
+        const lr = lp.resolved orelse self.r;
         const first = lp.index == 0;
         try self.w.print(";LAYER:{d}\n", .{lp.index});
         if (lp.index == 1 and s.filament.first_layer_nozzle_temp != s.filament.nozzle_temp) {
@@ -162,11 +164,11 @@ pub const Emitter = struct {
                 self.feature = path.feature;
                 try self.w.print(";TYPE:{s}\n", .{typeName(path.feature)});
             }
-            const full = self.r.speed(path.feature, lp.width, lp.height, first);
+            const full = lr.speed(path.feature, lp.width, lp.height, first);
             const speed = if (slow < 1) @max(full * slow, @min(full, s.filament.min_speed)) else full;
             const start_time = self.stats.print_time_s;
             // Ironing lines use a fraction of the flow of a normal line.
-            const e = if (path.feature == .ironing) e_per_mm * s.project.ironing_flow else e_per_mm;
+            const e = if (path.feature == .ironing) e_per_mm * lr.settings.project.ironing_flow else e_per_mm;
             for (pts[1..]) |q| try self.extrude(geom.toMm(q.x), geom.toMm(q.y), e, speed);
             if (path.closed and pts.len > 2) try self.extrude(geom.toMm(pts[0].x), geom.toMm(pts[0].y), e, speed);
             if (self.record) |rec| rec.appendAssumeCapacity(.{ .start_time = start_time, .end_time = self.stats.print_time_s, .area = e * self.r.filament_area, .retracted = retracted });
@@ -192,10 +194,11 @@ pub const Emitter = struct {
         var x = self.x;
         var y = self.y;
         const travel_speed = self.r.settings.machine.travel_speed;
+        const lr = lp.resolved orelse self.r;
         for (lp.paths.items, 0..) |path, i| {
             const pts = lp.points.get(i);
             if (pts.len == 0) continue;
-            const speed = self.r.speed(path.feature, lp.width, lp.height, first);
+            const speed = lr.speed(path.feature, lp.width, lp.height, first);
             var px = geom.toMm(pts[0].x);
             var py = geom.toMm(pts[0].y);
             est.travel_s += std.math.hypot(px - x, py - y) / travel_speed;

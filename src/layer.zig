@@ -64,6 +64,9 @@ pub const LayerPlan = struct {
     height: f64,
     /// The line width, in mm.
     width: f64,
+    /// The settings of this layer, with its overrides. The emitter uses
+    /// them for the speeds. Valid while the job lives.
+    resolved: ?*const Resolved = null,
     /// The outline of the layer.
     outline: Paths = .empty,
     /// One entry for each path in `points`, in print order.
@@ -90,6 +93,16 @@ pub const Context = struct {
     /// own slot, so plans of different layers can run on different
     /// threads.
     cache: []?Regions = &.{},
+    /// The settings of each layer with overrides: 0 for `resolved`, k for
+    /// `layer_resolved[k - 1]`. Empty: all layers use `resolved`.
+    layer_set: []const u16 = &.{},
+    layer_resolved: []const Resolved = &.{},
+
+    /// The settings of layer i, with its overrides.
+    pub fn resolvedAt(ctx: Context, i: usize) *const Resolved {
+        if (i < ctx.layer_set.len and ctx.layer_set[i] > 0) return &ctx.layer_resolved[ctx.layer_set[i] - 1];
+        return ctx.resolved;
+    }
 };
 
 /// The areas of a layer (steps 1 to 4): the wall loops, the skin area, and
@@ -112,7 +125,7 @@ pub const Regions = struct {
 /// Steps 1 to 4 for layer i. `gpa` must be thread-safe if more than one
 /// thread calls it at the same time.
 pub fn regions(gpa: Allocator, ctx: Context, i: usize) Allocator.Error!Regions {
-    const r = ctx.resolved;
+    const r = ctx.resolvedAt(i);
     const p = r.settings.project;
     const first = i == 0;
     const w = geom.fromMm(if (first) r.first_layer_line_width else r.line_width);
@@ -165,7 +178,7 @@ pub fn regions(gpa: Allocator, ctx: Context, i: usize) Allocator.Error!Regions {
 /// Plans layer `i`. `gpa` must be thread-safe if more than one thread plans
 /// layers at the same time. Call `deinit` on the result.
 pub fn plan(gpa: Allocator, ctx: Context, i: usize) Allocator.Error!LayerPlan {
-    const r = ctx.resolved;
+    const r = ctx.resolvedAt(i);
     const p = r.settings.project;
     const layer = ctx.layers[i];
     const first = i == 0;
@@ -175,6 +188,7 @@ pub fn plan(gpa: Allocator, ctx: Context, i: usize) Allocator.Error!LayerPlan {
     var lp: LayerPlan = .{
         .arena = .init(gpa),
         .index = @intCast(i),
+        .resolved = r,
         .z = layer.z,
         .height = layer.height,
         .width = width_mm,
@@ -236,8 +250,14 @@ pub fn plan(gpa: Allocator, ctx: Context, i: usize) Allocator.Error!LayerPlan {
     // Step 5.
     const skin_inset = -@divTrunc(w, 2) + geom.fromMm(p.skin_overlap * width_mm);
     const skin_region = try offset_mod.offset(s, skin, skin_inset, .{});
-    const skin_angle = p.infill_angle + @as(f64, if (i % 2 == 0) 0 else 90);
-    const skin_lines = try infill.lines(s, skin_region, w, skin_angle, w);
+    // Lines have no direction, so the angle is modulo 180 degrees.
+    const skin_angle = @mod(p.skin_angle + p.skin_angle_step * @as(f64, @floatFromInt(i)), 180);
+    var skin_lines: Paths = .empty;
+    var skin_loops: Paths = .empty;
+    switch (p.skin_pattern) {
+        .lines, .monotonic => skin_lines = try infill.lines(s, skin_region, w, skin_angle, w),
+        .concentric => skin_loops = try infill.concentric(s, skin_region, w),
+    }
 
     var sparse_lines: Paths = .empty;
     var sparse_loops: Paths = .empty;
@@ -332,7 +352,12 @@ pub fn plan(gpa: Allocator, ctx: Context, i: usize) Allocator.Error!LayerPlan {
         try addOrderedSeam(s, a, &lp, &pos, walls[k], true, .inner_wall, seam);
     }
     if (wall_n > 0) try addOrderedSeam(s, a, &lp, &pos, walls[0], true, .outer_wall, seam);
-    try addOrdered(s, a, &lp, &pos, skin_lines, false, .skin);
+    if (p.skin_pattern == .monotonic) {
+        try addMonotonic(s, a, &lp, &pos, skin_lines, skin_angle, .skin);
+    } else {
+        try addOrdered(s, a, &lp, &pos, skin_lines, false, .skin);
+    }
+    try addOrdered(s, a, &lp, &pos, skin_loops, true, .skin);
     try addOrdered(s, a, &lp, &pos, sparse_lines, false, .infill);
     try addOrdered(s, a, &lp, &pos, sparse_loops, true, .infill);
     try addOrdered(s, a, &lp, &pos, ironing_lines, false, .ironing);
@@ -427,6 +452,55 @@ fn stackedIntersection(s: Allocator, outlines: []const Paths, i: usize, n: u32, 
 }
 
 /// Adds the paths of `set` to the plan in greedy nearest-neighbor order.
+/// Adds parallel lines in monotonic order: from one side of the area to the
+/// other, by their place across the line direction. Each line starts at its
+/// end nearer to the nozzle, so the nozzle goes back and forth. Each line
+/// then lies against the line before it on the same side, and the surface
+/// has an even look. The side to start from is the side nearer to the
+/// nozzle.
+fn addMonotonic(s: Allocator, a: Allocator, lp: *LayerPlan, pos: *Point, set: Paths, angle_deg: f64, feature: Feature) Allocator.Error!void {
+    const n = set.count();
+    if (n == 0) return;
+    const rad = angle_deg * std.math.pi / 180.0;
+    // The normal of the lines.
+    const nx = -@sin(rad);
+    const ny = @cos(rad);
+    const Key = struct { across: f64, along: f64, i: usize };
+    const keys = try s.alloc(Key, n);
+    const ax = @cos(rad);
+    const ay = @sin(rad);
+    for (keys, 0..) |*k, i| {
+        const path = set.get(i);
+        const mx = (@as(f64, @floatFromInt(path[0].x)) + @as(f64, @floatFromInt(path[path.len - 1].x))) / 2;
+        const my = (@as(f64, @floatFromInt(path[0].y)) + @as(f64, @floatFromInt(path[path.len - 1].y))) / 2;
+        k.* = .{ .across = mx * nx + my * ny, .along = mx * ax + my * ay, .i = i };
+    }
+    std.mem.sort(Key, keys, {}, struct {
+        fn lt(_: void, x: Key, y: Key) bool {
+            if (x.across != y.across) return x.across < y.across;
+            return x.along < y.along;
+        }
+    }.lt);
+    // Start from the side nearer to the nozzle.
+    const p_across = @as(f64, @floatFromInt(pos.x)) * nx + @as(f64, @floatFromInt(pos.y)) * ny;
+    const reverse = @abs(p_across - keys[n - 1].across) < @abs(p_across - keys[0].across);
+    for (0..n) |k| {
+        const key = keys[if (reverse) n - 1 - k else k];
+        const path = set.get(key.i);
+        const flip = pos.distSq(path[path.len - 1]) < pos.distSq(path[0]);
+        if (flip) {
+            const rev = try s.alloc(Point, path.len);
+            for (path, 0..) |q, j| rev[path.len - 1 - j] = q;
+            try lp.points.append(a, rev);
+            pos.* = rev[rev.len - 1];
+        } else {
+            try lp.points.append(a, path);
+            pos.* = path[path.len - 1];
+        }
+        try lp.paths.append(a, .{ .feature = feature, .closed = false });
+    }
+}
+
 fn addOrdered(s: Allocator, a: Allocator, lp: *LayerPlan, pos: *Point, set: Paths, closed: bool, feature: Feature) Allocator.Error!void {
     return addOrderedSeam(s, a, lp, pos, set, closed, feature, null);
 }
@@ -670,4 +744,30 @@ test "seam placement" {
     try testing.expectEqual(@as(usize, 90), seamIndex(&circle, .sharpest, 0));
     // Random is the same for the same salt.
     try testing.expectEqual(seamIndex(&circle, .random, 7), seamIndex(&circle, .random, 7));
+}
+
+test "monotonic skin: the lines go from one side to the other" {
+    const gpa = testing.allocator;
+    var lp: LayerPlan = .{ .arena = .init(gpa), .index = 0, .z = 0.2, .height = 0.2, .width = 0.4 };
+    defer lp.deinit();
+    var scratch = std.heap.ArenaAllocator.init(gpa);
+    defer scratch.deinit();
+    const s = scratch.allocator();
+    // Four horizontal lines (angle 0) out of order: y = 2, 0, 3, 1.
+    var set: Paths = .empty;
+    for ([_]i64{ 2, 0, 3, 1 }) |y| try set.append(s, &.{ .init(0, y * 1000), .init(10000, y * 1000) });
+    var pos: Point = .init(0, -5000);
+    try addMonotonic(s, lp.arena.allocator(), &lp, &pos, set, 0, .skin);
+    // From the side of the nozzle (low y), in order, back and forth.
+    var last_y: i64 = -1;
+    for (0..4) |i| {
+        const path = lp.points.get(i);
+        try testing.expect(path[0].y > last_y);
+        last_y = path[0].y;
+        // Each line starts at the end nearer to the end of the line before.
+        if (i > 0) {
+            const prev = lp.points.get(i - 1);
+            try testing.expectEqual(prev[prev.len - 1].x, path[0].x);
+        }
+    }
 }

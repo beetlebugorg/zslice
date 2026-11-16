@@ -35,6 +35,9 @@ static const char *ZG_CSS =
     /* The compact rows of the inspector. */
     "entry.zg-compact { min-height: 26px; padding-top: 0; padding-bottom: 0; }"
     ".zg-insp-title { font-size: 1.1em; }"
+    "label.zg-overridden { color: @accent_color; font-weight: bold; }"
+    "progressbar.zg-thin trough, progressbar.zg-thin progress { min-height: 3px; }"
+    "button.zg-reset { min-height: 20px; min-width: 20px; padding: 0; }"
     /* The controls that float over the preview. */
     ".zg-float { background: alpha(@theme_bg_color, 0.88); border-radius: 10px; padding: 4px;"
     "  box-shadow: 0 1px 4px alpha(black, 0.25); }"

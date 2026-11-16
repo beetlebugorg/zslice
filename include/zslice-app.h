@@ -101,6 +101,8 @@ typedef struct zs_setting_info {
                                       is ZS_OUT_OF_RANGE; equal: none */
     double slider_step;            /* the step of the slider (0.01 mm for a
                                       layer height), in core units */
+    int per_layer;                 /* 1: the setting can change for some
+                                      layers (zs_app_override_set) */
 } zs_setting_info;
 
 /* The settings, in the order to show them. */
@@ -255,6 +257,23 @@ int zs_app_feature_stats(const zs_app *app, zs_feature_stats *out);
 /* The strings stay valid until the next zs_app_inspect, the next slice, or
  * zs_app_free. */
 int zs_app_inspect(zs_app *app, size_t path, zs_inspect *out);
+/* ---- settings for some layers ---- */
+
+/* Changes a setting for the layers with a top z from z_min to z_max (mm),
+ * for example only the layer of a selection. The z range, and not layer
+ * numbers, keeps the change on the same part of the print after a change
+ * of the layer height. Only settings with per_layer can change. An
+ * override with the same range and setting is replaced. The next slice
+ * uses it (zs_app_request_slice). A new model clears all overrides. */
+int zs_app_override_set(zs_app *app, double z_min, double z_max, const char *name, const char *value);
+/* Removes the overrides of a setting that cover z. Returns how many. */
+size_t zs_app_override_clear_at(zs_app *app, double z, const char *name);
+/* 1 if an override of the setting covers z. */
+int zs_app_override_at(const zs_app *app, double z, const char *name);
+/* The value of a setting for the layers at z, with the overrides. The same
+ * buffer rules as zs_app_setting_get. */
+int zs_app_setting_get_at(const zs_app *app, double z, const char *name, char *buf, size_t cap, size_t *out_len);
+
 /* ---- saved state ---- */
 
 enum zs_group { ZS_GROUP_MACHINE = 0, ZS_GROUP_FILAMENT = 1, ZS_GROUP_PROJECT = 2 };

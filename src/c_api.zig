@@ -305,6 +305,7 @@ pub const SettingInfo = extern struct {
     limit_min: f64,
     limit_max: f64,
     slider_step: f64,
+    per_layer: c_int,
 };
 
 export fn zs_setting_count() usize {
@@ -331,6 +332,7 @@ export fn zs_setting_get_info(index: usize, out: ?*SettingInfo) c_int {
         .limit_min = s.limit_min,
         .limit_max = s.limit_max,
         .slider_step = s.slider_step,
+        .per_layer = @intFromBool(s.per_layer),
     };
     return ok;
 }
@@ -575,6 +577,48 @@ export fn zs_app_feature_stats(a: ?*const App, out: ?[*]FeatureStats) c_int {
     const o = out orelse return @intFromEnum(Status.invalid_argument);
     const stats = app.featureStats() orelse return @intFromEnum(Status.no_result);
     for (stats, 0..) |s, i| o[i] = .{ .time_s = s.time, .length_mm = s.length, .volume_mm3 = s.volume, .paths = s.paths };
+    return ok;
+}
+
+/// Changes a setting for the layers with a top z from z_min to z_max (mm).
+export fn zs_app_override_set(a: ?*App, z_min: f64, z_max: f64, name: ?[*:0]const u8, value: ?[*:0]const u8) c_int {
+    const app = a orelse return @intFromEnum(Status.invalid_argument);
+    const n = std.mem.span(name orelse return @intFromEnum(Status.invalid_argument));
+    const v = std.mem.span(value orelse return @intFromEnum(Status.invalid_argument));
+    app.setOverride(z_min, z_max, n, v) catch |e| return switch (e) {
+        error.NotPerLayer => @intFromEnum(Status.invalid_argument),
+        else => status(e),
+    };
+    return ok;
+}
+
+/// Removes the overrides of a setting that cover z. Returns how many.
+export fn zs_app_override_clear_at(a: ?*App, z: f64, name: ?[*:0]const u8) usize {
+    const app = a orelse return 0;
+    return app.clearOverridesAt(z, std.mem.span(name orelse return 0));
+}
+
+export fn zs_app_override_at(a: ?*const App, z: f64, name: ?[*:0]const u8) c_int {
+    const app = a orelse return 0;
+    return @intFromBool(app.hasOverrideAt(z, std.mem.span(name orelse return 0)));
+}
+
+/// The value of a setting for the layers at z, with the overrides. The
+/// same buffer rules as zs_app_setting_get.
+export fn zs_app_setting_get_at(a: ?*const App, z: f64, name: ?[*:0]const u8, buf: ?[*]u8, cap: usize, out_len: ?*usize) c_int {
+    const app = a orelse return @intFromEnum(Status.invalid_argument);
+    const n = std.mem.span(name orelse return @intFromEnum(Status.invalid_argument));
+    var aw: Writer.Allocating = .init(gpa);
+    defer aw.deinit();
+    app.getSettingAt(z, n, &aw.writer) catch |e| return status(e);
+    const text = aw.written();
+    if (out_len) |l| l.* = text.len;
+    if (buf) |b| {
+        if (cap == 0) return ok;
+        const k = @min(text.len, cap - 1);
+        @memcpy(b[0..k], text[0..k]);
+        b[k] = 0;
+    }
     return ok;
 }
 

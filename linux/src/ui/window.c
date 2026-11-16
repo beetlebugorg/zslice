@@ -53,9 +53,9 @@ static void update(Window *w) {
      * export button stays on too (an export waits for the new result). */
     gboolean have_result = state == ZS_STATE_DONE || (state == ZS_STATE_SLICING && w->last_stats);
     gtk_widget_set_sensitive(w->export_button, have_result);
-    /* The bar keeps its space. It shows only for a slow slice (see
-     * show_progress). */
-    if (state != ZS_STATE_SLICING) gtk_widget_set_opacity(w->progress, 0);
+    /* A thin bar that is always there: full when the slice is done. */
+    if (state == ZS_STATE_DONE) gtk_progress_bar_set_fraction(GTK_PROGRESS_BAR(w->progress), 1);
+    if (state == ZS_STATE_EMPTY || state == ZS_STATE_FAILED) gtk_progress_bar_set_fraction(GTK_PROGRESS_BAR(w->progress), 0);
     if (state == ZS_STATE_SLICING) gtk_widget_add_css_class(w->status, "zg-stale");
     else gtk_widget_remove_css_class(w->status, "zg-stale");
 
@@ -76,8 +76,14 @@ static void update(Window *w) {
         zs_app_stats(core, &st);
         char t[32];
         format_time(t, sizeof t, st.print_time_s);
-        g_snprintf(text, sizeof text, "%u layers   %.2f m filament (%.1f g)   about %s",
-                   st.layer_count, st.filament_mm / 1000.0, st.filament_g, t);
+        double ms = zg_model_slice_ms(w->model);
+        char took[48] = "";
+        if (ms > 0) {
+            if (ms < 1000) g_snprintf(took, sizeof took, "   sliced in %.0f ms", ms);
+            else g_snprintf(took, sizeof took, "   sliced in %.1f s", ms / 1000);
+        }
+        g_snprintf(text, sizeof text, "%u layers   %.2f m filament (%.1f g)   about %s%s",
+                   st.layer_count, st.filament_mm / 1000.0, st.filament_g, t, took);
         g_free(w->last_stats);
         w->last_stats = g_strdup(text);
         break;
@@ -96,8 +102,6 @@ static void on_core_event(ZgModel *model, int event, double progress, int status
     Window *w = data;
     if (event == ZS_EVENT_PROGRESS) {
         gtk_progress_bar_set_fraction(GTK_PROGRESS_BAR(w->progress), progress);
-        /* A fast slice shows no bar; a slow one shows it after a while. */
-        if (progress > 0.15 && progress < 0.9) gtk_widget_set_opacity(w->progress, 1);
         if (zs_app_state(zg_model_core(model)) == ZS_STATE_SLICING) return;
     }
     if (event == ZS_EVENT_FAILED) {
@@ -259,6 +263,22 @@ static void window_free(gpointer data) {
     g_free(w);
 }
 
+/* The start width of the settings panel, after the window has its size. */
+static gboolean place_paned(gpointer data) {
+    GtkWidget *paned = data;
+    /* The position is the width of the start child (the preview). */
+    int width = gtk_widget_get_width(paned);
+    if (width > 800) gtk_paned_set_position(GTK_PANED(paned), width - 560);
+    g_object_unref(paned);
+    return G_SOURCE_REMOVE;
+}
+
+static void on_paned_map(GtkWidget *paned, gpointer data) {
+    if (g_object_get_data(G_OBJECT(paned), "zg-placed")) return;
+    g_object_set_data(G_OBJECT(paned), "zg-placed", GINT_TO_POINTER(1));
+    g_timeout_add(30, place_paned, g_object_ref(paned));
+}
+
 GtkWindow *zg_window_new(GtkApplication *app, ZgModel *model) {
     Window *w = g_new0(Window, 1);
     w->model = g_object_ref(model);
@@ -300,15 +320,18 @@ GtkWindow *zg_window_new(GtkApplication *app, ZgModel *model) {
     GtkWidget *paned = gtk_paned_new(GTK_ORIENTATION_HORIZONTAL);
     GtkWidget *panel = zg_settings_panel_new(model);
     gtk_widget_add_css_class(panel, "zg-panel");
-    gtk_paned_set_start_child(GTK_PANED(paned), panel);
-    gtk_paned_set_end_child(GTK_PANED(paned), w->preview);
-    gtk_paned_set_resize_start_child(GTK_PANED(paned), FALSE);
+    /* The model on the left, the settings on the right, as in other
+     * slicers. */
+    gtk_paned_set_start_child(GTK_PANED(paned), w->preview);
+    gtk_paned_set_end_child(GTK_PANED(paned), panel);
+    gtk_paned_set_resize_end_child(GTK_PANED(paned), FALSE);
     gtk_paned_set_shrink_start_child(GTK_PANED(paned), FALSE);
     gtk_paned_set_shrink_end_child(GTK_PANED(paned), FALSE);
     gtk_paned_set_wide_handle(GTK_PANED(paned), TRUE);
     /* The start width of the settings panel: the last two columns of the
-     * settings browser. The user can drag it to 220. */
-    gtk_paned_set_position(GTK_PANED(paned), 560);
+     * settings browser. The user can drag it to 220. The position is from
+     * the left, so it is set when the width of the window is known. */
+    g_signal_connect(paned, "map", G_CALLBACK(on_paned_map), NULL);
     gtk_widget_set_vexpand(paned, TRUE);
 
     /* Status bar. */
@@ -317,7 +340,9 @@ GtkWindow *zg_window_new(GtkApplication *app, ZgModel *model) {
     gtk_widget_set_hexpand(w->status, TRUE);
     gtk_widget_add_css_class(w->status, "numeric");
     w->progress = gtk_progress_bar_new();
-    gtk_widget_set_size_request(w->progress, 200, -1);
+    gtk_widget_set_size_request(w->progress, 120, -1);
+    gtk_widget_add_css_class(w->progress, "zg-thin");
+    gtk_widget_set_tooltip_text(w->progress, "The progress of the slice.");
     gtk_widget_set_valign(w->progress, GTK_ALIGN_CENTER);
     GtkWidget *bar = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 12);
     gtk_widget_add_css_class(bar, "zg-status");

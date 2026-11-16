@@ -246,6 +246,18 @@ The thickness of solid skin under each top surface.
 
 The thickness of solid skin above each bottom surface.
 
+**`project.skin_pattern`** (one of: `lines`, `monotonic`, `concentric`). Default: `lines`
+
+How the skin is filled. `lines`: parallel lines in the nearest order. `monotonic`: parallel lines from one side to the other, so each line lies against the line before it in the same way; the top has an even sheen. `concentric`: loops that follow the outline.
+
+**`project.skin_angle`** (number). Default: `45`
+
+The direction of the skin lines on the first layer, in degrees from the X axis. Ironing goes at a right angle to the top skin.
+
+**`project.skin_angle_step`** (number). Default: `90`
+
+How much the skin direction turns from one layer to the next, in degrees. 90 crosses the lines of each layer with the layer below.
+
 **`project.skin_overlap`** (number). Default: `0.15`
 
 Skin lines go this far into the walls, as a fraction of the line width, so that the skin bonds to the walls.

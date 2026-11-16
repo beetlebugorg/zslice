@@ -118,6 +118,9 @@ pub const Job = struct {
     regions: []?layer_mod.Regions = &.{},
     /// A hash of the settings that change the regions (`regionKey`).
     region_key: u64 = 0,
+    /// The settings of the layers with overrides (see layer.Context).
+    layer_set: []u16 = &.{},
+    layer_resolved: []settings_mod.Resolved = &.{},
 
     /// Steps 1 to 4.
     pub fn init(gpa: Allocator, mesh: *const Mesh, settings: Settings) Error!Job {
@@ -127,6 +130,62 @@ pub const Job = struct {
     /// `init`, with progress and cancel hooks. `writeGcode` uses the same
     /// hooks.
     pub fn initWith(gpa: Allocator, mesh: *const Mesh, settings: Settings, monitor: Monitor) Error!Job {
+        return initFull(gpa, mesh, settings, &.{}, monitor);
+    }
+
+    /// `initWith`, with overrides for z ranges (see settings.Override).
+    /// Only settings.layer_settings can have overrides. The strings of the
+    /// overrides must live as long as the job.
+    pub fn initFull(gpa: Allocator, mesh: *const Mesh, settings: Settings, overrides: []const settings_mod.Override, monitor: Monitor) Error!Job {
+        for (overrides) |o| if (!settings_mod.isLayerSetting(o.name)) return error.InvalidSettings;
+        var job = try initBase(gpa, mesh, settings, monitor);
+        errdefer job.deinit();
+        if (overrides.len > 0) try job.resolveLayers(settings, overrides);
+        return job;
+    }
+
+    /// The settings of each layer: one Resolved for each set of overrides.
+    fn resolveLayers(self: *Job, settings: Settings, overrides: []const settings_mod.Override) Error!void {
+        const gpa = self.gpa;
+        self.layer_set = try gpa.alloc(u16, self.layers.len);
+        @memset(self.layer_set, 0);
+        var sets: std.ArrayList(u64) = .empty;
+        defer sets.deinit(gpa);
+        var list: std.ArrayList(settings_mod.Resolved) = .empty;
+        errdefer list.deinit(gpa);
+        for (self.layers, 0..) |layer, i| {
+            // A bit for each override that covers the layer.
+            var mask: u64 = 0;
+            for (overrides, 0..) |o, k| if (k < 64 and o.covers(layer.z)) {
+                mask |= @as(u64, 1) << @intCast(k);
+            };
+            if (mask == 0) continue;
+            const found = std.mem.indexOfScalar(u64, sets.items, mask);
+            if (found) |f| {
+                self.layer_set[i] = @intCast(f + 1);
+                continue;
+            }
+            const s = settings_mod.withOverrides(settings, overrides, layer.z) catch return error.InvalidSettings;
+            const r = s.resolve() catch return error.InvalidSettings;
+            try sets.append(gpa, mask);
+            try list.append(gpa, r);
+            self.layer_set[i] = @intCast(list.items.len);
+        }
+        self.layer_resolved = try list.toOwnedSlice(gpa);
+        // The overrides that change the regions go into the key.
+        var h = std.hash.Wyhash.init(self.region_key);
+        var any = false;
+        for (overrides) |o| if (!isLateName(o.name)) {
+            any = true;
+            h.update(o.name);
+            h.update(o.value);
+            h.update(std.mem.asBytes(&o.z_min));
+            h.update(std.mem.asBytes(&o.z_max));
+        };
+        if (any) self.region_key = h.final();
+    }
+
+    fn initBase(gpa: Allocator, mesh: *const Mesh, settings: Settings, monitor: Monitor) Error!Job {
         // Step 1.
         const r = settings.resolve() catch return error.InvalidSettings;
         const threads = parallel.threadCount(settings.engine.threads);
@@ -269,6 +328,8 @@ pub const Job = struct {
     }
 
     pub fn deinit(self: *Job) void {
+        self.gpa.free(self.layer_set);
+        self.gpa.free(self.layer_resolved);
         for (self.regions) |*reg| if (reg.*) |*rg| rg.deinit();
         self.gpa.free(self.regions);
         if (self.support.len > 0) support_mod.deinitAll(self.gpa, self.support);
@@ -282,7 +343,21 @@ pub const Job = struct {
     }
 
     fn planContext(self: *const Job) layer_mod.Context {
-        return .{ .resolved = &self.resolved, .layers = self.layers, .outlines = self.outlines, .support = self.support, .cache = self.regions };
+        return .{
+            .resolved = &self.resolved,
+            .layers = self.layers,
+            .outlines = self.outlines,
+            .support = self.support,
+            .cache = self.regions,
+            .layer_set = self.layer_set,
+            .layer_resolved = self.layer_resolved,
+        };
+    }
+
+    /// The settings of layer i, with its overrides.
+    pub fn resolvedAt(self: *const Job, i: usize) *const settings_mod.Resolved {
+        if (i < self.layer_set.len and self.layer_set[i] > 0) return &self.layer_resolved[self.layer_set[i] - 1];
+        return &self.resolved;
     }
 
     /// The plan of layer i. Call `deinit` on the result.
@@ -599,6 +674,7 @@ const late_settings = [_][]const u8{
     // project: the fill, the speeds, ironing, travel, support, skirt
     "project.infill_density",           "project.infill_pattern",     "project.infill_angle",
     "project.infill_overlap",           "project.skin_overlap",       "project.ironing",
+    "project.skin_pattern",             "project.skin_angle",         "project.skin_angle_step",
     "project.ironing_flow",             "project.ironing_spacing",    "project.ironing_inset",
     "project.ironing_speed",            "project.outer_wall_speed",   "project.inner_wall_speed",
     "project.skin_speed",               "project.infill_speed",       "project.first_layer_speed",
@@ -622,6 +698,11 @@ const late_settings = [_][]const u8{
     // engine
     "engine.threads",                   "engine.job_name",
 };
+
+fn isLateName(name: []const u8) bool {
+    for (late_settings) |n| if (std.mem.eql(u8, n, name)) return true;
+    return false;
+}
 
 fn isLate(comptime name: []const u8) bool {
     @setEvalBranchQuota(100_000);
@@ -675,6 +756,47 @@ fn firstX(g: []const u8) f64 {
     const rest = g[i + 4 ..];
     const end = std.mem.indexOfScalar(u8, rest, ' ').?;
     return std.fmt.parseFloat(f64, rest[0..end]) catch unreachable;
+}
+
+test "an override changes only its layers, and keeps the region cache" {
+    const gpa = std.testing.allocator;
+    var mesh = try mesh_mod.shapes.demo(gpa);
+    defer mesh.deinit(gpa);
+    const s: Settings = .{};
+    var base = try Job.init(gpa, &mesh, s);
+    defer base.deinit();
+    const o = [_]settings_mod.Override{.{ .z_min = 3, .z_max = 4, .name = "project.infill_density", .value = "0.6" }};
+    var job = try Job.initFull(gpa, &mesh, s, &o, .{});
+    defer job.deinit();
+    // An infill override does not change the region key.
+    try std.testing.expectEqual(base.region_key, job.region_key);
+    var in_range: usize = 0;
+    for (job.layers, 0..) |layer, i| {
+        const d = job.resolvedAt(i).settings.project.infill_density;
+        if (layer.z >= 3 and layer.z <= 4) {
+            try std.testing.expectEqual(@as(f64, 0.6), d);
+            in_range += 1;
+        } else try std.testing.expectEqual(@as(f64, 0.2), d);
+    }
+    try std.testing.expect(in_range > 3);
+    // A layer in the range has more infill lines than without the override.
+    const i_mid = blk: {
+        for (job.layers, 0..) |layer, i| if (layer.z >= 3.4) break :blk i;
+        unreachable;
+    };
+    var a = try base.planLayer(i_mid);
+    defer a.deinit();
+    var b = try job.planLayer(i_mid);
+    defer b.deinit();
+    try std.testing.expect(b.count() > a.count());
+    // A wall override changes the key; a setting for the whole print is an
+    // error.
+    const w = [_]settings_mod.Override{.{ .z_min = 3, .z_max = 4, .name = "project.wall_count", .value = "3" }};
+    var job2 = try Job.initFull(gpa, &mesh, s, &w, .{});
+    defer job2.deinit();
+    try std.testing.expect(job2.region_key != base.region_key);
+    const bad = [_]settings_mod.Override{.{ .z_min = 3, .z_max = 4, .name = "project.layer_height", .value = "0.1" }};
+    try std.testing.expectError(error.InvalidSettings, Job.initFull(gpa, &mesh, s, &bad, .{}));
 }
 
 test "region key: late settings do not change it" {

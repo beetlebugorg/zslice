@@ -105,7 +105,11 @@ The goal is the features that people use in PrusaSlicer and Cura. zslice designs
 - [x] Slider steps that people use (0.01 mm for a layer height, 5 degrees for a temperature), with a tick at the default
 - [ ] Faster skin regions: a sliding window for the stacked intersection, then SIMD in the boolean
 - [x] Machine origin: the G-code position of the front left bed corner (center origin printers, Cura machine_center_is_zero)
-- [ ] Top and bottom skin patterns: monotonic, concentric, lines (now: lines in nearest order)
+- [x] Top and bottom skin patterns: lines, monotonic, concentric; the skin angle and its turn per layer
+- [x] Changes for the part (inline): for all its layers, or for some layers (overrides by z range); the Settings page has the defaults for all prints
+- [ ] 3MF: save the parts with their changes and overrides; with more than one STL, one new 3MF with all of them
+- [ ] Preferences window: printers (more than one), connections (USB, OctoPrint, Moonraker, printdeck), global app settings
+- [ ] Combing: travel inside the part over the infill and the inner walls, with no retraction, and faster
 - [ ] Preview color modes: feature, speed, flow, layer time, line width, layer height, filament color
 - [ ] Ironing in the preview: the ironed top skin looks flat; the inspector shows what ironing costs in time
 - [ ] Plate: more than one part, move and rotate parts, a best placement that orients each part for less support and packs the parts to use the bed

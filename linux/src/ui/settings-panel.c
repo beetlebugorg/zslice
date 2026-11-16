@@ -58,6 +58,12 @@ static const char *key_of(GtkWidget *w) {
     return g_object_get_data(G_OBJECT(w), "zg-key");
 }
 
+/* An editor of the inspector: it follows the scope of the model (all
+ * layers, or the layers of the selection). */
+static gboolean is_scoped(GtkWidget *w) {
+    return g_object_get_data(G_OBJECT(w), "zg-scoped") != NULL;
+}
+
 static int kind_of(GtkWidget *w) {
     return GPOINTER_TO_INT(g_object_get_data(G_OBJECT(w), "zg-kind"));
 }
@@ -124,7 +130,7 @@ static char *range_text(const zs_setting_info *info, double lo, double hi) {
 static void show_unusual(GtkWidget *editor) {
     const zs_setting_info *info = info_of(editor);
     if (!info || !is_number(editor) || !(info->slider_max > info->slider_min)) return;
-    char *value = zg_model_get(model_of(editor), key_of(editor));
+    char *value = zg_model_get_for(model_of(editor), key_of(editor), is_scoped(editor));
     gboolean unusual = parses_as_number(value) &&
                        (g_ascii_strtod(value, NULL) < info->slider_min - 1e-9 || g_ascii_strtod(value, NULL) > info->slider_max + 1e-9);
     g_free(value);
@@ -165,7 +171,7 @@ static gboolean commit_value(GtkWidget *editor, const char *text, gboolean quiet
             return FALSE;
         }
     }
-    char *old = zg_model_get(model_of(editor), key_of(editor));
+    char *old = zg_model_get_for(model_of(editor), key_of(editor), is_scoped(editor));
     gboolean same = g_strcmp0(old, value) == 0;
     if (!same && is_number(editor) && parses_as_number(old) && parses_as_number(value)) {
         same = g_ascii_strtod(old, NULL) == g_ascii_strtod(value, NULL);
@@ -174,7 +180,7 @@ static gboolean commit_value(GtkWidget *editor, const char *text, gboolean quiet
     gboolean ok = TRUE;
     if (same) {
         gtk_widget_remove_css_class(editor, "error");
-    } else if (zg_model_set(model_of(editor), key_of(editor), value, &error)) {
+    } else if (zg_model_set_for(model_of(editor), key_of(editor), value, is_scoped(editor), &error)) {
         gtk_widget_remove_css_class(editor, "error");
         gtk_widget_set_tooltip_text(editor, g_object_get_data(G_OBJECT(editor), "zg-doc"));
         show_unusual(editor);
@@ -399,7 +405,7 @@ static void on_dropdown(GObject *dd, GParamSpec *pspec, gpointer data) {
 /* Shows the value of the core in an editor, after a set from an other
  * editor of the same setting. An editor with the focus keeps its text. */
 static void show_value(GtkWidget *editor) {
-    char *value = zg_model_get(model_of(editor), key_of(editor));
+    char *value = zg_model_get_for(model_of(editor), key_of(editor), is_scoped(editor));
     if (GTK_IS_SWITCH(editor)) {
         gboolean on = strcmp(value, "true") == 0;
         if (gtk_switch_get_active(GTK_SWITCH(editor)) != on) gtk_switch_set_active(GTK_SWITCH(editor), on);
@@ -458,12 +464,13 @@ static void on_editor_destroy(GtkWidget *editor, gpointer data) {
     cancel_live(editor);
 }
 
-static GtkWidget *make_editor(ZgModel *model, const zs_setting_info *info) {
-    char *value = zg_model_get(model, info->name);
+static GtkWidget *make_editor(ZgModel *model, const zs_setting_info *info, gboolean scoped) {
+    char *value = zg_model_get_for(model, info->name, scoped);
     GtkWidget *editor = NULL;
     switch (info->kind) {
     case ZS_SETTING_BOOLEAN:
         editor = gtk_switch_new();
+        if (scoped) g_object_set_data(G_OBJECT(editor), "zg-scoped", GINT_TO_POINTER(1));
         gtk_switch_set_active(GTK_SWITCH(editor), strcmp(value, "true") == 0);
         gtk_widget_set_halign(editor, GTK_ALIGN_END);
         tag(editor, model, info);
@@ -472,6 +479,7 @@ static GtkWidget *make_editor(ZgModel *model, const zs_setting_info *info) {
     case ZS_SETTING_CHOICE: {
         char **choices = g_strsplit(info->choices, "\n", -1);
         editor = gtk_drop_down_new_from_strings((const char *const *)choices);
+        if (scoped) g_object_set_data(G_OBJECT(editor), "zg-scoped", GINT_TO_POINTER(1));
         for (guint i = 0; choices[i]; i++) {
             if (strcmp(choices[i], value) == 0) gtk_drop_down_set_selected(GTK_DROP_DOWN(editor), i);
         }
@@ -483,6 +491,7 @@ static GtkWidget *make_editor(ZgModel *model, const zs_setting_info *info) {
     case ZS_SETTING_TEXT:
         if (info->multiline) {
             editor = gtk_text_view_new();
+            if (scoped) g_object_set_data(G_OBJECT(editor), "zg-scoped", GINT_TO_POINTER(1));
             gtk_text_view_set_monospace(GTK_TEXT_VIEW(editor), TRUE);
             gtk_text_buffer_set_text(gtk_text_view_get_buffer(GTK_TEXT_VIEW(editor)), value, -1);
             tag(editor, model, info);
@@ -493,6 +502,7 @@ static GtkWidget *make_editor(ZgModel *model, const zs_setting_info *info) {
         G_GNUC_FALLTHROUGH;
     default: {
         editor = gtk_entry_new();
+        if (scoped) g_object_set_data(G_OBJECT(editor), "zg-scoped", GINT_TO_POINTER(1));
         tag(editor, model, info);
         char *shown = to_display(editor, value);
         gtk_editable_set_text(GTK_EDITABLE(editor), shown);
@@ -577,6 +587,54 @@ static void watch_focus(GtkWidget *w, GtkWidget *revealer) {
     gtk_widget_add_controller(w, focus);
 }
 
+/* The scope look of an inspector row: in a layer scope, a setting for the
+ * whole print is off, and a setting with an override of this layer has
+ * the accent color and a reset button. */
+static void show_scope(GtkWidget *editor) {
+    ZgModel *model = model_of(editor);
+    const zs_setting_info *info = info_of(editor);
+    GtkWidget *label = g_object_get_data(G_OBJECT(editor), "zg-label");
+    GtkWidget *reset = g_object_get_data(G_OBJECT(editor), "zg-reset");
+    double z_min = 0;
+    gboolean layer_scope = zg_model_scope(model, &z_min, NULL, NULL);
+    /* The whole part: the project and filament settings. Some layers: the
+     * settings that can change from layer to layer. */
+    gboolean whole = z_min <= -1e5;
+    gboolean usable = !layer_scope || (info && (whole ? (strcmp(info->group, "project") == 0 || strcmp(info->group, "filament") == 0)
+                                                      : info->per_layer));
+    gtk_widget_set_sensitive(editor, usable);
+    if (label) gtk_widget_set_sensitive(label, usable);
+    gboolean over = layer_scope && zg_model_overridden(model, key_of(editor));
+    if (label) {
+        if (over) gtk_widget_add_css_class(label, "zg-overridden");
+        else gtk_widget_remove_css_class(label, "zg-overridden");
+    }
+    if (reset) {
+        gtk_widget_set_opacity(reset, over ? 1 : 0);
+        gtk_widget_set_sensitive(reset, over);
+    }
+    if (!usable) {
+        gtk_widget_set_tooltip_text(editor, whole ? "A printer setting: change it in the Settings page."
+                                                  : "A setting for the whole part: it cannot change for some layers. Set \"Change for\" to This part.");
+    }
+}
+
+static void on_scope_changed(ZgModel *model, gpointer data) {
+    GtkWidget *editor = data;
+    show_scope(editor);
+    show_value(editor);
+}
+
+static void on_scope_setting(ZgModel *model, const char *key, gpointer data) {
+    GtkWidget *editor = data;
+    if (g_strcmp0(key, key_of(editor)) == 0) show_scope(editor);
+}
+
+static void on_reset_override(GtkButton *button, gpointer data) {
+    GtkWidget *editor = data;
+    zg_model_clear_override(model_of(editor), key_of(editor));
+}
+
 static Row *add_row(GtkWidget *grid, int *row, ZgModel *model, const zs_setting_info *info, int flags) {
     gboolean compact = flags & ROW_COMPACT;
     GtkWidget *label = gtk_label_new(info->label);
@@ -595,7 +653,7 @@ static Row *add_row(GtkWidget *grid, int *row, ZgModel *model, const zs_setting_
     Row *r = g_new0(Row, 1);
     r->needle = g_utf8_strdown(info->label, -1);
     r->widgets[0] = label;
-    GtkWidget *editor = make_editor(model, info);
+    GtkWidget *editor = make_editor(model, info, compact);
     if (compact) gtk_widget_add_css_class(editor, "zg-compact");
     gboolean number = info->kind == ZS_SETTING_NUMBER || info->kind == ZS_SETTING_INTEGER;
     if (number) add_scrub(label, editor);
@@ -611,6 +669,21 @@ static Row *add_row(GtkWidget *grid, int *row, ZgModel *model, const zs_setting_
     }
     gtk_grid_attach(GTK_GRID(grid), label, 0, *row, 1, 1);
     r->widgets[1] = editor;
+    if (compact) {
+        /* The scope: a reset button for an override of this layer. */
+        GtkWidget *reset = gtk_button_new_from_icon_name("edit-undo-symbolic");
+        gtk_widget_add_css_class(reset, "flat");
+        gtk_widget_add_css_class(reset, "zg-reset");
+        gtk_widget_set_tooltip_text(reset, "Remove the change for these layers: use the value for all layers.");
+        gtk_widget_set_valign(reset, GTK_ALIGN_CENTER);
+        g_signal_connect(reset, "clicked", G_CALLBACK(on_reset_override), editor);
+        gtk_grid_attach(GTK_GRID(grid), reset, 3, *row, 1, 1);
+        g_object_set_data(G_OBJECT(editor), "zg-label", label);
+        g_object_set_data(G_OBJECT(editor), "zg-reset", reset);
+        g_signal_connect_object(model, "scope-changed", G_CALLBACK(on_scope_changed), editor, 0);
+        g_signal_connect_object(model, "setting-changed", G_CALLBACK(on_scope_setting), editor, 0);
+        show_scope(editor);
+    }
     if (number) {
         gtk_grid_attach(GTK_GRID(grid), editor, 1, *row, 1, 1);
         GtkWidget *unit = gtk_label_new(info->unit);
@@ -676,6 +749,11 @@ typedef struct {
     GtkWidget *stat_value[3];
     GtkWidget *stat_note;  /* a revealer */
     GtkWidget *explain;
+    /* The scope of the edits: 0 all layers, 1 this layer, 2 this layer
+     * and up, 3 this layer and down. It stays for the next selection. */
+    int scope_mode;
+    double scope_z;
+    GtkWidget *scope_dd;
     /* The filter: the rows, and the section expanders. */
     GtkWidget *filter;
     GPtrArray *rows;
@@ -763,7 +841,29 @@ static void show_stats(Inspector *ins, const zs_inspect *info) {
     gtk_revealer_set_reveal_child(GTK_REVEALER(ins->stat_note), slowed);
 }
 
+/* Sends the scope to the model, for the z of the selection. */
+static void apply_scope(Inspector *ins) {
+    double z = ins->scope_z;
+    /* Inline changes are always for the loaded part: an override of the
+     * whole part, or of some layers. The defaults for all prints are in
+     * the Settings page. */
+    switch (ins->scope_mode) {
+    case 1: zg_model_set_scope(ins->model, TRUE, z, z, z); break;
+    case 2: zg_model_set_scope(ins->model, TRUE, z, 1e6, z); break;
+    case 3: zg_model_set_scope(ins->model, TRUE, -1e6, z, z); break;
+    default: zg_model_set_scope(ins->model, TRUE, -1e6, 1e6, z); break;
+    }
+}
+
+static void on_scope_dd(GObject *dd, GParamSpec *pspec, gpointer data) {
+    Inspector *ins = data;
+    ins->scope_mode = (int)gtk_drop_down_get_selected(GTK_DROP_DOWN(dd));
+    apply_scope(ins);
+}
+
 static void show_text(Inspector *ins, const zs_inspect *info) {
+    ins->scope_z = info->z;
+    apply_scope(ins);
     char *title = g_strdup_printf("%s · layer %zu", info->title, info->layer + 1);
     gtk_label_set_text(GTK_LABEL(ins->title), title);
     g_free(title);
@@ -784,6 +884,7 @@ static GtkWidget *build_inspector(Inspector *ins, const zs_inspect *info) {
     GtkWidget *grid = new_grid();
     int row = 0;
     if (!info) {
+        zg_model_set_scope(ins->model, TRUE, -1e6, 1e6, 0);
         GtkWidget *hint = wrapped_label("Click a line in the preview (2D or 3D) to see what it is, its real values, and the settings that change it.");
         gtk_widget_add_css_class(hint, "dim-label");
         gtk_grid_attach(GTK_GRID(grid), hint, 0, row++, 3, 1);
@@ -797,6 +898,25 @@ static GtkWidget *build_inspector(Inspector *ins, const zs_inspect *info) {
     ins->stat_note = gtk_revealer_new();
     gtk_revealer_set_child(GTK_REVEALER(ins->stat_note), note);
     gtk_grid_attach(GTK_GRID(grid), ins->stat_note, 0, row++, 3, 1);
+
+    /* Change for: all layers, or the layers of the selection. */
+    GtkWidget *scope_row = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 8);
+    gtk_widget_set_margin_top(scope_row, 6);
+    GtkWidget *scope_label = gtk_label_new("Change for");
+    gtk_widget_add_css_class(scope_label, "dim-label");
+    const char *scopes[] = {"This part (all layers)", "This layer", "This layer and up", "This layer and down", NULL};
+    ins->scope_dd = gtk_drop_down_new_from_strings(scopes);
+    gtk_drop_down_set_selected(GTK_DROP_DOWN(ins->scope_dd), (guint)ins->scope_mode);
+    gtk_widget_set_hexpand(ins->scope_dd, TRUE);
+    gtk_widget_set_tooltip_text(ins->scope_dd, "Changes here are for this part only, and not for other prints: for all its layers, or only for the layers of the selected line. A changed setting shows in the accent color, with a button to remove the change. The defaults for all prints are in the Settings page.");
+    g_signal_connect(ins->scope_dd, "notify::selected", G_CALLBACK(on_scope_dd), ins);
+    gtk_box_append(GTK_BOX(scope_row), scope_label);
+    gtk_box_append(GTK_BOX(scope_row), ins->scope_dd);
+    gtk_grid_attach(GTK_GRID(grid), scope_row, 0, row++, 4, 1);
+    GtkWidget *scope_note = wrapped_label("Changes here are for this part. The defaults for all prints are in Settings.");
+    gtk_widget_add_css_class(scope_note, "dim-label");
+    gtk_widget_add_css_class(scope_note, "caption");
+    gtk_grid_attach(GTK_GRID(grid), scope_note, 0, row++, 4, 1);
 
     ins->filter = gtk_search_entry_new();
     gtk_search_entry_set_placeholder_text(GTK_SEARCH_ENTRY(ins->filter), "Filter settings");
@@ -1447,6 +1567,7 @@ static GtkWidget *make_browser(ZgModel *model, GtkWidget *stack) {
 
     b->search = gtk_search_entry_new();
     gtk_search_entry_set_placeholder_text(GTK_SEARCH_ENTRY(b->search), "Search settings");
+    gtk_widget_set_tooltip_text(b->search, "The defaults for all prints. Changes for one part are in the Selected page.");
     gtk_widget_set_margin_start(b->search, 8);
     gtk_widget_set_margin_end(b->search, 8);
     gtk_widget_set_margin_top(b->search, 4);

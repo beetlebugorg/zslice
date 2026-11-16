@@ -26,6 +26,8 @@ const flow = @import("flow.zig");
 
 pub const InfillPattern = enum { lines, grid, triangles, cubic, gyroid, concentric };
 pub const SeamMode = enum { sharpest, rear, nearest, random };
+/// How the top and bottom skin is filled. See `Project.skin_pattern`.
+pub const SkinPattern = enum { lines, monotonic, concentric };
 /// Where the part goes on the bed. See `Project.placement`.
 pub const Placement = enum { auto, file, center };
 pub const SupportMode = enum { off, everywhere, buildplate };
@@ -197,6 +199,17 @@ pub const Project = struct {
     top_thickness: f64 = 0.8,
     /// The thickness of solid skin above each bottom surface.
     bottom_thickness: f64 = 0.6,
+    /// How the skin is filled. `lines`: parallel lines in the nearest
+    /// order. `monotonic`: parallel lines from one side to the other, so
+    /// each line lies against the line before it in the same way; the top
+    /// has an even sheen. `concentric`: loops that follow the outline.
+    skin_pattern: SkinPattern = .lines,
+    /// The direction of the skin lines on the first layer, in degrees from
+    /// the X axis. Ironing goes at a right angle to the top skin.
+    skin_angle: f64 = 45,
+    /// How much the skin direction turns from one layer to the next, in
+    /// degrees. 90 crosses the lines of each layer with the layer below.
+    skin_angle_step: f64 = 90,
     /// Skin lines go this far into the walls, as a fraction of the line
     /// width, so that the skin bonds to the walls.
     skin_overlap: f64 = 0.15,
@@ -528,6 +541,7 @@ pub const limits = [_]struct { []const u8, f64, f64 }{
     .{ "project.line_width", 0, 2 },               .{ "project.first_layer_line_width", 0, 2 },
     .{ "project.wall_count", 0, 50 },              .{ "project.top_thickness", 0, 20 },
     .{ "project.bottom_thickness", 0, 20 },        .{ "project.skin_overlap", 0, 1 },
+    .{ "project.skin_angle", -360, 360 },          .{ "project.skin_angle_step", -180, 180 },
     .{ "project.infill_density", 0, 1 },           .{ "project.infill_angle", -360, 360 },
     .{ "project.infill_overlap", 0, 1 },           .{ "project.ironing_flow", 0, 1 },
     .{ "project.ironing_spacing", 0.01, 2 },       .{ "project.ironing_inset", 0, 10 },
@@ -579,4 +593,74 @@ test "limits: each number has one, and each default is in it" {
     try std.testing.expectError(error.OutOfRange, s.set("project.brim_width", "300"));
     try s.set("project.brim_width", "8");
     try std.testing.expectEqual(@as(f64, 8), s.project.brim_width);
+}
+
+/// A change of one setting for the layers with a top z from z_min to z_max
+/// (mm). The z range, and not the layer numbers, so that an override stays
+/// on the same part of the print after a change of the layer height.
+pub const Override = struct {
+    z_min: f64,
+    z_max: f64,
+    name: []const u8,
+    value: []const u8,
+
+    pub fn covers(o: Override, z: f64) bool {
+        return z >= o.z_min - 1e-6 and z <= o.z_max + 1e-6;
+    }
+
+    /// An override of the whole part (all layers): any project or filament
+    /// setting can have one.
+    pub fn wholePart(o: Override) bool {
+        return o.z_min <= -part_z and o.z_max >= part_z;
+    }
+};
+
+/// A z range from -part_z to part_z covers all layers of any part.
+pub const part_z: f64 = 1e5;
+
+/// A setting that the part can change: the project and filament settings.
+/// The machine settings describe the printer, and the engine settings the
+/// slicer.
+pub fn isPartSetting(name: []const u8) bool {
+    return std.mem.startsWith(u8, name, "project.") or std.mem.startsWith(u8, name, "filament.");
+}
+
+/// The settings that can change from one layer to the next. The others
+/// are for the whole print: the layer heights make the layer table, the
+/// support and the skirt need all layers, and the filament and the machine
+/// do not change during a print.
+pub const layer_settings = [_][]const u8{
+    "project.wall_count",       "project.seam",            "project.top_thickness",
+    "project.bottom_thickness", "project.skin_pattern",    "project.skin_angle",
+    "project.skin_overlap",     "project.infill_density",  "project.infill_pattern",
+    "project.infill_angle",     "project.infill_overlap",  "project.ironing",
+    "project.ironing_flow",     "project.ironing_spacing", "project.ironing_inset",
+    "project.ironing_speed",    "project.outer_wall_speed", "project.inner_wall_speed",
+    "project.skin_speed",       "project.infill_speed",
+};
+
+pub fn isLayerSetting(name: []const u8) bool {
+    for (layer_settings) |n| if (std.mem.eql(u8, n, name)) return true;
+    return false;
+}
+
+/// The settings with the overrides that cover z, in their order.
+pub fn withOverrides(base: Settings, overrides: []const Override, z: f64) Settings.SetError!Settings {
+    var s = base;
+    for (overrides) |o| if (o.covers(z)) try s.set(o.name, o.value);
+    return s;
+}
+
+test "overrides cover a z range" {
+    const list = [_]Override{
+        .{ .z_min = 1, .z_max = 2, .name = "project.infill_density", .value = "0.5" },
+        .{ .z_min = 1.5, .z_max = 9, .name = "project.infill_density", .value = "0.7" },
+    };
+    const base: Settings = .{};
+    try std.testing.expectEqual(@as(f64, 0.2), (try withOverrides(base, &list, 0.5)).project.infill_density);
+    try std.testing.expectEqual(@as(f64, 0.5), (try withOverrides(base, &list, 1.2)).project.infill_density);
+    // The later override wins where both cover.
+    try std.testing.expectEqual(@as(f64, 0.7), (try withOverrides(base, &list, 1.8)).project.infill_density);
+    try std.testing.expect(isLayerSetting("project.skin_angle"));
+    try std.testing.expect(!isLayerSetting("project.layer_height"));
 }
