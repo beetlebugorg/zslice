@@ -444,6 +444,13 @@ size_t zs_view_layer_at_time(const zs_view *view, double t);
 /* The path under the pixel (px, py) (pixels from the top left), or
  * (size_t)-1. */
 size_t zs_view_pick(zs_view *view, float px, float py);
+/* As zs_view_pick, and the segment of the path under the pixel (segment k
+ * goes from point k to point k + 1; the last segment of a closed path goes
+ * back to point 0). */
+size_t zs_view_pick_segment(zs_view *view, float x, float y, size_t *seg);
+/* Marks one segment of the highlighted path in orange; seg < 0: none.
+ * zs_view_highlight clears it. */
+void zs_view_highlight_segment(zs_view *view, size_t path, ptrdiff_t seg);
 /* Draws and presents one frame. Call it after a change. */
 int zs_view_draw(zs_view *view);
 

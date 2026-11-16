@@ -57,6 +57,12 @@ void zg_model_select(ZgModel *self, gint64 path);
 gint64 zg_model_selected(ZgModel *self);
 /* With a selected line: TRUE fades all other lines (ghosts), so only the
  * selection is solid. FALSE (the default) keeps their colors. */
+/* Selects one segment of a line (segment k goes from point k to point
+ * k + 1), or -1 for the whole line. It selects the line first if it is a
+ * new line. Signal: segment-changed(gint64 segment). zg_model_select clears
+ * the segment. */
+void zg_model_select_segment(ZgModel *self, gint64 path, gint64 segment);
+gint64 zg_model_segment(ZgModel *self);
 void zg_model_set_isolate(ZgModel *self, gboolean on);
 gboolean zg_model_isolate(ZgModel *self);
 

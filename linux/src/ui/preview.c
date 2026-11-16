@@ -232,6 +232,22 @@ static void draw(GtkDrawingArea *area, cairo_t *cr, int w, int h, gpointer data)
                 add_polyline(cr, lp->points, start, lp->path_ends[i], lp->path_closed[i]);
                 cairo_set_source_rgba(cr, 1.0, 0.78, 0.05, 1.0);
                 cairo_stroke(cr);
+                /* The selected segment: orange, a little wider. */
+                gint64 seg = zg_model_segment(p->model);
+                uint32_t end = lp->path_ends[i];
+                if (seg >= 0 && end > start + 1) {
+                    uint32_t a = start + (uint32_t)seg;
+                    uint32_t b = a + 1 < end ? a + 1 : start;
+                    if (a < end) {
+                        double lw = cairo_get_line_width(cr);
+                        cairo_set_line_width(cr, lw * 1.6);
+                        cairo_move_to(cr, lp->points[2 * a], lp->points[2 * a + 1]);
+                        cairo_line_to(cr, lp->points[2 * b], lp->points[2 * b + 1]);
+                        cairo_set_source_rgba(cr, 1.0, 0.35, 0.0, 1.0);
+                        cairo_stroke(cr);
+                        cairo_set_line_width(cr, lw);
+                    }
+                }
             }
         }
         /* The marks of a focus: the seams, the travel moves, and the
@@ -482,8 +498,9 @@ static void on_stack_page(GObject *stack, GParamSpec *pspec, gpointer data) {
 
 /* ---- keyboard navigation ----
  *
- * With a selected line: Left/Right (h/l) select the line before or after it
- * in print order, and Up/Down (k/j) the nearest line on the layer above or
+ * With a selected line: Left/Right (h/l) select the segment before or after
+ * the selected segment in print order, on to the next line at the end of a
+ * line (with Shift: the line before or after), and Up/Down (k/j) the nearest line on the layer above or
  * below (a line of the same feature wins a near tie). Escape clears the
  * selection. With no selection: Up/Down (k/j) move the top layer, and with
  * Shift the bottom layer; Page Up/Page Down move 10 layers. */
@@ -496,6 +513,14 @@ static size_t layer_of_path(const zs_toolpaths *tp, size_t path) {
         else hi = mid;
     }
     return lo;
+}
+
+/* The segments of a path: one less than its points, and one more if it is
+ * closed (the way back to the first point). */
+static gint64 segments_of(const zs_toolpaths *tp, size_t path) {
+    uint32_t a = path == 0 ? 0 : tp->path_ends[path - 1], b = tp->path_ends[path];
+    if (b < a + 2) return 0;
+    return (gint64)(b - a - 1) + (tp->path_closed[path] && b - a > 2 ? 1 : 0);
 }
 
 /* Shows the layer range after a change from the keys. */
@@ -579,10 +604,33 @@ static gboolean on_preview_key(GtkEventControllerKey *c, guint key, guint code, 
     }
     if (sel >= 0 && (size_t)sel < tp.path_count) {
         if (dir != 0) {
-            gint64 next = sel + dir;
-            if (next < 0 || (size_t)next >= tp.path_count) return TRUE;
-            zg_model_select(p->model, next);
-            show_layer(p, layer_of_path(&tp, (size_t)next));
+            /* One segment at a time, in print order: on to the next line
+             * after the last segment. Shift: a whole line at a time. */
+            gint64 seg = zg_model_segment(p->model);
+            gint64 n_segs = segments_of(&tp, (size_t)sel);
+            gint64 path = sel;
+            if (mods & GDK_SHIFT_MASK) {
+                path = sel + dir;
+                seg = -1;
+            } else if (dir > 0) {
+                seg = seg < 0 ? 0 : seg + 1;
+                if (seg >= n_segs) {
+                    path = sel + 1;
+                    seg = 0;
+                }
+            } else {
+                seg = seg < 0 ? -1 : seg - 1;
+                if (seg < 0) {
+                    path = sel - 1;
+                    seg = path >= 0 ? segments_of(&tp, (size_t)path) - 1 : 0;
+                }
+            }
+            /* Lines with no segment (one point) are passed. */
+            while (path >= 0 && (size_t)path < tp.path_count && segments_of(&tp, (size_t)path) == 0) path += dir;
+            if (path < 0 || (size_t)path >= tp.path_count) return TRUE;
+            if (seg >= segments_of(&tp, (size_t)path)) seg = segments_of(&tp, (size_t)path) - 1;
+            zg_model_select_segment(p->model, path, seg);
+            show_layer(p, layer_of_path(&tp, (size_t)path));
             return TRUE;
         }
         /* Up or down: the nearest line, jump layers away (a layer with no
@@ -772,6 +820,7 @@ GtkWidget *zg_preview_new(ZgModel *model) {
     gtk_widget_set_size_request(stack, 200, -1);
     g_object_set_data_full(G_OBJECT(box), "zg-preview", p, preview_free);
     g_signal_connect(model, "selection-changed", G_CALLBACK(on_selection), p);
+    g_signal_connect_swapped(model, "segment-changed", G_CALLBACK(gtk_widget_queue_draw), p->area);
     /* The last choice of "Fade others". */
     char *iso = zg_pref_get("isolate", "0");
     if (strcmp(iso, "1") == 0) gtk_toggle_button_set_active(GTK_TOGGLE_BUTTON(p->isolate), TRUE);

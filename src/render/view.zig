@@ -64,6 +64,8 @@ pub const View = struct {
     /// beads of path i are path_start[i] to path_start[i + 1].
     path_start: std.ArrayList(u32) = .empty,
     highlight: [2]f32 = .{ 0, 0 },
+    /// The bead of a selected segment (see setSegment), or null.
+    seg_bead: ?usize = null,
     /// With a selection: the other beads are ghosts.
     isolate: bool = false,
     /// The features in focus (a bit for each), or 0 for no focus. The
@@ -408,6 +410,7 @@ pub const View = struct {
     /// Highlights the beads of path `path` (an index into the toolpaths of
     /// the app), or nothing if `path` is null.
     pub fn setHighlight(v: *View, path: ?usize) void {
+        v.seg_bead = null;
         const p = path orelse {
             v.highlight = .{ 0, 0 };
             return;
@@ -675,6 +678,12 @@ pub const View = struct {
     /// of radius width / 2, and then uses the distance from the ray to the
     /// segment. The nearest hit along the ray wins.
     pub fn pick(v: *const View, px: f32, py: f32) ?usize {
+        const hit = v.pickSegment(px, py) orelse return null;
+        return hit[0];
+    }
+
+    /// The path and the segment of the path under a pixel.
+    pub fn pickSegment(v: *const View, px: f32, py: f32) ?[2]usize {
         const cam = v.camera();
         const dir = v.pixelRay(cam, px, py);
         var count: usize = 0;
@@ -709,7 +718,17 @@ pub const View = struct {
         // Paths with no beads have the same start as the next path.
         var p = lo - 1;
         while (p + 1 < v.path_start.items.len and v.path_start.items[p + 1] <= i) p += 1;
-        return p;
+        return .{ p, i - v.path_start.items[p] };
+    }
+
+    /// Marks one segment of the highlighted path (the bead `seg` of path
+    /// `path`) in a strong color, or none (null).
+    pub fn setSegment(v: *View, path: usize, seg: ?usize) void {
+        v.seg_bead = null;
+        const s = seg orelse return;
+        if (path + 1 >= v.path_start.items.len) return;
+        const b = v.path_start.items[path] + s;
+        if (b < v.path_start.items[path + 1]) v.seg_bead = b;
     }
 
     pub fn draw(v: *View) Error!void {
@@ -768,6 +787,17 @@ pub const View = struct {
                         n_extras += 1;
                     }
                 }
+                // A selected segment: the bead again, a little larger, in
+                // orange, over the yellow path.
+                if (v.seg_bead) |sb| if (sb < v.beads.items.len and n_extras < extras.len) {
+                    var b = v.beads.items[sb];
+                    b.w *= 1.35;
+                    b.h *= 1.35;
+                    b.z += b.h * 0.1;
+                    b.rgba = .{ 0xff, 0x5a, 0x00, 11 };
+                    extras[n_extras] = b;
+                    n_extras += 1;
+                };
                 break :blk extras[0..n_extras];
             },
             .clear = .{ 0.965, 0.969, 0.973 },
@@ -776,7 +806,7 @@ pub const View = struct {
                 .mvp = mvp,
                 .vec = .{ 0.35, -0.45, 0.82, 0 },
                 .eye = .{ eye[0], eye[1], eye[2], if (std.math.isInf(v.focus_zmax)) 1e9 else v.focus_zmax },
-                .params = .{ v.highlight[0], v.highlight[1], if (v.isolate and v.highlight[1] > v.highlight[0]) -1 else @as(f32, @floatFromInt(v.focus_mask)), 0 },
+                .params = .{ v.highlight[0], v.highlight[1], if (v.isolate and v.highlight[1] > v.highlight[0]) -1 else @as(f32, @floatFromInt(v.focus_mask)), if (v.mode == .print) 0 else 1 },
             },
             .box_count = count,
             .box_first = first,

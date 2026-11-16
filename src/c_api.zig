@@ -1045,6 +1045,20 @@ export fn zs_view_pick(view: ?*View, px: f32, py: f32) usize {
     return v.pick(px, py) orelse std.math.maxInt(usize);
 }
 
+export fn zs_view_pick_segment(view: ?*View, px: f32, py: f32, seg: ?*usize) usize {
+    if (!render_on) return std.math.maxInt(usize);
+    const v = view orelse return std.math.maxInt(usize);
+    const hit = v.pickSegment(px, py) orelse return std.math.maxInt(usize);
+    if (seg) |s| s.* = hit[1];
+    return hit[0];
+}
+
+export fn zs_view_highlight_segment(view: ?*View, path: usize, seg: isize) void {
+    if (!render_on) return;
+    const v = view orelse return;
+    v.setSegment(path, if (seg < 0) null else @intCast(seg));
+}
+
 export fn zs_view_draw(view: ?*View) c_int {
     if (!render_on) return @intFromEnum(Status.not_supported);
     const v = view orelse return @intFromEnum(Status.invalid_argument);

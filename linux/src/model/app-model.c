@@ -35,6 +35,8 @@ struct _ZgModel {
     gint64 selected;
     /* With a selected line: the other lines fade (see zg_model_set_isolate). */
     gboolean isolate;
+    /* The selected segment of the selected line, or -1 (the whole line). */
+    gint64 segment;
     /* The place of the selection (a layer and a point of the path), so
      * that a new slice can pick the path at the same place again. */
     gboolean anchored;
@@ -138,7 +140,7 @@ static void load_group(ZgModel *self, int g) {
 
 G_DEFINE_FINAL_TYPE(ZgModel, zg_model, G_TYPE_OBJECT)
 
-enum { SIGNAL_CORE_EVENT, SIGNAL_SELECTION_CHANGED, SIGNAL_PICKED, SIGNAL_SETTING_CHANGED, SIGNAL_FOCUS_CHANGED, SIGNAL_SCOPE_CHANGED, SIGNAL_PRINTER_CHANGED, SIGNAL_PRINTERS_EDITED, SIGNAL_PART_SELECTED, SIGNAL_PLATE_CHANGED, N_SIGNALS };
+enum { SIGNAL_CORE_EVENT, SIGNAL_SELECTION_CHANGED, SIGNAL_PICKED, SIGNAL_SETTING_CHANGED, SIGNAL_FOCUS_CHANGED, SIGNAL_SCOPE_CHANGED, SIGNAL_PRINTER_CHANGED, SIGNAL_PRINTERS_EDITED, SIGNAL_PART_SELECTED, SIGNAL_PLATE_CHANGED, SIGNAL_SEGMENT_CHANGED, N_SIGNALS };
 static guint signals[N_SIGNALS];
 
 typedef struct {
@@ -171,7 +173,10 @@ static gboolean deliver(gpointer data) {
                 (path == (size_t)-1 || tp.path_features[path] != model->anchor_feature)) {
                 path = zs_app_pick_feature(model->core, model->anchor_layer, model->anchor_feature, model->anchor_x, model->anchor_y);
             }
-            model->selected = path == (size_t)-1 ? -1 : (gint64)path;
+            gint64 next = path == (size_t)-1 ? -1 : (gint64)path;
+            /* The segment stays only on the same line. */
+            if (next != model->selected) model->segment = -1;
+            model->selected = next;
             if (model->selected < 0) model->anchored = FALSE;
             g_signal_emit(model, signals[SIGNAL_SELECTION_CHANGED], 0, model->selected);
         }
@@ -228,6 +233,9 @@ static void zg_model_class_init(ZgModelClass *klass) {
     /* selection-changed(gint64 path) */
     signals[SIGNAL_SELECTION_CHANGED] = g_signal_new("selection-changed", G_TYPE_FROM_CLASS(klass),
         G_SIGNAL_RUN_LAST, 0, NULL, NULL, NULL, G_TYPE_NONE, 1, G_TYPE_INT64);
+    /* segment-changed(gint64 segment): see zg_model_select_segment. */
+    signals[SIGNAL_SEGMENT_CHANGED] = g_signal_new("segment-changed", G_TYPE_FROM_CLASS(klass),
+        G_SIGNAL_RUN_LAST, 0, NULL, NULL, NULL, G_TYPE_NONE, 1, G_TYPE_INT64);
     /* picked(gint64 path): after selection-changed, only for a selection by
      * the user (zg_model_select), not for the new pick after a slice. A
      * view can react to it (switch a tab, for example). */
@@ -259,6 +267,7 @@ static void zg_model_class_init(ZgModelClass *klass) {
 
 void zg_model_select(ZgModel *self, gint64 path) {
     self->selected = path;
+    self->segment = -1;
     self->anchored = FALSE;
     zs_toolpaths tp;
     if (path >= 0 && zs_app_toolpaths(self->core, &tp) == ZS_OK && (size_t)path < tp.path_count) {
@@ -391,6 +400,17 @@ gint64 zg_model_selected(ZgModel *self) {
     return self->selected;
 }
 
+void zg_model_select_segment(ZgModel *self, gint64 path, gint64 segment) {
+    /* A new line: the full selection first (the inspector follows it). */
+    if (path != self->selected) zg_model_select(self, path);
+    self->segment = path >= 0 ? segment : -1;
+    g_signal_emit(self, signals[SIGNAL_SEGMENT_CHANGED], 0, self->segment);
+}
+
+gint64 zg_model_segment(ZgModel *self) {
+    return self->segment;
+}
+
 void zg_model_set_isolate(ZgModel *self, gboolean on) {
     if (self->isolate == on) return;
     self->isolate = on;
@@ -404,6 +424,7 @@ gboolean zg_model_isolate(ZgModel *self) {
 
 static void zg_model_init(ZgModel *self) {
     self->selected = -1;
+    self->segment = -1;
     self->part = -1;
     self->bridge = g_atomic_rc_box_new0(Bridge);
     g_weak_ref_init(&self->bridge->model, self);

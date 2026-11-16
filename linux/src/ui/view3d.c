@@ -444,8 +444,12 @@ static void on_release(GtkGestureClick *g, int n, double x, double y, gpointer d
         zg_model_select_part(v->model, part_at(v, x, y, NULL, NULL));
         return;
     }
-    size_t path = zs_view_pick(v->view, (float)(x * scale), (float)(y * scale));
-    zg_model_select(v->model, path == (size_t)-1 ? -1 : (gint64)path);
+    /* The line, and the segment of it under the pointer (the keys h and l
+     * go on from there). */
+    size_t seg = 0;
+    size_t path = zs_view_pick_segment(v->view, (float)(x * scale), (float)(y * scale), &seg);
+    if (path == (size_t)-1) zg_model_select(v->model, -1);
+    else zg_model_select_segment(v->model, (gint64)path, (gint64)seg);
 }
 
 static void on_selection(ZgModel *model, gint64 path, gpointer data) {
@@ -453,6 +457,15 @@ static void on_selection(ZgModel *model, gint64 path, gpointer data) {
     if (!v->view) return;
     zs_view_highlight(v->view, path < 0 ? (size_t)-1 : (size_t)path);
     zs_view_isolate(v->view, zg_model_isolate(model));
+    if (path >= 0) zs_view_highlight_segment(v->view, (size_t)path, (ptrdiff_t)zg_model_segment(model));
+    queue_frame(v);
+}
+
+static void on_segment(ZgModel *model, gint64 seg, gpointer data) {
+    View3d *v = data;
+    gint64 path = zg_model_selected(model);
+    if (!v->view || path < 0) return;
+    zs_view_highlight_segment(v->view, (size_t)path, (ptrdiff_t)seg);
     queue_frame(v);
 }
 
@@ -515,6 +528,7 @@ GtkWidget *zg_view3d_new(ZgModel *model) {
     g_object_set_data_full(G_OBJECT(v->area), "zg-view3d", v, view_free);
     g_signal_connect(model, "selection-changed", G_CALLBACK(on_selection), v);
     g_signal_connect(model, "part-selected", G_CALLBACK(on_part_selected), v);
+    g_signal_connect(model, "segment-changed", G_CALLBACK(on_segment), v);
     g_signal_connect(model, "plate-changed", G_CALLBACK(on_plate_changed), v);
     g_signal_connect(model, "focus-changed", G_CALLBACK(on_focus_changed), v);
     return v->area;

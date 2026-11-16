@@ -106,7 +106,10 @@ void main() {
     bool in_mask = ((mask >> feature) & 1u) != 0u;
     vfocus = (mask == 0u || (in_mask && zhw.x <= pc.eye.w + 1e-4)) ? 1.0 : 0.0;
     if (isolate) vfocus = vhigh;
-    if (mask != 0u && vfocus > 0.5) vcolor = feature_rgb[min(feature, 10u)];
+    // params.w = 0: the filament color mode, where all beads have one
+    // color, so a bead in focus shows its feature color. In the other
+    // modes (params.w = 1) the beads keep the colors of the mode.
+    if (mask != 0u && vfocus > 0.5 && pc.params.w < 0.5) vcolor = feature_rgb[min(feature, 10u)];
     // The travel and retraction marks show only in a focus on them: they
     // are not part of the printed part. A mark that does not show goes
     // behind the camera (w = 0 clips it).

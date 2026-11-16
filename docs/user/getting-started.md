@@ -171,14 +171,14 @@ Click in the preview first, so that it gets the keys.
 
 | Key | With a selected line | With no selection |
 |---|---|---|
-| ← or h | The line before it, in print order | — |
-| → or l | The line after it, in print order | — |
+| ← or h | The segment before it, in print order (Shift: the line before) | — |
+| → or l | The segment after it, in print order (Shift: the line after) | — |
 | ↑ or k | The nearest line on the layer above | The top layer up one |
 | ↓ or j | The nearest line on the layer below | The top layer down one |
 | Page Up, Page Down | 10 layers up or down | 10 layers up or down |
 | Esc | Clears the selection | — |
 
-Shift with ↑ or ↓ (or k or j) moves the bottom knob of the layer slider. A line of the same feature (for example an outer wall) wins over a line of another feature that is a little nearer. The layer slider follows the selection.
+A click on a line selects the line (yellow) and the segment under the pointer (orange). After the last segment of a line, → goes on to the first segment of the next line. Shift with ↑ or ↓ (or k or j) moves the bottom knob of the layer slider. A line of the same feature (for example an outer wall) wins over a line of another feature that is a little nearer. The layer slider follows the selection.
 
 ## More than one part
 
