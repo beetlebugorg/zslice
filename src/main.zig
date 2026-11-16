@@ -32,7 +32,9 @@ const usage =
     \\  demo      Write the demo part as an STL file.
     \\  bench     Slice in the app core: once from the start, then again
     \\            after a change of each kind of setting. Print the times
-    \\            and the peak memory.
+    \\            and the peak memory. --only KIND times one kind: full,
+    \\            late, walls, top, width, height, or xy. --runs N sets
+    \\            the slices of each kind (default 6).
     \\
     \\Options:
     \\  -m, --machine NAME   Load a machine profile (a name or a .toml path).
@@ -54,6 +56,11 @@ const Options = struct {
     filament: ?[]const u8 = null,
     project: ?[]const u8 = null,
     sets: std.ArrayList([]const u8) = .empty,
+    /// bench: time only the changes of this kind (a key of bench_changes,
+    /// or "full").
+    only: ?[]const u8 = null,
+    /// bench: the slices of each kind.
+    runs: usize = 6,
 };
 
 pub fn main(init: std.process.Init) !void {
@@ -166,7 +173,7 @@ pub fn main(init: std.process.Init) !void {
     const bytes = try Io.Dir.cwd().readFileAlloc(io, in_path, gpa, .unlimited);
     if (is_bench) {
         defer gpa.free(bytes);
-        try bench(gpa, io, err, in_path, bytes, settings);
+        try bench(gpa, io, err, in_path, bytes, settings, opts.only, opts.runs);
         return;
     }
     var m = zslice.Mesh.fromStl(gpa, bytes) catch |e| {
@@ -218,42 +225,57 @@ pub fn main(init: std.process.Init) !void {
 
 /// The changes that `bench` makes, one for each kind of setting. Each slice
 /// gets a new value, as when a user moves a slider.
-const bench_changes = [_]struct { kind: []const u8, name: []const u8, values: [6][]const u8 }{
-    .{ .kind = "late (infill)", .name = "project.infill_density", .values = .{ "0.21", "0.22", "0.23", "0.24", "0.25", "0.26" } },
-    .{ .kind = "wall count", .name = "project.wall_count", .values = .{ "3", "4", "5", "6", "7", "8" } },
-    .{ .kind = "top thickness", .name = "project.top_thickness", .values = .{ "1.0", "1.2", "1.4", "1.6", "1.8", "2.0" } },
-    .{ .kind = "line width", .name = "project.line_width", .values = .{ "0.45", "0.46", "0.47", "0.48", "0.49", "0.5" } },
-    .{ .kind = "layer height", .name = "project.layer_height", .values = .{ "0.21", "0.22", "0.23", "0.24", "0.25", "0.26" } },
-    .{ .kind = "xy offset", .name = "filament.xy_offset", .values = .{ "0.01", "0.02", "0.03", "0.04", "0.05", "0.06" } },
+const bench_changes = [_]struct { key: []const u8, kind: []const u8, name: []const u8, values: [6][]const u8 }{
+    .{ .key = "late", .kind = "late (infill)", .name = "project.infill_density", .values = .{ "0.21", "0.22", "0.23", "0.24", "0.25", "0.26" } },
+    .{ .key = "walls", .kind = "wall count", .name = "project.wall_count", .values = .{ "3", "4", "5", "6", "7", "8" } },
+    .{ .key = "top", .kind = "top thickness", .name = "project.top_thickness", .values = .{ "1.0", "1.2", "1.4", "1.6", "1.8", "2.0" } },
+    .{ .key = "width", .kind = "line width", .name = "project.line_width", .values = .{ "0.45", "0.46", "0.47", "0.48", "0.49", "0.5" } },
+    .{ .key = "height", .kind = "layer height", .name = "project.layer_height", .values = .{ "0.21", "0.22", "0.23", "0.24", "0.25", "0.26" } },
+    .{ .key = "xy", .kind = "xy offset", .name = "filament.xy_offset", .values = .{ "0.01", "0.02", "0.03", "0.04", "0.05", "0.06" } },
 };
+
+/// The most slices of one kind in a bench.
+const max_runs = 64;
 
 /// Slices in the app core, as the app does after each change of a setting,
 /// and prints the time of each slice and the peak memory (VmHWM).
-fn bench(backing: std.mem.Allocator, io: Io, err: *Io.Writer, name: []const u8, bytes: []const u8, settings: zslice.Settings) !void {
+fn bench(backing: std.mem.Allocator, io: Io, err: *Io.Writer, name: []const u8, bytes: []const u8, settings: zslice.Settings, only: ?[]const u8, runs: usize) !void {
     const App = zslice.app.App;
     var counter: CountingAllocator = .{ .backing = backing };
     const gpa = counter.allocator();
     const app = try App.create(gpa, null, null);
     defer app.destroy();
     app.settings = settings;
-    const runs = 6;
-    var times: [runs]Sample = undefined;
-    // The first slice has no cache. Each one starts new.
-    for (&times) |*t| {
-        // A new model drops the regions of the slice before.
+    var times_buf: [max_runs]Sample = undefined;
+    const times = times_buf[0..runs];
+    if (only == null or std.mem.eql(u8, only.?, "full")) {
+        // The first slice has no cache. Each one starts new.
+        for (times) |*t| {
+            // A new model drops the regions of the slice before.
+            try app.loadStl(std.fs.path.basename(name), bytes);
+            t.* = try benchSlice(app, io);
+        }
+        try printTimes(err, "full slice", times);
+    } else {
         try app.loadStl(std.fs.path.basename(name), bytes);
-        t.* = try benchSlice(app, io);
     }
-    try printTimes(err, "full slice", &times);
     for (bench_changes) |c| {
+        if (only) |o| if (!std.mem.eql(u8, o, c.key)) continue;
         // Start from the base settings, with a slice that is not timed.
         app.settings = settings;
         _ = try benchSlice(app, io);
-        for (&times, 0..) |*t, k| {
-            try app.setSetting(c.name, c.values[k]);
+        for (times, 0..) |*t, k| {
+            // The values repeat after 6 slices. Go back to the base
+            // settings between the rounds, so that each slice has a new
+            // value.
+            if (k > 0 and k % c.values.len == 0) {
+                app.settings = settings;
+                _ = try benchSlice(app, io);
+            }
+            try app.setSetting(c.name, c.values[k % c.values.len]);
             t.* = try benchSlice(app, io);
         }
-        try printTimes(err, c.kind, &times);
+        try printTimes(err, c.kind, times);
     }
     try err.print("peak memory: {d} MB resident (VmHWM), {d} MB allocated\n", .{ peakMb(io), counter.peak.load(.monotonic) >> 20 });
 }
@@ -328,9 +350,9 @@ fn benchSlice(app: *zslice.app.App, io: Io) !Sample {
 }
 
 fn printTimes(err: *Io.Writer, kind: []const u8, samples: []Sample) !void {
-    var wall: [16]f64 = undefined;
-    var cpu: [16]f64 = undefined;
-    var faults: [16]f64 = undefined;
+    var wall: [max_runs]f64 = undefined;
+    var cpu: [max_runs]f64 = undefined;
+    var faults: [max_runs]f64 = undefined;
     for (samples, 0..) |x, i| {
         wall[i] = x.wall;
         cpu[i] = x.cpu;
@@ -362,7 +384,7 @@ fn parseOptions(arena: std.mem.Allocator, err: *Io.Writer, args: []const [:0]con
     var i: usize = 0;
     while (i < args.len) : (i += 1) {
         const a = args[i];
-        const takes_value = for ([_][]const u8{ "-o", "-s", "--layer", "-m", "--machine", "-f", "--filament", "-p", "--project" }) |o| {
+        const takes_value = for ([_][]const u8{ "-o", "-s", "--layer", "-m", "--machine", "-f", "--filament", "-p", "--project", "--only", "--runs" }) |o| {
             if (std.mem.eql(u8, a, o)) break true;
         } else false;
         if (!takes_value) {
@@ -383,6 +405,11 @@ fn parseOptions(arena: std.mem.Allocator, err: *Io.Writer, args: []const [:0]con
             opts.filament = v;
         } else if (std.mem.eql(u8, a, "-p") or std.mem.eql(u8, a, "--project")) {
             opts.project = v;
+        } else if (std.mem.eql(u8, a, "--only")) {
+            opts.only = v;
+        } else if (std.mem.eql(u8, a, "--runs")) {
+            opts.runs = std.fmt.parseInt(usize, v, 10) catch fail(err, "bad run count: {s}\n", .{v});
+            if (opts.runs < 1 or opts.runs > max_runs) fail(err, "--runs must be 1 to {d}\n", .{max_runs});
         } else {
             try opts.sets.append(arena, v);
         }
