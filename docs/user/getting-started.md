@@ -102,7 +102,17 @@ Layer numbers start at 0. If the number is too large, zslice shows the number of
 
 ## See why a line is what it is
 
-In the app, click a line in the 2D or 3D view. The Selected page shows what the line is (for example the outer wall on layer 12), its real width, speed, and plastic flow, why they have these values, and the settings that change it. Change a setting there, and the app slices again and shows the new values for the same line.
+In the app, click a line in the 2D or 3D view. The Selected page shows what the line is (for example the outer wall on layer 12). At the top are its planned speed, its real speed (after the slow-down for cooling), and its plastic flow. Below them are the settings that change the line, in three sections: Speed, Shape, and Material. "How these values come about" explains each number.
+
+Change a setting there, and the app slices again and shows the new values for the same line. The page stays where it is.
+
+Each number has its unit after it. A ratio shows as a percentage: a skin speed of 70 % is 70 % of the speed that the machine and the filament allow.
+
+To change a number:
+
+- Type it. The app uses the value after a short pause, on Enter, or when you leave the field.
+- Press Up or Down to step it by one unit of its last decimal place. Hold Shift for 10 steps, or Ctrl for a tenth of a step.
+- Drag the name of the setting to the left or the right.
 
 ## Move the 3D view
 

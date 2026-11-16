@@ -31,7 +31,7 @@ struct _ZgModel {
 
 G_DEFINE_FINAL_TYPE(ZgModel, zg_model, G_TYPE_OBJECT)
 
-enum { SIGNAL_CORE_EVENT, SIGNAL_SELECTION_CHANGED, N_SIGNALS };
+enum { SIGNAL_CORE_EVENT, SIGNAL_SELECTION_CHANGED, SIGNAL_PICKED, SIGNAL_SETTING_CHANGED, N_SIGNALS };
 static guint signals[N_SIGNALS];
 
 typedef struct {
@@ -101,6 +101,15 @@ static void zg_model_class_init(ZgModelClass *klass) {
     /* selection-changed(gint64 path) */
     signals[SIGNAL_SELECTION_CHANGED] = g_signal_new("selection-changed", G_TYPE_FROM_CLASS(klass),
         G_SIGNAL_RUN_LAST, 0, NULL, NULL, NULL, G_TYPE_NONE, 1, G_TYPE_INT64);
+    /* picked(gint64 path): after selection-changed, only for a selection by
+     * the user (zg_model_select), not for the new pick after a slice. A
+     * view can react to it (switch a tab, for example). */
+    signals[SIGNAL_PICKED] = g_signal_new("picked", G_TYPE_FROM_CLASS(klass),
+        G_SIGNAL_RUN_LAST, 0, NULL, NULL, NULL, G_TYPE_NONE, 1, G_TYPE_INT64);
+    /* setting-changed(const char *key): after zg_model_set changes a value,
+     * so that each editor of the setting shows the new value. */
+    signals[SIGNAL_SETTING_CHANGED] = g_signal_new("setting-changed", G_TYPE_FROM_CLASS(klass),
+        G_SIGNAL_RUN_LAST, 0, NULL, NULL, NULL, G_TYPE_NONE, 1, G_TYPE_STRING);
 }
 
 void zg_model_select(ZgModel *self, gint64 path) {
@@ -117,6 +126,7 @@ void zg_model_select(ZgModel *self, gint64 path) {
         self->anchor_y = tp.points[2 * start + 1];
     }
     g_signal_emit(self, signals[SIGNAL_SELECTION_CHANGED], 0, path);
+    g_signal_emit(self, signals[SIGNAL_PICKED], 0, path);
 }
 
 gint64 zg_model_selected(ZgModel *self) {
@@ -161,6 +171,7 @@ gboolean zg_model_load(ZgModel *self, const char *name, const void *data, gsize 
 gboolean zg_model_set(ZgModel *self, const char *key, const char *value, GError **error) {
     int rc = zs_app_setting_set(self->core, key, value);
     if (rc != ZS_OK) return fail(error, rc);
+    g_signal_emit(self, signals[SIGNAL_SETTING_CHANGED], 0, key);
     if (zs_app_state(self->core) != ZS_STATE_EMPTY) {
         rc = zs_app_request_slice(self->core);
         if (rc != ZS_OK) return fail(error, rc);

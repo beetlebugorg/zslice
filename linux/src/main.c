@@ -21,7 +21,21 @@ static const char *ZG_CSS =
     ".zg-panel { background: @theme_bg_color; }"
     ".zg-status { padding: 6px 12px; }"
     ".zg-side { padding: 8px 8px 8px 4px; }"
-    "entry.error { color: @error_color; }";
+    "entry.error { color: @error_color; }"
+    /* The inspector: the speed summary, and old numbers while a slice runs. */
+    ".zg-stat { padding: 6px 4px; border-radius: 8px; background: alpha(@theme_fg_color, 0.06); }"
+    ".zg-stat-value { font-weight: bold; font-size: 1.15em; font-feature-settings: 'tnum'; }"
+    ".zg-stat-value.warning { color: @warning_color; }"
+    ".zg-stat-caption { font-size: 0.8em; opacity: 0.65; }"
+    ".zg-note { font-size: 0.85em; color: @warning_color; transition: opacity 150ms; }"
+    ".zg-explain { font-size: 0.9em; opacity: 0.85; }"
+    ".zg-unit { font-size: 0.9em; min-width: 3.2em; }"
+    ".zg-inspector, .zg-status-text { transition: opacity 200ms ease-out; }"
+    ".zg-stale { opacity: 0.55; }"
+    /* The slice indicator over the preview. */
+    ".zg-busy { padding: 4px 10px; border-radius: 999px; margin: 10px;"
+    "  background: alpha(@theme_bg_color, 0.85); box-shadow: 0 1px 4px alpha(black, 0.25); }"
+    "entry { font-feature-settings: 'tnum'; }";
 
 static ZgModel *model;
 

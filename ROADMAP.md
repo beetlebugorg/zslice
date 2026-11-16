@@ -87,10 +87,17 @@ The goal is the features that people use in PrusaSlicer and Cura. zslice designs
 - [x] Linux shell: GTK4 (`linux/`): open (button, drop, command line), settings panel from core data, slice after each change, layer preview with zoom and pan, export, licenses
 - [x] 3D view of the toolpaths: Vulkan renderer in the core, Wayland subsurface in the GTK shell
 - [x] 3D view: beads with the real cross section and round ends, the deposited width, the cooled size, the filament color with PLA-like light, 4x MSAA
-- [ ] 3D view: X11, the model mesh before the slice, pan, a level of detail for beads smaller than a pixel
+- [x] 3D view: CAD mouse (orbit, pan, turntable, zoom to the pointer), smooth zoom and reset, no tilt limit
+- [ ] 3D view: X11, the model mesh before the slice, a level of detail for beads smaller than a pixel
 - [ ] 3D view, physics not modeled yet: the seam blob, sag on overhangs and bridges, stringing, corner rounding by acceleration
 - [x] Click a path in the 2D or 3D view to inspect it: its real values with the reasons, and the settings that change it, editable in place
 - [x] Replay: play the print in the 3D view, line by line, at 1x, 2x, 3x, 10x, 30x, 100x, from the move times of the G-code
+- [x] Live settings: a value goes to the core after a pause in the typing; Up, Down, and a drag on the label step it; units on each value, ratios as percentages; all editors of a setting stay in sync
+- [x] A stable UI during a new slice: the inspector updates in place, the tab stays, the status bar keeps its size and dims the old numbers
+- [ ] Settings browser in columns: sections, then settings, then the help and the lines of the project that the setting changes, highlighted in the preview
+- [ ] Ironing in the preview: the ironed top skin looks flat; the inspector shows what ironing costs in time
+- [ ] Plate: more than one part, move and rotate parts, a best placement that orients each part for less support and packs the parts to use the bed
+- [ ] Printers: a shared place for printers and their connections (printdeck remote, OctoPrint, Moonraker), and print monitoring
 - [ ] Replay: a nozzle marker, and the time estimate with acceleration (the replay is as exact as the time estimate)
 - [ ] macOS and iOS shell: SwiftUI (`apple/`)
 - [ ] Windows shell: Win32 C++ (`windows/`)

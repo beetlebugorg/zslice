@@ -24,6 +24,11 @@ typedef struct {
     GtkWidget *status;
     GtkWidget *progress;
     char *last_error;
+    /* The text of the last result, shown dim while a new slice runs, so
+     * the status bar does not change its size. */
+    char *last_stats;
+    /* Export was pressed while a slice ran: export when it is done. */
+    gboolean export_pending;
 } Window;
 
 static Window *get(GtkWindow *w) {
@@ -44,19 +49,27 @@ static void update(Window *w) {
     int state = zs_app_state(core);
     const char *name = zg_model_name(w->model);
     gtk_label_set_text(GTK_LABEL(w->title), name ? name : "zslice");
-    gtk_widget_set_sensitive(w->export_button, state == ZS_STATE_DONE);
-    gtk_widget_set_visible(w->progress, state == ZS_STATE_SLICING);
+    /* While a new slice runs, the old result stays on the screen, so the
+     * export button stays on too (an export waits for the new result). */
+    gboolean have_result = state == ZS_STATE_DONE || (state == ZS_STATE_SLICING && w->last_stats);
+    gtk_widget_set_sensitive(w->export_button, have_result);
+    /* The bar keeps its space. It shows only for a slow slice (see
+     * show_progress). */
+    if (state != ZS_STATE_SLICING) gtk_widget_set_opacity(w->progress, 0);
+    if (state == ZS_STATE_SLICING) gtk_widget_add_css_class(w->status, "zg-stale");
+    else gtk_widget_remove_css_class(w->status, "zg-stale");
 
     char text[256];
     switch (state) {
     case ZS_STATE_EMPTY:
+        g_clear_pointer(&w->last_stats, g_free);
         g_snprintf(text, sizeof text, "No model");
         break;
     case ZS_STATE_READY:
         g_snprintf(text, sizeof text, "Ready");
         break;
     case ZS_STATE_SLICING:
-        g_snprintf(text, sizeof text, "Slicing");
+        g_snprintf(text, sizeof text, "%s", w->last_stats ? w->last_stats : "Slicing");
         break;
     case ZS_STATE_DONE: {
         zs_stats st;
@@ -65,6 +78,8 @@ static void update(Window *w) {
         format_time(t, sizeof t, st.print_time_s);
         g_snprintf(text, sizeof text, "%u layers   %.2f m filament (%.1f g)   about %s",
                    st.layer_count, st.filament_mm / 1000.0, st.filament_g, t);
+        g_free(w->last_stats);
+        w->last_stats = g_strdup(text);
         break;
     }
     case ZS_STATE_FAILED:
@@ -81,6 +96,8 @@ static void on_core_event(ZgModel *model, int event, double progress, int status
     Window *w = data;
     if (event == ZS_EVENT_PROGRESS) {
         gtk_progress_bar_set_fraction(GTK_PROGRESS_BAR(w->progress), progress);
+        /* A fast slice shows no bar; a slow one shows it after a while. */
+        if (progress > 0.15 && progress < 0.9) gtk_widget_set_opacity(w->progress, 1);
         if (zs_app_state(zg_model_core(model)) == ZS_STATE_SLICING) return;
     }
     if (event == ZS_EVENT_FAILED) {
@@ -88,6 +105,10 @@ static void on_core_event(ZgModel *model, int event, double progress, int status
         w->last_error = g_strdup(zg_status_text(status));
     }
     update(w);
+    if (w->export_pending && zs_app_state(zg_model_core(model)) != ZS_STATE_SLICING) {
+        w->export_pending = FALSE;
+        if (zs_app_state(zg_model_core(model)) == ZS_STATE_DONE) zg_window_export_dialog(w->window);
+    }
 }
 
 static void show_error(Window *w, const char *message, const char *detail) {
@@ -191,7 +212,12 @@ static void on_export_chosen(GObject *source, GAsyncResult *res, gpointer data) 
 
 void zg_window_export_dialog(GtkWindow *window) {
     Window *w = get(window);
-    if (zs_app_state(zg_model_core(w->model)) != ZS_STATE_DONE) return;
+    int state = zs_app_state(zg_model_core(w->model));
+    if (state == ZS_STATE_SLICING) {
+        w->export_pending = TRUE;
+        return;
+    }
+    if (state != ZS_STATE_DONE) return;
     GtkFileDialog *dialog = gtk_file_dialog_new();
     gtk_file_dialog_set_title(dialog, "Export G-code");
     const char *name = zg_model_name(w->model);
@@ -229,6 +255,7 @@ static void window_free(gpointer data) {
     g_signal_handlers_disconnect_by_data(w->model, w);
     g_object_unref(w->model);
     g_free(w->last_error);
+    g_free(w->last_stats);
     g_free(w);
 }
 
@@ -279,6 +306,8 @@ GtkWindow *zg_window_new(GtkApplication *app, ZgModel *model) {
     gtk_paned_set_shrink_start_child(GTK_PANED(paned), FALSE);
     gtk_paned_set_shrink_end_child(GTK_PANED(paned), FALSE);
     gtk_paned_set_wide_handle(GTK_PANED(paned), TRUE);
+    /* The start width of the settings panel; the user can drag it to 220. */
+    gtk_paned_set_position(GTK_PANED(paned), 380);
     gtk_widget_set_vexpand(paned, TRUE);
 
     /* Status bar. */

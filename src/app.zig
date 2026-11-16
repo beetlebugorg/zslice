@@ -417,12 +417,12 @@ pub const App = struct {
         try out.print("The bead is {d:.3} mm wide and {d:.2} mm tall. The line width is {d:.3} mm. The cross section is {d:.4} mm\u{b2}.\n", .{ bead, h, w, area });
         try out.print("The path is {d:.1} mm long, and it uses {d:.2} mm\u{b3} of plastic.\n\n", .{ length, length * area });
         if (feature == .ironing) {
-            try out.print("Planned speed: {d:.0} mm/s, the ironing speed ratio ({d}) times the machine limit ({d:.0} mm/s). Ironing uses little plastic, so the flow limit does not apply.\n", .{ planned, s.project.ironing_speed, s.machine.max_speed });
+            try out.print("Planned speed: {d:.0} mm/s, the ironing speed ({d:.0} %) of the machine limit ({d:.0} mm/s). Ironing uses little plastic, so the flow limit does not apply.\n", .{ planned, s.project.ironing_speed * 100, s.machine.max_speed });
         } else {
             const bead_area = zs.flow.beadArea(w, h);
             const flow_limit = s.filament.max_flow / bead_area;
             const limit = @min(s.machine.max_speed, flow_limit);
-            try out.print("Planned speed: {d:.0} mm/s. That is the speed ratio ({d:.2}) times {d:.0} mm/s: the lower of the machine limit ({d:.0} mm/s) and the flow limit ({d} mm\u{b3}/s / {d:.4} mm\u{b2} = {d:.0} mm/s).\n", .{ planned, planned / limit, limit, s.machine.max_speed, s.filament.max_flow, bead_area, flow_limit });
+            try out.print("Planned speed: {d:.0} mm/s. That is {d:.0} % (the speed setting) of {d:.0} mm/s: the lower of the machine limit ({d:.0} mm/s) and the flow limit ({d} mm\u{b3}/s / {d:.4} mm\u{b2} = {d:.0} mm/s).\n", .{ planned, planned / limit * 100, limit, s.machine.max_speed, s.filament.max_flow, bead_area, flow_limit });
         }
         if (real < planned * 0.98) {
             try out.print("Real speed: {d:.0} mm/s. The layer prints in less than the minimum layer time of the filament ({d} s), so it prints slower, to cool.\n", .{ real, s.filament.min_layer_time });
@@ -434,10 +434,19 @@ pub const App = struct {
             hours(t0), minutes(t0), seconds(t0), hours(t1), minutes(t1), seconds(t1),
         });
 
+        // The settings, in sections. A line "# Name" starts a section.
         var names: std.Io.Writer.Allocating = .init(arena);
-        for (feature_settings[@intFromEnum(feature)]) |n| try names.writer.print("{s}\n", .{n});
-        if (first) for (first_layer_settings) |n| try names.writer.print("{s}\n", .{n});
-        for (cooling_settings) |n| try names.writer.print("{s}\n", .{n});
+        const nw = &names.writer;
+        try nw.writeAll("# Speed\n");
+        try nw.print("{s}\n", .{speedRatioSetting(feature, first)});
+        try nw.writeAll("machine.max_speed\n");
+        if (feature != .ironing) try nw.writeAll("filament.max_flow\n");
+        for (cooling_speed_settings) |n| try nw.print("{s}\n", .{n});
+        try nw.writeAll("# Shape\n");
+        for (feature_settings[@intFromEnum(feature)]) |n| try nw.print("{s}\n", .{n});
+        if (first) for (first_layer_settings) |n| try nw.print("{s}\n", .{n});
+        try nw.writeAll("# Material\n");
+        for (material_settings) |n| try nw.print("{s}\n", .{n});
 
         return .{
             .feature = feature,
@@ -494,19 +503,48 @@ pub const Inspection = struct {
 
 pub const feature_names = [_][]const u8{ "Outer wall", "Inner wall", "Skin", "Sparse infill", "Ironing", "Skirt or brim", "Support", "Support interface" };
 
-/// The settings that change each feature, in the order of the Feature enum.
+/// The settings that change the shape and the place of each feature, in
+/// the order of the Feature enum. The speed settings are in
+/// `speedRatioSetting` and `cooling_speed_settings`.
 const feature_settings = [_][]const []const u8{
-    &.{ "project.wall_count", "project.seam", "project.outer_wall_speed", "project.line_width", "project.layer_height", "filament.xy_offset", "filament.hole_xy_offset", "filament.flow_ratio", "filament.max_flow", "machine.max_speed" },
-    &.{ "project.wall_count", "project.inner_wall_speed", "project.line_width", "project.layer_height", "filament.flow_ratio", "filament.max_flow", "machine.max_speed" },
-    &.{ "project.top_thickness", "project.bottom_thickness", "project.skin_overlap", "project.infill_angle", "project.skin_speed", "project.line_width", "filament.flow_ratio", "filament.max_flow" },
-    &.{ "project.infill_density", "project.infill_pattern", "project.infill_angle", "project.infill_overlap", "project.infill_speed", "filament.flow_ratio", "filament.max_flow" },
-    &.{ "project.ironing", "project.ironing_flow", "project.ironing_spacing", "project.ironing_inset", "project.ironing_speed" },
-    &.{ "project.skirt_loops", "project.skirt_distance", "project.skirt_layers", "project.brim_width" },
-    &.{ "project.support", "project.support_angle", "project.support_density", "project.support_xy_gap", "project.support_z_gap_layers", "project.infill_speed" },
-    &.{ "project.support_interface_layers", "project.support_interface_density", "project.support_z_gap_layers", "project.skin_speed" },
+    &.{ "project.wall_count", "project.seam", "project.line_width", "project.layer_height", "filament.xy_offset", "filament.hole_xy_offset" },
+    &.{ "project.wall_count", "project.line_width", "project.layer_height" },
+    &.{ "project.top_thickness", "project.bottom_thickness", "project.skin_overlap", "project.infill_angle", "project.line_width", "project.layer_height" },
+    &.{ "project.infill_density", "project.infill_pattern", "project.infill_angle", "project.infill_overlap", "project.line_width", "project.layer_height" },
+    &.{ "project.ironing", "project.ironing_flow", "project.ironing_spacing", "project.ironing_inset" },
+    &.{ "project.skirt_loops", "project.skirt_distance", "project.skirt_layers", "project.brim_width", "project.line_width" },
+    &.{ "project.support", "project.support_angle", "project.support_density", "project.support_xy_gap", "project.support_z_gap_layers" },
+    &.{ "project.support_interface_layers", "project.support_interface_density", "project.support_z_gap_layers" },
 };
-const first_layer_settings = [_][]const u8{ "project.first_layer_height", "project.first_layer_line_width", "project.first_layer_speed", "filament.first_layer_nozzle_temp", "project.first_layer_xy_offset" };
-const cooling_settings = [_][]const u8{ "filament.min_layer_time", "filament.min_speed", "filament.fan_speed" };
+const first_layer_settings = [_][]const u8{ "project.first_layer_height", "project.first_layer_line_width", "filament.first_layer_nozzle_temp", "project.first_layer_xy_offset" };
+/// The settings that slow a layer down to cool it.
+const cooling_speed_settings = [_][]const u8{ "filament.min_layer_time", "filament.min_speed" };
+const material_settings = [_][]const u8{ "filament.flow_ratio", "filament.nozzle_temp", "filament.fan_speed" };
+
+/// The speed ratio that a line of `feature` uses (see Resolved.speed).
+fn speedRatioSetting(feature: zs.settings.Feature, first_layer: bool) []const u8 {
+    if (feature == .ironing) return "project.ironing_speed";
+    if (first_layer) return "project.first_layer_speed";
+    return switch (feature) {
+        .outer_wall => "project.outer_wall_speed",
+        .inner_wall, .skirt => "project.inner_wall_speed",
+        .skin, .support_interface => "project.skin_speed",
+        .infill, .support => "project.infill_speed",
+        .ironing => unreachable,
+    };
+}
+
+test "each inspector setting exists" {
+    const has = struct {
+        fn f(name: []const u8) bool {
+            for (meta.all) |m| if (std.mem.eql(u8, m.name, name)) return true;
+            return false;
+        }
+    }.f;
+    for (feature_settings) |list| for (list) |n| try std.testing.expect(has(n));
+    for (first_layer_settings ++ cooling_speed_settings ++ material_settings) |n| try std.testing.expect(has(n));
+    for (0..8) |i| for ([_]bool{ false, true }) |first| try std.testing.expect(has(speedRatioSetting(@enumFromInt(i), first)));
+}
 
 fn hours(t: f64) u64 {
     return @intFromFloat(@floor(t / 3600));
@@ -696,6 +734,10 @@ pub const SettingInfo = struct {
     kind: SettingKind,
     /// For a choice: the choices, one on each line.
     choices: [:0]const u8,
+    /// The unit of a number, for the UI: "mm", "mm/s", "°C", and so on.
+    /// "%" marks a ratio: the value 0.5 is 50 %, and a UI shows the value
+    /// times 100. Empty for the other kinds.
+    unit: [:0]const u8 = "",
     /// For text: true if the value can have more than one line.
     multiline: bool,
 };
@@ -729,11 +771,73 @@ pub const settings_info: []const SettingInfo = blk: {
                 .kind = kind,
                 .choices = std.fmt.comptimePrint("{s}", .{choices}),
                 .multiline = std.mem.endsWith(u8, f.name, "gcode"),
+                .unit = unitOf(name),
             }};
         }
     }
     break :blk list;
 };
+
+/// The unit of each number setting. A test checks that each number has
+/// one, so a new setting needs a line here.
+const units = [_][2][]const u8{
+    // machine
+    .{ "machine.bed_size_x", "mm" },           .{ "machine.bed_size_y", "mm" },
+    .{ "machine.max_height", "mm" },           .{ "machine.nozzle_diameter", "mm" },
+    .{ "machine.max_speed", "mm/s" },          .{ "machine.travel_speed", "mm/s" },
+    .{ "machine.max_z_speed", "mm/s" },        .{ "machine.retract_length", "mm" },
+    .{ "machine.retract_speed", "mm/s" },
+    // filament
+    .{ "filament.diameter", "mm" },            .{ "filament.density", "g/cm\u{b3}" },
+    .{ "filament.nozzle_temp", "\u{b0}C" },    .{ "filament.first_layer_nozzle_temp", "\u{b0}C" },
+    .{ "filament.bed_temp", "\u{b0}C" },       .{ "filament.standby_temp", "\u{b0}C" },
+    .{ "filament.max_flow", "mm\u{b3}/s" },    .{ "filament.flow_ratio", "%" },
+    .{ "filament.fan_speed", "%" },            .{ "filament.fan_off_layers", "layers" },
+    .{ "filament.fan_max_speed", "%" },        .{ "filament.fan_boost_time", "s" },
+    .{ "filament.min_layer_time", "s" },       .{ "filament.min_speed", "mm/s" },
+    .{ "filament.shrinkage_xy", "%" },         .{ "filament.shrinkage_z", "%" },
+    .{ "filament.xy_offset", "mm" },           .{ "filament.hole_xy_offset", "mm" },
+    .{ "filament.retract_ratio", "%" },
+    // project
+    .{ "project.layer_height", "mm" },         .{ "project.first_layer_height", "mm" },
+    .{ "project.line_width", "mm" },           .{ "project.first_layer_line_width", "mm" },
+    .{ "project.wall_count", "walls" },        .{ "project.top_thickness", "mm" },
+    .{ "project.bottom_thickness", "mm" },     .{ "project.skin_overlap", "%" },
+    .{ "project.infill_density", "%" },        .{ "project.infill_angle", "\u{b0}" },
+    .{ "project.infill_overlap", "%" },        .{ "project.ironing_flow", "%" },
+    .{ "project.ironing_spacing", "mm" },      .{ "project.ironing_inset", "mm" },
+    .{ "project.ironing_speed", "%" },         .{ "project.outer_wall_speed", "%" },
+    .{ "project.inner_wall_speed", "%" },      .{ "project.skin_speed", "%" },
+    .{ "project.infill_speed", "%" },          .{ "project.first_layer_speed", "%" },
+    .{ "project.retract_min_travel", "mm" },   .{ "project.z_hop", "mm" },
+    .{ "project.support_angle", "\u{b0}" },    .{ "project.support_density", "%" },
+    .{ "project.support_xy_gap", "mm" },       .{ "project.support_z_gap_layers", "layers" },
+    .{ "project.support_interface_layers", "layers" }, .{ "project.support_interface_density", "%" },
+    .{ "project.skirt_loops", "loops" },       .{ "project.skirt_distance", "mm" },
+    .{ "project.skirt_layers", "layers" },     .{ "project.brim_width", "mm" },
+    .{ "project.first_layer_xy_offset", "mm" },
+    // engine
+    .{ "engine.resolution", "mm" },            .{ "engine.gap_closing", "mm" },
+    .{ "engine.threads", "threads" },
+};
+
+fn unitOf(comptime name: []const u8) [:0]const u8 {
+    @setEvalBranchQuota(100_000);
+    for (units) |u| if (std.mem.eql(u8, u[0], name)) return std.fmt.comptimePrint("{s}", .{u[1]});
+    return "";
+}
+
+test "each number setting has a unit" {
+    for (settings_info) |s| {
+        if ((s.kind == .number or s.kind == .integer) and s.unit.len == 0) {
+            std.debug.print("no unit for {s}: add it to `units` in src/app.zig\n", .{s.name});
+            return error.TestUnexpectedResult;
+        }
+    }
+    for (units) |u| try testing.expect(for (settings_info) |s| {
+        if (std.mem.eql(u8, s.name, u[0])) break true;
+    } else false);
+}
 
 fn findMeta(comptime name: []const u8) meta.Meta {
     @setEvalBranchQuota(100_000);

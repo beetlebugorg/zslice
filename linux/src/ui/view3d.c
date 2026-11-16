@@ -37,6 +37,9 @@ typedef struct {
     /* TRUE while the widget is unmapped: no frames, the subsurface is
      * hidden. */
     gboolean hidden;
+    /* The tick callback of the camera animation, or 0. */
+    guint anim;
+    gint64 anim_last;
     gboolean have_data;
     guint idle;
     double drag_x, drag_y;
@@ -63,6 +66,26 @@ static gboolean draw_now(gpointer data) {
 
 static void queue_frame(View3d *v) {
     if (!v->idle && v->view && !v->hidden) v->idle = g_idle_add(draw_now, v);
+}
+
+/* The camera animation (smooth zoom and reset): one step on each frame of
+ * the frame clock, until the core says that the camera is at rest. */
+static gboolean on_animate(GtkWidget *w, GdkFrameClock *clock, gpointer data) {
+    View3d *v = data;
+    gint64 now = gdk_frame_clock_get_frame_time(clock);
+    double dt = v->anim_last ? (now - v->anim_last) / 1e6 : 1.0 / 60;
+    v->anim_last = now;
+    gboolean moving = v->view && !v->hidden && zs_view_animate(v->view, MIN(dt, 0.1));
+    queue_frame(v);
+    if (moving) return G_SOURCE_CONTINUE;
+    v->anim = 0;
+    return G_SOURCE_REMOVE;
+}
+
+static void start_animation(View3d *v) {
+    if (v->anim) return;
+    v->anim_last = 0;
+    v->anim = gtk_widget_add_tick_callback(v->area, on_animate, v, NULL);
 }
 
 /* The widget position in the window, in logical points. */
@@ -173,6 +196,9 @@ static void on_map(GtkWidget *w, gpointer data) {
 static void on_unmap(GtkWidget *w, gpointer data) {
     View3d *v = data;
     v->hidden = TRUE;
+    /* No frame clock ticks while unmapped: stop the animation. */
+    if (v->anim) gtk_widget_remove_tick_callback(v->area, v->anim);
+    v->anim = 0;
     if (v->idle) {
         g_source_remove(v->idle);
         v->idle = 0;
@@ -273,7 +299,7 @@ static gboolean on_scroll(GtkEventControllerScroll *c, double dx, double dy, gpo
     View3d *v = data;
     int scale = gtk_widget_get_scale_factor(v->area);
     if (v->view) zs_view_zoom_at(v->view, powf(1.15f, (float)dy), (float)(v->pointer_x * scale), (float)(v->pointer_y * scale));
-    queue_frame(v);
+    start_animation(v);
     return TRUE;
 }
 
@@ -297,8 +323,8 @@ static void on_click(GtkGestureClick *g, int n, double x, double y, gpointer dat
     v->press_x = x;
     v->press_y = y;
     if (n != 2 || !v->view) return;
-    zs_view_reset(v->view);
-    queue_frame(v);
+    zs_view_reset_smooth(v->view);
+    start_animation(v);
 }
 
 static void view_free(gpointer data) {

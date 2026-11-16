@@ -74,6 +74,13 @@ pub const View = struct {
     yaw: f32 = 0,
     pitch: f32 = 0,
     dist: f32 = 100,
+    /// The camera pose that `animate` moves to, or null if the camera does
+    /// not move. The scroll zoom and the reset set it. A drag moves the
+    /// camera at once, and moves the goal by the same amount.
+    goal: ?Pose = null,
+
+    /// The camera: the target, the angles, and the distance.
+    pub const Pose = struct { target: [3]f32, yaw: f32, pitch: f32, dist: f32 };
 
     const gpa = std.heap.c_allocator;
 
@@ -310,10 +317,85 @@ pub const View = struct {
         return lo;
     }
 
+    fn pose(v: *const View) Pose {
+        return .{ .target = v.target, .yaw = v.yaw, .pitch = v.pitch, .dist = v.dist };
+    }
+
+    fn setPose(v: *View, p: Pose) void {
+        v.target = p.target;
+        v.yaw = p.yaw;
+        v.pitch = p.pitch;
+        v.dist = p.dist;
+    }
+
+    /// The angle a - b, in (-pi, pi].
+    fn angleDiff(a: f32, b: f32) f32 {
+        var d = @mod(a - b, 2 * std.math.pi);
+        if (d > std.math.pi) d -= 2 * std.math.pi;
+        return d;
+    }
+
+    /// Moves the goal by the change from `before` to the current pose, so
+    /// a drag during an animation does not fight the animation.
+    fn carryGoal(v: *View, before: Pose) void {
+        const g = &(v.goal orelse return);
+        for (0..3) |k| g.target[k] += v.target[k] - before.target[k];
+        g.yaw += v.yaw - before.yaw;
+        g.pitch += angleDiff(v.pitch, before.pitch);
+    }
+
+    /// Moves the camera toward the goal for a time step of dt seconds.
+    /// Returns true while the camera still moves. The motion slows down
+    /// near the goal (an exponential ease with a time constant of 70 ms).
+    pub fn animate(v: *View, dt: f32) bool {
+        const g = v.goal orelse return false;
+        const k = 1 - @exp(-@max(dt, 0) / 0.07);
+        for (0..3) |i| v.target[i] += (g.target[i] - v.target[i]) * k;
+        v.yaw += angleDiff(g.yaw, v.yaw) * k;
+        v.pitch += angleDiff(g.pitch, v.pitch) * k;
+        if (v.pitch > std.math.pi) v.pitch -= 2 * std.math.pi;
+        if (v.pitch <= -std.math.pi) v.pitch += 2 * std.math.pi;
+        v.dist *= std.math.pow(f32, g.dist / v.dist, k);
+        // Stop when the rest of the motion is less than a pixel.
+        var off: f32 = 0;
+        for (0..3) |i| off = @max(off, @abs(g.target[i] - v.target[i]));
+        const close = off < v.dist * 1e-4 and @abs(angleDiff(g.yaw, v.yaw)) < 1e-4 and
+            @abs(angleDiff(g.pitch, v.pitch)) < 1e-4 and @abs(g.dist / v.dist - 1) < 1e-4;
+        if (close) {
+            v.setPose(g);
+            v.goal = null;
+            return false;
+        }
+        return true;
+    }
+
+    /// The same as `zoomAt`, but `animate` moves the camera there. Steps
+    /// add up: each step starts from the goal of the step before.
+    pub fn zoomAtSmooth(v: *View, factor: f32, px: f32, py: f32) void {
+        const now = v.pose();
+        if (v.goal) |g| v.setPose(g);
+        v.zoomAt(factor, px, py);
+        v.goal = v.pose();
+        v.setPose(now);
+    }
+
+    /// The same as `reset`, but `animate` moves the camera there, on the
+    /// shorter way around.
+    pub fn resetSmooth(v: *View) void {
+        const now = v.pose();
+        v.reset();
+        var g = v.pose();
+        g.yaw = now.yaw + angleDiff(g.yaw, now.yaw);
+        v.goal = g;
+        v.setPose(now);
+    }
+
     /// Turns the camera by a drag of dx, dy pixels. The tilt has no limit:
     /// the camera can go under the part and over the top. Upside down, a
     /// sideways drag turns the other way, so the part follows the hand.
     pub fn orbit(v: *View, dx: f32, dy: f32) void {
+        const before = v.pose();
+        defer v.carryGoal(before);
         const upside_down = @cos(v.pitch) < 0;
         v.yaw += if (upside_down) dx * 0.008 else -dx * 0.008;
         v.pitch += dy * 0.008;
@@ -347,6 +429,8 @@ pub const View = struct {
     /// Moves the view sideways and up or down by a drag of dx, dy pixels.
     /// The scene moves with the pointer.
     pub fn pan(v: *View, dx: f32, dy: f32) void {
+        const before = v.pose();
+        defer v.carryGoal(before);
         const cam = v.camera();
         // The size of one pixel on the plane through the target.
         const unit = 2 * v.dist * @tan(@as(f32, fov) / 2) / @as(f32, @floatFromInt(v.height));
@@ -356,10 +440,13 @@ pub const View = struct {
     /// Turns the camera around the vertical axis only, by a drag of dx
     /// pixels (a turntable).
     pub fn turn(v: *View, dx: f32) void {
+        const before = v.pose();
+        defer v.carryGoal(before);
         v.yaw -= dx * 0.008;
     }
 
     pub fn reset(v: *View) void {
+        v.goal = null;
         v.target = v.home;
         v.yaw = -1.9;
         v.pitch = 0.6;
@@ -667,4 +754,38 @@ test "the camera can go under the part and over the top" {
     v.pitch = std.math.pi / 2.0;
     const pole = v.camera();
     try std.testing.expect(!std.math.isNan(pole.s[0]));
+}
+
+test "the camera animation reaches the goal, and a drag carries the goal" {
+    var v: View = .{ .renderer = undefined, .width = 200, .height = 100 };
+    v.home = .{ 10, 20, 5 };
+    v.extent = 30;
+    v.target = .{ 0, 0, 0 };
+    v.yaw = 2.9; // the short way to -1.9 goes up past pi
+    v.pitch = 0.1;
+    v.dist = 200;
+    v.resetSmooth();
+    try std.testing.expect(v.goal != null);
+    var frames: usize = 0;
+    var last_yaw = v.yaw;
+    while (v.animate(1.0 / 60.0)) : (frames += 1) {
+        // The short way: the yaw only grows.
+        try std.testing.expect(v.yaw >= last_yaw - 1e-6);
+        last_yaw = v.yaw;
+        try std.testing.expect(frames < 200);
+    }
+    try std.testing.expect(frames > 5);
+    try std.testing.expectApproxEqAbs(@as(f32, 84), v.dist, 1e-3);
+    try std.testing.expectApproxEqAbs(@as(f32, 0), View.angleDiff(v.yaw, -1.9), 1e-5);
+    try std.testing.expectEqual(@as(?View.Pose, null), v.goal);
+    // Two scroll steps add up, and a turn during the animation moves the
+    // goal by the same angle.
+    v.zoomAtSmooth(0.5, 100, 50);
+    v.zoomAtSmooth(0.5, 100, 50);
+    try std.testing.expectApproxEqAbs(@as(f32, 21), v.goal.?.dist, 1e-3);
+    const goal_yaw = v.goal.?.yaw;
+    v.turn(10);
+    try std.testing.expectApproxEqAbs(goal_yaw - 0.08, v.goal.?.yaw, 1e-5);
+    while (v.animate(1.0 / 60.0)) {}
+    try std.testing.expectApproxEqAbs(@as(f32, 21), v.dist, 1e-3);
 }

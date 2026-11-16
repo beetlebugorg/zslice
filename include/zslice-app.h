@@ -89,6 +89,9 @@ typedef struct zs_setting_info {
     int kind;            /* enum zs_setting_kind */
     int multiline;       /* for text: 1 if the value can have more than one line */
     const char *choices; /* for a choice: the choices, one on each line */
+    const char *unit;    /* for a number: "mm", "mm/s", "°C", and so on. "%"
+                            is a ratio: 0.5 is 50 %, so show the value times
+                            100. "" for the other kinds. */
 } zs_setting_info;
 
 /* The settings, in the order to show them. */
@@ -200,7 +203,9 @@ typedef struct zs_inspect {
     double start_time, end_time; /* s from the start of the print */
     const char *title;    /* for example "Outer wall" */
     const char *explain;  /* the values and why, in plain words, with line breaks */
-    const char *settings; /* the setting names that change it, one on each line */
+    const char *settings; /* the setting names that change it, one on each
+                             line; a line "# Name" starts a section (Speed,
+                             Shape, Material) */
 } zs_inspect;
 
 /* The strings stay valid until the next zs_app_inspect, the next slice, or
@@ -246,8 +251,15 @@ void zs_view_set_layer(zs_view *view, size_t layer);
 void zs_view_orbit(zs_view *view, float dx, float dy);
 /* Moves the camera nearer (factor < 1) or further (factor > 1). */
 void zs_view_zoom(zs_view *view, float factor);
-/* Zooms toward the pixel (px, py): the point under it stays in place. */
+/* Zooms toward the pixel (px, py): the point under it stays in place. The
+ * camera moves there smoothly: call zs_view_animate on each frame. */
 void zs_view_zoom_at(zs_view *view, float factor, float px, float py);
+/* Moves the camera smoothly back to the start view (see zs_view_animate). */
+void zs_view_reset_smooth(zs_view *view);
+/* Moves the camera toward its goal for dt seconds (the time since the last
+ * frame). Returns 1 while the camera still moves, so the shell asks for
+ * one more frame, and 0 when it is at rest. Drags move the camera at once. */
+int zs_view_animate(zs_view *view, double dt);
 /* Moves the view by a drag of dx, dy pixels: the scene follows the pointer. */
 void zs_view_pan(zs_view *view, float dx, float dy);
 /* Turns the camera around the vertical axis only (a turntable), by a drag

@@ -298,6 +298,7 @@ pub const SettingInfo = extern struct {
     kind: c_int,
     multiline: c_int,
     choices: [*:0]const u8,
+    unit: [*:0]const u8,
 };
 
 export fn zs_setting_count() usize {
@@ -317,6 +318,7 @@ export fn zs_setting_get_info(index: usize, out: ?*SettingInfo) c_int {
         .kind = @intFromEnum(s.kind),
         .multiline = @intFromBool(s.multiline),
         .choices = s.choices.ptr,
+        .unit = s.unit.ptr,
     };
     return ok;
 }
@@ -643,7 +645,21 @@ export fn zs_view_zoom(view: ?*View, factor: f32) void {
 export fn zs_view_zoom_at(view: ?*View, factor: f32, px: f32, py: f32) void {
     if (!render_on) return;
     const v = view orelse return;
-    v.zoomAt(factor, px, py);
+    v.zoomAtSmooth(factor, px, py);
+}
+
+export fn zs_view_reset_smooth(view: ?*View) void {
+    if (!render_on) return;
+    const v = view orelse return;
+    v.resetSmooth();
+}
+
+/// Moves the camera toward its goal for dt seconds. 1 while it still
+/// moves, 0 when it is at rest.
+export fn zs_view_animate(view: ?*View, dt: f64) c_int {
+    if (!render_on) return 0;
+    const v = view orelse return 0;
+    return @intFromBool(v.animate(@floatCast(dt)));
 }
 
 export fn zs_view_pan(view: ?*View, dx: f32, dy: f32) void {
