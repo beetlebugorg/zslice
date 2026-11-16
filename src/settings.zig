@@ -910,9 +910,11 @@ pub fn isPartSetting(name: []const u8) bool {
 }
 
 /// The settings that can change from one layer to the next. The others
-/// are for the whole print: the layer heights make the layer table, the
-/// support and the skirt need all layers, and the filament and the machine
-/// do not change during a print.
+/// are for the whole print: the first layer settings, the skirt and the
+/// brim, the support areas (a column goes through many layers), the
+/// shrinkage, the facts of the filament, and the machine.
+/// docs/internals/layer-settings.md has the list, with the reason for each
+/// setting that is not here.
 pub const layer_settings = [_][]const u8{
     "project.wall_count",
     "project.seam",
@@ -968,6 +970,11 @@ pub const layer_settings = [_][]const u8{
     "project.infill_accel",
     "project.travel_accel",
     "filament.max_flow",
+    // Pass 1 of the engine reads these for each layer. A layer gets the
+    // layer height of the z where it starts (see slicer.HeightSpan).
+    "project.layer_height",
+    "filament.xy_offset",
+    "filament.hole_xy_offset",
 };
 
 pub fn isLayerSetting(name: []const u8) bool {
@@ -993,5 +1000,7 @@ test "overrides cover a z range" {
     // The later override wins where both cover.
     try std.testing.expectEqual(@as(f64, 0.7), (try withOverrides(base, &list, 1.8)).project.infill_density);
     try std.testing.expect(isLayerSetting("project.skin_angle"));
-    try std.testing.expect(!isLayerSetting("project.layer_height"));
+    try std.testing.expect(isLayerSetting("project.layer_height"));
+    try std.testing.expect(!isLayerSetting("project.first_layer_height"));
+    try std.testing.expect(!isLayerSetting("project.support_angle"));
 }

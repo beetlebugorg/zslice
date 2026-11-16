@@ -1232,8 +1232,9 @@ test "an override of the whole part changes the slice, and not the global settin
     const app = try App.create(gpa, null, null);
     defer app.destroy();
     try app.loadStl("demo.stl", bytes.written());
-    // The layer height is not a layer setting, but the part can change it.
-    try testing.expectError(error.NotPerLayer, app.setOverride(1, 2, "project.layer_height", "0.3"));
+    // The first layer height is not a layer setting, but the part can
+    // change it.
+    try testing.expectError(error.NotPerLayer, app.setOverride(1, 2, "project.first_layer_height", "0.3"));
     try testing.expectError(error.NotPerLayer, app.setOverride(-1e6, 1e6, "machine.bed_size_x", "300"));
     try app.setOverride(-1e6, 1e6, "project.layer_height", "0.3");
     try app.startSlice();

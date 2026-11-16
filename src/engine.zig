@@ -119,10 +119,27 @@ const Sliced = struct {
     }
 };
 
-fn slicePart(gpa: Allocator, mesh: *const Mesh, settings: Settings, height: f64, z_base: f64, b: mesh_mod.Bounds3, dx: f64, dy: f64, threads: usize, monitor: Monitor) Error!Sliced {
-        // Step 3.
+/// The overrides that change the outlines: the layer height and the XY
+/// offsets. Pass 1 reads them (see `slicePart`).
+fn isOutlineSetting(name: []const u8) bool {
+    for ([_][]const u8{ "project.layer_height", "filament.xy_offset", "filament.hole_xy_offset" }) |n| {
+        if (std.mem.eql(u8, n, name)) return true;
+    }
+    return false;
+}
+
+fn slicePart(gpa: Allocator, mesh: *const Mesh, settings: Settings, outline_overrides: []const settings_mod.Override, height: f64, z_base: f64, b: mesh_mod.Bounds3, dx: f64, dy: f64, threads: usize, monitor: Monitor) Error!Sliced {
+        // Step 3. The layer height overrides give the spans of the layer
+        // table (see slicer.HeightSpan).
         const f = settings.filament;
-        const layers = try slicer.layerTable(gpa, height, settings.project.first_layer_height, settings.project.layer_height);
+        var spans: std.ArrayList(slicer.HeightSpan) = .empty;
+        defer spans.deinit(gpa);
+        for (outline_overrides) |o| if (std.mem.eql(u8, o.name, "project.layer_height")) {
+            var check = settings;
+            check.set(o.name, o.value) catch return error.InvalidSettings;
+            try spans.append(gpa, .{ .z_min = o.z_min, .z_max = o.z_max, .height = check.project.layer_height });
+        };
+        const layers = try slicer.layerTableSpans(gpa, height, settings.project.first_layer_height, settings.project.layer_height, spans.items);
         // The part center on the bed: the center of the XY shrinkage scale.
         const center_x = (b.min[0] + b.max[0]) / 2 + dx;
         const center_y = (b.min[1] + b.max[1]) / 2 + dy;
@@ -134,6 +151,13 @@ fn slicePart(gpa: Allocator, mesh: *const Mesh, settings: Settings, height: f64,
         errdefer {
             for (outlines) |*o| o.deinit(gpa);
             gpa.free(outlines);
+        }
+        // The XY offsets of each layer, with the overrides at its z.
+        const xy_offsets = try gpa.alloc([2]i64, layers.len);
+        defer gpa.free(xy_offsets);
+        for (layers, xy_offsets) |l, *xo| {
+            const ls = settings_mod.withOverrides(settings, outline_overrides, l.z) catch return error.InvalidSettings;
+            xo.* = .{ geom.fromMm(ls.filament.xy_offset), geom.fromMm(ls.filament.hole_xy_offset) };
         }
 
         // Step 4.
@@ -156,8 +180,8 @@ fn slicePart(gpa: Allocator, mesh: *const Mesh, settings: Settings, height: f64,
             xy_scale: f64,
             center_x: f64,
             center_y: f64,
-            xy_offset: i64,
-            hole_offset: i64,
+            /// The XY offset and the hole offset of each layer.
+            xy_offsets: []const [2]i64,
             first_offset: i64,
 
             fn run(c: *const @This(), i: usize) anyerror!void {
@@ -178,9 +202,10 @@ fn slicePart(gpa: Allocator, mesh: *const Mesh, settings: Settings, height: f64,
                     }
                 }
                 // XY offsets.
-                const xy = c.xy_offset + (if (i == 0) c.first_offset else 0);
-                if (xy != 0 or c.hole_offset != 0) {
-                    const moved = try compensate(c.gpa, o, xy, c.hole_offset);
+                const xy = c.xy_offsets[i][0] + (if (i == 0) c.first_offset else 0);
+                const hole = c.xy_offsets[i][1];
+                if (xy != 0 or hole != 0) {
+                    const moved = try compensate(c.gpa, o, xy, hole);
                     o.deinit(c.gpa);
                     o = moved;
                 }
@@ -203,8 +228,7 @@ fn slicePart(gpa: Allocator, mesh: *const Mesh, settings: Settings, height: f64,
             .xy_scale = f.shrinkage_xy,
             .center_x = center_x,
             .center_y = center_y,
-            .xy_offset = geom.fromMm(f.xy_offset),
-            .hole_offset = geom.fromMm(f.hole_xy_offset),
+            .xy_offsets = xy_offsets,
             .first_offset = geom.fromMm(settings.project.first_layer_xy_offset),
         };
         parallel.forEach(threads, layers.len, &ctx, Pass1.run) catch |e| return @as(Error, @errorCast(e));
@@ -277,9 +301,16 @@ pub const Job = struct {
     /// `marks`: the support marks of the user (see support.Mark).
     pub fn initReuse(gpa: Allocator, mesh: *const Mesh, settings: Settings, overrides: []const settings_mod.Override, marks: []const support_mod.Mark, monitor: Monitor, old: ?*Job) Error!Job {
         for (overrides) |o| if (!settings_mod.isLayerSetting(o.name)) return error.InvalidSettings;
-        var job = try initBase(gpa, mesh, settings, marks, monitor, old);
+        var outline_overrides: std.ArrayList(settings_mod.Override) = .empty;
+        defer outline_overrides.deinit(gpa);
+        for (overrides) |o| if (isOutlineSetting(o.name)) try outline_overrides.append(gpa, o);
+        var job = try initBase(gpa, mesh, settings, outline_overrides.items, marks, monitor, old);
         errdefer job.deinit();
         if (overrides.len > 0) try job.resolveLayers(settings, overrides);
+        // A layer can have another height than the layer height of its
+        // settings (its height comes from the z where it starts), so each
+        // height must fit the line width of its layer.
+        for (job.layers[1..], 1..) |l, i| if (l.height > job.resolvedAt(i).line_width + 1e-9) return error.InvalidSettings;
         if (job.tops.len == 0) try job.makeSurfaces();
         // The work memory goes back to the operating system (see
         // scratch.zig).
@@ -345,7 +376,7 @@ pub const Job = struct {
         self.layer_resolved = try list.toOwnedSlice(gpa);
     }
 
-    fn initBase(gpa: Allocator, mesh: *const Mesh, settings: Settings, marks: []const support_mod.Mark, monitor: Monitor, old: ?*Job) Error!Job {
+    fn initBase(gpa: Allocator, mesh: *const Mesh, settings: Settings, outline_overrides: []const settings_mod.Override, marks: []const support_mod.Mark, monitor: Monitor, old: ?*Job) Error!Job {
         // Step 1.
         const r = settings.resolve() catch return error.InvalidSettings;
         const threads = parallel.threadCount(settings.engine.threads);
@@ -368,7 +399,7 @@ pub const Job = struct {
 
         // The outlines depend only on the mesh and these values. If an
         // older job has the same key, its outlines are good.
-        const key = outlineKey(settings, height, b, dx, dy);
+        const key = outlineKey(settings, outline_overrides, height, b, dx, dy);
         var job: Job = .{
             .gpa = gpa,
             .resolved = r,
@@ -408,7 +439,7 @@ pub const Job = struct {
             // the print would start in the air: slice again from the first
             // layer with material, as the part sits on the bed there.
             var z_base = b.min[2];
-            var sliced = try slicePart(gpa, mesh, settings, height, z_base, b, dx, dy, threads, monitor);
+            var sliced = try slicePart(gpa, mesh, settings, outline_overrides, height, z_base, b, dx, dy, threads, monitor);
             var empty: usize = 0;
             while (empty < sliced.outlines.len and sliced.outlines[empty].isEmpty()) empty += 1;
             if (empty == sliced.outlines.len) {
@@ -421,7 +452,7 @@ pub const Job = struct {
                 const lift = sliced.layers[empty].sliceZ() - settings.project.first_layer_height / 2;
                 sliced.deinit(gpa);
                 z_base = b.min[2] + lift / f.shrinkage_z;
-                sliced = try slicePart(gpa, mesh, settings, height - lift, z_base, b, dx, dy, threads, monitor);
+                sliced = try slicePart(gpa, mesh, settings, outline_overrides, height - lift, z_base, b, dx, dy, threads, monitor);
             }
             job.layers = sliced.layers;
             job.outlines = sliced.outlines;
@@ -767,8 +798,9 @@ const Pipeline = struct {
 };
 
 /// A hash of all inputs of the outlines, except the mesh: the part height
-/// and bottom, the placement, and the settings that pass 1 uses.
-fn outlineKey(settings: Settings, height: f64, b: mesh_mod.Bounds3, dx: f64, dy: f64) u64 {
+/// and bottom, the placement, and the settings and overrides that pass 1
+/// uses.
+fn outlineKey(settings: Settings, outline_overrides: []const settings_mod.Override, height: f64, b: mesh_mod.Bounds3, dx: f64, dy: f64) u64 {
     var h = std.hash.Wyhash.init(0);
     const f = settings.filament;
     const p = settings.project;
@@ -781,6 +813,13 @@ fn outlineKey(settings: Settings, height: f64, b: mesh_mod.Bounds3, dx: f64, dy:
         e.resolution,         e.gap_closing,
     };
     h.update(std.mem.sliceAsBytes(&values));
+    for (outline_overrides) |o| {
+        h.update(std.mem.asBytes(&[2]f64{ o.z_min, o.z_max }));
+        h.update(o.name);
+        h.update("\x00");
+        h.update(o.value);
+        h.update("\x00");
+    }
     return h.final();
 }
 
@@ -1187,7 +1226,7 @@ test "an override changes only its layers, and keeps the region cache" {
     defer b.deinit();
     try std.testing.expect(b.points.points.items.len > a.points.points.items.len);
     // A setting for the whole print is an error.
-    const bad = [_]settings_mod.Override{.{ .z_min = 3, .z_max = 4, .name = "project.layer_height", .value = "0.1" }};
+    const bad = [_]settings_mod.Override{.{ .z_min = 3, .z_max = 4, .name = "project.support_angle", .value = "60" }};
     try std.testing.expectError(error.InvalidSettings, Job.initFull(gpa, &mesh, s, &bad, .{}));
 }
 
@@ -1449,5 +1488,140 @@ test "an override of the planner settings changes only the layers in its range" 
             try testing.expect(std.mem.indexOf(u8, lb, "M204 S500\n") != null);
             try testing.expect(std.mem.indexOf(u8, la, "M204 S500\n") == null);
         }
+    }
+}
+
+/// The E per mm of the first outer wall line of a layer text, from the
+/// nozzle position before it.
+fn outerWallEPerMm(text: []const u8) !f64 {
+    var x: f64 = 0;
+    var y: f64 = 0;
+    var in_wall = false;
+    var lines = std.mem.splitScalar(u8, text, '\n');
+    while (lines.next()) |line| {
+        if (std.mem.startsWith(u8, line, ";TYPE:")) in_wall = std.mem.eql(u8, line, ";TYPE:WALL-OUTER");
+        if (!std.mem.startsWith(u8, line, "G0 X") and !std.mem.startsWith(u8, line, "G1 X")) continue;
+        var nx = x;
+        var ny = y;
+        var e: f64 = 0;
+        var tok = std.mem.tokenizeScalar(u8, line[3..], ' ');
+        while (tok.next()) |w| {
+            const v = try std.fmt.parseFloat(f64, w[1..]);
+            switch (w[0]) {
+                'X' => nx = v,
+                'Y' => ny = v,
+                'E' => e = v,
+                else => {},
+            }
+        }
+        if (in_wall and e > 0) return e / std.math.hypot(nx - x, ny - y);
+        x = nx;
+        y = ny;
+    }
+    return error.TestUnexpectedResult;
+}
+
+test "a layer height override: the layers above z get the new height" {
+    const gpa = testing.allocator;
+    var mesh = try mesh_mod.shapes.demo(gpa);
+    defer mesh.deinit(gpa);
+    var s: Settings = .{};
+    s.engine.threads = 2;
+    // "This layer and up" from the layer with its top at 3.1.
+    const o = [_]settings_mod.Override{.{ .z_min = 3.1 - 1e-3, .z_max = settings_mod.part_z, .name = "project.layer_height", .value = "0.1" }};
+    var job = try Job.initFull(gpa, &mesh, s, &o, .{});
+    defer job.deinit();
+    var base = try Job.init(gpa, &mesh, s);
+    defer base.deinit();
+    try testing.expect(job.outline_key != base.outline_key);
+    // The layers that start below 3.1 are the layers of the plain job. The
+    // layer with its top at 3.1 starts at 2.9, so it keeps 0.2 mm. The
+    // layers that start at 3.1 or higher are 0.1 mm, with z values from one
+    // multiply: 3.1 + k 0.1.
+    var thin: usize = 0;
+    var run_start: ?f64 = null;
+    for (job.layers, 0..) |l, i| {
+        const start = if (i == 0) 0 else job.layers[i - 1].z;
+        if (start < 3.1 - 1e-3) {
+            try testing.expectEqual(base.layers[i].z, l.z);
+            try testing.expectEqual(base.layers[i].height, l.height);
+        } else {
+            try testing.expectEqual(@as(f64, 0.1), l.height);
+            const z0 = run_start orelse start;
+            run_start = z0;
+            thin += 1;
+            try testing.expectEqual(z0 + @as(f64, @floatFromInt(thin)) * 0.1, l.z);
+        }
+    }
+    // 14 mm: 15 layers to 3.1, then 0.1 mm layers to 13.9 + 0.1.
+    try testing.expectEqual(@as(usize, 15 + 109), job.layers.len);
+    try testing.expectEqual(@as(usize, 109), thin);
+    // The per layer settings of a layer in the range have the new height.
+    try testing.expectEqual(@as(f64, 0.1), job.resolvedAt(job.layers.len - 1).settings.project.layer_height);
+
+    // The G-code has each layer, at its z, with the flow of its height.
+    var out: Writer.Allocating = .init(gpa);
+    defer out.deinit();
+    const stats = try job.writeGcode(&out.writer);
+    try testing.expectEqual(@as(u32, @intCast(job.layers.len)), stats.layer_count);
+    const texts = try layerTexts(gpa, out.written());
+    defer gpa.free(texts);
+    try testing.expectEqual(job.layers.len, texts.len);
+    for (texts, job.layers) |t, l| {
+        var buf: [32]u8 = undefined;
+        const want = try std.fmt.bufPrint(&buf, "G0 Z{d} ", .{@round(l.z * 1000) / 1000});
+        try testing.expect(std.mem.indexOf(u8, t, want) != null);
+    }
+    const flow_mod = @import("flow.zig");
+    const w = job.resolved.line_width;
+    const e_thick = try outerWallEPerMm(texts[10]);
+    const e_thin = try outerWallEPerMm(texts[40]);
+    const want_ratio = flow_mod.beadArea(w, 0.1) / flow_mod.beadArea(w, 0.2);
+    try testing.expectApproxEqRel(want_ratio, e_thin / e_thick, 2e-3);
+}
+
+test "a layer height span: the top skin has its thickness in thin layers" {
+    const gpa = testing.allocator;
+    var mesh = try mesh_mod.shapes.demo(gpa);
+    defer mesh.deinit(gpa);
+    const s: Settings = .{};
+    const o = [_]settings_mod.Override{.{ .z_min = 10, .z_max = settings_mod.part_z, .name = "project.layer_height", .value = "0.1" }};
+    var job = try Job.initFull(gpa, &mesh, s, &o, .{});
+    defer job.deinit();
+    // The top 0.8 mm of skin is 8 layers of 0.1 mm: the layer 8 layers
+    // under the top has no skin over the full area, and the layer under the
+    // top 0.8 mm has sparse infill.
+    const n = job.layers.len;
+    var top = try job.planLayer(n - 8);
+    defer top.deinit();
+    var below = try job.planLayer(n - 9);
+    defer below.deinit();
+    var infill_top: usize = 0;
+    for (top.paths.items) |p| if (p.feature == .infill) {
+        infill_top += 1;
+    };
+    var infill_below: usize = 0;
+    for (below.paths.items) |p| if (p.feature == .infill) {
+        infill_below += 1;
+    };
+    try testing.expectEqual(@as(usize, 0), infill_top);
+    try testing.expect(infill_below > 0);
+}
+
+test "an XY offset override changes the outlines of its layers" {
+    const gpa = testing.allocator;
+    var mesh = try mesh_mod.shapes.demo(gpa);
+    defer mesh.deinit(gpa);
+    const s: Settings = .{};
+    var base = try Job.init(gpa, &mesh, s);
+    defer base.deinit();
+    const o = [_]settings_mod.Override{.{ .z_min = 3, .z_max = 4, .name = "filament.xy_offset", .value = "0.2" }};
+    var job = try Job.initFull(gpa, &mesh, s, &o, .{});
+    defer job.deinit();
+    try testing.expect(job.outline_key != base.outline_key);
+    for (job.layers, 0..) |l, i| {
+        const a = base.outlines[i].areaMm2();
+        const b = job.outlines[i].areaMm2();
+        if (l.z >= 3 and l.z <= 4) try testing.expect(b > a + 1) else try testing.expectEqual(a, b);
     }
 }
