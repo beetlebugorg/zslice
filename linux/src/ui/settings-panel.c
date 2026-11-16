@@ -870,6 +870,10 @@ typedef struct {
     GtkWidget *title;
     GtkWidget *stat_value[3];
     GtkWidget *stat_note;  /* a revealer */
+    GtkWidget *stat_note_label;
+    /* The "why" text of each number (planned, real, flow), for the popover
+     * of its button. */
+    char *why[3];
     GtkWidget *explain;
     /* The scope of the edits: 0 all layers, 1 this layer, 2 this layer
      * and up, 3 this layer and down. It stays for the next selection. */
@@ -931,12 +935,103 @@ static gboolean find_setting(const char *name, zs_setting_info *out) {
 static const char *stat_names[3] = {"planned speed", "real speed", "flow"};
 
 /* The speed summary: three numbers with a caption under each. */
+/* ---- why a number is what it is ---- */
+
+static void browser_show_setting(GtkWidget *page, const char *key);
+
+/* The "why" text as Pango markup: each {{name}} becomes a link with the
+ * label of the setting. */
+static char *why_markup(const char *text) {
+    GString *out = g_string_new(NULL);
+    const char *p = text;
+    while (*p) {
+        const char *open = strstr(p, "{{");
+        if (!open) {
+            char *e = g_markup_escape_text(p, -1);
+            g_string_append(out, e);
+            g_free(e);
+            break;
+        }
+        char *e = g_markup_escape_text(p, open - p);
+        g_string_append(out, e);
+        g_free(e);
+        const char *close = strstr(open + 2, "}}");
+        if (!close) break;
+        char *name = g_strndup(open + 2, close - open - 2);
+        zs_setting_info info;
+        const char *label = find_setting(name, &info) ? info.label : name;
+        char *el = g_markup_escape_text(label, -1);
+        g_string_append_printf(out, "<a href=\"setting:%s\">%s</a>", name, el);
+        g_free(el);
+        g_free(name);
+        p = close + 2;
+    }
+    return g_string_free(out, FALSE);
+}
+
+/* A link in a "why" text: the field of that setting in the inspector, or
+ * the setting in the Settings page. */
+static gboolean on_why_link(GtkLabel *label, const char *uri, gpointer data) {
+    Inspector *ins = data;
+    if (!g_str_has_prefix(uri, "setting:")) return FALSE;
+    const char *key = uri + 8;
+    GtkWidget *pop = gtk_widget_get_ancestor(GTK_WIDGET(label), GTK_TYPE_POPOVER);
+    if (pop) gtk_popover_popdown(GTK_POPOVER(pop));
+    for (guint i = 0; ins->rows && i < ins->rows->len; i++) {
+        Row *r = g_ptr_array_index(ins->rows, i);
+        GtkWidget *editor = r->widgets[1];
+        if (editor && g_strcmp0(key_of(editor), key) == 0 && gtk_widget_get_mapped(editor)) {
+            gtk_widget_grab_focus(editor);
+            return TRUE;
+        }
+    }
+    GtkWidget *page = gtk_stack_get_child_by_name(GTK_STACK(ins->stack), "settings");
+    if (page) {
+        gtk_stack_set_visible_child_name(GTK_STACK(ins->stack), "settings");
+        browser_show_setting(page, key);
+    }
+    return TRUE;
+}
+
+static gboolean why_unparent(gpointer data) {
+    gtk_widget_unparent(data);
+    g_object_unref(data);
+    return G_SOURCE_REMOVE;
+}
+
+/* Removed after the close, not in its handler. */
+static void on_why_closed(GtkPopover *pop, gpointer data) {
+    g_idle_add(why_unparent, g_object_ref(pop));
+}
+
+static void on_stat_clicked(GtkButton *b, gpointer data) {
+    Inspector *ins = data;
+    int i = GPOINTER_TO_INT(g_object_get_data(G_OBJECT(b), "zg-stat"));
+    if (!ins->why[i] || !ins->why[i][0]) return;
+    char *markup = why_markup(ins->why[i]);
+    GtkWidget *label = gtk_label_new(NULL);
+    gtk_label_set_markup(GTK_LABEL(label), markup);
+    g_free(markup);
+    gtk_label_set_wrap(GTK_LABEL(label), TRUE);
+    gtk_label_set_max_width_chars(GTK_LABEL(label), 46);
+    gtk_label_set_xalign(GTK_LABEL(label), 0);
+    gtk_widget_set_margin_start(label, 6);
+    gtk_widget_set_margin_end(label, 6);
+    gtk_widget_set_margin_top(label, 4);
+    gtk_widget_set_margin_bottom(label, 4);
+    g_signal_connect(label, "activate-link", G_CALLBACK(on_why_link), ins);
+    GtkWidget *pop = gtk_popover_new();
+    gtk_popover_set_child(GTK_POPOVER(pop), label);
+    gtk_widget_set_parent(pop, GTK_WIDGET(b));
+    g_signal_connect(pop, "closed", G_CALLBACK(on_why_closed), NULL);
+    gtk_popover_popup(GTK_POPOVER(pop));
+}
+
 static GtkWidget *make_stats(Inspector *ins) {
     GtkWidget *row = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 6);
     gtk_box_set_homogeneous(GTK_BOX(row), TRUE);
     for (int i = 0; i < 3; i++) {
         GtkWidget *box = gtk_box_new(GTK_ORIENTATION_VERTICAL, 0);
-        gtk_widget_add_css_class(box, "zg-stat");
         ins->stat_value[i] = gtk_label_new("");
         gtk_widget_add_css_class(ins->stat_value[i], "zg-stat-value");
         GtkWidget *caption = gtk_label_new(stat_names[i]);
@@ -944,7 +1039,15 @@ static GtkWidget *make_stats(Inspector *ins) {
         gtk_label_set_ellipsize(GTK_LABEL(caption), PANGO_ELLIPSIZE_END);
         gtk_box_append(GTK_BOX(box), ins->stat_value[i]);
         gtk_box_append(GTK_BOX(box), caption);
-        gtk_box_append(GTK_BOX(row), box);
+        /* A click: why the number is what it is, and how to change it. */
+        GtkWidget *button = gtk_button_new();
+        gtk_widget_add_css_class(button, "zg-stat");
+        gtk_widget_add_css_class(button, "flat");
+        gtk_button_set_child(GTK_BUTTON(button), box);
+        gtk_widget_set_tooltip_text(button, "Why this value? Click for the numbers and the settings that change it.");
+        g_object_set_data(G_OBJECT(button), "zg-stat", GINT_TO_POINTER(i));
+        g_signal_connect(button, "clicked", G_CALLBACK(on_stat_clicked), ins);
+        gtk_box_append(GTK_BOX(row), button);
     }
     return row;
 }
@@ -957,10 +1060,21 @@ static void show_stats(Inspector *ins, const zs_inspect *info) {
     gtk_label_set_text(GTK_LABEL(ins->stat_value[1]), buf);
     g_snprintf(buf, sizeof buf, "%.1f mm³/s", info->flow);
     gtk_label_set_text(GTK_LABEL(ins->stat_value[2]), buf);
-    gboolean slowed = info->speed < info->planned_speed * 0.98;
+    /* The reason of a lower real speed: cooling or acceleration. */
+    gboolean slowed = info->slow_reason != 0;
     if (slowed) gtk_widget_add_css_class(ins->stat_value[1], "warning");
     else gtk_widget_remove_css_class(ins->stat_value[1], "warning");
+    if (ins->stat_note_label) {
+        gtk_label_set_text(GTK_LABEL(ins->stat_note_label),
+                           info->slow_reason == 1 ? "This layer is short, so it prints slower to cool (filament minimum layer time). Click the real speed for more."
+                                                  : "The segments are short: the head does not reach the full speed between the corners (acceleration). Click the real speed for more.");
+    }
     gtk_revealer_set_reveal_child(GTK_REVEALER(ins->stat_note), slowed);
+    const char *whys[3] = {info->why_planned, info->why_real, info->why_flow};
+    for (int i = 0; i < 3; i++) {
+        g_free(ins->why[i]);
+        ins->why[i] = g_strdup(whys[i] ? whys[i] : "");
+    }
 }
 
 /* Sends the scope to the model, for the z of the selection. */
@@ -1027,6 +1141,7 @@ static GtkWidget *build_inspector(Inspector *ins, const zs_inspect *info) {
     gtk_grid_attach(GTK_GRID(grid), make_stats(ins), 0, row++, 3, 1);
     GtkWidget *note = wrapped_label("This layer is short, so it prints slower to cool (filament minimum layer time).");
     gtk_widget_add_css_class(note, "zg-note");
+    ins->stat_note_label = note;
     ins->stat_note = gtk_revealer_new();
     gtk_revealer_set_child(GTK_REVEALER(ins->stat_note), note);
     gtk_grid_attach(GTK_GRID(grid), ins->stat_note, 0, row++, 3, 1);
@@ -1377,6 +1492,7 @@ static void inspector_free(gpointer data) {
     if (ins->rows) g_ptr_array_free(ins->rows, TRUE);
     if (ins->sections) g_ptr_array_free(ins->sections, TRUE);
     g_free(ins->signature);
+    for (int i = 0; i < 3; i++) g_free(ins->why[i]);
     g_free(ins);
 }
 
@@ -2039,6 +2155,14 @@ static void select_setting(Browser *b, const char *key) {
             return;
         }
     }
+}
+
+/* For a link from the inspector: the setting `key` in the browser. */
+static void browser_show_setting(GtkWidget *page, const char *key) {
+    Browser *b = g_object_get_data(G_OBJECT(page), "zg-browser");
+    if (!b) return;
+    select_setting(b, key);
+    scroll_to_end(b);
 }
 
 static GtkWidget *make_browser(ZgModel *model, GtkWidget *stack) {

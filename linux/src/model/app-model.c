@@ -404,7 +404,10 @@ gboolean zg_model_set_for(ZgModel *self, const char *key, const char *value, gbo
             zmin = MIN(zmin, z);
             zmax = MAX(zmax, z);
         }
-        if (up || down) {
+        if (up && down) {
+            /* The whole part: the same for one line or many. */
+            rc = zs_app_override_set(self->core, lo, hi, key, value);
+        } else if (up || down) {
             rc = zs_app_override_set(self->core, up ? zmin - 1e-3 : lo, down ? zmax + 1e-3 : hi, key, value);
         } else {
             rc = zs_app_override_set(self->core, lo, hi, key, value);

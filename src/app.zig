@@ -823,7 +823,8 @@ pub const App = struct {
         }
         const t0: f64 = t.path_start_time.items[path];
         const t1: f64 = t.path_end_time.items[path];
-        const planned = r.speed(feature, w, h, first);
+        // The speed of this layer, with the ramp of the slow first layers.
+        const planned = r.speedAt(feature, w, h, layer);
         const real = if (t1 > t0) length / (t1 - t0) else planned;
 
         var text: std.Io.Writer.Allocating = .init(arena);
@@ -864,6 +865,51 @@ pub const App = struct {
         try nw.writeAll("# Material\n");
         for (material_settings) |n| try nw.print("{s}\n", .{n});
 
+        // Why each number, and how to change it.
+        const segs = blk: {
+            const start: usize = if (path == 0) 0 else t.path_ends.items[path - 1];
+            break :blk @max(1, t.path_ends.items[path] - start -| 1);
+        };
+        var wp: std.Io.Writer.Allocating = .init(arena);
+        const pw = &wp.writer;
+        const ratio_name = speedRatioSetting(feature, first);
+        if (feature == .ironing) {
+            try pw.print("{d:.0} mm/s = {d:.0} % ({{{{project.ironing_speed}}}}) of the machine limit, {d:.0} mm/s ({{{{machine.max_speed}}}}). Ironing uses little plastic, so the flow limit does not apply.\n\nTo iron faster, raise {{{{project.ironing_speed}}}}.", .{ planned, s.project.ironing_speed * 100, s.machine.max_speed });
+        } else {
+            const bead_area = zs.flow.beadArea(w, h);
+            const flow_limit = s.filament.max_flow / bead_area;
+            const limit = @min(s.machine.max_speed, flow_limit);
+            const full = r.speed(feature, w, h, first);
+            const ratio = if (limit > 0) full / limit else 0;
+            try pw.print("{d:.0} mm/s = {d:.0} % ({{{{{s}}}}}) of {d:.0} mm/s.\n\n{d:.0} mm/s is the lower of two limits:\n\u{2022} the machine: {d:.0} mm/s ({{{{machine.max_speed}}}})\n\u{2022} the flow: {d:.1} mm\u{b3}/s ({{{{filament.max_flow}}}}) \u{f7} the bead area {d:.4} mm\u{b2} = {d:.0} mm/s\n", .{ full, ratio * 100, ratio_name, limit, limit, s.machine.max_speed, s.filament.max_flow, bead_area, flow_limit });
+            if (flow_limit < s.machine.max_speed) {
+                try pw.print("\nThe flow limits this line: the hot end cannot melt more plastic. A thinner or lower line ({{{{project.line_width}}}}, {{{{project.layer_height}}}}) can go faster.", .{});
+            } else {
+                try pw.print("\nThe machine limits this line.", .{});
+            }
+            if (planned < full * 0.999) {
+                try pw.print("\n\nLayer {d} is one of the slow first layers ({{{{project.slow_layers}}}}): its speed goes up in steps from the first layer speed ({{{{project.first_layer_speed}}}}), so it prints at {d:.0} mm/s.", .{ layer + 1, planned });
+            }
+            try pw.print("\n\nTo print it faster: raise {{{{{s}}}}} (up to 100 %), or the limit that applies.", .{ratio_name});
+        }
+
+        var wr: std.Io.Writer.Allocating = .init(arena);
+        const rw = &wr.writer;
+        const slowed = t.layer_slowed.items.len > layer and t.layer_slowed.items[layer] != 0;
+        if (slowed) {
+            try rw.print("{d:.0} mm/s, slower than planned ({d:.0} mm/s): the layer is short. At the planned speeds it prints in less than the minimum layer time, {d} s ({{{{filament.min_layer_time}}}}), so all its lines slow down to give the plastic time to cool, but not below {d:.0} mm/s ({{{{filament.min_speed}}}}).\n\nTo change it: a shorter minimum layer time, more parts on the plate (each layer takes longer), or a cooling lap in place of the slow-down ({{{{filament.cooling_mode}}}}).", .{ real, planned, s.filament.min_layer_time, s.filament.min_speed });
+        } else if (real < planned * 0.95) {
+            const avg = length / @as(f64, @floatFromInt(segs));
+            const accel_name = accelSetting(feature, first);
+            try rw.print("{d:.0} mm/s on average, less than the planned {d:.0} mm/s: the segments are short (about {d:.1} mm each), and at each corner the head slows to the corner speed, {d:.0} mm/s ({{{{machine.corner_speed}}}}), then speeds up again at {d:.0} mm/s\u{b2} ({{{{{s}}}}}). It does not reach the full speed on a short segment.\n\nA higher acceleration or corner speed makes it faster, if the printer can do it.", .{ real, planned, avg, @min(planned, s.machine.corner_speed), r.accel(feature, first), accel_name });
+        } else {
+            try rw.print("{d:.0} mm/s: the planned speed. The layer is long enough to cool ({{{{filament.min_layer_time}}}}), and the segments are long enough for the head to reach the speed.", .{real});
+        }
+
+        var wf: std.Io.Writer.Allocating = .init(arena);
+        const fw = &wf.writer;
+        try fw.print("{d:.1} mm\u{b3}/s = the bead area, {d:.4} mm\u{b2} ({d:.2} mm wide, {d:.2} mm high), \u{d7} {d:.0} mm/s.\n\nThe hot end melts at most {d:.1} mm\u{b3}/s of this filament ({{{{filament.max_flow}}}}). This line uses {d:.0} % of it.", .{ real * area, area, bead, h, real, s.filament.max_flow, if (s.filament.max_flow > 0) real * area / s.filament.max_flow * 100 else 0 });
+
         return .{
             .feature = feature,
             .layer = layer,
@@ -881,6 +927,10 @@ pub const App = struct {
             .title = try arena.dupeZ(u8, name),
             .explain = try arena.dupeZ(u8, text.written()),
             .settings = try arena.dupeZ(u8, std.mem.trimEnd(u8, names.written(), "\n")),
+            .slow_reason = if (slowed) 1 else if (real < planned * 0.95) 2 else 0,
+            .why_planned = try arena.dupeZ(u8, wp.written()),
+            .why_real = try arena.dupeZ(u8, wr.written()),
+            .why_flow = try arena.dupeZ(u8, wf.written()),
         };
     }
 
@@ -915,6 +965,16 @@ pub const Inspection = struct {
     explain: [:0]const u8,
     /// The setting names, one on each line.
     settings: [:0]const u8,
+    /// Why the planned speed, the real speed, and the flow are what they
+    /// are, and how to change them. A setting is a mark {{name}} (for
+    /// example {{project.outer_wall_speed}}), for a link in the shell.
+    why_planned: [:0]const u8 = "",
+    why_real: [:0]const u8 = "",
+    why_flow: [:0]const u8 = "",
+    /// Why the real speed is lower than planned: 0 it is not, 1 the
+    /// cooling slow-down (minimum layer time), 2 the acceleration on short
+    /// segments.
+    slow_reason: u8 = 0,
 };
 
 pub const feature_names = [_][]const u8{ "Outer wall", "Inner wall", "Skin", "Sparse infill", "Ironing", "Skirt or brim", "Support", "Support interface" };
@@ -1129,6 +1189,17 @@ test "ratioSpeed" {
     s.filament.max_flow = 1000;
     try std.testing.expectApproxEqAbs(@as(f64, 50), ratioSpeed(s, "project.outer_wall_speed", "0.5").?, 1e-9);
     try std.testing.expect(ratioSpeed(s, "project.layer_height", "0.2") == null);
+}
+
+/// The acceleration setting of a feature (or of the first layer).
+fn accelSetting(feature: zs.settings.Feature, first_layer: bool) []const u8 {
+    if (first_layer) return "project.first_layer_accel";
+    return switch (feature) {
+        .outer_wall => "project.outer_wall_accel",
+        .inner_wall, .skirt => "project.inner_wall_accel",
+        .skin, .support_interface, .ironing => "project.skin_accel",
+        .infill, .support => "project.infill_accel",
+    };
 }
 
 fn speedRatioSetting(feature: zs.settings.Feature, first_layer: bool) []const u8 {

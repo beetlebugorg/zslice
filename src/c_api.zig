@@ -582,6 +582,10 @@ pub const Inspect = extern struct {
     title: [*:0]const u8,
     explain: [*:0]const u8,
     settings: [*:0]const u8,
+    why_planned: [*:0]const u8,
+    why_real: [*:0]const u8,
+    why_flow: [*:0]const u8,
+    slow_reason: c_int,
 };
 
 export fn zs_app_inspect(a: ?*App, path: usize, out: ?*Inspect) c_int {
@@ -604,6 +608,10 @@ export fn zs_app_inspect(a: ?*App, path: usize, out: ?*Inspect) c_int {
         .end_time = i.end_time,
         .title = i.title.ptr,
         .explain = i.explain.ptr,
+        .why_planned = i.why_planned.ptr,
+        .why_real = i.why_real.ptr,
+        .why_flow = i.why_flow.ptr,
+        .slow_reason = i.slow_reason,
         .settings = i.settings.ptr,
     };
     return ok;

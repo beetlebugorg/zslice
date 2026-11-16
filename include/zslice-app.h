@@ -249,6 +249,14 @@ typedef struct zs_inspect {
     const char *settings; /* the setting names that change it, one on each
                              line; a line "# Name" starts a section (Speed,
                              Shape, Material) */
+    /* Why the planned speed, the real speed, and the flow are what they
+     * are, and how to change them, in plain words with line breaks. A
+     * setting is a mark {{name}}, for a link. */
+    const char *why_planned, *why_real, *why_flow;
+    /* Why the real speed is lower than planned: 0 it is not, 1 the
+     * cooling slow-down (filament.min_layer_time), 2 the acceleration on
+     * short segments. */
+    int slow_reason;
 } zs_inspect;
 
 /* What a setting changes in the toolpaths. */
