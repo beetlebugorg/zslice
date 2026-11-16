@@ -33,6 +33,11 @@
 //!    the density. Each fill region first moves in by half a line width
 //!    (so that the plastic touches the walls), then out by the overlap
 //!    (so that the plastic bonds to the walls).
+//!
+//!    Combined infill (`InfillGroup`): a group of layers prints the
+//!    sparse infill once, on its last layer, as one bead as tall as the
+//!    group. Only the area that is sparse in all layers of the group gets
+//!    the tall bead. The other layers fill the rest of their sparse area.
 //! 6. Ironing (if on). The top surfaces of the layer are the outline minus
 //!    the outline of the layer above. The nozzle goes over them again with
 //!    close lines, turned 90 degrees from the skin lines of this layer.
@@ -64,8 +69,8 @@
 //! can be planned at the same time on different threads.
 //!
 //! References (see REFERENCES.md): the greedy nearest-neighbor order with
-//! a uniform grid search, the order by island, the opening, and
-//! memoization (see `Memo`).
+//! a uniform grid search, the order by island, the opening, memoization
+//! (see `Memo`), and combined infill (the idea of PrusaSlicer and Cura).
 
 const std = @import("std");
 const Allocator = std.mem.Allocator;
@@ -89,6 +94,10 @@ pub const Path = struct {
     /// The line width of this path in mm, or 0 for the width of the layer
     /// (a thin wall has a narrower line).
     width: f32 = 0,
+    /// The bead height of this path in mm, or 0 for the height of the
+    /// layer. Combined infill (see `InfillGroup`) is as tall as the layers
+    /// of its group.
+    height: f32 = 0,
     /// For a path whose nozzle height changes from point to point (slope
     /// smoothing): the index in `LayerPlan.point_z` of the data of its
     /// first point. `planar` for a path at the z of the layer.
@@ -165,6 +174,13 @@ pub const Context = struct {
     /// is not complete (the caller drops it). The memos get only complete
     /// results.
     cancel: ?*const std.atomic.Value(bool) = null,
+    /// The infill group of each layer (see `groups`), or an empty slice:
+    /// each layer prints its own infill.
+    groups: []const InfillGroup = &.{},
+    /// The combined area of each group (see `combinedArea`), at the index
+    /// of the last layer of the group, or an empty slice: then `plan`
+    /// makes the area of its group.
+    combined: []const Paths = &.{},
 
     pub fn canceled(ctx: Context) bool {
         const c = ctx.cancel orelse return false;
@@ -176,7 +192,142 @@ pub const Context = struct {
         if (i < ctx.layer_set.len and ctx.layer_set[i] > 0) return &ctx.layer_resolved[ctx.layer_set[i] - 1];
         return ctx.resolved;
     }
+
+    /// The infill group of layer i.
+    pub fn groupOf(ctx: Context, i: usize) InfillGroup {
+        if (i < ctx.groups.len) return ctx.groups[i];
+        return .{ .first = @intCast(i), .last = @intCast(i) };
+    }
 };
+
+/// Combined infill (`project.infill_layers`): a group of layers whose
+/// sparse infill prints once, on the last layer of the group, as one bead
+/// as tall as all the layers of the group. The walls and the skin print on
+/// each layer.
+///
+/// - The groups count up from the first layer above the bottom skin of
+///   the bed (`groups`). On a part that stands on the bed, that is the
+///   first layer with sparse infill, so the first group is complete.
+/// - A group has `infill_layers` layers, or fewer: it must not be thicker
+///   than the nozzle diameter or the line width (`maxThickness`), and all
+///   its layers must have the same settings. Where the settings change, a
+///   new group starts.
+/// - Only the area that is sparse infill in all layers of the group gets
+///   the tall bead (`combinedArea`). The band under a top skin (top support
+///   and the band of the flow pattern) is never in it. The other layers
+///   fill the rest of their sparse area as before.
+pub const InfillGroup = struct {
+    first: u32,
+    last: u32,
+    /// The number of groups below this one. The patterns that turn by 90
+    /// degrees on each layer turn on each group.
+    index: u32 = 0,
+
+    pub fn count(g: InfillGroup) usize {
+        return g.last - g.first + 1;
+    }
+};
+
+/// The thickest group of combined infill, in mm. The plastic leaves the
+/// nozzle as a round thread as wide as the nozzle. The nozzle presses it
+/// down only if the bead is not taller than the nozzle. A bead taller than
+/// its width is a round thread in the bead model (see flow.zig), with no
+/// flat side on the layer below.
+pub fn maxThickness(r: *const Resolved) f64 {
+    return @min(r.settings.machine.nozzle_diameter, r.line_width);
+}
+
+/// The infill group of each layer, or an empty slice if no layer combines
+/// its infill. The caller owns the result.
+pub fn groups(gpa: Allocator, ctx: Context) Allocator.Error![]InfillGroup {
+    const n = ctx.layers.len;
+    var any = false;
+    for (0..n) |i| any = any or ctx.resolvedAt(i).settings.project.infill_layers > 1;
+    if (!any or n < 2) return &.{};
+    const out = try gpa.alloc(InfillGroup, n);
+    for (out, 0..) |*g, i| g.* = .{ .first = @intCast(i), .last = @intCast(i) };
+    // The first layer has its own line width and is skin. The groups start
+    // above the bottom skin of the bed.
+    const r0 = ctx.resolvedAt(0);
+    var i: usize = @max(1, layersFor(ctx.layers, 0, r0.settings.project.bottom_thickness, .up));
+    var index: u32 = 0;
+    while (i < n) {
+        const r = ctx.resolvedAt(i);
+        // Lightning branches lean a little on each layer, so a lightning
+        // layer prints on its own.
+        const want: u32 = if (r.settings.project.infill_pattern == .lightning) 1 else r.settings.project.infill_layers;
+        const limit = maxThickness(r) + 1e-9;
+        var sum = ctx.layers[i].height;
+        var last = i;
+        while (last + 1 < n and last + 1 - i < want and ctx.resolvedAt(last + 1) == r and sum + ctx.layers[last + 1].height <= limit) {
+            last += 1;
+            sum += ctx.layers[last].height;
+        }
+        if (last > i) {
+            for (out[i .. last + 1]) |*g| g.* = .{ .first = @intCast(i), .last = @intCast(last), .index = index };
+            index += 1;
+        }
+        i = last + 1;
+    }
+    return out;
+}
+
+/// The area of layer j that can take combined infill: its sparse fill
+/// region (moved in by the fill inset), minus the band under the top skin.
+/// The memory belongs to `memo` or to `s`. Null if `ctx.cancel` became
+/// true.
+fn combinable(gpa: Allocator, s: Allocator, ctx: Context, j: usize, memo: *Memo) Allocator.Error!?Paths {
+    const r = ctx.resolvedAt(j);
+    const p = r.settings.project;
+    if (!(p.infill_density > 0)) return Paths.empty;
+    const w = geom.fromMm(r.line_width);
+    const reg = try regions(gpa, ctx, j, memo, s);
+    if (ctx.canceled()) return null;
+    if (reg.sparse.isEmpty()) return Paths.empty;
+    const inset = -@divTrunc(w, 2) + geom.fromMm(p.infill_overlap * r.line_width);
+    const full = try memo.fill(reg, false, inset, ctx.gen);
+    if (p.infill_pattern == .flow) {
+        const band_mm = @max(2.0, 3 * p.top_thickness);
+        const band = layersForTol(ctx.layers, j + 1, band_mm, .up, 0);
+        const u = try memo.underBand(ctx.outlines, j, band, ctx.gen, ctx.cancel) orelse return null;
+        // Near the top of the part, all of it is the band.
+        if (u.isEmpty()) return Paths.empty;
+        return try clip.intersect(s, full, u);
+    }
+    if (p.top_support_layers > 0 and p.top_support_density > p.infill_density) {
+        const split = try memo.topSplit(reg, inset, ctx.outlines, j, layersFor(ctx.layers, j, p.top_thickness, .up) + p.top_support_layers, ctx.gen, ctx.cancel) orelse return null;
+        return split.rest;
+    }
+    return full;
+}
+
+/// The combined area of group `g`: the area that can take combined infill
+/// (`combinable`) in all the layers of the group. Layer `own` uses `memo`.
+/// The other layers use `ctx.cache` if `own` is null, or else a new memo
+/// each (another thread can use their memos). The result goes in `out`.
+/// Null if `ctx.cancel` became true.
+pub fn combinedArea(gpa: Allocator, out: Allocator, ctx: Context, g: InfillGroup, own: ?usize, memo: ?*Memo) Allocator.Error!?Paths {
+    var scratch_state = scratch.get(gpa);
+    defer scratch_state.release();
+    const s = scratch_state.allocator();
+    var acc: Paths = .empty;
+    for (g.first..g.last + 1) |j| {
+        var temp: ?Memo = null;
+        defer if (temp) |*t| t.deinit();
+        const m: *Memo = if (own != null and own.? == j)
+            memo.?
+        else if (own == null and ctx.cache.len > j)
+            &ctx.cache[j]
+        else blk: {
+            temp = .init(gpa);
+            break :blk &temp.?;
+        };
+        const area = try combinable(gpa, s, ctx, j, m) orelse return null;
+        acc = if (j == g.first) try area.clone(s) else try clip.intersect(s, acc, area);
+        if (acc.isEmpty()) break;
+    }
+    return try acc.clone(out);
+}
 
 /// The areas of a layer (steps 1 to 4): the wall loops, the skin area, and
 /// the sparse infill area. The memory belongs to a `Memo`.
@@ -676,8 +827,34 @@ pub fn plan(gpa: Allocator, ctx: Context, i: usize) Allocator.Error!LayerPlan {
 
     var sparse_lines: Paths = .empty;
     var sparse_loops: Paths = .empty;
+    // Combined infill (see `InfillGroup`): the area of the group that
+    // prints as one tall bead on its last layer.
+    var comb_lines: Paths = .empty;
+    var comb_loops: Paths = .empty;
+    var comb_height: f64 = 0;
     if (p.infill_density > 0 and !sparse.isEmpty()) {
-        const region = try patternRegion(ctx, i, memo, reg) orelse return lp;
+        var region = try patternRegion(ctx, i, memo, reg) orelse return lp;
+        const group = ctx.groupOf(i);
+        if (group.count() > 1) {
+            const comb = if (ctx.combined.len > group.last)
+                ctx.combined[group.last]
+            else
+                try combinedArea(gpa, s, ctx, group, i, memo) orelse return lp;
+            if (!comb.isEmpty()) {
+                // Each layer fills the rest of its area. The strips along
+                // the edge of the combined area that are narrower than two
+                // line widths get no lines: the combined lines are next
+                // to them.
+                const left = try clip.difference(s, region, comb);
+                region = try offset_mod.opening(s, left, w, .{});
+                if (i == group.last) {
+                    for (group.first..group.last + 1) |j| comb_height += ctx.layers[j].height;
+                    const set = try fillSparse(s, p, comb, width_mm, w, group.index, layer.z, null, .empty);
+                    comb_lines = set.lines;
+                    comb_loops = set.loops;
+                }
+            }
+        }
         // The lightning branches of this layer come from the engine.
         const light: Paths = if (i < ctx.lightning.len) ctx.lightning[i] else .empty;
         const set = try fillSparse(s, p, region, width_mm, w, i, layer.z, under_band, light);
@@ -765,6 +942,8 @@ pub fn plan(gpa: Allocator, ctx: Context, i: usize) Allocator.Error!LayerPlan {
     const skin_loop_ids = try isl.ids(s, skin_loops);
     const sparse_ids = try isl.ids(s, sparse_lines);
     const sparse_loop_ids = try isl.ids(s, sparse_loops);
+    const comb_ids = try isl.ids(s, comb_lines);
+    const comb_loop_ids = try isl.ids(s, comb_loops);
     const ironing_ids = try isl.ids(s, ironing_lines);
     const done = try s.alloc(bool, isl.count() + 1);
     @memset(done, false);
@@ -788,6 +967,12 @@ pub fn plan(gpa: Allocator, ctx: Context, i: usize) Allocator.Error!LayerPlan {
         try addGroup(s, a, &lp, &pos, skin_loops, true, .skin, null, .{ .ids = skin_loop_ids, .id = id });
         try addGroup(s, a, &lp, &pos, sparse_lines, false, .infill, null, .{ .ids = sparse_ids, .id = id });
         try addGroup(s, a, &lp, &pos, sparse_loops, true, .infill, null, .{ .ids = sparse_loop_ids, .id = id });
+        if (comb_height > 0) {
+            const before = lp.paths.items.len;
+            try addGroup(s, a, &lp, &pos, comb_lines, false, .infill, null, .{ .ids = comb_ids, .id = id });
+            try addGroup(s, a, &lp, &pos, comb_loops, true, .infill, null, .{ .ids = comb_loop_ids, .id = id });
+            for (lp.paths.items[before..]) |*path| path.height = @floatCast(comb_height);
+        }
         try addGroup(s, a, &lp, &pos, ironing_lines, false, .ironing, null, .{ .ids = ironing_ids, .id = id });
     }
 

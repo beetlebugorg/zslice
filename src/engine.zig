@@ -10,6 +10,8 @@
 //! 5. Pass 2: plan the paths of each layer (see `layer.zig`) and write the
 //!    G-code (see `gcode.zig`). The skin of a layer needs the outlines of
 //!    the layers above and below it, so pass 2 starts after pass 1 ends.
+//!    With combined infill, pass 2 first makes the combined area of each
+//!    group of layers (see `Job.combinedAreas`).
 //!
 //! Memory. The engine keeps the outlines of all layers until the end. They
 //! are small: a few kilobytes per layer. The layer plans are much larger,
@@ -277,6 +279,9 @@ pub const Job = struct {
     /// The settings of the layers with overrides (see layer.Context).
     layer_set: []u16 = &.{},
     layer_resolved: []settings_mod.Resolved = &.{},
+    /// The infill group of each layer (see layer.InfillGroup), or an empty
+    /// slice if no layer combines its infill.
+    groups: []layer_mod.InfillGroup = &.{},
 
     /// Steps 1 to 4.
     pub fn init(gpa: Allocator, mesh: *const Mesh, settings: Settings) Error!Job {
@@ -318,6 +323,7 @@ pub const Job = struct {
         for (job.layers[1..], 1..) |l, i| if (l.height > job.resolvedAt(i).line_width + 1e-9) return error.InvalidSettings;
         if (job.tops.len == 0) try job.makeSurfaces();
         try job.makeLightning();
+        job.groups = try layer_mod.groups(gpa, job.planContext());
         // The work memory goes back to the operating system (see
         // scratch.zig).
         scratch.trim();
@@ -526,6 +532,7 @@ pub const Job = struct {
     }
 
     pub fn deinit(self: *Job) void {
+        self.gpa.free(self.groups);
         self.gpa.free(self.layer_set);
         self.gpa.free(self.layer_resolved);
         for (self.memos) |*mm| mm.deinit();
@@ -560,6 +567,7 @@ pub const Job = struct {
             .layer_set = self.layer_set,
             .layer_resolved = self.layer_resolved,
             .lightning = self.lightning,
+            .groups = self.groups,
         };
     }
 
@@ -567,6 +575,44 @@ pub const Job = struct {
     pub fn resolvedAt(self: *const Job, i: usize) *const settings_mod.Resolved {
         if (i < self.layer_set.len and self.layer_set[i] > 0) return &self.layer_resolved[self.layer_set[i] - 1];
         return &self.resolved;
+    }
+
+    /// The combined area of each infill group (see layer.combinedArea), at
+    /// the index of the last layer of the group, on all threads. Each
+    /// group uses the memos of its own layers, so the plans then find the
+    /// regions in their memos, and do not make them again. So a job that
+    /// slices once (see `keep_memos`) holds the regions of all layers in
+    /// the memos until their plans: a few percent more peak memory on the
+    /// test parts, for a few percent more time (and not about 70 % more
+    /// time to make the regions twice). Empty if no layer combines its
+    /// infill. The caller owns the result.
+    fn combinedAreas(self: *const Job, ctx: layer_mod.Context) Error![]Paths {
+        if (self.groups.len == 0) return &.{};
+        const gpa = self.gpa;
+        const out = try gpa.alloc(Paths, self.groups.len);
+        @memset(out, .empty);
+        errdefer {
+            for (out) |*c| c.deinit(gpa);
+            gpa.free(out);
+        }
+        var lasts: std.ArrayList(u32) = .empty;
+        defer lasts.deinit(gpa);
+        for (self.groups, 0..) |g, i| if (g.last == i and g.count() > 1) try lasts.append(gpa, g.last);
+        const Pass = struct {
+            job: *const Job,
+            ctx: layer_mod.Context,
+            lasts: []const u32,
+            out: []Paths,
+            fn run(c: *const @This(), k: usize) anyerror!void {
+                if (c.job.monitor.canceled()) return error.Canceled;
+                const g = c.job.groups[c.lasts[k]];
+                const gpa_ = c.job.gpa;
+                c.out[g.last] = try layer_mod.combinedArea(gpa_, gpa_, c.ctx, g, null, null) orelse return error.Canceled;
+            }
+        };
+        const c: Pass = .{ .job = self, .ctx = ctx, .lasts = lasts.items, .out = out };
+        parallel.forEach(self.threads, lasts.items.len, &c, Pass.run) catch |e| return @as(Error, @errorCast(e));
+        return out;
     }
 
     /// The plan of layer i. Call `deinit` on the result.
@@ -610,6 +656,12 @@ pub const Job = struct {
         var plan_ctx = self.planContext();
         // A cancel stops a layer plan early.
         plan_ctx.cancel = self.monitor.cancel;
+        const combined = try self.combinedAreas(plan_ctx);
+        defer {
+            for (combined) |*c| c.deinit(gpa);
+            gpa.free(combined);
+        }
+        plan_ctx.combined = combined;
         var pipe: Pipeline = .{ .gpa = gpa, .ctx = plan_ctx, .slots = slots, .n = self.layers.len, .monitor = self.monitor, .record = sink != null, .keep_memos = self.keep_memos };
 
         // The other threads plan layers and write their text. This thread
@@ -1934,4 +1986,213 @@ test "z hop only on travels that cross an edge, and no retraction at a layer cha
     try s.set("project.retract_layer_change", "false");
     _ = try slice(gpa, &mesh, s, &no_lc.writer);
     try std.testing.expect(Count.of(no_lc.written(), "G1 E-") < Count.of(lc.written(), "G1 E-"));
+}
+
+/// The extrusion (E) of the moves of one feature type (";TYPE:" mark) in
+/// a G-code text.
+fn featureExtrusion(text: []const u8, type_name: []const u8) f64 {
+    var sum: f64 = 0;
+    var on = false;
+    var lines = std.mem.splitScalar(u8, text, '\n');
+    while (lines.next()) |line| {
+        if (std.mem.startsWith(u8, line, ";TYPE:")) on = std.mem.eql(u8, line[6..], type_name);
+        if (!on or !std.mem.startsWith(u8, line, "G1 X")) continue;
+        var tok = std.mem.tokenizeScalar(u8, line, ' ');
+        while (tok.next()) |w| if (w[0] == 'E') {
+            sum += std.fmt.parseFloat(f64, w[1..]) catch 0;
+        };
+    }
+    return sum;
+}
+
+/// The infill of a job: the sum of length x bead height of the infill
+/// paths of all layers (mm^2), and the number of layers with infill.
+fn infillStats(job: *const Job) !struct { area: f64, layers: usize } {
+    var area: f64 = 0;
+    var layers: usize = 0;
+    for (0..job.layerCount()) |i| {
+        var lp = try job.planLayer(i);
+        defer lp.deinit();
+        var any = false;
+        for (lp.paths.items, 0..) |path, k| {
+            if (path.feature != .infill) continue;
+            any = true;
+            const h: f64 = if (path.height > 0) path.height else lp.height;
+            area += pathLength(lp.points.get(k), path.closed) * h;
+        }
+        if (any) layers += 1;
+    }
+    return .{ .area = area, .layers = layers };
+}
+
+fn pathLength(pts: []const geom.Point, closed: bool) f64 {
+    var len: f64 = 0;
+    for (pts[1..], 0..) |q, k| len += geom.toMm(@intFromFloat(pts[k].dist(q)));
+    if (closed and pts.len > 2) len += geom.toMm(@intFromFloat(pts[pts.len - 1].dist(pts[0])));
+    return len;
+}
+
+test "combined infill: one tall bead every second layer, in the area sparse in both layers" {
+    const gpa = testing.allocator;
+    var mesh = try mesh_mod.shapes.demo(gpa);
+    defer mesh.deinit(gpa);
+    var s: Settings = .{};
+    s.engine.threads = 2;
+    s.project.infill_layers = 2;
+    var job = try Job.init(gpa, &mesh, s);
+    defer job.deinit();
+    try testing.expect(job.groups.len == job.layerCount());
+    var combined_layers: usize = 0;
+    for (0..job.layerCount()) |i| {
+        const g = job.groups[i];
+        try testing.expect(g.count() <= 2);
+        var lp = try job.planLayer(i);
+        defer lp.deinit();
+        var comb: usize = 0;
+        var plain: usize = 0;
+        for (lp.paths.items, 0..) |path, k| {
+            if (path.feature != .infill) continue;
+            if (path.height == 0) {
+                plain += 1;
+                continue;
+            }
+            comb += 1;
+            // Only the last layer of a group, with the height of the group.
+            try testing.expect(g.count() == 2 and i == g.last);
+            try testing.expectApproxEqAbs(job.layers[i].height + job.layers[i - 1].height, path.height, 1e-6);
+            // Each point is in the sparse area of both layers.
+            for (g.first..g.last + 1) |j| {
+                var memo: layer_mod.Memo = .init(gpa);
+                defer memo.deinit();
+                var arena: std.heap.ArenaAllocator = .init(gpa);
+                defer arena.deinit();
+                const reg = try layer_mod.regions(gpa, job.planContext(), j, &memo, arena.allocator());
+                for (lp.points.get(k)) |q| try testing.expect(geom.insideAny(reg.sparse, q));
+            }
+        }
+        if (comb > 0) combined_layers += 1;
+        // In the middle of the wide box, all of the sparse area of the
+        // lower layer of a group is in the tall bead above.
+        if (lp.z > 2 and lp.z < 4 and g.count() == 2) {
+            if (i == g.first) try testing.expectEqual(@as(usize, 0), plain + comb);
+            if (i == g.last) try testing.expect(comb > 0 and plain == 0);
+        }
+    }
+    try testing.expect(combined_layers > 10);
+}
+
+test "combined infill: about the same infill per height, and the bead model for the flow" {
+    const gpa = testing.allocator;
+    var mesh = try mesh_mod.shapes.demo(gpa);
+    defer mesh.deinit(gpa);
+    var stats: [2]struct { area: f64, layers: usize } = undefined;
+    var fill_e: [2]f64 = undefined;
+    for ([_]u32{ 1, 2 }, 0..) |n, k| {
+        var s: Settings = .{};
+        s.engine.threads = 2;
+        s.project.infill_layers = n;
+        var job = try Job.init(gpa, &mesh, s);
+        defer job.deinit();
+        const st = try infillStats(&job);
+        stats[k] = .{ .area = st.area, .layers = st.layers };
+        var out: Writer.Allocating = .init(gpa);
+        defer out.deinit();
+        _ = try job.writeGcode(&out.writer);
+        fill_e[k] = featureExtrusion(out.written(), "FILL");
+    }
+    // The lines times their bead heights: the infill covers the same
+    // height of the part.
+    try testing.expectApproxEqRel(stats[0].area, stats[1].area, 0.04);
+    // Fewer layers with infill.
+    try testing.expect(stats[1].layers * 10 < stats[0].layers * 7);
+    // The plastic: one bead of 0.4 mm holds less than two beads of
+    // 0.2 mm (the round sides are taller, see flow.zig). The combined
+    // part has the ratio of the bead model, the rest prints as before.
+    const w = 1.1 * 0.4;
+    const model = flow.beadArea(w, 0.4) / (2 * flow.beadArea(w, 0.2));
+    const ratio = fill_e[1] / fill_e[0];
+    try testing.expect(ratio < 1 and ratio > model - 0.03);
+}
+
+test "combined infill: a group is never thicker than the nozzle" {
+    const gpa = testing.allocator;
+    var mesh = try mesh_mod.shapes.demo(gpa);
+    defer mesh.deinit(gpa);
+    // 0.12 mm layers: 3 of them (0.36 mm) fit a 0.4 mm nozzle, 4 do not.
+    var s: Settings = .{};
+    s.engine.threads = 2;
+    s.project.layer_height = 0.12;
+    s.project.infill_layers = 4;
+    var job = try Job.init(gpa, &mesh, s);
+    defer job.deinit();
+    var most: usize = 0;
+    for (job.groups) |g| {
+        most = @max(most, g.count());
+        var sum: f64 = 0;
+        for (g.first..g.last + 1) |j| sum += job.layers[j].height;
+        try testing.expect(sum <= 0.4 + 1e-9);
+    }
+    try testing.expectEqual(@as(usize, 3), most);
+    // 0.25 mm layers: two are thicker than the nozzle, so no layer
+    // combines, and the G-code is the same as with infill_layers = 1.
+    var a: Settings = .{};
+    a.project.layer_height = 0.25;
+    var b = a;
+    b.project.infill_layers = 2;
+    const ga = try demoGcodeWith(gpa, a, &.{});
+    defer gpa.free(ga);
+    const gb = try demoGcodeWith(gpa, b, &.{});
+    defer gpa.free(gb);
+    try testing.expectEqualStrings(ga, gb);
+}
+
+test "combined infill: each pattern makes tall beads" {
+    const gpa = testing.allocator;
+    var mesh = try mesh_mod.shapes.demo(gpa);
+    defer mesh.deinit(gpa);
+    inline for (@typeInfo(settings_mod.InfillPattern).@"enum".fields) |f| {
+        // Lightning layers print on their own (see layer.groups).
+        if (comptime std.mem.eql(u8, f.name, "lightning")) continue;
+        var s: Settings = .{};
+        s.engine.threads = 2;
+        s.project.infill_layers = 2;
+        s.project.infill_pattern = @enumFromInt(f.value);
+        var job = try Job.init(gpa, &mesh, s);
+        defer job.deinit();
+        // A layer in the middle of the wide box, at the top of its group.
+        var i: usize = 0;
+        while (!(job.layers[i].z > 3 and job.groups[i].count() == 2 and job.groups[i].last == i)) i += 1;
+        var lp = try job.planLayer(i);
+        defer lp.deinit();
+        var comb: usize = 0;
+        for (lp.paths.items) |path| {
+            if (path.feature == .infill and path.height > 0) comb += 1;
+        }
+        testing.expect(comb > 0) catch |e| {
+            std.debug.print("pattern {s}: no tall beads\n", .{f.name});
+            return e;
+        };
+        // The G-code has the larger E for them.
+        var out: Writer.Allocating = .init(gpa);
+        defer out.deinit();
+        _ = try job.writeGcode(&out.writer);
+    }
+}
+
+test "combined infill: an override combines only the layers in its range" {
+    const gpa = testing.allocator;
+    var mesh = try mesh_mod.shapes.demo(gpa);
+    defer mesh.deinit(gpa);
+    var s: Settings = .{};
+    s.engine.threads = 2;
+    const overrides = [_]settings_mod.Override{.{ .z_min = 2, .z_max = 4, .name = "project.infill_layers", .value = "2" }};
+    var job = try Job.initFull(gpa, &mesh, s, &overrides, .{});
+    defer job.deinit();
+    var any = false;
+    for (job.groups, 0..) |g, i| if (g.count() > 1) {
+        any = true;
+        for (g.first..g.last + 1) |j| try testing.expect(overrides[0].covers(job.layers[j].z));
+        _ = i;
+    };
+    try testing.expect(any);
 }

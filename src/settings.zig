@@ -325,6 +325,16 @@ pub const Project = struct {
     top_support_density: f64 = 0.5,
     /// Sparse infill lines go this far into the walls, as a fraction of the line width.
     infill_overlap: f64 = 0.2,
+    /// Print the sparse infill once every this many layers, as one taller
+    /// bead at the top layer of each group, with the flow of all the
+    /// layers. The walls and the skin still print on each layer. Sparse
+    /// infill is hidden, so it does not need the fine layers, and the
+    /// print has fewer infill moves. A group is never thicker than the
+    /// nozzle diameter: the count goes down where the layers are too
+    /// thick. Only the area that is sparse infill in all layers of a group
+    /// gets the tall bead, and the dense band under the top skin prints
+    /// on each layer. 1: each layer.
+    infill_layers: u32 = 1,
 
     // Ironing
     /// Iron the top surfaces. After the layer is complete, the nozzle goes
@@ -888,6 +898,7 @@ pub const limits = [_]struct { []const u8, f64, f64 }{
     .{ "project.top_support_layers", 0, 20 },
     .{ "project.top_support_density", 0, 1 },
     .{ "project.infill_overlap", 0, 1 },
+    .{ "project.infill_layers", 1, 10 },
     .{ "project.ironing_flow", 0, 1 },
     .{ "project.ironing_spacing", 0.01, 2 },
     .{ "project.ironing_inset", 0, 10 },
@@ -1017,6 +1028,7 @@ pub const layer_settings = [_][]const u8{
     "project.infill_pattern",
     "project.infill_angle",
     "project.infill_overlap",
+    "project.infill_layers",
     "project.ironing",
     "project.ironing_flow",
     "project.ironing_spacing",

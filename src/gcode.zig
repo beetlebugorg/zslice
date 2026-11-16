@@ -674,12 +674,16 @@ pub const Emitter = struct {
                 self.feature = path.feature;
                 if (!self.dry) try self.w.print(";TYPE:{s}\n", .{typeName(path.feature)});
             }
-            const full = lr.speedAt(path.feature, lp.width, lp.height, lp.index);
+            // A path with its own height (combined infill) has a larger
+            // bead, so its flow limit gives a lower speed.
+            const h: f64 = if (path.height > 0) path.height else lp.height;
+            const full = lr.speedAt(path.feature, lp.width, h, lp.index);
             const speed = slowSpeed(full, slow, s.filament.min_speed);
             const start_time = self.stats.print_time_s;
             // Ironing lines use a fraction of the flow of a normal line.
-            // A path with its own width (a thin wall) has its own flow.
-            const base_e = if (path.width > 0) flow.beadArea(path.width, lp.height) / self.r.filament_area * s.filament.flow_ratio else e_per_mm;
+            // A path with its own width (a thin wall) or height has its own
+            // flow.
+            const base_e = if (path.width > 0 or path.height > 0) flow.beadArea(if (path.width > 0) path.width else lp.width, h) / self.r.filament_area * s.filament.flow_ratio else e_per_mm;
             const e = if (path.feature == .ironing) base_e * lr.settings.project.ironing_flow else base_e;
             const x0 = geom.toMm(pts[0].x);
             const y0 = geom.toMm(pts[0].y);

@@ -354,6 +354,10 @@ The density of the top support lines, as a ratio. It works only if it is more th
 
 Sparse infill lines go this far into the walls, as a fraction of the line width.
 
+**`project.infill_layers`** (integer; per layer). Default: `1`
+
+Print the sparse infill once every this many layers, as one taller bead at the top layer of each group, with the flow of all the layers. The walls and the skin still print on each layer. Sparse infill is hidden, so it does not need the fine layers, and the print has fewer infill moves. A group is never thicker than the nozzle diameter: the count goes down where the layers are too thick. Only the area that is sparse infill in all layers of a group gets the tall bead, and the dense band under the top skin prints on each layer. 1: each layer.
+
 ### Ironing
 
 **`project.ironing`** (true or false; per layer). Default: `false`
