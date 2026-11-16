@@ -45,7 +45,9 @@ enum zs_status {
     ZS_BUSY = 11,
     ZS_NO_MODEL = 12,
     ZS_NO_RESULT = 13,
-    ZS_OUT_OF_RANGE = 14
+    ZS_OUT_OF_RANGE = 14,
+    ZS_NOT_SUPPORTED = 15, /* for example, no Vulkan for a 3D view */
+    ZS_GPU_FAILED = 16
 };
 
 typedef struct zs_mesh zs_mesh;

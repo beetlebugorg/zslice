@@ -154,9 +154,70 @@ typedef struct zs_layer_paths {
     void *owner;  /* private */
 } zs_layer_paths;
 
+/* The paths of all layers, for a 3D view. Path i has the points from
+ * path_ends[i - 1] (0 for i = 0) to path_ends[i], as x, y pairs in points.
+ * Layer j has the paths from layer_ends[j - 1] to layer_ends[j], at the
+ * nozzle height layer_z[j], with the layer height layer_height[j] and the
+ * line width layer_width[j]. All values are in mm. The arrays stay valid
+ * until the next slice, the next model, or zs_app_free. */
+typedef struct zs_toolpaths {
+    const float *points;
+    const uint32_t *path_ends;
+    const uint8_t *path_features; /* enum zs_feature */
+    const uint8_t *path_closed;
+    size_t path_count;
+    const uint32_t *layer_ends;
+    const float *layer_z;
+    const float *layer_height;
+    const float *layer_width;
+    size_t layer_count;
+} zs_toolpaths;
+
+int zs_app_toolpaths(const zs_app *app, zs_toolpaths *out);
+
 /* Makes the paths of one layer. It takes a few milliseconds. */
 int zs_app_layer_paths(const zs_app *app, size_t layer, zs_layer_paths *out);
 void zs_layer_paths_free(zs_layer_paths *paths);
+
+/* ---- the 3D view ---- */
+
+/* The core draws the 3D view of a slice into a native surface that the
+ * shell gives: a Wayland wl_surface or an X11 window on Linux. The core
+ * loads Vulkan at run time, so the shell does not link it. Without Vulkan,
+ * zs_view_new returns ZS_NOT_SUPPORTED. Call the view functions from the
+ * UI thread. */
+
+enum zs_surface_kind {
+    ZS_SURFACE_WAYLAND = 1, /* display: struct wl_display *, surface: struct wl_surface * */
+    ZS_SURFACE_XLIB = 2     /* display: Display *, window: Window */
+};
+
+typedef struct zs_surface {
+    int kind; /* enum zs_surface_kind */
+    void *display;
+    void *surface;
+    uint64_t window;
+} zs_surface;
+
+typedef struct zs_view zs_view;
+
+/* Makes a view for the surface, width_px x height_px pixels. */
+int zs_view_new(const zs_surface *surface, uint32_t width_px, uint32_t height_px, zs_view **out);
+void zs_view_free(zs_view *view);
+/* The size in pixels: the logical size times the scale. */
+void zs_view_resize(zs_view *view, uint32_t width_px, uint32_t height_px);
+/* Reads the toolpaths of the last slice, and the bed size. Call it after
+ * ZS_EVENT_SLICED. */
+int zs_view_load(zs_view *view, const zs_app *app);
+/* Shows the layers from 0 to `layer`. */
+void zs_view_set_layer(zs_view *view, size_t layer);
+/* Turns the camera by a drag of dx, dy pixels. */
+void zs_view_orbit(zs_view *view, float dx, float dy);
+/* Moves the camera nearer (factor < 1) or further (factor > 1). */
+void zs_view_zoom(zs_view *view, float factor);
+void zs_view_reset(zs_view *view);
+/* Draws and presents one frame. Call it after a change. */
+int zs_view_draw(zs_view *view);
 
 /* ---- licenses ---- */
 

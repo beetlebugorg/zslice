@@ -13,8 +13,14 @@
 
 #define ZG_APP_ID "org.beetlebug.Zslice"
 
+/* The window is transparent, so that the 3D view (a Vulkan subsurface
+ * under the window) shows through the view widget. Each other part of the
+ * window paints its own background. */
 static const char *ZG_CSS =
+    "window.zg-main { background: transparent; }"
+    ".zg-panel { background: @theme_bg_color; }"
     ".zg-status { padding: 6px 12px; }"
+    ".zg-side { padding: 8px 8px 8px 4px; }"
     "entry.error { color: @error_color; }";
 
 static ZgModel *model;
@@ -90,7 +96,12 @@ static void on_shutdown(GApplication *app, gpointer data) {
 }
 
 int main(int argc, char **argv) {
-    GtkApplication *app = gtk_application_new(ZG_APP_ID, G_APPLICATION_HANDLES_OPEN);
+    GApplicationFlags flags = G_APPLICATION_HANDLES_OPEN;
+    /* For development and tests: ZSLICE_NON_UNIQUE=1 starts a separate
+     * instance. Without it, a second start sends its file to the running
+     * instance. */
+    if (g_getenv("ZSLICE_NON_UNIQUE")) flags |= G_APPLICATION_NON_UNIQUE;
+    GtkApplication *app = gtk_application_new(ZG_APP_ID, flags);
     g_signal_connect(app, "startup", G_CALLBACK(on_startup), NULL);
     g_signal_connect(app, "activate", G_CALLBACK(on_activate), NULL);
     g_signal_connect(app, "open", G_CALLBACK(on_open), NULL);

@@ -21,6 +21,10 @@ add_project_arguments(cc.get_supported_arguments(
 ), language: 'c')
 
 gtk_dep = dependency('gtk4', version: '>= 4.14')
+# The 3D view: the core draws with Vulkan into a Wayland subsurface. The
+# shell makes the subsurface with wayland-client (which GTK also uses). The
+# core loads the Vulkan loader at run time, so nothing links Vulkan here.
+wayland_dep = dependency('wayland-client')
 thread_dep = dependency('threads')
 m_dep = cc.find_library('m', required: false)
 
@@ -45,10 +49,12 @@ executable('zslice-gtk',
   'src/ui/settings-panel.c',
   'src/ui/preview.c',
   'src/ui/licenses.c',
+  'src/ui/view3d.c',
+  'src/ui/native-surface.c',
   core[1], core[2],
   link_with: core[0],
   c_args: ['-DZG_VERSION="' + meson.project_version() + '"'],
-  dependencies: [gtk_dep, thread_dep, m_dep],
+  dependencies: [gtk_dep, wayland_dep, thread_dep, m_dep],
   install: true,
 )
 

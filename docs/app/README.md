@@ -33,6 +33,21 @@ Read `include/zslice-app.h` first. The main points:
 - **Preview one layer at a time.** `zs_app_layer_paths` makes the paths of one layer in a few milliseconds. Keep only the layers on the screen.
 - **Licenses.** `zs_license_count` and `zs_license_get` give zslice and the components in the core, with full texts. A shell adds the libraries that only it links (for example GTK), and shows all of them in a Licenses screen.
 
+## The 3D view
+
+The core draws the 3D view of a slice (`src/render/`). The shell gives a native surface, and calls the `zs_view_*` functions of `include/zslice-app.h`:
+
+1. Make a native surface for the view widget: on Linux, a Wayland subsurface under the window (`linux/src/ui/native-surface.c`); later a `CAMetalLayer` on Apple, an `HWND` on Windows, and an `ANativeWindow` on Android.
+2. `zs_view_new` with the surface and the size in pixels.
+3. After `ZS_EVENT_SLICED`: `zs_view_load`.
+4. On a change (layer, drag, scroll, size): call `zs_view_set_layer`, `zs_view_orbit`, `zs_view_zoom`, or `zs_view_resize`, then `zs_view_draw` once. Draw only after a change, so that a static view uses no CPU.
+
+The backend is Vulkan on Linux (and later Windows and Android), and Metal on Apple later. The core loads the Vulkan loader at run time, so a shell does not link it. Without Vulkan, `zs_view_new` returns `ZS_NOT_SUPPORTED`, and the shell shows the 2D view only.
+
+On Linux, the GTK window is transparent, and the view widget draws nothing: the subsurface shows through it. Each other part of the window must paint its whole area (use padding, not margins).
+
+Development options of the GTK shell: `ZSLICE_VIEW=3d` opens the 3D view, and `ZSLICE_NON_UNIQUE=1` starts a separate instance.
+
 ## The preview colors
 
 All shells use the same colors, in the order of `enum zs_feature`:

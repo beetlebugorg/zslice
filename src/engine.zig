@@ -255,8 +255,21 @@ pub const Job = struct {
         return layer_mod.plan(self.gpa, self.planContext(), i);
     }
 
+    /// Gets each layer plan before it is freed, in layer order, on the
+    /// thread that writes the G-code. An app uses it to keep the paths of
+    /// all layers for a 3D view, with no second planning pass.
+    pub const LayerSink = struct {
+        ctx: ?*anyopaque,
+        func: *const fn (ctx: ?*anyopaque, plan: *const LayerPlan) anyerror!void,
+    };
+
     /// Step 5.
     pub fn writeGcode(self: *const Job, out: *Writer) Error!Stats {
+        return self.writeGcodeWith(out, null);
+    }
+
+    /// `writeGcode`, and each layer plan also goes to `sink`.
+    pub fn writeGcodeWith(self: *const Job, out: *Writer, sink: ?LayerSink) Error!Stats {
         const gpa = self.gpa;
         var em: gcode.Emitter = .init(out, &self.resolved);
         try em.begin(self.layers.len);
@@ -286,6 +299,7 @@ pub const Job = struct {
             parallel.forEach(self.threads, n, &c, Pass2.run) catch |e| return @as(Error, @errorCast(e));
             for (plans[0..n]) |*p| {
                 try em.layer(&p.*.?);
+                if (sink) |sk| sk.func(sk.ctx, &p.*.?) catch |e| return @as(Error, @errorCast(e));
                 p.*.?.deinit();
                 p.* = null;
             }

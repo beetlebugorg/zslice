@@ -33,6 +33,8 @@ pub const Status = enum(c_int) {
     no_model = 12,
     no_result = 13,
     out_of_range = 14,
+    not_supported = 15,
+    gpu_failed = 16,
 };
 
 fn status(e: anyerror) c_int {
@@ -50,6 +52,8 @@ fn status(e: anyerror) c_int {
         error.NoModel => .no_model,
         error.NoResult => .no_result,
         error.OutOfRange => .out_of_range,
+        error.NoVulkan => .not_supported,
+        error.NoDevice, error.VulkanFailed, error.SurfaceFailed => .gpu_failed,
         else => .invalid_argument,
     };
     return @intFromEnum(s);
@@ -443,6 +447,40 @@ export fn zs_layer_paths_free(paths: ?*LayerPaths) void {
     p.owner = null;
 }
 
+pub const Toolpaths = extern struct {
+    points: [*]const f32,
+    path_ends: [*]const u32,
+    path_features: [*]const u8,
+    path_closed: [*]const u8,
+    path_count: usize,
+    layer_ends: [*]const u32,
+    layer_z: [*]const f32,
+    layer_height: [*]const f32,
+    layer_width: [*]const f32,
+    layer_count: usize,
+};
+
+/// The paths of all layers, for a 3D view. The arrays stay valid until the
+/// next slice, the next model, or zs_app_free.
+export fn zs_app_toolpaths(a: ?*const App, out: ?*Toolpaths) c_int {
+    const app = a orelse return @intFromEnum(Status.invalid_argument);
+    const o = out orelse return @intFromEnum(Status.invalid_argument);
+    const t = app.allToolpaths() orelse return @intFromEnum(Status.no_result);
+    o.* = .{
+        .points = t.points.items.ptr,
+        .path_ends = t.path_ends.items.ptr,
+        .path_features = t.path_features.items.ptr,
+        .path_closed = t.path_closed.items.ptr,
+        .path_count = t.path_ends.items.len,
+        .layer_ends = t.layer_ends.items.ptr,
+        .layer_z = t.layer_z.items.ptr,
+        .layer_height = t.layer_height.items.ptr,
+        .layer_width = t.layer_width.items.ptr,
+        .layer_count = t.layer_ends.items.len,
+    };
+    return ok;
+}
+
 pub const License = extern struct {
     name: [*:0]const u8,
     license: [*:0]const u8,
@@ -477,6 +515,92 @@ test "C API: the app" {
     var lic: License = undefined;
     try std.testing.expectEqual(ok, zs_license_get(0, &lic));
     try std.testing.expect(std.mem.indexOf(u8, std.mem.span(lic.text), "AFFERO") != null);
+}
+
+// ---------------------------------------------------------------------------
+// The 3D view (include/zslice-app.h). See src/render/view.zig.
+
+/// The renderer needs libc (it loads the Vulkan loader with dlopen). It is
+/// on Linux now. Other targets get "not supported" from each call.
+const render_on = builtin.os.tag == .linux and builtin.link_libc and !is_wasm;
+const view_mod = if (render_on) @import("render/view.zig") else struct {
+    pub const View = opaque {};
+};
+const View = view_mod.View;
+
+pub const CSurface = extern struct {
+    kind: c_int,
+    display: ?*anyopaque,
+    surface: ?*anyopaque,
+    window: u64,
+};
+
+export fn zs_view_new(surface: ?*const CSurface, width: u32, height: u32, out: ?*?*View) c_int {
+    if (!render_on) return @intFromEnum(Status.not_supported);
+    const s = surface orelse return @intFromEnum(Status.invalid_argument);
+    const o = out orelse return @intFromEnum(Status.invalid_argument);
+    const native: view_mod.Surface = switch (s.kind) {
+        1 => .{ .wayland = .{ .display = s.display orelse return @intFromEnum(Status.invalid_argument), .surface = s.surface orelse return @intFromEnum(Status.invalid_argument) } },
+        2 => .{ .xlib = .{ .display = s.display orelse return @intFromEnum(Status.invalid_argument), .window = s.window } },
+        else => return @intFromEnum(Status.not_supported),
+    };
+    o.* = View.create(native, width, height) catch |e| return status(e);
+    return ok;
+}
+
+export fn zs_view_free(view: ?*View) void {
+    if (!render_on) return;
+    const v = view orelse return;
+    v.destroy();
+}
+
+export fn zs_view_resize(view: ?*View, width: u32, height: u32) void {
+    if (!render_on) return;
+    const v = view orelse return;
+    v.resize(width, height);
+}
+
+export fn zs_view_load(view: ?*View, a: ?*const App) c_int {
+    if (!render_on) return @intFromEnum(Status.not_supported);
+    const v = view orelse return @intFromEnum(Status.invalid_argument);
+    const app = a orelse return @intFromEnum(Status.invalid_argument);
+    v.load(app) catch |e| return status(e);
+    return ok;
+}
+
+export fn zs_view_set_layer(view: ?*View, layer: usize) void {
+    if (!render_on) return;
+    const v = view orelse return;
+    v.setLayer(layer);
+}
+
+export fn zs_view_orbit(view: ?*View, dx: f32, dy: f32) void {
+    if (!render_on) return;
+    const v = view orelse return;
+    v.orbit(dx, dy);
+}
+
+export fn zs_view_zoom(view: ?*View, factor: f32) void {
+    if (!render_on) return;
+    const v = view orelse return;
+    v.zoom(factor);
+}
+
+export fn zs_view_reset(view: ?*View) void {
+    if (!render_on) return;
+    const v = view orelse return;
+    v.reset();
+}
+
+export fn zs_view_draw(view: ?*View) c_int {
+    if (!render_on) return @intFromEnum(Status.not_supported);
+    const v = view orelse return @intFromEnum(Status.invalid_argument);
+    v.draw() catch |e| return status(e);
+    return ok;
+}
+
+test "C API: the view module compiles" {
+    if (render_on) _ = &view_mod.View.create;
 }
 
 test "C API: slice a box to a buffer and with a callback" {

@@ -14,9 +14,13 @@
 
 #include <math.h>
 
+#include "colors.h"
+#include "view3d.h"
+
 typedef struct {
     ZgModel *model;
     GtkWidget *area;
+    GtkWidget *view3d;
     GtkWidget *slider;
     GtkWidget *label;
     zs_layer_paths paths;
@@ -29,19 +33,6 @@ typedef struct {
     gboolean updating_slider;
 } Preview;
 
-/* The colors of the features, in the order of enum zs_feature. The same
- * colors as the SVG preview of the command line tool. */
-static const double feature_rgb[][3] = {
-    {0.851, 0.282, 0.059}, /* outer wall: orange */
-    {0.961, 0.624, 0.000}, /* inner wall: yellow */
-    {0.110, 0.494, 0.839}, /* skin: blue */
-    {0.169, 0.541, 0.243}, /* infill: green */
-    {0.682, 0.243, 0.788}, /* ironing: purple */
-    {0.553, 0.431, 0.388}, /* skirt and brim: brown */
-    {0.678, 0.710, 0.741}, /* support: light gray */
-    {0.286, 0.314, 0.341}, /* support interface: dark gray */
-};
-#define N_FEATURES (sizeof feature_rgb / sizeof feature_rgb[0])
 
 static void free_paths(Preview *p) {
     if (p->have_paths) {
@@ -159,13 +150,13 @@ static void draw(GtkDrawingArea *area, cairo_t *cr, int w, int h, gpointer data)
         cairo_set_line_cap(cr, CAIRO_LINE_CAP_ROUND);
         cairo_set_line_join(cr, CAIRO_LINE_JOIN_ROUND);
         cairo_set_line_width(cr, lp->width);
-        for (size_t f = 0; f < N_FEATURES; f++) {
+        for (size_t f = 0; f < ZG_N_FEATURES; f++) {
             for (size_t i = 0; i < lp->path_count; i++) {
                 if (lp->path_features[i] != f) continue;
                 uint32_t start = i == 0 ? 0 : lp->path_ends[i - 1];
                 add_polyline(cr, lp->points, start, lp->path_ends[i], lp->path_closed[i]);
             }
-            cairo_set_source_rgba(cr, feature_rgb[f][0], feature_rgb[f][1], feature_rgb[f][2], 0.9);
+            cairo_set_source_rgba(cr, zg_feature_rgb[f][0], zg_feature_rgb[f][1], zg_feature_rgb[f][2], 0.9);
             cairo_stroke(cr);
         }
     }
@@ -177,7 +168,9 @@ static void draw(GtkDrawingArea *area, cairo_t *cr, int w, int h, gpointer data)
 static void on_slider(GtkRange *range, gpointer data) {
     Preview *p = data;
     if (p->updating_slider) return;
-    load_layer(p, (size_t)gtk_range_get_value(range));
+    size_t layer = (size_t)gtk_range_get_value(range);
+    load_layer(p, layer);
+    zg_view3d_set_layer(p->view3d, layer);
 }
 
 static gboolean on_scroll(GtkEventControllerScroll *ctrl, double dx, double dy, gpointer data) {
@@ -265,15 +258,29 @@ GtkWidget *zg_preview_new(ZgModel *model) {
     gtk_widget_add_css_class(p->label, "caption");
     gtk_widget_add_css_class(p->label, "numeric");
 
+    /* The 2D layer view and the 3D view, with one slider for both. */
+    p->view3d = zg_view3d_new(model);
+    GtkWidget *stack = gtk_stack_new();
+    gtk_stack_add_titled(GTK_STACK(stack), p->area, "2d", "2D");
+    gtk_stack_add_titled(GTK_STACK(stack), p->view3d, "3d", "3D");
+    gtk_widget_set_hexpand(stack, TRUE);
+    /* For development and screenshots: ZSLICE_VIEW=3d opens the 3D view. */
+    if (g_strcmp0(g_getenv("ZSLICE_VIEW"), "3d") == 0) gtk_stack_set_visible_child_name(GTK_STACK(stack), "3d");
+    GtkWidget *switcher = gtk_stack_switcher_new();
+    gtk_stack_switcher_set_stack(GTK_STACK_SWITCHER(switcher), GTK_STACK(stack));
+    gtk_widget_set_tooltip_text(switcher, "2D: one layer. 3D: the layers up to the slider (drag to turn, scroll to zoom).");
+
+    /* Padding, and not margins: the window is transparent (for the 3D
+     * view), so each part must paint all of its area. */
     GtkWidget *side = gtk_box_new(GTK_ORIENTATION_VERTICAL, 6);
-    gtk_widget_set_margin_top(side, 8);
-    gtk_widget_set_margin_bottom(side, 8);
-    gtk_widget_set_margin_end(side, 8);
+    gtk_widget_add_css_class(side, "zg-panel");
+    gtk_widget_add_css_class(side, "zg-side");
+    gtk_box_append(GTK_BOX(side), switcher);
     gtk_box_append(GTK_BOX(side), p->label);
     gtk_box_append(GTK_BOX(side), p->slider);
 
     GtkWidget *box = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 0);
-    gtk_box_append(GTK_BOX(box), p->area);
+    gtk_box_append(GTK_BOX(box), stack);
     gtk_box_append(GTK_BOX(box), side);
     g_object_set_data_full(G_OBJECT(box), "zg-preview", p, preview_free);
     return box;
@@ -308,4 +315,6 @@ void zg_preview_refresh(GtkWidget *preview) {
     gtk_widget_set_sensitive(p->slider, p->layer_count > 1);
     if (old_count == 0) p->fitted = FALSE;
     load_layer(p, layer);
+    zg_view3d_reload(p->view3d);
+    zg_view3d_set_layer(p->view3d, layer);
 }

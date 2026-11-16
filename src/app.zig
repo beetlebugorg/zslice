@@ -86,6 +86,7 @@ pub const App = struct {
     gcode_bytes: []u8 = &.{},
     stats: zs.Stats = .{},
     part_box: [4]f64 = .{ 0, 0, 0, 0 },
+    toolpaths: Toolpaths = .{},
     failure: anyerror = error.Unexpected,
     slice_settings: Settings = .{},
 
@@ -225,6 +226,7 @@ pub const App = struct {
     }
 
     fn clearResults(app: *App) void {
+        app.toolpaths.deinit(app.gpa);
         if (app.job) |*j| j.deinit();
         app.job = null;
         app.gpa.free(app.gcode_bytes);
@@ -247,12 +249,16 @@ pub const App = struct {
         const monitor: zs.engine.Monitor = .{ .ctx = app, .progress = onProgress, .cancel = &app.cancel_flag };
         var job = zs.Job.initWith(app.gpa, &app.mesh.?, app.slice_settings, monitor) catch |e| return app.finishFailed(e);
         var out: std.Io.Writer.Allocating = .init(app.gpa);
-        const stats = job.writeGcode(&out.writer) catch |e| {
+        var store: Toolpaths = .{ .gpa = app.gpa };
+        const sink: zs.engine.Job.LayerSink = .{ .ctx = &store, .func = Toolpaths.addLayer };
+        const stats = job.writeGcodeWith(&out.writer, sink) catch |e| {
+            store.deinit(app.gpa);
             out.deinit();
             job.deinit();
             return app.finishFailed(e);
         };
         const bytes = out.toOwnedSlice() catch |e| {
+            store.deinit(app.gpa);
             out.deinit();
             job.deinit();
             return app.finishFailed(e);
@@ -270,6 +276,7 @@ pub const App = struct {
             zs.geom.toMm(box.max.x), zs.geom.toMm(box.max.y),
         };
         app.job = job;
+        app.toolpaths = store;
         app.gcode_bytes = bytes;
         app.stats = stats;
         app.state.store(.done, .release);
@@ -310,6 +317,12 @@ pub const App = struct {
         return app.part_box;
     }
 
+    /// The paths of all layers, for a 3D view.
+    pub fn allToolpaths(app: *const App) ?*const Toolpaths {
+        if (app.getState() != .done) return null;
+        return &app.toolpaths;
+    }
+
     /// The paths of one layer, for a preview. Call `deinit` on the result.
     pub fn layerPaths(app: *const App, gpa: Allocator, layer: usize) error{ NoResult, OutOfRange, OutOfMemory }!LayerPaths {
         if (app.getState() != .done) return error.NoResult;
@@ -318,6 +331,58 @@ pub const App = struct {
         var plan = try job.planLayer(layer);
         defer plan.deinit();
         return LayerPaths.fromPlan(gpa, &plan);
+    }
+};
+
+/// The paths of all layers of a slice, for a 3D view. The arrays are flat,
+/// in mm, and in print order:
+/// - path i has the points from path_ends[i - 1] to path_ends[i] (x, y
+///   pairs in `points`), the feature path_features[i], and is closed if
+///   path_closed[i] is 1;
+/// - layer j has the paths from layer_ends[j - 1] to layer_ends[j], at the
+///   height layer_z[j], with the layer height layer_height[j] and the line
+///   width layer_width[j].
+pub const Toolpaths = struct {
+    points: std.ArrayList(f32) = .empty,
+    path_ends: std.ArrayList(u32) = .empty,
+    path_features: std.ArrayList(u8) = .empty,
+    path_closed: std.ArrayList(u8) = .empty,
+    layer_ends: std.ArrayList(u32) = .empty,
+    layer_z: std.ArrayList(f32) = .empty,
+    layer_height: std.ArrayList(f32) = .empty,
+    layer_width: std.ArrayList(f32) = .empty,
+    gpa: ?Allocator = null,
+
+    pub fn deinit(t: *Toolpaths, gpa: Allocator) void {
+        t.points.deinit(gpa);
+        t.path_ends.deinit(gpa);
+        t.path_features.deinit(gpa);
+        t.path_closed.deinit(gpa);
+        t.layer_ends.deinit(gpa);
+        t.layer_z.deinit(gpa);
+        t.layer_height.deinit(gpa);
+        t.layer_width.deinit(gpa);
+        t.* = .{};
+    }
+
+    /// A Job.LayerSink function. `ctx` is a *Toolpaths whose `gpa` is set.
+    fn addLayer(ctx: ?*anyopaque, plan: *const zs.layer.LayerPlan) anyerror!void {
+        const t: *Toolpaths = @ptrCast(@alignCast(ctx.?));
+        const gpa = t.gpa.?;
+        for (plan.points.points.items) |p| {
+            try t.points.append(gpa, @floatCast(zs.geom.toMm(p.x)));
+            try t.points.append(gpa, @floatCast(zs.geom.toMm(p.y)));
+        }
+        const base: u32 = if (t.path_ends.items.len == 0) 0 else t.path_ends.items[t.path_ends.items.len - 1];
+        for (plan.points.ends.items) |e| try t.path_ends.append(gpa, base + e);
+        for (plan.paths.items) |p| {
+            try t.path_features.append(gpa, @intFromEnum(p.feature));
+            try t.path_closed.append(gpa, @intFromBool(p.closed));
+        }
+        try t.layer_ends.append(gpa, @intCast(t.path_ends.items.len));
+        try t.layer_z.append(gpa, @floatCast(plan.z));
+        try t.layer_height.append(gpa, @floatCast(plan.height));
+        try t.layer_width.append(gpa, @floatCast(plan.width));
     }
 };
 
@@ -563,6 +628,11 @@ test "app: load, slice, preview, and export" {
     try testing.expect(events.progress.load(.monotonic) > 0);
     try testing.expectEqual(@as(usize, 69), app.layerCount());
     try testing.expect(std.mem.indexOf(u8, app.gcode().?, ";LAYER:68") != null);
+
+    const tp = app.allToolpaths().?;
+    try testing.expectEqual(@as(usize, 69), tp.layer_ends.items.len);
+    try testing.expectEqual(tp.path_ends.items.len, tp.path_features.items.len);
+    try testing.expectEqual(tp.points.items.len, 2 * @as(usize, tp.path_ends.items[tp.path_ends.items.len - 1]));
 
     var lp = try app.layerPaths(gpa, 30);
     defer lp.deinit();

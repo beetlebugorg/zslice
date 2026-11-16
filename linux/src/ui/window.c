@@ -238,6 +238,7 @@ GtkWindow *zg_window_new(GtkApplication *app, ZgModel *model) {
     w->window = GTK_WINDOW(gtk_application_window_new(app));
     g_object_set_data_full(G_OBJECT(w->window), "zg-window", w, window_free);
     gtk_window_set_default_size(w->window, 1280, 820);
+    gtk_widget_add_css_class(GTK_WIDGET(w->window), "zg-main");
     gtk_window_set_title(w->window, "zslice");
 
     /* Header bar. */
@@ -270,7 +271,9 @@ GtkWindow *zg_window_new(GtkApplication *app, ZgModel *model) {
     /* Body: settings | preview. */
     w->preview = zg_preview_new(model);
     GtkWidget *paned = gtk_paned_new(GTK_ORIENTATION_HORIZONTAL);
-    gtk_paned_set_start_child(GTK_PANED(paned), zg_settings_panel_new(model));
+    GtkWidget *panel = zg_settings_panel_new(model);
+    gtk_widget_add_css_class(panel, "zg-panel");
+    gtk_paned_set_start_child(GTK_PANED(paned), panel);
     gtk_paned_set_end_child(GTK_PANED(paned), w->preview);
     gtk_paned_set_resize_start_child(GTK_PANED(paned), FALSE);
     gtk_paned_set_shrink_start_child(GTK_PANED(paned), FALSE);
@@ -286,6 +289,7 @@ GtkWindow *zg_window_new(GtkApplication *app, ZgModel *model) {
     gtk_widget_set_valign(w->progress, GTK_ALIGN_CENTER);
     GtkWidget *bar = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 12);
     gtk_widget_add_css_class(bar, "zg-status");
+    gtk_widget_add_css_class(bar, "zg-panel");
     gtk_box_append(GTK_BOX(bar), w->status);
     gtk_box_append(GTK_BOX(bar), w->progress);
 

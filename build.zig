@@ -41,6 +41,8 @@ pub fn build(b: *std.Build) void {
         .link_libc = true,
     });
     addLicenses(b, c_mod);
+    // The Vulkan headers of the renderer (vendor/vulkan, Apache-2.0).
+    c_mod.addIncludePath(b.path("vendor/vulkan/include"));
     const static_lib = b.addLibrary(.{ .name = "zslice", .linkage = .static, .root_module = c_mod });
     const shared_lib = b.addLibrary(.{ .name = "zslice", .linkage = .dynamic, .root_module = c_mod });
     const lib_step = b.step("lib", "Build the C library");
