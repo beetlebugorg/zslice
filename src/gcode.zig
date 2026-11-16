@@ -446,7 +446,17 @@ pub fn writeNum(w: *Writer, v: f64, comptime decimals: u5) Writer.Error!void {
         try w.writeByte('-');
         n = -n;
     }
-    try w.print("{d}", .{@divTrunc(n, scale)});
+    // The integer part, digit by digit from the end.
+    var int_buf: [20]u8 = undefined;
+    var at: usize = int_buf.len;
+    var whole = @divTrunc(n, scale);
+    while (true) {
+        at -= 1;
+        int_buf[at] = '0' + @as(u8, @intCast(@rem(whole, 10)));
+        whole = @divTrunc(whole, 10);
+        if (whole == 0) break;
+    }
+    try w.writeAll(int_buf[at..]);
     if (decimals == 0) return;
     var frac = @rem(n, scale);
     if (frac == 0) return;
