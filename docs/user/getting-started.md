@@ -47,6 +47,16 @@ zslice settings
 
 The [settings reference](settings.md) explains each one. To keep settings in files (one for your printer, one for each filament), see [Profiles](profiles.md).
 
+### See which settings matter for a part
+
+`zslice sweep` slices the part again and again. For each project and filament setting, it tries values across the usual range, with the other settings at their base values:
+
+```sh
+zslice sweep part.stl -m my-printer -f my-pla -p my-project -o sweep.tsv
+```
+
+The file has one row for each slice: the setting, the value, the print time, the plastic in grams, the cost, the travel, and the retractions. At the end, the tool lists the settings that change the print time and the cost of this part the most. The cost is the plastic weight times `filament.price_per_kg`. `--points N` sets the number of values for a number setting (default 5), and `--only TEXT` sweeps only the settings with TEXT in their name. A sweep of the Benchy (382 slices) takes about 45 seconds.
+
 ### The three groups
 
 The settings have three groups. Each group has a different owner:

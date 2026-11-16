@@ -18,6 +18,7 @@ const usage =
     \\  zslice settings
     \\  zslice demo <out.stl>
     \\  zslice bench <model.stl> [options]
+    \\  zslice sweep <model.stl> [options] [--points N] [--only TEXT] [-o out.tsv]
     \\
     \\Commands:
     \\  slice     Slice a model and write G-code (default output: stdout).
@@ -35,6 +36,14 @@ const usage =
     \\            and the peak memory. --only KIND times one kind: full,
     \\            late, walls, top, width, height, xy, or cancel. --runs N sets
     \\            the slices of each kind (default 6).
+    \\  sweep     For each project and filament setting, slice with values
+    \\            across its range (the others at their base values), and
+    \\            write the print time, the plastic, the cost, the travel,
+    \\            and the retractions of each slice as TSV. Then list the
+    \\            settings that change the time and the cost the most.
+    \\            --points N sets the values of a number (default 5);
+    \\            --only TEXT sweeps only the settings with TEXT in their
+    \\            name.
     \\
     \\Options:
     \\  -m, --machine NAME   Load a machine profile (a name or a .toml path).
@@ -61,6 +70,8 @@ const Options = struct {
     only: ?[]const u8 = null,
     /// bench: the slices of each kind.
     runs: usize = 6,
+    /// sweep: the values of a number setting.
+    points: usize = 5,
 };
 
 pub fn main(init: std.process.Init) !void {
@@ -126,7 +137,8 @@ pub fn main(init: std.process.Init) !void {
 
     const is_profile = std.mem.eql(u8, cmd, "profile");
     const is_bench = std.mem.eql(u8, cmd, "bench");
-    if (!is_bench and !std.mem.eql(u8, cmd, "slice") and !std.mem.eql(u8, cmd, "preview") and !is_profile) {
+    const is_sweep = std.mem.eql(u8, cmd, "sweep");
+    if (!is_bench and !is_sweep and !std.mem.eql(u8, cmd, "slice") and !std.mem.eql(u8, cmd, "preview") and !is_profile) {
         fail(err, "unknown command: {s}\n\n{s}", .{ cmd, usage });
     }
 
@@ -184,6 +196,11 @@ pub fn main(init: std.process.Init) !void {
     gpa.free(bytes);
     defer m.deinit(gpa);
 
+    if (is_sweep) {
+        try sweep(gpa, io, err, &m, settings, opts);
+        return;
+    }
+
     const t0 = Io.Clock.awake.now(io);
     var job = zslice.engine.Job.init(gpa, &m, settings) catch |e| fail(err, "slice failed: {s}\n", .{@errorName(e)});
     defer job.deinit();
@@ -221,6 +238,85 @@ pub fn main(init: std.process.Init) !void {
         ms1,
         ms - ms1,
     });
+}
+
+/// The sweep (see app/sweep.zig): a TSV row for each slice, progress on
+/// stderr, and at the end the settings that change the time and the cost
+/// the most.
+fn sweep(gpa: std.mem.Allocator, io: Io, err: *Io.Writer, mesh: *const zslice.Mesh, settings: zslice.Settings, opts: Options) !void {
+    var out_file: ?Io.File = null;
+    defer if (out_file) |f| f.close(io);
+    if (opts.output) |p| out_file = try Io.Dir.cwd().createFile(io, p, .{});
+    var out_buf: [4096]u8 = undefined;
+    var out_w: Io.File.Writer = .init(out_file orelse .stdout(), io, &out_buf);
+    const out = &out_w.interface;
+    try out.writeAll("setting\tvalue\ttime_s\tfilament_g\tcost\ttravel_mm\tretractions\tlayers\tstatus\n");
+    // The range of time and cost of each setting, for the summary.
+    const Span = struct { name: []const u8, t_min: f64, t_max: f64, c_min: f64, c_max: f64 };
+    var arena_state = std.heap.ArenaAllocator.init(gpa);
+    defer arena_state.deinit();
+    const arena = arena_state.allocator();
+    const Ctx = struct {
+        out: *Io.Writer,
+        err: *Io.Writer,
+        arena: std.mem.Allocator,
+        spans: std.ArrayList(Span) = .empty,
+        base_time: f64 = 0,
+        base_cost: f64 = 0,
+        failed: bool = false,
+        fn add(ctx: ?*anyopaque, r: zslice.app.sweep.Result, done: usize, total: usize) void {
+            const c: *@This() = @ptrCast(@alignCast(ctx.?));
+            c.write(r, done, total) catch {
+                c.failed = true;
+            };
+        }
+        fn write(c: *@This(), r: zslice.app.sweep.Result, done: usize, total: usize) !void {
+            const name = if (r.base) "(base)" else r.name;
+            if (r.failure) |e| {
+                try c.out.print("{s}\t{s}\t\t\t\t\t\t\t{s}\n", .{ name, r.value, @errorName(e) });
+            } else {
+                try c.out.print("{s}\t{s}\t{d:.1}\t{d:.2}\t{d:.3}\t{d:.0}\t{d}\t{d}\tok\n", .{ name, r.value, r.time_s, r.filament_g, r.cost, r.travel_mm, r.retractions, r.layers });
+            }
+            if (r.base) {
+                c.base_time = r.time_s;
+                c.base_cost = r.cost;
+            } else if (r.failure == null) {
+                const last = if (c.spans.items.len > 0) &c.spans.items[c.spans.items.len - 1] else null;
+                if (last != null and std.mem.eql(u8, last.?.name, r.name)) {
+                    last.?.t_min = @min(last.?.t_min, r.time_s);
+                    last.?.t_max = @max(last.?.t_max, r.time_s);
+                    last.?.c_min = @min(last.?.c_min, r.cost);
+                    last.?.c_max = @max(last.?.c_max, r.cost);
+                } else {
+                    // The base value is part of each range.
+                    try c.spans.append(c.arena, .{ .name = r.name, .t_min = @min(c.base_time, r.time_s), .t_max = @max(c.base_time, r.time_s), .c_min = @min(c.base_cost, r.cost), .c_max = @max(c.base_cost, r.cost) });
+                }
+            }
+            try c.err.print("\rsweep: {d}/{d} slices", .{ done, total });
+            try c.err.flush();
+        }
+    };
+    var ctx: Ctx = .{ .out = out, .err = err, .arena = arena };
+    try zslice.app.sweep.run(gpa, mesh, settings, .{ .points = opts.points, .filter = opts.only }, .{ .ctx = &ctx, .result = Ctx.add });
+    try out.flush();
+    if (ctx.failed) fail(err, "\nsweep: the output failed\n", .{});
+    try err.print("\nBase: {d:.1} min, cost {d:.2}.\n", .{ ctx.base_time / 60, ctx.base_cost });
+    const lists = [_]struct { title: []const u8, time: bool }{ .{ .title = "print time", .time = true }, .{ .title = "cost", .time = false } };
+    for (lists) |l| {
+        std.mem.sort(Span, ctx.spans.items, l.time, struct {
+            fn lt(time: bool, a: Span, b: Span) bool {
+                return if (time) a.t_max - a.t_min > b.t_max - b.t_min else a.c_max - a.c_min > b.c_max - b.c_min;
+            }
+        }.lt);
+        try err.print("\nThe settings that change the {s} the most:\n", .{l.title});
+        for (ctx.spans.items[0..@min(12, ctx.spans.items.len)]) |sp| {
+            if (l.time) {
+                try err.print("  {s:<40} {d:>7.1} to {d:>7.1} min\n", .{ sp.name, sp.t_min / 60, sp.t_max / 60 });
+            } else {
+                try err.print("  {s:<40} {d:>7.2} to {d:>7.2}\n", .{ sp.name, sp.c_min, sp.c_max });
+            }
+        }
+    }
 }
 
 /// The changes that `bench` makes, one for each kind of setting. Each slice
@@ -416,7 +512,7 @@ fn parseOptions(arena: std.mem.Allocator, err: *Io.Writer, args: []const [:0]con
     var i: usize = 0;
     while (i < args.len) : (i += 1) {
         const a = args[i];
-        const takes_value = for ([_][]const u8{ "-o", "-s", "--layer", "-m", "--machine", "-f", "--filament", "-p", "--project", "--only", "--runs" }) |o| {
+        const takes_value = for ([_][]const u8{ "-o", "-s", "--layer", "-m", "--machine", "-f", "--filament", "-p", "--project", "--only", "--runs", "--points" }) |o| {
             if (std.mem.eql(u8, a, o)) break true;
         } else false;
         if (!takes_value) {
@@ -439,6 +535,9 @@ fn parseOptions(arena: std.mem.Allocator, err: *Io.Writer, args: []const [:0]con
             opts.project = v;
         } else if (std.mem.eql(u8, a, "--only")) {
             opts.only = v;
+        } else if (std.mem.eql(u8, a, "--points")) {
+            opts.points = std.fmt.parseInt(usize, v, 10) catch fail(err, "bad point count: {s}\n", .{v});
+            if (opts.points < 2 or opts.points > 50) fail(err, "--points must be 2 to 50\n", .{});
         } else if (std.mem.eql(u8, a, "--runs")) {
             opts.runs = std.fmt.parseInt(usize, v, 10) catch fail(err, "bad run count: {s}\n", .{v});
             if (opts.runs < 1 or opts.runs > max_runs) fail(err, "--runs must be 1 to {d}\n", .{max_runs});

@@ -154,6 +154,10 @@ The diameter of the filament.
 
 g/cm^3. For the filament weight in the statistics.
 
+**`filament.price_per_kg`** (number). Default: `25`
+
+The price of one kilogram of this filament, in your currency. For the cost of a print (the filament weight times this price).
+
 ### Temperatures
 
 **`filament.nozzle_temp`** (number; per layer). Default: `210`

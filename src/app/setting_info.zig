@@ -116,6 +116,7 @@ const units = [_][2][]const u8{
     // filament
     .{ "filament.diameter", "mm" },
     .{ "filament.density", "g/cm\u{b3}" },
+    .{ "filament.price_per_kg", "per kg" },
     .{ "filament.nozzle_temp", "\u{b0}C" },
     .{ "filament.first_layer_nozzle_temp", "\u{b0}C" },
     .{ "filament.bed_temp", "\u{b0}C" },

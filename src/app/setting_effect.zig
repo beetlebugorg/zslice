@@ -90,6 +90,7 @@ const preview_notes = [_]struct { []const u8, [:0]const u8 }{
     .{ "filament.name", "The name of the filament, for the profiles and the start G-code." },
     .{ "filament.diameter", "The filament diameter: it changes how far the extruder pushes, not the lines." },
     .{ "filament.density", "The weight of the plastic, for the filament weight in the status bar." },
+    .{ "filament.price_per_kg", "The cost of the filament, for the cost of a print. The lines do not move." },
     .{ "filament.nozzle_temp", "A G-code temperature. It changes no line." },
     .{ "filament.first_layer_nozzle_temp", "A G-code temperature for the first layer. It changes no line." },
     .{ "filament.bed_temp", "A G-code temperature. It changes no line." },

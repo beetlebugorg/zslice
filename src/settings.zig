@@ -147,6 +147,9 @@ pub const Filament = struct {
     diameter: f64 = 1.75,
     /// g/cm^3. For the filament weight in the statistics.
     density: f64 = 1.24,
+    /// The price of one kilogram of this filament, in your currency. For
+    /// the cost of a print (the filament weight times this price).
+    price_per_kg: f64 = 25,
 
     // Temperatures
     /// The nozzle temperature from the second layer.
@@ -834,6 +837,7 @@ pub const limits = [_]struct { []const u8, f64, f64 }{
     // filament
     .{ "filament.diameter", 1, 3.5 },
     .{ "filament.density", 0.5, 3 },
+    .{ "filament.price_per_kg", 0, 10000 },
     .{ "filament.nozzle_temp", 0, 450 },
     .{ "filament.first_layer_nozzle_temp", 0, 450 },
     .{ "filament.bed_temp", 0, 150 },

@@ -67,6 +67,10 @@ zig build -Doptimize=ReleaseFast</code></pre>
 <p>To see all settings and their default values:</p>
 <pre><code>zslice settings</code></pre>
 <p>The <a href="../../user/settings/">settings reference</a> explains each one. To keep settings in files (one for your printer, one for each filament), see <a href="../../user/profiles/">Profiles</a>.</p>
+<h3 id="see-which-settings-matter-for-a-part">See which settings matter for a part</h3>
+<p><code>zslice sweep</code> slices the part again and again. For each project and filament setting, it tries values across the usual range, with the other settings at their base values:</p>
+<pre><code>zslice sweep part.stl -m my-printer -f my-pla -p my-project -o sweep.tsv</code></pre>
+<p>The file has one row for each slice: the setting, the value, the print time, the plastic in grams, the cost, the travel, and the retractions. At the end, the tool lists the settings that change the print time and the cost of this part the most. The cost is the plastic weight times <code>filament.price_per_kg</code>. <code>--points N</code> sets the number of values for a number setting (default 5), and <code>--only TEXT</code> sweeps only the settings with TEXT in their name. A sweep of the Benchy (382 slices) takes about 45 seconds.</p>
 <h3 id="the-three-groups">The three groups</h3>
 <p>The settings have three groups. Each group has a different owner:</p>
 <div class="table-wrap"><table><thead><tr><th>Group</th><th>What it describes</th><th>When it changes</th></tr></thead><tbody><tr><td><code>machine</code></td><td>The printer: the bed size, the nozzle, the speed limits, the start and end G-code.</td><td>When you change the printer.</td></tr><tr><td><code>filament</code></td><td>The material: the diameter, the temperatures, the maximum flow, the cooling.</td><td>When you change the filament.</td></tr><tr><td><code>project</code></td><td>What you want for this part: the layer height, the walls, the skin, the infill.</td><td>For each part.</td></tr></tbody></table></div>

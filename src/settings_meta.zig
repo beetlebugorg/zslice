@@ -36,6 +36,7 @@ pub const all = [_]Meta{
     .{ .name = "filament.color", .section = "Filament", .doc = "The color of the filament, as \"#rrggbb\". The 3D view draws the print in this color." },
     .{ .name = "filament.diameter", .section = "Filament", .doc = "The diameter of the filament." },
     .{ .name = "filament.density", .section = "Filament", .doc = "g/cm^3. For the filament weight in the statistics." },
+    .{ .name = "filament.price_per_kg", .section = "Filament", .doc = "The price of one kilogram of this filament, in your currency. For the cost of a print (the filament weight times this price)." },
     .{ .name = "filament.nozzle_temp", .section = "Temperatures", .doc = "The nozzle temperature from the second layer." },
     .{ .name = "filament.first_layer_nozzle_temp", .section = "Temperatures", .doc = "The nozzle temperature on the first layer." },
     .{ .name = "filament.bed_temp", .section = "Temperatures", .doc = "The bed temperature." },

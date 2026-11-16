@@ -46,6 +46,8 @@ const inspect_mod = @import("app/inspect.zig");
 const toolpaths_mod = @import("app/toolpaths.zig");
 const setting_effect = @import("app/setting_effect.zig");
 const setting_info = @import("app/setting_info.zig");
+/// The sweep of the settings (see app/sweep.zig).
+pub const sweep = @import("app/sweep.zig");
 
 pub const Toolpaths = toolpaths_mod.Toolpaths;
 pub const LayerPaths = toolpaths_mod.LayerPaths;
@@ -806,7 +808,7 @@ pub const App = struct {
         return writeSettingOf(app.settings, name, w);
     }
 
-    fn writeSettingOf(settings: Settings, name: []const u8, w: *std.Io.Writer) (Settings.SetError || std.Io.Writer.Error)!void {
+    pub fn writeSettingOf(settings: Settings, name: []const u8, w: *std.Io.Writer) (Settings.SetError || std.Io.Writer.Error)!void {
         const dot = std.mem.indexOfScalar(u8, name, '.') orelse return error.UnknownSetting;
         inline for (@typeInfo(Settings).@"struct".fields) |g| {
             if (std.mem.eql(u8, g.name, name[0..dot])) {
@@ -1128,6 +1130,7 @@ test {
     _ = toolpaths_mod;
     _ = setting_effect;
     _ = setting_info;
+    _ = sweep;
     _ = @import("app/feature_settings.zig");
 }
 
