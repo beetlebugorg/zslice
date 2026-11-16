@@ -214,15 +214,15 @@ pub fn main(init: std.process.Init) !void {
     });
 }
 
-/// The changes that `bench` makes, one for each kind of setting. Each
-/// change goes between two values, so that each slice has new settings.
-const bench_changes = [_]struct { kind: []const u8, name: []const u8, values: [2][]const u8 }{
-    .{ .kind = "late (infill)", .name = "project.infill_density", .values = .{ "0.3", "0.2" } },
-    .{ .kind = "wall count", .name = "project.wall_count", .values = .{ "3", "2" } },
-    .{ .kind = "top thickness", .name = "project.top_thickness", .values = .{ "1.2", "0.8" } },
-    .{ .kind = "line width", .name = "project.line_width", .values = .{ "0.5", "0" } },
-    .{ .kind = "layer height", .name = "project.layer_height", .values = .{ "0.25", "0.2" } },
-    .{ .kind = "xy offset", .name = "filament.xy_offset", .values = .{ "0.05", "0" } },
+/// The changes that `bench` makes, one for each kind of setting. Each slice
+/// gets a new value, as when a user moves a slider.
+const bench_changes = [_]struct { kind: []const u8, name: []const u8, values: [6][]const u8 }{
+    .{ .kind = "late (infill)", .name = "project.infill_density", .values = .{ "0.21", "0.22", "0.23", "0.24", "0.25", "0.26" } },
+    .{ .kind = "wall count", .name = "project.wall_count", .values = .{ "3", "4", "5", "6", "7", "8" } },
+    .{ .kind = "top thickness", .name = "project.top_thickness", .values = .{ "1.0", "1.2", "1.4", "1.6", "1.8", "2.0" } },
+    .{ .kind = "line width", .name = "project.line_width", .values = .{ "0.45", "0.46", "0.47", "0.48", "0.49", "0.5" } },
+    .{ .kind = "layer height", .name = "project.layer_height", .values = .{ "0.21", "0.22", "0.23", "0.24", "0.25", "0.26" } },
+    .{ .kind = "xy offset", .name = "filament.xy_offset", .values = .{ "0.01", "0.02", "0.03", "0.04", "0.05", "0.06" } },
 };
 
 /// Slices in the app core, as the app does after each change of a setting,
@@ -244,8 +244,11 @@ fn bench(backing: std.mem.Allocator, io: Io, err: *Io.Writer, name: []const u8, 
     }
     try printTimes(err, "full slice", &times);
     for (bench_changes) |c| {
+        // Start from the base settings, with a slice that is not timed.
+        app.settings = settings;
+        _ = try benchSlice(app, io);
         for (&times, 0..) |*t, k| {
-            try app.setSetting(c.name, c.values[k % 2]);
+            try app.setSetting(c.name, c.values[k]);
             t.* = try benchSlice(app, io);
         }
         try printTimes(err, c.kind, &times);
