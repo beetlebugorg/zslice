@@ -200,9 +200,11 @@ void zg_window_open_dialog(GtkWindow *window) {
     GtkFileDialog *dialog = gtk_file_dialog_new();
     gtk_file_dialog_set_title(dialog, "Add models to the plate");
     GtkFileFilter *stl = gtk_file_filter_new();
-    gtk_file_filter_set_name(stl, "STL files");
+    gtk_file_filter_set_name(stl, "Models (STL, 3MF)");
     gtk_file_filter_add_suffix(stl, "stl");
+    gtk_file_filter_add_suffix(stl, "3mf");
     gtk_file_filter_add_mime_type(stl, "model/stl");
+    gtk_file_filter_add_mime_type(stl, "model/3mf");
     GListStore *filters = g_list_store_new(GTK_TYPE_FILE_FILTER);
     g_list_store_append(filters, stl);
     gtk_file_dialog_set_filters(dialog, G_LIST_MODEL(filters));
@@ -261,6 +263,62 @@ void zg_window_export_dialog(GtkWindow *window) {
     g_free(initial);
     g_free(base);
     g_object_unref(dialog);
+}
+
+/* ---- save the plate ---- */
+
+static void on_plate_saved(GObject *source, GAsyncResult *res, gpointer data) {
+    GtkWindow *window = data;
+    GError *error = NULL;
+    if (!g_file_replace_contents_finish(G_FILE(source), res, NULL, &error)) {
+        show_error(get(window), "The 3MF file was not saved", error->message);
+        g_error_free(error);
+    }
+    g_object_unref(window);
+}
+
+static void on_save_plate_chosen(GObject *source, GAsyncResult *res, gpointer data) {
+    GtkWindow *window = data;
+    Window *w = get(window);
+    GFile *file = gtk_file_dialog_save_finish(GTK_FILE_DIALOG(source), res, NULL);
+    const uint8_t *bytes = NULL;
+    size_t len = 0;
+    if (file) {
+        int st = zs_app_write_3mf(zg_model_core(w->model), &bytes, &len);
+        if (st == ZS_OK) {
+            GBytes *copy = g_bytes_new(bytes, len);
+            g_file_replace_contents_bytes_async(file, copy, NULL, FALSE, G_FILE_CREATE_REPLACE_DESTINATION,
+                                                NULL, on_plate_saved, g_object_ref(window));
+            g_bytes_unref(copy);
+        } else {
+            show_error(w, "The 3MF file was not saved", zs_status_string(st));
+        }
+        g_object_unref(file);
+    }
+    g_object_unref(window);
+}
+
+/* Saves the parts, their places, and the changes for the parts (not the
+ * global settings) in a 3MF file. */
+void zg_window_save_plate_dialog(GtkWindow *window) {
+    Window *w = get(window);
+    if (zs_app_part_count(zg_model_core(w->model)) == 0) return;
+    GtkFileDialog *dialog = gtk_file_dialog_new();
+    gtk_file_dialog_set_title(dialog, "Save the plate as 3MF (parts and their changes)");
+    const char *name = zg_model_name(w->model);
+    char *base = g_strdup(name && *name ? name : "plate");
+    char *dot = strrchr(base, '.');
+    if (dot) *dot = 0;
+    char *initial = g_strconcat(base, ".3mf", NULL);
+    gtk_file_dialog_set_initial_name(dialog, initial);
+    gtk_file_dialog_save(dialog, window, NULL, on_save_plate_chosen, g_object_ref(window));
+    g_free(initial);
+    g_free(base);
+    g_object_unref(dialog);
+}
+
+static void on_save_plate_action(GSimpleAction *a, GVariant *v, gpointer data) {
+    zg_window_save_plate_dialog(GTK_WINDOW(data));
 }
 
 /* ---- send to the printer ---- */
@@ -541,11 +599,13 @@ GtkWindow *zg_window_new(GtkApplication *app, ZgModel *model) {
         {.name = "export", .activate = on_export_action},
         {.name = "preferences", .activate = on_prefs_action},
         {.name = "arrange", .activate = on_arrange_action},
+        {.name = "save-plate", .activate = on_save_plate_action},
         {.name = "clear-plate", .activate = on_clear_action},
     };
     g_action_map_add_action_entries(G_ACTION_MAP(w->window), win_actions, G_N_ELEMENTS(win_actions), w->window);
 
     GMenu *menu = g_menu_new();
+    g_menu_append(menu, "Save the plate as 3MF…", "win.save-plate");
     g_menu_append(menu, "Arrange the plate", "win.arrange");
     g_menu_append(menu, "Clear the plate", "win.clear-plate");
     g_menu_append(menu, "Preferences", "win.preferences");

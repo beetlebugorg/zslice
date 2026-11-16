@@ -133,6 +133,12 @@ void zs_app_cancel(zs_app *app);
 int zs_app_stats(const zs_app *app, zs_stats *out);
 /* The G-code. Valid until the next slice, the next model, or zs_app_free. */
 int zs_app_gcode(const zs_app *app, const uint8_t **out, size_t *out_len);
+
+/* A 3MF file of the plate: each part at its place, and the changes for
+ * the part and for some layers. The bytes stay valid until the next call
+ * or zs_app_destroy. zs_app_load_stl and zs_app_add_stl read 3MF files
+ * too (the parts stay at their places). */
+int zs_app_write_3mf(zs_app *app, const uint8_t **out, size_t *out_len);
 size_t zs_app_layer_count(const zs_app *app);
 /* The part on the bed: min x, min y, max x, max y, in mm. */
 int zs_app_part_bounds(const zs_app *app, double out[4]);

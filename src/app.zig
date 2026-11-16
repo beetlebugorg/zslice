@@ -105,6 +105,8 @@ pub const App = struct {
     overrides: std.ArrayList(zs.settings.Override) = .empty,
     /// A copy of `overrides` for the running slice.
     slice_overrides: []zs.settings.Override = &.{},
+    /// The bytes of the last write3mf.
+    file_bytes: []u8 = &.{},
 
     pub fn create(gpa: Allocator, event_fn: ?EventFn, user: ?*anyopaque) Allocator.Error!*App {
         const app = try gpa.create(App);
@@ -119,6 +121,7 @@ pub const App = struct {
         app.dropPrevJob();
         app.overrides.deinit(app.gpa);
         app.gpa.free(app.slice_overrides);
+        app.gpa.free(app.file_bytes);
         if (app.mesh) |*m| m.deinit(app.gpa);
         app.plate.deinit(app.gpa);
         app.gpa.free(app.model_name);
@@ -130,25 +133,89 @@ pub const App = struct {
         return app.state.load(.acquire);
     }
 
-    /// Loads an STL model. It replaces all parts of the plate and stops a
-    /// slice that runs.
-    pub fn loadStl(app: *App, name: []const u8, bytes: []const u8) zs.mesh.Error!void {
-        const m = try zs.Mesh.fromStl(app.gpa, bytes);
+    pub const LoadError = zs.mesh.Error || zs.threemf.Error;
+
+    /// Loads a model file (STL or 3MF). It replaces all parts of the plate
+    /// and stops a slice that runs.
+    pub fn loadStl(app: *App, name: []const u8, bytes: []const u8) LoadError!void {
+        // Read the file first: a bad file keeps the old plate.
+        if (isZip(bytes)) {
+            var loaded = try zs.threemf.read(app.gpa, bytes);
+            defer loaded.deinit(app.gpa);
+            app.dropPlate();
+            try app.addLoaded(&loaded);
+        } else {
+            const m = try zs.Mesh.fromStl(app.gpa, bytes);
+            app.dropPlate();
+            _ = try app.addMesh(name, m);
+        }
+        // The old result is gone: there is a model, and no slice of it.
+        app.state.store(.ready, .release);
+    }
+
+    fn dropPlate(app: *App) void {
         app.stopWorker();
         app.clearResults();
         // The overrides were for the old parts.
         app.overrides.clearRetainingCapacity();
         app.plate.clear(app.gpa);
-        _ = try app.addMesh(name, m);
-        // The old result is gone: there is a model, and no slice of it.
-        app.state.store(.ready, .release);
     }
 
-    /// Adds an STL model to the plate, as a new part. Returns its index.
-    pub fn addStl(app: *App, name: []const u8, bytes: []const u8) zs.mesh.Error!usize {
-        const m = try zs.Mesh.fromStl(app.gpa, bytes);
+    /// Adds a model file (STL or 3MF) to the plate. Returns the index of
+    /// its first part. A 3MF file can have more than one part.
+    pub fn addStl(app: *App, name: []const u8, bytes: []const u8) LoadError!usize {
         app.stopWorker();
+        if (isZip(bytes)) {
+            var loaded = try zs.threemf.read(app.gpa, bytes);
+            defer loaded.deinit(app.gpa);
+            const first = app.plate.count();
+            try app.addLoaded(&loaded);
+            return first;
+        }
+        const m = try zs.Mesh.fromStl(app.gpa, bytes);
         return app.addMesh(name, m);
+    }
+
+    fn isZip(bytes: []const u8) bool {
+        return bytes.len >= 4 and std.mem.eql(u8, bytes[0..4], "PK\x03\x04");
+    }
+
+    /// The parts of a 3MF file stay at their places in the file (if they
+    /// fit), and its overrides apply.
+    fn addLoaded(app: *App, loaded: *zs.threemf.Loaded) LoadError!void {
+        try zs.threemf.joinOverlapping(app.gpa, loaded);
+        for (loaded.parts) |*p| {
+            const m = p.mesh;
+            p.mesh = .empty; // The plate owns the mesh now.
+            const i = try app.plate.add(app.gpa, p.name, m, app.bedSize(), app.partGap(), true);
+            _ = i;
+        }
+        try app.plateChanged();
+        var lines = std.mem.tokenizeAny(u8, loaded.overrides, "\r\n");
+        while (lines.next()) |line| {
+            var f = std.mem.splitScalar(u8, line, '\t');
+            const lo = std.fmt.parseFloat(f64, f.next() orelse continue) catch continue;
+            const hi = std.fmt.parseFloat(f64, f.next() orelse continue) catch continue;
+            const n = f.next() orelse continue;
+            const v = f.rest();
+            // A change that this version does not know is left out.
+            app.setOverride(lo, hi, n, v) catch |e| if (e == error.OutOfMemory) return error.OutOfMemory;
+        }
+    }
+
+    /// A 3MF file of the plate and its overrides. The bytes are valid
+    /// until the next call or until the app goes.
+    pub fn write3mf(app: *App) (Allocator.Error || error{WriteFailed} || error{NoModel})![]const u8 {
+        if (app.plate.count() == 0) return error.NoModel;
+        var text: std.Io.Writer.Allocating = .init(app.gpa);
+        defer text.deinit();
+        for (app.overrides.items) |o| try text.writer.print("{d}\t{d}\t{s}\t{s}\n", .{ o.z_min, o.z_max, o.name, o.value });
+        var out: std.Io.Writer.Allocating = .init(app.gpa);
+        errdefer out.deinit();
+        try zs.threemf.write(app.gpa, &out.writer, &app.plate, text.written());
+        app.gpa.free(app.file_bytes);
+        app.file_bytes = try out.toOwnedSlice();
+        return app.file_bytes;
     }
 
     fn addMesh(app: *App, name: []const u8, m: zs.Mesh) zs.mesh.Error!usize {
@@ -377,6 +444,7 @@ pub const App = struct {
         }
         app.slice_settings = app.settings;
         app.gpa.free(app.slice_overrides);
+        app.gpa.free(app.file_bytes);
         app.slice_overrides = app.gpa.dupe(zs.settings.Override, app.overrides.items) catch &.{};
         app.cancel_flag.store(false, .release);
         app.state.store(.slicing, .release);
@@ -1547,6 +1615,35 @@ test "an override of the whole part changes the slice, and not the global settin
     try testing.expectEqual(@as(f64, 0.2), app.settings.project.layer_height);
 }
 
+
+test "app: a 3MF file keeps the parts, the places, and the changes" {
+    const gpa = std.testing.allocator;
+    const app = try App.create(gpa, null, null);
+    defer app.destroy();
+    var b: zs.mesh.Builder = .init(gpa);
+    try zs.mesh.shapes.addBox(&b, 0, 0, 0, 20, 10, 5);
+    var m = try b.finish();
+    defer m.deinit(gpa);
+    var stl: std.Io.Writer.Allocating = .init(gpa);
+    defer stl.deinit();
+    try m.writeStl(&stl.writer);
+    try app.loadStl("a.stl", stl.written());
+    _ = try app.addStl("b.stl", stl.written());
+    try app.movePart(1, 60, 50);
+    try app.setOverride(-zs.settings.part_z, zs.settings.part_z, "project.infill_density", "0.35");
+    const bytes = try gpa.dupe(u8, try app.write3mf());
+    defer gpa.free(bytes);
+
+    const back = try App.create(gpa, null, null);
+    defer back.destroy();
+    try back.loadStl("plate.3mf", bytes);
+    try std.testing.expectEqual(@as(usize, 2), back.plate.count());
+    const p = back.plate.parts.items[1];
+    try std.testing.expectApproxEqAbs(@as(f64, 60), p.x, 1e-3);
+    try std.testing.expectApproxEqAbs(@as(f64, 50), p.y, 1e-3);
+    try std.testing.expectEqual(@as(usize, 1), back.overrides.items.len);
+    try std.testing.expectEqualStrings("0.35", back.overrides.items[0].value);
+}
 
 test "a plate of two parts slices as one print" {
     const gpa = testing.allocator;

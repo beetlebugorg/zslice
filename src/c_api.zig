@@ -41,7 +41,8 @@ pub const Status = enum(c_int) {
 fn status(e: anyerror) c_int {
     const s: Status = switch (e) {
         error.OutOfMemory => .out_of_memory,
-        error.InvalidStl, error.InvalidMesh => .invalid_mesh,
+        error.InvalidStl, error.InvalidMesh, error.NotThreeMf, error.Corrupt => .invalid_mesh,
+        error.Unsupported => .not_supported,
         error.EmptyMesh => .empty_mesh,
         error.UnknownSetting => .unknown_setting,
         error.InvalidValue => .invalid_value,
@@ -394,6 +395,16 @@ export fn zs_app_stats(a: ?*const App, out: ?*Stats) c_int {
 
 /// The G-code of the last slice. The bytes stay valid until the next
 /// slice, the next model, or zs_app_free.
+export fn zs_app_write_3mf(a: ?*App, out: ?*?[*]const u8, out_len: ?*usize) c_int {
+    const app = a orelse return @intFromEnum(Status.invalid_argument);
+    const o = out orelse return @intFromEnum(Status.invalid_argument);
+    const l = out_len orelse return @intFromEnum(Status.invalid_argument);
+    const b = app.write3mf() catch |e| return status(e);
+    o.* = b.ptr;
+    l.* = b.len;
+    return ok;
+}
+
 export fn zs_app_gcode(a: ?*const App, out: ?*?[*]const u8, out_len: ?*usize) c_int {
     const app = a orelse return @intFromEnum(Status.invalid_argument);
     const o = out orelse return @intFromEnum(Status.invalid_argument);

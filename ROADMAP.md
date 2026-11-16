@@ -63,7 +63,8 @@ The goal is the features that people use in PrusaSlicer and Cura. zslice designs
 
 ### Models and plate
 - [ ] More than one object on the plate, with automatic arrangement
-- [ ] 3MF, OBJ, and STEP load; 3MF project save
+- [x] 3MF load (parts at their places, components, units, zip64; items that overlap stay one part) and 3MF plate save (Ctrl+S)
+- [ ] OBJ and STEP load
 - [ ] Rotate, scale, mirror, place on face, cut
 - [ ] Modifiers (per-region settings), and settings for each object
 - [ ] Mesh repair
@@ -107,7 +108,8 @@ The goal is the features that people use in PrusaSlicer and Cura. zslice designs
 - [x] Machine origin: the G-code position of the front left bed corner (center origin printers, Cura machine_center_is_zero)
 - [x] Top and bottom skin patterns: lines, monotonic, concentric; the skin angle and its turn per layer
 - [x] Changes for the part (inline): for all its layers, or for some layers (overrides by z range); the Settings page has the defaults for all prints
-- [ ] 3MF: save the parts with their changes and overrides; with more than one STL, one new 3MF with all of them
+- [x] 3MF: save the parts with their changes and overrides; with more than one STL, one new 3MF with all of them
+- [ ] 3MF: changes for each part (now the changes are for the whole plate)
 - [x] Preferences window: printers (more than one, each with its machine settings), connections (printdeck, OctoPrint, Moonraker, USB serial), a connection test that reads the bed, the nozzle, and the filament of the printer, global app settings (theme, first view, threads)
 - [x] Send to the printer (upload, or upload and print), and the state of the printer in the status bar
 - [x] Seam mode "hidden" (the default): the most hidden point (inside corners over about 1 mm, the back, not over air; ties to the back, so the seams line up)

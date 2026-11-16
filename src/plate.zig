@@ -62,6 +62,26 @@ pub const Part = struct {
         p.height = zhi - zlo;
     }
 
+    /// The transform of the part from its file to the bed, as a 3MF
+    /// transform (a 4x3 matrix for row vectors): the turn around the turn
+    /// center, the move to the place, and the bottom to z = 0.
+    pub fn transform(p: *const Part) [12]f64 {
+        const c = p.turnCenter();
+        const b = p.mesh.bounds();
+        const a = std.math.degreesToRadians(p.rot);
+        const ca = @cos(a);
+        const sa = @sin(a);
+        // x' = ca (x - cx) - sa (y - cy) - shift x + x0, and the same for y.
+        return .{
+            ca,  sa, 0,
+            -sa, ca, 0,
+            0,   0,  1,
+            p.x - p.shift[0] - ca * c[0] + sa * c[1],
+            p.y - p.shift[1] - sa * c[0] - ca * c[1],
+            -b.min[2],
+        };
+    }
+
     /// The footprint box: x0, y0, x1, y1.
     pub fn footprint(p: *const Part) [4]f64 {
         return .{ p.x - p.half[0], p.y - p.half[1], p.x + p.half[0], p.y + p.half[1] };

@@ -175,6 +175,10 @@ Open adds each model to the plate (Ctrl+O, or drop files on the window). The fir
 
 "Clear the plate" in the menu removes all parts.
 
+## Save the plate
+
+"Save the plate as 3MF" in the menu (Ctrl+S) writes one 3MF file with all parts at their places, and the changes that you made for the parts and for some layers. The global settings (Settings) do not go in the file. Open the 3MF file to get the plate back. zslice also opens 3MF files from other slicers; parts that touch in the file (for example a sign and its text) stay one part.
+
 ## Watch the print
 
 In the app, press the play button under the 3D and 2D switch. The 3D view shows the print as it grows, line by line, at the speed in the list (1x is the real speed). The layer slider follows. Move the slider to stop.
