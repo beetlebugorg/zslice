@@ -55,6 +55,9 @@ char *zg_model_get(ZgModel *self, const char *key);
  * clears it. "selection-changed" follows each change. */
 void zg_model_select(ZgModel *self, gint64 path);
 gint64 zg_model_selected(ZgModel *self);
+/* TRUE if the user selected a line, and the last slice has no line of that
+ * kind at its place (the next slice can bring it back). */
+gboolean zg_model_selection_lost(ZgModel *self);
 /* With a selected line: TRUE fades all other lines (ghosts), so only the
  * selection is solid. FALSE (the default) keeps their colors. */
 /* Selects one segment of a line (segment k goes from point k to point

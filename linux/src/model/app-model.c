@@ -18,6 +18,8 @@
  */
 #include "app-model.h"
 
+#include <math.h>
+
 #include "../prefs/printers.h"
 
 #include <errno.h>
@@ -41,6 +43,7 @@ struct _ZgModel {
      * that a new slice can pick the path at the same place again. */
     gboolean anchored;
     size_t anchor_layer;
+    double anchor_z; /* the nozzle z of the selected line, mm */
     double anchor_x, anchor_y;
     int anchor_feature;
     guint32 focus;
@@ -165,6 +168,15 @@ static gboolean deliver(gpointer data) {
             model->slice_ms = (g_get_monotonic_time() - model->slice_start) / 1000.0;
         }
         if (p->event == ZS_EVENT_SLICED && model->anchored) {
+            /* The layer at the z of the selection: a new layer height
+             * changes the layer numbers. */
+            zs_toolpaths tz;
+            if (zs_app_toolpaths(model->core, &tz) == ZS_OK && tz.layer_count > 0) {
+                size_t best = 0;
+                for (size_t l = 1; l < tz.layer_count; l++)
+                    if (fabs(tz.layer_z[l] - model->anchor_z) < fabs(tz.layer_z[best] - model->anchor_z)) best = l;
+                model->anchor_layer = best;
+            }
             size_t path = zs_app_pick_layer(model->core, model->anchor_layer, model->anchor_x, model->anchor_y);
             /* The line moved (for example a new skirt distance): the
              * nearest line of the same kind on the same layer. */
@@ -177,7 +189,9 @@ static gboolean deliver(gpointer data) {
             /* The segment stays only on the same line. */
             if (next != model->selected) model->segment = -1;
             model->selected = next;
-            if (model->selected < 0) model->anchored = FALSE;
+            /* No line of that kind there now (for example no skin at
+             * this top thickness): the anchor stays, so the next slice
+             * can find the line again, and the inspector keeps its page. */
             g_signal_emit(model, signals[SIGNAL_SELECTION_CHANGED], 0, model->selected);
         }
         g_signal_emit(model, signals[SIGNAL_CORE_EVENT], 0, p->event, p->progress, p->status);
@@ -276,6 +290,7 @@ void zg_model_select(ZgModel *self, gint64 path) {
         while (layer < tp.layer_count && tp.layer_ends[layer] <= (uint32_t)path) layer++;
         self->anchored = TRUE;
         self->anchor_layer = layer;
+        self->anchor_z = layer < tp.layer_count ? tp.layer_z[layer] : 0;
         self->anchor_x = tp.points[2 * start];
         self->anchor_y = tp.points[2 * start + 1];
         self->anchor_feature = tp.path_features[path];
@@ -394,6 +409,10 @@ void zg_model_save_soon(ZgModel *self, int group) {
 
 double zg_model_slice_ms(ZgModel *self) {
     return self->slice_ms;
+}
+
+gboolean zg_model_selection_lost(ZgModel *self) {
+    return self->selected < 0 && self->anchored;
 }
 
 gint64 zg_model_selected(ZgModel *self) {

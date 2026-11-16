@@ -584,15 +584,18 @@ static void row_free(gpointer data) {
 /* A compact row shows its slider while the entry or the slider has the
  * focus. The check runs after the focus moves (in an idle), so a click
  * from the entry on the slider keeps the slider open. */
+static void show_why(GtkWidget *revealer, gboolean open);
+
 static gboolean update_reveal(gpointer data) {
     GtkWidget *revealer = data;
     GtkWidget *entry = g_object_get_data(G_OBJECT(revealer), "zg-entry");
-    GtkWidget *slider = gtk_revealer_get_child(GTK_REVEALER(revealer));
+    GtkWidget *slider = g_object_get_data(G_OBJECT(revealer), "zg-slider-w");
     GtkRoot *root = gtk_widget_get_root(revealer);
     GtkWidget *focus = root ? gtk_root_get_focus(root) : NULL;
-    gboolean open = focus && (focus == entry || focus == slider || gtk_widget_is_ancestor(focus, entry) ||
-                              gtk_widget_is_ancestor(focus, slider));
-    open = open || (gtk_widget_get_state_flags(slider) & GTK_STATE_FLAG_ACTIVE);
+    gboolean open = focus && (focus == entry || gtk_widget_is_ancestor(focus, entry) ||
+                              (slider && (focus == slider || gtk_widget_is_ancestor(focus, slider))));
+    open = open || (slider && (gtk_widget_get_state_flags(slider) & GTK_STATE_FLAG_ACTIVE));
+    if (open != gtk_revealer_get_reveal_child(GTK_REVEALER(revealer))) show_why(revealer, open);
     gtk_revealer_set_reveal_child(GTK_REVEALER(revealer), open);
     g_object_unref(revealer);
     return G_SOURCE_REMOVE;
@@ -607,6 +610,80 @@ static void watch_focus(GtkWidget *w, GtkWidget *revealer) {
     g_signal_connect(focus, "enter", G_CALLBACK(on_row_focus), revealer);
     g_signal_connect(focus, "leave", G_CALLBACK(on_row_focus), revealer);
     gtk_widget_add_controller(w, focus);
+}
+
+/* ---- what a focused setting does to the selected line ---- */
+
+static const char *why_titles[] = {"outer wall", "inner wall", "skin", "sparse infill", "ironing", "skirt or brim",
+                                   "support", "support interface"};
+
+/* A text for the setting of the editor: what it does to the selected line,
+ * with the numbers of that line. NULL with no selection. */
+static char *why_text(GtkWidget *editor) {
+    ZgModel *model = model_of(editor);
+    zs_app *core = zg_model_core(model);
+    gint64 path = zg_model_selected(model);
+    zs_inspect info;
+    if (path < 0 || zs_app_inspect(core, (size_t)path, &info) != ZS_OK) return NULL;
+    const char *key = key_of(editor);
+    zs_setting_effect e = {0};
+    zs_setting_get_effect(key, &e);
+    gboolean mine = info.feature >= 0 && info.feature < 8 && ((e.features >> info.feature) & 1) &&
+                    !(e.first_layer_only && info.layer > 0);
+    const char *kind = info.feature >= 0 && info.feature < 8 ? why_titles[info.feature] : "this";
+    GString *t = g_string_new(NULL);
+    double base = 0;
+    if (zs_app_ratio_speed(core, key, "1", &base) == ZS_OK) {
+        char *v = zg_model_get_for(model, key, TRUE);
+        double ratio = g_ascii_strtod(v, NULL);
+        g_free(v);
+        if (mine) {
+            g_string_append_printf(t, "This line: %.0f %% of %.0f mm/s = %.0f mm/s planned.", ratio * 100, base, info.planned_speed);
+            if (info.speed < info.planned_speed - 0.5)
+                g_string_append_printf(t, " It prints at %.0f mm/s: the layer is short, and it slows to cool.", info.speed);
+        } else {
+            g_string_append_printf(t, "Not this line: this %s line has its own speed (%.0f mm/s planned).", kind, info.planned_speed);
+        }
+    } else if (strcmp(key, "project.line_width") == 0 || strcmp(key, "project.first_layer_line_width") == 0) {
+        if (mine) g_string_append_printf(t, "This line: %.2f mm planned; the bead is %.2f mm wide.", info.line_width, info.bead_width);
+    } else if (strcmp(key, "project.layer_height") == 0 || strcmp(key, "project.first_layer_height") == 0) {
+        g_string_append_printf(t, "This layer: %.2f mm high, at z %.2f mm.", info.height, info.z);
+    } else if (strcmp(key, "filament.max_flow") == 0 || strcmp(key, "filament.flow_ratio") == 0) {
+        g_string_append_printf(t, "This line: %.1f mm³/s of plastic at %.0f mm/s.", info.flow, info.speed);
+    } else if (strcmp(key, "filament.min_layer_time") == 0 || strcmp(key, "filament.min_speed") == 0) {
+        if (info.speed < info.planned_speed - 0.5) g_string_append_printf(t, "This layer is short: the line slows from %.0f to %.0f mm/s so that the layer cools.", info.planned_speed, info.speed);
+        else g_string_append(t, "This layer is long enough: no slow-down.");
+    }
+    if (t->len == 0) {
+        if (mine) {
+            g_string_append_printf(t, "It changes this line, and all %s lines. The view shows the lines that it changes.", kind);
+        } else if (e.features == 0) {
+            g_string_append(t, e.note && e.note[0] ? e.note : "It changes no line in the view.");
+        } else {
+            g_string_append_printf(t, "It does not change this %s line. The view shows the lines that it changes.", kind);
+        }
+    }
+    return g_string_free(t, FALSE);
+}
+
+/* A row opens or closes: the text under it, and the lines of the setting
+ * in the views (the selection stays yellow). */
+static void show_why(GtkWidget *revealer, gboolean open) {
+    GtkWidget *editor = g_object_get_data(G_OBJECT(revealer), "zg-entry");
+    GtkWidget *why = g_object_get_data(G_OBJECT(revealer), "zg-why");
+    if (!editor || !why) return;
+    ZgModel *model = model_of(editor);
+    if (!open) {
+        zg_model_set_focus(model, 0, FALSE);
+        return;
+    }
+    char *text = why_text(editor);
+    gtk_label_set_text(GTK_LABEL(why), text ? text : "");
+    gtk_widget_set_visible(why, text != NULL);
+    g_free(text);
+    zs_setting_effect e = {0};
+    zs_setting_get_effect(key_of(editor), &e);
+    zg_model_set_focus(model, e.features, e.first_layer_only);
 }
 
 /* The scope look of an inspector row: in a layer scope, a setting for the
@@ -725,15 +802,7 @@ static Row *add_row(GtkWidget *grid, int *row, ZgModel *model, const zs_setting_
         if (info->slider_max > info->slider_min) {
             GtkWidget *slider = make_slider(info, editor);
             if (compact) {
-                GtkWidget *revealer = gtk_revealer_new();
-                gtk_revealer_set_transition_type(GTK_REVEALER(revealer), GTK_REVEALER_TRANSITION_TYPE_SLIDE_DOWN);
-                gtk_revealer_set_transition_duration(GTK_REVEALER(revealer), 120);
-                gtk_revealer_set_child(GTK_REVEALER(revealer), slider);
-                g_object_set_data(G_OBJECT(revealer), "zg-entry", editor);
-                watch_focus(editor, revealer);
-                watch_focus(slider, revealer);
-                gtk_grid_attach(GTK_GRID(grid), revealer, 0, (*row)++, 3, 1);
-                r->widgets[3] = revealer;
+                g_object_set_data(G_OBJECT(editor), "zg-slider-w", slider);
             } else {
                 gtk_grid_attach(GTK_GRID(grid), slider, 0, (*row)++, 3, 1);
                 r->widgets[3] = slider;
@@ -742,6 +811,29 @@ static Row *add_row(GtkWidget *grid, int *row, ZgModel *model, const zs_setting_
     } else {
         gtk_widget_set_halign(editor, GTK_ALIGN_END);
         gtk_grid_attach(GTK_GRID(grid), editor, 1, (*row)++, 2, 1);
+    }
+    if (compact) {
+        /* Under the row while it has the focus: its slider, and what this
+         * setting does to the selected line. */
+        GtkWidget *slider = g_object_get_data(G_OBJECT(editor), "zg-slider-w");
+        GtkWidget *box = gtk_box_new(GTK_ORIENTATION_VERTICAL, 2);
+        if (slider) gtk_box_append(GTK_BOX(box), slider);
+        GtkWidget *why = gtk_label_new("");
+        gtk_label_set_wrap(GTK_LABEL(why), TRUE);
+        gtk_label_set_xalign(GTK_LABEL(why), 0);
+        gtk_widget_add_css_class(why, "zg-why");
+        gtk_box_append(GTK_BOX(box), why);
+        GtkWidget *revealer = gtk_revealer_new();
+        gtk_revealer_set_transition_type(GTK_REVEALER(revealer), GTK_REVEALER_TRANSITION_TYPE_SLIDE_DOWN);
+        gtk_revealer_set_transition_duration(GTK_REVEALER(revealer), 120);
+        gtk_revealer_set_child(GTK_REVEALER(revealer), box);
+        g_object_set_data(G_OBJECT(revealer), "zg-entry", editor);
+        g_object_set_data(G_OBJECT(revealer), "zg-slider-w", slider);
+        g_object_set_data(G_OBJECT(revealer), "zg-why", why);
+        watch_focus(editor, revealer);
+        if (slider) watch_focus(slider, revealer);
+        gtk_grid_attach(GTK_GRID(grid), revealer, 0, (*row)++, 3, 1);
+        r->widgets[3] = revealer;
     }
     return r;
 }
@@ -909,6 +1001,12 @@ static GtkWidget *wrapped_label(const char *text) {
     return l;
 }
 
+static gboolean focus_later(gpointer data) {
+    gtk_widget_grab_focus(data);
+    g_object_unref(data);
+    return G_SOURCE_REMOVE;
+}
+
 /* Builds the rows for a selection. */
 static GtkWidget *build_inspector(Inspector *ins, const zs_inspect *info) {
     GtkWidget *grid = new_grid();
@@ -991,6 +1089,14 @@ static GtkWidget *build_inspector(Inspector *ins, const zs_inspect *info) {
         }
         Row *r = add_row(sec_grid, &sec_row, ins->model, &s, ROW_COMPACT);
         g_ptr_array_add(ins->rows, r);
+        /* For development and screenshots: ZSLICE_INSPECT_FOCUS=<setting>
+         * focuses that row after the first selection. */
+        static gboolean focused;
+        const char *want = g_getenv("ZSLICE_INSPECT_FOCUS");
+        if (!focused && want && strcmp(want, s.name) == 0) {
+            focused = TRUE;
+            g_timeout_add(600, focus_later, g_object_ref(r->widgets[1]));
+        }
         if (sec_grid == grid) row = sec_row;
     }
     g_strfreev(names);
@@ -1035,7 +1141,16 @@ static void fill_inspector(Inspector *ins) {
 }
 
 static void on_selection(ZgModel *model, gint64 path, gpointer data) {
-    fill_inspector(data);
+    Inspector *ins = data;
+    /* The line is gone for this slice only (a value under a slider can
+     * remove it): keep the page, dimmed, so the slider stays under the
+     * pointer. */
+    if (zg_model_selection_lost(model) && ins->built && ins->signature && ins->signature[0]) {
+        gtk_widget_add_css_class(ins->slots, "zg-lost");
+        return;
+    }
+    gtk_widget_remove_css_class(ins->slots, "zg-lost");
+    fill_inspector(ins);
 }
 
 /* ---- the part page (Shift+click on a part) ---- */
