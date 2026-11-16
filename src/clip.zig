@@ -514,7 +514,9 @@ fn splitAndMerge(arena: Allocator, edges: []const InEdge, splits: []Split, sorte
     // split edges need a sort.
     const subs = try arena.alloc(Merged, edges.len + splits.len);
     var old_n: usize = 0;
-    const new_buf = if (sorted_input) try arena.alloc(Merged, edges.len + splits.len) else subs;
+    // An edge with s split points gives s + 1 pieces, so the split edges
+    // give at most 2 pieces for each split point.
+    const new_buf = if (sorted_input) try arena.alloc(Merged, 2 * splits.len) else subs;
     var new_n: usize = 0;
     var k: usize = 0;
     for (edges, 0..) |e, i| {

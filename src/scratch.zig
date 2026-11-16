@@ -7,8 +7,8 @@
 //!
 //! 1. `get` takes a free arena from the pool. The memory of the arena is
 //!    from the calls before, so its pages are already mapped.
-//! 2. `Scratch.release` empties the arena (it keeps the memory) and puts it
-//!    back.
+//! 2. `Scratch.release` empties the arena (it keeps up to 16 MB of its
+//!    memory) and puts it back.
 //! 3. `trim` frees the memory of all arenas that are in the pool. The engine
 //!    calls it at the end of a slice, so the memory goes back to the
 //!    operating system when no slice runs.
@@ -29,6 +29,11 @@ const Slot = struct {
     arena: ArenaAllocator = .init(std.heap.page_allocator),
 };
 
+/// An arena keeps at most this much memory between calls. Most calls need
+/// less. A call on a very large outline needs more, and gives the rest
+/// back, so that each thread does not keep the memory of its largest call.
+const retain_limit = 16 << 20;
+
 /// More slots than threads times the depth of nested calls.
 const slot_count = 128;
 var slots: [slot_count]Slot = @splat(.{});
@@ -45,7 +50,7 @@ pub const Scratch = struct {
     /// arena is not valid after this call.
     pub fn release(self: *Scratch) void {
         if (self.slot) |s| {
-            _ = s.arena.reset(.retain_capacity);
+            _ = s.arena.reset(.{ .retain_with_limit = retain_limit });
             s.busy.store(false, .release);
         } else {
             self.own.deinit();
