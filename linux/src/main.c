@@ -37,6 +37,10 @@ static const char *ZG_CSS =
     "entry.zg-compact { min-height: 26px; padding-top: 0; padding-bottom: 0; }"
     ".zg-insp-title { font-size: 1.1em; }"
     "label.zg-overridden { color: @accent_color; font-weight: bold; }"
+    /* The navigation bar of the settings browser. */
+    ".zg-nav { padding: 2px 6px; }"
+    "button.zg-crumb { padding: 2px 6px; min-height: 24px; font-weight: normal; }"
+    "button.zg-crumb-here { font-weight: bold; }"
     "progressbar.zg-thin trough, progressbar.zg-thin progress { min-height: 3px; }"
     "button.zg-reset { min-height: 20px; min-width: 20px; padding: 0; }"
     /* The controls that float over the preview. */

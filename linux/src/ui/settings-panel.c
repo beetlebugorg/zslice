@@ -1058,6 +1058,13 @@ typedef struct {
     gboolean focus_first;
     guint scroll_tick;
     int scroll_frames;   /* frames since the scroll started */
+    /* The navigation bar: the column in front (0 sections, 1 settings,
+     * 2 the setting), a Back button, and the path. */
+    int column;
+    GtkWidget *back;
+    GtkWidget *crumbs;
+    const char *group;   /* the selected section */
+    const char *section;
 } Browser;
 
 enum { COL1_WIDTH = 165, COL2_WIDTH = 235, COL3_WIDTH = 300 };
@@ -1102,11 +1109,27 @@ static char *value_with_unit(const zs_setting_info *info, const char *value) {
     return text;
 }
 
-/* Animates the columns to their right end, so the new column shows. */
+/* The scroll that shows column c: all of it, at the right edge for a step
+ * forward (the column before it stays in view, as far as it fits), and at
+ * the left edge for a step back. */
+static double column_goal(Browser *b, GtkAdjustment *adj) {
+    double page = gtk_adjustment_get_page_size(adj);
+    double max = gtk_adjustment_get_upper(adj) - page;
+    double left[3] = {0, COL1_WIDTH + 1, COL1_WIDTH + COL2_WIDTH + 2};
+    double right[3] = {COL1_WIDTH, COL1_WIDTH + COL2_WIDTH + 1, gtk_adjustment_get_upper(adj)};
+    int c = b->column;
+    double now = gtk_adjustment_get_value(adj);
+    double goal = now;
+    if (right[c] > now + page) goal = right[c] - page;
+    if (left[c] < goal) goal = left[c];
+    return CLAMP(goal, 0, MAX(max, 0));
+}
+
+/* Animates the columns to show the column in front. */
 static gboolean on_scroll_tick(GtkWidget *w, GdkFrameClock *clock, gpointer data) {
     Browser *b = data;
     GtkAdjustment *adj = gtk_scrolled_window_get_hadjustment(GTK_SCROLLED_WINDOW(b->hscroll));
-    double goal = gtk_adjustment_get_upper(adj) - gtk_adjustment_get_page_size(adj);
+    double goal = column_goal(b, adj);
     double now = gtk_adjustment_get_value(adj);
     /* The width of new content is known only after a layout: wait a few
      * frames before the scroll can end. */
@@ -1120,9 +1143,62 @@ static gboolean on_scroll_tick(GtkWidget *w, GdkFrameClock *clock, gpointer data
     return G_SOURCE_CONTINUE;
 }
 
-static void scroll_to_end(Browser *b) {
+static void update_crumbs(Browser *b);
+
+static void show_column(Browser *b, int c) {
+    b->column = CLAMP(c, 0, 2);
     b->scroll_frames = 0;
     if (!b->scroll_tick) b->scroll_tick = gtk_widget_add_tick_callback(b->hscroll, on_scroll_tick, b, NULL);
+    update_crumbs(b);
+}
+
+static void scroll_to_end(Browser *b) {
+    show_column(b, 2);
+}
+
+static void on_back(GtkButton *button, gpointer data) {
+    Browser *b = data;
+    show_column(b, b->column - 1);
+}
+
+static void on_crumb(GtkButton *button, gpointer data) {
+    Browser *b = data;
+    show_column(b, GPOINTER_TO_INT(g_object_get_data(G_OBJECT(button), "zg-column")));
+}
+
+static void add_crumb(Browser *b, const char *text, int column) {
+    if (gtk_widget_get_first_child(b->crumbs)) {
+        GtkWidget *sep = gtk_label_new("›");
+        gtk_widget_add_css_class(sep, "dim-label");
+        gtk_box_append(GTK_BOX(b->crumbs), sep);
+    }
+    GtkWidget *crumb = gtk_button_new_with_label(text);
+    gtk_widget_add_css_class(crumb, "flat");
+    gtk_widget_add_css_class(crumb, "zg-crumb");
+    GtkWidget *label = gtk_button_get_child(GTK_BUTTON(crumb));
+    if (GTK_IS_LABEL(label)) gtk_label_set_ellipsize(GTK_LABEL(label), PANGO_ELLIPSIZE_END);
+    g_object_set_data(G_OBJECT(crumb), "zg-column", GINT_TO_POINTER(column));
+    if (column == b->column) gtk_widget_add_css_class(crumb, "zg-crumb-here");
+    g_signal_connect(crumb, "clicked", G_CALLBACK(on_crumb), b);
+    gtk_box_append(GTK_BOX(b->crumbs), crumb);
+}
+
+/* The path: Settings, the section (with its group), and the setting. */
+static void update_crumbs(Browser *b) {
+    if (!b->crumbs) return;
+    GtkWidget *child;
+    while ((child = gtk_widget_get_first_child(b->crumbs))) gtk_box_remove(GTK_BOX(b->crumbs), child);
+    add_crumb(b, "Settings", 0);
+    if (b->section) {
+        char *text = g_strdup_printf("%s · %s", group_title(b->group), b->section[0] ? b->section : "General");
+        add_crumb(b, text, 1);
+        g_free(text);
+    } else if (gtk_editable_get_text(GTK_EDITABLE(b->search))[0]) {
+        add_crumb(b, "Search", 1);
+    }
+    zs_setting_info info;
+    if (b->key && find_setting(b->key, &info)) add_crumb(b, info.label, 2);
+    gtk_widget_set_sensitive(b->back, b->column > 0);
 }
 
 /* Sends the focus to the previews, only while the Settings page shows. */
@@ -1425,7 +1501,12 @@ static void on_section_selected(GtkListBox *box, GtkListBoxRow *row, gpointer da
     }
     const char *group = g_object_get_data(G_OBJECT(row), "zg-group");
     const char *section = g_object_get_data(G_OBJECT(row), "zg-section");
+    b->group = group;
+    b->section = section;
     fill_settings(b, group, section, NULL);
+    /* A new section: its settings come to the front. */
+    if (b->crumbs && b->column < 1) show_column(b, 1);
+    else update_crumbs(b);
     /* A new section: its lines show, until a setting of it is picked. */
     zs_setting_info info;
     if (!b->key || !find_setting(b->key, &info) || g_strcmp0(info.group, group) != 0 || g_strcmp0(info.section, section) != 0) {
@@ -1441,7 +1522,9 @@ static void on_search(GtkSearchEntry *entry, gpointer data) {
     const char *text = gtk_editable_get_text(GTK_EDITABLE(entry));
     if (text[0]) {
         gtk_list_box_unselect_all(GTK_LIST_BOX(b->sections));
+        b->section = NULL;
         fill_settings(b, NULL, NULL, text);
+        show_column(b, 1);
     } else {
         GtkListBoxRow *first = gtk_list_box_get_row_at_index(GTK_LIST_BOX(b->sections), 0);
         if (first) gtk_list_box_select_row(GTK_LIST_BOX(b->sections), first);
@@ -1608,8 +1691,29 @@ static GtkWidget *make_browser(ZgModel *model, GtkWidget *stack) {
     gtk_scrolled_window_set_policy(GTK_SCROLLED_WINDOW(b->hscroll), GTK_POLICY_AUTOMATIC, GTK_POLICY_NEVER);
     gtk_scrolled_window_set_child(GTK_SCROLLED_WINDOW(b->hscroll), cols);
     gtk_widget_set_vexpand(b->hscroll, TRUE);
-    b->page = b->hscroll;
-    g_object_set_data_full(G_OBJECT(b->hscroll), "zg-browser", b, browser_free);
+
+    /* The navigation bar: Back, and the path. In a narrow panel only one
+     * or two columns show; the bar says where you are and goes back. */
+    b->back = gtk_button_new_from_icon_name("go-previous-symbolic");
+    gtk_widget_add_css_class(b->back, "flat");
+    gtk_widget_set_tooltip_text(b->back, "Back to the column before");
+    g_signal_connect(b->back, "clicked", G_CALLBACK(on_back), b);
+    b->crumbs = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 2);
+    gtk_widget_set_hexpand(b->crumbs, TRUE);
+    GtkWidget *crumb_scroll = gtk_scrolled_window_new();
+    gtk_scrolled_window_set_policy(GTK_SCROLLED_WINDOW(crumb_scroll), GTK_POLICY_EXTERNAL, GTK_POLICY_NEVER);
+    gtk_scrolled_window_set_child(GTK_SCROLLED_WINDOW(crumb_scroll), b->crumbs);
+    gtk_widget_set_hexpand(crumb_scroll, TRUE);
+    GtkWidget *nav = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 4);
+    gtk_widget_add_css_class(nav, "zg-nav");
+    gtk_box_append(GTK_BOX(nav), b->back);
+    gtk_box_append(GTK_BOX(nav), crumb_scroll);
+    GtkWidget *page = gtk_box_new(GTK_ORIENTATION_VERTICAL, 0);
+    gtk_box_append(GTK_BOX(page), nav);
+    gtk_box_append(GTK_BOX(page), gtk_separator_new(GTK_ORIENTATION_HORIZONTAL));
+    gtk_box_append(GTK_BOX(page), b->hscroll);
+    b->page = page;
+    g_object_set_data_full(G_OBJECT(page), "zg-browser", b, browser_free);
 
     show_detail(b, NULL);
     GtkListBoxRow *first = gtk_list_box_get_row_at_index(GTK_LIST_BOX(b->sections), 0);
@@ -1622,9 +1726,10 @@ static GtkWidget *make_browser(ZgModel *model, GtkWidget *stack) {
     if (start) {
         select_setting(b, start);
         scroll_to_end(b);
-        g_object_set_data(G_OBJECT(b->hscroll), "zg-open", GINT_TO_POINTER(1));
+        g_object_set_data(G_OBJECT(b->page), "zg-open", GINT_TO_POINTER(1));
     }
-    return b->hscroll;
+    update_crumbs(b);
+    return b->page;
 }
 
 GtkWidget *zg_settings_panel_new(ZgModel *model) {

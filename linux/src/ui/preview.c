@@ -394,6 +394,20 @@ static void preview_free(gpointer data) {
     g_free(p);
 }
 
+static void on_view_toggle(GtkToggleButton *b, gpointer data) {
+    if (gtk_toggle_button_get_active(b)) gtk_stack_set_visible_child_name(GTK_STACK(data), g_object_get_data(G_OBJECT(b), "zg-page"));
+}
+
+/* The replay also turns to 3D: the buttons follow the stack. */
+static void on_stack_page(GObject *stack, GParamSpec *pspec, gpointer data) {
+    GtkToggleButton *b3d = data;
+    gboolean is3d = strcmp(gtk_stack_get_visible_child_name(GTK_STACK(stack)), "3d") == 0;
+    if (gtk_toggle_button_get_active(b3d) != is3d) {
+        GtkToggleButton *other = is3d ? b3d : GTK_TOGGLE_BUTTON(gtk_widget_get_prev_sibling(GTK_WIDGET(b3d)));
+        gtk_toggle_button_set_active(other, TRUE);
+    }
+}
+
 GtkWidget *zg_preview_new(ZgModel *model) {
     Preview *p = g_new0(Preview, 1);
     p->model = g_object_ref(model);
@@ -446,8 +460,20 @@ GtkWidget *zg_preview_new(ZgModel *model) {
     char *view = env ? g_strdup(env) : zg_pref_get("view", "3d");
     if (strcmp(view, "3d") == 0) gtk_stack_set_visible_child_name(GTK_STACK(stack), "3d");
     g_free(view);
-    GtkWidget *switcher = gtk_stack_switcher_new();
-    gtk_stack_switcher_set_stack(GTK_STACK_SWITCHER(switcher), GTK_STACK(stack));
+    /* 2D and 3D: two small linked buttons. */
+    GtkWidget *b2d = gtk_toggle_button_new_with_label("2D");
+    GtkWidget *b3d = gtk_toggle_button_new_with_label("3D");
+    gtk_toggle_button_set_group(GTK_TOGGLE_BUTTON(b3d), GTK_TOGGLE_BUTTON(b2d));
+    gtk_toggle_button_set_active(GTK_TOGGLE_BUTTON(strcmp(gtk_stack_get_visible_child_name(GTK_STACK(stack)), "3d") == 0 ? b3d : b2d), TRUE);
+    g_object_set_data(G_OBJECT(b2d), "zg-page", "2d");
+    g_object_set_data(G_OBJECT(b3d), "zg-page", "3d");
+    g_signal_connect(b2d, "toggled", G_CALLBACK(on_view_toggle), stack);
+    g_signal_connect(b3d, "toggled", G_CALLBACK(on_view_toggle), stack);
+    g_signal_connect(stack, "notify::visible-child", G_CALLBACK(on_stack_page), b3d);
+    GtkWidget *switcher = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 0);
+    gtk_widget_add_css_class(switcher, "linked");
+    gtk_box_append(GTK_BOX(switcher), b2d);
+    gtk_box_append(GTK_BOX(switcher), b3d);
     gtk_widget_set_tooltip_text(switcher, "2D: one layer. 3D: the layers up to the slider. In 3D: left drag to orbit, middle drag to pan, right drag to rotate freely, scroll to zoom, double-click to reset.");
 
     /* The controls float over the view, so the view has all the room. The

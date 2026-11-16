@@ -393,9 +393,12 @@ static void update_printer_ui(Window *w) {
     gtk_widget_set_visible(w->send_button, linked);
     gtk_widget_set_visible(w->send_menu, linked);
     if (linked) {
-        char *label = g_strdup_printf(pr->kind == ZG_LINK_USB ? "Print on %s" : "Send to %s", pr->name);
-        gtk_button_set_label(GTK_BUTTON(w->send_button), label);
-        g_free(label);
+        /* A short label, so the window can be narrow; the printer is in
+         * the menu at the left, and in the tooltip. */
+        gtk_button_set_label(GTK_BUTTON(w->send_button), pr->kind == ZG_LINK_USB ? "Print" : "Send");
+        char *tip = g_strdup_printf(pr->kind == ZG_LINK_USB ? "Print on %s over USB" : "Send the G-code to %s", pr->name);
+        gtk_widget_set_tooltip_text(w->send_button, tip);
+        g_free(tip);
     }
     /* The main button: send if the printer has a connection, else export. */
     if (linked) gtk_widget_remove_css_class(w->export_button, "suggested-action");
@@ -484,7 +487,7 @@ GtkWindow *zg_window_new(GtkApplication *app, ZgModel *model) {
     g_signal_connect(open, "clicked", G_CALLBACK(on_open_clicked), w->window);
     gtk_header_bar_pack_start(GTK_HEADER_BAR(header), open);
 
-    w->export_button = gtk_button_new_with_label("Export G-code");
+    w->export_button = gtk_button_new_with_label("Export");
     gtk_widget_add_css_class(w->export_button, "suggested-action");
     gtk_widget_set_tooltip_text(w->export_button, "Save the G-code (Ctrl+E)");
     g_signal_connect(w->export_button, "clicked", G_CALLBACK(on_export_clicked), w->window);
