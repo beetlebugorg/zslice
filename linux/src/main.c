@@ -23,8 +23,8 @@ static const char *ZG_CSS =
     ".zg-side { padding: 8px 8px 8px 4px; }"
     "entry.error { color: @error_color; }"
     /* The inspector: the speed summary, and old numbers while a slice runs. */
-    ".zg-stat { padding: 6px 4px; border-radius: 8px; background: alpha(@theme_fg_color, 0.06); }"
-    ".zg-stat-value { font-weight: bold; font-size: 1.15em; font-feature-settings: 'tnum'; }"
+    ".zg-stat { padding: 3px 4px; border-radius: 6px; background: alpha(@theme_fg_color, 0.05); }"
+    ".zg-stat-value { font-weight: bold; font-feature-settings: 'tnum'; }"
     ".zg-stat-value.warning { color: @warning_color; }"
     ".zg-stat-caption { font-size: 0.8em; opacity: 0.65; }"
     ".zg-note { font-size: 0.85em; color: @warning_color; transition: opacity 150ms; }"
@@ -32,6 +32,9 @@ static const char *ZG_CSS =
     ".zg-unit { font-size: 0.9em; min-width: 3.2em; }"
     ".zg-slider { margin-top: -4px; margin-bottom: 2px; }"
     "entry.zg-unusual { color: @warning_color; }"
+    /* The compact rows of the inspector. */
+    "entry.zg-compact { min-height: 26px; padding-top: 0; padding-bottom: 0; }"
+    ".zg-insp-title { font-size: 1.1em; }"
     /* The controls that float over the preview. */
     ".zg-float { background: alpha(@theme_bg_color, 0.88); border-radius: 10px; padding: 4px;"
     "  box-shadow: 0 1px 4px alpha(black, 0.25); }"

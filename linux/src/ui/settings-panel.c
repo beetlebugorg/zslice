@@ -84,7 +84,13 @@ static void format_number(char *buf, size_t cap, double v) {
 
 /* The text of the core value as the editor shows it (a ratio times 100).
  * Free with g_free. */
+/* A line width of 0 means "from the nozzle": the editors show "auto". */
+static gboolean is_auto(GtkWidget *editor) {
+    return g_str_has_suffix(key_of(editor), "line_width");
+}
+
 static char *to_display(GtkWidget *editor, const char *core_value) {
+    if (is_auto(editor) && parses_as_number(core_value) && g_ascii_strtod(core_value, NULL) == 0) return g_strdup("auto");
     if (!is_percent(editor) || !parses_as_number(core_value)) return g_strdup(core_value);
     char buf[G_ASCII_DTOSTR_BUF_SIZE];
     format_number(buf, sizeof buf, g_ascii_strtod(core_value, NULL) * 100);
@@ -93,6 +99,7 @@ static char *to_display(GtkWidget *editor, const char *core_value) {
 
 /* The core value of the text in an editor. Free with g_free. */
 static char *to_core(GtkWidget *editor, const char *text) {
+    if (is_auto(editor) && g_ascii_strcasecmp(text, "auto") == 0) return g_strdup("0");
     if (!is_percent(editor) || !parses_as_number(text)) return g_strdup(text);
     char buf[G_ASCII_DTOSTR_BUF_SIZE];
     g_ascii_formatd(buf, sizeof buf, "%.10g", g_ascii_strtod(text, NULL) / 100);
@@ -490,7 +497,8 @@ static GtkWidget *make_editor(ZgModel *model, const zs_setting_info *info) {
         char *shown = to_display(editor, value);
         gtk_editable_set_text(GTK_EDITABLE(editor), shown);
         g_free(shown);
-        gtk_editable_set_width_chars(GTK_EDITABLE(editor), info->kind == ZS_SETTING_TEXT ? 14 : 7);
+        gtk_editable_set_width_chars(GTK_EDITABLE(editor), info->kind == ZS_SETTING_TEXT ? 14 : 6);
+        if (info->kind != ZS_SETTING_TEXT) gtk_editable_set_max_width_chars(GTK_EDITABLE(editor), 6);
         if (info->kind != ZS_SETTING_TEXT) {
             gtk_entry_set_input_purpose(GTK_ENTRY(editor), GTK_INPUT_PURPOSE_NUMBER);
             gtk_entry_set_alignment(GTK_ENTRY(editor), 1.0);
@@ -524,20 +532,71 @@ static GtkWidget *new_grid(void) {
 
 /* Adds the label, the editor, and the unit of one setting to a grid. The
  * unit has its own column, so the editors line up. */
-static void add_row(GtkWidget *grid, int *row, ZgModel *model, const zs_setting_info *info, gboolean with_group) {
-    char *label_text = g_markup_escape_text(info->label, -1);
-    char *text = with_group ? g_strdup_printf("%s <span alpha=\"55%%\" size=\"small\">%s</span>", label_text, info->group)
-                            : g_strdup(label_text);
-    g_free(label_text);
-    GtkWidget *label = gtk_label_new(NULL);
-    gtk_label_set_markup(GTK_LABEL(label), text);
-    g_free(text);
+/* The flags of add_row. ROW_COMPACT: one line for each setting (the
+ * label does not wrap, the group is in the tooltip), and the slider opens
+ * under the row only while the row has the focus. */
+enum { ROW_COMPACT = 1 };
+
+/* The widgets of one row, for a filter (see Inspector). */
+typedef struct {
+    GtkWidget *widgets[4];
+    char *needle; /* the label in lower case */
+} Row;
+
+static void row_free(gpointer data) {
+    Row *r = data;
+    g_free(r->needle);
+    g_free(r);
+}
+
+/* A compact row shows its slider while the entry or the slider has the
+ * focus. The check runs after the focus moves (in an idle), so a click
+ * from the entry on the slider keeps the slider open. */
+static gboolean update_reveal(gpointer data) {
+    GtkWidget *revealer = data;
+    GtkWidget *entry = g_object_get_data(G_OBJECT(revealer), "zg-entry");
+    GtkWidget *slider = gtk_revealer_get_child(GTK_REVEALER(revealer));
+    GtkRoot *root = gtk_widget_get_root(revealer);
+    GtkWidget *focus = root ? gtk_root_get_focus(root) : NULL;
+    gboolean open = focus && (focus == entry || focus == slider || gtk_widget_is_ancestor(focus, entry) ||
+                              gtk_widget_is_ancestor(focus, slider));
+    open = open || (gtk_widget_get_state_flags(slider) & GTK_STATE_FLAG_ACTIVE);
+    gtk_revealer_set_reveal_child(GTK_REVEALER(revealer), open);
+    g_object_unref(revealer);
+    return G_SOURCE_REMOVE;
+}
+
+static void on_row_focus(GtkEventControllerFocus *ctrl, gpointer data) {
+    g_idle_add(update_reveal, g_object_ref(data));
+}
+
+static void watch_focus(GtkWidget *w, GtkWidget *revealer) {
+    GtkEventController *focus = gtk_event_controller_focus_new();
+    g_signal_connect(focus, "enter", G_CALLBACK(on_row_focus), revealer);
+    g_signal_connect(focus, "leave", G_CALLBACK(on_row_focus), revealer);
+    gtk_widget_add_controller(w, focus);
+}
+
+static Row *add_row(GtkWidget *grid, int *row, ZgModel *model, const zs_setting_info *info, int flags) {
+    gboolean compact = flags & ROW_COMPACT;
+    GtkWidget *label = gtk_label_new(info->label);
     gtk_widget_set_halign(label, GTK_ALIGN_START);
     gtk_widget_set_hexpand(label, TRUE);
     gtk_label_set_xalign(GTK_LABEL(label), 0);
-    gtk_label_set_wrap(GTK_LABEL(label), TRUE);
-    gtk_widget_set_tooltip_text(label, info->doc);
+    if (compact) {
+        gtk_label_set_ellipsize(GTK_LABEL(label), PANGO_ELLIPSIZE_END);
+        char *tip = g_strdup_printf("%s (%s setting)\n\n%s", info->label, info->group, info->doc);
+        gtk_widget_set_tooltip_text(label, tip);
+        g_free(tip);
+    } else {
+        gtk_label_set_wrap(GTK_LABEL(label), TRUE);
+        gtk_widget_set_tooltip_text(label, info->doc);
+    }
+    Row *r = g_new0(Row, 1);
+    r->needle = g_utf8_strdown(info->label, -1);
+    r->widgets[0] = label;
     GtkWidget *editor = make_editor(model, info);
+    if (compact) gtk_widget_add_css_class(editor, "zg-compact");
     gboolean number = info->kind == ZS_SETTING_NUMBER || info->kind == ZS_SETTING_INTEGER;
     if (number) add_scrub(label, editor);
     if (info->kind == ZS_SETTING_TEXT && info->multiline) {
@@ -547,9 +606,11 @@ static void add_row(GtkWidget *grid, int *row, ZgModel *model, const zs_setting_
         gtk_widget_add_css_class(scroll, "frame");
         gtk_grid_attach(GTK_GRID(grid), label, 0, (*row)++, 3, 1);
         gtk_grid_attach(GTK_GRID(grid), scroll, 0, (*row)++, 3, 1);
-        return;
+        r->widgets[1] = scroll;
+        return r;
     }
     gtk_grid_attach(GTK_GRID(grid), label, 0, *row, 1, 1);
+    r->widgets[1] = editor;
     if (number) {
         gtk_grid_attach(GTK_GRID(grid), editor, 1, *row, 1, 1);
         GtkWidget *unit = gtk_label_new(info->unit);
@@ -557,13 +618,29 @@ static void add_row(GtkWidget *grid, int *row, ZgModel *model, const zs_setting_
         gtk_widget_add_css_class(unit, "zg-unit");
         gtk_label_set_xalign(GTK_LABEL(unit), 0);
         gtk_grid_attach(GTK_GRID(grid), unit, 2, (*row)++, 1, 1);
+        r->widgets[2] = unit;
         if (info->slider_max > info->slider_min) {
-            gtk_grid_attach(GTK_GRID(grid), make_slider(info, editor), 0, (*row)++, 3, 1);
+            GtkWidget *slider = make_slider(info, editor);
+            if (compact) {
+                GtkWidget *revealer = gtk_revealer_new();
+                gtk_revealer_set_transition_type(GTK_REVEALER(revealer), GTK_REVEALER_TRANSITION_TYPE_SLIDE_DOWN);
+                gtk_revealer_set_transition_duration(GTK_REVEALER(revealer), 120);
+                gtk_revealer_set_child(GTK_REVEALER(revealer), slider);
+                g_object_set_data(G_OBJECT(revealer), "zg-entry", editor);
+                watch_focus(editor, revealer);
+                watch_focus(slider, revealer);
+                gtk_grid_attach(GTK_GRID(grid), revealer, 0, (*row)++, 3, 1);
+                r->widgets[3] = revealer;
+            } else {
+                gtk_grid_attach(GTK_GRID(grid), slider, 0, (*row)++, 3, 1);
+                r->widgets[3] = slider;
+            }
         }
     } else {
         gtk_widget_set_halign(editor, GTK_ALIGN_END);
         gtk_grid_attach(GTK_GRID(grid), editor, 1, (*row)++, 2, 1);
     }
+    return r;
 }
 
 static GtkWidget *add_heading(GtkWidget *grid, int *row, const char *text) {
@@ -597,9 +674,51 @@ typedef struct {
     /* The parts that change in place. */
     GtkWidget *title;
     GtkWidget *stat_value[3];
-    GtkWidget *stat_note;
+    GtkWidget *stat_note;  /* a revealer */
     GtkWidget *explain;
+    /* The filter: the rows, and the section expanders. */
+    GtkWidget *filter;
+    GPtrArray *rows;
+    GPtrArray *sections;
 } Inspector;
+
+/* Which sections of the inspector are open, by title. Kept for the next
+ * selection. Speed and Shape start open. */
+static GHashTable *section_open;
+
+static gboolean section_is_open(const char *title) {
+    gpointer v;
+    if (section_open && g_hash_table_lookup_extended(section_open, title, NULL, &v)) return GPOINTER_TO_INT(v);
+    return strcmp(title, "Material") != 0;
+}
+
+static void on_section_expanded(GObject *expander, GParamSpec *pspec, gpointer data) {
+    Inspector *ins = data;
+    /* An open for a filter is not a choice of the user. */
+    if (ins->filter && gtk_editable_get_text(GTK_EDITABLE(ins->filter))[0]) return;
+    if (!section_open) section_open = g_hash_table_new_full(g_str_hash, g_str_equal, g_free, NULL);
+    g_hash_table_insert(section_open, g_strdup(g_object_get_data(expander, "zg-title")),
+                        GINT_TO_POINTER(gtk_expander_get_expanded(GTK_EXPANDER(expander))));
+}
+
+static void on_filter(GtkSearchEntry *entry, gpointer data) {
+    Inspector *ins = data;
+    char *needle = g_utf8_strdown(gtk_editable_get_text(GTK_EDITABLE(entry)), -1);
+    for (guint i = 0; i < ins->rows->len; i++) {
+        Row *r = g_ptr_array_index(ins->rows, i);
+        gboolean show = !needle[0] || strstr(r->needle, needle);
+        for (int k = 0; k < 4; k++) if (r->widgets[k]) gtk_widget_set_visible(r->widgets[k], show);
+    }
+    for (guint i = 0; i < ins->sections->len; i++) {
+        GtkWidget *ex = g_ptr_array_index(ins->sections, i);
+        if (needle[0]) {
+            gtk_expander_set_expanded(GTK_EXPANDER(ex), TRUE);
+        } else {
+            gtk_expander_set_expanded(GTK_EXPANDER(ex), section_is_open(g_object_get_data(G_OBJECT(ex), "zg-title")));
+        }
+    }
+    g_free(needle);
+}
 
 static gboolean find_setting(const char *name, zs_setting_info *out) {
     size_t n = zs_setting_count();
@@ -641,8 +760,7 @@ static void show_stats(Inspector *ins, const zs_inspect *info) {
     gboolean slowed = info->speed < info->planned_speed * 0.98;
     if (slowed) gtk_widget_add_css_class(ins->stat_value[1], "warning");
     else gtk_widget_remove_css_class(ins->stat_value[1], "warning");
-    /* The note keeps its space, so the rows under it do not move. */
-    gtk_widget_set_opacity(ins->stat_note, slowed ? 1 : 0);
+    gtk_revealer_set_reveal_child(GTK_REVEALER(ins->stat_note), slowed);
 }
 
 static void show_text(Inspector *ins, const zs_inspect *info) {
@@ -672,20 +790,58 @@ static GtkWidget *build_inspector(Inspector *ins, const zs_inspect *info) {
         return grid;
     }
     ins->title = add_heading(grid, &row, "");
-    gtk_widget_add_css_class(ins->title, "title-4");
+    gtk_widget_add_css_class(ins->title, "zg-insp-title");
     gtk_grid_attach(GTK_GRID(grid), make_stats(ins), 0, row++, 3, 1);
-    ins->stat_note = wrapped_label("This layer is short, so it prints slower to cool (filament minimum layer time).");
-    gtk_widget_add_css_class(ins->stat_note, "zg-note");
+    GtkWidget *note = wrapped_label("This layer is short, so it prints slower to cool (filament minimum layer time).");
+    gtk_widget_add_css_class(note, "zg-note");
+    ins->stat_note = gtk_revealer_new();
+    gtk_revealer_set_child(GTK_REVEALER(ins->stat_note), note);
     gtk_grid_attach(GTK_GRID(grid), ins->stat_note, 0, row++, 3, 1);
 
+    ins->filter = gtk_search_entry_new();
+    gtk_search_entry_set_placeholder_text(GTK_SEARCH_ENTRY(ins->filter), "Filter settings");
+    gtk_widget_set_margin_top(ins->filter, 6);
+    g_signal_connect(ins->filter, "search-changed", G_CALLBACK(on_filter), ins);
+    gtk_grid_attach(GTK_GRID(grid), ins->filter, 0, row++, 3, 1);
+    if (ins->rows) g_ptr_array_free(ins->rows, TRUE);
+    if (ins->sections) g_ptr_array_free(ins->sections, TRUE);
+    ins->rows = g_ptr_array_new_with_free_func(row_free);
+    ins->sections = g_ptr_array_new();
+
+    /* Each section is an expander with its own grid. */
+    GtkWidget *sec_grid = NULL;
+    int sec_row = 0;
     char **names = g_strsplit(info->settings, "\n", -1);
     for (int i = 0; names[i]; i++) {
         if (g_str_has_prefix(names[i], "# ")) {
-            add_heading(grid, &row, names[i] + 2);
+            const char *title = names[i] + 2;
+            GtkWidget *ex = gtk_expander_new(NULL);
+            GtkWidget *head = gtk_label_new(title);
+            gtk_widget_add_css_class(head, "heading");
+            gtk_expander_set_label_widget(GTK_EXPANDER(ex), head);
+            g_object_set_data_full(G_OBJECT(ex), "zg-title", g_strdup(title), g_free);
+            gtk_expander_set_expanded(GTK_EXPANDER(ex), section_is_open(title));
+            g_signal_connect(ex, "notify::expanded", G_CALLBACK(on_section_expanded), ins);
+            gtk_widget_set_margin_top(ex, 8);
+            sec_grid = gtk_grid_new();
+            gtk_grid_set_row_spacing(GTK_GRID(sec_grid), 3);
+            gtk_grid_set_column_spacing(GTK_GRID(sec_grid), 6);
+            gtk_widget_set_margin_top(sec_grid, 4);
+            sec_row = 0;
+            gtk_expander_set_child(GTK_EXPANDER(ex), sec_grid);
+            gtk_grid_attach(GTK_GRID(grid), ex, 0, row++, 3, 1);
+            g_ptr_array_add(ins->sections, ex);
             continue;
         }
         zs_setting_info s;
-        if (find_setting(names[i], &s)) add_row(grid, &row, ins->model, &s, TRUE);
+        if (!find_setting(names[i], &s)) continue;
+        if (!sec_grid) {
+            sec_grid = grid;
+            sec_row = row;
+        }
+        Row *r = add_row(sec_grid, &sec_row, ins->model, &s, ROW_COMPACT);
+        g_ptr_array_add(ins->rows, r);
+        if (sec_grid == grid) row = sec_row;
     }
     g_strfreev(names);
 
@@ -749,6 +905,8 @@ static void on_core_event(ZgModel *model, int event, double progress, int status
 static void inspector_free(gpointer data) {
     Inspector *ins = data;
     g_signal_handlers_disconnect_by_data(ins->model, ins);
+    if (ins->rows) g_ptr_array_free(ins->rows, TRUE);
+    if (ins->sections) g_ptr_array_free(ins->sections, TRUE);
     g_free(ins->signature);
     g_free(ins);
 }
@@ -798,6 +956,7 @@ static const char *group_title(const char *group) {
 
 /* The text of a value as the editors show it: a ratio as a percentage. */
 static char *display_value(const zs_setting_info *info, const char *value) {
+    if (g_str_has_suffix(info->name, "line_width") && parses_as_number(value) && g_ascii_strtod(value, NULL) == 0) return g_strdup("auto");
     if ((info->kind == ZS_SETTING_NUMBER || info->kind == ZS_SETTING_INTEGER) && strcmp(info->unit, "%") == 0 &&
         parses_as_number(value)) {
         char buf[G_ASCII_DTOSTR_BUF_SIZE];
@@ -817,7 +976,8 @@ static char *value_with_unit(const zs_setting_info *info, const char *value) {
     /* A count of one: "1 layer", not "1 layers". */
     size_t n = strlen(info->unit);
     gboolean one = strcmp(shown, "1") == 0 && n > 1 && info->unit[n - 1] == 's' && info->kind == ZS_SETTING_INTEGER;
-    char *text = info->unit[0] ? g_strdup_printf("%s %.*s", shown, (int)(one ? n - 1 : n), info->unit) : g_strdup(shown);
+    gboolean no_unit = !info->unit[0] || strcmp(shown, "auto") == 0;
+    char *text = no_unit ? g_strdup(shown) : g_strdup_printf("%s %.*s", shown, (int)(one ? n - 1 : n), info->unit);
     g_free(shown);
     return text;
 }
@@ -1003,7 +1163,7 @@ static void show_detail(Browser *b, const char *key) {
     gtk_widget_add_css_class(path, "dim-label");
     gtk_widget_add_css_class(path, "caption");
     gtk_grid_attach(GTK_GRID(grid), path, 0, row++, 3, 1);
-    add_row(grid, &row, b->model, info, FALSE);
+    add_row(grid, &row, b->model, info, 0);
 
     GtkWidget *def = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 6);
     GtkWidget *def_label = gtk_label_new("");
