@@ -65,59 +65,79 @@ pub const PathInfo = struct {
 /// The most waypoints of a combing travel.
 const max_way = 8;
 
-/// The combing ways of the travels of one layer, found before the dry run
-/// (see `planTravels`). The travel to path i starts at the end of path
-/// i - 1, so a thread can find its way as soon as the layer is planned.
-/// The dry run then only checks that the nozzle is at the start point of
-/// the way. The travel to path 0 starts at the end of the layer before,
-/// so the dry run finds that way and keeps it for the text.
-pub const Travels = struct {
+/// The work of a layer that does not depend on the layers before it,
+/// done on a planning thread before the dry run (see `prepare`):
+///
+/// - The combing way of each travel. The travel to path i starts at the
+///   end of path i - 1, so its way is known as soon as the layer is
+///   planned. The dry run finds the way of the first travel of the layer
+///   and keeps it for the text.
+/// - The length of each extrusion move, from the first point of its path.
+/// - The sums of the time estimate of each path (see `Emitter.estimate`).
+///
+/// The emitter uses a way or a length only if the nozzle is at the start
+/// point that it was found from, so the G-code stays the same.
+pub const Prepared = struct {
     /// One entry for each path of the layer.
-    list: std.ArrayList(Travel) = .empty,
+    paths: std.ArrayList(PathPrep) = .empty,
     /// The waypoints of all ways.
-    points: std.ArrayList([2]f64) = .empty,
+    way_points: std.ArrayList([2]f64) = .empty,
+    /// The length of the extrusion move to each point of `LayerPlan.points`
+    /// (0 for the first point of a path).
+    lengths: std.ArrayList(f64) = .empty,
 
-    pub const Travel = struct {
-        /// The nozzle position that the way starts from.
+    pub const PathPrep = struct {
+        /// The nozzle position that the way of the travel starts from.
         from: [2]f64,
-        /// The waypoints of the way: points[start..][0..n]. `n` is
+        /// The waypoints of the way: way_points[start..][0..n]. `n` is
         /// `retract` if no way goes inside the outline, and `unknown` if
         /// the way was not found.
         start: u32 = 0,
         n: i32 = unknown,
+        /// The length of the move that closes the path, or 0.
+        close: f64 = 0,
+        /// The travel distance and the path length of the estimate. The
+        /// travel distance of the first path is not known before the dry
+        /// run.
+        est_travel: f64 = 0,
+        est_len: f64 = 0,
 
         pub const retract: i32 = -1;
         pub const unknown: i32 = -2;
     };
 
-    pub fn clear(t: *Travels) void {
-        t.list.clearRetainingCapacity();
-        t.points.clearRetainingCapacity();
+    pub fn clear(t: *Prepared) void {
+        t.paths.clearRetainingCapacity();
+        t.way_points.clearRetainingCapacity();
+        t.lengths.clearRetainingCapacity();
     }
 
-    pub fn deinit(t: *Travels, gpa: std.mem.Allocator) void {
-        t.list.deinit(gpa);
-        t.points.deinit(gpa);
+    pub fn deinit(t: *Prepared, gpa: std.mem.Allocator) void {
+        t.paths.deinit(gpa);
+        t.way_points.deinit(gpa);
+        t.lengths.deinit(gpa);
     }
 };
 
-/// Finds the combing way of each travel of `lp` after its first path (see
-/// `Travels`), with the emitter settings `r`. The result is the same as
-/// the ways that `Emitter.layer` finds.
-pub fn planTravels(gpa: std.mem.Allocator, r: *const Resolved, lp: *const LayerPlan, out: *Travels) std.mem.Allocator.Error!void {
+/// Fills `out` for `lp` (see `Prepared`), with the emitter settings `r`.
+/// The values are the same as the ones that `Emitter.layer` finds.
+pub fn prepare(gpa: std.mem.Allocator, r: *const Resolved, lp: *const LayerPlan, out: *Prepared) std.mem.Allocator.Error!void {
     out.clear();
-    try out.list.ensureTotalCapacity(gpa, lp.paths.items.len);
+    try out.paths.ensureTotalCapacity(gpa, lp.paths.items.len);
+    try out.lengths.resize(gpa, lp.points.points.items.len);
     var em: Emitter = .{ .w = undefined, .r = r };
     em.setOutline(lp);
     const p = r.settings.project;
-    // The nozzle position, as `layer` moves it. It is not known before the
-    // first path.
+    // The nozzle position, as `layer` moves it, and the position of the
+    // estimate. They are not known before the first path.
     var known = false;
+    var ex: f64 = 0;
+    var ey: f64 = 0;
     for (lp.paths.items, 0..) |path, i| {
         const pts = lp.points.get(i);
-        var t: Travels.Travel = .{ .from = .{ em.x, em.y } };
+        var t: Prepared.PathPrep = .{ .from = .{ em.x, em.y } };
         if (pts.len == 0) {
-            out.list.appendAssumeCapacity(t);
+            out.paths.appendAssumeCapacity(t);
             continue;
         }
         const x = geom.toMm(pts[0].x);
@@ -127,26 +147,46 @@ pub fn planTravels(gpa: std.mem.Allocator, r: *const Resolved, lp: *const LayerP
             if (d >= 1e-4 and d > p.retract_min_travel) {
                 var way: [max_way][2]f64 = undefined;
                 if (em.comb(x, y, d, &way)) |n| {
-                    t.start = @intCast(out.points.items.len);
+                    t.start = @intCast(out.way_points.items.len);
                     t.n = @intCast(n);
-                    try out.points.appendSlice(gpa, way[0..n]);
-                } else t.n = Travels.Travel.retract;
+                    try out.way_points.appendSlice(gpa, way[0..n]);
+                } else t.n = Prepared.PathPrep.retract;
             }
-        }
-        out.list.appendAssumeCapacity(t);
-        // The travel ends at the first point. The extrusions skip the
-        // points nearer than 1e-4 mm, as in `extrude`.
-        const d0 = std.math.hypot(x - em.x, y - em.y);
-        if (!known or d0 >= 1e-4) {
-            em.x = x;
-            em.y = y;
+            t.est_travel = std.math.hypot(x - ex, y - ey);
         }
         known = true;
-        for (pts[1..]) |q| em.stepTo(geom.toMm(q.x), geom.toMm(q.y));
-        if (path.closed and pts.len > 2) em.stepTo(x, y);
+        // The extrusion moves start at the first point. They skip the
+        // points nearer than 1e-4 mm, as in `extrude`.
+        const base: usize = if (i == 0) 0 else lp.points.ends.items[i - 1];
+        const lengths = out.lengths.items[base..][0..pts.len];
+        lengths[0] = 0;
+        em.x = x;
+        em.y = y;
+        // The estimate goes from point to point, with no skips.
+        var px = x;
+        var py = y;
+        var len: f64 = 0;
+        for (pts[1..], lengths[1..]) |q, *l| {
+            const qx = geom.toMm(q.x);
+            const qy = geom.toMm(q.y);
+            l.* = em.stepTo(qx, qy);
+            len += std.math.hypot(qx - px, qy - py);
+            px = qx;
+            py = qy;
+        }
+        if (path.closed and pts.len > 2) {
+            t.close = em.stepTo(x, y);
+            len += std.math.hypot(x - px, y - py);
+            px = x;
+            py = y;
+        }
+        t.est_len = len;
+        ex = px;
+        ey = py;
+        out.paths.appendAssumeCapacity(t);
     }
     // Room for the way of the first travel, which the dry run adds.
-    try out.points.ensureUnusedCapacity(gpa, max_way);
+    try out.way_points.ensureUnusedCapacity(gpa, max_way);
 }
 
 pub const Emitter = struct {
@@ -165,10 +205,9 @@ pub const Emitter = struct {
     width: f64 = 0.4,
     boxes: [256][4]i64 = undefined,
     n_boxes: usize = 0,
-    /// The combing ways of the layer (see `Travels`), or null. `layer`
-    /// uses a way only if it starts at the nozzle position. In a dry run,
-    /// `layer` adds the way of the first travel.
-    travels: ?*Travels = null,
+    /// The prepared work of the layer (see `Prepared`), or null. In a dry
+    /// run, `layer` adds the way of the first travel.
+    prep: ?*Prepared = null,
     /// The path that `layer` writes.
     path_index: usize = 0,
     /// True after the first extrusion. Before it, a retraction has no use.
@@ -276,7 +315,7 @@ pub const Emitter = struct {
         // The speeds and the ironing flow can change for each layer.
         const lr = lp.resolved orelse self.r;
         const first = lp.index == 0;
-        try self.w.print(";LAYER:{d}\n", .{lp.index});
+        if (!self.dry) try self.w.print(";LAYER:{d}\n", .{lp.index});
         if (lp.index == 1 and s.filament.first_layer_nozzle_temp != s.filament.nozzle_temp) {
             try self.w.writeAll("M104 S");
             try writeNum(self.w, s.filament.nozzle_temp, 0);
@@ -329,7 +368,7 @@ pub const Emitter = struct {
             const retracted = self.stats.retractions != retractions;
             if (self.feature != path.feature) {
                 self.feature = path.feature;
-                try self.w.print(";TYPE:{s}\n", .{typeName(path.feature)});
+                if (!self.dry) try self.w.print(";TYPE:{s}\n", .{typeName(path.feature)});
             }
             const full = lr.speedAt(path.feature, lp.width, lp.height, lp.index);
             const speed = if (slow < 1) @max(full * slow, @min(full, s.filament.min_speed)) else full;
@@ -338,8 +377,19 @@ pub const Emitter = struct {
             // A path with its own width (a thin wall) has its own flow.
             const base_e = if (path.width > 0) flow.beadArea(path.width, lp.height) / self.r.filament_area * s.filament.flow_ratio else e_per_mm;
             const e = if (path.feature == .ironing) base_e * lr.settings.project.ironing_flow else base_e;
-            for (pts[1..]) |q| try self.extrude(geom.toMm(q.x), geom.toMm(q.y), e, speed);
-            if (path.closed and pts.len > 2) try self.extrude(geom.toMm(pts[0].x), geom.toMm(pts[0].y), e, speed);
+            const x0 = geom.toMm(pts[0].x);
+            const y0 = geom.toMm(pts[0].y);
+            if (self.prep != null and self.x == x0 and self.y == y0) {
+                // The lengths of the moves from this start are known.
+                const pr = self.prep.?;
+                const base: usize = if (i == 0) 0 else lp.points.ends.items[i - 1];
+                const lengths = pr.lengths.items[base..][0..pts.len];
+                for (pts[1..], lengths[1..]) |q, d| try self.extrudeLen(geom.toMm(q.x), geom.toMm(q.y), d, e, speed);
+                if (path.closed and pts.len > 2) try self.extrudeLen(x0, y0, pr.paths.items[i].close, e, speed);
+            } else {
+                for (pts[1..]) |q| try self.extrude(geom.toMm(q.x), geom.toMm(q.y), e, speed);
+                if (path.closed and pts.len > 2) try self.extrude(x0, y0, e, speed);
+            }
             if (self.record) |rec| rec.appendAssumeCapacity(.{ .start_time = start_time, .end_time = self.stats.print_time_s, .area = e * self.r.filament_area, .retracted = retracted, .slowed = slow < 1 or (lap and layer_time < s.filament.min_layer_time) });
         }
         if (lap and lp.index >= s.filament.fan_off_layers and layer_time < s.filament.min_layer_time) {
@@ -367,11 +417,14 @@ pub const Emitter = struct {
         }
     }
 
-    /// The nozzle position after `extrude` to x, y, with no output.
-    fn stepTo(self: *Emitter, x: f64, y: f64) void {
-        if (std.math.hypot(x - self.x, y - self.y) < 1e-4) return;
+    /// Moves the nozzle position as `extrude` to x, y does, with no
+    /// output. Returns the length of the move.
+    fn stepTo(self: *Emitter, x: f64, y: f64) f64 {
+        const d = std.math.hypot(x - self.x, y - self.y);
+        if (d < 1e-4) return d;
         self.x = x;
         self.y = y;
+        return d;
     }
 
     fn coolingLap(self: *Emitter, lp: *const LayerPlan, seconds: f64) Writer.Error!void {
@@ -441,10 +494,19 @@ pub const Emitter = struct {
         var y = self.y;
         const travel_speed = self.r.settings.machine.travel_speed;
         const lr = lp.resolved orelse self.r;
+        var known = false;
         for (lp.paths.items, 0..) |path, i| {
             const pts = lp.points.get(i);
             if (pts.len == 0) continue;
             const speed = lr.speedAt(path.feature, lp.width, lp.height, lp.index);
+            if (self.prep) |pr| if (known) {
+                // The sums of this path are known (see `prepare`).
+                const t = pr.paths.items[i];
+                est.travel_s += t.est_travel / travel_speed;
+                est.extrude_s += t.est_len / speed;
+                continue;
+            };
+            known = true;
             var px = geom.toMm(pts[0].x);
             var py = geom.toMm(pts[0].y);
             est.travel_s += std.math.hypot(px - x, py - y) / travel_speed;
@@ -519,35 +581,37 @@ pub const Emitter = struct {
         try self.move(x, y);
     }
 
-    /// The combing way to x, y (see `comb`): from `travels` if it has the
+    /// The combing way to x, y (see `comb`): from `prep` if it has the
     /// way from the nozzle position, else found now. In a dry run, a way
-    /// that is found now goes into `travels`.
+    /// that is found now goes into `prep`.
     fn wayOf(self: *Emitter, x: f64, y: f64, d: f64, buf: *[max_way][2]f64) ?[]const [2]f64 {
-        const ts = self.travels orelse {
+        const pr = self.prep orelse {
             const n = self.comb(x, y, d, buf) orelse return null;
             return buf[0..n];
         };
         const i = self.path_index;
-        if (i < ts.list.items.len) {
-            const t = ts.list.items[i];
-            if (t.n != Travels.Travel.unknown and t.from[0] == self.x and t.from[1] == self.y) {
-                if (t.n == Travels.Travel.retract) return null;
-                return ts.points.items[t.start..][0..@intCast(t.n)];
+        const unknown = Prepared.PathPrep.unknown;
+        const no_way = Prepared.PathPrep.retract;
+        if (i < pr.paths.items.len) {
+            const t = pr.paths.items[i];
+            if (t.n != unknown and t.from[0] == self.x and t.from[1] == self.y) {
+                if (t.n == no_way) return null;
+                return pr.way_points.items[t.start..][0..@intCast(t.n)];
             }
         }
         const found = self.comb(x, y, d, buf);
-        if (self.dry and i < ts.list.items.len) {
-            // Keep the way for the text of the layer. The points list
-            // has room for it (see `planTravels`).
-            const t = &ts.list.items[i];
+        if (self.dry and i < pr.paths.items.len) {
+            // Keep the way for the text of the layer. The list of
+            // waypoints has room for one way (see `prepare`).
+            const t = &pr.paths.items[i];
             t.from = .{ self.x, self.y };
             if (found) |n| {
-                if (ts.points.unusedCapacitySlice().len >= n) {
-                    t.start = @intCast(ts.points.items.len);
+                if (pr.way_points.unusedCapacitySlice().len >= n) {
+                    t.start = @intCast(pr.way_points.items.len);
                     t.n = @intCast(n);
-                    ts.points.appendSliceAssumeCapacity(buf[0..n]);
-                } else t.n = Travels.Travel.unknown;
-            } else t.n = Travels.Travel.retract;
+                    pr.way_points.appendSliceAssumeCapacity(buf[0..n]);
+                } else t.n = unknown;
+            } else t.n = no_way;
         }
         const n = found orelse return null;
         return buf[0..n];
@@ -674,7 +738,11 @@ pub const Emitter = struct {
     }
 
     fn extrude(self: *Emitter, x: f64, y: f64, e_per_mm: f64, speed: f64) Writer.Error!void {
-        const d = std.math.hypot(x - self.x, y - self.y);
+        return self.extrudeLen(x, y, std.math.hypot(x - self.x, y - self.y), e_per_mm, speed);
+    }
+
+    /// `extrude`, with `d`, the distance from the nozzle to x, y.
+    fn extrudeLen(self: *Emitter, x: f64, y: f64, d: f64, e_per_mm: f64, speed: f64) Writer.Error!void {
         if (d < 1e-4) return;
         try self.unretract();
         const e = d * e_per_mm;
