@@ -31,6 +31,8 @@ pub const SkinPattern = enum { lines, monotonic, concentric };
 /// Where the part goes on the bed. See `Project.placement`.
 pub const Placement = enum { auto, file, center };
 pub const SupportMode = enum { off, everywhere, buildplate };
+/// The shape of the support. See `Project.support_style`.
+pub const SupportStyle = enum { grid, tree };
 pub const ExtruderKind = enum { direct, bowden };
 
 pub const Machine = struct {
@@ -279,6 +281,21 @@ pub const Project = struct {
     /// can stand on the bed or on the part. `buildplate`: only support that
     /// stands on the bed.
     support: SupportMode = .off,
+    /// The shape of the support. `grid`: all the space under each overhang,
+    /// filled with lines. `tree`: branches from points under each overhang
+    /// down to the bed or the part; they join on the way, get thicker as
+    /// they go down, and thinner in narrow spaces (so a branch can go down
+    /// a deep, narrow hole). A tree uses less plastic and comes off more
+    /// easily.
+    support_style: SupportStyle = .grid,
+    /// Tree support: the largest angle of a branch from vertical, in
+    /// degrees. A larger angle lets branches reach farther, with less
+    /// strength.
+    support_tree_angle: f64 = 40,
+    /// Tree support: the distance of the tips under an overhang.
+    support_tree_spacing: f64 = 3,
+    /// Tree support: the diameter of a tip. 0 uses the line width times 2.
+    support_tree_tip: f64 = 0,
     /// An overhang that leans more than this angle (degrees) from vertical
     /// gets support. A larger angle gives less support.
     support_angle: f64 = 50,
@@ -557,6 +574,8 @@ pub const limits = [_]struct { []const u8, f64, f64 }{
     .{ "project.inner_wall_speed", 0.01, 1 },      .{ "project.skin_speed", 0.01, 1 },
     .{ "project.infill_speed", 0.01, 1 },          .{ "project.first_layer_speed", 0.01, 1 },
     .{ "project.retract_min_travel", 0, 100 },     .{ "project.z_hop", 0, 10 },
+    .{ "project.support_tree_angle", 0, 75 },      .{ "project.support_tree_spacing", 0.5, 50 },
+    .{ "project.support_tree_tip", 0, 10 },
     .{ "project.support_angle", 0, 90 },           .{ "project.support_density", 0.01, 1 },
     .{ "project.support_xy_gap", 0, 10 },          .{ "project.support_z_gap_layers", 0, 10 },
     .{ "project.support_interface_layers", 0, 20 }, .{ "project.support_interface_density", 0.01, 1 },

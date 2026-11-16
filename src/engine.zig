@@ -682,6 +682,8 @@ const late_settings = [_][]const u8{
     "project.support",                  "project.support_angle",      "project.support_density",
     "project.support_xy_gap",           "project.support_z_gap_layers", "project.support_interface_layers",
     "project.support_interface_density", "project.skirt_loops",       "project.skirt_distance",
+    "project.support_style",            "project.support_tree_angle", "project.support_tree_spacing",
+    "project.support_tree_tip",
     "project.skirt_layers",             "project.brim_width",
     // filament: all but the size compensation
     "filament.name",                    "filament.color",             "filament.diameter",

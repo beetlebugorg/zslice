@@ -687,7 +687,7 @@ const feature_settings = [_][]const []const u8{
     &.{ "project.infill_density", "project.infill_pattern", "project.infill_angle", "project.infill_overlap", "project.line_width", "project.layer_height" },
     &.{ "project.ironing", "project.ironing_flow", "project.ironing_spacing", "project.ironing_inset", "project.skin_angle" },
     &.{ "project.skirt_loops", "project.skirt_distance", "project.skirt_layers", "project.brim_width", "project.line_width" },
-    &.{ "project.support", "project.support_angle", "project.support_density", "project.support_xy_gap", "project.support_z_gap_layers" },
+    &.{ "project.support", "project.support_style", "project.support_angle", "project.support_density", "project.support_xy_gap", "project.support_z_gap_layers", "project.support_tree_angle", "project.support_tree_spacing", "project.support_tree_tip" },
     &.{ "project.support_interface_layers", "project.support_interface_density", "project.support_z_gap_layers" },
 };
 const first_layer_settings = [_][]const u8{ "project.first_layer_height", "project.first_layer_line_width", "filament.first_layer_nozzle_temp", "project.first_layer_xy_offset" };
@@ -1158,7 +1158,8 @@ const units = [_][2][]const u8{
     .{ "project.inner_wall_speed", "%" },      .{ "project.skin_speed", "%" },
     .{ "project.infill_speed", "%" },          .{ "project.first_layer_speed", "%" },
     .{ "project.retract_min_travel", "mm" },   .{ "project.z_hop", "mm" },
-    .{ "project.support_angle", "\u{b0}" },    .{ "project.support_density", "%" },
+    .{ "project.support_angle", "\u{b0}" },    .{ "project.support_tree_angle", "\u{b0}" },
+    .{ "project.support_tree_spacing", "mm" },  .{ "project.support_tree_tip", "mm" },    .{ "project.support_density", "%" },
     .{ "project.support_xy_gap", "mm" },       .{ "project.support_z_gap_layers", "layers" },
     .{ "project.support_interface_layers", "layers" }, .{ "project.support_interface_density", "%" },
     .{ "project.skirt_loops", "loops" },       .{ "project.skirt_distance", "mm" },
@@ -1203,6 +1204,8 @@ const sliders = [_]struct { []const u8, f64, f64, f64 }{
     .{ "machine.max_z_speed", 1, 30, 1 },            .{ "machine.retract_length", 0, 8, 0.1 },
     .{ "machine.retract_speed", 10, 80, 5 },         .{ "machine.nozzle_diameter", 0.2, 1.2, 0.05 },
     .{ "engine.gap_closing", 0, 3, 0.1 },
+    .{ "project.support_tree_angle", 10, 60, 1 },  .{ "project.support_tree_spacing", 1, 10, 0.5 },
+    .{ "project.support_tree_tip", 0, 3, 0.1 },
 };
 
 fn sliderOf(comptime name: []const u8) [3]f64 {

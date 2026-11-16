@@ -41,6 +41,7 @@ const parallel = @import("parallel.zig");
 const settings_mod = @import("settings.zig");
 const slicer = @import("slicer.zig");
 const Paths = geom.Paths;
+const tree = @import("tree_support.zig");
 
 pub const SupportLayer = struct {
     body: Paths = .empty,
@@ -114,6 +115,11 @@ pub fn compute(
     const out = try gpa.alloc(SupportLayer, n);
     for (out) |*x| x.* = .{};
     errdefer deinitAll(gpa, out);
+
+    if (p.support_style == .tree) {
+        try treeSupport(gpa, outlines, layers, r, need, blocked, out);
+        return out;
+    }
 
     // Step 2: the columns, from the top down. Each layer depends on the
     // layer above, so this loop is on one thread. It does only the union
@@ -214,6 +220,55 @@ pub fn compute(
     return out;
 }
 
+/// Tree support (see tree_support.zig): the pads of interface layers under
+/// each overhang, and the branches under the pads.
+fn treeSupport(
+    gpa: Allocator,
+    outlines: []const Paths,
+    layers: []const slicer.Layer,
+    r: *const settings_mod.Resolved,
+    need: []const Paths,
+    blocked: []const Paths,
+    out: []SupportLayer,
+) !void {
+    const p = r.settings.project;
+    const n = outlines.len;
+    const gap = p.support_z_gap_layers;
+    const pads = p.support_interface_layers;
+    const tip_mm = if (p.support_tree_tip > 0) p.support_tree_tip else 2 * r.line_width;
+    const params: tree.Params = .{
+        .tip = @floatFromInt(geom.fromMm(tip_mm / 2)),
+        .max_r = @floatFromInt(geom.fromMm(@max(tip_mm, 4) / 2)),
+        .growth = 0.02,
+        .tan_angle = @tan(std.math.degreesToRadians(p.support_tree_angle)),
+        .spacing = @floatFromInt(geom.fromMm(p.support_tree_spacing)),
+        .z_gap = gap,
+        .bed_only = p.support == .buildplate,
+    };
+    const branches = try tree.grow(gpa, outlines, layers, need, blocked, 1 + gap + pads, params);
+    defer gpa.free(branches);
+    for (out, branches) |*o, b| o.body = b;
+    // The pads: the overhang area, on the interface layers between the
+    // tips and the overhang.
+    if (pads == 0) return;
+    var arena_state = std.heap.ArenaAllocator.init(gpa);
+    defer arena_state.deinit();
+    const s = arena_state.allocator();
+    for (0..n) |src| {
+        if (need[src].isEmpty()) continue;
+        for (0..pads) |k| {
+            const below = 1 + gap + k;
+            if (below > src) break;
+            const j = src - below;
+            const pad = try clip.difference(s, need[src], blocked[j]);
+            if (pad.isEmpty()) continue;
+            const joined = try clip.unite(gpa, out[j].interface, pad);
+            out[j].interface.deinit(gpa);
+            out[j].interface = joined;
+        }
+    }
+}
+
 /// Simplifies each polygon of a set in place, and removes polygons with
 /// fewer than 3 points.
 fn simplifyAll(paths: *Paths, tolerance: i64) void {
@@ -309,4 +364,39 @@ test "bed-only support skips a column that rests on the part" {
     const bed = try compute(gpa, sl.outlines, sl.layers, &r, 1);
     defer deinitAll(gpa, bed);
     for (bed) |l| try testing.expect(l.body.isEmpty() and l.interface.isEmpty());
+}
+
+
+test "tree support: branches under a cap, and a branch down a narrow hole" {
+    const gpa = testing.allocator;
+    // A post with a cap (as in the test of grid support).
+    var b: mesh_mod.Builder = .init(gpa);
+    try mesh_mod.shapes.addBox(&b, 8, 8, 0, 12, 12, 5);
+    try mesh_mod.shapes.addBox(&b, 0, 0, 5, 20, 20, 7);
+    var m = try b.finish();
+    defer m.deinit(gpa);
+    const sl = try sliceAll(gpa, &m, 7);
+    defer {
+        for (sl.outlines) |*o| o.deinit(gpa);
+        gpa.free(sl.outlines);
+        gpa.free(sl.layers);
+    }
+    var st: settings_mod.Settings = .{};
+    st.project.support = .everywhere;
+    st.project.support_style = .tree;
+    const r = try st.resolve();
+    const sup = try compute(gpa, sl.outlines, sl.layers, &r, 1);
+    defer deinitAll(gpa, sup);
+    // The pads under the cap, and branches down to the bed.
+    try testing.expect(!sup[22].interface.isEmpty() or !sup[21].interface.isEmpty());
+    try testing.expect(!sup[1].body.isEmpty());
+    // Branches use much less area than the grid support (400 - 23 mm2).
+    const tree_area = sup[10].body.areaMm2();
+    try testing.expect(tree_area > 1 and tree_area < 200);
+    // No branch inside the post.
+    for (sup) |l| {
+        const inside = try clip.intersect(gpa, l.body, sl.outlines[5]);
+        defer @constCast(&inside).deinit(gpa);
+        try testing.expect(inside.areaMm2() < 0.01);
+    }
 }

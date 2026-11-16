@@ -113,7 +113,10 @@ The goal is the features that people use in PrusaSlicer and Cura. zslice designs
 - [x] Seam mode "hidden" (the default): the most hidden point (inside corners over about 1 mm, the back, not over air; ties to the back, so the seams line up)
 - [x] More infill: honeycomb; zigzag (lines joined at the walls, no travel between them); flow (zigzag, twice as dense in a band under the top surfaces)
 - [ ] More infill: lightning, adaptive cubic; make flow cheaper (the band costs a stacked intersection on the first slice, and memory in the cache)
-- [ ] Better support: tree support, and support for deep narrow holes
+- [x] Tree support (support_style = tree): tips on a grid under pads, branches that join and get thicker, thinner in narrow spaces (deep holes)
+- [ ] Tree support: faster (1.4 s on the camera arm, grid 0.4 s), branch routing around the part toward the bed, a preview of the branch nodes
+- [ ] Layer times: in the layer slider, a color mode by layer time, and the layers that min_layer_time slows down
+- [ ] A cooling lap: for a short layer, the head moves over the layer with the fan at full until the min layer time, in place of a slow print
 - [ ] printdeck web module: the core in wasm, a WebGPU backend for the 3D view, the slicer in the printdeck web UI and cloud
 - [ ] Combing: travel inside the part over the infill and the inner walls, with no retraction, and faster
 - [ ] Preview color modes: feature, speed, flow, layer time, line width, layer height, filament color

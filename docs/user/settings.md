@@ -340,6 +340,22 @@ Lift the nozzle by this distance during a travel move with a retraction. 0 turns
 
 Support under overhangs. `off`: no support. `everywhere`: support can stand on the bed or on the part. `buildplate`: only support that stands on the bed.
 
+**`project.support_style`** (one of: `grid`, `tree`). Default: `grid`
+
+The shape of the support. `grid`: all the space under each overhang, filled with lines. `tree`: branches from points under each overhang down to the bed or the part; they join on the way, get thicker as they go down, and thinner in narrow spaces (so a branch can go down a deep, narrow hole). A tree uses less plastic and comes off more easily.
+
+**`project.support_tree_angle`** (number). Default: `40`
+
+Tree support: the largest angle of a branch from vertical, in degrees. A larger angle lets branches reach farther, with less strength.
+
+**`project.support_tree_spacing`** (number). Default: `3`
+
+Tree support: the distance of the tips under an overhang.
+
+**`project.support_tree_tip`** (number). Default: `0`
+
+Tree support: the diameter of a tip. 0 uses the line width times 2.
+
 **`project.support_angle`** (number). Default: `50`
 
 An overhang that leans more than this angle (degrees) from vertical gets support. A larger angle gives less support.
