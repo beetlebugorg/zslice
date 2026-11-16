@@ -79,7 +79,9 @@ pub const PathInfo = struct {
 };
 
 /// The most waypoints of a combing travel.
-const max_way = 8;
+const max_way = 64;
+/// The most polygons that one combing travel goes along.
+const max_walks = 8;
 
 /// The work of a layer that does not depend on the layers before it,
 /// done on a planning thread before the dry run (see `prepare`):
@@ -308,7 +310,7 @@ pub fn prepare(gpa: std.mem.Allocator, r: *const Resolved, lp: *const LayerPlan,
             const d = std.math.hypot(x - em.x, y - em.y);
             if (d >= 1e-4 and d > p.retract_min_travel) {
                 var way: [max_way][2]f64 = undefined;
-                if (em.comb(x, y, d, &way)) |n| {
+                if (em.findWay(x, y, d, &way)) |n| {
                     t.start = @intCast(out.way_points.items.len);
                     t.n = @intCast(n);
                     try out.way_points.appendSlice(gpa, way[0..n]);
@@ -371,6 +373,9 @@ pub const Emitter = struct {
     path_index: usize = 0,
     /// The combing index of the layer, or null.
     comb_index: ?*const CombIndex = null,
+    /// The travel acceleration of the layer, for the time of a combing
+    /// way (see `walkTooLong`).
+    travel_accel: f64 = 0,
     /// True after the first extrusion. Before it, a retraction has no use.
     extruded: bool = false,
     /// The last fan value written (0 to 255), or -1 before the first.
@@ -661,6 +666,7 @@ pub const Emitter = struct {
     fn setOutline(self: *Emitter, lp: *const LayerPlan) void {
         self.outline = &lp.outline;
         self.width = lp.width;
+        self.travel_accel = (lp.resolved orelse self.r).accel(null, lp.index == 0);
         self.n_boxes = 0;
         if (lp.outline.count() <= self.boxes.len) {
             for (0..lp.outline.count()) |k| {
@@ -791,8 +797,8 @@ pub const Emitter = struct {
         const d = std.math.hypot(x - self.x, y - self.y);
         if (d < 1e-4) return;
         if (d > self.r.settings.project.retract_min_travel) {
-            // Combing: a way inside the part needs no retraction. It can
-            // go around a hole, through corners of the box of the hole.
+            // Combing: a way inside the part needs no retraction (see
+            // `findWay`).
             var way: [max_way][2]f64 = undefined;
             if (self.wayOf(x, y, d, &way)) |w| {
                 for (w) |q| try self.move(q[0], q[1]);
@@ -806,7 +812,7 @@ pub const Emitter = struct {
     /// that is found now goes into `prep`.
     fn wayOf(self: *Emitter, x: f64, y: f64, d: f64, buf: *[max_way][2]f64) ?[]const [2]f64 {
         const pr = self.prep orelse {
-            const n = self.comb(x, y, d, buf) orelse return null;
+            const n = self.findWay(x, y, d, buf) orelse return null;
             return buf[0..n];
         };
         const i = self.path_index;
@@ -819,7 +825,7 @@ pub const Emitter = struct {
                 return pr.way_points.items[t.start..][0..@intCast(t.n)];
             }
         }
-        const found = self.comb(x, y, d, buf);
+        const found = self.findWay(x, y, d, buf);
         if (self.dry and self.keep_ways and i < pr.paths.items.len) {
             // Keep the way for the text of the layer. The list of
             // waypoints has room for one way (see `prepare`).
@@ -856,15 +862,37 @@ pub const Emitter = struct {
         self.stats.travel_mm += d;
     }
 
+    /// The combing way to x, y, or null (retract). First the way of
+    /// `comb` with the box corners only. If there is none, a way along the
+    /// edges of the part replaces the retraction, if it takes less time.
+    fn findWay(self: *const Emitter, x: f64, y: f64, d: f64, way: *[max_way][2]f64) ?usize {
+        if (self.comb(x, y, d, way, false)) |n| return n;
+        const n = self.comb(x, y, d, way, true) orelse return null;
+        if (self.walkTooLong(x, y, d, way[0..n])) return null;
+        return n;
+    }
+
     /// Combing: a way from the nozzle to x, y inside the outline of the
     /// layer, so the travel needs no retraction. Null: no way (retract).
     /// Else the number of waypoints before x, y in `way`. From each point,
-    /// the way goes straight to x, y if it can; else around the first hole
-    /// that the straight line crosses, to the corner of the box of the
-    /// hole (grown by one line width) that it can reach and that is
-    /// nearest to the end. A way longer than 3 times the straight line
-    /// (plus 5 mm) does not count.
-    fn comb(self: *const Emitter, x: f64, y: f64, d: f64, way: *[max_way][2]f64) ?usize {
+    /// the way goes straight to x, y if it can. Else it goes around the
+    /// polygon that the straight line crosses first (a hole, or a bay of
+    /// the outer boundary):
+    ///
+    /// 1. Only if `walks`: along the polygon, one line width inside the
+    ///    material, from the first crossing to the last crossing of the
+    ///    line with the polygon, on the shorter side. The way skips each
+    ///    vertex that it can (a straight move to a later vertex that
+    ///    crosses no edge). The travel uses this way only where the way
+    ///    with step 2 alone fails, and only if it takes less time than a
+    ///    retraction (see `walkTooLong`).
+    /// 2. If that fails, through the corner of the box of the polygon
+    ///    (grown by one line width) that it can reach and that is nearest
+    ///    to the end.
+    ///
+    /// A way longer than 3 times the straight line (plus 5 mm) does not
+    /// count.
+    fn comb(self: *const Emitter, x: f64, y: f64, d: f64, way: *[max_way][2]f64, walks: bool) ?usize {
         const p = self.r.settings.project;
         if (!p.combing) return null;
         if (p.combing_max_distance > 0 and d > p.combing_max_distance) return null;
@@ -877,10 +905,32 @@ pub const Emitter = struct {
         var used: f64 = 0;
         var n: usize = 0;
         var seen: [max_way]geom.Point = undefined;
+        var walked: [max_walks]usize = undefined;
+        var n_walked: usize = 0;
         while (true) {
             var hit: usize = 0;
             if (self.clearOf(outline.*, boxes, cur, b, &hit)) return if (used + dist(cur, b) <= limit) n else null;
             if (n == max_way or hit >= boxes.len) return null;
+            // The polygon with the crossing nearest to cur.
+            const first = firstCrossing(outline.*, boxes, cur, b) orelse return null;
+            // Step 1, once for each polygon.
+            const again = for (walked[0..n_walked]) |k| {
+                if (k == first.poly) break true;
+            } else false;
+            if (walks and !again and n_walked < max_walks) {
+                walked[n_walked] = first.poly;
+                n_walked += 1;
+                const before = n;
+                if (self.walkAround(outline.*, boxes, first, cur, b, g, way, &n, &used, limit)) {
+                    if (n > before) {
+                        cur = .{ .x = geom.fromMm(way[n - 1][0]), .y = geom.fromMm(way[n - 1][1]) };
+                        continue;
+                    }
+                } else {
+                    n = before;
+                }
+            }
+            // Step 2.
             const bx = boxes[hit];
             const corners = [4]geom.Point{
                 .{ .x = bx[0] - g, .y = bx[1] - g }, .{ .x = bx[2] + g, .y = bx[1] - g },
@@ -890,11 +940,11 @@ pub const Emitter = struct {
             var best_cost: f64 = std.math.inf(f64);
             var ignore: usize = 0;
             for (corners) |c| {
-                var again = false;
+                var dup = false;
                 for (seen[0..n]) |q| if (q.x == c.x and q.y == c.y) {
-                    again = true;
+                    dup = true;
                 };
-                if (again) continue;
+                if (dup) continue;
                 const cost = dist(cur, c) + dist(c, b);
                 if (cost >= best_cost) continue;
                 if (!self.clearOf(outline.*, boxes, cur, c, &ignore)) continue;
@@ -909,6 +959,167 @@ pub const Emitter = struct {
             n += 1;
             cur = c;
         }
+    }
+
+    /// True if the way (the waypoints, then x, y) takes longer than a
+    /// retraction, the push back, and the z hop, with the straight travel.
+    /// The planner gives both times, from rest to rest.
+    fn walkTooLong(self: *const Emitter, x: f64, y: f64, d: f64, way: []const [2]f64) bool {
+        const m = self.r.settings.machine;
+        const a = if (self.travel_accel > 0) self.travel_accel else m.max_accel;
+        var moves: [max_way + 1]motion.Move = undefined;
+        var k: usize = 0;
+        var px = self.x;
+        var py = self.y;
+        for (0..way.len + 1) |i| {
+            const q = if (i < way.len) way[i] else [2]f64{ x, y };
+            const l = std.math.hypot(q[0] - px, q[1] - py);
+            if (l > 1e-6) {
+                moves[k] = .{ .dir = .{ (q[0] - px) / l, (q[1] - py) / l }, .len = l, .speed = m.travel_speed, .accel = a };
+                k += 1;
+            }
+            px = q[0];
+            py = q[1];
+        }
+        const t_way = motion.plan(moves[0..k], self.limits());
+        const hop = self.r.settings.project.z_hop;
+        const stop = 2 * self.retractTime(self.r.retract_length) + if (hop > 0) 2 * motion.restTime(hop, m.max_z_speed, m.max_z_accel) else 0;
+        return t_way > motion.restTime(d, m.travel_speed, a) + stop;
+    }
+
+    const Crossing = struct {
+        poly: usize,
+        /// The edges (from vertex i to i + 1) of the first and the last
+        /// crossing along the line.
+        first_edge: usize,
+        last_edge: usize,
+    };
+
+    /// The polygon whose edge the segment a-b crosses nearest to a, with
+    /// its first and last crossed edge. Null: no crossing.
+    fn firstCrossing(outline: geom.Paths, boxes: []const [4]i64, a: geom.Point, b: geom.Point) ?Crossing {
+        const lo_x = @min(a.x, b.x);
+        const hi_x = @max(a.x, b.x);
+        const lo_y = @min(a.y, b.y);
+        const hi_y = @max(a.y, b.y);
+        var best: ?Crossing = null;
+        var best_t: f64 = std.math.inf(f64);
+        for (0..outline.count()) |k| {
+            if (boxes.len == outline.count()) {
+                const bx = boxes[k];
+                if (bx[2] < lo_x or bx[0] > hi_x or bx[3] < lo_y or bx[1] > hi_y) continue;
+            }
+            const poly = outline.get(k);
+            var t_min: f64 = std.math.inf(f64);
+            var t_max: f64 = -std.math.inf(f64);
+            var e_min: usize = 0;
+            var e_max: usize = 0;
+            for (poly, 0..) |c, i| {
+                const e = poly[(i + 1) % poly.len];
+                const c1 = geom.cross3(a, b, c);
+                const c2 = geom.cross3(a, b, e);
+                if (std.math.sign(c1) * std.math.sign(c2) >= 0) continue;
+                const s3 = std.math.sign(geom.cross3(c, e, a));
+                const s4 = std.math.sign(geom.cross3(c, e, b));
+                if (s3 * s4 >= 0) continue;
+                // The parameter along a-b of the crossing.
+                const fc: f64 = @floatFromInt(geom.cross3(c, e, a));
+                const fe: f64 = @floatFromInt(geom.cross3(c, e, b));
+                const t = fc / (fc - fe);
+                if (t < t_min) {
+                    t_min = t;
+                    e_min = i;
+                }
+                if (t > t_max) {
+                    t_max = t;
+                    e_max = i;
+                }
+            }
+            if (t_min < best_t) {
+                best_t = t_min;
+                best = .{ .poly = k, .first_edge = e_min, .last_edge = e_max };
+            }
+        }
+        return best;
+    }
+
+    /// Step 1 of `comb`: the way from cur along the polygon of `cr`, past
+    /// its last crossing. Adds the waypoints to `way`. False: no way.
+    fn walkAround(self: *const Emitter, outline: geom.Paths, boxes: []const [4]i64, cr: Crossing, cur: geom.Point, b: geom.Point, inset: i64, way: *[max_way][2]f64, n: *usize, used: *f64, limit: f64) bool {
+        const poly = outline.get(cr.poly);
+        const m = poly.len;
+        if (m < 3) return false;
+        // Forward: the vertices after the first crossed edge, up to the
+        // start of the last crossed edge. Backward: the vertices from the
+        // start of the first crossed edge down to the end of the last.
+        const n_fwd = (cr.last_edge + m - cr.first_edge) % m;
+        const n_bwd = (cr.first_edge + m - cr.last_edge) % m;
+        var len_fwd: f64 = 0;
+        var len_bwd: f64 = 0;
+        for (0..n_fwd) |j| len_fwd += dist(poly[(cr.first_edge + 1 + j) % m], poly[(cr.first_edge + 2 + j) % m]);
+        for (0..n_bwd) |j| len_bwd += dist(poly[(cr.first_edge + m - j) % m], poly[(cr.first_edge + 2 * m - 1 - j) % m]);
+        const fwd = len_fwd <= len_bwd;
+        const count = if (fwd) n_fwd else n_bwd;
+        if (count == 0) return false;
+        var anchor = cur;
+        var pending: ?geom.Point = null;
+        var ignore: usize = 0;
+        for (0..count) |j| {
+            const vi = if (fwd) (cr.first_edge + 1 + j) % m else (cr.first_edge + m - j) % m;
+            const q = insetVertex(poly, vi, inset);
+            if (self.clearOf(outline, boxes, anchor, q, &ignore)) {
+                pending = q;
+                continue;
+            }
+            // Keep the last vertex that the anchor sees.
+            const keep = pending orelse return false;
+            if (n.* == max_way) return false;
+            used.* += dist(anchor, keep);
+            if (used.* > limit) return false;
+            way[n.*] = .{ geom.toMm(keep.x), geom.toMm(keep.y) };
+            n.* += 1;
+            anchor = keep;
+            pending = null;
+            if (self.clearOf(outline, boxes, anchor, b, &ignore)) return true;
+            if (!self.clearOf(outline, boxes, anchor, q, &ignore)) return false;
+            pending = q;
+        }
+        const keep = pending orelse return true;
+        if (n.* == max_way) return false;
+        used.* += dist(anchor, keep);
+        if (used.* > limit) return false;
+        way[n.*] = .{ geom.toMm(keep.x), geom.toMm(keep.y) };
+        n.* += 1;
+        return true;
+    }
+
+    /// Vertex i of a polygon, moved by `inset` to the left of the polygon
+    /// direction: into the material for an outer boundary
+    /// (counterclockwise) and for a hole (clockwise). The move goes along
+    /// the bisector of the two edges, at most 3 times `inset` long.
+    fn insetVertex(poly: []const geom.Point, i: usize, inset: i64) geom.Point {
+        const m = poly.len;
+        const u = poly[(i + m - 1) % m];
+        const v = poly[i];
+        const w = poly[(i + 1) % m];
+        const e1 = unit(u, v);
+        const e2 = unit(v, w);
+        const n1 = [2]f64{ -e1[1], e1[0] };
+        const n2 = [2]f64{ -e2[1], e2[0] };
+        const dot = n1[0] * n2[0] + n1[1] * n2[1];
+        const d: f64 = @floatFromInt(inset);
+        const k = @min(d / @max(1 + dot, 1e-9), 3 * d / @max(std.math.hypot(n1[0] + n2[0], n1[1] + n2[1]), 1e-9));
+        return .{
+            .x = v.x + @as(i64, @intFromFloat(@round((n1[0] + n2[0]) * k))),
+            .y = v.y + @as(i64, @intFromFloat(@round((n1[1] + n2[1]) * k))),
+        };
+    }
+
+    fn unit(a: geom.Point, b: geom.Point) [2]f64 {
+        const dx: f64 = @floatFromInt(b.x - a.x);
+        const dy: f64 = @floatFromInt(b.y - a.y);
+        const l = @max(std.math.hypot(dx, dy), 1e-9);
+        return .{ dx / l, dy / l };
     }
 
     fn dist(a: geom.Point, b: geom.Point) f64 {
@@ -1204,5 +1415,56 @@ test "the combing index gives the same answers as combClear" {
         const got = idx.clear(pts[0], pts[1], &h2);
         try std.testing.expectEqual(want, got);
         if (!want) try std.testing.expectEqual(h1, h2);
+    }
+}
+
+test "combing goes along a round ring, where the box of the hole is outside the part" {
+    const gpa = std.testing.allocator;
+    var arena_state = std.heap.ArenaAllocator.init(gpa);
+    defer arena_state.deinit();
+    const a = arena_state.allocator();
+    // A ring: outer radius 20 mm, hole radius 18 mm. The corners of the
+    // box of the hole are outside the outer circle.
+    var outline: geom.Paths = .empty;
+    const n = 96;
+    var outer: [n]geom.Point = undefined;
+    var hole: [n]geom.Point = undefined;
+    for (0..n) |i| {
+        const t = 2 * std.math.pi * @as(f64, @floatFromInt(i)) / n;
+        outer[i] = .{ .x = geom.fromMm(50 + 20 * @cos(t)), .y = geom.fromMm(50 + 20 * @sin(t)) };
+        // The hole goes clockwise.
+        hole[i] = .{ .x = geom.fromMm(50 + 18 * @cos(-t)), .y = geom.fromMm(50 + 18 * @sin(-t)) };
+    }
+    try outline.append(a, &outer);
+    try outline.append(a, &hole);
+    var r = try (settings_mod.Settings{}).resolve();
+    r.settings.project.combing = true;
+    var discard: Writer.Discarding = .init(&.{});
+    var em: Emitter = .init(gpa, &discard.writer, &r);
+    em.outline = &outline;
+    em.width = 0.4;
+    em.n_boxes = 2;
+    for (0..2) |k| {
+        var bx = [4]i64{ std.math.maxInt(i64), std.math.maxInt(i64), std.math.minInt(i64), std.math.minInt(i64) };
+        for (outline.get(k)) |q| bx = .{ @min(bx[0], q.x), @min(bx[1], q.y), @max(bx[2], q.x), @max(bx[3], q.y) };
+        em.boxes[k] = bx;
+    }
+    // From the left side of the ring to a point on the upper right.
+    em.x = 31;
+    em.y = 50;
+    const x: f64 = 50 + 19 * @cos(1.0);
+    const y: f64 = 50 + 19 * @sin(1.0);
+    const d = std.math.hypot(x - em.x, y - em.y);
+    var way: [max_way][2]f64 = undefined;
+    try std.testing.expect(em.comb(x, y, d, &way, false) == null);
+    const k = em.comb(x, y, d, &way, true) orelse return error.TestUnexpectedResult;
+    try std.testing.expect(k > 0);
+    // Each leg stays in the ring.
+    var p: geom.Point = .{ .x = geom.fromMm(em.x), .y = geom.fromMm(em.y) };
+    for (0..k + 1) |i| {
+        const q: geom.Point = if (i < k) .{ .x = geom.fromMm(way[i][0]), .y = geom.fromMm(way[i][1]) } else .{ .x = geom.fromMm(x), .y = geom.fromMm(y) };
+        var hit: usize = 0;
+        try std.testing.expect(Emitter.combClear(outline, em.boxes[0..2], p, q, &hit));
+        p = q;
     }
 }
