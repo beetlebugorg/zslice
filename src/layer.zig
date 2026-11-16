@@ -693,7 +693,15 @@ pub fn plan(gpa: Allocator, ctx: Context, i: usize) Allocator.Error!LayerPlan {
                         // infill (combing).
                         // A short extra line supports almost nothing and
                         // costs a travel: the shortest is 4 line widths.
-                        const extra = try infill.linesPhase(s, near, spacing, angle, half, 4 * w);
+                        // Only in the parts of the band at least one
+                        // spacing wide: over a narrower strip, the skin
+                        // bridges with no help, and an extra line there is
+                        // a lone strut with a travel to it. A shrink and a
+                        // grow by half a spacing remove the narrow strips.
+                        const shrunk = try offset_mod.offset(s, near, -half, .{});
+                        const wide = try offset_mod.offset(s, shrunk, half, .{});
+                        const band_area = try clip.intersect(s, near, wide);
+                        const extra = try infill.linesPhase(s, band_area, spacing, angle, half, 4 * w);
                         try sparse_lines.appendAll(s, extra);
                     }
                 }
