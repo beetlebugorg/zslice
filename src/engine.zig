@@ -261,7 +261,7 @@ pub const Job = struct {
     /// Only settings.layer_settings can have overrides. The strings of the
     /// overrides must live as long as the job.
     pub fn initFull(gpa: Allocator, mesh: *const Mesh, settings: Settings, overrides: []const settings_mod.Override, monitor: Monitor) Error!Job {
-        return initReuse(gpa, mesh, settings, overrides, monitor, null);
+        return initReuse(gpa, mesh, settings, overrides, &.{}, monitor, null);
     }
 
     /// `initFull`, and the job uses the work of `old`, a job of the same
@@ -271,9 +271,10 @@ pub const Job = struct {
     /// not change the outlines (walls, skin, infill, speeds) then slices
     /// again in much less time. `old` stays valid, but it has no outlines
     /// after this call. Free it after this call.
-    pub fn initReuse(gpa: Allocator, mesh: *const Mesh, settings: Settings, overrides: []const settings_mod.Override, monitor: Monitor, old: ?*Job) Error!Job {
+    /// `marks`: the support marks of the user (see support.Mark).
+    pub fn initReuse(gpa: Allocator, mesh: *const Mesh, settings: Settings, overrides: []const settings_mod.Override, marks: []const support_mod.Mark, monitor: Monitor, old: ?*Job) Error!Job {
         for (overrides) |o| if (!settings_mod.isLayerSetting(o.name)) return error.InvalidSettings;
-        var job = try initBase(gpa, mesh, settings, monitor, old);
+        var job = try initBase(gpa, mesh, settings, marks, monitor, old);
         errdefer job.deinit();
         if (overrides.len > 0) try job.resolveLayers(settings, overrides);
         if (job.tops.len == 0) try job.makeSurfaces();
@@ -341,7 +342,7 @@ pub const Job = struct {
         self.layer_resolved = try list.toOwnedSlice(gpa);
     }
 
-    fn initBase(gpa: Allocator, mesh: *const Mesh, settings: Settings, monitor: Monitor, old: ?*Job) Error!Job {
+    fn initBase(gpa: Allocator, mesh: *const Mesh, settings: Settings, marks: []const support_mod.Mark, monitor: Monitor, old: ?*Job) Error!Job {
         // Step 1.
         const r = settings.resolve() catch return error.InvalidSettings;
         const threads = parallel.threadCount(settings.engine.threads);
@@ -426,7 +427,7 @@ pub const Job = struct {
         }
 
         // The support areas need the outlines of all layers.
-        job.support = support_mod.compute(gpa, job.outlines, job.layers, &r, threads) catch |e| return @as(Error, @errorCast(e));
+        job.support = support_mod.compute(gpa, job.outlines, job.layers, &r, threads, marks) catch |e| return @as(Error, @errorCast(e));
         return job;
     }
 
@@ -758,12 +759,12 @@ fn compensate(gpa: Allocator, outline: Paths, xy: i64, hole: i64) Allocator.Erro
     var arena_state = std.heap.ArenaAllocator.init(gpa);
     defer arena_state.deinit();
     const a = arena_state.allocator();
-    var outer: Paths = .empty;
-    var holes: Paths = .empty;
+    var outers: std.ArrayList([]const geom.Point) = .empty;
+    var holes: std.ArrayList([]geom.Point) = .empty;
     for (0..outline.count()) |i| {
         const poly = outline.get(i);
         if (geom.area2(poly) > 0) {
-            try outer.append(a, poly);
+            try outers.append(a, poly);
         } else {
             // The hole as a counterclockwise area, so that a positive
             // offset makes it larger.
@@ -772,10 +773,67 @@ fn compensate(gpa: Allocator, outline: Paths, xy: i64, hole: i64) Allocator.Erro
             try holes.append(a, rev);
         }
     }
-    const grown = try offset_mod.offset(a, outer, xy, .{});
-    if (holes.isEmpty()) return grown.clone(gpa);
-    const hole_area = try offset_mod.offset(a, holes, hole - xy, .{});
-    return clip.difference(gpa, grown, hole_area);
+    if (holes.items.len == 0) {
+        var all: Paths = .empty;
+        for (outers.items) |o| try all.append(a, o);
+        const grown = try offset_mod.offset(a, all, xy, .{});
+        return grown.clone(gpa);
+    }
+    // Each hole belongs to the smallest outline around it. An island in a
+    // hole (a box on a deck, in the hole of the hull outline) is an outline
+    // of its own: the hole of the hull must not cut it. So each outline
+    // gets only its own holes, and the results are joined.
+    const one = struct {
+        fn paths(al: Allocator, poly: []const geom.Point) Allocator.Error!Paths {
+            var p: Paths = .empty;
+            try p.append(al, poly);
+            return p;
+        }
+    };
+    const owner = try a.alloc(?usize, holes.items.len);
+    for (holes.items, 0..) |h, hi| {
+        owner[hi] = null;
+        var best_area: i128 = std.math.maxInt(i128);
+        for (outers.items, 0..) |o, oi| {
+            const ar = geom.area2(o);
+            if (ar >= best_area) continue;
+            if (geom.insideAny(try one.paths(a, o), h[0])) {
+                best_area = ar;
+                owner[hi] = oi;
+            }
+        }
+    }
+    var result: Paths = .empty;
+    for (outers.items, 0..) |o, oi| {
+        var mine: Paths = .empty;
+        for (holes.items, 0..) |h, hi| if (owner[hi] == oi) try mine.append(a, h);
+        const grown = try offset_mod.offset(a, try one.paths(a, o), xy, .{});
+        const part = if (mine.isEmpty()) grown else try clip.difference(a, grown, try offset_mod.offset(a, mine, hole - xy, .{}));
+        try result.appendAll(a, part);
+    }
+    return clip.unionAll(gpa, result, .non_zero);
+}
+
+test "a hole offset does not remove an island in the hole" {
+    const gpa = testing.allocator;
+    // A 40 mm square with a 30 mm hole, and a 6 mm square island in the hole.
+    var o: Paths = .empty;
+    defer o.deinit(gpa);
+    const sq = struct {
+        fn f(x0: i64, y0: i64, x1: i64, y1: i64, ccw: bool) [4]geom.Point {
+            const p = [4]geom.Point{ .init(x0, y0), .init(x1, y0), .init(x1, y1), .init(x0, y1) };
+            return if (ccw) p else .{ p[3], p[2], p[1], p[0] };
+        }
+    }.f;
+    try o.append(gpa, &sq(0, 0, 40000, 40000, true));
+    try o.append(gpa, &sq(5000, 5000, 35000, 35000, false));
+    try o.append(gpa, &sq(17000, 17000, 23000, 23000, true));
+    var out = try compensate(gpa, o, 0, 100);
+    defer out.deinit(gpa);
+    // The ring and the island: about 1600 - 900 - 6 mm2 (the hole grows by
+    // 0.1 mm) + 36 mm2.
+    try testing.expectApproxEqAbs(@as(f64, 1600 - 900 + 36), out.areaMm2(), 15);
+    try testing.expectEqual(@as(usize, 3), out.count());
 }
 
 const testing = std.testing;
@@ -1086,7 +1144,7 @@ test "a job that reuses the work of an older job gives the same G-code" {
         defer out_fresh.deinit();
         _ = try fresh.writeGcode(&out_fresh.writer);
 
-        var reuse = try Job.initReuse(gpa, &mesh, s, &.{}, .{}, &prev);
+        var reuse = try Job.initReuse(gpa, &mesh, s, &.{}, &.{}, .{}, &prev);
         try std.testing.expectEqual(step.same, reuse.gen > prev.gen);
         var out_reuse: std.Io.Writer.Allocating = .init(gpa);
         defer out_reuse.deinit();
@@ -1115,7 +1173,7 @@ test "a job with overrides reuses the work of an older job" {
     var out_fresh: std.Io.Writer.Allocating = .init(gpa);
     defer out_fresh.deinit();
     _ = try fresh.writeGcode(&out_fresh.writer);
-    var reuse = try Job.initReuse(gpa, &mesh, s, &o, .{}, &old);
+    var reuse = try Job.initReuse(gpa, &mesh, s, &o, &.{}, .{}, &old);
     defer reuse.deinit();
     try std.testing.expectEqual(@as(u32, 1), reuse.gen);
     var out_reuse: std.Io.Writer.Allocating = .init(gpa);
