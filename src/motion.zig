@@ -8,6 +8,11 @@
 //! look-ahead over the moves in its buffer. This module plans them the
 //! same way, so that the time estimate is the time of the print:
 //!
+//! A move can have a Z part (slope smoothing, see layer.zig). Its
+//! direction is then a unit vector in 3D, and its length is the 3D
+//! length. The emitter limits its speed and acceleration so that the Z
+//! axis stays within `max_z_speed` and `max_z_accel`.
+//!
 //! 1. Junction speed. Two moves at an angle meet on a small arc. The arc
 //!    is as large as a 90 degree corner at `corner_speed` (the square
 //!    corner velocity of Klipper, the "junction deviation" of grbl and
@@ -50,9 +55,12 @@ pub const Limits = struct {
 };
 
 pub const Move = struct {
-    /// The direction of the move (a unit vector in X and Y).
+    /// The direction of the move: a unit vector in X, Y, and Z, with the
+    /// Z part in `dir_z`. A move in one layer has `dir_z` = 0.
     dir: [2]f64,
-    /// The length (mm), the speed (mm/s), and the acceleration (mm/s²).
+    dir_z: f64 = 0,
+    /// The length (mm, in X, Y, and Z), the speed (mm/s), and the
+    /// acceleration (mm/s²).
     len: f64,
     speed: f64,
     accel: f64,
@@ -93,7 +101,7 @@ pub fn plan(moves: []Move, limits: Limits) f64 {
         }
         // The cosine of the angle between the reversed first move and the
         // second move. 1: a reversal. -1: straight on.
-        const cos = -(m.dir[0] * p.dir[0] + m.dir[1] * p.dir[1]);
+        const cos = -(m.dir[0] * p.dir[0] + m.dir[1] * p.dir[1] + m.dir_z * p.dir_z);
         const sin_h = @sqrt(@max(0.5 * (1 - cos), 0));
         const cos_h = @sqrt(@max(0.5 * (1 + cos), 0));
         if (1 - sin_h > 0 and cos_h > 0) {
@@ -220,6 +228,22 @@ test "the minimum cruise ratio limits the peak of a short move" {
     const vp: f64 = @sqrt(1000.0 * 10 / 2);
     const want = 2 * vp / 1000 + (10 - vp * vp / 1000) / vp;
     try testing.expectApproxEqAbs(want, plan(&b, .{ .corner_speed = 5, .min_cruise_ratio = 0.5 }), 1e-9);
+}
+
+test "a move with a Z part: the junction angle is in 3D" {
+    // Two moves that turn only in Z: a small angle, so the junction is
+    // almost straight and the corner speed limit is high.
+    const k: f64 = 1.0 / @sqrt(1.01);
+    var moves = [_]Move{
+        .{ .dir = .{ k, 0 }, .dir_z = 0.1 * k, .len = 10, .speed = 50, .accel = 1000 },
+        .{ .dir = .{ k, 0 }, .dir_z = -0.1 * k, .len = 10, .speed = 50, .accel = 1000 },
+    };
+    _ = plan(&moves, .{ .corner_speed = 5 });
+    // The same moves with no Z part go straight on at full speed.
+    var flat = [_]Move{ line(10, 0, 50, 1000), line(10, 0, 50, 1000) };
+    _ = plan(&flat, .{ .corner_speed = 5 });
+    try testing.expect(moves[1].start < flat[1].start);
+    try testing.expect(moves[1].start > 25 * 25);
 }
 
 test "a stop before a move" {
