@@ -177,6 +177,7 @@ pub const Memo = struct {
     skins: std.ArrayList(SkinEntry) = .empty,
     bands: std.ArrayList(BandEntry) = .empty,
     fills: std.ArrayList(FillEntry) = .empty,
+    splits: std.ArrayList(SplitEntry) = .empty,
 
     const OffsetEntry = struct {
         delta: i64,
@@ -191,6 +192,16 @@ pub const Memo = struct {
     const SkinEntry = struct { key: [6]i64, skin: Paths, sparse: Paths, gen: u32 };
     const BandEntry = struct { band: u32, paths: Paths, gen: u32 };
     const FillEntry = struct { key: [6]i64, skin: bool, delta: i64, paths: Paths, gen: u32 };
+    const SplitEntry = struct { key: [6]i64, delta: i64, band: u32, split: TopSplit, gen: u32 };
+
+    /// The sparse area of a layer, split for top support (see `topSplit`).
+    pub const TopSplit = struct {
+        /// The area that is not under all of the layers of the band above.
+        band: Paths,
+        /// The area under all of the layers of the band above, or the whole
+        /// sparse area if `band` is empty.
+        rest: Paths,
+    };
 
     pub fn init(gpa: Allocator) Memo {
         return .{ .arena = .init(gpa) };
@@ -238,6 +249,12 @@ pub const Memo = struct {
             var c = e;
             c.paths = try e.paths.clone(a);
             try out.fills.append(a, c);
+        };
+        for (self.splits.items) |e| if (e.gen >= min_gen) {
+            var c = e;
+            c.split.band = try e.split.band.clone(a);
+            c.split.rest = try e.split.rest.clone(a);
+            try out.splits.append(a, c);
         };
         return out;
     }
@@ -292,6 +309,23 @@ pub const Memo = struct {
         const paths = try clip.intersect(a, inner, surface);
         try self.parts.append(a, .{ .delta = delta, .layer = @intCast(j), .top = top, .paths = paths, .gen = gen });
         return paths;
+    }
+
+    /// The sparse area of `reg` moved by `delta` (see `fill`), split into
+    /// the area under all of the `band` layers above layer i and the rest
+    /// (see `TopSplit`).
+    fn topSplit(self: *Memo, reg: Regions, delta: i64, outlines: []const Paths, i: usize, band: u32, gen: u32) Allocator.Error!TopSplit {
+        for (self.splits.items) |*e| if (e.delta == delta and e.band == band and std.mem.eql(i64, &e.key, &reg.key)) {
+            e.gen = gen;
+            return e.split;
+        };
+        const full = try self.fill(reg, false, delta, gen);
+        const u = try self.underBand(outlines, i, band, gen);
+        const a = self.arena.allocator();
+        const b = try clip.difference(a, full, u);
+        const split: TopSplit = .{ .band = b, .rest = if (b.isEmpty()) full else try clip.intersect(a, full, u) };
+        try self.splits.append(a, .{ .key = reg.key, .delta = delta, .band = band, .split = split, .gen = gen });
+        return split;
     }
 
     /// For the flow infill: the area of all the layers of the band above
@@ -553,9 +587,7 @@ pub fn plan(gpa: Allocator, ctx: Context, i: usize) Allocator.Error!LayerPlan {
         // fills the rest (`region`). The flow pattern has its own band.
         var region = full_region;
         if (p.top_support_layers > 0 and p.top_support_density > p.infill_density and p.infill_pattern != .flow) {
-            const u = try memo.underBand(ctx.outlines, i, r.top_layers + p.top_support_layers, ctx.gen);
-            const band = try clip.difference(s, full_region, u);
-            if (!band.isEmpty()) region = try clip.intersect(s, full_region, u);
+            region = (try memo.topSplit(reg, inset, ctx.outlines, i, r.top_layers + p.top_support_layers, ctx.gen)).rest;
         }
         switch (p.infill_pattern) {
             .lines => {
@@ -637,9 +669,7 @@ pub fn plan(gpa: Allocator, ctx: Context, i: usize) Allocator.Error!LayerPlan {
     // degrees on the next, and joined at the walls.
     if (p.top_support_layers > 0 and p.top_support_density > p.infill_density and p.infill_pattern != .flow and p.infill_density > 0 and !sparse.isEmpty()) {
         const inset = -@divTrunc(w, 2) + geom.fromMm(p.infill_overlap * width_mm);
-        const full_region = try memo.fill(reg, false, inset, ctx.gen);
-        const u = try memo.underBand(ctx.outlines, i, r.top_layers + p.top_support_layers, ctx.gen);
-        const band = try clip.difference(s, full_region, u);
+        const band = (try memo.topSplit(reg, inset, ctx.outlines, i, r.top_layers + p.top_support_layers, ctx.gen)).band;
         if (!band.isEmpty()) {
             const spacing = geom.fromMm(width_mm / p.top_support_density);
             const angle = p.infill_angle + @as(f64, if (i % 2 == 0) 0 else 90);
