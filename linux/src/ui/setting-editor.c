@@ -386,9 +386,32 @@ static void on_dropdown(GObject *dd, GParamSpec *pspec, gpointer data) {
 
 /* A speed ratio: the unit label also gives the speed that it makes, for
  * example "% = 45 mm/s". */
+/* A thickness that the slicer covers with whole layers. */
+static gboolean is_layer_thickness(const char *key) {
+    return strcmp(key, "project.top_thickness") == 0 || strcmp(key, "project.bottom_thickness") == 0;
+}
+
 static void show_ratio_speed(GtkWidget *editor, const char *value) {
     GtkWidget *unit = g_object_get_data(G_OBJECT(editor), "zg-unit-label");
     if (!unit) return;
+    if (is_layer_thickness(key_of(editor))) {
+        /* The layers that cover the thickness (rounded up, as the slicer
+         * counts them), at the layer height of the scope. */
+        char *lh = zg_model_get_for(model_of(editor), "project.layer_height", is_scoped(editor));
+        double h = g_ascii_strtod(lh, NULL), t = g_ascii_strtod(value, NULL);
+        g_free(lh);
+        if (h <= 0) return;
+        long n = t <= 0 ? 0 : (long)ceil(t / h - 1e-6);
+        gboolean exact = fabs(n * h - t) < 1e-6;
+        char *text = g_strdup_printf(exact ? "mm = %ld layer%s" : "mm \u2192 %ld layer%s", n, n == 1 ? "" : "s");
+        gtk_label_set_text(GTK_LABEL(unit), text);
+        g_free(text);
+        char *tip = exact ? g_strdup_printf("%ld layers of %.2f mm.", n, h)
+                          : g_strdup_printf("Not a multiple of the layer height (%.2f mm): it prints %ld layers, %.2f mm.", h, n, n * h);
+        gtk_widget_set_tooltip_text(unit, tip);
+        g_free(tip);
+        return;
+    }
     double mm_s = 0;
     if (zs_app_ratio_speed(zg_model_core(model_of(editor)), key_of(editor), value, &mm_s) != ZS_OK) return;
     char *text = g_strdup_printf("%% = %.0f mm/s", mm_s);
@@ -537,7 +560,7 @@ const zs_setting_info *zg_setting_editor_info(GtkWidget *editor) {
 void zg_setting_editor_show_speed(GtkWidget *editor, GtkWidget *unit) {
     ZgModel *model = model_of(editor);
     double probe;
-    if (zs_app_ratio_speed(zg_model_core(model), key_of(editor), "1", &probe) != ZS_OK) return;
+    if (!is_layer_thickness(key_of(editor)) && zs_app_ratio_speed(zg_model_core(model), key_of(editor), "1", &probe) != ZS_OK) return;
     g_object_set_data(G_OBJECT(editor), "zg-unit-label", unit);
     g_signal_connect_object(model, "setting-changed", G_CALLBACK(on_any_setting), editor, 0);
     char *value = zg_model_get_for(model, key_of(editor), is_scoped(editor));
