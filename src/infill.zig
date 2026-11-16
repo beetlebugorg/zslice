@@ -119,6 +119,14 @@ pub fn linesPhase(gpa: Allocator, region: Paths, spacing: i64, angle_deg: f64, p
 /// retraction between them, and the links along the walls tie the lines
 /// to the walls.
 pub fn connect(gpa: Allocator, region: Paths, set: Paths, spacing: i64, angle_deg: f64) Allocator.Error!Paths {
+    return connectWith(gpa, region, set, spacing, angle_deg, true);
+}
+
+/// `connect`, with `straight` false: a line end that is not on the
+/// boundary of the region gets no link (no straight link inside). The
+/// extra lines of the flow band use it: they join only by walks along
+/// the walls, and never along the inner edge of the band.
+pub fn connectWith(gpa: Allocator, region: Paths, set: Paths, spacing: i64, angle_deg: f64, straight: bool) Allocator.Error!Paths {
     var out: Paths = .empty;
     errdefer out.deinit(gpa);
     const n = set.count();
@@ -195,7 +203,7 @@ pub fn connect(gpa: Allocator, region: Paths, set: Paths, spacing: i64, angle_de
                     walk.clearRetainingCapacity();
                     const len = if (end_at != null and to_at != null)
                         (try bound.walk(arena, end_at.?, to_at.?, max_walk, &walk)) orelse continue
-                    else blk: {
+                    else if (!straight) continue else blk: {
                         // Not on the boundary: a straight link inside.
                         const e: Point = .{ .x = end_x, .y = end_y };
                         const t: Point = .{ .x = if (low) ls[j].x0 else ls[j].x1, .y = ls[j].y };
@@ -227,6 +235,20 @@ pub fn connect(gpa: Allocator, region: Paths, set: Paths, spacing: i64, angle_de
             at = b;
         }
         try out.append(gpa, chain.items);
+    }
+    return out;
+}
+
+/// The paths of `set` without the lone short lines: a path of two points
+/// shorter than `min_len`.
+pub fn dropLone(gpa: Allocator, set: Paths, min_len: i64) Allocator.Error!Paths {
+    var out: Paths = .empty;
+    errdefer out.deinit(gpa);
+    const lim: f64 = @floatFromInt(min_len);
+    for (0..set.count()) |i| {
+        const p = set.get(i);
+        if (p.len == 2 and Point.dist(p[0], p[1]) < lim) continue;
+        try out.append(gpa, p);
     }
     return out;
 }

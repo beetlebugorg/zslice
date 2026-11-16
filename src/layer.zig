@@ -685,12 +685,10 @@ pub fn plan(gpa: Allocator, ctx: Context, i: usize) Allocator.Error!LayerPlan {
                     sparse_lines = try infill.connect(s, region, set, spacing, angle);
                     const half = @divTrunc(spacing, 2);
                     if (!near.isEmpty() and half >= w) {
-                        // The extra lines are not joined: a join from one
-                        // extra line to the next crosses the normal line
-                        // between them (a double bead there), and in a
-                        // narrow band the joins are longer than the
-                        // lines. The travels between them stay in the
-                        // infill (combing).
+                        // A straight join from one extra line to the next
+                        // crosses the normal line between them (a double
+                        // bead there), so the joins below only walk along
+                        // the walls.
                         // A short extra line supports almost nothing and
                         // costs a travel: the shortest is 4 line widths.
                         // Only in the parts of the band at least one
@@ -702,12 +700,33 @@ pub fn plan(gpa: Allocator, ctx: Context, i: usize) Allocator.Error!LayerPlan {
                         const wide = try offset_mod.offset(s, shrunk, half, .{});
                         const band_area = try clip.intersect(s, near, wide);
                         const extra = try infill.linesPhase(s, band_area, spacing, angle, half, 4 * w);
-                        try sparse_lines.appendAll(s, extra);
+                        // Joined only by walks along the walls (the
+                        // boundary of the whole region): a walk passes the
+                        // end of the normal line between two extra lines
+                        // at the wall, and never crosses it in the open.
+                        const joined = try infill.connectWith(s, region, extra, spacing, angle, false);
+                        // An extra line that no walk joins costs a travel
+                        // for a little support: keep it only if it is at
+                        // least 2 spacings long.
+                        const kept = try infill.dropLone(s, joined, 2 * spacing);
+                        try sparse_lines.appendAll(s, kept);
                     }
                 }
             },
         }
     }
+
+    // A lone short line (one segment, no join) of a line pattern adds
+    // little strength, and costs a travel and often a retraction: it is a
+    // line at a notch or a corner where the next line is out of reach.
+    // Lines shorter than one line spacing (8 mm at most) go.
+    if (sparse_lines.count() > 0 and p.infill_density > 0) switch (p.infill_pattern) {
+        .lines, .grid, .triangles, .cubic, .zigzag, .flow => {
+            const lone_min = @min(geom.fromMm(width_mm / p.infill_density), geom.fromMm(8));
+            sparse_lines = try infill.dropLone(s, sparse_lines, lone_min);
+        },
+        else => {},
+    };
 
     // The top support lines: dense, one direction on each layer, turned 90
     // degrees on the next, and joined at the walls.
