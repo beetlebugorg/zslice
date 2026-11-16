@@ -18,6 +18,8 @@
  */
 #include "app-model.h"
 
+#include "../prefs/printers.h"
+
 #include <errno.h>
 #include <string.h>
 
@@ -60,11 +62,15 @@ static int request_slice(ZgModel *self) {
     return zs_app_request_slice(self->core);
 }
 
+/* The machine settings are the profile of the current printer; the
+ * filament and the project settings are global files. */
 static char *state_path(int group) {
-    const char *dir = g_getenv("ZSLICE_STATE_DIR");
+    if (group == ZS_GROUP_MACHINE) return zg_printer_profile_path(zg_printers_current());
+    char *dir = zg_config_dir();
     char *file = g_strconcat(group_files[group], ".toml", NULL);
-    char *path = dir ? g_build_filename(dir, file, NULL) : g_build_filename(g_get_user_config_dir(), "zslice", file, NULL);
+    char *path = g_build_filename(dir, file, NULL);
     g_free(file);
+    g_free(dir);
     return path;
 }
 
@@ -98,8 +104,15 @@ static gboolean on_save_timer(gpointer data) {
     return G_SOURCE_REMOVE;
 }
 
+static void load_group(ZgModel *self, int g);
+
 static void load_state(ZgModel *self) {
-    for (int g = 0; g < 3; g++) {
+    zg_printers_load();
+    for (int g = 0; g < 3; g++) load_group(self, g);
+}
+
+static void load_group(ZgModel *self, int g) {
+    {
         char *path = state_path(g);
         char *text = NULL;
         gsize len = 0;
@@ -121,7 +134,7 @@ static void load_state(ZgModel *self) {
 
 G_DEFINE_FINAL_TYPE(ZgModel, zg_model, G_TYPE_OBJECT)
 
-enum { SIGNAL_CORE_EVENT, SIGNAL_SELECTION_CHANGED, SIGNAL_PICKED, SIGNAL_SETTING_CHANGED, SIGNAL_FOCUS_CHANGED, SIGNAL_SCOPE_CHANGED, N_SIGNALS };
+enum { SIGNAL_CORE_EVENT, SIGNAL_SELECTION_CHANGED, SIGNAL_PICKED, SIGNAL_SETTING_CHANGED, SIGNAL_FOCUS_CHANGED, SIGNAL_SCOPE_CHANGED, SIGNAL_PRINTER_CHANGED, SIGNAL_PRINTERS_EDITED, N_SIGNALS };
 static guint signals[N_SIGNALS];
 
 typedef struct {
@@ -216,6 +229,12 @@ static void zg_model_class_init(ZgModelClass *klass) {
      * view can react to it (switch a tab, for example). */
     signals[SIGNAL_PICKED] = g_signal_new("picked", G_TYPE_FROM_CLASS(klass),
         G_SIGNAL_RUN_LAST, 0, NULL, NULL, NULL, G_TYPE_NONE, 1, G_TYPE_INT64);
+    /* printers-edited(): a printer was added, removed, or renamed. */
+    signals[SIGNAL_PRINTERS_EDITED] = g_signal_new("printers-edited", G_TYPE_FROM_CLASS(klass),
+        G_SIGNAL_RUN_LAST, 0, NULL, NULL, NULL, G_TYPE_NONE, 0);
+    /* printer-changed(): after zg_model_use_printer. */
+    signals[SIGNAL_PRINTER_CHANGED] = g_signal_new("printer-changed", G_TYPE_FROM_CLASS(klass),
+        G_SIGNAL_RUN_LAST, 0, NULL, NULL, NULL, G_TYPE_NONE, 0);
     /* scope-changed(): see zg_model_set_scope. */
     signals[SIGNAL_SCOPE_CHANGED] = g_signal_new("scope-changed", G_TYPE_FROM_CLASS(klass),
         G_SIGNAL_RUN_LAST, 0, NULL, NULL, NULL, G_TYPE_NONE, 0);
@@ -317,6 +336,41 @@ void zg_model_set_focus(ZgModel *self, guint32 features, gboolean first_layer_on
 guint32 zg_model_focus(ZgModel *self, gboolean *first_layer_only) {
     if (first_layer_only) *first_layer_only = self->focus_first;
     return self->focus;
+}
+
+/* Tells each editor of a group that its value changed. */
+void zg_model_announce(ZgModel *self, const char *prefix) {
+    size_t n = zs_setting_count();
+    for (size_t i = 0; i < n; i++) {
+        zs_setting_info info;
+        if (zs_setting_get_info(i, &info) == ZS_OK && g_str_has_prefix(info.name, prefix)) {
+            g_signal_emit(self, signals[SIGNAL_SETTING_CHANGED], 0, info.name);
+        }
+    }
+}
+
+void zg_model_use_printer(ZgModel *self, const char *id) {
+    ZgPrinter *cur = zg_printers_current();
+    if (cur && strcmp(cur->id, id) == 0) return;
+    /* Save the machine settings of the printer before. */
+    self->dirty |= 1u << ZS_GROUP_MACHINE;
+    save_state(self);
+    zg_printers_set_current(id);
+    zs_app_group_reset(self->core, ZS_GROUP_MACHINE);
+    load_group(self, ZS_GROUP_MACHINE);
+    zg_model_announce(self, "machine.");
+    g_signal_emit(self, signals[SIGNAL_PRINTER_CHANGED], 0);
+    slice_soon(self);
+}
+
+void zg_model_printers_edited(ZgModel *self) {
+    g_signal_emit(self, signals[SIGNAL_PRINTERS_EDITED], 0);
+}
+
+void zg_model_save_soon(ZgModel *self, int group) {
+    self->dirty |= 1u << group;
+    if (self->save_timer) g_source_remove(self->save_timer);
+    self->save_timer = g_timeout_add(500, on_save_timer, self);
 }
 
 double zg_model_slice_ms(ZgModel *self) {

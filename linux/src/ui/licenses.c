@@ -26,6 +26,14 @@ static const struct {
      "Public License, version 1.1.\n\n"
      "zslice links cairo as a shared library from your system. Your system has the full license text, "
      "usually in /usr/share/licenses/ or /usr/share/doc/."},
+    {"libsoup", "LGPL-2.0-or-later",
+     "libsoup is free software under the GNU Library General Public License, version 2 or later.\n\n"
+     "zslice links libsoup as a shared library from your system, for the printer connections. Your "
+     "system has the full license text, usually in /usr/share/licenses/ or /usr/share/doc/."},
+    {"json-glib", "LGPL-2.1-or-later",
+     "json-glib is free software under the GNU Lesser General Public License, version 2.1 or later.\n\n"
+     "zslice links json-glib as a shared library from your system, for the printer APIs. Your system "
+     "has the full license text, usually in /usr/share/licenses/ or /usr/share/doc/."},
 };
 
 typedef struct {

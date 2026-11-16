@@ -28,6 +28,8 @@ The shells link these libraries as shared libraries from the system. Their code 
 | Linux (`linux/`) | GTK 4 | LGPL-2.1-or-later |
 | Linux (`linux/`) | GLib | LGPL-2.1-or-later |
 | Linux (`linux/`) | cairo | LGPL-2.1-only OR MPL-1.1 |
+| Linux (`linux/`) | libsoup 3 (HTTP for the printer connections) | LGPL-2.0-or-later |
+| Linux (`linux/`) | json-glib (the JSON of the printer APIs) | LGPL-2.1-or-later |
 
 ## Algorithms, formats, and conventions
 
@@ -43,6 +45,10 @@ These sources gave methods or formats. zslice does not copy their code. Each zsl
 | Doubly connected edge list (half-edge structure), as in de Berg et al., "Computational Geometry: Algorithms and Applications" | Textbook method | `src/clip.zig` | The faces of the arrangement, walked to find the winding numbers. |
 | Cura profile files (Ultimaker Cura, https://github.com/Ultimaker/Cura): `.def.json` definitions with `inherits` and `overrides`, `.inst.cfg` files with a `[values]` section, `.xml.fdm_material` materials, and the setting names | LGPL-3.0 (Cura; the formats and the names, not code) | `src/import_cura.zig` | The import of a Cura profile stack. |
 | TOML v1.0.0, https://toml.io/en/v1.0.0 | MIT (the specification) | `src/toml.zig`, `src/profile.zig` | The profile file format. zslice parses a subset. |
+| OctoPrint REST API, https://docs.octoprint.org/en/master/api/ (`/api/printer`, `/api/printerprofiles`, `/api/job`, `/api/files/local`, the `X-Api-Key` header) | AGPL-3.0 (OctoPrint; the API, not code) | `linux/src/net/printer-link.c` | Read the state of a printer, and send G-code to it. printdeck has the same API. |
+| Moonraker API, https://moonraker.readthedocs.io/ (`/printer/objects/query`, `/server/files/upload`) | GPL-3.0 (Moonraker; the API, not code) | `linux/src/net/printer-link.c` | The same, for Klipper printers. |
+| printdeck deck API (same author, AGPL-3.0), `deck/internal/octoapi` of printdeck: `/api/plugin/printdeck` (the filament, the spools, the job) | AGPL-3.0 | `linux/src/net/printer-link.c` | The filament in the printer, for "Use the filament in the printer". |
+| G-code over a serial port: one command, then wait for the line `ok` (the Marlin and RepRap host protocol), https://reprap.org/wiki/G-code | Protocol | `linux/src/net/printer-link.c` | The USB connection. |
 | STL file format, 3D Systems. Description: https://en.wikipedia.org/wiki/STL_(file_format) | File format | `src/mesh.zig` | The binary and ASCII STL loader and the binary STL writer. |
 | Integer coordinates in micrometers, as in CuraEngine (https://github.com/Ultimaker/CuraEngine) | AGPL-3.0 | `src/geom.zig` | The coordinate unit. CuraEngine uses 1 unit = 1 micrometer (`include/types/Coord_t.h`). zslice uses the same unit. No code is copied. |
 | CuraEngine G-code comments: `;FLAVOR:`, `;LAYER_COUNT:`, `;LAYER:n`, `;TYPE:WALL-OUTER`, `WALL-INNER`, `SKIN`, `FILL` | AGPL-3.0 (the convention, not code) | `src/gcode.zig` | The comment names, so that G-code viewers and printdeck (`deck/internal/gcode/gcode.go`) find the layers and features. |

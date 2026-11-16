@@ -12,6 +12,9 @@
 #include <string.h>
 
 #include "licenses.h"
+#include "preferences.h"
+#include "../net/printer-link.h"
+#include "../prefs/printers.h"
 #include "preview.h"
 #include "settings-panel.h"
 
@@ -29,7 +32,22 @@ typedef struct {
     char *last_stats;
     /* Export was pressed while a slice ran: export when it is done. */
     gboolean export_pending;
+    /* The printers: the current printer, the send button, and the state
+     * of the printer in the status bar. */
+    GtkWidget *printer_dd;
+    GtkStringList *printer_names;
+    gboolean filling_printers;
+    GtkWidget *send_button;
+    GtkWidget *send_menu;
+    GtkWidget *printer_state;
+    guint poll;
+    GCancellable *poll_cancel;
+    GCancellable *send_cancel;
+    gboolean send_print;
+    gboolean send_pending;
 } Window;
+
+static void send_now(Window *w);
 
 static Window *get(GtkWindow *w) {
     return g_object_get_data(G_OBJECT(w), "zg-window");
@@ -109,6 +127,10 @@ static void on_core_event(ZgModel *model, int event, double progress, int status
         w->last_error = g_strdup(zg_status_text(status));
     }
     update(w);
+    if (w->send_pending && zs_app_state(zg_model_core(model)) != ZS_STATE_SLICING) {
+        w->send_pending = FALSE;
+        if (zs_app_state(zg_model_core(model)) == ZS_STATE_DONE) send_now(w);
+    }
     if (w->export_pending && zs_app_state(zg_model_core(model)) != ZS_STATE_SLICING) {
         w->export_pending = FALSE;
         if (zs_app_state(zg_model_core(model)) == ZS_STATE_DONE) zg_window_export_dialog(w->window);
@@ -236,6 +258,168 @@ void zg_window_export_dialog(GtkWindow *window) {
     g_object_unref(dialog);
 }
 
+/* ---- send to the printer ---- */
+
+static void update_printer_ui(Window *w);
+
+static void on_send_progress(double fraction, gpointer data) {
+    Window *w = data;
+    char *text = g_strdup_printf("Sending to %s: %.0f %%", zg_printers_current()->name, fraction * 100);
+    gtk_label_set_text(GTK_LABEL(w->printer_state), text);
+    g_free(text);
+}
+
+static void on_send_done(gboolean ok, const char *message, gpointer data) {
+    Window *w = data;
+    g_clear_object(&w->send_cancel);
+    gtk_widget_set_sensitive(w->send_button, TRUE);
+    if (ok) {
+        char *text = g_strdup_printf(w->send_print ? "Sent to %s; it prints." : "Sent to %s.", zg_printers_current()->name);
+        gtk_label_set_text(GTK_LABEL(w->printer_state), text);
+        g_free(text);
+    } else {
+        gtk_label_set_text(GTK_LABEL(w->printer_state), "");
+        show_error(w, "The G-code was not sent", message ? message : "");
+    }
+}
+
+static void send_now(Window *w) {
+    ZgPrinter *pr = zg_printers_current();
+    const uint8_t *gcode = NULL;
+    size_t len = 0;
+    if (zs_app_gcode(zg_model_core(w->model), &gcode, &len) != ZS_OK) return;
+    const char *name = zg_model_name(w->model);
+    char *base = g_strdup(name ? name : "part.stl");
+    char *dot = strrchr(base, '.');
+    if (dot) *dot = 0;
+    char *file = g_strconcat(base, ".gcode", NULL);
+    GBytes *bytes = g_bytes_new(gcode, len);
+    w->send_cancel = g_cancellable_new();
+    gtk_widget_set_sensitive(w->send_button, FALSE);
+    char *text = g_strdup_printf("Sending to %s…", pr->name);
+    gtk_label_set_text(GTK_LABEL(w->printer_state), text);
+    g_free(text);
+    zg_link_send(pr, file, bytes, w->send_print, w->send_cancel, on_send_progress, on_send_done, w);
+    g_bytes_unref(bytes);
+    g_free(file);
+    g_free(base);
+}
+
+static void send(Window *w, gboolean print) {
+    w->send_print = print;
+    int state = zs_app_state(zg_model_core(w->model));
+    if (state == ZS_STATE_SLICING) {
+        w->send_pending = TRUE;
+        return;
+    }
+    if (state == ZS_STATE_DONE) send_now(w);
+}
+
+static void on_send_clicked(GtkButton *b, gpointer data) {
+    Window *w = get(data);
+    /* USB prints as it sends; the network kinds only upload here. */
+    send(w, zg_printers_current()->kind == ZG_LINK_USB);
+}
+
+static void on_send_print(GSimpleAction *a, GVariant *v, gpointer data) {
+    send(get(data), TRUE);
+}
+
+static void on_send_only(GSimpleAction *a, GVariant *v, gpointer data) {
+    send(get(data), FALSE);
+}
+
+static void on_export_action(GSimpleAction *a, GVariant *v, gpointer data) {
+    zg_window_export_dialog(data);
+}
+
+/* The state of the current printer, each 5 s, in the status bar. */
+static void on_poll_info(ZgPrinterInfo *info, const char *error, gpointer data) {
+    Window *w = data;
+    if (!w->printer_state) {
+        zg_printer_info_free(info);
+        return;
+    }
+    if (w->send_cancel) {
+        zg_printer_info_free(info);
+        return;
+    }
+    ZgPrinter *pr = zg_printers_current();
+    char *text;
+    if (!info) {
+        text = g_strdup_printf("%s: no connection", pr->name);
+    } else if (info->job && info->progress > 0) {
+        if (info->time_left > 0) {
+            text = g_strdup_printf("%s: %s %.0f %%, %d:%02d left", pr->name, info->state ? info->state : "Printing",
+                                   info->progress * 100, (int)info->time_left / 3600, (int)info->time_left / 60 % 60);
+        } else {
+            text = g_strdup_printf("%s: %s %.0f %%", pr->name, info->state ? info->state : "Printing", info->progress * 100);
+        }
+    } else {
+        text = g_strdup_printf("%s: %s", pr->name, info->state ? info->state : "connected");
+    }
+    gtk_label_set_text(GTK_LABEL(w->printer_state), text);
+    gtk_widget_set_tooltip_text(w->printer_state, error);
+    g_free(text);
+    zg_printer_info_free(info);
+}
+
+static gboolean on_poll(gpointer data) {
+    Window *w = data;
+    ZgPrinter *pr = zg_printers_current();
+    if (pr->kind == ZG_LINK_NONE || pr->kind == ZG_LINK_USB || w->send_cancel) return G_SOURCE_CONTINUE;
+    if (w->poll_cancel) g_cancellable_cancel(w->poll_cancel);
+    g_clear_object(&w->poll_cancel);
+    w->poll_cancel = g_cancellable_new();
+    zg_link_query(pr, w->poll_cancel, on_poll_info, w);
+    return G_SOURCE_CONTINUE;
+}
+
+static void update_printer_ui(Window *w) {
+    ZgPrinter *pr = zg_printers_current();
+    w->filling_printers = TRUE;
+    guint n = g_list_model_get_n_items(G_LIST_MODEL(w->printer_names));
+    const char **names = g_new0(const char *, zg_printers_count() + 1);
+    guint selected = 0;
+    for (guint i = 0; i < zg_printers_count(); i++) {
+        names[i] = zg_printers_get(i)->name;
+        if (zg_printers_get(i) == pr) selected = i;
+    }
+    gtk_string_list_splice(w->printer_names, 0, n, names);
+    g_free(names);
+    gtk_drop_down_set_selected(GTK_DROP_DOWN(w->printer_dd), selected);
+    w->filling_printers = FALSE;
+    gboolean linked = pr->kind != ZG_LINK_NONE;
+    gtk_widget_set_visible(w->send_button, linked);
+    gtk_widget_set_visible(w->send_menu, linked);
+    if (linked) {
+        char *label = g_strdup_printf(pr->kind == ZG_LINK_USB ? "Print on %s" : "Send to %s", pr->name);
+        gtk_button_set_label(GTK_BUTTON(w->send_button), label);
+        g_free(label);
+    }
+    /* The main button: send if the printer has a connection, else export. */
+    if (linked) gtk_widget_remove_css_class(w->export_button, "suggested-action");
+    else gtk_widget_add_css_class(w->export_button, "suggested-action");
+    gtk_label_set_text(GTK_LABEL(w->printer_state), "");
+    on_poll(w);
+}
+
+static void on_printer_dd(GObject *dd, GParamSpec *pspec, gpointer data) {
+    Window *w = data;
+    if (w->filling_printers) return;
+    ZgPrinter *pr = zg_printers_get(gtk_drop_down_get_selected(GTK_DROP_DOWN(dd)));
+    if (pr) zg_model_use_printer(w->model, pr->id);
+}
+
+static void on_printers_changed(ZgModel *model, gpointer data) {
+    update_printer_ui(data);
+}
+
+static void on_prefs_action(GSimpleAction *a, GVariant *v, gpointer data) {
+    Window *w = get(data);
+    zg_preferences_show(w->window, w->model);
+}
+
 /* ---- drop ---- */
 
 static gboolean on_drop(GtkDropTarget *target, const GValue *value, double x, double y, gpointer data) {
@@ -257,6 +441,11 @@ static void on_export_clicked(GtkButton *b, gpointer data) {
 static void window_free(gpointer data) {
     Window *w = data;
     g_signal_handlers_disconnect_by_data(w->model, w);
+    if (w->poll) g_source_remove(w->poll);
+    if (w->poll_cancel) g_cancellable_cancel(w->poll_cancel);
+    if (w->send_cancel) g_cancellable_cancel(w->send_cancel);
+    g_clear_object(&w->poll_cancel);
+    w->printer_state = NULL;
     g_object_unref(w->model);
     g_free(w->last_error);
     g_free(w->last_stats);
@@ -300,7 +489,37 @@ GtkWindow *zg_window_new(GtkApplication *app, ZgModel *model) {
     gtk_widget_set_tooltip_text(w->export_button, "Save the G-code (Ctrl+E)");
     g_signal_connect(w->export_button, "clicked", G_CALLBACK(on_export_clicked), w->window);
 
+    /* The printer, and the send button with its menu. */
+    w->printer_names = gtk_string_list_new(NULL);
+    w->printer_dd = gtk_drop_down_new(G_LIST_MODEL(w->printer_names), NULL);
+    gtk_widget_set_tooltip_text(w->printer_dd, "The printer: its machine settings, and where Send goes. Edit the printers in Preferences.");
+    g_signal_connect(w->printer_dd, "notify::selected", G_CALLBACK(on_printer_dd), w);
+    gtk_header_bar_pack_start(GTK_HEADER_BAR(header), w->printer_dd);
+    w->send_button = gtk_button_new_with_label("Send");
+    gtk_widget_add_css_class(w->send_button, "suggested-action");
+    g_signal_connect(w->send_button, "clicked", G_CALLBACK(on_send_clicked), w->window);
+    GMenu *send_menu = g_menu_new();
+    g_menu_append(send_menu, "Send and print", "win.send-print");
+    g_menu_append(send_menu, "Send only", "win.send-only");
+    g_menu_append(send_menu, "Export a G-code file…", "win.export");
+    w->send_menu = gtk_menu_button_new();
+    gtk_menu_button_set_menu_model(GTK_MENU_BUTTON(w->send_menu), G_MENU_MODEL(send_menu));
+    gtk_widget_add_css_class(w->send_menu, "suggested-action");
+    g_object_unref(send_menu);
+    GtkWidget *send_box = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 0);
+    gtk_widget_add_css_class(send_box, "linked");
+    gtk_box_append(GTK_BOX(send_box), w->send_button);
+    gtk_box_append(GTK_BOX(send_box), w->send_menu);
+    const GActionEntry win_actions[] = {
+        {.name = "send-print", .activate = on_send_print},
+        {.name = "send-only", .activate = on_send_only},
+        {.name = "export", .activate = on_export_action},
+        {.name = "preferences", .activate = on_prefs_action},
+    };
+    g_action_map_add_action_entries(G_ACTION_MAP(w->window), win_actions, G_N_ELEMENTS(win_actions), w->window);
+
     GMenu *menu = g_menu_new();
+    g_menu_append(menu, "Preferences", "win.preferences");
     g_menu_append(menu, "Licenses", "app.licenses");
     g_menu_append(menu, "About zslice", "app.about");
     GtkWidget *menu_button = gtk_menu_button_new();
@@ -308,6 +527,7 @@ GtkWindow *zg_window_new(GtkApplication *app, ZgModel *model) {
     gtk_menu_button_set_menu_model(GTK_MENU_BUTTON(menu_button), G_MENU_MODEL(menu));
     g_object_unref(menu);
     gtk_header_bar_pack_end(GTK_HEADER_BAR(header), menu_button);
+    gtk_header_bar_pack_end(GTK_HEADER_BAR(header), send_box);
     gtk_header_bar_pack_end(GTK_HEADER_BAR(header), w->export_button);
 
     w->title = gtk_label_new("zslice");
@@ -348,6 +568,10 @@ GtkWindow *zg_window_new(GtkApplication *app, ZgModel *model) {
     gtk_widget_add_css_class(bar, "zg-status");
     gtk_widget_add_css_class(bar, "zg-panel");
     gtk_box_append(GTK_BOX(bar), w->status);
+    w->printer_state = gtk_label_new("");
+    gtk_widget_add_css_class(w->printer_state, "dim-label");
+    gtk_label_set_ellipsize(GTK_LABEL(w->printer_state), PANGO_ELLIPSIZE_END);
+    gtk_box_append(GTK_BOX(bar), w->printer_state);
     gtk_box_append(GTK_BOX(bar), w->progress);
 
     GtkWidget *body = gtk_box_new(GTK_ORIENTATION_VERTICAL, 0);
@@ -361,6 +585,10 @@ GtkWindow *zg_window_new(GtkApplication *app, ZgModel *model) {
     gtk_widget_add_controller(GTK_WIDGET(w->window), GTK_EVENT_CONTROLLER(drop));
 
     g_signal_connect(model, "core-event", G_CALLBACK(on_core_event), w);
+    g_signal_connect(model, "printer-changed", G_CALLBACK(on_printers_changed), w);
+    g_signal_connect(model, "printers-edited", G_CALLBACK(on_printers_changed), w);
+    update_printer_ui(w);
+    w->poll = g_timeout_add_seconds(5, on_poll, w);
     update(w);
     return w->window;
 }

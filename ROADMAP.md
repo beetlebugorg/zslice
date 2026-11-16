@@ -108,7 +108,11 @@ The goal is the features that people use in PrusaSlicer and Cura. zslice designs
 - [x] Top and bottom skin patterns: lines, monotonic, concentric; the skin angle and its turn per layer
 - [x] Changes for the part (inline): for all its layers, or for some layers (overrides by z range); the Settings page has the defaults for all prints
 - [ ] 3MF: save the parts with their changes and overrides; with more than one STL, one new 3MF with all of them
-- [ ] Preferences window: printers (more than one), connections (USB, OctoPrint, Moonraker, printdeck), global app settings
+- [x] Preferences window: printers (more than one, each with its machine settings), connections (printdeck, OctoPrint, Moonraker, USB serial), a connection test that reads the bed, the nozzle, and the filament of the printer, global app settings (theme, first view, threads)
+- [x] Send to the printer (upload, or upload and print), and the state of the printer in the status bar
+- [ ] Seam mode "hidden": the most hidden point (inside corners, the back, aligned with the layer below, not on an overhang)
+- [ ] More infill: honeycomb, lightning, adaptive cubic, and a new connected pattern (one path for each area, dense under the top and near the walls) with no travel
+- [ ] printdeck web module: the core in wasm, a WebGPU backend for the 3D view, the slicer in the printdeck web UI and cloud
 - [ ] Combing: travel inside the part over the infill and the inner walls, with no retraction, and faster
 - [ ] Preview color modes: feature, speed, flow, layer time, line width, layer height, filament color
 - [ ] Ironing in the preview: the ironed top skin looks flat; the inspector shows what ironing costs in time

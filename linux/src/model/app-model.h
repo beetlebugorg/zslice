@@ -63,6 +63,19 @@ gboolean zg_model_overridden(ZgModel *self, const char *key);
 /* Removes the overrides of the setting at z_show, and slices again. */
 void zg_model_clear_override(ZgModel *self, const char *key);
 
+/* Makes printer `id` the current printer: saves the machine settings of
+ * the printer before, and loads the machine profile of the new one.
+ * "printer-changed" follows. */
+void zg_model_use_printer(ZgModel *self, const char *id);
+
+/* Emits "setting-changed" for each setting whose name starts with
+ * `prefix` (for example "filament."), after a change of many values. */
+void zg_model_announce(ZgModel *self, const char *prefix);
+/* Emits "printers-edited": the list or the names of the printers changed. */
+void zg_model_printers_edited(ZgModel *self);
+/* Saves a group soon (after a change outside zg_model_set). */
+void zg_model_save_soon(ZgModel *self, int group);
+
 /* The time of the last slice, from the request to the result, in ms. */
 double zg_model_slice_ms(ZgModel *self);
 

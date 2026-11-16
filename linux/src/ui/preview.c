@@ -12,6 +12,10 @@
  */
 #include "preview.h"
 
+#include <string.h>
+
+#include "../prefs/printers.h"
+
 #include <math.h>
 
 #include "colors.h"
@@ -436,8 +440,12 @@ GtkWidget *zg_preview_new(ZgModel *model) {
     gtk_stack_add_titled(GTK_STACK(stack), p->area, "2d", "2D");
     gtk_stack_add_titled(GTK_STACK(stack), p->view3d, "3d", "3D");
     gtk_widget_set_hexpand(stack, TRUE);
-    /* For development and screenshots: ZSLICE_VIEW=3d opens the 3D view. */
-    if (g_strcmp0(g_getenv("ZSLICE_VIEW"), "3d") == 0) gtk_stack_set_visible_child_name(GTK_STACK(stack), "3d");
+    /* The first view: the preference (Preferences, General), or
+     * ZSLICE_VIEW=2d or 3d for development and screenshots. */
+    const char *env = g_getenv("ZSLICE_VIEW");
+    char *view = env ? g_strdup(env) : zg_pref_get("view", "3d");
+    if (strcmp(view, "3d") == 0) gtk_stack_set_visible_child_name(GTK_STACK(stack), "3d");
+    g_free(view);
     GtkWidget *switcher = gtk_stack_switcher_new();
     gtk_stack_switcher_set_stack(GTK_STACK_SWITCHER(switcher), GTK_STACK(stack));
     gtk_widget_set_tooltip_text(switcher, "2D: one layer. 3D: the layers up to the slider. In 3D: left drag to orbit, middle drag to pan, right drag to rotate freely, scroll to zoom, double-click to reset.");

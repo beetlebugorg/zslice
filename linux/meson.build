@@ -27,6 +27,10 @@ gtk_dep = dependency('gtk4', version: '>= 4.14')
 wayland_dep = dependency('wayland-client')
 thread_dep = dependency('threads')
 m_dep = cc.find_library('m', required: false)
+# Printers: HTTP (OctoPrint, Moonraker, printdeck) and JSON. Both are GNOME
+# libraries with GTK; other shells use the HTTP of their platform.
+soup_dep = dependency('libsoup-3.0')
+json_dep = dependency('json-glib-1.0')
 
 find_program('zig', required: true)
 build_core = find_program('build-core.sh', native: true)
@@ -49,12 +53,15 @@ executable('zslice-gtk',
   'src/ui/settings-panel.c',
   'src/ui/preview.c',
   'src/ui/licenses.c',
+  'src/ui/preferences.c',
   'src/ui/view3d.c',
   'src/ui/native-surface.c',
+  'src/prefs/printers.c',
+  'src/net/printer-link.c',
   core[1], core[2],
   link_with: core[0],
   c_args: ['-DZG_VERSION="' + meson.project_version() + '"'],
-  dependencies: [gtk_dep, wayland_dep, thread_dep, m_dep],
+  dependencies: [gtk_dep, wayland_dep, thread_dep, m_dep, soup_dep, json_dep],
   install: true,
 )
 

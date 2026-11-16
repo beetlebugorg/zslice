@@ -177,6 +177,15 @@ pub const App = struct {
         return zs.profile.writeChanged(app.settings, group, w);
     }
 
+    /// Sets all settings of a group to the built-in defaults. A shell does
+    /// this before it applies the profile of an other printer, so that no
+    /// value of the printer before stays.
+    pub fn resetGroup(app: *App, group: zs.profile.Group) void {
+        switch (group) {
+            inline else => |g| @field(app.settings, @tagName(g)) = .{},
+        }
+    }
+
     /// Applies a profile text to the settings of a group (for example, the
     /// text of `writeState` after a restart). The settings change only if
     /// all of the text is valid.

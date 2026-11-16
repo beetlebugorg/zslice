@@ -100,6 +100,21 @@ The light gray area is the outline of the layer. Each line is drawn at the line 
 
 Layer numbers start at 0. If the number is too large, zslice shows the number of layers in the part.
 
+## Printers
+
+Open Preferences (the menu, or Ctrl+,). The Printers page lists your printers. Each printer has its own machine settings (the bed, the nozzle, the speeds, the start G-code) and a connection:
+
+- None: export a G-code file.
+- printdeck, or OctoPrint: the address of the printer and its API key.
+- Moonraker (Klipper): the address of Moonraker.
+- USB: the serial port and the speed. The app sends the print itself, line by line, so the computer must stay on while it prints.
+
+"Test the connection" shows what the printer tells: its state, its bed and nozzle (OctoPrint, Moonraker), and the filament in it (printdeck). "Use the bed and nozzle of the printer" and "Use the filament in the printer" copy them to your settings.
+
+Pick the printer in the menu at the left of the header bar. With a connection, "Send to" puts the G-code on the printer; its menu has "Send and print" and "Export a G-code file". The status bar shows the state of the printer and the progress of its print.
+
+The API keys are in `~/.config/zslice/app.ini`, which only you can read.
+
 ## Your settings stay
 
 The app saves the machine, filament, and project settings that you change, and loads them at the next start. They are in `~/.config/zslice/machine.toml`, `filament.toml`, and `project.toml`. Each file has only the settings that differ from the defaults, with the help of each one, in the profile format (see docs/user/profiles.md), so you can also edit them. If a file does not load, the app says why in its log and keeps a copy with the extension `.bad`.

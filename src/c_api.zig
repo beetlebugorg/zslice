@@ -650,6 +650,13 @@ export fn zs_app_state_write(a: ?*const App, group: c_int, buf: ?[*]u8, cap: usi
     return ok;
 }
 
+/// Sets all settings of a group to the built-in defaults.
+export fn zs_app_group_reset(a: ?*App, group: c_int) c_int {
+    const app = a orelse return @intFromEnum(Status.invalid_argument);
+    app.resetGroup(groupOf(group) orelse return @intFromEnum(Status.invalid_argument));
+    return ok;
+}
+
 /// Applies a profile text to a group. On an error, `message` (can be
 /// NULL) gets the line and the reason, and the settings do not change.
 export fn zs_app_profile_apply(a: ?*App, group: c_int, text: ?[*]const u8, len: usize, message: ?[*]u8, cap: usize) c_int {

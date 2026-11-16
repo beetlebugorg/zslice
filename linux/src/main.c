@@ -9,6 +9,7 @@
 
 #include "model/app-model.h"
 #include "ui/licenses.h"
+#include "ui/preferences.h"
 #include "ui/window.h"
 
 #define ZG_APP_ID "org.beetlebug.Zslice"
@@ -100,6 +101,10 @@ static void on_startup(GApplication *app, gpointer data) {
     gtk_application_set_accels_for_action(GTK_APPLICATION(app), "app.open", open_keys);
     gtk_application_set_accels_for_action(GTK_APPLICATION(app), "app.export", export_keys);
     gtk_application_set_accels_for_action(GTK_APPLICATION(app), "app.quit", quit_keys);
+    const char *prefs_keys[] = {"<Control>comma", NULL};
+    gtk_application_set_accels_for_action(GTK_APPLICATION(app), "win.preferences", prefs_keys);
+    /* The model loaded the printers and the app settings. */
+    zg_preferences_apply_theme();
 
     GtkCssProvider *css = gtk_css_provider_new();
     gtk_css_provider_load_from_string(css, ZG_CSS);
