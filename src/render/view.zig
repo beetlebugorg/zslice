@@ -731,6 +731,28 @@ pub const View = struct {
         if (b < v.path_start.items[path + 1]) v.seg_bead = b;
     }
 
+    /// A nozzle over the point p (x, y, and the top z of the bead): a cone
+    /// of round discs (beads of almost no length) to the tip, and a block
+    /// over it. Returns the number of beads.
+    fn nozzle(out: []vk.Instance, p: [3]f32) usize {
+        const brass = [4]u8{ 0xc9, 0xa2, 0x4e, 11 };
+        // A cone 4 mm high, from 0.4 mm at the tip to 4.4 mm, as 8 discs
+        // that overlap, and a block of 7 mm over it.
+        var parts: [9]struct { dz: f32, h: f32, w: f32 } = undefined;
+        for (0..8) |k| {
+            const f: f32 = @as(f32, @floatFromInt(k)) / 7;
+            parts[k] = .{ .dz = 0.5 + f * 3.5, .h = 1.0, .w = 0.4 + f * 4.0 };
+        }
+        parts[8] = .{ .dz = 7.4, .h = 3.6, .w = 7.0 };
+        var n: usize = 0;
+        for (parts) |q| {
+            if (n == out.len) break;
+            out[n] = .{ .ax = p[0], .ay = p[1], .bx = p[0] + 0.001, .by = p[1], .z = p[2] + q.dz, .h = q.h, .w = q.w, .rgba = brass };
+            n += 1;
+        }
+        return n;
+    }
+
     pub fn draw(v: *View) Error!void {
         const cam = v.camera();
         const eye = cam.eye;
@@ -744,6 +766,9 @@ pub const View = struct {
         if (v.time) |t| {
             const done = v.beadsDoneAt(t);
             count = @intCast(done);
+            // The nozzle: at the end of the bead that prints now, or at the
+            // end of the last bead done (on a travel).
+            var tip: ?[3]f32 = null;
             if (done < v.beads.items.len) {
                 const t_start = if (done == 0) 0 else v.bead_end.items[done - 1];
                 const t_end = v.bead_end.items[done];
@@ -754,8 +779,14 @@ pub const View = struct {
                     b.by = b.ay + (b.by - b.ay) * f;
                     extras[n_extras] = b;
                     n_extras += 1;
+                    tip = .{ b.bx, b.by, b.z };
                 }
             }
+            if (tip == null and done > 0 and done <= v.beads.items.len) {
+                const b = v.beads.items[done - 1];
+                tip = .{ b.bx, b.by, b.z };
+            }
+            if (tip) |p| n_extras += nozzle(extras[n_extras..], p);
         } else if (v.layer_end.items.len > 0) {
             count = v.layer_end.items[@min(v.layer, v.layer_end.items.len - 1)];
         }
