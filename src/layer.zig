@@ -994,6 +994,103 @@ fn addMonotonic(s: Allocator, a: Allocator, lp: *LayerPlan, pos: *Point, set: Pa
     }
 }
 
+/// The possible start points of a set of paths in a uniform grid, for the
+/// greedy path order. A search looks at the cells in rings around the
+/// cell of the nozzle. The cells of ring r + 1 are at least r cell sizes
+/// away, so the search stops after ring r if the best start is nearer
+/// than that.
+const StartGrid = struct {
+    origin: Point,
+    cell: i64,
+    cols: i64,
+    rows: i64,
+    /// Cell k has the starts from starts[k] to starts[k + 1].
+    starts: []u32,
+    cands: []Cand,
+
+    /// With fewer paths, a search over all paths is faster.
+    const min_paths = 24;
+
+    const Cand = struct { p: Point, path: u32, at: u32 };
+
+    fn init(s: Allocator, cands: []const Cand) Allocator.Error!StartGrid {
+        var box = geom.Box.empty;
+        for (cands) |c| box.extend(c.p);
+        const sx: f64 = @floatFromInt(box.max.x - box.min.x + 1);
+        const sy: f64 = @floatFromInt(box.max.y - box.min.y + 1);
+        // About one start in each cell, and not more than 1024 cells on a
+        // side.
+        const n: f64 = @floatFromInt(cands.len);
+        const cell_f = @max(@sqrt(sx * sy / n), @max(sx, sy) / 1024, 1);
+        const cell: i64 = @intFromFloat(@ceil(cell_f));
+        var g: StartGrid = .{
+            .origin = box.min,
+            .cell = cell,
+            .cols = @divFloor(box.max.x - box.min.x, cell) + 1,
+            .rows = @divFloor(box.max.y - box.min.y, cell) + 1,
+            .starts = &.{},
+            .cands = try s.alloc(Cand, cands.len),
+        };
+        const cells: usize = @intCast(g.cols * g.rows);
+        g.starts = try s.alloc(u32, cells + 1);
+        @memset(g.starts, 0);
+        for (cands) |c| g.starts[g.cellOf(c.p) + 1] += 1;
+        for (1..g.starts.len) |k| g.starts[k] += g.starts[k - 1];
+        const fill = try s.dupe(u32, g.starts[0..cells]);
+        for (cands) |c| {
+            const k = g.cellOf(c.p);
+            g.cands[fill[k]] = c;
+            fill[k] += 1;
+        }
+        return g;
+    }
+
+    fn cellOf(g: StartGrid, p: Point) usize {
+        const cx = @divFloor(p.x - g.origin.x, g.cell);
+        const cy = @divFloor(p.y - g.origin.y, g.cell);
+        return @intCast(cy * g.cols + cx);
+    }
+
+    /// The start nearest to `pos` of a path that is not used. A tie goes
+    /// to the lower path index, then to the lower vertex index. At least
+    /// one path must be free.
+    fn nearest(g: StartGrid, pos: Point, used: []const bool) Cand {
+        const cx = std.math.clamp(@divFloor(pos.x - g.origin.x, g.cell), 0, g.cols - 1);
+        const cy = std.math.clamp(@divFloor(pos.y - g.origin.y, g.cell), 0, g.rows - 1);
+        var best: Cand = undefined;
+        var best_d: i128 = std.math.maxInt(i128);
+        var r: i64 = 0;
+        const r_max = @max(g.cols, g.rows);
+        while (r <= r_max) : (r += 1) {
+            // Rings 0 to r - 1 are done. The cells of ring r are at least
+            // r - 1 cell sizes away.
+            const bound: i128 = @as(i128, @max(r - 1, 0)) * g.cell;
+            if (best_d < bound * bound) break;
+            var y = cy - r;
+            while (y <= cy + r) : (y += 1) {
+                if (y < 0 or y >= g.rows) continue;
+                // The full row on the top and bottom of the ring, and the
+                // two side cells in the other rows.
+                const edge_row = y == cy - r or y == cy + r;
+                var x = cx - r;
+                while (x <= cx + r) : (x += if (edge_row or r == 0) 1 else 2 * r) {
+                    if (x < 0 or x >= g.cols) continue;
+                    const k: usize = @intCast(y * g.cols + x);
+                    for (g.cands[g.starts[k]..g.starts[k + 1]]) |c| {
+                        if (used[c.path]) continue;
+                        const d = pos.distSq(c.p);
+                        if (d < best_d or (d == best_d and (c.path < best.path or (c.path == best.path and c.at < best.at)))) {
+                            best_d = d;
+                            best = c;
+                        }
+                    }
+                }
+            }
+        }
+        return best;
+    }
+};
+
 fn addOrdered(s: Allocator, a: Allocator, lp: *LayerPlan, pos: *Point, set: Paths, closed: bool, feature: Feature) Allocator.Error!void {
     return addOrderedSeam(s, a, lp, pos, set, closed, feature, null);
 }
@@ -1049,11 +1146,36 @@ fn addOrderedSeam(s: Allocator, a: Allocator, lp: *LayerPlan, pos: *Point, set: 
             fixed = f;
         }
     };
+    // Many paths: find the nearest start with a grid. The result is the
+    // same as the search over all paths below.
+    var grid: ?StartGrid = null;
+    if (n >= StartGrid.min_paths) {
+        var cands: std.ArrayList(StartGrid.Cand) = .empty;
+        for (0..n) |j| {
+            const path = set.get(j);
+            const jj: u32 = @intCast(j);
+            if (fixed) |f| {
+                try cands.append(s, .{ .p = path[f[j]], .path = jj, .at = f[j] });
+            } else if (closed) {
+                for (path, 0..) |q, qi| try cands.append(s, .{ .p = q, .path = jj, .at = @intCast(qi) });
+            } else {
+                try cands.append(s, .{ .p = path[0], .path = jj, .at = 0 });
+                try cands.append(s, .{ .p = path[path.len - 1], .path = jj, .at = @intCast(path.len - 1) });
+            }
+        }
+        grid = try .init(s, cands.items);
+    }
     for (0..n) |_| {
         var best: usize = 0;
         var best_d: i128 = std.math.maxInt(i128);
         var best_at: usize = 0;
-        for (0..n) |j| {
+        // The nearest start. A tie goes to the lower path index, then to
+        // the lower vertex index.
+        if (grid) |*g| {
+            const c = g.nearest(pos.*, used);
+            best = c.path;
+            best_at = c.at;
+        } else for (0..n) |j| {
             if (used[j]) continue;
             const path = set.get(j);
             if (fixed) |f| {
@@ -1422,3 +1544,34 @@ test "the skin from the surfaces is the inner area minus the supported area" {
     }
 }
 
+test "the start grid finds the same start as a search over all starts" {
+    const gpa = testing.allocator;
+    var prng = std.Random.DefaultPrng.init(42);
+    const rnd = prng.random();
+    var cands: [300]StartGrid.Cand = undefined;
+    for (&cands, 0..) |*c, k| {
+        // Few distinct values, so that ties happen.
+        c.* = .{ .p = .init(rnd.intRangeAtMost(i64, 0, 40) * 500, rnd.intRangeAtMost(i64, 0, 20) * 700), .path = @intCast(k / 2), .at = @intCast(k % 2) };
+    }
+    var arena_state = std.heap.ArenaAllocator.init(gpa);
+    defer arena_state.deinit();
+    const g: StartGrid = try .init(arena_state.allocator(), &cands);
+    var used: [150]bool = @splat(false);
+    for (0..149) |_| {
+        const pos: Point = .init(rnd.intRangeAtMost(i64, -5000, 25000), rnd.intRangeAtMost(i64, -5000, 20000));
+        const got = g.nearest(pos, &used);
+        var best = cands[0];
+        var best_d: i128 = std.math.maxInt(i128);
+        for (cands) |c| {
+            if (used[c.path]) continue;
+            const d = pos.distSq(c.p);
+            if (d < best_d or (d == best_d and (c.path < best.path or (c.path == best.path and c.at < best.at)))) {
+                best_d = d;
+                best = c;
+            }
+        }
+        try testing.expectEqual(best.path, got.path);
+        try testing.expectEqual(best.at, got.at);
+        used[got.path] = true;
+    }
+}
