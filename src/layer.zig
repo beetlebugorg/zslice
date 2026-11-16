@@ -685,9 +685,14 @@ pub fn plan(gpa: Allocator, ctx: Context, i: usize) Allocator.Error!LayerPlan {
                     sparse_lines = try infill.connect(s, region, set, spacing, angle);
                     const half = @divTrunc(spacing, 2);
                     if (!near.isEmpty() and half >= w) {
+                        // The extra lines are not joined: a join from one
+                        // extra line to the next crosses the normal line
+                        // between them (a double bead there), and in a
+                        // narrow band the joins are longer than the
+                        // lines. The travels between them stay in the
+                        // infill (combing).
                         const extra = try infill.linesPhase(s, near, spacing, angle, half, w);
-                        const joined = try infill.connect(s, near, extra, spacing, angle);
-                        try sparse_lines.appendAll(s, joined);
+                        try sparse_lines.appendAll(s, extra);
                     }
                 }
             },
