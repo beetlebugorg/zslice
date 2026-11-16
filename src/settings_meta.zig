@@ -39,6 +39,7 @@ pub const all = [_]Meta{
     .{ .name = "project.line_width", .section = "Lines", .doc = "The line width. 0 uses 1.1 x the nozzle diameter." },
     .{ .name = "project.first_layer_line_width", .section = "Lines", .doc = "The line width on the first layer. 0 uses 1.25 x the nozzle diameter." },
     .{ .name = "project.wall_count", .section = "Walls", .doc = "The number of walls (loops) around the outline of each layer." },
+    .{ .name = "project.seam", .section = "Walls", .doc = "Where each wall loop starts and ends (the seam). `sharpest`: in the deepest inside corner, where the seam is hard to see, or else in the sharpest outside corner, or else at the rear. `rear`: at the back of the part (the largest y), in one straight line. `nearest`: at the point nearest to the nozzle, which is the fastest. `random`: at a different point on each layer, so that no seam line shows." },
     .{ .name = "project.top_thickness", .section = "Top and bottom skin", .doc = "The thickness of solid skin under each top surface." },
     .{ .name = "project.bottom_thickness", .section = "Top and bottom skin", .doc = "The thickness of solid skin above each bottom surface." },
     .{ .name = "project.skin_overlap", .section = "Top and bottom skin", .doc = "Skin lines go this far into the walls, as a fraction of the line width, so that the skin bonds to the walls." },

@@ -37,7 +37,7 @@ The goal is the features that people use in PrusaSlicer and Cura. zslice designs
 - [x] Skirt and brim
 - [ ] Bridges: find them, print them with their own direction, speed, flow, and fan
 - [ ] Overhang walls: slower speed and more fan for overhang
-- [ ] Seam placement: nearest, aligned, rear, random, and hidden in corners
+- [x] Seam placement: sharpest corner (hidden), rear, nearest, random
 - [ ] Gap fill and thin walls (variable line width, like Arachne)
 - [ ] Infill patterns: gyroid, honeycomb, cubic, triangles, concentric, lightning, adaptive cubic
 - [ ] Top and bottom patterns: monotonic, concentric

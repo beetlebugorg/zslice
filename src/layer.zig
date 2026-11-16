@@ -210,17 +210,75 @@ pub fn plan(gpa: Allocator, ctx: Context, i: usize) Allocator.Error!LayerPlan {
 
     // Step 8.
     var pos: Point = if (outline.points.items.len > 0) outline.points.items[0] else .init(0, 0);
+    const seam: Seam = .{ .mode = p.seam, .layer = i };
     for (rings.items) |ring| try addOrdered(s, a, &lp, &pos, ring, true, .skirt);
     var k = wall_n;
     while (k > 1) {
         k -= 1;
-        try addOrdered(s, a, &lp, &pos, walls[k], true, .inner_wall);
+        try addOrderedSeam(s, a, &lp, &pos, walls[k], true, .inner_wall, seam);
     }
-    if (wall_n > 0) try addOrdered(s, a, &lp, &pos, walls[0], true, .outer_wall);
+    if (wall_n > 0) try addOrderedSeam(s, a, &lp, &pos, walls[0], true, .outer_wall, seam);
     try addOrdered(s, a, &lp, &pos, skin_lines, false, .skin);
     try addOrdered(s, a, &lp, &pos, sparse_lines, false, .infill);
     try addOrdered(s, a, &lp, &pos, ironing_lines, false, .ironing);
     return lp;
+}
+
+/// The vertex where a wall loop starts (its seam). See `Project.seam`.
+///
+/// For `sharpest`, each vertex gets the turn angle of the loop at that
+/// vertex. The material is on the left, so a right turn is an inside
+/// (concave) corner. An inside corner hides the seam best, so it scores
+/// more than an outside corner of the same angle. Only corners of at least
+/// 25 degrees count: a curve made of many short edges has small turns, and
+/// its seam goes to the rear.
+fn seamIndex(path: []const Point, mode: settings_mod.SeamMode, salt: u64) usize {
+    switch (mode) {
+        .nearest => unreachable,
+        .rear => return rearIndex(path),
+        .random => {
+            var prng = std.Random.DefaultPrng.init(salt);
+            return prng.random().uintLessThan(usize, path.len);
+        },
+        .sharpest => {
+            const min_turn = 25.0 * std.math.pi / 180.0;
+            var best: ?usize = null;
+            var best_score: f64 = 0;
+            for (path, 0..) |v, i| {
+                const u = path[(i + path.len - 1) % path.len];
+                const w = path[(i + 1) % path.len];
+                const ax: f64 = @floatFromInt(v.x - u.x);
+                const ay: f64 = @floatFromInt(v.y - u.y);
+                const bx: f64 = @floatFromInt(w.x - v.x);
+                const by: f64 = @floatFromInt(w.y - v.y);
+                const turn = std.math.atan2(ax * by - ay * bx, ax * bx + ay * by);
+                if (@abs(turn) < min_turn) continue;
+                const score = if (turn < 0) 2.0 * -turn else turn;
+                // A tie goes to the vertex further back (larger y), then
+                // further left, so that similar layers pick the same corner.
+                const better = best == null or score > best_score + 1e-9 or
+                    (@abs(score - best_score) <= 1e-9 and rearBefore(v, path[best.?]));
+                if (better) {
+                    best = i;
+                    best_score = score;
+                }
+            }
+            return best orelse rearIndex(path);
+        },
+    }
+}
+
+fn rearBefore(a: Point, b: Point) bool {
+    return a.y > b.y or (a.y == b.y and a.x < b.x);
+}
+
+/// The vertex with the largest y. A tie goes to the smallest x.
+fn rearIndex(path: []const Point) usize {
+    var best: usize = 0;
+    for (path, 0..) |q, i| {
+        if (rearBefore(q, path[best])) best = i;
+    }
+    return best;
 }
 
 /// The outer boundaries (counterclockwise loops) of a set of polygons,
@@ -255,10 +313,25 @@ fn stackedIntersection(s: Allocator, outlines: []const Paths, i: usize, n: u32, 
 
 /// Adds the paths of `set` to the plan in greedy nearest-neighbor order.
 fn addOrdered(s: Allocator, a: Allocator, lp: *LayerPlan, pos: *Point, set: Paths, closed: bool, feature: Feature) Allocator.Error!void {
+    return addOrderedSeam(s, a, lp, pos, set, closed, feature, null);
+}
+
+const Seam = struct { mode: settings_mod.SeamMode, layer: usize };
+
+/// `addOrdered`, with a seam rule for loops. With a rule, each loop starts at
+/// its seam vertex (see `seamIndex`), and the greedy order uses the distance
+/// to that vertex.
+fn addOrderedSeam(s: Allocator, a: Allocator, lp: *LayerPlan, pos: *Point, set: Paths, closed: bool, feature: Feature, seam: ?Seam) Allocator.Error!void {
     const n = set.count();
     if (n == 0) return;
     const used = try s.alloc(bool, n);
     @memset(used, false);
+    var fixed: ?[]usize = null;
+    if (closed) if (seam) |rule| if (rule.mode != .nearest) {
+        const f = try s.alloc(usize, n);
+        for (f, 0..) |*v, j| v.* = seamIndex(set.get(j), rule.mode, rule.layer *% 1_000_003 +% j);
+        fixed = f;
+    };
     for (0..n) |_| {
         var best: usize = 0;
         var best_d: i128 = std.math.maxInt(i128);
@@ -266,7 +339,14 @@ fn addOrdered(s: Allocator, a: Allocator, lp: *LayerPlan, pos: *Point, set: Path
         for (0..n) |j| {
             if (used[j]) continue;
             const path = set.get(j);
-            if (closed) {
+            if (fixed) |f| {
+                const d = pos.distSq(path[f[j]]);
+                if (d < best_d) {
+                    best_d = d;
+                    best = j;
+                    best_at = f[j];
+                }
+            } else if (closed) {
                 for (path, 0..) |q, qi| {
                     const d = pos.distSq(q);
                     if (d < best_d) {
@@ -293,7 +373,7 @@ fn addOrdered(s: Allocator, a: Allocator, lp: *LayerPlan, pos: *Point, set: Path
         used[best] = true;
         const path = set.get(best);
         if (closed) {
-            // Start at the nearest vertex.
+            // Start at the seam vertex.
             for (0..path.len) |o| try lp.points.appendPoint(a, path[(best_at + o) % path.len]);
             pos.* = path[best_at];
         } else if (best_at == 0) {
@@ -455,4 +535,24 @@ test "skirt and brim on the first layer" {
     var l1 = try plan(gpa, ctx, 1);
     defer l1.deinit();
     for (l1.paths.items) |path| try testing.expect(path.feature != .skirt);
+}
+
+test "seam placement" {
+    // An L shape (counterclockwise) has one inside corner, at (10, 10).
+    const l = [_]Point{ .init(0, 0), .init(20_000, 0), .init(20_000, 10_000), .init(10_000, 10_000), .init(10_000, 20_000), .init(0, 20_000) };
+    try testing.expectEqual(@as(usize, 3), seamIndex(&l, .sharpest, 0));
+    // The rear: the largest y, then the smallest x.
+    try testing.expectEqual(@as(usize, 5), seamIndex(&l, .rear, 0));
+    // A square has only outside corners: the rear one wins the tie.
+    const sq = [_]Point{ .init(0, 0), .init(10_000, 0), .init(10_000, 10_000), .init(0, 10_000) };
+    try testing.expectEqual(@as(usize, 3), seamIndex(&sq, .sharpest, 0));
+    // A fine circle has no corner of 25 degrees: the seam goes to the rear.
+    var circle: [360]Point = undefined;
+    for (&circle, 0..) |*q, i| {
+        const a = 2 * std.math.pi * @as(f64, @floatFromInt(i)) / 360.0;
+        q.* = .{ .x = @intFromFloat(@round(10_000 * @cos(a))), .y = @intFromFloat(@round(10_000 * @sin(a))) };
+    }
+    try testing.expectEqual(@as(usize, 90), seamIndex(&circle, .sharpest, 0));
+    // Random is the same for the same salt.
+    try testing.expectEqual(seamIndex(&circle, .random, 7), seamIndex(&circle, .random, 7));
 }

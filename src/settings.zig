@@ -24,6 +24,7 @@
 const std = @import("std");
 
 pub const InfillPattern = enum { lines, grid };
+pub const SeamMode = enum { sharpest, rear, nearest, random };
 pub const ExtruderKind = enum { direct, bowden };
 
 pub const Machine = struct {
@@ -137,6 +138,13 @@ pub const Project = struct {
     // Walls
     /// The number of walls (loops) around the outline of each layer.
     wall_count: u32 = 2,
+    /// Where each wall loop starts and ends (the seam). `sharpest`: in the
+    /// deepest inside corner, where the seam is hard to see, or else in the
+    /// sharpest outside corner, or else at the rear. `rear`: at the back of
+    /// the part (the largest y), in one straight line. `nearest`: at the
+    /// point nearest to the nozzle, which is the fastest. `random`: at a
+    /// different point on each layer, so that no seam line shows.
+    seam: SeamMode = .sharpest,
 
     // Top and bottom skin, as a thickness. The engine computes the number
     // of layers, so a change of the layer height keeps the strength.
