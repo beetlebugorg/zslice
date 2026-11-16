@@ -541,6 +541,26 @@ pub fn regions(gpa: Allocator, ctx: Context, i: usize, memo: *Memo, list_alloc: 
     return reg;
 }
 
+/// The area that the sparse infill pattern of layer i fills: the sparse
+/// area of `reg` moved by the fill inset (so the lines touch the walls),
+/// without the top support band. Top support: under each top surface,
+/// `top_support_layers` layers of denser lines, so the skin lies on a flat
+/// grid. The pattern fills the rest. The flow pattern has its own band.
+/// Null if `ctx.cancel` became true.
+pub fn patternRegion(ctx: Context, i: usize, memo: *Memo, reg: Regions) Allocator.Error!?Paths {
+    const r = ctx.resolvedAt(i);
+    const p = r.settings.project;
+    const width_mm = if (i == 0) r.first_layer_line_width else r.line_width;
+    const w = geom.fromMm(width_mm);
+    const inset = -@divTrunc(w, 2) + geom.fromMm(p.infill_overlap * width_mm);
+    const full_region = try memo.fill(reg, false, inset, ctx.gen);
+    if (p.top_support_layers > 0 and p.top_support_density > p.infill_density and p.infill_pattern != .flow) {
+        const split = try memo.topSplit(reg, inset, ctx.outlines, i, layersFor(ctx.layers, i, p.top_thickness, .up) + p.top_support_layers, ctx.gen, ctx.cancel) orelse return null;
+        return split.rest;
+    }
+    return full_region;
+}
+
 
 /// Plans layer `i`. `gpa` must be thread-safe if more than one thread plans
 /// layers at the same time. Call `deinit` on the result.
@@ -640,16 +660,7 @@ pub fn plan(gpa: Allocator, ctx: Context, i: usize) Allocator.Error!LayerPlan {
     var sparse_lines: Paths = .empty;
     var sparse_loops: Paths = .empty;
     if (p.infill_density > 0 and !sparse.isEmpty()) {
-        const inset = -@divTrunc(w, 2) + geom.fromMm(p.infill_overlap * width_mm);
-        const full_region = try memo.fill(reg, false, inset, ctx.gen);
-        // Top support: under each top surface, `top_support_layers` layers
-        // of denser lines, so the skin lies on a flat grid. The pattern
-        // fills the rest (`region`). The flow pattern has its own band.
-        var region = full_region;
-        if (p.top_support_layers > 0 and p.top_support_density > p.infill_density and p.infill_pattern != .flow) {
-            const split = try memo.topSplit(reg, inset, ctx.outlines, i, layersFor(ctx.layers, i, p.top_thickness, .up) + p.top_support_layers, ctx.gen, ctx.cancel) orelse return lp;
-            region = split.rest;
-        }
+        const region = try patternRegion(ctx, i, memo, reg) orelse return lp;
         switch (p.infill_pattern) {
             .lines => {
                 const spacing = geom.fromMm(width_mm / p.infill_density);
