@@ -50,6 +50,14 @@ On Linux, the GTK window is transparent, and the view widget draws nothing: the 
 
 Development options of the GTK shell: `ZSLICE_VIEW=3d` opens the 3D view, and `ZSLICE_NON_UNIQUE=1` starts a separate instance.
 
+## Inspect a path
+
+A click on a path in a view picks it: `zs_app_pick_layer` in a 2D layer view (a point in mm), and `zs_view_pick` in the 3D view (a pixel). `zs_app_inspect` then gives what the path is, its real values (the bead width, the planned and the real speed, the flow, the time span), the reasons for them in plain words, and the names of the settings that change it. The shell shows the text and an editor for each setting, and highlights the path (`zs_view_highlight`).
+
+After a new slice, the path numbers change. The GTK shell keeps the layer and a point of the selected path, and picks the path at that place again, so that the inspector stays on the same line after a setting changes.
+
+Development option of the GTK shell: `ZSLICE_PICK=x,y` picks at a pixel of the 3D view after the first load.
+
 ## The preview colors
 
 All shells use the same colors, in the order of `enum zs_feature`:

@@ -87,6 +87,8 @@ pub const App = struct {
     stats: zs.Stats = .{},
     part_box: [4]f64 = .{ 0, 0, 0, 0 },
     toolpaths: Toolpaths = .{},
+    /// The strings of the last inspection (for the C API).
+    inspect_arena: ?std.heap.ArenaAllocator = null,
     failure: anyerror = error.Unexpected,
     slice_settings: Settings = .{},
 
@@ -97,6 +99,7 @@ pub const App = struct {
     }
 
     pub fn destroy(app: *App) void {
+        if (app.inspect_arena) |*a| a.deinit();
         app.stopWorker();
         app.clearResults();
         if (app.mesh) |*m| m.deinit(app.gpa);
@@ -323,6 +326,139 @@ pub const App = struct {
         return &app.toolpaths;
     }
 
+    /// The layer of a path of the toolpaths.
+    pub fn layerOfPath(app: *const App, path: usize) ?usize {
+        const t = app.allToolpaths() orelse return null;
+        if (path >= t.path_ends.items.len) return null;
+        // The first layer whose end is after the path.
+        var lo: usize = 0;
+        var hi: usize = t.layer_ends.items.len;
+        while (lo < hi) {
+            const mid = (lo + hi) / 2;
+            if (t.layer_ends.items[mid] <= path) lo = mid + 1 else hi = mid;
+        }
+        return if (lo < t.layer_ends.items.len) lo else null;
+    }
+
+    /// The path of layer `layer` nearest to (x, y) mm, within twice the line
+    /// width, or null. For a click in a 2D layer view.
+    pub fn pickInLayer(app: *const App, layer: usize, x: f64, y: f64) ?usize {
+        const t = app.allToolpaths() orelse return null;
+        if (layer >= t.layer_ends.items.len) return null;
+        const p0: usize = if (layer == 0) 0 else t.layer_ends.items[layer - 1];
+        const limit = 2 * @as(f64, t.layer_width.items[layer]);
+        var best: ?usize = null;
+        var best_d = limit;
+        const pts = t.points.items;
+        for (p0..t.layer_ends.items[layer]) |pi| {
+            const start: usize = if (pi == 0) 0 else t.path_ends.items[pi - 1];
+            const end: usize = t.path_ends.items[pi];
+            if (end - start < 2) continue;
+            const closed = t.path_closed.items[pi] != 0;
+            const segs = end - start - 1 + @as(usize, @intFromBool(closed and end - start > 2));
+            for (0..segs) |k| {
+                const a = start + k;
+                const b = if (a + 1 < end) a + 1 else start;
+                const d = segmentDistance(x, y, pts[2 * a], pts[2 * a + 1], pts[2 * b], pts[2 * b + 1]);
+                if (d < best_d) {
+                    best_d = d;
+                    best = pi;
+                }
+            }
+        }
+        return best;
+    }
+
+    /// The real values of one path, why they are what they are, and the
+    /// settings that change them. The strings stay valid until the next
+    /// call, the next slice, or `destroy`.
+    pub fn inspect(app: *App, path: usize) error{ NoResult, OutOfRange, OutOfMemory }!Inspection {
+        return app.inspectInner(path) catch |e| switch (e) {
+            error.NoResult, error.OutOfRange => |x| x,
+            else => error.OutOfMemory,
+        };
+    }
+
+    fn inspectInner(app: *App, path: usize) !Inspection {
+        const t = app.allToolpaths() orelse return error.NoResult;
+        const layer = app.layerOfPath(path) orelse return error.OutOfRange;
+        if (app.inspect_arena) |*a| a.deinit();
+        app.inspect_arena = .init(app.gpa);
+        const arena = app.inspect_arena.?.allocator();
+        const r = &app.job.?.resolved;
+        const s = r.settings;
+
+        const feature: zs.settings.Feature = @enumFromInt(t.path_features.items[path]);
+        const first = layer == 0;
+        const h: f64 = t.layer_height.items[layer];
+        const w: f64 = t.layer_width.items[layer];
+        const area: f64 = t.path_area.items[path];
+        const bead = zs.flow.beadWidth(area, h);
+        var length: f64 = 0;
+        {
+            const start: usize = if (path == 0) 0 else t.path_ends.items[path - 1];
+            const end: usize = t.path_ends.items[path];
+            const pts = t.points.items;
+            var k = start;
+            while (k + 1 < end) : (k += 1) length += std.math.hypot(@as(f64, pts[2 * k + 2] - pts[2 * k]), @as(f64, pts[2 * k + 3] - pts[2 * k + 1]));
+            if (t.path_closed.items[path] != 0 and end - start > 2) {
+                length += std.math.hypot(@as(f64, pts[2 * start] - pts[2 * (end - 1)]), @as(f64, pts[2 * start + 1] - pts[2 * (end - 1) + 1]));
+            }
+        }
+        const t0: f64 = t.path_start_time.items[path];
+        const t1: f64 = t.path_end_time.items[path];
+        const planned = r.speed(feature, w, h, first);
+        const real = if (t1 > t0) length / (t1 - t0) else planned;
+
+        var text: std.Io.Writer.Allocating = .init(arena);
+        const out = &text.writer;
+        const name = feature_names[@intFromEnum(feature)];
+        try out.print("{s}, layer {d} of {d}, at z {d:.2} mm.\n\n", .{ name, layer + 1, t.layer_ends.items.len, t.layer_z.items[layer] });
+        try out.print("The bead is {d:.3} mm wide and {d:.2} mm tall. The line width is {d:.3} mm. The cross section is {d:.4} mm\u{b2}.\n", .{ bead, h, w, area });
+        try out.print("The path is {d:.1} mm long, and it uses {d:.2} mm\u{b3} of plastic.\n\n", .{ length, length * area });
+        if (feature == .ironing) {
+            try out.print("Planned speed: {d:.0} mm/s, the ironing speed ratio ({d}) times the machine limit ({d:.0} mm/s). Ironing uses little plastic, so the flow limit does not apply.\n", .{ planned, s.project.ironing_speed, s.machine.max_speed });
+        } else {
+            const bead_area = zs.flow.beadArea(w, h);
+            const flow_limit = s.filament.max_flow / bead_area;
+            const limit = @min(s.machine.max_speed, flow_limit);
+            try out.print("Planned speed: {d:.0} mm/s. That is the speed ratio ({d:.2}) times {d:.0} mm/s: the lower of the machine limit ({d:.0} mm/s) and the flow limit ({d} mm\u{b3}/s / {d:.4} mm\u{b2} = {d:.0} mm/s).\n", .{ planned, planned / limit, limit, s.machine.max_speed, s.filament.max_flow, bead_area, flow_limit });
+        }
+        if (real < planned * 0.98) {
+            try out.print("Real speed: {d:.0} mm/s. The layer prints in less than the minimum layer time of the filament ({d} s), so it prints slower, to cool.\n", .{ real, s.filament.min_layer_time });
+        } else {
+            try out.print("Real speed: {d:.0} mm/s.\n", .{real});
+        }
+        try out.print("Plastic flow: {d:.1} mm\u{b3}/s.\n\n", .{real * area});
+        try out.print("Printed from {d}:{d:0>2}:{d:0>2} to {d}:{d:0>2}:{d:0>2} after the start of the print.", .{
+            hours(t0), minutes(t0), seconds(t0), hours(t1), minutes(t1), seconds(t1),
+        });
+
+        var names: std.Io.Writer.Allocating = .init(arena);
+        for (feature_settings[@intFromEnum(feature)]) |n| try names.writer.print("{s}\n", .{n});
+        if (first) for (first_layer_settings) |n| try names.writer.print("{s}\n", .{n});
+        for (cooling_settings) |n| try names.writer.print("{s}\n", .{n});
+
+        return .{
+            .feature = feature,
+            .layer = layer,
+            .path = path,
+            .z = t.layer_z.items[layer],
+            .height = h,
+            .line_width = w,
+            .bead_width = bead,
+            .length = length,
+            .planned_speed = planned,
+            .speed = real,
+            .flow = real * area,
+            .start_time = t0,
+            .end_time = t1,
+            .title = try arena.dupeZ(u8, name),
+            .explain = try arena.dupeZ(u8, text.written()),
+            .settings = try arena.dupeZ(u8, std.mem.trimEnd(u8, names.written(), "\n")),
+        };
+    }
+
     /// The paths of one layer, for a preview. Call `deinit` on the result.
     pub fn layerPaths(app: *const App, gpa: Allocator, layer: usize) error{ NoResult, OutOfRange, OutOfMemory }!LayerPaths {
         if (app.getState() != .done) return error.NoResult;
@@ -333,6 +469,63 @@ pub const App = struct {
         return LayerPaths.fromPlan(gpa, &plan);
     }
 };
+
+/// The result of `App.inspect`.
+pub const Inspection = struct {
+    feature: zs.settings.Feature,
+    layer: usize,
+    path: usize,
+    z: f64,
+    height: f64,
+    line_width: f64,
+    bead_width: f64,
+    length: f64,
+    planned_speed: f64,
+    speed: f64,
+    flow: f64,
+    start_time: f64,
+    end_time: f64,
+    title: [:0]const u8,
+    /// The values and why, in plain words.
+    explain: [:0]const u8,
+    /// The setting names, one on each line.
+    settings: [:0]const u8,
+};
+
+pub const feature_names = [_][]const u8{ "Outer wall", "Inner wall", "Skin", "Sparse infill", "Ironing", "Skirt or brim", "Support", "Support interface" };
+
+/// The settings that change each feature, in the order of the Feature enum.
+const feature_settings = [_][]const []const u8{
+    &.{ "project.wall_count", "project.seam", "project.outer_wall_speed", "project.line_width", "project.layer_height", "filament.xy_offset", "filament.hole_xy_offset", "filament.flow_ratio", "filament.max_flow", "machine.max_speed" },
+    &.{ "project.wall_count", "project.inner_wall_speed", "project.line_width", "project.layer_height", "filament.flow_ratio", "filament.max_flow", "machine.max_speed" },
+    &.{ "project.top_thickness", "project.bottom_thickness", "project.skin_overlap", "project.infill_angle", "project.skin_speed", "project.line_width", "filament.flow_ratio", "filament.max_flow" },
+    &.{ "project.infill_density", "project.infill_pattern", "project.infill_angle", "project.infill_overlap", "project.infill_speed", "filament.flow_ratio", "filament.max_flow" },
+    &.{ "project.ironing", "project.ironing_flow", "project.ironing_spacing", "project.ironing_inset", "project.ironing_speed" },
+    &.{ "project.skirt_loops", "project.skirt_distance", "project.skirt_layers", "project.brim_width" },
+    &.{ "project.support", "project.support_angle", "project.support_density", "project.support_xy_gap", "project.support_z_gap_layers", "project.infill_speed" },
+    &.{ "project.support_interface_layers", "project.support_interface_density", "project.support_z_gap_layers", "project.skin_speed" },
+};
+const first_layer_settings = [_][]const u8{ "project.first_layer_height", "project.first_layer_line_width", "project.first_layer_speed", "filament.first_layer_nozzle_temp", "project.first_layer_xy_offset" };
+const cooling_settings = [_][]const u8{ "filament.min_layer_time", "filament.min_speed", "filament.fan_speed" };
+
+fn hours(t: f64) u64 {
+    return @intFromFloat(@floor(t / 3600));
+}
+fn minutes(t: f64) u64 {
+    return @as(u64, @intFromFloat(@floor(t / 60))) % 60;
+}
+fn seconds(t: f64) u64 {
+    return @as(u64, @intFromFloat(@floor(t))) % 60;
+}
+
+/// The distance from (x, y) to the segment from (ax, ay) to (bx, by).
+fn segmentDistance(x: f64, y: f64, ax: f32, ay: f32, bx: f32, by: f32) f64 {
+    const dx: f64 = bx - ax;
+    const dy: f64 = by - ay;
+    const len2 = dx * dx + dy * dy;
+    const t = if (len2 == 0) 0 else std.math.clamp(((x - ax) * dx + (y - ay) * dy) / len2, 0, 1);
+    return std.math.hypot(x - (ax + t * dx), y - (ay + t * dy));
+}
 
 /// The paths of all layers of a slice, for a 3D view. The arrays are flat,
 /// in mm, and in print order:
@@ -349,7 +542,9 @@ pub const Toolpaths = struct {
     path_closed: std.ArrayList(u8) = .empty,
     /// The cross-section area (mm^2) of the bead of each path.
     path_area: std.ArrayList(f32) = .empty,
-    /// The print time (s) from the start to the end of each path.
+    /// The print time (s) from the start to the start of the extrusion of
+    /// each path, and to its end.
+    path_start_time: std.ArrayList(f32) = .empty,
     path_end_time: std.ArrayList(f32) = .empty,
     layer_ends: std.ArrayList(u32) = .empty,
     layer_z: std.ArrayList(f32) = .empty,
@@ -363,6 +558,7 @@ pub const Toolpaths = struct {
         t.path_features.deinit(gpa);
         t.path_closed.deinit(gpa);
         t.path_area.deinit(gpa);
+        t.path_start_time.deinit(gpa);
         t.path_end_time.deinit(gpa);
         t.layer_ends.deinit(gpa);
         t.layer_z.deinit(gpa);
@@ -385,6 +581,7 @@ pub const Toolpaths = struct {
             try t.path_features.append(gpa, @intFromEnum(p.feature));
             try t.path_closed.append(gpa, @intFromBool(p.closed));
             try t.path_area.append(gpa, @floatCast(info.area));
+            try t.path_start_time.append(gpa, @floatCast(info.start_time));
             try t.path_end_time.append(gpa, @floatCast(info.end_time));
         }
         try t.layer_ends.append(gpa, @intCast(t.path_ends.items.len));
@@ -648,6 +845,16 @@ test "app: load, slice, preview, and export" {
     try testing.expectEqual(lp.ends.len, lp.features.len);
     try testing.expectEqual(lp.points.len, 2 * @as(usize, lp.ends[lp.ends.len - 1]));
     const pb = app.partBounds().?;
+
+    // Inspect a path of layer 30: the pick finds it, and the explanation
+    // has the feature and the speed.
+    const path = app.pickInLayer(30, lp.points[0], lp.points[1]).?;
+    try testing.expectEqual(@as(usize, 30), app.layerOfPath(path).?);
+    const info = try app.inspect(path);
+    try testing.expect(std.mem.indexOf(u8, info.explain, "layer 31 of 69") != null);
+    try testing.expect(std.mem.indexOf(u8, info.explain, "Planned speed") != null);
+    try testing.expect(info.speed > 0 and info.speed <= info.planned_speed + 1e-6);
+    try testing.expect(std.mem.indexOf(u8, info.settings, "project.") != null);
     try testing.expectApproxEqAbs(@as(f64, 90), pb[0], 0.01);
 
     // A new request replaces the result.

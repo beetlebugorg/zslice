@@ -35,6 +35,11 @@ gboolean zg_model_set(ZgModel *self, const char *key, const char *value, GError 
 /* Gets a setting as text. Free the result with g_free. */
 char *zg_model_get(ZgModel *self, const char *key);
 
+/* The selected path (an index into zs_app_toolpaths), or -1. A new slice
+ * clears it. "selection-changed" follows each change. */
+void zg_model_select(ZgModel *self, gint64 path);
+gint64 zg_model_selected(ZgModel *self);
+
 /* The text for a core status code. */
 const char *zg_status_text(int status);
 

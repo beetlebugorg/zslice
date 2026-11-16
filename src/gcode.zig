@@ -47,6 +47,9 @@ pub const Stats = struct {
 
 /// What the emitter records for each path of a layer, if `record` is set.
 pub const PathInfo = struct {
+    /// The print time (s) from the start of the print to the start of the
+    /// extrusion of the path (after the travel to it).
+    start_time: f64,
     /// The print time (s) from the start of the print to the end of the path.
     end_time: f64,
     /// The cross-section area (mm^2) of the deposited bead, with the flow
@@ -146,7 +149,7 @@ pub const Emitter = struct {
         for (lp.paths.items, 0..) |path, i| {
             const pts = lp.points.get(i);
             if (pts.len == 0) {
-                if (self.record) |rec| rec.appendAssumeCapacity(.{ .end_time = self.stats.print_time_s, .area = 0 });
+                if (self.record) |rec| rec.appendAssumeCapacity(.{ .start_time = self.stats.print_time_s, .end_time = self.stats.print_time_s, .area = 0 });
                 continue;
             }
             try self.travel(geom.toMm(pts[0].x), geom.toMm(pts[0].y));
@@ -156,11 +159,12 @@ pub const Emitter = struct {
             }
             const full = self.r.speed(path.feature, lp.width, lp.height, first);
             const speed = if (slow < 1) @max(full * slow, @min(full, s.filament.min_speed)) else full;
+            const start_time = self.stats.print_time_s;
             // Ironing lines use a fraction of the flow of a normal line.
             const e = if (path.feature == .ironing) e_per_mm * s.project.ironing_flow else e_per_mm;
             for (pts[1..]) |q| try self.extrude(geom.toMm(q.x), geom.toMm(q.y), e, speed);
             if (path.closed and pts.len > 2) try self.extrude(geom.toMm(pts[0].x), geom.toMm(pts[0].y), e, speed);
-            if (self.record) |rec| rec.appendAssumeCapacity(.{ .end_time = self.stats.print_time_s, .area = e * self.r.filament_area });
+            if (self.record) |rec| rec.appendAssumeCapacity(.{ .start_time = start_time, .end_time = self.stats.print_time_s, .area = e * self.r.filament_area });
         }
     }
 

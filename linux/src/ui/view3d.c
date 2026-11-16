@@ -29,9 +29,11 @@ typedef struct {
     size_t layer;
     gboolean features;
     gboolean zoomed;
+    gboolean picked;
     gboolean have_data;
     guint idle;
     double drag_x, drag_y;
+    double press_x, press_y;
 } View3d;
 
 static gboolean draw_now(gpointer data) {
@@ -81,11 +83,29 @@ static void load_data(View3d *v) {
         return;
     }
     zs_view_set_layer(v->view, v->layer);
+    gint64 sel = zg_model_selected(v->model);
+    zs_view_highlight(v->view, sel < 0 ? (size_t)-1 : (size_t)sel);
     /* For development and screenshots: ZSLICE_ZOOM=0.3 starts nearer. */
     const char *zoom = g_getenv("ZSLICE_ZOOM");
     if (zoom && !v->zoomed && zs_app_layer_count(zg_model_core(v->model)) > 0) {
         zs_view_zoom(v->view, (float)g_ascii_strtod(zoom, NULL));
         v->zoomed = TRUE;
+    }
+    /* For development and screenshots: ZSLICE_PICK=x,y picks the path at
+     * that pixel (logical points) after the first load. */
+    const char *pick = g_getenv("ZSLICE_PICK");
+    if (pick && !v->picked && zs_app_layer_count(zg_model_core(v->model)) > 0) {
+        char **xy = g_strsplit(pick, ",", 2);
+        if (xy[0] && xy[1]) {
+            int scale = gtk_widget_get_scale_factor(v->area);
+            /* The preview sets the layer after the load: pick on all layers. */
+            v->layer = zs_app_layer_count(zg_model_core(v->model)) - 1;
+            zs_view_set_layer(v->view, v->layer);
+            size_t path = zs_view_pick(v->view, (float)(g_ascii_strtod(xy[0], NULL) * scale), (float)(g_ascii_strtod(xy[1], NULL) * scale));
+            v->picked = TRUE;
+            if (path != (size_t)-1) zg_model_select(v->model, (gint64)path);
+        }
+        g_strfreev(xy);
     }
     queue_frame(v);
 }
@@ -195,8 +215,25 @@ static gboolean on_scroll(GtkEventControllerScroll *c, double dx, double dy, gpo
     return TRUE;
 }
 
+static void on_release(GtkGestureClick *g, int n, double x, double y, gpointer data) {
+    View3d *v = data;
+    if (n != 1 || !v->view || fabs(x - v->press_x) > 4 || fabs(y - v->press_y) > 4) return;
+    int scale = gtk_widget_get_scale_factor(v->area);
+    size_t path = zs_view_pick(v->view, (float)(x * scale), (float)(y * scale));
+    zg_model_select(v->model, path == (size_t)-1 ? -1 : (gint64)path);
+}
+
+static void on_selection(ZgModel *model, gint64 path, gpointer data) {
+    View3d *v = data;
+    if (!v->view) return;
+    zs_view_highlight(v->view, path < 0 ? (size_t)-1 : (size_t)path);
+    queue_frame(v);
+}
+
 static void on_click(GtkGestureClick *g, int n, double x, double y, gpointer data) {
     View3d *v = data;
+    v->press_x = x;
+    v->press_y = y;
     if (n != 2 || !v->view) return;
     zs_view_reset(v->view);
     queue_frame(v);
@@ -204,6 +241,7 @@ static void on_click(GtkGestureClick *g, int n, double x, double y, gpointer dat
 
 static void view_free(gpointer data) {
     View3d *v = data;
+    g_signal_handlers_disconnect_by_data(v->model, v);
     if (v->idle) g_source_remove(v->idle);
     if (v->view) zs_view_free(v->view);
     zg_native_surface_free(v->native);
@@ -232,8 +270,10 @@ GtkWidget *zg_view3d_new(ZgModel *model) {
     gtk_widget_add_controller(v->area, scroll);
     GtkGesture *click = gtk_gesture_click_new();
     g_signal_connect(click, "pressed", G_CALLBACK(on_click), v);
+    g_signal_connect(click, "released", G_CALLBACK(on_release), v);
     gtk_widget_add_controller(v->area, GTK_EVENT_CONTROLLER(click));
 
     g_object_set_data_full(G_OBJECT(v->area), "zg-view3d", v, view_free);
+    g_signal_connect(model, "selection-changed", G_CALLBACK(on_selection), v);
     return v->area;
 }

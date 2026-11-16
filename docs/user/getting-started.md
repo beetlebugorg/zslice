@@ -100,6 +100,10 @@ The light gray area is the outline of the layer. Each line is drawn at the line 
 
 Layer numbers start at 0. If the number is too large, zslice shows the number of layers in the part.
 
+## See why a line is what it is
+
+In the app, click a line in the 2D or 3D view. The Selected page shows what the line is (for example the outer wall on layer 12), its real width, speed, and plastic flow, why they have these values, and the settings that change it. Change a setting there, and the app slices again and shows the new values for the same line.
+
 ## Try the demo part
 
 ```sh

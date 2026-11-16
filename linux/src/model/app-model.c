@@ -21,11 +21,17 @@ struct _ZgModel {
     zs_app *core;
     Bridge *bridge;
     char *name;
+    gint64 selected;
+    /* The place of the selection (a layer and a point of the path), so
+     * that a new slice can pick the path at the same place again. */
+    gboolean anchored;
+    size_t anchor_layer;
+    double anchor_x, anchor_y;
 };
 
 G_DEFINE_FINAL_TYPE(ZgModel, zg_model, G_TYPE_OBJECT)
 
-enum { SIGNAL_CORE_EVENT, N_SIGNALS };
+enum { SIGNAL_CORE_EVENT, SIGNAL_SELECTION_CHANGED, N_SIGNALS };
 static guint signals[N_SIGNALS];
 
 typedef struct {
@@ -44,6 +50,14 @@ static gboolean deliver(gpointer data) {
     Pending *p = data;
     ZgModel *model = g_weak_ref_get(&p->bridge->model);
     if (model) {
+        /* A new slice has new paths: pick the path at the place of the old
+         * selection again, so the inspector stays on the same line. */
+        if (p->event == ZS_EVENT_SLICED && model->anchored) {
+            size_t path = zs_app_pick_layer(model->core, model->anchor_layer, model->anchor_x, model->anchor_y);
+            model->selected = path == (size_t)-1 ? -1 : (gint64)path;
+            if (model->selected < 0) model->anchored = FALSE;
+            g_signal_emit(model, signals[SIGNAL_SELECTION_CHANGED], 0, model->selected);
+        }
         g_signal_emit(model, signals[SIGNAL_CORE_EVENT], 0, p->event, p->progress, p->status);
         g_object_unref(model);
     }
@@ -84,9 +98,33 @@ static void zg_model_class_init(ZgModelClass *klass) {
     signals[SIGNAL_CORE_EVENT] = g_signal_new("core-event", G_TYPE_FROM_CLASS(klass),
         G_SIGNAL_RUN_LAST, 0, NULL, NULL, NULL, G_TYPE_NONE, 3,
         G_TYPE_INT, G_TYPE_DOUBLE, G_TYPE_INT);
+    /* selection-changed(gint64 path) */
+    signals[SIGNAL_SELECTION_CHANGED] = g_signal_new("selection-changed", G_TYPE_FROM_CLASS(klass),
+        G_SIGNAL_RUN_LAST, 0, NULL, NULL, NULL, G_TYPE_NONE, 1, G_TYPE_INT64);
+}
+
+void zg_model_select(ZgModel *self, gint64 path) {
+    self->selected = path;
+    self->anchored = FALSE;
+    zs_toolpaths tp;
+    if (path >= 0 && zs_app_toolpaths(self->core, &tp) == ZS_OK && (size_t)path < tp.path_count) {
+        uint32_t start = path == 0 ? 0 : tp.path_ends[path - 1];
+        size_t layer = 0;
+        while (layer < tp.layer_count && tp.layer_ends[layer] <= (uint32_t)path) layer++;
+        self->anchored = TRUE;
+        self->anchor_layer = layer;
+        self->anchor_x = tp.points[2 * start];
+        self->anchor_y = tp.points[2 * start + 1];
+    }
+    g_signal_emit(self, signals[SIGNAL_SELECTION_CHANGED], 0, path);
+}
+
+gint64 zg_model_selected(ZgModel *self) {
+    return self->selected;
 }
 
 static void zg_model_init(ZgModel *self) {
+    self->selected = -1;
     self->bridge = g_atomic_rc_box_new0(Bridge);
     g_weak_ref_init(&self->bridge->model, self);
     int rc = zs_app_new(on_core_event, self->bridge, &self->core);

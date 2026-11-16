@@ -89,7 +89,7 @@ The goal is the features that people use in PrusaSlicer and Cura. zslice designs
 - [x] 3D view: beads with the real cross section and round ends, the deposited width, the cooled size, the filament color with PLA-like light, 4x MSAA
 - [ ] 3D view: X11, the model mesh before the slice, pan, a level of detail for beads smaller than a pixel
 - [ ] 3D view, physics not modeled yet: the seam blob, sag on overhangs and bridges, stringing, corner rounding by acceleration
-- [ ] Click a path in the preview to see the settings that affect it (walls, brim, ...)
+- [x] Click a path in the 2D or 3D view to inspect it: its real values with the reasons, and the settings that change it, editable in place
 - [ ] Replay: play the print in the 3D view, line by line, at 1x, 2x, 3x (and faster), from the move times of the G-code
 - [ ] macOS and iOS shell: SwiftUI (`apple/`)
 - [ ] Windows shell: Win32 C++ (`windows/`)

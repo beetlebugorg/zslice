@@ -57,6 +57,8 @@ pub const View = struct {
     /// beads of path i are path_start[i] to path_start[i + 1].
     path_start: std.ArrayList(u32) = .empty,
     highlight: [2]f32 = .{ 0, 0 },
+    /// A copy of the beads, for `pick`.
+    beads: std.ArrayList(vk.Instance) = .empty,
     layer: usize = 0,
     grid_vertices: u32 = 0,
     width: u32,
@@ -83,6 +85,7 @@ pub const View = struct {
     pub fn destroy(v: *View) void {
         v.layer_end.deinit(gpa);
         v.path_start.deinit(gpa);
+        v.beads.deinit(gpa);
         v.renderer.deinit();
         gpa.destroy(v);
     }
@@ -163,8 +166,9 @@ pub const View = struct {
         const sxy: f32 = @floatCast(1 / s.filament.shrinkage_xy);
         const sz: f32 = @floatCast(1 / s.filament.shrinkage_z);
 
-        var boxes: std.ArrayList(vk.Instance) = .empty;
-        defer boxes.deinit(gpa);
+        var boxes = v.beads;
+        boxes.clearRetainingCapacity();
+        defer v.beads = boxes;
         v.layer_end.clearRetainingCapacity();
         v.path_start.clearRetainingCapacity();
         var zmax: f32 = 0;
@@ -269,14 +273,72 @@ pub const View = struct {
         v.dist = v.extent * 2.8;
     }
 
-    pub fn draw(v: *View) Error!void {
+    /// The camera position and its unit vectors: forward, right, and up.
+    fn camera(v: *const View) struct { eye: [3]f32, f: [3]f32, s: [3]f32, u: [3]f32 } {
         const eye = [3]f32{
             v.target[0] + v.dist * @cos(v.pitch) * @cos(v.yaw),
             v.target[1] + v.dist * @cos(v.pitch) * @sin(v.yaw),
             v.target[2] + v.dist * @sin(v.pitch),
         };
+        const f = normalize(.{ v.target[0] - eye[0], v.target[1] - eye[1], v.target[2] - eye[2] });
+        const s = normalize(cross(f, .{ 0, 0, 1 }));
+        return .{ .eye = eye, .f = f, .s = s, .u = cross(s, f) };
+    }
+
+    /// The path under the pixel (px, py), or null. The ray from the camera
+    /// through the pixel is tested against each bead that the view shows.
+    /// A bead is a flattened capsule: the test scales z by width / height
+    /// around the middle of the bead, so the bead becomes a round capsule
+    /// of radius width / 2, and then uses the distance from the ray to the
+    /// segment. The nearest hit along the ray wins.
+    pub fn pick(v: *const View, px: f32, py: f32) ?usize {
+        const cam = v.camera();
         const aspect = @as(f32, @floatFromInt(v.width)) / @as(f32, @floatFromInt(v.height));
-        const proj = perspective(0.8, aspect, @max(v.dist * 0.01, 0.1), v.dist * 10 + v.extent * 4);
+        const tan_half = @tan(@as(f32, fov) / 2);
+        const x = (2 * px / @as(f32, @floatFromInt(v.width)) - 1) * tan_half * aspect;
+        const y = (1 - 2 * py / @as(f32, @floatFromInt(v.height))) * tan_half;
+        const dir = normalize(.{
+            cam.f[0] + cam.s[0] * x + cam.u[0] * y,
+            cam.f[1] + cam.s[1] * x + cam.u[1] * y,
+            cam.f[2] + cam.s[2] * x + cam.u[2] * y,
+        });
+        var count: usize = 0;
+        if (v.layer_end.items.len > 0) count = v.layer_end.items[@min(v.layer, v.layer_end.items.len - 1)];
+        var best: ?usize = null;
+        var best_t: f32 = std.math.inf(f32);
+        for (v.beads.items[0..count], 0..) |b, i| {
+            const zc = b.z - b.h / 2;
+            const k = if (b.h > 0) b.w / b.h else 1;
+            const o = [3]f32{ cam.eye[0], cam.eye[1], zc + (cam.eye[2] - zc) * k };
+            const d = [3]f32{ dir[0], dir[1], dir[2] * k };
+            const a = [3]f32{ b.ax, b.ay, zc };
+            const e = [3]f32{ b.bx - b.ax, b.by - b.ay, 0 };
+            const hit = rayToSegment(o, d, a, e) orelse continue;
+            const r = b.w / 2;
+            if (hit.dist2 <= r * r and hit.t < best_t) {
+                best_t = hit.t;
+                best = i;
+            }
+        }
+        const i = best orelse return null;
+        // The path of bead i: the last path whose first bead is at or
+        // before i.
+        var lo: usize = 0;
+        var hi: usize = v.path_start.items.len;
+        while (lo < hi) {
+            const mid = (lo + hi) / 2;
+            if (v.path_start.items[mid] <= i) lo = mid + 1 else hi = mid;
+        }
+        // Paths with no beads have the same start as the next path.
+        var p = lo - 1;
+        while (p + 1 < v.path_start.items.len and v.path_start.items[p + 1] <= i) p += 1;
+        return p;
+    }
+
+    pub fn draw(v: *View) Error!void {
+        const eye = v.camera().eye;
+        const aspect = @as(f32, @floatFromInt(v.width)) / @as(f32, @floatFromInt(v.height));
+        const proj = perspective(fov, aspect, @max(v.dist * 0.01, 0.1), v.dist * 10 + v.extent * 4);
         const view = lookAt(eye, v.target, .{ 0, 0, 1 });
         const mvp = mul(proj, view);
         var count: u32 = 0;
@@ -291,6 +353,29 @@ pub const View = struct {
         });
     }
 };
+
+/// The vertical field of view, in radians.
+const fov = 0.8;
+
+/// The closest approach of the ray o + t d (t >= 0) and the segment
+/// a + s e (0 <= s <= 1): the ray parameter and the squared distance.
+fn rayToSegment(o: [3]f32, d: [3]f32, a: [3]f32, e: [3]f32) ?struct { t: f32, dist2: f32 } {
+    const w0 = [3]f32{ o[0] - a[0], o[1] - a[1], o[2] - a[2] };
+    const dd = dot(d, d);
+    const de = dot(d, e);
+    const ee = dot(e, e);
+    const dw = dot(d, w0);
+    const ew = dot(e, w0);
+    const den = dd * ee - de * de;
+    var s: f32 = if (ee == 0) 0 else if (@abs(den) < 1e-12) 0 else std.math.clamp((dd * ew - de * dw) / den, 0, 1);
+    var t: f32 = (de * s - dw) / dd;
+    if (t < 0) {
+        t = 0;
+        s = if (ee == 0) 0 else std.math.clamp(ew / ee, 0, 1);
+    }
+    const p = [3]f32{ o[0] + d[0] * t - a[0] - e[0] * s, o[1] + d[1] * t - a[1] - e[1] * s, o[2] + d[2] * t - a[2] - e[2] * s };
+    return .{ .t = t, .dist2 = dot(p, p) };
+}
 
 /// Parses "#rrggbb".
 fn parseColor(text: []const u8) ?[3]u8 {
@@ -351,6 +436,10 @@ fn normalize(a: [3]f32) [3]f32 {
 
 test "the camera looks at the target" {
     const view = lookAt(.{ 0, -10, 0 }, .{ 0, 0, 0 }, .{ 0, 0, 1 });
+    // The ray from (0, -10, 0) along +y passes 0.5 from a segment at z 0.5.
+    const hit = rayToSegment(.{ 0, -10, 0 }, .{ 0, 1, 0 }, .{ -1, 0, 0.5 }, .{ 2, 0, 0 }).?;
+    try std.testing.expectApproxEqAbs(@as(f32, 10), hit.t, 1e-5);
+    try std.testing.expectApproxEqAbs(@as(f32, 0.25), hit.dist2, 1e-5);
     const proj = perspective(0.8, 1, 0.1, 100);
     const m = mul(proj, view);
     // The target is in the middle of the screen.
@@ -363,4 +452,34 @@ test "the camera looks at the target" {
     const ay = m[9] * 1 + m[13];
     const aw = m[11] * 1 + m[15];
     try std.testing.expect(ay / aw < 0);
+}
+
+test "pick finds the nearest bead under the pixel" {
+    const gpa = View.gpa;
+    var v: View = .{ .renderer = undefined, .width = 100, .height = 100 };
+    defer {
+        v.beads.deinit(gpa);
+        v.layer_end.deinit(gpa);
+        v.path_start.deinit(gpa);
+    }
+    v.target = .{ 0, 0, 0 };
+    v.extent = 10;
+    v.yaw = -std.math.pi / 2.0; // the camera is at -y, and looks along +y
+    v.pitch = 0.3;
+    v.dist = 50;
+    // Path 0: a bead at the bottom (layer 0). Path 1: a bead at the target
+    // (layer 1), between the camera and path 0.
+    const red = [4]u8{ 255, 0, 0, 255 };
+    try v.beads.append(gpa, .{ .ax = -5, .ay = 3, .bx = 5, .by = 3, .z = -5, .h = 0.2, .w = 0.5, .rgba = red });
+    try v.beads.append(gpa, .{ .ax = -5, .ay = 0, .bx = 5, .by = 0, .z = 0.1, .h = 0.2, .w = 0.5, .rgba = red });
+    try v.layer_end.appendSlice(gpa, &.{ 1, 2 });
+    try v.path_start.appendSlice(gpa, &.{ 0, 1, 2 });
+    v.layer = 1;
+    // The middle of the view looks at the target: path 1.
+    try std.testing.expectEqual(@as(?usize, 1), v.pick(50, 50));
+    // Far to the side: nothing.
+    try std.testing.expectEqual(@as(?usize, null), v.pick(2, 2));
+    // With only layer 0 shown, the middle ray misses path 0 (it is lower).
+    v.layer = 0;
+    try std.testing.expectEqual(@as(?usize, null), v.pick(50, 50));
 }

@@ -29,6 +29,7 @@ typedef struct {
     double scale, ox, oy;
     double pointer_x, pointer_y;
     double drag_ox, drag_oy;
+    double press_x, press_y;
     gboolean fitted;
     gboolean updating_slider;
 } Preview;
@@ -150,6 +151,23 @@ static void draw(GtkDrawingArea *area, cairo_t *cr, int w, int h, gpointer data)
         cairo_set_line_cap(cr, CAIRO_LINE_CAP_ROUND);
         cairo_set_line_join(cr, CAIRO_LINE_JOIN_ROUND);
         cairo_set_line_width(cr, lp->width);
+        /* The selected path: a wide yellow line under the paths. */
+        gint64 sel = zg_model_selected(p->model);
+        zs_toolpaths tp;
+        if (sel >= 0 && zs_app_toolpaths(core, &tp) == ZS_OK) {
+            size_t layer = (size_t)gtk_range_get_value(GTK_RANGE(p->slider));
+            uint32_t first = layer == 0 ? 0 : tp.layer_ends[layer - 1];
+            if ((uint32_t)sel >= first && (uint32_t)sel < tp.layer_ends[layer]) {
+                size_t i = (size_t)sel - first;
+                uint32_t start = i == 0 ? 0 : lp->path_ends[i - 1];
+                add_polyline(cr, lp->points, start, lp->path_ends[i], lp->path_closed[i]);
+                cairo_save(cr);
+                cairo_set_line_width(cr, lp->width * 2.5);
+                cairo_set_source_rgba(cr, 1.0, 0.82, 0.1, 0.9);
+                cairo_stroke(cr);
+                cairo_restore(cr);
+            }
+        }
         for (size_t f = 0; f < ZG_N_FEATURES; f++) {
             for (size_t i = 0; i < lp->path_count; i++) {
                 if (lp->path_features[i] != f) continue;
@@ -213,13 +231,35 @@ static void on_drag_update(GtkGestureDrag *g, double dx, double dy, gpointer dat
 
 static void on_double_click(GtkGestureClick *g, int n, double x, double y, gpointer data) {
     Preview *p = data;
+    p->press_x = x;
+    p->press_y = y;
     if (n != 2) return;
     fit(p);
     gtk_widget_queue_draw(p->area);
 }
 
+/* A click (a release near the press) picks the path under the pointer. */
+static void on_release(GtkGestureClick *g, int n, double x, double y, gpointer data) {
+    Preview *p = data;
+    if (n != 1 || fabs(x - p->press_x) > 4 || fabs(y - p->press_y) > 4) return;
+    zs_app *core = zg_model_core(p->model);
+    if (zs_app_state(core) != ZS_STATE_DONE) return;
+    int h = gtk_widget_get_height(p->area);
+    double mx = (x - p->ox) / p->scale;
+    double my = ((h - y) - p->oy) / p->scale;
+    size_t layer = (size_t)gtk_range_get_value(GTK_RANGE(p->slider));
+    size_t path = zs_app_pick_layer(core, layer, mx, my);
+    zg_model_select(p->model, path == (size_t)-1 ? -1 : (gint64)path);
+}
+
+static void on_selection(ZgModel *model, gint64 path, gpointer data) {
+    Preview *p = data;
+    gtk_widget_queue_draw(p->area);
+}
+
 static void preview_free(gpointer data) {
     Preview *p = data;
+    g_signal_handlers_disconnect_by_data(p->model, p);
     free_paths(p);
     g_object_unref(p->model);
     g_free(p);
@@ -247,6 +287,7 @@ GtkWidget *zg_preview_new(ZgModel *model) {
     gtk_widget_add_controller(p->area, GTK_EVENT_CONTROLLER(drag));
     GtkGesture *click = gtk_gesture_click_new();
     g_signal_connect(click, "pressed", G_CALLBACK(on_double_click), p);
+    g_signal_connect(click, "released", G_CALLBACK(on_release), p);
     gtk_widget_add_controller(p->area, GTK_EVENT_CONTROLLER(click));
 
     p->slider = gtk_scale_new_with_range(GTK_ORIENTATION_VERTICAL, 0, 1, 1);
@@ -292,6 +333,7 @@ GtkWidget *zg_preview_new(ZgModel *model) {
     gtk_box_append(GTK_BOX(box), stack);
     gtk_box_append(GTK_BOX(box), side);
     g_object_set_data_full(G_OBJECT(box), "zg-preview", p, preview_free);
+    g_signal_connect(model, "selection-changed", G_CALLBACK(on_selection), p);
     return box;
 }
 

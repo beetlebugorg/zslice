@@ -146,7 +146,7 @@ static GtkWidget *make_editor(ZgModel *model, const zs_setting_info *info) {
     return editor;
 }
 
-static GtkWidget *make_page(ZgModel *model, const char *group) {
+static GtkWidget *new_grid(void) {
     GtkWidget *grid = gtk_grid_new();
     gtk_grid_set_row_spacing(GTK_GRID(grid), 6);
     gtk_grid_set_column_spacing(GTK_GRID(grid), 12);
@@ -154,7 +154,51 @@ static GtkWidget *make_page(ZgModel *model, const char *group) {
     gtk_widget_set_margin_end(grid, 12);
     gtk_widget_set_margin_top(grid, 12);
     gtk_widget_set_margin_bottom(grid, 12);
+    return grid;
+}
 
+/* Adds the label and the editor of one setting to a grid. */
+static void add_row(GtkWidget *grid, int *row, ZgModel *model, const zs_setting_info *info, gboolean with_group) {
+    char *text = with_group ? g_strdup_printf("%s (%s)", info->label, info->group) : g_strdup(info->label);
+    GtkWidget *label = gtk_label_new(text);
+    g_free(text);
+    gtk_widget_set_halign(label, GTK_ALIGN_START);
+    gtk_widget_set_hexpand(label, TRUE);
+    gtk_label_set_xalign(GTK_LABEL(label), 0);
+    gtk_label_set_wrap(GTK_LABEL(label), TRUE);
+    gtk_widget_set_tooltip_text(label, info->doc);
+    GtkWidget *editor = make_editor(model, info);
+    if (info->kind == ZS_SETTING_TEXT && info->multiline) {
+        GtkWidget *scroll = gtk_scrolled_window_new();
+        gtk_scrolled_window_set_child(GTK_SCROLLED_WINDOW(scroll), editor);
+        gtk_scrolled_window_set_min_content_height(GTK_SCROLLED_WINDOW(scroll), 120);
+        gtk_widget_add_css_class(scroll, "frame");
+        gtk_grid_attach(GTK_GRID(grid), label, 0, (*row)++, 2, 1);
+        gtk_grid_attach(GTK_GRID(grid), scroll, 0, (*row)++, 2, 1);
+    } else {
+        gtk_grid_attach(GTK_GRID(grid), label, 0, *row, 1, 1);
+        gtk_grid_attach(GTK_GRID(grid), editor, 1, (*row)++, 1, 1);
+    }
+}
+
+static void add_heading(GtkWidget *grid, int *row, const char *text) {
+    GtkWidget *heading = gtk_label_new(text);
+    gtk_widget_add_css_class(heading, "heading");
+    gtk_widget_set_halign(heading, GTK_ALIGN_START);
+    gtk_widget_set_margin_top(heading, *row == 0 ? 0 : 12);
+    gtk_grid_attach(GTK_GRID(grid), heading, 0, (*row)++, 2, 1);
+}
+
+static GtkWidget *scrolled(GtkWidget *child) {
+    GtkWidget *scroll = gtk_scrolled_window_new();
+    gtk_scrolled_window_set_policy(GTK_SCROLLED_WINDOW(scroll), GTK_POLICY_NEVER, GTK_POLICY_AUTOMATIC);
+    gtk_scrolled_window_set_child(GTK_SCROLLED_WINDOW(scroll), child);
+    gtk_widget_set_vexpand(scroll, TRUE);
+    return scroll;
+}
+
+static GtkWidget *make_page(ZgModel *model, const char *group) {
+    GtkWidget *grid = new_grid();
     int row = 0;
     const char *section = NULL;
     size_t n = zs_setting_count();
@@ -163,41 +207,84 @@ static GtkWidget *make_page(ZgModel *model, const char *group) {
         if (zs_setting_get_info(i, &info) != ZS_OK || strcmp(info.group, group) != 0) continue;
         if (info.section[0] && g_strcmp0(section, info.section) != 0) {
             section = info.section;
-            GtkWidget *heading = gtk_label_new(section);
-            gtk_widget_add_css_class(heading, "heading");
-            gtk_widget_set_halign(heading, GTK_ALIGN_START);
-            gtk_widget_set_margin_top(heading, row == 0 ? 0 : 12);
-            gtk_grid_attach(GTK_GRID(grid), heading, 0, row++, 2, 1);
+            add_heading(grid, &row, section);
         }
-        GtkWidget *label = gtk_label_new(info.label);
-        gtk_widget_set_halign(label, GTK_ALIGN_START);
-        gtk_widget_set_hexpand(label, TRUE);
-        gtk_label_set_xalign(GTK_LABEL(label), 0);
-        gtk_label_set_wrap(GTK_LABEL(label), TRUE);
-        gtk_widget_set_tooltip_text(label, info.doc);
-        GtkWidget *editor = make_editor(model, &info);
-        if (info.kind == ZS_SETTING_TEXT && info.multiline) {
-            GtkWidget *scroll = gtk_scrolled_window_new();
-            gtk_scrolled_window_set_child(GTK_SCROLLED_WINDOW(scroll), editor);
-            gtk_scrolled_window_set_min_content_height(GTK_SCROLLED_WINDOW(scroll), 120);
-            gtk_widget_add_css_class(scroll, "frame");
-            gtk_grid_attach(GTK_GRID(grid), label, 0, row++, 2, 1);
-            gtk_grid_attach(GTK_GRID(grid), scroll, 0, row++, 2, 1);
-        } else {
-            gtk_grid_attach(GTK_GRID(grid), label, 0, row, 1, 1);
-            gtk_grid_attach(GTK_GRID(grid), editor, 1, row++, 1, 1);
-        }
+        add_row(grid, &row, model, &info, FALSE);
     }
 
-    GtkWidget *scroll = gtk_scrolled_window_new();
-    gtk_scrolled_window_set_policy(GTK_SCROLLED_WINDOW(scroll), GTK_POLICY_NEVER, GTK_POLICY_AUTOMATIC);
-    gtk_scrolled_window_set_child(GTK_SCROLLED_WINDOW(scroll), grid);
-    gtk_widget_set_vexpand(scroll, TRUE);
-    return scroll;
+    return scrolled(grid);
+}
+
+/* ---- the inspector page ---- */
+
+typedef struct {
+    ZgModel *model;
+    GtkWidget *stack;
+    GtkWidget *page; /* a box; its child is rebuilt for each selection */
+} Inspector;
+
+static gboolean find_setting(const char *name, zs_setting_info *out) {
+    size_t n = zs_setting_count();
+    for (size_t i = 0; i < n; i++) {
+        if (zs_setting_get_info(i, out) == ZS_OK && strcmp(out->name, name) == 0) return TRUE;
+    }
+    return FALSE;
+}
+
+static void fill_inspector(Inspector *ins) {
+    GtkWidget *old = gtk_widget_get_first_child(ins->page);
+    if (old) gtk_box_remove(GTK_BOX(ins->page), old);
+    GtkWidget *grid = new_grid();
+    int row = 0;
+    gint64 path = zg_model_selected(ins->model);
+    zs_inspect info;
+    if (path < 0 || zs_app_inspect(zg_model_core(ins->model), (size_t)path, &info) != ZS_OK) {
+        GtkWidget *hint = gtk_label_new("Click a line in the preview (2D or 3D) to see what it is, its real values, and the settings that change it.");
+        gtk_label_set_wrap(GTK_LABEL(hint), TRUE);
+        gtk_label_set_xalign(GTK_LABEL(hint), 0);
+        gtk_widget_add_css_class(hint, "dim-label");
+        gtk_grid_attach(GTK_GRID(grid), hint, 0, row++, 2, 1);
+    } else {
+        add_heading(grid, &row, info.title);
+        GtkWidget *explain = gtk_label_new(info.explain);
+        gtk_label_set_wrap(GTK_LABEL(explain), TRUE);
+        gtk_label_set_xalign(GTK_LABEL(explain), 0);
+        gtk_label_set_selectable(GTK_LABEL(explain), TRUE);
+        gtk_widget_set_hexpand(explain, TRUE);
+        gtk_grid_attach(GTK_GRID(grid), explain, 0, row++, 2, 1);
+        add_heading(grid, &row, "Settings that change it");
+        char **names = g_strsplit(info.settings, "\n", -1);
+        for (int i = 0; names[i]; i++) {
+            zs_setting_info s;
+            if (find_setting(names[i], &s)) add_row(grid, &row, ins->model, &s, TRUE);
+        }
+        g_strfreev(names);
+    }
+    gtk_box_append(GTK_BOX(ins->page), scrolled(grid));
+}
+
+static void on_selection(ZgModel *model, gint64 path, gpointer data) {
+    Inspector *ins = data;
+    fill_inspector(ins);
+    if (path >= 0) gtk_stack_set_visible_child_name(GTK_STACK(ins->stack), "selected");
+}
+
+static void inspector_free(gpointer data) {
+    Inspector *ins = data;
+    g_signal_handlers_disconnect_by_data(ins->model, ins);
+    g_free(ins);
 }
 
 GtkWidget *zg_settings_panel_new(ZgModel *model) {
     GtkWidget *stack = gtk_stack_new();
+    Inspector *ins = g_new0(Inspector, 1);
+    ins->model = model;
+    ins->stack = stack;
+    ins->page = gtk_box_new(GTK_ORIENTATION_VERTICAL, 0);
+    g_object_set_data_full(G_OBJECT(ins->page), "zg-inspector", ins, inspector_free);
+    fill_inspector(ins);
+    g_signal_connect(model, "selection-changed", G_CALLBACK(on_selection), ins);
+    gtk_stack_add_titled(GTK_STACK(stack), ins->page, "selected", "Selected");
     for (size_t i = 0; i < G_N_ELEMENTS(pages); i++) {
         gtk_stack_add_titled(GTK_STACK(stack), make_page(model, pages[i].group), pages[i].group, pages[i].title);
     }

@@ -181,6 +181,35 @@ int zs_app_toolpaths(const zs_app *app, zs_toolpaths *out);
 int zs_app_layer_paths(const zs_app *app, size_t layer, zs_layer_paths *out);
 void zs_layer_paths_free(zs_layer_paths *paths);
 
+/* ---- inspect a path ---- */
+
+/* What a path is, its real values, why they are what they are, and the
+ * settings that change it. For an inspector panel: the user clicks a path
+ * in a view (zs_app_pick_layer, zs_view_pick), and the shell shows this. */
+typedef struct zs_inspect {
+    int feature;          /* enum zs_feature */
+    size_t layer;         /* from 0 */
+    size_t path;          /* the index in zs_app_toolpaths */
+    double z, height;     /* mm */
+    double line_width;    /* the planned line width, mm */
+    double bead_width;    /* the width of the deposited bead, mm */
+    double length;        /* mm */
+    double planned_speed; /* mm/s, from the settings */
+    double speed;         /* mm/s, with the cooling slow-down */
+    double flow;          /* mm^3/s */
+    double start_time, end_time; /* s from the start of the print */
+    const char *title;    /* for example "Outer wall" */
+    const char *explain;  /* the values and why, in plain words, with line breaks */
+    const char *settings; /* the setting names that change it, one on each line */
+} zs_inspect;
+
+/* The strings stay valid until the next zs_app_inspect, the next slice, or
+ * zs_app_free. */
+int zs_app_inspect(zs_app *app, size_t path, zs_inspect *out);
+/* The path of a layer nearest to (x, y) mm, within twice the line width,
+ * or (size_t)-1. */
+size_t zs_app_pick_layer(const zs_app *app, size_t layer, double x, double y);
+
 /* ---- the 3D view ---- */
 
 /* The core draws the 3D view of a slice into a native surface that the
@@ -228,6 +257,9 @@ void zs_view_set_mode(zs_view *view, int mode);
 /* Highlights the beads of one path (an index into zs_app_toolpaths), or
  * nothing if path is (size_t)-1. */
 void zs_view_highlight(zs_view *view, size_t path);
+/* The path under the pixel (px, py) (pixels from the top left), or
+ * (size_t)-1. */
+size_t zs_view_pick(zs_view *view, float px, float py);
 /* Draws and presents one frame. Call it after a change. */
 int zs_view_draw(zs_view *view);
 

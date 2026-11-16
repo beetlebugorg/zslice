@@ -485,6 +485,56 @@ export fn zs_app_toolpaths(a: ?*const App, out: ?*Toolpaths) c_int {
     return ok;
 }
 
+pub const Inspect = extern struct {
+    feature: c_int,
+    layer: usize,
+    path: usize,
+    z: f64,
+    height: f64,
+    line_width: f64,
+    bead_width: f64,
+    length: f64,
+    planned_speed: f64,
+    speed: f64,
+    flow: f64,
+    start_time: f64,
+    end_time: f64,
+    title: [*:0]const u8,
+    explain: [*:0]const u8,
+    settings: [*:0]const u8,
+};
+
+export fn zs_app_inspect(a: ?*App, path: usize, out: ?*Inspect) c_int {
+    const app = a orelse return @intFromEnum(Status.invalid_argument);
+    const o = out orelse return @intFromEnum(Status.invalid_argument);
+    const i = app.inspect(path) catch |e| return status(e);
+    o.* = .{
+        .feature = @intFromEnum(i.feature),
+        .layer = i.layer,
+        .path = i.path,
+        .z = i.z,
+        .height = i.height,
+        .line_width = i.line_width,
+        .bead_width = i.bead_width,
+        .length = i.length,
+        .planned_speed = i.planned_speed,
+        .speed = i.speed,
+        .flow = i.flow,
+        .start_time = i.start_time,
+        .end_time = i.end_time,
+        .title = i.title.ptr,
+        .explain = i.explain.ptr,
+        .settings = i.settings.ptr,
+    };
+    return ok;
+}
+
+/// The path of a layer nearest to (x, y) mm, or (size_t)-1.
+export fn zs_app_pick_layer(a: ?*const App, layer: usize, x: f64, y: f64) usize {
+    const app = a orelse return std.math.maxInt(usize);
+    return app.pickInLayer(layer, x, y) orelse std.math.maxInt(usize);
+}
+
 pub const License = extern struct {
     name: [*:0]const u8,
     license: [*:0]const u8,
@@ -610,6 +660,13 @@ export fn zs_view_highlight(view: ?*View, path: usize) void {
     v.setHighlight(if (path == std.math.maxInt(usize)) null else path);
 }
 
+/// The path under the pixel (px, py), or (size_t)-1.
+export fn zs_view_pick(view: ?*View, px: f32, py: f32) usize {
+    if (!render_on) return std.math.maxInt(usize);
+    const v = view orelse return std.math.maxInt(usize);
+    return v.pick(px, py) orelse std.math.maxInt(usize);
+}
+
 export fn zs_view_draw(view: ?*View) c_int {
     if (!render_on) return @intFromEnum(Status.not_supported);
     const v = view orelse return @intFromEnum(Status.invalid_argument);
@@ -619,6 +676,11 @@ export fn zs_view_draw(view: ?*View) c_int {
 
 test "C API: the view module compiles" {
     if (render_on) _ = &view_mod.View.create;
+}
+
+test {
+    // The tests of the view module (its math needs no GPU).
+    if (render_on) _ = view_mod;
 }
 
 test "C API: slice a box to a buffer and with a callback" {
