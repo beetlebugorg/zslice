@@ -52,6 +52,39 @@ const Paths = geom.Paths;
 const cross3 = geom.cross3;
 const dot3 = geom.dot3;
 
+/// The largest coordinate for the 64-bit products: a difference of two
+/// coordinates is less than 2^31, a product of two differences is less
+/// than 2^62, and a sum of two products fits in an i64. That is about
+/// 1 km in micrometers, so all real parts are in range.
+const narrow_limit: i64 = 1 << 30;
+
+/// The cross and dot products of `geom`, with 64-bit integers if `narrow`
+/// (all coordinates within `narrow_limit`), else 128-bit. Both give the
+/// same values in range. The 64-bit products are faster.
+fn Arith(comptime narrow: bool) type {
+    return struct {
+        const W = if (narrow) i64 else i128;
+
+        inline fn cross(a: Point, b: Point, c: Point) W {
+            if (!narrow) return cross3(a, b, c);
+            return (b.x - a.x) * (c.y - a.y) - (b.y - a.y) * (c.x - a.x);
+        }
+
+        inline fn dot(a: Point, b: Point, c: Point) W {
+            if (!narrow) return dot3(a, b, c);
+            return (b.x - a.x) * (c.x - a.x) + (b.y - a.y) * (c.y - a.y);
+        }
+    };
+}
+
+/// True if all points of `paths` are within `narrow_limit`.
+fn isNarrow(paths: Paths) bool {
+    for (paths.points.items) |p| {
+        if (@abs(p.x) >= narrow_limit or @abs(p.y) >= narrow_limit) return false;
+    }
+    return true;
+}
+
 pub const Op = enum { union_, intersection, difference, xor };
 
 /// The rule that decides if a point is inside, from its winding number.
@@ -105,13 +138,22 @@ fn arrange(arena: Allocator, subject: Paths, clip: Paths) Allocator.Error![]Merg
     // split points ("iterated snap rounding"). Most inputs need one or two
     // passes. A later pass only tests the pairs with a new edge: two edges
     // that did not change were tested in the pass before.
+    //
+    // A crossing point is between the end points of its edges, so the
+    // points of all passes stay in the range of the input.
+    const narrow = isNarrow(subject) and isNarrow(clip);
     var cur: []InEdge = edges.items;
     var merged: []Merged = &.{};
     var pass: usize = 0;
     while (true) : (pass += 1) {
         var splits: std.ArrayList(Split) = .empty;
-        try findIntersections(arena, cur, &splits);
-        merged = try splitAndMerge(arena, cur, splits.items, pass > 0);
+        if (narrow) {
+            try findIntersections(true, arena, cur, &splits);
+            merged = try splitAndMerge(true, arena, cur, splits.items, pass > 0);
+        } else {
+            try findIntersections(false, arena, cur, &splits);
+            merged = try splitAndMerge(false, arena, cur, splits.items, pass > 0);
+        }
         if (splits.items.len == 0 or pass == max_passes) break;
         cur = try arena.alloc(InEdge, merged.len);
         for (merged, cur) |m, *e| e.* = .{ .a = m.lo, .b = m.hi, .d = m.d, .fresh = m.fresh };
@@ -228,7 +270,7 @@ const Split = struct { edge: u32, p: Point };
 ///
 /// A pair that shares more than one cell is tested more than once. The
 /// split step removes the repeated points.
-fn findIntersections(arena: Allocator, edges: []const InEdge, splits: *std.ArrayList(Split)) !void {
+fn findIntersections(comptime narrow: bool, arena: Allocator, edges: []const InEdge, splits: *std.ArrayList(Split)) !void {
     if (edges.len < 2) return;
     var box = geom.Box.empty;
     var total: f64 = 0;
@@ -313,9 +355,9 @@ fn findIntersections(arena: Allocator, edges: []const InEdge, splits: *std.Array
                 // The crossing point is rounded along the first edge, so
                 // the edge with the lower index always goes first.
                 if (ei < fi) {
-                    try intersectPair(arena, splits, ei, e, fi, f);
+                    try intersectPair(narrow, arena, splits, ei, e, fi, f);
                 } else {
-                    try intersectPair(arena, splits, fi, f, ei, e);
+                    try intersectPair(narrow, arena, splits, fi, f, ei, e);
                 }
             }
         }
@@ -425,28 +467,30 @@ fn walkCells(arena: Allocator, out: *std.ArrayList(CellEntry), a: Point, b: Poin
 
 /// True if p is on the open segment from a to b. The caller has already
 /// found that p is on the line through a and b.
-fn strictlyBetween(a: Point, b: Point, p: Point) bool {
+fn strictlyBetween(comptime narrow: bool, a: Point, b: Point, p: Point) bool {
     if (p.eql(a) or p.eql(b)) return false;
-    return dot3(a, b, p) > 0 and dot3(b, a, p) > 0;
+    const A = Arith(narrow);
+    return A.dot(a, b, p) > 0 and A.dot(b, a, p) > 0;
 }
 
-fn intersectPair(arena: Allocator, splits: *std.ArrayList(Split), ei: u32, e: InEdge, fi: u32, f: InEdge) !void {
+fn intersectPair(comptime narrow: bool, arena: Allocator, splits: *std.ArrayList(Split), ei: u32, e: InEdge, fi: u32, f: InEdge) !void {
+    const A = Arith(narrow);
     const p1 = e.a;
     const p2 = e.b;
     const q1 = f.a;
     const q2 = f.b;
-    const d1 = cross3(q1, q2, p1);
-    const d2 = cross3(q1, q2, p2);
-    const d3 = cross3(p1, p2, q1);
-    const d4 = cross3(p1, p2, q2);
+    const d1: i128 = A.cross(q1, q2, p1);
+    const d2: i128 = A.cross(q1, q2, p2);
+    const d3: i128 = A.cross(p1, p2, q1);
+    const d4: i128 = A.cross(p1, p2, q2);
 
     // Each end point that is on the other edge (but not at its ends) splits
     // the other edge. This covers "T" junctions and edges that overlap on
     // one line.
-    if (d1 == 0 and strictlyBetween(q1, q2, p1)) try splits.append(arena, .{ .edge = fi, .p = p1 });
-    if (d2 == 0 and strictlyBetween(q1, q2, p2)) try splits.append(arena, .{ .edge = fi, .p = p2 });
-    if (d3 == 0 and strictlyBetween(p1, p2, q1)) try splits.append(arena, .{ .edge = ei, .p = q1 });
-    if (d4 == 0 and strictlyBetween(p1, p2, q2)) try splits.append(arena, .{ .edge = ei, .p = q2 });
+    if (d1 == 0 and strictlyBetween(narrow, q1, q2, p1)) try splits.append(arena, .{ .edge = fi, .p = p1 });
+    if (d2 == 0 and strictlyBetween(narrow, q1, q2, p2)) try splits.append(arena, .{ .edge = fi, .p = p2 });
+    if (d3 == 0 and strictlyBetween(narrow, p1, p2, q1)) try splits.append(arena, .{ .edge = ei, .p = q1 });
+    if (d4 == 0 and strictlyBetween(narrow, p1, p2, q2)) try splits.append(arena, .{ .edge = ei, .p = q2 });
 
     // A proper crossing: the ends of each edge are on opposite sides of the
     // other edge.
@@ -492,14 +536,14 @@ const Merged = struct {
     fresh: bool = false,
 };
 
-fn splitAndMerge(arena: Allocator, edges: []const InEdge, splits: []Split, sorted_input: bool) ![]Merged {
+fn splitAndMerge(comptime narrow: bool, arena: Allocator, edges: []const InEdge, splits: []Split, sorted_input: bool) ![]Merged {
     // Sort the split points by edge, then by position along the edge.
     std.mem.sortUnstable(Split, splits, edges, struct {
         fn lt(es: []const InEdge, a: Split, b: Split) bool {
             if (a.edge != b.edge) return a.edge < b.edge;
             const e = es[a.edge];
-            const da = dot3(e.a, e.b, a.p);
-            const db = dot3(e.a, e.b, b.p);
+            const da = Arith(narrow).dot(e.a, e.b, a.p);
+            const db = Arith(narrow).dot(e.a, e.b, b.p);
             if (da != db) return da < db;
             // A rounded crossing point can be off the line, so two points
             // can have the same place along the edge. The point order
@@ -1298,4 +1342,32 @@ test "random polygon pairs: union + intersection = A + B" {
         if (@abs(lhs - rhs) > 0.01) bad += 1;
     }
     try testing.expectEqual(@as(usize, 0), bad);
+}
+
+test "the 64-bit and the 128-bit products give the same splits" {
+    var arena_state = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer arena_state.deinit();
+    const arena = arena_state.allocator();
+    var prng = std.Random.DefaultPrng.init(11);
+    const rnd = prng.random();
+    const lim = narrow_limit - 1;
+    for (0..20_000) |k| {
+        // Large and small coordinates, and many points on a few lines.
+        const span: i64 = if (k % 2 == 0) lim else 20;
+        var pts: [4]Point = undefined;
+        for (&pts) |*p| p.* = .init(rnd.intRangeAtMost(i64, -span, span), rnd.intRangeAtMost(i64, -span, span));
+        try std.testing.expectEqual(@as(i128, Arith(true).cross(pts[0], pts[1], pts[2])), Arith(false).cross(pts[0], pts[1], pts[2]));
+        try std.testing.expectEqual(@as(i128, Arith(true).dot(pts[0], pts[1], pts[2])), Arith(false).dot(pts[0], pts[1], pts[2]));
+        const e: InEdge = .{ .a = pts[0], .b = pts[1], .d = .{ 1, 0 } };
+        const f: InEdge = .{ .a = pts[2], .b = pts[3], .d = .{ 0, 1 } };
+        var a: std.ArrayList(Split) = .empty;
+        var b: std.ArrayList(Split) = .empty;
+        try intersectPair(true, arena, &a, 0, e, 1, f);
+        try intersectPair(false, arena, &b, 0, e, 1, f);
+        try std.testing.expectEqual(a.items.len, b.items.len);
+        for (a.items, b.items) |x, y| {
+            try std.testing.expectEqual(x.edge, y.edge);
+            try std.testing.expect(x.p.eql(y.p));
+        }
+    }
 }
