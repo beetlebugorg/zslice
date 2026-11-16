@@ -670,23 +670,23 @@ pub fn plan(gpa: Allocator, ctx: Context, i: usize) Allocator.Error!LayerPlan {
                     // The band under the top surfaces: the area that is not
                     // under all of the next layers of the band.
                     var near: Paths = .empty;
-                    var far = region;
                     if (under_band) |u| if (!u.isEmpty()) {
                         near = try clip.difference(s, region, u);
-                        far = try clip.intersect(s, region, u);
                     } else {
                         // Near the top of the part: all of it is the band.
                         near = region;
-                        far = .empty;
                     };
-                    const dense = @max(@divTrunc(spacing, 2), w);
-                    const far_set = try infill.lines(s, far, spacing, angle, w);
-                    sparse_lines = try infill.connect(s, far, far_set, spacing, angle);
-                    if (!near.isEmpty()) {
-                        // The near band uses the same grid at half the
-                        // spacing, so its lines meet the far lines.
-                        const near_set = try infill.lines(s, near, dense, angle, w);
-                        const joined = try infill.connect(s, near, near_set, dense, angle);
+                    // One set of lines at the normal spacing over all of
+                    // the region, so each line runs straight through the
+                    // edge of the band. In the band, extra lines halfway
+                    // between them make it twice as dense. Only the extra
+                    // lines end at the edge of the band.
+                    const set = try infill.lines(s, region, spacing, angle, w);
+                    sparse_lines = try infill.connect(s, region, set, spacing, angle);
+                    const half = @divTrunc(spacing, 2);
+                    if (!near.isEmpty() and half >= w) {
+                        const extra = try infill.linesPhase(s, near, spacing, angle, half, w);
+                        const joined = try infill.connect(s, near, extra, spacing, angle);
                         try sparse_lines.appendAll(s, joined);
                     }
                 }
