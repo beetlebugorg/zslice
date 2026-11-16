@@ -726,13 +726,17 @@ pub const Renderer = struct {
     /// use by the frame before.
     /// The buffer has one spare slot after the items, for the bead that
     /// the replay is printing (see Frame.partial).
-    pub fn setInstances(r: *Renderer, items: []const Instance) Error!void {
+    /// The beads, then the marks (seams, travel, retractions) after
+    /// them: Frame.mark_first is beads.len.
+    pub fn setInstances(r: *Renderer, items: []const Instance, marks: []const Instance) Error!void {
         _ = r.d.vkDeviceWaitIdle.?(r.device);
         const bytes = std.mem.sliceAsBytes(items);
-        const need = bytes.len + @sizeOf(Instance);
+        const mark_bytes = std.mem.sliceAsBytes(marks);
+        const need = bytes.len + mark_bytes.len + @sizeOf(Instance);
         if (need > r.instances.size) try r.makeBuffer(&r.instances, need, c.VK_BUFFER_USAGE_VERTEX_BUFFER_BIT);
         @memcpy(r.instances.map.?[0..bytes.len], bytes);
-        r.instance_count = @intCast(items.len);
+        @memcpy(r.instances.map.?[bytes.len .. bytes.len + mark_bytes.len], mark_bytes);
+        r.instance_count = @intCast(items.len + marks.len);
     }
 
     /// Replaces the grid lines: pairs of points, x, y, z each.
@@ -920,6 +924,9 @@ pub const Renderer = struct {
         clear: [3]f32,
         box: Push,
         box_count: u32,
+        /// The marks to draw: instances mark_first .. mark_first + mark_count.
+        mark_first: u32 = 0,
+        mark_count: u32 = 0,
         /// A bead drawn after the first box_count beads: the bead that the
         /// replay is printing, cut to its printed part.
         partial: ?Instance = null,
@@ -988,6 +995,7 @@ pub const Renderer = struct {
             d.vkCmdBindVertexBuffers.?(cmd, 0, 2, &bufs, &offs);
             d.vkCmdBindIndexBuffer.?(cmd, r.box_index.buf, 0, c.VK_INDEX_TYPE_UINT16);
             d.vkCmdDrawIndexed.?(cmd, r.box_index_count, frame.box_count, 0, 0, 0);
+            if (frame.mark_count > 0) d.vkCmdDrawIndexed.?(cmd, r.box_index_count, frame.mark_count, 0, 0, frame.mark_first);
             // With a focus (params.z != 0): the beads out of the focus, as
             // ghosts, after the solid beads (params.w = 2 in the shader).
             if (frame.box.params[2] != 0) {
@@ -996,6 +1004,7 @@ pub const Renderer = struct {
                 d.vkCmdBindPipeline.?(cmd, c.VK_PIPELINE_BIND_POINT_GRAPHICS, r.ghost_pipeline);
                 d.vkCmdPushConstants.?(cmd, r.layout, stages, 0, @sizeOf(Push), &ghost);
                 d.vkCmdDrawIndexed.?(cmd, r.box_index_count, frame.box_count, 0, 0, 0);
+                if (frame.mark_count > 0) d.vkCmdDrawIndexed.?(cmd, r.box_index_count, frame.mark_count, 0, 0, frame.mark_first);
                 d.vkCmdBindPipeline.?(cmd, c.VK_PIPELINE_BIND_POINT_GRAPHICS, r.box_pipeline);
                 d.vkCmdPushConstants.?(cmd, r.layout, stages, 0, @sizeOf(Push), &frame.box);
             }

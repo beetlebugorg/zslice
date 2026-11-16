@@ -44,6 +44,9 @@ pub const feature_rgb = [_][3]u8{
     .{ 0x8d, 0x6e, 0x63 }, // skirt and brim
     .{ 0xad, 0xb5, 0xbd }, // support
     .{ 0x49, 0x50, 0x57 }, // support interface
+    .{ 0xe0, 0x1a, 0x26 }, // mark: seam
+    .{ 0x33, 0x73, 0xf2 }, // mark: travel
+    .{ 0xf2, 0x40, 0xbf }, // mark: retraction
 };
 
 pub const Surface = vk.Surface;
@@ -67,6 +70,12 @@ pub const View = struct {
     focus_zmax: f32 = std.math.inf(f32),
     /// A copy of the beads, for `pick` and the replay.
     beads: std.ArrayList(vk.Instance) = .empty,
+    /// The marks: a seam blob at the start of each outer wall loop, and
+    /// the travel moves and the retractions (drawn only in a focus on
+    /// them). The alpha byte has the mark (8 + ...; see app.mark_seam).
+    marks: std.ArrayList(vk.Instance) = .empty,
+    /// The end of the marks of each layer in `marks`.
+    mark_layer_end: std.ArrayList(u32) = .empty,
     /// The print time (s) at the end of each bead, for the replay.
     bead_end: std.ArrayList(f32) = .empty,
     /// The replay time (s), or null to show whole layers.
@@ -109,6 +118,8 @@ pub const View = struct {
         v.path_start.deinit(gpa);
         v.beads.deinit(gpa);
         v.bead_end.deinit(gpa);
+        v.marks.deinit(gpa);
+        v.mark_layer_end.deinit(gpa);
         v.renderer.deinit();
         gpa.destroy(v);
     }
@@ -245,7 +256,8 @@ pub const View = struct {
             v.layer_end.append(gpa, @intCast(boxes.items.len)) catch return error.OutOfMemory;
         }
         v.path_start.append(gpa, @intCast(boxes.items.len)) catch return error.OutOfMemory;
-        try v.renderer.setInstances(boxes.items);
+        try v.loadMarks(tp, filament, center, sxy, sz);
+        try v.renderer.setInstances(boxes.items, v.marks.items);
 
         if (app.partBounds()) |b| {
             v.home = .{ @floatCast((b[0] + b[2]) / 2), @floatCast((b[1] + b[3]) / 2), zmax / 2 };
@@ -256,6 +268,64 @@ pub const View = struct {
             v.reset();
             v.layer = if (v.layer_end.items.len > 0) v.layer_end.items.len - 1 else 0;
         }
+    }
+
+    /// The seam blobs, the travel moves, and the retractions of each
+    /// layer, from the same toolpaths and in the same cooled shape as the
+    /// beads.
+    fn loadMarks(v: *View, tp: *const app_mod.Toolpaths, filament: [3]u8, center: [2]f32, sxy: f32, sz: f32) Error!void {
+        v.marks.clearRetainingCapacity();
+        v.mark_layer_end.clearRetainingCapacity();
+        const pts = tp.points.items;
+        const flow = @import("../flow.zig");
+        const seam_rgb = if (v.mode == .print) filament else feature_rgb[8];
+        for (tp.layer_ends.items, 0..) |layer_end, l| {
+            const p0: u32 = if (l == 0) 0 else tp.layer_ends.items[l - 1];
+            const z = tp.layer_z.items[l] * sz;
+            const h = tp.layer_height.items[l] * sz;
+            // The end of the path before: the travel starts there.
+            var prev: ?[2]f32 = null;
+            for (p0..layer_end) |pi| {
+                const start: u32 = if (pi == 0) 0 else tp.path_ends.items[pi - 1];
+                const end = tp.path_ends.items[pi];
+                if (end == start) continue;
+                const first = [2]f32{
+                    center[0] + (pts[2 * start] - center[0]) * sxy,
+                    center[1] + (pts[2 * start + 1] - center[1]) * sxy,
+                };
+                const closed = tp.path_closed.items[pi] != 0 and end - start > 2;
+                const last_i = if (closed) start else end - 1;
+                const last = [2]f32{
+                    center[0] + (pts[2 * last_i] - center[0]) * sxy,
+                    center[1] + (pts[2 * last_i + 1] - center[1]) * sxy,
+                };
+                const f = tp.path_features.items[pi];
+                // The seam: the start and the end of an outer wall loop
+                // meet there, and leave a small blob.
+                if (closed and f == 0) {
+                    const w: f32 = @floatCast(flow.beadWidth(tp.path_area.items[pi], tp.layer_height.items[l]) * sxy);
+                    try v.addMark(.{ .ax = first[0], .ay = first[1], .bx = first[0], .by = first[1], .z = z + 0.15 * h, .h = h * 1.25, .w = w * 1.15, .rgba = .{ seam_rgb[0], seam_rgb[1], seam_rgb[2], 8 } });
+                }
+                if (prev) |p| {
+                    const retracted = tp.path_retract.items.len > pi and tp.path_retract.items[pi] != 0;
+                    const lift: f32 = if (retracted) tp.z_hop else 0;
+                    if (std.math.hypot(first[0] - p[0], first[1] - p[1]) > 0.05) {
+                        const t = feature_rgb[9];
+                        try v.addMark(.{ .ax = p[0], .ay = p[1], .bx = first[0], .by = first[1], .z = z + lift + 0.08, .h = 0.06, .w = 0.06, .rgba = .{ t[0], t[1], t[2], 9 } });
+                    }
+                    if (retracted) {
+                        const r = feature_rgb[10];
+                        try v.addMark(.{ .ax = p[0], .ay = p[1], .bx = p[0], .by = p[1], .z = z + 0.35, .h = 0.3, .w = 0.3, .rgba = .{ r[0], r[1], r[2], 10 } });
+                    }
+                }
+                prev = last;
+            }
+            v.mark_layer_end.append(gpa, @intCast(v.marks.items.len)) catch return error.OutOfMemory;
+        }
+    }
+
+    fn addMark(v: *View, m: vk.Instance) Error!void {
+        v.marks.append(gpa, m) catch return error.OutOfMemory;
     }
 
     /// The colors: the filament color, or one color for each feature. Call
@@ -571,6 +641,12 @@ pub const View = struct {
         } else if (v.layer_end.items.len > 0) {
             count = v.layer_end.items[@min(v.layer, v.layer_end.items.len - 1)];
         }
+        // The marks of the layers that show.
+        var mark_count: u32 = 0;
+        if (v.mark_layer_end.items.len > 0) {
+            const top = if (v.time) |t| v.layerAtTime(t) else v.layer;
+            mark_count = v.mark_layer_end.items[@min(top, v.mark_layer_end.items.len - 1)];
+        }
         try v.renderer.draw(.{
             .partial = partial,
             .clear = .{ 0.965, 0.969, 0.973 },
@@ -582,6 +658,8 @@ pub const View = struct {
                 .params = .{ v.highlight[0], v.highlight[1], @floatFromInt(v.focus_mask), 0 },
             },
             .box_count = count,
+            .mark_first = @intCast(v.beads.items.len),
+            .mark_count = mark_count,
             .grid = .{ .mvp = mvp, .vec = .{ 0.80, 0.82, 0.85, 1 } },
             .grid_vertices = v.grid_vertices,
         });

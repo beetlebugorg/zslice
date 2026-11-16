@@ -17,3 +17,11 @@ static const double zg_feature_rgb[][3] = {
 };
 
 #define ZG_N_FEATURES (sizeof zg_feature_rgb / sizeof zg_feature_rgb[0])
+
+/* The marks after the features (ZS_MARK_SEAM, ZS_MARK_TRAVEL,
+ * ZS_MARK_RETRACT), as in src/render/view.zig. */
+static const double zg_mark_rgb[][3] = {
+    {0.878, 0.102, 0.149}, /* seam: red */
+    {0.200, 0.451, 0.949}, /* travel: blue */
+    {0.949, 0.251, 0.749}, /* retraction: pink */
+};

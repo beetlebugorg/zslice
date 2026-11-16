@@ -108,7 +108,13 @@ The Settings page of the app has three columns:
 2. The settings of the section, with their values.
 3. The selected setting: its value, its default (with a Reset button), what it does, and the lines of your project that it changes, with their share of the print time.
 
-The preview shows the lines that the setting changes in their feature colors, and the other lines fade. Use Right and Left to move between the columns.
+The preview shows the lines that the setting changes in their feature colors, and the other lines become faint ghosts, so lines inside the part (infill) show. A section shows the lines of all its settings. Some settings change no line, and the preview shows marks for them:
+
+- the seam: a red mark at the start of each outer wall loop (the 3D view also shows the small seam blob of a real print)
+- travel moves: blue lines between the paths, lifted by the z hop
+- retractions: pink marks where the filament pulls back
+
+A setting that changes only the G-code (a temperature, for example) shows all lines in their feature colors, and its page says what it changes. Use Right and Left to move between the columns.
 
 ## See why a line is what it is
 

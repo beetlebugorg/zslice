@@ -27,6 +27,7 @@ struct _ZgModel {
     gboolean anchored;
     size_t anchor_layer;
     double anchor_x, anchor_y;
+    int anchor_feature;
     guint32 focus;
     gboolean focus_first;
     /* A setting changed while a slice ran: slice again when it ends. */
@@ -58,6 +59,13 @@ static gboolean deliver(gpointer data) {
          * selection again, so the inspector stays on the same line. */
         if (p->event == ZS_EVENT_SLICED && model->anchored) {
             size_t path = zs_app_pick_layer(model->core, model->anchor_layer, model->anchor_x, model->anchor_y);
+            /* The line moved (for example a new skirt distance): the
+             * nearest line of the same kind on the same layer. */
+            zs_toolpaths tp;
+            if (zs_app_toolpaths(model->core, &tp) == ZS_OK &&
+                (path == (size_t)-1 || tp.path_features[path] != model->anchor_feature)) {
+                path = zs_app_pick_feature(model->core, model->anchor_layer, model->anchor_feature, model->anchor_x, model->anchor_y);
+            }
             model->selected = path == (size_t)-1 ? -1 : (gint64)path;
             if (model->selected < 0) model->anchored = FALSE;
             g_signal_emit(model, signals[SIGNAL_SELECTION_CHANGED], 0, model->selected);
@@ -136,6 +144,7 @@ void zg_model_select(ZgModel *self, gint64 path) {
         self->anchor_layer = layer;
         self->anchor_x = tp.points[2 * start];
         self->anchor_y = tp.points[2 * start + 1];
+        self->anchor_feature = tp.path_features[path];
     }
     g_signal_emit(self, signals[SIGNAL_SELECTION_CHANGED], 0, path);
     g_signal_emit(self, signals[SIGNAL_PICKED], 0, path);

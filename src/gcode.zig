@@ -55,6 +55,9 @@ pub const PathInfo = struct {
     /// The cross-section area (mm^2) of the deposited bead, with the flow
     /// ratio and the ironing flow.
     area: f64,
+    /// The travel to the path retracted the filament (and lifted the
+    /// nozzle by z_hop, if z_hop is on).
+    retracted: bool = false,
 };
 
 pub const Emitter = struct {
@@ -152,7 +155,9 @@ pub const Emitter = struct {
                 if (self.record) |rec| rec.appendAssumeCapacity(.{ .start_time = self.stats.print_time_s, .end_time = self.stats.print_time_s, .area = 0 });
                 continue;
             }
+            const retractions = self.stats.retractions;
             try self.travel(geom.toMm(pts[0].x), geom.toMm(pts[0].y));
+            const retracted = self.stats.retractions != retractions;
             if (self.feature != path.feature) {
                 self.feature = path.feature;
                 try self.w.print(";TYPE:{s}\n", .{typeName(path.feature)});
@@ -164,7 +169,7 @@ pub const Emitter = struct {
             const e = if (path.feature == .ironing) e_per_mm * s.project.ironing_flow else e_per_mm;
             for (pts[1..]) |q| try self.extrude(geom.toMm(q.x), geom.toMm(q.y), e, speed);
             if (path.closed and pts.len > 2) try self.extrude(geom.toMm(pts[0].x), geom.toMm(pts[0].y), e, speed);
-            if (self.record) |rec| rec.appendAssumeCapacity(.{ .start_time = start_time, .end_time = self.stats.print_time_s, .area = e * self.r.filament_area });
+            if (self.record) |rec| rec.appendAssumeCapacity(.{ .start_time = start_time, .end_time = self.stats.print_time_s, .area = e * self.r.filament_area, .retracted = retracted });
         }
     }
 

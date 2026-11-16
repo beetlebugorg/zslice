@@ -282,7 +282,7 @@ pub const App = struct {
             app.dropPrevJob();
         }
         var out: std.Io.Writer.Allocating = .init(app.gpa);
-        var store: Toolpaths = .{ .gpa = app.gpa };
+        var store: Toolpaths = .{ .gpa = app.gpa, .z_hop = @floatCast(app.slice_settings.project.z_hop) };
         const sink: zs.engine.Job.LayerSink = .{ .ctx = &store, .func = Toolpaths.addLayer };
         const stats = job.writeGcodeWith(&out.writer, sink) catch |e| {
             store.deinit(app.gpa);
@@ -398,12 +398,27 @@ pub const App = struct {
     pub fn pickInLayer(app: *const App, layer: usize, x: f64, y: f64) ?usize {
         const t = app.allToolpaths() orelse return null;
         if (layer >= t.layer_ends.items.len) return null;
+        return app.nearestPath(layer, x, y, null, 2 * @as(f64, t.layer_width.items[layer]));
+    }
+
+    /// The path of `feature` nearest to (x, y) on `layer` (or on the last
+    /// layer, if the part has fewer layers now), at any distance. A shell
+    /// uses it to keep a selection after a new slice moves the line (for
+    /// example, a new skirt distance moves the skirt).
+    pub fn pickFeature(app: *const App, layer: usize, feature: u8, x: f64, y: f64) ?usize {
+        const t = app.allToolpaths() orelse return null;
+        if (t.layer_ends.items.len == 0) return null;
+        return app.nearestPath(@min(layer, t.layer_ends.items.len - 1), x, y, feature, std.math.inf(f64));
+    }
+
+    fn nearestPath(app: *const App, layer: usize, x: f64, y: f64, feature: ?u8, limit: f64) ?usize {
+        const t = app.allToolpaths() orelse return null;
         const p0: usize = if (layer == 0) 0 else t.layer_ends.items[layer - 1];
-        const limit = 2 * @as(f64, t.layer_width.items[layer]);
         var best: ?usize = null;
         var best_d = limit;
         const pts = t.points.items;
         for (p0..t.layer_ends.items[layer]) |pi| {
+            if (feature) |f| if (t.path_features.items[pi] != f) continue;
             const start: usize = if (pi == 0) 0 else t.path_ends.items[pi - 1];
             const end: usize = t.path_ends.items[pi];
             if (end - start < 2) continue;
@@ -581,7 +596,8 @@ const all_lines_settings = [_][]const u8{
     "filament.max_flow",        "machine.max_speed",       "machine.nozzle_diameter",
     "filament.min_layer_time",  "filament.min_speed",      "filament.shrinkage_xy",
     "filament.shrinkage_z",     "filament.xy_offset",      "project.placement",
-    "engine.resolution",        "engine.gap_closing",
+    "engine.resolution",        "engine.gap_closing",       "filament.color",
+    "machine.bed_size_x",       "machine.bed_size_y",
 };
 
 /// What a setting changes in the toolpaths.
@@ -592,7 +608,62 @@ pub const SettingEffect = struct {
     features: u32 = 0,
     /// The setting changes only the lines of the first layer.
     first_layer_only: bool = false,
+    /// For a setting with no visible effect: what it changes, and how to
+    /// see it.
+    note: [:0]const u8 = "",
 };
+
+/// Marks that the previews draw for settings with no line of their own,
+/// in the bits after the features (see SettingEffect.features).
+pub const mark_seam: u32 = 1 << 8;
+/// The travel moves between the paths.
+pub const mark_travel: u32 = 1 << 9;
+/// The retractions (at the start of a retracted travel).
+pub const mark_retract: u32 = 1 << 10;
+
+/// Settings whose effect is a mark: the seam points, the travel moves, and
+/// the retractions.
+const mark_settings = [_]struct { []const u8, u32 }{
+    .{ "project.seam", mark_seam },
+    .{ "project.retract_min_travel", mark_travel | mark_retract },
+    .{ "project.z_hop", mark_travel | mark_retract },
+    .{ "machine.travel_speed", mark_travel },
+    .{ "machine.retract_length", mark_retract | mark_travel },
+    .{ "machine.retract_speed", mark_retract | mark_travel },
+    .{ "filament.retract_ratio", mark_retract | mark_travel },
+};
+
+/// The settings that change no line and no mark in the preview, with what
+/// they change. A test checks that each setting has an effect or a note,
+/// so a new setting gets one of them.
+const preview_notes = [_]struct { []const u8, [:0]const u8 }{
+    .{ "machine.name", "The name of the printer, for the profiles and the start G-code." },
+    .{ "machine.max_height", "A check: a part higher than this does not slice." },
+    .{ "machine.max_z_speed", "The speed of the Z moves between layers. It changes the print time (see the status bar)." },
+    .{ "machine.start_gcode", "The G-code before the print: heating, homing, and the purge line." },
+    .{ "machine.end_gcode", "The G-code after the print." },
+    .{ "machine.extruder", "The extruder type, for the retraction defaults." },
+    .{ "machine.origin_x", "The G-code position of the bed corner. The preview shows bed coordinates, so it does not change." },
+    .{ "machine.origin_y", "The G-code position of the bed corner. The preview shows bed coordinates, so it does not change." },
+    .{ "filament.name", "The name of the filament, for the profiles and the start G-code." },
+    .{ "filament.diameter", "The filament diameter: it changes how far the extruder pushes, not the lines." },
+    .{ "filament.density", "The weight of the plastic, for the filament weight in the status bar." },
+    .{ "filament.nozzle_temp", "A G-code temperature. It changes no line." },
+    .{ "filament.first_layer_nozzle_temp", "A G-code temperature for the first layer. It changes no line." },
+    .{ "filament.bed_temp", "A G-code temperature. It changes no line." },
+    .{ "filament.standby_temp", "A G-code temperature. It changes no line." },
+    .{ "filament.fan_speed", "The part cooling fan in the G-code. It changes no line." },
+    .{ "filament.fan_off_layers", "The fan in the G-code on the first layers. It changes no line." },
+    .{ "filament.fan_max_speed", "The fan in the G-code on short layers. It changes no line." },
+    .{ "filament.fan_boost_time", "The fan in the G-code on short layers. It changes no line." },
+    .{ "engine.threads", "The number of threads of the slicer. The result is the same." },
+    .{ "engine.job_name", "The name of the print, for the start G-code." },
+};
+
+fn noteOf(name: []const u8) [:0]const u8 {
+    for (preview_notes) |n| if (std.mem.eql(u8, n[0], name)) return n[1];
+    return "";
+}
 
 /// The lines that a setting changes. It uses the same tables as the
 /// inspector, so a click on a line and a look at a setting agree.
@@ -600,6 +671,9 @@ pub fn settingEffect(name: []const u8) SettingEffect {
     const all: u32 = (1 << feature_names.len) - 1;
     const no_ironing = all & ~@as(u32, 1 << @intFromEnum(zs.settings.Feature.ironing));
     var e: SettingEffect = .{};
+    // A mark setting (the seam, travel, retraction) shows its marks only:
+    // the lines around them would hide them.
+    for (mark_settings) |m| if (std.mem.eql(u8, m[0], name)) return .{ .features = m[1] };
     for (all_lines_settings) |n| if (std.mem.eql(u8, n, name)) {
         e.features = all;
     };
@@ -614,7 +688,22 @@ pub fn settingEffect(name: []const u8) SettingEffect {
     if (e.features != 0) return e;
     for (first_layer_settings) |n| if (std.mem.eql(u8, n, name)) return .{ .features = all, .first_layer_only = true };
     if (std.mem.eql(u8, name, "project.first_layer_speed")) return .{ .features = no_ironing, .first_layer_only = true };
+    e.note = noteOf(name);
     return e;
+}
+
+test "each setting shows in the preview, or has a note" {
+    for (settings_info) |s| {
+        const e = settingEffect(s.name);
+        if (e.features == 0 and e.note.len == 0) {
+            std.debug.print("{s} changes nothing in the preview: give it a line, a mark, or a note in src/app.zig\n", .{s.name});
+            return error.TestUnexpectedResult;
+        }
+    }
+}
+
+test "the seam setting shows the seam marks only" {
+    try testing.expectEqual(mark_seam, settingEffect("project.seam").features);
 }
 
 test "setting effects" {
@@ -705,6 +794,10 @@ pub const Toolpaths = struct {
     /// each path, and to its end.
     path_start_time: std.ArrayList(f32) = .empty,
     path_end_time: std.ArrayList(f32) = .empty,
+    /// 1 if the travel to the path retracted the filament.
+    path_retract: std.ArrayList(u8) = .empty,
+    /// The nozzle lift of a retracted travel (project.z_hop), in mm.
+    z_hop: f32 = 0,
     layer_ends: std.ArrayList(u32) = .empty,
     layer_z: std.ArrayList(f32) = .empty,
     layer_height: std.ArrayList(f32) = .empty,
@@ -719,6 +812,7 @@ pub const Toolpaths = struct {
         t.path_area.deinit(gpa);
         t.path_start_time.deinit(gpa);
         t.path_end_time.deinit(gpa);
+        t.path_retract.deinit(gpa);
         t.layer_ends.deinit(gpa);
         t.layer_z.deinit(gpa);
         t.layer_height.deinit(gpa);
@@ -742,6 +836,7 @@ pub const Toolpaths = struct {
             try t.path_area.append(gpa, @floatCast(info.area));
             try t.path_start_time.append(gpa, @floatCast(info.start_time));
             try t.path_end_time.append(gpa, @floatCast(info.end_time));
+            try t.path_retract.append(gpa, @intFromBool(info.retracted));
         }
         try t.layer_ends.append(gpa, @intCast(t.path_ends.items.len));
         try t.layer_z.append(gpa, @floatCast(plan.z));
@@ -867,6 +962,8 @@ pub const SettingInfo = struct {
     /// values.
     slider_min: f64 = 0,
     slider_max: f64 = 0,
+    /// The step of the slider, in the units of the value.
+    slider_step: f64 = 0,
     /// The hard limits (see settings.limits); min == max: none.
     limit_min: f64 = 0,
     limit_max: f64 = 0,
@@ -909,6 +1006,7 @@ pub const settings_info: []const SettingInfo = blk: {
                 .default_value = defaultText(g.type, f.name),
                 .slider_min = sliderOf(name)[0],
                 .slider_max = sliderOf(name)[1],
+                .slider_step = sliderOf(name)[2],
                 .limit_min = (zs.settings.limitOf(name) orelse [2]f64{ 0, 0 })[0],
                 .limit_max = (zs.settings.limitOf(name) orelse [2]f64{ 0, 0 })[1],
             }};
@@ -962,43 +1060,44 @@ const units = [_][2][]const u8{
 };
 
 /// The slider ranges: the usual values of the settings that a user tunes
-/// by eye. A test checks that each name exists.
-const sliders = [_]struct { []const u8, f64, f64 }{
-    .{ "project.infill_density", 0, 1 },          .{ "project.outer_wall_speed", 0.05, 1 },
-    .{ "project.inner_wall_speed", 0.05, 1 },     .{ "project.skin_speed", 0.05, 1 },
-    .{ "project.infill_speed", 0.05, 1 },         .{ "project.first_layer_speed", 0.05, 1 },
-    .{ "project.ironing_speed", 0.05, 1 },        .{ "project.ironing_flow", 0, 0.3 },
-    .{ "project.ironing_spacing", 0.05, 0.5 },    .{ "project.ironing_inset", 0, 2 },
-    .{ "project.skin_overlap", 0, 0.5 },          .{ "project.infill_overlap", 0, 0.5 },
-    .{ "project.support_density", 0.05, 0.5 },    .{ "project.support_interface_density", 0.1, 1 },
-    .{ "project.support_angle", 0, 89 },          .{ "project.wall_count", 0, 8 },
-    .{ "project.top_thickness", 0, 3 },           .{ "project.bottom_thickness", 0, 3 },
-    .{ "project.infill_angle", 0, 180 },          .{ "project.brim_width", 0, 20 },
-    .{ "project.skirt_loops", 0, 10 },            .{ "project.skirt_distance", 0, 20 },
-    .{ "project.layer_height", 0.05, 0.4 },       .{ "filament.flow_ratio", 0.8, 1.2 },
-    .{ "filament.fan_speed", 0, 1 },              .{ "filament.fan_max_speed", 0, 1 },
-    .{ "filament.nozzle_temp", 160, 300 },        .{ "filament.first_layer_nozzle_temp", 160, 300 },
-    .{ "filament.bed_temp", 0, 120 },             .{ "filament.min_layer_time", 0, 30 },
-    .{ "project.first_layer_height", 0.1, 0.5 },  .{ "project.line_width", 0, 1 },
-    .{ "project.first_layer_line_width", 0, 1.2 }, .{ "project.support_xy_gap", 0, 2 },
-    .{ "project.support_z_gap_layers", 0, 3 },    .{ "project.support_interface_layers", 0, 5 },
-    .{ "project.skirt_layers", 0, 5 },            .{ "project.retract_min_travel", 0, 10 },
-    .{ "project.z_hop", 0, 1 },                   .{ "project.first_layer_xy_offset", -0.5, 0.5 },
-    .{ "filament.xy_offset", -0.3, 0.3 },         .{ "filament.hole_xy_offset", -0.3, 0.3 },
-    .{ "filament.shrinkage_xy", 0.99, 1.02 },     .{ "filament.shrinkage_z", 0.99, 1.02 },
-    .{ "filament.retract_ratio", 0, 2 },          .{ "filament.fan_off_layers", 0, 5 },
-    .{ "filament.fan_boost_time", 0, 30 },        .{ "filament.min_speed", 5, 50 },
-    .{ "filament.max_flow", 2, 40 },              .{ "filament.standby_temp", 0, 250 },
-    .{ "machine.max_speed", 20, 500 },            .{ "machine.travel_speed", 20, 500 },
-    .{ "machine.max_z_speed", 1, 30 },            .{ "machine.retract_length", 0, 8 },
-    .{ "machine.retract_speed", 10, 80 },         .{ "machine.nozzle_diameter", 0.2, 1.2 },
-    .{ "engine.gap_closing", 0, 3 },
+/// by eye, and the step that people use (a layer height of 0.28 mm, not
+/// 0.281 mm). A test checks that each name exists.
+const sliders = [_]struct { []const u8, f64, f64, f64 }{
+    .{ "project.infill_density", 0, 1, 0.01 },          .{ "project.outer_wall_speed", 0.05, 1, 0.01 },
+    .{ "project.inner_wall_speed", 0.05, 1, 0.01 },     .{ "project.skin_speed", 0.05, 1, 0.01 },
+    .{ "project.infill_speed", 0.05, 1, 0.01 },         .{ "project.first_layer_speed", 0.05, 1, 0.01 },
+    .{ "project.ironing_speed", 0.05, 1, 0.01 },        .{ "project.ironing_flow", 0, 0.3, 0.01 },
+    .{ "project.ironing_spacing", 0.05, 0.5, 0.01 },    .{ "project.ironing_inset", 0, 2, 0.1 },
+    .{ "project.skin_overlap", 0, 0.5, 0.01 },          .{ "project.infill_overlap", 0, 0.5, 0.01 },
+    .{ "project.support_density", 0.05, 0.5, 0.01 },    .{ "project.support_interface_density", 0.1, 1, 0.05 },
+    .{ "project.support_angle", 0, 89, 1 },          .{ "project.wall_count", 0, 8, 1 },
+    .{ "project.top_thickness", 0, 3, 0.1 },           .{ "project.bottom_thickness", 0, 3, 0.1 },
+    .{ "project.infill_angle", 0, 180, 5 },          .{ "project.brim_width", 0, 20, 0.5 },
+    .{ "project.skirt_loops", 0, 10, 1 },            .{ "project.skirt_distance", 0, 20, 0.5 },
+    .{ "project.layer_height", 0.05, 0.4, 0.01 },       .{ "filament.flow_ratio", 0.8, 1.2, 0.01 },
+    .{ "filament.fan_speed", 0, 1, 0.05 },              .{ "filament.fan_max_speed", 0, 1, 0.05 },
+    .{ "filament.nozzle_temp", 160, 300, 5 },        .{ "filament.first_layer_nozzle_temp", 160, 300, 5 },
+    .{ "filament.bed_temp", 0, 120, 5 },             .{ "filament.min_layer_time", 0, 30, 1 },
+    .{ "project.first_layer_height", 0.1, 0.5, 0.01 },  .{ "project.line_width", 0, 1, 0.01 },
+    .{ "project.first_layer_line_width", 0, 1.2, 0.01 }, .{ "project.support_xy_gap", 0, 2, 0.05 },
+    .{ "project.support_z_gap_layers", 0, 3, 1 },    .{ "project.support_interface_layers", 0, 5, 1 },
+    .{ "project.skirt_layers", 0, 5, 1 },            .{ "project.retract_min_travel", 0, 10, 0.5 },
+    .{ "project.z_hop", 0, 1, 0.05 },                   .{ "project.first_layer_xy_offset", -0.5, 0.5, 0.01 },
+    .{ "filament.xy_offset", -0.3, 0.3, 0.01 },         .{ "filament.hole_xy_offset", -0.3, 0.3, 0.01 },
+    .{ "filament.shrinkage_xy", 0.99, 1.02, 0.001 },     .{ "filament.shrinkage_z", 0.99, 1.02, 0.001 },
+    .{ "filament.retract_ratio", 0, 2, 0.05 },          .{ "filament.fan_off_layers", 0, 5, 1 },
+    .{ "filament.fan_boost_time", 0, 30, 1 },        .{ "filament.min_speed", 5, 50, 1 },
+    .{ "filament.max_flow", 2, 40, 0.5 },              .{ "filament.standby_temp", 0, 250, 5 },
+    .{ "machine.max_speed", 20, 500, 5 },            .{ "machine.travel_speed", 20, 500, 5 },
+    .{ "machine.max_z_speed", 1, 30, 1 },            .{ "machine.retract_length", 0, 8, 0.1 },
+    .{ "machine.retract_speed", 10, 80, 5 },         .{ "machine.nozzle_diameter", 0.2, 1.2, 0.05 },
+    .{ "engine.gap_closing", 0, 3, 0.1 },
 };
 
-fn sliderOf(comptime name: []const u8) [2]f64 {
+fn sliderOf(comptime name: []const u8) [3]f64 {
     @setEvalBranchQuota(100_000);
-    for (sliders) |sl| if (std.mem.eql(u8, sl[0], name)) return .{ sl[1], sl[2] };
-    return .{ 0, 0 };
+    for (sliders) |sl| if (std.mem.eql(u8, sl[0], name)) return .{ sl[1], sl[2], sl[3] };
+    return .{ 0, 0, 0 };
 }
 
 test "each slider is for a number setting" {
@@ -1008,6 +1107,8 @@ test "each slider is for a number setting" {
         } else return error.TestUnexpectedResult;
         try testing.expect(info.kind == .number or info.kind == .integer);
         try testing.expect(sl[1] < sl[2]);
+        // A few steps at least.
+        try testing.expect(sl[3] > 0 and sl[3] <= (sl[2] - sl[1]) / 3);
         // The usual values are in the hard limits.
         try testing.expect(sl[1] >= info.limit_min and sl[2] <= info.limit_max);
     }
@@ -1153,6 +1254,12 @@ test "app: load, slice, preview, and export" {
     try testing.expectEqual(lp.ends.len, lp.features.len);
     try testing.expectEqual(lp.points.len, 2 * @as(usize, lp.ends[lp.ends.len - 1]));
     const pb = app.partBounds().?;
+
+    // A point far from all lines: the plain pick finds nothing, and the
+    // pick of a feature finds the skirt of layer 0 at any distance.
+    try testing.expectEqual(@as(?usize, null), app.pickInLayer(0, 1, 1));
+    const skirt = app.pickFeature(0, @intFromEnum(zs.settings.Feature.skirt), 1, 1).?;
+    try testing.expectEqual(@as(u8, @intFromEnum(zs.settings.Feature.skirt)), app.allToolpaths().?.path_features.items[skirt]);
 
     // Inspect a path of layer 30: the pick finds it, and the explanation
     // has the feature and the speed.

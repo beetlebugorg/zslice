@@ -315,11 +315,16 @@ static void add_scrub(GtkWidget *label, GtkWidget *entry) {
 static void on_slider(GtkRange *range, gpointer data) {
     GtkWidget *entry = data;
     if (g_object_get_data(G_OBJECT(range), "zg-setting")) return;
+    /* Snap to the step of the slider. */
     double step = gtk_adjustment_get_step_increment(gtk_range_get_adjustment(range));
+    double lo = gtk_adjustment_get_lower(gtk_range_get_adjustment(range));
+    double v = lo + round((gtk_range_get_value(range) - lo) / step) * step;
     int d = step >= 1 ? 0 : (int)ceil(-log10(step) - 1e-9);
     char fmt[16], buf[G_ASCII_DTOSTR_BUF_SIZE];
     g_snprintf(fmt, sizeof fmt, "%%.%df", d);
-    g_ascii_formatd(buf, sizeof buf, fmt, gtk_range_get_value(range));
+    g_ascii_formatd(buf, sizeof buf, fmt, v);
+    /* The same value as before: no new slice. */
+    if (strcmp(buf, gtk_editable_get_text(GTK_EDITABLE(entry))) == 0) return;
     set_entry_text(entry, buf);
     /* No wait: the model queues the value while a slice runs. */
     cancel_live(entry);
@@ -341,9 +346,15 @@ static void sync_slider(GtkWidget *entry) {
 static GtkWidget *make_slider(const zs_setting_info *info, GtkWidget *entry) {
     double scale = strcmp(info->unit, "%") == 0 ? 100 : 1;
     double lo = info->slider_min * scale, hi = info->slider_max * scale;
-    double step = info->kind == ZS_SETTING_INTEGER ? 1 : pow(10, floor(log10((hi - lo) / 100)));
+    double step = info->kind == ZS_SETTING_INTEGER ? 1 : info->slider_step * scale;
+    if (!(step > 0)) step = pow(10, floor(log10((hi - lo) / 100)));
     GtkWidget *slider = gtk_scale_new_with_range(GTK_ORIENTATION_HORIZONTAL, lo, hi, step);
     gtk_scale_set_draw_value(GTK_SCALE(slider), FALSE);
+    /* A tick at the default value. */
+    if (parses_as_number(info->default_value)) {
+        double d = g_ascii_strtod(info->default_value, NULL) * scale;
+        if (d >= lo && d <= hi) gtk_scale_add_mark(GTK_SCALE(slider), d, GTK_POS_BOTTOM, NULL);
+    }
     gtk_widget_set_hexpand(slider, TRUE);
     gtk_widget_add_css_class(slider, "zg-slider");
     gtk_widget_set_tooltip_text(slider, info->doc);
@@ -764,6 +775,9 @@ typedef struct {
     GtkWidget *detail;   /* column 3: a box; its child is rebuilt */
     GtkWidget *effect;   /* in column 3: the lines of the project */
     const char *key;     /* the selected setting, or NULL */
+    GtkWidget *stack;    /* the page stack of the panel */
+    guint32 focus;       /* the focus of the previews for the selection */
+    gboolean focus_first;
     guint scroll_tick;
     int scroll_frames;   /* frames since the scroll started */
 } Browser;
@@ -771,7 +785,9 @@ typedef struct {
 enum { COL1_WIDTH = 165, COL2_WIDTH = 235, COL3_WIDTH = 300 };
 
 static const char *feature_titles[] = {"Outer wall", "Inner wall", "Skin", "Sparse infill",
-                                       "Ironing", "Skirt or brim", "Support", "Support interface"};
+                                       "Ironing", "Skirt or brim", "Support", "Support interface",
+                                       "Seams", "Travel moves", "Retractions"};
+enum { N_MARKS = 3 };
 
 static const char *group_title(const char *group) {
     for (size_t i = 0; i < G_N_ELEMENTS(pages); i++) {
@@ -829,6 +845,37 @@ static void scroll_to_end(Browser *b) {
     if (!b->scroll_tick) b->scroll_tick = gtk_widget_add_tick_callback(b->hscroll, on_scroll_tick, b, NULL);
 }
 
+/* Sends the focus to the previews, only while the Settings page shows. */
+static void send_focus(Browser *b) {
+    gboolean visible = b->stack && gtk_stack_get_visible_child(GTK_STACK(b->stack)) == b->page;
+    zg_model_set_focus(b->model, visible ? b->focus : 0, b->focus_first);
+}
+
+/* The focus for a setting: the lines and marks that it changes. A setting
+ * with no visible effect shows all lines in their feature colors, so a
+ * selection always changes the view. */
+static guint32 focus_of(const char *key, gboolean *first_only) {
+    zs_setting_effect e = {0};
+    zs_setting_get_effect(key, &e);
+    *first_only = e.first_layer_only;
+    return e.features ? e.features : (1u << ZS_FEATURE_COUNT) - 1;
+}
+
+/* The focus for a section: all lines and marks that its settings change. */
+static guint32 section_focus(const char *group, const char *section) {
+    guint32 mask = 0;
+    size_t n = zs_setting_count();
+    for (size_t i = 0; i < n; i++) {
+        zs_setting_info info;
+        if (zs_setting_get_info(i, &info) != ZS_OK) continue;
+        if (g_strcmp0(info.group, group) != 0 || g_strcmp0(info.section, section) != 0) continue;
+        zs_setting_effect e = {0};
+        zs_setting_get_effect(info.name, &e);
+        mask |= e.features;
+    }
+    return mask ? mask : (1u << ZS_FEATURE_COUNT) - 1;
+}
+
 /* ---- column 3 ---- */
 
 static void fill_effect(Browser *b) {
@@ -838,7 +885,9 @@ static void fill_effect(Browser *b) {
     zs_setting_effect e = {0};
     zs_setting_get_effect(b->key, &e);
     if (e.features == 0) {
-        GtkWidget *l = wrapped_label("This setting changes no line in the preview. It changes the G-code (for example a temperature, a retraction, or the start code), or how the slicer works.");
+        char *text = g_strdup_printf("%s The preview shows all lines, in their feature colors.", e.note && e.note[0] ? e.note : "It changes no line.");
+        GtkWidget *l = wrapped_label(text);
+        g_free(text);
         gtk_widget_add_css_class(l, "dim-label");
         gtk_box_append(GTK_BOX(b->effect), l);
         return;
@@ -850,12 +899,13 @@ static void fill_effect(Browser *b) {
     GtkWidget *intro = wrapped_label(e.first_layer_only ? "It changes these lines on the first layer:" : "It changes these lines:");
     gtk_box_append(GTK_BOX(b->effect), intro);
     int shown = 0;
-    for (int f = 0; f < ZS_FEATURE_COUNT; f++) {
+    for (int f = 0; f < ZS_FEATURE_COUNT + N_MARKS; f++) {
         if (!((e.features >> f) & 1)) continue;
-        if (have && stats[f].paths == 0) continue;
+        if (f < ZS_FEATURE_COUNT && have && stats[f].paths == 0) continue;
+        const double *rgb = f < ZS_FEATURE_COUNT ? zg_feature_rgb[f] : zg_mark_rgb[f - ZS_FEATURE_COUNT];
         GtkWidget *row = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 8);
-        char *dot = g_strdup_printf("<span foreground=\"#%02x%02x%02x\">●</span>", (int)(zg_feature_rgb[f][0] * 255),
-                                    (int)(zg_feature_rgb[f][1] * 255), (int)(zg_feature_rgb[f][2] * 255));
+        char *dot = g_strdup_printf("<span foreground=\"#%02x%02x%02x\">●</span>", (int)(rgb[0] * 255),
+                                    (int)(rgb[1] * 255), (int)(rgb[2] * 255));
         GtkWidget *d = gtk_label_new(NULL);
         gtk_label_set_markup(GTK_LABEL(d), dot);
         g_free(dot);
@@ -864,7 +914,7 @@ static void fill_effect(Browser *b) {
         gtk_widget_set_hexpand(name, TRUE);
         gtk_box_append(GTK_BOX(row), d);
         gtk_box_append(GTK_BOX(row), name);
-        if (have && total > 0 && !e.first_layer_only) {
+        if (f < ZS_FEATURE_COUNT && have && total > 0 && !e.first_layer_only) {
             char buf[64];
             double min = stats[f].time_s / 60;
             g_snprintf(buf, sizeof buf, "%.0f min · %.0f %%", min, 100 * stats[f].time_s / total);
@@ -939,7 +989,7 @@ static void show_detail(Browser *b, const char *key) {
         gtk_widget_set_margin_end(hint, 12);
         gtk_widget_set_margin_top(hint, 12);
         gtk_box_append(GTK_BOX(b->detail), hint);
-        zg_model_set_focus(b->model, 0, FALSE);
+        /* The focus of the section stays. */
         return;
     }
     b->key = info->name;
@@ -985,9 +1035,8 @@ static void show_detail(Browser *b, const char *key) {
     fill_effect(b);
     gtk_box_append(GTK_BOX(b->detail), scrolled(grid));
 
-    zs_setting_effect e = {0};
-    zs_setting_get_effect(info->name, &e);
-    zg_model_set_focus(b->model, e.features, e.first_layer_only);
+    b->focus = focus_of(info->name, &b->focus_first);
+    send_focus(b);
 }
 
 /* ---- column 2 ---- */
@@ -1094,7 +1143,16 @@ static void on_section_selected(GtkListBox *box, GtkListBoxRow *row, gpointer da
         gtk_editable_set_text(GTK_EDITABLE(b->search), "");
         g_object_set_data(G_OBJECT(b->search), "zg-quiet", NULL);
     }
-    fill_settings(b, g_object_get_data(G_OBJECT(row), "zg-group"), g_object_get_data(G_OBJECT(row), "zg-section"), NULL);
+    const char *group = g_object_get_data(G_OBJECT(row), "zg-group");
+    const char *section = g_object_get_data(G_OBJECT(row), "zg-section");
+    fill_settings(b, group, section, NULL);
+    /* A new section: its lines show, until a setting of it is picked. */
+    zs_setting_info info;
+    if (!b->key || !find_setting(b->key, &info) || g_strcmp0(info.group, group) != 0 || g_strcmp0(info.section, section) != 0) {
+        b->focus = section_focus(group, section);
+        b->focus_first = FALSE;
+        send_focus(b);
+    }
 }
 
 static void on_search(GtkSearchEntry *entry, gpointer data) {
@@ -1183,10 +1241,7 @@ static GtkWidget *column(GtkWidget *child, int width) {
 /* The focus of the previews is only for the Settings page. */
 static void on_page_changed(GObject *stack, GParamSpec *pspec, gpointer data) {
     Browser *b = data;
-    gboolean visible = gtk_stack_get_visible_child(GTK_STACK(stack)) == b->page;
-    zs_setting_effect e = {0};
-    if (visible && b->key) zs_setting_get_effect(b->key, &e);
-    zg_model_set_focus(b->model, visible ? e.features : 0, e.first_layer_only);
+    send_focus(b);
 }
 
 /* A new slice: new times for the lines in column 3. */
@@ -1228,6 +1283,7 @@ static void select_setting(Browser *b, const char *key) {
 static GtkWidget *make_browser(ZgModel *model, GtkWidget *stack) {
     Browser *b = g_new0(Browser, 1);
     b->model = model;
+    b->stack = stack;
 
     b->search = gtk_search_entry_new();
     gtk_search_entry_set_placeholder_text(GTK_SEARCH_ENTRY(b->search), "Search settings");

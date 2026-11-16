@@ -98,6 +98,10 @@ The goal is the features that people use in PrusaSlicer and Cura. zslice designs
 - [x] Realtime sliders: drag a value (infill density, speeds) and see the slice change as fast as the slicer can go (the layer regions stay between slices; the shell queues values instead of a restart)
 - [x] Usual ranges (sliders, a warning out of them) and hard limits (an error) for the number settings
 - [x] Focus: the lines that a setting changes are solid, and the other lines are ghosts that do not hide them
+- [x] Each setting shows in the preview: lines, or marks (seam blobs, travel moves, retractions), or a note (a test checks it); a section shows the lines of all its settings
+- [x] The selection stays on the same kind of line when a new slice moves it (a new skirt distance)
+- [x] The preview controls and a thin layer slider float over the view
+- [x] Slider steps that people use (0.01 mm for a layer height, 5 degrees for a temperature), with a tick at the default
 - [ ] Faster skin regions: a sliding window for the stacked intersection, then SIMD in the boolean
 - [x] Machine origin: the G-code position of the front left bed corner (center origin printers, Cura machine_center_is_zero)
 - [ ] Top and bottom skin patterns: monotonic, concentric, lines (now: lines in nearest order)

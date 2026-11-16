@@ -32,6 +32,11 @@ static const char *ZG_CSS =
     ".zg-unit { font-size: 0.9em; min-width: 3.2em; }"
     ".zg-slider { margin-top: -4px; margin-bottom: 2px; }"
     "entry.zg-unusual { color: @warning_color; }"
+    /* The controls that float over the preview. */
+    ".zg-float { background: alpha(@theme_bg_color, 0.88); border-radius: 10px; padding: 4px;"
+    "  box-shadow: 0 1px 4px alpha(black, 0.25); }"
+    ".zg-layers { padding: 6px 2px; min-width: 44px; }"
+    ".zg-layers label { font-size: 0.75em; font-feature-settings: 'tnum'; }"
     ".zg-inspector, .zg-status-text { transition: opacity 200ms ease-out; }"
     ".zg-stale { opacity: 0.55; }"
     /* The slice indicator over the preview. */

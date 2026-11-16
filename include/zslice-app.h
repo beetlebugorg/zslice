@@ -99,6 +99,8 @@ typedef struct zs_setting_info {
                                       equal: no slider */
     double limit_min, limit_max;   /* the hard limits: a value out of them
                                       is ZS_OUT_OF_RANGE; equal: none */
+    double slider_step;            /* the step of the slider (0.01 mm for a
+                                      layer height), in core units */
 } zs_setting_info;
 
 /* The settings, in the order to show them. */
@@ -183,6 +185,9 @@ typedef struct zs_toolpaths {
     const float *layer_height;
     const float *layer_width;
     size_t layer_count;
+    const float *path_start_time; /* seconds, at the start of the extrusion */
+    const uint8_t *path_retract;  /* 1 if the travel to the path retracted */
+    float z_hop;                  /* the nozzle lift of a retracted travel, mm */
 } zs_toolpaths;
 
 int zs_app_toolpaths(const zs_app *app, zs_toolpaths *out);
@@ -221,7 +226,16 @@ typedef struct zs_setting_effect {
                              whose lines the setting changes; 0 if it
                              changes no line (only the G-code) */
     int first_layer_only; /* 1: only the lines of the first layer */
+    const char *note;     /* if features is 0: what the setting changes
+                             instead, in plain words */
 } zs_setting_effect;
+
+/* The marks after the features in zs_setting_effect.features and
+ * zs_view_focus: the seam points, the travel moves, and the
+ * retractions. */
+#define ZS_MARK_SEAM (1u << 8)
+#define ZS_MARK_TRAVEL (1u << 9)
+#define ZS_MARK_RETRACT (1u << 10)
 
 int zs_setting_get_effect(const char *name, zs_setting_effect *out);
 
@@ -241,6 +255,10 @@ int zs_app_feature_stats(const zs_app *app, zs_feature_stats *out);
 /* The strings stay valid until the next zs_app_inspect, the next slice, or
  * zs_app_free. */
 int zs_app_inspect(zs_app *app, size_t path, zs_inspect *out);
+/* The path of a feature (enum zs_feature) nearest to (x, y) mm on a layer
+ * (or on the last layer, if there are fewer), at any distance, or
+ * (size_t)-1. To keep a selection after a new slice moves its line. */
+size_t zs_app_pick_feature(const zs_app *app, size_t layer, int feature, double x, double y);
 /* The path of a layer nearest to (x, y) mm, within twice the line width,
  * or (size_t)-1. */
 size_t zs_app_pick_layer(const zs_app *app, size_t layer, double x, double y);

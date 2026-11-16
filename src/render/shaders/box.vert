@@ -32,11 +32,14 @@ layout(location = 4) out float vfocus;
 // The feature colors (sRGB), as in linux/src/ui/colors.h. In a focus, a
 // bead in focus shows its feature color, so it stands out also when the
 // filament color is pale.
-const vec3 feature_rgb[8] = vec3[8](
+// After the 8 features: the marks (seam, travel, retraction).
+const vec3 feature_rgb[11] = vec3[11](
     vec3(0.851, 0.282, 0.059), vec3(0.961, 0.624, 0.000),
     vec3(0.110, 0.494, 0.839), vec3(0.169, 0.541, 0.243),
     vec3(0.682, 0.243, 0.788), vec3(0.553, 0.431, 0.388),
-    vec3(0.678, 0.710, 0.741), vec3(0.286, 0.314, 0.341));
+    vec3(0.678, 0.710, 0.741), vec3(0.286, 0.314, 0.341),
+    vec3(0.878, 0.102, 0.149), vec3(0.200, 0.451, 0.949),
+    vec3(0.949, 0.251, 0.749));
 
 void main() {
     vec2 a = seg.xy;
@@ -77,6 +80,13 @@ void main() {
     uint feature = uint(color.a * 255.0 + 0.5);
     bool in_mask = ((mask >> feature) & 1u) != 0u;
     vfocus = (mask == 0u || (in_mask && zhw.x <= pc.eye.w + 1e-4)) ? 1.0 : 0.0;
-    if (mask != 0u && vfocus > 0.5) vcolor = feature_rgb[min(feature, 7u)];
+    if (mask != 0u && vfocus > 0.5) vcolor = feature_rgb[min(feature, 10u)];
+    // The travel and retraction marks show only in a focus on them: they
+    // are not part of the printed part. A mark that does not show goes
+    // behind the camera (w = 0 clips it).
+    if (feature >= 9u && !in_mask) {
+        gl_Position = vec4(0.0, 0.0, 0.0, 0.0);
+        return;
+    }
     gl_Position = pc.mvp * vec4(pos, 1.0);
 }

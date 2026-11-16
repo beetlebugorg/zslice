@@ -304,6 +304,7 @@ pub const SettingInfo = extern struct {
     slider_max: f64,
     limit_min: f64,
     limit_max: f64,
+    slider_step: f64,
 };
 
 export fn zs_setting_count() usize {
@@ -329,6 +330,7 @@ export fn zs_setting_get_info(index: usize, out: ?*SettingInfo) c_int {
         .slider_max = s.slider_max,
         .limit_min = s.limit_min,
         .limit_max = s.limit_max,
+        .slider_step = s.slider_step,
     };
     return ok;
 }
@@ -472,6 +474,9 @@ pub const Toolpaths = extern struct {
     layer_height: [*]const f32,
     layer_width: [*]const f32,
     layer_count: usize,
+    path_start_time: [*]const f32,
+    path_retract: [*]const u8,
+    z_hop: f32,
 };
 
 /// The paths of all layers, for a 3D view. The arrays stay valid until the
@@ -493,6 +498,9 @@ export fn zs_app_toolpaths(a: ?*const App, out: ?*Toolpaths) c_int {
         .layer_height = t.layer_height.items.ptr,
         .layer_width = t.layer_width.items.ptr,
         .layer_count = t.layer_ends.items.len,
+        .path_start_time = t.path_start_time.items.ptr,
+        .path_retract = t.path_retract.items.ptr,
+        .z_hop = t.z_hop,
     };
     return ok;
 }
@@ -544,13 +552,14 @@ export fn zs_app_inspect(a: ?*App, path: usize, out: ?*Inspect) c_int {
 pub const SettingEffect = extern struct {
     features: u32,
     first_layer_only: c_int,
+    note: [*:0]const u8,
 };
 
 export fn zs_setting_get_effect(name: ?[*:0]const u8, out: ?*SettingEffect) c_int {
     const n = std.mem.span(name orelse return @intFromEnum(Status.invalid_argument));
     const o = out orelse return @intFromEnum(Status.invalid_argument);
     const e = app_mod.settingEffect(n);
-    o.* = .{ .features = e.features, .first_layer_only = @intFromBool(e.first_layer_only) };
+    o.* = .{ .features = e.features, .first_layer_only = @intFromBool(e.first_layer_only), .note = e.note.ptr };
     return ok;
 }
 
@@ -567,6 +576,14 @@ export fn zs_app_feature_stats(a: ?*const App, out: ?[*]FeatureStats) c_int {
     const stats = app.featureStats() orelse return @intFromEnum(Status.no_result);
     for (stats, 0..) |s, i| o[i] = .{ .time_s = s.time, .length_mm = s.length, .volume_mm3 = s.volume, .paths = s.paths };
     return ok;
+}
+
+/// The path of a feature nearest to (x, y) mm on a layer, at any
+/// distance, or (size_t)-1.
+export fn zs_app_pick_feature(a: ?*const App, layer: usize, feature: c_int, x: f64, y: f64) usize {
+    const app = a orelse return std.math.maxInt(usize);
+    if (feature < 0 or feature > 255) return std.math.maxInt(usize);
+    return app.pickFeature(layer, @intCast(feature), x, y) orelse std.math.maxInt(usize);
 }
 
 /// The path of a layer nearest to (x, y) mm, or (size_t)-1.

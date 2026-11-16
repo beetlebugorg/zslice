@@ -34,6 +34,7 @@ typedef struct {
     gboolean updating_slider;
     /* The replay. */
     GtkWidget *stack;
+    GtkWidget *slider_box;
     GtkWidget *play;
     GtkWidget *speed;
     guint tick;
@@ -82,7 +83,10 @@ static void load_layer(Preview *p, size_t layer) {
     zs_app *core = zg_model_core(p->model);
     if (layer < p->layer_count && zs_app_layer_paths(core, layer, &p->paths) == ZS_OK) {
         p->have_paths = TRUE;
-        char *text = g_strdup_printf("Layer %zu of %zu\nz %.2f mm", layer + 1, p->layer_count, p->paths.z);
+        char *text = g_strdup_printf("%zu/%zu\n%.2f", layer + 1, p->layer_count, p->paths.z);
+        char *tip = g_strdup_printf("Layer %zu of %zu, at z %.2f mm. Drag, or use the arrow keys for one layer.", layer + 1, p->layer_count, p->paths.z);
+        gtk_widget_set_tooltip_text(p->slider_box, tip);
+        g_free(tip);
         gtk_label_set_text(GTK_LABEL(p->label), text);
         g_free(text);
     } else {
@@ -189,6 +193,48 @@ static void draw(GtkDrawingArea *area, cairo_t *cr, int w, int h, gpointer data)
             cairo_set_source_rgba(cr, zg_feature_rgb[f][0], zg_feature_rgb[f][1], zg_feature_rgb[f][2], in_focus ? 0.9 : 0.12);
             cairo_stroke(cr);
         }
+        /* The marks of a focus: the seams, the travel moves, and the
+         * retractions (as in the 3D view). */
+        if (focus & (ZS_MARK_SEAM | ZS_MARK_TRAVEL | ZS_MARK_RETRACT)) {
+            zs_toolpaths all;
+            gboolean have_all = zs_app_toolpaths(core, &all) == ZS_OK && shown < all.layer_count;
+            size_t first_path = have_all && shown > 0 ? all.layer_ends[shown - 1] : 0;
+            double px = 0, py = 0;
+            gboolean have_prev = FALSE;
+            for (size_t i = 0; i < lp->path_count; i++) {
+                uint32_t start = i == 0 ? 0 : lp->path_ends[i - 1];
+                uint32_t end = lp->path_ends[i];
+                if (end == start) continue;
+                double x0 = lp->points[2 * start], y0 = lp->points[2 * start + 1];
+                gboolean closed = lp->path_closed[i] && end - start > 2;
+                if ((focus & ZS_MARK_TRAVEL) && have_prev) {
+                    cairo_save(cr);
+                    double dash = 0.6;
+                    cairo_set_dash(cr, &dash, 1, 0);
+                    cairo_set_line_width(cr, lp->width * 0.35);
+                    cairo_move_to(cr, px, py);
+                    cairo_line_to(cr, x0, y0);
+                    cairo_set_source_rgba(cr, zg_mark_rgb[1][0], zg_mark_rgb[1][1], zg_mark_rgb[1][2], 0.9);
+                    cairo_stroke(cr);
+                    cairo_restore(cr);
+                }
+                if ((focus & ZS_MARK_RETRACT) && have_prev && have_all && first_path + i < all.path_count &&
+                    all.path_retract[first_path + i]) {
+                    cairo_arc(cr, px, py, lp->width * 0.9, 0, 2 * G_PI);
+                    cairo_set_source_rgba(cr, zg_mark_rgb[2][0], zg_mark_rgb[2][1], zg_mark_rgb[2][2], 0.95);
+                    cairo_fill(cr);
+                }
+                if ((focus & ZS_MARK_SEAM) && closed && lp->path_features[i] == ZS_FEATURE_OUTER_WALL) {
+                    cairo_arc(cr, x0, y0, lp->width * 1.1, 0, 2 * G_PI);
+                    cairo_set_source_rgba(cr, zg_mark_rgb[0][0], zg_mark_rgb[0][1], zg_mark_rgb[0][2], 0.95);
+                    cairo_fill(cr);
+                }
+                uint32_t last = closed ? start : end - 1;
+                px = lp->points[2 * last];
+                py = lp->points[2 * last + 1];
+                have_prev = TRUE;
+            }
+        }
     }
     cairo_restore(cr);
 
@@ -206,8 +252,10 @@ static void stop_replay(Preview *p) {
 static void show_time(Preview *p, size_t layer) {
     double total = zg_view3d_duration(p->view3d);
     int t = (int)p->time, d = (int)total;
-    char *text = g_strdup_printf("Layer %zu of %zu\n%d:%02d:%02d of %d:%02d:%02d", layer + 1, p->layer_count,
-                                 t / 3600, t / 60 % 60, t % 60, d / 3600, d / 60 % 60, d % 60);
+    char *text = g_strdup_printf("%zu/%zu\n%d:%02d:%02d", layer + 1, p->layer_count, t / 3600, t / 60 % 60, t % 60);
+    char *tip = g_strdup_printf("Replay: %d:%02d:%02d of %d:%02d:%02d", t / 3600, t / 60 % 60, t % 60, d / 3600, d / 60 % 60, d % 60);
+    gtk_widget_set_tooltip_text(p->slider_box, tip);
+    g_free(tip);
     gtk_label_set_text(GTK_LABEL(p->label), text);
     g_free(text);
 }
@@ -394,41 +442,49 @@ GtkWidget *zg_preview_new(ZgModel *model) {
     gtk_stack_switcher_set_stack(GTK_STACK_SWITCHER(switcher), GTK_STACK(stack));
     gtk_widget_set_tooltip_text(switcher, "2D: one layer. 3D: the layers up to the slider. In 3D: left drag to orbit, middle drag to pan, right drag to rotate freely, scroll to zoom, double-click to reset.");
 
-    /* Padding, and not margins: the window is transparent (for the 3D
-     * view), so each part must paint all of its area. */
-    GtkWidget *side = gtk_box_new(GTK_ORIENTATION_VERTICAL, 6);
-    gtk_widget_add_css_class(side, "zg-panel");
-    gtk_widget_add_css_class(side, "zg-side");
-    gtk_box_append(GTK_BOX(side), switcher);
-    GtkWidget *colors = gtk_toggle_button_new_with_label("Feature colors");
-    gtk_widget_set_tooltip_text(colors, "Off: the filament color, as the print will look. On: one color for each feature (walls, skin, infill, ...).");
+    /* The controls float over the view, so the view has all the room. The
+     * window is transparent (for the 3D view), so each control paints its
+     * own background (the zg-float style). */
+    GtkWidget *colors = gtk_toggle_button_new();
+    gtk_button_set_icon_name(GTK_BUTTON(colors), "applications-graphics-symbolic");
+    gtk_widget_set_tooltip_text(colors, "Feature colors. Off: the filament color, as the print will look. On: one color for each feature (walls, skin, infill, ...).");
     g_signal_connect(colors, "toggled", G_CALLBACK(on_colors), p);
-    gtk_box_append(GTK_BOX(side), colors);
     /* The replay: play and pause, and the speed. */
     p->play = gtk_button_new_from_icon_name("media-playback-start-symbolic");
-    gtk_widget_set_tooltip_text(p->play, "Replay the print in the 3D view, line by line, at the speed on the right.");
+    gtk_widget_set_tooltip_text(p->play, "Replay the print in the 3D view, line by line, at the speed beside it.");
     g_signal_connect(p->play, "clicked", G_CALLBACK(on_play), p);
-    const char *speeds[] = {"1\u00d7", "2\u00d7", "3\u00d7", "10\u00d7", "30\u00d7", "100\u00d7", NULL};
+    const char *speeds[] = {"1×", "2×", "3×", "10×", "30×", "100×", NULL};
     p->speed = gtk_drop_down_new_from_strings(speeds);
     gtk_drop_down_set_selected(GTK_DROP_DOWN(p->speed), 3);
     gtk_widget_set_tooltip_text(p->speed, "The replay speed: 1x is the real print speed.");
-    GtkWidget *replay = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 4);
-    gtk_box_append(GTK_BOX(replay), p->play);
-    gtk_box_append(GTK_BOX(replay), p->speed);
-    gtk_widget_set_hexpand(side, FALSE);
-    gtk_widget_set_size_request(side, 150, -1);
-    gtk_box_append(GTK_BOX(side), replay);
-    gtk_box_append(GTK_BOX(side), p->label);
-    gtk_box_append(GTK_BOX(side), p->slider);
+    GtkWidget *bar = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 4);
+    gtk_widget_add_css_class(bar, "zg-float");
+    gtk_box_append(GTK_BOX(bar), switcher);
+    gtk_box_append(GTK_BOX(bar), colors);
+    gtk_box_append(GTK_BOX(bar), p->play);
+    gtk_box_append(GTK_BOX(bar), p->speed);
+    gtk_widget_set_halign(bar, GTK_ALIGN_START);
+    gtk_widget_set_valign(bar, GTK_ALIGN_START);
+    gtk_widget_set_margin_start(bar, 10);
+    gtk_widget_set_margin_top(bar, 10);
 
-    /* A paned, so the user can make the side panel wider or narrower. */
-    GtkWidget *box = gtk_paned_new(GTK_ORIENTATION_HORIZONTAL);
-    gtk_paned_set_start_child(GTK_PANED(box), stack);
-    gtk_paned_set_end_child(GTK_PANED(box), side);
-    gtk_paned_set_resize_end_child(GTK_PANED(box), FALSE);
-    gtk_paned_set_shrink_end_child(GTK_PANED(box), FALSE);
-    gtk_paned_set_shrink_start_child(GTK_PANED(box), FALSE);
-    gtk_paned_set_wide_handle(GTK_PANED(box), TRUE);
+    /* The layer slider: a thin bar on the right edge, with the layer and
+     * the z (or the replay time) above it. */
+    p->slider_box = gtk_box_new(GTK_ORIENTATION_VERTICAL, 2);
+    gtk_widget_add_css_class(p->slider_box, "zg-float");
+    gtk_widget_add_css_class(p->slider_box, "zg-layers");
+    gtk_box_append(GTK_BOX(p->slider_box), p->label);
+    gtk_box_append(GTK_BOX(p->slider_box), p->slider);
+    gtk_widget_set_halign(p->slider_box, GTK_ALIGN_END);
+    gtk_widget_set_valign(p->slider_box, GTK_ALIGN_FILL);
+    gtk_widget_set_margin_end(p->slider_box, 10);
+    gtk_widget_set_margin_top(p->slider_box, 10);
+    gtk_widget_set_margin_bottom(p->slider_box, 10);
+
+    GtkWidget *box = gtk_overlay_new();
+    gtk_overlay_set_child(GTK_OVERLAY(box), stack);
+    gtk_overlay_add_overlay(GTK_OVERLAY(box), bar);
+    gtk_overlay_add_overlay(GTK_OVERLAY(box), p->slider_box);
     gtk_widget_set_size_request(stack, 200, -1);
     g_object_set_data_full(G_OBJECT(box), "zg-preview", p, preview_free);
     g_signal_connect(model, "selection-changed", G_CALLBACK(on_selection), p);
