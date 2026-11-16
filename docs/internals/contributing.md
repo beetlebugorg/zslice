@@ -72,11 +72,11 @@ Check a bottom layer (all skin), a middle layer (walls and sparse infill), a lay
 
 ## Add a feature type
 
-A feature is a kind of path, for example a wall or infill. To add one (for example `ironing`):
+A feature is a kind of path, for example a wall, infill, or ironing. To add one (for example `support`):
 
 1. Add it to `Feature` in `src/settings.zig`.
 2. Add its speed ratio to `Project` and to `Resolved.speed`.
-3. Make its paths in `layer.plan`, and add them with `addOrdered` at the correct place in the print order.
+3. Make its paths in `layer.plan`, and add them with `addOrdered` at the correct place in the print order. Ironing is a short example: see step 6 in `layer.zig`.
 4. Give it a `;TYPE:` name in `gcode.typeName`. Use the CuraEngine name if one exists, so that G-code viewers know it.
 5. Give it a color in `svg.color`.
 6. Add a test in `layer.zig` that checks the new paths.

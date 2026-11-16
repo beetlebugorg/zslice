@@ -16,8 +16,11 @@
 //!    the density. Each fill region first moves in by half a line width
 //!    (so that the plastic touches the walls), then out by the overlap
 //!    (so that the plastic bonds to the walls).
-//! 6. Order. The plan prints the inner walls first, then the outer wall,
-//!    then the skin, then the infill. Inside each group, the next path is
+//! 6. Ironing (if on). The top surfaces of the layer are the outline minus
+//!    the outline of the layer above. The nozzle goes over them again with
+//!    close lines, turned 90 degrees from the skin lines of this layer.
+//! 7. Order. The plan prints the inner walls first, then the outer wall,
+//!    then the skin, then the infill, then the ironing. Inside each group, the next path is
 //!    the nearest one to the current nozzle position (a greedy nearest
 //!    neighbor search). A loop starts at its vertex nearest to the nozzle.
 //!    A line starts at its nearer end.
@@ -165,6 +168,15 @@ pub fn plan(gpa: Allocator, ctx: Context, i: usize) Allocator.Error!LayerPlan {
     }
 
     // Step 6.
+    var ironing_lines: Paths = .empty;
+    if (p.ironing and !first) {
+        const above: Paths = if (i + 1 < ctx.outlines.len) ctx.outlines[i + 1] else .empty;
+        const top = try clip.difference(s, outline, above);
+        const region = try offset_mod.offset(s, top, -geom.fromMm(p.ironing_inset), .{});
+        ironing_lines = try infill.lines(s, region, geom.fromMm(p.ironing_spacing), skin_angle + 90, 0);
+    }
+
+    // Step 7.
     var pos: Point = if (outline.points.items.len > 0) outline.points.items[0] else .init(0, 0);
     var k = wall_n;
     while (k > 1) {
@@ -174,6 +186,7 @@ pub fn plan(gpa: Allocator, ctx: Context, i: usize) Allocator.Error!LayerPlan {
     if (wall_n > 0) try addOrdered(s, a, &lp, &pos, walls[0], true, .outer_wall);
     try addOrdered(s, a, &lp, &pos, skin_lines, false, .skin);
     try addOrdered(s, a, &lp, &pos, sparse_lines, false, .infill);
+    try addOrdered(s, a, &lp, &pos, ironing_lines, false, .ironing);
     return lp;
 }
 
@@ -288,6 +301,7 @@ test "plan a layer of a box" {
         .outer_wall, .inner_wall => walls += 1,
         .skin => skin += 1,
         .infill => fill += 1,
+        .ironing => unreachable,
     };
     try testing.expectEqual(@as(usize, 2), walls);
     try testing.expectEqual(@as(usize, 0), skin);
@@ -303,4 +317,53 @@ test "plan a layer of a box" {
     var bottom = try plan(gpa, ctx, 0);
     defer bottom.deinit();
     for (bottom.paths.items) |path| try testing.expect(path.feature != .infill);
+}
+
+test "ironing covers only the top surface" {
+    const gpa = testing.allocator;
+    const mesh = @import("mesh.zig");
+    // A 20 x 20 mm box with a 10 x 10 mm box on top. The top of the lower
+    // box is a ring around the upper box.
+    var b: mesh.Builder = .init(gpa);
+    try mesh.shapes.addBox(&b, 0, 0, 0, 20, 20, 2);
+    try mesh.shapes.addBox(&b, 5, 5, 2, 15, 15, 4);
+    var m = try b.finish();
+    defer m.deinit(gpa);
+    var st: settings_mod.Settings = .{};
+    st.project.ironing = true;
+    const r = try st.resolve();
+    const layers = try slicer.layerTable(gpa, 4, 0.3, 0.2);
+    defer gpa.free(layers);
+    var idx = try slicer.FaceIndex.build(gpa, &m, layers, 0);
+    defer idx.deinit(gpa);
+    const outlines = try gpa.alloc(Paths, layers.len);
+    defer {
+        for (outlines) |*o| o.deinit(gpa);
+        gpa.free(outlines);
+    }
+    for (outlines, 0..) |*o, li| o.* = try slicer.sliceAt(gpa, &m, idx.get(li), layers[li].sliceZ(), 5, 1000);
+    const ctx: Context = .{ .resolved = &r, .layers = layers, .outlines = outlines };
+
+    // Layer 8 (z 0.3 + 8 x 0.2 = 1.9) is the top layer of the lower box.
+    var lp = try plan(gpa, ctx, 8);
+    defer lp.deinit();
+    var n: usize = 0;
+    const inset = geom.fromMm(st.project.ironing_inset);
+    for (lp.paths.items, 0..) |path, pi| {
+        if (path.feature != .ironing) continue;
+        n += 1;
+        // No ironing line goes over the upper box, and each line stays the
+        // inset away from the outside edge.
+        for (lp.points.get(pi)) |q| {
+            const over_upper = q.x > 5000 + inset and q.x < 15000 - inset and q.y > 5000 + inset and q.y < 15000 - inset;
+            try testing.expect(!over_upper);
+            try testing.expect(q.x >= inset - 2 and q.x <= 20000 - inset + 2);
+        }
+    }
+    try testing.expect(n > 100);
+
+    // Layer 5 (z 1.1) is inside the lower box: no ironing.
+    var mid = try plan(gpa, ctx, 5);
+    defer mid.deinit();
+    for (mid.paths.items) |path| try testing.expect(path.feature != .ironing);
 }

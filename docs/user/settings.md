@@ -190,6 +190,28 @@ The angle of the infill and skin lines, in degrees from the X axis.
 
 Sparse infill lines go this far into the walls, as a fraction of the line width.
 
+### Ironing
+
+**`project.ironing`** (true or false). Default: `false`
+
+Iron the top surfaces. After the layer is complete, the nozzle goes over each top surface again with close lines and a small flow. The hot nozzle melts the surface flat, and the small flow fills the gaps between the skin lines.
+
+**`project.ironing_flow`** (number). Default: `0.1`
+
+The flow of the ironing lines, as a ratio of the flow of a normal line.
+
+**`project.ironing_spacing`** (number). Default: `0.1`
+
+The distance between the ironing lines.
+
+**`project.ironing_inset`** (number). Default: `0.3`
+
+The ironing area is this far inside the edges of the top surface, so that the nozzle does not push plastic over the edges.
+
+**`project.ironing_speed`** (number). Default: `0.15`
+
+The ironing speed, as a ratio of `machine.max_speed`. The flow limit of the filament does not apply, because the flow is small.
+
 ### filament allow
 
 **`project.outer_wall_speed`** (number). Default: `0.5`

@@ -121,8 +121,10 @@ pub const Emitter = struct {
                 try self.w.print(";TYPE:{s}\n", .{typeName(path.feature)});
             }
             const speed = self.r.speed(path.feature, lp.width, lp.height, first);
-            for (pts[1..]) |q| try self.extrude(geom.toMm(q.x), geom.toMm(q.y), e_per_mm, speed);
-            if (path.closed and pts.len > 2) try self.extrude(geom.toMm(pts[0].x), geom.toMm(pts[0].y), e_per_mm, speed);
+            // Ironing lines use a fraction of the flow of a normal line.
+            const e = if (path.feature == .ironing) e_per_mm * s.project.ironing_flow else e_per_mm;
+            for (pts[1..]) |q| try self.extrude(geom.toMm(q.x), geom.toMm(q.y), e, speed);
+            if (path.closed and pts.len > 2) try self.extrude(geom.toMm(pts[0].x), geom.toMm(pts[0].y), e, speed);
         }
     }
 
@@ -241,6 +243,7 @@ fn typeName(f: Feature) []const u8 {
         .inner_wall => "WALL-INNER",
         .skin => "SKIN",
         .infill => "FILL",
+        .ironing => "IRONING",
     };
 }
 

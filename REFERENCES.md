@@ -40,4 +40,5 @@ These sources gave methods or formats. zslice does not copy their code. Each zsl
 | Cut plane at the middle of each layer | General slicing practice | `src/slicer.zig` | The z where the mesh is cut for each layer. |
 | Joining cut segments by the ID of the mesh edge that they cross | General mesh technique | `src/slicer.zig` | Makes closed loops from the segments of a layer without a coordinate tolerance. |
 | Polyline simplification with an anchor point and a distance bound | General technique | `src/geom.zig` | Removes points that change a shape by less than the tolerance. |
+| PrusaSlicer G-code comment name `;TYPE:Ironing` (https://github.com/prusa3d/PrusaSlicer) | AGPL-3.0 (the convention, not code) | `src/gcode.zig` | zslice writes `;TYPE:IRONING`. printdeck reads the name in lowercase. |
 | Iterated snap rounding (repeat the intersection pass on the rounded result) | General computational geometry technique | `src/clip.zig` | Makes the boolean operations robust after crossing points are rounded to the grid. |

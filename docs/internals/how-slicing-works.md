@@ -56,7 +56,9 @@ The plan of a layer has the paths that the nozzle follows.
 
 **Fill.** Skin gets lines one line width apart. Sparse infill gets lines further apart, from the density. The fill uses a scanline method (`src/infill.zig`): turn the shape so that the lines are horizontal, find where each line crosses the polygon edges, and keep the parts of the line that are inside. All layers use the same line grid, so the infill lines of each layer are on top of the lines below.
 
-**Order.** The nozzle prints the inner walls, then the outer wall, then the skin, then the infill. In each group, the next path is the nearest one to the nozzle.
+**Ironing** (if on). The top surfaces of a layer are its outline minus the outline of the layer above. After the other paths, the nozzle goes over the top surfaces again with close lines and a small flow, to melt the surface flat.
+
+**Order.** The nozzle prints the inner walls, then the outer wall, then the skin, then the infill, then the ironing. In each group, the next path is the nearest one to the nozzle.
 
 ## 6. Write G-code (`src/gcode.zig`)
 

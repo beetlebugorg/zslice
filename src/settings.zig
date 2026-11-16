@@ -135,6 +135,23 @@ pub const Project = struct {
     /// Sparse infill lines go this far into the walls, as a fraction of the line width.
     infill_overlap: f64 = 0.2,
 
+    // Ironing
+    /// Iron the top surfaces. After the layer is complete, the nozzle goes
+    /// over each top surface again with close lines and a small flow. The
+    /// hot nozzle melts the surface flat, and the small flow fills the gaps
+    /// between the skin lines.
+    ironing: bool = false,
+    /// The flow of the ironing lines, as a ratio of the flow of a normal line.
+    ironing_flow: f64 = 0.1,
+    /// The distance between the ironing lines.
+    ironing_spacing: f64 = 0.1,
+    /// The ironing area is this far inside the edges of the top surface, so
+    /// that the nozzle does not push plastic over the edges.
+    ironing_inset: f64 = 0.3,
+    /// The ironing speed, as a ratio of `machine.max_speed`. The flow limit
+    /// of the filament does not apply, because the flow is small.
+    ironing_speed: f64 = 0.15,
+
     // Speed ratios: the fraction of the speed that the machine and the
     // filament allow.
     /// The outer wall speed, as a ratio of the allowed speed. A slower outer wall gives a better surface.
@@ -216,9 +233,11 @@ pub const Settings = struct {
         const ratios = [_]f64{
             f.fan_speed,         p.infill_density,   p.outer_wall_speed, p.inner_wall_speed,
             p.skin_speed,        p.infill_speed,     p.first_layer_speed,
+            p.ironing_flow,      p.ironing_speed,
         };
         for (ratios) |v| if (!(v >= 0 and v <= 1)) return error.InvalidValue;
         if (p.outer_wall_speed == 0 or p.inner_wall_speed == 0 or p.skin_speed == 0 or p.infill_speed == 0 or p.first_layer_speed == 0) return error.InvalidValue;
+        if (p.ironing and (p.ironing_speed == 0 or !(p.ironing_spacing > 0))) return error.InvalidValue;
 
         const w = if (p.line_width > 0) p.line_width else 1.1 * m.nozzle_diameter;
         const w0 = if (p.first_layer_line_width > 0) p.first_layer_line_width else 1.25 * m.nozzle_diameter;
@@ -241,6 +260,7 @@ pub const Feature = enum(u8) {
     inner_wall,
     skin,
     infill,
+    ironing,
 };
 
 /// Settings after `Settings.resolve`, with the derived values.
@@ -256,9 +276,10 @@ pub const Resolved = struct {
     /// The print speed of a line, in mm/s. The speed is the lowest of:
     /// the speed limit of the machine, and the speed at which the line uses
     /// the maximum flow of the filament. The project ratio of the feature
-    /// then scales it.
+    /// then scales it. Ironing uses only the machine limit.
     pub fn speed(self: Resolved, feature: Feature, width: f64, height: f64, first_layer: bool) f64 {
         const p = self.settings.project;
+        if (feature == .ironing) return self.settings.machine.max_speed * p.ironing_speed;
         const flow_limit = self.settings.filament.max_flow / (width * height);
         const limit = @min(self.settings.machine.max_speed, flow_limit);
         const ratio = if (first_layer) p.first_layer_speed else switch (feature) {
@@ -266,6 +287,7 @@ pub const Resolved = struct {
             .inner_wall => p.inner_wall_speed,
             .skin => p.skin_speed,
             .infill => p.infill_speed,
+            .ironing => unreachable,
         };
         return limit * ratio;
     }

@@ -84,6 +84,7 @@ zslice preview part.stl --layer 20 -o layer20.svg
 | Yellow | Inner walls |
 | Blue | Skin (solid top and bottom fill) |
 | Green | Sparse infill |
+| Purple | Ironing |
 | Gray dashes | Travel moves |
 
 The light gray area is the outline of the layer. Each line is drawn at the line width, so you can see gaps and overlaps.
@@ -98,6 +99,16 @@ zslice preview demo.stl --layer 28 -o layer28.svg
 ```
 
 The demo part is a wide box with a smaller box on top, and a tube. Layer 28 is just below the step. It has skin on the step and in the floor of the tube hole, and sparse infill under the upper box.
+
+## Iron the top surfaces
+
+Ironing makes top surfaces smooth. After a layer with a top surface, the nozzle goes over that surface again with close lines (0.1 mm apart) and a small flow (10 % of a normal line). The hot nozzle melts the surface flat, and the small flow fills the gaps between the skin lines.
+
+```sh
+zslice slice part.stl -o part.gcode -s project.ironing=true
+```
+
+Ironing adds time: each top surface gets about 4 times as many lines as its skin. The settings `project.ironing_flow`, `project.ironing_spacing`, `project.ironing_inset`, and `project.ironing_speed` control it (see the [settings reference](settings.md#ironing)).
 
 ## Where the part goes on the bed
 

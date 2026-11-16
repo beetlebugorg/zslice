@@ -15,6 +15,7 @@ fn color(f: Feature) []const u8 {
         .inner_wall => "#f59f00",
         .skin => "#1c7ed6",
         .infill => "#2b8a3e",
+        .ironing => "#ae3ec9",
     };
 }
 
