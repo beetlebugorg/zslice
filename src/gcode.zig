@@ -322,12 +322,14 @@ pub const Emitter = struct {
         if (d < 1e-4) return;
         if (d > self.r.settings.project.retract_min_travel) try self.retract();
         const speed = self.r.settings.machine.travel_speed;
-        try self.w.writeAll("G0 X");
-        try writeNum(self.w, x + self.r.settings.machine.origin_x, 3);
-        try self.w.writeAll(" Y");
-        try writeNum(self.w, y + self.r.settings.machine.origin_y, 3);
-        try self.writeFeed(speed);
-        try self.w.writeAll("\n");
+        var line: Line = .{};
+        line.add("G0 X");
+        line.num(x + self.r.settings.machine.origin_x, 3);
+        line.add(" Y");
+        line.num(y + self.r.settings.machine.origin_y, 3);
+        self.addFeed(&line, speed);
+        line.add("\n");
+        try self.w.writeAll(line.text());
         self.x = x;
         self.y = y;
         self.stats.travel_mm += d;
@@ -339,19 +341,30 @@ pub const Emitter = struct {
         if (d < 1e-4) return;
         try self.unretract();
         const e = d * e_per_mm;
-        try self.w.writeAll("G1 X");
-        try writeNum(self.w, x + self.r.settings.machine.origin_x, 3);
-        try self.w.writeAll(" Y");
-        try writeNum(self.w, y + self.r.settings.machine.origin_y, 3);
-        try self.w.writeAll(" E");
-        try writeNum(self.w, e, 5);
-        try self.writeFeed(speed);
-        try self.w.writeAll("\n");
+        var line: Line = .{};
+        line.add("G1 X");
+        line.num(x + self.r.settings.machine.origin_x, 3);
+        line.add(" Y");
+        line.num(y + self.r.settings.machine.origin_y, 3);
+        line.add(" E");
+        line.num(e, 5);
+        self.addFeed(&line, speed);
+        line.add("\n");
+        try self.w.writeAll(line.text());
         self.x = x;
         self.y = y;
         self.stats.filament_mm += e;
         self.extruded = true;
         self.stats.print_time_s += d / speed;
+    }
+
+    /// `writeFeed`, into a line.
+    fn addFeed(self: *Emitter, line: *Line, speed: f64) void {
+        const f = @round(speed * 60);
+        if (f == self.feed) return;
+        self.feed = f;
+        line.add(" F");
+        line.num(f, 0);
     }
 
     fn writeFeed(self: *Emitter, speed: f64) Writer.Error!void {
@@ -436,42 +449,81 @@ fn typeName(f: Feature) []const u8 {
 /// It uses integer math: it is faster than the general float formatter,
 /// and G-code needs no more than 5 decimal places.
 pub fn writeNum(w: *Writer, v: f64, comptime decimals: u5) Writer.Error!void {
-    const scale: i64 = comptime blk: {
-        var p: i64 = 1;
-        for (0..decimals) |_| p *= 10;
-        break :blk p;
-    };
-    var n: i64 = @intFromFloat(@round(v * @as(f64, @floatFromInt(scale))));
-    if (n < 0) {
-        try w.writeByte('-');
-        n = -n;
-    }
-    // The integer part, digit by digit from the end.
-    var int_buf: [20]u8 = undefined;
-    var at: usize = int_buf.len;
-    var whole = @divTrunc(n, scale);
-    while (true) {
-        at -= 1;
-        int_buf[at] = '0' + @as(u8, @intCast(@rem(whole, 10)));
-        whole = @divTrunc(whole, 10);
-        if (whole == 0) break;
-    }
-    try w.writeAll(int_buf[at..]);
-    if (decimals == 0) return;
-    var frac = @rem(n, scale);
-    if (frac == 0) return;
-    var digits: [decimals]u8 = undefined;
-    var len: usize = decimals;
-    var i: usize = decimals;
-    while (i > 0) {
-        i -= 1;
-        digits[i] = '0' + @as(u8, @intCast(@rem(frac, 10)));
-        frac = @divTrunc(frac, 10);
-    }
-    while (len > 0 and digits[len - 1] == '0') len -= 1;
-    try w.writeByte('.');
-    try w.writeAll(digits[0..len]);
+    var line: Line = .{};
+    line.num(v, decimals);
+    try w.writeAll(line.text());
 }
+
+/// "00" to "99", for two digits at a time.
+const digit_pairs: [200]u8 = blk: {
+    var t: [200]u8 = undefined;
+    for (0..100) |i| {
+        t[2 * i] = '0' + i / 10;
+        t[2 * i + 1] = '0' + i % 10;
+    }
+    break :blk t;
+};
+
+/// A line of G-code on the stack. A move goes to the writer in one call,
+/// and not in one call for each word and number.
+const Line = struct {
+    buf: [160]u8 = undefined,
+    len: usize = 0,
+
+    fn text(l: *const Line) []const u8 {
+        return l.buf[0..l.len];
+    }
+
+    fn add(l: *Line, t: []const u8) void {
+        @memcpy(l.buf[l.len..][0..t.len], t);
+        l.len += t.len;
+    }
+
+    /// v with at most `decimals` decimal places and no trailing zeros (see
+    /// `writeNum`). The digits of the scaled integer go into a buffer from
+    /// the end, two at a time from a table.
+    fn num(l: *Line, v: f64, comptime decimals: u5) void {
+        const scale: f64 = comptime blk: {
+            var p: f64 = 1;
+            for (0..decimals) |_| p *= 10;
+            break :blk p;
+        };
+        var n: i64 = @intFromFloat(@round(v * scale));
+        if (n < 0) {
+            l.add("-");
+            n = -n;
+        }
+        var u: u64 = @intCast(n);
+        // At least decimals + 1 digits, with leading zeros.
+        var digits: [24]u8 = undefined;
+        var at: usize = digits.len;
+        while (u >= 100) {
+            const pair: usize = @intCast((u % 100) * 2);
+            u /= 100;
+            at -= 2;
+            digits[at..][0..2].* = digit_pairs[pair..][0..2].*;
+        }
+        if (u >= 10) {
+            at -= 2;
+            digits[at..][0..2].* = digit_pairs[@as(usize, @intCast(u)) * 2 ..][0..2].*;
+        } else {
+            at -= 1;
+            digits[at] = '0' + @as(u8, @intCast(u));
+        }
+        while (digits.len - at < decimals + 1) {
+            at -= 1;
+            digits[at] = '0';
+        }
+        const int_end = digits.len - decimals;
+        l.add(digits[at..int_end]);
+        if (decimals == 0) return;
+        var frac_end: usize = digits.len;
+        while (frac_end > int_end and digits[frac_end - 1] == '0') frac_end -= 1;
+        if (frac_end == int_end) return;
+        l.add(".");
+        l.add(digits[int_end..frac_end]);
+    }
+};
 
 test "writeNum" {
     var buf: [64]u8 = undefined;
