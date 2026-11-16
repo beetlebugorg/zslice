@@ -19,6 +19,14 @@
 //! below `min_speed`), and a layer shorter than `fan_boost_time` gets the
 //! fan at `fan_max_speed`.
 //!
+//! Combing: a travel inside the part goes around the holes, with no
+//! retraction (see `Emitter.comb`). The test of a straight travel looks at
+//! the outline edges in a grid (see `CombIndex`).
+//!
+//! The work of a layer that does not depend on the layers before it (the
+//! combing ways, the move lengths) is done on a planning thread before the
+//! dry run (see `Prepared` and engine.zig).
+//!
 //! The emitter also adds up statistics: filament used and a time estimate.
 //! The time estimate is distance / speed. It does not include acceleration,
 //! so the real print takes longer.
@@ -85,6 +93,10 @@ pub const Prepared = struct {
     /// The length of the extrusion move to each point of `LayerPlan.points`
     /// (0 for the first point of a path).
     lengths: std.ArrayList(f64) = .empty,
+    /// The edges of the outline, for fast combing tests, or null.
+    index: ?CombIndex = null,
+    /// The memory of `index`.
+    arena: ?std.heap.ArenaAllocator = null,
 
     pub const PathPrep = struct {
         /// The nozzle position that the way of the travel starts from.
@@ -110,14 +122,159 @@ pub const Prepared = struct {
         t.paths.clearRetainingCapacity();
         t.way_points.clearRetainingCapacity();
         t.lengths.clearRetainingCapacity();
+        t.index = null;
+        if (t.arena) |*a| _ = a.reset(.retain_capacity);
     }
 
     pub fn deinit(t: *Prepared, gpa: std.mem.Allocator) void {
         t.paths.deinit(gpa);
         t.way_points.deinit(gpa);
         t.lengths.deinit(gpa);
+        if (t.arena) |*a| a.deinit();
     }
 };
+
+/// The edges of a layer outline in a uniform grid, and in bands of y, for
+/// the combing test (see `Emitter.combClear`). The test of a segment then
+/// looks only at the edges in the cells that the segment passes, and the
+/// inside test only at the edges in the band of the point.
+pub const CombIndex = struct {
+    x0: f64,
+    y0: f64,
+    cell: f64,
+    cols: usize,
+    rows: usize,
+    /// Cell c has the edges from starts[c] to starts[c + 1].
+    starts: []u32,
+    edges: []Edge,
+    bands: geom.EdgeIndex,
+
+    const Edge = struct { a: geom.Point, b: geom.Point, poly: u32 };
+
+    /// A cell coordinate is grown by this many units on each side, so
+    /// that a rounding error cannot skip a cell.
+    const margin: f64 = 2;
+
+    pub fn init(a: std.mem.Allocator, outline: geom.Paths) std.mem.Allocator.Error!CombIndex {
+        const box = outline.bounds();
+        const n = @max(outline.points.items.len, 1);
+        const w: f64 = @floatFromInt(@max(box.max.x - box.min.x, 1));
+        const h: f64 = @floatFromInt(@max(box.max.y - box.min.y, 1));
+        // About one edge for each cell.
+        const cell = @max(@sqrt(w * h / @as(f64, @floatFromInt(n))), 1);
+        var idx: CombIndex = .{
+            .x0 = @floatFromInt(box.min.x),
+            .y0 = @floatFromInt(box.min.y),
+            .cell = cell,
+            .cols = @as(usize, @intFromFloat(w / cell)) + 1,
+            .rows = @as(usize, @intFromFloat(h / cell)) + 1,
+            .starts = &.{},
+            .edges = &.{},
+            .bands = try .init(a, outline, 0),
+        };
+        idx.starts = try a.alloc(u32, idx.cols * idx.rows + 1);
+        @memset(idx.starts, 0);
+        // Two passes over the edges: count, then fill.
+        const Count = struct {
+            idx: *CombIndex,
+            fn visit(c: @This(), cell_i: usize) void {
+                c.idx.starts[cell_i + 1] += 1;
+            }
+        };
+        for (0..outline.count()) |k| {
+            const poly = outline.get(k);
+            for (poly, 0..) |p, i| idx.cells(p, poly[(i + 1) % poly.len], Count{ .idx = &idx });
+        }
+        for (1..idx.starts.len) |c| idx.starts[c] += idx.starts[c - 1];
+        idx.edges = try a.alloc(Edge, idx.starts[idx.starts.len - 1]);
+        const fill = try a.dupe(u32, idx.starts[0 .. idx.starts.len - 1]);
+        const Fill = struct {
+            idx: *CombIndex,
+            fill: []u32,
+            e: Edge,
+            fn visit(c: @This(), cell_i: usize) void {
+                c.idx.edges[c.fill[cell_i]] = c.e;
+                c.fill[cell_i] += 1;
+            }
+        };
+        for (0..outline.count()) |k| {
+            const poly = outline.get(k);
+            for (poly, 0..) |p, i| {
+                const q = poly[(i + 1) % poly.len];
+                idx.cells(p, q, Fill{ .idx = &idx, .fill = fill, .e = .{ .a = p, .b = q, .poly = @intCast(k) } });
+            }
+        }
+        return idx;
+    }
+
+    /// Calls `v.visit` with each cell that the segment from p to q can
+    /// touch: in each column of the grid, the cells of the y range of the
+    /// segment in that column, grown by `margin`.
+    fn cells(idx: *const CombIndex, p: geom.Point, q: geom.Point, v: anytype) void {
+        const px: f64 = @floatFromInt(p.x);
+        const py: f64 = @floatFromInt(p.y);
+        const qx: f64 = @floatFromInt(q.x);
+        const qy: f64 = @floatFromInt(q.y);
+        const lo_x = @min(px, qx) - margin;
+        const hi_x = @max(px, qx) + margin;
+        const last_col: f64 = @floatFromInt(idx.cols - 1);
+        const last_row: f64 = @floatFromInt(idx.rows - 1);
+        const c0 = @floor((lo_x - idx.x0) / idx.cell);
+        const c1 = @floor((hi_x - idx.x0) / idx.cell);
+        if (c1 < 0 or c0 > last_col) return;
+        const first: usize = @intFromFloat(@max(c0, 0));
+        const end: usize = @intFromFloat(@min(c1, last_col));
+        const dx = qx - px;
+        for (first..end + 1) |cx| {
+            const col_lo = idx.x0 + @as(f64, @floatFromInt(cx)) * idx.cell;
+            var ya = py;
+            var yb = qy;
+            if (dx != 0) {
+                const xa = std.math.clamp(col_lo, @min(px, qx), @max(px, qx));
+                const xb = std.math.clamp(col_lo + idx.cell, @min(px, qx), @max(px, qx));
+                ya = py + (xa - px) * (qy - py) / dx;
+                yb = py + (xb - px) * (qy - py) / dx;
+            }
+            const r0 = @floor((@min(ya, yb) - margin - idx.y0) / idx.cell);
+            const r1 = @floor((@max(ya, yb) + margin - idx.y0) / idx.cell);
+            if (r1 < 0 or r0 > last_row) continue;
+            const ry0: usize = @intFromFloat(@max(r0, 0));
+            const ry1: usize = @intFromFloat(@min(r1, last_row));
+            for (ry0..ry1 + 1) |cy| v.visit(cx * idx.rows + cy);
+        }
+    }
+
+    /// `Emitter.combClear`, with the index: the same result.
+    fn clear(idx: *const CombIndex, a: geom.Point, b: geom.Point, hit: *usize) bool {
+        const Find = struct {
+            idx: *const CombIndex,
+            a: geom.Point,
+            b: geom.Point,
+            best: *usize,
+            fn visit(c: @This(), cell_i: usize) void {
+                for (c.idx.edges[c.idx.starts[cell_i]..c.idx.starts[cell_i + 1]]) |e| {
+                    if (e.poly < c.best.* and crosses(c.a, c.b, e.a, e.b)) c.best.* = e.poly;
+                }
+            }
+        };
+        var best: usize = std.math.maxInt(usize);
+        idx.cells(a, b, Find{ .idx = idx, .a = a, .b = b, .best = &best });
+        hit.* = best;
+        if (best != std.math.maxInt(usize)) return false;
+        const m: geom.Point = .{ .x = @divTrunc(a.x + b.x, 2), .y = @divTrunc(a.y + b.y, 2) };
+        return idx.bands.inside(m);
+    }
+};
+
+/// True if the segments a-b and c-e cross at one point inside both.
+fn crosses(a: geom.Point, b: geom.Point, c: geom.Point, e: geom.Point) bool {
+    const s1 = std.math.sign(geom.cross3(a, b, c));
+    const s2 = std.math.sign(geom.cross3(a, b, e));
+    if (s1 * s2 >= 0) return false;
+    const s3 = std.math.sign(geom.cross3(c, e, a));
+    const s4 = std.math.sign(geom.cross3(c, e, b));
+    return s3 * s4 < 0;
+}
 
 /// Fills `out` for `lp` (see `Prepared`), with the emitter settings `r`.
 /// The values are the same as the ones that `Emitter.layer` finds.
@@ -128,6 +285,11 @@ pub fn prepare(gpa: std.mem.Allocator, r: *const Resolved, lp: *const LayerPlan,
     var em: Emitter = .{ .w = undefined, .r = r };
     em.setOutline(lp);
     const p = r.settings.project;
+    if (p.combing and !lp.outline.isEmpty()) {
+        if (out.arena == null) out.arena = .init(gpa);
+        out.index = try CombIndex.init(out.arena.?.allocator(), lp.outline);
+        em.comb_index = &out.index.?;
+    }
     // The nozzle position, as `layer` moves it, and the position of the
     // estimate. They are not known before the first path.
     var known = false;
@@ -210,6 +372,8 @@ pub const Emitter = struct {
     prep: ?*Prepared = null,
     /// The path that `layer` writes.
     path_index: usize = 0,
+    /// The combing index of the layer, or null.
+    comb_index: ?*const CombIndex = null,
     /// True after the first extrusion. Before it, a retraction has no use.
     extruded: bool = false,
     /// The last fan value written (0 to 255), or -1 before the first.
@@ -342,6 +506,8 @@ pub const Emitter = struct {
         try self.retract();
         self.setOutline(lp);
         defer self.outline = null;
+        self.comb_index = if (self.prep) |pr| (if (pr.index) |*ix| ix else null) else null;
+        defer self.comb_index = null;
         self.z = lp.z;
         try self.w.writeAll("G0 Z");
         try writeNum(self.w, self.z, 3);
@@ -659,7 +825,7 @@ pub const Emitter = struct {
         var seen: [max_way]geom.Point = undefined;
         while (true) {
             var hit: usize = 0;
-            if (combClear(outline.*, boxes, cur, b, &hit)) return if (used + dist(cur, b) <= limit) n else null;
+            if (self.clearOf(outline.*, boxes, cur, b, &hit)) return if (used + dist(cur, b) <= limit) n else null;
             if (n == max_way or hit >= boxes.len) return null;
             const bx = boxes[hit];
             const corners = [4]geom.Point{
@@ -677,7 +843,7 @@ pub const Emitter = struct {
                 if (again) continue;
                 const cost = dist(cur, c) + dist(c, b);
                 if (cost >= best_cost) continue;
-                if (!combClear(outline.*, boxes, cur, c, &ignore)) continue;
+                if (!self.clearOf(outline.*, boxes, cur, c, &ignore)) continue;
                 best = c;
                 best_cost = cost;
             }
@@ -693,6 +859,12 @@ pub const Emitter = struct {
 
     fn dist(a: geom.Point, b: geom.Point) f64 {
         return std.math.hypot(geom.toMm(a.x - b.x), geom.toMm(a.y - b.y));
+    }
+
+    /// `combClear`, with the combing index if the emitter has one.
+    fn clearOf(self: *const Emitter, outline: geom.Paths, boxes: []const [4]i64, a: geom.Point, b: geom.Point, hit: *usize) bool {
+        if (self.comb_index) |idx| return idx.clear(a, b, hit);
+        return combClear(outline, boxes, a, b, hit);
     }
 
     /// True if the segment a-b crosses no edge of the outline and its middle
@@ -947,4 +1119,36 @@ test "writeNum" {
     try w.writeByte(' ');
     try writeNum(&w, 3600, 0);
     try std.testing.expectEqualStrings("110 1.235 -0.5 0 3600", w.buffered());
+}
+
+test "the combing index gives the same answers as combClear" {
+    const gpa = std.testing.allocator;
+    var arena_state = std.heap.ArenaAllocator.init(gpa);
+    defer arena_state.deinit();
+    const a = arena_state.allocator();
+    // A square with two holes, and a triangle.
+    var outline: geom.Paths = .empty;
+    try outline.append(a, &.{ .init(0, 0), .init(40_000, 0), .init(40_000, 30_000), .init(0, 30_000) });
+    try outline.append(a, &.{ .init(5000, 5000), .init(5000, 12_000), .init(15_000, 12_000), .init(15_000, 5000) });
+    try outline.append(a, &.{ .init(25_000, 10_000), .init(28_000, 20_000), .init(32_000, 9000) });
+    try outline.append(a, &.{ .init(45_000, 0), .init(60_000, 2000), .init(50_000, 25_000) });
+    const idx = try CombIndex.init(a, outline);
+    var prng = std.Random.DefaultPrng.init(7);
+    const rnd = prng.random();
+    for (0..20_000) |k| {
+        // Random points, and points on the vertices and the grid lines.
+        var pts: [2]geom.Point = undefined;
+        for (&pts) |*p| {
+            p.* = if (k % 3 == 0)
+                outline.points.items[rnd.uintLessThan(usize, outline.points.items.len)]
+            else
+                .init(rnd.intRangeAtMost(i64, -2000, 62_000), rnd.intRangeAtMost(i64, -2000, 32_000));
+        }
+        var h1: usize = 0;
+        var h2: usize = 0;
+        const want = Emitter.combClear(outline, &.{}, pts[0], pts[1], &h1);
+        const got = idx.clear(pts[0], pts[1], &h2);
+        try std.testing.expectEqual(want, got);
+        if (!want) try std.testing.expectEqual(h1, h2);
+    }
 }
