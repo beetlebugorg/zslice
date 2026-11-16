@@ -140,6 +140,8 @@ pub const Regions = struct {
     /// line width of each loop (mm).
     thin: Paths = .empty,
     thin_width: []const f32 = &.{},
+    /// The inputs of the skin and sparse areas, for `Memo.fill`.
+    key: [6]i64 = @splat(0),
 };
 
 /// The results of steps 1 to 4 of one layer, kept between slices. Steps 1
@@ -157,6 +159,8 @@ pub const Regions = struct {
 /// - The skin and sparse areas, by the inner offset, the top and bottom
 ///   layer counts, and the widths of the skin steps.
 /// - The area under the band above, for the flow infill, by the band.
+/// - The fill regions: the skin and sparse areas moved by the fill inset,
+///   by the key of the area and the inset.
 ///
 /// All results are for one outline. A new outline (for example, a new
 /// layer height) needs a new memo. Each result has the generation of the
@@ -169,12 +173,14 @@ pub const Memo = struct {
     parts: std.ArrayList(PartEntry) = .empty,
     skins: std.ArrayList(SkinEntry) = .empty,
     bands: std.ArrayList(BandEntry) = .empty,
+    fills: std.ArrayList(FillEntry) = .empty,
 
     const OffsetEntry = struct { delta: i64, paths: Paths, gen: u32 };
     const ThinEntry = struct { w: i64, thin: Paths, widths: []f32, gen: u32 };
     const PartEntry = struct { delta: i64, layer: u32, top: bool, paths: Paths, gen: u32 };
     const SkinEntry = struct { key: [6]i64, skin: Paths, sparse: Paths, gen: u32 };
     const BandEntry = struct { band: u32, paths: Paths, gen: u32 };
+    const FillEntry = struct { key: [6]i64, skin: bool, delta: i64, paths: Paths, gen: u32 };
 
     pub fn init(gpa: Allocator) Memo {
         return .{ .arena = .init(gpa) };
@@ -217,6 +223,11 @@ pub const Memo = struct {
             c.paths = try e.paths.clone(a);
             try out.bands.append(a, c);
         };
+        for (self.fills.items) |e| if (e.gen >= min_gen) {
+            var c = e;
+            c.paths = try e.paths.clone(a);
+            try out.fills.append(a, c);
+        };
         return out;
     }
 
@@ -229,6 +240,18 @@ pub const Memo = struct {
         const a = self.arena.allocator();
         const paths = try offset_mod.offset(a, outline, delta, .{});
         try self.offsets.append(a, .{ .delta = delta, .paths = paths, .gen = gen });
+        return paths;
+    }
+
+    /// The skin (or sparse) area of `reg` moved by `delta`.
+    pub fn fill(self: *Memo, reg: Regions, skin: bool, delta: i64, gen: u32) Allocator.Error!Paths {
+        for (self.fills.items) |*e| if (e.skin == skin and e.delta == delta and std.mem.eql(i64, &e.key, &reg.key)) {
+            e.gen = gen;
+            return e.paths;
+        };
+        const a = self.arena.allocator();
+        const paths = try offset_mod.offset(a, if (skin) reg.skin else reg.sparse, delta, .{});
+        try self.fills.append(a, .{ .key = reg.key, .skin = skin, .delta = delta, .paths = paths, .gen = gen });
         return paths;
     }
 
@@ -336,14 +359,15 @@ pub fn regions(gpa: Allocator, ctx: Context, i: usize, memo: *Memo, list_alloc: 
 
     // Steps 3 and 4.
     if (inner.isEmpty()) return reg;
-    if (r.top_layers == 0 and r.bottom_layers == 0) {
-        reg.sparse = inner;
-        return reg;
-    }
     const removal = @divTrunc(geom.fromMm(p.skin_removal_width), 2);
     const expand = geom.fromMm(p.skin_expand_distance);
     const solid = @divTrunc(geom.fromMm(p.solid_infill_width), 2);
     const skin_key = [6]i64{ inner_delta, r.top_layers, r.bottom_layers, removal, expand, solid };
+    reg.key = skin_key;
+    if (r.top_layers == 0 and r.bottom_layers == 0) {
+        reg.sparse = inner;
+        return reg;
+    }
     for (memo.skins.items) |*e| {
         if (std.mem.eql(i64, &e.key, &skin_key)) {
             e.gen = gen;
@@ -472,12 +496,11 @@ pub fn plan(gpa: Allocator, ctx: Context, i: usize) Allocator.Error!LayerPlan {
     }
     const walls = reg.walls;
     const wall_n = walls.len;
-    const skin = reg.skin;
     const sparse = reg.sparse;
 
     // Step 5.
     const skin_inset = -@divTrunc(w, 2) + geom.fromMm(p.skin_overlap * width_mm);
-    const skin_region = try offset_mod.offset(s, skin, skin_inset, .{});
+    const skin_region = try memo.fill(reg, true, skin_inset, ctx.gen);
     // Lines have no direction, so the angle is modulo 180 degrees.
     const skin_angle = @mod(p.skin_angle + p.skin_angle_step * @as(f64, @floatFromInt(i)), 180);
     var skin_lines: Paths = .empty;
@@ -498,7 +521,7 @@ pub fn plan(gpa: Allocator, ctx: Context, i: usize) Allocator.Error!LayerPlan {
     var sparse_loops: Paths = .empty;
     if (p.infill_density > 0 and !sparse.isEmpty()) {
         const inset = -@divTrunc(w, 2) + geom.fromMm(p.infill_overlap * width_mm);
-        const region = try offset_mod.offset(s, sparse, inset, .{});
+        const region = try memo.fill(reg, false, inset, ctx.gen);
         switch (p.infill_pattern) {
             .lines => {
                 const spacing = geom.fromMm(width_mm / p.infill_density);
