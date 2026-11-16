@@ -101,6 +101,7 @@ pub const Error = error{
 pub fn slice(gpa: Allocator, mesh: *const Mesh, settings: Settings, out: *Writer) Error!Stats {
     var job = try Job.init(gpa, mesh, settings);
     defer job.deinit();
+    job.keep_memos = false;
     return job.writeGcode(out);
 }
 
@@ -237,6 +238,10 @@ pub const Job = struct {
     /// The generation of the job: one more than the job that it took its
     /// memos from (see layer.Memo).
     gen: u32 = 0,
+    /// False for a job that slices once (the command line tool, `slice`):
+    /// then the memo of each layer goes as soon as its plan is ready, and
+    /// the memory does not grow with the layer count.
+    keep_memos: bool = true,
     /// The settings of the layers with overrides (see layer.Context).
     layer_set: []u16 = &.{},
     layer_resolved: []settings_mod.Resolved = &.{},
@@ -517,7 +522,7 @@ pub const Job = struct {
         defer gpa.free(slots);
         for (slots) |*sl| sl.* = .{ .text = .init(gpa) };
         defer for (slots) |*sl| sl.deinit(gpa);
-        var pipe: Pipeline = .{ .gpa = gpa, .ctx = self.planContext(), .slots = slots, .n = self.layers.len, .monitor = self.monitor, .record = sink != null };
+        var pipe: Pipeline = .{ .gpa = gpa, .ctx = self.planContext(), .slots = slots, .n = self.layers.len, .monitor = self.monitor, .record = sink != null, .keep_memos = self.keep_memos };
 
         // The other threads plan layers and write their text. This thread
         // runs the emitter: a dry run of each layer in order (see
@@ -640,6 +645,8 @@ const Pipeline = struct {
     monitor: Monitor,
     /// True if the sink needs the path records.
     record: bool,
+    /// See `Job.keep_memos`.
+    keep_memos: bool,
     next: std.atomic.Value(usize) = .init(0),
     /// The number of layers with a dry run.
     dried: std.atomic.Value(usize) = .init(0),
@@ -684,6 +691,10 @@ const Pipeline = struct {
             p.fail(e);
             return true;
         };
+        if (!p.keep_memos and p.ctx.cache.len > i) {
+            p.ctx.cache[i].deinit();
+            p.ctx.cache[i] = .init(p.gpa);
+        }
         slot.ready.store(i + 1, .release);
         p.signal.notify();
         return true;

@@ -180,6 +180,8 @@ pub fn main(init: std.process.Init) !void {
     const t0 = Io.Clock.awake.now(io);
     var job = zslice.engine.Job.init(gpa, &m, settings) catch |e| fail(err, "slice failed: {s}\n", .{@errorName(e)});
     defer job.deinit();
+    // One slice: the memos need not stay (see Job.keep_memos).
+    job.keep_memos = false;
     const pass1 = t0.untilNow(io, .awake);
 
     if (std.mem.eql(u8, cmd, "preview")) {
