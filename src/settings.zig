@@ -370,6 +370,15 @@ pub const Project = struct {
     combing_max_distance: f64 = 0,
     /// Lift the nozzle by this distance during a travel move with a retraction. 0 turns it off.
     z_hop: f64 = 0,
+    /// Lift the nozzle (`z_hop`) only for a travel that crosses an edge of
+    /// the layer: it leaves the part, or it goes over a hole. A travel in
+    /// a straight line inside the part (it retracts because it is longer
+    /// than `combing_max_distance`) does not lift. Off: each travel with
+    /// a retraction lifts.
+    z_hop_only_crossing: bool = true,
+    /// Retract at each layer change. Off: the travel to the first path of
+    /// the layer retracts by the rules of the other travels (combing).
+    retract_layer_change: bool = true,
 
     // Support
     /// Support under overhangs. `off`: no support. `everywhere`: support

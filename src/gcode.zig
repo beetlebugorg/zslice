@@ -373,6 +373,9 @@ pub const Emitter = struct {
     /// layer (the start G-code sets them).
     nozzle_temp: ?f64 = null,
     bed_temp: ?f64 = null,
+    /// The next travel is the first of the layer: after the layer change,
+    /// which lifts the nozzle, so it has no z hop.
+    layer_start: bool = false,
     /// The outline of the layer that `layer` writes, its line width, and
     /// the boxes of its polygons (for combing).
     outline: ?*const geom.Paths = null,
@@ -625,7 +628,9 @@ pub const Emitter = struct {
         // Go up to the new layer. The retraction has no z hop: the layer
         // change moves the nozzle up, and the travel to the first path
         // goes at the height of the new layer.
-        try self.retractHop(false);
+        if (s.project.retract_layer_change) try self.retractHop(false);
+        // The travel to the first path has no z hop either.
+        self.layer_start = true;
         self.setOutline(lp);
         defer self.outline = null;
         self.comb_index = if (self.prep) |pr| (if (pr.index) |*ix| ix else null) else null;
@@ -653,6 +658,7 @@ pub const Emitter = struct {
             try self.setAccel(lr.accel(null, first));
             self.path_index = i;
             try self.travel(geom.toMm(pts[0].x), geom.toMm(pts[0].y));
+            self.layer_start = false;
             try self.setAccel(lr.accel(path.feature, first));
             const retracted = self.stats.retractions != retractions;
             if (self.feature != path.feature) {
@@ -831,9 +837,22 @@ pub const Emitter = struct {
             var way: [max_way][2]f64 = undefined;
             if (self.wayOf(x, y, d, &way)) |w| {
                 for (w) |q| try self.move(q[0], q[1]);
-            } else try self.retract();
+            } else try self.retractHop(!self.layer_start and self.hopFor(x, y));
         }
         try self.move(x, y);
+    }
+
+    /// True if a travel to x, y with a retraction lifts the nozzle: always
+    /// without `z_hop_only_crossing`, else only if the straight line
+    /// crosses an edge of the layer outline.
+    fn hopFor(self: *const Emitter, x: f64, y: f64) bool {
+        const p = self.r.settings.project;
+        if (!p.z_hop_only_crossing or p.z_hop <= 0) return true;
+        const outline = self.outline orelse return true;
+        const a: geom.Point = .{ .x = geom.fromMm(self.x), .y = geom.fromMm(self.y) };
+        const b: geom.Point = .{ .x = geom.fromMm(x), .y = geom.fromMm(y) };
+        var hit: usize = 0;
+        return !self.clearOf(outline.*, self.boxes[0..self.n_boxes], a, b, &hit);
     }
 
     /// The combing way to x, y (see `comb`): from `prep` if it has the

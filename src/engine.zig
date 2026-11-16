@@ -1618,3 +1618,39 @@ test "an XY offset override changes the outlines of its layers" {
         if (l.z >= 3 and l.z <= 4) try testing.expect(b > a + 1) else try testing.expectEqual(a, b);
     }
 }
+
+test "z hop only on travels that cross an edge, and no retraction at a layer change" {
+    const gpa = std.testing.allocator;
+    var mesh = try mesh_mod.shapes.demo(gpa);
+    defer mesh.deinit(gpa);
+    var s: Settings = .{};
+    try s.set("project.z_hop", "1");
+    // Long travels inside the part retract.
+    try s.set("project.combing_max_distance", "2");
+    const Count = struct {
+        fn of(text: []const u8, needle: []const u8) usize {
+            return std.mem.count(u8, text, needle);
+        }
+    };
+    var all: std.Io.Writer.Allocating = .init(gpa);
+    defer all.deinit();
+    try s.set("project.z_hop_only_crossing", "false");
+    _ = try slice(gpa, &mesh, s, &all.writer);
+    var crossing: std.Io.Writer.Allocating = .init(gpa);
+    defer crossing.deinit();
+    try s.set("project.z_hop_only_crossing", "true");
+    _ = try slice(gpa, &mesh, s, &crossing.writer);
+    // The same retractions, and fewer lifts.
+    try std.testing.expectEqual(Count.of(all.written(), "G1 E-"), Count.of(crossing.written(), "G1 E-"));
+    try std.testing.expect(Count.of(crossing.written(), "G0 Z") < Count.of(all.written(), "G0 Z"));
+    var no_lc: std.Io.Writer.Allocating = .init(gpa);
+    defer no_lc.deinit();
+    // With no limit on combing, most first travels of a layer stay inside.
+    try s.set("project.combing_max_distance", "0");
+    var lc: std.Io.Writer.Allocating = .init(gpa);
+    defer lc.deinit();
+    _ = try slice(gpa, &mesh, s, &lc.writer);
+    try s.set("project.retract_layer_change", "false");
+    _ = try slice(gpa, &mesh, s, &no_lc.writer);
+    try std.testing.expect(Count.of(no_lc.written(), "G1 E-") < Count.of(lc.written(), "G1 E-"));
+}

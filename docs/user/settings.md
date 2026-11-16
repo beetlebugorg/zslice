@@ -430,6 +430,14 @@ A travel inside the part that is longer than this retracts all the same (a long 
 
 Lift the nozzle by this distance during a travel move with a retraction. 0 turns it off.
 
+**`project.z_hop_only_crossing`** (true or false). Default: `true`
+
+Lift the nozzle (`z_hop`) only for a travel that crosses an edge of the layer: it leaves the part, or it goes over a hole. A travel in a straight line inside the part (it retracts because it is longer than `combing_max_distance`) does not lift. Off: each travel with a retraction lifts.
+
+**`project.retract_layer_change`** (true or false). Default: `true`
+
+Retract at each layer change. Off: the travel to the first path of the layer retracts by the rules of the other travels (combing).
+
 ### Support
 
 **`project.support`** (one of: `off`, `everywhere`, `buildplate`). Default: `off`
