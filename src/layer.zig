@@ -547,7 +547,16 @@ pub fn plan(gpa: Allocator, ctx: Context, i: usize) Allocator.Error!LayerPlan {
     var sparse_loops: Paths = .empty;
     if (p.infill_density > 0 and !sparse.isEmpty()) {
         const inset = -@divTrunc(w, 2) + geom.fromMm(p.infill_overlap * width_mm);
-        const region = try memo.fill(reg, false, inset, ctx.gen);
+        const full_region = try memo.fill(reg, false, inset, ctx.gen);
+        // Top support: under each top surface, `top_support_layers` layers
+        // of denser lines, so the skin lies on a flat grid. The pattern
+        // fills the rest (`region`). The flow pattern has its own band.
+        var region = full_region;
+        if (p.top_support_layers > 0 and p.top_support_density > p.infill_density and p.infill_pattern != .flow) {
+            const u = try memo.underBand(ctx.outlines, i, r.top_layers + p.top_support_layers, ctx.gen);
+            const band = try clip.difference(s, full_region, u);
+            if (!band.isEmpty()) region = try clip.intersect(s, full_region, u);
+        }
         switch (p.infill_pattern) {
             .lines => {
                 const spacing = geom.fromMm(width_mm / p.infill_density);
@@ -621,6 +630,22 @@ pub fn plan(gpa: Allocator, ctx: Context, i: usize) Allocator.Error!LayerPlan {
                     }
                 }
             },
+        }
+    }
+
+    // The top support lines: dense, one direction on each layer, turned 90
+    // degrees on the next, and joined at the walls.
+    if (p.top_support_layers > 0 and p.top_support_density > p.infill_density and p.infill_pattern != .flow and p.infill_density > 0 and !sparse.isEmpty()) {
+        const inset = -@divTrunc(w, 2) + geom.fromMm(p.infill_overlap * width_mm);
+        const full_region = try memo.fill(reg, false, inset, ctx.gen);
+        const u = try memo.underBand(ctx.outlines, i, r.top_layers + p.top_support_layers, ctx.gen);
+        const band = try clip.difference(s, full_region, u);
+        if (!band.isEmpty()) {
+            const spacing = geom.fromMm(width_mm / p.top_support_density);
+            const angle = p.infill_angle + @as(f64, if (i % 2 == 0) 0 else 90);
+            const set = try infill.lines(s, band, spacing, angle, w);
+            const joined = try infill.connect(s, band, set, spacing, angle);
+            try sparse_lines.appendAll(s, joined);
         }
     }
 

@@ -289,6 +289,14 @@ pub const Project = struct {
     /// the nozzle prints a zigzag with no travel and no retraction, and the
     /// joints tie the infill to the walls. Off: each line on its own.
     infill_connect: bool = true,
+    /// Top support: the layers under each top skin that get denser
+    /// infill lines (one direction on each layer, turned 90 degrees on the
+    /// next), so that the skin lies on a flat grid and bridges less. 0:
+    /// off. The flow pattern has its own band.
+    top_support_layers: u32 = 2,
+    /// The density of the top support lines, as a ratio. It works only if
+    /// it is more than `infill_density`.
+    top_support_density: f64 = 0.5,
     /// Sparse infill lines go this far into the walls, as a fraction of the line width.
     infill_overlap: f64 = 0.2,
 
@@ -669,6 +677,7 @@ pub const limits = [_]struct { []const u8, f64, f64 }{
     .{ "machine.max_z_speed", 0.1, 200 },          .{ "machine.retract_length", 0, 20 },
     .{ "machine.max_accel", 10, 100000 },          .{ "machine.corner_speed", 0, 100 },
     .{ "project.wall_thickness", 0, 50 },          .{ "project.slow_layers", 0, 50 },
+    .{ "project.top_support_layers", 0, 20 },      .{ "project.top_support_density", 0, 1 },
     .{ "project.outer_wall_accel", 0, 100000 },    .{ "project.inner_wall_accel", 0, 100000 },
     .{ "project.skin_accel", 0, 100000 },          .{ "project.infill_accel", 0, 100000 },
     .{ "project.travel_accel", 0, 100000 },        .{ "project.first_layer_accel", 0, 100000 },
