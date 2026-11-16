@@ -1036,7 +1036,8 @@ test "an override changes only its layers, and keeps the region cache" {
         } else try std.testing.expectEqual(@as(f64, 0.2), d);
     }
     try std.testing.expect(in_range > 3);
-    // A layer in the range has more infill lines than without the override.
+    // A layer in the range has more infill lines than without the override
+    // (more points: the joined infill lines make fewer, longer paths).
     const i_mid = blk: {
         for (job.layers, 0..) |layer, i| if (layer.z >= 3.4) break :blk i;
         unreachable;
@@ -1045,7 +1046,7 @@ test "an override changes only its layers, and keeps the region cache" {
     defer a.deinit();
     var b = try job.planLayer(i_mid);
     defer b.deinit();
-    try std.testing.expect(b.count() > a.count());
+    try std.testing.expect(b.points.points.items.len > a.points.points.items.len);
     // A setting for the whole print is an error.
     const bad = [_]settings_mod.Override{.{ .z_min = 3, .z_max = 4, .name = "project.layer_height", .value = "0.1" }};
     try std.testing.expectError(error.InvalidSettings, Job.initFull(gpa, &mesh, s, &bad, .{}));

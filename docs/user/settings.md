@@ -316,6 +316,10 @@ The sparse infill pattern. `lines`: one direction on each layer, turned 90 degre
 
 The angle of the infill and skin lines, in degrees from the X axis.
 
+**`project.infill_connect`** (true or false). Default: `true`
+
+Join the infill lines (lines, grid, triangles, cubic) at their ends with a short line along the edge, as "Connect Infill Lines" in Cura: the nozzle prints a zigzag with no travel and no retraction, and the joints tie the infill to the walls. Off: each line on its own.
+
 **`project.infill_overlap`** (number). Default: `0.2`
 
 Sparse infill lines go this far into the walls, as a fraction of the line width.

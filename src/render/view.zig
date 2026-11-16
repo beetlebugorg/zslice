@@ -598,18 +598,34 @@ pub const View = struct {
     /// Zooms toward the pixel (px, py): the point under the pixel, on the
     /// plane through the target that faces the camera, stays under it.
     pub fn zoomAt(v: *View, factor: f32, px: f32, py: f32) void {
-        // The point on the target plane under the pixel, with the camera
-        // before the zoom.
+        // The point under the pixel: on the first bead that the ray hits
+        // (the surface that the user looks at), else on the plane through
+        // the target.
         const old = v.dist;
         const cam = v.camera();
         const dir = v.pixelRay(cam, px, py);
-        const along = old / dot(dir, cam.f);
+        const hit = v.rayHit(px, py, 1.6);
+        const along = if (hit) |h| h.t else old / dot(dir, cam.f);
         const p = [3]f32{ cam.eye[0] + dir[0] * along, cam.eye[1] + dir[1] * along, cam.eye[2] + dir[2] * along };
-        v.zoom(factor);
-        // The eye moves toward p by the same factor as the distance, so p
-        // stays on the same ray.
-        const f = v.dist / old;
+        // The eye moves toward p by `f`, so p stays on the same ray. It
+        // stops 2 mm in front of a surface: it never goes into the part.
+        var f = factor;
+        if (hit != null) f = @max(f, @min(1, 2 / @max(along, 1e-3)));
+        if (hit == null) {
+            v.zoom(factor);
+            f = v.dist / old;
+        } else v.dist = old * f;
         for (0..3) |k| v.target[k] = p[k] + (v.target[k] - p[k]) * f;
+        // The orbit center goes to the depth of the surface, so a turn
+        // after a zoom turns around the point that the user looks at.
+        if (hit != null) {
+            const eye = [3]f32{ v.target[0] - cam.f[0] * v.dist, v.target[1] - cam.f[1] * v.dist, v.target[2] - cam.f[2] * v.dist };
+            const depth = (along * f) * dot(dir, cam.f);
+            if (depth > 0.5) {
+                for (0..3) |k| v.target[k] = eye[k] + cam.f[k] * depth;
+                v.dist = depth;
+            }
+        }
     }
 
     /// Moves the view sideways and up or down by a drag of dx, dy pixels.
@@ -682,8 +698,10 @@ pub const View = struct {
         return hit[0];
     }
 
-    /// The path and the segment of the path under a pixel.
-    pub fn pickSegment(v: *const View, px: f32, py: f32) ?[2]usize {
+    /// The first bead under a pixel, and the distance to it along the ray.
+    /// `grow` scales the radius of each bead: more than 1 closes the gaps
+    /// between the rounded beads (for the zoom).
+    fn rayHit(v: *const View, px: f32, py: f32, grow: f32) ?struct { bead: usize, t: f32 } {
         const cam = v.camera();
         const dir = v.pixelRay(cam, px, py);
         var count: usize = 0;
@@ -700,13 +718,19 @@ pub const View = struct {
             const a = [3]f32{ b.ax, b.ay, zc };
             const e = [3]f32{ b.bx - b.ax, b.by - b.ay, 0 };
             const hit = rayToSegment(o, d, a, e) orelse continue;
-            const r = b.w / 2;
+            const r = b.w / 2 * grow;
             if (hit.dist2 <= r * r and hit.t < best_t) {
                 best_t = hit.t;
                 best = i;
             }
         }
         const i = best orelse return null;
+        return .{ .bead = i, .t = best_t };
+    }
+
+    /// The path and the segment of the path under a pixel.
+    pub fn pickSegment(v: *const View, px: f32, py: f32) ?[2]usize {
+        const i = (v.rayHit(px, py, 1) orelse return null).bead;
         // The path of bead i: the last path whose first bead is at or
         // before i.
         var lo: usize = 0;

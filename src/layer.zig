@@ -552,14 +552,16 @@ pub fn plan(gpa: Allocator, ctx: Context, i: usize) Allocator.Error!LayerPlan {
             .lines => {
                 const spacing = geom.fromMm(width_mm / p.infill_density);
                 const angle = p.infill_angle + @as(f64, if (i % 2 == 0) 0 else 90);
-                sparse_lines = try infill.lines(s, region, spacing, angle, w);
+                const set = try infill.lines(s, region, spacing, angle, w);
+                sparse_lines = if (p.infill_connect) try infill.connect(s, region, set, spacing, angle) else set;
             },
             .grid => {
                 const spacing = geom.fromMm(2 * width_mm / p.infill_density);
-                sparse_lines = try infill.lines(s, region, spacing, p.infill_angle, w);
-                var cross = try infill.lines(s, region, spacing, p.infill_angle + 90, w);
-                try sparse_lines.appendAll(s, cross);
-                cross.deinit(s);
+                for ([_]f64{ 0, 90 }) |turn| {
+                    const set = try infill.lines(s, region, spacing, p.infill_angle + turn, w);
+                    const joined = if (p.infill_connect) try infill.connect(s, region, set, spacing, p.infill_angle + turn) else set;
+                    try sparse_lines.appendAll(s, joined);
+                }
             },
             .triangles, .cubic => {
                 // Three line sets, so each set is 3 times as far apart as
@@ -571,9 +573,10 @@ pub fn plan(gpa: Allocator, ctx: Context, i: usize) Allocator.Error!LayerPlan {
                 // degrees, and three such planes make cubes on a corner.
                 const phase: i64 = if (p.infill_pattern == .cubic) geom.fromMm(layer.z) else 0;
                 for (0..3) |k| {
-                    var set = try infill.linesPhase(s, region, spacing, p.infill_angle + step * @as(f64, @floatFromInt(k)), phase, w);
-                    try sparse_lines.appendAll(s, set);
-                    set.deinit(s);
+                    const angle = p.infill_angle + step * @as(f64, @floatFromInt(k));
+                    const set = try infill.linesPhase(s, region, spacing, angle, phase, w);
+                    const joined = if (p.infill_connect) try infill.connect(s, region, set, spacing, angle) else set;
+                    try sparse_lines.appendAll(s, joined);
                 }
             },
             .gyroid => {

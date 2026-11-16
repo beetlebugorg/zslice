@@ -43,6 +43,7 @@ typedef struct {
      * and the bed point under the pointer at the start. */
     gint64 moving;
     gboolean part_picked;
+    gboolean zoomed_at;
     double move_x0, move_y0, bed_x0, bed_y0;
     /* The tick callback of the camera animation, or 0. */
     guint anim;
@@ -161,6 +162,20 @@ static void load_data(View3d *v) {
     if (zoom && !v->zoomed && zs_app_layer_count(zg_model_core(v->model)) > 0) {
         zs_view_zoom(v->view, (float)g_ascii_strtod(zoom, NULL));
         v->zoomed = TRUE;
+    }
+    /* For development and screenshots: ZSLICE_ZOOM_AT=x,y,n zooms n wheel
+     * steps toward that pixel (logical points) after the first load. */
+    const char *zat = g_getenv("ZSLICE_ZOOM_AT");
+    if (zat && !v->zoomed_at && zs_app_layer_count(zg_model_core(v->model)) > 0) {
+        char **f = g_strsplit(zat, ",", 3);
+        if (f[0] && f[1] && f[2]) {
+            int scale = gtk_widget_get_scale_factor(v->area);
+            for (int i = 0; i < atoi(f[2]); i++)
+                zs_view_zoom_at(v->view, 0.8f, (float)(g_ascii_strtod(f[0], NULL) * scale), (float)(g_ascii_strtod(f[1], NULL) * scale));
+        }
+        g_strfreev(f);
+        v->zoomed_at = TRUE;
+        start_animation(v);
     }
     /* For development and screenshots: ZSLICE_PICK=x,y picks the path at
      * that pixel (logical points) after the first load. */

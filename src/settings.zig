@@ -284,6 +284,11 @@ pub const Project = struct {
     infill_pattern: InfillPattern = .grid,
     /// The angle of the infill and skin lines, in degrees from the X axis.
     infill_angle: f64 = 45,
+    /// Join the infill lines (lines, grid, triangles, cubic) at their ends
+    /// with a short line along the edge, as "Connect Infill Lines" in Cura:
+    /// the nozzle prints a zigzag with no travel and no retraction, and the
+    /// joints tie the infill to the walls. Off: each line on its own.
+    infill_connect: bool = true,
     /// Sparse infill lines go this far into the walls, as a fraction of the line width.
     infill_overlap: f64 = 0.2,
 

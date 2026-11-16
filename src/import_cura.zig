@@ -104,6 +104,7 @@ const project_map = [_]Map{
     .{ .cura = "line_width", .group = "project", .key = "line_width" },
     .{ .cura = "wall_line_count", .group = "project", .key = "wall_count" },
     .{ .cura = "wall_thickness", .group = "project", .key = "wall_thickness" },
+    .{ .cura = "zig_zaggify_infill", .group = "project", .key = "infill_connect" },
     .{ .cura = "speed_slowdown_layers", .group = "project", .key = "slow_layers" },
     .{ .cura = "acceleration_wall_0", .group = "project", .key = "outer_wall_accel" },
     .{ .cura = "acceleration_wall_x", .group = "project", .key = "inner_wall_accel" },
