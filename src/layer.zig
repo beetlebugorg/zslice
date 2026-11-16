@@ -326,7 +326,23 @@ pub fn combinedArea(gpa: Allocator, out: Allocator, ctx: Context, g: InfillGroup
         acc = if (j == g.first) try area.clone(s) else try clip.intersect(s, acc, area);
         if (acc.isEmpty()) break;
     }
-    return try acc.clone(out);
+    if (acc.isEmpty()) return Paths.empty;
+    // A part narrower than half the line spacing holds few lines, and its
+    // edge cuts the lines of the layers into short pieces: it prints on
+    // each layer (see `narrowLimit`).
+    return try (try offset_mod.opening(s, acc, narrowLimit(ctx.resolvedAt(g.last)), .{})).clone(out);
+}
+
+/// Half the width of the narrowest combined area: a quarter of the mean
+/// distance of the infill lines (line width / density), and at least one
+/// line width. With a limit of one line width, the flow pattern printed
+/// the pod body of the corpus slower than with no combined infill: the
+/// combined area was strips along the walls. With this limit, no test
+/// profile prints slower.
+fn narrowLimit(r: *const Resolved) i64 {
+    const p = r.settings.project;
+    const spacing = @min(r.line_width / @max(p.infill_density, 1e-3), 40);
+    return geom.fromMm(@max(r.line_width, spacing / 4));
 }
 
 /// The areas of a layer (steps 1 to 4): the wall loops, the skin area, and
