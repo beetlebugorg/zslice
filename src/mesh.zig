@@ -26,7 +26,11 @@ pub const Bounds3 = struct {
     max: [3]f64,
 };
 
-pub const Error = error{ InvalidStl, EmptyMesh } || Allocator.Error;
+pub const Error = error{ InvalidStl, InvalidMesh, EmptyMesh } || Allocator.Error;
+
+/// The largest coordinate (mm) that a mesh can have: 100 m. Larger values
+/// are not a real part, and they would overflow the integer coordinates.
+pub const max_coordinate: f32 = 100_000;
 
 pub const Mesh = struct {
     vertices: std.ArrayList(Vec3) = .empty,
@@ -151,7 +155,14 @@ pub const Builder = struct {
         try self.map.ensureTotalCapacity(self.gpa, @intCast(triangles / 2 + 3));
     }
 
-    pub fn addTriangle(self: *Builder, a: Vec3, b: Vec3, c: Vec3) Allocator.Error!void {
+    /// Adds a triangle. Returns `error.InvalidMesh` if a coordinate is not
+    /// a finite number, or is larger than `max_coordinate`.
+    pub fn addTriangle(self: *Builder, a: Vec3, b: Vec3, c: Vec3) Error!void {
+        for ([_]Vec3{ a, b, c }) |v| {
+            for ([_]f32{ v.x, v.y, v.z }) |f| {
+                if (!(@abs(f) <= max_coordinate)) return error.InvalidMesh;
+            }
+        }
         const ia = try self.vertex(a);
         const ib = try self.vertex(b);
         const ic = try self.vertex(c);
@@ -162,7 +173,7 @@ pub const Builder = struct {
 
     /// Adds a quad as two triangles. The points are counterclockwise as
     /// seen from outside.
-    pub fn addQuad(self: *Builder, a: Vec3, b: Vec3, c: Vec3, d: Vec3) Allocator.Error!void {
+    pub fn addQuad(self: *Builder, a: Vec3, b: Vec3, c: Vec3, d: Vec3) Error!void {
         try self.addTriangle(a, b, c);
         try self.addTriangle(a, c, d);
     }
@@ -183,11 +194,19 @@ pub const Builder = struct {
 
 /// A binary STL file has an 80-byte header, a 32-bit triangle count, and 50
 /// bytes for each triangle. Some binary files start with "solid", like an
-/// ASCII file, so the size is the test.
+/// ASCII file, and some have extra bytes at the end. The rules:
+///
+/// - The size is exactly right for the count: binary.
+/// - The file starts with "solid" and has the word "facet": ASCII.
+/// - The file is at least the size for the count: binary.
 fn isBinaryStl(bytes: []const u8) bool {
     if (bytes.len < 84) return false;
     const n = std.mem.readInt(u32, bytes[80..84], .little);
-    return @as(u64, 84) + @as(u64, n) * 50 == bytes.len;
+    const want = @as(u64, 84) + @as(u64, n) * 50;
+    if (want == bytes.len) return true;
+    const head = std.mem.trimStart(u8, bytes[0..@min(bytes.len, 512)], " \t\r\n");
+    if (std.mem.startsWith(u8, head, "solid") and std.mem.indexOf(u8, bytes[0..@min(bytes.len, 4096)], "facet") != null) return false;
+    return want <= bytes.len;
 }
 
 fn readF32(b: []const u8) f32 {
@@ -207,7 +226,6 @@ fn parseBinaryStl(gpa: Allocator, bytes: []const u8) Error!Mesh {
         for (0..3) |k| {
             const o = k * 12;
             v[k] = .{ .x = readF32(t[o..]), .y = readF32(t[o + 4 ..]), .z = readF32(t[o + 8 ..]) };
-            if (!std.math.isFinite(v[k].x) or !std.math.isFinite(v[k].y) or !std.math.isFinite(v[k].z)) return error.InvalidStl;
         }
         try b.addTriangle(v[0], v[1], v[2]);
         off += 50;
@@ -346,4 +364,28 @@ test "ASCII STL" {
 
 test "garbage is not an STL file" {
     try testing.expectError(error.InvalidStl, Mesh.fromStl(testing.allocator, "hello"));
+}
+
+test "bad coordinates are rejected" {
+    // A regression test from the code review: NaN and huge values made the
+    // slicer panic in the float to integer conversion.
+    const gpa = testing.allocator;
+    const bad = [_]f32{ std.math.nan(f32), std.math.inf(f32), 1e30 };
+    for (bad) |x| {
+        const tri = [_]f32{ 0, 0, 0, 1, 0, 0, x, 1, 0 };
+        try testing.expectError(error.InvalidMesh, Mesh.fromTriangles(gpa, &tri));
+    }
+}
+
+test "a binary STL with extra bytes at the end" {
+    const gpa = testing.allocator;
+    var m = try shapes.box(gpa, 10, 20, 30);
+    defer m.deinit(gpa);
+    var out: std.Io.Writer.Allocating = .init(gpa);
+    defer out.deinit();
+    try m.writeStl(&out.writer);
+    try out.writer.writeAll("\n\n");
+    var m2 = try Mesh.fromStl(gpa, out.written());
+    defer m2.deinit(gpa);
+    try testing.expectEqual(@as(usize, 12), m2.faces.items.len);
 }

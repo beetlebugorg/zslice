@@ -9,6 +9,9 @@
 //!
 //! Cross products of two vectors can be as large as (2^31)^2, so the code
 //! does them in i128.
+//!
+//! References (see REFERENCES.md): the shoelace formula for the area, and
+//! polyline simplification with an anchor point and a distance bound.
 
 const std = @import("std");
 const Allocator = std.mem.Allocator;
@@ -206,56 +209,90 @@ pub const Paths = struct {
 
 const geomAreaMm2 = areaMm2;
 
-/// Removes points that are on a line between their neighbors, within
-/// `tolerance` units, and points equal to the point before them. The polygon
-/// is closed, so the first and last points are neighbors. The result is
-/// written in place. Returns the new length.
+/// Removes points from a closed polygon while each removed point stays
+/// within `tolerance` units of the new edge that replaces it. The result is
+/// written in place. Returns the new length, or 0 if fewer than 3 points
+/// are left. With `tolerance` 0, only exactly collinear points and equal
+/// points are removed.
 ///
 /// The mesh slicer makes one point for each triangle that a plane cuts. A
 /// fine mesh gives many points that change the shape by less than a
 /// micrometer. This removes them before the polygon operations, which are
 /// faster with fewer points.
+///
+/// The method: keep an "anchor" point. Try to replace the points after it
+/// with one edge from the anchor to a point further on. Extend the edge
+/// while each point between is within the tolerance of it. When the next
+/// point fails, keep the last point that passed, and make it the anchor.
+/// Each removed point is tested against the final edge, so the error does
+/// not add up. The walk starts at the lowest point in (x, y) order, which is
+/// a real corner and is never removed. One edge replaces at most 256
+/// points, so the cost is O(256 n) in the worst case.
 pub fn simplifyClosed(poly: []Point, tolerance: i64) usize {
-    var n = poly.len;
-    if (n < 3) return n;
-    const tol: i128 = tolerance;
-    var changed = true;
-    while (changed and n >= 3) {
-        changed = false;
-        var out: usize = 0;
-        var i: usize = 0;
-        while (i < n) : (i += 1) {
-            const prev = if (out == 0) poly[n - 1] else poly[out - 1];
-            const cur = poly[i];
-            const next = poly[(i + 1) % n];
-            if (cur.eql(prev)) {
-                changed = true;
-                continue;
-            }
-            // Distance from cur to the line prev-next is |cross| / |next - prev|.
-            // Compare the squares to stay in integers.
-            const c = cross3(prev, next, cur);
-            const len2 = prev.distSq(next);
-            if (len2 == 0 or c * c <= tol * tol * len2) {
-                // A point that goes out and comes back (a spike) also has a
-                // small cross product. Remove it only if it is between its
-                // neighbors.
-                if (len2 == 0 or (dot3(prev, next, cur) >= 0 and dot3(next, prev, cur) >= 0)) {
-                    changed = true;
-                    continue;
+    var n = removeDuplicates(poly);
+    if (n < 3) return 0;
+    var first: usize = 0;
+    for (poly[0..n], 0..) |p, i| {
+        if (p.lessThan(poly[first])) first = i;
+    }
+    std.mem.rotate(Point, poly[0..n], first);
+
+    const max_run = 256;
+    var out: usize = 1;
+    var anchor: usize = 0;
+    var i: usize = 1;
+    while (i < n) : (i += 1) {
+        // Can poly[i] go? Test the edge from the anchor to the point after i.
+        const end = if (i + 1 == n) poly[0] else poly[i + 1];
+        var removable = i - anchor < max_run;
+        if (removable) {
+            for (poly[anchor + 1 .. i + 1]) |p| {
+                if (!nearSegment(poly[anchor], end, p, tolerance)) {
+                    removable = false;
+                    break;
                 }
             }
-            poly[out] = cur;
+        }
+        if (removable) continue;
+        poly[out] = poly[i];
+        out += 1;
+        anchor = i;
+    }
+    n = out;
+    return if (n < 3) 0 else n;
+}
+
+/// Removes points equal to the point before them (the first and last
+/// points are neighbors). Returns the new length.
+fn removeDuplicates(poly: []Point) usize {
+    if (poly.len == 0) return 0;
+    var out: usize = 1;
+    for (poly[1..]) |p| {
+        if (!p.eql(poly[out - 1])) {
+            poly[out] = p;
             out += 1;
         }
-        // The first point can be equal to the last point.
-        if (out >= 2 and poly[0].eql(poly[out - 1])) {
-            out -= 1;
-            changed = true;
-        }
-        n = out;
     }
-    return if (n < 3) 0 else n;
+    while (out > 1 and poly[out - 1].eql(poly[0])) out -= 1;
+    return out;
+}
+
+/// True if p is within `tolerance` units of the segment from a to b.
+fn nearSegment(a: Point, b: Point, p: Point, tolerance: i64) bool {
+    if (tolerance == 0) {
+        return cross3(a, b, p) == 0 and dot3(a, b, p) >= 0 and dot3(b, a, p) >= 0;
+    }
+    // The distance is not a topology decision, so floating point is enough.
+    const abx: f64 = @floatFromInt(b.x - a.x);
+    const aby: f64 = @floatFromInt(b.y - a.y);
+    const apx: f64 = @floatFromInt(p.x - a.x);
+    const apy: f64 = @floatFromInt(p.y - a.y);
+    const len2 = abx * abx + aby * aby;
+    const t = if (len2 == 0) 0 else std.math.clamp((apx * abx + apy * aby) / len2, 0, 1);
+    const dx = apx - t * abx;
+    const dy = apy - t * aby;
+    const tol: f64 = @floatFromInt(tolerance);
+    return dx * dx + dy * dy <= tol * tol;
 }
 
 test "area of a counterclockwise square is positive" {
@@ -268,4 +305,36 @@ test "simplify removes collinear points" {
     var sq = [_]Point{ .init(0, 0), .init(500, 0), .init(1000, 0), .init(1000, 1000), .init(0, 1000), .init(0, 1000) };
     const n = simplifyClosed(&sq, 0);
     try std.testing.expectEqual(@as(usize, 4), n);
+}
+
+test "simplify a fine circle: the error does not add up" {
+    // A regression test from the code review: the old method tested each
+    // point only against its neighbors, so a circle of 6283 points lost 13 %
+    // of its area at a tolerance of 5 micrometers.
+    const gpa = std.testing.allocator;
+    const n = 6283;
+    const r = 10_000.0;
+    const pts = try gpa.alloc(Point, n);
+    defer gpa.free(pts);
+    for (pts, 0..) |*p, i| {
+        const a = 2 * std.math.pi * @as(f64, @floatFromInt(i)) / n;
+        p.* = .{ .x = @intFromFloat(@round(r * @cos(a))), .y = @intFromFloat(@round(r * @sin(a))) };
+    }
+    const exact = areaMm2(pts);
+    const orig = try gpa.dupe(Point, pts);
+    defer gpa.free(orig);
+    const m = simplifyClosed(pts, 5);
+    try std.testing.expect(m > 20 and m < 1000);
+    try std.testing.expectApproxEqRel(exact, areaMm2(pts[0..m]), 0.002);
+    // Each original point is within the tolerance (plus rounding) of an edge.
+    for (orig) |p| {
+        var near = false;
+        for (0..m) |k| {
+            if (nearSegment(pts[k], pts[(k + 1) % m], p, 6)) {
+                near = true;
+                break;
+            }
+        }
+        try std.testing.expect(near);
+    }
 }

@@ -33,7 +33,7 @@ pub const Status = enum(c_int) {
 fn status(e: anyerror) c_int {
     const s: Status = switch (e) {
         error.OutOfMemory => .out_of_memory,
-        error.InvalidStl => .invalid_mesh,
+        error.InvalidStl, error.InvalidMesh => .invalid_mesh,
         error.EmptyMesh => .empty_mesh,
         error.UnknownSetting => .unknown_setting,
         error.InvalidValue => .invalid_value,

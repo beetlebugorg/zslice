@@ -33,6 +33,9 @@
 //! (Vatti, see REFERENCES.md), and it gives correct output for any input: self-intersecting
 //! polygons, shared edges, and polygons that touch at one point.
 //!
+//! References (see REFERENCES.md): winding numbers and fill rules, sweep and
+//! prune, iterated snap rounding, the slab index, and the CSR layout.
+//!
 //! Known limit: a crossing point is rounded to the nearest micrometer. The
 //! rounded point can move an edge by up to 0.7 micrometers, and in rare
 //! cases the moved edge crosses a third edge. A slicer cannot print detail
@@ -133,6 +136,10 @@ pub fn difference(gpa: Allocator, a: Paths, b: Paths) Allocator.Error!Paths {
 
 // ---------------------------------------------------------------------------
 // Step 1
+
+/// Output loops with less than this area (times two, in square units) are
+/// removed: 200 is 100 square micrometers.
+const min_loop_area2 = 200;
 
 /// The most find-and-split passes. The limit stops a loop on bad input.
 const max_passes = 8;
@@ -537,7 +544,9 @@ fn chainLoops(gpa: Allocator, arena: Allocator, edges: []DirEdge) Allocator.Erro
         if (!closed) continue;
         const n = geom.simplifyClosed(loop.items, 0);
         if (n < 3) continue;
-        if (geom.area2(loop.items[0..n]) == 0) continue;
+        // Loops with almost no area come from rounded crossing points. They
+        // are too small to print, and later steps work better without them.
+        if (@abs(geom.area2(loop.items[0..n])) < min_loop_area2) continue;
         try out.append(gpa, loop.items[0..n]);
     }
     return out;
@@ -551,23 +560,40 @@ fn pickNext(edges: []const DirEdge, from: Point, v: Point) ?usize {
         const mid = (lo + hi) / 2;
         if (edges[mid].a.lessThan(v)) lo = mid + 1 else hi = mid;
     }
+    const u = v.sub(from);
     var best: ?usize = null;
-    var best_turn: f64 = -10;
-    const ux: f64 = @floatFromInt(v.x - from.x);
-    const uy: f64 = @floatFromInt(v.y - from.y);
     var i = lo;
     while (i < edges.len and edges[i].a.eql(v)) : (i += 1) {
         if (edges[i].used) continue;
-        const wx: f64 = @floatFromInt(edges[i].b.x - v.x);
-        const wy: f64 = @floatFromInt(edges[i].b.y - v.y);
-        // The signed turn angle from the incoming direction. Positive is left.
-        const turn = std.math.atan2(ux * wy - uy * wx, ux * wx + uy * wy);
-        if (turn > best_turn) {
-            best_turn = turn;
-            best = i;
-        }
+        if (best == null or turnsMoreLeft(u, edges[i].b.sub(v), edges[best.?].b.sub(v))) best = i;
     }
     return best;
+}
+
+/// True if the turn from direction u to direction a is more to the left
+/// than the turn from u to b. A turn angle is in (-180, 180] degrees. The
+/// test is exact: it uses only signs of integer cross and dot products.
+fn turnsMoreLeft(u: Point, a: Point, b: Point) bool {
+    const ha = leftHalf(u, a);
+    const hb = leftHalf(u, b);
+    if (ha != hb) return ha;
+    // In the same half, a turns more left than b if a is counterclockwise
+    // from b.
+    return crossV(b, a) > 0;
+}
+
+/// True if the turn from u to w is in (0, 180] degrees.
+fn leftHalf(u: Point, w: Point) bool {
+    const c = crossV(u, w);
+    return c > 0 or (c == 0 and dotV(u, w) < 0);
+}
+
+fn crossV(a: Point, b: Point) i128 {
+    return @as(i128, a.x) * b.y - @as(i128, a.y) * b.x;
+}
+
+fn dotV(a: Point, b: Point) i128 {
+    return @as(i128, a.x) * b.x + @as(i128, a.y) * b.y;
 }
 
 // ---------------------------------------------------------------------------
@@ -703,4 +729,37 @@ test "many random squares: union area is inside the expected range" {
     var d = try difference(gpa, a, r);
     defer d.deinit(gpa);
     try testing.expectApproxEqAbs(@as(f64, 0), d.areaMm2(), 1e-6);
+}
+
+test "random polygon pairs: union + intersection = A + B" {
+    // A test from the code review: 1 in 20000 random pairs lost a loop. The
+    // area identity finds a lost or extra loop.
+    const gpa = testing.allocator;
+    var prng = std.Random.DefaultPrng.init(7);
+    const rand = prng.random();
+    var bad: usize = 0;
+    for (0..3000) |_| {
+        var a: Paths = .empty;
+        defer a.deinit(gpa);
+        var b: Paths = .empty;
+        defer b.deinit(gpa);
+        for ([_]*Paths{ &a, &b }) |p| {
+            const n = rand.intRangeAtMost(usize, 3, 7);
+            for (0..n) |_| try p.appendPoint(gpa, .init(rand.intRangeAtMost(i64, 0, 10_000), rand.intRangeAtMost(i64, 0, 10_000)));
+            try p.endPath(gpa, 3);
+        }
+        // Normalize each input (random polygons cross themselves).
+        var na = try unionAll(gpa, a, .non_zero);
+        defer na.deinit(gpa);
+        var nb = try unionAll(gpa, b, .non_zero);
+        defer nb.deinit(gpa);
+        var u = try unite(gpa, na, nb);
+        defer u.deinit(gpa);
+        var x = try intersect(gpa, na, nb);
+        defer x.deinit(gpa);
+        const lhs = u.areaMm2() + x.areaMm2();
+        const rhs = na.areaMm2() + nb.areaMm2();
+        if (@abs(lhs - rhs) > 0.01) bad += 1;
+    }
+    try testing.expectEqual(@as(usize, 0), bad);
 }

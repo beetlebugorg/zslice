@@ -64,4 +64,6 @@ pub fn build(b: *std.Build) void {
     const test_step = b.step("test", "Run the unit tests");
     test_step.dependOn(&b.addRunArtifact(mod_tests).step);
     test_step.dependOn(&b.addRunArtifact(c_tests).step);
+    // The wasm module must also compile.
+    test_step.dependOn(&wasm.step);
 }

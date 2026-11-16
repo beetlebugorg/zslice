@@ -16,8 +16,16 @@
 //!      arc, or a bevel (a straight cut).
 //!    - If the corner closes toward the offset, the moved edges cross. The
 //!      code adds the two moved end points with the original vertex between
-//!      them. This makes a small loop that turns the wrong way. If the
-//!      corner is almost straight, the code adds only the crossing point.
+//!      them. This makes a small loop that turns the wrong way. The
+//!      original vertex is necessary: without it, a shape that shrinks
+//!      past its center turns inside out but keeps its direction, and the
+//!      union in step 3 keeps it.
+//!
+//! Before step 1, the code removes points that are within
+//! `clean_tolerance` of a straight line (see `geom.simplifyClosed`). A curve
+//! made of many very short edges gives many closing corners, and each one
+//! makes a thin loop. Fewer points give fewer thin loops, and the union is
+//! faster and more robust.
 //! 3. A union with the "positive" fill rule removes all parts that turn the
 //!    wrong way. These parts include the small loops from step 2 and all of
 //!    a shape that the offset made smaller than zero.
@@ -39,6 +47,9 @@ pub const Options = struct {
     /// For round joins: the maximum distance between the arc and the
     /// straight segments that make it, in units.
     arc_tolerance: f64 = 5.0,
+    /// Points of the input within this distance (units) of a straight line
+    /// are removed before the offset.
+    clean_tolerance: i64 = 2,
 };
 
 /// Moves the boundaries of `paths` by `delta` units. A positive delta makes
@@ -55,8 +66,11 @@ pub fn offset(gpa: Allocator, paths: Paths, delta: i64, opts: Options) Allocator
     var normals: std.ArrayList([2]f64) = .empty;
     const d: f64 = @floatFromInt(delta);
 
+    var clean: std.ArrayList(Point) = .empty;
     for (0..paths.count()) |pi| {
-        const poly = paths.get(pi);
+        clean.clearRetainingCapacity();
+        try clean.appendSlice(arena, paths.get(pi));
+        const poly = clean.items[0..geom.simplifyClosed(clean.items, opts.clean_tolerance)];
         if (poly.len < 3) continue;
 
         // The unit normal of each edge i, from poly[i] to poly[i + 1].
@@ -100,22 +114,6 @@ fn addJoin(arena: Allocator, out: *Paths, p: Point, n1: [2]f64, n2: [2]f64, d: f
     // Almost straight: one point is enough.
     if (@abs(sin_a) < 1e-12 and cos_a > 0) {
         try out.appendPoint(arena, movePoint(p, n1, d));
-        return;
-    }
-
-    // The corner closes toward the offset, but it is almost straight. The
-    // two moved edges cross very near the vertex, so one point at the
-    // crossing (the miter point) is exact enough. A loop through the vertex
-    // here is a thin spike, and thin spikes make the union slow and
-    // fragile.
-    if (sin_a * d < 0 and cos_a > 0.99) {
-        const k = d / (1 + cos_a);
-        const px: f64 = @floatFromInt(p.x);
-        const py: f64 = @floatFromInt(p.y);
-        try out.appendPoint(arena, .{
-            .x = @intFromFloat(@round(px + (n1[0] + n2[0]) * k)),
-            .y = @intFromFloat(@round(py + (n1[1] + n2[1]) * k)),
-        });
         return;
     }
 
@@ -280,5 +278,50 @@ test "offset a thin ring two times" {
         defer r.deinit(gpa);
         const outer = geom.area2(inner.get(i)) > 0;
         try testing.expectEqual(@as(usize, if (outer) 1 else 0), r.count());
+    }
+}
+
+fn circle(gpa: Allocator, r: f64, n: usize) !Paths {
+    var p: Paths = .empty;
+    for (0..n) |i| {
+        const a = 2 * std.math.pi * @as(f64, @floatFromInt(i)) / @as(f64, @floatFromInt(n));
+        try p.appendPoint(gpa, .{ .x = @intFromFloat(@round(r * @cos(a))), .y = @intFromFloat(@round(r * @sin(a))) });
+    }
+    try p.endPath(gpa, 3);
+    return p;
+}
+
+test "a circle that shrinks past its center is empty" {
+    // Regression tests from the code review: a shortcut at almost straight
+    // closing corners made these shapes turn inside out and stay.
+    const gpa = testing.allocator;
+    const cases = [_][3]f64{ .{ 300, 64, -400 }, .{ 5000, 64, -6000 }, .{ 5000, 1024, -5001 } };
+    for (cases) |c| {
+        var p = try circle(gpa, c[0], @intFromFloat(c[1]));
+        defer p.deinit(gpa);
+        var r = try offset(gpa, p, @intFromFloat(c[2]), .{});
+        defer r.deinit(gpa);
+        try testing.expectEqual(@as(usize, 0), r.count());
+    }
+}
+
+test "dense circles give one loop" {
+    // Regression tests from the code review: dense input gave many thin
+    // loops with almost no area.
+    const gpa = testing.allocator;
+    const cases = [_]struct { r: f64, n: usize, d: i64, join: Join }{
+        .{ .r = 5000, .n = 4096, .d = 400, .join = .miter },
+        .{ .r = 5000, .n = 4096, .d = -400, .join = .round },
+        .{ .r = 5000, .n = 1024, .d = -4900, .join = .miter },
+    };
+    for (cases) |c| {
+        var p = try circle(gpa, c.r, c.n);
+        defer p.deinit(gpa);
+        var r = try offset(gpa, p, c.d, .{ .join = c.join });
+        defer r.deinit(gpa);
+        try testing.expectEqual(@as(usize, 1), r.count());
+        const want = std.math.pi * std.math.pow(f64, (c.r + @as(f64, @floatFromInt(c.d))) / 1000, 2);
+        // 1 %, plus 0.002 mm^2 for the polygon error of a very small circle.
+        try testing.expectApproxEqAbs(want, r.areaMm2(), 0.01 * want + 0.002);
     }
 }

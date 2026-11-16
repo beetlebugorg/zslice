@@ -23,6 +23,10 @@
 //! 6. A union with the non-zero rule cleans the loops. It removes overlaps
 //!    from meshes that intersect each other, and it turns loops from
 //!    inside-out meshes the correct way.
+//!
+//! References (see REFERENCES.md): the cut plane at the middle of the
+//! layer, joining segments by mesh edge ID, and the CSR layout of the face
+//! index.
 
 const std = @import("std");
 const Allocator = std.mem.Allocator;

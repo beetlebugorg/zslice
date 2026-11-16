@@ -201,7 +201,18 @@ pub const Settings = struct {
             f.diameter,        f.max_flow,           f.flow_ratio,   p.layer_height,
             p.first_layer_height,
         };
-        for (positive) |v| if (!(v > 0) or !std.math.isFinite(v)) return error.InvalidValue;
+        // Each number must be finite and of a size that the integer
+        // coordinates can hold.
+        inline for (@typeInfo(Settings).@"struct".fields) |g| {
+            const group = @field(self, g.name);
+            inline for (@typeInfo(@TypeOf(group)).@"struct".fields) |field| {
+                if (field.type == f64) {
+                    const v = @field(group, field.name);
+                    if (!(@abs(v) <= 1e6)) return error.InvalidValue;
+                }
+            }
+        }
+        for (positive) |v| if (!(v > 0)) return error.InvalidValue;
         const ratios = [_]f64{
             f.fan_speed,         p.infill_density,   p.outer_wall_speed, p.inner_wall_speed,
             p.skin_speed,        p.infill_speed,     p.first_layer_speed,

@@ -12,6 +12,8 @@ The zslice library, command line tool, and wasm module contain code from these p
 |---|---|---|---|
 | Zig standard library | MIT | `licenses/zig-std-MIT.txt` | The compiler links the parts that zslice calls into each binary. |
 | musl libc (math functions in the Zig standard library, for example `atan2` and `acos`) | MIT | `licenses/musl-MIT.txt` | The Zig standard library has ports of musl math functions. The port keeps the musl notice. |
+| Go (`std.fmt.parseFloat` in the Zig standard library is derived from Go `strconv/atof.go`) | BSD-3-Clause | `licenses/go-BSD-3-Clause.txt` | zslice parses numbers in ASCII STL files and in settings with `parseFloat`. |
+| ARM optimized-routines (`std.math.acos` in the Zig standard library) | MIT (dual MIT OR Apache-2.0 WITH LLVM-exception; zslice uses the MIT terms) | `licenses/arm-optimized-routines.txt` | `src/offset.zig` uses `acos` for round joins. |
 | Zig compiler_rt (parts ported from LLVM compiler-rt) | MIT, and Apache-2.0 WITH LLVM-exception | `licenses/zig-std-MIT.txt` | The LLVM exception removes the notice requirement for compiled code. The entry is here for completeness. |
 
 zslice copies no code from other projects.
@@ -33,4 +35,9 @@ These sources gave methods or formats. zslice does not copy their code. Each zsl
 | Scanline polygon fill (sort the edge crossings on each line, fill between them by winding number) | General computer graphics technique | `src/infill.zig` | The line infill. |
 | Greedy nearest-neighbor path order | General technique | `src/layer.zig` | The order of the paths in a layer. |
 | Mathematical morphology "opening" (erode, then dilate) | General technique | `src/offset.zig`, `src/layer.zig` | Removes skin areas that are too thin to print. |
+| Slab index (bucket edges into equal bands of one axis, then cast a ray only against one band) | General technique | `src/clip.zig` | Finds the edges that a winding ray crosses. |
+| Compressed sparse row (CSR) layout: one array of items and one array of start offsets | General technique | `src/clip.zig`, `src/slicer.zig` | The slab index and the per-layer face index. |
+| Cut plane at the middle of each layer | General slicing practice | `src/slicer.zig` | The z where the mesh is cut for each layer. |
+| Joining cut segments by the ID of the mesh edge that they cross | General mesh technique | `src/slicer.zig` | Makes closed loops from the segments of a layer without a coordinate tolerance. |
+| Polyline simplification with an anchor point and a distance bound | General technique | `src/geom.zig` | Removes points that change a shape by less than the tolerance. |
 | Iterated snap rounding (repeat the intersection pass on the rounded result) | General computational geometry technique | `src/clip.zig` | Makes the boolean operations robust after crossing points are rounded to the grid. |

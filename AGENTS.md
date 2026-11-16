@@ -23,7 +23,7 @@ Follow these rules for all work:
 3. Obey the license of each dependency and each source that zslice copies or ports. Before you copy or port code, check that its license is compatible with AGPL-3.0-or-later. Keep its copyright notice in the file.
 4. Put the license text of each dependency whose code goes into a zslice binary or wasm file in `licenses/`. List it in `REFERENCES.md` under "Code in the binaries".
 5. Do not add a dependency or copy code with an unknown license, or with a license that is incompatible with AGPL-3.0. Ask first.
-6. The Zig standard library has ports of Go code (BSD-3-Clause), for example `std.math.pow`. Do not call these functions until the Go license text is in `licenses/`.
+6. The Zig standard library has ports of code from other projects. The file header of each port names its source. Before you call a std function that is new to zslice, read the header of its file. If it names a source that is not in `REFERENCES.md`, add the source and its license text before the call. Known ports in zslice binaries: musl (math), Go (`std.fmt.parseFloat`, `std.math.pow`), and ARM optimized-routines (`std.math.acos`).
 
 ## Writing
 
