@@ -977,8 +977,17 @@ fn addMonotonic(s: Allocator, a: Allocator, lp: *LayerPlan, pos: *Point, set: Pa
         // Double back: the neighbor in the column, with a short turn along
         // the edge (at most 1.6 line spacings), joins the chain. The turn
         // prints, as in the "lines" pattern, so the nozzle does not travel.
-        const join = if (last) |li| best_next and chain.items.len > 0 and
-            @as(f64, @floatFromInt(pos.distSq(first_pt))) <= square(1.6 * @abs(keys[ki].across - keys[li].across)) else false;
+        // A clean hairpin only: the turn goes across the lines, with the
+        // two ends at most 0.6 spacings apart along the lines. A turn on a
+        // slant would stick out past the edge of the skin.
+        const join = if (last) |li| blk: {
+            if (!best_next or chain.items.len == 0) break :blk false;
+            const spacing = @abs(keys[ki].across - keys[li].across);
+            const dx: f64 = @floatFromInt(first_pt.x - pos.x);
+            const dy: f64 = @floatFromInt(first_pt.y - pos.y);
+            const along = @abs(dx * ax + dy * ay);
+            break :blk along <= 0.6 * spacing and @as(f64, @floatFromInt(pos.distSq(first_pt))) <= square(1.6 * spacing);
+        } else false;
         if (!join) try flushChain(a, lp, &chain, feature);
         try chain.ensureUnusedCapacity(s, path.len);
         if (flip) {

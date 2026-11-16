@@ -1657,6 +1657,42 @@ test "an override of the whole part changes the slice, and not the global settin
 }
 
 
+test "app: a change for the top layer gives the same G-code with the cache and without it" {
+    const gpa = testing.allocator;
+    var mesh = try zs.mesh.shapes.demo(gpa);
+    var bytes: std.Io.Writer.Allocating = .init(gpa);
+    defer bytes.deinit();
+    try mesh.writeStl(&bytes.writer);
+    mesh.deinit(gpa);
+    const values = [_][]const u8{ "90", "45", "0", "90" };
+    for ([_][]const u8{ "lines", "monotonic" }) |pattern| {
+        // With the cache: slice, then change the override of the top layer
+        // again and again, as a slider does.
+        const app = try App.create(gpa, null, null);
+        defer app.destroy();
+        try app.loadStl("demo.stl", bytes.written());
+        try app.setSetting("project.skin_pattern", pattern);
+        try app.startSlice();
+        app.stopWorkerForTest();
+        const t = app.allToolpaths().?;
+        const top_z = t.layer_z.items[t.layer_z.items.len - 1];
+        for (values) |v| {
+            try app.setOverride(top_z - 1e-3, top_z + 1e-3, "project.skin_angle", v);
+            try app.requestSlice();
+            app.stopWorkerForTest();
+        }
+        // Without the cache: a new app with the last value.
+        const fresh = try App.create(gpa, null, null);
+        defer fresh.destroy();
+        try fresh.loadStl("demo.stl", bytes.written());
+        try fresh.setSetting("project.skin_pattern", pattern);
+        try fresh.setOverride(top_z - 1e-3, top_z + 1e-3, "project.skin_angle", values[values.len - 1]);
+        try fresh.startSlice();
+        fresh.stopWorkerForTest();
+        try testing.expectEqualStrings(fresh.gcode().?, app.gcode().?);
+    }
+}
+
 test "app: a 3MF file keeps the parts, the places, and the changes" {
     const gpa = std.testing.allocator;
     const app = try App.create(gpa, null, null);
