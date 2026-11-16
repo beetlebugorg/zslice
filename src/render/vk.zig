@@ -74,7 +74,7 @@ comptime {
 /// range. For the grid: the color. 112 bytes: within the 128 bytes that
 /// each device supports.
 /// The spare instance slots for Frame.extras.
-pub const max_extras = 16;
+pub const max_extras = 256;
 
 pub const Push = extern struct {
     mvp: [16]f32,

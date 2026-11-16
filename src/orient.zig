@@ -109,6 +109,15 @@ pub fn score(mesh: *const Mesh, d: V, support_angle: f64) Score {
 /// is the current orientation, and a new one must be clearly better, so a
 /// part that is good as it is stays as it is.
 pub fn best(gpa: Allocator, mesh: *const Mesh, support_angle: f64) Allocator.Error!Score {
+    return bestAlong(gpa, mesh, support_angle, null);
+}
+
+/// As `best`, for a part that must be strong along the unit vector
+/// `axis`: a printed part is weakest across its layers, so the axis must
+/// lie in the plane of the layers. Only the directions at a right angle to
+/// the axis can go down: the candidates of `best` that are, and 24
+/// directions around the axis.
+pub fn bestAlong(gpa: Allocator, mesh: *const Mesh, support_angle: f64, axis: ?V) Allocator.Error!Score {
     var cands: std.ArrayList(V) = .empty;
     defer cands.deinit(gpa);
     try cands.appendSlice(gpa, &.{ .{ 0, 0, -1 }, .{ 0, 0, 1 }, .{ 1, 0, 0 }, .{ -1, 0, 0 }, .{ 0, 1, 0 }, .{ 0, -1, 0 } });
@@ -142,6 +151,34 @@ pub fn best(gpa: Allocator, mesh: *const Mesh, support_angle: f64) Allocator.Err
         const l = len(g.n);
         if (l == 0) continue;
         try cands.append(gpa, .{ g.n[0] / l, g.n[1] / l, g.n[2] / l });
+    }
+    if (axis) |ax| {
+        // Keep only the candidates at a right angle to the axis, and add a
+        // ring of directions around it.
+        var kept: usize = 0;
+        for (cands.items) |d| if (@abs(dot(d, ax)) < 0.05) {
+            cands.items[kept] = d;
+            kept += 1;
+        };
+        cands.items.len = kept;
+        // Two unit vectors at right angles to the axis.
+        const helper: V = if (@abs(ax[2]) < 0.9) .{ 0, 0, 1 } else .{ 1, 0, 0 };
+        const c1 = cross(ax, helper);
+        const l1 = len(c1);
+        const e1 = V{ c1[0] / l1, c1[1] / l1, c1[2] / l1 };
+        const e2 = cross(ax, e1);
+        for (0..24) |k| {
+            const t = 2 * std.math.pi * @as(f64, @floatFromInt(k)) / 24.0;
+            try cands.append(gpa, .{ e1[0] * @cos(t) + e2[0] * @sin(t), e1[1] * @cos(t) + e2[1] * @sin(t), e1[2] * @cos(t) + e2[2] * @sin(t) });
+        }
+        // No "keep as it is" rule: the part must turn if it is not strong
+        // along the axis now.
+        var top = score(mesh, cands.items[0], support_angle);
+        for (cands.items[1..]) |d| {
+            const s = score(mesh, d, support_angle);
+            if (s.cost < top.cost) top = s;
+        }
+        return top;
     }
     var top = score(mesh, cands.items[0], support_angle);
     const keep = top.cost;
@@ -202,4 +239,17 @@ test "orient: the down matrix" {
         try testing.expectApproxEqAbs(@as(f64, 0), p[1], 1e-9);
         try testing.expectApproxEqAbs(@as(f64, -1), p[2], 1e-9);
     }
+}
+
+test "orient: strong along x keeps x in the layers" {
+    // A long bar along z (a post): strong along z means it lies down.
+    const gpa = testing.allocator;
+    var b: mesh_mod.Builder = .init(gpa);
+    try mesh_mod.shapes.addBox(&b, 0, 0, 0, 5, 5, 40);
+    var m = try b.finish();
+    defer m.deinit(gpa);
+    const s = try bestAlong(gpa, &m, 50, .{ 0, 0, 1 });
+    // The down direction is at a right angle to z.
+    try testing.expect(@abs(s.dir[2]) < 0.05);
+    try testing.expectApproxEqAbs(@as(f64, 5), s.height, 0.01);
 }

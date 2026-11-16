@@ -220,15 +220,21 @@ fn computeStyle(
         if (kind) |k| {
             for (need) |*x| x.deinit(gpa);
             for (need) |*x| x.* = .empty;
+            // The first overhang at or above the layer of the mark, in its
+            // disk: so a mark on the floor under an arch, or on a wall
+            // under a shelf, supports the overhang over it.
             for (marks) |m| if (m.kind == k) {
-                const i = layerAt(layers, m.z);
-                if (i == 0) continue;
                 const d = try disk(am, m.x, m.y, m.r);
-                const on = try clip.intersect(am, outlines[i], d);
-                const free = try clip.difference(am, on, outlines[i - 1]);
-                const u = try clip.unite(gpa, need[i], free);
-                need[i].deinit(gpa);
-                need[i] = u;
+                var i = @max(1, layerAt(layers, m.z));
+                while (i < n) : (i += 1) {
+                    const on = try clip.intersect(am, outlines[i], d);
+                    const free = try clip.difference(am, on, outlines[i - 1]);
+                    if (free.areaMm2() < 0.2) continue;
+                    const u = try clip.unite(gpa, need[i], free);
+                    need[i].deinit(gpa);
+                    need[i] = u;
+                    break;
+                }
             };
         } else {
             for (marks) |m| if (m.kind == .block) {
@@ -499,6 +505,13 @@ test "support marks: a pad with support off, and a block" {
     try testing.expect(!sup[22].interface.isEmpty());
     try testing.expect(sup[22].interface.areaMm2() < 15);
     try testing.expect(sup[10].body.isEmpty() and sup[10].interface.isEmpty());
+
+    // A mark on a layer under the cap (where the pad prints, not where the
+    // overhang is) gives the same pad: it supports the overhang above it.
+    const low = [_]Mark{.{ .x = 3, .y = 3, .z = sl.layers[10].z, .r = 2, .kind = .bridge }};
+    const sup_low = try compute(gpa, sl.outlines, sl.layers, &r, 1, &low);
+    defer deinitAll(gpa, sup_low);
+    try testing.expectApproxEqAbs(sup[22].interface.areaMm2(), sup_low[22].interface.areaMm2(), 0.01);
 
     // Support on, with a block mark at the same corner: less support there.
     st.project.support = .everywhere;

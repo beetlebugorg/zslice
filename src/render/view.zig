@@ -64,6 +64,9 @@ pub const View = struct {
     /// beads of path i are path_start[i] to path_start[i + 1].
     path_start: std.ArrayList(u32) = .empty,
     highlight: [2]f32 = .{ 0, 0 },
+    /// The rings of the support marks of the app (see support.Mark): 12
+    /// beads each, drawn as extras.
+    mark_rings: std.ArrayList(vk.Instance) = .empty,
     /// The bead of a selected segment (see setSegment), or null.
     seg_bead: ?usize = null,
     /// With a selection: the other beads are ghosts.
@@ -126,6 +129,7 @@ pub const View = struct {
 
     pub fn destroy(v: *View) void {
         v.layer_end.deinit(gpa);
+        v.mark_rings.deinit(gpa);
         v.path_start.deinit(gpa);
         v.beads.deinit(gpa);
         v.bead_end.deinit(gpa);
@@ -195,6 +199,25 @@ pub const View = struct {
     /// Reads the toolpaths of the last slice of `app`, and the bed size.
     pub fn load(v: *View, app: *const app_mod.App) Error!void {
         const s = app.settings;
+        // The support marks: a ring at the place and the layer of each.
+        v.mark_rings.clearRetainingCapacity();
+        for (app.marks.items) |m| {
+            const color: [4]u8 = if (m.kind == .block) .{ 0xe0, 0x31, 0x31, 11 } else .{ 0x1c, 0x7e, 0xd6, 11 };
+            for (0..12) |k| {
+                const t0 = 2 * std.math.pi * @as(f64, @floatFromInt(k)) / 12.0;
+                const t1 = 2 * std.math.pi * @as(f64, @floatFromInt(k + 1)) / 12.0;
+                v.mark_rings.append(gpa, .{
+                    .ax = @floatCast(m.x + m.r * @cos(t0)),
+                    .ay = @floatCast(m.y + m.r * @sin(t0)),
+                    .bx = @floatCast(m.x + m.r * @cos(t1)),
+                    .by = @floatCast(m.y + m.r * @sin(t1)),
+                    .z = @floatCast(m.z + 0.3),
+                    .h = 0.4,
+                    .w = 0.5,
+                    .rgba = color,
+                }) catch return error.OutOfMemory;
+            }
+        }
         try v.loadGrid(@floatCast(s.machine.bed_size_x), @floatCast(s.machine.bed_size_y));
         const tp = app.allToolpaths() orelse {
             v.layer_end.clearRetainingCapacity();
@@ -853,6 +876,12 @@ pub const View = struct {
                     extras[n_extras] = b;
                     n_extras += 1;
                 };
+                // The rings of the support marks.
+                for (v.mark_rings.items) |b| {
+                    if (n_extras == extras.len) break;
+                    extras[n_extras] = b;
+                    n_extras += 1;
+                }
                 break :blk extras[0..n_extras];
             },
             .clear = .{ 0.965, 0.969, 0.973 },
