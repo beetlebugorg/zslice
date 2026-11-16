@@ -1563,6 +1563,33 @@ fn typeText(layer: []const u8, name: []const u8) []const u8 {
     return layer[at..end];
 }
 
+test "the z hop of a layer lifts only on travels that cross an edge" {
+    const gpa = testing.allocator;
+    // The print has no z hop; the layers of the range have one.
+    var counts: [2]usize = undefined;
+    for ([_]bool{ true, false }, 0..) |only_crossing, k| {
+        var s: Settings = .{};
+        s.project.z_hop = 0;
+        s.project.z_hop_only_crossing = only_crossing;
+        s.project.combing_max_distance = 5;
+        // All layers above the first.
+        const o = [_]settings_mod.Override{.{ .z_min = 0.4, .z_max = 100, .name = "project.z_hop", .value = "0.4" }};
+        const text = try demoGcodeWith(gpa, s, &o);
+        defer gpa.free(text);
+        const layers = try layerTexts(gpa, text);
+        defer gpa.free(layers);
+        var hops: usize = 0;
+        for (layers, 0..) |l, i| {
+            const n = std.mem.count(u8, l, "G0 Z");
+            // The layer change is one Z move; a lift and its return are two.
+            if (i == 0) try testing.expectEqual(@as(usize, 1), n) else hops += n - 1;
+        }
+        counts[k] = hops;
+    }
+    try testing.expect(counts[0] > 0);
+    try testing.expect(counts[0] < counts[1]);
+}
+
 test "an override of slope smoothing and ironing changes only the layers in its range" {
     const gpa = testing.allocator;
     const on = [_]settings_mod.Override{
@@ -1600,7 +1627,10 @@ test "a retraction and its push back have the same length at a change of the ret
         .{ .z_min = 3, .z_max = 4, .name = "project.z_hop", .value = "0.4" },
         .{ .z_min = 3, .z_max = 4, .name = "project.combing", .value = "false" },
     };
-    const text = try demoGcode(gpa, &o);
+    // Each retracted travel lifts the nozzle, also inside the part.
+    var s: Settings = .{};
+    s.project.z_hop_only_crossing = false;
+    const text = try demoGcodeWith(gpa, s, &o);
     defer gpa.free(text);
     const layers = try layerTexts(gpa, text);
     defer gpa.free(layers);

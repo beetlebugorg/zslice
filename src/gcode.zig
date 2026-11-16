@@ -952,9 +952,10 @@ pub const Emitter = struct {
 
     /// True if a travel to x, y with a retraction lifts the nozzle: always
     /// without `z_hop_only_crossing`, else only if the straight line
-    /// crosses an edge of the layer outline.
+    /// crosses an edge of the layer outline. The z hop is the one of the
+    /// layer (see `lr`).
     fn hopFor(self: *const Emitter, x: f64, y: f64) bool {
-        const p = self.r.settings.project;
+        const p = self.lr.settings.project;
         if (!p.z_hop_only_crossing or p.z_hop <= 0) return true;
         const outline = self.outline orelse return true;
         const a: geom.Point = .{ .x = geom.fromMm(self.x), .y = geom.fromMm(self.y) };
