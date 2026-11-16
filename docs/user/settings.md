@@ -260,9 +260,9 @@ The number of walls (loops) around the outline of each layer.
 
 The thickness of the walls, in mm, as in Cura: the wall count is this thickness divided by the line width, rounded (at least 1). 0: use `wall_count`.
 
-**`project.thin_walls`** (true or false). Default: `true`
+**`project.thin_walls`** (true or false). Default: `false`
 
-Print parts of the outline that are thinner than one line width (a thin fin, a sheet, a label): a loop inside each thin part, with a narrower line, so that its two sides fill the thickness. Without it, these parts print nothing.
+Print parts of the outline that are thinner than one line width (a thin fin, a sheet, a label): a loop inside each thin part, with a narrower line, so that its two sides fill the thickness. Without it, these parts print nothing. Off by default.
 
 **`project.seam`** (one of: `hidden`, `sharpest`, `rear`, `nearest`, `random`). Default: `hidden`
 

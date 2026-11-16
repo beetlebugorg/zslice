@@ -1836,6 +1836,7 @@ test "thin walls: a sheet thinner than a line prints" {
     var m = try b.finish();
     defer m.deinit(gpa);
     var st: settings_mod.Settings = .{};
+    st.project.thin_walls = true;
     const r = try st.resolve();
     const layers = try slicer.layerTable(gpa, 5, 0.3, 0.2);
     defer gpa.free(layers);

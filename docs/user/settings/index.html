@@ -177,8 +177,8 @@ M84</code></pre>
 <p>The number of walls (loops) around the outline of each layer.</p>
 <p><strong><code>project.wall_thickness</code></strong> (number). Default: <code>0</code></p>
 <p>The thickness of the walls, in mm, as in Cura: the wall count is this thickness divided by the line width, rounded (at least 1). 0: use <code>wall_count</code>.</p>
-<p><strong><code>project.thin_walls</code></strong> (true or false). Default: <code>true</code></p>
-<p>Print parts of the outline that are thinner than one line width (a thin fin, a sheet, a label): a loop inside each thin part, with a narrower line, so that its two sides fill the thickness. Without it, these parts print nothing.</p>
+<p><strong><code>project.thin_walls</code></strong> (true or false). Default: <code>false</code></p>
+<p>Print parts of the outline that are thinner than one line width (a thin fin, a sheet, a label): a loop inside each thin part, with a narrower line, so that its two sides fill the thickness. Without it, these parts print nothing. Off by default.</p>
 <p><strong><code>project.seam</code></strong> (one of: <code>hidden</code>, <code>sharpest</code>, <code>rear</code>, <code>nearest</code>, <code>random</code>). Default: <code>hidden</code></p>
 <p>Where each wall loop starts and ends (the seam). <code>hidden</code>: at the point where the seam is hardest to see: an inside corner first, then an outside corner, toward the back, and not where the wall hangs over air; similar layers pick the same point, so the seam is one clean line. <code>sharpest</code>: in the deepest inside corner, or else in the sharpest outside corner, or else at the rear. <code>rear</code>: at the back of the part (the largest y), in one straight line. <code>nearest</code>: at the point nearest to the nozzle, which is the fastest. <code>random</code>: at a different point on each layer, so that no seam line shows.</p>
 <h3 id="top-and-bottom-skin">Top and bottom skin</h3>
