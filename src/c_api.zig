@@ -578,6 +578,57 @@ export fn zs_app_feature_stats(a: ?*const App, out: ?[*]FeatureStats) c_int {
     return ok;
 }
 
+fn groupOf(group: c_int) ?zs.profile.Group {
+    return switch (group) {
+        0 => .machine,
+        1 => .filament,
+        2 => .project,
+        else => null,
+    };
+}
+
+/// Writes the settings of a group that differ from the defaults, as a
+/// profile. The same buffer rules as zs_app_setting_get.
+export fn zs_app_state_write(a: ?*const App, group: c_int, buf: ?[*]u8, cap: usize, out_len: ?*usize) c_int {
+    const app = a orelse return @intFromEnum(Status.invalid_argument);
+    const g = groupOf(group) orelse return @intFromEnum(Status.invalid_argument);
+    var aw: Writer.Allocating = .init(gpa);
+    defer aw.deinit();
+    app.writeState(g, &aw.writer) catch return @intFromEnum(Status.out_of_memory);
+    const text = aw.written();
+    if (out_len) |l| l.* = text.len;
+    if (buf) |b| {
+        if (cap == 0) return ok;
+        const n = @min(text.len, cap - 1);
+        @memcpy(b[0..n], text[0..n]);
+        b[n] = 0;
+    }
+    return ok;
+}
+
+/// Applies a profile text to a group. On an error, `message` (can be
+/// NULL) gets the line and the reason, and the settings do not change.
+export fn zs_app_profile_apply(a: ?*App, group: c_int, text: ?[*]const u8, len: usize, message: ?[*]u8, cap: usize) c_int {
+    const app = a orelse return @intFromEnum(Status.invalid_argument);
+    const g = groupOf(group) orelse return @intFromEnum(Status.invalid_argument);
+    const t = (text orelse return @intFromEnum(Status.invalid_argument))[0..len];
+    var diag: zs.profile.Diagnostic = .{};
+    app.applyProfile(g, "saved", t, &diag) catch |e| {
+        if (message) |m| if (cap > 0) {
+            const msg = std.fmt.bufPrint(m[0 .. cap - 1], "line {d}: {s}", .{ diag.line, if (diag.message.len > 0) diag.message else @errorName(e) }) catch m[0 .. cap - 1];
+            m[msg.len] = 0;
+        };
+        return switch (e) {
+            error.SyntaxError, error.InvalidValue => @intFromEnum(Status.invalid_value),
+            error.UnknownSetting => @intFromEnum(Status.unknown_setting),
+            error.OutOfRange => @intFromEnum(Status.out_of_range),
+            error.OutOfMemory => @intFromEnum(Status.out_of_memory),
+            else => @intFromEnum(Status.invalid_argument),
+        };
+    };
+    return ok;
+}
+
 /// The path of a feature nearest to (x, y) mm on a layer, at any
 /// distance, or (size_t)-1.
 export fn zs_app_pick_feature(a: ?*const App, layer: usize, feature: c_int, x: f64, y: f64) usize {

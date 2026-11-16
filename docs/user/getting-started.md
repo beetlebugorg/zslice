@@ -100,6 +100,10 @@ The light gray area is the outline of the layer. Each line is drawn at the line 
 
 Layer numbers start at 0. If the number is too large, zslice shows the number of layers in the part.
 
+## Your settings stay
+
+The app saves the machine, filament, and project settings that you change, and loads them at the next start. They are in `~/.config/zslice/machine.toml`, `filament.toml`, and `project.toml`. Each file has only the settings that differ from the defaults, with the help of each one, in the profile format (see docs/user/profiles.md), so you can also edit them. If a file does not load, the app says why in its log and keeps a copy with the extension `.bad`.
+
 ## Browse the settings
 
 The Settings page of the app has three columns:

@@ -161,6 +161,24 @@ pub const App = struct {
         app.settings = s;
     }
 
+    /// Writes the settings of a group that differ from the defaults, as a
+    /// profile (see profile.writeChanged). A shell saves this text to keep
+    /// the settings after a restart.
+    pub fn writeState(app: *const App, group: zs.profile.Group, w: *std.Io.Writer) std.Io.Writer.Error!void {
+        return zs.profile.writeChanged(app.settings, group, w);
+    }
+
+    /// Applies a profile text to the settings of a group (for example, the
+    /// text of `writeState` after a restart). The settings change only if
+    /// all of the text is valid.
+    pub fn applyProfile(app: *App, group: zs.profile.Group, name: []const u8, text: []const u8, diag: *zs.profile.Diagnostic) zs.profile.Error!void {
+        const a = app.strings.allocator();
+        const owned = try a.dupe(u8, text);
+        var s = app.settings;
+        try zs.profile.apply(a, &s, group, name, owned, null, diag);
+        app.settings = s;
+    }
+
     /// Writes the value of a setting as text.
     pub fn getSetting(app: *const App, name: []const u8, w: *std.Io.Writer) (Settings.SetError || std.Io.Writer.Error)!void {
         const dot = std.mem.indexOfScalar(u8, name, '.') orelse return error.UnknownSetting;

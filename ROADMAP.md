@@ -73,6 +73,7 @@ The goal is the features that people use in PrusaSlicer and Cura. zslice designs
 
 ### Profiles and workflow
 - [x] Machine, filament, and project profiles in TOML, with `extends` and overrides (command line)
+- [x] The app keeps its settings after a restart (~/.config/zslice/{machine,filament,project}.toml, only the changes from the defaults)
 - [ ] Profiles in the app: pick, edit, and save profiles, through the C API with a resolver callback
 - [x] Import of Cura profile stacks (the printdeck layout with cura.json)
 - [ ] Import of PrusaSlicer and OrcaSlicer profiles, and of a Cura profile export (.curaprofile)

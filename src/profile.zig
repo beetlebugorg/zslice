@@ -185,6 +185,36 @@ pub fn write(settings: Settings, group: Group, w: *std.Io.Writer) std.Io.Writer.
     }
 }
 
+/// Writes only the settings of `group` that differ from the built-in
+/// defaults, with their help text. An app saves its state with this: a
+/// better default in a later version still applies to the settings that
+/// the user did not change.
+pub fn writeChanged(settings: Settings, group: Group, w: *std.Io.Writer) std.Io.Writer.Error!void {
+    try w.print("# The {s} settings of zslice that differ from the defaults.\n# zslice writes this file; it is also a profile that you can edit.\n", .{@tagName(group)});
+    switch (group) {
+        inline else => |g| {
+            const values = @field(settings, @tagName(g));
+            const defaults: @TypeOf(values) = .{};
+            inline for (@typeInfo(@TypeOf(values)).@"struct".fields) |f| {
+                const v = @field(values, f.name);
+                const d = @field(defaults, f.name);
+                const same = switch (@typeInfo(f.type)) {
+                    .pointer => std.mem.eql(u8, v, d),
+                    else => v == d,
+                };
+                if (!same) {
+                    const doc = comptime findDoc(@tagName(g) ++ "." ++ f.name);
+                    try w.writeByte('\n');
+                    if (doc.len > 0) try writeComment(w, doc);
+                    try w.print("{s} = ", .{f.name});
+                    try writeValue(w, v);
+                    try w.writeByte('\n');
+                }
+            }
+        },
+    }
+}
+
 fn findDoc(comptime name: []const u8) []const u8 {
     @setEvalBranchQuota(100_000);
     for (meta.all) |m| {
@@ -336,4 +366,25 @@ test "a written profile loads back to the same values" {
             inline else => |tag| try testing.expectEqualDeep(@field(s, @tagName(tag)), @field(back, @tagName(tag))),
         }
     }
+}
+
+test "writeChanged: only the changes, and they load again" {
+    var arena_state = std.heap.ArenaAllocator.init(testing.allocator);
+    defer arena_state.deinit();
+    const arena = arena_state.allocator();
+    var s: Settings = .{};
+    try s.set("machine.bed_size_x", "280");
+    try s.set("machine.name", "TAZ \"SE\"");
+    try s.set("machine.start_gcode", "G28\nG1 Z5\n");
+    var out: std.Io.Writer.Allocating = .init(arena);
+    try writeChanged(s, .machine, &out.writer);
+    const text = out.written();
+    // An unchanged setting is not in the file.
+    try testing.expect(std.mem.indexOf(u8, text, "bed_size_y") == null);
+    var back: Settings = .{};
+    var diag: Diagnostic = .{};
+    try apply(arena, &back, .machine, "state", text, null, &diag);
+    try testing.expectEqual(@as(f64, 280), back.machine.bed_size_x);
+    try testing.expectEqualStrings("TAZ \"SE\"", back.machine.name);
+    try testing.expectEqualStrings("G28\nG1 Z5\n", back.machine.start_gcode);
 }

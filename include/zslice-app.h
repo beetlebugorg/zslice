@@ -255,6 +255,20 @@ int zs_app_feature_stats(const zs_app *app, zs_feature_stats *out);
 /* The strings stay valid until the next zs_app_inspect, the next slice, or
  * zs_app_free. */
 int zs_app_inspect(zs_app *app, size_t path, zs_inspect *out);
+/* ---- saved state ---- */
+
+enum zs_group { ZS_GROUP_MACHINE = 0, ZS_GROUP_FILAMENT = 1, ZS_GROUP_PROJECT = 2 };
+
+/* Writes the settings of a group that differ from the defaults, as a
+ * profile text (TOML), with the help of each setting as a comment. A shell
+ * saves it to keep the settings after a restart. The same buffer rules as
+ * zs_app_setting_get. */
+int zs_app_state_write(const zs_app *app, int group, char *buf, size_t cap, size_t *out_len);
+/* Applies a profile text to a group: the text of zs_app_state_write, or a
+ * profile that the user wrote. On an error, message (can be NULL) gets the
+ * line and the reason, and the settings do not change. */
+int zs_app_profile_apply(zs_app *app, int group, const char *text, size_t len, char *message, size_t cap);
+
 /* The path of a feature (enum zs_feature) nearest to (x, y) mm on a layer
  * (or on the last layer, if there are fewer), at any distance, or
  * (size_t)-1. To keep a selection after a new slice moves its line. */

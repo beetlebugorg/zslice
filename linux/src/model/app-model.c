@@ -8,9 +8,18 @@
  * can run after the model is gone. The bridge holds a weak reference to the
  * model, and each queued event holds a reference to the bridge.
  *
+ * Saved state: the machine, filament, and project settings that differ
+ * from the defaults are in <config>/zslice/{machine,filament,project}.toml
+ * (zs_app_state_write). The model loads them at the start, and saves a
+ * group 0.5 s after a change of one of its settings, and at the end.
+ * ZSLICE_STATE_DIR moves the folder (for tests).
+ *
  * SPDX-License-Identifier: AGPL-3.0-or-later
  */
 #include "app-model.h"
+
+#include <errno.h>
+#include <string.h>
 
 typedef struct {
     GWeakRef model;
@@ -32,7 +41,71 @@ struct _ZgModel {
     gboolean focus_first;
     /* A setting changed while a slice ran: slice again when it ends. */
     gboolean slice_pending;
+    /* The groups to save (a bit for each enum zs_group), and the timer. */
+    guint dirty;
+    guint save_timer;
 };
+
+static const char *group_files[] = {"machine", "filament", "project"};
+
+static char *state_path(int group) {
+    const char *dir = g_getenv("ZSLICE_STATE_DIR");
+    char *file = g_strconcat(group_files[group], ".toml", NULL);
+    char *path = dir ? g_build_filename(dir, file, NULL) : g_build_filename(g_get_user_config_dir(), "zslice", file, NULL);
+    g_free(file);
+    return path;
+}
+
+static void save_state(ZgModel *self) {
+    for (int g = 0; g < 3; g++) {
+        if (!(self->dirty & (1u << g))) continue;
+        size_t len = 0;
+        if (zs_app_state_write(self->core, g, NULL, 0, &len) != ZS_OK) continue;
+        char *text = g_malloc(len + 1);
+        zs_app_state_write(self->core, g, text, len + 1, NULL);
+        char *path = state_path(g);
+        char *dir = g_path_get_dirname(path);
+        GError *error = NULL;
+        /* g_file_set_contents writes a new file and renames it: a crash
+         * leaves the old file or the new file, never half of one. */
+        if (g_mkdir_with_parents(dir, 0700) != 0 || !g_file_set_contents(path, text, (gssize)len, &error)) {
+            g_warning("zslice: the settings were not saved to %s: %s", path, error ? error->message : g_strerror(errno));
+            g_clear_error(&error);
+        }
+        g_free(dir);
+        g_free(path);
+        g_free(text);
+    }
+    self->dirty = 0;
+}
+
+static gboolean on_save_timer(gpointer data) {
+    ZgModel *self = data;
+    self->save_timer = 0;
+    save_state(self);
+    return G_SOURCE_REMOVE;
+}
+
+static void load_state(ZgModel *self) {
+    for (int g = 0; g < 3; g++) {
+        char *path = state_path(g);
+        char *text = NULL;
+        gsize len = 0;
+        if (g_file_get_contents(path, &text, &len, NULL)) {
+            char message[256] = "";
+            int rc = zs_app_profile_apply(self->core, g, text, len, message, sizeof message);
+            if (rc != ZS_OK) {
+                /* Keep the file: the next save writes over it. */
+                char *bad = g_strconcat(path, ".bad", NULL);
+                g_file_set_contents(bad, text, (gssize)len, NULL);
+                g_warning("zslice: %s was not loaded (%s). A copy is in %s.", path, message, bad);
+                g_free(bad);
+            }
+            g_free(text);
+        }
+        g_free(path);
+    }
+}
 
 G_DEFINE_FINAL_TYPE(ZgModel, zg_model, G_TYPE_OBJECT)
 
@@ -95,6 +168,11 @@ static void on_core_event(void *user, int event, double progress, int status) {
 
 static void zg_model_dispose(GObject *object) {
     ZgModel *self = ZG_MODEL(object);
+    if (self->save_timer) {
+        g_source_remove(self->save_timer);
+        self->save_timer = 0;
+    }
+    if (self->core && self->dirty) save_state(self);
     if (self->core) {
         /* Stops and joins the worker, so no new events follow. */
         zs_app_free(self->core);
@@ -173,6 +251,7 @@ static void zg_model_init(ZgModel *self) {
     g_weak_ref_init(&self->bridge->model, self);
     int rc = zs_app_new(on_core_event, self->bridge, &self->core);
     if (rc != ZS_OK) g_error("zslice: the app core did not start: %s", zg_status_text(rc));
+    load_state(self);
 }
 
 ZgModel *zg_model_new(void) {
@@ -206,6 +285,15 @@ gboolean zg_model_set(ZgModel *self, const char *key, const char *value, GError 
     int rc = zs_app_setting_set(self->core, key, value);
     if (rc != ZS_OK) return fail(error, rc);
     g_signal_emit(self, signals[SIGNAL_SETTING_CHANGED], 0, key);
+    /* Save the group of the setting soon. */
+    for (int g = 0; g < 3; g++) {
+        size_t n = strlen(group_files[g]);
+        if (strncmp(key, group_files[g], n) == 0 && key[n] == '.') self->dirty |= 1u << g;
+    }
+    if (self->dirty) {
+        if (self->save_timer) g_source_remove(self->save_timer);
+        self->save_timer = g_timeout_add(500, on_save_timer, self);
+    }
     int state = zs_app_state(self->core);
     if (state == ZS_STATE_SLICING) {
         /* Let the running slice end and show, then slice the newest
