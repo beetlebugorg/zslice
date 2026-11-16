@@ -55,7 +55,7 @@ The goal is the features that people use in PrusaSlicer and Cura. zslice designs
 - [ ] Acceleration and jerk control for each feature; a time estimate with acceleration
 - [ ] Arc fitting (G2/G3)
 - [ ] Pressure advance and input shaper calibration prints
-- [ ] Cooling: minimum layer time, fan speed from layer time, slow down for small layers
+- [x] Cooling: minimum layer time, fan boost on short layers, slow down for small layers
 - [ ] Firmware flavors: Marlin, Klipper, RepRapFirmware, Bambu, with exclude-object labels
 
 ### Models and plate

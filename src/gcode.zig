@@ -14,6 +14,11 @@
 //!   (";TYPE:WALL-OUTER"). These follow the CuraEngine convention (see
 //!   REFERENCES.md), which G-code viewers and printdeck read.
 //!
+//! Cooling: before it writes a layer, the emitter estimates the time of the
+//! layer. A layer shorter than `min_layer_time` prints slower (but not
+//! below `min_speed`), and a layer shorter than `fan_boost_time` gets the
+//! fan at `fan_max_speed`.
+//!
 //! The emitter also adds up statistics: filament used and a time estimate.
 //! The time estimate is distance / speed. It does not include acceleration,
 //! so the real print takes longer.
@@ -48,7 +53,8 @@ pub const Emitter = struct {
     retracted: bool = false,
     /// True after the first extrusion. Before it, a retraction has no use.
     extruded: bool = false,
-    fan_on: bool = false,
+    /// The last fan value written (0 to 255), or -1 before the first.
+    fan: i32 = -1,
     /// The last feed rate written, in mm/min.
     feed: f64 = -1,
     feature: ?Feature = null,
@@ -93,9 +99,20 @@ pub const Emitter = struct {
             try writeNum(self.w, s.filament.nozzle_temp, 0);
             try self.w.writeAll("\n");
         }
-        if (!self.fan_on and lp.index >= s.filament.fan_off_layers and s.filament.fan_speed > 0) {
-            try self.w.print("M106 S{d}\n", .{@as(u32, @intFromFloat(@round(255 * s.filament.fan_speed)))});
-            self.fan_on = true;
+        // Cooling.
+        const est = self.estimate(lp, first);
+        const layer_time = est.extrude_s + est.travel_s;
+        const ratio = if (lp.index < s.filament.fan_off_layers)
+            0
+        else if (layer_time < s.filament.fan_boost_time)
+            s.filament.fan_max_speed
+        else
+            s.filament.fan_speed;
+        try self.setFan(@intFromFloat(@round(255 * ratio)));
+        var slow: f64 = 1;
+        if (layer_time < s.filament.min_layer_time and est.extrude_s > 0) {
+            const want = @max(s.filament.min_layer_time - est.travel_s, 1e-3);
+            slow = @min(1, est.extrude_s / want);
         }
 
         // Go up to the new layer.
@@ -120,12 +137,59 @@ pub const Emitter = struct {
                 self.feature = path.feature;
                 try self.w.print(";TYPE:{s}\n", .{typeName(path.feature)});
             }
-            const speed = self.r.speed(path.feature, lp.width, lp.height, first);
+            const full = self.r.speed(path.feature, lp.width, lp.height, first);
+            const speed = if (slow < 1) @max(full * slow, @min(full, s.filament.min_speed)) else full;
             // Ironing lines use a fraction of the flow of a normal line.
             const e = if (path.feature == .ironing) e_per_mm * s.project.ironing_flow else e_per_mm;
             for (pts[1..]) |q| try self.extrude(geom.toMm(q.x), geom.toMm(q.y), e, speed);
             if (path.closed and pts.len > 2) try self.extrude(geom.toMm(pts[0].x), geom.toMm(pts[0].y), e, speed);
         }
+    }
+
+    fn setFan(self: *Emitter, value: i32) Writer.Error!void {
+        if (value == self.fan) return;
+        self.fan = value;
+        if (value == 0) {
+            try self.w.writeAll("M107\n");
+        } else {
+            try self.w.print("M106 S{d}\n", .{value});
+        }
+    }
+
+    const Estimate = struct { extrude_s: f64, travel_s: f64 };
+
+    /// The time of a layer at full speed, with the same distances and
+    /// speeds that `layer` writes.
+    fn estimate(self: *const Emitter, lp: *const LayerPlan, first: bool) Estimate {
+        var est: Estimate = .{ .extrude_s = 0, .travel_s = 0 };
+        var x = self.x;
+        var y = self.y;
+        const travel_speed = self.r.settings.machine.travel_speed;
+        for (lp.paths.items, 0..) |path, i| {
+            const pts = lp.points.get(i);
+            if (pts.len == 0) continue;
+            const speed = self.r.speed(path.feature, lp.width, lp.height, first);
+            var px = geom.toMm(pts[0].x);
+            var py = geom.toMm(pts[0].y);
+            est.travel_s += std.math.hypot(px - x, py - y) / travel_speed;
+            var len: f64 = 0;
+            for (pts[1..]) |q| {
+                const qx = geom.toMm(q.x);
+                const qy = geom.toMm(q.y);
+                len += std.math.hypot(qx - px, qy - py);
+                px = qx;
+                py = qy;
+            }
+            if (path.closed and pts.len > 2) {
+                len += std.math.hypot(geom.toMm(pts[0].x) - px, geom.toMm(pts[0].y) - py);
+                px = geom.toMm(pts[0].x);
+                py = geom.toMm(pts[0].y);
+            }
+            est.extrude_s += len / speed;
+            x = px;
+            y = py;
+        }
+        return est;
     }
 
     fn retract(self: *Emitter) Writer.Error!void {

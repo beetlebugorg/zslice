@@ -146,6 +146,22 @@ The part cooling fan speed, as a ratio.
 
 The fan is off for this number of layers at the start.
 
+**`filament.fan_max_speed`** (number). Default: `1.0`
+
+The fan speed on short layers, as a ratio. See `fan_boost_time`.
+
+**`filament.fan_boost_time`** (number). Default: `15`
+
+A layer that takes less time than this (s) gets the fan at `fan_max_speed`.
+
+**`filament.min_layer_time`** (number). Default: `6`
+
+The shortest time (s) for one layer. A layer that takes less time prints slower, so that the plastic below has time to cool.
+
+**`filament.min_speed`** (number). Default: `10`
+
+The lowest print speed (mm/s) for the slow-down of `min_layer_time`.
+
 ### Retraction
 
 **`filament.retract_ratio`** (number). Default: `1.0`

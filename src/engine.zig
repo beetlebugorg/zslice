@@ -337,3 +337,58 @@ test "progress goes to 100 % and cancel stops the slice" {
     var cancel: std.atomic.Value(bool) = .init(true);
     try testing.expectError(error.Canceled, Job.initWith(gpa, &m, s, .{ .cancel = &cancel }));
 }
+
+test "a short layer prints slower" {
+    const gpa = testing.allocator;
+    // A 10 x 10 mm tower: at full speed, each layer takes less than
+    // min_layer_time. (A smaller tower cannot reach 6 s even at min_speed,
+    // and min_speed is a floor.)
+    var m = try mesh_mod.shapes.box(gpa, 10, 10, 5);
+    defer m.deinit(gpa);
+    var out: Writer.Allocating = .init(gpa);
+    defer out.deinit();
+    var s: Settings = .{};
+    s.project.skirt_loops = 0;
+    s.engine.threads = 1;
+    _ = try slice(gpa, &m, s, &out.writer);
+
+    // The time of layer 10, from its G1 moves: each move takes
+    // distance / F.
+    var lines = std.mem.splitScalar(u8, out.written(), '\n');
+    var layer: i32 = -1;
+    var x: f64 = 0;
+    var y: f64 = 0;
+    var f: f64 = 1;
+    var t: f64 = 0;
+    var max_f: f64 = 0;
+    while (lines.next()) |line| {
+        if (std.mem.startsWith(u8, line, ";LAYER:")) layer = try std.fmt.parseInt(i32, line[7..], 10);
+        if (!std.mem.startsWith(u8, line, "G0 ") and !std.mem.startsWith(u8, line, "G1 ")) continue;
+        var nx = x;
+        var ny = y;
+        var has_e = false;
+        var tok = std.mem.tokenizeScalar(u8, line[3..], ' ');
+        while (tok.next()) |w| {
+            const v = std.fmt.parseFloat(f64, w[1..]) catch continue;
+            switch (w[0]) {
+                'X' => nx = v,
+                'Y' => ny = v,
+                'F' => f = v,
+                'E' => has_e = true,
+                else => {},
+            }
+        }
+        if (layer == 10) {
+            t += std.math.hypot(nx - x, ny - y) / (f / 60);
+            if (has_e) max_f = @max(max_f, f);
+        }
+        x = nx;
+        y = ny;
+    }
+    // The layer takes at least min_layer_time (6 s), minus rounding.
+    try testing.expect(t > 5.5);
+    // And the walls are slower than the full outer wall speed (68 mm/s).
+    try testing.expect(max_f < 68 * 60);
+    // The fan is at the maximum on these short layers.
+    try testing.expect(std.mem.indexOf(u8, out.written(), "M106 S255") != null);
+}

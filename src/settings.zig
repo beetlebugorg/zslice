@@ -115,6 +115,16 @@ pub const Filament = struct {
     fan_speed: f64 = 1.0,
     /// The fan is off for this number of layers at the start.
     fan_off_layers: u32 = 1,
+    /// The fan speed on short layers, as a ratio. See `fan_boost_time`.
+    fan_max_speed: f64 = 1.0,
+    /// A layer that takes less time than this (s) gets the fan at
+    /// `fan_max_speed`.
+    fan_boost_time: f64 = 15,
+    /// The shortest time (s) for one layer. A layer that takes less time
+    /// prints slower, so that the plastic below has time to cool.
+    min_layer_time: f64 = 6,
+    /// The lowest print speed (mm/s) for the slow-down of `min_layer_time`.
+    min_speed: f64 = 10,
 
     // Retraction
     /// A multiplier for the retraction length of the machine. Soft filament
@@ -281,7 +291,7 @@ pub const Settings = struct {
         const ratios = [_]f64{
             f.fan_speed,     p.infill_density, p.outer_wall_speed,  p.inner_wall_speed,
             p.skin_speed,    p.infill_speed,   p.first_layer_speed, p.ironing_flow,
-            p.ironing_speed,
+            p.ironing_speed, f.fan_max_speed,
         };
         for (ratios) |v| if (!(v >= 0 and v <= 1)) return error.InvalidValue;
         if (p.outer_wall_speed == 0 or p.inner_wall_speed == 0 or p.skin_speed == 0 or p.infill_speed == 0 or p.first_layer_speed == 0) return error.InvalidValue;
