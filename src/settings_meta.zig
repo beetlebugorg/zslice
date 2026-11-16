@@ -78,6 +78,8 @@ pub const all = [_]Meta{
     .{ .name = "project.infill_speed", .section = "Speed ratios", .doc = "The sparse infill speed, as a ratio of the allowed speed." },
     .{ .name = "project.first_layer_speed", .section = "Speed ratios", .doc = "The speed of all lines on the first layer, as a ratio of the allowed speed." },
     .{ .name = "project.retract_min_travel", .section = "Travel", .doc = "Travel moves shorter than this do not retract." },
+    .{ .name = "project.combing", .section = "Travel", .doc = "A travel move that stays inside the part does not retract: an ooze there is inside the part. Off: each travel longer than the minimum retracts (for example the jumps between the parts of a top surface)." },
+    .{ .name = "project.combing_max_distance", .section = "Travel", .doc = "A travel inside the part longer than this retracts all the same. 0: no limit." },
     .{ .name = "project.z_hop", .section = "Travel", .doc = "Lift the nozzle by this distance during a travel move with a retraction. 0 turns it off." },
     .{ .name = "project.support", .section = "Support", .doc = "Support under overhangs. `off`: no support. `everywhere`: support can stand on the bed or on the part. `buildplate`: only support that stands on the bed." },
     .{ .name = "project.support_style", .section = "Support", .doc = "The shape of the support. `grid`: all the space under each overhang, filled with lines. `tree`: branches from points under each overhang down to the bed or the part; they join on the way, get thicker as they go down, and thinner in narrow spaces (so a branch can go down a deep, narrow hole). A tree uses less plastic and comes off more easily." },

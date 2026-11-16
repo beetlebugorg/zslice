@@ -297,6 +297,14 @@ pub const Project = struct {
     // Travel
     /// Travel moves shorter than this do not retract.
     retract_min_travel: f64 = 1.5,
+    /// Combing: a travel move that stays inside the part (it crosses no
+    /// outline of the layer) does not retract, because an ooze there is
+    /// inside the part. Off: each travel longer than `retract_min_travel`
+    /// retracts.
+    combing: bool = true,
+    /// A travel inside the part that is longer than this retracts all the
+    /// same (a long move can ooze a string over a top surface). 0: no limit.
+    combing_max_distance: f64 = 0,
     /// Lift the nozzle by this distance during a travel move with a retraction. 0 turns it off.
     z_hop: f64 = 0,
 
@@ -601,6 +609,7 @@ pub const limits = [_]struct { []const u8, f64, f64 }{
     .{ "project.inner_wall_speed", 0.01, 1 },      .{ "project.skin_speed", 0.01, 1 },
     .{ "project.infill_speed", 0.01, 1 },          .{ "project.first_layer_speed", 0.01, 1 },
     .{ "project.retract_min_travel", 0, 100 },     .{ "project.z_hop", 0, 10 },
+    .{ "project.combing_max_distance", 0, 1000 },
     .{ "project.support_tree_angle", 0, 75 },      .{ "project.support_tree_spacing", 0.5, 50 },
     .{ "project.support_tree_tip", 0, 10 },
     .{ "project.support_angle", 0, 90 },           .{ "project.support_density", 0.01, 1 },

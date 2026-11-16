@@ -340,6 +340,25 @@ test "simplify a fine circle: the error does not add up" {
 }
 
 
+/// True if the segment a-b crosses no edge of the polygons (a touch at an
+/// end does not count) and its middle point is inside them: the segment
+/// stays inside.
+pub fn segmentInside(paths: Paths, a: Point, b: Point) bool {
+    for (0..paths.count()) |k| {
+        const poly = paths.get(k);
+        for (poly, 0..) |c, i| {
+            const d = poly[(i + 1) % poly.len];
+            const s1 = std.math.sign(cross3(a, b, c));
+            const s2 = std.math.sign(cross3(a, b, d));
+            if (s1 * s2 >= 0) continue;
+            const s3 = std.math.sign(cross3(c, d, a));
+            const s4 = std.math.sign(cross3(c, d, b));
+            if (s3 * s4 < 0) return false;
+        }
+    }
+    return insideAny(paths, .{ .x = @divTrunc(a.x + b.x, 2), .y = @divTrunc(a.y + b.y, 2) });
+}
+
 /// True if p is inside a set of polygons: its winding number is not 0.
 /// The ray goes from p to +x; each edge that crosses it adds 1 (upward)
 /// or -1 (downward). Points on an edge can go either way.

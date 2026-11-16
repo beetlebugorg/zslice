@@ -119,6 +119,7 @@ const project_map = [_]Map{
     .{ .cura = "skirt_gap", .group = "project", .key = "skirt_distance" },
     .{ .cura = "brim_width", .group = "project", .key = "brim_width" },
     .{ .cura = "retraction_min_travel", .group = "project", .key = "retract_min_travel" },
+    .{ .cura = "retraction_combing_max_distance", .group = "project", .key = "combing_max_distance" },
     .{ .cura = "retraction_hop", .group = "project", .key = "z_hop" },
     .{ .cura = "speed_wall_0", .group = "project", .key = "outer_wall_speed", .conv = .speed },
     .{ .cura = "speed_wall_x", .group = "project", .key = "inner_wall_speed", .conv = .speed },

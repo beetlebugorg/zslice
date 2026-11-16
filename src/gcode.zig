@@ -62,6 +62,9 @@ pub const PathInfo = struct {
     slowed: bool = false,
 };
 
+/// The most waypoints of a combing travel.
+const max_way = 8;
+
 pub const Emitter = struct {
     /// If set, `layer` puts one PathInfo for each path here. The caller
     /// reserves the space (one item for each path) before `layer`.
@@ -72,6 +75,12 @@ pub const Emitter = struct {
     y: f64 = 0,
     z: f64 = 0,
     retracted: bool = false,
+    /// The outline of the layer that `layer` writes, its line width, and
+    /// the boxes of its polygons (for combing).
+    outline: ?*const geom.Paths = null,
+    width: f64 = 0.4,
+    boxes: [256][4]i64 = undefined,
+    n_boxes: usize = 0,
     /// True after the first extrusion. Before it, a retraction has no use.
     extruded: bool = false,
     /// The last fan value written (0 to 255), or -1 before the first.
@@ -148,6 +157,20 @@ pub const Emitter = struct {
 
         // Go up to the new layer.
         try self.retract();
+        self.outline = &lp.outline;
+        defer self.outline = null;
+        self.width = lp.width;
+        // The boxes of the outline polygons, for fast combing tests (none
+        // for an outline of more polygons than the buffer holds).
+        self.n_boxes = 0;
+        if (lp.outline.count() <= self.boxes.len) {
+            for (0..lp.outline.count()) |k| {
+                var bx = [4]i64{ std.math.maxInt(i64), std.math.maxInt(i64), std.math.minInt(i64), std.math.minInt(i64) };
+                for (lp.outline.get(k)) |q| bx = .{ @min(bx[0], q.x), @min(bx[1], q.y), @max(bx[2], q.x), @max(bx[3], q.y) };
+                self.boxes[k] = bx;
+            }
+            self.n_boxes = lp.outline.count();
+        }
         self.z = lp.z;
         try self.w.writeAll("G0 Z");
         try writeNum(self.w, self.z, 3);
@@ -326,7 +349,21 @@ pub const Emitter = struct {
     fn travel(self: *Emitter, x: f64, y: f64) Writer.Error!void {
         const d = std.math.hypot(x - self.x, y - self.y);
         if (d < 1e-4) return;
-        if (d > self.r.settings.project.retract_min_travel) try self.retract();
+        if (d > self.r.settings.project.retract_min_travel) {
+            // Combing: a way inside the part needs no retraction. It can
+            // go around a hole, through corners of the box of the hole.
+            var way: [max_way][2]f64 = undefined;
+            if (self.comb(x, y, d, &way)) |n| {
+                for (way[0..n]) |w| try self.move(w[0], w[1]);
+            } else try self.retract();
+        }
+        try self.move(x, y);
+    }
+
+    /// A travel move in a straight line, with no retraction.
+    fn move(self: *Emitter, x: f64, y: f64) Writer.Error!void {
+        const d = std.math.hypot(x - self.x, y - self.y);
+        if (d < 1e-4) return;
         const speed = self.r.settings.machine.travel_speed;
         var line: Line = .{ .skip = self.dry };
         line.add("G0 X");
@@ -340,6 +377,107 @@ pub const Emitter = struct {
         self.y = y;
         self.stats.travel_mm += d;
         self.stats.print_time_s += d / speed;
+    }
+
+    /// Combing: a way from the nozzle to x, y inside the outline of the
+    /// layer, so the travel needs no retraction. Null: no way (retract).
+    /// Else the number of waypoints before x, y in `way`. From each point,
+    /// the way goes straight to x, y if it can; else around the first hole
+    /// that the straight line crosses, to the corner of the box of the
+    /// hole (grown by one line width) that it can reach and that is
+    /// nearest to the end. A way longer than 3 times the straight line
+    /// (plus 5 mm) does not count.
+    fn comb(self: *const Emitter, x: f64, y: f64, d: f64, way: *[max_way][2]f64) ?usize {
+        const p = self.r.settings.project;
+        if (!p.combing) return null;
+        if (p.combing_max_distance > 0 and d > p.combing_max_distance) return null;
+        const outline = self.outline orelse return null;
+        const b: geom.Point = .{ .x = geom.fromMm(x), .y = geom.fromMm(y) };
+        const boxes = self.boxes[0..self.n_boxes];
+        const g = geom.fromMm(self.width);
+        const limit = 3 * d + 5;
+        var cur: geom.Point = .{ .x = geom.fromMm(self.x), .y = geom.fromMm(self.y) };
+        var used: f64 = 0;
+        var n: usize = 0;
+        var seen: [max_way]geom.Point = undefined;
+        while (true) {
+            var hit: usize = 0;
+            if (combClear(outline.*, boxes, cur, b, &hit)) return if (used + dist(cur, b) <= limit) n else null;
+            if (n == max_way or hit >= boxes.len) return null;
+            const bx = boxes[hit];
+            const corners = [4]geom.Point{
+                .{ .x = bx[0] - g, .y = bx[1] - g }, .{ .x = bx[2] + g, .y = bx[1] - g },
+                .{ .x = bx[2] + g, .y = bx[3] + g }, .{ .x = bx[0] - g, .y = bx[3] + g },
+            };
+            var best: ?geom.Point = null;
+            var best_cost: f64 = std.math.inf(f64);
+            var ignore: usize = 0;
+            for (corners) |c| {
+                var again = false;
+                for (seen[0..n]) |q| if (q.x == c.x and q.y == c.y) {
+                    again = true;
+                };
+                if (again) continue;
+                const cost = dist(cur, c) + dist(c, b);
+                if (cost >= best_cost) continue;
+                if (!combClear(outline.*, boxes, cur, c, &ignore)) continue;
+                best = c;
+                best_cost = cost;
+            }
+            const c = best orelse return null;
+            used += dist(cur, c);
+            if (used > limit) return null;
+            seen[n] = c;
+            way[n] = .{ geom.toMm(c.x), geom.toMm(c.y) };
+            n += 1;
+            cur = c;
+        }
+    }
+
+    fn dist(a: geom.Point, b: geom.Point) f64 {
+        return std.math.hypot(geom.toMm(a.x - b.x), geom.toMm(a.y - b.y));
+    }
+
+    /// True if the segment a-b crosses no edge of the outline and its middle
+    /// is inside. Else `hit` is the polygon of the first crossed edge.
+    /// `boxes` (x0, y0, x1, y1 of each polygon, or empty) skips the polygons
+    /// far from the segment.
+    fn combClear(outline: geom.Paths, boxes: []const [4]i64, a: geom.Point, b: geom.Point, hit: *usize) bool {
+        hit.* = std.math.maxInt(usize);
+        const lo_x = @min(a.x, b.x);
+        const hi_x = @max(a.x, b.x);
+        const lo_y = @min(a.y, b.y);
+        const hi_y = @max(a.y, b.y);
+        const m: geom.Point = .{ .x = @divTrunc(a.x + b.x, 2), .y = @divTrunc(a.y + b.y, 2) };
+        var winding: i32 = 0;
+        for (0..outline.count()) |k| {
+            const poly = outline.get(k);
+            if (boxes.len == outline.count()) {
+                const bx = boxes[k];
+                // The winding at m needs the polygons right of m in its y
+                // band; the crossings need the polygons that touch the box.
+                const touch = !(bx[2] < lo_x or bx[0] > hi_x or bx[3] < lo_y or bx[1] > hi_y);
+                const ray = bx[2] >= m.x and bx[1] <= m.y and bx[3] >= m.y;
+                if (!touch and !ray) continue;
+            }
+            for (poly, 0..) |c, i| {
+                const e = poly[(i + 1) % poly.len];
+                const s1 = std.math.sign(geom.cross3(a, b, c));
+                const s2 = std.math.sign(geom.cross3(a, b, e));
+                if (s1 * s2 < 0) {
+                    const s3 = std.math.sign(geom.cross3(c, e, a));
+                    const s4 = std.math.sign(geom.cross3(c, e, b));
+                    if (s3 * s4 < 0) {
+                        hit.* = k;
+                        return false;
+                    }
+                }
+                if (c.y <= m.y) {
+                    if (e.y > m.y and geom.cross3(c, e, m) > 0) winding += 1;
+                } else if (e.y <= m.y and geom.cross3(c, e, m) < 0) winding -= 1;
+            }
+        }
+        return winding != 0;
     }
 
     fn extrude(self: *Emitter, x: f64, y: f64, e_per_mm: f64, speed: f64) Writer.Error!void {

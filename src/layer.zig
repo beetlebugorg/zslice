@@ -879,35 +879,91 @@ pub fn surfacePair(gpa: Allocator, outlines: []const Paths, j: usize) Allocator.
 /// then lies against the line before it on the same side, and the surface
 /// has an even look. The side to start from is the side nearer to the
 /// nozzle.
+/// Monotonic order: each skin line goes after the lines next to it on the
+/// side where the order starts, so each line lies against the line before
+/// it in the same way. The lines are pieces of scan lines (a hole splits a
+/// scan line). A piece is ready when all pieces of the scan line before
+/// it that overlap it are done; from the ready pieces, the nozzle takes
+/// the nearest. So a region with holes prints as columns, with no jump
+/// across the part for each scan line (as the Cura "monotonic" order).
 fn addMonotonic(s: Allocator, a: Allocator, lp: *LayerPlan, pos: *Point, set: Paths, angle_deg: f64, feature: Feature) Allocator.Error!void {
     const n = set.count();
     if (n == 0) return;
     const rad = angle_deg * std.math.pi / 180.0;
-    // The normal of the lines.
+    // The normal of the lines, and their direction.
     const nx = -@sin(rad);
     const ny = @cos(rad);
-    const Key = struct { across: f64, along: f64, i: usize };
-    const keys = try s.alloc(Key, n);
     const ax = @cos(rad);
     const ay = @sin(rad);
+    const Key = struct { across: f64, lo: f64, hi: f64, i: usize };
+    const keys = try s.alloc(Key, n);
     for (keys, 0..) |*k, i| {
         const path = set.get(i);
-        const mx = (@as(f64, @floatFromInt(path[0].x)) + @as(f64, @floatFromInt(path[path.len - 1].x))) / 2;
-        const my = (@as(f64, @floatFromInt(path[0].y)) + @as(f64, @floatFromInt(path[path.len - 1].y))) / 2;
-        k.* = .{ .across = mx * nx + my * ny, .along = mx * ax + my * ay, .i = i };
+        const p0x: f64 = @floatFromInt(path[0].x);
+        const p0y: f64 = @floatFromInt(path[0].y);
+        const p1x: f64 = @floatFromInt(path[path.len - 1].x);
+        const p1y: f64 = @floatFromInt(path[path.len - 1].y);
+        const al0 = p0x * ax + p0y * ay;
+        const al1 = p1x * ax + p1y * ay;
+        k.* = .{ .across = ((p0x + p1x) * nx + (p0y + p1y) * ny) / 2, .lo = @min(al0, al1), .hi = @max(al0, al1), .i = i };
+    }
+    // Start from the side nearer to the nozzle: there, `across` grows.
+    const p_across = @as(f64, @floatFromInt(pos.x)) * nx + @as(f64, @floatFromInt(pos.y)) * ny;
+    var amin: f64 = std.math.inf(f64);
+    var amax: f64 = -std.math.inf(f64);
+    for (keys) |k| {
+        amin = @min(amin, k.across);
+        amax = @max(amax, k.across);
+    }
+    if (@abs(p_across - amax) < @abs(p_across - amin)) {
+        for (keys) |*k| k.across = -k.across;
     }
     std.mem.sort(Key, keys, {}, struct {
         fn lt(_: void, x: Key, y: Key) bool {
             if (x.across != y.across) return x.across < y.across;
-            return x.along < y.along;
+            return x.lo < y.lo;
         }
     }.lt);
-    // Start from the side nearer to the nozzle.
-    const p_across = @as(f64, @floatFromInt(pos.x)) * nx + @as(f64, @floatFromInt(pos.y)) * ny;
-    const reverse = @abs(p_across - keys[n - 1].across) < @abs(p_across - keys[0].across);
-    for (0..n) |k| {
-        const key = keys[if (reverse) n - 1 - k else k];
-        const path = set.get(key.i);
+    // The scan lines: pieces with the same `across` (within 10 um).
+    const tol: f64 = @floatFromInt(geom.fromMm(0.01));
+    const row_of = try s.alloc(u32, n);
+    var rows: std.ArrayList(u32) = .empty; // the first key of each row
+    for (keys, 0..) |k, i| {
+        if (i == 0 or k.across - keys[rows.items[rows.items.len - 1]].across > tol) try rows.append(s, @intCast(i));
+        row_of[i] = @intCast(rows.items.len - 1);
+    }
+    try rows.append(s, @intCast(n));
+    // The dependencies: a piece waits for the pieces of the row before it
+    // that overlap it (along the lines, with a small margin).
+    const waits = try s.alloc(u32, n);
+    @memset(waits, 0);
+    const margin: f64 = @floatFromInt(geom.fromMm(0.05));
+    for (1..rows.items.len - 1) |r| {
+        for (rows.items[r]..rows.items[r + 1]) |j| {
+            for (rows.items[r - 1]..rows.items[r]) |i| {
+                if (keys[i].hi + margin >= keys[j].lo and keys[j].hi + margin >= keys[i].lo) waits[j] += 1;
+            }
+        }
+    }
+    var ready: std.ArrayList(u32) = .empty;
+    for (0..n) |i| if (waits[i] == 0) try ready.append(s, @intCast(i));
+    var done: usize = 0;
+    while (done < n) : (done += 1) {
+        // The nearest ready piece (by its nearer end). A dependency cycle
+        // is not possible: the rows go one way.
+        if (ready.items.len == 0) break;
+        var best: usize = 0;
+        var best_d: i128 = std.math.maxInt(i128);
+        for (ready.items, 0..) |ki, r| {
+            const path = set.get(keys[ki].i);
+            const d = @min(pos.distSq(path[0]), pos.distSq(path[path.len - 1]));
+            if (d < best_d) {
+                best_d = d;
+                best = r;
+            }
+        }
+        const ki = ready.swapRemove(best);
+        const path = set.get(keys[ki].i);
         const flip = pos.distSq(path[path.len - 1]) < pos.distSq(path[0]);
         if (flip) {
             const rev = try s.alloc(Point, path.len);
@@ -919,6 +975,16 @@ fn addMonotonic(s: Allocator, a: Allocator, lp: *LayerPlan, pos: *Point, set: Pa
             pos.* = path[path.len - 1];
         }
         try lp.paths.append(a, .{ .feature = feature, .closed = false });
+        // The pieces of the next row that this piece held back.
+        const r = row_of[ki];
+        if (r + 2 < rows.items.len) {
+            for (rows.items[r + 1]..rows.items[r + 2]) |j| {
+                if (keys[ki].hi + margin >= keys[j].lo and keys[j].hi + margin >= keys[ki].lo) {
+                    waits[j] -= 1;
+                    if (waits[j] == 0) try ready.append(s, @intCast(j));
+                }
+            }
+        }
     }
 }
 
