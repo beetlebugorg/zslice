@@ -283,7 +283,14 @@ pub fn plan(gpa: Allocator, ctx: Context, i: usize) Allocator.Error!LayerPlan {
     var skin_lines: Paths = .empty;
     var skin_loops: Paths = .empty;
     switch (p.skin_pattern) {
-        .lines, .monotonic => skin_lines = try infill.lines(s, skin_region, w, skin_angle, w),
+        // `lines`: the lines join into zigzag paths at the walls, as the
+        // nozzle prints a solid surface: back and forth, with no travel and
+        // no retraction between the lines. `monotonic` keeps its own order.
+        .lines => {
+            const set = try infill.lines(s, skin_region, w, skin_angle, w);
+            skin_lines = try infill.connect(s, skin_region, set, w, skin_angle);
+        },
+        .monotonic => skin_lines = try infill.lines(s, skin_region, w, skin_angle, w),
         .concentric => skin_loops = try infill.concentric(s, skin_region, w),
     }
 
@@ -371,7 +378,10 @@ pub fn plan(gpa: Allocator, ctx: Context, i: usize) Allocator.Error!LayerPlan {
         const above: Paths = if (i + 1 < ctx.outlines.len) ctx.outlines[i + 1] else .empty;
         const top = try clip.difference(s, outline, above);
         const region = try offset_mod.offset(s, top, -geom.fromMm(p.ironing_inset), .{});
-        ironing_lines = try infill.lines(s, region, geom.fromMm(p.ironing_spacing), skin_angle + 90, 0);
+        // Ironing goes back and forth too, in one path for each area.
+        const spacing = geom.fromMm(p.ironing_spacing);
+        const set = try infill.lines(s, region, spacing, skin_angle + 90, 0);
+        ironing_lines = try infill.connect(s, region, set, spacing, skin_angle + 90);
     }
 
     // Step 7.
@@ -801,7 +811,8 @@ test "ironing covers only the top surface" {
     const inset = geom.fromMm(st.project.ironing_inset);
     for (lp.paths.items, 0..) |path, pi| {
         if (path.feature != .ironing) continue;
-        n += 1;
+        // The lines join into zigzag paths: count the points.
+        n += lp.points.get(pi).len;
         // No ironing line goes over the upper box, and each line stays the
         // inset away from the outside edge.
         for (lp.points.get(pi)) |q| {
@@ -810,7 +821,7 @@ test "ironing covers only the top surface" {
             try testing.expect(q.x >= inset - 2 and q.x <= 20000 - inset + 2);
         }
     }
-    try testing.expect(n > 100);
+    try testing.expect(n > 200);
 
     // Layer 5 (z 1.1) is inside the lower box: no ironing.
     var mid = try plan(gpa, ctx, 5);

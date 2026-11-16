@@ -66,9 +66,31 @@ void main() {
         n = vec3(0.0, 0.0, -1.0);
     } else {
         vec2 np = dir * cos(tv.y) + side * sin(tv.y);
-        float out_r = core + r * cos(tv.z);
-        pos = vec3(c + np * out_r, zmid + r * sin(tv.z));
-        n = normalize(vec3(np * cos(tv.z), sin(tv.z)));
+        // A skin or interface bead lies against its neighbor: the plastic
+        // fills the groove between them, so the bead is pressed square
+        // with small round corners (a superellipse), and the surface is
+        // continuous. A free bead (a wall, infill) keeps its round sides.
+        uint feat = uint(color.a * 255.0 + 0.5);
+        if (feat == 2u || feat == 7u) {
+            // A rounded rectangle: a flat top out to hw - rr, flat sides,
+            // and corner arcs of radius rr. The profile angles of the mesh
+            // fall on the corner arcs, so the top stays flat. 4 % wider:
+            // the beads overlap a little, as the pressed plastic does, so
+            // no gap shows between them.
+            float hw = 0.52 * w;
+            float hh = 0.5 * h;
+            float rr = 0.15 * min(h, w);
+            float sp = sin(tv.z);
+            float cp = cos(tv.z);
+            float x = (hw - rr) + rr * cp;
+            float z = sign(sp) * (hh - rr) + rr * sp;
+            pos = vec3(c + np * x, zmid + z);
+            n = normalize(vec3(np * cp, sp));
+        } else {
+            float out_r = core + r * cos(tv.z);
+            pos = vec3(c + np * out_r, zmid + r * sin(tv.z));
+            n = normalize(vec3(np * cos(tv.z), sin(tv.z)));
+        }
     }
     vcolor = color.rgb;
     vnormal = n;
