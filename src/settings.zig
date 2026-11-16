@@ -42,6 +42,13 @@ pub const Machine = struct {
     bed_size_x: f64 = 220,
     /// The size of the bed in Y.
     bed_size_y: f64 = 220,
+    /// The G-code X of the front left corner of the bed. The slicer places
+    /// parts in bed coordinates (0, 0 at the front left corner) and adds
+    /// this to each X in the G-code. Most printers: 0. A printer with its
+    /// origin at the bed center: minus half the bed width.
+    origin_x: f64 = 0,
+    /// The G-code Y of the front left corner of the bed. See `origin_x`.
+    origin_y: f64 = 0,
     /// The highest part that the printer can make.
     max_height: f64 = 250,
 
@@ -500,6 +507,7 @@ test "resolve derives layers and speeds" {
 pub const limits = [_]struct { []const u8, f64, f64 }{
     // machine
     .{ "machine.bed_size_x", 10, 2000 },           .{ "machine.bed_size_y", 10, 2000 },
+    .{ "machine.origin_x", -2000, 2000 },          .{ "machine.origin_y", -2000, 2000 },
     .{ "machine.max_height", 10, 2000 },           .{ "machine.nozzle_diameter", 0.1, 2 },
     .{ "machine.max_speed", 1, 2000 },             .{ "machine.travel_speed", 1, 2000 },
     .{ "machine.max_z_speed", 0.1, 200 },          .{ "machine.retract_length", 0, 20 },

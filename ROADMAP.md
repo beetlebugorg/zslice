@@ -99,7 +99,7 @@ The goal is the features that people use in PrusaSlicer and Cura. zslice designs
 - [x] Usual ranges (sliders, a warning out of them) and hard limits (an error) for the number settings
 - [x] Focus: the lines that a setting changes are solid, and the other lines are ghosts that do not hide them
 - [ ] Faster skin regions: a sliding window for the stacked intersection, then SIMD in the boolean
-- [ ] Machine origin: the G-code position of the front left bed corner (center origin printers, Cura machine_center_is_zero)
+- [x] Machine origin: the G-code position of the front left bed corner (center origin printers, Cura machine_center_is_zero)
 - [ ] Top and bottom skin patterns: monotonic, concentric, lines (now: lines in nearest order)
 - [ ] Preview color modes: feature, speed, flow, layer time, line width, layer height, filament color
 - [ ] Ironing in the preview: the ironed top skin looks flat; the inspector shows what ironing costs in time

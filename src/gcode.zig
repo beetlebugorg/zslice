@@ -257,9 +257,9 @@ pub const Emitter = struct {
         if (d > self.r.settings.project.retract_min_travel) try self.retract();
         const speed = self.r.settings.machine.travel_speed;
         try self.w.writeAll("G0 X");
-        try writeNum(self.w, x, 3);
+        try writeNum(self.w, x + self.r.settings.machine.origin_x, 3);
         try self.w.writeAll(" Y");
-        try writeNum(self.w, y, 3);
+        try writeNum(self.w, y + self.r.settings.machine.origin_y, 3);
         try self.writeFeed(speed);
         try self.w.writeAll("\n");
         self.x = x;
@@ -274,9 +274,9 @@ pub const Emitter = struct {
         try self.unretract();
         const e = d * e_per_mm;
         try self.w.writeAll("G1 X");
-        try writeNum(self.w, x, 3);
+        try writeNum(self.w, x + self.r.settings.machine.origin_x, 3);
         try self.w.writeAll(" Y");
-        try writeNum(self.w, y, 3);
+        try writeNum(self.w, y + self.r.settings.machine.origin_y, 3);
         try self.w.writeAll(" E");
         try writeNum(self.w, e, 5);
         try self.writeFeed(speed);

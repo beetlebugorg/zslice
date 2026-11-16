@@ -922,6 +922,7 @@ pub const settings_info: []const SettingInfo = blk: {
 const units = [_][2][]const u8{
     // machine
     .{ "machine.bed_size_x", "mm" },           .{ "machine.bed_size_y", "mm" },
+    .{ "machine.origin_x", "mm" },             .{ "machine.origin_y", "mm" },
     .{ "machine.max_height", "mm" },           .{ "machine.nozzle_diameter", "mm" },
     .{ "machine.max_speed", "mm/s" },          .{ "machine.travel_speed", "mm/s" },
     .{ "machine.max_z_speed", "mm/s" },        .{ "machine.retract_length", "mm" },

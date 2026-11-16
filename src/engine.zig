@@ -617,6 +617,7 @@ const late_settings = [_][]const u8{
     // machine: motion, retraction, and G-code
     "machine.name",                     "machine.max_speed",          "machine.travel_speed",
     "machine.max_z_speed",              "machine.retract_length",     "machine.retract_speed",
+    "machine.origin_x",                 "machine.origin_y",
     "machine.start_gcode",              "machine.end_gcode",          "machine.extruder",
     // engine
     "engine.threads",                   "engine.job_name",
@@ -648,6 +649,32 @@ pub fn regionKey(settings: Settings) u64 {
         }
     }
     return h.final();
+}
+
+test "the machine origin moves the G-code, and not the part on the bed" {
+    const gpa = std.testing.allocator;
+    var mesh = try mesh_mod.shapes.demo(gpa);
+    defer mesh.deinit(gpa);
+    var s: Settings = .{};
+    var a: std.Io.Writer.Allocating = .init(gpa);
+    defer a.deinit();
+    _ = try slice(gpa, &mesh, s, &a.writer);
+    try s.set("machine.origin_x", "-110");
+    try s.set("machine.origin_y", "-110");
+    var b: std.Io.Writer.Allocating = .init(gpa);
+    defer b.deinit();
+    _ = try slice(gpa, &mesh, s, &b.writer);
+    // The first move to the part: X and Y are 110 less.
+    const xa = firstX(a.written());
+    const xb = firstX(b.written());
+    try std.testing.expectApproxEqAbs(xa - 110, xb, 1e-3);
+}
+
+fn firstX(g: []const u8) f64 {
+    const i = std.mem.indexOf(u8, g, "G1 X").?;
+    const rest = g[i + 4 ..];
+    const end = std.mem.indexOfScalar(u8, rest, ' ').?;
+    return std.fmt.parseFloat(f64, rest[0..end]) catch unreachable;
 }
 
 test "region key: late settings do not change it" {

@@ -26,6 +26,14 @@ The size of the bed in X.
 
 The size of the bed in Y.
 
+**`machine.origin_x`** (number). Default: `0`
+
+The G-code X of the front left corner of the bed. The slicer places parts in bed coordinates (0, 0 at the front left corner) and adds this to each X in the G-code. Most printers: 0. A printer with its origin at the bed center: minus half the bed width.
+
+**`machine.origin_y`** (number). Default: `0`
+
+The G-code Y of the front left corner of the bed. See `origin_x`.
+
 **`machine.max_height`** (number). Default: `250`
 
 The highest part that the printer can make.

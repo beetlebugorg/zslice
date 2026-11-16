@@ -216,6 +216,13 @@ pub fn importStack(arena: Allocator, src: Source, diag: *Diagnostic) Error![]Out
             try w.print("# The highest print speed of the Cura quality profiles. The speeds of\n# the project profiles are ratios of it.\n", .{});
             try w.print("max_speed = {d}\n", .{max_speed});
         }
+        // Cura machine_center_is_zero: the G-code origin is the bed
+        // center, and zslice places parts from the front left corner.
+        if (machine.get("machine_center_is_zero")) |v| if (std.ascii.eqlIgnoreCase(v.text, "true")) {
+            const bw = if (machine.get("machine_width")) |x| number(x.text) orelse 0 else 0;
+            const bd = if (machine.get("machine_depth")) |x| number(x.text) orelse 0 else 0;
+            try w.print("# Cura machine_center_is_zero: the G-code origin is the bed center.\norigin_x = {d}\norigin_y = {d}\n", .{ -bw / 2, -bd / 2 });
+        };
         try writeMapped(arena, w, &machine, &machine_map, "machine", max_speed, .machine_keys);
         if (machine.get("material_diameter")) |v| if (number(v.text)) |n| {
             try w.print("\n# The filament diameter of this machine.\n[filament]\ndiameter = {d}\n", .{n});
