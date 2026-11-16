@@ -70,6 +70,11 @@ pub const App = struct {
     /// engine; startSlice makes it again after a change of the plate.
     plate: zs.plate.Plate = .{},
     plate_changed: bool = false,
+    /// More than one plate: a slot for each plate. The active plate
+    /// (`active`) has its parts, overrides, and marks in `plate`,
+    /// `overrides`, and `marks`; its slot is empty until a switch.
+    plates: std.ArrayList(PlateSlot) = .empty,
+    active: usize = 0,
     mesh: ?zs.Mesh = null,
     model_name: []u8 = &.{},
     settings: Settings = .{},
@@ -129,6 +134,8 @@ pub const App = struct {
         app.gpa.free(app.file_bytes);
         app.marks.deinit(app.gpa);
         app.gpa.free(app.slice_marks);
+        for (app.plates.items) |*slot| slot.deinit(app.gpa);
+        app.plates.deinit(app.gpa);
         if (app.mesh) |*m| m.deinit(app.gpa);
         app.plate.deinit(app.gpa);
         app.gpa.free(app.model_name);
@@ -244,6 +251,73 @@ pub const App = struct {
         const w = if (p.first_layer_line_width > 0) p.first_layer_line_width else 1.25 * app.settings.machine.nozzle_diameter;
         const skirt = if (p.skirt_loops > 0 and p.skirt_layers > 0) p.skirt_distance + @as(f64, @floatFromInt(p.skirt_loops)) * w else 0;
         return @max(3, p.brim_width * 2 + skirt);
+    }
+
+    pub const PlateSlot = struct {
+        plate: zs.plate.Plate = .{},
+        overrides: std.ArrayList(zs.settings.Override) = .empty,
+        marks: std.ArrayList(zs.support.Mark) = .empty,
+
+        fn deinit(s: *PlateSlot, gpa: Allocator) void {
+            s.plate.deinit(gpa);
+            s.overrides.deinit(gpa);
+            s.marks.deinit(gpa);
+        }
+    };
+
+    pub fn plateCount(app: *const App) usize {
+        return @max(1, app.plates.items.len);
+    }
+
+    fn ensureSlots(app: *App) Allocator.Error!void {
+        if (app.plates.items.len == 0) try app.plates.append(app.gpa, .{});
+    }
+
+    /// The parts of plate i (the active plate, or a slot).
+    pub fn plateParts(app: *const App, i: usize) usize {
+        if (i == app.active or i >= app.plates.items.len) return if (i == app.active) app.plate.count() else 0;
+        return app.plates.items[i].plate.count();
+    }
+
+    /// Makes plate i the active plate: its parts, changes, and marks are
+    /// the ones that the app slices and shows.
+    pub fn selectPlate(app: *App, i: usize) Allocator.Error!void {
+        try app.ensureSlots();
+        if (i >= app.plates.items.len or i == app.active) return;
+        app.stopWorker();
+        app.clearResults();
+        // The active plate to its slot, and plate i out of its slot.
+        std.mem.swap(zs.plate.Plate, &app.plate, &app.plates.items[app.active].plate);
+        std.mem.swap(std.ArrayList(zs.settings.Override), &app.overrides, &app.plates.items[app.active].overrides);
+        std.mem.swap(std.ArrayList(zs.support.Mark), &app.marks, &app.plates.items[app.active].marks);
+        std.mem.swap(zs.plate.Plate, &app.plate, &app.plates.items[i].plate);
+        std.mem.swap(std.ArrayList(zs.settings.Override), &app.overrides, &app.plates.items[i].overrides);
+        std.mem.swap(std.ArrayList(zs.support.Mark), &app.marks, &app.plates.items[i].marks);
+        app.active = i;
+        if (app.mesh) |*old| old.deinit(app.gpa);
+        app.mesh = null;
+        if (app.getState() != .empty) app.state.store(.ready, .release);
+        try app.plateChanged();
+    }
+
+    /// A new empty plate, after the others; it becomes the active plate.
+    pub fn addPlate(app: *App) Allocator.Error!usize {
+        try app.ensureSlots();
+        try app.plates.append(app.gpa, .{});
+        const i = app.plates.items.len - 1;
+        try app.selectPlate(i);
+        return i;
+    }
+
+    /// Removes plate i with its parts. The last plate stays (empty).
+    pub fn removePlate(app: *App, i: usize) Allocator.Error!void {
+        try app.ensureSlots();
+        if (i >= app.plates.items.len) return;
+        if (app.plates.items.len == 1) return app.clearPlate();
+        if (i == app.active) try app.selectPlate(if (i > 0) i - 1 else 1);
+        var slot = app.plates.orderedRemove(i);
+        slot.deinit(app.gpa);
+        if (app.active > i) app.active -= 1;
     }
 
     /// After each change of the plate: a new name, and the next slice
@@ -1896,6 +1970,41 @@ test "app: a support mark adds support where the settings have none" {
     app.stopWorkerForTest();
     try testing.expectEqual(State.done, app.getState());
     try testing.expectEqual(@as(usize, 1), app.removeMarksNear(100, 100, top, 1));
+}
+
+test "app: plates keep their parts, and a switch slices the active plate" {
+    const gpa = testing.allocator;
+    const app = try App.create(gpa, null, null);
+    defer app.destroy();
+    var b: zs.mesh.Builder = .init(gpa);
+    try zs.mesh.shapes.addBox(&b, 0, 0, 0, 20, 10, 5);
+    var m = try b.finish();
+    defer m.deinit(gpa);
+    var stl: std.Io.Writer.Allocating = .init(gpa);
+    defer stl.deinit();
+    try m.writeStl(&stl.writer);
+    try app.loadStl("a.stl", stl.written());
+    try testing.expectEqual(@as(usize, 1), app.plateCount());
+    // A second plate with two parts.
+    try testing.expectEqual(@as(usize, 1), try app.addPlate());
+    try testing.expectEqual(State.empty, app.getState());
+    _ = try app.addStl("b.stl", stl.written());
+    _ = try app.addStl("c.stl", stl.written());
+    try testing.expectEqual(@as(usize, 2), app.plate.count());
+    try app.startSlice();
+    app.stopWorkerForTest();
+    try testing.expectEqual(State.done, app.getState());
+    // Back to plate 0: one part, and it slices.
+    try app.selectPlate(0);
+    try testing.expectEqual(@as(usize, 1), app.plate.count());
+    try testing.expectEqual(@as(usize, 2), app.plateParts(1));
+    try app.startSlice();
+    app.stopWorkerForTest();
+    try testing.expectEqual(State.done, app.getState());
+    // Remove plate 0: plate 1 is the only one, and active.
+    try app.removePlate(0);
+    try testing.expectEqual(@as(usize, 1), app.plateCount());
+    try testing.expectEqual(@as(usize, 2), app.plate.count());
 }
 
 test "app: a 3MF file keeps the parts, the places, and the changes" {

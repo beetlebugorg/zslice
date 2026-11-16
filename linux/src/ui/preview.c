@@ -41,6 +41,8 @@ typedef struct {
     GtkWidget *stack;
     GtkWidget *slider_box;
     GtkWidget *isolate;
+    /* The plates: a button for each, and "+". */
+    GtkWidget *plates;
     /* The scrub bar: the nozzle through the top layer (0 its start, 1 the
      * layer done), and its time label. */
     GtkWidget *scrub, *scrub_label, *scrub_box;
@@ -454,6 +456,47 @@ static void on_color_mode(GObject *dd, GParamSpec *pspec, gpointer data) {
     show_legend(p);
 }
 
+
+/* ---- the plate bar ---- */
+
+static void fill_plates(Preview *p);
+
+static void on_plate_clicked(GtkButton *b, gpointer data) {
+    Preview *p = data;
+    zg_model_plate_select(p->model, (size_t)GPOINTER_TO_INT(g_object_get_data(G_OBJECT(b), "zg-plate")));
+}
+
+static void on_plate_add(GtkButton *b, gpointer data) {
+    Preview *p = data;
+    zg_model_plate_add(p->model);
+}
+
+static void fill_plates(Preview *p) {
+    GtkWidget *child;
+    while ((child = gtk_widget_get_first_child(p->plates))) gtk_box_remove(GTK_BOX(p->plates), child);
+    zs_app *core = zg_model_core(p->model);
+    size_t n = zs_app_plate_count(core), active = zs_app_plate_active(core);
+    for (size_t i = 0; n > 1 && i < n; i++) {
+        char label[16];
+        g_snprintf(label, sizeof label, "%zu", i + 1);
+        GtkWidget *b = gtk_toggle_button_new_with_label(label);
+        gtk_toggle_button_set_active(GTK_TOGGLE_BUTTON(b), i == active);
+        char *tip = g_strdup_printf("Plate %zu: %zu part%s", i + 1, zs_app_plate_parts(core, i), zs_app_plate_parts(core, i) == 1 ? "" : "s");
+        gtk_widget_set_tooltip_text(b, tip);
+        g_free(tip);
+        g_object_set_data(G_OBJECT(b), "zg-plate", GINT_TO_POINTER((int)i));
+        g_signal_connect(b, "clicked", G_CALLBACK(on_plate_clicked), p);
+        gtk_box_append(GTK_BOX(p->plates), b);
+    }
+    GtkWidget *add = gtk_button_new_from_icon_name("list-add-symbolic");
+    gtk_widget_set_tooltip_text(add, n > 1 ? "A new plate" : "A new plate: more plates for one print job each (send or export them all from the menu)");
+    g_signal_connect(add, "clicked", G_CALLBACK(on_plate_add), p);
+    gtk_box_append(GTK_BOX(p->plates), add);
+}
+
+static void on_plates_changed(ZgModel *model, gpointer data) {
+    fill_plates(data);
+}
 
 static void on_isolate(GtkToggleButton *b, gpointer data) {
     Preview *p = data;
@@ -878,6 +921,10 @@ GtkWidget *zg_preview_new(ZgModel *model) {
     gtk_widget_set_visible(p->isolate, FALSE);
     g_signal_connect(p->isolate, "toggled", G_CALLBACK(on_isolate), p);
     gtk_box_append(GTK_BOX(bar), p->isolate);
+    p->plates = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 0);
+    gtk_widget_add_css_class(p->plates, "linked");
+    gtk_widget_set_margin_start(p->plates, 6);
+    gtk_box_append(GTK_BOX(bar), p->plates);
     gtk_widget_set_halign(bar, GTK_ALIGN_START);
     gtk_widget_set_valign(bar, GTK_ALIGN_START);
     gtk_widget_set_margin_start(bar, 10);
@@ -936,6 +983,8 @@ GtkWidget *zg_preview_new(ZgModel *model) {
     gtk_widget_set_size_request(stack, 200, -1);
     g_object_set_data_full(G_OBJECT(box), "zg-preview", p, preview_free);
     g_signal_connect(model, "selection-changed", G_CALLBACK(on_selection), p);
+    g_signal_connect(model, "plate-changed", G_CALLBACK(on_plates_changed), p);
+    fill_plates(p);
     g_signal_connect_swapped(model, "segment-changed", G_CALLBACK(gtk_widget_queue_draw), p->area);
     /* The last choice of "Fade others". */
     char *iso = zg_pref_get("isolate", "0");

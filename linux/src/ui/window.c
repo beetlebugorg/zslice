@@ -48,6 +48,13 @@ typedef struct {
     GCancellable *send_cancel;
     gboolean send_print;
     gboolean send_pending;
+    /* "Send all plates" and "Export all plates": the plate now, the
+     * count, the plate to go back to, and the folder of an export. */
+    struct {
+        gboolean on, send;
+        size_t i, n, back, done;
+        GFile *dir;
+    } batch;
 } Window;
 
 static void send_now(Window *w);
@@ -158,6 +165,8 @@ static void update(Window *w) {
     show_islands(w, state);
 }
 
+static void batch_take(Window *w);
+
 static void on_core_event(ZgModel *model, int event, double progress, int status, gpointer data) {
     Window *w = data;
     if (event == ZS_EVENT_PROGRESS) {
@@ -173,6 +182,7 @@ static void on_core_event(ZgModel *model, int event, double progress, int status
         w->send_pending = FALSE;
         if (zs_app_state(zg_model_core(model)) == ZS_STATE_DONE) send_now(w);
     }
+    if (w->batch.on && event == ZS_EVENT_SLICED) batch_take(w);
     if (w->export_pending && zs_app_state(zg_model_core(model)) != ZS_STATE_SLICING) {
         w->export_pending = FALSE;
         if (zs_app_state(zg_model_core(model)) == ZS_STATE_DONE) zg_window_export_dialog(w->window);
@@ -420,6 +430,140 @@ static void send(Window *w, gboolean print) {
     if (state == ZS_STATE_DONE) send_now(w);
 }
 
+/* ---- all plates ---- */
+
+static void batch_next(Window *w);
+
+static void batch_finish(Window *w, const char *error) {
+    w->batch.on = FALSE;
+    g_clear_object(&w->batch.dir);
+    gtk_widget_set_sensitive(w->send_button, TRUE);
+    zg_model_plate_select(w->model, w->batch.back);
+    if (error) {
+        gtk_label_set_text(GTK_LABEL(w->printer_state), "");
+        show_error(w, w->batch.send ? "Not all plates were sent" : "Not all plates were exported", error);
+        return;
+    }
+    char *text = g_strdup_printf(w->batch.send ? "%zu plates sent to %s." : "%zu plates exported.", w->batch.done, zg_printers_current()->name);
+    gtk_label_set_text(GTK_LABEL(w->printer_state), text);
+    g_free(text);
+}
+
+static void on_batch_sent(gboolean ok, const char *message, gpointer data) {
+    Window *w = data;
+    g_clear_object(&w->send_cancel);
+    if (!ok) {
+        batch_finish(w, message ? message : "The printer did not take the file.");
+        return;
+    }
+    w->batch.done++;
+    w->batch.i++;
+    batch_next(w);
+}
+
+/* The file name of plate i: the name of the plate, and its number. */
+static char *batch_file(Window *w) {
+    const char *name = zg_model_name(w->model);
+    char *base = g_strdup(name && *name ? name : "plate");
+    char *dot = strrchr(base, '.');
+    if (dot) *dot = 0;
+    char *file = g_strdup_printf("%s-plate-%zu.gcode", base, w->batch.i + 1);
+    g_free(base);
+    return file;
+}
+
+/* The slice of plate i is done: send it, or write it. */
+static void batch_take(Window *w) {
+    if (!w->batch.on || zs_app_plate_active(zg_model_core(w->model)) != w->batch.i) return;
+    const uint8_t *gcode = NULL;
+    size_t len = 0;
+    if (zs_app_gcode(zg_model_core(w->model), &gcode, &len) != ZS_OK) {
+        batch_finish(w, "A plate did not slice.");
+        return;
+    }
+    char *file = batch_file(w);
+    GBytes *bytes = g_bytes_new(gcode, len);
+    if (w->batch.send) {
+        char *text = g_strdup_printf("Sending plate %zu of %zu to %s\u2026", w->batch.i + 1, w->batch.n, zg_printers_current()->name);
+        gtk_label_set_text(GTK_LABEL(w->printer_state), text);
+        g_free(text);
+        w->send_cancel = g_cancellable_new();
+        zg_link_send(zg_printers_current(), file, bytes, FALSE, w->send_cancel, on_send_progress, on_batch_sent, w);
+    } else {
+        GFile *out = g_file_get_child(w->batch.dir, file);
+        GError *error = NULL;
+        gboolean ok = g_file_replace_contents(out, (const char *)gcode, len, NULL, FALSE, G_FILE_CREATE_REPLACE_DESTINATION, NULL, NULL, &error);
+        g_object_unref(out);
+        if (!ok) {
+            batch_finish(w, error->message);
+            g_error_free(error);
+        } else {
+            w->batch.done++;
+            w->batch.i++;
+            batch_next(w);
+        }
+    }
+    g_bytes_unref(bytes);
+    g_free(file);
+}
+
+static gboolean batch_take_later(gpointer data) {
+    batch_take(data);
+    return G_SOURCE_REMOVE;
+}
+
+/* The next plate with parts: switch to it, and wait for its slice. */
+static void batch_next(Window *w) {
+    zs_app *core = zg_model_core(w->model);
+    while (w->batch.i < w->batch.n && zs_app_plate_parts(core, w->batch.i) == 0) w->batch.i++;
+    if (w->batch.i >= w->batch.n) {
+        batch_finish(w, NULL);
+        return;
+    }
+    if (zs_app_plate_active(core) != w->batch.i) {
+        zg_model_plate_select(w->model, w->batch.i);
+    } else if (zs_app_state(core) == ZS_STATE_DONE) {
+        g_idle_add(batch_take_later, w);
+    }
+}
+
+static void batch_start(Window *w, gboolean send, GFile *dir) {
+    zs_app *core = zg_model_core(w->model);
+    w->batch.on = TRUE;
+    w->batch.send = send;
+    w->batch.i = 0;
+    w->batch.done = 0;
+    w->batch.n = zs_app_plate_count(core);
+    w->batch.back = zs_app_plate_active(core);
+    w->batch.dir = dir ? g_object_ref(dir) : NULL;
+    gtk_widget_set_sensitive(w->send_button, FALSE);
+    batch_next(w);
+}
+
+static void on_send_all_action(GSimpleAction *a, GVariant *v, gpointer data) {
+    Window *w = get(data);
+    if (!w->batch.on) batch_start(w, TRUE, NULL);
+}
+
+static void on_export_all_chosen(GObject *source, GAsyncResult *res, gpointer data) {
+    GtkWindow *window = data;
+    GFile *dir = gtk_file_dialog_select_folder_finish(GTK_FILE_DIALOG(source), res, NULL);
+    if (dir) {
+        Window *w = get(window);
+        if (!w->batch.on) batch_start(w, FALSE, dir);
+        g_object_unref(dir);
+    }
+    g_object_unref(window);
+}
+
+static void on_export_all_action(GSimpleAction *a, GVariant *v, gpointer data) {
+    GtkWindow *window = GTK_WINDOW(data);
+    GtkFileDialog *dialog = gtk_file_dialog_new();
+    gtk_file_dialog_set_title(dialog, "Export all plates: choose a folder");
+    gtk_file_dialog_select_folder(dialog, window, NULL, on_export_all_chosen, g_object_ref(window));
+    g_object_unref(dialog);
+}
+
 static void on_send_clicked(GtkButton *b, gpointer data) {
     Window *w = get(data);
     /* USB prints as it sends; the network kinds only upload here. */
@@ -649,6 +793,8 @@ GtkWindow *zg_window_new(GtkApplication *app, ZgModel *model) {
         {.name = "preferences", .activate = on_prefs_action},
         {.name = "arrange", .activate = on_arrange_action},
         {.name = "smart-place", .activate = on_smart_place_action},
+        {.name = "send-all", .activate = on_send_all_action},
+        {.name = "export-all", .activate = on_export_all_action},
         {.name = "save-plate", .activate = on_save_plate_action},
         {.name = "clear-plate", .activate = on_clear_action},
     };
@@ -656,6 +802,8 @@ GtkWindow *zg_window_new(GtkApplication *app, ZgModel *model) {
 
     GMenu *menu = g_menu_new();
     g_menu_append(menu, "Save the plate as 3MF…", "win.save-plate");
+    g_menu_append(menu, "Send all plates", "win.send-all");
+    g_menu_append(menu, "Export all plates\u2026", "win.export-all");
     g_menu_append(menu, "Smart placement", "win.smart-place");
     g_menu_append(menu, "Arrange the plate", "win.arrange");
     g_menu_append(menu, "Clear the plate", "win.clear-plate");

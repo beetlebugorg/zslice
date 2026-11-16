@@ -217,6 +217,10 @@ Open adds each model to the plate (Ctrl+O, or drop files on the window). The fir
 - **Put this side on the bed** (context menu of a line): the side of the part at that line goes down.
 - **Reset**: the orientation and the size of the file.
 
+## More than one plate
+
+The "+" at the end of the preview toolbar adds a plate. Each plate has its own parts, its own changes, and its own support marks, and the buttons 1, 2, 3, and so on switch between them (the plate that shows is the plate that slices). "Send all plates" in the menu slices each plate with parts and sends it to the current printer, one file for each plate; "Export all plates…" writes the files into a folder (name-plate-1.gcode, and so on).
+
 ## Save the plate
 
 "Save the plate as 3MF" in the menu (Ctrl+S) writes one 3MF file with all parts at their places, and the changes that you made for the parts and for some layers. The global settings (Settings) do not go in the file. Open the 3MF file to get the plate back. zslice also opens 3MF files from other slicers; parts that touch in the file (for example a sign and its text) stay one part.

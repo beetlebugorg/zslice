@@ -49,6 +49,10 @@ void zg_model_part_put_down_at(ZgModel *self, size_t i, double x, double y, doub
 void zg_model_part_place(ZgModel *self, size_t i, int mode, int axis);
 void zg_model_part_reset(ZgModel *self, size_t i);
 gboolean zg_model_plate_smart_place(ZgModel *self);
+/* Plates (see zs_app_plate_count): each call slices the active plate. */
+void zg_model_plate_select(ZgModel *self, size_t i);
+void zg_model_plate_add(ZgModel *self);
+void zg_model_plate_remove(ZgModel *self, size_t i);
 void zg_model_part_remove(ZgModel *self, size_t i);
 gboolean zg_model_plate_arrange(ZgModel *self);
 void zg_model_plate_clear(ZgModel *self);

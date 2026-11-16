@@ -786,6 +786,42 @@ export fn zs_app_part_reset(a: ?*App, i: usize) c_int {
     return ok;
 }
 
+export fn zs_app_plate_count(a: ?*const App) usize {
+    const app = a orelse return 0;
+    return app.plateCount();
+}
+
+export fn zs_app_plate_active(a: ?*const App) usize {
+    const app = a orelse return 0;
+    return app.active;
+}
+
+export fn zs_app_plate_parts(a: ?*const App, i: usize) usize {
+    const app = a orelse return 0;
+    return app.plateParts(i);
+}
+
+/// A new empty plate (it becomes the active plate). Returns its index.
+export fn zs_app_plate_add(a: ?*App) isize {
+    const app = a orelse return -1;
+    const i = app.addPlate() catch return -1;
+    return @intCast(i);
+}
+
+export fn zs_app_plate_select(a: ?*App, i: usize) c_int {
+    const app = a orelse return @intFromEnum(Status.invalid_argument);
+    if (i >= app.plateCount()) return @intFromEnum(Status.out_of_range);
+    app.selectPlate(i) catch |e| return status(e);
+    return ok;
+}
+
+export fn zs_app_plate_remove(a: ?*App, i: usize) c_int {
+    const app = a orelse return @intFromEnum(Status.invalid_argument);
+    if (i >= app.plateCount()) return @intFromEnum(Status.out_of_range);
+    app.removePlate(i) catch |e| return status(e);
+    return ok;
+}
+
 /// Smart placement of all parts, then an arrange. 1 if they all fit.
 export fn zs_app_plate_smart_place(a: ?*App) c_int {
     const app = a orelse return 0;

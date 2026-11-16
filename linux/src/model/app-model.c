@@ -678,6 +678,32 @@ void zg_model_part_reset(ZgModel *self, size_t i) {
     if (zs_app_part_reset(self->core, i) == ZS_OK) plate_changed(self);
 }
 
+/* Plates: a switch clears the selection, and slices the new plate. */
+void zg_model_plate_select(ZgModel *self, size_t i) {
+    if (i == zs_app_plate_active(self->core)) return;
+    zg_model_select_part(self, -1);
+    zg_model_select(self, -1);
+    if (zs_app_plate_select(self->core, i) != ZS_OK) return;
+    plate_changed(self);
+    g_signal_emit(self, signals[SIGNAL_CORE_EVENT], 0, ZS_EVENT_CANCELED, 0.0, 0);
+}
+
+void zg_model_plate_add(ZgModel *self) {
+    zg_model_select_part(self, -1);
+    zg_model_select(self, -1);
+    if (zs_app_plate_add(self->core) < 0) return;
+    plate_changed(self);
+    g_signal_emit(self, signals[SIGNAL_CORE_EVENT], 0, ZS_EVENT_CANCELED, 0.0, 0);
+}
+
+void zg_model_plate_remove(ZgModel *self, size_t i) {
+    zg_model_select_part(self, -1);
+    zg_model_select(self, -1);
+    if (zs_app_plate_remove(self->core, i) != ZS_OK) return;
+    plate_changed(self);
+    g_signal_emit(self, signals[SIGNAL_CORE_EVENT], 0, ZS_EVENT_CANCELED, 0.0, 0);
+}
+
 gboolean zg_model_plate_smart_place(ZgModel *self) {
     int ok = zs_app_plate_smart_place(self->core);
     plate_changed(self);

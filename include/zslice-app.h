@@ -351,6 +351,19 @@ enum zs_place_mode {
 int zs_app_part_place(zs_app *app, size_t i, int mode, int axis);
 /* The orientation and the scale of the file again. */
 int zs_app_part_reset(zs_app *app, size_t i);
+/* Plates: the app has one or more plates. The active plate is the one that
+ * the calls above change, that slices, and that the views show; each
+ * plate keeps its own parts, changes, and support marks. A switch stops a
+ * slice; call zs_app_request_slice after it. */
+size_t zs_app_plate_count(const zs_app *app);
+size_t zs_app_plate_active(const zs_app *app);
+size_t zs_app_plate_parts(const zs_app *app, size_t i);
+/* A new empty plate after the others; it becomes the active plate. */
+ptrdiff_t zs_app_plate_add(zs_app *app);
+int zs_app_plate_select(zs_app *app, size_t i);
+/* Removes plate i and its parts (the last plate stays, empty). */
+int zs_app_plate_remove(zs_app *app, size_t i);
+
 /* Smart placement of all parts, then an arrange. 1 if they all fit. */
 int zs_app_plate_smart_place(zs_app *app);
 int zs_app_part_remove(zs_app *app, size_t i);
