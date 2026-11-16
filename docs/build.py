@@ -49,6 +49,7 @@ SOURCES = [
     ("docs/embedding/javascript.md", "embedding/javascript/", "Embedding", "JavaScript"),
     ("docs/internals/architecture.md", "internals/architecture/", "Internals", "Architecture"),
     ("docs/internals/how-slicing-works.md", "internals/how-slicing-works/", "Internals", "How slicing works"),
+    ("docs/internals/layer-settings.md", "internals/layer-settings/", "Internals", "Settings for some layers"),
     ("docs/internals/cura-compare.md", "internals/cura-compare/", "Internals", "Cura comparison"),
     ("docs/internals/contributing.md", "internals/contributing/", "Internals", "Contributing"),
     ("docs/internals/code-quality.md", "internals/code-quality/", "Internals", "Code quality"),

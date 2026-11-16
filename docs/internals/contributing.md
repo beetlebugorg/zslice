@@ -66,7 +66,8 @@ Check a bottom layer (all skin), a middle layer (walls and sparse infill), a lay
 3. If the value has limits, check them in `Settings.resolve`.
 4. If code uses a derived value, compute it once in `resolve` and add it to `Resolved`.
 5. Use the value in the stage.
-6. Run `python3 -I tools/settings_doc.py > docs/user/settings.md`.
+6. If the value can change per layer, read it from the settings of the layer, and add its name to `settings.layer_settings` (see [Settings for some layers](layer-settings.md)).
+7. Run `python3 -I tools/settings_doc.py > docs/user/settings.md`.
 
 `Settings.set`, the C API, the wasm API, and the command line get the new setting with no more code. They use comptime reflection on the struct. Supported field types: `f64`, `u32` (and other integers), `bool`, enums, and `[]const u8`.
 

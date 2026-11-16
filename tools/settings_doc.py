@@ -95,6 +95,8 @@ def main():
     src = open("src/settings.zig").read()
     enums = dict(re.findall(r"pub const (\w+) = enum \{ ([^}]*) \};", src))
     groups = parse(src)
+    block = re.search(r"pub const layer_settings = \[_\]\[\]const u8\{(.*?)\n\};", src, re.S).group(1)
+    per_layer = set(re.findall(r'"([\w.]+)"', block))
     if "--zig" in sys.argv:
         main_zig(groups)
         return
@@ -104,6 +106,8 @@ def main():
     out.write("Each setting has a name in the form `group.name`. Set it on the command line with `-s group.name=value`, ")
     out.write("in C with `zs_settings_set`, and in JavaScript as a key of the settings object.\n\n")
     out.write("Units: lengths in mm, speeds in mm/s, flow in mm³/s, temperatures in °C. A ratio is 0 to 1.\n\n")
+    out.write("A setting marked \"Per layer\" can change for some layers of a part (for example \"This layer and up\" in the app). ")
+    out.write("[Settings for some layers](../internals/layer-settings.md) explains the others.\n\n")
     for struct, key, intro in GROUPS:
         out.write("## %s\n\n%s\n\n" % (key, intro))
         section = None
@@ -114,6 +118,8 @@ def main():
             t = type_name(typ)
             if typ in enums:
                 t = "one of: " + ", ".join("`%s`" % v.strip() for v in enums[typ].split(","))
+            if key + "." + name in per_layer:
+                t += "; per layer"
             out.write("**`%s.%s`** (%s). Default: %s\n\n" % (key, name, t, default))
             if doc:
                 out.write("%s\n\n" % doc)

@@ -141,7 +141,7 @@ In the app, click a line in the 2D or 3D view. The Selected page shows what the 
 
 Change a setting there, and the app slices again and shows the new values for the same line. The page stays where it is.
 
-Changes on the Selected page are for the loaded part only, never for other prints. "Change for" says where they go: the whole part (all layers), this layer, this layer and up, or this layer and down. A changed setting shows in the accent color, with a button to remove the change. Some settings cannot change for some layers (for example the layer height); they are off in a layer choice. The printer settings are off on this page; change them in Settings. The Settings page has the defaults for all prints.
+Changes on the Selected page are for the loaded part only, never for other prints. "Change for" says where they go: the whole part (all layers), this layer, this layer and up, or this layer and down. A changed setting shows in the accent color, with a button to remove the change. Some settings cannot change for some layers (for example the first layer height and the support angle); they are off in a layer choice. The settings reference marks the settings that can change per layer. A new layer height starts with the layer above the selected layer, because a layer gets the height of the z where it starts. The printer settings are off on this page; change them in Settings. The Settings page has the defaults for all prints.
 
 Each number has its unit after it. A ratio shows as a percentage: a skin speed of 70 % is 70 % of the speed that the machine and the filament allow.
 

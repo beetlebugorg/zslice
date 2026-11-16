@@ -34,6 +34,7 @@
 <div class="group">Internals</div>
 <a href="../../internals/architecture/">Architecture</a>
 <a href="../../internals/how-slicing-works/" aria-current="page">How slicing works</a>
+<a href="../../internals/layer-settings/">Settings for some layers</a>
 <a href="../../internals/cura-compare/">Cura comparison</a>
 <a href="../../internals/contributing/">Contributing</a>
 <a href="../../internals/code-quality/">Code quality</a>
@@ -50,7 +51,7 @@
 <p>The STL file does not say which triangles share an edge. The slicer needs this information in stage 3. The loader "welds" the vertices: vertices with the same coordinates become one vertex. After the weld, two triangles that touch have the same two vertex numbers on their shared edge.</p>
 <h2 id="2-place-the-part-and-make-the-layer-table-srcenginezig-srcslicerzig">2. Place the part and make the layer table (<code>src/engine.zig</code>, <code>src/slicer.zig</code>)</h2>
 <p>The engine moves the part so that its bottom is at z = 0 and its center is at the center of the bed.</p>
-<p>The layer table gives the z of each layer. The first layer is usually thicker (0.3 mm), so that it sticks to the bed. The next layers have the layer height (0.2 mm). Each layer has a cut plane at the middle of its height. The outline at the middle is the best estimate of the shape of the whole layer.</p>
+<p>The layer table gives the z of each layer. The first layer is usually thicker (0.3 mm), so that it sticks to the bed. The next layers have the layer height (0.2 mm). An override can give the layers in a z range another height: each layer gets the height of the z where it starts. Each layer has a cut plane at the middle of its height. The outline at the middle is the best estimate of the shape of the whole layer.</p>
 <h2 id="3-cut-the-mesh-into-outlines-srcslicerzig">3. Cut the mesh into outlines (<code>src/slicer.zig</code>)</h2>
 <p>Each triangle that crosses a cut plane gives one line segment. The direction of the segment comes from the vertex order, so the outside of the part is always on the same side. Then the slicer joins the segments into closed loops. Two segments join where they come from triangles that share an edge.</p>
 <p>The result for each layer is a set of closed polygons:</p>
@@ -86,7 +87,7 @@
 ./zig-out/bin/zslice demo demo.stl
 ./zig-out/bin/zslice preview demo.stl --layer 28 -o layer28.svg
 ./zig-out/bin/zslice slice demo.stl -o demo.gcode</code></pre>
-<p>Open <code>layer28.svg</code> in a browser. Orange is the outer wall, yellow the inner wall, blue the skin, and green the sparse infill. Gray dashes show the travel moves.</p><nav class="pager"><a class="prev" href="../../internals/architecture/"><span>Previous</span><b>Architecture</b></a><a class="next" href="../../internals/cura-compare/"><span>Next</span><b>Cura comparison</b></a></nav>
+<p>Open <code>layer28.svg</code> in a browser. Orange is the outer wall, yellow the inner wall, blue the skin, and green the sparse infill. Gray dashes show the travel moves.</p><nav class="pager"><a class="prev" href="../../internals/architecture/"><span>Previous</span><b>Architecture</b></a><a class="next" href="../../internals/layer-settings/"><span>Next</span><b>Settings for some layers</b></a></nav>
 </main>
 </div>
 <footer>zslice is free software (AGPL-3.0-or-later). <a href="https://github.com/beetlebugorg/zslice/blob/master/docs/build.py">docs/build.py</a> writes this site from <a href="https://github.com/beetlebugorg/zslice/blob/master/docs/internals/how-slicing-works.md">docs/internals/how-slicing-works.md</a>.</footer>

@@ -12,7 +12,7 @@ The STL file does not say which triangles share an edge. The slicer needs this i
 
 The engine moves the part so that its bottom is at z = 0 and its center is at the center of the bed.
 
-The layer table gives the z of each layer. The first layer is usually thicker (0.3 mm), so that it sticks to the bed. The next layers have the layer height (0.2 mm). Each layer has a cut plane at the middle of its height. The outline at the middle is the best estimate of the shape of the whole layer.
+The layer table gives the z of each layer. The first layer is usually thicker (0.3 mm), so that it sticks to the bed. The next layers have the layer height (0.2 mm). An override can give the layers in a z range another height: each layer gets the height of the z where it starts. Each layer has a cut plane at the middle of its height. The outline at the middle is the best estimate of the shape of the whole layer.
 
 ## 3. Cut the mesh into outlines (`src/slicer.zig`)
 

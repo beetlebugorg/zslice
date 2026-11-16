@@ -34,6 +34,7 @@
 <div class="group">Internals</div>
 <a href="../../internals/architecture/" aria-current="page">Architecture</a>
 <a href="../../internals/how-slicing-works/">How slicing works</a>
+<a href="../../internals/layer-settings/">Settings for some layers</a>
 <a href="../../internals/cura-compare/">Cura comparison</a>
 <a href="../../internals/contributing/">Contributing</a>
 <a href="../../internals/code-quality/">Code quality</a>
@@ -117,6 +118,7 @@
 <p>The paths of one layer, in print order. It has its own arena: <code>deinit</code> frees all of it in one step. <code>paths.items[i]</code> has the feature and the closed flag of <code>points.get(i)</code>.</p>
 <h3 id="settingssettings-and-settingsresolved"><code>settings.Settings</code> and <code>settings.Resolved</code></h3>
 <p><code>Settings</code> has the values that the user sets. <code>Resolved</code> comes from <code>Settings.resolve()</code>: it has the derived values (the line width when it is 0, the skin layer count from the thickness, the filament area) and the <code>speed</code> function. Code after the engine start uses <code>Resolved</code>, so that each derived value has one definition.</p>
+<p>A layer with overrides has its own <code>Resolved</code> (<code>Job.resolvedAt</code>). <a href="../../internals/layer-settings/">Settings for some layers</a> lists the settings that can change per layer, and the code that reads them.</p>
 <h2 id="memory-model">Memory model</h2>
 <p>zslice uses arenas for temporary memory. An arena frees all its memory in one step, so the code needs no <code>free</code> for each temporary array.</p>
 <ul><li>Each boolean, offset, fill, and plan takes an arena for its intermediate data from the pool in <code>scratch.zig</code>, and gives it back at the end. The arena keeps its memory (up to 16 MB) for the next call, so a slice does not get new pages from the operating system for each call. The engine frees the memory of the pool at the end of a slice. The result of a call goes in the allocator of the caller.</li><li><code>layer.plan</code> puts the plan in its own arena (it lives until the G-code is written).</li><li><code>slicer.sliceAt</code> uses a pool arena for the segments and chains of a layer.</li><li>The memo of each layer (<code>layer.Memo</code>) has its own arena with the results of the slow steps (offsets, skin, fill regions) by their inputs. An app keeps the memos for the next slice (<code>Job.initReuse</code>). A one-shot slice frees each memo after the plan of its layer (<code>Job.keep_memos</code>).</li></ul>

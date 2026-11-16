@@ -34,6 +34,7 @@
 <div class="group">Internals</div>
 <a href="../../internals/architecture/">Architecture</a>
 <a href="../../internals/how-slicing-works/">How slicing works</a>
+<a href="../../internals/layer-settings/">Settings for some layers</a>
 <a href="../../internals/cura-compare/">Cura comparison</a>
 <a href="../../internals/contributing/">Contributing</a>
 <a href="../../internals/code-quality/">Code quality</a>
@@ -46,6 +47,7 @@
 <h1>Settings reference</h1>
 <p class="lede">Each setting has a name in the form <code>group.name</code>. Set it on the command line with <code>-s group.name=value</code>, in C with <code>zs_settings_set</code>, and in JavaScript as a key of the settings object.</p>
 <nav class="onpage"><b>On this page</b><ol><li><a href="#machine">machine</a></li><li><a href="#filament">filament</a></li><li><a href="#project">project</a></li><li><a href="#engine">engine</a></li></ol></nav><p>Units: lengths in mm, speeds in mm/s, flow in mm³/s, temperatures in °C. A ratio is 0 to 1.</p>
+<p>A setting marked "Per layer" can change for some layers of a part (for example "This layer and up" in the app). <a href="../../internals/layer-settings/">Settings for some layers</a> explains the others.</p>
 <h2 id="machine">machine</h2>
 <p>Facts about the printer. They change only when the printer changes.</p>
 <h3 id="printer">Printer</h3>
@@ -120,31 +122,31 @@ M84</code></pre>
 <p><strong><code>filament.density</code></strong> (number). Default: <code>1.24</code></p>
 <p>g/cm^3. For the filament weight in the statistics.</p>
 <h3 id="temperatures">Temperatures</h3>
-<p><strong><code>filament.nozzle_temp</code></strong> (number). Default: <code>210</code></p>
+<p><strong><code>filament.nozzle_temp</code></strong> (number; per layer). Default: <code>210</code></p>
 <p>The nozzle temperature from the second layer.</p>
 <p><strong><code>filament.first_layer_nozzle_temp</code></strong> (number). Default: <code>215</code></p>
 <p>The nozzle temperature on the first layer.</p>
-<p><strong><code>filament.bed_temp</code></strong> (number). Default: <code>60</code></p>
+<p><strong><code>filament.bed_temp</code></strong> (number; per layer). Default: <code>60</code></p>
 <p>The bed temperature.</p>
 <h3 id="flow">Flow</h3>
-<p><strong><code>filament.max_flow</code></strong> (number). Default: <code>12</code></p>
+<p><strong><code>filament.max_flow</code></strong> (number; per layer). Default: <code>12</code></p>
 <p>The maximum plastic flow that the hot end melts with this filament. This limits the speed of wide and tall lines.</p>
-<p><strong><code>filament.flow_ratio</code></strong> (number). Default: <code>1.0</code></p>
+<p><strong><code>filament.flow_ratio</code></strong> (number; per layer). Default: <code>1.0</code></p>
 <p>A multiplier for all extrusion, to calibrate the flow.</p>
 <h3 id="cooling">Cooling</h3>
-<p><strong><code>filament.fan_speed</code></strong> (number). Default: <code>1.0</code></p>
+<p><strong><code>filament.fan_speed</code></strong> (number; per layer). Default: <code>1.0</code></p>
 <p>The part cooling fan speed, as a ratio.</p>
 <p><strong><code>filament.fan_off_layers</code></strong> (integer). Default: <code>1</code></p>
 <p>The fan is off for this number of layers at the start.</p>
-<p><strong><code>filament.fan_max_speed</code></strong> (number). Default: <code>1.0</code></p>
+<p><strong><code>filament.fan_max_speed</code></strong> (number; per layer). Default: <code>1.0</code></p>
 <p>The fan speed on short layers, as a ratio. See <code>fan_boost_time</code>.</p>
-<p><strong><code>filament.fan_boost_time</code></strong> (number). Default: <code>15</code></p>
+<p><strong><code>filament.fan_boost_time</code></strong> (number; per layer). Default: <code>15</code></p>
 <p>A layer that takes less time than this (s) gets the fan at <code>fan_max_speed</code>.</p>
-<p><strong><code>filament.min_layer_time</code></strong> (number). Default: <code>6</code></p>
+<p><strong><code>filament.min_layer_time</code></strong> (number; per layer). Default: <code>6</code></p>
 <p>The shortest time (s) for one layer. A layer that takes less time prints slower, so that the plastic below has time to cool.</p>
-<p><strong><code>filament.min_speed</code></strong> (number). Default: <code>10</code></p>
+<p><strong><code>filament.min_speed</code></strong> (number; per layer). Default: <code>10</code></p>
 <p>The lowest print speed (mm/s) for the slow-down of <code>min_layer_time</code>.</p>
-<p><strong><code>filament.cooling_mode</code></strong> (one of: <code>slow_down</code>, <code>lap</code>). Default: <code>slow_down</code></p>
+<p><strong><code>filament.cooling_mode</code></strong> (one of: <code>slow_down</code>, <code>lap</code>; per layer). Default: <code>slow_down</code></p>
 <p>How a layer that takes less than <code>min_layer_time</code> gets its time to cool. <code>slow_down</code>: it prints slower. <code>lap</code>: it prints at the planned speed; then the nozzle goes up 1 mm and moves around the layer with the fan at full until the time is over, so the air blows on the new plastic. The lap keeps the planned speed of the walls.</p>
 <p><strong><code>filament.standby_temp</code></strong> (number). Default: <code>0</code></p>
 <p>A lower nozzle temperature for waits, for example while the printer probes the bed. The start G-code can use it as {standby_temp}. 0 is off.</p>
@@ -153,113 +155,113 @@ M84</code></pre>
 <p>The part is printed larger by this ratio in X and Y, because the plastic shrinks as it cools. Example: 1.003 for 0.3 % shrinkage.</p>
 <p><strong><code>filament.shrinkage_z</code></strong> (number). Default: <code>1</code></p>
 <p>The part is printed taller by this ratio, for shrinkage in Z.</p>
-<p><strong><code>filament.xy_offset</code></strong> (number). Default: <code>0</code></p>
+<p><strong><code>filament.xy_offset</code></strong> (number; per layer). Default: <code>0</code></p>
 <p>Moves all outlines out by this distance (in if negative). Use it if parts come out too large or too small by a fixed amount.</p>
-<p><strong><code>filament.hole_xy_offset</code></strong> (number). Default: <code>0</code></p>
+<p><strong><code>filament.hole_xy_offset</code></strong> (number; per layer). Default: <code>0</code></p>
 <p>Moves the edges of holes by this distance. A positive value makes holes larger. It adds to <code>xy_offset</code>, which makes holes smaller when it is positive. Holes often come out too small.</p>
 <h3 id="retraction">Retraction</h3>
-<p><strong><code>filament.retract_ratio</code></strong> (number). Default: <code>1.0</code></p>
+<p><strong><code>filament.retract_ratio</code></strong> (number; per layer). Default: <code>1.0</code></p>
 <p>A multiplier for the retraction length of the machine. Soft filament needs less.</p>
 <h2 id="project">project</h2>
 <p>What you want for this part.</p>
 <h3 id="layers">Layers</h3>
-<p><strong><code>project.layer_height</code></strong> (number). Default: <code>0.2</code></p>
+<p><strong><code>project.layer_height</code></strong> (number; per layer). Default: <code>0.2</code></p>
 <p>The height of each layer after the first. A smaller value gives a smoother surface and a longer print.</p>
 <p><strong><code>project.first_layer_height</code></strong> (number). Default: <code>0.3</code></p>
 <p>The height of the first layer. A thicker first layer sticks to the bed better.</p>
 <h3 id="lines">Lines</h3>
-<p><strong><code>project.line_width</code></strong> (number). Default: <code>0</code></p>
+<p><strong><code>project.line_width</code></strong> (number; per layer). Default: <code>0</code></p>
 <p>The line width. 0 uses 1.1 x the nozzle diameter.</p>
 <p><strong><code>project.first_layer_line_width</code></strong> (number). Default: <code>0</code></p>
 <p>The line width on the first layer. 0 uses 1.25 x the nozzle diameter.</p>
 <h3 id="walls">Walls</h3>
-<p><strong><code>project.wall_count</code></strong> (integer). Default: <code>2</code></p>
+<p><strong><code>project.wall_count</code></strong> (integer; per layer). Default: <code>2</code></p>
 <p>The number of walls (loops) around the outline of each layer.</p>
-<p><strong><code>project.wall_thickness</code></strong> (number). Default: <code>0</code></p>
+<p><strong><code>project.wall_thickness</code></strong> (number; per layer). Default: <code>0</code></p>
 <p>The thickness of the walls, in mm, as in Cura: the wall count is this thickness divided by the line width, rounded (at least 1). 0: use <code>wall_count</code>.</p>
-<p><strong><code>project.thin_walls</code></strong> (true or false). Default: <code>false</code></p>
+<p><strong><code>project.thin_walls</code></strong> (true or false; per layer). Default: <code>false</code></p>
 <p>Print parts of the outline that are thinner than one line width (a thin fin, a sheet, a label): a loop inside each thin part, with a narrower line, so that its two sides fill the thickness. Without it, these parts print nothing. Off by default.</p>
-<p><strong><code>project.seam</code></strong> (one of: <code>hidden</code>, <code>sharpest</code>, <code>rear</code>, <code>nearest</code>, <code>random</code>). Default: <code>hidden</code></p>
+<p><strong><code>project.seam</code></strong> (one of: <code>hidden</code>, <code>sharpest</code>, <code>rear</code>, <code>nearest</code>, <code>random</code>; per layer). Default: <code>hidden</code></p>
 <p>Where each wall loop starts and ends (the seam). <code>hidden</code>: at the point where the seam is hardest to see: an inside corner first, then an outside corner, toward the back, and not where the wall hangs over air; similar layers pick the same point, so the seam is one clean line. <code>sharpest</code>: in the deepest inside corner, or else in the sharpest outside corner, or else at the rear. <code>rear</code>: at the back of the part (the largest y), in one straight line. <code>nearest</code>: at the point nearest to the nozzle, which is the fastest. <code>random</code>: at a different point on each layer, so that no seam line shows.</p>
 <h3 id="top-and-bottom-skin">Top and bottom skin</h3>
-<p><strong><code>project.top_thickness</code></strong> (number). Default: <code>0.8</code></p>
+<p><strong><code>project.top_thickness</code></strong> (number; per layer). Default: <code>0.8</code></p>
 <p>The thickness of solid skin under each top surface.</p>
-<p><strong><code>project.bottom_thickness</code></strong> (number). Default: <code>0.6</code></p>
+<p><strong><code>project.bottom_thickness</code></strong> (number; per layer). Default: <code>0.6</code></p>
 <p>The thickness of solid skin above each bottom surface.</p>
-<p><strong><code>project.skin_removal_width</code></strong> (number). Default: <code>0.2</code></p>
+<p><strong><code>project.skin_removal_width</code></strong> (number; per layer). Default: <code>0.2</code></p>
 <p>Skin pieces narrower than this are removed before the expand (a sliver of skin at the edge of a slope). A thin piece next to a large skin area still gets skin from the expand.</p>
-<p><strong><code>project.skin_expand_distance</code></strong> (number). Default: <code>0.8</code></p>
+<p><strong><code>project.skin_expand_distance</code></strong> (number; per layer). Default: <code>0.8</code></p>
 <p>The skin grows this far into the sparse infill next to it, so that its edges hold on the infill and close against the walls.</p>
-<p><strong><code>project.solid_infill_width</code></strong> (number). Default: <code>1.5</code></p>
+<p><strong><code>project.solid_infill_width</code></strong> (number; per layer). Default: <code>1.5</code></p>
 <p>A sparse infill area narrower than this prints solid, as skin. A narrow strip would get no infill lines, and a gap would show next to the walls under a top surface.</p>
-<p><strong><code>project.skin_pattern</code></strong> (one of: <code>lines</code>, <code>monotonic</code>, <code>concentric</code>). Default: <code>lines</code></p>
+<p><strong><code>project.skin_pattern</code></strong> (one of: <code>lines</code>, <code>monotonic</code>, <code>concentric</code>; per layer). Default: <code>lines</code></p>
 <p>How the skin is filled. <code>lines</code>: parallel lines in the nearest order. <code>monotonic</code>: parallel lines from one side to the other, so each line lies against the line before it in the same way; the top has an even sheen. <code>concentric</code>: loops that follow the outline.</p>
-<p><strong><code>project.skin_angle</code></strong> (number). Default: <code>45</code></p>
+<p><strong><code>project.skin_angle</code></strong> (number; per layer). Default: <code>45</code></p>
 <p>The direction of the skin lines on the first layer, in degrees from the X axis. Ironing goes at a right angle to the top skin.</p>
-<p><strong><code>project.skin_angle_step</code></strong> (number). Default: <code>90</code></p>
+<p><strong><code>project.skin_angle_step</code></strong> (number; per layer). Default: <code>90</code></p>
 <p>How much the skin direction turns from one layer to the next, in degrees. 90 crosses the lines of each layer with the layer below.</p>
-<p><strong><code>project.skin_overlap</code></strong> (number). Default: <code>0.15</code></p>
+<p><strong><code>project.skin_overlap</code></strong> (number; per layer). Default: <code>0.15</code></p>
 <p>Skin lines go this far into the walls, as a fraction of the line width, so that the skin bonds to the walls.</p>
 <h3 id="infill">Infill</h3>
-<p><strong><code>project.infill_density</code></strong> (number). Default: <code>0.2</code></p>
+<p><strong><code>project.infill_density</code></strong> (number; per layer). Default: <code>0.2</code></p>
 <p>The fraction of the inside that the sparse infill fills, as a ratio. 0 makes the part hollow.</p>
-<p><strong><code>project.infill_pattern</code></strong> (one of: <code>lines</code>, <code>grid</code>, <code>triangles</code>, <code>cubic</code>, <code>gyroid</code>, <code>concentric</code>, <code>honeycomb</code>, <code>zigzag</code>, <code>flow</code>). Default: <code>grid</code></p>
+<p><strong><code>project.infill_pattern</code></strong> (one of: <code>lines</code>, <code>grid</code>, <code>triangles</code>, <code>cubic</code>, <code>gyroid</code>, <code>concentric</code>, <code>honeycomb</code>, <code>zigzag</code>, <code>flow</code>; per layer). Default: <code>grid</code></p>
 <p>The sparse infill pattern. <code>lines</code>: one direction on each layer, turned 90 degrees on the next layer. <code>grid</code>: two directions on each layer. <code>triangles</code>: three directions at 60 degrees on each layer. <code>cubic</code>: three directions that move with the height, so the infill makes cubes in 3D. <code>gyroid</code>: smooth curves that change with the height, strong in all directions. <code>concentric</code>: loops that follow the outline. <code>honeycomb</code>: hexagon cells, the same on all layers. <code>zigzag</code>: the lines of <code>lines</code>, joined at the walls into one path, so the nozzle does not travel or retract between them. <code>flow</code>: the zigzag, with twice the density under each top surface (a band of 3 times the top thickness, at least 2 mm), where the top skin needs it, and the density of the setting in the middle.</p>
-<p><strong><code>project.infill_angle</code></strong> (number). Default: <code>45</code></p>
+<p><strong><code>project.infill_angle</code></strong> (number; per layer). Default: <code>45</code></p>
 <p>The angle of the infill and skin lines, in degrees from the X axis.</p>
-<p><strong><code>project.infill_connect</code></strong> (true or false). Default: <code>true</code></p>
+<p><strong><code>project.infill_connect</code></strong> (true or false; per layer). Default: <code>true</code></p>
 <p>Join the infill lines (lines, grid, triangles, cubic) at their ends with a short line along the edge, as "Connect Infill Lines" in Cura: the nozzle prints a zigzag with no travel and no retraction, and the joints tie the infill to the walls. Off: each line on its own.</p>
-<p><strong><code>project.top_support_layers</code></strong> (integer). Default: <code>2</code></p>
+<p><strong><code>project.top_support_layers</code></strong> (integer; per layer). Default: <code>2</code></p>
 <p>Top support: the layers under each top skin that get denser infill lines (one direction on each layer, turned 90 degrees on the next), so that the skin lies on a flat grid and bridges less. 0: off. The flow pattern has its own band.</p>
-<p><strong><code>project.top_support_density</code></strong> (number). Default: <code>0.5</code></p>
+<p><strong><code>project.top_support_density</code></strong> (number; per layer). Default: <code>0.5</code></p>
 <p>The density of the top support lines, as a ratio. It works only if it is more than <code>infill_density</code>.</p>
-<p><strong><code>project.infill_overlap</code></strong> (number). Default: <code>0.2</code></p>
+<p><strong><code>project.infill_overlap</code></strong> (number; per layer). Default: <code>0.2</code></p>
 <p>Sparse infill lines go this far into the walls, as a fraction of the line width.</p>
 <h3 id="ironing">Ironing</h3>
-<p><strong><code>project.ironing</code></strong> (true or false). Default: <code>false</code></p>
+<p><strong><code>project.ironing</code></strong> (true or false; per layer). Default: <code>false</code></p>
 <p>Iron the top surfaces. After the layer is complete, the nozzle goes over each top surface again with close lines and a small flow. The hot nozzle melts the surface flat, and the small flow fills the gaps between the skin lines.</p>
-<p><strong><code>project.ironing_flow</code></strong> (number). Default: <code>0.1</code></p>
+<p><strong><code>project.ironing_flow</code></strong> (number; per layer). Default: <code>0.1</code></p>
 <p>The flow of the ironing lines, as a ratio of the flow of a normal line.</p>
-<p><strong><code>project.ironing_spacing</code></strong> (number). Default: <code>0.1</code></p>
+<p><strong><code>project.ironing_spacing</code></strong> (number; per layer). Default: <code>0.1</code></p>
 <p>The distance between the ironing lines.</p>
-<p><strong><code>project.ironing_inset</code></strong> (number). Default: <code>0.3</code></p>
+<p><strong><code>project.ironing_inset</code></strong> (number; per layer). Default: <code>0.3</code></p>
 <p>The ironing area is this far inside the edges of the top surface, so that the nozzle does not push plastic over the edges.</p>
-<p><strong><code>project.ironing_speed</code></strong> (number). Default: <code>0.15</code></p>
+<p><strong><code>project.ironing_speed</code></strong> (number; per layer). Default: <code>0.15</code></p>
 <p>The ironing speed, as a ratio of <code>machine.max_speed</code>. The flow limit of the filament does not apply, because the flow is small.</p>
 <h3 id="speed-ratios">Speed ratios</h3>
-<p><strong><code>project.outer_wall_speed</code></strong> (number). Default: <code>0.5</code></p>
+<p><strong><code>project.outer_wall_speed</code></strong> (number; per layer). Default: <code>0.5</code></p>
 <p>The outer wall speed, as a ratio of the allowed speed. A slower outer wall gives a better surface.</p>
-<p><strong><code>project.inner_wall_speed</code></strong> (number). Default: <code>0.8</code></p>
+<p><strong><code>project.inner_wall_speed</code></strong> (number; per layer). Default: <code>0.8</code></p>
 <p>The inner wall speed, as a ratio of the allowed speed.</p>
-<p><strong><code>project.skin_speed</code></strong> (number). Default: <code>0.7</code></p>
+<p><strong><code>project.skin_speed</code></strong> (number; per layer). Default: <code>0.7</code></p>
 <p>The skin speed, as a ratio of the allowed speed.</p>
-<p><strong><code>project.infill_speed</code></strong> (number). Default: <code>1.0</code></p>
+<p><strong><code>project.infill_speed</code></strong> (number; per layer). Default: <code>1.0</code></p>
 <p>The sparse infill speed, as a ratio of the allowed speed.</p>
 <p><strong><code>project.first_layer_speed</code></strong> (number). Default: <code>0.3</code></p>
 <p>The speed of all lines on the first layer, as a ratio of the allowed speed.</p>
 <p><strong><code>project.slow_layers</code></strong> (integer). Default: <code>0</code></p>
 <p>The layers after the first that print slower: their speed goes up in even steps from the first layer speed to the full speed, so that the part bonds to the bed. 0: the second layer prints at full speed.</p>
 <h3 id="acceleration">Acceleration</h3>
-<p><strong><code>project.outer_wall_accel</code></strong> (number). Default: <code>0</code></p>
+<p><strong><code>project.outer_wall_accel</code></strong> (number; per layer). Default: <code>0</code></p>
 <p>The acceleration of the outer wall, in mm/s². A lower value gives a cleaner surface. 0: the machine <code>max_accel</code>. The G-code has it only with machine <code>accel_control</code>.</p>
-<p><strong><code>project.inner_wall_accel</code></strong> (number). Default: <code>0</code></p>
+<p><strong><code>project.inner_wall_accel</code></strong> (number; per layer). Default: <code>0</code></p>
 <p>The acceleration of the inner walls and the skirt, in mm/s². 0: the machine <code>max_accel</code>.</p>
-<p><strong><code>project.skin_accel</code></strong> (number). Default: <code>0</code></p>
+<p><strong><code>project.skin_accel</code></strong> (number; per layer). Default: <code>0</code></p>
 <p>The acceleration of the skin, in mm/s². 0: the machine <code>max_accel</code>.</p>
-<p><strong><code>project.infill_accel</code></strong> (number). Default: <code>0</code></p>
+<p><strong><code>project.infill_accel</code></strong> (number; per layer). Default: <code>0</code></p>
 <p>The acceleration of the sparse infill and the support, in mm/s². 0: the machine <code>max_accel</code>.</p>
-<p><strong><code>project.travel_accel</code></strong> (number). Default: <code>0</code></p>
+<p><strong><code>project.travel_accel</code></strong> (number; per layer). Default: <code>0</code></p>
 <p>The acceleration of travel moves, in mm/s². 0: the machine <code>max_accel</code>.</p>
 <p><strong><code>project.first_layer_accel</code></strong> (number). Default: <code>0</code></p>
 <p>The acceleration of all lines on the first layer, in mm/s². 0: the acceleration of each feature.</p>
 <h3 id="travel">Travel</h3>
-<p><strong><code>project.retract_min_travel</code></strong> (number). Default: <code>1.5</code></p>
+<p><strong><code>project.retract_min_travel</code></strong> (number; per layer). Default: <code>1.5</code></p>
 <p>Travel moves shorter than this do not retract.</p>
-<p><strong><code>project.combing</code></strong> (true or false). Default: <code>true</code></p>
+<p><strong><code>project.combing</code></strong> (true or false; per layer). Default: <code>true</code></p>
 <p>Combing: a travel move that stays inside the part (it crosses no outline of the layer) does not retract, because an ooze there is inside the part. Off: each travel longer than <code>retract_min_travel</code> retracts.</p>
-<p><strong><code>project.combing_max_distance</code></strong> (number). Default: <code>0</code></p>
+<p><strong><code>project.combing_max_distance</code></strong> (number; per layer). Default: <code>0</code></p>
 <p>A travel inside the part that is longer than this retracts all the same (a long move can ooze a string over a top surface). 0: no limit.</p>
-<p><strong><code>project.z_hop</code></strong> (number). Default: <code>0</code></p>
+<p><strong><code>project.z_hop</code></strong> (number; per layer). Default: <code>0</code></p>
 <p>Lift the nozzle by this distance during a travel move with a retraction. 0 turns it off.</p>
 <h3 id="support">Support</h3>
 <p><strong><code>project.support</code></strong> (one of: <code>off</code>, <code>everywhere</code>, <code>buildplate</code>). Default: <code>off</code></p>
@@ -274,7 +276,7 @@ M84</code></pre>
 <p>Tree support: the diameter of a tip. 0 uses the line width times 2.</p>
 <p><strong><code>project.support_angle</code></strong> (number). Default: <code>50</code></p>
 <p>An overhang that leans more than this angle (degrees) from vertical gets support. A larger angle gives less support.</p>
-<p><strong><code>project.support_density</code></strong> (number). Default: <code>0.15</code></p>
+<p><strong><code>project.support_density</code></strong> (number; per layer). Default: <code>0.15</code></p>
 <p>The fraction of the support area that the support lines fill, as a ratio.</p>
 <p><strong><code>project.support_xy_gap</code></strong> (number). Default: <code>0.6</code></p>
 <p>The gap between the support and the sides of the part.</p>
@@ -282,7 +284,7 @@ M84</code></pre>
 <p>The number of empty layers between the support and the part above it or under it, so that the support comes off.</p>
 <p><strong><code>project.support_interface_layers</code></strong> (integer). Default: <code>2</code></p>
 <p>The number of dense layers at the top of the support, under the part. They make the bottom surface of the part smooth.</p>
-<p><strong><code>project.support_interface_density</code></strong> (number). Default: <code>0.7</code></p>
+<p><strong><code>project.support_interface_density</code></strong> (number; per layer). Default: <code>0.7</code></p>
 <p>The fraction of the interface area that its lines fill, as a ratio.</p>
 <h3 id="skirt-and-brim">Skirt and brim</h3>
 <p><strong><code>project.skirt_loops</code></strong> (integer). Default: <code>1</code></p>

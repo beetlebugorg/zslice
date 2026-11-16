@@ -6,6 +6,8 @@ Each setting has a name in the form `group.name`. Set it on the command line wit
 
 Units: lengths in mm, speeds in mm/s, flow in mm³/s, temperatures in °C. A ratio is 0 to 1.
 
+A setting marked "Per layer" can change for some layers of a part (for example "This layer and up" in the app). [Settings for some layers](../internals/layer-settings.md) explains the others.
+
 ## machine
 
 Facts about the printer. They change only when the printer changes.
@@ -146,7 +148,7 @@ g/cm^3. For the filament weight in the statistics.
 
 ### Temperatures
 
-**`filament.nozzle_temp`** (number). Default: `210`
+**`filament.nozzle_temp`** (number; per layer). Default: `210`
 
 The nozzle temperature from the second layer.
 
@@ -154,23 +156,23 @@ The nozzle temperature from the second layer.
 
 The nozzle temperature on the first layer.
 
-**`filament.bed_temp`** (number). Default: `60`
+**`filament.bed_temp`** (number; per layer). Default: `60`
 
 The bed temperature.
 
 ### Flow
 
-**`filament.max_flow`** (number). Default: `12`
+**`filament.max_flow`** (number; per layer). Default: `12`
 
 The maximum plastic flow that the hot end melts with this filament. This limits the speed of wide and tall lines.
 
-**`filament.flow_ratio`** (number). Default: `1.0`
+**`filament.flow_ratio`** (number; per layer). Default: `1.0`
 
 A multiplier for all extrusion, to calibrate the flow.
 
 ### Cooling
 
-**`filament.fan_speed`** (number). Default: `1.0`
+**`filament.fan_speed`** (number; per layer). Default: `1.0`
 
 The part cooling fan speed, as a ratio.
 
@@ -178,23 +180,23 @@ The part cooling fan speed, as a ratio.
 
 The fan is off for this number of layers at the start.
 
-**`filament.fan_max_speed`** (number). Default: `1.0`
+**`filament.fan_max_speed`** (number; per layer). Default: `1.0`
 
 The fan speed on short layers, as a ratio. See `fan_boost_time`.
 
-**`filament.fan_boost_time`** (number). Default: `15`
+**`filament.fan_boost_time`** (number; per layer). Default: `15`
 
 A layer that takes less time than this (s) gets the fan at `fan_max_speed`.
 
-**`filament.min_layer_time`** (number). Default: `6`
+**`filament.min_layer_time`** (number; per layer). Default: `6`
 
 The shortest time (s) for one layer. A layer that takes less time prints slower, so that the plastic below has time to cool.
 
-**`filament.min_speed`** (number). Default: `10`
+**`filament.min_speed`** (number; per layer). Default: `10`
 
 The lowest print speed (mm/s) for the slow-down of `min_layer_time`.
 
-**`filament.cooling_mode`** (one of: `slow_down`, `lap`). Default: `slow_down`
+**`filament.cooling_mode`** (one of: `slow_down`, `lap`; per layer). Default: `slow_down`
 
 How a layer that takes less than `min_layer_time` gets its time to cool. `slow_down`: it prints slower. `lap`: it prints at the planned speed; then the nozzle goes up 1 mm and moves around the layer with the fan at full until the time is over, so the air blows on the new plastic. The lap keeps the planned speed of the walls.
 
@@ -212,17 +214,17 @@ The part is printed larger by this ratio in X and Y, because the plastic shrinks
 
 The part is printed taller by this ratio, for shrinkage in Z.
 
-**`filament.xy_offset`** (number). Default: `0`
+**`filament.xy_offset`** (number; per layer). Default: `0`
 
 Moves all outlines out by this distance (in if negative). Use it if parts come out too large or too small by a fixed amount.
 
-**`filament.hole_xy_offset`** (number). Default: `0`
+**`filament.hole_xy_offset`** (number; per layer). Default: `0`
 
 Moves the edges of holes by this distance. A positive value makes holes larger. It adds to `xy_offset`, which makes holes smaller when it is positive. Holes often come out too small.
 
 ### Retraction
 
-**`filament.retract_ratio`** (number). Default: `1.0`
+**`filament.retract_ratio`** (number; per layer). Default: `1.0`
 
 A multiplier for the retraction length of the machine. Soft filament needs less.
 
@@ -232,7 +234,7 @@ What you want for this part.
 
 ### Layers
 
-**`project.layer_height`** (number). Default: `0.2`
+**`project.layer_height`** (number; per layer). Default: `0.2`
 
 The height of each layer after the first. A smaller value gives a smoother surface and a longer print.
 
@@ -242,7 +244,7 @@ The height of the first layer. A thicker first layer sticks to the bed better.
 
 ### Lines
 
-**`project.line_width`** (number). Default: `0`
+**`project.line_width`** (number; per layer). Default: `0`
 
 The line width. 0 uses 1.1 x the nozzle diameter.
 
@@ -252,127 +254,127 @@ The line width on the first layer. 0 uses 1.25 x the nozzle diameter.
 
 ### Walls
 
-**`project.wall_count`** (integer). Default: `2`
+**`project.wall_count`** (integer; per layer). Default: `2`
 
 The number of walls (loops) around the outline of each layer.
 
-**`project.wall_thickness`** (number). Default: `0`
+**`project.wall_thickness`** (number; per layer). Default: `0`
 
 The thickness of the walls, in mm, as in Cura: the wall count is this thickness divided by the line width, rounded (at least 1). 0: use `wall_count`.
 
-**`project.thin_walls`** (true or false). Default: `false`
+**`project.thin_walls`** (true or false; per layer). Default: `false`
 
 Print parts of the outline that are thinner than one line width (a thin fin, a sheet, a label): a loop inside each thin part, with a narrower line, so that its two sides fill the thickness. Without it, these parts print nothing. Off by default.
 
-**`project.seam`** (one of: `hidden`, `sharpest`, `rear`, `nearest`, `random`). Default: `hidden`
+**`project.seam`** (one of: `hidden`, `sharpest`, `rear`, `nearest`, `random`; per layer). Default: `hidden`
 
 Where each wall loop starts and ends (the seam). `hidden`: at the point where the seam is hardest to see: an inside corner first, then an outside corner, toward the back, and not where the wall hangs over air; similar layers pick the same point, so the seam is one clean line. `sharpest`: in the deepest inside corner, or else in the sharpest outside corner, or else at the rear. `rear`: at the back of the part (the largest y), in one straight line. `nearest`: at the point nearest to the nozzle, which is the fastest. `random`: at a different point on each layer, so that no seam line shows.
 
 ### Top and bottom skin
 
-**`project.top_thickness`** (number). Default: `0.8`
+**`project.top_thickness`** (number; per layer). Default: `0.8`
 
 The thickness of solid skin under each top surface.
 
-**`project.bottom_thickness`** (number). Default: `0.6`
+**`project.bottom_thickness`** (number; per layer). Default: `0.6`
 
 The thickness of solid skin above each bottom surface.
 
-**`project.skin_removal_width`** (number). Default: `0.2`
+**`project.skin_removal_width`** (number; per layer). Default: `0.2`
 
 Skin pieces narrower than this are removed before the expand (a sliver of skin at the edge of a slope). A thin piece next to a large skin area still gets skin from the expand.
 
-**`project.skin_expand_distance`** (number). Default: `0.8`
+**`project.skin_expand_distance`** (number; per layer). Default: `0.8`
 
 The skin grows this far into the sparse infill next to it, so that its edges hold on the infill and close against the walls.
 
-**`project.solid_infill_width`** (number). Default: `1.5`
+**`project.solid_infill_width`** (number; per layer). Default: `1.5`
 
 A sparse infill area narrower than this prints solid, as skin. A narrow strip would get no infill lines, and a gap would show next to the walls under a top surface.
 
-**`project.skin_pattern`** (one of: `lines`, `monotonic`, `concentric`). Default: `lines`
+**`project.skin_pattern`** (one of: `lines`, `monotonic`, `concentric`; per layer). Default: `lines`
 
 How the skin is filled. `lines`: parallel lines in the nearest order. `monotonic`: parallel lines from one side to the other, so each line lies against the line before it in the same way; the top has an even sheen. `concentric`: loops that follow the outline.
 
-**`project.skin_angle`** (number). Default: `45`
+**`project.skin_angle`** (number; per layer). Default: `45`
 
 The direction of the skin lines on the first layer, in degrees from the X axis. Ironing goes at a right angle to the top skin.
 
-**`project.skin_angle_step`** (number). Default: `90`
+**`project.skin_angle_step`** (number; per layer). Default: `90`
 
 How much the skin direction turns from one layer to the next, in degrees. 90 crosses the lines of each layer with the layer below.
 
-**`project.skin_overlap`** (number). Default: `0.15`
+**`project.skin_overlap`** (number; per layer). Default: `0.15`
 
 Skin lines go this far into the walls, as a fraction of the line width, so that the skin bonds to the walls.
 
 ### Infill
 
-**`project.infill_density`** (number). Default: `0.2`
+**`project.infill_density`** (number; per layer). Default: `0.2`
 
 The fraction of the inside that the sparse infill fills, as a ratio. 0 makes the part hollow.
 
-**`project.infill_pattern`** (one of: `lines`, `grid`, `triangles`, `cubic`, `gyroid`, `concentric`, `honeycomb`, `zigzag`, `flow`). Default: `grid`
+**`project.infill_pattern`** (one of: `lines`, `grid`, `triangles`, `cubic`, `gyroid`, `concentric`, `honeycomb`, `zigzag`, `flow`; per layer). Default: `grid`
 
 The sparse infill pattern. `lines`: one direction on each layer, turned 90 degrees on the next layer. `grid`: two directions on each layer. `triangles`: three directions at 60 degrees on each layer. `cubic`: three directions that move with the height, so the infill makes cubes in 3D. `gyroid`: smooth curves that change with the height, strong in all directions. `concentric`: loops that follow the outline. `honeycomb`: hexagon cells, the same on all layers. `zigzag`: the lines of `lines`, joined at the walls into one path, so the nozzle does not travel or retract between them. `flow`: the zigzag, with twice the density under each top surface (a band of 3 times the top thickness, at least 2 mm), where the top skin needs it, and the density of the setting in the middle.
 
-**`project.infill_angle`** (number). Default: `45`
+**`project.infill_angle`** (number; per layer). Default: `45`
 
 The angle of the infill and skin lines, in degrees from the X axis.
 
-**`project.infill_connect`** (true or false). Default: `true`
+**`project.infill_connect`** (true or false; per layer). Default: `true`
 
 Join the infill lines (lines, grid, triangles, cubic) at their ends with a short line along the edge, as "Connect Infill Lines" in Cura: the nozzle prints a zigzag with no travel and no retraction, and the joints tie the infill to the walls. Off: each line on its own.
 
-**`project.top_support_layers`** (integer). Default: `2`
+**`project.top_support_layers`** (integer; per layer). Default: `2`
 
 Top support: the layers under each top skin that get denser infill lines (one direction on each layer, turned 90 degrees on the next), so that the skin lies on a flat grid and bridges less. 0: off. The flow pattern has its own band.
 
-**`project.top_support_density`** (number). Default: `0.5`
+**`project.top_support_density`** (number; per layer). Default: `0.5`
 
 The density of the top support lines, as a ratio. It works only if it is more than `infill_density`.
 
-**`project.infill_overlap`** (number). Default: `0.2`
+**`project.infill_overlap`** (number; per layer). Default: `0.2`
 
 Sparse infill lines go this far into the walls, as a fraction of the line width.
 
 ### Ironing
 
-**`project.ironing`** (true or false). Default: `false`
+**`project.ironing`** (true or false; per layer). Default: `false`
 
 Iron the top surfaces. After the layer is complete, the nozzle goes over each top surface again with close lines and a small flow. The hot nozzle melts the surface flat, and the small flow fills the gaps between the skin lines.
 
-**`project.ironing_flow`** (number). Default: `0.1`
+**`project.ironing_flow`** (number; per layer). Default: `0.1`
 
 The flow of the ironing lines, as a ratio of the flow of a normal line.
 
-**`project.ironing_spacing`** (number). Default: `0.1`
+**`project.ironing_spacing`** (number; per layer). Default: `0.1`
 
 The distance between the ironing lines.
 
-**`project.ironing_inset`** (number). Default: `0.3`
+**`project.ironing_inset`** (number; per layer). Default: `0.3`
 
 The ironing area is this far inside the edges of the top surface, so that the nozzle does not push plastic over the edges.
 
-**`project.ironing_speed`** (number). Default: `0.15`
+**`project.ironing_speed`** (number; per layer). Default: `0.15`
 
 The ironing speed, as a ratio of `machine.max_speed`. The flow limit of the filament does not apply, because the flow is small.
 
 ### Speed ratios
 
-**`project.outer_wall_speed`** (number). Default: `0.5`
+**`project.outer_wall_speed`** (number; per layer). Default: `0.5`
 
 The outer wall speed, as a ratio of the allowed speed. A slower outer wall gives a better surface.
 
-**`project.inner_wall_speed`** (number). Default: `0.8`
+**`project.inner_wall_speed`** (number; per layer). Default: `0.8`
 
 The inner wall speed, as a ratio of the allowed speed.
 
-**`project.skin_speed`** (number). Default: `0.7`
+**`project.skin_speed`** (number; per layer). Default: `0.7`
 
 The skin speed, as a ratio of the allowed speed.
 
-**`project.infill_speed`** (number). Default: `1.0`
+**`project.infill_speed`** (number; per layer). Default: `1.0`
 
 The sparse infill speed, as a ratio of the allowed speed.
 
@@ -386,23 +388,23 @@ The layers after the first that print slower: their speed goes up in even steps 
 
 ### Acceleration
 
-**`project.outer_wall_accel`** (number). Default: `0`
+**`project.outer_wall_accel`** (number; per layer). Default: `0`
 
 The acceleration of the outer wall, in mm/s². A lower value gives a cleaner surface. 0: the machine `max_accel`. The G-code has it only with machine `accel_control`.
 
-**`project.inner_wall_accel`** (number). Default: `0`
+**`project.inner_wall_accel`** (number; per layer). Default: `0`
 
 The acceleration of the inner walls and the skirt, in mm/s². 0: the machine `max_accel`.
 
-**`project.skin_accel`** (number). Default: `0`
+**`project.skin_accel`** (number; per layer). Default: `0`
 
 The acceleration of the skin, in mm/s². 0: the machine `max_accel`.
 
-**`project.infill_accel`** (number). Default: `0`
+**`project.infill_accel`** (number; per layer). Default: `0`
 
 The acceleration of the sparse infill and the support, in mm/s². 0: the machine `max_accel`.
 
-**`project.travel_accel`** (number). Default: `0`
+**`project.travel_accel`** (number; per layer). Default: `0`
 
 The acceleration of travel moves, in mm/s². 0: the machine `max_accel`.
 
@@ -412,19 +414,19 @@ The acceleration of all lines on the first layer, in mm/s². 0: the acceleration
 
 ### Travel
 
-**`project.retract_min_travel`** (number). Default: `1.5`
+**`project.retract_min_travel`** (number; per layer). Default: `1.5`
 
 Travel moves shorter than this do not retract.
 
-**`project.combing`** (true or false). Default: `true`
+**`project.combing`** (true or false; per layer). Default: `true`
 
 Combing: a travel move that stays inside the part (it crosses no outline of the layer) does not retract, because an ooze there is inside the part. Off: each travel longer than `retract_min_travel` retracts.
 
-**`project.combing_max_distance`** (number). Default: `0`
+**`project.combing_max_distance`** (number; per layer). Default: `0`
 
 A travel inside the part that is longer than this retracts all the same (a long move can ooze a string over a top surface). 0: no limit.
 
-**`project.z_hop`** (number). Default: `0`
+**`project.z_hop`** (number; per layer). Default: `0`
 
 Lift the nozzle by this distance during a travel move with a retraction. 0 turns it off.
 
@@ -454,7 +456,7 @@ Tree support: the diameter of a tip. 0 uses the line width times 2.
 
 An overhang that leans more than this angle (degrees) from vertical gets support. A larger angle gives less support.
 
-**`project.support_density`** (number). Default: `0.15`
+**`project.support_density`** (number; per layer). Default: `0.15`
 
 The fraction of the support area that the support lines fill, as a ratio.
 
@@ -470,7 +472,7 @@ The number of empty layers between the support and the part above it or under it
 
 The number of dense layers at the top of the support, under the part. They make the bottom surface of the part smooth.
 
-**`project.support_interface_density`** (number). Default: `0.7`
+**`project.support_interface_density`** (number; per layer). Default: `0.7`
 
 The fraction of the interface area that its lines fill, as a ratio.
 

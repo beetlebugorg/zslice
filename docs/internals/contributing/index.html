@@ -34,6 +34,7 @@
 <div class="group">Internals</div>
 <a href="../../internals/architecture/">Architecture</a>
 <a href="../../internals/how-slicing-works/">How slicing works</a>
+<a href="../../internals/layer-settings/">Settings for some layers</a>
 <a href="../../internals/cura-compare/">Cura comparison</a>
 <a href="../../internals/contributing/" aria-current="page">Contributing</a>
 <a href="../../internals/code-quality/">Code quality</a>
@@ -74,7 +75,7 @@ python3 -I tools/corpus.py zig-out/bin/zslice ../printdeck report.tsv</code></pr
 rsvg-convert -w 900 layer20.svg -o layer20.png   # optional: a PNG</code></pre>
 <p>Check a bottom layer (all skin), a middle layer (walls and sparse infill), a layer just under a top surface (skin), and the top layer.</p>
 <h2 id="add-a-setting">Add a setting</h2>
-<ol><li>Add a field with a default value to the correct struct in <code>src/settings.zig</code>: <code>Machine</code>, <code>Filament</code>, <code>Project</code>, or <code>EngineOptions</code>. Choose the struct by the owner of the value (see the <a href="../../user/getting-started/#the-three-groups">user guide</a>).</li><li>Add a <code>///</code> doc comment that says what the setting does and its unit.</li><li>If the value has limits, check them in <code>Settings.resolve</code>.</li><li>If code uses a derived value, compute it once in <code>resolve</code> and add it to <code>Resolved</code>.</li><li>Use the value in the stage.</li><li>Run <code>python3 -I tools/settings_doc.py &gt; docs/user/settings.md</code>.</li></ol>
+<ol><li>Add a field with a default value to the correct struct in <code>src/settings.zig</code>: <code>Machine</code>, <code>Filament</code>, <code>Project</code>, or <code>EngineOptions</code>. Choose the struct by the owner of the value (see the <a href="../../user/getting-started/#the-three-groups">user guide</a>).</li><li>Add a <code>///</code> doc comment that says what the setting does and its unit.</li><li>If the value has limits, check them in <code>Settings.resolve</code>.</li><li>If code uses a derived value, compute it once in <code>resolve</code> and add it to <code>Resolved</code>.</li><li>Use the value in the stage.</li><li>If the value can change per layer, read it from the settings of the layer, and add its name to <code>settings.layer_settings</code> (see <a href="../../internals/layer-settings/">Settings for some layers</a>).</li><li>Run <code>python3 -I tools/settings_doc.py &gt; docs/user/settings.md</code>.</li></ol>
 <p><code>Settings.set</code>, the C API, the wasm API, and the command line get the new setting with no more code. They use comptime reflection on the struct. Supported field types: <code>f64</code>, <code>u32</code> (and other integers), <code>bool</code>, enums, and <code>[]const u8</code>.</p>
 <h2 id="add-a-feature-type">Add a feature type</h2>
 <p>A feature is a kind of path, for example a wall, infill, or ironing. To add one (for example <code>support</code>):</p>

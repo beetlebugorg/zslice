@@ -97,6 +97,8 @@ The paths of one layer, in print order. It has its own arena: `deinit` frees all
 
 `Settings` has the values that the user sets. `Resolved` comes from `Settings.resolve()`: it has the derived values (the line width when it is 0, the skin layer count from the thickness, the filament area) and the `speed` function. Code after the engine start uses `Resolved`, so that each derived value has one definition.
 
+A layer with overrides has its own `Resolved` (`Job.resolvedAt`). [Settings for some layers](layer-settings.md) lists the settings that can change per layer, and the code that reads them.
+
 ## Memory model
 
 zslice uses arenas for temporary memory. An arena frees all its memory in one step, so the code needs no `free` for each temporary array.
