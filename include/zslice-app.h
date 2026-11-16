@@ -143,6 +143,16 @@ int zs_app_gcode(const zs_app *app, const uint8_t **out, size_t *out_len);
  * as they are. ZS_UNKNOWN_SETTING if the setting is not a speed ratio. */
 int zs_app_ratio_speed(const zs_app *app, const char *name, const char *value, double *mm_s);
 
+/* Support marks, from the context menu of a selected line: support of a
+ * kind under a disk (radius r, mm) at x, y on the layer at nozzle z, or no
+ * support there. They work also when support is off. A mark at the same
+ * place is replaced. Call zs_app_request_slice after a change. */
+enum zs_mark_kind { ZS_MARK_GRID = 0, ZS_MARK_TREE = 1, ZS_MARK_BRIDGE = 2, ZS_MARK_BLOCK = 3 };
+int zs_app_mark_add(zs_app *app, double x, double y, double z, double r, int kind);
+size_t zs_app_mark_remove_near(zs_app *app, double x, double y, double z, double r);
+size_t zs_app_mark_count(const zs_app *app);
+void zs_app_marks_clear(zs_app *app);
+
 int zs_app_write_3mf(zs_app *app, const uint8_t **out, size_t *out_len);
 size_t zs_app_layer_count(const zs_app *app);
 /* The part on the bed: min x, min y, max x, max y, in mm. */

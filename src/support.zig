@@ -43,6 +43,20 @@ const slicer = @import("slicer.zig");
 const Paths = geom.Paths;
 const tree = @import("tree_support.zig");
 
+/// A support mark of the user, from a click on a line: support of a
+/// kind under a disk at a place, or no support there. Coordinates on the
+/// bed, in mm; `z` is the nozzle z of the layer of the line.
+pub const Mark = struct {
+    x: f64,
+    y: f64,
+    z: f64,
+    /// The radius of the disk, mm.
+    r: f64 = 3,
+    kind: Kind,
+
+    pub const Kind = enum(u8) { grid = 0, tree = 1, bridge = 2, block = 3 };
+};
+
 pub const SupportLayer = struct {
     body: Paths = .empty,
     interface: Paths = .empty,
@@ -66,9 +80,93 @@ pub fn compute(
     layers: []const slicer.Layer,
     r: *const settings_mod.Resolved,
     threads: usize,
+    marks: []const Mark,
 ) anyerror![]SupportLayer {
     const p = r.settings.project;
-    if (p.support == .off or outlines.len < 2) return &.{};
+    var adds = false;
+    for (marks) |m| if (m.kind != .block) {
+        adds = true;
+    };
+    if ((p.support == .off and !adds) or outlines.len < 2) return &.{};
+    // Support from the settings, less the blocked marks; then the support
+    // of each kind of mark, with its own style, joined in.
+    var main = try computeStyle(gpa, outlines, layers, r, threads, marks, null);
+    errdefer deinitAll(gpa, main);
+    for ([_]Mark.Kind{ .grid, .tree, .bridge }) |kind| {
+        var has = false;
+        for (marks) |m| if (m.kind == kind) {
+            has = true;
+        };
+        if (!has) continue;
+        const extra = try computeStyle(gpa, outlines, layers, r, threads, marks, kind);
+        defer deinitAll(gpa, extra);
+        if (extra.len == 0) continue;
+        if (main.len == 0) {
+            main = try gpa.alloc(SupportLayer, extra.len);
+            for (main) |*x| x.* = .{};
+        }
+        for (main, extra) |*a, b| {
+            if (!b.body.isEmpty()) {
+                const u = try clip.unite(gpa, a.body, b.body);
+                a.body.deinit(gpa);
+                a.body = u;
+            }
+            if (!b.interface.isEmpty()) {
+                const u = try clip.unite(gpa, a.interface, b.interface);
+                a.interface.deinit(gpa);
+                a.interface = u;
+            }
+        }
+    }
+    return main;
+}
+
+/// A disk of radius r at x, y (mm), as a polygon.
+fn disk(a: Allocator, x: f64, y: f64, r: f64) Allocator.Error!Paths {
+    var out: Paths = .empty;
+    var pts: [24]geom.Point = undefined;
+    for (&pts, 0..) |*q, k| {
+        const t = 2 * std.math.pi * @as(f64, @floatFromInt(k)) / 24.0;
+        q.* = .{ .x = geom.fromMm(x + r * @cos(t)), .y = geom.fromMm(y + r * @sin(t)) };
+    }
+    try out.append(a, &pts);
+    return out;
+}
+
+/// The layer of a z (the nearest nozzle z).
+fn layerAt(layers: []const slicer.Layer, z: f64) usize {
+    var best: usize = 0;
+    for (layers, 0..) |l, i| if (@abs(l.z - z) < @abs(layers[best].z - z)) {
+        best = i;
+    };
+    return best;
+}
+
+/// The support of one style. `kind` null: the support of the settings
+/// (the overhangs by angle), with no support under the block marks.
+/// Else: only the support under the marks of that kind, in its style.
+fn computeStyle(
+    gpa: Allocator,
+    outlines: []const Paths,
+    layers: []const slicer.Layer,
+    r: *const settings_mod.Resolved,
+    threads: usize,
+    marks: []const Mark,
+    kind: ?Mark.Kind,
+) anyerror![]SupportLayer {
+    var p = r.settings.project;
+    if (kind) |k| {
+        p.support_style = switch (k) {
+            .grid => .grid,
+            .tree => .tree,
+            .bridge => .bridge,
+            .block => unreachable,
+        };
+        if (p.support == .off) p.support = .everywhere;
+    } else if (p.support == .off) return &.{};
+    var rs = r.*;
+    rs.settings.project = p;
+    const r_style = &rs;
     const n = outlines.len;
     const w = geom.fromMm(r.line_width);
 
@@ -112,12 +210,45 @@ pub fn compute(
     const oc: Overhangs = .{ .gpa = gpa, .outlines = outlines, .layers = layers, .need = need, .blocked = blocked, .tan_angle = @tan(angle), .w = w, .xy = xy };
     try parallel.forEach(threads, n, &oc, Overhangs.run);
 
+    // The marks: a block mark removes the overhang near it (2 mm up and
+    // down); a mark of the kind of this pass replaces the overhangs with
+    // the part of its disk that is not on the layer under it.
+    {
+        var arena_m = std.heap.ArenaAllocator.init(gpa);
+        defer arena_m.deinit();
+        const am = arena_m.allocator();
+        if (kind) |k| {
+            for (need) |*x| x.deinit(gpa);
+            for (need) |*x| x.* = .empty;
+            for (marks) |m| if (m.kind == k) {
+                const i = layerAt(layers, m.z);
+                if (i == 0) continue;
+                const d = try disk(am, m.x, m.y, m.r);
+                const on = try clip.intersect(am, outlines[i], d);
+                const free = try clip.difference(am, on, outlines[i - 1]);
+                const u = try clip.unite(gpa, need[i], free);
+                need[i].deinit(gpa);
+                need[i] = u;
+            };
+        } else {
+            for (marks) |m| if (m.kind == .block) {
+                const d = try disk(am, m.x, m.y, m.r);
+                for (layers, 0..) |l, i| {
+                    if (@abs(l.z - m.z) > 2 or need[i].isEmpty()) continue;
+                    const rest = try clip.difference(gpa, need[i], d);
+                    need[i].deinit(gpa);
+                    need[i] = rest;
+                }
+            };
+        }
+    }
+
     const out = try gpa.alloc(SupportLayer, n);
     for (out) |*x| x.* = .{};
     errdefer deinitAll(gpa, out);
 
     if (p.support_style == .tree) {
-        try treeSupport(gpa, threads, outlines, layers, r, need, blocked, out);
+        try treeSupport(gpa, threads, outlines, layers, r_style, need, blocked, out);
         return out;
     }
     if (p.support_style == .bridge) {
@@ -327,7 +458,7 @@ test "a mushroom gets support under its cap" {
     var st: settings_mod.Settings = .{};
     st.project.support = .everywhere;
     const r = try st.resolve();
-    const sup = try compute(gpa, sl.outlines, sl.layers, &r, 4);
+    const sup = try compute(gpa, sl.outlines, sl.layers, &r, 4, &.{});
     defer deinitAll(gpa, sup);
 
     // Layer 24 (z 5.1) is the first layer of the cap. With a z gap of one
@@ -340,6 +471,44 @@ test "a mushroom gets support under its cap" {
     try testing.expectApproxEqRel(want, sup[10].body.areaMm2(), 0.03);
     // No support inside the cap or on the top.
     try testing.expect(sup[30].body.isEmpty());
+}
+
+test "support marks: a pad with support off, and a block" {
+    const gpa = testing.allocator;
+    // The mushroom of the test above: a cap from z 5 over a post.
+    var b: mesh_mod.Builder = .init(gpa);
+    try mesh_mod.shapes.addBox(&b, 8, 8, 0, 12, 12, 5);
+    try mesh_mod.shapes.addBox(&b, 0, 0, 5, 20, 20, 7);
+    var m = try b.finish();
+    defer m.deinit(gpa);
+    const sl = try sliceAll(gpa, &m, 7);
+    defer {
+        for (sl.outlines) |*o| o.deinit(gpa);
+        gpa.free(sl.outlines);
+        gpa.free(sl.layers);
+    }
+    // Support off; a bridge mark under the cap near its corner (z of the
+    // first cap layer).
+    var st: settings_mod.Settings = .{};
+    const r = try st.resolve();
+    const z_cap = sl.layers[24].z;
+    const marks = [_]Mark{.{ .x = 3, .y = 3, .z = z_cap, .r = 2, .kind = .bridge }};
+    const sup = try compute(gpa, sl.outlines, sl.layers, &r, 1, &marks);
+    defer deinitAll(gpa, sup);
+    // A pad under the mark (layer 22, under the z gap), and nothing below.
+    try testing.expect(!sup[22].interface.isEmpty());
+    try testing.expect(sup[22].interface.areaMm2() < 15);
+    try testing.expect(sup[10].body.isEmpty() and sup[10].interface.isEmpty());
+
+    // Support on, with a block mark at the same corner: less support there.
+    st.project.support = .everywhere;
+    const r2 = try st.resolve();
+    const all = try compute(gpa, sl.outlines, sl.layers, &r2, 1, &.{});
+    defer deinitAll(gpa, all);
+    const block = [_]Mark{.{ .x = 3, .y = 3, .z = z_cap, .r = 2, .kind = .block }};
+    const less = try compute(gpa, sl.outlines, sl.layers, &r2, 1, &block);
+    defer deinitAll(gpa, less);
+    try testing.expect(less[10].body.areaMm2() < all[10].body.areaMm2() - 5);
 }
 
 test "bed-only support skips a column that rests on the part" {
@@ -361,7 +530,7 @@ test "bed-only support skips a column that rests on the part" {
     var st: settings_mod.Settings = .{};
     st.project.support = .everywhere;
     var r = try st.resolve();
-    const every = try compute(gpa, sl.outlines, sl.layers, &r, 1);
+    const every = try compute(gpa, sl.outlines, sl.layers, &r, 1, &.{});
     defer deinitAll(gpa, every);
     try testing.expect(!every[15].body.isEmpty());
     // The column stops above the base, with a one-layer gap: layer 9 (z
@@ -370,7 +539,7 @@ test "bed-only support skips a column that rests on the part" {
 
     st.project.support = .buildplate;
     r = try st.resolve();
-    const bed = try compute(gpa, sl.outlines, sl.layers, &r, 1);
+    const bed = try compute(gpa, sl.outlines, sl.layers, &r, 1, &.{});
     defer deinitAll(gpa, bed);
     for (bed) |l| try testing.expect(l.body.isEmpty() and l.interface.isEmpty());
 }
@@ -394,7 +563,7 @@ test "tree support: branches under a cap, and a branch down a narrow hole" {
     st.project.support = .everywhere;
     st.project.support_style = .tree;
     const r = try st.resolve();
-    const sup = try compute(gpa, sl.outlines, sl.layers, &r, 1);
+    const sup = try compute(gpa, sl.outlines, sl.layers, &r, 1, &.{});
     defer deinitAll(gpa, sup);
     // The pads under the cap, and branches down to the bed.
     try testing.expect(!sup[22].interface.isEmpty() or !sup[21].interface.isEmpty());

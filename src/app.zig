@@ -106,6 +106,10 @@ pub const App = struct {
     overrides: std.ArrayList(zs.settings.Override) = .empty,
     /// A copy of `overrides` for the running slice.
     slice_overrides: []zs.settings.Override = &.{},
+    /// The support marks of the user (see support.Mark), and a copy for
+    /// the running slice. A new model clears them.
+    marks: std.ArrayList(zs.support.Mark) = .empty,
+    slice_marks: []zs.support.Mark = &.{},
     /// The bytes of the last write3mf.
     file_bytes: []u8 = &.{},
 
@@ -123,6 +127,8 @@ pub const App = struct {
         app.overrides.deinit(app.gpa);
         app.gpa.free(app.slice_overrides);
         app.gpa.free(app.file_bytes);
+        app.marks.deinit(app.gpa);
+        app.gpa.free(app.slice_marks);
         if (app.mesh) |*m| m.deinit(app.gpa);
         app.plate.deinit(app.gpa);
         app.gpa.free(app.model_name);
@@ -159,6 +165,7 @@ pub const App = struct {
         app.clearResults();
         // The overrides were for the old parts.
         app.overrides.clearRetainingCapacity();
+        app.marks.clearRetainingCapacity();
         app.plate.clear(app.gpa);
     }
 
@@ -375,6 +382,29 @@ pub const App = struct {
         try app.overrides.append(app.gpa, .{ .z_min = z_min, .z_max = z_max, .name = n, .value = v });
     }
 
+    /// Adds a support mark (support of a kind under a disk at x, y on the
+    /// layer at z, or a block of support there). A mark at the same place
+    /// (closer than its radius, on the same layer) is replaced.
+    pub fn addMark(app: *App, mark: zs.support.Mark) Allocator.Error!void {
+        _ = app.removeMarksNear(mark.x, mark.y, mark.z, mark.r);
+        try app.marks.append(app.gpa, mark);
+    }
+
+    /// Removes the marks within r of x, y on the layer at z (0.05 mm).
+    /// Returns how many.
+    pub fn removeMarksNear(app: *App, x: f64, y: f64, z: f64, r: f64) usize {
+        var removed: usize = 0;
+        var i: usize = 0;
+        while (i < app.marks.items.len) {
+            const m = app.marks.items[i];
+            if (@abs(m.z - z) < 0.05 and std.math.hypot(m.x - x, m.y - y) < r + m.r) {
+                _ = app.marks.orderedRemove(i);
+                removed += 1;
+            } else i += 1;
+        }
+        return removed;
+    }
+
     /// Removes the overrides of a setting that cover z. Returns how many.
     pub fn clearOverridesAt(app: *App, z: f64, name: []const u8) usize {
         var removed: usize = 0;
@@ -447,6 +477,8 @@ pub const App = struct {
         app.slice_settings = app.settings;
         app.gpa.free(app.slice_overrides);
         app.slice_overrides = app.gpa.dupe(zs.settings.Override, app.overrides.items) catch &.{};
+        app.gpa.free(app.slice_marks);
+        app.slice_marks = app.gpa.dupe(zs.support.Mark, app.marks.items) catch &.{};
         app.cancel_flag.store(false, .release);
         app.state.store(.slicing, .release);
         if (comptime !has_threads) {
@@ -546,7 +578,7 @@ pub const App = struct {
             }
         }
         const prev: ?*zs.Job = if (app.prev_job) |*j| j else null;
-        const job_or = zs.Job.initReuse(app.gpa, &app.mesh.?, part, layer_overrides.items, monitor, prev);
+        const job_or = zs.Job.initReuse(app.gpa, &app.mesh.?, part, layer_overrides.items, app.slice_marks, monitor, prev);
         // The new job took what it could use. A job that failed (for
         // example, a cancel) can leave the old job without outlines, so the
         // old job goes in each case.
@@ -1717,6 +1749,37 @@ test "app: a change for the top layer gives the same G-code with the cache and w
         fresh.stopWorkerForTest();
         try testing.expectEqualStrings(fresh.gcode().?, app.gcode().?);
     }
+}
+
+test "app: a support mark adds support where the settings have none" {
+    const gpa = testing.allocator;
+    var mesh = try zs.mesh.shapes.demo(gpa);
+    var bytes: std.Io.Writer.Allocating = .init(gpa);
+    defer bytes.deinit();
+    try mesh.writeStl(&bytes.writer);
+    mesh.deinit(gpa);
+    const app = try App.create(gpa, null, null);
+    defer app.destroy();
+    try app.loadStl("demo.stl", bytes.written());
+    // A shelf: the demo part has none, so make an overhang with a bridge
+    // mark over the hole of the tube is not possible; use the top of the
+    // box: a mark there finds no overhang (the box is on the base), so the
+    // G-code has no support.
+    try app.startSlice();
+    app.stopWorkerForTest();
+    try testing.expect(std.mem.indexOf(u8, app.gcode().?, ";TYPE:SUPPORT") == null);
+    const t = app.allToolpaths().?;
+    const top = t.layer_z.items[t.layer_z.items.len - 1];
+    // The box of the demo part (20 x 20 mm) sits on the base: no overhang.
+    try app.addMark(.{ .x = 100, .y = 100, .z = top, .kind = .grid });
+    try testing.expectEqual(@as(usize, 1), app.marks.items.len);
+    // The same place again replaces the mark.
+    try app.addMark(.{ .x = 100.5, .y = 100, .z = top, .kind = .tree });
+    try testing.expectEqual(@as(usize, 1), app.marks.items.len);
+    try app.requestSlice();
+    app.stopWorkerForTest();
+    try testing.expectEqual(State.done, app.getState());
+    try testing.expectEqual(@as(usize, 1), app.removeMarksNear(100, 100, top, 1));
 }
 
 test "app: a 3MF file keeps the parts, the places, and the changes" {

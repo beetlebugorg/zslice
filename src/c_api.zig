@@ -395,6 +395,30 @@ export fn zs_app_stats(a: ?*const App, out: ?*Stats) c_int {
 
 /// The G-code of the last slice. The bytes stay valid until the next
 /// slice, the next model, or zs_app_free.
+/// Adds a support mark: kind 0 grid, 1 tree, 2 bridge (a pad), 3 block.
+export fn zs_app_mark_add(a: ?*App, x: f64, y: f64, z: f64, r: f64, kind: c_int) c_int {
+    const app = a orelse return @intFromEnum(Status.invalid_argument);
+    if (kind < 0 or kind > 3 or !(r > 0)) return @intFromEnum(Status.invalid_argument);
+    app.addMark(.{ .x = x, .y = y, .z = z, .r = r, .kind = @enumFromInt(@as(u8, @intCast(kind))) }) catch |e| return status(e);
+    return ok;
+}
+
+/// Removes the marks near a place. Returns how many.
+export fn zs_app_mark_remove_near(a: ?*App, x: f64, y: f64, z: f64, r: f64) usize {
+    const app = a orelse return 0;
+    return app.removeMarksNear(x, y, z, r);
+}
+
+export fn zs_app_mark_count(a: ?*const App) usize {
+    const app = a orelse return 0;
+    return app.marks.items.len;
+}
+
+export fn zs_app_marks_clear(a: ?*App) void {
+    const app = a orelse return;
+    app.marks.clearRetainingCapacity();
+}
+
 export fn zs_app_write_3mf(a: ?*App, out: ?*?[*]const u8, out_len: ?*usize) c_int {
     const app = a orelse return @intFromEnum(Status.invalid_argument);
     const o = out orelse return @intFromEnum(Status.invalid_argument);
