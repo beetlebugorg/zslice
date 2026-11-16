@@ -3,7 +3,10 @@
 
 In a git repo, the script uses only the files that git tracks.
 
-Usage: python3 -I tools/corpus.py <zslice binary> <folder> <report.tsv> [jobs]
+Usage: python3 -I tools/corpus.py <zslice binary> <folder> <report.tsv> [jobs] [group.name=value ...]
+
+The settings after the job count go to each slice, for example
+project.support=everywhere.
 
 Each file is sliced in its own process with a time limit. The report has one
 line for each file: status, seconds, peak memory (MB), triangles, layers, the
@@ -22,6 +25,9 @@ import time
 TIMEOUT_S = 120
 
 
+EXTRA = []
+
+
 def slice_one(binary, path):
     triangles = max(0, (os.path.getsize(path) - 84) // 50)
     # The child measures its own peak memory, because RUSAGE_CHILDREN in a
@@ -38,6 +44,8 @@ def slice_one(binary, path):
         "-s", "machine.max_height=2000", "-s", "machine.bed_size_x=2000",
         "-s", "machine.bed_size_y=2000", "-s", "engine.threads=2",
     ]
+    for kv in EXTRA:
+        cmd += ["-s", kv]
     t0 = time.time()
     try:
         p = subprocess.run(cmd, capture_output=True, text=True, timeout=TIMEOUT_S + 10)
@@ -79,6 +87,7 @@ def list_files(folder):
 def main():
     binary, folder, report = sys.argv[1], sys.argv[2], sys.argv[3]
     jobs = int(sys.argv[4]) if len(sys.argv) > 4 else 4
+    EXTRA.extend(sys.argv[5:])
     files = list_files(folder)
     results = []
     with concurrent.futures.ThreadPoolExecutor(jobs) as ex:

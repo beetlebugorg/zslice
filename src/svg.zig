@@ -17,6 +17,8 @@ fn color(f: Feature) []const u8 {
         .infill => "#2b8a3e",
         .ironing => "#ae3ec9",
         .skirt => "#8d6e63",
+        .support => "#adb5bd",
+        .support_interface => "#495057",
     };
 }
 

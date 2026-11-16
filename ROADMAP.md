@@ -33,7 +33,8 @@ The goal is the features that people use in PrusaSlicer and Cura. zslice designs
 ### Print quality and strength
 - [x] Walls, top and bottom skin, sparse infill (lines, grid)
 - [x] Ironing
-- [ ] Support: normal (grid) and tree, with interface layers, support blockers and enforcers
+- [x] Support: grid support with interface layers, XY and Z gaps, everywhere or bed only
+- [ ] Support: tree support, support blockers and enforcers, bridges without support
 - [x] Skirt and brim
 - [ ] Bridges: find them, print them with their own direction, speed, flow, and fan
 - [ ] Overhang walls: slower speed and more fan for overhang
@@ -86,7 +87,8 @@ The goal is the features that people use in PrusaSlicer and Cura. zslice designs
 
 ## Performance
 
-- The polygon boolean is O(n^2) for long edges (the sweep keeps an edge active for its whole x range, and the slab index puts it in each slab it crosses). Use a sweep status in y order, or a 2D grid. The offset of curved outlines makes many thin loops at closing corners, and the boolean is slow on them: the corpus takes 18 % longer since the offset fix.
+- The polygon boolean is O(n^2) for long edges (the sweep keeps an edge active for its whole x range, and the slab index puts it in each slab it crosses). Use a sweep status in y order, or a 2D grid.
+- The support column pass (`support.zig` step 2) runs on one thread. The slowest corpus file with support takes 11 s on 2 threads. Split the layers into bands that run in parallel, or use a coarser area for the carry.
 - Clip open lines (infill, ironing) with a direct method, not with the scanline of a region.
 - Pass one scratch arena for each layer to the boolean and offset calls.
 

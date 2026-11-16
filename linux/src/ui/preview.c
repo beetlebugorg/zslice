@@ -38,6 +38,8 @@ static const double feature_rgb[][3] = {
     {0.169, 0.541, 0.243}, /* infill: green */
     {0.682, 0.243, 0.788}, /* ironing: purple */
     {0.553, 0.431, 0.388}, /* skirt and brim: brown */
+    {0.678, 0.710, 0.741}, /* support: light gray */
+    {0.286, 0.314, 0.341}, /* support interface: dark gray */
 };
 #define N_FEATURES (sizeof feature_rgb / sizeof feature_rgb[0])
 

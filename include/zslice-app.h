@@ -130,7 +130,9 @@ enum zs_feature {
     ZS_FEATURE_SKIN = 2,
     ZS_FEATURE_INFILL = 3,
     ZS_FEATURE_IRONING = 4,
-    ZS_FEATURE_SKIRT = 5 /* skirt and brim */
+    ZS_FEATURE_SKIRT = 5, /* skirt and brim */
+    ZS_FEATURE_SUPPORT = 6,
+    ZS_FEATURE_SUPPORT_INTERFACE = 7
 };
 
 /* The paths of one layer, in print order, in mm. Path i has the points

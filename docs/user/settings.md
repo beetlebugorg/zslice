@@ -288,6 +288,36 @@ Travel moves shorter than this do not retract.
 
 Lift the nozzle by this distance during a travel move with a retraction. 0 turns it off.
 
+### Support
+
+**`project.support`** (one of: `off`, `everywhere`, `buildplate`). Default: `off`
+
+Support under overhangs. `off`: no support. `everywhere`: support can stand on the bed or on the part. `buildplate`: only support that stands on the bed.
+
+**`project.support_angle`** (number). Default: `50`
+
+An overhang that leans more than this angle (degrees) from vertical gets support. A larger angle gives less support.
+
+**`project.support_density`** (number). Default: `0.15`
+
+The fraction of the support area that the support lines fill, as a ratio.
+
+**`project.support_xy_gap`** (number). Default: `0.6`
+
+The gap between the support and the sides of the part.
+
+**`project.support_z_gap_layers`** (integer). Default: `1`
+
+The number of empty layers between the support and the part above it or under it, so that the support comes off.
+
+**`project.support_interface_layers`** (integer). Default: `2`
+
+The number of dense layers at the top of the support, under the part. They make the bottom surface of the part smooth.
+
+**`project.support_interface_density`** (number). Default: `0.7`
+
+The fraction of the interface area that its lines fill, as a ratio.
+
 ### Skirt and brim
 
 **`project.skirt_loops`** (integer). Default: `1`

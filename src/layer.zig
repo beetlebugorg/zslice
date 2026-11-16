@@ -23,8 +23,11 @@
 //!    outer boundaries of the first layer (not around holes), one line
 //!    width apart, to `brim_width`. The skirt is loops around the first
 //!    layer and the brim, at `skirt_distance`.
-//! 8. Order. The plan prints the skirt and the brim first (outermost loop
-//!    first), then the inner walls, then the outer wall, then the skin,
+//! 8. Support (see support.zig): one boundary loop and lines in a fixed
+//!    direction for the support body, and dense lines across them for the
+//!    interface.
+//! 9. Order. The plan prints the skirt and the brim first (outermost loop
+//!    first), then the support, then the inner walls, then the outer wall, then the skin,
 //!    then the infill, then the ironing. Inside each group, the next path is
 //!    the nearest one to the current nozzle position (a greedy nearest
 //!    neighbor search). A loop starts at its vertex nearest to the nozzle.
@@ -41,6 +44,7 @@ const offset_mod = @import("offset.zig");
 const infill = @import("infill.zig");
 const settings_mod = @import("settings.zig");
 const slicer = @import("slicer.zig");
+const support_mod = @import("support.zig");
 const Point = geom.Point;
 const Paths = geom.Paths;
 const Feature = settings_mod.Feature;
@@ -79,6 +83,8 @@ pub const Context = struct {
     resolved: *const Resolved,
     layers: []const slicer.Layer,
     outlines: []const Paths,
+    /// The support areas of each layer, or an empty slice (no support).
+    support: []const support_mod.SupportLayer = &.{},
 };
 
 /// Plans layer `i`. `gpa` must be thread-safe if more than one thread plans
@@ -108,7 +114,33 @@ pub fn plan(gpa: Allocator, ctx: Context, i: usize) Allocator.Error!LayerPlan {
 
     const outline = ctx.outlines[i];
     lp.outline = try outline.clone(a);
-    if (outline.isEmpty()) return lp;
+
+    // Support. A layer can have support and no part, so this comes before
+    // the check for an empty outline.
+    var sup_walls: Paths = .empty;
+    var sup_lines: Paths = .empty;
+    var sup_iface: Paths = .empty;
+    if (ctx.support.len > 0) {
+        const sl = ctx.support[i];
+        if (!sl.body.isEmpty()) {
+            // One boundary loop holds the ends of the lines together. The
+            // lines have one direction on all layers, so that they stack.
+            sup_walls = try offset_mod.offset(s, sl.body, -@divTrunc(w, 2), .{});
+            const inside = try offset_mod.offset(s, sl.body, -w + @divTrunc(w, 5), .{});
+            sup_lines = try infill.lines(s, inside, geom.fromMm(width_mm / p.support_density), 0, w);
+        }
+        if (!sl.interface.isEmpty()) {
+            const region = try offset_mod.offset(s, sl.interface, -@divTrunc(w, 2), .{});
+            sup_iface = try infill.lines(s, region, geom.fromMm(width_mm / p.support_interface_density), 90, w);
+        }
+    }
+    if (outline.isEmpty()) {
+        var pos: Point = .init(0, 0);
+        try addOrdered(s, a, &lp, &pos, sup_walls, true, .support);
+        try addOrdered(s, a, &lp, &pos, sup_lines, false, .support);
+        try addOrdered(s, a, &lp, &pos, sup_iface, false, .support_interface);
+        return lp;
+    }
 
     // Step 1.
     const walls = try s.alloc(Paths, p.wall_count);
@@ -208,10 +240,13 @@ pub fn plan(gpa: Allocator, ctx: Context, i: usize) Allocator.Error!LayerPlan {
         }
     }
 
-    // Step 8.
+    // Step 9.
     var pos: Point = if (outline.points.items.len > 0) outline.points.items[0] else .init(0, 0);
     const seam: Seam = .{ .mode = p.seam, .layer = i };
     for (rings.items) |ring| try addOrdered(s, a, &lp, &pos, ring, true, .skirt);
+    try addOrdered(s, a, &lp, &pos, sup_walls, true, .support);
+    try addOrdered(s, a, &lp, &pos, sup_lines, false, .support);
+    try addOrdered(s, a, &lp, &pos, sup_iface, false, .support_interface);
     var k = wall_n;
     while (k > 1) {
         k -= 1;
@@ -425,7 +460,7 @@ test "plan a layer of a box" {
         .outer_wall, .inner_wall => walls += 1,
         .skin => skin += 1,
         .infill => fill += 1,
-        .ironing, .skirt => unreachable,
+        .ironing, .skirt, .support, .support_interface => unreachable,
     };
     try testing.expectEqual(@as(usize, 2), walls);
     try testing.expectEqual(@as(usize, 0), skin);

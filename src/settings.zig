@@ -25,6 +25,7 @@ const std = @import("std");
 
 pub const InfillPattern = enum { lines, grid };
 pub const SeamMode = enum { sharpest, rear, nearest, random };
+pub const SupportMode = enum { off, everywhere, buildplate };
 pub const ExtruderKind = enum { direct, bowden };
 
 pub const Machine = struct {
@@ -212,6 +213,28 @@ pub const Project = struct {
     /// Lift the nozzle by this distance during a travel move with a retraction. 0 turns it off.
     z_hop: f64 = 0,
 
+    // Support
+    /// Support under overhangs. `off`: no support. `everywhere`: support
+    /// can stand on the bed or on the part. `buildplate`: only support that
+    /// stands on the bed.
+    support: SupportMode = .off,
+    /// An overhang that leans more than this angle (degrees) from vertical
+    /// gets support. A larger angle gives less support.
+    support_angle: f64 = 50,
+    /// The fraction of the support area that the support lines fill, as a
+    /// ratio.
+    support_density: f64 = 0.15,
+    /// The gap between the support and the sides of the part.
+    support_xy_gap: f64 = 0.6,
+    /// The number of empty layers between the support and the part above
+    /// it or under it, so that the support comes off.
+    support_z_gap_layers: u32 = 1,
+    /// The number of dense layers at the top of the support, under the
+    /// part. They make the bottom surface of the part smooth.
+    support_interface_layers: u32 = 2,
+    /// The fraction of the interface area that its lines fill, as a ratio.
+    support_interface_density: f64 = 0.7,
+
     // Skirt and brim
     /// The number of skirt loops. A skirt is a loop around the part on the
     /// first layers, at a distance from it. It primes the nozzle before the
@@ -291,11 +314,12 @@ pub const Settings = struct {
         const ratios = [_]f64{
             f.fan_speed,     p.infill_density, p.outer_wall_speed,  p.inner_wall_speed,
             p.skin_speed,    p.infill_speed,   p.first_layer_speed, p.ironing_flow,
-            p.ironing_speed, f.fan_max_speed,
+            p.ironing_speed, f.fan_max_speed,  p.support_density,   p.support_interface_density,
         };
         for (ratios) |v| if (!(v >= 0 and v <= 1)) return error.InvalidValue;
         if (p.outer_wall_speed == 0 or p.inner_wall_speed == 0 or p.skin_speed == 0 or p.infill_speed == 0 or p.first_layer_speed == 0) return error.InvalidValue;
         if (p.ironing and (p.ironing_speed == 0 or !(p.ironing_spacing > 0))) return error.InvalidValue;
+        if (p.support != .off and (p.support_density == 0 or p.support_interface_density == 0 or !(p.support_angle > 0 and p.support_angle < 90))) return error.InvalidValue;
 
         const w = if (p.line_width > 0) p.line_width else 1.1 * m.nozzle_diameter;
         const w0 = if (p.first_layer_line_width > 0) p.first_layer_line_width else 1.25 * m.nozzle_diameter;
@@ -321,6 +345,8 @@ pub const Feature = enum(u8) {
     ironing,
     /// The skirt and the brim.
     skirt,
+    support,
+    support_interface,
 };
 
 /// Settings after `Settings.resolve`, with the derived values.
@@ -348,6 +374,8 @@ pub const Resolved = struct {
             .skin => p.skin_speed,
             .infill => p.infill_speed,
             .skirt => p.inner_wall_speed,
+            .support => p.infill_speed,
+            .support_interface => p.skin_speed,
             .ironing => unreachable,
         };
         return limit * ratio;

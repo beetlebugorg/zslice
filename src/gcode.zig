@@ -309,6 +309,8 @@ fn typeName(f: Feature) []const u8 {
         .infill => "FILL",
         .ironing => "IRONING",
         .skirt => "SKIRT",
+        .support => "SUPPORT",
+        .support_interface => "SUPPORT-INTERFACE",
     };
 }
 

@@ -28,6 +28,7 @@ const settings_mod = @import("settings.zig");
 const layer_mod = @import("layer.zig");
 const gcode = @import("gcode.zig");
 const parallel = @import("parallel.zig");
+const support_mod = @import("support.zig");
 const Mesh = mesh_mod.Mesh;
 const Paths = geom.Paths;
 const Settings = settings_mod.Settings;
@@ -107,6 +108,8 @@ pub const Job = struct {
     threads: usize,
     layers: []slicer.Layer,
     outlines: []Paths,
+    /// The support areas of each layer, or an empty slice.
+    support: []support_mod.SupportLayer = &.{},
 
     /// Steps 1 to 4.
     pub fn init(gpa: Allocator, mesh: *const Mesh, settings: Settings) Error!Job {
@@ -188,11 +191,16 @@ pub const Job = struct {
             .reporter = &reporter,
         };
         parallel.forEach(threads, layers.len, &ctx, Pass1.run) catch |e| return @as(Error, @errorCast(e));
+        if (monitor.canceled()) return error.Canceled;
 
-        return .{ .gpa = gpa, .resolved = r, .monitor = monitor, .threads = threads, .layers = layers, .outlines = outlines };
+        // The support areas need the outlines of all layers.
+        const sup = support_mod.compute(gpa, outlines, layers, &r, threads) catch |e| return @as(Error, @errorCast(e));
+
+        return .{ .gpa = gpa, .resolved = r, .monitor = monitor, .threads = threads, .layers = layers, .outlines = outlines, .support = sup };
     }
 
     pub fn deinit(self: *Job) void {
+        if (self.support.len > 0) support_mod.deinitAll(self.gpa, self.support);
         for (self.outlines) |*o| o.deinit(self.gpa);
         self.gpa.free(self.outlines);
         self.gpa.free(self.layers);
@@ -203,7 +211,7 @@ pub const Job = struct {
     }
 
     fn planContext(self: *const Job) layer_mod.Context {
-        return .{ .resolved = &self.resolved, .layers = self.layers, .outlines = self.outlines };
+        return .{ .resolved = &self.resolved, .layers = self.layers, .outlines = self.outlines, .support = self.support };
     }
 
     /// The plan of layer i. Call `deinit` on the result.
