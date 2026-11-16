@@ -32,6 +32,7 @@ pub const orient = @import("orient.zig");
 pub const slicer = @import("slicer.zig");
 pub const settings = @import("settings.zig");
 pub const infill = @import("infill.zig");
+pub const lightning = @import("lightning.zig");
 pub const layer = @import("layer.zig");
 pub const slope = @import("slope.zig");
 pub const gcode = @import("gcode.zig");
