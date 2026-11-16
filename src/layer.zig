@@ -938,7 +938,13 @@ fn addMonotonic(s: Allocator, a: Allocator, lp: *LayerPlan, pos: *Point, set: Pa
     const waits = try s.alloc(u32, n);
     @memset(waits, 0);
     const margin: f64 = @floatFromInt(geom.fromMm(0.05));
+    // The line spacing of the skin: about one line width. Two scan lines
+    // farther apart than 1.5 widths are not neighbors (a gap or another
+    // island is between them): no wait, and no join.
+    const width: f64 = @floatFromInt(geom.fromMm(lp.width));
+    const near_rows = 1.5 * width;
     for (1..rows.items.len - 1) |r| {
+        if (keys[rows.items[r]].across - keys[rows.items[r - 1]].across > near_rows) continue;
         for (rows.items[r]..rows.items[r + 1]) |j| {
             for (rows.items[r - 1]..rows.items[r]) |i| {
                 if (keys[i].hi + margin >= keys[j].lo and keys[j].hi + margin >= keys[i].lo) waits[j] += 1;
@@ -963,7 +969,8 @@ fn addMonotonic(s: Allocator, a: Allocator, lp: *LayerPlan, pos: *Point, set: Pa
         for (ready.items, 0..) |ki, r| {
             const path = set.get(keys[ki].i);
             const d = @min(pos.distSq(path[0]), pos.distSq(path[path.len - 1]));
-            const next = if (last) |li| row_of[ki] == row_of[li] + 1 and keys[li].hi + margin >= keys[ki].lo and keys[ki].hi + margin >= keys[li].lo else false;
+            const next = if (last) |li| row_of[ki] == row_of[li] + 1 and keys[ki].across - keys[li].across <= near_rows and
+                keys[li].hi + margin >= keys[ki].lo and keys[ki].hi + margin >= keys[li].lo else false;
             if ((next and !best_next) or (next == best_next and d < best_d)) {
                 best_d = d;
                 best = r;
@@ -983,6 +990,7 @@ fn addMonotonic(s: Allocator, a: Allocator, lp: *LayerPlan, pos: *Point, set: Pa
         const join = if (last) |li| blk: {
             if (!best_next or chain.items.len == 0) break :blk false;
             const spacing = @abs(keys[ki].across - keys[li].across);
+            if (spacing > near_rows) break :blk false;
             const dx: f64 = @floatFromInt(first_pt.x - pos.x);
             const dy: f64 = @floatFromInt(first_pt.y - pos.y);
             const along = @abs(dx * ax + dy * ay);
@@ -1001,7 +1009,7 @@ fn addMonotonic(s: Allocator, a: Allocator, lp: *LayerPlan, pos: *Point, set: Pa
         last = ki;
         // The pieces of the next row that this piece held back.
         const r = row_of[ki];
-        if (r + 2 < rows.items.len) {
+        if (r + 2 < rows.items.len and keys[rows.items[r + 1]].across - keys[rows.items[r]].across <= near_rows) {
             for (rows.items[r + 1]..rows.items[r + 2]) |j| {
                 if (keys[ki].hi + margin >= keys[j].lo and keys[j].hi + margin >= keys[ki].lo) {
                     waits[j] -= 1;
@@ -1481,9 +1489,10 @@ test "monotonic skin: the lines go from one side to the other" {
     var scratch_arena = std.heap.ArenaAllocator.init(gpa);
     defer scratch_arena.deinit();
     const s = scratch_arena.allocator();
-    // Four horizontal lines (angle 0) out of order: y = 2, 0, 3, 1.
+    // Four horizontal lines (angle 0) one line width apart, out of order:
+    // y = 2, 0, 3, 1 widths.
     var set: Paths = .empty;
-    for ([_]i64{ 2, 0, 3, 1 }) |y| try set.append(s, &.{ .init(0, y * 1000), .init(10000, y * 1000) });
+    for ([_]i64{ 2, 0, 3, 1 }) |y| try set.append(s, &.{ .init(0, y * 400), .init(10000, y * 400) });
     var pos: Point = .init(0, -5000);
     try addMonotonic(s, lp.arena.allocator(), &lp, &pos, set, 0, .skin);
     // The neighbors join into one zigzag path: from the side of the nozzle
@@ -1495,9 +1504,30 @@ test "monotonic skin: the lines go from one side to the other" {
     for (0..4) |i| {
         const a = path[2 * i];
         const b = path[2 * i + 1];
-        try testing.expectEqual(@as(i64, @intCast(i)) * 1000, a.y);
+        try testing.expectEqual(@as(i64, @intCast(i)) * 400, a.y);
         try testing.expectEqual(a.y, b.y);
         if (i > 0) try testing.expectEqual(path[2 * i - 1].x, a.x);
+    }
+}
+
+test "monotonic skin: two islands do not join across the gap" {
+    const gpa = testing.allocator;
+    var lp: LayerPlan = .{ .arena = .init(gpa), .index = 0, .z = 0.2, .height = 0.2, .width = 0.4 };
+    defer lp.deinit();
+    var scratch_arena = std.heap.ArenaAllocator.init(gpa);
+    defer scratch_arena.deinit();
+    const s = scratch_arena.allocator();
+    // Vertical lines (angle 90): three on the left at x 0, 0.4, 0.8 mm,
+    // and three on the right at x 60, 60.4, 60.8 mm. No line is between.
+    var set: Paths = .empty;
+    for ([_]i64{ 0, 400, 800, 60000, 60400, 60800 }) |x| try set.append(s, &.{ .init(x, 0), .init(x, 5000) });
+    var pos: Point = .init(-1000, 0);
+    try addMonotonic(s, lp.arena.allocator(), &lp, &pos, set, 90, .skin);
+    // One zigzag for each island; no extruded line across the 59 mm gap.
+    try testing.expectEqual(@as(usize, 2), lp.points.count());
+    for (0..lp.points.count()) |k| {
+        const path = lp.points.get(k);
+        for (path[1..], 0..) |q, j| try testing.expect(@abs(q.x - path[j].x) <= 400);
     }
 }
 
