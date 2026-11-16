@@ -357,6 +357,139 @@ pub fn insideAny(paths: Paths, p: Point) bool {
     return winding != 0;
 }
 
+/// The edges of a set of polygons in bands of y, for fast tests of a point:
+/// is it inside (`inside`, the same result as `insideAny`), and is it near
+/// an edge (`near`). A horizontal ray from the point crosses only edges
+/// whose y range holds the y of the point, and an edge within `pad` of the
+/// point has a y range within `pad` of it. Each edge goes in each band
+/// that its y range, grown by `pad`, touches. So a test looks only at the
+/// edges in the band of the point.
+pub const EdgeIndex = struct {
+    min: i64,
+    width: i64,
+    /// Band k has the edges from starts[k] to starts[k + 1].
+    starts: []u32,
+    edges: [][2]Point,
+
+    pub fn init(s: Allocator, paths: Paths, pad: i64) Allocator.Error!EdgeIndex {
+        var lo: i64 = std.math.maxInt(i64);
+        var hi: i64 = std.math.minInt(i64);
+        for (paths.points.items) |q| {
+            lo = @min(lo, q.y - pad);
+            hi = @max(hi, q.y + pad);
+        }
+        const n = paths.points.items.len;
+        const want: usize = std.math.clamp(2 * std.math.sqrt(n), 1, 4096);
+        const span: i64 = @max(hi - lo + 1, 1);
+        const width: i64 = @max(1, @divFloor(span + @as(i64, @intCast(want)) - 1, @as(i64, @intCast(want))));
+        const bands: usize = @intCast(@divFloor(span + width - 1, width));
+        var idx: EdgeIndex = .{ .min = lo, .width = width, .starts = try s.alloc(u32, bands + 1), .edges = &.{} };
+        @memset(idx.starts, 0);
+        // Two passes over the edges: count, then fill.
+        var fill: []u32 = &.{};
+        defer s.free(fill);
+        for (0..2) |pass| {
+            if (pass == 1) {
+                for (1..idx.starts.len) |k| idx.starts[k] += idx.starts[k - 1];
+                idx.edges = try s.alloc([2]Point, idx.starts[bands]);
+                fill = try s.dupe(u32, idx.starts[0..bands]);
+            }
+            for (0..paths.count()) |k| {
+                const poly = paths.get(k);
+                for (poly, 0..) |a, i| {
+                    const b = poly[(i + 1) % poly.len];
+                    // A horizontal edge never counts for `inside`.
+                    if (a.y == b.y and pad == 0) continue;
+                    const b0 = idx.band(@min(a.y, b.y) - pad);
+                    // `inside` needs the half-open range [min y, max y),
+                    // and `near` the closed range grown by the pad.
+                    const b1 = idx.band(if (pad > 0) @max(a.y, b.y) + pad else @max(a.y, b.y) - 1);
+                    for (b0..b1 + 1) |bi| {
+                        if (pass == 0) {
+                            idx.starts[bi + 1] += 1;
+                        } else {
+                            idx.edges[fill[bi]] = .{ a, b };
+                            fill[bi] += 1;
+                        }
+                    }
+                }
+            }
+        }
+        return idx;
+    }
+
+    pub fn deinit(idx: *EdgeIndex, s: Allocator) void {
+        s.free(idx.starts);
+        s.free(idx.edges);
+    }
+
+    fn band(idx: EdgeIndex, y: i64) usize {
+        const k = @divFloor(y - idx.min, idx.width);
+        return @intCast(std.math.clamp(k, 0, @as(i64, @intCast(idx.starts.len - 2))));
+    }
+
+    fn bandEdges(idx: EdgeIndex, y: i64) []const [2]Point {
+        const k = idx.band(y);
+        return idx.edges[idx.starts[k]..idx.starts[k + 1]];
+    }
+
+    /// The same as `insideAny`.
+    pub fn inside(idx: EdgeIndex, p: Point) bool {
+        var winding: i32 = 0;
+        for (idx.bandEdges(p.y)) |e| {
+            const a = e[0];
+            const b = e[1];
+            if (a.y <= p.y) {
+                if (b.y > p.y and cross3(a, b, p) > 0) winding += 1;
+            } else if (b.y <= p.y and cross3(a, b, p) < 0) winding -= 1;
+        }
+        return winding != 0;
+    }
+
+    /// True if p is at most `tol` from an edge. `tol` must not be more than
+    /// the pad of the index, and the pad must be more than 0.
+    pub fn near(idx: EdgeIndex, p: Point, tol: i64) bool {
+        const t2: f64 = @floatFromInt(tol * tol);
+        for (idx.bandEdges(p.y)) |e| {
+            const a = e[0];
+            const b = e[1];
+            const abx: f64 = @floatFromInt(b.x - a.x);
+            const aby: f64 = @floatFromInt(b.y - a.y);
+            const apx: f64 = @floatFromInt(p.x - a.x);
+            const apy: f64 = @floatFromInt(p.y - a.y);
+            const len2 = abx * abx + aby * aby;
+            const t = if (len2 > 0) std.math.clamp((apx * abx + apy * aby) / len2, 0, 1) else 0;
+            const dx = apx - t * abx;
+            const dy = apy - t * aby;
+            if (dx * dx + dy * dy <= t2) return true;
+        }
+        return false;
+    }
+};
+
+test "EdgeIndex gives the same answers as the tests over all edges" {
+    const gpa = std.testing.allocator;
+    var ps: Paths = .empty;
+    defer ps.deinit(gpa);
+    try ps.append(gpa, &.{ .init(0, 0), .init(10_000, 0), .init(10_000, 10_000), .init(0, 10_000) });
+    try ps.append(gpa, &.{ .init(3000, 3000), .init(3000, 7000), .init(7000, 7000), .init(7000, 3000) });
+    try ps.append(gpa, &.{ .init(12_000, 500), .init(15_000, 9000), .init(11_000, 4000) });
+    var idx: EdgeIndex = try .init(gpa, ps, 50);
+    defer idx.deinit(gpa);
+    var prng = std.Random.DefaultPrng.init(3);
+    const rnd = prng.random();
+    for (0..2000) |_| {
+        const p: Point = .init(rnd.intRangeAtMost(i64, -500, 16_000), rnd.intRangeAtMost(i64, -500, 10_500));
+        try std.testing.expectEqual(insideAny(ps, p), idx.inside(p));
+    }
+    // Points on the edges and near them.
+    for ([_]Point{ .init(0, 5000), .init(-30, 5000), .init(5000, 10_049), .init(3000, 2960), .init(10_000, 0) }) |p| {
+        try std.testing.expectEqual(insideAny(ps, p), idx.inside(p));
+        try std.testing.expect(idx.near(p, 50));
+    }
+    try std.testing.expect(!idx.near(.init(5000, 5000), 50));
+}
+
 test "insideAny: a square with a hole" {
     var ps: Paths = .empty;
     defer ps.deinit(std.testing.allocator);

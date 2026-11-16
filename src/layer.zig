@@ -744,7 +744,7 @@ fn seamIndex(path: []const Point, mode: settings_mod.SeamMode, salt: u64) usize 
 ///   seam blob would sag there.
 /// A tie goes to the vertex further back, so similar layers pick the same
 /// vertex, and the seam is one straight line.
-fn hiddenIndex(path: []const Point, below: ?*const InsideIndex) usize {
+fn hiddenIndex(path: []const Point, below: ?*const geom.EdgeIndex) usize {
     const n = path.len;
     if (n < 3) return 0;
     const reach: f64 = 1000; // 1 mm, in µm
@@ -799,81 +799,6 @@ fn walkFrom(path: []const Point, i: usize, dist: f64, forward: bool) Point {
     }
     return path[j];
 }
-
-/// The edges of a set of polygons in bands of y, for a fast test if a point
-/// is inside (a winding number other than 0). A horizontal ray from the
-/// point crosses only edges whose y range holds the y of the point, and
-/// these edges are all in the band of that y. Each edge goes in each band
-/// that its y range touches.
-const InsideIndex = struct {
-    min: i64,
-    width: i64,
-    /// Band k has the edges from starts[k] to starts[k + 1].
-    starts: []u32,
-    edges: [][2]Point,
-
-    fn init(s: Allocator, paths: Paths) Allocator.Error!InsideIndex {
-        var lo: i64 = std.math.maxInt(i64);
-        var hi: i64 = std.math.minInt(i64);
-        for (paths.points.items) |q| {
-            lo = @min(lo, q.y);
-            hi = @max(hi, q.y);
-        }
-        const n = paths.points.items.len;
-        const want: usize = std.math.clamp(2 * std.math.sqrt(n), 1, 4096);
-        const span: i64 = @max(hi - lo + 1, 1);
-        const width: i64 = @max(1, @divFloor(span + @as(i64, @intCast(want)) - 1, @as(i64, @intCast(want))));
-        const bands: usize = @intCast(@divFloor(span + width - 1, width));
-        var idx: InsideIndex = .{ .min = lo, .width = width, .starts = try s.alloc(u32, bands + 1), .edges = &.{} };
-        @memset(idx.starts, 0);
-        // Two passes over the edges: count, then fill.
-        var fill: []u32 = &.{};
-        defer s.free(fill);
-        for (0..2) |pass| {
-            if (pass == 1) {
-                for (1..idx.starts.len) |k| idx.starts[k] += idx.starts[k - 1];
-                idx.edges = try s.alloc([2]Point, idx.starts[bands]);
-                fill = try s.dupe(u32, idx.starts[0..bands]);
-            }
-            for (0..paths.count()) |k| {
-                const poly = paths.get(k);
-                for (poly, 0..) |a, i| {
-                    const b = poly[(i + 1) % poly.len];
-                    if (a.y == b.y) continue;
-                    const b0 = idx.band(@min(a.y, b.y));
-                    const b1 = idx.band(@max(a.y, b.y) - 1);
-                    for (b0..b1 + 1) |bi| {
-                        if (pass == 0) {
-                            idx.starts[bi + 1] += 1;
-                        } else {
-                            idx.edges[fill[bi]] = .{ a, b };
-                            fill[bi] += 1;
-                        }
-                    }
-                }
-            }
-        }
-        return idx;
-    }
-
-    fn band(idx: InsideIndex, y: i64) usize {
-        const k = @divFloor(y - idx.min, idx.width);
-        return @intCast(std.math.clamp(k, 0, @as(i64, @intCast(idx.starts.len - 2))));
-    }
-
-    fn inside(idx: InsideIndex, p: Point) bool {
-        const k = idx.band(p.y);
-        var winding: i32 = 0;
-        for (idx.edges[idx.starts[k]..idx.starts[k + 1]]) |e| {
-            const a = e[0];
-            const b = e[1];
-            if (a.y <= p.y) {
-                if (b.y > p.y and cross3(a, b, p) > 0) winding += 1;
-            } else if (b.y <= p.y and cross3(a, b, p) < 0) winding -= 1;
-        }
-        return winding != 0;
-    }
-};
 
 fn cross3(a: Point, b: Point, p: Point) i128 {
     return @as(i128, b.x - a.x) * @as(i128, p.y - a.y) - @as(i128, p.x - a.x) * @as(i128, b.y - a.y);
@@ -1108,17 +1033,17 @@ const Seam = struct {
     memo: ?*Memo = null,
 };
 
-/// The index of the outline below (see `InsideIndex`), made on the first
+/// The index of the outline below (see `geom.EdgeIndex`), made on the first
 /// use.
 const BelowIndex = struct {
     s: Allocator,
     outline: Paths,
-    index: ?InsideIndex = null,
+    index: ?geom.EdgeIndex = null,
 
     /// The index, or null if there is no layer below.
-    fn get(self: *BelowIndex) Allocator.Error!?*const InsideIndex {
+    fn get(self: *BelowIndex) Allocator.Error!?*const geom.EdgeIndex {
         if (self.outline.isEmpty()) return null;
-        if (self.index == null) self.index = try .init(self.s, self.outline);
+        if (self.index == null) self.index = try .init(self.s, self.outline, 0);
         return &self.index.?;
     }
 };
@@ -1440,7 +1365,7 @@ test "hidden seam" {
     var below: Paths = .empty;
     defer below.deinit(testing.allocator);
     try below.append(testing.allocator, &.{ .init(-1000, -1000), .init(5_000, -1000), .init(5_000, 11_000), .init(-1000, 11_000) });
-    const index: InsideIndex = try .init(testing.allocator, below);
+    const index: geom.EdgeIndex = try .init(testing.allocator, below, 0);
     defer testing.allocator.free(index.starts);
     defer testing.allocator.free(index.edges);
     try testing.expectEqual(@as(usize, 3), hiddenIndex(&sq, &index));

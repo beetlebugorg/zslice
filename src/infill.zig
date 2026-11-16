@@ -144,6 +144,8 @@ pub fn connect(gpa: Allocator, region: Paths, set: Paths, spacing: i64, angle_de
         }
     }.lt);
     const max_link = 2 * spacing;
+    // The edges of the region in bands, for the tests of the links.
+    const index: geom.EdgeIndex = try .init(arena, region, link_tolerance);
     var chain: std.ArrayList(Point) = .empty;
     for (ls, 0..) |*first, fi| {
         if (first.used) continue;
@@ -162,7 +164,7 @@ pub fn connect(gpa: Allocator, region: Paths, set: Paths, spacing: i64, angle_de
             while (j < ls.len and ls[j].y - end.y <= spacing + @divTrunc(spacing, 4)) : (j += 1) {
                 if (ls[j].used or ls[j].y == end.y) continue;
                 const d = @min(iabs(ls[j].x0 - end.x), iabs(ls[j].x1 - end.x));
-                if (d < best_d and linkInside(region, end, if (iabs(ls[j].x0 - end.x) <= iabs(ls[j].x1 - end.x)) Point{ .x = ls[j].x0, .y = ls[j].y } else Point{ .x = ls[j].x1, .y = ls[j].y }, c, s)) {
+                if (d < best_d and linkInside(&index, end, if (iabs(ls[j].x0 - end.x) <= iabs(ls[j].x1 - end.x)) Point{ .x = ls[j].x0, .y = ls[j].y } else Point{ .x = ls[j].x1, .y = ls[j].y }, c, s)) {
                     best = j;
                     best_d = d;
                 }
@@ -190,7 +192,7 @@ fn iabs(x: i64) i64 {
 
 /// True if the link from p to q (in the turned frame) stays inside the
 /// region: three points along it are inside.
-fn linkInside(region: Paths, p: Point, q: Point, c: f64, s: f64) bool {
+fn linkInside(index: *const geom.EdgeIndex, p: Point, q: Point, c: f64, s: f64) bool {
     for ([_]f64{ 0.25, 0.5, 0.75 }) |t| {
         const m: Point = .{
             .x = p.x + @as(i64, @intFromFloat(@round(@as(f64, @floatFromInt(q.x - p.x)) * t))),
@@ -198,31 +200,13 @@ fn linkInside(region: Paths, p: Point, q: Point, c: f64, s: f64) bool {
         };
         const q2 = rotate(m, c, s);
         // A link along a wall lies on the boundary: on it counts as in.
-        if (!geom.insideAny(region, q2) and !nearBoundary(region, q2, 50)) return false;
+        if (!index.inside(q2) and !index.near(q2, link_tolerance)) return false;
     }
     return true;
 }
 
-/// True if p is at most `tol` from an edge of the region.
-fn nearBoundary(region: Paths, p: Point, tol: i64) bool {
-    const t2: f64 = @floatFromInt(tol * tol);
-    for (0..region.count()) |k| {
-        const poly = region.get(k);
-        for (poly, 0..) |a, i| {
-            const b = poly[(i + 1) % poly.len];
-            const abx: f64 = @floatFromInt(b.x - a.x);
-            const aby: f64 = @floatFromInt(b.y - a.y);
-            const apx: f64 = @floatFromInt(p.x - a.x);
-            const apy: f64 = @floatFromInt(p.y - a.y);
-            const len2 = abx * abx + aby * aby;
-            const t = if (len2 > 0) std.math.clamp((apx * abx + apy * aby) / len2, 0, 1) else 0;
-            const dx = apx - t * abx;
-            const dy = apy - t * aby;
-            if (dx * dx + dy * dy <= t2) return true;
-        }
-    }
-    return false;
-}
+/// A link point this near the boundary counts as inside.
+const link_tolerance = 50;
 
 // ---------------------------------------------------------------------------
 // Honeycomb
