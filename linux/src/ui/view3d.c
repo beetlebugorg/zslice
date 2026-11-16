@@ -3,8 +3,11 @@
  * The widget draws nothing: it is a transparent hole in the window, and the
  * core draws the 3D view with Vulkan into a native subsurface under it (see
  * native-surface.h). The widget only:
- *   - makes the subsurface and the core view when it is mapped, and frees
- *     them when it is unmapped,
+ *   - makes the subsurface and the core view the first time it is mapped,
+ *     hides the subsurface when it is unmapped, and shows it again when it
+ *     is mapped again. The view lives until the widget is destroyed: on
+ *     NVIDIA, a teardown of a Vulkan device while GTK draws with GL
+ *     crashes GTK on its next frame.
  *   - moves and resizes the subsurface with the widget,
  *   - sends the drag and scroll gestures to the core,
  *   - asks the core for a frame after a change.
@@ -31,6 +34,9 @@ typedef struct {
     gboolean zoomed;
     gboolean picked;
     gboolean timed;
+    /* TRUE while the widget is unmapped: no frames, the subsurface is
+     * hidden. */
+    gboolean hidden;
     gboolean have_data;
     guint idle;
     double drag_x, drag_y;
@@ -56,7 +62,7 @@ static gboolean draw_now(gpointer data) {
 }
 
 static void queue_frame(View3d *v) {
-    if (!v->idle && v->view) v->idle = g_idle_add(draw_now, v);
+    if (!v->idle && v->view && !v->hidden) v->idle = g_idle_add(draw_now, v);
 }
 
 /* The widget position in the window, in logical points. */
@@ -127,7 +133,14 @@ void zg_view3d_set_feature_colors(GtkWidget *view, gboolean features) {
 
 static void on_map(GtkWidget *w, gpointer data) {
     View3d *v = data;
-    if (v->view) return;
+    v->hidden = FALSE;
+    if (v->view) {
+        /* Mapped again: the next frame attaches a buffer, and that shows
+         * the subsurface. The data can be new since the unmap. */
+        load_data(v);
+        sync_geometry(v);
+        return;
+    }
     GtkNative *native = gtk_widget_get_native(w);
     if (!native) return;
     int x = 0, y = 0;
@@ -159,17 +172,12 @@ static void on_map(GtkWidget *w, gpointer data) {
 
 static void on_unmap(GtkWidget *w, gpointer data) {
     View3d *v = data;
+    v->hidden = TRUE;
     if (v->idle) {
         g_source_remove(v->idle);
         v->idle = 0;
     }
-    if (v->view) zs_view_free(v->view);
-    v->view = NULL;
-    if (v->native) {
-        zg_native_surface_hide(v->native);
-        zg_native_surface_free(v->native);
-    }
-    v->native = NULL;
+    if (v->native) zg_native_surface_hide(v->native);
 }
 
 static void on_resize(GtkDrawingArea *area, int width, int height, gpointer data) {
