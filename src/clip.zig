@@ -21,8 +21,9 @@
 //!    edge. A merged edge with a delta of zero for both operands is not a
 //!    boundary, so the code removes it.
 //! 4. For each edge, find the winding number of each operand on the two
-//!    sides of the edge. The code casts a ray from the middle of the edge and
-//!    adds the deltas of the edges the ray crosses.
+//!    sides of the edge. The code walks the faces of the arrangement: the
+//!    winding number changes by the delta of an edge when a walk crosses it
+//!    (see `computeWinding`).
 //! 5. The fill rule turns a winding number into "inside" or "outside" for
 //!    each operand. The operation (union, ...) combines the two operands.
 //!    An edge is in the output if one side is inside and the other side is
@@ -33,8 +34,9 @@
 //! (Vatti, see REFERENCES.md), and it gives correct output for any input: self-intersecting
 //! polygons, shared edges, and polygons that touch at one point.
 //!
-//! References (see REFERENCES.md): winding numbers and fill rules, sweep and
-//! prune, iterated snap rounding, the slab index, and the CSR layout.
+//! References (see REFERENCES.md): winding numbers and fill rules, the
+//! uniform grid with the Amanatides-Woo walk, the half-edge structure
+//! (DCEL), iterated snap rounding, the slab index, and the CSR layout.
 //!
 //! Known limit: a crossing point is rounded to the nearest micrometer. The
 //! rounded point can move an edge by up to 0.7 micrometers, and in rare
@@ -179,42 +181,122 @@ fn addEdges(arena: Allocator, edges: *std.ArrayList(InEdge), paths: Paths, opera
 
 const Split = struct { edge: u32, p: Point };
 
-/// Finds the split points with "sweep and prune". The edges are sorted by
-/// their minimum x. A sweep goes from left to right and keeps a list of the
-/// edges that the sweep position is in ("active"). Only active edges can
-/// touch the new edge, so the code tests only those pairs. A layer of a
-/// typical part has few edges at one x, so the test count stays small.
+/// Finds the split points with a uniform grid. Each edge goes into each
+/// grid cell that it passes through (a walk along the edge, cell by cell,
+/// so a long edge gets only the cells on its line, and not each cell of its
+/// bounding box). Two edges can touch only if they share a cell, so the
+/// code tests only the pairs in each cell. The cell size is the mean edge
+/// length, so most edges are in one or two cells.
+///
+/// A pair that shares more than one cell is tested more than once. The
+/// split step removes the repeated points.
 fn findIntersections(arena: Allocator, edges: []const InEdge, splits: *std.ArrayList(Split)) !void {
-    const order = try arena.alloc(u32, edges.len);
-    for (order, 0..) |*o, i| o.* = @intCast(i);
-    std.mem.sortUnstable(u32, order, edges, struct {
-        fn lt(es: []const InEdge, a: u32, b: u32) bool {
-            return es[a].minX() < es[b].minX();
+    if (edges.len < 2) return;
+    var box = geom.Box.empty;
+    var total: f64 = 0;
+    for (edges) |e| {
+        box.extend(e.a);
+        box.extend(e.b);
+        total += e.a.dist(e.b);
+    }
+    const span: f64 = @floatFromInt(@max(box.max.x - box.min.x, box.max.y - box.min.y) + 1);
+    // The mean edge length, but not so small that the grid has more than
+    // about 4096 cells on a side.
+    const cell = @max(total / @as(f64, @floatFromInt(edges.len)), span / 4096.0, 1.0);
+
+    var entries: std.ArrayList(CellEntry) = .empty;
+    try entries.ensureTotalCapacity(arena, edges.len * 2);
+    for (edges, 0..) |e, i| try walkCells(arena, &entries, e.a, e.b, box.min, cell, @intCast(i));
+
+    std.mem.sortUnstable(CellEntry, entries.items, {}, struct {
+        fn lt(_: void, x: CellEntry, y: CellEntry) bool {
+            if (x.cell != y.cell) return x.cell < y.cell;
+            return x.edge < y.edge;
         }
     }.lt);
 
-    var active: std.ArrayList(u32) = .empty;
-    for (order) |ei| {
-        const e = edges[ei];
-        const x = e.minX();
-        const e_min_y = @min(e.a.y, e.b.y);
-        const e_max_y = @max(e.a.y, e.b.y);
-        // Remove the edges that end before this edge starts.
-        var keep: usize = 0;
-        for (active.items) |fi| {
-            if (edges[fi].maxX() >= x) {
-                active.items[keep] = fi;
-                keep += 1;
+    var i: usize = 0;
+    const items = entries.items;
+    while (i < items.len) {
+        var j = i + 1;
+        while (j < items.len and items[j].cell == items[i].cell) : (j += 1) {}
+        // The edges in this cell: items[i..j], sorted by edge index.
+        var x = i;
+        while (x < j) : (x += 1) {
+            if (x > i and items[x].edge == items[x - 1].edge) continue;
+            const ei = items[x].edge;
+            const e = edges[ei];
+            var y = x + 1;
+            while (y < j) : (y += 1) {
+                if (items[y].edge == items[y - 1].edge) continue;
+                const fi = items[y].edge;
+                const f = edges[fi];
+                if (@max(f.a.x, f.b.x) < e.minX() or @min(f.a.x, f.b.x) > e.maxX()) continue;
+                if (@max(f.a.y, f.b.y) < @min(e.a.y, e.b.y) or @min(f.a.y, f.b.y) > @max(e.a.y, e.b.y)) continue;
+                try intersectPair(arena, splits, ei, e, fi, f);
             }
         }
-        active.shrinkRetainingCapacity(keep);
+        i = j;
+    }
+}
 
-        for (active.items) |fi| {
-            const f = edges[fi];
-            if (@max(f.a.y, f.b.y) < e_min_y or @min(f.a.y, f.b.y) > e_max_y) continue;
-            try intersectPair(arena, splits, ei, e, fi, f);
+const CellEntry = struct { cell: u64, edge: u32 };
+
+fn cellKey(cx: i64, cy: i64) u64 {
+    return (@as(u64, @as(u32, @intCast(cx))) << 32) | @as(u32, @intCast(cy));
+}
+
+/// Adds the cells that the segment from a to b passes through (the
+/// Amanatides-Woo grid walk). Where the segment goes through a cell corner,
+/// both side cells are added too, so that a rounding error cannot skip a
+/// cell. Cell coordinates are relative to `origin`, so they are not
+/// negative.
+fn walkCells(arena: Allocator, out: *std.ArrayList(CellEntry), a: Point, b: Point, origin: Point, cell: f64, edge: u32) !void {
+    const ax = @as(f64, @floatFromInt(a.x - origin.x)) / cell;
+    const ay = @as(f64, @floatFromInt(a.y - origin.y)) / cell;
+    const bx = @as(f64, @floatFromInt(b.x - origin.x)) / cell;
+    const by = @as(f64, @floatFromInt(b.y - origin.y)) / cell;
+    var cx: i64 = @intFromFloat(@floor(ax));
+    var cy: i64 = @intFromFloat(@floor(ay));
+    const ex: i64 = @intFromFloat(@floor(bx));
+    const ey: i64 = @intFromFloat(@floor(by));
+    try out.append(arena, .{ .cell = cellKey(cx, cy), .edge = edge });
+    if (cx == ex and cy == ey) return;
+
+    const dx = bx - ax;
+    const dy = by - ay;
+    const sx: i64 = if (dx > 0) 1 else -1;
+    const sy: i64 = if (dy > 0) 1 else -1;
+    const inf = std.math.inf(f64);
+    var t_max_x = if (dx != 0) (@as(f64, @floatFromInt(cx + @as(i64, if (dx > 0) 1 else 0))) - ax) / dx else inf;
+    var t_max_y = if (dy != 0) (@as(f64, @floatFromInt(cy + @as(i64, if (dy > 0) 1 else 0))) - ay) / dy else inf;
+    const t_dx = if (dx != 0) @abs(1 / dx) else inf;
+    const t_dy = if (dy != 0) @abs(1 / dy) else inf;
+    var steps = @abs(ex - cx) + @abs(ey - cy) + 2;
+    while (steps > 0 and !(cx == ex and cy == ey)) : (steps -= 1) {
+        const diff = t_max_x - t_max_y;
+        // A corner needs both steps to be finite: an axis-aligned edge has
+        // one infinite value, and inf - inf would look like a corner.
+        const corner = std.math.isFinite(t_max_x) and std.math.isFinite(t_max_y) and
+            @abs(diff) <= 1e-9 * @max(1.0, @abs(t_max_x));
+        if (corner) {
+            // Through a corner: add both side cells. A side cell outside the
+            // grid (a negative coordinate) has no edges, so it is skipped.
+            if (cx + sx >= 0) try out.append(arena, .{ .cell = cellKey(cx + sx, cy), .edge = edge });
+            if (cy + sy >= 0) try out.append(arena, .{ .cell = cellKey(cx, cy + sy), .edge = edge });
+            cx += sx;
+            cy += sy;
+            t_max_x += t_dx;
+            t_max_y += t_dy;
+        } else if (diff < 0) {
+            cx += sx;
+            t_max_x += t_dx;
+        } else {
+            cy += sy;
+            t_max_y += t_dy;
         }
-        try active.append(arena, ei);
+        if (cx < 0 or cy < 0) break;
+        try out.append(arena, .{ .cell = cellKey(cx, cy), .edge = edge });
     }
 }
 
@@ -345,9 +427,9 @@ fn addSub(arena: Allocator, subs: *std.ArrayList(Merged), a: Point, b: Point, d:
 // ---------------------------------------------------------------------------
 // Step 4
 
-/// A bucket index along one axis. The axis range is cut into equal "slabs".
-/// Each edge is in each slab that its range touches. A ray query looks only
-/// at the edges in one slab.
+/// A bucket index along y, for the non-horizontal edges. Each edge is in
+/// each "slab" (band of y) that its range touches. A horizontal ray query
+/// looks only at the edges in one slab.
 const SlabIndex = struct {
     min: i64,
     width: i64,
@@ -364,14 +446,12 @@ const SlabIndex = struct {
         return s.items[s.starts[i]..s.starts[i + 1]];
     }
 
-    /// `axis` 0 indexes the non-vertical edges by x. `axis` 1 indexes the
-    /// non-horizontal edges by y.
-    fn build(arena: Allocator, edges: []const Merged, axis: u1) !SlabIndex {
+    fn build(arena: Allocator, edges: []const Merged) !SlabIndex {
         var lo: i64 = std.math.maxInt(i64);
         var hi: i64 = std.math.minInt(i64);
         var n: usize = 0;
         for (edges) |e| {
-            const r = range(e, axis) orelse continue;
+            const r = range(e) orelse continue;
             lo = @min(lo, r[0]);
             hi = @max(hi, r[1]);
             n += 1;
@@ -388,16 +468,15 @@ const SlabIndex = struct {
         const slabs: usize = @intCast(@divFloor(span + width - 1, width));
         var s: SlabIndex = .{ .min = lo, .width = width, .starts = try arena.alloc(u32, slabs + 1), .items = &.{} };
         @memset(s.starts, 0);
-        // Count, then fill (compressed sparse rows).
         for (edges) |e| {
-            const r = range(e, axis) orelse continue;
+            const r = range(e) orelse continue;
             for (s.slab(r[0])..s.slab(r[1]) + 1) |k| s.starts[k + 1] += 1;
         }
         for (1..s.starts.len) |k| s.starts[k] += s.starts[k - 1];
         s.items = try arena.alloc(u32, s.starts[slabs]);
         const fill = try arena.dupe(u32, s.starts[0..slabs]);
         for (edges, 0..) |e, i| {
-            const r = range(e, axis) orelse continue;
+            const r = range(e) orelse continue;
             for (s.slab(r[0])..s.slab(r[1]) + 1) |k| {
                 s.items[fill[k]] = @intCast(i);
                 fill[k] += 1;
@@ -406,80 +485,186 @@ const SlabIndex = struct {
         return s;
     }
 
-    fn range(e: Merged, axis: u1) ?[2]i64 {
-        if (axis == 0) {
-            if (e.lo.x == e.hi.x) return null;
-            return .{ e.lo.x, e.hi.x };
-        }
+    fn range(e: Merged) ?[2]i64 {
         if (e.lo.y == e.hi.y) return null;
         return .{ @min(e.lo.y, e.hi.y), @max(e.lo.y, e.hi.y) };
     }
 };
 
-fn double(p: Point) Point {
-    return .{ .x = p.x * 2, .y = p.y * 2 };
-}
-
-/// Finds the winding numbers on the left of each edge.
-///
-/// The test point m is the middle of the edge. The code doubles all
-/// coordinates so that m stays an integer.
-///
-/// - For a non-vertical edge, a ray goes down from m. Each non-vertical edge
-///   below m adds its delta. An edge that goes in +x with the inside above
-///   it (the bottom of a counterclockwise square) adds +1. The sum is the
-///   winding number below the edge, on its right side.
-/// - For a vertical edge, a ray goes left from m. The rule is the same, but
-///   for x and y swapped. The sum is the winding number on the left side.
-///
-/// Each edge range is half open, [min, max). A ray that goes through a
-/// vertex then counts only one of the two edges at that vertex.
-fn computeWinding(arena: Allocator, edges: []Merged) !void {
-    const by_x = try SlabIndex.build(arena, edges, 0);
-    const by_y = try SlabIndex.build(arena, edges, 1);
-
-    for (edges, 0..) |*e, ei| {
-        const mx2 = e.lo.x + e.hi.x;
-        const my2 = e.lo.y + e.hi.y;
-        const m = Point{ .x = mx2, .y = my2 };
-        var sum: [2]i32 = .{ 0, 0 };
-        if (e.lo.x != e.hi.x) {
-            for (by_x.get(@divFloor(mx2, 2))) |fi| {
-                if (fi == ei) continue;
-                const f = edges[fi];
-                if (f.lo.x == f.hi.x) continue;
-                if (!(2 * f.lo.x <= mx2 and mx2 < 2 * f.hi.x)) continue;
-                // f goes in +x. m is above f if m is on the left of f.
-                if (cross3(double(f.lo), double(f.hi), m) > 0) {
-                    sum[0] += f.d[0];
-                    sum[1] += f.d[1];
-                }
-            }
-            // `sum` is the winding below, on the right of lo -> hi.
-            e.left = .{ sum[0] + e.d[0], sum[1] + e.d[1] };
-        } else {
-            for (by_y.get(@divFloor(my2, 2))) |fi| {
-                if (fi == ei) continue;
-                const f = edges[fi];
-                if (f.lo.y == f.hi.y) continue;
-                const up = f.lo.y < f.hi.y;
-                const u = if (up) f.lo else f.hi;
-                const v = if (up) f.hi else f.lo;
-                if (!(2 * u.y <= my2 and my2 < 2 * v.y)) continue;
-                // f goes up from u to v. m is right of f if cross < 0.
-                if (cross3(double(u), double(v), m) < 0) {
-                    // An edge that goes down, on the left of the point,
-                    // adds +1 (the left side of a counterclockwise square).
-                    const s: i32 = if (up) 1 else -1;
-                    sum[0] -= f.d[0] * s;
-                    sum[1] -= f.d[1] * s;
-                }
-            }
-            // A vertical edge goes in +y from lo to hi. `sum` is the
-            // winding on its left.
-            e.left = sum;
+/// The winding numbers just left of v, from the edges that a horizontal ray
+/// from v to the left crosses. An edge counts if min y <= v.y < max y (half
+/// open) and v is strictly right of it. The result is the winding number at
+/// a point just left of v and just above the ray.
+fn windingLeftOf(edges: []const Merged, index: SlabIndex, v: Point) [2]i32 {
+    var sum: [2]i32 = .{ 0, 0 };
+    for (index.get(v.y)) |fi| {
+        const f = edges[fi];
+        const up = f.lo.y < f.hi.y;
+        const u = if (up) f.lo else f.hi;
+        const w = if (up) f.hi else f.lo;
+        if (!(u.y <= v.y and v.y < w.y)) continue;
+        if (cross3(u, w, v) < 0) {
+            // An edge that goes down, on the left of the point, adds +1
+            // (the left side of a counterclockwise square).
+            const s: i32 = if (up) 1 else -1;
+            sum[0] -= f.d[0] * s;
+            sum[1] -= f.d[1] * s;
         }
     }
+    return sum;
+}
+
+/// Finds the winding numbers on the left of each edge, from the faces of
+/// the arrangement.
+///
+/// 1. Make two half-edges for each edge: lo -> hi and hi -> lo. The face of
+///    a half-edge is the region on its left.
+/// 2. At each vertex, sort the outgoing half-edges by angle. The next
+///    half-edge around a face is then known: at the end vertex, take the
+///    outgoing half-edge just clockwise from the way back.
+/// 3. Walk each face cycle, and give each face an ID.
+/// 4. Crossing an edge from its right to its left adds its delta to the
+///    winding number. So within one connected component, a walk from face to
+///    face gives each face its winding number relative to one face.
+/// 5. One ray for each component makes the numbers absolute: the face just
+///    left of the leftmost vertex of the component gets the winding number
+///    of the other components at that point (see `windingLeftOf`).
+///
+/// The cost is O(n log n) for the sort, plus one ray for each component.
+fn computeWinding(arena: Allocator, edges: []Merged) !void {
+    const m = edges.len;
+    const h_count = 2 * m;
+
+    // Steps 1 and 2.
+    const order = try arena.alloc(u32, h_count);
+    for (order, 0..) |*o, i| o.* = @intCast(i);
+    const Ctx = struct {
+        edges: []const Merged,
+        fn origin(c: @This(), h: u32) Point {
+            const e = c.edges[h >> 1];
+            return if (h & 1 == 0) e.lo else e.hi;
+        }
+        fn dir(c: @This(), h: u32) Point {
+            const e = c.edges[h >> 1];
+            return if (h & 1 == 0) e.hi.sub(e.lo) else e.lo.sub(e.hi);
+        }
+        fn lt(c: @This(), a: u32, b: u32) bool {
+            const oa = c.origin(a);
+            const ob = c.origin(b);
+            if (!oa.eql(ob)) return oa.lessThan(ob);
+            return angleLess(c.dir(a), c.dir(b));
+        }
+    };
+    const ctx: Ctx = .{ .edges = edges };
+    std.mem.sortUnstable(u32, order, ctx, Ctx.lt);
+    const pos = try arena.alloc(u32, h_count);
+    const group_start = try arena.alloc(u32, h_count);
+    const group_len = try arena.alloc(u32, h_count);
+    {
+        var k: usize = 0;
+        while (k < h_count) {
+            var j = k + 1;
+            const o = ctx.origin(order[k]);
+            while (j < h_count and ctx.origin(order[j]).eql(o)) : (j += 1) {}
+            for (k..j) |q| {
+                pos[order[q]] = @intCast(q);
+                group_start[q] = @intCast(k);
+                group_len[q] = @intCast(j - k);
+            }
+            k = j;
+        }
+    }
+
+    // Step 3.
+    const no_face = std.math.maxInt(u32);
+    const face = try arena.alloc(u32, h_count);
+    @memset(face, no_face);
+    var face_first: std.ArrayList(u32) = .empty;
+    for (0..h_count) |start| {
+        if (face[start] != no_face) continue;
+        const f: u32 = @intCast(face_first.items.len);
+        try face_first.append(arena, @intCast(start));
+        var h: u32 = @intCast(start);
+        while (face[h] == no_face) {
+            face[h] = f;
+            // next(h): at the end of h, the outgoing half-edge just
+            // clockwise from the twin of h.
+            const k = pos[h ^ 1];
+            const g = group_start[k];
+            const len = group_len[k];
+            h = order[g + (k - g + len - 1) % len];
+        }
+    }
+
+    // Steps 4 and 5.
+    const nf = face_first.items.len;
+    const wind = try arena.alloc([2]i32, nf);
+    const known = try arena.alloc(bool, nf);
+    @memset(known, false);
+    var index: ?SlabIndex = null;
+    var queue: std.ArrayList(u32) = .empty;
+    var comp: std.ArrayList(u32) = .empty;
+    for (0..nf) |seed| {
+        if (known[seed]) continue;
+        queue.clearRetainingCapacity();
+        comp.clearRetainingCapacity();
+        known[seed] = true;
+        wind[seed] = .{ 0, 0 };
+        try queue.append(arena, @intCast(seed));
+        // The leftmost vertex of the component, and its most
+        // counterclockwise outgoing half-edge.
+        var lead: u32 = face_first.items[seed];
+        var qi: usize = 0;
+        while (qi < queue.items.len) : (qi += 1) {
+            const f = queue.items[qi];
+            try comp.append(arena, f);
+            var h = face_first.items[f];
+            while (true) {
+                if (ctx.origin(h).lessThan(ctx.origin(lead)) or
+                    (ctx.origin(h).eql(ctx.origin(lead)) and crossV(ctx.dir(lead), ctx.dir(h)) > 0)) lead = h;
+                // The face on the other side of h is the face of its twin.
+                // The left of lo -> hi has the winding of its right plus d.
+                const g = face[h ^ 1];
+                if (!known[g]) {
+                    const d = edges[h >> 1].d;
+                    known[g] = true;
+                    wind[g] = if (h & 1 == 0)
+                        .{ wind[f][0] - d[0], wind[f][1] - d[1] }
+                    else
+                        .{ wind[f][0] + d[0], wind[f][1] + d[1] };
+                    try queue.append(arena, g);
+                }
+                const k = pos[h ^ 1];
+                const gs = group_start[k];
+                const len = group_len[k];
+                h = order[gs + (k - gs + len - 1) % len];
+                if (h == face_first.items[f]) break;
+            }
+        }
+        // Make the numbers of this component absolute.
+        if (index == null) index = try SlabIndex.build(arena, edges);
+        const v = ctx.origin(lead);
+        const outside = windingLeftOf(edges, index.?, v);
+        const rel = wind[face[lead]];
+        const shift = [2]i32{ outside[0] - rel[0], outside[1] - rel[1] };
+        for (comp.items) |f| wind[f] = .{ wind[f][0] + shift[0], wind[f][1] + shift[1] };
+    }
+
+    for (edges, 0..) |*e, i| e.left = wind[face[2 * i]];
+}
+
+/// The order of directions by angle, counterclockwise from +x. Exact: it
+/// uses only signs of integer products.
+fn angleLess(a: Point, b: Point) bool {
+    const ha = upperHalf(a);
+    const hb = upperHalf(b);
+    if (ha != hb) return ha;
+    return crossV(a, b) > 0;
+}
+
+/// True for angles in [0, 180) degrees.
+fn upperHalf(v: Point) bool {
+    return v.y > 0 or (v.y == 0 and v.x > 0);
 }
 
 // ---------------------------------------------------------------------------
@@ -703,7 +888,7 @@ test "a bow tie with the positive rule keeps one triangle" {
     try testing.expectApproxEqAbs(@as(f64, 1.0), pos.areaMm2(), 1e-9);
 }
 
-test "many random squares: union area is inside the expected range" {
+test "many random squares: union area is exact" {
     const gpa = testing.allocator;
     var prng = std.Random.DefaultPrng.init(42);
     const rand = prng.random();
@@ -721,6 +906,11 @@ test "many random squares: union area is inside the expected range" {
     defer r.deinit(gpa);
     const area = r.areaMm2();
     try testing.expect(area > 0 and area <= sum + 1e-6);
+    // The exact area of the union, by coordinate compression: each cell of
+    // the grid of all rectangle edges is in the union or not.
+    // A regression test: a grid walk bug lost crossings of axis-aligned
+    // edges, and the union lost 156 mm^2 here.
+    try testing.expectApproxEqAbs(exactUnionArea(a), area, 1e-6);
     // The union of the union with itself has the same area.
     var r2 = try unite(gpa, r, r);
     defer r2.deinit(gpa);
@@ -729,6 +919,38 @@ test "many random squares: union area is inside the expected range" {
     var d = try difference(gpa, a, r);
     defer d.deinit(gpa);
     try testing.expectApproxEqAbs(@as(f64, 0), d.areaMm2(), 1e-6);
+}
+
+fn exactUnionArea(rects: Paths) f64 {
+    var xs: [400]i64 = undefined;
+    var ys: [400]i64 = undefined;
+    const n = rects.count();
+    for (0..n) |i| {
+        const r = rects.get(i);
+        xs[2 * i] = r[0].x;
+        xs[2 * i + 1] = r[2].x;
+        ys[2 * i] = r[0].y;
+        ys[2 * i + 1] = r[2].y;
+    }
+    std.mem.sortUnstable(i64, xs[0 .. 2 * n], {}, std.sort.asc(i64));
+    std.mem.sortUnstable(i64, ys[0 .. 2 * n], {}, std.sort.asc(i64));
+    var area: f64 = 0;
+    for (0..2 * n - 1) |i| {
+        if (xs[i] == xs[i + 1]) continue;
+        for (0..2 * n - 1) |j| {
+            if (ys[j] == ys[j + 1]) continue;
+            const cx = xs[i] + xs[i + 1];
+            const cy = ys[j] + ys[j + 1];
+            for (0..n) |k| {
+                const r = rects.get(k);
+                if (cx > 2 * r[0].x and cx < 2 * r[2].x and cy > 2 * r[0].y and cy < 2 * r[2].y) {
+                    area += geom.toMm(xs[i + 1] - xs[i]) * geom.toMm(ys[j + 1] - ys[j]);
+                    break;
+                }
+            }
+        }
+    }
+    return area;
 }
 
 test "random polygon pairs: union + intersection = A + B" {

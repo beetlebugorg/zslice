@@ -87,7 +87,7 @@ The goal is the features that people use in PrusaSlicer and Cura. zslice designs
 
 ## Performance
 
-- The polygon boolean is O(n^2) for long edges (the sweep keeps an edge active for its whole x range, and the slab index puts it in each slab it crosses). Use a sweep status in y order, or a 2D grid.
+- [x] The polygon boolean was O(n^2) for long edges. It now finds crossings with a grid and winding numbers by a walk over the faces.
 - The support column pass (`support.zig` step 2) runs on one thread. The slowest corpus file with support takes 11 s on 2 threads. Split the layers into bands that run in parallel, or use a coarser area for the carry.
 - Clip open lines (infill, ironing) with a direct method, not with the scanline of a region.
 - Pass one scratch arena for each layer to the boolean and offset calls.

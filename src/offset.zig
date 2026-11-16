@@ -19,7 +19,9 @@
 //!      them. This makes a small loop that turns the wrong way. The
 //!      original vertex is necessary: without it, a shape that shrinks
 //!      past its center turns inside out but keeps its direction, and the
-//!      union in step 3 keeps it.
+//!      union in step 3 keeps it. One exception: at an almost straight
+//!      corner between two edges longer than the offset distance, the
+//!      crossing point alone is exact and safe (see `addJoin`).
 //!
 //! Before step 1, the code removes points that are within
 //! `clean_tolerance` of a straight line (see `geom.simplifyClosed`). A curve
@@ -49,7 +51,7 @@ pub const Options = struct {
     arc_tolerance: f64 = 5.0,
     /// Points of the input within this distance (units) of a straight line
     /// are removed before the offset.
-    clean_tolerance: i64 = 2,
+    clean_tolerance: i64 = 5,
 };
 
 /// Moves the boundaries of `paths` by `delta` units. A positive delta makes
@@ -64,6 +66,7 @@ pub fn offset(gpa: Allocator, paths: Paths, delta: i64, opts: Options) Allocator
 
     var raw: Paths = .empty;
     var normals: std.ArrayList([2]f64) = .empty;
+    var lengths: std.ArrayList(f64) = .empty;
     const d: f64 = @floatFromInt(delta);
 
     var clean: std.ArrayList(Point) = .empty;
@@ -75,11 +78,13 @@ pub fn offset(gpa: Allocator, paths: Paths, delta: i64, opts: Options) Allocator
 
         // The unit normal of each edge i, from poly[i] to poly[i + 1].
         normals.clearRetainingCapacity();
+        lengths.clearRetainingCapacity();
         for (poly, 0..) |p, i| {
             const q = poly[(i + 1) % poly.len];
             const dx: f64 = @floatFromInt(q.x - p.x);
             const dy: f64 = @floatFromInt(q.y - p.y);
             const len = @sqrt(dx * dx + dy * dy);
+            try lengths.append(arena, len);
             if (len == 0) {
                 try normals.append(arena, .{ 0, 0 });
             } else {
@@ -88,9 +93,11 @@ pub fn offset(gpa: Allocator, paths: Paths, delta: i64, opts: Options) Allocator
         }
 
         for (poly, 0..) |p, i| {
-            const n1 = normals.items[(i + poly.len - 1) % poly.len];
+            const prev = (i + poly.len - 1) % poly.len;
+            const n1 = normals.items[prev];
             const n2 = normals.items[i];
-            try addJoin(arena, &raw, p, n1, n2, d, opts);
+            const short = @min(lengths.items[prev], lengths.items[i]);
+            try addJoin(arena, &raw, p, n1, n2, d, short, opts);
         }
         try raw.endPath(arena, 3);
     }
@@ -107,13 +114,33 @@ fn movePoint(p: Point, n: [2]f64, d: f64) Point {
     };
 }
 
-fn addJoin(arena: Allocator, out: *Paths, p: Point, n1: [2]f64, n2: [2]f64, d: f64, opts: Options) !void {
+/// `short` is the length of the shorter edge at the vertex.
+fn addJoin(arena: Allocator, out: *Paths, p: Point, n1: [2]f64, n2: [2]f64, d: f64, short: f64, opts: Options) !void {
     const sin_a = n1[0] * n2[1] - n1[1] * n2[0];
     const cos_a = n1[0] * n2[0] + n1[1] * n2[1];
 
     // Almost straight: one point is enough.
     if (@abs(sin_a) < 1e-12 and cos_a > 0) {
         try out.appendPoint(arena, movePoint(p, n1, d));
+        return;
+    }
+
+    // The corner closes toward the offset, it is almost straight (less than
+    // 8 degrees), and both edges are longer than the offset distance. Then
+    // one point at the crossing of the moved edges (the miter point) is
+    // exact, and the loop through the vertex is not necessary: a shape
+    // whose turns are all this small, with edges this long, has a radius of
+    // more than 7 times the offset distance, so it cannot shrink past its
+    // center. This removes most thin loops on curves, which make the union
+    // slow.
+    if (sin_a * d < 0 and cos_a > 0.99 and short > @abs(d)) {
+        const k = d / (1 + cos_a);
+        const px: f64 = @floatFromInt(p.x);
+        const py: f64 = @floatFromInt(p.y);
+        try out.appendPoint(arena, .{
+            .x = @intFromFloat(@round(px + (n1[0] + n2[0]) * k)),
+            .y = @intFromFloat(@round(py + (n1[1] + n2[1]) * k)),
+        });
         return;
     }
 
@@ -321,7 +348,9 @@ test "dense circles give one loop" {
         defer r.deinit(gpa);
         try testing.expectEqual(@as(usize, 1), r.count());
         const want = std.math.pi * std.math.pow(f64, (c.r + @as(f64, @floatFromInt(c.d))) / 1000, 2);
-        // 1 %, plus 0.002 mm^2 for the polygon error of a very small circle.
-        try testing.expectApproxEqAbs(want, r.areaMm2(), 0.01 * want + 0.002);
+        // 1 %, plus the perimeter times 6 um: the input clean-up
+        // (clean_tolerance, 5 um) can move each edge in by that much.
+        const r_out = (c.r + @as(f64, @floatFromInt(c.d))) / 1000;
+        try testing.expectApproxEqAbs(want, r.areaMm2(), 0.01 * want + 2 * std.math.pi * r_out * 0.006);
     }
 }
