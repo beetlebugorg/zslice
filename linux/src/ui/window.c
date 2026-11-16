@@ -277,6 +277,8 @@ GtkWindow *zg_window_new(GtkApplication *app, ZgModel *model) {
     gtk_paned_set_end_child(GTK_PANED(paned), w->preview);
     gtk_paned_set_resize_start_child(GTK_PANED(paned), FALSE);
     gtk_paned_set_shrink_start_child(GTK_PANED(paned), FALSE);
+    gtk_paned_set_shrink_end_child(GTK_PANED(paned), FALSE);
+    gtk_paned_set_wide_handle(GTK_PANED(paned), TRUE);
     gtk_widget_set_vexpand(paned, TRUE);
 
     /* Status bar. */

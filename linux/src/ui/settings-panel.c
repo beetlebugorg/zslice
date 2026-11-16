@@ -292,10 +292,17 @@ GtkWidget *zg_settings_panel_new(ZgModel *model) {
     gtk_stack_switcher_set_stack(GTK_STACK_SWITCHER(switcher), GTK_STACK(stack));
     gtk_widget_set_halign(switcher, GTK_ALIGN_CENTER);
     gtk_widget_set_margin_top(switcher, 8);
+    gtk_widget_set_margin_bottom(switcher, 4);
+    /* The tabs scroll when the panel is narrow, so the panel can be as
+     * narrow as the user wants. */
+    GtkWidget *tabs = gtk_scrolled_window_new();
+    gtk_scrolled_window_set_policy(GTK_SCROLLED_WINDOW(tabs), GTK_POLICY_EXTERNAL, GTK_POLICY_NEVER);
+    gtk_scrolled_window_set_child(GTK_SCROLLED_WINDOW(tabs), switcher);
+    gtk_scrolled_window_set_propagate_natural_width(GTK_SCROLLED_WINDOW(tabs), TRUE);
 
     GtkWidget *box = gtk_box_new(GTK_ORIENTATION_VERTICAL, 4);
-    gtk_box_append(GTK_BOX(box), switcher);
+    gtk_box_append(GTK_BOX(box), tabs);
     gtk_box_append(GTK_BOX(box), stack);
-    gtk_widget_set_size_request(box, 340, -1);
+    gtk_widget_set_size_request(box, 220, -1);
     return box;
 }

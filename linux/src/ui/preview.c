@@ -406,14 +406,20 @@ GtkWidget *zg_preview_new(ZgModel *model) {
     gtk_box_append(GTK_BOX(replay), p->play);
     gtk_box_append(GTK_BOX(replay), p->speed);
     gtk_widget_set_hexpand(side, FALSE);
-    gtk_widget_set_size_request(side, 170, -1);
+    gtk_widget_set_size_request(side, 150, -1);
     gtk_box_append(GTK_BOX(side), replay);
     gtk_box_append(GTK_BOX(side), p->label);
     gtk_box_append(GTK_BOX(side), p->slider);
 
-    GtkWidget *box = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 0);
-    gtk_box_append(GTK_BOX(box), stack);
-    gtk_box_append(GTK_BOX(box), side);
+    /* A paned, so the user can make the side panel wider or narrower. */
+    GtkWidget *box = gtk_paned_new(GTK_ORIENTATION_HORIZONTAL);
+    gtk_paned_set_start_child(GTK_PANED(box), stack);
+    gtk_paned_set_end_child(GTK_PANED(box), side);
+    gtk_paned_set_resize_end_child(GTK_PANED(box), FALSE);
+    gtk_paned_set_shrink_end_child(GTK_PANED(box), FALSE);
+    gtk_paned_set_shrink_start_child(GTK_PANED(box), FALSE);
+    gtk_paned_set_wide_handle(GTK_PANED(box), TRUE);
+    gtk_widget_set_size_request(stack, 200, -1);
     g_object_set_data_full(G_OBJECT(box), "zg-preview", p, preview_free);
     g_signal_connect(model, "selection-changed", G_CALLBACK(on_selection), p);
     return box;

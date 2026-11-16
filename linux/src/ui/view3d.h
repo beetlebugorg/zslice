@@ -2,8 +2,9 @@
  *
  * Each path segment is a box: one line width wide, one layer height tall,
  * lit by a fixed light. The view shows the layers up to the layer that the
- * slider picks. Drag to orbit, scroll to zoom, and double-click to reset
- * the view.
+ * slider picks. Left drag to orbit, middle drag to pan, right drag to
+ * turn around the vertical axis, scroll to zoom toward the pointer, and
+ * double-click to reset the view.
  *
  * SPDX-License-Identifier: AGPL-3.0-or-later
  */
