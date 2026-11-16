@@ -1306,3 +1306,114 @@ test "the retraction at a layer change has no z hop" {
     // The z hop is still on the travels that retract.
     try std.testing.expect(std.mem.indexOf(u8, text, "G1 E-") != null);
 }
+
+/// The text of each layer of a G-code file: from one ";LAYER:" mark to the
+/// next, or to the statistics at the end.
+fn layerTexts(gpa: Allocator, all: []const u8) Allocator.Error![][]const u8 {
+    const text = all[0 .. std.mem.indexOf(u8, all, ";Filament used") orelse all.len];
+    var list: std.ArrayList([]const u8) = .empty;
+    errdefer list.deinit(gpa);
+    var at = std.mem.indexOf(u8, text, ";LAYER:") orelse return list.toOwnedSlice(gpa);
+    while (std.mem.indexOfPos(u8, text, at + 1, ";LAYER:")) |next| {
+        try list.append(gpa, text[at..next]);
+        at = next;
+    }
+    try list.append(gpa, text[at..]);
+    return list.toOwnedSlice(gpa);
+}
+
+/// The G-code of the demo part with the overrides.
+fn demoGcode(gpa: Allocator, overrides: []const settings_mod.Override) ![]u8 {
+    var mesh = try mesh_mod.shapes.demo(gpa);
+    defer mesh.deinit(gpa);
+    var s: Settings = .{};
+    s.engine.threads = 2;
+    var job = try Job.initFull(gpa, &mesh, s, overrides, .{});
+    defer job.deinit();
+    var out: Writer.Allocating = .init(gpa);
+    defer out.deinit();
+    _ = try job.writeGcode(&out.writer);
+    return out.toOwnedSlice();
+}
+
+/// The sum of the E values of the extrusion moves of a text.
+fn extrusion(text: []const u8) f64 {
+    var sum: f64 = 0;
+    var lines = std.mem.splitScalar(u8, text, '\n');
+    while (lines.next()) |line| {
+        if (!std.mem.startsWith(u8, line, "G1 X")) continue;
+        var tok = std.mem.tokenizeScalar(u8, line, ' ');
+        while (tok.next()) |w| if (w[0] == 'E') {
+            sum += std.fmt.parseFloat(f64, w[1..]) catch 0;
+        };
+    }
+    return sum;
+}
+
+test "an override of the G-code settings changes only the layers in its range" {
+    const gpa = testing.allocator;
+    const base = try demoGcode(gpa, &.{});
+    defer gpa.free(base);
+    // The layers with a top z from 3 to 4: 3.1 to 3.9.
+    const o = [_]settings_mod.Override{
+        .{ .z_min = 3, .z_max = 4, .name = "filament.nozzle_temp", .value = "230" },
+        .{ .z_min = 3, .z_max = 4, .name = "filament.bed_temp", .value = "50" },
+        .{ .z_min = 3, .z_max = 4, .name = "filament.fan_speed", .value = "0.5" },
+        .{ .z_min = 3, .z_max = 4, .name = "filament.fan_max_speed", .value = "0.5" },
+        .{ .z_min = 3, .z_max = 4, .name = "filament.flow_ratio", .value = "1.1" },
+    };
+    const changed = try demoGcode(gpa, &o);
+    defer gpa.free(changed);
+    const a = try layerTexts(gpa, base);
+    defer gpa.free(a);
+    const b = try layerTexts(gpa, changed);
+    defer gpa.free(b);
+    try testing.expectEqual(a.len, b.len);
+    // Layer i has its top at 0.3 + 0.2 i: layers 14 to 18 are in the range.
+    for (a, b, 0..) |la, lb, i| {
+        if (i < 14 or i > 19) {
+            try testing.expectEqualStrings(la, lb);
+        } else if (i <= 18) {
+            try testing.expectApproxEqRel(1.1 * extrusion(la), extrusion(lb), 1e-3);
+            try testing.expect(std.mem.indexOf(u8, lb, "M106 S128\n") != null or i > 14);
+        }
+    }
+    try testing.expect(std.mem.indexOf(u8, b[14], "M104 S230\n") != null);
+    try testing.expect(std.mem.indexOf(u8, b[14], "M140 S50\n") != null);
+    // After the range: the values of the print again.
+    try testing.expect(std.mem.indexOf(u8, b[19], "M104 S210\n") != null);
+    try testing.expect(std.mem.indexOf(u8, b[19], "M140 S60\n") != null);
+    try testing.expect(std.mem.indexOf(u8, b[19], "M106 S255\n") != null);
+    try testing.expect(std.mem.indexOf(u8, a[14], "M104") == null);
+}
+
+test "a retraction and its push back have the same length at a change of the retraction" {
+    const gpa = testing.allocator;
+    const o = [_]settings_mod.Override{
+        .{ .z_min = 3, .z_max = 4, .name = "filament.retract_ratio", .value = "2" },
+        .{ .z_min = 3, .z_max = 4, .name = "project.z_hop", .value = "0.4" },
+        .{ .z_min = 3, .z_max = 4, .name = "project.combing", .value = "false" },
+    };
+    const text = try demoGcode(gpa, &o);
+    defer gpa.free(text);
+    const layers = try layerTexts(gpa, text);
+    defer gpa.free(layers);
+    // The sum of the retractions and the push backs is 0 to the end of each
+    // layer, but for one retraction that is open at the layer change.
+    var open: f64 = 0;
+    for (layers, 0..) |l, i| {
+        var lines = std.mem.splitScalar(u8, l, '\n');
+        var hops: usize = 0;
+        while (lines.next()) |line| {
+            if (std.mem.startsWith(u8, line, "G1 E")) open += try std.fmt.parseFloat(f64, line[4 .. std.mem.indexOfScalarPos(u8, line, 4, ' ') orelse line.len]);
+            if (std.mem.startsWith(u8, line, "G0 Z")) hops += 1;
+        }
+        try testing.expect(open > -1.7 and open < 1e-9);
+        const in_range = i >= 14 and i <= 18;
+        // Without combing, the layers of the range retract more, with a z hop.
+        if (in_range) {
+            try testing.expect(std.mem.indexOf(u8, l, "G1 E-1.6 ") != null);
+            try testing.expect(hops > 1);
+        } else try testing.expect(std.mem.indexOf(u8, l, "G1 E-1.6 ") == null);
+    }
+}

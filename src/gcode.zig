@@ -286,9 +286,9 @@ pub fn prepare(gpa: std.mem.Allocator, r: *const Resolved, lp: *const LayerPlan,
     out.clear();
     try out.paths.ensureTotalCapacity(gpa, lp.paths.items.len);
     try out.lengths.resize(gpa, lp.points.points.items.len);
-    var em: Emitter = .{ .gpa = gpa, .w = undefined, .r = r };
+    var em: Emitter = .{ .gpa = gpa, .w = undefined, .r = r, .lr = lp.resolved orelse r };
     em.setOutline(lp);
-    const p = r.settings.project;
+    const p = em.lr.settings.project;
     if (p.combing and !lp.outline.isEmpty()) {
         if (out.arena == null) out.arena = .init(gpa);
         out.index = try CombIndex.init(out.arena.?.allocator(), lp.outline);
@@ -353,13 +353,26 @@ pub const Emitter = struct {
     /// reserves the space (one item for each path) before `layer`.
     record: ?*std.ArrayList(PathInfo) = null,
     w: *Writer,
+    /// The settings of the print.
     r: *const Resolved,
+    /// The settings of the layer that `layer` writes, with its overrides.
+    /// The flow, the cooling, the retraction, the z hop, and the combing
+    /// come from it.
+    lr: *const Resolved,
     x: f64 = 0,
     y: f64 = 0,
     z: f64 = 0,
     retracted: bool = false,
-    /// The nozzle is up by `z_hop` after a retraction.
+    /// The length of the last retraction. The push back after it uses the
+    /// same length, also if the next layer has another one.
+    retract_len: f64 = 0,
+    /// The nozzle is up by `hop_len` after a retraction.
     hopped: bool = false,
+    hop_len: f64 = 0,
+    /// The last nozzle and bed temperatures, or null before the first
+    /// layer (the start G-code sets them).
+    nozzle_temp: ?f64 = null,
+    bed_temp: ?f64 = null,
     /// The outline of the layer that `layer` writes, its line width, and
     /// the boxes of its polygons (for combing).
     outline: ?*const geom.Paths = null,
@@ -394,7 +407,7 @@ pub const Emitter = struct {
     accel: f64 = 0,
 
     pub fn init(gpa: std.mem.Allocator, w: *Writer, r: *const Resolved) Emitter {
-        return .{ .gpa = gpa, .w = w, .r = r };
+        return .{ .gpa = gpa, .w = w, .r = r, .lr = r };
     }
 
     pub fn begin(self: *Emitter, layer_count: usize) Writer.Error!void {
@@ -504,13 +517,25 @@ pub const Emitter = struct {
     }
 
     pub fn layer(self: *Emitter, lp: *const LayerPlan) Error!void {
-        const s = self.r.settings;
+        self.lr = lp.resolved orelse self.r;
+        const g = self.r.settings;
+        const s = self.lr.settings;
         if (!self.dry) try self.w.print(";LAYER:{d}\n", .{lp.index});
-        if (lp.index == 1 and s.filament.first_layer_nozzle_temp != s.filament.nozzle_temp) {
+        // The temperatures: the start G-code sets the values of the first
+        // layer. A layer with other values sets them, with no wait.
+        const nozzle = if (lp.index == 0) g.filament.first_layer_nozzle_temp else s.filament.nozzle_temp;
+        if (nozzle != (self.nozzle_temp orelse g.filament.first_layer_nozzle_temp)) {
             try self.w.writeAll("M104 S");
-            try writeNum(self.w, s.filament.nozzle_temp, 0);
+            try writeNum(self.w, nozzle, 0);
             try self.w.writeAll("\n");
         }
+        self.nozzle_temp = nozzle;
+        if (s.filament.bed_temp != (self.bed_temp orelse g.filament.bed_temp)) {
+            try self.w.writeAll("M140 S");
+            try writeNum(self.w, s.filament.bed_temp, 0);
+            try self.w.writeAll("\n");
+        }
+        self.bed_temp = s.filament.bed_temp;
         // The first pass: the moves of the layer at full speed, with no
         // text, on a copy of the emitter.
         var moves: std.ArrayList(motion.Move) = .empty;
@@ -528,7 +553,7 @@ pub const Emitter = struct {
         const layer_time = fixed + motion.plan(moves.items, lim);
 
         // Cooling.
-        const ratio = if (lp.index < s.filament.fan_off_layers)
+        const ratio = if (lp.index < g.filament.fan_off_layers)
             0
         else if (layer_time < s.filament.fan_boost_time)
             s.filament.fan_max_speed
@@ -576,7 +601,7 @@ pub const Emitter = struct {
         defer self.planned = &.{};
         try self.paths(lp, slow, lap and short);
         std.debug.assert(self.next_move == moves.items.len);
-        if (lap and lp.index >= s.filament.fan_off_layers and short) {
+        if (lap and lp.index >= g.filament.fan_off_layers and short) {
             try self.coolingLap(lp, s.filament.min_layer_time - layer_time);
         }
     }
@@ -591,9 +616,10 @@ pub const Emitter = struct {
     /// travel to it. The extrusions print slower by the ratio `slow`.
     /// `lapped`: the layer gets a cooling lap (for the path records).
     fn paths(self: *Emitter, lp: *const LayerPlan, slow: f64, lapped: bool) Error!void {
-        const s = self.r.settings;
-        // The speeds and the ironing flow can change for each layer.
+        // The settings of the layer (see `lr`).
         const lr = lp.resolved orelse self.r;
+        self.lr = lr;
+        const s = lr.settings;
         const first = lp.index == 0;
 
         // Go up to the new layer. The retraction has no z hop: the layer
@@ -694,7 +720,7 @@ pub const Emitter = struct {
         try self.retract();
         try self.w.writeAll(";TYPE:COOLING-LAP\n");
         const fan = self.fan;
-        try self.setFan(@intFromFloat(@round(255 * self.r.settings.filament.fan_max_speed)));
+        try self.setFan(@intFromFloat(@round(255 * self.lr.settings.filament.fan_max_speed)));
         try self.w.writeAll("G0 Z");
         try writeNum(self.w, self.z + 1, 3);
         try self.w.writeAll("\n");
@@ -751,7 +777,7 @@ pub const Emitter = struct {
 
     /// A retraction, and a z hop if `hop` and `z_hop` is on.
     fn retractHop(self: *Emitter, hop: bool) Writer.Error!void {
-        const len = self.r.retract_length;
+        const len = self.lr.retract_length;
         if (self.retracted or !self.extruded or len <= 0) return;
         try self.w.writeAll("G1 E-");
         try writeNum(self.w, len, 4);
@@ -759,29 +785,32 @@ pub const Emitter = struct {
         try writeNum(self.w, self.r.settings.machine.retract_speed * 60, 0);
         try self.w.writeAll("\n");
         self.retracted = true;
+        self.retract_len = len;
         self.feed = -1;
         self.stats.retractions += 1;
         self.stats.print_time_s += self.retractTime(len);
         self.stop = true;
-        if (hop and self.r.settings.project.z_hop > 0) {
-            self.zMove(self.r.settings.project.z_hop);
+        const hop_len = self.lr.settings.project.z_hop;
+        if (hop and hop_len > 0) {
+            self.zMove(hop_len);
             try self.w.writeAll("G0 Z");
-            try writeNum(self.w, self.z + self.r.settings.project.z_hop, 3);
+            try writeNum(self.w, self.z + hop_len, 3);
             try self.w.writeAll("\n");
             self.hopped = true;
+            self.hop_len = hop_len;
         }
     }
 
     fn unretract(self: *Emitter) Writer.Error!void {
         if (!self.retracted) return;
         if (self.hopped) {
-            self.zMove(self.r.settings.project.z_hop);
+            self.zMove(self.hop_len);
             try self.w.writeAll("G0 Z");
             try writeNum(self.w, self.z, 3);
             try self.w.writeAll("\n");
             self.hopped = false;
         }
-        const len = self.r.retract_length;
+        const len = self.retract_len;
         try self.w.writeAll("G1 E");
         try writeNum(self.w, len, 4);
         try self.w.writeAll(" F");
@@ -796,7 +825,7 @@ pub const Emitter = struct {
     fn travel(self: *Emitter, x: f64, y: f64) Error!void {
         const d = std.math.hypot(x - self.x, y - self.y);
         if (d < 1e-4) return;
-        if (d > self.r.settings.project.retract_min_travel) {
+        if (d > self.lr.settings.project.retract_min_travel) {
             // Combing: a way inside the part needs no retraction (see
             // `findWay`).
             var way: [max_way][2]f64 = undefined;
@@ -893,7 +922,7 @@ pub const Emitter = struct {
     /// A way longer than 3 times the straight line (plus 5 mm) does not
     /// count.
     fn comb(self: *const Emitter, x: f64, y: f64, d: f64, way: *[max_way][2]f64, walks: bool) ?usize {
-        const p = self.r.settings.project;
+        const p = self.lr.settings.project;
         if (!p.combing) return null;
         if (p.combing_max_distance > 0 and d > p.combing_max_distance) return null;
         const outline = self.outline orelse return null;
@@ -982,8 +1011,8 @@ pub const Emitter = struct {
             py = q[1];
         }
         const t_way = motion.plan(moves[0..k], self.limits());
-        const hop = self.r.settings.project.z_hop;
-        const stop = 2 * self.retractTime(self.r.retract_length) + if (hop > 0) 2 * motion.restTime(hop, m.max_z_speed, m.max_z_accel) else 0;
+        const hop = self.lr.settings.project.z_hop;
+        const stop = 2 * self.retractTime(self.lr.retract_length) + if (hop > 0) 2 * motion.restTime(hop, m.max_z_speed, m.max_z_accel) else 0;
         return t_way > motion.restTime(d, m.travel_speed, a) + stop;
     }
 
