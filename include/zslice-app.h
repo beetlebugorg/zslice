@@ -316,6 +316,7 @@ typedef struct zs_part {
     double x, y;        /* the center of the footprint on the bed, mm */
     double rotation;    /* degrees around the vertical axis */
     double size_x, size_y, size_z; /* the footprint and the height, mm */
+    double scale_x, scale_y, scale_z; /* along the axes of the file, 1 = 100 % */
 } zs_part;
 
 size_t zs_app_part_count(const zs_app *app);
@@ -324,6 +325,26 @@ int zs_app_part_get(zs_app *app, size_t i, zs_part *out);
 int zs_app_part_move(zs_app *app, size_t i, double x, double y);
 /* Sets the turn of a part, in degrees, around the center of its footprint. */
 int zs_app_part_rotate(zs_app *app, size_t i, double degrees);
+/* The scale of a part along the axes of its file (1 = 100 %; a negative
+ * value mirrors). */
+int zs_app_part_scale(zs_app *app, size_t i, double sx, double sy, double sz);
+/* Turns a part by `degrees` about the X (axis 0) or Y (axis 1) axis of the
+ * bed; it then rests on the bed. */
+int zs_app_part_turn(zs_app *app, size_t i, int axis, double degrees);
+/* "This side on the bed": the side of the part nearest to the bed point
+ * (x, y, z), for example a picked line, goes down. */
+int zs_app_part_put_down_at(zs_app *app, size_t i, double x, double y, double z);
+/* Turns a part to its best orientation. */
+enum zs_place_mode {
+    ZS_PLACE_SMART = 0,        /* less support, more on the bed, low */
+    ZS_PLACE_LESS_SUPPORT = 1, /* the least support */
+    ZS_PLACE_STRENGTH = 2,     /* strong along `axis` (0 X, 1 Y, 2 Z of the file) */
+};
+int zs_app_part_place(zs_app *app, size_t i, int mode, int axis);
+/* The orientation and the scale of the file again. */
+int zs_app_part_reset(zs_app *app, size_t i);
+/* Smart placement of all parts, then an arrange. 1 if they all fit. */
+int zs_app_plate_smart_place(zs_app *app);
 int zs_app_part_remove(zs_app *app, size_t i);
 /* Packs all parts on the bed, the largest first. 1 if all fit. */
 int zs_app_plate_arrange(zs_app *app);

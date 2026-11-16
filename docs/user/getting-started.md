@@ -205,6 +205,17 @@ Open adds each model to the plate (Ctrl+O, or drop files on the window). The fir
 
 "Clear the plate" in the menu removes all parts.
 
+### Placement
+
+"Smart placement" in the menu turns each part for the least support, the most area on the bed, and a low height, and then arranges the plate. The part page (and the Placement submenu of the context menu) has the other ways:
+
+- **Smart placement** for one part.
+- **Less support**: the orientation with the least support only.
+- **Strong along** X, Y, or Z of the part: say which way the load goes. A print is weakest across its layers, so the part turns until that axis lies in the layers, and then takes the least support.
+- **Turn 90° about X** or **about Y**, and **Scale** (in %).
+- **Put this side on the bed** (context menu of a line): the side of the part at that line goes down.
+- **Reset**: the orientation and the size of the file.
+
 ## Save the plate
 
 "Save the plate as 3MF" in the menu (Ctrl+S) writes one 3MF file with all parts at their places, and the changes that you made for the parts and for some layers. The global settings (Settings) do not go in the file. Open the 3MF file to get the plate back. zslice also opens 3MF files from other slicers; parts that touch in the file (for example a sign and its text) stay one part.

@@ -538,6 +538,32 @@ void zg_model_part_move(ZgModel *self, size_t i, double x, double y) {
     if (zs_app_part_move(self->core, i, x, y) == ZS_OK) plate_changed(self);
 }
 
+void zg_model_part_scale(ZgModel *self, size_t i, double s) {
+    if (zs_app_part_scale(self->core, i, s, s, s) == ZS_OK) plate_changed(self);
+}
+
+void zg_model_part_turn(ZgModel *self, size_t i, int axis, double degrees) {
+    if (zs_app_part_turn(self->core, i, axis, degrees) == ZS_OK) plate_changed(self);
+}
+
+void zg_model_part_put_down_at(ZgModel *self, size_t i, double x, double y, double z) {
+    if (zs_app_part_put_down_at(self->core, i, x, y, z) == ZS_OK) plate_changed(self);
+}
+
+void zg_model_part_place(ZgModel *self, size_t i, int mode, int axis) {
+    if (zs_app_part_place(self->core, i, mode, axis) == ZS_OK) plate_changed(self);
+}
+
+void zg_model_part_reset(ZgModel *self, size_t i) {
+    if (zs_app_part_reset(self->core, i) == ZS_OK) plate_changed(self);
+}
+
+gboolean zg_model_plate_smart_place(ZgModel *self) {
+    int ok = zs_app_plate_smart_place(self->core);
+    plate_changed(self);
+    return ok;
+}
+
 void zg_model_part_rotate(ZgModel *self, size_t i, double degrees) {
     if (zs_app_part_rotate(self->core, i, degrees) == ZS_OK) plate_changed(self);
 }

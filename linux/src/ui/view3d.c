@@ -519,6 +519,31 @@ static void on_remove_marks(GSimpleAction *a, GVariant *p, gpointer data) {
     if (mark_place(v, &x, &y, &z)) zg_model_mark_remove_near(v->model, x, y, z, 3);
 }
 
+/* The part of the selected line, or -1. */
+static gint64 menu_part(View3d *v) {
+    gint64 path = zg_model_selected(v->model);
+    if (path < 0) return -1;
+    ptrdiff_t part = zs_app_part_of_path(zg_model_core(v->model), (size_t)path);
+    return part < 0 ? -1 : part;
+}
+
+static void on_put_down(GSimpleAction *a, GVariant *p, gpointer data) {
+    View3d *v = data;
+    double x, y, z;
+    gint64 part = menu_part(v);
+    if (part >= 0 && mark_place(v, &x, &y, &z)) zg_model_part_put_down_at(v->model, (size_t)part, x, y, z);
+}
+
+static void on_place(GSimpleAction *a, GVariant *p, gpointer data) {
+    View3d *v = data;
+    gint64 part = menu_part(v);
+    gint32 code = g_variant_get_int32(p);
+    /* 0 smart, 1 less support, 10 + axis: strong along that axis. */
+    if (part < 0) return;
+    if (code >= 10) zg_model_part_place(v->model, (size_t)part, ZS_PLACE_STRENGTH, code - 10);
+    else zg_model_part_place(v->model, (size_t)part, code, 0);
+}
+
 static void on_clear_marks(GSimpleAction *a, GVariant *p, gpointer data) {
     zg_model_marks_clear(((View3d *)data)->model);
 }
@@ -591,6 +616,19 @@ static void show_menu(View3d *v, double x, double y) {
         g_menu_append_section(menu, NULL, G_MENU_MODEL(here));
         g_object_unref(kinds);
         g_object_unref(here);
+        /* The part of the line: its placement. */
+        GMenu *part = g_menu_new();
+        g_menu_append(part, "Put this side on the bed", "view3d.put-down");
+        GMenu *modes = g_menu_new();
+        g_menu_append(modes, "Smart placement", "view3d.place(0)");
+        g_menu_append(modes, "Less support", "view3d.place(1)");
+        g_menu_append(modes, "Strong along X of the part", "view3d.place(10)");
+        g_menu_append(modes, "Strong along Y of the part", "view3d.place(11)");
+        g_menu_append(modes, "Strong along Z of the part", "view3d.place(12)");
+        g_menu_append_submenu(part, "Placement", G_MENU_MODEL(modes));
+        g_menu_append_section(menu, NULL, G_MENU_MODEL(part));
+        g_object_unref(modes);
+        g_object_unref(part);
     }
     GMenu *general = g_menu_new();
     if (zs_app_mark_count(zg_model_core(v->model)) > 0) g_menu_append(general, "Clear all support marks", "view3d.clear-marks");
@@ -691,6 +729,8 @@ GtkWidget *zg_view3d_new(ZgModel *model) {
         {.name = "add-support", .activate = on_add_support, .parameter_type = "i"},
         {.name = "remove-marks", .activate = on_remove_marks},
         {.name = "clear-marks", .activate = on_clear_marks},
+        {.name = "put-down", .activate = on_put_down},
+        {.name = "place", .activate = on_place, .parameter_type = "i"},
         {.name = "reset-view", .activate = on_reset_view},
     };
     GSimpleActionGroup *group = g_simple_action_group_new();

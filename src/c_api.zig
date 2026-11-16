@@ -708,6 +708,9 @@ pub const Part = extern struct {
     size_x: f64,
     size_y: f64,
     size_z: f64,
+    scale_x: f64,
+    scale_y: f64,
+    scale_z: f64,
 };
 
 export fn zs_app_part_count(a: ?*const App) usize {
@@ -722,7 +725,7 @@ export fn zs_app_part_get(a: ?*App, i: usize, out: ?*Part) c_int {
     if (i >= app.plate.count()) return @intFromEnum(Status.out_of_range);
     const p = &app.plate.parts.items[i];
     const name = app.strings.allocator().dupeZ(u8, p.name) catch return @intFromEnum(Status.out_of_memory);
-    o.* = .{ .name = name.ptr, .x = p.x, .y = p.y, .rotation = p.rot, .size_x = 2 * p.half[0], .size_y = 2 * p.half[1], .size_z = p.height };
+    o.* = .{ .name = name.ptr, .x = p.x, .y = p.y, .rotation = p.rot, .size_x = 2 * p.half[0], .size_y = 2 * p.half[1], .size_z = p.height, .scale_x = p.scale[0], .scale_y = p.scale[1], .scale_z = p.scale[2] };
     return ok;
 }
 
@@ -738,6 +741,47 @@ export fn zs_app_part_rotate(a: ?*App, i: usize, degrees: f64) c_int {
     if (i >= app.plate.count()) return @intFromEnum(Status.out_of_range);
     app.rotatePart(i, degrees) catch |e| return status(e);
     return ok;
+}
+
+export fn zs_app_part_scale(a: ?*App, i: usize, sx: f64, sy: f64, sz: f64) c_int {
+    const app = a orelse return @intFromEnum(Status.invalid_argument);
+    if (i >= app.plate.count()) return @intFromEnum(Status.out_of_range);
+    app.scalePart(i, .{ sx, sy, sz }) catch |e| return status(e);
+    return ok;
+}
+
+export fn zs_app_part_turn(a: ?*App, i: usize, axis: c_int, degrees: f64) c_int {
+    const app = a orelse return @intFromEnum(Status.invalid_argument);
+    if (i >= app.plate.count() or axis < 0 or axis > 1) return @intFromEnum(Status.out_of_range);
+    app.turnPart(i, @intCast(axis), degrees) catch |e| return status(e);
+    return ok;
+}
+
+export fn zs_app_part_put_down_at(a: ?*App, i: usize, x: f64, y: f64, z: f64) c_int {
+    const app = a orelse return @intFromEnum(Status.invalid_argument);
+    if (i >= app.plate.count()) return @intFromEnum(Status.out_of_range);
+    app.putPartDownAt(i, x, y, z) catch |e| return status(e);
+    return ok;
+}
+
+export fn zs_app_part_place(a: ?*App, i: usize, mode: c_int, axis: c_int) c_int {
+    const app = a orelse return @intFromEnum(Status.invalid_argument);
+    if (i >= app.plate.count() or mode < 0 or mode > 2 or axis < 0 or axis > 2) return @intFromEnum(Status.out_of_range);
+    app.placePart(i, @enumFromInt(@as(u8, @intCast(mode))), @intCast(axis)) catch |e| return status(e);
+    return ok;
+}
+
+export fn zs_app_part_reset(a: ?*App, i: usize) c_int {
+    const app = a orelse return @intFromEnum(Status.invalid_argument);
+    if (i >= app.plate.count()) return @intFromEnum(Status.out_of_range);
+    app.resetPart(i) catch |e| return status(e);
+    return ok;
+}
+
+/// Smart placement of all parts, then an arrange. 1 if they all fit.
+export fn zs_app_plate_smart_place(a: ?*App) c_int {
+    const app = a orelse return 0;
+    return @intFromBool(app.smartPlacePlate() catch return 0);
 }
 
 export fn zs_app_part_remove(a: ?*App, i: usize) c_int {

@@ -118,6 +118,26 @@ pub fn best(gpa: Allocator, mesh: *const Mesh, support_angle: f64) Allocator.Err
 /// the axis can go down: the candidates of `best` that are, and 24
 /// directions around the axis.
 pub fn bestAlong(gpa: Allocator, mesh: *const Mesh, support_angle: f64, axis: ?V) Allocator.Error!Score {
+    return search(gpa, mesh, support_angle, axis, .cost);
+}
+
+/// What a search compares: the full cost, or the overhang area first (the
+/// cost breaks a tie of 1 mm²).
+pub const By = enum { cost, overhang };
+
+/// As `best`, with the order of `by`.
+pub fn bestBy(gpa: Allocator, mesh: *const Mesh, support_angle: f64, by: By) Allocator.Error!Score {
+    return search(gpa, mesh, support_angle, null, by);
+}
+
+fn better(a: Score, b: Score, by: By) bool {
+    return switch (by) {
+        .cost => a.cost < b.cost,
+        .overhang => a.overhang < b.overhang - 1 or (@abs(a.overhang - b.overhang) <= 1 and a.cost < b.cost),
+    };
+}
+
+fn search(gpa: Allocator, mesh: *const Mesh, support_angle: f64, axis: ?V, by: By) Allocator.Error!Score {
     var cands: std.ArrayList(V) = .empty;
     defer cands.deinit(gpa);
     try cands.appendSlice(gpa, &.{ .{ 0, 0, -1 }, .{ 0, 0, 1 }, .{ 1, 0, 0 }, .{ -1, 0, 0 }, .{ 0, 1, 0 }, .{ 0, -1, 0 } });
@@ -175,16 +195,16 @@ pub fn bestAlong(gpa: Allocator, mesh: *const Mesh, support_angle: f64, axis: ?V
         // along the axis now.
         var top = score(mesh, cands.items[0], support_angle);
         for (cands.items[1..]) |d| {
-            const s = score(mesh, d, support_angle);
-            if (s.cost < top.cost) top = s;
+            const sc = score(mesh, d, support_angle);
+            if (better(sc, top, by)) top = sc;
         }
         return top;
     }
     var top = score(mesh, cands.items[0], support_angle);
     const keep = top.cost;
     for (cands.items[1..]) |d| {
-        const s = score(mesh, d, support_angle);
-        if (s.cost < top.cost) top = s;
+        const sc = score(mesh, d, support_angle);
+        if (better(sc, top, by)) top = sc;
     }
     // Keep the file orientation unless the new one saves 1 % of the cost
     // (or 1 mm2).

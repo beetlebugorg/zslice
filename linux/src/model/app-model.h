@@ -41,6 +41,14 @@ gint64 zg_model_selected_part(ZgModel *self);
  * starts a new slice. */
 void zg_model_part_move(ZgModel *self, size_t i, double x, double y);
 void zg_model_part_rotate(ZgModel *self, size_t i, double degrees);
+/* Placement (see zs_app_part_scale and the calls after it). The scale is
+ * uniform here (1 = 100 %). */
+void zg_model_part_scale(ZgModel *self, size_t i, double s);
+void zg_model_part_turn(ZgModel *self, size_t i, int axis, double degrees);
+void zg_model_part_put_down_at(ZgModel *self, size_t i, double x, double y, double z);
+void zg_model_part_place(ZgModel *self, size_t i, int mode, int axis);
+void zg_model_part_reset(ZgModel *self, size_t i);
+gboolean zg_model_plate_smart_place(ZgModel *self);
 void zg_model_part_remove(ZgModel *self, size_t i);
 gboolean zg_model_plate_arrange(ZgModel *self);
 void zg_model_plate_clear(ZgModel *self);

@@ -549,6 +549,13 @@ static void on_arrange_action(GSimpleAction *a, GVariant *v, gpointer data) {
     }
 }
 
+static void on_smart_place_action(GSimpleAction *a, GVariant *v, gpointer data) {
+    Window *w = get(data);
+    if (!zg_model_plate_smart_place(w->model)) {
+        show_error(w, "The parts do not all fit on the bed", "Some parts are past the edge of the bed. Remove a part, or use a printer with a larger bed.");
+    }
+}
+
 static void on_clear_action(GSimpleAction *a, GVariant *v, gpointer data) {
     zg_model_plate_clear(get(data)->model);
 }
@@ -641,6 +648,7 @@ GtkWindow *zg_window_new(GtkApplication *app, ZgModel *model) {
         {.name = "export", .activate = on_export_action},
         {.name = "preferences", .activate = on_prefs_action},
         {.name = "arrange", .activate = on_arrange_action},
+        {.name = "smart-place", .activate = on_smart_place_action},
         {.name = "save-plate", .activate = on_save_plate_action},
         {.name = "clear-plate", .activate = on_clear_action},
     };
@@ -648,6 +656,7 @@ GtkWindow *zg_window_new(GtkApplication *app, ZgModel *model) {
 
     GMenu *menu = g_menu_new();
     g_menu_append(menu, "Save the plate as 3MF…", "win.save-plate");
+    g_menu_append(menu, "Smart placement", "win.smart-place");
     g_menu_append(menu, "Arrange the plate", "win.arrange");
     g_menu_append(menu, "Clear the plate", "win.clear-plate");
     g_menu_append(menu, "Preferences", "win.preferences");

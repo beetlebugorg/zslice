@@ -293,6 +293,43 @@ pub const App = struct {
         try app.plateChanged();
     }
 
+    pub fn scalePart(app: *App, i: usize, s: [3]f64) Allocator.Error!void {
+        try app.plate.setScale(app.gpa, i, s);
+        try app.plateChanged();
+    }
+
+    /// Turns a part by `deg` about the X (0) or Y (1) axis of the bed.
+    pub fn turnPart(app: *App, i: usize, axis: u2, deg: f64) Allocator.Error!void {
+        try app.plate.turn(app.gpa, i, axis, deg);
+        try app.plateChanged();
+    }
+
+    /// Puts the side of part i nearest to the bed point (x, y, z) on the
+    /// bed ("this side on the bed", from a picked line).
+    pub fn putPartDownAt(app: *App, i: usize, x: f64, y: f64, z: f64) Allocator.Error!void {
+        const n = app.plate.sideAt(i, x, y, z) orelse return;
+        try app.plate.putDown(app.gpa, i, n);
+        try app.plateChanged();
+    }
+
+    pub fn placePart(app: *App, i: usize, mode: zs.plate.PlaceMode, axis: u2) Allocator.Error!void {
+        try app.plate.place(app.gpa, i, mode, axis, app.settings.project.support_angle);
+        try app.plateChanged();
+    }
+
+    pub fn resetPart(app: *App, i: usize) Allocator.Error!void {
+        try app.plate.resetPose(app.gpa, i);
+        try app.plateChanged();
+    }
+
+    /// Smart placement of the whole plate: each part turns to its best
+    /// orientation (less support, more on the bed, low), then the plate is
+    /// arranged. Returns false if the parts do not all fit.
+    pub fn smartPlacePlate(app: *App) Allocator.Error!bool {
+        for (0..app.plate.count()) |i| try app.plate.place(app.gpa, i, .smart, 0, app.settings.project.support_angle);
+        return app.arrangePlate();
+    }
+
     /// Packs all parts on the bed. Returns false if they do not all fit.
     pub fn arrangePlate(app: *App) Allocator.Error!bool {
         const ok = try app.plate.arrange(app.gpa, app.bedSize(), app.partGap());

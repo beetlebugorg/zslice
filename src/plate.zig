@@ -16,10 +16,46 @@ const std = @import("std");
 const Allocator = std.mem.Allocator;
 const mesh_mod = @import("mesh.zig");
 const Mesh = mesh_mod.Mesh;
+const orient = @import("orient.zig");
+
+/// A 3x3 matrix (rows).
+pub const M3 = [3][3]f64;
+pub const identity: M3 = .{ .{ 1, 0, 0 }, .{ 0, 1, 0 }, .{ 0, 0, 1 } };
+
+fn mulM(a: M3, b: M3) M3 {
+    var r: M3 = undefined;
+    for (0..3) |i| for (0..3) |j| {
+        r[i][j] = a[i][0] * b[0][j] + a[i][1] * b[1][j] + a[i][2] * b[2][j];
+    };
+    return r;
+}
+
+fn mulV(a: M3, v: [3]f64) [3]f64 {
+    return .{ a[0][0] * v[0] + a[0][1] * v[1] + a[0][2] * v[2], a[1][0] * v[0] + a[1][1] * v[1] + a[1][2] * v[2], a[2][0] * v[0] + a[2][1] * v[1] + a[2][2] * v[2] };
+}
+
+/// How a part is placed by `Plate.place`.
+pub const PlaceMode = enum(u8) {
+    /// The least support, the most area on the bed, and a low part.
+    smart = 0,
+    /// The least support only (the height counts only to break a tie).
+    less_support = 1,
+    /// Strong along an axis of the part (as in its file): the axis lies in
+    /// the layers, and then the least support.
+    strength = 2,
+};
 
 pub const Part = struct {
     name: []u8,
+    /// The mesh on the plate: `source` with the pose and the scale.
     mesh: Mesh,
+    /// The mesh of the file, kept after the first change of the pose or
+    /// the scale (so a reset is exact). Null: `mesh` is the file mesh.
+    source: ?Mesh = null,
+    /// The orientation (rows), and the scale along the axes of the file,
+    /// applied first.
+    pose: M3 = identity,
+    scale: [3]f64 = .{ 1, 1, 1 },
     /// The center of the footprint, in bed coordinates (mm).
     x: f64,
     y: f64,
@@ -94,6 +130,7 @@ pub const Plate = struct {
     pub fn deinit(self: *Plate, gpa: Allocator) void {
         for (self.parts.items) |*p| {
             p.mesh.deinit(gpa);
+            if (p.source) |*s| s.deinit(gpa);
             gpa.free(p.name);
         }
         self.parts.deinit(gpa);
@@ -139,6 +176,7 @@ pub const Plate = struct {
         if (i >= self.parts.items.len) return;
         var p = self.parts.orderedRemove(i);
         p.mesh.deinit(gpa);
+        if (p.source) |*s| s.deinit(gpa);
         gpa.free(p.name);
     }
 
@@ -155,6 +193,121 @@ pub const Plate = struct {
         const p = &self.parts.items[i];
         p.rot = @mod(deg, 360);
         p.measure();
+    }
+
+    /// Makes the mesh of part i again from its source, its pose, and its
+    /// scale. The part keeps its place (the center of its footprint).
+    fn repose(self: *Plate, gpa: Allocator, i: usize) Allocator.Error!void {
+        const p = &self.parts.items[i];
+        if (p.source == null) p.source = try cloneMesh(gpa, &p.mesh);
+        const src = &p.source.?;
+        var m: Mesh = .empty;
+        errdefer m.deinit(gpa);
+        try m.vertices.ensureTotalCapacity(gpa, src.vertices.items.len);
+        for (src.vertices.items) |v| {
+            const q = mulV(p.pose, .{ v.x * p.scale[0], v.y * p.scale[1], v.z * p.scale[2] });
+            m.vertices.appendAssumeCapacity(.{ .x = @floatCast(q[0]), .y = @floatCast(q[1]), .z = @floatCast(q[2]) });
+        }
+        // A mirror (a negative scale) turns the faces inside out: flip
+        // their order back.
+        const flip = p.scale[0] * p.scale[1] * p.scale[2] < 0;
+        try m.faces.ensureTotalCapacity(gpa, src.faces.items.len);
+        for (src.faces.items) |f| m.faces.appendAssumeCapacity(if (flip) .{ f[0], f[2], f[1] } else f);
+        p.mesh.deinit(gpa);
+        p.mesh = m;
+        p.measure();
+    }
+
+    /// Sets the scale of part i along the axes of its file (1 = 100 %).
+    pub fn setScale(self: *Plate, gpa: Allocator, i: usize, s: [3]f64) Allocator.Error!void {
+        if (i >= self.parts.items.len) return;
+        for (s) |x| if (!(@abs(x) > 1e-3 and @abs(x) < 1e3)) return;
+        self.parts.items[i].scale = s;
+        try self.repose(gpa, i);
+    }
+
+    /// Turns part i by `deg` degrees around the X (0) or Y (1) axis of the
+    /// bed. A turn around Z is `rotate`.
+    pub fn turn(self: *Plate, gpa: Allocator, i: usize, axis: u2, deg: f64) Allocator.Error!void {
+        if (i >= self.parts.items.len or axis > 1) return;
+        const a = std.math.degreesToRadians(deg);
+        const c = @round(@cos(a) * 1e12) / 1e12;
+        const s = @round(@sin(a) * 1e12) / 1e12;
+        const r: M3 = if (axis == 0) .{ .{ 1, 0, 0 }, .{ 0, c, -s }, .{ 0, s, c } } else .{ .{ c, 0, s }, .{ 0, 1, 0 }, .{ -s, 0, c } };
+        const p = &self.parts.items[i];
+        p.pose = mulM(r, p.pose);
+        try self.repose(gpa, i);
+    }
+
+    /// Puts the side of part i whose outward normal is `n` (in the
+    /// coordinates of its mesh now) on the bed.
+    pub fn putDown(self: *Plate, gpa: Allocator, i: usize, n: [3]f64) Allocator.Error!void {
+        if (i >= self.parts.items.len) return;
+        const l = @sqrt(n[0] * n[0] + n[1] * n[1] + n[2] * n[2]);
+        if (!(l > 0)) return;
+        const p = &self.parts.items[i];
+        p.pose = mulM(orient.downMatrix(.{ n[0] / l, n[1] / l, n[2] / l }), p.pose);
+        try self.repose(gpa, i);
+    }
+
+    /// The outward normal of the face of part i nearest to the bed point
+    /// (x, y, z), in the coordinates of its mesh, or null. For "this side
+    /// on the bed" from a picked line.
+    pub fn sideAt(self: *const Plate, i: usize, x: f64, y: f64, z: f64) ?[3]f64 {
+        if (i >= self.parts.items.len) return null;
+        const p = &self.parts.items[i];
+        const t = p.transform();
+        // From the bed back to the mesh: the turn is a rotation about Z, so
+        // its inverse is its transpose.
+        const dx = x - t[9];
+        const dy = y - t[10];
+        const q = [3]f64{ dx * t[0] + dy * t[1], dx * t[3] + dy * t[4], z - t[11] };
+        var best: ?[3]f64 = null;
+        var best_d: f64 = std.math.inf(f64);
+        const vs = p.mesh.vertices.items;
+        for (p.mesh.faces.items) |f| {
+            const a = [3]f64{ vs[f[0]].x, vs[f[0]].y, vs[f[0]].z };
+            const b = [3]f64{ vs[f[1]].x, vs[f[1]].y, vs[f[1]].z };
+            const c = [3]f64{ vs[f[2]].x, vs[f[2]].y, vs[f[2]].z };
+            const d = pointTriangle2(q, a, b, c);
+            if (d < best_d) {
+                best_d = d;
+                const u = [3]f64{ b[0] - a[0], b[1] - a[1], b[2] - a[2] };
+                const v = [3]f64{ c[0] - a[0], c[1] - a[1], c[2] - a[2] };
+                best = .{ u[1] * v[2] - u[2] * v[1], u[2] * v[0] - u[0] * v[2], u[0] * v[1] - u[1] * v[0] };
+            }
+        }
+        return best;
+    }
+
+    /// The orientation and the scale of the file again.
+    pub fn resetPose(self: *Plate, gpa: Allocator, i: usize) Allocator.Error!void {
+        if (i >= self.parts.items.len) return;
+        const p = &self.parts.items[i];
+        p.pose = identity;
+        p.scale = .{ 1, 1, 1 };
+        if (p.source != null) try self.repose(gpa, i);
+    }
+
+    /// Turns part i to the best orientation for `mode`. `axis` (0 X, 1 Y,
+    /// 2 Z of the file) is the load axis of the strength mode.
+    pub fn place(self: *Plate, gpa: Allocator, i: usize, mode: PlaceMode, axis: u2, support_angle: f64) Allocator.Error!void {
+        if (i >= self.parts.items.len) return;
+        const p = &self.parts.items[i];
+        const best = switch (mode) {
+            .smart => try orient.best(gpa, &p.mesh, support_angle),
+            // Least support first: the height and the bed area only break a
+            // tie.
+            .less_support => try orient.bestBy(gpa, &p.mesh, support_angle, .overhang),
+            .strength => blk: {
+                var e: [3]f64 = .{ 0, 0, 0 };
+                e[@min(axis, 2)] = 1;
+                // The load axis of the file, in the mesh now.
+                const ax = mulV(p.pose, e);
+                break :blk try orient.bestAlong(gpa, &p.mesh, support_angle, ax);
+            },
+        };
+        try self.putDown(gpa, i, best.dir);
     }
 
     /// The part whose footprint holds the point, or null. A smaller part
@@ -303,6 +456,70 @@ pub const Plate = struct {
 
 const testing = std.testing;
 
+/// The squared distance from p to the triangle a, b, c (Ericson, "Real-Time
+/// Collision Detection", 5.1.5: the closest point by the regions of the
+/// triangle).
+fn pointTriangle2(p: [3]f64, a: [3]f64, b: [3]f64, c: [3]f64) f64 {
+    const sub = struct {
+        fn f(x: [3]f64, y: [3]f64) [3]f64 {
+            return .{ x[0] - y[0], x[1] - y[1], x[2] - y[2] };
+        }
+    }.f;
+    const dotp = struct {
+        fn f(x: [3]f64, y: [3]f64) f64 {
+            return x[0] * y[0] + x[1] * y[1] + x[2] * y[2];
+        }
+    }.f;
+    const ab = sub(b, a);
+    const ac = sub(c, a);
+    const ap = sub(p, a);
+    const d1 = dotp(ab, ap);
+    const d2 = dotp(ac, ap);
+    var closest: [3]f64 = a;
+    if (d1 <= 0 and d2 <= 0) {
+        closest = a;
+    } else {
+        const bp = sub(p, b);
+        const d3 = dotp(ab, bp);
+        const d4 = dotp(ac, bp);
+        const cp = sub(p, c);
+        const d5 = dotp(ab, cp);
+        const d6 = dotp(ac, cp);
+        const vc = d1 * d4 - d3 * d2;
+        const vb = d5 * d2 - d1 * d6;
+        const va = d3 * d6 - d5 * d4;
+        if (d3 >= 0 and d4 <= d3) {
+            closest = b;
+        } else if (vc <= 0 and d1 >= 0 and d3 <= 0) {
+            const v = d1 / (d1 - d3);
+            closest = .{ a[0] + ab[0] * v, a[1] + ab[1] * v, a[2] + ab[2] * v };
+        } else if (d6 >= 0 and d5 <= d6) {
+            closest = c;
+        } else if (vb <= 0 and d2 >= 0 and d6 <= 0) {
+            const w = d2 / (d2 - d6);
+            closest = .{ a[0] + ac[0] * w, a[1] + ac[1] * w, a[2] + ac[2] * w };
+        } else if (va <= 0 and (d4 - d3) >= 0 and (d5 - d6) >= 0) {
+            const w = (d4 - d3) / ((d4 - d3) + (d5 - d6));
+            closest = .{ b[0] + (c[0] - b[0]) * w, b[1] + (c[1] - b[1]) * w, b[2] + (c[2] - b[2]) * w };
+        } else {
+            const denom = 1 / (va + vb + vc);
+            const v = vb * denom;
+            const w = vc * denom;
+            closest = .{ a[0] + ab[0] * v + ac[0] * w, a[1] + ab[1] * v + ac[1] * w, a[2] + ab[2] * v + ac[2] * w };
+        }
+    }
+    const d = sub(p, closest);
+    return dotp(d, d);
+}
+
+fn cloneMesh(gpa: Allocator, m: *const Mesh) Allocator.Error!Mesh {
+    var out: Mesh = .empty;
+    errdefer out.deinit(gpa);
+    try out.vertices.appendSlice(gpa, m.vertices.items);
+    try out.faces.appendSlice(gpa, m.faces.items);
+    return out;
+}
+
 fn box(gpa: Allocator, x0: f64, y0: f64, x1: f64, y1: f64, h: f64) !Mesh {
     var b: mesh_mod.Builder = .init(gpa);
     try mesh_mod.shapes.addBox(&b, x0, y0, 0, x1, y1, h);
@@ -348,4 +565,32 @@ test "plate: file place, free place, arrange, and the combined mesh" {
     try testing.expectApproxEqAbs(@as(f64, 8), b.max[2], 1e-4);
     // The picked part: the point at the center of part c.
     try testing.expectEqual(@as(?usize, 2), plate.partAt(plate.parts.items[2].x, plate.parts.items[2].y));
+}
+
+test "plate: turn, scale, put down, place, and reset a part" {
+    const gpa = std.testing.allocator;
+    var plate: Plate = .{};
+    defer plate.deinit(gpa);
+    // A post 5 x 5 x 40 mm.
+    var b: mesh_mod.Builder = .init(gpa);
+    try mesh_mod.shapes.addBox(&b, 0, 0, 0, 5, 5, 40);
+    _ = try plate.add(gpa, "post", try b.finish(), .{ 220, 220 }, 3, false);
+    const p = &plate.parts.items[0];
+    try std.testing.expectApproxEqAbs(@as(f64, 40), p.height, 1e-3);
+    // A turn of 90 degrees about X lays it down: 5 mm high.
+    try plate.turn(gpa, 0, 0, 90);
+    try std.testing.expectApproxEqAbs(@as(f64, 5), p.height, 1e-3);
+    // 200 % in the axes of the file: 10 mm high, 80 mm long.
+    try plate.setScale(gpa, 0, .{ 2, 2, 2 });
+    try std.testing.expectApproxEqAbs(@as(f64, 10), p.height, 1e-3);
+    // After the turn about X, the long axis is along Y: put its end (the
+    // side facing -Y) on the bed, and the post stands again, 80 mm.
+    try plate.putDown(gpa, 0, .{ 0, -1, 0 });
+    try std.testing.expectApproxEqAbs(@as(f64, 80), p.height, 1e-3);
+    // Strong along Z of the file (the long axis): it must lie down.
+    try plate.place(gpa, 0, .strength, 2, 50);
+    try std.testing.expectApproxEqAbs(@as(f64, 10), p.height, 1e-2);
+    // The reset gives the file again: 40 mm.
+    try plate.resetPose(gpa, 0);
+    try std.testing.expectApproxEqAbs(@as(f64, 40), p.height, 1e-3);
 }
