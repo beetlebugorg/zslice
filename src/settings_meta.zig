@@ -81,7 +81,7 @@ pub const all = [_]Meta{
     .{ .name = "project.skirt_layers", .section = "Skirt and brim", .doc = "The number of layers with a skirt." },
     .{ .name = "project.brim_width", .section = "Skirt and brim", .doc = "The width of the brim. A brim is loops on the first layer around the outside of the part, joined to it. It holds the part on the bed, and helps against warping. 0 turns it off." },
     .{ .name = "project.first_layer_xy_offset", .section = "First layer", .doc = "Moves the outline of the first layer by this distance. A negative value compensates the \"elephant foot\": the first layer spreads out because the nozzle presses it on the bed." },
-    .{ .name = "project.auto_center", .section = "Placement", .doc = "Move the part so that the center of its bounding box is at the center of the bed, and its bottom is at z = 0." },
+    .{ .name = "project.placement", .section = "Placement", .doc = "Where the part goes on the bed. auto: at the X and Y of the file if the part is fully on the bed there, else at the center of the bed. file: always at the X and Y of the file. center: always at the center of the bed. The bottom of the part always goes to z = 0." },
     .{ .name = "engine.resolution", .section = "Slicer", .doc = "The largest change to the shape (mm) that the slicer makes when it removes points from the mesh outlines." },
     .{ .name = "engine.gap_closing", .section = "Slicer", .doc = "The largest gap (mm) that the slicer closes in a mesh with holes." },
     .{ .name = "engine.threads", .section = "Slicer", .doc = "The number of threads. 0 uses one thread for each CPU." },

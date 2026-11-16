@@ -1,8 +1,9 @@
 //! The engine: runs all stages, from a mesh to G-code.
 //!
 //! 1. Resolve the settings (see `settings.zig`).
-//! 2. Place the part: its bottom goes to z = 0, and (with `auto_center`)
-//!    its center goes to the center of the bed.
+//! 2. Place the part: its bottom goes to z = 0. Its X and Y come from the
+//!    file, or its center goes to the center of the bed (see
+//!    `project.placement` and `placementOffset`).
 //! 3. Make the layer table and the face index (see `slicer.zig`).
 //! 4. Pass 1: slice the outline of each layer. The layers are independent,
 //!    so this runs on all threads.
@@ -133,12 +134,13 @@ pub const Job = struct {
         if (!(height > 0)) return error.EmptyMesh;
         const m = settings.machine;
         if (height > m.max_height) return error.PartTooLarge;
-        var dx: f64 = 0;
-        var dy: f64 = 0;
-        if (settings.project.auto_center) {
-            dx = m.bed_size_x / 2 - (b.min[0] + b.max[0]) / 2;
-            dy = m.bed_size_y / 2 - (b.min[1] + b.max[1]) / 2;
-        }
+        // The skirt and the brim go around the part, so they must also be
+        // on the bed for the file position.
+        const pr = settings.project;
+        const fw = r.first_layer_line_width;
+        const skirt = if (pr.skirt_loops > 0 and pr.skirt_layers > 0) pr.skirt_distance + @as(f64, @floatFromInt(pr.skirt_loops)) * fw else 0;
+        const margin = pr.brim_width + skirt + fw / 2;
+        const dx, const dy = placementOffset(pr.placement, b.min, b.max, m.bed_size_x, m.bed_size_y, margin);
 
         // Step 3.
         const layers = try slicer.layerTable(gpa, height, settings.project.first_layer_height, settings.project.layer_height);
@@ -523,4 +525,35 @@ test "shrinkage and XY offsets change the outline" {
     // The outer radius grows by 0.1 mm, and the hole radius by 0.3 - 0.1.
     const want = base + k * (10.1 * 10.1 - 100) - k * (4.2 * 4.2 - 16);
     try testing.expectApproxEqAbs(want, job.outlines[10].areaMm2(), 0.05);
+}
+
+/// The XY move of the part for a placement mode. The file position wins if
+/// the part, with `margin` mm around it (the skirt and the brim), is fully
+/// on the bed there (with `.auto`). A tolerance of 1 um accepts a part that
+/// touches the bed edge.
+pub fn placementOffset(mode: settings_mod.Placement, min: [3]f64, max: [3]f64, bed_x: f64, bed_y: f64, margin: f64) [2]f64 {
+    const center = [2]f64{ bed_x / 2 - (min[0] + max[0]) / 2, bed_y / 2 - (min[1] + max[1]) / 2 };
+    const tol = 0.001;
+    const on_bed = min[0] - margin >= -tol and min[1] - margin >= -tol and
+        max[0] + margin <= bed_x + tol and max[1] + margin <= bed_y + tol;
+    return switch (mode) {
+        .file => .{ 0, 0 },
+        .center => center,
+        .auto => if (on_bed) .{ 0, 0 } else center,
+    };
+}
+
+test "placement: the file position if it is on the bed, else the center" {
+    // A part at 50..70 on a 220 bed stays where the file has it.
+    try std.testing.expectEqual([2]f64{ 0, 0 }, placementOffset(.auto, .{ 50, 60, 0 }, .{ 70, 80, 5 }, 220, 220, 0));
+    // A part around the origin goes to the center.
+    try std.testing.expectEqual([2]f64{ 110, 110 }, placementOffset(.auto, .{ -10, -10, 0 }, .{ 10, 10, 5 }, 220, 220, 0));
+    // A part over the far edge goes to the center.
+    try std.testing.expectEqual([2]f64{ -105, 0 }, placementOffset(.auto, .{ 200, 100, 0 }, .{ 230, 120, 5 }, 220, 220, 0));
+    // The margin: a part at the corner with a skirt around it goes to the
+    // center.
+    try std.testing.expectEqual([2]f64{ 90, 95 }, placementOffset(.auto, .{ 0, 0, 0 }, .{ 40, 30, 5 }, 220, 220, 4));
+    // "file" and "center" do not look at the bed.
+    try std.testing.expectEqual([2]f64{ 0, 0 }, placementOffset(.file, .{ -10, -10, 0 }, .{ 10, 10, 5 }, 220, 220, 0));
+    try std.testing.expectEqual([2]f64{ -5, -5 }, placementOffset(.center, .{ 100, 100, 0 }, .{ 130, 130, 5 }, 220, 220, 0));
 }

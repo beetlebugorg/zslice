@@ -26,6 +26,8 @@ const flow = @import("flow.zig");
 
 pub const InfillPattern = enum { lines, grid, triangles, cubic, gyroid, concentric };
 pub const SeamMode = enum { sharpest, rear, nearest, random };
+/// Where the part goes on the bed. See `Project.placement`.
+pub const Placement = enum { auto, file, center };
 pub const SupportMode = enum { off, everywhere, buildplate };
 pub const ExtruderKind = enum { direct, bowden };
 
@@ -287,9 +289,11 @@ pub const Project = struct {
     first_layer_xy_offset: f64 = 0,
 
     // Placement
-    /// Move the part so that the center of its bounding box is at the
-    /// center of the bed, and its bottom is at z = 0.
-    auto_center: bool = true,
+    /// Where the part goes on the bed. auto: at the X and Y of the file if
+    /// the part is fully on the bed there, else at the center of the bed.
+    /// file: always at the X and Y of the file. center: always at the
+    /// center of the bed. The bottom of the part always goes to z = 0.
+    placement: Placement = .auto,
 };
 
 /// Options for the engine. They do not change the print.

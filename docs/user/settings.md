@@ -370,9 +370,9 @@ Moves the outline of the first layer by this distance. A negative value compensa
 
 ### Placement
 
-**`project.auto_center`** (true or false). Default: `true`
+**`project.placement`** (one of: `auto`, `file`, `center`). Default: `auto`
 
-Move the part so that the center of its bounding box is at the center of the bed, and its bottom is at z = 0.
+Where the part goes on the bed. auto: at the X and Y of the file if the part is fully on the bed there, else at the center of the bed. file: always at the X and Y of the file. center: always at the center of the bed. The bottom of the part always goes to z = 0.
 
 ## engine
 

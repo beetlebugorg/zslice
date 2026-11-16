@@ -140,4 +140,8 @@ Ironing adds time: each top surface gets about 4 times as many lines as its skin
 
 ## Where the part goes on the bed
 
-zslice moves the part so that its bottom is at z = 0. With `project.auto_center=true` (the default), it also moves the center of the part to the center of the bed (`machine.bed_size_x` / 2, `machine.bed_size_y` / 2). With `project.auto_center=false`, the X and Y of the STL file stay as they are.
+zslice moves the part so that its bottom is at z = 0. The X and Y come from `project.placement`:
+
+- `auto` (the default): the X and Y of the file, if the part is fully on the bed there. If it is not (for example, a part modeled around the origin), zslice moves the center of the part to the center of the bed (`machine.bed_size_x` / 2, `machine.bed_size_y` / 2).
+- `file`: always the X and Y of the file.
+- `center`: always the center of the bed.
