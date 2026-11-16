@@ -90,7 +90,7 @@ pub fn boolean(gpa: Allocator, subject: Paths, clip: Paths, op: Op, rule: FillRu
     while (true) : (pass += 1) {
         var splits: std.ArrayList(Split) = .empty;
         try findIntersections(arena, cur, &splits);
-        merged = try splitAndMerge(arena, cur, splits.items);
+        merged = try splitAndMerge(arena, cur, splits.items, pass > 0);
         if (splits.items.len == 0 or pass == max_passes) break;
         cur = try arena.alloc(InEdge, merged.len);
         for (merged, cur) |m, *e| e.* = .{ .a = m.lo, .b = m.hi, .d = m.d, .fresh = m.fresh };
@@ -459,7 +459,7 @@ const Merged = struct {
     fresh: bool = false,
 };
 
-fn splitAndMerge(arena: Allocator, edges: []const InEdge, splits: []Split) ![]Merged {
+fn splitAndMerge(arena: Allocator, edges: []const InEdge, splits: []Split, sorted_input: bool) ![]Merged {
     // Sort the split points by edge, then by position along the edge.
     std.mem.sortUnstable(Split, splits, edges, struct {
         fn lt(es: []const InEdge, a: Split, b: Split) bool {
@@ -475,29 +475,62 @@ fn splitAndMerge(arena: Allocator, edges: []const InEdge, splits: []Split) ![]Me
         }
     }.lt);
 
-    var subs: std.ArrayList(Merged) = .empty;
-    try subs.ensureTotalCapacity(arena, edges.len + splits.len);
+    // The pieces of the edges. In a later pass, the edges come from the
+    // pass before and are in (lo, hi) order. Then the pieces of the edges
+    // that have no split point are still in order, and only the pieces of
+    // split edges need a sort.
+    const subs = try arena.alloc(Merged, edges.len + splits.len);
+    var old_n: usize = 0;
+    const new_buf = if (sorted_input) try arena.alloc(Merged, edges.len + splits.len) else subs;
+    var new_n: usize = 0;
     var k: usize = 0;
     for (edges, 0..) |e, i| {
+        if (!(k < splits.len and splits[k].edge == i)) {
+            if (subPiece(e.a, e.b, e.d, false)) |m| {
+                subs[if (sorted_input) old_n else old_n + new_n] = m;
+                old_n += 1;
+            }
+            continue;
+        }
+        // Without a sorted input, all pieces go in one list.
+        const list = if (sorted_input) new_buf else subs[old_n..];
         var prev = e.a;
-        const split = k < splits.len and splits[k].edge == i;
         while (k < splits.len and splits[k].edge == i) : (k += 1) {
-            try addSub(arena, &subs, prev, splits[k].p, e.d, true);
+            if (subPiece(prev, splits[k].p, e.d, true)) |m| {
+                list[new_n] = m;
+                new_n += 1;
+            }
             prev = splits[k].p;
         }
-        try addSub(arena, &subs, prev, e.b, e.d, split);
+        if (subPiece(prev, e.b, e.d, true)) |m| {
+            list[new_n] = m;
+            new_n += 1;
+        }
     }
 
     // Sort by end points, then add up the deltas of equal edges.
-    std.mem.sortUnstable(Merged, subs.items, {}, struct {
-        fn lt(_: void, a: Merged, b: Merged) bool {
-            if (!a.lo.eql(b.lo)) return a.lo.lessThan(b.lo);
-            return a.hi.lessThan(b.hi);
+    var items: []Merged = undefined;
+    if (!sorted_input) {
+        items = subs[0 .. old_n + new_n];
+        sortMerged(items);
+    } else {
+        // Merge the two sorted lists.
+        sortMerged(new_buf[0..new_n]);
+        items = try arena.alloc(Merged, old_n + new_n);
+        var x: usize = 0;
+        var y: usize = 0;
+        for (items) |*m| {
+            if (y == new_n or (x < old_n and !mergedLess(new_buf[y], subs[x]))) {
+                m.* = subs[x];
+                x += 1;
+            } else {
+                m.* = new_buf[y];
+                y += 1;
+            }
         }
-    }.lt);
+    }
     var out: usize = 0;
     var i: usize = 0;
-    const items = subs.items;
     while (i < items.len) {
         var m = items[i];
         var j = i + 1;
@@ -515,13 +548,27 @@ fn splitAndMerge(arena: Allocator, edges: []const InEdge, splits: []Split) ![]Me
     return items[0..out];
 }
 
-fn addSub(arena: Allocator, subs: *std.ArrayList(Merged), a: Point, b: Point, d: [2]i32, fresh: bool) !void {
-    if (a.eql(b)) return;
-    const m: Merged = if (a.lessThan(b))
+/// The piece of an edge from a to b, with the lower end point first, or
+/// null if a and b are the same point.
+fn subPiece(a: Point, b: Point, d: [2]i32, fresh: bool) ?Merged {
+    if (a.eql(b)) return null;
+    return if (a.lessThan(b))
         .{ .lo = a, .hi = b, .d = d, .fresh = fresh }
     else
         .{ .lo = b, .hi = a, .d = .{ -d[0], -d[1] }, .fresh = fresh };
-    try subs.append(arena, m);
+}
+
+fn mergedLess(a: Merged, b: Merged) bool {
+    if (!a.lo.eql(b.lo)) return a.lo.lessThan(b.lo);
+    return a.hi.lessThan(b.hi);
+}
+
+fn sortMerged(items: []Merged) void {
+    std.mem.sortUnstable(Merged, items, {}, struct {
+        fn lt(_: void, a: Merged, b: Merged) bool {
+            return mergedLess(a, b);
+        }
+    }.lt);
 }
 
 // ---------------------------------------------------------------------------
