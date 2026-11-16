@@ -14,10 +14,18 @@
 //!   (";TYPE:WALL-OUTER"). These follow the CuraEngine convention (see
 //!   REFERENCES.md), which G-code viewers and printdeck read.
 //!
-//! Cooling: before it writes a layer, the emitter estimates the time of the
-//! layer. A layer shorter than `min_layer_time` prints slower (but not
-//! below `min_speed`), and a layer shorter than `fan_boost_time` gets the
-//! fan at `fan_max_speed`.
+//! Time: the emitter writes each layer in two passes. The first pass makes
+//! the moves of the layer with no text, and the motion planner (see
+//! motion.zig) gives the time of each move, with the acceleration and the
+//! junction speeds. The second pass writes the moves and adds up their
+//! times. Retractions, Z moves, and z hops are stops: each is a move from
+//! rest to rest.
+//!
+//! Cooling: a layer shorter than `min_layer_time` prints slower (but not
+//! below `min_speed`). The emitter finds the slowest speed ratio that
+//! still gives the layer `min_layer_time` with the planner (a bisection),
+//! so the layer prints no slower than it must. A layer shorter than
+//! `fan_boost_time` gets the fan at `fan_max_speed`.
 //!
 //! Combing: a travel inside the part goes around the holes, with no
 //! retraction (see `Emitter.comb`). The test of a straight travel looks at
@@ -28,13 +36,12 @@
 //! dry run (see `Prepared` and engine.zig).
 //!
 //! The emitter also adds up statistics: filament used and a time estimate.
-//! The time estimate is distance / speed. It does not include acceleration,
-//! so the real print takes longer.
 
 const std = @import("std");
 const Writer = std.Io.Writer;
 const geom = @import("geom.zig");
 const flow = @import("flow.zig");
+const motion = @import("motion.zig");
 const layer_mod = @import("layer.zig");
 const settings_mod = @import("settings.zig");
 const Feature = settings_mod.Feature;
@@ -47,7 +54,8 @@ pub const Stats = struct {
     filament_mm: f64 = 0,
     /// Filament weight, in grams.
     filament_g: f64 = 0,
-    /// The estimated print time, in seconds, without acceleration.
+    /// The estimated print time, in seconds, with the acceleration (see
+    /// motion.zig).
     print_time_s: f64 = 0,
     travel_mm: f64 = 0,
     retractions: u32 = 0,
@@ -81,7 +89,6 @@ const max_way = 8;
 ///   planned. The dry run finds the way of the first travel of the layer
 ///   and keeps it for the text.
 /// - The length of each extrusion move, from the first point of its path.
-/// - The sums of the time estimate of each path (see `Emitter.estimate`).
 ///
 /// The emitter uses a way or a length only if the nozzle is at the start
 /// point that it was found from, so the G-code stays the same.
@@ -108,11 +115,6 @@ pub const Prepared = struct {
         n: i32 = unknown,
         /// The length of the move that closes the path, or 0.
         close: f64 = 0,
-        /// The travel distance and the path length of the estimate. The
-        /// travel distance of the first path is not known before the dry
-        /// run.
-        est_travel: f64 = 0,
-        est_len: f64 = 0,
 
         pub const retract: i32 = -1;
         pub const unknown: i32 = -2;
@@ -282,7 +284,7 @@ pub fn prepare(gpa: std.mem.Allocator, r: *const Resolved, lp: *const LayerPlan,
     out.clear();
     try out.paths.ensureTotalCapacity(gpa, lp.paths.items.len);
     try out.lengths.resize(gpa, lp.points.points.items.len);
-    var em: Emitter = .{ .w = undefined, .r = r };
+    var em: Emitter = .{ .gpa = gpa, .w = undefined, .r = r };
     em.setOutline(lp);
     const p = r.settings.project;
     if (p.combing and !lp.outline.isEmpty()) {
@@ -290,11 +292,9 @@ pub fn prepare(gpa: std.mem.Allocator, r: *const Resolved, lp: *const LayerPlan,
         out.index = try CombIndex.init(out.arena.?.allocator(), lp.outline);
         em.comb_index = &out.index.?;
     }
-    // The nozzle position, as `layer` moves it, and the position of the
-    // estimate. They are not known before the first path.
+    // The nozzle position, as `layer` moves it. It is not known before
+    // the first path.
     var known = false;
-    var ex: f64 = 0;
-    var ey: f64 = 0;
     for (lp.paths.items, 0..) |path, i| {
         const pts = lp.points.get(i);
         var t: Prepared.PathPrep = .{ .from = .{ em.x, em.y } };
@@ -314,7 +314,6 @@ pub fn prepare(gpa: std.mem.Allocator, r: *const Resolved, lp: *const LayerPlan,
                     try out.way_points.appendSlice(gpa, way[0..n]);
                 } else t.n = Prepared.PathPrep.retract;
             }
-            t.est_travel = std.math.hypot(x - ex, y - ey);
         }
         known = true;
         // The extrusion moves start at the first point. They skip the
@@ -324,34 +323,30 @@ pub fn prepare(gpa: std.mem.Allocator, r: *const Resolved, lp: *const LayerPlan,
         lengths[0] = 0;
         em.x = x;
         em.y = y;
-        // The estimate goes from point to point, with no skips.
-        var px = x;
-        var py = y;
-        var len: f64 = 0;
-        for (pts[1..], lengths[1..]) |q, *l| {
-            const qx = geom.toMm(q.x);
-            const qy = geom.toMm(q.y);
-            l.* = em.stepTo(qx, qy);
-            len += std.math.hypot(qx - px, qy - py);
-            px = qx;
-            py = qy;
-        }
-        if (path.closed and pts.len > 2) {
-            t.close = em.stepTo(x, y);
-            len += std.math.hypot(x - px, y - py);
-            px = x;
-            py = y;
-        }
-        t.est_len = len;
-        ex = px;
-        ey = py;
+        for (pts[1..], lengths[1..]) |q, *l| l.* = em.stepTo(geom.toMm(q.x), geom.toMm(q.y));
+        if (path.closed and pts.len > 2) t.close = em.stepTo(x, y);
         out.paths.appendAssumeCapacity(t);
     }
     // Room for the way of the first travel, which the dry run adds.
     try out.way_points.ensureUnusedCapacity(gpa, max_way);
 }
 
+pub const Error = Writer.Error || std.mem.Allocator.Error;
+
 pub const Emitter = struct {
+    /// The memory of the move list of a layer.
+    gpa: std.mem.Allocator,
+    /// The first pass of `layer`: each move goes into this list, and its
+    /// time comes later from the planner.
+    collect: ?*std.ArrayList(motion.Move) = null,
+    /// The second pass: the planned moves of the layer, and the next one.
+    planned: []const motion.Move = &.{},
+    next_move: usize = 0,
+    /// The next move starts at rest (after a retraction or a Z move).
+    stop: bool = true,
+    /// A dry run keeps the combing ways that it finds in `prep`. The first
+    /// pass of the text of a layer does not.
+    keep_ways: bool = true,
     /// If set, `layer` puts one PathInfo for each path here. The caller
     /// reserves the space (one item for each path) before `layer`.
     record: ?*std.ArrayList(PathInfo) = null,
@@ -390,13 +385,11 @@ pub const Emitter = struct {
     /// quickly. Then a copy of the emitter with that state can write the
     /// text of the layer on another thread (see engine.zig).
     dry: bool = false,
-    /// The acceleration now (mm/s²), and the direction of the last move
-    /// (for the time estimate at each corner).
+    /// The acceleration now (mm/s²).
     accel: f64 = 0,
-    dir: [2]f64 = .{ 0, 0 },
 
-    pub fn init(w: *Writer, r: *const Resolved) Emitter {
-        return .{ .w = w, .r = r };
+    pub fn init(gpa: std.mem.Allocator, w: *Writer, r: *const Resolved) Emitter {
+        return .{ .gpa = gpa, .w = w, .r = r };
     }
 
     pub fn begin(self: *Emitter, layer_count: usize) Writer.Error!void {
@@ -440,23 +433,52 @@ pub const Emitter = struct {
         try self.w.writeAll("\n");
     }
 
-    /// The time of a straight move of length d at speed v, with the
-    /// acceleration now: it starts and ends at the corner speed, unless
-    /// the move goes on nearly straight from the last one. The end is
-    /// taken the same as the start.
-    fn moveTime(self: *Emitter, dx: f64, dy: f64, d: f64, v: f64) f64 {
+    /// The time of an XY move of length d at speed v: in the first pass,
+    /// the move goes into the list; in the second pass, its planned time
+    /// goes into the statistics.
+    fn addMove(self: *Emitter, dx: f64, dy: f64, d: f64, v: f64, e_ratio: f64) Error!void {
         const a = if (self.accel > 0) self.accel else self.r.settings.machine.max_accel;
-        const ux = dx / d;
-        const uy = dy / d;
-        const cos = ux * self.dir[0] + uy * self.dir[1];
-        self.dir = .{ ux, uy };
-        const corner = @min(v, self.r.settings.machine.corner_speed);
-        const vj = if (cos > 0.99) v else if (cos > 0.7) @max(corner, v * 0.5) else corner;
-        if (!(a > 0) or vj >= v) return d / v;
-        const d_acc = (v * v - vj * vj) / (2 * a);
-        if (2 * d_acc <= d) return (d - 2 * d_acc) / v + 2 * (v - vj) / a;
-        const vp = @sqrt(vj * vj + a * d);
-        return 2 * (vp - vj) / a;
+        if (self.collect) |list| {
+            try list.append(self.gpa, .{ .dir = .{ dx / d, dy / d }, .len = d, .speed = v, .accel = a, .e_ratio = e_ratio, .stop_before = self.stop });
+        } else if (self.next_move < self.planned.len) {
+            self.stats.print_time_s += self.planned[self.next_move].time;
+            self.next_move += 1;
+        } else {
+            self.stats.print_time_s += motion.restTime(d, v, a);
+        }
+        self.stop = false;
+    }
+
+    /// The planner limits of the machine. Klipper has a minimum cruise
+    /// ratio of 0.5 and an extruder corner speed of 1 mm/s by default;
+    /// Marlin has no cruise ratio and an extruder jerk of 5 mm/s.
+    fn limits(self: *const Emitter) motion.Limits {
+        const m = self.r.settings.machine;
+        return switch (m.gcode_flavor) {
+            .klipper => .{ .corner_speed = m.corner_speed, .min_cruise_ratio = 0.5, .extruder_corner_speed = 1 },
+            .marlin => .{ .corner_speed = m.corner_speed, .min_cruise_ratio = 0, .extruder_corner_speed = 5 },
+        };
+    }
+
+    /// The time of a retraction (or the push back after it), from rest to
+    /// rest. The acceleration of the filament: Klipper limits it to the
+    /// machine acceleration times 4 nozzle diameters squared over the
+    /// filament area (its default `max_extrude_only_accel`); Marlin has the
+    /// retract acceleration, about the machine acceleration.
+    fn retractTime(self: *const Emitter, len: f64) f64 {
+        const m = self.r.settings.machine;
+        const ratio = switch (m.gcode_flavor) {
+            .klipper => @min(1, 4 * m.nozzle_diameter * m.nozzle_diameter / self.r.filament_area),
+            .marlin => 1,
+        };
+        return motion.restTime(len, m.retract_speed, m.max_accel * ratio);
+    }
+
+    /// A Z move from rest to rest.
+    fn zMove(self: *Emitter, dz: f64) void {
+        const m = self.r.settings.machine;
+        self.stats.print_time_s += motion.restTime(@abs(dz), m.max_z_speed, m.max_z_accel);
+        self.stop = true;
     }
 
     pub fn end(self: *Emitter) Writer.Error!void {
@@ -476,20 +498,31 @@ pub const Emitter = struct {
         try self.w.writeAll("s\n");
     }
 
-    pub fn layer(self: *Emitter, lp: *const LayerPlan) Writer.Error!void {
+    pub fn layer(self: *Emitter, lp: *const LayerPlan) Error!void {
         const s = self.r.settings;
-        // The speeds and the ironing flow can change for each layer.
-        const lr = lp.resolved orelse self.r;
-        const first = lp.index == 0;
         if (!self.dry) try self.w.print(";LAYER:{d}\n", .{lp.index});
         if (lp.index == 1 and s.filament.first_layer_nozzle_temp != s.filament.nozzle_temp) {
             try self.w.writeAll("M104 S");
             try writeNum(self.w, s.filament.nozzle_temp, 0);
             try self.w.writeAll("\n");
         }
+        // The first pass: the moves of the layer at full speed, with no
+        // text, on a copy of the emitter.
+        var moves: std.ArrayList(motion.Move) = .empty;
+        defer moves.deinit(self.gpa);
+        var discard: Writer.Discarding = .init(&.{});
+        var probe = self.*;
+        probe.w = &discard.writer;
+        probe.dry = true;
+        probe.record = null;
+        probe.collect = &moves;
+        probe.keep_ways = self.dry;
+        try probe.paths(lp, 1, false);
+        const lim = self.limits();
+        const fixed = probe.stats.print_time_s - self.stats.print_time_s;
+        const layer_time = fixed + motion.plan(moves.items, lim);
+
         // Cooling.
-        const est = self.estimate(lp);
-        const layer_time = est.extrude_s + est.travel_s;
         const ratio = if (lp.index < s.filament.fan_off_layers)
             0
         else if (layer_time < s.filament.fan_boost_time)
@@ -499,10 +532,64 @@ pub const Emitter = struct {
         try self.setFan(@intFromFloat(@round(255 * ratio)));
         var slow: f64 = 1;
         const lap = s.filament.cooling_mode == .lap;
-        if (!lap and layer_time < s.filament.min_layer_time and est.extrude_s > 0) {
-            const want = @max(s.filament.min_layer_time - est.travel_s, 1e-3);
-            slow = @min(1, est.extrude_s / want);
+        const short = layer_time < s.filament.min_layer_time;
+        if (!lap and short) {
+            // The extrusion moves get the speed of `paths` for a ratio:
+            // a bisection finds the largest ratio that gives the layer
+            // `min_layer_time`.
+            const full = try self.gpa.alloc(f64, moves.items.len);
+            defer self.gpa.free(full);
+            var any = false;
+            for (moves.items, full) |m, *f| {
+                f.* = m.speed;
+                if (m.e_ratio > 0) any = true;
+            }
+            if (any) {
+                const time = struct {
+                    fn at(ms: []motion.Move, fs: []const f64, k: f64, min_speed: f64, l: motion.Limits) f64 {
+                        for (ms, fs) |*m, f| m.speed = if (m.e_ratio > 0) slowSpeed(f, k, min_speed) else f;
+                        return motion.plan(ms, l);
+                    }
+                }.at;
+                const want = s.filament.min_layer_time - fixed;
+                var lo: f64 = 0;
+                var hi: f64 = 1;
+                if (time(moves.items, full, lo, s.filament.min_speed, lim) >= want) {
+                    for (0..24) |_| {
+                        const mid = (lo + hi) / 2;
+                        if (time(moves.items, full, mid, s.filament.min_speed, lim) >= want) lo = mid else hi = mid;
+                    }
+                }
+                slow = lo;
+                _ = time(moves.items, full, slow, s.filament.min_speed, lim);
+            }
         }
+
+        // The second pass: the text, with the planned time of each move.
+        self.planned = moves.items;
+        self.next_move = 0;
+        defer self.planned = &.{};
+        try self.paths(lp, slow, lap and short);
+        std.debug.assert(self.next_move == moves.items.len);
+        if (lap and lp.index >= s.filament.fan_off_layers and short) {
+            try self.coolingLap(lp, s.filament.min_layer_time - layer_time);
+        }
+    }
+
+    /// The speed of an extrusion with the full speed `full` on a layer that
+    /// prints slower by the ratio `k` < 1 (see `layer`).
+    fn slowSpeed(full: f64, k: f64, min_speed: f64) f64 {
+        return if (k < 1) @max(full * k, @min(full, min_speed)) else full;
+    }
+
+    /// The moves of a layer: the layer change, and each path with the
+    /// travel to it. The extrusions print slower by the ratio `slow`.
+    /// `lapped`: the layer gets a cooling lap (for the path records).
+    fn paths(self: *Emitter, lp: *const LayerPlan, slow: f64, lapped: bool) Error!void {
+        const s = self.r.settings;
+        // The speeds and the ironing flow can change for each layer.
+        const lr = lp.resolved orelse self.r;
+        const first = lp.index == 0;
 
         // Go up to the new layer. The retraction has no z hop: the layer
         // change moves the nozzle up, and the travel to the first path
@@ -512,6 +599,7 @@ pub const Emitter = struct {
         defer self.outline = null;
         self.comb_index = if (self.prep) |pr| (if (pr.index) |*ix| ix else null) else null;
         defer self.comb_index = null;
+        self.zMove(lp.z - self.z);
         self.z = lp.z;
         try self.w.writeAll("G0 Z");
         try writeNum(self.w, self.z, 3);
@@ -541,7 +629,7 @@ pub const Emitter = struct {
                 if (!self.dry) try self.w.print(";TYPE:{s}\n", .{typeName(path.feature)});
             }
             const full = lr.speedAt(path.feature, lp.width, lp.height, lp.index);
-            const speed = if (slow < 1) @max(full * slow, @min(full, s.filament.min_speed)) else full;
+            const speed = slowSpeed(full, slow, s.filament.min_speed);
             const start_time = self.stats.print_time_s;
             // Ironing lines use a fraction of the flow of a normal line.
             // A path with its own width (a thin wall) has its own flow.
@@ -560,10 +648,7 @@ pub const Emitter = struct {
                 for (pts[1..]) |q| try self.extrude(geom.toMm(q.x), geom.toMm(q.y), e, speed);
                 if (path.closed and pts.len > 2) try self.extrude(x0, y0, e, speed);
             }
-            if (self.record) |rec| rec.appendAssumeCapacity(.{ .start_time = start_time, .end_time = self.stats.print_time_s, .area = e * self.r.filament_area, .retracted = retracted, .slowed = slow < 1 or (lap and layer_time < s.filament.min_layer_time) });
-        }
-        if (lap and lp.index >= s.filament.fan_off_layers and layer_time < s.filament.min_layer_time) {
-            try self.coolingLap(lp, s.filament.min_layer_time - layer_time);
+            if (self.record) |rec| rec.appendAssumeCapacity(.{ .start_time = start_time, .end_time = self.stats.print_time_s, .area = e * self.r.filament_area, .retracted = retracted, .slowed = slow < 1 or lapped });
         }
     }
 
@@ -654,52 +739,6 @@ pub const Emitter = struct {
         }
     }
 
-    const Estimate = struct { extrude_s: f64, travel_s: f64 };
-
-    /// The time of a layer at full speed, with the same distances and
-    /// speeds that `layer` writes.
-    fn estimate(self: *const Emitter, lp: *const LayerPlan) Estimate {
-        var est: Estimate = .{ .extrude_s = 0, .travel_s = 0 };
-        var x = self.x;
-        var y = self.y;
-        const travel_speed = self.r.settings.machine.travel_speed;
-        const lr = lp.resolved orelse self.r;
-        var known = false;
-        for (lp.paths.items, 0..) |path, i| {
-            const pts = lp.points.get(i);
-            if (pts.len == 0) continue;
-            const speed = lr.speedAt(path.feature, lp.width, lp.height, lp.index);
-            if (self.prep) |pr| if (known) {
-                // The sums of this path are known (see `prepare`).
-                const t = pr.paths.items[i];
-                est.travel_s += t.est_travel / travel_speed;
-                est.extrude_s += t.est_len / speed;
-                continue;
-            };
-            known = true;
-            var px = geom.toMm(pts[0].x);
-            var py = geom.toMm(pts[0].y);
-            est.travel_s += std.math.hypot(px - x, py - y) / travel_speed;
-            var len: f64 = 0;
-            for (pts[1..]) |q| {
-                const qx = geom.toMm(q.x);
-                const qy = geom.toMm(q.y);
-                len += std.math.hypot(qx - px, qy - py);
-                px = qx;
-                py = qy;
-            }
-            if (path.closed and pts.len > 2) {
-                len += std.math.hypot(geom.toMm(pts[0].x) - px, geom.toMm(pts[0].y) - py);
-                px = geom.toMm(pts[0].x);
-                py = geom.toMm(pts[0].y);
-            }
-            est.extrude_s += len / speed;
-            x = px;
-            y = py;
-        }
-        return est;
-    }
-
     fn retract(self: *Emitter) Writer.Error!void {
         return self.retractHop(true);
     }
@@ -716,8 +755,10 @@ pub const Emitter = struct {
         self.retracted = true;
         self.feed = -1;
         self.stats.retractions += 1;
-        self.stats.print_time_s += len / self.r.settings.machine.retract_speed;
+        self.stats.print_time_s += self.retractTime(len);
+        self.stop = true;
         if (hop and self.r.settings.project.z_hop > 0) {
+            self.zMove(self.r.settings.project.z_hop);
             try self.w.writeAll("G0 Z");
             try writeNum(self.w, self.z + self.r.settings.project.z_hop, 3);
             try self.w.writeAll("\n");
@@ -728,6 +769,7 @@ pub const Emitter = struct {
     fn unretract(self: *Emitter) Writer.Error!void {
         if (!self.retracted) return;
         if (self.hopped) {
+            self.zMove(self.r.settings.project.z_hop);
             try self.w.writeAll("G0 Z");
             try writeNum(self.w, self.z, 3);
             try self.w.writeAll("\n");
@@ -741,10 +783,11 @@ pub const Emitter = struct {
         try self.w.writeAll("\n");
         self.retracted = false;
         self.feed = -1;
-        self.stats.print_time_s += len / self.r.settings.machine.retract_speed;
+        self.stats.print_time_s += self.retractTime(len);
+        self.stop = true;
     }
 
-    fn travel(self: *Emitter, x: f64, y: f64) Writer.Error!void {
+    fn travel(self: *Emitter, x: f64, y: f64) Error!void {
         const d = std.math.hypot(x - self.x, y - self.y);
         if (d < 1e-4) return;
         if (d > self.r.settings.project.retract_min_travel) {
@@ -777,7 +820,7 @@ pub const Emitter = struct {
             }
         }
         const found = self.comb(x, y, d, buf);
-        if (self.dry and i < pr.paths.items.len) {
+        if (self.dry and self.keep_ways and i < pr.paths.items.len) {
             // Keep the way for the text of the layer. The list of
             // waypoints has room for one way (see `prepare`).
             const t = &pr.paths.items[i];
@@ -795,7 +838,7 @@ pub const Emitter = struct {
     }
 
     /// A travel move in a straight line, with no retraction.
-    fn move(self: *Emitter, x: f64, y: f64) Writer.Error!void {
+    fn move(self: *Emitter, x: f64, y: f64) Error!void {
         const d = std.math.hypot(x - self.x, y - self.y);
         if (d < 1e-4) return;
         const speed = self.r.settings.machine.travel_speed;
@@ -807,7 +850,7 @@ pub const Emitter = struct {
         self.addFeed(&line, speed);
         line.add("\n");
         try self.w.writeAll(line.text());
-        self.stats.print_time_s += self.moveTime(x - self.x, y - self.y, d, speed);
+        try self.addMove(x - self.x, y - self.y, d, speed, 0);
         self.x = x;
         self.y = y;
         self.stats.travel_mm += d;
@@ -920,12 +963,12 @@ pub const Emitter = struct {
         return winding != 0;
     }
 
-    fn extrude(self: *Emitter, x: f64, y: f64, e_per_mm: f64, speed: f64) Writer.Error!void {
+    fn extrude(self: *Emitter, x: f64, y: f64, e_per_mm: f64, speed: f64) Error!void {
         return self.extrudeLen(x, y, std.math.hypot(x - self.x, y - self.y), e_per_mm, speed);
     }
 
     /// `extrude`, with `d`, the distance from the nozzle to x, y.
-    fn extrudeLen(self: *Emitter, x: f64, y: f64, d: f64, e_per_mm: f64, speed: f64) Writer.Error!void {
+    fn extrudeLen(self: *Emitter, x: f64, y: f64, d: f64, e_per_mm: f64, speed: f64) Error!void {
         if (d < 1e-4) return;
         try self.unretract();
         const e = d * e_per_mm;
@@ -939,7 +982,7 @@ pub const Emitter = struct {
         self.addFeed(&line, speed);
         line.add("\n");
         try self.w.writeAll(line.text());
-        self.stats.print_time_s += self.moveTime(x - self.x, y - self.y, d, speed);
+        try self.addMove(x - self.x, y - self.y, d, speed, e_per_mm);
         self.x = x;
         self.y = y;
         self.stats.filament_mm += e;

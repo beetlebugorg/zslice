@@ -69,7 +69,9 @@ For each path, the slicer writes:
 
 The speed of each move comes from limits (`src/settings.zig`). The machine has a maximum speed. The filament has a maximum flow: the volume of plastic that the hot end can melt in one second. A wide, tall line uses more flow for each millimeter, so it must go slower. The project gives a ratio of the allowed speed for each feature. For example, the outer wall goes at 50 % of the allowed speed, for a better surface.
 
-**Cooling.** Each layer must cool before the next layer goes on it. Before the slicer writes a layer, it estimates the time of the layer. If the time is less than the minimum layer time of the filament, all moves of that layer go slower, but not below a minimum speed. A short layer also gets the fan at its maximum.
+**Time.** The slicer plans the speed of each move as the printer firmware does (see `motion.zig`): each move speeds up and slows down with the acceleration, and each corner has a speed limit from its angle. Retractions and Z moves are stops.
+
+**Cooling.** Each layer must cool before the next layer goes on it. Before the slicer writes a layer, it plans the time of the layer. If the time is less than the minimum layer time of the filament, the extrusions of that layer go slower, but not below a minimum speed. The slicer finds the speed ratio that gives the layer the minimum layer time, and no slower. A short layer also gets the fan at its maximum.
 
 ## 7. Run it fast, with little memory (`src/engine.zig`, `src/parallel.zig`)
 

@@ -71,6 +71,9 @@ pub const Machine = struct {
     travel_speed: f64 = 150,
     /// The speed of Z moves at each layer change.
     max_z_speed: f64 = 10,
+    /// The acceleration of Z moves (the layer change and the z hop), in
+    /// mm/s². Only the time estimate uses it.
+    max_z_accel: f64 = 100,
     /// The acceleration of the print head in X and Y, in mm/s². The time
     /// estimate uses it, and it is the acceleration of each feature that
     /// has no acceleration of its own (0 in the project).
@@ -757,6 +760,7 @@ pub const limits = [_]struct { []const u8, f64, f64 }{
     .{ "machine.max_speed", 1, 2000 },
     .{ "machine.travel_speed", 1, 2000 },
     .{ "machine.max_z_speed", 0.1, 200 },
+    .{ "machine.max_z_accel", 1, 100000 },
     .{ "machine.max_accel", 10, 100000 },
     .{ "machine.corner_speed", 0, 100 },
     .{ "machine.retract_length", 0, 20 },

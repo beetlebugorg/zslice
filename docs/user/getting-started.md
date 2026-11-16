@@ -24,7 +24,7 @@ zslice reads binary and ASCII STL files. It writes G-code for printers with Marl
 69 layers, 1.88 m filament (5.6 g), about 11 min, sliced in 37 ms
 ```
 
-The time is an estimate from the distance and the speed of each move. It does not include acceleration, so the real print takes longer.
+The time is an estimate with the acceleration and the corner speed of the machine settings. Heat-up and the start G-code are not in it.
 
 Without `-o`, zslice writes the G-code to the standard output.
 

@@ -28,8 +28,9 @@ CURA_SETTINGS): the TAZ Workhorse SE machine with a 0.5 mm nozzle and
 2.85 mm filament, a 2000 x 2000 x 2000 mm bed so that each part fits,
 layer height 0.2 mm, first layer 0.3 mm, 2 walls, 0.8 mm top, 0.6 mm
 bottom, 20 % grid infill, no support, a 1-loop skirt, and the part at the
-center of the bed. The speeds are the same. CuraEngine gets a very high
-acceleration, because the zslice time estimate is distance / speed.
+center of the bed. The speeds are the same. Both slicers get a very high
+acceleration, so that the time estimates compare without the two
+acceleration models.
 
 For each slicer, the row has: the status (ok, error, crash, timeout, oom), the
 wall time, the CPU time, the peak memory (ru_maxrss of the child), the
@@ -92,6 +93,11 @@ ZSLICE_SETTINGS = [
     "machine.travel_speed=150",
     "machine.retract_length=1.5",
     "machine.retract_speed=35",
+    # The same very high acceleration as CuraEngine (see CURA_SETTINGS), so
+    # that the two time estimates compare.
+    "machine.max_accel=100000",
+    "machine.max_z_accel=100000",
+    "machine.corner_speed=100",
     "filament.min_layer_time=6",
     "filament.min_speed=10",
     "project.layer_height=0.2",

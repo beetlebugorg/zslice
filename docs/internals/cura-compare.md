@@ -66,8 +66,8 @@ example, `initial_bottom_layers` is 6 and `infill_sparse_thickness` is
 0.1 mm. So the script gives each derived setting that changes the print
 with the value that Cura computes. See `CURA_SETTINGS` in the script.
 
-The zslice time estimate is distance / speed, without acceleration. So
-CuraEngine gets a very high acceleration and jerk.
+Both slicers get a very high acceleration and corner speed, so that the
+time estimates compare without the two acceleration models.
 
 Some differences stay, because the two slicers do different things:
 

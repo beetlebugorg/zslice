@@ -20,6 +20,7 @@ pub const all = [_]Meta{
     .{ .name = "machine.max_speed", .section = "Motion", .doc = "The maximum speed of the print head in X and Y." },
     .{ .name = "machine.travel_speed", .section = "Motion", .doc = "The speed of travel moves (moves with no extrusion)." },
     .{ .name = "machine.max_z_speed", .section = "Motion", .doc = "The speed of Z moves at each layer change." },
+    .{ .name = "machine.max_z_accel", .section = "Motion", .doc = "The acceleration of Z moves (the layer change and the z hop), in mm/s². Only the time estimate uses it." },
     .{ .name = "machine.max_accel", .section = "Motion", .doc = "The acceleration of the print head in X and Y, in mm/s². The time estimate uses it, and it is the acceleration of each feature that has no acceleration of its own (0 in the project)." },
     .{ .name = "machine.corner_speed", .section = "Motion", .doc = "The speed at which the head turns a corner with no stop (jerk in Marlin, square corner velocity in Klipper), in mm/s. The time estimate uses it." },
     .{ .name = "machine.accel_control", .section = "Motion", .doc = "Write acceleration commands in the G-code: the acceleration of each feature (project `*_accel`), and the corner speed at the start. Off: the printer uses its own values; the time estimate still uses `max_accel` and `corner_speed`." },

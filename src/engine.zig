@@ -513,7 +513,7 @@ pub const Job = struct {
     /// `writeGcode`, and each layer plan also goes to `sink`.
     pub fn writeGcodeWith(self: *const Job, out: *Writer, sink: ?LayerSink) Error!Stats {
         const gpa = self.gpa;
-        var em: gcode.Emitter = .init(out, &self.resolved);
+        var em: gcode.Emitter = .init(gpa, out, &self.resolved);
         var record: std.ArrayList(gcode.PathInfo) = .empty;
         defer record.deinit(gpa);
         if (sink != null) em.record = &record;
@@ -942,7 +942,7 @@ test "the work of the planning threads gives the same G-code" {
     // The emitter alone, with no work from the planning threads.
     var b: Writer.Allocating = .init(gpa);
     defer b.deinit();
-    var em: gcode.Emitter = .init(&b.writer, &job.resolved);
+    var em: gcode.Emitter = .init(gpa, &b.writer, &job.resolved);
     try em.begin(job.layerCount());
     for (0..job.layerCount()) |i| {
         var lp = try job.planLayer(i);
@@ -995,41 +995,63 @@ test "a short layer prints slower" {
     s.engine.threads = 1;
     _ = try slice(gpa, &m, s, &out.writer);
 
-    // The time of layer 10, from its G1 moves: each move takes
-    // distance / F.
+    // The time of layer 10, from its G-code: the XY moves go through the
+    // planner, and each other move (a retraction, a Z move) is a stop.
+    const motion = @import("motion.zig");
+    const mc = s.machine;
+    var moves: std.ArrayList(motion.Move) = .empty;
+    defer moves.deinit(gpa);
     var lines = std.mem.splitScalar(u8, out.written(), '\n');
     var layer: i32 = -1;
     var x: f64 = 0;
     var y: f64 = 0;
+    var z: f64 = 0;
     var f: f64 = 1;
     var t: f64 = 0;
+    var stop = true;
     var max_f: f64 = 0;
     while (lines.next()) |line| {
         if (std.mem.startsWith(u8, line, ";LAYER:")) layer = try std.fmt.parseInt(i32, line[7..], 10);
         if (!std.mem.startsWith(u8, line, "G0 ") and !std.mem.startsWith(u8, line, "G1 ")) continue;
         var nx = x;
         var ny = y;
-        var has_e = false;
+        var nz = z;
+        var e: f64 = 0;
         var tok = std.mem.tokenizeScalar(u8, line[3..], ' ');
         while (tok.next()) |w| {
             const v = std.fmt.parseFloat(f64, w[1..]) catch continue;
             switch (w[0]) {
                 'X' => nx = v,
                 'Y' => ny = v,
+                'Z' => nz = v,
                 'F' => f = v,
-                'E' => has_e = true,
+                'E' => e = v,
                 else => {},
             }
         }
+        const d = std.math.hypot(nx - x, ny - y);
         if (layer == 10) {
-            t += std.math.hypot(nx - x, ny - y) / (f / 60);
-            if (has_e) max_f = @max(max_f, f);
+            if (d > 0) {
+                try moves.append(gpa, .{ .dir = .{ (nx - x) / d, (ny - y) / d }, .len = d, .speed = f / 60, .accel = mc.max_accel, .e_ratio = e / d, .stop_before = stop });
+                stop = false;
+                if (e > 0) max_f = @max(max_f, f);
+            } else if (nz != z) {
+                t += motion.restTime(@abs(nz - z), mc.max_z_speed, mc.max_z_accel);
+                stop = true;
+            } else if (e != 0) {
+                t += motion.restTime(@abs(e), mc.retract_speed, mc.max_accel);
+                stop = true;
+            }
         }
         x = nx;
         y = ny;
+        z = nz;
     }
-    // The layer takes at least min_layer_time (6 s), minus rounding.
-    try testing.expect(t > 5.5);
+    t += motion.plan(moves.items, .{ .corner_speed = mc.corner_speed, .extruder_corner_speed = 5 });
+    // The layer takes min_layer_time (6 s), minus rounding, and no more
+    // than it must.
+    try testing.expect(t > 5.9);
+    try testing.expect(t < 6.3);
     // And the walls are slower than the full outer wall speed (68 mm/s).
     try testing.expect(max_f < 68 * 60);
     // The fan is at the maximum on these short layers.

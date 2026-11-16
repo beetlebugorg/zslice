@@ -58,6 +58,10 @@ The speed of travel moves (moves with no extrusion).
 
 The speed of Z moves at each layer change.
 
+**`machine.max_z_accel`** (number). Default: `100`
+
+The acceleration of Z moves (the layer change and the z hop), in mm/s². Only the time estimate uses it.
+
 **`machine.max_accel`** (number). Default: `1500`
 
 The acceleration of the print head in X and Y, in mm/s². The time estimate uses it, and it is the acceleration of each feature that has no acceleration of its own (0 in the project).
