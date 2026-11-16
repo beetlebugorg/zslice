@@ -306,8 +306,9 @@ GtkWindow *zg_window_new(GtkApplication *app, ZgModel *model) {
     gtk_paned_set_shrink_start_child(GTK_PANED(paned), FALSE);
     gtk_paned_set_shrink_end_child(GTK_PANED(paned), FALSE);
     gtk_paned_set_wide_handle(GTK_PANED(paned), TRUE);
-    /* The start width of the settings panel; the user can drag it to 220. */
-    gtk_paned_set_position(GTK_PANED(paned), 380);
+    /* The start width of the settings panel: the last two columns of the
+     * settings browser. The user can drag it to 220. */
+    gtk_paned_set_position(GTK_PANED(paned), 560);
     gtk_widget_set_vexpand(paned, TRUE);
 
     /* Status bar. */

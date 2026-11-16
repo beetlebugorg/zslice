@@ -100,6 +100,16 @@ The light gray area is the outline of the layer. Each line is drawn at the line 
 
 Layer numbers start at 0. If the number is too large, zslice shows the number of layers in the part.
 
+## Browse the settings
+
+The Settings page of the app has three columns:
+
+1. The sections of each group (Project, Filament, Machine, Engine). The search field above them finds settings by name or help text.
+2. The settings of the section, with their values.
+3. The selected setting: its value, its default (with a Reset button), what it does, and the lines of your project that it changes, with their share of the print time.
+
+The preview shows the lines that the setting changes in their feature colors, and the other lines fade. Use Right and Left to move between the columns.
+
 ## See why a line is what it is
 
 In the app, click a line in the 2D or 3D view. The Selected page shows what the line is (for example the outer wall on layer 12). At the top are its planned speed, its real speed (after the slow-down for cooling), and its plastic flow. Below them are the settings that change the line, in three sections: Speed, Shape, and Material. "How these values come about" explains each number.

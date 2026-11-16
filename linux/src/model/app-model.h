@@ -40,6 +40,13 @@ char *zg_model_get(ZgModel *self, const char *key);
 void zg_model_select(ZgModel *self, gint64 path);
 gint64 zg_model_selected(ZgModel *self);
 
+/* The focus of the previews: the features whose lines a setting changes
+ * (a bit for each enum zs_feature, 0 for no focus), and if only the first
+ * layer. The settings browser sets it. "focus-changed" follows each
+ * change. */
+void zg_model_set_focus(ZgModel *self, guint32 features, gboolean first_layer_only);
+guint32 zg_model_focus(ZgModel *self, gboolean *first_layer_only);
+
 /* The text for a core status code. */
 const char *zg_status_text(int status);
 

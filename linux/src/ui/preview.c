@@ -175,13 +175,18 @@ static void draw(GtkDrawingArea *area, cairo_t *cr, int w, int h, gpointer data)
                 cairo_restore(cr);
             }
         }
+        /* The focus of the settings browser: the other features fade. */
+        gboolean first_only = FALSE;
+        guint32 focus = zg_model_focus(p->model, &first_only);
+        size_t shown = (size_t)gtk_range_get_value(GTK_RANGE(p->slider));
         for (size_t f = 0; f < ZG_N_FEATURES; f++) {
             for (size_t i = 0; i < lp->path_count; i++) {
                 if (lp->path_features[i] != f) continue;
                 uint32_t start = i == 0 ? 0 : lp->path_ends[i - 1];
                 add_polyline(cr, lp->points, start, lp->path_ends[i], lp->path_closed[i]);
             }
-            cairo_set_source_rgba(cr, zg_feature_rgb[f][0], zg_feature_rgb[f][1], zg_feature_rgb[f][2], 0.9);
+            gboolean in_focus = focus == 0 || ((focus >> f) & 1 && (!first_only || shown == 0));
+            cairo_set_source_rgba(cr, zg_feature_rgb[f][0], zg_feature_rgb[f][1], zg_feature_rgb[f][2], in_focus ? 0.9 : 0.12);
             cairo_stroke(cr);
         }
     }
@@ -323,6 +328,11 @@ static void on_selection(ZgModel *model, gint64 path, gpointer data) {
     gtk_widget_queue_draw(p->area);
 }
 
+static void on_focus_changed(ZgModel *model, gpointer data) {
+    Preview *p = data;
+    gtk_widget_queue_draw(p->area);
+}
+
 static void preview_free(gpointer data) {
     Preview *p = data;
     if (p->tick) gtk_widget_remove_tick_callback(p->view3d, p->tick);
@@ -422,6 +432,7 @@ GtkWidget *zg_preview_new(ZgModel *model) {
     gtk_widget_set_size_request(stack, 200, -1);
     g_object_set_data_full(G_OBJECT(box), "zg-preview", p, preview_free);
     g_signal_connect(model, "selection-changed", G_CALLBACK(on_selection), p);
+    g_signal_connect(model, "focus-changed", G_CALLBACK(on_focus_changed), p);
     return box;
 }
 

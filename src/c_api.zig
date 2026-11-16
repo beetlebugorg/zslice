@@ -299,6 +299,7 @@ pub const SettingInfo = extern struct {
     multiline: c_int,
     choices: [*:0]const u8,
     unit: [*:0]const u8,
+    default_value: [*:0]const u8,
 };
 
 export fn zs_setting_count() usize {
@@ -319,6 +320,7 @@ export fn zs_setting_get_info(index: usize, out: ?*SettingInfo) c_int {
         .multiline = @intFromBool(s.multiline),
         .choices = s.choices.ptr,
         .unit = s.unit.ptr,
+        .default_value = s.default_value.ptr,
     };
     return ok;
 }
@@ -531,6 +533,34 @@ export fn zs_app_inspect(a: ?*App, path: usize, out: ?*Inspect) c_int {
     return ok;
 }
 
+pub const SettingEffect = extern struct {
+    features: u32,
+    first_layer_only: c_int,
+};
+
+export fn zs_setting_get_effect(name: ?[*:0]const u8, out: ?*SettingEffect) c_int {
+    const n = std.mem.span(name orelse return @intFromEnum(Status.invalid_argument));
+    const o = out orelse return @intFromEnum(Status.invalid_argument);
+    const e = app_mod.settingEffect(n);
+    o.* = .{ .features = e.features, .first_layer_only = @intFromBool(e.first_layer_only) };
+    return ok;
+}
+
+pub const FeatureStats = extern struct {
+    time_s: f64,
+    length_mm: f64,
+    volume_mm3: f64,
+    paths: usize,
+};
+
+export fn zs_app_feature_stats(a: ?*const App, out: ?[*]FeatureStats) c_int {
+    const app = a orelse return @intFromEnum(Status.invalid_argument);
+    const o = out orelse return @intFromEnum(Status.invalid_argument);
+    const stats = app.featureStats() orelse return @intFromEnum(Status.no_result);
+    for (stats, 0..) |s, i| o[i] = .{ .time_s = s.time, .length_mm = s.length, .volume_mm3 = s.volume, .paths = s.paths };
+    return ok;
+}
+
 /// The path of a layer nearest to (x, y) mm, or (size_t)-1.
 export fn zs_app_pick_layer(a: ?*const App, layer: usize, x: f64, y: f64) usize {
     const app = a orelse return std.math.maxInt(usize);
@@ -666,6 +696,13 @@ export fn zs_view_pan(view: ?*View, dx: f32, dy: f32) void {
     if (!render_on) return;
     const v = view orelse return;
     v.pan(dx, dy);
+}
+
+/// A negative zmax: all layers.
+export fn zs_view_focus(view: ?*View, features: u32, zmax: f64) void {
+    if (!render_on) return;
+    const v = view orelse return;
+    v.setFocus(features, if (zmax < 0) std.math.inf(f32) else @floatCast(zmax));
 }
 
 export fn zs_view_rotate(view: ?*View, dx: f32, dy: f32) void {

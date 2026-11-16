@@ -17,14 +17,26 @@ layout(location = 4) in vec4 color;
 layout(push_constant) uniform Push {
     mat4 mvp;
     vec4 light;  // xyz: the direction to the light
-    vec4 eye;    // xyz: the camera position
-    vec4 params; // x, y: the first and the end instance to highlight
+    vec4 eye;    // xyz: the camera position, w: the top z of the focus
+    vec4 params; // x, y: the first and the end instance to highlight,
+                 // z: the focus: a bit for each feature, 0 for no focus
 } pc;
 
 layout(location = 0) out vec3 vcolor;
 layout(location = 1) out vec3 vnormal;
 layout(location = 2) out vec3 vpos;
 layout(location = 3) out float vhigh;
+// 1 for a bead in focus (or no focus), 0 for a bead that fades.
+layout(location = 4) out float vfocus;
+
+// The feature colors (sRGB), as in linux/src/ui/colors.h. In a focus, a
+// bead in focus shows its feature color, so it stands out also when the
+// filament color is pale.
+const vec3 feature_rgb[8] = vec3[8](
+    vec3(0.851, 0.282, 0.059), vec3(0.961, 0.624, 0.000),
+    vec3(0.110, 0.494, 0.839), vec3(0.169, 0.541, 0.243),
+    vec3(0.682, 0.243, 0.788), vec3(0.553, 0.431, 0.388),
+    vec3(0.678, 0.710, 0.741), vec3(0.286, 0.314, 0.341));
 
 void main() {
     vec2 a = seg.xy;
@@ -60,5 +72,11 @@ void main() {
     vpos = pos;
     float idx = float(gl_InstanceIndex);
     vhigh = (idx >= pc.params.x && idx < pc.params.y) ? 1.0 : 0.0;
+    // The alpha byte of the color has the feature of the bead.
+    uint mask = uint(pc.params.z + 0.5);
+    uint feature = uint(color.a * 255.0 + 0.5);
+    bool in_mask = ((mask >> feature) & 1u) != 0u;
+    vfocus = (mask == 0u || (in_mask && zhw.x <= pc.eye.w + 1e-4)) ? 1.0 : 0.0;
+    if (mask != 0u && vfocus > 0.5) vcolor = feature_rgb[min(feature, 7u)];
     gl_Position = pc.mvp * vec4(pos, 1.0);
 }

@@ -112,6 +112,24 @@ static void sync_geometry(View3d *v) {
     queue_frame(v);
 }
 
+/* The focus of the settings browser: for a first layer setting, only the
+ * beads of the first layer. */
+static void apply_focus(View3d *v) {
+    if (!v->view) return;
+    gboolean first = FALSE;
+    guint32 mask = zg_model_focus(v->model, &first);
+    double zmax = -1;
+    zs_toolpaths tp;
+    if (first && zs_app_toolpaths(zg_model_core(v->model), &tp) == ZS_OK && tp.layer_count > 0) zmax = tp.layer_z[0];
+    zs_view_focus(v->view, mask, zmax);
+}
+
+static void on_focus_changed(ZgModel *model, gpointer data) {
+    View3d *v = data;
+    apply_focus(v);
+    queue_frame(v);
+}
+
 static void load_data(View3d *v) {
     if (!v->view) return;
     zs_view_set_mode(v->view, v->features ? ZS_VIEW_FEATURES : ZS_VIEW_PRINT);
@@ -123,6 +141,7 @@ static void load_data(View3d *v) {
     zs_view_set_layer(v->view, v->layer);
     gint64 sel = zg_model_selected(v->model);
     zs_view_highlight(v->view, sel < 0 ? (size_t)-1 : (size_t)sel);
+    apply_focus(v);
     /* For development and screenshots: ZSLICE_ZOOM=0.3 starts nearer. */
     const char *zoom = g_getenv("ZSLICE_ZOOM");
     if (zoom && !v->zoomed && zs_app_layer_count(zg_model_core(v->model)) > 0) {
@@ -376,5 +395,6 @@ GtkWidget *zg_view3d_new(ZgModel *model) {
 
     g_object_set_data_full(G_OBJECT(v->area), "zg-view3d", v, view_free);
     g_signal_connect(model, "selection-changed", G_CALLBACK(on_selection), v);
+    g_signal_connect(model, "focus-changed", G_CALLBACK(on_focus_changed), v);
     return v->area;
 }

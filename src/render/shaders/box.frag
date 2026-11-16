@@ -16,6 +16,7 @@ layout(location = 0) in vec3 vcolor;
 layout(location = 1) in vec3 vnormal;
 layout(location = 2) in vec3 vpos;
 layout(location = 3) in float vhigh;
+layout(location = 4) in float vfocus;
 layout(location = 0) out vec4 frag;
 
 vec3 toLinear(vec3 c) { return pow(c, vec3(2.2)); }
@@ -33,5 +34,7 @@ void main() {
     vec3 hv = normalize(l + v);
     float spec = pow(max(dot(n, hv), 0.0), 40.0) * 0.18;
     vec3 c = base * (ambient + 0.85 * diffuse) + vec3(spec);
+    // Out of focus: pale and flat, so the beads in focus stand out.
+    if (vfocus < 0.5) c = mix(c, vec3(0.80), 0.82);
     frag = vec4(toSrgb(c), 1.0);
 }

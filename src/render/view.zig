@@ -59,6 +59,12 @@ pub const View = struct {
     /// beads of path i are path_start[i] to path_start[i + 1].
     path_start: std.ArrayList(u32) = .empty,
     highlight: [2]f32 = .{ 0, 0 },
+    /// The features in focus (a bit for each), or 0 for no focus. The
+    /// other beads fade. See `setFocus`.
+    focus_mask: u32 = 0,
+    /// With a focus: only the beads with a top at or under this z are in
+    /// focus (the first layer, for a first layer setting).
+    focus_zmax: f32 = std.math.inf(f32),
     /// A copy of the beads, for `pick` and the replay.
     beads: std.ArrayList(vk.Instance) = .empty,
     /// The print time (s) at the end of each bead, for the replay.
@@ -231,7 +237,8 @@ pub const View = struct {
                         .z = z,
                         .h = h,
                         .w = w,
-                        .rgba = .{ rgb[0], rgb[1], rgb[2], 255 },
+                        // The alpha byte has the feature, for `setFocus`.
+                        .rgba = .{ rgb[0], rgb[1], rgb[2], f },
                     }) catch return error.OutOfMemory;
                 }
             }
@@ -281,6 +288,15 @@ pub const View = struct {
         while (y <= bed_y + 0.01) : (y += 10) pts.appendSlice(gpa, &.{ 0, @min(y, bed_y), 0, bed_x, @min(y, bed_y), 0 }) catch return error.OutOfMemory;
         try v.renderer.setGrid(pts.items);
         v.grid_vertices = @intCast(pts.items.len / 3);
+    }
+
+    /// Shows the beads of some features clearly and fades the others: a
+    /// bit (1 << feature) for each feature in `mask`, or 0 to end the
+    /// focus. Only beads with a top at or under `zmax` are in focus (pass
+    /// infinity for all layers).
+    pub fn setFocus(v: *View, mask: u32, zmax: f32) void {
+        v.focus_mask = mask & 0xffff;
+        v.focus_zmax = zmax;
     }
 
     /// Shows the layers 0 to `layer`, and stops the replay.
@@ -559,7 +575,12 @@ pub const View = struct {
             .partial = partial,
             .clear = .{ 0.965, 0.969, 0.973 },
             // A light from above, in front, and to the right.
-            .box = .{ .mvp = mvp, .vec = .{ 0.35, -0.45, 0.82, 0 }, .eye = .{ eye[0], eye[1], eye[2], 0 }, .params = .{ v.highlight[0], v.highlight[1], 0, 0 } },
+            .box = .{
+                .mvp = mvp,
+                .vec = .{ 0.35, -0.45, 0.82, 0 },
+                .eye = .{ eye[0], eye[1], eye[2], if (std.math.isInf(v.focus_zmax)) 1e9 else v.focus_zmax },
+                .params = .{ v.highlight[0], v.highlight[1], @floatFromInt(v.focus_mask), 0 },
+            },
             .box_count = count,
             .grid = .{ .mvp = mvp, .vec = .{ 0.80, 0.82, 0.85, 1 } },
             .grid_vertices = v.grid_vertices,

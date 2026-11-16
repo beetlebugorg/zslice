@@ -92,6 +92,8 @@ typedef struct zs_setting_info {
     const char *unit;    /* for a number: "mm", "mm/s", "°C", and so on. "%"
                             is a ratio: 0.5 is 50 %, so show the value times
                             100. "" for the other kinds. */
+    const char *default_value; /* the built-in default, as zs_app_setting_get
+                                  writes it */
 } zs_setting_info;
 
 /* The settings, in the order to show them. */
@@ -208,6 +210,29 @@ typedef struct zs_inspect {
                              Shape, Material) */
 } zs_inspect;
 
+/* What a setting changes in the toolpaths. */
+typedef struct zs_setting_effect {
+    uint32_t features;    /* a bit (1 << enum zs_feature) for each feature
+                             whose lines the setting changes; 0 if it
+                             changes no line (only the G-code) */
+    int first_layer_only; /* 1: only the lines of the first layer */
+} zs_setting_effect;
+
+int zs_setting_get_effect(const char *name, zs_setting_effect *out);
+
+/* The print time, length, and plastic of the lines of one feature. */
+typedef struct zs_feature_stats {
+    double time_s;
+    double length_mm;
+    double volume_mm3;
+    size_t paths;
+} zs_feature_stats;
+
+#define ZS_FEATURE_COUNT 8
+/* Fills out[0 .. ZS_FEATURE_COUNT), in the order of enum zs_feature, for
+ * the last slice. ZS_NO_RESULT if there is none. */
+int zs_app_feature_stats(const zs_app *app, zs_feature_stats *out);
+
 /* The strings stay valid until the next zs_app_inspect, the next slice, or
  * zs_app_free. */
 int zs_app_inspect(zs_app *app, size_t path, zs_inspect *out);
@@ -262,6 +287,11 @@ void zs_view_reset_smooth(zs_view *view);
 int zs_view_animate(zs_view *view, double dt);
 /* Moves the view by a drag of dx, dy pixels: the scene follows the pointer. */
 void zs_view_pan(zs_view *view, float dx, float dy);
+/* Shows the beads of some features clearly, and fades the others: a bit
+ * (1 << enum zs_feature) for each feature, or 0 to end the focus. Only the
+ * beads with a top at or under zmax (mm) are in focus; a negative zmax is
+ * all layers. For a settings browser: zs_setting_get_effect gives the bits. */
+void zs_view_focus(zs_view *view, uint32_t features, double zmax);
 /* Turns the camera freely around the axes of the screen, by a drag of dx,
  * dy pixels. Drags in turn can roll the view, so the part can turn to any
  * direction. zs_view_orbit keeps the bed level; this does not. */

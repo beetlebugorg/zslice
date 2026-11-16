@@ -27,11 +27,13 @@ struct _ZgModel {
     gboolean anchored;
     size_t anchor_layer;
     double anchor_x, anchor_y;
+    guint32 focus;
+    gboolean focus_first;
 };
 
 G_DEFINE_FINAL_TYPE(ZgModel, zg_model, G_TYPE_OBJECT)
 
-enum { SIGNAL_CORE_EVENT, SIGNAL_SELECTION_CHANGED, SIGNAL_PICKED, SIGNAL_SETTING_CHANGED, N_SIGNALS };
+enum { SIGNAL_CORE_EVENT, SIGNAL_SELECTION_CHANGED, SIGNAL_PICKED, SIGNAL_SETTING_CHANGED, SIGNAL_FOCUS_CHANGED, N_SIGNALS };
 static guint signals[N_SIGNALS];
 
 typedef struct {
@@ -106,6 +108,9 @@ static void zg_model_class_init(ZgModelClass *klass) {
      * view can react to it (switch a tab, for example). */
     signals[SIGNAL_PICKED] = g_signal_new("picked", G_TYPE_FROM_CLASS(klass),
         G_SIGNAL_RUN_LAST, 0, NULL, NULL, NULL, G_TYPE_NONE, 1, G_TYPE_INT64);
+    /* focus-changed(): see zg_model_set_focus. */
+    signals[SIGNAL_FOCUS_CHANGED] = g_signal_new("focus-changed", G_TYPE_FROM_CLASS(klass),
+        G_SIGNAL_RUN_LAST, 0, NULL, NULL, NULL, G_TYPE_NONE, 0);
     /* setting-changed(const char *key): after zg_model_set changes a value,
      * so that each editor of the setting shows the new value. */
     signals[SIGNAL_SETTING_CHANGED] = g_signal_new("setting-changed", G_TYPE_FROM_CLASS(klass),
@@ -127,6 +132,19 @@ void zg_model_select(ZgModel *self, gint64 path) {
     }
     g_signal_emit(self, signals[SIGNAL_SELECTION_CHANGED], 0, path);
     g_signal_emit(self, signals[SIGNAL_PICKED], 0, path);
+}
+
+void zg_model_set_focus(ZgModel *self, guint32 features, gboolean first_layer_only) {
+    first_layer_only = features != 0 && first_layer_only;
+    if (self->focus == features && self->focus_first == first_layer_only) return;
+    self->focus = features;
+    self->focus_first = first_layer_only;
+    g_signal_emit(self, signals[SIGNAL_FOCUS_CHANGED], 0);
+}
+
+guint32 zg_model_focus(ZgModel *self, gboolean *first_layer_only) {
+    if (first_layer_only) *first_layer_only = self->focus_first;
+    return self->focus;
 }
 
 gint64 zg_model_selected(ZgModel *self) {

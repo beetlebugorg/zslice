@@ -18,6 +18,9 @@
  * the "setting-changed" signal of the model, so all editors of a setting
  * show the same value.
  *
+ * The panel has two pages: "Selected", the inspector, and "Settings", a
+ * browser of all settings in three columns.
+ *
  * The "Selected" page is the inspector. After a new slice of the same line,
  * it changes the text in place and keeps its rows: the page does not move,
  * the editor with the focus keeps it, and the tab stays. Only a click on a
@@ -26,6 +29,8 @@
  * SPDX-License-Identifier: AGPL-3.0-or-later
  */
 #include "settings-panel.h"
+
+#include "colors.h"
 
 #include <math.h>
 #include <stdlib.h>
@@ -458,24 +463,6 @@ static GtkWidget *scrolled(GtkWidget *child) {
     return scroll;
 }
 
-static GtkWidget *make_page(ZgModel *model, const char *group) {
-    GtkWidget *grid = new_grid();
-    int row = 0;
-    const char *section = NULL;
-    size_t n = zs_setting_count();
-    for (size_t i = 0; i < n; i++) {
-        zs_setting_info info;
-        if (zs_setting_get_info(i, &info) != ZS_OK || strcmp(info.group, group) != 0) continue;
-        if (info.section[0] && g_strcmp0(section, info.section) != 0) {
-            section = info.section;
-            add_heading(grid, &row, section);
-        }
-        add_row(grid, &row, model, &info, FALSE);
-    }
-
-    return scrolled(grid);
-}
-
 /* ---- the inspector page ---- */
 
 typedef struct {
@@ -644,6 +631,551 @@ static void inspector_free(gpointer data) {
     g_free(ins);
 }
 
+/* ---- the settings browser ----
+ *
+ * Three columns, as in a column view of a file manager:
+ *   1. the sections, under a heading for each group (Project, Filament,
+ *      Machine, Engine), with a search field on top
+ *   2. the settings of the section (or the search results), with their
+ *      values
+ *   3. the selected setting: its editor, its default, its help, and the
+ *      lines of the project that it changes. The previews show these lines
+ *      clearly and fade the others (zg_model_set_focus).
+ * The columns scroll to the side, so a narrow panel shows the last two. */
+
+typedef struct {
+    ZgModel *model;
+    GtkWidget *page;     /* the Settings page of the panel stack */
+    GtkWidget *hscroll;  /* the columns */
+    GtkWidget *search;
+    GtkWidget *sections; /* column 1 */
+    GtkWidget *settings; /* column 2 */
+    GtkWidget *detail;   /* column 3: a box; its child is rebuilt */
+    GtkWidget *effect;   /* in column 3: the lines of the project */
+    const char *key;     /* the selected setting, or NULL */
+    guint scroll_tick;
+    int scroll_frames;   /* frames since the scroll started */
+} Browser;
+
+enum { COL1_WIDTH = 165, COL2_WIDTH = 235, COL3_WIDTH = 300 };
+
+static const char *feature_titles[] = {"Outer wall", "Inner wall", "Skin", "Sparse infill",
+                                       "Ironing", "Skirt or brim", "Support", "Support interface"};
+
+static const char *group_title(const char *group) {
+    for (size_t i = 0; i < G_N_ELEMENTS(pages); i++) {
+        if (strcmp(pages[i].group, group) == 0) return pages[i].title;
+    }
+    return group;
+}
+
+/* The text of a value as the editors show it: a ratio as a percentage. */
+static char *display_value(const zs_setting_info *info, const char *value) {
+    if ((info->kind == ZS_SETTING_NUMBER || info->kind == ZS_SETTING_INTEGER) && strcmp(info->unit, "%") == 0 &&
+        parses_as_number(value)) {
+        char buf[G_ASCII_DTOSTR_BUF_SIZE];
+        format_number(buf, sizeof buf, g_ascii_strtod(value, NULL) * 100);
+        return g_strdup(buf);
+    }
+    if (info->kind == ZS_SETTING_TEXT && info->multiline) {
+        /* G-code: the first line only. */
+        const char *nl = strchr(value, '\n');
+        return nl ? g_strdup_printf("%.*s …", (int)(nl - value), value) : g_strdup(value);
+    }
+    return g_strdup(value);
+}
+
+static char *value_with_unit(const zs_setting_info *info, const char *value) {
+    char *shown = display_value(info, value);
+    char *text = info->unit[0] ? g_strdup_printf("%s %s", shown, info->unit) : g_strdup(shown);
+    g_free(shown);
+    return text;
+}
+
+/* Animates the columns to their right end, so the new column shows. */
+static gboolean on_scroll_tick(GtkWidget *w, GdkFrameClock *clock, gpointer data) {
+    Browser *b = data;
+    GtkAdjustment *adj = gtk_scrolled_window_get_hadjustment(GTK_SCROLLED_WINDOW(b->hscroll));
+    double goal = gtk_adjustment_get_upper(adj) - gtk_adjustment_get_page_size(adj);
+    double now = gtk_adjustment_get_value(adj);
+    /* The width of new content is known only after a layout: wait a few
+     * frames before the scroll can end. */
+    b->scroll_frames++;
+    if (fabs(goal - now) < 1 && b->scroll_frames > 3) {
+        gtk_adjustment_set_value(adj, goal);
+        b->scroll_tick = 0;
+        return G_SOURCE_REMOVE;
+    }
+    gtk_adjustment_set_value(adj, now + (goal - now) * 0.25);
+    return G_SOURCE_CONTINUE;
+}
+
+static void scroll_to_end(Browser *b) {
+    b->scroll_frames = 0;
+    if (!b->scroll_tick) b->scroll_tick = gtk_widget_add_tick_callback(b->hscroll, on_scroll_tick, b, NULL);
+}
+
+/* ---- column 3 ---- */
+
+static void fill_effect(Browser *b) {
+    if (!b->effect || !b->key) return;
+    GtkWidget *child;
+    while ((child = gtk_widget_get_first_child(b->effect))) gtk_box_remove(GTK_BOX(b->effect), child);
+    zs_setting_effect e = {0};
+    zs_setting_get_effect(b->key, &e);
+    if (e.features == 0) {
+        GtkWidget *l = wrapped_label("This setting changes no line in the preview. It changes the G-code (for example a temperature, a retraction, or the start code), or how the slicer works.");
+        gtk_widget_add_css_class(l, "dim-label");
+        gtk_box_append(GTK_BOX(b->effect), l);
+        return;
+    }
+    zs_feature_stats stats[ZS_FEATURE_COUNT];
+    gboolean have = zs_app_feature_stats(zg_model_core(b->model), stats) == ZS_OK;
+    double total = 0;
+    if (have) for (int f = 0; f < ZS_FEATURE_COUNT; f++) total += stats[f].time_s;
+    GtkWidget *intro = wrapped_label(e.first_layer_only ? "It changes these lines on the first layer:" : "It changes these lines:");
+    gtk_box_append(GTK_BOX(b->effect), intro);
+    int shown = 0;
+    for (int f = 0; f < ZS_FEATURE_COUNT; f++) {
+        if (!((e.features >> f) & 1)) continue;
+        if (have && stats[f].paths == 0) continue;
+        GtkWidget *row = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 8);
+        char *dot = g_strdup_printf("<span foreground=\"#%02x%02x%02x\">●</span>", (int)(zg_feature_rgb[f][0] * 255),
+                                    (int)(zg_feature_rgb[f][1] * 255), (int)(zg_feature_rgb[f][2] * 255));
+        GtkWidget *d = gtk_label_new(NULL);
+        gtk_label_set_markup(GTK_LABEL(d), dot);
+        g_free(dot);
+        GtkWidget *name = gtk_label_new(feature_titles[f]);
+        gtk_label_set_xalign(GTK_LABEL(name), 0);
+        gtk_widget_set_hexpand(name, TRUE);
+        gtk_box_append(GTK_BOX(row), d);
+        gtk_box_append(GTK_BOX(row), name);
+        if (have && total > 0 && !e.first_layer_only) {
+            char buf[64];
+            double min = stats[f].time_s / 60;
+            g_snprintf(buf, sizeof buf, "%.0f min · %.0f %%", min, 100 * stats[f].time_s / total);
+            GtkWidget *t = gtk_label_new(buf);
+            gtk_widget_add_css_class(t, "dim-label");
+            gtk_widget_add_css_class(t, "numeric");
+            gtk_box_append(GTK_BOX(row), t);
+        }
+        gtk_box_append(GTK_BOX(b->effect), row);
+        shown++;
+    }
+    if (shown == 0) {
+        GtkWidget *l = wrapped_label("This part has none of these lines now.");
+        gtk_widget_add_css_class(l, "dim-label");
+        gtk_box_append(GTK_BOX(b->effect), l);
+    } else {
+        GtkWidget *hint = wrapped_label("The preview shows these lines, and the other lines fade.");
+        gtk_widget_add_css_class(hint, "zg-note-plain");
+        gtk_box_append(GTK_BOX(b->effect), hint);
+    }
+}
+
+/* The default line and the reset button follow the value. */
+static void show_default(GtkWidget *box) {
+    const zs_setting_info *info = g_object_get_data(G_OBJECT(box), "zg-info");
+    ZgModel *model = g_object_get_data(G_OBJECT(box), "zg-model");
+    GtkWidget *label = g_object_get_data(G_OBJECT(box), "zg-label");
+    GtkWidget *reset = g_object_get_data(G_OBJECT(box), "zg-reset");
+    char *value = zg_model_get(model, info->name);
+    gboolean same = strcmp(value, info->default_value) == 0 ||
+                    (parses_as_number(value) && parses_as_number(info->default_value) &&
+                     g_ascii_strtod(value, NULL) == g_ascii_strtod(info->default_value, NULL));
+    char *def = value_with_unit(info, info->default_value);
+    char *text = g_strdup_printf(same ? "The default (%s)" : "Default: %s", def);
+    gtk_label_set_text(GTK_LABEL(label), text);
+    g_free(text);
+    g_free(def);
+    g_free(value);
+    /* The button keeps its space, so the help text does not move. */
+    gtk_widget_set_opacity(reset, same ? 0 : 1);
+    gtk_widget_set_sensitive(reset, !same);
+}
+
+static void on_default_setting_changed(ZgModel *model, const char *key, gpointer data) {
+    GtkWidget *box = data;
+    const zs_setting_info *info = g_object_get_data(G_OBJECT(box), "zg-info");
+    if (strcmp(key, info->name) == 0) show_default(box);
+}
+
+static void on_reset(GtkButton *button, gpointer data) {
+    GtkWidget *box = data;
+    const zs_setting_info *info = g_object_get_data(G_OBJECT(box), "zg-info");
+    ZgModel *model = g_object_get_data(G_OBJECT(box), "zg-model");
+    zg_model_set(model, info->name, info->default_value, NULL);
+}
+
+static void free_info(gpointer data) {
+    g_free(data);
+}
+
+static void show_detail(Browser *b, const char *key) {
+    GtkWidget *child;
+    while ((child = gtk_widget_get_first_child(b->detail))) gtk_box_remove(GTK_BOX(b->detail), child);
+    b->effect = NULL;
+    b->key = NULL;
+    zs_setting_info *info = g_new(zs_setting_info, 1);
+    if (!key || !find_setting(key, info)) {
+        g_free(info);
+        GtkWidget *hint = wrapped_label("Pick a setting to see what it does and which lines of the project it changes.");
+        gtk_widget_add_css_class(hint, "dim-label");
+        gtk_widget_set_margin_start(hint, 12);
+        gtk_widget_set_margin_end(hint, 12);
+        gtk_widget_set_margin_top(hint, 12);
+        gtk_box_append(GTK_BOX(b->detail), hint);
+        zg_model_set_focus(b->model, 0, FALSE);
+        return;
+    }
+    b->key = info->name;
+    GtkWidget *grid = new_grid();
+    int row = 0;
+    GtkWidget *title = add_heading(grid, &row, info->label);
+    gtk_widget_add_css_class(title, "title-4");
+    char *where = g_strdup_printf("%s › %s", group_title(info->group), info->section);
+    GtkWidget *path = wrapped_label(where);
+    g_free(where);
+    gtk_widget_add_css_class(path, "dim-label");
+    gtk_widget_add_css_class(path, "caption");
+    gtk_grid_attach(GTK_GRID(grid), path, 0, row++, 3, 1);
+    add_row(grid, &row, b->model, info, FALSE);
+
+    GtkWidget *def = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 6);
+    GtkWidget *def_label = gtk_label_new("");
+    gtk_widget_add_css_class(def_label, "dim-label");
+    gtk_label_set_xalign(GTK_LABEL(def_label), 0);
+    gtk_label_set_wrap(GTK_LABEL(def_label), TRUE);
+    gtk_widget_set_hexpand(def_label, TRUE);
+    GtkWidget *reset = gtk_button_new_with_label("Reset");
+    gtk_widget_add_css_class(reset, "flat");
+    gtk_widget_set_valign(reset, GTK_ALIGN_CENTER);
+    gtk_box_append(GTK_BOX(def), def_label);
+    gtk_box_append(GTK_BOX(def), reset);
+    g_object_set_data_full(G_OBJECT(def), "zg-info", info, free_info);
+    g_object_set_data(G_OBJECT(def), "zg-model", b->model);
+    g_object_set_data(G_OBJECT(def), "zg-label", def_label);
+    g_object_set_data(G_OBJECT(def), "zg-reset", reset);
+    g_signal_connect(reset, "clicked", G_CALLBACK(on_reset), def);
+    g_signal_connect_object(b->model, "setting-changed", G_CALLBACK(on_default_setting_changed), def, 0);
+    show_default(def);
+    gtk_grid_attach(GTK_GRID(grid), def, 0, row++, 3, 1);
+
+    GtkWidget *doc = wrapped_label(info->doc);
+    gtk_widget_set_margin_top(doc, 6);
+    gtk_grid_attach(GTK_GRID(grid), doc, 0, row++, 3, 1);
+
+    add_heading(grid, &row, "In your project");
+    b->effect = gtk_box_new(GTK_ORIENTATION_VERTICAL, 4);
+    gtk_grid_attach(GTK_GRID(grid), b->effect, 0, row++, 3, 1);
+    fill_effect(b);
+    gtk_box_append(GTK_BOX(b->detail), scrolled(grid));
+
+    zs_setting_effect e = {0};
+    zs_setting_get_effect(info->name, &e);
+    zg_model_set_focus(b->model, e.features, e.first_layer_only);
+}
+
+/* ---- column 2 ---- */
+
+static void on_row_value_changed(ZgModel *model, const char *key, gpointer data) {
+    GtkWidget *label = data;
+    const zs_setting_info *info = g_object_get_data(G_OBJECT(label), "zg-info");
+    if (strcmp(key, info->name) != 0) return;
+    char *value = zg_model_get(model, key);
+    char *text = value_with_unit(info, value);
+    gtk_label_set_text(GTK_LABEL(label), text);
+    g_free(text);
+    g_free(value);
+}
+
+static GtkWidget *setting_row(Browser *b, const zs_setting_info *src, gboolean with_section) {
+    zs_setting_info *info = g_new(zs_setting_info, 1);
+    *info = *src;
+    GtkWidget *box = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 8);
+    gtk_widget_set_margin_start(box, 10);
+    gtk_widget_set_margin_end(box, 10);
+    gtk_widget_set_margin_top(box, 6);
+    gtk_widget_set_margin_bottom(box, 6);
+    GtkWidget *names = gtk_box_new(GTK_ORIENTATION_VERTICAL, 0);
+    gtk_widget_set_hexpand(names, TRUE);
+    GtkWidget *name = gtk_label_new(info->label);
+    gtk_label_set_xalign(GTK_LABEL(name), 0);
+    gtk_label_set_ellipsize(GTK_LABEL(name), PANGO_ELLIPSIZE_END);
+    gtk_box_append(GTK_BOX(names), name);
+    if (with_section) {
+        char *where = g_strdup_printf("%s › %s", group_title(info->group), info->section);
+        GtkWidget *w = gtk_label_new(where);
+        g_free(where);
+        gtk_label_set_xalign(GTK_LABEL(w), 0);
+        gtk_label_set_ellipsize(GTK_LABEL(w), PANGO_ELLIPSIZE_END);
+        gtk_widget_add_css_class(w, "dim-label");
+        gtk_widget_add_css_class(w, "caption");
+        gtk_box_append(GTK_BOX(names), w);
+    }
+    char *value = zg_model_get(b->model, info->name);
+    char *text = value_with_unit(info, value);
+    GtkWidget *v = gtk_label_new(text);
+    g_free(text);
+    g_free(value);
+    gtk_label_set_ellipsize(GTK_LABEL(v), PANGO_ELLIPSIZE_END);
+    gtk_label_set_max_width_chars(GTK_LABEL(v), 12);
+    gtk_widget_add_css_class(v, "dim-label");
+    gtk_widget_add_css_class(v, "numeric");
+    g_object_set_data_full(G_OBJECT(v), "zg-info", info, free_info);
+    g_signal_connect_object(b->model, "setting-changed", G_CALLBACK(on_row_value_changed), v, 0);
+    gtk_box_append(GTK_BOX(box), names);
+    gtk_box_append(GTK_BOX(box), v);
+    gtk_widget_set_tooltip_text(box, info->doc);
+    GtkWidget *row = gtk_list_box_row_new();
+    gtk_list_box_row_set_child(GTK_LIST_BOX_ROW(row), box);
+    g_object_set_data(G_OBJECT(row), "zg-key", (gpointer)info->name);
+    return row;
+}
+
+static gboolean matches(const zs_setting_info *info, const char *needle) {
+    char *hay = g_utf8_strdown(info->label, -1);
+    gboolean hit = strstr(hay, needle) != NULL;
+    g_free(hay);
+    if (hit) return TRUE;
+    hay = g_utf8_strdown(info->doc, -1);
+    hit = strstr(hay, needle) != NULL;
+    g_free(hay);
+    return hit || strstr(info->name, needle) != NULL;
+}
+
+/* Fills column 2: the settings of a section, or the matches of a search. */
+static void fill_settings(Browser *b, const char *group, const char *section, const char *search) {
+    gtk_list_box_remove_all(GTK_LIST_BOX(b->settings));
+    char *needle = search && search[0] ? g_utf8_strdown(search, -1) : NULL;
+    size_t n = zs_setting_count();
+    for (size_t i = 0; i < n; i++) {
+        zs_setting_info info;
+        if (zs_setting_get_info(i, &info) != ZS_OK) continue;
+        if (needle ? !matches(&info, needle) : (g_strcmp0(info.group, group) != 0 || g_strcmp0(info.section, section) != 0)) continue;
+        GtkWidget *row = setting_row(b, &info, needle != NULL);
+        gtk_list_box_append(GTK_LIST_BOX(b->settings), row);
+        if (b->key && strcmp(b->key, info.name) == 0) gtk_list_box_select_row(GTK_LIST_BOX(b->settings), GTK_LIST_BOX_ROW(row));
+    }
+    g_free(needle);
+}
+
+static void on_setting_selected(GtkListBox *box, GtkListBoxRow *row, gpointer data) {
+    Browser *b = data;
+    if (!row) return;
+    const char *key = g_object_get_data(G_OBJECT(row), "zg-key");
+    if (b->key && key && strcmp(b->key, key) == 0) return;
+    show_detail(b, key);
+    scroll_to_end(b);
+}
+
+/* ---- column 1 ---- */
+
+static void on_section_selected(GtkListBox *box, GtkListBoxRow *row, gpointer data) {
+    Browser *b = data;
+    if (!row) return;
+    /* A section ends a search. */
+    if (gtk_editable_get_text(GTK_EDITABLE(b->search))[0]) {
+        g_object_set_data(G_OBJECT(b->search), "zg-quiet", GINT_TO_POINTER(1));
+        gtk_editable_set_text(GTK_EDITABLE(b->search), "");
+        g_object_set_data(G_OBJECT(b->search), "zg-quiet", NULL);
+    }
+    fill_settings(b, g_object_get_data(G_OBJECT(row), "zg-group"), g_object_get_data(G_OBJECT(row), "zg-section"), NULL);
+}
+
+static void on_search(GtkSearchEntry *entry, gpointer data) {
+    Browser *b = data;
+    if (g_object_get_data(G_OBJECT(entry), "zg-quiet")) return;
+    const char *text = gtk_editable_get_text(GTK_EDITABLE(entry));
+    if (text[0]) {
+        gtk_list_box_unselect_all(GTK_LIST_BOX(b->sections));
+        fill_settings(b, NULL, NULL, text);
+    } else {
+        GtkListBoxRow *first = gtk_list_box_get_row_at_index(GTK_LIST_BOX(b->sections), 0);
+        if (first) gtk_list_box_select_row(GTK_LIST_BOX(b->sections), first);
+    }
+}
+
+static void section_header(GtkListBoxRow *row, GtkListBoxRow *before, gpointer data) {
+    const char *group = g_object_get_data(G_OBJECT(row), "zg-group");
+    const char *prev = before ? g_object_get_data(G_OBJECT(before), "zg-group") : NULL;
+    if (prev && strcmp(prev, group) == 0) {
+        gtk_list_box_row_set_header(row, NULL);
+        return;
+    }
+    GtkWidget *h = gtk_label_new(group_title(group));
+    gtk_widget_add_css_class(h, "heading");
+    gtk_label_set_xalign(GTK_LABEL(h), 0);
+    gtk_widget_set_margin_start(h, 10);
+    gtk_widget_set_margin_top(h, before ? 14 : 6);
+    gtk_widget_set_margin_bottom(h, 4);
+    gtk_list_box_row_set_header(row, h);
+}
+
+static void add_sections(Browser *b) {
+    size_t n = zs_setting_count();
+    const char *last_group = NULL, *last_section = NULL;
+    for (size_t g = 0; g < G_N_ELEMENTS(pages); g++) {
+        for (size_t i = 0; i < n; i++) {
+            zs_setting_info info;
+            if (zs_setting_get_info(i, &info) != ZS_OK || strcmp(info.group, pages[g].group) != 0) continue;
+            if (last_group && strcmp(last_group, info.group) == 0 && g_strcmp0(last_section, info.section) == 0) continue;
+            last_group = info.group;
+            last_section = info.section;
+            GtkWidget *label = gtk_label_new(info.section[0] ? info.section : "General");
+            gtk_label_set_xalign(GTK_LABEL(label), 0);
+            gtk_label_set_ellipsize(GTK_LABEL(label), PANGO_ELLIPSIZE_END);
+            gtk_widget_set_margin_start(label, 18);
+            gtk_widget_set_margin_end(label, 10);
+            gtk_widget_set_margin_top(label, 5);
+            gtk_widget_set_margin_bottom(label, 5);
+            GtkWidget *row = gtk_list_box_row_new();
+            gtk_list_box_row_set_child(GTK_LIST_BOX_ROW(row), label);
+            g_object_set_data(G_OBJECT(row), "zg-group", (gpointer)info.group);
+            g_object_set_data(G_OBJECT(row), "zg-section", (gpointer)info.section);
+            gtk_list_box_append(GTK_LIST_BOX(b->sections), row);
+        }
+    }
+}
+
+/* Right moves to the next column, Left to the column before it. */
+static gboolean on_column_key(GtkEventControllerKey *ctrl, guint key, guint code, GdkModifierType mods, gpointer data) {
+    Browser *b = data;
+    GtkWidget *list = gtk_event_controller_get_widget(GTK_EVENT_CONTROLLER(ctrl));
+    if (key == GDK_KEY_Right && list == b->sections) {
+        GtkListBoxRow *row = gtk_list_box_get_selected_row(GTK_LIST_BOX(b->settings));
+        if (!row) row = gtk_list_box_get_row_at_index(GTK_LIST_BOX(b->settings), 0);
+        if (row) {
+            gtk_list_box_select_row(GTK_LIST_BOX(b->settings), row);
+            gtk_widget_grab_focus(GTK_WIDGET(row));
+        }
+        return TRUE;
+    }
+    if (key == GDK_KEY_Left && list == b->settings) {
+        GtkListBoxRow *row = gtk_list_box_get_selected_row(GTK_LIST_BOX(b->sections));
+        if (row) gtk_widget_grab_focus(GTK_WIDGET(row));
+        return TRUE;
+    }
+    return FALSE;
+}
+
+static GtkWidget *column(GtkWidget *child, int width) {
+    GtkWidget *scroll = scrolled(child);
+    gtk_widget_set_size_request(scroll, width, -1);
+    gtk_widget_set_hexpand(scroll, FALSE);
+    return scroll;
+}
+
+/* The focus of the previews is only for the Settings page. */
+static void on_page_changed(GObject *stack, GParamSpec *pspec, gpointer data) {
+    Browser *b = data;
+    gboolean visible = gtk_stack_get_visible_child(GTK_STACK(stack)) == b->page;
+    zs_setting_effect e = {0};
+    if (visible && b->key) zs_setting_get_effect(b->key, &e);
+    zg_model_set_focus(b->model, visible ? e.features : 0, e.first_layer_only);
+}
+
+/* A new slice: new times for the lines in column 3. */
+static void on_browser_core_event(ZgModel *model, int event, double progress, int status, gpointer data) {
+    Browser *b = data;
+    if (event == ZS_EVENT_SLICED) fill_effect(b);
+}
+
+static void browser_free(gpointer data) {
+    Browser *b = data;
+    g_signal_handlers_disconnect_by_data(b->model, b);
+    if (b->scroll_tick) gtk_widget_remove_tick_callback(b->hscroll, b->scroll_tick);
+    g_free(b);
+}
+
+/* Selects a setting: its section in column 1, and the setting in column 2. */
+static void select_setting(Browser *b, const char *key) {
+    zs_setting_info info;
+    if (!find_setting(key, &info)) return;
+    for (int i = 0;; i++) {
+        GtkListBoxRow *row = gtk_list_box_get_row_at_index(GTK_LIST_BOX(b->sections), i);
+        if (!row) return;
+        if (g_strcmp0(g_object_get_data(G_OBJECT(row), "zg-group"), info.group) == 0 &&
+            g_strcmp0(g_object_get_data(G_OBJECT(row), "zg-section"), info.section) == 0) {
+            gtk_list_box_select_row(GTK_LIST_BOX(b->sections), row);
+            break;
+        }
+    }
+    for (int i = 0;; i++) {
+        GtkListBoxRow *row = gtk_list_box_get_row_at_index(GTK_LIST_BOX(b->settings), i);
+        if (!row) return;
+        if (g_strcmp0(g_object_get_data(G_OBJECT(row), "zg-key"), key) == 0) {
+            gtk_list_box_select_row(GTK_LIST_BOX(b->settings), row);
+            return;
+        }
+    }
+}
+
+static GtkWidget *make_browser(ZgModel *model, GtkWidget *stack) {
+    Browser *b = g_new0(Browser, 1);
+    b->model = model;
+
+    b->search = gtk_search_entry_new();
+    gtk_search_entry_set_placeholder_text(GTK_SEARCH_ENTRY(b->search), "Search settings");
+    gtk_widget_set_margin_start(b->search, 8);
+    gtk_widget_set_margin_end(b->search, 8);
+    gtk_widget_set_margin_top(b->search, 4);
+    gtk_widget_set_margin_bottom(b->search, 4);
+    g_signal_connect(b->search, "search-changed", G_CALLBACK(on_search), b);
+
+    b->sections = gtk_list_box_new();
+    gtk_widget_add_css_class(b->sections, "navigation-sidebar");
+    gtk_list_box_set_header_func(GTK_LIST_BOX(b->sections), section_header, NULL, NULL);
+    add_sections(b);
+    b->settings = gtk_list_box_new();
+    gtk_widget_add_css_class(b->settings, "navigation-sidebar");
+    b->detail = gtk_box_new(GTK_ORIENTATION_VERTICAL, 0);
+    gtk_widget_set_vexpand(b->detail, TRUE);
+
+    for (int i = 0; i < 2; i++) {
+        GtkEventController *keys = gtk_event_controller_key_new();
+        g_signal_connect(keys, "key-pressed", G_CALLBACK(on_column_key), b);
+        gtk_widget_add_controller(i == 0 ? b->sections : b->settings, keys);
+    }
+    g_signal_connect(b->sections, "row-selected", G_CALLBACK(on_section_selected), b);
+    g_signal_connect(b->settings, "row-selected", G_CALLBACK(on_setting_selected), b);
+
+    GtkWidget *col1 = gtk_box_new(GTK_ORIENTATION_VERTICAL, 0);
+    gtk_box_append(GTK_BOX(col1), b->search);
+    gtk_box_append(GTK_BOX(col1), column(b->sections, COL1_WIDTH));
+    GtkWidget *cols = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 0);
+    gtk_box_append(GTK_BOX(cols), col1);
+    gtk_box_append(GTK_BOX(cols), gtk_separator_new(GTK_ORIENTATION_VERTICAL));
+    gtk_box_append(GTK_BOX(cols), column(b->settings, COL2_WIDTH));
+    gtk_box_append(GTK_BOX(cols), gtk_separator_new(GTK_ORIENTATION_VERTICAL));
+    GtkWidget *col3 = b->detail;
+    gtk_widget_set_size_request(col3, COL3_WIDTH, -1);
+    gtk_widget_set_hexpand(col3, TRUE);
+    gtk_box_append(GTK_BOX(cols), col3);
+
+    b->hscroll = gtk_scrolled_window_new();
+    gtk_scrolled_window_set_policy(GTK_SCROLLED_WINDOW(b->hscroll), GTK_POLICY_AUTOMATIC, GTK_POLICY_NEVER);
+    gtk_scrolled_window_set_child(GTK_SCROLLED_WINDOW(b->hscroll), cols);
+    gtk_widget_set_vexpand(b->hscroll, TRUE);
+    b->page = b->hscroll;
+    g_object_set_data_full(G_OBJECT(b->hscroll), "zg-browser", b, browser_free);
+
+    show_detail(b, NULL);
+    GtkListBoxRow *first = gtk_list_box_get_row_at_index(GTK_LIST_BOX(b->sections), 0);
+    if (first) gtk_list_box_select_row(GTK_LIST_BOX(b->sections), first);
+    g_signal_connect(stack, "notify::visible-child", G_CALLBACK(on_page_changed), b);
+    g_signal_connect(model, "core-event", G_CALLBACK(on_browser_core_event), b);
+    /* For development and screenshots: ZSLICE_SETTING=project.layer_height
+     * opens the browser at that setting. */
+    const char *start = g_getenv("ZSLICE_SETTING");
+    if (start) {
+        select_setting(b, start);
+        scroll_to_end(b);
+        g_object_set_data(G_OBJECT(b->hscroll), "zg-open", GINT_TO_POINTER(1));
+    }
+    return b->hscroll;
+}
+
 GtkWidget *zg_settings_panel_new(ZgModel *model) {
     GtkWidget *stack = gtk_stack_new();
     gtk_stack_set_transition_type(GTK_STACK(stack), GTK_STACK_TRANSITION_TYPE_CROSSFADE);
@@ -661,9 +1193,9 @@ GtkWidget *zg_settings_panel_new(ZgModel *model) {
     g_signal_connect(model, "picked", G_CALLBACK(on_picked), ins);
     g_signal_connect(model, "core-event", G_CALLBACK(on_core_event), ins);
     gtk_stack_add_titled(GTK_STACK(stack), ins->slots, "selected", "Selected");
-    for (size_t i = 0; i < G_N_ELEMENTS(pages); i++) {
-        gtk_stack_add_titled(GTK_STACK(stack), make_page(model, pages[i].group), pages[i].group, pages[i].title);
-    }
+    GtkWidget *browser = make_browser(model, stack);
+    gtk_stack_add_titled(GTK_STACK(stack), browser, "settings", "Settings");
+    if (g_object_get_data(G_OBJECT(browser), "zg-open")) gtk_stack_set_visible_child(GTK_STACK(stack), browser);
     GtkWidget *switcher = gtk_stack_switcher_new();
     gtk_stack_switcher_set_stack(GTK_STACK_SWITCHER(switcher), GTK_STACK(stack));
     gtk_widget_set_halign(switcher, GTK_ALIGN_CENTER);

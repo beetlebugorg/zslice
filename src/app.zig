@@ -326,6 +326,29 @@ pub const App = struct {
         return &app.toolpaths;
     }
 
+    /// The time, length, and plastic of each feature in the last slice.
+    pub fn featureStats(app: *const App) ?[feature_names.len]FeatureStats {
+        const t = app.allToolpaths() orelse return null;
+        var out: [feature_names.len]FeatureStats = @splat(.{});
+        const pts = t.points.items;
+        for (t.path_features.items, 0..) |f, p| {
+            const start: usize = if (p == 0) 0 else t.path_ends.items[p - 1];
+            const end: usize = t.path_ends.items[p];
+            var len: f64 = 0;
+            var k = start;
+            while (k + 1 < end) : (k += 1) len += std.math.hypot(@as(f64, pts[2 * k + 2] - pts[2 * k]), @as(f64, pts[2 * k + 3] - pts[2 * k + 1]));
+            if (t.path_closed.items[p] != 0 and end - start > 2) {
+                len += std.math.hypot(@as(f64, pts[2 * start] - pts[2 * (end - 1)]), @as(f64, pts[2 * start + 1] - pts[2 * (end - 1) + 1]));
+            }
+            const s = &out[f];
+            s.time += t.path_end_time.items[p] - t.path_start_time.items[p];
+            s.length += len;
+            s.volume += len * t.path_area.items[p];
+            s.paths += 1;
+        }
+        return out;
+    }
+
     /// The layer of a path of the toolpaths.
     pub fn layerOfPath(app: *const App, path: usize) ?usize {
         const t = app.allToolpaths() orelse return null;
@@ -520,6 +543,74 @@ const first_layer_settings = [_][]const u8{ "project.first_layer_height", "proje
 /// The settings that slow a layer down to cool it.
 const cooling_speed_settings = [_][]const u8{ "filament.min_layer_time", "filament.min_speed" };
 const material_settings = [_][]const u8{ "filament.flow_ratio", "filament.nozzle_temp", "filament.fan_speed" };
+
+/// Settings that change every line: the bead size, the flow, the speed
+/// limits, the cooling, and the place and size of the part.
+const all_lines_settings = [_][]const u8{
+    "project.layer_height",     "project.line_width",      "filament.flow_ratio",
+    "filament.max_flow",        "machine.max_speed",       "machine.nozzle_diameter",
+    "filament.min_layer_time",  "filament.min_speed",      "filament.shrinkage_xy",
+    "filament.shrinkage_z",     "filament.xy_offset",      "project.placement",
+    "engine.resolution",        "engine.gap_closing",
+};
+
+/// What a setting changes in the toolpaths.
+pub const SettingEffect = struct {
+    /// A bit for each feature (1 << Feature) whose lines the setting
+    /// changes. 0: the setting changes no line, only the G-code (for
+    /// example temperatures, retraction, start code) or nothing visible.
+    features: u32 = 0,
+    /// The setting changes only the lines of the first layer.
+    first_layer_only: bool = false,
+};
+
+/// The lines that a setting changes. It uses the same tables as the
+/// inspector, so a click on a line and a look at a setting agree.
+pub fn settingEffect(name: []const u8) SettingEffect {
+    const all: u32 = (1 << feature_names.len) - 1;
+    const no_ironing = all & ~@as(u32, 1 << @intFromEnum(zs.settings.Feature.ironing));
+    var e: SettingEffect = .{};
+    for (all_lines_settings) |n| if (std.mem.eql(u8, n, name)) {
+        e.features = all;
+    };
+    // The flow limit does not apply to ironing.
+    if (std.mem.eql(u8, name, "filament.max_flow")) e.features = no_ironing;
+    for (feature_settings, 0..) |list, i| for (list) |n| {
+        if (std.mem.eql(u8, n, name)) e.features |= @as(u32, 1) << @intCast(i);
+    };
+    for (0..feature_names.len) |i| {
+        if (std.mem.eql(u8, speedRatioSetting(@enumFromInt(i), false), name)) e.features |= @as(u32, 1) << @intCast(i);
+    }
+    if (e.features != 0) return e;
+    for (first_layer_settings) |n| if (std.mem.eql(u8, n, name)) return .{ .features = all, .first_layer_only = true };
+    if (std.mem.eql(u8, name, "project.first_layer_speed")) return .{ .features = no_ironing, .first_layer_only = true };
+    return e;
+}
+
+test "setting effects" {
+    const bit = struct {
+        fn f(x: zs.settings.Feature) u32 {
+            return @as(u32, 1) << @intCast(@intFromEnum(x));
+        }
+    }.f;
+    try testing.expectEqual(bit(.outer_wall), settingEffect("project.outer_wall_speed").features);
+    // The skirt uses the inner wall speed.
+    try testing.expectEqual(bit(.inner_wall) | bit(.skirt), settingEffect("project.inner_wall_speed").features);
+    try testing.expect(settingEffect("project.first_layer_height").first_layer_only);
+    try testing.expectEqual(@as(u32, 0xff), settingEffect("project.layer_height").features);
+    // A temperature changes no line.
+    try testing.expectEqual(@as(u32, 0), settingEffect("filament.bed_temp").features);
+    try testing.expectEqual(bit(.ironing), settingEffect("project.ironing_spacing").features & bit(.ironing));
+}
+
+/// The print time, the length, and the plastic of the lines of one
+/// feature.
+pub const FeatureStats = struct {
+    time: f64 = 0,
+    length: f64 = 0,
+    volume: f64 = 0,
+    paths: usize = 0,
+};
 
 /// The speed ratio that a line of `feature` uses (see Resolved.speed).
 fn speedRatioSetting(feature: zs.settings.Feature, first_layer: bool) []const u8 {
@@ -738,6 +829,8 @@ pub const SettingInfo = struct {
     /// "%" marks a ratio: the value 0.5 is 50 %, and a UI shows the value
     /// times 100. Empty for the other kinds.
     unit: [:0]const u8 = "",
+    /// The built-in default value, as text (as `getSetting` writes it).
+    default_value: [:0]const u8 = "",
     /// For text: true if the value can have more than one line.
     multiline: bool,
 };
@@ -772,6 +865,7 @@ pub const settings_info: []const SettingInfo = blk: {
                 .choices = std.fmt.comptimePrint("{s}", .{choices}),
                 .multiline = std.mem.endsWith(u8, f.name, "gcode"),
                 .unit = unitOf(name),
+                .default_value = defaultText(g.type, f.name),
             }};
         }
     }
@@ -820,6 +914,18 @@ const units = [_][2][]const u8{
     .{ "engine.resolution", "mm" },            .{ "engine.gap_closing", "mm" },
     .{ "engine.threads", "threads" },
 };
+
+/// The default of field `name` of the settings group T, as text.
+fn defaultText(comptime T: type, comptime name: []const u8) [:0]const u8 {
+    const d = @field(@as(T, .{}), name);
+    return switch (@typeInfo(@TypeOf(d))) {
+        .float, .int => std.fmt.comptimePrint("{d}", .{d}),
+        .bool => if (d) "true" else "false",
+        .@"enum" => std.fmt.comptimePrint("{s}", .{@tagName(d)}),
+        .pointer => std.fmt.comptimePrint("{s}", .{d}),
+        else => "",
+    };
+}
 
 fn unitOf(comptime name: []const u8) [:0]const u8 {
     @setEvalBranchQuota(100_000);

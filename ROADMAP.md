@@ -94,7 +94,10 @@ The goal is the features that people use in PrusaSlicer and Cura. zslice designs
 - [x] Replay: play the print in the 3D view, line by line, at 1x, 2x, 3x, 10x, 30x, 100x, from the move times of the G-code
 - [x] Live settings: a value goes to the core after a pause in the typing; Up, Down, and a drag on the label step it; units on each value, ratios as percentages; all editors of a setting stay in sync
 - [x] A stable UI during a new slice: the inspector updates in place, the tab stays, the status bar keeps its size and dims the old numbers
-- [ ] Settings browser in columns: sections, then settings, then the help and the lines of the project that the setting changes, highlighted in the preview
+- [x] Settings browser in columns: sections, then settings, then the help and the lines of the project that the setting changes, highlighted in the preview, with their share of the print time; search; defaults with reset
+- [ ] Realtime sliders: drag a value (infill density, speeds) and see the slice change as fast as the slicer can go
+- [ ] Top and bottom skin patterns: monotonic, concentric, lines (now: lines in nearest order)
+- [ ] Preview color modes: feature, speed, flow, layer time, line width, layer height, filament color
 - [ ] Ironing in the preview: the ironed top skin looks flat; the inspector shows what ironing costs in time
 - [ ] Plate: more than one part, move and rotate parts, a best placement that orients each part for less support and packs the parts to use the bed
 - [ ] Printers: a shared place for printers and their connections (printdeck remote, OctoPrint, Moonraker), and print monitoring
