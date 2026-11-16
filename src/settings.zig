@@ -653,6 +653,79 @@ test "set fields by dotted name" {
     try testing.expectError(error.InvalidValue, s.set("project.wall_count", "two"));
 }
 
+test "set: the text forms of each kind, and a bad value keeps the old one" {
+    var s: Settings = .{};
+    // Spaces around a value do not count.
+    try s.set("project.layer_height", " 0.16 ");
+    try testing.expectEqual(@as(f64, 0.16), s.project.layer_height);
+    // A boolean is true, false, 1, or 0.
+    try s.set("project.ironing", "1");
+    try testing.expect(s.project.ironing);
+    try s.set("project.ironing", "false");
+    try testing.expect(!s.project.ironing);
+    try testing.expectError(error.InvalidValue, s.set("project.ironing", "yes"));
+    try testing.expect(!s.project.ironing);
+    // An enum takes only the name of a value.
+    try testing.expectError(error.InvalidValue, s.set("project.infill_pattern", "Grid"));
+    try testing.expectEqual(InfillPattern.grid, s.project.infill_pattern);
+    // A number out of its limits, or not a number, keeps the old value.
+    try testing.expectError(error.OutOfRange, s.set("project.layer_height", "-0.2"));
+    try testing.expectError(error.OutOfRange, s.set("project.layer_height", "nan"));
+    try testing.expectError(error.InvalidValue, s.set("project.layer_height", "0.2mm"));
+    try testing.expectEqual(@as(f64, 0.16), s.project.layer_height);
+    // An integer takes no fraction.
+    try testing.expectError(error.InvalidValue, s.set("project.wall_count", "2.5"));
+    try testing.expectEqual(@as(u32, 2), s.project.wall_count);
+    // A string is not copied: the settings keep the slice of the caller.
+    const name = "PLA from the shop";
+    try s.set("filament.name", name);
+    try testing.expectEqual(@as([*]const u8, name.ptr), s.filament.name.ptr);
+}
+
+test "resolve: values that do not go together are an error" {
+    const bad = [_][2][]const u8{
+        // A layer higher than the line is wide.
+        .{ "project.layer_height", "0.5" },
+        // A speed ratio of 0.
+        .{ "project.skin_speed", "0" },
+        // Shrinkage that makes the part half its size.
+        .{ "filament.shrinkage_xy", "0.4" },
+    };
+    for (bad) |b| {
+        var s: Settings = .{};
+        s.set(b[0], b[1]) catch |e| {
+            // The limits stop some values before resolve: that is also an
+            // error for the user.
+            try testing.expect(e == error.OutOfRange);
+            continue;
+        };
+        try testing.expectError(error.InvalidValue, s.resolve());
+    }
+    // Ironing needs a speed and a spacing.
+    var s: Settings = .{};
+    s.project.ironing = true;
+    s.project.ironing_spacing = 0;
+    try testing.expectError(error.InvalidValue, s.resolve());
+    // Support needs an overhang angle between 0 and 90 degrees.
+    s = .{};
+    s.project.support = .everywhere;
+    s.project.support_angle = 90;
+    try testing.expectError(error.InvalidValue, s.resolve());
+    // The same angle is fine with no support.
+    s.project.support = .off;
+    _ = try s.resolve();
+}
+
+test "resolve: a wall thickness sets the wall count" {
+    var s: Settings = .{};
+    s.project.wall_thickness = 1.3;
+    // 1.3 mm of walls at the 0.44 mm line width: 3 walls.
+    try testing.expectEqual(@as(u32, 3), (try s.resolve()).settings.project.wall_count);
+    // A thin wall still has one line.
+    s.project.wall_thickness = 0.1;
+    try testing.expectEqual(@as(u32, 1), (try s.resolve()).settings.project.wall_count);
+}
+
 test "resolve derives layers and speeds" {
     var s: Settings = .{};
     s.project.layer_height = 0.2;
