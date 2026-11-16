@@ -82,7 +82,8 @@ pub fn boolean(gpa: Allocator, subject: Paths, clip: Paths, op: Op, rule: FillRu
     // is rounded to the grid, and the rounded point can make a new crossing.
     // So the code repeats the steps on the result until a pass finds no
     // split points ("iterated snap rounding"). Most inputs need one or two
-    // passes.
+    // passes. A later pass only tests the pairs with a new edge: two edges
+    // that did not change were tested in the pass before.
     var cur: []InEdge = edges.items;
     var merged: []Merged = &.{};
     var pass: usize = 0;
@@ -92,7 +93,7 @@ pub fn boolean(gpa: Allocator, subject: Paths, clip: Paths, op: Op, rule: FillRu
         merged = try splitAndMerge(arena, cur, splits.items);
         if (splits.items.len == 0 or pass == max_passes) break;
         cur = try arena.alloc(InEdge, merged.len);
-        for (merged, cur) |m, *e| e.* = .{ .a = m.lo, .b = m.hi, .d = m.d };
+        for (merged, cur) |m, *e| e.* = .{ .a = m.lo, .b = m.hi, .d = m.d, .fresh = m.fresh };
     }
     if (merged.len == 0) return .empty;
 
@@ -151,6 +152,10 @@ const InEdge = struct {
     a: Point,
     b: Point,
     d: [2]i32,
+    /// False if the edge is the same as in the pass before (no split
+    /// point). Two such edges were tested in that pass and do not cross,
+    /// so the next pass does not test them again.
+    fresh: bool = true,
 
     fn minX(e: InEdge) i64 {
         return @min(e.a.x, e.b.x);
@@ -204,28 +209,67 @@ fn findIntersections(arena: Allocator, edges: []const InEdge, splits: *std.Array
     // about 4096 cells on a side.
     const cell = @max(total / @as(f64, @floatFromInt(edges.len)), span / 4096.0, 1.0);
 
+    // The number of cells on each side. The walk can add a cell one step
+    // past the box (at a corner), so each side gets 2 more.
+    const grid: Grid = .{
+        .origin = box.min,
+        .cell = cell,
+        .rows = @as(u32, @intFromFloat(@floor(@as(f64, @floatFromInt(box.max.y - box.min.y)) / cell))) + 2,
+        .cols = @as(u32, @intFromFloat(@floor(@as(f64, @floatFromInt(box.max.x - box.min.x)) / cell))) + 2,
+    };
+
     var entries: std.ArrayList(CellEntry) = .empty;
     try entries.ensureTotalCapacity(arena, edges.len * 2);
-    for (edges, 0..) |e, i| try walkCells(arena, &entries, e.a, e.b, box.min, cell, @intCast(i));
-
-    std.mem.sortUnstable(CellEntry, entries.items, {}, struct {
-        fn lt(_: void, x: CellEntry, y: CellEntry) bool {
-            if (x.cell != y.cell) return x.cell < y.cell;
-            return x.edge < y.edge;
+    var all_fresh = true;
+    for (edges) |e| all_fresh = all_fresh and e.fresh;
+    if (all_fresh) {
+        for (edges, 0..) |e, i| try walkCells(arena, &entries, e.a, e.b, grid, @intCast(i));
+    } else {
+        // A later pass: only pairs with a fresh edge can cross. So the grid
+        // gets the cells of the fresh edges, and the other edges only in
+        // those cells.
+        var marked = try std.DynamicBitSetUnmanaged.initEmpty(arena, grid.rows * grid.cols);
+        for (edges, 0..) |e, i| {
+            if (!e.fresh) continue;
+            const start = entries.items.len;
+            try walkCells(arena, &entries, e.a, e.b, grid, @intCast(i));
+            for (entries.items[start..]) |c| marked.set(c.cell);
         }
-    }.lt);
+        if (entries.items.len == 0) return;
+        // The order of the entries in a cell does not change the result
+        // (see splitAndMerge), so the other edges can come after them.
+        for (edges, 0..) |e, i| {
+            if (e.fresh) continue;
+            const start = entries.items.len;
+            try walkCells(arena, &entries, e.a, e.b, grid, @intCast(i));
+            var keep = start;
+            for (entries.items[start..]) |c| {
+                if (!marked.isSet(c.cell)) continue;
+                entries.items[keep] = c;
+                keep += 1;
+            }
+            entries.shrinkRetainingCapacity(keep);
+        }
+    }
+
+    // Sort by cell. The radix sort keeps the order of the entries in each
+    // cell.
+    try radixSortByCell(arena, entries.items, grid.rows * grid.cols);
 
     var i: usize = 0;
     const items = entries.items;
     while (i < items.len) {
         var j = i + 1;
         while (j < items.len and items[j].cell == items[i].cell) : (j += 1) {}
-        // The edges in this cell: items[i..j], sorted by edge index.
+        // The edges in this cell: items[i..j]. The entries of one edge are
+        // next to each other. In a later pass, the fresh edges come first.
         var x = i;
         while (x < j) : (x += 1) {
             if (x > i and items[x].edge == items[x - 1].edge) continue;
             const ei = items[x].edge;
             const e = edges[ei];
+            // The rest are old edges, and two old edges do not cross.
+            if (!e.fresh) break;
             var y = x + 1;
             while (y < j) : (y += 1) {
                 if (items[y].edge == items[y - 1].edge) continue;
@@ -233,17 +277,61 @@ fn findIntersections(arena: Allocator, edges: []const InEdge, splits: *std.Array
                 const f = edges[fi];
                 if (@max(f.a.x, f.b.x) < e.minX() or @min(f.a.x, f.b.x) > e.maxX()) continue;
                 if (@max(f.a.y, f.b.y) < @min(e.a.y, e.b.y) or @min(f.a.y, f.b.y) > @max(e.a.y, e.b.y)) continue;
-                try intersectPair(arena, splits, ei, e, fi, f);
+                // The crossing point is rounded along the first edge, so
+                // the edge with the lower index always goes first.
+                if (ei < fi) {
+                    try intersectPair(arena, splits, ei, e, fi, f);
+                } else {
+                    try intersectPair(arena, splits, fi, f, ei, e);
+                }
             }
         }
         i = j;
     }
 }
 
-const CellEntry = struct { cell: u64, edge: u32 };
+const CellEntry = struct { cell: u32, edge: u32 };
 
-fn cellKey(cx: i64, cy: i64) u64 {
-    return (@as(u64, @as(u32, @intCast(cx))) << 32) | @as(u32, @intCast(cy));
+const Grid = struct {
+    origin: Point,
+    cell: f64,
+    rows: u32,
+    cols: u32,
+
+    /// The index of a cell: column major, so the order is by x, then y.
+    fn key(g: Grid, cx: i64, cy: i64) u32 {
+        return @as(u32, @intCast(cx)) * g.rows + @as(u32, @intCast(cy));
+    }
+};
+
+/// Sorts the entries by cell, and keeps the order of entries in the same
+/// cell. The method is a least significant digit radix sort: one stable
+/// counting sort for each 11 bits of the cell index, from the low bits to
+/// the high bits. It costs O(n) for each digit, and a cell index has at
+/// most 3 digits.
+fn radixSortByCell(arena: Allocator, items: []CellEntry, cell_count: u32) !void {
+    if (items.len < 2) return;
+    const bits = 11;
+    const radix = 1 << bits;
+    var src = items;
+    var dst = try arena.alloc(CellEntry, items.len);
+    var shift: u5 = 0;
+    var passes: usize = 0;
+    while (true) {
+        var count: [radix + 1]u32 = @splat(0);
+        for (src) |e| count[((e.cell >> shift) & (radix - 1)) + 1] += 1;
+        for (1..radix + 1) |k| count[k] += count[k - 1];
+        for (src) |e| {
+            const d = (e.cell >> shift) & (radix - 1);
+            dst[count[d]] = e;
+            count[d] += 1;
+        }
+        std.mem.swap([]CellEntry, &src, &dst);
+        passes += 1;
+        if (shift + bits >= 32 or (cell_count - 1) >> (shift + bits) == 0) break;
+        shift += bits;
+    }
+    if (src.ptr != items.ptr) @memcpy(items, src);
 }
 
 /// Adds the cells that the segment from a to b passes through (the
@@ -251,7 +339,9 @@ fn cellKey(cx: i64, cy: i64) u64 {
 /// both side cells are added too, so that a rounding error cannot skip a
 /// cell. Cell coordinates are relative to `origin`, so they are not
 /// negative.
-fn walkCells(arena: Allocator, out: *std.ArrayList(CellEntry), a: Point, b: Point, origin: Point, cell: f64, edge: u32) !void {
+fn walkCells(arena: Allocator, out: *std.ArrayList(CellEntry), a: Point, b: Point, g: Grid, edge: u32) !void {
+    const origin = g.origin;
+    const cell = g.cell;
     const ax = @as(f64, @floatFromInt(a.x - origin.x)) / cell;
     const ay = @as(f64, @floatFromInt(a.y - origin.y)) / cell;
     const bx = @as(f64, @floatFromInt(b.x - origin.x)) / cell;
@@ -260,7 +350,7 @@ fn walkCells(arena: Allocator, out: *std.ArrayList(CellEntry), a: Point, b: Poin
     var cy: i64 = @intFromFloat(@floor(ay));
     const ex: i64 = @intFromFloat(@floor(bx));
     const ey: i64 = @intFromFloat(@floor(by));
-    try out.append(arena, .{ .cell = cellKey(cx, cy), .edge = edge });
+    try out.append(arena, .{ .cell = g.key(cx, cy), .edge = edge });
     if (cx == ex and cy == ey) return;
 
     const dx = bx - ax;
@@ -282,8 +372,8 @@ fn walkCells(arena: Allocator, out: *std.ArrayList(CellEntry), a: Point, b: Poin
         if (corner) {
             // Through a corner: add both side cells. A side cell outside the
             // grid (a negative coordinate) has no edges, so it is skipped.
-            if (cx + sx >= 0) try out.append(arena, .{ .cell = cellKey(cx + sx, cy), .edge = edge });
-            if (cy + sy >= 0) try out.append(arena, .{ .cell = cellKey(cx, cy + sy), .edge = edge });
+            if (cx + sx >= 0) try out.append(arena, .{ .cell = g.key(cx + sx, cy), .edge = edge });
+            if (cy + sy >= 0) try out.append(arena, .{ .cell = g.key(cx, cy + sy), .edge = edge });
             cx += sx;
             cy += sy;
             t_max_x += t_dx;
@@ -296,7 +386,7 @@ fn walkCells(arena: Allocator, out: *std.ArrayList(CellEntry), a: Point, b: Poin
             t_max_y += t_dy;
         }
         if (cx < 0 or cy < 0) break;
-        try out.append(arena, .{ .cell = cellKey(cx, cy), .edge = edge });
+        try out.append(arena, .{ .cell = g.key(cx, cy), .edge = edge });
     }
 }
 
@@ -365,6 +455,8 @@ const Merged = struct {
     hi: Point,
     d: [2]i32,
     left: [2]i32 = .{ 0, 0 },
+    /// True if the edge comes from a split (see InEdge.fresh).
+    fresh: bool = false,
 };
 
 fn splitAndMerge(arena: Allocator, edges: []const InEdge, splits: []Split) ![]Merged {
@@ -373,7 +465,13 @@ fn splitAndMerge(arena: Allocator, edges: []const InEdge, splits: []Split) ![]Me
         fn lt(es: []const InEdge, a: Split, b: Split) bool {
             if (a.edge != b.edge) return a.edge < b.edge;
             const e = es[a.edge];
-            return dot3(e.a, e.b, a.p) < dot3(e.a, e.b, b.p);
+            const da = dot3(e.a, e.b, a.p);
+            const db = dot3(e.a, e.b, b.p);
+            if (da != db) return da < db;
+            // A rounded crossing point can be off the line, so two points
+            // can have the same place along the edge. The point order
+            // makes the result the same for each input order.
+            return a.p.lessThan(b.p);
         }
     }.lt);
 
@@ -382,11 +480,12 @@ fn splitAndMerge(arena: Allocator, edges: []const InEdge, splits: []Split) ![]Me
     var k: usize = 0;
     for (edges, 0..) |e, i| {
         var prev = e.a;
+        const split = k < splits.len and splits[k].edge == i;
         while (k < splits.len and splits[k].edge == i) : (k += 1) {
-            try addSub(arena, &subs, prev, splits[k].p, e.d);
+            try addSub(arena, &subs, prev, splits[k].p, e.d, true);
             prev = splits[k].p;
         }
-        try addSub(arena, &subs, prev, e.b, e.d);
+        try addSub(arena, &subs, prev, e.b, e.d, split);
     }
 
     // Sort by end points, then add up the deltas of equal edges.
@@ -405,6 +504,7 @@ fn splitAndMerge(arena: Allocator, edges: []const InEdge, splits: []Split) ![]Me
         while (j < items.len and items[j].lo.eql(m.lo) and items[j].hi.eql(m.hi)) : (j += 1) {
             m.d[0] += items[j].d[0];
             m.d[1] += items[j].d[1];
+            m.fresh = m.fresh or items[j].fresh;
         }
         if (m.d[0] != 0 or m.d[1] != 0) {
             items[out] = m;
@@ -415,12 +515,12 @@ fn splitAndMerge(arena: Allocator, edges: []const InEdge, splits: []Split) ![]Me
     return items[0..out];
 }
 
-fn addSub(arena: Allocator, subs: *std.ArrayList(Merged), a: Point, b: Point, d: [2]i32) !void {
+fn addSub(arena: Allocator, subs: *std.ArrayList(Merged), a: Point, b: Point, d: [2]i32, fresh: bool) !void {
     if (a.eql(b)) return;
     const m: Merged = if (a.lessThan(b))
-        .{ .lo = a, .hi = b, .d = d }
+        .{ .lo = a, .hi = b, .d = d, .fresh = fresh }
     else
-        .{ .lo = b, .hi = a, .d = .{ -d[0], -d[1] } };
+        .{ .lo = b, .hi = a, .d = .{ -d[0], -d[1] }, .fresh = fresh };
     try subs.append(arena, m);
 }
 
