@@ -7,9 +7,11 @@
 //!    the area inside the walls.
 //! 3. Skin. A part of the inner area is skin (solid fill) if it is near a
 //!    top or bottom surface. A point is "supported" if it is inside the
-//!    outlines of the next `top_layers` layers above and the next
-//!    `bottom_layers` layers below. Skin is the inner area minus the
-//!    supported area. Skin thinner than half a line width is removed.
+//!    outlines of the layers above that make the top thickness, and of
+//!    the layers below that make the bottom thickness (see `layersFor`:
+//!    the counts come from the heights of the layers). Skin is the inner
+//!    area minus the supported area. Skin thinner than half a line width
+//!    is removed.
 //!
 //!    The code does not intersect the outlines above and below for each
 //!    layer. It uses the top surface of each layer j (outline j minus
