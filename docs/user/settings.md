@@ -166,6 +166,24 @@ The lowest print speed (mm/s) for the slow-down of `min_layer_time`.
 
 A lower nozzle temperature for waits, for example while the printer probes the bed. The start G-code can use it as {standby_temp}. 0 is off.
 
+### Size compensation
+
+**`filament.shrinkage_xy`** (number). Default: `1`
+
+The part is printed larger by this ratio in X and Y, because the plastic shrinks as it cools. Example: 1.003 for 0.3 % shrinkage.
+
+**`filament.shrinkage_z`** (number). Default: `1`
+
+The part is printed taller by this ratio, for shrinkage in Z.
+
+**`filament.xy_offset`** (number). Default: `0`
+
+Moves all outlines out by this distance (in if negative). Use it if parts come out too large or too small by a fixed amount.
+
+**`filament.hole_xy_offset`** (number). Default: `0`
+
+Moves the edges of holes by this distance. A positive value makes holes larger. It adds to `xy_offset`, which makes holes smaller when it is positive. Holes often come out too small.
+
 ### Retraction
 
 **`filament.retract_ratio`** (number). Default: `1.0`
@@ -339,6 +357,12 @@ The number of layers with a skirt.
 **`project.brim_width`** (number). Default: `0`
 
 The width of the brim. A brim is loops on the first layer around the outside of the part, joined to it. It holds the part on the bed, and helps against warping. 0 turns it off.
+
+### First layer
+
+**`project.first_layer_xy_offset`** (number). Default: `0`
+
+Moves the outline of the first layer by this distance. A negative value compensates the "elephant foot": the first layer spreads out because the nozzle presses it on the bed.
 
 ### Placement
 

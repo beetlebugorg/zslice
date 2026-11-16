@@ -29,6 +29,8 @@ const layer_mod = @import("layer.zig");
 const gcode = @import("gcode.zig");
 const parallel = @import("parallel.zig");
 const support_mod = @import("support.zig");
+const clip = @import("clip.zig");
+const offset_mod = @import("offset.zig");
 const Mesh = mesh_mod.Mesh;
 const Paths = geom.Paths;
 const Settings = settings_mod.Settings;
@@ -126,7 +128,8 @@ pub const Job = struct {
         // Step 2.
         if (mesh.faces.items.len == 0) return error.EmptyMesh;
         const b = mesh.bounds();
-        const height = b.max[2] - b.min[2];
+        const f = settings.filament;
+        const height = (b.max[2] - b.min[2]) * f.shrinkage_z;
         if (!(height > 0)) return error.EmptyMesh;
         const m = settings.machine;
         if (height > m.max_height) return error.PartTooLarge;
@@ -139,6 +142,9 @@ pub const Job = struct {
 
         // Step 3.
         const layers = try slicer.layerTable(gpa, height, settings.project.first_layer_height, settings.project.layer_height);
+        // The part center on the bed: the center of the XY shrinkage scale.
+        const center_x = (b.min[0] + b.max[0]) / 2 + dx;
+        const center_y = (b.min[1] + b.max[1]) / 2 + dy;
         errdefer gpa.free(layers);
         if (layers.len == 0) return error.EmptyMesh;
 
@@ -150,7 +156,7 @@ pub const Job = struct {
         }
 
         // Step 4.
-        var index = try slicer.FaceIndex.build(gpa, mesh, layers, b.min[2]);
+        var index = try slicer.FaceIndex.buildScaled(gpa, mesh, layers, b.min[2], f.shrinkage_z);
         defer index.deinit(gpa);
         var reporter: Reporter = .{ .monitor = monitor, .base = 0, .span = pass1_share, .total = layers.len };
         const Pass1 = struct {
@@ -165,14 +171,37 @@ pub const Job = struct {
             tolerance: i64,
             gap: i64,
             reporter: *Reporter,
+            z_scale: f64,
+            xy_scale: f64,
+            center_x: f64,
+            center_y: f64,
+            xy_offset: i64,
+            hole_offset: i64,
+            first_offset: i64,
 
             fn run(c: *const @This(), i: usize) anyerror!void {
                 if (c.reporter.monitor.canceled()) return error.Canceled;
                 defer c.reporter.step(1);
-                const o = try slicer.sliceAt(c.gpa, c.mesh, c.index.get(i), c.layers[i].sliceZ() + c.z_offset, c.tolerance, c.gap);
+                var o = try slicer.sliceAt(c.gpa, c.mesh, c.index.get(i), c.layers[i].sliceZ() / c.z_scale + c.z_offset, c.tolerance, c.gap);
                 for (o.points.items) |*p| {
                     p.x += c.dx;
                     p.y += c.dy;
+                }
+                // Shrinkage: scale about the part center.
+                if (c.xy_scale != 1) {
+                    const cx = geom.fromMm(c.center_x);
+                    const cy = geom.fromMm(c.center_y);
+                    for (o.points.items) |*p| {
+                        p.x = cx + @as(i64, @intFromFloat(@round(@as(f64, @floatFromInt(p.x - cx)) * c.xy_scale)));
+                        p.y = cy + @as(i64, @intFromFloat(@round(@as(f64, @floatFromInt(p.y - cy)) * c.xy_scale)));
+                    }
+                }
+                // XY offsets.
+                const xy = c.xy_offset + (if (i == 0) c.first_offset else 0);
+                if (xy != 0 or c.hole_offset != 0) {
+                    const moved = try compensate(c.gpa, o, xy, c.hole_offset);
+                    o.deinit(c.gpa);
+                    o = moved;
                 }
                 c.outlines[i] = o;
             }
@@ -189,6 +218,13 @@ pub const Job = struct {
             .tolerance = geom.fromMm(settings.engine.resolution),
             .gap = geom.fromMm(settings.engine.gap_closing),
             .reporter = &reporter,
+            .z_scale = f.shrinkage_z,
+            .xy_scale = f.shrinkage_xy,
+            .center_x = center_x,
+            .center_y = center_y,
+            .xy_offset = geom.fromMm(f.xy_offset),
+            .hole_offset = geom.fromMm(f.hole_xy_offset),
+            .first_offset = geom.fromMm(settings.project.first_layer_xy_offset),
         };
         parallel.forEach(threads, layers.len, &ctx, Pass1.run) catch |e| return @as(Error, @errorCast(e));
         if (monitor.canceled()) return error.Canceled;
@@ -259,6 +295,33 @@ pub const Job = struct {
         return em.stats;
     }
 };
+
+/// Moves the outer boundaries of an outline by `xy`, and its holes by
+/// `hole - xy` more (a positive `hole` makes the holes larger). A hole is a
+/// clockwise loop.
+fn compensate(gpa: Allocator, outline: Paths, xy: i64, hole: i64) Allocator.Error!Paths {
+    var arena_state = std.heap.ArenaAllocator.init(gpa);
+    defer arena_state.deinit();
+    const a = arena_state.allocator();
+    var outer: Paths = .empty;
+    var holes: Paths = .empty;
+    for (0..outline.count()) |i| {
+        const poly = outline.get(i);
+        if (geom.area2(poly) > 0) {
+            try outer.append(a, poly);
+        } else {
+            // The hole as a counterclockwise area, so that a positive
+            // offset makes it larger.
+            const rev = try a.dupe(geom.Point, poly);
+            std.mem.reverse(geom.Point, rev);
+            try holes.append(a, rev);
+        }
+    }
+    const grown = try offset_mod.offset(a, outer, xy, .{});
+    if (holes.isEmpty()) return grown.clone(gpa);
+    const hole_area = try offset_mod.offset(a, holes, hole - xy, .{});
+    return clip.difference(gpa, grown, hole_area);
+}
 
 const testing = std.testing;
 
@@ -399,4 +462,42 @@ test "a short layer prints slower" {
     try testing.expect(max_f < 68 * 60);
     // The fan is at the maximum on these short layers.
     try testing.expect(std.mem.indexOf(u8, out.written(), "M106 S255") != null);
+}
+
+test "shrinkage and XY offsets change the outline" {
+    const gpa = testing.allocator;
+    // A tube: outer radius 10 mm, hole radius 4 mm.
+    var b: mesh_mod.Builder = .init(gpa);
+    try mesh_mod.shapes.addTube(&b, 0, 0, 10, 4, 0, 5, 256);
+    var m = try b.finish();
+    defer m.deinit(gpa);
+    const k = 128.0 * @sin(2.0 * std.math.pi / 256.0); // the 256-gon area factor
+
+    var s: Settings = .{};
+    s.engine.threads = 1;
+    var job = try Job.init(gpa, &m, s);
+    const base = job.outlines[10].areaMm2();
+    const base_layers = job.layerCount();
+    job.deinit();
+    // The slicer simplifies to 5 um, so the base area is a little less than
+    // the ideal polygon area.
+    try testing.expectApproxEqAbs(k * (100 - 16), base, 0.15);
+
+    s.filament.shrinkage_xy = 1.01;
+    s.filament.shrinkage_z = 1.1;
+    job = try Job.init(gpa, &m, s);
+    try testing.expectApproxEqRel(base * 1.0201, job.outlines[10].areaMm2(), 0.001);
+    // 5 mm x 1.1 = 5.5 mm: more layers.
+    try testing.expect(job.layerCount() > base_layers);
+    job.deinit();
+
+    s.filament.shrinkage_xy = 1;
+    s.filament.shrinkage_z = 1;
+    s.filament.xy_offset = 0.1;
+    s.filament.hole_xy_offset = 0.3;
+    job = try Job.init(gpa, &m, s);
+    defer job.deinit();
+    // The outer radius grows by 0.1 mm, and the hole radius by 0.3 - 0.1.
+    const want = base + k * (10.1 * 10.1 - 100) - k * (4.2 * 4.2 - 16);
+    try testing.expectApproxEqAbs(want, job.outlines[10].areaMm2(), 0.05);
 }

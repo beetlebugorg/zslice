@@ -137,6 +137,9 @@ const project_map = [_]Map{
     .{ .cura = "material_print_temperature_layer_0", .group = "filament", .key = "first_layer_nozzle_temp" },
     .{ .cura = "material_bed_temperature", .group = "filament", .key = "bed_temp" },
     .{ .cura = "material_flow", .group = "filament", .key = "flow_ratio", .conv = .percent },
+    .{ .cura = "xy_offset", .group = "filament", .key = "xy_offset" },
+    .{ .cura = "hole_xy_offset", .group = "filament", .key = "hole_xy_offset" },
+    .{ .cura = "xy_offset_layer_0", .group = "project", .key = "first_layer_xy_offset" },
 };
 
 /// The speeds of a quality profile. The speeds that are not set explicitly
@@ -555,6 +558,21 @@ fn materialProfile(arena: Allocator, xml: []const u8, file: []const u8, version:
         try w.print("{s} = {d}\n", .{ m[1], n });
         try used.put(arena, m[0], {});
     };
+    // Calibration values of the material, as Cura settings.
+    const cura_map = [_][2][]const u8{ .{ "xy_offset", "xy_offset" }, .{ "hole_xy_offset", "hole_xy_offset" } };
+    for (cura_map) |m| if (values.get(m[0])) |v| if (number(v.text)) |n| {
+        try w.print("{s} = {d}\n", .{ m[1], n });
+        try used.put(arena, m[0], {});
+    };
+    // Shrinkage, as a percentage. The general value applies where there is
+    // no value for one direction.
+    const general = if (values.get("material_shrinkage_percentage")) |v| number(v.text) else null;
+    if (general != null) try used.put(arena, "material_shrinkage_percentage", {});
+    for ([_][2][]const u8{ .{ "material_shrinkage_percentage_xy", "shrinkage_xy" }, .{ "material_shrinkage_percentage_z", "shrinkage_z" } }) |m| {
+        const pct = if (values.get(m[0])) |v| number(v.text) else general;
+        if (pct) |n| try w.print("{s} = {d}\n", .{ m[1], n / 100.0 });
+        if (values.get(m[0]) != null) try used.put(arena, m[0], {});
+    }
     if (values.get("print cooling")) |v| if (number(v.text)) |n| {
         try w.print("fan_speed = {d}\n", .{@min(n / 100.0, 1.0)});
         try used.put(arena, "print cooling", {});

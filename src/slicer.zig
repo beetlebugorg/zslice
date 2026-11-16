@@ -86,8 +86,13 @@ pub const FaceIndex = struct {
         return self.items[self.starts[layer]..self.starts[layer + 1]];
     }
 
-    /// `z_offset` is the mesh z at print z = 0: mesh z = print z + z_offset.
+    /// `z_offset` is the mesh z at print z = 0, and `z_scale` scales the
+    /// mesh in z: print z = (mesh z - z_offset) * z_scale.
     pub fn build(gpa: Allocator, m: *const Mesh, layers: []const Layer, z_offset: f64) Allocator.Error!FaceIndex {
+        return buildScaled(gpa, m, layers, z_offset, 1);
+    }
+
+    pub fn buildScaled(gpa: Allocator, m: *const Mesh, layers: []const Layer, z_offset: f64, z_scale: f64) Allocator.Error!FaceIndex {
         const starts = try gpa.alloc(u32, layers.len + 1);
         errdefer gpa.free(starts);
         @memset(starts, 0);
@@ -95,7 +100,7 @@ pub const FaceIndex = struct {
 
         // Count the faces of each layer.
         for (m.faces.items) |f| {
-            const range = layerRange(m, f, layers, z_offset) orelse continue;
+            const range = layerRange(m, f, layers, z_offset, z_scale) orelse continue;
             for (range[0]..range[1]) |l| starts[l + 1] += 1;
         }
         for (1..starts.len) |k| starts[k] += starts[k - 1];
@@ -106,7 +111,7 @@ pub const FaceIndex = struct {
         const fill = try gpa.dupe(u32, starts[0..layers.len]);
         defer gpa.free(fill);
         for (m.faces.items, 0..) |f, fi| {
-            const range = layerRange(m, f, layers, z_offset) orelse continue;
+            const range = layerRange(m, f, layers, z_offset, z_scale) orelse continue;
             for (range[0]..range[1]) |l| {
                 items[fill[l]] = @intCast(fi);
                 fill[l] += 1;
@@ -116,10 +121,10 @@ pub const FaceIndex = struct {
     }
 
     /// The layers whose cut plane the face crosses, as [first, end).
-    fn layerRange(m: *const Mesh, f: [3]u32, layers: []const Layer, z_offset: f64) ?[2]usize {
+    fn layerRange(m: *const Mesh, f: [3]u32, layers: []const Layer, z_offset: f64, z_scale: f64) ?[2]usize {
         const v = m.vertices.items;
-        const z0: f64 = @as(f64, @min(v[f[0]].z, @min(v[f[1]].z, v[f[2]].z))) - z_offset;
-        const z1: f64 = @as(f64, @max(v[f[0]].z, @max(v[f[1]].z, v[f[2]].z))) - z_offset;
+        const z0: f64 = (@as(f64, @min(v[f[0]].z, @min(v[f[1]].z, v[f[2]].z))) - z_offset) * z_scale;
+        const z1: f64 = (@as(f64, @max(v[f[0]].z, @max(v[f[1]].z, v[f[2]].z))) - z_offset) * z_scale;
         // A face crosses a plane at s if z0 <= s < z1 (see the
         // above/below rule in the file comment).
         const first = lowerBound(layers, z0);

@@ -134,6 +134,20 @@ pub const Filament = struct {
     /// off.
     standby_temp: f64 = 0,
 
+    // Size compensation
+    /// The part is printed larger by this ratio in X and Y, because the
+    /// plastic shrinks as it cools. Example: 1.003 for 0.3 % shrinkage.
+    shrinkage_xy: f64 = 1,
+    /// The part is printed taller by this ratio, for shrinkage in Z.
+    shrinkage_z: f64 = 1,
+    /// Moves all outlines out by this distance (in if negative). Use it if
+    /// parts come out too large or too small by a fixed amount.
+    xy_offset: f64 = 0,
+    /// Moves the edges of holes by this distance. A positive value makes
+    /// holes larger. It adds to `xy_offset`, which makes holes smaller when
+    /// it is positive. Holes often come out too small.
+    hole_xy_offset: f64 = 0,
+
     // Retraction
     /// A multiplier for the retraction length of the machine. Soft filament
     /// needs less.
@@ -256,6 +270,12 @@ pub const Project = struct {
     /// helps against warping. 0 turns it off.
     brim_width: f64 = 0,
 
+    // First layer
+    /// Moves the outline of the first layer by this distance. A negative
+    /// value compensates the "elephant foot": the first layer spreads out
+    /// because the nozzle presses it on the bed.
+    first_layer_xy_offset: f64 = 0,
+
     // Placement
     /// Move the part so that the center of its bounding box is at the
     /// center of the bed, and its bottom is at z = 0.
@@ -334,6 +354,7 @@ pub const Settings = struct {
         const w = if (p.line_width > 0) p.line_width else 1.1 * m.nozzle_diameter;
         const w0 = if (p.first_layer_line_width > 0) p.first_layer_line_width else 1.25 * m.nozzle_diameter;
         if (p.layer_height > w or p.first_layer_height > w0) return error.InvalidValue;
+        if (!(f.shrinkage_xy > 0.5 and f.shrinkage_xy < 1.5 and f.shrinkage_z > 0.5 and f.shrinkage_z < 1.5)) return error.InvalidValue;
         const r = f.diameter / 2;
         return .{
             .settings = self,

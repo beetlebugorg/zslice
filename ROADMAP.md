@@ -47,7 +47,8 @@ The goal is the features that people use in PrusaSlicer and Cura. zslice designs
 - [ ] Fuzzy skin
 - [ ] Spiral vase mode
 - [ ] Variable layer height (adaptive and by hand)
-- [ ] Holes and pins: polyhole and size compensation (XY compensation, elephant foot)
+- [x] Size compensation: XY offset, hole offset, elephant foot, shrinkage
+- [ ] Polyholes
 
 ### Motion and extrusion
 - [ ] Avoid crossing walls (combing) on travel
@@ -74,7 +75,7 @@ The goal is the features that people use in PrusaSlicer and Cura. zslice designs
 - [ ] Profiles in the app: pick, edit, and save profiles, through the C API with a resolver callback
 - [x] Import of Cura profile stacks (the printdeck layout with cura.json)
 - [ ] Import of PrusaSlicer and OrcaSlicer profiles, and of a Cura profile export (.curaprofile)
-- [ ] Shrinkage compensation and XY offsets for holes and outlines (the printdeck rolls have calibrated values)
+- [x] Shrinkage compensation and XY offsets for outlines, holes, and the first layer (imported from the printdeck rolls)
 - [ ] A printer profile library
 - [ ] Send to printer: printdeck, OctoPrint, Moonraker
 - [ ] Calibration prints: temperature tower, flow, retraction, pressure advance
