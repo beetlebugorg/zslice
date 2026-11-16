@@ -80,6 +80,12 @@ pub const Emitter = struct {
     feed: f64 = -1,
     feature: ?Feature = null,
     stats: Stats = .{},
+    /// A dry run: the emitter changes its state and its statistics as
+    /// usual, and does not format the moves. With a writer that discards
+    /// all text, a dry run finds the state at the start of each layer
+    /// quickly. Then a copy of the emitter with that state can write the
+    /// text of the layer on another thread (see engine.zig).
+    dry: bool = false,
 
     pub fn init(w: *Writer, r: *const Resolved) Emitter {
         return .{ .w = w, .r = r };
@@ -322,7 +328,7 @@ pub const Emitter = struct {
         if (d < 1e-4) return;
         if (d > self.r.settings.project.retract_min_travel) try self.retract();
         const speed = self.r.settings.machine.travel_speed;
-        var line: Line = .{};
+        var line: Line = .{ .skip = self.dry };
         line.add("G0 X");
         line.num(x + self.r.settings.machine.origin_x, 3);
         line.add(" Y");
@@ -341,7 +347,7 @@ pub const Emitter = struct {
         if (d < 1e-4) return;
         try self.unretract();
         const e = d * e_per_mm;
-        var line: Line = .{};
+        var line: Line = .{ .skip = self.dry };
         line.add("G1 X");
         line.num(x + self.r.settings.machine.origin_x, 3);
         line.add(" Y");
@@ -469,12 +475,15 @@ const digit_pairs: [200]u8 = blk: {
 const Line = struct {
     buf: [160]u8 = undefined,
     len: usize = 0,
+    /// True in a dry run: the line stays empty.
+    skip: bool = false,
 
     fn text(l: *const Line) []const u8 {
         return l.buf[0..l.len];
     }
 
     fn add(l: *Line, t: []const u8) void {
+        if (l.skip) return;
         @memcpy(l.buf[l.len..][0..t.len], t);
         l.len += t.len;
     }
@@ -483,6 +492,7 @@ const Line = struct {
     /// `writeNum`). The digits of the scaled integer go into a buffer from
     /// the end, two at a time from a table.
     fn num(l: *Line, v: f64, comptime decimals: u5) void {
+        if (l.skip) return;
         const scale: f64 = comptime blk: {
             var p: f64 = 1;
             for (0..decimals) |_| p *= 10;

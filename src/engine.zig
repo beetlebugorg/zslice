@@ -515,12 +515,14 @@ pub const Job = struct {
         const window = @max(8, self.threads * 4);
         const slots = try gpa.alloc(Slot, window);
         defer gpa.free(slots);
-        for (slots) |*sl| sl.* = .{};
-        defer for (slots) |*sl| if (sl.plan) |*lp| lp.deinit();
-        var pipe: Pipeline = .{ .gpa = gpa, .ctx = self.planContext(), .slots = slots, .n = self.layers.len, .monitor = self.monitor };
+        for (slots) |*sl| sl.* = .{ .text = .init(gpa) };
+        defer for (slots) |*sl| sl.deinit(gpa);
+        var pipe: Pipeline = .{ .gpa = gpa, .ctx = self.planContext(), .slots = slots, .n = self.layers.len, .monitor = self.monitor, .record = sink != null };
 
-        // The other threads plan layers. This thread writes the layers in
-        // order, and plans a layer itself while the next one is not ready.
+        // The other threads plan layers and write their text. This thread
+        // runs the emitter: a dry run of each layer in order (see
+        // gcode.Emitter.dry), and then the text of each layer in order. It
+        // also plans or writes a layer while it waits.
         var pool: [64]if (parallel.has_threads) std.Thread else void = undefined;
         var spawned: usize = 0;
         defer if (comptime parallel.has_threads) {
@@ -534,29 +536,51 @@ pub const Job = struct {
                 pool[spawned] = std.Thread.spawn(.{}, Pipeline.work, .{&pipe}) catch break;
             }
         }
-        for (0..self.layers.len) |i| {
-            const slot = &slots[i % window];
-            while (slot.ready.load(.acquire) != i + 1) {
-                if (pipe.failed()) |e| return e;
-                if (self.monitor.canceled()) return error.Canceled;
-                const seen = pipe.signal.current();
-                if (slot.ready.load(.acquire) == i + 1) break;
-                if (!pipe.planOne()) pipe.signal.wait(seen);
-            }
+        var discard: Writer.Discarding = .init(&.{});
+        var dried: usize = 0;
+        var written: usize = 0;
+        const n = self.layers.len;
+        while (written < n) {
             if (pipe.failed()) |e| return e;
-            const lp = &slot.plan.?;
-            if (sink != null) {
-                record.clearRetainingCapacity();
-                try record.ensureTotalCapacity(gpa, lp.paths.items.len);
+            if (self.monitor.canceled()) return error.Canceled;
+            const seen = pipe.signal.current();
+            var progress = false;
+            // Dry runs: the state at the start of each planned layer.
+            while (dried < n and slots[dried % window].ready.load(.acquire) == dried + 1) {
+                const slot = &slots[dried % window];
+                slot.start = em;
+                slot.start.?.w = undefined;
+                const out_w = em.w;
+                em.w = &discard.writer;
+                em.dry = true;
+                em.record = null;
+                defer {
+                    em.w = out_w;
+                    em.dry = false;
+                    if (sink != null) em.record = &record;
+                }
+                try em.layer(&slot.plan.?);
+                dried += 1;
+                pipe.dried.store(dried, .release);
+                pipe.signal.notify();
+                progress = true;
             }
-            try em.layer(lp);
-            if (sink) |sk| sk.func(sk.ctx, lp, record.items) catch |e| return @as(Error, @errorCast(e));
-            lp.deinit();
-            slot.plan = null;
-            // The slot is free for layer i + window.
-            pipe.emitted.store(i + 1, .release);
-            pipe.signal.notify();
-            reporter.step(1);
+            // The text of each layer, in order.
+            while (written < dried and slots[written % window].written.load(.acquire) == written + 1) {
+                const slot = &slots[written % window];
+                const lp = &slot.plan.?;
+                try out.writeAll(slot.text.written());
+                if (sink) |sk| sk.func(sk.ctx, lp, slot.records.items) catch |e| return @as(Error, @errorCast(e));
+                slot.clear();
+                written += 1;
+                // The slot is free for layer written - 1 + window.
+                pipe.emitted.store(written, .release);
+                pipe.signal.notify();
+                reporter.step(1);
+                progress = true;
+            }
+            if (progress or written == n) continue;
+            if (!pipe.writeOne() and !pipe.planOne()) pipe.signal.wait(seen);
         }
         try em.end();
         // The work memory of the booleans and offsets goes back to the
@@ -566,17 +590,47 @@ pub const Job = struct {
     }
 };
 
-/// A slot of the plan ring: `ready` is i + 1 when the plan of layer i is
-/// in the slot.
+/// A slot of the plan ring. `ready` is i + 1 when the plan of layer i is
+/// in the slot, and `written` is i + 1 when its text is.
 const Slot = struct {
     plan: ?LayerPlan = null,
     ready: std.atomic.Value(usize) = .init(0),
+    /// The emitter at the start of the layer, after the dry runs of the
+    /// layers before it.
+    start: ?gcode.Emitter = null,
+    text: Writer.Allocating,
+    records: std.ArrayList(gcode.PathInfo) = .empty,
+    written: std.atomic.Value(usize) = .init(0),
+
+    /// Frees the plan, and keeps the memory of the text for the next layer.
+    fn clear(slot: *Slot) void {
+        if (slot.plan) |*lp| lp.deinit();
+        slot.plan = null;
+        slot.start = null;
+        slot.text.clearRetainingCapacity();
+        slot.records.clearRetainingCapacity();
+    }
+
+    fn deinit(slot: *Slot, gpa: Allocator) void {
+        slot.clear();
+        slot.text.deinit();
+        slot.records.deinit(gpa);
+    }
 };
 
-/// Pass 2 with the emitter in parallel. Each thread takes the next layer
-/// from one counter and plans it into its slot of the ring. Layer i uses
-/// slot i mod (ring size), so a thread waits until the emitter has written
-/// layer i - (ring size). The plan of a layer depends only on its index,
+/// Pass 2, with the G-code in parallel. Three steps for each layer:
+///
+/// 1. Plan. Each thread takes the next layer from one counter and plans it
+///    into its slot of the ring. Layer i uses slot i mod (ring size), so a
+///    thread waits until layer i - (ring size) is out.
+/// 2. Dry run, in layer order on the emitter thread: the emitter state at
+///    the start of the layer (the nozzle position, the fan, the time). This
+///    step is fast, because it formats no numbers.
+/// 3. Text. Any thread writes the G-code text of a layer into its slot,
+///    with a copy of the emitter from step 2. The emitter thread writes the
+///    texts out in layer order.
+///
+/// Each step depends only on the layer index and on the steps before it,
 /// so the output is the same for each thread count.
 const Pipeline = struct {
     gpa: Allocator,
@@ -584,13 +638,20 @@ const Pipeline = struct {
     slots: []Slot,
     n: usize,
     monitor: Monitor,
+    /// True if the sink needs the path records.
+    record: bool,
     next: std.atomic.Value(usize) = .init(0),
-    /// The number of layers that the emitter has written.
+    /// The number of layers with a dry run.
+    dried: std.atomic.Value(usize) = .init(0),
+    /// The next layer whose text a thread writes.
+    next_text: std.atomic.Value(usize) = .init(0),
+    /// The number of layers that the emitter has written out.
     emitted: std.atomic.Value(usize) = .init(0),
     stop: std.atomic.Value(bool) = .init(false),
     /// The first error, as an error code, or 0.
     err_code: std.atomic.Value(u16) = .init(0),
-    /// Changes when a plan is ready, a slot is free, or an error happens.
+    /// Changes when a plan or a text is ready, a slot is free, or an error
+    /// happens.
     signal: parallel.Signal = .{},
 
     fn failed(p: *Pipeline) ?Error {
@@ -601,9 +662,10 @@ const Pipeline = struct {
 
     fn work(p: *Pipeline) void {
         while (!p.stop.load(.acquire) and p.failed() == null) {
-            if (p.next.load(.monotonic) >= p.n) return;
+            if (p.next_text.load(.monotonic) >= p.n) return;
             const seen = p.signal.current();
-            if (!p.planOne()) p.signal.wait(seen);
+            // The text first: the emitter waits for it.
+            if (!p.writeOne() and !p.planOne()) p.signal.wait(seen);
         }
     }
 
@@ -625,6 +687,33 @@ const Pipeline = struct {
         slot.ready.store(i + 1, .release);
         p.signal.notify();
         return true;
+    }
+
+    /// Writes the text of the next layer after its dry run. Returns false
+    /// if there was nothing to do now.
+    fn writeOne(p: *Pipeline) bool {
+        const i = p.next_text.load(.monotonic);
+        if (i >= p.dried.load(.acquire)) return false;
+        if (p.next_text.cmpxchgWeak(i, i + 1, .monotonic, .monotonic) != null) return true;
+        const slot = &p.slots[i % p.slots.len];
+        p.text(slot) catch |e| {
+            p.fail(e);
+            return true;
+        };
+        slot.written.store(i + 1, .release);
+        p.signal.notify();
+        return true;
+    }
+
+    fn text(p: *Pipeline, slot: *Slot) Error!void {
+        var em = slot.start.?;
+        em.w = &slot.text.writer;
+        em.record = null;
+        if (p.record) {
+            try slot.records.ensureTotalCapacity(p.gpa, slot.plan.?.paths.items.len);
+            em.record = &slot.records;
+        }
+        try em.layer(&slot.plan.?);
     }
 
     fn fail(p: *Pipeline, e: Error) void {
