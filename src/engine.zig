@@ -223,6 +223,10 @@ pub const Job = struct {
     outlines: []Paths,
     /// The support areas of each layer, or an empty slice.
     support: []support_mod.SupportLayer = &.{},
+    /// The top and bottom surfaces of each layer (see layer.surfaces), or
+    /// empty slices if no layer has skin.
+    tops: []Paths = &.{},
+    bottoms: []Paths = &.{},
     /// The regions of each layer (see layer.Regions), made when a plan
     /// needs them. `takeRegions` moves them from an older job.
     regions: []?layer_mod.Regions = &.{},
@@ -251,7 +255,39 @@ pub const Job = struct {
         var job = try initBase(gpa, mesh, settings, monitor);
         errdefer job.deinit();
         if (overrides.len > 0) try job.resolveLayers(settings, overrides);
+        try job.makeSurfaces();
+        // The work memory goes back to the operating system (see
+        // scratch.zig).
+        scratch.trim();
         return job;
+    }
+
+    /// The top and bottom surfaces of all layers, on all threads. Layer pair
+    /// (j, j + 1) gives the top surface of j and the bottom surface of
+    /// j + 1.
+    fn makeSurfaces(self: *Job) Error!void {
+        var skin = self.resolved.top_layers > 0 or self.resolved.bottom_layers > 0;
+        for (self.layer_resolved) |r| skin = skin or r.top_layers > 0 or r.bottom_layers > 0;
+        if (!skin) return;
+        const gpa = self.gpa;
+        const n = self.layers.len;
+        self.tops = try gpa.alloc(Paths, n);
+        @memset(self.tops, .empty);
+        self.bottoms = try gpa.alloc(Paths, n);
+        @memset(self.bottoms, .empty);
+        self.tops[n - 1] = try self.outlines[n - 1].clone(gpa);
+        self.bottoms[0] = try self.outlines[0].clone(gpa);
+        const Pass = struct {
+            job: *Job,
+            fn run(c: *const @This(), j: usize) anyerror!void {
+                if (c.job.monitor.canceled()) return error.Canceled;
+                const pair = try layer_mod.surfacePair(c.job.gpa, c.job.outlines, j);
+                c.job.tops[j] = pair[0];
+                c.job.bottoms[j + 1] = pair[1];
+            }
+        };
+        const c: Pass = .{ .job = self };
+        parallel.forEach(self.threads, n - 1, &c, Pass.run) catch |e| return @as(Error, @errorCast(e));
     }
 
     /// The settings of each layer: one Resolved for each set of overrides.
@@ -347,7 +383,6 @@ pub const Job = struct {
         // The support areas need the outlines of all layers.
         const sup = support_mod.compute(gpa, outlines, layers, &r, threads) catch |e| return @as(Error, @errorCast(e));
 
-        scratch.trim();
         const regs = try gpa.alloc(?layer_mod.Regions, layers.len);
         @memset(regs, null);
         return .{
@@ -382,6 +417,10 @@ pub const Job = struct {
         self.gpa.free(self.layer_resolved);
         for (self.regions) |*reg| if (reg.*) |*rg| rg.deinit();
         self.gpa.free(self.regions);
+        for (self.tops) |*t| t.deinit(self.gpa);
+        self.gpa.free(self.tops);
+        for (self.bottoms) |*b| b.deinit(self.gpa);
+        self.gpa.free(self.bottoms);
         if (self.support.len > 0) support_mod.deinitAll(self.gpa, self.support);
         for (self.outlines) |*o| o.deinit(self.gpa);
         self.gpa.free(self.outlines);
@@ -399,6 +438,8 @@ pub const Job = struct {
             .outlines = self.outlines,
             .support = self.support,
             .cache = self.regions,
+            .tops = self.tops,
+            .bottoms = self.bottoms,
             .layer_set = self.layer_set,
             .layer_resolved = self.layer_resolved,
         };

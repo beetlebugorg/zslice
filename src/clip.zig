@@ -72,12 +72,32 @@ pub fn boolean(gpa: Allocator, subject: Paths, clip: Paths, op: Op, rule: FillRu
     var arena_state = scratch.get(gpa);
     defer arena_state.release();
     const arena = arena_state.allocator();
+    const merged = try arrange(arena, subject, clip);
+    return extract(gpa, arena, merged, op, rule, false);
+}
 
+/// Returns `a - b` and `b - a` (with the non-zero rule), from one
+/// arrangement. This is faster than two calls of `difference`. The caller
+/// owns the results.
+pub fn differences(gpa: Allocator, a: Paths, b: Paths) Allocator.Error![2]Paths {
+    var arena_state = scratch.get(gpa);
+    defer arena_state.release();
+    const arena = arena_state.allocator();
+    const merged = try arrange(arena, a, b);
+    var ab = try extract(gpa, arena, merged, .difference, .non_zero, false);
+    errdefer ab.deinit(gpa);
+    const ba = try extract(gpa, arena, merged, .difference, .non_zero, true);
+    return .{ ab, ba };
+}
+
+/// Steps 1 to 4: the edges of the arrangement, with the winding numbers on
+/// each side.
+fn arrange(arena: Allocator, subject: Paths, clip: Paths) Allocator.Error![]Merged {
     // Step 1: collect the edges.
     var edges: std.ArrayList(InEdge) = .empty;
     try addEdges(arena, &edges, subject, 0);
     try addEdges(arena, &edges, clip, 1);
-    if (edges.items.len == 0) return .empty;
+    if (edges.items.len == 0) return &.{};
 
     // Steps 2 and 3: split the edges and merge equal edges. A split point
     // is rounded to the grid, and the rounded point can make a new crossing.
@@ -96,16 +116,28 @@ pub fn boolean(gpa: Allocator, subject: Paths, clip: Paths, op: Op, rule: FillRu
         cur = try arena.alloc(InEdge, merged.len);
         for (merged, cur) |m, *e| e.* = .{ .a = m.lo, .b = m.hi, .d = m.d, .fresh = m.fresh };
     }
-    if (merged.len == 0) return .empty;
+    if (merged.len == 0) return merged;
 
     // Step 4: winding numbers on each side of each edge.
     try computeWinding(arena, merged);
+    return merged;
+}
 
+/// Steps 5 and 6: the output loops of an operation. With `swap`, the
+/// operands change places (for `b - a`).
+fn extract(gpa: Allocator, arena: Allocator, merged: []const Merged, op: Op, rule: FillRule, swap: bool) Allocator.Error!Paths {
+    if (merged.len == 0) return .empty;
     // Step 5: keep the boundary edges, with the inside on the left.
     var out_edges: std.ArrayList(DirEdge) = .empty;
     for (merged) |e| {
-        const in_left = isInside(e.left, op, rule);
-        const in_right = isInside(.{ e.left[0] - e.d[0], e.left[1] - e.d[1] }, op, rule);
+        var left = e.left;
+        var right: [2]i32 = .{ e.left[0] - e.d[0], e.left[1] - e.d[1] };
+        if (swap) {
+            std.mem.swap(i32, &left[0], &left[1]);
+            std.mem.swap(i32, &right[0], &right[1]);
+        }
+        const in_left = isInside(left, op, rule);
+        const in_right = isInside(right, op, rule);
         if (in_left == in_right) continue;
         if (in_left) {
             try out_edges.append(arena, .{ .a = e.lo, .b = e.hi });

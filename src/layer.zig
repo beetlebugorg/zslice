@@ -10,6 +10,21 @@
 //!    outlines of the next `top_layers` layers above and the next
 //!    `bottom_layers` layers below. Skin is the inner area minus the
 //!    supported area. Skin thinner than half a line width is removed.
+//!
+//!    The code does not intersect the outlines above and below for each
+//!    layer. It uses the top surface of each layer j (outline j minus
+//!    outline j + 1) and its bottom surface (outline j minus outline
+//!    j - 1). A point of layer i that is not inside all outlines up to
+//!    layer i + t leaves the part at some layer j between i and i + t - 1:
+//!    it is in the top surface of layer j. So the skin of layer i (before
+//!    the clean-up) is the inner area intersected with the top surfaces of
+//!    layers i to i + t - 1 and the bottom surfaces of layers i - b + 1 to
+//!    i. The surfaces come from one boolean for each pair of layers, and
+//!    t + b layers use each of them. The code intersects the inner area
+//!    with each surface on its own, and joins the parts. (On a wall that
+//!    is almost vertical, the surfaces of the layers are thin strips on
+//!    top of each other, and one boolean of all of them has many
+//!    crossings.) Most parts are empty, so this step is fast.
 //! 4. Sparse infill is the inner area minus the skin.
 //! 5. Fill. Skin gets lines one line width apart. The direction turns 90
 //!    degrees on each layer. Sparse infill gets lines further apart, from
@@ -97,6 +112,10 @@ pub const Context = struct {
     /// own slot, so plans of different layers can run on different
     /// threads.
     cache: []?Regions = &.{},
+    /// The top and bottom surfaces of each layer (see `surfaces`), or empty
+    /// slices. Without them, `regions` makes the surfaces that it needs.
+    tops: []const Paths = &.{},
+    bottoms: []const Paths = &.{},
     /// The settings of each layer with overrides: 0 for `resolved`, k for
     /// `layer_resolved[k - 1]`. Empty: all layers use `resolved`.
     layer_set: []const u16 = &.{},
@@ -205,18 +224,32 @@ pub fn regions(gpa: Allocator, ctx: Context, i: usize) Allocator.Error!Regions {
 
     // Steps 3 and 4.
     if (!inner.isEmpty()) {
-        const above = try stackedIntersection(s, ctx.outlines, i, r.top_layers, .up);
-        const below = try stackedIntersection(s, ctx.outlines, i, r.bottom_layers, .down);
-        if (above == null and below == null) {
+        if (r.top_layers == 0 and r.bottom_layers == 0) {
             reg.sparse = try inner.clone(a);
         } else {
-            const supported = if (above == null)
-                below.?
-            else if (below == null)
-                above.?
-            else
-                try clip.intersect(s, above.?, below.?);
-            const raw_skin = try clip.difference(s, inner, supported);
+            // The parts of the inner area on the surfaces near the layer
+            // (see the file comment). The parts can overlap, so a union
+            // joins them if there is more than one.
+            var exposed: Paths = .empty;
+            var sets: usize = 0;
+            const n = ctx.outlines.len;
+            for (0..r.top_layers) |m| {
+                const j = i + m;
+                if (j >= n) break;
+                const t = if (ctx.tops.len > 0) ctx.tops[j] else (try surfaces(s, ctx.outlines, j))[0];
+                const part = try clip.intersect(s, inner, t);
+                if (!part.isEmpty()) sets += 1;
+                try exposed.appendAll(s, part);
+            }
+            for (0..r.bottom_layers) |m| {
+                if (m > i) break;
+                const j = i - m;
+                const t = if (ctx.bottoms.len > 0) ctx.bottoms[j] else (try surfaces(s, ctx.outlines, j))[1];
+                const part = try clip.intersect(s, inner, t);
+                if (!part.isEmpty()) sets += 1;
+                try exposed.appendAll(s, part);
+            }
+            const raw_skin = if (sets > 1) try clip.unionAll(s, exposed, .non_zero) else exposed;
             // 1. Remove slivers narrower than the removal width.
             const removal = @divTrunc(geom.fromMm(p.skin_removal_width), 2);
             const kept = if (removal > 0) try offset_mod.opening(s, raw_skin, removal, .{}) else raw_skin;
@@ -648,6 +681,31 @@ fn stackedIntersection(s: Allocator, outlines: []const Paths, i: usize, n: u32, 
     return acc;
 }
 
+/// The top surface of layer j (its outline minus the outline above) and its
+/// bottom surface (its outline minus the outline below). The first layer has
+/// nothing below it and the last layer nothing above it, so their surfaces
+/// are the whole outline. The caller owns the results.
+pub fn surfaces(gpa: Allocator, outlines: []const Paths, j: usize) Allocator.Error![2]Paths {
+    var top = if (j + 1 < outlines.len) blk: {
+        var pair = try surfacePair(gpa, outlines, j);
+        pair[1].deinit(gpa);
+        break :blk pair[0];
+    } else try outlines[j].clone(gpa);
+    errdefer top.deinit(gpa);
+    const bottom = if (j > 0) blk: {
+        var pair = try surfacePair(gpa, outlines, j - 1);
+        pair[0].deinit(gpa);
+        break :blk pair[1];
+    } else try outlines[j].clone(gpa);
+    return .{ top, bottom };
+}
+
+/// The top surface of layer j and the bottom surface of layer j + 1, from
+/// one boolean. The caller owns the results.
+pub fn surfacePair(gpa: Allocator, outlines: []const Paths, j: usize) Allocator.Error![2]Paths {
+    return clip.differences(gpa, outlines[j], outlines[j + 1]);
+}
+
 /// Adds the paths of `set` to the plan in greedy nearest-neighbor order.
 /// Adds parallel lines in monotonic order: from one side of the area to the
 /// other, by their place across the line direction. Each line starts at its
@@ -1061,4 +1119,38 @@ test "thin walls: a sheet thinner than a line prints" {
     var lp2 = try plan(gpa, ctx2, 10);
     defer lp2.deinit();
     for (lp2.paths.items) |path| try testing.expect(path.feature != .outer_wall);
+}
+
+test "the skin from the surfaces is the inner area minus the supported area" {
+    const gpa = testing.allocator;
+    const mesh = @import("mesh.zig");
+    var m = try mesh.shapes.demo(gpa);
+    defer m.deinit(gpa);
+    var arena_state = std.heap.ArenaAllocator.init(gpa);
+    defer arena_state.deinit();
+    const a = arena_state.allocator();
+    const layers = try slicer.layerTable(a, 14, 0.3, 0.2);
+    var idx = try slicer.FaceIndex.build(a, &m, layers, 0);
+    const outlines = try a.alloc(Paths, layers.len);
+    for (outlines, 0..) |*o, li| o.* = try slicer.sliceAt(a, &m, idx.get(li), layers[li].sliceZ(), 5, 1000);
+    const t = 4;
+    const b = 3;
+    for (0..layers.len) |i| {
+        const inner = try offset_mod.offset(a, outlines[i], -880, .{});
+        // The direct way: the intersection of the outlines above and below.
+        var supported: Paths = .empty;
+        if (i + t < layers.len and i >= b) {
+            supported = outlines[i - b];
+            for (i - b + 1..i + t + 1) |k| if (k != i) {
+                supported = try clip.intersect(a, supported, outlines[k]);
+            };
+        }
+        const want = try clip.difference(a, inner, supported);
+        // From the surfaces.
+        var exposed: Paths = .empty;
+        for (0..t) |k| if (i + k < layers.len) try exposed.appendAll(a, (try surfaces(a, outlines, i + k))[0]);
+        for (0..b) |k| if (k <= i) try exposed.appendAll(a, (try surfaces(a, outlines, i - k))[1]);
+        const got = try clip.intersect(a, inner, exposed);
+        try testing.expectApproxEqAbs(want.areaMm2(), got.areaMm2(), 0.01);
+    }
 }
