@@ -137,7 +137,7 @@ fn slicePart(gpa: Allocator, mesh: *const Mesh, settings: Settings, height: f64,
         }
 
         // Step 4.
-        var index = try slicer.FaceIndex.buildScaled(gpa, mesh, layers, z_base, f.shrinkage_z);
+        var index = try slicer.FaceIndex.buildScaled(gpa, mesh, layers, z_base, f.shrinkage_z, threads);
         defer index.deinit(gpa);
         var reporter: Reporter = .{ .monitor = monitor, .base = 0, .span = pass1_share, .total = layers.len };
         const Pass1 = struct {

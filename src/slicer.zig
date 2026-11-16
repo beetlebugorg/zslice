@@ -33,6 +33,7 @@ const Allocator = std.mem.Allocator;
 const geom = @import("geom.zig");
 const scratch = @import("scratch.zig");
 const clip = @import("clip.zig");
+const parallel = @import("parallel.zig");
 const mesh_mod = @import("mesh.zig");
 const Mesh = mesh_mod.Mesh;
 const Point = geom.Point;
@@ -91,39 +92,87 @@ pub const FaceIndex = struct {
     /// `z_offset` is the mesh z at print z = 0, and `z_scale` scales the
     /// mesh in z: print z = (mesh z - z_offset) * z_scale.
     pub fn build(gpa: Allocator, m: *const Mesh, layers: []const Layer, z_offset: f64) Allocator.Error!FaceIndex {
-        return buildScaled(gpa, m, layers, z_offset, 1);
+        return buildScaled(gpa, m, layers, z_offset, 1, 1);
     }
 
-    pub fn buildScaled(gpa: Allocator, m: *const Mesh, layers: []const Layer, z_offset: f64, z_scale: f64) Allocator.Error!FaceIndex {
+    /// `build`, with a z scale, on `threads` threads. The result is the
+    /// same for each thread count.
+    pub fn buildScaled(gpa: Allocator, m: *const Mesh, layers: []const Layer, z_offset: f64, z_scale: f64, threads: usize) Allocator.Error!FaceIndex {
         const starts = try gpa.alloc(u32, layers.len + 1);
         errdefer gpa.free(starts);
         @memset(starts, 0);
         if (layers.len == 0) return .{ .starts = starts, .items = try gpa.alloc(u32, 0) };
 
-        // Count the faces of each layer.
-        for (m.faces.items) |f| {
-            const range = layerRange(m, f, layers, z_offset, z_scale) orelse continue;
-            for (range[0]..range[1]) |l| starts[l + 1] += 1;
-        }
-        for (1..starts.len) |k| starts[k] += starts[k - 1];
-
-        // Fill the lists.
-        const items = try gpa.alloc(u32, starts[layers.len]);
+        // Three steps, each on all threads, in blocks of faces:
+        // 1. The layer range of each face, and the face count of each layer
+        //    in each block.
+        // 2. The start of each layer, and of each block in each layer (a
+        //    prefix sum, in layer order, then block order).
+        // 3. Each block writes its faces into its part of each layer. The
+        //    faces of a layer are then in face order, as with one thread.
+        const faces = m.faces.items;
+        const ranges = try gpa.alloc([2]u32, faces.len);
+        defer gpa.free(ranges);
+        const block = 8192;
+        const nb = (faces.len + block - 1) / block;
+        const nl = layers.len;
+        // counts[b * nl + l]: the faces of block b in layer l, then the
+        // write position of block b in layer l.
+        const counts = try gpa.alloc(u32, nb * nl);
+        defer gpa.free(counts);
+        @memset(counts, 0);
+        var items: []u32 = &.{};
         errdefer gpa.free(items);
-        const fill = try gpa.dupe(u32, starts[0..layers.len]);
-        defer gpa.free(fill);
-        for (m.faces.items, 0..) |f, fi| {
-            const range = layerRange(m, f, layers, z_offset, z_scale) orelse continue;
-            for (range[0]..range[1]) |l| {
-                items[fill[l]] = @intCast(fi);
-                fill[l] += 1;
+        const Pass = struct {
+            m: *const Mesh,
+            layers: []const Layer,
+            z_offset: f64,
+            z_scale: f64,
+            ranges: [][2]u32,
+            counts: []u32,
+            items: []u32 = &.{},
+            fn count(c: *const @This(), bi: usize) anyerror!void {
+                const lo = bi * block;
+                const hi = @min(lo + block, c.ranges.len);
+                const mine = c.counts[bi * c.layers.len ..][0..c.layers.len];
+                for (c.m.faces.items[lo..hi], c.ranges[lo..hi]) |f, *r| {
+                    r.* = layerRange(c.m, f, c.layers, c.z_offset, c.z_scale);
+                    for (r[0]..r[1]) |l| mine[l] += 1;
+                }
+            }
+            fn fill(c: *const @This(), bi: usize) anyerror!void {
+                const lo = bi * block;
+                const hi = @min(lo + block, c.ranges.len);
+                const at = c.counts[bi * c.layers.len ..][0..c.layers.len];
+                for (c.ranges[lo..hi], lo..) |r, fi| {
+                    for (r[0]..r[1]) |l| {
+                        c.items[at[l]] = @intCast(fi);
+                        at[l] += 1;
+                    }
+                }
+            }
+        };
+        var ctx: Pass = .{ .m = m, .layers = layers, .z_offset = z_offset, .z_scale = z_scale, .ranges = ranges, .counts = counts };
+        parallel.forEach(threads, nb, &ctx, Pass.count) catch |e| return @as(Allocator.Error, @errorCast(e));
+        var total: u32 = 0;
+        for (0..nl) |l| {
+            starts[l] = total;
+            for (0..nb) |bi| {
+                const c = counts[bi * nl + l];
+                counts[bi * nl + l] = total;
+                total += c;
             }
         }
+        starts[nl] = total;
+        items = try gpa.alloc(u32, total);
+        ctx.items = items;
+        parallel.forEach(threads, nb, &ctx, Pass.fill) catch |e| return @as(Allocator.Error, @errorCast(e));
         return .{ .starts = starts, .items = items };
     }
 
-    /// The layers whose cut plane the face crosses, as [first, end).
-    fn layerRange(m: *const Mesh, f: [3]u32, layers: []const Layer, z_offset: f64, z_scale: f64) ?[2]usize {
+    /// The layers whose cut plane the face crosses, as [first, end). The
+    /// range is empty if the face crosses no cut plane.
+    fn layerRange(m: *const Mesh, f: [3]u32, layers: []const Layer, z_offset: f64, z_scale: f64) [2]u32 {
         const v = m.vertices.items;
         const z0: f64 = (@as(f64, @min(v[f[0]].z, @min(v[f[1]].z, v[f[2]].z))) - z_offset) * z_scale;
         const z1: f64 = (@as(f64, @max(v[f[0]].z, @max(v[f[1]].z, v[f[2]].z))) - z_offset) * z_scale;
@@ -131,8 +180,8 @@ pub const FaceIndex = struct {
         // above/below rule in the file comment).
         const first = lowerBound(layers, z0);
         const end = lowerBound(layers, z1);
-        if (first >= end) return null;
-        return .{ first, end };
+        if (first >= end) return .{ 0, 0 };
+        return .{ @intCast(first), @intCast(end) };
     }
 
     /// The first layer whose cut plane is at or above z.
@@ -400,4 +449,25 @@ test "a mesh with a seam that does not weld" {
     defer out.deinit(gpa);
     try testing.expectEqual(@as(usize, 1), out.count());
     try testing.expectApproxEqAbs(@as(f64, 100.0), out.areaMm2(), 0.01);
+}
+
+test "the face index is the same on 1 thread and on 4 threads" {
+    const gpa = std.testing.allocator;
+    // Tubes with many faces (more than one block), at three heights.
+    var b: mesh_mod.Builder = .init(gpa);
+    errdefer b.deinit();
+    try mesh_mod.shapes.addTube(&b, 0, 0, 20, 15, 0, 10, 3000);
+    try mesh_mod.shapes.addTube(&b, 50, 0, 20, 15, 2, 6, 3000);
+    try mesh_mod.shapes.addTube(&b, 0, 50, 20, 15, 5, 12.5, 3000);
+    var m = try b.finish();
+    defer m.deinit(gpa);
+    const layers = try layerTable(gpa, 12.5, 0.3, 0.2);
+    defer gpa.free(layers);
+    var one = try FaceIndex.buildScaled(gpa, &m, layers, 0, 1, 1);
+    defer one.deinit(gpa);
+    var four = try FaceIndex.buildScaled(gpa, &m, layers, 0, 1, 4);
+    defer four.deinit(gpa);
+    try std.testing.expect(m.faces.items.len > 2 * 8192);
+    try std.testing.expectEqualSlices(u32, one.starts, four.starts);
+    try std.testing.expectEqualSlices(u32, one.items, four.items);
 }
