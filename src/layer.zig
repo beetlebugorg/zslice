@@ -124,6 +124,15 @@ pub const Context = struct {
     /// `layer_resolved[k - 1]`. Empty: all layers use `resolved`.
     layer_set: []const u16 = &.{},
     layer_resolved: []const Resolved = &.{},
+    /// When this becomes true, `plan` stops early and returns a plan that
+    /// is not complete (the caller drops it). The memos get only complete
+    /// results.
+    cancel: ?*const std.atomic.Value(bool) = null,
+
+    pub fn canceled(ctx: Context) bool {
+        const c = ctx.cancel orelse return false;
+        return c.load(.acquire);
+    }
 
     /// The settings of layer i, with its overrides.
     pub fn resolvedAt(ctx: Context, i: usize) *const Resolved {
@@ -314,13 +323,14 @@ pub const Memo = struct {
     /// The sparse area of `reg` moved by `delta` (see `fill`), split into
     /// the area under all of the `band` layers above layer i and the rest
     /// (see `TopSplit`).
-    fn topSplit(self: *Memo, reg: Regions, delta: i64, outlines: []const Paths, i: usize, band: u32, gen: u32) Allocator.Error!TopSplit {
+    /// Null if `cancel` became true: then the memo keeps nothing.
+    fn topSplit(self: *Memo, reg: Regions, delta: i64, outlines: []const Paths, i: usize, band: u32, gen: u32, cancel: ?*const std.atomic.Value(bool)) Allocator.Error!?TopSplit {
         for (self.splits.items) |*e| if (e.delta == delta and e.band == band and std.mem.eql(i64, &e.key, &reg.key)) {
             e.gen = gen;
             return e.split;
         };
         const full = try self.fill(reg, false, delta, gen);
-        const u = try self.underBand(outlines, i, band, gen);
+        const u = try self.underBand(outlines, i, band, gen, cancel) orelse return null;
         const a = self.arena.allocator();
         const b = try clip.difference(a, full, u);
         const split: TopSplit = .{ .band = b, .rest = if (b.isEmpty()) full else try clip.intersect(a, full, u) };
@@ -330,7 +340,8 @@ pub const Memo = struct {
 
     /// For the flow infill: the area of all the layers of the band above
     /// layer i (an intersection of their outlines).
-    fn underBand(self: *Memo, outlines: []const Paths, i: usize, band: u32, gen: u32) Allocator.Error!Paths {
+    /// Null if `cancel` became true: then the memo keeps nothing.
+    fn underBand(self: *Memo, outlines: []const Paths, i: usize, band: u32, gen: u32, cancel: ?*const std.atomic.Value(bool)) Allocator.Error!?Paths {
         for (self.bands.items) |*e| if (e.band == band) {
             e.gen = gen;
             return e.paths;
@@ -338,7 +349,9 @@ pub const Memo = struct {
         const a = self.arena.allocator();
         var scratch_state = scratch.get(a);
         defer scratch_state.release();
-        const u = try stackedIntersection(scratch_state.allocator(), outlines, i, band, .up);
+        var stopped = false;
+        const u = try stackedIntersection(scratch_state.allocator(), outlines, i, band, .up, cancel, &stopped);
+        if (stopped) return null;
         const paths = if (u) |v| try v.clone(a) else Paths.empty;
         try self.bands.append(a, .{ .band = band, .paths = paths, .gen = gen });
         return paths;
@@ -346,7 +359,8 @@ pub const Memo = struct {
 };
 
 /// Steps 1 to 4 for layer i, with the results in `memo`. The list of walls
-/// goes in `list_alloc`. `gpa` must be thread-safe if more than one thread
+/// goes in `list_alloc`. If `ctx.cancel` becomes true, the result is not
+/// complete, and the memo gets no result that is not complete. `gpa` must be thread-safe if more than one thread
 /// calls it at the same time.
 pub fn regions(gpa: Allocator, ctx: Context, i: usize, memo: *Memo, list_alloc: Allocator) Allocator.Error!Regions {
     const r = ctx.resolvedAt(i);
@@ -371,6 +385,7 @@ pub fn regions(gpa: Allocator, ctx: Context, i: usize, memo: *Memo, list_alloc: 
         wall_n += 1;
     }
     reg.walls = walls[0..wall_n];
+    if (ctx.canceled()) return reg;
 
     // Thin walls: the parts of the outline that an opening of half a line
     // width removes. Each gets a loop t/4 inside it, with a line of width
@@ -413,6 +428,8 @@ pub fn regions(gpa: Allocator, ctx: Context, i: usize, memo: *Memo, list_alloc: 
         try memo.thins.append(a, .{ .w = w, .thin = thin_loops, .widths = widths.items, .gen = gen });
     }
 
+    if (ctx.canceled()) return reg;
+
     // Step 2. With no walls, the offset of 0 is the outline.
     const inner_delta = -@as(i64, @intCast(p.wall_count)) * w;
     const inner = try memo.offset(outline, inner_delta, gen);
@@ -445,6 +462,7 @@ pub fn regions(gpa: Allocator, ctx: Context, i: usize, memo: *Memo, list_alloc: 
     for (0..r.top_layers) |m| {
         const j = i + m;
         if (j >= n) break;
+        if (ctx.canceled()) return reg;
         const t = if (ctx.tops.len > 0) ctx.tops[j] else (try surfaces(s, ctx.outlines, j))[0];
         const piece = try memo.part(inner, inner_delta, j, true, t, gen);
         if (!piece.isEmpty()) sets += 1;
@@ -458,7 +476,9 @@ pub fn regions(gpa: Allocator, ctx: Context, i: usize, memo: *Memo, list_alloc: 
         if (!piece.isEmpty()) sets += 1;
         try exposed.appendAll(s, piece);
     }
+    if (ctx.canceled()) return reg;
     const raw_skin = if (sets > 1) try clip.unionAll(s, exposed, .non_zero) else exposed;
+    if (ctx.canceled()) return reg;
     // 1. Remove slivers narrower than the removal width.
     const kept = if (removal > 0) try offset_mod.opening(s, raw_skin, removal, .{}) else raw_skin;
     // 2. Expand into the sparse area, inside the walls.
@@ -466,6 +486,7 @@ pub fn regions(gpa: Allocator, ctx: Context, i: usize, memo: *Memo, list_alloc: 
         try clip.intersect(s, try offset_mod.offset(s, kept, expand, .{}), inner)
     else
         kept;
+    if (ctx.canceled()) return reg;
     // 3. Sparse areas too narrow for infill lines print solid.
     var sparse = try clip.difference(s, inner, skin);
     if (solid > 0 and !sparse.isEmpty()) {
@@ -547,12 +568,13 @@ pub fn plan(gpa: Allocator, ctx: Context, i: usize) Allocator.Error!LayerPlan {
         break :blk &own.?;
     };
     const reg = try regions(gpa, ctx, i, memo, s);
+    if (ctx.canceled()) return lp;
     // The flow infill needs the area under the band above.
     var under_band: ?Paths = null;
     if (p.infill_pattern == .flow and p.infill_density > 0 and !reg.sparse.isEmpty()) {
         const band_mm = @max(2.0, 3 * p.top_thickness);
         const band: u32 = @intFromFloat(@ceil(band_mm / p.layer_height));
-        under_band = try memo.underBand(ctx.outlines, i, band, ctx.gen);
+        under_band = try memo.underBand(ctx.outlines, i, band, ctx.gen, ctx.cancel) orelse return lp;
     }
     const walls = reg.walls;
     const wall_n = walls.len;
@@ -587,7 +609,8 @@ pub fn plan(gpa: Allocator, ctx: Context, i: usize) Allocator.Error!LayerPlan {
         // fills the rest (`region`). The flow pattern has its own band.
         var region = full_region;
         if (p.top_support_layers > 0 and p.top_support_density > p.infill_density and p.infill_pattern != .flow) {
-            region = (try memo.topSplit(reg, inset, ctx.outlines, i, r.top_layers + p.top_support_layers, ctx.gen)).rest;
+            const split = try memo.topSplit(reg, inset, ctx.outlines, i, r.top_layers + p.top_support_layers, ctx.gen, ctx.cancel) orelse return lp;
+            region = split.rest;
         }
         switch (p.infill_pattern) {
             .lines => {
@@ -669,7 +692,8 @@ pub fn plan(gpa: Allocator, ctx: Context, i: usize) Allocator.Error!LayerPlan {
     // degrees on the next, and joined at the walls.
     if (p.top_support_layers > 0 and p.top_support_density > p.infill_density and p.infill_pattern != .flow and p.infill_density > 0 and !sparse.isEmpty()) {
         const inset = -@divTrunc(w, 2) + geom.fromMm(p.infill_overlap * width_mm);
-        const band = (try memo.topSplit(reg, inset, ctx.outlines, i, r.top_layers + p.top_support_layers, ctx.gen)).band;
+        const split = try memo.topSplit(reg, inset, ctx.outlines, i, r.top_layers + p.top_support_layers, ctx.gen, ctx.cancel) orelse return lp;
+        const band = split.band;
         if (!band.isEmpty()) {
             const spacing = geom.fromMm(width_mm / p.top_support_density);
             const angle = p.infill_angle + @as(f64, if (i % 2 == 0) 0 else 90);
@@ -678,6 +702,8 @@ pub fn plan(gpa: Allocator, ctx: Context, i: usize) Allocator.Error!LayerPlan {
             try sparse_lines.appendAll(s, joined);
         }
     }
+
+    if (ctx.canceled()) return lp;
 
     // Step 6.
     var ironing_lines: Paths = .empty;
@@ -891,10 +917,16 @@ const Direction = enum { up, down };
 /// The intersection of the outlines of the `n` layers above (or below)
 /// layer i. Returns null if n is 0 (no limit). Returns an empty set if the
 /// part ends before n layers.
-fn stackedIntersection(s: Allocator, outlines: []const Paths, i: usize, n: u32, dir: Direction) Allocator.Error!?Paths {
+/// `stopped` becomes true if `cancel` becomes true; then the result is not
+/// complete.
+fn stackedIntersection(s: Allocator, outlines: []const Paths, i: usize, n: u32, dir: Direction, cancel: ?*const std.atomic.Value(bool), stopped: *bool) Allocator.Error!?Paths {
     if (n == 0) return null;
     var acc: Paths = .empty;
     for (1..n + 1) |j| {
+        if (cancel) |c| if (c.load(.acquire)) {
+            stopped.* = true;
+            return null;
+        };
         const idx = switch (dir) {
             .up => if (i + j < outlines.len) i + j else return .empty,
             .down => if (i >= j) i - j else return .empty,

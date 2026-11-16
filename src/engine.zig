@@ -528,7 +528,10 @@ pub const Job = struct {
         defer gpa.free(slots);
         for (slots) |*sl| sl.* = .{ .text = .init(gpa) };
         defer for (slots) |*sl| sl.deinit(gpa);
-        var pipe: Pipeline = .{ .gpa = gpa, .ctx = self.planContext(), .slots = slots, .n = self.layers.len, .monitor = self.monitor, .record = sink != null, .keep_memos = self.keep_memos };
+        var plan_ctx = self.planContext();
+        // A cancel stops a layer plan early.
+        plan_ctx.cancel = self.monitor.cancel;
+        var pipe: Pipeline = .{ .gpa = gpa, .ctx = plan_ctx, .slots = slots, .n = self.layers.len, .monitor = self.monitor, .record = sink != null, .keep_memos = self.keep_memos };
 
         // The other threads plan layers and write their text. This thread
         // runs the emitter: a dry run of each layer in order (see
@@ -706,6 +709,13 @@ const Pipeline = struct {
             p.fail(e);
             return true;
         };
+        if (p.monitor.canceled()) {
+            // The plan can be one that stopped early.
+            slot.plan.?.deinit();
+            slot.plan = null;
+            p.fail(error.Canceled);
+            return true;
+        }
         // The work of the emitter that the layers before do not change,
         // here on a planning thread, and not in the dry run on the emitter
         // thread.
