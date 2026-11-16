@@ -713,7 +713,9 @@ pub const Emitter = struct {
     fn nonPlanar(self: *Emitter, lp: *const LayerPlan, path: layer_mod.Path, pts: []const geom.Point, speed: f64) Error!f64 {
         const m = self.r.settings.machine;
         const data = lp.point_z.items[path.z_start..][0..pts.len];
-        const e_scale = self.r.settings.filament.flow_ratio / self.r.filament_area;
+        // The flow ratio of the layer (see `lr`).
+        const flow_ratio = self.lr.settings.filament.flow_ratio;
+        const e_scale = flow_ratio / self.r.filament_area;
         try self.unretract();
         try self.zTo(data[0].z);
         var cz: f64 = data[0].z;
@@ -759,7 +761,7 @@ pub const Emitter = struct {
         }
         self.extruded = true;
         try self.zTo(self.z);
-        return if (len_sum > 0) area_sum / len_sum * self.r.settings.filament.flow_ratio else data[0].area * self.r.settings.filament.flow_ratio;
+        return if (len_sum > 0) area_sum / len_sum * flow_ratio else data[0].area * flow_ratio;
     }
 
     /// A Z move to z, from rest to rest, with no extrusion. The emitter

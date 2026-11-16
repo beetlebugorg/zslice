@@ -197,9 +197,12 @@ fn stepPaths(s: Allocator, in: Input, i: usize, region: Paths, pass: Pass) Alloc
     const outline = in.outlines[i];
     const below = in.outlines[i - 1];
     if (outline.isEmpty() or below.isEmpty()) return &.{};
+    // The height of this layer (it can differ from the layer height of
+    // the settings, see slicer.layerTableSpans). The layer starts at the
+    // top of the layer below.
     const z_top = in.layers[i].z;
-    const z_low = in.layers[i - 1].z;
-    const h = z_top - z_low;
+    const h = in.layers[i].height;
+    const z_low = z_top - h;
     if (!(h > 0)) return &.{};
     if (region.isEmpty()) return &.{};
 

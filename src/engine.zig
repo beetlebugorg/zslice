@@ -1540,6 +1540,59 @@ test "an override of the G-code settings changes only the layers in its range" {
     try testing.expect(std.mem.indexOf(u8, a[14], "M104") == null);
 }
 
+/// The G-code of a wedge (its top rises 5 mm over 20 mm) with the
+/// overrides.
+fn wedgeGcode(gpa: Allocator, overrides: []const settings_mod.Override) ![]u8 {
+    var mesh = try mesh_mod.shapes.wedge(gpa, 20, 20, 1, 6);
+    defer mesh.deinit(gpa);
+    var s: Settings = .{};
+    s.engine.threads = 2;
+    s.machine.nozzle_tip_radius = 0.35;
+    var job = try Job.initFull(gpa, &mesh, s, overrides, .{});
+    defer job.deinit();
+    var out: Writer.Allocating = .init(gpa);
+    defer out.deinit();
+    _ = try job.writeGcode(&out.writer);
+    return out.toOwnedSlice();
+}
+
+/// The text of the paths of one type in a layer, up to the next type.
+fn typeText(layer: []const u8, name: []const u8) []const u8 {
+    const at = std.mem.indexOf(u8, layer, name) orelse return "";
+    const end = std.mem.indexOfPos(u8, layer, at + name.len, ";TYPE:") orelse layer.len;
+    return layer[at..end];
+}
+
+test "an override of slope smoothing and ironing changes only the layers in its range" {
+    const gpa = testing.allocator;
+    const on = [_]settings_mod.Override{
+        .{ .z_min = 3, .z_max = 4, .name = "project.slope_smoothing", .value = "true" },
+        .{ .z_min = 3, .z_max = 4, .name = "project.slope_ironing", .value = "true" },
+    };
+    const a_text = try wedgeGcode(gpa, &on);
+    defer gpa.free(a_text);
+    // The same, with more flow on the layers of the range.
+    const more = on ++ [_]settings_mod.Override{.{ .z_min = 3, .z_max = 4, .name = "filament.flow_ratio", .value = "1.1" }};
+    const b_text = try wedgeGcode(gpa, &more);
+    defer gpa.free(b_text);
+    const a = try layerTexts(gpa, a_text);
+    defer gpa.free(a);
+    const b = try layerTexts(gpa, b_text);
+    defer gpa.free(b);
+    // Layer i has its top at 0.3 + 0.2 i: layers 14 to 18 are in the range.
+    for (a, b, 0..) |la, lb, i| {
+        const in_range = i >= 14 and i <= 18;
+        try testing.expectEqual(in_range, std.mem.indexOf(u8, la, ";TYPE:SLOPE-SMOOTHING") != null);
+        try testing.expectEqual(in_range, std.mem.indexOf(u8, la, ";TYPE:SLOPE-IRONING") != null);
+        if (in_range) {
+            const ea = extrusion(typeText(la, ";TYPE:SLOPE-SMOOTHING"));
+            const eb = extrusion(typeText(lb, ";TYPE:SLOPE-SMOOTHING"));
+            try testing.expect(ea > 0);
+            try testing.expectApproxEqRel(1.1 * ea, eb, 2e-3);
+        }
+    }
+}
+
 test "a retraction and its push back have the same length at a change of the retraction" {
     const gpa = testing.allocator;
     const o = [_]settings_mod.Override{
