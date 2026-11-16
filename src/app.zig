@@ -913,6 +913,16 @@ const preview_notes = [_]struct { []const u8, [:0]const u8 }{
     .{ "machine.name", "The name of the printer, for the profiles and the start G-code." },
     .{ "machine.max_height", "A check: a part higher than this does not slice." },
     .{ "machine.max_z_speed", "The speed of the Z moves between layers. It changes the print time (see the status bar)." },
+    .{ "machine.max_accel", "The acceleration of the head. It changes the print time (see the status bar), and the acceleration commands in the G-code." },
+    .{ "machine.corner_speed", "The speed of the head at a corner. It changes the print time (see the status bar)." },
+    .{ "machine.accel_control", "Acceleration commands in the G-code (M204, or SET_VELOCITY_LIMIT in Klipper). The lines do not move." },
+    .{ "machine.gcode_flavor", "The dialect of the acceleration commands in the G-code." },
+    .{ "project.outer_wall_accel", "The acceleration of the outer walls: the G-code commands and the print time. The lines do not move." },
+    .{ "project.inner_wall_accel", "The acceleration of the inner walls: the G-code commands and the print time. The lines do not move." },
+    .{ "project.skin_accel", "The acceleration of the skin: the G-code commands and the print time. The lines do not move." },
+    .{ "project.infill_accel", "The acceleration of the infill: the G-code commands and the print time. The lines do not move." },
+    .{ "project.travel_accel", "The acceleration of the travel moves: the G-code commands and the print time." },
+    .{ "project.first_layer_accel", "The acceleration of the first layer: the G-code commands and the print time." },
     .{ "machine.start_gcode", "The G-code before the print: heating, homing, and the purge line." },
     .{ "machine.end_gcode", "The G-code after the print." },
     .{ "machine.extruder", "The extruder type, for the retraction defaults." },
@@ -948,6 +958,10 @@ pub fn settingEffect(name: []const u8) SettingEffect {
     // A mark setting (the seam, travel, retraction) shows its marks only:
     // the lines around them would hide them.
     for (mark_settings) |m| if (std.mem.eql(u8, m[0], name)) return .{ .features = m[1] };
+    // A wall thickness sets the wall count; the slow layers change the
+    // speed of all lines on the layers after the first.
+    if (std.mem.eql(u8, name, "project.wall_thickness")) return settingEffect("project.wall_count");
+    if (std.mem.eql(u8, name, "project.slow_layers")) return .{ .features = no_ironing };
     for (all_lines_settings) |n| if (std.mem.eql(u8, n, name)) {
         e.features = all;
     };
@@ -1342,6 +1356,11 @@ const units = [_][2][]const u8{
     .{ "machine.max_height", "mm" },           .{ "machine.nozzle_diameter", "mm" },
     .{ "machine.max_speed", "mm/s" },          .{ "machine.travel_speed", "mm/s" },
     .{ "machine.max_z_speed", "mm/s" },        .{ "machine.retract_length", "mm" },
+    .{ "machine.max_accel", "mm/s²" },         .{ "machine.corner_speed", "mm/s" },
+    .{ "project.wall_thickness", "mm" },       .{ "project.slow_layers", "layers" },
+    .{ "project.outer_wall_accel", "mm/s²" },  .{ "project.inner_wall_accel", "mm/s²" },
+    .{ "project.skin_accel", "mm/s²" },        .{ "project.infill_accel", "mm/s²" },
+    .{ "project.travel_accel", "mm/s²" },      .{ "project.first_layer_accel", "mm/s²" },
     .{ "machine.retract_speed", "mm/s" },
     // filament
     .{ "filament.diameter", "mm" },            .{ "filament.density", "g/cm\u{b3}" },
@@ -1415,6 +1434,11 @@ const sliders = [_]struct { []const u8, f64, f64, f64 }{
     .{ "filament.max_flow", 2, 40, 0.5 },              .{ "filament.standby_temp", 0, 250, 5 },
     .{ "machine.max_speed", 20, 500, 5 },            .{ "machine.travel_speed", 20, 500, 5 },
     .{ "machine.max_z_speed", 1, 30, 1 },            .{ "machine.retract_length", 0, 8, 0.1 },
+    .{ "machine.max_accel", 100, 10000, 100 },       .{ "machine.corner_speed", 0, 30, 1 },
+    .{ "project.wall_thickness", 0, 5, 0.1 },        .{ "project.slow_layers", 0, 10, 1 },
+    .{ "project.outer_wall_accel", 0, 10000, 100 },  .{ "project.inner_wall_accel", 0, 10000, 100 },
+    .{ "project.skin_accel", 0, 10000, 100 },        .{ "project.infill_accel", 0, 10000, 100 },
+    .{ "project.travel_accel", 0, 10000, 100 },      .{ "project.first_layer_accel", 0, 10000, 100 },
     .{ "machine.retract_speed", 10, 80, 5 },         .{ "machine.nozzle_diameter", 0.2, 1.2, 0.05 },
     .{ "engine.gap_closing", 0, 3, 0.1 },
     .{ "project.support_tree_angle", 10, 60, 1 },  .{ "project.support_tree_spacing", 1, 10, 0.5 },

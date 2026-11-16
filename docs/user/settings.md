@@ -58,6 +58,22 @@ The speed of travel moves (moves with no extrusion).
 
 The speed of Z moves at each layer change.
 
+**`machine.max_accel`** (number). Default: `1500`
+
+The acceleration of the print head in X and Y, in mm/s². The time estimate uses it, and it is the acceleration of each feature that has no acceleration of its own (0 in the project).
+
+**`machine.corner_speed`** (number). Default: `8`
+
+The speed at which the head turns a corner with no stop (jerk in Marlin, square corner velocity in Klipper), in mm/s. The time estimate uses it.
+
+**`machine.accel_control`** (true or false). Default: `false`
+
+Write acceleration commands in the G-code: the acceleration of each feature (project `*_accel`), and the corner speed at the start. Off: the printer uses its own values; the time estimate still uses `max_accel` and `corner_speed`.
+
+**`machine.gcode_flavor`** (one of: `marlin`, `klipper`). Default: `marlin`
+
+The G-code dialect of the acceleration commands. `marlin`: M204 S and M205 X Y. `klipper`: SET_VELOCITY_LIMIT ACCEL and SQUARE_CORNER_VELOCITY.
+
 ### Extruder
 
 **`machine.extruder`** (one of: `direct`, `bowden`). Default: `direct`
@@ -236,6 +252,10 @@ The line width on the first layer. 0 uses 1.25 x the nozzle diameter.
 
 The number of walls (loops) around the outline of each layer.
 
+**`project.wall_thickness`** (number). Default: `0`
+
+The thickness of the walls, in mm, as in Cura: the wall count is this thickness divided by the line width, rounded (at least 1). 0: use `wall_count`.
+
 **`project.thin_walls`** (true or false). Default: `true`
 
 Print parts of the outline that are thinner than one line width (a thin fin, a sheet, a label): a loop inside each thin part, with a narrower line, so that its two sides fill the thickness. Without it, these parts print nothing.
@@ -344,11 +364,49 @@ The sparse infill speed, as a ratio of the allowed speed.
 
 The speed of all lines on the first layer, as a ratio of the allowed speed.
 
+**`project.slow_layers`** (integer). Default: `0`
+
+The layers after the first that print slower: their speed goes up in even steps from the first layer speed to the full speed, so that the part bonds to the bed. 0: the second layer prints at full speed.
+
+### Acceleration
+
+**`project.outer_wall_accel`** (number). Default: `0`
+
+The acceleration of the outer wall, in mm/s². A lower value gives a cleaner surface. 0: the machine `max_accel`. The G-code has it only with machine `accel_control`.
+
+**`project.inner_wall_accel`** (number). Default: `0`
+
+The acceleration of the inner walls and the skirt, in mm/s². 0: the machine `max_accel`.
+
+**`project.skin_accel`** (number). Default: `0`
+
+The acceleration of the skin, in mm/s². 0: the machine `max_accel`.
+
+**`project.infill_accel`** (number). Default: `0`
+
+The acceleration of the sparse infill and the support, in mm/s². 0: the machine `max_accel`.
+
+**`project.travel_accel`** (number). Default: `0`
+
+The acceleration of travel moves, in mm/s². 0: the machine `max_accel`.
+
+**`project.first_layer_accel`** (number). Default: `0`
+
+The acceleration of all lines on the first layer, in mm/s². 0: the acceleration of each feature.
+
 ### Travel
 
 **`project.retract_min_travel`** (number). Default: `1.5`
 
 Travel moves shorter than this do not retract.
+
+**`project.combing`** (true or false). Default: `true`
+
+Combing: a travel move that stays inside the part (it crosses no outline of the layer) does not retract, because an ooze there is inside the part. Off: each travel longer than `retract_min_travel` retracts.
+
+**`project.combing_max_distance`** (number). Default: `0`
+
+A travel inside the part that is longer than this retracts all the same (a long move can ooze a string over a top surface). 0: no limit.
 
 **`project.z_hop`** (number). Default: `0`
 

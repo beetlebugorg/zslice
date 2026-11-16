@@ -35,6 +35,8 @@ pub const SupportMode = enum { off, everywhere, buildplate };
 pub const CoolingMode = enum { slow_down, lap };
 /// The shape of the support. See `Project.support_style`.
 pub const SupportStyle = enum { grid, tree };
+/// The G-code dialect for the acceleration commands. See `Machine.gcode_flavor`.
+pub const GcodeFlavor = enum { marlin, klipper };
 pub const ExtruderKind = enum { direct, bowden };
 
 pub const Machine = struct {
@@ -69,6 +71,23 @@ pub const Machine = struct {
     travel_speed: f64 = 150,
     /// The speed of Z moves at each layer change.
     max_z_speed: f64 = 10,
+    /// The acceleration of the print head in X and Y, in mm/s². The time
+    /// estimate uses it, and it is the acceleration of each feature that
+    /// has no acceleration of its own (0 in the project).
+    max_accel: f64 = 1500,
+    /// The speed at which the head turns a corner with no stop (jerk in
+    /// Marlin, square corner velocity in Klipper), in mm/s. The time
+    /// estimate uses it.
+    corner_speed: f64 = 8,
+    /// Write acceleration commands in the G-code: the acceleration of each
+    /// feature (project `*_accel`), and the corner speed at the start.
+    /// Off: the printer uses its own values; the time estimate still uses
+    /// `max_accel` and `corner_speed`.
+    accel_control: bool = false,
+    /// The G-code dialect of the acceleration commands. `marlin`: M204 S and
+    /// M205 X Y. `klipper`: SET_VELOCITY_LIMIT ACCEL and
+    /// SQUARE_CORNER_VELOCITY.
+    gcode_flavor: GcodeFlavor = .marlin,
 
     // Extruder
     /// The extruder type. `direct`: the motor is on the print head. `bowden`: the motor pushes the filament through a long tube.
@@ -195,6 +214,10 @@ pub const Project = struct {
     // Walls
     /// The number of walls (loops) around the outline of each layer.
     wall_count: u32 = 2,
+    /// The thickness of the walls, in mm, as in Cura: the wall count is
+    /// this thickness divided by the line width, rounded (at least 1). 0:
+    /// use `wall_count`.
+    wall_thickness: f64 = 0,
     /// Print parts of the outline that are thinner than one line width
     /// (a thin fin, a sheet, a label): a loop inside each thin part, with a
     /// narrower line, so that its two sides fill the thickness. Without
@@ -293,6 +316,30 @@ pub const Project = struct {
     infill_speed: f64 = 1.0,
     /// The speed of all lines on the first layer, as a ratio of the allowed speed.
     first_layer_speed: f64 = 0.3,
+    /// The layers after the first that print slower: their speed goes up in
+    /// even steps from the first layer speed to the full speed, so that
+    /// the part bonds to the bed. 0: the second layer prints at full speed.
+    slow_layers: u32 = 0,
+
+    // Acceleration
+    /// The acceleration of the outer wall, in mm/s². A lower value gives a
+    /// cleaner surface. 0: the machine `max_accel`. The G-code has it only
+    /// with machine `accel_control`.
+    outer_wall_accel: f64 = 0,
+    /// The acceleration of the inner walls and the skirt, in mm/s². 0: the
+    /// machine `max_accel`.
+    inner_wall_accel: f64 = 0,
+    /// The acceleration of the skin, in mm/s². 0: the machine `max_accel`.
+    skin_accel: f64 = 0,
+    /// The acceleration of the sparse infill and the support, in mm/s². 0:
+    /// the machine `max_accel`.
+    infill_accel: f64 = 0,
+    /// The acceleration of travel moves, in mm/s². 0: the machine
+    /// `max_accel`.
+    travel_accel: f64 = 0,
+    /// The acceleration of all lines on the first layer, in mm/s². 0: the
+    /// acceleration of each feature.
+    first_layer_accel: f64 = 0,
 
     // Travel
     /// Travel moves shorter than this do not retract.
@@ -452,8 +499,12 @@ pub const Settings = struct {
         if (p.layer_height > w or p.first_layer_height > w0) return error.InvalidValue;
         if (!(f.shrinkage_xy > 0.5 and f.shrinkage_xy < 1.5 and f.shrinkage_z > 0.5 and f.shrinkage_z < 1.5)) return error.InvalidValue;
         const r = f.diameter / 2;
+        // A wall thickness sets the wall count, as in Cura.
+        var out_settings = self;
+        if (p.wall_thickness > 0) out_settings.project.wall_count = @max(1, @as(u32, @intFromFloat(@round(p.wall_thickness / w))));
+        if (!(m.max_accel > 0 and m.corner_speed >= 0)) return error.InvalidValue;
         return .{
-            .settings = self,
+            .settings = out_settings,
             .line_width = w,
             .first_layer_line_width = w0,
             .top_layers = @intFromFloat(@ceil(p.top_thickness / p.layer_height - 1e-6)),
@@ -490,6 +541,35 @@ pub const Resolved = struct {
     /// the speed limit of the machine, and the speed at which the line uses
     /// the maximum flow of the filament. The project ratio of the feature
     /// then scales it. Ironing uses only the machine limit.
+    /// The speed of a line on layer `layer`: `speed`, with the ramp of the
+    /// slow layers after the first (`slow_layers`).
+    pub fn speedAt(self: Resolved, feature: Feature, width: f64, height: f64, layer: usize) f64 {
+        const full = self.speed(feature, width, height, layer == 0);
+        const n = self.settings.project.slow_layers;
+        if (layer == 0 or layer > n or feature == .ironing) return full;
+        // From the first layer speed (layer 0) up to the full speed (layer
+        // n + 1), in even steps.
+        const first = self.speed(feature, width, height, true);
+        if (first >= full) return full;
+        const t = @as(f64, @floatFromInt(layer)) / @as(f64, @floatFromInt(n + 1));
+        return first + (full - first) * t;
+    }
+
+    /// The acceleration of a feature on a layer, in mm/s² (`null` feature:
+    /// travel).
+    pub fn accel(self: Resolved, feature: ?Feature, first_layer: bool) f64 {
+        const p = self.settings.project;
+        const max = self.settings.machine.max_accel;
+        if (first_layer and p.first_layer_accel > 0 and feature != null) return @min(max, p.first_layer_accel);
+        const a = if (feature) |f| switch (f) {
+            .outer_wall => p.outer_wall_accel,
+            .inner_wall, .skirt => p.inner_wall_accel,
+            .skin, .support_interface, .ironing => p.skin_accel,
+            .infill, .support => p.infill_accel,
+        } else p.travel_accel;
+        return if (a > 0) @min(max, a) else max;
+    }
+
     pub fn speed(self: Resolved, feature: Feature, width: f64, height: f64, first_layer: bool) f64 {
         const p = self.settings.project;
         if (feature == .ironing) return self.settings.machine.max_speed * p.ironing_speed;
@@ -582,6 +662,11 @@ pub const limits = [_]struct { []const u8, f64, f64 }{
     .{ "machine.max_height", 10, 2000 },           .{ "machine.nozzle_diameter", 0.1, 2 },
     .{ "machine.max_speed", 1, 2000 },             .{ "machine.travel_speed", 1, 2000 },
     .{ "machine.max_z_speed", 0.1, 200 },          .{ "machine.retract_length", 0, 20 },
+    .{ "machine.max_accel", 10, 100000 },          .{ "machine.corner_speed", 0, 100 },
+    .{ "project.wall_thickness", 0, 50 },          .{ "project.slow_layers", 0, 50 },
+    .{ "project.outer_wall_accel", 0, 100000 },    .{ "project.inner_wall_accel", 0, 100000 },
+    .{ "project.skin_accel", 0, 100000 },          .{ "project.infill_accel", 0, 100000 },
+    .{ "project.travel_accel", 0, 100000 },        .{ "project.first_layer_accel", 0, 100000 },
     .{ "machine.retract_speed", 1, 200 },
     // filament
     .{ "filament.diameter", 1, 3.5 },              .{ "filament.density", 0.5, 3 },

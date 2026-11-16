@@ -95,6 +95,10 @@ pub const Emitter = struct {
     /// quickly. Then a copy of the emitter with that state can write the
     /// text of the layer on another thread (see engine.zig).
     dry: bool = false,
+    /// The acceleration now (mm/s²), and the direction of the last move
+    /// (for the time estimate at each corner).
+    accel: f64 = 0,
+    dir: [2]f64 = .{ 0, 0 },
 
     pub fn init(w: *Writer, r: *const Resolved) Emitter {
         return .{ .w = w, .r = r };
@@ -108,6 +112,56 @@ pub const Emitter = struct {
         try self.writeTemplate(s.machine.start_gcode);
         try self.w.writeAll("\nM83 ; relative extrusion\nM107\n");
         self.fan = 0;
+        // The corner speed, once, with acceleration control.
+        const m = s.machine;
+        if (m.accel_control) switch (m.gcode_flavor) {
+            .marlin => {
+                try self.w.writeAll("M205 X");
+                try writeNum(self.w, m.corner_speed, 2);
+                try self.w.writeAll(" Y");
+                try writeNum(self.w, m.corner_speed, 2);
+                try self.w.writeAll(" ; corner speed (jerk)\n");
+            },
+            .klipper => {
+                try self.w.writeAll("SET_VELOCITY_LIMIT SQUARE_CORNER_VELOCITY=");
+                try writeNum(self.w, m.corner_speed, 2);
+                try self.w.writeAll("\n");
+            },
+        };
+    }
+
+    /// The acceleration for the next moves. With acceleration control, a
+    /// new value goes into the G-code (M204 S, or SET_VELOCITY_LIMIT ACCEL).
+    fn setAccel(self: *Emitter, a: f64) Writer.Error!void {
+        if (a == self.accel) return;
+        self.accel = a;
+        const m = self.r.settings.machine;
+        if (!m.accel_control or self.dry) return;
+        switch (m.gcode_flavor) {
+            .marlin => try self.w.writeAll("M204 S"),
+            .klipper => try self.w.writeAll("SET_VELOCITY_LIMIT ACCEL="),
+        }
+        try writeNum(self.w, a, 0);
+        try self.w.writeAll("\n");
+    }
+
+    /// The time of a straight move of length d at speed v, with the
+    /// acceleration now: it starts and ends at the corner speed, unless
+    /// the move goes on nearly straight from the last one. The end is
+    /// taken the same as the start.
+    fn moveTime(self: *Emitter, dx: f64, dy: f64, d: f64, v: f64) f64 {
+        const a = if (self.accel > 0) self.accel else self.r.settings.machine.max_accel;
+        const ux = dx / d;
+        const uy = dy / d;
+        const cos = ux * self.dir[0] + uy * self.dir[1];
+        self.dir = .{ ux, uy };
+        const corner = @min(v, self.r.settings.machine.corner_speed);
+        const vj = if (cos > 0.99) v else if (cos > 0.7) @max(corner, v * 0.5) else corner;
+        if (!(a > 0) or vj >= v) return d / v;
+        const d_acc = (v * v - vj * vj) / (2 * a);
+        if (2 * d_acc <= d) return (d - 2 * d_acc) / v + 2 * (v - vj) / a;
+        const vp = @sqrt(vj * vj + a * d);
+        return 2 * (vp - vj) / a;
     }
 
     pub fn end(self: *Emitter) Writer.Error!void {
@@ -139,7 +193,7 @@ pub const Emitter = struct {
             try self.w.writeAll("\n");
         }
         // Cooling.
-        const est = self.estimate(lp, first);
+        const est = self.estimate(lp);
         const layer_time = est.extrude_s + est.travel_s;
         const ratio = if (lp.index < s.filament.fan_off_layers)
             0
@@ -190,13 +244,15 @@ pub const Emitter = struct {
                 continue;
             }
             const retractions = self.stats.retractions;
+            try self.setAccel(lr.accel(null, first));
             try self.travel(geom.toMm(pts[0].x), geom.toMm(pts[0].y));
+            try self.setAccel(lr.accel(path.feature, first));
             const retracted = self.stats.retractions != retractions;
             if (self.feature != path.feature) {
                 self.feature = path.feature;
                 try self.w.print(";TYPE:{s}\n", .{typeName(path.feature)});
             }
-            const full = lr.speed(path.feature, lp.width, lp.height, first);
+            const full = lr.speedAt(path.feature, lp.width, lp.height, lp.index);
             const speed = if (slow < 1) @max(full * slow, @min(full, s.filament.min_speed)) else full;
             const start_time = self.stats.print_time_s;
             // Ironing lines use a fraction of the flow of a normal line.
@@ -276,7 +332,7 @@ pub const Emitter = struct {
 
     /// The time of a layer at full speed, with the same distances and
     /// speeds that `layer` writes.
-    fn estimate(self: *const Emitter, lp: *const LayerPlan, first: bool) Estimate {
+    fn estimate(self: *const Emitter, lp: *const LayerPlan) Estimate {
         var est: Estimate = .{ .extrude_s = 0, .travel_s = 0 };
         var x = self.x;
         var y = self.y;
@@ -285,7 +341,7 @@ pub const Emitter = struct {
         for (lp.paths.items, 0..) |path, i| {
             const pts = lp.points.get(i);
             if (pts.len == 0) continue;
-            const speed = lr.speed(path.feature, lp.width, lp.height, first);
+            const speed = lr.speedAt(path.feature, lp.width, lp.height, lp.index);
             var px = geom.toMm(pts[0].x);
             var py = geom.toMm(pts[0].y);
             est.travel_s += std.math.hypot(px - x, py - y) / travel_speed;
@@ -373,10 +429,10 @@ pub const Emitter = struct {
         self.addFeed(&line, speed);
         line.add("\n");
         try self.w.writeAll(line.text());
+        self.stats.print_time_s += self.moveTime(x - self.x, y - self.y, d, speed);
         self.x = x;
         self.y = y;
         self.stats.travel_mm += d;
-        self.stats.print_time_s += d / speed;
     }
 
     /// Combing: a way from the nozzle to x, y inside the outline of the
@@ -495,11 +551,11 @@ pub const Emitter = struct {
         self.addFeed(&line, speed);
         line.add("\n");
         try self.w.writeAll(line.text());
+        self.stats.print_time_s += self.moveTime(x - self.x, y - self.y, d, speed);
         self.x = x;
         self.y = y;
         self.stats.filament_mm += e;
         self.extruded = true;
-        self.stats.print_time_s += d / speed;
     }
 
     /// `writeFeed`, into a line.
