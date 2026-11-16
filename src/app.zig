@@ -99,6 +99,12 @@ pub const App = struct {
     /// Only the worker uses it while a slice runs.
     prev_job: ?zs.Job = null,
     gcode_bytes: []u8 = &.{},
+    /// The memory of `gcode_bytes`: it can be larger.
+    gcode_buf: []u8 = &.{},
+    /// The memory of the results before, for the next slice. A new slice
+    /// fills the same arrays, so it does not grow them again from zero.
+    spare_gcode: []u8 = &.{},
+    spare_paths: Toolpaths = .{},
     stats: zs.Stats = .{},
     part_box: [4]f64 = .{ 0, 0, 0, 0 },
     toolpaths: Toolpaths = .{},
@@ -129,6 +135,8 @@ pub const App = struct {
         app.stopWorker();
         app.clearResults();
         app.dropPrevJob();
+        app.gpa.free(app.spare_gcode);
+        app.spare_paths.deinit(app.gpa);
         app.overrides.deinit(app.gpa);
         app.gpa.free(app.slice_overrides);
         app.gpa.free(app.file_bytes);
@@ -584,7 +592,7 @@ pub const App = struct {
             app.prev_job = j;
             app.job = null;
         }
-        app.clearResults();
+        app.recycleResults();
         // The mesh of the plate, made again after a change.
         if (app.plate_changed) {
             const m = try app.plate.combined(app.gpa);
@@ -664,9 +672,23 @@ pub const App = struct {
         app.toolpaths.deinit(app.gpa);
         if (app.job) |*j| j.deinit();
         app.job = null;
-        app.gpa.free(app.gcode_bytes);
+        app.gpa.free(app.gcode_buf);
+        app.gcode_buf = &.{};
         app.gcode_bytes = &.{};
         app.stats = .{};
+    }
+
+    /// `clearResults`, but the memory of the G-code and the toolpaths
+    /// stays for the next slice.
+    fn recycleResults(app: *App) void {
+        app.gpa.free(app.spare_gcode);
+        app.spare_gcode = app.gcode_buf;
+        app.gcode_buf = &.{};
+        app.gcode_bytes = &.{};
+        app.spare_paths.deinit(app.gpa);
+        app.spare_paths = app.toolpaths;
+        app.toolpaths = .{};
+        app.clearResults();
     }
 
     fn emit(app: *App, event: Event, progress: f64, status: c_int) void {
@@ -703,8 +725,14 @@ pub const App = struct {
         // old job goes in each case.
         app.dropPrevJob();
         var job = job_or catch |e| return app.finishFailed(e);
-        var out: std.Io.Writer.Allocating = .init(app.gpa);
-        var store: Toolpaths = .{ .gpa = app.gpa, .z_hop = @floatCast(part.project.z_hop) };
+        var out: std.Io.Writer.Allocating = .initOwnedSlice(app.gpa, app.spare_gcode);
+        app.spare_gcode = &.{};
+        out.clearRetainingCapacity();
+        var store = app.spare_paths;
+        app.spare_paths = .{};
+        store.clearRetainingCapacity();
+        store.gpa = app.gpa;
+        store.z_hop = @floatCast(part.project.z_hop);
         const sink: zs.engine.Job.LayerSink = .{ .ctx = &store, .func = Toolpaths.addLayer };
         const stats = job.writeGcodeWith(&out.writer, sink) catch |e| {
             store.deinit(app.gpa);
@@ -712,12 +740,10 @@ pub const App = struct {
             app.keepForRegions(job);
             return app.finishFailed(e);
         };
-        const bytes = out.toOwnedSlice() catch |e| {
-            store.deinit(app.gpa);
-            out.deinit();
-            job.deinit();
-            return app.finishFailed(e);
-        };
+        // The buffer can be larger than the text. It stays, for the next
+        // slice.
+        const bytes = out.written();
+        const buf = out.writer.buffer;
 
         var box = zs.geom.Box.empty;
         for (job.outlines) |o| {
@@ -733,6 +759,7 @@ pub const App = struct {
         app.job = job;
         app.toolpaths = store;
         app.gcode_bytes = bytes;
+        app.gcode_buf = buf;
         app.stats = stats;
         app.state.store(.done, .release);
         app.emit(.sliced, 1, 0);
@@ -1368,23 +1395,42 @@ pub const Toolpaths = struct {
         t.* = .{};
     }
 
+    /// Empties the arrays, and keeps their memory.
+    pub fn clearRetainingCapacity(t: *Toolpaths) void {
+        inline for (@typeInfo(Toolpaths).@"struct".fields) |f| {
+            if (@typeInfo(f.type) == .@"struct" and @hasDecl(f.type, "clearRetainingCapacity")) {
+                @field(t, f.name).clearRetainingCapacity();
+            }
+        }
+    }
+
     /// A Job.LayerSink function. `ctx` is a *Toolpaths whose `gpa` is set.
     fn addLayer(ctx: ?*anyopaque, plan: *const zs.layer.LayerPlan, infos: []const zs.gcode.PathInfo) anyerror!void {
         const t: *Toolpaths = @ptrCast(@alignCast(ctx.?));
         const gpa = t.gpa.?;
-        for (plan.points.points.items) |p| {
-            try t.points.append(gpa, @floatCast(zs.geom.toMm(p.x)));
-            try t.points.append(gpa, @floatCast(zs.geom.toMm(p.y)));
+        const pts = plan.points.points.items;
+        const xy = try t.points.addManyAsSlice(gpa, 2 * pts.len);
+        for (pts, 0..) |p, i| {
+            xy[2 * i] = @floatCast(zs.geom.toMm(p.x));
+            xy[2 * i + 1] = @floatCast(zs.geom.toMm(p.y));
         }
         const base: u32 = if (t.path_ends.items.len == 0) 0 else t.path_ends.items[t.path_ends.items.len - 1];
-        for (plan.points.ends.items) |e| try t.path_ends.append(gpa, base + e);
-        for (plan.paths.items, infos) |p, info| {
-            try t.path_features.append(gpa, @intFromEnum(p.feature));
-            try t.path_closed.append(gpa, @intFromBool(p.closed));
-            try t.path_area.append(gpa, @floatCast(info.area));
-            try t.path_start_time.append(gpa, @floatCast(info.start_time));
-            try t.path_end_time.append(gpa, @floatCast(info.end_time));
-            try t.path_retract.append(gpa, @intFromBool(info.retracted));
+        const ends = try t.path_ends.addManyAsSlice(gpa, plan.points.ends.items.len);
+        for (ends, plan.points.ends.items) |*d, e| d.* = base + e;
+        const n = plan.paths.items.len;
+        const features = try t.path_features.addManyAsSlice(gpa, n);
+        const closed = try t.path_closed.addManyAsSlice(gpa, n);
+        const area = try t.path_area.addManyAsSlice(gpa, n);
+        const start_time = try t.path_start_time.addManyAsSlice(gpa, n);
+        const end_time = try t.path_end_time.addManyAsSlice(gpa, n);
+        const retract = try t.path_retract.addManyAsSlice(gpa, n);
+        for (plan.paths.items, infos, 0..) |p, info, i| {
+            features[i] = @intFromEnum(p.feature);
+            closed[i] = @intFromBool(p.closed);
+            area[i] = @floatCast(info.area);
+            start_time[i] = @floatCast(info.start_time);
+            end_time[i] = @floatCast(info.end_time);
+            retract[i] = @intFromBool(info.retracted);
         }
         var slowed = false;
         for (infos) |info| slowed = slowed or info.slowed;
