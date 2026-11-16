@@ -177,8 +177,26 @@ pub fn regions(gpa: Allocator, ctx: Context, i: usize) Allocator.Error!Regions {
             else
                 try clip.intersect(s, above.?, below.?);
             const raw_skin = try clip.difference(s, inner, supported);
-            const skin = try offset_mod.opening(s, raw_skin, @divTrunc(w, 4), .{});
-            const sparse = try clip.difference(s, inner, skin);
+            // 1. Remove slivers narrower than the removal width.
+            const removal = @divTrunc(geom.fromMm(p.skin_removal_width), 2);
+            const kept = if (removal > 0) try offset_mod.opening(s, raw_skin, removal, .{}) else raw_skin;
+            // 2. Expand into the sparse area, inside the walls.
+            const expand = geom.fromMm(p.skin_expand_distance);
+            var skin = if (expand > 0 and !kept.isEmpty())
+                try clip.intersect(s, try offset_mod.offset(s, kept, expand, .{}), inner)
+            else
+                kept;
+            // 3. Sparse areas too narrow for infill lines print solid.
+            var sparse = try clip.difference(s, inner, skin);
+            const solid = @divTrunc(geom.fromMm(p.solid_infill_width), 2);
+            if (solid > 0 and !sparse.isEmpty()) {
+                const wide = try offset_mod.opening(s, sparse, solid, .{});
+                const narrow = try clip.difference(s, sparse, wide);
+                if (!narrow.isEmpty()) {
+                    skin = try clip.unite(s, skin, narrow);
+                    sparse = wide;
+                }
+            }
             reg.skin = try skin.clone(a);
             reg.sparse = try sparse.clone(a);
         }

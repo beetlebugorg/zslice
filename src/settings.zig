@@ -212,6 +212,17 @@ pub const Project = struct {
     top_thickness: f64 = 0.8,
     /// The thickness of solid skin above each bottom surface.
     bottom_thickness: f64 = 0.6,
+    /// Skin pieces narrower than this are removed before the expand (a
+    /// sliver of skin at the edge of a slope). A thin piece next to a
+    /// large skin area still gets skin from the expand.
+    skin_removal_width: f64 = 0.2,
+    /// The skin grows this far into the sparse infill next to it, so that
+    /// its edges hold on the infill and close against the walls.
+    skin_expand_distance: f64 = 0.8,
+    /// A sparse infill area narrower than this prints solid, as skin. A
+    /// narrow strip would get no infill lines, and a gap would show next to
+    /// the walls under a top surface.
+    solid_infill_width: f64 = 1.5,
     /// How the skin is filled. `lines`: parallel lines in the nearest
     /// order. `monotonic`: parallel lines from one side to the other, so
     /// each line lies against the line before it in the same way; the top
@@ -575,6 +586,8 @@ pub const limits = [_]struct { []const u8, f64, f64 }{
     .{ "project.line_width", 0, 2 },               .{ "project.first_layer_line_width", 0, 2 },
     .{ "project.wall_count", 0, 50 },              .{ "project.top_thickness", 0, 20 },
     .{ "project.bottom_thickness", 0, 20 },        .{ "project.skin_overlap", 0, 1 },
+    .{ "project.skin_removal_width", 0, 10 },      .{ "project.skin_expand_distance", 0, 20 },
+    .{ "project.solid_infill_width", 0, 20 },
     .{ "project.skin_angle", -360, 360 },          .{ "project.skin_angle_step", -180, 180 },
     .{ "project.infill_density", 0, 1 },           .{ "project.infill_angle", -360, 360 },
     .{ "project.infill_overlap", 0, 1 },           .{ "project.ironing_flow", 0, 1 },

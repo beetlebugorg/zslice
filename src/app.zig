@@ -683,8 +683,8 @@ pub const feature_names = [_][]const u8{ "Outer wall", "Inner wall", "Skin", "Sp
 const feature_settings = [_][]const []const u8{
     &.{ "project.wall_count", "project.seam", "project.line_width", "project.layer_height", "filament.xy_offset", "filament.hole_xy_offset" },
     &.{ "project.wall_count", "project.line_width", "project.layer_height" },
-    &.{ "project.top_thickness", "project.bottom_thickness", "project.skin_pattern", "project.skin_angle", "project.skin_angle_step", "project.skin_overlap", "project.line_width", "project.layer_height" },
-    &.{ "project.infill_density", "project.infill_pattern", "project.infill_angle", "project.infill_overlap", "project.line_width", "project.layer_height" },
+    &.{ "project.top_thickness", "project.bottom_thickness", "project.skin_expand_distance", "project.skin_removal_width", "project.solid_infill_width", "project.skin_pattern", "project.skin_angle", "project.skin_angle_step", "project.skin_overlap", "project.line_width", "project.layer_height" },
+    &.{ "project.infill_density", "project.solid_infill_width", "project.skin_expand_distance", "project.infill_pattern", "project.infill_angle", "project.infill_overlap", "project.line_width", "project.layer_height" },
     &.{ "project.ironing", "project.ironing_flow", "project.ironing_spacing", "project.ironing_inset", "project.skin_angle" },
     &.{ "project.skirt_loops", "project.skirt_distance", "project.skirt_layers", "project.brim_width", "project.line_width" },
     &.{ "project.support", "project.support_style", "project.support_angle", "project.support_density", "project.support_xy_gap", "project.support_z_gap_layers", "project.support_tree_angle", "project.support_tree_spacing", "project.support_tree_tip" },
@@ -1158,6 +1158,8 @@ const units = [_][2][]const u8{
     .{ "project.line_width", "mm" },           .{ "project.first_layer_line_width", "mm" },
     .{ "project.wall_count", "walls" },        .{ "project.top_thickness", "mm" },
     .{ "project.bottom_thickness", "mm" },     .{ "project.skin_overlap", "%" },
+    .{ "project.skin_removal_width", "mm" },   .{ "project.skin_expand_distance", "mm" },
+    .{ "project.solid_infill_width", "mm" },
     .{ "project.infill_density", "%" },        .{ "project.infill_angle", "\u{b0}" },
     .{ "project.skin_angle", "\u{b0}" },       .{ "project.skin_angle_step", "\u{b0}" },
     .{ "project.infill_overlap", "%" },        .{ "project.ironing_flow", "%" },
@@ -1214,6 +1216,8 @@ const sliders = [_]struct { []const u8, f64, f64, f64 }{
     .{ "engine.gap_closing", 0, 3, 0.1 },
     .{ "project.support_tree_angle", 10, 60, 1 },  .{ "project.support_tree_spacing", 1, 10, 0.5 },
     .{ "project.support_tree_tip", 0, 3, 0.1 },
+    .{ "project.skin_removal_width", 0, 2, 0.05 },  .{ "project.skin_expand_distance", 0, 5, 0.1 },
+    .{ "project.solid_infill_width", 0, 5, 0.1 },
 };
 
 fn sliderOf(comptime name: []const u8) [3]f64 {

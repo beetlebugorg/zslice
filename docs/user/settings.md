@@ -250,6 +250,18 @@ The thickness of solid skin under each top surface.
 
 The thickness of solid skin above each bottom surface.
 
+**`project.skin_removal_width`** (number). Default: `0.2`
+
+Skin pieces narrower than this are removed before the expand (a sliver of skin at the edge of a slope). A thin piece next to a large skin area still gets skin from the expand.
+
+**`project.skin_expand_distance`** (number). Default: `0.8`
+
+The skin grows this far into the sparse infill next to it, so that its edges hold on the infill and close against the walls.
+
+**`project.solid_infill_width`** (number). Default: `1.5`
+
+A sparse infill area narrower than this prints solid, as skin. A narrow strip would get no infill lines, and a gap would show next to the walls under a top surface.
+
 **`project.skin_pattern`** (one of: `lines`, `monotonic`, `concentric`). Default: `lines`
 
 How the skin is filled. `lines`: parallel lines in the nearest order. `monotonic`: parallel lines from one side to the other, so each line lies against the line before it in the same way; the top has an even sheen. `concentric`: loops that follow the outline.

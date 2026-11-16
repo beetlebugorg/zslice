@@ -113,6 +113,8 @@ The goal is the features that people use in PrusaSlicer and Cura. zslice designs
 - [x] Seam mode "hidden" (the default): the most hidden point (inside corners over about 1 mm, the back, not over air; ties to the back, so the seams line up)
 - [x] More infill: honeycomb; zigzag (lines joined at the walls, no travel between them); flow (zigzag, twice as dense in a band under the top surfaces)
 - [ ] More infill: lightning, adaptive cubic; make flow cheaper (the band costs a stacked intersection on the first slice, and memory in the cache)
+- [x] Skin expand distance, skin removal width, and solid infill for narrow sparse areas (no gaps between the top skin and the walls)
+- [ ] Thin walls: parts thinner than one line width print nothing yet (Cura prints a thin outer wall)
 - [x] Tree support (support_style = tree): tips on a grid under pads, branches that join and get thicker, thinner in narrow spaces (deep holes)
 - [ ] Tree support: faster (1.4 s on the camera arm, grid 0.4 s), branch routing around the part toward the bed, a preview of the branch nodes
 - [x] Layer times: in the layer slider (with a mark for a layer that min_layer_time slows down), and a color mode by layer time
