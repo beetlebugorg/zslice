@@ -117,7 +117,7 @@ pub fn compute(
     errdefer deinitAll(gpa, out);
 
     if (p.support_style == .tree) {
-        try treeSupport(gpa, outlines, layers, r, need, blocked, out);
+        try treeSupport(gpa, threads, outlines, layers, r, need, blocked, out);
         return out;
     }
 
@@ -224,6 +224,7 @@ pub fn compute(
 /// each overhang, and the branches under the pads.
 fn treeSupport(
     gpa: Allocator,
+    threads: usize,
     outlines: []const Paths,
     layers: []const slicer.Layer,
     r: *const settings_mod.Resolved,
@@ -245,7 +246,7 @@ fn treeSupport(
         .z_gap = gap,
         .bed_only = p.support == .buildplate,
     };
-    const branches = try tree.grow(gpa, outlines, layers, need, blocked, 1 + gap + pads, params);
+    const branches = try tree.grow(gpa, threads, outlines, layers, need, blocked, 1 + gap + pads, params);
     defer gpa.free(branches);
     for (out, branches) |*o, b| o.body = b;
     // The pads: the overhang area, on the interface layers between the
@@ -271,7 +272,7 @@ fn treeSupport(
 
 /// Simplifies each polygon of a set in place, and removes polygons with
 /// fewer than 3 points.
-fn simplifyAll(paths: *Paths, tolerance: i64) void {
+pub fn simplifyAll(paths: *Paths, tolerance: i64) void {
     var out: usize = 0;
     var start: usize = 0;
     var kept: usize = 0;

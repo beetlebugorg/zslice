@@ -15,6 +15,15 @@
 //!    It moves away from the part if it is too near (the part moved out by
 //!    the XY gap, plus the radius), and toward the nearest other node, if
 //!    one is near; two nodes that touch join into one thicker node.
+//!    To reach the bed (not rest on the part), a branch also stays out of
+//!    the avoidance area of each layer: the points from which no branch
+//!    can reach the bed. Layer 0 avoids the part. Layer j avoids the part
+//!    and the layers under it (the Z gap), and the avoidance of layer j - 1
+//!    moved in by one step: a point deeper in it than one step cannot get
+//!    out in time. A branch in the avoidance area moves out of it, if it
+//!    can in one step. So a branch over the part bends out and around the
+//!    part, and goes down beside it to the bed. (Cura's tree support uses
+//!    an avoidance area in the same way; see REFERENCES.md.)
 //! 3. The radius grows as the branch goes down (stronger near the bed),
 //!    but it gets smaller again where the space is narrow, down to the tip
 //!    radius. So a branch can go down a deep, narrow hole. Where it cannot
@@ -31,6 +40,7 @@
 const std = @import("std");
 const Allocator = std.mem.Allocator;
 const geom = @import("geom.zig");
+const offset_mod = @import("offset.zig");
 const clip = @import("clip.zig");
 const settings_mod = @import("settings.zig");
 const slicer = @import("slicer.zig");
@@ -43,6 +53,10 @@ const Node = struct {
     /// The radius, in µm.
     r: f64,
     alive: bool = true,
+    /// The branch can still reach the bed (it is out of the avoidance
+    /// area, or one step from its edge). A branch that can does not join or
+    /// follow a branch that cannot, so it does not end on the part.
+    free: bool = true,
 };
 
 pub const Params = struct {
@@ -68,6 +82,7 @@ pub const Params = struct {
 /// interface layers). The result has one Paths for each layer, in `gpa`.
 pub fn grow(
     gpa: Allocator,
+    threads: usize,
     outlines: []const Paths,
     layers: []const slicer.Layer,
     need: []const Paths,
@@ -90,6 +105,78 @@ pub fn grow(
     // Each layer adds its circles; the union comes at the end.
     const circles = try arena.alloc(Paths, n);
     for (circles) |*c| c.* = .empty;
+    // The avoidance area of each layer (see 2. in the header), up to the
+    // highest tip. The base of a layer (the part, the layers of the Z gap
+    // under it, and the tip radius around them) does not depend on other
+    // layers, so the bases are made on all threads; then each layer adds the
+    // layer under it, moved in by one step. Simplified outlines keep the
+    // offsets fast.
+    var top: usize = 0;
+    var any = false;
+    for (need, 0..) |nd, src| if (!nd.isEmpty() and src >= tips_below) {
+        top = @max(top, src - tips_below);
+        any = true;
+    };
+    const avoid = try arena.alloc(Paths, n);
+    for (avoid) |*x| x.* = .empty;
+    const bases = try gpa.alloc(Paths, n);
+    for (bases) |*x| x.* = .empty;
+    defer {
+        for (bases) |*x| x.deinit(gpa);
+        gpa.free(bases);
+    }
+    if (any) {
+        const Base = struct {
+            gpa: Allocator,
+            blocked: []const Paths,
+            bases: []Paths,
+            z_gap: usize,
+            tip: i64,
+            fn run(c: *const @This(), i: usize) !void {
+                var arena_b = std.heap.ArenaAllocator.init(c.gpa);
+                defer arena_b.deinit();
+                const ab = arena_b.allocator();
+                var base = c.blocked[i];
+                var k: usize = 1;
+                while (k <= c.z_gap + 1 and k <= i) : (k += 1) base = try clip.unite(ab, base, c.blocked[i - k]);
+                var grown = try offset_mod.offset(ab, base, c.tip, .{});
+                @import("support.zig").simplifyAll(&grown, 30);
+                c.bases[i] = try grown.clone(c.gpa);
+            }
+        };
+        // Every `every` layers: a base, and the avoidance of the layer
+        // `every` under it, moved in by `every` steps. A layer between
+        // uses the avoidance of the computed layer under it (larger, so
+        // safe). The chain of offsets is the slow part.
+        const every: usize = 5;
+        const m = top / every + 1;
+        const Sel = struct {
+            base: *const Base,
+            every: usize,
+            fn run(c: *const @This(), k: usize) !void {
+                try Base.run(c.base, k * c.every);
+            }
+        };
+        const bc: Base = .{ .gpa = gpa, .blocked = blocked, .bases = bases, .z_gap = params.z_gap, .tip = @intFromFloat(params.tip) };
+        const sc: Sel = .{ .base = &bc, .every = every };
+        @import("parallel.zig").forEach(threads, m, &sc, Sel.run) catch |e| switch (e) {
+            error.OutOfMemory => return error.OutOfMemory,
+            else => unreachable,
+        };
+        avoid[0] = bases[0];
+        var i: usize = every;
+        while (i <= top) : (i += every) {
+            var drop: f64 = 0;
+            for (i - every + 1..i + 1) |q| drop += @floatFromInt(geom.fromMm(layers[q].height));
+            const shrunk = try offset_mod.offset(arena, avoid[i - every], -@as(i64, @intFromFloat(drop * params.tan_angle)), .{});
+            var u = try clip.unite(arena, bases[i], shrunk);
+            @import("support.zig").simplifyAll(&u, 30);
+            avoid[i] = u;
+        }
+        for (0..top + 1) |q| if (q % every != 0) {
+            avoid[q] = avoid[q - q % every];
+        };
+    }
     // The branches of each layer, for the bed-only rule: a branch that
     // does not reach the bed is removed, with its circles above. Each node
     // keeps the id of its first tip; the circles keep the id too.
@@ -117,6 +204,23 @@ pub fn grow(
                     const m = @min(step, d);
                     nd.x += dx / d * m;
                     nd.y += dy / d * m;
+                }
+            }
+            // Out of the avoidance area, toward the bed, if one step is
+            // enough. Else the branch goes on, and rests on the part.
+            // (`free` is from this check on the layer above: the joins and
+            // the moves above use it.)
+            nd.free = true;
+            if (geom.insideAny(avoid[j], .{ .x = @intFromFloat(nd.x), .y = @intFromFloat(nd.y) })) {
+                const e = nearestEdge(avoid[j], nd.x, nd.y);
+                nd.free = e.d <= step * 1.5 + 1;
+                if (nd.free) {
+                    const dx = e.x - nd.x;
+                    const dy = e.y - nd.y;
+                    const d = @max(@sqrt(dx * dx + dy * dy), 1e-6);
+                    // Just past the edge.
+                    nd.x = e.x + dx / d * 20;
+                    nd.y = e.y + dy / d * 20;
                 }
             }
             // The radius grows with the drop, but not over the free space.
@@ -256,7 +360,7 @@ fn joinNodes(nodes: []Node) void {
     for (nodes, 0..) |*a, i| {
         if (!a.alive) continue;
         for (nodes[i + 1 ..]) |*b| {
-            if (!b.alive) continue;
+            if (!b.alive or b.free != a.free) continue;
             const dx = b.x - a.x;
             const dy = b.y - a.y;
             const touch = @max(a.r, b.r) * 0.75;
@@ -275,7 +379,7 @@ fn nearest(nodes: []const Node, nd: *const Node) ?*const Node {
     var best: ?*const Node = null;
     var best_d: f64 = std.math.inf(f64);
     for (nodes) |*o| {
-        if (o == nd or !o.alive) continue;
+        if (o == nd or !o.alive or o.free != nd.free) continue;
         const dx = o.x - nd.x;
         const dy = o.y - nd.y;
         const d = dx * dx + dy * dy;
