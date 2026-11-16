@@ -947,34 +947,49 @@ fn addMonotonic(s: Allocator, a: Allocator, lp: *LayerPlan, pos: *Point, set: Pa
     }
     var ready: std.ArrayList(u32) = .empty;
     for (0..n) |i| if (waits[i] == 0) try ready.append(s, @intCast(i));
+    var last: ?u32 = null;
+    var chain: std.ArrayList(Point) = .empty;
     var done: usize = 0;
     while (done < n) : (done += 1) {
         // The nearest ready piece (by its nearer end). A dependency cycle
         // is not possible: the rows go one way.
         if (ready.items.len == 0) break;
+        // Double back first: a ready piece of the next scan line that
+        // touches the piece just printed (the column goes on). Else the
+        // nearest ready piece.
         var best: usize = 0;
         var best_d: i128 = std.math.maxInt(i128);
+        var best_next = false;
         for (ready.items, 0..) |ki, r| {
             const path = set.get(keys[ki].i);
             const d = @min(pos.distSq(path[0]), pos.distSq(path[path.len - 1]));
-            if (d < best_d) {
+            const next = if (last) |li| row_of[ki] == row_of[li] + 1 and keys[li].hi + margin >= keys[ki].lo and keys[ki].hi + margin >= keys[li].lo else false;
+            if ((next and !best_next) or (next == best_next and d < best_d)) {
                 best_d = d;
                 best = r;
+                best_next = next;
             }
         }
         const ki = ready.swapRemove(best);
         const path = set.get(keys[ki].i);
         const flip = pos.distSq(path[path.len - 1]) < pos.distSq(path[0]);
+        const first_pt = if (flip) path[path.len - 1] else path[0];
+        // Double back: the neighbor in the column, with a short turn along
+        // the edge (at most 1.6 line spacings), joins the chain. The turn
+        // prints, as in the "lines" pattern, so the nozzle does not travel.
+        const join = if (last) |li| best_next and chain.items.len > 0 and
+            @as(f64, @floatFromInt(pos.distSq(first_pt))) <= square(1.6 * @abs(keys[ki].across - keys[li].across)) else false;
+        if (!join) try flushChain(a, lp, &chain, feature);
+        try chain.ensureUnusedCapacity(s, path.len);
         if (flip) {
-            const rev = try s.alloc(Point, path.len);
-            for (path, 0..) |q, j| rev[path.len - 1 - j] = q;
-            try lp.points.append(a, rev);
-            pos.* = rev[rev.len - 1];
-        } else {
-            try lp.points.append(a, path);
-            pos.* = path[path.len - 1];
-        }
-        try lp.paths.append(a, .{ .feature = feature, .closed = false });
+            var j = path.len;
+            while (j > 0) {
+                j -= 1;
+                chain.appendAssumeCapacity(path[j]);
+            }
+        } else chain.appendSliceAssumeCapacity(path);
+        pos.* = chain.items[chain.items.len - 1];
+        last = ki;
         // The pieces of the next row that this piece held back.
         const r = row_of[ki];
         if (r + 2 < rows.items.len) {
@@ -986,6 +1001,19 @@ fn addMonotonic(s: Allocator, a: Allocator, lp: *LayerPlan, pos: *Point, set: Pa
             }
         }
     }
+    try flushChain(a, lp, &chain, feature);
+}
+
+fn square(x: f64) f64 {
+    return x * x;
+}
+
+/// Puts a chain of joined skin lines in the plan as one open path.
+fn flushChain(a: Allocator, lp: *LayerPlan, chain: *std.ArrayList(Point), feature: Feature) Allocator.Error!void {
+    if (chain.items.len == 0) return;
+    try lp.points.append(a, chain.items);
+    try lp.paths.append(a, .{ .feature = feature, .closed = false });
+    chain.clearRetainingCapacity();
 }
 
 /// The possible start points of a set of paths in a uniform grid, for the
@@ -1449,18 +1477,41 @@ test "monotonic skin: the lines go from one side to the other" {
     for ([_]i64{ 2, 0, 3, 1 }) |y| try set.append(s, &.{ .init(0, y * 1000), .init(10000, y * 1000) });
     var pos: Point = .init(0, -5000);
     try addMonotonic(s, lp.arena.allocator(), &lp, &pos, set, 0, .skin);
-    // From the side of the nozzle (low y), in order, back and forth.
-    var last_y: i64 = -1;
+    // The neighbors join into one zigzag path: from the side of the nozzle
+    // (low y), in order, and each line doubles back from the end of the
+    // line before.
+    try testing.expectEqual(@as(usize, 1), lp.points.count());
+    const path = lp.points.get(0);
+    try testing.expectEqual(@as(usize, 8), path.len);
     for (0..4) |i| {
-        const path = lp.points.get(i);
-        try testing.expect(path[0].y > last_y);
-        last_y = path[0].y;
-        // Each line starts at the end nearer to the end of the line before.
-        if (i > 0) {
-            const prev = lp.points.get(i - 1);
-            try testing.expectEqual(prev[prev.len - 1].x, path[0].x);
-        }
+        const a = path[2 * i];
+        const b = path[2 * i + 1];
+        try testing.expectEqual(@as(i64, @intCast(i)) * 1000, a.y);
+        try testing.expectEqual(a.y, b.y);
+        if (i > 0) try testing.expectEqual(path[2 * i - 1].x, a.x);
     }
+}
+
+test "monotonic skin: a hole splits the lines into columns" {
+    const gpa = testing.allocator;
+    var lp: LayerPlan = .{ .arena = .init(gpa), .index = 0, .z = 0.2, .height = 0.2, .width = 0.4 };
+    defer lp.deinit();
+    var scratch_arena = std.heap.ArenaAllocator.init(gpa);
+    defer scratch_arena.deinit();
+    const s = scratch_arena.allocator();
+    // Ten scan lines 0.5 mm apart, each cut by a hole from x 4 to 6 mm: a
+    // left piece and a right piece on each line.
+    var set: Paths = .empty;
+    for (0..10) |k| {
+        const y: i64 = @as(i64, @intCast(k)) * 500;
+        try set.append(s, &.{ .init(0, y), .init(4000, y) });
+        try set.append(s, &.{ .init(6000, y), .init(10000, y) });
+    }
+    var pos: Point = .init(0, -1000);
+    try addMonotonic(s, lp.arena.allocator(), &lp, &pos, set, 0, .skin);
+    // One zigzag for each column, not a jump across the hole for each line.
+    try testing.expectEqual(@as(usize, 2), lp.points.count());
+    try testing.expectEqual(@as(usize, 20), lp.points.get(0).len);
 }
 
 
