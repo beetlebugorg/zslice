@@ -84,8 +84,11 @@ pub fn inspect(arena: Allocator, t: *const Toolpaths, job: *const zs.Job, path: 
     if (feature == .slope_smoothing) {
         try out.print("Slope smoothing: after the layer, this bead fills the steps of a sloped top surface, on the ledge of the layer below (top at z {d:.2} mm). Its plastic is the volume of the triangle of each step: the layer height \u{d7} the ledge width / 2, \u{d7} the smoothing flow ({d:.0} %). The nozzle tip goes from z {d:.3} to {d:.3} mm: half the step height, or higher where the nozzle cone needs room from this layer (tip radius {d} mm, cone angle {d}\u{b0}).\n\n", .{ z_low, s.project.slope_smoothing_flow * 100, z_range[0], z_range[1], s.machine.nozzle_tip_radius, s.machine.nozzle_cone_angle });
     }
-    if (feature == .ironing) {
-        try out.print("Planned speed: {d:.0} mm/s, the ironing speed ({d:.0} %) of the machine limit ({d:.0} mm/s). Ironing uses little plastic, so the flow limit does not apply.\n", .{ planned, s.project.ironing_speed * 100, s.machine.max_speed });
+    if (feature == .slope_ironing) {
+        try out.print("Slope ironing: after the layer and its smoothing beads, the hot nozzle goes over the filled steps of a sloped top surface with a small flow ({d:.0} % of a normal line), to make the bead tops flat. It is one of {d} passes across each ledge. At each point the nozzle tip is at the height of the filled step there, between the top of the layer below (z {d:.2} mm) and this layer, and high enough for the nozzle cone: here from z {d:.3} to {d:.3} mm.\n\n", .{ s.project.slope_ironing_flow * 100, s.project.slope_ironing_passes, z_low, z_range[0], z_range[1] });
+    }
+    if (feature == .ironing or feature == .slope_ironing) {
+        try out.print("Planned speed: {d:.0} mm/s, the ironing speed ({d:.0} %) of the machine limit ({d:.0} mm/s). Ironing uses little plastic, so the flow limit does not apply.\n", .{ planned, planned / s.machine.max_speed * 100, s.machine.max_speed });
     } else {
         const bead_area = zs.flow.beadArea(w, h);
         const flow_limit = s.filament.max_flow / bead_area;
@@ -111,7 +114,7 @@ pub fn inspect(arena: Allocator, t: *const Toolpaths, job: *const zs.Job, path: 
     try nw.writeAll("# Speed\n");
     try nw.print("{s}\n", .{fs.speedRatioSetting(feature, first)});
     try nw.writeAll("machine.max_speed\n");
-    if (feature != .ironing) try nw.writeAll("filament.max_flow\n");
+    if (feature != .ironing and feature != .slope_ironing) try nw.writeAll("filament.max_flow\n");
     for (fs.cooling_speed_settings) |n| try nw.print("{s}\n", .{n});
     try nw.writeAll("# Shape\n");
     for (fs.feature_settings[@intFromEnum(feature)]) |n| try nw.print("{s}\n", .{n});
@@ -127,8 +130,8 @@ pub fn inspect(arena: Allocator, t: *const Toolpaths, job: *const zs.Job, path: 
     var wp: std.Io.Writer.Allocating = .init(arena);
     const pw = &wp.writer;
     const ratio_name = fs.speedRatioSetting(feature, first);
-    if (feature == .ironing) {
-        try pw.print("{d:.0} mm/s = {d:.0} % ({{{{project.ironing_speed}}}}) of the machine limit, {d:.0} mm/s ({{{{machine.max_speed}}}}). Ironing uses little plastic, so the flow limit does not apply.\n\nTo iron faster, raise {{{{project.ironing_speed}}}}.", .{ planned, s.project.ironing_speed * 100, s.machine.max_speed });
+    if (feature == .ironing or feature == .slope_ironing) {
+        try pw.print("{d:.0} mm/s = {d:.0} % ({{{{{s}}}}}) of the machine limit, {d:.0} mm/s ({{{{machine.max_speed}}}}). Ironing uses little plastic, so the flow limit does not apply.\n\nTo iron faster, raise {{{{{s}}}}}.", .{ planned, planned / s.machine.max_speed * 100, ratio_name, s.machine.max_speed, ratio_name });
     } else {
         const bead_area = zs.flow.beadArea(w, h);
         const flow_limit = s.filament.max_flow / bead_area;

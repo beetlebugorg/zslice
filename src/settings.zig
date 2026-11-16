@@ -346,6 +346,22 @@ pub const Project = struct {
     slope_smoothing_flow: f64 = 1,
     /// The speed of the smoothing beads, as a ratio of the allowed speed.
     slope_smoothing_speed: f64 = 0.3,
+    /// Iron the sloped steps. After each layer (and after its smoothing
+    /// beads), the nozzle goes along the same ledges as slope smoothing,
+    /// with a very small flow. At each point, the nozzle tip is at the
+    /// height of the filled step there, so the hot tip makes the bead tops
+    /// flat. The ledges are the ones of `slope_smoothing_min_width` and
+    /// `slope_smoothing_max_width`.
+    slope_ironing: bool = false,
+    /// The number of ironing passes over each ledge, evenly across it.
+    slope_ironing_passes: u32 = 2,
+    /// The flow of the slope ironing lines, as a ratio of the flow of a
+    /// normal line.
+    slope_ironing_flow: f64 = 0.1,
+    /// The slope ironing speed, as a ratio of `machine.max_speed`. The
+    /// flow limit of the filament does not apply, because the flow is
+    /// small.
+    slope_ironing_speed: f64 = 0.15,
 
     // Speed ratios: the fraction of the speed that the machine and the
     // filament allow.
@@ -545,11 +561,12 @@ pub const Settings = struct {
             f.fan_speed,     p.infill_density, p.outer_wall_speed,  p.inner_wall_speed,
             p.skin_speed,    p.infill_speed,   p.first_layer_speed, p.ironing_flow,
             p.ironing_speed, f.fan_max_speed,  p.support_density,   p.support_interface_density,
-            p.slope_smoothing_speed,
+            p.slope_smoothing_speed, p.slope_ironing_flow, p.slope_ironing_speed,
         };
         for (ratios) |v| if (!(v >= 0 and v <= 1)) return error.InvalidValue;
         if (p.outer_wall_speed == 0 or p.inner_wall_speed == 0 or p.skin_speed == 0 or p.infill_speed == 0 or p.first_layer_speed == 0) return error.InvalidValue;
         if (p.ironing and (p.ironing_speed == 0 or !(p.ironing_spacing > 0))) return error.InvalidValue;
+        if (p.slope_ironing and (p.slope_ironing_speed == 0 or p.slope_ironing_passes == 0 or !(p.slope_smoothing_min_width < p.slope_smoothing_max_width))) return error.InvalidValue;
         if (p.slope_smoothing and (p.slope_smoothing_speed == 0 or !(p.slope_smoothing_min_width < p.slope_smoothing_max_width))) return error.InvalidValue;
         if (p.support != .off and (p.support_density == 0 or p.support_interface_density == 0 or !(p.support_angle > 0 and p.support_angle < 90))) return error.InvalidValue;
 
@@ -587,6 +604,9 @@ pub const Feature = enum(u8) {
     /// The beads in the steps of a sloped top surface (see
     /// `Project.slope_smoothing`).
     slope_smoothing,
+    /// The ironing passes over the steps of a sloped top surface (see
+    /// `Project.slope_ironing`).
+    slope_ironing,
 };
 
 /// Settings after `Settings.resolve`, with the derived values.
@@ -608,7 +628,7 @@ pub const Resolved = struct {
     pub fn speedAt(self: Resolved, feature: Feature, width: f64, height: f64, layer: usize) f64 {
         const full = self.speed(feature, width, height, layer == 0);
         const n = self.settings.project.slow_layers;
-        if (layer == 0 or layer > n or feature == .ironing or feature == .slope_smoothing) return full;
+        if (layer == 0 or layer > n or feature == .ironing or feature == .slope_smoothing or feature == .slope_ironing) return full;
         // From the first layer speed (layer 0) up to the full speed (layer
         // n + 1), in even steps.
         const first = self.speed(feature, width, height, true);
@@ -626,7 +646,7 @@ pub const Resolved = struct {
         const a = if (feature) |f| switch (f) {
             .outer_wall, .slope_smoothing => p.outer_wall_accel,
             .inner_wall, .skirt => p.inner_wall_accel,
-            .skin, .support_interface, .ironing => p.skin_accel,
+            .skin, .support_interface, .ironing, .slope_ironing => p.skin_accel,
             .infill, .support => p.infill_accel,
         } else p.travel_accel;
         return if (a > 0) @min(max, a) else max;
@@ -635,6 +655,7 @@ pub const Resolved = struct {
     pub fn speed(self: Resolved, feature: Feature, width: f64, height: f64, first_layer: bool) f64 {
         const p = self.settings.project;
         if (feature == .ironing) return self.settings.machine.max_speed * p.ironing_speed;
+        if (feature == .slope_ironing) return self.settings.machine.max_speed * p.slope_ironing_speed;
         const flow_limit = self.settings.filament.max_flow / flow.beadArea(width, height);
         const limit = @min(self.settings.machine.max_speed, flow_limit);
         const ratio = if (first_layer) p.first_layer_speed else switch (feature) {
@@ -646,7 +667,7 @@ pub const Resolved = struct {
             .support => p.infill_speed,
             .support_interface => p.skin_speed,
             .slope_smoothing => p.slope_smoothing_speed,
-            .ironing => unreachable,
+            .ironing, .slope_ironing => unreachable,
         };
         return limit * ratio;
     }
@@ -858,6 +879,9 @@ pub const limits = [_]struct { []const u8, f64, f64 }{
     .{ "project.slope_smoothing_max_width", 0.1, 10 },
     .{ "project.slope_smoothing_flow", 0, 2 },
     .{ "project.slope_smoothing_speed", 0.01, 1 },
+    .{ "project.slope_ironing_passes", 1, 5 },
+    .{ "project.slope_ironing_flow", 0, 1 },
+    .{ "project.slope_ironing_speed", 0.01, 1 },
     .{ "project.outer_wall_speed", 0.01, 1 },
     .{ "project.inner_wall_speed", 0.01, 1 },
     .{ "project.skin_speed", 0.01, 1 },
@@ -990,6 +1014,10 @@ pub const layer_settings = [_][]const u8{
     "project.slope_smoothing_max_width",
     "project.slope_smoothing_flow",
     "project.slope_smoothing_speed",
+    "project.slope_ironing",
+    "project.slope_ironing_passes",
+    "project.slope_ironing_flow",
+    "project.slope_ironing_speed",
     // The G-code writer reads these from the settings of each layer.
     "filament.nozzle_temp",
     "filament.bed_temp",

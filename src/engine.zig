@@ -34,6 +34,7 @@ const support_mod = @import("support.zig");
 const islands_mod = @import("islands.zig");
 const clip = @import("clip.zig");
 const offset_mod = @import("offset.zig");
+const flow = @import("flow.zig");
 const Mesh = mesh_mod.Mesh;
 const Paths = geom.Paths;
 const Settings = settings_mod.Settings;
@@ -1097,7 +1098,7 @@ test "a short layer prints slower" {
     try testing.expect(std.mem.indexOf(u8, out.written(), "M106 S255") != null);
 }
 
-test "slope smoothing: moves with Z between the layers, and back up after" {
+test "slope smoothing and ironing: moves with Z between the layers, and back up after" {
     const gpa = testing.allocator;
     // The top rises 5 mm over 20 mm: each 0.2 mm layer steps 0.8 mm.
     var m = try mesh_mod.shapes.wedge(gpa, 20, 20, 1, 6);
@@ -1115,13 +1116,26 @@ test "slope smoothing: moves with Z between the layers, and back up after" {
     defer on.deinit();
     const st_on = try slice(gpa, &m, s, &on.writer);
     try testing.expect(std.mem.indexOf(u8, off.written(), "SLOPE-SMOOTHING") == null);
+    try testing.expect(std.mem.indexOf(u8, on.written(), "SLOPE-IRONING") == null);
+    // The same with slope ironing: more time, and the same beads.
+    s.project.slope_ironing = true;
+    var iron: Writer.Allocating = .init(gpa);
+    defer iron.deinit();
+    const st_iron = try slice(gpa, &m, s, &iron.writer);
+    try testing.expect(st_iron.print_time_s > st_on.print_time_s);
     try testing.expect(st_on.print_time_s > st_off.print_time_s);
     try testing.expect(st_on.filament_mm > st_off.filament_mm);
 
-    var lines = std.mem.splitScalar(u8, on.written(), '\n');
+    var lines = std.mem.splitScalar(u8, iron.written(), '\n');
     var layer_z: f64 = 0;
     var z: f64 = 0;
     var in_smooth = false;
+    var in_iron = false;
+    var iron_paths: usize = 0;
+    var iron_e: f64 = 0;
+    var iron_len: f64 = 0;
+    var x: f64 = 0;
+    var y: f64 = 0;
     var paths: usize = 0;
     var below: usize = 0;
     var e_sum: f64 = 0;
@@ -1129,16 +1143,27 @@ test "slope smoothing: moves with Z between the layers, and back up after" {
     while (lines.next()) |line| {
         if (std.mem.startsWith(u8, line, ";TYPE:")) {
             in_smooth = std.mem.eql(u8, line, ";TYPE:SLOPE-SMOOTHING");
+            in_iron = std.mem.eql(u8, line, ";TYPE:SLOPE-IRONING");
             if (in_smooth) paths += 1;
+            if (in_iron) iron_paths += 1;
         }
         if (!std.mem.startsWith(u8, line, "G0 ") and !std.mem.startsWith(u8, line, "G1 ")) continue;
         var has_xy = false;
         var e: f64 = 0;
+        const px = x;
+        const py = y;
         var tok = std.mem.tokenizeScalar(u8, line[3..], ' ');
         while (tok.next()) |w| {
             const v = std.fmt.parseFloat(f64, w[1..]) catch continue;
             switch (w[0]) {
-                'X', 'Y' => has_xy = true,
+                'X' => {
+                    has_xy = true;
+                    x = v;
+                },
+                'Y' => {
+                    has_xy = true;
+                    y = v;
+                },
                 'Z' => z = v,
                 'E' => e = v,
                 else => {},
@@ -1146,9 +1171,13 @@ test "slope smoothing: moves with Z between the layers, and back up after" {
         }
         // A layer change: a Z move with no X and Y outside a smoothing
         // path, upward.
-        if (!in_smooth and !has_xy and z > layer_z + 1e-6) layer_z = z;
+        if (!in_smooth and !in_iron and !has_xy and z > layer_z + 1e-6) layer_z = z;
         if (has_xy and e > 0) {
-            if (in_smooth) {
+            if (in_iron) {
+                try testing.expect(z >= layer_z - 0.75 * h - 1e-3 and z <= layer_z + 1e-6);
+                iron_e += e;
+                iron_len += std.math.hypot(x - px, y - py);
+            } else if (in_smooth) {
                 try testing.expect(z >= layer_z - h / 2 - 1e-3 and z <= layer_z + 1e-6);
                 if (z < layer_z - 1e-3) below += 1;
                 e_sum += e;
@@ -1162,6 +1191,14 @@ test "slope smoothing: moves with Z between the layers, and back up after" {
     }
     try testing.expect(paths > 10);
     try testing.expect(below > 10);
+    // Ironing on each layer with a bead (one type comment for the passes
+    // of a layer), with 10 % of the flow of a line.
+    try testing.expectEqual(paths, iron_paths);
+    {
+        const r0 = try s.resolve();
+        const e_line = flow.beadArea(r0.line_width, h) / r0.filament_area;
+        try testing.expectApproxEqRel(0.1 * e_line, iron_e / iron_len, 0.03);
+    }
     // The plastic of the beads: the triangle of each step, h * L / 2 with
     // L = 0.8 mm, along a bead almost 20 mm long on each layer.
     const r = try s.resolve();

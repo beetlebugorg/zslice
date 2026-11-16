@@ -45,6 +45,7 @@ pub const feature_rgb = [_][3]u8{
     .{ 0xad, 0xb5, 0xbd }, // support
     .{ 0x49, 0x50, 0x57 }, // support interface
     .{ 0x0c, 0xa6, 0xae }, // slope smoothing
+    .{ 0x82, 0xc9, 0x1e }, // slope ironing
     .{ 0xe0, 0x1a, 0x26 }, // mark: seam
     .{ 0x33, 0x73, 0xf2 }, // mark: travel
     .{ 0xf2, 0x40, 0xbf }, // mark: retraction
@@ -207,7 +208,7 @@ pub const View = struct {
         // The support marks: a ring at the place and the layer of each.
         v.mark_rings.clearRetainingCapacity();
         for (app.marks.items) |m| {
-            const color: [4]u8 = if (m.kind == .block) .{ 0xe0, 0x31, 0x31, 12 } else .{ 0x1c, 0x7e, 0xd6, 12 };
+            const color: [4]u8 = if (m.kind == .block) .{ 0xe0, 0x31, 0x31, 13 } else .{ 0x1c, 0x7e, 0xd6, 13 };
             for (0..12) |k| {
                 const t0 = 2 * std.math.pi * @as(f64, @floatFromInt(k)) / 12.0;
                 const t1 = 2 * std.math.pi * @as(f64, @floatFromInt(k + 1)) / 12.0;
@@ -396,7 +397,7 @@ pub const View = struct {
         v.mark_layer_end.clearRetainingCapacity();
         const pts = tp.points.items;
         const flow = @import("../flow.zig");
-        const seam_rgb = if (v.mode == .print) filament else feature_rgb[9];
+        const seam_rgb = if (v.mode == .print) filament else feature_rgb[10];
         for (tp.layer_ends.items, 0..) |layer_end, l| {
             const p0: u32 = if (l == 0) 0 else tp.layer_ends.items[l - 1];
             const z = tp.layer_z.items[l] * sz;
@@ -422,18 +423,18 @@ pub const View = struct {
                 // meet there, and leave a small blob.
                 if (closed and f == 0) {
                     const w: f32 = @floatCast(flow.beadWidth(tp.path_area.items[pi], tp.layer_height.items[l]) * sxy);
-                    try v.addMark(.{ .ax = first[0], .ay = first[1], .bx = first[0], .by = first[1], .z = z + 0.15 * h, .h = h * 1.25, .w = w * 1.15, .rgba = .{ seam_rgb[0], seam_rgb[1], seam_rgb[2], 9 } });
+                    try v.addMark(.{ .ax = first[0], .ay = first[1], .bx = first[0], .by = first[1], .z = z + 0.15 * h, .h = h * 1.25, .w = w * 1.15, .rgba = .{ seam_rgb[0], seam_rgb[1], seam_rgb[2], 10 } });
                 }
                 if (prev) |p| {
                     const retracted = tp.path_retract.items.len > pi and tp.path_retract.items[pi] != 0;
                     const lift: f32 = if (retracted) tp.z_hop else 0;
                     if (std.math.hypot(first[0] - p[0], first[1] - p[1]) > 0.05) {
-                        const t = feature_rgb[10];
-                        try v.addMark(.{ .ax = p[0], .ay = p[1], .bx = first[0], .by = first[1], .z = z + lift + 0.08, .h = 0.06, .w = 0.06, .rgba = .{ t[0], t[1], t[2], 10 } });
+                        const t = feature_rgb[11];
+                        try v.addMark(.{ .ax = p[0], .ay = p[1], .bx = first[0], .by = first[1], .z = z + lift + 0.08, .h = 0.06, .w = 0.06, .rgba = .{ t[0], t[1], t[2], 11 } });
                     }
                     if (retracted) {
-                        const r = feature_rgb[11];
-                        try v.addMark(.{ .ax = p[0], .ay = p[1], .bx = p[0], .by = p[1], .z = z + 0.35, .h = 0.3, .w = 0.3, .rgba = .{ r[0], r[1], r[2], 11 } });
+                        const r = feature_rgb[12];
+                        try v.addMark(.{ .ax = p[0], .ay = p[1], .bx = p[0], .by = p[1], .z = z + 0.35, .h = 0.3, .w = 0.3, .rgba = .{ r[0], r[1], r[2], 12 } });
                     }
                 }
                 prev = last;
@@ -812,7 +813,7 @@ pub const View = struct {
     /// of round discs (beads of almost no length) to the tip, and a block
     /// over it. Returns the number of beads.
     fn nozzle(out: []vk.Instance, p: [3]f32) usize {
-        const brass = [4]u8{ 0xc9, 0xa2, 0x4e, 12 };
+        const brass = [4]u8{ 0xc9, 0xa2, 0x4e, 13 };
         // A cone 4 mm high, from 0.4 mm at the tip to 4.4 mm, as 8 discs
         // that overlap, and a block of 7 mm over it.
         var parts: [9]struct { dz: f32, h: f32, w: f32 } = undefined;
@@ -891,7 +892,7 @@ pub const View = struct {
                     for (0..4) |k| {
                         const a = corners[k];
                         const b = corners[(k + 1) % 4];
-                        extras[n_extras] = .{ .ax = a[0], .ay = a[1], .bx = b[0], .by = b[1], .z = 0.25, .h = 0.25, .w = 0.7, .rgba = .{ 0x33, 0x88, 0xff, 12 } };
+                        extras[n_extras] = .{ .ax = a[0], .ay = a[1], .bx = b[0], .by = b[1], .z = 0.25, .h = 0.25, .w = 0.7, .rgba = .{ 0x33, 0x88, 0xff, 13 } };
                         n_extras += 1;
                     }
                 }
@@ -902,7 +903,7 @@ pub const View = struct {
                     b.w *= 1.35;
                     b.h *= 1.35;
                     b.z += b.h * 0.1;
-                    b.rgba = .{ 0xff, 0x5a, 0x00, 12 };
+                    b.rgba = .{ 0xff, 0x5a, 0x00, 13 };
                     extras[n_extras] = b;
                     n_extras += 1;
                 };

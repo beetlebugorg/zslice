@@ -54,10 +54,11 @@
 //!    nearest one to the current nozzle position (a greedy nearest
 //!    neighbor search). A loop starts at its seam vertex, or at its vertex
 //!    nearest to the nozzle. A line starts at its nearer end.
-//! 10. Slope smoothing (if on, see slope.zig). After all other paths of
-//!    the layer, beads fill the steps of the sloped top surfaces. Their
-//!    nozzle height changes along the path, between the top of the layer
-//!    below and the top of this layer.
+//! 10. Slope smoothing and slope ironing (if on, see slope.zig). After all
+//!    other paths of the layer, beads fill the steps of the sloped top
+//!    surfaces, and then the nozzle irons them with a small flow. The
+//!    nozzle height changes along these paths, between the top of the
+//!    layer below and the top of this layer.
 //!
 //! Each layer only reads the outlines of the other layers, so many layers
 //! can be planned at the same time on different threads.
@@ -882,10 +883,14 @@ pub fn plan(gpa: Allocator, ctx: Context, i: usize) Allocator.Error!LayerPlan {
         try addGroup(s, a, &lp, &pos, ironing_lines, false, .ironing, null, .{ .ids = ironing_ids, .id = id });
     }
 
-    // Step 10: slope smoothing, after all other paths of the layer.
+    // Step 10: slope smoothing, after all other paths of the layer, then
+    // slope ironing.
+    const slope_in: slope.Input = .{ .resolved = r, .layers = ctx.layers, .outlines = ctx.outlines, .tops = ctx.tops };
     if (p.slope_smoothing and !first) {
-        const set = try slope.beads(s, .{ .resolved = r, .layers = ctx.layers, .outlines = ctx.outlines, .tops = ctx.tops }, i);
-        try addBeads(s, a, &lp, &pos, set, .slope_smoothing);
+        try addBeads(s, a, &lp, &pos, try slope.beads(s, slope_in, i), .slope_smoothing);
+    }
+    if (p.slope_ironing and !first) {
+        try addBeads(s, a, &lp, &pos, try slope.ironing(s, slope_in, i), .slope_ironing);
     }
     return lp;
 }
@@ -1712,7 +1717,7 @@ test "plan a layer of a box" {
         .outer_wall, .inner_wall => walls += 1,
         .skin => skin += 1,
         .infill => fill += 1,
-        .ironing, .skirt, .support, .support_interface, .slope_smoothing => unreachable,
+        .ironing, .skirt, .support, .support_interface, .slope_smoothing, .slope_ironing => unreachable,
     };
     try testing.expectEqual(@as(usize, 2), walls);
     try testing.expectEqual(@as(usize, 0), skin);

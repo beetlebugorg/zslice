@@ -1131,7 +1131,7 @@ test {
     _ = @import("app/feature_settings.zig");
 }
 
-test "app: slope smoothing paths carry a z for each point" {
+test "app: slope smoothing and ironing paths carry a z for each point" {
     const gpa = testing.allocator;
     var mesh = try zs.mesh.shapes.wedge(gpa, 20, 20, 1, 6);
     defer mesh.deinit(gpa);
@@ -1143,6 +1143,7 @@ test "app: slope smoothing paths carry a z for each point" {
     try app.loadStl("wedge.stl", stl.written());
     try app.setSetting("project.slope_smoothing", "true");
     try app.setSetting("machine.nozzle_tip_radius", "0.35");
+    try app.setSetting("project.slope_ironing", "true");
     try app.startSlice();
     app.stopWorkerForTest();
     try testing.expectEqual(State.done, app.getState());
@@ -1150,14 +1151,17 @@ test "app: slope smoothing paths carry a z for each point" {
     try testing.expectEqual(tp.pathCount(), tp.path_z_start.items.len);
     try testing.expectEqual(tp.point_z.items.len, tp.point_area.items.len);
     var found: ?usize = null;
+    var iron: ?usize = null;
     for (tp.path_features.items, 0..) |f, pi| {
         const smooth = f == @intFromEnum(zs.settings.Feature.slope_smoothing);
-        try testing.expectEqual(smooth, tp.path_z_start.items[pi] != Toolpaths.no_z);
-        if (!smooth) continue;
-        found = pi;
+        const ironing = f == @intFromEnum(zs.settings.Feature.slope_ironing);
+        try testing.expectEqual(smooth or ironing, tp.path_z_start.items[pi] != Toolpaths.no_z);
+        if (ironing) iron = pi;
+        if (!smooth and !ironing) continue;
+        if (smooth) found = pi;
         const l = tp.layerOfPath(pi).?;
         const zr = tp.pathZRange(pi, l);
-        try testing.expect(zr[0] >= tp.layer_z.items[l] - tp.layer_height.items[l] / 2 - 1e-4);
+        try testing.expect(zr[0] >= tp.layer_z.items[l] - 0.75 * tp.layer_height.items[l] - 1e-4);
         try testing.expect(zr[1] <= tp.layer_z.items[l] + 1e-4);
     }
     const pi = found.?;
@@ -1167,6 +1171,9 @@ test "app: slope smoothing paths carry a z for each point" {
     try testing.expect(info.height < tp.layer_height.items[info.layer]);
     const report = try app.lineReport(pi, "wedge.gcode");
     try testing.expect(std.mem.indexOf(u8, report, "nozzle z") != null);
+    const iron_info = try app.inspect(iron.?);
+    try testing.expectEqualStrings("Slope ironing", iron_info.title);
+    try testing.expect(std.mem.indexOf(u8, iron_info.explain, "Slope ironing: after the layer") != null);
 }
 
 test "app: load, slice, preview, and export" {

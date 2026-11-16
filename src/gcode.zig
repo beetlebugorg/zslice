@@ -1439,6 +1439,7 @@ fn typeName(f: Feature) []const u8 {
         .support => "SUPPORT",
         .support_interface => "SUPPORT-INTERFACE",
         .slope_smoothing => "SLOPE-SMOOTHING",
+        .slope_ironing => "SLOPE-IRONING",
     };
 }
 

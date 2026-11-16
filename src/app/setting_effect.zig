@@ -112,7 +112,7 @@ fn noteOf(name: []const u8) [:0]const u8 {
 /// inspector, so a click on a line and a look at a setting agree.
 pub fn settingEffect(name: []const u8) SettingEffect {
     const all: u32 = (1 << feature_names.len) - 1;
-    const no_ironing = all & ~@as(u32, 1 << @intFromEnum(zs.settings.Feature.ironing));
+    const no_ironing = all & ~@as(u32, 1 << @intFromEnum(zs.settings.Feature.ironing)) & ~@as(u32, 1 << @intFromEnum(zs.settings.Feature.slope_ironing));
     var e: SettingEffect = .{};
     // A mark setting (the seam, travel, retraction) shows its marks only:
     // the lines around them would hide them.
@@ -163,7 +163,8 @@ test "setting effects" {
     // The skirt uses the inner wall speed.
     try testing.expectEqual(bit(.inner_wall) | bit(.skirt), settingEffect("project.inner_wall_speed").features);
     try testing.expect(settingEffect("project.first_layer_height").first_layer_only);
-    try testing.expectEqual(@as(u32, 0x1ff), settingEffect("project.layer_height").features);
+    try testing.expectEqual(@as(u32, 0x3ff), settingEffect("project.layer_height").features);
+    try testing.expectEqual(bit(.slope_ironing), settingEffect("project.slope_ironing_flow").features);
     try testing.expectEqual(bit(.slope_smoothing), settingEffect("project.slope_smoothing_flow").features);
     // A temperature changes no line.
     try testing.expectEqual(@as(u32, 0), settingEffect("filament.bed_temp").features);
@@ -185,6 +186,7 @@ pub fn ratioSpeed(settings: Settings, name: []const u8, value: []const u8) ?f64 
         .{ .n = "project.first_layer_speed", .f = .outer_wall, .first = true },
         .{ .n = "project.ironing_speed", .f = .ironing, .first = false },
         .{ .n = "project.slope_smoothing_speed", .f = .slope_smoothing, .first = false },
+        .{ .n = "project.slope_ironing_speed", .f = .slope_ironing, .first = false },
     };
     for (cases) |c| if (std.mem.eql(u8, c.n, name)) {
         var s = settings;

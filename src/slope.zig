@@ -1,4 +1,5 @@
-//! Slope smoothing: beads that fill the steps of a sloped top surface.
+//! Slope smoothing and slope ironing: beads that fill the steps of a
+//! sloped top surface, and ironing passes over them.
 //!
 //! A slicer prints a sloped top surface as a stair. Each layer is a little
 //! smaller than the layer below it, so the top of layer N - 1 has a narrow
@@ -28,8 +29,8 @@
 //!    width apart. At each sample, the normal points away from the
 //!    material. A sample is on a ledge if a point a little out along the
 //!    normal is in the region of step 2. The width L of the step is the
-//!    distance from the sample to the outline of layer N - 1, averaged
-//!    with the next samples so that it changes smoothly.
+//!    distance along the normal from the sample to the edge of layer
+//!    N - 1, averaged with the next samples so that it changes smoothly.
 //! 4. The bead. Its area is the area of the triangle, h * L / 2, times
 //!    `slope_smoothing_flow`. Its center is over the middle of the ledge,
 //!    L / 2 out from the side of layer N. Its top (the nozzle tip) is at
@@ -57,6 +58,18 @@
 //!    widths is dropped. Points on a straight line with the same z and
 //!    area are removed.
 //!
+//! 7. Slope ironing (`slope_ironing`). After the beads, the nozzle goes
+//!    over the same ledges again, in `slope_ironing_passes` passes at the
+//!    fractions (k + 1/2) / n of the ledge width out from the side. The
+//!    filled step has its surface on the line from the top of the side
+//!    (z_N) to the outer edge of the ledge (z_N-1). So at the fraction f,
+//!    the nozzle tip is at the height of that surface, z_N-1 + h (1 - f),
+//!    or higher where the cone needs room (step 5), and never lower than
+//!    z_N-1 + h / 4 or higher than z_N. The flow is
+//!    `slope_ironing_flow` of a normal line, as in planar ironing: the hot
+//!    tip makes the bead tops flat, and the small flow fills the gaps.
+//!    It uses the same rule for all ledges.
+//!
 //! The G-code writes each point with its own Z (see gcode.zig). The layer
 //! plan has the z and the bead area of each point (`LayerPlan.point_z`).
 //!
@@ -65,13 +78,15 @@
 //! of fused filament deposition (Song, Ray, Sokolov, and Lefebvre, CAD
 //! 2017); nonplanar surface layers and the nozzle collision check of
 //! Ahlers et al. (CASE 2019); and the curved layers of Chakraborty et al.
-//! (CAD 2008).
+//! (CAD 2008). Ironing: a hot nozzle pass with a small flow over a top
+//! surface, as in PrusaSlicer and Cura (the method, not code).
 
 const std = @import("std");
 const Allocator = std.mem.Allocator;
 const geom = @import("geom.zig");
 const clip = @import("clip.zig");
 const offset_mod = @import("offset.zig");
+const flow = @import("flow.zig");
 const settings_mod = @import("settings.zig");
 const slicer = @import("slicer.zig");
 const PointZ = @import("layer.zig").PointZ;
@@ -145,6 +160,37 @@ pub fn ledgeRegion(s: Allocator, in: Input, i: usize) Allocator.Error!Paths {
 /// outline. The memory is in `s`.
 pub fn beads(s: Allocator, in: Input, i: usize) Allocator.Error![]Bead {
     if (i == 0 or i >= in.outlines.len) return &.{};
+    const region = try ledgeRegion(s, in, i);
+    return stepPaths(s, in, i, region, .smooth);
+}
+
+/// The slope ironing paths of layer i: `slope_ironing_passes` passes over
+/// each ledge that gets a smoothing bead. The memory is in `s`.
+pub fn ironing(s: Allocator, in: Input, i: usize) Allocator.Error![]Bead {
+    if (i == 0 or i >= in.outlines.len) return &.{};
+    const region = try ledgeRegion(s, in, i);
+    if (region.isEmpty()) return &.{};
+    const n = in.resolved.settings.project.slope_ironing_passes;
+    var out: std.ArrayList(Bead) = .empty;
+    for (0..n) |k| {
+        const f = (@as(f64, @floatFromInt(k)) + 0.5) / @as(f64, @floatFromInt(n));
+        try out.appendSlice(s, try stepPaths(s, in, i, region, .{ .iron = f }));
+    }
+    return out.items;
+}
+
+/// What a path along the steps does.
+pub const Pass = union(enum) {
+    /// A smoothing bead (step 4).
+    smooth,
+    /// An ironing pass at this fraction of the ledge width out from the
+    /// side of layer N (see the file comment).
+    iron: f64,
+};
+
+/// The paths of one pass along the steps of layer i, over `region` (see
+/// `ledgeRegion`).
+fn stepPaths(s: Allocator, in: Input, i: usize, region: Paths, pass: Pass) Allocator.Error![]Bead {
     const r = in.resolved;
     const p = r.settings.project;
     const m = r.settings.machine;
@@ -155,8 +201,6 @@ pub fn beads(s: Allocator, in: Input, i: usize) Allocator.Error![]Bead {
     const z_low = in.layers[i - 1].z;
     const h = z_top - z_low;
     if (!(h > 0)) return &.{};
-
-    const region = try ledgeRegion(s, in, i);
     if (region.isEmpty()) return &.{};
 
     const w_mm = r.line_width;
@@ -211,8 +255,8 @@ pub fn beads(s: Allocator, in: Input, i: usize) Allocator.Error![]Bead {
         for (ss) |*sm| {
             const pr = moveBy(sm.q, sm.nx, sm.ny, probe);
             if (!region_idx.inside(pr)) continue;
-            const l = geom.toMm(@intFromFloat(below_idx.distance(sm.q, reach)));
-            if (l < 0.5 * min_l or l > 1.25 * max_l) continue;
+            const l = ledgeWidth(below_idx, sm, 1.25 * max_l, min_l / 4) orelse continue;
+            if (l < 0.5 * min_l) continue;
             sm.on = true;
             sm.width = std.math.clamp(l, min_l, max_l);
         }
@@ -235,8 +279,18 @@ pub fn beads(s: Allocator, in: Input, i: usize) Allocator.Error![]Bead {
         const data = try s.alloc(PointZ, ss.len);
         for (ss, 0..) |*sm, j| {
             if (!sm.on) continue;
-            const area = 0.5 * h * sm.width * p.slope_smoothing_flow;
-            const at = moveBy(sm.q, sm.nx, sm.ny, sm.width / 2);
+            // The place across the ledge (a fraction of its width), the
+            // height of the filled surface there, and the plastic.
+            const f: f64 = switch (pass) {
+                .smooth => 0.5,
+                .iron => |fr| fr,
+            };
+            const z_surface = z_low + h * (1 - f);
+            const area = switch (pass) {
+                .smooth => 0.5 * h * sm.width * p.slope_smoothing_flow,
+                .iron => p.slope_ironing_flow * flow.beadArea(w_mm, h),
+            };
+            const at = moveBy(sm.q, sm.nx, sm.ny, f * sm.width);
             // The bead must lie on layer N - 1, outside layer N.
             if (outline_idx.inside(at) or !below_idx.inside(at)) {
                 sm.on = false;
@@ -247,7 +301,7 @@ pub fn beads(s: Allocator, in: Input, i: usize) Allocator.Error![]Bead {
             const clear = geom.toMm(@intFromFloat(outline_idx.distance(at, reach)));
             const room = clear - m.nozzle_tip_radius;
             const z_clear = if (room <= 0) z_top else if (tan_a > 1e-6) z_top - room / tan_a else z_low;
-            const z = std.math.clamp(z_clear, z_low + h / 2, z_top);
+            const z = std.math.clamp(@max(z_clear, z_surface), z_low + h / 4, z_top);
             pts[j] = at;
             data[j] = .{ .z = @floatCast(z), .area = @floatCast(area) };
         }
@@ -322,6 +376,24 @@ fn addRun(s: Allocator, out: *std.ArrayList(Bead), pts: []const Point, data: []c
     }
     if (kp.items.len < 2) return;
     try out.append(s, .{ .points = kp.items, .data = kd.items, .closed = closed and kp.items.len > 2 });
+}
+
+/// The width of the ledge at a sample: the distance along its normal to
+/// the edge of the layer below, or null if it is more than `max`. The
+/// search walks out in steps of `step`, then halves the last step 8 times.
+fn ledgeWidth(below: geom.EdgeIndex, sm: *const Sample, max: f64, step: f64) ?f64 {
+    var lo: f64 = 0;
+    var hi: f64 = step;
+    while (below.inside(moveBy(sm.q, sm.nx, sm.ny, hi))) {
+        lo = hi;
+        hi += step;
+        if (hi > max) return null;
+    }
+    for (0..8) |_| {
+        const mid = (lo + hi) / 2;
+        if (below.inside(moveBy(sm.q, sm.nx, sm.ny, mid))) lo = mid else hi = mid;
+    }
+    return (lo + hi) / 2;
 }
 
 fn rightNormal(a: Point, b: Point) [2]f64 {
@@ -492,7 +564,49 @@ test "a cone: closed loops; a box: no beads" {
     for (1..sh.layers.len) |i| try testing.expectEqual(@as(usize, 0), (try beads(s, si, i)).len);
 }
 
-test "the layer plan: the beads come last, and only with the setting on" {
+test "slope ironing: passes across the ledge at the height of the filled step" {
+    const gpa = testing.allocator;
+    var arena: std.heap.ArenaAllocator = .init(gpa);
+    defer arena.deinit();
+    const s = arena.allocator();
+    var m = try mesh_mod.shapes.wedge(gpa, 20, 20, 1, 6);
+    defer m.deinit(gpa);
+    var sl = try Sliced.init(gpa, &m, 6);
+    defer sl.deinit(gpa);
+    const i = 12;
+    const z_low = sl.layers[i - 1].z;
+    const z_top = sl.layers[i].z;
+    const h = z_top - z_low;
+    const edge_x = (sl.layers[i].sliceZ() - 1) * 4;
+    for ([_]f64{ 0, 0.5 }) |tip| {
+        var st: settings_mod.Settings = .{};
+        st.project.slope_ironing = true;
+        st.machine.nozzle_tip_radius = tip;
+        const r = try st.resolve();
+        const set = try ironing(s, .{ .resolved = r: {
+            break :r &r;
+        }, .layers = sl.layers, .outlines = sl.outlines }, i);
+        // Two passes (the default), one along the ledge for each.
+        try testing.expectEqual(@as(usize, 2), set.len);
+        const want_area = st.project.slope_ironing_flow * flow.beadArea(r.line_width, h);
+        for (set, 0..) |b, k| {
+            // Pass k is at (k + 1/2) / 2 of the 0.8 mm ledge.
+            const f = (@as(f64, @floatFromInt(k)) + 0.5) / 2;
+            for (b.points, b.data) |q, d| {
+                try testing.expect(d.z >= z_low + h / 4 - 1e-4 and d.z <= z_top + 1e-4);
+                try testing.expectApproxEqRel(want_area, d.area, 1e-5);
+                try testing.expectApproxEqAbs(edge_x - f * 0.8, geom.toMm(q.x), 0.03);
+                // With no tip, the nozzle is on the filled surface: the
+                // step corner is at z_top, the ledge edge at z_low.
+                if (tip == 0) try testing.expectApproxEqAbs(z_low + h * (1 - f), d.z, 1e-4);
+                // A wide tip: the inner pass stays at the top of the layer.
+                if (tip == 0.5 and k == 0) try testing.expectApproxEqAbs(z_top, d.z, 1e-4);
+            }
+        }
+    }
+}
+
+test "the layer plan: the beads and the ironing come last, and only with the settings on" {
     const gpa = testing.allocator;
     var m = try mesh_mod.shapes.wedge(gpa, 10, 20, 1, 6);
     defer m.deinit(gpa);
@@ -501,15 +615,23 @@ test "the layer plan: the beads come last, and only with the setting on" {
     for ([_]bool{ false, true }) |on| {
         var st: settings_mod.Settings = .{};
         st.project.slope_smoothing = on;
+        st.project.slope_ironing = on;
         const r = try st.resolve();
         var lp = try layer_mod.plan(gpa, .{ .resolved = &r, .layers = sl.layers, .outlines = sl.outlines }, 12);
         defer lp.deinit();
         var n: usize = 0;
+        var n_iron: usize = 0;
         var seen = false;
         for (lp.paths.items, 0..) |path, pi| {
-            if (path.feature == .slope_smoothing) {
+            if (path.feature == .slope_ironing) {
+                // The ironing comes after the beads.
+                try testing.expect(n > 0);
+                n_iron += 1;
+            }
+            if (path.feature == .slope_smoothing) try testing.expectEqual(@as(usize, 0), n_iron);
+            if (path.feature == .slope_smoothing or path.feature == .slope_ironing) {
                 seen = true;
-                n += 1;
+                if (path.feature == .slope_smoothing) n += 1;
                 try testing.expect(path.z_start != layer_mod.Path.planar);
                 try testing.expect(path.z_start + lp.points.get(pi).len <= lp.point_z.items.len);
             } else {
@@ -518,6 +640,7 @@ test "the layer plan: the beads come last, and only with the setting on" {
             }
         }
         try testing.expectEqual(@as(usize, if (on) 1 else 0), n);
+        try testing.expectEqual(@as(usize, if (on) 2 else 0), n_iron);
         if (!on) try testing.expectEqual(@as(usize, 0), lp.point_z.items.len);
     }
 }

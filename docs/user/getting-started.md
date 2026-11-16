@@ -95,6 +95,7 @@ zslice preview part.stl --layer 20 -o layer20.svg
 | Light gray | Support |
 | Dark gray | Support interface |
 | Teal | Slope smoothing (beads in the steps of a sloped top) |
+| Lime | Slope ironing (ironing over the steps of a sloped top) |
 | Gray dashes | Travel moves |
 
 The light gray area is the outline of the layer. Each line is drawn at the line width, so you can see gaps and overlaps.
@@ -277,6 +278,16 @@ zslice slice part.stl -o part.gcode -s project.slope_smoothing=true
 - The nozzle must not touch the layer that it just printed. `machine.nozzle_tip_radius` (the flat face around the hole) and `machine.nozzle_cone_angle` describe your nozzle. Where the nozzle has no room to go down into the corner, it stays at the top of the layer, and the plastic fills the corner under the flat tip. A nozzle with a small tip goes lower.
 - `project.slope_smoothing_flow` scales the plastic, and `project.slope_smoothing_speed` sets the speed.
 - It adds time: about 7 % on a Benchy (a travel, a retraction, and two Z moves for each bead).
+
+## Iron the sloped steps
+
+Slope ironing goes over the same steps after the smoothing beads, with a very small flow (10 % of a normal line). At each point, the nozzle tip is at the height of the filled step, so the hot tip makes the bead tops flat. It makes `project.slope_ironing_passes` passes across each ledge (2 by default). In the previews, these lines are lime.
+
+```sh
+zslice slice part.stl -o part.gcode -s project.slope_smoothing=true -s project.slope_ironing=true
+```
+
+It uses the same ledges and the same nozzle settings as slope smoothing. `project.slope_ironing_flow` and `project.slope_ironing_speed` control it. It adds about 10 % to the time of a Benchy, and both together about 15 %.
 
 ## Where the part goes on the bed
 

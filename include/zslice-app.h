@@ -174,7 +174,8 @@ enum zs_feature {
     ZS_FEATURE_SKIRT = 5, /* skirt and brim */
     ZS_FEATURE_SUPPORT = 6,
     ZS_FEATURE_SUPPORT_INTERFACE = 7,
-    ZS_FEATURE_SLOPE_SMOOTHING = 8 /* beads in the steps of a sloped top */
+    ZS_FEATURE_SLOPE_SMOOTHING = 8, /* beads in the steps of a sloped top */
+    ZS_FEATURE_SLOPE_IRONING = 9    /* ironing over the steps of a sloped top */
 };
 
 /* The paths of one layer, in print order, in mm. Path i has the points
@@ -289,9 +290,9 @@ typedef struct zs_setting_effect {
 /* The marks after the features in zs_setting_effect.features and
  * zs_view_focus: the seam points, the travel moves, and the
  * retractions. */
-#define ZS_MARK_SEAM (1u << 9)
-#define ZS_MARK_TRAVEL (1u << 10)
-#define ZS_MARK_RETRACT (1u << 11)
+#define ZS_MARK_SEAM (1u << 10)
+#define ZS_MARK_TRAVEL (1u << 11)
+#define ZS_MARK_RETRACT (1u << 12)
 
 int zs_setting_get_effect(const char *name, zs_setting_effect *out);
 
@@ -303,7 +304,7 @@ typedef struct zs_feature_stats {
     size_t paths;
 } zs_feature_stats;
 
-#define ZS_FEATURE_COUNT 9
+#define ZS_FEATURE_COUNT 10
 /* Fills out[0 .. ZS_FEATURE_COUNT), in the order of enum zs_feature, for
  * the last slice. ZS_NO_RESULT if there is none. */
 int zs_app_feature_stats(const zs_app *app, zs_feature_stats *out);

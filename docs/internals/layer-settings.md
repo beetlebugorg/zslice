@@ -66,6 +66,7 @@ An adaptive layer height (thin layers where a surface has a small slope) can use
 | `ironing`, `ironing_flow`, `ironing_spacing`, `ironing_inset`, `ironing_speed` | yes | layer, gcode | |
 | `outer_wall_speed`, `inner_wall_speed`, `skin_speed`, `infill_speed` | yes | settings (`Resolved.speedAt`) | |
 | `slope_smoothing`, `slope_smoothing_min_width`, `slope_smoothing_max_width`, `slope_smoothing_flow`, `slope_smoothing_speed` | yes | layer, settings | The beads of a layer use the settings and the height of that layer. |
+| `slope_ironing`, `slope_ironing_passes`, `slope_ironing_flow`, `slope_ironing_speed` | yes | layer, settings | As slope smoothing. |
 | `first_layer_speed` | no | settings | The first layer only. |
 | `slow_layers` | no | settings | A count of layers from the bed. |
 | `outer_wall_accel`, `inner_wall_accel`, `skin_accel`, `infill_accel`, `travel_accel` | yes | settings (`Resolved.accel`), gcode | |

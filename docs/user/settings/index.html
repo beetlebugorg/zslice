@@ -243,6 +243,14 @@ M84</code></pre>
 <p>The plastic of a smoothing bead, as a ratio of the volume of the triangle in the step.</p>
 <p><strong><code>project.slope_smoothing_speed</code></strong> (number; per layer). Default: <code>0.3</code></p>
 <p>The speed of the smoothing beads, as a ratio of the allowed speed.</p>
+<p><strong><code>project.slope_ironing</code></strong> (true or false; per layer). Default: <code>false</code></p>
+<p>Iron the sloped steps. After each layer (and after its smoothing beads), the nozzle goes along the same ledges as slope smoothing, with a very small flow. At each point, the nozzle tip is at the height of the filled step there, so the hot tip makes the bead tops flat. The ledges are the ones of <code>slope_smoothing_min_width</code> and <code>slope_smoothing_max_width</code>.</p>
+<p><strong><code>project.slope_ironing_passes</code></strong> (integer; per layer). Default: <code>2</code></p>
+<p>The number of ironing passes over each ledge, evenly across it.</p>
+<p><strong><code>project.slope_ironing_flow</code></strong> (number; per layer). Default: <code>0.1</code></p>
+<p>The flow of the slope ironing lines, as a ratio of the flow of a normal line.</p>
+<p><strong><code>project.slope_ironing_speed</code></strong> (number; per layer). Default: <code>0.15</code></p>
+<p>The slope ironing speed, as a ratio of <code>machine.max_speed</code>. The flow limit of the filament does not apply, because the flow is small.</p>
 <h3 id="speed-ratios">Speed ratios</h3>
 <p><strong><code>project.outer_wall_speed</code></strong> (number; per layer). Default: <code>0.5</code></p>
 <p>The outer wall speed, as a ratio of the allowed speed. A slower outer wall gives a better surface.</p>

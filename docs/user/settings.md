@@ -390,6 +390,22 @@ The plastic of a smoothing bead, as a ratio of the volume of the triangle in the
 
 The speed of the smoothing beads, as a ratio of the allowed speed.
 
+**`project.slope_ironing`** (true or false; per layer). Default: `false`
+
+Iron the sloped steps. After each layer (and after its smoothing beads), the nozzle goes along the same ledges as slope smoothing, with a very small flow. At each point, the nozzle tip is at the height of the filled step there, so the hot tip makes the bead tops flat. The ledges are the ones of `slope_smoothing_min_width` and `slope_smoothing_max_width`.
+
+**`project.slope_ironing_passes`** (integer; per layer). Default: `2`
+
+The number of ironing passes over each ledge, evenly across it.
+
+**`project.slope_ironing_flow`** (number; per layer). Default: `0.1`
+
+The flow of the slope ironing lines, as a ratio of the flow of a normal line.
+
+**`project.slope_ironing_speed`** (number; per layer). Default: `0.15`
+
+The slope ironing speed, as a ratio of `machine.max_speed`. The flow limit of the filament does not apply, because the flow is small.
+
 ### Speed ratios
 
 **`project.outer_wall_speed`** (number; per layer). Default: `0.5`
