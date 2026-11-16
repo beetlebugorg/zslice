@@ -75,7 +75,9 @@ The speed of each move comes from limits (`src/settings.zig`). The machine has a
 
 Stage 3 makes each layer from the mesh alone, so all layers can run at the same time on different threads. Stage 5 needs the outlines of the layers above and below, so it starts after stage 3 ends. Then it also runs on all threads.
 
-The outlines are small, so the engine keeps all of them. The layer plans are large, so the engine makes them in batches. It plans a batch of layers, writes their G-code in order, frees them, and then plans the next batch. The G-code goes out as it is made.
+The outlines are small, so the engine keeps all of them. The layer plans are large, so the engine keeps only a ring of a few of them. The threads plan the next layers while the G-code of the earlier layers goes out, and they also write the text of the G-code. The G-code goes out in layer order, as it is made.
+
+An app slices again after each change of a setting. Most changes do not change the outlines (for example, the infill or the wall count), so the new slice takes the outlines of the old slice. Each layer also keeps the results of its slow steps with the values that made them (a "memo"), and the new slice uses each result that is still good.
 
 ## Try it
 

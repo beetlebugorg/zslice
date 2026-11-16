@@ -15,7 +15,8 @@ src/
   slicer.zig     Layer table, face index, mesh -> layer outline.
   layer.zig      Layer plan: walls, skin, infill, path order.
   gcode.zig      Emitter: layer plans -> G-code, statistics.
-  engine.zig     Job: runs all stages with threads and batches.
+  engine.zig     Job: runs all stages with threads, and reuses the work
+                 of an older job.
 
   Tools that the stages use:
   geom.zig       Point, Paths (flat polygon store), area, simplify.
@@ -23,7 +24,8 @@ src/
   offset.zig     Polygon offset.
   infill.zig     Scanline line fill.
   settings.zig   Settings, Resolved (derived values), Feature.
-  parallel.zig   Parallel for loop.
+  parallel.zig   Parallel for loop, and a signal that threads wait on.
+  scratch.zig    A pool of arenas for work memory.
   svg.zig        SVG picture of a layer plan.
 ```
 
@@ -36,7 +38,8 @@ STL bytes
   -> Mesh                     (mesh.zig)
   -> []Layer, FaceIndex       (slicer.zig)
   -> []Paths  (one outline for each layer)    pass 1, parallel
-  -> LayerPlan (one batch at a time)          pass 2, parallel
+  -> top and bottom surfaces of each layer     parallel
+  -> LayerPlan (a ring of a few layers)       pass 2, parallel
   -> G-code text, Stats       (gcode.zig)     in layer order
 ```
 
@@ -69,9 +72,10 @@ The paths of one layer, in print order. It has its own arena: `deinit` frees all
 
 zslice uses arenas for temporary memory. An arena frees all its memory in one step, so the code needs no `free` for each temporary array.
 
-- Each boolean and offset call makes its own arena for its intermediate data. The result goes in the allocator of the caller.
-- `layer.plan` uses two arenas: one for the plan (it lives until the G-code is written), and one scratch arena for intermediate shapes (freed when `plan` returns).
-- `slicer.sliceAt` uses one arena for the segments and chains of a layer.
+- Each boolean, offset, fill, and plan takes an arena for its intermediate data from the pool in `scratch.zig`, and gives it back at the end. The arena keeps its memory (up to 16 MB) for the next call, so a slice does not get new pages from the operating system for each call. The engine frees the memory of the pool at the end of a slice. The result of a call goes in the allocator of the caller.
+- `layer.plan` puts the plan in its own arena (it lives until the G-code is written).
+- `slicer.sliceAt` uses a pool arena for the segments and chains of a layer.
+- The memo of each layer (`layer.Memo`) has its own arena with the results of the slow steps (offsets, skin, fill regions) by their inputs. An app keeps the memos for the next slice (`Job.initReuse`). A one-shot slice frees each memo after the plan of its layer (`Job.keep_memos`).
 
 Long-lived memory:
 
@@ -79,16 +83,16 @@ Long-lived memory:
 |---|---|---|
 | Mesh | The whole slice | 12 bytes for each vertex, 12 bytes for each triangle |
 | Face index | Pass 1 | 4 bytes for each (triangle, layer) crossing |
-| Outlines | The whole slice | 16 bytes for each outline point |
-| Layer plans | One batch | 16 bytes for each path point |
+| Outlines and surfaces | The whole slice | 16 bytes for each outline point |
+| Memos | The slice, or until the next slice of an app | The results of the slow steps of a layer |
+| Layer plans and their G-code text | A ring of a few layers for each thread | 16 bytes for each path point |
 
 ## Threads
 
 `parallel.forEach(threads, n, ctx, func)` runs `func(ctx, i)` for each i on a set of threads. Each thread takes the next i from one atomic counter.
 
 - Pass 1 writes `outlines[i]` from thread i. Each slot has one writer.
-- Pass 2 writes `plans[i]`. Each slot has one writer.
-- The emitter runs on the calling thread, after the batch is complete.
+- Pass 2 is a pipeline (`engine.Pipeline`). A thread plans layer i into slot i mod (ring size) of a ring. The calling thread makes a dry run of the emitter for each planned layer, in layer order: it finds the emitter state at the start of the layer and formats no numbers. Then any thread writes the G-code text of the layer with a copy of that state, and the calling thread writes the texts out in layer order. A thread that waits sleeps on a `parallel.Signal`.
 
 The work of each item depends only on its index and on data that does not change during the pass. Thus the output is the same for each thread count. A test checks this (`engine.zig`).
 
