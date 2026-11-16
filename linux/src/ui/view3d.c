@@ -45,7 +45,6 @@ typedef struct {
     /* A timeout that draws again after a skipped frame, or 0. */
     guint retry;
     gboolean menu_open;
-    double menu_x, menu_y; /* the press of a right click */
     gboolean part_picked;
     gboolean zoomed_at;
     double move_x0, move_y0, bed_x0, bed_y0;
@@ -406,10 +405,18 @@ static void on_drag_begin(GtkGestureDrag *g, double x, double y, gpointer data) 
     gtk_widget_set_cursor_from_name(v->area, "grabbing");
 }
 
+static void menu_at(View3d *v, double x, double y);
+
 static void on_drag_end(GtkGestureDrag *g, double dx, double dy, gpointer data) {
     View3d *v = data;
     v->moving = -1;
     gtk_widget_set_cursor(v->area, NULL);
+    int mode = GPOINTER_TO_INT(g_object_get_data(G_OBJECT(g), "zg-drag"));
+    if (mode == DRAG_ROTATE && fabs(dx) < 4 && fabs(dy) < 4) {
+        double sx, sy;
+        gtk_gesture_drag_get_start_point(g, &sx, &sy);
+        menu_at(v, sx, sy);
+    }
 }
 
 static void on_drag_update(GtkGestureDrag *g, double dx, double dy, gpointer data) {
@@ -589,15 +596,10 @@ gboolean zg_view3d_menu_open(GtkWidget *view) {
     return v && v->menu_open;
 }
 
-static void on_menu_press(GtkGestureClick *g, int n, double x, double y, gpointer data) {
-    View3d *v = data;
-    v->menu_x = x;
-    v->menu_y = y;
-}
-
-static void on_menu_click(GtkGestureClick *g, int n, double x, double y, gpointer data) {
-    View3d *v = data;
-    if (!v->view || fabs(x - v->menu_x) > 4 || fabs(y - v->menu_y) > 4) return;
+/* A right click (a right drag of less than 4 pixels) at x, y: select the
+ * line there, and open the menu. */
+static void menu_at(View3d *v, double x, double y) {
+    if (!v->view) return;
     int scale = gtk_widget_get_scale_factor(v->area);
     size_t seg = 0;
     size_t path = zs_view_pick_segment(v->view, (float)(x * scale), (float)(y * scale), &seg);
@@ -748,13 +750,9 @@ GtkWidget *zg_view3d_new(ZgModel *model) {
     GtkEventController *scroll = gtk_event_controller_scroll_new(GTK_EVENT_CONTROLLER_SCROLL_VERTICAL);
     g_signal_connect(scroll, "scroll", G_CALLBACK(on_scroll), v);
     gtk_widget_add_controller(v->area, scroll);
-    /* A right click: the context menu. It opens on the release, and only
-     * if the pointer did not move: a right drag turns the view. */
-    GtkGesture *menu_click = gtk_gesture_click_new();
-    gtk_gesture_single_set_button(GTK_GESTURE_SINGLE(menu_click), GDK_BUTTON_SECONDARY);
-    g_signal_connect(menu_click, "pressed", G_CALLBACK(on_menu_press), v);
-    g_signal_connect(menu_click, "released", G_CALLBACK(on_menu_click), v);
-    gtk_widget_add_controller(v->area, GTK_EVENT_CONTROLLER(menu_click));
+    /* The context menu: a right drag that ends where it began (see
+     * on_drag_end). One gesture for the right button, so the drag and the
+     * click do not compete for the press. */
     static const GActionEntry menu_actions[] = {
         {.name = "add-support", .activate = on_add_support, .parameter_type = "i"},
         {.name = "remove-marks", .activate = on_remove_marks},
