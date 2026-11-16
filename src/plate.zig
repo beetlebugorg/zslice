@@ -11,6 +11,10 @@
 //! does not touch another part; else it goes to a free place, from the
 //! center out. `arrange` packs all parts in rows, the largest first, with
 //! a gap between them, and puts the rows in the middle of the bed.
+//!
+//! References (see REFERENCES.md): the closest point on a triangle
+//! (Ericson, "Real-Time Collision Detection"), for the side of a part
+//! nearest to a picked point.
 
 const std = @import("std");
 const Allocator = std.mem.Allocator;

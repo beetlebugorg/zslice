@@ -1,5 +1,8 @@
 /* native-surface.c: see native-surface.h.
  *
+ * References (see REFERENCES.md): adapted from the Wayland subsurface of
+ * Lookout Marine (linux/src/engine/surface.c, same author, MIT).
+ *
  * SPDX-License-Identifier: AGPL-3.0-or-later
  */
 #include "native-surface.h"

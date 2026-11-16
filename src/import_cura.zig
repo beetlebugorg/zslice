@@ -34,6 +34,9 @@
 //!
 //! The core does no file I/O, so the importer reads files through a
 //! `Source` callback.
+//!
+//! References (see REFERENCES.md): the Cura profile formats (`.def.json`,
+//! `.inst.cfg`, `.xml.fdm_material`) and the Cura setting names.
 
 const std = @import("std");
 const Allocator = std.mem.Allocator;

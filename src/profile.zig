@@ -25,6 +25,9 @@
 //! `Resolver` that the caller gives. The command line tool and each app
 //! shell have their own resolver. The built-in profiles (src/profiles/) are
 //! the last place to look.
+//!
+//! References (see REFERENCES.md): TOML v1.0.0, of which toml.zig parses a
+//! subset.
 
 const std = @import("std");
 const Allocator = std.mem.Allocator;
