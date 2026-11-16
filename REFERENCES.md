@@ -18,6 +18,15 @@ The zslice library, command line tool, and wasm module contain code from these p
 
 zslice copies no code from other projects.
 
+## Libraries that the app shells link
+
+The shells link these libraries as shared libraries from the system. Their code is not in a zslice binary. The Licenses window of each shell lists them.
+
+| Shell | Library | License |
+|---|---|---|
+| Linux (`linux/`) | GTK 4 | LGPL-2.1-or-later |
+| Linux (`linux/`) | GLib | LGPL-2.1-or-later |
+| Linux (`linux/`) | cairo | LGPL-2.1-only OR MPL-1.1 |
 
 ## Algorithms, formats, and conventions
 

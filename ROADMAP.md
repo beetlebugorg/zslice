@@ -78,7 +78,7 @@ The goal is the features that people use in PrusaSlicer and Cura. zslice designs
 ## App
 
 - [x] App core (`src/app.zig`, `include/zslice-app.h`): model, settings with descriptions, background slice with progress and cancel, layer paths for the preview, G-code export, license list
-- [ ] Linux shell: GTK4 (`linux/`)
+- [x] Linux shell: GTK4 (`linux/`): open (button, drop, command line), settings panel from core data, slice after each change, layer preview with zoom and pan, export, licenses
 - [ ] 3D preview of the model and the toolpaths
 - [ ] macOS and iOS shell: SwiftUI (`apple/`)
 - [ ] Windows shell: Win32 C++ (`windows/`)

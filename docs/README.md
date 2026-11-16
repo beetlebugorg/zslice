@@ -16,6 +16,7 @@
 ## The app
 
 - [The app](app/README.md): the core and the native shells, and the contract between them.
+- [Linux (GTK4)](../linux/README.md)
 
 ## For developers who change or extend zslice
 

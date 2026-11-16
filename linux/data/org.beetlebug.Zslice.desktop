@@ -1,0 +1,9 @@
+[Desktop Entry]
+Type=Application
+Name=zslice
+Comment=Slice 3D models for FDM printers
+Exec=zslice-gtk %F
+Icon=applications-engineering
+Terminal=false
+Categories=Graphics;3DGraphics;Engineering;
+MimeType=model/stl;
