@@ -308,7 +308,7 @@ pub const Job = struct {
         errdefer job.deinit();
         if (overrides.len > 0) try job.resolveLayers(settings, overrides);
         // A layer can have another height than the layer height of its
-        // settings (its height comes from the z where it starts), so each
+        // settings (a span can move its top out of the range), so each
         // height must fit the line width of its layer.
         for (job.layers[1..], 1..) |l, i| if (l.height > job.resolvedAt(i).line_width + 1e-9) return error.InvalidSettings;
         if (job.tops.len == 0) try job.makeSurfaces();
@@ -1521,7 +1521,7 @@ fn outerWallEPerMm(text: []const u8) !f64 {
     return error.TestUnexpectedResult;
 }
 
-test "a layer height override: the layers above z get the new height" {
+test "a layer height override: the selected layer and the layers above get the new height" {
     const gpa = testing.allocator;
     var mesh = try mesh_mod.shapes.demo(gpa);
     defer mesh.deinit(gpa);
@@ -1534,28 +1534,21 @@ test "a layer height override: the layers above z get the new height" {
     var base = try Job.init(gpa, &mesh, s);
     defer base.deinit();
     try testing.expect(job.outline_key != base.outline_key);
-    // The layers that start below 3.1 are the layers of the plain job. The
-    // layer with its top at 3.1 starts at 2.9, so it keeps 0.2 mm. The
-    // layers that start at 3.1 or higher are 0.1 mm, with z values from one
-    // multiply: 3.1 + k 0.1.
-    var thin: usize = 0;
-    var run_start: ?f64 = null;
+    // The layers below the selected layer (14, from 2.9 to 3.1) are the
+    // layers of the plain job. From layer 14 up, the layers are 0.1 mm,
+    // with z values from one multiply: 2.9 + k 0.1.
     for (job.layers, 0..) |l, i| {
-        const start = if (i == 0) 0 else job.layers[i - 1].z;
-        if (start < 3.1 - 1e-3) {
+        if (i < 14) {
             try testing.expectEqual(base.layers[i].z, l.z);
             try testing.expectEqual(base.layers[i].height, l.height);
         } else {
             try testing.expectEqual(@as(f64, 0.1), l.height);
-            const z0 = run_start orelse start;
-            run_start = z0;
-            thin += 1;
-            try testing.expectEqual(z0 + @as(f64, @floatFromInt(thin)) * 0.1, l.z);
+            try testing.expectEqual(base.layers[13].z + @as(f64, @floatFromInt(i - 13)) * 0.1, l.z);
         }
     }
-    // 14 mm: 15 layers to 3.1, then 0.1 mm layers to 13.9 + 0.1.
-    try testing.expectEqual(@as(usize, 15 + 109), job.layers.len);
-    try testing.expectEqual(@as(usize, 109), thin);
+    try testing.expectApproxEqAbs(@as(f64, 2.9), base.layers[13].z, 1e-9);
+    // 14 mm: 14 layers to 2.9, then 0.1 mm layers from 3.0 to 14.0.
+    try testing.expectEqual(@as(usize, 14 + 111), job.layers.len);
     // The per layer settings of a layer in the range have the new height.
     try testing.expectEqual(@as(f64, 0.1), job.resolvedAt(job.layers.len - 1).settings.project.layer_height);
 

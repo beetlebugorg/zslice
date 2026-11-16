@@ -971,7 +971,7 @@ pub const layer_settings = [_][]const u8{
     "project.travel_accel",
     "filament.max_flow",
     // Pass 1 of the engine reads these for each layer. A layer gets the
-    // layer height of the z where it starts (see slicer.HeightSpan).
+    // layer height of the span that holds its top (see slicer.HeightSpan).
     "project.layer_height",
     "filament.xy_offset",
     "filament.hole_xy_offset",

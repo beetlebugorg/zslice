@@ -56,9 +56,8 @@ pub fn layerTable(gpa: Allocator, part_height: f64, first_height: f64, height: f
     return layerTableSpans(gpa, part_height, first_height, height, &.{});
 }
 
-/// A layer height for the layers that start in a z range (mm): a layer
-/// starts at the top of the layer below it. The range has the same ends as
-/// a `settings.Override`.
+/// A layer height for the layers with their top in a z range (mm). The
+/// range has the same ends as a `settings.Override`.
 pub const HeightSpan = struct {
     z_min: f64,
     z_max: f64,
@@ -69,13 +68,14 @@ pub const HeightSpan = struct {
     }
 };
 
-/// The height of a layer that starts at z: `height`, or the height of the
-/// last span that covers z.
-pub fn heightAt(height: f64, spans: []const HeightSpan, z: f64) f64 {
+/// The height of the layer that starts at z0, from the spans (see
+/// `layerTableSpans`). `topOf(h)` is the top z of the layer with height
+/// h.
+fn spanHeight(height: f64, spans: []const HeightSpan, topOf: anytype) f64 {
     var h = height;
-    for (spans) |sp| if (sp.covers(z)) {
-        h = sp.height;
-    };
+    for (spans) |sp| {
+        if (sp.covers(topOf.at(sp.height)) or sp.covers(topOf.at(h))) h = sp.height;
+    }
     return h;
 }
 
@@ -83,6 +83,14 @@ pub fn heightAt(height: f64, spans: []const HeightSpan, z: f64) f64 {
 /// `HeightSpan`). Each source of layer heights gives spans: the overrides
 /// of the user, and later an adaptive pass. The first layer always has
 /// `first_height`.
+///
+/// A span gives its height to a layer if the top of the layer is in its
+/// range: the top with the height of the span, or the top with the height
+/// that the layer gets without the span. The second test keeps a layer
+/// whose old top is in the range in the span, also when the new height
+/// moves its top below the range. So a span from the top of a layer up
+/// changes that layer, for a thinner and for a thicker height. Where more
+/// than one span applies, the last one wins.
 ///
 /// The z values come from a multiply, and not from a sum, so that rounding
 /// errors do not add up: in a run of layers of one height h that starts
@@ -98,57 +106,72 @@ pub fn layerTableSpans(gpa: Allocator, part_height: f64, first_height: f64, heig
     // file.
     if (first_height / 2 >= part_height - 1e-3) return layers.toOwnedSlice(gpa);
     try layers.append(gpa, .{ .z = first_height, .height = first_height });
+    // The run of layers of one height: its start, its height, and its
+    // layer count.
     var run_z = first_height;
-    var h = heightAt(height, spans, run_z);
+    var run_h = height;
     var k: usize = 0;
+    var z0 = first_height;
     while (true) {
+        const Top = struct {
+            z0: f64,
+            run_z: f64,
+            run_h: f64,
+            k: usize,
+            fn at(t: @This(), h: f64) f64 {
+                if (h == t.run_h) return t.run_z + @as(f64, @floatFromInt(t.k + 1)) * h;
+                return t.z0 + h;
+            }
+        };
+        const h = spanHeight(height, spans, Top{ .z0 = z0, .run_z = run_z, .run_h = run_h, .k = k });
+        if (h != run_h) {
+            // A new height starts a new run at z0.
+            run_z = z0;
+            run_h = h;
+            k = 0;
+        }
         k += 1;
         const z = run_z + @as(f64, @floatFromInt(k)) * h;
         if (z - h / 2 >= part_height - 1e-3) break;
         try layers.append(gpa, .{ .z = z, .height = h });
-        // The next layer starts at z. A new height starts a new run.
-        const next = heightAt(height, spans, z);
-        if (next != h) {
-            run_z = z;
-            h = next;
-            k = 0;
-        }
+        z0 = z;
     }
     return layers.toOwnedSlice(gpa);
 }
 
 test "layer table: a span of another height, with exact z values" {
     const gpa = std.testing.allocator;
-    // 0.2 mm layers, and 0.1 mm layers for the layers that start from z 2
-    // to 3.
-    const spans = [_]HeightSpan{.{ .z_min = 2, .z_max = 3, .height = 0.1 }};
-    const t = try layerTableSpans(gpa, 5, 0.3, 0.2, &spans);
-    defer gpa.free(t);
     const plain = try layerTable(gpa, 5, 0.3, 0.2);
     defer gpa.free(plain);
-    var below: usize = 0;
-    for (t, 0..) |l, i| {
-        const start = l.z - l.height;
-        if (i == 0) continue;
-        const want: f64 = if (start >= 2 - 1e-6 and start <= 3 + 1e-6) 0.1 else 0.2;
-        try std.testing.expectEqual(want, l.height);
-        // Below the span, the same layers as with no span.
-        if (start < 2 - 1e-6) {
-            try std.testing.expectEqual(plain[i].z, l.z);
-            below += 1;
-        }
+    // Layer 9 has its top at 2.1 and starts at 1.9. A span of 0.1 mm for
+    // the tops from 2.1 to 3.1 (as "this layer" on layer 9, to the layer
+    // with its top at 3.1).
+    const thin = [_]HeightSpan{.{ .z_min = 2.1 - 1e-3, .z_max = 3.1 + 1e-3, .height = 0.1 }};
+    const t = try layerTableSpans(gpa, 5, 0.3, 0.2, &thin);
+    defer gpa.free(t);
+    // Below layer 9: the same layers as with no span.
+    for (0..9) |i| try std.testing.expectEqual(plain[i].z, t[i].z);
+    // Layer 9 gets the new height: 0.1 mm layers from 1.9 up to 3.1, with
+    // each top from one multiply.
+    for (9..21) |i| {
+        try std.testing.expectEqual(@as(f64, 0.1), t[i].height);
+        try std.testing.expectEqual(plain[8].z + @as(f64, @floatFromInt(i - 8)) * 0.1, t[i].z);
     }
-    try std.testing.expect(below > 5);
-    // The layer that starts at 2.1 has its top at 2.1 + 0.1 (one multiply
-    // from the start of its run at 2.1, the top of the layer that starts
-    // at 1.9).
-    for (t, 0..) |l, i| if (i > 0 and @abs(l.z - 2.6) < 0.01) {
-        try std.testing.expectEqual(t[i - 5].z + 5 * @as(f64, 0.1), l.z);
-    };
-    // 0.3, then 0.2 mm to 2.1 (9 layers), 0.1 mm while the start is up
-    // to 3 (10 layers, to 3.1), then 0.2 mm to 4.9 (9 layers).
-    try std.testing.expectEqual(@as(usize, 1 + 9 + 10 + 9), t.len);
+    try std.testing.expectApproxEqAbs(@as(f64, 3.1), t[20].z, 1e-9);
+    // Then 0.2 mm to 4.9.
+    for (t[21..]) |l| try std.testing.expectEqual(@as(f64, 0.2), l.height);
+    try std.testing.expectEqual(@as(usize, 1 + 8 + 12 + 9), t.len);
     try std.testing.expectApproxEqAbs(@as(f64, 4.9), t[t.len - 1].z, 1e-9);
+
+    // A thicker span from the top of layer 9 up: layer 9 gets it too.
+    const thick = [_]HeightSpan{.{ .z_min = 2.1 - 1e-3, .z_max = 1e5, .height = 0.3 }};
+    const u = try layerTableSpans(gpa, 5, 0.3, 0.2, &thick);
+    defer gpa.free(u);
+    for (0..9) |i| try std.testing.expectEqual(plain[i].z, u[i].z);
+    for (u[9..], 1..) |l, k| {
+        try std.testing.expectEqual(@as(f64, 0.3), l.height);
+        try std.testing.expectEqual(plain[8].z + @as(f64, @floatFromInt(k)) * 0.3, l.z);
+    }
 }
 
 /// For each layer, the list of triangles that cross its plane. The lists

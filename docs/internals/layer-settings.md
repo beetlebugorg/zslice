@@ -14,9 +14,9 @@ This page lists each project and filament setting. It says if the setting can ch
 
 ## The layer height
 
-A layer gets the layer height of the z where it starts: the top of the layer below. `slicer.layerTableSpans` makes the layer table from a list of `slicer.HeightSpan` (a z range and a height). The engine makes one span for each layer height override. In a run of layers of one height h that starts at z0, layer k of the run has its top at z0 + k h. So the z values have no sum of rounding errors.
+`slicer.layerTableSpans` makes the layer table from a list of `slicer.HeightSpan` (a z range and a height). The engine makes one span for each layer height override. A layer starts at the top of the layer below. A span gives its height to the layer if the top of the layer is in its range: the top with the height of the span, or the top with the height that the layer gets without the span. The second test matters for a thinner height: the new top of the selected layer is below the range, but its old top is in it. Where more than one span applies, the last one wins. In a run of layers of one height h that starts at z0, layer k of the run has its top at z0 + k h. So the z values have no sum of rounding errors.
 
-A layer at the start of a span can have another height than the `layer_height` of its own settings, because its settings come from its top z. So the code reads the height of a layer from `slicer.Layer.height`, and not from `layer_height`:
+A layer at the start or the end of a span can have another height than the `layer_height` of its own settings, because its settings come from its final top z. So the code reads the height of a layer from `slicer.Layer.height`, and not from `layer_height`:
 
 - The flow: the bead area of a line uses `LayerPlan.height`.
 - The speed limit of the max flow uses `LayerPlan.height`.
@@ -28,7 +28,7 @@ A layer at the start of a span can have another height than the `layer_height` o
 
 An adaptive layer height (thin layers where a surface has a small slope) can use the same table. It gives its own spans to `layerTableSpans`, before the spans of the overrides, so that an override of the user wins.
 
-"This layer and up" in the app makes a range from the top z of the selected layer. The selected layer starts below that z, so the new layer height starts with the layer above it.
+"This layer and up" in the app makes a range from the top z of the selected layer. The selected layer gets the new height, for a thinner and for a thicker height. "This layer" with a thinner height gives the z range of the selected layer to thinner layers: two layers of 0.1 mm for one layer of 0.2 mm.
 
 ## Filament settings
 
