@@ -47,7 +47,7 @@ A slicer for FDM 3D printers, written from scratch in Zig. It is fast enough to 
 
 - Walls, with thin walls and a hidden seam (the seam goes into a corner or to the back where it is hard to see).
 - Skin: lines, monotonic (each line lies against the line before it, for an even top surface), or concentric. Skin expand distance and skin removal width remove gaps and thin strips.
-- Infill: lines, grid, triangles, cubic, gyroid, honeycomb, concentric, zigzag, and flow.
+- Infill: lines, grid, triangles, cubic, gyroid, honeycomb, concentric, zigzag, flow, and lightning (branches only under the tops).
 - Ironing.
 - Support: grid or tree, with interface layers. Tree support reaches into deep, narrow holes.
 - Combing: a travel inside the part goes around holes and does not retract.

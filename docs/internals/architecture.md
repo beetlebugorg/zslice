@@ -19,6 +19,8 @@ src/
   slope.zig      Slope smoothing: beads in the steps of sloped tops.
   support.zig    Support areas under overhangs (grid support).
   tree_support.zig  Tree support: branches that join on the way down.
+  lightning.zig  Lightning infill: branches under the tops, grown from the
+                 top layer down.
   gcode.zig      Emitter: layer plans -> G-code, statistics.
   engine.zig     Job: runs all stages with threads, and reuses the work
                  of an older job.

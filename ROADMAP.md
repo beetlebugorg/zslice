@@ -41,7 +41,8 @@ The goal is the features that people use in PrusaSlicer and Cura. zslice designs
 - [x] Seam placement: sharpest corner (hidden), rear, nearest, random
 - [ ] Gap fill and thin walls (variable line width, like Arachne)
 - [x] Infill patterns: gyroid, cubic, triangles, concentric
-- [ ] Infill patterns: honeycomb, lightning, adaptive cubic
+- [ ] Infill patterns: honeycomb, adaptive cubic
+- [x] Infill patterns: lightning
 - [ ] Top and bottom patterns: monotonic, concentric
 - [ ] Infill only where needed, and denser infill under top surfaces
 - [ ] Wall order (inner first or outer first) and extra walls on alternate layers
@@ -114,7 +115,7 @@ The goal is the features that people use in PrusaSlicer and Cura. zslice designs
 - [x] Send to the printer (upload, or upload and print), and the state of the printer in the status bar
 - [x] Seam mode "hidden" (the default): the most hidden point (inside corners over about 1 mm, the back, not over air; ties to the back, so the seams line up)
 - [x] More infill: honeycomb; zigzag (lines joined at the walls, no travel between them); flow (zigzag, twice as dense in a band under the top surfaces)
-- [ ] More infill: lightning, adaptive cubic; make flow cheaper (the band costs a stacked intersection on the first slice, and memory in the cache)
+- [ ] More infill: adaptive cubic; make flow cheaper (the band costs a stacked intersection on the first slice, and memory in the cache)
 - [x] Skin expand distance, skin removal width, and solid infill for narrow sparse areas (no gaps between the top skin and the walls)
 - [x] Thin walls: a loop with a narrower line in each part thinner than one line width
 - [ ] Thin walls with a variable line width along the part (Arachne-like)

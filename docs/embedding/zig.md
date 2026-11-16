@@ -77,6 +77,8 @@ Coordinates are integers in micrometers (`zslice.geom.Point`). Use `zslice.geom.
 
 You can also write the G-code from the same job: `try job.writeGcode(out)`. A `Job` must not move in memory after `init`.
 
+`Job.init` does the work that needs all layers: the support areas and, with `project.infill_pattern = lightning`, the lightning branches (`job.lightning`, one `Paths` for each layer). `planLayer` then plans one layer on its own.
+
 ## Make a mesh from triangles
 
 ```zig

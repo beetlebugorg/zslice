@@ -63,6 +63,7 @@ An adaptive layer height (thin layers where a surface has a small slope) can use
 | `skin_pattern`, `skin_angle`, `skin_angle_step`, `skin_overlap` | yes | layer | |
 | `infill_density`, `infill_pattern`, `infill_angle`, `infill_connect`, `infill_overlap` | yes | layer | |
 | `top_support_layers`, `top_support_density` | yes | layer | |
+| `lightning_angle` | no | lightning | The branches of all layers come from one pass, from the top down. A layer with another `infill_pattern` cuts the trees: its infill holds the layer above, and the trees start again below it. |
 | `ironing`, `ironing_flow`, `ironing_spacing`, `ironing_inset`, `ironing_speed` | yes | layer, gcode | |
 | `outer_wall_speed`, `inner_wall_speed`, `skin_speed`, `infill_speed` | yes | settings (`Resolved.speedAt`) | |
 | `slope_smoothing`, `slope_smoothing_min_width`, `slope_smoothing_max_width`, `slope_smoothing_flow`, `slope_smoothing_speed` | yes | layer, settings | The beads of a layer use the settings and the height of that layer. |
