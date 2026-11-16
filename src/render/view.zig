@@ -310,10 +310,16 @@ pub const View = struct {
         return lo;
     }
 
-    /// Turns the camera by a drag of dx, dy pixels.
+    /// Turns the camera by a drag of dx, dy pixels. The tilt has no limit:
+    /// the camera can go under the part and over the top. Upside down, a
+    /// sideways drag turns the other way, so the part follows the hand.
     pub fn orbit(v: *View, dx: f32, dy: f32) void {
-        v.yaw -= dx * 0.008;
-        v.pitch = std.math.clamp(v.pitch + dy * 0.008, -0.2, 1.55);
+        const upside_down = @cos(v.pitch) < 0;
+        v.yaw += if (upside_down) dx * 0.008 else -dx * 0.008;
+        v.pitch += dy * 0.008;
+        // Keep the angle in (-pi, pi].
+        if (v.pitch > std.math.pi) v.pitch -= 2 * std.math.pi;
+        if (v.pitch <= -std.math.pi) v.pitch += 2 * std.math.pi;
     }
 
     /// Moves the camera nearer (factor < 1) or further (factor > 1).
@@ -361,15 +367,21 @@ pub const View = struct {
     }
 
     /// The camera position and its unit vectors: forward, right, and up.
-    fn camera(v: *const View) struct { eye: [3]f32, f: [3]f32, s: [3]f32, u: [3]f32 } {
+    fn camera(v: *const View) struct { eye: [3]f32, f: [3]f32, s: [3]f32, u: [3]f32, up: [3]f32 } {
+        // Straight above or below the target, the camera axes are not
+        // defined: move a very small angle off the pole.
+        var pitch = v.pitch;
+        if (@abs(@cos(pitch)) < 1e-4) pitch -= 2e-4;
         const eye = [3]f32{
-            v.target[0] + v.dist * @cos(v.pitch) * @cos(v.yaw),
-            v.target[1] + v.dist * @cos(v.pitch) * @sin(v.yaw),
-            v.target[2] + v.dist * @sin(v.pitch),
+            v.target[0] + v.dist * @cos(pitch) * @cos(v.yaw),
+            v.target[1] + v.dist * @cos(pitch) * @sin(v.yaw),
+            v.target[2] + v.dist * @sin(pitch),
         };
+        // Past the pole, the camera is upside down: its up is -z.
+        const up = [3]f32{ 0, 0, if (@cos(pitch) < 0) -1 else 1 };
         const f = normalize(.{ v.target[0] - eye[0], v.target[1] - eye[1], v.target[2] - eye[2] });
-        const s = normalize(cross(f, .{ 0, 0, 1 }));
-        return .{ .eye = eye, .f = f, .s = s, .u = cross(s, f) };
+        const s = normalize(cross(f, up));
+        return .{ .eye = eye, .f = f, .s = s, .u = cross(s, f), .up = up };
     }
 
     /// The unit direction of the ray from the camera through pixel (px, py).
@@ -428,10 +440,11 @@ pub const View = struct {
     }
 
     pub fn draw(v: *View) Error!void {
-        const eye = v.camera().eye;
+        const cam = v.camera();
+        const eye = cam.eye;
         const aspect = @as(f32, @floatFromInt(v.width)) / @as(f32, @floatFromInt(v.height));
         const proj = perspective(fov, aspect, @max(v.dist * 0.01, 0.1), v.dist * 10 + v.extent * 4);
-        const view = lookAt(eye, v.target, .{ 0, 0, 1 });
+        const view = lookAt(eye, v.target, cam.up);
         const mvp = mul(proj, view);
         var count: u32 = 0;
         var partial: ?vk.Instance = null;
@@ -631,4 +644,27 @@ test "zoom at a pixel keeps the point under it" {
     v.pan(0, 100);
     const moved = @sqrt((v.target[0] - t0[0]) * (v.target[0] - t0[0]) + (v.target[1] - t0[1]) * (v.target[1] - t0[1]) + (v.target[2] - t0[2]) * (v.target[2] - t0[2]));
     try std.testing.expectApproxEqAbs(2 * v.dist * @tan(@as(f32, fov) / 2), moved, 1e-3);
+}
+
+test "the camera can go under the part and over the top" {
+    var v: View = .{ .renderer = undefined, .width = 100, .height = 100 };
+    v.target = .{ 0, 0, 0 };
+    v.dist = 10;
+    v.yaw = 0;
+    v.pitch = 0;
+    // Down past the bed: the eye is below the target.
+    v.orbit(0, -150);
+    try std.testing.expect(v.camera().eye[2] < 0);
+    // Over the top: the camera is upside down, and its axes are still
+    // unit vectors at right angles.
+    v.pitch = 0;
+    v.orbit(0, 250);
+    const cam = v.camera();
+    try std.testing.expect(@cos(v.pitch) < 0);
+    try std.testing.expectApproxEqAbs(@as(f32, 1), dot(cam.s, cam.s), 1e-5);
+    try std.testing.expectApproxEqAbs(@as(f32, 0), dot(cam.s, cam.u), 1e-5);
+    // At the pole itself, the axes are defined.
+    v.pitch = std.math.pi / 2.0;
+    const pole = v.camera();
+    try std.testing.expect(!std.math.isNan(pole.s[0]));
 }
