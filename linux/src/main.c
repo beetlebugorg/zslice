@@ -6,6 +6,9 @@
  * SPDX-License-Identifier: AGPL-3.0-or-later
  */
 #include <gtk/gtk.h>
+#include <stdlib.h>
+#include <sys/prctl.h>
+#include <unistd.h>
 
 #include "model/app-model.h"
 #include "ui/licenses.h"
@@ -139,7 +142,77 @@ static void on_shutdown(GApplication *app, gpointer data) {
     g_clear_object(&model);
 }
 
+/* ---- the hang watchdog ----
+ *
+ * The UI thread sets a heartbeat every 250 ms. A watchdog thread checks it
+ * every second. If the UI thread is 3 s late, the watchdog runs eu-stack on
+ * the app once for that hang, and writes the stacks of all threads to
+ * <cache>/zslice/hang-<time>.txt, so that a rare lockup can be found. */
+
+static gint64 heartbeat;
+
+static gboolean on_heartbeat(gpointer data) {
+    heartbeat = g_get_monotonic_time();
+    return G_SOURCE_CONTINUE;
+}
+
+static gpointer watchdog(gpointer data) {
+    gboolean reported = FALSE;
+    char *eu = g_find_program_in_path("eu-stack");
+    for (;;) {
+        g_usleep(G_USEC_PER_SEC);
+        gint64 last = heartbeat;
+        gint64 late = g_get_monotonic_time() - last;
+        if (last == 0 || late < 3 * G_USEC_PER_SEC) {
+            reported = FALSE;
+            continue;
+        }
+        if (reported) continue;
+        reported = TRUE;
+        char *dir = g_build_filename(g_get_user_cache_dir(), "zslice", NULL);
+        g_mkdir_with_parents(dir, 0700);
+        GDateTime *now = g_date_time_new_now_local();
+        char *stamp = g_date_time_format(now, "%Y%m%d-%H%M%S");
+        char *path = g_strdup_printf("%s/hang-%s.txt", dir, stamp);
+        g_printerr("zslice: the UI thread is %.1f s late; stacks in %s\n", late / 1e6, path);
+        if (eu) {
+            char *pid = g_strdup_printf("%d", (int)getpid());
+            char *argv[] = {eu, "-p", pid, NULL};
+            char *out = NULL, *err = NULL;
+            if (g_spawn_sync(NULL, argv, NULL, G_SPAWN_DEFAULT, NULL, NULL, &out, &err, NULL, NULL)) {
+                char *text = g_strdup_printf("UI thread late by %.1f s\n\n%s\n%s", late / 1e6, out ? out : "", err ? err : "");
+                g_file_set_contents(path, text, -1, NULL);
+                g_free(text);
+            }
+            g_free(out);
+            g_free(err);
+            g_free(pid);
+        }
+        g_free(path);
+        g_free(stamp);
+        g_date_time_unref(now);
+        g_free(dir);
+    }
+    return NULL;
+}
+
+static gboolean test_hang(gpointer data) {
+    g_usleep((gulong)(atof(g_getenv("ZSLICE_TEST_HANG")) * G_USEC_PER_SEC));
+    return G_SOURCE_REMOVE;
+}
+
 int main(int argc, char **argv) {
+    heartbeat = g_get_monotonic_time();
+    g_timeout_add(250, on_heartbeat, NULL);
+#ifdef PR_SET_PTRACER
+    /* With Yama ptrace protection, a child cannot read its parent: let the
+     * watchdog's eu-stack read the stacks of the app. */
+    prctl(PR_SET_PTRACER, PR_SET_PTRACER_ANY, 0, 0, 0);
+#endif
+    g_thread_unref(g_thread_new("zslice-watchdog", watchdog, NULL));
+    /* For a test of the watchdog: ZSLICE_TEST_HANG=4 stops the UI thread
+     * for 4 s, 3 s after the start. */
+    if (g_getenv("ZSLICE_TEST_HANG")) g_timeout_add_seconds(3, test_hang, NULL);
     GApplicationFlags flags = G_APPLICATION_HANDLES_OPEN;
     /* For development and tests: ZSLICE_NON_UNIQUE=1 starts a separate
      * instance. Without it, a second start sends its file to the running

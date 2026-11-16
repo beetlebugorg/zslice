@@ -949,4 +949,6 @@ void zg_preview_refresh(GtkWidget *preview) {
     zg_view3d_reload(p->view3d);
     show_legend(p);
     zg_view3d_set_layer_range(p->view3d, zg_layer_range_get_lo(range), layer);
+    double t0, t1;
+    if (layer_times(p, layer, &t0, &t1)) show_scrub(p, layer, t1);
 }

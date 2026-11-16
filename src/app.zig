@@ -215,6 +215,7 @@ pub const App = struct {
         errdefer out.deinit();
         try zs.threemf.write(app.gpa, &out.writer, &app.plate, text.written());
         app.gpa.free(app.file_bytes);
+        app.file_bytes = &.{};
         app.file_bytes = try out.toOwnedSlice();
         return app.file_bytes;
     }
@@ -445,7 +446,6 @@ pub const App = struct {
         }
         app.slice_settings = app.settings;
         app.gpa.free(app.slice_overrides);
-        app.gpa.free(app.file_bytes);
         app.slice_overrides = app.gpa.dupe(zs.settings.Override, app.overrides.items) catch &.{};
         app.cancel_flag.store(false, .release);
         app.state.store(.slicing, .release);
