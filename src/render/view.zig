@@ -19,9 +19,11 @@
 //! The beads are in print order, so the layers 0 to n are the first
 //! `layer_end[n]` beads, and the slider of a shell only changes a count.
 //!
-//! The camera orbits a target point (the center of the part): yaw turns
-//! around the vertical axis, pitch tilts up and down, and the distance
-//! zooms. The projection is for Vulkan clip space: y goes down, and depth
+//! The camera looks at a target point (the center of the part) from a
+//! distance. Its direction is a unit quaternion, so it can turn in any
+//! direction: an orbit turns around the vertical axis and tilts, and a
+//! free rotation turns around the axes of the screen (with roll). The
+//! distance zooms. The projection is for Vulkan clip space: y goes down, and depth
 //! goes from 0 to 1.
 //!
 //! This file is the same for all platforms. Only the backend (vk.zig, and
@@ -71,8 +73,9 @@ pub const View = struct {
     /// The target of `reset`: the center of the part.
     home: [3]f32 = .{ 110, 110, 0 },
     extent: f32 = 100,
-    yaw: f32 = 0,
-    pitch: f32 = 0,
+    /// The camera direction: it turns the camera axes (right = x, up = y,
+    /// back = z) into world directions. The eye is at target + dist * back.
+    rot: Quat = .{ 0, 0, 0, 1 },
     dist: f32 = 100,
     /// The camera pose that `animate` moves to, or null if the camera does
     /// not move. The scroll zoom and the reset set it. A drag moves the
@@ -80,7 +83,7 @@ pub const View = struct {
     goal: ?Pose = null,
 
     /// The camera: the target, the angles, and the distance.
-    pub const Pose = struct { target: [3]f32, yaw: f32, pitch: f32, dist: f32 };
+    pub const Pose = struct { target: [3]f32, rot: Quat, dist: f32 };
 
     const gpa = std.heap.c_allocator;
 
@@ -318,21 +321,19 @@ pub const View = struct {
     }
 
     fn pose(v: *const View) Pose {
-        return .{ .target = v.target, .yaw = v.yaw, .pitch = v.pitch, .dist = v.dist };
+        return .{ .target = v.target, .rot = v.rot, .dist = v.dist };
     }
 
     fn setPose(v: *View, p: Pose) void {
         v.target = p.target;
-        v.yaw = p.yaw;
-        v.pitch = p.pitch;
+        v.rot = p.rot;
         v.dist = p.dist;
     }
 
-    /// The angle a - b, in (-pi, pi].
-    fn angleDiff(a: f32, b: f32) f32 {
-        var d = @mod(a - b, 2 * std.math.pi);
-        if (d > std.math.pi) d -= 2 * std.math.pi;
-        return d;
+    /// Points the camera from a turn angle around the vertical axis (yaw)
+    /// and a tilt above the bed (pitch), with no roll.
+    pub fn setAngles(v: *View, yaw: f32, pitch: f32) void {
+        v.rot = quatFromAngles(yaw, pitch);
     }
 
     /// Moves the goal by the change from `before` to the current pose, so
@@ -340,8 +341,8 @@ pub const View = struct {
     fn carryGoal(v: *View, before: Pose) void {
         const g = &(v.goal orelse return);
         for (0..3) |k| g.target[k] += v.target[k] - before.target[k];
-        g.yaw += v.yaw - before.yaw;
-        g.pitch += angleDiff(v.pitch, before.pitch);
+        const delta = qmul(v.rot, qconj(before.rot));
+        g.rot = qnormalize(qmul(delta, g.rot));
     }
 
     /// Moves the camera toward the goal for a time step of dt seconds.
@@ -351,16 +352,12 @@ pub const View = struct {
         const g = v.goal orelse return false;
         const k = 1 - @exp(-@max(dt, 0) / 0.07);
         for (0..3) |i| v.target[i] += (g.target[i] - v.target[i]) * k;
-        v.yaw += angleDiff(g.yaw, v.yaw) * k;
-        v.pitch += angleDiff(g.pitch, v.pitch) * k;
-        if (v.pitch > std.math.pi) v.pitch -= 2 * std.math.pi;
-        if (v.pitch <= -std.math.pi) v.pitch += 2 * std.math.pi;
+        v.rot = qslerp(v.rot, g.rot, k);
         v.dist *= std.math.pow(f32, g.dist / v.dist, k);
         // Stop when the rest of the motion is less than a pixel.
         var off: f32 = 0;
         for (0..3) |i| off = @max(off, @abs(g.target[i] - v.target[i]));
-        const close = off < v.dist * 1e-4 and @abs(angleDiff(g.yaw, v.yaw)) < 1e-4 and
-            @abs(angleDiff(g.pitch, v.pitch)) < 1e-4 and @abs(g.dist / v.dist - 1) < 1e-4;
+        const close = off < v.dist * 1e-4 and qangle(v.rot, g.rot) < 1e-4 and @abs(g.dist / v.dist - 1) < 1e-4;
         if (close) {
             v.setPose(g);
             v.goal = null;
@@ -384,24 +381,40 @@ pub const View = struct {
     pub fn resetSmooth(v: *View) void {
         const now = v.pose();
         v.reset();
-        var g = v.pose();
-        g.yaw = now.yaw + angleDiff(g.yaw, now.yaw);
-        v.goal = g;
+        v.goal = v.pose();
         v.setPose(now);
     }
 
-    /// Turns the camera by a drag of dx, dy pixels. The tilt has no limit:
-    /// the camera can go under the part and over the top. Upside down, a
-    /// sideways drag turns the other way, so the part follows the hand.
+    /// The angle of a drag: radians for each pixel.
+    const drag_angle = 0.008;
+
+    /// Turns the camera by a drag of dx, dy pixels: around the vertical
+    /// axis of the world, and a tilt around the right axis of the screen.
+    /// The tilt has no limit: the camera can go under the part and over
+    /// the top. Upside down, a sideways drag turns the other way, so the
+    /// part follows the hand. An orbit adds no roll.
     pub fn orbit(v: *View, dx: f32, dy: f32) void {
         const before = v.pose();
         defer v.carryGoal(before);
-        const upside_down = @cos(v.pitch) < 0;
-        v.yaw += if (upside_down) dx * 0.008 else -dx * 0.008;
-        v.pitch += dy * 0.008;
-        // Keep the angle in (-pi, pi].
-        if (v.pitch > std.math.pi) v.pitch -= 2 * std.math.pi;
-        if (v.pitch <= -std.math.pi) v.pitch += 2 * std.math.pi;
+        const cam = v.camera();
+        const sign: f32 = if (cam.u[2] < 0) 1 else -1;
+        const yaw = qaxis(.{ 0, 0, 1 }, sign * dx * drag_angle);
+        // The tilt axis is the right axis after the turn, so the tilt adds
+        // no roll.
+        const tilt = qaxis(qrotate(yaw, cam.s), -dy * drag_angle);
+        v.rot = qnormalize(qmul(tilt, qmul(yaw, v.rot)));
+    }
+
+    /// Turns the camera freely by a drag of dx, dy pixels: around the up
+    /// and the right axes of the screen. Drags in turn can roll the view,
+    /// so the part can turn to any direction.
+    pub fn rotate(v: *View, dx: f32, dy: f32) void {
+        const before = v.pose();
+        defer v.carryGoal(before);
+        const cam = v.camera();
+        const a = qaxis(cam.u, -dx * drag_angle);
+        const b = qaxis(cam.s, -dy * drag_angle);
+        v.rot = qnormalize(qmul(b, qmul(a, v.rot)));
     }
 
     /// Moves the camera nearer (factor < 1) or further (factor > 1).
@@ -442,33 +455,23 @@ pub const View = struct {
     pub fn turn(v: *View, dx: f32) void {
         const before = v.pose();
         defer v.carryGoal(before);
-        v.yaw -= dx * 0.008;
+        v.rot = qnormalize(qmul(qaxis(.{ 0, 0, 1 }, -dx * drag_angle), v.rot));
     }
 
     pub fn reset(v: *View) void {
         v.goal = null;
         v.target = v.home;
-        v.yaw = -1.9;
-        v.pitch = 0.6;
+        v.setAngles(-1.9, 0.6);
         v.dist = v.extent * 2.8;
     }
 
     /// The camera position and its unit vectors: forward, right, and up.
-    fn camera(v: *const View) struct { eye: [3]f32, f: [3]f32, s: [3]f32, u: [3]f32, up: [3]f32 } {
-        // Straight above or below the target, the camera axes are not
-        // defined: move a very small angle off the pole.
-        var pitch = v.pitch;
-        if (@abs(@cos(pitch)) < 1e-4) pitch -= 2e-4;
-        const eye = [3]f32{
-            v.target[0] + v.dist * @cos(pitch) * @cos(v.yaw),
-            v.target[1] + v.dist * @cos(pitch) * @sin(v.yaw),
-            v.target[2] + v.dist * @sin(pitch),
-        };
-        // Past the pole, the camera is upside down: its up is -z.
-        const up = [3]f32{ 0, 0, if (@cos(pitch) < 0) -1 else 1 };
-        const f = normalize(.{ v.target[0] - eye[0], v.target[1] - eye[1], v.target[2] - eye[2] });
-        const s = normalize(cross(f, up));
-        return .{ .eye = eye, .f = f, .s = s, .u = cross(s, f), .up = up };
+    fn camera(v: *const View) struct { eye: [3]f32, f: [3]f32, s: [3]f32, u: [3]f32 } {
+        const s_ = qrotate(v.rot, .{ 1, 0, 0 });
+        const u = qrotate(v.rot, .{ 0, 1, 0 });
+        const b = qrotate(v.rot, .{ 0, 0, 1 });
+        const eye = [3]f32{ v.target[0] + v.dist * b[0], v.target[1] + v.dist * b[1], v.target[2] + v.dist * b[2] };
+        return .{ .eye = eye, .f = .{ -b[0], -b[1], -b[2] }, .s = s_, .u = u };
     }
 
     /// The unit direction of the ray from the camera through pixel (px, py).
@@ -531,7 +534,7 @@ pub const View = struct {
         const eye = cam.eye;
         const aspect = @as(f32, @floatFromInt(v.width)) / @as(f32, @floatFromInt(v.height));
         const proj = perspective(fov, aspect, @max(v.dist * 0.01, 0.1), v.dist * 10 + v.extent * 4);
-        const view = lookAt(eye, v.target, cam.up);
+        const view = lookAt(eye, v.target, cam.u);
         const mvp = mul(proj, view);
         var count: u32 = 0;
         var partial: ?vk.Instance = null;
@@ -619,6 +622,103 @@ fn perspective(fovy: f32, aspect: f32, near: f32, far: f32) [16]f32 {
     return m;
 }
 
+// ---- quaternions (x, y, z, w) for the camera direction ----
+
+pub const Quat = [4]f32;
+
+fn qmul(a: Quat, b: Quat) Quat {
+    return .{
+        a[3] * b[0] + a[0] * b[3] + a[1] * b[2] - a[2] * b[1],
+        a[3] * b[1] - a[0] * b[2] + a[1] * b[3] + a[2] * b[0],
+        a[3] * b[2] + a[0] * b[1] - a[1] * b[0] + a[2] * b[3],
+        a[3] * b[3] - a[0] * b[0] - a[1] * b[1] - a[2] * b[2],
+    };
+}
+
+fn qconj(q: Quat) Quat {
+    return .{ -q[0], -q[1], -q[2], q[3] };
+}
+
+fn qnormalize(q: Quat) Quat {
+    const n = @sqrt(q[0] * q[0] + q[1] * q[1] + q[2] * q[2] + q[3] * q[3]);
+    return .{ q[0] / n, q[1] / n, q[2] / n, q[3] / n };
+}
+
+/// A turn of `angle` radians around the axis (right hand rule).
+fn qaxis(axis: [3]f32, angle: f32) Quat {
+    const a = normalize(axis);
+    const sn = @sin(angle / 2);
+    return .{ a[0] * sn, a[1] * sn, a[2] * sn, @cos(angle / 2) };
+}
+
+fn qrotate(q: Quat, p: [3]f32) [3]f32 {
+    const r = qmul(qmul(q, .{ p[0], p[1], p[2], 0 }), qconj(q));
+    return .{ r[0], r[1], r[2] };
+}
+
+fn qdot(a: Quat, b: Quat) f32 {
+    return a[0] * b[0] + a[1] * b[1] + a[2] * b[2] + a[3] * b[3];
+}
+
+/// The angle (radians) of the turn from a to b.
+fn qangle(a: Quat, b: Quat) f32 {
+    return 2 * std.math.acos(@min(1, @abs(qdot(a, b))));
+}
+
+/// The direction a fraction t of the way from a to b, on the shorter way.
+fn qslerp(a: Quat, b_in: Quat, t: f32) Quat {
+    var b = b_in;
+    var d = qdot(a, b);
+    if (d < 0) {
+        b = .{ -b[0], -b[1], -b[2], -b[3] };
+        d = -d;
+    }
+    if (d > 0.9995) {
+        // Nearly the same: a straight line is exact enough.
+        return qnormalize(.{ a[0] + (b[0] - a[0]) * t, a[1] + (b[1] - a[1]) * t, a[2] + (b[2] - a[2]) * t, a[3] + (b[3] - a[3]) * t });
+    }
+    const theta = std.math.acos(d);
+    const sa = @sin((1 - t) * theta) / @sin(theta);
+    const sb = @sin(t * theta) / @sin(theta);
+    return .{ a[0] * sa + b[0] * sb, a[1] * sa + b[1] * sb, a[2] * sa + b[2] * sb, a[3] * sa + b[3] * sb };
+}
+
+/// The camera direction for a turn around the vertical axis (yaw) and a
+/// tilt (pitch), with no roll: the eye is at (cos pitch cos yaw,
+/// cos pitch sin yaw, sin pitch) from the target, and up is toward +z.
+fn quatFromAngles(yaw: f32, pitch_in: f32) Quat {
+    // Straight above or below, "toward +z" has no direction: move a very
+    // small angle off the pole.
+    var pitch = pitch_in;
+    if (@abs(@cos(pitch)) < 1e-4) pitch -= 2e-4;
+    const b = [3]f32{ @cos(pitch) * @cos(yaw), @cos(pitch) * @sin(yaw), @sin(pitch) };
+    const up = [3]f32{ 0, 0, if (@cos(pitch) < 0) -1 else 1 };
+    const s = normalize(cross(up, b));
+    const u = cross(b, s);
+    return quatFromBasis(s, u, b);
+}
+
+/// The quaternion of the rotation matrix with the columns x, y, z.
+fn quatFromBasis(x: [3]f32, y: [3]f32, z: [3]f32) Quat {
+    const m00 = x[0];
+    const m11 = y[1];
+    const m22 = z[2];
+    const tr = m00 + m11 + m22;
+    if (tr > 0) {
+        const r = @sqrt(tr + 1) * 2;
+        return qnormalize(.{ (y[2] - z[1]) / r, (z[0] - x[2]) / r, (x[1] - y[0]) / r, 0.25 * r });
+    } else if (m00 > m11 and m00 > m22) {
+        const r = @sqrt(1 + m00 - m11 - m22) * 2;
+        return qnormalize(.{ 0.25 * r, (y[0] + x[1]) / r, (z[0] + x[2]) / r, (y[2] - z[1]) / r });
+    } else if (m11 > m22) {
+        const r = @sqrt(1 + m11 - m00 - m22) * 2;
+        return qnormalize(.{ (y[0] + x[1]) / r, 0.25 * r, (z[1] + y[2]) / r, (z[0] - x[2]) / r });
+    } else {
+        const r = @sqrt(1 + m22 - m00 - m11) * 2;
+        return qnormalize(.{ (z[0] + x[2]) / r, (z[1] + y[2]) / r, 0.25 * r, (x[1] - y[0]) / r });
+    }
+}
+
 fn lookAt(eye: [3]f32, at: [3]f32, up: [3]f32) [16]f32 {
     const f = normalize(.{ at[0] - eye[0], at[1] - eye[1], at[2] - eye[2] });
     const s = normalize(cross(f, up));
@@ -674,8 +774,7 @@ test "pick finds the nearest bead under the pixel" {
     }
     v.target = .{ 0, 0, 0 };
     v.extent = 10;
-    v.yaw = -std.math.pi / 2.0; // the camera is at -y, and looks along +y
-    v.pitch = 0.3;
+    v.setAngles(-std.math.pi / 2.0, 0.3); // the camera is at -y, and looks along +y
     v.dist = 50;
     // Path 0: a bead at the bottom (layer 0). Path 1: a bead at the target
     // (layer 1), between the camera and path 0.
@@ -710,8 +809,7 @@ test "zoom at a pixel keeps the point under it" {
     var v: View = .{ .renderer = undefined, .width = 200, .height = 100 };
     v.target = .{ 0, 0, 0 };
     v.extent = 10;
-    v.yaw = -1.9;
-    v.pitch = 0.6;
+    v.setAngles(-1.9, 0.6);
     v.dist = 50;
     // The point on the target plane under pixel (150, 30), before and after.
     const before = v.camera();
@@ -737,23 +835,56 @@ test "the camera can go under the part and over the top" {
     var v: View = .{ .renderer = undefined, .width = 100, .height = 100 };
     v.target = .{ 0, 0, 0 };
     v.dist = 10;
-    v.yaw = 0;
-    v.pitch = 0;
+    // The angles give the eye where the comment of quatFromAngles says.
+    v.setAngles(0.7, 0.4);
+    const e = v.camera().eye;
+    try std.testing.expectApproxEqAbs(10 * @cos(@as(f32, 0.4)) * @cos(@as(f32, 0.7)), e[0], 1e-4);
+    try std.testing.expectApproxEqAbs(10 * @sin(@as(f32, 0.4)), e[2], 1e-4);
+    try std.testing.expect(v.camera().u[2] > 0);
+    // A drag up moves the eye up.
+    v.setAngles(0, 0);
+    v.orbit(0, 50);
+    try std.testing.expect(v.camera().eye[2] > 0);
     // Down past the bed: the eye is below the target.
+    v.setAngles(0, 0);
     v.orbit(0, -150);
     try std.testing.expect(v.camera().eye[2] < 0);
     // Over the top: the camera is upside down, and its axes are still
     // unit vectors at right angles.
-    v.pitch = 0;
+    v.setAngles(0, 0);
     v.orbit(0, 250);
     const cam = v.camera();
-    try std.testing.expect(@cos(v.pitch) < 0);
+    try std.testing.expect(cam.u[2] < 0);
     try std.testing.expectApproxEqAbs(@as(f32, 1), dot(cam.s, cam.s), 1e-5);
     try std.testing.expectApproxEqAbs(@as(f32, 0), dot(cam.s, cam.u), 1e-5);
+    // An orbit adds no roll: the right axis stays level.
+    v.orbit(80, 30);
+    v.orbit(-40, 90);
+    try std.testing.expectApproxEqAbs(@as(f32, 0), v.camera().s[2], 1e-4);
     // At the pole itself, the axes are defined.
-    v.pitch = std.math.pi / 2.0;
+    v.setAngles(0, std.math.pi / 2.0);
     const pole = v.camera();
     try std.testing.expect(!std.math.isNan(pole.s[0]));
+}
+
+test "the free rotation can roll the view" {
+    var v: View = .{ .renderer = undefined, .width = 100, .height = 100 };
+    v.target = .{ 0, 0, 0 };
+    v.dist = 10;
+    v.setAngles(0, 0.5);
+    // Up, then sideways: the screen right axis is no longer level.
+    v.rotate(0, 120);
+    v.rotate(120, 0);
+    try std.testing.expect(@abs(v.camera().s[2]) > 0.1);
+    // The distance to the target stays the same.
+    const e = v.camera().eye;
+    try std.testing.expectApproxEqAbs(@as(f32, 10), @sqrt(dot(e, e)), 1e-4);
+    // The reset removes the roll.
+    v.extent = 10;
+    v.home = .{ 0, 0, 0 };
+    v.resetSmooth();
+    while (v.animate(1.0 / 60.0)) {}
+    try std.testing.expectApproxEqAbs(@as(f32, 0), v.camera().s[2], 1e-4);
 }
 
 test "the camera animation reaches the goal, and a drag carries the goal" {
@@ -761,31 +892,33 @@ test "the camera animation reaches the goal, and a drag carries the goal" {
     v.home = .{ 10, 20, 5 };
     v.extent = 30;
     v.target = .{ 0, 0, 0 };
-    v.yaw = 2.9; // the short way to -1.9 goes up past pi
-    v.pitch = 0.1;
+    v.setAngles(2.9, 0.1);
     v.dist = 200;
     v.resetSmooth();
     try std.testing.expect(v.goal != null);
     var frames: usize = 0;
-    var last_yaw = v.yaw;
+    var last = qangle(v.rot, v.goal.?.rot);
     while (v.animate(1.0 / 60.0)) : (frames += 1) {
-        // The short way: the yaw only grows.
-        try std.testing.expect(v.yaw >= last_yaw - 1e-6);
-        last_yaw = v.yaw;
+        // The camera only gets nearer to the goal.
+        if (v.goal) |g| {
+            const now = qangle(v.rot, g.rot);
+            try std.testing.expect(now <= last + 1e-6);
+            last = now;
+        }
         try std.testing.expect(frames < 200);
     }
     try std.testing.expect(frames > 5);
     try std.testing.expectApproxEqAbs(@as(f32, 84), v.dist, 1e-3);
-    try std.testing.expectApproxEqAbs(@as(f32, 0), View.angleDiff(v.yaw, -1.9), 1e-5);
+    try std.testing.expect(qangle(v.rot, quatFromAngles(-1.9, 0.6)) < 1e-3);
     try std.testing.expectEqual(@as(?View.Pose, null), v.goal);
     // Two scroll steps add up, and a turn during the animation moves the
     // goal by the same angle.
     v.zoomAtSmooth(0.5, 100, 50);
     v.zoomAtSmooth(0.5, 100, 50);
     try std.testing.expectApproxEqAbs(@as(f32, 21), v.goal.?.dist, 1e-3);
-    const goal_yaw = v.goal.?.yaw;
+    const goal_before = v.goal.?.rot;
     v.turn(10);
-    try std.testing.expectApproxEqAbs(goal_yaw - 0.08, v.goal.?.yaw, 1e-5);
+    try std.testing.expectApproxEqAbs(@as(f32, 0.08), qangle(goal_before, v.goal.?.rot), 1e-4);
     while (v.animate(1.0 / 60.0)) {}
     try std.testing.expectApproxEqAbs(@as(f32, 21), v.dist, 1e-3);
 }

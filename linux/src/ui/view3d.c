@@ -255,10 +255,10 @@ void zg_view3d_set_layer(GtkWidget *view, size_t layer) {
     queue_frame(v);
 }
 
-/* The mouse, as in CAD programs: a left drag orbits (turn and tilt), a
- * middle drag pans, and a right drag turns the view around the vertical
- * axis only (a turntable). The scroll wheel zooms toward the pointer. */
-enum { DRAG_ORBIT, DRAG_PAN, DRAG_TURN };
+/* The mouse, as in CAD programs: a left drag orbits (turn and tilt, the
+ * bed stays level), a middle drag pans, and a right drag rotates freely in
+ * any direction (with roll). The scroll wheel zooms toward the pointer. */
+enum { DRAG_ORBIT, DRAG_PAN, DRAG_ROTATE };
 
 static void on_drag_begin(GtkGestureDrag *g, double x, double y, gpointer data) {
     View3d *v = data;
@@ -280,7 +280,7 @@ static void on_drag_update(GtkGestureDrag *g, double dx, double dy, gpointer dat
     if (v->view) {
         switch (mode) {
         case DRAG_PAN: zs_view_pan(v->view, ddx * scale, ddy * scale); break;
-        case DRAG_TURN: zs_view_turn(v->view, ddx); break;
+        case DRAG_ROTATE: zs_view_rotate(v->view, ddx, ddy); break;
         default: zs_view_orbit(v->view, ddx, ddy); break;
         }
     }
@@ -352,7 +352,7 @@ GtkWidget *zg_view3d_new(ZgModel *model) {
     const struct { guint button; int mode; } drags[] = {
         {GDK_BUTTON_PRIMARY, DRAG_ORBIT},
         {GDK_BUTTON_MIDDLE, DRAG_PAN},
-        {GDK_BUTTON_SECONDARY, DRAG_TURN},
+        {GDK_BUTTON_SECONDARY, DRAG_ROTATE},
     };
     for (size_t i = 0; i < G_N_ELEMENTS(drags); i++) {
         GtkGesture *drag = gtk_gesture_drag_new();

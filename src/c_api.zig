@@ -668,6 +668,12 @@ export fn zs_view_pan(view: ?*View, dx: f32, dy: f32) void {
     v.pan(dx, dy);
 }
 
+export fn zs_view_rotate(view: ?*View, dx: f32, dy: f32) void {
+    if (!render_on) return;
+    const v = view orelse return;
+    v.rotate(dx, dy);
+}
+
 export fn zs_view_turn(view: ?*View, dx: f32) void {
     if (!render_on) return;
     const v = view orelse return;

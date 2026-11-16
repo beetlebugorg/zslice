@@ -118,11 +118,11 @@ To change a number:
 
 | Mouse | Action |
 |---|---|
-| Left drag | Orbit: turn and tilt around the part |
+| Left drag | Orbit: turn and tilt around the part; the bed stays level |
 | Middle drag | Pan: move the view |
-| Right drag | Turn around the vertical axis only, like a turntable |
+| Right drag | Rotate freely in any direction; the view can roll |
 | Scroll | Zoom toward the pointer |
-| Double-click | Reset the view |
+| Double-click | Reset the view (also removes a roll) |
 | Left click | Pick a line (see below) |
 
 ## Watch the print

@@ -262,6 +262,10 @@ void zs_view_reset_smooth(zs_view *view);
 int zs_view_animate(zs_view *view, double dt);
 /* Moves the view by a drag of dx, dy pixels: the scene follows the pointer. */
 void zs_view_pan(zs_view *view, float dx, float dy);
+/* Turns the camera freely around the axes of the screen, by a drag of dx,
+ * dy pixels. Drags in turn can roll the view, so the part can turn to any
+ * direction. zs_view_orbit keeps the bed level; this does not. */
+void zs_view_rotate(zs_view *view, float dx, float dy);
 /* Turns the camera around the vertical axis only (a turntable), by a drag
  * of dx pixels. */
 void zs_view_turn(zs_view *view, float dx);

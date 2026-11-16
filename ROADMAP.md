@@ -87,7 +87,7 @@ The goal is the features that people use in PrusaSlicer and Cura. zslice designs
 - [x] Linux shell: GTK4 (`linux/`): open (button, drop, command line), settings panel from core data, slice after each change, layer preview with zoom and pan, export, licenses
 - [x] 3D view of the toolpaths: Vulkan renderer in the core, Wayland subsurface in the GTK shell
 - [x] 3D view: beads with the real cross section and round ends, the deposited width, the cooled size, the filament color with PLA-like light, 4x MSAA
-- [x] 3D view: CAD mouse (orbit, pan, turntable, zoom to the pointer), smooth zoom and reset, no tilt limit
+- [x] 3D view: CAD mouse (orbit, pan, free rotation, zoom to the pointer), smooth zoom and reset, no tilt limit
 - [ ] 3D view: X11, the model mesh before the slice, a level of detail for beads smaller than a pixel
 - [ ] 3D view, physics not modeled yet: the seam blob, sag on overhangs and bridges, stringing, corner rounding by acceleration
 - [x] Click a path in the 2D or 3D view to inspect it: its real values with the reasons, and the settings that change it, editable in place
