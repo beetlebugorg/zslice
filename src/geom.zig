@@ -339,7 +339,6 @@ test "simplify a fine circle: the error does not add up" {
     }
 }
 
-
 /// True if the segment a-b crosses no edge of the polygons (a touch at an
 /// end does not count) and its middle point is inside them: the segment
 /// stays inside.

@@ -108,13 +108,14 @@ pub const Part = struct {
         const ca = @cos(a);
         const sa = @sin(a);
         // x' = ca (x - cx) - sa (y - cy) - shift x + x0, and the same for y.
+        const tx = p.x - p.shift[0] - ca * c[0] + sa * c[1];
+        const ty = p.y - p.shift[1] - sa * c[0] - ca * c[1];
+        const tz = -b.min[2];
         return .{
             ca,  sa, 0,
             -sa, ca, 0,
             0,   0,  1,
-            p.x - p.shift[0] - ca * c[0] + sa * c[1],
-            p.y - p.shift[1] - sa * c[0] - ca * c[1],
-            -b.min[2],
+            tx,  ty, tz,
         };
     }
 

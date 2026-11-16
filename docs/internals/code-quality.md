@@ -74,4 +74,5 @@ These paths matter and have few or no tests:
 These files change often for performance work. Change them only in small, safe steps.
 
 - `src/layer.zig` (1690 lines) and `src/engine.zig` (1200 lines) are the largest stage files.
+- `zig fmt --check` fails for `src/engine.zig`, `src/layer.zig`, and `src/support.zig`. Run `zig fmt` on them when no other branch changes them.
 - `linux/src/ui/view3d.c` (550 lines) has the 3D view widget, the drag of a part, and the test hooks. It changes on `master` now. Split it after that work.

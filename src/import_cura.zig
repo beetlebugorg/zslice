@@ -648,58 +648,65 @@ test "import a small Cura stack and load the result" {
     defer arena.deinit();
     const a = arena.allocator();
     var files: TestSource = .{ .files = &.{
-        .{ "cura.json",
-        \\{"cura": "5.13.0", "machine": "test_printer", "extruder": "test_extruder",
-        \\ "definition_changes": "definition_changes/machine.inst.cfg",
-        \\ "profiles": {"pla-standard": {"quality_changes": "q.inst.cfg", "quality_changes_extruder": "q_e0.inst.cfg"}},
-        \\ "materials": {"roll-1": {"file": "materials/navy.xml.fdm_material"}}}
+        .{
+            "cura.json",
+            \\{"cura": "5.13.0", "machine": "test_printer", "extruder": "test_extruder",
+            \\ "definition_changes": "definition_changes/machine.inst.cfg",
+            \\ "profiles": {"pla-standard": {"quality_changes": "q.inst.cfg", "quality_changes_extruder": "q_e0.inst.cfg"}},
+            \\ "materials": {"roll-1": {"file": "materials/navy.xml.fdm_material"}}}
         },
-        .{ "definitions/test_printer.def.json",
-        \\{"name": "Test Printer", "inherits": "fdmprinter", "overrides": {
-        \\  "machine_width": {"default_value": 280}, "machine_depth": {"default_value": 280},
-        \\  "machine_height": {"default_value": 285}, "machine_heated_bed": {"default_value": true}}}
+        .{
+            "definitions/test_printer.def.json",
+            \\{"name": "Test Printer", "inherits": "fdmprinter", "overrides": {
+            \\  "machine_width": {"default_value": 280}, "machine_depth": {"default_value": 280},
+            \\  "machine_height": {"default_value": 285}, "machine_heated_bed": {"default_value": true}}}
         },
-        .{ "definitions/test_extruder.def.json",
-        \\{"name": "Extruder", "inherits": "fdmextruder", "overrides": {
-        \\  "machine_nozzle_size": {"default_value": 0.5}, "material_diameter": {"default_value": 2.85}}}
+        .{
+            "definitions/test_extruder.def.json",
+            \\{"name": "Extruder", "inherits": "fdmextruder", "overrides": {
+            \\  "machine_nozzle_size": {"default_value": 0.5}, "material_diameter": {"default_value": 2.85}}}
         },
-        .{ "definition_changes/machine.inst.cfg",
-        \\[general]
-        \\name = changes
-        \\[values]
-        \\machine_start_gcode = ; start
-        \\  PRINT_START BED={material_bed_temperature_layer_0} LAYER={layer_height_0}
-        \\  M117 {jobname}
-        \\machine_acceleration = 3000
+        .{
+            "definition_changes/machine.inst.cfg",
+            \\[general]
+            \\name = changes
+            \\[values]
+            \\machine_start_gcode = ; start
+            \\  PRINT_START BED={material_bed_temperature_layer_0} LAYER={layer_height_0}
+            \\  M117 {jobname}
+            \\machine_acceleration = 3000
         },
-        .{ "q.inst.cfg",
-        \\[values]
-        \\layer_height = 0.2
-        \\layer_height_0 = 0.25
-        \\adhesion_type = brim
-        \\support_enable = True
-        \\support_type = buildplate
-        \\infill_pattern = gyroid
-        \\top_layers = 4
-        \\speed_print = 50
-        \\retraction_combing = noskin
+        .{
+            "q.inst.cfg",
+            \\[values]
+            \\layer_height = 0.2
+            \\layer_height_0 = 0.25
+            \\adhesion_type = brim
+            \\support_enable = True
+            \\support_type = buildplate
+            \\infill_pattern = gyroid
+            \\top_layers = 4
+            \\speed_print = 50
+            \\retraction_combing = noskin
         },
-        .{ "q_e0.inst.cfg",
-        \\[values]
-        \\infill_sparse_density = 20
-        \\speed_wall_0 = 25
-        \\speed_layer_0 = 18
-        \\retraction_amount = 1.5
-        \\brim_line_count = 6
-        \\cool_min_layer_time = 10
-        \\wall_line_count = =3 if layer_height < 0.2 else 2
+        .{
+            "q_e0.inst.cfg",
+            \\[values]
+            \\infill_sparse_density = 20
+            \\speed_wall_0 = 25
+            \\speed_layer_0 = 18
+            \\retraction_amount = 1.5
+            \\brim_line_count = 6
+            \\cool_min_layer_time = 10
+            \\wall_line_count = =3 if layer_height < 0.2 else 2
         },
-        .{ "materials/navy.xml.fdm_material",
-        \\<fdmmaterial><metadata><name><brand>Acme</brand><material>PLA</material><color>Navy</color></name></metadata>
-        \\<properties><density>1.24</density><diameter>2.85</diameter></properties>
-        \\<settings><setting key="print temperature">210</setting><setting key="heated bed temperature">60</setting>
-        \\<setting key="standby temperature">160</setting><cura:setting key="xy_offset">0.144</cura:setting>
-        \\<machine><setting key="print temperature">200</setting></machine></settings></fdmmaterial>
+        .{
+            "materials/navy.xml.fdm_material",
+            \\<fdmmaterial><metadata><name><brand>Acme</brand><material>PLA</material><color>Navy</color></name></metadata>
+            \\<properties><density>1.24</density><diameter>2.85</diameter></properties>
+            \\<settings><setting key="print temperature">210</setting><setting key="heated bed temperature">60</setting>
+            \\<setting key="standby temperature">160</setting><cura:setting key="xy_offset">0.144</cura:setting>
+            \\<machine><setting key="print temperature">200</setting></machine></settings></fdmmaterial>
         },
     } };
     var diag: Diagnostic = .{};

@@ -1088,9 +1088,9 @@ fn lookAt(eye: [3]f32, at: [3]f32, up: [3]f32) [16]f32 {
     const s = normalize(cross(f, up));
     const u = cross(s, f);
     return .{
-        s[0],          u[0],          -f[0],        0,
-        s[1],          u[1],          -f[1],        0,
-        s[2],          u[2],          -f[2],        0,
+        s[0],         u[0],         -f[0],       0,
+        s[1],         u[1],         -f[1],       0,
+        s[2],         u[2],         -f[2],       0,
         -dot(s, eye), -dot(u, eye), dot(f, eye), 1,
     };
 }
