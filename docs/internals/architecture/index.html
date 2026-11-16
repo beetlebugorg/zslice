@@ -1,0 +1,109 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Architecture · zslice</title>
+<meta name="description" content="Read How a slicer works first. It explains the stages. This document explains how the code is organized.">
+<link rel="canonical" href="https://beetlebug.org/zslice/internals/architecture/">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@500;600;700&family=IBM+Plex+Sans:ital,wght@0,400;0,600;0,700;1,700&display=swap" rel="stylesheet">
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='6' fill='%23171717'/%3E%3Crect x='11' y='8' width='10' height='4' rx='1' fill='%23f4f0e6'/%3E%3Crect x='8' y='14' width='16' height='4' rx='1' fill='%23f4f0e6'/%3E%3Crect x='5' y='20' width='22' height='4' rx='1' fill='%23ff5a1f'/%3E%3C/svg%3E">
+<link rel="stylesheet" href="../../site.css">
+</head>
+<body>
+<input type="checkbox" id="menu">
+<header class="top">
+  <a class="brand" href="../../"><span class="mark">ZSLICE</span><span class="docs">DOCS</span></a>
+  <label class="menu-btn" for="menu">Contents</label>
+  <nav class="top-links"><a href="../../user/getting-started/">Get started</a><a href="../../roadmap/">Roadmap</a><a href="https://github.com/beetlebugorg/zslice">GitHub</a></nav>
+</header>
+<div class="layout">
+<aside class="side"><nav><a href="../../">Home</a>
+<a href="../../contents/">All documents</a>
+<div class="group">User guide</div>
+<a href="../../user/getting-started/">Getting started</a>
+<a href="../../user/settings/">Settings</a>
+<a href="../../user/profiles/">Profiles</a>
+<a href="../../user/troubleshooting/">Troubleshooting</a>
+<div class="group">Embedding</div>
+<a href="../../embedding/">Overview</a>
+<a href="../../embedding/c/">C</a>
+<a href="../../embedding/zig/">Zig</a>
+<a href="../../embedding/javascript/">JavaScript</a>
+<div class="group">Internals</div>
+<a href="../../internals/architecture/" aria-current="page">Architecture</a>
+<a href="../../internals/how-slicing-works/">How slicing works</a>
+<a href="../../internals/cura-compare/">Cura comparison</a>
+<a href="../../internals/contributing/">Contributing</a>
+<div class="group">Project</div>
+<a href="../../app/">App</a>
+<a href="../../references/">References</a>
+<a href="../../roadmap/">Roadmap</a></nav></aside>
+<main>
+<p class="eyebrow">Internals</p>
+<h1>Architecture</h1>
+<p class="lede">Read <a href="../../internals/how-slicing-works/">How a slicer works</a> first. It explains the stages. This document explains how the code is organized.</p>
+<nav class="onpage"><b>On this page</b><ol><li><a href="#modules">Modules</a></li><li><a href="#data-flow">Data flow</a></li><li><a href="#conventions">Conventions</a></li><li><a href="#data-types">Data types</a></li><li><a href="#memory-model">Memory model</a></li><li><a href="#threads">Threads</a></li><li><a href="#error-handling">Error handling</a></li><li><a href="#the-c-api-layer">The C API layer</a></li></ol></nav><h2 id="modules">Modules</h2>
+<pre><code>src/
+  root.zig       The public Zig API. It exports the modules and the main types.
+  main.zig       The command line tool.
+  c_api.zig      The C API and the wasm exports.
+
+  Stages, in pipeline order:
+  mesh.zig       Mesh, Builder (vertex weld), STL load and write, test shapes.
+  slicer.zig     Layer table, face index, mesh -&gt; layer outline.
+  layer.zig      Layer plan: walls, skin, infill, path order.
+  gcode.zig      Emitter: layer plans -&gt; G-code, statistics.
+  engine.zig     Job: runs all stages with threads, and reuses the work
+                 of an older job.
+
+  Tools that the stages use:
+  geom.zig       Point, Paths (flat polygon store), area, simplify.
+  clip.zig       Polygon booleans.
+  offset.zig     Polygon offset.
+  infill.zig     Scanline line fill.
+  settings.zig   Settings, Resolved (derived values), Feature.
+  parallel.zig   Parallel for loop, and a signal that threads wait on.
+  scratch.zig    A pool of arenas for work memory.
+  svg.zig        SVG picture of a layer plan.</code></pre>
+<p>The dependencies go one way: stages use tools, and later stages use earlier stages. No tool uses a stage, with two exceptions: <code>svg.zig</code> reads a layer plan (it is an output, like <code>gcode.zig</code>), and a test in <code>offset.zig</code> uses <code>slicer.zig</code> to make a real input.</p>
+<h2 id="data-flow">Data flow</h2>
+<pre><code>STL bytes
+  -&gt; Mesh                     (mesh.zig)
+  -&gt; []Layer, FaceIndex       (slicer.zig)
+  -&gt; []Paths  (one outline for each layer)    pass 1, parallel
+  -&gt; top and bottom surfaces of each layer     parallel
+  -&gt; LayerPlan (a ring of a few layers)       pass 2, parallel
+  -&gt; G-code text, Stats       (gcode.zig)     in layer order</code></pre>
+<h2 id="conventions">Conventions</h2>
+<p>These rules hold everywhere. Code that breaks one of them makes wrong output in a later stage, not an error.</p>
+<ul><li><strong>Units.</strong> 2D coordinates are <code>i64</code> micrometers (<code>geom.Point</code>). Settings are <code>f64</code> millimeters. Convert with <code>geom.fromMm</code> and <code>geom.toMm</code>. Mesh vertices are <code>f32</code> millimeters.</li><li><strong>Orientation.</strong> A closed polygon has the material on its left. Outer boundaries are counterclockwise and holes are clockwise. Each boolean and offset result follows this rule. Code that makes polygons from other sources must give them the same orientation, or pass them through <code>clip.unionAll</code> with <code>.non_zero</code>.</li><li><strong>Closed polygons.</strong> A closed polygon does not repeat its first point at the end. The edge from the last point to the first point is implicit.</li><li><strong>Exact predicates.</strong> Tests on points (left of, on, crossing) use the integer functions <code>geom.cross3</code> and <code>geom.dot3</code>, in i128. Floating point is only for constructions (a new point), and the result is rounded to the grid.</li></ul>
+<h2 id="data-types">Data types</h2>
+<h3 id="geompaths"><code>geom.Paths</code></h3>
+<p>A set of paths in two flat arrays: <code>points</code> (all points, one path after the other) and <code>ends</code> (the end index of each path). One set has two allocations, not one for each path. <code>get(i)</code> returns the points of path i as a slice.</p>
+<p>Build a set with <code>append(gpa, points)</code>, or point by point with <code>appendPoint</code> and <code>endPath</code>.</p>
+<h3 id="layerlayerplan"><code>layer.LayerPlan</code></h3>
+<p>The paths of one layer, in print order. It has its own arena: <code>deinit</code> frees all of it in one step. <code>paths.items[i]</code> has the feature and the closed flag of <code>points.get(i)</code>.</p>
+<h3 id="settingssettings-and-settingsresolved"><code>settings.Settings</code> and <code>settings.Resolved</code></h3>
+<p><code>Settings</code> has the values that the user sets. <code>Resolved</code> comes from <code>Settings.resolve()</code>: it has the derived values (the line width when it is 0, the skin layer count from the thickness, the filament area) and the <code>speed</code> function. Code after the engine start uses <code>Resolved</code>, so that each derived value has one definition.</p>
+<h2 id="memory-model">Memory model</h2>
+<p>zslice uses arenas for temporary memory. An arena frees all its memory in one step, so the code needs no <code>free</code> for each temporary array.</p>
+<ul><li>Each boolean, offset, fill, and plan takes an arena for its intermediate data from the pool in <code>scratch.zig</code>, and gives it back at the end. The arena keeps its memory (up to 16 MB) for the next call, so a slice does not get new pages from the operating system for each call. The engine frees the memory of the pool at the end of a slice. The result of a call goes in the allocator of the caller.</li><li><code>layer.plan</code> puts the plan in its own arena (it lives until the G-code is written).</li><li><code>slicer.sliceAt</code> uses a pool arena for the segments and chains of a layer.</li><li>The memo of each layer (<code>layer.Memo</code>) has its own arena with the results of the slow steps (offsets, skin, fill regions) by their inputs. An app keeps the memos for the next slice (<code>Job.initReuse</code>). A one-shot slice frees each memo after the plan of its layer (<code>Job.keep_memos</code>).</li></ul>
+<p>Long-lived memory:</p>
+<div class="table-wrap"><table><thead><tr><th>Data</th><th>Lifetime</th><th>Size</th></tr></thead><tbody><tr><td>Mesh</td><td>The whole slice</td><td>12 bytes for each vertex, 12 bytes for each triangle</td></tr><tr><td>Face index</td><td>Pass 1</td><td>4 bytes for each (triangle, layer) crossing</td></tr><tr><td>Outlines and surfaces</td><td>The whole slice</td><td>16 bytes for each outline point</td></tr><tr><td>Memos</td><td>The slice, or until the next slice of an app</td><td>The results of the slow steps of a layer</td></tr><tr><td>Layer plans and their G-code text</td><td>A ring of a few layers for each thread</td><td>16 bytes for each path point</td></tr></tbody></table></div>
+<h2 id="threads">Threads</h2>
+<p><code>parallel.forEach(threads, n, ctx, func)</code> runs <code>func(ctx, i)</code> for each i on a set of threads. Each thread takes the next i from one atomic counter.</p>
+<ul><li>Pass 1 writes <code>outlines[i]</code> from thread i. Each slot has one writer.</li><li>Pass 2 is a pipeline (<code>engine.Pipeline</code>). A thread plans layer i into slot i mod (ring size) of a ring. The calling thread makes a dry run of the emitter for each planned layer, in layer order: it finds the emitter state at the start of the layer and formats no numbers. Then any thread writes the G-code text of the layer with a copy of that state, and the calling thread writes the texts out in layer order. A thread that waits sleeps on a <code>parallel.Signal</code>.</li></ul>
+<p>The work of each item depends only on its index and on data that does not change during the pass. Thus the output is the same for each thread count. A test checks this (<code>engine.zig</code>).</p>
+<p>On wasm, <code>parallel.has_threads</code> is false and the loop runs on the calling thread.</p>
+<h2 id="error-handling">Error handling</h2>
+<ul><li>Allocation errors go up to the caller as <code>error.OutOfMemory</code>.</li><li>Bad input (a broken STL file, bad settings) returns an error from <code>Mesh.fromStl</code> or <code>Settings.resolve</code>.</li><li>Bad geometry is not an error. A mesh with holes or overlaps gives the best output that the code can make: open chains are closed or removed, and overlaps are joined by a union.</li></ul>
+<h2 id="the-c-api-layer">The C API layer</h2>
+<p><code>c_api.zig</code> is a thin layer:</p>
+<ul><li>Each exported function checks its pointers, calls the Zig API, and changes the Zig error to a status code.</li><li><code>CSettings</code> has <code>Settings</code> and an arena for the string values, because <code>Settings.set</code> does not copy strings.</li><li><code>CallbackWriter</code> is a <code>std.Io.Writer</code> that sends its buffer to the C callback.</li><li>The wasm build compiles the same file for <code>wasm32-freestanding</code>.</li></ul><nav class="pager"><a class="prev" href="../../embedding/javascript/"><span>Previous</span><b>JavaScript</b></a><a class="next" href="../../internals/how-slicing-works/"><span>Next</span><b>How slicing works</b></a></nav>
+</main>
+</div>
+<footer>zslice is free software (AGPL-3.0-or-later). <a href="https://github.com/beetlebugorg/zslice/blob/master/docs/build.py">docs/build.py</a> writes this site from <a href="https://github.com/beetlebugorg/zslice/blob/master/docs/internals/architecture.md">docs/internals/architecture.md</a>.</footer>
+</body>
+</html>

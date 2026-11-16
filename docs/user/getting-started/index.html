@@ -1,0 +1,140 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Getting started · zslice</title>
+<meta name="description" content="Getting started: zslice documentation.">
+<link rel="canonical" href="https://beetlebug.org/zslice/user/getting-started/">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@500;600;700&family=IBM+Plex+Sans:ital,wght@0,400;0,600;0,700;1,700&display=swap" rel="stylesheet">
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='6' fill='%23171717'/%3E%3Crect x='11' y='8' width='10' height='4' rx='1' fill='%23f4f0e6'/%3E%3Crect x='8' y='14' width='16' height='4' rx='1' fill='%23f4f0e6'/%3E%3Crect x='5' y='20' width='22' height='4' rx='1' fill='%23ff5a1f'/%3E%3C/svg%3E">
+<link rel="stylesheet" href="../../site.css">
+</head>
+<body>
+<input type="checkbox" id="menu">
+<header class="top">
+  <a class="brand" href="../../"><span class="mark">ZSLICE</span><span class="docs">DOCS</span></a>
+  <label class="menu-btn" for="menu">Contents</label>
+  <nav class="top-links"><a href="../../user/getting-started/">Get started</a><a href="../../roadmap/">Roadmap</a><a href="https://github.com/beetlebugorg/zslice">GitHub</a></nav>
+</header>
+<div class="layout">
+<aside class="side"><nav><a href="../../">Home</a>
+<a href="../../contents/">All documents</a>
+<div class="group">User guide</div>
+<a href="../../user/getting-started/" aria-current="page">Getting started</a>
+<a href="../../user/settings/">Settings</a>
+<a href="../../user/profiles/">Profiles</a>
+<a href="../../user/troubleshooting/">Troubleshooting</a>
+<div class="group">Embedding</div>
+<a href="../../embedding/">Overview</a>
+<a href="../../embedding/c/">C</a>
+<a href="../../embedding/zig/">Zig</a>
+<a href="../../embedding/javascript/">JavaScript</a>
+<div class="group">Internals</div>
+<a href="../../internals/architecture/">Architecture</a>
+<a href="../../internals/how-slicing-works/">How slicing works</a>
+<a href="../../internals/cura-compare/">Cura comparison</a>
+<a href="../../internals/contributing/">Contributing</a>
+<div class="group">Project</div>
+<a href="../../app/">App</a>
+<a href="../../references/">References</a>
+<a href="../../roadmap/">Roadmap</a></nav></aside>
+<main>
+<p class="eyebrow">User guide</p>
+<h1>Getting started</h1>
+
+<nav class="onpage"><b>On this page</b><ol><li><a href="#build-zslice">Build zslice</a></li><li><a href="#slice-a-part">Slice a part</a></li><li><a href="#change-settings">Change settings</a></li><li><a href="#look-at-the-layers">Look at the layers</a></li><li><a href="#printers">Printers</a></li><li><a href="#your-settings-stay">Your settings stay</a></li><li><a href="#browse-the-settings">Browse the settings</a></li><li><a href="#see-why-a-line-is-what-it-is">See why a line is what it is</a></li><li><a href="#move-the-3d-view">Move the 3D view</a></li><li><a href="#scrub-through-a-layer">Scrub through a layer</a></li><li><a href="#keys-in-the-preview">Keys in the preview</a></li><li><a href="#more-than-one-part">More than one part</a></li><li><a href="#save-the-plate">Save the plate</a></li><li><a href="#watch-the-print">Watch the print</a></li><li><a href="#try-the-demo-part">Try the demo part</a></li><li><a href="#iron-the-top-surfaces">Iron the top surfaces</a></li><li><a href="#where-the-part-goes-on-the-bed">Where the part goes on the bed</a></li></ol></nav><h2 id="build-zslice">Build zslice</h2>
+<p>You need Zig 0.16 (<a href="https://ziglang.org/download/">https://ziglang.org/download/</a>).</p>
+<pre><code>git clone &lt;zslice repo&gt; zslice
+cd zslice
+zig build -Doptimize=ReleaseFast</code></pre>
+<p>The tool is <code>zig-out/bin/zslice</code>. Copy it to a folder in your <code>PATH</code>, or use the full path.</p>
+<h2 id="slice-a-part">Slice a part</h2>
+<pre><code>zslice slice part.stl -o part.gcode</code></pre>
+<p>zslice reads binary and ASCII STL files. It writes G-code for printers with Marlin or Klipper firmware. When it is done, it shows a summary:</p>
+<pre><code>69 layers, 1.88 m filament (5.6 g), about 11 min, sliced in 37 ms</code></pre>
+<p>The time is an estimate from the distance and the speed of each move. It does not include acceleration, so the real print takes longer.</p>
+<p>Without <code>-o</code>, zslice writes the G-code to the standard output.</p>
+<h2 id="change-settings">Change settings</h2>
+<p>Use <code>-s group.name=value</code> for each change:</p>
+<pre><code>zslice slice part.stl -o part.gcode \
+  -s project.layer_height=0.15 \
+  -s project.wall_count=3 \
+  -s filament.nozzle_temp=220</code></pre>
+<p>To see all settings and their default values:</p>
+<pre><code>zslice settings</code></pre>
+<p>The <a href="../../user/settings/">settings reference</a> explains each one. To keep settings in files (one for your printer, one for each filament), see <a href="../../user/profiles/">Profiles</a>.</p>
+<h3 id="the-three-groups">The three groups</h3>
+<p>The settings have three groups. Each group has a different owner:</p>
+<div class="table-wrap"><table><thead><tr><th>Group</th><th>What it describes</th><th>When it changes</th></tr></thead><tbody><tr><td><code>machine</code></td><td>The printer: the bed size, the nozzle, the speed limits, the start and end G-code.</td><td>When you change the printer.</td></tr><tr><td><code>filament</code></td><td>The material: the diameter, the temperatures, the maximum flow, the cooling.</td><td>When you change the filament.</td></tr><tr><td><code>project</code></td><td>What you want for this part: the layer height, the walls, the skin, the infill.</td><td>For each part.</td></tr></tbody></table></div>
+<p>The <code>engine</code> group has options that do not change the print, for example the number of threads.</p>
+<h3 id="how-much-plastic">How much plastic</h3>
+<p>zslice computes the plastic for each line from the shape of a real bead: the nozzle presses it flat on the top and the bottom, and its sides are round. A line 0.44 mm wide and 0.2 mm tall has a cross section of 0.079 mm². If your lines come out too thin or too thick, calibrate <code>filament.flow_ratio</code>.</p>
+<p>zslice 0.1 used a rectangle (width x height) for this area, as Cura does. That is about 11 % more plastic for this line. If you calibrated <code>flow_ratio</code> with zslice 0.1, calibrate it again.</p>
+<h3 id="speeds">Speeds</h3>
+<p>A project does not set speeds in mm/s. It sets a ratio (0 to 1) for each feature, for example <code>project.outer_wall_speed=0.5</code>. zslice computes the allowed speed of each line from two limits:</p>
+<ol><li>The machine limit: <code>machine.max_speed</code>.</li><li>The flow limit of the filament: <code>filament.max_flow</code> divided by the cross section of the line (line width x layer height). A wide, tall line needs more plastic for each millimeter, so it must go slower.</li></ol>
+<p>The allowed speed is the lower of the two. The ratio of the feature then scales it. Example, with the defaults: a 0.44 mm x 0.2 mm line can go at 12 / (0.44 x 0.2) = 136 mm/s. The outer wall ratio is 0.5, so the outer wall goes at 68 mm/s.</p>
+<p>Thus one project works on a slow printer and on a fast printer, and with PLA and with TPU. Only the machine and filament settings change.</p>
+<h2 id="look-at-the-layers">Look at the layers</h2>
+<p><code>preview</code> writes an SVG picture of one layer. Open it in a web browser.</p>
+<pre><code>zslice preview part.stl --layer 20 -o layer20.svg</code></pre>
+<div class="table-wrap"><table><thead><tr><th>Color</th><th>Feature</th></tr></thead><tbody><tr><td>Orange</td><td>Outer wall</td></tr><tr><td>Yellow</td><td>Inner walls</td></tr><tr><td>Blue</td><td>Skin (solid top and bottom fill)</td></tr><tr><td>Green</td><td>Sparse infill</td></tr><tr><td>Purple</td><td>Ironing</td></tr><tr><td>Brown</td><td>Skirt and brim</td></tr><tr><td>Light gray</td><td>Support</td></tr><tr><td>Dark gray</td><td>Support interface</td></tr><tr><td>Gray dashes</td><td>Travel moves</td></tr></tbody></table></div>
+<p>The light gray area is the outline of the layer. Each line is drawn at the line width, so you can see gaps and overlaps.</p>
+<p>Layer numbers start at 0. If the number is too large, zslice shows the number of layers in the part.</p>
+<h2 id="printers">Printers</h2>
+<p>Open Preferences (the menu, or Ctrl+,). The Printers page lists your printers. Each printer has its own machine settings (the bed, the nozzle, the speeds, the start G-code) and a connection:</p>
+<ul><li>None: export a G-code file.</li><li>printdeck, or OctoPrint: the address of the printer and its API key.</li><li>Moonraker (Klipper): the address of Moonraker.</li><li>USB: the serial port and the speed. The app sends the print itself, line by line, so the computer must stay on while it prints.</li></ul>
+<p>"Test the connection" shows what the printer tells: its state, its bed and nozzle (OctoPrint, Moonraker), and the filament in it (printdeck). "Use the bed and nozzle of the printer" and "Use the filament in the printer" copy them to your settings.</p>
+<p>Pick the printer in the menu at the left of the header bar. With a connection, "Send to" puts the G-code on the printer; its menu has "Send and print" and "Export a G-code file". The status bar shows the state of the printer and the progress of its print.</p>
+<p>The API keys are in <code>~/.config/zslice/app.ini</code>, which only you can read.</p>
+<h2 id="your-settings-stay">Your settings stay</h2>
+<p>The app saves the machine, filament, and project settings that you change, and loads them at the next start. They are in <code>~/.config/zslice/machine.toml</code>, <code>filament.toml</code>, and <code>project.toml</code>. Each file has only the settings that differ from the defaults, with the help of each one, in the profile format (see docs/user/profiles.md), so you can also edit them. If a file does not load, the app says why in its log and keeps a copy with the extension <code>.bad</code>.</p>
+<h2 id="browse-the-settings">Browse the settings</h2>
+<p>The Settings page of the app has three columns:</p>
+<ol><li>The sections of each group (Project, Filament, Machine, Engine). The search field above them finds settings by name or help text.</li><li>The settings of the section, with their values.</li><li>The selected setting: its value, its default (with a Reset button), what it does, and the lines of your project that it changes, with their share of the print time.</li></ol>
+<p>The preview shows the lines that the setting changes in their feature colors, and the other lines become faint ghosts, so lines inside the part (infill) show. A section shows the lines of all its settings. Some settings change no line, and the preview shows marks for them:</p>
+<ul><li>the seam: a red mark at the start of each outer wall loop (the 3D view also shows the small seam blob of a real print)</li><li>travel moves: blue lines between the paths, lifted by the z hop</li><li>retractions: pink marks where the filament pulls back</li></ul>
+<p>A setting that changes only the G-code (a temperature, for example) shows all lines in their feature colors, and its page says what it changes. Use Right and Left to move between the columns.</p>
+<h2 id="see-why-a-line-is-what-it-is">See why a line is what it is</h2>
+<p>In the app, click a line in the 2D or 3D view. The Selected page shows what the line is (for example the outer wall on layer 12). At the top are its planned speed, its real speed (after the slow-down for cooling), and its plastic flow. Below them are the settings that change the line, in three sections: Speed, Shape, and Material. "How these values come about" explains each number.</p>
+<p>Change a setting there, and the app slices again and shows the new values for the same line. The page stays where it is.</p>
+<p>Changes on the Selected page are for the loaded part only, never for other prints. "Change for" says where they go: the whole part (all layers), this layer, this layer and up, or this layer and down. A changed setting shows in the accent color, with a button to remove the change. Some settings cannot change for some layers (for example the layer height); they are off in a layer choice. The printer settings are off on this page; change them in Settings. The Settings page has the defaults for all prints.</p>
+<p>Each number has its unit after it. A ratio shows as a percentage: a skin speed of 70 % is 70 % of the speed that the machine and the filament allow.</p>
+<p>To change a number:</p>
+<ul><li>Type it. The app uses the value after a short pause, on Enter, or when you leave the field.</li><li>Press Up or Down to step it by one unit of its last decimal place. Hold Shift for 10 steps, or Ctrl for a tenth of a step.</li><li>Drag the name of the setting to the left or the right.</li><li>Drag its slider. The slider covers the usual values. The preview follows as fast as the slicer can go: a change of the infill or the speeds keeps the walls and the skin areas of the last slice, so a new slice of a mid-size part takes less than 0.1 s.</li></ul>
+<p>A value out of the usual range shows in the warning color, and its tooltip gives the usual range. A value out of the limits of the setting (for example a 300 mm brim) is an error, and the tooltip gives the limits.</p>
+<h2 id="move-the-3d-view">Move the 3D view</h2>
+<div class="table-wrap"><table><thead><tr><th>Mouse</th><th>Action</th></tr></thead><tbody><tr><td>Left drag</td><td>Orbit: turn and tilt around the part; the bed stays level</td></tr><tr><td>Middle drag</td><td>Pan: move the view</td></tr><tr><td>Right drag</td><td>Rotate freely in any direction; the view can roll</td></tr><tr><td>Scroll</td><td>Zoom toward the pointer</td></tr><tr><td>Double-click</td><td>Reset the view (also removes a roll)</td></tr><tr><td>Left click</td><td>Pick a line (see below)</td></tr></tbody></table></div>
+<h2 id="scrub-through-a-layer">Scrub through a layer</h2>
+<p>The bar at the bottom of the preview moves the nozzle through the top layer of the layer slider. At the left end, the layer starts; at the right end, the layer is done. The label gives the time in the layer. Play moves the bar, and a drag of the bar pauses the replay.</p>
+<h2 id="keys-in-the-preview">Keys in the preview</h2>
+<p>Click in the preview first, so that it gets the keys.</p>
+<div class="table-wrap"><table><thead><tr><th>Key</th><th>With a selected line</th><th>With no selection</th></tr></thead><tbody><tr><td>← or h</td><td>The segment before it, in print order (Shift: the line before)</td><td>The nozzle back 2 % of the layer</td></tr><tr><td>→ or l</td><td>The segment after it, in print order (Shift: the line after)</td><td>The nozzle on 2 % of the layer</td></tr><tr><td>↑ or k</td><td>The nearest line on the layer above</td><td>The top layer up one</td></tr><tr><td>↓ or j</td><td>The nearest line on the layer below</td><td>The top layer down one</td></tr><tr><td>Page Up, Page Down</td><td>10 layers up or down</td><td>10 layers up or down</td></tr><tr><td>Esc</td><td>Clears the selection</td><td>—</td></tr></tbody></table></div>
+<p>A click on a line selects the line (yellow) and the segment under the pointer (orange). After the last segment of a line, → goes on to the first segment of the next line. Shift with ↑ or ↓ (or k or j) moves the bottom knob of the layer slider. A line of the same feature (for example an outer wall) wins over a line of another feature that is a little nearer. The layer slider follows the selection.</p>
+<h2 id="more-than-one-part">More than one part</h2>
+<p>Open adds each model to the plate (Ctrl+O, or drop files on the window). The first part keeps the place of its file if it is on the bed there; a new part goes to a free place. "Arrange the plate" in the menu packs all parts in rows.</p>
+<ul><li>A click on a line selects the line (its settings are on the Selected page).</li><li>Shift+click on a part selects the part: a blue frame shows it on the bed, and the Selected page has its place, its turn, and "Turn 90°", "Arrange the plate", and "Remove".</li><li>Shift+drag moves the selected part, and Shift+wheel turns it by 15°.</li></ul>
+<p>"Clear the plate" in the menu removes all parts.</p>
+<h2 id="save-the-plate">Save the plate</h2>
+<p>"Save the plate as 3MF" in the menu (Ctrl+S) writes one 3MF file with all parts at their places, and the changes that you made for the parts and for some layers. The global settings (Settings) do not go in the file. Open the 3MF file to get the plate back. zslice also opens 3MF files from other slicers; parts that touch in the file (for example a sign and its text) stay one part.</p>
+<h2 id="watch-the-print">Watch the print</h2>
+<p>In the app, press the play button under the 3D and 2D switch. The 3D view shows the print as it grows, line by line, at the speed in the list (1x is the real speed). The layer slider follows. Move the slider to stop.</p>
+<h2 id="try-the-demo-part">Try the demo part</h2>
+<pre><code>zslice demo demo.stl
+zslice preview demo.stl --layer 28 -o layer28.svg</code></pre>
+<p>The demo part is a wide box with a smaller box on top, and a tube. Layer 28 is just below the step. It has skin on the step and in the floor of the tube hole, and sparse infill under the upper box.</p>
+<h2 id="iron-the-top-surfaces">Iron the top surfaces</h2>
+<p>Ironing makes top surfaces smooth. After a layer with a top surface, the nozzle goes over that surface again with close lines (0.1 mm apart) and a small flow (10 % of a normal line). The hot nozzle melts the surface flat, and the small flow fills the gaps between the skin lines.</p>
+<pre><code>zslice slice part.stl -o part.gcode -s project.ironing=true</code></pre>
+<p>Ironing adds time: each top surface gets about 4 times as many lines as its skin. The settings <code>project.ironing_flow</code>, <code>project.ironing_spacing</code>, <code>project.ironing_inset</code>, and <code>project.ironing_speed</code> control it (see the <a href="../../user/settings/#ironing">settings reference</a>).</p>
+<h2 id="where-the-part-goes-on-the-bed">Where the part goes on the bed</h2>
+<p>zslice moves the part so that its bottom is at z = 0. The X and Y come from <code>project.placement</code>:</p>
+<ul><li><code>auto</code> (the default): the X and Y of the file, if the part is fully on the bed there. If it is not (for example, a part modeled around the origin), zslice moves the center of the part to the center of the bed (<code>machine.bed_size_x</code> / 2, <code>machine.bed_size_y</code> / 2).</li><li><code>file</code>: always the X and Y of the file.</li><li><code>center</code>: always the center of the bed.</li></ul>
+<p>The X and Y of a file are bed coordinates: 0, 0 is the front left corner of the bed. If the G-code origin of your printer is somewhere else (for example the bed center), set <code>machine.origin_x</code> and <code>machine.origin_y</code> to the G-code position of the front left corner. For a printer with the origin at the bed center, they are minus half the bed size. The Cura import sets them from <code>machine_center_is_zero</code>.</p><nav class="pager"><a class="prev" href="../../contents/"><span>Previous</span><b>All documents</b></a><a class="next" href="../../user/settings/"><span>Next</span><b>Settings</b></a></nav>
+</main>
+</div>
+<footer>zslice is free software (AGPL-3.0-or-later). <a href="https://github.com/beetlebugorg/zslice/blob/master/docs/build.py">docs/build.py</a> writes this site from <a href="https://github.com/beetlebugorg/zslice/blob/master/docs/user/getting-started.md">docs/user/getting-started.md</a>.</footer>
+</body>
+</html>

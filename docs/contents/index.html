@@ -1,0 +1,64 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>zslice documentation · zslice</title>
+<meta name="description" content="zslice documentation: zslice documentation.">
+<link rel="canonical" href="https://beetlebug.org/zslice/contents/">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@500;600;700&family=IBM+Plex+Sans:ital,wght@0,400;0,600;0,700;1,700&display=swap" rel="stylesheet">
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='6' fill='%23171717'/%3E%3Crect x='11' y='8' width='10' height='4' rx='1' fill='%23f4f0e6'/%3E%3Crect x='8' y='14' width='16' height='4' rx='1' fill='%23f4f0e6'/%3E%3Crect x='5' y='20' width='22' height='4' rx='1' fill='%23ff5a1f'/%3E%3C/svg%3E">
+<link rel="stylesheet" href="../site.css">
+</head>
+<body>
+<input type="checkbox" id="menu">
+<header class="top">
+  <a class="brand" href="../"><span class="mark">ZSLICE</span><span class="docs">DOCS</span></a>
+  <label class="menu-btn" for="menu">Contents</label>
+  <nav class="top-links"><a href="../user/getting-started/">Get started</a><a href="../roadmap/">Roadmap</a><a href="https://github.com/beetlebugorg/zslice">GitHub</a></nav>
+</header>
+<div class="layout">
+<aside class="side"><nav><a href="../">Home</a>
+<a href="../contents/" aria-current="page">All documents</a>
+<div class="group">User guide</div>
+<a href="../user/getting-started/">Getting started</a>
+<a href="../user/settings/">Settings</a>
+<a href="../user/profiles/">Profiles</a>
+<a href="../user/troubleshooting/">Troubleshooting</a>
+<div class="group">Embedding</div>
+<a href="../embedding/">Overview</a>
+<a href="../embedding/c/">C</a>
+<a href="../embedding/zig/">Zig</a>
+<a href="../embedding/javascript/">JavaScript</a>
+<div class="group">Internals</div>
+<a href="../internals/architecture/">Architecture</a>
+<a href="../internals/how-slicing-works/">How slicing works</a>
+<a href="../internals/cura-compare/">Cura comparison</a>
+<a href="../internals/contributing/">Contributing</a>
+<div class="group">Project</div>
+<a href="../app/">App</a>
+<a href="../references/">References</a>
+<a href="../roadmap/">Roadmap</a></nav></aside>
+<main>
+<p class="eyebrow">Documentation</p>
+<h1>zslice documentation</h1>
+
+<nav class="onpage"><b>On this page</b><ol><li><a href="#for-people-who-slice-with-zslice">For people who slice with zslice</a></li><li><a href="#for-developers-who-use-the-library">For developers who use the library</a></li><li><a href="#the-app">The app</a></li><li><a href="#for-developers-who-change-or-extend-zslice">For developers who change or extend zslice</a></li><li><a href="#documentation">Documentation</a></li></ol></nav><h2 id="for-people-who-slice-with-zslice">For people who slice with zslice</h2>
+<ul><li><a href="../user/getting-started/">Getting started</a>: build zslice, slice a part, look at the layers.</li><li><a href="../user/settings/">Settings reference</a>: each setting, its unit, and its default.</li><li><a href="../user/profiles/">Profiles</a>: machine, filament, and project files, with inheritance and overrides.</li><li><a href="../user/troubleshooting/">Problems and errors</a>: what each error means and what to do.</li></ul>
+<h2 id="for-developers-who-use-the-library">For developers who use the library</h2>
+<ul><li><a href="../embedding/">Overview</a>: the objects, the memory, the threads, and the errors.</li><li><a href="../embedding/zig/">Zig API</a></li><li><a href="../embedding/c/">C API</a></li><li><a href="../embedding/javascript/">JavaScript and WebAssembly</a></li></ul>
+<h2 id="the-app">The app</h2>
+<ul><li><a href="../app/">The app</a>: the core and the native shells, and the contract between them.</li><li><a href="https://github.com/beetlebugorg/zslice/blob/master/linux/README.md">Linux (GTK4)</a></li></ul>
+<h2 id="for-developers-who-change-or-extend-zslice">For developers who change or extend zslice</h2>
+<ul><li><a href="../internals/how-slicing-works/">How a slicer works</a>: the stages from mesh to G-code.</li><li><a href="../internals/architecture/">Architecture</a>: the modules, the data types, the memory model, and the threads.</li><li><a href="../internals/contributing/">Contributing</a>: the rules, the tests, and step-by-step guides to add a setting, a feature, or an infill pattern.</li></ul>
+<h2 id="documentation">Documentation</h2>
+<p>The site at <a href="https://beetlebug.org/zslice/">https://beetlebug.org/zslice/</a> comes from these Markdown files. <code>docs/build.py</code> writes the pages into <code>docs/</code>, with one folder for each page. It needs only Python 3.</p>
+<pre><code>python3 docs/build.py</code></pre>
+<p>Run it after a change to a Markdown file, and commit the pages with the change. At the end, the script checks each link of the site. It stops with an error for a link to a file or an anchor that does not exist. A push to <code>master</code> that changes <code>docs/</code> publishes the site (<code>.github/workflows/pages.yml</code>).</p>
+<p>To add a page, add its Markdown file to <code>SOURCES</code> in <code>docs/build.py</code>. The script stops with an error for a Markdown file in <code>docs/</code> that has no page.</p><nav class="pager"><a class="prev" href="../"><span>Previous</span><b>Home</b></a><a class="next" href="../user/getting-started/"><span>Next</span><b>Getting started</b></a></nav>
+</main>
+</div>
+<footer>zslice is free software (AGPL-3.0-or-later). <a href="https://github.com/beetlebugorg/zslice/blob/master/docs/build.py">docs/build.py</a> writes this site from <a href="https://github.com/beetlebugorg/zslice/blob/master/docs/README.md">docs/README.md</a>.</footer>
+</body>
+</html>

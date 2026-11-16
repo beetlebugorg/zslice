@@ -24,3 +24,15 @@
 - [How a slicer works](internals/how-slicing-works.md): the stages from mesh to G-code.
 - [Architecture](internals/architecture.md): the modules, the data types, the memory model, and the threads.
 - [Contributing](internals/contributing.md): the rules, the tests, and step-by-step guides to add a setting, a feature, or an infill pattern.
+
+## Documentation
+
+The site at https://beetlebug.org/zslice/ comes from these Markdown files. `docs/build.py` writes the pages into `docs/`, with one folder for each page. It needs only Python 3.
+
+```sh
+python3 docs/build.py
+```
+
+Run it after a change to a Markdown file, and commit the pages with the change. At the end, the script checks each link of the site. It stops with an error for a link to a file or an anchor that does not exist. A push to `master` that changes `docs/` publishes the site (`.github/workflows/pages.yml`).
+
+To add a page, add its Markdown file to `SOURCES` in `docs/build.py`. The script stops with an error for a Markdown file in `docs/` that has no page.

@@ -1,0 +1,99 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>C API · zslice</title>
+<meta name="description" content="The headers are include/zslice.h (the slicer) and include/zslice-app.h (the app core, for app shells; see docs/app/README.md). The library depends only on libc. It links libc so that its threads are the same kind (pthreads) as the threads of the host program.">
+<link rel="canonical" href="https://beetlebug.org/zslice/embedding/c/">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@500;600;700&family=IBM+Plex+Sans:ital,wght@0,400;0,600;0,700;1,700&display=swap" rel="stylesheet">
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='6' fill='%23171717'/%3E%3Crect x='11' y='8' width='10' height='4' rx='1' fill='%23f4f0e6'/%3E%3Crect x='8' y='14' width='16' height='4' rx='1' fill='%23f4f0e6'/%3E%3Crect x='5' y='20' width='22' height='4' rx='1' fill='%23ff5a1f'/%3E%3C/svg%3E">
+<link rel="stylesheet" href="../../site.css">
+</head>
+<body>
+<input type="checkbox" id="menu">
+<header class="top">
+  <a class="brand" href="../../"><span class="mark">ZSLICE</span><span class="docs">DOCS</span></a>
+  <label class="menu-btn" for="menu">Contents</label>
+  <nav class="top-links"><a href="../../user/getting-started/">Get started</a><a href="../../roadmap/">Roadmap</a><a href="https://github.com/beetlebugorg/zslice">GitHub</a></nav>
+</header>
+<div class="layout">
+<aside class="side"><nav><a href="../../">Home</a>
+<a href="../../contents/">All documents</a>
+<div class="group">User guide</div>
+<a href="../../user/getting-started/">Getting started</a>
+<a href="../../user/settings/">Settings</a>
+<a href="../../user/profiles/">Profiles</a>
+<a href="../../user/troubleshooting/">Troubleshooting</a>
+<div class="group">Embedding</div>
+<a href="../../embedding/">Overview</a>
+<a href="../../embedding/c/" aria-current="page">C</a>
+<a href="../../embedding/zig/">Zig</a>
+<a href="../../embedding/javascript/">JavaScript</a>
+<div class="group">Internals</div>
+<a href="../../internals/architecture/">Architecture</a>
+<a href="../../internals/how-slicing-works/">How slicing works</a>
+<a href="../../internals/cura-compare/">Cura comparison</a>
+<a href="../../internals/contributing/">Contributing</a>
+<div class="group">Project</div>
+<a href="../../app/">App</a>
+<a href="../../references/">References</a>
+<a href="../../roadmap/">Roadmap</a></nav></aside>
+<main>
+<p class="eyebrow">Embedding</p>
+<h1>C API</h1>
+<p class="lede">The headers are <code>include/zslice.h</code> (the slicer) and <code>include/zslice-app.h</code> (the app core, for app shells; see <code>docs/app/README.md</code>). The library depends only on libc. It links libc so that its threads are the same kind (pthreads) as the threads of the host program.</p>
+<nav class="onpage"><b>On this page</b><ol><li><a href="#build">Build</a></li><li><a href="#example">Example</a></li><li><a href="#functions">Functions</a></li><li><a href="#the-write-callback">The write callback</a></li><li><a href="#threads">Threads</a></li><li><a href="#memory">Memory</a></li></ol></nav><h2 id="build">Build</h2>
+<pre><code>zig build lib -Doptimize=ReleaseFast</code></pre>
+<p>This makes <code>zig-out/lib/libzslice.a</code>, <code>zig-out/lib/libzslice.so</code>, <code>zig-out/include/zslice.h</code>, and <code>zig-out/include/zslice-app.h</code>. Link a program with the static library and <code>-lc -lpthread</code>, or with the shared library.</p>
+<p>For another target, add <code>-Dtarget</code>. Example: <code>zig build lib -Doptimize=ReleaseFast -Dtarget=aarch64-linux-gnu</code> for a Raspberry Pi.</p>
+<h2 id="example">Example</h2>
+<pre><code>#include &lt;stdio.h&gt;
+#include &lt;zslice.h&gt;
+
+static int write_file(void *user, const uint8_t *data, size_t len) {
+    return fwrite(data, 1, len, (FILE *)user) == len ? 0 : 1;
+}
+
+int slice(const uint8_t *stl, size_t stl_len, FILE *out) {
+    zs_mesh *mesh = NULL;
+    zs_settings *settings = NULL;
+    zs_stats stats;
+    int rc;
+
+    rc = zs_mesh_load_stl(stl, stl_len, &amp;mesh);
+    if (rc != ZS_OK) goto done;
+
+    rc = zs_settings_new(&amp;settings);
+    if (rc != ZS_OK) goto done;
+    rc = zs_settings_set(settings, "project.wall_count", "3");
+    if (rc != ZS_OK) goto done;
+
+    rc = zs_slice(mesh, settings, write_file, out, &amp;stats);
+    if (rc == ZS_OK) {
+        printf("%u layers, %.2f m filament\n", stats.layer_count, stats.filament_mm / 1000.0);
+    }
+
+done:
+    if (rc != ZS_OK) fprintf(stderr, "zslice: %s\n", zs_status_string(rc));
+    zs_settings_free(settings);
+    zs_mesh_free(mesh);
+    return rc;
+}</code></pre>
+<p>Link with <code>-lzslice</code>. The free functions accept NULL. <code>examples/c/slice.c</code> has this example with a <code>main</code> function.</p>
+<h2 id="functions">Functions</h2>
+<div class="table-wrap"><table><thead><tr><th>Function</th><th>What it does</th></tr></thead><tbody><tr><td><code>zs_version()</code></td><td>The version text, for example <code>&quot;0.1.0&quot;</code>.</td></tr><tr><td><code>zs_status_string(status)</code></td><td>The name of a status code.</td></tr><tr><td><code>zs_setting_names()</code></td><td>All setting names, one on each line.</td></tr><tr><td><code>zs_mesh_load_stl(data, len, &amp;mesh)</code></td><td>Loads a binary or ASCII STL file from memory.</td></tr><tr><td><code>zs_mesh_from_triangles(xyz, count, &amp;mesh)</code></td><td>Makes a mesh from 9 floats for each triangle.</td></tr><tr><td><code>zs_mesh_free(mesh)</code></td><td>Frees a mesh.</td></tr><tr><td><code>zs_settings_new(&amp;settings)</code></td><td>Makes settings with all defaults.</td></tr><tr><td><code>zs_settings_set(settings, key, value)</code></td><td>Sets one setting from text. The library copies the text.</td></tr><tr><td><code>zs_settings_free(settings)</code></td><td>Frees settings.</td></tr><tr><td><code>zs_slice(mesh, settings, write, user, &amp;stats)</code></td><td>Slices, and sends the G-code to <code>write</code> in parts while it runs.</td></tr><tr><td><code>zs_slice_to_buffer(mesh, settings, &amp;ptr, &amp;len, &amp;stats)</code></td><td>Slices into one buffer. Free it with <code>zs_buffer_free(ptr, len)</code>.</td></tr><tr><td><code>zs_alloc(len)</code>, <code>zs_free(ptr, len)</code></td><td>Memory for data that the host passes in. For wasm hosts.</td></tr></tbody></table></div>
+<p><code>settings</code> can be NULL in <code>zs_slice</code> and <code>zs_slice_to_buffer</code>: the slice then uses all defaults. <code>stats</code> can be NULL.</p>
+<h2 id="the-write-callback">The write callback</h2>
+<pre><code>typedef int (*zs_write_fn)(void *user, const uint8_t *data, size_t len);</code></pre>
+<ul><li>The library calls it many times, with parts of the G-code in order. Most parts are about 64 KB. Do not depend on a part size.</li><li>Return 0 to continue. Any other value stops the slice, and <code>zs_slice</code> returns <code>ZS_WRITE_FAILED</code>.</li><li>The library calls it from the thread that called <code>zs_slice</code>.</li><li><code>data</code> is valid only during the call. Copy it if you need it later.</li></ul>
+<h2 id="threads">Threads</h2>
+<p>The library uses one thread for each CPU. Set <code>engine.threads</code> to change it. The functions are safe to call from more than one thread at the same time, with different objects or with the same mesh and settings. Do not change a settings object while a slice uses it.</p>
+<h2 id="memory">Memory</h2>
+<p>The library uses its own allocator. Free each object with its free function, and each buffer with <code>zs_buffer_free</code>. Do not free them with <code>free()</code>.</p><nav class="pager"><a class="prev" href="../../embedding/"><span>Previous</span><b>Overview</b></a><a class="next" href="../../embedding/zig/"><span>Next</span><b>Zig</b></a></nav>
+</main>
+</div>
+<footer>zslice is free software (AGPL-3.0-or-later). <a href="https://github.com/beetlebugorg/zslice/blob/master/docs/build.py">docs/build.py</a> writes this site from <a href="https://github.com/beetlebugorg/zslice/blob/master/docs/embedding/c.md">docs/embedding/c.md</a>.</footer>
+</body>
+</html>

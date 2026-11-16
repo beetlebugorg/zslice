@@ -1,0 +1,80 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>The zslice app · zslice</title>
+<meta name="description" content="The zslice app has one core and one native shell for each platform:">
+<link rel="canonical" href="https://beetlebug.org/zslice/app/">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@500;600;700&family=IBM+Plex+Sans:ital,wght@0,400;0,600;0,700;1,700&display=swap" rel="stylesheet">
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='6' fill='%23171717'/%3E%3Crect x='11' y='8' width='10' height='4' rx='1' fill='%23f4f0e6'/%3E%3Crect x='8' y='14' width='16' height='4' rx='1' fill='%23f4f0e6'/%3E%3Crect x='5' y='20' width='22' height='4' rx='1' fill='%23ff5a1f'/%3E%3C/svg%3E">
+<link rel="stylesheet" href="../site.css">
+</head>
+<body>
+<input type="checkbox" id="menu">
+<header class="top">
+  <a class="brand" href="../"><span class="mark">ZSLICE</span><span class="docs">DOCS</span></a>
+  <label class="menu-btn" for="menu">Contents</label>
+  <nav class="top-links"><a href="../user/getting-started/">Get started</a><a href="../roadmap/">Roadmap</a><a href="https://github.com/beetlebugorg/zslice">GitHub</a></nav>
+</header>
+<div class="layout">
+<aside class="side"><nav><a href="../">Home</a>
+<a href="../contents/">All documents</a>
+<div class="group">User guide</div>
+<a href="../user/getting-started/">Getting started</a>
+<a href="../user/settings/">Settings</a>
+<a href="../user/profiles/">Profiles</a>
+<a href="../user/troubleshooting/">Troubleshooting</a>
+<div class="group">Embedding</div>
+<a href="../embedding/">Overview</a>
+<a href="../embedding/c/">C</a>
+<a href="../embedding/zig/">Zig</a>
+<a href="../embedding/javascript/">JavaScript</a>
+<div class="group">Internals</div>
+<a href="../internals/architecture/">Architecture</a>
+<a href="../internals/how-slicing-works/">How slicing works</a>
+<a href="../internals/cura-compare/">Cura comparison</a>
+<a href="../internals/contributing/">Contributing</a>
+<div class="group">Project</div>
+<a href="../app/" aria-current="page">App</a>
+<a href="../references/">References</a>
+<a href="../roadmap/">Roadmap</a></nav></aside>
+<main>
+<p class="eyebrow">Project</p>
+<h1>The zslice app</h1>
+<p class="lede">The zslice app has one core and one native shell for each platform:</p>
+<nav class="onpage"><b>On this page</b><ol><li><a href="#the-rule-logic-in-the-core-widgets-in-the-shell">The rule: logic in the core, widgets in the shell</a></li><li><a href="#the-contract">The contract</a></li><li><a href="#the-3d-view">The 3D view</a></li><li><a href="#inspect-a-path">Inspect a path</a></li><li><a href="#replay">Replay</a></li><li><a href="#the-preview-colors">The preview colors</a></li><li><a href="#add-a-shell">Add a shell</a></li></ol></nav><div class="table-wrap"><table><thead><tr><th>Platform</th><th>Shell</th><th>Folder</th><th>Status</th></tr></thead><tbody><tr><td>Linux</td><td>GTK4, C</td><td><code>linux/</code></td><td>Works</td></tr><tr><td>macOS, iOS</td><td>SwiftUI</td><td><code>apple/</code></td><td>Planned</td></tr><tr><td>Windows</td><td>Win32, C++</td><td><code>windows/</code></td><td>Planned</td></tr><tr><td>Android</td><td>Kotlin</td><td><code>android/</code></td><td>Planned</td></tr></tbody></table></div>
+<h2 id="the-rule-logic-in-the-core-widgets-in-the-shell">The rule: logic in the core, widgets in the shell</h2>
+<p>The app core (<code>src/app.zig</code>, C API in <code>include/zslice-app.h</code>) has all the app logic: the model, the settings, the slice job, the result, the layer paths for the preview, and the license list.</p>
+<p>A shell does only three things:</p>
+<ol><li>It draws native widgets.</li><li>It reads and writes files. The core does no file I/O, so it works in a sandbox (iOS, a browser).</li><li>It moves core events to its UI thread.</li></ol>
+<p>If a shell needs a decision (when to slice again, what a setting means, how to format a value from the core), the decision goes in the core, and each shell calls it. Then all shells behave the same.</p>
+<h2 id="the-contract">The contract</h2>
+<p>Read <code>include/zslice-app.h</code> first. The main points:</p>
+<ul><li><strong>One thread.</strong> Call each <code>zs_app_*</code> function from the UI thread.</li><li><strong>Events come from a worker thread.</strong> The callback of <code>zs_app_new</code> runs on the slice thread. Copy the event and post it to the UI thread: <code>g_idle_add</code> (GTK), <code>DispatchQueue.main.async</code> (Swift), <code>PostMessage</code> (Win32), <code>Handler.post</code> (Android).</li><li><strong>The state is the truth.</strong> On each event, read <code>zs_app_state</code>. An event from an old slice can arrive after a new slice starts.</li><li><strong>Slice after each change.</strong> After the user changes a setting or opens a model, call <code>zs_app_request_slice</code>. It stops the old slice and starts a new one. A slice of a typical part takes less than a second, so the preview follows the settings.</li><li><strong>Settings panel from data.</strong> <code>zs_setting_count</code> and <code>zs_setting_get_info</code> give each setting with its group, section, label, help text, kind, and choices. Build the panel from these. Do not list settings in the shell.</li><li><strong>Preview one layer at a time.</strong> <code>zs_app_layer_paths</code> makes the paths of one layer in a few milliseconds. Keep only the layers on the screen.</li><li><strong>Licenses.</strong> <code>zs_license_count</code> and <code>zs_license_get</code> give zslice and the components in the core, with full texts. A shell adds the libraries that only it links (for example GTK), and shows all of them in a Licenses screen.</li></ul>
+<h2 id="the-3d-view">The 3D view</h2>
+<p>The core draws the 3D view of a slice (<code>src/render/</code>). The shell gives a native surface, and calls the <code>zs_view_*</code> functions of <code>include/zslice-app.h</code>:</p>
+<ol><li>Make a native surface for the view widget: on Linux, a Wayland subsurface under the window (<code>linux/src/ui/native-surface.c</code>); later a <code>CAMetalLayer</code> on Apple, an <code>HWND</code> on Windows, and an <code>ANativeWindow</code> on Android.</li><li><code>zs_view_new</code> with the surface and the size in pixels.</li><li>After <code>ZS_EVENT_SLICED</code>: <code>zs_view_load</code>.</li><li>On a change (layer, drag, scroll, size): call <code>zs_view_set_layer</code>, <code>zs_view_orbit</code>, <code>zs_view_zoom</code>, or <code>zs_view_resize</code>, then <code>zs_view_draw</code> once. Draw only after a change, so that a static view uses no CPU.</li></ol>
+<p>The goal of the view is to look like the finished print. Each segment is a bead with the real cross section (a flat top and bottom, round sides), round ends, the width of the plastic that is really deposited, the cooled size (the shrinkage compensation removed), and the filament color (<code>filament.color</code>). <code>zs_view_set_mode</code> switches to one color for each feature.</p>
+<p>The backend is Vulkan on Linux (and later Windows and Android), and Metal on Apple later. The core loads the Vulkan loader at run time, so a shell does not link it. Without Vulkan, <code>zs_view_new</code> returns <code>ZS_NOT_SUPPORTED</code>, and the shell shows the 2D view only.</p>
+<p>On Linux, the GTK window is transparent, and the view widget draws nothing: the subsurface shows through it. Each other part of the window must paint its whole area (use padding, not margins).</p>
+<p>Development options of the GTK shell: <code>ZSLICE_VIEW=3d</code> opens the 3D view, and <code>ZSLICE_NON_UNIQUE=1</code> starts a separate instance.</p>
+<h2 id="inspect-a-path">Inspect a path</h2>
+<p>A click on a path in a view picks it: <code>zs_app_pick_layer</code> in a 2D layer view (a point in mm), and <code>zs_view_pick</code> in the 3D view (a pixel). <code>zs_app_inspect</code> then gives what the path is, its real values (the bead width, the planned and the real speed, the flow, the time span), the reasons for them in plain words, and the names of the settings that change it. The shell shows the text and an editor for each setting, and highlights the path (<code>zs_view_highlight</code>).</p>
+<p>After a new slice, the path numbers change. The GTK shell keeps the layer and a point of the selected path, and picks the path at that place again, so that the inspector stays on the same line after a setting changes.</p>
+<p>Development option of the GTK shell: <code>ZSLICE_PICK=x,y</code> picks at a pixel of the 3D view after the first load.</p>
+<h2 id="replay">Replay</h2>
+<p><code>zs_view_set_time(view, t)</code> shows the print as it is t seconds after the start: each bead that is done, and the part of the bead that the nozzle is printing. The times come from the G-code emitter, with the cooling slow-down, so the replay follows the G-code. A shell moves t on each frame while it plays (GTK: a frame-clock tick callback, at a speed of 1x to 100x), and shows <code>zs_view_layer_at_time</code> on its layer slider. <code>zs_view_set_layer</code> ends the replay.</p>
+<p>Development option of the GTK shell: <code>ZSLICE_TIME=t</code> shows the replay at t seconds before the first frame.</p>
+<h2 id="the-preview-colors">The preview colors</h2>
+<p>All shells use the same colors, in the order of <code>enum zs_feature</code>:</p>
+<div class="table-wrap"><table><thead><tr><th>Feature</th><th>Color</th></tr></thead><tbody><tr><td>Outer wall</td><td><code>#d9480f</code></td></tr><tr><td>Inner wall</td><td><code>#f59f00</code></td></tr><tr><td>Skin</td><td><code>#1c7ed6</code></td></tr><tr><td>Infill</td><td><code>#2b8a3e</code></td></tr><tr><td>Ironing</td><td><code>#ae3ec9</code></td></tr><tr><td>Skirt and brim</td><td><code>#8d6e63</code></td></tr><tr><td>Support</td><td><code>#adb5bd</code></td></tr><tr><td>Support interface</td><td><code>#495057</code></td></tr></tbody></table></div>
+<h2 id="add-a-shell">Add a shell</h2>
+<ol><li>Build the core for the platform: <code>zig build lib -Dtarget=&lt;target&gt; -Doptimize=ReleaseFast</code>. It makes <code>libzslice.a</code> and the two headers.</li><li>Wrap <code>zs_app</code> in one object of the platform (a GObject, an ObservableObject, a ViewModel) that owns the core and moves the events to the UI thread. See <code>linux/src/model/app-model.c</code>.</li><li>Build the window: open, export, the settings panel, the preview with a layer slider, a status bar, and a Licenses screen.</li><li>Use the GTK shell as the reference for the behavior.</li></ol>
+<p>The structure follows the Lookout Marine app (a Zig core with native shells for each platform, by the same author).</p><nav class="pager"><a class="prev" href="../internals/contributing/"><span>Previous</span><b>Contributing</b></a><a class="next" href="../references/"><span>Next</span><b>References</b></a></nav>
+</main>
+</div>
+<footer>zslice is free software (AGPL-3.0-or-later). <a href="https://github.com/beetlebugorg/zslice/blob/master/docs/build.py">docs/build.py</a> writes this site from <a href="https://github.com/beetlebugorg/zslice/blob/master/docs/app/README.md">docs/app/README.md</a>.</footer>
+</body>
+</html>

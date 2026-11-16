@@ -1,0 +1,115 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>zslice · zslice</title>
+<meta name="description" content="The documentation of zslice, a slicer for FDM 3D printers, written from scratch in Zig.">
+<link rel="canonical" href="https://beetlebug.org/zslice/">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@500;600;700&family=IBM+Plex+Sans:ital,wght@0,400;0,600;0,700;1,700&display=swap" rel="stylesheet">
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='6' fill='%23171717'/%3E%3Crect x='11' y='8' width='10' height='4' rx='1' fill='%23f4f0e6'/%3E%3Crect x='8' y='14' width='16' height='4' rx='1' fill='%23f4f0e6'/%3E%3Crect x='5' y='20' width='22' height='4' rx='1' fill='%23ff5a1f'/%3E%3C/svg%3E">
+<link rel="stylesheet" href="site.css">
+</head>
+<body>
+<input type="checkbox" id="menu">
+<header class="top">
+  <a class="brand" href=""><span class="mark">ZSLICE</span><span class="docs">DOCS</span></a>
+  <label class="menu-btn" for="menu">Contents</label>
+  <nav class="top-links"><a href="user/getting-started/">Get started</a><a href="roadmap/">Roadmap</a><a href="https://github.com/beetlebugorg/zslice">GitHub</a></nav>
+</header>
+<div class="layout">
+<aside class="side"><nav><a href="" aria-current="page">Home</a>
+<a href="contents/">All documents</a>
+<div class="group">User guide</div>
+<a href="user/getting-started/">Getting started</a>
+<a href="user/settings/">Settings</a>
+<a href="user/profiles/">Profiles</a>
+<a href="user/troubleshooting/">Troubleshooting</a>
+<div class="group">Embedding</div>
+<a href="embedding/">Overview</a>
+<a href="embedding/c/">C</a>
+<a href="embedding/zig/">Zig</a>
+<a href="embedding/javascript/">JavaScript</a>
+<div class="group">Internals</div>
+<a href="internals/architecture/">Architecture</a>
+<a href="internals/how-slicing-works/">How slicing works</a>
+<a href="internals/cura-compare/">Cura comparison</a>
+<a href="internals/contributing/">Contributing</a>
+<div class="group">Project</div>
+<a href="app/">App</a>
+<a href="references/">References</a>
+<a href="roadmap/">Roadmap</a></nav></aside>
+<main>
+<p class="eyebrow">Documentation</p>
+<h1>zslice</h1>
+<p class="lede">A slicer for FDM 3D printers, written from scratch in Zig.</p>
+
+<p>
+  <a class="btn primary" href="user/getting-started/">Get started</a>
+  <a class="btn" href="user/settings/">Settings</a>
+  <a class="btn" href="embedding/">Embed the library</a>
+  <a class="btn" href="internals/how-slicing-works/">How a slicer works</a>
+  <a class="btn" href="https://github.com/beetlebugorg/zslice">Source on GitHub</a>
+</p>
+<figure class="hero"><img src="img/benchy.png" alt="A boat test model, sliced by zslice" onerror="this.hidden=true"></figure>
+<p>Goals: a clean API for embedding (Zig, C, and WebAssembly), high performance, low memory use, advanced slicing features, and code that teaches how a slicer works. See <code>ROADMAP.md</code> for the status.</p>
+<div class="chips"><span class="chip">Zig 0.16</span><span class="chip">C API</span><span class="chip">WebAssembly</span><span class="chip">GTK4 app</span><span class="chip">AGPL-3.0-or-later</span></div>
+
+<h2 id="docs">The documentation</h2>
+<div class="map">
+  <a class="card" href="user/getting-started/"><b>User guide</b><span>Build zslice, slice a part, and look at the layers.</span></a>
+  <a class="card" href="user/settings/"><b>Settings</b><span>Each setting, its unit, and its default.</span></a>
+  <a class="card" href="user/profiles/"><b>Profiles</b><span>Machine, filament, and project files, with inheritance.</span></a>
+  <a class="card" href="embedding/"><b>Embedding</b><span>The library from Zig, from C, and from JavaScript.</span></a>
+  <a class="card" href="internals/how-slicing-works/"><b>Internals</b><span>The stages from mesh to G-code, and the modules of the code.</span></a>
+  <a class="card" href="app/"><b>The app</b><span>The app core and the native shells.</span></a>
+  <a class="card" href="references/"><b>References</b><span>The sources that zslice uses, and their licenses.</span></a>
+  <a class="card" href="roadmap/"><b>Roadmap</b><span>What works now, and what comes next.</span></a>
+</div>
+<h2 id="build">Build</h2>
+<p>zslice needs Zig 0.16.</p>
+<pre><code>zig build test                      # run the tests
+zig build -Doptimize=ReleaseFast    # the command line tool: zig-out/bin/zslice
+zig build lib -Doptimize=ReleaseFast  # libzslice.a, libzslice.so, zslice.h
+zig build wasm                      # zig-out/web/zslice.wasm and zslice.mjs</code></pre>
+<h2 id="command-line">Command line</h2>
+<pre><code>zslice slice part.stl -m generic -f generic-petg -p fine -o part.gcode
+zslice slice part.stl -o part.gcode -s project.wall_count=3 -s filament.nozzle_temp=220
+zslice preview part.stl --layer 20 -o layer20.svg
+zslice settings                     # all settings and their defaults
+zslice profiles                     # the built-in profiles
+zslice demo demo.stl                # write a test part</code></pre>
+<h2 id="settings">Settings</h2>
+<p>The settings have three groups, with different owners:</p>
+<ul><li><code>machine.*</code>: facts about the printer. Examples: the bed size, the nozzle, and the speed limits.</li><li><code>filament.*</code>: facts about the material. Examples: the temperatures, and the maximum flow that the hot end can melt.</li><li><code>project.*</code>: what you want for this part. Examples: the layer height, the walls, and the infill.</li></ul>
+<p>Each group can come from a profile file (TOML), with inheritance (<code>extends</code>) and overrides. See <a href="user/profiles/">Profiles</a>.</p>
+<p>A project does not set speeds in mm/s. It sets a ratio of the speed that the machine and the filament allow. One project then works on different printers and with different filaments.</p>
+<h2 id="embedding">Embedding</h2>
+<p>Zig:</p>
+<pre><code>const zslice = @import("zslice");
+
+var mesh = try zslice.Mesh.fromStl(gpa, stl_bytes);
+defer mesh.deinit(gpa);
+var settings: zslice.Settings = .{};
+try settings.set("project.wall_count", "3");
+const stats = try zslice.slice(gpa, &amp;mesh, settings, writer);</code></pre>
+<p>C (<code>include/zslice.h</code>):</p>
+<pre><code>zs_mesh *mesh;
+zs_mesh_load_stl(bytes, len, &amp;mesh);
+zs_settings *settings;
+zs_settings_new(&amp;settings);
+zs_settings_set(settings, "project.wall_count", "3");
+zs_slice(mesh, settings, write_callback, user_data, &amp;stats);</code></pre>
+<p>JavaScript (<code>web/zslice.mjs</code>):</p>
+<pre><code>import { load } from "./zslice.mjs";
+const zslice = await load(wasmBytes);
+const { gcode, stats } = zslice.sliceStl(stlBytes, { "project.wall_count": 3 });</code></pre>
+<h2 id="license">License</h2>
+<p>AGPL-3.0-or-later. See <code>LICENSE</code>. The sources that zslice uses, and the licenses of the code in its binaries, are in <code>REFERENCES.md</code>.</p>
+<nav class="pager"><a class="next" href="contents/"><span>Next</span><b>All documents</b></a></nav>
+</main>
+</div>
+<footer>zslice is free software (AGPL-3.0-or-later). <a href="https://github.com/beetlebugorg/zslice/blob/master/docs/build.py">docs/build.py</a> writes this site from <a href="https://github.com/beetlebugorg/zslice/blob/master/README.md">README.md</a>.</footer>
+</body>
+</html>

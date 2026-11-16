@@ -1,0 +1,71 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Embedding zslice: overview · zslice</title>
+<meta name="description" content="zslice is a library first. The command line tool is a small program on top of it. You can use the library from Zig, from C (or any language with a C foreign function interface), and from JavaScript through WebAssembly.">
+<link rel="canonical" href="https://beetlebug.org/zslice/embedding/">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@500;600;700&family=IBM+Plex+Sans:ital,wght@0,400;0,600;0,700;1,700&display=swap" rel="stylesheet">
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='6' fill='%23171717'/%3E%3Crect x='11' y='8' width='10' height='4' rx='1' fill='%23f4f0e6'/%3E%3Crect x='8' y='14' width='16' height='4' rx='1' fill='%23f4f0e6'/%3E%3Crect x='5' y='20' width='22' height='4' rx='1' fill='%23ff5a1f'/%3E%3C/svg%3E">
+<link rel="stylesheet" href="../site.css">
+</head>
+<body>
+<input type="checkbox" id="menu">
+<header class="top">
+  <a class="brand" href="../"><span class="mark">ZSLICE</span><span class="docs">DOCS</span></a>
+  <label class="menu-btn" for="menu">Contents</label>
+  <nav class="top-links"><a href="../user/getting-started/">Get started</a><a href="../roadmap/">Roadmap</a><a href="https://github.com/beetlebugorg/zslice">GitHub</a></nav>
+</header>
+<div class="layout">
+<aside class="side"><nav><a href="../">Home</a>
+<a href="../contents/">All documents</a>
+<div class="group">User guide</div>
+<a href="../user/getting-started/">Getting started</a>
+<a href="../user/settings/">Settings</a>
+<a href="../user/profiles/">Profiles</a>
+<a href="../user/troubleshooting/">Troubleshooting</a>
+<div class="group">Embedding</div>
+<a href="../embedding/" aria-current="page">Overview</a>
+<a href="../embedding/c/">C</a>
+<a href="../embedding/zig/">Zig</a>
+<a href="../embedding/javascript/">JavaScript</a>
+<div class="group">Internals</div>
+<a href="../internals/architecture/">Architecture</a>
+<a href="../internals/how-slicing-works/">How slicing works</a>
+<a href="../internals/cura-compare/">Cura comparison</a>
+<a href="../internals/contributing/">Contributing</a>
+<div class="group">Project</div>
+<a href="../app/">App</a>
+<a href="../references/">References</a>
+<a href="../roadmap/">Roadmap</a></nav></aside>
+<main>
+<p class="eyebrow">Embedding</p>
+<h1>Embedding zslice: overview</h1>
+<p class="lede">zslice is a library first. The command line tool is a small program on top of it. You can use the library from Zig, from C (or any language with a C foreign function interface), and from JavaScript through WebAssembly.</p>
+<nav class="onpage"><b>On this page</b><ol><li><a href="#the-objects">The objects</a></li><li><a href="#the-flow">The flow</a></li><li><a href="#setting-names">Setting names</a></li><li><a href="#memory">Memory</a></li><li><a href="#threads">Threads</a></li><li><a href="#errors">Errors</a></li><li><a href="#stability">Stability</a></li><li><a href="#the-language-guides">The language guides</a></li></ol></nav><h2 id="the-objects">The objects</h2>
+<div class="table-wrap"><table><thead><tr><th>Object</th><th>What it is</th></tr></thead><tbody><tr><td>Mesh</td><td>The triangles of the part, with welded vertices. Load it from STL bytes, or make it from a triangle list.</td></tr><tr><td>Settings</td><td>All settings, in four groups: <code>machine</code>, <code>filament</code>, <code>project</code>, <code>engine</code>. Each has a default. Change a setting by its name and a text value.</td></tr><tr><td>Stats</td><td>The result of a slice: the layer count, the filament length and weight, the time estimate, the travel distance, and the retraction count.</td></tr><tr><td>Job (Zig only)</td><td>A slice after its first pass. It has the outline of each layer. Use it to get the paths of one layer (for a preview) without the G-code.</td></tr></tbody></table></div>
+<h2 id="the-flow">The flow</h2>
+<ol><li>Load the mesh.</li><li>Make the settings and change the ones you need.</li><li>Slice. The G-code goes to your writer (Zig), to your callback (C), or into one buffer.</li><li>Free the mesh and the settings.</li></ol>
+<p>The library does not read or write files. Your program gives it bytes and gets bytes back. Thus the same API works in a browser, on a server, and on a printer controller.</p>
+<h2 id="setting-names">Setting names</h2>
+<p>A setting name is <code>group.name</code>, for example <code>project.wall_count</code>. The value is always text: <code>&quot;3&quot;</code>, <code>&quot;0.2&quot;</code>, <code>&quot;true&quot;</code>, <code>&quot;grid&quot;</code>. The library parses it to the type of the setting. To list all names:</p>
+<ul><li>Zig: look at <code>zslice.Settings</code> (<code>src/settings.zig</code>), or run <code>zslice settings</code>.</li><li>C: <code>zs_setting_names()</code> returns all names, one on each line.</li><li>JavaScript: <code>zslice.settingNames</code>.</li></ul>
+<p>The <a href="../user/settings/">settings reference</a> has the meaning, unit, and default of each setting.</p>
+<h2 id="memory">Memory</h2>
+<ul><li>The library allocates memory only through the allocator that you give it (Zig), or through its own allocator (C and wasm).</li><li>The G-code goes out while the slice runs. The library never holds the whole G-code file, unless you use the buffer API.</li><li>The peak memory is about: the mesh, plus the outline of each layer, plus the paths of one batch of layers. The batch size is 4 layers for each thread (at least 8). With the 109 STL files of the printdeck repo, the largest peak was 95 MB for the whole command line process.</li></ul>
+<h2 id="threads">Threads</h2>
+<ul><li>Native builds use one thread for each CPU by default. Set <code>engine.threads</code> to change it. <code>engine.threads=1</code> uses only the calling thread.</li><li>The output does not depend on the thread count: the G-code is the same bytes with 1 thread and with 8 threads.</li><li>In Zig, the allocator must be thread-safe if <code>engine.threads</code> is not 1. <code>std.heap.smp_allocator</code> and <code>std.heap.c_allocator</code> are thread-safe.</li><li>The wasm build has no threads. In a browser, run the slice in a Web Worker, so that the page does not stop.</li><li>A mesh and a settings object can be used by more than one slice at the same time. The slice does not change them.</li></ul>
+<h2 id="errors">Errors</h2>
+<p>Each failure has a name. In Zig, it is an error value. In C, it is a status code. In JavaScript, it is a <code>ZsliceError</code> with a <code>status</code> field.</p>
+<div class="table-wrap"><table><thead><tr><th>Zig error</th><th>C status</th><th>Meaning</th></tr></thead><tbody><tr><td><code>error.OutOfMemory</code></td><td><code>ZS_OUT_OF_MEMORY</code> (1)</td><td>The allocator has no more memory.</td></tr><tr><td></td><td><code>ZS_INVALID_ARGUMENT</code> (2)</td><td>A required pointer is NULL (C only).</td></tr><tr><td><code>error.InvalidStl</code></td><td><code>ZS_INVALID_MESH</code> (3)</td><td>The bytes are not a valid STL file.</td></tr><tr><td><code>error.EmptyMesh</code></td><td><code>ZS_EMPTY_MESH</code> (4)</td><td>No triangles, or no height.</td></tr><tr><td><code>error.UnknownSetting</code></td><td><code>ZS_UNKNOWN_SETTING</code> (5)</td><td>The setting name does not exist.</td></tr><tr><td><code>error.InvalidValue</code></td><td><code>ZS_INVALID_VALUE</code> (6)</td><td>The value text cannot be parsed to the setting type.</td></tr><tr><td><code>error.InvalidSettings</code></td><td><code>ZS_INVALID_SETTINGS</code> (7)</td><td>The values together cannot make a print.</td></tr><tr><td><code>error.PartTooLarge</code></td><td><code>ZS_PART_TOO_LARGE</code> (8)</td><td>The part is higher than <code>machine.max_height</code>.</td></tr><tr><td><code>error.WriteFailed</code></td><td><code>ZS_WRITE_FAILED</code> (9)</td><td>The writer failed, or the C callback returned a value that is not 0.</td></tr></tbody></table></div>
+<h2 id="stability">Stability</h2>
+<p>zslice is at version 0.1. The API can change before version 1.0. Setting names can also change. The change log will list each change.</p>
+<h2 id="the-language-guides">The language guides</h2>
+<ul><li><a href="../embedding/zig/">Zig</a></li><li><a href="../embedding/c/">C</a></li><li><a href="../embedding/javascript/">JavaScript and WebAssembly</a></li></ul><nav class="pager"><a class="prev" href="../user/troubleshooting/"><span>Previous</span><b>Troubleshooting</b></a><a class="next" href="../embedding/c/"><span>Next</span><b>C</b></a></nav>
+</main>
+</div>
+<footer>zslice is free software (AGPL-3.0-or-later). <a href="https://github.com/beetlebugorg/zslice/blob/master/docs/build.py">docs/build.py</a> writes this site from <a href="https://github.com/beetlebugorg/zslice/blob/master/docs/embedding/overview.md">docs/embedding/overview.md</a>.</footer>
+</body>
+</html>

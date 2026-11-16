@@ -1,0 +1,92 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>How a slicer works · zslice</title>
+<meta name="description" content="A slicer turns a 3D model into G-code: the list of moves that a 3D printer makes. This document follows one model through zslice, stage by stage. Each stage names the source file that does it. Each source file explains its method in its header comment.">
+<link rel="canonical" href="https://beetlebug.org/zslice/internals/how-slicing-works/">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@500;600;700&family=IBM+Plex+Sans:ital,wght@0,400;0,600;0,700;1,700&display=swap" rel="stylesheet">
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='6' fill='%23171717'/%3E%3Crect x='11' y='8' width='10' height='4' rx='1' fill='%23f4f0e6'/%3E%3Crect x='8' y='14' width='16' height='4' rx='1' fill='%23f4f0e6'/%3E%3Crect x='5' y='20' width='22' height='4' rx='1' fill='%23ff5a1f'/%3E%3C/svg%3E">
+<link rel="stylesheet" href="../../site.css">
+</head>
+<body>
+<input type="checkbox" id="menu">
+<header class="top">
+  <a class="brand" href="../../"><span class="mark">ZSLICE</span><span class="docs">DOCS</span></a>
+  <label class="menu-btn" for="menu">Contents</label>
+  <nav class="top-links"><a href="../../user/getting-started/">Get started</a><a href="../../roadmap/">Roadmap</a><a href="https://github.com/beetlebugorg/zslice">GitHub</a></nav>
+</header>
+<div class="layout">
+<aside class="side"><nav><a href="../../">Home</a>
+<a href="../../contents/">All documents</a>
+<div class="group">User guide</div>
+<a href="../../user/getting-started/">Getting started</a>
+<a href="../../user/settings/">Settings</a>
+<a href="../../user/profiles/">Profiles</a>
+<a href="../../user/troubleshooting/">Troubleshooting</a>
+<div class="group">Embedding</div>
+<a href="../../embedding/">Overview</a>
+<a href="../../embedding/c/">C</a>
+<a href="../../embedding/zig/">Zig</a>
+<a href="../../embedding/javascript/">JavaScript</a>
+<div class="group">Internals</div>
+<a href="../../internals/architecture/">Architecture</a>
+<a href="../../internals/how-slicing-works/" aria-current="page">How slicing works</a>
+<a href="../../internals/cura-compare/">Cura comparison</a>
+<a href="../../internals/contributing/">Contributing</a>
+<div class="group">Project</div>
+<a href="../../app/">App</a>
+<a href="../../references/">References</a>
+<a href="../../roadmap/">Roadmap</a></nav></aside>
+<main>
+<p class="eyebrow">Internals</p>
+<h1>How a slicer works</h1>
+<p class="lede">A slicer turns a 3D model into G-code: the list of moves that a 3D printer makes. This document follows one model through zslice, stage by stage. Each stage names the source file that does it. Each source file explains its method in its header comment.</p>
+<nav class="onpage"><b>On this page</b><ol><li><a href="#1-load-the-mesh-srcmeshzig">1. Load the mesh (src/mesh.zig)</a></li><li><a href="#2-place-the-part-and-make-the-layer-table-srcenginezig-srcslicerzig">2. Place the part and make the layer table (src/engine.zig, src/slicer.zig)</a></li><li><a href="#3-cut-the-mesh-into-outlines-srcslicerzig">3. Cut the mesh into outlines (src/slicer.zig)</a></li><li><a href="#4-polygon-tools-srcclipzig-srcoffsetzig">4. Polygon tools (src/clip.zig, src/offset.zig)</a></li><li><a href="#5-plan-each-layer-srclayerzig">5. Plan each layer (src/layer.zig)</a></li><li><a href="#6-write-g-code-srcgcodezig">6. Write G-code (src/gcode.zig)</a></li><li><a href="#7-run-it-fast-with-little-memory-srcenginezig-srcparallelzig">7. Run it fast, with little memory (src/engine.zig, src/parallel.zig)</a></li><li><a href="#try-it">Try it</a></li></ol></nav><h2 id="1-load-the-mesh-srcmeshzig">1. Load the mesh (<code>src/mesh.zig</code>)</h2>
+<p>An STL file is a list of triangles. The triangles together make the closed surface of the part. Each triangle has three vertices. Seen from outside the part, the vertices are counterclockwise. This order tells the slicer which side of the surface is outside.</p>
+<p>The STL file does not say which triangles share an edge. The slicer needs this information in stage 3. The loader "welds" the vertices: vertices with the same coordinates become one vertex. After the weld, two triangles that touch have the same two vertex numbers on their shared edge.</p>
+<h2 id="2-place-the-part-and-make-the-layer-table-srcenginezig-srcslicerzig">2. Place the part and make the layer table (<code>src/engine.zig</code>, <code>src/slicer.zig</code>)</h2>
+<p>The engine moves the part so that its bottom is at z = 0 and its center is at the center of the bed.</p>
+<p>The layer table gives the z of each layer. The first layer is usually thicker (0.3 mm), so that it sticks to the bed. The next layers have the layer height (0.2 mm). Each layer has a cut plane at the middle of its height. The outline at the middle is the best estimate of the shape of the whole layer.</p>
+<h2 id="3-cut-the-mesh-into-outlines-srcslicerzig">3. Cut the mesh into outlines (<code>src/slicer.zig</code>)</h2>
+<p>Each triangle that crosses a cut plane gives one line segment. The direction of the segment comes from the vertex order, so the outside of the part is always on the same side. Then the slicer joins the segments into closed loops. Two segments join where they come from triangles that share an edge.</p>
+<p>The result for each layer is a set of closed polygons:</p>
+<ul><li>An outer boundary is counterclockwise.</li><li>A hole is clockwise.</li></ul>
+<p>All later stages use this rule: the material is on the left of each edge.</p>
+<p>From here on, all coordinates are integers in micrometers (<code>src/geom.zig</code>). With integers, a test such as "is this point left of this line" always gives the same answer. With floating point, two places in the code can get different answers for the same test, and the polygon operations then make broken shapes.</p>
+<p>A mesh can have holes, from a bad export or a bad repair. Then some segments do not join into loops. The slicer joins the open chains across small gaps, and removes the chains that it cannot close.</p>
+<h2 id="4-polygon-tools-srcclipzig-srcoffsetzig">4. Polygon tools (<code>src/clip.zig</code>, <code>src/offset.zig</code>)</h2>
+<p>The next stages use two tools on polygons.</p>
+<p><strong>Booleans</strong> (<code>clip.zig</code>): union, intersection, and difference of two polygon sets. The method:</p>
+<ol><li>Split all edges where they cross or touch.</li><li>For each edge, count how many times each polygon set surrounds the area on each side of it (the "winding number").</li><li>Keep the edges that have "inside" on one side and "outside" on the other side.</li><li>Join the kept edges into loops.</li></ol>
+<p><strong>Offset</strong> (<code>offset.zig</code>): move each boundary in or out by a distance. Each edge moves along its normal. The corners get joins. Where the moved edges cross (an inside corner, or a shape that becomes too small), a union removes the parts that turn the wrong way.</p>
+<h2 id="5-plan-each-layer-srclayerzig">5. Plan each layer (<code>src/layer.zig</code>)</h2>
+<p>The plan of a layer has the paths that the nozzle follows.</p>
+<p><strong>Walls.</strong> The nozzle makes a line of plastic about 0.45 mm wide. The center of the outer wall is half a line width inside the outline, so the outside of the plastic is on the outline. Each next wall is one line width further in.</p>
+<p><strong>Skin.</strong> The top and bottom of a part must be solid. The other parts can be hollow, with a sparse infill. For each layer, the slicer looks at the layers above and below:</p>
+<ul><li>A point is "supported" if it is inside the part in each of the next few layers above (the top thickness) and below (the bottom thickness).</li><li>Skin is the area inside the walls minus the supported area.</li><li>Sparse infill is the remaining area.</li></ul>
+<p><strong>Fill.</strong> Skin gets lines one line width apart. Sparse infill gets lines further apart, from the density. The fill uses a scanline method (<code>src/infill.zig</code>): turn the shape so that the lines are horizontal, find where each line crosses the polygon edges, and keep the parts of the line that are inside. All layers use the same line grid, so the infill lines of each layer are on top of the lines below.</p>
+<p><strong>Ironing</strong> (if on). The top surfaces of a layer are its outline minus the outline of the layer above. After the other paths, the nozzle goes over the top surfaces again with close lines and a small flow, to melt the surface flat.</p>
+<p><strong>Order.</strong> The nozzle prints the inner walls, then the outer wall, then the skin, then the infill, then the ironing. In each group, the next path is the nearest one to the nozzle.</p>
+<h2 id="6-write-g-code-srcgcodezig">6. Write G-code (<code>src/gcode.zig</code>)</h2>
+<p>For each path, the slicer writes:</p>
+<ol><li>A travel move (<code>G0</code>) to the start of the path. Before a long travel, the extruder pulls the filament back a little (a retraction), so that the nozzle does not ooze on the way.</li><li>An extrusion move (<code>G1 ... E</code>) for each segment. E is the length of filament to push. The nozzle presses the plastic on the layer below, so the bead has a flat top and bottom and round sides: its cross section is a rectangle with a half circle on each side, with the area (w - h) x h + pi x h^2 / 4 (<code>src/flow.zig</code>). The volume is that area times the length. The filament is a cylinder, so the filament length is that volume divided by the area of the filament circle.</li></ol>
+<p>The speed of each move comes from limits (<code>src/settings.zig</code>). The machine has a maximum speed. The filament has a maximum flow: the volume of plastic that the hot end can melt in one second. A wide, tall line uses more flow for each millimeter, so it must go slower. The project gives a ratio of the allowed speed for each feature. For example, the outer wall goes at 50 % of the allowed speed, for a better surface.</p>
+<p><strong>Cooling.</strong> Each layer must cool before the next layer goes on it. Before the slicer writes a layer, it estimates the time of the layer. If the time is less than the minimum layer time of the filament, all moves of that layer go slower, but not below a minimum speed. A short layer also gets the fan at its maximum.</p>
+<h2 id="7-run-it-fast-with-little-memory-srcenginezig-srcparallelzig">7. Run it fast, with little memory (<code>src/engine.zig</code>, <code>src/parallel.zig</code>)</h2>
+<p>Stage 3 makes each layer from the mesh alone, so all layers can run at the same time on different threads. Stage 5 needs the outlines of the layers above and below, so it starts after stage 3 ends. Then it also runs on all threads.</p>
+<p>The outlines are small, so the engine keeps all of them. The layer plans are large, so the engine keeps only a ring of a few of them. The threads plan the next layers while the G-code of the earlier layers goes out, and they also write the text of the G-code. The G-code goes out in layer order, as it is made.</p>
+<p>An app slices again after each change of a setting. Most changes do not change the outlines (for example, the infill or the wall count), so the new slice takes the outlines of the old slice. Each layer also keeps the results of its slow steps with the values that made them (a "memo"), and the new slice uses each result that is still good.</p>
+<h2 id="try-it">Try it</h2>
+<pre><code>zig build -Doptimize=ReleaseFast
+./zig-out/bin/zslice demo demo.stl
+./zig-out/bin/zslice preview demo.stl --layer 28 -o layer28.svg
+./zig-out/bin/zslice slice demo.stl -o demo.gcode</code></pre>
+<p>Open <code>layer28.svg</code> in a browser. Orange is the outer wall, yellow the inner wall, blue the skin, and green the sparse infill. Gray dashes show the travel moves.</p><nav class="pager"><a class="prev" href="../../internals/architecture/"><span>Previous</span><b>Architecture</b></a><a class="next" href="../../internals/cura-compare/"><span>Next</span><b>Cura comparison</b></a></nav>
+</main>
+</div>
+<footer>zslice is free software (AGPL-3.0-or-later). <a href="https://github.com/beetlebugorg/zslice/blob/master/docs/build.py">docs/build.py</a> writes this site from <a href="https://github.com/beetlebugorg/zslice/blob/master/docs/internals/how-slicing-works.md">docs/internals/how-slicing-works.md</a>.</footer>
+</body>
+</html>

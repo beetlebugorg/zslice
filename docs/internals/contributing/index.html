@@ -1,0 +1,95 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Contributing · zslice</title>
+<meta name="description" content="Contributing: zslice documentation.">
+<link rel="canonical" href="https://beetlebug.org/zslice/internals/contributing/">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@500;600;700&family=IBM+Plex+Sans:ital,wght@0,400;0,600;0,700;1,700&display=swap" rel="stylesheet">
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='6' fill='%23171717'/%3E%3Crect x='11' y='8' width='10' height='4' rx='1' fill='%23f4f0e6'/%3E%3Crect x='8' y='14' width='16' height='4' rx='1' fill='%23f4f0e6'/%3E%3Crect x='5' y='20' width='22' height='4' rx='1' fill='%23ff5a1f'/%3E%3C/svg%3E">
+<link rel="stylesheet" href="../../site.css">
+</head>
+<body>
+<input type="checkbox" id="menu">
+<header class="top">
+  <a class="brand" href="../../"><span class="mark">ZSLICE</span><span class="docs">DOCS</span></a>
+  <label class="menu-btn" for="menu">Contents</label>
+  <nav class="top-links"><a href="../../user/getting-started/">Get started</a><a href="../../roadmap/">Roadmap</a><a href="https://github.com/beetlebugorg/zslice">GitHub</a></nav>
+</header>
+<div class="layout">
+<aside class="side"><nav><a href="../../">Home</a>
+<a href="../../contents/">All documents</a>
+<div class="group">User guide</div>
+<a href="../../user/getting-started/">Getting started</a>
+<a href="../../user/settings/">Settings</a>
+<a href="../../user/profiles/">Profiles</a>
+<a href="../../user/troubleshooting/">Troubleshooting</a>
+<div class="group">Embedding</div>
+<a href="../../embedding/">Overview</a>
+<a href="../../embedding/c/">C</a>
+<a href="../../embedding/zig/">Zig</a>
+<a href="../../embedding/javascript/">JavaScript</a>
+<div class="group">Internals</div>
+<a href="../../internals/architecture/">Architecture</a>
+<a href="../../internals/how-slicing-works/">How slicing works</a>
+<a href="../../internals/cura-compare/">Cura comparison</a>
+<a href="../../internals/contributing/" aria-current="page">Contributing</a>
+<div class="group">Project</div>
+<a href="../../app/">App</a>
+<a href="../../references/">References</a>
+<a href="../../roadmap/">Roadmap</a></nav></aside>
+<main>
+<p class="eyebrow">Internals</p>
+<h1>Contributing</h1>
+
+<nav class="onpage"><b>On this page</b><ol><li><a href="#rules">Rules</a></li><li><a href="#set-up">Set up</a></li><li><a href="#tests">Tests</a></li><li><a href="#add-a-setting">Add a setting</a></li><li><a href="#add-a-feature-type">Add a feature type</a></li><li><a href="#add-an-infill-pattern">Add an infill pattern</a></li><li><a href="#change-the-geometry-code">Change the geometry code</a></li><li><a href="#commits">Commits</a></li></ol></nav><h2 id="rules">Rules</h2>
+<p>Read <code>AGENTS.md</code> at the root of the repo. It has the rules for all contributors, people and agents:</p>
+<ul><li>The goals of the project.</li><li>Licenses and references: each source that you use goes in <code>REFERENCES.md</code> and in the header comment of the file.</li><li>The writing style for comments and docs.</li><li>The checks before a commit.</li></ul>
+<h2 id="set-up">Set up</h2>
+<pre><code>zig version          # must be 0.16.x
+zig build test       # the unit tests
+zig build -Doptimize=ReleaseFast</code></pre>
+<h2 id="tests">Tests</h2>
+<p>There are three kinds of tests.</p>
+<h3 id="unit-tests">Unit tests</h3>
+<p>Each source file has <code>test</code> blocks at the end. <code>zig build test</code> runs all of them, with the leak-checking allocator. A test that leaks memory fails.</p>
+<p>A good test for geometry code checks a number that you can compute by hand, for example an area:</p>
+<pre><code>test "shrink a square" {
+    var sq = try square(gpa, 10_000);        // 10 mm x 10 mm
+    var r = try offset(gpa, sq, -1000, .{});  // in by 1 mm
+    try testing.expectApproxEqAbs(@as(f64, 64.0), r.areaMm2(), 1e-6);  // 8 x 8
+}</code></pre>
+<p>When you fix a bug, add a test that fails without the fix. Name the bug in a comment.</p>
+<h3 id="the-corpus">The corpus</h3>
+<p><code>tools/corpus.py</code> slices each STL file in a folder (in a git repo, only the tracked files) and reports the failures, the time, and the peak memory:</p>
+<pre><code>zig build -Doptimize=ReleaseFast
+python3 -I tools/corpus.py zig-out/bin/zslice ../printdeck report.tsv</code></pre>
+<p>Run it before you finish a change to the geometry or slicing code. Each file must slice with status <code>ok</code>.</p>
+<h3 id="look-at-the-output">Look at the output</h3>
+<p>A test can pass while the output is wrong. Look at the layers:</p>
+<pre><code>zslice preview part.stl --layer 20 -o layer20.svg
+rsvg-convert -w 900 layer20.svg -o layer20.png   # optional: a PNG</code></pre>
+<p>Check a bottom layer (all skin), a middle layer (walls and sparse infill), a layer just under a top surface (skin), and the top layer.</p>
+<h2 id="add-a-setting">Add a setting</h2>
+<ol><li>Add a field with a default value to the correct struct in <code>src/settings.zig</code>: <code>Machine</code>, <code>Filament</code>, <code>Project</code>, or <code>EngineOptions</code>. Choose the struct by the owner of the value (see the <a href="../../user/getting-started/#the-three-groups">user guide</a>).</li><li>Add a <code>///</code> doc comment that says what the setting does and its unit.</li><li>If the value has limits, check them in <code>Settings.resolve</code>.</li><li>If code uses a derived value, compute it once in <code>resolve</code> and add it to <code>Resolved</code>.</li><li>Use the value in the stage.</li><li>Run <code>python3 -I tools/settings_doc.py &gt; docs/user/settings.md</code>.</li></ol>
+<p><code>Settings.set</code>, the C API, the wasm API, and the command line get the new setting with no more code. They use comptime reflection on the struct. Supported field types: <code>f64</code>, <code>u32</code> (and other integers), <code>bool</code>, enums, and <code>[]const u8</code>.</p>
+<h2 id="add-a-feature-type">Add a feature type</h2>
+<p>A feature is a kind of path, for example a wall, infill, or ironing. To add one (for example <code>support</code>):</p>
+<ol><li>Add it to <code>Feature</code> in <code>src/settings.zig</code>.</li><li>Add its speed ratio to <code>Project</code> and to <code>Resolved.speed</code>.</li><li>Make its paths in <code>layer.plan</code>, and add them with <code>addOrdered</code> at the correct place in the print order. Ironing is a short example: see step 6 in <code>layer.zig</code>.</li><li>Give it a <code>;TYPE:</code> name in <code>gcode.typeName</code>. Use the CuraEngine name if one exists, so that G-code viewers know it.</li><li>Give it a color in <code>svg.color</code>.</li><li>Add a test in <code>layer.zig</code> that checks the new paths.</li></ol>
+<p>The compiler finds each <code>switch</code> on <code>Feature</code> that does not handle the new value.</p>
+<h2 id="add-an-infill-pattern">Add an infill pattern</h2>
+<ol><li>Add the pattern name to <code>InfillPattern</code> in <code>src/settings.zig</code>, and describe it in the doc comment of <code>infill_pattern</code>.</li><li>Write the fill function in <code>src/infill.zig</code>, or in a new file for a large pattern. Input: the region (closed polygons, material on the left), the spacing, and the layer index. Output: a <code>geom.Paths</code> of open polylines.</li><li>Call it from the <code>switch (p.infill_pattern)</code> in <code>layer.plan</code>.</li><li>Add a test that fills a square and checks the total line length times the spacing against the area (see "diagonal lines cover the square").</li><li>Look at a preview.</li></ol>
+<p>Rules for a pattern:</p>
+<ul><li>The lines of one layer should be on top of the lines of the layer below, or cross them. Compute the lines from a fixed grid in bed coordinates, and not from the bounds of the region.</li><li>The output must be the same on each run and on each thread. Do not use a random seed that changes.</li></ul>
+<h2 id="change-the-geometry-code">Change the geometry code</h2>
+<p><code>clip.zig</code> and <code>offset.zig</code> are the base of each stage. A bug there shows up as a missing wall or a filled hole in some layers of some parts.</p>
+<ul><li>Keep the conventions in <a href="../../internals/architecture/#conventions">Architecture</a>.</li><li>Use the exact integer functions for each decision. Use floating point only to make a new point.</li><li>Add a test with the shape that failed. Real failures often come from thin features and curves with many short edges.</li><li>Run the corpus.</li></ul>
+<h2 id="commits">Commits</h2>
+<ul><li>One change for each commit.</li><li>The subject says what changed, in under 72 characters.</li><li>The body says why, if the reason is not clear from the subject.</li></ul><nav class="pager"><a class="prev" href="../../internals/cura-compare/"><span>Previous</span><b>Cura comparison</b></a><a class="next" href="../../app/"><span>Next</span><b>App</b></a></nav>
+</main>
+</div>
+<footer>zslice is free software (AGPL-3.0-or-later). <a href="https://github.com/beetlebugorg/zslice/blob/master/docs/build.py">docs/build.py</a> writes this site from <a href="https://github.com/beetlebugorg/zslice/blob/master/docs/internals/contributing.md">docs/internals/contributing.md</a>.</footer>
+</body>
+</html>
