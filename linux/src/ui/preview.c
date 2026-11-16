@@ -12,16 +12,15 @@
  */
 #include "preview.h"
 
+#include <math.h>
 #include <stdlib.h>
 #include <string.h>
 
 #include "../prefs/printers.h"
-
-#include <math.h>
-
-#include "colors.h"
-#include "view3d.h"
+#include "layer-draw.h"
 #include "layer-range.h"
+#include "toolpath-nav.h"
+#include "view3d.h"
 
 typedef struct {
     ZgModel *model;
@@ -127,13 +126,6 @@ static void load_layer(Preview *p, size_t layer) {
     gtk_widget_queue_draw(p->area);
 }
 
-static void add_polyline(cairo_t *cr, const float *pts, uint32_t start, uint32_t end, gboolean closed) {
-    if (end <= start) return;
-    cairo_move_to(cr, pts[2 * start], pts[2 * start + 1]);
-    for (uint32_t i = start + 1; i < end; i++) cairo_line_to(cr, pts[2 * i], pts[2 * i + 1]);
-    if (closed) cairo_close_path(cr);
-}
-
 static void draw_message(cairo_t *cr, int w, int h, const char *text) {
     cairo_set_source_rgb(cr, 0.45, 0.48, 0.52);
     cairo_select_font_face(cr, "sans-serif", CAIRO_FONT_SLANT_NORMAL, CAIRO_FONT_WEIGHT_NORMAL);
@@ -162,158 +154,25 @@ static void draw(GtkDrawingArea *area, cairo_t *cr, int w, int h, gpointer data)
     cairo_translate(cr, p->ox, h - p->oy);
     cairo_scale(cr, p->scale, -p->scale);
 
-    /* The bed, with a 10 mm grid. */
-    double bx = setting_mm(p, "machine.bed_size_x", 220), by = setting_mm(p, "machine.bed_size_y", 220);
-    cairo_rectangle(cr, 0, 0, bx, by);
-    cairo_set_source_rgb(cr, 0.906, 0.914, 0.925);
-    cairo_fill(cr);
-    cairo_set_line_width(cr, 1.0 / p->scale);
-    cairo_set_source_rgb(cr, 0.82, 0.84, 0.86);
-    for (double x = 0; x <= bx; x += 10) {
-        cairo_move_to(cr, x, 0);
-        cairo_line_to(cr, x, by);
-    }
-    for (double y = 0; y <= by; y += 10) {
-        cairo_move_to(cr, 0, y);
-        cairo_line_to(cr, bx, y);
-    }
-    cairo_stroke(cr);
+    zg_draw_bed(cr, setting_mm(p, "machine.bed_size_x", 220), setting_mm(p, "machine.bed_size_y", 220), p->scale);
 
     if (p->have_paths) {
-        const zs_layer_paths *lp = &p->paths;
-        /* The outline. Outer loops are counterclockwise and holes are
-         * clockwise, so the winding rule fills the material only. */
-        for (size_t i = 0; i < lp->outline_count; i++) {
-            uint32_t start = i == 0 ? 0 : lp->outline_ends[i - 1];
-            add_polyline(cr, lp->outline_points, start, lp->outline_ends[i], TRUE);
-        }
-        cairo_set_fill_rule(cr, CAIRO_FILL_RULE_WINDING);
-        cairo_set_source_rgb(cr, 0.80, 0.83, 0.86);
-        cairo_fill(cr);
-
-        cairo_set_line_cap(cr, CAIRO_LINE_CAP_ROUND);
-        cairo_set_line_join(cr, CAIRO_LINE_JOIN_ROUND);
-        cairo_set_line_width(cr, lp->width);
-        /* The selected path: a wide yellow line under the paths. */
+        size_t layer = zg_layer_range_get_hi(ZG_LAYER_RANGE(p->slider));
+        ZgLayerStyle style = {.selected = -1, .segment = zg_model_segment(p->model), .first_layer = layer == 0};
         gint64 sel = zg_model_selected(p->model);
+        style.fade_others = sel >= 0 && zg_model_isolate(p->model);
+        style.focus = zg_model_focus(p->model, &style.focus_first);
         zs_toolpaths tp;
-        if (sel >= 0 && zs_app_toolpaths(core, &tp) == ZS_OK) {
-            size_t layer = zg_layer_range_get_hi(ZG_LAYER_RANGE(p->slider));
+        if (zs_app_toolpaths(core, &tp) == ZS_OK && layer < tp.layer_count) {
             uint32_t first = layer == 0 ? 0 : tp.layer_ends[layer - 1];
-            if ((uint32_t)sel >= first && (uint32_t)sel < tp.layer_ends[layer]) {
-                size_t i = (size_t)sel - first;
-                uint32_t start = i == 0 ? 0 : lp->path_ends[i - 1];
-                add_polyline(cr, lp->points, start, lp->path_ends[i], lp->path_closed[i]);
-                cairo_save(cr);
-                cairo_set_line_width(cr, lp->width * 2.5);
-                cairo_set_source_rgba(cr, 1.0, 0.82, 0.1, 0.9);
-                cairo_stroke(cr);
-                cairo_restore(cr);
-            }
+            if (sel >= 0 && (uint32_t)sel >= first && (uint32_t)sel < tp.layer_ends[layer]) style.selected = sel - first;
+            style.retract = tp.path_retract + first;
+            style.retract_count = tp.path_count - first;
+            style.more = zg_model_more(p->model, &style.n_more);
+            style.first_path = first;
+            style.end_path = tp.layer_ends[layer];
         }
-        /* The focus of the settings browser: the other features fade. */
-        gboolean first_only = FALSE;
-        guint32 focus = zg_model_focus(p->model, &first_only);
-        size_t shown = zg_layer_range_get_hi(ZG_LAYER_RANGE(p->slider));
-        for (size_t f = 0; f < ZG_N_FEATURES; f++) {
-            for (size_t i = 0; i < lp->path_count; i++) {
-                if (lp->path_features[i] != f) continue;
-                uint32_t start = i == 0 ? 0 : lp->path_ends[i - 1];
-                add_polyline(cr, lp->points, start, lp->path_ends[i], lp->path_closed[i]);
-            }
-            gboolean in_focus = focus == 0 || ((focus >> f) & 1 && (!first_only || shown == 0));
-            /* A selected line with "Fade others": the other lines are
-             * faint. Else they keep their colors. */
-            if (sel >= 0 && zg_model_isolate(p->model)) cairo_set_source_rgba(cr, zg_feature_rgb[f][0], zg_feature_rgb[f][1], zg_feature_rgb[f][2], 0.12);
-            else cairo_set_source_rgba(cr, zg_feature_rgb[f][0], zg_feature_rgb[f][1], zg_feature_rgb[f][2], in_focus ? 0.9 : 0.12);
-            cairo_stroke(cr);
-        }
-        /* The other lines of a multiple selection on this layer: yellow. */
-        guint n_more = 0;
-        const gint64 *more = zg_model_more(p->model, &n_more);
-        if (n_more > 0 && zs_app_toolpaths(core, &tp) == ZS_OK) {
-            size_t layer = zg_layer_range_get_hi(ZG_LAYER_RANGE(p->slider));
-            uint32_t first = layer == 0 ? 0 : tp.layer_ends[layer - 1];
-            for (guint k = 0; k < n_more; k++) {
-                gint64 m = more[k];
-                if (m < (gint64)first || m >= (gint64)tp.layer_ends[layer]) continue;
-                size_t i = (size_t)m - first;
-                uint32_t start = i == 0 ? 0 : lp->path_ends[i - 1];
-                add_polyline(cr, lp->points, start, lp->path_ends[i], lp->path_closed[i]);
-            }
-            cairo_set_source_rgba(cr, 1.0, 0.78, 0.05, 1.0);
-            cairo_stroke(cr);
-        }
-        /* The selected line again, on top, in its own color. */
-        if (sel >= 0 && zs_app_toolpaths(core, &tp) == ZS_OK) {
-            size_t layer = zg_layer_range_get_hi(ZG_LAYER_RANGE(p->slider));
-            uint32_t first = layer == 0 ? 0 : tp.layer_ends[layer - 1];
-            if ((uint32_t)sel >= first && (uint32_t)sel < tp.layer_ends[layer]) {
-                size_t i = (size_t)sel - first;
-                uint32_t start = i == 0 ? 0 : lp->path_ends[i - 1];
-                add_polyline(cr, lp->points, start, lp->path_ends[i], lp->path_closed[i]);
-                cairo_set_source_rgba(cr, 1.0, 0.78, 0.05, 1.0);
-                cairo_stroke(cr);
-                /* The selected segment: orange, a little wider. */
-                gint64 seg = zg_model_segment(p->model);
-                uint32_t end = lp->path_ends[i];
-                if (seg >= 0 && end > start + 1) {
-                    uint32_t a = start + (uint32_t)seg;
-                    uint32_t b = a + 1 < end ? a + 1 : start;
-                    if (a < end) {
-                        double lw = cairo_get_line_width(cr);
-                        cairo_set_line_width(cr, lw * 1.6);
-                        cairo_move_to(cr, lp->points[2 * a], lp->points[2 * a + 1]);
-                        cairo_line_to(cr, lp->points[2 * b], lp->points[2 * b + 1]);
-                        cairo_set_source_rgba(cr, 1.0, 0.35, 0.0, 1.0);
-                        cairo_stroke(cr);
-                        cairo_set_line_width(cr, lw);
-                    }
-                }
-            }
-        }
-        /* The marks of a focus: the seams, the travel moves, and the
-         * retractions (as in the 3D view). */
-        if (focus & (ZS_MARK_SEAM | ZS_MARK_TRAVEL | ZS_MARK_RETRACT)) {
-            zs_toolpaths all;
-            gboolean have_all = zs_app_toolpaths(core, &all) == ZS_OK && shown < all.layer_count;
-            size_t first_path = have_all && shown > 0 ? all.layer_ends[shown - 1] : 0;
-            double px = 0, py = 0;
-            gboolean have_prev = FALSE;
-            for (size_t i = 0; i < lp->path_count; i++) {
-                uint32_t start = i == 0 ? 0 : lp->path_ends[i - 1];
-                uint32_t end = lp->path_ends[i];
-                if (end == start) continue;
-                double x0 = lp->points[2 * start], y0 = lp->points[2 * start + 1];
-                gboolean closed = lp->path_closed[i] && end - start > 2;
-                if ((focus & ZS_MARK_TRAVEL) && have_prev) {
-                    cairo_save(cr);
-                    double dash = 0.6;
-                    cairo_set_dash(cr, &dash, 1, 0);
-                    cairo_set_line_width(cr, lp->width * 0.35);
-                    cairo_move_to(cr, px, py);
-                    cairo_line_to(cr, x0, y0);
-                    cairo_set_source_rgba(cr, zg_mark_rgb[1][0], zg_mark_rgb[1][1], zg_mark_rgb[1][2], 0.9);
-                    cairo_stroke(cr);
-                    cairo_restore(cr);
-                }
-                if ((focus & ZS_MARK_RETRACT) && have_prev && have_all && first_path + i < all.path_count &&
-                    all.path_retract[first_path + i]) {
-                    cairo_arc(cr, px, py, lp->width * 0.9, 0, 2 * G_PI);
-                    cairo_set_source_rgba(cr, zg_mark_rgb[2][0], zg_mark_rgb[2][1], zg_mark_rgb[2][2], 0.95);
-                    cairo_fill(cr);
-                }
-                if ((focus & ZS_MARK_SEAM) && closed && lp->path_features[i] == ZS_FEATURE_OUTER_WALL) {
-                    cairo_arc(cr, x0, y0, lp->width * 1.1, 0, 2 * G_PI);
-                    cairo_set_source_rgba(cr, zg_mark_rgb[0][0], zg_mark_rgb[0][1], zg_mark_rgb[0][2], 0.95);
-                    cairo_fill(cr);
-                }
-                uint32_t last = closed ? start : end - 1;
-                px = lp->points[2 * last];
-                py = lp->points[2 * last + 1];
-                have_prev = TRUE;
-            }
-        }
+        zg_draw_layer(cr, &p->paths, &style);
     }
     cairo_restore(cr);
 
@@ -620,28 +479,11 @@ static void on_stack_page(GObject *stack, GParamSpec *pspec, gpointer data) {
  *
  * With a selected line: Left/Right (h/l) select the segment before or after
  * the selected segment in print order, on to the next line at the end of a
- * line (with Shift: the line before or after), and Up/Down (k/j) the nearest line on the layer above or
- * below (a line of the same feature wins a near tie). Escape clears the
- * selection. With no selection: Up/Down (k/j) move the top layer, and with
- * Shift the bottom layer; Page Up/Page Down move 10 layers. */
-
-static size_t layer_of_path(const zs_toolpaths *tp, size_t path) {
-    size_t lo = 0, hi = tp->layer_count;
-    while (lo < hi) {
-        size_t mid = (lo + hi) / 2;
-        if (tp->layer_ends[mid] <= path) lo = mid + 1;
-        else hi = mid;
-    }
-    return lo;
-}
-
-/* The segments of a path: one less than its points, and one more if it is
- * closed (the way back to the first point). */
-static gint64 segments_of(const zs_toolpaths *tp, size_t path) {
-    uint32_t a = path == 0 ? 0 : tp->path_ends[path - 1], b = tp->path_ends[path];
-    if (b < a + 2) return 0;
-    return (gint64)(b - a - 1) + (tp->path_closed[path] && b - a > 2 ? 1 : 0);
-}
+ * line (with Shift: the line before or after), and Up/Down (k/j) the
+ * nearest line on the layer above or below (a line of the same feature
+ * wins a near tie). Escape clears the selection. With no selection:
+ * Up/Down (k/j) move the top layer, and with Shift the bottom layer; Page
+ * Up/Page Down move 10 layers. toolpath-nav.h finds the next line. */
 
 /* Shows the layer range after a change from the keys. */
 static void apply_range(Preview *p) {
@@ -663,41 +505,7 @@ static void show_layer(Preview *p, size_t layer) {
     apply_range(p);
 }
 
-static double seg_dist2(double px, double py, double ax, double ay, double bx, double by) {
-    double dx = bx - ax, dy = by - ay;
-    double l2 = dx * dx + dy * dy;
-    double t = l2 > 0 ? ((px - ax) * dx + (py - ay) * dy) / l2 : 0;
-    t = CLAMP(t, 0, 1);
-    double ex = ax + t * dx - px, ey = ay + t * dy - py;
-    return ex * ex + ey * ey;
-}
 
-/* The line on `layer` nearest to the middle point of `path`, or -1. */
-static gint64 nearest_on_layer(const zs_toolpaths *tp, size_t path, size_t layer) {
-    uint32_t a = path == 0 ? 0 : tp->path_ends[path - 1], b = tp->path_ends[path];
-    if (b <= a) return -1;
-    uint32_t m = a + (b - a) / 2;
-    double px = tp->points[2 * m], py = tp->points[2 * m + 1];
-    uint8_t feature = tp->path_features[path];
-    size_t first = layer == 0 ? 0 : tp->layer_ends[layer - 1];
-    gint64 best = -1;
-    double best_d = G_MAXDOUBLE;
-    for (size_t i = first; i < tp->layer_ends[layer]; i++) {
-        uint32_t s = i == 0 ? 0 : tp->path_ends[i - 1], e = tp->path_ends[i];
-        double d = G_MAXDOUBLE;
-        for (uint32_t k = s; k + 1 < e; k++)
-            d = MIN(d, seg_dist2(px, py, tp->points[2 * k], tp->points[2 * k + 1], tp->points[2 * k + 2], tp->points[2 * k + 3]));
-        if (e == s + 1) d = MIN(d, seg_dist2(px, py, tp->points[2 * s], tp->points[2 * s + 1], tp->points[2 * s], tp->points[2 * s + 1]));
-        d = sqrt(d);
-        /* Another feature counts as 1 mm farther. */
-        if (tp->path_features[i] != feature) d += 1.0;
-        if (d < best_d) {
-            best_d = d;
-            best = (gint64)i;
-        }
-    }
-    return best;
-}
 
 static gboolean on_preview_key(GtkEventControllerKey *c, guint key, guint code, GdkModifierType mods, gpointer data) {
     Preview *p = data;
@@ -740,39 +548,18 @@ static gboolean on_preview_key(GtkEventControllerKey *c, guint key, guint code, 
         if (dir != 0) {
             /* One segment at a time, in print order: on to the next line
              * after the last segment. Shift: a whole line at a time. */
-            gint64 seg = zg_model_segment(p->model);
-            gint64 n_segs = segments_of(&tp, (size_t)sel);
-            gint64 path = sel;
-            if (mods & GDK_SHIFT_MASK) {
-                path = sel + dir;
-                seg = -1;
-            } else if (dir > 0) {
-                seg = seg < 0 ? 0 : seg + 1;
-                if (seg >= n_segs) {
-                    path = sel + 1;
-                    seg = 0;
-                }
-            } else {
-                seg = seg < 0 ? -1 : seg - 1;
-                if (seg < 0) {
-                    path = sel - 1;
-                    seg = path >= 0 ? segments_of(&tp, (size_t)path) - 1 : 0;
-                }
-            }
-            /* Lines with no segment (one point) are passed. */
-            while (path >= 0 && (size_t)path < tp.path_count && segments_of(&tp, (size_t)path) == 0) path += dir;
-            if (path < 0 || (size_t)path >= tp.path_count) return TRUE;
-            if (seg >= segments_of(&tp, (size_t)path)) seg = segments_of(&tp, (size_t)path) - 1;
+            gint64 path = sel, seg = zg_model_segment(p->model);
+            if (!zg_toolpaths_step(&tp, &path, &seg, dir, (mods & GDK_SHIFT_MASK) != 0)) return TRUE;
             zg_model_select_segment(p->model, path, seg);
-            show_layer(p, layer_of_path(&tp, (size_t)path));
+            show_layer(p, zg_toolpaths_layer_of(&tp, (size_t)path));
             return TRUE;
         }
         /* Up or down: the nearest line, jump layers away (a layer with no
          * lines is passed). */
-        long layer = (long)layer_of_path(&tp, (size_t)sel);
+        long layer = (long)zg_toolpaths_layer_of(&tp, (size_t)sel);
         long target = CLAMP(layer + layer_dir * jump, 0, (long)tp.layer_count - 1);
         while (target != layer) {
-            gint64 hit = nearest_on_layer(&tp, (size_t)sel, (size_t)target);
+            gint64 hit = zg_toolpaths_nearest_on_layer(&tp, (size_t)sel, (size_t)target);
             if (hit >= 0) {
                 zg_model_select(p->model, hit);
                 show_layer(p, (size_t)target);
