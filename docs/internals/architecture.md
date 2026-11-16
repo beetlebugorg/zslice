@@ -92,7 +92,9 @@ Long-lived memory:
 `parallel.forEach(threads, n, ctx, func)` runs `func(ctx, i)` for each i on a set of threads. Each thread takes the next i from one atomic counter.
 
 - Pass 1 writes `outlines[i]` from thread i. Each slot has one writer.
-- Pass 2 is a pipeline (`engine.Pipeline`). A thread plans layer i into slot i mod (ring size) of a ring. The calling thread makes a dry run of the emitter for each planned layer, in layer order: it finds the emitter state at the start of the layer and formats no numbers. Then any thread writes the G-code text of the layer with a copy of that state, and the calling thread writes the texts out in layer order. A thread that waits sleeps on a `parallel.Signal`.
+- The face index of pass 1 is made in blocks of faces on all threads. Each block counts its faces in each layer, and a prefix sum gives each block its part of each layer, so the faces of a layer stay in face order.
+- Pass 2 is a pipeline (`engine.Pipeline`). A thread plans layer i into slot i mod (ring size) of a ring. The same thread then does the work of the emitter that does not depend on the layers before (`gcode.prepare`): the combing ways of the travels and the lengths of the moves. The calling thread makes a dry run of the emitter for each planned layer, in layer order: it finds the emitter state at the start of the layer and formats no numbers. It uses a prepared way or length only if the nozzle is at the point that it was found from. Then any thread writes the G-code text of the layer with a copy of that state, and the calling thread writes the texts out in layer order. A thread that waits sleeps on a `parallel.Signal`.
+- A cancel stops pass 2 between the steps of a layer plan (`layer.Context.cancel`). The pipeline drops a plan that stopped early. The memos get only complete results, so the next slice can use them.
 
 The work of each item depends only on its index and on data that does not change during the pass. Thus the output is the same for each thread count. A test checks this (`engine.zig`).
 
