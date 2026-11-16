@@ -565,9 +565,11 @@ pub const Job = struct {
                 em.w = &discard.writer;
                 em.dry = true;
                 em.record = null;
+                em.travels = &slot.travels;
                 defer {
                     em.w = out_w;
                     em.dry = false;
+                    em.travels = null;
                     if (sink != null) em.record = &record;
                 }
                 try em.layer(&slot.plan.?);
@@ -611,6 +613,8 @@ const Slot = struct {
     start: ?gcode.Emitter = null,
     text: Writer.Allocating,
     records: std.ArrayList(gcode.PathInfo) = .empty,
+    /// The combing ways of the travels of the layer (see gcode.Travels).
+    travels: gcode.Travels = .{},
     written: std.atomic.Value(usize) = .init(0),
 
     /// Frees the plan, and keeps the memory of the text for the next layer.
@@ -620,12 +624,14 @@ const Slot = struct {
         slot.start = null;
         slot.text.clearRetainingCapacity();
         slot.records.clearRetainingCapacity();
+        slot.travels.clear();
     }
 
     fn deinit(slot: *Slot, gpa: Allocator) void {
         slot.clear();
         slot.text.deinit();
         slot.records.deinit(gpa);
+        slot.travels.deinit(gpa);
     }
 };
 
@@ -633,7 +639,8 @@ const Slot = struct {
 ///
 /// 1. Plan. Each thread takes the next layer from one counter and plans it
 ///    into its slot of the ring. Layer i uses slot i mod (ring size), so a
-///    thread waits until layer i - (ring size) is out.
+///    thread waits until layer i - (ring size) is out. The same thread
+///    then finds the combing ways of the travels (see gcode.Travels).
 /// 2. Dry run, in layer order on the emitter thread: the emitter state at
 ///    the start of the layer (the nozzle position, the fan, the time). This
 ///    step is fast, because it formats no numbers.
@@ -697,6 +704,12 @@ const Pipeline = struct {
             p.fail(e);
             return true;
         };
+        // The combing ways, here on a planning thread, so that the dry
+        // run on the emitter thread does not find them.
+        gcode.planTravels(p.gpa, p.ctx.resolved, &slot.plan.?, &slot.travels) catch |e| {
+            p.fail(e);
+            return true;
+        };
         if (!p.keep_memos and p.ctx.cache.len > i) {
             p.ctx.cache[i].deinit();
             p.ctx.cache[i] = .init(p.gpa);
@@ -726,6 +739,7 @@ const Pipeline = struct {
         var em = slot.start.?;
         em.w = &slot.text.writer;
         em.record = null;
+        em.travels = &slot.travels;
         if (p.record) {
             try slot.records.ensureTotalCapacity(p.gpa, slot.plan.?.paths.items.len);
             em.record = &slot.records;
@@ -897,6 +911,33 @@ test "the same G-code with 1 thread and with 8 threads" {
     s.engine.threads = 8;
     _ = try slice(gpa, &m, s, &b.writer);
     try testing.expectEqualStrings(a.written(), b.written());
+}
+
+test "the combing ways of the planning threads give the same G-code" {
+    const gpa = testing.allocator;
+    // The demo part has a tube: the travels comb around its hole.
+    var m = try mesh_mod.shapes.demo(gpa);
+    defer m.deinit(gpa);
+    var s: Settings = .{};
+    s.engine.threads = 4;
+    s.project.combing = true;
+    var job = try Job.init(gpa, &m, s);
+    defer job.deinit();
+    var a: Writer.Allocating = .init(gpa);
+    defer a.deinit();
+    _ = try job.writeGcode(&a.writer);
+    // The emitter alone, with no ways from the planning threads.
+    var b: Writer.Allocating = .init(gpa);
+    defer b.deinit();
+    var em: gcode.Emitter = .init(&b.writer, &job.resolved);
+    try em.begin(job.layerCount());
+    for (0..job.layerCount()) |i| {
+        var lp = try job.planLayer(i);
+        defer lp.deinit();
+        try em.layer(&lp);
+    }
+    try em.end();
+    try testing.expectEqualStrings(b.written(), a.written());
 }
 
 test "progress goes to 100 % and cancel stops the slice" {

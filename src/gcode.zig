@@ -65,6 +65,90 @@ pub const PathInfo = struct {
 /// The most waypoints of a combing travel.
 const max_way = 8;
 
+/// The combing ways of the travels of one layer, found before the dry run
+/// (see `planTravels`). The travel to path i starts at the end of path
+/// i - 1, so a thread can find its way as soon as the layer is planned.
+/// The dry run then only checks that the nozzle is at the start point of
+/// the way. The travel to path 0 starts at the end of the layer before,
+/// so the dry run finds that way and keeps it for the text.
+pub const Travels = struct {
+    /// One entry for each path of the layer.
+    list: std.ArrayList(Travel) = .empty,
+    /// The waypoints of all ways.
+    points: std.ArrayList([2]f64) = .empty,
+
+    pub const Travel = struct {
+        /// The nozzle position that the way starts from.
+        from: [2]f64,
+        /// The waypoints of the way: points[start..][0..n]. `n` is
+        /// `retract` if no way goes inside the outline, and `unknown` if
+        /// the way was not found.
+        start: u32 = 0,
+        n: i32 = unknown,
+
+        pub const retract: i32 = -1;
+        pub const unknown: i32 = -2;
+    };
+
+    pub fn clear(t: *Travels) void {
+        t.list.clearRetainingCapacity();
+        t.points.clearRetainingCapacity();
+    }
+
+    pub fn deinit(t: *Travels, gpa: std.mem.Allocator) void {
+        t.list.deinit(gpa);
+        t.points.deinit(gpa);
+    }
+};
+
+/// Finds the combing way of each travel of `lp` after its first path (see
+/// `Travels`), with the emitter settings `r`. The result is the same as
+/// the ways that `Emitter.layer` finds.
+pub fn planTravels(gpa: std.mem.Allocator, r: *const Resolved, lp: *const LayerPlan, out: *Travels) std.mem.Allocator.Error!void {
+    out.clear();
+    try out.list.ensureTotalCapacity(gpa, lp.paths.items.len);
+    var em: Emitter = .{ .w = undefined, .r = r };
+    em.setOutline(lp);
+    const p = r.settings.project;
+    // The nozzle position, as `layer` moves it. It is not known before the
+    // first path.
+    var known = false;
+    for (lp.paths.items, 0..) |path, i| {
+        const pts = lp.points.get(i);
+        var t: Travels.Travel = .{ .from = .{ em.x, em.y } };
+        if (pts.len == 0) {
+            out.list.appendAssumeCapacity(t);
+            continue;
+        }
+        const x = geom.toMm(pts[0].x);
+        const y = geom.toMm(pts[0].y);
+        if (known) {
+            const d = std.math.hypot(x - em.x, y - em.y);
+            if (d >= 1e-4 and d > p.retract_min_travel) {
+                var way: [max_way][2]f64 = undefined;
+                if (em.comb(x, y, d, &way)) |n| {
+                    t.start = @intCast(out.points.items.len);
+                    t.n = @intCast(n);
+                    try out.points.appendSlice(gpa, way[0..n]);
+                } else t.n = Travels.Travel.retract;
+            }
+        }
+        out.list.appendAssumeCapacity(t);
+        // The travel ends at the first point. The extrusions skip the
+        // points nearer than 1e-4 mm, as in `extrude`.
+        const d0 = std.math.hypot(x - em.x, y - em.y);
+        if (!known or d0 >= 1e-4) {
+            em.x = x;
+            em.y = y;
+        }
+        known = true;
+        for (pts[1..]) |q| em.stepTo(geom.toMm(q.x), geom.toMm(q.y));
+        if (path.closed and pts.len > 2) em.stepTo(x, y);
+    }
+    // Room for the way of the first travel, which the dry run adds.
+    try out.points.ensureUnusedCapacity(gpa, max_way);
+}
+
 pub const Emitter = struct {
     /// If set, `layer` puts one PathInfo for each path here. The caller
     /// reserves the space (one item for each path) before `layer`.
@@ -81,6 +165,12 @@ pub const Emitter = struct {
     width: f64 = 0.4,
     boxes: [256][4]i64 = undefined,
     n_boxes: usize = 0,
+    /// The combing ways of the layer (see `Travels`), or null. `layer`
+    /// uses a way only if it starts at the nozzle position. In a dry run,
+    /// `layer` adds the way of the first travel.
+    travels: ?*Travels = null,
+    /// The path that `layer` writes.
+    path_index: usize = 0,
     /// True after the first extrusion. Before it, a retraction has no use.
     extruded: bool = false,
     /// The last fan value written (0 to 255), or -1 before the first.
@@ -211,20 +301,8 @@ pub const Emitter = struct {
 
         // Go up to the new layer.
         try self.retract();
-        self.outline = &lp.outline;
+        self.setOutline(lp);
         defer self.outline = null;
-        self.width = lp.width;
-        // The boxes of the outline polygons, for fast combing tests (none
-        // for an outline of more polygons than the buffer holds).
-        self.n_boxes = 0;
-        if (lp.outline.count() <= self.boxes.len) {
-            for (0..lp.outline.count()) |k| {
-                var bx = [4]i64{ std.math.maxInt(i64), std.math.maxInt(i64), std.math.minInt(i64), std.math.minInt(i64) };
-                for (lp.outline.get(k)) |q| bx = .{ @min(bx[0], q.x), @min(bx[1], q.y), @max(bx[2], q.x), @max(bx[3], q.y) };
-                self.boxes[k] = bx;
-            }
-            self.n_boxes = lp.outline.count();
-        }
         self.z = lp.z;
         try self.w.writeAll("G0 Z");
         try writeNum(self.w, self.z, 3);
@@ -245,6 +323,7 @@ pub const Emitter = struct {
             }
             const retractions = self.stats.retractions;
             try self.setAccel(lr.accel(null, first));
+            self.path_index = i;
             try self.travel(geom.toMm(pts[0].x), geom.toMm(pts[0].y));
             try self.setAccel(lr.accel(path.feature, first));
             const retracted = self.stats.retractions != retractions;
@@ -271,6 +350,30 @@ pub const Emitter = struct {
     /// The cooling lap: the nozzle goes up 1 mm, and moves around the box
     /// of the layer with the fan at full for `seconds`. The part fan blows
     /// on the plastic of the layer all the time.
+    /// The outline of `lp` and its line width, for combing, and the boxes
+    /// of the outline polygons, for fast combing tests (none for an outline
+    /// of more polygons than the buffer holds).
+    fn setOutline(self: *Emitter, lp: *const LayerPlan) void {
+        self.outline = &lp.outline;
+        self.width = lp.width;
+        self.n_boxes = 0;
+        if (lp.outline.count() <= self.boxes.len) {
+            for (0..lp.outline.count()) |k| {
+                var bx = [4]i64{ std.math.maxInt(i64), std.math.maxInt(i64), std.math.minInt(i64), std.math.minInt(i64) };
+                for (lp.outline.get(k)) |q| bx = .{ @min(bx[0], q.x), @min(bx[1], q.y), @max(bx[2], q.x), @max(bx[3], q.y) };
+                self.boxes[k] = bx;
+            }
+            self.n_boxes = lp.outline.count();
+        }
+    }
+
+    /// The nozzle position after `extrude` to x, y, with no output.
+    fn stepTo(self: *Emitter, x: f64, y: f64) void {
+        if (std.math.hypot(x - self.x, y - self.y) < 1e-4) return;
+        self.x = x;
+        self.y = y;
+    }
+
     fn coolingLap(self: *Emitter, lp: *const LayerPlan, seconds: f64) Writer.Error!void {
         const box = lp.points.bounds();
         if (box.isEmpty()) return;
@@ -409,11 +512,45 @@ pub const Emitter = struct {
             // Combing: a way inside the part needs no retraction. It can
             // go around a hole, through corners of the box of the hole.
             var way: [max_way][2]f64 = undefined;
-            if (self.comb(x, y, d, &way)) |n| {
-                for (way[0..n]) |w| try self.move(w[0], w[1]);
+            if (self.wayOf(x, y, d, &way)) |w| {
+                for (w) |q| try self.move(q[0], q[1]);
             } else try self.retract();
         }
         try self.move(x, y);
+    }
+
+    /// The combing way to x, y (see `comb`): from `travels` if it has the
+    /// way from the nozzle position, else found now. In a dry run, a way
+    /// that is found now goes into `travels`.
+    fn wayOf(self: *Emitter, x: f64, y: f64, d: f64, buf: *[max_way][2]f64) ?[]const [2]f64 {
+        const ts = self.travels orelse {
+            const n = self.comb(x, y, d, buf) orelse return null;
+            return buf[0..n];
+        };
+        const i = self.path_index;
+        if (i < ts.list.items.len) {
+            const t = ts.list.items[i];
+            if (t.n != Travels.Travel.unknown and t.from[0] == self.x and t.from[1] == self.y) {
+                if (t.n == Travels.Travel.retract) return null;
+                return ts.points.items[t.start..][0..@intCast(t.n)];
+            }
+        }
+        const found = self.comb(x, y, d, buf);
+        if (self.dry and i < ts.list.items.len) {
+            // Keep the way for the text of the layer. The points list
+            // has room for it (see `planTravels`).
+            const t = &ts.list.items[i];
+            t.from = .{ self.x, self.y };
+            if (found) |n| {
+                if (ts.points.unusedCapacitySlice().len >= n) {
+                    t.start = @intCast(ts.points.items.len);
+                    t.n = @intCast(n);
+                    ts.points.appendSliceAssumeCapacity(buf[0..n]);
+                } else t.n = Travels.Travel.unknown;
+            } else t.n = Travels.Travel.retract;
+        }
+        const n = found orelse return null;
+        return buf[0..n];
     }
 
     /// A travel move in a straight line, with no retraction.
