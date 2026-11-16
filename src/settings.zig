@@ -949,6 +949,25 @@ pub const layer_settings = [_][]const u8{
     "project.combing",
     "project.combing_max_distance",
     "project.z_hop",
+    // The layer planner reads these from the settings of each layer.
+    "project.line_width",
+    "project.wall_thickness",
+    "project.thin_walls",
+    "project.skin_removal_width",
+    "project.skin_expand_distance",
+    "project.solid_infill_width",
+    "project.skin_angle_step",
+    "project.infill_connect",
+    "project.top_support_layers",
+    "project.top_support_density",
+    "project.support_density",
+    "project.support_interface_density",
+    "project.outer_wall_accel",
+    "project.inner_wall_accel",
+    "project.skin_accel",
+    "project.infill_accel",
+    "project.travel_accel",
+    "filament.max_flow",
 };
 
 pub fn isLayerSetting(name: []const u8) bool {

@@ -1324,9 +1324,13 @@ fn layerTexts(gpa: Allocator, all: []const u8) Allocator.Error![][]const u8 {
 
 /// The G-code of the demo part with the overrides.
 fn demoGcode(gpa: Allocator, overrides: []const settings_mod.Override) ![]u8 {
+    return demoGcodeWith(gpa, .{}, overrides);
+}
+
+fn demoGcodeWith(gpa: Allocator, settings: Settings, overrides: []const settings_mod.Override) ![]u8 {
     var mesh = try mesh_mod.shapes.demo(gpa);
     defer mesh.deinit(gpa);
-    var s: Settings = .{};
+    var s = settings;
     s.engine.threads = 2;
     var job = try Job.initFull(gpa, &mesh, s, overrides, .{});
     defer job.deinit();
@@ -1415,5 +1419,35 @@ test "a retraction and its push back have the same length at a change of the ret
             try testing.expect(std.mem.indexOf(u8, l, "G1 E-1.6 ") != null);
             try testing.expect(hops > 1);
         } else try testing.expect(std.mem.indexOf(u8, l, "G1 E-1.6 ") == null);
+    }
+}
+
+test "an override of the planner settings changes only the layers in its range" {
+    const gpa = testing.allocator;
+    var s: Settings = .{};
+    s.machine.accel_control = true;
+    const base = try demoGcodeWith(gpa, s, &.{});
+    defer gpa.free(base);
+    const o = [_]settings_mod.Override{
+        .{ .z_min = 3, .z_max = 4, .name = "project.line_width", .value = "0.5" },
+        .{ .z_min = 3, .z_max = 4, .name = "project.outer_wall_accel", .value = "500" },
+        .{ .z_min = 3, .z_max = 4, .name = "project.infill_connect", .value = "false" },
+        .{ .z_min = 3, .z_max = 4, .name = "project.skin_angle_step", .value = "45" },
+    };
+    const changed = try demoGcodeWith(gpa, s, &o);
+    defer gpa.free(changed);
+    const a = try layerTexts(gpa, base);
+    defer gpa.free(a);
+    const b = try layerTexts(gpa, changed);
+    defer gpa.free(b);
+    try testing.expectEqual(a.len, b.len);
+    for (a, b, 0..) |la, lb, i| {
+        if (i < 14 or i > 19) {
+            try testing.expectEqualStrings(la, lb);
+        } else if (i <= 18) {
+            try testing.expect(!std.mem.eql(u8, la, lb));
+            try testing.expect(std.mem.indexOf(u8, lb, "M204 S500\n") != null);
+            try testing.expect(std.mem.indexOf(u8, la, "M204 S500\n") == null);
+        }
     }
 }
