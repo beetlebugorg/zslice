@@ -17,6 +17,7 @@ const usage =
     \\  zslice import cura <stack folder> -o <profiles folder>
     \\  zslice settings
     \\  zslice demo <out.stl>
+    \\  zslice bench <model.stl> [options]
     \\
     \\Commands:
     \\  slice     Slice a model and write G-code (default output: stdout).
@@ -29,6 +30,9 @@ const usage =
     \\            gets machine/, filament/, and project/ files.
     \\  settings  List all settings and their default values.
     \\  demo      Write the demo part as an STL file.
+    \\  bench     Slice in the app core: once from the start, then again
+    \\            after a change of each kind of setting. Print the times
+    \\            and the peak memory.
     \\
     \\Options:
     \\  -m, --machine NAME   Load a machine profile (a name or a .toml path).
@@ -114,7 +118,8 @@ pub fn main(init: std.process.Init) !void {
     }
 
     const is_profile = std.mem.eql(u8, cmd, "profile");
-    if (!std.mem.eql(u8, cmd, "slice") and !std.mem.eql(u8, cmd, "preview") and !is_profile) {
+    const is_bench = std.mem.eql(u8, cmd, "bench");
+    if (!is_bench and !std.mem.eql(u8, cmd, "slice") and !std.mem.eql(u8, cmd, "preview") and !is_profile) {
         fail(err, "unknown command: {s}\n\n{s}", .{ cmd, usage });
     }
 
@@ -159,6 +164,11 @@ pub fn main(init: std.process.Init) !void {
 
     const in_path = opts.input orelse fail(err, "{s}", .{usage});
     const bytes = try Io.Dir.cwd().readFileAlloc(io, in_path, gpa, .unlimited);
+    if (is_bench) {
+        defer gpa.free(bytes);
+        try bench(gpa, io, err, in_path, bytes, settings);
+        return;
+    }
     var m = zslice.Mesh.fromStl(gpa, bytes) catch |e| {
         gpa.free(bytes);
         fail(err, "{s}: {s}\n", .{ in_path, @errorName(e) });
@@ -202,6 +212,139 @@ pub fn main(init: std.process.Init) !void {
         ms1,
         ms - ms1,
     });
+}
+
+/// The changes that `bench` makes, one for each kind of setting. Each
+/// change goes between two values, so that each slice has new settings.
+const bench_changes = [_]struct { kind: []const u8, name: []const u8, values: [2][]const u8 }{
+    .{ .kind = "late (infill)", .name = "project.infill_density", .values = .{ "0.3", "0.2" } },
+    .{ .kind = "wall count", .name = "project.wall_count", .values = .{ "3", "2" } },
+    .{ .kind = "top thickness", .name = "project.top_thickness", .values = .{ "1.2", "0.8" } },
+    .{ .kind = "line width", .name = "project.line_width", .values = .{ "0.5", "0" } },
+    .{ .kind = "layer height", .name = "project.layer_height", .values = .{ "0.25", "0.2" } },
+    .{ .kind = "xy offset", .name = "filament.xy_offset", .values = .{ "0.05", "0" } },
+};
+
+/// Slices in the app core, as the app does after each change of a setting,
+/// and prints the time of each slice and the peak memory (VmHWM).
+fn bench(backing: std.mem.Allocator, io: Io, err: *Io.Writer, name: []const u8, bytes: []const u8, settings: zslice.Settings) !void {
+    const App = zslice.app.App;
+    var counter: CountingAllocator = .{ .backing = backing };
+    const gpa = counter.allocator();
+    const app = try App.create(gpa, null, null);
+    defer app.destroy();
+    app.settings = settings;
+    const runs = 6;
+    var times: [runs]Sample = undefined;
+    // The first slice has no cache. Each one starts new.
+    for (&times) |*t| {
+        // A new model drops the regions of the slice before.
+        try app.loadStl(std.fs.path.basename(name), bytes);
+        t.* = try benchSlice(app, io);
+    }
+    try printTimes(err, "full slice", &times);
+    for (bench_changes) |c| {
+        for (&times, 0..) |*t, k| {
+            try app.setSetting(c.name, c.values[k % 2]);
+            t.* = try benchSlice(app, io);
+        }
+        try printTimes(err, c.kind, &times);
+    }
+    try err.print("peak memory: {d} MB resident (VmHWM), {d} MB allocated\n", .{ peakMb(io), counter.peak.load(.monotonic) >> 20 });
+}
+
+/// An allocator that counts the bytes in use and keeps the peak. It is
+/// thread-safe if its backing allocator is.
+const CountingAllocator = struct {
+    backing: std.mem.Allocator,
+    live: std.atomic.Value(usize) = .init(0),
+    peak: std.atomic.Value(usize) = .init(0),
+
+    fn allocator(self: *CountingAllocator) std.mem.Allocator {
+        return .{ .ptr = self, .vtable = &.{ .alloc = alloc, .resize = resize, .remap = remap, .free = free } };
+    }
+
+    fn add(self: *CountingAllocator, n: usize) void {
+        const now = self.live.fetchAdd(n, .monotonic) + n;
+        _ = self.peak.fetchMax(now, .monotonic);
+    }
+
+    fn alloc(ctx: *anyopaque, len: usize, a: std.mem.Alignment, ra: usize) ?[*]u8 {
+        const self: *CountingAllocator = @ptrCast(@alignCast(ctx));
+        const p = self.backing.rawAlloc(len, a, ra) orelse return null;
+        self.add(len);
+        return p;
+    }
+
+    fn resize(ctx: *anyopaque, mem: []u8, a: std.mem.Alignment, new_len: usize, ra: usize) bool {
+        const self: *CountingAllocator = @ptrCast(@alignCast(ctx));
+        if (!self.backing.rawResize(mem, a, new_len, ra)) return false;
+        if (new_len > mem.len) self.add(new_len - mem.len) else _ = self.live.fetchSub(mem.len - new_len, .monotonic);
+        return true;
+    }
+
+    fn remap(ctx: *anyopaque, mem: []u8, a: std.mem.Alignment, new_len: usize, ra: usize) ?[*]u8 {
+        const self: *CountingAllocator = @ptrCast(@alignCast(ctx));
+        const p = self.backing.rawRemap(mem, a, new_len, ra) orelse return null;
+        if (new_len > mem.len) self.add(new_len - mem.len) else _ = self.live.fetchSub(mem.len - new_len, .monotonic);
+        return p;
+    }
+
+    fn free(ctx: *anyopaque, mem: []u8, a: std.mem.Alignment, ra: usize) void {
+        const self: *CountingAllocator = @ptrCast(@alignCast(ctx));
+        self.backing.rawFree(mem, a, ra);
+        _ = self.live.fetchSub(mem.len, .monotonic);
+    }
+};
+
+/// The wall time and the CPU time (all threads) of one slice, in ms, and
+/// the page faults.
+const Sample = struct { wall: f64, cpu: f64, faults: f64 };
+
+fn cpuNow() [2]f64 {
+    const u = std.posix.getrusage(0);
+    const ms = @as(f64, @floatFromInt(u.utime.sec + u.stime.sec)) * 1e3 +
+        @as(f64, @floatFromInt(u.utime.usec + u.stime.usec)) / 1e3;
+    return .{ ms, @floatFromInt(u.minflt) };
+}
+
+fn benchSlice(app: *zslice.app.App, io: Io) !Sample {
+    const t0 = Io.Clock.awake.now(io);
+    const c0 = cpuNow();
+    try app.requestSlice();
+    if (app.worker) |t| {
+        t.join();
+        app.worker = null;
+    }
+    const ms = @as(f64, @floatFromInt(t0.untilNow(io, .awake).toNanoseconds())) / 1e6;
+    const c1 = cpuNow();
+    if (app.getState() != .done) return error.SliceFailed;
+    return .{ .wall = ms, .cpu = c1[0] - c0[0], .faults = c1[1] - c0[1] };
+}
+
+fn printTimes(err: *Io.Writer, kind: []const u8, samples: []Sample) !void {
+    var wall: [16]f64 = undefined;
+    var cpu: [16]f64 = undefined;
+    var faults: [16]f64 = undefined;
+    for (samples, 0..) |x, i| {
+        wall[i] = x.wall;
+        cpu[i] = x.cpu;
+        faults[i] = x.faults;
+    }
+    const n = samples.len;
+    for ([_][]f64{ wall[0..n], cpu[0..n], faults[0..n] }) |v| std.mem.sort(f64, v, {}, std.sort.asc(f64));
+    try err.print("{s:<14} wall median {d:>7.1} min {d:>7.1} ms   cpu median {d:>7.1} ms   faults {d:>7.0}\n", .{ kind, wall[n / 2], wall[0], cpu[n / 2], faults[n / 2] });
+    try err.flush();
+}
+
+/// The peak resident memory of this process, in MB, from /proc.
+fn peakMb(io: Io) u64 {
+    var buf: [4096]u8 = undefined;
+    const text = Io.Dir.cwd().readFile(io, "/proc/self/status", &buf) catch return 0;
+    const at = std.mem.indexOf(u8, text, "VmHWM:") orelse return 0;
+    var tok = std.mem.tokenizeAny(u8, text[at + 6 ..], " \t\n");
+    const kb = std.fmt.parseInt(u64, tok.next() orelse return 0, 10) catch return 0;
+    return kb / 1024;
 }
 
 fn fail(err: *Io.Writer, comptime fmt: []const u8, args: anytype) noreturn {
