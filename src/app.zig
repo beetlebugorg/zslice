@@ -1214,9 +1214,148 @@ test "a plate of two parts slices as one print" {
     // Twice the paths of one part on the first layer (and two skirts).
     const pb = app.partBounds().?;
     try testing.expect(pb[2] - pb[0] > 2 * 39 or pb[3] - pb[1] > 2 * 29);
-    // The part of a path: a path at the center of part b is in part b.
-    try testing.expectEqual(@as(?usize, 1), app.plate.partAt(app.plate.parts.items[1].x, app.plate.parts.items[1].y));
+    // The part of a path: the outer wall nearest to the center of part b
+    // is in part b.
+    const b = app.plate.parts.items[1];
+    try testing.expectEqual(@as(?usize, 1), app.plate.partAt(b.x, b.y));
+    const wall = app.pickFeature(0, @intFromEnum(zs.settings.Feature.outer_wall), b.x, b.y).?;
+    try testing.expectEqual(@as(?usize, 1), app.partOfPath(wall));
+    try testing.expectEqual(@as(?usize, null), app.partOfPath(1 << 30));
     // Remove a part: one left.
     try app.removePart(0);
     try testing.expectEqualStrings("b.stl", app.model_name);
+}
+
+/// The STL bytes of a box, for the tests.
+fn boxStl(gpa: Allocator, sx: f32, sy: f32, sz: f32) ![]u8 {
+    var b: zs.mesh.Builder = .init(gpa);
+    try zs.mesh.shapes.addBox(&b, 0, 0, 0, sx, sy, sz);
+    var m = try b.finish();
+    defer m.deinit(gpa);
+    var stl: std.Io.Writer.Allocating = .init(gpa);
+    errdefer stl.deinit();
+    try m.writeStl(&stl.writer);
+    return stl.toOwnedSlice();
+}
+
+test "app: a bad file keeps the plate" {
+    const gpa = testing.allocator;
+    const stl = try boxStl(gpa, 20, 10, 5);
+    defer gpa.free(stl);
+    const app = try App.create(gpa, null, null);
+    defer app.destroy();
+    try app.loadStl("a.stl", stl);
+    try app.setOverride(-zs.settings.part_z, zs.settings.part_z, "project.infill_density", "0.35");
+    // A file that is no STL and no 3MF, and a zip that is no 3MF.
+    try testing.expect(std.meta.isError(app.loadStl("b.stl", "solid nothing")));
+    try testing.expect(std.meta.isError(app.loadStl("c.3mf", "PK\x03\x04 broken")));
+    try testing.expect(std.meta.isError(app.addStl("d.stl", "")));
+    try testing.expectEqual(@as(usize, 1), app.plate.count());
+    try testing.expectEqualStrings("a.stl", app.model_name);
+    try testing.expectEqual(@as(usize, 1), app.overrides.items.len);
+    try testing.expectEqual(State.ready, app.getState());
+}
+
+test "app: a 3MF override that this version does not know is left out" {
+    const gpa = testing.allocator;
+    const stl = try boxStl(gpa, 20, 10, 5);
+    defer gpa.free(stl);
+    const app = try App.create(gpa, null, null);
+    defer app.destroy();
+    try app.loadStl("a.stl", stl);
+    var file: std.Io.Writer.Allocating = .init(gpa);
+    defer file.deinit();
+    // One good override, one of an unknown setting, one with a bad value,
+    // and a line that is not an override.
+    const overrides =
+        "-1000000\t1000000\tproject.infill_density\t0.4\n" ++
+        "-1000000\t1000000\tproject.no_such_setting\t1\n" ++
+        "1\t2\tproject.wall_count\ttwo\n" ++
+        "nonsense\n";
+    try zs.threemf.write(gpa, &file.writer, &app.plate, overrides);
+
+    const back = try App.create(gpa, null, null);
+    defer back.destroy();
+    try back.loadStl("plate.3mf", file.written());
+    try testing.expectEqual(@as(usize, 1), back.plate.count());
+    try testing.expectEqual(@as(usize, 1), back.overrides.items.len);
+    try testing.expectEqualStrings("project.infill_density", back.overrides.items[0].name);
+}
+
+test "app: the plate changes its name, its parts, and its state" {
+    const gpa = testing.allocator;
+    const stl = try boxStl(gpa, 20, 10, 5);
+    defer gpa.free(stl);
+    const app = try App.create(gpa, null, null);
+    defer app.destroy();
+    try testing.expectEqual(State.empty, app.getState());
+    try testing.expectEqual(@as(?App.ModelInfo, null), app.modelInfo());
+    for ([_][]const u8{ "a.stl", "b.stl", "c.stl" }) |n| _ = try app.addStl(n, stl);
+    try testing.expectEqualStrings("a.stl and 2 more", app.model_name);
+    try testing.expectEqual(State.ready, app.getState());
+    // A turn of 90 degrees swaps the sides of the footprint.
+    try app.rotatePart(0, 90);
+    const f = app.plate.parts.items[0].footprint();
+    try testing.expectApproxEqAbs(@as(f64, 10), f[2] - f[0], 1e-3);
+    try testing.expectApproxEqAbs(@as(f64, 20), f[3] - f[1], 1e-3);
+    // Three small parts fit on the bed.
+    try testing.expect(try app.arrangePlate());
+    try app.removePart(1);
+    try testing.expectEqualStrings("a.stl and 1 more", app.model_name);
+    try app.clearPlate();
+    try testing.expectEqual(State.empty, app.getState());
+    try testing.expectEqualStrings("", app.model_name);
+    try testing.expectError(error.NoModel, app.requestSlice());
+}
+
+test "app: support marks: the place, the layer, and the radius" {
+    const gpa = testing.allocator;
+    const app = try App.create(gpa, null, null);
+    defer app.destroy();
+    try app.addMark(.{ .x = 10, .y = 10, .z = 1, .r = 2, .kind = .grid });
+    // Another layer (0.1 mm higher): a new mark.
+    try app.addMark(.{ .x = 10, .y = 10, .z = 1.1, .r = 2, .kind = .grid });
+    // Far away on the same layer: a new mark.
+    try app.addMark(.{ .x = 30, .y = 10, .z = 1, .r = 2, .kind = .tree });
+    try testing.expectEqual(@as(usize, 3), app.marks.items.len);
+    // Near the first mark, closer than the sum of the radii: it replaces
+    // the mark.
+    try app.addMark(.{ .x = 12, .y = 10, .z = 1, .r = 1, .kind = .block });
+    try testing.expectEqual(@as(usize, 3), app.marks.items.len);
+    try testing.expectEqual(zs.support.Mark.Kind.block, app.marks.items[2].kind);
+    // A remove far from all marks removes none.
+    try testing.expectEqual(@as(usize, 0), app.removeMarksNear(50, 50, 1, 1));
+    try testing.expectEqual(@as(usize, 1), app.removeMarksNear(30, 10, 1, 0.5));
+    app.clearMarks();
+    try testing.expectEqual(@as(usize, 0), app.marks.items.len);
+}
+
+test "app: the state of a group goes out as a profile and comes back" {
+    const gpa = testing.allocator;
+    const app = try App.create(gpa, null, null);
+    defer app.destroy();
+    try app.setSetting("project.wall_count", "4");
+    try app.setSetting("project.infill_pattern", "gyroid");
+    try app.setSetting("filament.nozzle_temp", "230");
+    var text: std.Io.Writer.Allocating = .init(gpa);
+    defer text.deinit();
+    try app.writeState(.project, &text.writer);
+
+    const back = try App.create(gpa, null, null);
+    defer back.destroy();
+    var diag: zs.profile.Diagnostic = .{};
+    try back.applyProfile(.project, "state", text.written(), &diag);
+    try testing.expectEqual(@as(u32, 4), back.settings.project.wall_count);
+    try testing.expectEqual(zs.settings.InfillPattern.gyroid, back.settings.project.infill_pattern);
+    // Only the project group was in the text.
+    try testing.expectEqual((Settings{}).filament.nozzle_temp, back.settings.filament.nozzle_temp);
+
+    // A text with an error changes nothing, and the diagnostic has the line.
+    try testing.expectError(error.InvalidValue, back.applyProfile(.project, "bad", "wall_count = 2\ninfill_pattern = \"spiral\"\n", &diag));
+    try testing.expectEqual(@as(u32, 4), back.settings.project.wall_count);
+    try testing.expectEqual(@as(usize, 2), diag.line);
+
+    // A reset of the group gives the defaults.
+    back.resetGroup(.project);
+    try testing.expectEqual((Settings{}).project.wall_count, back.settings.project.wall_count);
 }
