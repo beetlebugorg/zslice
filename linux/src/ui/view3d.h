@@ -19,9 +19,11 @@ GtkWidget *zg_view3d_new(ZgModel *model);
 /* Reads the toolpaths of the last slice from the core again. */
 void zg_view3d_reload(GtkWidget *view);
 
-/* The colors: FALSE for the filament color (the print as it will look),
- * TRUE for one color for each feature. */
-void zg_view3d_set_feature_colors(GtkWidget *view, gboolean features);
+/* The colors: enum zs_view_mode (the filament color, the features, or a
+ * ramp of the speed, the flow, the layer time, or the line width). */
+void zg_view3d_set_color_mode(GtkWidget *view, int mode);
+/* The range of the ramp of a value mode (see zs_view_legend). */
+gboolean zg_view3d_legend(GtkWidget *view, double *min, double *max);
 
 /* Replay: shows the print at t seconds after the start (see
  * zs_view_set_time). */

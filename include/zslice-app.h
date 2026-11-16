@@ -190,6 +190,8 @@ typedef struct zs_toolpaths {
     const float *path_start_time; /* seconds, at the start of the extrusion */
     const uint8_t *path_retract;  /* 1 if the travel to the path retracted */
     float z_hop;                  /* the nozzle lift of a retracted travel, mm */
+    const uint8_t *layer_slowed;  /* 1 if the layer prints slower than planned,
+                                     to cool (filament.min_layer_time) */
 } zs_toolpaths;
 
 int zs_app_toolpaths(const zs_app *app, zs_toolpaths *out);
@@ -361,9 +363,19 @@ void zs_view_turn(zs_view *view, float dx);
 /* Returns the camera to the start view around the part. */
 void zs_view_reset(zs_view *view);
 enum zs_view_mode {
-    ZS_VIEW_PRINT = 0,   /* the filament color: the print as it will look */
-    ZS_VIEW_FEATURES = 1 /* one color for each feature */
+    ZS_VIEW_PRINT = 0,      /* the filament color: the print as it will look */
+    ZS_VIEW_FEATURES = 1,   /* one color for each feature */
+    ZS_VIEW_SPEED = 2,      /* the real speed of each path (a ramp) */
+    ZS_VIEW_FLOW = 3,       /* the plastic flow of each path, mm^3/s */
+    ZS_VIEW_LAYER_TIME = 4, /* the time of each layer, s */
+    ZS_VIEW_WIDTH = 5       /* the bead width, mm */
 };
+
+/* The range of the ramp of a value mode (in its unit), after
+ * zs_view_load. Returns 1 for a value mode, 0 for the others. The ramp
+ * goes from blue (min) through green and yellow to red (max); for the
+ * layer time, red is the shortest layer. */
+int zs_view_legend(const zs_view *view, double *min, double *max);
 
 /* The colors of the view. Call zs_view_load again after a change. */
 void zs_view_set_mode(zs_view *view, int mode);

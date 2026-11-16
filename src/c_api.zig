@@ -479,6 +479,7 @@ pub const Toolpaths = extern struct {
     path_start_time: [*]const f32,
     path_retract: [*]const u8,
     z_hop: f32,
+    layer_slowed: [*]const u8,
 };
 
 /// The paths of all layers, for a 3D view. The arrays stay valid until the
@@ -503,6 +504,7 @@ export fn zs_app_toolpaths(a: ?*const App, out: ?*Toolpaths) c_int {
         .path_start_time = t.path_start_time.items.ptr,
         .path_retract = t.path_retract.items.ptr,
         .z_hop = t.z_hop,
+        .layer_slowed = t.layer_slowed.items.ptr,
     };
     return ok;
 }
@@ -853,7 +855,17 @@ export fn zs_view_reset(view: ?*View) void {
 export fn zs_view_set_mode(view: ?*View, mode: c_int) void {
     if (!render_on) return;
     const v = view orelse return;
-    v.setMode(if (mode == 1) .features else .print);
+    v.setMode(if (mode >= 0 and mode <= 5) @enumFromInt(mode) else .print);
+}
+
+/// The range of the color ramp of a value mode (speed, flow, layer time,
+/// line width), in mm/s, mm3/s, s, or mm. 0 for the other modes.
+export fn zs_view_legend(view: ?*const View, min: ?*f64, max: ?*f64) c_int {
+    if (!render_on) return 0;
+    const v = view orelse return 0;
+    if (min) |m| m.* = v.legend[0];
+    if (max) |m| m.* = v.legend[1];
+    return @intFromBool(v.legend[1] > v.legend[0]);
 }
 
 /// Highlights the beads of one path (an index into zs_app_toolpaths), or

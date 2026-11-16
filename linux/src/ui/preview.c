@@ -12,6 +12,7 @@
  */
 #include "preview.h"
 
+#include <stdlib.h>
 #include <string.h>
 
 #include "../prefs/printers.h"
@@ -39,6 +40,8 @@ typedef struct {
     /* The replay. */
     GtkWidget *stack;
     GtkWidget *slider_box;
+    GtkWidget *colors;
+    GtkWidget *legend;
     GtkWidget *play;
     GtkWidget *speed;
     guint tick;
@@ -87,8 +90,23 @@ static void load_layer(Preview *p, size_t layer) {
     zs_app *core = zg_model_core(p->model);
     if (layer < p->layer_count && zs_app_layer_paths(core, layer, &p->paths) == ZS_OK) {
         p->have_paths = TRUE;
-        char *text = g_strdup_printf("%zu/%zu\n%.2f", layer + 1, p->layer_count, p->paths.z);
-        char *tip = g_strdup_printf("Layer %zu of %zu, at z %.2f mm. Drag, or use the arrow keys for one layer.", layer + 1, p->layer_count, p->paths.z);
+        /* The time of the layer, from the move times of the G-code; a
+         * mark if the layer prints slower to cool. */
+        double layer_s = 0;
+        gboolean slowed = FALSE;
+        zs_toolpaths tp;
+        if (zs_app_toolpaths(core, &tp) == ZS_OK && layer < tp.layer_count) {
+            uint32_t last = tp.layer_ends[layer];
+            uint32_t prev = layer > 0 ? tp.layer_ends[layer - 1] : 0;
+            double t1 = last > 0 ? tp.path_end_time[last - 1] : 0;
+            double t0 = prev > 0 ? tp.path_end_time[prev - 1] : 0;
+            layer_s = t1 - t0;
+            slowed = tp.layer_slowed[layer] != 0;
+        }
+        char *text = g_strdup_printf("%zu/%zu\n%.2f\n%s%.0f s", layer + 1, p->layer_count, p->paths.z, slowed ? "❄" : "", layer_s);
+        char *tip = g_strdup_printf("Layer %zu of %zu, at z %.2f mm. It prints in %.1f s%s. Drag, or use the arrow keys for one layer.",
+                                    layer + 1, p->layer_count, p->paths.z, layer_s,
+                                    slowed ? ", slower than planned, so that it cools (filament minimum layer time)" : "");
         gtk_widget_set_tooltip_text(p->slider_box, tip);
         g_free(tip);
         gtk_label_set_text(GTK_LABEL(p->label), text);
@@ -303,10 +321,32 @@ static void on_play(GtkButton *b, gpointer data) {
     gtk_button_set_icon_name(GTK_BUTTON(p->play), "media-playback-pause-symbolic");
 }
 
-static void on_colors(GtkToggleButton *b, gpointer data) {
-    Preview *p = data;
-    zg_view3d_set_feature_colors(p->view3d, gtk_toggle_button_get_active(b));
+static const char *legend_units[] = {"", "", "mm/s", "mm³/s", "s", "mm"};
+
+/* The range of the ramp, beside the color menu. */
+static void show_legend(Preview *p) {
+    double lo = 0, hi = 0;
+    guint mode = gtk_drop_down_get_selected(GTK_DROP_DOWN(p->colors));
+    if (mode >= 2 && zg_view3d_legend(p->view3d, &lo, &hi)) {
+        char *text = mode == 4 ? g_strdup_printf("%.0f–%.0f %s (red: short)", lo, hi, legend_units[mode])
+                     : mode == 5 ? g_strdup_printf("%.2f–%.2f %s", lo, hi, legend_units[mode])
+                                 : g_strdup_printf("%.0f–%.0f %s", lo, hi, legend_units[mode]);
+        gtk_label_set_text(GTK_LABEL(p->legend), text);
+        g_free(text);
+        gtk_widget_set_visible(p->legend, TRUE);
+    } else {
+        gtk_widget_set_visible(p->legend, FALSE);
+    }
 }
+
+static void on_color_mode(GObject *dd, GParamSpec *pspec, gpointer data) {
+    Preview *p = data;
+    zg_view3d_set_color_mode(p->view3d, (int)gtk_drop_down_get_selected(GTK_DROP_DOWN(dd)));
+    /* A color mode is for the 3D view. */
+    gtk_stack_set_visible_child_name(GTK_STACK(p->stack), "3d");
+    show_legend(p);
+}
+
 
 static void on_slider(GtkRange *range, gpointer data) {
     Preview *p = data;
@@ -479,10 +519,17 @@ GtkWidget *zg_preview_new(ZgModel *model) {
     /* The controls float over the view, so the view has all the room. The
      * window is transparent (for the 3D view), so each control paints its
      * own background (the zg-float style). */
-    GtkWidget *colors = gtk_toggle_button_new();
-    gtk_button_set_icon_name(GTK_BUTTON(colors), "applications-graphics-symbolic");
-    gtk_widget_set_tooltip_text(colors, "Feature colors. Off: the filament color, as the print will look. On: one color for each feature (walls, skin, infill, ...).");
-    g_signal_connect(colors, "toggled", G_CALLBACK(on_colors), p);
+    const char *modes[] = {"Filament", "Feature", "Speed", "Flow", "Layer time", "Line width", NULL};
+    GtkWidget *colors = gtk_drop_down_new_from_strings(modes);
+    p->colors = colors;
+    gtk_widget_set_tooltip_text(colors, "The colors of the 3D view: the filament (as the print will look), one color for each feature, or a ramp from blue (low) to red (high) of the speed, the flow, the layer time (red: short layers, which cool badly), or the line width.");
+    g_signal_connect(colors, "notify::selected", G_CALLBACK(on_color_mode), p);
+    /* For development and screenshots: ZSLICE_COLORS=4 starts with a color
+     * mode (enum zs_view_mode). */
+    if (g_getenv("ZSLICE_COLORS")) gtk_drop_down_set_selected(GTK_DROP_DOWN(colors), (guint)atoi(g_getenv("ZSLICE_COLORS")));
+    p->legend = gtk_label_new("");
+    gtk_widget_add_css_class(p->legend, "zg-legend");
+    gtk_widget_set_visible(p->legend, FALSE);
     /* The replay: play and pause, and the speed. */
     p->play = gtk_button_new_from_icon_name("media-playback-start-symbolic");
     gtk_widget_set_tooltip_text(p->play, "Replay the print in the 3D view, line by line, at the speed beside it.");
@@ -495,6 +542,7 @@ GtkWidget *zg_preview_new(ZgModel *model) {
     gtk_widget_add_css_class(bar, "zg-float");
     gtk_box_append(GTK_BOX(bar), switcher);
     gtk_box_append(GTK_BOX(bar), colors);
+    gtk_box_append(GTK_BOX(bar), p->legend);
     gtk_box_append(GTK_BOX(bar), p->play);
     gtk_box_append(GTK_BOX(bar), p->speed);
     gtk_widget_set_halign(bar, GTK_ALIGN_START);
@@ -556,5 +604,6 @@ void zg_preview_refresh(GtkWidget *preview) {
     if (old_count == 0) p->fitted = FALSE;
     load_layer(p, layer);
     zg_view3d_reload(p->view3d);
+    show_legend(p);
     zg_view3d_set_layer(p->view3d, layer);
 }

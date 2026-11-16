@@ -30,7 +30,7 @@ typedef struct {
     zs_view *view;
     char *error;
     size_t layer;
-    gboolean features;
+    int mode; /* enum zs_view_mode */
     gboolean zoomed;
     gboolean picked;
     gboolean timed;
@@ -132,7 +132,7 @@ static void on_focus_changed(ZgModel *model, gpointer data) {
 
 static void load_data(View3d *v) {
     if (!v->view) return;
-    zs_view_set_mode(v->view, v->features ? ZS_VIEW_FEATURES : ZS_VIEW_PRINT);
+    zs_view_set_mode(v->view, v->mode);
     int rc = zs_view_load(v->view, zg_model_core(v->model));
     if (rc != ZS_OK) {
         g_warning("zslice: the 3D view did not load the toolpaths: %s", zg_status_text(rc));
@@ -167,9 +167,14 @@ static void load_data(View3d *v) {
     queue_frame(v);
 }
 
-void zg_view3d_set_feature_colors(GtkWidget *view, gboolean features) {
+gboolean zg_view3d_legend(GtkWidget *view, double *min, double *max) {
     View3d *v = g_object_get_data(G_OBJECT(view), "zg-view3d");
-    v->features = features;
+    return v->view && zs_view_legend(v->view, min, max);
+}
+
+void zg_view3d_set_color_mode(GtkWidget *view, int mode) {
+    View3d *v = g_object_get_data(G_OBJECT(view), "zg-view3d");
+    v->mode = mode;
     load_data(v);
 }
 

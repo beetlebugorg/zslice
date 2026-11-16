@@ -904,6 +904,9 @@ pub const Toolpaths = struct {
     path_retract: std.ArrayList(u8) = .empty,
     /// The nozzle lift of a retracted travel (project.z_hop), in mm.
     z_hop: f32 = 0,
+    /// 1 if the layer prints slower than planned, to cool
+    /// (filament.min_layer_time).
+    layer_slowed: std.ArrayList(u8) = .empty,
     layer_ends: std.ArrayList(u32) = .empty,
     layer_z: std.ArrayList(f32) = .empty,
     layer_height: std.ArrayList(f32) = .empty,
@@ -919,6 +922,7 @@ pub const Toolpaths = struct {
         t.path_start_time.deinit(gpa);
         t.path_end_time.deinit(gpa);
         t.path_retract.deinit(gpa);
+        t.layer_slowed.deinit(gpa);
         t.layer_ends.deinit(gpa);
         t.layer_z.deinit(gpa);
         t.layer_height.deinit(gpa);
@@ -944,6 +948,9 @@ pub const Toolpaths = struct {
             try t.path_end_time.append(gpa, @floatCast(info.end_time));
             try t.path_retract.append(gpa, @intFromBool(info.retracted));
         }
+        var slowed = false;
+        for (infos) |info| slowed = slowed or info.slowed;
+        try t.layer_slowed.append(gpa, @intFromBool(slowed));
         try t.layer_ends.append(gpa, @intCast(t.path_ends.items.len));
         try t.layer_z.append(gpa, @floatCast(plan.z));
         try t.layer_height.append(gpa, @floatCast(plan.height));

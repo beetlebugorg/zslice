@@ -58,6 +58,8 @@ pub const PathInfo = struct {
     /// The travel to the path retracted the filament (and lifted the
     /// nozzle by z_hop, if z_hop is on).
     retracted: bool = false,
+    /// The layer prints slower than planned, to cool (min_layer_time).
+    slowed: bool = false,
 };
 
 pub const Emitter = struct {
@@ -171,7 +173,7 @@ pub const Emitter = struct {
             const e = if (path.feature == .ironing) e_per_mm * lr.settings.project.ironing_flow else e_per_mm;
             for (pts[1..]) |q| try self.extrude(geom.toMm(q.x), geom.toMm(q.y), e, speed);
             if (path.closed and pts.len > 2) try self.extrude(geom.toMm(pts[0].x), geom.toMm(pts[0].y), e, speed);
-            if (self.record) |rec| rec.appendAssumeCapacity(.{ .start_time = start_time, .end_time = self.stats.print_time_s, .area = e * self.r.filament_area, .retracted = retracted });
+            if (self.record) |rec| rec.appendAssumeCapacity(.{ .start_time = start_time, .end_time = self.stats.print_time_s, .area = e * self.r.filament_area, .retracted = retracted, .slowed = slow < 1 });
         }
     }
 

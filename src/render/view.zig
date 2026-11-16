@@ -52,11 +52,13 @@ pub const feature_rgb = [_][3]u8{
 pub const Surface = vk.Surface;
 pub const Error = vk.Error;
 
-pub const Mode = enum(c_int) { print = 0, features = 1 };
+pub const Mode = enum(c_int) { print = 0, features = 1, speed = 2, flow = 3, layer_time = 4, width = 5 };
 
 pub const View = struct {
     renderer: *vk.Renderer,
     mode: Mode = .print,
+    /// The range of the ramp of a value mode, after `load`.
+    legend: [2]f64 = .{ 0, 0 },
     layer_end: std.ArrayList(u32) = .empty,
     /// The first bead of each path, and one more item at the end: the
     /// beads of path i are path_start[i] to path_start[i + 1].
@@ -208,6 +210,9 @@ pub const View = struct {
         v.path_start.clearRetainingCapacity();
         var zmax: f32 = 0;
         const pts = tp.points.items;
+        // A value mode: the value of each path, and the range of the ramp.
+        const values = try v.pathValues(tp);
+        defer if (values.len > 0) gpa.free(values);
         for (tp.layer_ends.items, 0..) |layer_end, l| {
             const p0: u32 = if (l == 0) 0 else tp.layer_ends.items[l - 1];
             const z = tp.layer_z.items[l] * sz;
@@ -219,7 +224,11 @@ pub const View = struct {
                 const end = tp.path_ends.items[pi];
                 if (end - start < 2) continue;
                 const f = tp.path_features.items[pi];
-                const rgb = if (v.mode == .print) filament else feature_rgb[if (f < feature_rgb.len) f else 0];
+                const rgb = switch (v.mode) {
+                    .print => filament,
+                    .features => feature_rgb[if (f < feature_rgb.len) f else 0],
+                    else => ramp(v.legend, values[pi], v.mode == .layer_time),
+                };
                 const w: f32 = @floatCast(@import("../flow.zig").beadWidth(tp.path_area.items[pi], tp.layer_height.items[l]) * sxy);
                 if (!(w > 0)) continue;
                 const closed = tp.path_closed.items[pi] != 0 and end - start > 2;
@@ -268,6 +277,52 @@ pub const View = struct {
             v.reset();
             v.layer = if (v.layer_end.items.len > 0) v.layer_end.items.len - 1 else 0;
         }
+    }
+
+    /// The value of each path for a value mode (empty for the others), and
+    /// `legend`: the range of the ramp (the 2nd to the 98th percentile, so
+    /// one odd path does not take the whole ramp).
+    fn pathValues(v: *View, tp: *const app_mod.Toolpaths) Error![]f32 {
+        v.legend = .{ 0, 0 };
+        if (v.mode == .print or v.mode == .features) return &.{};
+        const n = tp.path_ends.items.len;
+        const values = gpa.alloc(f32, n) catch return error.OutOfMemory;
+        errdefer gpa.free(values);
+        const pts = tp.points.items;
+        var l: usize = 0;
+        for (0..n) |pi| {
+            while (l + 1 < tp.layer_ends.items.len and tp.layer_ends.items[l] <= pi) l += 1;
+            const start: u32 = if (pi == 0) 0 else tp.path_ends.items[pi - 1];
+            const end = tp.path_ends.items[pi];
+            var len: f32 = 0;
+            var k = start;
+            while (k + 1 < end) : (k += 1) len += std.math.hypot(pts[2 * k + 2] - pts[2 * k], pts[2 * k + 3] - pts[2 * k + 1]);
+            if (tp.path_closed.items[pi] != 0 and end - start > 2) len += std.math.hypot(pts[2 * start] - pts[2 * (end - 1)], pts[2 * start + 1] - pts[2 * (end - 1) + 1]);
+            const dt = tp.path_end_time.items[pi] - tp.path_start_time.items[pi];
+            const speed: f32 = if (dt > 0) len / dt else 0;
+            values[pi] = switch (v.mode) {
+                .speed => speed,
+                .flow => speed * tp.path_area.items[pi],
+                .width => @floatCast(@import("../flow.zig").beadWidth(tp.path_area.items[pi], tp.layer_height.items[l])),
+                .layer_time => blk: {
+                    const last = tp.layer_ends.items[l];
+                    const t_end = if (last > 0) tp.path_end_time.items[last - 1] else 0;
+                    const t_start = if (l == 0 or tp.layer_ends.items[l - 1] == 0) 0 else tp.path_end_time.items[tp.layer_ends.items[l - 1] - 1];
+                    break :blk t_end - t_start;
+                },
+                else => 0,
+            };
+        }
+        // The range: the 2nd and the 98th percentile of the values.
+        const sorted = gpa.dupe(f32, values) catch return error.OutOfMemory;
+        defer gpa.free(sorted);
+        std.mem.sort(f32, sorted, {}, std.sort.asc(f32));
+        if (sorted.len > 0) {
+            const lo = sorted[sorted.len * 2 / 100];
+            const hi = sorted[@min(sorted.len - 1, sorted.len * 98 / 100)];
+            v.legend = .{ lo, if (hi > lo) hi else lo + 1 };
+        }
+        return values;
     }
 
     /// The seam blobs, the travel moves, and the retractions of each
@@ -665,6 +720,22 @@ pub const View = struct {
         });
     }
 };
+
+/// The color of a value on the ramp: blue, cyan, green, yellow, red (a
+/// "turbo"-like ramp that people read as low to high). `reverse`: red for
+/// the low values (the layer time: a short layer is the problem).
+fn ramp(range: [2]f64, value: f32, reverse: bool) [3]u8 {
+    var t: f64 = (value - range[0]) / (range[1] - range[0]);
+    t = std.math.clamp(t, 0, 1);
+    if (reverse) t = 1 - t;
+    const stops = [_][3]f64{ .{ 0.19, 0.29, 0.86 }, .{ 0.10, 0.70, 0.85 }, .{ 0.25, 0.75, 0.30 }, .{ 0.95, 0.80, 0.15 }, .{ 0.85, 0.20, 0.15 } };
+    const x = t * 4;
+    const i: usize = @min(3, @as(usize, @intFromFloat(@floor(x))));
+    const f = x - @as(f64, @floatFromInt(i));
+    var out: [3]u8 = undefined;
+    for (0..3) |k| out[k] = @intFromFloat(@round(255 * (stops[i][k] + (stops[i + 1][k] - stops[i][k]) * f)));
+    return out;
+}
 
 /// The vertical field of view, in radians.
 const fov = 0.8;

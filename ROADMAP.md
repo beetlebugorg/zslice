@@ -115,11 +115,12 @@ The goal is the features that people use in PrusaSlicer and Cura. zslice designs
 - [ ] More infill: lightning, adaptive cubic; make flow cheaper (the band costs a stacked intersection on the first slice, and memory in the cache)
 - [x] Tree support (support_style = tree): tips on a grid under pads, branches that join and get thicker, thinner in narrow spaces (deep holes)
 - [ ] Tree support: faster (1.4 s on the camera arm, grid 0.4 s), branch routing around the part toward the bed, a preview of the branch nodes
-- [ ] Layer times: in the layer slider, a color mode by layer time, and the layers that min_layer_time slows down
+- [x] Layer times: in the layer slider (with a mark for a layer that min_layer_time slows down), and a color mode by layer time
 - [ ] A cooling lap: for a short layer, the head moves over the layer with the fan at full until the min layer time, in place of a slow print
 - [ ] printdeck web module: the core in wasm, a WebGPU backend for the 3D view, the slicer in the printdeck web UI and cloud
 - [ ] Combing: travel inside the part over the infill and the inner walls, with no retraction, and faster
-- [ ] Preview color modes: feature, speed, flow, layer time, line width, layer height, filament color
+- [x] Preview color modes in 3D: filament, feature, speed, flow, layer time, line width, with the range of the ramp
+- [ ] Color modes in the 2D view, and a layer height mode (with variable layer heights)
 - [ ] Ironing in the preview: the ironed top skin looks flat; the inspector shows what ironing costs in time
 - [ ] Plate: more than one part, move and rotate parts, a best placement that orients each part for less support and packs the parts to use the bed
 - [ ] Printers: a shared place for printers and their connections (printdeck remote, OctoPrint, Moonraker), and print monitoring
