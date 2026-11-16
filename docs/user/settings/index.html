@@ -225,6 +225,8 @@ M84</code></pre>
 <p>The density of the top support lines, as a ratio. It works only if it is more than <code>infill_density</code>.</p>
 <p><strong><code>project.infill_overlap</code></strong> (number; per layer). Default: <code>0.2</code></p>
 <p>Sparse infill lines go this far into the walls, as a fraction of the line width.</p>
+<p><strong><code>project.infill_layers</code></strong> (integer; per layer). Default: <code>1</code></p>
+<p>Print the sparse infill once every this many layers, as one taller bead at the top layer of each group, with the flow of all the layers. The walls and the skin still print on each layer. Sparse infill is hidden, so it does not need the fine layers, and the print has fewer infill moves. A group is never thicker than the nozzle diameter: the count goes down where the layers are too thick. Only the area that is sparse infill in all layers of a group gets the tall bead, and the dense band under the top skin prints on each layer. 1: each layer.</p>
 <h3 id="ironing">Ironing</h3>
 <p><strong><code>project.ironing</code></strong> (true or false; per layer). Default: <code>false</code></p>
 <p>Iron the top surfaces. After the layer is complete, the nozzle goes over each top surface again with close lines and a small flow. The hot nozzle melts the surface flat, and the small flow fills the gaps between the skin lines.</p>

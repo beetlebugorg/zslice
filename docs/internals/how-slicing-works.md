@@ -54,7 +54,7 @@ The plan of a layer has the paths that the nozzle follows.
 - Skin is the area inside the walls minus the supported area.
 - Sparse infill is the remaining area.
 
-**Fill.** Skin gets lines one line width apart. Sparse infill gets lines further apart, from the density. The fill uses a scanline method (`src/infill.zig`): turn the shape so that the lines are horizontal, find where each line crosses the polygon edges, and keep the parts of the line that are inside. All layers use the same line grid, so the infill lines of each layer are on top of the lines below.
+**Fill.** Skin gets lines one line width apart. Sparse infill gets lines further apart, from the density. The fill uses a scanline method (`src/infill.zig`): turn the shape so that the lines are horizontal, find where each line crosses the polygon edges, and keep the parts of the line that are inside. All layers use the same line grid, so the infill lines of each layer are on top of the lines below. With `project.infill_layers` above 1, the sparse infill prints once every few layers, as one taller bead (see [Settings for some layers](layer-settings.md), "Combined infill").
 
 **Lightning infill** (`src/lightning.zig`) fills only where a top needs it. The engine makes it for all layers before the plans, from the top layer down. Under each top, branches go from points on a grid to the nearest branch or wall. On each layer down, the free end of each branch gets shorter by the layer height times tan(`lightning_angle`). So each branch leans toward the wall, and the trees get smaller until they end. A line of one layer never hangs out more than that distance over the line below it.
 

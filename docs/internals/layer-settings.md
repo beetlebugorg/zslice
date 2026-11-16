@@ -30,6 +30,20 @@ An adaptive layer height (thin layers where a surface has a small slope) can use
 
 "This layer and up" in the app makes a range from the top z of the selected layer. The selected layer gets the new height, for a thinner and for a thicker height. "This layer" with a thinner height gives the z range of the selected layer to thinner layers: two layers of 0.1 mm for one layer of 0.2 mm.
 
+## Combined infill
+
+`project.infill_layers` (n) prints the sparse infill once every n layers. `layer.groups` makes the groups once for the job, and `layer.plan` reads the group of its layer. The decisions:
+
+- **The groups.** The groups count up from the first layer above the bottom skin of the bed (`layersFor` of `bottom_thickness` from layer 0). On a part that stands on the bed, that is the first layer with sparse infill, so the first group is complete. The first layer is never in a group: it has its own line width.
+- **The top band.** One count of layers cannot line up with all top surfaces: each top surface of a part is at its own z. So the groups do not try to. The band under a top skin (top support, and the dense band of the flow pattern) is never in the combined area, so it prints on each layer. A group that crosses the start of a band combines only the area that is out of the band in all its layers. The cost is one group of per-layer infill under each top surface, at most.
+- **The thickness limit.** A group is not thicker than the nozzle diameter, or the line width if it is smaller (`layer.maxThickness`). The plastic leaves the nozzle as a round thread of the nozzle diameter. In a taller gap, the nozzle does not press the bead down on the bead below. A bead taller than its width is a round thread in the bead model, with no flat side on the layer below. Slic3r and PrusaSlicer have the same limit. A lower limit (for example 0.8 times the nozzle) rules out the main use: two 0.2 mm layers with a 0.4 mm nozzle, and two 0.25 mm layers with a 0.5 mm nozzle. Where n layers are too thick, the group gets fewer layers. The heights are the real heights of the layers (`slicer.Layer.height`), so a group in thin layers can have more layers.
+- **Per layer.** `infill_layers` is a per-layer setting. All layers of a group must have the same settings (the same `Resolved`): where an override starts or ends, a new group starts.
+- **The area.** `layer.combinedArea` intersects, for all layers of the group, the sparse fill region (after the fill inset) minus the band under a top. The last layer of the group fills this area with the pattern, as one bead. Each layer of the group fills the rest of its sparse area as before. The parts of the rest narrower than two line widths get no lines: they are strips along the edge of the combined area, where the walls of a slope move from layer to layer.
+- **The pattern.** All patterns work. Gyroid and cubic use the z of the last layer. The patterns that turn by 90 degrees on each layer (lines, zigzag, flow) turn on each group (`InfillGroup.index`), so two groups on top of each other cross.
+- **The bead.** The paths have `Path.height`: the sum of the heights of the group. The width is the line width. The emitter computes the flow from the bead model (`flow.beadArea`) for that height, and the speed limit of `filament.max_flow` from the same bead area. The nozzle stays at the z of the last layer. The moves are normal G1 moves with a larger E, and the time estimate uses them as all other moves.
+- **The plastic.** A bead of height 2h holds less plastic than two beads of height h of the same width: its round sides are taller (flow.zig). With 0.44 mm lines, one 0.4 mm bead has 11 % less plastic than two 0.2 mm beads. The lines cover the same length times height as before (see the engine tests).
+- **The threads.** The plan of a layer needs the sparse areas of the other layers of its group. Another thread can plan those layers at the same time, so a plan cannot read their memos. `Job.combinedAreas` makes the combined area of each group before the plans, on all threads: each group uses the memos of its own layers, so the plans then find their regions in the memos. So the command line tool keeps the regions of all layers until their plans. On the test parts, that is a few percent more peak memory and slice time. To make the regions again in the plans costs about 70 % more slice time. A plan with no combined areas (`Job.planLayer` for one layer) makes the area of its group with new memos for the other layers.
+
 ## Filament settings
 
 | Setting | Per layer | Read by | Note |
@@ -64,6 +78,7 @@ An adaptive layer height (thin layers where a surface has a small slope) can use
 | `infill_density`, `infill_pattern`, `infill_angle`, `infill_connect`, `infill_overlap` | yes | layer | |
 | `top_support_layers`, `top_support_density` | yes | layer | |
 | `lightning_angle` | no | lightning | The branches of all layers come from one pass, from the top down. A layer with another `infill_pattern` cuts the trees: its infill holds the layer above, and the trees start again below it. |
+| `infill_layers` | yes | layer | A group of combined infill has the settings of all its layers: a change of the settings starts a new group (see "Combined infill"). |
 | `ironing`, `ironing_flow`, `ironing_spacing`, `ironing_inset`, `ironing_speed` | yes | layer, gcode | |
 | `outer_wall_speed`, `inner_wall_speed`, `skin_speed`, `infill_speed` | yes | settings (`Resolved.speedAt`) | |
 | `slope_smoothing`, `slope_smoothing_min_width`, `slope_smoothing_max_width`, `slope_smoothing_flow`, `slope_smoothing_speed` | yes | layer, settings | The beads of a layer use the settings and the height of that layer. |
