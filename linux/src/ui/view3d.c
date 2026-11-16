@@ -18,6 +18,7 @@
  * SPDX-License-Identifier: AGPL-3.0-or-later
  */
 #include "view3d.h"
+#include "preview.h"
 
 #include <stdlib.h>
 
@@ -664,6 +665,10 @@ static void show_menu(View3d *v, double x, double y) {
         g_menu_append(here, "Block support here", "view3d.add-support(3)");
         g_menu_append(here, "Remove the support marks here", "view3d.remove-marks");
         g_menu_append(here, "Copy for AI", "view3d.copy-for-ai");
+        GMenuItem *cut = g_menu_item_new("Preview to this layer", "preview.cut-to-layer");
+        g_menu_item_set_attribute(cut, "accel", "s", "c");
+        g_menu_prepend_item(here, cut);
+        g_object_unref(cut);
         g_menu_append_section(menu, NULL, G_MENU_MODEL(here));
         g_object_unref(kinds);
         g_object_unref(here);
@@ -690,6 +695,14 @@ static void show_menu(View3d *v, double x, double y) {
     g_object_unref(plate);
     GMenu *general = g_menu_new();
     if (zs_app_mark_count(zg_model_core(v->model)) > 0) g_menu_append(general, "Clear all support marks", "view3d.clear-marks");
+    GtkWidget *preview = v->area;
+    while (preview && !g_object_get_data(G_OBJECT(preview), "zg-preview")) preview = gtk_widget_get_parent(preview);
+    if (preview && zg_preview_is_cut(preview)) {
+        GMenuItem *all = g_menu_item_new("Show all layers", "preview.all-layers");
+        g_menu_item_set_attribute(all, "accel", "s", "<Shift>c");
+        g_menu_append_item(general, all);
+        g_object_unref(all);
+    }
     g_menu_append(general, "Reset the view", "view3d.reset-view");
     g_menu_append_section(menu, NULL, G_MENU_MODEL(general));
     g_object_unref(general);

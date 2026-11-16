@@ -507,6 +507,32 @@ static void show_layer(Preview *p, size_t layer) {
 
 
 
+/* "Preview to this layer": the top knob goes to the layer of the selected
+ * line, so the part shows as printed up to that line's layer. */
+static void cut_to_selection(Preview *p) {
+    zs_toolpaths tp;
+    gint64 sel = zg_model_selected(p->model);
+    if (sel < 0 || zs_app_toolpaths(zg_model_core(p->model), &tp) != ZS_OK || (size_t)sel >= tp.path_count) return;
+    show_layer(p, zg_toolpaths_layer_of(&tp, (size_t)sel));
+}
+
+/* "Show all layers": the knobs go to the first and the last layer. */
+static void show_all_layers(Preview *p) {
+    if (p->layer_count == 0) return;
+    zg_layer_range_set(ZG_LAYER_RANGE(p->slider), 0, p->layer_count - 1);
+    apply_range(p);
+}
+
+static void on_cut_to_layer(GSimpleAction *a, GVariant *v, gpointer data) { cut_to_selection(data); }
+static void on_all_layers(GSimpleAction *a, GVariant *v, gpointer data) { show_all_layers(data); }
+
+gboolean zg_preview_is_cut(GtkWidget *preview) {
+    Preview *p = g_object_get_data(G_OBJECT(preview), "zg-preview");
+    if (!p || p->layer_count == 0) return FALSE;
+    ZgLayerRange *r = ZG_LAYER_RANGE(p->slider);
+    return zg_layer_range_get_lo(r) > 0 || zg_layer_range_get_hi(r) + 1 < p->layer_count;
+}
+
 static gboolean on_preview_key(GtkEventControllerKey *c, guint key, guint code, GdkModifierType mods, gpointer data) {
     Preview *p = data;
     if (mods & (GDK_CONTROL_MASK | GDK_ALT_MASK | GDK_SUPER_MASK)) return FALSE;
@@ -537,6 +563,16 @@ static gboolean on_preview_key(GtkEventControllerKey *c, guint key, guint code, 
         if (!(mods & GDK_SHIFT_MASK)) return FALSE;
         gtk_stack_set_visible_child_name(GTK_STACK(p->stack), "3d");
         zg_view3d_context_menu(p->view3d);
+        return TRUE;
+    case GDK_KEY_c: case GDK_KEY_C:
+        /* C: preview to the layer of the selected line. Shift+C: all
+         * layers again (some keymaps give c with Shift, not C). */
+        if (key == GDK_KEY_C || (mods & GDK_SHIFT_MASK)) {
+            show_all_layers(p);
+            return TRUE;
+        }
+        if (sel < 0) return FALSE;
+        cut_to_selection(p);
         return TRUE;
     case GDK_KEY_Escape:
         if (sel < 0) return FALSE;
@@ -769,6 +805,15 @@ GtkWidget *zg_preview_new(ZgModel *model) {
     gtk_overlay_add_overlay(GTK_OVERLAY(box), p->scrub_box);
     gtk_widget_set_size_request(stack, 200, -1);
     g_object_set_data_full(G_OBJECT(box), "zg-preview", p, preview_free);
+    /* For the 3D context menu (a child of the preview). */
+    static const GActionEntry actions[] = {
+        {.name = "cut-to-layer", .activate = on_cut_to_layer},
+        {.name = "all-layers", .activate = on_all_layers},
+    };
+    GSimpleActionGroup *group = g_simple_action_group_new();
+    g_action_map_add_action_entries(G_ACTION_MAP(group), actions, G_N_ELEMENTS(actions), p);
+    gtk_widget_insert_action_group(box, "preview", G_ACTION_GROUP(group));
+    g_object_unref(group);
     g_signal_connect(model, "selection-changed", G_CALLBACK(on_selection), p);
     g_signal_connect(model, "plate-changed", G_CALLBACK(on_plates_changed), p);
     fill_plates(p);

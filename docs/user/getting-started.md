@@ -169,13 +169,15 @@ A value out of the usual range shows in the warning color, and its tooltip gives
 
 Right-click a line in the 3D view (or press Shift+F10 with a line selected) for the menu:
 
+- **Preview to this layer** (C): the layer slider goes to the layer of the line, so the part shows as printed up to there. Click the side of the part at a height, then press C.
+- **Show all layers** (Shift+C), when the slider hides some layers.
 - **Add support here** › Grid, Tree, or Bridge (a pad): support of that kind under a 3 mm disk at that place, on that layer. It works also when support is off in the settings.
 - **Block support here**: no support from the settings under that place.
 - **Remove the support marks here**, and **Clear all support marks**.
 - **Copy for AI**: copies a report of the line to the clipboard, to paste into an AI chat and ask why it prints as it does. The report has what the line is, its numbers and why, the values of the settings that change it, the printer and the filament, its points, and its place in the G-code: zslice writes the G-code of the slice to `~/.cache/zslice/last-slice.gcode`, and the report gives the line numbers in that file and the lines.
 - **Reset the view**.
 
-A left drag turns the view, and a middle drag moves it. Right drag no longer turns the view; the right button opens the menu.
+A right drag turns the view, and a right click with no drag opens the menu.
 
 ## Scrub through a layer
 
@@ -192,6 +194,8 @@ Click in the preview first, so that it gets the keys.
 | ↑ or k | The nearest line on the layer above | The top layer up one |
 | ↓ or j | The nearest line on the layer below | The top layer down one |
 | Page Up, Page Down | 10 layers up or down | 10 layers up or down |
+| C | Preview to the layer of the line | — |
+| Shift+C | All layers | All layers |
 | Esc | Clears the selection | — |
 
 A click on a line selects the line (yellow) and the segment under the pointer (orange). After the last segment of a line, → goes on to the first segment of the next line. Shift with ↑ or ↓ (or k or j) moves the bottom knob of the layer slider. A line of the same feature (for example an outer wall) wins over a line of another feature that is a little nearer. The layer slider follows the selection.

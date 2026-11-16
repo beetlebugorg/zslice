@@ -20,3 +20,6 @@ void zg_preview_refresh(GtkWidget *preview);
 /* Shows layer `layer` on top (the top knob of the layer slider goes
  * there), for example to show an island. */
 void zg_preview_show_layer(GtkWidget *preview, size_t layer);
+
+/* TRUE if the layer slider hides some layers (for "Show all layers"). */
+gboolean zg_preview_is_cut(GtkWidget *preview);
