@@ -1047,7 +1047,6 @@ test "an override of the whole part changes the slice, and not the global settin
     try testing.expectEqual(@as(f64, 0.2), app.settings.project.layer_height);
 }
 
-
 test "app: a change for the top layer gives the same G-code with the cache and without it" {
     const gpa = testing.allocator;
     var mesh = try zs.mesh.shapes.demo(gpa);

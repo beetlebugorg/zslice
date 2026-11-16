@@ -19,12 +19,12 @@ const testing = std.testing;
 /// Settings that change every line: the bead size, the flow, the speed
 /// limits, the cooling, and the place and size of the part.
 const all_lines_settings = [_][]const u8{
-    "project.layer_height",     "project.line_width",      "filament.flow_ratio",
-    "filament.max_flow",        "machine.max_speed",       "machine.nozzle_diameter",
-    "filament.min_layer_time",  "filament.min_speed",      "filament.shrinkage_xy",
-    "filament.shrinkage_z",     "filament.xy_offset",      "project.placement",
-    "engine.resolution",        "engine.gap_closing",       "filament.color",
-    "machine.bed_size_x",       "machine.bed_size_y",
+    "project.layer_height",    "project.line_width", "filament.flow_ratio",
+    "filament.max_flow",       "machine.max_speed",  "machine.nozzle_diameter",
+    "filament.min_layer_time", "filament.min_speed", "filament.shrinkage_xy",
+    "filament.shrinkage_z",    "filament.xy_offset", "project.placement",
+    "engine.resolution",       "engine.gap_closing", "filament.color",
+    "machine.bed_size_x",      "machine.bed_size_y",
 };
 
 /// What a setting changes in the toolpaths.
