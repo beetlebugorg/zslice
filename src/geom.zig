@@ -338,3 +338,31 @@ test "simplify a fine circle: the error does not add up" {
         try std.testing.expect(near);
     }
 }
+
+
+/// True if p is inside a set of polygons: its winding number is not 0.
+/// The ray goes from p to +x; each edge that crosses it adds 1 (upward)
+/// or -1 (downward). Points on an edge can go either way.
+pub fn insideAny(paths: Paths, p: Point) bool {
+    var winding: i32 = 0;
+    for (0..paths.count()) |k| {
+        const poly = paths.get(k);
+        for (poly, 0..) |a, i| {
+            const b = poly[(i + 1) % poly.len];
+            if (a.y <= p.y) {
+                if (b.y > p.y and cross3(a, b, p) > 0) winding += 1;
+            } else if (b.y <= p.y and cross3(a, b, p) < 0) winding -= 1;
+        }
+    }
+    return winding != 0;
+}
+
+test "insideAny: a square with a hole" {
+    var ps: Paths = .empty;
+    defer ps.deinit(std.testing.allocator);
+    try ps.append(std.testing.allocator, &.{ .init(0, 0), .init(10, 0), .init(10, 10), .init(0, 10) });
+    try ps.append(std.testing.allocator, &.{ .init(3, 3), .init(3, 7), .init(7, 7), .init(7, 3) });
+    try std.testing.expect(insideAny(ps, .init(1, 5)));
+    try std.testing.expect(!insideAny(ps, .init(5, 5)));
+    try std.testing.expect(!insideAny(ps, .init(20, 5)));
+}

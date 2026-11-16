@@ -107,6 +107,177 @@ pub fn linesPhase(gpa: Allocator, region: Paths, spacing: i64, angle_deg: f64, p
 }
 
 // ---------------------------------------------------------------------------
+// Connected lines
+
+/// Joins parallel lines (from `lines`, with the same spacing and angle)
+/// into zigzag paths: at the end of a line, the path goes on to the nearest
+/// end of a line on the next scan line, if the link is short (at most two
+/// spacings along the lines) and inside the region. The nozzle then prints
+/// many lines with no travel and no retraction between them, and the links
+/// along the walls tie the lines to the walls.
+pub fn connect(gpa: Allocator, region: Paths, set: Paths, spacing: i64, angle_deg: f64) Allocator.Error!Paths {
+    var out: Paths = .empty;
+    errdefer out.deinit(gpa);
+    const n = set.count();
+    if (n == 0 or spacing <= 0) return out;
+    var arena_state = std.heap.ArenaAllocator.init(gpa);
+    defer arena_state.deinit();
+    const arena = arena_state.allocator();
+    const a = angle_deg * std.math.pi / 180.0;
+    const c = @cos(a);
+    const s = @sin(a);
+
+    // Each line in the turned frame: one y, and x0 < x1.
+    const Line = struct { y: i64, x0: i64, x1: i64, used: bool = false };
+    const ls = try arena.alloc(Line, n);
+    for (ls, 0..) |*l, i| {
+        const p = set.get(i);
+        const q0 = rotate(p[0], c, -s);
+        const q1 = rotate(p[p.len - 1], c, -s);
+        l.* = .{ .y = q0.y, .x0 = @min(q0.x, q1.x), .x1 = @max(q0.x, q1.x) };
+    }
+    std.mem.sort(Line, ls, {}, struct {
+        fn lt(_: void, l: Line, r: Line) bool {
+            if (l.y != r.y) return l.y < r.y;
+            return l.x0 < r.x0;
+        }
+    }.lt);
+    const max_link = 2 * spacing;
+    var chain: std.ArrayList(Point) = .empty;
+    for (ls, 0..) |*first, fi| {
+        if (first.used) continue;
+        chain.clearRetainingCapacity();
+        first.used = true;
+        try chain.append(arena, .{ .x = first.x0, .y = first.y });
+        try chain.append(arena, .{ .x = first.x1, .y = first.y });
+        var end: Point = .{ .x = first.x1, .y = first.y };
+        var at = fi;
+        while (true) {
+            // The lines of the next scan line come after `at` in the order.
+            var best: ?usize = null;
+            var best_d: i64 = max_link + 1;
+            var j = at + 1;
+            while (j < ls.len and ls[j].y <= end.y) : (j += 1) {}
+            while (j < ls.len and ls[j].y - end.y <= spacing + @divTrunc(spacing, 4)) : (j += 1) {
+                if (ls[j].used or ls[j].y == end.y) continue;
+                const d = @min(iabs(ls[j].x0 - end.x), iabs(ls[j].x1 - end.x));
+                if (d < best_d and linkInside(region, end, if (iabs(ls[j].x0 - end.x) <= iabs(ls[j].x1 - end.x)) Point{ .x = ls[j].x0, .y = ls[j].y } else Point{ .x = ls[j].x1, .y = ls[j].y }, c, s)) {
+                    best = j;
+                    best_d = d;
+                }
+            }
+            const b = best orelse break;
+            ls[b].used = true;
+            const from_low = iabs(ls[b].x0 - end.x) <= iabs(ls[b].x1 - end.x);
+            const p0: Point = .{ .x = if (from_low) ls[b].x0 else ls[b].x1, .y = ls[b].y };
+            const p1: Point = .{ .x = if (from_low) ls[b].x1 else ls[b].x0, .y = ls[b].y };
+            try chain.append(arena, p0);
+            try chain.append(arena, p1);
+            end = p1;
+            at = b;
+        }
+        const path = try arena.alloc(Point, chain.items.len);
+        for (chain.items, path) |q, *o| o.* = rotate(q, c, s);
+        try out.append(gpa, path);
+    }
+    return out;
+}
+
+fn iabs(x: i64) i64 {
+    return if (x < 0) -x else x;
+}
+
+/// True if the link from p to q (in the turned frame) stays inside the
+/// region: three points along it are inside.
+fn linkInside(region: Paths, p: Point, q: Point, c: f64, s: f64) bool {
+    for ([_]f64{ 0.25, 0.5, 0.75 }) |t| {
+        const m: Point = .{
+            .x = p.x + @as(i64, @intFromFloat(@round(@as(f64, @floatFromInt(q.x - p.x)) * t))),
+            .y = p.y + @as(i64, @intFromFloat(@round(@as(f64, @floatFromInt(q.y - p.y)) * t))),
+        };
+        const q2 = rotate(m, c, s);
+        // A link along a wall lies on the boundary: on it counts as in.
+        if (!geom.insideAny(region, q2) and !nearBoundary(region, q2, 50)) return false;
+    }
+    return true;
+}
+
+/// True if p is at most `tol` from an edge of the region.
+fn nearBoundary(region: Paths, p: Point, tol: i64) bool {
+    const t2: f64 = @floatFromInt(tol * tol);
+    for (0..region.count()) |k| {
+        const poly = region.get(k);
+        for (poly, 0..) |a, i| {
+            const b = poly[(i + 1) % poly.len];
+            const abx: f64 = @floatFromInt(b.x - a.x);
+            const aby: f64 = @floatFromInt(b.y - a.y);
+            const apx: f64 = @floatFromInt(p.x - a.x);
+            const apy: f64 = @floatFromInt(p.y - a.y);
+            const len2 = abx * abx + aby * aby;
+            const t = if (len2 > 0) std.math.clamp((apx * abx + apy * aby) / len2, 0, 1) else 0;
+            const dx = apx - t * abx;
+            const dy = apy - t * aby;
+            if (dx * dx + dy * dy <= t2) return true;
+        }
+    }
+    return false;
+}
+
+// ---------------------------------------------------------------------------
+// Honeycomb
+
+/// Hexagon cells: zigzag rows, each row the mirror of the row before, so
+/// that two rows touch along the flat sides and make hexagons. The same
+/// rows on all layers make walls of hexagon tubes. A hexagon grid with a
+/// side s has 2 / (sqrt(3) s) of line for each unit of area, so the side
+/// for a density d and a line width w is 2 w / (sqrt(3) d).
+pub fn honeycomb(gpa: Allocator, region: Paths, width: i64, density: f64, angle_deg: f64, min_length: i64) Allocator.Error!Paths {
+    if (region.isEmpty() or !(density > 0)) return .empty;
+    var arena_state = std.heap.ArenaAllocator.init(gpa);
+    defer arena_state.deinit();
+    const arena = arena_state.allocator();
+    const side: f64 = 2.0 * @as(f64, @floatFromInt(width)) / (@sqrt(3.0) * density);
+    const h = side * @sqrt(3.0) / 2.0;
+    const a = angle_deg * std.math.pi / 180.0;
+    const c = @cos(a);
+    const s = @sin(a);
+    // The box of the region in the turned frame.
+    var lo: Point = .{ .x = std.math.maxInt(i64), .y = std.math.maxInt(i64) };
+    var hi: Point = .{ .x = std.math.minInt(i64), .y = std.math.minInt(i64) };
+    for (region.points.items) |p| {
+        const q = rotate(p, c, -s);
+        lo = .{ .x = @min(lo.x, q.x), .y = @min(lo.y, q.y) };
+        hi = .{ .x = @max(hi.x, q.x), .y = @max(hi.y, q.y) };
+    }
+    const x0: f64 = @as(f64, @floatFromInt(lo.x)) - 3 * side;
+    const x1: f64 = @as(f64, @floatFromInt(hi.x)) + 3 * side;
+    const j0: i64 = @intFromFloat(@floor(@as(f64, @floatFromInt(lo.y)) / h) - 1);
+    const j1: i64 = @intFromFloat(@ceil(@as(f64, @floatFromInt(hi.y)) / h) + 1);
+    // Snap the start to the grid, so that all layers have the same cells.
+    const period = 3 * side;
+    const xs = @floor(x0 / period) * period;
+    var rows: Paths = .empty;
+    var row: std.ArrayList(Point) = .empty;
+    var j = j0;
+    while (j <= j1) : (j += 1) {
+        row.clearRetainingCapacity();
+        const base = @as(f64, @floatFromInt(j)) * h;
+        const odd = @mod(j, 2) != 0;
+        var x = xs;
+        while (x <= x1) : (x += period) {
+            // One period: low flat, rise, high flat, fall.
+            const zs = [_][2]f64{ .{ 0, 0 }, .{ side, 0 }, .{ 1.5 * side, h }, .{ 2.5 * side, h } };
+            for (zs) |z| {
+                const y = if (odd) base + h - z[1] else base + z[1];
+                try row.append(arena, rotate(.{ .x = @intFromFloat(@round(x + z[0])), .y = @intFromFloat(@round(y)) }, c, s));
+            }
+        }
+        try rows.append(arena, row.items);
+    }
+    return @import("clip_open.zig").clipPolylines(gpa, region, rows, min_length);
+}
+
+// ---------------------------------------------------------------------------
 // Gyroid
 
 /// The gyroid line length for each unit of area is this constant divided by
@@ -308,4 +479,46 @@ test "line phase moves the lines" {
     defer l.deinit(gpa);
     try testing.expectEqual(@as(usize, 10), l.count());
     try testing.expectEqual(@as(i64, 250), l.get(0)[0].y);
+}
+
+test "connect: the lines of a square join into one zigzag" {
+    const gpa = testing.allocator;
+    var region: Paths = .empty;
+    defer region.deinit(gpa);
+    try region.append(gpa, &.{ .init(0, 0), .init(10_000, 0), .init(10_000, 10_000), .init(0, 10_000) });
+    var set = try lines(gpa, region, 1000, 0, 0);
+    defer set.deinit(gpa);
+    try testing.expect(set.count() >= 9);
+    var joined = try connect(gpa, region, set, 1000, 0);
+    defer joined.deinit(gpa);
+    try testing.expectEqual(@as(usize, 1), joined.count());
+    try testing.expectEqual(set.count() * 2, joined.get(0).len);
+    // An L shape that a scan line crosses twice: still few paths, and each
+    // link stays inside.
+    var l: Paths = .empty;
+    defer l.deinit(gpa);
+    try l.append(gpa, &.{ .init(0, 0), .init(20_000, 0), .init(20_000, 5_000), .init(5_000, 5_000), .init(5_000, 20_000), .init(0, 20_000) });
+    var lset = try lines(gpa, l, 1000, 90, 0);
+    defer lset.deinit(gpa);
+    var lj = try connect(gpa, l, lset, 1000, 90);
+    defer lj.deinit(gpa);
+    try testing.expect(lj.count() <= 3);
+}
+
+test "honeycomb: the density is near the target" {
+    const gpa = testing.allocator;
+    var region: Paths = .empty;
+    defer region.deinit(gpa);
+    try region.append(gpa, &.{ .init(0, 0), .init(60_000, 0), .init(60_000, 60_000), .init(0, 60_000) });
+    var cells = try honeycomb(gpa, region, 400, 0.2, 0, 0);
+    defer cells.deinit(gpa);
+    var len: f64 = 0;
+    for (0..cells.count()) |i| {
+        const p = cells.get(i);
+        for (p[0 .. p.len - 1], p[1..]) |a, b| len += std.math.hypot(@as(f64, @floatFromInt(b.x - a.x)), @as(f64, @floatFromInt(b.y - a.y)));
+    }
+    // The flat sides are in two rows, so the line is about 4/3 of the
+    // single grid. Within 40 % of 0.2 x 4/3.
+    const density = len * 400 / (60_000.0 * 60_000.0);
+    try testing.expect(density > 0.2 and density < 0.2 * 4.0 / 3.0 * 1.4);
 }

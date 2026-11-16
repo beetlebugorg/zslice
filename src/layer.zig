@@ -116,6 +116,10 @@ pub const Regions = struct {
     walls: []Paths = &.{},
     skin: Paths = .empty,
     sparse: Paths = .empty,
+    /// For the flow infill: the area of all the layers of the band above
+    /// (an intersection of their outlines), made when a plan first needs
+    /// it. It depends only on region settings, so it stays in the cache.
+    under_band: ?Paths = null,
 
     pub fn deinit(self: *Regions) void {
         self.arena.deinit();
@@ -249,6 +253,23 @@ pub fn plan(gpa: Allocator, ctx: Context, i: usize) Allocator.Error!LayerPlan {
         own = try regions(gpa, ctx, i);
         break :blk &own.?;
     };
+    // The flow infill needs the area under the band above; the first plan
+    // of the layer makes it and keeps it with the regions.
+    var under_band: ?Paths = null;
+    if (p.infill_pattern == .flow and p.infill_density > 0 and !reg.sparse.isEmpty()) {
+        const band_mm = @max(2.0, 3 * p.top_thickness);
+        const band: u32 = @intFromFloat(@ceil(band_mm / p.layer_height));
+        if (ctx.cache.len > i and ctx.cache[i] != null) {
+            const slot = &ctx.cache[i].?;
+            if (slot.under_band == null) {
+                const u = try stackedIntersection(s, ctx.outlines, i, band, .up);
+                slot.under_band = if (u) |v| try v.clone(slot.arena.allocator()) else Paths.empty;
+            }
+            under_band = slot.under_band;
+        } else {
+            under_band = (try stackedIntersection(s, ctx.outlines, i, band, .up)) orelse Paths.empty;
+        }
+    }
     const walls = reg.walls;
     const wall_n = walls.len;
     const skin = reg.skin;
@@ -306,6 +327,40 @@ pub fn plan(gpa: Allocator, ctx: Context, i: usize) Allocator.Error!LayerPlan {
             .concentric => {
                 const spacing = geom.fromMm(width_mm / p.infill_density);
                 sparse_loops = try infill.concentric(s, region, spacing);
+            },
+            .honeycomb => {
+                sparse_lines = try infill.honeycomb(s, region, w, p.infill_density, p.infill_angle, w);
+            },
+            .zigzag, .flow => {
+                const angle = p.infill_angle + @as(f64, if (i % 2 == 0) 0 else 90);
+                const spacing = geom.fromMm(width_mm / p.infill_density);
+                if (p.infill_pattern == .zigzag) {
+                    const set = try infill.lines(s, region, spacing, angle, w);
+                    sparse_lines = try infill.connect(s, region, set, spacing, angle);
+                } else {
+                    // The band under the top surfaces: the area that is not
+                    // under all of the next layers of the band.
+                    var near: Paths = .empty;
+                    var far = region;
+                    if (under_band) |u| if (!u.isEmpty()) {
+                        near = try clip.difference(s, region, u);
+                        far = try clip.intersect(s, region, u);
+                    } else {
+                        // Near the top of the part: all of it is the band.
+                        near = region;
+                        far = .empty;
+                    };
+                    const dense = @max(@divTrunc(spacing, 2), w);
+                    const far_set = try infill.lines(s, far, spacing, angle, w);
+                    sparse_lines = try infill.connect(s, far, far_set, spacing, angle);
+                    if (!near.isEmpty()) {
+                        // The near band uses the same grid at half the
+                        // spacing, so its lines meet the far lines.
+                        const near_set = try infill.lines(s, near, dense, angle, w);
+                        const joined = try infill.connect(s, near, near_set, dense, angle);
+                        try sparse_lines.appendAll(s, joined);
+                    }
+                }
             },
         }
     }
@@ -454,7 +509,7 @@ fn hiddenIndex(path: []const Point, below: Paths) usize {
         const turn = std.math.atan2(ax * by - ay * bx, ax * bx + ay * by);
         var score: f64 = if (turn < 0) 3.0 * -turn else 0.6 * turn;
         score += 0.35 * @as(f64, @floatFromInt(v.y - ymin)) / yspan;
-        if (!below.isEmpty() and !insideAny(below, v)) score -= 2;
+        if (!below.isEmpty() and !geom.insideAny(below, v)) score -= 2;
         const better = score > best_score + 1e-9 or (@abs(score - best_score) <= 1e-9 and rearBefore(v, path[best]));
         if (better) {
             best = i;
@@ -479,25 +534,6 @@ fn walkFrom(path: []const Point, i: usize, dist: f64, forward: bool) Point {
         if (steps + 2 >= n / 2) break;
     }
     return path[j];
-}
-
-/// True if p is inside the set of polygons (a winding number other than 0).
-fn insideAny(paths: Paths, p: Point) bool {
-    var winding: i32 = 0;
-    for (0..paths.count()) |k| {
-        const poly = paths.get(k);
-        for (poly, 0..) |a, i| {
-            const b = poly[(i + 1) % poly.len];
-            if (a.y <= p.y) {
-                if (b.y > p.y and cross3(a, b, p) > 0) winding += 1;
-            } else if (b.y <= p.y and cross3(a, b, p) < 0) winding -= 1;
-        }
-    }
-    return winding != 0;
-}
-
-fn cross3(a: Point, b: Point, p: Point) i128 {
-    return @as(i128, b.x - a.x) * @as(i128, p.y - a.y) - @as(i128, p.x - a.x) * @as(i128, b.y - a.y);
 }
 
 fn rearBefore(a: Point, b: Point) bool {

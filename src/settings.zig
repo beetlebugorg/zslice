@@ -24,7 +24,7 @@
 const std = @import("std");
 const flow = @import("flow.zig");
 
-pub const InfillPattern = enum { lines, grid, triangles, cubic, gyroid, concentric };
+pub const InfillPattern = enum { lines, grid, triangles, cubic, gyroid, concentric, honeycomb, zigzag, flow };
 pub const SeamMode = enum { hidden, sharpest, rear, nearest, random };
 /// How the top and bottom skin is filled. See `Project.skin_pattern`.
 pub const SkinPattern = enum { lines, monotonic, concentric };
@@ -226,7 +226,12 @@ pub const Project = struct {
     /// `cubic`: three directions that move with the height, so the infill
     /// makes cubes in 3D. `gyroid`: smooth curves that change with the
     /// height, strong in all directions. `concentric`: loops that follow
-    /// the outline.
+    /// the outline. `honeycomb`: hexagon cells, the same on all layers.
+    /// `zigzag`: the lines of `lines`, joined at the walls into one path,
+    /// so the nozzle does not travel or retract between them. `flow`: the
+    /// zigzag, with twice the density under each top surface (a band of 3
+    /// times the top thickness, at least 2 mm), where the top skin needs
+    /// it, and the density of the setting in the middle.
     infill_pattern: InfillPattern = .grid,
     /// The angle of the infill and skin lines, in degrees from the X axis.
     infill_angle: f64 = 45,
