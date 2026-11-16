@@ -61,6 +61,35 @@ pub fn forEach(threads: usize, n: usize, ctx: anytype, comptime func: fn (@TypeO
     if (shared.failed.load(.acquire)) return shared.err;
 }
 
+/// A counter that threads wait on: a thread reads the counter, checks its
+/// condition, and waits until the counter changes. Another thread changes
+/// the state, then calls `notify`. On Linux, the wait sleeps in the kernel
+/// (a futex). On other systems, it gives the CPU to another thread.
+pub const Signal = struct {
+    seq: std.atomic.Value(u32) = .init(0),
+
+    pub fn current(s: *const Signal) u32 {
+        return s.seq.load(.acquire);
+    }
+
+    /// Waits until the counter is not `seen`, or at most 1 ms.
+    pub fn wait(s: *Signal, seen: u32) void {
+        if (builtin.os.tag == .linux) {
+            const ts: std.os.linux.timespec = .{ .sec = 0, .nsec = 1_000_000 };
+            _ = std.os.linux.futex_4arg(&s.seq.raw, .{ .cmd = .WAIT, .private = true }, seen, &ts);
+        } else if (has_threads) {
+            std.Thread.yield() catch {};
+        }
+    }
+
+    pub fn notify(s: *Signal) void {
+        _ = s.seq.fetchAdd(1, .release);
+        if (builtin.os.tag == .linux) {
+            _ = std.os.linux.futex_3arg(&s.seq.raw, .{ .cmd = .WAKE, .private = true }, std.math.maxInt(i32));
+        }
+    }
+};
+
 test "forEach visits each index once" {
     var hits: [1000]std.atomic.Value(u32) = undefined;
     for (&hits) |*h| h.* = .init(0);

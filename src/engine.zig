@@ -509,45 +509,127 @@ pub const Job = struct {
         try em.begin(self.layers.len);
 
         var reporter: Reporter = .{ .monitor = self.monitor, .base = pass1_share, .span = 1 - pass1_share, .total = self.layers.len };
-        const batch = @max(8, self.threads * 4);
-        const plans = try gpa.alloc(?LayerPlan, batch);
-        defer gpa.free(plans);
-        @memset(plans, null);
-        defer for (plans) |*p| if (p.*) |*lp| lp.deinit();
+        // The planned layers wait in a ring of slots for the emitter. The
+        // ring holds a few layers for each thread: enough to keep the
+        // threads busy, and a small part of the memory of all plans.
+        const window = @max(8, self.threads * 4);
+        const slots = try gpa.alloc(Slot, window);
+        defer gpa.free(slots);
+        for (slots) |*sl| sl.* = .{};
+        defer for (slots) |*sl| if (sl.plan) |*lp| lp.deinit();
+        var pipe: Pipeline = .{ .gpa = gpa, .ctx = self.planContext(), .slots = slots, .n = self.layers.len, .monitor = self.monitor };
 
-        const Pass2 = struct {
-            gpa: Allocator,
-            ctx: layer_mod.Context,
-            plans: []?LayerPlan,
-            start: usize,
-
-            fn run(c: *const @This(), i: usize) anyerror!void {
-                c.plans[i] = try layer_mod.plan(c.gpa, c.ctx, c.start + i);
-            }
+        // The other threads plan layers. This thread writes the layers in
+        // order, and plans a layer itself while the next one is not ready.
+        var pool: [64]if (parallel.has_threads) std.Thread else void = undefined;
+        var spawned: usize = 0;
+        defer if (comptime parallel.has_threads) {
+            pipe.stop.store(true, .release);
+            pipe.signal.notify();
+            for (pool[0..spawned]) |t| t.join();
         };
-        var start: usize = 0;
-        while (start < self.layers.len) : (start += batch) {
-            if (self.monitor.canceled()) return error.Canceled;
-            const n = @min(batch, self.layers.len - start);
-            const c: Pass2 = .{ .gpa = gpa, .ctx = self.planContext(), .plans = plans[0..n], .start = start };
-            parallel.forEach(self.threads, n, &c, Pass2.run) catch |e| return @as(Error, @errorCast(e));
-            for (plans[0..n]) |*p| {
-                if (sink != null) {
-                    record.clearRetainingCapacity();
-                    try record.ensureTotalCapacity(gpa, p.*.?.paths.items.len);
-                }
-                try em.layer(&p.*.?);
-                if (sink) |sk| sk.func(sk.ctx, &p.*.?, record.items) catch |e| return @as(Error, @errorCast(e));
-                p.*.?.deinit();
-                p.* = null;
+        if (comptime parallel.has_threads) {
+            const want = @min(self.threads, pool.len + 1, self.layers.len) -| 1;
+            while (spawned < want) : (spawned += 1) {
+                pool[spawned] = std.Thread.spawn(.{}, Pipeline.work, .{&pipe}) catch break;
             }
-            reporter.step(n);
+        }
+        for (0..self.layers.len) |i| {
+            const slot = &slots[i % window];
+            while (slot.ready.load(.acquire) != i + 1) {
+                if (pipe.failed()) |e| return e;
+                if (self.monitor.canceled()) return error.Canceled;
+                const seen = pipe.signal.current();
+                if (slot.ready.load(.acquire) == i + 1) break;
+                if (!pipe.planOne()) pipe.signal.wait(seen);
+            }
+            if (pipe.failed()) |e| return e;
+            const lp = &slot.plan.?;
+            if (sink != null) {
+                record.clearRetainingCapacity();
+                try record.ensureTotalCapacity(gpa, lp.paths.items.len);
+            }
+            try em.layer(lp);
+            if (sink) |sk| sk.func(sk.ctx, lp, record.items) catch |e| return @as(Error, @errorCast(e));
+            lp.deinit();
+            slot.plan = null;
+            // The slot is free for layer i + window.
+            pipe.emitted.store(i + 1, .release);
+            pipe.signal.notify();
+            reporter.step(1);
         }
         try em.end();
         // The work memory of the booleans and offsets goes back to the
         // operating system (see scratch.zig).
         scratch.trim();
         return em.stats;
+    }
+};
+
+/// A slot of the plan ring: `ready` is i + 1 when the plan of layer i is
+/// in the slot.
+const Slot = struct {
+    plan: ?LayerPlan = null,
+    ready: std.atomic.Value(usize) = .init(0),
+};
+
+/// Pass 2 with the emitter in parallel. Each thread takes the next layer
+/// from one counter and plans it into its slot of the ring. Layer i uses
+/// slot i mod (ring size), so a thread waits until the emitter has written
+/// layer i - (ring size). The plan of a layer depends only on its index,
+/// so the output is the same for each thread count.
+const Pipeline = struct {
+    gpa: Allocator,
+    ctx: layer_mod.Context,
+    slots: []Slot,
+    n: usize,
+    monitor: Monitor,
+    next: std.atomic.Value(usize) = .init(0),
+    /// The number of layers that the emitter has written.
+    emitted: std.atomic.Value(usize) = .init(0),
+    stop: std.atomic.Value(bool) = .init(false),
+    /// The first error, as an error code, or 0.
+    err_code: std.atomic.Value(u16) = .init(0),
+    /// Changes when a plan is ready, a slot is free, or an error happens.
+    signal: parallel.Signal = .{},
+
+    fn failed(p: *Pipeline) ?Error {
+        const code = p.err_code.load(.acquire);
+        if (code == 0) return null;
+        return @errorCast(@errorFromInt(code));
+    }
+
+    fn work(p: *Pipeline) void {
+        while (!p.stop.load(.acquire) and p.failed() == null) {
+            if (p.next.load(.monotonic) >= p.n) return;
+            const seen = p.signal.current();
+            if (!p.planOne()) p.signal.wait(seen);
+        }
+    }
+
+    /// Plans the next layer if its slot is free. Returns false if there
+    /// was nothing to do now.
+    fn planOne(p: *Pipeline) bool {
+        const i = p.next.load(.monotonic);
+        if (i >= p.n or i >= p.emitted.load(.acquire) + p.slots.len) return false;
+        if (p.next.cmpxchgWeak(i, i + 1, .monotonic, .monotonic) != null) return true;
+        if (p.monitor.canceled()) {
+            p.fail(error.Canceled);
+            return true;
+        }
+        const slot = &p.slots[i % p.slots.len];
+        slot.plan = layer_mod.plan(p.gpa, p.ctx, i) catch |e| {
+            p.fail(e);
+            return true;
+        };
+        slot.ready.store(i + 1, .release);
+        p.signal.notify();
+        return true;
+    }
+
+    fn fail(p: *Pipeline, e: Error) void {
+        _ = p.err_code.cmpxchgStrong(0, @intFromError(e), .acq_rel, .monotonic);
+        p.signal.notify();
     }
 };
 
