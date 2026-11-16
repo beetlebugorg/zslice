@@ -22,5 +22,13 @@ void zg_view3d_reload(GtkWidget *view);
  * TRUE for one color for each feature. */
 void zg_view3d_set_feature_colors(GtkWidget *view, gboolean features);
 
+/* Replay: shows the print at t seconds after the start (see
+ * zs_view_set_time). */
+void zg_view3d_set_time(GtkWidget *view, double t);
+/* The replay length in seconds, or 0 if the view has no data. */
+double zg_view3d_duration(GtkWidget *view);
+/* The layer that the nozzle prints at time t. */
+size_t zg_view3d_layer_at_time(GtkWidget *view, double t);
+
 /* Shows the layers from 0 to `layer`. */
 void zg_view3d_set_layer(GtkWidget *view, size_t layer);

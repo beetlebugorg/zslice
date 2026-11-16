@@ -58,6 +58,12 @@ After a new slice, the path numbers change. The GTK shell keeps the layer and a 
 
 Development option of the GTK shell: `ZSLICE_PICK=x,y` picks at a pixel of the 3D view after the first load.
 
+## Replay
+
+`zs_view_set_time(view, t)` shows the print as it is t seconds after the start: each bead that is done, and the part of the bead that the nozzle is printing. The times come from the G-code emitter, with the cooling slow-down, so the replay follows the G-code. A shell moves t on each frame while it plays (GTK: a frame-clock tick callback, at a speed of 1x to 100x), and shows `zs_view_layer_at_time` on its layer slider. `zs_view_set_layer` ends the replay.
+
+Development option of the GTK shell: `ZSLICE_TIME=t` shows the replay at t seconds before the first frame.
+
 ## The preview colors
 
 All shells use the same colors, in the order of `enum zs_feature`:

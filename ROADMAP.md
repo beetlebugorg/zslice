@@ -90,7 +90,8 @@ The goal is the features that people use in PrusaSlicer and Cura. zslice designs
 - [ ] 3D view: X11, the model mesh before the slice, pan, a level of detail for beads smaller than a pixel
 - [ ] 3D view, physics not modeled yet: the seam blob, sag on overhangs and bridges, stringing, corner rounding by acceleration
 - [x] Click a path in the 2D or 3D view to inspect it: its real values with the reasons, and the settings that change it, editable in place
-- [ ] Replay: play the print in the 3D view, line by line, at 1x, 2x, 3x (and faster), from the move times of the G-code
+- [x] Replay: play the print in the 3D view, line by line, at 1x, 2x, 3x, 10x, 30x, 100x, from the move times of the G-code
+- [ ] Replay: a nozzle marker, and the time estimate with acceleration (the replay is as exact as the time estimate)
 - [ ] macOS and iOS shell: SwiftUI (`apple/`)
 - [ ] Windows shell: Win32 C++ (`windows/`)
 - [ ] Android shell: Kotlin (`android/`)

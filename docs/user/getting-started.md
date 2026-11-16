@@ -104,6 +104,10 @@ Layer numbers start at 0. If the number is too large, zslice shows the number of
 
 In the app, click a line in the 2D or 3D view. The Selected page shows what the line is (for example the outer wall on layer 12), its real width, speed, and plastic flow, why they have these values, and the settings that change it. Change a setting there, and the app slices again and shows the new values for the same line.
 
+## Watch the print
+
+In the app, press the play button under the 3D and 2D switch. The 3D view shows the print as it grows, line by line, at the speed in the list (1x is the real speed). The layer slider follows. Move the slider to stop.
+
 ## Try the demo part
 
 ```sh

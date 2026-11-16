@@ -660,6 +660,28 @@ export fn zs_view_highlight(view: ?*View, path: usize) void {
     v.setHighlight(if (path == std.math.maxInt(usize)) null else path);
 }
 
+/// Replay: show the print at t seconds after the start. A negative t
+/// returns to whole layers.
+export fn zs_view_set_time(view: ?*View, t: f64) void {
+    if (!render_on) return;
+    const v = view orelse return;
+    if (t < 0) v.time = null else v.setTime(@floatCast(t));
+}
+
+/// The replay length: the print time at the end of the last bead.
+export fn zs_view_duration(view: ?*const View) f64 {
+    if (!render_on) return 0;
+    const v = view orelse return 0;
+    return v.duration();
+}
+
+/// The layer that the nozzle prints at time t.
+export fn zs_view_layer_at_time(view: ?*const View, t: f64) usize {
+    if (!render_on) return 0;
+    const v = view orelse return 0;
+    return v.layerAtTime(@floatCast(t));
+}
+
 /// The path under the pixel (px, py), or (size_t)-1.
 export fn zs_view_pick(view: ?*View, px: f32, py: f32) usize {
     if (!render_on) return std.math.maxInt(usize);

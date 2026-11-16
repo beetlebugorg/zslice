@@ -32,6 +32,13 @@ typedef struct {
     double press_x, press_y;
     gboolean fitted;
     gboolean updating_slider;
+    /* The replay. */
+    GtkWidget *stack;
+    GtkWidget *play;
+    GtkWidget *speed;
+    guint tick;
+    gint64 last_frame;
+    double time;
 } Preview;
 
 
@@ -183,6 +190,62 @@ static void draw(GtkDrawingArea *area, cairo_t *cr, int w, int h, gpointer data)
     if (state == ZS_STATE_FAILED) draw_message(cr, w, h, "The slice failed. See the status bar.");
 }
 
+static const double replay_speeds[] = {1, 2, 3, 10, 30, 100};
+
+static void stop_replay(Preview *p) {
+    if (p->tick) gtk_widget_remove_tick_callback(p->view3d, p->tick);
+    p->tick = 0;
+    gtk_button_set_icon_name(GTK_BUTTON(p->play), "media-playback-start-symbolic");
+}
+
+static void show_time(Preview *p, size_t layer) {
+    double total = zg_view3d_duration(p->view3d);
+    int t = (int)p->time, d = (int)total;
+    char *text = g_strdup_printf("Layer %zu of %zu\n%d:%02d:%02d of %d:%02d:%02d", layer + 1, p->layer_count,
+                                 t / 3600, t / 60 % 60, t % 60, d / 3600, d / 60 % 60, d % 60);
+    gtk_label_set_text(GTK_LABEL(p->label), text);
+    g_free(text);
+}
+
+static gboolean on_tick(GtkWidget *w, GdkFrameClock *clock, gpointer data) {
+    Preview *p = data;
+    gint64 now = gdk_frame_clock_get_frame_time(clock);
+    double dt = p->last_frame ? (now - p->last_frame) / 1e6 : 0;
+    p->last_frame = now;
+    guint k = gtk_drop_down_get_selected(GTK_DROP_DOWN(p->speed));
+    p->time += dt * replay_speeds[k < G_N_ELEMENTS(replay_speeds) ? k : 0];
+    double total = zg_view3d_duration(p->view3d);
+    if (p->time >= total) p->time = total;
+    zg_view3d_set_time(p->view3d, p->time);
+    size_t layer = zg_view3d_layer_at_time(p->view3d, p->time);
+    p->updating_slider = TRUE;
+    gtk_range_set_value(GTK_RANGE(p->slider), (double)layer);
+    p->updating_slider = FALSE;
+    show_time(p, layer);
+    if (p->time >= total) {
+        p->tick = 0;
+        gtk_button_set_icon_name(GTK_BUTTON(p->play), "media-playback-start-symbolic");
+        return G_SOURCE_REMOVE;
+    }
+    return G_SOURCE_CONTINUE;
+}
+
+static void on_play(GtkButton *b, gpointer data) {
+    Preview *p = data;
+    if (p->tick) {
+        stop_replay(p);
+        return;
+    }
+    if (zs_app_state(zg_model_core(p->model)) != ZS_STATE_DONE) return;
+    gtk_stack_set_visible_child_name(GTK_STACK(p->stack), "3d");
+    double total = zg_view3d_duration(p->view3d);
+    if (total <= 0) return;
+    if (p->time >= total) p->time = 0;
+    p->last_frame = 0;
+    p->tick = gtk_widget_add_tick_callback(p->view3d, on_tick, p, NULL);
+    gtk_button_set_icon_name(GTK_BUTTON(p->play), "media-playback-pause-symbolic");
+}
+
 static void on_colors(GtkToggleButton *b, gpointer data) {
     Preview *p = data;
     zg_view3d_set_feature_colors(p->view3d, gtk_toggle_button_get_active(b));
@@ -191,6 +254,9 @@ static void on_colors(GtkToggleButton *b, gpointer data) {
 static void on_slider(GtkRange *range, gpointer data) {
     Preview *p = data;
     if (p->updating_slider) return;
+    /* A move of the slider stops the replay, and shows whole layers. */
+    stop_replay(p);
+    p->time = 0;
     size_t layer = (size_t)gtk_range_get_value(range);
     load_layer(p, layer);
     zg_view3d_set_layer(p->view3d, layer);
@@ -259,6 +325,7 @@ static void on_selection(ZgModel *model, gint64 path, gpointer data) {
 
 static void preview_free(gpointer data) {
     Preview *p = data;
+    if (p->tick) gtk_widget_remove_tick_callback(p->view3d, p->tick);
     g_signal_handlers_disconnect_by_data(p->model, p);
     free_paths(p);
     g_object_unref(p->model);
@@ -307,6 +374,7 @@ GtkWidget *zg_preview_new(ZgModel *model) {
     /* The 2D layer view and the 3D view, with one slider for both. */
     p->view3d = zg_view3d_new(model);
     GtkWidget *stack = gtk_stack_new();
+    p->stack = stack;
     gtk_stack_add_titled(GTK_STACK(stack), p->area, "2d", "2D");
     gtk_stack_add_titled(GTK_STACK(stack), p->view3d, "3d", "3D");
     gtk_widget_set_hexpand(stack, TRUE);
@@ -326,6 +394,20 @@ GtkWidget *zg_preview_new(ZgModel *model) {
     gtk_widget_set_tooltip_text(colors, "Off: the filament color, as the print will look. On: one color for each feature (walls, skin, infill, ...).");
     g_signal_connect(colors, "toggled", G_CALLBACK(on_colors), p);
     gtk_box_append(GTK_BOX(side), colors);
+    /* The replay: play and pause, and the speed. */
+    p->play = gtk_button_new_from_icon_name("media-playback-start-symbolic");
+    gtk_widget_set_tooltip_text(p->play, "Replay the print in the 3D view, line by line, at the speed on the right.");
+    g_signal_connect(p->play, "clicked", G_CALLBACK(on_play), p);
+    const char *speeds[] = {"1\u00d7", "2\u00d7", "3\u00d7", "10\u00d7", "30\u00d7", "100\u00d7", NULL};
+    p->speed = gtk_drop_down_new_from_strings(speeds);
+    gtk_drop_down_set_selected(GTK_DROP_DOWN(p->speed), 3);
+    gtk_widget_set_tooltip_text(p->speed, "The replay speed: 1x is the real print speed.");
+    GtkWidget *replay = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 4);
+    gtk_box_append(GTK_BOX(replay), p->play);
+    gtk_box_append(GTK_BOX(replay), p->speed);
+    gtk_widget_set_hexpand(side, FALSE);
+    gtk_widget_set_size_request(side, 170, -1);
+    gtk_box_append(GTK_BOX(side), replay);
     gtk_box_append(GTK_BOX(side), p->label);
     gtk_box_append(GTK_BOX(side), p->slider);
 

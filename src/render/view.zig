@@ -57,8 +57,12 @@ pub const View = struct {
     /// beads of path i are path_start[i] to path_start[i + 1].
     path_start: std.ArrayList(u32) = .empty,
     highlight: [2]f32 = .{ 0, 0 },
-    /// A copy of the beads, for `pick`.
+    /// A copy of the beads, for `pick` and the replay.
     beads: std.ArrayList(vk.Instance) = .empty,
+    /// The print time (s) at the end of each bead, for the replay.
+    bead_end: std.ArrayList(f32) = .empty,
+    /// The replay time (s), or null to show whole layers.
+    time: ?f32 = null,
     layer: usize = 0,
     grid_vertices: u32 = 0,
     width: u32,
@@ -86,6 +90,7 @@ pub const View = struct {
         v.layer_end.deinit(gpa);
         v.path_start.deinit(gpa);
         v.beads.deinit(gpa);
+        v.bead_end.deinit(gpa);
         v.renderer.deinit();
         gpa.destroy(v);
     }
@@ -169,6 +174,7 @@ pub const View = struct {
         var boxes = v.beads;
         boxes.clearRetainingCapacity();
         defer v.beads = boxes;
+        v.bead_end.clearRetainingCapacity();
         v.layer_end.clearRetainingCapacity();
         v.path_start.clearRetainingCapacity();
         var zmax: f32 = 0;
@@ -189,9 +195,22 @@ pub const View = struct {
                 if (!(w > 0)) continue;
                 const closed = tp.path_closed.items[pi] != 0 and end - start > 2;
                 const segs = end - start - 1 + @as(u32, @intFromBool(closed));
+                // The times of the beads: the path time, spread over its
+                // segments by length (the speed is the same along a path).
+                var path_len: f32 = 0;
                 for (0..segs) |k| {
                     const a = start + @as(u32, @intCast(k));
                     const b = if (a + 1 < end) a + 1 else start;
+                    path_len += std.math.hypot(pts[2 * b] - pts[2 * a], pts[2 * b + 1] - pts[2 * a + 1]);
+                }
+                const t0 = tp.path_start_time.items[pi];
+                const t1 = tp.path_end_time.items[pi];
+                var run: f32 = 0;
+                for (0..segs) |k| {
+                    const a = start + @as(u32, @intCast(k));
+                    const b = if (a + 1 < end) a + 1 else start;
+                    run += std.math.hypot(pts[2 * b] - pts[2 * a], pts[2 * b + 1] - pts[2 * a + 1]);
+                    v.bead_end.append(gpa, if (path_len > 0) t0 + (t1 - t0) * run / path_len else t1) catch return error.OutOfMemory;
                     boxes.append(gpa, .{
                         .ax = center[0] + (pts[2 * a] - center[0]) * sxy,
                         .ay = center[1] + (pts[2 * a + 1] - center[1]) * sxy,
@@ -251,9 +270,41 @@ pub const View = struct {
         v.grid_vertices = @intCast(pts.items.len / 3);
     }
 
-    /// Shows the layers 0 to `layer`.
+    /// Shows the layers 0 to `layer`, and stops the replay.
     pub fn setLayer(v: *View, layer: usize) void {
         v.layer = layer;
+        v.time = null;
+    }
+
+    /// Shows the print as it is at `t` seconds after the start: each bead
+    /// that is done, and the part of the bead that the nozzle is printing.
+    pub fn setTime(v: *View, t: f32) void {
+        v.time = t;
+    }
+
+    /// The time (s) at the end of the last bead.
+    pub fn duration(v: *const View) f32 {
+        if (v.bead_end.items.len == 0) return 0;
+        return v.bead_end.items[v.bead_end.items.len - 1];
+    }
+
+    /// The layer that the nozzle prints at time `t`.
+    pub fn layerAtTime(v: *const View, t: f32) usize {
+        const n = v.beadsDoneAt(t);
+        var layer: usize = 0;
+        while (layer + 1 < v.layer_end.items.len and v.layer_end.items[layer] <= n) layer += 1;
+        return layer;
+    }
+
+    /// The number of beads that are done at time t.
+    fn beadsDoneAt(v: *const View, t: f32) usize {
+        var lo: usize = 0;
+        var hi: usize = v.bead_end.items.len;
+        while (lo < hi) {
+            const mid = (lo + hi) / 2;
+            if (v.bead_end.items[mid] <= t) lo = mid + 1 else hi = mid;
+        }
+        return lo;
     }
 
     /// Turns the camera by a drag of dx, dy pixels.
@@ -342,8 +393,26 @@ pub const View = struct {
         const view = lookAt(eye, v.target, .{ 0, 0, 1 });
         const mvp = mul(proj, view);
         var count: u32 = 0;
-        if (v.layer_end.items.len > 0) count = v.layer_end.items[@min(v.layer, v.layer_end.items.len - 1)];
+        var partial: ?vk.Instance = null;
+        if (v.time) |t| {
+            const done = v.beadsDoneAt(t);
+            count = @intCast(done);
+            if (done < v.beads.items.len) {
+                const t_start = if (done == 0) 0 else v.bead_end.items[done - 1];
+                const t_end = v.bead_end.items[done];
+                if (t > t_start and t_end > t_start) {
+                    var b = v.beads.items[done];
+                    const f = @min(1, (t - t_start) / (t_end - t_start));
+                    b.bx = b.ax + (b.bx - b.ax) * f;
+                    b.by = b.ay + (b.by - b.ay) * f;
+                    partial = b;
+                }
+            }
+        } else if (v.layer_end.items.len > 0) {
+            count = v.layer_end.items[@min(v.layer, v.layer_end.items.len - 1)];
+        }
         try v.renderer.draw(.{
+            .partial = partial,
             .clear = .{ 0.965, 0.969, 0.973 },
             // A light from above, in front, and to the right.
             .box = .{ .mvp = mvp, .vec = .{ 0.35, -0.45, 0.82, 0 }, .eye = .{ eye[0], eye[1], eye[2], 0 }, .params = .{ v.highlight[0], v.highlight[1], 0, 0 } },
@@ -482,4 +551,16 @@ test "pick finds the nearest bead under the pixel" {
     // With only layer 0 shown, the middle ray misses path 0 (it is lower).
     v.layer = 0;
     try std.testing.expectEqual(@as(?usize, null), v.pick(50, 50));
+}
+
+test "the replay shows the beads that are done" {
+    const gpa = View.gpa;
+    var v: View = .{ .renderer = undefined, .width = 100, .height = 100 };
+    defer v.bead_end.deinit(gpa);
+    try v.bead_end.appendSlice(gpa, &.{ 1, 2, 3, 4 });
+    try std.testing.expectEqual(@as(usize, 0), v.beadsDoneAt(0.5));
+    try std.testing.expectEqual(@as(usize, 2), v.beadsDoneAt(2));
+    try std.testing.expectEqual(@as(usize, 2), v.beadsDoneAt(2.5));
+    try std.testing.expectEqual(@as(usize, 4), v.beadsDoneAt(9));
+    try std.testing.expectEqual(@as(f32, 4), v.duration());
 }

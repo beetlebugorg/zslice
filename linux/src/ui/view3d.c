@@ -30,6 +30,7 @@ typedef struct {
     gboolean features;
     gboolean zoomed;
     gboolean picked;
+    gboolean timed;
     gboolean have_data;
     guint idle;
     double drag_x, drag_y;
@@ -39,6 +40,13 @@ typedef struct {
 static gboolean draw_now(gpointer data) {
     View3d *v = data;
     v->idle = 0;
+    /* For development and screenshots: ZSLICE_TIME=t shows the replay at t
+     * seconds, once, before the first frame with data. */
+    const char *time = g_getenv("ZSLICE_TIME");
+    if (time && v->view && !v->timed && zs_view_duration(v->view) > 0) {
+        zs_view_set_time(v->view, g_ascii_strtod(time, NULL));
+        v->timed = TRUE;
+    }
     if (v->view) {
         int rc = zs_view_draw(v->view);
         if (rc != ZS_OK) g_warning("zslice: the 3D view did not draw: %s", zg_status_text(rc));
@@ -187,10 +195,28 @@ void zg_view3d_reload(GtkWidget *view) {
     load_data(v);
 }
 
+void zg_view3d_set_time(GtkWidget *view, double t) {
+    View3d *v = g_object_get_data(G_OBJECT(view), "zg-view3d");
+    if (!v->view) return;
+    zs_view_set_time(v->view, t);
+    queue_frame(v);
+}
+
+double zg_view3d_duration(GtkWidget *view) {
+    View3d *v = g_object_get_data(G_OBJECT(view), "zg-view3d");
+    return v->view ? zs_view_duration(v->view) : 0;
+}
+
+size_t zg_view3d_layer_at_time(GtkWidget *view, double t) {
+    View3d *v = g_object_get_data(G_OBJECT(view), "zg-view3d");
+    return v->view ? zs_view_layer_at_time(v->view, t) : 0;
+}
+
 void zg_view3d_set_layer(GtkWidget *view, size_t layer) {
     View3d *v = g_object_get_data(G_OBJECT(view), "zg-view3d");
     v->layer = layer;
     if (v->view) zs_view_set_layer(v->view, layer);
+
     queue_frame(v);
 }
 

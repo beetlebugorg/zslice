@@ -257,6 +257,14 @@ void zs_view_set_mode(zs_view *view, int mode);
 /* Highlights the beads of one path (an index into zs_app_toolpaths), or
  * nothing if path is (size_t)-1. */
 void zs_view_highlight(zs_view *view, size_t path);
+/* Replay: shows the print as it is t seconds after the start, with the
+ * bead that the nozzle is printing cut to its printed part. A negative t
+ * returns to whole layers. zs_view_set_layer also returns to whole layers. */
+void zs_view_set_time(zs_view *view, double t);
+/* The replay length in seconds (the end of the last bead). */
+double zs_view_duration(const zs_view *view);
+/* The layer that the nozzle prints at time t. */
+size_t zs_view_layer_at_time(const zs_view *view, double t);
 /* The path under the pixel (px, py) (pixels from the top left), or
  * (size_t)-1. */
 size_t zs_view_pick(zs_view *view, float px, float py);
