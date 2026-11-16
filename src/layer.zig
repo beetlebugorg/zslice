@@ -691,7 +691,9 @@ pub fn plan(gpa: Allocator, ctx: Context, i: usize) Allocator.Error!LayerPlan {
                         // narrow band the joins are longer than the
                         // lines. The travels between them stay in the
                         // infill (combing).
-                        const extra = try infill.linesPhase(s, near, spacing, angle, half, w);
+                        // A short extra line supports almost nothing and
+                        // costs a travel: the shortest is 4 line widths.
+                        const extra = try infill.linesPhase(s, near, spacing, angle, half, 4 * w);
                         try sparse_lines.appendAll(s, extra);
                     }
                 }

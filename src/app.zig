@@ -765,7 +765,11 @@ pub const App = struct {
             } else if (in_layer and std.mem.startsWith(u8, line, "G1 X")) {
                 if (parseXY(line)) |xy| {
                     if (first == null) {
-                        if (@abs(xy[0] - p1[0]) < 0.002 and @abs(xy[1] - p1[1]) < 0.002) first = n;
+                        if (@abs(xy[0] - p1[0]) < 0.002 and @abs(xy[1] - p1[1]) < 0.002) {
+                            first = n;
+                            // A path of one segment ends at its second point.
+                            if (li == start + 1) return .{ n -| 1, n };
+                        }
                     } else if (@abs(xy[0] - pn[0]) < 0.002 and @abs(xy[1] - pn[1]) < 0.002) {
                         return .{ first.? -| 1, n };
                     }
