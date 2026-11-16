@@ -1431,6 +1431,8 @@ test "app: a 3MF file keeps the parts, the places, and the changes" {
     _ = try app.addStl("b.stl", stl.written());
     try app.movePart(1, 60, 50);
     try app.setOverride(-zs.settings.part_z, zs.settings.part_z, "project.infill_density", "0.35");
+    try app.setOverride(2.1 - 1e-3, zs.settings.part_z, "project.layer_height", "0.1");
+    try app.setOverride(1.5, 2.5, "filament.nozzle_temp", "225");
     const bytes = try gpa.dupe(u8, try app.write3mf());
     defer gpa.free(bytes);
 
@@ -1441,8 +1443,16 @@ test "app: a 3MF file keeps the parts, the places, and the changes" {
     const p = back.plate.parts.items[1];
     try std.testing.expectApproxEqAbs(@as(f64, 60), p.x, 1e-3);
     try std.testing.expectApproxEqAbs(@as(f64, 50), p.y, 1e-3);
-    try std.testing.expectEqual(@as(usize, 1), back.overrides.items.len);
+    try std.testing.expectEqual(@as(usize, 3), back.overrides.items.len);
     try std.testing.expectEqualStrings("0.35", back.overrides.items[0].value);
+    try std.testing.expectEqualStrings("project.layer_height", back.overrides.items[1].name);
+    try std.testing.expectApproxEqAbs(@as(f64, 2.1 - 1e-3), back.overrides.items[1].z_min, 1e-9);
+    try std.testing.expectEqualStrings("225", back.overrides.items[2].value);
+    // The slice has the thin layers at the top.
+    try back.startSlice();
+    back.stopWorkerForTest();
+    const t = back.allToolpaths().?;
+    try std.testing.expectApproxEqAbs(@as(f32, 0.1), t.layer_height.items[t.layer_height.items.len - 1], 1e-6);
 }
 
 test "a plate of two parts slices as one print" {
