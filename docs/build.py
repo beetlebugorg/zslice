@@ -88,6 +88,16 @@ def slug(text):
     return re.sub(r"[^\w\- ]", "", html.unescape(text).lower()).replace(" ", "-")
 
 
+def image_link(url, src_dir, root):
+    """A picture in docs/ is a file of the site: a path from the page."""
+    if re.match(r"^https?:", url):
+        return url
+    path = posixpath.normpath(posixpath.join(src_dir, url))
+    if path.startswith("docs/"):
+        return root + path[len("docs/"):]
+    return fix_link(url, src_dir, root)
+
+
 def inline(text, src_dir, root):
     codes = []
 
@@ -99,6 +109,9 @@ def inline(text, src_dir, root):
     t = esc(t, quote=False)
     t = re.sub(r"\*\*(.+?)\*\*", r"<strong>\1</strong>", t)
     t = re.sub(r"(?<![\w*])\*(?![\s*])(.+?)(?<![\s*])\*(?![\w*])", r"<em>\1</em>", t)
+    # Images: ![alt](path), before the links.
+    t = re.sub(r"!\[([^\]]*)\]\(([^)\s]+)\)",
+               lambda m: f'<img src="{esc(image_link(html.unescape(m.group(2)), src_dir, root))}" alt="{m.group(1)}" loading="lazy">', t)
     t = re.sub(r"\[([^\]]+)\]\(([^)\s]+)\)",
                lambda m: f'<a href="{esc(fix_link(html.unescape(m.group(2)), src_dir, root))}">{m.group(1)}</a>', t)
     t = re.sub(r'(?<!["\'>=])(https?://[^\s<)]+?)([.,;:]?)(?=[\s<)]|$)', r'<a href="\1">\1</a>\2', t)
@@ -489,11 +502,13 @@ def landing():
     sec = sections(src)
     intro = Markdown("", root).convert(re.sub(r"^# .*\n", "", sec[""]))
     paras = re.findall(r"<p>(.*?)</p>", intro, re.S)
+    # The README picture under the title: the site has its own hero image.
+    paras = [p for p in paras if not re.fullmatch(r"\s*<img [^>]*>\s*", p)]
     lede, rest = paras[0], "\n".join(f"<p>{p}</p>" for p in paras[1:])
     conv = Markdown("", root)
     conv.ids.update({"docs", "documentation"})
     parts = []
-    for title in ("Build", "Command line", "Settings", "Embedding", "License"):
+    for title in ("Features", "Build", "Command line", "Settings", "Embedding", "License"):
         if title not in sec:
             sys.exit(f"{src}: no section {title!r}")
         parts.append(f'<h2 id="{conv.heading_id(title)}">{esc(title)}</h2>')

@@ -43,7 +43,7 @@
 <main>
 <p class="eyebrow">Documentation</p>
 <h1>zslice</h1>
-<p class="lede">A slicer for FDM 3D printers, written from scratch in Zig.</p>
+<p class="lede">A slicer for FDM 3D printers, written from scratch in Zig. It is fast enough to slice again while you drag a slider. Click any line of the preview to see what it is, and which settings change it.</p>
 
 <p>
   <a class="btn primary" href="user/getting-started/">Get started</a>
@@ -53,7 +53,7 @@
   <a class="btn" href="https://github.com/beetlebugorg/zslice">Source on GitHub</a>
 </p>
 <figure class="hero"><img src="img/benchy.png" alt="A boat test model, sliced by zslice" onerror="this.hidden=true"></figure>
-<p>Goals: a clean API for embedding (Zig, C, and WebAssembly), high performance, low memory use, advanced slicing features, and code that teaches how a slicer works. See <code>ROADMAP.md</code> for the status.</p>
+
 <div class="chips"><span class="chip">Zig 0.16</span><span class="chip">C API</span><span class="chip">WebAssembly</span><span class="chip">GTK4 app</span><span class="chip">AGPL-3.0-or-later</span></div>
 
 <h2 id="docs">The documentation</h2>
@@ -67,12 +67,36 @@
   <a class="card" href="references/"><b>References</b><span>The sources that zslice uses, and their licenses.</span></a>
   <a class="card" href="roadmap/"><b>Roadmap</b><span>What works now, and what comes next.</span></a>
 </div>
+<h2 id="features">Features</h2>
+<h3 id="fast">Fast</h3>
+<ul><li>A 3DBenchy (239 layers) slices in about 250 ms, and the 3D view shows it at once.</li><li>A change of a setting slices only what the change needs. A new infill value takes about 20 ms on a 108-layer part; a new wall count takes about 120 ms.</li><li>The slicer uses all CPU cores but one. It keeps its work memory in arenas, so a slice uses little memory.</li><li>A watchdog writes the stacks of all threads to a file if the window stops for 3 s. So a rare hang can be found and fixed.</li></ul>
+<h3 id="click-a-line-see-why">Click a line, see why</h3>
+<ul><li>Click a line in the 2D or 3D preview. The panel shows what the line is (for example "Outer wall · layer 97"), its planned and real speed, its flow, and only the settings that change it.</li><li>Focus a field, and the panel explains what that setting does to the selected line, with its numbers: "50 % of 150 mm/s = 75 mm/s planned. It prints at 67 mm/s: the layer is short, and it slows to cool."</li><li>The view shows all lines that the setting changes, and the selected line stays yellow.</li><li>Use the arrow keys or h, j, k, l to go from segment to segment in print order, or to the nearest line on the layer above or below.</li></ul>
+<h3 id="settings-for-one-layer-or-for-a-range-of-layers">Settings for one layer, or for a range of layers</h3>
+<ul><li>Each change in the panel is for the whole part, for this layer, for this layer and up, or for this layer and down.</li><li>For example: slower outer walls for the 10 layers of a thin tower, or a new skin direction for one layer.</li><li>A changed layer shows a reset button. The changes go into the 3MF file of the plate.</li></ul>
+<h3 id="a-settings-browser-that-shows-what-each-setting-does">A settings browser that shows what each setting does</h3>
+<p><img src="img/settings-focus.png" alt="The settings browser: Top thickness is selected, and the preview shows only the skin lines" loading="lazy"></p>
+<ul><li>Three columns: sections, settings, and help, as in a file manager column view.</li><li>Select a setting, and the preview shows the lines that it changes. The other lines fade.</li><li>Each feature in the help ("Outer wall", "Skin") is a link to all settings of those lines.</li><li>Sliders with sensible ranges, units on all values, and speeds as a ratio of what the printer and the filament allow. A ratio shows the speed that it gives: "50 % = 75 mm/s".</li></ul>
+<h3 id="a-preview-that-looks-like-the-print">A preview that looks like the print</h3>
+<ul><li>The 3D view draws each line as a bead of the real width and height. Skin lines are pressed flat, and connected lines look connected.</li><li>Color by filament, feature, speed, flow, layer time, or line width.</li><li>A two-knob layer slider: the top knob is the top layer, and the bottom knob cuts away the layers below, so you can see inside a part at any height.</li><li>Replay the print, or drag the scrub bar to move the nozzle through a layer.</li><li>Seams, travel moves, and retractions show as marks.</li></ul>
+<h3 id="slicing">Slicing</h3>
+<ul><li>Walls, with thin walls and a hidden seam (the seam goes into a corner or to the back where it is hard to see).</li><li>Skin: lines, monotonic (each line lies against the line before it, for an even top surface), or concentric. Skin expand distance and skin removal width remove gaps and thin strips.</li><li>Infill: lines, grid, triangles, cubic, gyroid, honeycomb, concentric, zigzag, and flow.</li><li>Ironing.</li><li>Support: grid or tree, with interface layers. Tree support reaches into deep, narrow holes.</li><li>Combing: a travel inside the part goes around holes and does not retract.</li><li>Cooling: a minimum layer time, by a slower print or by a cooling lap (the nozzle moves away while the fan blows on the part).</li></ul>
+<h3 id="plate-files-and-printers">Plate, files, and printers</h3>
+<ul><li>More than one part on the plate: Shift+click selects a part, Shift+drag moves it, and Shift+wheel turns it. "Arrange the plate" packs the parts.</li><li>STL and 3MF files. A 3MF save keeps the parts, their places, and their changes.</li><li>Printers: OctoPrint, Moonraker (Klipper), Printdeck, and USB serial. Send a file, or send it and print. The Printdeck link reads the filaments of the printer. Moonraker and USB are not tested on real printers yet.</li><li>Profiles for the machine, the filament, and the project, in TOML, with inheritance. A Cura profile can be imported.</li></ul>
+<h3 id="a-library-first">A library first</h3>
+<ul><li>One core in Zig, with a C API (<code>include/zslice.h</code>, <code>include/zslice-app.h</code>) and a WebAssembly build for the browser.</li><li>The GTK4 app for Linux is a thin shell over the core.</li><li>Each module explains its algorithm in its header comment. The code is also a book about how a slicer works.</li></ul>
 <h2 id="build">Build</h2>
-<p>zslice needs Zig 0.16.</p>
+<p>zslice needs Zig 0.16. The Linux app also needs GTK 4, libsoup 3, json-glib, Meson, and a Vulkan driver.</p>
 <pre><code>zig build test                      # run the tests
 zig build -Doptimize=ReleaseFast    # the command line tool: zig-out/bin/zslice
 zig build lib -Doptimize=ReleaseFast  # libzslice.a, libzslice.so, zslice.h
 zig build wasm                      # zig-out/web/zslice.wasm and zslice.mjs</code></pre>
+<p>The Linux app:</p>
+<pre><code>cd linux
+meson setup build        # builds the core too (zig build lib)
+ninja -C build
+build/zslice-gtk part.stl</code></pre>
+<p>See <a href="https://github.com/beetlebugorg/zslice/blob/master/linux/README.md">linux/README.md</a> for the packages.</p>
 <h2 id="command-line">Command line</h2>
 <pre><code>zslice slice part.stl -m generic -f generic-petg -p fine -o part.gcode
 zslice slice part.stl -o part.gcode -s project.wall_count=3 -s filament.nozzle_temp=220
@@ -107,6 +131,7 @@ const zslice = await load(wasmBytes);
 const { gcode, stats } = zslice.sliceStl(stlBytes, { "project.wall_count": 3 });</code></pre>
 <h2 id="license">License</h2>
 <p>AGPL-3.0-or-later. See <code>LICENSE</code>. The sources that zslice uses, and the licenses of the code in its binaries, are in <code>REFERENCES.md</code>.</p>
+<p>The screenshots show a slice of <a href="https://www.3dbenchy.com/">3DBenchy</a> by Creative Tools, licensed under CC BY-ND 4.0. The model is not in this repository.</p>
 <nav class="pager"><a class="next" href="contents/"><span>Next</span><b>All documents</b></a></nav>
 </main>
 </div>
