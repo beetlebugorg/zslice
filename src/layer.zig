@@ -678,142 +678,12 @@ pub fn plan(gpa: Allocator, ctx: Context, i: usize) Allocator.Error!LayerPlan {
     var sparse_loops: Paths = .empty;
     if (p.infill_density > 0 and !sparse.isEmpty()) {
         const region = try patternRegion(ctx, i, memo, reg) orelse return lp;
-        switch (p.infill_pattern) {
-            .lines => {
-                const spacing = geom.fromMm(width_mm / p.infill_density);
-                const angle = p.infill_angle + @as(f64, if (i % 2 == 0) 0 else 90);
-                const set = try infill.lines(s, region, spacing, angle, w);
-                sparse_lines = if (p.infill_connect) try infill.connect(s, region, set, spacing, angle) else set;
-            },
-            .grid => {
-                const spacing = geom.fromMm(2 * width_mm / p.infill_density);
-                for ([_]f64{ 0, 90 }) |turn| {
-                    const set = try infill.lines(s, region, spacing, p.infill_angle + turn, w);
-                    const joined = if (p.infill_connect) try infill.connect(s, region, set, spacing, p.infill_angle + turn) else set;
-                    try sparse_lines.appendAll(s, joined);
-                }
-            },
-            .triangles, .cubic => {
-                // Three line sets, so each set is 3 times as far apart as
-                // one set of the same density.
-                const spacing = geom.fromMm(3 * width_mm / p.infill_density);
-                const step: f64 = if (p.infill_pattern == .triangles) 60 else 120;
-                // Cubic: each set moves along its normal by the layer
-                // height, so the lines of the layers make planes at 45
-                // degrees, and three such planes make cubes on a corner.
-                const phase: i64 = if (p.infill_pattern == .cubic) geom.fromMm(layer.z) else 0;
-                for (0..3) |k| {
-                    const angle = p.infill_angle + step * @as(f64, @floatFromInt(k));
-                    const set = try infill.linesPhase(s, region, spacing, angle, phase, w);
-                    const joined = if (p.infill_connect) try infill.connect(s, region, set, spacing, angle) else set;
-                    try sparse_lines.appendAll(s, joined);
-                }
-            },
-            .gyroid => {
-                const period = infill.gyroid_k * width_mm / p.infill_density;
-                const set = try infill.gyroid(s, region, period, layer.z, w);
-                // The curves end at the walls: join them along the walls
-                // (half a period at most), and drop the lone short pieces.
-                const half = geom.fromMm(period / 2);
-                sparse_lines = if (p.infill_connect) try infill.joinPaths(s, region, set, half, half) else set;
-            },
-            .concentric => {
-                const spacing = geom.fromMm(width_mm / p.infill_density);
-                sparse_loops = try infill.concentric(s, region, spacing);
-            },
-            .honeycomb => {
-                const set = try infill.honeycomb(s, region, w, p.infill_density, p.infill_angle, w);
-                // The rows end at the walls: join them along the walls (two
-                // row spacings at most), and drop the lone short pieces.
-                const row = geom.fromMm(width_mm / p.infill_density);
-                sparse_lines = if (p.infill_connect) try infill.joinPaths(s, region, set, 2 * row, row) else set;
-            },
-            .lightning => {
-                // The branches come from the engine (see lightning.zig). A
-                // branch ends at a wall: the ends join along the walls
-                // (1.5 line spacings at most, so the short branches next to
-                // a wall join into one path). Each piece stays, also a
-                // short one: it holds up a line of the layer above.
-                const set: Paths = if (i < ctx.lightning.len) ctx.lightning[i] else .empty;
-                const sp = geom.fromMm(width_mm / p.infill_density);
-                sparse_lines = if (p.infill_connect and set.count() > 0) try infill.joinPaths(s, region, set, @divTrunc(3 * sp, 2), 0) else set;
-            },
-            .zigzag, .flow => {
-                const angle = p.infill_angle + @as(f64, if (i % 2 == 0) 0 else 90);
-                const spacing = geom.fromMm(width_mm / p.infill_density);
-                if (p.infill_pattern == .zigzag) {
-                    const set = try infill.lines(s, region, spacing, angle, w);
-                    sparse_lines = try infill.connect(s, region, set, spacing, angle);
-                } else {
-                    // The band under the top surfaces: the area that is not
-                    // under all of the next layers of the band.
-                    var near: Paths = .empty;
-                    if (under_band) |u| if (!u.isEmpty()) {
-                        near = try clip.difference(s, region, u);
-                    } else {
-                        // Near the top of the part: all of it is the band.
-                        near = region;
-                    };
-                    // One set of lines at the normal spacing over all of
-                    // the region, so each line runs straight through the
-                    // edge of the band. In the band, extra lines halfway
-                    // between them make it twice as dense. Only the extra
-                    // lines end at the edge of the band.
-                    const set = try infill.lines(s, region, spacing, angle, w);
-                    sparse_lines = try infill.connect(s, region, set, spacing, angle);
-                    const half = @divTrunc(spacing, 2);
-                    if (!near.isEmpty() and half >= w) {
-                        // A straight join from one extra line to the next
-                        // crosses the normal line between them (a double
-                        // bead there), so the joins below only walk along
-                        // the walls.
-                        // A short extra line supports almost nothing and
-                        // costs a travel: the shortest is 4 line widths.
-                        // Only in the parts of the band at least one
-                        // spacing wide: over a narrower strip, the skin
-                        // bridges with no help, and an extra line there is
-                        // a lone strut with a travel to it. A shrink and a
-                        // grow by half a spacing remove the narrow strips.
-                        const shrunk = try offset_mod.offset(s, near, -half, .{});
-                        const wide = try offset_mod.offset(s, shrunk, half, .{});
-                        const band_area = try clip.intersect(s, near, wide);
-                        const extra = try infill.linesPhase(s, band_area, spacing, angle, half, 4 * w);
-                        // Joined only by walks along the walls (the
-                        // boundary of the whole region): a walk passes the
-                        // end of the normal line between two extra lines
-                        // at the wall, and never crosses it in the open.
-                        const joined = try infill.connectWith(s, region, extra, spacing, angle, false);
-                        // An extra line that no walk joins costs a travel
-                        // for a little support: keep it only if it is at
-                        // least 2 spacings long.
-                        const kept = try infill.dropLone(s, joined, 2 * spacing);
-                        try sparse_lines.appendAll(s, kept);
-                    }
-                }
-            },
-        }
-        // The last step for the line patterns. With infill_connect, the
-        // ends of the chains (also of different line sets, as in grid)
-        // join along the walls. Then a lone short line goes: it adds
-        // little strength, and costs a travel and often a retraction (a
-        // line at a notch or a corner where the next line is out of
-        // reach). Short is less than one line spacing, 8 mm at most.
-        switch (p.infill_pattern) {
-            .lines, .grid, .triangles, .cubic, .zigzag, .flow => if (sparse_lines.count() > 0) {
-                const sp = geom.fromMm(width_mm / p.infill_density);
-                const lone_min = @min(sp, geom.fromMm(8));
-                // Cubic keeps its chains as they are: its three line sets
-                // move with the height, and a join across them gave more
-                // travels and retractions on the Benchy.
-                sparse_lines = if (p.infill_connect and p.infill_pattern != .cubic)
-                    try infill.joinPaths(s, region, sparse_lines, @divTrunc(5 * sp, 2), lone_min)
-                else
-                    try infill.dropLone(s, sparse_lines, lone_min);
-            },
-            else => {},
-        }
+        // The lightning branches of this layer come from the engine.
+        const light: Paths = if (i < ctx.lightning.len) ctx.lightning[i] else .empty;
+        const set = try fillSparse(s, p, region, width_mm, w, i, layer.z, under_band, light);
+        sparse_lines = set.lines;
+        sparse_loops = set.loops;
     }
-
     // The top support lines: dense, one direction on each layer, turned 90
     // degrees on the next, and joined at the walls.
     if (p.top_support_layers > 0 and p.top_support_density > p.infill_density and p.infill_pattern != .flow and p.infill_density > 0 and !sparse.isEmpty()) {
@@ -976,6 +846,152 @@ fn addBeads(s: Allocator, a: Allocator, lp: *LayerPlan, pos: *Point, set: []cons
         try lp.points.endPath(a, 0);
         pos.* = if (b.closed) b.points[best_k] else lp.points.points.items[lp.points.points.items.len - 1];
     }
+}
+
+/// The sparse infill lines and loops of the pattern of `p` in `region`.
+/// `layer_no`: a layer number for the patterns that turn by 90 degrees on each
+/// layer. `z`: the height for the patterns that change with the height.
+/// `under_band`: for the flow pattern, the area under the band above (see
+/// `Memo.underBand`); null for no band. `lightning`: the branches of the
+/// layer for the lightning pattern (see lightning.zig).
+fn fillSparse(s: Allocator, p: settings_mod.Project, region: Paths, width_mm: f64, w: i64, layer_no: usize, z: f64, under_band: ?Paths, lightning: Paths) Allocator.Error!struct { lines: Paths, loops: Paths } {
+    var sparse_lines: Paths = .empty;
+    var sparse_loops: Paths = .empty;
+    const i = layer_no;
+    switch (p.infill_pattern) {
+        .lines => {
+            const spacing = geom.fromMm(width_mm / p.infill_density);
+            const angle = p.infill_angle + @as(f64, if (i % 2 == 0) 0 else 90);
+            const set = try infill.lines(s, region, spacing, angle, w);
+            sparse_lines = if (p.infill_connect) try infill.connect(s, region, set, spacing, angle) else set;
+        },
+        .grid => {
+            const spacing = geom.fromMm(2 * width_mm / p.infill_density);
+            for ([_]f64{ 0, 90 }) |turn| {
+                const set = try infill.lines(s, region, spacing, p.infill_angle + turn, w);
+                const joined = if (p.infill_connect) try infill.connect(s, region, set, spacing, p.infill_angle + turn) else set;
+                try sparse_lines.appendAll(s, joined);
+            }
+        },
+        .triangles, .cubic => {
+            // Three line sets, so each set is 3 times as far apart as
+            // one set of the same density.
+            const spacing = geom.fromMm(3 * width_mm / p.infill_density);
+            const step: f64 = if (p.infill_pattern == .triangles) 60 else 120;
+            // Cubic: each set moves along its normal by the layer
+            // height, so the lines of the layers make planes at 45
+            // degrees, and three such planes make cubes on a corner.
+            const phase: i64 = if (p.infill_pattern == .cubic) geom.fromMm(z) else 0;
+            for (0..3) |k| {
+                const angle = p.infill_angle + step * @as(f64, @floatFromInt(k));
+                const set = try infill.linesPhase(s, region, spacing, angle, phase, w);
+                const joined = if (p.infill_connect) try infill.connect(s, region, set, spacing, angle) else set;
+                try sparse_lines.appendAll(s, joined);
+            }
+        },
+        .gyroid => {
+            const period = infill.gyroid_k * width_mm / p.infill_density;
+            const set = try infill.gyroid(s, region, period, z, w);
+            // The curves end at the walls: join them along the walls
+            // (half a period at most), and drop the lone short pieces.
+            const half = geom.fromMm(period / 2);
+            sparse_lines = if (p.infill_connect) try infill.joinPaths(s, region, set, half, half) else set;
+        },
+        .concentric => {
+            const spacing = geom.fromMm(width_mm / p.infill_density);
+            sparse_loops = try infill.concentric(s, region, spacing);
+        },
+        .honeycomb => {
+            const set = try infill.honeycomb(s, region, w, p.infill_density, p.infill_angle, w);
+            // The rows end at the walls: join them along the walls (two
+            // row spacings at most), and drop the lone short pieces.
+            const row = geom.fromMm(width_mm / p.infill_density);
+            sparse_lines = if (p.infill_connect) try infill.joinPaths(s, region, set, 2 * row, row) else set;
+        },
+        .lightning => {
+            // The branches come from the engine (see lightning.zig). A
+            // branch ends at a wall: the ends join along the walls (1.5
+            // line spacings at most, so the short branches next to a wall
+            // join into one path). Each piece stays, also a short one: it
+            // holds up a line of the layer above.
+            const sp = geom.fromMm(width_mm / p.infill_density);
+            sparse_lines = if (p.infill_connect and lightning.count() > 0) try infill.joinPaths(s, region, lightning, @divTrunc(3 * sp, 2), 0) else lightning;
+        },
+        .zigzag, .flow => {
+            const angle = p.infill_angle + @as(f64, if (i % 2 == 0) 0 else 90);
+            const spacing = geom.fromMm(width_mm / p.infill_density);
+            if (p.infill_pattern == .zigzag) {
+                const set = try infill.lines(s, region, spacing, angle, w);
+                sparse_lines = try infill.connect(s, region, set, spacing, angle);
+            } else {
+                // The band under the top surfaces: the area that is not
+                // under all of the next layers of the band.
+                var near: Paths = .empty;
+                if (under_band) |u| if (!u.isEmpty()) {
+                    near = try clip.difference(s, region, u);
+                } else {
+                    // Near the top of the part: all of it is the band.
+                    near = region;
+                };
+                // One set of lines at the normal spacing over all of
+                // the region, so each line runs straight through the
+                // edge of the band. In the band, extra lines halfway
+                // between them make it twice as dense. Only the extra
+                // lines end at the edge of the band.
+                const set = try infill.lines(s, region, spacing, angle, w);
+                sparse_lines = try infill.connect(s, region, set, spacing, angle);
+                const half = @divTrunc(spacing, 2);
+                if (!near.isEmpty() and half >= w) {
+                    // A straight join from one extra line to the next
+                    // crosses the normal line between them (a double
+                    // bead there), so the joins below only walk along
+                    // the walls.
+                    // A short extra line supports almost nothing and
+                    // costs a travel: the shortest is 4 line widths.
+                    // Only in the parts of the band at least one
+                    // spacing wide: over a narrower strip, the skin
+                    // bridges with no help, and an extra line there is
+                    // a lone strut with a travel to it. A shrink and a
+                    // grow by half a spacing remove the narrow strips.
+                    const shrunk = try offset_mod.offset(s, near, -half, .{});
+                    const wide = try offset_mod.offset(s, shrunk, half, .{});
+                    const band_area = try clip.intersect(s, near, wide);
+                    const extra = try infill.linesPhase(s, band_area, spacing, angle, half, 4 * w);
+                    // Joined only by walks along the walls (the
+                    // boundary of the whole region): a walk passes the
+                    // end of the normal line between two extra lines
+                    // at the wall, and never crosses it in the open.
+                    const joined = try infill.connectWith(s, region, extra, spacing, angle, false);
+                    // An extra line that no walk joins costs a travel
+                    // for a little support: keep it only if it is at
+                    // least 2 spacings long.
+                    const kept = try infill.dropLone(s, joined, 2 * spacing);
+                    try sparse_lines.appendAll(s, kept);
+                }
+            }
+        },
+    }
+    // The last step for the line patterns. With infill_connect, the
+    // ends of the chains (also of different line sets, as in grid)
+    // join along the walls. Then a lone short line goes: it adds
+    // little strength, and costs a travel and often a retraction (a
+    // line at a notch or a corner where the next line is out of
+    // reach). Short is less than one line spacing, 8 mm at most.
+    switch (p.infill_pattern) {
+        .lines, .grid, .triangles, .cubic, .zigzag, .flow => if (sparse_lines.count() > 0) {
+            const sp = geom.fromMm(width_mm / p.infill_density);
+            const lone_min = @min(sp, geom.fromMm(8));
+            // Cubic keeps its chains as they are: its three line sets
+            // move with the height, and a join across them gave more
+            // travels and retractions on the Benchy.
+            sparse_lines = if (p.infill_connect and p.infill_pattern != .cubic)
+                try infill.joinPaths(s, region, sparse_lines, @divTrunc(5 * sp, 2), lone_min)
+            else
+                try infill.dropLone(s, sparse_lines, lone_min);
+        },
+        else => {},
+    }
+    return .{ .lines = sparse_lines, .loops = sparse_loops };
 }
 
 /// The vertex where a wall loop starts (its seam). See `Project.seam`.
