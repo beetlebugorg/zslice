@@ -202,7 +202,7 @@ A value out of the usual range shows in the warning color, and its tooltip gives
 
 ## The panel and the print card
 
-In the web app, the view has the whole window. The print card (the print time, the plastic, and Export or Print) floats at the bottom right of the view.
+In the web app, the view has the whole window. The print card floats at the bottom right of the view: the print time, the plastic, the layers, Export or Print, and the main settings of the print (the layer height, the walls, the infill, the support, the brim or the skirt, the temperatures, and the nozzle). Click one of these settings to change it in the search.
 
 The panel has all settings, the selected line, the history, and the project. Press `N`, or click the sliders button at the top right, to show it or hide it. It slides over the view. Click **Pin** to put it beside the view, as a column with a splitter; click **Pin** again to let it slide over. Esc hides it when it slides over the view. A link to a setting shows the panel.
 

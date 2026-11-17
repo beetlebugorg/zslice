@@ -1528,6 +1528,7 @@ function updateSummary() {
     $("sum-time").textContent = app.state === "failed" ? "Slice failed" : "—";
     $("sum-detail").textContent = "";
     $("sum-took").textContent = "";
+    $("sum-facts").replaceChildren();
     return;
   }
   const st = app.stats;
@@ -1536,6 +1537,41 @@ function updateSummary() {
   const cost = perG > 0 ? ` · ${(st.filamentG * perG).toFixed(2)}` : "";
   $("sum-detail").textContent = `${st.filamentG.toFixed(1)} g · ${(st.filamentMm / 1000).toFixed(2)} m${cost} · ${st.layerCount} layers`;
   $("sum-took").textContent = app.sliceMs < 1000 ? `Sliced in ${app.sliceMs.toFixed(0)} ms` : `Sliced in ${(app.sliceMs / 1000).toFixed(1)} s`;
+  fillFacts();
+}
+
+// The main settings of the print, as small buttons on the print card. A
+// click opens the search on that setting, to change it there.
+function fillFacts() {
+  const box = $("sum-facts");
+  const num = (n) => Number(value(n));
+  const mm = (v) => `${Number(v.toPrecision(3))} mm`;
+  const facts = [];
+  const lh = num("project.layer_height");
+  const first = num("project.first_layer_height");
+  if (lh > 0) facts.push([`${mm(lh)} layers${first > 0 && Math.abs(first - lh) > 1e-6 ? ` (first ${mm(first)})` : ""}`, "layer height", "The layer height, and the height of the first layer"]);
+  const walls = num("project.wall_count");
+  if (walls > 0) facts.push([`${walls} walls`, "wall count", "The number of walls"]);
+  const density = num("project.infill_density");
+  facts.push([density > 0 ? `${Math.round(density * 100)} % ${value("project.infill_pattern")}` : "no infill", "infill density", "The infill density and pattern"]);
+  const support = value("project.support");
+  facts.push([support && support !== "off" ? `support: ${support === "buildplate" ? "on the bed" : support}${value("project.support_style") === "tree" ? ", tree" : ""}` : "no support", "support", "Support under overhangs"]);
+  const brim = num("project.brim_width");
+  const skirt = num("project.skirt_loops");
+  facts.push([brim > 0 ? `brim ${mm(brim)}` : skirt > 0 ? `skirt ${skirt}` : "no skirt", brim > 0 ? "brim width" : "skirt loops", "The brim, or the skirt"]);
+  const nozzle = num("filament.nozzle_temp");
+  const bed = num("filament.bed_temp");
+  if (nozzle > 0) facts.push([`${nozzle} °C${bed > 0 ? ` / bed ${bed} °C` : ""}`, "nozzle temperature", "The temperatures of the nozzle and the bed"]);
+  const nd = num("machine.nozzle_diameter");
+  if (nd > 0) facts.push([`${mm(nd)} nozzle`, "nozzle diameter", "The diameter of the nozzle (printer settings)"]);
+  box.replaceChildren(...facts.map(([text, query, title]) => {
+    const b = document.createElement("button");
+    b.className = "sum-fact";
+    b.textContent = text;
+    b.title = `${title}. Click to change it.`;
+    b.onclick = () => search.show(query);
+    return b;
+  }));
 }
 
 async function exportGcode() {

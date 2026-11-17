@@ -164,7 +164,7 @@ button.pill { border-radius: 999px; padding: 6px 22px; background: var(--accent-
 
 /* The layer slider with two knobs (.zg-layers). */
 .layers {
-  position: absolute; right: 14px; top: 140px; bottom: 140px;
+  position: absolute; right: 14px; top: 140px; bottom: 220px; /* over the print card */
   width: 30px;
   user-select: none;
 }
@@ -321,6 +321,11 @@ select.choice {
 .sum-time { font-size: 1.6em; font-weight: 700; font-variant-numeric: tabular-nums; }
 .sum-detail { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .sum-took { font-size: 0.85em; margin-bottom: 8px; }
+/* The main settings of the print on the print card: buttons that open
+   the search on their setting. */
+.sum-facts { display: flex; flex-wrap: wrap; gap: 4px; margin: 6px 0 4px; }
+.sum-fact { min-height: 0; padding: 2px 8px; border-radius: 999px; font-size: 0.78em; background: rgba(255, 255, 255, 0.08); color: inherit; white-space: nowrap; }
+.sum-fact:hover { background: rgba(255, 255, 255, 0.16); }
 .progress { height: 3px; background: rgba(255, 255, 255, 0.1); border-radius: 2px; margin: 0 0 8px; overflow: hidden; }
 .progress > div { height: 100%; width: 0; background: var(--accent-bg); transition: width 80ms linear; }
 
