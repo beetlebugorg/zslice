@@ -21,6 +21,16 @@ The zslice library, command line tool, and wasm module contain code from these p
 
 zslice has ports of the code of CuraEngine and boost::polygon (see above). It copies no other code.
 
+## Data in the binaries
+
+The printer library (`src/printers/library.txt`) has data from the printer definitions of three slicers. `tools/printer_library.py` converts them: it reads the bed, the nozzle, the motion limits, the firmware, and the start and end G-code of each printer model, and writes one record for each model. The native library and the command line tool embed the file (`src/printers.zig`). The wasm module does not: the web app loads the file as `printers.txt`. The header of the file names the sources and their versions.
+
+| Source | License | Text | Notes |
+|---|---|---|---|
+| Cura printer definitions, UltiMaker, https://github.com/Ultimaker/Cura, `resources/definitions` and `resources/extruders`, commit `1a221ec29a86960d16a412940becc1f63534c41f` (9 November 2026) | LGPL-3.0-or-later ("Cura is released under the terms of the LGPLv3 or higher") | `licenses/lgpl-3.0.txt` (from the Cura repository), `licenses/gpl-3.0.txt` (the LGPL-3.0 adds to the GPL-3.0) | The values of the `.def.json` files, and the G-code with the variables of zslice. The LGPL-3.0 allows the use in a work under the AGPL-3.0. |
+| PrusaSlicer vendor bundles, Prusa Research, https://github.com/prusa3d/PrusaSlicer, `resources/profiles/*.ini`, tag `version_2.9.7` (commit `450d70dd81c9b8990bc6bc8e690e31f82ddceb11`). The main branch moved the bundles out of the repository, so the tool uses the last release. | AGPL-3.0 (the license of the PrusaSlicer repository) | `LICENSE` (the same AGPL-3.0 text as zslice) | The `[printer_model:*]` and `[printer:*]` sections, with their `inherits`. |
+| OrcaSlicer profiles, https://github.com/SoftFever/OrcaSlicer, `resources/profiles`, commit `e76b4d676c74f43ee1736675e0e8894425179cc4` (17 November 2026) | AGPL-3.0 (the license of the OrcaSlicer repository) | `LICENSE` | The `machine_model` and `machine` presets of each vendor, with their `inherits`. |
+
 ## Libraries that the app shells link
 
 The shells link these libraries as shared libraries from the system. Their code is not in a zslice binary. The Licenses window of each shell lists them.
