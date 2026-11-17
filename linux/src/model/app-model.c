@@ -1086,6 +1086,20 @@ void zg_model_part_rotate(ZgModel *self, size_t i, double degrees) {
     if (zs_app_part_rotate(self->core, i, degrees) == ZS_OK) plate_changed(self);
 }
 
+gboolean zg_model_part_setting_set(ZgModel *self, size_t i, const char *name, const char *value) {
+    if (zs_app_part_setting_set(self->core, i, name, value) != ZS_OK) return FALSE;
+    plate_changed(self);
+    return TRUE;
+}
+
+char *zg_model_part_setting(ZgModel *self, size_t i, const char *name) {
+    size_t len = 0;
+    if (zs_app_part_setting_get(self->core, i, name, NULL, 0, &len) != ZS_OK) return NULL;
+    char *buf = g_malloc(len + 1);
+    zs_app_part_setting_get(self->core, i, name, buf, len + 1, NULL);
+    return buf;
+}
+
 void zg_model_part_remove(ZgModel *self, size_t i) {
     if (zs_app_part_remove(self->core, i) != ZS_OK) return;
     zg_model_select_part(self, -1);

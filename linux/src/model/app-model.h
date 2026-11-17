@@ -41,6 +41,12 @@ gint64 zg_model_selected_part(ZgModel *self);
  * starts a new slice. */
 void zg_model_part_move(ZgModel *self, size_t i, double x, double y);
 void zg_model_part_rotate(ZgModel *self, size_t i, double degrees);
+/* A setting of one part (see zs_app_part_setting_set): value NULL gives
+ * the part the value of the plate again. FALSE for a bad value. */
+gboolean zg_model_part_setting_set(ZgModel *self, size_t i, const char *name, const char *value);
+/* The value of a setting of part i, or NULL if it has the value of the
+ * plate. Free with g_free. */
+char *zg_model_part_setting(ZgModel *self, size_t i, const char *name);
 /* Placement (see zs_app_part_scale and the calls after it). The scale is
  * uniform here (1 = 100 %). */
 void zg_model_part_scale(ZgModel *self, size_t i, double s);
