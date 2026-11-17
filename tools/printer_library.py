@@ -125,6 +125,8 @@ BRAND_ALIASES = {
     "hartsmart products": "Hart Smart Products",
     "weedo": "WEEDO",
     "goofoo": "Goofoo",
+    # The maker of LulzBot printers since 2019.
+    "fargo additive manufacturing equipment 3d": "LulzBot",
 }
 
 # Brands of no real maker, and test printers, that the library leaves out.

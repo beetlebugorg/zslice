@@ -8,13 +8,20 @@
 //! The finder sends one query for the PTR records of all service types to
 //! the group 224.0.0.251, port 5353. Each server answers with its records.
 //!
+//! Some servers answer the PTR question with the PTR record alone (the
+//! mDNS service of systemd-resolved does). The finder then asks the next
+//! questions itself: SRV and TXT for each instance with no SRV record yet,
+//! and A for each host with no address yet. `Finder.query` has these
+//! questions after the PTR questions.
+//!
 //! The core does no network I/O. A shell:
 //!
-//! 1. Sends `Finder.query` to 224.0.0.251:5353 from a UDP socket of its
-//!    own port. A query from a port other than 5353 asks for a unicast
-//!    answer to that port (RFC 6762, section 6.7), so the shell needs no
-//!    multicast membership.
-//! 2. Gives each packet that comes back to `Finder.feed`.
+//! 1. Sends `Finder.query` to 224.0.0.251:5353, from a UDP socket on port
+//!    5353 in the group (the answers go to the group), and from a socket
+//!    of its own port (a query from another port gets a unicast answer to
+//!    that port, RFC 6762, section 6.7, if no firewall stops it).
+//! 2. Gives each packet that comes back to `Finder.feed`. After a change,
+//!    it sends `Finder.query` again for the next questions.
 //! 3. Asks each new printer for more: `GET <url>/api/version` for an
 //!    OctoPrint service, and `GET <url>/printer/objects/query?toolhead`
 //!    for Moonraker. `Finder.reply` reads the answer. The version text
@@ -120,37 +127,50 @@ pub const Finder = struct {
     addr: std.StringHashMapUnmanaged([4]u8) = .empty,
     /// Each instance name from a PTR record, with its kind.
     instances: std.StringArrayHashMapUnmanaged(Kind) = .empty,
-    query_buf: [128]u8 = undefined,
-    query_len: usize = 0,
+    query_buf: [512]u8 = undefined,
 
     const Srv = struct { host: []const u8, port: u16 };
     const Txt = struct { path: []const u8 = "", model: []const u8 = "", version: []const u8 = "" };
 
     pub fn init(gpa: Allocator) Finder {
-        var f: Finder = .{ .arena = .init(gpa) };
-        f.query_len = buildQuery(&f.query_buf) catch unreachable;
-        return f;
+        return .{ .arena = .init(gpa) };
     }
 
     pub fn deinit(self: *Finder) void {
         self.arena.deinit();
     }
 
-    /// The query packet for all service types.
-    pub fn query(self: *const Finder) []const u8 {
-        return self.query_buf[0..self.query_len];
+    /// The query packet: a PTR question for each service type, then the
+    /// next questions for what the answers so far left out. The bytes stay
+    /// valid until the next call.
+    pub fn query(self: *Finder) []const u8 {
+        var b: Builder = .{ .buf = &self.query_buf };
+        b.header() catch unreachable;
+        for (services) |sv| b.question(sv.name, 12) catch unreachable;
+        var it = self.instances.iterator();
+        while (it.next()) |e| {
+            const key = lower(self.arena.allocator(), e.key_ptr.*) catch break;
+            if (self.srv.get(key)) |srv| {
+                const host = lower(self.arena.allocator(), srv.host) catch break;
+                if (self.addr.get(host) == null) b.question(srv.host, 1) catch break;
+                if (self.txt.get(key) == null) b.question(e.key_ptr.*, 16) catch break;
+            } else {
+                b.question(e.key_ptr.*, 33) catch break;
+                b.question(e.key_ptr.*, 16) catch break;
+            }
+        }
+        return b.done();
     }
 
-    /// Reads a packet. `from` is the IPv4 address of the sender, for a
-    /// host with no A record in the packet. Returns true if the list of
-    /// printers changed. A packet that is not a valid answer changes
-    /// nothing.
-    pub fn feed(self: *Finder, packet: []const u8, from: ?[4]u8) Allocator.Error!bool {
+    /// Reads a packet. Returns true if the list of printers changed, or if
+    /// the answers gave a new instance or host (then `query` has new
+    /// questions). A packet that is not a valid answer changes nothing.
+    pub fn feed(self: *Finder, packet: []const u8) Allocator.Error!bool {
         const a = self.arena.allocator();
         var msg = Message.init(packet) catch return false;
         if (!msg.response) return false;
         var rr_count: usize = @as(usize, msg.answers) + msg.authority + msg.additional;
-        var sender_host: ?[]const u8 = null;
+        var learned = false;
         while (rr_count > 0) : (rr_count -= 1) {
             const rr = msg.record(a) catch |e| switch (e) {
                 error.OutOfMemory => return error.OutOfMemory,
@@ -163,26 +183,26 @@ pub const Finder = struct {
                     } else continue;
                     const target = msg.nameAt(a, rr.data_pos) catch continue;
                     const gop = try self.instances.getOrPut(a, target);
-                    if (!gop.found_existing) gop.value_ptr.* = kind;
+                    if (!gop.found_existing) {
+                        gop.value_ptr.* = kind;
+                        learned = true;
+                    }
                 },
                 33 => { // SRV: priority, weight, port, target
                     if (rr.data.len < 7) continue;
                     const p = std.mem.readInt(u16, rr.data[4..6], .big);
                     const host = msg.nameAt(a, rr.data_pos + 6) catch continue;
-                    try self.srv.put(a, try lower(a, rr.name), .{ .host = host, .port = p });
-                    sender_host = host;
+                    const gop = try self.srv.getOrPut(a, try lower(a, rr.name));
+                    if (!gop.found_existing) learned = true;
+                    gop.value_ptr.* = .{ .host = host, .port = p };
                 },
                 16 => try self.txt.put(a, try lower(a, rr.name), try parseTxt(a, rr.data)),
                 1 => if (rr.data.len == 4) try self.addr.put(a, try lower(a, rr.name), rr.data[0..4].*),
                 else => {},
             }
         }
-        // A host with no A record: the sender of the packet.
-        if (from) |f| if (sender_host) |h| {
-            const key = try lower(a, h);
-            if (self.addr.get(key) == null) try self.addr.put(a, key, f);
-        };
-        return self.rebuild();
+        const changed = try self.rebuild();
+        return changed or learned;
     }
 
     /// Makes the list of printers from the records so far. Returns true if
@@ -347,30 +367,44 @@ fn parseTxt(a: Allocator, data: []const u8) Allocator.Error!Finder.Txt {
     return t;
 }
 
-/// Writes the query: one question (PTR, class IN, unicast answer) for each
-/// service type.
-pub fn buildQuery(buf: []u8) error{NoSpaceLeft}!usize {
-    var n: usize = 0;
-    const put = struct {
-        fn f(b: []u8, at: *usize, bytes: []const u8) error{NoSpaceLeft}!void {
-            if (at.* + bytes.len > b.len) return error.NoSpaceLeft;
-            @memcpy(b[at.* .. at.* + bytes.len], bytes);
-            at.* += bytes.len;
-        }
-    }.f;
-    // Header: id 0, flags 0 (a standard query), the question count.
-    try put(buf, &n, &.{ 0, 0, 0, 0, 0, @intCast(services.len), 0, 0, 0, 0, 0, 0 });
-    for (services) |s| {
-        var labels = std.mem.splitScalar(u8, s.name, '.');
-        while (labels.next()) |l| {
-            try put(buf, &n, &.{@intCast(l.len)});
-            try put(buf, &n, l);
-        }
-        // The root, type PTR (12), class IN (1) with the unicast bit.
-        try put(buf, &n, &.{ 0, 0, 12, 0x80, 1 });
+/// Writes a query: a header, then questions (class IN, multicast
+/// answers).
+const Builder = struct {
+    buf: []u8,
+    n: usize = 0,
+    count: u16 = 0,
+
+    fn put(self: *Builder, bytes: []const u8) error{NoSpaceLeft}!void {
+        if (self.n + bytes.len > self.buf.len) return error.NoSpaceLeft;
+        @memcpy(self.buf[self.n .. self.n + bytes.len], bytes);
+        self.n += bytes.len;
     }
-    return n;
-}
+
+    /// Header: id 0, flags 0 (a standard query); the counts come in `done`.
+    fn header(self: *Builder) error{NoSpaceLeft}!void {
+        try self.put(&.{ 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0 });
+    }
+
+    /// One question. A name that does not fit leaves the packet as it was.
+    fn question(self: *Builder, name: []const u8, qtype: u16) error{NoSpaceLeft}!void {
+        const start = self.n;
+        errdefer self.n = start;
+        var labels = std.mem.splitScalar(u8, name, '.');
+        while (labels.next()) |l| {
+            if (l.len == 0) continue;
+            if (l.len > 63) return error.NoSpaceLeft;
+            try self.put(&.{@intCast(l.len)});
+            try self.put(l);
+        }
+        try self.put(&.{ 0, @intCast(qtype >> 8), @intCast(qtype & 0xff), 0, 1 });
+        self.count += 1;
+    }
+
+    fn done(self: *Builder) []const u8 {
+        std.mem.writeInt(u16, self.buf[4..6], self.count, .big);
+        return self.buf[0..self.n];
+    }
+};
 
 /// A DNS message (RFC 1035, section 4).
 const Message = struct {
@@ -513,16 +547,48 @@ fn testAnswer(service: []const u8, instance: []const u8, host: []const u8, p: u1
 }
 
 test "the query asks for each service type" {
-    var buf: [128]u8 = undefined;
-    const n = try buildQuery(&buf);
     var f = Finder.init(testing.allocator);
     defer f.deinit();
-    try testing.expectEqualSlices(u8, buf[0..n], f.query());
-    try testing.expectEqual(@as(u8, services.len), buf[5]);
-    // The first question: _octoprint._tcp.local, PTR, IN with the unicast bit.
-    try testing.expectEqualSlices(u8, "\x0a_octoprint\x04_tcp\x05local\x00\x00\x0c\x80\x01", buf[12 .. 12 + 27]);
+    const q = f.query();
+    try testing.expectEqual(@as(u8, services.len), q[5]);
+    // The first question: _octoprint._tcp.local, PTR, class IN.
+    try testing.expectEqualSlices(u8, "\x0a_octoprint\x04_tcp\x05local\x00\x00\x0c\x00\x01", q[12 .. 12 + 27]);
     // A query is not an answer.
-    try testing.expect(!try f.feed(buf[0..n], null));
+    try testing.expect(!try f.feed(q));
+}
+
+test "a PTR alone: the next query asks for SRV, TXT, and A" {
+    var f = Finder.init(testing.allocator);
+    defer f.deinit();
+    // An answer with the PTR record alone (as systemd-resolved sends).
+    var pkt: std.ArrayList(u8) = .empty;
+    defer pkt.deinit(testing.allocator);
+    try pkt.appendSlice(testing.allocator, &.{ 0, 0, 0x84, 0, 0, 0, 0, 1, 0, 0, 0, 0 });
+    var ptr: std.ArrayList(u8) = .empty;
+    defer ptr.deinit(testing.allocator);
+    try testName(&ptr, "Printdeck._octoprint._tcp.local");
+    try testRecord(&pkt, "_octoprint._tcp.local", 12, ptr.items);
+    try testing.expect(try f.feed(pkt.items));
+    try testing.expectEqual(@as(usize, 0), f.found.items.len);
+    var q = f.query();
+    try testing.expectEqual(@as(u8, services.len + 2), q[5]);
+    try testing.expect(std.mem.indexOf(u8, q, "\x09Printdeck\x0a_octoprint\x04_tcp\x05local\x00\x00\x21") != null);
+    // The SRV and TXT records: now the query asks for the address.
+    const full = try testAnswer("_octoprint._tcp.local", "Printdeck", "resindeck.local", 80, &.{"path=/"}, null);
+    defer testing.allocator.free(full);
+    try testing.expect(try f.feed(full));
+    q = f.query();
+    try testing.expectEqual(@as(u8, services.len + 1), q[5]);
+    try testing.expect(std.mem.indexOf(u8, q, "\x09resindeck\x05local\x00\x00\x01") != null);
+    // The A record: the printer is in the list, and no question is left.
+    var a_pkt: std.ArrayList(u8) = .empty;
+    defer a_pkt.deinit(testing.allocator);
+    try a_pkt.appendSlice(testing.allocator, &.{ 0, 0, 0x84, 0, 0, 0, 0, 1, 0, 0, 0, 0 });
+    try testRecord(&a_pkt, "resindeck.local", 1, &.{ 192, 168, 76, 45 });
+    try testing.expect(try f.feed(a_pkt.items));
+    try testing.expectEqual(@as(usize, 1), f.found.items.len);
+    try testing.expectEqualStrings("http://192.168.76.45", f.found.items[0].url);
+    try testing.expectEqual(@as(u8, services.len), f.query()[5]);
 }
 
 test "find a printdeck and a Klipper printer" {
@@ -530,7 +596,7 @@ test "find a printdeck and a Klipper printer" {
     defer f.deinit();
     const deck = try testAnswer("_octoprint._tcp.local", "Printdeck", "printdeck.local", 80, &.{ "path=/", "api=0.1", "version=1.11.0" }, .{ 192, 168, 1, 20 });
     defer testing.allocator.free(deck);
-    try testing.expect(try f.feed(deck, null));
+    try testing.expect(try f.feed(deck));
     try testing.expectEqual(@as(usize, 1), f.found.items.len);
     const d = f.found.items[0];
     try testing.expectEqualStrings("Printdeck", d.name);
@@ -539,15 +605,15 @@ test "find a printdeck and a Klipper printer" {
     try testing.expectEqualStrings("http://192.168.1.20", d.url);
     try testing.expectEqualStrings("printdeck.local", d.host);
     // The same packet again changes nothing.
-    try testing.expect(!try f.feed(deck, null));
+    try testing.expect(!try f.feed(deck));
     // /api/version tells that it is a printdeck.
     try testing.expect(try f.reply(0, .version, "{\"api\":\"0.1\",\"server\":\"1.11.0\",\"text\":\"OctoPrint 1.11.0 (Printdeck v0.4.0-beta)\"}"));
     try testing.expectEqual(Kind.printdeck, f.found.items[0].kind);
 
-    // A Moonraker answer with no A record: the address of the sender.
-    const kl = try testAnswer("_moonraker._tcp.local", "Moonraker-1a2b3c4d @ voron", "voron.local", 7125, &.{"version=v0.9.3"}, null);
+    // A Moonraker answer.
+    const kl = try testAnswer("_moonraker._tcp.local", "Moonraker-1a2b3c4d @ voron", "voron.local", 7125, &.{"version=v0.9.3"}, .{ 10, 0, 0, 7 });
     defer testing.allocator.free(kl);
-    try testing.expect(try f.feed(kl, .{ 10, 0, 0, 7 }));
+    try testing.expect(try f.feed(kl));
     const k = f.found.items[1];
     try testing.expectEqual(Kind.moonraker, k.kind);
     try testing.expectEqualStrings("http://10.0.0.7:7125", k.url);
@@ -566,8 +632,8 @@ test "one entry for each address: the exact kind wins" {
     defer testing.allocator.free(octo);
     const link = try testAnswer("_prusalink._tcp.local", "PrusaLink at mk4", "mk4.local", 80, &.{ "path=/", "model=MK4" }, .{ 192, 168, 1, 30 });
     defer testing.allocator.free(link);
-    _ = try f.feed(octo, null);
-    _ = try f.feed(link, null);
+    _ = try f.feed(octo);
+    _ = try f.feed(link);
     try testing.expectEqual(@as(usize, 1), f.found.items.len);
     try testing.expectEqual(Kind.prusalink, f.found.items[0].kind);
     try testing.expectEqualStrings("MK4", f.found.items[0].model);
@@ -576,14 +642,14 @@ test "one entry for each address: the exact kind wins" {
 test "bad packets change nothing" {
     var f = Finder.init(testing.allocator);
     defer f.deinit();
-    try testing.expect(!try f.feed("", null));
-    try testing.expect(!try f.feed(&.{ 0, 0, 0x84, 0, 0, 0, 0, 5, 0, 0, 0, 0 }, null));
+    try testing.expect(!try f.feed(""));
+    try testing.expect(!try f.feed(&.{ 0, 0, 0x84, 0, 0, 0, 0, 5, 0, 0, 0, 0 }));
     // A compression pointer to itself.
-    try testing.expect(!try f.feed(&.{ 0, 0, 0x84, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0xc0, 12, 0, 12, 0, 1, 0, 0, 0, 0, 0, 0 }, null));
+    try testing.expect(!try f.feed(&.{ 0, 0, 0x84, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0xc0, 12, 0, 12, 0, 1, 0, 0, 0, 0, 0, 0 }));
     // Every cut of a good answer.
     const deck = try testAnswer("_octoprint._tcp.local", "Printdeck", "printdeck.local", 80, &.{"path=/"}, .{ 192, 168, 1, 20 });
     defer testing.allocator.free(deck);
-    for (0..deck.len) |n| _ = try f.feed(deck[0..n], null);
+    for (0..deck.len) |n| _ = try f.feed(deck[0..n]);
     try testing.expect(!try f.reply(5, .version, "{}"));
     try testing.expect(!try f.reply(0, .version, "not json"));
 }

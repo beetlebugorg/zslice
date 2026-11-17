@@ -981,9 +981,14 @@ int zs_printers_sources(const zs_printers *lib, size_t i, char *buf, size_t cap,
 /* Finds printers on the local network with mDNS (src/discovery.zig). The
  * core builds and reads the packets; the shell does the network I/O:
  *   1. Send the zs_discovery_query packet over UDP to 224.0.0.251 port
- *      5353, from a port of its own (the answers come back to that port).
- *      Send it again after 1 s and 3 s: a packet can get lost.
- *   2. Give each packet that comes back to zs_discovery_feed.
+ *      5353: from a socket on port 5353 in the group (SO_REUSEADDR and
+ *      SO_REUSEPORT: the mDNS service of the system has the port too), where
+ *      the answers come, and from a socket of its own port (a unicast answer
+ *      comes back to it, if no firewall stops it). Send it again after 1 s
+ *      and 3 s: a packet can get lost.
+ *   2. Give each packet that comes back to zs_discovery_feed. When it
+ *      returns 1, send zs_discovery_query again: it has the next questions
+ *      (a server can answer with a PTR record alone).
  *   3. For a new printer: GET <url>/api/version (OctoPrint, printdeck,
  *      PrusaLink) or <url>/printer/objects/query?toolhead (Moonraker), with
  *      no key, and give the body to zs_discovery_reply. The kind and the bed
@@ -1019,11 +1024,11 @@ typedef struct zs_found_printer {
 
 int zs_discovery_new(zs_discovery **out);
 void zs_discovery_free(zs_discovery *d);
-/* The query packet. It stays valid until zs_discovery_free. */
-int zs_discovery_query(const zs_discovery *d, const uint8_t **out, size_t *len);
-/* from: the IPv4 address of the sender (4 bytes), or NULL. Returns 1 if
- * the list changed, 0 if not, -1 on an error. */
-int zs_discovery_feed(zs_discovery *d, const uint8_t *data, size_t len, const uint8_t *from);
+/* The query packet. It stays valid until the next call. */
+int zs_discovery_query(zs_discovery *d, const uint8_t **out, size_t *len);
+/* Returns 1 if the list changed or the next query has new questions, 0 if
+ * not, -1 on an error. */
+int zs_discovery_feed(zs_discovery *d, const uint8_t *data, size_t len);
 size_t zs_discovery_count(const zs_discovery *d);
 /* The strings stay valid until zs_discovery_free. */
 int zs_discovery_get(const zs_discovery *d, size_t i, zs_found_printer *out);

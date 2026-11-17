@@ -215,8 +215,9 @@ export fn zs_discovery_free(finder: ?*Finder) void {
     gpa.destroy(f);
 }
 
-/// The query packet, for 224.0.0.251 port 5353.
-export fn zs_discovery_query(finder: ?*const Finder, out: ?*[*]const u8, len: ?*usize) c_int {
+/// The query packet, for 224.0.0.251 port 5353. It stays valid until the
+/// next call.
+export fn zs_discovery_query(finder: ?*Finder, out: ?*[*]const u8, len: ?*usize) c_int {
     const f = finder orelse return invalid;
     const q = f.query();
     if (out) |o| o.* = q.ptr;
@@ -224,12 +225,12 @@ export fn zs_discovery_query(finder: ?*const Finder, out: ?*[*]const u8, len: ?*
     return ok;
 }
 
-/// Reads a packet. `from` is the IPv4 address of the sender (4 bytes), or
-/// NULL. Returns 1 if the list changed, 0 if not, or -1 on an error.
-export fn zs_discovery_feed(finder: ?*Finder, data: ?[*]const u8, len: usize, from: ?*const [4]u8) c_int {
+/// Reads a packet. Returns 1 if the list changed or the next query has new
+/// questions, 0 if not, or -1 on an error.
+export fn zs_discovery_feed(finder: ?*Finder, data: ?[*]const u8, len: usize) c_int {
     const f = finder orelse return -1;
     const d = data orelse return -1;
-    const changed = f.feed(d[0..len], if (from) |a| a.* else null) catch return -1;
+    const changed = f.feed(d[0..len]) catch return -1;
     return @intFromBool(changed);
 }
 
@@ -333,7 +334,7 @@ test "the C API of the discovery" {
     var n: usize = 0;
     try std.testing.expectEqual(ok, zs_discovery_query(f, &q, &n));
     try std.testing.expect(n > 12);
-    try std.testing.expectEqual(@as(c_int, 0), zs_discovery_feed(f, q, n, null));
+    try std.testing.expectEqual(@as(c_int, 0), zs_discovery_feed(f, q, n));
     try std.testing.expectEqual(@as(usize, 0), zs_discovery_count(f));
     try std.testing.expectEqual(@as(c_int, -1), zs_discovery_reply(f, 0, 9, "x", 1));
 }
