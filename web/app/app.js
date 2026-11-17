@@ -265,8 +265,32 @@ canvas.addEventListener("dblclick", () => {
   }
   requestFrame();
 });
+// A wheel event from a trackpad: two fingers that move (pixels, small
+// steps, or a sideways part) pan the view, as in Fusion and Tinkercad. A
+// mouse wheel gives steps of 100 pixels or more, or lines, and zooms. A
+// pinch has Ctrl, and zooms. Shift and a mouse wheel: zoom too.
+let trackpadUntil = 0;
+function fromTrackpad(e) {
+  if (e.ctrlKey || e.deltaMode !== 0) return false;
+  const now = performance.now();
+  // A sideways part, or a small step: a trackpad. Its next events in the
+  // same gesture count as the trackpad too (a fast swipe has big steps).
+  if (e.deltaX !== 0 || Math.abs(e.deltaY) < 50 || !Number.isInteger(e.deltaY)) {
+    trackpadUntil = now + 300;
+    return true;
+  }
+  return now < trackpadUntil;
+}
+
 canvas.addEventListener("wheel", (e) => {
   e.preventDefault();
+  if (fromTrackpad(e)) {
+    // The content follows the fingers.
+    if (app.page === "2d") view2d.pan(-e.deltaX * dpr(), -e.deltaY * dpr());
+    else view.pan(-e.deltaX * dpr(), -e.deltaY * dpr());
+    requestFrame();
+    return;
+  }
   const r = canvas.getBoundingClientRect();
   // One wheel step is about 100 pixels (deltaMode 0) or 3 lines.
   // A pinch on a trackpad comes as a wheel event with Ctrl and small

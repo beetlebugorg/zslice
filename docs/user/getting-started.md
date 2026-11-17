@@ -220,7 +220,8 @@ The measure shows under the toolbar: the distance, its parts along X, Y, and Z, 
 |---|---|
 | Left or right drag | Orbit: turn and tilt around the part, as in Cura and Tinkercad; the bed stays level, and the tilt stops at 89° over the top and under the bed |
 | Middle drag | Pan: move the view |
-| Scroll | Zoom toward the pointer |
+| Scroll (mouse wheel) | Zoom toward the pointer |
+| Two fingers on a touchpad | Pan; a pinch zooms |
 | Double-click | Reset the view |
 | Left click | Pick a line (see below) |
 

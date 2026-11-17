@@ -540,6 +540,23 @@ static void on_motion(GtkEventControllerMotion *c, double x, double y, gpointer 
     v->pointer_y = y;
 }
 
+/* A pinch on a touchpad: zoom toward the pointer, by the change of the
+ * scale since the event before. */
+static double pinch_scale = 1;
+
+static void on_pinch_begin(GtkGesture *g, GdkEventSequence *seq, gpointer data) {
+    pinch_scale = 1;
+}
+
+static void on_pinch(GtkGestureZoom *g, double scale, gpointer data) {
+    View3d *v = data;
+    if (!v->view || scale <= 0) return;
+    int s = gtk_widget_get_scale_factor(v->area);
+    zs_view_zoom_at(v->view, (float)(pinch_scale / scale), (float)(v->pointer_x * s), (float)(v->pointer_y * s));
+    pinch_scale = scale;
+    queue_frame(v);
+}
+
 static gboolean on_scroll(GtkEventControllerScroll *c, double dx, double dy, gpointer data) {
     View3d *v = data;
     int scale = gtk_widget_get_scale_factor(v->area);
@@ -553,6 +570,14 @@ static gboolean on_scroll(GtkEventControllerScroll *c, double dx, double dy, gpo
             double step = dy != 0 ? dy : dx;
             zg_model_part_rotate(v->model, (size_t)part, p.rotation + (step > 0 ? -15 : 15));
         }
+        return TRUE;
+    }
+    /* Two fingers on a touchpad (a scroll in pixels): pan, as in Fusion
+     * and Tinkercad. A mouse wheel (steps) zooms toward the pointer, and
+     * a pinch zooms (the zoom gesture). */
+    if (v->view && gtk_event_controller_scroll_get_unit(c) == GDK_SCROLL_UNIT_SURFACE) {
+        zs_view_pan(v->view, (float)(-dx * scale), (float)(-dy * scale));
+        queue_frame(v);
         return TRUE;
     }
     if (v->view) zs_view_zoom_at(v->view, powf(1.15f, (float)dy), (float)(v->pointer_x * scale), (float)(v->pointer_y * scale));
@@ -929,7 +954,11 @@ GtkWidget *zg_view3d_new(ZgModel *model) {
     GtkEventController *motion = gtk_event_controller_motion_new();
     g_signal_connect(motion, "motion", G_CALLBACK(on_motion), v);
     gtk_widget_add_controller(v->area, motion);
-    GtkEventController *scroll = gtk_event_controller_scroll_new(GTK_EVENT_CONTROLLER_SCROLL_VERTICAL);
+    GtkGesture *pinch = gtk_gesture_zoom_new();
+    g_signal_connect(pinch, "begin", G_CALLBACK(on_pinch_begin), v);
+    g_signal_connect(pinch, "scale-changed", G_CALLBACK(on_pinch), v);
+    gtk_widget_add_controller(v->area, GTK_EVENT_CONTROLLER(pinch));
+    GtkEventController *scroll = gtk_event_controller_scroll_new(GTK_EVENT_CONTROLLER_SCROLL_BOTH_AXES);
     g_signal_connect(scroll, "scroll", G_CALLBACK(on_scroll), v);
     gtk_widget_add_controller(v->area, scroll);
     /* The context menu: a right drag that ends where it began (see
