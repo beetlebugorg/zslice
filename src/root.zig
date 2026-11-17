@@ -47,6 +47,7 @@ pub const engine = @import("engine.zig");
 pub const svg = @import("svg.zig");
 pub const support = @import("support.zig");
 pub const gaps = @import("gaps.zig");
+pub const gapfill = @import("gapfill.zig");
 pub const islands = @import("islands.zig");
 pub const toml = @import("toml.zig");
 pub const profile = @import("profile.zig");
