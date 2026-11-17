@@ -487,6 +487,22 @@ int zs_app_part_get(zs_app *app, size_t i, zs_part *out);
  * setting that it becomes, or why zslice does not use it. Empty for a
  * part with no settings. The same buffer rules as zs_app_setting_get. */
 int zs_app_part_settings(const zs_app *app, size_t i, char *buf, size_t cap, size_t *out_len);
+/* The settings of part i and of its volumes that zslice does not use, one
+ * a line: "key\tvalue\twhy". A near value (the nearest infill pattern)
+ * is not in the list. The same buffer rules as zs_app_setting_get. */
+int zs_app_part_unused(const zs_app *app, size_t i, char *buf, size_t cap, size_t *out_len);
+/* The zslice settings of Cura settings for the whole plate, from the
+ * settings now. text: one "key=value" a line (Cura keys:
+ * support_enable=false). Each line of the result is one of
+ * "set\tname\tvalue", "near\tkey\tvalue\twhy" (zslice uses a near
+ * value), or "unused\tkey\tvalue\twhy" (zslice cannot use the key). It
+ * changes no setting. The same buffer rules as zs_app_setting_get. */
+int zs_app_cura_settings(const zs_app *app, const char *text, char *buf, size_t cap, size_t *out_len);
+/* on != 0: the parts of a 3MF file keep their places in the file, also
+ * near the edge of the bed or near another part (a plate that another
+ * program packed). 0 (the default): a part that does not fit with the
+ * part gap goes to a free place. */
+int zs_app_set_keep_places(zs_app *app, int on);
 /* The settings of one part: a zslice setting that this part prints with,
  * not the value of the plate (value NULL: the value of the plate again).
  * The part slices as its own job, so any setting with per_part = 1

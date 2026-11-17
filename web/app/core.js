@@ -62,7 +62,35 @@ export class Core {
     return `The value is not valid (${statusText(rc)}).`;
   }
 
-  // The value of a setting with no change of this print: what a reset
+  // The zslice settings of Cura settings ({ key: value }) for the whole
+  // plate: { sets: [[name, value]], near: [[key, value, why]],
+  // unused: [[key, value, why]] }. It changes no setting.
+  curaSettings(pairs) {
+    const w = this.w;
+    const text = Object.entries(pairs).map(([k, v]) => `${k}=${v}`).join("\n");
+    const out = w.withString(text, (t) => w.readText((b, c, l) => w.x.zs_app_cura_settings(this.app, t, b, c, l)));
+    const r = { sets: [], near: [], unused: [] };
+    for (const line of (out ?? "").split("\n")) {
+      const [kind, ...rest] = line.split("\t");
+      if (kind === "set") r.sets.push(rest);
+      else if (kind === "near" || kind === "unused") r[kind].push(rest);
+    }
+    return r;
+  }
+
+  // The settings of part i that zslice does not use: [[key, value, why]].
+  partUnused(i) {
+    const w = this.w;
+    const out = w.readText((b, c, l) => w.x.zs_app_part_unused(this.app, i, b, c, l)) ?? "";
+    return out.split("\n").filter(Boolean).map((l) => l.split("\t"));
+  }
+
+  // The parts of a 3MF file keep their places in the file.
+  setKeepPlaces(on) {
+    this.w.x.zs_app_set_keep_places(this.app, on ? 1 : 0);
+  }
+
+  // The value of a setting with no change of this print: what a reset  // The value of a setting with no change of this print: what a reset
   // gives.
   base(name) {
     const w = this.w;

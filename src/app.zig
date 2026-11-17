@@ -120,6 +120,11 @@ pub const App = struct {
     mesh: ?zs.Mesh = null,
     model_name: []u8 = &.{},
     settings: Settings = .{},
+    /// The parts of a 3MF file keep their places in the file, also when
+    /// they are near the edge of the bed or near another part (the zslice
+    /// commands, for a plate that another program packed). False: a part
+    /// that does not fit with the part gap goes to a free place.
+    keep_places: bool = false,
     /// The memory for the string values of the settings. It only grows, so
     /// a copy of the settings stays valid while a slice uses it.
     strings: std.heap.ArenaAllocator,
@@ -294,7 +299,9 @@ pub const App = struct {
             if (any_print and !zs.part_settings.prints(p.meta)) continue;
             const m = p.mesh;
             p.mesh = .empty; // The plate owns the mesh now.
-            const i = try app.plate.add(app.gpa, p.name, m, app.bedSize(), app.partGap(), true);
+            // A gap of -inf: each place fits (see Plate.fits).
+            const gap = if (app.keep_places) -std.math.inf(f64) else app.partGap();
+            const i = try app.plate.add(app.gpa, p.name, m, app.bedSize(), gap, true);
             idx.* = i;
             // With no part that prints, a volume prints as a part.
             if (zs.part_settings.prints(p.meta)) {
@@ -501,6 +508,27 @@ pub const App = struct {
         for (p.volumes.items) |v| {
             try w.print("Volume \"{s}\":\n", .{v.name});
             for (try zs.part_settings.describe(a, v.meta, &app.settings)) |line| try w.print("  {s}\n", .{line});
+        }
+    }
+
+    /// The settings of part i and of its volumes that zslice does not use,
+    /// one a line: "key\tvalue\twhy". It leaves out a near value (the
+    /// nearest infill pattern). For the zslice commands, which stop on a
+    /// setting that a part would drop in silence.
+    pub fn partUnusedText(app: *const App, i: usize, w: *std.Io.Writer) (Allocator.Error || std.Io.Writer.Error)!void {
+        if (i >= app.plate.count()) return;
+        var arena_state = std.heap.ArenaAllocator.init(app.gpa);
+        defer arena_state.deinit();
+        const a = arena_state.allocator();
+        const p = &app.plate.parts.items[i];
+        const metas = try a.alloc([]const zs.threemf.Meta, p.volumes.items.len + 1);
+        metas[0] = p.meta;
+        for (p.volumes.items, metas[1..]) |v, *m| m.* = v.meta;
+        for (metas) |meta| {
+            const ps = try zs.import_cura.partSettings(a, meta, &app.settings);
+            for (ps.ignored) |ig| if (!ig.near) try w.print("{s}\t{s}\t{s}\n", .{ ig.key, ig.value, ig.why });
+            // A zslice setting of the plate on a part (zslice:project.support).
+            for (ps.sets) |c| if (!zs.settings.isPerPartSetting(c.name)) try w.print("{s}\t{s}\tzslice keeps this setting for the whole plate\n", .{ c.name, c.value });
         }
     }
 

@@ -29,7 +29,15 @@ npm install @beetlebugorg/zslice
 npx zslice slice part.stl -m printer.toml -f pla.toml -p fine -s project.wall_count=3 -o part.gcode --stats stats.json
 ```
 
-A profile is a built-in name or a `.toml` file (`zslice import cura` of the native command converts a Cura profile stack). `-s` changes one setting after the profiles.
+A profile is a built-in name or a `.toml` file (`zslice import cura` of the native command converts a Cura profile stack). The settings apply in this order:
+
+1. The profiles (`-m`, `-f`, `-p`).
+2. `-c key=value`: a setting with its Cura key, for example `-c support_enable=false -c adhesion_type=brim -c brim_line_count=10`. The command uses the map of `zslice import cura`. A key that zslice cannot use (a raft, an unknown key) stops the command with the reason, so no setting is dropped in silence. A near value (the nearest infill pattern) shows a note on stderr.
+3. `-s group.name=value`: a zslice setting.
+
+A 3MF file is a plate. Each object prints at the place of its build item, also near the edge of the bed or near another part. The command stops if a part is not on the bed. An object can have its own settings in its metadata: Cura keys (`cura:infill_sparse_density`) or zslice settings (`zslice:project.wall_count`). The command stops on a setting that a part cannot have, for example a brim (zslice keeps it for the whole plate).
+
+`--stats` writes JSON: `printTimeS`, `filamentMm`, `filamentM`, `filamentG`, `layerCount`, `layerHeight`, `firstLayerHeight`, `retractions`, `travelMm`, `parts`, and `bounds` (`{ "min": [x, y, z], "max": [x, y, z] }` in mm: the box of the extrusions, with the skirt and the brim).
 
 ## Serve the web app
 

@@ -796,6 +796,59 @@ export fn zs_app_part_settings(a: ?*const App, i: usize, buf: ?[*]u8, cap: usize
     return ok;
 }
 
+/// The settings of part i that zslice does not use (App.partUnusedText).
+/// The same buffer rules as zs_app_setting_get.
+export fn zs_app_part_unused(a: ?*const App, i: usize, buf: ?[*]u8, cap: usize, out_len: ?*usize) c_int {
+    const app = a orelse return @intFromEnum(Status.invalid_argument);
+    if (i >= app.plate.count()) return @intFromEnum(Status.out_of_range);
+    var aw: Writer.Allocating = .init(gpa);
+    defer aw.deinit();
+    app.partUnusedText(i, &aw.writer) catch return @intFromEnum(Status.out_of_memory);
+    return copyOut(aw.written(), buf, cap, out_len);
+}
+
+/// The zslice settings of Cura settings for the whole plate
+/// (import_cura.plateSettings), from the settings of the app now. `text`
+/// has one "key=value" a line. Each line of the result is one of:
+///   "set\tname\tvalue": a zslice setting to set;
+///   "near\tkey\tvalue\twhy": zslice uses a near value;
+///   "unused\tkey\tvalue\twhy": zslice cannot use this key.
+/// It changes no setting. The same buffer rules as zs_app_setting_get.
+export fn zs_app_cura_settings(a: ?*const App, text: ?[*:0]const u8, buf: ?[*]u8, cap: usize, out_len: ?*usize) c_int {
+    const app = a orelse return @intFromEnum(Status.invalid_argument);
+    const t = std.mem.span(text orelse return @intFromEnum(Status.invalid_argument));
+    var arena_state = std.heap.ArenaAllocator.init(gpa);
+    defer arena_state.deinit();
+    const arena = arena_state.allocator();
+    var pairs: std.ArrayList(zs.import_cura.Pair) = .empty;
+    var lines = std.mem.tokenizeAny(u8, t, "\r\n");
+    while (lines.next()) |line| {
+        const eq = std.mem.indexOfScalar(u8, line, '=') orelse return @intFromEnum(Status.invalid_argument);
+        pairs.append(arena, .{
+            .key = std.mem.trim(u8, line[0..eq], " \t"),
+            .value = std.mem.trim(u8, line[eq + 1 ..], " \t"),
+        }) catch return @intFromEnum(Status.out_of_memory);
+    }
+    const ps = zs.import_cura.plateSettings(arena, pairs.items, &app.settings) catch return @intFromEnum(Status.out_of_memory);
+    var aw: Writer.Allocating = .init(gpa);
+    defer aw.deinit();
+    const w = &aw.writer;
+    (struct {
+        fn f(out: *Writer, r: zs.import_cura.PartSettings) Writer.Error!void {
+            for (r.sets) |ch| try out.print("set\t{s}\t{s}\n", .{ ch.name, ch.value });
+            for (r.ignored) |ig| try out.print("{s}\t{s}\t{s}\t{s}\n", .{ if (ig.near) "near" else "unused", ig.key, ig.value, ig.why });
+        }
+    }).f(w, ps) catch return @intFromEnum(Status.out_of_memory);
+    return copyOut(aw.written(), buf, cap, out_len);
+}
+
+/// The parts of a 3MF file keep their places in the file (App.keep_places).
+export fn zs_app_set_keep_places(a: ?*App, on: c_int) c_int {
+    const app = a orelse return @intFromEnum(Status.invalid_argument);
+    app.keep_places = on != 0;
+    return ok;
+}
+
 export fn zs_app_part_move(a: ?*App, i: usize, x: f64, y: f64) c_int {
     const app = a orelse return @intFromEnum(Status.invalid_argument);
     if (i >= app.plate.count()) return @intFromEnum(Status.out_of_range);

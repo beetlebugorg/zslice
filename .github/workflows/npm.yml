@@ -48,7 +48,7 @@ jobs:
                   out += ["facet normal 0 0 0", "outer loop"] + [f"vertex {v[i][0]} {v[i][1]} {v[i][2]}" for i in t] + ["endloop", "endfacet"]
           open("cube.stl", "w").write("\n".join(out + ["endsolid cube"]) + "\n")
           PY
-          npx zslice slice cube.stl -o cube.gcode --stats -
+          npx zslice slice cube.stl -c infill_sparse_density=20 -c adhesion_type=brim -o cube.gcode --stats -
           grep -q ";LAYER:" cube.gcode
 
       # The registry keeps the tarball of npm pack as it is, so its sha256

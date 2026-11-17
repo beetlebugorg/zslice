@@ -857,8 +857,10 @@ pub const PartRole = enum {
 /// A zslice setting from a Cura key, by its dotted name.
 pub const PartSetting = @import("settings.zig").Change;
 
-/// A Cura key that zslice does not use, and why.
-pub const Ignored = struct { key: []const u8, value: []const u8, why: []const u8 };
+/// A Cura key that zslice does not use, and why. `near`: zslice uses a
+/// near value (for example the nearest infill pattern), and `why` says
+/// which.
+pub const Ignored = struct { key: []const u8, value: []const u8, why: []const u8, near: bool = false };
 
 pub const PartSettings = struct {
     role: PartRole = .normal,
@@ -944,6 +946,66 @@ fn patternFactor(pattern: []const u8) f64 {
 /// `infill_line_distance`), and the speed limit (for the speeds). The
 /// result is allocated in `arena`.
 pub fn partSettings(arena: Allocator, meta: anytype, base: *const @import("settings.zig").Settings) Allocator.Error!PartSettings {
+    return mapSettings(arena, meta, base, false);
+}
+
+/// A Cura setting as a key and a value (`support_enable`, `false`).
+pub const Pair = struct { key: []const u8, value: []const u8 };
+
+/// The zslice settings of Cura settings for the whole plate (the `-c`
+/// option of the zslice commands, and the settings of a printdeck.yml).
+/// It maps the same keys as `partSettings`, and also the settings that
+/// zslice keeps for the whole plate: support (`support_enable`,
+/// `support_type`), adhesion (`adhesion_type`, `brim_line_count`), the
+/// seam (`z_seam_corner`), and the machine and filament keys of the
+/// profile table. `ignored` lists each key that zslice cannot use, so that
+/// a caller can stop and drop no setting in silence.
+pub fn plateSettings(arena: Allocator, pairs: []const Pair, base: *const @import("settings.zig").Settings) Allocator.Error!PartSettings {
+    const meta = try arena.alloc(Pair, pairs.len);
+    for (pairs, meta) |p, *m| m.* = .{ .key = try std.fmt.allocPrint(arena, "cura:{s}", .{p.key}), .value = p.value };
+    return mapSettings(arena, meta, base, true);
+}
+
+/// The value of Cura key `key` in `meta` (a constant text), or null.
+fn metaValue(meta: anytype, key: []const u8) ?[]const u8 {
+    for (meta) |m| {
+        const k = curaKey(m.key) orelse continue;
+        if (std.mem.eql(u8, k, key)) return constantText(m.value);
+    }
+    return null;
+}
+
+/// The zslice seam of a Cura z_seam_type and z_seam_corner, or null with
+/// the reason in `why`. Cura puts the seam of "back" and "shortest" in a
+/// corner when the corner setting asks for one; "hidden" is the zslice
+/// seam that prefers an inside corner toward the back.
+fn seamOf(seam_type: ?[]const u8, corner: ?[]const u8, why: *[]const u8) ?[]const u8 {
+    const c = corner orelse "z_seam_corner_none";
+    const known = [_][]const u8{ "z_seam_corner_none", "z_seam_corner_inner", "z_seam_corner_outer", "z_seam_corner_any", "z_seam_corner_weighted" };
+    for (known) |k| {
+        if (std.mem.eql(u8, c, k)) break;
+    } else {
+        why.* = "not a Cura seam corner";
+        return null;
+    }
+    const in_corner = !std.mem.eql(u8, c, "z_seam_corner_none");
+    if (std.mem.eql(u8, c, "z_seam_corner_outer")) {
+        why.* = "zslice cannot prefer the outside corners for the seam";
+        return null;
+    }
+    const t = seam_type orelse {
+        // A corner alone keeps the zslice seam.
+        return "";
+    };
+    if (std.mem.eql(u8, t, "random")) return "random";
+    if (std.mem.eql(u8, t, "sharpest_corner")) return "sharpest";
+    if (std.mem.eql(u8, t, "back")) return if (in_corner) "hidden" else "rear";
+    if (std.mem.eql(u8, t, "shortest")) return "nearest";
+    why.* = "not a Cura seam type";
+    return null;
+}
+
+fn mapSettings(arena: Allocator, meta: anytype, base: *const @import("settings.zig").Settings, whole: bool) Allocator.Error!PartSettings {
     const settings_mod = @import("settings.zig");
     var out: PartSettings = .{};
     const r = partRole(meta);
@@ -996,6 +1058,22 @@ pub fn partSettings(arena: Allocator, meta: anytype, base: *const @import("setti
             if (!std.mem.eql(u8, wa.written(), wb.written())) try put(arena, &sets, sm.name, wa.written());
         }
     }
+    // The settings that zslice keeps for the whole plate, and the keys
+    // that work together (plateSettings).
+    var layer_height = p.layer_height;
+    if (metaValue(meta, "layer_height")) |lh| layer_height = number(lh) orelse layer_height;
+    const adhesion = metaValue(meta, "adhesion_type");
+    const support_enable = metaValue(meta, "support_enable");
+    // speed_print: the speeds that the part does not set (prepareProfile).
+    if (metaValue(meta, "speed_print")) |sp| if (number(sp)) |n| {
+        for (speed_keys[1..]) |k| {
+            if (metaValue(meta, k) != null) continue;
+            const m_ = for (project_map) |e| {
+                if (std.mem.eql(u8, e.cura, k)) break e;
+            } else unreachable;
+            try put(arena, &sets, try std.fmt.allocPrint(arena, "{s}.{s}", .{ m_.group, m_.key }), try std.fmt.allocPrint(arena, "{d}", .{std.math.clamp(n / base.machine.max_speed, 0.01, 1)}));
+        }
+    };
     for (meta) |m| {
         if (std.mem.eql(u8, m.key, "zslice:quality")) continue;
         // A zslice setting of the part ("zslice:project.infill_density"):
@@ -1025,6 +1103,101 @@ pub fn partSettings(arena: Allocator, meta: anytype, base: *const @import("setti
             }
         }.f;
         if (std.meta.stringToEnum(PartRole, key) != null or std.mem.eql(u8, key, "infill_mesh_order")) continue;
+        if (std.mem.eql(u8, key, "speed_print")) {
+            if (num == null) try skip(arena, &ignored, key, v, "not a number");
+            continue; // done before the loop
+        }
+        if (std.mem.eql(u8, key, "z_seam_type") or std.mem.eql(u8, key, "z_seam_corner")) {
+            // The type and the corner make one zslice seam: the type
+            // writes it, and a bad corner shows on the corner key.
+            const is_type = key[7] == 't';
+            var why: []const u8 = "";
+            if (!is_type) {
+                if (seamOf(metaValue(meta, "z_seam_type"), v, &why) == null) try skip(arena, &ignored, key, v, why);
+                if (metaValue(meta, "z_seam_type") != null) continue;
+            }
+            const seam = seamOf(if (is_type) v else null, if (is_type) metaValue(meta, "z_seam_corner") else v, &why) orelse
+                (if (is_type) seamOf(v, null, &why) else null) orelse {
+                if (is_type) try skip(arena, &ignored, key, v, why);
+                continue;
+            };
+            if (seam.len == 0) continue;
+            if (!whole and !settings_mod.isLayerSetting("project.seam")) {
+                try skip(arena, &ignored, key, v, "zslice keeps this setting for the whole plate");
+                continue;
+            }
+            try put(arena, &sets, "project.seam", seam);
+            continue;
+        }
+        const plate_key = for ([_][]const u8{ "adhesion_type", "brim_line_count", "support_enable" }) |pk| {
+            if (std.mem.eql(u8, key, pk)) break true;
+        } else false;
+        if (!whole and plate_key) {
+            try skip(arena, &ignored, key, v, "zslice keeps this setting for the whole plate");
+            continue;
+        }
+        if (whole and std.mem.eql(u8, key, "adhesion_type")) {
+            if (std.mem.eql(u8, v, "none")) {
+                try put(arena, &sets, "project.skirt_loops", "0");
+                try put(arena, &sets, "project.brim_width", "0");
+            } else if (std.mem.eql(u8, v, "skirt")) {
+                try put(arena, &sets, "project.brim_width", "0");
+            } else if (std.mem.eql(u8, v, "brim")) {
+                // The width, or the line count times the line width, or
+                // the brim of the profile, or the Cura default (8 mm).
+                const width = if (metaValue(meta, "brim_width")) |bw| number(bw) else null;
+                const count = if (metaValue(meta, "brim_line_count")) |bc| number(bc) else null;
+                const w = width orelse if (count) |n| n * line_width else if (p.brim_width > 0) p.brim_width else 8;
+                try put(arena, &sets, "project.brim_width", try std.fmt.allocPrint(arena, "{d}", .{@max(0, w)}));
+            } else if (std.mem.eql(u8, v, "raft")) {
+                try skip(arena, &ignored, key, v, "zslice has no raft");
+            } else {
+                try skip(arena, &ignored, key, v, "not a Cura adhesion type");
+            }
+            continue;
+        }
+        if (whole and (std.mem.eql(u8, key, "brim_line_count") or std.mem.eql(u8, key, "brim_width"))) {
+            const n = num orelse {
+                try skip(arena, &ignored, key, v, "not a number");
+                continue;
+            };
+            // With adhesion_type, the adhesion sets the brim. Without it,
+            // the brim changes only if the profile has a brim (Cura uses
+            // these keys only with a brim).
+            if (adhesion != null or !(p.brim_width > 0)) continue;
+            if (key[5] == 'l' and metaValue(meta, "brim_width") != null) continue; // the width wins
+            const w = if (key[5] == 'l') n * line_width else n;
+            try put(arena, &sets, "project.brim_width", try std.fmt.allocPrint(arena, "{d}", .{@max(0, w)}));
+            continue;
+        }
+        if (whole and (std.mem.eql(u8, key, "support_enable") or std.mem.eql(u8, key, "support_type"))) {
+            const t = metaValue(meta, "support_type");
+            var support: ?[]const u8 = null;
+            if (std.mem.eql(u8, key, "support_enable")) {
+                const b = curaBool(v) orelse {
+                    try skip(arena, &ignored, key, v, "not True or False");
+                    continue;
+                };
+                if (!b) {
+                    support = "off";
+                } else if (t == null) {
+                    // On: the type of the profile, or everywhere (Cura).
+                    if (base.project.support == .off) support = "everywhere";
+                }
+            } else {
+                // A type turns support on only with support_enable, or
+                // when the profile has support (as in Cura).
+                if (support_enable) |en| {
+                    if (!(curaBool(en) orelse false)) continue;
+                } else if (base.project.support == .off) continue;
+                support = std.mem.trim(u8, (try convert(arena, .support_type, v, .{ .base = 0, .precise = false })) orelse {
+                    try skip(arena, &ignored, key, v, "not a Cura support type");
+                    continue;
+                }, "\"");
+            }
+            if (support) |sv| try put(arena, &sets, "project.support", sv);
+            continue;
+        }
         if (std.mem.eql(u8, key, "infill_sparse_density")) {
             const n = num orelse {
                 try skip(arena, &ignored, key, v, "not a number");
@@ -1043,7 +1216,7 @@ pub fn partSettings(arena: Allocator, meta: anytype, base: *const @import("setti
             };
             pattern = pp.name;
             try put(arena, &sets, "project.infill_pattern", pp.name);
-            if (pp.note.len > 0) try skip(arena, &ignored, key, v, pp.note);
+            if (pp.note.len > 0) try ignored.append(arena, .{ .key = key, .value = v, .why = pp.note, .near = true });
         } else if (std.mem.eql(u8, key, "infill_angles")) {
             var buf: [settings_mod.max_infill_angles]f64 = undefined;
             const list = settings_mod.infillAngles(v, &buf) catch {
@@ -1132,7 +1305,7 @@ pub fn partSettings(arena: Allocator, meta: anytype, base: *const @import("setti
                 continue;
             };
             const name = try std.fmt.allocPrint(arena, "{s}.{s}", .{ m_.group, m_.key });
-            if (!settings_mod.isLayerSetting(name)) {
+            if (!whole and !settings_mod.isLayerSetting(name)) {
                 try skip(arena, &ignored, key, v, "zslice keeps this setting for the whole plate");
                 continue;
             }
@@ -1142,6 +1315,7 @@ pub fn partSettings(arena: Allocator, meta: anytype, base: *const @import("setti
                 .boolean => if (curaBool(v)) |b| (if (b) "true" else "false") else null,
                 .copy => if (num) |n| try std.fmt.allocPrint(arena, "{d}", .{n}) else null,
                 .seam => (try convert(arena, .seam, v, .{ .base = 0, .precise = false })),
+                .support_type => (try convert(arena, .support_type, v, .{ .base = 0, .precise = false })),
                 else => null,
             };
             const text = value orelse {
@@ -1152,8 +1326,8 @@ pub fn partSettings(arena: Allocator, meta: anytype, base: *const @import("setti
             try put(arena, &sets, name, std.mem.trim(u8, text, "\""));
         }
     }
-    if (layer_keys[0]) |n| try put(arena, &sets, "project.top_thickness", try std.fmt.allocPrint(arena, "{d}", .{n * p.layer_height}));
-    if (layer_keys[1]) |n| try put(arena, &sets, "project.bottom_thickness", try std.fmt.allocPrint(arena, "{d}", .{n * p.layer_height}));
+    if (layer_keys[0]) |n| try put(arena, &sets, "project.top_thickness", try std.fmt.allocPrint(arena, "{d}", .{n * layer_height}));
+    if (layer_keys[1]) |n| try put(arena, &sets, "project.bottom_thickness", try std.fmt.allocPrint(arena, "{d}", .{n * layer_height}));
     // A line distance replaces the density, as in Cura.
     if (line_distance) |d| if (d > 0) {
         const density = std.math.clamp(line_width * patternFactor(pattern) / d, 0.001, 1);
@@ -1370,4 +1544,48 @@ test "Cura object settings: a line distance sets the density of the pattern" {
     try testing.expectEqual(PartRole.normal, ps.role);
     try testing.expectEqual(@as(usize, 1), ps.sets.len);
     try testing.expectEqualStrings("1", ps.sets[0].value);
+}
+
+test "plate settings: the keys of a printdeck.yml" {
+    var arena_state = std.heap.ArenaAllocator.init(testing.allocator);
+    defer arena_state.deinit();
+    const a = arena_state.allocator();
+    var base: Settings = .{};
+    base.project.support = .everywhere;
+    const pairs = [_]Pair{
+        .{ .key = "support_enable", .value = "false" },
+        .{ .key = "z_seam_type", .value = "sharpest_corner" },
+        .{ .key = "z_seam_corner", .value = "z_seam_corner_inner" },
+        .{ .key = "adhesion_type", .value = "brim" },
+        .{ .key = "brim_line_count", .value = "10" },
+        .{ .key = "infill_sparse_density", .value = "15" },
+    };
+    const ps = try plateSettings(a, &pairs, &base);
+    try testing.expectEqual(@as(usize, 0), ps.ignored.len);
+    var s = base;
+    try testing.expect(applyPart(&s, ps) == null);
+    try testing.expectEqual(.off, s.project.support);
+    try testing.expectEqualStrings("sharpest", @tagName(s.project.seam));
+    const lw = if (base.project.line_width > 0) base.project.line_width else 1.1 * base.machine.nozzle_diameter;
+    try testing.expectApproxEqAbs(10 * lw, s.project.brim_width, 1e-9);
+    try testing.expectApproxEqAbs(0.15, s.project.infill_density, 1e-9);
+
+    // A key that zslice cannot use is in the list, with the reason.
+    const unmapped = [_]Pair{
+        .{ .key = "adhesion_type", .value = "raft" },
+        .{ .key = "z_seam_corner", .value = "z_seam_corner_outer" },
+        .{ .key = "no_such_key", .value = "1" },
+    };
+    const pb = try plateSettings(a, &unmapped, &base);
+    try testing.expectEqual(@as(usize, 3), pb.ignored.len);
+    try testing.expectEqualStrings("zslice has no raft", pb.ignored[0].why);
+
+    // Support on with no type: everywhere, when the profile has none.
+    base.project.support = .off;
+    const on = [_]Pair{.{ .key = "support_enable", .value = "True" }};
+    const po = try plateSettings(a, &on, &base);
+    try testing.expectEqualStrings("everywhere", po.sets[0].value);
+    // A type alone does not turn support on (as in Cura).
+    const t = [_]Pair{.{ .key = "support_type", .value = "buildplate" }};
+    try testing.expectEqual(@as(usize, 0), (try plateSettings(a, &t, &base)).sets.len);
 }
