@@ -52,7 +52,9 @@
 //! 7. Skirt and brim (first layers only). The brim is loops around the
 //!    outer boundaries of the first layer (not around holes), one line
 //!    width apart, to `brim_width`. The skirt is loops around the first
-//!    layer and the brim, at `skirt_distance`.
+//!    layer and the brim, at `skirt_distance`. On a plate of many parts,
+//!    the plans of the parts have none: the plate job makes one skirt and
+//!    one brim around all parts (see `ringPlan` and plate_job.zig).
 //! 8. Support (see support.zig): one boundary loop and lines in a fixed
 //!    direction for the support body, and dense lines across them for the
 //!    interface.
@@ -156,6 +158,13 @@ pub const LayerPlan = struct {
     /// Valid while the job lives.
     region_resolved: []const *const Resolved = &.{},
     region_modifier: []const u16 = &.{},
+    /// The part of the plate of each region, and the layer index of the
+    /// region in the job of its part (see `append`). Empty in the plan of
+    /// one job: all its paths are of `part`, on layer `index`.
+    region_part: []const u32 = &.{},
+    region_layer: []const u32 = &.{},
+    /// The part of the plate of the paths with region 0, or `no_part`.
+    part: u32 = no_part,
     /// The outline of the layer.
     outline: Paths = .empty,
     /// The area of the sparse infill: inside the walls, and not skin. Its
@@ -187,7 +196,90 @@ pub const LayerPlan = struct {
         if (path.region == 0 or path.region > self.region_resolved.len) return null;
         return self.region_resolved[path.region - 1];
     }
+
+    /// The part of the plate that a path belongs to, or `no_part` (the
+    /// skirt and the brim of a plate).
+    pub fn partOf(self: *const LayerPlan, path: Path) u32 {
+        if (path.region == 0 or path.region > self.region_part.len) return self.part;
+        return self.region_part[path.region - 1];
+    }
+
+    /// The layer index of a path in the job of its part. A plate of many
+    /// parts merges the layers of the parts by z (see plate_job.zig), so
+    /// this index can differ from `index`. The speed ramp of the first
+    /// layers uses it.
+    pub fn layerOf(self: *const LayerPlan, path: Path) usize {
+        if (path.region == 0 or path.region > self.region_layer.len) return self.index;
+        return self.region_layer[path.region - 1];
+    }
+
+    /// Adds the paths of `src`, moved by (dx, dy), after the paths of this
+    /// plan. `src` is the plan of layer `layer` of the job of part `part`.
+    /// Each path gets a region with the settings of `src` (or of its
+    /// modifier volume), and its own width and height, so the emitter
+    /// prints it as `src` would. The settings stay valid while the job of
+    /// `src` lives.
+    pub fn append(self: *LayerPlan, src: *const LayerPlan, dx: i64, dy: i64, part: u32, layer: u32) Allocator.Error!void {
+        const a = self.arena.allocator();
+        const old_n = self.region_resolved.len;
+        const n = old_n + 1 + src.region_resolved.len;
+        const rr = try a.alloc(*const Resolved, n);
+        const rm = try a.alloc(u16, n);
+        const rp = try a.alloc(u32, n);
+        const rl = try a.alloc(u32, n);
+        for (0..old_n) |k| {
+            rr[k] = self.region_resolved[k];
+            rm[k] = if (k < self.region_modifier.len) self.region_modifier[k] else no_modifier;
+            rp[k] = if (k < self.region_part.len) self.region_part[k] else self.part;
+            rl[k] = if (k < self.region_layer.len) self.region_layer[k] else self.index;
+        }
+        rr[old_n] = src.resolved.?;
+        rm[old_n] = no_modifier;
+        for (src.region_resolved, src.region_modifier, old_n + 1..) |r, m, k| {
+            rr[k] = r;
+            rm[k] = m;
+        }
+        @memset(rp[old_n..], part);
+        @memset(rl[old_n..], layer);
+        self.region_resolved = rr;
+        self.region_modifier = rm;
+        self.region_part = rp;
+        self.region_layer = rl;
+
+        const z_base: u32 = @intCast(self.point_z.items.len);
+        const w_base: u32 = @intCast(self.point_w.items.len);
+        try self.paths.ensureUnusedCapacity(a, src.paths.items.len);
+        for (src.paths.items) |path| {
+            var q = path;
+            q.region = @intCast(old_n + 1 + path.region);
+            if (q.width == 0) q.width = @floatCast(src.width);
+            if (q.height == 0) q.height = @floatCast(src.height);
+            if (q.z_start != Path.planar) q.z_start += z_base;
+            if (q.w_start != Path.planar) q.w_start += w_base;
+            self.paths.appendAssumeCapacity(q);
+        }
+        try self.point_z.appendSlice(a, src.point_z.items);
+        try self.point_w.appendSlice(a, src.point_w.items);
+        try appendMoved(a, &self.points, src.points, dx, dy);
+        try appendMoved(a, &self.outline, src.outline, dx, dy);
+        try appendMoved(a, &self.sparse_area, src.sparse_area, dx, dy);
+        self.width = @max(self.width, src.width);
+        self.height = @max(self.height, src.height);
+    }
+
+    pub const no_part = std.math.maxInt(u32);
+    /// In `region_modifier`: the region of a part, not of a volume.
+    pub const no_modifier = std.math.maxInt(u16);
 };
+
+/// Adds the paths of `src` to `dst`, moved by (dx, dy).
+fn appendMoved(a: Allocator, dst: *Paths, src: Paths, dx: i64, dy: i64) Allocator.Error!void {
+    const base: u32 = @intCast(dst.points.items.len);
+    try dst.points.ensureUnusedCapacity(a, src.points.items.len);
+    for (src.points.items) |q| dst.points.appendAssumeCapacity(.init(q.x + dx, q.y + dy));
+    try dst.ends.ensureUnusedCapacity(a, src.ends.items.len);
+    for (src.ends.items) |e| dst.ends.appendAssumeCapacity(base + e);
+}
 
 /// A modifier volume: a region of the plate with its own settings (a Cura
 /// "infill mesh"). On each layer, its area is its slice there, inside the
@@ -253,6 +345,9 @@ pub const Context = struct {
     /// The modifier volumes (see `Modifier`), the winner of an overlap
     /// first.
     modifiers: []const Modifier = &.{},
+    /// False: the plan has no skirt and no brim (step 7). The plate job
+    /// makes them around all parts of the plate.
+    rings: bool = true,
 
     pub fn canceled(ctx: Context) bool {
         const c = ctx.cancel orelse return false;
@@ -1314,32 +1409,10 @@ pub fn plan(gpa: Allocator, ctx: Context, i: usize) Allocator.Error!LayerPlan {
         ironing_lines = try infill.connect(s, region, set, spacing, skin_angle + 90);
     }
 
-    // Step 7.
+    // Step 7. A plate of more than one part has one skirt and one brim
+    // around all parts (see plate_job.zig), so its parts have none.
     var rings: std.ArrayList(Paths) = .empty;
-    if (i < p.skirt_layers or (first and p.brim_width > 0)) {
-        const w0 = geom.fromMm(r.first_layer_line_width);
-        const base = try outerBoundaries(s, ctx.outlines[0]);
-        const brim_n: usize = if (p.brim_width > 0) @intFromFloat(@ceil(p.brim_width / r.first_layer_line_width - 1e-6)) else 0;
-        const brim_edge = @as(i64, @intCast(brim_n)) * w0;
-        // The skirt, outermost loop first.
-        if (i < p.skirt_layers) {
-            var k: usize = p.skirt_loops;
-            while (k > 0) {
-                k -= 1;
-                const d = brim_edge + geom.fromMm(p.skirt_distance) + @divTrunc(w, 2) + @as(i64, @intCast(k)) * w;
-                try rings.append(s, try offset_mod.offset(s, base, d, .{ .join = .round }));
-            }
-        }
-        // The brim, outermost loop first, so that it ends at the part.
-        if (first) {
-            var k: usize = brim_n;
-            while (k > 0) {
-                k -= 1;
-                const d = @divTrunc(w0, 2) + @as(i64, @intCast(k)) * w0;
-                try rings.append(s, try offset_mod.offset(s, base, d, .{ .join = .round }));
-            }
-        }
-    }
+    if (ctx.rings) try ringLoops(s, r, ctx.outlines[0], i, &rings);
 
     // Step 9.
     var pos: Point = if (outline.points.items.len > 0) outline.points.items[0] else .init(0, 0);
@@ -1445,6 +1518,54 @@ pub fn plan(gpa: Allocator, ctx: Context, i: usize) Allocator.Error!LayerPlan {
     if (p.slope_ironing and !first) {
         try addBeads(s, a, &lp, &pos, try slope.ironing(s, slope_in, i), .slope_ironing);
     }
+    return lp;
+}
+
+/// The skirt and brim loops of layer i (step 7), outermost first:
+/// around the outer boundaries of `outline0`, the outline of the first
+/// layer. Empty on a layer with no skirt and no brim.
+pub fn ringLoops(s: Allocator, r: *const Resolved, outline0: Paths, i: usize, rings: *std.ArrayList(Paths)) Allocator.Error!void {
+    const p = r.settings.project;
+    const first = i == 0;
+    if (!(i < p.skirt_layers or (first and p.brim_width > 0))) return;
+    const w = geom.fromMm(if (first) r.first_layer_line_width else r.line_width);
+    const w0 = geom.fromMm(r.first_layer_line_width);
+    const base = try outerBoundaries(s, outline0);
+    const brim_n: usize = if (p.brim_width > 0) @intFromFloat(@ceil(p.brim_width / r.first_layer_line_width - 1e-6)) else 0;
+    const brim_edge = @as(i64, @intCast(brim_n)) * w0;
+    // The skirt, outermost loop first.
+    if (i < p.skirt_layers) {
+        var k: usize = p.skirt_loops;
+        while (k > 0) {
+            k -= 1;
+            const d = brim_edge + geom.fromMm(p.skirt_distance) + @divTrunc(w, 2) + @as(i64, @intCast(k)) * w;
+            try rings.append(s, try offset_mod.offset(s, base, d, .{ .join = .round }));
+        }
+    }
+    // The brim, outermost loop first, so that it ends at the part.
+    if (first) {
+        var k: usize = brim_n;
+        while (k > 0) {
+            k -= 1;
+            const d = @divTrunc(w0, 2) + @as(i64, @intCast(k)) * w0;
+            try rings.append(s, try offset_mod.offset(s, base, d, .{ .join = .round }));
+        }
+    }
+}
+
+/// The plan of layer i of a plate with only its skirt and brim (see
+/// `ringLoops`), from the nozzle position `start`. The plate job puts the
+/// paths of its parts after them.
+pub fn ringPlan(gpa: Allocator, r: *const Resolved, outline0: Paths, i: usize, start: Point) Allocator.Error!LayerPlan {
+    var lp: LayerPlan = .{ .arena = .init(gpa), .index = @intCast(i), .resolved = r, .z = 0, .height = 0, .width = if (i == 0) r.first_layer_line_width else r.line_width };
+    errdefer lp.deinit();
+    var scratch_state = scratch.get(gpa);
+    defer scratch_state.release();
+    const s = scratch_state.allocator();
+    var rings: std.ArrayList(Paths) = .empty;
+    try ringLoops(s, r, outline0, i, &rings);
+    var pos = start;
+    for (rings.items) |ring| try addOrdered(s, lp.arena.allocator(), &lp, &pos, ring, true, .skirt);
     return lp;
 }
 

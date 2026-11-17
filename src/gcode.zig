@@ -15,6 +15,10 @@
 //!   point, each move has X, Y, Z, and E, and the nozzle goes back up to
 //!   the z of the layer at its end. Z limits the speed and the
 //!   acceleration of these moves (`max_z_speed`, `max_z_accel`).
+//! - A path can have its own settings (a modifier volume, or a part of a
+//!   plate: see LayerPlan.region_resolved). Its speed, its acceleration,
+//!   and its flow come from them. The travel, the retraction, the cooling,
+//!   and the fan come from the settings of the layer.
 //! - Comments mark each layer (";LAYER:n") and each feature
 //!   (";TYPE:WALL-OUTER"). These follow the CuraEngine convention (see
 //!   REFERENCES.md), which G-code viewers and printdeck read.
@@ -769,15 +773,19 @@ pub const Emitter = struct {
             const widths: []const f32 = if (path.w_start != layer_mod.Path.planar) lp.point_w.items[path.w_start..][0..pts.len] else &.{};
             var speed_width = lp.width;
             for (widths) |pw| speed_width = @max(speed_width, pw);
-            const full = path_r.speedAt(path.feature, speed_width, h, lp.index);
+            // The layer index in the job of the part, for the speed ramp of
+            // the first layers (see LayerPlan.layerOf).
+            const full = path_r.speedAt(path.feature, speed_width, h, lp.layerOf(path));
             const speed = slowSpeed(full, slow, s.filament.min_speed);
             const start_time = self.stats.print_time_s;
             // Ironing lines use a fraction of the flow of a normal line.
             // A path with its own width (a thin wall) or height has its own
             // flow.
-            const base_e = if (path.width > 0 or path.height > 0) flow.beadArea(if (path.width > 0) path.width else lp.width, h) / self.r.filament_area * s.filament.flow_ratio else e_per_mm;
+            // The flow ratio of the part of the path (see LayerPlan.append).
+            const fr = path_r.settings.filament.flow_ratio;
+            const base_e = if (path.width > 0 or path.height > 0) flow.beadArea(if (path.width > 0) path.width else lp.width, h) / self.r.filament_area * fr else if (fr == s.filament.flow_ratio) e_per_mm else flow.beadArea(lp.width, lp.height) / self.r.filament_area * fr;
             const e = switch (path.feature) {
-                .ironing => base_e * lr.settings.project.ironing_flow,
+                .ironing => base_e * path_r.settings.project.ironing_flow,
                 .infill => base_e * path_r.settings.project.infill_flow,
                 .bridge => base_e * path_r.settings.project.bridge_flow,
                 else => base_e,
@@ -785,13 +793,13 @@ pub const Emitter = struct {
             const x0 = geom.toMm(pts[0].x);
             const y0 = geom.toMm(pts[0].y);
             if (path.z_start != layer_mod.Path.planar) {
-                const area = try self.nonPlanar(lp, path, pts, speed);
+                const area = try self.nonPlanar(lp, path, pts, speed, fr);
                 if (self.record) |rec| rec.appendAssumeCapacity(.{ .start_time = start_time, .end_time = self.stats.print_time_s, .area = area, .retracted = retracted, .slowed = slow < 1 or lapped });
                 continue;
             }
             if (widths.len > 0) {
                 // The width of each segment is the mean of its ends.
-                const e_scale = s.filament.flow_ratio / self.r.filament_area;
+                const e_scale = fr / self.r.filament_area;
                 var area_len: f64 = 0;
                 var len_sum: f64 = 0;
                 const n = pts.len + @as(usize, @intFromBool(path.closed and pts.len > 2));
@@ -807,7 +815,7 @@ pub const Emitter = struct {
                     try self.extrudeLen(x, y, d, area * e_scale, speed);
                 }
                 const mean_area = if (len_sum > 0) area_len / len_sum else flow.beadArea(widths[0], h);
-                if (self.record) |rec| rec.appendAssumeCapacity(.{ .start_time = start_time, .end_time = self.stats.print_time_s, .area = mean_area * s.filament.flow_ratio, .retracted = retracted, .slowed = slow < 1 or lapped });
+                if (self.record) |rec| rec.appendAssumeCapacity(.{ .start_time = start_time, .end_time = self.stats.print_time_s, .area = mean_area * fr, .retracted = retracted, .slowed = slow < 1 or lapped });
                 continue;
             }
             if (self.prep != null and self.x == x0 and self.y == y0) {
@@ -832,11 +840,9 @@ pub const Emitter = struct {
     /// `max_z_speed`, and its acceleration at most the one at which Z
     /// moves at `max_z_accel`. Returns the mean deposited bead area (mm²),
     /// by length.
-    fn nonPlanar(self: *Emitter, lp: *const LayerPlan, path: layer_mod.Path, pts: []const geom.Point, speed: f64) Error!f64 {
+    fn nonPlanar(self: *Emitter, lp: *const LayerPlan, path: layer_mod.Path, pts: []const geom.Point, speed: f64, flow_ratio: f64) Error!f64 {
         const m = self.r.settings.machine;
         const data = lp.point_z.items[path.z_start..][0..pts.len];
-        // The flow ratio of the layer (see `lr`).
-        const flow_ratio = self.lr.settings.filament.flow_ratio;
         const e_scale = flow_ratio / self.r.filament_area;
         try self.unretract();
         try self.zTo(data[0].z);
