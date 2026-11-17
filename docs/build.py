@@ -29,7 +29,7 @@ from pathlib import Path
 DOCS = Path(__file__).resolve().parent
 ROOT = DOCS.parent
 REPO = "https://github.com/beetlebugorg/zslice"
-BRANCH = "master"
+BRANCH = "main"
 SITE = "https://beetlebug.org/zslice/"
 
 esc = html.escape
