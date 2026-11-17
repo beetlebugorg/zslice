@@ -76,6 +76,8 @@ Each plate is one `App` (`zs_app`), with its own settings, profiles, parts, slic
 - The part card (partcard.js): duplicate (core: `zs_app_part_duplicate`), best orientation, less support, reset, remove, and the settings of the part, with a search for the part.
 - The cards move with a drag of their head (drag.js).
 - The measure on the tape, and the tape in the 2D view.
+- The Turn tool (turn.js): rings for X, Y, and Z around the selected part, and keys for each axis.
+- A double click on a side of a part lays the part down on that side.
 - The view follows the dark mode of the system (core: `zs_view_set_dark`). The GTK app does not call it yet.
 
 ## The steps

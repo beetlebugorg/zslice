@@ -248,6 +248,7 @@ The tool strip at the left of the view (in the GTK app: the group of three butto
 |---|---|---|
 | Select (arrow) | S | Selects a line. The Selected page shows what it is and its measurements. |
 | Move (cross) | M | A drag on a part moves it, and the wheel over it turns it by 15°: the same as Ctrl in the other tools. |
+| Turn (arrow in a circle) | R | Click a part: three rings go around it. Drag the red ring to turn the part about X, the green ring about Y, and the blue ring about Z (on the bed), in steps of 15° (Shift: 5°). Each step slices at once. Keys: Left and Right turn it about Z, Up and Down about X, Page Up and Page Down about Y. |
 | Measure (ruler) | T | Two clicks measure between two points of the print or the bed, in the 3D or the 2D view. The distance shows on a label over the middle of the tape, with its parts along x, y, and z. A point near the end of a line snaps to it. A click on a circle or an arc (a hole, a boss) shows its diameter and radius, selects the line, and puts the point at its center, so two holes give the distance between their centers. Hold Shift for no snap. Esc clears the measure. |
 
 The measure shows under the toolbar: the distance, its parts along X, Y, and Z, and the distance on the bed. A gold line in the 3D view joins the two points.

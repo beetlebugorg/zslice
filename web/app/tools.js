@@ -20,7 +20,7 @@
 
 const HINT = "Click a point of the print, or a circle or an arc for its size and center. Shift: no snap.";
 
-export const TOOLS = ["select", "move", "measure"];
+export const TOOLS = ["select", "move", "turn", "measure"];
 
 export class Tools {
   // ctx: { client, view (View3D), canvas, buttons {select, move, measure},
@@ -58,9 +58,12 @@ export class Tools {
     for (const t of TOOLS) this.ctx.buttons[t].classList.toggle("checked", t === tool);
     // The tape goes with its tool.
     if (tool !== "measure") this.clear(true);
-    if (tool !== "move") this.selectPart(null);
+    // The part stays selected for the Move and the Turn tool.
+    if (tool !== "move" && tool !== "turn") this.selectPart(null);
     this.ctx.canvas.style.cursor = tool === "measure" ? "crosshair" : "";
     this.showReadout();
+    // The rings of the Turn tool and the tape show after the next frame.
+    this.ctx.requestFrame?.();
   }
 
   // ---- measure ----

@@ -38,7 +38,8 @@
 //!   the back of the bed.
 //! - Without one (Cura), the mesh has UV coordinates for the image.
 //!
-//! `build` gives triangles with one vertex for each corner (flat normals),
+//! `build` gives triangles with one vertex for each corner (smooth normals,
+//! with sharp edges kept),
 //! from the center of the bed. The view adds half of the bed size when it
 //! draws them, so a change of the bed size does not need a new build.
 //!
@@ -154,18 +155,49 @@ fn appendMesh(gpa: Allocator, out: *std.ArrayList(Vertex), b: []const u8, offset
     if (idx_at + 3 * t * idx_size > b.len) return error.InvalidMesh;
 
     const off = [3]f32{ @floatCast(offset[0]), @floatCast(offset[1]), @floatCast(offset[2]) };
+    const index = struct {
+        fn at(bytes: []const u8, base: usize, w: bool, k: usize) usize {
+            return if (w) readInt(u32, bytes, base + 4 * k) else readInt(u16, bytes, base + 2 * k);
+        }
+    }.at;
+    const posOf = struct {
+        fn at(bytes: []const u8, base: usize, i: usize, c: [3]f32, sc: f32, o: [3]f32) [3]f32 {
+            var p: [3]f32 = undefined;
+            for (0..3) |a| {
+                const q: f32 = @floatFromInt(readInt(i16, bytes, base + 6 * i + 2 * a));
+                p[a] = c[a] + q * sc + o[a];
+            }
+            return p;
+        }
+    }.at;
+    // Smooth normals: the sum of the normals of the faces at each vertex
+    // (weighted by their area), so the light does not show each triangle
+    // of a curved surface. A face that turns more than the crease angle
+    // from that sum keeps its own normal, so a sharp edge stays sharp.
+    const smooth = try gpa.alloc([3]f32, n);
+    defer gpa.free(smooth);
+    @memset(smooth, .{ 0, 0, 0 });
+    for (0..t) |k| {
+        var p: [3][3]f32 = undefined;
+        var ids: [3]usize = undefined;
+        for (0..3) |j| {
+            ids[j] = index(b, idx_at, wide, 3 * k + j);
+            if (ids[j] >= n) return error.InvalidMesh;
+            p[j] = posOf(b, pos_at, ids[j], center, scale, off);
+        }
+        const w = faceArea(p[0], p[1], p[2]);
+        for (ids) |i| for (0..3) |a| {
+            smooth[i][a] += w[a];
+        };
+    }
+    const crease = @cos(std.math.degreesToRadians(40.0));
     try out.ensureUnusedCapacity(gpa, 3 * t);
     for (0..t) |k| {
         var corner: [3]Vertex = undefined;
+        var ids: [3]usize = undefined;
         for (0..3) |j| {
-            const at = idx_at + (3 * k + j) * idx_size;
-            const i: usize = if (wide) readInt(u32, b, at) else readInt(u16, b, at);
-            if (i >= n) return error.InvalidMesh;
-            var p: [3]f32 = undefined;
-            for (0..3) |a| {
-                const q: f32 = @floatFromInt(readInt(i16, b, pos_at + 6 * i + 2 * a));
-                p[a] = center[a] + q * scale + off[a];
-            }
+            const i = index(b, idx_at, wide, 3 * k + j);
+            ids[j] = i;
             var uv: [2]f32 = .{ -1, -1 };
             if (has_uv and use_uv) {
                 uv = .{
@@ -173,12 +205,28 @@ fn appendMesh(gpa: Allocator, out: *std.ArrayList(Vertex), b: []const u8, offset
                     @as(f32, @floatFromInt(readInt(i16, b, uv_at + 4 * i + 2))) / 8192.0,
                 };
             }
-            corner[j] = .{ .pos = p, .normal = .{ 0, 0, 1 }, .uv = uv };
+            corner[j] = .{ .pos = posOf(b, pos_at, i, center, scale, off), .normal = .{ 0, 0, 1 }, .uv = uv };
         }
         const nrm = faceNormal(corner[0].pos, corner[1].pos, corner[2].pos);
-        for (&corner) |*cv| cv.normal = nrm;
+        for (&corner, ids) |*cv, i| {
+            const sm = unit(smooth[i]) orelse nrm;
+            cv.normal = if (sm[0] * nrm[0] + sm[1] * nrm[1] + sm[2] * nrm[2] >= crease) sm else nrm;
+        }
         out.appendSliceAssumeCapacity(&corner);
     }
+}
+
+/// The normal of a triangle times twice its area (not a unit vector).
+fn faceArea(a: [3]f32, b: [3]f32, c: [3]f32) [3]f32 {
+    const u = [3]f32{ b[0] - a[0], b[1] - a[1], b[2] - a[2] };
+    const v = [3]f32{ c[0] - a[0], c[1] - a[1], c[2] - a[2] };
+    return .{ u[1] * v[2] - u[2] * v[1], u[2] * v[0] - u[0] * v[2], u[0] * v[1] - u[1] * v[0] };
+}
+
+fn unit(v: [3]f32) ?[3]f32 {
+    const l = @sqrt(v[0] * v[0] + v[1] * v[1] + v[2] * v[2]);
+    if (!(l > 0)) return null;
+    return .{ v[0] / l, v[1] / l, v[2] / l };
 }
 
 fn faceNormal(a: [3]f32, b: [3]f32, c: [3]f32) [3]f32 {

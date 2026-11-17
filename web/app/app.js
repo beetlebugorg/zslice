@@ -26,6 +26,7 @@ import { SearchOverlay } from "./search.js";
 import { ShortcutSheet } from "./shortcuts.js";
 import { LineCard } from "./linecard.js";
 import { PartCard } from "./partcard.js";
+import { TurnRings } from "./turn.js";
 import { Tools } from "./tools.js";
 import { KINDS, send as sendToPrinter, test as testPrinter } from "./link.js";
 import { contextItems } from "./context-menu.js";
@@ -193,6 +194,7 @@ function drawFrame(now) {
   }
   tools?.placeTape();
   partCard?.place();
+  turnRings?.place();
   frameTimes[frameCount++ % frameTimes.length] = performance.now() - t0;
   if (more) requestFrame();
   else lastFrameTime = 0;
@@ -381,7 +383,7 @@ canvas.addEventListener("pointerup", (e) => {
   const px = (e.clientX - r.left) * dpr();
   const py = (e.clientY - r.top) * dpr();
   if (d.button === 0 && tools.tool === "measure") tools.measureClick(px, py, e.shiftKey);
-  else if (d.button === 0 && app.page === "3d" && (tools.tool === "move" || e.ctrlKey)) tools.pickPart(px, py);
+  else if (d.button === 0 && app.page === "3d" && (tools.tool === "move" || tools.tool === "turn" || e.ctrlKey)) tools.pickPart(px, py);
   else if (d.button === 0) pickAt(px, py, true);
   else if (d.button === 2) {
     // A right click: the line there, then the menu.
@@ -684,6 +686,21 @@ function clearFocus() {
   app.focusFirst = false;
   updateFocus();
 }
+
+// The rings of the Turn tool around the selected part (turn.js).
+var turnRings = new TurnRings({
+  host: $("preview"),
+  pixelOf: (p) => tools.pixelOf(p),
+  part: () => (app.page === "3d" ? tools.part : null),
+  active: () => tools.tool === "turn",
+  turn: async (axis, degrees) => {
+    const part = tools.part;
+    if (!part) return;
+    const r = await client.call("partTurn", { index: part.index, axis, degrees });
+    if (r.part) tools.selectPart(r.part);
+    requestFrame();
+  },
+});
 
 // The card of a selected part, next to it in the view (partcard.js).
 var partCard = new PartCard({
@@ -1186,10 +1203,6 @@ function isCut() {
 
 // The keys of a selected part, and Tab through the parts: before the keys
 // of the layers. Returns true if the key was for a part.
-let turnKey = false; // R is down: the arrows turn the part
-document.addEventListener("keyup", (e) => {
-  if (e.key === "r" || e.key === "R") turnKey = false;
-});
 function partKey(e) {
   if (e.ctrlKey || e.metaKey || e.altKey) return false;
   const t = e.target;
@@ -1205,11 +1218,19 @@ function partKey(e) {
     });
     return true;
   }
+  if ((e.key === "r" || e.key === "R") && !e.shiftKey) {
+    tools.set("turn");
+    e.preventDefault();
+    return true;
+  }
   const part = tools.part;
   if (!part) return false;
-  if (e.key === "r" || e.key === "R") {
-    turnKey = true;
+  // The Turn tool: Page Up and Page Down tilt the part about Y.
+  if (tools.tool === "turn" && (e.key === "PageUp" || e.key === "PageDown")) {
     e.preventDefault();
+    e.stopPropagation();
+    const deg = (e.shiftKey ? 5 : 15) * (e.key === "PageUp" ? 1 : -1);
+    client.call("partTurn", { index: part.index, axis: 1, degrees: deg }).then((r) => r.part && tools.selectPart(r.part));
     return true;
   }
   const dirs = { ArrowLeft: [-1, 0], ArrowRight: [1, 0], ArrowUp: [0, 1], ArrowDown: [0, -1] };
@@ -1217,9 +1238,14 @@ function partKey(e) {
   if (!d) return false;
   e.preventDefault();
   e.stopPropagation();
-  if (turnKey) {
-    if (d[0] === 0) return true;
-    client.call("partRotate", { index: part.index, step: d[0] > 0 ? -15 : 15 }).then((r) => r.part && tools.selectPart(r.part));
+  // The Turn tool: Left and Right turn the part on the bed (about Z), Up
+  // and Down tilt it about X (Page Up and Page Down: about Y); Shift: 5°
+  // in place of 15°.
+  if (tools.tool === "turn") {
+    const deg = e.shiftKey ? 5 : 15;
+    const axis = d[0] !== 0 ? 2 : 0;
+    const sign = d[0] !== 0 ? -d[0] : d[1];
+    client.call("partTurn", { index: part.index, axis, degrees: sign * deg }).then((r) => r.part && tools.selectPart(r.part));
     return true;
   }
   const step = e.shiftKey ? 10 : 1;
@@ -1439,7 +1465,7 @@ const inspector = new Inspector($("page-selected"), {
 var tools = new Tools({ // var: drawFrame can run before this line
   partSelected: (part) => partCard?.show(part),
   client, view, canvas, view2d,
-  buttons: { select: $("tool-select"), move: $("tool-move"), measure: $("tool-measure") },
+  buttons: { select: $("tool-select"), move: $("tool-move"), turn: $("tool-turn"), measure: $("tool-measure") },
   readout: $("measure-readout"),
   page: () => app.page,
   layer: () => layers.hi,
@@ -2062,6 +2088,7 @@ window.zslice = {
   search,
   shortcuts,
   partCard,
+  turnRings,
   app, view, view2d, layers, browser, client, gl, inspector, gaps, history, undoRedo, tools, store, managePrinters, openPrinterSettings, loadProfile, setSetting, pickAt, topLayerPoint, openCheck, frameTimes,
   select, showPage, showTab, hitAt, showContextMenu, step, bench, benchPick,
   get frameCount() { return frameCount; },

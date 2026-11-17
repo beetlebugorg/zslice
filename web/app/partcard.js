@@ -182,7 +182,10 @@ export class PartCard {
       return;
     }
     const dpr = window.devicePixelRatio || 1;
-    const q = this.ctx.pixelOf({ x: p.x + p.sizeX / 2, y: p.y, z: p.sizeZ });
+    // Past the rings of the Turn tool (turn.js: radius 0.62 of the
+    // largest size, and 4 mm), so the card covers none of them.
+    const ring = 0.62 * Math.max(p.sizeX, p.sizeY, p.sizeZ) + 4;
+    const q = this.ctx.pixelOf({ x: p.x + Math.max(p.sizeX / 2, ring) + 6, y: p.y, z: p.sizeZ / 2 });
     const host = this.ctx.host.getBoundingClientRect();
     const w = card.offsetWidth;
     const h = card.offsetHeight;

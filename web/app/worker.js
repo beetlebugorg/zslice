@@ -288,7 +288,7 @@ function historyGoto(i) {
 // The ops that change the settings, and the ops that change the plate:
 // each starts or extends a step.
 const SETTING_OPS = new Set(["set", "reset", "quality", "profile", "setScoped", "resetScoped"]);
-const PLATE_OPS = new Set(["load", "add", "plate", "projectLoad", "partAction", "partSettingSet", "partPutDown", "putDown", "place", "partMove", "partRotate", "markAdd", "markRemoveNear", "markSet", "markRemove", "marksClear"]);
+const PLATE_OPS = new Set(["load", "add", "plate", "projectLoad", "partAction", "partSettingSet", "partPutDown", "partTurn", "putDown", "place", "partMove", "partRotate", "markAdd", "markRemoveNear", "markSet", "markRemove", "marksClear"]);
 
 const ops = {
   async init({ module, saved, mode: m }) {
@@ -589,6 +589,22 @@ const ops = {
     if (n === 0) return { part: null };
     const j = index < 0 ? (dir > 0 ? 0 : n - 1) : (((index + dir) % n) + n) % n;
     return { part: core.part(j) };
+  },
+
+  // Turns part `index` about X (axis 0) or Y (axis 1) by `degrees`, or
+  // about Z (axis 2): the Turn tool.
+  partTurn({ index, axis, degrees }) {
+    const x = core.w.x;
+    let rc;
+    if (axis === 2) {
+      const p = core.part(index);
+      if (!p) return { part: null };
+      rc = x.zs_app_part_rotate(core.app, index, p.rotation + degrees);
+    } else {
+      rc = x.zs_app_part_turn(core.app, index, axis, degrees);
+    }
+    if (rc === 0) wantSlice();
+    return { part: core.part(index) };
   },
 
   // Lays part `index` down on the side nearest to the point x, y, z (mm)
