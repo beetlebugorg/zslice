@@ -2,9 +2,12 @@
 # A small dev server for the web app. It serves a folder (by default
 # zig-out/web/app) with the right MIME types: application/wasm for .wasm
 # and text/javascript for .js, so the browser compiles the module while it
-# loads. It sends no cache headers, so a reload gets the new build.
+# loads. It tells the browser to keep no file, so a reload gets the new
+# build. With --cache, the browser keeps each file for a day, as a host for
+# users does: Chromium then also keeps its optimized code of the wasm
+# module, and the first slice of a later visit is fast (see README.md).
 #
-# Run: python3 web/app/serve.py [folder] [--port 8000]
+# Run: python3 web/app/serve.py [folder] [--port 8000] [--cache]
 #
 # SPDX-License-Identifier: AGPL-3.0-or-later
 
@@ -26,7 +29,7 @@ class Handler(http.server.SimpleHTTPRequestHandler):
     }
 
     def end_headers(self):
-        self.send_header("Cache-Control", "no-store")
+        self.send_header("Cache-Control", "public, max-age=86400" if self.server.cache else "no-store")
         # Cross-origin isolation: the page can share wasm memory with its
         # workers, so the slice has threads (zslice-mt.wasm).
         if not self.server.no_isolation:
@@ -41,11 +44,13 @@ def main():
     p.add_argument("--port", type=int, default=8000)
     p.add_argument("--bind", default="127.0.0.1")
     p.add_argument("--no-isolation", action="store_true", help="send no COOP and COEP headers: the slice has no threads")
+    p.add_argument("--cache", action="store_true", help="let the browser keep the files for a day (and its optimized wasm code)")
     a = p.parse_args()
     folder = os.path.abspath(a.folder)
     handler = functools.partial(Handler, directory=folder)
     with http.server.ThreadingHTTPServer((a.bind, a.port), handler) as httpd:
         httpd.no_isolation = a.no_isolation
+        httpd.cache = a.cache
         print(f"zslice: serving {folder} at http://{a.bind}:{a.port}/", flush=True)
         httpd.serve_forever()
 
