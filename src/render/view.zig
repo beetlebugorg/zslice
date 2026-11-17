@@ -1238,7 +1238,7 @@ pub const View = struct {
     const draw_chunk = 512;
     /// A bead narrower than this on the screen (pixels) draws with the
     /// coarser mesh (level 1).
-    const lod_pixels: f32 = 12;
+    const lod_pixels: f32 = 20;
 
     /// The draw list of the beads first .. end (see Frame.draws): the
     /// chunks in the view, each with the full mesh near the camera and a
