@@ -107,7 +107,8 @@ Each plate is one `App` (`zs_app`), with its own settings, profiles, parts, slic
 - Each other plate has its full beads, its light beads, and chunks of 512 beads with a box. A frame culls each plate by its box (the bed and the beads), and each chunk of a near plate by its box. It uses the full beads when a layer is 2.5 pixels high or more. Under that, it uses one light level in one draw.
 - The light levels: level 1 leaves out the sparse infill and the inner walls of the layers with no skin, and joins straight runs of a path (to 0.1 mm). Level 2 keeps every second layer (twice the height, joined to 0.3 mm). Level 3 keeps every fourth layer (joined to 0.8 mm). A Benchy has 88 000 beads; the levels have about 34 000, 12 000, and 4 500.
 - The worker view makes the light levels after each load, and the scene bytes carry them. The view of the page does not make them.
-- The active plate also uses a light level when it is far: the light beads under its top layers, and the full beads of the top layers. Not with a selection, a highlight, or a replay: the light beads are not in the index space of these.
+- The active plate also uses a light level when it is far: the light beads under its top layers, and the full beads of the top layers. Not with a selection, a highlight, or a replay: the light beads are not in the index space of these. A plate of more than 500 000 beads uses level 1 also near the camera. A frame of all its full beads keeps a small GPU busy for more than a second, and the driver then resets the context (seen on an HD 530: "preemption time out" in the kernel log).
+- An empty draw list draws no bead. Before, the web backend then drew all beads with the full mesh: with several plates, the active plate is often out of the view.
 - The beds: the grid of each plate, in a lighter color for a plate that cannot slice, and the bed model of the view at each plate of the same printer.
 - A plate with an old slice fades to the background a little (`fade` in the bead shader of `gl.js`).
 - The C API (`include/zslice-app.h`): `zs_view_set_plates`, `zs_view_plate_scene_read`, `zs_view_plate_load`, `zs_view_plate_clear`, `zs_view_plate_flags`, `zs_view_plate_at`, `zs_view_plate_origin`, and `zs_view_frame_plate`. The web frame has a list of `zs_web_plate` items, their draws, and the grid lines of the plates.
@@ -125,6 +126,22 @@ Each plate is one `App` (`zs_app`), with its own settings, profiles, parts, slic
 - A small plate bar at the bottom left: the plate before, "Plate 2 of 6", the next plate, All, and "+ Plate".
 - A label over the back edge of each plate (its number, its name, and its status). A click on a label goes to its plate.
 - Keys: `[` and `]` go to the plate before and the next plate, and `Home` shows all plates. A double click on a plate goes to it. A click on another plate (its bed or its beads) makes it active.
+
+### Measurements
+
+Chromium (headless, ANGLE on OpenGL) on an Intel HD 530, the view 840 x 850 pixels. GPU: the GPU time of a frame (a timer query), p50. Orbit: the time from one frame to the next in an orbit of 120 frames, p50 (16.7 ms is 60 frames a second).
+
+| Scene | main | one-view |
+|---|---|---|
+| printdeck plate 1 alone (main), or all 6 plates with plate 1 in the view | GPU 22.6 ms, orbit 33 ms | GPU 7.1 ms, orbit 16.7 ms |
+| All 6 plates (`Home`) | (one plate only) | GPU 6.1 ms, orbit 16.7 ms |
+| Plate 5 (14 parts) in the view | (one plate only) | GPU 7.6 ms, orbit 16.7 ms |
+| 20 Benchies on one plate, start view | GPU 205 ms, orbit 217 ms | GPU 40.6 ms, orbit 50 ms |
+
+- The 6 plates of the printdeck project hold 60 frames a second in an orbit, in each camera position. A zoom close to a plate is slower (p95 50 to 67 ms): near the camera, the beads are full.
+- 20 Benchies on one plate (1.76 million beads) do not reach 60 frames a second on this GPU. A 7th plate of 20 Benchies next to the 6 plates of the project does not slice: the worker reaches the 2 GB of the wasm memory of the module with threads (`wasm_mt_max` in build.zig). The 6 plates take about 920 MB at the high point.
+- The G-code of a single plate is the same as on main (the Benchy, 2 758 371 bytes, the same hash).
+- Plate 1 of the project slices to 108 layers, 5 h 22 min, 67.4 g, in the set as alone.
 
 ### Changes to the plan
 

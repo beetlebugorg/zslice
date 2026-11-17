@@ -1992,8 +1992,16 @@ pub const View = struct {
         if (!(lo[0] <= hi[0])) return null;
         const px_per_mm = @as(f32, @floatFromInt(v.height)) / (2 * @tan(@as(f32, fov) / 2));
         const h = v.beads.items[v.beads.items.len / 2].h;
-        return plates_mod.levelFor(h * px_per_mm / @max(boxDistance(eye, lo, hi), 1e-3));
+        // A large plate uses level 1 also near the camera: under the top
+        // layers, the beads that it leaves out do not show from outside,
+        // and the full beads of a large plate can keep the GPU busy for
+        // longer than a driver allows (a reset of the context).
+        const near: ?usize = if (v.beads.items.len > large_plate) 0 else null;
+        return plates_mod.levelFor(h * px_per_mm / @max(boxDistance(eye, lo, hi), 1e-3)) orelse near;
     }
+
+    /// The bead count of a large plate (see `activeLevel`).
+    const large_plate = 500_000;
 
     /// The plates of a frame (web only): for each other plate in the view,
     /// its matrices, its buffer, and its draws (the chunks in the view, or
