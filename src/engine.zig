@@ -18,6 +18,10 @@
 //!    settings (see layer.Modifier). The idea is the infill mesh of
 //!    CuraEngine (see REFERENCES.md).
 //!
+//! A plate of many parts is one job for each part, and the G-code merges
+//! their layers by z (see plate_job.zig). It uses step 5 of this file with
+//! its own layer plans (see `PlanSource` and `emitAll`).
+//!
 //! Memory. The engine keeps the outlines of all layers until the end. They
 //! are small: a few kilobytes per layer. The layer plans are much larger,
 //! so pass 2 works in batches. It plans a batch of layers on all threads,
@@ -92,7 +96,8 @@ const Reporter = struct {
 };
 
 /// Pass 1 is about this fraction of the time of a slice.
-const pass1_share = 0.3;
+/// The part of the progress of a slice that pass 1 reports.
+pub const pass1_share = 0.3;
 
 pub const Error = error{
     Canceled,
@@ -308,6 +313,27 @@ pub const Job = struct {
     /// The memory of the modifiers: their outlines, their settings, and
     /// the strings of their settings.
     mod_arena: ?std.heap.ArenaAllocator = null,
+    /// False: the plans have no skirt and no brim (see layer.Context.rings).
+    rings: bool = true,
+
+    /// The options of `initOpts`.
+    pub const Options = struct {
+        /// Overrides for z ranges (see settings.Override). Only
+        /// settings.layer_settings can have overrides. The strings must
+        /// live as long as the job.
+        overrides: []const settings_mod.Override = &.{},
+        /// The support marks of the user (see support.Mark).
+        marks: []const support_mod.Mark = &.{},
+        monitor: Monitor = .{},
+        /// An older job of the same mesh, for its work (see `initReuse`).
+        old: ?*Job = null,
+        /// The move of the mesh in X and Y (mm), or null: then the
+        /// placement setting gives it (see `placementOffset`). A plate of
+        /// many parts moves all parts by the same offset.
+        offset: ?[2]f64 = null,
+        /// See `rings`.
+        rings: bool = true,
+    };
 
     /// Steps 1 to 4.
     pub fn init(gpa: Allocator, mesh: *const Mesh, settings: Settings) Error!Job {
@@ -336,12 +362,19 @@ pub const Job = struct {
     /// after this call. Free it after this call.
     /// `marks`: the support marks of the user (see support.Mark).
     pub fn initReuse(gpa: Allocator, mesh: *const Mesh, settings: Settings, overrides: []const settings_mod.Override, marks: []const support_mod.Mark, monitor: Monitor, old: ?*Job) Error!Job {
+        return initOpts(gpa, mesh, settings, .{ .overrides = overrides, .marks = marks, .monitor = monitor, .old = old });
+    }
+
+    /// `initReuse`, with all options (see `Options`).
+    pub fn initOpts(gpa: Allocator, mesh: *const Mesh, settings: Settings, opts: Options) Error!Job {
+        const overrides = opts.overrides;
         for (overrides) |o| if (!settings_mod.isLayerSetting(o.name)) return error.InvalidSettings;
         var outline_overrides: std.ArrayList(settings_mod.Override) = .empty;
         defer outline_overrides.deinit(gpa);
         for (overrides) |o| if (isOutlineSetting(o.name)) try outline_overrides.append(gpa, o);
-        var job = try initBase(gpa, mesh, settings, outline_overrides.items, marks, monitor, old);
+        var job = try initBase(gpa, mesh, settings, outline_overrides.items, opts.marks, opts.monitor, opts.old, opts.offset);
         errdefer job.deinit();
+        job.rings = opts.rings;
         if (overrides.len > 0) try job.resolveLayers(settings, overrides);
         // A layer can have another height than the layer height of its
         // settings (a span can move its top out of the range), so each
@@ -454,7 +487,7 @@ pub const Job = struct {
         self.layer_resolved = try list.toOwnedSlice(gpa);
     }
 
-    fn initBase(gpa: Allocator, mesh: *const Mesh, settings: Settings, outline_overrides: []const settings_mod.Override, marks: []const support_mod.Mark, monitor: Monitor, old: ?*Job) Error!Job {
+    fn initBase(gpa: Allocator, mesh: *const Mesh, settings: Settings, outline_overrides: []const settings_mod.Override, marks: []const support_mod.Mark, monitor: Monitor, old: ?*Job, offset: ?[2]f64) Error!Job {
         // Step 1.
         const r = settings.resolve() catch return error.InvalidSettings;
         const threads = parallel.threadCount(settings.engine.threads);
@@ -470,10 +503,8 @@ pub const Job = struct {
         // The skirt and the brim go around the part, so they must also be
         // on the bed for the file position.
         const pr = settings.project;
-        const fw = r.first_layer_line_width;
-        const skirt = if (pr.skirt_loops > 0 and pr.skirt_layers > 0) pr.skirt_distance + @as(f64, @floatFromInt(pr.skirt_loops)) * fw else 0;
-        const margin = pr.brim_width + skirt + fw / 2;
-        const dx, const dy = placementOffset(pr.placement, b.min, b.max, m.bed_size_x, m.bed_size_y, margin);
+        const margin = ringMargin(&r);
+        const dx, const dy = offset orelse placementOffset(pr.placement, b.min, b.max, m.bed_size_x, m.bed_size_y, margin);
 
         // The outlines depend only on the mesh and these values. If an
         // older job has the same key, its outlines are good.
@@ -611,7 +642,7 @@ pub const Job = struct {
         return self.layers.len;
     }
 
-    fn planContext(self: *const Job) layer_mod.Context {
+    pub fn planContext(self: *const Job) layer_mod.Context {
         return .{
             .resolved = &self.resolved,
             .layers = self.layers,
@@ -627,6 +658,7 @@ pub const Job = struct {
             .groups = self.groups,
             .bands = &self.bands,
             .modifiers = self.modifiers,
+            .rings = self.rings,
         };
     }
 
@@ -754,7 +786,7 @@ pub const Job = struct {
     /// test parts, for a few percent more time (and not about 70 % more
     /// time to make the regions twice). Empty if no layer combines its
     /// infill. The caller owns the result.
-    fn combinedAreas(self: *const Job, ctx: layer_mod.Context) Error![]Paths {
+    pub fn combinedAreas(self: *const Job, ctx: layer_mod.Context) Error![]Paths {
         if (self.groups.len == 0) return &.{};
         const gpa = self.gpa;
         const out = try gpa.alloc(Paths, self.groups.len);
@@ -806,21 +838,6 @@ pub const Job = struct {
     /// `writeGcode`, and each layer plan also goes to `sink`.
     pub fn writeGcodeWith(self: *const Job, out: *Writer, sink: ?LayerSink) Error!Stats {
         const gpa = self.gpa;
-        var em: gcode.Emitter = .init(gpa, out, &self.resolved);
-        var record: std.ArrayList(gcode.PathInfo) = .empty;
-        defer record.deinit(gpa);
-        if (sink != null) em.record = &record;
-        try em.begin(self.layers.len);
-
-        var reporter: Reporter = .{ .monitor = self.monitor, .base = pass1_share, .span = 1 - pass1_share, .total = self.layers.len };
-        // The planned layers wait in a ring of slots for the emitter. The
-        // ring holds a few layers for each thread: enough to keep the
-        // threads busy, and a small part of the memory of all plans.
-        const window = @max(8, self.threads * 4);
-        const slots = try gpa.alloc(Slot, window);
-        defer gpa.free(slots);
-        for (slots) |*sl| sl.* = .{ .text = .init(gpa) };
-        defer for (slots) |*sl| sl.deinit(gpa);
         var plan_ctx = self.planContext();
         // A cancel stops a layer plan early.
         plan_ctx.cancel = self.monitor.cancel;
@@ -830,80 +847,150 @@ pub const Job = struct {
             gpa.free(combined);
         }
         plan_ctx.combined = combined;
-        var pipe: Pipeline = .{ .gpa = gpa, .ctx = plan_ctx, .slots = slots, .n = self.layers.len, .monitor = self.monitor, .record = sink != null, .keep_memos = self.keep_memos };
-
-        // The other threads plan layers and write their text. This thread
-        // runs the emitter: a dry run of each layer in order (see
-        // gcode.Emitter.dry), and then the text of each layer in order. It
-        // also plans or writes a layer while it waits.
-        var pool: [64]if (parallel.has_threads) std.Thread else void = undefined;
-        var spawned: usize = 0;
-        defer if (comptime parallel.has_threads) {
-            pipe.stop.store(true, .release);
-            pipe.signal.notify();
-            for (pool[0..spawned]) |t| t.join();
+        const Src = struct {
+            fn plan(ctx: *const anyopaque, g: Allocator, i: usize) Allocator.Error!LayerPlan {
+                const c: *const layer_mod.Context = @ptrCast(@alignCast(ctx));
+                return layer_mod.plan(g, c.*, i);
+            }
+            fn done(ctx: *const anyopaque, g: Allocator, i: usize) void {
+                const c: *const layer_mod.Context = @ptrCast(@alignCast(ctx));
+                dropMemo(g, c.cache, i);
+            }
         };
-        if (comptime parallel.has_threads) {
-            const want = @min(self.threads, pool.len + 1, self.layers.len) -| 1;
-            while (spawned < want) : (spawned += 1) {
-                pool[spawned] = std.Thread.spawn(.{}, Pipeline.work, .{&pipe}) catch break;
-            }
-        }
-        var discard: Writer.Discarding = .init(&.{});
-        var dried: usize = 0;
-        var written: usize = 0;
-        const n = self.layers.len;
-        while (written < n) {
-            if (pipe.failed()) |e| return e;
-            if (self.monitor.canceled()) return error.Canceled;
-            const seen = pipe.signal.current();
-            var progress = false;
-            // Dry runs: the state at the start of each planned layer.
-            while (dried < n and slots[dried % window].ready.load(.acquire) == dried + 1) {
-                const slot = &slots[dried % window];
-                slot.start = em;
-                slot.start.?.w = undefined;
-                const out_w = em.w;
-                em.w = &discard.writer;
-                em.dry = true;
-                em.record = null;
-                em.prep = &slot.prep;
-                defer {
-                    em.w = out_w;
-                    em.dry = false;
-                    em.prep = null;
-                    if (sink != null) em.record = &record;
-                }
-                try em.layer(&slot.plan.?);
-                dried += 1;
-                pipe.dried.store(dried, .release);
-                pipe.signal.notify();
-                progress = true;
-            }
-            // The text of each layer, in order.
-            while (written < dried and slots[written % window].written.load(.acquire) == written + 1) {
-                const slot = &slots[written % window];
-                const lp = &slot.plan.?;
-                try out.writeAll(slot.text.written());
-                if (sink) |sk| sk.func(sk.ctx, lp, slot.records.items) catch |e| return @as(Error, @errorCast(e));
-                slot.clear();
-                written += 1;
-                // The slot is free for layer written - 1 + window.
-                pipe.emitted.store(written, .release);
-                pipe.signal.notify();
-                reporter.step(1);
-                progress = true;
-            }
-            if (progress or written == n) continue;
-            if (!pipe.writeOne() and !pipe.planOne()) pipe.signal.wait(seen);
-        }
-        try em.end();
-        // The work memory of the booleans and offsets goes back to the
-        // operating system (see scratch.zig).
-        scratch.trim();
-        return em.stats;
+        const src: PlanSource = .{
+            .ctx = &plan_ctx,
+            .plan = Src.plan,
+            .done = if (self.keep_memos) null else Src.done,
+            .resolved = &self.resolved,
+            .layers = self.layers.len,
+        };
+        return emitAll(gpa, src, self.threads, self.monitor, out, sink);
     }
 };
+
+/// Frees the memo of layer i (see Job.keep_memos).
+pub fn dropMemo(gpa: Allocator, cache: []layer_mod.Memo, i: usize) void {
+    if (cache.len <= i) return;
+    cache[i].deinit();
+    cache[i] = .init(gpa);
+}
+
+/// Where pass 2 gets its layer plans: from one job, or from the jobs of
+/// the parts of a plate (see plate_job.zig).
+pub const PlanSource = struct {
+    ctx: *const anyopaque,
+    /// The plan of layer i. Any thread can call it, for different layers
+    /// at the same time.
+    plan: *const fn (ctx: *const anyopaque, gpa: Allocator, i: usize) Allocator.Error!LayerPlan,
+    /// Called after the plan of layer i is made, or null. It frees the
+    /// memos that no later plan needs.
+    done: ?*const fn (ctx: *const anyopaque, gpa: Allocator, i: usize) void = null,
+    /// The settings of the print: the machine, the start and end G-code,
+    /// and the settings of the layers with no settings of their own.
+    resolved: *const settings_mod.Resolved,
+    layers: usize,
+};
+
+/// Step 5: plans each layer of `src` and writes the G-code. See
+/// `Pipeline`.
+pub fn emitAll(gpa: Allocator, src: PlanSource, threads: usize, monitor: Monitor, out: *Writer, sink: ?Job.LayerSink) Error!Stats {
+    var em: gcode.Emitter = .init(gpa, out, src.resolved);
+    var record: std.ArrayList(gcode.PathInfo) = .empty;
+    defer record.deinit(gpa);
+    if (sink != null) em.record = &record;
+    try em.begin(src.layers);
+
+    var reporter: Reporter = .{ .monitor = monitor, .base = pass1_share, .span = 1 - pass1_share, .total = src.layers };
+    // The planned layers wait in a ring of slots for the emitter. The
+    // ring holds a few layers for each thread: enough to keep the
+    // threads busy, and a small part of the memory of all plans.
+    const window = @max(8, threads * 4);
+    const slots = try gpa.alloc(Slot, window);
+    defer gpa.free(slots);
+    for (slots) |*sl| sl.* = .{ .text = .init(gpa) };
+    defer for (slots) |*sl| sl.deinit(gpa);
+    var pipe: Pipeline = .{ .gpa = gpa, .src = src, .slots = slots, .n = src.layers, .monitor = monitor, .record = sink != null };
+
+    // The other threads plan layers and write their text. This thread
+    // runs the emitter: a dry run of each layer in order (see
+    // gcode.Emitter.dry), and then the text of each layer in order. It
+    // also plans or writes a layer while it waits.
+    var pool: [64]if (parallel.has_threads) std.Thread else void = undefined;
+    var spawned: usize = 0;
+    defer if (comptime parallel.has_threads) {
+        pipe.stop.store(true, .release);
+        pipe.signal.notify();
+        for (pool[0..spawned]) |t| t.join();
+    };
+    if (comptime parallel.has_threads) {
+        const want = @min(threads, pool.len + 1, src.layers) -| 1;
+        while (spawned < want) : (spawned += 1) {
+            pool[spawned] = std.Thread.spawn(.{}, Pipeline.work, .{&pipe}) catch break;
+        }
+    }
+    var discard: Writer.Discarding = .init(&.{});
+    var dried: usize = 0;
+    var written: usize = 0;
+    const n = src.layers;
+    while (written < n) {
+        if (pipe.failed()) |e| return e;
+        if (monitor.canceled()) return error.Canceled;
+        const seen = pipe.signal.current();
+        var progress = false;
+        // Dry runs: the state at the start of each planned layer.
+        while (dried < n and slots[dried % window].ready.load(.acquire) == dried + 1) {
+            const slot = &slots[dried % window];
+            slot.start = em;
+            slot.start.?.w = undefined;
+            const out_w = em.w;
+            em.w = &discard.writer;
+            em.dry = true;
+            em.record = null;
+            em.prep = &slot.prep;
+            defer {
+                em.w = out_w;
+                em.dry = false;
+                em.prep = null;
+                if (sink != null) em.record = &record;
+            }
+            try em.layer(&slot.plan.?);
+            dried += 1;
+            pipe.dried.store(dried, .release);
+            pipe.signal.notify();
+            progress = true;
+        }
+        // The text of each layer, in order.
+        while (written < dried and slots[written % window].written.load(.acquire) == written + 1) {
+            const slot = &slots[written % window];
+            const lp = &slot.plan.?;
+            try out.writeAll(slot.text.written());
+            if (sink) |sk| sk.func(sk.ctx, lp, slot.records.items) catch |e| return @as(Error, @errorCast(e));
+            slot.clear();
+            written += 1;
+            // The slot is free for layer written - 1 + window.
+            pipe.emitted.store(written, .release);
+            pipe.signal.notify();
+            reporter.step(1);
+            progress = true;
+        }
+        if (progress or written == n) continue;
+        if (!pipe.writeOne() and !pipe.planOne()) pipe.signal.wait(seen);
+    }
+    try em.end();
+    // The work memory of the booleans and offsets goes back to the
+    // operating system (see scratch.zig).
+    scratch.trim();
+    return em.stats;
+}
+
+/// The room that the skirt and the brim need around the parts (mm), so
+/// that they are on the bed too.
+pub fn ringMargin(r: *const settings_mod.Resolved) f64 {
+    const pr = r.settings.project;
+    const fw = r.first_layer_line_width;
+    const skirt = if (pr.skirt_loops > 0 and pr.skirt_layers > 0) pr.skirt_distance + @as(f64, @floatFromInt(pr.skirt_loops)) * fw else 0;
+    return pr.brim_width + skirt + fw / 2;
+}
 
 /// A slot of the plan ring. `ready` is i + 1 when the plan of layer i is
 /// in the slot, and `written` is i + 1 when its text is.
@@ -956,14 +1043,12 @@ const Slot = struct {
 /// so the output is the same for each thread count.
 const Pipeline = struct {
     gpa: Allocator,
-    ctx: layer_mod.Context,
+    src: PlanSource,
     slots: []Slot,
     n: usize,
     monitor: Monitor,
     /// True if the sink needs the path records.
     record: bool,
-    /// See `Job.keep_memos`.
-    keep_memos: bool,
     next: std.atomic.Value(usize) = .init(0),
     /// The number of layers with a dry run.
     dried: std.atomic.Value(usize) = .init(0),
@@ -1004,7 +1089,7 @@ const Pipeline = struct {
             return true;
         }
         const slot = &p.slots[i % p.slots.len];
-        slot.plan = layer_mod.plan(p.gpa, p.ctx, i) catch |e| {
+        slot.plan = p.src.plan(p.src.ctx, p.gpa, i) catch |e| {
             p.fail(e);
             return true;
         };
@@ -1018,14 +1103,11 @@ const Pipeline = struct {
         // The work of the emitter that the layers before do not change,
         // here on a planning thread, and not in the dry run on the emitter
         // thread.
-        gcode.prepare(p.gpa, p.ctx.resolved, &slot.plan.?, &slot.prep) catch |e| {
+        gcode.prepare(p.gpa, p.src.resolved, &slot.plan.?, &slot.prep) catch |e| {
             p.fail(e);
             return true;
         };
-        if (!p.keep_memos and p.ctx.cache.len > i) {
-            p.ctx.cache[i].deinit();
-            p.ctx.cache[i] = .init(p.gpa);
-        }
+        if (p.src.done) |done| done(p.src.ctx, p.gpa, i);
         slot.ready.store(i + 1, .release);
         p.signal.notify();
         return true;
