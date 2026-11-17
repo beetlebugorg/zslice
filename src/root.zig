@@ -44,6 +44,7 @@ pub const motion = @import("motion.zig");
 pub const parallel = @import("parallel.zig");
 pub const scratch = @import("scratch.zig");
 pub const engine = @import("engine.zig");
+pub const plate_job = @import("plate_job.zig");
 pub const svg = @import("svg.zig");
 pub const support = @import("support.zig");
 /// Expressions: the formulas of the settings (see expr.zig).
@@ -61,6 +62,7 @@ pub const Mesh = mesh.Mesh;
 pub const Settings = settings.Settings;
 pub const Stats = engine.Stats;
 pub const Job = engine.Job;
+pub const PlateJob = plate_job.PlateJob;
 pub const slice = engine.slice;
 
 pub const version = "0.1.0";

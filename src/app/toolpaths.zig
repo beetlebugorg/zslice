@@ -40,8 +40,11 @@ pub const Toolpaths = struct {
     /// 1 if the travel to the path retracted the filament.
     path_retract: std.ArrayList(u8) = .empty,
     /// The modifier volume of each path: 0 for none, k + 1 for
-    /// `Job.modifiers[k]` (see layer.Modifier).
+    /// `Job.modifiers[k]` of the job of its part (see layer.Modifier).
     path_modifier: std.ArrayList(u16) = .empty,
+    /// The part of the plate of each path (see plate_job.zig), or
+    /// LayerPlan.no_part for the skirt and the brim around many parts.
+    path_part: std.ArrayList(u32) = .empty,
     /// The nozzle lift of a retracted travel (project.z_hop), in mm.
     z_hop: f32 = 0,
     /// 1 if the layer prints slower than planned, to cool
@@ -70,6 +73,7 @@ pub const Toolpaths = struct {
         t.path_end_time.deinit(gpa);
         t.path_retract.deinit(gpa);
         t.path_modifier.deinit(gpa);
+        t.path_part.deinit(gpa);
         t.layer_slowed.deinit(gpa);
         t.layer_ends.deinit(gpa);
         t.layer_z.deinit(gpa);
@@ -236,11 +240,18 @@ pub const Toolpaths = struct {
         const end_time = try t.path_end_time.addManyAsSlice(gpa, n);
         const retract = try t.path_retract.addManyAsSlice(gpa, n);
         const modifier = try t.path_modifier.addManyAsSlice(gpa, n);
-        for (plan.paths.items, modifier) |p, *m| m.* = if (p.region > 0 and p.region <= plan.region_modifier.len) plan.region_modifier[p.region - 1] + 1 else 0;
+        for (plan.paths.items, modifier) |p, *m| {
+            const k: u16 = if (p.region > 0 and p.region <= plan.region_modifier.len) plan.region_modifier[p.region - 1] else zs.layer.LayerPlan.no_modifier;
+            m.* = if (k == zs.layer.LayerPlan.no_modifier) 0 else k + 1;
+        }
+        const part = try t.path_part.addManyAsSlice(gpa, n);
+        for (plan.paths.items, part) |p, *q| q.* = plan.partOf(p);
         const z_start = try t.path_z_start.addManyAsSlice(gpa, n);
-        const flow_ratio: f32 = @floatCast(if (plan.resolved) |r| r.settings.filament.flow_ratio else 1);
         for (plan.paths.items, 0..) |p, i| {
             z_start[i] = no_z;
+            // The flow ratio of the part of the path.
+            const pr = plan.pathResolved(p) orelse plan.resolved;
+            const flow_ratio: f32 = @floatCast(if (pr) |r| r.settings.filament.flow_ratio else 1);
             if (p.z_start == zs.layer.Path.planar and p.w_start != zs.layer.Path.planar) {
                 // A path whose width changes along it (Arachne walls): the
                 // z of the layer, and the bead area of each point.

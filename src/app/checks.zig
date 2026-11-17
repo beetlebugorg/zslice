@@ -85,7 +85,7 @@ const max_per_kind = 50;
 /// The checks of the slice. `job` gives the outlines (for the overhangs)
 /// and the islands; `t` the lines and their times; `s` the settings of the
 /// print.
-pub fn run(gpa: Allocator, job: *const zs.engine.Job, t: *const Toolpaths, s: zs.Settings) Allocator.Error!Result {
+pub fn run(gpa: Allocator, job: *const zs.PlateJob, t: *const Toolpaths, s: zs.Settings) Allocator.Error!Result {
     var b: Builder = .{ .gpa = gpa };
     errdefer {
         b.issues.deinit(gpa);
@@ -113,7 +113,7 @@ fn midpoint(t: *const Toolpaths, path: usize) [2]f64 {
     return .{ t.points.items[2 * m], t.points.items[2 * m + 1] };
 }
 
-fn flowIssues(b: *Builder, job: *const zs.engine.Job, t: *const Toolpaths) Allocator.Error!void {
+fn flowIssues(b: *Builder, job: *const zs.PlateJob, t: *const Toolpaths) Allocator.Error!void {
     const Hit = struct { path: u32, layer: u32, ratio: f64, flow: f64, limit: f64 };
     var hits: std.ArrayList(Hit) = .empty;
     defer hits.deinit(b.gpa);
@@ -121,7 +121,9 @@ fn flowIssues(b: *Builder, job: *const zs.engine.Job, t: *const Toolpaths) Alloc
         const dt: f64 = t.path_end_time.items[p] - t.path_start_time.items[p];
         if (!(dt > 0.05)) continue;
         const layer = t.layerOfPath(p) orelse continue;
-        const limit = job.resolvedAt(layer).settings.filament.max_flow;
+        // The limit of the part of the path.
+        const part: u32 = if (p < t.path_part.items.len) t.path_part.items[p] else zs.layer.LayerPlan.no_part;
+        const limit = job.pathResolved(part, layer, 0).settings.filament.max_flow;
         if (!(limit > 0)) continue;
         const flow = @as(f64, t.path_area.items[p]) * t.pathLength(p) / dt;
         const ratio = flow / limit;
@@ -142,7 +144,7 @@ fn flowIssues(b: *Builder, job: *const zs.engine.Job, t: *const Toolpaths) Alloc
 /// The layers that print in less than the minimum layer time: one issue
 /// for each run of such layers next to each other (a thin tower makes many
 /// short layers), with the shortest time of the run.
-fn coolingIssues(b: *Builder, job: *const zs.engine.Job, t: *const Toolpaths) Allocator.Error!void {
+fn coolingIssues(b: *Builder, job: *const zs.PlateJob, t: *const Toolpaths) Allocator.Error!void {
     var n: usize = 0;
     var run_first: ?usize = null;
     var run_min: f64 = 0;
@@ -155,7 +157,7 @@ fn coolingIssues(b: *Builder, job: *const zs.engine.Job, t: *const Toolpaths) Al
             const first: usize = if (l == 0) 0 else t.layer_ends.items[l - 1];
             const last: usize = t.layer_ends.items[l];
             if (last > first) {
-                const st = job.resolvedAt(l).settings.filament;
+                const st = job.levelResolved(l).settings.filament;
                 const begin: f64 = if (first == 0) 0 else t.path_end_time.items[first - 1];
                 time = t.path_end_time.items[last - 1] - begin;
                 short = st.min_layer_time > 0 and time < st.min_layer_time - 0.5;
@@ -174,7 +176,7 @@ fn coolingIssues(b: *Builder, job: *const zs.engine.Job, t: *const Toolpaths) Al
         n += 1;
         if (n > max_per_kind) break;
         const last_l = l - 1;
-        const st = job.resolvedAt(run_at).settings.filament;
+        const st = job.levelResolved(run_at).settings.filament;
         const first_path: usize = if (run_at == 0) 0 else t.layer_ends.items[run_at - 1];
         const c = midpoint(t, first_path);
         const issue: Issue = .{ .kind = .cooling, .severity = 1, .layer = @intCast(run_at), .path = Issue.no_path, .x = c[0], .y = c[1], .value = run_min, .text_start = 0, .text_len = 0 };
@@ -252,33 +254,51 @@ fn hangsOf(gpa: Allocator, job: *const zs.engine.Job, i: usize, angle: f64, out:
     }
 }
 
-fn overhangIssues(b: *Builder, job: *const zs.engine.Job, s: zs.Settings) Allocator.Error!void {
-    if (s.project.support != .off) return;
-    const n = job.outlines.len;
-    if (n < 2) return;
-    const angle = std.math.degreesToRadians(s.project.support_angle);
-    // The layers on all threads, each into its own list.
-    const lists = try b.gpa.alloc(std.ArrayList(Hang), n);
+fn overhangIssues(b: *Builder, pj: *const zs.PlateJob, s: zs.Settings) Allocator.Error!void {
+    // The layers of the jobs of all parts with support off, on all threads,
+    // each into its own list. The copies of a part share the job.
+    const Item = struct { group: u32, layer: u32 };
+    var items: std.ArrayList(Item) = .empty;
+    defer items.deinit(b.gpa);
+    for (pj.groups, 0..) |g, gi| {
+        if (g.job.resolved.settings.project.support != .off) continue;
+        for (1..g.job.outlines.len) |i| try items.append(b.gpa, .{ .group = @intCast(gi), .layer = @intCast(i) });
+    }
+    if (items.items.len == 0) return;
+    const lists = try b.gpa.alloc(std.ArrayList(Hang), items.items.len);
     defer {
         for (lists) |*l| l.deinit(b.gpa);
         b.gpa.free(lists);
     }
     for (lists) |*l| l.* = .empty;
     const Pass = struct {
-        job: *const zs.engine.Job,
+        pj: *const zs.PlateJob,
+        items: []const Item,
         lists: []std.ArrayList(Hang),
-        angle: f64,
         gpa: Allocator,
-        fn run(c: *const @This(), i: usize) anyerror!void {
-            if (i == 0) return;
-            try hangsOf(c.gpa, c.job, i, c.angle, &c.lists[i]);
+        fn run(c: *const @This(), k: usize) anyerror!void {
+            const job = &c.pj.groups[c.items[k].group].job;
+            const angle = std.math.degreesToRadians(job.resolved.settings.project.support_angle);
+            try hangsOf(c.gpa, job, c.items[k].layer, angle, &c.lists[k]);
         }
     };
-    const c: Pass = .{ .job = job, .lists = lists, .angle = angle, .gpa = b.gpa };
-    zs.parallel.forEach(job.threads, n, &c, Pass.run) catch |e| return @as(Allocator.Error, @errorCast(e));
+    const c: Pass = .{ .pj = pj, .items = items.items, .lists = lists, .gpa = b.gpa };
+    zs.parallel.forEach(pj.threads, items.items.len, &c, Pass.run) catch |e| return @as(Allocator.Error, @errorCast(e));
     var hits: std.ArrayList(Hang) = .empty;
     defer hits.deinit(b.gpa);
-    for (lists) |l| try hits.appendSlice(b.gpa, l.items);
+    // Each part at its place, on the level of its layer.
+    for (pj.instances) |inst| for (items.items, lists) |it, l| {
+        if (it.group != inst.group) continue;
+        const g = &pj.groups[inst.group];
+        for (l.items) |h| {
+            var q = h;
+            q.layer = g.layer_level[h.layer];
+            q.x += geom.toMm(inst.dx);
+            q.y += geom.toMm(inst.dy);
+            try hits.append(b.gpa, q);
+        }
+    };
+
     // The largest first; one issue for each run of layers at one place.
     std.mem.sort(Hang, hits.items, {}, struct {
         fn lt(_: void, x: Hang, y: Hang) bool {
@@ -312,7 +332,7 @@ fn overhangIssues(b: *Builder, job: *const zs.engine.Job, s: zs.Settings) Alloca
     }
 }
 
-fn islandIssues(b: *Builder, job: *const zs.engine.Job) Allocator.Error!void {
+fn islandIssues(b: *Builder, job: *const zs.PlateJob) Allocator.Error!void {
     for (job.islands[0..@min(job.islands.len, max_per_kind)]) |isl| {
         try b.add(.{ .kind = .island, .severity = 2, .layer = @intCast(isl.layer), .path = Issue.no_path, .x = isl.x, .y = isl.y, .value = isl.area, .text_start = 0, .text_len = 0 },
             "Layer {d}: a shape of {d:.1} mm² starts in the air, with nothing under it. Add support there, or turn the part.", .{ isl.layer + 1, isl.area });

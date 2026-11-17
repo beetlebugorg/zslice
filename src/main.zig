@@ -214,9 +214,10 @@ pub fn main(init: std.process.Init) !void {
         try bench(gpa, io, err, in_path, bytes, settings, opts.only, opts.runs, opts.copies);
         return;
     }
-    // A 3MF file: the parts that print make one mesh, and the modifier
-    // volumes and the settings of the parts go to the job (see
-    // part_settings.zig).
+    // A 3MF file: each part that prints is a part of the plate job, with
+    // its settings and its modifier volumes (see part_settings.zig and
+    // plate_job.zig). The parts that print also make one mesh, for the
+    // sweep.
     var loaded: ?zslice.threemf.Loaded = null;
     defer if (loaded) |*l| l.deinit(gpa);
     const is_3mf = bytes.len >= 4 and std.mem.eql(u8, bytes[0..4], "PK\x03\x04");
@@ -242,12 +243,21 @@ pub fn main(init: std.process.Init) !void {
     defer m.deinit(gpa);
     var parts_plan: ?zslice.part_settings.Plan = null;
     defer if (parts_plan) |*pp| pp.deinit();
+    var part_inputs: std.ArrayList(zslice.plate_job.PartInput) = .empty;
     if (loaded) |l| {
         const inputs = try arena.alloc(zslice.part_settings.Input, l.parts.len);
         for (l.parts, inputs) |*p, *in| in.* = .{ .name = p.name, .meta = p.meta, .mesh = &p.mesh };
         parts_plan = try zslice.part_settings.plan(gpa, inputs, &settings);
         try parts_plan.?.applyBase(&settings);
         for (parts_plan.?.notes) |n| try err.print("note: {s}\n", .{n});
+        for (parts_plan.?.parts) |pp| try part_inputs.append(arena, .{
+            .mesh = &l.parts[pp.input].mesh,
+            .changes = pp.changes,
+            .modifiers = pp.modifiers,
+            .part = @intCast(pp.input),
+        });
+    } else {
+        try part_inputs.append(arena, .{ .mesh = &m, .part = 0 });
     }
 
     if (is_sweep) {
@@ -256,11 +266,9 @@ pub fn main(init: std.process.Init) !void {
     }
 
     const t0 = Io.Clock.awake.now(io);
-    var job = zslice.engine.Job.init(gpa, &m, settings) catch |e| fail(err, "slice failed: {s}\n", .{@errorName(e)});
-    defer job.deinit();
-    if (parts_plan) |pp| job.setModifiers(pp.modifiers) catch |e| fail(err, "modifier volumes: {s}\n", .{@errorName(e)});
     // One slice: the memos need not stay (see Job.keep_memos).
-    job.keep_memos = false;
+    var job = zslice.PlateJob.init(gpa, settings, part_inputs.items, .{ .keep_memos = false }) catch |e| fail(err, "slice failed: {s}\n", .{@errorName(e)});
+    defer job.deinit();
     const pass1 = t0.untilNow(io, .awake);
 
     if (is_gaps) {
@@ -303,7 +311,7 @@ pub fn main(init: std.process.Init) !void {
     }
 
     const stats = try writeOut(io, opts.output, &job, struct {
-        fn f(j: *zslice.engine.Job, w: *Io.Writer) !zslice.Stats {
+        fn f(j: *zslice.PlateJob, w: *Io.Writer) !zslice.Stats {
             return j.writeGcode(w);
         }
     }.f);

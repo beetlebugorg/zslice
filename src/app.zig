@@ -106,7 +106,8 @@ pub const App = struct {
     user: ?*anyopaque,
 
     /// The parts on the bed. `mesh` is all of them in one mesh, for the
-    /// engine; startSlice makes it again after a change of the plate.
+    /// size of the model; startSlice makes it again after a change of the
+    /// plate. Each part slices as its own job (see plate_job.zig).
     plate: zs.plate.Plate = .{},
     plate_changed: bool = false,
     /// More than one plate: a slot for each plate. The active plate
@@ -130,13 +131,14 @@ pub const App = struct {
 
     // The results. The worker writes them before it sets the state to
     // `done` or `failed`.
-    job: ?zs.Job = null,
+    job: ?zs.PlateJob = null,
     /// The job of the slice before, kept for its work: if the new settings
-    /// give the same outlines (for example, only the infill density or the
-    /// wall count changed), the new slice takes the outlines and the
-    /// results of the slow steps that are still good (see Job.initReuse).
-    /// Only the worker uses it while a slice runs.
-    prev_job: ?zs.Job = null,
+    /// of a part give the same outlines (for example, only the infill
+    /// density or the wall count changed), the new job of the part takes
+    /// the outlines and the results of the slow steps that are still good
+    /// (see Job.initReuse and plate_job.Options.old). Only the worker uses
+    /// it while a slice runs.
+    prev_job: ?zs.PlateJob = null,
     gcode_bytes: []u8 = &.{},
     /// The memory of `gcode_bytes`: it can be larger.
     gcode_buf: []u8 = &.{},
@@ -181,9 +183,12 @@ pub const App = struct {
     quality: []const zs.settings.Change = &.{},
     global: []const zs.settings.Change = &.{},
     /// The settings of the parts and the modifier volumes for the running
-    /// slice (see part_settings.zig), and the meshes that it points to.
+    /// slice (see part_settings.zig), the meshes that it points to, and
+    /// the parts of the plate job (in `slice_arena`).
     slice_plan: ?zs.part_settings.Plan = null,
     slice_meshes: []zs.Mesh = &.{},
+    slice_parts: []const zs.plate_job.PartInput = &.{},
+    slice_arena: ?std.heap.ArenaAllocator = null,
     /// The bytes of the last write3mf.
     file_bytes: []u8 = &.{},
 
@@ -499,9 +504,9 @@ pub const App = struct {
 
     /// Sets one zslice setting of part i (stored as "zslice:<name>" in its
     /// metadata, so a 3MF save keeps it), or clears it with a null value.
-    /// The part then prints with it, as a modifier of its volume (the
-    /// infill and the skin), or for support, with its own support (see
-    /// part_settings.zig).
+    /// The part then slices as its own job with it (see part_settings.zig
+    /// and plate_job.zig). A setting of the plate (settings.isPlateSetting)
+    /// gets a note, and the part keeps the plate value.
     pub fn setPartSetting(app: *App, i: usize, name: []const u8, value: ?[]const u8) (Allocator.Error || Settings.SetError || error{NoPart})!void {
         if (i >= app.plate.parts.items.len) return error.NoPart;
         if (value) |v| {
@@ -527,8 +532,9 @@ pub const App = struct {
             try list.append(app.gpa, .{ .key = key, .value = try app.gpa.dupe(u8, v) });
         }
         app.stopWorker();
+        // The meshes stay the same, so the next slice keeps the work of
+        // the jobs of the parts (see plate_job.Options.old).
         app.plate.setMeta(app.gpa, i, try list.toOwnedSlice(app.gpa));
-        try app.plateChanged();
     }
 
     /// The value of a zslice setting of part i, or null if the part has no
@@ -1087,6 +1093,10 @@ pub const App = struct {
     pub fn partOfPath(app: *const App, path: usize) ?usize {
         const t = app.allToolpaths() orelse return null;
         if (path >= t.pathCount()) return null;
+        if (path < t.path_part.items.len) {
+            const part = t.path_part.items[path];
+            if (part != zs.layer.LayerPlan.no_part and part < app.plate.count()) return part;
+        }
         const start = t.pathStart(path);
         return app.plate.partAt(t.points.items[2 * start], t.points.items[2 * start + 1]);
     }
@@ -1352,48 +1362,62 @@ pub const App = struct {
         for (app.slice_meshes) |*m| m.deinit(app.gpa);
         app.gpa.free(app.slice_meshes);
         app.slice_meshes = &.{};
+        if (app.slice_arena) |*a| a.deinit();
+        app.slice_arena = null;
+        app.slice_parts = &.{};
     }
 
-    /// The settings of the parts and the modifier volumes for the next
-    /// slice (see part_settings.zig). Null if no part has settings or
-    /// volumes.
+    /// The parts of the plate job for the next slice: the mesh of each
+    /// part on the bed, its settings and its modifier volumes (see
+    /// part_settings.zig), and the support marks of the user over it.
     fn makeSlicePlan(app: *App) Allocator.Error!void {
         app.dropSlicePlan();
-        // Once a part has settings, the plan needs all the parts: a part
-        // with no settings has the settings of the plate, and so the
-        // parts do not all have the same settings.
-        var any = false;
-        for (app.plate.parts.items) |p| any = any or p.meta.len > 0 or p.volumes.items.len > 0;
-        if (!any) return;
+        app.slice_arena = .init(app.gpa);
+        const a = app.slice_arena.?.allocator();
         var n: usize = 0;
         for (app.plate.parts.items) |p| n += 1 + p.volumes.items.len;
         app.slice_meshes = try app.gpa.alloc(zs.Mesh, n);
         @memset(app.slice_meshes, .empty);
-        const inputs = try app.gpa.alloc(zs.part_settings.Input, n);
-        defer app.gpa.free(inputs);
+        const inputs = try a.alloc(zs.part_settings.Input, n);
+        // The plate index of each input that is a part.
+        const part_of = try a.alloc(?u32, n);
         var k: usize = 0;
         for (app.plate.parts.items, 0..) |p, i| {
-            {
-                app.slice_meshes[k] = try app.plate.partMesh(app.gpa, i);
-                inputs[k] = .{ .name = p.name, .meta = p.meta, .mesh = &app.slice_meshes[k] };
-                k += 1;
-            }
+            const host = k;
+            app.slice_meshes[k] = try app.plate.partMesh(app.gpa, i);
+            inputs[k] = .{ .name = p.name, .meta = p.meta, .mesh = &app.slice_meshes[k] };
+            part_of[k] = @intCast(i);
+            k += 1;
             for (p.volumes.items, 0..) |v, vk| {
                 app.slice_meshes[k] = try app.plate.volumeMesh(app.gpa, i, vk);
-                inputs[k] = .{ .name = v.name, .meta = v.meta, .mesh = &app.slice_meshes[k] };
+                inputs[k] = .{ .name = v.name, .meta = v.meta, .mesh = &app.slice_meshes[k], .host = host };
+                part_of[k] = null;
                 k += 1;
             }
         }
         app.slice_plan = try zs.part_settings.plan(app.gpa, inputs, &app.settings);
-        // The support of the parts: box marks with the marks of the user.
-        const pm = app.slice_plan.?.marks;
-        if (pm.len > 0) {
-            const all = try app.gpa.alloc(zs.support.Mark, app.slice_marks.len + pm.len);
-            @memcpy(all[0..app.slice_marks.len], app.slice_marks);
-            @memcpy(all[app.slice_marks.len..], pm);
-            app.gpa.free(app.slice_marks);
-            app.slice_marks = all;
+        const plan = &app.slice_plan.?;
+        const parts = try a.alloc(zs.plate_job.PartInput, plan.parts.len);
+        for (plan.parts, parts) |pp, *out| {
+            const mesh = &app.slice_meshes[pp.input];
+            // The marks of the user over the box of the part.
+            const b = mesh.bounds();
+            var marks: std.ArrayList(zs.support.Mark) = .empty;
+            for (app.slice_marks) |mk| {
+                const rx = @max(mk.r, mk.hw);
+                const ry = @max(mk.r, mk.hh);
+                if (mk.x + rx < b.min[0] or mk.x - rx > b.max[0] or mk.y + ry < b.min[1] or mk.y - ry > b.max[1]) continue;
+                try marks.append(a, mk);
+            }
+            out.* = .{
+                .mesh = mesh,
+                .changes = pp.changes,
+                .modifiers = pp.modifiers,
+                .marks = marks.items,
+                .part = part_of[pp.input] orelse 0,
+            };
         }
+        app.slice_parts = parts;
     }
 
     fn dropPrevJob(app: *App) void {
@@ -1403,7 +1427,7 @@ pub const App = struct {
 
     /// A job that did not finish: its regions are still good for its
     /// settings, so keep it for the next slice.
-    fn keepForRegions(app: *App, job: zs.Job) void {
+    fn keepForRegions(app: *App, job: zs.PlateJob) void {
         app.dropPrevJob();
         app.prev_job = job;
     }
@@ -1452,6 +1476,7 @@ pub const App = struct {
         // The settings of the parts for the whole plate, under the
         // overrides of the user.
         if (app.slice_plan) |*pp| pp.applyBase(&part) catch |e| return app.finishFailed(e);
+        if (app.slice_parts.len == 0) return app.finishFailed(error.EmptyMesh);
         var layer_overrides: std.ArrayList(zs.settings.Override) = .empty;
         defer layer_overrides.deinit(app.gpa);
         for (app.slice_overrides) |o| {
@@ -1461,17 +1486,13 @@ pub const App = struct {
                 layer_overrides.append(app.gpa, o) catch |e| return app.finishFailed(e);
             }
         }
-        const prev: ?*zs.Job = if (app.prev_job) |*j| j else null;
-        const job_or = zs.Job.initReuse(app.gpa, &app.mesh.?, part, layer_overrides.items, app.slice_marks, monitor, prev);
+        const prev: ?*zs.PlateJob = if (app.prev_job) |*j| j else null;
+        const job_or = zs.PlateJob.init(app.gpa, part, app.slice_parts, .{ .overrides = layer_overrides.items, .monitor = monitor, .old = prev });
         // The new job took what it could use. A job that failed (for
         // example, a cancel) can leave the old job without outlines, so the
         // old job goes in each case.
         app.dropPrevJob();
-        var job = job_or catch |e| return app.finishFailed(e);
-        if (app.slice_plan) |pp| job.setModifiers(pp.modifiers) catch |e| {
-            app.keepForRegions(job);
-            return app.finishFailed(e);
-        };
+        const job = job_or catch |e| return app.finishFailed(e);
         var out: std.Io.Writer.Allocating = .initOwnedSlice(app.gpa, app.spare_gcode);
         app.spare_gcode = &.{};
         out.clearRetainingCapacity();
@@ -1492,17 +1513,7 @@ pub const App = struct {
         const bytes = out.written();
         const buf = out.writer.buffer;
 
-        var box = zs.geom.Box.empty;
-        for (job.outlines) |o| {
-            const b = o.bounds();
-            if (b.isEmpty()) continue;
-            box.extend(b.min);
-            box.extend(b.max);
-        }
-        app.part_box = if (box.isEmpty()) .{ 0, 0, 0, 0 } else .{
-            zs.geom.toMm(box.min.x), zs.geom.toMm(box.min.y),
-            zs.geom.toMm(box.max.x), zs.geom.toMm(box.max.y),
-        };
+        app.part_box = job.bounds() orelse .{ 0, 0, 0, 0 };
         app.job = job;
         app.toolpaths = store;
         app.gcode_bytes = bytes;
@@ -2360,9 +2371,24 @@ test "part settings: one part with its own infill and support" {
     app.stopWorkerForTest();
     const plan = app.slice_plan.?;
     try testing.expectEqual(@as(usize, 0), plan.base.len);
-    try testing.expectEqual(@as(usize, 1), plan.modifiers.len);
-    try testing.expectEqual(@as(usize, 1), plan.marks.len);
-    try testing.expectEqual(zs.support.Mark.Kind.area_on, plan.marks[0].kind);
+    // Each part slices with its own settings: two jobs.
+    try testing.expectEqual(@as(usize, 2), plan.parts.len);
+    try testing.expectEqual(@as(usize, 2), plan.parts[0].changes.len);
+    try testing.expectEqual(@as(usize, 0), plan.parts[1].changes.len);
+    try testing.expectEqual(State.done, app.getState());
+    const pj = &app.job.?;
+    try testing.expectEqual(@as(usize, 2), pj.groups.len);
+    try testing.expectEqual(@as(f64, 0.8), pj.jobOf(0).?.resolved.settings.project.infill_density);
+    try testing.expectEqual(zs.settings.SupportMode.everywhere, pj.jobOf(0).?.resolved.settings.project.support);
+    try testing.expectEqual(zs.settings.SupportMode.off, pj.jobOf(1).?.resolved.settings.project.support);
+    // Each path knows its part.
+    const tp = app.allToolpaths().?;
+    var seen = [2]bool{ false, false };
+    for (tp.path_part.items) |part| if (part < 2) {
+        seen[part] = true;
+    };
+    try testing.expect(seen[0] and seen[1]);
+    try testing.expectEqual(@as(?usize, 1), app.partOfPath(std.mem.indexOfScalar(u32, tp.path_part.items, 1).?));
     // Cleared: no plan.
     try app.setPartSetting(0, "project.infill_density", null);
     try app.setPartSetting(0, "project.support", null);

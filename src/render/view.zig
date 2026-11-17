@@ -265,7 +265,10 @@ pub const View = struct {
         // The modifier volumes: thin purple rings of their outline at a
         // few heights (they do not print, so the view has no beads for
         // them).
-        if (app.job) |*job| try v.addVolumeRings(job);
+        if (app.job) |*pj| for (pj.instances) |inst| {
+            if (inst.group >= pj.groups.len) continue;
+            try v.addVolumeRings(&pj.groups[inst.group].job, inst.dx, inst.dy);
+        };
         try v.loadGrid(@floatCast(s.machine.bed_size_x), @floatCast(s.machine.bed_size_y));
         const tp = app.allToolpaths() orelse {
             v.layer_end.clearRetainingCapacity();
@@ -507,7 +510,9 @@ pub const View = struct {
     /// Adds rings of the outline of each modifier volume of `job` to
     /// `mark_rings`: on its first and last layer, and on about 6 layers
     /// between. The rings stay within a budget of overlay beads.
-    fn addVolumeRings(v: *View, job: *const @import("../engine.zig").Job) Error!void {
+    /// (dx, dy): the move of the part from the part of the job (see
+    /// plate_job.Instance), in the units of geom.
+    fn addVolumeRings(v: *View, job: *const @import("../engine.zig").Job, dx: i64, dy: i64) Error!void {
         const geom = @import("../geom.zig");
         const budget: usize = vk.max_extras / 2;
         const color: [4]u8 = .{ 0x9c, 0x36, 0xb5, 13 };
@@ -532,10 +537,10 @@ pub const View = struct {
                         if (a.distSq(b) < 1000 * 1000 and !std.meta.eql(b, poly[poly.len - 1])) continue;
                         if (v.mark_rings.items.len >= budget) return;
                         v.mark_rings.append(gpa, .{
-                            .ax = @floatCast(geom.toMm(a.x)),
-                            .ay = @floatCast(geom.toMm(a.y)),
-                            .bx = @floatCast(geom.toMm(b.x)),
-                            .by = @floatCast(geom.toMm(b.y)),
+                            .ax = @floatCast(geom.toMm(a.x + dx)),
+                            .ay = @floatCast(geom.toMm(a.y + dy)),
+                            .bx = @floatCast(geom.toMm(b.x + dx)),
+                            .by = @floatCast(geom.toMm(b.y + dy)),
                             .z = z,
                             .h = 0.12,
                             .w = 0.3,

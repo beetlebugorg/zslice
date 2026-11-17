@@ -96,7 +96,18 @@ const changes = [_]zslice.settings.Change{
 try job.setModifiers(&.{.{ .mesh = &window, .changes = &changes, .order = 1, .name = "window" }});
 ```
 
-A path of a plan in a volume has `path.region > 0`; `LayerPlan.pathResolved(path)` gives its settings. For a Cura project 3MF, `zslice.threemf.read` keeps the metadata of each object, and `zslice.part_settings.plan` sorts the parts: the settings for the whole plate (`applyBase`) and the modifiers for `setModifiers`.
+A path of a plan in a volume has `path.region > 0`; `LayerPlan.pathResolved(path)` gives its settings. For a Cura project 3MF, `zslice.threemf.read` keeps the metadata of each object, and `zslice.part_settings.plan` sorts the parts: the settings for the whole plate (`applyBase`), and for each part that prints its own changes and its modifier volumes.
+
+A plate of many parts slices with a `zslice.PlateJob`: one job for each part (or for each group of copies), with the layers of all parts merged by z. It has `layerCount`, `planLayer`, and `writeGcode`, as a `Job`:
+
+```zig
+var plate = try zslice.PlateJob.init(gpa, settings, &.{
+    .{ .mesh = &a, .part = 0 },
+    .{ .mesh = &b, .part = 1, .changes = &.{.{ .name = "project.wall_count", .value = "4" }} },
+}, .{});
+defer plate.deinit();
+_ = try plate.writeGcode(out);
+```
 
 ## Make a mesh from triangles
 

@@ -1142,28 +1142,54 @@ pub const Override = struct {
 /// A z range from -part_z to part_z covers all layers of any part.
 pub const part_z: f64 = 1e5;
 
-/// A setting that the part can change: the project and filament settings.
-/// The machine settings describe the printer, and the engine settings the
-/// slicer.
-/// The settings that one part of the plate can have of its own in a
-/// slice (see part_settings.zig): the infill and the skin of the part, as
-/// a modifier of its volume, with their speeds, and its support. The
-/// others (the walls, the layer height, the travel, the temperatures)
-/// are the same for all the parts of a slice.
-pub fn isPerPartSetting(name: []const u8) bool {
-    const prefixes = [_][]const u8{ "project.infill_", "project.skin_", "project.lightning_", "project.top_support_" };
-    for (prefixes) |pre| if (std.mem.startsWith(u8, name, pre)) {
-        return !std.mem.eql(u8, name, "project.infill_layers");
-    };
-    const names = [_][]const u8{
-        "project.top_thickness",    "project.bottom_thickness", "project.solid_infill_width",
-        "project.support",          "project.infill_speed",     "project.skin_speed",
-        "project.infill_accel",     "project.skin_accel",
-    };
-    for (names) |n| if (std.mem.eql(u8, n, name)) return true;
+/// The settings that are the same for all the parts of a plate (see
+/// plate_job.zig). One extruder prints all parts, and the G-code merges
+/// the layers of all parts, so these come from the plate:
+///
+/// - the filament itself and its temperatures (one hot end, one bed);
+/// - the cooling: the fan and the minimum layer time act on a layer of
+///   the plate, with the paths of all parts in it;
+/// - the travel: retraction, z hop, and combing act on the moves between
+///   the paths and between the parts;
+/// - the first layer height: all parts start their layers on the bed at
+///   the same z;
+/// - the skirt and the brim, which go around all parts, and the placement.
+///
+/// The machine and engine settings are for the whole slice too.
+pub const plate_settings = [_][]const u8{
+    "filament.name",                  "filament.material",          "filament.color",
+    "filament.diameter",              "filament.density",           "filament.price_per_kg",
+    "filament.nozzle_temp",           "filament.first_layer_nozzle_temp", "filament.bed_temp",
+    "filament.standby_temp",          "filament.fan_speed",         "filament.fan_off_layers",
+    "filament.fan_max_speed",         "filament.fan_boost_time",    "filament.min_layer_time",
+    "filament.min_speed",             "filament.cooling_mode",      "filament.retract_ratio",
+    "project.first_layer_height",     "project.retract_min_travel", "project.combing",
+    "project.combing_max_distance",   "project.z_hop",              "project.z_hop_only_crossing",
+    "project.retract_layer_change",   "project.travel_accel",       "project.skirt_loops",
+    "project.skirt_distance",         "project.skirt_layers",       "project.brim_width",
+    "project.placement",
+};
+
+/// True for a setting that is the same for all the parts of a plate (see
+/// `plate_settings`).
+pub fn isPlateSetting(name: []const u8) bool {
+    if (!isPartSetting(name)) return true;
+    for (plate_settings) |n| if (std.mem.eql(u8, n, name)) return true;
     return false;
 }
 
+/// The settings that one part of the plate can have of its own in a
+/// slice (see part_settings.zig and plate_job.zig): each part slices as
+/// its own job, so all the project and filament settings except the
+/// ones of the plate (`isPlateSetting`). Walls, layer height, seam,
+/// speeds, infill, skin, support, and flow can differ from part to part.
+pub fn isPerPartSetting(name: []const u8) bool {
+    return isPartSetting(name) and !isPlateSetting(name);
+}
+
+/// A setting that the part can change: the project and filament settings.
+/// The machine settings describe the printer, and the engine settings the
+/// slicer.
 pub fn isPartSetting(name: []const u8) bool {
     return std.mem.startsWith(u8, name, "project.") or std.mem.startsWith(u8, name, "filament.");
 }

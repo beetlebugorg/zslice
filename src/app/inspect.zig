@@ -42,13 +42,18 @@ pub const Inspection = struct {
 
 pub const Error = error{ OutOfRange, OutOfMemory, WriteFailed };
 
-/// Inspects path `path` of the toolpaths `t` of the slice `job`. The
+/// Inspects path `path` of the toolpaths `t` of the slice `pj`. The
 /// strings go in `arena`.
-pub fn inspect(arena: Allocator, t: *const Toolpaths, job: *const zs.Job, path: usize) Error!Inspection {
+pub fn inspect(arena: Allocator, t: *const Toolpaths, pj: *const zs.PlateJob, path: usize) Error!Inspection {
     const layer = t.layerOfPath(path) orelse return error.OutOfRange;
     // A path in a modifier volume has the settings of the volume.
     const modifier: u16 = if (path < t.path_modifier.items.len) t.path_modifier.items[path] else 0;
-    const r = job.pathResolved(layer, modifier);
+    // The part of the path, its job, and the layer of the path in that
+    // job (a plate merges the layers of its parts by z).
+    const part: u32 = if (path < t.path_part.items.len) t.path_part.items[path] else zs.layer.LayerPlan.no_part;
+    const job = pj.jobOf(part);
+    const local: usize = pj.localLayer(part, layer) orelse layer;
+    const r = pj.pathResolved(part, layer, modifier);
     const s = r.settings;
 
     const feature: zs.settings.Feature = @enumFromInt(t.path_features.items[path]);
@@ -56,10 +61,11 @@ pub fn inspect(arena: Allocator, t: *const Toolpaths, job: *const zs.Job, path: 
     // The bead height of a planar path: the layer height, or for combined
     // infill the height of all the layers of its group.
     const planar_h: f64 = t.pathHeight(path, layer);
-    const layer_h: f64 = t.layer_height.items[layer];
+    const layer_h: f64 = if (job) |j| j.layers[local].height else t.layer_height.items[layer];
     const combined = planar_h > layer_h + 1e-4;
-    const group_n: usize = if (combined and layer < job.groups.len) job.groups[layer].count() else 1;
-    const w: f64 = t.layer_width.items[layer];
+    const group_n: usize = if (job) |j| (if (combined and local < j.groups.len) j.groups[local].count() else 1) else 1;
+    // The line width of the layer of the part.
+    const w: f64 = if (job) |j| (if (local == 0) j.resolvedAt(0).first_layer_line_width else j.resolvedAt(local).line_width) else t.layer_width.items[layer];
     const area: f64 = t.path_area.items[path];
     // A path with a z for each point (slope smoothing): the bead is under
     // the nozzle, down to the top of the layer below. Its height is the
@@ -79,19 +85,19 @@ pub fn inspect(arena: Allocator, t: *const Toolpaths, job: *const zs.Job, path: 
     const t0: f64 = t.path_start_time.items[path];
     const t1: f64 = t.path_end_time.items[path];
     // The speed of this layer, with the ramp of the slow first layers.
-    const planned = r.speedAt(feature, w, h, layer);
+    const planned = r.speedAt(feature, w, h, local);
     const real = if (t1 > t0) length / (t1 - t0) else planned;
 
     var text: std.Io.Writer.Allocating = .init(arena);
     const out = &text.writer;
     const name = fs.feature_names[@intFromEnum(feature)];
     try out.print("{s}, layer {d} of {d}, at z {d:.2} mm.\n\n", .{ name, layer + 1, t.layerCount(), t.layer_z.items[layer] });
-    if (modifier > 0 and modifier <= job.modifiers.len) {
-        const m = job.modifiers[modifier - 1];
+    if (job != null and modifier > 0 and modifier <= job.?.modifiers.len) {
+        const m = job.?.modifiers[modifier - 1];
         try out.print("Modifier volume \"{s}\": this path is inside it, so it has the settings of the volume: its infill ({s}, {d:.0} %), its walls ({d}), its speed and its flow ({d:.0} %). The volume does not print; it changes the part inside it.\n\n", .{ m.name, @tagName(s.project.infill_pattern), s.project.infill_density * 100, s.project.wall_count, s.project.infill_flow * 100 });
     }
     if (combined) {
-        try out.print("Combined: {d} layers, {d:.2} mm. The sparse infill of layers {d} to {d} prints here as one bead (project.infill_layers). The nozzle is at the z of this layer, and the bead goes down to the bottom of layer {d}.\n\n", .{ group_n, h, layer + 2 - group_n, layer + 1, layer + 2 - group_n });
+        try out.print("Combined: {d} layers, {d:.2} mm. The sparse infill of layers {d} to {d} prints here as one bead (project.infill_layers). The nozzle is at the z of this layer, and the bead goes down to the bottom of layer {d}.\n\n", .{ group_n, h, local + 2 - group_n, local + 1, local + 2 - group_n });
     }
     try out.print("The bead is {d:.3} mm wide and {d:.2} mm tall. The line width is {d:.3} mm. The cross section is {d:.4} mm\u{b2}.\n", .{ bead, h, w, area });
     try out.print("The path is {d:.1} mm long, and it uses {d:.2} mm\u{b3} of plastic.\n\n", .{ length, length * area });

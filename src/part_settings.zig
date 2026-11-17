@@ -13,9 +13,13 @@
 //!   note says so.
 //! - A part that prints can have its own settings. If all the parts that
 //!   print have the same settings, the settings apply to the whole plate.
-//!   Else each part with settings becomes a modifier of its own volume,
-//!   below all the modifier volumes. Such a modifier changes the infill
-//!   and the skin of the part; its walls stay the walls of the plate.
+//!   Else each part slices with its own settings, as its own job (see
+//!   plate_job.zig): its walls, its layer height, its infill, its
+//!   support, and the rest. Only the settings of the plate (see
+//!   settings.isPlateSetting) stay the same for all parts; a part
+//!   setting of the plate gets a note.
+//! - A modifier volume belongs to one part that prints: the part it
+//!   overlaps most, if the input does not name it.
 //!
 //! Each Cura key that zslice does not use gets a note.
 //!
@@ -29,7 +33,6 @@ const settings_mod = @import("settings.zig");
 const import_cura = @import("import_cura.zig");
 const threemf = @import("threemf.zig");
 const engine = @import("engine.zig");
-const support_mod = @import("support.zig");
 const Mesh = mesh_mod.Mesh;
 const Change = settings_mod.Change;
 
@@ -39,24 +42,38 @@ pub const Role = import_cura.PartRole;
 pub const Input = struct {
     name: []const u8,
     meta: []const threemf.Meta,
-    /// The mesh of the part on the bed, in the coordinates of the mesh of
-    /// the job. Null for a part with no metadata (`plan` does not need
-    /// it).
+    /// The mesh of the part on the bed, in the coordinates of the plate.
     mesh: ?*const Mesh,
+    /// For a volume: the index of the input of its part, or null (then
+    /// the part that it overlaps most).
+    host: ?usize = null,
+};
+
+/// The settings of one part that prints.
+pub const PartPlan = struct {
+    /// The index of the part in the inputs.
+    input: usize,
+    /// The changes of the part over the settings of the plate.
+    changes: []const Change = &.{},
+    /// The modifier volumes of the part. Their meshes are the meshes of
+    /// the inputs.
+    modifiers: []const engine.Job.ModifierInput = &.{},
 };
 
 pub const Plan = struct {
     arena: std.heap.ArenaAllocator,
     /// The settings for the whole plate.
     base: []const Change = &.{},
-    /// The modifiers of the job. Their meshes are the meshes of the
-    /// inputs.
-    modifiers: []const engine.Job.ModifierInput = &.{},
+    /// The parts that print, in the order of the inputs.
+    parts: []const PartPlan = &.{},
     /// One line for each note.
     notes: []const []const u8 = &.{},
-    /// The support of the parts with their own `project.support`: a box
-    /// mark around each (support.Mark area_on or area_off).
-    marks: []const support_mod.Mark = &.{},
+
+    /// The plan of the part of input `input`, or null.
+    pub fn partOf(self: *const Plan, input: usize) ?*const PartPlan {
+        for (self.parts) |*p| if (p.input == input) return p;
+        return null;
+    }
 
     pub fn deinit(self: *Plan) void {
         self.arena.deinit();
@@ -89,102 +106,104 @@ pub fn roleName(role: Role) []const u8 {
     };
 }
 
-/// The order of the modifiers made from the settings of a part: below
-/// all modifier volumes.
-const part_order: i32 = std.math.minInt(i32);
-
 pub fn plan(gpa: Allocator, inputs: []const Input, settings: *const settings_mod.Settings) Allocator.Error!Plan {
     var out: Plan = .{ .arena = .init(gpa) };
     errdefer out.deinit();
     const a = out.arena.allocator();
     var notes: std.ArrayList([]const u8) = .empty;
-    var mods: std.ArrayList(engine.Job.ModifierInput) = .empty;
-    const parts = try a.alloc(import_cura.PartSettings, inputs.len);
-    var marks: std.ArrayList(support_mod.Mark) = .empty;
-    for (inputs, parts) |in, *ps| {
-        ps.* = try import_cura.partSettings(a, in.meta, settings);
-        for (ps.ignored) |ig| try notes.append(a, try std.fmt.allocPrint(a, "{s}: {s} = {s} is not used: {s}", .{ in.name, ig.key, ig.value, ig.why }));
-        // The support of a part: a box mark around it, not a change of the
-        // plate or a modifier (support is for the whole plate).
-        if (ps.role != .normal) continue;
-        var rest: std.ArrayList(Change) = .empty;
-        for (ps.sets) |c| {
-            if (!std.mem.eql(u8, c.name, "project.support")) {
-                try rest.append(a, c);
-                continue;
-            }
-            const mesh = in.mesh orelse continue;
-            const b = mesh.bounds();
-            // 1 mm more on each side: the support reaches past the part.
-            try marks.append(a, .{
-                .x = (b.min[0] + b.max[0]) / 2,
-                .y = (b.min[1] + b.max[1]) / 2,
-                .z = 0,
-                .hw = (b.max[0] - b.min[0]) / 2 + 1,
-                .hh = (b.max[1] - b.min[1]) / 2 + 1,
-                .kind = if (std.mem.eql(u8, c.value, "off")) .area_off else .area_on,
-            });
-        }
-        ps.sets = rest.items;
+    const ps = try a.alloc(import_cura.PartSettings, inputs.len);
+    for (inputs, ps) |in, *p| {
+        p.* = try import_cura.partSettings(a, in.meta, settings);
+        for (p.ignored) |ig| try notes.append(a, try std.fmt.allocPrint(a, "{s}: {s} = {s} is not used: {s}", .{ in.name, ig.key, ig.value, ig.why }));
     }
 
     // The settings of the parts that print: the same for all, or not.
     var first: ?usize = null;
     var same = true;
-    for (inputs, parts, 0..) |in, ps, k| {
-        _ = in;
-        if (ps.role != .normal) continue;
+    for (ps, 0..) |p, k| {
+        if (p.role != .normal) continue;
         if (first) |f| {
-            if (!sameChanges(parts[f].sets, ps.sets)) same = false;
+            if (!sameChanges(ps[f].sets, p.sets)) same = false;
         } else first = k;
     }
     if (first) |f| if (same) {
-        out.base = parts[f].sets;
+        out.base = ps[f].sets;
     };
 
-    for (inputs, parts) |in, ps| {
-        switch (ps.role) {
-            .normal => {
-                if (same or ps.sets.len == 0) continue;
-                const mesh = in.mesh orelse continue;
-                // Only the infill and the skin: the walls of the plate stay.
-                var list: std.ArrayList(Change) = .empty;
-                for (ps.sets) |c| {
-                    if (std.mem.startsWith(u8, c.name, "project.wall_")) {
-                        try notes.append(a, try std.fmt.allocPrint(a, "{s}: {s} = {s} is not used: the parts have different settings, and a part keeps the walls of the plate", .{ in.name, c.name, c.value }));
-                        continue;
-                    }
-                    try list.append(a, c);
-                }
-                try list.append(a, .{ .name = "project.wall_count", .value = "0" });
-                try list.append(a, .{ .name = "project.wall_thickness", .value = "0" });
-                try mods.append(a, .{ .mesh = mesh, .changes = list.items, .order = part_order, .name = in.name });
-            },
+    // The parts that print, with their own changes.
+    var parts: std.ArrayList(PartPlan) = .empty;
+    for (inputs, ps, 0..) |in, p, k| {
+        if (p.role != .normal) continue;
+        var list: std.ArrayList(Change) = .empty;
+        if (!same) for (p.sets) |c| {
+            if (settings_mod.isPlateSetting(c.name)) {
+                try notes.append(a, try std.fmt.allocPrint(a, "{s}: {s} = {s} is not used: the parts have different settings, and this setting is the same for all parts of the plate", .{ in.name, c.name, c.value }));
+                continue;
+            }
+            try list.append(a, c);
+        };
+        try parts.append(a, .{ .input = k, .changes = list.items });
+    }
+
+    // The modifier volumes, each on its part.
+    const mods = try a.alloc(std.ArrayList(engine.Job.ModifierInput), parts.items.len);
+    @memset(mods, .empty);
+    for (inputs, ps) |in, p| {
+        switch (p.role) {
+            .normal => {},
             .infill_mesh => {
                 const mesh = in.mesh orelse continue;
+                const host = hostOf(inputs, parts.items, in) orelse {
+                    try notes.append(a, try std.fmt.allocPrint(a, "{s}: the modifier volume has no part to change", .{in.name}));
+                    continue;
+                };
                 // As in Cura, a modifier volume has the settings of the
-                // profile and its own: the settings of the parts that
-                // apply to the whole plate (`base`) do not apply to it.
+                // profile and its own: the settings of the plate from the
+                // parts (`base`) and of its part do not apply to it.
                 var list: std.ArrayList(Change) = .empty;
-                for (out.base) |c| {
-                    const own = for (ps.sets) |o| {
+                for ([_][]const Change{ out.base, parts.items[host].changes }) |set| for (set) |c| {
+                    const own = for (p.sets) |o| {
                         if (std.mem.eql(u8, o.name, c.name)) break true;
                     } else false;
                     if (own) continue;
                     var w: std.Io.Writer.Allocating = .init(a);
                     @import("app.zig").App.writeSettingOf(settings.*, c.name, &w.writer) catch continue;
                     try list.append(a, .{ .name = c.name, .value = w.written() });
-                }
-                try list.appendSlice(a, ps.sets);
-                try mods.append(a, .{ .mesh = mesh, .changes = list.items, .order = ps.order, .name = in.name });
+                };
+                try list.appendSlice(a, p.sets);
+                try mods[host].append(a, .{ .mesh = mesh, .changes = list.items, .order = p.order, .name = in.name });
             },
-            else => try notes.append(a, try std.fmt.allocPrint(a, "{s}: {s} does not print: zslice has no such volume yet", .{ in.name, roleName(ps.role) })),
+            else => try notes.append(a, try std.fmt.allocPrint(a, "{s}: {s} does not print: zslice has no such volume yet", .{ in.name, roleName(p.role) })),
         }
     }
-    out.modifiers = mods.items;
-    out.marks = marks.items;
+    for (parts.items, mods) |*pp, m| pp.modifiers = m.items;
+    out.parts = parts.items;
     out.notes = notes.items;
     return out;
+}
+
+/// The index in `parts` of the part of volume `in`: its host, or the part
+/// whose box overlaps the box of the volume most.
+fn hostOf(inputs: []const Input, parts: []const PartPlan, in: Input) ?usize {
+    if (in.host) |h| {
+        for (parts, 0..) |p, k| if (p.input == h) return k;
+        return null;
+    }
+    const vm = in.mesh orelse return null;
+    const vb = vm.bounds();
+    var best: ?usize = null;
+    var best_v: f64 = -1;
+    for (parts, 0..) |p, k| {
+        const qm = inputs[p.input].mesh orelse continue;
+        const qb = qm.bounds();
+        var vol: f64 = 1;
+        for (0..3) |d| vol *= @max(0, @min(vb.max[d], qb.max[d]) - @max(vb.min[d], qb.min[d]));
+        if (vol > best_v) {
+            best_v = vol;
+            best = k;
+        }
+    }
+    return best;
 }
 
 fn sameChanges(x: []const Change, y: []const Change) bool {
@@ -243,11 +262,14 @@ test "part settings: a modifier volume, and the same settings on all parts" {
     defer p.deinit();
     try testing.expectEqual(@as(usize, 1), p.base.len);
     try testing.expectEqualStrings("project.infill_density", p.base[0].name);
-    try testing.expectEqual(@as(usize, 1), p.modifiers.len);
-    try testing.expectEqualStrings("window", p.modifiers[0].name);
+    // One part prints, and the window is its modifier.
+    try testing.expectEqual(@as(usize, 1), p.parts.len);
+    const mods = p.parts[0].modifiers;
+    try testing.expectEqual(@as(usize, 1), mods.len);
+    try testing.expectEqualStrings("window", mods[0].name);
     // The window has the density of the profile, and its own settings.
-    try testing.expectEqualStrings("project.infill_density", p.modifiers[0].changes[0].name);
-    try testing.expectEqualStrings("0.2", p.modifiers[0].changes[0].value);
+    try testing.expectEqualStrings("project.infill_density", mods[0].changes[0].name);
+    try testing.expectEqualStrings("0.2", mods[0].changes[0].value);
     // The wipe distance and the cutting mesh get notes.
     try testing.expectEqual(@as(usize, 2), p.notes.len);
     var s2 = s;
@@ -259,24 +281,32 @@ test "part settings: a modifier volume, and the same settings on all parts" {
     try testing.expect(lines.len >= 3);
 }
 
-test "part settings: parts with different settings become modifiers" {
+test "part settings: parts with different settings keep them" {
     const gpa = testing.allocator;
     var m1 = try box(gpa, 0, 0, 0, 10, 10, 3);
     defer m1.deinit(gpa);
     var m2 = try box(gpa, 20, 0, 0, 30, 10, 3);
     defer m2.deinit(gpa);
-    const a_meta = testMeta(&.{ .{ "cura:infill_sparse_density", "50" }, .{ "cura:wall_line_count", "4" } });
+    const a_meta = testMeta(&.{ .{ "cura:infill_sparse_density", "50" }, .{ "cura:wall_line_count", "4" }, .{ "cura:material_print_temperature", "230" } });
     const inputs = [_]Input{
         .{ .name = "a", .meta = &a_meta, .mesh = &m1 },
-        .{ .name = "b", .meta = &.{}, .mesh = null },
+        .{ .name = "b", .meta = &.{}, .mesh = &m2 },
     };
     const s: settings_mod.Settings = .{};
     var p = try plan(gpa, &inputs, &s);
     defer p.deinit();
     try testing.expectEqual(@as(usize, 0), p.base.len);
-    try testing.expectEqual(@as(usize, 1), p.modifiers.len);
-    try testing.expectEqual(std.math.minInt(i32), p.modifiers[0].order);
-    // The wall count of the part is not used (wall_count and
-    // wall_thickness).
-    try testing.expectEqual(@as(usize, 2), p.notes.len);
+    try testing.expectEqual(@as(usize, 2), p.parts.len);
+    // Part a keeps its walls and its infill; the nozzle temperature is
+    // the same for all parts, so it gets a note.
+    const ch = p.parts[0].changes;
+    var walls = false;
+    var temp = false;
+    for (ch) |c| {
+        walls = walls or std.mem.eql(u8, c.name, "project.wall_count");
+        temp = temp or std.mem.eql(u8, c.name, "filament.nozzle_temp");
+    }
+    try testing.expect(walls);
+    try testing.expect(!temp);
+    try testing.expectEqual(@as(usize, 0), p.parts[1].changes.len);
 }

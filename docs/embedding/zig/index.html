@@ -105,7 +105,14 @@ const changes = [_]zslice.settings.Change{
     .{ .name = "project.infill_density", .value = "0.3" },
 };
 try job.setModifiers(&amp;.{.{ .mesh = &amp;window, .changes = &amp;changes, .order = 1, .name = "window" }});</code></pre>
-<p>A path of a plan in a volume has <code>path.region &gt; 0</code>; <code>LayerPlan.pathResolved(path)</code> gives its settings. For a Cura project 3MF, <code>zslice.threemf.read</code> keeps the metadata of each object, and <code>zslice.part_settings.plan</code> sorts the parts: the settings for the whole plate (<code>applyBase</code>) and the modifiers for <code>setModifiers</code>.</p>
+<p>A path of a plan in a volume has <code>path.region &gt; 0</code>; <code>LayerPlan.pathResolved(path)</code> gives its settings. For a Cura project 3MF, <code>zslice.threemf.read</code> keeps the metadata of each object, and <code>zslice.part_settings.plan</code> sorts the parts: the settings for the whole plate (<code>applyBase</code>), and for each part that prints its own changes and its modifier volumes.</p>
+<p>A plate of many parts slices with a <code>zslice.PlateJob</code>: one job for each part (or for each group of copies), with the layers of all parts merged by z. It has <code>layerCount</code>, <code>planLayer</code>, and <code>writeGcode</code>, as a <code>Job</code>:</p>
+<pre><code>var plate = try zslice.PlateJob.init(gpa, settings, &amp;.{
+    .{ .mesh = &amp;a, .part = 0 },
+    .{ .mesh = &amp;b, .part = 1, .changes = &amp;.{.{ .name = "project.wall_count", .value = "4" }} },
+}, .{});
+defer plate.deinit();
+_ = try plate.writeGcode(out);</code></pre>
 <h2 id="make-a-mesh-from-triangles">Make a mesh from triangles</h2>
 <pre><code>// 9 floats for each triangle: x, y, z of 3 vertices, in mm.
 // The vertices are counterclockwise as seen from outside the part.
