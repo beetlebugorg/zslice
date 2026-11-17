@@ -52,15 +52,19 @@ jobs:
           role-to-assume: ${{ vars.AWS_DEPLOY_ROLE }}
           aws-region: us-east-1
 
-      # The pages are checked again on each visit; the other files keep 5
-      # minutes. The cache of CloudFront is cleared after each deploy.
+      # The browser checks each file of the app again on each visit
+      # (no-cache: an answer of "not modified" when it did not change), so
+      # the page and its scripts are always of the same deploy. With a
+      # cache time, a new index.html could run with an old app.js. The bed
+      # models change only with a release: they keep one day. The cache
+      # of CloudFront is cleared after each deploy.
       - name: Upload
         working-directory: site
         run: |
           B="s3://${{ vars.SITE_BUCKET }}"
-          aws s3 sync . "$B" --delete --only-show-errors --cache-control "public, max-age=300" --exclude "*.html" --exclude "*.wasm"
-          aws s3 sync . "$B" --delete --only-show-errors --cache-control "no-cache" --exclude "*" --include "*.html"
-          aws s3 sync . "$B" --delete --only-show-errors --cache-control "public, max-age=300" --content-type application/wasm --exclude "*" --include "*.wasm"
+          aws s3 sync . "$B" --delete --only-show-errors --cache-control "no-cache" --exclude "*.wasm" --exclude "beds/*"
+          aws s3 sync . "$B" --delete --only-show-errors --cache-control "no-cache" --content-type application/wasm --exclude "*" --include "*.wasm"
+          aws s3 sync . "$B" --delete --only-show-errors --cache-control "public, max-age=86400" --exclude "*" --include "beds/*"
 
       - name: Clear the cache
         run: aws cloudfront create-invalidation --distribution-id "${{ vars.SITE_DISTRIBUTION }}" --paths "/*" --query Invalidation.Id --output text
