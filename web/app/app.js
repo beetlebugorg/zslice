@@ -2281,6 +2281,8 @@ applySettings(init);
 history.refresh();
 updateSummary();
 resize();
+// The saved printdeck.yml project: its plan, and its plates again.
+project.start();
 
 // The first visit (no printer set up), and the test hook
 // ?printers&q=<search>&pick=<model id>&step=2: the printer picker.
@@ -2293,7 +2295,8 @@ if (params.has("printers") || (!store.printer && !stateHasChanges(store.saved?.m
 // open: the work goes on after a refresh.
 const modelUrl = new URLSearchParams(location.search).get("model");
 if (!modelUrl) {
-  const kept = await loadPlate();
+  // The plates of a saved project come back instead (project.start).
+  const kept = project.willRestore() ? null : await loadPlate();
   if (kept?.bytes) {
     await openFile(new File([kept.bytes], "plate.3mf"));
     if (app.state !== "empty" && kept.name) {

@@ -189,12 +189,14 @@ export class ProjectPage {
     this.source = null;
     this.text = "";
     this.plan = null;
-    this.state = load(); // { source, text, counts, status, active }
+    this.state = load(); // { source, text, counts, status, active, setLoaded }
     this.busy = "";
-    if (this.state?.text) this.replan().then(() => this.render());
+    this.planned = Promise.resolve();
     this.render();
-    // After a reload, a GitHub project gets its files again.
-    if (this.state?.source?.kind === "github") this.reopen();
+    // After a reload, a GitHub project gets its files again; app.js calls
+    // restoreSet when the worker is ready, and the plates load again if
+    // they were on the view.
+    this.reopened = this.state?.source?.kind === "github" ? this.reopen() : Promise.resolve();
   }
 
   // ---- open ----
@@ -229,6 +231,30 @@ export class ProjectPage {
     } catch {
       // No network: the plates show, and an open says why.
     }
+  }
+
+  // True if the plates of a saved project load again after the start (so
+  // the page keeps no other plate of the last visit).
+  willRestore() {
+    return !!this.state?.setLoaded && this.state?.source?.kind === "github";
+  }
+
+  // After the worker starts (app.js): the plan of the saved project, and
+  // its plates on the view again.
+  start() {
+    this.planned = this.state?.text ? this.replan().then(() => this.render()) : Promise.resolve();
+    return this.restoreSet();
+  }
+
+  // The plates of the project on the view again after a reload (a GitHub
+  // project; a folder must be opened again). The active plate stays.
+  async restoreSet() {
+    await this.reopened;
+    if (!this.state?.setLoaded || !this.source) return;
+    await this.planned;
+    if (!this.plan || this.plan.error || this.plan.plates.length === 0) return;
+    const i = Math.max(0, this.plan.plates.findIndex((p) => plateKey(this.plan, p) === this.state.active));
+    await this.openPlate(i);
   }
 
   async use(src) {
@@ -328,6 +354,8 @@ export class ProjectPage {
       const r = await this.ctx.client.call("projectSet", { text: this.state.text, counts: this.state.counts ?? [], plates: list, active: i });
       this.ctx.applySettings(r);
       this.loaded = this.planKey();
+      this.state.setLoaded = true;
+      save(this.state);
       const bad = r.results.map((x, k) => (x.error ? `Plate ${k + 1}: ${x.error}` : x.fits === false ? x.message : "")).filter(Boolean);
       if (bad.length > 0) this.ctx.toast(bad.join(" "));
       this.ctx.opened(list[i].name);
@@ -368,6 +396,10 @@ export class ProjectPage {
   // The plate set is no longer the plates of this project (a file opened).
   unload() {
     this.loaded = null;
+    if (this.state?.setLoaded) {
+      this.state.setLoaded = false;
+      save(this.state);
+    }
   }
 
   setStatus(key, status) {
