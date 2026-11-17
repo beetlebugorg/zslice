@@ -295,6 +295,19 @@ typedef struct zs_inspect {
     int slow_reason;
 } zs_inspect;
 
+/* The measurements of a path at its segment seg (src/app/measure.zig):
+ * the segment, the straight edge with its direction, the whole path, the
+ * size of the path, and for a circle (shape 1) or an arc (shape 2) its
+ * radius, its center, and its angle in degrees. Shape 0: no circle. */
+typedef struct {
+    double segment_length, edge_length, path_length;
+    int closed;
+    double size_x, size_y;
+    int shape;
+    double radius, center_x, center_y, angle;
+} zs_measure;
+int zs_app_measure(const zs_app *app, size_t path, size_t seg, zs_measure *out);
+
 /* The printability check of the last slice (src/app/checks.zig): each
  * issue has its kind, its severity (0 note, 1 warning, 2 problem), its
  * layer, the path it is about (ZS_NO_PATH: none), a place in mm, a size

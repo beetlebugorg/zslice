@@ -51,6 +51,7 @@ pub const sweep = @import("app/sweep.zig");
 /// The settings that can close a gap (see app/gap_advice.zig).
 pub const gap_advice = @import("app/gap_advice.zig");
 pub const history = @import("app/history.zig");
+pub const measure = @import("app/measure.zig");
 /// The printability check (see app/checks.zig).
 pub const checks_mod = @import("app/checks.zig");
 
@@ -1779,6 +1780,20 @@ pub const App = struct {
             error.OutOfRange => error.OutOfRange,
             error.OutOfMemory, error.WriteFailed => error.OutOfMemory,
         };
+    }
+
+    /// The measurements of path `path` at its segment `seg` (see
+    /// app/measure.zig): the segment, its straight edge, the path, its size,
+    /// and the radius of a circle or an arc.
+    pub fn measurePath(app: *const App, path: usize, seg: usize) error{ NoResult, OutOfRange, OutOfMemory }!measure.Measure {
+        const t = app.allToolpaths() orelse return error.NoResult;
+        if (path >= t.path_ends.items.len) return error.OutOfRange;
+        const start: usize = if (path == 0) 0 else t.path_ends.items[path - 1];
+        const end: usize = t.path_ends.items[path];
+        const pts = try app.gpa.alloc([2]f64, end - start);
+        defer app.gpa.free(pts);
+        for (pts, start..) |*p, i| p.* = .{ t.points.items[2 * i], t.points.items[2 * i + 1] };
+        return measure.measure(app.gpa, pts, t.path_closed.items[path] != 0, seg);
     }
 
     /// The paths of one layer, for a preview. Call `deinit` on the result.

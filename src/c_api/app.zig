@@ -1420,3 +1420,42 @@ export fn zs_history_kind(changes: ?[*]const u8, len: usize) [*:0]const u8 {
     const k = app_mod.history.stepKind(gpa, t) catch return "other";
     return @tagName(k);
 }
+
+/// The measurements of a path at one of its segments.
+pub const CMeasure = extern struct {
+    segment_length: f64,
+    edge_length: f64,
+    path_length: f64,
+    closed: c_int,
+    size_x: f64,
+    size_y: f64,
+    shape: c_int,
+    radius: f64,
+    center_x: f64,
+    center_y: f64,
+    angle: f64,
+};
+
+export fn zs_app_measure(a: ?*const App, path: usize, seg: usize, out: ?*CMeasure) c_int {
+    const app = a orelse return @intFromEnum(Status.invalid_argument);
+    const o = out orelse return @intFromEnum(Status.invalid_argument);
+    const m = app.measurePath(path, seg) catch |e| return switch (e) {
+        error.NoResult => @intFromEnum(Status.no_result),
+        error.OutOfRange => @intFromEnum(Status.out_of_range),
+        error.OutOfMemory => @intFromEnum(Status.out_of_memory),
+    };
+    o.* = .{
+        .segment_length = m.segment_length,
+        .edge_length = m.edge_length,
+        .path_length = m.path_length,
+        .closed = @intFromBool(m.closed),
+        .size_x = m.size[0],
+        .size_y = m.size[1],
+        .shape = @intFromEnum(m.shape),
+        .radius = m.radius,
+        .center_x = m.center[0],
+        .center_y = m.center[1],
+        .angle = m.angle,
+    };
+    return ok;
+}

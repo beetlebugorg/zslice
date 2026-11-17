@@ -34,6 +34,8 @@ typedef struct {
     GtkWidget *stat_value[3];
     GtkWidget *stat_note;  /* a revealer */
     GtkWidget *stat_note_label;
+    /* The measurements of the selected segment and its path. */
+    GtkWidget *measure;
     /* The "why" text of each number (planned, real, flow), for the popover
      * of its button. */
     char *why[3];
@@ -254,6 +256,36 @@ static void on_scope_dd(GObject *dd, GParamSpec *pspec, gpointer data) {
     apply_scope(ins);
 }
 
+/* The measurements of the selected segment: its length, the straight edge
+ * it is a part of, the path, the size of a loop, and the radius of a circle
+ * or an arc (zs_app_measure). */
+static void show_measure(Inspector *ins) {
+    if (!ins->measure) return;
+    gint64 path = zg_model_selected(ins->model);
+    gint64 seg = zg_model_segment(ins->model);
+    zs_measure m;
+    if (path < 0 || zs_app_measure(zg_model_core(ins->model), (size_t)path, seg < 0 ? 0 : (size_t)seg, &m) != ZS_OK) {
+        gtk_widget_set_visible(ins->measure, FALSE);
+        return;
+    }
+    GString *t = g_string_new(NULL);
+    if (m.shape == 1)
+        g_string_append_printf(t, "<b>Circle</b>  radius %.2f mm · diameter %.2f mm\n", m.radius, 2 * m.radius);
+    else if (m.shape == 2)
+        g_string_append_printf(t, "<b>Arc</b>  radius %.2f mm · %.0f°\n", m.radius, m.angle);
+    g_string_append_printf(t, "<b>Segment</b>  %.2f mm", m.segment_length);
+    if (m.edge_length > m.segment_length + 0.01) g_string_append_printf(t, " · <b>edge</b> %.2f mm", m.edge_length);
+    g_string_append_printf(t, "\n<b>%s</b>  %.2f mm", m.closed ? "Loop" : "Path", m.path_length);
+    g_string_append_printf(t, " · %.2f × %.2f mm", m.size_x, m.size_y);
+    gtk_label_set_markup(GTK_LABEL(ins->measure), t->str);
+    gtk_widget_set_visible(ins->measure, TRUE);
+    g_string_free(t, TRUE);
+}
+
+static void on_segment_measure(ZgModel *model, gint64 segment, gpointer data) {
+    show_measure(data);
+}
+
 static void show_text(Inspector *ins, const zs_inspect *info) {
     ins->scope_z = info->z;
     apply_scope(ins);
@@ -266,6 +298,7 @@ static void show_text(Inspector *ins, const zs_inspect *info) {
     g_free(title);
     gtk_label_set_text(GTK_LABEL(ins->explain), info->explain);
     show_stats(ins, info);
+    show_measure(ins);
 }
 
 static gboolean focus_later(gpointer data) {
@@ -360,6 +393,8 @@ static void add_mark_block(Inspector *ins, GtkWidget *grid, int *row) {
 
 static GtkWidget *build_inspector(Inspector *ins, const zs_inspect *info) {
     GtkWidget *grid = zg_grid_new();
+    /* The label of the page before goes with its slot. */
+    ins->measure = NULL;
     int row = 0;
     if (!info) {
         zg_model_set_scope(ins->model, TRUE, -1e6, 1e6, 0);
@@ -377,6 +412,14 @@ static GtkWidget *build_inspector(Inspector *ins, const zs_inspect *info) {
     ins->stat_note = gtk_revealer_new();
     gtk_revealer_set_child(GTK_REVEALER(ins->stat_note), note);
     gtk_grid_attach(GTK_GRID(grid), ins->stat_note, 0, row++, 3, 1);
+    ins->measure = gtk_label_new("");
+    gtk_label_set_xalign(GTK_LABEL(ins->measure), 0);
+    gtk_label_set_wrap(GTK_LABEL(ins->measure), TRUE);
+    gtk_label_set_selectable(GTK_LABEL(ins->measure), FALSE);
+    gtk_widget_add_css_class(ins->measure, "numeric");
+    gtk_widget_set_margin_top(ins->measure, 4);
+    gtk_widget_set_tooltip_text(ins->measure, "The measurements of the selected segment: its length, the straight edge that it is a part of, the whole line, and the radius of a circle or an arc.");
+    gtk_grid_attach(GTK_GRID(grid), ins->measure, 0, row++, 3, 1);
     add_mark_block(ins, grid, &row);
 
     /* Change for: all layers, or the layers of the selection. */
@@ -518,6 +561,7 @@ static void on_part_selected(ZgModel *model, gint64 part, gpointer data) {
     const char *next = ins->in_a ? "b" : "a";
     GtkWidget *old = gtk_stack_get_child_by_name(GTK_STACK(ins->slots), next);
     if (old) gtk_stack_remove(GTK_STACK(ins->slots), old);
+    ins->measure = NULL;
     gtk_stack_add_named(GTK_STACK(ins->slots), zg_scrolled_new(zg_part_page_new(ins->model)), next);
     gtk_stack_set_visible_child_name(GTK_STACK(ins->slots), next);
     ins->in_a = !ins->in_a;
@@ -755,6 +799,7 @@ GtkWidget *zg_inspector_new(ZgModel *model, GtkWidget *panel_stack) {
     g_object_set_data_full(G_OBJECT(ins->slots), "zg-inspector", ins, inspector_free);
     fill_inspector(ins);
     g_signal_connect(model, "selection-changed", G_CALLBACK(on_selection), ins);
+    g_signal_connect(model, "segment-changed", G_CALLBACK(on_segment_measure), ins);
     g_signal_connect(model, "picked", G_CALLBACK(on_picked), ins);
     g_signal_connect(model, "part-selected", G_CALLBACK(on_part_selected), ins);
     g_signal_connect(model, "core-event", G_CALLBACK(on_core_event), ins);
