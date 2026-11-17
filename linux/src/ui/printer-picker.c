@@ -274,8 +274,9 @@ static void draw_volume(GtkDrawingArea *area, cairo_t *cr, int width, int height
     cairo_set_source_rgba(cr, fg.red, fg.green, fg.blue, 0.85);
     char t[64];
     if (v.round) {
-        g_snprintf(t, sizeof t, "⌀ %.0f mm", v.bx);
-        P(v.bx / 2 + r * cos(G_PI / 4 + G_PI / 2), v.by / 2 + r * sin(G_PI / 4 + G_PI / 2), 0);
+        g_snprintf(t, sizeof t, "Ø %.0f mm", v.bx); /* the toy font of cairo has no ⌀ */
+        /* The front of the circle: the lowest point on the screen. */
+        P(r + r * cos(-G_PI / 4), r + r * sin(-G_PI / 4), 0);
         label_at(cr, px, py + 16, t, 0.5);
     } else {
         g_snprintf(t, sizeof t, "X %.0f mm", v.bx);
@@ -373,9 +374,7 @@ static void fill_facts(Picker *p, GtkWidget *grid) {
 static void update_card(Picker *p) {
     zs_printer_model m;
     if (get_model(p, p->current, &m)) {
-        char *t = g_strdup_printf("%s %s", m.brand, m.name);
-        gtk_label_set_text(GTK_LABEL(p->card_title), t);
-        g_free(t);
+        gtk_label_set_text(GTK_LABEL(p->card_title), m.title);
         char *f = text_of(zs_printers_facts, p->lib, (size_t)p->current);
         gtk_label_set_text(GTK_LABEL(p->card_sub), f);
         g_free(f);
@@ -628,7 +627,7 @@ static void on_found_selected(GtkListBox *box, GtkListBoxRow *row, gpointer data
         show_model(p, m);
         zs_printer_model pm;
         get_model(p, m, &pm);
-        msg = g_strdup_printf("%s at %s is a %s %s. Check the model, then go on.", f.kind_title, f.address, pm.brand, pm.name);
+        msg = g_strdup_printf("%s at %s is a %s. Check the model, then go on.", f.kind_title, f.address, pm.title);
     } else {
         msg = g_strdup_printf("zslice connects to the %s at %s. Now pick its model.", f.kind_title, f.address);
         gtk_widget_grab_focus(p->search);
@@ -795,7 +794,7 @@ static void go_setup(Picker *p) {
     if (p->current == -1) return;
     zs_printer_model m;
     gboolean have = get_model(p, p->current, &m);
-    char *name = have ? g_strdup_printf("%s %s", m.brand, m.name) : g_strdup("My printer");
+    char *name = g_strdup(have ? m.title : "My printer");
     gtk_editable_set_text(GTK_EDITABLE(p->name), name);
     gtk_label_set_text(GTK_LABEL(p->sum_title), name);
     g_free(name);
