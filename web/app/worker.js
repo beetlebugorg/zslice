@@ -47,6 +47,8 @@ function sendResult(ms) {
     layers,
     scene,
     mode,
+    marks: core.markCount(),
+    parts: core.w.x.zs_app_part_count(core.app),
   };
   post(msg, scene ? [scene, layers.z.buffer, layers.height.buffer, layers.endTime.buffer, layers.slowed.buffer] : []);
 }
@@ -122,6 +124,109 @@ const ops = {
   },
 
   slice() {
+    wantSlice();
+    return {};
+  },
+
+  // ---- a selected line ----
+
+  // The Selected page of a path. With `refind` ({ layer, feature, x, y }
+  // of the line before a new slice): the same line in the new slice.
+  inspect({ path, seg, refind }) {
+    if (core.state() !== STATE.done) return { info: null };
+    let p = path;
+    if (refind) p = core.refind(refind.layer, refind.feature, refind.x, refind.y);
+    return { info: p >= 0 ? core.inspect(p, seg ?? -1) : null };
+  },
+
+  report({ path }) {
+    return { text: core.lineReport(path) };
+  },
+
+  setScoped({ name, value, zmin, zmax, perLayer }) {
+    const error = core.setScoped(name, value, zmin, zmax, perLayer);
+    if (!error) wantSlice();
+    return { error, ...settingsState() };
+  },
+
+  resetScoped({ name, zmin, zmax, z }) {
+    const error = core.resetScoped(name, zmin, zmax, z);
+    if (!error) wantSlice();
+    return { error, ...settingsState() };
+  },
+
+  // ---- the context menu ----
+
+  // Support marks at the selected segment (view3d.c: mark_place).
+  markAdd({ path, seg, kind }) {
+    const pt = core.pathPoint(path, seg);
+    if (!pt) return {};
+    core.w.x.zs_app_mark_add(core.app, pt[0], pt[1], pt[2], 3, kind);
+    wantSlice();
+    return {};
+  },
+
+  markRemoveNear({ path, seg }) {
+    const pt = core.pathPoint(path, seg);
+    if (!pt) return {};
+    if (core.w.x.zs_app_mark_remove_near(core.app, pt[0], pt[1], pt[2], 3) > 0) wantSlice();
+    return {};
+  },
+
+  markSet({ index, kind, r }) {
+    core.w.x.zs_app_mark_set(core.app, index, kind, r);
+    wantSlice();
+    return {};
+  },
+
+  markRemove({ index }) {
+    core.w.x.zs_app_mark_remove(core.app, index);
+    wantSlice();
+    return {};
+  },
+
+  marksClear() {
+    core.w.x.zs_app_marks_clear(core.app);
+    wantSlice();
+    return {};
+  },
+
+  // The part of a path: "Put this side on the bed", and its placement.
+  putDown({ path, seg }) {
+    const part = core.partOfPath(path);
+    const pt = core.pathPoint(path, seg);
+    if (part < 0 || !pt) return {};
+    if (core.w.x.zs_app_part_put_down_at(core.app, part, pt[0], pt[1], pt[2]) === 0) wantSlice();
+    return {};
+  },
+
+  place({ path, code }) {
+    const part = core.partOfPath(path);
+    if (part < 0) return {};
+    // 0 smart, 1 less support, 10 + axis: strong along that axis.
+    const rc = code >= 10 ? core.w.x.zs_app_part_place(core.app, part, 2, code - 10) : core.w.x.zs_app_part_place(core.app, part, code, 0);
+    if (rc === 0) wantSlice();
+    return {};
+  },
+
+  add({ name, bytes }) {
+    core.addStl(name, new Uint8Array(bytes));
+    wantSlice();
+    return { info: core.modelInfo(), parts: core.w.x.zs_app_part_count(core.app) };
+  },
+
+  plate({ action }) {
+    const x = core.w.x;
+    if (action === "smart") x.zs_app_plate_smart_place(core.app);
+    else if (action === "arrange") x.zs_app_plate_arrange(core.app);
+    else if (action === "clear") {
+      x.zs_app_plate_clear(core.app);
+      core.modelName = "";
+      // An empty plate: an empty scene for the page.
+      const scene = core.scene(mode);
+      post({ event: "cleared", scene }, scene ? [scene] : []);
+      return {};
+    }
     wantSlice();
     return {};
   },

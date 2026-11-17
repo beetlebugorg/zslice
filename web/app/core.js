@@ -282,6 +282,161 @@ export class Core {
     return out;
   }
 
+  // ---- a selected line (the Selected page) ----
+
+  // What path `path` is, its numbers, why, and its settings, with their
+  // values at its z (zs_app_inspect, zs_app_setting_get_at), or null.
+  // seg: the selected segment (-1: none), for the support mark there.
+  inspect(path, seg = -1) {
+    const w = this.w;
+    const size = 128; // zs_inspect on wasm32
+    const p = w.alloc(size);
+    try {
+      if (w.x.zs_app_inspect(this.app, path, p) !== 0) return null;
+      const s = (o) => w.cstr(w.u32(p + o));
+      const info = {
+        feature: w.i32(p),
+        layer: w.u32(p + 4),
+        path: w.u32(p + 8),
+        z: w.f64(p + 16),
+        height: w.f64(p + 24),
+        lineWidth: w.f64(p + 32),
+        beadWidth: w.f64(p + 40),
+        length: w.f64(p + 48),
+        plannedSpeed: w.f64(p + 56),
+        speed: w.f64(p + 64),
+        flow: w.f64(p + 72),
+        startTime: w.f64(p + 80),
+        endTime: w.f64(p + 88),
+        title: s(96),
+        explain: s(100),
+        settings: s(104),
+        whyPlanned: s(108),
+        whyReal: s(112),
+        whyFlow: s(116),
+        slowReason: w.i32(p + 120),
+      };
+      // The values of its settings at its z, and the changes for its
+      // layers (overrides).
+      info.values = {};
+      for (const name of info.settings.split("\n")) {
+        if (!name || name.startsWith("#")) continue;
+        info.values[name] = this.valueAt(info.z, name);
+      }
+      info.mark = this.markOfPath(path, seg, info);
+      return info;
+    } finally {
+      w.free(p, size);
+    }
+  }
+
+  // The value of a setting at z, and 1 if an override covers z.
+  valueAt(z, name) {
+    const w = this.w;
+    const value = w.withString(name, (n) => w.readText((b, c, l) => w.x.zs_app_setting_get_at(this.app, z, n, b, c, l))) ?? "";
+    const over = w.withString(name, (n) => w.x.zs_app_override_at(this.app, z, n)) === 1;
+    return { value, over, ...this.source(name), base: this.base(name) };
+  }
+
+  // A change from the Selected page: for the layers zmin to zmax (an
+  // override) if the setting can change by layer, else for this print.
+  setScoped(name, value, zmin, zmax, perLayer) {
+    if (!perLayer) return this.set(name, value);
+    const w = this.w;
+    const rc = w.withStrings([name, String(value)], (n, v) => w.x.zs_app_override_set(this.app, zmin, zmax, n, v));
+    if (rc === 0) return "";
+    if (rc === 14) return "The value is out of the limits.";
+    return `The value is not valid (${statusText(rc)}).`;
+  }
+
+  // Removes the change of the Selected page: the override of the range,
+  // or the overrides at z, else the change of this print.
+  resetScoped(name, zmin, zmax, z) {
+    const w = this.w;
+    const removed = w.withString(name, (n) => w.x.zs_app_override_remove(this.app, zmin, zmax, n)) === 1 ||
+      w.withString(name, (n) => w.x.zs_app_override_clear_at(this.app, z, n)) > 0;
+    return removed ? "" : this.reset(name);
+  }
+
+  // The report of a line for "Copy for AI" (zs_app_line_report).
+  lineReport(path) {
+    const w = this.w;
+    const file = `${(this.modelName || "part").replace(/\.(stl|3mf)$/i, "")}.gcode (Export G-code saves it)`;
+    const rc = w.withString(file, (f) => w.x.zs_app_line_report(this.app, path, f, w.cell, w.cell + 4));
+    if (rc !== 0) return null;
+    return w.text(w.u32(w.cell), w.u32(w.cell + 4));
+  }
+
+  // The path of `feature` on `layer` nearest to (x, y): the same line
+  // after a new slice (zs_app_pick_feature), or -1.
+  refind(layer, feature, x, y) {
+    const p = this.w.x.zs_app_pick_feature(this.app, layer, feature, x, y);
+    return p < 0 ? -1 : p;
+  }
+
+  // ---- support marks (the context menu) ----
+
+  markCount() { return this.w.x.zs_app_mark_count(this.app); }
+
+  // The mark at a selected line: above it for a support line, else on
+  // its layer (linux/src/ui/inspector.c, mark_of_selection). The place is
+  // the one of the menu (the middle of the selected segment), so the mark
+  // of a long segment shows too.
+  markOfPath(path, seg, info) {
+    const w = this.w;
+    if (this.markCount() === 0) return null;
+    const pt = this.pathPoint(path, seg);
+    if (!pt) return null;
+    const support = info.feature === 6 || info.feature === 7;
+    const m = support ? w.x.zs_app_mark_at(this.app, pt[0], pt[1], info.z + 500, 500) : w.x.zs_app_mark_at(this.app, pt[0], pt[1], info.z, 0.05);
+    if (m < 0) return null;
+    const c = w.cell;
+    if (w.x.zs_app_mark_get(this.app, m, c, c + 8, c + 16, c + 24, c + 32) !== 0) return null;
+    return { index: m, r: w.f64(c + 24), kind: w.i32(c + 32) };
+  }
+
+  // A point of a path in mm: the middle of segment `seg`, or of the
+  // middle segment (seg < 0), and the z of its layer (toolpath data of
+  // the app; view3d.c, mark_place).
+  pathPoint(path, seg) {
+    const w = this.w;
+    const t = w.alloc(96);
+    try {
+      if (w.x.zs_app_toolpaths(this.app, t) !== 0) return null;
+      const pts = w.u32(t);
+      const ends = w.u32(t + 4);
+      const count = w.u32(t + 24);
+      if (path >= count) return null;
+      const a = path === 0 ? 0 : w.u32(ends + 4 * (path - 1));
+      const b = w.u32(ends + 4 * path);
+      if (b <= a) return null;
+      const i = seg >= 0 && a + seg + 1 < b ? a + seg : a + Math.floor((b - a) / 2) - (b - a > 1 ? 1 : 0);
+      const j = i + 1 < b ? i + 1 : i;
+      const f = new Float32Array(w.x.memory.buffer, pts, 2 * b);
+      const layerEnds = w.u32(t + 28);
+      const nLayers = w.u32(t + 44);
+      const layerZ = w.u32(t + 32);
+      let layer = 0;
+      while (layer < nLayers && w.u32(layerEnds + 4 * layer) <= path) layer++;
+      const z = layer < nLayers ? new Float32Array(w.x.memory.buffer, layerZ, nLayers)[layer] : 0;
+      return [(f[2 * i] + f[2 * j]) / 2, (f[2 * i + 1] + f[2 * j + 1]) / 2, z];
+    } finally {
+      w.free(t, 96);
+    }
+  }
+
+  // ---- the plate ----
+
+  addStl(name, bytes) {
+    const w = this.w;
+    const r = w.withString(name, (n) => w.withBytes(bytes, (p, len) => w.x.zs_app_add_stl(this.app, n, p, len)));
+    if (r < 0) throw new Error(`The file did not open: ${statusText(-r)}.`);
+    if (!this.modelName) this.modelName = name;
+    return r;
+  }
+
+  partOfPath(path) { return this.w.x.zs_app_part_of_path(this.app, path); }
+
   // The G-code of the slice, as bytes.
   gcode() {
     const w = this.w;
