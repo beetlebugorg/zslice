@@ -78,6 +78,9 @@ pub fn build(b: *std.Build) void {
         .install_subdir = "app",
         .exclude_extensions = &.{ ".md", ".mjs", ".py" },
     }).step);
+    // The printer library: the picker loads it when it opens (the wasm
+    // module does not embed it).
+    web_step.dependOn(&b.addInstallFileWithDir(b.path("src/printers/library.txt"), .{ .custom = "web/app" }, "printers.txt").step);
 
     // Tests.
     const mod_tests = b.addTest(.{ .root_module = mod });

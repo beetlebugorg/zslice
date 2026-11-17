@@ -21,6 +21,7 @@ import { Inspector } from "./inspector.js";
 import { contextItems } from "./context-menu.js";
 import { openMenu, openMenuAt, menuOpen } from "./menus.js";
 import { formatClock, formatTime } from "./format.js";
+import { openPrinterPicker } from "./printers.js";
 
 const $ = (id) => document.getElementById(id);
 const STORE_KEY = "zslice.web.v1";
@@ -471,11 +472,40 @@ async function loadProfile(group, name, text) {
   applySettings(r);
 }
 
+// A printer of the picker: its machine profile, then the changes of the
+// second step. The printers of the user stay in the store (store.printers).
+async function addPrinter(p) {
+  store.printers = store.printers ?? {};
+  store.printers[p.name] = { profile: p.profile, url: p.url };
+  await loadProfile(0, p.name, p.profile);
+  await setSetting("machine.name", p.name);
+  if (p.nozzle > 0) await setSetting("machine.nozzle_diameter", String(p.nozzle));
+  await setSetting("machine.bed_size_x", String(p.bedX));
+  await setSetting("machine.bed_size_y", String(p.bedY));
+  await setSetting("machine.max_height", String(p.height));
+  await setSetting("filament.diameter", p.filament);
+  store.printer = p.name;
+  saveStore();
+  updateMenus();
+  toast(`${p.name} is the printer now.`);
+}
+
+function showPrinterPicker(hooks) {
+  openPrinterPicker(wasm, addPrinter, hooks).catch((e) => toast(`The printer picker failed: ${e.message}`));
+}
+
 $("printer-menu").onclick = () => {
-  const items = [{ title: "Built-in" }];
+  const items = [];
+  const mine = Object.keys(store.printers ?? {});
+  if (mine.length) {
+    items.push({ title: "Your printers" });
+    for (const n of mine) items.push({ label: n, checked: n === store.printer, action: () => loadProfile(0, n, store.printers[n].profile) });
+  }
+  items.push({ title: "Built-in" });
   for (const n of wasm.builtinProfiles(0)) {
     items.push({ label: n, checked: n === (store.printer || "generic"), action: () => loadProfile(0, n, `extends = "${n}"\n`) });
   }
+  items.push({ sep: true }, { label: "Add a printer…", action: () => showPrinterPicker() });
   openMenu($("printer-menu"), items);
 };
 
@@ -1103,6 +1133,13 @@ if (init.errors?.length) toast(`Some saved settings did not load: ${init.errors.
 applySettings(init);
 updateSummary();
 resize();
+
+// The first visit (no printer set up), and the test hook
+// ?printers&q=<search>&pick=<model id>&step=2: the printer picker.
+const params = new URLSearchParams(location.search);
+if (params.has("printers") || (!store.printer && !stateHasChanges(store.saved?.machine) && !params.has("model"))) {
+  showPrinterPicker({ query: params.get("q"), model: params.get("pick"), step: params.get("step"), welcome: !params.has("printers") });
+}
 
 // A test hook: ?model=<url> opens a model at the start.
 const modelUrl = new URLSearchParams(location.search).get("model");

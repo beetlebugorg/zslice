@@ -128,4 +128,15 @@ check((core.lineReport(path) ?? "").includes("## The line"), "the report of Copy
 t0 = performance.now();
 const hit3d = view.pickSegment(400, 300);
 console.log(`2D pick: ${pickMs.toFixed(2)} ms; 3D pick: ${(performance.now() - t0).toFixed(2)} ms (${hit3d ? "a hit" : "no hit"}); ${info.title}, layer ${info.layer + 1}`);
+// The printer library (printers.txt, next to the wasm file): the layout
+// of zs_printer_model on wasm32, a search, and the profile of a model.
+const { loadLibrary, model, search, brands, profileText } = await import("./printers.js");
+loadLibrary(wasm2, await readFile(wasmPath.replace(/[^/]*$/, "printers.txt")));
+const found = search(wasm2, "lulzbot taz 6", -1);
+check(found.total > 0, "a search of the printer library");
+const taz = model(wasm2, found.idx[0]);
+check(taz.brand === "LulzBot" && taz.title === "LulzBot Taz 6" && taz.bedX === 280 && taz.filament === 2.85 && taz.nozzle === 0.5, `the model of the search (${taz.brand} ${taz.name})`);
+check(brands(wasm2).length > 100, "the brands of the library");
+check((profileText(wasm2, taz.index, 0.5) ?? "").includes("bed_size_x = 280"), "the machine profile of the model");
+console.log(`printers: ${found.total} for "lulzbot taz 6"; first: ${taz.brand} ${taz.name}, ${taz.bedX} x ${taz.bedY} x ${taz.height} mm, ${taz.firmware}`);
 console.log("ok");
