@@ -99,6 +99,12 @@ export class LineCard {
     this.want = true;
   }
 
+  // The state of "Fade the others".
+  setIsolate(on) {
+    this.fadeButton?.classList.toggle("checked", on);
+    this.fadeButton?.setAttribute("aria-pressed", String(on));
+  }
+
   close() {
     this.userAt = null;
     this.want = false;
@@ -172,7 +178,15 @@ export class LineCard {
       card.append(box);
     }
     const foot = el("div", "lc-foot");
-    const more = el("button", "flat", "All settings of this line…");
+    const fade = el("button", "lc-fade", "Fade the others");
+    fade.title = "Show this line solid, and the other lines as faint ghosts";
+    fade.classList.toggle("checked", !!this.ctx.isolated?.());
+    fade.setAttribute("aria-pressed", String(!!this.ctx.isolated?.()));
+    fade.onclick = () => this.ctx.isolate?.();
+    this.fadeButton = fade;
+    foot.append(fade);
+    const more = el("button", "flat", "All settings…");
+    more.title = "All the settings of this line, and how its values come about (the Selected page)";
     more.onclick = () => this.ctx.more();
     foot.append(more);
     card.append(foot);

@@ -30,6 +30,7 @@ export const SHORTCUTS = [
       ["S", "Select: a click selects a line"],
       ["M", "Move: a drag moves a part, the wheel turns it 15°"],
       ["T", "Measure: two clicks measure between two points"],
+      ["G", "Gaps: show the gaps of the top layer"],
       ["Ctrl+click, Ctrl+drag, Ctrl+wheel", "Select, move, and turn a part with any tool"],
       ["Tab, Shift+Tab", "Select the next part, or the part before"],
       ["Left, Right, Up, Down (a part)", "Move the selected part 1 mm (with Shift: 10 mm)"],

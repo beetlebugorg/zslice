@@ -683,6 +683,8 @@ var partCard = new PartCard({
 // The card of a selected line, next to it in the view (linecard.js).
 var lineCard = new LineCard({
   browser,
+  isolate: () => toggleIsolate(),
+  isolated: () => app.isolate,
   host: $("preview"),
   more: () => showTab("selected"),
   close: () => select(-1, -1, false),
@@ -1025,7 +1027,6 @@ function select(path, seg, picked) {
   app.sel = path;
   app.seg = path >= 0 ? seg : -1;
   view.highlight(path, app.seg, app.isolate);
-  $("isolate").hidden = path < 0;
   requestFrame();
   if (picked && path >= 0) {
     // The card of the line opens at the click; a panel that shows also
@@ -1058,7 +1059,6 @@ async function inspect(refind) {
     if (path < 0) app.seg = -1;
     else app.seg = Math.min(app.seg, view.pathSegments(path) - 1);
     view.highlight(app.sel, app.seg, app.isolate);
-    $("isolate").hidden = app.sel < 0;
     requestFrame();
   }
   inspector.show(r.info);
@@ -1075,15 +1075,16 @@ function refindKey() {
 }
 const rangeTmp = new Uint32Array(2);
 
-$("isolate").onclick = () => {
+// "Fade the others" of the line card: the selected line solid, and the
+// other lines as faint ghosts. The choice stays in the store.
+function toggleIsolate() {
   app.isolate = !app.isolate;
   store.isolate = app.isolate;
   saveStore();
-  $("isolate").classList.toggle("checked", app.isolate);
+  lineCard.setIsolate(app.isolate);
   view.highlight(app.sel, app.seg, app.isolate);
   requestFrame();
-};
-$("isolate").classList.toggle("checked", app.isolate);
+}
 
 // The top layer goes to the layer of the selection, so the 2D view shows
 // it and the 3D view does not hide it (preview.c, show_layer).
@@ -1245,6 +1246,7 @@ function onPreviewKey(e) {
     case "s": case "S": tools.set("select"); e.preventDefault(); return;
     case "m": case "M": tools.set("move"); e.preventDefault(); return;
     case "t": case "T": tools.set("measure"); e.preventDefault(); return;
+    case "g": case "G": if (!$("gaps").disabled) $("gaps").click(); e.preventDefault(); return;
     case "c": case "C":
       if (e.key === "C" || e.shiftKey) showAllLayers();
       else if (app.sel >= 0) cutToSelection();
@@ -1446,7 +1448,6 @@ const gaps = new Gaps({
     app.seg = -1;
     app.info = null;
     view.highlight(-1, -1, false);
-    $("isolate").hidden = true;
     inspector.signature = null;
     showTab("selected");
     requestFrame();
@@ -1554,7 +1555,7 @@ async function openCheck() {
   openPopover(button, list);
 }
 $("check").disabled = false;
-$("check").title = "Check the slice: overhangs with no support, bridges, shapes in the air, lines over the flow of the hot end, layers that cool too little";
+$("check").title = "Check the print: overhangs with no support, bridges, shapes in the air, lines over the flow of the hot end, layers that cool too little";
 $("check").onclick = () => openCheck();
 
 // ---- the print card ----

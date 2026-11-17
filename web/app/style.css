@@ -133,6 +133,7 @@ button.pill { border-radius: 999px; padding: 6px 22px; background: var(--accent-
    its key in the corner. */
 .toolstrip { top: calc(18px + var(--toolbar-h, 40px)); left: 10px; display: flex; flex-direction: column; gap: 2px; }
 .toolstrip .tool { position: relative; width: 40px; height: 40px; min-height: 0; padding: 0; display: flex; align-items: center; justify-content: center; border-radius: 8px; }
+.strip-sep { height: 1px; margin: 3px 6px; background: rgba(255, 255, 255, 0.18); }
 .toolstrip .tool::after { content: attr(data-key); position: absolute; right: 3px; bottom: 1px; font-size: 9px; opacity: 0.55; }
 .linked .tool { border-radius: 0; }
 .linked .tool:first-child { border-radius: var(--radius) 0 0 var(--radius); }
@@ -622,7 +623,9 @@ button.destructive { background: #c01c28; color: #fff; }
 .lc-row .editor { display: flex; align-items: center; gap: 4px; }
 .lc-row input.num { width: 58px; }
 .lc-foot { display: flex; justify-content: flex-end; }
-.lc-foot button { min-height: 26px; padding: 2px 8px; font-size: 0.85em; color: var(--accent); }
+.lc-foot button { min-height: 26px; padding: 2px 8px; font-size: 0.85em; color: var(--accent); white-space: nowrap; }
+.lc-foot button.lc-fade { color: inherit; }
+.lc-foot button.lc-fade.checked { color: #fff; }
 
 /* The measure on the tape (tools.js): a label over its middle, and in
    the 2D view the tape itself. */
@@ -656,3 +659,8 @@ button.destructive { background: #c01c28; color: #fff; }
 /* The head of a card that moves with a drag (drag.js). */
 .drag-handle { cursor: grab; touch-action: none; user-select: none; }
 .drag-handle.dragging { cursor: grabbing; }
+
+/* "Fade the others" in the line card. */
+.lc-fade { min-height: 26px; padding: 2px 8px; font-size: 0.85em; border-radius: 7px; white-space: nowrap; }
+.lc-fade.checked { background: var(--accent-bg); color: #fff; }
+.lc-foot { gap: 6px; justify-content: space-between; }
