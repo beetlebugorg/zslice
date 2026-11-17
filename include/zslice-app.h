@@ -54,6 +54,11 @@ enum zs_event {
 typedef void (*zs_app_event_fn)(void *user, int event, double progress, int status);
 
 int zs_app_new(zs_app_event_fn event_fn, void *user, zs_app **out);
+/* wasm only: the same, with the events to the import env.zs_web_event
+ * (event, progress, status) of the module. The wasm build has no threads:
+ * zs_app_slice slices on the calling thread (run it in a Web Worker), and
+ * the events come while it runs. */
+int zs_app_new_web(zs_app **out);
 /* Stops a slice that runs, and frees the app. */
 void zs_app_free(zs_app *app);
 int zs_app_state(const zs_app *app);
@@ -600,7 +605,9 @@ size_t zs_app_pick_layer(const zs_app *app, size_t layer, double x, double y);
 
 enum zs_surface_kind {
     ZS_SURFACE_WAYLAND = 1, /* display: struct wl_display *, surface: struct wl_surface * */
-    ZS_SURFACE_XLIB = 2     /* display: Display *, window: Window */
+    ZS_SURFACE_XLIB = 2,    /* display: Display *, window: Window */
+    ZS_SURFACE_WEB = 3      /* wasm only: no surface; the shell reads the
+                               frame data (zs_view_web_frame) and draws it */
 };
 
 typedef struct zs_surface {
@@ -710,6 +717,46 @@ void zs_view_highlight_segment(zs_view *view, size_t path, ptrdiff_t seg);
 int zs_view_highlight_more(zs_view *view, const size_t *paths, size_t n);
 /* Draws and presents one frame. Call it after a change. */
 int zs_view_draw(zs_view *view);
+
+/* The loaded scene as bytes, for a view in another wasm instance: the web
+ * shell slices in a worker and draws on the main thread. Free the bytes
+ * with zs_buffer_free. zs_view_scene_read is the same as zs_view_load of
+ * that slice. The same build writes and reads them. */
+int zs_view_scene_write(zs_view *view, uint8_t **out, size_t *out_len);
+int zs_view_scene_read(zs_view *view, const uint8_t *data, size_t len);
+
+/* wasm only: the frame data of a ZS_SURFACE_WEB view, after zs_view_draw.
+ * The pointers point into wasm memory and stay valid until the next call
+ * into the view. A buffer changes only when its generation changes. The
+ * instances are zs_web_instance values; the bead mesh, the shaders, and the
+ * draw calls are those of the Vulkan backend (src/render/vk.zig), with the
+ * clip space of Vulkan (y down, depth 0 to 1). NULL on other targets. */
+typedef struct {
+    float mvp[16], vec[4], eye[4], params[4];
+} zs_web_push;
+typedef struct {
+    float ax, ay, bx, by, z, h, w;
+    uint8_t rgba[4];
+} zs_web_instance;
+typedef struct {
+    zs_web_push box, grid;
+    float clear[4];
+    uint32_t box_first, box_count, mark_first, mark_count;
+    const zs_web_instance *extras;
+    uint32_t extras_count;
+    const zs_web_instance *head;
+    uint32_t head_count;
+    const zs_web_instance *instances; /* the beads, then the marks */
+    uint32_t instance_count, instances_gen;
+    const float *mesh_verts; /* vec4 for each vertex */
+    uint32_t mesh_vert_count;
+    const uint16_t *mesh_index;
+    uint32_t mesh_index_count, mesh_gen;
+    const float *grid_points; /* vec3, two for each line */
+    uint32_t grid_vertices, grid_gen;
+    uint32_t width, height;
+} zs_web_frame;
+const zs_web_frame *zs_view_web_frame(const zs_view *view);
 
 /* ---- comparison with Cura ---- */
 

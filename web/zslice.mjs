@@ -27,7 +27,9 @@ export class ZsliceError extends Error {
 }
 
 export async function load(wasmBytes) {
-  const { instance } = await WebAssembly.instantiate(wasmBytes, {});
+  // The module imports env.zs_web_event for the events of the app core
+  // (zs_app_new_web). This wrapper does not use the app core.
+  const { instance } = await WebAssembly.instantiate(wasmBytes, { env: { zs_web_event() {} } });
   const x = instance.exports;
   const enc = new TextEncoder();
   const dec = new TextDecoder();

@@ -52,36 +52,10 @@ pub const Surface = union(enum) {
     xlib: struct { display: *anyopaque, window: u64 },
 };
 
-/// One toolpath segment, drawn as one box. The layout matches the
-/// per-instance attributes of shaders/box.vert.
-pub const Instance = extern struct {
-    ax: f32,
-    ay: f32,
-    bx: f32,
-    by: f32,
-    z: f32,
-    h: f32,
-    w: f32,
-    rgba: [4]u8,
-};
-
-comptime {
-    std.debug.assert(@sizeOf(Instance) == 32);
-}
-
-/// The push constants of both pipelines: a matrix and three vectors. For
-/// the beads: the light direction, the camera position, and the highlight
-/// range. For the grid: the color. 112 bytes: within the 128 bytes that
-/// each device supports.
-/// The spare instance slots for Frame.extras.
-pub const max_extras = 4096;
-
-pub const Push = extern struct {
-    mvp: [16]f32,
-    vec: [4]f32,
-    eye: [4]f32 = .{ 0, 0, 0, 0 },
-    params: [4]f32 = .{ 0, 0, 0, 0 },
-};
+const frame_mod = @import("frame.zig");
+pub const Instance = frame_mod.Instance;
+pub const max_extras = frame_mod.max_extras;
+pub const Push = frame_mod.Push;
 
 // ---------------------------------------------------------------------------
 // Function tables
@@ -965,28 +939,7 @@ pub const Renderer = struct {
 
     // ---- frame ----
 
-    pub const Frame = struct {
-        clear: [3]f32,
-        box: Push,
-        box_count: u32,
-        /// The beads before this one do not show (the bottom of a layer
-        /// range): the draw is of beads box_first .. box_count.
-        box_first: u32 = 0,
-        /// The marks to draw: instances mark_first .. mark_first + mark_count.
-        mark_first: u32 = 0,
-        mark_count: u32 = 0,
-        /// A bead drawn after the first box_count beads: the bead that the
-        /// replay is printing, cut to its printed part.
-        /// Beads drawn after all others, written each frame into spare
-        /// slots (at most max_extras): the bead that the replay is
-        /// printing, and the frame of a selected part.
-        extras: []const Instance = &.{},
-        /// The toolhead of a replay: drawn last, lit and see-through (the
-        /// print shows through it). In the spare slots after `extras`.
-        head: []const Instance = &.{},
-        grid: Push,
-        grid_vertices: u32,
-    };
+    pub const Frame = frame_mod.Frame;
 
     /// Draws one frame and presents it.
     pub fn draw(r: *Renderer, frame: Frame) Error!void {

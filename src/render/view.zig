@@ -30,10 +30,19 @@
 //! goes from 0 to 1.
 //!
 //! This file is the same for all platforms. Only the backend (vk.zig, and
-//! later Metal) talks to the GPU.
+//! later Metal) talks to the GPU. In a browser (the wasm build), web.zig
+//! keeps the frame data, and the JavaScript side draws it with WebGL2.
+//!
+//! The web shell slices in a Web Worker and draws on the main thread, in
+//! two wasm instances. The view of the worker loads the slice, and
+//! `writeScene` gives its beads as bytes; the view of the main thread reads
+//! them with `readScene`. The camera, the layer range, and the replay then
+//! run on the main thread, with no wait for a slice.
 
 const std = @import("std");
-const vk = @import("vk.zig");
+const builtin = @import("builtin");
+const is_web = builtin.cpu.arch.isWasm();
+const vk = if (is_web) @import("web.zig") else @import("vk.zig");
 const app_mod = @import("../app.zig");
 
 /// The feature colors, in the order of the Feature enum. The same colors
@@ -152,11 +161,13 @@ pub const View = struct {
     /// not move. The scroll zoom and the reset set it. A drag moves the
     /// camera at once, and moves the goal by the same amount.
     goal: ?Pose = null,
+    /// The bed size in mm, for the grid.
+    bed: [2]f32 = .{ 0, 0 },
 
     /// The camera: the target, the angles, and the distance.
     pub const Pose = struct { target: [3]f32, rot: Quat, dist: f32 };
 
-    const gpa = std.heap.c_allocator;
+    const gpa = if (is_web) std.heap.wasm_allocator else std.heap.c_allocator;
 
     pub fn create(surface: Surface, width: u32, height: u32) Error!*View {
         const r = try vk.Renderer.init(surface, width, height);
@@ -406,6 +417,105 @@ pub const View = struct {
         }
     }
 
+    /// The head of a scene in bytes (see `writeScene`). The arrays follow
+    /// it, in the order of `counts`, each at a multiple of 8 bytes.
+    const SceneHead = extern struct {
+        magic: u32 = scene_magic,
+        mode: u32,
+        legend: [2]f64,
+        xf_center: [2]f32,
+        xf_sxy: f32,
+        xf_sz: f32,
+        home: [3]f32,
+        extent: f32,
+        bed: [2]f32,
+        /// layer_end, path_start, beads, marks, mark_layer_end, bead_end,
+        /// bead_start, bead_fan, mark_rings.
+        counts: [9]u32,
+    };
+    const scene_magic: u32 = 0x31637a73; // "szc1"
+
+    /// The lists of a scene, in the order of SceneHead.counts.
+    fn sceneLists(v: *View) struct {
+        *std.ArrayList(u32),
+        *std.ArrayList(u32),
+        *std.ArrayList(vk.Instance),
+        *std.ArrayList(vk.Instance),
+        *std.ArrayList(u32),
+        *std.ArrayList(f32),
+        *std.ArrayList(f32),
+        *std.ArrayList(u8),
+        *std.ArrayList(vk.Instance),
+    } {
+        return .{ &v.layer_end, &v.path_start, &v.beads, &v.marks, &v.mark_layer_end, &v.bead_end, &v.bead_start, &v.bead_fan, &v.mark_rings };
+    }
+
+    /// The loaded scene as bytes, for a view in another wasm instance (see
+    /// the header comment). The same build writes and reads them, so the
+    /// layout is plain memory. The caller frees the bytes with `alloc`.
+    pub fn writeScene(v: *View, alloc: std.mem.Allocator) Error![]u8 {
+        var head: SceneHead = .{
+            .mode = @intCast(@intFromEnum(v.mode)),
+            .legend = v.legend,
+            .xf_center = v.xf_center,
+            .xf_sxy = v.xf_sxy,
+            .xf_sz = v.xf_sz,
+            .home = v.home,
+            .extent = v.extent,
+            .bed = v.bed,
+            .counts = undefined,
+        };
+        var size: usize = std.mem.alignForward(usize, @sizeOf(SceneHead), 8);
+        inline for (v.sceneLists(), 0..) |list, k| {
+            head.counts[k] = @intCast(list.items.len);
+            size += std.mem.alignForward(usize, std.mem.sliceAsBytes(list.items).len, 8);
+        }
+        const out = alloc.alloc(u8, size) catch return error.OutOfMemory;
+        @memset(out, 0);
+        @memcpy(out[0..@sizeOf(SceneHead)], std.mem.asBytes(&head));
+        var at: usize = std.mem.alignForward(usize, @sizeOf(SceneHead), 8);
+        inline for (v.sceneLists()) |list| {
+            const bytes = std.mem.sliceAsBytes(list.items);
+            @memcpy(out[at .. at + bytes.len], bytes);
+            at += std.mem.alignForward(usize, bytes.len, 8);
+        }
+        return out;
+    }
+
+    /// Reads a scene of `writeScene`: the same as `load` of that slice.
+    pub fn readScene(v: *View, bytes: []const u8) (Error || error{InvalidScene})!void {
+        if (bytes.len < @sizeOf(SceneHead)) return error.InvalidScene;
+        var head: SceneHead = undefined;
+        @memcpy(std.mem.asBytes(&head), bytes[0..@sizeOf(SceneHead)]);
+        if (head.magic != scene_magic) return error.InvalidScene;
+        const first_load = v.layer_end.items.len == 0;
+        var at: usize = std.mem.alignForward(usize, @sizeOf(SceneHead), 8);
+        inline for (v.sceneLists(), 0..) |list, k| {
+            const T = @typeInfo(@TypeOf(list.items)).pointer.child;
+            const n = head.counts[k];
+            const len = n * @sizeOf(T);
+            if (at + len > bytes.len) return error.InvalidScene;
+            list.resize(gpa, n) catch return error.OutOfMemory;
+            @memcpy(std.mem.sliceAsBytes(list.items), bytes[at .. at + len]);
+            at += std.mem.alignForward(usize, len, 8);
+        }
+        v.mode = std.enums.fromInt(Mode, head.mode) orelse .print;
+        v.legend = head.legend;
+        v.xf_center = head.xf_center;
+        v.xf_sxy = head.xf_sxy;
+        v.xf_sz = head.xf_sz;
+        v.home = head.home;
+        v.extent = head.extent;
+        try v.loadGrid(head.bed[0], head.bed[1]);
+        try v.renderer.setInstances(v.beads.items, v.marks.items);
+        v.more.clearRetainingCapacity();
+        if (v.layer_end.items.len == 0) return;
+        if (first_load) {
+            v.reset();
+            v.layer = v.layer_end.items.len - 1;
+        }
+    }
+
     /// The value of each path for a value mode (empty for the others), and
     /// `legend`: the range of the ramp (the 2nd to the 98th percentile, so
     /// one odd path does not take the whole ramp).
@@ -579,6 +689,7 @@ pub const View = struct {
     }
 
     fn loadGrid(v: *View, bed_x: f32, bed_y: f32) Error!void {
+        v.bed = .{ bed_x, bed_y };
         var pts: std.ArrayList(f32) = .empty;
         defer pts.deinit(gpa);
         // The bed outline and a 10 mm grid, at z = 0.

@@ -12,9 +12,11 @@ const ok = c.ok;
 const is_wasm = c.is_wasm;
 const App = zs.app.App;
 
-/// The renderer needs libc (it loads the Vulkan loader with dlopen). It is
-/// on Linux now. Other targets get "not supported" from each call.
-const render_on = builtin.os.tag == .linux and builtin.link_libc and !is_wasm;
+/// The Vulkan renderer needs libc (it loads the Vulkan loader with
+/// dlopen). It is on Linux now. The wasm build has the web backend (see
+/// src/render/web.zig): the view keeps the frame data, and the JavaScript
+/// side draws it. Other targets get "not supported" from each call.
+const render_on = (builtin.os.tag == .linux and builtin.link_libc and !is_wasm) or is_wasm;
 const view_mod = if (render_on) @import("../render/view.zig") else struct {
     pub const View = opaque {};
 };
@@ -31,7 +33,10 @@ export fn zs_view_new(surface: ?*const CSurface, width: u32, height: u32, out: ?
     if (!render_on) return @intFromEnum(Status.not_supported);
     const s = surface orelse return @intFromEnum(Status.invalid_argument);
     const o = out orelse return @intFromEnum(Status.invalid_argument);
-    const native: view_mod.Surface = switch (s.kind) {
+    const native: view_mod.Surface = if (is_wasm) switch (s.kind) {
+        3 => .web,
+        else => return @intFromEnum(Status.not_supported),
+    } else switch (s.kind) {
         1 => .{ .wayland = .{ .display = s.display orelse return @intFromEnum(Status.invalid_argument), .surface = s.surface orelse return @intFromEnum(Status.invalid_argument) } },
         2 => .{ .xlib = .{ .display = s.display orelse return @intFromEnum(Status.invalid_argument), .window = s.window } },
         else => return @intFromEnum(Status.not_supported),
@@ -251,6 +256,37 @@ export fn zs_view_highlight_segment(view: ?*View, path: usize, seg: isize) void 
     if (!render_on) return;
     const v = view orelse return;
     v.setSegment(path, if (seg < 0) null else @intCast(seg));
+}
+
+/// The loaded scene as bytes, for a view in another wasm instance (see
+/// src/render/view.zig). Free them with zs_buffer_free.
+export fn zs_view_scene_write(view: ?*View, out: ?*?[*]u8, out_len: ?*usize) c_int {
+    if (!render_on) return @intFromEnum(Status.not_supported);
+    const v = view orelse return @intFromEnum(Status.invalid_argument);
+    const o = out orelse return @intFromEnum(Status.invalid_argument);
+    const l = out_len orelse return @intFromEnum(Status.invalid_argument);
+    const bytes = v.writeScene(c.gpa) catch |e| return status(e);
+    o.* = bytes.ptr;
+    l.* = bytes.len;
+    return ok;
+}
+
+/// Reads the bytes of zs_view_scene_write: the same as zs_view_load of that
+/// slice.
+export fn zs_view_scene_read(view: ?*View, data: ?[*]const u8, len: usize) c_int {
+    if (!render_on) return @intFromEnum(Status.not_supported);
+    const v = view orelse return @intFromEnum(Status.invalid_argument);
+    const d = data orelse return @intFromEnum(Status.invalid_argument);
+    v.readScene(d[0..len]) catch |e| return status(e);
+    return ok;
+}
+
+/// wasm: the frame data of the web backend (zs_web_frame in
+/// zslice-app.h). NULL on the other targets.
+export fn zs_view_web_frame(view: ?*View) ?*const anyopaque {
+    if (comptime !is_wasm) return null;
+    const v = view orelse return null;
+    return &v.renderer.out;
 }
 
 export fn zs_view_draw(view: ?*View) c_int {

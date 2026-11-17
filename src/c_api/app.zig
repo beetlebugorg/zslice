@@ -22,6 +22,23 @@ export fn zs_app_new(event_fn: ?app_mod.EventFn, user: ?*anyopaque, out: ?*?*App
     return ok;
 }
 
+/// wasm: the host cannot give a C function pointer, so the events go to the
+/// import env.zs_web_event of the module. A slice runs on the calling
+/// thread there, so the events come while zs_app_slice runs.
+const web_events = struct {
+    extern "env" fn zs_web_event(event: c_int, progress: f64, status: c_int) void;
+    fn forward(_: ?*anyopaque, event: c_int, progress: f64, st: c_int) callconv(.c) void {
+        zs_web_event(event, progress, st);
+    }
+    fn new(out: ?*?*App) callconv(.c) c_int {
+        return zs_app_new(forward, null, out);
+    }
+};
+
+comptime {
+    if (c.is_wasm) @export(&web_events.new, .{ .name = "zs_app_new_web" });
+}
+
 export fn zs_app_free(a: ?*App) void {
     const app = a orelse return;
     app.destroy();
