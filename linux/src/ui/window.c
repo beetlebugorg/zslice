@@ -28,6 +28,7 @@
 #include "search.h"
 #include "part-card.h"
 #include "line-card.h"
+#include "shortcuts.h"
 
 typedef struct {
     ZgModel *model;
@@ -1205,6 +1206,12 @@ static void on_search_part_action(GSimpleAction *a, GVariant *v, gpointer data) 
     zg_search_show(w->search, "", g_variant_get_int64(v));
 }
 
+static void on_shortcuts_action(GSimpleAction *a, GVariant *v, gpointer data) {
+    Window *w = get(data);
+    zg_search_close(w->search);
+    zg_shortcuts_toggle(w->window);
+}
+
 /* The search ended its focus: the Settings page sends its own again, if
  * it shows. */
 static void on_refocus_action(GSimpleAction *a, GVariant *v, gpointer data) {
@@ -1263,6 +1270,10 @@ static gboolean on_window_key(GtkEventControllerKey *c, guint key, guint code, G
     case GDK_KEY_n: case GDK_KEY_N:
         if (w->panel_mode == PANEL_HIDDEN) show_panel(w);
         else set_panel_mode(w, PANEL_HIDDEN);
+        return TRUE;
+    case GDK_KEY_question:
+        zg_search_close(w->search);
+        zg_shortcuts_toggle(w->window);
         return TRUE;
     case GDK_KEY_slash:
         /* / again closes the search (it stays open while the view moves). */
@@ -1440,6 +1451,7 @@ GtkWindow *zg_window_new(GtkApplication *app, ZgModel *model) {
         {.name = "search", .activate = on_search_action, .parameter_type = "s"},
         {.name = "search-part", .activate = on_search_part_action, .parameter_type = "x"},
         {.name = "refocus", .activate = on_refocus_action},
+        {.name = "shortcuts", .activate = on_shortcuts_action},
     };
     g_action_map_add_action_entries(G_ACTION_MAP(w->window), win_actions, G_N_ELEMENTS(win_actions), w->window);
     g_signal_connect(model, "undo-changed", G_CALLBACK(on_undo_changed), w);
@@ -1461,6 +1473,7 @@ GtkWindow *zg_window_new(GtkApplication *app, ZgModel *model) {
     g_menu_append(menu, "Arrange the plate", "win.arrange");
     g_menu_append(menu, "Clear the plate", "win.clear-plate");
     g_menu_append(menu, "Compare with Cura\u2026", "win.compare-cura");
+    g_menu_append(menu, "Keyboard shortcuts", "win.shortcuts");
     g_menu_append(menu, "Preferences", "win.preferences");
     g_menu_append(menu, "Licenses", "app.licenses");
     g_menu_append(menu, "About zslice", "app.about");
