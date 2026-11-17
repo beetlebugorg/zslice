@@ -142,6 +142,19 @@ The work of each item depends only on its index and on data that does not change
 
 On wasm, `parallel.has_threads` is false and the loop runs on the calling thread.
 
+## Speed in WebAssembly
+
+The wasm module runs the same code as the native build. Some code that is fast on x86-64 is slow in wasm. Keep these rules in the hot loops:
+
+- **No 128-bit product.** Wasm has no instruction for a 64 x 64 -> 128 bit product, so each one is a call of a library function (`__multi3`). Use `geom.mulSub` and `geom.mulAdd` (and `geom.cross3`, `geom.dot3`, `Point.dist`, which use them): in wasm they use 64-bit products when the factors are small. `clip.zig` has its own 64-bit forms for coordinates in range (`Arith`).
+- **No float `@min`, `@max`, or `@round`.** Wasm has other rules for NaN and for a half than C, so each of these is a call of a library function. Use `geom.fmin`, `geom.fmax`, and `geom.round`.
+- **No division for an index.** A band, a slab, or a grid cell has a width that is a power of two, so its number is a shift (`clip.Grid`, `clip.SlabIndex`, `geom.EdgeIndex`, `infill.Boundary`). A walk around a polygon steps with a comparison, and not with a modulo.
+- **No copy with a length that is known only when the code runs.** It is a call into the host (`memory.copy`). Copy a fixed count of bytes (see `gcode.Line.addDigits`), or a struct.
+- **Small functions for the hot loops, and pointers to the items.** The compiler of the host keeps the values of a small loop in registers. In a very large function (after much inlining) it keeps them on the stack. A copy of a 48-byte struct from an array costs six loads and stores. See `clip.testCells`.
+- **Threads: sync the memory size.** V8 keeps the size of the shared memory in each instance. A thread must do a `memory.grow` of 0 pages before it uses memory that another thread added (`wasm_heap.sync`). Without it, a `memory.fill` or `memory.copy` can trap, and the slice then waits for the thread with no end.
+
+Measure each change in wasm and native, on one thread and on all threads, and check that the G-code is the same. `web/app/README.md` tells what helps the first slice of a visit.
+
 ## Error handling
 
 - Allocation errors go up to the caller as `error.OutOfMemory`.

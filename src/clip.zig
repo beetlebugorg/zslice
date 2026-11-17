@@ -289,8 +289,9 @@ const Split = struct { edge: u32, p: Point };
 /// grid cell that it passes through (a walk along the edge, cell by cell,
 /// so a long edge gets only the cells on its line, and not each cell of its
 /// bounding box). Two edges can touch only if they share a cell, so the
-/// code tests only the pairs in each cell. The cell size is the mean edge
-/// length, so most edges are in one or two cells.
+/// code tests only the pairs in each cell. The cell size is the power of
+/// two nearest to the mean edge length, so most edges are in one or two
+/// cells.
 ///
 /// A pair that shares more than one cell is tested more than once. The
 /// split step removes the repeated points.
