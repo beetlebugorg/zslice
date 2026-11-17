@@ -29,6 +29,11 @@
  * the layers of the selection. */
 GtkWidget *zg_setting_editor_new(ZgModel *model, const zs_setting_info *info, gboolean scoped);
 
+/* An editor of the value of one part (zg_model_part_setting): it shows the
+ * value of the plate while the part has none of its own, and a change
+ * goes to the part. */
+GtkWidget *zg_setting_editor_new_for_part(ZgModel *model, const zs_setting_info *info, size_t part);
+
 ZgModel *zg_setting_editor_model(GtkWidget *editor);
 const zs_setting_info *zg_setting_editor_info(GtkWidget *editor);
 
@@ -43,6 +48,10 @@ void zg_setting_editor_add_scrub(GtkWidget *editor, GtkWidget *label);
 /* A slider for the number editor, over the usual range of the setting
  * (slider_min to slider_max). The slider and the editor follow each other. */
 GtkWidget *zg_setting_editor_slider_new(GtkWidget *editor);
+
+/* A drag of the slider sends a value at most each `ms` ms, and the last
+ * value at the end of the wait (the search: 90 ms). */
+void zg_setting_editor_slider_throttle(GtkWidget *slider, guint ms);
 
 /* For a speed ratio, `unit` also shows the speed that the ratio gives, for
  * example "% = 45 mm/s", and follows each change of a setting. Does nothing

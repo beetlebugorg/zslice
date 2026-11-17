@@ -29,6 +29,35 @@ static gboolean is_scoped(GtkWidget *w) {
     return g_object_get_data(G_OBJECT(w), "zg-scoped") != NULL;
 }
 
+/* The part of a part editor (zg_setting_editor_new_for_part), or -1. */
+static gint64 part_of(GtkWidget *w) {
+    return GPOINTER_TO_INT(g_object_get_data(G_OBJECT(w), "zg-part")) - 1;
+}
+
+/* The value that the editor shows: of its part (or the value of the plate
+ * while the part has none), or of the scope of the model. Free with
+ * g_free. */
+static char *editor_get(GtkWidget *w, const char *key) {
+    gint64 part = part_of(w);
+    if (part >= 0) {
+        char *own = zg_model_part_setting(model_of(w), (size_t)part, key);
+        return own ? own : zg_model_get(model_of(w), key);
+    }
+    return zg_model_get_for(model_of(w), key, is_scoped(w));
+}
+
+static gboolean editor_set(GtkWidget *w, const char *value, GError **error) {
+    gint64 part = part_of(w);
+    if (part < 0) return zg_model_set_for(model_of(w), info_of(w)->name, value, is_scoped(w), error);
+    if (!zg_model_part_setting_set(model_of(w), (size_t)part, info_of(w)->name, value)) {
+        g_set_error(error, G_IO_ERROR, G_IO_ERROR_INVALID_DATA, "not a valid value");
+        return FALSE;
+    }
+    /* The other editors of the setting show the new value. */
+    zg_model_announce(model_of(w), info_of(w)->name);
+    return TRUE;
+}
+
 static gboolean is_number(GtkWidget *w) {
     return info_of(w)->kind == ZS_SETTING_NUMBER || info_of(w)->kind == ZS_SETTING_INTEGER;
 }
@@ -112,7 +141,7 @@ static char *range_text(const zs_setting_info *info, double lo, double hi) {
 static void show_unusual(GtkWidget *editor) {
     const zs_setting_info *info = info_of(editor);
     if (!is_number(editor) || !(info->slider_max > info->slider_min)) return;
-    char *value = zg_model_get_for(model_of(editor), key_of(editor), is_scoped(editor));
+    char *value = editor_get(editor, key_of(editor));
     gboolean unusual = zg_parses_as_number(value) &&
                        (g_ascii_strtod(value, NULL) < info->slider_min - 1e-9 || g_ascii_strtod(value, NULL) > info->slider_max + 1e-9);
     g_free(value);
@@ -153,7 +182,7 @@ static gboolean commit_value(GtkWidget *editor, const char *text, gboolean quiet
             return FALSE;
         }
     }
-    char *old = zg_model_get_for(model_of(editor), key_of(editor), is_scoped(editor));
+    char *old = editor_get(editor, key_of(editor));
     gboolean same = g_strcmp0(old, value) == 0;
     if (!same && is_number(editor) && zg_parses_as_number(old) && zg_parses_as_number(value)) {
         same = g_ascii_strtod(old, NULL) == g_ascii_strtod(value, NULL);
@@ -162,7 +191,7 @@ static gboolean commit_value(GtkWidget *editor, const char *text, gboolean quiet
     gboolean ok = TRUE;
     if (same) {
         gtk_widget_remove_css_class(editor, "error");
-    } else if (zg_model_set_for(model_of(editor), key_of(editor), value, is_scoped(editor), &error)) {
+    } else if (editor_set(editor, value, &error)) {
         gtk_widget_remove_css_class(editor, "error");
         gtk_widget_set_tooltip_text(editor, info->doc);
         show_unusual(editor);
@@ -306,6 +335,19 @@ void zg_setting_editor_add_scrub(GtkWidget *entry, GtkWidget *label) {
 /* The slider of a number: it moves the value in the entry, and the value
  * goes to the core at once (the model slices the newest value when the
  * running slice ends). */
+static void on_slider(GtkRange *range, gpointer data);
+
+/* The last value of a throttled slider goes to the core at the end of the
+ * wait. */
+static gboolean on_slider_wait(gpointer data) {
+    GtkRange *range = data;
+    g_object_set_data(G_OBJECT(range), "zg-wait", NULL);
+    g_object_set_data(G_OBJECT(range), "zg-last", GSIZE_TO_POINTER((gsize)(g_get_monotonic_time() / 1000)));
+    GtkWidget *entry = g_object_get_data(G_OBJECT(range), "zg-entry");
+    commit_value(entry, gtk_editable_get_text(GTK_EDITABLE(entry)), TRUE);
+    return G_SOURCE_REMOVE;
+}
+
 static void on_slider(GtkRange *range, gpointer data) {
     GtkWidget *entry = data;
     if (g_object_get_data(G_OBJECT(range), "zg-setting")) return;
@@ -317,11 +359,25 @@ static void on_slider(GtkRange *range, gpointer data) {
     char fmt[16], buf[G_ASCII_DTOSTR_BUF_SIZE];
     g_snprintf(fmt, sizeof fmt, "%%.%df", d);
     g_ascii_formatd(buf, sizeof buf, fmt, v);
+    guint ms = GPOINTER_TO_UINT(g_object_get_data(G_OBJECT(range), "zg-throttle"));
     /* The same value as before: no new slice. */
-    if (strcmp(buf, gtk_editable_get_text(GTK_EDITABLE(entry))) == 0) return;
+    if (!ms && strcmp(buf, gtk_editable_get_text(GTK_EDITABLE(entry))) == 0) return;
     set_entry_text(entry, buf);
-    /* No wait: the model queues the value while a slice runs. */
     cancel_live(entry);
+    /* A throttled slider sends a value at most each `ms`: each value
+     * starts a slice. The last value goes at the end of the wait. */
+    if (ms) {
+        if (g_object_get_data(G_OBJECT(range), "zg-wait")) return;
+        gint64 now = g_get_monotonic_time() / 1000;
+        gint64 last = (gint64)GPOINTER_TO_SIZE(g_object_get_data(G_OBJECT(range), "zg-last"));
+        if (last && now - last < (gint64)ms) {
+            guint id = g_timeout_add((guint)(ms - (now - last)), on_slider_wait, range);
+            g_object_set_data(G_OBJECT(range), "zg-wait", GUINT_TO_POINTER(id));
+            return;
+        }
+        g_object_set_data(G_OBJECT(range), "zg-last", GSIZE_TO_POINTER((gsize)now));
+    }
+    /* No wait: the model queues the value while a slice runs. */
     commit_value(entry, buf, TRUE);
 }
 
@@ -335,6 +391,17 @@ static void sync_slider(GtkWidget *entry) {
     g_object_set_data(G_OBJECT(slider), "zg-setting", GINT_TO_POINTER(1));
     gtk_range_set_value(GTK_RANGE(slider), g_ascii_strtod(text, NULL));
     g_object_set_data(G_OBJECT(slider), "zg-setting", NULL);
+}
+
+static void on_slider_destroy(GtkWidget *slider, gpointer data) {
+    guint id = GPOINTER_TO_UINT(g_object_get_data(G_OBJECT(slider), "zg-wait"));
+    if (id) g_source_remove(id);
+    g_object_set_data(G_OBJECT(slider), "zg-wait", NULL);
+}
+
+void zg_setting_editor_slider_throttle(GtkWidget *slider, guint ms) {
+    g_object_set_data(G_OBJECT(slider), "zg-throttle", GUINT_TO_POINTER(ms));
+    g_signal_connect(slider, "destroy", G_CALLBACK(on_slider_destroy), NULL);
 }
 
 GtkWidget *zg_setting_editor_slider_new(GtkWidget *entry) {
@@ -358,6 +425,7 @@ GtkWidget *zg_setting_editor_slider_new(GtkWidget *entry) {
      * a drag and the typing in the entry are one edit). */
     g_object_set_data(G_OBJECT(slider), "zg-info", (gpointer)info);
     sync_slider(entry);
+    g_object_set_data(G_OBJECT(slider), "zg-entry", entry);
     g_signal_connect(slider, "value-changed", G_CALLBACK(on_slider), entry);
     return slider;
 }
@@ -400,7 +468,7 @@ static void show_ratio_speed(GtkWidget *editor, const char *value) {
     if (is_layer_thickness(key_of(editor))) {
         /* The layers that cover the thickness (rounded up, as the slicer
          * counts them), at the layer height of the scope. */
-        char *lh = zg_model_get_for(model_of(editor), "project.layer_height", is_scoped(editor));
+        char *lh = editor_get(editor, "project.layer_height");
         double h = g_ascii_strtod(lh, NULL), t = g_ascii_strtod(value, NULL);
         g_free(lh);
         if (h <= 0) return;
@@ -426,7 +494,7 @@ static void show_ratio_speed(GtkWidget *editor, const char *value) {
  * the speed of a ratio too. */
 static void on_any_setting(ZgModel *model, const char *key, gpointer data) {
     GtkWidget *editor = data;
-    char *value = zg_model_get_for(model, key_of(editor), is_scoped(editor));
+    char *value = editor_get(editor, key_of(editor));
     show_ratio_speed(editor, value);
     g_free(value);
 }
@@ -434,7 +502,7 @@ static void on_any_setting(ZgModel *model, const char *key, gpointer data) {
 /* Shows the value of the core in an editor, after a set from an other
  * editor of the same setting. An editor with the focus keeps its text. */
 void zg_setting_editor_refresh(GtkWidget *editor) {
-    char *value = zg_model_get_for(model_of(editor), key_of(editor), is_scoped(editor));
+    char *value = editor_get(editor, key_of(editor));
     show_ratio_speed(editor, value);
     if (GTK_IS_SWITCH(editor)) {
         gboolean on = strcmp(value, "true") == 0;
@@ -490,8 +558,10 @@ static void on_editor_destroy(GtkWidget *editor, gpointer data) {
     cancel_live(editor);
 }
 
-GtkWidget *zg_setting_editor_new(ZgModel *model, const zs_setting_info *info, gboolean scoped) {
-    char *value = zg_model_get_for(model, info->name, scoped);
+static GtkWidget *editor_build(ZgModel *model, const zs_setting_info *info, gboolean scoped, gint64 part) {
+    char *value = NULL;
+    if (part >= 0) value = zg_model_part_setting(model, (size_t)part, info->name);
+    if (!value) value = part >= 0 ? zg_model_get(model, info->name) : zg_model_get_for(model, info->name, scoped);
     GtkWidget *editor = NULL;
     switch (info->kind) {
     case ZS_SETTING_BOOLEAN:
@@ -546,10 +616,19 @@ GtkWidget *zg_setting_editor_new(ZgModel *model, const zs_setting_info *info, gb
     }
     }
     if (scoped) g_object_set_data(G_OBJECT(editor), "zg-scoped", GINT_TO_POINTER(1));
+    if (part >= 0) g_object_set_data(G_OBJECT(editor), "zg-part", GINT_TO_POINTER((int)part + 1));
     gtk_widget_set_valign(editor, GTK_ALIGN_CENTER);
     show_unusual(editor);
     g_free(value);
     return editor;
+}
+
+GtkWidget *zg_setting_editor_new(ZgModel *model, const zs_setting_info *info, gboolean scoped) {
+    return editor_build(model, info, scoped, -1);
+}
+
+GtkWidget *zg_setting_editor_new_for_part(ZgModel *model, const zs_setting_info *info, size_t part) {
+    return editor_build(model, info, FALSE, (gint64)part);
 }
 
 ZgModel *zg_setting_editor_model(GtkWidget *editor) {
@@ -566,7 +645,7 @@ void zg_setting_editor_show_speed(GtkWidget *editor, GtkWidget *unit) {
     if (!is_layer_thickness(key_of(editor)) && zs_app_ratio_speed(zg_model_core(model), key_of(editor), "1", &probe) != ZS_OK) return;
     g_object_set_data(G_OBJECT(editor), "zg-unit-label", unit);
     g_signal_connect_object(model, "setting-changed", G_CALLBACK(on_any_setting), editor, 0);
-    char *value = zg_model_get_for(model, key_of(editor), is_scoped(editor));
+    char *value = editor_get(editor, key_of(editor));
     show_ratio_speed(editor, value);
     g_free(value);
 }

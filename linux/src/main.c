@@ -71,6 +71,22 @@ static const char *ZG_CSS =
     "button.zg-card-close { min-height: 22px; min-width: 22px; padding: 0; }"
     ".zg-print-card { padding: 12px 14px 14px; }"
     ".zg-drawer { box-shadow: -2px 0 12px alpha(black, 0.30); }"
+    /* The facts of the print card: small buttons. */
+    "button.zg-fact { min-height: 22px; padding: 1px 7px; font-size: 0.85em; font-weight: normal; border-radius: 11px; }"
+    "flowboxchild { padding: 0; }"
+    /* The search (search.c). */
+    ".zg-search { padding: 8px 8px 6px; }"
+    ".zg-sr { padding: 4px 8px; border-radius: 8px; }"
+    ".zg-sr.zg-sr-on { background-color: alpha(@theme_selected_bg_color, 0.30); }"
+    ".zg-sr:focus-visible { outline: 2px solid alpha(@theme_selected_bg_color, 0.8); outline-offset: -2px; }"
+    ".zg-sr-tag { font-size: 0.8em; opacity: 0.6; }"
+    ".zg-sr-group { font-size: 0.8em; font-weight: 700; opacity: 0.6; padding: 8px 8px 2px; }"
+    ".zg-sr-note { font-size: 0.9em; opacity: 0.7; padding: 8px; }"
+    ".zg-sr-scope { font-weight: 700; color: @theme_selected_bg_color; }"
+    "button.zg-sr-eye { min-height: 24px; min-width: 24px; padding: 2px; }"
+    "button.zg-sr-eye:checked { color: @theme_selected_bg_color; }"
+    ".zg-keycap { font-size: 0.8em; padding: 1px 6px; border-radius: 5px; border: 1px solid alpha(@theme_fg_color, 0.25);"
+    "  background: alpha(@theme_fg_color, 0.06); font-feature-settings: 'tnum'; }"
     ".zg-summary-time { font-size: 1.6em; font-weight: 700; font-feature-settings: 'tnum'; }"
     ".zg-summary.zg-stale { opacity: 0.55; }"
     /* The source of a value in the settings (see zg_model_source_text):

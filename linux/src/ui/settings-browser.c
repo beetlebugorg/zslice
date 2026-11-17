@@ -1476,3 +1476,8 @@ void zg_settings_browser_show_setting(GtkWidget *browser, const char *key) {
 gboolean zg_settings_browser_opens_first(GtkWidget *browser) {
     return g_object_get_data(G_OBJECT(browser), "zg-open") != NULL;
 }
+
+void zg_settings_browser_send_focus(GtkWidget *browser) {
+    Browser *b = g_object_get_data(G_OBJECT(browser), "zg-browser");
+    if (b) send_focus(b);
+}

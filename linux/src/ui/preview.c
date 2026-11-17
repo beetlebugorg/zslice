@@ -795,6 +795,18 @@ static void show_all_layers(Preview *p) {
 }
 
 static void on_cut_to_layer(GSimpleAction *a, GVariant *v, gpointer data) { cut_to_selection(data); }
+
+/* "preview.view": the 2D or the 3D view ("2d", "3d"). */
+static void on_view_action(GSimpleAction *a, GVariant *v, gpointer data) {
+    Preview *p = data;
+    gtk_stack_set_visible_child_name(GTK_STACK(p->stack), g_variant_get_string(v, NULL));
+}
+
+/* "preview.check": the list of the printability check. */
+static void on_check_action(GSimpleAction *a, GVariant *v, gpointer data) {
+    Preview *p = data;
+    gtk_menu_button_popup(GTK_MENU_BUTTON(p->check));
+}
 static void on_all_layers(GSimpleAction *a, GVariant *v, gpointer data) { show_all_layers(data); }
 
 gboolean zg_preview_is_cut(GtkWidget *preview) {
@@ -1356,6 +1368,8 @@ GtkWidget *zg_preview_new(ZgModel *model) {
     static const GActionEntry actions[] = {
         {.name = "cut-to-layer", .activate = on_cut_to_layer},
         {.name = "all-layers", .activate = on_all_layers},
+        {.name = "view", .activate = on_view_action, .parameter_type = "s"},
+        {.name = "check", .activate = on_check_action},
     };
     GSimpleActionGroup *group = g_simple_action_group_new();
     g_action_map_add_action_entries(G_ACTION_MAP(group), actions, G_N_ELEMENTS(actions), p);

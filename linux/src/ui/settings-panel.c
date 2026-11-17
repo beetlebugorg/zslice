@@ -201,3 +201,8 @@ void zg_settings_panel_set_end(GtkWidget *panel, GtkWidget *widget) {
     gtk_widget_set_valign(widget, GTK_ALIGN_CENTER);
     gtk_box_append(GTK_BOX(p->top), widget);
 }
+
+void zg_settings_panel_refocus(GtkWidget *panel) {
+    Panel *p = g_object_get_data(G_OBJECT(panel), "zg-panel");
+    if (p) zg_settings_browser_send_focus(p->browser);
+}

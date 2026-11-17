@@ -9,6 +9,7 @@
  */
 #include "window.h"
 
+#include <math.h>
 #include <stdlib.h>
 #include <string.h>
 
@@ -24,6 +25,7 @@
 #include "settings-panel.h"
 #include "setting-editor.h"
 #include "float.h"
+#include "search.h"
 
 typedef struct {
     ZgModel *model;
@@ -39,6 +41,10 @@ typedef struct {
      * view, or pinned beside it. The body overlay holds it over the view;
      * the paned holds it beside the view. */
     GtkWidget *body, *paned, *panel, *panel_toggle, *pin;
+    /* The search of settings and actions (/), over the view. */
+    GtkWidget *search;
+    /* The main settings of the print on the print card. */
+    GtkWidget *facts;
     int panel_mode; /* enum PanelMode */
     GtkWidget *status;
     GtkWidget *progress;
@@ -105,6 +111,7 @@ static void on_focus_widget(GtkWindow *win, GParamSpec *pspec, gpointer data) {
 
 static void send_now(Window *w);
 static void send_checked(Window *w);
+static void fill_facts(Window *w);
 
 enum PanelMode { PANEL_HIDDEN, PANEL_OVER, PANEL_PINNED };
 static const char *panel_modes[] = {"hidden", "overlay", "pinned"};
@@ -179,6 +186,7 @@ static void update_summary(Window *w, int state) {
     char t[32];
     format_time(t, sizeof t, w->deck_ok ? w->deck.total : st.print_time_s);
     gtk_label_set_text(GTK_LABEL(w->sum_time), t);
+    fill_facts(w);
     double per_g = w->spool_price_g;
     if (per_g <= 0) {
         char *v = zg_model_get(w->model, "filament.price_per_kg");
@@ -201,6 +209,90 @@ static void update_summary(Window *w, int state) {
     gtk_widget_set_visible(w->sum_deck, w->deck_ok);
 }
 
+
+/* ---- the facts of the print card ----
+ *
+ * The main settings of the print, as small buttons. A click opens the
+ * search on that setting, to change it there. */
+
+static double num(Window *w, const char *key) {
+    char *v = zg_model_get(w->model, key);
+    double d = g_ascii_strtod(v, NULL);
+    g_free(v);
+    return d;
+}
+
+static void on_fact(GtkButton *b, gpointer data) {
+    Window *w = data;
+    zg_search_show(w->search, g_object_get_data(G_OBJECT(b), "zg-query"), -1);
+}
+
+static void add_fact(Window *w, char *text, const char *query, const char *tip) {
+    GtkWidget *b = gtk_button_new_with_label(text);
+    gtk_widget_add_css_class(b, "zg-fact");
+    char *t = g_strdup_printf("%s. Click to change it.", tip);
+    gtk_widget_set_tooltip_text(b, t);
+    g_free(t);
+    g_object_set_data_full(G_OBJECT(b), "zg-query", g_strdup(query), g_free);
+    g_signal_connect(b, "clicked", G_CALLBACK(on_fact), w);
+    gtk_flow_box_append(GTK_FLOW_BOX(w->facts), b);
+    g_free(text);
+}
+
+/* A length in mm with 3 digits at most: "0.2 mm". */
+static char *mm(double v) {
+    char buf[G_ASCII_DTOSTR_BUF_SIZE];
+    g_ascii_formatd(buf, sizeof buf, "%.3g", v);
+    return g_strdup_printf("%s mm", buf);
+}
+
+static void fill_facts(Window *w) {
+    gtk_flow_box_remove_all(GTK_FLOW_BOX(w->facts));
+    double lh = num(w, "project.layer_height"), first = num(w, "project.first_layer_height");
+    if (lh > 0) {
+        char *a = mm(lh), *b = mm(first);
+        add_fact(w, first > 0 && fabs(first - lh) > 1e-6 ? g_strdup_printf("%s layers (first %s)", a, b) : g_strdup_printf("%s layers", a),
+                 "layer height", "The layer height, and the height of the first layer");
+        g_free(a);
+        g_free(b);
+    }
+    double walls = num(w, "project.wall_count");
+    if (walls > 0) add_fact(w, g_strdup_printf("%.0f walls", walls), "wall count", "The number of walls");
+    double density = num(w, "project.infill_density");
+    char *pattern = zg_model_get(w->model, "project.infill_pattern");
+    add_fact(w, density > 0 ? g_strdup_printf("%.0f %% %s", density * 100, pattern) : g_strdup("no infill"), "infill density",
+             "The infill density and pattern");
+    g_free(pattern);
+    char *support = zg_model_get(w->model, "project.support");
+    char *style = zg_model_get(w->model, "project.support_style");
+    if (support[0] && strcmp(support, "off") != 0) {
+        add_fact(w, g_strdup_printf("support: %s%s", strcmp(support, "buildplate") == 0 ? "on the bed" : support,
+                                    strcmp(style, "tree") == 0 ? ", tree" : ""),
+                 "support", "Support under overhangs");
+    } else {
+        add_fact(w, g_strdup("no support"), "support", "Support under overhangs");
+    }
+    g_free(support);
+    g_free(style);
+    double brim = num(w, "project.brim_width"), skirt = num(w, "project.skirt_loops");
+    if (brim > 0) {
+        char *b = mm(brim);
+        add_fact(w, g_strdup_printf("brim %s", b), "brim width", "The brim, or the skirt");
+        g_free(b);
+    } else {
+        add_fact(w, skirt > 0 ? g_strdup_printf("skirt %.0f", skirt) : g_strdup("no skirt"), "skirt loops", "The brim, or the skirt");
+    }
+    double nozzle = num(w, "filament.nozzle_temp"), bed = num(w, "filament.bed_temp");
+    if (nozzle > 0)
+        add_fact(w, bed > 0 ? g_strdup_printf("%.0f °C / bed %.0f °C", nozzle, bed) : g_strdup_printf("%.0f °C", nozzle), "nozzle temperature",
+                 "The temperatures of the nozzle and the bed");
+    double nd = num(w, "machine.nozzle_diameter");
+    if (nd > 0) {
+        char *b = mm(nd);
+        add_fact(w, g_strdup_printf("%s nozzle", b), "nozzle diameter", "The diameter of the nozzle (printer settings)");
+        g_free(b);
+    }
+}
 
 static void update(Window *w) {
     zs_app *core = zg_model_core(w->model);
@@ -1076,6 +1168,25 @@ static void on_show_page_action(GSimpleAction *a, GVariant *v, gpointer data) {
     zg_settings_panel_show_page(w->settings_panel, g_variant_get_string(v, NULL));
 }
 
+/* The search (/), with a text (a string), or the search of one part
+ * (search-part, the index of the part). */
+static void on_search_action(GSimpleAction *a, GVariant *v, gpointer data) {
+    Window *w = get(data);
+    zg_search_show(w->search, v ? g_variant_get_string(v, NULL) : "", -1);
+}
+
+static void on_search_part_action(GSimpleAction *a, GVariant *v, gpointer data) {
+    Window *w = get(data);
+    zg_search_show(w->search, "", g_variant_get_int64(v));
+}
+
+/* The search ended its focus: the Settings page sends its own again, if
+ * it shows. */
+static void on_refocus_action(GSimpleAction *a, GVariant *v, gpointer data) {
+    Window *w = get(data);
+    zg_settings_panel_refocus(w->settings_panel);
+}
+
 /* Esc in the panel over the view hides it (an entry keeps its Esc). */
 static gboolean on_panel_key(GtkEventControllerKey *c, guint key, guint code, GdkModifierType mods, gpointer data) {
     Window *w = data;
@@ -1127,6 +1238,17 @@ static gboolean on_window_key(GtkEventControllerKey *c, guint key, guint code, G
     case GDK_KEY_n: case GDK_KEY_N:
         if (w->panel_mode == PANEL_HIDDEN) show_panel(w);
         else set_panel_mode(w, PANEL_HIDDEN);
+        return TRUE;
+    case GDK_KEY_slash:
+        /* / again closes the search (it stays open while the view moves). */
+        if (zg_search_is_open(w->search)) zg_search_close(w->search);
+        else zg_search_show(w->search, "", -1);
+        return TRUE;
+    case GDK_KEY_Escape:
+        /* Esc closes the search also when the view has the focus, once the
+         * keys of the view (a selection, the tape) are done. */
+        if (!zg_search_is_open(w->search)) return FALSE;
+        zg_search_close(w->search);
         return TRUE;
     default: return FALSE;
     }
@@ -1290,6 +1412,9 @@ GtkWindow *zg_window_new(GtkApplication *app, ZgModel *model) {
         {.name = "redo", .activate = on_redo_action},
         {.name = "panel", .activate = on_panel_action},
         {.name = "show-page", .activate = on_show_page_action, .parameter_type = "s"},
+        {.name = "search", .activate = on_search_action, .parameter_type = "s"},
+        {.name = "search-part", .activate = on_search_part_action, .parameter_type = "x"},
+        {.name = "refocus", .activate = on_refocus_action},
     };
     g_action_map_add_action_entries(G_ACTION_MAP(w->window), win_actions, G_N_ELEMENTS(win_actions), w->window);
     g_signal_connect(model, "undo-changed", G_CALLBACK(on_undo_changed), w);
@@ -1355,6 +1480,13 @@ GtkWindow *zg_window_new(GtkApplication *app, ZgModel *model) {
     gtk_label_set_xalign(GTK_LABEL(w->sum_deck), 0);
     gtk_label_set_wrap(GTK_LABEL(w->sum_deck), TRUE);
     gtk_widget_set_visible(w->sum_deck, FALSE);
+    w->facts = gtk_flow_box_new();
+    gtk_flow_box_set_selection_mode(GTK_FLOW_BOX(w->facts), GTK_SELECTION_NONE);
+    gtk_flow_box_set_max_children_per_line(GTK_FLOW_BOX(w->facts), 3);
+    gtk_flow_box_set_row_spacing(GTK_FLOW_BOX(w->facts), 3);
+    gtk_flow_box_set_column_spacing(GTK_FLOW_BOX(w->facts), 3);
+    gtk_widget_add_css_class(w->facts, "zg-facts");
+    gtk_widget_set_margin_top(w->facts, 6);
     /* The buttons: print (with its menu: upload only, export), or export
      * with no printer. They fill the width of the card. */
     GtkWidget *actions = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 0);
@@ -1393,6 +1525,7 @@ GtkWindow *zg_window_new(GtkApplication *app, ZgModel *model) {
     gtk_box_append(GTK_BOX(w->sum_box), w->sum_time);
     gtk_box_append(GTK_BOX(w->sum_box), w->sum_detail);
     gtk_box_append(GTK_BOX(w->sum_box), w->sum_deck);
+    gtk_box_append(GTK_BOX(w->sum_box), w->facts);
     gtk_box_append(GTK_BOX(w->sum_box), w->status);
     gtk_box_append(GTK_BOX(w->sum_box), w->islands);
     gtk_box_append(GTK_BOX(w->sum_box), w->progress);
@@ -1434,6 +1567,9 @@ GtkWindow *zg_window_new(GtkApplication *app, ZgModel *model) {
     gtk_widget_set_margin_bottom(w->sum_box, 12);
     gtk_widget_set_size_request(w->sum_box, 300, -1);
     gtk_overlay_add_overlay(GTK_OVERLAY(w->preview), w->sum_box);
+    /* The search, over the view: hidden until / or a fact opens it. */
+    w->search = zg_search_new(model);
+    gtk_overlay_add_overlay(GTK_OVERLAY(w->preview), w->search);
     gtk_paned_set_start_child(GTK_PANED(paned), left);
     gtk_paned_set_end_child(GTK_PANED(paned), panel);
     w->paned = paned;

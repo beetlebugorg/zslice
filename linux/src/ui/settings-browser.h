@@ -41,5 +41,8 @@ void zg_settings_browser_set_place(GtkWidget *browser, const char *place);
 /* The history of the panel: `nav` after each move in the browser, and
  * `back` for its Back button (in place of the column before). */
 void zg_settings_browser_set_history(GtkWidget *browser, void (*nav)(gpointer), void (*back)(gpointer), gpointer data);
+/* Sends the focus of the browser to the previews again (after the search
+ * ended its own focus). */
+void zg_settings_browser_send_focus(GtkWidget *browser);
 /* The column before. */
 void zg_settings_browser_up(GtkWidget *browser);
