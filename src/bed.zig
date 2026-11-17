@@ -174,7 +174,26 @@ fn appendMesh(gpa: Allocator, out: *std.ArrayList(Vertex), b: []const u8, offset
     // (weighted by their area), so the light does not show each triangle
     // of a curved surface. A face that turns more than the crease angle
     // from that sum keeps its own normal, so a sharp edge stays sharp.
-    const smooth = try gpa.alloc([3]f32, n);
+    // The vertices with the same place share one sum: a mesh from an STL
+    // file has its own vertices for each triangle. The places are 16-bit
+    // integers in the file, so the same place is the same key.
+    const keyOf = struct {
+        fn at(bytes: []const u8, base: usize, i: usize) u64 {
+            var k: u64 = 0;
+            for (0..3) |a| k = (k << 16) | @as(u16, @bitCast(readInt(i16, bytes, base + 6 * i + 2 * a)));
+            return k;
+        }
+    }.at;
+    var slots: std.AutoHashMapUnmanaged(u64, u32) = .empty;
+    defer slots.deinit(gpa);
+    const slot_of = try gpa.alloc(u32, n);
+    defer gpa.free(slot_of);
+    for (0..n) |i| {
+        const g = try slots.getOrPut(gpa, keyOf(b, pos_at, i));
+        if (!g.found_existing) g.value_ptr.* = slots.count() - 1;
+        slot_of[i] = g.value_ptr.*;
+    }
+    const smooth = try gpa.alloc([3]f32, slots.count());
     defer gpa.free(smooth);
     @memset(smooth, .{ 0, 0, 0 });
     for (0..t) |k| {
@@ -187,7 +206,7 @@ fn appendMesh(gpa: Allocator, out: *std.ArrayList(Vertex), b: []const u8, offset
         }
         const w = faceArea(p[0], p[1], p[2]);
         for (ids) |i| for (0..3) |a| {
-            smooth[i][a] += w[a];
+            smooth[slot_of[i]][a] += w[a];
         };
     }
     const crease = @cos(std.math.degreesToRadians(40.0));
@@ -209,7 +228,7 @@ fn appendMesh(gpa: Allocator, out: *std.ArrayList(Vertex), b: []const u8, offset
         }
         const nrm = faceNormal(corner[0].pos, corner[1].pos, corner[2].pos);
         for (&corner, ids) |*cv, i| {
-            const sm = unit(smooth[i]) orelse nrm;
+            const sm = unit(smooth[slot_of[i]]) orelse nrm;
             cv.normal = if (sm[0] * nrm[0] + sm[1] * nrm[1] + sm[2] * nrm[2] >= crease) sm else nrm;
         }
         out.appendSliceAssumeCapacity(&corner);
