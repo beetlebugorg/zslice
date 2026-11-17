@@ -40,6 +40,10 @@ typedef struct {
     GtkWidget *stack;
     GtkWidget *slider_box;
     GtkWidget *isolate;
+    /* The tools (select, move, measure), and the readout of the measure
+     * tape. */
+    GtkWidget *tools[3];
+    GtkWidget *measure_label;
     /* The gaps view: the toggle, and the number of gaps of the layer. */
     GtkWidget *gaps, *gap_count;
     GtkWidget *check, *check_list; /* the printability check */
@@ -828,6 +832,20 @@ static gboolean on_preview_key(GtkEventControllerKey *c, guint key, guint code, 
     GtkWidget *focus = gtk_root_get_focus(gtk_widget_get_root(p->area));
     if (focus && (GTK_IS_EDITABLE(focus) || gtk_widget_get_ancestor(focus, GTK_TYPE_POPOVER))) return FALSE;
     if (zg_view3d_menu_open(p->view3d)) return FALSE;
+    /* The tools: S select, M move, T measure (a tape). Esc clears a
+     * measure. */
+    switch (key) {
+    case GDK_KEY_s: case GDK_KEY_S: zg_model_set_tool(p->model, ZG_TOOL_SELECT); return TRUE;
+    case GDK_KEY_m: case GDK_KEY_M: zg_model_set_tool(p->model, ZG_TOOL_MOVE); return TRUE;
+    case GDK_KEY_t: case GDK_KEY_T: zg_model_set_tool(p->model, ZG_TOOL_MEASURE); return TRUE;
+    case GDK_KEY_Escape:
+        if (zg_model_measure(p->model, NULL) > 0) {
+            zg_model_measure_clear(p->model);
+            return TRUE;
+        }
+        break;
+    default: break;
+    }
     /* A selected part (Ctrl+click): [ and ] turn it 15 degrees (with
      * Shift: 1 degree), and Delete removes it, after a question. */
     gint64 part = zg_model_selected_part(p->model);
@@ -965,6 +983,123 @@ static void on_preview_press(GtkGestureClick *g, int n, double x, double y, gpoi
 static void on_profiles_marks(ZgModel *model, gpointer data);
 static void on_mark_activated(ZgLayerRange *range, guint index, gpointer data);
 
+/* ---- the tools: a group of three buttons at the left of the toolbar ---- */
+
+/* The glyph of a tool, in the color of the text: 0 an arrow (select), 1 a
+ * cross of arrows (move), 2 a ruler (measure). */
+static void draw_tool(GtkDrawingArea *a, cairo_t *cr, int w, int h, gpointer data) {
+    int kind = GPOINTER_TO_INT(data);
+    GdkRGBA c;
+    gtk_widget_get_color(GTK_WIDGET(a), &c);
+    gdk_cairo_set_source_rgba(cr, &c);
+    double u = MIN(w, h) / 18.0;
+    cairo_translate(cr, (w - 18 * u) / 2, (h - 18 * u) / 2);
+    cairo_scale(cr, u, u);
+    cairo_set_line_width(cr, 1.5);
+    cairo_set_line_join(cr, CAIRO_LINE_JOIN_ROUND);
+    cairo_set_line_cap(cr, CAIRO_LINE_CAP_ROUND);
+    if (kind == 0) {
+        const double pts[][2] = {{5, 2}, {5, 15}, {8.2, 12}, {10.5, 16.5}, {12.6, 15.5}, {10.3, 11}, {14.5, 11}};
+        cairo_move_to(cr, pts[0][0], pts[0][1]);
+        for (size_t i = 1; i < G_N_ELEMENTS(pts); i++) cairo_line_to(cr, pts[i][0], pts[i][1]);
+        cairo_close_path(cr);
+        cairo_fill(cr);
+    } else if (kind == 1) {
+        cairo_move_to(cr, 2, 9);
+        cairo_line_to(cr, 16, 9);
+        cairo_move_to(cr, 9, 2);
+        cairo_line_to(cr, 9, 16);
+        const double tips[][3] = {{16, 9, 0}, {2, 9, G_PI}, {9, 16, G_PI / 2}, {9, 2, -G_PI / 2}};
+        for (int k = 0; k < 4; k++) {
+            double x = tips[k][0], y = tips[k][1], ang = tips[k][2];
+            cairo_move_to(cr, x + 3 * cos(ang + 2.4), y + 3 * sin(ang + 2.4));
+            cairo_line_to(cr, x, y);
+            cairo_line_to(cr, x + 3 * cos(ang - 2.4), y + 3 * sin(ang - 2.4));
+        }
+        cairo_stroke(cr);
+    } else {
+        /* A ruler at 45 degrees, with ticks. */
+        cairo_save(cr);
+        cairo_translate(cr, 9, 9);
+        cairo_rotate(cr, -G_PI / 4);
+        cairo_rectangle(cr, -8, -3, 16, 6);
+        for (int k = -5; k <= 5; k += 2) {
+            cairo_move_to(cr, k, -3);
+            cairo_line_to(cr, k, k % 4 == 1 || k % 4 == -3 ? 0.5 : -0.8);
+        }
+        cairo_restore(cr);
+        cairo_stroke(cr);
+    }
+}
+
+static void on_tool_toggled(GtkToggleButton *b, gpointer data) {
+    Preview *p = data;
+    if (!gtk_toggle_button_get_active(b)) return;
+    zg_model_set_tool(p->model, (ZgTool)GPOINTER_TO_INT(g_object_get_data(G_OBJECT(b), "zg-tool")));
+}
+
+static void on_tool_changed_preview(ZgModel *model, gpointer data) {
+    Preview *p = data;
+    ZgTool t = zg_model_tool(model);
+    if (!gtk_toggle_button_get_active(GTK_TOGGLE_BUTTON(p->tools[t]))) gtk_toggle_button_set_active(GTK_TOGGLE_BUTTON(p->tools[t]), TRUE);
+    /* The measure tape: a hint until the first point. */
+    if (t == ZG_TOOL_MEASURE && zg_model_measure(model, NULL) == 0) {
+        gtk_label_set_text(GTK_LABEL(p->measure_label), "Click a point of the print. Shift: no snap to the ends of the lines.");
+        gtk_widget_set_visible(p->measure_label, TRUE);
+    } else if (t != ZG_TOOL_MEASURE) {
+        gtk_widget_set_visible(p->measure_label, FALSE);
+    }
+}
+
+/* The readout of the measure tape: the distance, and its parts along x, y,
+ * and z. */
+static void on_measure_preview(ZgModel *model, gpointer data) {
+    Preview *p = data;
+    const double *m = NULL;
+    int n = zg_model_measure(model, &m);
+    if (zg_model_tool(model) != ZG_TOOL_MEASURE) {
+        gtk_widget_set_visible(p->measure_label, FALSE);
+        return;
+    }
+    char *text;
+    if (n == 0) text = g_strdup("Click a point of the print. Shift: no snap to the ends of the lines.");
+    else if (n == 1) text = g_strdup_printf("From %.2f, %.2f, %.2f mm: click a second point.", m[0], m[1], m[2]);
+    else {
+        double dx = m[3] - m[0], dy = m[4] - m[1], dz = m[5] - m[2];
+        text = g_strdup_printf("%.2f mm   ·   ΔX %.2f   ΔY %.2f   ΔZ %.2f   ·   on the bed %.2f mm", sqrt(dx * dx + dy * dy + dz * dz), fabs(dx),
+                               fabs(dy), fabs(dz), sqrt(dx * dx + dy * dy));
+    }
+    gtk_label_set_text(GTK_LABEL(p->measure_label), text);
+    gtk_widget_set_visible(p->measure_label, TRUE);
+    g_free(text);
+}
+
+static GtkWidget *tool_group(Preview *p) {
+    static const char *tips[] = {
+        "Select (S): click a line to see what it is, its measurements, and the settings that change it.",
+        "Move (M): drag a part to move it, and scroll over it to turn it. The same as Ctrl in the other tools.",
+        "Measure (T): click two points of the print. The ends of the lines snap; Shift turns the snap off. Esc clears.",
+    };
+    GtkWidget *box = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 0);
+    gtk_widget_add_css_class(box, "linked");
+    for (int k = 0; k < 3; k++) {
+        GtkWidget *b = gtk_toggle_button_new();
+        GtkWidget *glyph = gtk_drawing_area_new();
+        gtk_drawing_area_set_content_width(GTK_DRAWING_AREA(glyph), 18);
+        gtk_drawing_area_set_content_height(GTK_DRAWING_AREA(glyph), 18);
+        gtk_drawing_area_set_draw_func(GTK_DRAWING_AREA(glyph), draw_tool, GINT_TO_POINTER(k), NULL);
+        gtk_button_set_child(GTK_BUTTON(b), glyph);
+        gtk_widget_set_tooltip_text(b, tips[k]);
+        g_object_set_data(G_OBJECT(b), "zg-tool", GINT_TO_POINTER(k));
+        if (k > 0) gtk_toggle_button_set_group(GTK_TOGGLE_BUTTON(b), GTK_TOGGLE_BUTTON(p->tools[0]));
+        g_signal_connect(b, "toggled", G_CALLBACK(on_tool_toggled), p);
+        p->tools[k] = b;
+        gtk_box_append(GTK_BOX(box), b);
+    }
+    gtk_toggle_button_set_active(GTK_TOGGLE_BUTTON(p->tools[zg_model_tool(p->model)]), TRUE);
+    return box;
+}
+
 GtkWidget *zg_preview_new(ZgModel *model) {
     Preview *p = g_new0(Preview, 1);
     p->model = g_object_ref(model);
@@ -1028,7 +1163,7 @@ GtkWidget *zg_preview_new(ZgModel *model) {
     gtk_widget_add_css_class(switcher, "linked");
     gtk_box_append(GTK_BOX(switcher), b2d);
     gtk_box_append(GTK_BOX(switcher), b3d);
-    gtk_widget_set_tooltip_text(switcher, "2D: one layer. 3D: the layers up to the slider. In 3D: left drag to orbit, middle drag to pan, right drag to rotate freely, scroll to zoom, double-click to reset.");
+    gtk_widget_set_tooltip_text(switcher, "2D: one layer. 3D: the layers up to the slider. In 3D: a left or right drag orbits, a middle drag pans, scroll to zoom, double-click to reset.");
 
     /* The controls float over the view, so the view has all the room. The
      * window is transparent (for the 3D view), so each control paints its
@@ -1062,6 +1197,7 @@ GtkWidget *zg_preview_new(ZgModel *model) {
     gtk_widget_set_tooltip_text(p->speed, "The replay speed: 1x is the real print speed.");
     GtkWidget *bar = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 4);
     gtk_widget_add_css_class(bar, "zg-float");
+    gtk_box_append(GTK_BOX(bar), tool_group(p));
     gtk_box_append(GTK_BOX(bar), switcher);
     gtk_box_append(GTK_BOX(bar), colors);
     gtk_box_append(GTK_BOX(bar), p->legend);
@@ -1164,6 +1300,18 @@ GtkWidget *zg_preview_new(ZgModel *model) {
     gtk_widget_set_valign(p->scrub_box, GTK_ALIGN_END);
     gtk_widget_set_margin_bottom(p->scrub_box, 10);
     gtk_overlay_add_overlay(GTK_OVERLAY(box), p->scrub_box);
+    /* The readout of the measure tape, under the toolbar. */
+    p->measure_label = gtk_label_new("");
+    gtk_widget_add_css_class(p->measure_label, "osd");
+    gtk_widget_add_css_class(p->measure_label, "zg-measure-readout");
+    gtk_widget_add_css_class(p->measure_label, "numeric");
+    gtk_widget_set_halign(p->measure_label, GTK_ALIGN_START);
+    gtk_widget_set_valign(p->measure_label, GTK_ALIGN_START);
+    gtk_widget_set_margin_start(p->measure_label, 10);
+    gtk_widget_set_margin_top(p->measure_label, 58);
+    gtk_widget_set_can_target(p->measure_label, FALSE);
+    gtk_widget_set_visible(p->measure_label, FALSE);
+    gtk_overlay_add_overlay(GTK_OVERLAY(box), p->measure_label);
     gtk_widget_set_size_request(stack, 200, -1);
     g_object_set_data_full(G_OBJECT(box), "zg-preview", p, preview_free);
     /* For the 3D context menu (a child of the preview). */
@@ -1186,6 +1334,8 @@ GtkWidget *zg_preview_new(ZgModel *model) {
     g_free(iso);
     g_signal_connect(model, "focus-changed", G_CALLBACK(on_focus_changed), p);
     g_signal_connect(model, "profiles-changed", G_CALLBACK(on_profiles_marks), p);
+    g_signal_connect(model, "tool-changed", G_CALLBACK(on_tool_changed_preview), p);
+    g_signal_connect(model, "measure-changed", G_CALLBACK(on_measure_preview), p);
     g_signal_connect(p->slider, "mark-activated", G_CALLBACK(on_mark_activated), p);
     return box;
 }

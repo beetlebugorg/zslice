@@ -49,6 +49,7 @@ static const char *ZG_CSS =
     "progressbar.zg-thin trough, progressbar.zg-thin progress { min-height: 3px; }"
     "button.zg-reset { min-height: 20px; min-width: 20px; padding: 0; }"
     /* The controls that float over the preview. */
+    ".zg-measure-readout { padding: 4px 12px; border-radius: 8px; }\n"
     ".zg-float { background: alpha(@theme_bg_color, 0.88); border-radius: 10px; padding: 4px;"
     "  box-shadow: 0 1px 4px alpha(black, 0.25); }"
     /* The layer slider on the 3D view: a thin track, white knobs with a

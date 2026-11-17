@@ -194,6 +194,20 @@ To change a number:
 
 A value out of the usual range shows in the warning color, and its tooltip gives the usual range. A value out of the limits of the setting (for example a 300 mm brim) is an error, and the tooltip gives the limits.
 
+## Tools
+
+The group of three buttons at the left of the preview toolbar picks the tool of the mouse:
+
+| Tool | Key | What a click does |
+|---|---|---|
+| Select (arrow) | S | Selects a line. The Selected page shows what it is and its measurements. |
+| Move (cross) | M | A drag on a part moves it, and the wheel over it turns it by 15°: the same as Ctrl in the other tools. |
+| Measure (ruler) | T | Two clicks measure between two points of the print or the bed. A point near the end of a line snaps to it; hold Shift for no snap. Esc clears the measure. |
+
+The measure shows under the toolbar: the distance, its parts along X, Y, and Z, and the distance on the bed. A gold line in the 3D view joins the two points.
+
+**Measurements of a line.** The Selected page shows them for the selected segment: its length, the length of the straight edge it is a part of, the length and the size of the whole line, and for a circle its radius and diameter, or for a segment in an arc the radius and the angle of the arc. They follow the segment as h and l move it.
+
 ## Move the 3D view
 
 | Mouse | Action |
@@ -284,7 +298,7 @@ Ctrl+Z undoes a change of the settings or of the plate (a move, a turn, a scale,
 Each change of the settings or of the plate is a change in the history (the steps of undo and redo). Two views show it:
 
 - **The timeline** under the preview: one badge for each change, the oldest at the left, as the timeline of Fusion. The color and the glyph of a badge show the kind of change: walls (orange squares), infill (green grid), top and bottom (blue lines), speed (purple chevrons), temperature and cooling (red thermometer), support (gray pillars), layers (amber lines), quality (pink star), the printer, and the place of a part (teal: move, turn, scale, add, remove). Point at a badge to see its changes in words ("Infill density 28 % → 45 % · This print"). Click a badge to go back to that change: the preview slices as it was then, at once. The changes after it stay (dimmed) until you edit something. With the focus on the timeline, ← and → go to the change before and after.
-- **The History tab** of the panel: each change with its badge, its time, and its changes, the newest first, and the scope of each change: the printer, the filament, this print, a part, or a layer range ("Layers 86 and up"). Click a change to go back to it, or use ↑ and ↓. Space goes back to the change shown before, so two changes are easy to compare. The ↶ button of one setting in a change undoes only that setting and keeps the later changes: it adds a new change.
+- **The History tab** of the panel: each change with its badge, its time, and its changes, the newest first, and the scope of each change: the printer, the filament, this print, a part, or a layer range ("Layers 86 and up"). Click a change to go back to it, or use ↑ and ↓. Space goes back to the change shown before, so two changes are easy to compare. The ↶ button of one setting in a change undoes only that setting and keeps the later changes: it adds a new change. A double click on a setting goes back to that change and opens the setting where it changed (this print, the part, or the layer profile), so you can edit it there.
 
 The changes for some layers (layer profiles and changes for one layer or a range) also show as orange marks on the right of the layer slider. Point at a mark to see its changes, and click it to go to its top layer and open its layer profile in the settings.
 

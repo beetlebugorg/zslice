@@ -120,7 +120,7 @@ GtkWidget *zg_settings_panel_new(ZgModel *model) {
     p->browser = browser;
     gtk_stack_add_titled(GTK_STACK(stack), browser, "settings", "Settings");
     gtk_stack_add_titled(GTK_STACK(stack), zg_inspector_new(model, stack), "selected", "Selected");
-    gtk_stack_add_titled(GTK_STACK(stack), zg_history_page_new(model), "history", "History");
+    gtk_stack_add_titled(GTK_STACK(stack), zg_history_page_new(model, stack), "history", "History");
     gtk_stack_set_visible_child(GTK_STACK(stack), browser);
     GtkWidget *switcher = gtk_stack_switcher_new();
     gtk_stack_switcher_set_stack(GTK_STACK_SWITCHER(switcher), GTK_STACK(stack));

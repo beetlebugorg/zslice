@@ -147,6 +147,30 @@ export fn zs_view_bed_point(view: ?*const View, px: f32, py: f32, x: ?*f64, y: ?
     return 1;
 }
 
+/// The point of the print under the pixel, for the measure tape (see
+/// View.surfacePoint): out gets x, y, z in mm. With snap, the end of a line
+/// near the pixel. 0 if the pixel shows neither the print nor the bed.
+export fn zs_view_surface_point(view: ?*const View, px: f32, py: f32, snap: c_int, out: ?*[3]f64) c_int {
+    if (!render_on) return 0;
+    const v = view orelse return 0;
+    const p = v.surfacePoint(px, py, snap != 0) orelse return 0;
+    if (out) |o| o.* = .{ p[0], p[1], p[2] };
+    return 1;
+}
+
+/// The points of the measure tape: n (0, 1, or 2) points of 3 values.
+export fn zs_view_set_measure(view: ?*View, n: usize, pts: ?[*]const f64) void {
+    if (!render_on) return;
+    const v = view orelse return;
+    var buf: [2][3]f32 = undefined;
+    const k = @min(n, 2);
+    if (k > 0) {
+        const p = pts orelse return;
+        for (0..k) |i| buf[i] = .{ @floatCast(p[3 * i]), @floatCast(p[3 * i + 1]), @floatCast(p[3 * i + 2]) };
+    }
+    v.setMeasure(buf[0..k]);
+}
+
 /// Shows the gaps of layer `layer` of the last slice of `app` in red, or
 /// none for a negative layer.
 export fn zs_view_show_gaps(view: ?*View, app: ?*App, layer: i64) void {

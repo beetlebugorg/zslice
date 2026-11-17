@@ -146,6 +146,9 @@ pub const View = struct {
     more: std.ArrayList(usize) = .empty,
     /// The bead of a selected segment (see setSegment), or null.
     seg_bead: ?usize = null,
+    /// The points of the measure tape (see `setMeasure`): 0, 1, or 2.
+    measure: [2][3]f32 = undefined,
+    measure_n: u8 = 0,
     /// With a selection: the other beads are ghosts.
     isolate: bool = false,
     /// The features in focus (a bit for each), or 0 for no focus. The
@@ -1029,6 +1032,55 @@ pub const View = struct {
 
     /// The point of the bed (z = 0) under the pixel, or null if the ray
     /// does not meet the bed in front of the camera.
+    /// The pixel of a point of the world, or null behind the camera. The
+    /// inverse of `pixelRay`.
+    pub fn pixelOf(v: *const View, p: [3]f32) ?[2]f32 {
+        const cam = v.camera();
+        const d = [3]f32{ p[0] - cam.eye[0], p[1] - cam.eye[1], p[2] - cam.eye[2] };
+        const depth = dot(d, cam.f);
+        if (depth <= 1e-6) return null;
+        const aspect = @as(f32, @floatFromInt(v.width)) / @as(f32, @floatFromInt(v.height));
+        const tan_half = @tan(@as(f32, fov) / 2);
+        const x = dot(d, cam.s) / depth / (tan_half * aspect);
+        const y = dot(d, cam.u) / depth / tan_half;
+        return .{ (x + 1) / 2 * @as(f32, @floatFromInt(v.width)), (1 - y) / 2 * @as(f32, @floatFromInt(v.height)) };
+    }
+
+    /// The point of the print under a pixel, for the measure tape: on the
+    /// first bead that the ray hits (its surface), else on the bed. With
+    /// `snap`, an end of the bead within 12 pixels takes its place (the
+    /// corner of a line, at the top of the bead). Null: the ray meets
+    /// neither.
+    pub fn surfacePoint(v: *const View, px: f32, py: f32, snap: bool) ?[3]f32 {
+        const cam = v.camera();
+        const dir = v.pixelRay(cam, px, py);
+        if (v.rayHit(px, py, 1)) |h| {
+            var p = [3]f32{ cam.eye[0] + dir[0] * h.t, cam.eye[1] + dir[1] * h.t, cam.eye[2] + dir[2] * h.t };
+            if (snap and h.bead < v.beads.items.len) {
+                const b = v.beads.items[h.bead];
+                var best: f32 = 12;
+                for ([_][3]f32{ .{ b.ax, b.ay, b.z }, .{ b.bx, b.by, b.z } }) |e| {
+                    const q = v.pixelOf(e) orelse continue;
+                    const dpx = std.math.hypot(q[0] - px, q[1] - py);
+                    if (dpx < best) {
+                        best = dpx;
+                        p = e;
+                    }
+                }
+            }
+            return p;
+        }
+        const b = v.bedPoint(px, py) orelse return null;
+        return .{ @floatCast(b[0]), @floatCast(b[1]), 0 };
+    }
+
+    /// The points of the measure tape: none, the first point, or both. The
+    /// view draws a mark at each point and a line between the two.
+    pub fn setMeasure(v: *View, pts: []const [3]f32) void {
+        v.measure_n = @intCast(@min(pts.len, 2));
+        for (pts[0..v.measure_n], 0..) |p, i| v.measure[i] = p;
+    }
+
     pub fn bedPoint(v: *const View, px: f32, py: f32) ?[2]f64 {
         const cam = v.camera();
         const dir = v.pixelRay(cam, px, py);
@@ -1609,6 +1661,36 @@ pub const View = struct {
         try v.renderer.draw(.{
             .head = v.head_buf[0..n_head],
             .extras = blk: {
+                // The measure tape: a mark at each point, and a line of
+                // short beads between them (a bead is level, so a slope
+                // is a stair of 24 of them).
+                if (v.measure_n > 0) {
+                    const gold = [4]u8{ 0xff, 0xb3, 0x00, code_overlay };
+                    const span = std.math.clamp(v.dist * 0.004, 0.15, 3);
+                    for (v.measure[0..v.measure_n]) |p| {
+                        if (n_extras == extras.len) break;
+                        extras[n_extras] = .{ .ax = p[0], .ay = p[1], .bx = p[0] + 0.001, .by = p[1], .z = p[2] + span, .h = span * 2, .w = span * 4, .rgba = gold };
+                        n_extras += 1;
+                    }
+                    if (v.measure_n == 2) {
+                        const a = v.measure[0];
+                        const b = v.measure[1];
+                        const steps = 24;
+                        for (0..steps) |k| {
+                            if (n_extras == extras.len) break;
+                            const f0 = @as(f32, @floatFromInt(k)) / steps;
+                            const f1 = @as(f32, @floatFromInt(k + 1)) / steps;
+                            const x0 = a[0] + (b[0] - a[0]) * f0;
+                            const y0 = a[1] + (b[1] - a[1]) * f0;
+                            const x1 = a[0] + (b[0] - a[0]) * f1;
+                            const y1 = a[1] + (b[1] - a[1]) * f1;
+                            const z = a[2] + (b[2] - a[2]) * (f0 + f1) / 2;
+                            const dz = @abs(b[2] - a[2]) / steps;
+                            extras[n_extras] = .{ .ax = x0, .ay = y0, .bx = if (x0 == x1 and y0 == y1) x1 + 0.001 else x1, .by = y1, .z = z + @max(span, dz) / 2, .h = @max(span, dz), .w = span * 1.5, .rgba = gold };
+                            n_extras += 1;
+                        }
+                    }
+                }
                 // The frame of the selected part: four thin beads on the bed.
                 if (v.part_box) |pb| {
                     const corners = [_][2]f32{ .{ pb[0], pb[1] }, .{ pb[2], pb[1] }, .{ pb[2], pb[3] }, .{ pb[0], pb[3] } };
@@ -2282,4 +2364,19 @@ test "the draw list leaves out the chunks out of the view, and draws far beads c
     // Looking away from the part: nothing.
     d = try frame.list(&v, .{ .target = .{ 500, 500, 4 }, .dist = 3, .yaw = 0.3 });
     try std.testing.expectEqual(@as(usize, 0), d.len);
+}
+
+test "a point on the ray of a pixel shows at that pixel" {
+    var v: View = .{ .renderer = undefined, .width = 800, .height = 600 };
+    v.target = .{ 10, 20, 5 };
+    v.dist = 120;
+    v.setAngles(0.7, 0.5);
+    const cam = v.camera();
+    for ([_][2]f32{ .{ 400, 300 }, .{ 13, 590 }, .{ 777, 41 } }) |px| {
+        const dir = v.pixelRay(cam, px[0], px[1]);
+        const p = [3]f32{ cam.eye[0] + dir[0] * 50, cam.eye[1] + dir[1] * 50, cam.eye[2] + dir[2] * 50 };
+        const q = v.pixelOf(p).?;
+        try std.testing.expectApproxEqAbs(px[0], q[0], 0.01);
+        try std.testing.expectApproxEqAbs(px[1], q[1], 0.01);
+    }
 }

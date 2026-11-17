@@ -692,6 +692,15 @@ void zs_view_pan(zs_view *view, float dx, float dy);
 void zs_view_part_box(zs_view *view, double x0, double y0, double x1, double y1);
 /* The point of the bed under the pixel (px, py) of a 3D view. 0 if none. */
 int zs_view_bed_point(const zs_view *view, float px, float py, double *x, double *y);
+/* The point of the print under the pixel (px, py), for a measure tape: on
+ * the surface of the first line that the pixel shows, else on the bed. With
+ * snap, the end of a line within 12 pixels. out gets x, y, z (mm). 0 if
+ * the pixel shows neither. */
+int zs_view_surface_point(const zs_view *view, float px, float py, int snap, double out[3]);
+/* The points of the measure tape: n is 0 (none), 1, or 2; pts has 3 values
+ * (x, y, z) for each point. The view draws a mark at each point and a line
+ * between two. */
+void zs_view_set_measure(zs_view *view, size_t n, const double *pts);
 /* Shows the beads of some features clearly, and fades the others: a bit
  * (1 << enum zs_feature) for each feature, or 0 to end the focus. Only the
  * beads with a top at or under zmax (mm) are in focus; a negative zmax is

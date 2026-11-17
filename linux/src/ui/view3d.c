@@ -446,6 +446,25 @@ static void on_plate_changed(ZgModel *model, gpointer data) {
     show_part_box(data);
 }
 
+/* The cursor of the tool: a cross for the measure tape. */
+static void tool_cursor(View3d *v) {
+    ZgTool t = zg_model_tool(v->model);
+    gtk_widget_set_cursor_from_name(v->area, t == ZG_TOOL_MEASURE ? "crosshair" : NULL);
+}
+
+static void on_tool_changed(ZgModel *model, gpointer data) {
+    tool_cursor(data);
+}
+
+static void on_measure_changed(ZgModel *model, gpointer data) {
+    View3d *v = data;
+    if (!v->view) return;
+    const double *pts = NULL;
+    int n = zg_model_measure(model, &pts);
+    zs_view_set_measure(v->view, (size_t)n, pts);
+    queue_frame(v);
+}
+
 static void on_drag_begin(GtkGestureDrag *g, double x, double y, gpointer data) {
     View3d *v = data;
     v->drag_x = 0;
@@ -454,7 +473,7 @@ static void on_drag_begin(GtkGestureDrag *g, double x, double y, gpointer data) 
     /* Ctrl and the left button on a part: move the part. */
     GdkModifierType mods = gtk_event_controller_get_current_event_state(GTK_EVENT_CONTROLLER(g));
     int mode = GPOINTER_TO_INT(g_object_get_data(G_OBJECT(g), "zg-drag"));
-    if (v->view && mode == DRAG_ORBIT && (mods & GDK_CONTROL_MASK)) {
+    if (v->view && mode == DRAG_ORBIT && ((mods & GDK_CONTROL_MASK) || zg_model_tool(v->model) == ZG_TOOL_MOVE)) {
         double bx, by;
         gint64 part = part_at(v, x, y, &bx, &by);
         zs_part p;
@@ -477,7 +496,7 @@ static void menu_at(View3d *v, double x, double y);
 static void on_drag_end(GtkGestureDrag *g, double dx, double dy, gpointer data) {
     View3d *v = data;
     v->moving = -1;
-    gtk_widget_set_cursor(v->area, NULL);
+    tool_cursor(v);
     int mode = GPOINTER_TO_INT(g_object_get_data(G_OBJECT(g), "zg-drag"));
     if (mode == DRAG_ROTATE && fabs(dx) < 4 && fabs(dy) < 4) {
         double sx, sy;
@@ -525,7 +544,7 @@ static gboolean on_scroll(GtkEventControllerScroll *c, double dx, double dy, gpo
     /* Ctrl and the wheel: turn the selected part by 15 degrees a step. */
     GdkModifierType mods = gtk_event_controller_get_current_event_state(GTK_EVENT_CONTROLLER(c));
     gint64 part = zg_model_selected_part(v->model);
-    if ((mods & GDK_CONTROL_MASK) && part >= 0) {
+    if (((mods & GDK_CONTROL_MASK) || zg_model_tool(v->model) == ZG_TOOL_MOVE) && part >= 0) {
         zs_part p;
         if (zs_app_part_get(zg_model_core(v->model), (size_t)part, &p) == ZS_OK) {
             /* GTK can turn a vertical wheel with Shift into dx. */
@@ -546,7 +565,15 @@ static void on_release(GtkGestureClick *g, int n, double x, double y, gpointer d
     /* Ctrl+click: select a part (to move, turn, or remove it). A click: a
      * line. Shift+click: add a line to the selection, or take it out. */
     GdkModifierType mods = gtk_event_controller_get_current_event_state(GTK_EVENT_CONTROLLER(g));
-    if (mods & GDK_CONTROL_MASK) {
+    /* The measure tape: a point of the print (the end of a line near the
+     * pointer), or of the bed. */
+    if (zg_model_tool(v->model) == ZG_TOOL_MEASURE) {
+        double p[3];
+        if (zs_view_surface_point(v->view, (float)(x * scale), (float)(y * scale), !(mods & GDK_SHIFT_MASK), p))
+            zg_model_measure_add(v->model, p[0], p[1], p[2]);
+        return;
+    }
+    if ((mods & GDK_CONTROL_MASK) || zg_model_tool(v->model) == ZG_TOOL_MOVE) {
         zg_model_select_part(v->model, part_at(v, x, y, NULL, NULL));
         return;
     }
@@ -917,6 +944,8 @@ GtkWidget *zg_view3d_new(ZgModel *model) {
     g_signal_connect(model, "selection-changed", G_CALLBACK(on_selection), v);
     g_signal_connect(model, "gaps-changed", G_CALLBACK(on_gaps_changed), v);
     g_signal_connect(model, "part-selected", G_CALLBACK(on_part_selected), v);
+    g_signal_connect(model, "tool-changed", G_CALLBACK(on_tool_changed), v);
+    g_signal_connect(model, "measure-changed", G_CALLBACK(on_measure_changed), v);
     g_signal_connect(model, "segment-changed", G_CALLBACK(on_segment), v);
     g_signal_connect(model, "plate-changed", G_CALLBACK(on_plate_changed), v);
     g_signal_connect(model, "focus-changed", G_CALLBACK(on_focus_changed), v);

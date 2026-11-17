@@ -217,6 +217,19 @@ void zg_model_use_roll(ZgModel *self, const ZgRoll *roll);
 gboolean zg_model_undo(ZgModel *self);
 gboolean zg_model_redo(ZgModel *self);
 gboolean zg_model_can_undo(ZgModel *self);
+/* The tools of the preview: select a line (the default), move and turn a
+ * part (as with Ctrl), or measure (the measure tape). "tool-changed"
+ * follows a change. */
+typedef enum { ZG_TOOL_SELECT = 0, ZG_TOOL_MOVE = 1, ZG_TOOL_MEASURE = 2 } ZgTool;
+ZgTool zg_model_tool(ZgModel *self);
+void zg_model_set_tool(ZgModel *self, ZgTool tool);
+/* The measure tape: up to two points (x, y, z in mm). A third point starts
+ * a new measure. "measure-changed" follows each change. zg_model_measure
+ * gives the number of points and the points. */
+void zg_model_measure_add(ZgModel *self, double x, double y, double z);
+void zg_model_measure_clear(ZgModel *self);
+int zg_model_measure(ZgModel *self, const double **pts);
+
 /* The history: the steps of undo and redo as one list, the oldest first.
  * zg_model_history_current is the step now; the steps after it are the
  * redo steps. zg_model_history_changes gives the changes of step i from

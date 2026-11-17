@@ -4,6 +4,8 @@
  */
 #include "history.h"
 
+#include "settings-browser.h"
+
 #include <math.h>
 #include <string.h>
 
@@ -294,7 +296,79 @@ typedef struct {
     ZgModel *model;
     GtkWidget *list;
     GtkWidget *scroller;
+    GtkWidget *stack; /* the page stack of the panel */
 } Page;
+
+/* A double click on a change: go to it, and open its setting where it
+ * changed (the print, a part, or a layer profile), to edit it. */
+typedef struct {
+    Page *p;
+    guint step;
+    char *line;
+} EditTarget;
+
+static void edit_target_free(gpointer data) {
+    EditTarget *e = data;
+    g_free(e->line);
+    g_free(e);
+}
+
+static void go_step(ZgModel *model, gint64 i);
+
+static void edit_change(EditTarget *e) {
+    Page *p = e->p;
+    ZgModel *model = p->model;
+    if (e->step != zg_model_history_current(model)) go_step(model, e->step);
+    char **f = g_strsplit(e->line, "\t", 3);
+    if (!f[0] || !f[1]) {
+        g_strfreev(f);
+        return;
+    }
+    const char *scope = f[0], *key = f[1];
+    zs_app *core = zg_model_core(model);
+    if (g_str_has_prefix(scope, "part:")) {
+        const char *name = scope + strlen("part:");
+        gint64 idx = -1;
+        for (size_t i = 0; i < zs_app_part_count(core); i++) {
+            zs_part part;
+            if (zs_app_part_get(core, i, &part) == ZS_OK && part.name && strcmp(part.name, name) == 0) {
+                idx = (gint64)i;
+                break;
+            }
+        }
+        if (idx < 0) {
+            g_strfreev(f);
+            return;
+        }
+        /* The place of the part: the part page. */
+        if (key[0] == '(' || !strcmp(key, "position") || !strcmp(key, "rotation") || !strcmp(key, "orientation") || !strcmp(key, "scale")) {
+            zg_model_select_part(model, idx);
+            gtk_stack_set_visible_child_name(GTK_STACK(p->stack), "selected");
+            g_strfreev(f);
+            return;
+        }
+        zg_model_set_part_scope(model, idx);
+    } else if (g_str_has_prefix(scope, "layers:")) {
+        double lo = 0, hi = 0;
+        char **z = g_strsplit(scope + strlen("layers:"), ":", 2);
+        if (z[0] && z[1]) {
+            lo = g_ascii_strtod(z[0], NULL);
+            hi = g_ascii_strtod(z[1], NULL);
+            zg_model_open_profile(model, lo, hi);
+        }
+        g_strfreev(z);
+    } else if (zg_model_part_scope(model) >= 0) {
+        zg_model_set_part_scope(model, -1);
+    }
+    if (key[0] != '(' && strcmp(key, "quality") != 0) {
+        GtkWidget *page = gtk_stack_get_child_by_name(GTK_STACK(p->stack), "settings");
+        if (page) {
+            gtk_stack_set_visible_child_name(GTK_STACK(p->stack), "settings");
+            zg_settings_browser_show_setting(page, key);
+        }
+    }
+    g_strfreev(f);
+}
 
 static void on_revert(GtkButton *b, gpointer data) {
     Page *p = data;
@@ -302,8 +376,16 @@ static void on_revert(GtkButton *b, gpointer data) {
     if (line) zg_model_history_revert(p->model, line);
 }
 
-static GtkWidget *change_row(Page *p, const char *scope, const char *words, const char *line, gboolean can_undo) {
+static GtkWidget *change_row(Page *p, guint step, const char *scope, const char *words, const char *line, gboolean can_undo) {
     GtkWidget *row = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 6);
+    if (line && *line) {
+        EditTarget *e = g_new0(EditTarget, 1);
+        e->p = p;
+        e->step = step;
+        e->line = g_strdup(line);
+        g_object_set_data_full(G_OBJECT(row), "zg-edit", e, edit_target_free);
+        gtk_widget_set_tooltip_text(row, "Double-click to edit this setting where it changed.");
+    }
     gtk_widget_set_margin_top(row, 4);
     GtkWidget *texts = gtk_box_new(GTK_ORIENTATION_VERTICAL, 0);
     gtk_widget_set_hexpand(texts, TRUE);
@@ -378,7 +460,7 @@ static GtkWidget *step_row(Page *p, guint i) {
         /* Only the changes of the step now and before can be undone alone:
          * a later step is not in the settings now. */
         gboolean can = i <= now && revertible(cl[k]);
-        gtk_box_append(GTK_BOX(box), change_row(p, wl[k], tab + 1, cl[k], can));
+        gtk_box_append(GTK_BOX(box), change_row(p, i, wl[k], tab + 1, cl[k], can));
         n++;
     }
     if (n == 0) {
@@ -450,6 +532,21 @@ static gboolean on_page_key(GtkEventControllerKey *c, guint key, guint code, Gdk
     }
 }
 
+/* A double click in the list: the change under the pointer. The list takes
+ * the clicks of its rows, so the gesture is on the list. */
+static void on_list_pressed(GtkGestureClick *g, int n, double x, double y, gpointer data) {
+    Page *p = data;
+    if (n != 2) return;
+    GtkWidget *w = gtk_widget_pick(p->list, x, y, GTK_PICK_DEFAULT);
+    for (; w && w != p->list; w = gtk_widget_get_parent(w)) {
+        EditTarget *e = g_object_get_data(G_OBJECT(w), "zg-edit");
+        if (e) {
+            edit_change(e);
+            return;
+        }
+    }
+}
+
 static void on_row(GtkListBox *list, GtkListBoxRow *row, gpointer data) {
     Page *p = data;
     guint i = GPOINTER_TO_UINT(g_object_get_data(G_OBJECT(row), "zg-step"));
@@ -474,16 +571,18 @@ static void page_free(gpointer data) {
     g_free(p);
 }
 
-GtkWidget *zg_history_page_new(ZgModel *model) {
+GtkWidget *zg_history_page_new(ZgModel *model, GtkWidget *stack) {
     ensure_css();
     Page *p = g_new0(Page, 1);
     p->model = g_object_ref(model);
+    p->stack = stack;
     GtkWidget *box = gtk_box_new(GTK_ORIENTATION_VERTICAL, 4);
     GtkWidget *help = gtk_label_new("Each change of the settings or of the plate, the newest first. "
                                     "Click a change to go back to it: the preview slices as it was then. "
                                     "↑ and ↓ go to the next change, and Space goes back to the one shown before, "
                                     "to compare two. A new edit there drops the later changes. "
-                                    "↶ undoes only one setting and keeps the later changes.");
+                                    "↶ undoes only one setting and keeps the later changes. "
+                                    "Double-click a setting to edit it.");
     gtk_label_set_wrap(GTK_LABEL(help), TRUE);
     gtk_label_set_xalign(GTK_LABEL(help), 0);
     gtk_widget_add_css_class(help, "dim-label");
@@ -494,6 +593,10 @@ GtkWidget *zg_history_page_new(ZgModel *model) {
     gtk_list_box_set_activate_on_single_click(GTK_LIST_BOX(p->list), TRUE);
     gtk_widget_add_css_class(p->list, "navigation-sidebar");
     g_signal_connect(p->list, "row-activated", G_CALLBACK(on_row), p);
+    GtkGesture *dbl = gtk_gesture_click_new();
+    gtk_event_controller_set_propagation_phase(GTK_EVENT_CONTROLLER(dbl), GTK_PHASE_CAPTURE);
+    g_signal_connect(dbl, "pressed", G_CALLBACK(on_list_pressed), p);
+    gtk_widget_add_controller(p->list, GTK_EVENT_CONTROLLER(dbl));
     GtkEventController *pk = gtk_event_controller_key_new();
     gtk_event_controller_set_propagation_phase(pk, GTK_PHASE_CAPTURE);
     g_signal_connect(pk, "key-pressed", G_CALLBACK(on_page_key), p);

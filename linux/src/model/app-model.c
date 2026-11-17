@@ -36,6 +36,11 @@ static void snap_free(gpointer data);
 struct _ZgModel {
     GObject parent;
     zs_app *core;
+    /* The tool of the preview (ZgTool), and the points of the measure tape
+     * (x, y, z each). */
+    int tool;
+    int measure_n;
+    double measure[6];
     Bridge *bridge;
     char *name;
     gint64 selected;
@@ -208,7 +213,7 @@ static void load_group(ZgModel *self, int g) {
 
 G_DEFINE_FINAL_TYPE(ZgModel, zg_model, G_TYPE_OBJECT)
 
-enum { SIGNAL_CORE_EVENT, SIGNAL_SELECTION_CHANGED, SIGNAL_PICKED, SIGNAL_SETTING_CHANGED, SIGNAL_FOCUS_CHANGED, SIGNAL_SCOPE_CHANGED, SIGNAL_PRINTER_CHANGED, SIGNAL_PRINTERS_EDITED, SIGNAL_PART_SELECTED, SIGNAL_PLATE_CHANGED, SIGNAL_SEGMENT_CHANGED, SIGNAL_PROFILES_CHANGED, SIGNAL_OPEN_PROFILE, SIGNAL_GAPS_CHANGED, SIGNAL_UNDO_CHANGED, SIGNAL_PART_SCOPE_CHANGED, N_SIGNALS };
+enum { SIGNAL_CORE_EVENT, SIGNAL_SELECTION_CHANGED, SIGNAL_PICKED, SIGNAL_SETTING_CHANGED, SIGNAL_FOCUS_CHANGED, SIGNAL_SCOPE_CHANGED, SIGNAL_PRINTER_CHANGED, SIGNAL_PRINTERS_EDITED, SIGNAL_PART_SELECTED, SIGNAL_PLATE_CHANGED, SIGNAL_SEGMENT_CHANGED, SIGNAL_PROFILES_CHANGED, SIGNAL_OPEN_PROFILE, SIGNAL_GAPS_CHANGED, SIGNAL_UNDO_CHANGED, SIGNAL_PART_SCOPE_CHANGED, SIGNAL_TOOL_CHANGED, SIGNAL_MEASURE_CHANGED, N_SIGNALS };
 static guint signals[N_SIGNALS];
 
 typedef struct {
@@ -405,6 +410,12 @@ static void zg_model_class_init(ZgModelClass *klass) {
         G_SIGNAL_RUN_LAST, 0, NULL, NULL, NULL, G_TYPE_NONE, 0);
     /* open-profile(double z_min, double z_max): a request to edit the
      * layer profile of that range (zg_model_open_profile). */
+    /* tool-changed(): see zg_model_set_tool. */
+    signals[SIGNAL_TOOL_CHANGED] = g_signal_new("tool-changed", G_TYPE_FROM_CLASS(klass),
+        G_SIGNAL_RUN_LAST, 0, NULL, NULL, NULL, G_TYPE_NONE, 0);
+    /* measure-changed(): a point of the measure tape came or went. */
+    signals[SIGNAL_MEASURE_CHANGED] = g_signal_new("measure-changed", G_TYPE_FROM_CLASS(klass),
+        G_SIGNAL_RUN_LAST, 0, NULL, NULL, NULL, G_TYPE_NONE, 0);
     signals[SIGNAL_OPEN_PROFILE] = g_signal_new("open-profile", G_TYPE_FROM_CLASS(klass),
         G_SIGNAL_RUN_LAST, 0, NULL, NULL, NULL, G_TYPE_NONE, 2, G_TYPE_DOUBLE, G_TYPE_DOUBLE);
     /* setting-changed(const char *key): after zg_model_set changes a value,
@@ -1272,6 +1283,41 @@ gboolean zg_model_history_revert(ZgModel *self, const char *line) {
     }
     g_strfreev(f);
     return TRUE;
+}
+
+/* ---- the tools of the preview, and the measure tape ---- */
+
+ZgTool zg_model_tool(ZgModel *self) {
+    return (ZgTool)self->tool;
+}
+
+void zg_model_set_tool(ZgModel *self, ZgTool tool) {
+    if (self->tool == (int)tool) return;
+    self->tool = (int)tool;
+    /* The tape goes with its tool. */
+    if (tool != ZG_TOOL_MEASURE && self->measure_n > 0) zg_model_measure_clear(self);
+    g_signal_emit(self, signals[SIGNAL_TOOL_CHANGED], 0);
+}
+
+void zg_model_measure_add(ZgModel *self, double x, double y, double z) {
+    /* A third point starts a new measure. */
+    if (self->measure_n >= 2) self->measure_n = 0;
+    self->measure[3 * self->measure_n] = x;
+    self->measure[3 * self->measure_n + 1] = y;
+    self->measure[3 * self->measure_n + 2] = z;
+    self->measure_n++;
+    g_signal_emit(self, signals[SIGNAL_MEASURE_CHANGED], 0);
+}
+
+void zg_model_measure_clear(ZgModel *self) {
+    if (self->measure_n == 0) return;
+    self->measure_n = 0;
+    g_signal_emit(self, signals[SIGNAL_MEASURE_CHANGED], 0);
+}
+
+int zg_model_measure(ZgModel *self, const double **pts) {
+    if (pts) *pts = self->measure;
+    return self->measure_n;
 }
 
 gboolean zg_model_can_undo(ZgModel *self) {
