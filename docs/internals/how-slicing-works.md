@@ -46,7 +46,7 @@ The next stages use two tools on polygons.
 
 The plan of a layer has the paths that the nozzle follows.
 
-**Walls.** The nozzle makes a line of plastic about 0.45 mm wide. The center of the outer wall is half a line width inside the outline, so the outside of the plastic is on the outline. Each next wall is one line width further in.
+**Walls.** The nozzle makes a line of plastic about 0.45 mm wide. The center of the outer wall is half a line width inside the outline, so the outside of the plastic is on the outline. Each next wall is one line width further in. With `project.wall_generator = arachne`, the walls follow the center lines of the part, and the width of each line changes along it, so that a whole number of lines fills the part (see [Arachne walls](arachne.md)).
 
 **Skin.** The top and bottom of a part must be solid. The other parts can be hollow, with a sparse infill. For each layer, the slicer looks at the layers above and below:
 

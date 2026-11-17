@@ -15,7 +15,10 @@ zig build -Doptimize=ReleaseFast
 python3 -I tools/compare_cura.py run zig-out/bin/zslice ~/cura-compare
 python3 -I tools/compare_cura.py summary ~/cura-compare
 python3 -I tools/compare_cura.py check model.stl
+python3 -I tools/compare_cura.py walls zig-out/bin/zslice model.stl ~/cura-walls
 ```
+
+`walls` slices one model with zslice (classic walls, and Arachne walls with the Arachne settings of the Cura run) and with CuraEngine. It prints the wall paths and the wall volume of each slicer, the share of the wall length in each band of line width, and the number of layers where zslice Arachne and CuraEngine have the same number of wall paths. The line width of each move comes from its extrusion. CuraEngine extrudes a rectangle of the line width and the layer height, and zslice the bead of `flow.zig`, so the wall volumes differ by the two bead models (about 9 % at 0.5 mm x 0.2 mm). See [Arachne walls](arachne.md).
 
 Options of `run`:
 

@@ -35,6 +35,7 @@
 <a href="../../internals/architecture/">Architecture</a>
 <a href="../../internals/how-slicing-works/" aria-current="page">How slicing works</a>
 <a href="../../internals/layer-settings/">Settings for some layers</a>
+<a href="../../internals/arachne/">Arachne walls</a>
 <a href="../../internals/cura-compare/">Cura comparison</a>
 <a href="../../internals/contributing/">Contributing</a>
 <a href="../../internals/code-quality/">Code quality</a>
@@ -66,7 +67,7 @@
 <p><strong>Offset</strong> (<code>offset.zig</code>): move each boundary in or out by a distance. Each edge moves along its normal. The corners get joins. Where the moved edges cross (an inside corner, or a shape that becomes too small), a union removes the parts that turn the wrong way.</p>
 <h2 id="5-plan-each-layer-srclayerzig">5. Plan each layer (<code>src/layer.zig</code>)</h2>
 <p>The plan of a layer has the paths that the nozzle follows.</p>
-<p><strong>Walls.</strong> The nozzle makes a line of plastic about 0.45 mm wide. The center of the outer wall is half a line width inside the outline, so the outside of the plastic is on the outline. Each next wall is one line width further in.</p>
+<p><strong>Walls.</strong> The nozzle makes a line of plastic about 0.45 mm wide. The center of the outer wall is half a line width inside the outline, so the outside of the plastic is on the outline. Each next wall is one line width further in. With <code>project.wall_generator = arachne</code>, the walls follow the center lines of the part, and the width of each line changes along it, so that a whole number of lines fills the part (see <a href="../../internals/arachne/">Arachne walls</a>).</p>
 <p><strong>Skin.</strong> The top and bottom of a part must be solid. The other parts can be hollow, with a sparse infill. For each layer, the slicer looks at the layers above and below:</p>
 <ul><li>A point is "supported" if it is inside the part in each of the next few layers above (the top thickness) and below (the bottom thickness).</li><li>Skin is the area inside the walls minus the supported area.</li><li>Sparse infill is the remaining area.</li></ul>
 <p><strong>Fill.</strong> Skin gets lines one line width apart. Sparse infill gets lines further apart, from the density. The fill uses a scanline method (<code>src/infill.zig</code>): turn the shape so that the lines are horizontal, find where each line crosses the polygon edges, and keep the parts of the line that are inside. All layers use the same line grid, so the infill lines of each layer are on top of the lines below. With <code>project.infill_layers</code> above 1, the sparse infill prints once every few layers, as one taller bead (see <a href="../../internals/layer-settings/">Settings for some layers</a>, "Combined infill").</p>

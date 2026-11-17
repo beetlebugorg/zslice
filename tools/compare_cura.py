@@ -6,6 +6,7 @@ Usage:
       [--root DIR] [--jobs N] [--timeout S] [--limit N] [--rescan]
   python3 -I tools/compare_cura.py summary <out folder>
   python3 -I tools/compare_cura.py check <model.stl> ...
+  python3 -I tools/compare_cura.py walls <zslice binary> <model.stl> <out folder>
 
 run: The script finds each STL file under the root folder (default
 ~/Projects). It skips .git, node_modules, .zig-cache, and the zslice-*
@@ -43,6 +44,14 @@ degenerate triangles, the open edges (one triangle), the non-manifold edges
 (more than two triangles), the edges with two triangles in the same
 direction (flipped normals), and the parts (groups of triangles that share
 edges).
+
+walls: Slice one model with zslice (classic walls, and Arachne walls with
+the Arachne settings of Cura) and with CuraEngine, and compare the walls:
+the wall paths and the wall volume of each layer, and the share of the
+wall length in each band of line width. The width of a move comes from its
+extrusion: CuraEngine extrudes a rectangle of the line width and the layer
+height, zslice the bead of flow.zig. The volumes differ by the two bead
+models.
 
 CuraEngine (AGPL-3.0) is a tool that this script runs. No code is copied.
 See REFERENCES.md.
@@ -727,8 +736,130 @@ def check(path):
              degenerate, open_e, nonman, flipped, parts))
 
 
+# The Arachne settings of zslice that match the Cura settings above.
+ZSLICE_ARACHNE = [
+    "project.wall_generator=arachne",
+    "project.line_width=0.5",
+    "project.min_wall_line_width=0.425",
+    "project.min_feature_size=0.125",
+    "project.min_bead_width=0.425",
+    "project.wall_transition_length=0.5",
+]
+
+NUM_RE = re.compile(r"([XYZE])(-?\d+\.?\d*)")
+
+
+def wall_moves(path, cura):
+    """The wall paths of each layer of a G-code file: for each layer, a list
+    of paths, each a list of (length, width, volume) moves."""
+    area_f = math.pi * (2.85 / 2) ** 2
+    layers = {}
+    kind, layer, cur = None, -1, None
+    x = y = 0.0
+    e_last, relative = 0.0, False
+    with open(path, errors="replace") as f:
+        for line in f:
+            if line.startswith(";LAYER:"):
+                layer = int(line[7:])
+                layers[layer] = []
+                cur = None
+            elif line.startswith(";TYPE:"):
+                kind = line[6:].strip()
+                cur = None
+            if line[0] == ";":
+                continue
+            s = line.split(";")[0]
+            if s.startswith("M83"):
+                relative = True
+            elif s.startswith("M82"):
+                relative = False
+            elif s.startswith("G92"):
+                m = E_RE.search(s)
+                if m:
+                    e_last = float(m.group(1))
+            if not (s.startswith("G0") or s.startswith("G1")):
+                continue
+            v = dict((k, float(n)) for k, n in NUM_RE.findall(s))
+            nx, ny = v.get("X", x), v.get("Y", y)
+            de = 0.0
+            if "E" in v:
+                de = v["E"] if relative else v["E"] - e_last
+                if not relative:
+                    e_last = v["E"]
+            d = math.hypot(nx - x, ny - y)
+            if de > 0 and d > 1e-4 and layer >= 0 and kind in ("WALL-OUTER", "WALL-INNER"):
+                h = 0.3 if layer == 0 else 0.2
+                area = de * area_f / d
+                if cura:
+                    w = area / h
+                else:
+                    rnd = math.pi * h * h / 4
+                    w = 2 * math.sqrt(area / math.pi) if area <= rnd else (area - rnd) / h + h
+                if cur is None:
+                    cur = []
+                    layers[layer].append(cur)
+                cur.append((d, w, area * d))
+            else:
+                cur = None
+            x, y = nx, ny
+    return layers
+
+
+def cmd_walls(argv):
+    zslice, stl, out = os.path.abspath(argv[0]), os.path.abspath(argv[1]), os.path.abspath(argv[2])
+    os.makedirs(out, exist_ok=True)
+    ctx = {"zslice": zslice, "timeout": 600}
+    prepare(ctx, out)
+    runs = {}
+    for name, extra in (("zslice classic", ["project.line_width=0.5"]), ("zslice arachne", ZSLICE_ARACHNE)):
+        gcode = os.path.join(out, name.replace(" ", "-") + ".gcode")
+        cmd = [zslice, "slice", stl, "-m", ctx["machine"]]
+        for kv in ZSLICE_SETTINGS + extra:
+            cmd += ["-s", kv]
+        subprocess.run(cmd + ["-o", gcode], check=True, capture_output=True)
+        runs[name] = wall_moves(gcode, False)
+    gcode = os.path.join(out, "cura.gcode")
+    args = []
+    for kv in CURA_SETTINGS:
+        args += ["-s", kv]
+    cmd = [CURA_LOADER, CURA_ENGINE, "slice", "-m1", "-j",
+           os.path.join(ctx["defs"], TAZ_MACHINE + ".def.json")]
+    cmd += args + ["-e0"] + args + ["-l", stl, "-o", gcode]
+    env = dict(os.environ, LD_LIBRARY_PATH=CURA_DIR,
+               CURA_ENGINE_SEARCH_PATH=":".join([ctx["defs"], CURA_DEFS, CURA_EXTRUDERS]))
+    subprocess.run(cmd, check=True, capture_output=True, env=env)
+    runs["CuraEngine"] = wall_moves(gcode, True)
+
+    print("| slicer | wall paths | wall volume (mm3) | wall length (mm) |")
+    print("|---|---|---|---|")
+    hists = {}
+    for name, layers in runs.items():
+        moves = [m for paths in layers.values() for p in paths for m in p]
+        paths = sum(len(v) for v in layers.values())
+        length = sum(m[0] for m in moves)
+        hist = {}
+        for d, w, _ in moves:
+            b = min(int(w / 0.05), 30)
+            hist[b] = hist.get(b, 0) + d
+        hists[name] = (hist, length)
+        print("| %s | %d | %.1f | %.0f |" % (name, paths, sum(m[2] for m in moves), length))
+    print()
+    print("| width (mm) | " + " | ".join(runs) + " |")
+    print("|---|" + "---|" * len(runs))
+    for b in range(31):
+        row = [h.get(b, 0) / max(length, 1e-9) * 100 for h, length in hists.values()]
+        if max(row) >= 0.5:
+            print("| %.2f to %.2f | %s |" % (b * 0.05, (b + 1) * 0.05, " | ".join("%.1f %%" % r for r in row)))
+    za, cu = runs["zslice arachne"], runs["CuraEngine"]
+    same = sum(1 for i in cu if len(za.get(i, [])) == len(cu[i]))
+    print()
+    print("Layers with the same number of wall paths in zslice arachne and CuraEngine: %d of %d" % (same, len(cu)))
+
+
 def main():
-    if len(sys.argv) >= 4 and sys.argv[1] == "run":
+    if len(sys.argv) == 5 and sys.argv[1] == "walls":
+        cmd_walls(sys.argv[2:])
+    elif len(sys.argv) >= 4 and sys.argv[1] == "run":
         cmd_run(sys.argv[2:])
     elif len(sys.argv) == 3 and sys.argv[1] == "summary":
         write_summary(os.path.abspath(sys.argv[2]))

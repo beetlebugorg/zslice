@@ -72,6 +72,7 @@ A `LayerPlan` has:
 | `outline` | The outline of the layer: counterclockwise outer boundaries and clockwise holes. |
 | `paths`, `points` | The paths in print order. `points.get(i)` gives the points of `paths.items[i]`. |
 | `point_z` | For a path that is not planar (slope smoothing): `paths.items[i].z_start` is not `Path.planar`, and `point_z.items[z_start + k]` has the nozzle z (mm) and the bead area (mm²) of point k. All other paths are at `z`. |
+| `point_w` | For a path whose line width changes along it (Arachne walls, `project.wall_generator = arachne`): `paths.items[i].w_start` is not `Path.planar`, and `point_w.items[w_start + k]` has the line width (mm) of point k. A segment has the mean width of its two ends. All other paths have the width `paths.items[i].width`, or `width` if that is 0. |
 
 Coordinates are integers in micrometers (`zslice.geom.Point`). Use `zslice.geom.toMm` to change them to millimeters.
 

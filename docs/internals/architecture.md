@@ -16,6 +16,9 @@ src/
   mesh.zig       Mesh, Builder (vertex weld), STL load and write, test shapes.
   slicer.zig     Layer table, face index, mesh -> layer outline.
   layer.zig      Layer plan: walls, skin, infill, path order.
+  arachne.zig    Arachne walls with a variable line width (a port of
+                 CuraEngine): arachne/beading.zig, skeletal.zig,
+                 extrusion.zig, walls.zig.
   slope.zig      Slope smoothing: beads in the steps of sloped tops.
   support.zig    Support areas under overhangs (grid support).
   tree_support.zig  Tree support: branches that join on the way down.
@@ -30,6 +33,9 @@ src/
   clip.zig       Polygon booleans.
   clip_open.zig  Clip open polylines to a region.
   offset.zig     Polygon offset.
+  voronoi.zig    Voronoi diagram of points and segments (a port of
+                 boost::polygon), with voronoi_predicates.zig and
+                 voronoi_ctypes.zig.
   infill.zig     Scanline line fill, and the other infill patterns.
   flow.zig       The shape and the volume of a bead.
   motion.zig     Motion planner: the time of each move with acceleration.

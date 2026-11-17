@@ -1,0 +1,73 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Arachne walls · zslice</title>
+<meta name="description" content="Arachne walls: zslice documentation.">
+<link rel="canonical" href="https://beetlebug.org/zslice/internals/arachne/">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@500;600;700&family=IBM+Plex+Sans:ital,wght@0,400;0,600;0,700;1,700&display=swap" rel="stylesheet">
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='6' fill='%23171717'/%3E%3Crect x='11' y='8' width='10' height='4' rx='1' fill='%23f4f0e6'/%3E%3Crect x='8' y='14' width='16' height='4' rx='1' fill='%23f4f0e6'/%3E%3Crect x='5' y='20' width='22' height='4' rx='1' fill='%23ff5a1f'/%3E%3C/svg%3E">
+<link rel="stylesheet" href="../../site.css">
+</head>
+<body>
+<input type="checkbox" id="menu">
+<header class="top">
+  <a class="brand" href="../../"><span class="mark">ZSLICE</span><span class="docs">DOCS</span></a>
+  <label class="menu-btn" for="menu">Contents</label>
+  <nav class="top-links"><a href="../../user/getting-started/">Get started</a><a href="../../roadmap/">Roadmap</a><a href="https://github.com/beetlebugorg/zslice">GitHub</a></nav>
+</header>
+<div class="layout">
+<aside class="side"><nav><a href="../../">Home</a>
+<a href="../../contents/">All documents</a>
+<div class="group">User guide</div>
+<a href="../../user/getting-started/">Getting started</a>
+<a href="../../user/settings/">Settings</a>
+<a href="../../user/profiles/">Profiles</a>
+<a href="../../user/troubleshooting/">Troubleshooting</a>
+<div class="group">Embedding</div>
+<a href="../../embedding/">Overview</a>
+<a href="../../embedding/c/">C</a>
+<a href="../../embedding/zig/">Zig</a>
+<a href="../../embedding/javascript/">JavaScript</a>
+<div class="group">Internals</div>
+<a href="../../internals/architecture/">Architecture</a>
+<a href="../../internals/how-slicing-works/">How slicing works</a>
+<a href="../../internals/layer-settings/">Settings for some layers</a>
+<a href="../../internals/arachne/" aria-current="page">Arachne walls</a>
+<a href="../../internals/cura-compare/">Cura comparison</a>
+<a href="../../internals/contributing/">Contributing</a>
+<a href="../../internals/code-quality/">Code quality</a>
+<div class="group">Project</div>
+<a href="../../app/">App</a>
+<a href="../../references/">References</a>
+<a href="../../roadmap/">Roadmap</a></nav></aside>
+<main>
+<p class="eyebrow">Internals</p>
+<h1>Arachne walls</h1>
+
+<nav class="onpage"><b>On this page</b><ol><li><a href="#why">Why</a></li><li><a href="#the-method">The method</a></li><li><a href="#the-settings">The settings</a></li><li><a href="#in-the-layer-plan">In the layer plan</a></li><li><a href="#tests">Tests</a></li></ol></nav><p>With <code>project.wall_generator = arachne</code>, the walls of each layer come from Arachne, the variable-width wall method of Cura. The code is a port to Zig of CuraEngine (AGPL-3.0-or-later). The Voronoi diagram is a port of boost::polygon (Boost Software License 1.0). See <code>REFERENCES.md</code> for the files, the commit hashes, and the copyright lines.</p>
+<h2 id="why">Why</h2>
+<p>A classic wall is the outline moved in by a whole number of line widths. A part that is 1.0 mm thick, with 0.44 mm lines, gets two lines and a gap of 0.12 mm in the middle. A part thinner than one line gets no wall, or a thin wall loop (<code>thin_walls</code>). Arachne measures the thickness of the part at each point, and fills it with a whole number of lines whose widths add up to the thickness. Where the bead count changes (a wedge), one line splits into two, or two lines join into one, over a short transition.</p>
+<h2 id="the-method">The method</h2>
+<p>The files are in <code>src/arachne/</code>. Each file explains its part in its header comment.</p>
+<ol><li><code>walls.zig</code> cleans the outline: an opening and a closing remove slivers, small areas go, a simplify removes the points within 25 µm of a line, and a union removes crossings.</li><li><code>../voronoi.zig</code> makes the Voronoi diagram of the outline segments, with a sweep line and robust predicates (a port of boost::polygon). Each cell belongs to one segment or to one vertex of the outline.</li><li><code>skeletal.zig</code> turns the inside part of the diagram into a graph of "quads": for each cell, a chain of edges from the outline up to the center line and back. Each node knows its distance R to the outline. A curved Voronoi edge (between a vertex and a segment) becomes short straight pieces.</li><li>An edge is central if R grows slowly along it. The central edges get a bead count from the beading strategy (<code>beading.zig</code>) for the thickness 2R. Where the count changes, a transition gets a new node at each end, with a rib to the outline.</li><li>Each node gets a beading: the width and the distance from the outline of each bead. The beadings spread from the central nodes to the other nodes.</li><li>On each rib, each bead gets a junction (a point and a width). The junctions of each quad join into line pieces, one list for each wall.</li><li><code>walls.zig</code> stitches the pieces into lines and loops (<code>extrusion.zig</code>), removes tiny odd lines, and simplifies the lines. The beads of width 0 are not printed: they mark the inner edge of the walls. Their loops make the inner area, for the skin and the infill.</li></ol>
+<p>The beading strategy is the chain of CuraEngine <code>makeStrategy</code>: distributed, redistribute (the outer walls keep their width), widening (a thin part gets one line of at least <code>min_bead_width</code>), the outer wall inset, and limited (at most 2 x <code>wall_count</code> beads, and the 0-width marker).</p>
+<h2 id="the-settings">The settings</h2>
+<p>The names follow Cura. A value of 0 uses the Cura default for the nozzle and the line width:</p>
+<div class="table-wrap"><table><thead><tr><th>zslice</th><th>Cura</th><th>Default</th></tr></thead><tbody><tr><td><code>min_wall_line_width</code></td><td><code>min_wall_line_width</code> (<code>min_even_wall_line_width</code>, <code>min_odd_wall_line_width</code>)</td><td>0.85 x the nozzle diameter</td></tr><tr><td><code>min_feature_size</code></td><td><code>min_feature_size</code></td><td>1/4 of the line width</td></tr><tr><td><code>min_bead_width</code></td><td><code>min_bead_width</code></td><td><code>min_wall_line_width</code></td></tr><tr><td><code>wall_transition_length</code></td><td><code>wall_transition_length</code></td><td>the line width</td></tr><tr><td><code>wall_transition_angle</code></td><td><code>wall_transition_angle</code></td><td>10 degrees</td></tr><tr><td><code>wall_transition_filter_distance</code></td><td><code>wall_transition_filter_distance</code></td><td>100 mm</td></tr><tr><td><code>wall_distribution_count</code></td><td><code>wall_distribution_count</code></td><td>1</td></tr></tbody></table></div>
+<p>Fixed values, as the Cura defaults: <code>fill_outline_gaps</code> is on (thin parts print), <code>wall_transition_filter_deviation</code> is 1/4 of the nozzle diameter, the discretization step is 0.8 mm, and the simplify uses <code>meshfix_maximum_resolution</code> 0.5 mm, <code>meshfix_maximum_deviation</code> 0.025 mm, and <code>meshfix_maximum_extrusion_area_deviation</code> 50000 µm². The outer and inner walls have the same line width. All Arachne settings can change per layer.</p>
+<p>Not ported: the "fluid motion" smoothing of the outline (<code>meshfix_fluid_motion_enabled</code>). The inner wall inset (<code>wall_x_inset</code>, 0 in Cura) is in the strategy, with no setting.</p>
+<h2 id="in-the-layer-plan">In the layer plan</h2>
+<p><code>layer.regions</code> keeps the Arachne result of each layer in its memo (<code>Memo.arachneWalls</code>), by the settings. <code>Regions.var_walls</code> has the lines of each wall, with a width for each point. The inner area replaces the classic inner offset, with its own memo key (<code>arachneDelta</code>), so the skin and the infill memos work as before.</p>
+<p>The plan prints the walls in the classic order: in each island, the inner walls from the inside out, then the outer wall. The loops of a wall start at their seam (<code>project.seam</code>), as the classic loops. The open lines of a wall (the odd lines in the middle of a thin part, and the pieces of a wall that does not close) come after its loops, in the nearest order. CuraEngine prints the even walls clockwise around the part. The plan turns them, so that they go counterclockwise around the part, as the classic walls.</p>
+<p>A path with a width for each point has <code>Path.w_start</code>, and its widths are in <code>LayerPlan.point_w</code>. The G-code writer extrudes each segment with the mean width of its two ends and the bead model of <code>flow.zig</code>. The speed limit of <code>filament.max_flow</code> uses the widest point of the path. The preview gets the bead area of each point in <code>Toolpaths.point_area</code> (with the z of the layer in <code>point_z</code>), as the slope smoothing beads, and draws each segment with its own width.</p>
+<h2 id="tests">Tests</h2>
+<ul><li><code>src/voronoi.zig</code>: the diagram against a brute force check on random points and segments.</li><li><code>src/arachne/beading.zig</code>: the bead counts and widths for known thicknesses.</li><li><code>src/arachne/walls.zig</code>: a 1.2 mm wall with 0.4 mm lines gets 3 beads of 0.4 mm; a 0.3 mm fin gets one narrow bead; a wedge gets a bead count that goes up along it.</li></ul>
+<p>The <a href="../../internals/cura-compare/">Cura comparison</a> can compare the walls with CuraEngine, which also uses Arachne.</p><nav class="pager"><a class="prev" href="../../internals/layer-settings/"><span>Previous</span><b>Settings for some layers</b></a><a class="next" href="../../internals/cura-compare/"><span>Next</span><b>Cura comparison</b></a></nav>
+</main>
+</div>
+<footer>zslice is free software (AGPL-3.0-or-later). <a href="https://github.com/beetlebugorg/zslice/blob/master/docs/build.py">docs/build.py</a> writes this site from <a href="https://github.com/beetlebugorg/zslice/blob/master/docs/internals/arachne.md">docs/internals/arachne.md</a>.</footer>
+</body>
+</html>
