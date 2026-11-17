@@ -10,6 +10,7 @@
 #include "widgets.h"
 
 #include <math.h>
+#include <stdlib.h>
 #include <string.h>
 
 /* The groups of settings, in the order of the browser, with their titles. */
@@ -50,6 +51,12 @@ typedef struct {
     double p_min, p_max;
     gboolean profile_list; /* column 2 lists the changes of the profile */
     GtkWidget *pbar, *pbar_title, *pbar_note, *rename_entry;
+    /* The history of the panel (settings-panel.c): a call after each move,
+     * and the Back button. `restoring`: a move back, with no call. */
+    void (*nav_fn)(gpointer);
+    void (*back_fn)(gpointer);
+    gpointer nav_data;
+    gboolean restoring;
 } Browser;
 
 static void fill_profiles(Browser *b);
@@ -90,7 +97,9 @@ static void scroll_to_end(Browser *b) {
 
 static void on_back(GtkButton *button, gpointer data) {
     Browser *b = data;
-    show_column(b, b->column - 1);
+    /* The history of the panel, else the column before. */
+    if (b->back_fn) b->back_fn(b->nav_data);
+    else show_column(b, b->column - 1);
 }
 
 static void on_crumb(GtkButton *button, gpointer data) {
@@ -134,7 +143,8 @@ static void update_crumbs(Browser *b) {
     }
     zs_setting_info info;
     if (b->key && zg_setting_find(b->key, &info)) add_crumb(b, info.label, 2);
-    gtk_widget_set_sensitive(b->back, b->column > 0);
+    gtk_widget_set_sensitive(b->back, b->column > 0 || b->back_fn);
+    if (b->nav_fn && !b->restoring) b->nav_fn(b->nav_data);
 }
 
 /* Sends the focus to the previews, only while the Settings page shows. */
@@ -1163,6 +1173,59 @@ GtkWidget *zg_settings_browser_new(ZgModel *model, GtkWidget *panel_stack) {
     }
     update_crumbs(b);
     return b->page;
+}
+
+char *zg_settings_browser_get_place(GtkWidget *browser) {
+    Browser *b = g_object_get_data(G_OBJECT(browser), "zg-browser");
+    if (!b) return g_strdup("");
+    return g_strdup_printf("%d\t%s\t%s\t%d\t%s", b->column, b->group ? b->group : "", b->section ? b->section : "\x1f",
+                           b->feature, b->key ? b->key : "");
+}
+
+void zg_settings_browser_set_place(GtkWidget *browser, const char *place) {
+    Browser *b = g_object_get_data(G_OBJECT(browser), "zg-browser");
+    if (!b || !place) return;
+    char **f = g_strsplit(place, "\t", 5);
+    if (g_strv_length(f) == 5) {
+        b->restoring = TRUE;
+        int column = atoi(f[0]);
+        int feature = atoi(f[3]);
+        const char *section = strcmp(f[2], "\x1f") == 0 ? NULL : f[2];
+        if (feature >= 0) {
+            show_feature(b, feature);
+        } else if (f[1][0] && section) {
+            for (int i = 0;; i++) {
+                GtkListBoxRow *row = gtk_list_box_get_row_at_index(GTK_LIST_BOX(b->sections), i);
+                if (!row) break;
+                if (g_strcmp0(g_object_get_data(G_OBJECT(row), "zg-group"), f[1]) == 0 &&
+                    g_strcmp0(g_object_get_data(G_OBJECT(row), "zg-section"), section) == 0) {
+                    gtk_list_box_select_row(GTK_LIST_BOX(b->sections), row);
+                    break;
+                }
+            }
+        }
+        if (f[4][0]) {
+            select_setting(b, f[4]);
+            show_detail(b, f[4]);
+        }
+        show_column(b, column);
+        b->restoring = FALSE;
+    }
+    g_strfreev(f);
+}
+
+void zg_settings_browser_set_history(GtkWidget *browser, void (*nav)(gpointer), void (*back)(gpointer), gpointer data) {
+    Browser *b = g_object_get_data(G_OBJECT(browser), "zg-browser");
+    if (!b) return;
+    b->nav_fn = nav;
+    b->back_fn = back;
+    b->nav_data = data;
+    update_crumbs(b);
+}
+
+void zg_settings_browser_up(GtkWidget *browser) {
+    Browser *b = g_object_get_data(G_OBJECT(browser), "zg-browser");
+    if (b && b->column > 0) show_column(b, b->column - 1);
 }
 
 void zg_settings_browser_show_setting(GtkWidget *browser, const char *key) {

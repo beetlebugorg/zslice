@@ -233,6 +233,8 @@ The settings are in three groups, each with its own menu at the top of the windo
 
 The Filament and Part menus list the built-in profiles and your own (in `profiles/filament/` and `profiles/project/` in the settings folder, where `zslice slice -f` and `-p` find them too), and have **Save as profile…**. The Part menu shows the profile in use, with a dot when its settings have changes. When you pick another profile and the settings have changes that are in no profile, zslice asks first: save them as a profile, discard them, or cancel.
 
+The panel at the right has two pages, Selected and Settings, and one history for both: **Back** (the arrow at the left of the tabs, the arrow of the Settings path, the back button of the mouse, or Alt+Left) goes to where you were before, also across the two pages. For example: a link from the Selected page opens a setting, and Back returns to the line.
+
 In the Settings page, each row of a section has the setting's field (a number with its unit, a switch, or a choice), so a quick change needs no other page. The › at the end of a row opens its detail page: what it does, its default, and the lines of the project that it changes, with their time.
 
 ## Layer profiles

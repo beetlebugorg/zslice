@@ -32,3 +32,14 @@ void zg_settings_browser_show_setting(GtkWidget *browser, const char *key);
 
 /* TRUE if the page must be in front at the start (ZSLICE_SETTING). */
 gboolean zg_settings_browser_opens_first(GtkWidget *browser);
+
+/* The place in the browser (its column, section or feature list, and
+ * setting) as text, and a move back to such a place. For the history of
+ * the panel. */
+char *zg_settings_browser_get_place(GtkWidget *browser);
+void zg_settings_browser_set_place(GtkWidget *browser, const char *place);
+/* The history of the panel: `nav` after each move in the browser, and
+ * `back` for its Back button (in place of the column before). */
+void zg_settings_browser_set_history(GtkWidget *browser, void (*nav)(gpointer), void (*back)(gpointer), gpointer data);
+/* The column before. */
+void zg_settings_browser_up(GtkWidget *browser);
