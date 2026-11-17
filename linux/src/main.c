@@ -58,6 +58,8 @@ static const char *ZG_CSS =
     ".zg-layers slider { min-width: 18px; min-height: 18px; border-radius: 9px; background: #ffffff;"
     "  border: 1px solid alpha(#000, 0.25); box-shadow: 0 1px 3px alpha(#000, 0.3); }"
     ".zg-layers slider:hover { box-shadow: 0 1px 4px alpha(#000, 0.4), 0 0 0 3px alpha(@accent_bg_color, 0.25); }"
+    ".zg-issue-problem { color: #e01b24; }"
+    ".zg-issue-warning { color: #e5a50a; }"
     ".zg-knob-label { font-size: 0.75em; font-feature-settings: 'tnum'; color: #fff; background: alpha(#202326, 0.82);"
     "  border-radius: 6px; padding: 1px 6px; min-width: 2.2em; }"
     ".zg-scrub { padding: 2px 12px; border-radius: 14px; }"

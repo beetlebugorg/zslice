@@ -42,6 +42,7 @@ typedef struct {
     GtkWidget *isolate;
     /* The gaps view: the toggle, and the number of gaps of the layer. */
     GtkWidget *gaps, *gap_count;
+    GtkWidget *check, *check_list; /* the printability check */
     /* The plates: a button for each, and "+". */
     GtkWidget *plates;
     /* The scrub bar: the nozzle through the top layer (0 its start, 1 the
@@ -145,6 +146,65 @@ static void draw_gaps(Preview *p, cairo_t *cr, size_t layer) {
         }
         cairo_fill(cr);
     }
+}
+
+static void show_layer(Preview *p, size_t layer);
+
+/* The printability check (zs_app_checks): a list of the issues of the
+ * slice, the worst first. It runs when the list opens, so a slice stays
+ * fast. A click on an issue shows its layer. */
+static void on_check_row(GtkListBox *box, GtkListBoxRow *row, gpointer data) {
+    Preview *p = data;
+    size_t layer = GPOINTER_TO_SIZE(g_object_get_data(G_OBJECT(row), "zg-layer"));
+    if (layer < p->layer_count) show_layer(p, layer);
+}
+
+static void fill_check(Preview *p) {
+    GtkListBox *list = GTK_LIST_BOX(p->check_list);
+    gtk_list_box_remove_all(list);
+    const zs_issue *issues = NULL;
+    size_t n = 0;
+    const char *text = NULL;
+    zs_app *core = zg_model_core(p->model);
+    const char *empty = NULL;
+    if (zs_app_state(core) != ZS_STATE_DONE) empty = "Slice the plate first.";
+    else if (zs_app_checks(core, &issues, &n, &text) != ZS_OK) empty = "The check failed.";
+    else if (n == 0) empty = "No issues found.";
+    if (empty) {
+        GtkWidget *l = gtk_label_new(empty);
+        gtk_widget_add_css_class(l, "dim-label");
+        gtk_widget_set_margin_top(l, 12);
+        gtk_widget_set_margin_bottom(l, 12);
+        gtk_list_box_append(list, l);
+        return;
+    }
+    static const char *icons[] = {"dialog-information-symbolic", "dialog-warning-symbolic", "dialog-error-symbolic"};
+    for (size_t i = 0; i < n; i++) {
+        GtkWidget *row = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 8);
+        gtk_widget_set_margin_start(row, 6);
+        gtk_widget_set_margin_end(row, 6);
+        gtk_widget_set_margin_top(row, 4);
+        gtk_widget_set_margin_bottom(row, 4);
+        GtkWidget *icon = gtk_image_new_from_icon_name(icons[MIN(issues[i].severity, 2)]);
+        gtk_widget_set_valign(icon, GTK_ALIGN_START);
+        if (issues[i].severity == 2) gtk_widget_add_css_class(icon, "zg-issue-problem");
+        else if (issues[i].severity == 1) gtk_widget_add_css_class(icon, "zg-issue-warning");
+        gtk_box_append(GTK_BOX(row), icon);
+        char *t = g_strndup(text + issues[i].text_start, issues[i].text_len);
+        GtkWidget *l = gtk_label_new(t);
+        g_free(t);
+        gtk_label_set_wrap(GTK_LABEL(l), TRUE);
+        gtk_label_set_xalign(GTK_LABEL(l), 0);
+        gtk_label_set_max_width_chars(GTK_LABEL(l), 48);
+        gtk_box_append(GTK_BOX(row), l);
+        gtk_list_box_append(list, row);
+        GtkWidget *r = gtk_widget_get_parent(row);
+        g_object_set_data(G_OBJECT(r), "zg-layer", GSIZE_TO_POINTER(issues[i].layer));
+    }
+}
+
+static void on_check_shown(GtkPopover *pop, gpointer data) {
+    fill_check(data);
 }
 
 static void load_layer(Preview *p, size_t layer) {
@@ -856,6 +916,26 @@ GtkWidget *zg_preview_new(ZgModel *model) {
     gtk_widget_set_margin_end(p->gap_count, 6);
     gtk_widget_set_visible(p->gap_count, FALSE);
     gtk_box_append(GTK_BOX(bar), p->gap_count);
+    /* The printability check: things that can make the print fail. */
+    p->check = gtk_menu_button_new();
+    gtk_menu_button_set_label(GTK_MENU_BUTTON(p->check), "Check");
+    gtk_widget_set_tooltip_text(p->check, "Check the slice: overhangs with no support, bridges, shapes in the air, lines over the flow of the hot end, layers that cool too little");
+    GtkWidget *pop = gtk_popover_new();
+    p->check_list = gtk_list_box_new();
+    gtk_list_box_set_selection_mode(GTK_LIST_BOX(p->check_list), GTK_SELECTION_NONE);
+    gtk_list_box_set_activate_on_single_click(GTK_LIST_BOX(p->check_list), TRUE);
+    g_signal_connect(p->check_list, "row-activated", G_CALLBACK(on_check_row), p);
+    GtkWidget *check_scroll = gtk_scrolled_window_new();
+    gtk_scrolled_window_set_policy(GTK_SCROLLED_WINDOW(check_scroll), GTK_POLICY_NEVER, GTK_POLICY_AUTOMATIC);
+    gtk_scrolled_window_set_max_content_height(GTK_SCROLLED_WINDOW(check_scroll), 460);
+    gtk_widget_set_size_request(check_scroll, 440, -1);
+    gtk_scrolled_window_set_propagate_natural_height(GTK_SCROLLED_WINDOW(check_scroll), TRUE);
+    gtk_scrolled_window_set_child(GTK_SCROLLED_WINDOW(check_scroll), p->check_list);
+    gtk_popover_set_child(GTK_POPOVER(pop), check_scroll);
+    g_signal_connect(pop, "show", G_CALLBACK(on_check_shown), p);
+    gtk_menu_button_set_popover(GTK_MENU_BUTTON(p->check), pop);
+    gtk_widget_set_margin_start(p->check, 6);
+    gtk_box_append(GTK_BOX(bar), p->check);
     p->plates = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 0);
     gtk_widget_add_css_class(p->plates, "linked");
     gtk_widget_set_margin_start(p->plates, 6);
@@ -978,6 +1058,8 @@ void zg_preview_refresh(GtkWidget *preview) {
     zg_view3d_set_layer_range(p->view3d, zg_layer_range_get_lo(range), layer);
     double t0, t1;
     if (layer_times(p, layer, &t0, &t1)) show_scrub(p, layer, t1);
+    /* For development: ZSLICE_CHECK=1 opens the check on the first result. */
+    if (old_count == 0 && g_getenv("ZSLICE_CHECK")) gtk_menu_button_popup(GTK_MENU_BUTTON(p->check));
 }
 
 void zg_preview_show_layer(GtkWidget *preview, size_t layer) {
