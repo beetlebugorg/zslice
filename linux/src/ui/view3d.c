@@ -160,6 +160,13 @@ static void on_copy_for_ai(GSimpleAction *a, GVariant *p, gpointer data);
 static void on_new_profile(GSimpleAction *a, GVariant *p, gpointer data);
 
 /* The gaps of the top layer, in red, while the gaps view is on. */
+/* For screenshots: ZSLICE_GAP=n selects gap n of the layer in view. */
+static void gap_hook_fire(gpointer data) {
+    View3d *v = data;
+    const char *gap = g_getenv("ZSLICE_GAP");
+    if (gap) zg_model_select_gap(v->model, (gint64)v->layer, atoi(gap));
+}
+
 static void refresh_gaps(View3d *v) {
     if (!v->view) return;
     gboolean on = zg_model_gaps(v->model) && zs_app_state(zg_model_core(v->model)) == ZS_STATE_DONE;
@@ -192,9 +199,11 @@ static void load_data(View3d *v) {
     }
     refresh_gaps(v);
     const char *gap = g_getenv("ZSLICE_GAP");
+    /* 2 s later: the gap of the layer that the view shows then (the
+     * preview sets the layer after the first result). */
     if (gap && zg_model_gaps(v->model) && !v->gap_hook && zs_app_state(zg_model_core(v->model)) == ZS_STATE_DONE) {
         v->gap_hook = TRUE;
-        zg_model_select_gap(v->model, (gint64)v->layer, atoi(gap));
+        g_timeout_add_once(2000, gap_hook_fire, v);
     }
     /* For development and screenshots: ZSLICE_PART=1 selects that part of
      * the plate after the first load. */

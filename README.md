@@ -4,6 +4,55 @@ A slicer for FDM 3D printers, written from scratch in Zig. It is fast enough to 
 
 ![A 3DBenchy in zslice: one line of the hull is selected, and the speed field explains that line](docs/img/inspector.png)
 
+## Highlights
+
+Things that most slicers do not do.
+
+### Find the gaps, and get the settings that close them
+
+![The Benchy at layer 49 with its gaps in red; the panel lists the settings that can close the selected gap](docs/img/highlight-gaps.png)
+
+- Turn on **Gaps**, and the view shows in red each area that should be solid and that no line covers.
+- Click a gap. The panel says how big it is, what lines are next to it, and which settings can close it, each with the value to try and why.
+- **Apply** changes the setting for the part, and **This layer** for that layer only. The gap list updates after the slice.
+- Gap fill (on by default) closes most gaps by itself: a line along the middle of each narrow area, with a width that follows the area. On the 3DBenchy, it fills 92 % of the gap area.
+
+### A check of the print before you print it
+
+![The Check list of the Benchy: one cooling warning for the chimney layers, and its bridges](docs/img/highlight-check.png)
+
+- **Check** lists what can make the print fail or print badly: overhangs with no support, bridges and their span, shapes that start in the air, lines over the flow of the hot end, layers too short to cool, and layers with many retractions.
+- Each issue says what and why, in plain words, with the setting to change.
+- Click an issue: the view goes to its layer and lights up its line.
+
+### Bridges that print as bridges
+
+![The Benchy cabin roof: the bridge lines (sky blue) go across the short side of the roof](docs/img/highlight-bridge.png)
+
+- zslice finds each skin over air that solid plastic holds at its sides.
+- The lines go across the air in the direction with the shortest longest span, of the directions where the lines start and end on solid plastic. They are anchored 1.5 mm into the plastic around the bridge, and joined there, so the nozzle never travels over the air.
+- Bridges print slow, with the fan on full. The fan goes back after them.
+
+### Smooth slopes, in the same layer
+
+![The Benchy bow: the teal beads fill the steps of the sloped hull](docs/img/highlight-slope.png)
+
+- A slope prints as a stair. **Slope smoothing** (experimental) goes back along the edge after each layer and lays one bead in each step, with its own height and flow at each point. The nozzle stays clear of the layer above.
+- **Slope ironing** then irons the filled steps, from the top of the step down to its edge.
+- Each point of these lines has its own Z, so the layer is not flat. All other lines stay planar.
+
+### More
+
+- **Click a line, see why.** The panel shows what the line is, its planned speed and its real speed after acceleration, and only the settings that change it (see [Features](#features)).
+- **Layer profiles.** Right-click a line, then "New profile from here up" (or down): a copy of all settings for those layers. Any setting can change, the layer height too. The Layer profiles list shows each profile, its layers, and what it changes.
+- **Copy for AI.** Right-click a line, then "Copy for AI": a report of the line, its settings, and its lines in the G-code file, to paste into a chat with an AI model.
+- **Settings in the G-code.** The G-code ends with the settings that differ from the defaults, so a print can be checked against the settings that made it.
+- **Undo and redo** of all settings, with Ctrl+Z and Ctrl+Shift+Z. A drag of a slider is one step.
+- **h, j, k, l** step through the print segment by segment. The nozzle moves to each segment in the 3D view, with the travel moves, forward or back.
+- **A sweep of all settings.** `zslice sweep part.stl` slices with values across the range of each setting, and lists the settings that change the time and the cost the most.
+- **Printdeck.** With a [printdeck](https://github.com/beetlebugorg/printdeck) printer, the time includes the heat-up and the start (learned from its past prints), the filament settings follow the roll in the printer, the cost comes from the price of the roll, and the motion limits come from the printer.
+- **Cura profiles and projects.** Import a Cura profile stack, or open a Cura 3MF project with its per-object settings and its modifier meshes (an infill window, for example).
+
 ## Features
 
 ### Fast
@@ -45,9 +94,10 @@ A slicer for FDM 3D printers, written from scratch in Zig. It is fast enough to 
 
 ### Slicing
 
-- Walls, with thin walls and a hidden seam (the seam goes into a corner or to the back where it is hard to see).
+- Walls: classic, or Arachne (walls that change their width to fill the space between them). A hidden seam goes into a corner that stays in place from layer to layer, or to the back where it is hard to see. Gap fill closes the narrow areas between walls and in the skin.
 - Skin: lines, monotonic (each line lies against the line before it, for an even top surface), or concentric. Skin expand distance and skin removal width remove gaps and thin strips.
-- Infill: lines, grid, triangles, cubic, gyroid, honeycomb, concentric, zigzag, flow, and lightning (branches only under the tops).
+- Infill: lines, grid, triangles, trihexagon, cubic, gyroid, honeycomb, concentric, zigzag, flow, and lightning (branches only under the tops). A list of angles for each layer, infill that stacks the same on each layer (for a grille), and combined infill (one tall bead every N layers).
+- Bridges: straight lines across the air, anchored at both ends, slow, with the fan on.
 - Ironing.
 - Support: grid or tree, with interface layers. Tree support reaches into deep, narrow holes.
 - Combing: a travel inside the part goes around holes and does not retract.
