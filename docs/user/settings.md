@@ -372,6 +372,10 @@ The flow of the bridge lines, as a ratio of the flow of a normal line. A little 
 
 The fan speed while the bridge lines print, from 0 to 1.
 
+**`project.gap_fill`** (true or false; per layer). Default: `true`
+
+Fill the narrow areas that no wall and no skin line covers (a strip between two walls, a wedge of skin next to a hole) with a line along the middle of each area. The width of the line follows the width of the area. These lines print at the skin speed. A part thinner than one line gets a line from `thin_walls`, not from this setting.
+
 ### Infill
 
 **`project.infill_density`** (number; per layer). Default: `0.2`

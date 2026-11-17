@@ -1320,6 +1320,8 @@ test "app: Arachne walls carry a bead area for each point, at the z of the layer
     defer app.destroy();
     try app.loadStl("wedge.stl", stl.written());
     try app.setSetting("project.wall_generator", "arachne");
+    // Gap fill lines have a width for each point too.
+    try app.setSetting("project.gap_fill", "false");
     try app.startSlice();
     app.stopWorkerForTest();
     try testing.expectEqual(State.done, app.getState());
@@ -1355,6 +1357,8 @@ test "app: slope smoothing and ironing paths carry a z for each point" {
     try app.setSetting("project.slope_smoothing", "true");
     try app.setSetting("machine.nozzle_tip_radius", "0.35");
     try app.setSetting("project.slope_ironing", "true");
+    // Gap fill lines have a width for each point.
+    try app.setSetting("project.gap_fill", "false");
     try app.startSlice();
     app.stopWorkerForTest();
     try testing.expectEqual(State.done, app.getState());

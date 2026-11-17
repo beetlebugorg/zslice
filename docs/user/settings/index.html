@@ -235,6 +235,8 @@ M84</code></pre>
 <p>The flow of the bridge lines, as a ratio of the flow of a normal line. A little less flow makes a thinner strand that cools fast.</p>
 <p><strong><code>project.bridge_fan</code></strong> (number; per layer). Default: <code>1.0</code></p>
 <p>The fan speed while the bridge lines print, from 0 to 1.</p>
+<p><strong><code>project.gap_fill</code></strong> (true or false; per layer). Default: <code>true</code></p>
+<p>Fill the narrow areas that no wall and no skin line covers (a strip between two walls, a wedge of skin next to a hole) with a line along the middle of each area. The width of the line follows the width of the area. These lines print at the skin speed. A part thinner than one line gets a line from <code>thin_walls</code>, not from this setting.</p>
 <h3 id="infill">Infill</h3>
 <p><strong><code>project.infill_density</code></strong> (number; per layer). Default: <code>0.2</code></p>
 <p>The fraction of the inside that the sparse infill fills, as a ratio. 0 makes the part hollow.</p>

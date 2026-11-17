@@ -331,6 +331,12 @@ pub const Project = struct {
     bridge_flow: f64 = 0.95,
     /// The fan speed while the bridge lines print, from 0 to 1.
     bridge_fan: f64 = 1.0,
+    /// Fill the narrow areas that no wall and no skin line covers (a strip
+    /// between two walls, a wedge of skin next to a hole) with a line along
+    /// the middle of each area. The width of the line follows the width of
+    /// the area. These lines print at the skin speed. A part thinner than
+    /// one line gets a line from `thin_walls`, not from this setting.
+    gap_fill: bool = true,
 
     // Infill
     /// The fraction of the inside that the sparse infill fills, as a ratio. 0 makes the part hollow.
@@ -1156,6 +1162,7 @@ pub const layer_settings = [_][]const u8{
     "project.skin_pattern",
     "project.skin_angle",
     "project.skin_overlap",
+    "project.gap_fill",
     "project.infill_density",
     "project.infill_pattern",
     "project.infill_angle",

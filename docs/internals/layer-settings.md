@@ -75,7 +75,7 @@ An adaptive layer height (thin layers where a surface has a small slope) can use
 | `wall_generator`, `min_wall_line_width`, `min_feature_size`, `min_bead_width`, `wall_transition_length`, `wall_transition_angle`, `wall_transition_filter_distance`, `wall_distribution_count` | yes | layer | Arachne makes the walls of each layer from the outline of that layer only. The memo keeps the walls of each layer by their settings (see `Memo.arachneWalls`). |
 | `top_thickness`, `bottom_thickness` | yes | layer | Counted with the heights of the layers. |
 | `skin_removal_width`, `skin_expand_distance`, `solid_infill_width` | yes | layer | |
-| `skin_pattern`, `skin_angle`, `skin_angle_step`, `skin_overlap` | yes | layer | |
+| `skin_pattern`, `skin_angle`, `skin_angle_step`, `skin_overlap`, `gap_fill` | yes | layer | |
 | `infill_density`, `infill_pattern`, `infill_angle`, `infill_angles`, `infill_stack`, `infill_flow`, `infill_connect`, `infill_overlap` | yes | layer | |
 | `top_support_layers`, `top_support_density` | yes | layer | |
 | `lightning_angle` | no | lightning | The branches of all layers come from one pass, from the top down. A layer with another `infill_pattern` cuts the trees: its infill holds the layer above, and the trees start again below it. |

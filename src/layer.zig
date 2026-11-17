@@ -95,6 +95,7 @@ const slicer = @import("slicer.zig");
 const support_mod = @import("support.zig");
 const slope = @import("slope.zig");
 const arachne = @import("arachne.zig");
+const gapfill = @import("gapfill.zig");
 const Point = geom.Point;
 const Paths = geom.Paths;
 const Feature = settings_mod.Feature;
@@ -485,6 +486,9 @@ pub const Memo = struct {
     fills: std.ArrayList(FillEntry) = .empty,
     splits: std.ArrayList(SplitEntry) = .empty,
     arachnes: std.ArrayList(ArachneEntry) = .empty,
+    wall_gaps: std.ArrayList(WallGapEntry) = .empty,
+    gap_fills: std.ArrayList(GapFillEntry) = .empty,
+    skin_gaps: std.ArrayList(SkinGapEntry) = .empty,
 
     const ArachneEntry = struct { key: ArachneKey, walls: []VarWall, inner: Paths, gen: u32 };
     const OffsetEntry = struct {
@@ -501,6 +505,9 @@ pub const Memo = struct {
     const BandEntry = struct { band: u32, paths: Paths, gen: u32 };
     const FillEntry = struct { key: [6]i64, skin: bool, delta: i64, paths: Paths, gen: u32 };
     const SplitEntry = struct { key: [6]i64, delta: i64, band: u32, split: TopSplit, gen: u32 };
+    const WallGapEntry = struct { w: i64, k: u32, paths: Paths, gen: u32 };
+    const GapFillEntry = struct { key: u64, fill: gapfill.Fill, gen: u32 };
+    const SkinGapEntry = struct { key: u64, paths: Paths, gen: u32 };
 
     /// The sparse area of a layer, split for top support (see `topSplit`).
     pub const TopSplit = struct {
@@ -576,7 +583,77 @@ pub const Memo = struct {
             }
             try out.arachnes.append(a, c);
         };
+        for (self.wall_gaps.items) |e| if (e.gen >= min_gen) {
+            var c = e;
+            c.paths = try e.paths.clone(a);
+            try out.wall_gaps.append(a, c);
+        };
+        for (self.skin_gaps.items) |e| if (e.gen >= min_gen) {
+            try out.skin_gaps.append(a, .{ .key = e.key, .paths = try e.paths.clone(a), .gen = e.gen });
+        };
+        for (self.gap_fills.items) |e| if (e.gen >= min_gen) {
+            try out.gap_fills.append(a, .{ .key = e.key, .fill = try e.fill.clone(a), .gen = e.gen });
+        };
         return out;
+    }
+
+    /// The gaps at classic wall k (see gapfill.wallGap), by the line
+    /// width and k.
+    fn wallGap(self: *Memo, outline: Paths, walls: []const Paths, k: usize, w: i64, gen: u32) Allocator.Error!Paths {
+        for (self.wall_gaps.items) |*e| if (e.w == w and e.k == k) {
+            e.gen = gen;
+            return e.paths;
+        };
+        const a = self.arena.allocator();
+        var scratch_state = scratch.get(a);
+        defer scratch_state.release();
+        const s = scratch_state.allocator();
+        const paths = try gapfill.wallGap(a, s, outline, walls, k, w);
+        try self.wall_gaps.append(a, .{ .w = w, .k = @intCast(k), .paths = paths, .gen = gen });
+        return paths;
+    }
+
+    /// The gaps in the skin (see gapfill.skinGaps), by a hash of the
+    /// inputs.
+    fn skinGaps(self: *Memo, skin: Paths, lines: Paths, widths: []const f32, angle_deg: f64, w: i64, gen: u32) Allocator.Error!Paths {
+        var h: std.hash.Wyhash = .init(@bitCast(w));
+        h.update(std.mem.asBytes(&angle_deg));
+        for ([_]Paths{ skin, lines }) |ps| {
+            h.update(std.mem.sliceAsBytes(ps.points.items));
+            h.update(std.mem.sliceAsBytes(ps.ends.items));
+        }
+        h.update(std.mem.sliceAsBytes(widths));
+        const key = h.final();
+        for (self.skin_gaps.items) |*e| if (e.key == key) {
+            e.gen = gen;
+            return e.paths;
+        };
+        const a = self.arena.allocator();
+        var scratch_state = scratch.get(a);
+        defer scratch_state.release();
+        const paths = try (try gapfill.skinGaps(scratch_state.allocator(), skin, lines, widths, angle_deg, w)).clone(a);
+        try self.skin_gaps.append(a, .{ .key = key, .paths = paths, .gen = gen });
+        return paths;
+    }
+
+    /// The gap fill lines of `gaps` (see gapfill.centerLines), by a hash
+    /// of `gaps` and the line width. A change of the infill keeps the
+    /// gaps, and so the lines.
+    fn gapFill(self: *Memo, gaps: Paths, w: i64, gen: u32) Allocator.Error!gapfill.Fill {
+        var h: std.hash.Wyhash = .init(@bitCast(w));
+        h.update(std.mem.sliceAsBytes(gaps.points.items));
+        h.update(std.mem.sliceAsBytes(gaps.ends.items));
+        const key = h.final();
+        for (self.gap_fills.items) |*e| if (e.key == key) {
+            e.gen = gen;
+            return e.fill;
+        };
+        const a = self.arena.allocator();
+        var scratch_state = scratch.get(a);
+        defer scratch_state.release();
+        const lines = try (try gapfill.centerLines(scratch_state.allocator(), gaps, w)).clone(a);
+        try self.gap_fills.append(a, .{ .key = key, .fill = lines, .gen = gen });
+        return lines;
     }
 
     /// The Arachne walls of `outline` and the area inside them.
@@ -1060,10 +1137,12 @@ pub fn plan(gpa: Allocator, ctx: Context, i: usize) Allocator.Error!LayerPlan {
         try clip.difference(s, try memo.fill(reg, true, skin_inset, ctx.gen), mods.taken_skin);
     // Bridges (see `bridgeLines`): their area leaves the skin.
     var bridge_lines: Paths = .empty;
+    var bridge_area: Paths = .empty;
     if (p.bridges and i > 0 and !skin_region.isEmpty()) {
         const br = try bridgeLines(s, skin_region, ctx.outlines[i - 1], w);
         if (!br.area.isEmpty()) {
             bridge_lines = br.lines;
+            bridge_area = br.area;
             skin_region = try clip.difference(s, skin_region, br.area);
         }
     }
@@ -1197,6 +1276,30 @@ pub fn plan(gpa: Allocator, ctx: Context, i: usize) Allocator.Error!LayerPlan {
         for (mods.list, mod_sets) |ma, ms| if (ms.sparse) try lp.sparse_area.appendAll(a, ma.area);
     }
 
+    // Gap fill (see gapfill.zig): the areas that no wall and no skin line
+    // covers get a line along their middle.
+    var gap_fill: gapfill.Fill = .{};
+    if (p.gap_fill and p.wall_count > 0) {
+        var gap_area: Paths = .empty;
+        // Between the classic walls. The parts of the outline thinner than
+        // a line (the gaps at the outer wall) are for thin walls.
+        var k: usize = 1;
+        const classic_n: usize = if (p.wall_generator == .arachne) 0 else @min(wall_n + 1, p.wall_count);
+        while (k < classic_n) : (k += 1) {
+            try gap_area.appendAll(s, try memo.wallGap(outline, walls, k, w, ctx.gen));
+        }
+        // In the skin area. The concentric skin follows the outline into
+        // the narrow parts, so it gets no gap fill.
+        // The bridges have their own lines (see bridgeLines): they are not
+        // gaps.
+        var skin_area = if (mods.taken_skin.isEmpty()) reg.skin else try clip.difference(s, reg.skin, mods.taken_skin);
+        if (!bridge_area.isEmpty()) skin_area = try clip.difference(s, skin_area, bridge_area);
+        if (p.skin_pattern != .concentric and !skin_area.isEmpty()) {
+            try gap_area.appendAll(s, try memo.skinGaps(skin_area, skin_lines, skin_line_w, skin_angle, w, ctx.gen));
+        }
+        gap_fill = try memo.gapFill(gap_area, w, ctx.gen);
+    }
+
     if (ctx.canceled()) return lp;
 
     // Step 6.
@@ -1273,6 +1376,8 @@ pub fn plan(gpa: Allocator, ctx: Context, i: usize) Allocator.Error!LayerPlan {
     const skin_ids = try isl.ids(s, skin_lines);
     const bridge_ids = try isl.ids(s, bridge_lines);
     const skin_loop_ids = try isl.ids(s, skin_loops);
+    const gap_loop_ids = try isl.ids(s, gap_fill.loops);
+    const gap_line_ids = try isl.ids(s, gap_fill.lines);
     const sparse_ids = try isl.ids(s, sparse_lines);
     const sparse_loop_ids = try isl.ids(s, sparse_loops);
     const comb_ids = try isl.ids(s, comb_lines);
@@ -1308,6 +1413,8 @@ pub fn plan(gpa: Allocator, ctx: Context, i: usize) Allocator.Error!LayerPlan {
         try addSkinIslands(s, a, &lp, &pos, skin_lines, skin_line_w, skin_island, skin_n_islands, .{ .ids = skin_ids, .id = id }, skin_angle, p.skin_pattern == .monotonic);
         try addGroup(s, a, &lp, &pos, skin_loops, true, .skin, null, .{ .ids = skin_loop_ids, .id = id });
         try addGroup(s, a, &lp, &pos, bridge_lines, false, .bridge, null, .{ .ids = bridge_ids, .id = id });
+        try addGroupWidths(s, a, &lp, &pos, gap_fill.loops, gap_fill.loop_widths, true, .skin, null, .{ .ids = gap_loop_ids, .id = id });
+        try addGroupWidths(s, a, &lp, &pos, gap_fill.lines, gap_fill.line_widths, false, .skin, null, .{ .ids = gap_line_ids, .id = id });
         try addGroup(s, a, &lp, &pos, sparse_lines, false, .infill, null, .{ .ids = sparse_ids, .id = id });
         try addGroup(s, a, &lp, &pos, sparse_loops, true, .infill, null, .{ .ids = sparse_loop_ids, .id = id });
         if (comb_height > 0) {
@@ -3185,4 +3292,76 @@ test "layersFor: the layers that make a thickness" {
     try testing.expectEqual(@as(u32, 3), layersFor(&layers, 6, 0.4, .down));
     // Past the top: the height of the last layer.
     try testing.expectEqual(@as(u32, 10), layersFor(&layers, 10, 1.0, .up));
+}
+
+/// The paths of gap fill (see gapfill.zig): skin paths with a width for
+/// each point.
+fn gapFillCount(lp: LayerPlan) usize {
+    var n: usize = 0;
+    for (lp.paths.items) |path| {
+        if (path.feature == .skin and path.w_start != Path.planar) n += 1;
+    }
+    return n;
+}
+
+/// A plan of each layer of a part with the same outline on all layers.
+fn planPrism(gpa: Allocator, outline: Paths, st: settings_mod.Settings, i: usize) !LayerPlan {
+    const r = try st.resolve();
+    const layers = try slicer.layerTable(gpa, 5, 0.3, 0.2);
+    defer gpa.free(layers);
+    const outlines = try gpa.alloc(Paths, layers.len);
+    defer gpa.free(outlines);
+    @memset(outlines, outline);
+    const ctx: Context = .{ .resolved = &r, .layers = layers, .outlines = outlines };
+    return plan(gpa, ctx, i);
+}
+
+test "gap fill: a wedge between a hole and the edge gets a line" {
+    const gpa = testing.allocator;
+    // A 10 mm square with a hole of 2 mm radius, 1 mm from the edge. Two
+    // walls of 0.44 mm do not fit between the hole and the edge: the
+    // inner walls stop, and a wedge is between the outer walls.
+    var outline: Paths = .empty;
+    defer outline.deinit(gpa);
+    try outline.append(gpa, &.{ .init(0, 0), .init(10_000, 0), .init(10_000, 10_000), .init(0, 10_000) });
+    var hole: [64]Point = undefined;
+    for (&hole, 0..) |*q, k| {
+        // Clockwise.
+        const t = -@as(f64, @floatFromInt(k)) / 64 * 2 * std.math.pi;
+        q.* = .init(5000 + @as(i64, @intFromFloat(@round(2000 * @cos(t)))), 3000 + @as(i64, @intFromFloat(@round(2000 * @sin(t)))));
+    }
+    try outline.append(gpa, &hole);
+    var st: settings_mod.Settings = .{};
+    st.project.wall_count = 2;
+    var lp = try planPrism(gpa, outline, st, 12);
+    defer lp.deinit();
+    try testing.expect(gapFillCount(lp) > 0);
+    // Each line is no wider than the gap: less than a line width.
+    for (lp.paths.items, 0..) |path, k| {
+        if (path.feature != .skin or path.w_start == Path.planar) continue;
+        for (lp.point_w.items[path.w_start..][0..lp.points.get(k).len]) |pw| try testing.expect(pw > 0.05 and pw < 0.5);
+    }
+    // Off: no gap fill.
+    st.project.gap_fill = false;
+    var off = try planPrism(gpa, outline, st, 12);
+    defer off.deinit();
+    try testing.expectEqual(@as(usize, 0), gapFillCount(off));
+}
+
+test "gap fill: a box gets none" {
+    const gpa = testing.allocator;
+    var outline: Paths = .empty;
+    defer outline.deinit(gpa);
+    try outline.append(gpa, &.{ .init(0, 0), .init(20_000, 0), .init(20_000, 15_000), .init(0, 15_000) });
+    // Skin lines along the sides: at 45 degrees, two corners of the skin
+    // have a small triangle that no line reaches.
+    var st: settings_mod.Settings = .{};
+    st.project.skin_angle = 0;
+    // The first layer (all skin) and a middle layer.
+    for ([_]usize{ 0, 12 }) |i| {
+        var lp = try planPrism(gpa, outline, st, i);
+        defer lp.deinit();
+        try testing.expect(lp.count() > 0);
+        try testing.expectEqual(@as(usize, 0), gapFillCount(lp));
+    }
 }
