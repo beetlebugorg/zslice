@@ -217,6 +217,20 @@ void zg_model_use_roll(ZgModel *self, const ZgRoll *roll);
 gboolean zg_model_undo(ZgModel *self);
 gboolean zg_model_redo(ZgModel *self);
 gboolean zg_model_can_undo(ZgModel *self);
+/* The history: the steps of undo and redo as one list, the oldest first.
+ * zg_model_history_current is the step now; the steps after it are the
+ * redo steps. zg_model_history_changes gives the changes of step i from
+ * step i - 1 (zs_history_diff lines; NULL for step 0), and
+ * zg_model_history_describe gives them in words ("scope\tchange" lines).
+ * zg_model_history_goto goes to step i: the preview slices at it.
+ * zg_model_history_revert undoes one change line and keeps the others. */
+guint zg_model_history_count(ZgModel *self);
+guint zg_model_history_current(ZgModel *self);
+gint64 zg_model_history_time(ZgModel *self, guint i);
+char *zg_model_history_changes(ZgModel *self, guint i);
+char *zg_model_history_describe(ZgModel *self, const char *changes);
+gboolean zg_model_history_goto(ZgModel *self, guint i);
+gboolean zg_model_history_revert(ZgModel *self, const char *line);
 gboolean zg_model_can_redo(ZgModel *self);
 
 /* Loads a profile text into a group (enum zs_group): the built-in

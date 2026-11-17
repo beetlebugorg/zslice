@@ -32,6 +32,18 @@ size_t zg_layer_range_get_hi(ZgLayerRange *self);
  * a layer that prints slower to cool), or NULL. */
 void zg_layer_range_set_note(ZgLayerRange *self, const char *note);
 
-/* Signal "changed" (void): the user moved a knob. */
+/* Marks of the layers with changes of their own (layer profiles, and
+ * changes for some layers): a bar right of the slider from layer lo to
+ * layer hi, with a label for its tooltip. A click on a mark moves the top
+ * knob to its top layer and emits "mark-activated" with the index of the
+ * mark. The widget copies the marks. */
+typedef struct {
+    size_t lo, hi;
+    const char *label;
+} ZgLayerMark;
+void zg_layer_range_set_marks(ZgLayerRange *self, const ZgLayerMark *marks, size_t n);
+
+/* Signal "changed" (void): the user moved a knob.
+ * Signal "mark-activated" (guint index): the user clicked a mark. */
 
 G_END_DECLS

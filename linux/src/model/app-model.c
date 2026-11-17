@@ -1021,6 +1021,10 @@ enum { UNDO_MAX = 100 };
 struct Snap {
     char *settings;
     GBytes *plate;
+    /* The facts of the state (zs_app_history_facts), for the history, and
+     * the time of the step (g_get_real_time). */
+    char *facts;
+    gint64 time;
 };
 
 static void plate_changed(ZgModel *self);
@@ -1029,6 +1033,7 @@ static void snap_free(gpointer data) {
     Snap *s = data;
     if (!s) return;
     g_free(s->settings);
+    g_free(s->facts);
     if (s->plate) g_bytes_unref(s->plate);
     g_free(s);
 }
@@ -1058,6 +1063,14 @@ static Snap *undo_snapshot(ZgModel *self) {
         if (zs_app_write_3mf(self->core, &bytes, &len) == ZS_OK) snap->plate = g_bytes_new(bytes, len);
     }
     self->undo_plate_dirty = FALSE;
+    size_t flen = 0;
+    if (zs_app_history_facts(self->core, NULL, 0, &flen) == ZS_OK) {
+        snap->facts = g_malloc(flen + 1);
+        zs_app_history_facts(self->core, snap->facts, flen + 1, NULL);
+    } else {
+        snap->facts = g_strdup("");
+    }
+    snap->time = g_get_real_time();
     return snap;
 }
 
@@ -1176,6 +1189,91 @@ gboolean zg_model_redo(ZgModel *self) {
     return undo_move(self, self->redo, self->undo);
 }
 
+/* ---- the history: the undo list, the step now, and the redo list as one
+ * list of steps, the oldest first ---- */
+
+static Snap *history_at(ZgModel *self, guint i) {
+    if (i < self->undo->len) return self->undo->pdata[i];
+    if (i == self->undo->len) return self->undo_now;
+    guint k = i - self->undo->len - 1;
+    if (k < self->redo->len) return self->redo->pdata[self->redo->len - 1 - k];
+    return NULL;
+}
+
+guint zg_model_history_count(ZgModel *self) {
+    return self->undo->len + (self->undo_now ? 1 : 0) + self->redo->len;
+}
+
+guint zg_model_history_current(ZgModel *self) {
+    return self->undo->len;
+}
+
+gint64 zg_model_history_time(ZgModel *self, guint i) {
+    Snap *s = history_at(self, i);
+    return s ? s->time : 0;
+}
+
+char *zg_model_history_changes(ZgModel *self, guint i) {
+    if (i == 0) return NULL;
+    Snap *a = history_at(self, i - 1), *b = history_at(self, i);
+    if (!a || !b) return NULL;
+    const char *fa = a->facts ? a->facts : "", *fb = b->facts ? b->facts : "";
+    size_t len = 0;
+    if (zs_history_diff(fa, strlen(fa), fb, strlen(fb), NULL, 0, &len) != ZS_OK) return NULL;
+    char *out = g_malloc(len + 1);
+    zs_history_diff(fa, strlen(fa), fb, strlen(fb), out, len + 1, NULL);
+    return out;
+}
+
+char *zg_model_history_describe(ZgModel *self, const char *changes) {
+    size_t len = 0;
+    if (!changes || zs_app_history_describe(self->core, changes, strlen(changes), NULL, 0, &len) != ZS_OK) return g_strdup("");
+    char *out = g_malloc(len + 1);
+    zs_app_history_describe(self->core, changes, strlen(changes), out, len + 1, NULL);
+    return out;
+}
+
+gboolean zg_model_history_goto(ZgModel *self, guint i) {
+    undo_commit(self);
+    guint cur = self->undo->len;
+    if (!self->undo_now || i == cur || i >= zg_model_history_count(self)) return FALSE;
+    Snap *before = self->undo_now;
+    if (i < cur) {
+        g_ptr_array_add(self->redo, self->undo_now);
+        while (self->undo->len > i + 1) g_ptr_array_add(self->redo, g_ptr_array_steal_index(self->undo, self->undo->len - 1));
+        self->undo_now = g_ptr_array_steal_index(self->undo, self->undo->len - 1);
+    } else {
+        g_ptr_array_add(self->undo, self->undo_now);
+        while (self->undo->len < i) g_ptr_array_add(self->undo, g_ptr_array_steal_index(self->redo, self->redo->len - 1));
+        self->undo_now = g_ptr_array_steal_index(self->redo, self->redo->len - 1);
+    }
+    undo_restore(self, self->undo_now, before);
+    g_signal_emit(self, signals[SIGNAL_UNDO_CHANGED], 0);
+    return TRUE;
+}
+
+static void save_soon(ZgModel *self, const char *key);
+
+gboolean zg_model_history_revert(ZgModel *self, const char *line) {
+    if (zs_app_history_revert(self->core, line, strlen(line)) != ZS_OK) return FALSE;
+    char **f = g_strsplit(line, "\t", 3);
+    if (f[0] && f[1]) {
+        if (g_str_has_prefix(f[0], "part:")) {
+            plate_changed(self);
+        } else if (g_str_has_prefix(f[0], "layers:")) {
+            g_signal_emit(self, signals[SIGNAL_SETTING_CHANGED], 0, f[1]);
+            g_signal_emit(self, signals[SIGNAL_PROFILES_CHANGED], 0);
+            slice_soon(self);
+        } else {
+            save_soon(self, f[1]);
+            g_signal_emit(self, signals[SIGNAL_SETTING_CHANGED], 0, f[1]);
+            slice_soon(self);
+        }
+    }
+    g_strfreev(f);
+    return TRUE;
+}
+
 gboolean zg_model_can_undo(ZgModel *self) {
     return self->undo->len > 0 || self->undo_timer != 0;
 }
@@ -1246,6 +1344,9 @@ static void zg_model_init(ZgModel *self) {
     self->undo_now = undo_snapshot(self);
     g_signal_connect(self, "plate-changed", G_CALLBACK(on_undo_plate), NULL);
     g_signal_connect(self, "setting-changed", G_CALLBACK(on_undo_change), NULL);
+    /* The layer profiles and the changes for some layers are in the plate
+     * (its 3MF file): a step keeps them with the plate. */
+    g_signal_connect(self, "profiles-changed", G_CALLBACK(on_undo_plate), NULL);
 }
 
 ZgModel *zg_model_new(void) {
@@ -1437,6 +1538,18 @@ void zg_model_plate_clear(ZgModel *self) {
     g_signal_emit(self, signals[SIGNAL_CORE_EVENT], 0, ZS_EVENT_CANCELED, 0.0, 0);
 }
 
+/* Saves the group of the setting soon. */
+static void save_soon(ZgModel *self, const char *key) {
+    for (int g = 0; g < 3; g++) {
+        size_t n = strlen(group_files[g]);
+        if (strncmp(key, group_files[g], n) == 0 && key[n] == '.') self->dirty |= 1u << g;
+    }
+    if (self->dirty) {
+        if (self->save_timer) g_source_remove(self->save_timer);
+        self->save_timer = g_timeout_add(500, on_save_timer, self);
+    }
+}
+
 gboolean zg_model_set(ZgModel *self, const char *key, const char *value, GError **error) {
     int rc = zs_app_setting_set(self->core, key, value);
     if (rc != ZS_OK) return fail(error, rc);
@@ -1456,15 +1569,7 @@ gboolean zg_model_set(ZgModel *self, const char *key, const char *value, GError 
         g_strfreev(lines);
         g_free(text);
     }
-    /* Save the group of the setting soon. */
-    for (int g = 0; g < 3; g++) {
-        size_t n = strlen(group_files[g]);
-        if (strncmp(key, group_files[g], n) == 0 && key[n] == '.') self->dirty |= 1u << g;
-    }
-    if (self->dirty) {
-        if (self->save_timer) g_source_remove(self->save_timer);
-        self->save_timer = g_timeout_add(500, on_save_timer, self);
-    }
+    save_soon(self, key);
     int state = zs_app_state(self->core);
     if (state == ZS_STATE_SLICING) {
         /* Let the running slice end and show, then slice the newest

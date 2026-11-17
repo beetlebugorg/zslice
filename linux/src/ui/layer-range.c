@@ -48,11 +48,18 @@ struct _ZgLayerRange {
     /* The knob of a drag (0 none, 1 lo, 2 hi), and its value at the start. */
     int dragging;
     double drag_start_y;
+    /* The marks (ZgLayerMark, with labels of our own), and the x of their
+     * column, from the allocation. */
+    GArray *marks;
+    int mark_x;
 };
 
 G_DEFINE_TYPE(ZgLayerRange, zg_layer_range, GTK_TYPE_WIDGET)
 
-enum { SIGNAL_CHANGED, N_SIGNALS };
+enum { SIGNAL_CHANGED, SIGNAL_MARK_ACTIVATED, N_SIGNALS };
+
+/* The width of the column of the marks, right of the trough. */
+enum { MARK_W = 4, MARK_GAP = 3 };
 static guint signals[N_SIGNALS];
 
 static int knob_size(GtkWidget *knob, GtkOrientation o) {
@@ -122,7 +129,7 @@ static void range_measure(GtkWidget *w, GtkOrientation o, int for_size, int *min
     gtk_widget_measure(r->trough, o, -1, &tmin, &tnat, NULL, NULL);
     int k = knob_size(r->knob_hi, o);
     if (o == GTK_ORIENTATION_HORIZONTAL) {
-        *min = *nat = label_width(r) + LABEL_GAP + MAX(tmin, k);
+        *min = *nat = label_width(r) + LABEL_GAP + MAX(tmin, k) + MARK_GAP + MARK_W;
     } else {
         *min = 2 * k + 8;
         *nat = MAX(*min, 200);
@@ -140,6 +147,7 @@ static void range_allocate(GtkWidget *w, int width, int height, int baseline) {
      * left, each at the height of its knob. */
     int col = MAX(tw, kw);
     place(r->trough, lw + LABEL_GAP + (col - tw) / 2, 0, tw, height);
+    r->mark_x = lw + LABEL_GAP + col + MARK_GAP;
     GtkWidget *labels[2] = {r->label_hi, r->label_lo};
     size_t values[2] = {r->hi, r->lo};
     for (int i = 0; i < 2; i++) {
@@ -198,6 +206,58 @@ static void set_active(ZgLayerRange *r, int knob, gboolean on) {
     else gtk_widget_unset_state_flags(k, GTK_STATE_FLAG_ACTIVE);
 }
 
+/* The mark under the point (x, y) of the widget, or -1. */
+static int mark_at(ZgLayerRange *r, double x, double y) {
+    if (!r->marks || r->marks->len == 0 || x < r->mark_x - 4) return -1;
+    int h = gtk_widget_get_height(r->trough);
+    int best = -1;
+    double best_d = 6;
+    for (guint i = 0; i < r->marks->len; i++) {
+        ZgLayerMark *m = &g_array_index(r->marks, ZgLayerMark, i);
+        double top = y_of(r, m->hi, h), bottom = y_of(r, m->lo, h);
+        double d = y < top ? top - y : y > bottom ? y - bottom : 0;
+        if (d <= best_d) {
+            best_d = d;
+            best = (int)i;
+        }
+    }
+    return best;
+}
+
+static void range_snapshot(GtkWidget *w, GtkSnapshot *snap) {
+    ZgLayerRange *r = ZG_LAYER_RANGE(w);
+    for (GtkWidget *c = gtk_widget_get_first_child(w); c; c = gtk_widget_get_next_sibling(c)) gtk_widget_snapshot_child(w, c, snap);
+    if (!r->marks || r->marks->len == 0 || r->count == 0) return;
+    int h = gtk_widget_get_height(r->trough);
+    GdkRGBA color = {1.0, 0.55, 0.1, 1.0};
+    for (guint i = 0; i < r->marks->len; i++) {
+        ZgLayerMark *m = &g_array_index(r->marks, ZgLayerMark, i);
+        double top = y_of(r, m->hi, h), bottom = y_of(r, m->lo, h);
+        if (bottom - top < 3) {
+            double mid = (top + bottom) / 2;
+            top = mid - 1.5;
+            bottom = mid + 1.5;
+        }
+        graphene_rect_t rect = GRAPHENE_RECT_INIT((float)r->mark_x, (float)top, MARK_W, (float)(bottom - top));
+        GskRoundedRect rr;
+        gsk_rounded_rect_init_from_rect(&rr, &rect, MARK_W / 2.0f);
+        gtk_snapshot_push_rounded_clip(snap, &rr);
+        gtk_snapshot_append_color(snap, &color, &rect);
+        gtk_snapshot_pop(snap);
+    }
+}
+
+static gboolean on_query_tooltip(GtkWidget *w, int x, int y, gboolean keyboard, GtkTooltip *tip, gpointer data) {
+    ZgLayerRange *r = ZG_LAYER_RANGE(w);
+    int i = mark_at(r, x, y);
+    if (i < 0) return FALSE;
+    ZgLayerMark *m = &g_array_index(r->marks, ZgLayerMark, i);
+    char *text = g_strdup_printf("%s\nClick to go to layer %zu.", m->label ? m->label : "Changes for these layers", m->hi + 1);
+    gtk_tooltip_set_text(tip, text);
+    g_free(text);
+    return TRUE;
+}
+
 static double trough_y(ZgLayerRange *r, double y) {
     graphene_point_t in = GRAPHENE_POINT_INIT(0, (float)y), out;
     if (!gtk_widget_compute_point(GTK_WIDGET(r), r->trough, &in, &out)) return y;
@@ -208,6 +268,13 @@ static void on_drag_begin(GtkGestureDrag *g, double x, double y, gpointer data) 
     ZgLayerRange *r = data;
     if (r->count == 0) return;
     if (gtk_widget_get_focusable(GTK_WIDGET(r))) gtk_widget_grab_focus(GTK_WIDGET(r));
+    int mi = mark_at(r, x, y);
+    if (mi >= 0) {
+        r->dragging = 0;
+        move_knob(r, 2, (long)g_array_index(r->marks, ZgLayerMark, mi).hi);
+        g_signal_emit(r, signals[SIGNAL_MARK_ACTIVATED], 0, (guint)mi);
+        return;
+    }
     int h = gtk_widget_get_height(r->trough);
     double ty = trough_y(r, y);
     double ylo = y_of(r, r->lo, h), yhi = y_of(r, r->hi, h);
@@ -286,6 +353,10 @@ static void zg_layer_range_dispose(GObject *o) {
     g_clear_pointer(&r->label_lo, gtk_widget_unparent);
     g_clear_pointer(&r->label_hi, gtk_widget_unparent);
     g_clear_pointer(&r->note, g_free);
+    if (r->marks) {
+        for (guint i = 0; i < r->marks->len; i++) g_free((char *)g_array_index(r->marks, ZgLayerMark, i).label);
+        g_clear_pointer(&r->marks, g_array_unref);
+    }
     G_OBJECT_CLASS(zg_layer_range_parent_class)->dispose(o);
 }
 
@@ -294,10 +365,13 @@ static void zg_layer_range_class_init(ZgLayerRangeClass *k) {
     GtkWidgetClass *wk = GTK_WIDGET_CLASS(k);
     wk->measure = range_measure;
     wk->size_allocate = range_allocate;
+    wk->snapshot = range_snapshot;
     gtk_widget_class_set_css_name(wk, "scale");
     gtk_widget_class_set_accessible_role(wk, GTK_ACCESSIBLE_ROLE_SLIDER);
     signals[SIGNAL_CHANGED] = g_signal_new("changed", G_TYPE_FROM_CLASS(k), G_SIGNAL_RUN_LAST, 0, NULL, NULL,
                                            NULL, G_TYPE_NONE, 0);
+    signals[SIGNAL_MARK_ACTIVATED] = g_signal_new("mark-activated", G_TYPE_FROM_CLASS(k), G_SIGNAL_RUN_LAST, 0, NULL,
+                                                  NULL, NULL, G_TYPE_NONE, 1, G_TYPE_UINT);
 }
 
 static void zg_layer_range_init(ZgLayerRange *r) {
@@ -324,6 +398,8 @@ static void zg_layer_range_init(ZgLayerRange *r) {
         else r->label_lo = l;
     }
 
+    gtk_widget_set_has_tooltip(w, TRUE);
+    g_signal_connect(w, "query-tooltip", G_CALLBACK(on_query_tooltip), NULL);
     GtkGesture *drag = gtk_gesture_drag_new();
     g_signal_connect(drag, "drag-begin", G_CALLBACK(on_drag_begin), r);
     g_signal_connect(drag, "drag-update", G_CALLBACK(on_drag_update), r);
@@ -386,4 +462,19 @@ size_t zg_layer_range_get_lo(ZgLayerRange *self) {
 
 size_t zg_layer_range_get_hi(ZgLayerRange *self) {
     return self->hi;
+}
+
+void zg_layer_range_set_marks(ZgLayerRange *self, const ZgLayerMark *marks, size_t n) {
+    if (self->marks) {
+        for (guint i = 0; i < self->marks->len; i++) g_free((char *)g_array_index(self->marks, ZgLayerMark, i).label);
+        g_array_set_size(self->marks, 0);
+    } else {
+        self->marks = g_array_new(FALSE, FALSE, sizeof(ZgLayerMark));
+    }
+    for (size_t i = 0; i < n; i++) {
+        ZgLayerMark m = marks[i];
+        m.label = g_strdup(marks[i].label);
+        g_array_append_val(self->marks, m);
+    }
+    gtk_widget_queue_draw(GTK_WIDGET(self));
 }

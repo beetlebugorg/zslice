@@ -176,11 +176,10 @@ A value out of the usual range shows in the warning color, and its tooltip gives
 
 | Mouse | Action |
 |---|---|
-| Left drag | Orbit: turn and tilt around the part; the bed stays level |
+| Left or right drag | Orbit: turn and tilt around the part, as in Cura and Tinkercad; the bed stays level, and the tilt stops at 89° over the top and under the bed |
 | Middle drag | Pan: move the view |
-| Right drag | Rotate freely in any direction; the view can roll |
 | Scroll | Zoom toward the pointer |
-| Double-click | Reset the view (also removes a roll) |
+| Double-click | Reset the view |
 | Left click | Pick a line (see below) |
 
 ## The context menu
@@ -257,6 +256,17 @@ The card at the bottom of the side panel shows the print time (with a printdeck 
 ## Undo
 
 Ctrl+Z undoes a change of the settings or of the plate (a move, a turn, a scale, a removed part, the settings of a part), and Ctrl+Shift+Z (or Ctrl+Y) redoes it. A drag of a slider is one step. The main menu has Undo and Redo too. The undo list keeps 100 steps; the plates in it take at most 200 MB, so on a plate of large parts the oldest steps go first.
+
+## History
+
+Each step of the undo list is a step of the history. Two views show it:
+
+- **The timeline** under the preview: one dot for each step, the oldest at the left, as the timeline of Fusion. Point at a dot to see its changes in words ("Infill density 28 % → 45 % · This print"). Click a dot to go to that step: the preview slices at it at once. The steps after it stay (dimmed) until you change something.
+- **The History tab** of the panel: each step with its time and its changes, the newest first, and the scope of each change: the printer, the filament, this print, a part, or a layer range ("Layers 86 and up"). Click a step to go to it. The ↶ button of a change undoes only that change and keeps the later ones: it adds a new step.
+
+The changes for some layers (layer profiles and changes for one layer or a range) also show as orange marks on the right of the layer slider. Point at a mark to see its changes, and click it to go to its top layer and open its layer profile in the settings.
+
+The core makes the list: `zs_app_history_facts` writes the state of a step, `zs_history_diff` gives the changes from one step to the next, `zs_app_history_describe` writes them in words, and `zs_app_history_revert` undoes one change.
 
 ## Printer, filament, and quality
 

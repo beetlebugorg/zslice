@@ -70,7 +70,7 @@ Things that most slicers do not do.
 - **Layer profiles.** Right-click a line, then "New profile from here up" (or down): a copy of all settings for those layers. Any setting can change, the layer height too. The Layer profiles list shows each profile, its layers, and what it changes.
 - **Copy for AI.** Right-click a line, then "Copy for AI": a report of the line, its settings, and its lines in the G-code file, to paste into a chat with an AI model.
 - **Settings in the G-code.** The G-code ends with the settings that differ from the defaults, so a print can be checked against the settings that made it.
-- **Undo and redo** of all settings, with Ctrl+Z and Ctrl+Shift+Z. A drag of a slider is one step.
+- **A history of changes.** A timeline under the preview and a History tab list each change in words ("Infill density 28 % → 45 % · Layers 86 and up"). Click a step to see the print at that step, or undo one change and keep the later ones. Orange marks on the layer slider show the layers with changes of their own.
 - **h, j, k, l** step through the print segment by segment. The nozzle moves to each segment in the 3D view, with the travel moves, forward or back.
 - **A sweep of all settings.** `zslice sweep part.stl` slices with values across the range of each setting, and lists the settings that change the time and the cost the most.
 - **Printdeck.** With a [printdeck](https://github.com/beetlebugorg/printdeck) printer, the time includes the heat-up and the start (learned from its past prints), the filament settings follow the roll in the printer, the cost comes from the price of the roll, and the motion limits come from the printer.

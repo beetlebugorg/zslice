@@ -18,6 +18,7 @@
 #include "../prefs/printers.h"
 #include "profile-menus.h"
 #include "preview.h"
+#include "history.h"
 #include "settings-panel.h"
 
 typedef struct {
@@ -1203,7 +1204,12 @@ GtkWindow *zg_window_new(GtkApplication *app, ZgModel *model) {
     gtk_widget_add_css_class(panel, "zg-panel");
     /* The model on the left, the settings on the right, as in other
      * slicers. */
-    gtk_paned_set_start_child(GTK_PANED(paned), w->preview);
+    /* The preview, with the timeline of the history under it. */
+    GtkWidget *left = gtk_box_new(GTK_ORIENTATION_VERTICAL, 0);
+    gtk_widget_set_vexpand(w->preview, TRUE);
+    gtk_box_append(GTK_BOX(left), w->preview);
+    gtk_box_append(GTK_BOX(left), zg_timeline_new(model));
+    gtk_paned_set_start_child(GTK_PANED(paned), left);
     gtk_paned_set_end_child(GTK_PANED(paned), panel);
     gtk_paned_set_resize_end_child(GTK_PANED(paned), FALSE);
     gtk_paned_set_shrink_start_child(GTK_PANED(paned), FALSE);

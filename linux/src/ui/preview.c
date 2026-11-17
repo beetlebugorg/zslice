@@ -962,6 +962,9 @@ static void on_preview_press(GtkGestureClick *g, int n, double x, double y, gpoi
     gtk_widget_grab_focus(box);
 }
 
+static void on_profiles_marks(ZgModel *model, gpointer data);
+static void on_mark_activated(ZgLayerRange *range, guint index, gpointer data);
+
 GtkWidget *zg_preview_new(ZgModel *model) {
     Preview *p = g_new0(Preview, 1);
     p->model = g_object_ref(model);
@@ -1182,7 +1185,136 @@ GtkWidget *zg_preview_new(ZgModel *model) {
     if (strcmp(iso, "1") == 0) gtk_toggle_button_set_active(GTK_TOGGLE_BUTTON(p->isolate), TRUE);
     g_free(iso);
     g_signal_connect(model, "focus-changed", G_CALLBACK(on_focus_changed), p);
+    g_signal_connect(model, "profiles-changed", G_CALLBACK(on_profiles_marks), p);
+    g_signal_connect(p->slider, "mark-activated", G_CALLBACK(on_mark_activated), p);
     return box;
+}
+
+/* The label of a setting for a mark: "Infill density". */
+static char *setting_label(const char *name, size_t len) {
+    for (size_t i = 0; i < zs_setting_count(); i++) {
+        zs_setting_info info;
+        if (zs_setting_get_info(i, &info) == ZS_OK && strlen(info.name) == len && strncmp(info.name, name, len) == 0)
+            return g_strdup(info.label);
+    }
+    return g_strndup(name, len);
+}
+
+/* The marks of the layer slider: one for each layer range with changes of
+ * its own (a layer profile, or changes for some layers). A range of the
+ * whole part gets no mark. */
+static void update_marks(Preview *p) {
+    zs_app *core = zg_model_core(p->model);
+    zs_toolpaths tp;
+    if (zs_app_toolpaths(core, &tp) != ZS_OK || tp.layer_count == 0) {
+        zg_layer_range_set_marks(ZG_LAYER_RANGE(p->slider), NULL, 0);
+        return;
+    }
+    typedef struct { double z_min, z_max; GString *names; char *profile; } Range;
+    GArray *ranges = g_array_new(FALSE, TRUE, sizeof(Range));
+    size_t no = zs_app_override_count(core), np = zs_app_profile_count(core);
+    for (size_t k = 0; k < no + np; k++) {
+        double z_min, z_max;
+        char *what = NULL, *profile = NULL;
+        if (k < no) {
+            zs_override o;
+            if (zs_app_override_get(core, k, &o) != ZS_OK) continue;
+            z_min = o.z_min, z_max = o.z_max;
+            what = setting_label(o.name, o.name_len);
+        } else {
+            zs_layer_profile lp;
+            if (zs_app_profile_get(core, k - no, &lp) != ZS_OK) continue;
+            z_min = lp.z_min, z_max = lp.z_max;
+            profile = g_strndup(lp.name, lp.name_len);
+        }
+        if (z_min < -1e4 && z_max > 1e4) {
+            g_free(what);
+            g_free(profile);
+            continue;
+        }
+        Range *r = NULL;
+        for (guint i = 0; i < ranges->len; i++) {
+            Range *q = &g_array_index(ranges, Range, i);
+            if (fabs(q->z_min - z_min) < 1e-6 && fabs(q->z_max - z_max) < 1e-6) r = q;
+        }
+        if (!r) {
+            Range nr = {z_min, z_max, g_string_new(NULL), NULL};
+            g_array_append_val(ranges, nr);
+            r = &g_array_index(ranges, Range, ranges->len - 1);
+        }
+        if (what) {
+            if (r->names->len) g_string_append(r->names, ", ");
+            g_string_append(r->names, what);
+            g_free(what);
+        }
+        if (profile) {
+            g_free(r->profile);
+            r->profile = profile;
+        }
+    }
+    GArray *marks = g_array_new(FALSE, FALSE, sizeof(ZgLayerMark));
+    for (guint i = 0; i < ranges->len; i++) {
+        Range *r = &g_array_index(ranges, Range, i);
+        /* The layers with a top z in the range. */
+        gint64 lo = -1, hi = -1;
+        for (size_t j = 0; j < tp.layer_count; j++) {
+            double z = tp.layer_z[j];
+            if (z >= r->z_min - 1e-4 && z <= r->z_max + 1e-4) {
+                if (lo < 0) lo = (gint64)j;
+                hi = (gint64)j;
+            }
+        }
+        if (lo >= 0) {
+            char *label = g_strdup_printf("%s%s%s", r->profile ? r->profile : "Changes for these layers",
+                                          r->names->len ? ": " : "", r->names->str);
+            ZgLayerMark m = {(size_t)lo, (size_t)hi, label};
+            g_array_append_val(marks, m);
+        }
+    }
+    zg_layer_range_set_marks(ZG_LAYER_RANGE(p->slider), (ZgLayerMark *)marks->data, marks->len);
+    for (guint i = 0; i < marks->len; i++) g_free((char *)g_array_index(marks, ZgLayerMark, i).label);
+    for (guint i = 0; i < ranges->len; i++) {
+        Range *r = &g_array_index(ranges, Range, i);
+        g_string_free(r->names, TRUE);
+        g_free(r->profile);
+    }
+    g_array_free(marks, TRUE);
+    g_array_free(ranges, TRUE);
+}
+
+static void on_profiles_marks(ZgModel *model, gpointer data) {
+    update_marks(data);
+}
+
+/* A click on a mark: the settings page of its layer range, with its
+ * changes. */
+static void on_mark_activated(ZgLayerRange *range, guint index, gpointer data) {
+    Preview *p = data;
+    zs_app *core = zg_model_core(p->model);
+    zs_toolpaths tp;
+    if (zs_app_toolpaths(core, &tp) != ZS_OK) return;
+    size_t layer = zg_layer_range_get_hi(range);
+    if (layer >= tp.layer_count) return;
+    double z = tp.layer_z[layer];
+    /* The range of the mark: the first range that covers its top layer. */
+    size_t no = zs_app_override_count(core), np = zs_app_profile_count(core);
+    for (size_t k = 0; k < np + no; k++) {
+        double z_min, z_max;
+        if (k < np) {
+            zs_layer_profile lp;
+            if (zs_app_profile_get(core, k, &lp) != ZS_OK) continue;
+            z_min = lp.z_min, z_max = lp.z_max;
+        } else {
+            zs_override o;
+            if (zs_app_override_get(core, k - np, &o) != ZS_OK) continue;
+            z_min = o.z_min, z_max = o.z_max;
+        }
+        if (z_min < -1e4 && z_max > 1e4) continue;
+        if (z >= z_min - 1e-4 && z <= z_max + 1e-4) {
+            zg_model_open_profile(p->model, z_min, z_max);
+            return;
+        }
+    }
 }
 
 void zg_preview_refresh(GtkWidget *preview) {
@@ -1207,6 +1339,7 @@ void zg_preview_refresh(GtkWidget *preview) {
     size_t old_layer = zg_layer_range_get_hi(ZG_LAYER_RANGE(p->slider));
     p->layer_count = zs_app_layer_count(core);
     if (p->layer_count == 0) return;
+    update_marks(p);
 
     /* Keep the same layer if it still exists. On the first result, show the
      * top layer. */

@@ -1,7 +1,7 @@
 /* settings-panel.c: see settings-panel.h.
  *
  * The history: one list of the places of the panel, over both pages. A
- * place is the page ("selected"), or the page and the place in the
+ * place is the page ("selected", "history"), or the page and the place in the
  * browser ("settings" and zg_settings_browser_get_place). Each move (a
  * tab, a section, a setting, a link from the Selected page, a click on a
  * line) puts the place before it on the list, and Back (the button at the
@@ -12,6 +12,7 @@
  */
 #include "settings-panel.h"
 
+#include "history.h"
 #include "inspector.h"
 #include "settings-browser.h"
 
@@ -29,7 +30,7 @@ typedef struct {
 
 static char *place_now(Panel *p) {
     GtkWidget *page = gtk_stack_get_visible_child(GTK_STACK(p->stack));
-    if (page != p->browser) return g_strdup("selected");
+    if (page != p->browser) return g_strdup(gtk_stack_get_visible_child_name(GTK_STACK(p->stack)));
     char *b = zg_settings_browser_get_place(p->browser);
     char *place = g_strconcat("settings\n", b, NULL);
     g_free(b);
@@ -69,7 +70,7 @@ static void go_back(gpointer data) {
         gtk_stack_set_visible_child(GTK_STACK(p->stack), p->browser);
         zg_settings_browser_set_place(p->browser, place + strlen("settings\n"));
     } else {
-        gtk_stack_set_visible_child_name(GTK_STACK(p->stack), "selected");
+        gtk_stack_set_visible_child_name(GTK_STACK(p->stack), place);
     }
     p->restoring = FALSE;
     g_free(p->current);
@@ -119,6 +120,7 @@ GtkWidget *zg_settings_panel_new(ZgModel *model) {
     p->browser = browser;
     gtk_stack_add_titled(GTK_STACK(stack), browser, "settings", "Settings");
     gtk_stack_add_titled(GTK_STACK(stack), zg_inspector_new(model, stack), "selected", "Selected");
+    gtk_stack_add_titled(GTK_STACK(stack), zg_history_page_new(model), "history", "History");
     gtk_stack_set_visible_child(GTK_STACK(stack), browser);
     GtkWidget *switcher = gtk_stack_switcher_new();
     gtk_stack_switcher_set_stack(GTK_STACK_SWITCHER(switcher), GTK_STACK(stack));
