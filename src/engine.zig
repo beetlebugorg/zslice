@@ -255,6 +255,11 @@ pub const Job = struct {
     support: []support_mod.SupportLayer = &.{},
     /// The shapes that start in the air (see islands.zig).
     islands: []islands_mod.Island = &.{},
+    /// A hash of the inputs of the island search besides the outlines (the
+    /// support areas and the grow distance), or 0 before the search. A new
+    /// job with the same outlines and the same key takes the islands of
+    /// the old job: a change of the infill does not search again.
+    islands_key: u64 = 0,
     /// The top and bottom surfaces of each layer (see layer.surfaces), or
     /// empty slices if no layer has skin.
     tops: []Paths = &.{},
@@ -513,8 +518,28 @@ pub const Job = struct {
 
         // The support areas need the outlines of all layers.
         job.support = support_mod.compute(gpa, job.outlines, job.layers, &r, threads, marks) catch |e| return @as(Error, @errorCast(e));
-        job.islands = islands_mod.find(gpa, job.outlines, job.support, @divTrunc(geom.fromMm(r.line_width), 4), 0.5, threads) catch |e| return @as(Error, @errorCast(e));
+        const grow = @divTrunc(geom.fromMm(r.line_width), 4);
+        job.islands_key = islandsKey(job.support, grow);
+        if (old) |o| if (o.outline_key == key and o.islands_key == job.islands_key and o.islands_key != 0) {
+            job.islands = o.islands;
+            o.islands = &.{};
+            return job;
+        };
+        job.islands = islands_mod.find(gpa, job.outlines, job.support, grow, 0.5, threads) catch |e| return @as(Error, @errorCast(e));
         return job;
+    }
+
+    /// The key of the island search besides the outlines: a hash of the
+    /// support areas and of the grow distance. Never 0.
+    fn islandsKey(support: []const support_mod.SupportLayer, grow: i64) u64 {
+        var h = std.hash.Wyhash.init(0x15_1a_4d);
+        h.update(std.mem.asBytes(&grow));
+        h.update(std.mem.asBytes(&support.len));
+        for (support) |l| for ([_]geom.Paths{ l.body, l.interface }) |p| {
+            h.update(std.mem.sliceAsBytes(p.points.items));
+            h.update(std.mem.sliceAsBytes(p.ends.items));
+        };
+        return h.final() | 1;
     }
 
     /// Moves the memos of `old` to this job if the outlines are the same.
@@ -2195,4 +2220,30 @@ test "combined infill: an override combines only the layers in its range" {
         _ = i;
     };
     try testing.expect(any);
+}
+
+test "a job with the same outlines and support takes the islands of the old job" {
+    const gpa = testing.allocator;
+    var mesh = try mesh_mod.shapes.demo(gpa);
+    defer mesh.deinit(gpa);
+    var s: Settings = .{};
+    s.engine.threads = 2;
+    var old = try Job.init(gpa, &mesh, s);
+    defer old.deinit();
+    const fresh_n = old.islands.len;
+    // A change of the infill only: the same outlines and support.
+    s.project.infill_density = 0.4;
+    var job = try Job.initReuse(gpa, &mesh, s, &.{}, &.{}, .{}, &old);
+    defer job.deinit();
+    try testing.expectEqual(old.islands_key, job.islands_key);
+    try testing.expectEqual(fresh_n, job.islands.len);
+    var fresh = try Job.init(gpa, &mesh, s);
+    defer fresh.deinit();
+    try testing.expectEqual(fresh.islands.len, job.islands.len);
+    try testing.expectEqual(fresh.islands_key, job.islands_key);
+    // Support on: other support areas, so another key.
+    s.project.support = .everywhere;
+    var with_support = try Job.initReuse(gpa, &mesh, s, &.{}, &.{}, .{}, &job);
+    defer with_support.deinit();
+    try testing.expect(with_support.islands_key != job.islands_key or with_support.support.len == 0);
 }
