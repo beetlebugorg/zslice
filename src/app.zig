@@ -171,6 +171,13 @@ pub const App = struct {
     /// the running slice. A new model clears them.
     marks: std.ArrayList(zs.support.Mark) = .empty,
     slice_marks: []zs.support.Mark = &.{},
+    /// The cascade of the settings (see `Level`): the quality profile and
+    /// the global settings of the user, as their changes from the
+    /// defaults, in `strings`. `settings` has the result, with the changes
+    /// of this print on top.
+    quality_name: []const u8 = "",
+    quality: []const zs.settings.Change = &.{},
+    global: []const zs.settings.Change = &.{},
     /// The settings of the parts and the modifier volumes for the running
     /// slice (see part_settings.zig), and the meshes that it points to.
     slice_plan: ?zs.part_settings.Plan = null,
@@ -626,7 +633,114 @@ pub const App = struct {
     /// profile (see profile.writeChanged). A shell saves this text to keep
     /// the settings after a restart.
     pub fn writeState(app: *const App, group: zs.profile.Group, w: *std.Io.Writer) std.Io.Writer.Error!void {
+        // The project group: only the changes of this print, over the
+        // quality profile and the global settings (see `base`).
+        if (group == .project) return zs.profile.writeChangedFrom(app.settings, app.base(), group, w);
         return zs.profile.writeChanged(app.settings, group, w);
+    }
+
+    /// The levels of the cascade of the settings, the lowest first: a
+    /// higher level replaces the value of a lower one.
+    ///
+    /// - default: the built-in value.
+    /// - global: the global settings of the user (for all prints).
+    /// - machine, filament: the profile of the printer, of the filament.
+    /// - quality: the quality profile (fine, standard, draft, ...).
+    /// - print: the changes for this print (the plate).
+    /// - part: the value of one part (see setPartSetting).
+    ///
+    /// Layer ranges and modifier volumes come on top of a part, for some
+    /// layers or for a volume.
+    pub const Level = enum(u8) { default = 0, global = 1, machine = 2, filament = 3, quality = 4, print = 5, part = 6 };
+
+    /// The settings under the changes of this print: the defaults, the
+    /// global settings, the printer and the filament (as they are), and
+    /// the quality profile.
+    pub fn base(app: *const App) Settings {
+        var s = app.settings;
+        s.project = .{};
+        for (app.global) |c| s.set(c.name, c.value) catch {};
+        for (app.quality) |c| s.set(c.name, c.value) catch {};
+        return s;
+    }
+
+    /// The changes of `s` from `from`, of the settings whose names start
+    /// with `prefix`, in `strings`.
+    fn diffOf(app: *App, s: Settings, from: Settings, prefix: []const u8) Allocator.Error![]const zs.settings.Change {
+        const a = app.strings.allocator();
+        var out: std.ArrayList(zs.settings.Change) = .empty;
+        for (@import("settings_meta.zig").all) |m| {
+            if (!std.mem.startsWith(u8, m.name, prefix)) continue;
+            var wa: std.Io.Writer.Allocating = .init(a);
+            writeSettingOf(s, m.name, &wa.writer) catch continue;
+            var wb: std.Io.Writer.Allocating = .init(a);
+            writeSettingOf(from, m.name, &wb.writer) catch continue;
+            if (std.mem.eql(u8, wa.written(), wb.written())) continue;
+            try out.append(a, .{ .name = m.name, .value = wa.written() });
+        }
+        return out.items;
+    }
+
+    /// Sets the quality profile: its name and its text (a project profile,
+    /// with `extends`). `keep_edits`: the changes of this print stay on
+    /// top; else they go.
+    pub fn setQuality(app: *App, name: []const u8, text: []const u8, keep_edits: bool, diag: *zs.profile.Diagnostic) (zs.profile.Error || Allocator.Error)!void {
+        const a = app.strings.allocator();
+        var q: Settings = .{};
+        // Its own name in the chain: the text often extends the profile of
+        // the same name ("fine" extends "fine").
+        try zs.profile.apply(a, &q, .project, "(quality)", try a.dupe(u8, text), null, diag);
+        const edits = if (keep_edits) try app.diffOf(app.settings, app.base(), "project.") else &.{};
+        app.quality = try app.diffOf(q, .{}, "project.");
+        app.quality_name = try a.dupe(u8, name);
+        app.rebase(edits);
+    }
+
+    /// Sets the global settings of the user (a project profile text). The
+    /// changes of this print stay on top.
+    pub fn setGlobal(app: *App, text: []const u8, diag: *zs.profile.Diagnostic) (zs.profile.Error || Allocator.Error)!void {
+        const a = app.strings.allocator();
+        var g: Settings = .{};
+        try zs.profile.apply(a, &g, .project, "global", try a.dupe(u8, text), null, diag);
+        const edits = try app.diffOf(app.settings, app.base(), "project.");
+        app.global = try app.diffOf(g, .{}, "project.");
+        app.rebase(edits);
+    }
+
+    /// The project settings: the base, with `edits` on top.
+    fn rebase(app: *App, edits: []const zs.settings.Change) void {
+        var s = app.base();
+        for (edits) |c| s.set(c.name, c.value) catch {};
+        app.settings.project = s.project;
+    }
+
+    pub const Source = struct { level: Level, profile: []const u8 };
+
+    /// Where the value of a setting comes from (the highest level that
+    /// gives it), for the plate (part null) or for one part, and the name
+    /// of the profile of that level ("" if none).
+    pub fn source(app: *const App, part: ?usize, name: []const u8) Source {
+        if (part) |i| if (app.partSetting(i, name) != null) return .{ .level = .part, .profile = "" };
+        if (std.mem.startsWith(u8, name, "machine.")) {
+            return .{ .level = if (sameValue(app.settings, .{}, name)) .default else .machine, .profile = app.settings.machine.name };
+        }
+        if (std.mem.startsWith(u8, name, "filament.")) {
+            return .{ .level = if (sameValue(app.settings, .{}, name)) .default else .filament, .profile = app.settings.filament.name };
+        }
+        if (!sameValue(app.settings, app.base(), name)) return .{ .level = .print, .profile = "" };
+        for (app.quality) |c| if (std.mem.eql(u8, c.name, name)) return .{ .level = .quality, .profile = app.quality_name };
+        for (app.global) |c| if (std.mem.eql(u8, c.name, name)) return .{ .level = .global, .profile = "" };
+        return .{ .level = .default, .profile = "" };
+    }
+
+    fn sameValue(x: Settings, y: Settings, name: []const u8) bool {
+        var ba: [512]u8 = undefined;
+        var bb: [512]u8 = undefined;
+        var wa: std.Io.Writer = .fixed(&ba);
+        var wb: std.Io.Writer = .fixed(&bb);
+        writeSettingOf(x, name, &wa) catch return false;
+        writeSettingOf(y, name, &wb) catch return false;
+        return std.mem.eql(u8, wa.buffered(), wb.buffered());
     }
 
     /// Sets all settings of a group to the built-in defaults. A shell does
@@ -634,6 +748,9 @@ pub const App = struct {
     /// value of the printer before stays.
     pub fn resetGroup(app: *App, group: zs.profile.Group) void {
         switch (group) {
+            // The project settings go back to the base: the quality profile
+            // and the global settings stay (see `base`).
+            .project => app.settings.project = app.base().project,
             inline else => |g| @field(app.settings, @tagName(g)) = .{},
         }
     }
@@ -2095,4 +2212,39 @@ test "part settings: one part with its own infill and support" {
     try app.setPartSetting(0, "project.infill_density", null);
     try app.setPartSetting(0, "project.support", null);
     try testing.expect(app.partSetting(0, "project.support") == null);
+}
+
+test "settings cascade: quality, the changes of this print, and a part" {
+    const gpa = testing.allocator;
+    const app = try App.create(gpa, null, null);
+    defer app.destroy();
+    var diag: zs.profile.Diagnostic = .{};
+    try app.setQuality("fine", "extends = \"fine\"\n", false, &diag);
+    try testing.expectEqual(@as(f64, 0.1), app.settings.project.layer_height);
+    try testing.expectEqual(App.Level.quality, app.source(null, "project.layer_height").level);
+    try testing.expectEqualStrings("fine", app.source(null, "project.layer_height").profile);
+    try testing.expectEqual(App.Level.default, app.source(null, "project.infill_pattern").level);
+    // A change of this print, over the quality.
+    try app.setSetting("project.wall_count", "5");
+    try testing.expectEqual(App.Level.print, app.source(null, "project.wall_count").level);
+    // Another quality keeps the change with keep_edits.
+    try app.setQuality("draft", "extends = \"draft\"\n", true, &diag);
+    try testing.expectEqual(@as(f64, 0.3), app.settings.project.layer_height);
+    try testing.expectEqual(@as(u32, 5), app.settings.project.wall_count);
+    // The state has the change only, not the quality.
+    var w: std.Io.Writer.Allocating = .init(gpa);
+    defer w.deinit();
+    try app.writeState(.project, &w.writer);
+    try testing.expect(std.mem.indexOf(u8, w.written(), "wall_count = 5") != null);
+    try testing.expect(std.mem.indexOf(u8, w.written(), "layer_height") == null);
+    // A reset of the group goes back to the quality.
+    app.resetGroup(.project);
+    try testing.expectEqual(@as(f64, 0.3), app.settings.project.layer_height);
+    // Draft has the default wall count: the default again.
+    try testing.expectEqual(@as(u32, 2), app.settings.project.wall_count);
+    try testing.expectEqual(App.Level.default, app.source(null, "project.wall_count").level);
+    try testing.expectEqual(App.Level.quality, app.source(null, "project.layer_height").level);
+    // A filament value from its profile.
+    try app.setSetting("filament.nozzle_temp", "230");
+    try testing.expectEqual(App.Level.filament, app.source(null, "filament.nozzle_temp").level);
 }

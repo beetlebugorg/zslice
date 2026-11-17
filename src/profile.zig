@@ -194,11 +194,18 @@ pub fn write(settings: Settings, group: Group, w: *std.Io.Writer) std.Io.Writer.
 /// better default in a later version still applies to the settings that
 /// the user did not change.
 pub fn writeChanged(settings: Settings, group: Group, w: *std.Io.Writer) std.Io.Writer.Error!void {
+    return writeChangedFrom(settings, .{}, group, w);
+}
+
+/// Writes only the settings of `group` that differ from `from` (for
+/// example, the settings of a quality profile under the changes of the
+/// user), with their help text.
+pub fn writeChangedFrom(settings: Settings, from: Settings, group: Group, w: *std.Io.Writer) std.Io.Writer.Error!void {
     try w.print("# The {s} settings of zslice that differ from the defaults.\n# zslice writes this file; it is also a profile that you can edit.\n", .{@tagName(group)});
     switch (group) {
         inline else => |g| {
             const values = @field(settings, @tagName(g));
-            const defaults: @TypeOf(values) = .{};
+            const defaults = @field(from, @tagName(g));
             inline for (@typeInfo(@TypeOf(values)).@"struct".fields) |f| {
                 const v = @field(values, f.name);
                 const d = @field(defaults, f.name);
