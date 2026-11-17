@@ -108,6 +108,229 @@ pub fn linesPhase(gpa: Allocator, region: Paths, spacing: i64, angle_deg: f64, p
 }
 
 // ---------------------------------------------------------------------------
+// Solid lines fitted to each island
+
+/// Lines of a solid fill (skin), with the width of each line in mm.
+pub const Fitted = struct {
+    lines: Paths,
+    widths: []f32,
+    /// The piece of each line (see `fittedLines`), the island of each
+    /// piece (an index into `islands`), and the islands of the region. The
+    /// joins of the lines stay inside one piece.
+    piece: []u32,
+    piece_island: []u32,
+    islands: []Paths,
+};
+
+/// True if p is inside the polygon (even-odd rule).
+fn insidePoly(poly: []const Point, p: Point) bool {
+    var in = false;
+    var prev = poly[poly.len - 1];
+    for (poly) |q| {
+        defer prev = q;
+        if ((q.y > p.y) != (prev.y > p.y)) {
+            const x = @as(f64, @floatFromInt(prev.x)) + @as(f64, @floatFromInt(p.y - prev.y)) / @as(f64, @floatFromInt(q.y - prev.y)) * @as(f64, @floatFromInt(q.x - prev.x));
+            if (@as(f64, @floatFromInt(p.x)) < x) in = !in;
+        }
+    }
+    return in;
+}
+
+/// The islands of `region`: each outer polygon (positive area) with the
+/// holes in it. The caller owns the result.
+pub fn islandsOf(gpa: Allocator, region: Paths) Allocator.Error![]Paths {
+    var outers: std.ArrayList(usize) = .empty;
+    defer outers.deinit(gpa);
+    for (0..region.count()) |k| if (geom.areaMm2(region.get(k)) > 0) try outers.append(gpa, k);
+    const out = try gpa.alloc(Paths, outers.items.len);
+    for (out) |*o| o.* = .empty;
+    errdefer {
+        for (out) |*o| o.deinit(gpa);
+        gpa.free(out);
+    }
+    for (outers.items, 0..) |k, i| try out[i].append(gpa, region.get(k));
+    // Each hole goes in the smallest outer polygon that has its first point.
+    for (0..region.count()) |k| {
+        const hole = region.get(k);
+        if (hole.len == 0 or geom.areaMm2(hole) >= 0) continue;
+        var best: ?usize = null;
+        var best_area: f64 = std.math.inf(f64);
+        for (outers.items, 0..) |ok, i| {
+            const outer = region.get(ok);
+            if (!insidePoly(outer, hole[0])) continue;
+            const a = geom.areaMm2(outer);
+            if (a < best_area) {
+                best = i;
+                best_area = a;
+            }
+        }
+        if (best) |i| try out[i].append(gpa, hole);
+    }
+    return out;
+}
+
+/// The crossings of the island with the scan line at `y` of the turned
+/// frame (x values, sorted), in `out`.
+fn crossings(isl: Paths, c: f64, s: f64, y: f64, out: *std.ArrayList(f64), gpa: Allocator) Allocator.Error!void {
+    out.clearRetainingCapacity();
+    for (0..isl.count()) |k| {
+        const poly = isl.get(k);
+        if (poly.len < 3) continue;
+        var prev = poly[poly.len - 1];
+        for (poly) |q| {
+            defer prev = q;
+            const px: f64 = @floatFromInt(prev.x);
+            const py: f64 = @floatFromInt(prev.y);
+            const qx: f64 = @floatFromInt(q.x);
+            const qy: f64 = @floatFromInt(q.y);
+            // The turned frame: x along the lines, y across them.
+            const ay = -px * s + py * c;
+            const by = -qx * s + qy * c;
+            if ((ay <= y) == (by <= y)) continue;
+            const ax = px * c + py * s;
+            const bx = qx * c + qy * s;
+            try out.append(gpa, ax + (y - ay) / (by - ay) * (bx - ax));
+        }
+    }
+    std.mem.sort(f64, out.items, {}, std.sort.asc(f64));
+}
+
+/// The lines of a solid fill of `region` (the area of the line centers),
+/// fitted to each piece of each island. A piece is a part of an island
+/// with one run of the outline on each side of each scan line: the island
+/// cut at the height (across the lines) of each vertex, with the slabs
+/// joined where the next slab has the same number of intervals. In a piece
+/// the first and the last line lie on its edges across the lines, and the
+/// lines between them are evenly spaced: the spacing is the extent of the
+/// piece over the nearest whole number of line widths, and the width of
+/// each line is that spacing (within 0.8 and 1.25 of `width`). On one grid
+/// for the whole layer, a narrow strip along the lines can have a gap at a
+/// wall of up to one line width. Only the spacing changes: no narrow line
+/// fills a gap. The memory is in `gpa`, an arena.
+pub fn fittedLines(gpa: Allocator, region: Paths, width: i64, angle_deg: f64, min_length: i64) Allocator.Error!Fitted {
+    var out: Paths = .empty;
+    var widths: std.ArrayList(f32) = .empty;
+    var piece_of: std.ArrayList(u32) = .empty;
+    var piece_island: std.ArrayList(u32) = .empty;
+    const islands = try islandsOf(gpa, region);
+    const a = angle_deg * std.math.pi / 180.0;
+    const c = @cos(a);
+    const s = @sin(a);
+    const w: f64 = @floatFromInt(width);
+    var xs: std.ArrayList(f64) = .empty;
+    var ys: std.ArrayList(f64) = .empty;
+    for (islands, 0..) |isl, ii| {
+        // The heights of the vertices: the slabs are between them.
+        ys.clearRetainingCapacity();
+        for (isl.points.items) |p| try ys.append(gpa, @as(f64, @floatFromInt(p.x)) * -s + @as(f64, @floatFromInt(p.y)) * c);
+        std.mem.sort(f64, ys.items, {}, std.sort.asc(f64));
+        var n_ys: usize = 0;
+        for (ys.items) |y| if (n_ys == 0 or y - ys.items[n_ys - 1] > 0.5) {
+            ys.items[n_ys] = y;
+            n_ys += 1;
+        };
+        if (n_ys < 2) continue;
+        const slabs = n_ys - 1;
+        // The intervals of each slab at its middle: their number, and the
+        // first piece id of the slab.
+        const counts = try gpa.alloc(u32, slabs);
+        const first_id = try gpa.alloc(u32, slabs);
+        var total: u32 = 0;
+        for (0..slabs) |k| {
+            try crossings(isl, c, s, (ys.items[k] + ys.items[k + 1]) / 2, &xs, gpa);
+            counts[k] = @intCast(xs.items.len / 2);
+            first_id[k] = total;
+            total += counts[k];
+        }
+        // Union of the intervals k of slabs j and j + 1 when the two slabs
+        // have the same number of intervals.
+        const parent = try gpa.alloc(u32, total);
+        for (parent, 0..) |*q, k| q.* = @intCast(k);
+        const find = struct {
+            fn f(par: []u32, x: u32) u32 {
+                var r = x;
+                while (par[r] != r) r = par[r];
+                var y = x;
+                while (par[y] != r) {
+                    const next = par[y];
+                    par[y] = r;
+                    y = next;
+                }
+                return r;
+            }
+        }.f;
+        // The two intervals must also meet at the boundary: their ends just
+        // below and just above it are less than half a line apart. An edge
+        // along the lines (a step in the outline) ends a piece.
+        var below: std.ArrayList(f64) = .empty;
+        for (0..slabs - 1) |k| if (counts[k] == counts[k + 1]) {
+            const yb = ys.items[k + 1];
+            const d = @min(@min(yb - ys.items[k], ys.items[k + 2] - yb) / 4, @max(1.0, w * 0.01));
+            try crossings(isl, c, s, yb - d, &below, gpa);
+            try crossings(isl, c, s, yb + d, &xs, gpa);
+            if (below.items.len != xs.items.len or below.items.len != 2 * counts[k]) continue;
+            for (0..counts[k]) |m| {
+                if (@abs(below.items[2 * m] - xs.items[2 * m]) > w / 2 or @abs(below.items[2 * m + 1] - xs.items[2 * m + 1]) > w / 2) continue;
+                const ra = find(parent, first_id[k] + @as(u32, @intCast(m)));
+                const rb = find(parent, first_id[k + 1] + @as(u32, @intCast(m)));
+                if (ra != rb) parent[rb] = ra;
+            }
+        };
+        // The extent of each piece across the lines.
+        const lo = try gpa.alloc(f64, total);
+        const hi = try gpa.alloc(f64, total);
+        @memset(lo, std.math.inf(f64));
+        @memset(hi, -std.math.inf(f64));
+        for (0..slabs) |k| for (0..counts[k]) |m| {
+            const r = find(parent, first_id[k] + @as(u32, @intCast(m)));
+            lo[r] = @min(lo[r], ys.items[k]);
+            hi[r] = @max(hi[r], ys.items[k + 1]);
+        };
+        // The lines of each piece.
+        for (0..total) |r| {
+            if (parent[r] != r) continue;
+            const eps = @max(1.0, w * 0.01);
+            const extent = hi[r] - lo[r] - 2 * eps;
+            if (!(extent > 0)) continue;
+            var n = @round(extent / w);
+            var spacing: f64 = if (n >= 1) extent / n else 0;
+            if (n >= 1 and spacing > 1.25 * w) {
+                n += 1;
+                spacing = extent / n;
+            }
+            const bead: f32 = @floatCast(geom.toMm(@intFromFloat(@round(if (n >= 1) std.math.clamp(spacing, 0.8 * w, 1.25 * w) else w))));
+            const pid: u32 = @intCast(piece_island.items.len);
+            try piece_island.append(gpa, @intCast(ii));
+            const count: usize = if (n >= 1) @intFromFloat(n + 1) else 1;
+            for (0..count) |q| {
+                const y = if (n >= 1) lo[r] + eps + @as(f64, @floatFromInt(q)) * spacing else (lo[r] + hi[r]) / 2;
+                // The slab of y, and the interval of this piece in it.
+                var k: usize = 0;
+                while (k + 1 < slabs and ys.items[k + 1] <= y) k += 1;
+                var m: ?usize = null;
+                for (0..counts[k]) |mm| if (find(parent, first_id[k] + @as(u32, @intCast(mm))) == r) {
+                    m = mm;
+                    break;
+                };
+                const mi = m orelse continue;
+                try crossings(isl, c, s, y, &xs, gpa);
+                if (2 * mi + 1 >= xs.items.len) continue;
+                const x0 = xs.items[2 * mi];
+                const x1 = xs.items[2 * mi + 1];
+                if (x1 - x0 < @as(f64, @floatFromInt(min_length))) continue;
+                // Back to the frame of the region.
+                const p0: Point = .{ .x = @intFromFloat(@round(x0 * c - y * s)), .y = @intFromFloat(@round(x0 * s + y * c)) };
+                const p1: Point = .{ .x = @intFromFloat(@round(x1 * c - y * s)), .y = @intFromFloat(@round(x1 * s + y * c)) };
+                try out.append(gpa, &.{ p0, p1 });
+                try widths.append(gpa, bead);
+                try piece_of.append(gpa, pid);
+            }
+        }
+    }
+    return .{ .lines = out, .widths = widths.items, .piece = piece_of.items, .piece_island = piece_island.items, .islands = islands };
+}
+
+// ---------------------------------------------------------------------------
 // Connected lines
 
 /// Joins parallel lines (from `lines`, with the same spacing and angle)
@@ -866,4 +1089,31 @@ test "honeycomb: the density is near the target" {
     // single grid. Within 40 % of 0.2 x 4/3.
     const density = len * 400 / (60_000.0 * 60_000.0);
     try testing.expect(density > 0.2 and density < 0.2 * 4.0 / 3.0 * 1.4);
+}
+
+test "fittedLines: a narrow strip along the lines gets a line on each edge" {
+    var arena_state = std.heap.ArenaAllocator.init(testing.allocator);
+    defer arena_state.deinit();
+    const gpa = arena_state.allocator();
+    // A U shape: two strips 2.3 mm wide (the area of the line centers),
+    // 20 mm long, along x, joined at the left by a block. The lines go
+    // along x (angle 0). One grid for all would leave a gap at a wall.
+    var region: Paths = .empty;
+    try region.append(gpa, &.{ .init(0, 0), .init(20_000, 0), .init(20_000, 2_300), .init(5_000, 2_300), .init(5_000, 7_700), .init(20_000, 7_700), .init(20_000, 10_000), .init(0, 10_000) });
+    const fit = try fittedLines(gpa, region, 500, 0, 500);
+    // The lines of the lower strip (y < 2.3 mm, x > 5 mm): first and last
+    // on the edges, evenly spaced.
+    var ys: std.ArrayList(i64) = .empty;
+    for (0..fit.lines.count()) |k| {
+        const l = fit.lines.get(k);
+        if (l[0].y < 2_300 and @max(l[0].x, l[1].x) > 15_000) try ys.append(gpa, l[0].y);
+    }
+    std.mem.sort(i64, ys.items, {}, std.sort.asc(i64));
+    try testing.expect(ys.items.len >= 4);
+    try testing.expect(ys.items[0] < 30);
+    try testing.expect(ys.items[ys.items.len - 1] > 2_270);
+    const step = ys.items[1] - ys.items[0];
+    for (ys.items[1..], ys.items[0 .. ys.items.len - 1]) |b, a| try testing.expect(@abs(b - a - step) <= 2);
+    // The widths stay near the line width.
+    for (fit.widths) |wd| try testing.expect(wd >= 0.4 - 1e-6 and wd <= 0.625 + 1e-6);
 }

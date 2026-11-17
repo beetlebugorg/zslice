@@ -999,15 +999,47 @@ pub fn plan(gpa: Allocator, ctx: Context, i: usize) Allocator.Error!LayerPlan {
     const skin_angle = @mod(p.skin_angle + p.skin_angle_step * @as(f64, @floatFromInt(i)), 180);
     var skin_lines: Paths = .empty;
     var skin_loops: Paths = .empty;
+    // The skin lines fit each island of the skin (see infill.fittedLines):
+    // the width and the island of each skin path.
+    var skin_line_w: []const f32 = &.{};
+    var skin_island: []const u32 = &.{};
+    var skin_n_islands: usize = 0;
     switch (p.skin_pattern) {
         // `lines`: the lines join into zigzag paths at the walls, as the
         // nozzle prints a solid surface: back and forth, with no travel and
         // no retraction between the lines. `monotonic` keeps its own order.
         .lines => {
-            const set = try infill.lines(s, skin_region, w, skin_angle, w);
-            skin_lines = try infill.connect(s, skin_region, set, w, skin_angle);
+            const fit = try infill.fittedLines(s, skin_region, w, skin_angle, w);
+            var set: Paths = .empty;
+            var path_w: std.ArrayList(f32) = .empty;
+            var path_piece: std.ArrayList(u32) = .empty;
+            for (fit.piece_island, 0..) |ii, pid| {
+                set.ends.clearRetainingCapacity();
+                set.points.clearRetainingCapacity();
+                var bead: f32 = @floatCast(width_mm);
+                for (0..fit.lines.count()) |k| if (fit.piece[k] == pid) {
+                    try set.append(s, fit.lines.get(k));
+                    bead = fit.widths[k];
+                };
+                if (set.isEmpty()) continue;
+                const joined = try infill.connect(s, fit.islands[ii], set, geom.fromMm(bead), skin_angle);
+                for (0..joined.count()) |k| {
+                    try skin_lines.append(s, joined.get(k));
+                    try path_w.append(s, bead);
+                    try path_piece.append(s, @intCast(pid));
+                }
+            }
+            skin_line_w = path_w.items;
+            skin_island = path_piece.items;
+            skin_n_islands = fit.piece_island.len;
         },
-        .monotonic => skin_lines = try infill.lines(s, skin_region, w, skin_angle, w),
+        .monotonic => {
+            const fit = try infill.fittedLines(s, skin_region, w, skin_angle, w);
+            skin_lines = fit.lines;
+            skin_line_w = fit.widths;
+            skin_island = fit.piece;
+            skin_n_islands = fit.piece_island.len;
+        },
         .concentric => skin_loops = try infill.concentric(s, skin_region, w),
     }
 
@@ -1167,11 +1199,7 @@ pub fn plan(gpa: Allocator, ctx: Context, i: usize) Allocator.Error!LayerPlan {
             try addGroupWidths(s, a, &lp, &pos, wall.lines, wall.line_widths, false, feature, null, .{ .ids = vw_line_ids[k], .id = id });
         }
         try addThin(a, &lp, &pos, &reg, .{ .ids = thin_ids, .id = id });
-        if (p.skin_pattern == .monotonic) {
-            try addMonotonic(s, a, &lp, &pos, try subset(s, skin_lines, .{ .ids = skin_ids, .id = id }), skin_angle, .skin);
-        } else {
-            try addGroup(s, a, &lp, &pos, skin_lines, false, .skin, null, .{ .ids = skin_ids, .id = id });
-        }
+        try addSkinIslands(s, a, &lp, &pos, skin_lines, skin_line_w, skin_island, skin_n_islands, .{ .ids = skin_ids, .id = id }, skin_angle, p.skin_pattern == .monotonic);
         try addGroup(s, a, &lp, &pos, skin_loops, true, .skin, null, .{ .ids = skin_loop_ids, .id = id });
         try addGroup(s, a, &lp, &pos, sparse_lines, false, .infill, null, .{ .ids = sparse_ids, .id = id });
         try addGroup(s, a, &lp, &pos, sparse_loops, true, .infill, null, .{ .ids = sparse_loop_ids, .id = id });
@@ -1736,6 +1764,41 @@ pub fn surfacePair(gpa: Allocator, outlines: []const Paths, j: usize) Allocator.
 /// it that overlap it are done; from the ready pieces, the nozzle takes
 /// the nearest. So a region with holes prints as columns, with no jump
 /// across the part for each scan line (as the Cura "monotonic" order).
+/// The skin lines of one part (`group`), one skin island after the other,
+/// the nearest island first: each island has its own line width (see
+/// infill.fittedLines), and its lines do not join with the lines of
+/// another island. `monotonic`: in the monotonic order, else in the
+/// nearest order.
+fn addSkinIslands(s: Allocator, a: Allocator, lp: *LayerPlan, pos: *Point, lines: Paths, widths: []const f32, island: []const u32, n_islands: usize, group: Group, angle_deg: f64, monotonic: bool) Allocator.Error!void {
+    const done = try s.alloc(bool, n_islands);
+    @memset(done, false);
+    while (true) {
+        // The island with the line end nearest to the nozzle.
+        var best: ?u32 = null;
+        var best_d: i128 = std.math.maxInt(i128);
+        for (0..lines.count()) |k| {
+            if (group.ids[k] != group.id or done[island[k]]) continue;
+            const path = lines.get(k);
+            const d = @min(pos.distSq(path[0]), pos.distSq(path[path.len - 1]));
+            if (d < best_d) {
+                best_d = d;
+                best = island[k];
+            }
+        }
+        const ii = best orelse return;
+        done[ii] = true;
+        var set: Paths = .empty;
+        var bead: f32 = 0;
+        for (0..lines.count()) |k| if (group.ids[k] == group.id and island[k] == ii) {
+            try set.append(s, lines.get(k));
+            bead = widths[k];
+        };
+        const start = lp.paths.items.len;
+        if (monotonic) try addMonotonic(s, a, lp, pos, set, angle_deg, .skin) else try addGroup(s, a, lp, pos, set, false, .skin, null, null);
+        for (lp.paths.items[start..]) |*path| path.width = bead;
+    }
+}
+
 fn addMonotonic(s: Allocator, a: Allocator, lp: *LayerPlan, pos: *Point, set: Paths, angle_deg: f64, feature: Feature) Allocator.Error!void {
     const n = set.count();
     if (n == 0) return;
