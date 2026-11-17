@@ -9,6 +9,14 @@
 //! A transform is 12 numbers of a 4x3 matrix for row vectors: x' = x m0 +
 //! y m3 + z m6 + m9, and so on. The unit of a model can be other than mm.
 //!
+//! An object can have metadata: <metadata name="...">text</metadata>. Cura
+//! keeps the settings of each object there, for example
+//! "cura:infill_mesh" (a modifier volume) or "cura:infill_sparse_density".
+//! The reader keeps the metadata of each part. If an item is a group of
+//! components and a component has its own metadata, each component with a
+//! mesh becomes its own part: a Cura group of a part and its modifier
+//! volume is one item with two components.
+//!
 //! zslice writes one object for each part (its mesh as it was loaded) and
 //! one build item with the turn and the place of the part, and its changes
 //! for the part and for some layers in Metadata/zslice_overrides.txt (one
@@ -27,10 +35,47 @@ const Mesh = mesh_mod.Mesh;
 
 pub const Error = error{ NotThreeMf, EmptyMesh, Corrupt, Unsupported } || Allocator.Error;
 
+/// One <metadata> entry of an object: its name (with the namespace, for
+/// example "cura:infill_mesh") and its text.
+pub const Meta = struct {
+    key: []u8,
+    value: []u8,
+};
+
+pub fn freeMeta(gpa: Allocator, meta: []Meta) void {
+    for (meta) |m| {
+        gpa.free(m.key);
+        gpa.free(m.value);
+    }
+    gpa.free(meta);
+}
+
+pub fn cloneMeta(gpa: Allocator, meta: []const Meta) Allocator.Error![]Meta {
+    const out = try gpa.alloc(Meta, meta.len);
+    var n: usize = 0;
+    errdefer freeMeta(gpa, out[0..n]);
+    for (meta) |m| {
+        const k = try gpa.dupe(u8, m.key);
+        errdefer gpa.free(k);
+        out[n] = .{ .key = k, .value = try gpa.dupe(u8, m.value) };
+        n += 1;
+    }
+    return out;
+}
+
 pub const LoadedPart = struct {
     name: []u8,
     /// The mesh at its place in the build (the item transform applied).
     mesh: Mesh,
+    /// The metadata of the object, in file order. Empty if it has none.
+    meta: []Meta = &.{},
+
+    pub fn deinit(p: *LoadedPart, gpa: Allocator) void {
+        gpa.free(p.name);
+        p.mesh.deinit(gpa);
+        freeMeta(gpa, p.meta);
+        p.meta = &.{};
+    }
 };
 
 pub const Loaded = struct {
@@ -39,10 +84,7 @@ pub const Loaded = struct {
     overrides: []u8,
 
     pub fn deinit(self: *Loaded, gpa: Allocator) void {
-        for (self.parts) |*p| {
-            gpa.free(p.name);
-            p.mesh.deinit(gpa);
-        }
+        for (self.parts) |*p| p.deinit(gpa);
         gpa.free(self.parts);
         gpa.free(self.overrides);
     }
@@ -174,8 +216,11 @@ fn unescape(a: Allocator, s: []const u8) Allocator.Error![]u8 {
 
 const Component = struct { path: []const u8, id: []const u8, t: Transform };
 
+const ArenaMeta = struct { key: []const u8, value: []const u8 };
+
 const Object = struct {
     name: []const u8 = "",
+    meta: std.ArrayList(ArenaMeta) = .empty,
     verts: std.ArrayList([3]f64) = .empty,
     tris: std.ArrayList([3]u32) = .empty,
     comps: std.ArrayList(Component) = .empty,
@@ -214,6 +259,13 @@ fn parseModel(a: Allocator, text: []const u8, here: []const u8) Error!ModelFile 
             const gop = try m.objects.getOrPut(a, id);
             gop.value_ptr.* = .{ .name = if (tag.attr("name")) |n| try unescape(a, n) else "" };
             cur = if (tag.empty) null else gop.value_ptr;
+        } else if (std.mem.eql(u8, tag.name, "metadata") and !tag.closing and !tag.empty) {
+            // Only the metadata of an object: the model has its own.
+            const o = cur orelse continue;
+            const key = tag.attr("name") orelse continue;
+            const end = std.mem.indexOfScalarPos(u8, text, it.pos, '<') orelse continue;
+            const value = std.mem.trim(u8, text[it.pos..end], " \t\r\n");
+            try o.meta.append(a, .{ .key = try unescape(a, key), .value = try unescape(a, value) });
         } else if (std.mem.eql(u8, tag.name, "vertex")) {
             const o = cur orelse continue;
             try o.verts.append(a, .{ parseNum(tag.attr("x")), parseNum(tag.attr("y")), parseNum(tag.attr("z")) });
@@ -280,8 +332,87 @@ fn addObject(files: *Files, gpa: Allocator, out: *Mesh, path: []const u8, id: []
     }
 }
 
-/// Reads the parts of a 3MF file: one for each build item, in bed
-/// coordinates (mm).
+/// True if a component (at any depth) of object `id` has its own metadata.
+fn componentMeta(files: *Files, path: []const u8, id: []const u8, depth: usize) Error!bool {
+    if (depth > 16) return error.Corrupt;
+    const mf = try files.model(path);
+    const o = mf.objects.getPtr(id) orelse return error.Corrupt;
+    for (o.comps.items) |c| {
+        const co = (try files.model(c.path)).objects.getPtr(c.id) orelse return error.Corrupt;
+        if (co.meta.items.len > 0) return true;
+        if (try componentMeta(files, c.path, c.id, depth + 1)) return true;
+    }
+    return false;
+}
+
+/// The metadata of a part: the metadata of its groups, then its own (a
+/// later entry of the same name replaces an earlier one). The caller owns
+/// the result.
+fn ownMeta(gpa: Allocator, outer: []const ArenaMeta, own: []const ArenaMeta) Allocator.Error![]Meta {
+    var out: std.ArrayList(Meta) = .empty;
+    errdefer {
+        for (out.items) |m| {
+            gpa.free(m.key);
+            gpa.free(m.value);
+        }
+        out.deinit(gpa);
+    }
+    for ([_][]const ArenaMeta{ outer, own }) |list| for (list) |m| {
+        const found = for (out.items) |*e| {
+            if (std.mem.eql(u8, e.key, m.key)) break e;
+        } else null;
+        const value = try gpa.dupe(u8, m.value);
+        if (found) |e| {
+            gpa.free(e.value);
+            e.value = value;
+            continue;
+        }
+        errdefer gpa.free(value);
+        const key = try gpa.dupe(u8, m.key);
+        errdefer gpa.free(key);
+        try out.append(gpa, .{ .key = key, .value = value });
+    };
+    return out.toOwnedSlice(gpa);
+}
+
+/// One part for the mesh of object `id` (if it has one) and one for each
+/// of its components, at any depth. A part gets the metadata of the groups
+/// above it (`outer`) and its own.
+fn splitObject(files: *Files, gpa: Allocator, parts: *std.ArrayList(LoadedPart), path: []const u8, id: []const u8, t: Transform, outer: []const ArenaMeta, depth: usize) Error!void {
+    if (depth > 16) return error.Corrupt;
+    const mf = try files.model(path);
+    const o = mf.objects.getPtr(id) orelse return error.Corrupt;
+    // Copies: a put into the maps below can move the object.
+    const name_src = o.name;
+    const has_mesh = o.tris.items.len > 0;
+    const comps = try files.a.dupe(Component, o.comps.items);
+    const s = mf.scale;
+    var merged: std.ArrayList(ArenaMeta) = .empty;
+    try merged.appendSlice(files.a, outer);
+    try merged.appendSlice(files.a, o.meta.items);
+    if (has_mesh) {
+        var m: Mesh = .empty;
+        errdefer m.deinit(gpa);
+        // The mesh alone: a copy of the object with no components.
+        var bare = o.*;
+        bare.comps = .empty;
+        const key = try std.fmt.allocPrint(files.a, "{s}#bare", .{id});
+        try mf.objects.put(files.a, key, bare);
+        try addObject(files, gpa, &m, path, key, t, depth);
+        const name = try gpa.dupe(u8, if (name_src.len > 0) name_src else "part");
+        errdefer gpa.free(name);
+        const meta = try ownMeta(gpa, &.{}, merged.items);
+        try parts.append(gpa, .{ .name = name, .mesh = m, .meta = meta });
+    }
+    for (comps) |c| {
+        var ct = c.t;
+        for (9..12) |k| ct[k] *= s;
+        try splitObject(files, gpa, parts, c.path, c.id, compose(ct, t), merged.items, depth + 1);
+    }
+}
+
+/// Reads the parts of a 3MF file: one for each build item (or for each
+/// component of an item, see the file comment), in bed coordinates (mm).
 pub fn read(gpa: Allocator, bytes: []const u8) Error!Loaded {
     const entries = zipfile.readAll(gpa, bytes) catch |e| return switch (e) {
         error.OutOfMemory => error.OutOfMemory,
@@ -308,17 +439,20 @@ pub fn read(gpa: Allocator, bytes: []const u8) Error!Loaded {
 
     var parts: std.ArrayList(LoadedPart) = .empty;
     errdefer {
-        for (parts.items) |*p| {
-            gpa.free(p.name);
-            p.mesh.deinit(gpa);
-        }
+        for (parts.items) |*p| p.deinit(gpa);
         parts.deinit(gpa);
     }
     for (mf.items.items, 0..) |item, k| {
-        var m: Mesh = .empty;
-        errdefer m.deinit(gpa);
         var t = item.t;
         for (9..12) |j| t[j] *= mf.scale;
+        if (try componentMeta(&files, item.path, item.id, 0)) {
+            // A group whose components have their own settings: one part
+            // for each component.
+            try splitObject(&files, gpa, &parts, item.path, item.id, t, &.{}, 0);
+            continue;
+        }
+        var m: Mesh = .empty;
+        errdefer m.deinit(gpa);
         try addObject(&files, gpa, &m, item.path, item.id, t, 0);
         if (m.faces.items.len == 0) {
             m.deinit(gpa);
@@ -329,7 +463,9 @@ pub fn read(gpa: Allocator, bytes: []const u8) Error!Loaded {
             try gpa.dupe(u8, obj.?.name)
         else
             try std.fmt.allocPrint(gpa, "part {d}", .{k + 1});
-        try parts.append(gpa, .{ .name = name, .mesh = m });
+        errdefer gpa.free(name);
+        const meta = try ownMeta(gpa, &.{}, if (obj) |o| o.meta.items else &.{});
+        try parts.append(gpa, .{ .name = name, .mesh = m, .meta = meta });
     }
     if (parts.items.len == 0) return error.EmptyMesh;
     var overrides: []u8 = try gpa.dupe(u8, "");
@@ -342,7 +478,8 @@ pub fn read(gpa: Allocator, bytes: []const u8) Error!Loaded {
 
 /// Joins the parts whose boxes overlap into one part: in a 3MF file they
 /// are one assembly (for example a base and its text in another color),
-/// and the plate must keep them together.
+/// and the plate must keep them together. A part with metadata (its own
+/// settings, or a modifier volume) is not joined.
 pub fn joinOverlapping(gpa: Allocator, loaded: *Loaded) Allocator.Error!void {
     const n = loaded.parts.len;
     if (n < 2) return;
@@ -360,6 +497,8 @@ pub fn joinOverlapping(gpa: Allocator, loaded: *Loaded) Allocator.Error!void {
         }
     }.f;
     for (0..n) |i| for (i + 1..n) |j| {
+        // A part with its own settings (or a modifier volume) stays apart.
+        if (loaded.parts[i].meta.len > 0 or loaded.parts[j].meta.len > 0) continue;
         const a = boxes[i];
         const b = boxes[j];
         var touch = true;
@@ -375,6 +514,7 @@ pub fn joinOverlapping(gpa: Allocator, loaded: *Loaded) Allocator.Error!void {
         var part = loaded.parts[i];
         loaded.parts[i].mesh = .empty;
         loaded.parts[i].name = &.{};
+        loaded.parts[i].meta = &.{};
         for (i + 1..n) |j| {
             if (find(group, j) != i) continue;
             const m = &loaded.parts[j].mesh;
@@ -385,10 +525,7 @@ pub fn joinOverlapping(gpa: Allocator, loaded: *Loaded) Allocator.Error!void {
         }
         try out.append(gpa, part);
     }
-    for (loaded.parts) |*p| {
-        gpa.free(p.name);
-        p.mesh.deinit(gpa);
-    }
+    for (loaded.parts) |*p| p.deinit(gpa);
     gpa.free(loaded.parts);
     loaded.parts = try out.toOwnedSlice(gpa);
 }
@@ -542,4 +679,43 @@ test "3mf: components and units" {
     try testing.expectApproxEqAbs(@as(f64, 50), bb.min[0], 1e-4);
     try testing.expectApproxEqAbs(@as(f64, 80), bb.max[0], 1e-4);
     try testing.expectApproxEqAbs(@as(f64, 10), bb.max[2], 1e-4);
+}
+
+test "3mf: object metadata, and a group with settings splits into parts" {
+    const gpa = testing.allocator;
+    const tet =
+        \\<mesh><vertices>
+        \\   <vertex x="0" y="0" z="0"/><vertex x="1" y="0" z="0"/><vertex x="0" y="1" z="0"/><vertex x="0" y="0" z="1"/>
+        \\  </vertices><triangles>
+        \\   <triangle v1="0" v2="2" v3="1"/><triangle v1="0" v2="1" v3="3"/><triangle v1="1" v2="2" v3="3"/><triangle v1="0" v2="3" v3="2"/>
+        \\  </triangles></mesh>
+    ;
+    const model = "<?xml version=\"1.0\"?>\n<model unit=\"millimeter\" xmlns:cura=\"http://software.ultimaker.com/xml/cura/3mf/2015/10\">\n" ++
+        "<metadata name=\"Title\">not a part setting</metadata><resources>\n" ++
+        "<object id=\"1\" name=\"plate\" type=\"model\"><metadatagroup><metadata name=\"cura:infill_sparse_density\" preserve=\"true\" type=\"xs:string\">=100</metadata></metadatagroup>" ++ tet ++ "</object>\n" ++
+        "<object id=\"2\" name=\"window &amp; co\" type=\"model\"><metadatagroup><metadata name=\"cura:infill_mesh\">True</metadata><metadata name=\"cura:infill_angles\"> [45,135] </metadata></metadatagroup>" ++ tet ++ "</object>\n" ++
+        "<object id=\"3\" name=\"group\" type=\"model\"><components><component objectid=\"1\" transform=\"1 0 0 0 1 0 0 0 1 10 0 0\"/><component objectid=\"2\" transform=\"1 0 0 0 1 0 0 0 1 10 0 0\"/></components></object>\n" ++
+        "</resources><build><item objectid=\"3\"/><item objectid=\"1\" transform=\"1 0 0 0 1 0 0 0 1 50 0 0\"/></build></model>\n";
+    const entries = [_]zipfile.Entry{.{ .name = "3D/3dmodel.model", .data = @constCast(model) }};
+    var out: std.Io.Writer.Allocating = .init(gpa);
+    defer out.deinit();
+    try zipfile.write(gpa, &out.writer, &entries);
+    var back = try read(gpa, out.written());
+    defer back.deinit(gpa);
+    // The group gives two parts, and the item of object 1 a third.
+    try testing.expectEqual(@as(usize, 3), back.parts.len);
+    try testing.expectEqualStrings("plate", back.parts[0].name);
+    try testing.expectEqualStrings("window & co", back.parts[1].name);
+    try testing.expectEqual(@as(usize, 1), back.parts[0].meta.len);
+    try testing.expectEqualStrings("cura:infill_sparse_density", back.parts[0].meta[0].key);
+    try testing.expectEqualStrings("=100", back.parts[0].meta[0].value);
+    try testing.expectEqual(@as(usize, 2), back.parts[1].meta.len);
+    try testing.expectEqualStrings("[45,135]", back.parts[1].meta[1].value);
+    // The component transform applies to each part.
+    try testing.expectApproxEqAbs(@as(f64, 10), back.parts[1].mesh.bounds().min[0], 1e-6);
+    try testing.expectApproxEqAbs(@as(f64, 50), back.parts[2].mesh.bounds().min[0], 1e-6);
+    try testing.expectEqual(@as(usize, 1), back.parts[2].meta.len);
+    // Parts with metadata do not join, also where they overlap.
+    try joinOverlapping(gpa, &back);
+    try testing.expectEqual(@as(usize, 3), back.parts.len);
 }
