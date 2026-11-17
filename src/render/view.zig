@@ -1117,11 +1117,11 @@ pub const View = struct {
         put(out, &n, x, y, x, y, z0 + 4.2, 1.2, 4.5, brass);
         // The heater block: 10 x 8 mm, 5 mm high.
         put(out, &n, x - 1, y, x + 1, y, z0 + 9.8, 5.0, 8.0, alu);
-        // The fan: 4 blades over the block, 6 mm long.
+        // The fan: 4 blades over the block, 4.5 mm long.
         if (fan_on) {
             for (0..4) |k| {
                 const t = spin + std.math.pi / 2.0 * @as(f32, @floatFromInt(k));
-                put(out, &n, x, y, x + 6 * @cos(t), y + 6 * @sin(t), z0 + 11.4, 0.8, 1.6, blade);
+                put(out, &n, x, y, x + 4.5 * @cos(t), y + 4.5 * @sin(t), z0 + 11.4, 0.7, 1.2, blade);
             }
         }
         return n;

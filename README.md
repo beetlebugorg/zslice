@@ -1,12 +1,36 @@
 # zslice
 
-A slicer for FDM 3D printers, written from scratch in Zig. It is fast enough to slice again while you drag a slider. Click any line of the preview to see what it is, and which settings change it.
+A slicer for FDM 3D printers, written from scratch in Zig. Click any line of the preview to see what it is and why it prints the way it does. It slices fast enough to slice again while you drag a slider. And it runs in your browser: **[try it at zslice.beetlebug.org](https://zslice.beetlebug.org/)**, with nothing to install.
 
-![zslice opens a 3DBenchy and slices it in about 340 ms. The camera turns around the part, and then goes near the beads of the hull](docs/img/demo.gif)
+![A click on the Benchy hull selects "Outer wall · layer 87": planned 30 mm/s, real 27 mm/s. A click on the chimney shows a real speed of 10 mm/s, because the layer is short. Then c cuts the view to the layer, and l moves the nozzle segment by segment](docs/img/demo-select.gif)
 
 ## Highlights
 
 Things that most slicers do not do.
+
+### Click any line, see why
+
+- Click a line in the 2D or 3D preview. The panel shows what the line is ("Outer wall · layer 87"), its planned speed, its real speed after acceleration, its flow, and only the settings that change it.
+- When the real speed is lower, the panel says why. In the GIF, the chimney prints at 10 mm/s: the layer is short, so it slows down to cool.
+- Press c to cut the view at the layer of the line. Press h, j, k, l to move the nozzle through the print, segment by segment, with the travel moves.
+- Right-click a line for "Copy for AI" (a report of the line and its G-code) or "New profile from here up".
+
+### Fast enough to slice while you drag
+
+![The infill density slider goes from 10 % to 55 % and back. Each slice takes about 58 ms, and the preview, the time, and the weight change while the slider moves. Then the camera turns around the part](docs/img/demo-speed.gif)
+
+- A 3DBenchy (239 layers) slices in about 340 ms.
+- A change of a setting slices only what the change needs. While you drag the infill slider above, each new slice of the Benchy takes about 58 ms.
+- The 3D view stays at full speed while the part slices.
+
+### Runs in your browser, on WebAssembly
+
+![Chromium opens zslice.beetlebug.org with a link to a 3DBenchy on GitHub. The page loads the model and slices it in the browser in 3.8 s. Then the camera goes near the part, turns around it, and the layer slider goes down through the boat and back up](docs/img/demo-web.gif)
+
+- **[zslice.beetlebug.org](https://zslice.beetlebug.org/)** is the same Zig core, compiled to WebAssembly (1.2 MB). The page has the same layout as the desktop app.
+- The model slices on your computer, in a Web Worker. No file goes to a server.
+- WebGL2 draws the same beads as the desktop app.
+- Open a model from a link: add `?model=` and the address of an STL file to the page address.
 
 ### Find the gaps, and get the settings that close them
 
@@ -43,7 +67,6 @@ Things that most slicers do not do.
 
 ### More
 
-- **Click a line, see why.** The panel shows what the line is, its planned speed and its real speed after acceleration, and only the settings that change it (see [Features](#features)).
 - **Layer profiles.** Right-click a line, then "New profile from here up" (or down): a copy of all settings for those layers. Any setting can change, the layer height too. The Layer profiles list shows each profile, its layers, and what it changes.
 - **Copy for AI.** Right-click a line, then "Copy for AI": a report of the line, its settings, and its lines in the G-code file, to paste into a chat with an AI model.
 - **Settings in the G-code.** The G-code ends with the settings that differ from the defaults, so a print can be checked against the settings that made it.
@@ -57,16 +80,12 @@ Things that most slicers do not do.
 
 ### Fast
 
-- A 3DBenchy (239 layers) slices in about 250 ms, and the 3D view shows it at once.
+- A 3DBenchy (239 layers) slices in about 340 ms, and the 3D view shows it at once.
 - A change of a setting slices only what the change needs. A new infill value takes about 20 ms on a 108-layer part; a new wall count takes about 120 ms.
 - The slicer uses all CPU cores but one. It keeps its work memory in arenas, so a slice uses little memory.
 - A watchdog writes the stacks of all threads to a file if the window stops for 3 s. So a rare hang can be found and fixed.
 
-![The infill density slider goes from 10 % to 40 % and back. The infill in the preview, the time, and the weight change as the slider moves. Each slice takes about 45 ms](docs/img/demo-infill.gif)
-
 ### Click a line, see why
-
-![A click on the hull selects "Outer wall · layer 49". A click on the chimney shows a real speed of 10 mm/s, because the layer is short. Then c cuts the view to the layer, and l moves the nozzle segment by segment](docs/img/demo-inspect.gif)
 
 - Click a line in the 2D or 3D preview. The panel shows what the line is (for example "Outer wall · layer 97"), its planned and real speed, its flow, and only the settings that change it.
 - Focus a field, and the panel explains what that setting does to the selected line, with its numbers: "50 % of 150 mm/s = 75 mm/s planned. It prints at 67 mm/s: the layer is short, and it slows to cool."
