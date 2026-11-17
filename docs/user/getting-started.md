@@ -229,6 +229,8 @@ Click a gap to select it. The Selected page then gives its size, its width, the 
 
 **Gap fill** (`project.gap_fill`, on by default) closes most gaps by itself: each narrow area between the walls or in the skin gets one line along its middle, with a width that follows the area. On the 3DBenchy it fills 92 % of the gap area. Turn it off to see the gaps that it fills.
 
+**Retractless skin** (`project.skin_link_length`, 15 mm by default) prints the top and bottom skin of each island as few paths as it can. The skin lines split into pieces at holes and corners, and each piece is one zigzag. From the end of a zigzag, the nozzle goes on to the next zigzag along the walls and prints on the way, if that way is at most 15 mm long. A travel comes only where no such way is. At a hole, both sides fill before the skin over the hole. On the 3DBenchy (with gap fill off) the skin travels go from 955 to 330, for 1 % more filament. Set it to 0 to print each piece on its own.
+
 ## Check the print
 
 **Check** in the preview toolbar lists what can make the print fail or print badly, the worst first:

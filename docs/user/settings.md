@@ -356,6 +356,10 @@ How much the skin direction turns from one layer to the next, in degrees. 90 cro
 
 Skin lines go this far into the walls, as a fraction of the line width, so that the skin bonds to the walls.
 
+**`project.skin_link_length`** (number; per layer). Default: `15`
+
+Retractless skin: the top and bottom skin of each island prints as few paths as it can. The skin lines split into pieces at holes and corners, and each piece prints as one zigzag. From the end of a zigzag, the nozzle goes on to the next zigzag along the walls, and prints on the way, if that way is at most this long (mm). A travel and a retraction come only where no such way is. The way can go over skin that is printed already: it adds a little plastic along the wall. The zigzags just below a zigzag print before it, so at a hole both sides fill before the skin over the hole. 0: off, each piece prints on its own. Only for the `lines` pattern.
+
 **`project.bridges`** (true or false; per layer). Default: `true`
 
 Print bridges as bridges: the part of a bottom skin over air that solid plastic holds at its sides prints in straight lines across the air (the direction with the most lines that start and end on solid plastic), each line anchored on the solid skin around it, slower (`bridge_speed`), with `bridge_flow` and `bridge_fan`. The parts of the walls over air (1 mm or longer) print as bridges too. Off: the bridge prints as normal skin and walls.

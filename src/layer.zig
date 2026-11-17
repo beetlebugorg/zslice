@@ -1254,6 +1254,9 @@ pub fn plan(gpa: Allocator, ctx: Context, i: usize) Allocator.Error!LayerPlan {
     var skin_line_w: []const f32 = &.{};
     var skin_island: []const u32 = &.{};
     var skin_n_islands: usize = 0;
+    // The skin paths of a retractless skin (`skin_link_length`), with a
+    // width for each point. The gaps come from the lines before the join.
+    var skin_tour: ?struct { lines: Paths, point_w: []const f32, island: []const u32, n_islands: usize } = null;
     switch (p.skin_pattern) {
         // `lines`: the lines join into zigzag paths at the walls, as the
         // nozzle prints a solid surface: back and forth, with no travel and
@@ -1282,6 +1285,55 @@ pub fn plan(gpa: Allocator, ctx: Context, i: usize) Allocator.Error!LayerPlan {
             skin_line_w = path_w.items;
             skin_island = path_piece.items;
             skin_n_islands = fit.piece_island.len;
+            // Retractless skin: the zigzags of the pieces of each island
+            // join into few paths (see `infill.tour`).
+            if (p.skin_link_length > 0) {
+                var paths: Paths = .empty;
+                var pw: std.ArrayList(f32) = .empty;
+                var of: std.ArrayList(u32) = .empty;
+                for (fit.islands, 0..) |region, ii| {
+                    set.ends.clearRetainingCapacity();
+                    set.points.clearRetainingCapacity();
+                    var set_w: std.ArrayList(f32) = .empty;
+                    var group: std.ArrayList(u32) = .empty;
+                    var n_groups: u32 = 0;
+                    var k: usize = 0;
+                    while (k < skin_lines.count()) {
+                        // The zigzags of one piece are next to each other.
+                        const pid = path_piece.items[k];
+                        var end = k;
+                        while (end < skin_lines.count() and path_piece.items[end] == pid) end += 1;
+                        defer k = end;
+                        if (fit.piece_island[pid] != ii) continue;
+                        for (k..end) |q| {
+                            try set.append(s, skin_lines.get(q));
+                            try set_w.append(s, path_w.items[q]);
+                            try group.append(s, n_groups + @as(u32, @intCast(q - k)));
+                        }
+                        // A piece of one zigzag: the zigzag from the other
+                        // end too, as a second way to fill it.
+                        if (end - k == 1) {
+                            var lines1: Paths = .empty;
+                            for (0..fit.lines.count()) |q| if (fit.piece[q] == pid) try lines1.append(s, fit.lines.get(q));
+                            const high = try infill.connectHigh(s, region, lines1, geom.fromMm(path_w.items[k]), skin_angle);
+                            if (high.count() == 1) {
+                                try set.append(s, high.get(0));
+                                try set_w.append(s, path_w.items[k]);
+                                try group.append(s, n_groups);
+                            }
+                        }
+                        n_groups += @intCast(end - k);
+                    }
+                    if (set.isEmpty()) continue;
+                    const t = try infill.tour(s, region, set, set_w.items, group.items, n_groups, w, skin_angle, geom.fromMm(p.skin_link_length));
+                    for (0..t.paths.count()) |q| {
+                        try paths.append(s, t.paths.get(q));
+                        try of.append(s, @intCast(ii));
+                    }
+                    try pw.appendSlice(s, t.widths);
+                }
+                skin_tour = .{ .lines = paths, .point_w = pw.items, .island = of.items, .n_islands = fit.islands.len };
+            }
         },
         .monotonic => {
             const fit = try infill.fittedLines(s, skin_region, w, skin_angle, w);
@@ -1451,6 +1503,7 @@ pub fn plan(gpa: Allocator, ctx: Context, i: usize) Allocator.Error!LayerPlan {
         vw_seams[k] = try seamsFor(s, wall.loops, seam);
     }
     const skin_ids = try isl.ids(s, skin_lines);
+    const skin_tour_ids = if (skin_tour) |t| try isl.ids(s, t.lines) else &.{};
     const bridge_ids = try isl.ids(s, bridge_lines);
     const skin_loop_ids = try isl.ids(s, skin_loops);
     const gap_loop_ids = try isl.ids(s, gap_fill.loops);
@@ -1487,7 +1540,9 @@ pub fn plan(gpa: Allocator, ctx: Context, i: usize) Allocator.Error!LayerPlan {
             try addGroupWidths(s, a, &lp, &pos, wall.lines, wall.line_widths, false, feature, null, .{ .ids = vw_line_ids[k], .id = id });
         }
         try addThin(a, &lp, &pos, &reg, .{ .ids = thin_ids, .id = id });
-        try addSkinIslands(s, a, &lp, &pos, skin_lines, skin_line_w, skin_island, skin_n_islands, .{ .ids = skin_ids, .id = id }, skin_angle, p.skin_pattern == .monotonic);
+        if (skin_tour) |t| {
+            try addSkinTour(s, a, &lp, &pos, t.lines, t.point_w, t.island, t.n_islands, .{ .ids = skin_tour_ids, .id = id });
+        } else try addSkinIslands(s, a, &lp, &pos, skin_lines, skin_line_w, skin_island, skin_n_islands, .{ .ids = skin_ids, .id = id }, skin_angle, p.skin_pattern == .monotonic);
         try addGroup(s, a, &lp, &pos, skin_loops, true, .skin, null, .{ .ids = skin_loop_ids, .id = id });
         try addGroup(s, a, &lp, &pos, bridge_lines, false, .bridge, null, .{ .ids = bridge_ids, .id = id });
         try addGroupWidths(s, a, &lp, &pos, gap_fill.loops, gap_fill.loop_widths, true, .skin, null, .{ .ids = gap_loop_ids, .id = id });
@@ -1850,7 +1905,7 @@ fn fillSparse(s: Allocator, p: settings_mod.Project, region: Paths, width_mm: f6
                     // boundary of the whole region): a walk passes the
                     // end of the normal line between two extra lines
                     // at the wall, and never crosses it in the open.
-                    const joined = try infill.connectWith(s, region, extra, spacing, angle, false);
+                    const joined = try infill.connectWith(s, region, extra, spacing, angle, false, false);
                     // An extra line that no walk joins costs a travel
                     // for a little support: keep it only if it is at
                     // least 2 spacings long.
@@ -2299,6 +2354,58 @@ fn addSkinIslands(s: Allocator, a: Allocator, lp: *LayerPlan, pos: *Point, lines
         const start = lp.paths.items.len;
         if (monotonic) try addMonotonic(s, a, lp, pos, set, angle_deg, .skin) else try addGroup(s, a, lp, pos, set, false, .skin, null, null);
         for (lp.paths.items[start..]) |*path| path.width = bead;
+    }
+}
+
+/// The paths of a retractless skin (see `infill.tour`), island by island:
+/// first the island with the path end nearest to the nozzle. The paths of
+/// an island print in the nearest order, with the width of each point.
+fn addSkinTour(s: Allocator, a: Allocator, lp: *LayerPlan, pos: *Point, lines: Paths, point_w: []const f32, island: []const u32, n_islands: usize, group: Group) Allocator.Error!void {
+    const done = try s.alloc(bool, n_islands);
+    @memset(done, false);
+    while (true) {
+        var best: ?u32 = null;
+        var best_d: i128 = std.math.maxInt(i128);
+        for (0..lines.count()) |k| {
+            if (group.ids[k] != group.id or done[island[k]]) continue;
+            const path = lines.get(k);
+            const d = @min(pos.distSq(path[0]), pos.distSq(path[path.len - 1]));
+            if (d < best_d) {
+                best_d = d;
+                best = island[k];
+            }
+        }
+        const ii = best orelse return;
+        done[ii] = true;
+        var set: Paths = .empty;
+        var ws: std.ArrayList(f32) = .empty;
+        for (0..lines.count()) |k| if (group.ids[k] == group.id and island[k] == ii) {
+            try set.append(s, lines.get(k));
+            const base: usize = if (k == 0) 0 else lines.ends.items[k - 1];
+            try ws.appendSlice(s, point_w[base..lines.ends.items[k]]);
+        };
+        const first = lp.paths.items.len;
+        const w0 = lp.point_w.items.len;
+        try addGroupWidths(s, a, lp, pos, set, ws.items, false, .skin, null, null);
+        // A path of one width is a path of one width (no width for each
+        // point): the widths of the other paths move down.
+        var keep = w0;
+        for (lp.paths.items[first..], first..) |*path, pi| {
+            const pts = lp.points.get(pi).len;
+            const pw = lp.point_w.items[path.w_start..][0..pts];
+            const one = for (pw) |x| {
+                if (x != pw[0]) break false;
+            } else true;
+            if (one) {
+                path.width = pw[0];
+                path.w_start = Path.planar;
+            } else {
+                std.mem.copyForwards(f32, lp.point_w.items[keep..][0..pts], pw);
+                path.w_start = @intCast(keep);
+                keep += pts;
+            }
+        }
+        lp.point_w.shrinkRetainingCapacity(keep);
     }
 }
 
@@ -3587,6 +3694,42 @@ test "gap fill: a wedge between a hole and the edge gets a line" {
     var off = try planPrism(gpa, outline, st, 12);
     defer off.deinit();
     try testing.expectEqual(@as(usize, 0), gapFillCount(off));
+}
+
+test "retractless skin: the skin around a hole joins into few paths" {
+    const gpa = testing.allocator;
+    var outline: Paths = .empty;
+    defer outline.deinit(gpa);
+    try outline.append(gpa, &.{ .init(0, 0), .init(30_000, 0), .init(30_000, 30_000), .init(0, 30_000) });
+    // A square hole in the middle (clockwise).
+    try outline.append(gpa, &.{ .init(10_000, 10_000), .init(10_000, 20_000), .init(20_000, 20_000), .init(20_000, 10_000) });
+    var st: settings_mod.Settings = .{};
+    st.project.gap_fill = false;
+    const skinPaths = struct {
+        fn f(lp: LayerPlan) usize {
+            var n: usize = 0;
+            for (lp.paths.items) |path| {
+                if (path.feature == .skin) n += 1;
+            }
+            return n;
+        }
+    }.f;
+    // Off: the skin splits into pieces around the hole, each a path.
+    st.project.skin_link_length = 0;
+    var off = try planPrism(gpa, outline, st, 0);
+    defer off.deinit();
+    try testing.expect(skinPaths(off) >= 3);
+    // On: fewer paths. The four pieces around the hole make a ring, so
+    // the last way back is long (about 20 mm along the wall): with links
+    // of 15 mm the skin is two paths, and with links of 40 mm it is one.
+    st.project.skin_link_length = 15;
+    var on = try planPrism(gpa, outline, st, 0);
+    defer on.deinit();
+    try testing.expect(skinPaths(on) <= 2 and skinPaths(on) < skinPaths(off));
+    st.project.skin_link_length = 40;
+    var long = try planPrism(gpa, outline, st, 0);
+    defer long.deinit();
+    try testing.expectEqual(@as(usize, 1), skinPaths(long));
 }
 
 test "gap fill: a box gets none" {

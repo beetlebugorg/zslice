@@ -342,14 +342,22 @@ pub fn fittedLines(gpa: Allocator, region: Paths, width: i64, angle_deg: f64, mi
 /// retraction between them, and the links along the walls tie the lines
 /// to the walls.
 pub fn connect(gpa: Allocator, region: Paths, set: Paths, spacing: i64, angle_deg: f64) Allocator.Error!Paths {
-    return connectWith(gpa, region, set, spacing, angle_deg, true);
+    return connectWith(gpa, region, set, spacing, angle_deg, true, false);
+}
+
+/// `connect`, with each zigzag from the other end of its first line (the
+/// high end along the lines). The zigzag then ends on the other side too,
+/// if its number of lines is even. The retractless skin (`tour`) picks the
+/// one of the two that joins best.
+pub fn connectHigh(gpa: Allocator, region: Paths, set: Paths, spacing: i64, angle_deg: f64) Allocator.Error!Paths {
+    return connectWith(gpa, region, set, spacing, angle_deg, true, true);
 }
 
 /// `connect`, with `straight` false: a line end that is not on the
 /// boundary of the region gets no link (no straight link inside). The
 /// extra lines of the flow band use it: they join only by walks along
 /// the walls, and never along the inner edge of the band.
-pub fn connectWith(gpa: Allocator, region: Paths, set: Paths, spacing: i64, angle_deg: f64, straight: bool) Allocator.Error!Paths {
+pub fn connectWith(gpa: Allocator, region: Paths, set: Paths, spacing: i64, angle_deg: f64, straight: bool, start_high: bool) Allocator.Error!Paths {
     var out: Paths = .empty;
     errdefer out.deinit(gpa);
     const n = set.count();
@@ -402,12 +410,12 @@ pub fn connectWith(gpa: Allocator, region: Paths, set: Paths, spacing: i64, angl
         if (first.used) continue;
         chain.clearRetainingCapacity();
         first.used = true;
-        try chain.append(arena, first.p0);
-        try chain.append(arena, first.p1);
-        var end_x = first.x1;
+        try chain.append(arena, if (start_high) first.p1 else first.p0);
+        try chain.append(arena, if (start_high) first.p0 else first.p1);
+        var end_x = if (start_high) first.x0 else first.x1;
         var end_y = first.y;
-        var end_p = first.p1;
-        var end_at = first.at1;
+        var end_p = if (start_high) first.p0 else first.p1;
+        var end_at = if (start_high) first.at0 else first.at1;
         var at = fi;
         while (true) {
             // The lines of the next scan line come after `at` in the order.
@@ -460,6 +468,170 @@ pub fn connectWith(gpa: Allocator, region: Paths, set: Paths, spacing: i64, angl
         try out.append(gpa, chain.items);
     }
     return out;
+}
+
+/// The paths of a retractless skin (see `tour`), with a line width (mm)
+/// for each point.
+pub const Tour = struct { paths: Paths, widths: []f32 };
+
+/// Retractless skin: joins the zigzags of the pieces of one island (`set`,
+/// with the line width of each zigzag in `set_w`) into as few paths as it
+/// can. The zigzags with the same `group` are two ways to fill the same
+/// piece (see `connectHigh`): the path uses one of them. The tour prints
+/// each group once, so the nozzle travels and retracts less. From the end of a zigzag,
+/// the path goes on to an end of another zigzag by a walk along the
+/// boundary of `region` (the island), and prints on the way. A walk is at
+/// most `max_link` long. Where no walk fits, a new path starts, and the
+/// nozzle travels there.
+///
+/// The order: the next zigzag is ready if it can be, then it has a way on
+/// from its other end (a walk to a zigzag that is left), then it has the
+/// shortest walk. A zigzag is ready when the zigzags just below it (across
+/// the lines, at the angle `angle_deg`) are done. So at a hole the path
+/// fills both sides of the hole before it goes on over the hole. The way
+/// on picks the end where the path goes into a zigzag, so that the path
+/// does not stop at its other end. A
+/// walk over plastic that is printed already adds a little plastic along
+/// the wall: the user accepts it to save a retraction. The memory is in
+/// `gpa`, an arena.
+pub fn tour(gpa: Allocator, region: Paths, set: Paths, set_w: []const f32, group: []const u32, n_groups: usize, spacing: i64, angle_deg: f64, max_link: i64) Allocator.Error!Tour {
+    var out: Paths = .empty;
+    var widths: std.ArrayList(f32) = .empty;
+    const n = set.count();
+    if (n == 0) return .{ .paths = out, .widths = widths.items };
+    const a = angle_deg * std.math.pi / 180.0;
+    const c = @cos(a);
+    const s = @sin(a);
+    const bound: Boundary = try .init(gpa, region);
+    // Each zigzag: its ends on the boundary, and its box in the turned
+    // frame (the lines are along x there).
+    const Zig = struct { at: [2]?Spot, lo: Point, hi: Point };
+    const gdone = try gpa.alloc(bool, n_groups);
+    @memset(gdone, false);
+    const zs = try gpa.alloc(Zig, n);
+    for (zs, 0..) |*z, i| {
+        const path = set.get(i);
+        var lo: Point = .{ .x = std.math.maxInt(i64), .y = std.math.maxInt(i64) };
+        var hi: Point = .{ .x = std.math.minInt(i64), .y = std.math.minInt(i64) };
+        for (path) |q| {
+            const t = rotate(q, c, -s);
+            lo = .{ .x = @min(lo.x, t.x), .y = @min(lo.y, t.y) };
+            hi = .{ .x = @max(hi.x, t.x), .y = @max(hi.y, t.y) };
+        }
+        z.* = .{ .at = .{ bound.locate(path[0]), bound.locate(path[path.len - 1]) }, .lo = lo, .hi = hi };
+    }
+    // The zigzags just below each zigzag: the top of the one is within two
+    // spacings of the bottom of the other, and they overlap along x.
+    var below_start = try gpa.alloc(u32, n + 1);
+    var below: std.ArrayList(u32) = .empty;
+    for (zs, 0..) |z, i| {
+        below_start[i] = @intCast(below.items.len);
+        for (zs, 0..) |d, j| {
+            if (group[i] == group[j] or d.hi.y > z.lo.y + @divTrunc(spacing, 2)) continue;
+            if (z.lo.y - d.hi.y > 2 * spacing) continue;
+            if (d.hi.x < z.lo.x or z.hi.x < d.lo.x) continue;
+            try below.append(gpa, @intCast(j));
+        }
+    }
+    below_start[n] = @intCast(below.items.len);
+    const limit: f64 = @floatFromInt(max_link);
+    var walk: std.ArrayList(Point) = .empty;
+    var best_walk: std.ArrayList(Point) = .empty;
+    var scratch_walk: std.ArrayList(Point) = .empty;
+    var left = n_groups;
+    while (left > 0) {
+        // A new path: the lowest zigzag that is left, from its lower end.
+        var first: usize = 0;
+        var first_y: i64 = std.math.maxInt(i64);
+        for (zs, 0..) |z, i| if (!gdone[group[i]] and z.lo.y < first_y) {
+            first_y = z.lo.y;
+            first = i;
+        };
+        const fp = set.get(first);
+        var rev = rotate(fp[fp.len - 1], c, -s).y < rotate(fp[0], c, -s).y;
+        var cur = first;
+        while (true) {
+            gdone[group[cur]] = true;
+            left -= 1;
+            const path = set.get(cur);
+            const bead = set_w[cur];
+            if (rev) {
+                var k = path.len;
+                while (k > 0) {
+                    k -= 1;
+                    try out.points.append(gpa, path[k]);
+                }
+            } else try out.points.appendSlice(gpa, path);
+            try widths.appendNTimes(gpa, bead, path.len);
+            const end = (if (rev) zs[cur].at[0] else zs[cur].at[1]) orelse break;
+            const end_p = if (rev) path[0] else path[path.len - 1];
+            // The next zigzag: ready first, then one with a way on from its
+            // other end (to a zigzag that is left), then the shortest walk.
+            var best: ?usize = null;
+            var best_rev = false;
+            var best_rank: u2 = 0;
+            var best_len: f64 = limit + 1;
+            for (zs, 0..) |z, j| {
+                if (gdone[group[j]]) continue;
+                var ready = true;
+                for (below.items[below_start[j]..below_start[j + 1]]) |d| if (!gdone[group[d]]) {
+                    ready = false;
+                    break;
+                };
+                const jp = set.get(j);
+                for (0..2) |k| {
+                    const to = z.at[k] orelse continue;
+                    const q = if (k == 0) jp[0] else jp[jp.len - 1];
+                    if (Point.dist(end_p, q) > limit) continue;
+                    walk.clearRetainingCapacity();
+                    const len = (try bound.walk(gpa, end, to, limit, &walk)) orelse continue;
+                    const rank_ready: u2 = if (ready) 2 else 0;
+                    if (rank_ready + 1 < best_rank) continue;
+                    if (rank_ready + 1 == best_rank and len >= best_len) continue;
+                    // The look ahead: from the other end of j, a walk to
+                    // an end of another zigzag that is left.
+                    const exit = z.at[1 - k];
+                    const exit_p = if (k == 0) jp[jp.len - 1] else jp[0];
+                    var on = left == 1;
+                    if (exit) |x| for (zs, 0..) |m, mi| {
+                        if (on) break;
+                        if (gdone[group[mi]] or group[mi] == group[j]) continue;
+                        const mp = set.get(mi);
+                        for (0..2) |mk| {
+                            const mt = m.at[mk] orelse continue;
+                            if (Point.dist(exit_p, if (mk == 0) mp[0] else mp[mp.len - 1]) > limit) continue;
+                            scratch_walk.clearRetainingCapacity();
+                            if ((try bound.walk(gpa, x, mt, limit, &scratch_walk)) != null) {
+                                on = true;
+                                break;
+                            }
+                        }
+                    };
+                    const rank = rank_ready + @intFromBool(on);
+                    if (rank > best_rank or (rank == best_rank and len < best_len) or best == null) {
+                        best = j;
+                        best_rev = k == 1;
+                        best_rank = rank;
+                        best_len = len;
+                        best_walk.clearRetainingCapacity();
+                        try best_walk.appendSlice(gpa, walk.items);
+                    }
+                }
+            }
+            const next = best orelse break;
+            // The walk between the two ends prints with the width of the
+            // next zigzag.
+            if (best_walk.items.len > 2) {
+                const mid = best_walk.items[1 .. best_walk.items.len - 1];
+                try out.points.appendSlice(gpa, mid);
+                try widths.appendNTimes(gpa, set_w[next], mid.len);
+            }
+            cur = next;
+            rev = best_rev;
+        }
+        try out.ends.append(gpa, @intCast(out.points.items.len));
+    }
+    return .{ .paths = out, .widths = widths.items };
 }
 
 /// Joins open paths of any shape (gyroid curves, honeycomb rows) where

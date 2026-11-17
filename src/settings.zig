@@ -316,6 +316,17 @@ pub const Project = struct {
     /// Skin lines go this far into the walls, as a fraction of the line
     /// width, so that the skin bonds to the walls.
     skin_overlap: f64 = 0.15,
+    /// Retractless skin: the top and bottom skin of each island prints as
+    /// few paths as it can. The skin lines split into pieces at holes and
+    /// corners, and each piece prints as one zigzag. From the end of a
+    /// zigzag, the nozzle goes on to the next zigzag along the walls, and
+    /// prints on the way, if that way is at most this long (mm). A travel
+    /// and a retraction come only where no such way is. The way can go
+    /// over skin that is printed already: it adds a little plastic along
+    /// the wall. The zigzags just below a zigzag print before it, so at a
+    /// hole both sides fill before the skin over the hole. 0: off, each
+    /// piece prints on its own. Only for the `lines` pattern.
+    skin_link_length: f64 = 15,
     /// Print bridges as bridges: the part of a bottom skin over air that
     /// solid plastic holds at its sides prints in straight lines across the
     /// air (the direction with the most lines that start and end on solid
@@ -1032,6 +1043,7 @@ pub const limits = [_]struct { []const u8, f64, f64 }{
     .{ "project.skin_angle", -360, 360 },
     .{ "project.skin_angle_step", -180, 180 },
     .{ "project.skin_overlap", 0, 1 },
+    .{ "project.skin_link_length", 0, 200 },
     .{ "project.infill_density", 0, 1 },
     .{ "project.infill_angle", -360, 360 },
     .{ "project.lightning_angle", 0, 80 },
@@ -1219,6 +1231,7 @@ pub const layer_settings = [_][]const u8{
     "project.skin_pattern",
     "project.skin_angle",
     "project.skin_overlap",
+    "project.skin_link_length",
     "project.gap_fill",
     "project.infill_density",
     "project.infill_pattern",
