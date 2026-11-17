@@ -159,10 +159,38 @@ static void show_layer(Preview *p, size_t layer);
 /* The printability check (zs_app_checks): a list of the issues of the
  * slice, the worst first. It runs when the list opens, so a slice stays
  * fast. A click on an issue shows its layer. */
+/* The path of `layer` with a point nearest to (x, y), or -1. */
+static gint64 nearest_path(const zs_toolpaths *tp, size_t layer, double x, double y) {
+    if (layer >= tp->layer_count) return -1;
+    size_t first = layer == 0 ? 0 : tp->layer_ends[layer - 1], last = tp->layer_ends[layer];
+    gint64 best = -1;
+    double best_d = G_MAXDOUBLE;
+    for (size_t path = first; path < last; path++) {
+        uint32_t a = path == 0 ? 0 : tp->path_ends[path - 1], b = tp->path_ends[path];
+        for (uint32_t k = a; k < b; k++) {
+            double dx = tp->points[2 * k] - x, dy = tp->points[2 * k + 1] - y;
+            double d = dx * dx + dy * dy;
+            if (d < best_d) {
+                best_d = d;
+                best = (gint64)path;
+            }
+        }
+    }
+    return best;
+}
+
 static void on_check_row(GtkListBox *box, GtkListBoxRow *row, gpointer data) {
     Preview *p = data;
-    size_t layer = GPOINTER_TO_SIZE(g_object_get_data(G_OBJECT(row), "zg-layer"));
-    if (layer < p->layer_count) show_layer(p, layer);
+    const zs_issue *is = g_object_get_data(G_OBJECT(row), "zg-issue");
+    if (!is || is->layer >= p->layer_count) return;
+    show_layer(p, is->layer);
+    /* The line of the issue, or the line of its layer nearest to its
+     * place, is selected: the view lights it up, and the side panel says
+     * what it is. */
+    zs_toolpaths tp;
+    if (zs_app_toolpaths(zg_model_core(p->model), &tp) != ZS_OK) return;
+    gint64 path = is->path != ZS_NO_PATH ? (gint64)is->path : nearest_path(&tp, is->layer, is->x, is->y);
+    if (path >= 0) zg_model_select(p->model, path);
 }
 
 static void fill_check(Preview *p) {
@@ -205,12 +233,22 @@ static void fill_check(Preview *p) {
         gtk_box_append(GTK_BOX(row), l);
         gtk_list_box_append(list, row);
         GtkWidget *r = gtk_widget_get_parent(row);
-        g_object_set_data(G_OBJECT(r), "zg-layer", GSIZE_TO_POINTER(issues[i].layer));
+        /* The issues stay valid until the next slice; the list is filled
+         * again each time it opens. */
+        g_object_set_data(G_OBJECT(r), "zg-issue", (gpointer)&issues[i]);
     }
 }
 
 static void on_check_shown(GtkPopover *pop, gpointer data) {
-    fill_check(data);
+    Preview *p = data;
+    fill_check(p);
+    /* For development: ZSLICE_CHECK_PICK=n clicks issue n. */
+    const char *pick = g_getenv("ZSLICE_CHECK_PICK");
+    GtkListBoxRow *row = pick ? gtk_list_box_get_row_at_index(GTK_LIST_BOX(p->check_list), atoi(pick)) : NULL;
+    if (row) {
+        on_check_row(GTK_LIST_BOX(p->check_list), row, p);
+        gtk_popover_popdown(pop);
+    }
 }
 
 static void load_layer(Preview *p, size_t layer) {
