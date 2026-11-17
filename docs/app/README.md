@@ -116,6 +116,7 @@ These environment variables change the start of the GTK shell, for development, 
 | `ZSLICE_LAYERS=lo,hi` | Shows the layers from `lo` to `hi` after the first slice. | `ui/preview.c` |
 | `ZSLICE_TIME=t` | Shows the replay at `t` seconds before the first frame. | `ui/view3d.c` |
 | `ZSLICE_PICK=x,y` | Picks the path at the pixel x, y of the 3D view after the first load. | `ui/view3d.c` |
+| `ZSLICE_DOUBLE_CLICK=x,y` | A double click at the pixel x, y of the 3D view, 1 s after the first slice: on a side of a part, the view turns to face that side; elsewhere, the view resets. | `ui/view3d.c` |
 | `ZSLICE_COPY_FOR_AI=1` | With `ZSLICE_PICK`: runs "Copy for AI" on the picked line, and prints the report to the log (with no input event, Wayland can refuse the clipboard). | `ui/view3d.c` |
 | `ZSLICE_GAPS=1` | Turns the gaps view on. `ZSLICE_GAP=N` then selects gap N of the top layer after a slice. | `ui/view3d.c` |
 | `ZSLICE_SETTING_LIST=1` | With `ZSLICE_SETTING`: shows the settings list of its section, not its detail page. | `ui/settings-browser.c` |

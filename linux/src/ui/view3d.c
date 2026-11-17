@@ -62,6 +62,7 @@ typedef struct {
     double press_x, press_y;
     double pointer_x, pointer_y;
     gboolean gaps_hook, gap_hook; /* the test hooks ran */
+    gboolean dbl_hook;
 } View3d;
 
 static void queue_frame(View3d *v);
@@ -183,6 +184,19 @@ static void on_gaps_changed(ZgModel *model, gpointer data) {
     queue_frame(v);
 }
 
+static gboolean look_at_side(View3d *v, double x, double y);
+
+/* For tests: ZSLICE_DOUBLE_CLICK=x,y is a double click at that pixel. */
+static void dbl_hook_fire(gpointer data) {
+    View3d *v = data;
+    char **xy = g_strsplit(g_getenv("ZSLICE_DOUBLE_CLICK"), ",", 2);
+    if (xy[0] && xy[1] && v->view && !look_at_side(v, g_ascii_strtod(xy[0], NULL), g_ascii_strtod(xy[1], NULL))) {
+        zs_view_reset_smooth(v->view);
+        start_animation(v);
+    }
+    g_strfreev(xy);
+}
+
 static void load_data(View3d *v) {
     if (!v->view) return;
     zs_view_set_mode(v->view, v->mode);
@@ -229,6 +243,10 @@ static void load_data(View3d *v) {
             if (kv && kv[0] && kv[1]) zg_model_set_for(v->model, kv[0], kv[1], FALSE, NULL);
             g_strfreev(kv);
         }
+    }
+    if (g_getenv("ZSLICE_DOUBLE_CLICK") && !v->dbl_hook && zs_app_state(zg_model_core(v->model)) == ZS_STATE_DONE) {
+        v->dbl_hook = TRUE;
+        g_timeout_add_once(1000, dbl_hook_fire, v);
     }
     /* For development and screenshots: ZSLICE_ZOOM=0.3 starts nearer. */
     const char *zoom = g_getenv("ZSLICE_ZOOM");
@@ -953,11 +971,39 @@ static void on_segment(ZgModel *model, gint64 seg, gpointer data) {
     queue_frame(v);
 }
 
+/* A double click on a side of a part turns the view to face that side,
+ * and zooms to it (zs_view_look_at). The normal of the side comes from
+ * three points of the surface near the pixel. Elsewhere, the view resets. */
+static gboolean look_at_side(View3d *v, double x, double y) {
+    if (zs_app_state(zg_model_core(v->model)) == ZS_STATE_EMPTY) return FALSE;
+    int s = gtk_widget_get_scale_factor(v->area);
+    float px = (float)(x * s), py = (float)(y * s), d = 4.0f * s;
+    double p[3], a[3], b[3];
+    if (!zs_view_surface_point(v->view, px, py, 0, p) || p[2] <= 0.05) return FALSE;
+    gint64 part = part_at(v, x, y, NULL, NULL);
+    zs_part info;
+    if (part < 0 || zs_app_part_get(zg_model_core(v->model), (size_t)part, &info) != ZS_OK) return FALSE;
+    if (!zs_view_surface_point(v->view, px + d, py, 0, a) || !zs_view_surface_point(v->view, px, py + d, 0, b)) return FALSE;
+    double u[3] = {a[0] - p[0], a[1] - p[1], a[2] - p[2]};
+    double w[3] = {b[0] - p[0], b[1] - p[1], b[2] - p[2]};
+    /* Screen x right and y down give a normal away from the camera: turn
+     * it to the camera. */
+    double n[3] = {-(u[1] * w[2] - u[2] * w[1]), -(u[2] * w[0] - u[0] * w[2]), -(u[0] * w[1] - u[1] * w[0])};
+    if (sqrt(n[0] * n[0] + n[1] * n[1] + n[2] * n[2]) < 1e-9) return FALSE;
+    /* The first click of the double click picked a line: not wanted. */
+    zg_model_select(v->model, -1);
+    double size = MAX(info.size_x, MAX(info.size_y, info.size_z));
+    zs_view_look_at(v->view, (float)p[0], (float)p[1], (float)p[2], (float)n[0], (float)n[1], (float)n[2], (float)MAX(20, size * 1.4));
+    start_animation(v);
+    return TRUE;
+}
+
 static void on_click(GtkGestureClick *g, int n, double x, double y, gpointer data) {
     View3d *v = data;
     v->press_x = x;
     v->press_y = y;
     if (n != 2 || !v->view) return;
+    if (look_at_side(v, x, y)) return;
     zs_view_reset_smooth(v->view);
     start_animation(v);
 }
