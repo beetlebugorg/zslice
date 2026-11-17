@@ -121,6 +121,16 @@ export fn zs_view_zoom_at(view: ?*View, factor: f32, px: f32, py: f32) void {
     v.zoomAtSmooth(factor, px, py);
 }
 
+/// Looks at the point (x, y, z) from the side that faces (nx, ny, nz), from
+/// `dist` mm; the camera moves there in steps (zs_view_animate).
+export fn zs_view_look_at(view: ?*View, x: f32, y: f32, z: f32, nx: f32, ny: f32, nz: f32, dist: f32) void {
+    if (!render_on) return;
+    const v = view orelse return;
+    const l = @sqrt(nx * nx + ny * ny + nz * nz);
+    if (!(l > 0)) return;
+    v.lookAtSmooth(.{ x, y, z }, .{ nx / l, ny / l, nz / l }, dist);
+}
+
 export fn zs_view_reset_smooth(view: ?*View) void {
     if (!render_on) return;
     const v = view orelse return;

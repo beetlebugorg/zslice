@@ -1044,6 +1044,21 @@ pub const View = struct {
         v.setPose(now);
     }
 
+    /// Looks at the point `p` from the side that `n` (a unit normal) faces,
+    /// from `dist` mm: the camera moves there in steps (`animate`). For a
+    /// double click on a side of a part. The bed stays level: the tilt
+    /// stops at `max_pitch`.
+    pub fn lookAtSmooth(v: *View, p: [3]f32, n: [3]f32, dist: f32) void {
+        const now = v.pose();
+        v.target = p;
+        const yaw = if (@abs(n[0]) + @abs(n[1]) < 1e-4) std.math.atan2(qrotate(now.rot, .{ 0, 0, 1 })[1], qrotate(now.rot, .{ 0, 0, 1 })[0]) else std.math.atan2(n[1], n[0]);
+        const pitch = std.math.asin(std.math.clamp(n[2], -1, 1));
+        v.setAngles(yaw, std.math.clamp(pitch, -max_pitch, max_pitch));
+        v.dist = @max(v.extent * 0.05 + 1, dist);
+        v.goal = v.pose();
+        v.setPose(now);
+    }
+
     /// The angle of a drag: radians for each pixel.
     const drag_angle = 0.008;
 

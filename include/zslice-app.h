@@ -690,6 +690,11 @@ typedef struct zs_surface {
 
 typedef struct zs_view zs_view;
 
+/* Looks at the point (x, y, z) from the side that faces (nx, ny, nz), from
+ * dist mm; the camera moves there in steps (zs_view_animate). For a double
+ * click on a side of a part. */
+void zs_view_look_at(zs_view *view, float x, float y, float z, float nx, float ny, float nz, float dist);
+
 /* Makes a view for the surface, width_px x height_px pixels. */
 int zs_view_new(const zs_surface *surface, uint32_t width_px, uint32_t height_px, zs_view **out);
 void zs_view_free(zs_view *view);

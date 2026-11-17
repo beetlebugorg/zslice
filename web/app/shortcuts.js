@@ -87,7 +87,7 @@ export const SHORTCUTS = [
       ["Left drag", "Orbit"],
       ["Middle or right drag", "Pan (on a touchpad: two fingers pressed down and a drag)"],
       ["Wheel, light two-finger swipe, pinch", "Zoom toward the pointer"],
-      ["Double-click on a side of a part", "Lay the part down on that side"],
+      ["Double-click on a side of a part", "Turn the view to face that side, and zoom to it"],
       ["Double-click elsewhere", "Reset the view"],
       ["Right click", "The menu of the view"],
     ],

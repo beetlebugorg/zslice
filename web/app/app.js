@@ -417,8 +417,8 @@ const endDrag = () => {
 canvas.addEventListener("pointercancel", endDrag);
 canvas.addEventListener("contextmenu", (e) => e.preventDefault());
 // A double click: on another plate (with more than one), the camera goes
-// to it and it becomes the active plate; on a side of a part (3D), the
-// part lies down on that side; elsewhere, the view resets.
+// to it and it becomes the active plate; on a side of a part (3D), the view
+// turns to face that side and zooms to it; elsewhere, the view resets.
 canvas.addEventListener("dblclick", async (e) => {
   if (app.page === "2d") {
     view2d.fit(canvas.width, canvas.height);
@@ -436,15 +436,32 @@ canvas.addEventListener("dblclick", async (e) => {
   const px = e.offsetX * dpr();
   const py = e.offsetY * dpr();
   const c = wasm.cell;
-  const onPrint = app.state !== "empty" && view.x.zs_view_surface_point(view.v, px, py, 0, c);
-  const pt = onPrint ? [wasm.f64(c), wasm.f64(c + 8), wasm.f64(c + 16)] : null;
+  const at = (x, y) => (view.x.zs_view_surface_point(view.v, x, y, 0, c) ? [wasm.f64(c), wasm.f64(c + 8), wasm.f64(c + 16)] : null);
+  const pt = app.state !== "empty" ? at(px, py) : null;
   const part = pt && pt[2] > 0.05 ? await tools.partAt(px, py) : null;
   if (part) {
-    select(-1, -1, false);
-    const r = await client.call("partPutDown", { index: part.index, x: pt[0], y: pt[1], z: pt[2] });
-    if (r.part && tools.part) tools.selectPart(r.part);
-    toast("The part lies on that side now. Ctrl+Z undoes it.");
-    return;
+    // The normal of the side: from two more points of the surface near
+    // the pixel, toward the camera.
+    const d = 4 * dpr();
+    const a = at(px + d, py);
+    const b = at(px, py + d);
+    let n = null;
+    if (a && b) {
+      const u = [a[0] - pt[0], a[1] - pt[1], a[2] - pt[2]];
+      const v = [b[0] - pt[0], b[1] - pt[1], b[2] - pt[2]];
+      n = [u[1] * v[2] - u[2] * v[1], u[2] * v[0] - u[0] * v[2], u[0] * v[1] - u[1] * v[0]];
+      // Screen x right and y down give a normal away from the camera:
+      // turn it to the camera.
+      n = n.map((k) => -k);
+    }
+    if (n && Math.hypot(...n) > 1e-9) {
+      // The first click of the double click picked a line: not wanted.
+      select(-1, -1, false);
+      const size = Math.max(part.sizeX, part.sizeY, part.sizeZ);
+      view.x.zs_view_look_at(view.v, pt[0], pt[1], pt[2], n[0], n[1], n[2], Math.max(20, size * 1.4));
+      requestFrame();
+      return;
+    }
   }
   view.resetSmooth();
   requestFrame();
