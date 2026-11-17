@@ -127,6 +127,8 @@ With a printdeck printer, the status bar also shows the printer's own estimate a
 
 printdeck also tells which roll of filament is in the printer and how many grams are left on it. The status bar shows it ("Operational · Gray, 818 g left"), and the cost of the print uses the price of that roll (else `filament.price_per_kg`). If a print needs more filament than the roll has left, zslice asks before it sends the print.
 
+Each roll keeps its own filament settings ("Keep filament settings for each roll in the printer" in the Preferences, on by default). zslice saves them for the roll in the printer (in `rolls/` in the settings folder), with each change, so the tuning of a roll (its flow, its temperatures) stays with it. When you load another roll, its settings come back. A roll that zslice has not seen starts from the settings before, with its name, diameter, and color; a roll of another material starts from the built-in profile of that material.
+
 Pick the printer in the menu at the left of the header bar. With a connection, "Send to" puts the G-code on the printer; its menu has "Send and print" and "Export a G-code file". The status bar shows the state of the printer and the progress of its print.
 
 The API keys are in `~/.config/zslice/app.ini`, which only you can read.

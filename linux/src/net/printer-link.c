@@ -32,6 +32,7 @@ void zg_printer_info_free(ZgPrinterInfo *info) {
     g_free(info->state);
     g_free(info->material);
     g_free(info->spool);
+    g_free(info->spool_id);
     g_free(info->spool_color);
     g_strfreev(info->spools);
     g_free(info->job);
@@ -141,6 +142,7 @@ static void read_reply(Query *q, const char *path, JsonNode *root) {
         in->material = str(root, "material");
         in->diameter = num(root, "diameter");
         in->spool = str(root, "spool.name");
+        in->spool_id = str(root, "spool.id");
         in->spool_color = str(root, "spool.color");
         in->spool_left = num(root, "spool.left");
         in->spool_price = num(root, "spool.price");

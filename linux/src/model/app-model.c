@@ -63,6 +63,9 @@ struct _ZgModel {
     double scope_min, scope_max, scope_show;
     /* The selected part of the plate (Ctrl+click), or -1. */
     gint64 part;
+    /* The roll of filament in the printer (see zg_model_set_roll): its
+     * key, or NULL. The filament settings are saved for it too. */
+    char *roll;
     /* The time of the last slice request, and of the last slice (ms). */
     gint64 slice_start;
     double slice_ms;
@@ -91,6 +94,18 @@ static char *state_path(int group) {
     return path;
 }
 
+/* The file of the filament settings of a roll, or NULL. */
+static char *roll_path(const char *roll) {
+    if (!roll) return NULL;
+    char *dir = zg_config_dir();
+    /* A key is letters, digits, and dashes (see zg_model_set_roll). */
+    char *file = g_strconcat(roll, ".toml", NULL);
+    char *path = g_build_filename(dir, "rolls", file, NULL);
+    g_free(file);
+    g_free(dir);
+    return path;
+}
+
 static void save_state(ZgModel *self) {
     for (int g = 0; g < 3; g++) {
         if (!(self->dirty & (1u << g))) continue;
@@ -98,6 +113,15 @@ static void save_state(ZgModel *self) {
         if (zs_app_state_write(self->core, g, NULL, 0, &len) != ZS_OK) continue;
         char *text = g_malloc(len + 1);
         zs_app_state_write(self->core, g, text, len + 1, NULL);
+        /* The filament settings: also for the roll in the printer. */
+        char *roll_file = g == ZS_GROUP_FILAMENT ? roll_path(self->roll) : NULL;
+        if (roll_file) {
+            char *rdir = g_path_get_dirname(roll_file);
+            if (g_mkdir_with_parents(rdir, 0700) != 0 || !g_file_set_contents(roll_file, text, (gssize)len, NULL))
+                g_warning("zslice: the settings of the roll were not saved to %s", roll_file);
+            g_free(rdir);
+            g_free(roll_file);
+        }
         char *path = state_path(g);
         char *dir = g_path_get_dirname(path);
         GError *error = NULL;
@@ -283,6 +307,7 @@ static void zg_model_dispose(GObject *object) {
         self->bridge = NULL;
     }
     g_clear_pointer(&self->name, g_free);
+    g_clear_pointer(&self->roll, g_free);
     G_OBJECT_CLASS(zg_model_parent_class)->dispose(object);
 }
 
@@ -516,6 +541,63 @@ void zg_model_use_printer(ZgModel *self, const char *id) {
     zg_model_announce(self, "machine.");
     g_signal_emit(self, signals[SIGNAL_PRINTER_CHANGED], 0);
     slice_soon(self);
+}
+
+void zg_model_filament_from_printer(ZgModel *self, const char *material, const char *name, double diameter, const char *color) {
+    /* The material picks the built-in base profile, if there is one. */
+    if (material) {
+        char *lower = g_ascii_strdown(material, -1);
+        char *profile = g_strconcat("extends = \"generic-", lower, "\"\n", NULL);
+        char message[200] = "";
+        if (zs_app_profile_apply(self->core, ZS_GROUP_FILAMENT, profile, strlen(profile), message, sizeof message) != ZS_OK)
+            g_message("zslice: no built-in profile for %s (%s)", material, message);
+        g_free(profile);
+        g_free(lower);
+    }
+    if (name) zg_model_set(self, "filament.name", name, NULL);
+    else if (material) zg_model_set(self, "filament.name", material, NULL);
+    if (diameter > 0) {
+        char buf[G_ASCII_DTOSTR_BUF_SIZE];
+        zg_model_set(self, "filament.diameter", g_ascii_dtostr(buf, sizeof buf, diameter), NULL);
+    }
+    if (color) zg_model_set(self, "filament.color", color, NULL);
+    zg_model_announce(self, "filament.");
+    zg_model_save_soon(self, ZS_GROUP_FILAMENT);
+}
+
+gboolean zg_model_set_roll(ZgModel *self, const char *roll) {
+    if (g_strcmp0(self->roll, roll) == 0) return TRUE;
+    /* The settings of the roll before go to its file. */
+    if (self->roll) {
+        self->dirty |= 1u << ZS_GROUP_FILAMENT;
+        save_state(self);
+    }
+    g_free(self->roll);
+    self->roll = g_strdup(roll);
+    char *path = roll_path(roll);
+    char *text = NULL;
+    gsize len = 0;
+    gboolean known = path && g_file_get_contents(path, &text, &len, NULL);
+    if (known) {
+        char message[256] = "";
+        zs_app_group_reset(self->core, ZS_GROUP_FILAMENT);
+        if (zs_app_profile_apply(self->core, ZS_GROUP_FILAMENT, text, len, message, sizeof message) != ZS_OK) {
+            g_warning("zslice: %s was not loaded (%s)", path, message);
+            known = FALSE;
+        } else {
+            zg_model_announce(self, "filament.");
+            self->dirty |= 1u << ZS_GROUP_FILAMENT;
+            save_state(self);
+            slice_soon(self);
+        }
+    }
+    g_free(text);
+    g_free(path);
+    return known;
+}
+
+const char *zg_model_roll(ZgModel *self) {
+    return self->roll;
 }
 
 void zg_model_printers_edited(ZgModel *self) {

@@ -53,6 +53,7 @@ typedef struct {
      * the grams left (< 0: not known), and its price for each gram (0:
      * not known). */
     char *spool;
+    char *spool_material; /* the material of the roll before, for a change */
     double spool_left;
     double spool_price_g;
     GCancellable *deck_cancel;
@@ -703,6 +704,45 @@ static void on_poll_info(ZgPrinterInfo *info, const char *error, gpointer data) 
     } else {
         text = g_strdup_printf("%s: %s", pr->name, info->state ? info->state : "connected");
     }
+    /* The filament settings follow the roll in the printer (the
+     * preference follow_roll, on by default): a roll that zslice saw
+     * before gets its own settings back, and a new roll the settings of
+     * its material, name, diameter, and color. */
+    char *follow = zg_pref_get("follow_roll", "1");
+    if (info && info->spool_id && info->spool_id[0] && strcmp(follow, "1") == 0) {
+        GString *key = g_string_new(NULL);
+        for (const char *c = pr->id; *c; c++) g_string_append_c(key, g_ascii_isalnum(*c) ? *c : '-');
+        g_string_append_c(key, '-');
+        for (const char *c = info->spool_id; *c; c++) g_string_append_c(key, g_ascii_isalnum(*c) ? *c : '-');
+        if (g_strcmp0(zg_model_roll(w->model), key->str) != 0) {
+            /* The first roll after a start: the settings are the ones of
+             * this roll already (the last session saved them). */
+            gboolean first = zg_model_roll(w->model) == NULL;
+            if (!zg_model_set_roll(w->model, key->str) && !first) {
+                /* A new roll: the settings of the roll before stay (its
+                 * tuning), with the name, the diameter, and the color of
+                 * the new roll; another material starts from the built-in
+                 * profile of that material. */
+                gboolean same = info->material && w->spool_material && g_ascii_strcasecmp(info->material, w->spool_material) == 0;
+                zg_model_filament_from_printer(w->model, same ? NULL : info->material, info->spool ? info->spool : info->material,
+                                               info->diameter, info->spool_color);
+            } else if (first) {
+                /* Keep the settings, and save them for this roll. */
+                zg_model_save_soon(w->model, ZS_GROUP_FILAMENT);
+            }
+            if (!first && info->spool) {
+                char *note = g_strdup_printf("Filament settings for %s", info->spool);
+                gtk_label_set_text(GTK_LABEL(w->status), note);
+                g_free(note);
+            }
+        }
+        g_string_free(key, TRUE);
+    }
+    g_free(follow);
+    if (info && info->material) {
+        g_free(w->spool_material);
+        w->spool_material = g_strdup(info->material);
+    }
     /* The roll in the printer, and the grams left on it. */
     g_free(w->spool);
     w->spool = info && info->spool ? g_strdup(info->spool) : NULL;
@@ -838,6 +878,7 @@ static void window_free(gpointer data) {
     g_free(w->last_error);
     g_free(w->last_stats);
     g_free(w->spool);
+    g_free(w->spool_material);
     g_free(w);
 }
 

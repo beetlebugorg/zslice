@@ -27,6 +27,7 @@ typedef struct {
     char *material;  /* the filament in the printer, for example "PLA" */
     double diameter; /* of the filament */
     char *spool;     /* the name of the loaded spool */
+    char *spool_id;  /* its ID at the printer */
     char *spool_color; /* "#rrggbb" */
     double spool_left; /* grams */
     double spool_price; /* the price of the roll, or 0 */

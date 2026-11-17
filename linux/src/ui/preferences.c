@@ -297,25 +297,12 @@ static void on_use_filament(GtkButton *b, gpointer data) {
     Prefs *p = data;
     ZgPrinterInfo *in = p->info;
     if (!in) return;
-    /* The material picks the built-in base profile, if there is one. */
-    if (in->material) {
-        char *lower = g_ascii_strdown(in->material, -1);
-        char *profile = g_strconcat("extends = \"generic-", lower, "\"\n", NULL);
-        char message[200] = "";
-        zs_app *core = zg_model_core(p->model);
-        if (zs_app_profile_apply(core, ZS_GROUP_FILAMENT, profile, strlen(profile), message, sizeof message) != ZS_OK) {
-            g_message("zslice: no built-in profile for %s (%s)", in->material, message);
-        }
-        g_free(profile);
-        g_free(lower);
-    }
-    if (in->spool) zg_model_set(p->model, "filament.name", in->spool, NULL);
-    else if (in->material) zg_model_set(p->model, "filament.name", in->material, NULL);
-    if (in->diameter > 0) set_num(p->model, "filament.diameter", in->diameter);
-    if (in->spool_color) zg_model_set(p->model, "filament.color", in->spool_color, NULL);
-    zg_model_announce(p->model, "filament.");
-    zg_model_save_soon(p->model, ZS_GROUP_FILAMENT);
+    zg_model_filament_from_printer(p->model, in->material, in->spool, in->diameter, in->spool_color);
     gtk_widget_set_visible(p->use_filament, FALSE);
+}
+
+static void on_follow_roll(GtkCheckButton *b, gpointer data) {
+    zg_pref_set("follow_roll", gtk_check_button_get_active(b) ? "1" : "0");
 }
 
 /* ---- general ---- */
@@ -491,6 +478,15 @@ static GtkWidget *printers_page(Prefs *p) {
     gtk_box_append(GTK_BOX(use_box), p->use_machine);
     gtk_box_append(GTK_BOX(use_box), p->use_filament);
     gtk_grid_attach(GTK_GRID(g), use_box, 1, row++, 2, 1);
+
+    /* The filament settings follow the roll in the printer (printdeck). */
+    GtkWidget *follow = gtk_check_button_new_with_label("Keep filament settings for each roll in the printer");
+    gtk_widget_set_tooltip_text(follow, "printdeck tells which roll is in the printer. Each roll keeps its own filament settings (its tuning too), and a change of the roll loads them. A new roll starts from the settings before, or from the built-in profile of another material.");
+    char *on = zg_pref_get("follow_roll", "1");
+    gtk_check_button_set_active(GTK_CHECK_BUTTON(follow), strcmp(on, "1") == 0);
+    g_free(on);
+    g_signal_connect(follow, "toggled", G_CALLBACK(on_follow_roll), NULL);
+    gtk_grid_attach(GTK_GRID(g), follow, 1, row++, 2, 1);
 
     GtkWidget *note = gtk_label_new("The machine settings of the current printer (bed, nozzle, speeds, start G-code) are in the Settings page, under Machine. Each printer keeps its own.");
     gtk_label_set_wrap(GTK_LABEL(note), TRUE);

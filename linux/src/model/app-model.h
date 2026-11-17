@@ -140,6 +140,18 @@ void zg_model_open_profile(ZgModel *self, double z_min, double z_max);
  * "printer-changed" follows. */
 void zg_model_use_printer(ZgModel *self, const char *id);
 
+/* The filament settings from what a printer tells of its filament: the
+ * built-in profile of the material, and the name, the diameter (> 0) and
+ * the color of the roll (each can be NULL). Saves them. */
+void zg_model_filament_from_printer(ZgModel *self, const char *material, const char *name, double diameter, const char *color);
+/* The roll of filament in the printer: a key (letters, digits, dashes),
+ * or NULL for none. The filament settings follow the roll: the settings
+ * of the roll before go to its file (rolls/<key>.toml), and the settings
+ * of a roll with a file load. Returns TRUE if the roll had a file; with
+ * FALSE the caller sets the settings of a new roll. */
+gboolean zg_model_set_roll(ZgModel *self, const char *roll);
+const char *zg_model_roll(ZgModel *self);
+
 /* Emits "setting-changed" for each setting whose name starts with
  * `prefix` (for example "filament."), after a change of many values. */
 void zg_model_announce(ZgModel *self, const char *prefix);
