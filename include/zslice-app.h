@@ -511,6 +511,10 @@ enum zs_group { ZS_GROUP_MACHINE = 0, ZS_GROUP_FILAMENT = 1, ZS_GROUP_PROJECT = 
  * saves it to keep the settings after a restart. The same buffer rules as
  * zs_app_setting_get. */
 int zs_app_state_write(const zs_app *app, int group, char *buf, size_t cap, size_t *out_len);
+/* The settings of a group that differ from the built-in defaults, as a
+ * profile. For the project group, the quality profile and the changes of
+ * this print together (zs_app_state_write has the changes only). */
+int zs_app_profile_write(const zs_app *app, int group, char *buf, size_t cap, size_t *out_len);
 /* Sets all settings of a group to the built-in defaults: for example
  * before the profile of an other printer. */
 int zs_app_group_reset(zs_app *app, int group);

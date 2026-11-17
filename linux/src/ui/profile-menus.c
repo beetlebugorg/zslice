@@ -9,7 +9,7 @@
 #include <string.h>
 
 static const char *group_dirs[] = {"machine", "filament", "project"};
-static const char *group_titles[] = {"Printer", "Filament", "Part"};
+static const char *group_titles[] = {"Printer", "Filament", "Quality"};
 static const char *group_lower[] = {"printer", "filament", "part"};
 
 typedef struct {
@@ -40,6 +40,21 @@ static gboolean changed(Menu *m) {
     return c;
 }
 
+/* TRUE if this print has changes over the quality profile (the state of
+ * the project group has a setting). */
+static gboolean edits(Menu *m) {
+    char *now = zg_model_group_text(m->model, ZS_GROUP_PROJECT);
+    gboolean any = FALSE;
+    for (const char *l = now; l && *l; l = strchr(l, '\n') ? strchr(l, '\n') + 1 : NULL) {
+        if (*l != '#' && *l != '\n' && *l != '[') {
+            any = TRUE;
+            break;
+        }
+    }
+    g_free(now);
+    return any;
+}
+
 static void update_label(Menu *m) {
     char *label;
     if (m->group == ZS_GROUP_FILAMENT) {
@@ -48,7 +63,10 @@ static void update_label(Menu *m) {
         label = g_strdup(name && name[0] ? name : (m->name ? m->name : "Filament"));
         g_free(name);
     } else {
-        label = g_strdup_printf("Part: %s%s", m->name ? m->name : "custom", changed(m) ? " •" : "");
+        /* The quality profile, with a mark when this print has changes on
+         * top of it. */
+        const char *q = zg_model_quality(m->model);
+        label = g_strdup_printf("Quality: %s%s", q && q[0] ? q : "custom", edits(m) ? " •" : "");
     }
     gtk_menu_button_set_label(GTK_MENU_BUTTON(m->button), label);
     char *tip = g_strdup_printf("%s settings: %s%s. Pick a profile, or save these settings as one.", group_titles[m->group],
@@ -81,7 +99,9 @@ static gboolean save_profile(Menu *m, const char *name) {
     char *dir = profiles_dir(m->group);
     char *file = g_strconcat(name, ".toml", NULL);
     char *path = g_build_filename(dir, file, NULL);
-    char *text = zg_model_group_text(m->model, m->group);
+    /* The full profile: for the quality, its values and the changes of
+     * this print together. */
+    char *text = m->group == ZS_GROUP_PROJECT ? zg_model_profile_text(m->model, m->group) : zg_model_group_text(m->model, m->group);
     GError *error = NULL;
     gboolean ok = g_mkdir_with_parents(dir, 0700) == 0 && g_file_set_contents(path, text, -1, &error);
     if (!ok) {
@@ -95,6 +115,12 @@ static gboolean save_profile(Menu *m, const char *name) {
         char *key = g_strconcat("profile_", group_dirs[m->group], NULL);
         zg_pref_set(key, name);
         g_free(key);
+        /* The new profile is the quality now, with no changes on top. */
+        if (m->group == ZS_GROUP_PROJECT) {
+            zg_model_set_quality(m->model, name, FALSE);
+            g_free(m->loaded);
+            m->loaded = zg_model_group_text(m->model, m->group);
+        }
         update_label(m);
     }
     g_free(text);
@@ -228,6 +254,18 @@ static void switch_to(Menu *m, const char *name, const char *text) {
 static void on_pick(GSimpleAction *a, GVariant *v, gpointer data) {
     Menu *m = data;
     const char *what = g_variant_get_string(v, NULL);
+    /* A quality profile: the changes of this print stay on top. */
+    if (m->group == ZS_GROUP_PROJECT) {
+        const char *name = g_str_has_prefix(what, "builtin:") ? what + 8 : g_str_has_prefix(what, "file:") ? what + 5 : what;
+        if (zg_model_set_quality(m->model, name, TRUE)) {
+            g_free(m->name);
+            m->name = g_strdup(name);
+            g_free(m->loaded);
+            m->loaded = zg_model_group_text(m->model, m->group);
+            update_label(m);
+        }
+        return;
+    }
     if (g_str_has_prefix(what, "builtin:")) {
         char *text = g_strdup_printf("extends = \"%s\"\n", what + 8);
         switch_to(m, what + 8, text);

@@ -157,6 +157,15 @@ void zg_model_filament_from_printer(ZgModel *self, const char *material, const c
  * FALSE the caller sets the settings of a new roll. */
 gboolean zg_model_set_roll(ZgModel *self, const char *roll);
 const char *zg_model_roll(ZgModel *self);
+
+/* The quality profile (fine, standard, ...: a built-in profile, or a
+ * profile of the user in profiles/project/): the level under the changes
+ * of this print. keep_edits: the changes of this print stay. Saves the
+ * name as the preference profile_project. */
+gboolean zg_model_set_quality(ZgModel *self, const char *name, gboolean keep_edits);
+const char *zg_model_quality(ZgModel *self);
+/* The full profile of a group (see zs_app_profile_write). Free with g_free. */
+char *zg_model_profile_text(ZgModel *self, int group);
 /* The key of a roll for zg_model_set_roll: the printer ID and the roll ID
  * of the printer, with letters, digits, and dashes. Free with g_free. */
 char *zg_model_roll_key(const char *printer, const char *roll_id);

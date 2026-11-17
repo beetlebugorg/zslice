@@ -870,6 +870,26 @@ export fn zs_app_state_write(a: ?*const App, group: c_int, buf: ?[*]u8, cap: usi
     return ok;
 }
 
+/// The settings of a group that differ from the built-in defaults: for
+/// the project group, the quality profile with the changes of this print
+/// (a full profile, for "Save as profile").
+export fn zs_app_profile_write(a: ?*const App, group: c_int, buf: ?[*]u8, cap: usize, out_len: ?*usize) c_int {
+    const app = a orelse return @intFromEnum(Status.invalid_argument);
+    const g = groupOf(group) orelse return @intFromEnum(Status.invalid_argument);
+    var aw: Writer.Allocating = .init(gpa);
+    defer aw.deinit();
+    zs.profile.writeChanged(app.settings, g, &aw.writer) catch return @intFromEnum(Status.out_of_memory);
+    const text = aw.written();
+    if (out_len) |l| l.* = text.len;
+    if (buf) |b| {
+        if (cap == 0) return ok;
+        const n = @min(text.len, cap - 1);
+        @memcpy(b[0..n], text[0..n]);
+        b[n] = 0;
+    }
+    return ok;
+}
+
 /// Sets all settings of a group to the built-in defaults.
 export fn zs_app_group_reset(a: ?*App, group: c_int) c_int {
     const app = a orelse return @intFromEnum(Status.invalid_argument);

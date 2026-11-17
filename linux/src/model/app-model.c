@@ -717,6 +717,44 @@ char *zg_model_group_text(ZgModel *self, int group) {
     return text;
 }
 
+char *zg_model_profile_text(ZgModel *self, int group) {
+    size_t len = 0;
+    if (zs_app_profile_write(self->core, group, NULL, 0, &len) != ZS_OK) return g_strdup("");
+    char *text = g_malloc(len + 1);
+    zs_app_profile_write(self->core, group, text, len + 1, NULL);
+    return text;
+}
+
+gboolean zg_model_set_quality(ZgModel *self, const char *name, gboolean keep_edits) {
+    /* A profile of the user with this name, else the built-in profile. */
+    char *dir = zg_config_dir();
+    char *file = g_strconcat(name, ".toml", NULL);
+    char *path = g_build_filename(dir, "profiles", "project", file, NULL);
+    char *text = NULL;
+    gsize len = 0;
+    if (!g_file_get_contents(path, &text, &len, NULL)) {
+        text = g_strdup_printf("extends = \"%s\"\n", name);
+        len = strlen(text);
+    }
+    char message[256] = "";
+    gboolean ok = zs_app_quality_set(self->core, name, text, len, keep_edits, message, sizeof message) == ZS_OK;
+    if (!ok) g_warning("zslice: the quality profile %s was not loaded (%s)", name, message);
+    g_free(text);
+    g_free(path);
+    g_free(file);
+    g_free(dir);
+    if (!ok) return FALSE;
+    zg_pref_set("profile_project", name);
+    zg_model_announce(self, "project.");
+    zg_model_save_soon(self, ZS_GROUP_PROJECT);
+    slice_soon(self);
+    return TRUE;
+}
+
+const char *zg_model_quality(ZgModel *self) {
+    return zs_app_quality_name(self->core);
+}
+
 const char *zg_model_roll(ZgModel *self) {
     return self->roll;
 }
@@ -954,6 +992,28 @@ static void zg_model_init(ZgModel *self) {
     int rc = zs_app_new(on_core_event, self->bridge, &self->core);
     if (rc != ZS_OK) g_error("zslice: the app core did not start: %s", zg_status_text(rc));
     load_state(self);
+    /* The quality profile of the last session, under the changes of this
+     * print (the state of the project group). */
+    char *quality = zg_pref_get("profile_project", "");
+    if (quality[0] && strcmp(quality, "custom") != 0) {
+        char *dir = zg_config_dir();
+        char *file = g_strconcat(quality, ".toml", NULL);
+        char *path = g_build_filename(dir, "profiles", "project", file, NULL);
+        char *text = NULL;
+        gsize len = 0;
+        if (!g_file_get_contents(path, &text, &len, NULL)) {
+            text = g_strdup_printf("extends = \"%s\"\n", quality);
+            len = strlen(text);
+        }
+        char message[256] = "";
+        if (zs_app_quality_set(self->core, quality, text, len, TRUE, message, sizeof message) != ZS_OK)
+            g_message("zslice: the quality profile %s was not loaded (%s)", quality, message);
+        g_free(text);
+        g_free(path);
+        g_free(file);
+        g_free(dir);
+    }
+    g_free(quality);
     self->undo = g_ptr_array_new_with_free_func(g_free);
     self->redo = g_ptr_array_new_with_free_func(g_free);
     self->undo_now = undo_snapshot(self);
