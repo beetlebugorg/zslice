@@ -312,13 +312,28 @@ pub fn importStack(arena: Allocator, src: Source, diag: *Diagnostic) Error![]Out
     return outputs.toOwnedSlice(arena);
 }
 
+/// A layer count wins over a thickness, as in Cura: CuraEngine prints the
+/// count, and Cura makes the count from the thickness only when the count
+/// has no value of its own.
 fn thicknessFromLayers(arena: Allocator, values: *Values, layers_key: []const u8, thickness_key: []const u8) !void {
-    if (values.get(thickness_key) != null) return;
     const n = values.get(layers_key) orelse return;
     const count = number(n.text) orelse return;
     const h = if (values.get("layer_height")) |lh| number(lh.text) orelse 0.2 else 0.2;
     try values.put(arena, thickness_key, .{ .text = try std.fmt.allocPrint(arena, "{d}", .{count * h}), .from = n.from });
     _ = values.orderedRemove(layers_key);
+}
+
+/// True if a later entry of `map` sets the same zslice setting as entry
+/// `mi` with a value that is not an expression.
+fn laterValue(values: *const Values, map: []const Map, mi: usize) bool {
+    const m = map[mi];
+    for (map[mi + 1 ..]) |o| {
+        if (!std.mem.eql(u8, o.group, m.group) or !std.mem.eql(u8, o.key, m.key)) continue;
+        const v = values.get(o.cura) orelse continue;
+        if (v.text.len > 0 and v.text[0] == '=') continue;
+        return true;
+    }
+    return false;
 }
 
 /// Writes the mapped values of a stack, in the order of the map, then a
@@ -335,9 +350,16 @@ fn writeMapped(arena: Allocator, w: *Writer, values: *const Values, map: []const
     for (order, 0..) |group, gi| {
         if (gi > 0 and std.mem.eql(u8, group, own_group)) continue;
         var header = gi == 0;
-        for (map) |m| {
+        for (map, 0..) |m, mi| {
             if (!std.mem.eql(u8, m.group, group)) continue;
             const v = values.get(m.cura) orelse continue;
+            // Two Cura settings can make one zslice setting (for example
+            // top_bottom_thickness and top_thickness): the later one in
+            // the map wins, and each key is written once.
+            if (laterValue(values, map, mi)) {
+                try used.put(arena, m.cura, {});
+                continue;
+            }
             try used.put(arena, m.cura, {});
             if (v.text.len > 0 and v.text[0] == '=') continue; // an expression: listed below
             const text = (try convert(arena, m.conv, v.text, max_speed)) orelse continue;
