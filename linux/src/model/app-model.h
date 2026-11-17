@@ -247,6 +247,9 @@ gint64 zg_model_history_time(ZgModel *self, guint i);
 char *zg_model_history_changes(ZgModel *self, guint i);
 char *zg_model_history_describe(ZgModel *self, const char *changes);
 gboolean zg_model_history_goto(ZgModel *self, guint i);
+/* Clears the history after step i: goes to step i first if it is not the
+ * step now, then drops the later steps (redo cannot bring them back). */
+gboolean zg_model_history_truncate(ZgModel *self, guint i);
 /* The setting whose editor has the focus now, or NULL (from the window).
  * The changes of one setting are one step while its editor keeps the
  * focus; a move of the focus to another setting or away ends the step. */

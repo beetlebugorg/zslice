@@ -330,6 +330,18 @@ const ops = {
     return { ok, ...settingsState() };
   },
 
+  // Clears the history after step `index`: goes to it first if it is not
+  // the step now, then drops the later steps (they cannot be redone).
+  historyTruncate({ index }) {
+    undoCommit();
+    if (index !== hist.undo.length) historyGoto(index);
+    if (index === hist.undo.length) {
+      hist.redo = [];
+      hist.editKey = null;
+    }
+    return { ...settingsState() };
+  },
+
   historyGoto({ index }) {
     const ok = historyGoto(index);
     return { ok, ...settingsState() };

@@ -1325,6 +1325,16 @@ gboolean zg_model_history_goto(ZgModel *self, guint i) {
     return TRUE;
 }
 
+gboolean zg_model_history_truncate(ZgModel *self, guint i) {
+    undo_commit(self);
+    if (i != self->undo->len && !zg_model_history_goto(self, i)) return FALSE;
+    if (self->redo->len == 0) return FALSE;
+    g_ptr_array_set_size(self->redo, 0);
+    g_clear_pointer(&self->undo_edit_key, g_free);
+    g_signal_emit(self, signals[SIGNAL_UNDO_CHANGED], 0);
+    return TRUE;
+}
+
 static void save_soon(ZgModel *self, const char *key);
 
 gboolean zg_model_history_revert(ZgModel *self, const char *line) {

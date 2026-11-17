@@ -11,6 +11,7 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
 import { el } from "./settings.js";
+import { openMenuAt } from "./menus.js";
 
 // The look of each kind of step (history.c, looks).
 const LOOKS = {
@@ -105,6 +106,7 @@ export class HistoryPage {
         const words = s.text.split("\n").filter(Boolean).map((w) => w.replace("\t", ": ")).join("\n");
         m.title = `${i === 0 ? "Start" : `Change ${i}`} · ${label}${words ? "\n" + words : ""}`;
         m.onclick = () => this.go(i);
+        m.oncontextmenu = (e) => this.menu(e, i);
         marks.append(m);
       }
       parts.push(marks, el("span", "tl-count", `${now} / ${n - 1}`));
@@ -122,6 +124,32 @@ export class HistoryPage {
       else return;
       e.preventDefault();
     };
+  }
+
+  // The right-click menu of step i: go to it, or clear the history after
+  // it.
+  menu(e, i) {
+    e.preventDefault();
+    const l = this.list;
+    if (!l) return;
+    const last = i + 1 >= l.steps.length;
+    const name = i === 0 ? "the start" : `change ${i}`;
+    openMenuAt(e.clientX, e.clientY, [
+      { label: "Go to this change", disabled: i === l.current, action: () => this.go(i) },
+      { sep: true },
+      {
+        label: i < l.current ? `Go to ${name} and clear the history after it` : `Clear the history after ${name}`,
+        tip: "The later changes go from the history, and redo cannot bring them back.",
+        disabled: last,
+        action: () => this.truncate(i),
+      },
+    ]);
+  }
+
+  async truncate(index) {
+    const r = await this.ctx.client.call("historyTruncate", { index });
+    this.ctx.applySettings(r);
+    await this.refresh();
   }
 
   async go(index) {
@@ -165,6 +193,7 @@ export class HistoryPage {
       if (e.target.closest("button")) return;
       if (i !== now) this.go(i);
     };
+    row.oncontextmenu = (e) => this.menu(e, i);
     const [color, label] = LOOKS[s.kind] ?? LOOKS.other;
     const head = el("div", "hist-head");
     const badge = el("span", "hist-badge", label);

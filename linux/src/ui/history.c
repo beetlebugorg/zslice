@@ -286,6 +286,98 @@ static char *step_tooltip(ZgModel *model, guint i) {
 /* ---- keys: the arrows go to the step before or after, and Space goes
  * back to the step shown before (to compare two steps) ---- */
 
+/* ---- the right-click menu of a step: go to it, or clear the history
+ * after it ---- */
+
+typedef struct {
+    ZgModel *model;
+    guint step;
+    GtkWidget *popover;
+} StepMenu;
+
+static void go_step(ZgModel *model, gint64 i);
+
+static void on_menu_go(GtkButton *b, gpointer data) {
+    StepMenu *m = data;
+    gtk_popover_popdown(GTK_POPOVER(m->popover));
+    go_step(m->model, m->step);
+}
+
+static void on_menu_clear(GtkButton *b, gpointer data) {
+    StepMenu *m = data;
+    gtk_popover_popdown(GTK_POPOVER(m->popover));
+    zg_model_history_truncate(m->model, m->step);
+}
+
+static void step_menu_free(gpointer data) {
+    g_free(data);
+}
+
+static GtkWidget *menu_button(const char *label, const char *tip, gboolean on, GCallback cb, StepMenu *m) {
+    GtkWidget *b = gtk_button_new_with_label(label);
+    gtk_widget_add_css_class(b, "flat");
+    gtk_label_set_xalign(GTK_LABEL(gtk_button_get_child(GTK_BUTTON(b))), 0);
+    if (tip) gtk_widget_set_tooltip_text(b, tip);
+    gtk_widget_set_sensitive(b, on);
+    g_signal_connect(b, "clicked", cb, m);
+    return b;
+}
+
+/* Opens the menu of step `step` at (x, y) of `widget`. */
+static void step_menu_open(ZgModel *model, GtkWidget *widget, guint step, double x, double y) {
+    guint now = zg_model_history_current(model), n = zg_model_history_count(model);
+    StepMenu *m = g_new0(StepMenu, 1);
+    m->model = model;
+    m->step = step;
+    GtkWidget *pop = gtk_popover_new();
+    m->popover = pop;
+    g_object_set_data_full(G_OBJECT(pop), "zg-step-menu", m, step_menu_free);
+    gtk_popover_set_has_arrow(GTK_POPOVER(pop), FALSE);
+    gtk_widget_add_css_class(pop, "menu");
+    GtkWidget *box = gtk_box_new(GTK_ORIENTATION_VERTICAL, 0);
+    char *name = step == 0 ? g_strdup("the start") : g_strdup_printf("change %u", step);
+    char *clear = step < now ? g_strdup_printf("Go to %s and clear the history after it", name)
+                             : g_strdup_printf("Clear the history after %s", name);
+    gtk_box_append(GTK_BOX(box), menu_button("Go to this change", NULL, step != now, G_CALLBACK(on_menu_go), m));
+    gtk_box_append(GTK_BOX(box), gtk_separator_new(GTK_ORIENTATION_HORIZONTAL));
+    gtk_box_append(GTK_BOX(box), menu_button(clear, "The later changes go from the history, and redo cannot bring them back.",
+                                             step + 1 < n, G_CALLBACK(on_menu_clear), m));
+    g_free(clear);
+    g_free(name);
+    gtk_popover_set_child(GTK_POPOVER(pop), box);
+    gtk_widget_set_parent(pop, widget);
+    g_signal_connect(pop, "closed", G_CALLBACK(gtk_widget_unparent), NULL);
+    GdkRectangle r = {(int)x, (int)y, 1, 1};
+    gtk_popover_set_pointing_to(GTK_POPOVER(pop), &r);
+    gtk_popover_popup(GTK_POPOVER(pop));
+}
+
+/* A right click on a widget with "zg-step" data (a mark of the timeline)
+ * or on a row of the list under the pointer. */
+static void on_step_right_click(GtkGestureClick *g, int n, double x, double y, gpointer data) {
+    ZgModel *model = data;
+    GtkWidget *w = gtk_event_controller_get_widget(GTK_EVENT_CONTROLLER(g));
+    GtkWidget *hit = gtk_widget_pick(w, x, y, GTK_PICK_DEFAULT);
+    for (GtkWidget *f = hit; f; f = gtk_widget_get_parent(f)) {
+        gpointer d = g_object_get_data(G_OBJECT(f), "zg-step");
+        if (d || g_object_get_data(G_OBJECT(f), "zg-step-zero")) {
+            gtk_gesture_set_state(GTK_GESTURE(g), GTK_EVENT_SEQUENCE_CLAIMED);
+            step_menu_open(model, w, GPOINTER_TO_UINT(d), x, y);
+            return;
+        }
+        if (f == w) break;
+    }
+}
+
+/* Adds the right-click menu of the steps to `w` (the list or the bar). */
+static void add_step_menu(GtkWidget *w, ZgModel *model) {
+    GtkGesture *g = gtk_gesture_click_new();
+    gtk_gesture_single_set_button(GTK_GESTURE_SINGLE(g), GDK_BUTTON_SECONDARY);
+    gtk_event_controller_set_propagation_phase(GTK_EVENT_CONTROLLER(g), GTK_PHASE_CAPTURE);
+    g_signal_connect(g, "pressed", G_CALLBACK(on_step_right_click), model);
+    gtk_widget_add_controller(w, GTK_EVENT_CONTROLLER(g));
+}
+
 static void go_step(ZgModel *model, gint64 i) {
     guint cur = zg_model_history_current(model);
     if (i < 0 || i >= (gint64)zg_model_history_count(model)) return;
@@ -496,6 +588,7 @@ static void page_fill_focus(Page *p, gboolean take_focus) {
         GtkWidget *row = gtk_list_box_row_new();
         gtk_list_box_row_set_child(GTK_LIST_BOX_ROW(row), step_row(p, k));
         g_object_set_data(G_OBJECT(row), "zg-step", GUINT_TO_POINTER(k));
+        if (k == 0) g_object_set_data(G_OBJECT(row), "zg-step-zero", GINT_TO_POINTER(1));
         gtk_list_box_append(GTK_LIST_BOX(p->list), row);
         if (k == zg_model_history_current(p->model) && had_focus) gtk_widget_grab_focus(row);
     }
@@ -600,6 +693,7 @@ GtkWidget *zg_history_page_new(ZgModel *model, GtkWidget *stack) {
     gtk_list_box_set_activate_on_single_click(GTK_LIST_BOX(p->list), TRUE);
     gtk_widget_add_css_class(p->list, "navigation-sidebar");
     g_signal_connect(p->list, "row-activated", G_CALLBACK(on_row), p);
+    add_step_menu(p->list, p->model);
     GtkGesture *dbl = gtk_gesture_click_new();
     gtk_event_controller_set_propagation_phase(GTK_EVENT_CONTROLLER(dbl), GTK_PHASE_CAPTURE);
     g_signal_connect(dbl, "pressed", G_CALLBACK(on_list_pressed), p);
@@ -695,6 +789,7 @@ static void timeline_fill(Timeline *t) {
         gtk_widget_set_has_tooltip(b, TRUE);
         g_signal_connect(b, "query-tooltip", G_CALLBACK(on_step_tooltip), t);
         g_object_set_data(G_OBJECT(b), "zg-step", GUINT_TO_POINTER(i));
+        if (i == 0) g_object_set_data(G_OBJECT(b), "zg-step-zero", GINT_TO_POINTER(1));
         g_signal_connect(b, "clicked", G_CALLBACK(on_step), t);
         gtk_box_append(GTK_BOX(t->steps), b);
         if (i == now && had_focus) gtk_widget_grab_focus(b);
@@ -779,6 +874,7 @@ GtkWidget *zg_timeline_new(ZgModel *model) {
     gtk_event_controller_set_propagation_phase(tk, GTK_PHASE_CAPTURE);
     g_signal_connect(tk, "key-pressed", G_CALLBACK(on_timeline_key), t);
     gtk_widget_add_controller(bar, tk);
+    add_step_menu(bar, model);
     g_object_set_data_full(G_OBJECT(bar), "zg-timeline", t, timeline_free);
     g_signal_connect(model, "undo-changed", G_CALLBACK(on_timeline), t);
     timeline_fill(t);
