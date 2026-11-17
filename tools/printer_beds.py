@@ -421,14 +421,14 @@ class Beds:
 
     def add(self, bed):
         """The fields of a D line for a bed of a source, or None. `bed` has
-        the source ("c", "p", "o"), the mesh path, the texture path, and
+        the source ("c", "p", "o", "l"), the mesh path, the texture path, and
         what the placement needs."""
         src = bed["src"]
         mesh_name, off, has_uv = None, (0.0, 0.0, 0.0), False
         mp = bed.get("mesh")
         if mp and os.path.isfile(mp) and not self.blocked(src, mp):
             stem = os.path.splitext(os.path.basename(mp))[0]
-            if src == "c":
+            if src in ("c", "l"):
                 r = self.mesh(("c", mp), stem, lambda: place_cura(mp, None))
                 if r:
                     o = bed.get("offset") or [0, 0, 0]
@@ -449,7 +449,7 @@ class Beds:
         tex_name, rect = None, None
         tp = bed.get("texture")
         if tp and os.path.isfile(tp):
-            if src == "c":
+            if src in ("c", "l"):
                 # Cura maps the texture with the UV coordinates of the mesh.
                 if mesh_name and has_uv:
                     tex_name = self.texture(src, tp)

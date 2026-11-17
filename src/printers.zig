@@ -22,7 +22,7 @@
 //!        corner flavor firmware kinematics retract retract_speed start end
 //!        extruders bed
 //!
-//! In a P line: `sources` has one letter for each source (c Cura,
+//! In a P line: `sources` has one letter for each source (l Cura LulzBot Edition, c Cura,
 //! p PrusaSlicer, o OrcaSlicer). `shape` is "r" for a round bed.
 //! `nozzles` lists the nozzle sizes with ";". `heat` has "b" for a heated
 //! bed and "c" for a heated chamber. `max_speed` is the speed limit of the
@@ -98,7 +98,8 @@ pub const Model = struct {
     /// if it starts with the brand ("Voron 2.4 350").
     title: [:0]const u8 = "",
     series: []const u8,
-    /// One letter for each source: c Cura, p PrusaSlicer, o OrcaSlicer.
+    /// One letter for each source: c Cura, p PrusaSlicer, o OrcaSlicer, l Cura
+    /// LulzBot Edition.
     sources: []const u8,
     bed_x: f64,
     bed_y: f64,

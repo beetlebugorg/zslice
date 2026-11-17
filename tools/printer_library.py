@@ -10,6 +10,11 @@ machine record for each printer model:
   bundles in resources/profiles/*.ini.
 - OrcaSlicer (https://github.com/SoftFever/OrcaSlicer, AGPL-3.0): the vendor
   profiles in resources/profiles/<vendor>.json and <vendor>/machine/*.json.
+- Cura LulzBot Edition (https://github.com/lulzbot3d/CuraLE_Resources,
+  LGPL-3.0): the LulzBot printers (TAZ Workhorse, TAZ Pro, Mini, ...), in
+  the Cura format, with their bed plates. Optional (--curale). Its folders
+  are definitions/, extruders/<printer>/, and meshes/: the tool reads them
+  as a Cura tree.
 
 Each source is a folder of untrusted data: the tool only reads JSON and INI
 text from it, and runs no code from it. Run it with `python3 -I`:
@@ -165,6 +170,7 @@ SOURCES = {
     "c": ("Cura", "LGPL-3.0-or-later", "https://github.com/Ultimaker/Cura"),
     "p": ("PrusaSlicer", "AGPL-3.0", "https://github.com/prusa3d/PrusaSlicer"),
     "o": ("OrcaSlicer", "AGPL-3.0", "https://github.com/SoftFever/OrcaSlicer"),
+    "l": ("Cura LulzBot Edition", "LGPL-3.0", "https://github.com/lulzbot3d/CuraLE_Resources"),
 }
 
 
@@ -404,15 +410,31 @@ def cura_defaults(tree, out):
             cura_defaults(node["children"], out)
 
 
-def read_cura(root):
-    defs_dir = os.path.join(root, "resources", "definitions")
-    ext_dir = os.path.join(root, "resources", "extruders")
+def nozzle_of(src, title, evals, vals):
+    """The nozzle of a Cura record. The tool heads of Cura LulzBot Edition
+    inherit a generic extruder of 0.4 mm; the size is in the name ("SE 0.5
+    mm"), and the name wins."""
+    n = num(evals.get("machine_nozzle_size"), num(vals.get("machine_nozzle_size"), 0.4))
+    if src == "l":
+        m = re.search(r"(\d+(?:\.\d+)?) mm", title)
+        if m and 0.1 <= float(m.group(1)) <= 2:
+            n = float(m.group(1))
+    return n
+
+
+def read_cura(root, src="c", flat=False):
+    """The records of a Cura tree: resources/definitions, resources/extruders
+    and resources/meshes, or with `flat` (Cura LulzBot Edition) definitions,
+    extruders/<printer>/ and meshes at the top."""
+    res = root if flat else os.path.join(root, "resources")
+    defs_dir = os.path.join(res, "definitions")
+    ext_dir = os.path.join(res, "extruders")
     defs = {}
     for f in glob.glob(os.path.join(defs_dir, "*.def.json")):
         with open(f, encoding="utf-8") as fh:
             defs[os.path.basename(f)[: -len(".def.json")]] = json.load(fh)
     exts = {}
-    for f in glob.glob(os.path.join(ext_dir, "*.def.json")):
+    for f in glob.glob(os.path.join(ext_dir, "*.def.json")) + glob.glob(os.path.join(ext_dir, "*", "*.def.json")):
         with open(f, encoding="utf-8") as fh:
             exts[os.path.basename(f)[: -len(".def.json")]] = json.load(fh)
     base = {}
@@ -505,19 +527,27 @@ def read_cura(root):
         bed = None
         if meta.get("platform") or meta.get("platform_texture"):
             bed = {
-                "src": "c",
-                "mesh": os.path.join(root, "resources", "meshes", meta["platform"]) if meta.get("platform") else None,
+                "src": src,
+                "mesh": os.path.join(res, "meshes", meta["platform"]) if meta.get("platform") else None,
                 "offset": meta.get("platform_offset"),
-                "texture": os.path.join(root, "resources", "images", meta["platform_texture"]) if meta.get("platform_texture") else None,
+                "texture": os.path.join(res, "images", meta["platform_texture"]) if meta.get("platform_texture") else None,
             }
         display = str(vals.get("machine_name") or d.get("name") or name)
         if display.lower() in ("unknown", ""):
             display = d.get("name", name)
+        title = d.get("name", display)
+        if src == "l":
+            # Cura LulzBot Edition: "Workhorse | SE | 0.50 mm" is the TAZ
+            # Workhorse SE 0.5 mm, as LulzBot names it.
+            title = re.sub(r"\s*\|\s*", " ", title).strip()
+            title = re.sub(r"(\d+\.\d*?)0+ mm", lambda mm: mm.group(1).rstrip(".") + " mm", title)
+            if title.startswith("Workhorse"):
+                title = "TAZ " + title
         rec = {
-            "src": "c",
+            "src": src,
             "id": name,
             "brand": brand,
-            "name": model_name(brand, d.get("name", display)),
+            "name": model_name(brand, title),
             "family": "",
             "bed_x": w,
             "bed_y": dd,
@@ -525,7 +555,7 @@ def read_cura(root):
             "origin_x": -w / 2 if center else 0,
             "origin_y": -dd / 2 if center else 0,
             "shape": shape,
-            "nozzle": num(evals.get("machine_nozzle_size"), num(vals.get("machine_nozzle_size"), 0.4)),
+            "nozzle": nozzle_of(src, title, evals, vals),
             "nozzles": [],
             "filament": num(evals.get("material_diameter"), num(vals.get("material_diameter"), 2.85)),
             "heated_bed": boolean(vals.get("machine_heated_bed"), False),
@@ -845,12 +875,12 @@ def read_orca(root):
 
 # ---- merge ----
 
-ORDER = ["o", "p", "c"]
+ORDER = ["o", "p", "c", "l"]
 
 
 def first_party(brand, src):
     """The vendor bundle of a brand comes first for its own printers."""
-    return (brand == "Prusa" and src == "p") or (brand == "UltiMaker" and src == "c") or (brand == "Bambu Lab" and src == "o")
+    return (brand == "Prusa" and src == "p") or (brand == "UltiMaker" and src == "c") or (brand == "Bambu Lab" and src == "o") or (brand == "LulzBot" and src == "l")
 
 
 def merge(records):
@@ -1010,6 +1040,8 @@ def main():
     ap.add_argument("--cura-version", default="")
     ap.add_argument("--prusa-version", default="")
     ap.add_argument("--orca-version", default="")
+    ap.add_argument("--curale", help="the folder of CuraLE_Resources (optional)")
+    ap.add_argument("--curale-version", default="")
     ap.add_argument("--beds", help="the folder of the bed files (its old .mesh and .png files go away)")
     a = ap.parse_args()
     beds = None
@@ -1024,16 +1056,18 @@ def main():
                 os.remove(os.path.join(a.beds, f))
         beds = mod.Beds(a.beds)
     recs = read_cura(a.cura) + read_prusa(a.prusa) + read_orca(a.orca)
-    for s in "cpo":
+    if a.curale:
+        recs += read_cura(a.curale, "l", flat=True)
+    for s in "cpol":
         rs = [r for r in recs if r["src"] == s]
         warn("%s: %d records, %d with a start G-code" % (SOURCES[s][0], len(rs), sum(1 for r in rs if r["start"])))
     models = merge(recs)
     warn("library: %d models, %d brands, %d with a vendor start G-code" % (len(models), len({m["brand"] for m in models}), sum(1 for m in models if m["start"])))
-    write(models, {"c": a.cura_version, "p": a.prusa_version, "o": a.orca_version}, sys.stdout, beds)
+    write(models, {"c": a.cura_version, "p": a.prusa_version, "o": a.orca_version, "l": a.curale_version}, sys.stdout, beds)
     if beds is not None:
         used = [m["bed_used"] for m in models if m.get("bed_used")]
         warn("beds: %d models with a bed, %d with a mesh, %d with a texture" % (len(used), sum(1 for d in used if d["mesh"]), sum(1 for d in used if d["texture"])))
-        for src in "cpo":
+        for src in "cpol":
             warn("beds: from %s: %d models" % (SOURCES[src][0], sum(1 for d in used if d["src"] == src)))
         total = sum(beds.sizes.values())
         warn("beds: %d files, %.1f MB (%.1f MB meshes, %.1f MB textures)" % (len(beds.sizes), total / 1e6, sum(v for k, v in beds.sizes.items() if k.endswith(".mesh")) / 1e6, sum(v for k, v in beds.sizes.items() if k.endswith(".png")) / 1e6))

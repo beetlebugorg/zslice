@@ -4,6 +4,7 @@ zslice-printers 1
 S	o	OrcaSlicer	AGPL-3.0	https://github.com/SoftFever/OrcaSlicer	e76b4d676c74f43ee1736675e0e8894425179cc4
 S	p	PrusaSlicer	AGPL-3.0	https://github.com/prusa3d/PrusaSlicer	version_2.9.7
 S	c	Cura	LGPL-3.0-or-later	https://github.com/Ultimaker/Cura	1a221ec29a86960d16a412940becc1f63534c41f
+S	l	Cura LulzBot Edition	LGPL-3.0	https://github.com/lulzbot3d/CuraLE_Resources	e44e13dedd1a055e956deced8723bec0ae7966be
 G	M109 S{first_layer_nozzle_temp}\nG21       ;metric values\nG90       ;absolute positioning\nM82       ;set extruder to absolute mode\nM107      ;start with the fan off\nG28 Z0    ;home Z\nG1 Z15.0 F840\nG92 E0    ;zero the extruded length\nG1 F200 E3              ;extrude 3mm of feed stock\nG92 E0                  ;zero the extruded length again\nG1 F840\n;Put printing message on LCD screen\nM117 Printing...
 G	M104 S0     ;extruder heater off\nM140 S0     ;heated bed heater off (if you have it)\nG91         ;relative positioning\nG1 E-1 F300 ;retract the filament a bit\nG1 Z0.5 E-5 F840 ;move Z up a bit and retract even more\nG28 X0 Y0   ;home X/Y, so the head is out of the way\nM84         ;steppers off\nG90         ;absolute positioning
 G	M190 S{bed_temp}\nM109 S{first_layer_nozzle_temp}\nG21 ;metric values\nG90 ;absolute positioning\nM82 ;set extruder to absolute mode\nM107 ;start with the fan off\nG28 ;Home all axes (max endstops)\nG1 Z15.0 F9000 ;move the platform down 15mm\nG92 E0 ;zero the extruded length\nG1 F200 E3 ;extrude 3mm of feed stock\nG92 E0 ;zero the extruded length again\nG1 F9000\n;Put printing message on LCD screen\nM117 Printing...
@@ -400,10 +401,10 @@ G	; SC-10 Custom End G-code\nG4 ; Wait\nM220 S100 ; Reset Speed factor override 
 G	M190 S{bed_temp}\nM109 S{first_layer_nozzle_temp}\n; SC-20 Custom Start G-code\nG28 ; Home all axes\nG92 E0 ; Reset Extruder\nG1 Z2.0 F3000 ; Move Z Axis up little to prevent scratching of Heat Bed\nG1 X0.1 Y20 Z0.3 F5000.0 ; Move to start position\nG1 X0.1 Y200.0 Z0.3 F1500.0 E15 ; Draw the first line\nG1 X0.4 Y200.0 Z0.3 F5000.0 ; Move to side a little\nG1 X0.4 Y20 Z0.3 F1500.0 E30 ; Draw the second line\nG92 E0 ; Reset Extruder\nG1 Z2.0 F3000 ; Move Z Axis up little to prevent scratching of Heat Bed\n; End of custom start GCode
 G	; SC-20 Custom End G-code\nG4 ; Wait\nM220 S100 ; Reset Speed factor override percentage to default (100%)\nM221 S100 ; Reset Extrude factor override percentage to default (100%)\nG91 ; Set coordinates to relative\nG1 F1800 E-3 ; Retract filament 3 mm to prevent oozing\nG1 F3000 Z20 ; Move Z Axis up 20 mm to allow filament ooze freely\nG90 ; Set coordinates to absolute\nG1 X0 Y235 F1000 ; Move Heat Bed to the front for easy print removal\nM84 ; Disable stepper motors\n; End of custom end GCode
 G	M190 S{bed_temp}\nM109 S{first_layer_nozzle_temp}\nG28 ;Home\nG92 E0 ;Reset Extruder\nG1 Z4.0 F3000 ;Move Z Axis up\nG1 X10.1 Y20 Z0.28 F5000.0 ;Move to start position\nG1 X10.1 Y200.0 Z0.28 F1500.0 E15 ;Draw the first line\nG1 X10.4 Y200.0 Z0.28 F5000.0 ;Move to side a little\nG1 X10.4 Y20 Z0.28 F1500.0 E30 ;Draw the second line\nG92 E0 ;Reset Extruder\nG1 Z2.0 F3000 ;Move Z Axis up
+G	M109 S{first_layer_nozzle_temp}\nG28 ;Home\nG1 Z15.0 F6000 ;Move the platform down 15mm\n;Prime the extruder\nG92 E0\nG1 F200 E3\nG92 E0
 G	;End G-Code Begin\nM400; wait for moves to finish\nM104 S0; disable hotend\nM140 S0; start bed cooling\nM107; disable fans\nG92 E5; set extruder to 5mm for retract on print end\nG1 X5 Y5 Z158 E0 F10000; move to cooling position, retracting on the way\nG1 E5; re-prime extruder\nM77; stop GLCD timer\nG1 X145 F1000; move extruder out of the way\nG1 Y175 F1000; present finished print\nM84; disable steppers\nG90; absolute positioning\nM117 Print Complete.; print complete message\n;End G-Code End
-G	; This G-Code has been generated specifically for the Lulzbot Mini 2 with SE 0.5 mm toolhead\nM73 P0 ; clear GLCD progress bar\nM75 ; start GLCD timer\nG26 ; clear potential 'probe fail' condition\nM107 ; disable fans\nM420 S0 ; disable leveling matrix\nG90 ; absolute positioning\nM82 ; set extruder to absolute mode\nG92 E0 ; set extruder position to 0\nM140 S{bed_temp} ; start bed heating up\nG28 ; home all axes\nG0 X0 Y187 Z156 F200 ; move away from endstops\nM117 Mini 2 Wiping... ; progress indicator message on LCD\nM109 R{standby_temp} ; soften material before retraction\nG1 E-15 F75 ; retract filament\nG1 X45 Y176 F11520 ; move above wiper pad\nG1 Z0 F1200 ; push nozzle into wiper\nG1 X45 Y178 Z-.5 F4000 ; wiping\nG1 X55 Y176 Z-.5 F4000 ; wiping\nG1 X45 Y177 Z0 F4000 ; wiping\nG1 X55 Y176 F4000 ; wiping\nG1 X45 Y178 F4000 ; wiping\nG1 X55 Y176 F4000 ; wiping\nG1 X45 Y178 F4000 ; wiping\nG1 X55 Y176 F4000 ; wiping\nG1 X60 Y178 F4000 ; wiping\nG1 X80 Y176 F4000 ; wiping\nG1 X60 Y178 F4000 ; wiping\nG1 X80 Y176 F4000 ; wiping\nG1 X60 Y178 F4000 ; wiping\nG1 X90 Y176 F4000 ; wiping\nG1 X80 Y178 F4000 ; wiping\nG1 X100 Y176 F4000 ; wiping\nG1 X80 Y178 F4000 ; wiping\nG1 X100 Y176 F4000 ; wiping\nG1 X80 Y178 F4000 ; wiping\nG1 X100 Y176 F4000 ; wiping\nG1 X110 Y178 F4000 ; wiping\nG1 X100 Y176 F4000 ; wiping\nG1 X110 Y178 F4000 ; wiping\nG1 X100 Y176 F4000 ; wiping\nG1 X110 Y178 F4000 ; wiping\nG1 X115 Y176 Z-0.5 F1000 ; wiping\nG1 Z10 ; raise extruder\nG28 X0 Y0 ; home X and Y\nM204 S300 ; set probing acceleration\nG29 ; start auto-leveling sequence\nM420 S1 ; enable leveling matrix\nM425 Z ; use measured Z backlash for compensation\nM425 Z F0 ; turn off measured Z backlash compensation by default\nM204 S2000 ; restore standard acceleration\nG1 X5 Y15 Z10 F5000 ; move up off last probe point\nG4 S1 ; pause\nM400 ; wait for moves to finish\nM117 Heating... ; progress indicator message on LCD\nM109 R{first_layer_nozzle_temp} ; wait for extruder to reach initial printing temp\nM190 R{bed_temp} ; wait for bed to reach printing temp\nG1 Z2 E0 F75 ; prime tiny bit of filament into the nozzle\nM117 Mini 2 Printing... ; progress indicator message on LCD
-G	; part removal temp is hardcoded to 45\nM400 ; wait for moves to finish\nM140 S45 ; start bed cooling\nM104 S0 ; disable hotend\nM107 ; disable fans\nG92 E5 ; set extruder to 5mm for retract on print end\nM117 Cooling please wait ; progress indicator message on LCD\nG1 X5 Y5 Z183 E0 F3000 ; move to cooling position\nG1 E5 ; re-prime extruder\nM190 R45 ; wait for bed to cool down to removal temp\nG1 X145 F1000 ; move extruder out of the way\nG1 Y175 F1000 ; present finished print\nM140 S0 ; cool down\nM77 ; end LCD print timer\nG90 ; absolute positioning\nM18 X Y E ; turn off X Y and E axis\nM117 Print Complete. ; print complete message
 G	; This G-Code has been generated specifically for the Lulzbot Mini 2 with SL 0.25 mm toolhead\nM73 P0 ; clear GLCD progress bar\nM75 ; start GLCD timer\nG26 ; clear potential 'probe fail' condition\nM107 ; disable fans\nM420 S0 ; disable leveling matrix\nG90 ; absolute positioning\nM82 ; set extruder to absolute mode\nG92 E0 ; set extruder position to 0\nM140 S{bed_temp} ; start bed heating up\nG28 ; home all axes\nG0 X0 Y187 Z156 F200 ; move away from endstops\nM117 Mini 2 Wiping... ; progress indicator message on LCD\nM109 R{standby_temp} ; soften material before retraction\nG1 E-15 F75 ; retract filament\nG1 X45 Y176 F11520 ; move above wiper pad\nG1 Z0 F1200 ; push nozzle into wiper\nG1 X45 Y178 Z-.5 F4000 ; wiping\nG1 X55 Y176 Z-.5 F4000 ; wiping\nG1 X45 Y177 Z0 F4000 ; wiping\nG1 X55 Y176 F4000 ; wiping\nG1 X45 Y178 F4000 ; wiping\nG1 X55 Y176 F4000 ; wiping\nG1 X45 Y178 F4000 ; wiping\nG1 X55 Y176 F4000 ; wiping\nG1 X60 Y178 F4000 ; wiping\nG1 X80 Y176 F4000 ; wiping\nG1 X60 Y178 F4000 ; wiping\nG1 X80 Y176 F4000 ; wiping\nG1 X60 Y178 F4000 ; wiping\nG1 X90 Y176 F4000 ; wiping\nG1 X80 Y178 F4000 ; wiping\nG1 X100 Y176 F4000 ; wiping\nG1 X80 Y178 F4000 ; wiping\nG1 X100 Y176 F4000 ; wiping\nG1 X80 Y178 F4000 ; wiping\nG1 X100 Y176 F4000 ; wiping\nG1 X110 Y178 F4000 ; wiping\nG1 X100 Y176 F4000 ; wiping\nG1 X110 Y178 F4000 ; wiping\nG1 X100 Y176 F4000 ; wiping\nG1 X110 Y178 F4000 ; wiping\nG1 X115 Y176 Z-0.5 F1000 ; wiping\nG1 Z10 ; raise extruder\nG28 X0 Y0 ; home X and Y\nM204 S300 ; set probing acceleration\nG29 ; start auto-leveling sequence\nM420 S1 ; enable leveling matrix\nM425 Z ; use measured Z backlash for compensation\nM425 Z F0 ; turn off measured Z backlash compensation by default\nM204 S2000 ; restore standard acceleration\nG1 X5 Y15 Z10 F5000 ; move up off last probe point\nG4 S1 ; pause\nM400 ; wait for moves to finish\nM117 Heating... ; progress indicator message on LCD\nM109 R{first_layer_nozzle_temp} ; wait for extruder to reach initial printing temp\nM190 R{bed_temp} ; wait for bed to reach printing temp\nG1 Z2 E0 F75 ; prime tiny bit of filament into the nozzle\nM117 Mini 2 Printing... ; progress indicator message on LCD
+G	; part removal temp is hardcoded to 45\nM400 ; wait for moves to finish\nM140 S45 ; start bed cooling\nM104 S0 ; disable hotend\nM107 ; disable fans\nG92 E5 ; set extruder to 5mm for retract on print end\nM117 Cooling please wait ; progress indicator message on LCD\nG1 X5 Y5 Z183 E0 F3000 ; move to cooling position\nG1 E5 ; re-prime extruder\nM190 R45 ; wait for bed to cool down to removal temp\nG1 X145 F1000 ; move extruder out of the way\nG1 Y175 F1000 ; present finished print\nM140 S0 ; cool down\nM77 ; end LCD print timer\nG90 ; absolute positioning\nM18 X Y E ; turn off X Y and E axis\nM117 Print Complete. ; print complete message
 G	M400                                      ; wait for moves to finish\nM140 S40 ; start bed cooling\nM104 S0                                   ; disable hotend\nM107                                      ; disable fans\nG92 E1                                    ; set extruder to 1mm for retract on print end (LulzBot Cura had 5mm, might be a contributing factor to between print Aerostruder jamming)\nM117 Cooling please wait                  ; progress indicator message on LCD\nG1 X5 Y5 Z158 E0 F10000                   ; move to cooling position\nG1 E1                                     ; re-prime extruder\nM190 R40 ; wait for bed to cool down to removal temp\nM77\t\t\t\t\t  ; Stop GLCD Timer\nG1 X145 F1000                             ; move extruder out of the way\nG1 Y175 F1000                             ; present finished print\nM140 S0; cool downs\nM84                                       ; disable steppers\nG90                                       ; absolute positioning\nM117 Print Complete.                      ; print complete message
 G	M400                                      ; wait for moves to finish\nM140 S40 ; start bed cooling\nM104 S0                                   ; disable hotend\nM107                                      ; disable fans\nG91                                       ; relative positioning\nG1 E-1 F300                               ; filament retraction to release pressure\nG1 Z20 E-5 X-20 Y-20 F3000                ; lift up and retract even more filament\nG1 E6                                     ; re-prime extruder\nM117 Cooling please wait                  ; progress indicator message on LCD\nG90                                       ; absolute positioning\nG1 Y0 F3000                               ; move to cooling position\nM190 R40 ; wait for bed to cool down to removal temp\nG1 Y280 F3000                             ; present finished print\nM140 S0; cool downs\nM77\t\t\t\t\t  ; stop GLCD timer\nM84                                       ; disable steppers\nG90                                       ; absolute positioning\nM117 Print Complete.                      ; print complete message
 G	;This G-Code has been generated specifically for the Lulzbot Taz 4 and 5 - translated from CuraLE 4.13.10 by Wrathernaut\nM73 P0; clear GLCD progress bar\nM75; start GLCD timer\nM140 S{bed_temp}; start bed heating up\nG90; absolute positioning\nM107; disable fans\nM82; set extruder to absolute mode\nG28 X0 Y0; home X and Y\nG28 Z0; home Z\nG1 Z15.0 F175; move extruder up\nM117 Heating...; progress indicator message on LCD\nM109 R{first_layer_nozzle_temp}; wait for extruder to reach printing temp\nM190 R{bed_temp}; wait for bed to reach printing temp\nG92 E0; set extruder position to 0\nG1 F200 E0; prime the nozzle with filament\nG92 E0; re-set extruder position to 0\nG1 F175; set travel speed\nM203 X192 Y208 Z3; set limits on travel speed\nM117 TAZ Printing...; progress indicator message on LCD\n;Start G-Code End
@@ -965,13 +966,24 @@ D	longer-235mm-platform.mesh		-117.5;-117.5;-3		c
 D	longer-lk10-buildplate-model.mesh	longer-lk10-buildplate-texture.png	0;0;-0.45	-112.5;-112.5;112.5;112.5	o
 D	longer-lk10plus-buildplate-model.mesh	longer-lk10plus-buildplate-texture.png	0;0;-0.45	-160;-160;160;160	o
 D	lotmaxx-sc-10-20-platform.mesh		0;0;0		c
+D	bio-labeled.mesh		0;2;-14.8		l
 D		lulzbot-logo.png	0;0;0	-77;-77;77;77	o
+D	mini-1-labeled.mesh		10;2;-11.3		l
+D	mini-2-labeled.mesh		0;1.5;-11.3		l
 D	lulzbot-mini.mesh		-100;-100;-11		c
+D	mini-3-labeled.mesh		0;0;-15.5		l
+D	sidekick-289-labeled.mesh		0;0;-17.3		l
+D	sidekick-747-labeled.mesh		0;2;-16.1		l
 D	taz-4-or-5-build-plate.mesh	lulzbot-logo.png	0;0;-0.45	-140;-140;140;140	o
+D	taz-5-labeled.mesh		0;0;-17.6		l
 D	taz-6-build-plate.mesh	lulzbot-logo.png	0;0;-0.45	-140;-140;140;140	o
+D	taz-6-labeled.mesh		-14;0;-19.1		l
+D	taz-8-labeled.mesh		0;-2;-14.6		l
 D	taz-pro-dual-build-plate.mesh	taz-pro-dual-printbed.png	0;0;-0.45	-140;-140;140;140	o
 D	lulzbot-taz-pro-bed.mesh		0;0;-10		c
+D	taz-pro-labeled.mesh		0;-2;-14.6		l
 D	taz-pro-dual-build-plate.mesh	lulzbot-logo.png	0;0;-0.45	-140;-140;140;140	o
+D	workhorse-labeled.mesh		-2;-3;-23.1		l
 D		m3d-enabler-d7500-bed-texture.png	0;0;0	-75;-75;75;75	o
 D	m3d-enabler-d8500-bed-model.mesh	m3d-enabler-d8500-bed-texture.png	0;0;-0.45	-105;-75;105;75	o
 D	310-buildplate-model.mesh	mm-buildplate-texture.png	0;0;-0.45	-155;-153;155;153	o
@@ -1844,28 +1856,129 @@ P	lotmaxx-sc-10	SC-10	SC	c	235	235	320	0	0		0.4		1.75	b				10	marlin	Marlin				3
 P	lotmaxx-sc-20	SC-20	SC	c	235	235	320	0	0		0.4		1.75	b				10	marlin	Marlin				393	394	1	285
 P	lotmaxx-shark	Shark	Shark	c	235	235	265	0	0		0.4		1.75	b					marlin	Marlin		4.5		395	117	1	285
 B	LulzBot
-P	lulzbot-mini-1	Mini 1	Mini	o	154	154	158	0	0		0.5	0.5	2.85	b	500	2000	3	8	marlin	Marlin 2		1.5	10		396	1	286
-P	lulzbot-mini-2-se-0-5-mm	Mini 2 | SE | 0.5 mm	Mini	c	162	162	180	0	0		0.5		2.85	b	800	1000	8		marlin	Marlin				397	398	1	287
-P	lulzbot-mini-2-sl-0-25-mm-micro	Mini 2 | SL | 0.25 mm (Micro)	Mini	c	162	162	180	0	0		0.25		2.85	b	800	1000	8		marlin	Marlin				399	398	1	287
+P	lulzbot-bio-syringe-pump	Bio Syringe Pump	Bio	l	162	162	180	-81	-81		0.26		2.85		500	2000	8		marlin	Marlin				396	191	1	286
+P	lulzbot-core-xy-ast285	Core XY AST285	Core	l	250	250	110	0	0		1.2		2.85	b	500	1000	25		marlin	Marlin				190	191	1	
+P	lulzbot-core-xy-met175	Core XY MET175	Core	l	250	250	110	0	0		0.4		1.75	b	500	1000	25		marlin	Marlin				190	191	1	
+P	lulzbot-core-xy-met285	Core XY MET285	Core	l	250	250	110	0	0		0.4		2.85	b	500	1000	25		marlin	Marlin				190	191	1	
+P	lulzbot-mini-1	Mini 1	Mini	o	154	154	158	0	0		0.5	0.5	2.85	b	500	2000	3	8	marlin	Marlin 2		1.5	10		397	1	287
+P	lulzbot-mini-1-aerostruder	Mini 1 Aerostruder	Mini	l	154	154	158	0	0		0.4		2.85	b	500	500	3		marlin	Marlin				190	191	1	288
+P	lulzbot-mini-1-flexystruder	Mini 1 Flexystruder	Mini	l	154	154	158	0	0		0.6		2.85	b	500	500	3		marlin	Marlin				190	191	1	288
+P	lulzbot-mini-1-hs-0-8-mm	Mini 1 HS 0.8 mm	Mini	l	154	154	158	0	0		0.8		2.85	b	500	500	3		marlin	Marlin				190	191	1	288
+P	lulzbot-mini-1-hs-1-2-mm	Mini 1 HS+ 1.2 mm	Mini	l	154	154	158	0	0		1.2		2.85	b	500	500	3		marlin	Marlin				190	191	1	288
+P	lulzbot-mini-1-m175-0-5-mm	Mini 1 M175 0.5 mm	Mini	l	154	154	158	0	0		0.5		1.75	b	500	500	3		marlin	Marlin				190	191	1	288
+P	lulzbot-mini-1-se-0-5-mm	Mini 1 SE 0.5 mm	Mini	l	154	154	158	0	0		0.5		2.85	b	500	500	3		marlin	Marlin				190	191	1	288
+P	lulzbot-mini-1-single-extruder	Mini 1 Single Extruder	Mini	l	154	154	158	0	0		0.4		2.85	b	500	500	3		marlin	Marlin				190	191	1	288
+P	lulzbot-mini-1-sl-0-25-mm	Mini 1 SL 0.25 mm	Mini	l	154	154	158	0	0		0.25		2.85	b	500	500	3		marlin	Marlin				190	191	1	288
+P	lulzbot-mini-2-h175-0-5-mm	Mini 2 H175 0.5 mm	Mini	l	162	162	180	0	0		0.5		1.75	b	500	2000	8		marlin	Marlin				190	191	1	289
+P	lulzbot-mini-2-he-0-5-mm	Mini 2 HE 0.5 mm	Mini	l	162	162	180	0	0		0.5		2.85	b	500	2000	8		marlin	Marlin				190	191	1	289
+P	lulzbot-mini-2-hs-0-8-mm	Mini 2 HS 0.8 mm	Mini	l	162	162	180	0	0		0.8		2.85	b	500	2000	8		marlin	Marlin				190	191	1	289
+P	lulzbot-mini-2-hs-1-2-mm	Mini 2 HS+ 1.2 mm	Mini	l	162	162	180	0	0		1.2		2.85	b	500	2000	8		marlin	Marlin				190	191	1	289
+P	lulzbot-mini-2-m175-v2-0-5-mm	Mini 2 M175 v2 0.5 mm	Mini	l	162	162	180	0	0		0.5		1.75	b	500	2000	8		marlin	Marlin				190	191	1	289
+P	lulzbot-mini-2-met175	Mini 2 MET175	Mini	l	162	162	180	0	0		0.4		1.75	b	500	2000	8		marlin	Marlin				190	191	1	289
+P	lulzbot-mini-2-met285	Mini 2 MET285	Mini	l	162	162	180	0	0		0.4		2.85	b	500	2000	8		marlin	Marlin				190	191	1	289
+P	lulzbot-mini-2-se-0-5-mm	Mini 2 SE 0.5 mm	Mini	cl	162	162	180	0	0		0.5		2.85	b	500	2000	8		marlin	Marlin				190	191	1	289
+P	lulzbot-mini-2-sl-0-25-mm	Mini 2 SL 0.25 mm	Mini	l	162	162	180	0	0		0.25		2.85	b	500	2000	8		marlin	Marlin				190	191	1	289
+P	lulzbot-mini-2-sl-0-25-mm-micro	Mini 2 | SL | 0.25 mm (Micro)	Mini	c	162	162	180	0	0		0.25		2.85	b	800	1000	8		marlin	Marlin				398	399	1	290
+P	lulzbot-mini-3-met175	Mini 3 MET175	Mini	l	180	180	180	0	0		0.4		1.75	b	500	2000	200		marlin	Marlin				190	191	1	291
+P	lulzbot-mini-3-met285	Mini 3 MET285	Mini	l	180	180	180	0	0		0.4		2.85	b	500	2000	200		marlin	Marlin				190	191	1	291
 P	lulzbot-mini-aero	Mini Aero	Mini	p	154	154	158	0	0		0.5	0.5	2.85	b	300	1500	8	20	marlin	Marlin		1	30		400	1	
-P	lulzbot-taz6-aero	Taz6 Aero	Taz	p	280	280	250	0	0		0.5	0.5	2.85	b	300	500	3	8	marlin	Marlin		2	30		401	1	
-P	lulzbot-taz-4-or-5	Taz 4 or 5	Taz	o	280	280	250	0	0		0.5	0.5	2.85	b	500	500	10	8	marlin	Marlin 2		5	60	402	403	1	288
-P	lulzbot-taz-6	Taz 6	Taz	o	280	280	250	0	0		0.5	0.5	2.85	b	500	500	10	8	marlin	Marlin 2		5	60		404	1	289
-P	lulzbot-taz-pro-dual	Taz Pro Dual	Taz	o	280	280	280	0	0		0.5	0.5	2.85	b	300	1000	25	8	marlin	Marlin 2	i3	1	10		405	2	290
-P	lulzbot-taz-pro-dual-extruder	TAZ Pro Dual Extruder	Taz	c	282	286	286	0	0		0.5		2.85	b	800	500	3		marlin	Marlin				406	407	2	291
-P	lulzbot-taz-pro-s	Taz Pro S	Taz	o	280	280	280	0	0		0.5	0.5	2.85	b	300	1000	25	8	marlin	Marlin 2	i3	1	10		405	1	292
+P	lulzbot-sidekick-289-h175-0-5-mm	SideKick 289 H175 0.5 mm	SideKick	l	165.3	165.3	181	0	0		0.5		1.75	b	500	2000	8		marlin	Marlin				190	191	1	292
+P	lulzbot-sidekick-289-he-0-5-mm	SideKick 289 HE 0.5 mm	SideKick	l	165.3	165.3	181	0	0		0.5		2.85	b	500	2000	8		marlin	Marlin				190	191	1	292
+P	lulzbot-sidekick-289-hs-0-8-mm	SideKick 289 HS 0.8 mm	SideKick	l	165.3	165.3	181	0	0		0.8		2.85	b	500	2000	8		marlin	Marlin				190	191	1	292
+P	lulzbot-sidekick-289-hs-1-2-mm	SideKick 289 HS+ 1.2 mm	SideKick	l	165.3	165.3	181	0	0		1.2		2.85	b	500	2000	8		marlin	Marlin				190	191	1	292
+P	lulzbot-sidekick-289-m175-v2-0-5-mm	SideKick 289 M175 v2 0.5 mm	SideKick	l	165.3	165.3	181	0	0		0.5		1.75	b	500	2000	8		marlin	Marlin				190	191	1	292
+P	lulzbot-sidekick-289-met175	SideKick 289 MET175	SideKick	l	165.3	165.3	181	0	0		0.4		1.75	b	500	2000	8		marlin	Marlin				190	191	1	292
+P	lulzbot-sidekick-289-met285	SideKick 289 MET285	SideKick	l	165.3	165.3	181	0	0		0.4		2.85	b	500	2000	8		marlin	Marlin				190	191	1	292
+P	lulzbot-sidekick-289-se-0-5-mm	SideKick 289 SE 0.5 mm	SideKick	l	165.3	165.3	181	0	0		0.5		2.85	b	500	2000	8		marlin	Marlin				190	191	1	292
+P	lulzbot-sidekick-289-sk175-0-5-mm	SideKick 289 SK175 0.5 mm	SideKick	l	165.3	165.3	181	0	0		0.5		1.75	b	500	2000	8		marlin	Marlin				190	191	1	292
+P	lulzbot-sidekick-289-sk285-0-5-mm	SideKick 289 SK285 0.5 mm	SideKick	l	165.3	165.3	181	0	0		0.5		2.85	b	500	2000	8		marlin	Marlin				190	191	1	292
+P	lulzbot-sidekick-289-sl-0-25-mm	SideKick 289 SL 0.25 mm	SideKick	l	165.3	165.3	181	0	0		0.25		2.85	b	500	2000	8		marlin	Marlin				190	191	1	292
+P	lulzbot-sidekick-747-ast285	SideKick 747 AST285	SideKick	l	232.3	232.3	248	0	0		1.2		2.85	b	500	2000	8		marlin	Marlin				190	191	1	293
+P	lulzbot-sidekick-747-h175-0-5-mm	SideKick 747 H175 0.5 mm	SideKick	l	232.3	232.3	248	0	0		0.5		1.75	b	500	2000	8		marlin	Marlin				190	191	1	293
+P	lulzbot-sidekick-747-he-0-5-mm	SideKick 747 HE 0.5 mm	SideKick	l	232.3	232.3	248	0	0		0.5		2.85	b	500	2000	8		marlin	Marlin				190	191	1	293
+P	lulzbot-sidekick-747-hs-0-8-mm	SideKick 747 HS 0.8 mm	SideKick	l	232.3	232.3	248	0	0		0.8		2.85	b	500	2000	8		marlin	Marlin				190	191	1	293
+P	lulzbot-sidekick-747-hs-1-2-mm	SideKick 747 HS+ 1.2 mm	SideKick	l	232.3	232.3	248	0	0		1.2		2.85	b	500	2000	8		marlin	Marlin				190	191	1	293
+P	lulzbot-sidekick-747-m175-v2-0-5-mm	SideKick 747 M175 v2 0.5 mm	SideKick	l	232.3	232.3	248	0	0		0.5		1.75	b	500	2000	8		marlin	Marlin				190	191	1	293
+P	lulzbot-sidekick-747-met175	SideKick 747 MET175	SideKick	l	232.3	232.3	248	0	0		0.4		1.75	b	500	2000	8		marlin	Marlin				190	191	1	293
+P	lulzbot-sidekick-747-met285	SideKick 747 MET285	SideKick	l	232.3	232.3	248	0	0		0.4		2.85	b	500	2000	8		marlin	Marlin				190	191	1	293
+P	lulzbot-sidekick-747-se-0-5-mm	SideKick 747 SE 0.5 mm	SideKick	l	232.3	232.3	248	0	0		0.5		2.85	b	500	2000	8		marlin	Marlin				190	191	1	293
+P	lulzbot-sidekick-747-sk175-0-5-mm	SideKick 747 SK175 0.5 mm	SideKick	l	232.3	232.3	248	0	0		0.5		1.75	b	500	2000	8		marlin	Marlin				190	191	1	293
+P	lulzbot-sidekick-747-sk285-0-5-mm	SideKick 747 SK285 0.5 mm	SideKick	l	232.3	232.3	248	0	0		0.5		2.85	b	500	2000	8		marlin	Marlin				190	191	1	293
+P	lulzbot-sidekick-747-sl-0-25-mm	SideKick 747 SL 0.25 mm	SideKick	l	232.3	232.3	248	0	0		0.25		2.85	b	500	2000	8		marlin	Marlin				190	191	1	293
+P	lulzbot-taz6-aero	Taz6 Aero	TAZ	p	280	280	250	0	0		0.5	0.5	2.85	b	300	500	3	8	marlin	Marlin		2	30		401	1	
+P	lulzbot-taz-4-or-5	Taz 4 or 5	TAZ	o	280	280	250	0	0		0.5	0.5	2.85	b	500	500	10	8	marlin	Marlin 2		5	60	402	403	1	294
+P	lulzbot-taz-5-aerostruder-0-5-mm	TAZ 5 Aerostruder 0.5 mm	TAZ	l	290	275	250	0	0		0.5		2.85	b	500	500	3		marlin	Marlin				190	191	1	295
+P	lulzbot-taz-5-dual-v2	TAZ 5 Dual v2	TAZ	l	290	275	250	0	0		0.4		2.85	b	500	500	3		marlin	Marlin				190	191	2	295
+P	lulzbot-taz-5-dual-v3	TAZ 5 Dual v3	TAZ	l	290	275	250	0	0		0.4		2.85	b	500	500	3		marlin	Marlin				190	191	2	295
+P	lulzbot-taz-5-flexydually-v2	TAZ 5 FlexyDually v2	TAZ	l	290	275	250	0	0		0.6		2.85	b	500	500	3		marlin	Marlin				190	191	2	295
+P	lulzbot-taz-5-flexystruder-v2	TAZ 5 Flexystruder v2	TAZ	l	290	275	250	0	0		0.4		2.85	b	500	500	3		marlin	Marlin				190	191	1	295
+P	lulzbot-taz-5-hs-0-8-mm	TAZ 5 HS 0.8 mm	TAZ	l	290	275	250	0	0		0.8		2.85	b	500	500	3		marlin	Marlin				190	191	1	295
+P	lulzbot-taz-5-hs-1-2-mm	TAZ 5 HS+ 1.2 mm	TAZ	l	290	275	250	0	0		1.2		2.85	b	500	500	3		marlin	Marlin				190	191	1	295
+P	lulzbot-taz-5-m175-0-5-mm	TAZ 5 M175 0.5 mm	TAZ	l	290	275	250	0	0		0.5		1.75	b	500	500	3		marlin	Marlin				190	191	1	295
+P	lulzbot-taz-5-moarstruder	TAZ 5 MOARstruder	TAZ	l	290	275	250	0	0		1.2		2.85	b	500	500	3		marlin	Marlin				190	191	1	295
+P	lulzbot-taz-5-se-0-5-mm	TAZ 5 SE 0.5 mm	TAZ	l	290	275	250	0	0		0.5		2.85	b	500	500	3		marlin	Marlin				190	191	1	295
+P	lulzbot-taz-5-single-extruder	TAZ 5 Single Extruder	TAZ	l	290	275	250	0	0		0.4		2.85	b	500	500	3		marlin	Marlin				190	191	1	295
+P	lulzbot-taz-5-sl-0-25-mm	TAZ 5 SL 0.25 mm	TAZ	l	290	275	250	0	0		0.25		2.85	b	500	500	3		marlin	Marlin				190	191	1	295
+P	lulzbot-taz-5-twoolhead	TAZ 5 Twoolhead	TAZ	l	290	275	250	0	0		0.4		2.85	b	500	500	3		marlin	Marlin				190	191	1	295
+P	lulzbot-taz-6	Taz 6	TAZ	o	280	280	250	0	0		0.5	0.5	2.85	b	500	500	10	8	marlin	Marlin 2		5	60		404	1	296
+P	lulzbot-taz-6-aerostruder	TAZ 6 Aerostruder	TAZ	l	280	280	250	0	0		0.4		2.85	b	500	500	3		marlin	Marlin				190	191	1	297
+P	lulzbot-taz-6-dual-v2	TAZ 6 Dual v2	TAZ	l	280	280	250	0	0		0.4		2.85	b	500	500	3		marlin	Marlin				190	191	2	297
+P	lulzbot-taz-6-dual-v3	TAZ 6 Dual v3	TAZ	l	280	280	250	0	0		0.4		2.85	b	500	500	3		marlin	Marlin				190	191	2	297
+P	lulzbot-taz-6-flexydually-v2	TAZ 6 FlexyDually v2	TAZ	l	280	280	250	0	0		0.6		2.85	b	500	500	3		marlin	Marlin				190	191	2	297
+P	lulzbot-taz-6-flexystruder-v2	TAZ 6 Flexystruder v2	TAZ	l	280	280	250	0	0		0.4		2.85	b	500	500	3		marlin	Marlin				190	191	1	297
+P	lulzbot-taz-6-h175-0-5-mm	TAZ 6 H175 0.5 mm	TAZ	l	280	280	250	0	0		0.5		1.75	b	500	500	3		marlin	Marlin				190	191	1	297
+P	lulzbot-taz-6-he-0-5-mm	TAZ 6 HE 0.5 mm	TAZ	l	280	280	250	0	0		0.5		2.85	b	500	500	3		marlin	Marlin				190	191	1	297
+P	lulzbot-taz-6-hs-0-8-mm	TAZ 6 HS 0.8 mm	TAZ	l	280	280	250	0	0		0.8		2.85	b	500	500	3		marlin	Marlin				190	191	1	297
+P	lulzbot-taz-6-hs-1-2-mm	TAZ 6 HS+ 1.2 mm	TAZ	l	280	280	250	0	0		1.2		2.85	b	500	500	3		marlin	Marlin				190	191	1	297
+P	lulzbot-taz-6-m175-v2-0-5-mm	TAZ 6 M175 v2 0.5 mm	TAZ	l	280	280	250	0	0		0.5		1.75	b	500	500	3		marlin	Marlin				190	191	1	297
+P	lulzbot-taz-6-moarstruder	TAZ 6 MOARstruder	TAZ	l	280	280	250	0	0		1.2		2.85	b	500	500	3		marlin	Marlin				190	191	1	297
+P	lulzbot-taz-6-se-0-5-mm	TAZ 6 SE 0.5 mm	TAZ	l	280	280	250	0	0		0.5		2.85	b	500	500	3		marlin	Marlin				190	191	1	297
+P	lulzbot-taz-6-single-extruder	TAZ 6 Single Extruder	TAZ	l	280	280	250	0	0		0.4		2.85	b	500	500	3		marlin	Marlin				190	191	1	297
+P	lulzbot-taz-6-sl-0-25-mm	TAZ 6 SL 0.25 mm	TAZ	l	280	280	250	0	0		0.25		2.85	b	500	500	3		marlin	Marlin				190	191	1	297
+P	lulzbot-taz-6-twoolhead	TAZ 6 Twoolhead	TAZ	l	280	280	250	0	0		0.4		2.85	b	500	500	3		marlin	Marlin				190	191	1	297
+P	lulzbot-taz-8-ast285	TAZ 8 AST285	TAZ	l	295	295	285	0	0		1.2		2.85	b	500	1000	8		marlin	Marlin				190	191	1	298
+P	lulzbot-taz-8-met175	TAZ 8 MET175	TAZ	l	295	295	285	0	0		0.4		1.75	b	500	1000	8		marlin	Marlin				190	191	1	298
+P	lulzbot-taz-8-met285	TAZ 8 MET285	TAZ	l	295	295	285	0	0		0.4		2.85	b	500	1000	8		marlin	Marlin				190	191	1	298
+P	lulzbot-taz-8-twnb175	TAZ 8 TWNB175	TAZ	l	285	295	285	0	0		0.4		1.75	b	500	1000	8		marlin	Marlin				190	191	2	298
+P	lulzbot-taz-8-twnb285	TAZ 8 TWNB285	TAZ	l	285	295	285	0	0		0.4		2.85	b	500	1000	8		marlin	Marlin				190	191	2	298
+P	lulzbot-taz-pro-dual	Taz Pro Dual	TAZ	o	280	280	280	0	0		0.5	0.5	2.85	b	300	1000	25	8	marlin	Marlin 2	i3	1	10		405	2	299
+P	lulzbot-taz-pro-dual-extruder	TAZ Pro Dual Extruder	TAZ	c	282	286	286	0	0		0.5		2.85	b	800	500	3		marlin	Marlin				406	407	2	300
+P	lulzbot-taz-pro-pro-dual-0-5-mm	TAZ Pro Pro Dual 0.5 mm	TAZ	l	285	285	285	0	0		0.5		2.85	b	500	1000	8		marlin	Marlin				190	191	2	301
+P	lulzbot-taz-pro-s	Taz Pro S	TAZ	o	280	280	280	0	0		0.5	0.5	2.85	b	300	1000	25	8	marlin	Marlin 2	i3	1	10		405	1	302
+P	lulzbot-taz-pro-s-ast285	TAZ Pro S AST285	TAZ	l	285	285	285	0	0		1.2		2.85	b	500	1000	8		marlin	Marlin				190	191	1	301
+P	lulzbot-taz-pro-s-h175-0-5-mm	TAZ Pro S H175 0.5 mm	TAZ	l	285	285	285	0	0		0.5		1.75	b	500	1000	8		marlin	Marlin				190	191	1	301
+P	lulzbot-taz-pro-s-he-0-5-mm	TAZ Pro S HE 0.5 mm	TAZ	l	285	285	285	0	0		0.5		2.85	b	500	1000	8		marlin	Marlin				190	191	1	301
+P	lulzbot-taz-pro-s-hs-0-8-mm	TAZ Pro S HS 0.8 mm	TAZ	l	285	285	285	0	0		0.8		2.85	b	500	1000	8		marlin	Marlin				190	191	1	301
+P	lulzbot-taz-pro-s-hs-1-2-mm	TAZ Pro S HS+ 1.2 mm	TAZ	l	285	285	285	0	0		1.2		2.85	b	500	1000	8		marlin	Marlin				190	191	1	301
+P	lulzbot-taz-pro-s-m175-v2-0-5-mm	TAZ Pro S M175 v2 0.5 mm	TAZ	l	285	285	285	0	0		0.5		1.75	b	500	1000	8		marlin	Marlin				190	191	1	301
+P	lulzbot-taz-pro-s-met175	TAZ Pro S MET175	TAZ	l	285	285	285	0	0		0.4		1.75	b	500	1000	8		marlin	Marlin				190	191	1	301
+P	lulzbot-taz-pro-s-met285	TAZ Pro S MET285	TAZ	l	285	285	285	0	0		0.4		2.85	b	500	1000	8		marlin	Marlin				190	191	1	301
+P	lulzbot-taz-pro-s-se-0-5-mm	TAZ Pro S SE 0.5 mm	TAZ	l	285	285	285	0	0		0.5		2.85	b	500	1000	8		marlin	Marlin				190	191	1	301
+P	lulzbot-taz-pro-s-sl-0-25-mm	TAZ Pro S SL 0.25 mm	TAZ	l	285	285	285	0	0		0.25		2.85	b	500	1000	8		marlin	Marlin				190	191	1	301
+P	lulzbot-taz-pro-twnb175	TAZ Pro TWNB175	TAZ	l	285	285	285	0	0		0.4		1.75	b	500	1000	8		marlin	Marlin				190	191	2	301
+P	lulzbot-taz-pro-twnb285	TAZ Pro TWNB285	TAZ	l	285	285	285	0	0		0.4		2.85	b	500	1000	8		marlin	Marlin				190	191	2	301
+P	lulzbot-taz-workhorse-h175-0-5-mm	TAZ Workhorse H175 0.5 mm	TAZ	l	280	280	285	0	0		0.5		1.75	b	500	1000	8		marlin	Marlin				190	191	1	303
+P	lulzbot-taz-workhorse-he-0-5-mm	TAZ Workhorse HE 0.5 mm	TAZ	l	280	280	285	0	0		0.5		2.85	b	500	1000	8		marlin	Marlin				190	191	1	303
+P	lulzbot-taz-workhorse-hs-0-8-mm	TAZ Workhorse HS 0.8 mm	TAZ	l	280	280	285	0	0		0.8		2.85	b	500	1000	8		marlin	Marlin				190	191	1	303
+P	lulzbot-taz-workhorse-hs-1-2-mm	TAZ Workhorse HS+ 1.2 mm	TAZ	l	280	280	285	0	0		1.2		2.85	b	500	1000	8		marlin	Marlin				190	191	1	303
+P	lulzbot-taz-workhorse-m175-v2-0-5-mm	TAZ Workhorse M175 v2 0.5 mm	TAZ	l	280	280	285	0	0		0.5		1.75	b	500	1000	8		marlin	Marlin				190	191	1	303
+P	lulzbot-taz-workhorse-se-0-5-mm	TAZ Workhorse SE 0.5 mm	TAZ	l	280	280	285	0	0		0.5		2.85	b	500	1000	8		marlin	Marlin				190	191	1	303
+P	lulzbot-taz-workhorse-sl-0-25-mm	TAZ Workhorse SL 0.25 mm	TAZ	l	280	280	285	0	0		0.25		2.85	b	500	1000	8		marlin	Marlin				190	191	1	303
+P	lulzbot-taz-workhorse-ast285	TAZ Workhorse+ AST285	TAZ	l	280	280	285	0	0		1.2		2.85	b	500	1000	8		marlin	Marlin				190	191	1	303
+P	lulzbot-taz-workhorse-met175	TAZ Workhorse+ MET175	TAZ	l	280	280	285	0	0		0.4		1.75	b	500	1000	8		marlin	Marlin				190	191	1	303
+P	lulzbot-taz-workhorse-met285	TAZ Workhorse+ MET285	TAZ	l	280	280	285	0	0		0.4		2.85	b	500	1000	8		marlin	Marlin				190	191	1	303
 B	M3D
-P	m3d-enabler-d7500	Enabler D7500	Enabler	o	150	150	150	0	0		0.4	0.4	1.75	b	60	2000	12		marlin	Marlin		4.5	60	408	409	1	293
-P	m3d-enabler-d8500	Enabler D8500	Enabler	o	210	150	150	0	0		0.4	0.4	1.75	b	300	2000	12		marlin	Marlin		4.5	60		410	2	294
+P	m3d-enabler-d7500	Enabler D7500	Enabler	o	150	150	150	0	0		0.4	0.4	1.75	b	60	2000	12		marlin	Marlin		4.5	60	408	409	1	304
+P	m3d-enabler-d8500	Enabler D8500	Enabler	o	210	150	150	0	0		0.4	0.4	1.75	b	300	2000	12		marlin	Marlin		4.5	60		410	2	305
 B	Magicfirm
 P	magicfirm-mbot3d-grid-4	MBot3D Grid 4	MBot	c	235	210	190	0	0		0.4		1.75	b					marlin	Marlin				411	412	1	
 P	magicfirm-mbot3d-grid-4-dual	MBot3D Grid 4 Dual	MBot	c	210	210	190	0	0		0.4		1.75	b					marlin	Marlin				411	412	2	
 B	MagicMaker
-P	magicmaker-mm-boneking	MM BoneKing	MM	o	310	306	300	0	0		0.4	0.4	1.75	b	1000	10000	12	9	klipper	Klipper		1	30	413	414	1	295
-P	magicmaker-mm-hj-sk	MM hj SK	MM	o	220	210	300	0	0		0.4	0.4	1.75	b	500	5000	12	9	klipper	Klipper		1	30	415	414	1	296
-P	magicmaker-mm-hqs-hj	MM hqs hj	MM	o	220	210	300	0	0		0.4	0.4	1.75	b	300	2000	12	9	marlin	Marlin		1.5	25	416	414	1	296
-P	magicmaker-mm-hqs-sf	MM hqs SF	MM	o	220	210	300	0	0		0.4	0.4	1.75	b	500	5000	12	9	marlin	Marlin 2		1	30	416	414	1	296
-P	magicmaker-mm-slb	MM slb	MM	o	125	125	160	0	0		0.4	0.4	1.75	b	200	2000	5	9	marlin	Marlin		2	25	417	418	1	297
+P	magicmaker-mm-boneking	MM BoneKing	MM	o	310	306	300	0	0		0.4	0.4	1.75	b	1000	10000	12	9	klipper	Klipper		1	30	413	414	1	306
+P	magicmaker-mm-hj-sk	MM hj SK	MM	o	220	210	300	0	0		0.4	0.4	1.75	b	500	5000	12	9	klipper	Klipper		1	30	415	414	1	307
+P	magicmaker-mm-hqs-hj	MM hqs hj	MM	o	220	210	300	0	0		0.4	0.4	1.75	b	300	2000	12	9	marlin	Marlin		1.5	25	416	414	1	307
+P	magicmaker-mm-hqs-sf	MM hqs SF	MM	o	220	210	300	0	0		0.4	0.4	1.75	b	500	5000	12	9	marlin	Marlin 2		1	30	416	414	1	307
+P	magicmaker-mm-slb	MM slb	MM	o	125	125	160	0	0		0.4	0.4	1.75	b	200	2000	5	9	marlin	Marlin		2	25	417	418	1	308
 B	Makeblock
 P	makeblock-mcreate	mCreate	mCreate	c	225	225	300	0	0		0.4		1.75	b					marlin	Marlin				419	420	1	
 B	Makeit 3D
@@ -1873,55 +1986,55 @@ P	makeit-3d-makeit-pro-l	Makeit Pro-L	Makeit	c	305	254	330	0	0		0.4		1.75	b					
 P	makeit-3d-makeit-pro-m	Makeit Pro-M	Makeit	c	200	240	200	0	0		0.4		1.75	b					marlin	Marlin		6	180		421	2	
 P	makeit-3d-makeit-pro-mx	Makeit Pro-MX	Makeit	c	200	240	330	0	0		0.4		1.75	b					marlin	Marlin		6	180		421	2	
 B	Maker
-P	maker-pegasus	Pegasus	Pegasus	c	400	400	400	0	0		0.4		1.75	b					marlin	Marlin				422	423	1	298
-P	maker-prusa-tairona-i3	Prusa Tairona i3	Prusa	c	200	200	200	0	0		0.4		1.75	b					marlin	Marlin				422	423	1	299
+P	maker-pegasus	Pegasus	Pegasus	c	400	400	400	0	0		0.4		1.75	b					marlin	Marlin				422	423	1	309
+P	maker-prusa-tairona-i3	Prusa Tairona i3	Prusa	c	200	200	200	0	0		0.4		1.75	b					marlin	Marlin				422	423	1	310
 B	Maker Made
 P	maker-made-maker-made-300x	Maker Made 300x	Maker	c	300	300	400	0	0		0.4		1.75	b					marlin	Marlin		5	45	424	425	1	
 B	MakerGear
-P	makergear-m2	M2	M2	c	200	250	190	0	0		0.4		1.75	b		1000	200	10	marlin	Marlin		0.2	50	426	427	1	300
-P	makergear-m2-dual	M2 Dual	MakerGear M2	p	200	251	200	0	0		0.35	0.25;0.35;0.5;0.75	1.75	b	300	1000	10	5	marlin	Marlin		2			428	2	301
-P	makergear-m2-v4-hotend	M2(V4 Hotend)	MakerGear M2	p	200	251	200	0	0		0.35	0.25;0.35;0.5;0.75	1.75	b	200	2000	25	4	marlin	Marlin		2			429	1	301
+P	makergear-m2	M2	M2	c	200	250	190	0	0		0.4		1.75	b		1000	200	10	marlin	Marlin		0.2	50	426	427	1	311
+P	makergear-m2-dual	M2 Dual	MakerGear M2	p	200	251	200	0	0		0.35	0.25;0.35;0.5;0.75	1.75	b	300	1000	10	5	marlin	Marlin		2			428	2	312
+P	makergear-m2-v4-hotend	M2(V4 Hotend)	MakerGear M2	p	200	251	200	0	0		0.35	0.25;0.35;0.5;0.75	1.75	b	200	2000	25	4	marlin	Marlin		2			429	1	312
 P	makergear-m3-independent-dual-rev-0-duplication-mode	M3 - Independent Dual Rev.0 (Duplication Mode)	MakerGear M3-ID Rev.0	p	200	255	200	0	0		0.35	0.25;0.35;0.5;0.75	1.75	b	300	1000	10	5	marlin	Marlin		2			430	2	
-P	makergear-m3-independent-dual-rev-1	M3 - Independent Dual Rev.1	MakerGear M3-ID Rev.1	p	200	251	200	0	0		0.35	0.25;0.35;0.5;0.75	1.75	b	300	1000	10	5	marlin	Marlin		2			430	2	301
+P	makergear-m3-independent-dual-rev-1	M3 - Independent Dual Rev.1	MakerGear M3-ID Rev.1	p	200	251	200	0	0		0.35	0.25;0.35;0.5;0.75	1.75	b	300	1000	10	5	marlin	Marlin		2			430	2	312
 P	makergear-m3-independent-dual-rev-1-duplication-mode	M3 - Independent Dual Rev.1 (Duplication Mode)	MakerGear M3-ID Rev.1	p	100	251	200	0	0		0.35	0.25;0.35;0.5;0.75	1.75	b	300	1000	10	5	marlin	Marlin		2		431	432	1	
-P	makergear-m3-single-extruder	M3 - Single Extruder	MakerGear M3-SE	p	200	251	200	0	0		0.35	0.25;0.35;0.5;0.75	1.75	b	300	1000	10	5	marlin	Marlin		2			433	1	301
+P	makergear-m3-single-extruder	M3 - Single Extruder	MakerGear M3-SE	p	200	251	200	0	0		0.35	0.25;0.35;0.5;0.75	1.75	b	300	1000	10	5	marlin	Marlin		2			433	1	312
 P	makergear-micro	Micro	MakerGear Micro	p	81	81	100	0	0		0.4	0.4	1.75	b	300	2000	20		marlin	Marlin		6	60		434	1	
 P	makergear-ultra-one	Ultra One	MakerGear Ultra One	p	406	355	350	0	0		0.5	0.25;0.35;0.5;0.75	1.75	b	300	1000	20	5	marlin	RepRapFirmware		2			435	2	
 P	makergear-ultra-one-duplication-mode	Ultra One (Duplication Mode)	MakerGear Ultra One	p	203	355	350	0	0		0.5	0.25;0.35;0.5;0.75	1.75	b	300	1000	20	5	marlin	RepRapFirmware		2		436	437	1	
 B	Malyan
 P	malyan-m180	M180	M180	c	230	145	165	-115	-72.5		0.4		1.75				400		marlin	Marlin				438	439	1	
-P	malyan-m200	M200	M200	c	120	120	120	0	0		0.4		1.75	b	150		1.5	20	marlin	Marlin		4.5	40	440	441	1	302
+P	malyan-m200	M200	M200	c	120	120	120	0	0		0.4		1.75	b	150		1.5	20	marlin	Marlin		4.5	40	440	441	1	313
 B	Mankati
-P	mankati-fullscale-xt-plus	Fullscale XT Plus	Fullscale	c	260	260	300	0	0		0.4		1.75	b					marlin	Marlin		0.8	50	442	443	1	303
+P	mankati-fullscale-xt-plus	Fullscale XT Plus	Fullscale	c	260	260	300	0	0		0.4		1.75	b					marlin	Marlin		0.8	50	442	443	1	314
 B	MatterHackers
 P	matterhackers-pulse-xe-e-444m	Pulse XE E-444M	Pulse	c	250	220	215	0	0		0.4		1.75	b	300	1300	30		marlin	Marlin				444	445	1	
 B	MaukCC
-P	maukcc-cartesio	Cartesio	Cartesio	c	430	270	400	0	0		0.4		1.75	b			20		marlin	Marlin				446	447	2	304
+P	maukcc-cartesio	Cartesio	Cartesio	c	430	270	400	0	0		0.4		1.75	b			20		marlin	Marlin				446	447	2	315
 B	Mellow
-P	mellow-m1	M1	M1	o	106	106	100	0	0		0.4	0.2;0.4;0.6;0.8	1.75	b	420	8000	12	12	klipper	Klipper		0.6	50	109	10	1	305
+P	mellow-m1	M1	M1	o	106	106	100	0	0		0.4	0.2;0.4;0.6;0.8	1.75	b	420	8000	12	12	klipper	Klipper		0.6	50	109	10	1	316
 B	Meltingplot
-P	meltingplot-chx-350	CHX 350	CHX	o	880	422	943	0	0		0.4	0.4;0.6;0.8;1;1.2	2.85	b	833.33	6000	30	12	marlin	RepRapFirmware		0	60			1	306
-P	meltingplot-mbl-133	MBL 133	MBL	o	835	405	394	0	0		0.4	0.4;0.6;0.8;1;1.2	2.85	b	240	800	12	9	marlin	RepRapFirmware		0	35			1	307
-P	meltingplot-mbl-136	MBL 136	MBL	o	850	405	396	0	0		0.4	0.4;0.6;0.8;1;1.2	2.85	b	240	800	12	9	marlin	RepRapFirmware		0	35			1	308
-P	meltingplot-mbl-308	MBL 308	MBL	o	850	405	896	0	0		0.4	0.4;0.6;0.8;1;1.2	2.85	b	240	800	12	9	marlin	RepRapFirmware		0	35			1	309
-P	meltingplot-mbl-480	MBL 480	MBL	o	850	405	1396	0	0		0.4	0.4;0.6;0.8;1;1.2	2.85	b	240	800	12	9	marlin	RepRapFirmware		0	35			1	310
+P	meltingplot-chx-350	CHX 350	CHX	o	880	422	943	0	0		0.4	0.4;0.6;0.8;1;1.2	2.85	b	833.33	6000	30	12	marlin	RepRapFirmware		0	60			1	317
+P	meltingplot-mbl-133	MBL 133	MBL	o	835	405	394	0	0		0.4	0.4;0.6;0.8;1;1.2	2.85	b	240	800	12	9	marlin	RepRapFirmware		0	35			1	318
+P	meltingplot-mbl-136	MBL 136	MBL	o	850	405	396	0	0		0.4	0.4;0.6;0.8;1;1.2	2.85	b	240	800	12	9	marlin	RepRapFirmware		0	35			1	319
+P	meltingplot-mbl-308	MBL 308	MBL	o	850	405	896	0	0		0.4	0.4;0.6;0.8;1;1.2	2.85	b	240	800	12	9	marlin	RepRapFirmware		0	35			1	320
+P	meltingplot-mbl-480	MBL 480	MBL	o	850	405	1396	0	0		0.4	0.4;0.6;0.8;1;1.2	2.85	b	240	800	12	9	marlin	RepRapFirmware		0	35			1	321
 B	Mingda
-P	mingda-d2	D2	D2	c	230	230	260	0	0		0.4		1.75	b	500	500	10	10	marlin	Marlin		2	25	448	449	1	311
-P	mingda-d3-pro	D3/Pro	D3/Pro	c	320	320	400	0	0		0.4		1.75	b	500	500	10	10	marlin	Marlin		2	25	448	449	1	312
-P	mingda-d4-pro	D4 Pro	D4	c	420	420	400	0	0		0.4		1.75	b	500	500	10	10	marlin	Marlin		2	25	450	449	1	313
-P	mingda-magician-max	Magician Max	Magician	c	320	320	400	0	0		0.4		1.75	b	500	500	10	10	marlin	Marlin		2	25	451	452	1	314
-P	mingda-magician-pro	Magician Pro	Magician	c	400	400	400	0	0		0.4		1.75	b	500	500	10	10	marlin	Marlin		2	25	451	452	1	315
-P	mingda-magician-x	Magician X	Magician	c	230	230	260	0	0		0.4		1.75	b	500	500	10	10	marlin	Marlin		2	25	451	452	1	316
+P	mingda-d2	D2	D2	c	230	230	260	0	0		0.4		1.75	b	500	500	10	10	marlin	Marlin		2	25	448	449	1	322
+P	mingda-d3-pro	D3/Pro	D3/Pro	c	320	320	400	0	0		0.4		1.75	b	500	500	10	10	marlin	Marlin		2	25	448	449	1	323
+P	mingda-d4-pro	D4 Pro	D4	c	420	420	400	0	0		0.4		1.75	b	500	500	10	10	marlin	Marlin		2	25	450	449	1	324
+P	mingda-magician-max	Magician Max	Magician	c	320	320	400	0	0		0.4		1.75	b	500	500	10	10	marlin	Marlin		2	25	451	452	1	325
+P	mingda-magician-pro	Magician Pro	Magician	c	400	400	400	0	0		0.4		1.75	b	500	500	10	10	marlin	Marlin		2	25	451	452	1	326
+P	mingda-magician-x	Magician X	Magician	c	230	230	260	0	0		0.4		1.75	b	500	500	10	10	marlin	Marlin		2	25	451	452	1	327
 P	mingda-mingda-4h	Mingda 4H	Mingda	c	300	200	200	0	0		0.4		1.75	b	500	500	10	10	marlin	Marlin		2	25	448	449	1	
 P	mingda-mingda-6h	Mingda 6H	Mingda	c	400	300	500	0	0		0.4		1.75	b	500	500	10	10	marlin	Marlin		2	25	448	449	1	
 P	mingda-mingda-600pro	Mingda 600Pro	Mingda	c	600	600	600	0	0		0.4		1.75	b	500	500	10	10	marlin	Marlin		2	25	453	449	1	
 P	mingda-mingda-1000pro	Mingda 1000Pro	Mingda	c	1000	1000	1000	0	0		0.4		1.75	b	500	500	10	10	marlin	Marlin		2	25	453	449	1	
-P	mingda-rock3-pro	Rock3/Pro	Rock	c	320	320	400	0	0		0.4		1.75	b	500	500	10	10	marlin	Marlin		2	25	448	449	1	312
+P	mingda-rock3-pro	Rock3/Pro	Rock	c	320	320	400	0	0		0.4		1.75	b	500	500	10	10	marlin	Marlin		2	25	448	449	1	323
 B	Mixware
-P	mixware-hyper-k	Hyper K	Hyper	c	225	225	250	0	0		0.4		1.75	b	500	500	10	10	marlin	Marlin			25	454	455	1	317
-P	mixware-hyper-s	Hyper S	Hyper	c	300	300	400	0	0		0.4		1.75	b	500	500	10	10	marlin	Marlin		2	40	454	455	1	318
-P	mixware-vulcan	Vulcan	Vulcan	c	240	240	250	-120	-120	r	0.4		1.75	b					marlin	Marlin	delta	5.5	40	190	456	1	319
-P	mixware-wand	Wand	Wand	c	102	102	102	0	0		0.4		1.75						marlin	Marlin		4	40	457	458	1	320
+P	mixware-hyper-k	Hyper K	Hyper	c	225	225	250	0	0		0.4		1.75	b	500	500	10	10	marlin	Marlin			25	454	455	1	328
+P	mixware-hyper-s	Hyper S	Hyper	c	300	300	400	0	0		0.4		1.75	b	500	500	10	10	marlin	Marlin		2	40	454	455	1	329
+P	mixware-vulcan	Vulcan	Vulcan	c	240	240	250	-120	-120	r	0.4		1.75	b					marlin	Marlin	delta	5.5	40	190	456	1	330
+P	mixware-wand	Wand	Wand	c	102	102	102	0	0		0.4		1.75						marlin	Marlin		4	40	457	458	1	331
 B	Modix
 P	modix-v3-big-40	V3 BIG-40	V3	c	400	400	800	0	0		0.4		1.75						marlin	RepRapFirmware		1	40	459		1	
 P	modix-v3-big-60	V3 BIG-60	V3	c	600	600	660	0	0		0.4		1.75						marlin	RepRapFirmware		1	40	459		1	
@@ -1935,162 +2048,162 @@ P	modix-v4-big-120z	V4 BIG-120Z	V4	c	600	600	1200	0	0		0.4		1.75						marlin	Rep
 P	modix-v4-big-180x	V4 BIG-180X	V4	c	1800	600	600	0	0		0.4		1.75						marlin	RepRapFirmware		1	40	459		1	
 P	modix-v4-big-meter	V4 BIG-Meter	V4	c	1000	1000	1000	0	0		0.4		1.75						marlin	RepRapFirmware		1	40	459		1	
 B	Monoprice
-P	monoprice-mp-mini-delta	MP Mini Delta	MP	c	110	110	120	-55	-55	r	0.4		1.75	b	150	3000	150	20	marlin	Marlin	delta	4	50	460	461	1	321
-P	monoprice-mp-mini-delta-v2	MP Mini Delta V2	MP	c	110	110	120	-55	-55	r	0.4		1.75	b					marlin	Marlin	delta	5	28	462	463	1	321
-P	monoprice-select-mini-v1	Select Mini V1	Select	c	120	120	120	0	0		0.4		1.75	b	150		1.5	20	marlin	Marlin		4.5	40	440	441	1	302
-P	monoprice-select-mini-v2-e3d	Select Mini V2 (E3D)	Select	c	120	120	120	0	0		0.4		1.75	b	150		1.5	20	marlin	Marlin		2.5	40	440	441	1	302
-P	monoprice-ultimate	Ultimate	Ultimate	c	200	200	180	0	0		0.4		1.75	b		800		10	marlin	Marlin						1	322
+P	monoprice-mp-mini-delta	MP Mini Delta	MP	c	110	110	120	-55	-55	r	0.4		1.75	b	150	3000	150	20	marlin	Marlin	delta	4	50	460	461	1	332
+P	monoprice-mp-mini-delta-v2	MP Mini Delta V2	MP	c	110	110	120	-55	-55	r	0.4		1.75	b					marlin	Marlin	delta	5	28	462	463	1	332
+P	monoprice-select-mini-v1	Select Mini V1	Select	c	120	120	120	0	0		0.4		1.75	b	150		1.5	20	marlin	Marlin		4.5	40	440	441	1	313
+P	monoprice-select-mini-v2-e3d	Select Mini V2 (E3D)	Select	c	120	120	120	0	0		0.4		1.75	b	150		1.5	20	marlin	Marlin		2.5	40	440	441	1	313
+P	monoprice-ultimate	Ultimate	Ultimate	c	200	200	180	0	0		0.4		1.75	b		800		10	marlin	Marlin						1	333
 B	Multicomp Pro
 P	multicomp-pro-mcpi-200	MCPI-200	MCPI	c	200	200	200	0	0		0.4		1.75	b	500	500	10	10	marlin	Marlin			25		305	1	
 B	Naxe
-P	naxe-nps	nps	nps	c	300	300	300	0	0		0.4		1.75	b		1000	20	12	marlin	Marlin		0.2	45	464	465	1	323
+P	naxe-nps	nps	nps	c	300	300	300	0	0		0.4		1.75	b		1000	20	12	marlin	Marlin		0.2	45	464	465	1	334
 B	Nophead
-P	nophead-mendel90	Mendel90	Mendel	c	200	200	200	-100	-100		0.4		1.75	b					marlin	Marlin				466	467	1	324
+P	nophead-mendel90	Mendel90	Mendel	c	200	200	200	-100	-100		0.4		1.75	b					marlin	Marlin				466	467	1	335
 B	Nwa 3D
 P	nwa-3d-a5	A5	A5	c	125	150	100	0	0		0.4		1.75						marlin	RepRapFirmware				356	357	1	
 P	nwa-3d-a31	A31	A31	c	300	300	400	0	0		0.4		1.75	b					marlin	Marlin				468	357	1	
 B	OpenEYE
-P	openeye-peacock-v2	Peacock V2	Peacock	o	233.5	228	200	1.5	7		0.4	0.2;0.4;0.6;0.8	1.75	b	500	20000	30	9	klipper	Klipper		1	40		469	1	325
+P	openeye-peacock-v2	Peacock V2	Peacock	o	233.5	228	200	1.5	7		0.4	0.2;0.4;0.6;0.8	1.75	b	500	20000	30	9	klipper	Klipper		1	40		469	1	336
 B	ORD Solutions
 P	ord-solutions-rova3d	RoVa3D	RoVa	c	215	250	200	0	0		0.35		1.75	b					marlin	Marlin						5	
 B	Papapiu
-P	papapiu-n1s	N1S	N1S	p	299	300	360	0	0		0.4	0.4	1.75	b	500	9000	10	5	marlin	Marlin		1	40	470	10	1	326
+P	papapiu-n1s	N1S	N1S	p	299	300	360	0	0		0.4	0.4	1.75	b	500	9000	10	5	marlin	Marlin		1	40	470	10	1	337
 B	PBR Research
-P	pbr-research-pbr-3d-gen-i	PBR 3D Gen-I	PBR	c	200	200	200	0	0		0.4		1.75	b					marlin	Marlin				471	472	1	327
+P	pbr-research-pbr-3d-gen-i	PBR 3D Gen-I	PBR	c	200	200	200	0	0		0.4		1.75	b					marlin	Marlin				471	472	1	338
 B	Peopoly
-P	peopoly-magneto-x	Magneto X	Magneto	o	300	400	300	0	0		0.4	0.4;0.6;0.8	1.75	b	500	20000	12	12	klipper	Klipper		0.8	30		10	1	328
+P	peopoly-magneto-x	Magneto X	Magneto	o	300	400	300	0	0		0.4	0.4;0.6;0.8	1.75	b	500	20000	12	12	klipper	Klipper		0.8	30		10	1	339
 B	Phrozen
-P	phrozen-arco	Arco	Arco	o	300	300	300	0	0		0.4	0.4	1.75	b	600	20000	15	9	klipper	Klipper	corexy	2	45	473	10	1	329
+P	phrozen-arco	Arco	Arco	o	300	300	300	0	0		0.4	0.4	1.75	b	600	20000	15	9	klipper	Klipper	corexy	2	45	473	10	1	340
 B	Positron 3D
-P	positron-3d-the-positron	The Positron	The	o	180	180	165	0	0		0.4	0.2;0.4;0.6;0.8	1.75	b	420	8000	12	12	klipper	Klipper		0.8	50	109	10	1	330
+P	positron-3d-the-positron	The Positron	The	o	180	180	165	0	0		0.4	0.2;0.4;0.6;0.8	1.75	b	420	8000	12	12	klipper	Klipper		0.8	50	109	10	1	341
 B	Print4Taste
-P	print4taste-mycusini-2-0	mycusini 2.0	mycusini	p	100	110	45	5	2.5		1	1	2.85	b					marlin	Marlin		0.1		474	475	1	331
+P	print4taste-mycusini-2-0	mycusini 2.0	mycusini	p	100	110	45	5	2.5		1	1	2.85	b					marlin	Marlin		0.1		474	475	1	342
 B	Printcepts
-P	printcepts-babybelt-pro	BabyBelt Pro	BabyBelt	o	95	500	100	0	0		0.4	0.4	1.75	b	50	500	5	9	klipper	Klipper		1.5	20		10	1	332
+P	printcepts-babybelt-pro	BabyBelt Pro	BabyBelt	o	95	500	100	0	0		0.4	0.4	1.75	b	50	500	5	9	klipper	Klipper		1.5	20		10	1	343
 B	Printrbot
-P	printrbot-play	Play	Play	c	100	100	130	0	0		0.4		1.75		125		5	20	marlin	Marlin		0.7	45	476	101	1	333
-P	printrbot-play-heated-bed	Play (Heated Bed)	Play	c	100	203	130	0	0		0.4		1.75	b	125		5	20	marlin	Marlin		0.7	45	477	101	1	333
-P	printrbot-simple	Simple	Simple	c	150	140	150	0	0		0.4		1.75						marlin	Marlin				478	479	1	334
+P	printrbot-play	Play	Play	c	100	100	130	0	0		0.4		1.75		125		5	20	marlin	Marlin		0.7	45	476	101	1	344
+P	printrbot-play-heated-bed	Play (Heated Bed)	Play	c	100	203	130	0	0		0.4		1.75	b	125		5	20	marlin	Marlin		0.7	45	477	101	1	344
+P	printrbot-simple	Simple	Simple	c	150	140	150	0	0		0.4		1.75						marlin	Marlin				478	479	1	345
 P	printrbot-simple-maker-s-kit-1405	Simple Maker's Kit (1405)	Simple	c	100	100	115	0	0		0.4		1.75						marlin	Marlin				478	479	1	
-P	printrbot-simple-metal-extended	Simple Metal Extended	Simple	c	250	150	235	0	0		0.4		1.75	b					marlin	Marlin				480	479	1	335
+P	printrbot-simple-metal-extended	Simple Metal Extended	Simple	c	250	150	235	0	0		0.4		1.75	b					marlin	Marlin				480	479	1	346
 B	Prusa
-P	prusa-core-one	CORE One	CORE	o	250	220	270	0	0		0.4	0.25;0.3;0.4;0.5;0.6;0.8	1.75	b	350	7000	12	10	marlin	Marlin 2	corexy	0.7	45			1	336
-P	prusa-core-one-core-one	CORE One & CORE One+	CORE	p	250	220	270	0	0		0.4	0.25;0.3;0.4;0.5;0.6;0.8	1.75	b	350	7000	12	10	marlin	Marlin 2		0.7	45			1	337
-P	prusa-core-one-core-one-mmu3	CORE One & CORE One+ MMU3	CORE	p	250	220	270	0	0		0.4	0.4;0.6	1.75	b	350	7000	12	10	marlin	Marlin 2		0.7	45			5	337
-P	prusa-core-one-hf	CORE One HF	CORE	o	250	220	270	0	0		0.4	0.4;0.5;0.6;0.8	1.75	b	350	7000	12	10	marlin	Marlin 2	corexy	0.7	45			1	336
-P	prusa-core-one-indx-4t	CORE One INDX 4T	CORE	o	248	205	270	0	0		0.4	0.4	1.75	b	350	7000	12	10	marlin	Marlin 2	corexy	0.8	40			4	338
-P	prusa-core-one-indx-8t	CORE One INDX 8T	CORE	o	248	205	270	0	0		0.4	0.4	1.75	b	350	7000	12	10	marlin	Marlin 2	corexy	0.8	40			8	338
-P	prusa-core-one-l	CORE One L	CORE	op	300	300	330	0	0		0.4	0.25;0.3;0.4;0.5;0.6;0.8	1.75	b	500	7000	15	10	marlin	Marlin 2	corexy	0.7	45			1	339
-P	prusa-core-one-l-hf	CORE One L HF	CORE	o	300	300	331	0	0		0.4	0.4;0.5;0.6;0.8	1.75	b	350	7000	12	10	marlin	Marlin 2	corexy	0.7	45			1	340
-P	prusa-core-one-l-mmu3	CORE One L MMU3	CORE	p	300	300	330	0	0		0.4	0.4;0.6	1.75	b	500	7000	15	10	marlin	Marlin 2		0.7	45			5	339
-P	prusa-core-one-mmu3	CORE One MMU3	CORE	o	250	220	270	0	0		0.4	0.25;0.3;0.4;0.6	1.75	b	350	7000	12	10	marlin	Marlin 2	corexy	0.7	45			1	336
-P	prusa-signature-oak	Signature Oak	CORE	p	250	220	270	0	0		0.4	0.25;0.3;0.4;0.5;0.6;0.8	1.75	b	350	7000	12	10	marlin	Marlin 2		0.7	45			1	341
-P	prusa-i3	i3	i3	c	200	200	200	0	0		0.4		1.75	b					marlin	Marlin				481	101	1	342
-P	prusa-i3-mk2	i3 Mk2	i3	c	250	210	200	0	0		0.4		1.75	b		1000	12	10	marlin	Marlin		0.8	35	482	483	1	342
-P	prusa-i3-mk3-mk3s	i3 Mk3/Mk3s	i3	c	250	210	210	0	0		0.4		1.75	b		1000	12	10	marlin	Marlin		0.8	35	482	483	1	343
-P	prusa-i3-xl	i3 xl	i3	c	200	270	200	0	0		0.4		1.75	b					marlin	Marlin				481	101	1	344
-P	prusa-mini	MINI	MINI	o	180	180	180	0	0		0.4	0.25;0.4;0.6;0.8	1.75	b	180	1250	12	8	marlin	Marlin 2		3.2	70			1	345
-P	prusa-mini-mini	MINI & MINI+	MINI	p	180	180	180	0	0		0.4	0.25;0.4;0.6;0.8	1.75	b	180	2000	12	8	marlin	Marlin 2		3.2	70			1	346
-P	prusa-mini-mini-input-shaper	MINI & MINI+ Input Shaper	MINI	p	180	180	180	0	0		0.4	0.25;0.4;0.6;0.8	1.75	b	400	4000	12	8	marlin	Marlin 2		2.5	70			1	346
-P	prusa-mini-is	MINI IS	MINI	o	180	180	180	0	0		0.4	0.25;0.4;0.6;0.8	1.75	b	400	4000	12	8	marlin	Marlin 2		2.5	70			1	345
-P	prusa-mk3-5	MK3.5	MK	o	250	210	210	0	0		0.4	0.25;0.4;0.6;0.8	1.75	b	300	4000	12	8	marlin	Marlin 2		0.8	35			1	347
-P	prusa-mk3s	MK3S	MK	o	250	210	210	0	0		0.4	0.25;0.4;0.6;0.8	1.75	b	200	2000	12	9	marlin	Marlin		0.8	30			1	348
-P	prusa-mk4	MK4	MK	op	250	210	220	0	0		0.4	0.25;0.3;0.4;0.5;0.6;0.8	1.75	b	200	2000	40	8	marlin	Marlin 2		0.8	35			1	349
-P	prusa-mk4-mmu3-hf	MK4 MMU3 HF	MK	o	250	210	220	0	0		0.4	0.4	1.75	b	300	4000	40	8	marlin	Marlin 2		0.7	35			1	350
-P	prusa-mk4s-hf	MK4S HF	MK	o	250	210	220	0	0		0.4	0.4;0.5;0.6;0.8	1.75	b	300	4000	40	8	marlin	Marlin 2		0.7	35			1	351
-P	prusa-i3-mk2s	i3 MK2S	MK2	p	250	210	200	0	0		0.4	0.25;0.4;0.6	1.75	b	500	2000	12	10	marlin	Marlin		0.8	35			1	352
-P	prusa-i3-mk2s-mmu1	i3 MK2S MMU1	MK2	p	250	210	200	0	0		0.4	0.4;0.6	1.75	b	500	2000	12	10	marlin	Marlin		4	80			4	352
-P	prusa-i3-mk2-5	i3 MK2.5	MK2.5	p	250	210	200	0	0		0.4	0.25;0.4;0.6;0.8	1.75	b	500	2000	12	10	marlin	Marlin		0.8	35			1	353
-P	prusa-i3-mk2-5-mmu2	i3 MK2.5 MMU2	MK2.5	p	250	210	200	0	0		0.4	0.25;0.4;0.6;0.8	1.75	b	500	2000	12	10	marlin	Marlin		0.8	35			5	353
-P	prusa-i3-mk2-5s	i3 MK2.5S	MK2.5	p	250	210	200	0	0		0.4	0.25;0.4;0.6;0.8	1.75	b	500	2000	12	10	marlin	Marlin		0.8	35			1	353
-P	prusa-i3-mk2-5s-mmu2s	i3 MK2.5S MMU2S	MK2.5	p	250	210	200	0	0		0.4	0.25;0.4;0.6;0.8	1.75	b	500	2000	12	10	marlin	Marlin		0.8	35			5	353
-P	prusa-i3-mk3	i3 MK3	MK3	p	250	210	210	0	0		0.4	0.25;0.4;0.6;0.8	1.75	b	200	1250	12	8	marlin	Marlin		0.8	35			1	353
-P	prusa-i3-mk3-mmu2	i3 MK3 MMU2	MK3	p	250	210	210	0	0		0.4	0.25;0.4;0.6;0.8	1.75	b	200	1250	12	8	marlin	Marlin		0.8	35			5	353
-P	prusa-i3-mk3s-mk3s	i3 MK3S & MK3S+	MK3	p	250	210	210	0	0		0.4	0.25;0.4;0.6;0.8	1.75	b	200	1250	12	8	marlin	Marlin		0.8	35			1	353
-P	prusa-i3-mk3s-mk3s-mmu2s	i3 MK3S & MK3S+ MMU2S	MK3	p	250	210	210	0	0		0.4	0.25;0.4;0.6;0.8	1.75	b	200	1250	12	8	marlin	Marlin		0.8	35			5	353
-P	prusa-i3-mk3s-mk3s-mmu3	i3 MK3S & MK3S+ MMU3	MK3	p	250	210	210	0	0		0.4	0.25;0.4;0.6;0.8	1.75	b	200	1250	12	8	marlin	Marlin		0.8	35			5	353
-P	prusa-mk3-5-mk3-5s	MK3.5 & MK3.5S	MK3.5	p	250	210	210	0	0		0.4	0.25;0.3;0.4;0.5;0.6;0.8	1.75	b	300	4000	12	8	marlin	Marlin 2		0.8	35			1	354
-P	prusa-mk3-5-mk3-5s-mmu3	MK3.5 & MK3.5S MMU3	MK3.5	p	250	210	210	0	0		0.4	0.25;0.4;0.6	1.75	b	300	4000	12	8	marlin	Marlin 2		0.8	35			5	354
-P	prusa-mk3-9-input-shaper	MK3.9 Input Shaper	MK3.9	p	250	210	220	0	0		0.4	0.25;0.3;0.4;0.5;0.6;0.8	1.75	b	300	4000	40	8	marlin	Marlin 2		0.7	35			1	355
-P	prusa-mk3-9-mmu3	MK3.9 MMU3	MK3.9	p	250	210	220	0	0		0.4	0.4;0.6	1.75	b	300	4000	40	8	marlin	Marlin 2		0.7	35			5	355
-P	prusa-mk3-9s	MK3.9S	MK3.9	p	250	210	220	0	0		0.4	0.25;0.3;0.4;0.5;0.6;0.8	1.75	b	300	4000	40	8	marlin	Marlin 2		0.7	35			1	356
-P	prusa-mk3-9s-mmu3	MK3.9S MMU3	MK3.9	p	250	210	220	0	0		0.4	0.4;0.6	1.75	b	300	4000	40	8	marlin	Marlin 2		0.7	35			5	356
-P	prusa-mk4-input-shaper	MK4 Input Shaper	MK4	p	250	210	220	0	0		0.4	0.25;0.3;0.4;0.5;0.6;0.8	1.75	b	300	4000	40	8	marlin	Marlin 2		0.7	35			1	349
-P	prusa-mk4-mmu3	MK4 MMU3	MK4	op	250	210	220	0	0		0.4	0.4;0.6	1.75	b	300	4000	40	8	marlin	Marlin 2		0.7	35			5	349
-P	prusa-mk4s	MK4S	MK4	op	250	210	220	0	0		0.4	0.25;0.3;0.4;0.5;0.6;0.8	1.75	b	300	4000	40	8	marlin	Marlin 2		0.7	35			1	357
-P	prusa-mk4s-mmu3	MK4S MMU3	MK4	p	250	210	220	0	0		0.4	0.4;0.6	1.75	b	300	4000	40	8	marlin	Marlin 2		0.7	35			5	357
-P	prusa-xl	XL	XL	op	360	360	360	0	0		0.4	0.25;0.3;0.4;0.5;0.6;0.8	1.75	b	400	3000	12	8	marlin	Marlin 2		0.8	35			1	358
-P	prusa-xl-2t	XL - 2T	XL	p	360	360	360	0	0		0.4	0.25;0.3;0.4;0.5;0.6;0.8	1.75	b	400	3000	12	8	marlin	Marlin 2		0.8	35			2	358
-P	prusa-xl-5t	XL - 5T	XL	op	360	360	360	0	0		0.4	0.25;0.3;0.4;0.5;0.6;0.8	1.75	b	400	3000	12	8	marlin	Marlin 2		0.8	35			5	358
-P	prusa-xl-2t-input-shaper	XL - 2T Input Shaper	XL Multi-Tool	p	360	360	360	0	0		0.4	0.25;0.3;0.4;0.5;0.6;0.8	1.75	b	400	4000	12	8	marlin	Marlin 2		0.8	35			2	358
-P	prusa-xl-5t-input-shaper	XL - 5T Input Shaper	XL Multi-Tool	p	360	360	360	0	0		0.4	0.25;0.3;0.4;0.5;0.6;0.8	1.75	b	400	4000	12	8	marlin	Marlin 2		0.8	35			5	358
-P	prusa-xl-input-shaper	XL Input Shaper	XL Single-Tool	p	360	360	360	0	0		0.4	0.25;0.3;0.4;0.5;0.6;0.8	1.75	b	400	4000	12	8	marlin	Marlin 2		0.8	35			1	358
+P	prusa-core-one	CORE One	CORE	o	250	220	270	0	0		0.4	0.25;0.3;0.4;0.5;0.6;0.8	1.75	b	350	7000	12	10	marlin	Marlin 2	corexy	0.7	45			1	347
+P	prusa-core-one-core-one	CORE One & CORE One+	CORE	p	250	220	270	0	0		0.4	0.25;0.3;0.4;0.5;0.6;0.8	1.75	b	350	7000	12	10	marlin	Marlin 2		0.7	45			1	348
+P	prusa-core-one-core-one-mmu3	CORE One & CORE One+ MMU3	CORE	p	250	220	270	0	0		0.4	0.4;0.6	1.75	b	350	7000	12	10	marlin	Marlin 2		0.7	45			5	348
+P	prusa-core-one-hf	CORE One HF	CORE	o	250	220	270	0	0		0.4	0.4;0.5;0.6;0.8	1.75	b	350	7000	12	10	marlin	Marlin 2	corexy	0.7	45			1	347
+P	prusa-core-one-indx-4t	CORE One INDX 4T	CORE	o	248	205	270	0	0		0.4	0.4	1.75	b	350	7000	12	10	marlin	Marlin 2	corexy	0.8	40			4	349
+P	prusa-core-one-indx-8t	CORE One INDX 8T	CORE	o	248	205	270	0	0		0.4	0.4	1.75	b	350	7000	12	10	marlin	Marlin 2	corexy	0.8	40			8	349
+P	prusa-core-one-l	CORE One L	CORE	op	300	300	330	0	0		0.4	0.25;0.3;0.4;0.5;0.6;0.8	1.75	b	500	7000	15	10	marlin	Marlin 2	corexy	0.7	45			1	350
+P	prusa-core-one-l-hf	CORE One L HF	CORE	o	300	300	331	0	0		0.4	0.4;0.5;0.6;0.8	1.75	b	350	7000	12	10	marlin	Marlin 2	corexy	0.7	45			1	351
+P	prusa-core-one-l-mmu3	CORE One L MMU3	CORE	p	300	300	330	0	0		0.4	0.4;0.6	1.75	b	500	7000	15	10	marlin	Marlin 2		0.7	45			5	350
+P	prusa-core-one-mmu3	CORE One MMU3	CORE	o	250	220	270	0	0		0.4	0.25;0.3;0.4;0.6	1.75	b	350	7000	12	10	marlin	Marlin 2	corexy	0.7	45			1	347
+P	prusa-signature-oak	Signature Oak	CORE	p	250	220	270	0	0		0.4	0.25;0.3;0.4;0.5;0.6;0.8	1.75	b	350	7000	12	10	marlin	Marlin 2		0.7	45			1	352
+P	prusa-i3	i3	i3	c	200	200	200	0	0		0.4		1.75	b					marlin	Marlin				481	101	1	353
+P	prusa-i3-mk2	i3 Mk2	i3	c	250	210	200	0	0		0.4		1.75	b		1000	12	10	marlin	Marlin		0.8	35	482	483	1	353
+P	prusa-i3-mk3-mk3s	i3 Mk3/Mk3s	i3	c	250	210	210	0	0		0.4		1.75	b		1000	12	10	marlin	Marlin		0.8	35	482	483	1	354
+P	prusa-i3-xl	i3 xl	i3	c	200	270	200	0	0		0.4		1.75	b					marlin	Marlin				481	101	1	355
+P	prusa-mini	MINI	MINI	o	180	180	180	0	0		0.4	0.25;0.4;0.6;0.8	1.75	b	180	1250	12	8	marlin	Marlin 2		3.2	70			1	356
+P	prusa-mini-mini	MINI & MINI+	MINI	p	180	180	180	0	0		0.4	0.25;0.4;0.6;0.8	1.75	b	180	2000	12	8	marlin	Marlin 2		3.2	70			1	357
+P	prusa-mini-mini-input-shaper	MINI & MINI+ Input Shaper	MINI	p	180	180	180	0	0		0.4	0.25;0.4;0.6;0.8	1.75	b	400	4000	12	8	marlin	Marlin 2		2.5	70			1	357
+P	prusa-mini-is	MINI IS	MINI	o	180	180	180	0	0		0.4	0.25;0.4;0.6;0.8	1.75	b	400	4000	12	8	marlin	Marlin 2		2.5	70			1	356
+P	prusa-mk3-5	MK3.5	MK	o	250	210	210	0	0		0.4	0.25;0.4;0.6;0.8	1.75	b	300	4000	12	8	marlin	Marlin 2		0.8	35			1	358
+P	prusa-mk3s	MK3S	MK	o	250	210	210	0	0		0.4	0.25;0.4;0.6;0.8	1.75	b	200	2000	12	9	marlin	Marlin		0.8	30			1	359
+P	prusa-mk4	MK4	MK	op	250	210	220	0	0		0.4	0.25;0.3;0.4;0.5;0.6;0.8	1.75	b	200	2000	40	8	marlin	Marlin 2		0.8	35			1	360
+P	prusa-mk4-mmu3-hf	MK4 MMU3 HF	MK	o	250	210	220	0	0		0.4	0.4	1.75	b	300	4000	40	8	marlin	Marlin 2		0.7	35			1	361
+P	prusa-mk4s-hf	MK4S HF	MK	o	250	210	220	0	0		0.4	0.4;0.5;0.6;0.8	1.75	b	300	4000	40	8	marlin	Marlin 2		0.7	35			1	362
+P	prusa-i3-mk2s	i3 MK2S	MK2	p	250	210	200	0	0		0.4	0.25;0.4;0.6	1.75	b	500	2000	12	10	marlin	Marlin		0.8	35			1	363
+P	prusa-i3-mk2s-mmu1	i3 MK2S MMU1	MK2	p	250	210	200	0	0		0.4	0.4;0.6	1.75	b	500	2000	12	10	marlin	Marlin		4	80			4	363
+P	prusa-i3-mk2-5	i3 MK2.5	MK2.5	p	250	210	200	0	0		0.4	0.25;0.4;0.6;0.8	1.75	b	500	2000	12	10	marlin	Marlin		0.8	35			1	364
+P	prusa-i3-mk2-5-mmu2	i3 MK2.5 MMU2	MK2.5	p	250	210	200	0	0		0.4	0.25;0.4;0.6;0.8	1.75	b	500	2000	12	10	marlin	Marlin		0.8	35			5	364
+P	prusa-i3-mk2-5s	i3 MK2.5S	MK2.5	p	250	210	200	0	0		0.4	0.25;0.4;0.6;0.8	1.75	b	500	2000	12	10	marlin	Marlin		0.8	35			1	364
+P	prusa-i3-mk2-5s-mmu2s	i3 MK2.5S MMU2S	MK2.5	p	250	210	200	0	0		0.4	0.25;0.4;0.6;0.8	1.75	b	500	2000	12	10	marlin	Marlin		0.8	35			5	364
+P	prusa-i3-mk3	i3 MK3	MK3	p	250	210	210	0	0		0.4	0.25;0.4;0.6;0.8	1.75	b	200	1250	12	8	marlin	Marlin		0.8	35			1	364
+P	prusa-i3-mk3-mmu2	i3 MK3 MMU2	MK3	p	250	210	210	0	0		0.4	0.25;0.4;0.6;0.8	1.75	b	200	1250	12	8	marlin	Marlin		0.8	35			5	364
+P	prusa-i3-mk3s-mk3s	i3 MK3S & MK3S+	MK3	p	250	210	210	0	0		0.4	0.25;0.4;0.6;0.8	1.75	b	200	1250	12	8	marlin	Marlin		0.8	35			1	364
+P	prusa-i3-mk3s-mk3s-mmu2s	i3 MK3S & MK3S+ MMU2S	MK3	p	250	210	210	0	0		0.4	0.25;0.4;0.6;0.8	1.75	b	200	1250	12	8	marlin	Marlin		0.8	35			5	364
+P	prusa-i3-mk3s-mk3s-mmu3	i3 MK3S & MK3S+ MMU3	MK3	p	250	210	210	0	0		0.4	0.25;0.4;0.6;0.8	1.75	b	200	1250	12	8	marlin	Marlin		0.8	35			5	364
+P	prusa-mk3-5-mk3-5s	MK3.5 & MK3.5S	MK3.5	p	250	210	210	0	0		0.4	0.25;0.3;0.4;0.5;0.6;0.8	1.75	b	300	4000	12	8	marlin	Marlin 2		0.8	35			1	365
+P	prusa-mk3-5-mk3-5s-mmu3	MK3.5 & MK3.5S MMU3	MK3.5	p	250	210	210	0	0		0.4	0.25;0.4;0.6	1.75	b	300	4000	12	8	marlin	Marlin 2		0.8	35			5	365
+P	prusa-mk3-9-input-shaper	MK3.9 Input Shaper	MK3.9	p	250	210	220	0	0		0.4	0.25;0.3;0.4;0.5;0.6;0.8	1.75	b	300	4000	40	8	marlin	Marlin 2		0.7	35			1	366
+P	prusa-mk3-9-mmu3	MK3.9 MMU3	MK3.9	p	250	210	220	0	0		0.4	0.4;0.6	1.75	b	300	4000	40	8	marlin	Marlin 2		0.7	35			5	366
+P	prusa-mk3-9s	MK3.9S	MK3.9	p	250	210	220	0	0		0.4	0.25;0.3;0.4;0.5;0.6;0.8	1.75	b	300	4000	40	8	marlin	Marlin 2		0.7	35			1	367
+P	prusa-mk3-9s-mmu3	MK3.9S MMU3	MK3.9	p	250	210	220	0	0		0.4	0.4;0.6	1.75	b	300	4000	40	8	marlin	Marlin 2		0.7	35			5	367
+P	prusa-mk4-input-shaper	MK4 Input Shaper	MK4	p	250	210	220	0	0		0.4	0.25;0.3;0.4;0.5;0.6;0.8	1.75	b	300	4000	40	8	marlin	Marlin 2		0.7	35			1	360
+P	prusa-mk4-mmu3	MK4 MMU3	MK4	op	250	210	220	0	0		0.4	0.4;0.6	1.75	b	300	4000	40	8	marlin	Marlin 2		0.7	35			5	360
+P	prusa-mk4s	MK4S	MK4	op	250	210	220	0	0		0.4	0.25;0.3;0.4;0.5;0.6;0.8	1.75	b	300	4000	40	8	marlin	Marlin 2		0.7	35			1	368
+P	prusa-mk4s-mmu3	MK4S MMU3	MK4	p	250	210	220	0	0		0.4	0.4;0.6	1.75	b	300	4000	40	8	marlin	Marlin 2		0.7	35			5	368
+P	prusa-xl	XL	XL	op	360	360	360	0	0		0.4	0.25;0.3;0.4;0.5;0.6;0.8	1.75	b	400	3000	12	8	marlin	Marlin 2		0.8	35			1	369
+P	prusa-xl-2t	XL - 2T	XL	p	360	360	360	0	0		0.4	0.25;0.3;0.4;0.5;0.6;0.8	1.75	b	400	3000	12	8	marlin	Marlin 2		0.8	35			2	369
+P	prusa-xl-5t	XL - 5T	XL	op	360	360	360	0	0		0.4	0.25;0.3;0.4;0.5;0.6;0.8	1.75	b	400	3000	12	8	marlin	Marlin 2		0.8	35			5	369
+P	prusa-xl-2t-input-shaper	XL - 2T Input Shaper	XL Multi-Tool	p	360	360	360	0	0		0.4	0.25;0.3;0.4;0.5;0.6;0.8	1.75	b	400	4000	12	8	marlin	Marlin 2		0.8	35			2	369
+P	prusa-xl-5t-input-shaper	XL - 5T Input Shaper	XL Multi-Tool	p	360	360	360	0	0		0.4	0.25;0.3;0.4;0.5;0.6;0.8	1.75	b	400	4000	12	8	marlin	Marlin 2		0.8	35			5	369
+P	prusa-xl-input-shaper	XL Input Shaper	XL Single-Tool	p	360	360	360	0	0		0.4	0.25;0.3;0.4;0.5;0.6;0.8	1.75	b	400	4000	12	8	marlin	Marlin 2		0.8	35			1	369
 B	Punchtec
 P	punchtec-connect-xl	Connect XL	Connect	c	304	304	200	0	0		0.4		1.75	b					marlin	Marlin						2	
 B	QIDI
-P	qidi-q1-pro	Q1 Pro	Q	op	245	245	240	0	0		0.4	0.2;0.4;0.6;0.8	1.75	bc	600	20000	10	8	klipper	Klipper		0.8	30			1	359
-P	qidi-q2	Q2	Q2	o	270	270	256	0	0		0.4	0.2;0.4;0.6;0.8	1.75	bc	600	20000	20	9	klipper	Klipper	corexy	0.8	30			1	360
-P	qidi-q2c	Q2C	Q2C	o	270	270	256	0	0		0.4	0.2;0.4;0.6;0.8	1.75	bc	600	20000	20	9	klipper	Klipper	corexy	0.8	30			1	361
-P	qidi-x-max-3	X-Max 3	X 3	op	325	325	315	0	0		0.4	0.2;0.4;0.6;0.8	1.75	bc	600	20000	10	9	klipper	Klipper		1	30			1	362
-P	qidi-x-plus-3	X-Plus 3	X 3	op	280	280	270	0	0		0.4	0.2;0.4;0.6;0.8	1.75	bc	600	20000	10	9	klipper	Klipper		1	30			1	363
-P	qidi-x-smart-3	X-Smart 3	X 3	op	175	180	170	0	0		0.4	0.2;0.4;0.6;0.8	1.75	bc	600	20000	10	9	klipper	Klipper		0.8	30			1	364
-P	qidi-x-plus-4	X-Plus 4	X 4	op	305	305	280	0	0		0.4	0.2;0.4;0.6;0.8	1.75	bc	600	20000	20	9	klipper	Klipper		0.8	30			1	365
-P	qidi-x-plus-4-box	X-Plus 4 + BOX	X 4	p	305	305	280	0	0		0.4	0.2;0.4;0.6;0.8	1.75	b	600	20000	20	9	klipper	Klipper		0.8	30			4	366
-P	qidi-x-cf-pro	X-CF Pro	X-CF	o	300	250	300	0	0		0.4	0.4	1.75	b	500	1500	12	10	marlin	Marlin		2	60	484	485	1	367
-P	qidi-x-max	X-Max	X-Max	o	300	250	300	0	0		0.4	0.4	1.75	b	500	1500	12	10	marlin	Marlin		2	60	486	485	1	367
-P	qidi-x-max-4	X-Max 4	X-Max	o	390	390	340	0	0		0.4	0.2;0.4;0.6;0.8	1.75	bc	800	20000	20	9	klipper	Klipper	corexy	0.8	30			1	368
-P	qidi-x-plus	X-Plus	X-Plus	o	270	200	200	0	0		0.4	0.4	1.75	b	500	1500	12	10	marlin	Marlin		2	60	487	485	1	369
-P	qidi-x-plus-5	X-Plus 5	X-Plus	o	320	320	300	0	0		0.4	0.2;0.4;0.6;0.8	1.75	bc	600	20000	20	9	klipper	Klipper	corexy	0.8	30			1	370
-P	qidi-x-smart-5	X-Smart 5	X-Smart	o	180	180	180	0	0		0.4	0.2;0.4;0.6;0.8	1.75	b	400	20000	20	9	klipper	Klipper	corexy	0.8	30			1	371
+P	qidi-q1-pro	Q1 Pro	Q	op	245	245	240	0	0		0.4	0.2;0.4;0.6;0.8	1.75	bc	600	20000	10	8	klipper	Klipper		0.8	30			1	370
+P	qidi-q2	Q2	Q2	o	270	270	256	0	0		0.4	0.2;0.4;0.6;0.8	1.75	bc	600	20000	20	9	klipper	Klipper	corexy	0.8	30			1	371
+P	qidi-q2c	Q2C	Q2C	o	270	270	256	0	0		0.4	0.2;0.4;0.6;0.8	1.75	bc	600	20000	20	9	klipper	Klipper	corexy	0.8	30			1	372
+P	qidi-x-max-3	X-Max 3	X 3	op	325	325	315	0	0		0.4	0.2;0.4;0.6;0.8	1.75	bc	600	20000	10	9	klipper	Klipper		1	30			1	373
+P	qidi-x-plus-3	X-Plus 3	X 3	op	280	280	270	0	0		0.4	0.2;0.4;0.6;0.8	1.75	bc	600	20000	10	9	klipper	Klipper		1	30			1	374
+P	qidi-x-smart-3	X-Smart 3	X 3	op	175	180	170	0	0		0.4	0.2;0.4;0.6;0.8	1.75	bc	600	20000	10	9	klipper	Klipper		0.8	30			1	375
+P	qidi-x-plus-4	X-Plus 4	X 4	op	305	305	280	0	0		0.4	0.2;0.4;0.6;0.8	1.75	bc	600	20000	20	9	klipper	Klipper		0.8	30			1	376
+P	qidi-x-plus-4-box	X-Plus 4 + BOX	X 4	p	305	305	280	0	0		0.4	0.2;0.4;0.6;0.8	1.75	b	600	20000	20	9	klipper	Klipper		0.8	30			4	377
+P	qidi-x-cf-pro	X-CF Pro	X-CF	o	300	250	300	0	0		0.4	0.4	1.75	b	500	1500	12	10	marlin	Marlin		2	60	484	485	1	378
+P	qidi-x-max	X-Max	X-Max	o	300	250	300	0	0		0.4	0.4	1.75	b	500	1500	12	10	marlin	Marlin		2	60	486	485	1	378
+P	qidi-x-max-4	X-Max 4	X-Max	o	390	390	340	0	0		0.4	0.2;0.4;0.6;0.8	1.75	bc	800	20000	20	9	klipper	Klipper	corexy	0.8	30			1	379
+P	qidi-x-plus	X-Plus	X-Plus	o	270	200	200	0	0		0.4	0.4	1.75	b	500	1500	12	10	marlin	Marlin		2	60	487	485	1	380
+P	qidi-x-plus-5	X-Plus 5	X-Plus	o	320	320	300	0	0		0.4	0.2;0.4;0.6;0.8	1.75	bc	600	20000	20	9	klipper	Klipper	corexy	0.8	30			1	381
+P	qidi-x-smart-5	X-Smart 5	X-Smart	o	180	180	180	0	0		0.4	0.2;0.4;0.6;0.8	1.75	b	400	20000	20	9	klipper	Klipper	corexy	0.8	30			1	382
 B	Raise3D
 P	raise3d-n2-dual	N2 Dual	N2	c	305	305	305	0	0		0.4		1.75	b					marlin	Marlin		1		488	489	2	
 P	raise3d-n2-plus-dual	N2 Plus Dual	N2	c	305	305	610	0	0		0.4		1.75	b					marlin	Marlin		1		488	489	2	
 P	raise3d-n2-plus-single	N2 Plus Single	N2	c	305	305	610	0	0		0.4		1.75	b					marlin	Marlin		1		490	489	1	
 P	raise3d-n2-single	N2 Single	N2	c	305	305	305	0	0		0.4		1.75	b					marlin	Marlin		1		490	489	1	
-P	raise3d-pro3	Pro3	Pro	o	255	300	300	0	0		0.4	0.4	1.75	b	500	1000	12	5	marlin	Marlin		0.5	40		491	2	372
-P	raise3d-pro3-plus	Pro3 Plus	Pro	o	255	300	605	0	0		0.4	0.4	1.75	b	500	1000	12	5	marlin	Marlin		0.5	40		491	2	372
+P	raise3d-pro3	Pro3	Pro	o	255	300	300	0	0		0.4	0.4	1.75	b	500	1000	12	5	marlin	Marlin		0.5	40		491	2	383
+P	raise3d-pro3-plus	Pro3 Plus	Pro	o	255	300	605	0	0		0.4	0.4	1.75	b	500	1000	12	5	marlin	Marlin		0.5	40		491	2	383
 B	RatRig
-P	ratrig-v-cast	V-Cast	V-Cast	o	300	300	250	0	0		0.4	0.4;0.6	1.75	b	500	9000	12	7	klipper	Klipper		1	40	492	77	1	373
-P	ratrig-v-core-3-200	V-Core 3 200	V-Core	o	200	200	200	0	0		0.4	0.4	1.75	b	500	9000	12	7	klipper	Klipper		1	40	492	77	1	374
-P	ratrig-v-core-3-200mm	V-Core 3 200mm	V-Core	c	200	200	200	0	0		0.4		1.75	b	500	3000	10	5	marlin	Marlin		6.5	40	76	77	1	375
-P	ratrig-v-core-3-300	V-Core 3 300	V-Core	o	300	300	300	0	0		0.4	0.4	1.75	b	500	9000	12	7	klipper	Klipper		1	40	492	77	1	373
-P	ratrig-v-core-3-300mm	V-Core 3 300mm	V-Core	c	300	300	300	0	0		0.4		1.75	b	500	3000	10	5	marlin	Marlin		6.5	40	76	77	1	376
-P	ratrig-v-core-3-400	V-Core 3 400	V-Core	o	400	400	400	0	0		0.4	0.4	1.75	b	500	9000	12	7	klipper	Klipper		1	40	492	77	1	377
-P	ratrig-v-core-3-400mm	V-Core 3 400mm	V-Core	c	400	400	400	0	0		0.4		1.75	b	500	3000	10	5	marlin	Marlin		6.5	40	76	77	1	378
-P	ratrig-v-core-3-500	V-Core 3 500	V-Core	o	500	500	500	0	0		0.4	0.4	1.75	b	500	9000	12	7	klipper	Klipper		1	40	492	77	1	379
-P	ratrig-v-core-3-500mm	V-Core 3 500mm	V-Core	c	500	500	500	0	0		0.4		1.75	b	500	3000	10	5	marlin	Marlin		6.5	40	76	77	1	380
-P	ratrig-v-core-4-300	V-Core 4 300	V-Core	o	300	300	300	0	0		0.4	0.4;0.5;0.6;0.8	1.75	b	400	10000	200	5	klipper	Klipper		0.8	120		77	1	373
-P	ratrig-v-core-4-400	V-Core 4 400	V-Core	o	400	400	300	0	0		0.4	0.4;0.5;0.6;0.8	1.75	b	400	10000	200	5	klipper	Klipper		0.8	120		77	1	377
-P	ratrig-v-core-4-500	V-Core 4 500	V-Core	o	500	500	500	0	0		0.4	0.4;0.5;0.6;0.8	1.75	b	400	10000	200	5	klipper	Klipper		0.8	120		77	1	379
-P	ratrig-v-core-4-hybrid-300	V-Core 4 HYBRID 300	V-Core	o	300	300	300	0	0		0.4	0.4;0.5;0.6;0.8	1.75	b	500	20000	200	5	klipper	Klipper		0.8	120		77	1	373
-P	ratrig-v-core-4-hybrid-400	V-Core 4 HYBRID 400	V-Core	o	400	400	400	0	0		0.4	0.4;0.5;0.6;0.8	1.75	b	500	20000	200	5	klipper	Klipper		0.8	120		77	1	377
-P	ratrig-v-core-4-hybrid-500	V-Core 4 HYBRID 500	V-Core	o	500	500	500	0	0		0.4	0.4;0.5;0.6;0.8	1.75	b	500	20000	200	5	klipper	Klipper		0.8	120		77	1	379
-P	ratrig-v-core-4-idex-300	V-Core 4 IDEX 300	V-Core	o	300	300	300	0	0		0.4	0.4;0.5;0.6;0.8	1.75	b	500	20000	200	5	klipper	Klipper		0.8	120		77	2	373
-P	ratrig-v-core-4-idex-300-copy-mode	V-Core 4 IDEX 300 COPY MODE	V-Core	o	150	300	300	75	0		0.4	0.4;0.5;0.6;0.8	1.75	b	500	20000	200	5	klipper	Klipper		0.8	120		77	2	381
-P	ratrig-v-core-4-idex-300-mirror-mode	V-Core 4 IDEX 300 MIRROR MODE	V-Core	o	120	300	300	75	0		0.4	0.4;0.5;0.6;0.8	1.75	b	500	20000	200	5	klipper	Klipper		0.8	120		77	2	382
-P	ratrig-v-core-4-idex-400	V-Core 4 IDEX 400	V-Core	o	400	400	400	0	0		0.4	0.4;0.5;0.6;0.8	1.75	b	500	20000	200	5	klipper	Klipper		0.8	120		77	2	377
-P	ratrig-v-core-4-idex-400-copy-mode	V-Core 4 IDEX 400 COPY MODE	V-Core	o	200	400	400	100	0		0.4	0.4;0.5;0.6;0.8	1.75	b	500	20000	200	5	klipper	Klipper		0.8	120		77	2	383
-P	ratrig-v-core-4-idex-400-mirror-mode	V-Core 4 IDEX 400 MIRROR MODE	V-Core	o	170	400	400	100	0		0.4	0.4;0.5;0.6;0.8	1.75	b	500	20000	200	5	klipper	Klipper		0.8	120		77	2	384
-P	ratrig-v-core-4-idex-500	V-Core 4 IDEX 500	V-Core	o	500	500	500	0	0		0.4	0.4;0.5;0.6;0.8	1.75	b	500	20000	200	5	klipper	Klipper		0.8	120		77	2	379
-P	ratrig-v-core-4-idex-500-copy-mode	V-Core 4 IDEX 500 COPY MODE	V-Core	o	250	500	500	125	0		0.4	0.4;0.5;0.6;0.8	1.75	b	500	20000	200	5	klipper	Klipper		0.8	120		77	2	385
-P	ratrig-v-core-4-idex-500-mirror-mode	V-Core 4 IDEX 500 MIRROR MODE	V-Core	o	220	500	500	125	0		0.4	0.4;0.5;0.6;0.8	1.75	b	500	20000	200	5	klipper	Klipper		0.8	120		77	2	386
-P	ratrig-v-core-3-1-300mm	V-Core-3.1 300mm	V-Core-3	p	300	300	300	0	0		0.4	0.4;0.5;0.6	1.75	b	400	8000	30	5	klipper	Klipper		0.8	120		77	1	387
-P	ratrig-v-core-3-1-400mm	V-Core-3.1 400mm	V-Core-3	p	400	400	400	0	0		0.4	0.4;0.5;0.6	1.75	b	400	8000	30	5	klipper	Klipper		0.8	120		77	1	388
-P	ratrig-v-core-3-1-500mm	V-Core-3.1 500mm	V-Core-3	p	500	500	500	0	0		0.4	0.4;0.5;0.6	1.75	b	400	8000	30	5	klipper	Klipper		0.8	120		77	1	389
-P	ratrig-v-core-4-0-corexy-300mm	V-Core-4.0 CoreXY 300mm	V-Core-4	p	300	300	300	0	0		0.4	0.4;0.5;0.6	1.75	b	400	10000	50	5	klipper	Klipper		0.8	120		77	1	387
-P	ratrig-v-core-4-0-corexy-400mm	V-Core-4.0 CoreXY 400mm	V-Core-4	p	400	400	400	0	0		0.4	0.4;0.5;0.6	1.75	b	400	10000	50	5	klipper	Klipper		0.8	120		77	1	388
-P	ratrig-v-core-4-0-corexy-500mm	V-Core-4.0 CoreXY 500mm	V-Core-4	p	500	500	500	0	0		0.4	0.4;0.5;0.6	1.75	b	400	10000	50	5	klipper	Klipper		0.8	120		77	1	389
-P	ratrig-v-core-4-0-hybrid-300mm	V-Core-4.0 HYBRID 300mm	V-Core-4	p	300	300	300	0	0		0.4	0.4;0.5;0.6	1.75	b	500	20000	50	5	klipper	Klipper		0.8	120		77	1	387
-P	ratrig-v-core-4-0-hybrid-400mm	V-Core-4.0 HYBRID 400mm	V-Core-4	p	400	400	400	0	0		0.4	0.4;0.5;0.6	1.75	b	500	20000	50	5	klipper	Klipper		0.8	120		77	1	388
-P	ratrig-v-core-4-0-hybrid-500mm	V-Core-4.0 HYBRID 500mm	V-Core-4	p	500	500	500	0	0		0.4	0.4;0.5;0.6	1.75	b	500	20000	50	5	klipper	Klipper		0.8	120		77	1	389
-P	ratrig-v-core-4-0-idex-300mm	V-Core-4.0 IDEX 300mm	V-Core-4	p	300	300	300	0	0		0.4	0.4;0.5;0.6	1.75	b	250	5000	50	5	klipper	Klipper		0.8	120		77	2	387
-P	ratrig-v-core-4-0-idex-400mm	V-Core-4.0 IDEX 400mm	V-Core-4	p	400	400	400	0	0		0.4	0.4;0.5;0.6	1.75	b	250	5000	50	5	klipper	Klipper		0.8	120		77	2	388
-P	ratrig-v-core-4-0-idex-500mm	V-Core-4.0 IDEX 500mm	V-Core-4	p	500	500	500	0	0		0.4	0.4;0.5;0.6	1.75	b	250	5000	50	5	klipper	Klipper		0.8	120		77	2	389
-P	ratrig-v-minion	V-Minion	V-Minion	opc	180	180	180	0	0		0.4	0.4;0.5;0.6	1.75	b	500	9000	12	7	klipper	Klipper		1	40	492	77	1	390
+P	ratrig-v-cast	V-Cast	V-Cast	o	300	300	250	0	0		0.4	0.4;0.6	1.75	b	500	9000	12	7	klipper	Klipper		1	40	492	77	1	384
+P	ratrig-v-core-3-200	V-Core 3 200	V-Core	o	200	200	200	0	0		0.4	0.4	1.75	b	500	9000	12	7	klipper	Klipper		1	40	492	77	1	385
+P	ratrig-v-core-3-200mm	V-Core 3 200mm	V-Core	c	200	200	200	0	0		0.4		1.75	b	500	3000	10	5	marlin	Marlin		6.5	40	76	77	1	386
+P	ratrig-v-core-3-300	V-Core 3 300	V-Core	o	300	300	300	0	0		0.4	0.4	1.75	b	500	9000	12	7	klipper	Klipper		1	40	492	77	1	384
+P	ratrig-v-core-3-300mm	V-Core 3 300mm	V-Core	c	300	300	300	0	0		0.4		1.75	b	500	3000	10	5	marlin	Marlin		6.5	40	76	77	1	387
+P	ratrig-v-core-3-400	V-Core 3 400	V-Core	o	400	400	400	0	0		0.4	0.4	1.75	b	500	9000	12	7	klipper	Klipper		1	40	492	77	1	388
+P	ratrig-v-core-3-400mm	V-Core 3 400mm	V-Core	c	400	400	400	0	0		0.4		1.75	b	500	3000	10	5	marlin	Marlin		6.5	40	76	77	1	389
+P	ratrig-v-core-3-500	V-Core 3 500	V-Core	o	500	500	500	0	0		0.4	0.4	1.75	b	500	9000	12	7	klipper	Klipper		1	40	492	77	1	390
+P	ratrig-v-core-3-500mm	V-Core 3 500mm	V-Core	c	500	500	500	0	0		0.4		1.75	b	500	3000	10	5	marlin	Marlin		6.5	40	76	77	1	391
+P	ratrig-v-core-4-300	V-Core 4 300	V-Core	o	300	300	300	0	0		0.4	0.4;0.5;0.6;0.8	1.75	b	400	10000	200	5	klipper	Klipper		0.8	120		77	1	384
+P	ratrig-v-core-4-400	V-Core 4 400	V-Core	o	400	400	300	0	0		0.4	0.4;0.5;0.6;0.8	1.75	b	400	10000	200	5	klipper	Klipper		0.8	120		77	1	388
+P	ratrig-v-core-4-500	V-Core 4 500	V-Core	o	500	500	500	0	0		0.4	0.4;0.5;0.6;0.8	1.75	b	400	10000	200	5	klipper	Klipper		0.8	120		77	1	390
+P	ratrig-v-core-4-hybrid-300	V-Core 4 HYBRID 300	V-Core	o	300	300	300	0	0		0.4	0.4;0.5;0.6;0.8	1.75	b	500	20000	200	5	klipper	Klipper		0.8	120		77	1	384
+P	ratrig-v-core-4-hybrid-400	V-Core 4 HYBRID 400	V-Core	o	400	400	400	0	0		0.4	0.4;0.5;0.6;0.8	1.75	b	500	20000	200	5	klipper	Klipper		0.8	120		77	1	388
+P	ratrig-v-core-4-hybrid-500	V-Core 4 HYBRID 500	V-Core	o	500	500	500	0	0		0.4	0.4;0.5;0.6;0.8	1.75	b	500	20000	200	5	klipper	Klipper		0.8	120		77	1	390
+P	ratrig-v-core-4-idex-300	V-Core 4 IDEX 300	V-Core	o	300	300	300	0	0		0.4	0.4;0.5;0.6;0.8	1.75	b	500	20000	200	5	klipper	Klipper		0.8	120		77	2	384
+P	ratrig-v-core-4-idex-300-copy-mode	V-Core 4 IDEX 300 COPY MODE	V-Core	o	150	300	300	75	0		0.4	0.4;0.5;0.6;0.8	1.75	b	500	20000	200	5	klipper	Klipper		0.8	120		77	2	392
+P	ratrig-v-core-4-idex-300-mirror-mode	V-Core 4 IDEX 300 MIRROR MODE	V-Core	o	120	300	300	75	0		0.4	0.4;0.5;0.6;0.8	1.75	b	500	20000	200	5	klipper	Klipper		0.8	120		77	2	393
+P	ratrig-v-core-4-idex-400	V-Core 4 IDEX 400	V-Core	o	400	400	400	0	0		0.4	0.4;0.5;0.6;0.8	1.75	b	500	20000	200	5	klipper	Klipper		0.8	120		77	2	388
+P	ratrig-v-core-4-idex-400-copy-mode	V-Core 4 IDEX 400 COPY MODE	V-Core	o	200	400	400	100	0		0.4	0.4;0.5;0.6;0.8	1.75	b	500	20000	200	5	klipper	Klipper		0.8	120		77	2	394
+P	ratrig-v-core-4-idex-400-mirror-mode	V-Core 4 IDEX 400 MIRROR MODE	V-Core	o	170	400	400	100	0		0.4	0.4;0.5;0.6;0.8	1.75	b	500	20000	200	5	klipper	Klipper		0.8	120		77	2	395
+P	ratrig-v-core-4-idex-500	V-Core 4 IDEX 500	V-Core	o	500	500	500	0	0		0.4	0.4;0.5;0.6;0.8	1.75	b	500	20000	200	5	klipper	Klipper		0.8	120		77	2	390
+P	ratrig-v-core-4-idex-500-copy-mode	V-Core 4 IDEX 500 COPY MODE	V-Core	o	250	500	500	125	0		0.4	0.4;0.5;0.6;0.8	1.75	b	500	20000	200	5	klipper	Klipper		0.8	120		77	2	396
+P	ratrig-v-core-4-idex-500-mirror-mode	V-Core 4 IDEX 500 MIRROR MODE	V-Core	o	220	500	500	125	0		0.4	0.4;0.5;0.6;0.8	1.75	b	500	20000	200	5	klipper	Klipper		0.8	120		77	2	397
+P	ratrig-v-core-3-1-300mm	V-Core-3.1 300mm	V-Core-3	p	300	300	300	0	0		0.4	0.4;0.5;0.6	1.75	b	400	8000	30	5	klipper	Klipper		0.8	120		77	1	398
+P	ratrig-v-core-3-1-400mm	V-Core-3.1 400mm	V-Core-3	p	400	400	400	0	0		0.4	0.4;0.5;0.6	1.75	b	400	8000	30	5	klipper	Klipper		0.8	120		77	1	399
+P	ratrig-v-core-3-1-500mm	V-Core-3.1 500mm	V-Core-3	p	500	500	500	0	0		0.4	0.4;0.5;0.6	1.75	b	400	8000	30	5	klipper	Klipper		0.8	120		77	1	400
+P	ratrig-v-core-4-0-corexy-300mm	V-Core-4.0 CoreXY 300mm	V-Core-4	p	300	300	300	0	0		0.4	0.4;0.5;0.6	1.75	b	400	10000	50	5	klipper	Klipper		0.8	120		77	1	398
+P	ratrig-v-core-4-0-corexy-400mm	V-Core-4.0 CoreXY 400mm	V-Core-4	p	400	400	400	0	0		0.4	0.4;0.5;0.6	1.75	b	400	10000	50	5	klipper	Klipper		0.8	120		77	1	399
+P	ratrig-v-core-4-0-corexy-500mm	V-Core-4.0 CoreXY 500mm	V-Core-4	p	500	500	500	0	0		0.4	0.4;0.5;0.6	1.75	b	400	10000	50	5	klipper	Klipper		0.8	120		77	1	400
+P	ratrig-v-core-4-0-hybrid-300mm	V-Core-4.0 HYBRID 300mm	V-Core-4	p	300	300	300	0	0		0.4	0.4;0.5;0.6	1.75	b	500	20000	50	5	klipper	Klipper		0.8	120		77	1	398
+P	ratrig-v-core-4-0-hybrid-400mm	V-Core-4.0 HYBRID 400mm	V-Core-4	p	400	400	400	0	0		0.4	0.4;0.5;0.6	1.75	b	500	20000	50	5	klipper	Klipper		0.8	120		77	1	399
+P	ratrig-v-core-4-0-hybrid-500mm	V-Core-4.0 HYBRID 500mm	V-Core-4	p	500	500	500	0	0		0.4	0.4;0.5;0.6	1.75	b	500	20000	50	5	klipper	Klipper		0.8	120		77	1	400
+P	ratrig-v-core-4-0-idex-300mm	V-Core-4.0 IDEX 300mm	V-Core-4	p	300	300	300	0	0		0.4	0.4;0.5;0.6	1.75	b	250	5000	50	5	klipper	Klipper		0.8	120		77	2	398
+P	ratrig-v-core-4-0-idex-400mm	V-Core-4.0 IDEX 400mm	V-Core-4	p	400	400	400	0	0		0.4	0.4;0.5;0.6	1.75	b	250	5000	50	5	klipper	Klipper		0.8	120		77	2	399
+P	ratrig-v-core-4-0-idex-500mm	V-Core-4.0 IDEX 500mm	V-Core-4	p	500	500	500	0	0		0.4	0.4;0.5;0.6	1.75	b	250	5000	50	5	klipper	Klipper		0.8	120		77	2	400
+P	ratrig-v-minion	V-Minion	V-Minion	opc	180	180	180	0	0		0.4	0.4;0.5;0.6	1.75	b	500	9000	12	7	klipper	Klipper		1	40	492	77	1	401
 B	re3D
-P	re3d-gigabot-4	Gigabot 4	Gigabot	o	590	600	600	0	0		0.4	0.4;0.8	2.85	b					klipper	Klipper		1	30		493	2	391
-P	re3d-gigabot-4-xlt	Gigabot 4 XLT	Gigabot	o	590	760	900	0	0		0.4	0.4;0.8	2.85	b					klipper	Klipper		1	30		493	2	392
-P	re3d-terabot-4	Terabot 4	Terabot	o	915	915	1000	0	0		0.4	0.4;0.8	2.85	b					klipper	Klipper		1	30		493	2	393
+P	re3d-gigabot-4	Gigabot 4	Gigabot	o	590	600	600	0	0		0.4	0.4;0.8	2.85	b					klipper	Klipper		1	30		493	2	402
+P	re3d-gigabot-4-xlt	Gigabot 4 XLT	Gigabot	o	590	760	900	0	0		0.4	0.4;0.8	2.85	b					klipper	Klipper		1	30		493	2	403
+P	re3d-terabot-4	Terabot 4	Terabot	o	915	915	1000	0	0		0.4	0.4;0.8	2.85	b					klipper	Klipper		1	30		493	2	404
 B	Renkforce
 P	renkforce-basic-3	Basic 3	Basic	c	120	120	180	0	0		0.4		1.75		500	500	10	10	marlin	Marlin			25		305	1	
 P	renkforce-cube-one	Cube One	Cube	c	80	80	80	0	0		0.4		1.75		500	500	10	10	marlin	Marlin			60		305	1	
@@ -2102,127 +2215,127 @@ P	renkforce-rf100	RF100	RF	c	100	100	100	0	0		0.4		1.75						marlin	Marlin		5			
 P	renkforce-rf100-v2	RF100 V2	RF	c	120	120	120	0	0		0.4		1.75						marlin	Marlin		5			495	1	
 P	renkforce-rf100-xl	RF100 XL	RF	c	200	200	200	0	0		0.4		1.75	b					marlin	Marlin		5			496	1	
 B	RH3D
-P	rh3d-e3ng-v1-2s	E3NG v1.2S	E3NG	o	232	232	245	0	0		0.4	0.2;0.3;0.4;0.5;0.6	1.75	b	600	20000	12		klipper	Klipper	corexy	0.6	40			1	394
-P	rh3d-virtu-e3	VIRTU E3	VIRTU	o	230	232	232	0	0		0.4	0.2;0.3;0.4;0.5;0.6	1.75	b	900	35000	400		klipper	Klipper	corexy	0.6	40			1	395
+P	rh3d-e3ng-v1-2s	E3NG v1.2S	E3NG	o	232	232	245	0	0		0.4	0.2;0.3;0.4;0.5;0.6	1.75	b	600	20000	12		klipper	Klipper	corexy	0.6	40			1	405
+P	rh3d-virtu-e3	VIRTU E3	VIRTU	o	230	232	232	0	0		0.4	0.2;0.3;0.4;0.5;0.6	1.75	b	900	35000	400		klipper	Klipper	corexy	0.6	40			1	406
 B	Rigid3D
 P	rigid3d-hobby	Hobby	Hobby	c	150	150	150	0	0		0.4		1.75		100	600	8	10	marlin	Marlin		1.5		497	498	1	
-P	rigid3d-mucit	Mucit	Mucit	pc	150	150	150	0	0		0.4	0.4	1.75	b	120	500	20	10	marlin	Marlin 2		1	25	499	500	1	396
-P	rigid3d-mucit2	Mucit2	Mucit	pc	150	150	150	0	0		0.4	0.4	1.75	b	120	500	20	10	marlin	Marlin 2		1	25	499	501	1	397
+P	rigid3d-mucit	Mucit	Mucit	pc	150	150	150	0	0		0.4	0.4	1.75	b	120	500	20	10	marlin	Marlin 2		1	25	499	500	1	407
+P	rigid3d-mucit2	Mucit2	Mucit	pc	150	150	150	0	0		0.4	0.4	1.75	b	120	500	20	10	marlin	Marlin 2		1	25	499	501	1	408
 P	rigid3d-rigid3d-2-nesil	Rigid3D 2. Nesil	Rigid	c	250	250	210	0	0		0.4		1.75	b	100	600	8	10	marlin	Marlin		1.5		502	503	1	
 P	rigid3d-rigid3d-3-nesil	Rigid3D 3. Nesil	Rigid	c	270	290	240	0	0		0.4		1.75	b	100	600	8	10	marlin	Marlin		1.5		502	504	1	
 P	rigid3d-zero	Zero	Zero	c	250	250	190	0	0		0.4		1.75		100	600	8	10	marlin	Marlin		1.5		505	503	1	
-P	rigid3d-zero2	Zero2	Zero	pc	200	200	190	0	0		0.4	0.4	1.75	b	120	500	20	10	marlin	Marlin 2		1	25	506	507	1	398
-P	rigid3d-zero3	Zero3	Zero	pc	200	200	200	0	0		0.4	0.4	1.75	b	120	500	20	10	marlin	Marlin 2		1	25	506	501	1	399
+P	rigid3d-zero2	Zero2	Zero	pc	200	200	190	0	0		0.4	0.4	1.75	b	120	500	20	10	marlin	Marlin 2		1	25	506	507	1	409
+P	rigid3d-zero3	Zero3	Zero	pc	200	200	200	0	0		0.4	0.4	1.75	b	120	500	20	10	marlin	Marlin 2		1	25	506	501	1	410
 B	RigidBot
-P	rigidbot-rigidbot	RigidBot	RigidBot	c	254	254	254	0	0		0.4		1.75	b					marlin	Marlin						1	400
-P	rigidbot-rigidbotbig	RigidBotBig	RigidBotBig	c	400	300	254	0	0		0.4		1.75	b					marlin	Marlin						1	401
+P	rigidbot-rigidbot	RigidBot	RigidBot	c	254	254	254	0	0		0.4		1.75	b					marlin	Marlin						1	411
+P	rigidbot-rigidbotbig	RigidBotBig	RigidBotBig	c	400	300	254	0	0		0.4		1.75	b					marlin	Marlin						1	412
 B	Robo 3D
 P	robo-3d-r1	R1	R1	c	225	245	210	0	0		0.4		1.75	b					marlin	Marlin		3	50	508		1	
 B	Robokinetika
 P	robokinetika-erzay3d	Erzay3D	Erzay	c	210	210	230	-105	-105	r	0.4		1.75	b	200	1000	200	10	marlin	Marlin	delta	6.5		509		1	
 B	RolohaunDesign
-P	rolohaundesign-rolohaun-delta-flyer-refit	Rolohaun Delta Flyer Refit	Rolohaun	o	110	110	115	-55	-55	r	0.4	0.4	1.75	b	420	10000	12	12	klipper	Klipper	delta	1.8	60	81	10	1	402
-P	rolohaundesign-rook-mk1-ldo	Rook MK1 LDO	Rook	o	110	110	111	0	0		0.4	0.2;0.4;0.6;0.8	1.75	b	420	8000	12	12	klipper	Klipper		0.8	50	109	10	1	402
+P	rolohaundesign-rolohaun-delta-flyer-refit	Rolohaun Delta Flyer Refit	Rolohaun	o	110	110	115	-55	-55	r	0.4	0.4	1.75	b	420	10000	12	12	klipper	Klipper	delta	1.8	60	81	10	1	413
+P	rolohaundesign-rook-mk1-ldo	Rook MK1 LDO	Rook	o	110	110	111	0	0		0.4	0.2;0.4;0.6;0.8	1.75	b	420	8000	12	12	klipper	Klipper		0.8	50	109	10	1	413
 B	SecKit
-P	seckit-go3	Go3	Go	o	300	300	275	0	0		0.4	0.4	1.75	b	300	3500	12	14.14	klipper	Klipper		1.2	120	510	77	1	403
+P	seckit-go3	Go3	Go	o	300	300	275	0	0		0.4	0.4	1.75	b	300	3500	12	14.14	klipper	Klipper		1.2	120	510	77	1	414
 P	seckit-sk-go	SK-Go	SK	c	310	310	350	0	0		0.4		1.75	b					marlin	Marlin				511	191	1	
-P	seckit-sk-tank	SK-Tank	SK	oc	350	350	400	0	0		0.4	0.4	1.75	b	300	3500	12	14.14	klipper	Klipper		1.2	120	510	77	1	404
+P	seckit-sk-tank	SK-Tank	SK	oc	350	350	400	0	0		0.4	0.4	1.75	b	300	3500	12	14.14	klipper	Klipper		1.2	120	510	77	1	415
 B	SeeMeCNC
-P	seemecnc-artemis	Artemis	Artemis	c	290	290	530	-145	-145	r	0.5		1.75	b			400		marlin	RepRapFirmware	delta	3.2	45	512	513	1	405
-P	seemecnc-artemis-300	Artemis 300	Artemis	o	290	290	500	-145	-145	r	0.4	0.4;0.5;0.7;1	1.75	bc	300	5000	200	15	marlin	RepRapFirmware	delta	6	60		514	1	406
-P	seemecnc-bossdelta-300	BOSSdelta 300	BOSSdelta	o	300	300	495	-150	-150	r	0.4	0.4;0.5;0.7;1	1.75	bc	300	5000	200	15	marlin	RepRapFirmware	delta	6	60		515	1	407
-P	seemecnc-bossdelta-500-0505	BOSSdelta 500 0505	BOSSdelta	o	500	500	500	-250	-250	r	0.4	0.4;0.5;0.7;1	1.75	bc	300	5000	150	15	marlin	RepRapFirmware	delta	6	60		516	1	408
-P	seemecnc-bossdelta-500-0510	BOSSdelta 500 0510	BOSSdelta	o	500	500	1000	-250	-250	r	0.4	0.4;0.5;0.7;1	1.75	bc	300	5000	100	15	marlin	RepRapFirmware	delta	6	60		517	1	408
-P	seemecnc-rostockmax-v3-2	RostockMAX v3.2	RostockMAX	oc	270	270	385	-135	-135	r	0.4	0.4;0.5;0.7;1	1.75	bc	300	5000	200	15	marlin	RepRapFirmware	delta	6	60	512	518	1	409
-P	seemecnc-rostockmax-v4	RostockMAX v4	RostockMAX	o	280	280	385	-140	-140	r	0.4	0.4;0.5;0.7;1	1.75	bc	300	5000	200	15	marlin	RepRapFirmware	delta	6	60		519	1	410
+P	seemecnc-artemis	Artemis	Artemis	c	290	290	530	-145	-145	r	0.5		1.75	b			400		marlin	RepRapFirmware	delta	3.2	45	512	513	1	416
+P	seemecnc-artemis-300	Artemis 300	Artemis	o	290	290	500	-145	-145	r	0.4	0.4;0.5;0.7;1	1.75	bc	300	5000	200	15	marlin	RepRapFirmware	delta	6	60		514	1	417
+P	seemecnc-bossdelta-300	BOSSdelta 300	BOSSdelta	o	300	300	495	-150	-150	r	0.4	0.4;0.5;0.7;1	1.75	bc	300	5000	200	15	marlin	RepRapFirmware	delta	6	60		515	1	418
+P	seemecnc-bossdelta-500-0505	BOSSdelta 500 0505	BOSSdelta	o	500	500	500	-250	-250	r	0.4	0.4;0.5;0.7;1	1.75	bc	300	5000	150	15	marlin	RepRapFirmware	delta	6	60		516	1	419
+P	seemecnc-bossdelta-500-0510	BOSSdelta 500 0510	BOSSdelta	o	500	500	1000	-250	-250	r	0.4	0.4;0.5;0.7;1	1.75	bc	300	5000	100	15	marlin	RepRapFirmware	delta	6	60		517	1	419
+P	seemecnc-rostockmax-v3-2	RostockMAX v3.2	RostockMAX	oc	270	270	385	-135	-135	r	0.4	0.4;0.5;0.7;1	1.75	bc	300	5000	200	15	marlin	RepRapFirmware	delta	6	60	512	518	1	420
+P	seemecnc-rostockmax-v4	RostockMAX v4	RostockMAX	o	280	280	385	-140	-140	r	0.4	0.4;0.5;0.7;1	1.75	bc	300	5000	200	15	marlin	RepRapFirmware	delta	6	60		519	1	421
 B	Skriware
-P	skriware-skriware-2	Skriware 2	Skriware	c	210	260	210	0	0		0.4		1.75	b					marlin	Marlin		3	30		520	2	411
+P	skriware-skriware-2	Skriware 2	Skriware	c	210	260	210	0	0		0.4		1.75	b					marlin	Marlin		3	30		520	2	422
 B	SnakeOilXY
 P	snakeoilxy-snakeoil-standard-180	SnakeOil Standard 180	SnakeOil	c	180	180	180	0	0		0.4		1.75	b		1500	40		marlin	Marlin		0.8	35		77	1	
 P	snakeoilxy-snakeoil-standard-250	SnakeOil Standard 250	SnakeOil	c	250	240	230	0	0		0.4		1.75	b		1500	40		marlin	Marlin		0.8	35		77	1	
 B	Snapmaker
-P	snapmaker-a250	A250	Snapmaker	op	230	250	230	0	0		0.4	0.2;0.4;0.6;0.8	1.75	b	150	1100	40	5	marlin	Marlin 2		0.8	45			1	412
-P	snapmaker-a250-bkit	A250 BKit	Snapmaker	op	230	250	224	0	0		0.4	0.2;0.4;0.6;0.8	1.75	b	150	3500	40	5	marlin	Marlin 2		0.8	45			1	412
-P	snapmaker-a250-dual	A250 Dual	Snapmaker	op	230	250	190	0	0		0.4	0.2;0.4;0.6;0.8	1.75	b	150	1100	40	5	marlin	Marlin 2		0.8	35			2	413
-P	snapmaker-a250-dual-bkit	A250 Dual BKit	Snapmaker	op	230	250	184	0	0		0.4	0.2;0.4;0.6;0.8	1.75	b	150	3500	40	5	marlin	Marlin 2		0.8	35			2	413
-P	snapmaker-a250-dual-qs-b-kit	A250 Dual QS+B Kit	Snapmaker	op	230	250	169	0	0		0.4	0.2;0.4;0.6;0.8	1.75	b	150	3500	40	5	marlin	Marlin 2		0.8	35			2	413
-P	snapmaker-a250-dual-qskit	A250 Dual QSKit	Snapmaker	op	230	250	175	0	0		0.4	0.2;0.4;0.6;0.8	1.75	b	150	1100	40	5	marlin	Marlin 2		0.8	35			2	413
-P	snapmaker-a250-qs-b-kit	A250 QS+B Kit	Snapmaker	op	230	250	209	0	0		0.4	0.2;0.4;0.6;0.8	1.75	b	150	3500	40	5	marlin	Marlin 2		0.8	45			1	412
-P	snapmaker-a250-qskit	A250 QSKit	Snapmaker	op	230	250	215	0	0		0.4	0.2;0.4;0.6;0.8	1.75	b	150	1100	40	5	marlin	Marlin 2		0.8	45			1	412
-P	snapmaker-a350	A350	Snapmaker	op	320	350	325	0	0		0.4	0.2;0.4;0.6;0.8	1.75	b	150	1100	40	5	marlin	Marlin 2		0.8	45			1	414
-P	snapmaker-a350-bkit	A350 BKit	Snapmaker	op	320	350	319	0	0		0.4	0.2;0.4;0.6;0.8	1.75	b	150	3500	40	5	marlin	Marlin 2		0.8	45			1	414
-P	snapmaker-a350-dual	A350 Dual	Snapmaker	op	320	350	285	0	0		0.4	0.2;0.4;0.6;0.8	1.75	b	150	1100	40	5	marlin	Marlin 2		0.8	35			2	415
-P	snapmaker-a350-dual-bkit	A350 Dual BKit	Snapmaker	op	320	350	279	0	0		0.4	0.2;0.4;0.6;0.8	1.75	b	150	3500	40	5	marlin	Marlin 2		0.8	35			2	415
-P	snapmaker-a350-dual-qs-b-kit	A350 Dual QS+B Kit	Snapmaker	op	320	350	264	0	0		0.4	0.2;0.4;0.6;0.8	1.75	b	150	3500	40	5	marlin	Marlin 2		0.8	35			2	415
-P	snapmaker-a350-dual-qskit	A350 Dual QSKit	Snapmaker	op	320	350	270	0	0		0.4	0.2;0.4;0.6;0.8	1.75	b	150	1100	40	5	marlin	Marlin 2		0.8	35			2	415
-P	snapmaker-a350-qs-b-kit	A350 QS+B Kit	Snapmaker	op	320	350	304	0	0		0.4	0.2;0.4;0.6;0.8	1.75	b	150	3500	40	5	marlin	Marlin 2		0.8	45			1	414
-P	snapmaker-a350-qskit	A350 QSKit	Snapmaker	op	320	350	310	0	0		0.4	0.2;0.4;0.6;0.8	1.75	b	150	1100	40	5	marlin	Marlin 2		0.8	45			1	414
-P	snapmaker-artisan	Artisan	Snapmaker	op	400	400	400	0	0		0.4	0.2;0.4;0.6;0.8	1.75	b	300	5000	40	10	marlin	Marlin 2		0.8	35			2	416
-P	snapmaker-j1	J1	Snapmaker	op	324	200	200	0	0		0.4	0.2;0.4;0.6;0.8	1.75	b	300	10000	10	10	marlin	Marlin 2		0.8	25			2	417
+P	snapmaker-a250	A250	Snapmaker	op	230	250	230	0	0		0.4	0.2;0.4;0.6;0.8	1.75	b	150	1100	40	5	marlin	Marlin 2		0.8	45			1	423
+P	snapmaker-a250-bkit	A250 BKit	Snapmaker	op	230	250	224	0	0		0.4	0.2;0.4;0.6;0.8	1.75	b	150	3500	40	5	marlin	Marlin 2		0.8	45			1	423
+P	snapmaker-a250-dual	A250 Dual	Snapmaker	op	230	250	190	0	0		0.4	0.2;0.4;0.6;0.8	1.75	b	150	1100	40	5	marlin	Marlin 2		0.8	35			2	424
+P	snapmaker-a250-dual-bkit	A250 Dual BKit	Snapmaker	op	230	250	184	0	0		0.4	0.2;0.4;0.6;0.8	1.75	b	150	3500	40	5	marlin	Marlin 2		0.8	35			2	424
+P	snapmaker-a250-dual-qs-b-kit	A250 Dual QS+B Kit	Snapmaker	op	230	250	169	0	0		0.4	0.2;0.4;0.6;0.8	1.75	b	150	3500	40	5	marlin	Marlin 2		0.8	35			2	424
+P	snapmaker-a250-dual-qskit	A250 Dual QSKit	Snapmaker	op	230	250	175	0	0		0.4	0.2;0.4;0.6;0.8	1.75	b	150	1100	40	5	marlin	Marlin 2		0.8	35			2	424
+P	snapmaker-a250-qs-b-kit	A250 QS+B Kit	Snapmaker	op	230	250	209	0	0		0.4	0.2;0.4;0.6;0.8	1.75	b	150	3500	40	5	marlin	Marlin 2		0.8	45			1	423
+P	snapmaker-a250-qskit	A250 QSKit	Snapmaker	op	230	250	215	0	0		0.4	0.2;0.4;0.6;0.8	1.75	b	150	1100	40	5	marlin	Marlin 2		0.8	45			1	423
+P	snapmaker-a350	A350	Snapmaker	op	320	350	325	0	0		0.4	0.2;0.4;0.6;0.8	1.75	b	150	1100	40	5	marlin	Marlin 2		0.8	45			1	425
+P	snapmaker-a350-bkit	A350 BKit	Snapmaker	op	320	350	319	0	0		0.4	0.2;0.4;0.6;0.8	1.75	b	150	3500	40	5	marlin	Marlin 2		0.8	45			1	425
+P	snapmaker-a350-dual	A350 Dual	Snapmaker	op	320	350	285	0	0		0.4	0.2;0.4;0.6;0.8	1.75	b	150	1100	40	5	marlin	Marlin 2		0.8	35			2	426
+P	snapmaker-a350-dual-bkit	A350 Dual BKit	Snapmaker	op	320	350	279	0	0		0.4	0.2;0.4;0.6;0.8	1.75	b	150	3500	40	5	marlin	Marlin 2		0.8	35			2	426
+P	snapmaker-a350-dual-qs-b-kit	A350 Dual QS+B Kit	Snapmaker	op	320	350	264	0	0		0.4	0.2;0.4;0.6;0.8	1.75	b	150	3500	40	5	marlin	Marlin 2		0.8	35			2	426
+P	snapmaker-a350-dual-qskit	A350 Dual QSKit	Snapmaker	op	320	350	270	0	0		0.4	0.2;0.4;0.6;0.8	1.75	b	150	1100	40	5	marlin	Marlin 2		0.8	35			2	426
+P	snapmaker-a350-qs-b-kit	A350 QS+B Kit	Snapmaker	op	320	350	304	0	0		0.4	0.2;0.4;0.6;0.8	1.75	b	150	3500	40	5	marlin	Marlin 2		0.8	45			1	425
+P	snapmaker-a350-qskit	A350 QSKit	Snapmaker	op	320	350	310	0	0		0.4	0.2;0.4;0.6;0.8	1.75	b	150	1100	40	5	marlin	Marlin 2		0.8	45			1	425
+P	snapmaker-artisan	Artisan	Snapmaker	op	400	400	400	0	0		0.4	0.2;0.4;0.6;0.8	1.75	b	300	5000	40	10	marlin	Marlin 2		0.8	35			2	427
+P	snapmaker-j1	J1	Snapmaker	op	324	200	200	0	0		0.4	0.2;0.4;0.6;0.8	1.75	b	300	10000	10	10	marlin	Marlin 2		0.8	25			2	428
 P	snapmaker-snapmaker-2-a150	Snapmaker 2 A150	Snapmaker	c	160	160	145	0	0		0.4		1.75	b		1000			marlin	Marlin		5	60	521	522	1	
 P	snapmaker-snapmaker-2-a150-dual-extruder	Snapmaker 2 A150 Dual Extruder	Snapmaker	c	160	160	145	0	0		0.4		1.75	b		1000			marlin	Marlin		5	60	521	522	2	
 P	snapmaker-snapmaker-2-a250	Snapmaker 2 A250	Snapmaker	c	230	250	235	0	0		0.4		1.75	b		1000			marlin	Marlin		5	60	521	523	1	
 P	snapmaker-snapmaker-2-a250-dual-extruder	Snapmaker 2 A250 Dual Extruder	Snapmaker	c	230	250	235	0	0		0.4		1.75	b		1000			marlin	Marlin		5	60	521	523	2	
 P	snapmaker-snapmaker-2-a350	Snapmaker 2 A350	Snapmaker	c	320	350	330	0	0		0.4		1.75	b		1000			marlin	Marlin		5	60	521	524	1	
 P	snapmaker-snapmaker-2-a350-dual-extruder	Snapmaker 2 A350 Dual Extruder	Snapmaker	c	320	350	330	0	0		0.4		1.75	b		1000			marlin	Marlin		5	60	521	524	2	
-P	snapmaker-u1	U1	U1	o	270	270	270.05	0.5	1		0.4	0.2;0.4;0.6;0.8	1.75	b	500	20000	20	9	klipper	Klipper	corexy	1.5	30			4	418
+P	snapmaker-u1	U1	U1	o	270	270	270.05	0.5	1		0.4	0.2;0.4;0.6;0.8	1.75	b	500	20000	20	9	klipper	Klipper	corexy	1.5	30			4	429
 B	Sovol
 P	sovol-sovol-sv01-legacy	Sovol-SV01 (Legacy)	Sovol	c	280	240	300	0	0		0.4		1.75	b	500	500	10	10	marlin	Marlin		3	50	121	525	1	
 P	sovol-sovol-sv02-legacy	Sovol-SV02 (Legacy)	Sovol	c	280	240	300	0	0		0.4		1.75	b	500	500	10	5	marlin	Marlin		5	50	526	527	2	
 P	sovol-sovol-sv03-legacy	Sovol-SV03 (Legacy)	Sovol	c	350	350	400	0	0		0.4		1.75	b	500	500	10	10	marlin	Marlin		3	50	528	529	1	
 P	sovol-sovol-sv06-plus	Sovol-SV06 Plus	Sovol	c	300	300	340	0	0		0.4		1.75	b	500	1000	20	5	marlin	Marlin		0.5	40	530	531	1	
-P	sovol-sv01	SV01	SV	oc	280	240	300	0	0		0.4	0.4	1.75	b	500	500	10	8	marlin	Marlin		1	60	116	525	1	419
-P	sovol-sv01-sv01-bltouch	SV01 / SV01 BLTOUCH	SV	p	280	240	300	0	0		0.4	0.3;0.4;0.6;0.8	1.75	b	300	500	5	10	marlin	Marlin 2		2	40	532	533	1	420
-P	sovol-sv01-pro	SV01 Pro	SV	opc	280	240	300	0	0		0.4	0.3;0.4;0.6;0.8	1.75	b	500	500	10	8	marlin	Marlin		1	60	116	533	1	419
-P	sovol-sv02	SV02	SV	o	280	240	300	0	0		0.4	0.4	1.75	b	500	500	10	8	marlin	Marlin		6	60	129		2	419
-P	sovol-sv02-sv02-bltouch	SV02 / SV02 BLTOUCH	SV	p	280	240	300	0	0		0.4	0.3;0.4;0.6;0.8	1.75	b	200	1250	12	8	marlin	Marlin 2		0.5	40	534	535	1	420
+P	sovol-sv01	SV01	SV	oc	280	240	300	0	0		0.4	0.4	1.75	b	500	500	10	8	marlin	Marlin		1	60	116	525	1	430
+P	sovol-sv01-sv01-bltouch	SV01 / SV01 BLTOUCH	SV	p	280	240	300	0	0		0.4	0.3;0.4;0.6;0.8	1.75	b	300	500	5	10	marlin	Marlin 2		2	40	532	533	1	431
+P	sovol-sv01-pro	SV01 Pro	SV	opc	280	240	300	0	0		0.4	0.3;0.4;0.6;0.8	1.75	b	500	500	10	8	marlin	Marlin		1	60	116	533	1	430
+P	sovol-sv02	SV02	SV	o	280	240	300	0	0		0.4	0.4	1.75	b	500	500	10	8	marlin	Marlin		6	60	129		2	430
+P	sovol-sv02-sv02-bltouch	SV02 / SV02 BLTOUCH	SV	p	280	240	300	0	0		0.4	0.3;0.4;0.6;0.8	1.75	b	200	1250	12	8	marlin	Marlin 2		0.5	40	534	535	1	431
 P	sovol-sv03	SV03	SV	c	350	350	400	0	0		0.4		1.75	b	500	500	10	8	marlin	Marlin		0.5	40	536	529	1	
-P	sovol-sv03-sv03-bltouch	SV03 / SV03 BLTOUCH	SV	p	350	350	400	0	0		0.4	0.3;0.4;0.6;0.8	1.75	b	200	1250	12	8	marlin	Marlin		0.5	40	534	535	1	421
-P	sovol-sv04	SV04	SV	p	302	302	402	0	0		0.4	0.3;0.4;0.6;0.8	1.75	b	200	1250	12	8	marlin	Marlin		0.5	40	534	535	1	422
+P	sovol-sv03-sv03-bltouch	SV03 / SV03 BLTOUCH	SV	p	350	350	400	0	0		0.4	0.3;0.4;0.6;0.8	1.75	b	200	1250	12	8	marlin	Marlin		0.5	40	534	535	1	432
+P	sovol-sv04	SV04	SV	p	302	302	402	0	0		0.4	0.3;0.4;0.6;0.8	1.75	b	200	1250	12	8	marlin	Marlin		0.5	40	534	535	1	433
 P	sovol-sv04-copy-mode	SV04 Copy Mode	SV	c	150	302	402	0	0		0.4		1.75	b	500	500	10	8	marlin	Marlin		0.5	40	537	538	1	
 P	sovol-sv04-dual-mode	SV04 Dual Mode	SV	c	302	302	402	0	0		0.4		1.75	b	500	500	10	8	marlin	Marlin		0.5	40	537	538	2	
 P	sovol-sv04-mirror-mode	SV04 Mirror Mode	SV	c	115	302	402	0	0		0.4		1.75	b	500	500	10	8	marlin	Marlin		0.5	40	537	538	1	
 P	sovol-sv04-single-mode-01	SV04 Single Mode 01	SV	c	302	302	402	0	0		0.4		1.75	b	500	500	10	8	marlin	Marlin		0.5	40	537	538	1	
 P	sovol-sv04-single-mode-02	SV04 Single Mode 02	SV	c	302	302	402	0	0		0.4		2.85	b	500	500	10	8	marlin	Marlin		0.5	40	537	538	1	
-P	sovol-sv05	SV05	SV	opc	220	220	300	0	0		0.4	0.3;0.4;0.6;0.8	1.75	b	500	500	5	8	marlin	Marlin		2	60	116	535	1	423
-P	sovol-sv06	SV06	SV	opc	220	220	250	0	0		0.4	0.3;0.4;0.6;0.8	1.75	b	300	5000	10	5	marlin	Marlin		0.5	35	539	540	1	423
-P	sovol-sv06-ace	SV06 ACE	SV	o	220	220	250	0	0		0.4	0.2;0.4;0.6;0.8	1.75	b	600	20000	10	9	klipper	Klipper		0.8	40		77	1	424
-P	sovol-sv06-plus	SV06 Plus	SV	op	300	300	340	0	0		0.4	0.3;0.4;0.6;0.8	1.75	b	140	1000	12	8	marlin	Marlin		0.5	30	541	542	1	425
-P	sovol-sv06-plus-ace	SV06 Plus ACE	SV	o	300	300	350	0	0		0.4	0.4	1.75	b	500	20000	10	9	klipper	Klipper		0.8	40		77	1	426
-P	sovol-sv07	SV07	SV	o	220	220	250	0	0		0.4	0.4	1.75	b	500	20000	20	9	marlin	Marlin		0.8	50	543	77	1	427
-P	sovol-sv07-plus	SV07 Plus	SV	o	300	300	350	0	0		0.4	0.4	1.75	b	500	4000	500	27	klipper	Klipper		0.5	140	544	77	1	428
-P	sovol-sv08	SV08	SV	oc	350	350	345	0	0		0.4	0.2;0.4;0.6;0.8	1.75	b	700	20000	20	20	klipper	Klipper		0.5	30	545	77	1	429
-P	sovol-sv08-max	SV08 MAX	SV	o	500	500	500	0	0		0.4	0.2;0.4;0.6;0.8;1	1.75	b	800	40000	10	20	klipper	Klipper	corexy	0.8	40		77	1	430
-P	sovol-zero	Zero	Zero	o	152.4	152.4	152.4	0	0		0.4	0.2;0.4;0.6;0.8;1	1.75	b	1200	40000	30	5	klipper	Klipper		1.8	40		77	1	431
+P	sovol-sv05	SV05	SV	opc	220	220	300	0	0		0.4	0.3;0.4;0.6;0.8	1.75	b	500	500	5	8	marlin	Marlin		2	60	116	535	1	434
+P	sovol-sv06	SV06	SV	opc	220	220	250	0	0		0.4	0.3;0.4;0.6;0.8	1.75	b	300	5000	10	5	marlin	Marlin		0.5	35	539	540	1	434
+P	sovol-sv06-ace	SV06 ACE	SV	o	220	220	250	0	0		0.4	0.2;0.4;0.6;0.8	1.75	b	600	20000	10	9	klipper	Klipper		0.8	40		77	1	435
+P	sovol-sv06-plus	SV06 Plus	SV	op	300	300	340	0	0		0.4	0.3;0.4;0.6;0.8	1.75	b	140	1000	12	8	marlin	Marlin		0.5	30	541	542	1	436
+P	sovol-sv06-plus-ace	SV06 Plus ACE	SV	o	300	300	350	0	0		0.4	0.4	1.75	b	500	20000	10	9	klipper	Klipper		0.8	40		77	1	437
+P	sovol-sv07	SV07	SV	o	220	220	250	0	0		0.4	0.4	1.75	b	500	20000	20	9	marlin	Marlin		0.8	50	543	77	1	438
+P	sovol-sv07-plus	SV07 Plus	SV	o	300	300	350	0	0		0.4	0.4	1.75	b	500	4000	500	27	klipper	Klipper		0.5	140	544	77	1	439
+P	sovol-sv08	SV08	SV	oc	350	350	345	0	0		0.4	0.2;0.4;0.6;0.8	1.75	b	700	20000	20	20	klipper	Klipper		0.5	30	545	77	1	440
+P	sovol-sv08-max	SV08 MAX	SV	o	500	500	500	0	0		0.4	0.2;0.4;0.6;0.8;1	1.75	b	800	40000	10	20	klipper	Klipper	corexy	0.8	40		77	1	441
+P	sovol-zero	Zero	Zero	o	152.4	152.4	152.4	0	0		0.4	0.2;0.4;0.6;0.8;1	1.75	b	1200	40000	30	5	klipper	Klipper		1.8	40		77	1	442
 B	Sri Vignan Technologies
-P	sri-vignan-technologies-arjun-300	Arjun 300	Arjun	c	317	310	290	0	0		0.4		1.75	b	300	2000	15		marlin	Marlin		6.5	30	546	547	2	432
+P	sri-vignan-technologies-arjun-300	Arjun 300	Arjun	c	317	310	290	0	0		0.4		1.75	b	300	2000	15		marlin	Marlin		6.5	30	546	547	2	443
 P	sri-vignan-technologies-arjun-300-duplication	Arjun 300 Duplication	Arjun	c	158.5	310	290	0	0		0.4		1.75	b	300	2000	15		marlin	Marlin		6.5	30	548	549	1	
 P	sri-vignan-technologies-arjun-300-mirror	Arjun 300 Mirror	Arjun	c	158.5	310	290	0	0		0.4		1.75	b	300	2000	15		marlin	Marlin		6.5	30	550	549	1	
-P	sri-vignan-technologies-arjun-pro-300	Arjun Pro 300	Arjun	c	300	300	293	0	0		0.4		1.75	b	300	2000	15		marlin	Marlin		6.5	30	551	547	2	433
+P	sri-vignan-technologies-arjun-pro-300	Arjun Pro 300	Arjun	c	300	300	293	0	0		0.4		1.75	b	300	2000	15		marlin	Marlin		6.5	30	551	547	2	444
 P	sri-vignan-technologies-arjun-pro-300-duplication	Arjun Pro 300 Duplication	Arjun	c	120	300	293	0	0		0.4		1.75	b	300	2000	15		marlin	Marlin		6.5	30	552	549	1	
 P	sri-vignan-technologies-arjun-pro-300-mirror	Arjun Pro 300 Mirror	Arjun	c	120	300	293	0	0		0.4		1.75	b	300	2000	15		marlin	Marlin		6.5	30	553	549	1	
-P	sri-vignan-technologies-diytech-220	Diytech 220	Diytech	c	220	220	305	0	0		0.4		1.75	b	300	3000	40		marlin	Marlin				554	555	1	434
-P	sri-vignan-technologies-kosher	Kosher	Kosher	c	220	220	300	0	0		0.4		1.75	b	300	3000	40		marlin	Marlin		6.5	30	556	557	2	435
-P	sri-vignan-technologies-kosher-duplication	Kosher Duplication	Kosher	c	100	220	300	0	0		0.4		1.75	b	300	3000	40		marlin	Marlin		6.5	30	558	559	1	436
-P	sri-vignan-technologies-kosher-mirror	Kosher Mirror	Kosher	c	75	220	300	0	0		0.4		1.75	b	300	3000	40		marlin	Marlin		6.5	30	560	559	1	437
+P	sri-vignan-technologies-diytech-220	Diytech 220	Diytech	c	220	220	305	0	0		0.4		1.75	b	300	3000	40		marlin	Marlin				554	555	1	445
+P	sri-vignan-technologies-kosher	Kosher	Kosher	c	220	220	300	0	0		0.4		1.75	b	300	3000	40		marlin	Marlin		6.5	30	556	557	2	446
+P	sri-vignan-technologies-kosher-duplication	Kosher Duplication	Kosher	c	100	220	300	0	0		0.4		1.75	b	300	3000	40		marlin	Marlin		6.5	30	558	559	1	447
+P	sri-vignan-technologies-kosher-mirror	Kosher Mirror	Kosher	c	75	220	300	0	0		0.4		1.75	b	300	3000	40		marlin	Marlin		6.5	30	560	559	1	448
 B	Stereotech
-P	stereotech-start	Start	Start	c	190	190	190	0	0		0.4		1.75	b					marlin	Marlin				2	3	1	438
-P	stereotech-ste320	STE320	STE	c	218	210	200	0	0		0.4		1.75	b					marlin	Marlin					561	2	439
+P	stereotech-start	Start	Start	c	190	190	190	0	0		0.4		1.75	b					marlin	Marlin				2	3	1	449
+P	stereotech-ste320	STE320	STE	c	218	210	200	0	0		0.4		1.75	b					marlin	Marlin					561	2	450
 B	Structur3d.io
-P	structur3d-io-discov3ry-complete	Discov3ry Complete	Discov	c	205	205	205	0	0		0.84		2.85						marlin	Marlin				562	563	1	440
+P	structur3d-io-discov3ry-complete	Discov3ry Complete	Discov	c	205	205	205	0	0		0.84		2.85						marlin	Marlin				562	563	1	451
 B	Syndaver3D
 P	syndaver3d-syndaveraxi	SyndaverAxi	SyndaverAxi	c	280	280	285	0	0		0.4		1.75	b					marlin	Marlin				564	565	1	
 P	syndaver3d-syndaveraxi2	SyndaverAxi2	SyndaverAxi	c	280	280	280	0	0		0.4		1.75	b					marlin	Marlin				566	565	1	
 B	tank_m
-P	tank-m-tank-m3	Tank M3	Tank	c	235	235	250	0	0		0.4		1.75	b	500	2500	50		marlin	Marlin		1	40	368	369	1	441
-P	tank-m-tank-m3-max	Tank M3 Max	Tank	c	310	310	400	0	0		0.4		1.75	b	500	2500	50		marlin	Marlin		1	40	368	369	1	441
+P	tank-m-tank-m3	Tank M3	Tank	c	235	235	250	0	0		0.4		1.75	b	500	2500	50		marlin	Marlin		1	40	368	369	1	452
+P	tank-m-tank-m3-max	Tank M3 Max	Tank	c	310	310	400	0	0		0.4		1.75	b	500	2500	50		marlin	Marlin		1	40	368	369	1	452
 B	Tevo
-P	tevo-black-widow	Black Widow	Black	c	350	250	250	0	0		0.4		1.75	b					marlin	Marlin				567	568	1	442
-P	tevo-tarantula	Tarantula	Tarantula	c	200	200	200	0	0		0.4		1.75	b	225	2650	3	15	marlin	Marlin				481	569	1	342
-P	tevo-tarantula-pro	Tarantula Pro	Tarantula	c	240	240	260	0	0		0.4		1.75	b	200	2000	9	15	marlin	Marlin		4.5	35	570	571	1	443
+P	tevo-black-widow	Black Widow	Black	c	350	250	250	0	0		0.4		1.75	b					marlin	Marlin				567	568	1	453
+P	tevo-tarantula	Tarantula	Tarantula	c	200	200	200	0	0		0.4		1.75	b	225	2650	3	15	marlin	Marlin				481	569	1	353
+P	tevo-tarantula-pro	Tarantula Pro	Tarantula	c	240	240	260	0	0		0.4		1.75	b	200	2000	9	15	marlin	Marlin		4.5	35	570	571	1	454
 P	tevo-tornado	Tornado	Tornado	c	300	300	400	0	0		0.4		1.75	b		1500		6	marlin	Marlin		6.8	40		572	1	
 B	TheCoolTool
-P	thecooltool-uni-print-3d	Uni-Print-3D	Uni	c	186	220	230	-93	-110		0.4		1.75	b					marlin	Marlin				573	574	1	444
+P	thecooltool-uni-print-3d	Uni-Print-3D	Uni	c	186	220	230	-93	-110		0.4		1.75	b					marlin	Marlin				573	574	1	455
 B	Tiertime
 P	tiertime-up300-hs	UP300 HS	UP	o	207	255	230	0	0		0.4	0.4	1.75	b	500	20000	12	9	klipper	Klipper		0.8	30	9	10	1	
 P	tiertime-up310-pro	UP310 Pro	UP	o	300	300	300	0	0		0.4	0.4	1.75	b	500	20000	12	9	klipper	Klipper		0.8	30	9	10	1	
@@ -2231,157 +2344,157 @@ P	tiertime-up600-hs	UP600 HS	UP	o	500	400	600	0	0		0.4	0.4;0.6;0.8	1.75	b	500	20
 B	TinyBoy
 P	tinyboy-e10-j10-l10-m10	E10/J10/L10/M10	E10/J10/L10/M10	c	100	100	105	0	0		0.3		1.75						marlin	Marlin				164	575	1	
 P	tinyboy-e16-l16-m16	E16/L16/M16	E16/L16/M16	c	100	100	165	0	0		0.3		1.75						marlin	Marlin				164	575	1	
-P	tinyboy-fabrikator-mini-1-5	Fabrikator Mini 1.5	Fabrikator	c	80	80	80	0	0		0.4		1.75						marlin	Marlin					576	1	445
-P	tinyboy-ra20	RA20	RA	c	120	120	205	0	0		0.3		1.75	b					marlin	Marlin				15	575	1	446
+P	tinyboy-fabrikator-mini-1-5	Fabrikator Mini 1.5	Fabrikator	c	80	80	80	0	0		0.4		1.75						marlin	Marlin					576	1	456
+P	tinyboy-ra20	RA20	RA	c	120	120	205	0	0		0.3		1.75	b					marlin	Marlin				15	575	1	457
 B	Tizyx
-P	tizyx-evy	Evy	Evy	c	255	255	255	0	0		0.4		2.85	b					marlin	Marlin		2.5	30	577	578	1	447
-P	tizyx-evy-dual	Evy Dual	Evy	c	255	255	255	0	0		0.4		2.85	b					marlin	Marlin				577	578	2	447
-P	tizyx-k25	K25	K25	c	255	255	255	0	0		0.4		1.75	b					marlin	Marlin				577	578	1	447
+P	tizyx-evy	Evy	Evy	c	255	255	255	0	0		0.4		2.85	b					marlin	Marlin		2.5	30	577	578	1	458
+P	tizyx-evy-dual	Evy Dual	Evy	c	255	255	255	0	0		0.4		2.85	b					marlin	Marlin				577	578	2	458
+P	tizyx-k25	K25	K25	c	255	255	255	0	0		0.4		1.75	b					marlin	Marlin				577	578	1	458
 B	Toybox
 P	toybox-alpha-one-two-three	Alpha One/Two/Three	Alpha	c	70	80	90	0	0		0.4		1.75						marlin	Marlin				579		1	
 B	TriLAB
-P	trilab-azteq-dynamic	AzteQ Dynamic	AzteQ	p	300.2	300.2	400	-150.1	-150.1	r	0.4	0.4	1.75	b	300	1000	300	10	marlin	RepRapFirmware	delta	4	30		580	1	448
-P	trilab-azteq-industrial	AzteQ Industrial	AzteQ	p	300.2	300.2	400	-150.1	-150.1	r	0.4	0.4;0.6;0.8	1.75	b	300	1000	300	10	marlin	RepRapFirmware	delta	4	30		580	1	448
+P	trilab-azteq-dynamic	AzteQ Dynamic	AzteQ	p	300.2	300.2	400	-150.1	-150.1	r	0.4	0.4	1.75	b	300	1000	300	10	marlin	RepRapFirmware	delta	4	30		580	1	459
+P	trilab-azteq-industrial	AzteQ Industrial	AzteQ	p	300.2	300.2	400	-150.1	-150.1	r	0.4	0.4;0.6;0.8	1.75	b	300	1000	300	10	marlin	RepRapFirmware	delta	4	30		580	1	459
 P	trilab-deltiq-l	DeltiQ L	DeltiQ	p	250	250	300	-125	-125	r	0.4	0.4	1.75	b					marlin	Repetier	delta	4	30	581	582	1	
 P	trilab-deltiq-m	DeltiQ M	DeltiQ	p	180	180	230	-90	-90	r	0.4	0.4	1.75	b					marlin	Repetier	delta	3.7	30	583	582	1	
 P	trilab-deltiq-xl	DeltiQ XL	DeltiQ	p	250	250	500	-125	-125	r	0.4	0.4	1.75	b					marlin	Repetier	delta	4.5	35	581	582	1	
-P	trilab-deltiq-2	DeltiQ 2	DeltiQ 2	p	250.2	250.2	300	-125.1	-125.1	r	0.4	0.25;0.4;0.6;0.8	1.75	b	300	1000	300	10	marlin	RepRapFirmware	delta	4	30	584	585	1	449
-P	trilab-deltiq-2-flexprint	DeltiQ 2 + FlexPrint	DeltiQ 2	p	250.2	250.2	300	-125.1	-125.1	r	0.4	0.4	1.75	b	300	1000	300	10	marlin	RepRapFirmware	delta	0.7	25	586	585	1	449
-P	trilab-deltiq-2-flexprint-2	DeltiQ 2 + FlexPrint 2	DeltiQ 2	p	250.2	250.2	300	-125.1	-125.1	r	0.4	0.4	1.75	b	300	1000	300	10	marlin	RepRapFirmware	delta	0.8	25	586	585	1	449
-P	trilab-deltiq-2-plus	DeltiQ 2 Plus	DeltiQ 2	p	250.2	250.2	500	-125.1	-125.1	r	0.4	0.25;0.4;0.6;0.8	1.75	b	300	1000	300	10	marlin	RepRapFirmware	delta	4	30	584	585	1	449
-P	trilab-deltiq-2-plus-flexprint	DeltiQ 2 Plus + FlexPrint	DeltiQ 2	p	250.2	250.2	500	-125.1	-125.1	r	0.4	0.4	1.75	b	300	1000	300	10	marlin	RepRapFirmware	delta	0.7	25	586	585	1	449
-P	trilab-deltiq-2-plus-flexprint-2	DeltiQ 2 Plus + FlexPrint 2	DeltiQ 2	p	250.2	250.2	500	-125.1	-125.1	r	0.4	0.4	1.75	b	300	1000	300	10	marlin	RepRapFirmware	delta	0.8	25	586	585	1	449
+P	trilab-deltiq-2	DeltiQ 2	DeltiQ 2	p	250.2	250.2	300	-125.1	-125.1	r	0.4	0.25;0.4;0.6;0.8	1.75	b	300	1000	300	10	marlin	RepRapFirmware	delta	4	30	584	585	1	460
+P	trilab-deltiq-2-flexprint	DeltiQ 2 + FlexPrint	DeltiQ 2	p	250.2	250.2	300	-125.1	-125.1	r	0.4	0.4	1.75	b	300	1000	300	10	marlin	RepRapFirmware	delta	0.7	25	586	585	1	460
+P	trilab-deltiq-2-flexprint-2	DeltiQ 2 + FlexPrint 2	DeltiQ 2	p	250.2	250.2	300	-125.1	-125.1	r	0.4	0.4	1.75	b	300	1000	300	10	marlin	RepRapFirmware	delta	0.8	25	586	585	1	460
+P	trilab-deltiq-2-plus	DeltiQ 2 Plus	DeltiQ 2	p	250.2	250.2	500	-125.1	-125.1	r	0.4	0.25;0.4;0.6;0.8	1.75	b	300	1000	300	10	marlin	RepRapFirmware	delta	4	30	584	585	1	460
+P	trilab-deltiq-2-plus-flexprint	DeltiQ 2 Plus + FlexPrint	DeltiQ 2	p	250.2	250.2	500	-125.1	-125.1	r	0.4	0.4	1.75	b	300	1000	300	10	marlin	RepRapFirmware	delta	0.7	25	586	585	1	460
+P	trilab-deltiq-2-plus-flexprint-2	DeltiQ 2 Plus + FlexPrint 2	DeltiQ 2	p	250.2	250.2	500	-125.1	-125.1	r	0.4	0.4	1.75	b	300	1000	300	10	marlin	RepRapFirmware	delta	0.8	25	586	585	1	460
 B	Trimaker
-P	trimaker-cosmos-ii	Cosmos II	Cosmos	pc	200	200	200	0	0		0.4	0.4	1.75	b	250	1250	12	20	marlin	Marlin 2		1	35	587	588	1	450
-P	trimaker-nebula	Nebula	Nebula	c	230	230	260	0	0		0.4		1.75	b					marlin	Marlin		1	45	589	590	1	451
+P	trimaker-cosmos-ii	Cosmos II	Cosmos	pc	200	200	200	0	0		0.4	0.4	1.75	b	250	1250	12	20	marlin	Marlin 2		1	35	587	588	1	461
+P	trimaker-nebula	Nebula	Nebula	c	230	230	260	0	0		0.4		1.75	b					marlin	Marlin		1	45	589	590	1	462
 P	trimaker-nebula-0-4-nozzle	Nebula 0.4 nozzle	Nebula	p	230	230	260	0	0		0.4		1.75	b	250	1250	12	20	marlin	Marlin 2		1	35	591	588	1	
-P	trimaker-nebula-cloud	Nebula Cloud	Nebula	p	230	230	260	0	0		0.4	0.4	1.75	b	250	1250	12	20	marlin	Marlin 2		1	35	587	588	1	452
-P	trimaker-nebula-plus	Nebula Plus	Nebula	c	230	230	260	0	0		0.4		1.75	b	300	3000	40		marlin	Marlin		1	45	592	590	1	451
+P	trimaker-nebula-cloud	Nebula Cloud	Nebula	p	230	230	260	0	0		0.4	0.4	1.75	b	250	1250	12	20	marlin	Marlin 2		1	35	587	588	1	463
+P	trimaker-nebula-plus	Nebula Plus	Nebula	c	230	230	260	0	0		0.4		1.75	b	300	3000	40		marlin	Marlin		1	45	592	590	1	462
 B	Tronxy
-P	tronxy-d01	D01	D01	c	220	220	220	0	0		0.4		1.75	b		120			marlin	Marlin			45	593	594	1	453
-P	tronxy-x5sa-400-marlin-firmware	X5SA 400 Marlin Firmware	X5SA	o	400	400	400	0	0		0.4	0.4	1.75	b	500	10000	10	8	marlin	Marlin		1	60	595		1	454
-P	tronxy-x5sa-x5st-pro-2e-400mm	X5SA/X5ST/Pro/2E 400mm	X5SA/X5ST/Pro/2E	c	400	400	400	0	0		0.4		1.75	b		150			marlin	Marlin		6.5	45	596	597	1	453
-P	tronxy-x5sa-x5st-pro-2e-500mm	X5SA/X5ST/Pro/2E 500mm	X5SA/X5ST/Pro/2E	c	500	500	600	0	0		0.4		1.75	b		150			marlin	Marlin		6.5	45	596	598	1	453
-P	tronxy-x5sa-x5st-pro-2e-d01-plus	X5SA/X5ST/Pro/2E/D01 Plus	X5SA/X5ST/Pro/2E/D01	c	330	330	400	0	0		0.4		1.75	b		150			marlin	Marlin		4.5	45	599	600	1	453
-P	tronxy-xy-2	XY-2	XY	c	220	220	260	0	0		0.4		1.75	b		150			marlin	Marlin		4.5	45	601	594	1	453
-P	tronxy-xy-2-pro-pro-2e-xy3-se	XY-2 Pro/Pro 2E/XY3 SE	XY	c	255	255	260	0	0		0.4		1.75	b		150			marlin	Marlin		4.5	45	602	603	1	453
-P	tronxy-xy-3-pro-v2	XY-3 Pro V2	XY	c	310	310	330	0	0		0.4		1.75	b		150			marlin	Marlin		0.5	45	604	605	1	453
-P	tronxy-xy-3-pro	XY-3/Pro	XY	c	310	310	330	0	0		0.4		1.75	b		150			marlin	Marlin		5	45	606	605	1	453
+P	tronxy-d01	D01	D01	c	220	220	220	0	0		0.4		1.75	b		120			marlin	Marlin			45	593	594	1	464
+P	tronxy-x5sa-400-marlin-firmware	X5SA 400 Marlin Firmware	X5SA	o	400	400	400	0	0		0.4	0.4	1.75	b	500	10000	10	8	marlin	Marlin		1	60	595		1	465
+P	tronxy-x5sa-x5st-pro-2e-400mm	X5SA/X5ST/Pro/2E 400mm	X5SA/X5ST/Pro/2E	c	400	400	400	0	0		0.4		1.75	b		150			marlin	Marlin		6.5	45	596	597	1	464
+P	tronxy-x5sa-x5st-pro-2e-500mm	X5SA/X5ST/Pro/2E 500mm	X5SA/X5ST/Pro/2E	c	500	500	600	0	0		0.4		1.75	b		150			marlin	Marlin		6.5	45	596	598	1	464
+P	tronxy-x5sa-x5st-pro-2e-d01-plus	X5SA/X5ST/Pro/2E/D01 Plus	X5SA/X5ST/Pro/2E/D01	c	330	330	400	0	0		0.4		1.75	b		150			marlin	Marlin		4.5	45	599	600	1	464
+P	tronxy-xy-2	XY-2	XY	c	220	220	260	0	0		0.4		1.75	b		150			marlin	Marlin		4.5	45	601	594	1	464
+P	tronxy-xy-2-pro-pro-2e-xy3-se	XY-2 Pro/Pro 2E/XY3 SE	XY	c	255	255	260	0	0		0.4		1.75	b		150			marlin	Marlin		4.5	45	602	603	1	464
+P	tronxy-xy-3-pro-v2	XY-3 Pro V2	XY	c	310	310	330	0	0		0.4		1.75	b		150			marlin	Marlin		0.5	45	604	605	1	464
+P	tronxy-xy-3-pro	XY-3/Pro	XY	c	310	310	330	0	0		0.4		1.75	b		150			marlin	Marlin		5	45	606	605	1	464
 B	Two Trees
-P	two-trees-bluer	Bluer	Bluer	c	230	230	280	0	0		0.4		1.75	b					marlin	Marlin		8	50	607	608	1	455
-P	two-trees-bluer-plus	Bluer Plus	Bluer	c	300	300	400	0	0		0.4		1.75	b					marlin	Marlin		8	50	609	123	1	456
-P	two-trees-sapphire-plus	Sapphire Plus	Sapphire	c	300	300	350	0	0		0.4		1.75	b					marlin	Marlin		7	40	609	123	1	457
-P	two-trees-sapphire-pro	Sapphire Pro	Sapphire	c	220	220	220	0	0		0.4		1.75	b					marlin	Marlin		7	40	607	122	1	458
-P	two-trees-sk1	SK1	SK	o	256	256	256	0	0		0.4	0.4	1.75	b	730	20000	15	5	klipper	Klipper		0.4	50	610	611	1	459
-P	two-trees-sp-5-klipper	SP-5 Klipper	SP	o	310	310	350	0	0		0.4	0.4	1.75	b	500	20000	12	9	klipper	Klipper		0.8	30	76	77	1	460
+P	two-trees-bluer	Bluer	Bluer	c	230	230	280	0	0		0.4		1.75	b					marlin	Marlin		8	50	607	608	1	466
+P	two-trees-bluer-plus	Bluer Plus	Bluer	c	300	300	400	0	0		0.4		1.75	b					marlin	Marlin		8	50	609	123	1	467
+P	two-trees-sapphire-plus	Sapphire Plus	Sapphire	c	300	300	350	0	0		0.4		1.75	b					marlin	Marlin		7	40	609	123	1	468
+P	two-trees-sapphire-pro	Sapphire Pro	Sapphire	c	220	220	220	0	0		0.4		1.75	b					marlin	Marlin		7	40	607	122	1	469
+P	two-trees-sk1	SK1	SK	o	256	256	256	0	0		0.4	0.4	1.75	b	730	20000	15	5	klipper	Klipper		0.4	50	610	611	1	470
+P	two-trees-sp-5-klipper	SP-5 Klipper	SP	o	310	310	350	0	0		0.4	0.4	1.75	b	500	20000	12	9	klipper	Klipper		0.8	30	76	77	1	471
 B	TypeAMachines
-P	typeamachines-series-1-2014	Series 1 2014	Series	c	305	305	305	0	0		0.4		1.75	b					marlin	Marlin		0.4	35		101	1	461
+P	typeamachines-series-1-2014	Series 1 2014	Series	c	305	305	305	0	0		0.4		1.75	b					marlin	Marlin		0.4	35		101	1	472
 B	uBuild-3D
 P	ubuild-3d-mr-bot-280	Mr Bot 280	Mr	c	275	275	275	0	0		0.4		1.75	b		2000	15	20	marlin	Marlin		2	50	612	613	1	
 B	UltiMaker
-P	ultimaker-factor-4	Factor 4+	Factor	c	330	240	300	0	0		0.4		2.85	bc	300	3000	40	1000000	marlin	Cheetah		1.2	25			2	462
-P	ultimaker-makerbot-replicator	MakerBot Replicator+	MakerBot	c	295	195	165	-147.5	-97.5		0.4		1.75	b	200		25		marlin	Marlin		1	50	614	615	1	463
-P	ultimaker-makerbot-sketch-sprint	MakerBot Sketch Sprint	MakerBot	c	221.5	221.5	220.4	-110.75	-110.75		0.4		1.75	b	600		40		marlin	Marlin		1	35	616	617	1	464
-P	ultimaker-original-dual-extrusion	Original Dual Extrusion	Original	c	205	195	200	0	0		0.4		2.85						marlin	Marlin					191	2	465
-P	ultimaker-original	Original+	Original	c	205	205	200	0	0		0.4		2.85	b			30		marlin	Marlin				618	191	1	466
-P	ultimaker-s5	S5	S5	o	330	240	300	0	0		0.4	0.4	2.85	b	500	3500	12	20	marlin	Marlin		4.5	45		619	2	467
-P	ultimaker-s6	S6	S6	c	330	240	300	0	0		0.4		2.85	bc	500	3000	40	1000000	marlin	Cheetah		6.5	45	620		2	468
-P	ultimaker-s8	S8	S8	c	330	240	300	0	0		0.4		2.85	bc	500	3000	40	1000000	marlin	Cheetah		6.5	45	620		2	469
-P	ultimaker-s-line	S-line	S-line	p	230	190	200	0	0		0.4	0.4	2.85	b	300	3000	40	20	marlin	Marlin		6.5	25			2	470
-P	ultimaker-ultimaker-2	UltiMaker 2	UltiMaker	op	223	223	205	0	0		0.4	0.4;0.6;0.8	2.85	b	300	1500	40	20	marlin	Marlin		6	50		621	1	471
-P	ultimaker-ultimaker-2-extended	UltiMaker 2 extended+	UltiMaker	o	223	223	305	0	0		0.4	0.4;0.6;0.8	2.85	b	300	1500	40	20	marlin	Marlin		6	50			1	471
+P	ultimaker-factor-4	Factor 4+	Factor	c	330	240	300	0	0		0.4		2.85	bc	300	3000	40	1000000	marlin	Cheetah		1.2	25			2	473
+P	ultimaker-makerbot-replicator	MakerBot Replicator+	MakerBot	c	295	195	165	-147.5	-97.5		0.4		1.75	b	200		25		marlin	Marlin		1	50	614	615	1	474
+P	ultimaker-makerbot-sketch-sprint	MakerBot Sketch Sprint	MakerBot	c	221.5	221.5	220.4	-110.75	-110.75		0.4		1.75	b	600		40		marlin	Marlin		1	35	616	617	1	475
+P	ultimaker-original-dual-extrusion	Original Dual Extrusion	Original	c	205	195	200	0	0		0.4		2.85						marlin	Marlin					191	2	476
+P	ultimaker-original	Original+	Original	c	205	205	200	0	0		0.4		2.85	b			30		marlin	Marlin				618	191	1	477
+P	ultimaker-s5	S5	S5	o	330	240	300	0	0		0.4	0.4	2.85	b	500	3500	12	20	marlin	Marlin		4.5	45		619	2	478
+P	ultimaker-s6	S6	S6	c	330	240	300	0	0		0.4		2.85	bc	500	3000	40	1000000	marlin	Cheetah		6.5	45	620		2	479
+P	ultimaker-s8	S8	S8	c	330	240	300	0	0		0.4		2.85	bc	500	3000	40	1000000	marlin	Cheetah		6.5	45	620		2	480
+P	ultimaker-s-line	S-line	S-line	p	230	190	200	0	0		0.4	0.4	2.85	b	300	3000	40	20	marlin	Marlin		6.5	25			2	481
+P	ultimaker-ultimaker-2	UltiMaker 2	UltiMaker	op	223	223	205	0	0		0.4	0.4;0.6;0.8	2.85	b	300	1500	40	20	marlin	Marlin		6	50		621	1	482
+P	ultimaker-ultimaker-2-extended	UltiMaker 2 extended+	UltiMaker	o	223	223	305	0	0		0.4	0.4;0.6;0.8	2.85	b	300	1500	40	20	marlin	Marlin		6	50			1	482
 B	Uni 3D
-P	uni-3d-uni-200	Uni 200	Uni	c	220	220	250	0	0		0.4		1.75	b					marlin	Marlin		4			622	2	472
-P	uni-3d-uni-250	Uni 250	Uni	c	270	220	250	0	0		0.4		1.75	b					marlin	Marlin		4			622	2	473
-P	uni-3d-uni-300	Uni 300	Uni	c	320	220	250	0	0		0.4		1.75	b					marlin	Marlin		4			622	2	474
-P	uni-3d-uni-mini	Uni Mini	Uni	c	160	160	175	0	0		0.4		1.75	b					marlin	Marlin		4			622	2	475
+P	uni-3d-uni-200	Uni 200	Uni	c	220	220	250	0	0		0.4		1.75	b					marlin	Marlin		4			622	2	483
+P	uni-3d-uni-250	Uni 250	Uni	c	270	220	250	0	0		0.4		1.75	b					marlin	Marlin		4			622	2	484
+P	uni-3d-uni-300	Uni 300	Uni	c	320	220	250	0	0		0.4		1.75	b					marlin	Marlin		4			622	2	485
+P	uni-3d-uni-mini	Uni Mini	Uni	c	160	160	175	0	0		0.4		1.75	b					marlin	Marlin		4			622	2	486
 B	Velleman
 P	velleman-vertex-delta-k8800	Vertex Delta K8800	Vertex	c	200	200	225	-100	-100	r	0.35		1.75						marlin	Marlin	delta			623	624	1	
-P	velleman-vertex-k8400	Vertex K8400	Vertex	c	200	200	190	0	0		0.35		1.75	b					marlin	Marlin				625	626	1	476
-P	velleman-vertex-k8400-dual	Vertex K8400 Dual	Vertex	c	223.7	200	190	0	0		0.35		1.75	b					marlin	Marlin				481	101	2	476
+P	velleman-vertex-k8400	Vertex K8400	Vertex	c	200	200	190	0	0		0.35		1.75	b					marlin	Marlin				625	626	1	487
+P	velleman-vertex-k8400-dual	Vertex K8400 Dual	Vertex	c	223.7	200	190	0	0		0.35		1.75	b					marlin	Marlin				481	101	2	487
 P	velleman-vertex-k8600	Vertex K8600	Vertex	c	80	80	75	0	0		0.35		1.75						marlin	Marlin				627	628	1	
 B	Vivedino
-P	vivedino-troodon-2-0-klipper	Troodon 2.0 - Klipper	Troodon	o	350	350	330	0	0		0.4	0.4	1.75	b	500	20000	12	9	klipper	Klipper		0.8	30	109	10	1	477
-P	vivedino-troodon-2-0-rrf	Troodon 2.0 - RRF	Troodon	o	350	350	330	0	0		0.4	0.4	1.75	b	500	20000	12	9	marlin	RepRapFirmware		0.8	30		214	1	477
-P	vivedino-xplorer-dual-gantry	Xplorer Dual Gantry	Xplorer	o	400	342.5	401	10	0		0.4	0.4;0.6;0.8	1.75	bc	300	5000	40	5	klipper	Klipper		1.35	120		104	2	478
-P	vivedino-xplorer-idex	Xplorer IDEX	Xplorer	o	400	400	401	10	0		0.4	0.4;0.6;0.8	1.75	bc	300	5000	40	5	klipper	Klipper		1.35	120		104	2	479
-P	vivedino-xplorer-iqex	Xplorer IQEX	Xplorer	o	400	342.5	401	10	0		0.4	0.4;0.6;0.8	1.75	bc	300	5000	40	5	klipper	Klipper		1.35	120		104	4	480
-P	vivedino-xplorer-single	Xplorer Single	Xplorer	o	400	400	401	10	0		0.4	0.4;0.6;0.8	1.75	bc	300	5000	40	5	klipper	Klipper		1.35	120		104	1	481
+P	vivedino-troodon-2-0-klipper	Troodon 2.0 - Klipper	Troodon	o	350	350	330	0	0		0.4	0.4	1.75	b	500	20000	12	9	klipper	Klipper		0.8	30	109	10	1	488
+P	vivedino-troodon-2-0-rrf	Troodon 2.0 - RRF	Troodon	o	350	350	330	0	0		0.4	0.4	1.75	b	500	20000	12	9	marlin	RepRapFirmware		0.8	30		214	1	488
+P	vivedino-xplorer-dual-gantry	Xplorer Dual Gantry	Xplorer	o	400	342.5	401	10	0		0.4	0.4;0.6;0.8	1.75	bc	300	5000	40	5	klipper	Klipper		1.35	120		104	2	489
+P	vivedino-xplorer-idex	Xplorer IDEX	Xplorer	o	400	400	401	10	0		0.4	0.4;0.6;0.8	1.75	bc	300	5000	40	5	klipper	Klipper		1.35	120		104	2	490
+P	vivedino-xplorer-iqex	Xplorer IQEX	Xplorer	o	400	342.5	401	10	0		0.4	0.4;0.6;0.8	1.75	bc	300	5000	40	5	klipper	Klipper		1.35	120		104	4	491
+P	vivedino-xplorer-single	Xplorer Single	Xplorer	o	400	400	401	10	0		0.4	0.4;0.6;0.8	1.75	bc	300	5000	40	5	klipper	Klipper		1.35	120		104	1	492
 B	Vivedino, Formbot
-P	vivedino-formbot-vivedino-t-rex-2	Vivedino T-REX 2+	Vivedino	c	400	400	500	0	0		0.4		1.75	b	500	500	10	10	marlin	Marlin		2	25	629	630	2	482
-P	vivedino-formbot-vivedino-t-rex-3	Vivedino T-REX 3	Vivedino	c	400	400	500	0	0		0.4		1.75	b	500	500	10	10	marlin	Marlin		2	25		630	2	482
+P	vivedino-formbot-vivedino-t-rex-2	Vivedino T-REX 2+	Vivedino	c	400	400	500	0	0		0.4		1.75	b	500	500	10	10	marlin	Marlin		2	25	629	630	2	493
+P	vivedino-formbot-vivedino-t-rex-3	Vivedino T-REX 3	Vivedino	c	400	400	500	0	0		0.4		1.75	b	500	500	10	10	marlin	Marlin		2	25		630	2	493
 B	Volumic
-P	volumic-exo42	EXO42	EXO	o	420	420	420	0	0		0.4	0.4	1.75	b		2000	0	0	marlin	Marlin		2.4	30	631	632	1	483
-P	volumic-exo42-idre	EXO42 IDRE	EXO	o	372	420	400	11	0		0.4	0.4	1.75	b		4500	0	0	klipper	Klipper		2.4	30	633	77	2	483
-P	volumic-exo42-performance	EXO42 Performance	EXO	o	420	420	420	0	0		0.4	0.4	1.75	b		4500	0	0	klipper	Klipper		2.4	30	634	77	1	483
-P	volumic-exo42-stage-2	EXO42 Stage 2	EXO	o	420	420	420	0	0		0.4	0.4	1.75	b		4500	0	0	klipper	Klipper		2.4	30	634	77	1	483
-P	volumic-exo65	EXO65	EXO	o	650	650	650	0	0		0.6	0.6	1.75	b		2000	0	0	marlin	Marlin		2.4	30	635	632	1	484
-P	volumic-exo65-idre	EXO65 IDRE	EXO	o	602	650	630	11	0		0.4	0.4	1.75	b		4500	0	0	klipper	Klipper		2.4	30	633	77	2	484
-P	volumic-exo65-performance	EXO65 Performance	EXO	o	650	650	650	0	0		0.4	0.4;0.6;0.8	1.75	b		4500	0	0	klipper	Klipper		2.4	30	634	77	1	484
-P	volumic-exo65-stage-2	EXO65 Stage 2	EXO	o	650	650	650	0	0		0.6	0.6	1.75	b		4500	0	0	klipper	Klipper		2.4	30	634	77	1	484
-P	volumic-sh65	SH65	SH	oc	650	300	300	0	0		0.4	0.4	1.75	b		2000	30	10	marlin	Marlin		2.4	30	636	632	1	485
-P	volumic-sh65-idre	SH65 IDRE	SH	o	602	300	280	11	0		0.4	0.4	1.75	b		4500	0	0	klipper	Klipper		2.4	30	633	77	2	485
-P	volumic-sh65-performance	SH65 Performance	SH	o	650	300	300	0	0		0.4	0.4	1.75	b		4500	0	0	klipper	Klipper		2.4	30	634	77	1	485
-P	volumic-sh65-stage-2	SH65 Stage 2	SH	o	650	300	300	0	0		0.4	0.4	1.75	b		4500	0	0	klipper	Klipper		2.4	30	634	77	1	485
-P	volumic-stream20dual-mk2	Stream20Dual MK2	Stream	c	165	200	240	0	0		0.4		1.75	b		2000	20	10	marlin	Marlin		2	25	637	638	2	486
-P	volumic-stream20pro-mk2	Stream20Pro MK2	Stream	c	200	200	240	0	0		0.4		1.75	b		2000	50	10	marlin	Marlin		2	25	637	638	1	486
-P	volumic-stream30dual-mk2	Stream30Dual MK2	Stream	c	265	200	300	0	0		0.4		1.75	b		2000	50	10	marlin	Marlin		2	25	637	638	2	487
-P	volumic-stream30pro-mk2	Stream30Pro MK2	Stream	c	300	200	300	0	0		0.4		1.75	b		2000	50	10	marlin	Marlin		2	25	637	638	1	487
-P	volumic-stream30pro-mk3	Stream30Pro MK3	Stream	c	300	200	310	0	0		0.4		1.75	b		2000	30	10	marlin	Marlin		2.4	30	637	638	1	488
-P	volumic-stream30ultra	Stream30Ultra	Stream	c	290	200	300	0	0		0.4		1.75	b		2000	30	10	marlin	Marlin		2	25	637	638	1	488
-P	volumic-stream30ultra-sc	Stream30Ultra SC	Stream	c	300	200	310	0	0		0.4		1.75	b		2000	30	10	marlin	Marlin		2.4	30	637	638	1	488
-P	volumic-stream30ultra-sc2	Stream30Ultra SC2	Stream	c	300	200	310	0	0		0.4		1.75	b		2000	30	10	marlin	Marlin		2.4	30	637	638	1	488
-P	volumic-vs20mk2	VS20MK2	VS	o	200	200	220	0	0		0.4	0.4	1.75	b		2000	0	0	marlin	Marlin		2	25	639	640	1	489
-P	volumic-vs30mk2	VS30MK2	VS	o	300	200	300	0	0		0.4	0.4	1.75	b		2000	0	0	marlin	Marlin		2	25	636	641	1	490
-P	volumic-vs30mk3	VS30MK3	VS	o	300	200	300	0	0		0.4	0.4	1.75	b		2000	0	0	marlin	Marlin		2.4	30	636	641	1	491
-P	volumic-vs30mk3-stage-2	VS30MK3 Stage 2	VS	o	300	200	300	0	0		0.4	0.4	1.75	b		4000	0	0	klipper	Klipper		2.4	30	634	77	1	491
-P	volumic-vs30sc	VS30SC	VS	o	300	200	300	0	0		0.4	0.4	1.75	b		2000	0	0	marlin	Marlin		2.4	30	639	640	1	491
-P	volumic-vs30sc2	VS30SC2	VS	o	300	200	310	0	0		0.4	0.4	1.75	b		2000	0	0	marlin	Marlin		2.4	30	639	640	1	491
-P	volumic-vs30sc2-performance	VS30SC2 Performance	VS	o	300	200	310	0	0		0.4	0.4	1.75	b		4500	0	0	klipper	Klipper		2.4	30	634	77	1	491
-P	volumic-vs30sc2-stage-2	VS30SC2 Stage 2	VS	o	300	200	310	0	0		0.4	0.4	1.75	b		4000	0	0	klipper	Klipper		2.4	30	634	77	1	491
-P	volumic-vs30ultra	VS30ULTRA	VS	o	290	200	300	0	0		0.4	0.4	1.75	b		2000	0	0	marlin	Marlin		2.4	30	639	640	1	491
+P	volumic-exo42	EXO42	EXO	o	420	420	420	0	0		0.4	0.4	1.75	b		2000	0	0	marlin	Marlin		2.4	30	631	632	1	494
+P	volumic-exo42-idre	EXO42 IDRE	EXO	o	372	420	400	11	0		0.4	0.4	1.75	b		4500	0	0	klipper	Klipper		2.4	30	633	77	2	494
+P	volumic-exo42-performance	EXO42 Performance	EXO	o	420	420	420	0	0		0.4	0.4	1.75	b		4500	0	0	klipper	Klipper		2.4	30	634	77	1	494
+P	volumic-exo42-stage-2	EXO42 Stage 2	EXO	o	420	420	420	0	0		0.4	0.4	1.75	b		4500	0	0	klipper	Klipper		2.4	30	634	77	1	494
+P	volumic-exo65	EXO65	EXO	o	650	650	650	0	0		0.6	0.6	1.75	b		2000	0	0	marlin	Marlin		2.4	30	635	632	1	495
+P	volumic-exo65-idre	EXO65 IDRE	EXO	o	602	650	630	11	0		0.4	0.4	1.75	b		4500	0	0	klipper	Klipper		2.4	30	633	77	2	495
+P	volumic-exo65-performance	EXO65 Performance	EXO	o	650	650	650	0	0		0.4	0.4;0.6;0.8	1.75	b		4500	0	0	klipper	Klipper		2.4	30	634	77	1	495
+P	volumic-exo65-stage-2	EXO65 Stage 2	EXO	o	650	650	650	0	0		0.6	0.6	1.75	b		4500	0	0	klipper	Klipper		2.4	30	634	77	1	495
+P	volumic-sh65	SH65	SH	oc	650	300	300	0	0		0.4	0.4	1.75	b		2000	30	10	marlin	Marlin		2.4	30	636	632	1	496
+P	volumic-sh65-idre	SH65 IDRE	SH	o	602	300	280	11	0		0.4	0.4	1.75	b		4500	0	0	klipper	Klipper		2.4	30	633	77	2	496
+P	volumic-sh65-performance	SH65 Performance	SH	o	650	300	300	0	0		0.4	0.4	1.75	b		4500	0	0	klipper	Klipper		2.4	30	634	77	1	496
+P	volumic-sh65-stage-2	SH65 Stage 2	SH	o	650	300	300	0	0		0.4	0.4	1.75	b		4500	0	0	klipper	Klipper		2.4	30	634	77	1	496
+P	volumic-stream20dual-mk2	Stream20Dual MK2	Stream	c	165	200	240	0	0		0.4		1.75	b		2000	20	10	marlin	Marlin		2	25	637	638	2	497
+P	volumic-stream20pro-mk2	Stream20Pro MK2	Stream	c	200	200	240	0	0		0.4		1.75	b		2000	50	10	marlin	Marlin		2	25	637	638	1	497
+P	volumic-stream30dual-mk2	Stream30Dual MK2	Stream	c	265	200	300	0	0		0.4		1.75	b		2000	50	10	marlin	Marlin		2	25	637	638	2	498
+P	volumic-stream30pro-mk2	Stream30Pro MK2	Stream	c	300	200	300	0	0		0.4		1.75	b		2000	50	10	marlin	Marlin		2	25	637	638	1	498
+P	volumic-stream30pro-mk3	Stream30Pro MK3	Stream	c	300	200	310	0	0		0.4		1.75	b		2000	30	10	marlin	Marlin		2.4	30	637	638	1	499
+P	volumic-stream30ultra	Stream30Ultra	Stream	c	290	200	300	0	0		0.4		1.75	b		2000	30	10	marlin	Marlin		2	25	637	638	1	499
+P	volumic-stream30ultra-sc	Stream30Ultra SC	Stream	c	300	200	310	0	0		0.4		1.75	b		2000	30	10	marlin	Marlin		2.4	30	637	638	1	499
+P	volumic-stream30ultra-sc2	Stream30Ultra SC2	Stream	c	300	200	310	0	0		0.4		1.75	b		2000	30	10	marlin	Marlin		2.4	30	637	638	1	499
+P	volumic-vs20mk2	VS20MK2	VS	o	200	200	220	0	0		0.4	0.4	1.75	b		2000	0	0	marlin	Marlin		2	25	639	640	1	500
+P	volumic-vs30mk2	VS30MK2	VS	o	300	200	300	0	0		0.4	0.4	1.75	b		2000	0	0	marlin	Marlin		2	25	636	641	1	501
+P	volumic-vs30mk3	VS30MK3	VS	o	300	200	300	0	0		0.4	0.4	1.75	b		2000	0	0	marlin	Marlin		2.4	30	636	641	1	502
+P	volumic-vs30mk3-stage-2	VS30MK3 Stage 2	VS	o	300	200	300	0	0		0.4	0.4	1.75	b		4000	0	0	klipper	Klipper		2.4	30	634	77	1	502
+P	volumic-vs30sc	VS30SC	VS	o	300	200	300	0	0		0.4	0.4	1.75	b		2000	0	0	marlin	Marlin		2.4	30	639	640	1	502
+P	volumic-vs30sc2	VS30SC2	VS	o	300	200	310	0	0		0.4	0.4	1.75	b		2000	0	0	marlin	Marlin		2.4	30	639	640	1	502
+P	volumic-vs30sc2-performance	VS30SC2 Performance	VS	o	300	200	310	0	0		0.4	0.4	1.75	b		4500	0	0	klipper	Klipper		2.4	30	634	77	1	502
+P	volumic-vs30sc2-stage-2	VS30SC2 Stage 2	VS	o	300	200	310	0	0		0.4	0.4	1.75	b		4000	0	0	klipper	Klipper		2.4	30	634	77	1	502
+P	volumic-vs30ultra	VS30ULTRA	VS	o	290	200	300	0	0		0.4	0.4	1.75	b		2000	0	0	marlin	Marlin		2.4	30	639	640	1	502
 B	Voron
-P	voron-switchwire-afterburner	Switchwire (Afterburner)	Historical Profiles	p	250	210	240	0	0		0.4	0.25;0.3;0.4;0.5;0.6;0.8	1.75	b	500	1500	12	10	klipper	Klipper		0.75	50	642	643	1	492
-P	voron-switchwire-mobius	Switchwire (Mobius)	Historical Profiles	p	250	210	240	0	0		0.4	0.25;0.3;0.4;0.5;0.6;0.8	1.75	b	500	1500	12	10	klipper	Klipper		5.8	35	642	643	1	492
-P	voron-voron1-250mm-afterburner	VORON1 250mm (Afterburner)	Historical Profiles	p	250	250	230	0	0		0.4	0.25;0.3;0.4;0.5;0.6;0.8	1.75	b	500	1500	12	10	klipper	Klipper		0.75	50	642	643	1	493
-P	voron-voron1-300mm-afterburner	VORON1 300mm (Afterburner)	Historical Profiles	p	300	300	280	0	0		0.4	0.25;0.3;0.4;0.5;0.6;0.8	1.75	b	500	1500	12	10	klipper	Klipper		0.75	50	642	643	1	494
-P	voron-voron1-350mm-afterburner	VORON1 350mm (Afterburner)	Historical Profiles	p	350	350	330	0	0		0.4	0.25;0.3;0.4;0.5;0.6;0.8	1.75	b	500	1500	12	10	klipper	Klipper		0.75	50	642	643	1	495
-P	voron-voron2-250mm-afterburner	VORON2 250mm (Afterburner)	Historical Profiles	p	250	250	230	0	0		0.4	0.25;0.3;0.4;0.5;0.6;0.8	1.75	b	500	1500	12	10	klipper	Klipper		0.75	50	642	643	1	493
-P	voron-voron2-250mm-mobius	VORON2 250mm (Mobius)	Historical Profiles	p	250	250	230	0	0		0.4	0.25;0.3;0.4;0.5;0.6;0.8	1.75	b	500	1500	12	10	klipper	Klipper		5.8	35	642	643	1	493
-P	voron-voron2-300mm-afterburner	VORON2 300mm (Afterburner)	Historical Profiles	p	300	300	280	0	0		0.4	0.25;0.3;0.4;0.5;0.6;0.8	1.75	b	500	1500	12	10	klipper	Klipper		0.75	50	642	643	1	496
-P	voron-voron2-300mm-mobius	VORON2 300mm (Mobius)	Historical Profiles	p	300	300	280	0	0		0.4	0.25;0.3;0.4;0.5;0.6;0.8	1.75	b	500	1500	12	10	klipper	Klipper		5.8	35	642	643	1	494
-P	voron-voron2-350mm-afterburner	VORON2 350mm (Afterburner)	Historical Profiles	p	350	350	330	0	0		0.4	0.25;0.3;0.4;0.5;0.6;0.8	1.75	b	500	1500	12	10	klipper	Klipper		0.75	50	642	643	1	495
-P	voron-voron2-350mm-mobius	VORON2 350mm (Mobius)	Historical Profiles	p	350	350	330	0	0		0.4	0.25;0.3;0.4;0.5;0.6;0.8	1.75	b	500	1500	12	10	klipper	Klipper		5.8	35	642	643	1	495
-P	voron-zero-miniab	Zero (MiniAB)	Historical Profiles	p	120	120	120	0	0		0.4	0.25;0.3;0.4;0.5;0.6;0.8	1.75	b	500	1500	12	10	klipper	Klipper		2	50	642	643	1	497
-P	voron-switchwire-250	Switchwire 250	Switchwire	o	250	210	240	0	0		0.4	0.15;0.2;0.25;0.4;0.5;0.6;0.8;1	1.75	b	500	20000	12	12	klipper	Klipper		0.8	30		10	1	498
-P	voron-trident-250	Trident 250	Trident	oc	250	250	250	0	0		0.4	0.15;0.2;0.25;0.4;0.5;0.6;0.8;1	1.75	b	500	20000	12	12	klipper	Klipper		0.8	30		10	1	499
-P	voron-trident-300	Trident 300	Trident	oc	300	300	250	0	0		0.4	0.15;0.2;0.25;0.4;0.5;0.6;0.8;1	1.75	b	500	20000	12	12	klipper	Klipper		0.8	30		10	1	500
-P	voron-trident-350	Trident 350	Trident	oc	350	350	250	0	0		0.4	0.15;0.2;0.25;0.4;0.5;0.6;0.8;1	1.75	b	500	20000	12	12	klipper	Klipper		0.8	30		10	1	501
+P	voron-switchwire-afterburner	Switchwire (Afterburner)	Historical Profiles	p	250	210	240	0	0		0.4	0.25;0.3;0.4;0.5;0.6;0.8	1.75	b	500	1500	12	10	klipper	Klipper		0.75	50	642	643	1	503
+P	voron-switchwire-mobius	Switchwire (Mobius)	Historical Profiles	p	250	210	240	0	0		0.4	0.25;0.3;0.4;0.5;0.6;0.8	1.75	b	500	1500	12	10	klipper	Klipper		5.8	35	642	643	1	503
+P	voron-voron1-250mm-afterburner	VORON1 250mm (Afterburner)	Historical Profiles	p	250	250	230	0	0		0.4	0.25;0.3;0.4;0.5;0.6;0.8	1.75	b	500	1500	12	10	klipper	Klipper		0.75	50	642	643	1	504
+P	voron-voron1-300mm-afterburner	VORON1 300mm (Afterburner)	Historical Profiles	p	300	300	280	0	0		0.4	0.25;0.3;0.4;0.5;0.6;0.8	1.75	b	500	1500	12	10	klipper	Klipper		0.75	50	642	643	1	505
+P	voron-voron1-350mm-afterburner	VORON1 350mm (Afterburner)	Historical Profiles	p	350	350	330	0	0		0.4	0.25;0.3;0.4;0.5;0.6;0.8	1.75	b	500	1500	12	10	klipper	Klipper		0.75	50	642	643	1	506
+P	voron-voron2-250mm-afterburner	VORON2 250mm (Afterburner)	Historical Profiles	p	250	250	230	0	0		0.4	0.25;0.3;0.4;0.5;0.6;0.8	1.75	b	500	1500	12	10	klipper	Klipper		0.75	50	642	643	1	504
+P	voron-voron2-250mm-mobius	VORON2 250mm (Mobius)	Historical Profiles	p	250	250	230	0	0		0.4	0.25;0.3;0.4;0.5;0.6;0.8	1.75	b	500	1500	12	10	klipper	Klipper		5.8	35	642	643	1	504
+P	voron-voron2-300mm-afterburner	VORON2 300mm (Afterburner)	Historical Profiles	p	300	300	280	0	0		0.4	0.25;0.3;0.4;0.5;0.6;0.8	1.75	b	500	1500	12	10	klipper	Klipper		0.75	50	642	643	1	507
+P	voron-voron2-300mm-mobius	VORON2 300mm (Mobius)	Historical Profiles	p	300	300	280	0	0		0.4	0.25;0.3;0.4;0.5;0.6;0.8	1.75	b	500	1500	12	10	klipper	Klipper		5.8	35	642	643	1	505
+P	voron-voron2-350mm-afterburner	VORON2 350mm (Afterburner)	Historical Profiles	p	350	350	330	0	0		0.4	0.25;0.3;0.4;0.5;0.6;0.8	1.75	b	500	1500	12	10	klipper	Klipper		0.75	50	642	643	1	506
+P	voron-voron2-350mm-mobius	VORON2 350mm (Mobius)	Historical Profiles	p	350	350	330	0	0		0.4	0.25;0.3;0.4;0.5;0.6;0.8	1.75	b	500	1500	12	10	klipper	Klipper		5.8	35	642	643	1	506
+P	voron-zero-miniab	Zero (MiniAB)	Historical Profiles	p	120	120	120	0	0		0.4	0.25;0.3;0.4;0.5;0.6;0.8	1.75	b	500	1500	12	10	klipper	Klipper		2	50	642	643	1	508
+P	voron-switchwire-250	Switchwire 250	Switchwire	o	250	210	240	0	0		0.4	0.15;0.2;0.25;0.4;0.5;0.6;0.8;1	1.75	b	500	20000	12	12	klipper	Klipper		0.8	30		10	1	509
+P	voron-trident-250	Trident 250	Trident	oc	250	250	250	0	0		0.4	0.15;0.2;0.25;0.4;0.5;0.6;0.8;1	1.75	b	500	20000	12	12	klipper	Klipper		0.8	30		10	1	510
+P	voron-trident-300	Trident 300	Trident	oc	300	300	250	0	0		0.4	0.15;0.2;0.25;0.4;0.5;0.6;0.8;1	1.75	b	500	20000	12	12	klipper	Klipper		0.8	30		10	1	511
+P	voron-trident-350	Trident 350	Trident	oc	350	350	250	0	0		0.4	0.15;0.2;0.25;0.4;0.5;0.6;0.8;1	1.75	b	500	20000	12	12	klipper	Klipper		0.8	30		10	1	512
 P	voron-voron2-250	Voron2 250	Voron	c	250	250	250	0	0		0.4		1.75	b	500	5000	40		marlin	Marlin		0.75	30		10	1	143
 P	voron-voron2-300	Voron2 300	Voron	c	300	300	300	0	0		0.4		1.75	b	500	5000	40		marlin	Marlin		0.75	30		10	1	144
 P	voron-voron2-350	Voron2 350	Voron	c	350	350	350	0	0		0.4		1.75	b	500	5000	40		marlin	Marlin		0.75	30		10	1	145
 P	voron-voron2-custom	Voron2 Custom	Voron	c	250	250	250	0	0		0.4		1.75	b	500	5000	40		marlin	Marlin		0.75	30		10	1	
-P	voron-voron-0	Voron 0	Voron	c	120	120	120	0	0		0.4		1.75	b	500	5000	40		marlin	Marlin		0.75	30		10	1	502
-P	voron-voron-0-1	Voron 0.1	Voron	o	120	120	120	0	0		0.4	0.15;0.2;0.25;0.4;0.5;0.6;0.8;1	1.75	b	500	20000	12	12	klipper	Klipper		0.8	30		10	1	503
-P	voron-voron-2-4-250	Voron 2.4 250	Voron	o	250	250	225	0	0		0.4	0.15;0.2;0.25;0.4;0.5;0.6;0.8;1	1.75	b	500	20000	12	12	klipper	Klipper		0.8	30		10	1	499
-P	voron-voron-2-4-300	Voron 2.4 300	Voron	o	300	300	275	0	0		0.4	0.15;0.2;0.25;0.4;0.5;0.6;0.8;1	1.75	b	500	20000	12	12	klipper	Klipper		0.8	30		10	1	500
-P	voron-voron-2-4-350	Voron 2.4 350	Voron	o	350	350	325	0	0		0.4	0.15;0.2;0.25;0.4;0.5;0.6;0.8;1	1.75	b	500	20000	12	12	klipper	Klipper		0.8	30		10	1	501
-P	voron-voron2-250mm	VORON2 250mm	VORON2	p	250	250	210	0	0		0.4	0.25;0.3;0.4;0.5;0.6;0.8	1.75	b	350	7000	15	10	klipper	Klipper		0.5	35		10	1	493
-P	voron-voron2-300mm	VORON2 300mm	VORON2	p	300	300	260	0	0		0.4	0.25;0.3;0.4;0.5;0.6;0.8	1.75	b	350	7000	15	10	klipper	Klipper		0.5	35		10	1	496
-P	voron-voron2-350mm	VORON2 350mm	VORON2	p	350	350	310	0	0		0.4	0.25;0.3;0.4;0.5;0.6;0.8	1.75	b	350	7000	15	10	klipper	Klipper		0.5	35		10	1	495
-P	voron-switchwire	Switchwire	VORON Switchwire	p	250	210	240	0	0		0.4	0.25;0.3;0.4;0.5;0.6;0.8	1.75	b	350	7000	15	10	klipper	Klipper		0.5	35		10	1	492
-P	voron-trident-250mm	Trident 250mm	VORON Trident	p	250	250	210	0	0		0.4	0.25;0.3;0.4;0.5;0.6;0.8	1.75	b	350	7000	15	10	klipper	Klipper		0.5	35		10	1	493
-P	voron-trident-300mm	Trident 300mm	VORON Trident	p	300	300	210	0	0		0.4	0.25;0.3;0.4;0.5;0.6;0.8	1.75	b	350	7000	15	10	klipper	Klipper		0.5	35		10	1	496
-P	voron-trident-350mm	Trident 350mm	VORON Trident	p	350	350	210	0	0		0.4	0.25;0.3;0.4;0.5;0.6;0.8	1.75	b	350	7000	15	10	klipper	Klipper		0.5	35		10	1	495
-P	voron-zero	Zero	VORON Zero	p	120	120	120	0	0		0.4	0.25;0.3;0.4;0.5;0.6;0.8	1.75	b	350	7000	15	10	klipper	Klipper		0.5	35		10	1	497
+P	voron-voron-0	Voron 0	Voron	c	120	120	120	0	0		0.4		1.75	b	500	5000	40		marlin	Marlin		0.75	30		10	1	513
+P	voron-voron-0-1	Voron 0.1	Voron	o	120	120	120	0	0		0.4	0.15;0.2;0.25;0.4;0.5;0.6;0.8;1	1.75	b	500	20000	12	12	klipper	Klipper		0.8	30		10	1	514
+P	voron-voron-2-4-250	Voron 2.4 250	Voron	o	250	250	225	0	0		0.4	0.15;0.2;0.25;0.4;0.5;0.6;0.8;1	1.75	b	500	20000	12	12	klipper	Klipper		0.8	30		10	1	510
+P	voron-voron-2-4-300	Voron 2.4 300	Voron	o	300	300	275	0	0		0.4	0.15;0.2;0.25;0.4;0.5;0.6;0.8;1	1.75	b	500	20000	12	12	klipper	Klipper		0.8	30		10	1	511
+P	voron-voron-2-4-350	Voron 2.4 350	Voron	o	350	350	325	0	0		0.4	0.15;0.2;0.25;0.4;0.5;0.6;0.8;1	1.75	b	500	20000	12	12	klipper	Klipper		0.8	30		10	1	512
+P	voron-voron2-250mm	VORON2 250mm	VORON2	p	250	250	210	0	0		0.4	0.25;0.3;0.4;0.5;0.6;0.8	1.75	b	350	7000	15	10	klipper	Klipper		0.5	35		10	1	504
+P	voron-voron2-300mm	VORON2 300mm	VORON2	p	300	300	260	0	0		0.4	0.25;0.3;0.4;0.5;0.6;0.8	1.75	b	350	7000	15	10	klipper	Klipper		0.5	35		10	1	507
+P	voron-voron2-350mm	VORON2 350mm	VORON2	p	350	350	310	0	0		0.4	0.25;0.3;0.4;0.5;0.6;0.8	1.75	b	350	7000	15	10	klipper	Klipper		0.5	35		10	1	506
+P	voron-switchwire	Switchwire	VORON Switchwire	p	250	210	240	0	0		0.4	0.25;0.3;0.4;0.5;0.6;0.8	1.75	b	350	7000	15	10	klipper	Klipper		0.5	35		10	1	503
+P	voron-trident-250mm	Trident 250mm	VORON Trident	p	250	250	210	0	0		0.4	0.25;0.3;0.4;0.5;0.6;0.8	1.75	b	350	7000	15	10	klipper	Klipper		0.5	35		10	1	504
+P	voron-trident-300mm	Trident 300mm	VORON Trident	p	300	300	210	0	0		0.4	0.25;0.3;0.4;0.5;0.6;0.8	1.75	b	350	7000	15	10	klipper	Klipper		0.5	35		10	1	507
+P	voron-trident-350mm	Trident 350mm	VORON Trident	p	350	350	210	0	0		0.4	0.25;0.3;0.4;0.5;0.6;0.8	1.75	b	350	7000	15	10	klipper	Klipper		0.5	35		10	1	506
+P	voron-zero	Zero	VORON Zero	p	120	120	120	0	0		0.4	0.25;0.3;0.4;0.5;0.6;0.8	1.75	b	350	7000	15	10	klipper	Klipper		0.5	35		10	1	508
 B	Voxelab
-P	voxelab-aquila-x2	Aquila X2	Aquila	o	220	220	250	0	0		0.4	0.4	1.75	b	500	500	10	8	marlin	Marlin		5	60	116		1	504
+P	voxelab-aquila-x2	Aquila X2	Aquila	o	220	220	250	0	0		0.4	0.4	1.75	b	500	500	10	8	marlin	Marlin		5	60	116		1	515
 B	Vzbot
 P	vzbot-custom	Custom	Custom	c	400	400	400	0	0		0.4		1.75	b		15000	40	20	marlin	Marlin		0.65	45		104	1	
-P	vzbot-vzbot-235	VzBot 235	VzBot	c	235	235	240	0	0		0.4		1.75	b		15000	40	20	marlin	Marlin		0.65	45		104	1	505
-P	vzbot-vzbot-235-awd	Vzbot 235 AWD	VzBot	o	235	235	200	0	0		0.4	0.4;0.5;0.6	1.75	b	2000	50000	15	0	klipper	Klipper		0.5	30	644	645	1	506
-P	vzbot-vzbot-330	VzBot 330	VzBot	c	330	330	400	0	0		0.4		1.75	b		15000	40	20	marlin	Marlin		0.65	45		104	1	507
-P	vzbot-vzbot-330-awd	Vzbot 330 AWD	VzBot	o	330	330	400	0	0		0.4	0.4;0.5;0.6	1.75	b	2000	50000	15	0	klipper	Klipper		0.5	30	644	645	1	508
+P	vzbot-vzbot-235	VzBot 235	VzBot	c	235	235	240	0	0		0.4		1.75	b		15000	40	20	marlin	Marlin		0.65	45		104	1	516
+P	vzbot-vzbot-235-awd	Vzbot 235 AWD	VzBot	o	235	235	200	0	0		0.4	0.4;0.5;0.6	1.75	b	2000	50000	15	0	klipper	Klipper		0.5	30	644	645	1	517
+P	vzbot-vzbot-330	VzBot 330	VzBot	c	330	330	400	0	0		0.4		1.75	b		15000	40	20	marlin	Marlin		0.65	45		104	1	518
+P	vzbot-vzbot-330-awd	Vzbot 330 AWD	VzBot	o	330	330	400	0	0		0.4	0.4;0.5;0.6	1.75	b	2000	50000	15	0	klipper	Klipper		0.5	30	644	645	1	519
 B	Wanhao
 P	wanhao-d9-300-mk1	D9-300 MK1	D9-300	o	300	300	400	0	0		0.4	0.4	1.75	b	300	500	5	10	marlin	Marlin 2		2	25	646		1	
 P	wanhao-d9-300-mk1-bltouch-kit	D9-300 MK1 BLTouch kit	D9-300	o	300	300	400	0	0		0.4	0.4	1.75	b	300	1000	5	10	marlin	Marlin 2		2	25	647		1	
@@ -2395,34 +2508,34 @@ P	wanhao-d9-500-mk1	D9-500 MK1	D9-500	o	500	500	500	0	0		0.4	0.4	1.75	b	300	500	
 P	wanhao-d9-500-mk1-bltouch-kit	D9-500 MK1 BLTouch kit	D9-500	o	500	500	500	0	0		0.4	0.4	1.75	b	300	1000	5	10	marlin	Marlin 2		2	25	647		1	
 P	wanhao-d9-500-mk2	D9-500 MK2	D9-500	o	500	500	500	0	0		0.4	0.4	1.75	b	300	1000	5	10	marlin	Marlin 2		2	25	647		1	
 P	wanhao-d9-500-mk3	D9-500 MK3	D9-500	o	500	500	500	0	0		0.4	0.4	1.75	b	300	1000	5	10	marlin	Marlin 2		2	25	647		1	
-P	wanhao-d12-300	D12-300	D12-300	o	300	300	400	0	0		0.4	0.4	1.75	b	500	1000	10	10	marlin	Marlin		5	40	648		1	509
-P	wanhao-duplicator-4s	Duplicator 4S	Duplicator	c	225	150	150	0	0		0.4		1.75	b					marlin	Marlin						1	510
-P	wanhao-duplicator-5s	Duplicator 5S	Duplicator	c	300	200	600	0	0		0.4		3						marlin	Marlin						1	511
-P	wanhao-duplicator-5s-mini	Duplicator 5S Mini	Duplicator	c	300	200	180	0	0		0.4		3						marlin	Marlin						1	511
-P	wanhao-duplicator-6	Duplicator 6	Duplicator	c	200	200	180	0	0		0.4		1.75	b					marlin	Marlin						1	322
-P	wanhao-duplicator-6-plus	Duplicator 6 Plus	Duplicator	c	200	200	180	0	0		0.4		1.75	b					marlin	Marlin						1	322
-P	wanhao-duplicator-9	Duplicator 9	Duplicator	c	300	300	400	0	0		0.4		1.75	b					marlin	Marlin						1	512
-P	wanhao-duplicator-i3	Duplicator i3	Duplicator	c	200	200	180	0	0		0.4		1.75	b					marlin	Marlin						1	322
-P	wanhao-duplicator-i3-mini	Duplicator i3 Mini	Duplicator	c	110	110	110	0	0		0.4		1.75						marlin	Marlin						1	513
-P	wanhao-duplicator-i3-plus	Duplicator i3 Plus	Duplicator	c	200	200	180	0	0		0.4		1.75	b					marlin	Marlin						1	322
+P	wanhao-d12-300	D12-300	D12-300	o	300	300	400	0	0		0.4	0.4	1.75	b	500	1000	10	10	marlin	Marlin		5	40	648		1	520
+P	wanhao-duplicator-4s	Duplicator 4S	Duplicator	c	225	150	150	0	0		0.4		1.75	b					marlin	Marlin						1	521
+P	wanhao-duplicator-5s	Duplicator 5S	Duplicator	c	300	200	600	0	0		0.4		3						marlin	Marlin						1	522
+P	wanhao-duplicator-5s-mini	Duplicator 5S Mini	Duplicator	c	300	200	180	0	0		0.4		3						marlin	Marlin						1	522
+P	wanhao-duplicator-6	Duplicator 6	Duplicator	c	200	200	180	0	0		0.4		1.75	b					marlin	Marlin						1	333
+P	wanhao-duplicator-6-plus	Duplicator 6 Plus	Duplicator	c	200	200	180	0	0		0.4		1.75	b					marlin	Marlin						1	333
+P	wanhao-duplicator-9	Duplicator 9	Duplicator	c	300	300	400	0	0		0.4		1.75	b					marlin	Marlin						1	523
+P	wanhao-duplicator-i3	Duplicator i3	Duplicator	c	200	200	180	0	0		0.4		1.75	b					marlin	Marlin						1	333
+P	wanhao-duplicator-i3-mini	Duplicator i3 Mini	Duplicator	c	110	110	110	0	0		0.4		1.75						marlin	Marlin						1	524
+P	wanhao-duplicator-i3-plus	Duplicator i3 Plus	Duplicator	c	200	200	180	0	0		0.4		1.75	b					marlin	Marlin						1	333
 B	Wanhao France
-P	wanhao-france-d12-230-pro-m2-direct	D12 230 PRO M2 DIRECT	D12	o	230	230	240	0	0		0.4	0.4	1.75	b	200	10000	15	14	marlin	Marlin 2		2	70		649	1	514
-P	wanhao-france-d12-230-pro-m2-mono-dual	D12 230 PRO M2 MONO DUAL	D12	o	230	230	240	0	0		0.4	0.4	1.75	b	200	10000	15	14	marlin	Marlin 2		5	25		649	1	514
-P	wanhao-france-d12-230-pro-m2-mono-dual-pooptool	D12 230 PRO M2 MONO DUAL PoopTool	D12	o	230	230	240	0	0		0.4	0.4	1.75	b	200	10000	15	14	marlin	Marlin 2		5	25		649	1	514
-P	wanhao-france-d12-230-pro-smartpad-direct	D12 230 PRO SMARTPAD DIRECT	D12	o	230	230	240	0	0		0.4	0.4	1.75	b	200	10000	15	14	klipper	Klipper		2	70		649	1	514
-P	wanhao-france-d12-230-pro-smartpad-mono-dual	D12 230 PRO SMARTPAD MONO DUAL	D12	o	230	230	240	0	0		0.4	0.4	1.75	b	400	10000	12	14	klipper	Klipper		5	25		649	1	514
-P	wanhao-france-d12-230-pro-smartpad-mono-dual-pooptool	D12 230 PRO SMARTPAD MONO DUAL PoopTool	D12	o	230	230	240	0	0		0.4	0.4	1.75	b	400	10000	12	14	klipper	Klipper		5	25		649	1	514
-P	wanhao-france-d12-300-pro-m2-direct	D12 300 PRO M2 DIRECT	D12	o	300	300	400	0	0		0.4	0.4	1.75	b	200	10000	15	14	marlin	Marlin 2		2	70		649	1	515
-P	wanhao-france-d12-300-pro-m2-mono-dual	D12 300 PRO M2 MONO DUAL	D12	o	300	300	400	0	0		0.4	0.4	1.75	b	200	10000	15	14	marlin	Marlin 2		5	25		649	1	515
-P	wanhao-france-d12-300-pro-m2-mono-dual-pooptool	D12 300 PRO M2 MONO DUAL PoopTool	D12	o	310	310	400	0	0		0.4	0.4	1.75	b	200	10000	15	14	marlin	Marlin 2		5	25		649	1	516
-P	wanhao-france-d12-300-pro-smartpad-direct	D12 300 PRO SMARTPAD DIRECT	D12	o	300	300	400	0	0		0.4	0.4	1.75	b	200	10000	15	14	klipper	Klipper		2	70		649	1	515
-P	wanhao-france-d12-300-pro-smartpad-mono-dual	D12 300 PRO SMARTPAD MONO DUAL	D12	o	300	300	400	0	0		0.4	0.4	1.75	b	200	10000	15	14	klipper	Klipper		5	25		649	1	515
-P	wanhao-france-d12-300-pro-smartpad-mono-dual-pooptool	D12 300 PRO SMARTPAD MONO DUAL PoopTool	D12	o	310	310	400	0	0		0.4	0.4	1.75	b	200	10000	15	14	klipper	Klipper		5	25		649	1	516
-P	wanhao-france-d12-500-pro-m2-mono-dual	D12 500 PRO M2 MONO DUAL	D12	o	500	500	500	0	0		0.4	0.4	1.75	b	200	10000	15	14	marlin	Marlin 2		5	25		649	1	517
-P	wanhao-france-d12-500-pro-m2-mono-dual-pooptool	D12 500 PRO M2 MONO DUAL PoopTool	D12	o	510	510	500	0	0		0.4	0.4	1.75	b	200	10000	15	14	marlin	Marlin 2		5	25		649	1	518
-P	wanhao-france-d12-500-pro-smartpad-direct	D12 500 PRO SMARTPAD DIRECT	D12	o	500	500	500	0	0		0.4	0.4	1.75	b	200	10000	15	14	marlin	Marlin 2		2	70		649	1	517
-P	wanhao-france-d12-500-pro-smartpad-mono-dual	D12 500 PRO SMARTPAD MONO DUAL	D12	o	500	500	500	0	0		0.4	0.4	1.75	b	200	10000	15	14	klipper	Klipper		5	25		649	1	517
-P	wanhao-france-d12-500-pro-smartpad-mono-dual-pooptool	D12 500 PRO SMARTPAD MONO DUAL PoopTool	D12	o	510	510	500	0	0		0.4	0.4	1.75	b	200	10000	15	14	klipper	Klipper		5	25		649	1	518
+P	wanhao-france-d12-230-pro-m2-direct	D12 230 PRO M2 DIRECT	D12	o	230	230	240	0	0		0.4	0.4	1.75	b	200	10000	15	14	marlin	Marlin 2		2	70		649	1	525
+P	wanhao-france-d12-230-pro-m2-mono-dual	D12 230 PRO M2 MONO DUAL	D12	o	230	230	240	0	0		0.4	0.4	1.75	b	200	10000	15	14	marlin	Marlin 2		5	25		649	1	525
+P	wanhao-france-d12-230-pro-m2-mono-dual-pooptool	D12 230 PRO M2 MONO DUAL PoopTool	D12	o	230	230	240	0	0		0.4	0.4	1.75	b	200	10000	15	14	marlin	Marlin 2		5	25		649	1	525
+P	wanhao-france-d12-230-pro-smartpad-direct	D12 230 PRO SMARTPAD DIRECT	D12	o	230	230	240	0	0		0.4	0.4	1.75	b	200	10000	15	14	klipper	Klipper		2	70		649	1	525
+P	wanhao-france-d12-230-pro-smartpad-mono-dual	D12 230 PRO SMARTPAD MONO DUAL	D12	o	230	230	240	0	0		0.4	0.4	1.75	b	400	10000	12	14	klipper	Klipper		5	25		649	1	525
+P	wanhao-france-d12-230-pro-smartpad-mono-dual-pooptool	D12 230 PRO SMARTPAD MONO DUAL PoopTool	D12	o	230	230	240	0	0		0.4	0.4	1.75	b	400	10000	12	14	klipper	Klipper		5	25		649	1	525
+P	wanhao-france-d12-300-pro-m2-direct	D12 300 PRO M2 DIRECT	D12	o	300	300	400	0	0		0.4	0.4	1.75	b	200	10000	15	14	marlin	Marlin 2		2	70		649	1	526
+P	wanhao-france-d12-300-pro-m2-mono-dual	D12 300 PRO M2 MONO DUAL	D12	o	300	300	400	0	0		0.4	0.4	1.75	b	200	10000	15	14	marlin	Marlin 2		5	25		649	1	526
+P	wanhao-france-d12-300-pro-m2-mono-dual-pooptool	D12 300 PRO M2 MONO DUAL PoopTool	D12	o	310	310	400	0	0		0.4	0.4	1.75	b	200	10000	15	14	marlin	Marlin 2		5	25		649	1	527
+P	wanhao-france-d12-300-pro-smartpad-direct	D12 300 PRO SMARTPAD DIRECT	D12	o	300	300	400	0	0		0.4	0.4	1.75	b	200	10000	15	14	klipper	Klipper		2	70		649	1	526
+P	wanhao-france-d12-300-pro-smartpad-mono-dual	D12 300 PRO SMARTPAD MONO DUAL	D12	o	300	300	400	0	0		0.4	0.4	1.75	b	200	10000	15	14	klipper	Klipper		5	25		649	1	526
+P	wanhao-france-d12-300-pro-smartpad-mono-dual-pooptool	D12 300 PRO SMARTPAD MONO DUAL PoopTool	D12	o	310	310	400	0	0		0.4	0.4	1.75	b	200	10000	15	14	klipper	Klipper		5	25		649	1	527
+P	wanhao-france-d12-500-pro-m2-mono-dual	D12 500 PRO M2 MONO DUAL	D12	o	500	500	500	0	0		0.4	0.4	1.75	b	200	10000	15	14	marlin	Marlin 2		5	25		649	1	528
+P	wanhao-france-d12-500-pro-m2-mono-dual-pooptool	D12 500 PRO M2 MONO DUAL PoopTool	D12	o	510	510	500	0	0		0.4	0.4	1.75	b	200	10000	15	14	marlin	Marlin 2		5	25		649	1	529
+P	wanhao-france-d12-500-pro-smartpad-direct	D12 500 PRO SMARTPAD DIRECT	D12	o	500	500	500	0	0		0.4	0.4	1.75	b	200	10000	15	14	marlin	Marlin 2		2	70		649	1	528
+P	wanhao-france-d12-500-pro-smartpad-mono-dual	D12 500 PRO SMARTPAD MONO DUAL	D12	o	500	500	500	0	0		0.4	0.4	1.75	b	200	10000	15	14	klipper	Klipper		5	25		649	1	528
+P	wanhao-france-d12-500-pro-smartpad-mono-dual-pooptool	D12 500 PRO SMARTPAD MONO DUAL PoopTool	D12	o	510	510	500	0	0		0.4	0.4	1.75	b	200	10000	15	14	klipper	Klipper		5	25		649	1	529
 B	WEEDO
 P	weedo-f150s	F150S	F150S	c	200	150	150	0	0		0.4		1.75	b	130	3000	10	10	marlin	Marlin		1.2	28		650	1	
 P	weedo-f152s	F152S	F152S	c	200	185	195	0	0		0.4		1.75	b	130	3000	10	10	marlin	Marlin		1.2	28		651	1	
@@ -2431,23 +2544,23 @@ P	weedo-me40	ME40	ME	c	300	300	400	0	0		0.4		1.75	b	130	3000	10	10	marlin	Marlin
 P	weedo-me40-lite	ME40 Lite	ME	c	300	300	400	0	0		0.4		1.75	b	130	3000	10	10	marlin	Marlin		3	28		654	1	
 P	weedo-tina2	TINA2	TINA	c	100	120	100	0	0		0.4		1.75		130	3000	10	10	marlin	Marlin		3	28		217	1	
 P	weedo-tina2s	TINA2S	TINA	c	100	110	100	0	0		0.4		1.75	b	130	3000	10	10	marlin	Marlin		3	28		217	1	
-P	weedo-x40	X40	X40	c	300	300	400	0	0		0.4		1.75	b	500	500	10	10	marlin	Marlin		4.5	28		655	2	519
+P	weedo-x40	X40	X40	c	300	300	400	0	0		0.4		1.75	b	500	500	10	10	marlin	Marlin		4.5	28		655	2	530
 P	weedo-x40-v3	X40 V3+	X40	c	300	300	400	0	0		0.4		1.75	b	130	3000	10	10	marlin	Marlin		4	28		656	2	
 B	WEEFUN
 P	weefun-tina2	TINA2	TINA	c	100	120	100	0	0		0.4		1.75		130	3000	10	10	marlin	Marlin		3	28		217	1	
 P	weefun-tina2s	TINA2S	TINA	c	100	110	100	0	0		0.4		1.75	b	130	3000	10	10	marlin	Marlin		3	28		217	1	
 B	WEMAKE3D
-P	wemake3d-phoenixprov1	PhoenixProV1	PhoenixProV	o	300	300	400	0	0		0.4	0.2;0.3;0.4;0.6	1.75	b	300	3000	40	9	marlin	Marlin 2		1.2	120		657	1	520
-P	wemake3d-tinybotv1	TinyBotV1	TinyBotV	o	210	210	400	0	0		0.4	0.2;0.3;0.4;0.6	1.75	b	300	3000	40	9	marlin	Marlin 2		0.8	30		658	1	521
+P	wemake3d-phoenixprov1	PhoenixProV1	PhoenixProV	o	300	300	400	0	0		0.4	0.2;0.3;0.4;0.6	1.75	b	300	3000	40	9	marlin	Marlin 2		1.2	120		657	1	531
+P	wemake3d-tinybotv1	TinyBotV1	TinyBotV	o	210	210	400	0	0		0.4	0.2;0.3;0.4;0.6	1.75	b	300	3000	40	9	marlin	Marlin 2		0.8	30		658	1	532
 B	Winbo Smart Tech
 P	winbo-smart-tech-winbo-dragon-l-4	Winbo Dragon(L)4	Winbo	c	615	463	615	0	0		0.8		3	b	300	2000	40		marlin	Marlin		4		659	660	1	
 P	winbo-smart-tech-winbo-mini2	Winbo Mini2	Winbo	c	205	155	205	0	0		0.4		1.75		200	3000	40		marlin	Marlin		4		661	660	1	
 P	winbo-smart-tech-winbo-super-helper-105	Winbo Super Helper 105	Winbo	c	108	108	158	0	0		0.4		1.75		200	2000	40		marlin	Marlin		4		662	660	1	
 P	winbo-smart-tech-winbo-super-helper-155	Winbo Super Helper 155	Winbo	c	158	158	208	0	0		0.4		1.75		200	2000	40		marlin	Marlin		4		662	660	1	
 B	WonderMaker
-P	wondermaker-zr	ZR	ZR	o	300	300	300	0	0		0.4	0.2;0.4;0.6;0.8	1.75	b	600	20000	20	9	klipper	Klipper	corexy	0.6	30			1	522
-P	wondermaker-zr-ultra	ZR Ultra	ZR	o	300	270	290	0	0		0.4	0.2;0.4;0.6;0.8	1.75	b	600	20000	20	9	klipper	Klipper	corexy	0.8	30			4	522
-P	wondermaker-zr-ultra-s	ZR Ultra S	ZR	o	300	270	290	0	0		0.4	0.2;0.4;0.6;0.8	1.75	bc	600	20000	20	9	klipper	Klipper	corexy	0.8	30			4	522
+P	wondermaker-zr	ZR	ZR	o	300	300	300	0	0		0.4	0.2;0.4;0.6;0.8	1.75	b	600	20000	20	9	klipper	Klipper	corexy	0.6	30			1	533
+P	wondermaker-zr-ultra	ZR Ultra	ZR	o	300	270	290	0	0		0.4	0.2;0.4;0.6;0.8	1.75	b	600	20000	20	9	klipper	Klipper	corexy	0.8	30			4	533
+P	wondermaker-zr-ultra-s	ZR Ultra S	ZR	o	300	270	290	0	0		0.4	0.2;0.4;0.6;0.8	1.75	bc	600	20000	20	9	klipper	Klipper	corexy	0.8	30			4	533
 B	XYZprinting
 P	xyzprinting-da-vinci-1-0-pro	da Vinci 1.0 Pro	da	c	200	200	200	0	0		0.4		1.75	b	500	500	10	10	marlin	Marlin				114	115	1	
 P	xyzprinting-da-vinci-jr-1-0a-pro	da Vinci Jr. 1.0A Pro	da	c	175	175	175	0	0		0.4		1.75		500	500	10	10	marlin	Marlin				663	115	1	
@@ -2457,28 +2570,28 @@ P	xyzprinting-da-vinci-jr-wifi-pro	da Vinci Jr. WiFi Pro	da	c	150	150	150	0	0		0
 P	xyzprinting-da-vinci-pro-evo	da Vinci Pro EVO	da	c	220	200	200	0	0		0.4		1.75	b	500	500	10	10	marlin	Marlin				664	665	1	
 P	xyzprinting-da-vinci-super	da Vinci Super	da	c	300	300	300	0	0		0.4		1.75	b	500	500	10	10	marlin	Marlin				114	115	1	
 B	Z-Bolt
-P	z-bolt-classic	Classic	Classic	c	200	200	240	0	0		0.4		1.75	b					marlin	Marlin				666	667	1	523
-P	z-bolt-plus	Plus	Plus	c	300	200	335	0	0		0.4		1.75	b					marlin	Marlin				666	667	1	524
-P	z-bolt-s300	S300	S300	o	300	300	350	0	0		0.4	0.4;0.6;0.8	1.75	bc	500	20000	20	9	klipper	Klipper	corexy	0.6	30			1	525
-P	z-bolt-s300-dual	S300 Dual	S300	o	300	300	350	0	0		0.4	0.4;0.6;0.8	1.75	bc	500	20000	20	9	klipper	Klipper	corexy	0.8	30			2	525
-P	z-bolt-s400	S400	S400	o	400	400	700	0	0		0.4	0.4;0.6;0.8	1.75	bc	500	20000	20	9	klipper	Klipper	corexy	0.6	30			1	526
-P	z-bolt-s400-dual	S400 Dual	S400	o	400	400	700	0	0		0.4	0.4;0.6;0.8	1.75	bc	500	20000	20	9	klipper	Klipper	corexy	0.8	30			2	526
-P	z-bolt-s600	S600	S600	o	600	600	900	0	0		0.4	0.4;0.6;0.8	1.75	b	500	2500	20	9	klipper	Klipper	corexy	0.6	30			1	527
-P	z-bolt-s600-dual	S600 Dual	S600	o	600	600	900	0	0		0.4	0.4;0.6;0.8	1.75	b	500	2500	20	9	klipper	Klipper	corexy	0.8	30			2	527
-P	z-bolt-s800-dual	S800 Dual	S800	o	802	802	802	0	0		0.4	0.4;0.6;0.8	1.75	bc	500	2500	20	9	klipper	Klipper	corexy	0.6	35			2	528
-P	z-bolt-s1000	S1000	S1000	o	1000	1000	1000	0	0		0.4	0.4;0.6;0.8	1.75	bc	500	2500	20	9	klipper	Klipper	corexy	0.6	30			1	529
-P	z-bolt-s1000-dual	S1000 Dual	S1000	o	1000	1000	1000	0	0		0.4	0.4;0.6;0.8	1.75	bc	500	2500	20	9	klipper	Klipper	corexy	0.6	30			2	529
+P	z-bolt-classic	Classic	Classic	c	200	200	240	0	0		0.4		1.75	b					marlin	Marlin				666	667	1	534
+P	z-bolt-plus	Plus	Plus	c	300	200	335	0	0		0.4		1.75	b					marlin	Marlin				666	667	1	535
+P	z-bolt-s300	S300	S300	o	300	300	350	0	0		0.4	0.4;0.6;0.8	1.75	bc	500	20000	20	9	klipper	Klipper	corexy	0.6	30			1	536
+P	z-bolt-s300-dual	S300 Dual	S300	o	300	300	350	0	0		0.4	0.4;0.6;0.8	1.75	bc	500	20000	20	9	klipper	Klipper	corexy	0.8	30			2	536
+P	z-bolt-s400	S400	S400	o	400	400	700	0	0		0.4	0.4;0.6;0.8	1.75	bc	500	20000	20	9	klipper	Klipper	corexy	0.6	30			1	537
+P	z-bolt-s400-dual	S400 Dual	S400	o	400	400	700	0	0		0.4	0.4;0.6;0.8	1.75	bc	500	20000	20	9	klipper	Klipper	corexy	0.8	30			2	537
+P	z-bolt-s600	S600	S600	o	600	600	900	0	0		0.4	0.4;0.6;0.8	1.75	b	500	2500	20	9	klipper	Klipper	corexy	0.6	30			1	538
+P	z-bolt-s600-dual	S600 Dual	S600	o	600	600	900	0	0		0.4	0.4;0.6;0.8	1.75	b	500	2500	20	9	klipper	Klipper	corexy	0.8	30			2	538
+P	z-bolt-s800-dual	S800 Dual	S800	o	802	802	802	0	0		0.4	0.4;0.6;0.8	1.75	bc	500	2500	20	9	klipper	Klipper	corexy	0.6	35			2	539
+P	z-bolt-s1000	S1000	S1000	o	1000	1000	1000	0	0		0.4	0.4;0.6;0.8	1.75	bc	500	2500	20	9	klipper	Klipper	corexy	0.6	30			1	540
+P	z-bolt-s1000-dual	S1000 Dual	S1000	o	1000	1000	1000	0	0		0.4	0.4;0.6;0.8	1.75	bc	500	2500	20	9	klipper	Klipper	corexy	0.6	30			2	540
 B	Zav
-P	zav-big	Big+	Big	c	300	300	500	0	0		0.4		1.75	b					marlin	Marlin		4		668	669	1	530
-P	zav-l-family-printer	L Family Printer	L	c	200	200	200	0	0		0.4		1.75	b					marlin	Marlin		4		668	669	1	531
-P	zav-max	Max	Max	c	200	200	240	0	0		0.4		1.75	b					marlin	Marlin		4		668	669	1	531
-P	zav-mini	Mini	Mini	c	100	100	110	0	0		0.4		1.75	b					marlin	Marlin		4		668	669	1	532
+P	zav-big	Big+	Big	c	300	300	500	0	0		0.4		1.75	b					marlin	Marlin		4		668	669	1	541
+P	zav-l-family-printer	L Family Printer	L	c	200	200	200	0	0		0.4		1.75	b					marlin	Marlin		4		668	669	1	542
+P	zav-max	Max	Max	c	200	200	240	0	0		0.4		1.75	b					marlin	Marlin		4		668	669	1	542
+P	zav-mini	Mini	Mini	c	100	100	110	0	0		0.4		1.75	b					marlin	Marlin		4		668	669	1	543
 P	zav-pro	Pro	Pro	c	300	200	270	0	0		0.4		1.75	b					marlin	Marlin		4		668	669	1	
 B	Zone3D
 P	zone3d-printer	Printer	Printer	c	240	220	210	0	0		0.4		1.75	b					marlin	Marlin						1	
 B	Zonestar
-P	zonestar-z5	Z5	Z5	p	220	220	220	0	0		0.4	0.4	1.75	b	500		12	10	marlin	Marlin 2		10	35		670	2	533
-P	zonestar-z5x	Z5X	Z5X	p	310	310	400	0	0		0.4	0.4	1.75	b	500		12	10	marlin	Marlin 2		6.5	40	671	670	1	534
-P	zonestar-z6	Z6	Z6	p	150	150	150	0	0		0.4	0.4	1.75	b	500		12	10	marlin	Marlin 2		6.5	40	672	670	1	535
-P	zonestar-z8	Z8	Z8	p	310	310	400	0	0		0.4	0.4	1.75	b	500		12	10	marlin	Marlin 2		6.5	40	673	670	1	534
-P	zonestar-z9	Z9	Z9	p	310	310	400	0	0		0.4	0.4	1.75	b	500		12	10	marlin	Marlin 2		6.5	40	673	674	1	534
+P	zonestar-z5	Z5	Z5	p	220	220	220	0	0		0.4	0.4	1.75	b	500		12	10	marlin	Marlin 2		10	35		670	2	544
+P	zonestar-z5x	Z5X	Z5X	p	310	310	400	0	0		0.4	0.4	1.75	b	500		12	10	marlin	Marlin 2		6.5	40	671	670	1	545
+P	zonestar-z6	Z6	Z6	p	150	150	150	0	0		0.4	0.4	1.75	b	500		12	10	marlin	Marlin 2		6.5	40	672	670	1	546
+P	zonestar-z8	Z8	Z8	p	310	310	400	0	0		0.4	0.4	1.75	b	500		12	10	marlin	Marlin 2		6.5	40	673	670	1	545
+P	zonestar-z9	Z9	Z9	p	310	310	400	0	0		0.4	0.4	1.75	b	500		12	10	marlin	Marlin 2		6.5	40	673	674	1	545
