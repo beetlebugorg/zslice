@@ -1343,7 +1343,10 @@ void zg_preview_refresh(GtkWidget *preview) {
 
     /* Keep the same layer if it still exists. On the first result, show the
      * top layer. */
-    size_t layer = (old_count == 0 || old_layer >= p->layer_count) ? p->layer_count - 1 : old_layer;
+    /* A slider at the top stays at the top: a new orientation or layer
+     * height changes the layer count, and the part must not show cut. */
+    gboolean at_top = old_count > 0 && old_layer + 1 >= old_count;
+    size_t layer = (old_count == 0 || at_top || old_layer >= p->layer_count) ? p->layer_count - 1 : old_layer;
     ZgLayerRange *range = ZG_LAYER_RANGE(p->slider);
     size_t lo = old_count == 0 ? 0 : MIN(zg_layer_range_get_lo(range), layer);
     /* For development and screenshots: ZSLICE_LAYERS=lo,hi on the first

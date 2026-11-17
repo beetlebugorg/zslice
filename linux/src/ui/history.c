@@ -246,7 +246,7 @@ static char *step_tooltip(ZgModel *model, guint i) {
     GString *s = g_string_new(NULL);
     char *t = step_time(zg_model_history_time(model, i));
     if (i == 0) g_string_append(s, "<b>Start</b>");
-    else g_string_append_printf(s, "<b>Step %u · %s</b>", i, look_of(step_kind(model, i))->label);
+    else g_string_append_printf(s, "<b>Change %u · %s</b>", i, look_of(step_kind(model, i))->label);
     if (*t) g_string_append_printf(s, " · %s", t);
     g_free(t);
     if (i == zg_model_history_current(model)) g_string_append(s, " · now");
@@ -267,7 +267,7 @@ static char *step_tooltip(ZgModel *model, guint i) {
     }
     if (n > 8) g_string_append_printf(s, "\n… and %d more", n - 8);
     if (n == 0 && i > 0) g_string_append(s, "\nOther changes");
-    if (i != zg_model_history_current(model)) g_string_append(s, "\n<i>Click to go to this step.</i>");
+    if (i != zg_model_history_current(model)) g_string_append(s, "\n<i>Click to go back to this change.</i>");
     g_strfreev(lines);
     g_free(words);
     g_free(changes);
@@ -337,7 +337,7 @@ static GtkWidget *step_row(Page *p, guint i) {
     else if (i > now) gtk_widget_add_css_class(box, "zg-history-later");
     GtkWidget *head = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 6);
     char *t = step_time(zg_model_history_time(p->model, i));
-    char *title = i == 0 ? g_strdup("Start") : g_strdup_printf("Step %u", i);
+    char *title = i == 0 ? g_strdup("Start") : g_strdup_printf("Change %u", i);
     GtkWidget *tl = gtk_label_new(title);
     gtk_widget_add_css_class(tl, "heading");
     gtk_label_set_xalign(GTK_LABEL(tl), 0);
@@ -479,11 +479,11 @@ GtkWidget *zg_history_page_new(ZgModel *model) {
     Page *p = g_new0(Page, 1);
     p->model = g_object_ref(model);
     GtkWidget *box = gtk_box_new(GTK_ORIENTATION_VERTICAL, 4);
-    GtkWidget *help = gtk_label_new("Each step is a change of the settings or of the plate, the newest first. "
-                                    "Click a step to go back to it: the preview slices at that step. "
-                                    "↑ and ↓ go to the next step, and Space goes back to the step before, "
-                                    "to compare two steps. A new change there drops the later steps. "
-                                    "↶ undoes only one change.");
+    GtkWidget *help = gtk_label_new("Each change of the settings or of the plate, the newest first. "
+                                    "Click a change to go back to it: the preview slices as it was then. "
+                                    "↑ and ↓ go to the next change, and Space goes back to the one shown before, "
+                                    "to compare two. A new edit there drops the later changes. "
+                                    "↶ undoes only one setting and keeps the later changes.");
     gtk_label_set_wrap(GTK_LABEL(help), TRUE);
     gtk_label_set_xalign(GTK_LABEL(help), 0);
     gtk_widget_add_css_class(help, "dim-label");
@@ -630,7 +630,7 @@ GtkWidget *zg_timeline_new(ZgModel *model) {
     gtk_widget_add_css_class(label, "caption");
     t->steps = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 0);
     gtk_widget_set_valign(t->steps, GTK_ALIGN_CENTER);
-    t->empty = gtk_label_new("Each change of the settings or the plate adds a step here.");
+    t->empty = gtk_label_new("Each change of the settings or the plate adds a mark here.");
     gtk_widget_add_css_class(t->empty, "dim-label");
     gtk_widget_add_css_class(t->empty, "caption");
     GtkWidget *inner = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 6);
