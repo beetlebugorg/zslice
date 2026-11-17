@@ -351,6 +351,11 @@ typedef struct {
  * until the next call for another layer, or the next slice. */
 int zs_app_layer_gaps(zs_app *app, size_t layer, const zs_gap **gaps, size_t *n_gaps, const zs_gap_run **runs,
                       size_t *n_runs);
+/* The gap of a layer at x, y (mm), or the nearest within 0.3 mm, or -1
+ * (cell: the size of its cells, mm). zs_app_gap_cell: the cell size of the
+ * gaps of a layer. */
+int64_t zs_app_gap_at(zs_app *app, size_t layer, double x, double y, double *cell);
+double zs_app_gap_cell(zs_app *app, size_t layer);
 /* A setting that can close a gap: the name, the value to try, and why (not
  * NUL-terminated). */
 typedef struct {
@@ -725,6 +730,13 @@ void zs_view_focus(zs_view *view, uint32_t features, double zmax);
 void zs_view_show_gaps(zs_view *view, zs_app *app, int64_t layer);
 /* The index of the shown gap under the pixel, or -1. */
 int64_t zs_view_gap_at(const zs_view *view, zs_app *app, float px, float py);
+/* The gaps of a layer from their runs, for a view with no app (the web
+ * page, whose app is in a worker): runs as zs_app_layer_gaps gives them,
+ * the top z of the layer, and the cell size (zs_app_gap_cell). A negative
+ * layer: none. zs_view_layer_point gives the point (mm) under a pixel on
+ * the top of a layer, for zs_app_gap_at. */
+void zs_view_set_gap_runs(zs_view *view, int64_t layer, float layer_z, const zs_gap_run *runs, size_t n, double cell);
+int zs_view_layer_point(const zs_view *view, float px, float py, float layer_z, double *x, double *y);
 
 void zs_view_rotate(zs_view *view, float dx, float dy);
 /* Turns the camera around the vertical axis only (a turntable), by a drag

@@ -1129,11 +1129,19 @@ pub const View = struct {
         const r = app.layerGaps(l) catch return;
         const tp = app.allToolpaths() orelse return;
         if (l >= tp.layer_z.items.len) return;
-        v.gap_layer = l;
-        const z = tp.layer_z.items[l] * v.xf_sz;
+        v.setGapRuns(l, tp.layer_z.items[l], r.runs, r.cell);
+    }
+
+    /// The gaps of layer `layer` (its top at z mm) from their runs (see
+    /// gaps.zig), with no app: a view that reads its scene from bytes (the
+    /// web page) gets the runs from the app in the worker.
+    pub fn setGapRuns(v: *View, layer: usize, layer_z: f32, runs: []const @import("../gaps.zig").Run, cell: f64) void {
+        v.gap_beads.clearRetainingCapacity();
+        v.gap_layer = layer;
+        const z = layer_z * v.xf_sz;
         const c = v.xf_center;
-        const w: f32 = @floatCast(r.cell * 1.4);
-        for (r.runs) |run| {
+        const w: f32 = @floatCast(cell * 1.4);
+        for (runs) |run| {
             // A bead has round ends: the run is shorter by half a width at
             // each end, where it is long enough.
             var x0 = run.x0;
@@ -1156,6 +1164,19 @@ pub const View = struct {
                 .rgba = .{ 0xe8, 0x1c, 0x24, code_overlay },
             }) catch return;
         }
+    }
+
+    /// The point (mm, in the frame of the slice) under the pixel on the top
+    /// of layer `layer_z` mm, or null: for a pick of a gap in the app.
+    pub fn layerPoint(v: *const View, px: f32, py: f32, layer_z: f32) ?[2]f64 {
+        const cam = v.camera();
+        const dir = v.pixelRay(cam, px, py);
+        if (@abs(dir[2]) < 1e-6) return null;
+        const zt = layer_z * v.xf_sz;
+        const t = (zt - cam.eye[2]) / dir[2];
+        if (t <= 0) return null;
+        const c = v.xf_center;
+        return .{ c[0] + (cam.eye[0] + dir[0] * t - c[0]) / v.xf_sxy, c[1] + (cam.eye[1] + dir[1] * t - c[1]) / v.xf_sxy };
     }
 
     /// The gap of the shown layer (see `setGaps`) under the pixel (px, py),

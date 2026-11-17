@@ -200,6 +200,32 @@ export fn zs_view_show_gaps(view: ?*View, app: ?*App, layer: i64) void {
     v.setGaps(a, if (layer < 0) null else @intCast(layer));
 }
 
+/// The gaps of a layer from their runs (zs_gap_run: y, x0, x1 in mm), for
+/// a view with no app (the web page): see View.setGapRuns. A negative
+/// layer: none.
+export fn zs_view_set_gap_runs(view: ?*View, layer: i64, layer_z: f32, runs: ?[*]const zs.gaps.Run, n: usize, cell: f64) void {
+    if (!render_on) return;
+    const v = view orelse return;
+    if (layer < 0) {
+        v.gap_beads.clearRetainingCapacity();
+        v.gap_layer = null;
+        return;
+    }
+    v.setGapRuns(@intCast(layer), layer_z, if (runs) |r| r[0..n] else &.{}, cell);
+}
+
+/// The point (x, y in mm) under the pixel on the top of a layer at z mm,
+/// for a pick of a gap in an app of another instance (zs_app_gap_at). 0 if
+/// the ray misses it.
+export fn zs_view_layer_point(view: ?*const View, px: f32, py: f32, layer_z: f32, x: ?*f64, y: ?*f64) c_int {
+    if (!render_on) return 0;
+    const v = view orelse return 0;
+    const p = v.layerPoint(px, py, layer_z) orelse return 0;
+    if (x) |o| o.* = p[0];
+    if (y) |o| o.* = p[1];
+    return 1;
+}
+
 /// The index of the shown gap under the pixel (px, py), or -1.
 export fn zs_view_gap_at(view: ?*const View, app: ?*App, px: f32, py: f32) i64 {
     if (!render_on) return -1;

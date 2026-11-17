@@ -461,6 +461,22 @@ export fn zs_app_layer_gaps(a: ?*App, layer: usize, gaps: ?*?[*]const zs.gaps.Ga
     return ok;
 }
 
+/// The gap of layer `layer` at x, y (mm), or the nearest one within 0.3
+/// mm, or -1. The cell size of the gaps of the layer goes to `cell`.
+export fn zs_app_gap_at(a: ?*App, layer: usize, x: f64, y: f64, cell: ?*f64) i64 {
+    const app = a orelse return -1;
+    const r = app.layerGaps(layer) catch return -1;
+    if (cell) |out| out.* = r.cell;
+    return if (r.at(x, y, 0.3)) |i| @intCast(i) else -1;
+}
+
+/// The size of the cells of the gaps of a layer (mm), or 0.
+export fn zs_app_gap_cell(a: ?*App, layer: usize) f64 {
+    const app = a orelse return 0;
+    const r = app.layerGaps(layer) catch return 0;
+    return r.cell;
+}
+
 /// A setting that can close a gap: its name, the value to try, and why.
 /// The strings are not NUL-terminated.
 pub const GapStep = extern struct {
