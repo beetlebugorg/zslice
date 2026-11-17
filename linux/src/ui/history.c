@@ -15,13 +15,20 @@ static const char *css =
     ".zg-history-later { opacity: 0.55; }\n"
     ".zg-history-badge { font-size: 0.8em; font-weight: bold; padding: 0 6px; border-radius: 8px;"
     " background: @accent_bg_color; color: @accent_fg_color; }\n"
-    ".zg-timeline { padding: 3px 8px; border-top: 1px solid alpha(currentColor, 0.15); }\n"
-    ".zg-tl-step { min-width: 0; min-height: 0; padding: 2px; margin: 0 1px; border-radius: 99px;"
+    /* The timeline: a floating bar as the scrub bar over the preview. */
+    ".zg-timeline { padding: 2px 6px; border-radius: 14px; }\n"
+    ".zg-timeline button.zg-tl-tool { min-width: 26px; min-height: 26px; padding: 0; border-radius: 13px; }\n"
+    ".zg-timeline .zg-tl-sep { min-width: 1px; margin: 6px 4px; background: alpha(currentColor, 0.2); }\n"
+    ".zg-timeline .zg-tl-title { font-size: 0.8em; font-weight: bold; opacity: 0.7; margin: 0 4px; }\n"
+    ".zg-timeline .zg-tl-count { font-size: 0.8em; font-feature-settings: 'tnum'; opacity: 0.7; margin: 0 6px 0 4px; }\n"
+    ".zg-timeline .zg-tl-empty { font-size: 0.8em; opacity: 0.7; margin: 0 6px; }\n"
+    ".zg-tl-step { min-width: 0; min-height: 0; padding: 2px; margin: 0; border-radius: 99px;"
     " background: none; box-shadow: none; }\n"
-    ".zg-tl-step:hover { background: alpha(currentColor, 0.15); }\n"
+    ".zg-tl-step:hover { background: alpha(currentColor, 0.18); }\n"
     ".zg-tl-step.zg-tl-now { box-shadow: 0 0 0 2px @accent_bg_color; }\n"
-    ".zg-tl-step.zg-tl-later { opacity: 0.35; }\n"
-    ".zg-tl-line { min-width: 10px; min-height: 2px; background: alpha(currentColor, 0.25); }\n";
+    ".zg-tl-step.zg-tl-later { opacity: 0.4; }\n"
+    ".zg-tl-line { min-width: 8px; min-height: 2px; border-radius: 1px; background: alpha(currentColor, 0.3); }\n"
+    ".zg-tl-line.zg-tl-later { background: alpha(currentColor, 0.12); }\n";
 
 static void ensure_css(void) {
     static gboolean done = FALSE;
@@ -619,7 +626,7 @@ GtkWidget *zg_history_page_new(ZgModel *model, GtkWidget *stack) {
 
 typedef struct {
     ZgModel *model;
-    GtkWidget *steps, *scroller, *undo, *redo, *empty;
+    GtkWidget *steps, *scroller, *undo, *redo, *empty, *count;
 } Timeline;
 
 static void on_step(GtkButton *b, gpointer data) {
@@ -673,6 +680,7 @@ static void timeline_fill(Timeline *t) {
         if (i > 0) {
             GtkWidget *line = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 0);
             gtk_widget_add_css_class(line, "zg-tl-line");
+            if (i > now) gtk_widget_add_css_class(line, "zg-tl-later");
             gtk_widget_set_valign(line, GTK_ALIGN_CENTER);
             gtk_box_append(GTK_BOX(t->steps), line);
         }
@@ -693,6 +701,12 @@ static void timeline_fill(Timeline *t) {
     }
     gtk_widget_set_sensitive(t->undo, now > 0);
     gtk_widget_set_sensitive(t->redo, now + 1 < n);
+    gtk_widget_set_visible(t->scroller, n > 1);
+    gtk_widget_set_visible(t->count, n > 1);
+    char *count = g_strdup_printf("%u / %u", now, n > 0 ? n - 1 : 0);
+    gtk_label_set_text(GTK_LABEL(t->count), count);
+    gtk_widget_set_tooltip_text(t->count, "The change shown now, and the number of changes. ← and → go through them when the timeline has the focus.");
+    g_free(count);
     g_idle_add(scroll_to_now, t);
 }
 
@@ -719,34 +733,48 @@ GtkWidget *zg_timeline_new(ZgModel *model) {
     ensure_css();
     Timeline *t = g_new0(Timeline, 1);
     t->model = g_object_ref(model);
-    GtkWidget *bar = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 4);
+    /* A floating bar as the scrub bar: undo and redo, the title, the marks
+     * of the steps (the oldest at the left), and the count. */
+    GtkWidget *bar = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 2);
+    gtk_widget_add_css_class(bar, "osd");
     gtk_widget_add_css_class(bar, "zg-timeline");
     t->undo = gtk_button_new_from_icon_name("edit-undo-symbolic");
     t->redo = gtk_button_new_from_icon_name("edit-redo-symbolic");
     gtk_widget_set_tooltip_text(t->undo, "Undo (Ctrl+Z)");
     gtk_widget_set_tooltip_text(t->redo, "Redo (Ctrl+Shift+Z)");
-    for (int k = 0; k < 2; k++) gtk_widget_add_css_class(k ? t->redo : t->undo, "flat");
+    for (int k = 0; k < 2; k++) {
+        GtkWidget *b = k ? t->redo : t->undo;
+        gtk_widget_add_css_class(b, "flat");
+        gtk_widget_add_css_class(b, "zg-tl-tool");
+        gtk_widget_set_valign(b, GTK_ALIGN_CENTER);
+    }
     g_signal_connect(t->undo, "clicked", G_CALLBACK(on_undo), t);
     g_signal_connect(t->redo, "clicked", G_CALLBACK(on_redo), t);
+    GtkWidget *sep = gtk_separator_new(GTK_ORIENTATION_VERTICAL);
+    gtk_widget_add_css_class(sep, "zg-tl-sep");
     GtkWidget *label = gtk_label_new("History");
-    gtk_widget_add_css_class(label, "dim-label");
-    gtk_widget_add_css_class(label, "caption");
+    gtk_widget_add_css_class(label, "zg-tl-title");
     t->steps = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 0);
     gtk_widget_set_valign(t->steps, GTK_ALIGN_CENTER);
-    t->empty = gtk_label_new("Each change of the settings or the plate adds a mark here.");
-    gtk_widget_add_css_class(t->empty, "dim-label");
-    gtk_widget_add_css_class(t->empty, "caption");
-    GtkWidget *inner = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 6);
-    gtk_box_append(GTK_BOX(inner), t->steps);
-    gtk_box_append(GTK_BOX(inner), t->empty);
+    gtk_widget_set_margin_top(t->steps, 2);
+    gtk_widget_set_margin_bottom(t->steps, 2);
+    t->empty = gtk_label_new("Your changes show here");
+    gtk_widget_add_css_class(t->empty, "zg-tl-empty");
+    gtk_widget_set_tooltip_text(t->empty, "Each change of the settings or the plate adds a mark. Click a mark to see the print at that change.");
     t->scroller = gtk_scrolled_window_new();
-    gtk_scrolled_window_set_policy(GTK_SCROLLED_WINDOW(t->scroller), GTK_POLICY_AUTOMATIC, GTK_POLICY_NEVER);
-    gtk_scrolled_window_set_child(GTK_SCROLLED_WINDOW(t->scroller), inner);
-    gtk_widget_set_hexpand(t->scroller, TRUE);
+    gtk_scrolled_window_set_policy(GTK_SCROLLED_WINDOW(t->scroller), GTK_POLICY_EXTERNAL, GTK_POLICY_NEVER);
+    gtk_scrolled_window_set_propagate_natural_width(GTK_SCROLLED_WINDOW(t->scroller), TRUE);
+    gtk_scrolled_window_set_max_content_width(GTK_SCROLLED_WINDOW(t->scroller), 420);
+    gtk_scrolled_window_set_child(GTK_SCROLLED_WINDOW(t->scroller), t->steps);
+    t->count = gtk_label_new("");
+    gtk_widget_add_css_class(t->count, "zg-tl-count");
     gtk_box_append(GTK_BOX(bar), t->undo);
     gtk_box_append(GTK_BOX(bar), t->redo);
+    gtk_box_append(GTK_BOX(bar), sep);
     gtk_box_append(GTK_BOX(bar), label);
+    gtk_box_append(GTK_BOX(bar), t->empty);
     gtk_box_append(GTK_BOX(bar), t->scroller);
+    gtk_box_append(GTK_BOX(bar), t->count);
     GtkEventController *tk = gtk_event_controller_key_new();
     gtk_event_controller_set_propagation_phase(tk, GTK_PHASE_CAPTURE);
     g_signal_connect(tk, "key-pressed", G_CALLBACK(on_timeline_key), t);

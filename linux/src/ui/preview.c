@@ -52,6 +52,8 @@ typedef struct {
     /* The scrub bar: the nozzle through the top layer (0 its start, 1 the
      * layer done), and its time label. */
     GtkWidget *scrub, *scrub_label, *scrub_box;
+    /* The box at the bottom of the preview: the scrub bar and the timeline. */
+    GtkWidget *bottom;
     gboolean scrub_quiet;
     GtkWidget *colors;
     GtkWidget *legend;
@@ -1315,9 +1317,16 @@ GtkWidget *zg_preview_new(ZgModel *model) {
     gtk_box_append(GTK_BOX(p->scrub_box), p->scrub);
     gtk_box_append(GTK_BOX(p->scrub_box), p->scrub_label);
     gtk_widget_set_halign(p->scrub_box, GTK_ALIGN_CENTER);
-    gtk_widget_set_valign(p->scrub_box, GTK_ALIGN_END);
-    gtk_widget_set_margin_bottom(p->scrub_box, 10);
-    gtk_overlay_add_overlay(GTK_OVERLAY(box), p->scrub_box);
+    /* The bottom of the preview: the scrub bar, and under it the timeline
+     * of the history (zg_preview_set_timeline). */
+    p->bottom = gtk_box_new(GTK_ORIENTATION_VERTICAL, 6);
+    gtk_widget_set_halign(p->bottom, GTK_ALIGN_CENTER);
+    gtk_widget_set_valign(p->bottom, GTK_ALIGN_END);
+    gtk_widget_set_margin_bottom(p->bottom, 10);
+    gtk_widget_set_margin_start(p->bottom, 10);
+    gtk_widget_set_margin_end(p->bottom, 10);
+    gtk_box_append(GTK_BOX(p->bottom), p->scrub_box);
+    gtk_overlay_add_overlay(GTK_OVERLAY(box), p->bottom);
     /* The readout of the measure tape, under the toolbar. */
     p->measure_label = gtk_label_new("");
     gtk_widget_add_css_class(p->measure_label, "osd");
@@ -1542,4 +1551,11 @@ void zg_preview_show_layer(GtkWidget *preview, size_t layer) {
     Preview *p = g_object_get_data(G_OBJECT(preview), "zg-preview");
     if (!p || layer >= p->layer_count) return;
     show_layer(p, layer);
+}
+
+void zg_preview_set_timeline(GtkWidget *preview, GtkWidget *timeline) {
+    Preview *p = g_object_get_data(G_OBJECT(preview), "zg-preview");
+    if (!p || !p->bottom) return;
+    gtk_widget_set_halign(timeline, GTK_ALIGN_CENTER);
+    gtk_box_append(GTK_BOX(p->bottom), timeline);
 }

@@ -13,6 +13,9 @@
 
 /* Returns the preview widget (the area and the slider in one box). */
 GtkWidget *zg_preview_new(ZgModel *model);
+/* Puts the timeline of the history (zg_timeline_new) at the bottom of the
+ * preview, under the scrub bar. */
+void zg_preview_set_timeline(GtkWidget *preview, GtkWidget *timeline);
 
 /* Reads the result from the core again. Call it when the state changes. */
 void zg_preview_refresh(GtkWidget *preview);

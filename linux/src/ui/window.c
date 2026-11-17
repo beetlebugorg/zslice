@@ -1221,11 +1221,12 @@ GtkWindow *zg_window_new(GtkApplication *app, ZgModel *model) {
     gtk_widget_add_css_class(panel, "zg-panel");
     /* The model on the left, the settings on the right, as in other
      * slicers. */
-    /* The preview, with the timeline of the history under it. */
+    /* The preview, with the timeline of the history floating at its
+     * bottom. */
     GtkWidget *left = gtk_box_new(GTK_ORIENTATION_VERTICAL, 0);
     gtk_widget_set_vexpand(w->preview, TRUE);
     gtk_box_append(GTK_BOX(left), w->preview);
-    gtk_box_append(GTK_BOX(left), zg_timeline_new(model));
+    zg_preview_set_timeline(w->preview, zg_timeline_new(model));
     gtk_paned_set_start_child(GTK_PANED(paned), left);
     gtk_paned_set_end_child(GTK_PANED(paned), panel);
     gtk_paned_set_resize_end_child(GTK_PANED(paned), FALSE);
