@@ -324,7 +324,33 @@ export class Core {
         info.values[name] = this.valueAt(info.z, name);
       }
       info.mark = this.markOfPath(path, seg, info);
+      info.measure = this.measure(path, seg < 0 ? 0 : seg);
       return info;
+    } finally {
+      w.free(p, size);
+    }
+  }
+
+  // The measurements of path `path` at segment `seg` (zs_app_measure): the
+  // segment, its straight edge, the path and its size, and the radius of a
+  // circle or an arc. Null with no slice.
+  measure(path, seg) {
+    const w = this.w;
+    const size = 88; // zs_measure on wasm32
+    const p = w.alloc(size);
+    try {
+      if (w.x.zs_app_measure(this.app, path, seg, p) !== 0) return null;
+      return {
+        segment: w.f64(p),
+        edge: w.f64(p + 8),
+        path: w.f64(p + 16),
+        closed: w.i32(p + 24) !== 0,
+        sizeX: w.f64(p + 32),
+        sizeY: w.f64(p + 40),
+        shape: w.i32(p + 48),
+        radius: w.f64(p + 56),
+        angle: w.f64(p + 80),
+      };
     } finally {
       w.free(p, size);
     }

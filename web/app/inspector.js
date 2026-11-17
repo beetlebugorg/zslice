@@ -110,6 +110,10 @@ export class Inspector {
     page.append(stats);
     this.note = el("div", "insp-note");
     page.append(this.note);
+    // The measurements of the selected segment (zs_app_measure).
+    this.measure = el("div", "insp-measure");
+    this.measure.title = "The measurements of the selected segment: its length, the straight edge that it is a part of, the whole line, and the radius of a circle or an arc.";
+    page.append(this.measure);
 
     // The support mark of the user at this line.
     this.markBox = el("div", "insp-mark");
@@ -200,6 +204,7 @@ export class Inspector {
     this.statValues[2].textContent = `${info.flow.toFixed(1)} mm³/s`;
     this.note.textContent = SLOW_NOTES[info.slowReason] ?? "";
     this.note.hidden = info.slowReason === 0;
+    this.showMeasure(info.measure);
     this.explain.textContent = info.explain;
     for (const r of this.rows) {
       const entry = info.values[r.info.name];
@@ -292,5 +297,24 @@ export class Inspector {
   valueText(name) {
     const r = this.rows.find((x) => x.info.name === name);
     return r ? displayValue(r.info, this.info.values[name]?.value ?? "") : null;
+  }
+
+  showMeasure(m) {
+    if (!this.measure) return;
+    this.measure.replaceChildren();
+    this.measure.hidden = !m;
+    if (!m) return;
+    const line = (label, text) => {
+      const d = el("div");
+      const b = el("b", "", label);
+      d.append(b, document.createTextNode("  " + text));
+      this.measure.append(d);
+    };
+    if (m.shape === 1) line("Circle", `radius ${m.radius.toFixed(2)} mm · diameter ${(2 * m.radius).toFixed(2)} mm`);
+    else if (m.shape === 2) line("Arc", `radius ${m.radius.toFixed(2)} mm · ${m.angle.toFixed(0)}°`);
+    let seg = `${m.segment.toFixed(2)} mm`;
+    if (m.edge > m.segment + 0.01) seg += ` · edge ${m.edge.toFixed(2)} mm`;
+    line("Segment", seg);
+    line(m.closed ? "Loop" : "Path", `${m.path.toFixed(2)} mm · ${m.sizeX.toFixed(2)} × ${m.sizeY.toFixed(2)} mm`);
   }
 }

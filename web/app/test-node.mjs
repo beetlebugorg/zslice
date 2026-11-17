@@ -122,6 +122,9 @@ check(view.pathLayer(path) === mid, "the layer of the picked path");
 check(view.step(path, 0, 1, false) && view.hit[0] >= path, "a step along the print");
 check(view.nearestOnLayer(path, mid + 1) >= 0, "the nearest path on the layer above");
 const info = core.inspect(path, 0);
+// The measurements of the line (zs_app_measure).
+if (!info.measure || !(info.measure.path > 0) || !(info.measure.segment > 0)) throw new Error("no measurements: " + JSON.stringify(info.measure));
+console.log(`measure: segment ${info.measure.segment.toFixed(2)} mm, path ${info.measure.path.toFixed(2)} mm, shape ${info.measure.shape}`);
 check(info && info.layer === mid && info.title.length > 0 && Object.keys(info.values).length > 0, "the Selected page of the path");
 check((core.lineReport(path) ?? "").includes("## The line"), "the report of Copy for AI");
 // A 3D pick in the middle of the view.

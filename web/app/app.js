@@ -598,7 +598,7 @@ function showPage(page) {
 }
 $("view-2d").disabled = false;
 $("view-2d").title = "2D: one layer from the top. A drag pans, the wheel zooms, a double click fits the part.";
-$("view-3d").title = "3D: the layers up to the slider. Left drag to orbit, middle drag to pan, right drag to rotate freely, scroll to zoom, double-click to reset.";
+$("view-3d").title = "3D: the layers up to the slider. A left or right drag orbits, a middle drag pans, scroll to zoom, double-click to reset.";
 $("view-2d").onclick = () => showPage("2d");
 $("view-3d").onclick = () => showPage("3d");
 $("view-2d").classList.toggle("checked", app.page === "2d");

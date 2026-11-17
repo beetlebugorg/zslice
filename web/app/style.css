@@ -357,3 +357,5 @@ button.destructive { background: #c01c28; color: #fff; }
 .picker-bedbox { display: flex; align-items: center; gap: 6px; }
 .picker-bedbox input { width: 80px; }
 .num { font-variant-numeric: tabular-nums; }
+
+.insp-measure { margin: 6px 0 2px; font-variant-numeric: tabular-nums; line-height: 1.5; }
