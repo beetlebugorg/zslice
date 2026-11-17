@@ -55,6 +55,7 @@ typedef struct {
      * not known). */
     char *spool;
     char *spool_material; /* the material of the roll before, for a change */
+    char *printer_roll;   /* the key of the roll in the printer at the last poll */
     double spool_left;
     double spool_price_g;
     GCancellable *deck_cancel;
@@ -664,8 +665,9 @@ static void on_export_all_action(GSimpleAction *a, GVariant *v, gpointer data) {
 
 static void on_send_clicked(GtkButton *b, gpointer data) {
     Window *w = get(data);
-    /* USB prints as it sends; the network kinds only upload here. */
-    send(w, zg_printers_current()->kind == ZG_LINK_USB);
+    /* The main button prints: it uploads and starts the print. "Upload
+     * only" is in its menu. */
+    send(w, TRUE);
 }
 
 static void on_send_print(GSimpleAction *a, GVariant *v, gpointer data) {
@@ -710,12 +712,18 @@ static void on_poll_info(ZgPrinterInfo *info, const char *error, gpointer data) 
      * before gets its own settings back, and a new roll the settings of
      * its material, name, diameter, and color. */
     char *follow = zg_pref_get("follow_roll", "1");
+    if (info) zg_model_set_rolls(w->model, pr->id, info->rolls, info->n_rolls);
+    /* Only a change of the roll in the printer: a roll that the user picks
+     * in the Filament menu stays until the printer has another roll. */
     if (info && info->spool_id && info->spool_id[0] && strcmp(follow, "1") == 0) {
         GString *key = g_string_new(NULL);
-        for (const char *c = pr->id; *c; c++) g_string_append_c(key, g_ascii_isalnum(*c) ? *c : '-');
-        g_string_append_c(key, '-');
-        for (const char *c = info->spool_id; *c; c++) g_string_append_c(key, g_ascii_isalnum(*c) ? *c : '-');
-        if (g_strcmp0(zg_model_roll(w->model), key->str) != 0) {
+        char *k = zg_model_roll_key(pr->id, info->spool_id);
+        g_string_append(key, k);
+        g_free(k);
+        gboolean moved = g_strcmp0(w->printer_roll, key->str) != 0;
+        g_free(w->printer_roll);
+        w->printer_roll = g_strdup(key->str);
+        if (moved && g_strcmp0(zg_model_roll(w->model), key->str) != 0) {
             /* The first roll after a start: the settings are the ones of
              * this roll already (the last session saved them). */
             gboolean first = zg_model_roll(w->model) == NULL;
@@ -791,10 +799,14 @@ static void update_printer_ui(Window *w) {
     gtk_widget_set_visible(w->send_button, linked);
     gtk_widget_set_visible(w->send_menu, linked);
     if (linked) {
-        /* A short label, so the window can be narrow; the printer is in
-         * the menu at the left, and in the tooltip. */
-        gtk_button_set_label(GTK_BUTTON(w->send_button), pr->kind == ZG_LINK_USB ? "Print" : "Send");
-        char *tip = g_strdup_printf(pr->kind == ZG_LINK_USB ? "Print on %s over USB" : "Send the G-code to %s", pr->name);
+        /* The label names the kind of link; the printer is in the menu at
+         * the left, and in the tooltip. */
+        const char *label = pr->kind == ZG_LINK_PRINTDECK ? "Print to Printdeck"
+                            : pr->kind == ZG_LINK_OCTOPRINT ? "Print to OctoPrint"
+                            : pr->kind == ZG_LINK_MOONRAKER ? "Print to Moonraker"
+                                                             : "Print";
+        gtk_button_set_label(GTK_BUTTON(w->send_button), label);
+        char *tip = g_strdup_printf(pr->kind == ZG_LINK_USB ? "Print on %s over USB" : "Upload the G-code to %s and start the print", pr->name);
         gtk_widget_set_tooltip_text(w->send_button, tip);
         g_free(tip);
     }
@@ -880,6 +892,7 @@ static void window_free(gpointer data) {
     g_free(w->last_stats);
     g_free(w->spool);
     g_free(w->spool_material);
+    g_free(w->printer_roll);
     g_free(w);
 }
 
@@ -930,12 +943,11 @@ GtkWindow *zg_window_new(GtkApplication *app, ZgModel *model) {
     /* The three profiles of the settings: printer, filament, part. */
     gtk_header_bar_pack_start(GTK_HEADER_BAR(header), zg_profile_menu_new(model, ZS_GROUP_FILAMENT));
     gtk_header_bar_pack_start(GTK_HEADER_BAR(header), zg_profile_menu_new(model, ZS_GROUP_PROJECT));
-    w->send_button = gtk_button_new_with_label("Send");
+    w->send_button = gtk_button_new_with_label("Print");
     gtk_widget_add_css_class(w->send_button, "suggested-action");
     g_signal_connect(w->send_button, "clicked", G_CALLBACK(on_send_clicked), w->window);
     GMenu *send_menu = g_menu_new();
-    g_menu_append(send_menu, "Send and print", "win.send-print");
-    g_menu_append(send_menu, "Send only", "win.send-only");
+    g_menu_append(send_menu, "Upload only", "win.send-only");
     g_menu_append(send_menu, "Export a G-code file…", "win.export");
     w->send_menu = gtk_menu_button_new();
     gtk_menu_button_set_menu_model(GTK_MENU_BUTTON(w->send_menu), G_MENU_MODEL(send_menu));
