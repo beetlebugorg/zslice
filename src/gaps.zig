@@ -95,6 +95,7 @@ fn covers(f: Feature) bool {
         // Ironing goes over a covered top; the skirt and the support are
         // outside the outline; the slope passes are above the layer.
         .ironing, .skirt, .support, .support_interface, .slope_smoothing, .slope_ironing => false,
+        .bridge => true,
     };
 }
 

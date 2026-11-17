@@ -49,10 +49,14 @@ pub const feature_rgb = [_][3]u8{
     .{ 0x49, 0x50, 0x57 }, // support interface
     .{ 0x0c, 0xa6, 0xae }, // slope smoothing
     .{ 0x82, 0xc9, 0x1e }, // slope ironing
+    .{ 0xf0, 0x8c, 0x00 }, // bridge
     .{ 0xe0, 0x1a, 0x26 }, // mark: seam
     .{ 0x33, 0x73, 0xf2 }, // mark: travel
     .{ 0xf2, 0x40, 0xbf }, // mark: retraction
 };
+
+/// The number of features: the marks follow them in `feature_rgb`.
+const n_features = @typeInfo(@import("../settings.zig").Feature).@"enum".fields.len;
 
 pub const Surface = vk.Surface;
 pub const Error = vk.Error;
@@ -435,7 +439,7 @@ pub const View = struct {
         v.mark_layer_end.clearRetainingCapacity();
         const pts = tp.points.items;
         const flow = @import("../flow.zig");
-        const seam_rgb = if (v.mode == .print) filament else feature_rgb[10];
+        const seam_rgb = if (v.mode == .print) filament else feature_rgb[n_features];
         for (tp.layer_ends.items, 0..) |layer_end, l| {
             const p0: u32 = if (l == 0) 0 else tp.layer_ends.items[l - 1];
             const z = tp.layer_z.items[l] * sz;
@@ -467,11 +471,11 @@ pub const View = struct {
                     const retracted = tp.path_retract.items.len > pi and tp.path_retract.items[pi] != 0;
                     const lift: f32 = if (retracted) tp.z_hop else 0;
                     if (std.math.hypot(first[0] - p[0], first[1] - p[1]) > 0.05) {
-                        const t = feature_rgb[11];
+                        const t = feature_rgb[n_features + 1];
                         try v.addMark(.{ .ax = p[0], .ay = p[1], .bx = first[0], .by = first[1], .z = z + lift + 0.08, .h = 0.06, .w = 0.06, .rgba = .{ t[0], t[1], t[2], 11 } });
                     }
                     if (retracted) {
-                        const r = feature_rgb[12];
+                        const r = feature_rgb[n_features + 2];
                         try v.addMark(.{ .ax = p[0], .ay = p[1], .bx = p[0], .by = p[1], .z = z + 0.35, .h = 0.3, .w = 0.3, .rgba = .{ r[0], r[1], r[2], 12 } });
                     }
                 }

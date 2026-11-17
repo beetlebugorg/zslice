@@ -1054,10 +1054,19 @@ pub fn plan(gpa: Allocator, ctx: Context, i: usize) Allocator.Error!LayerPlan {
 
     // Step 5.
     const skin_inset = -@divTrunc(w, 2) + geom.fromMm(p.skin_overlap * width_mm);
-    const skin_region = if (mods.taken_skin.isEmpty())
+    var skin_region = if (mods.taken_skin.isEmpty())
         try memo.fill(reg, true, skin_inset, ctx.gen)
     else
         try clip.difference(s, try memo.fill(reg, true, skin_inset, ctx.gen), mods.taken_skin);
+    // Bridges (see `bridgeLines`): their area leaves the skin.
+    var bridge_lines: Paths = .empty;
+    if (p.bridges and i > 0 and !skin_region.isEmpty()) {
+        const br = try bridgeLines(s, skin_region, ctx.outlines[i - 1], w);
+        if (!br.area.isEmpty()) {
+            bridge_lines = br.lines;
+            skin_region = try clip.difference(s, skin_region, br.area);
+        }
+    }
     // Lines have no direction, so the angle is modulo 180 degrees.
     const skin_angle = @mod(p.skin_angle + p.skin_angle_step * @as(f64, @floatFromInt(i)), 180);
     var skin_lines: Paths = .empty;
@@ -1262,6 +1271,7 @@ pub fn plan(gpa: Allocator, ctx: Context, i: usize) Allocator.Error!LayerPlan {
         vw_seams[k] = try seamsFor(s, wall.loops, seam);
     }
     const skin_ids = try isl.ids(s, skin_lines);
+    const bridge_ids = try isl.ids(s, bridge_lines);
     const skin_loop_ids = try isl.ids(s, skin_loops);
     const sparse_ids = try isl.ids(s, sparse_lines);
     const sparse_loop_ids = try isl.ids(s, sparse_loops);
@@ -1297,6 +1307,7 @@ pub fn plan(gpa: Allocator, ctx: Context, i: usize) Allocator.Error!LayerPlan {
         try addThin(a, &lp, &pos, &reg, .{ .ids = thin_ids, .id = id });
         try addSkinIslands(s, a, &lp, &pos, skin_lines, skin_line_w, skin_island, skin_n_islands, .{ .ids = skin_ids, .id = id }, skin_angle, p.skin_pattern == .monotonic);
         try addGroup(s, a, &lp, &pos, skin_loops, true, .skin, null, .{ .ids = skin_loop_ids, .id = id });
+        try addGroup(s, a, &lp, &pos, bridge_lines, false, .bridge, null, .{ .ids = bridge_ids, .id = id });
         try addGroup(s, a, &lp, &pos, sparse_lines, false, .infill, null, .{ .ids = sparse_ids, .id = id });
         try addGroup(s, a, &lp, &pos, sparse_loops, true, .infill, null, .{ .ids = sparse_loop_ids, .id = id });
         if (comb_height > 0) {
@@ -2381,6 +2392,99 @@ fn insidePoly(poly: []const Point, p: Point) bool {
     return winding != 0;
 }
 
+/// The bridges of a skin area: their area (the bridge with its anchors),
+/// and their lines.
+const Bridges = struct { area: Paths, lines: Paths };
+
+/// The bridges of `skin` (the skin area of a layer) over `below` (the
+/// outline of the layer below), for lines of width `w`:
+///
+/// 1. The air: the skin outside `below`, with no part narrower than a
+///    line (an opening by half a line width).
+/// 2. Each piece of it is a bridge if solid plastic holds it: two or more
+///    separate solid areas touch its edge, or solid plastic is along 60 %
+///    of its edge (a roof). Else it is an overhang, and stays skin.
+/// 3. The anchors: the bridge grows by 3 line widths (at least 1.5 mm)
+///    into the skin around it, so each line starts and ends on plastic.
+/// 4. The direction: of the angles 0 to 165 degrees in steps of 15, those
+///    with nearly the most line length that starts and ends over `below`
+///    (within 5 % of the best share), and of them, the one with the
+///    shortest longest span: the longest line sags the most.
+/// 5. The lines: straight across the air, joined at their ends on the
+///    anchors into a zigzag.
+fn bridgeLines(s: Allocator, skin: Paths, below: Paths, w: i64) Allocator.Error!Bridges {
+    const none: Bridges = .{ .area = .empty, .lines = .empty };
+    const air = try clip.difference(s, skin, below);
+    if (air.isEmpty()) return none;
+    const wide = try offset_mod.opening(s, air, @divTrunc(w, 2), .{});
+    if (wide.isEmpty()) return none;
+    const solid = try clip.intersect(s, below, skin);
+    const below_ix = try geom.EdgeIndex.init(s, below, 0);
+    const anchor = @max(3 * w, geom.fromMm(1.5));
+    var area: Paths = .empty;
+    var lines: Paths = .empty;
+    for (try infill.islandsOf(s, wide)) |piece| {
+        if (piece.areaMm2() < 1.0) continue;
+        // Step 2: what holds the piece.
+        const touch = try clip.intersect(s, try offset_mod.offset(s, piece, w, .{}), solid);
+        var anchors: usize = 0;
+        var touch_area: f64 = 0;
+        for (0..touch.count()) |k| {
+            const ta = geom.areaMm2(touch.get(k));
+            if (ta > 0.05) anchors += 1;
+            touch_area += ta;
+        }
+        var edge: f64 = 0;
+        for (0..piece.count()) |k| {
+            const poly = piece.get(k);
+            for (poly, 0..) |q, qi| edge += q.dist(poly[(qi + 1) % poly.len]);
+        }
+        const held = if (edge > 0) touch_area / geom.toMm(w) / geom.toMm(@intFromFloat(edge)) else 0;
+        if (anchors < 2 and held < 0.6) continue;
+        // Step 3.
+        const grown = try clip.intersect(s, try offset_mod.offset(s, piece, anchor, .{}), skin);
+        if (grown.isEmpty()) continue;
+        // Step 4: the share of the line length that is anchored at both
+        // ends, and the longest anchored span. The direction with the
+        // shortest longest span, of those with nearly the best share.
+        const Cand = struct { angle: f64, share: f64, span: f64 };
+        var cands: [12]Cand = undefined;
+        var best_share: f64 = 0;
+        for (&cands, 0..) |*c, ci| {
+            const a_deg = 15 * @as(f64, @floatFromInt(ci));
+            const cand = try infill.lines(s, grown, w, a_deg, w);
+            var total: f64 = 0;
+            var anchored: f64 = 0;
+            var longest: f64 = 0;
+            for (0..cand.count()) |k| {
+                const l = cand.get(k);
+                if (l.len < 2) continue;
+                const len = l[0].dist(l[l.len - 1]);
+                total += len;
+                if (below_ix.inside(l[0]) and below_ix.inside(l[l.len - 1])) {
+                    anchored += len;
+                    longest = @max(longest, len);
+                }
+            }
+            c.* = .{ .angle = a_deg, .share = if (total > 0) anchored / total else 0, .span = if (longest > 0) longest else std.math.inf(f64) };
+            best_share = @max(best_share, c.share);
+        }
+        var best_angle: f64 = 0;
+        var best_span = std.math.inf(f64);
+        for (cands) |c| if (c.share >= best_share - 0.05 and c.span < best_span) {
+            best_span = c.span;
+            best_angle = c.angle;
+        };
+        // Step 5.
+        // The ends of the lines are on the anchors (over solid plastic),
+        // so the lines join there into a zigzag, with no travel.
+        const ls = try infill.connect(s, grown, try infill.lines(s, grown, w, best_angle, w), w, best_angle);
+        for (0..ls.count()) |k| try lines.append(s, ls.get(k));
+        area = if (area.isEmpty()) grown else try clip.unite(s, area, grown);
+    }
+    return .{ .area = area, .lines = lines };
+}
+
 fn addOrdered(s: Allocator, a: Allocator, lp: *LayerPlan, pos: *Point, set: Paths, closed: bool, feature: Feature) Allocator.Error!void {
     return addGroup(s, a, lp, pos, set, closed, feature, null, null);
 }
@@ -2597,7 +2701,7 @@ test "plan a layer of a box" {
         .outer_wall, .inner_wall => walls += 1,
         .skin => skin += 1,
         .infill => fill += 1,
-        .ironing, .skirt, .support, .support_interface, .slope_smoothing, .slope_ironing => unreachable,
+        .ironing, .skirt, .support, .support_interface, .slope_smoothing, .slope_ironing, .bridge => unreachable,
     };
     try testing.expectEqual(@as(usize, 2), walls);
     try testing.expectEqual(@as(usize, 0), skin);

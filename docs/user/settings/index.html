@@ -120,6 +120,8 @@ M84</code></pre>
 <h3 id="filament-1">Filament</h3>
 <p><strong><code>filament.name</code></strong> (text). Default: <code>&quot;generic PLA&quot;</code></p>
 <p>The name of the filament, for the G-code header.</p>
+<p><strong><code>filament.material</code></strong> (text). Default: <code>&quot;PLA&quot;</code></p>
+<p>The type of the plastic, for example "PLA", "PETG", "ABS", or "TPU". The Filament menu lists the rolls of this type.</p>
 <p><strong><code>filament.color</code></strong> (text). Default: <code>&quot;#d0d0cc&quot;</code></p>
 <p>The color of the filament, as "#rrggbb". The 3D view draws the print in this color.</p>
 <p><strong><code>filament.diameter</code></strong> (number). Default: <code>1.75</code></p>
@@ -225,6 +227,14 @@ M84</code></pre>
 <p>How much the skin direction turns from one layer to the next, in degrees. 90 crosses the lines of each layer with the layer below.</p>
 <p><strong><code>project.skin_overlap</code></strong> (number; per layer). Default: <code>0.15</code></p>
 <p>Skin lines go this far into the walls, as a fraction of the line width, so that the skin bonds to the walls.</p>
+<p><strong><code>project.bridges</code></strong> (true or false; per layer). Default: <code>true</code></p>
+<p>Print bridges as bridges: the part of a bottom skin over air that solid plastic holds at its sides prints in straight lines across the air (the direction with the most lines that start and end on solid plastic), each line anchored on the solid skin around it, slower (<code>bridge_speed</code>), with <code>bridge_flow</code> and <code>bridge_fan</code>. Off: the bridge prints as normal skin.</p>
+<p><strong><code>project.bridge_speed</code></strong> (number; per layer). Default: <code>0.3</code></p>
+<p>The speed of the bridge lines, as a ratio of the allowed speed. A slow line sags less.</p>
+<p><strong><code>project.bridge_flow</code></strong> (number; per layer). Default: <code>0.95</code></p>
+<p>The flow of the bridge lines, as a ratio of the flow of a normal line. A little less flow makes a thinner strand that cools fast.</p>
+<p><strong><code>project.bridge_fan</code></strong> (number; per layer). Default: <code>1.0</code></p>
+<p>The fan speed while the bridge lines print, from 0 to 1.</p>
 <h3 id="infill">Infill</h3>
 <p><strong><code>project.infill_density</code></strong> (number; per layer). Default: <code>0.2</code></p>
 <p>The fraction of the inside that the sparse infill fills, as a ratio. 0 makes the part hollow.</p>

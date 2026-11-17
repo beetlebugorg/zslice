@@ -9,7 +9,7 @@ const meta = @import("../settings_meta.zig");
 const Feature = @import("../settings.zig").Feature;
 
 /// The name of each feature for the UI, in the order of the Feature enum.
-pub const feature_names = [_][]const u8{ "Outer wall", "Inner wall", "Skin", "Sparse infill", "Ironing", "Skirt or brim", "Support", "Support interface", "Slope smoothing", "Slope ironing" };
+pub const feature_names = [_][]const u8{ "Outer wall", "Inner wall", "Skin", "Sparse infill", "Ironing", "Skirt or brim", "Support", "Support interface", "Slope smoothing", "Slope ironing", "Bridge" };
 
 /// The settings that change the shape and the place of each feature, in
 /// the order of the Feature enum. The speed settings are in
@@ -25,6 +25,7 @@ pub const feature_settings = [_][]const []const u8{
     &.{ "project.support_interface_layers", "project.support_interface_density", "project.support_z_gap_layers" },
     &.{ "project.slope_smoothing", "project.slope_smoothing_min_width", "project.slope_smoothing_max_width", "project.slope_smoothing_flow", "machine.nozzle_tip_radius", "machine.nozzle_cone_angle", "project.layer_height", "project.line_width" },
     &.{ "project.slope_ironing", "project.slope_ironing_passes", "project.slope_ironing_flow", "project.slope_smoothing_min_width", "project.slope_smoothing_max_width", "machine.nozzle_tip_radius", "machine.nozzle_cone_angle", "project.layer_height" },
+    &.{ "project.bridges", "project.bridge_speed", "project.bridge_flow", "project.bridge_fan", "project.skin_overlap", "project.line_width", "project.layer_height" },
 };
 pub const first_layer_settings = [_][]const u8{ "project.first_layer_height", "project.first_layer_line_width", "filament.first_layer_nozzle_temp", "project.first_layer_xy_offset" };
 /// The settings that slow a layer down to cool it.
@@ -37,7 +38,7 @@ pub fn accelSetting(feature: Feature, first_layer: bool) []const u8 {
     return switch (feature) {
         .outer_wall, .slope_smoothing => "project.outer_wall_accel",
         .inner_wall, .skirt => "project.inner_wall_accel",
-        .skin, .support_interface, .ironing, .slope_ironing => "project.skin_accel",
+        .skin, .support_interface, .ironing, .slope_ironing, .bridge => "project.skin_accel",
         .infill, .support => "project.infill_accel",
     };
 }
@@ -47,13 +48,14 @@ pub fn speedRatioSetting(feature: Feature, first_layer: bool) []const u8 {
     if (feature == .ironing) return "project.ironing_speed";
     if (feature == .slope_smoothing) return "project.slope_smoothing_speed";
     if (feature == .slope_ironing) return "project.slope_ironing_speed";
+    if (feature == .bridge) return "project.bridge_speed";
     if (first_layer) return "project.first_layer_speed";
     return switch (feature) {
         .outer_wall => "project.outer_wall_speed",
         .inner_wall, .skirt => "project.inner_wall_speed",
         .skin, .support_interface => "project.skin_speed",
         .infill, .support => "project.infill_speed",
-        .ironing, .slope_smoothing, .slope_ironing => unreachable,
+        .ironing, .slope_smoothing, .slope_ironing, .bridge => unreachable,
     };
 }
 

@@ -65,7 +65,7 @@ static void update_bar(Browser *b);
 
 static const char *feature_titles[] = {"Outer wall", "Inner wall", "Skin", "Sparse infill",
                                        "Ironing", "Skirt or brim", "Support", "Support interface",
-                                       "Slope smoothing", "Slope ironing",
+                                       "Slope smoothing", "Slope ironing", "Bridge",
                                        "Seams", "Travel moves", "Retractions"};
 enum { N_MARKS = 3 };
 

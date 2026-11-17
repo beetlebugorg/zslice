@@ -316,6 +316,21 @@ pub const Project = struct {
     /// Skin lines go this far into the walls, as a fraction of the line
     /// width, so that the skin bonds to the walls.
     skin_overlap: f64 = 0.15,
+    /// Print bridges as bridges: the part of a bottom skin over air that
+    /// solid plastic holds at its sides prints in straight lines across the
+    /// air (the direction with the most lines that start and end on solid
+    /// plastic), each line anchored on the solid skin around it, slower
+    /// (`bridge_speed`), with `bridge_flow` and `bridge_fan`. Off: the
+    /// bridge prints as normal skin.
+    bridges: bool = true,
+    /// The speed of the bridge lines, as a ratio of the allowed speed. A slow
+    /// line sags less.
+    bridge_speed: f64 = 0.3,
+    /// The flow of the bridge lines, as a ratio of the flow of a normal
+    /// line. A little less flow makes a thinner strand that cools fast.
+    bridge_flow: f64 = 0.95,
+    /// The fan speed while the bridge lines print, from 0 to 1.
+    bridge_fan: f64 = 1.0,
 
     // Infill
     /// The fraction of the inside that the sparse infill fills, as a ratio. 0 makes the part hollow.
@@ -694,6 +709,9 @@ pub const Feature = enum(u8) {
     /// The ironing passes over the steps of a sloped top surface (see
     /// `Project.slope_ironing`).
     slope_ironing,
+    /// The lines of a skin over air, held at its sides (see
+    /// `Project.bridges`).
+    bridge,
 };
 
 /// Settings after `Settings.resolve`, with the derived values.
@@ -733,7 +751,7 @@ pub const Resolved = struct {
         const a = if (feature) |f| switch (f) {
             .outer_wall, .slope_smoothing => p.outer_wall_accel,
             .inner_wall, .skirt => p.inner_wall_accel,
-            .skin, .support_interface, .ironing, .slope_ironing => p.skin_accel,
+            .skin, .support_interface, .ironing, .slope_ironing, .bridge => p.skin_accel,
             .infill, .support => p.infill_accel,
         } else p.travel_accel;
         return if (a > 0) @min(max, a) else max;
@@ -754,6 +772,7 @@ pub const Resolved = struct {
             .support => p.infill_speed,
             .support_interface => p.skin_speed,
             .slope_smoothing => p.slope_smoothing_speed,
+            .bridge => p.bridge_speed,
             .ironing, .slope_ironing => unreachable,
         };
         return limit * ratio;
@@ -1002,6 +1021,9 @@ pub const limits = [_]struct { []const u8, f64, f64 }{
     .{ "project.top_support_density", 0, 1 },
     .{ "project.infill_overlap", 0, 1 },
     .{ "project.infill_flow", 0.1, 3 },
+    .{ "project.bridge_speed", 0.01, 1 },
+    .{ "project.bridge_flow", 0.1, 2 },
+    .{ "project.bridge_fan", 0, 1 },
     .{ "project.infill_layers", 1, 10 },
     .{ "project.ironing_flow", 0, 1 },
     .{ "project.ironing_spacing", 0.01, 2 },
@@ -1140,6 +1162,10 @@ pub const layer_settings = [_][]const u8{
     "project.infill_angles",
     "project.infill_stack",
     "project.infill_flow",
+    "project.bridges",
+    "project.bridge_speed",
+    "project.bridge_flow",
+    "project.bridge_fan",
     "project.infill_overlap",
     "project.infill_layers",
     "project.ironing",

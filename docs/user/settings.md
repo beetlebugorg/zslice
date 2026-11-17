@@ -142,6 +142,10 @@ Facts about the material.
 
 The name of the filament, for the G-code header.
 
+**`filament.material`** (text). Default: `"PLA"`
+
+The type of the plastic, for example "PLA", "PETG", "ABS", or "TPU". The Filament menu lists the rolls of this type.
+
 **`filament.color`** (text). Default: `"#d0d0cc"`
 
 The color of the filament, as "#rrggbb". The 3D view draws the print in this color.
@@ -351,6 +355,22 @@ How much the skin direction turns from one layer to the next, in degrees. 90 cro
 **`project.skin_overlap`** (number; per layer). Default: `0.15`
 
 Skin lines go this far into the walls, as a fraction of the line width, so that the skin bonds to the walls.
+
+**`project.bridges`** (true or false; per layer). Default: `true`
+
+Print bridges as bridges: the part of a bottom skin over air that solid plastic holds at its sides prints in straight lines across the air (the direction with the most lines that start and end on solid plastic), each line anchored on the solid skin around it, slower (`bridge_speed`), with `bridge_flow` and `bridge_fan`. Off: the bridge prints as normal skin.
+
+**`project.bridge_speed`** (number; per layer). Default: `0.3`
+
+The speed of the bridge lines, as a ratio of the allowed speed. A slow line sags less.
+
+**`project.bridge_flow`** (number; per layer). Default: `0.95`
+
+The flow of the bridge lines, as a ratio of the flow of a normal line. A little less flow makes a thinner strand that cools fast.
+
+**`project.bridge_fan`** (number; per layer). Default: `1.0`
+
+The fan speed while the bridge lines print, from 0 to 1.
 
 ### Infill
 

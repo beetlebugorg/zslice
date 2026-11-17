@@ -416,6 +416,8 @@ pub const Emitter = struct {
     extruded: bool = false,
     /// The last fan value written (0 to 255), or -1 before the first.
     fan: i32 = -1,
+    /// The fan of the layer (coolingFan), for after a bridge, or -1.
+    layer_fan: i32 = -1,
     /// The last feed rate written, in mm/min.
     feed: f64 = -1,
     feature: ?Feature = null,
@@ -689,7 +691,8 @@ pub const Emitter = struct {
             s.filament.fan_max_speed
         else
             s.filament.fan_speed;
-        try self.setFan(@intFromFloat(@round(255 * ratio)));
+        self.layer_fan = @intFromFloat(@round(255 * ratio));
+        try self.setFan(self.layer_fan);
     }
 
     /// The speed of an extrusion with the full speed `full` on a layer that
@@ -750,6 +753,14 @@ pub const Emitter = struct {
                 self.feature = path.feature;
                 if (!self.dry) try self.w.print(";TYPE:{s}\n", .{typeName(path.feature)});
             }
+            // The fan of a bridge, and the fan of the layer after it.
+            if (!self.dry) {
+                if (path.feature == .bridge) {
+                    try self.setFan(@intFromFloat(@round(255 * path_r.settings.project.bridge_fan)));
+                } else if (self.layer_fan >= 0) {
+                    try self.setFan(self.layer_fan);
+                }
+            }
             // A path with its own height (combined infill) has a larger
             // bead, so its flow limit gives a lower speed.
             const h: f64 = if (path.height > 0) path.height else lp.height;
@@ -768,6 +779,7 @@ pub const Emitter = struct {
             const e = switch (path.feature) {
                 .ironing => base_e * lr.settings.project.ironing_flow,
                 .infill => base_e * path_r.settings.project.infill_flow,
+                .bridge => base_e * path_r.settings.project.bridge_flow,
                 else => base_e,
             };
             const x0 = geom.toMm(pts[0].x);
@@ -1553,6 +1565,7 @@ fn typeName(f: Feature) []const u8 {
         .support_interface => "SUPPORT-INTERFACE",
         .slope_smoothing => "SLOPE-SMOOTHING",
         .slope_ironing => "SLOPE-IRONING",
+        .bridge => "BRIDGE",
     };
 }
 

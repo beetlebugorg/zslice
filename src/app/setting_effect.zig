@@ -165,7 +165,7 @@ test "setting effects" {
     // The skirt uses the inner wall speed.
     try testing.expectEqual(bit(.inner_wall) | bit(.skirt), settingEffect("project.inner_wall_speed").features);
     try testing.expect(settingEffect("project.first_layer_height").first_layer_only);
-    try testing.expectEqual(@as(u32, 0x3ff), settingEffect("project.layer_height").features);
+    try testing.expectEqual(@as(u32, 0x7ff), settingEffect("project.layer_height").features);
     try testing.expectEqual(bit(.slope_ironing), settingEffect("project.slope_ironing_flow").features);
     try testing.expectEqual(bit(.slope_smoothing), settingEffect("project.slope_smoothing_flow").features);
     // A temperature changes no line.
