@@ -96,7 +96,7 @@ The goal is the features that people use in PrusaSlicer and Cura. zslice designs
 - [ ] Import of PrusaSlicer and OrcaSlicer profiles, and of a Cura profile export (.curaprofile)
 - [x] Shrinkage compensation and XY offsets for outlines, holes, and the first layer (imported from the printdeck rolls)
 - [x] A printer profile library
-- [x] Send to printer: printdeck, OctoPrint, Moonraker
+- [x] Send to printer: printdeck, OctoPrint, Moonraker (native; the web app since 0.1.0-beta, and printer.json for a printer that serves the app)
 - [ ] Calibration prints: temperature tower, flow, retraction, pressure advance
 
 ## App

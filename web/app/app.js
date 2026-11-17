@@ -22,6 +22,7 @@ import { Inspector } from "./inspector.js";
 import { Gaps } from "./gaps.js";
 import { HistoryPage } from "./history.js";
 import { Tools } from "./tools.js";
+import { KINDS, send as sendToPrinter, test as testPrinter } from "./link.js";
 import { contextItems } from "./context-menu.js";
 import { openMenu, openMenuAt, menuOpen, openPopover, closeMenu } from "./menus.js";
 import { formatClock, formatTime } from "./format.js";
@@ -688,6 +689,27 @@ function managePrinters() {
       const name = Object.assign(document.createElement("input"), { value: n, title: "The name of the printer" });
       const url = Object.assign(document.createElement("input"), { value: p.url ?? "", placeholder: "http://printer.local", title: "The address of the printer, to send it prints (printdeck, OctoPrint, Moonraker)" });
       const now = Object.assign(document.createElement("span"), { className: "dim", textContent: n === store.printer ? "in use" : "" });
+      const kind = document.createElement("select");
+      kind.title = "How zslice talks to the printer";
+      for (const [k, label] of Object.entries(KINDS)) kind.append(new Option(label, k, false, (p.kind ?? "none") === k));
+      kind.onchange = () => {
+        p.kind = kind.value;
+        saveStore();
+        updateSummary();
+      };
+      const key = Object.assign(document.createElement("input"), { type: "password", value: p.apiKey ?? "", placeholder: "API key", autocomplete: "off", title: "The API key of the printer (printdeck and OctoPrint: Settings › API; Moonraker: if it needs one). It stays in this browser." });
+      key.onchange = () => {
+        p.apiKey = key.value.trim();
+        saveStore();
+      };
+      const result = Object.assign(document.createElement("span"), { className: "dim printers-test" });
+      const testB = Object.assign(document.createElement("button"), { textContent: "Test" });
+      testB.onclick = async () => {
+        result.textContent = "…";
+        const t = await testPrinter({ ...p, name: n });
+        result.textContent = t.message;
+        result.classList.toggle("error", !t.ok);
+      };
       const use = Object.assign(document.createElement("button"), { textContent: "Use", disabled: n === store.printer });
       use.onclick = async () => {
         await loadProfile(0, n, store.printers[n].profile);
@@ -728,8 +750,12 @@ function managePrinters() {
       url.onchange = () => {
         p.url = url.value.trim();
         saveStore();
+        updateSummary();
       };
-      row.append(name, url, now, use, settings, rm);
+      const line2 = document.createElement("div");
+      line2.className = "printers-row2";
+      line2.append(kind, key, testB, result);
+      row.append(name, url, now, use, settings, rm, line2);
       list.append(row);
     }
   };
@@ -1323,6 +1349,18 @@ function updateSummary() {
   const card = $("summary");
   card.classList.toggle("stale", app.slicing);
   $("export").disabled = app.state !== "done";
+  // A printer with a connection: the card prints to it, and the export
+  // goes to the menu of the print button (window.c).
+  const pr = currentPrinter();
+  const linked = !!(pr && pr.kind && pr.kind !== "none" && pr.url);
+  $("send-box").hidden = !linked;
+  $("export").hidden = linked;
+  if (linked) {
+    $("send").textContent = sending ? "Sending…" : `Print to ${KINDS[pr.kind] ?? pr.kind}`;
+    $("send").title = `Upload the G-code to ${pr.name} and start the print`;
+    $("send").disabled = app.state !== "done" || sending;
+    $("send-menu").disabled = app.state !== "done" || sending;
+  }
   if (app.slicing) return;
   if (app.state !== "done" || !app.stats) {
     $("sum-time").textContent = app.state === "failed" ? "Slice failed" : "—";
@@ -1349,6 +1387,40 @@ async function exportGcode() {
   download(r.bytes, `${base}.gcode`, "text/x-gcode");
 }
 $("export").onclick = exportGcode;
+
+// ---- print: send the G-code to the printer ----
+
+// The printer of the user that is in use, with its name, or null.
+function currentPrinter() {
+  const p = store.printers?.[store.printer];
+  return p ? { ...p, name: store.printer } : null;
+}
+
+var sending = false; // var: updateSummary can run before this line
+async function sendGcode(print) {
+  const pr = currentPrinter();
+  if (!pr || app.state !== "done" || sending) return;
+  const r = await client.call("gcode");
+  if (!r.bytes) {
+    toast("No G-code: slice first.");
+    return;
+  }
+  const base = (r.name || "part").replace(/\.(stl|3mf)$/i, "");
+  sending = true;
+  updateSummary();
+  try {
+    const res = await sendToPrinter(pr, `${base}.gcode`, new Uint8Array(r.bytes), print);
+    toast(res.message);
+  } finally {
+    sending = false;
+    updateSummary();
+  }
+}
+$("send").onclick = () => sendGcode(true);
+$("send-menu").onclick = () => openMenu($("send-menu"), [
+  { label: "Upload only", tip: "Upload the G-code to the printer, and do not start it.", action: () => sendGcode(false) },
+  { label: "Export G-code…", action: exportGcode },
+]);
 
 // ---- the worker events ----
 
@@ -1533,6 +1605,33 @@ document.addEventListener("keydown", (e) => {
 });
 
 // ---- the worker starts ----
+
+// A printer that serves this page (for example a printdeck on the LAN) can
+// put printer.json next to it: { "name", "kind", "url" (empty: this
+// server), "profile" (a machine profile text, optional) }. The app adds
+// that printer, and uses it when no printer is set up yet.
+async function hostPrinter() {
+  let p = null;
+  try {
+    const r = await fetch("printer.json", { cache: "no-store" });
+    if (!r.ok) return;
+    p = await r.json();
+  } catch {
+    return;
+  }
+  if (!p?.name || !KINDS[p.kind]) return;
+  store.printers = store.printers ?? {};
+  const known = store.printers[p.name];
+  store.printers[p.name] = {
+    profile: known?.profile ?? p.profile ?? store.saved?.machine ?? "",
+    url: p.url || location.origin,
+    kind: p.kind,
+    apiKey: known?.apiKey ?? p.apiKey ?? "",
+  };
+  if (!store.printer) store.printer = p.name;
+  saveStore();
+}
+await hostPrinter();
 
 const init = await client.call("init", { module, saved: store.saved ?? null, mode: app.mode });
 if (init.errors?.length) toast(`Some saved settings did not load: ${init.errors.join("; ")}`);

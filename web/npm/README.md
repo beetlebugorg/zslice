@@ -35,6 +35,14 @@ A profile is a built-in name or a `.toml` file (`zslice import cura` of the nati
 
 The web app is the files in `node_modules/@beetlebugorg/zslice/app/`. Serve them at any path; the app uses only relative URLs.
 
+A printer that serves the app itself (for example a printdeck on the LAN) can put `printer.json` next to `index.html`:
+
+```json
+{ "name": "Workhorse", "kind": "printdeck", "url": "", "profile": "<a machine profile, optional>" }
+```
+
+`kind` is `printdeck`, `octoprint`, or `moonraker`; an empty `url` is the server of the page. The app adds that printer, and uses it when no printer is set up yet. The print button then sends the G-code to it (`/api/files/local`, or `/server/files/upload` for Moonraker), with no CORS: the page and the printer have the same origin.
+
 ## The JavaScript API
 
 ```js
