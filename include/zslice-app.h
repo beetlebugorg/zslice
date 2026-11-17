@@ -717,6 +717,9 @@ int zs_view_surface_point(const zs_view *view, float px, float py, int snap, dou
  * (x, y, z) for each point. The view draws a mark at each point and a line
  * between two. */
 void zs_view_set_measure(zs_view *view, size_t n, const double *pts);
+/* The pixel of a point of the world (mm), or 0 if it is behind the camera
+ * (to grab an end of the measure tape). */
+int zs_view_pixel_of(const zs_view *view, double x, double y, double z, float *px, float *py);
 /* Shows the beads of some features clearly, and fades the others: a bit
  * (1 << enum zs_feature) for each feature, or 0 to end the focus. Only the
  * beads with a top at or under zmax (mm) are in focus; a negative zmax is

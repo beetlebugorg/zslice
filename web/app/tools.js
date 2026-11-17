@@ -10,7 +10,8 @@
 //   nearest line (Shift: no snap). A click on a circle or an arc gives its
 //   size, and the point is its center. A third click starts again; Esc
 //   clears. The readout shows the distance, its parts along x, y and z,
-//   and the distance on the bed.
+//   and the distance on the bed. A drag of an end of the tape moves that
+//   end (it snaps as a click does).
 //
 // The view of the page finds the points (zs_view_surface_point), and the
 // worker has the parts and the measurements of the lines.
@@ -87,6 +88,58 @@ export class Tools {
       }
     }
     this.add({ x: pt[0], y: pt[1], z: pt[2], r: 0, shape: 0 });
+  }
+
+  // The pixel of a point of the tape in the view that shows, or null.
+  pixelOf(p) {
+    if (this.ctx.page() === "2d") {
+      const v = this.ctx.view2d;
+      return [v.ox + p.x * v.scale, this.ctx.canvas.height - (v.oy + p.y * v.scale)];
+    }
+    const { view } = this.ctx;
+    const c = view.w.cell;
+    if (!view.x.zs_view_pixel_of(view.v, p.x, p.y, p.z, c, c + 4)) return null;
+    const f = new Float32Array(view.x.memory.buffer, c, 2);
+    return [f[0], f[1]];
+  }
+
+  // The end of the tape within 14 CSS pixels of a device pixel, or -1.
+  endAt(px, py, dpr) {
+    let best = -1;
+    let bestD = 14 * dpr;
+    this.pts.forEach((p, i) => {
+      const q = this.pixelOf(p);
+      if (!q) return;
+      const d = Math.hypot(q[0] - px, q[1] - py);
+      if (d < bestD) {
+        bestD = d;
+        best = i;
+      }
+    });
+    return best;
+  }
+
+  // A drag of end i of the tape to a device pixel. shift: no snap.
+  dragEnd(i, px, py, shift) {
+    const p = this.pts[i];
+    if (!p) return;
+    if (this.ctx.page() === "2d") {
+      const v = this.ctx.view2d;
+      p.x = (px - v.ox) / v.scale;
+      p.y = (this.ctx.canvas.height - py - v.oy) / v.scale;
+    } else {
+      const { view } = this.ctx;
+      const c = view.w.cell;
+      if (!view.x.zs_view_surface_point(view.v, px, py, shift ? 0 : 1, c)) return;
+      p.x = view.w.f64(c);
+      p.y = view.w.f64(c + 8);
+      p.z = view.w.f64(c + 16);
+    }
+    // A moved end is a point, not a center.
+    p.r = 0;
+    p.shape = 0;
+    this.showTape();
+    this.showReadout();
   }
 
   add(p) {

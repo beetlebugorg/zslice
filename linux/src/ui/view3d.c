@@ -50,6 +50,8 @@ typedef struct {
     gboolean part_picked;
     gboolean zoomed_at;
     double move_x0, move_y0, bed_x0, bed_y0;
+    /* The end of the measure tape that a drag moves, or -1. */
+    int tape_end;
     /* The tick callback of the camera animation, or 0. */
     guint anim;
     gint64 anim_last;
@@ -473,6 +475,28 @@ static void on_drag_begin(GtkGestureDrag *g, double x, double y, gpointer data) 
     v->drag_x = 0;
     v->drag_y = 0;
     v->moving = -1;
+    v->tape_end = -1;
+    /* The measure tape: a left drag on an end of it moves that end. */
+    int mode0 = GPOINTER_TO_INT(g_object_get_data(G_OBJECT(g), "zg-drag"));
+    if (v->view && mode0 == DRAG_ORBIT && zg_model_tool(v->model) == ZG_TOOL_MEASURE) {
+        const double *m = NULL;
+        int n = zg_model_measure(v->model, &m);
+        int s = gtk_widget_get_scale_factor(v->area);
+        double best = 14.0 * s;
+        for (int i = 0; i < n; i++) {
+            float qx, qy;
+            if (!zs_view_pixel_of(v->view, m[3 * i], m[3 * i + 1], m[3 * i + 2], &qx, &qy)) continue;
+            double d = hypot(qx - x * s, qy - y * s);
+            if (d < best) {
+                best = d;
+                v->tape_end = i;
+            }
+        }
+        if (v->tape_end >= 0) {
+            gtk_widget_set_cursor_from_name(v->area, "grabbing");
+            return;
+        }
+    }
     /* Ctrl and the left button on a part: move the part. */
     GdkModifierType mods = gtk_event_controller_get_current_event_state(GTK_EVENT_CONTROLLER(g));
     int mode = GPOINTER_TO_INT(g_object_get_data(G_OBJECT(g), "zg-drag"));
@@ -499,6 +523,7 @@ static void menu_at(View3d *v, double x, double y);
 static void on_drag_end(GtkGestureDrag *g, double dx, double dy, gpointer data) {
     View3d *v = data;
     v->moving = -1;
+    v->tape_end = -1;
     tool_cursor(v);
     int mode = GPOINTER_TO_INT(g_object_get_data(G_OBJECT(g), "zg-drag"));
     if (mode == DRAG_RIGHT && fabs(dx) < 4 && fabs(dy) < 4) {
@@ -513,6 +538,16 @@ static void on_drag_update(GtkGestureDrag *g, double dx, double dy, gpointer dat
     int mode = GPOINTER_TO_INT(g_object_get_data(G_OBJECT(g), "zg-drag"));
     int scale = gtk_widget_get_scale_factor(v->area);
     float ddx = (float)(dx - v->drag_x), ddy = (float)(dy - v->drag_y);
+    if (v->view && v->tape_end >= 0) {
+        double sx, sy, p[3];
+        gtk_gesture_drag_get_start_point(g, &sx, &sy);
+        GdkModifierType mods = gtk_event_controller_get_current_event_state(GTK_EVENT_CONTROLLER(g));
+        if (zs_view_surface_point(v->view, (float)((sx + dx) * scale), (float)((sy + dy) * scale), !(mods & GDK_SHIFT_MASK), p))
+            zg_model_measure_move(v->model, v->tape_end, p[0], p[1], p[2]);
+        v->drag_x = dx;
+        v->drag_y = dy;
+        return;
+    }
     if (v->view && v->moving >= 0) {
         /* The part follows the bed point under the pointer. */
         double sx, sy, bx, by;
@@ -931,6 +966,7 @@ static void view_free(gpointer data) {
 GtkWidget *zg_view3d_new(ZgModel *model) {
     View3d *v = g_new0(View3d, 1);
     v->model = g_object_ref(model);
+    v->tape_end = -1;
     v->area = gtk_drawing_area_new();
     gtk_widget_set_hexpand(v->area, TRUE);
     gtk_widget_set_vexpand(v->area, TRUE);

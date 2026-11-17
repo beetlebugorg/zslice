@@ -1383,6 +1383,17 @@ void zg_model_measure_add_shape(ZgModel *self, double x, double y, double z, dou
     g_signal_emit(self, signals[SIGNAL_MEASURE_CHANGED], 0);
 }
 
+void zg_model_measure_move(ZgModel *self, int i, double x, double y, double z) {
+    if (i < 0 || i >= self->measure_n) return;
+    self->measure[3 * i] = x;
+    self->measure[3 * i + 1] = y;
+    self->measure[3 * i + 2] = z;
+    /* A moved end is a point, not a center. */
+    self->measure_r[i] = 0;
+    self->measure_shape[i] = 0;
+    g_signal_emit(self, signals[SIGNAL_MEASURE_CHANGED], 0);
+}
+
 void zg_model_measure_add(ZgModel *self, double x, double y, double z) {
     zg_model_measure_add_shape(self, x, y, z, 0, 0);
 }

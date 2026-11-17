@@ -226,6 +226,8 @@ void zg_model_set_tool(ZgModel *self, ZgTool tool);
 /* The measure tape: up to two points (x, y, z in mm). A third point starts
  * a new measure. "measure-changed" follows each change. zg_model_measure
  * gives the number of points and the points. */
+/* Moves point i of the measure tape (a drag of an end of it). */
+void zg_model_measure_move(ZgModel *self, int i, double x, double y, double z);
 void zg_model_measure_add(ZgModel *self, double x, double y, double z);
 /* A point at the center of a circle (shape 1) or an arc (shape 2) of the
  * radius, and the radius of point i (0: a plain point). */

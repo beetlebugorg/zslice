@@ -233,6 +233,16 @@ canvas.addEventListener("pointerdown", (e) => {
   drag = { button: e.button, x: e.clientX, y: e.clientY, x0: e.clientX, y0: e.clientY, moved: false, part: null };
   canvas.style.cursor = "grabbing";
   canvas.focus({ preventScroll: true });
+  // The measure tape: a left drag on an end of it moves that end.
+  if (e.button === 0 && tools.tool === "measure" && tools.pts.length > 0) {
+    const r = canvas.getBoundingClientRect();
+    const end = tools.endAt((e.clientX - r.left) * dpr(), (e.clientY - r.top) * dpr(), dpr());
+    if (end >= 0) {
+      drag.tape = end;
+      canvas.style.cursor = "grabbing";
+      return;
+    }
+  }
   // The move tool, or Ctrl, in 3D: a left drag on a part moves it.
   if (e.button === 0 && app.page === "3d" && view.loaded && (tools.tool === "move" || e.ctrlKey)) {
     const d = drag;
@@ -251,6 +261,11 @@ canvas.addEventListener("pointermove", (e) => {
   drag.y = e.clientY;
   if (dx === 0 && dy === 0) return;
   if (Math.abs(e.clientX - drag.x0) > 4 || Math.abs(e.clientY - drag.y0) > 4) drag.moved = true;
+  if (drag.tape !== undefined) {
+    const r = canvas.getBoundingClientRect();
+    tools.dragEnd(drag.tape, (e.clientX - r.left) * dpr(), (e.clientY - r.top) * dpr(), e.shiftKey);
+    return;
+  }
   if (drag.part === "moving") {
     const r = canvas.getBoundingClientRect();
     tools.moveTo((e.clientX - r.left) * dpr(), (e.clientY - r.top) * dpr());
@@ -271,6 +286,8 @@ canvas.addEventListener("pointerup", (e) => {
     tools.moveEnd();
     return;
   }
+  // A press on an end of the tape: a drag moved it; a click leaves it.
+  if (d?.tape !== undefined) return;
   if (!d || d.moved || !view.loaded) return;
   const r = canvas.getBoundingClientRect();
   const px = (e.clientX - r.left) * dpr();

@@ -178,6 +178,17 @@ export fn zs_view_surface_point(view: ?*const View, px: f32, py: f32, snap: c_in
     return 1;
 }
 
+/// The pixel of a point of the world (mm), or 0 if it is behind the
+/// camera: for a grab of an end of the measure tape.
+export fn zs_view_pixel_of(view: ?*const View, x: f64, y: f64, z: f64, px: ?*f32, py: ?*f32) c_int {
+    if (!render_on) return 0;
+    const v = view orelse return 0;
+    const q = v.pixelOf(.{ @floatCast(x), @floatCast(y), @floatCast(z) }) orelse return 0;
+    if (px) |o| o.* = q[0];
+    if (py) |o| o.* = q[1];
+    return 1;
+}
+
 /// The points of the measure tape: n (0, 1, or 2) points of 3 values.
 export fn zs_view_set_measure(view: ?*View, n: usize, pts: ?[*]const f64) void {
     if (!render_on) return;
