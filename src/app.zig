@@ -510,8 +510,14 @@ pub const App = struct {
     pub fn setPartSetting(app: *App, i: usize, name: []const u8, value: ?[]const u8) (Allocator.Error || Settings.SetError || error{NoPart})!void {
         if (i >= app.plate.parts.items.len) return error.NoPart;
         if (value) |v| {
-            var check = app.settings;
-            try check.set(name, v);
+            // "quality": a built-in quality profile for the part (see
+            // import_cura.partSettings).
+            if (std.mem.eql(u8, name, "quality")) {
+                if (zs.profile.builtin(.project, v) == null) return error.InvalidValue;
+            } else {
+                var check = app.settings;
+                try check.set(name, v);
+            }
         }
         const old = app.plate.parts.items[i].meta;
         var list: std.ArrayList(zs.threemf.Meta) = .empty;
@@ -2517,4 +2523,39 @@ test "global settings: under the quality, and saved apart" {
     try testing.expect(std.mem.indexOf(u8, w.written(), "seam = \"rear\"") != null);
     try app.setGlobalSetting("project.seam", null);
     try testing.expectEqual(App.Level.default, app.source(null, "project.seam").level);
+}
+
+test "part settings: a part with its own quality profile" {
+    const gpa = testing.allocator;
+    var b: zs.mesh.Builder = .init(gpa);
+    try zs.mesh.shapes.addBox(&b, 0, 0, 0, 20, 20, 6);
+    var mesh = try b.finish();
+    defer mesh.deinit(gpa);
+    var stl: std.Io.Writer.Allocating = .init(gpa);
+    defer stl.deinit();
+    try mesh.writeStl(&stl.writer);
+    const app = try App.create(gpa, null, null);
+    defer app.destroy();
+    try app.loadStl("a.stl", stl.written());
+    _ = try app.addStl("b.stl", stl.written());
+    _ = try app.arrangePlate();
+    try app.setPartSetting(1, "quality", "draft");
+    try testing.expectError(error.InvalidValue, app.setPartSetting(1, "quality", "nope"));
+    try app.startSlice();
+    app.stopWorkerForTest();
+    try testing.expectEqual(State.done, app.getState());
+    // The paths of the draft part are 0.3 mm high (above the first
+    // layer), and the paths of the other part 0.2 mm.
+    const t = app.allToolpaths().?;
+    var seen = [2]bool{ false, false };
+    const first_end = t.layer_ends.items[0];
+    for (first_end..t.path_part.items.len) |pi| {
+        const part = t.path_part.items[pi];
+        if (part > 1) continue;
+        const h = t.path_height.items[pi];
+        const want: f32 = if (part == 1) 0.3 else 0.2;
+        try testing.expectApproxEqAbs(want, h, 0.001);
+        seen[part] = true;
+    }
+    try testing.expect(seen[0] and seen[1]);
 }

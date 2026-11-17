@@ -13,8 +13,19 @@ typedef struct {
     GtkWidget *title, *size, *x, *y, *rot, *scale;
     /* The settings of the part from its file, and its modifier volumes. */
     GtkWidget *settings_head, *settings;
+    GtkWidget *quality; /* the quality profile of the part, or "As the print" */
     gboolean filling;
 } PartPage;
+
+/* The quality choices: "As the print", then the built-in profiles. */
+static void on_part_quality(GObject *dd, GParamSpec *ps, gpointer data) {
+    PartPage *pp = data;
+    gint64 i = zg_model_selected_part(pp->model);
+    if (pp->filling || i < 0) return;
+    guint ix = gtk_drop_down_get_selected(GTK_DROP_DOWN(dd));
+    const char *name = ix == 0 ? NULL : zs_builtin_profile_name(ZS_GROUP_PROJECT, ix - 1);
+    zg_model_part_setting_set(pp->model, (size_t)i, "quality", name);
+}
 
 static void part_fill(PartPage *pp) {
     gint64 i = zg_model_selected_part(pp->model);
@@ -29,6 +40,12 @@ static void part_fill(PartPage *pp) {
     gtk_spin_button_set_value(GTK_SPIN_BUTTON(pp->y), p.y);
     gtk_spin_button_set_value(GTK_SPIN_BUTTON(pp->rot), p.rotation);
     gtk_spin_button_set_value(GTK_SPIN_BUTTON(pp->scale), p.scale_x * 100);
+    char *q = zg_model_part_setting(pp->model, (size_t)i, "quality");
+    guint qix = 0;
+    for (size_t k = 0; q && k < zs_builtin_profile_count(ZS_GROUP_PROJECT); k++)
+        if (strcmp(zs_builtin_profile_name(ZS_GROUP_PROJECT, k), q) == 0) qix = (guint)k + 1;
+    gtk_drop_down_set_selected(GTK_DROP_DOWN(pp->quality), qix);
+    g_free(q);
     size_t len = 0;
     char *text = NULL;
     if (zs_app_part_settings(zg_model_core(pp->model), (size_t)i, NULL, 0, &len) == ZS_OK && len > 0) {
@@ -147,6 +164,20 @@ GtkWidget *zg_part_page_new(ZgModel *model) {
     gtk_grid_attach(GTK_GRID(grid), buttons, 0, row++, 4, 1);
     /* The settings of this part: any project or filament setting, over
      * the values of the print. */
+    /* The quality of the part: its own built-in quality profile (a jig in
+     * draft next to a figure in fine), under its own settings. */
+    GtkStringList *ql = gtk_string_list_new(NULL);
+    gtk_string_list_append(ql, "As the print");
+    for (size_t k = 0; k < zs_builtin_profile_count(ZS_GROUP_PROJECT); k++) gtk_string_list_append(ql, zs_builtin_profile_name(ZS_GROUP_PROJECT, k));
+    pp->quality = gtk_drop_down_new(G_LIST_MODEL(ql), NULL);
+    gtk_widget_set_tooltip_text(pp->quality, "The quality profile of this part. Its layer height can differ from the other parts: zslice merges the layers of all parts by height.");
+    g_signal_connect(pp->quality, "notify::selected", G_CALLBACK(on_part_quality), pp);
+    GtkWidget *ql_label = gtk_label_new("Quality");
+    gtk_label_set_xalign(GTK_LABEL(ql_label), 0);
+    gtk_widget_set_margin_top(ql_label, 8);
+    gtk_widget_set_margin_top(pp->quality, 8);
+    gtk_grid_attach(GTK_GRID(grid), ql_label, 0, row, 1, 1);
+    gtk_grid_attach(GTK_GRID(grid), pp->quality, 1, row++, 3, 1);
     GtkWidget *edit = gtk_button_new_with_label("Edit settings for this part");
     gtk_widget_add_css_class(edit, "suggested-action");
     gtk_widget_set_margin_top(edit, 8);

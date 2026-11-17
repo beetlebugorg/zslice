@@ -803,7 +803,33 @@ pub fn partSettings(arena: Allocator, meta: anytype, base: *const @import("setti
     // The thickness keys first, so that a layer count replaces them.
     var layer_keys: [2]?f64 = .{ null, null };
 
+    // The quality profile of the part ("zslice:quality" = "draft"): the
+    // values that the built-in profile sets, first, so the other settings
+    // of the part go over them.
     for (meta) |m| {
+        if (!std.mem.eql(u8, m.key, "zslice:quality")) continue;
+        const text = @import("profile.zig").builtin(.project, m.value) orelse {
+            try ignored.append(arena, .{ .key = m.key, .value = m.value, .why = "not a built-in quality profile" });
+            continue;
+        };
+        var q: settings_mod.Settings = .{};
+        var diag: @import("profile.zig").Diagnostic = .{};
+        @import("profile.zig").apply(arena, &q, .project, "(part quality)", text, null, &diag) catch {
+            try ignored.append(arena, .{ .key = m.key, .value = m.value, .why = "the profile does not load" });
+            continue;
+        };
+        const d: settings_mod.Settings = .{};
+        for (@import("settings_meta.zig").all) |sm| {
+            if (!std.mem.startsWith(u8, sm.name, "project.")) continue;
+            var wa: std.Io.Writer.Allocating = .init(arena);
+            @import("app.zig").App.writeSettingOf(q, sm.name, &wa.writer) catch continue;
+            var wb: std.Io.Writer.Allocating = .init(arena);
+            @import("app.zig").App.writeSettingOf(d, sm.name, &wb.writer) catch continue;
+            if (!std.mem.eql(u8, wa.written(), wb.written())) try put(arena, &sets, sm.name, wa.written());
+        }
+    }
+    for (meta) |m| {
+        if (std.mem.eql(u8, m.key, "zslice:quality")) continue;
         // A zslice setting of the part ("zslice:project.infill_density"):
         // as it is, if the setting takes the value.
         if (std.mem.startsWith(u8, m.key, "zslice:")) {
