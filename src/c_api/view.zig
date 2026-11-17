@@ -522,6 +522,18 @@ export fn zs_view_plate_load(view: ?*View, i: usize, a: ?*const App) c_int {
     return ok;
 }
 
+/// Shows plate i as the footprints of its parts: n boxes (x0, y0, x1, y1).
+export fn zs_view_plate_outline(view: ?*View, i: usize, n: usize, boxes: ?[*]const f32) c_int {
+    if (!render_on) return @intFromEnum(Status.not_supported);
+    const v = view orelse return @intFromEnum(Status.invalid_argument);
+    if (n > 0 and boxes == null) return @intFromEnum(Status.invalid_argument);
+    const list = c.gpa.alloc([4]f32, n) catch return @intFromEnum(Status.out_of_memory);
+    defer c.gpa.free(list);
+    for (list, 0..) |*b, k| b.* = .{ boxes.?[4 * k], boxes.?[4 * k + 1], boxes.?[4 * k + 2], boxes.?[4 * k + 3] };
+    v.setPlateOutline(i, list) catch |e| return status(e);
+    return ok;
+}
+
 export fn zs_view_plate_clear(view: ?*View, i: usize) void {
     if (!render_on) return;
     const v = view orelse return;

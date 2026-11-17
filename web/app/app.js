@@ -130,6 +130,16 @@ const app = {
   // The print time that the 3D view shows (a replay, a scrub, or a step
   // of h and l), or 0 for whole layers.
   time: 0,
+  // The plate set (worker.js): the list from the worker ({ name, status,
+  // bed, model, printer }), the active plate, the plate that the page
+  // asked to make active (-1: none), and the plate that the camera goes
+  // to when it is active (-1: none).
+  plates: [],
+  activePlate: 0,
+  wantPlate: -1,
+  framePlate: -1,
+  // The footprints that the view has for each plate (a key of the boxes).
+  outlines: [],
 };
 
 const client = new Client(onWorkerEvent);
@@ -195,6 +205,7 @@ function drawFrame(now) {
   tools?.placeTape();
   partCard?.place();
   turnRings?.place();
+  placePlateLabels();
   frameTimes[frameCount++ % frameTimes.length] = performance.now() - t0;
   if (more) requestFrame();
   else lastFrameTime = 0;
@@ -382,6 +393,14 @@ canvas.addEventListener("pointerup", (e) => {
   const r = canvas.getBoundingClientRect();
   const px = (e.clientX - r.left) * dpr();
   const py = (e.clientY - r.top) * dpr();
+  // A click on another plate (its bed or its beads) makes it active.
+  if (d.button === 0 && app.page === "3d" && app.plates.length > 1) {
+    const i = view.plateAt(px, py);
+    if (i >= 0 && i !== app.activePlate) {
+      activatePlate(i, false);
+      return;
+    }
+  }
   if (d.button === 0 && tools.tool === "measure") tools.measureClick(px, py, e.shiftKey);
   else if (d.button === 0 && app.page === "3d" && (tools.tool === "move" || tools.tool === "turn" || e.ctrlKey)) tools.pickPart(px, py);
   else if (d.button === 0) pickAt(px, py, true);
@@ -397,13 +416,22 @@ const endDrag = () => {
 };
 canvas.addEventListener("pointercancel", endDrag);
 canvas.addEventListener("contextmenu", (e) => e.preventDefault());
-// A double click: on a side of a part (3D), the part lies down on that
-// side; elsewhere, the view resets.
+// A double click: on another plate (with more than one), the camera goes
+// to it and it becomes the active plate; on a side of a part (3D), the
+// part lies down on that side; elsewhere, the view resets.
 canvas.addEventListener("dblclick", async (e) => {
   if (app.page === "2d") {
     view2d.fit(canvas.width, canvas.height);
     requestFrame();
     return;
+  }
+  if (app.plates.length > 1) {
+    const r = canvas.getBoundingClientRect();
+    const i = view.plateAt((e.clientX - r.left) * dpr(), (e.clientY - r.top) * dpr());
+    if (i >= 0 && i !== app.activePlate) {
+      activatePlate(i, true);
+      return;
+    }
   }
   const px = e.offsetX * dpr();
   const py = e.offsetY * dpr();
@@ -1522,6 +1550,8 @@ const project = new ProjectPage($("page-project"), {
   toast,
   loading: () => {
     projectActive = true;
+    // A new set of plates: the camera shows them all.
+    app.frameAll = true;
   },
   opened: (name) => {
     stopReplay();
@@ -1535,6 +1565,7 @@ const project = new ProjectPage($("page-project"), {
     history.refresh();
   },
   printers: () => Object.keys(store.printers ?? {}),
+  activate: (i) => activatePlate(i, true),
   usePrinter: (name) => {
     store.printer = name;
     saveStore();
@@ -1719,7 +1750,30 @@ $("send-menu").onclick = () => openMenu($("send-menu"), [
 // ---- the worker events ----
 
 function onWorkerEvent(m) {
+  // The slices of the other plates of the set show only on their labels.
+  if ((m.event === "slicing" || m.event === "progress" || m.event === "failed") && m.plate !== undefined && m.plate !== app.activePlate) return;
   switch (m.event) {
+    case "plates":
+      onPlates(m);
+      break;
+    case "plateScene":
+      if (m.plate !== app.activePlate && m.plate < app.plates.length) {
+        view.plateScene(m.plate, m.scene);
+        requestFrame();
+      }
+      break;
+    case "stale":
+      // A new active plate that slices again: its old slice until then.
+      if (m.scene) {
+        view.readScene(m.scene);
+        gl.setOutlines(view.outlines());
+      }
+      $("empty").hidden = true;
+      app.state = "ready";
+      app.stats = null;
+      updateSummary();
+      requestFrame();
+      break;
     case "slicing":
       app.slicing = true;
       inspector.setStale(true);
@@ -1735,6 +1789,8 @@ function onWorkerEvent(m) {
       break;
     case "sliced": {
       app.slicing = false;
+      // A plate with a slice is not empty (also a plate that became active).
+      $("empty").hidden = true;
       inspector.setStale(false);
       $("busy").hidden = true;
       $("sum-progress").hidden = true;
@@ -1773,7 +1829,7 @@ function onWorkerEvent(m) {
     case "cleared":
       // An empty plate: nothing to keep.
       clearTimeout(keepTimer);
-      clearPlate();
+      if (app.plates.length <= 1) clearPlate();
       if (m.scene) {
         view.readScene(m.scene);
         gl.setOutlines(view.outlines());
@@ -1783,7 +1839,7 @@ function onWorkerEvent(m) {
       layers.setLayers(0, null, null);
       $("scrub").hidden = true;
       $("empty").hidden = false;
-      $("title").textContent = "zslice";
+      if (app.plates.length <= 1) $("title").textContent = "zslice";
       select(-1, -1, false);
       updateSummary();
       requestFrame();
@@ -1801,6 +1857,177 @@ function onWorkerEvent(m) {
       break;
   }
 }
+
+// ---- the plate set ----
+//
+// The worker keeps one app for each plate (worker.js). The view shows all
+// plates in a row (src/render/plates.zig): the active plate is the full
+// view, and the others are fixed beads. `[` and `]` go to the plate before
+// and the next plate, Home shows all plates, and a double click on a plate
+// goes to it. A click on another plate makes it active.
+
+const STATUS_TEXT = { empty: "empty", stale: "to slice", slicing: "slicing", done: "", failed: "failed", resin: "Resin: not yet" };
+
+// The list of the plates from the worker.
+function onPlates(m) {
+  const before = app.activePlate;
+  app.plates = m.plates;
+  app.activePlate = m.active;
+  if (app.wantPlate === m.active) app.wantPlate = -1;
+  const beds = m.plates.map((p) => [p.bed[0] > 0 ? p.bed[0] : 220, p.bed[1] > 0 ? p.bed[1] : 220]);
+  view.setPlates(beds, m.active);
+  // The bed model of the view is the model of the printer of the active
+  // plate (updateBed): it shows on the plates of the same printer.
+  const printerOf = (p) => (p ? `${p.model}\n${p.printer}` : "");
+  const printer = printerOf(m.plates[m.active]);
+  m.plates.forEach((p, i) => {
+    let flags = 0;
+    if (p.status === "stale" || p.status === "slicing") flags |= 1;
+    if (printerOf(p) === printer) flags |= 2;
+    if (p.status === "resin" || p.status === "failed") flags |= 4;
+    view.plateFlags(i, flags);
+    // A plate that cannot slice: the footprints of its parts, once.
+    const key = p.outline ? JSON.stringify(p.outline) : "";
+    if (key && i !== m.active && app.outlines[i] !== key) view.plateOutline(i, p.outline);
+    app.outlines[i] = i === m.active ? "" : key;
+  });
+  if (m.active !== before) {
+    // The selection and the tools are of the plate that was active.
+    stopReplay();
+    select(-1, -1, false);
+    tools.clear?.();
+    view2d.fitted = false;
+  }
+  if (app.framePlate === m.active) {
+    view.framePlate(m.active);
+    app.framePlate = -1;
+  }
+  if (app.frameAll) {
+    view.framePlate(-1);
+    app.frameAll = false;
+  }
+  project.showActive(m.active);
+  updatePlateBar();
+  requestFrame();
+}
+
+// Makes plate i the active plate; with `frame`, the camera goes to it.
+async function activatePlate(i, frame) {
+  if (i < 0 || i >= app.plates.length) return;
+  if (frame) app.framePlate = i;
+  if (i === app.activePlate) {
+    if (frame) {
+      view.framePlate(i);
+      app.framePlate = -1;
+      requestFrame();
+    }
+    return;
+  }
+  if (i === app.wantPlate) return;
+  app.wantPlate = i;
+  const r = await client.call("plateActivate", { index: i });
+  applySettings(r);
+  const p = app.plates[r.index];
+  const name = p?.name || "zslice";
+  app.modelName = p?.name ?? "";
+  $("title").textContent = name;
+  document.title = `${name} · zslice`;
+  history.refresh();
+}
+
+async function addPlate() {
+  app.framePlate = app.plates.length;
+  const r = await client.call("plateAdd");
+  applySettings(r);
+  $("title").textContent = app.plates[r.index]?.name ?? "zslice";
+  history.refresh();
+}
+
+function updatePlateBar() {
+  const n = app.plates.length;
+  $("plate-name").textContent = `Plate ${app.activePlate + 1} of ${Math.max(n, 1)}`;
+  $("plate-prev").disabled = app.activePlate <= 0;
+  $("plate-next").disabled = app.activePlate >= n - 1;
+  $("plate-all").hidden = n <= 1;
+  updatePlateLabels();
+}
+
+// The labels over the plates: made again when the list changes, placed
+// on each frame.
+function updatePlateLabels() {
+  const root = $("plate-labels");
+  const n = app.plates.length > 1 ? app.plates.length : 0;
+  while (root.children.length > n) root.lastChild.remove();
+  while (root.children.length < n) {
+    const el = document.createElement("div");
+    el.className = "plate-label";
+    const i = root.children.length;
+    el.onclick = () => activatePlate(i, true);
+    root.append(el);
+  }
+  app.plates.forEach((p, i) => {
+    const el = root.children[i];
+    if (!el) return;
+    el.classList.toggle("active", i === app.activePlate);
+    const status = STATUS_TEXT[p.status] ?? p.status;
+    el.replaceChildren(`${i + 1}. ${p.name || "Empty plate"}`);
+    if (status) {
+      const s = document.createElement("span");
+      s.className = "pl-status";
+      s.textContent = status;
+      el.append(s);
+    }
+    el.title = [p.printer, p.status === "resin" ? "zslice slices FDM plates only, for now." : ""].filter(Boolean).join(" · ");
+  });
+}
+
+// Places each label over the middle of the back edge of its plate.
+function placePlateLabels() {
+  const root = $("plate-labels");
+  if (root.children.length === 0 || app.page !== "3d") {
+    root.hidden = root.children.length === 0 || app.page !== "3d";
+    return;
+  }
+  root.hidden = false;
+  const k = dpr();
+  app.plates.forEach((p, i) => {
+    const el = root.children[i];
+    if (!el) return;
+    const o = view.plateOrigin(i);
+    const q = view.pixelOf(o[0] + (p.bed[0] || 220) / 2, o[1] + (p.bed[1] || 220), 0);
+    if (!q) {
+      el.style.display = "none";
+      return;
+    }
+    el.style.display = "";
+    el.style.left = `${q[0] / k}px`;
+    el.style.top = `${q[1] / k}px`;
+  });
+}
+
+$("plate-prev").onclick = () => activatePlate(app.activePlate - 1, true);
+$("plate-next").onclick = () => activatePlate(app.activePlate + 1, true);
+$("plate-all").onclick = () => {
+  view.framePlate(-1);
+  requestFrame();
+};
+$("plate-add").onclick = () => addPlate();
+
+// The keys of the plates: [ and ] and Home, also with no slice.
+document.addEventListener("keydown", (e) => {
+  if (e.ctrlKey || e.metaKey || e.altKey || menuOpen()) return;
+  const t = e.target;
+  if (t && (t.closest?.("input, textarea, select, [contenteditable]") || t.closest?.(".panel"))) return;
+  if (e.key === "[" || e.key === "]") {
+    activatePlate(app.activePlate + (e.key === "]" ? 1 : -1), true);
+  } else if (e.key === "Home") {
+    if (app.plates.length > 1) view.framePlate(-1);
+    else view.resetSmooth();
+    requestFrame();
+  } else return;
+  e.preventDefault();
+  e.stopPropagation();
+}, true);
 
 // ---- the work across a refresh (keep.js) ----
 
@@ -1823,6 +2050,7 @@ async function openFile(file) {
   if (!file) return;
   stopReplay();
   projectActive = false;
+  project.unload();
   const bytes = await file.arrayBuffer();
   try {
     await client.call("load", { name: file.name, bytes }, [bytes]);

@@ -67,6 +67,8 @@ The page loads one module (`zslice.wasm`, the same file as `zig build wasm`) and
 
 After a slice, the view of the worker loads the slice (`zs_view_load`), and writes its beads as bytes (`zs_view_scene_write`). The worker sends the bytes to the page, and the main view reads them (`zs_view_scene_read`). The scene logic and the camera are the same code as in the GTK app (`src/render/view.zig`).
 
+The worker keeps a set of plates: one app (`Core`) for each plate, and the active plate. The ops of the page work on the active plate. After a change, the active plate slices first, then each other plate that is not up to date, one at a time. The page sets the cancel flag of the app that slices, so a change never waits for the slice of another plate. A printdeck.yml project loads all its plates into the set (`projectSet`). The main view shows all plates in a row: the active plate is the full view, and each other plate is a fixed bead buffer (`zs_view_plate_scene_read`). See `docs/internals/one-view.md`.
+
 ### Threads
 
 `zig build web` makes two modules: `zslice.wasm` (no threads) and `zslice-mt.wasm` (threads). A page loads one of them. `-Dwasm-optimize=ReleaseFast` makes a slice about 20 % faster and each module larger (2.9 MB, 0.84 MB with gzip; ReleaseSmall: 1.4 MB, 0.52 MB with gzip). `-Dwasm-cpu` sets the CPU features, and `-Dwasm-strip=false` keeps the debug data, for a profile with function names.

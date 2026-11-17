@@ -1756,6 +1756,9 @@ pub const View = struct {
                 p.clear();
                 p.gen = v.nextGen();
             }
+            // The bed of the active plate before its first slice (an empty
+            // plate has one too).
+            if (!std.meta.eql(v.bed, p.bed) and !v.headless) try v.loadGrid(p.bed[0], p.bed[1]);
         }
         try v.buildPlateGrid();
     }
@@ -1829,6 +1832,28 @@ pub const View = struct {
         try t.load(app);
         const p = &v.plates.items[i];
         try p.set(gpa, t.beads.items, t.layer_end.items, null);
+        p.gen = v.nextGen();
+    }
+
+    /// Shows plate i (not the active plate) as the footprints of its
+    /// parts: a frame of thin beads on the bed around each box (x0, y0,
+    /// x1, y1 in mm), for a plate with parts and no slice (a resin plate).
+    pub fn setPlateOutline(v: *View, i: usize, boxes: []const [4]f32) Error!void {
+        if (i >= v.plates.items.len or i == v.active) return;
+        var beads: std.ArrayList(vk.Instance) = .empty;
+        defer beads.deinit(gpa);
+        const color = [4]u8{ 0x7a, 0x86, 0x96, code_overlay };
+        for (boxes) |b| {
+            const c = [_][2]f32{ .{ b[0], b[1] }, .{ b[2], b[1] }, .{ b[2], b[3] }, .{ b[0], b[3] } };
+            for (0..4) |k| {
+                const a = c[k];
+                const e = c[(k + 1) % 4];
+                beads.append(gpa, .{ .ax = a[0], .ay = a[1], .bx = e[0], .by = e[1], .z = 0.6, .h = 0.6, .w = 1.0, .rgba = color }) catch return error.OutOfMemory;
+            }
+        }
+        const p = &v.plates.items[i];
+        const ends = [1]u32{@intCast(beads.items.len)};
+        try p.set(gpa, beads.items, if (beads.items.len > 0) &ends else &.{}, null);
         p.gen = v.nextGen();
     }
 
@@ -1988,7 +2013,7 @@ pub const View = struct {
             };
             if (!boxInView(pm, box)) continue;
             const first: u32 = @intCast(v.plate_draws.items.len);
-            if (p.full_end > 0 and p.flags & plates_mod.flag_disabled == 0) {
+            if (p.full_end > 0) {
                 const d = boxDistance(pe, p.lo, p.hi);
                 if (plates_mod.levelFor(p.layer_h * px_per_mm / @max(d, 1e-3))) |k| {
                     const r = p.liteRange(k);
@@ -2015,7 +2040,7 @@ pub const View = struct {
                 .gen = p.gen,
                 .draws_first = first,
                 .draws_count = @as(u32, @intCast(v.plate_draws.items.len)) - first,
-                .fade = if (p.flags & plates_mod.flag_stale != 0) 0.45 else 0,
+                .fade = if (p.flags & plates_mod.flag_disabled != 0) 0.3 else if (p.flags & plates_mod.flag_stale != 0) 0.45 else 0,
                 .flags = if (p.flags & plates_mod.flag_bed_model != 0 and p.flags & plates_mod.flag_disabled == 0) PlateFrame.flag_bed else 0,
                 .slot = @intCast(i),
             }) catch return error.OutOfMemory;

@@ -281,6 +281,8 @@ pub const Plate = struct {
 /// The flags of a plate (zs_view_plate_flags).
 pub const flag_stale: u32 = 1;
 pub const flag_bed_model: u32 = 2;
+/// The plate cannot slice: a light grid, and its beads (an outline of its
+/// parts, see View.setPlateOutline) fade.
 pub const flag_disabled: u32 = 4;
 
 /// The level of detail for a layer of `layer_px` pixels on the screen:

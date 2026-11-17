@@ -102,6 +102,7 @@ The module also exports the app core and the 3D view of `include/zslice-app.h`. 
 - `zs_app_new_web` makes an app whose events go to the import `env.zs_web_event(event, progress, status)`. A slice runs on the calling thread, so run the app in a Web Worker.
 - `zs_view_new` with `ZS_SURFACE_WEB` (3) makes a 3D view with no GPU in the core. After `zs_view_draw`, `zs_view_web_frame` gives the frame data in wasm memory, and the page draws it with WebGL2 (see `web/app/gl.js`).
 - `zs_view_scene_write` and `zs_view_scene_read` move the loaded scene from the view of one wasm instance (the worker) to the view of another (the main thread).
+- A set of plates has one app for each plate. `zs_view_set_plates` puts the plates in a row in one view, and `zs_view_plate_scene_read` gives the view the beads of a plate that is not the active plate. `zs_app_trim` frees the memory of an app that waits (the memos of its last slice), and keeps its result.
 
 ## Memory
 

@@ -85,6 +85,18 @@ export class View3D {
     if (rc !== 0) throw new Error(`zslice: the plate scene did not load (${statusText(rc)})`);
   }
   plateClear(i) { this.x.zs_view_plate_clear(this.v, i); }
+  // Plate i as the footprints of its parts: boxes [[x0, y0, x1, y1]].
+  plateOutline(i, boxes) {
+    const w = this.w;
+    const n = boxes.length;
+    const p = n ? w.alloc(16 * n) : 0;
+    try {
+      if (n) new Float32Array(this.x.memory.buffer, p, 4 * n).set(boxes.flat());
+      this.x.zs_view_plate_outline(this.v, i, n, p);
+    } finally {
+      if (p) w.free(p, 16 * n);
+    }
+  }
   // flags: 1 stale, 2 the bed model of the view, 4 cannot slice.
   plateFlags(i, flags) { this.x.zs_view_plate_flags(this.v, i, flags); }
   // The plate under a pixel, or -1.
@@ -94,6 +106,14 @@ export class View3D {
     const c = this.w.cell;
     this.x.zs_view_plate_origin(this.v, i, c, c + 8);
     return [this.w.f64(c), this.w.f64(c + 8)];
+  }
+  // The pixel of a point of the world (mm): [px, py], or null behind the
+  // camera.
+  pixelOf(x, y, z) {
+    const c = this.w.cell;
+    if (!this.x.zs_view_pixel_of(this.v, x, y, z, c, c + 4)) return null;
+    const f = this.w.mf32;
+    return [f[c >>> 2], f[(c >>> 2) + 1]];
   }
   // Moves the camera to plate i, or to all plates (i < 0).
   framePlate(i) { this.x.zs_view_frame_plate(this.v, i < 0 ? -1 : i); }

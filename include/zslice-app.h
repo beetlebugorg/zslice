@@ -844,7 +844,7 @@ int zs_view_draw(zs_view *view);
 enum zs_plate_flag {
     ZS_PLATE_STALE = 1,     /* the slice is old: the beads fade a little */
     ZS_PLATE_BED_MODEL = 2, /* draw the bed model of the view (zs_view_set_bed) at this plate */
-    ZS_PLATE_DISABLED = 4   /* the plate cannot slice: a light grid and no beads */
+    ZS_PLATE_DISABLED = 4   /* the plate cannot slice: a light grid, and its outline faded */
 };
 
 /* The plates of the row: n bed sizes (beds: x, y in mm for each plate)
@@ -856,6 +856,10 @@ int zs_view_set_plates(zs_view *view, size_t n, size_t active, const float *beds
  * the color mode of the view. */
 int zs_view_plate_scene_read(zs_view *view, size_t i, const uint8_t *data, size_t len);
 int zs_view_plate_load(zs_view *view, size_t i, const zs_app *app);
+/* Shows plate i (not the active plate) as the footprints of its parts:
+ * n boxes (boxes: x0, y0, x1, y1 in mm for each), for a plate with parts
+ * and no slice (a plate that cannot slice). */
+int zs_view_plate_outline(zs_view *view, size_t i, size_t n, const float *boxes);
 /* Drops the beads of plate i (an empty plate). */
 void zs_view_plate_clear(zs_view *view, size_t i);
 /* The flags of plate i: enum zs_plate_flag bits. */
@@ -973,8 +977,8 @@ typedef struct {
     uint32_t width, height;
     /* The beads to draw: ranges with a level of detail (lod 0 is the full
      * mesh, 1 and up coarser meshes for beads far from the camera). The
-     * chunks out of the view are not in the list. Empty: draw box_first
-     * to box_count with the full mesh. */
+     * chunks out of the view are not in the list. Empty: no bead is in
+     * the view. */
     const zs_web_draw *draws;
     uint32_t draws_count;
     /* The meshes in mesh_index: the full mesh is 0 .. mesh_full_count; the

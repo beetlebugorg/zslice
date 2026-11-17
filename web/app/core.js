@@ -1,7 +1,8 @@
-// core.js: the app core (zs_app_*) for the worker. It keeps one app and
-// one 3D view in web mode. The view of the worker only loads each slice and
-// writes its beads as bytes (zs_view_scene_write), for the view of the
-// main thread (view.js).
+// core.js: the app core (zs_app_*) for the worker. It keeps one app. A 3D
+// view in web mode lives only while it loads a slice and writes its beads
+// as bytes (zs_view_scene_write), for the view of the main thread
+// (view.js). The Core keeps a copy of the last bytes (`lastScene`), out of
+// wasm memory.
 //
 // It needs no DOM and no worker API, so the Node test uses it too.
 //
@@ -13,16 +14,30 @@ export const GROUPS = ["machine", "filament", "project"];
 export const STATE = { empty: 0, ready: 1, slicing: 2, done: 3, failed: 4 };
 
 export class Core {
-  // wasm: a Wasm (wasm.js) whose onEvent goes to this.onEvent.
-  constructor(wasm) {
+  // wasm: a Wasm (wasm.js) whose onEvent goes to this.onEvent. infos: the
+  // setting infos of another Core of the same Wasm, to share.
+  constructor(wasm, infos = null) {
     this.w = wasm;
     const x = wasm.x;
     const rc = x.zs_app_new_web(wasm.cell);
     if (rc !== 0) throw new Error(`zslice: no app (${statusText(rc)})`);
     this.app = wasm.u32(wasm.cell);
-    this.view = wasm.newView(16, 16);
-    this.infos = wasm.settingInfos();
+    this.last = null;
+    this.infos = infos ?? wasm.settingInfos();
     this.modelName = "";
+  }
+
+  // Frees the app. The Core is of no use after it.
+  free() {
+    this.w.x.zs_app_free(this.app);
+    this.app = 0;
+    this.last = null;
+  }
+
+  // Frees the memory that only makes the next slice faster (zs_app_trim):
+  // for a plate that is not the active plate.
+  trim() {
+    this.w.x.zs_app_trim(this.app);
   }
 
   state() { return this.w.x.zs_app_state(this.app); }
@@ -365,14 +380,26 @@ export class Core {
   scene(mode) {
     const w = this.w;
     const x = w.x;
-    x.zs_view_set_mode(this.view, mode);
-    if (x.zs_view_load(this.view, this.app) !== 0) return null;
-    if (x.zs_view_scene_write(this.view, w.cell, w.cell + 4) !== 0) return null;
-    const p = w.u32(w.cell);
-    const n = w.u32(w.cell + 4);
-    const out = w.u8.slice(p, p + n).buffer;
-    x.zs_buffer_free(p, n);
-    return out;
+    const view = w.newView(16, 16);
+    try {
+      x.zs_view_set_mode(view, mode);
+      if (x.zs_view_load(view, this.app) !== 0) return null;
+      if (x.zs_view_scene_write(view, w.cell, w.cell + 4) !== 0) return null;
+      const p = w.u32(w.cell);
+      const n = w.u32(w.cell + 4);
+      const out = w.u8.slice(p, p + n).buffer;
+      x.zs_buffer_free(p, n);
+      this.last = out.slice(0);
+      return out;
+    } finally {
+      x.zs_view_free(view);
+    }
+  }
+
+  // A copy of the bytes of the last scene (the last slice that went to the
+  // page), or null.
+  lastScene() {
+    return this.last ? this.last.slice(0) : null;
   }
 
   // ---- a selected line (the Selected page) ----

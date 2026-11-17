@@ -162,4 +162,32 @@ const bedTex = `${bf.bedTexWidth} x ${bf.bedTexHeight}`;
 view.clearBed();
 check(view.frame().bedVertices === 0, "no bed after zs_view_clear_bed");
 console.log(`bed: ${bedNames[0]} and ${bedNames[1]} (${bedNames[2]}): ${bedTris} triangles, texture ${bedTex}`);
+
+// The plate set: three plates in a row, plate 0 active, the scene on
+// plates 1 and 2. From far, the plates draw light beads (fewer than the
+// full beads of the scene).
+view.setTime(-1);
+view.setLayerRange(0, 100000);
+view.setPlates([[220, 220], [220, 220], [250, 210]], 0);
+view.plateScene(1, scene);
+view.plateScene(2, scene);
+view.plateFlags(2, 1);
+view.framePlate(-1);
+while (view.animate(1 / 60));
+f = view.frame();
+check(f.platesCount >= 2, `the other plates in the frame (${f.platesCount})`);
+let plateBeads = 0;
+for (let i = 0; i < f.plateDrawsCount; i++) plateBeads += f.plateDraws[3 * i + 1];
+check(plateBeads > 0 && plateBeads < all, `light beads far from the camera (${plateBeads} of ${all})`);
+check(f.plateGridVertices > 0, "the grids of the other plates");
+const o2 = view.plateOrigin(2);
+check(o2[0] > 440, "plate 2 is right of plate 1");
+const q = view.pixelOf(o2[0] + 125, o2[1] + 105, 0);
+check(q && view.plateAt(q[0], q[1]) === 2, "a pick of plate 2");
+// Plate 2 active: the camera moves with the world.
+view.setPlates([[220, 220], [220, 220], [250, 210]], 2);
+check(Math.abs(view.plateOrigin(0)[0] + o2[0]) < 1e-3, "the world of the active plate");
+const q2 = view.pixelOf(125, 105, 0);
+check(q2 && Math.abs(q2[0] - q[0]) < 0.5 && Math.abs(q2[1] - q[1]) < 0.5, "the picture stays still");
+console.log(`plates: ${f.platesCount} in the frame, ${plateBeads} light beads of ${all}`);
 console.log("ok");

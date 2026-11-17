@@ -276,34 +276,84 @@ export class ProjectPage {
 
   // ---- plates ----
 
+  // The key of the plan of the plate set in the worker: the text and the
+  // counts of the parts.
+  planKey() {
+    return `${this.state?.text ?? ""}\n${JSON.stringify(this.state?.counts ?? [])}`;
+  }
+
+  // Opens plate i. All plates of the project load into the plate set (one
+  // app for each plate), so they all slice and show at once; plate i is
+  // the active plate. With the set loaded, plate i only becomes active.
   async openPlate(i) {
-    const plate = this.plan.plates[i];
+    if (this.loaded === this.planKey()) {
+      await this.ctx.activate(i);
+      this.showActive(i);
+      return;
+    }
     if (!this.source) {
       this.ctx.toast(this.state.source.kind === "folder" ? `Open the folder ${this.state.source.name} again to load its files.` : "GitHub did not answer. Try again.");
       return;
     }
-    await this.run(`Loading plate ${i + 1}…`, async () => {
-      const files = {};
-      const folder = plate.profile.split("/")[0];
-      if (folder) for (const p of this.source.list(`profiles/${folder}`)) files[p] = await this.source.read(p);
-      for (const it of plate.items) {
-        for (const f of this.plan.parts[it.part].files) files[f] = await this.source.read(f);
+    const plates = this.plan.plates;
+    await this.run(`Loading ${plates.length} plates…`, async () => {
+      const list = [];
+      for (const [k, plate] of plates.entries()) {
+        const names = plate.items.map((it) => this.plan.parts[it.part].name);
+        const name = names.length === 1 ? names[0] : `${names[0]} and ${names.length - 1} more`;
+        // A plate with no Cura stack (cura.json) in its profile folder: a
+        // resin plate, which zslice does not slice yet.
+        const folder = plate.profile.split("/")[0];
+        if (!folder || !this.source.has(`profiles/${folder}/cura.json`)) {
+          // Its parts, for their footprints on the view.
+          const parts = [];
+          for (const it of plate.items) {
+            const files = {};
+            for (const f of this.plan.parts[it.part].files) files[f] = await this.source.read(f);
+            parts.push({ files, count: it.count });
+          }
+          list.push({ index: k, name, resin: true, parts });
+          continue;
+        }
+        const files = {};
+        for (const p of this.source.list(`profiles/${folder}`)) files[p] = await this.source.read(p);
+        for (const it of plate.items) {
+          for (const f of this.plan.parts[it.part].files) files[f] = await this.source.read(f);
+        }
+        list.push({ index: k, name, files });
       }
-      // The profiles of the plate replace the profiles of the user's
+      // The profiles of the plates replace the profiles of the user's
       // printer on the view, and do not change that printer.
       this.ctx.loading();
-      const r = await this.ctx.client.call("projectLoad", { text: this.state.text, counts: this.state.counts ?? [], plate: i, files });
+      const r = await this.ctx.client.call("projectSet", { text: this.state.text, counts: this.state.counts ?? [], plates: list, active: i });
       this.ctx.applySettings(r);
-      if (r.error) throw new Error(`Plate ${i + 1}: ${r.error}`);
-      if (r.fits === false) this.ctx.toast(r.message);
-      this.state.active = plateKey(this.plan, plate);
-      save(this.state);
-      const names = plate.items.map((it) => this.plan.parts[it.part].name);
-      this.ctx.opened(names.length === 1 ? names[0] : `${names[0]} and ${names.length - 1} more`);
+      this.loaded = this.planKey();
+      const bad = r.results.map((x, k) => (x.error ? `Plate ${k + 1}: ${x.error}` : x.fits === false ? x.message : "")).filter(Boolean);
+      if (bad.length > 0) this.ctx.toast(bad.join(" "));
+      this.ctx.opened(list[i].name);
+      this.showActive(i);
       // The printer of the plate, if the user has one with its name.
-      const match = this.ctx.printers().find((n) => n.toLowerCase() === plate.printer.toLowerCase());
+      const match = this.ctx.printers().find((n) => n.toLowerCase() === plates[i].printer.toLowerCase());
       if (match) this.ctx.usePrinter(match);
     });
+  }
+
+  // Plate i of the set is the active plate (from the view or this page).
+  showActive(i) {
+    if (!this.plan || this.loaded !== this.planKey()) return;
+    const plate = this.plan.plates[i];
+    // A plate after the plates of the project ("+ Plate"): no plate of the
+    // project is active.
+    const key = plate ? plateKey(this.plan, plate) : null;
+    if (this.state.active === key) return;
+    this.state.active = key;
+    save(this.state);
+    this.render();
+  }
+
+  // The plate set is no longer the plates of this project (a file opened).
+  unload() {
+    this.loaded = null;
   }
 
   setStatus(key, status) {
@@ -413,9 +463,10 @@ export class ProjectPage {
       // resin plate, which zslice does not slice yet.
       const folder = plate.profile.split("/")[0];
       const resin = !folder || (this.source && !this.source.has(`profiles/${folder}/cura.json`));
-      const open = el("button", this.state.active === key ? "" : "flat", this.state.active === key ? "Open again" : "Open");
+      const inSet = this.loaded === this.planKey();
+      const open = el("button", this.state.active === key ? "" : "flat", inSet ? (this.state.active === key ? "Active" : "Show") : (this.state.active === key ? "Open again" : "Open"));
       open.disabled = !!this.busy || !!resin;
-      open.title = resin ? "This plate has no Cura profile stack (a resin plate?). zslice slices FDM plates only, for now." : "Load the plate on the view, with its profiles and settings, and slice it.";
+      open.title = resin ? "This plate has no Cura profile stack (a resin plate?). zslice slices FDM plates only, for now." : inSet ? "Make this plate the active plate, and move the view to it." : "Load all plates of the project on the view, each with its profiles and settings, and slice them. This plate is the active plate.";
       open.onclick = () => this.openPlate(i);
       card.append(open);
       list.append(card);

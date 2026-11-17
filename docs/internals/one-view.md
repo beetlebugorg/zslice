@@ -87,3 +87,47 @@ Each plate is one `App` (`zs_app`), with its own settings, profiles, parts, slic
 3. The web layout: the floating cards, the tool strip, the search, the drawer, the Parts popover, the plate labels, and the print card. The right pane goes.
 4. The GTK app: the same plate set and layout. The Project panel of the GTK app (branch gtk-projects) becomes the plate labels and the Parts popover.
 5. The docs: the user guide with screenshots of the new layout.
+
+## What is built (steps 1 and 2)
+
+### The plate set in the web app
+
+- `web/app/worker.js` keeps a list of plates. Each plate has a `Core` (`web/app/core.js`: one `zs_app` and one view to write its scenes), its own history, a name, and a status: empty, stale, slicing, done, failed, or resin.
+- The ops of the page work on the active plate. A change marks the active plate stale. `runSlice` slices the active plate first, then each other stale plate in the order of the row, one at a time. A timer runs each slice after the messages that wait, so a change is never behind a slice of another plate.
+- At the start of each slice, the worker sends the cancel flag of the app that slices. A change on the page sets it, so a background slice stops at once. The stopped plate is stale again, and it slices later.
+- Events to the page: `plates` (the list, the active plate, the status, the bed size, and the printer of each), `plateScene` (the beads of another plate after its slice), and `stale` (the old slice of a new active plate that slices again). `sliced` is for the active plate only.
+- Ops: `plateAdd` (an empty plate with the settings of the active plate; it becomes active), `plateActivate`, and `projectSet` (all plates of a printdeck.yml project, each in its own app). `load` (a file) makes a set of one plate.
+- The history stays per plate: the worker keeps the history of each plate, and the active plate uses its own.
+- `web/app/project.js`: "Open" on a plate loads all plates of the project into the set, and that plate is the active plate. With the set loaded, the button makes its plate active. A plate with no Cura stack (a resin plate) is in the set as a plate that cannot slice.
+
+### The renderer
+
+- `src/render/plates.zig` has the other plates (`Plate`) and the light beads of a slice (`Lite`).
+- The world of the view is the frame of the active plate. Plate i draws at its origin in the row minus the origin of the active plate. A change of the active plate moves the camera by the same amount, so the picture does not jump. Then the camera moves (animated) to the new plate.
+- Each other plate has its full beads, its light beads, and chunks of 512 beads with a box. A frame culls each plate by its box (the bed and the beads), and each chunk of a near plate by its box. It uses the full beads when a layer is 2.5 pixels high or more. Under that, it uses one light level in one draw.
+- The light levels: level 1 leaves out the sparse infill and the inner walls of the layers with no skin, and joins straight runs of a path (to 0.1 mm). Level 2 keeps every second layer (twice the height, joined to 0.3 mm). Level 3 keeps every fourth layer (joined to 0.8 mm). A Benchy has 88 000 beads; the levels have about 34 000, 12 000, and 4 500.
+- The worker view makes the light levels after each load, and the scene bytes carry them. The view of the page does not make them.
+- The active plate also uses a light level when it is far: the light beads under its top layers, and the full beads of the top layers. Not with a selection, a highlight, or a replay: the light beads are not in the index space of these.
+- The beds: the grid of each plate, in a lighter color for a plate that cannot slice, and the bed model of the view at each plate of the same printer.
+- A plate with an old slice fades to the background a little (`fade` in the bead shader of `gl.js`).
+- The C API (`include/zslice-app.h`): `zs_view_set_plates`, `zs_view_plate_scene_read`, `zs_view_plate_load`, `zs_view_plate_clear`, `zs_view_plate_flags`, `zs_view_plate_at`, `zs_view_plate_origin`, and `zs_view_frame_plate`. The web frame has a list of `zs_web_plate` items, their draws, and the grid lines of the plates.
+- Only the web backend draws the other plates and the light beads. The Vulkan backend draws the active plate as before (step 4).
+
+### Memory
+
+- The worker has one wasm memory for all apps: 2 GB at most for the module with threads. An app keeps its job, its toolpaths, and its G-code after a slice.
+- `zs_app_trim` (`App.trim`) frees the memos of the job of an app, and the buffers of the results before. The result stays, and the next slice makes the slow steps again. The worker trims each plate after its background slice, and the plate that stops being active.
+- The view of a `Core` lives only while it writes a scene. The Core keeps a copy of the last scene bytes in JavaScript memory, out of the wasm memory, for a plate that becomes active while it slices again.
+- Each Benchy plate adds 63 MB of wasm memory with a view of its own and no trim, and 30 MB with both changes.
+
+### The page
+
+- A small plate bar at the bottom left: the plate before, "Plate 2 of 6", the next plate, All, and "+ Plate".
+- A label over the back edge of each plate (its number, its name, and its status). A click on a label goes to its plate.
+- Keys: `[` and `]` go to the plate before and the next plate, and `Home` shows all plates. A double click on a plate goes to it. A click on another plate (its bed or its beads) makes it active.
+
+### Changes to the plan
+
+- The active plate does not fade while it slices again. It slices first, and a fade on each drag of a part would flicker.
+- A resin plate shows as a light grid with its label ("Resin: not yet"). It shows no parts yet.
+- The labels and the bar are a first form for step 3.

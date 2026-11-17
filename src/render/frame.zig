@@ -94,8 +94,9 @@ pub const Frame = struct {
     bed: Push = .{ .mvp = @splat(0), .vec = .{ 0, 0, 0, 0 } },
     bed_vertices: u32 = 0,
     /// The beads box_first .. box_count in ranges, with the boxes out of
-    /// the view left out and a coarse mesh far from the camera. Empty: draw
-    /// all of them with the full mesh. The web backend uses it.
+    /// the view left out and a coarse mesh far from the camera. The web
+    /// backend uses it: an empty list there is no bead in the view. The
+    /// Vulkan backend draws box_first .. box_count.
     draws: []const Draw = &.{},
     /// The other plates (see PlateFrame), and their draws. The web
     /// backend uses them.

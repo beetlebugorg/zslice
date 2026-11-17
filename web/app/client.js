@@ -8,7 +8,10 @@
 // The calls that start a slice.
 const SLICE_OPS = new Set(["set", "reset", "quality", "profile", "setScoped", "resetScoped", "load", "add", "plate", "projectLoad", "partAction", "partSettingSet", "partPutDown", "partTurn",
   "putDown", "place", "partMove", "partRotate", "markAdd", "markRemoveNear", "markSet", "markRemove", "marksClear",
-  "undo", "redo", "historyGoto", "historyRevert", "historyTruncate"]);
+  "undo", "redo", "historyGoto", "historyRevert", "historyTruncate",
+  // The worker cannot take a call of the plate set while a plate slices in
+  // the background: it slices again later.
+  "plateAdd", "plateActivate", "projectSet"]);
 //
 // SPDX-License-Identifier: AGPL-3.0-or-later
 

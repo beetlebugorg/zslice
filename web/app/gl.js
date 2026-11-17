@@ -455,12 +455,10 @@ export class GlRenderer {
   }
 
   // The beads of a frame: its draw list (the chunks in the view, each
-  // with its mesh), or all of them.
+  // with its mesh). An empty list draws no bead: the beads are out of the
+  // view (with several plates, the camera often looks at another plate).
   drawList(f, first) {
-    if (f.drawsCount === 0) {
-      this.drawBeads(first, f.boxCount - first);
-      return;
-    }
+    if (f.drawsCount === 0) return;
     // The last ranges first: the top layers, which a view from above sees
     // first, so the depth test drops the hidden pixels of the layers
     // under them early.

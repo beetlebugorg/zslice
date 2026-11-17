@@ -678,3 +678,19 @@ button.destructive { background: #c01c28; color: #fff; }
 .turn-line { stroke-width: 2.5; opacity: 0.85; pointer-events: none; }
 .turn-rings g:hover .turn-line, .turn-rings g.on .turn-line { stroke-width: 4; opacity: 1; }
 .turn-label { position: absolute; z-index: 7; pointer-events: none; padding: 3px 8px; border-radius: 7px; background: rgba(30, 30, 34, 0.92); color: #ececee; font-size: 0.85em; font-variant-numeric: tabular-nums; }
+/* The plate set: the bar of the plates, and a label over each plate. */
+.plate-bar {
+  left: 10px; bottom: 10px;
+  display: flex; align-items: center; gap: 2px; padding: 3px 6px; border-radius: 14px;
+  font-size: 0.85em;
+}
+.plate-bar .tool { min-height: 26px; padding: 0 8px; border-radius: 13px; }
+.pb-name { padding: 0 6px; font-variant-numeric: tabular-nums; white-space: nowrap; }
+.plate-labels { position: absolute; inset: 0; pointer-events: none; overflow: hidden; }
+.plate-label {
+  position: absolute; transform: translate(-50%, -100%);
+  pointer-events: auto; cursor: pointer; white-space: nowrap;
+  background: rgba(45, 45, 45, 0.82); color: #fff; border-radius: 8px; padding: 2px 8px; font-size: 0.78em;
+}
+.plate-label.active { background: var(--accent-bg); }
+.plate-label .pl-status { opacity: 0.75; margin-left: 6px; }
