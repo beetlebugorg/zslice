@@ -86,7 +86,12 @@ function settingsState() {
 // and its time. A step ends 400 ms after the last change.
 
 const UNDO_MAX = 100;
-const hist = { undo: [], now: null, redo: [], timer: 0, plateDirty: true, restoring: false };
+const hist = { undo: [], now: null, redo: [], timer: 0, plateDirty: true, restoring: false,
+  // An edit of one setting is one step while its editor keeps the focus:
+  // the setting of the changes since the last step ("*" for more than one,
+  // or the plate), the setting of the last step while its edit is open,
+  // and the setting whose editor has the focus (op "historyFocus").
+  pendingKey: null, editKey: null, focusKey: null };
 
 function snapshot() {
   const settings = [0, 1, 2].map((g) => core.stateText(g));
@@ -114,7 +119,26 @@ function undoCommit() {
   hist.timer = 0;
   const now = snapshot();
   const before = hist.now;
-  if (before && (!sameSettings(now, before) || !samePlate(now.plate, before.plate))) {
+  const differs = before && (!sameSettings(now, before) || !samePlate(now.plate, before.plate));
+  const key = hist.pendingKey;
+  hist.pendingKey = null;
+  const single = key && key !== "*";
+  if (differs && single && hist.undo.length > 0 && key === hist.editKey && key === hist.focusKey) {
+    // More changes of the setting of the last step: they change that step.
+    hist.now = now;
+    hist.redo = [];
+    const prev = hist.undo[hist.undo.length - 1];
+    if (sameSettings(prev, now) && samePlate(prev.plate, now.plate)) {
+      // Back at the value before the edit: the step goes.
+      hist.now = hist.undo.pop();
+      hist.editKey = null;
+    }
+    post({ event: "history" });
+    return;
+  }
+  // A commit with no change keeps the edit open.
+  if (differs) hist.editKey = single ? key : null;
+  if (differs) {
     hist.undo.push(before);
     if (hist.undo.length > UNDO_MAX) hist.undo.shift();
     hist.redo = [];
@@ -125,8 +149,10 @@ function undoCommit() {
   }
 }
 
-function undoSchedule(plate) {
+function undoSchedule(plate, key) {
   if (hist.restoring || !core) return;
+  const k = plate || !key ? "*" : key;
+  hist.pendingKey = hist.pendingKey === null || hist.pendingKey === k ? k : "*";
   if (plate) hist.plateDirty = true;
   clearTimeout(hist.timer);
   hist.timer = setTimeout(undoCommit, 400);
@@ -188,6 +214,7 @@ function historyGoto(i) {
     hist.now = hist.redo.pop();
   }
   undoRestore(hist.now, before);
+  hist.editKey = null;
   return true;
 }
 
@@ -279,6 +306,16 @@ const ops = {
   history() {
     undoCommit();
     return historyList();
+  },
+
+  // The setting whose editor has the focus now, or null. A move of the
+  // focus ends the edit: its changes so far are a step.
+  historyFocus({ key }) {
+    if (key === hist.focusKey) return {};
+    if (hist.timer) undoCommit();
+    hist.editKey = null;
+    hist.focusKey = key;
+    return {};
   },
 
   undo() {
@@ -433,7 +470,7 @@ self.onmessage = async (e) => {
   try {
     const result = await ops[op](args);
     if (op === "init") undoCommit();
-    else if (SETTING_OPS.has(op)) undoSchedule(false);
+    else if (SETTING_OPS.has(op)) undoSchedule(false, op === "quality" || op === "profile" ? null : args.name);
     else if (PLATE_OPS.has(op)) undoSchedule(true);
     const transfer = result?.bytes ? [result.bytes] : [];
     post({ id, result }, transfer);

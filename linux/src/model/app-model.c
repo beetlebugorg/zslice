@@ -1142,8 +1142,11 @@ static void undo_commit(ZgModel *self) {
         g_signal_emit(self, signals[SIGNAL_UNDO_CHANGED], 0);
         return;
     }
-    g_free(self->undo_edit_key);
-    self->undo_edit_key = differs && single ? g_strdup(key) : NULL;
+    /* A commit with no change keeps the edit open. */
+    if (differs) {
+        g_free(self->undo_edit_key);
+        self->undo_edit_key = single ? g_strdup(key) : NULL;
+    }
     if (differs) {
         g_ptr_array_add(self->undo, self->undo_now);
         if (self->undo->len > UNDO_MAX) g_ptr_array_remove_index(self->undo, 0);

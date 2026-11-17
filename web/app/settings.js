@@ -263,6 +263,9 @@ export class SettingsBrowser {
   // set(name, value): the change (default: for this print).
   makeEditor(info, where, set = this.ctx.set) {
     const box = el("div", "editor");
+    // The history keeps the edits of one setting in one step while its
+    // editor has the focus (app.js, historyFocus).
+    box.dataset.setting = info.name;
     const commit = async (value, input) => {
       const error = await set(info.name, value);
       if (input) {
@@ -403,6 +406,7 @@ export class SettingsBrowser {
     if (isNumber(info) && info.sliderMax > info.sliderMin) {
       slider = el("input", "slider");
       slider.type = "range";
+      slider.dataset.setting = info.name;
       const k = isRatio(info) ? 100 : 1;
       slider.min = String(info.sliderMin * k);
       slider.max = String(info.sliderMax * k);

@@ -490,6 +490,8 @@ function updateFocus() {
 }
 
 async function setSetting(name, value) {
+  // The focus first, so the worker knows if this change goes on an edit.
+  sendFocus();
   try {
     const r = await client.call("set", { name, value });
     applySettings(r);
@@ -1085,6 +1087,21 @@ const history = new HistoryPage($("page-history"), {
   timeline: $("timeline"),
   undoRedo: (op) => undoRedo(op),
 });
+
+// The setting whose editor has the focus, for the history (one step for
+// the edits of one setting while its editor keeps the focus).
+var focusKey = null; // var: setSetting can run before this line
+function sendFocus() {
+  const key = document.activeElement?.closest?.("[data-setting]")?.dataset.setting ?? null;
+  if (key === focusKey) return;
+  focusKey = key;
+  client.call("historyFocus", { key });
+}
+function noteFocus() {
+  setTimeout(sendFocus, 0);
+}
+document.addEventListener("focusin", noteFocus);
+document.addEventListener("focusout", noteFocus);
 
 async function undoRedo(op) {
   const r = await client.call(op, {});
