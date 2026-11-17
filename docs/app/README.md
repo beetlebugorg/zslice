@@ -127,6 +127,7 @@ These environment variables change the start of the GTK shell, for development, 
 | `ZSLICE_SETTING=name` | Opens the Settings page at the setting `name`. | `ui/settings-browser.c` |
 | `ZSLICE_PROJECT=dir` or `owner/repo` | Opens the printdeck.yml project of a folder or of a GitHub repository at the start, and shows the Project page. `ZSLICE_PROJECT_PLATE=n` then opens plate n (from 1), also for the project of the last session. | `ui/project-page.c` |
 | `ZSLICE_PROJECT_DO=steps` | Changes the widgets of the Project page 3 s after the start, one step each second, as a click would. Steps, with `;` between them: `status 1 printed`, `count 2 0`, `check 2 off`, `scroll 600`, `sent`, `set machine.max_height 300`, `end`, `close`. | `ui/project-page.c` |
+| `ZSLICE_PREFS=1` | Opens Preferences 1.5 s after the start. With it, `ZSLICE_GET_KEY=1` presses "Get a key" for the current printer. | `ui/window.c`, `ui/preferences.c` |
 | `ZSLICE_PICKER=1` | Opens the printer picker at the start. With it: `ZSLICE_PICKER_QUERY=text` types a search, `ZSLICE_PICKER_MODEL=id` selects a model, `ZSLICE_PICKER_FOUND=n` selects printer n of the network when the search ends, and `ZSLICE_PICKER_STEP=2` (the second step) or `add` (add the printer at once). | `ui/printer-picker.c` |
 
 To run the app for a check without your own settings:

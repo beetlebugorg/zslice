@@ -79,6 +79,17 @@ typedef void (*ZgEstimateFn)(const ZgEstimate *estimate, const char *error, gpoi
  * (POST /api/plugin/printdeck/estimate, with gzip). */
 void zg_link_estimate(const ZgPrinter *p, GBytes *gcode, GCancellable *cancel, ZgEstimateFn fn, gpointer data);
 
+/* Asks the printer for an API key of its own, with the App Keys flow of
+ * OctoPrint (also on printdeck): POST /plugin/appkeys/request, then a poll
+ * of /plugin/appkeys/request/<token> each second, for 2 minutes. The
+ * printer asks its user "Allow zslice?" (on the touch screen of a
+ * printdeck, in the web page of OctoPrint). `wait` gets the seconds since
+ * the request while the user decides. `done` gets the key (ok), or the
+ * reason (not ok). A cancel stops the poll with no call of `done`. */
+typedef void (*ZgWaitFn)(int seconds, gpointer data);
+typedef void (*ZgKeyFn)(gboolean ok, const char *key, const char *message, gpointer data);
+void zg_link_request_key(const ZgPrinter *p, GCancellable *cancel, ZgWaitFn wait, ZgKeyFn done, gpointer data);
+
 /* The serial ports of the computer, for the USB choice. Free with
  * g_strfreev. */
 char **zg_link_serial_ports(void);

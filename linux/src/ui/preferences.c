@@ -30,6 +30,10 @@ typedef struct {
     GtkWidget *name, *kind, *url, *api_key, *device, *baud;
     GtkWidget *url_row[2], *key_row[2], *usb_row[4];
     GtkWidget *use, *test, *result, *use_machine, *use_filament;
+    /* "Get a key": the button, and the request while the printer waits
+     * for its user. */
+    GtkWidget *get_key;
+    GCancellable *key_cancel;
     GCancellable *cancel;
     ZgPrinterInfo *info;
 } Prefs;
@@ -121,6 +125,12 @@ static void show_rows(Prefs *p) {
     gtk_widget_set_visible(p->use, p->printer != zg_printers_current());
 }
 
+static void stop_key(Prefs *p) {
+    if (p->key_cancel) g_cancellable_cancel(p->key_cancel);
+    g_clear_object(&p->key_cancel);
+    if (p->get_key) gtk_widget_set_sensitive(p->get_key, TRUE);
+}
+
 static void clear_info(Prefs *p) {
     if (p->cancel) g_cancellable_cancel(p->cancel);
     g_clear_object(&p->cancel);
@@ -133,6 +143,7 @@ static void clear_info(Prefs *p) {
 static void fill_form(Prefs *p) {
     if (!p->printer) return;
     p->filling = TRUE;
+    stop_key(p);
     clear_info(p);
     gtk_editable_set_text(GTK_EDITABLE(p->name), p->printer->name);
     gtk_drop_down_set_selected(GTK_DROP_DOWN(p->kind), (guint)p->printer->kind);
@@ -288,6 +299,49 @@ static void on_test(GtkButton *b, gpointer data) {
     zg_link_query(p->printer, p->cancel, on_info, p);
 }
 
+/* ---- "Get a key": the App Keys flow (zg_link_request_key) ---- */
+
+static void on_key_wait(int seconds, gpointer data) {
+    Prefs *p = data;
+    if (!p->window) return;
+    char *m = g_strdup_printf("Allow zslice on the printer: on its touch screen (printdeck), or in its web page (OctoPrint). Waiting %d s of 120…", seconds);
+    gtk_label_set_text(GTK_LABEL(p->result), m);
+    g_free(m);
+}
+
+static void on_key_done(gboolean ok, const char *key, const char *message, gpointer data) {
+    Prefs *p = data;
+    if (!p->window) return;
+    g_clear_object(&p->key_cancel);
+    gtk_widget_set_sensitive(p->get_key, TRUE);
+    gtk_label_set_text(GTK_LABEL(p->result), message ? message : "");
+    if (ok) {
+        gtk_widget_remove_css_class(p->result, "error");
+        /* The entry stores the key in app.ini (on_text). */
+        gtk_editable_set_text(GTK_EDITABLE(p->api_key), key);
+        gtk_label_set_text(GTK_LABEL(p->result), message);
+    } else {
+        gtk_widget_add_css_class(p->result, "error");
+    }
+}
+
+static void on_get_key(GtkButton *b, gpointer data) {
+    Prefs *p = data;
+    if (!p->printer) return;
+    stop_key(p);
+    clear_info(p);
+    p->key_cancel = g_cancellable_new();
+    gtk_widget_set_sensitive(p->get_key, FALSE);
+    gtk_widget_remove_css_class(p->result, "error");
+    gtk_label_set_text(GTK_LABEL(p->result), "Asking the printer for a key…");
+    zg_link_request_key(p->printer, p->key_cancel, on_key_wait, on_key_done, p);
+}
+
+static void get_key_hook(gpointer data) {
+    Prefs *p = data;
+    if (p->window) on_get_key(GTK_BUTTON(p->get_key), p);
+}
+
 static void set_num(ZgModel *model, const char *key, double v) {
     char buf[G_ASCII_DTOSTR_BUF_SIZE];
     g_ascii_formatd(buf, sizeof buf, "%.6g", v);
@@ -437,11 +491,18 @@ static GtkWidget *printers_page(Prefs *p) {
     gtk_password_entry_set_show_peek_icon(GTK_PASSWORD_ENTRY(p->api_key), TRUE);
     g_object_set_data(G_OBJECT(p->api_key), "zg-field", (gpointer)2);
     g_signal_connect(p->api_key, "changed", G_CALLBACK(on_text), p);
+    gtk_widget_set_hexpand(p->api_key, TRUE);
+    p->get_key = gtk_button_new_with_label("Get a key");
+    gtk_widget_set_tooltip_text(p->get_key, "Ask the printer for a key of its own for zslice. The printer asks \"Allow zslice?\" on its touch screen (printdeck), or in its web page (OctoPrint, with the App Keys plugin). Allow it within 2 minutes.");
+    g_signal_connect(p->get_key, "clicked", G_CALLBACK(on_get_key), p);
+    GtkWidget *key_box = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 6);
+    gtk_box_append(GTK_BOX(key_box), p->api_key);
+    gtk_box_append(GTK_BOX(key_box), p->get_key);
     p->key_row[0] = form_label("API key");
-    p->key_row[1] = p->api_key;
-    gtk_widget_set_tooltip_text(p->api_key, "The API key of the printer (in OctoPrint: Settings › API, or an application key). It is kept in app.ini, readable only by you.");
+    p->key_row[1] = key_box;
+    gtk_widget_set_tooltip_text(p->api_key, "The API key of the printer (in OctoPrint: Settings › API, or an application key; printdeck: its System page). It is kept in app.ini, readable only by you.");
     gtk_grid_attach(GTK_GRID(g), p->key_row[0], 0, row, 1, 1);
-    gtk_grid_attach(GTK_GRID(g), p->api_key, 1, row++, 2, 1);
+    gtk_grid_attach(GTK_GRID(g), key_box, 1, row++, 2, 1);
 
     /* The port: an entry, and a list of the ports that the computer has. */
     p->device = gtk_entry_new();
@@ -586,6 +647,7 @@ static GtkWidget *general_page(Prefs *p) {
 static void on_destroy(GtkWidget *w, gpointer data) {
     Prefs *p = data;
     p->window = NULL;
+    stop_key(p);
     clear_info(p);
     g_object_set_data(G_OBJECT(p->model), "zg-preferences", NULL);
     g_object_unref(p->model);
@@ -625,4 +687,7 @@ void zg_preferences_show(GtkWindow *parent, ZgModel *model) {
      * still call back after the window closes. */
     g_signal_connect(p->window, "destroy", G_CALLBACK(on_destroy), p);
     gtk_window_present(p->window);
+    /* For tests: ZSLICE_GET_KEY=1 presses "Get a key" for the current
+     * printer. */
+    if (g_getenv("ZSLICE_GET_KEY")) g_timeout_add_once(500, get_key_hook, p);
 }

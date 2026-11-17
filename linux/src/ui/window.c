@@ -952,6 +952,13 @@ static gboolean open_cura_compare_test(gpointer data) {
     return G_SOURCE_REMOVE;
 }
 
+/* For tests: ZSLICE_PREFS=1 opens Preferences at the start. */
+static gboolean open_prefs_test(gpointer data) {
+    Window *w = data;
+    zg_preferences_show(w->window, w->model);
+    return G_SOURCE_REMOVE;
+}
+
 /* ---- drop ---- */
 
 static gboolean on_drop(GtkDropTarget *target, const GValue *value, double x, double y, gpointer data) {
@@ -1143,6 +1150,7 @@ GtkWindow *zg_window_new(GtkApplication *app, ZgModel *model) {
     on_undo_changed(model, w);
     if (g_getenv("ZSLICE_UNDO_TEST")) g_timeout_add(1000, undo_test_step, w);
     if (g_getenv("ZSLICE_CURA_COMPARE")) g_timeout_add(1500, open_cura_compare_test, w);
+    if (g_getenv("ZSLICE_PREFS")) g_timeout_add(1500, open_prefs_test, w);
 
     GMenu *menu = g_menu_new();
     GMenu *edit = g_menu_new();

@@ -3,7 +3,8 @@
  * The APIs: OctoPrint REST API (docs.octoprint.org, /api/printer,
  * /api/printerprofiles, /api/job, /api/files/local); Moonraker API
  * (moonraker.readthedocs.io, /printer/objects/query, /server/files/upload);
- * printdeck (../printdeck, deck/internal/octoapi). See REFERENCES.md.
+ * printdeck (../printdeck, deck/internal/octoapi); the App Keys flow of
+ * OctoPrint (/plugin/appkeys/request). See REFERENCES.md.
  *
  * SPDX-License-Identifier: AGPL-3.0-or-later
  */
@@ -464,6 +465,172 @@ void zg_link_estimate(const ZgPrinter *p, GBytes *gcode, GCancellable *cancel, Z
     g_task_set_task_data(task, g_bytes_ref(gcode), (GDestroyNotify)g_bytes_unref);
     g_task_run_in_thread(task, (GTaskThreadFunc)gzip_thread);
     g_object_unref(task);
+}
+
+/* ---- an API key from the printer (App Keys) ---- */
+
+typedef struct {
+    char *base; /* the URL of /plugin/appkeys/request */
+    char *token;
+    gint64 t0;
+    guint timer;
+    GCancellable *cancel;
+    ZgWaitFn wait;
+    ZgKeyFn done;
+    gpointer data;
+} KeyRequest;
+
+/* The printer keeps a request for 2 minutes. */
+enum { KEY_WAIT_S = 125 };
+
+static void key_free(KeyRequest *k) {
+    if (k->timer) g_source_remove(k->timer);
+    g_free(k->base);
+    g_free(k->token);
+    g_clear_object(&k->cancel);
+    g_free(k);
+}
+
+static void key_end(KeyRequest *k, gboolean ok, const char *key, const char *message) {
+    if (!g_cancellable_is_cancelled(k->cancel)) k->done(ok, key, message, k->data);
+    key_free(k);
+}
+
+/* The member `name` of a JSON object in `body`, or NULL. Free with g_free. */
+static char *json_member(GBytes *body, const char *name) {
+    gsize len = 0;
+    const char *text = g_bytes_get_data(body, &len);
+    JsonParser *parser = json_parser_new();
+    char *out = NULL;
+    if (json_parser_load_from_data(parser, text, (gssize)len, NULL)) out = str(json_parser_get_root(parser), name);
+    g_object_unref(parser);
+    return out;
+}
+
+static gboolean key_poll(gpointer data);
+
+static void on_key_poll(GObject *source, GAsyncResult *res, gpointer data) {
+    KeyRequest *k = data;
+    GError *error = NULL;
+    GBytes *body = soup_session_send_and_read_finish(SOUP_SESSION(source), res, &error);
+    SoupMessage *msg = soup_session_get_async_result_message(SOUP_SESSION(source), res);
+    if (!body) {
+        key_end(k, FALSE, NULL, error->message);
+        g_error_free(error);
+        return;
+    }
+    guint status = msg ? soup_message_get_status(msg) : 0;
+    if (status == 202) {
+        /* The user has not decided yet. */
+        g_bytes_unref(body);
+        if ((g_get_monotonic_time() - k->t0) / G_USEC_PER_SEC >= KEY_WAIT_S) {
+            key_end(k, FALSE, NULL, "No answer on the printer in 2 minutes.");
+            return;
+        }
+        k->timer = g_timeout_add_seconds(1, key_poll, k);
+        return;
+    }
+    if (status == 404) {
+        g_bytes_unref(body);
+        key_end(k, FALSE, NULL, "The printer did not allow it (Deny), or the request waited too long.");
+        return;
+    }
+    if (status != 200) {
+        g_bytes_unref(body);
+        char *m = g_strdup_printf("The printer answered %u.", status);
+        key_end(k, FALSE, NULL, m);
+        g_free(m);
+        return;
+    }
+    char *key = json_member(body, "api_key");
+    g_bytes_unref(body);
+    if (key && key[0]) key_end(k, TRUE, key, "The printer gave zslice a key.");
+    else key_end(k, FALSE, NULL, "The printer gave no key.");
+    g_free(key);
+}
+
+static gboolean key_poll(gpointer data) {
+    KeyRequest *k = data;
+    k->timer = 0;
+    if (g_cancellable_is_cancelled(k->cancel)) {
+        key_free(k);
+        return G_SOURCE_REMOVE;
+    }
+    k->wait((int)((g_get_monotonic_time() - k->t0) / G_USEC_PER_SEC), k->data);
+    char *escaped = g_uri_escape_string(k->token, NULL, FALSE);
+    char *url = g_strdup_printf("%s/%s", k->base, escaped);
+    g_free(escaped);
+    SoupMessage *msg = soup_message_new("GET", url);
+    g_free(url);
+    if (!msg) {
+        key_end(k, FALSE, NULL, "The address of the printer is not valid.");
+        return G_SOURCE_REMOVE;
+    }
+    soup_session_send_and_read_async(session(), msg, G_PRIORITY_DEFAULT, k->cancel, on_key_poll, k);
+    g_object_unref(msg);
+    return G_SOURCE_REMOVE;
+}
+
+static void on_key_token(GObject *source, GAsyncResult *res, gpointer data) {
+    KeyRequest *k = data;
+    GError *error = NULL;
+    GBytes *body = soup_session_send_and_read_finish(SOUP_SESSION(source), res, &error);
+    SoupMessage *msg = soup_session_get_async_result_message(SOUP_SESSION(source), res);
+    if (!body) {
+        key_end(k, FALSE, NULL, error->message);
+        g_error_free(error);
+        return;
+    }
+    guint status = msg ? soup_message_get_status(msg) : 0;
+    if (status == 404) {
+        g_bytes_unref(body);
+        key_end(k, FALSE, NULL, "The printer does not give keys to apps (App Keys is off or missing).");
+        return;
+    }
+    if (status < 200 || status >= 300) {
+        g_bytes_unref(body);
+        char *m = g_strdup_printf("The printer answered %u.", status);
+        key_end(k, FALSE, NULL, m);
+        g_free(m);
+        return;
+    }
+    k->token = json_member(body, "app_token");
+    g_bytes_unref(body);
+    if (!k->token || !k->token[0]) {
+        key_end(k, FALSE, NULL, "The printer gave no request token.");
+        return;
+    }
+    k->t0 = g_get_monotonic_time();
+    k->wait(0, k->data);
+    k->timer = g_timeout_add_seconds(1, key_poll, k);
+}
+
+void zg_link_request_key(const ZgPrinter *p, GCancellable *cancel, ZgWaitFn wait, ZgKeyFn done, gpointer data) {
+    if (!p->url || !p->url[0]) {
+        done(FALSE, NULL, "No address.", data);
+        return;
+    }
+    if (p->kind == ZG_LINK_MOONRAKER) {
+        done(FALSE, NULL, "Moonraker gives no API keys this way: it needs none, or the key of its config.", data);
+        return;
+    }
+    KeyRequest *k = g_new0(KeyRequest, 1);
+    k->base = join_url(p, "/plugin/appkeys/request");
+    k->cancel = cancel ? g_object_ref(cancel) : g_cancellable_new();
+    k->wait = wait;
+    k->done = done;
+    k->data = data;
+    SoupMessage *msg = soup_message_new("POST", k->base);
+    if (!msg) {
+        key_end(k, FALSE, NULL, "The address of the printer is not valid.");
+        return;
+    }
+    static const char body[] = "{\"app\":\"zslice\"}";
+    GBytes *bytes = g_bytes_new_static(body, sizeof body - 1);
+    soup_message_set_request_body_from_bytes(msg, "application/json", bytes);
+    g_bytes_unref(bytes);
+    soup_session_send_and_read_async(session(), msg, G_PRIORITY_DEFAULT, k->cancel, on_key_token, k);
+    g_object_unref(msg);
 }
 
 void zg_link_send(const ZgPrinter *p, const char *filename, GBytes *gcode, gboolean print, GCancellable *cancel,
