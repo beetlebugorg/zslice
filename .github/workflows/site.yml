@@ -1,0 +1,66 @@
+name: Site
+
+# The site of zslice.beetlebug.org: the web app at the root, and the docs
+# (docs.html and the page folders) next to it. It is in an S3 bucket
+# behind CloudFront, which sends the headers that make the page
+# cross-origin isolated (for the threads of the web app). The bucket, the
+# distribution, and the deploy role are in the zslice-ops repository.
+on:
+  push:
+    branches: [main]
+    paths:
+      - "docs/**"
+      - "src/**"
+      - "web/**"
+      - "include/**"
+      - "build.zig"
+      - "build.zig.zon"
+      - ".github/workflows/site.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  id-token: write
+
+concurrency:
+  group: site
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: mlugg/setup-zig@v2
+        with:
+          version: 0.16.0
+
+      # The web app: zig build web writes it to zig-out/web/app.
+      - run: zig build web
+
+      # docs/build.py writes the pages of docs/, and the pages are in the
+      # repository. The site is the docs folder, with the web app on top.
+      - run: |
+          mkdir site
+          cp -r docs/. site/
+          cp -r zig-out/web/app/. site/
+          test -f site/index.html && test -f site/zslice.wasm && test -f site/docs.html
+
+      - uses: aws-actions/configure-aws-credentials@v5
+        with:
+          role-to-assume: ${{ vars.AWS_DEPLOY_ROLE }}
+          aws-region: us-east-1
+
+      # The pages are checked again on each visit; the other files keep 5
+      # minutes. The cache of CloudFront is cleared after each deploy.
+      - name: Upload
+        working-directory: site
+        run: |
+          B="s3://${{ vars.SITE_BUCKET }}"
+          aws s3 sync . "$B" --delete --only-show-errors --cache-control "public, max-age=300" --exclude "*.html" --exclude "*.wasm"
+          aws s3 sync . "$B" --delete --only-show-errors --cache-control "no-cache" --exclude "*" --include "*.html"
+          aws s3 sync . "$B" --delete --only-show-errors --cache-control "public, max-age=300" --content-type application/wasm --exclude "*" --include "*.wasm"
+
+      - name: Clear the cache
+        run: aws cloudfront create-invalidation --distribution-id "${{ vars.SITE_DISTRIBUTION }}" --paths "/*" --query Invalidation.Id --output text
