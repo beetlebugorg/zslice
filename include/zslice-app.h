@@ -963,6 +963,42 @@ size_t zs_cura_compare_count(const zs_cura_compare *cc);
 int zs_cura_compare_get(const zs_cura_compare *cc, size_t i, zs_cura_row *out);
 void zs_cura_compare_free(zs_cura_compare *cc);
 
+/* ---- printdeck.yml projects (src/project.zig) ----
+ *
+ * A project is a repository with a printdeck.yml: its parts, each with its
+ * files, count, printer, profile ("<folder>/<profile>" of profiles/, a Cura
+ * stack with cura.json), material, and Cura settings. The plan puts the
+ * chosen parts on plates. The results are JSON texts with the buffer rules
+ * of zs_app_setting_get. counts: "n,n,..." with one entry for each part
+ * ("-" or a missing entry: the count of the file, 0: not on a plate), or
+ * NULL for all parts. */
+
+/* The files of a repository that a plate needs (the model files, and the
+ * files of profiles/<folder>/), with paths relative to the repository. */
+typedef struct zs_files zs_files;
+zs_files *zs_files_new(void);
+int zs_files_add(zs_files *files, const char *path, const void *data, size_t len);
+void zs_files_free(zs_files *files);
+
+/* The parts and the suggested plates of a printdeck.yml: {"name",
+ * "parts": [{"name", "base_name", "variant", "group", "description",
+ * "files", "count", "printer", "profile", "material",
+ * "settings": [{"key", "value"}], "alone", "prebuilt"}], "plates":
+ * [{"printer", "profile", "material", "items": [{"part", "count"}]}]}, or
+ * {"error", "line"}. */
+int zs_project_plan(const char *yml, const char *counts, char *buf, size_t cap, size_t *out_len);
+/* The profiles of plate `plate`: {"machine": {"name", "text"},
+ * "filament": {...}, "project": {...}} or {"error", "line"}. Load each with
+ * zs_app_group_reset and zs_app_profile_apply, then call
+ * zs_app_project_load. */
+int zs_project_profiles(const zs_files *files, const char *yml, const char *counts, size_t plate, char *buf, size_t cap, size_t *out_len);
+/* Puts plate `plate` on the plate of the app, in place of its parts: the
+ * plate settings (support, adhesion) as changes of the print, then the
+ * copies of the files, each with the settings of its part, arranged.
+ * ZS_OUT_OF_RANGE: the parts do not all fit on the bed (they stay on the
+ * plate). On an error, message (can be NULL) gets the reason. */
+int zs_app_project_load(zs_app *app, const zs_files *files, const char *yml, const char *counts, size_t plate, char *message, size_t cap);
+
 /* ---- licenses ---- */
 
 /* zslice and the components in the core. A shell adds the components that

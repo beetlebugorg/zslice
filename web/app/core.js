@@ -85,7 +85,72 @@ export class Core {
     return out.split("\n").filter(Boolean).map((l) => l.split("\t"));
   }
 
-  // The parts of a 3MF file keep their places in the file.
+  // ---- printdeck.yml projects (src/project.zig) ----
+
+  // The parts and the suggested plates of a printdeck.yml text. counts:
+  // one entry for each part ("-" or null: the count of the file, 0: not
+  // on a plate). Returns the plan, or { error, line }.
+  projectPlan(text, counts = []) {
+    const w = this.w;
+    const c = counts.map((n) => (n == null ? "-" : String(n))).join(",");
+    const out = w.withStrings([text, c], (t, cs) => w.readText((b, cap, l) => w.x.zs_project_plan(t, cs, b, cap, l)));
+    return JSON.parse(out ?? '{"error":"no answer"}');
+  }
+
+  // A set of files of a repository for a plate: { path: bytes }. Returns
+  // a handle for projectProfiles and projectLoad; free it with filesFree.
+  filesNew(files) {
+    const w = this.w;
+    const f = w.x.zs_files_new();
+    for (const [path, bytes] of Object.entries(files)) {
+      const rc = w.withString(path, (p) => w.withBytes(bytes, (d, n) => w.x.zs_files_add(f, p, d, n)));
+      if (rc !== 0) {
+        w.x.zs_files_free(f);
+        throw new Error(`The file ${path} did not load (${statusText(rc)}).`);
+      }
+    }
+    return f;
+  }
+
+  filesFree(f) {
+    this.w.x.zs_files_free(f);
+  }
+
+  // The machine, filament, and project profiles of plate i:
+  // { machine: { name, text }, filament, project } or { error }.
+  projectProfiles(files, text, counts, plate) {
+    const w = this.w;
+    const c = counts.map((n) => (n == null ? "-" : String(n))).join(",");
+    const out = w.withStrings([text, c], (t, cs) => w.readText((b, cap, l) => w.x.zs_project_profiles(files, t, cs, plate, b, cap, l)));
+    return JSON.parse(out ?? '{"error":"plate out of range"}');
+  }
+
+  // Loads plate i: its profiles, its settings, and its parts. Returns ""
+  // or the reason it did not load. fits: false if the parts do not all
+  // fit on the bed (they are on the plate).
+  projectLoad(files, text, counts, plate) {
+    const p = this.projectProfiles(files, text, counts, plate);
+    if (p.error) return { error: p.error };
+    for (const [group, g] of [["machine", 0], ["filament", 1], ["project", 2]]) {
+      const e = this.loadProfile(g, p[group].text);
+      if (e) return { error: `The ${group} profile ${p[group].name}: ${e}` };
+    }
+    const w = this.w;
+    const c = counts.map((n) => (n == null ? "-" : String(n))).join(",");
+    const cap = 1024;
+    const msg = w.alloc(cap);
+    try {
+      const rc = w.withStrings([text, c], (t, cs) => w.x.zs_app_project_load(this.app, files, t, cs, plate, msg, cap));
+      const m = w.cstr(msg);
+      if (rc === 14) return { error: "", fits: false, message: m };
+      if (rc !== 0) return { error: m || statusText(rc) };
+      return { error: "", fits: true, profiles: p };
+    } finally {
+      w.free(msg, cap);
+    }
+  }
+
+  // The parts of a 3MF file keep their places in the file.  // The parts of a 3MF file keep their places in the file.
   setKeepPlaces(on) {
     this.w.x.zs_app_set_keep_places(this.app, on ? 1 : 0);
   }

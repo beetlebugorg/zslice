@@ -504,7 +504,13 @@ const Flow = struct {
                 f.i += 1;
                 f.space();
                 const v = if (f.i < f.text.len and (f.text[f.i] == ',' or f.text[f.i] == '}')) try f.p.make(.null) else try f.value();
-                try out.append(f.p.arena, .{ .key = key, .value = v });
+                if (std.mem.eql(u8, key, "<<")) {
+                    // The merge key, as in a block map.
+                    for (try v.items(f.p.arena)) |src| {
+                        if (src.* != .map) return f.bad("the merge key needs a map");
+                        try out.appendSlice(f.p.arena, src.map);
+                    }
+                } else try out.append(f.p.arena, .{ .key = key, .value = v });
                 f.space();
                 if (f.i >= f.text.len) return f.bad("a { with no }");
                 if (f.text[f.i] == ',') {
@@ -599,7 +605,7 @@ test "yaml: the shape of a printdeck.yml" {
         \\  - name: Slate body
         \\    files:
         \\    - x.stl
-        \\    settings: *slate
+        \\    settings: {<<: *slate, brim_line_count: 12}
         \\  - name: 'It''s'
         \\    note: a plain text
         \\      over two lines
@@ -625,6 +631,7 @@ test "yaml: the shape of a printdeck.yml" {
     try testing.expectEqualStrings("10", parts[0].get("settings").?.get("brim_line_count").?.str().?);
     try testing.expectEqualStrings("x.stl", parts[1].get("files").?.list[0].str().?);
     try testing.expectEqualStrings("brim", parts[1].get("settings").?.get("adhesion_type").?.str().?);
+    try testing.expectEqualStrings("12", parts[1].get("settings").?.get("brim_line_count").?.str().?);
     try testing.expectEqualStrings("It's", parts[2].get("name").?.str().?);
     try testing.expectEqualStrings("a plain text over two lines", parts[2].get("note").?.str().?);
     try testing.expectEqualStrings("line 1\n  line 2\n", parts[2].get("text").?.str().?);
