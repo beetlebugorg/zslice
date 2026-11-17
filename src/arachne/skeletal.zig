@@ -115,11 +115,16 @@ pub const Node = struct {
         var odd_path_count: usize = 0;
         const first = n.incident_edge orelse return false;
         var outgoing: *Edge = first;
+        var steps: usize = 0;
         while (true) {
             if (outgoing.isCentral()) odd_path_count += 1;
             // A node on the outside.
-            outgoing = outgoing.twin.?.next orelse return false;
+            const tw = outgoing.twin orelse return false;
+            outgoing = tw.next orelse return false;
             if (outgoing == first) break;
+            // A broken fan of edges (a degenerate shape): stop.
+            steps += 1;
+            if (steps > 10_000) return false;
         }
         return odd_path_count > 2;
     }
@@ -329,8 +334,27 @@ pub const SkeletalTrapezoidation = struct {
             if (e.next) |n| if (!n.dead and n.prev != e) return false;
             if (e.prev) |pv| if (!pv.dead and pv.next != e) return false;
         }
+        // The edges around each node: a walk from one edge to the next
+        // (twin, then next) comes back to the first one, or ends at the
+        // boundary. A walk that does neither would never end.
+        for (st.nodes.items) |n| {
+            const first = n.incident_edge orelse continue;
+            if (first.dead) continue;
+            var e = first;
+            var steps: usize = 0;
+            while (true) {
+                const tw = e.twin orelse break;
+                e = tw.next orelse break;
+                if (e == first) break;
+                steps += 1;
+                if (steps > max_fan) return false;
+            }
+        }
         return true;
     }
+
+    /// The most edges around one node (a check of the graph).
+    const max_fan = 10_000;
 
     fn newNode(st: *SkeletalTrapezoidation, p: Point) Allocator.Error!*Node {
         const n = try st.a.create(Node);
@@ -1745,7 +1769,9 @@ pub const SkeletalTrapezoidation = struct {
                 }
                 new_domain_start = false;
                 quad_start = quad_start.getNextUnconnected() orelse break;
-                if (quad_start == poly_domain_start) break;
+                // Back at the start of the domain; or, in a broken graph (a
+                // degenerate shape), at a quad that is done already.
+                if (quad_start == poly_domain_start or quad_start.quad_done) break;
             }
         }
     }
