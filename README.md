@@ -2,7 +2,7 @@
 
 A slicer for FDM 3D printers, written from scratch in Zig. It is fast enough to slice again while you drag a slider. Click any line of the preview to see what it is, and which settings change it.
 
-![A 3DBenchy in zslice: one line of the hull is selected, and the speed field explains that line](docs/img/inspector.png)
+![zslice opens a 3DBenchy and slices it in about 340 ms. The camera turns around the part, and then goes near the beads of the hull](docs/img/demo.gif)
 
 ## Highlights
 
@@ -19,7 +19,7 @@ Things that most slicers do not do.
 
 ### A check of the print before you print it
 
-![The Check list of the Benchy: one cooling warning for the chimney layers, and its bridges](docs/img/highlight-check.png)
+![Check lists a cooling warning for the chimney layers and the bridges of the Benchy. A click on an issue goes to its layer and selects its line](docs/img/demo-check.gif)
 
 - **Check** lists what can make the print fail or print badly: overhangs with no support, bridges and their span, shapes that start in the air, lines over the flow of the hot end, layers too short to cool, and layers with many retractions.
 - Each issue says what and why, in plain words, with the setting to change.
@@ -62,7 +62,11 @@ Things that most slicers do not do.
 - The slicer uses all CPU cores but one. It keeps its work memory in arenas, so a slice uses little memory.
 - A watchdog writes the stacks of all threads to a file if the window stops for 3 s. So a rare hang can be found and fixed.
 
+![The infill density slider goes from 10 % to 40 % and back. The infill in the preview, the time, and the weight change as the slider moves. Each slice takes about 45 ms](docs/img/demo-infill.gif)
+
 ### Click a line, see why
+
+![A click on the hull selects "Outer wall · layer 49". A click on the chimney shows a real speed of 10 mm/s, because the layer is short. Then c cuts the view to the layer, and l moves the nozzle segment by segment](docs/img/demo-inspect.gif)
 
 - Click a line in the 2D or 3D preview. The panel shows what the line is (for example "Outer wall · layer 97"), its planned and real speed, its flow, and only the settings that change it.
 - Focus a field, and the panel explains what that setting does to the selected line, with its numbers: "50 % of 150 mm/s = 75 mm/s planned. It prints at 67 mm/s: the layer is short, and it slows to cool."
@@ -85,6 +89,8 @@ Things that most slicers do not do.
 - Sliders with sensible ranges, units on all values, and speeds as a ratio of what the printer and the filament allow. A ratio shows the speed that it gives: "50 % = 75 mm/s".
 
 ### A preview that looks like the print
+
+![The top knob of the layer slider goes down through the Benchy and back up. Then the replay prints the first layers at 30x and 100x](docs/img/demo-replay.gif)
 
 - The 3D view draws each line as a bead of the real width and height. Skin lines are pressed flat, and connected lines look connected.
 - Color by filament, feature, speed, flow, layer time, or line width.
