@@ -31,7 +31,7 @@
 
 ## Documentation
 
-The site at https://beetlebug.org/zslice/ comes from these Markdown files. `docs/build.py` writes the pages into `docs/`, with one folder for each page. It needs only Python 3.
+The site at https://zslice.beetlebug.org/docs.html comes from these Markdown files. `docs/build.py` writes the pages into `docs/`, with one folder for each page. It needs only Python 3.
 
 ```sh
 python3 docs/build.py

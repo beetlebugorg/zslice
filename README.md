@@ -120,12 +120,12 @@ Things that most slicers do not do.
 ### A library first
 
 - One core in Zig, with a C API (`include/zslice.h`, `include/zslice-app.h`) and a WebAssembly build for the browser.
-- The GTK4 app for Linux is a thin shell over the core.
+- The GTK4 app for Linux is a thin shell over the core. So is the web app: try it at <https://zslice.beetlebug.org/>, with nothing to install.
 - Each module explains its algorithm in its header comment. The code is also a book about how a slicer works.
 
 ## Documentation
 
-The documentation site is at <https://beetlebug.org/zslice/>.
+The documentation site is at <https://zslice.beetlebug.org/docs.html>. The web app is at <https://zslice.beetlebug.org/>.
 
 - For people who slice: [Getting started](docs/user/getting-started.md), [Settings reference](docs/user/settings.md).
 - For developers who use the library: [Embedding overview](docs/embedding/overview.md), with guides for Zig, C, and JavaScript.
