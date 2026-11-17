@@ -78,6 +78,8 @@ const Options = struct {
     only: ?[]const u8 = null,
     /// bench: the slices of each kind.
     runs: usize = 6,
+    /// bench: the copies of the model on the plate (arranged).
+    copies: usize = 1,
     /// sweep: the values of a number setting.
     points: usize = 5,
 };
@@ -209,7 +211,7 @@ pub fn main(init: std.process.Init) !void {
     }
     if (is_bench) {
         defer gpa.free(bytes);
-        try bench(gpa, io, err, in_path, bytes, settings, opts.only, opts.runs);
+        try bench(gpa, io, err, in_path, bytes, settings, opts.only, opts.runs, opts.copies);
         return;
     }
     var m = zslice.Mesh.fromStl(gpa, bytes) catch |e| {
@@ -385,7 +387,7 @@ const max_runs = 64;
 
 /// Slices in the app core, as the app does after each change of a setting,
 /// and prints the time of each slice and the peak memory (VmHWM).
-fn bench(backing: std.mem.Allocator, io: Io, err: *Io.Writer, name: []const u8, bytes: []const u8, settings: zslice.Settings, only: ?[]const u8, runs: usize) !void {
+fn bench(backing: std.mem.Allocator, io: Io, err: *Io.Writer, name: []const u8, bytes: []const u8, settings: zslice.Settings, only: ?[]const u8, runs: usize, copies: usize) !void {
     const App = zslice.app.App;
     var counter: CountingAllocator = .{ .backing = backing };
     const gpa = counter.allocator();
@@ -399,11 +401,13 @@ fn bench(backing: std.mem.Allocator, io: Io, err: *Io.Writer, name: []const u8, 
         for (times) |*t| {
             // A new model drops the regions of the slice before.
             try app.loadStl(std.fs.path.basename(name), bytes);
+            try addCopies(app, name, bytes, copies);
             t.* = try benchSlice(app, io);
         }
         try printTimes(err, "full slice", times);
     } else {
         try app.loadStl(std.fs.path.basename(name), bytes);
+        try addCopies(app, name, bytes, copies);
     }
     for (bench_changes) |c| {
         if (only) |o| if (!std.mem.eql(u8, o, c.key)) continue;
@@ -513,6 +517,12 @@ fn cpuNow() [2]f64 {
     return .{ ms, @floatFromInt(u.minflt) };
 }
 
+fn addCopies(app: *zslice.app.App, name: []const u8, bytes: []const u8, copies: usize) !void {
+    if (copies <= 1) return;
+    for (1..copies) |_| _ = try app.addStl(std.fs.path.basename(name), bytes);
+    _ = try app.arrangePlate();
+}
+
 fn benchSlice(app: *zslice.app.App, io: Io) !Sample {
     const t0 = Io.Clock.awake.now(io);
     const c0 = cpuNow();
@@ -562,7 +572,7 @@ fn parseOptions(arena: std.mem.Allocator, err: *Io.Writer, args: []const [:0]con
     var i: usize = 0;
     while (i < args.len) : (i += 1) {
         const a = args[i];
-        const takes_value = for ([_][]const u8{ "-o", "-s", "--layer", "-m", "--machine", "-f", "--filament", "-p", "--project", "--only", "--runs", "--points" }) |o| {
+        const takes_value = for ([_][]const u8{ "-o", "-s", "--layer", "-m", "--machine", "-f", "--filament", "-p", "--project", "--only", "--runs", "--points", "--copies" }) |o| {
             if (std.mem.eql(u8, a, o)) break true;
         } else false;
         if (!takes_value) {
@@ -588,6 +598,9 @@ fn parseOptions(arena: std.mem.Allocator, err: *Io.Writer, args: []const [:0]con
         } else if (std.mem.eql(u8, a, "--points")) {
             opts.points = std.fmt.parseInt(usize, v, 10) catch fail(err, "bad point count: {s}\n", .{v});
             if (opts.points < 2 or opts.points > 50) fail(err, "--points must be 2 to 50\n", .{});
+        } else if (std.mem.eql(u8, a, "--copies")) {
+            opts.copies = std.fmt.parseInt(usize, v, 10) catch fail(err, "bad copy count: {s}\n", .{v});
+            if (opts.copies < 1 or opts.copies > 64) fail(err, "--copies must be 1 to 64\n", .{});
         } else if (std.mem.eql(u8, a, "--runs")) {
             opts.runs = std.fmt.parseInt(usize, v, 10) catch fail(err, "bad run count: {s}\n", .{v});
             if (opts.runs < 1 or opts.runs > max_runs) fail(err, "--runs must be 1 to {d}\n", .{max_runs});

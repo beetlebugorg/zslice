@@ -318,9 +318,9 @@ pub const Renderer = struct {
         }
         errdefer i.vkDestroySurfaceKHR.?(instance, vk_surface, null);
 
-        // The first device with a queue that draws and presents to this
-        // surface. The loader lists the device that drives the display
-        // first.
+        // A device with a queue that draws and presents to this surface:
+        // a discrete GPU first (a laptop or a desktop with two GPUs can
+        // list the integrated GPU first), else the first one.
         var count: u32 = 0;
         try check(i.vkEnumeratePhysicalDevices.?(instance, &count, null));
         var devs: [16]c.VkPhysicalDevice = undefined;
@@ -328,7 +328,12 @@ pub const Renderer = struct {
         try check(i.vkEnumeratePhysicalDevices.?(instance, &count, &devs));
         var phys: c.VkPhysicalDevice = null;
         var family: u32 = 0;
+        var phys_discrete = false;
         outer: for (devs[0..count]) |pd| {
+            var dp: c.VkPhysicalDeviceProperties = undefined;
+            i.vkGetPhysicalDeviceProperties.?(pd, &dp);
+            const discrete = dp.deviceType == c.VK_PHYSICAL_DEVICE_TYPE_DISCRETE_GPU;
+            if (phys != null and (phys_discrete or !discrete)) continue;
             var qn: u32 = 0;
             i.vkGetPhysicalDeviceQueueFamilyProperties.?(pd, &qn, null);
             var qs: [16]c.VkQueueFamilyProperties = undefined;
@@ -341,10 +346,16 @@ pub const Renderer = struct {
                 if (present == 0) continue;
                 phys = pd;
                 family = @intCast(qi);
-                break :outer;
+                phys_discrete = discrete;
+                continue :outer;
             }
         }
         if (phys == null) return error.NoDevice;
+        {
+            var dp: c.VkPhysicalDeviceProperties = undefined;
+            i.vkGetPhysicalDeviceProperties.?(phys, &dp);
+            std.log.info("GPU: {s}", .{std.mem.sliceTo(&dp.deviceName, 0)});
+        }
 
         const priority: f32 = 1;
         const dev_exts = [_][*:0]const u8{"VK_KHR_swapchain"};
@@ -712,10 +723,22 @@ pub const Renderer = struct {
         }, null, &b.buf));
         var req: c.VkMemoryRequirements = undefined;
         r.d.vkGetBufferMemoryRequirements.?(r.device, b.buf, &req);
-        try check(r.d.vkAllocateMemory.?(r.device, &.{
+        // GPU memory that the CPU can write first: the GPU reads it each
+        // frame, and on a discrete GPU host memory is across the bus. When
+        // there is no such memory, or it is full, host memory.
+        const host = c.VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | c.VK_MEMORY_PROPERTY_HOST_COHERENT_BIT;
+        var allocated = false;
+        if (r.memoryType(req.memoryTypeBits, host | c.VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT)) |t| {
+            allocated = r.d.vkAllocateMemory.?(r.device, &.{
+                .sType = c.VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_INFO,
+                .allocationSize = req.size,
+                .memoryTypeIndex = t,
+            }, null, &b.mem) == c.VK_SUCCESS;
+        } else |_| {}
+        if (!allocated) try check(r.d.vkAllocateMemory.?(r.device, &.{
             .sType = c.VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_INFO,
             .allocationSize = req.size,
-            .memoryTypeIndex = try r.memoryType(req.memoryTypeBits, c.VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | c.VK_MEMORY_PROPERTY_HOST_COHERENT_BIT),
+            .memoryTypeIndex = try r.memoryType(req.memoryTypeBits, host),
         }, null, &b.mem));
         try check(r.d.vkBindBufferMemory.?(r.device, b.buf, b.mem, 0));
         var ptr: ?*anyopaque = null;
