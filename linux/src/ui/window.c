@@ -49,6 +49,12 @@ typedef struct {
     /* The estimate of a printdeck printer for the last slice: its timer,
      * the request, and the result (deck_ok). */
     guint deck_timer;
+    /* The roll in the printer, from the last poll (printdeck): its name,
+     * the grams left (< 0: not known), and its price for each gram (0:
+     * not known). */
+    char *spool;
+    double spool_left;
+    double spool_price_g;
     GCancellable *deck_cancel;
     ZgEstimate deck;
     gboolean deck_ok;
@@ -64,6 +70,7 @@ typedef struct {
 } Window;
 
 static void send_now(Window *w);
+static void send_checked(Window *w);
 
 static Window *get(GtkWindow *w) {
     return g_object_get_data(G_OBJECT(w), "zg-window");
@@ -163,8 +170,18 @@ static void update(Window *w) {
             format_time(prep, sizeof prep, w->deck.prep);
             g_snprintf(deck, sizeof deck, "   %s: %s (%s start)", zg_printers_current()->name, total, prep);
         }
-        g_snprintf(text, sizeof text, "%u layers   %.2f m filament (%.1f g)   about %s%s%s",
-                   st.layer_count, st.filament_mm / 1000.0, st.filament_g, t, deck, took);
+        /* The cost of the plastic: at the price of the roll in the
+         * printer, else at the price of the filament profile. */
+        char cost[48] = "";
+        double per_g = w->spool_price_g > 0 ? w->spool_price_g : 0;
+        if (per_g <= 0) {
+            char *v = zg_model_get(w->model, "filament.price_per_kg");
+            per_g = g_ascii_strtod(v, NULL) / 1000;
+            g_free(v);
+        }
+        if (per_g > 0) g_snprintf(cost, sizeof cost, ", cost %.2f", st.filament_g * per_g);
+        g_snprintf(text, sizeof text, "%u layers   %.2f m filament (%.1f g%s)   about %s%s%s",
+                   st.layer_count, st.filament_mm / 1000.0, st.filament_g, cost, t, deck, took);
         g_free(w->last_stats);
         w->last_stats = g_strdup(text);
         break;
@@ -233,7 +250,7 @@ static void on_core_event(ZgModel *model, int event, double progress, int status
     update(w);
     if (w->send_pending && zs_app_state(zg_model_core(model)) != ZS_STATE_SLICING) {
         w->send_pending = FALSE;
-        if (zs_app_state(zg_model_core(model)) == ZS_STATE_DONE) send_now(w);
+        if (zs_app_state(zg_model_core(model)) == ZS_STATE_DONE) send_checked(w);
     }
     if (w->batch.on && event == ZS_EVENT_SLICED) batch_take(w);
     if (event == ZS_EVENT_SLICED) deck_estimate_soon(w);
@@ -474,6 +491,31 @@ static void send_now(Window *w) {
     g_free(base);
 }
 
+static void on_low_answer(GObject *source, GAsyncResult *res, gpointer data) {
+    Window *w = data;
+    if (gtk_alert_dialog_choose_finish(GTK_ALERT_DIALOG(source), res, NULL) == 1) send_now(w);
+}
+
+/* Before a send: the print needs more plastic than the roll in the
+ * printer has left. */
+static void send_checked(Window *w) {
+    zs_stats st;
+    if (w->spool && w->spool_left >= 0 && zs_app_stats(zg_model_core(w->model), &st) == ZS_OK && st.filament_g > w->spool_left) {
+        char *msg = g_strdup_printf("This print needs %.0f g of filament. The roll in the printer (%s) has %.0f g left.",
+                                    st.filament_g, w->spool, w->spool_left);
+        GtkAlertDialog *d = gtk_alert_dialog_new("Not enough filament on the roll");
+        gtk_alert_dialog_set_detail(d, msg);
+        const char *buttons[] = {"Cancel", "Send anyway", NULL};
+        gtk_alert_dialog_set_buttons(d, buttons);
+        gtk_alert_dialog_set_cancel_button(d, 0);
+        gtk_alert_dialog_choose(d, GTK_WINDOW(w->window), NULL, on_low_answer, w);
+        g_object_unref(d);
+        g_free(msg);
+        return;
+    }
+    send_now(w);
+}
+
 static void send(Window *w, gboolean print) {
     w->send_print = print;
     int state = zs_app_state(zg_model_core(w->model));
@@ -481,7 +523,7 @@ static void send(Window *w, gboolean print) {
         w->send_pending = TRUE;
         return;
     }
-    if (state == ZS_STATE_DONE) send_now(w);
+    if (state == ZS_STATE_DONE) send_checked(w);
 }
 
 /* ---- all plates ---- */
@@ -661,8 +703,20 @@ static void on_poll_info(ZgPrinterInfo *info, const char *error, gpointer data) 
     } else {
         text = g_strdup_printf("%s: %s", pr->name, info->state ? info->state : "connected");
     }
-    gtk_label_set_text(GTK_LABEL(w->printer_state), text);
-    gtk_widget_set_tooltip_text(w->printer_state, error);
+    /* The roll in the printer, and the grams left on it. */
+    g_free(w->spool);
+    w->spool = info && info->spool ? g_strdup(info->spool) : NULL;
+    w->spool_left = info && info->spool ? info->spool_left : -1;
+    w->spool_price_g = info && info->spool_price > 0 && info->spool_full > 0 ? info->spool_price / info->spool_full : 0;
+    /* The label is short (the status bar is full): the state and the
+     * roll. The tooltip has all of it, with the printer name. */
+    const char *state_only = strchr(text, ':') ? strchr(text, ':') + 2 : text;
+    char *label = w->spool ? g_strdup_printf("%s · %s, %.0f g left", state_only, w->spool, w->spool_left) : g_strdup(state_only);
+    char *tip = error ? g_strdup_printf("%s\n%s", text, error) : w->spool ? g_strdup_printf("%s\nIn the printer: %s, %.0f g left", text, w->spool, w->spool_left) : g_strdup(text);
+    gtk_label_set_text(GTK_LABEL(w->printer_state), label);
+    gtk_widget_set_tooltip_text(w->printer_state, tip);
+    g_free(label);
+    g_free(tip);
     g_free(text);
     zg_printer_info_free(info);
 }
@@ -783,6 +837,7 @@ static void window_free(gpointer data) {
     g_object_unref(w->model);
     g_free(w->last_error);
     g_free(w->last_stats);
+    g_free(w->spool);
     g_free(w);
 }
 
@@ -804,6 +859,7 @@ static void on_paned_map(GtkWidget *paned, gpointer data) {
 
 GtkWindow *zg_window_new(GtkApplication *app, ZgModel *model) {
     Window *w = g_new0(Window, 1);
+    w->spool_left = -1;
     w->model = g_object_ref(model);
     w->window = GTK_WINDOW(gtk_application_window_new(app));
     g_object_set_data_full(G_OBJECT(w->window), "zg-window", w, window_free);

@@ -29,6 +29,8 @@ typedef struct {
     char *spool;     /* the name of the loaded spool */
     char *spool_color; /* "#rrggbb" */
     double spool_left; /* grams */
+    double spool_price; /* the price of the roll, or 0 */
+    double spool_full;  /* grams of filament of a full roll, or 0 */
     char **spools;   /* the names of all spools, NULL at the end */
     /* The job. */
     char *job;       /* the title of the print, or NULL */

@@ -143,6 +143,8 @@ static void read_reply(Query *q, const char *path, JsonNode *root) {
         in->spool = str(root, "spool.name");
         in->spool_color = str(root, "spool.color");
         in->spool_left = num(root, "spool.left");
+        in->spool_price = num(root, "spool.price");
+        in->spool_full = num(root, "spool.full");
         JsonNode *spools = path_get(root, "spools");
         if (spools && JSON_NODE_HOLDS_ARRAY(spools)) {
             JsonArray *a = json_node_get_array(spools);
