@@ -225,7 +225,9 @@ typedef struct zs_toolpaths {
      * path_z_start[i] != ZS_NO_Z. Its point k has the nozzle z
      * point_z[path_z_start[i] + k] and the bead area (mm^2)
      * point_area[path_z_start[i] + k]. The bead is under the nozzle, down
-     * to the top of the layer below (layer_z - layer_height). */
+     * to the top of the layer below (layer_z - layer_height). A path whose
+     * line width changes along it (Arachne walls) uses the same arrays,
+     * with the z of its layer at each point. */
     const uint32_t *path_z_start;
     const float *point_z;
     const float *point_area;

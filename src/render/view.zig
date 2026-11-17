@@ -301,13 +301,18 @@ pub const View = struct {
                     var bz = z;
                     var bh = h;
                     var bw = w;
+                    var seg_rgb = rgb;
                     if (z_start != app_mod.Toolpaths.no_z) {
                         const ia = z_start + (a - start);
                         const ib = z_start + (b - start);
                         bz = (tp.point_z.items[ia] + tp.point_z.items[ib]) / 2 * sz;
                         bh = @max(bz - z_low, 0.01);
                         const area = (tp.point_area.items[ia] + tp.point_area.items[ib]) / 2;
-                        bw = @floatCast(@import("../flow.zig").beadWidth(area, bh / sz) * sxy);
+                        const bead: f32 = @floatCast(@import("../flow.zig").beadWidth(area, bh / sz));
+                        bw = bead * sxy;
+                        // The width mode: the width of this bead (an
+                        // Arachne wall changes width along its path).
+                        if (v.mode == .width) seg_rgb = ramp(v.legend, bead, false);
                     }
                     boxes.append(gpa, .{
                         .ax = center[0] + (pts[2 * a] - center[0]) * sxy,
@@ -318,7 +323,7 @@ pub const View = struct {
                         .h = bh,
                         .w = bw,
                         // The alpha byte has the feature, for `setFocus`.
-                        .rgba = .{ rgb[0], rgb[1], rgb[2], f },
+                        .rgba = .{ seg_rgb[0], seg_rgb[1], seg_rgb[2], f },
                     }) catch return error.OutOfMemory;
                 }
             }

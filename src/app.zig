@@ -1134,6 +1134,39 @@ test {
     _ = @import("app/feature_settings.zig");
 }
 
+test "app: Arachne walls carry a bead area for each point, at the z of the layer" {
+    const gpa = testing.allocator;
+    var mesh = try zs.mesh.shapes.wedge(gpa, 20, 20, 1, 6);
+    defer mesh.deinit(gpa);
+    var stl: std.Io.Writer.Allocating = .init(gpa);
+    defer stl.deinit();
+    try mesh.writeStl(&stl.writer);
+    const app = try App.create(gpa, null, null);
+    defer app.destroy();
+    try app.loadStl("wedge.stl", stl.written());
+    try app.setSetting("project.wall_generator", "arachne");
+    try app.startSlice();
+    app.stopWorkerForTest();
+    try testing.expectEqual(State.done, app.getState());
+    const tp = app.allToolpaths().?;
+    try testing.expectEqual(tp.point_z.items.len, tp.point_area.items.len);
+    var walls: usize = 0;
+    for (tp.path_features.items, 0..) |f, pi| {
+        const wall = f == @intFromEnum(zs.settings.Feature.outer_wall) or f == @intFromEnum(zs.settings.Feature.inner_wall);
+        try testing.expectEqual(wall, tp.path_z_start.items[pi] != Toolpaths.no_z);
+        if (!wall) continue;
+        walls += 1;
+        const l = tp.layerOfPath(pi).?;
+        const k = tp.path_z_start.items[pi];
+        const n = tp.path_ends.items[pi] - tp.pathStart(pi);
+        for (tp.point_z.items[k..][0..n], tp.point_area.items[k..][0..n]) |z, area| {
+            try testing.expectEqual(tp.layer_z.items[l], z);
+            try testing.expect(area > 0);
+        }
+    }
+    try testing.expect(walls > 0);
+}
+
 test "app: slope smoothing and ironing paths carry a z for each point" {
     const gpa = testing.allocator;
     var mesh = try zs.mesh.shapes.wedge(gpa, 20, 20, 1, 6);

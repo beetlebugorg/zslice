@@ -1,7 +1,9 @@
 //! An SVG picture of one layer plan, to see what the slicer made.
 //!
 //! The outline is a gray area. Each path is a line of the line width, with
-//! one color for each feature. Thin gray lines show the travel moves.
+//! one color for each feature. A path whose width changes along it
+//! (Arachne walls) has one line for each segment, with the mean width of
+//! its ends. Thin gray lines show the travel moves.
 
 const std = @import("std");
 const Writer = std.Io.Writer;
@@ -65,10 +67,22 @@ pub fn writeLayer(w: *Writer, lp: *const layer_mod.LayerPlan) Writer.Error!void 
     for (std.enums.values(Feature)) |f| {
         try w.print("<path stroke=\"{s}\" stroke-opacity=\"0.85\" stroke-width=\"{d}\" d=\"", .{ color(f), stroke });
         for (lp.paths.items, 0..) |path, i| {
-            if (path.feature != f) continue;
+            if (path.feature != f or path.w_start != layer_mod.Path.planar) continue;
             try writePath(w, lp.points.get(i), path.closed);
         }
         try w.writeAll("\"/>\n");
+    }
+    // The paths with a width for each point.
+    for (lp.paths.items, 0..) |path, i| {
+        if (path.w_start == layer_mod.Path.planar) continue;
+        const pts = lp.points.get(i);
+        const ws = lp.point_w.items[path.w_start..][0..pts.len];
+        const n = pts.len + @as(usize, @intFromBool(path.closed and pts.len > 2));
+        for (1..n) |k| {
+            const j = k % pts.len;
+            const sw = geom.fromMm((@as(f64, ws[k - 1]) + ws[j]) / 2);
+            try w.print("<line stroke=\"{s}\" stroke-opacity=\"0.85\" stroke-width=\"{d}\" x1=\"{d}\" y1=\"{d}\" x2=\"{d}\" y2=\"{d}\"/>\n", .{ color(path.feature), sw, pts[k - 1].x, pts[k - 1].y, pts[j].x, pts[j].y });
+        }
     }
     try w.writeAll("</g>\n</svg>\n");
 }

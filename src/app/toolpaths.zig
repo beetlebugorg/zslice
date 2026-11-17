@@ -20,7 +20,9 @@ const feature_names = @import("feature_settings.zig").feature_names;
 ///   path_z_start[i] < no_z: its point k has the nozzle z
 ///   point_z[path_z_start[i] + k] and the bead area
 ///   point_area[path_z_start[i] + k]. The bead is under the nozzle, down
-///   to the top of the layer below (layer_z - layer_height).
+///   to the top of the layer below (layer_z - layer_height). A path whose
+///   line width changes along it (Arachne walls) uses the same arrays,
+///   with the z of its layer at each point.
 pub const Toolpaths = struct {
     points: std.ArrayList(f32) = .empty,
     path_ends: std.ArrayList(u32) = .empty,
@@ -233,6 +235,18 @@ pub const Toolpaths = struct {
         const flow_ratio: f32 = @floatCast(if (plan.resolved) |r| r.settings.filament.flow_ratio else 1);
         for (plan.paths.items, 0..) |p, i| {
             z_start[i] = no_z;
+            if (p.z_start == zs.layer.Path.planar and p.w_start != zs.layer.Path.planar) {
+                // A path whose width changes along it (Arachne walls): the
+                // z of the layer, and the bead area of each point.
+                z_start[i] = @intCast(t.point_z.items.len);
+                const len = plan.points.get(i).len;
+                const h = if (p.height > 0) p.height else plan.height;
+                for (plan.point_w.items[p.w_start..][0..len]) |w| {
+                    try t.point_z.append(gpa, @floatCast(plan.z));
+                    try t.point_area.append(gpa, @as(f32, @floatCast(zs.flow.beadArea(w, h))) * flow_ratio);
+                }
+                continue;
+            }
             if (p.z_start == zs.layer.Path.planar) continue;
             z_start[i] = @intCast(t.point_z.items.len);
             const len = plan.points.get(i).len;
