@@ -6,7 +6,13 @@
 zig build wasm
 ```
 
-This makes `zig-out/web/zslice.wasm` (about 120 KB) and `zig-out/web/zslice.mjs` (the wrapper).
+This makes `zig-out/web/zslice.wasm` (about 1.2 MB) and `zig-out/web/zslice.mjs` (the wrapper).
+
+The module has one import, `env.zs_web_event`: the events of the app core (see [The app core in a browser](#the-app-core-in-a-browser)). `zslice.mjs` gives an empty function for it. If you instantiate the module yourself, give one too:
+
+```js
+const { instance } = await WebAssembly.instantiate(wasmBytes, { env: { zs_web_event() {} } });
+```
 
 ## Use
 
@@ -75,6 +81,14 @@ worker.postMessage({ stl: stlBytes, settings: { "project.wall_count": 3 } }, [st
 ```sh
 node web/test.mjs zig-out/web/zslice.wasm part.stl
 ```
+
+## The app core in a browser
+
+The module also exports the app core and the 3D view of `include/zslice-app.h`. The web app (`web/app/`, see its [README](../../web/app/README.md)) uses them:
+
+- `zs_app_new_web` makes an app whose events go to the import `env.zs_web_event(event, progress, status)`. A slice runs on the calling thread, so run the app in a Web Worker.
+- `zs_view_new` with `ZS_SURFACE_WEB` (3) makes a 3D view with no GPU in the core. After `zs_view_draw`, `zs_view_web_frame` gives the frame data in wasm memory, and the page draws it with WebGL2 (see `web/app/gl.js`).
+- `zs_view_scene_write` and `zs_view_scene_read` move the loaded scene from the view of one wasm instance (the worker) to the view of another (the main thread).
 
 ## Memory
 

@@ -5,6 +5,7 @@ The zslice app has one core and one native shell for each platform:
 | Platform | Shell | Folder | Status |
 |---|---|---|---|
 | Linux | GTK4, C | `linux/` | Works |
+| Web | HTML, JavaScript, WebGL2 | `web/app/` | First version: see `web/app/README.md` |
 | macOS, iOS | SwiftUI | `apple/` | Planned |
 | Windows | Win32, C++ | `windows/` | Planned |
 | Android | Kotlin | `android/` | Planned |
@@ -44,7 +45,7 @@ The core draws the 3D view of a slice (`src/render/`). The shell gives a native 
 
 The goal of the view is to look like the finished print. Each segment is a bead with the real cross section (a flat top and bottom, round sides), round ends, the width of the plastic that is really deposited, the cooled size (the shrinkage compensation removed), and the filament color (`filament.color`). `zs_view_set_mode` switches to one color for each feature.
 
-The backend is Vulkan on Linux (and later Windows and Android), and Metal on Apple later. The core loads the Vulkan loader at run time, so a shell does not link it. Without Vulkan, `zs_view_new` returns `ZS_NOT_SUPPORTED`, and the shell shows the 2D view only.
+The backend is Vulkan on Linux (and later Windows and Android), and Metal on Apple later. In a browser, the web backend (`src/render/web.zig`) keeps the frame data in wasm memory, and the page draws it with WebGL2 (see `web/app/README.md`). The core loads the Vulkan loader at run time, so a shell does not link it. Without Vulkan, `zs_view_new` returns `ZS_NOT_SUPPORTED`, and the shell shows the 2D view only.
 
 On Linux, the GTK window is transparent, and the view widget draws nothing: the subsurface shows through it. Each other part of the window must paint its whole area (use padding, not margins).
 

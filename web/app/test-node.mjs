@@ -1,7 +1,7 @@
 // A test of the web app core in Node.js: the same code as the worker
 // (core.js) and the view of the main thread (view.js), with no browser.
 //
-// Run: zig build web && node web/app/test-node.mjs zig-out/web/zslice.wasm part.stl
+// Run: zig build web && node web/app/test-node.mjs zig-out/web/app/zslice.wasm part.stl
 //
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
