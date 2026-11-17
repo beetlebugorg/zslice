@@ -402,3 +402,25 @@ button.destructive { background: #c01c28; color: #fff; }
 .hist-words { flex: 1; min-width: 0; }
 .hist-scope { font-size: 0.8em; }
 .hist-undo { min-height: 26px; padding: 2px 8px; }
+
+/* The timeline of the history: a floating bar under the scrub bar. */
+.timeline {
+  left: 50%; bottom: 10px; transform: translateX(-50%);
+  display: flex; align-items: center; gap: 2px; padding: 3px 8px; border-radius: 14px;
+  max-width: calc(100% - 20px); outline: none;
+}
+.timeline:not([hidden]) ~ .scrub { bottom: 54px; }
+.tl-tool { min-height: 26px; min-width: 26px; padding: 0 6px; border-radius: 13px; font-size: 1.05em; }
+.tl-sep { width: 1px; align-self: stretch; margin: 6px 4px; background: rgba(255, 255, 255, 0.2); }
+.tl-title { font-size: 0.8em; font-weight: 700; opacity: 0.7; margin: 0 4px; }
+.tl-empty, .tl-count { font-size: 0.8em; opacity: 0.7; margin: 0 6px; font-variant-numeric: tabular-nums; white-space: nowrap; }
+.tl-marks { display: flex; align-items: center; overflow-x: auto; scrollbar-width: none; max-width: 420px; padding: 3px 2px; }
+.tl-mark {
+  flex: none; width: 16px; height: 16px; min-height: 0; padding: 0; border-radius: 50%;
+  background: var(--kind); border: 2px solid rgba(255, 255, 255, 0.85);
+}
+.tl-mark:hover:not(:disabled) { background: var(--kind); filter: brightness(1.25); }
+.tl-mark.now { width: 20px; height: 20px; box-shadow: 0 0 0 2px var(--accent-bg); }
+.tl-mark.later { opacity: 0.4; }
+.tl-line { flex: none; width: 10px; height: 2px; border-radius: 1px; background: rgba(255, 255, 255, 0.3); }
+.tl-line.later { background: rgba(255, 255, 255, 0.12); }

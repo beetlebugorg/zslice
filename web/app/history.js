@@ -48,7 +48,8 @@ function clock(ms) {
 
 export class HistoryPage {
   // ctx: { client, applySettings(r), openSetting(name), toast(text),
-  //        visible() }
+  //        visible(), timeline (the bar under the scrub bar),
+  //        undoRedo(op) }
   constructor(root, ctx) {
     this.root = root;
     this.ctx = ctx;
@@ -61,19 +62,73 @@ export class HistoryPage {
 
   // Asks the worker for the list again (only the last answer counts).
   async refresh() {
-    if (!this.ctx.visible()) return;
     const id = ++this.asked;
     const r = await this.ctx.client.call("history", {});
     if (id !== this.asked) return;
     this.list = r;
-    this.render();
+    if (this.ctx.visible()) this.render();
+    this.renderTimeline();
+  }
+
+  // The timeline (history.c, zg_timeline_new): undo and redo, a mark for
+  // each step (the oldest at the left), and the count. The left and right
+  // arrow keys go through the steps.
+  renderTimeline() {
+    const bar = this.ctx.timeline;
+    if (!bar) return;
+    const l = this.list;
+    const n = l ? l.steps.length : 0;
+    const now = l ? l.current : 0;
+    const tool = (label, title, enabled, fn) => {
+      const b = el("button", "flat icon tl-tool", label);
+      b.title = title;
+      b.disabled = !enabled;
+      b.onclick = fn;
+      return b;
+    };
+    const parts = [
+      tool("↶", "Undo (Ctrl+Z)", now > 0, () => this.ctx.undoRedo("undo")),
+      tool("↷", "Redo (Ctrl+Shift+Z)", now + 1 < n, () => this.ctx.undoRedo("redo")),
+      el("span", "tl-sep"),
+      el("span", "tl-title", "History"),
+    ];
+    if (n <= 1) {
+      parts.push(el("span", "tl-empty", "Your changes show here"));
+    } else {
+      const marks = el("div", "tl-marks");
+      for (let i = 0; i < n; i++) {
+        const s = l.steps[i];
+        if (i > 0) marks.append(el("span", "tl-line" + (i > now ? " later" : "")));
+        const [color, label] = LOOKS[s.kind] ?? LOOKS.other;
+        const m = el("button", "tl-mark" + (i === now ? " now" : i > now ? " later" : ""));
+        m.style.setProperty("--kind", color);
+        const words = s.text.split("\n").filter(Boolean).map((w) => w.replace("\t", ": ")).join("\n");
+        m.title = `${i === 0 ? "Start" : `Change ${i}`} · ${label}${words ? "\n" + words : ""}`;
+        m.onclick = () => this.go(i);
+        marks.append(m);
+      }
+      parts.push(marks, el("span", "tl-count", `${now} / ${n - 1}`));
+      requestAnimationFrame(() => {
+        const cur = marks.querySelector(".now");
+        if (cur) marks.scrollLeft = cur.offsetLeft - marks.clientWidth / 2;
+      });
+    }
+    bar.replaceChildren(...parts);
+    bar.hidden = false;
+    bar.onkeydown = (e) => {
+      if (!this.list) return;
+      if (e.key === "ArrowLeft" && now > 0) this.go(now - 1);
+      else if (e.key === "ArrowRight" && now + 1 < n) this.go(now + 1);
+      else return;
+      e.preventDefault();
+    };
   }
 
   async go(index) {
     const r = await this.ctx.client.call("historyGoto", { index });
     this.ctx.applySettings(r);
     await this.refresh();
-    this.root.querySelector(".hist-now")?.focus();
+    if (this.ctx.visible()) this.root.querySelector(".hist-now")?.focus();
   }
 
   key(e) {

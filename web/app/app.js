@@ -1082,6 +1082,8 @@ const history = new HistoryPage($("page-history"), {
   },
   toast,
   visible: () => !$("page-history").hidden,
+  timeline: $("timeline"),
+  undoRedo: (op) => undoRedo(op),
 });
 
 async function undoRedo(op) {
@@ -1347,6 +1349,7 @@ document.addEventListener("keydown", (e) => {
 const init = await client.call("init", { module, saved: store.saved ?? null, mode: app.mode });
 if (init.errors?.length) toast(`Some saved settings did not load: ${init.errors.join("; ")}`);
 applySettings(init);
+history.refresh();
 updateSummary();
 resize();
 
