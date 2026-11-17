@@ -35,6 +35,17 @@
 //! The core does no file I/O, so the importer reads files through a
 //! `Source` callback.
 //!
+//! Per-object settings (`partSettings`): a Cura project 3MF keeps the
+//! settings of each object in its metadata ("cura:infill_sparse_density").
+//! They map to zslice settings with the same table as the profiles, plus
+//! the keys that only an object has: the modifier volume flags
+//! (`infill_mesh`, `cutting_mesh`, `anti_overhang_mesh`, `support_mesh`),
+//! `infill_mesh_order`, `infill_line_distance`, `infill_angles`, and
+//! `infill_material_flow`. A value that starts with "=" is a Cura formula:
+//! a formula of one constant ("=100", "=False") is read as the constant.
+//! Cura measures an infill angle from the Y axis, and zslice from the X
+//! axis: a Cura angle a is the zslice angle 90 - a.
+//!
 //! References (see REFERENCES.md): the Cura profile formats (`.def.json`,
 //! `.inst.cfg`, `.xml.fdm_material`) and the Cura setting names.
 
@@ -383,7 +394,7 @@ fn convert(arena: Allocator, conv: Conv, text: []const u8, max_speed: f64) !?[]c
         .gcode => return try quoteMultiline(arena, try translateGcode(arena, text)),
         .infill_pattern => {
             if (std.mem.eql(u8, text, "lines") or std.mem.eql(u8, text, "zigzag")) return "\"lines\"";
-            for ([_][]const u8{ "grid", "triangles", "cubic", "gyroid", "concentric" }) |same| {
+            for ([_][]const u8{ "grid", "triangles", "trihexagon", "cubic", "gyroid", "concentric" }) |same| {
                 if (std.mem.eql(u8, text, same)) return try std.fmt.allocPrint(arena, "\"{s}\"", .{same});
             }
             for ([_][]const u8{ "cubicsubdiv", "quarter_cubic", "tetrahedral", "octet" }) |like| {
@@ -632,6 +643,298 @@ fn tagText(xml: []const u8, tag: []const u8) ?[]const u8 {
 // ---------------------------------------------------------------------------
 // Tests
 
+// ---------------------------------------------------------------------------
+// Per-object settings of a Cura project 3MF
+
+/// What an object is in a Cura project.
+pub const PartRole = enum {
+    /// A part that prints.
+    normal,
+    /// A modifier volume: the infill of the parts inside it gets the
+    /// settings of the volume ("Modify settings for infill of other
+    /// models" in Cura).
+    infill_mesh,
+    /// A volume that cuts the parts and prints with its own settings.
+    cutting_mesh,
+    /// A volume with no support in it.
+    anti_overhang_mesh,
+    /// A volume that prints as support.
+    support_mesh,
+};
+
+/// A zslice setting from a Cura key, by its dotted name.
+pub const PartSetting = struct { name: []const u8, value: []const u8 };
+
+/// A Cura key that zslice does not use, and why.
+pub const Ignored = struct { key: []const u8, value: []const u8, why: []const u8 };
+
+pub const PartSettings = struct {
+    role: PartRole = .normal,
+    /// `infill_mesh_order`: where two modifier volumes overlap, the one with
+    /// the higher order wins.
+    order: i32 = 0,
+    sets: []const PartSetting = &.{},
+    ignored: []const Ignored = &.{},
+};
+
+/// The text of a Cura value, with the "=" of a formula of one constant
+/// removed. Null for a formula of more than a constant.
+fn constantText(text: []const u8) ?[]const u8 {
+    var t = std.mem.trim(u8, text, " \t\r\n");
+    if (t.len > 0 and t[0] == '=') {
+        t = std.mem.trim(u8, t[1..], " \t");
+        // A constant: a number, a word, or a list of numbers.
+        for (t) |c| {
+            const ok = std.ascii.isAlphanumeric(c) or c == '.' or c == '-' or c == '_' or c == '[' or c == ']' or c == ',' or c == ' ';
+            if (!ok) return null;
+        }
+        if (std.mem.indexOfScalar(u8, t, ' ') != null and t[0] != '[') return null;
+    }
+    return t;
+}
+
+fn curaBool(text: []const u8) ?bool {
+    if (std.ascii.eqlIgnoreCase(text, "true")) return true;
+    if (std.ascii.eqlIgnoreCase(text, "false")) return false;
+    return null;
+}
+
+/// The role of an object from its metadata ("cura:infill_mesh" and the
+/// other flags), and its `infill_mesh_order`.
+pub fn partRole(meta: anytype) struct { role: PartRole, order: i32 } {
+    var role: PartRole = .normal;
+    var order: i32 = 0;
+    for (meta) |m| {
+        const key = curaKey(m.key) orelse continue;
+        const v = constantText(m.value) orelse continue;
+        if (std.mem.eql(u8, key, "infill_mesh_order")) {
+            order = std.fmt.parseInt(i32, v, 10) catch order;
+            continue;
+        }
+        const flag = std.meta.stringToEnum(PartRole, key) orelse continue;
+        if (flag == .normal) continue;
+        if (curaBool(v) orelse false) role = flag;
+    }
+    return .{ .role = role, .order = order };
+}
+
+/// The Cura key of a metadata name: "cura:infill_mesh" is "infill_mesh".
+/// Null for a name of another application.
+fn curaKey(name: []const u8) ?[]const u8 {
+    if (std.mem.startsWith(u8, name, "cura:")) return name["cura:".len..];
+    return null;
+}
+
+/// The zslice infill pattern of a Cura pattern, and a note if it is only
+/// the nearest pattern.
+fn partPattern(text: []const u8) ?struct { name: []const u8, note: []const u8 } {
+    for ([_][]const u8{ "lines", "grid", "triangles", "trihexagon", "cubic", "gyroid", "concentric", "zigzag", "lightning", "honeycomb" }) |same| {
+        if (std.mem.eql(u8, text, same)) return .{ .name = same, .note = "" };
+    }
+    for ([_][]const u8{ "cubicsubdiv", "quarter_cubic", "tetrahedral", "octet" }) |like| {
+        if (std.mem.eql(u8, text, like)) return .{ .name = "cubic", .note = "zslice has no such pattern: cubic is the nearest" };
+    }
+    if (std.mem.eql(u8, text, "cross") or std.mem.eql(u8, text, "cross_3d")) return .{ .name = "grid", .note = "zslice has no such pattern: grid is the nearest" };
+    return null;
+}
+
+/// The spacing of one line set of a pattern, as a multiple of line width /
+/// density. Cura makes infill_line_distance with the same factors.
+fn patternFactor(pattern: []const u8) f64 {
+    if (std.mem.eql(u8, pattern, "grid")) return 2;
+    if (std.mem.eql(u8, pattern, "triangles") or std.mem.eql(u8, pattern, "trihexagon") or std.mem.eql(u8, pattern, "cubic")) return 3;
+    return 1;
+}
+
+/// The zslice settings of an object from its metadata (`meta`: a slice of
+/// entries with `key` and `value`, for example threemf.Meta). `base` gives
+/// the layer height (for the layer counts), the line width (for
+/// `infill_line_distance`), and the speed limit (for the speeds). The
+/// result is allocated in `arena`.
+pub fn partSettings(arena: Allocator, meta: anytype, base: *const @import("settings.zig").Settings) Allocator.Error!PartSettings {
+    const settings_mod = @import("settings.zig");
+    var out: PartSettings = .{};
+    const r = partRole(meta);
+    out.role = r.role;
+    out.order = r.order;
+    var sets: std.ArrayList(PartSetting) = .empty;
+    var ignored: std.ArrayList(Ignored) = .empty;
+    const put = struct {
+        fn f(a: Allocator, list: *std.ArrayList(PartSetting), name: []const u8, value: []const u8) Allocator.Error!void {
+            for (list.items) |*e| if (std.mem.eql(u8, e.name, name)) {
+                e.value = value;
+                return;
+            };
+            try list.append(a, .{ .name = name, .value = value });
+        }
+    }.f;
+    const p = base.project;
+    const line_width = if (p.line_width > 0) p.line_width else 1.1 * base.machine.nozzle_diameter;
+    var pattern: []const u8 = @tagName(p.infill_pattern);
+    var line_distance: ?f64 = null;
+    var has_line_count = false;
+    for (meta) |m| if (curaKey(m.key)) |k| {
+        if (std.mem.eql(u8, k, "wall_line_count")) has_line_count = true;
+    };
+    // The thickness keys first, so that a layer count replaces them.
+    var layer_keys: [2]?f64 = .{ null, null };
+
+    for (meta) |m| {
+        const key = curaKey(m.key) orelse {
+            try ignored.append(arena, .{ .key = m.key, .value = m.value, .why = "not a Cura setting" });
+            continue;
+        };
+        const v = constantText(m.value) orelse {
+            try ignored.append(arena, .{ .key = key, .value = m.value, .why = "a Cura formula" });
+            continue;
+        };
+        const num = number(v);
+        const skip = struct {
+            fn f(a: Allocator, list: *std.ArrayList(Ignored), k_: []const u8, v_: []const u8, why: []const u8) Allocator.Error!void {
+                try list.append(a, .{ .key = k_, .value = v_, .why = why });
+            }
+        }.f;
+        if (std.meta.stringToEnum(PartRole, key) != null or std.mem.eql(u8, key, "infill_mesh_order")) continue;
+        if (std.mem.eql(u8, key, "infill_sparse_density")) {
+            const n = num orelse {
+                try skip(arena, &ignored, key, v, "not a number");
+                continue;
+            };
+            try put(arena, &sets, "project.infill_density", try std.fmt.allocPrint(arena, "{d}", .{std.math.clamp(n / 100, 0, 1)}));
+        } else if (std.mem.eql(u8, key, "infill_line_distance")) {
+            line_distance = num orelse {
+                try skip(arena, &ignored, key, v, "not a number");
+                continue;
+            };
+        } else if (std.mem.eql(u8, key, "infill_pattern")) {
+            const pp = partPattern(v) orelse {
+                try skip(arena, &ignored, key, v, "zslice has no such pattern");
+                continue;
+            };
+            pattern = pp.name;
+            try put(arena, &sets, "project.infill_pattern", pp.name);
+            if (pp.note.len > 0) try skip(arena, &ignored, key, v, pp.note);
+        } else if (std.mem.eql(u8, key, "infill_angles")) {
+            var buf: [settings_mod.max_infill_angles]f64 = undefined;
+            const list = settings_mod.infillAngles(v, &buf) catch {
+                try skip(arena, &ignored, key, v, "not a list of numbers");
+                continue;
+            };
+            var text: std.ArrayList(u8) = .empty;
+            for (list, 0..) |a, i| {
+                if (i > 0) try text.append(arena, ',');
+                try text.print(arena, "{d}", .{@mod(90 - a, 180)});
+            }
+            try put(arena, &sets, "project.infill_angles", text.items);
+        } else if (std.mem.eql(u8, key, "infill_material_flow")) {
+            const n = num orelse {
+                try skip(arena, &ignored, key, v, "not a number");
+                continue;
+            };
+            try put(arena, &sets, "project.infill_flow", try std.fmt.allocPrint(arena, "{d}", .{std.math.clamp(n / 100, 0.1, 3)}));
+        } else if (std.mem.eql(u8, key, "zig_zaggify_infill")) {
+            const b = curaBool(v) orelse {
+                try skip(arena, &ignored, key, v, "not True or False");
+                continue;
+            };
+            try put(arena, &sets, "project.infill_connect", if (b) "true" else "false");
+        } else if (std.mem.eql(u8, key, "wall_line_count")) {
+            const n = num orelse {
+                try skip(arena, &ignored, key, v, "not a number");
+                continue;
+            };
+            try put(arena, &sets, "project.wall_count", try std.fmt.allocPrint(arena, "{d}", .{@as(u32, @intFromFloat(@max(0, @round(n))))}));
+            try put(arena, &sets, "project.wall_thickness", "0");
+        } else if (std.mem.eql(u8, key, "wall_thickness")) {
+            if (has_line_count) continue; // the count wins, as in Cura
+            const n = num orelse {
+                try skip(arena, &ignored, key, v, "not a number");
+                continue;
+            };
+            if (n > 0) {
+                try put(arena, &sets, "project.wall_thickness", try std.fmt.allocPrint(arena, "{d}", .{n}));
+            } else {
+                try put(arena, &sets, "project.wall_count", "0");
+                try put(arena, &sets, "project.wall_thickness", "0");
+            }
+        } else if (std.mem.eql(u8, key, "top_layers") or std.mem.eql(u8, key, "bottom_layers")) {
+            const n = num orelse {
+                try skip(arena, &ignored, key, v, "not a number");
+                continue;
+            };
+            layer_keys[@intFromBool(key[0] == 'b')] = @max(0, @round(n));
+        } else if (std.mem.eql(u8, key, "top_bottom_thickness") or std.mem.eql(u8, key, "top_thickness") or std.mem.eql(u8, key, "bottom_thickness")) {
+            const n = num orelse {
+                try skip(arena, &ignored, key, v, "not a number");
+                continue;
+            };
+            const text = try std.fmt.allocPrint(arena, "{d}", .{@max(0, n)});
+            if (key[0] == 't') try put(arena, &sets, "project.top_thickness", text);
+            if (key[0] == 'b' or key[3] == '_' and key[4] == 'b') try put(arena, &sets, "project.bottom_thickness", text);
+        } else if (std.mem.eql(u8, key, "initial_bottom_layers")) {
+            try skip(arena, &ignored, key, v, "zslice uses the bottom thickness on the bed too");
+        } else if (std.mem.eql(u8, key, "gradual_infill_steps")) {
+            if (num != null and num.? == 0) continue; // the zslice default
+            try skip(arena, &ignored, key, v, "zslice has no gradual infill");
+        } else if (std.mem.eql(u8, key, "infill_wipe_dist")) {
+            if (num != null and num.? == 0) continue; // the zslice default
+            try skip(arena, &ignored, key, v, "zslice has no infill wipe");
+        } else if (std.mem.eql(u8, key, "infill_overlap")) {
+            const n = num orelse {
+                try skip(arena, &ignored, key, v, "not a number");
+                continue;
+            };
+            try put(arena, &sets, "project.infill_overlap", try std.fmt.allocPrint(arena, "{d}", .{std.math.clamp(n / 100, 0, 1)}));
+        } else {
+            // The keys of the profile table.
+            const m_ = for (project_map) |e| {
+                if (std.mem.eql(u8, e.cura, key)) break e;
+            } else {
+                try skip(arena, &ignored, key, v, "zslice has no such setting yet");
+                continue;
+            };
+            const name = try std.fmt.allocPrint(arena, "{s}.{s}", .{ m_.group, m_.key });
+            if (!settings_mod.isLayerSetting(name)) {
+                try skip(arena, &ignored, key, v, "zslice keeps this setting for the whole plate");
+                continue;
+            }
+            const value: ?[]const u8 = switch (m_.conv) {
+                .speed => if (num) |n| try std.fmt.allocPrint(arena, "{d}", .{std.math.clamp(n / base.machine.max_speed, 0.01, 1)}) else null,
+                .percent => if (num) |n| try std.fmt.allocPrint(arena, "{d}", .{std.math.clamp(n / 100, 0, 1)}) else null,
+                .boolean => if (curaBool(v)) |b| (if (b) "true" else "false") else null,
+                .copy => if (num) |n| try std.fmt.allocPrint(arena, "{d}", .{n}) else null,
+                .seam => (try convert(arena, .seam, v, 0)),
+                else => null,
+            };
+            const text = value orelse {
+                try skip(arena, &ignored, key, v, "a value zslice cannot read");
+                continue;
+            };
+            // The seam conversion gives a TOML string.
+            try put(arena, &sets, name, std.mem.trim(u8, text, "\""));
+        }
+    }
+    if (layer_keys[0]) |n| try put(arena, &sets, "project.top_thickness", try std.fmt.allocPrint(arena, "{d}", .{n * p.layer_height}));
+    if (layer_keys[1]) |n| try put(arena, &sets, "project.bottom_thickness", try std.fmt.allocPrint(arena, "{d}", .{n * p.layer_height}));
+    // A line distance replaces the density, as in Cura.
+    if (line_distance) |d| if (d > 0) {
+        const density = std.math.clamp(line_width * patternFactor(pattern) / d, 0.001, 1);
+        try put(arena, &sets, "project.infill_density", try std.fmt.allocPrint(arena, "{d}", .{density}));
+    } else {
+        try put(arena, &sets, "project.infill_density", "0");
+    };
+    out.sets = sets.items;
+    out.ignored = ignored.items;
+    return out;
+}
+
+/// Applies the settings of a part to `s`. Returns the first setting that
+/// zslice refuses, or null.
+pub fn applyPart(s: *@import("settings.zig").Settings, part: PartSettings) ?PartSetting {
+    for (part.sets) |e| s.set(e.name, e.value) catch return e;
+    return null;
+}
+
 const testing = std.testing;
 const profile = @import("profile.zig");
 const Settings = @import("settings.zig").Settings;
@@ -749,4 +1052,84 @@ test "import a small Cura stack and load the result" {
     } else unreachable;
     try testing.expect(std.mem.indexOf(u8, proj, "#   retraction_combing = noskin") != null);
     try testing.expect(std.mem.indexOf(u8, proj, "#   wall_line_count = =3") != null);
+}
+
+test "Cura object settings: a grille window" {
+    var arena_state = std.heap.ArenaAllocator.init(testing.allocator);
+    defer arena_state.deinit();
+    const arena = arena_state.allocator();
+    const E = struct { key: []const u8, value: []const u8 };
+    const meta = [_]E{
+        .{ .key = "cura:infill_mesh", .value = "=True" },
+        .{ .key = "cura:infill_mesh_order", .value = "=1" },
+        .{ .key = "cura:wall_thickness", .value = "=0" },
+        .{ .key = "cura:wall_line_count", .value = "=0" },
+        .{ .key = "cura:top_bottom_thickness", .value = "=0" },
+        .{ .key = "cura:top_layers", .value = "=0" },
+        .{ .key = "cura:bottom_layers", .value = "0" },
+        .{ .key = "cura:initial_bottom_layers", .value = "=0" },
+        .{ .key = "cura:zig_zaggify_infill", .value = "=False" },
+        .{ .key = "cura:infill_wipe_dist", .value = "=0" },
+        .{ .key = "cura:speed_infill", .value = "=20" },
+        .{ .key = "cura:infill_material_flow", .value = "=110" },
+        .{ .key = "cura:infill_pattern", .value = "lines" },
+        .{ .key = "cura:infill_sparse_density", .value = "=16.67" },
+        .{ .key = "cura:infill_angles", .value = "[90,90,90,0,0,0]" },
+        .{ .key = "cura:gradual_infill_steps", .value = "=0" },
+        .{ .key = "cura:magic_spiralize", .value = "=infill_sparse_density > 50" },
+        .{ .key = "cura:skin_monotonic", .value = "True" },
+    };
+    var base: Settings = .{};
+    base.machine.max_speed = 200;
+    base.project.layer_height = 0.25;
+    const ps = try partSettings(arena, &meta, &base);
+    try testing.expectEqual(PartRole.infill_mesh, ps.role);
+    try testing.expectEqual(@as(i32, 1), ps.order);
+    var s = base;
+    try testing.expect(applyPart(&s, ps) == null);
+    try testing.expectEqual(@as(u32, 0), s.project.wall_count);
+    try testing.expectEqual(@as(f64, 0), s.project.wall_thickness);
+    try testing.expectEqual(@as(f64, 0), s.project.top_thickness);
+    try testing.expectEqual(@as(f64, 0), s.project.bottom_thickness);
+    try testing.expect(!s.project.infill_connect);
+    try testing.expectApproxEqAbs(@as(f64, 0.1), s.project.infill_speed, 1e-9);
+    try testing.expectApproxEqAbs(@as(f64, 1.1), s.project.infill_flow, 1e-9);
+    try testing.expectApproxEqAbs(@as(f64, 0.1667), s.project.infill_density, 1e-9);
+    try testing.expectEqual(@import("settings.zig").InfillPattern.lines, s.project.infill_pattern);
+    // Cura measures from the Y axis.
+    try testing.expectEqualStrings("0,0,0,90,90,90", s.project.infill_angles);
+    _ = try s.resolve();
+    // The formula, the key with no zslice setting, and the one with no
+    // separate setting are listed.
+    var found: usize = 0;
+    for (ps.ignored) |ig| {
+        if (std.mem.eql(u8, ig.key, "magic_spiralize")) found += 1;
+        if (std.mem.eql(u8, ig.key, "skin_monotonic")) found += 1;
+        if (std.mem.eql(u8, ig.key, "initial_bottom_layers")) found += 1;
+    }
+    try testing.expectEqual(@as(usize, 3), found);
+    try testing.expectEqual(@as(usize, 3), ps.ignored.len);
+}
+
+test "Cura object settings: a line distance sets the density of the pattern" {
+    var arena_state = std.heap.ArenaAllocator.init(testing.allocator);
+    defer arena_state.deinit();
+    const arena = arena_state.allocator();
+    const E = struct { key: []const u8, value: []const u8 };
+    var base: Settings = .{};
+    base.project.line_width = 0.5;
+    const grid = [_]E{
+        .{ .key = "cura:infill_line_distance", .value = "3" },
+        .{ .key = "cura:infill_pattern", .value = "grid" },
+        .{ .key = "cura:infill_sparse_density", .value = "20" },
+    };
+    var s = base;
+    try testing.expect(applyPart(&s, try partSettings(arena, &grid, &base)) == null);
+    // Two sets 3 mm apart: 2 x 0.5 / 3.
+    try testing.expectApproxEqAbs(@as(f64, 1.0 / 3.0), s.project.infill_density, 1e-9);
+    const plain = [_]E{.{ .key = "cura:infill_sparse_density", .value = "=100" }};
+    const ps = try partSettings(arena, &plain, &base);
+    try testing.expectEqual(PartRole.normal, ps.role);
+    try testing.expectEqual(@as(usize, 1), ps.sets.len);
+    try testing.expectEqualStrings("1", ps.sets[0].value);
 }
