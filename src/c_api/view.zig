@@ -263,6 +263,14 @@ export fn zs_view_reset(view: ?*View) void {
     v.reset();
 }
 
+/// The dark look (on != 0): a dark background, grid, and bed, for the
+/// dark mode of the system.
+export fn zs_view_set_dark(view: ?*View, on: c_int) void {
+    if (!render_on) return;
+    const v = view orelse return;
+    v.dark = on != 0;
+}
+
 export fn zs_view_set_mode(view: ?*View, mode: c_int) void {
     if (!render_on) return;
     const v = view orelse return;

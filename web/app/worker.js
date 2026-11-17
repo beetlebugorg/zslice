@@ -288,7 +288,7 @@ function historyGoto(i) {
 // The ops that change the settings, and the ops that change the plate:
 // each starts or extends a step.
 const SETTING_OPS = new Set(["set", "reset", "quality", "profile", "setScoped", "resetScoped"]);
-const PLATE_OPS = new Set(["load", "add", "plate", "projectLoad", "putDown", "place", "partMove", "partRotate", "markAdd", "markRemoveNear", "markSet", "markRemove", "marksClear"]);
+const PLATE_OPS = new Set(["load", "add", "plate", "projectLoad", "partAction", "partSettingSet", "putDown", "place", "partMove", "partRotate", "markAdd", "markRemoveNear", "markSet", "markRemove", "marksClear"]);
 
 const ops = {
   async init({ module, saved, mode: m }) {
@@ -572,7 +572,27 @@ const ops = {
     return {};
   },
 
-  // ---- printdeck.yml projects (project.js) ----
+  // ---- one part (partcard.js) ----
+
+  partAction({ index, action }) {
+    const r = core.partAction(index, action);
+    if (r >= 0) wantSlice();
+    const n = core.w.x.zs_app_part_count(core.app);
+    const at = action === "duplicate" && r >= 0 ? r : index;
+    return { ok: r >= 0, part: action === "remove" || at >= n ? null : core.part(at) };
+  },
+
+  partSettings({ index }) {
+    return { list: core.partSettings(index) };
+  },
+
+  partSettingSet({ index, name, value }) {
+    const error = core.setPartSetting(index, name, value);
+    if (!error) wantSlice();
+    return { error, value: core.partSetting(index, name), list: core.partSettings(index) };
+  },
+
+  // ---- printdeck.yml projects (project.js) ----  // ---- printdeck.yml projects (project.js) ----
 
   projectPlan({ text, counts }) {
     return core.projectPlan(text, counts ?? []);

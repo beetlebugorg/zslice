@@ -583,6 +583,14 @@ pub const App = struct {
         return null;
     }
 
+    /// A copy of part i at a free place. Returns its index.
+    pub fn duplicatePart(app: *App, i: usize) Allocator.Error!usize {
+        app.stopWorker();
+        const j = try app.plate.duplicate(app.gpa, i, app.bedSize(), app.partGap());
+        try app.plateChanged();
+        return j;
+    }
+
     pub fn removePart(app: *App, i: usize) Allocator.Error!void {
         app.stopWorker();
         app.plate.remove(app.gpa, i);

@@ -756,7 +756,10 @@ export class GlRenderer {
     const tx = (2 * s.ox) / s.width - 1;
     const ty = (2 * s.oy) / s.height - 1;
     gl.viewport(0, 0, s.width, s.height);
-    gl.clearColor(0.965, 0.969, 0.973, 1);
+    // this.dark: the dark mode of the system (app.js).
+    const d = !!this.dark;
+    if (d) gl.clearColor(0.114, 0.114, 0.125, 1);
+    else gl.clearColor(0.965, 0.969, 0.973, 1);
     gl.clearStencil(0);
     gl.clear(gl.COLOR_BUFFER_BIT | gl.DEPTH_BUFFER_BIT | gl.STENCIL_BUFFER_BIT);
     gl.disable(gl.DEPTH_TEST);
@@ -769,11 +772,13 @@ export class GlRenderer {
     gl.useProgram(this.flat.prog);
     gl.uniform4f(fu.xf, sx, sy, tx, ty);
     gl.uniform2f(fu.size, this.bed[0], this.bed[1]);
-    gl.uniform4f(fu.color, 0.906, 0.914, 0.925, 1);
+    if (d) gl.uniform4f(fu.color, 0.16, 0.16, 0.18, 1);
+    else gl.uniform4f(fu.color, 0.906, 0.914, 0.925, 1);
     gl.bindVertexArray(this.quadVao);
     gl.drawArrays(gl.TRIANGLE_STRIP, 0, 4);
     gl.uniform2f(fu.size, 1, 1);
-    gl.uniform4f(fu.color, 0.82, 0.84, 0.86, 1);
+    if (d) gl.uniform4f(fu.color, 0.25, 0.26, 0.28, 1);
+    else gl.uniform4f(fu.color, 0.82, 0.84, 0.86, 1);
     gl.bindVertexArray(this.grid2dVao);
     if (this.gridVertices > 0) gl.drawArrays(gl.LINES, 0, this.gridVertices);
 
@@ -794,7 +799,8 @@ export class GlRenderer {
         gl.colorMask(true, true, true, true);
         gl.stencilFunc(gl.NOTEQUAL, 0, 0xff);
         gl.stencilOp(gl.ZERO, gl.ZERO, gl.ZERO);
-        gl.uniform4f(fu.color, 0.80, 0.83, 0.86, 1);
+        if (d) gl.uniform4f(fu.color, 0.30, 0.31, 0.34, 1);
+        else gl.uniform4f(fu.color, 0.80, 0.83, 0.86, 1);
         gl.drawElements(gl.TRIANGLES, i1 - i0, gl.UNSIGNED_INT, i0 * 4);
         gl.disable(gl.STENCIL_TEST);
       }

@@ -77,7 +77,13 @@ export class SearchOverlay {
     return !!this.root;
   }
 
-  show(text = "") {
+  // scope: null for the settings of the print, or the settings of one
+  // part: { label, set(name, value) -> Promise<error>, value(name) ->
+  // Promise<text or null> }. A part shows only the settings that a part
+  // can have of its own.
+  show(text = "", scope = null) {
+    if (this.root && scope !== this.scope) this.close();
+    this.scope = scope;
     if (this.root) {
       this.input.focus();
       this.input.select();
@@ -98,7 +104,9 @@ export class SearchOverlay {
     const grip = el("span", "search-grip");
     grip.title = "Drag to move the search. Double-click: back to the top center.";
     grip.setAttribute("aria-hidden", "true");
-    head.append(grip, input, el("span", "search-esc", "Esc"));
+    head.append(grip);
+    if (scope) head.append(el("span", "search-scope", scope.label));
+    head.append(input, el("span", "search-esc", "Esc"));
     this.movable(box, head);
     const list = el("div", "search-list");
     box.append(head, list);
@@ -187,11 +195,12 @@ export class SearchOverlay {
       return;
     }
     const settings = this.ctx.infos
+      .filter((info) => !this.scope || info.perPart)
       .map((info) => ({ info, s: score(info, words) }))
       .filter((r) => r.s > 0)
       .sort((a, b) => b.s - a.s)
       .slice(0, MAX_SETTINGS);
-    const actions = this.ctx.actions()
+    const actions = (this.scope ? [] : this.ctx.actions())
       .map((a) => ({ a, s: words.every((w) => a.label.toLowerCase().includes(w) || (a.hint ?? "").toLowerCase().includes(w)) ? 1 : 0 }))
       .filter((r) => r.s > 0)
       .slice(0, MAX_ACTIONS);
@@ -252,7 +261,18 @@ export class SearchOverlay {
     const tag = el("div", "search-tag");
     label.append(el("div", "", info.label), tag);
     label.title = info.doc;
-    const editor = browser.makeEditor(info, info.multiline ? "row" : "search");
+    const scope = this.scope;
+    // A part: the edits go to the part, and the editor shows its value
+    // (or the value of the plate, until the part has its own).
+    let refresh = null;
+    const set = scope
+      ? async (name, value) => {
+        const error = await scope.set(name, value);
+        refresh?.();
+        return error;
+      }
+      : browser.ctx.set;
+    const editor = browser.makeEditor(info, info.multiline ? "row" : "search", set);
     const controls = el("div", "search-controls");
     let slider = null;
     let dragging = false;
@@ -273,7 +293,7 @@ export class SearchOverlay {
       const send = (text) => {
         pending = null;
         last = performance.now();
-        browser.ctx.set(info.name, toCore(info, text));
+        set(info.name, toCore(info, text));
       };
       slider.addEventListener("input", () => {
         dragging = true;
@@ -293,15 +313,22 @@ export class SearchOverlay {
     }
     controls.append(editor.node);
     row.append(label, controls);
-    browser.track(info.name, {
-      where: "search",
-      update: (entry) => {
-        editor.update(entry);
-        if (slider && entry && !dragging) slider.value = displayValue(info, entry.value);
-        const t = sourceText(entry);
-        tag.textContent = `${GROUP_TITLES[info.group]} · ${info.section}${t ? ` · ${t}` : ""}`;
-      },
-    });
+    const show = (entry) => {
+      editor.update(entry);
+      if (slider && entry && !dragging) slider.value = displayValue(info, entry.value);
+      const t = sourceText(entry);
+      tag.textContent = `${GROUP_TITLES[info.group]} · ${info.section}${t ? ` · ${t}` : ""}`;
+    };
+    if (scope) {
+      refresh = async () => {
+        const own = await scope.value(info.name);
+        const plate = browser.values[info.name];
+        show(own !== null && own !== undefined ? { ...plate, value: own, level: 6, formula: null } : plate);
+      };
+      refresh();
+    } else {
+      browser.track(info.name, { where: "search", update: show });
+    }
     const hover = () => {
       const fx = browser.ctx.effect(info.name);
       this.ctx.focus(fx.features || ALL_FEATURES, fx.firstLayerOnly);
@@ -311,17 +338,21 @@ export class SearchOverlay {
     };
     // Left and Right: one step of a number, or the next choice.
     const nudge = (dir) => {
-      const value = browser.values[info.name]?.value ?? info.defaultValue;
+      const shownValue = editor.node.querySelector("input.num, input.text")?.value;
+      const value = (scope && shownValue !== undefined ? toCore(info, shownValue) : null) ?? browser.values[info.name]?.value ?? info.defaultValue;
       if (isNumber(info)) {
         const step = info.sliderStep > 0 ? info.sliderStep : info.kind === "integer" ? 1 : isRatio(info) ? 0.01 : 0.1;
         const v = Number(value) + dir * step;
-        browser.ctx.set(info.name, String(Number(v.toPrecision(10))));
+        set(info.name, String(Number(v.toPrecision(10))));
       } else if (info.kind === "choice") {
-        const i = info.choices.indexOf(value);
+        const sel = editor.node.querySelector("select");
+        const cur = sel ? sel.value : value;
+        const i = info.choices.indexOf(cur);
         const n = info.choices.length;
-        browser.ctx.set(info.name, info.choices[(i + dir + n) % n]);
+        set(info.name, info.choices[(i + dir + n) % n]);
       } else if (info.kind === "boolean") {
-        browser.ctx.set(info.name, value === "true" ? "false" : "true");
+        const on = editor.node.querySelector(".switch")?.classList.contains("on") ?? value === "true";
+        set(info.name, on ? "false" : "true");
       }
     };
     const activate = () => {

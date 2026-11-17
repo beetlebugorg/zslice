@@ -208,6 +208,22 @@ The panel has all settings, the selected line, the history, and the project. Pre
 
 A click on a line opens a card next to it: the feature and the layer, the planned speed, the real speed, and the flow, why the line is slow, its size (a circle shows its diameter), and the settings that matter for it. The card picks them from the line: the setting that makes it slow (the minimum layer time of a short layer, or the acceleration for short segments), the first layer settings on the first layer, a setting that you changed, and then the main settings of its feature (for infill: the density, the pattern, and the speed). Each pick says why it is there. Change a setting in the card, and the part slices at once. **All settings of this line…** opens the Selected page of the panel. Esc, ×, or a click on no line closes the card.
 
+## The part card
+
+With the Move tool (M), or Ctrl and a click with any tool, a click on a part selects it, and a card opens next to it:
+
+- its name, its size, and its turn;
+- **Duplicate** (D): a copy at a free place on the bed, with the settings of the part;
+- **Best orientation** and **Less support**: turn the part;
+- **Reset**: the orientation and the scale of the file again;
+- **Remove** (Delete);
+- the settings that the part has of its own, each with an editor and × (the value of the plate again);
+- **+ Add a setting for this part**: the search for this part. It shows only the settings that a part can have of its own, and a change goes to the part.
+
+Drag the top row of a card (the part card or the line card) to move it. It keeps that place until it closes.
+
+In the web app, the background of the view follows the dark mode of your system.
+
 ## Keyboard shortcuts
 
 Press `?` to see all keyboard shortcuts of the web app, grouped. Type in the sheet to filter it. Esc closes it.

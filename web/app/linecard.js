@@ -10,10 +10,13 @@
 //
 // The card follows the line after a new slice (the inspector finds the
 // line again), and closes with Esc, with a click on no line, or with ×.
+// A drag of its head moves it, and it keeps that place for the next
+// lines until it closes.
 //
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
 import { el } from "./settings.js";
+import { movable } from "./drag.js";
 
 const SLOW = [
   "",
@@ -97,6 +100,7 @@ export class LineCard {
   }
 
   close() {
+    this.userAt = null;
     this.want = false;
     this.dropEditors();
     this.node?.remove();
@@ -140,6 +144,10 @@ export class LineCard {
     close.title = "Close (Esc)";
     close.onclick = () => this.ctx.close();
     head.append(this.title, close);
+    head.title = "Drag to move the card";
+    movable(card, head, this.ctx.host, (x, y) => {
+      this.userAt = [x, y];
+    });
     this.stats = el("div", "lc-stats");
     this.note = el("div", "lc-note");
     this.size = el("div", "lc-size");
@@ -207,9 +215,13 @@ export class LineCard {
     this.size.hidden = !size;
   }
 
-  // Next to the click, inside the view.
+  // Next to the click, inside the view (a card that the user moved stays).
   place() {
     const card = this.node;
+    if (this.userAt) {
+      [card.style.left, card.style.top] = this.userAt.map((v) => `${v}px`);
+      return;
+    }
     const host = this.ctx.host.getBoundingClientRect();
     const w = card.offsetWidth;
     const h = card.offsetHeight;

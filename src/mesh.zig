@@ -44,6 +44,15 @@ pub const Mesh = struct {
         self.* = .empty;
     }
 
+    /// A copy of the mesh, in `gpa`.
+    pub fn clone(self: Mesh, gpa: Allocator) Allocator.Error!Mesh {
+        var out: Mesh = .{};
+        errdefer out.deinit(gpa);
+        try out.vertices.appendSlice(gpa, self.vertices.items);
+        try out.faces.appendSlice(gpa, self.faces.items);
+        return out;
+    }
+
     pub fn bounds(self: Mesh) Bounds3 {
         var b: Bounds3 = .{ .min = @splat(std.math.inf(f64)), .max = @splat(-std.math.inf(f64)) };
         for (self.vertices.items) |v| {

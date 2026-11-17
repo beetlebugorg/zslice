@@ -480,6 +480,11 @@ typedef struct zs_part {
     double scale_x, scale_y, scale_z; /* along the axes of the file, 1 = 100 % */
 } zs_part;
 
+/* A copy of part i (its mesh, pose, scale, settings, and modifier
+ * volumes) at a free place on the bed. Returns its index, or a negative
+ * status. */
+ptrdiff_t zs_app_part_duplicate(zs_app *app, size_t i);
+
 size_t zs_app_part_count(const zs_app *app);
 int zs_app_part_get(zs_app *app, size_t i, zs_part *out);
 /* The settings of a part from its 3MF file (a Cura project) and its
@@ -783,6 +788,9 @@ enum zs_view_mode {
 int zs_view_legend(const zs_view *view, double *min, double *max);
 
 /* The colors of the view. Call zs_view_load again after a change. */
+/* The dark look (on != 0): a dark background, grid, and bed, for the dark
+ * mode of the system. */
+void zs_view_set_dark(zs_view *view, int on);
 void zs_view_set_mode(zs_view *view, int mode);
 /* Highlights the beads of one path (an index into zs_app_toolpaths), or
  * nothing if path is (size_t)-1. */

@@ -31,6 +31,8 @@ export const SHORTCUTS = [
       ["M", "Move: a drag moves a part, the wheel turns it 15°"],
       ["T", "Measure: two clicks measure between two points"],
       ["Ctrl+click, Ctrl+drag, Ctrl+wheel", "Select, move, and turn a part with any tool"],
+      ["D", "Duplicate the selected part"],
+      ["Delete", "Remove the selected part"],
       ["Shift+click", "Add a line to the selection"],
       ["Shift (measure)", "No snap"],
     ],

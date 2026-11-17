@@ -26,7 +26,7 @@ export class Tools {
   // ctx: { client, view (View3D), canvas, buttons {select, move, measure},
   //        readout (element), page() ("2d" or "3d"), layer() (the top
   //        layer), layerZ(l), view2d, select(path, seg, picked),
-  //        requestFrame(), toast(text) }
+  //        requestFrame(), toast(text), partSelected(part or null) }
   constructor(ctx) {
     this.ctx = ctx;
     this.tool = "select";
@@ -286,6 +286,7 @@ export class Tools {
 
   selectPart(part) {
     this.part = part;
+    this.ctx.partSelected?.(part);
     const { view } = this.ctx;
     if (part) view.x.zs_view_part_box(view.v, part.x - part.sizeX / 2, part.y - part.sizeY / 2, part.x + part.sizeX / 2, part.y + part.sizeY / 2);
     else view.x.zs_view_part_box(view.v, 0, 0, 0, 0);

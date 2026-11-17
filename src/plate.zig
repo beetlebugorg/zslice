@@ -239,6 +239,40 @@ pub const Plate = struct {
         return self.parts.items.len - 1;
     }
 
+    /// A copy of part i (its mesh, pose, scale, turn, settings, and
+    /// modifier volumes) at a free place on the bed. Returns its index.
+    pub fn duplicate(self: *Plate, gpa: Allocator, i: usize, bed: [2]f64, gap: f64) Allocator.Error!usize {
+        const src = &self.parts.items[i];
+        var p: Part = src.*;
+        p.name = try gpa.dupeZ(u8, src.name);
+        errdefer gpa.free(p.name);
+        p.mesh = try src.mesh.clone(gpa);
+        errdefer p.mesh.deinit(gpa);
+        p.source = null;
+        if (src.source) |m| p.source = try m.clone(gpa);
+        errdefer if (p.source) |*m| m.deinit(gpa);
+        p.meta = try threemf.cloneMeta(gpa, src.meta);
+        errdefer threemf.freeMeta(gpa, p.meta);
+        p.volumes = .empty;
+        errdefer {
+            for (p.volumes.items) |*v| v.deinit(gpa);
+            p.volumes.deinit(gpa);
+        }
+        for (src.volumes.items) |v| {
+            var c: Volume = .{ .name = try gpa.dupeZ(u8, v.name), .mesh = .empty };
+            errdefer c.deinit(gpa);
+            c.mesh = try v.mesh.clone(gpa);
+            if (v.source) |m| c.source = try m.clone(gpa);
+            c.meta = try threemf.cloneMeta(gpa, v.meta);
+            try p.volumes.append(gpa, c);
+        }
+        const spot = self.freeSpot(&p, bed, gap);
+        p.x = spot[0];
+        p.y = spot[1];
+        try self.parts.append(gpa, p);
+        return self.parts.items.len - 1;
+    }
+
     pub fn remove(self: *Plate, gpa: Allocator, i: usize) void {
         if (i >= self.parts.items.len) return;
         var p = self.parts.orderedRemove(i);
@@ -708,4 +742,17 @@ test "plate: turn, scale, put down, place, and reset a part" {
     // The reset gives the file again: 40 mm.
     try plate.resetPose(gpa, 0);
     try std.testing.expectApproxEqAbs(@as(f64, 40), p.height, 1e-3);
+}
+
+test "duplicate a part" {
+    const gpa = std.testing.allocator;
+    var plate: Plate = .{};
+    defer plate.deinit(gpa);
+    _ = try plate.add(gpa, "a", try box(gpa, 10, 10, 30, 20, 5), .{ 200, 200 }, 3, false);
+    const j = try plate.duplicate(gpa, 0, .{ 200, 200 }, 3);
+    try std.testing.expectEqual(@as(usize, 1), j);
+    try std.testing.expectEqualStrings("a", plate.parts.items[1].name);
+    try std.testing.expectEqual(plate.parts.items[0].mesh.faces.items.len, plate.parts.items[1].mesh.faces.items.len);
+    // The copy is at another place, with no overlap.
+    try std.testing.expect(!plate.overlaps(&plate.parts.items[1], 3, 1));
 }

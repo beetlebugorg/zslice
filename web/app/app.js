@@ -25,6 +25,7 @@ import { ProjectPage } from "./project.js";
 import { SearchOverlay } from "./search.js";
 import { ShortcutSheet } from "./shortcuts.js";
 import { LineCard } from "./linecard.js";
+import { PartCard } from "./partcard.js";
 import { Tools } from "./tools.js";
 import { KINDS, send as sendToPrinter, test as testPrinter } from "./link.js";
 import { contextItems } from "./context-menu.js";
@@ -137,6 +138,23 @@ const client = new Client(onWorkerEvent);
 const canvas = $("gl");
 const gl = new GlRenderer(canvas);
 const view = new View3D(wasm, 16, 16);
+
+// The view follows the dark mode of the system: the background, the grid,
+// and the bed of the 3D view (zs_view_set_dark) and of the 2D view.
+{
+  const dark = window.matchMedia?.("(prefers-color-scheme: dark)");
+  const apply = () => {
+    const on = !!dark?.matches;
+    view.x.zs_view_set_dark(view.v, on ? 1 : 0);
+    gl.dark = on;
+  };
+  apply();
+  // A change later draws a frame (the first frame comes after the start).
+  dark?.addEventListener?.("change", () => {
+    apply();
+    requestFrame();
+  });
+}
 const view2d = new View2D(view, gl);
 let frameQueued = false;
 let lastFrameTime = 0;
@@ -174,6 +192,7 @@ function drawFrame(now) {
     gl.draw(f);
   }
   tools?.placeTape();
+  partCard?.place();
   frameTimes[frameCount++ % frameTimes.length] = performance.now() - t0;
   if (more) requestFrame();
   else lastFrameTime = 0;
@@ -649,6 +668,17 @@ function clearFocus() {
   app.focusFirst = false;
   updateFocus();
 }
+
+// The card of a selected part, next to it in the view (partcard.js).
+var partCard = new PartCard({
+  client,
+  browser,
+  host: $("preview"),
+  pixelOf: (p) => tools.pixelOf(p),
+  select: (part) => tools.selectPart(part),
+  search: (text, scope) => search.show(text, scope),
+  toast: (t) => toast(t),
+});
 
 // The card of a selected line, next to it in the view (linecard.js).
 var lineCard = new LineCard({
@@ -1337,6 +1367,7 @@ const inspector = new Inspector($("page-selected"), {
 // ---- the tools: select, move, measure ----
 
 var tools = new Tools({ // var: drawFrame can run before this line
+  partSelected: (part) => partCard?.show(part),
   client, view, canvas, view2d,
   buttons: { select: $("tool-select"), move: $("tool-move"), measure: $("tool-measure") },
   readout: $("measure-readout"),
@@ -1771,11 +1802,19 @@ const shortcuts = new ShortcutSheet();
 $("search-open").onclick = () => search.show();
 
 document.addEventListener("keydown", (e) => {
-  if ((e.key !== "/" && e.key !== "?" && e.key !== "n" && e.key !== "N") || e.ctrlKey || e.metaKey || e.altKey) return;
+  if (e.key === "Delete" && partCard.open && !e.target.closest?.("input, textarea, select, [contenteditable]")) {
+    e.preventDefault();
+    partCard.act("remove");
+    return;
+  }
+  if (!["/", "?", "n", "N", "d", "D"].includes(e.key) || e.ctrlKey || e.metaKey || e.altKey) return;
+  if ((e.key === "d" || e.key === "D") && !partCard.open) return;
   if (e.target.closest?.("input, textarea, select, [contenteditable]")) return;
   e.preventDefault();
   if (e.key === "n" || e.key === "N") {
     togglePanel();
+  } else if ((e.key === "d" || e.key === "D") && partCard.open) {
+    partCard.act("duplicate");
   } else if (e.key === "?") {
     search.close();
     shortcuts.toggle();
@@ -1917,6 +1956,7 @@ window.zslice = {
   project,
   search,
   shortcuts,
+  partCard,
   app, view, view2d, layers, browser, client, gl, inspector, gaps, history, undoRedo, tools, store, managePrinters, openPrinterSettings, loadProfile, setSetting, pickAt, topLayerPoint, openCheck, frameTimes,
   select, showPage, showTab, hitAt, showContextMenu, step, bench, benchPick,
   get frameCount() { return frameCount; },

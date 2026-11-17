@@ -728,7 +728,55 @@ export class Core {
     }
   }
 
-  // The plate as a 3MF file (zs_app_write_3mf), as bytes, or null.
+  // ---- one part ----
+
+  // An action on part i: "duplicate", "smart", "less-support", "reset",
+  // or "remove". Returns the index of a new part (duplicate), or 0, or a
+  // negative status.
+  partAction(i, action) {
+    const x = this.w.x;
+    switch (action) {
+      case "duplicate": return x.zs_app_part_duplicate(this.app, i);
+      case "smart": return -x.zs_app_part_place(this.app, i, 0, 0);
+      case "less-support": return -x.zs_app_part_place(this.app, i, 1, 0);
+      case "reset": return -x.zs_app_part_reset(this.app, i);
+      case "remove": return -x.zs_app_part_remove(this.app, i);
+      default: return -2;
+    }
+  }
+
+  // The zslice settings of part i: [[name, value]] (its own values, not
+  // the values of the plate).
+  partSettings(i) {
+    const w = this.w;
+    const text = w.readText((b, c, l) => w.x.zs_app_part_settings(this.app, i, b, c, l)) ?? "";
+    const out = [];
+    for (const line of text.split("\n")) {
+      const m = /^\s+([a-z]+\.[a-z0-9_]+) = (.*)$/.exec(line);
+      if (m && !line.includes(": not used")) out.push([m[1], m[2]]);
+    }
+    return out;
+  }
+
+  // The value of a setting of part i, or null (the value of the plate).
+  partSetting(i, name) {
+    const w = this.w;
+    return w.withString(name, (n) => w.readText((b, c, l) => w.x.zs_app_part_setting_get(this.app, i, n, b, c, l)));
+  }
+
+  // Sets a setting of part i (value null: the value of the plate again).
+  // Returns "" or the reason.
+  setPartSetting(i, name, value) {
+    const w = this.w;
+    const rc = value === null
+      ? w.withString(name, (n) => w.x.zs_app_part_setting_set(this.app, i, n, 0))
+      : w.withStrings([name, String(value)], (n, v) => w.x.zs_app_part_setting_set(this.app, i, n, v));
+    if (rc === 0) return "";
+    if (rc === 14) return "The value is out of the limits.";
+    return `The value is not valid (${statusText(rc)}).`;
+  }
+
+  // The plate as a 3MF file (zs_app_write_3mf), as bytes, or null.  // The plate as a 3MF file (zs_app_write_3mf), as bytes, or null.
   plate3mf() {
     const w = this.w;
     if (w.x.zs_app_part_count(this.app) === 0) return null;

@@ -73,6 +73,10 @@ Each plate is one `App` (`zs_app`), with its own settings, profiles, parts, slic
 - The panel as a drawer: hidden, over the view, or pinned (`N`, the sliders button, Pin). The print card floats over the view.
 - The line card next to a selected line, with the three numbers and live editors of its first settings (linecard.js).
 - The tool strip at the left of the view (Select, Move, Measure), with the key of each tool.
+- The part card (partcard.js): duplicate (core: `zs_app_part_duplicate`), best orientation, less support, reset, remove, and the settings of the part, with a search for the part.
+- The cards move with a drag of their head (drag.js).
+- The measure on the tape, and the tape in the 2D view.
+- The view follows the dark mode of the system (core: `zs_view_set_dark`). The GTK app does not call it yet.
 
 ## The steps
 

@@ -134,6 +134,9 @@ pub const View = struct {
     /// The draw list of the last frame.
     draws: std.ArrayList(Draw) = .empty,
     highlight: [2]f32 = .{ 0, 0 },
+    /// The dark look (the dark mode of the system): a dark background, and
+    /// a grid and a bed for it.
+    dark: bool = false,
     /// The rings of the support marks of the app (see support.Mark): 12
     /// beads each, drawn as extras.
     mark_rings: std.ArrayList(vk.Instance) = .empty,
@@ -1776,7 +1779,7 @@ pub const View = struct {
                 }
                 break :blk extras[0..n_extras];
             },
-            .clear = .{ 0.965, 0.969, 0.973 },
+            .clear = if (v.dark) .{ 0.114, 0.114, 0.125 } else .{ 0.965, 0.969, 0.973 },
             // A light from above, in front, and to the right.
             .box = .{
                 .mvp = mvp,
@@ -1790,12 +1793,14 @@ pub const View = struct {
             .mark_first = @intCast(v.beads.items.len + mark_skip),
             .mark_count = mark_count,
             // On a bed model the grid is darker, so it shows on the gray bed.
-            .grid = .{ .mvp = mvp, .vec = if (v.bed_vertices > 0) .{ 0.62, 0.64, 0.67, 1 } else .{ 0.80, 0.82, 0.85, 1 } },
+            .grid = .{ .mvp = mvp, .vec = if (v.dark)
+                (if (v.bed_vertices > 0) [4]f32{ 0.40, 0.41, 0.44, 1 } else [4]f32{ 0.24, 0.25, 0.27, 1 })
+            else if (v.bed_vertices > 0) [4]f32{ 0.62, 0.64, 0.67, 1 } else [4]f32{ 0.80, 0.82, 0.85, 1 } },
             .grid_vertices = v.grid_vertices,
             // The bed model: its center goes to the middle of the bed.
             .bed = .{
                 .mvp = mul(mvp, translation(v.bed[0] / 2, v.bed[1] / 2, 0)),
-                .vec = .{ 0.84, 0.85, 0.87, 1 },
+                .vec = if (v.dark) .{ 0.30, 0.31, 0.33, 1 } else .{ 0.84, 0.85, 0.87, 1 },
                 .eye = .{ 0.35, -0.45, 0.82, 0 },
                 .params = .{ if (v.bed_textured) 1 else 0, bed_clear_z, if (eye[2] < 0) 1 else 0, 0 },
             },
