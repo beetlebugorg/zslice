@@ -24,8 +24,8 @@
 //!
 //! The camera looks at a target point (the center of the part) from a
 //! distance. Its direction is a unit quaternion, so it can turn in any
-//! direction: an orbit turns around the vertical axis and tilts, and a
-//! free rotation turns around the axes of the screen (with roll). The
+//! direction: an orbit turns around the vertical axis and tilts (with no
+//! roll, and the tilt stops at 89 degrees), and a free rotation turns around the axes of the screen (with roll). The
 //! distance zooms. The projection is for Vulkan clip space: y goes down, and depth
 //! goes from 0 to 1.
 //!
@@ -828,21 +828,21 @@ pub const View = struct {
     /// The angle of a drag: radians for each pixel.
     const drag_angle = 0.008;
 
-    /// Turns the camera by a drag of dx, dy pixels: around the vertical
-    /// axis of the world, and a tilt around the right axis of the screen.
-    /// The tilt has no limit: the camera can go under the part and over
-    /// the top. Upside down, a sideways drag turns the other way, so the
-    /// part follows the hand. An orbit adds no roll.
+    /// The highest tilt of an orbit, above or below the bed (89 degrees).
+    const max_pitch = 1.553;
+
+    /// Turns the camera by a drag of dx, dy pixels, as in Cura, Tinkercad,
+    /// and Fusion: a sideways drag turns around the vertical axis of the
+    /// world, and an up or down drag tilts. The bed stays level (no roll),
+    /// and the tilt stops at 89 degrees over the top and under the bed, so
+    /// the view never goes upside down.
     pub fn orbit(v: *View, dx: f32, dy: f32) void {
         const before = v.pose();
         defer v.carryGoal(before);
-        const cam = v.camera();
-        const sign: f32 = if (cam.u[2] < 0) 1 else -1;
-        const yaw = qaxis(.{ 0, 0, 1 }, sign * dx * drag_angle);
-        // The tilt axis is the right axis after the turn, so the tilt adds
-        // no roll.
-        const tilt = qaxis(qrotate(yaw, cam.s), -dy * drag_angle);
-        v.rot = qnormalize(qmul(tilt, qmul(yaw, v.rot)));
+        const b = qrotate(v.rot, .{ 0, 0, 1 });
+        const yaw = std.math.atan2(b[1], b[0]) - dx * drag_angle;
+        const pitch = std.math.asin(std.math.clamp(b[2], -1, 1)) + dy * drag_angle;
+        v.setAngles(yaw, std.math.clamp(pitch, -max_pitch, max_pitch));
     }
 
     /// Turns the camera freely by a drag of dx, dy pixels: around the up
@@ -1087,19 +1087,15 @@ pub const View = struct {
         if (b < v.path_start.items[path + 1]) v.seg_bead = b;
     }
 
-    /// A toolhead over the point p (x, y, and the top z of the bead), made
-    /// of beads: a brass nozzle (a cone of discs), an aluminium heater
-    /// block, the heat break, the fins of a heat sink, and a blower fan at
-    /// the front with a duct down to the tip. The blower lies flat, so its
-    /// impeller shows from above; it turns by the angle `spin` (radians).
-    /// It is not a real toolhead, but it has the parts of one. Returns the
-    /// number of beads.
-    fn toolhead(out: []vk.Instance, p: [3]f32, spin: f32) usize {
+    /// A small, simple toolhead: the nozzle, its hex, and a thin heater
+    /// block, 12 mm high in all, so it hides little of the print. While the
+    /// part fan runs, a small rotor of 4 blades turns on top of the block.
+    /// The rotor is absent with the fan off. p is x, y, and the top z of
+    /// the bead; `spin` is the rotor angle (radians). Returns the number
+    /// of beads.
+    fn toolhead(out: []vk.Instance, p: [3]f32, spin: f32, fan_on: bool) usize {
         const brass = [4]u8{ 0xc9, 0xa2, 0x4e, code_overlay };
         const alu = [4]u8{ 0xb8, 0xbe, 0xc6, code_overlay };
-        const steel = [4]u8{ 0x8a, 0x90, 0x99, code_overlay };
-        const fins = [4]u8{ 0x3a, 0x43, 0x50, code_overlay };
-        const shroud = [4]u8{ 0x2b, 0x2f, 0x36, code_overlay };
         const blade = [4]u8{ 0x4a, 0xa3, 0xff, code_overlay };
         var n: usize = 0;
         const put = struct {
@@ -1112,47 +1108,21 @@ pub const View = struct {
         const x = p[0];
         const y = p[1];
         const z0 = p[2];
-        // The nozzle: a cone 4 mm high, from 0.4 mm at the tip to 4.4 mm,
-        // as 8 discs that overlap, and its hex (a wider disc).
-        for (0..8) |k| {
-            const f: f32 = @as(f32, @floatFromInt(k)) / 7;
-            put(out, &n, x, y, x, y, z0 + 0.5 + f * 3.5, 1.0, 0.4 + f * 4.0, brass);
+        // The nozzle: a cone 3 mm high, from 0.4 mm at the tip to 3 mm, as
+        // 5 discs that overlap, and its hex (a wider disc).
+        for (0..5) |k| {
+            const f: f32 = @as(f32, @floatFromInt(k)) / 4;
+            put(out, &n, x, y, x, y, z0 + 0.5 + f * 2.5, 0.9, 0.4 + f * 2.6, brass);
         }
-        put(out, &n, x, y, x, y, z0 + 5.6, 1.4, 6.5, brass);
-        // The heater block: 16 x 12 mm, 8 mm high, a little to the side.
-        put(out, &n, x - 3, y, x + 6, y, z0 + 14.2, 8.0, 12.0, alu);
-        // The heat break, then the fins of the heat sink.
-        put(out, &n, x, y, x, y, z0 + 18.4, 4.0, 3.2, steel);
-        for (0..7) |k| {
-            const fz = z0 + 20.0 + @as(f32, @floatFromInt(k)) * 2.3;
-            put(out, &n, x, y, x, y, fz, 1.1, 22.0, fins);
-        }
-        put(out, &n, x, y, x, y, z0 + 35.5, 3.0, 9.0, steel);
-        // The blower at the front: a flat housing (a ring of short beads
-        // on a base), 30 mm across, and its impeller of 9 blades.
-        const fy = y - 26;
-        const r: f32 = 14;
-        const hz = z0 + 30.0;
-        put(out, &n, x, fy, x, fy, hz - 4.6, 1.0, 2 * r + 2, shroud);
-        const segs = 18;
-        for (0..segs) |k| {
-            const t0 = 2 * std.math.pi * @as(f32, @floatFromInt(k)) / segs;
-            const t1 = 2 * std.math.pi * @as(f32, @floatFromInt(k + 1)) / segs;
-            put(out, &n, x + r * @cos(t0), fy + r * @sin(t0), x + r * @cos(t1), fy + r * @sin(t1), hz, 9.0, 1.6, shroud);
-        }
-        for (0..9) |k| {
-            const t = spin + 2 * std.math.pi * @as(f32, @floatFromInt(k)) / 9;
-            // A blade bends back a little: from the hub out to the rim.
-            put(out, &n, x + 3.5 * @cos(t), fy + 3.5 * @sin(t), x + 12 * @cos(t - 0.35), fy + 12 * @sin(t - 0.35), hz - 1.0, 5.0, 1.4, blade);
-        }
-        put(out, &n, x, fy, x, fy, hz - 0.2, 6.0, 6.5, shroud);
-        // The duct: from under the blower down to 2 mm over the tip.
-        const steps = 9;
-        for (0..steps) |k| {
-            const f = @as(f32, @floatFromInt(k)) / (steps - 1);
-            const dy = fy + 10 + f * (y - 7 - (fy + 10));
-            const dz = z0 + 24 - f * 21;
-            put(out, &n, x, dy, x, dy, dz, 3.2, 9.0 - f * 3.5, shroud);
+        put(out, &n, x, y, x, y, z0 + 4.2, 1.2, 4.5, brass);
+        // The heater block: 10 x 8 mm, 5 mm high.
+        put(out, &n, x - 1, y, x + 1, y, z0 + 9.8, 5.0, 8.0, alu);
+        // The fan: 4 blades over the block, 6 mm long.
+        if (fan_on) {
+            for (0..4) |k| {
+                const t = spin + std.math.pi / 2.0 * @as(f32, @floatFromInt(k));
+                put(out, &n, x, y, x + 6 * @cos(t), y + 6 * @sin(t), z0 + 11.4, 0.8, 1.6, blade);
+            }
         }
         return n;
     }
@@ -1211,7 +1181,7 @@ pub const View = struct {
             // the fan off it stands still.
             const fb = if (v.bead_fan.items.len == 0) 255 else v.bead_fan.items[@min(done, v.bead_fan.items.len - 1)];
             const spin: f32 = @floatCast(@mod(t * std.math.pi * @as(f32, @floatFromInt(fb)) / 255, 2 * std.math.pi));
-            if (tip) |p| n_head = toolhead(&v.head_buf, p, spin);
+            if (tip) |p| n_head = toolhead(&v.head_buf, p, spin, fb > 0);
         } else if (v.layer_end.items.len > 0) {
             count = v.layer_end.items[@min(v.layer, v.layer_end.items.len - 1)];
         }
@@ -1587,14 +1557,24 @@ test "the camera can go under the part and over the top" {
     v.setAngles(0, 0);
     v.orbit(0, -150);
     try std.testing.expect(v.camera().eye[2] < 0);
-    // Over the top: the camera is upside down, and its axes are still
-    // unit vectors at right angles.
+    // Over the top: the tilt stops at the limit, and the camera stays
+    // upright.
     v.setAngles(0, 0);
     v.orbit(0, 250);
     const cam = v.camera();
-    try std.testing.expect(cam.u[2] < 0);
+    try std.testing.expect(cam.u[2] > 0);
+    try std.testing.expectApproxEqAbs(@sin(@as(f32, View.max_pitch)), cam.eye[2] / 10, 1e-3);
     try std.testing.expectApproxEqAbs(@as(f32, 1), dot(cam.s, cam.s), 1e-5);
     try std.testing.expectApproxEqAbs(@as(f32, 0), dot(cam.s, cam.u), 1e-5);
+    // Under the bed: the same limit.
+    v.orbit(0, -1000);
+    try std.testing.expectApproxEqAbs(-@sin(@as(f32, View.max_pitch)), v.camera().eye[2] / 10, 1e-3);
+    // An orbit removes a roll that a free rotation made.
+    v.setAngles(0, 0.5);
+    v.rotate(0, 120);
+    v.rotate(120, 0);
+    v.orbit(1, 0);
+    try std.testing.expectApproxEqAbs(@as(f32, 0), v.camera().s[2], 1e-4);
     // An orbit adds no roll: the right axis stays level.
     v.orbit(80, 30);
     v.orbit(-40, 90);

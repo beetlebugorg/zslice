@@ -140,8 +140,9 @@ function resize() {
 }
 new ResizeObserver(resize).observe(canvas);
 
-// The mouse: left drag orbits, right drag turns freely, middle drag pans,
-// and the wheel zooms toward the pointer (linux/src/ui/view3d.c).
+// The mouse, as in Cura and Tinkercad: a left or a right drag orbits, a
+// middle drag (or Shift and a drag) pans, and the wheel zooms toward the
+// pointer (linux/src/ui/view3d.c). A trackpad pinch zooms too.
 let drag = null;
 canvas.addEventListener("pointerdown", (e) => {
   canvas.setPointerCapture(e.pointerId);
@@ -157,8 +158,7 @@ canvas.addEventListener("pointermove", (e) => {
   if (dx === 0 && dy === 0) return;
   drag.moved = true;
   const dpr = window.devicePixelRatio || 1;
-  if (drag.button === 1 || (drag.button === 0 && e.shiftKey)) view.pan(dx * dpr, dy * dpr);
-  else if (drag.button === 2) view.rotate(dx, dy);
+  if (drag.button === 1 || e.shiftKey) view.pan(dx * dpr, dy * dpr);
   else view.orbit(dx, dy);
   requestFrame();
 });
@@ -178,7 +178,10 @@ canvas.addEventListener("wheel", (e) => {
   const dpr = window.devicePixelRatio || 1;
   const r = canvas.getBoundingClientRect();
   // One wheel step is about 100 pixels (deltaMode 0) or 3 lines.
-  const steps = e.deltaMode === 1 ? e.deltaY / 3 : e.deltaMode === 2 ? e.deltaY : e.deltaY / 100;
+  // A pinch on a trackpad comes as a wheel event with Ctrl and small
+  // steps, so it counts more for each pixel.
+  const px = e.ctrlKey ? 25 : 100;
+  const steps = e.deltaMode === 1 ? e.deltaY / 3 : e.deltaMode === 2 ? e.deltaY : e.deltaY / px;
   view.zoomAt(Math.pow(1.15, steps), (e.clientX - r.left) * dpr, (e.clientY - r.top) * dpr);
   requestFrame();
 }, { passive: false });

@@ -403,9 +403,9 @@ void zg_view3d_set_layer(GtkWidget *view, size_t layer) {
     queue_frame(v);
 }
 
-/* The mouse, as in CAD programs: a left drag orbits (turn and tilt, the
- * bed stays level), a middle drag pans, and a right drag rotates freely in
- * any direction (with roll). The scroll wheel zooms toward the pointer. */
+/* The mouse, as in Cura, Tinkercad, and Fusion: a left or a right drag
+ * orbits (turn and tilt, the bed stays level), a middle drag pans, and the
+ * scroll wheel zooms toward the pointer. */
 enum { DRAG_ORBIT, DRAG_PAN, DRAG_ROTATE };
 
 /* The part under a pixel: the part of the path there, or the part whose
@@ -505,7 +505,6 @@ static void on_drag_update(GtkGestureDrag *g, double dx, double dy, gpointer dat
     if (v->view) {
         switch (mode) {
         case DRAG_PAN: zs_view_pan(v->view, ddx * scale, ddy * scale); break;
-        case DRAG_ROTATE: zs_view_rotate(v->view, ddx, ddy); break;
         default: zs_view_orbit(v->view, ddx, ddy); break;
         }
     }

@@ -635,7 +635,9 @@ void zs_view_set_layer(zs_view *view, size_t layer);
  * selected path is solid. on = 0 (the default) keeps their colors. */
 void zs_view_isolate(zs_view *view, int on);
 void zs_view_set_layer_range(zs_view *view, size_t lo, size_t hi);
-/* Turns the camera by a drag of dx, dy pixels. */
+/* Turns the camera by a drag of dx, dy pixels, as in Cura and Tinkercad:
+ * around the vertical axis and a tilt. The bed stays level, and the tilt
+ * stops at 89 degrees above and below the bed. */
 void zs_view_orbit(zs_view *view, float dx, float dy);
 /* Moves the camera nearer (factor < 1) or further (factor > 1). */
 void zs_view_zoom(zs_view *view, float factor);
