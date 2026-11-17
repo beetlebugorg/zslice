@@ -1,6 +1,6 @@
 //! The Vulkan backend of the renderer.
 //!
-//! It draws the toolpath boxes and the bed grid into a window surface that
+//! It draws the toolpath boxes, the bed grid, and the bed model into a window surface that
 //! the shell gives (a Wayland surface or an X11 window on Linux). The scene
 //! logic (which boxes, the camera) is in view.zig: this file only talks to
 //! the GPU.
@@ -16,8 +16,9 @@
 //! - The vendored Khronos headers give the types. No VK_USE_PLATFORM_*
 //!   macro is defined, because those pull in the X11 and Wayland headers.
 //!   This file declares the two surface create-info structs that it needs.
-//! - Push constants only (a matrix and a vector): no descriptor sets, no
-//!   uniform buffers.
+//! - Push constants for all data of a draw (a matrix and three vectors),
+//!   and no uniform buffers. The texture of the bed model is the one
+//!   descriptor set: one image and one sampler.
 //! - Host-visible, coherent buffers for the boxes and the grid: the CPU
 //!   writes them directly, with no staging copy.
 //! - One frame in flight. The view draws on demand (after a change), not at
@@ -129,6 +130,17 @@ const Device = struct {
     vkCmdPushConstants: c.PFN_vkCmdPushConstants,
     vkCmdSetViewport: c.PFN_vkCmdSetViewport,
     vkCmdSetScissor: c.PFN_vkCmdSetScissor,
+    vkCmdPipelineBarrier: c.PFN_vkCmdPipelineBarrier,
+    vkCmdCopyBufferToImage: c.PFN_vkCmdCopyBufferToImage,
+    vkCmdBindDescriptorSets: c.PFN_vkCmdBindDescriptorSets,
+    vkCreateSampler: c.PFN_vkCreateSampler,
+    vkDestroySampler: c.PFN_vkDestroySampler,
+    vkCreateDescriptorSetLayout: c.PFN_vkCreateDescriptorSetLayout,
+    vkDestroyDescriptorSetLayout: c.PFN_vkDestroyDescriptorSetLayout,
+    vkCreateDescriptorPool: c.PFN_vkCreateDescriptorPool,
+    vkDestroyDescriptorPool: c.PFN_vkDestroyDescriptorPool,
+    vkAllocateDescriptorSets: c.PFN_vkAllocateDescriptorSets,
+    vkUpdateDescriptorSets: c.PFN_vkUpdateDescriptorSets,
     vkCreateSemaphore: c.PFN_vkCreateSemaphore,
     vkDestroySemaphore: c.PFN_vkDestroySemaphore,
     vkCreateFence: c.PFN_vkCreateFence,
@@ -185,6 +197,11 @@ const box_vert = spvWords(@embedFile("shaders/box.vert.spv"));
 const box_frag = spvWords(@embedFile("shaders/box.frag.spv"));
 const grid_vert = spvWords(@embedFile("shaders/grid.vert.spv"));
 const grid_frag = spvWords(@embedFile("shaders/grid.frag.spv"));
+const bed_vert = spvWords(@embedFile("shaders/bed.vert.spv"));
+const bed_frag = spvWords(@embedFile("shaders/bed.frag.spv"));
+
+const BedVertex = @import("../bed.zig").Vertex;
+const BedImage = @import("../bed.zig").Image;
 
 const depth_format = c.VK_FORMAT_D32_SFLOAT;
 
@@ -218,6 +235,20 @@ pub const Renderer = struct {
     /// not hide the beads in focus behind them.
     ghost_pipeline: c.VkPipeline = null,
     grid_pipeline: c.VkPipeline,
+    /// The bed model: blended (its parts over the plate are see-through),
+    /// with a depth bias, so the grid lines at z = 0 stay in front of the
+    /// flat bed.
+    bed_pipeline: c.VkPipeline = null,
+    bed_layout: c.VkPipelineLayout = null,
+    bed_set_layout: c.VkDescriptorSetLayout = null,
+    desc_pool: c.VkDescriptorPool = null,
+    bed_set: c.VkDescriptorSet = null,
+    sampler: c.VkSampler = null,
+    bed: Buffer = .{},
+    bed_count: u32 = 0,
+    tex_image: c.VkImage = null,
+    tex_mem: c.VkDeviceMemory = null,
+    tex_view: c.VkImageView = null,
     pool: c.VkCommandPool,
     cmd: c.VkCommandBuffer,
     acquired: c.VkSemaphore,
@@ -413,7 +444,13 @@ pub const Renderer = struct {
         if (r.device != null) _ = d.vkDeviceWaitIdle.?(r.device);
         r.destroySwapchain();
         if (r.swapchain != null) d.vkDestroySwapchainKHR.?(r.device, r.swapchain, null);
-        for ([_]*Buffer{ &r.box_mesh, &r.box_index, &r.instances, &r.grid }) |b| r.freeBuffer(b);
+        for ([_]*Buffer{ &r.box_mesh, &r.box_index, &r.instances, &r.grid, &r.bed }) |b| r.freeBuffer(b);
+        r.freeTexture();
+        if (r.sampler != null) d.vkDestroySampler.?(r.device, r.sampler, null);
+        if (r.desc_pool != null) d.vkDestroyDescriptorPool.?(r.device, r.desc_pool, null);
+        if (r.bed_pipeline != null) d.vkDestroyPipeline.?(r.device, r.bed_pipeline, null);
+        if (r.bed_layout != null) d.vkDestroyPipelineLayout.?(r.device, r.bed_layout, null);
+        if (r.bed_set_layout != null) d.vkDestroyDescriptorSetLayout.?(r.device, r.bed_set_layout, null);
         if (r.fence != null) d.vkDestroyFence.?(r.device, r.fence, null);
         if (r.acquired != null) d.vkDestroySemaphore.?(r.device, r.acquired, null);
         if (r.pool != null) d.vkDestroyCommandPool.?(r.device, r.pool, null);
@@ -591,9 +628,70 @@ pub const Renderer = struct {
         const grid_attrs = [_]c.VkVertexInputAttributeDescription{
             .{ .location = 0, .binding = 0, .format = c.VK_FORMAT_R32G32B32_SFLOAT, .offset = 0 },
         };
-        r.box_pipeline = try r.pipeline(bv, bf, &box_bindings, &box_attrs, c.VK_PRIMITIVE_TOPOLOGY_TRIANGLE_LIST, false);
-        r.ghost_pipeline = try r.pipeline(bv, bf, &box_bindings, &box_attrs, c.VK_PRIMITIVE_TOPOLOGY_TRIANGLE_LIST, true);
-        r.grid_pipeline = try r.pipeline(gv, gf, &grid_bindings, &grid_attrs, c.VK_PRIMITIVE_TOPOLOGY_LINE_LIST, false);
+        r.box_pipeline = try r.pipeline(bv, bf, &box_bindings, &box_attrs, c.VK_PRIMITIVE_TOPOLOGY_TRIANGLE_LIST, false, false, r.layout);
+        r.ghost_pipeline = try r.pipeline(bv, bf, &box_bindings, &box_attrs, c.VK_PRIMITIVE_TOPOLOGY_TRIANGLE_LIST, true, false, r.layout);
+        r.grid_pipeline = try r.pipeline(gv, gf, &grid_bindings, &grid_attrs, c.VK_PRIMITIVE_TOPOLOGY_LINE_LIST, false, false, r.layout);
+        try r.makeBedPipeline(push_range);
+    }
+
+    /// The pipeline of the bed model, with its descriptor set (the
+    /// texture), and the sampler.
+    fn makeBedPipeline(r: *Renderer, push_range: c.VkPushConstantRange) Error!void {
+        const d = r.d;
+        const binding: c.VkDescriptorSetLayoutBinding = .{
+            .binding = 0,
+            .descriptorType = c.VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER,
+            .descriptorCount = 1,
+            .stageFlags = c.VK_SHADER_STAGE_FRAGMENT_BIT,
+        };
+        try check(d.vkCreateDescriptorSetLayout.?(r.device, &.{
+            .sType = c.VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO,
+            .bindingCount = 1,
+            .pBindings = &binding,
+        }, null, &r.bed_set_layout));
+        try check(d.vkCreatePipelineLayout.?(r.device, &.{
+            .sType = c.VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO,
+            .setLayoutCount = 1,
+            .pSetLayouts = &r.bed_set_layout,
+            .pushConstantRangeCount = 1,
+            .pPushConstantRanges = &push_range,
+        }, null, &r.bed_layout));
+        const pool_size: c.VkDescriptorPoolSize = .{ .type = c.VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, .descriptorCount = 1 };
+        try check(d.vkCreateDescriptorPool.?(r.device, &.{
+            .sType = c.VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO,
+            .maxSets = 1,
+            .poolSizeCount = 1,
+            .pPoolSizes = &pool_size,
+        }, null, &r.desc_pool));
+        try check(d.vkAllocateDescriptorSets.?(r.device, &.{
+            .sType = c.VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO,
+            .descriptorPool = r.desc_pool,
+            .descriptorSetCount = 1,
+            .pSetLayouts = &r.bed_set_layout,
+        }, &r.bed_set));
+        try check(d.vkCreateSampler.?(r.device, &.{
+            .sType = c.VK_STRUCTURE_TYPE_SAMPLER_CREATE_INFO,
+            .magFilter = c.VK_FILTER_LINEAR,
+            .minFilter = c.VK_FILTER_LINEAR,
+            .mipmapMode = c.VK_SAMPLER_MIPMAP_MODE_NEAREST,
+            .addressModeU = c.VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE,
+            .addressModeV = c.VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE,
+            .addressModeW = c.VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE,
+            .maxLod = 0,
+        }, null, &r.sampler));
+        const vs = try r.shader(bed_vert);
+        defer d.vkDestroyShaderModule.?(r.device, vs, null);
+        const fs = try r.shader(bed_frag);
+        defer d.vkDestroyShaderModule.?(r.device, fs, null);
+        const bindings = [_]c.VkVertexInputBindingDescription{
+            .{ .binding = 0, .stride = @sizeOf(BedVertex), .inputRate = c.VK_VERTEX_INPUT_RATE_VERTEX },
+        };
+        const attrs = [_]c.VkVertexInputAttributeDescription{
+            .{ .location = 0, .binding = 0, .format = c.VK_FORMAT_R32G32B32_SFLOAT, .offset = @offsetOf(BedVertex, "pos") },
+            .{ .location = 1, .binding = 0, .format = c.VK_FORMAT_R32G32B32_SFLOAT, .offset = @offsetOf(BedVertex, "normal") },
+            .{ .location = 2, .binding = 0, .format = c.VK_FORMAT_R32G32_SFLOAT, .offset = @offsetOf(BedVertex, "uv") },
+        };
+        r.bed_pipeline = try r.pipeline(vs, fs, &bindings, &attrs, c.VK_PRIMITIVE_TOPOLOGY_TRIANGLE_LIST, false, true, r.bed_layout);
     }
 
     fn pipeline(
@@ -605,6 +703,9 @@ pub const Renderer = struct {
         topology: c.VkPrimitiveTopology,
         /// Blend with alpha, and no depth write.
         ghost: bool,
+        /// The bed: blend with alpha, depth write, and a depth bias.
+        bed: bool,
+        layout: c.VkPipelineLayout,
     ) Error!c.VkPipeline {
         const stages = [_]c.VkPipelineShaderStageCreateInfo{
             .{ .sType = c.VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO, .stage = c.VK_SHADER_STAGE_VERTEX_BIT, .module = vs, .pName = "main" },
@@ -631,6 +732,9 @@ pub const Renderer = struct {
             .polygonMode = c.VK_POLYGON_MODE_FILL,
             .cullMode = c.VK_CULL_MODE_NONE,
             .frontFace = c.VK_FRONT_FACE_COUNTER_CLOCKWISE,
+            .depthBiasEnable = if (bed) c.VK_TRUE else c.VK_FALSE,
+            .depthBiasConstantFactor = if (bed) 4 else 0,
+            .depthBiasSlopeFactor = if (bed) 2 else 0,
             .lineWidth = 1,
         };
         const multisample: c.VkPipelineMultisampleStateCreateInfo = .{
@@ -645,7 +749,7 @@ pub const Renderer = struct {
         };
         const blend_attachment: c.VkPipelineColorBlendAttachmentState = .{
             .colorWriteMask = c.VK_COLOR_COMPONENT_R_BIT | c.VK_COLOR_COMPONENT_G_BIT | c.VK_COLOR_COMPONENT_B_BIT | c.VK_COLOR_COMPONENT_A_BIT,
-            .blendEnable = if (ghost) c.VK_TRUE else c.VK_FALSE,
+            .blendEnable = if (ghost or bed) c.VK_TRUE else c.VK_FALSE,
             .srcColorBlendFactor = c.VK_BLEND_FACTOR_SRC_ALPHA,
             .dstColorBlendFactor = c.VK_BLEND_FACTOR_ONE_MINUS_SRC_ALPHA,
             .colorBlendOp = c.VK_BLEND_OP_ADD,
@@ -677,7 +781,7 @@ pub const Renderer = struct {
             .pDepthStencilState = &depth,
             .pColorBlendState = &blend,
             .pDynamicState = &dynamic,
-            .layout = r.layout,
+            .layout = layout,
             .renderPass = r.render_pass,
             .subpass = 0,
         }, null, &p));
@@ -764,6 +868,134 @@ pub const Renderer = struct {
         const bytes = std.mem.sliceAsBytes(points);
         if (bytes.len > r.grid.size) try r.makeBuffer(&r.grid, bytes.len, c.VK_BUFFER_USAGE_VERTEX_BUFFER_BIT);
         @memcpy(r.grid.map.?[0..bytes.len], bytes);
+    }
+
+    /// Replaces the bed model: its triangles (see bed.zig), and its
+    /// texture or null. The bed is static: this runs once for each
+    /// printer, so a wait for the GPU is fine.
+    pub fn setBed(r: *Renderer, verts: []const BedVertex, image: ?BedImage) Error!void {
+        _ = r.d.vkDeviceWaitIdle.?(r.device);
+        r.bed_count = 0;
+        if (verts.len == 0) return;
+        const bytes = std.mem.sliceAsBytes(verts);
+        if (bytes.len > r.bed.size) try r.makeBuffer(&r.bed, bytes.len, c.VK_BUFFER_USAGE_VERTEX_BUFFER_BIT);
+        @memcpy(r.bed.map.?[0..bytes.len], bytes);
+        // A white pixel when the bed has no texture: the set needs an image.
+        const white = [4]u8{ 255, 255, 255, 255 };
+        const img: BedImage = image orelse .{ .width = 1, .height = 1, .rgba = @constCast(&white) };
+        try r.uploadTexture(img);
+        r.bed_count = @intCast(verts.len);
+    }
+
+    fn freeTexture(r: *Renderer) void {
+        const d = r.d;
+        if (r.tex_view != null) d.vkDestroyImageView.?(r.device, r.tex_view, null);
+        if (r.tex_image != null) d.vkDestroyImage.?(r.device, r.tex_image, null);
+        if (r.tex_mem != null) d.vkFreeMemory.?(r.device, r.tex_mem, null);
+        r.tex_view = null;
+        r.tex_image = null;
+        r.tex_mem = null;
+    }
+
+    /// Copies an RGBA image to a new sampled image (through a host buffer),
+    /// and points the descriptor set at it. The GPU is idle.
+    fn uploadTexture(r: *Renderer, img: BedImage) Error!void {
+        const d = r.d;
+        r.freeTexture();
+        const extent: c.VkExtent2D = .{ .width = img.width, .height = img.height };
+        try check(d.vkCreateImage.?(r.device, &.{
+            .sType = c.VK_STRUCTURE_TYPE_IMAGE_CREATE_INFO,
+            .imageType = c.VK_IMAGE_TYPE_2D,
+            .format = c.VK_FORMAT_R8G8B8A8_UNORM,
+            .extent = .{ .width = extent.width, .height = extent.height, .depth = 1 },
+            .mipLevels = 1,
+            .arrayLayers = 1,
+            .samples = c.VK_SAMPLE_COUNT_1_BIT,
+            .tiling = c.VK_IMAGE_TILING_OPTIMAL,
+            .usage = c.VK_IMAGE_USAGE_TRANSFER_DST_BIT | c.VK_IMAGE_USAGE_SAMPLED_BIT,
+            .sharingMode = c.VK_SHARING_MODE_EXCLUSIVE,
+            .initialLayout = c.VK_IMAGE_LAYOUT_UNDEFINED,
+        }, null, &r.tex_image));
+        var req: c.VkMemoryRequirements = undefined;
+        d.vkGetImageMemoryRequirements.?(r.device, r.tex_image, &req);
+        try check(d.vkAllocateMemory.?(r.device, &.{
+            .sType = c.VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_INFO,
+            .allocationSize = req.size,
+            .memoryTypeIndex = try r.memoryType(req.memoryTypeBits, c.VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT),
+        }, null, &r.tex_mem));
+        try check(d.vkBindImageMemory.?(r.device, r.tex_image, r.tex_mem, 0));
+        try check(d.vkCreateImageView.?(r.device, &.{
+            .sType = c.VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO,
+            .image = r.tex_image,
+            .viewType = c.VK_IMAGE_VIEW_TYPE_2D,
+            .format = c.VK_FORMAT_R8G8B8A8_UNORM,
+            .subresourceRange = .{ .aspectMask = c.VK_IMAGE_ASPECT_COLOR_BIT, .levelCount = 1, .layerCount = 1 },
+        }, null, &r.tex_view));
+
+        var staging: Buffer = .{};
+        defer r.freeBuffer(&staging);
+        const n = @as(usize, img.width) * img.height * 4;
+        try r.makeBuffer(&staging, n, c.VK_BUFFER_USAGE_TRANSFER_SRC_BIT);
+        @memcpy(staging.map.?[0..n], img.rgba[0..n]);
+
+        const cmd = r.cmd;
+        try check(d.vkResetCommandBuffer.?(cmd, 0));
+        try check(d.vkBeginCommandBuffer.?(cmd, &.{
+            .sType = c.VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO,
+            .flags = c.VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT,
+        }));
+        const range: c.VkImageSubresourceRange = .{ .aspectMask = c.VK_IMAGE_ASPECT_COLOR_BIT, .levelCount = 1, .layerCount = 1 };
+        d.vkCmdPipelineBarrier.?(cmd, c.VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT, c.VK_PIPELINE_STAGE_TRANSFER_BIT, 0, 0, null, 0, null, 1, &.{
+            .sType = c.VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER,
+            .srcAccessMask = 0,
+            .dstAccessMask = c.VK_ACCESS_TRANSFER_WRITE_BIT,
+            .oldLayout = c.VK_IMAGE_LAYOUT_UNDEFINED,
+            .newLayout = c.VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
+            .srcQueueFamilyIndex = c.VK_QUEUE_FAMILY_IGNORED,
+            .dstQueueFamilyIndex = c.VK_QUEUE_FAMILY_IGNORED,
+            .image = r.tex_image,
+            .subresourceRange = range,
+        });
+        d.vkCmdCopyBufferToImage.?(cmd, staging.buf, r.tex_image, c.VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, 1, &.{
+            .bufferOffset = 0,
+            .imageSubresource = .{ .aspectMask = c.VK_IMAGE_ASPECT_COLOR_BIT, .mipLevel = 0, .baseArrayLayer = 0, .layerCount = 1 },
+            .imageExtent = .{ .width = img.width, .height = img.height, .depth = 1 },
+        });
+        d.vkCmdPipelineBarrier.?(cmd, c.VK_PIPELINE_STAGE_TRANSFER_BIT, c.VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT, 0, 0, null, 0, null, 1, &.{
+            .sType = c.VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER,
+            .srcAccessMask = c.VK_ACCESS_TRANSFER_WRITE_BIT,
+            .dstAccessMask = c.VK_ACCESS_SHADER_READ_BIT,
+            .oldLayout = c.VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
+            .newLayout = c.VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
+            .srcQueueFamilyIndex = c.VK_QUEUE_FAMILY_IGNORED,
+            .dstQueueFamilyIndex = c.VK_QUEUE_FAMILY_IGNORED,
+            .image = r.tex_image,
+            .subresourceRange = range,
+        });
+        try check(d.vkEndCommandBuffer.?(cmd));
+        // The frame fence is signaled (the GPU is idle). Use it for the
+        // copy, and wait: it is signaled again for the next frame.
+        try check(d.vkResetFences.?(r.device, 1, &r.fence));
+        try check(d.vkQueueSubmit.?(r.queue, 1, &.{
+            .sType = c.VK_STRUCTURE_TYPE_SUBMIT_INFO,
+            .commandBufferCount = 1,
+            .pCommandBuffers = &cmd,
+        }, r.fence));
+        try check(d.vkWaitForFences.?(r.device, 1, &r.fence, c.VK_TRUE, std.math.maxInt(u64)));
+
+        const info: c.VkDescriptorImageInfo = .{
+            .sampler = r.sampler,
+            .imageView = r.tex_view,
+            .imageLayout = c.VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
+        };
+        d.vkUpdateDescriptorSets.?(r.device, 1, &.{
+            .sType = c.VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET,
+            .dstSet = r.bed_set,
+            .dstBinding = 0,
+            .descriptorCount = 1,
+            .descriptorType = c.VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER,
+            .pImageInfo = &info,
+        }, 0, null);
     }
 
     // ---- swapchain ----
@@ -1039,6 +1271,14 @@ pub const Renderer = struct {
                 d.vkCmdBindIndexBuffer.?(cmd, r.box_index.buf, 0, c.VK_INDEX_TYPE_UINT16);
             }
             d.vkCmdDrawIndexed.?(cmd, r.box_index_count, @intCast(extras.len), 0, 0, r.instance_count);
+        }
+        // The bed after the beads and the extras: its see-through parts blend over them.
+        if (frame.bed_vertices > 0 and r.bed_count > 0) {
+            d.vkCmdBindPipeline.?(cmd, c.VK_PIPELINE_BIND_POINT_GRAPHICS, r.bed_pipeline);
+            d.vkCmdBindDescriptorSets.?(cmd, c.VK_PIPELINE_BIND_POINT_GRAPHICS, r.bed_layout, 0, 1, &r.bed_set, 0, null);
+            d.vkCmdPushConstants.?(cmd, r.bed_layout, stages, 0, @sizeOf(Push), &frame.bed);
+            d.vkCmdBindVertexBuffers.?(cmd, 0, 1, &r.bed.buf, &zero);
+            d.vkCmdDraw.?(cmd, @min(frame.bed_vertices, r.bed_count), 1, 0, 0);
         }
         if (frame.head.len > 0 and r.instances.buf != null and r.box_index_count > 0) {
             const used = @min(frame.extras.len, max_extras);

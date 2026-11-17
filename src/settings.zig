@@ -45,6 +45,10 @@ pub const Machine = struct {
     // Printer
     /// The name of the printer, for the G-code header.
     name: []const u8 = "generic",
+    /// The id of the printer model in the printer library, for example
+    /// "creality-ender-3-v2". The 3D view shows the bed model of this
+    /// printer. Empty: the view shows the bed as a grid.
+    model: []const u8 = "",
 
     // Bed
     /// The size of the bed in X.

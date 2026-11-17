@@ -139,6 +139,37 @@ export fn zs_printers_search(lib: ?*const Library, query: ?[*:0]const u8, brand:
     return l.search(q, if (brand >= 0) @intCast(brand) else null, dest);
 }
 
+/// zs_printer_bed in zslice-app.h.
+const CBed = extern struct {
+    mesh: [*:0]const u8,
+    texture: [*:0]const u8,
+    source: [*:0]const u8,
+    flat: bool,
+};
+
+/// The files of the bed model of model i. ZS_NO_RESULT if it has none.
+export fn zs_printers_bed(lib: ?*const Library, i: usize, out: ?*CBed) c_int {
+    const l = lib orelse return invalid;
+    const o = out orelse return invalid;
+    if (i >= l.models.len) return out_of_range;
+    const b = l.bed(i) orelse return @intFromEnum(Status.no_result);
+    var source: [*:0]const u8 = "";
+    for (l.sources) |src| if (src.key == b.source) {
+        source = cstr(src.name);
+    };
+    o.* = .{ .mesh = b.mesh.ptr, .texture = b.texture.ptr, .source = source, .flat = b.rect != null and b.texture.len > 0 };
+    return ok;
+}
+
+/// The model of a machine profile: by its machine.model, else by a
+/// machine.name that is the title of a model. -1 if none fits.
+export fn zs_printers_find_machine(lib: ?*const Library, model: ?[*:0]const u8, name: ?[*:0]const u8) isize {
+    const l = lib orelse return -1;
+    const id = if (model) |m| std.mem.span(m) else "";
+    const n = if (name) |m| std.mem.span(m) else "";
+    return if (l.findMachine(id, n)) |i| @intCast(i) else -1;
+}
+
 /// The model that fits a printer on the network, or -1.
 export fn zs_printers_match(lib: ?*const Library, hint: ?[*:0]const u8, bed_x: f64, bed_y: f64, height: f64) isize {
     const l = lib orelse return -1;

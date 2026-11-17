@@ -65,6 +65,26 @@ export fn zs_view_load(view: ?*View, a: ?*const App) c_int {
     return ok;
 }
 
+/// The bed model of model i of a library: the bytes of its mesh and
+/// texture files (see zs_printers_bed; either can be empty).
+export fn zs_view_set_bed(view: ?*View, lib: ?*const zs.printers.Library, i: usize, mesh: ?[*]const u8, mesh_len: usize, texture: ?[*]const u8, texture_len: usize) c_int {
+    if (!render_on) return @intFromEnum(Status.not_supported);
+    const v = view orelse return @intFromEnum(Status.invalid_argument);
+    const l = lib orelse return @intFromEnum(Status.invalid_argument);
+    if (i >= l.models.len) return @intFromEnum(Status.out_of_range);
+    const b = l.bed(i) orelse return @intFromEnum(Status.no_result);
+    const m: []const u8 = if (mesh) |p| p[0..mesh_len] else "";
+    const t: []const u8 = if (texture) |p| p[0..texture_len] else "";
+    v.setBed(.{ .offset = b.offset, .rect = b.rect, .round = l.models[i].round }, m, t) catch |e| return status(e);
+    return ok;
+}
+
+export fn zs_view_clear_bed(view: ?*View) void {
+    if (!render_on) return;
+    const v = view orelse return;
+    v.clearBed();
+}
+
 export fn zs_view_isolate(view: ?*View, on: c_int) void {
     if (!render_on) return;
     const v = view orelse return;

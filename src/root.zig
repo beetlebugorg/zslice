@@ -58,6 +58,8 @@ pub const import_cura = @import("import_cura.zig");
 pub const cura_compare = @import("cura_compare.zig");
 pub const part_settings = @import("part_settings.zig");
 pub const printers = @import("printers.zig");
+/// The bed models of the printers, for the 3D view (see bed.zig).
+pub const bed = @import("bed.zig");
 pub const discovery = @import("discovery.zig");
 pub const app = @import("app.zig");
 

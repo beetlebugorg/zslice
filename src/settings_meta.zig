@@ -11,6 +11,7 @@ pub const Meta = struct {
 
 pub const all = [_]Meta{
     .{ .name = "machine.name", .section = "Printer", .doc = "The name of the printer, for the G-code header." },
+    .{ .name = "machine.model", .section = "Printer", .doc = "The id of the printer model in the printer library, for example \"creality-ender-3-v2\". The 3D view shows the bed model of this printer. Empty: the view shows the bed as a grid." },
     .{ .name = "machine.bed_size_x", .section = "Bed", .doc = "The size of the bed in X." },
     .{ .name = "machine.bed_size_y", .section = "Bed", .doc = "The size of the bed in Y." },
     .{ .name = "machine.origin_x", .section = "Bed", .doc = "The G-code X of the front left corner of the bed. The slicer places parts in bed coordinates (0, 0 at the front left corner) and adds this to each X in the G-code. Most printers: 0. A printer with its origin at the bed center: minus half the bed width." },

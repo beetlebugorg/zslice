@@ -46,6 +46,12 @@
 //! the top down, so the nearest hit comes early. A plate of many parts has
 //! a million beads; a pick then tests a few thousand.
 //!
+//! The bed model of the printer (bed.zig), when the shell gives one, is a
+//! static mesh under the plate: the backend gets it once (`setBed`), and
+//! each frame only moves it to the middle of the bed. It draws after the
+//! beads, in a soft gray: the parts over the plate (a frame, a back
+//! plate) are see-through, so they do not hide the print.
+//!
 //! A 2D view (one layer from the top) also uses the view: the beads of a
 //! layer, the outline of each layer, a pick in mm, and the steps along the
 //! print for the keys h, j, k, l (see `stepPath`).
@@ -56,6 +62,7 @@ const is_web = builtin.cpu.arch.isWasm();
 const vk = if (is_web) @import("web.zig") else @import("vk.zig");
 const app_mod = @import("../app.zig");
 const Draw = @import("frame.zig").Draw;
+const bed_mod = @import("../bed.zig");
 
 /// The feature colors, in the order of the Feature enum. The same colors
 /// as the SVG preview and docs/app/README.md.
@@ -200,6 +207,10 @@ pub const View = struct {
     goal: ?Pose = null,
     /// The bed size in mm, for the grid.
     bed: [2]f32 = .{ 0, 0 },
+    /// The vertices of the bed model with the backend (0: no bed model),
+    /// and if it has a texture.
+    bed_vertices: u32 = 0,
+    bed_textured: bool = false,
 
     /// The camera: the target, the angles, and the distance.
     pub const Pose = struct { target: [3]f32, rot: Quat, dist: f32 };
@@ -241,6 +252,24 @@ pub const View = struct {
         v.mark_layer_end.deinit(gpa);
         v.renderer.deinit();
         gpa.destroy(v);
+    }
+
+    /// Shows the bed model of a printer: the bytes of its mesh and texture
+    /// files (either can be empty) and its place (see bed.zig). The
+    /// vertices go to the GPU once.
+    pub fn setBed(v: *View, place: bed_mod.Place, mesh: []const u8, texture: []const u8) (Error || bed_mod.Error)!void {
+        var g = try bed_mod.build(gpa, mesh, texture, place);
+        defer g.deinit(gpa);
+        try v.renderer.setBed(g.vertices, g.image);
+        v.bed_vertices = @intCast(g.vertices.len);
+        v.bed_textured = g.image != null;
+    }
+
+    /// Shows the bed as the grid alone.
+    pub fn clearBed(v: *View) void {
+        v.renderer.setBed(&.{}, null) catch {};
+        v.bed_vertices = 0;
+        v.bed_textured = false;
     }
 
     /// The size of the view in pixels.
@@ -1739,8 +1768,17 @@ pub const View = struct {
             .draws = if (is_web) try v.drawList(mvp, eye, first, count) else &.{},
             .mark_first = @intCast(v.beads.items.len + mark_skip),
             .mark_count = mark_count,
-            .grid = .{ .mvp = mvp, .vec = .{ 0.80, 0.82, 0.85, 1 } },
+            // On a bed model the grid is darker, so it shows on the gray bed.
+            .grid = .{ .mvp = mvp, .vec = if (v.bed_vertices > 0) .{ 0.62, 0.64, 0.67, 1 } else .{ 0.80, 0.82, 0.85, 1 } },
             .grid_vertices = v.grid_vertices,
+            // The bed model: its center goes to the middle of the bed.
+            .bed = .{
+                .mvp = mul(mvp, translation(v.bed[0] / 2, v.bed[1] / 2, 0)),
+                .vec = .{ 0.84, 0.85, 0.87, 1 },
+                .eye = .{ 0.35, -0.45, 0.82, 0 },
+                .params = .{ if (v.bed_textured) 1 else 0, bed_clear_z, if (eye[2] < 0) 1 else 0, 0 },
+            },
+            .bed_vertices = v.bed_vertices,
         });
     }
 };
@@ -1850,6 +1888,14 @@ fn parseColor(text: []const u8) ?[3]u8 {
 }
 
 // ---- matrices, column-major ----
+
+/// The parts of a bed model higher than this (mm) are see-through: a
+/// frame or a back plate must not hide the print.
+const bed_clear_z: f32 = 3;
+
+fn translation(x: f32, y: f32, z: f32) [16]f32 {
+    return .{ 1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, x, y, z, 1 };
+}
 
 fn mul(a: [16]f32, b: [16]f32) [16]f32 {
     var r: [16]f32 = undefined;

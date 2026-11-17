@@ -45,7 +45,7 @@ pub fn status(e: anyerror) c_int {
         error.Unsupported => .not_supported,
         error.EmptyMesh => .empty_mesh,
         error.UnknownSetting => .unknown_setting,
-        error.InvalidValue => .invalid_value,
+        error.InvalidValue, error.InvalidImage => .invalid_value,
         error.InvalidSettings => .invalid_settings,
         error.PartTooLarge => .part_too_large,
         error.PartTooThin => .part_too_thin,

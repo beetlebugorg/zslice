@@ -15,11 +15,12 @@
 //!     # text                              a comment
 //!     S  key  name  license  url  version a source of the data
 //!     G  text                             a G-code text, with \n, \t, \\
+//!     D  mesh texture offset rect source  a bed model (see below)
 //!     B  brand                            a brand: the P lines after it
 //!     P  id name series sources bed_x bed_y height origin_x origin_y
 //!        shape nozzle nozzles filament heat max_speed max_accel max_z_speed
 //!        corner flavor firmware kinematics retract retract_speed start end
-//!        extruders
+//!        extruders bed
 //!
 //! In a P line: `sources` has one letter for each source (c Cura,
 //! p PrusaSlicer, o OrcaSlicer). `shape` is "r" for a round bed.
@@ -27,6 +28,14 @@
 //! bed and "c" for a heated chamber. `max_speed` is the speed limit of the
 //! firmware. `start` and `end` are the numbers of G lines (from 0), or "".
 //! An empty number field means that the source does not tell the value.
+//! `bed` is the number of a D line (from 0), or "": no bed model.
+//!
+//! A D line names the files of a bed model in the bed folder (`mesh` and
+//! `texture`, each can be ""), the offset of the mesh from the center of
+//! the bed ("x;y;z" in mm), the box of the texture from the center of the
+//! bed ("x0;y0;x1;y1", or "" when the mesh has UV coordinates), and the
+//! source key. See bed.zig for the files. The files are not in the
+//! library: a shell loads them when it shows the bed.
 //!
 //! A machine profile of a model (`profileText`) uses the values of the
 //! library, and these choices of zslice:
@@ -63,6 +72,15 @@ pub const Source = struct {
     license: []const u8,
     url: []const u8,
     version: []const u8,
+};
+
+/// A bed model: its files and its placement (see bed.zig).
+pub const Bed = struct {
+    mesh: [:0]const u8,
+    texture: [:0]const u8,
+    offset: [3]f64,
+    rect: ?[4]f64,
+    source: u8,
 };
 
 pub const Brand = struct {
@@ -109,6 +127,8 @@ pub const Model = struct {
     start: ?u32,
     end: ?u32,
     extruders: u32,
+    /// The number of the bed model in `Library.beds`, or null.
+    bed: ?u32 = null,
 };
 
 pub const Error = error{ InvalidLibrary, OutOfMemory };
@@ -119,6 +139,7 @@ pub const Library = struct {
     gcodes: [][]const u8,
     brands: []Brand,
     models: []Model,
+    beds: []Bed = &.{},
 
     /// Parses the bytes of a library file. The library copies what it
     /// keeps, so `data` can go after the call.
@@ -146,6 +167,7 @@ pub const Library = struct {
         var gcodes: std.ArrayList([]const u8) = .empty;
         var brands: std.ArrayList(Brand) = .empty;
         var models: std.ArrayList(Model) = .empty;
+        var beds: std.ArrayList(Bed) = .empty;
         var lines = std.mem.splitScalar(u8, text, '\n');
         const head = lines.next() orelse return error.InvalidLibrary;
         if (!std.mem.startsWith(u8, std.mem.trimEnd(u8, head, "\r"), "zslice-printers 1")) return error.InvalidLibrary;
@@ -161,13 +183,14 @@ pub const Library = struct {
                     try sources.append(a, .{ .key = if (key.len > 0) key[0] else '?', .name = f.next(), .license = f.next(), .url = f.next(), .version = f.next() });
                 },
                 'G' => try gcodes.append(a, try unescape(a, rest)),
+                'D' => try beds.append(a, try parseBed(a, rest)),
                 'B' => {
                     if (brands.items.len > 0) brands.items[brands.items.len - 1].end = @intCast(models.items.len);
                     try brands.append(a, .{ .name = rest, .first = @intCast(models.items.len), .end = @intCast(models.items.len) });
                 },
                 'P' => {
                     if (brands.items.len == 0) return error.InvalidLibrary;
-                    var m = try parseModel(rest, @intCast(brands.items.len - 1), gcodes.items.len);
+                    var m = try parseModel(rest, @intCast(brands.items.len - 1), gcodes.items.len, beds.items.len);
                     const brand = brands.items[brands.items.len - 1].name;
                     m.title = if (std.ascii.startsWithIgnoreCase(m.name, brand))
                         try a.dupeZ(u8, m.name)
@@ -188,6 +211,24 @@ pub const Library = struct {
         self.gcodes = gcodes.items;
         self.brands = brands.items;
         self.models = models.items;
+        self.beds = beds.items;
+    }
+
+    /// The bed model of model `i`, or null.
+    pub fn bed(self: *const Library, i: usize) ?Bed {
+        if (i >= self.models.len) return null;
+        const k = self.models[i].bed orelse return null;
+        return if (k < self.beds.len) self.beds[k] else null;
+    }
+
+    /// The model of a machine profile: by `machine.model` (the id that
+    /// `profileText` writes), else by a name that is the title of a model
+    /// (a profile from before the id). Null if none fits.
+    pub fn findMachine(self: *const Library, id: []const u8, name: []const u8) ?usize {
+        if (id.len > 0) if (self.find(id)) |i| return i;
+        if (name.len == 0) return null;
+        for (self.models, 0..) |m, i| if (std.ascii.eqlIgnoreCase(m.title, name)) return i;
+        return null;
     }
 
     /// The index of the model with this id, or null.
@@ -300,6 +341,9 @@ pub const Library = struct {
         try w.writeAll(").\n");
         try w.writeAll("name = \"");
         try writeEscaped(w, m.title);
+        try w.writeAll("\"\n");
+        try w.writeAll("model = \"");
+        try writeEscaped(w, m.id);
         try w.writeAll("\"\n");
         try w.print("bed_size_x = {d}\nbed_size_y = {d}\nmax_height = {d}\n", .{ m.bed_x, m.bed_y, m.height });
         if (m.origin_x != 0) try w.print("origin_x = {d}\n", .{m.origin_x});
@@ -435,7 +479,32 @@ const Fields = struct {
     }
 };
 
-fn parseModel(text: []const u8, brand: u32, n_gcodes: usize) Error!Model {
+/// A D line: mesh, texture, offset, rect, source. The file names get a 0
+/// byte at their end (the C API gives them as C strings).
+fn parseBed(a: Allocator, text: []const u8) Error!Bed {
+    var f: Fields = .init(text);
+    const mesh = try a.dupeZ(u8, f.next());
+    const texture = try a.dupeZ(u8, f.next());
+    var offset: [3]f64 = .{ 0, 0, 0 };
+    var it = std.mem.splitScalar(u8, f.next(), ';');
+    for (&offset) |*o| o.* = std.fmt.parseFloat(f64, it.next() orelse "0") catch 0;
+    const rect_text = f.next();
+    var rect: ?[4]f64 = null;
+    if (rect_text.len > 0) {
+        var r: [4]f64 = undefined;
+        var ri = std.mem.splitScalar(u8, rect_text, ';');
+        for (&r) |*x| x.* = std.fmt.parseFloat(f64, ri.next() orelse "") catch return error.InvalidLibrary;
+        rect = r;
+    }
+    const src = f.next();
+    // A file name is a plain name in the bed folder: no path.
+    for ([_][]const u8{ mesh, texture }) |name| {
+        if (std.mem.indexOfAny(u8, name, "/\\") != null or std.mem.startsWith(u8, name, ".")) return error.InvalidLibrary;
+    }
+    return .{ .mesh = mesh, .texture = texture, .offset = offset, .rect = rect, .source = if (src.len > 0) src[0] else '?' };
+}
+
+fn parseModel(text: []const u8, brand: u32, n_gcodes: usize, n_beds: usize) Error!Model {
     var f: Fields = .init(text);
     var m: Model = undefined;
     m.brand = brand;
@@ -468,6 +537,7 @@ fn parseModel(text: []const u8, brand: u32, n_gcodes: usize) Error!Model {
     m.end = f.index(n_gcodes);
     const e = f.num();
     m.extruders = if (e >= 1 and e < 64) @intFromFloat(e) else 1;
+    m.bed = f.index(n_beds);
     if (m.id.len == 0 or m.name.len == 0 or !(m.bed_x > 0) or !(m.bed_y > 0) or !(m.height > 0)) return error.InvalidLibrary;
     if (!(m.nozzle > 0)) m.nozzle = 0.4;
     if (!(m.filament > 0)) m.filament = 1.75;
@@ -539,8 +609,9 @@ const test_lib = tabs(
     \\S|o|OrcaSlicer|AGPL-3.0|https://github.com/SoftFever/OrcaSlicer|2.3
     \\G|G28\nM109 S{first_layer_nozzle_temp}
     \\G|M104 S0\nPRINT_END
+    \\D|ender3-bed.mesh|ender3.png|0;0;-0.45|-110;-110;110;110|o
     \\B|Creality
-    \\P|creality-ender-3|Ender-3|Ender|oc|220|220|250|0|0||0.4|0.2;0.4;0.6|1.75|b|500|500|10|8|marlin|Marlin|i3|5|60|0|1|1
+    \\P|creality-ender-3|Ender-3|Ender|oc|220|220|250|0|0||0.4|0.2;0.4;0.6|1.75|b|500|500|10|8|marlin|Marlin|i3|5|60|0|1|1|0
     \\P|creality-k1-max|K1 Max|K1|o|300|300|300|0|0||0.4||1.75|bc|800|20000|20|20|klipper|Klipper|corexy|0.8|40||1|1
     \\B|FLSun
     \\P|flsun-q5|Q5|Q|c|200|200|200|-100|-100|r|0.4||1.75|b|||||marlin|Marlin|delta|||||1
@@ -579,6 +650,25 @@ test "parse a library" {
     try testing.expectEqualStrings("Klipper", std.mem.span(cstr(k1.firmware)));
     try testing.expectEqualStrings("FLSun", std.mem.span(cstr(lib.brands[1].name)));
     try testing.expectEqualStrings("M104 S0\nPRINT_END", std.mem.span(cstr(lib.gcodes[1])));
+    // The bed model of the Ender-3, and none for the K1 Max.
+    const bed = lib.bed(0).?;
+    try testing.expectEqualStrings("ender3-bed.mesh", bed.mesh);
+    try testing.expectEqualStrings("ender3.png", bed.texture);
+    try testing.expectEqual(@as(f64, -0.45), bed.offset[2]);
+    try testing.expectEqual(@as(f64, 110), bed.rect.?[2]);
+    try testing.expect(lib.bed(1) == null);
+    // The model of a machine profile: by id, else by its title.
+    try testing.expectEqual(@as(?usize, 1), lib.findMachine("creality-k1-max", ""));
+    try testing.expectEqual(@as(?usize, 2), lib.findMachine("", "FLSun Q5"));
+    try testing.expectEqual(@as(?usize, null), lib.findMachine("", "My printer"));
+}
+
+test "a bed file name has no path" {
+    const bad = comptime tabs(
+        \\zslice-printers 1
+        \\D|../x.mesh||0;0;0||o
+    );
+    try testing.expectError(error.InvalidLibrary, Library.parse(testing.allocator, bad));
 }
 
 test "a bad library is an error" {

@@ -68,6 +68,7 @@ const mark_settings = [_]struct { []const u8, u32 }{
 /// so a new setting gets one of them.
 const preview_notes = [_]struct { []const u8, [:0]const u8 }{
     .{ "machine.name", "The name of the printer, for the profiles and the start G-code." },
+    .{ "machine.model", "The printer model: the 3D view shows its bed. The lines do not move." },
     .{ "machine.max_height", "A check: a part higher than this does not slice." },
     .{ "machine.max_z_speed", "The speed of the Z moves between layers. It changes the print time (see the status bar)." },
     .{ "machine.max_z_accel", "The acceleration of the Z moves. It changes the print time (see the status bar)." },

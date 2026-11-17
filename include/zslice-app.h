@@ -670,6 +670,17 @@ void zs_view_set_layer(zs_view *view, size_t layer);
 /* With a highlight: on = 1 shows the other beads as ghosts, so only the
  * selected path is solid. on = 0 (the default) keeps their colors. */
 void zs_view_isolate(zs_view *view, int on);
+struct zs_printers; /* the printer library, below */
+/* Shows the bed model of model i of a library under the plate: the bytes of
+ * its files (zs_printers_bed; NULL and 0 for a missing file). The view
+ * places it from the library record and the bed size of the last
+ * zs_view_load, and keeps it until the next call. The data goes to the GPU
+ * once. ZS_NO_RESULT if the model has no bed model, ZS_INVALID_MESH if the
+ * mesh does not read (a texture that does not read is left out). */
+int zs_view_set_bed(zs_view *view, const struct zs_printers *lib, size_t i, const uint8_t *mesh, size_t mesh_len,
+                    const uint8_t *texture, size_t texture_len);
+/* Shows the bed as the grid alone. */
+void zs_view_clear_bed(zs_view *view);
 void zs_view_set_layer_range(zs_view *view, size_t lo, size_t hi);
 /* Turns the camera by a drag of dx, dy pixels, as in Cura and Tinkercad:
  * around the vertical axis and a tilt. The bed stays level, and the tilt
@@ -862,6 +873,18 @@ typedef struct {
     /* The meshes in mesh_index: the full mesh is 0 .. mesh_full_count; the
      * mesh of lod k (1, 2) is mesh_lod_first[k - 1] .. + mesh_lod_count[k - 1]. */
     uint32_t mesh_full_count, mesh_lod_first[2], mesh_lod_count[2];
+    /* The bed model (zs_view_set_bed), drawn after the beads: its push
+     * constants (color: the bed color; eye: the light; params: x 1 with a
+     * texture, y the z over which the bed is see-through, z 1 when the
+     * camera is under the bed), its vertices (8 floats each: position,
+     * normal, uv; uv x < 0: no texture), and its RGBA texture (width 0:
+     * none). Upload them again when bed_gen changes. bed_vertices is 0 in
+     * a frame with no bed. */
+    zs_web_push bed;
+    const float *bed_verts;
+    uint32_t bed_vertex_count, bed_vertices, bed_gen;
+    const uint8_t *bed_tex;
+    uint32_t bed_tex_width, bed_tex_height;
 } zs_web_frame;
 const zs_web_frame *zs_view_web_frame(const zs_view *view);
 
@@ -973,6 +996,24 @@ ptrdiff_t zs_printers_find(const zs_printers *lib, const char *id);
  * returns the count of matches (can be more than cap). An empty query
  * gives the models in the library order. */
 size_t zs_printers_search(const zs_printers *lib, const char *query, ptrdiff_t brand, uint32_t *out, size_t cap);
+/* The model of a machine profile: by its setting machine.model (the id that
+ * zs_printers_profile writes), else by a machine.name that is the title of
+ * a model (a profile from before machine.model). -1 if none fits. */
+ptrdiff_t zs_printers_find_machine(const zs_printers *lib, const char *model, const char *name);
+/* The bed model of a model: the names of its files in the bed folder
+ * (installed with the app, for example share/zslice/beds; the web app
+ * serves them as beds/). Each name can be "": a bed with a mesh and no
+ * texture, or a texture alone. ZS_NO_RESULT if the model has no bed model:
+ * the 3D view then shows the grid. */
+typedef struct zs_printer_bed {
+    const char *mesh;    /* "ender3-bed.mesh", or "" */
+    const char *texture; /* "ender3.png", or "" */
+    const char *source;  /* the slicer of the files: "PrusaSlicer" */
+    bool flat;           /* the texture covers the plate (the top row at the
+                            back): a picker can draw it on its plate. Else
+                            the texture follows the UV of the mesh. */
+} zs_printer_bed;
+int zs_printers_bed(const zs_printers *lib, size_t i, zs_printer_bed *out);
 /* The model that fits a printer on the network: a name hint (a TXT model,
  * a host name) and its bed (0 when not known), or -1. */
 ptrdiff_t zs_printers_match(const zs_printers *lib, const char *hint, double bed_x, double bed_y, double height);

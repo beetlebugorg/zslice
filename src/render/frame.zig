@@ -60,6 +60,10 @@ pub const Frame = struct {
     head: []const Instance = &.{},
     grid: Push,
     grid_vertices: u32,
+    /// The bed model (see bed.zig and shaders/bed.vert): the vertices that
+    /// the backend has from `setBed`, drawn after the beads. 0: none.
+    bed: Push = .{ .mvp = @splat(0), .vec = .{ 0, 0, 0, 0 } },
+    bed_vertices: u32 = 0,
     /// The beads box_first .. box_count in ranges, with the boxes out of
     /// the view left out and a coarse mesh far from the camera. Empty: draw
     /// all of them with the full mesh. The web backend uses it.

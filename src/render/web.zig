@@ -18,6 +18,8 @@ pub const Instance = frame_mod.Instance;
 pub const max_extras = frame_mod.max_extras;
 pub const Push = frame_mod.Push;
 pub const Draw = frame_mod.Draw;
+const BedVertex = @import("../bed.zig").Vertex;
+const BedImage = @import("../bed.zig").Image;
 
 pub const Error = error{OutOfMemory};
 
@@ -67,6 +69,17 @@ pub const WebFrame = extern struct {
     mesh_full_count: u32 = 0,
     mesh_lod_first: [2]u32 = .{ 0, 0 },
     mesh_lod_count: [2]u32 = .{ 0, 0 },
+    /// The bed model (see bed.zig): its push constants, its vertices (8
+    /// floats each: position, normal, uv), and its RGBA texture (width 0:
+    /// none). bed_vertices is 0 when the frame has no bed.
+    bed: Push = .{ .mvp = @splat(0), .vec = .{ 0, 0, 0, 0 } },
+    bed_verts: usize = 0,
+    bed_vertex_count: u32 = 0,
+    bed_vertices: u32 = 0,
+    bed_gen: u32 = 0,
+    bed_tex: usize = 0,
+    bed_tex_width: u32 = 0,
+    bed_tex_height: u32 = 0,
 };
 
 pub const Renderer = struct {
@@ -75,6 +88,8 @@ pub const Renderer = struct {
     index: std.ArrayList(u16) = .empty,
     instances: std.ArrayList(Instance) = .empty,
     grid: std.ArrayList(f32) = .empty,
+    bed_verts: std.ArrayList(BedVertex) = .empty,
+    bed_tex: std.ArrayList(u8) = .empty,
 
     const gpa = std.heap.wasm_allocator;
 
@@ -90,6 +105,8 @@ pub const Renderer = struct {
         r.index.deinit(gpa);
         r.instances.deinit(gpa);
         r.grid.deinit(gpa);
+        r.bed_verts.deinit(gpa);
+        r.bed_tex.deinit(gpa);
         gpa.destroy(r);
     }
 
@@ -150,6 +167,25 @@ pub const Renderer = struct {
         r.out.grid_gen +%= 1;
     }
 
+    /// The bed model: the JavaScript side uploads it once for each
+    /// generation.
+    pub fn setBed(r: *Renderer, verts: []const BedVertex, image: ?BedImage) Error!void {
+        r.bed_verts.clearRetainingCapacity();
+        r.bed_verts.appendSlice(gpa, verts) catch return error.OutOfMemory;
+        r.bed_tex.clearRetainingCapacity();
+        r.out.bed_tex_width = 0;
+        r.out.bed_tex_height = 0;
+        if (image) |img| {
+            r.bed_tex.appendSlice(gpa, img.rgba[0 .. @as(usize, img.width) * img.height * 4]) catch return error.OutOfMemory;
+            r.out.bed_tex_width = img.width;
+            r.out.bed_tex_height = img.height;
+        }
+        r.out.bed_verts = @intFromPtr(r.bed_verts.items.ptr);
+        r.out.bed_vertex_count = @intCast(verts.len);
+        r.out.bed_tex = @intFromPtr(r.bed_tex.items.ptr);
+        r.out.bed_gen +%= 1;
+    }
+
     /// Keeps the frame for the JavaScript side. The extras and the head
     /// point into buffers of the view that live as long as the view.
     pub fn draw(r: *Renderer, frame: frame_mod.Frame) Error!void {
@@ -168,6 +204,8 @@ pub const Renderer = struct {
         o.head = @intFromPtr(head.ptr);
         o.head_count = @intCast(head.len);
         o.grid_vertices = frame.grid_vertices;
+        o.bed = frame.bed;
+        o.bed_vertices = @min(frame.bed_vertices, o.bed_vertex_count);
         o.draws = @intFromPtr(frame.draws.ptr);
         o.draws_count = @intCast(frame.draws.len);
     }

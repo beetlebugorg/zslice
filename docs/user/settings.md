@@ -18,6 +18,10 @@ Facts about the printer. They change only when the printer changes.
 
 The name of the printer, for the G-code header.
 
+**`machine.model`** (text). Default: `""`
+
+The id of the printer model in the printer library, for example "creality-ender-3-v2". The 3D view shows the bed model of this printer. Empty: the view shows the bed as a grid.
+
 ### Bed
 
 **`machine.bed_size_x`** (number). Default: `220`
