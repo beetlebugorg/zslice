@@ -209,10 +209,15 @@ pub fn find(gpa: Allocator, lp: *const layer.LayerPlan, opts: Options) Allocator
         if (!covers(path.feature) or end <= start) continue;
         const pts = lp.points.points.items[start..end];
         const r = (if (path.width > 0) @as(f64, path.width) else lp.width) / 2;
+        // Arachne walls have a width at each point (LayerPlan.point_w): a
+        // segment gets the mean of the widths at its ends.
+        const widths: ?[]const f32 = if (path.w_start != layer.Path.planar) lp.point_w.items[path.w_start..][0..pts.len] else null;
         for (0..pts.len) |k| {
             const a = pts[k];
-            const b = if (k + 1 < pts.len) pts[k + 1] else if (path.closed) pts[0] else a;
-            g.capsule(geom.toMm(a.x), geom.toMm(a.y), geom.toMm(b.x), geom.toMm(b.y), r, path.feature);
+            const kb = if (k + 1 < pts.len) k + 1 else if (path.closed) 0 else k;
+            const b = pts[kb];
+            const rk = if (widths) |ws| (@as(f64, ws[k]) + @as(f64, ws[kb])) / 4 else r;
+            g.capsule(geom.toMm(a.x), geom.toMm(a.y), geom.toMm(b.x), geom.toMm(b.y), rk, path.feature);
         }
     }
 
