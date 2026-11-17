@@ -52,12 +52,18 @@ pub fn build(b: *std.Build) void {
     lib_step.dependOn(&b.addInstallHeaderFile(b.path("include/zslice-app.h"), "zslice-app.h").step);
 
     // The wasm module. It exports the C API. It has no threads.
+    // -Dwasm-optimize sets its optimize mode. -Dwasm-cpu sets its CPU
+    // features, for example -Dwasm-cpu=baseline+simd128+bulk_memory.
+    const wasm_optimize = b.option(std.builtin.OptimizeMode, "wasm-optimize", "The optimize mode of the wasm module") orelse
+        (if (optimize == .Debug) .ReleaseSmall else optimize);
+    const wasm_cpu = b.option([]const u8, "wasm-cpu", "The CPU model and features of the wasm module") orelse "baseline";
+    const wasm_query = std.Target.Query.parse(.{ .arch_os_abi = "wasm32-freestanding", .cpu_features = wasm_cpu }) catch @panic("bad -Dwasm-cpu");
     const wasm = b.addExecutable(.{
         .name = "zslice",
         .root_module = b.createModule(.{
             .root_source_file = b.path("src/c_api.zig"),
-            .target = b.resolveTargetQuery(.{ .cpu_arch = .wasm32, .os_tag = .freestanding }),
-            .optimize = if (optimize == .Debug) .ReleaseSmall else optimize,
+            .target = b.resolveTargetQuery(wasm_query),
+            .optimize = wasm_optimize,
         }),
     });
     addLicenses(b, wasm.root_module);
