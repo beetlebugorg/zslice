@@ -105,6 +105,10 @@ typedef struct zs_setting_info {
                                       layer height), in core units */
     int per_layer;                 /* 1: the setting can change for some
                                       layers (zs_app_override_set) */
+    int per_part;                  /* 1: one part of the plate can have
+                                      its own value in a slice
+                                      (zs_app_part_setting_set); 0: the
+                                      same for all parts */
 } zs_setting_info;
 
 /* The settings, in the order to show them. */

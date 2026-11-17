@@ -1145,6 +1145,25 @@ pub const part_z: f64 = 1e5;
 /// A setting that the part can change: the project and filament settings.
 /// The machine settings describe the printer, and the engine settings the
 /// slicer.
+/// The settings that one part of the plate can have of its own in a
+/// slice (see part_settings.zig): the infill and the skin of the part, as
+/// a modifier of its volume, with their speeds, and its support. The
+/// others (the walls, the layer height, the travel, the temperatures)
+/// are the same for all the parts of a slice.
+pub fn isPerPartSetting(name: []const u8) bool {
+    const prefixes = [_][]const u8{ "project.infill_", "project.skin_", "project.lightning_", "project.top_support_" };
+    for (prefixes) |pre| if (std.mem.startsWith(u8, name, pre)) {
+        return !std.mem.eql(u8, name, "project.infill_layers");
+    };
+    const names = [_][]const u8{
+        "project.top_thickness",    "project.bottom_thickness", "project.solid_infill_width",
+        "project.support",          "project.infill_speed",     "project.skin_speed",
+        "project.infill_accel",     "project.skin_accel",
+    };
+    for (names) |n| if (std.mem.eql(u8, n, name)) return true;
+    return false;
+}
+
 pub fn isPartSetting(name: []const u8) bool {
     return std.mem.startsWith(u8, name, "project.") or std.mem.startsWith(u8, name, "filament.");
 }

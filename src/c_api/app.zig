@@ -72,6 +72,7 @@ pub const SettingInfo = extern struct {
     limit_max: f64,
     slider_step: f64,
     per_layer: c_int,
+    per_part: c_int,
 };
 
 export fn zs_setting_count() usize {
@@ -99,6 +100,7 @@ export fn zs_setting_get_info(index: usize, out: ?*SettingInfo) c_int {
         .limit_max = s.limit_max,
         .slider_step = s.slider_step,
         .per_layer = @intFromBool(s.per_layer),
+        .per_part = @intFromBool(zs.settings.isPerPartSetting(s.name)),
     };
     return ok;
 }

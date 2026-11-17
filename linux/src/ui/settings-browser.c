@@ -284,6 +284,12 @@ static void show_default(GtkWidget *box) {
         return;
     }
     gtk_button_set_label(GTK_BUTTON(reset), "Reset");
+    if (zg_model_part_scope(model) >= 0 && !info->per_part) {
+        gtk_label_set_text(GTK_LABEL(label), "The same for all the parts of a print. Change it with \"Settings for: This print\".");
+        gtk_widget_set_opacity(reset, 0);
+        gtk_widget_set_sensitive(reset, FALSE);
+        return;
+    }
     /* Where the value comes from (the cascade: default, global, printer,
      * filament, quality, this print), and what a reset gives: the value
      * under the changes of this print. */
@@ -390,7 +396,16 @@ static void show_detail(Browser *b, const char *key) {
     gtk_widget_add_css_class(path, "dim-label");
     gtk_widget_add_css_class(path, "caption");
     gtk_grid_attach(GTK_GRID(grid), path, 0, row++, 3, 1);
+    int editor_row = row;
     zg_setting_row_free(zg_setting_row_add(grid, &row, b->model, info, b->in_profile ? ZG_ROW_SCOPED : 0));
+    /* For a part: the editor of a setting for all parts is off. */
+    if (zg_model_part_scope(b->model) >= 0 && !info->per_part) {
+        for (int r = editor_row; r < row; r++)
+            for (int c = 0; c < 4; c++) {
+                GtkWidget *w = gtk_grid_get_child_at(GTK_GRID(grid), c, r);
+                if (w) gtk_widget_set_sensitive(w, FALSE);
+            }
+    }
 
     GtkWidget *def = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 6);
     GtkWidget *def_label = gtk_label_new("");
@@ -470,6 +485,14 @@ static void on_more_clicked(GtkButton *button, gpointer data) {
 /* The source tag of a row: the profile or the level of the value. */
 static void update_tag(Browser *b, GtkWidget *tag, const char *key) {
     int level = 0;
+    /* In the scope of a part: a setting that is the same for all parts. */
+    zs_setting_info info;
+    if (zg_model_part_scope(b->model) >= 0 && zg_setting_find(key, &info) && !info.per_part) {
+        gtk_label_set_text(GTK_LABEL(tag), "Same for all parts");
+        gtk_widget_set_visible(tag, TRUE);
+        gtk_widget_remove_css_class(tag, "zg-source-mine");
+        return;
+    }
     char *src = b->in_profile ? NULL : zg_model_source_text(b->model, key, zg_model_part_scope(b->model), &level);
     gtk_label_set_text(GTK_LABEL(tag), src ? src : "");
     gtk_widget_set_visible(tag, src != NULL);
@@ -537,6 +560,11 @@ static GtkWidget *setting_row(Browser *b, const zs_setting_info *src, gboolean w
     if (info->kind != ZS_SETTING_TEXT) {
         GtkWidget *editor = zg_setting_editor_new(b->model, info, b->in_profile);
         gtk_widget_add_css_class(editor, "zg-compact");
+        /* For a part: only the settings that a part can have. */
+        if (zg_model_part_scope(b->model) >= 0 && !info->per_part) {
+            gtk_widget_set_sensitive(editor, FALSE);
+            gtk_widget_set_tooltip_text(editor, "This setting is the same for all the parts of a print. Change it for this print.");
+        }
         gtk_widget_set_valign(editor, GTK_ALIGN_CENTER);
         gtk_box_append(GTK_BOX(box), editor);
         if (info->kind == ZS_SETTING_NUMBER || info->kind == ZS_SETTING_INTEGER) {
@@ -1182,7 +1210,11 @@ static void on_scope_picked(GObject *dd, GParamSpec *ps, gpointer data) {
 }
 
 static void on_scope_plate(ZgModel *model, gpointer data) {
-    fill_scope(data);
+    Browser *b = data;
+    fill_scope(b);
+    /* The rows show the values and the editors of the new scope. */
+    if (b->section && !b->profile_list) fill_settings(b, b->group, b->section, NULL);
+    if (b->key) show_detail(b, b->key);
 }
 
 static GtkWidget *scope_bar(Browser *b) {
