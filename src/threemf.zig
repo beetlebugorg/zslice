@@ -543,28 +543,56 @@ fn writeEscaped(w: *std.Io.Writer, s: []const u8) std.Io.Writer.Error!void {
     };
 }
 
+fn writeObject(w: *std.Io.Writer, id: usize, name: []const u8, meta: []const Meta, mesh: *const Mesh) std.Io.Writer.Error!void {
+    try w.print("  <object id=\"{d}\" type=\"model\" name=\"", .{id});
+    try writeEscaped(w, name);
+    try w.writeAll("\">\n");
+    if (meta.len > 0) {
+        try w.writeAll("   <metadatagroup>\n");
+        for (meta) |m| {
+            try w.writeAll("    <metadata name=\"");
+            try writeEscaped(w, m.key);
+            try w.writeAll("\" preserve=\"true\" type=\"xs:string\">");
+            try writeEscaped(w, m.value);
+            try w.writeAll("</metadata>\n");
+        }
+        try w.writeAll("   </metadatagroup>\n");
+    }
+    try w.writeAll("   <mesh>\n    <vertices>\n");
+    for (mesh.vertices.items) |v| try w.print("     <vertex x=\"{d}\" y=\"{d}\" z=\"{d}\"/>\n", .{ v.x, v.y, v.z });
+    try w.writeAll("    </vertices>\n    <triangles>\n");
+    for (mesh.faces.items) |f| try w.print("     <triangle v1=\"{d}\" v2=\"{d}\" v3=\"{d}\"/>\n", .{ f[0], f[1], f[2] });
+    try w.writeAll("    </triangles>\n   </mesh>\n  </object>\n");
+}
+
 /// Writes a 3MF file of the plate, with the overrides text.
 pub fn write(gpa: Allocator, out: *std.Io.Writer, plate: *const plate_mod.Plate, overrides: []const u8) (Allocator.Error || std.Io.Writer.Error)!void {
     var model: std.Io.Writer.Allocating = .init(gpa);
     defer model.deinit();
     const w = &model.writer;
-    try w.writeAll("<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n<model unit=\"millimeter\" xml:lang=\"en-US\" xmlns=\"http://schemas.microsoft.com/3dmanufacturing/core/2015/02\">\n");
+    try w.writeAll("<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n<model unit=\"millimeter\" xml:lang=\"en-US\" xmlns=\"http://schemas.microsoft.com/3dmanufacturing/core/2015/02\" xmlns:cura=\"http://software.ultimaker.com/xml/cura/3mf/2015/10\">\n");
     try w.writeAll(" <metadata name=\"Application\">zslice</metadata>\n <resources>\n");
-    for (plate.parts.items, 0..) |*p, k| {
-        try w.print("  <object id=\"{d}\" type=\"model\" name=\"", .{k + 1});
-        try writeEscaped(w, p.name);
-        try w.writeAll("\">\n   <mesh>\n    <vertices>\n");
-        for (p.mesh.vertices.items) |v| try w.print("     <vertex x=\"{d}\" y=\"{d}\" z=\"{d}\"/>\n", .{ v.x, v.y, v.z });
-        try w.writeAll("    </vertices>\n    <triangles>\n");
-        for (p.mesh.faces.items) |f| try w.print("     <triangle v1=\"{d}\" v2=\"{d}\" v3=\"{d}\"/>\n", .{ f[0], f[1], f[2] });
-        try w.writeAll("    </triangles>\n   </mesh>\n  </object>\n");
+    // One object for each part and for each of its volumes, with the
+    // metadata. A volume has the transform of its part.
+    var id: usize = 0;
+    for (plate.parts.items) |*p| {
+        id += 1;
+        try writeObject(w, id, p.name, p.meta, &p.mesh);
+        for (p.volumes.items) |*v| {
+            id += 1;
+            try writeObject(w, id, v.name, v.meta, &v.mesh);
+        }
     }
     try w.writeAll(" </resources>\n <build>\n");
-    for (plate.parts.items, 0..) |*p, k| {
+    id = 0;
+    for (plate.parts.items) |*p| {
         const t = p.transform();
-        try w.print("  <item objectid=\"{d}\" transform=\"", .{k + 1});
-        for (t, 0..) |x, i| try w.print("{s}{d}", .{ if (i == 0) "" else " ", x });
-        try w.writeAll("\"/>\n");
+        for (0..1 + p.volumes.items.len) |_| {
+            id += 1;
+            try w.print("  <item objectid=\"{d}\" transform=\"", .{id});
+            for (t, 0..) |x, i| try w.print("{s}{d}", .{ if (i == 0) "" else " ", x });
+            try w.writeAll("\"/>\n");
+        }
     }
     try w.writeAll(" </build>\n</model>\n");
 

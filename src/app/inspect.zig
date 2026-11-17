@@ -46,7 +46,9 @@ pub const Error = error{ OutOfRange, OutOfMemory, WriteFailed };
 /// strings go in `arena`.
 pub fn inspect(arena: Allocator, t: *const Toolpaths, job: *const zs.Job, path: usize) Error!Inspection {
     const layer = t.layerOfPath(path) orelse return error.OutOfRange;
-    const r = job.resolvedAt(layer);
+    // A path in a modifier volume has the settings of the volume.
+    const modifier: u16 = if (path < t.path_modifier.items.len) t.path_modifier.items[path] else 0;
+    const r = job.pathResolved(layer, modifier);
     const s = r.settings;
 
     const feature: zs.settings.Feature = @enumFromInt(t.path_features.items[path]);
@@ -84,6 +86,10 @@ pub fn inspect(arena: Allocator, t: *const Toolpaths, job: *const zs.Job, path: 
     const out = &text.writer;
     const name = fs.feature_names[@intFromEnum(feature)];
     try out.print("{s}, layer {d} of {d}, at z {d:.2} mm.\n\n", .{ name, layer + 1, t.layerCount(), t.layer_z.items[layer] });
+    if (modifier > 0 and modifier <= job.modifiers.len) {
+        const m = job.modifiers[modifier - 1];
+        try out.print("Modifier volume \"{s}\": this path is inside it, so it has the settings of the volume: its infill ({s}, {d:.0} %), its walls ({d}), its speed and its flow ({d:.0} %). The volume does not print; it changes the part inside it.\n\n", .{ m.name, @tagName(s.project.infill_pattern), s.project.infill_density * 100, s.project.wall_count, s.project.infill_flow * 100 });
+    }
     if (combined) {
         try out.print("Combined: {d} layers, {d:.2} mm. The sparse infill of layers {d} to {d} prints here as one bead (project.infill_layers). The nozzle is at the z of this layer, and the bead goes down to the bottom of layer {d}.\n\n", .{ group_n, h, layer + 2 - group_n, layer + 1, layer + 2 - group_n });
     }

@@ -39,6 +39,9 @@ pub const Toolpaths = struct {
     path_end_time: std.ArrayList(f32) = .empty,
     /// 1 if the travel to the path retracted the filament.
     path_retract: std.ArrayList(u8) = .empty,
+    /// The modifier volume of each path: 0 for none, k + 1 for
+    /// `Job.modifiers[k]` (see layer.Modifier).
+    path_modifier: std.ArrayList(u16) = .empty,
     /// The nozzle lift of a retracted travel (project.z_hop), in mm.
     z_hop: f32 = 0,
     /// 1 if the layer prints slower than planned, to cool
@@ -66,6 +69,7 @@ pub const Toolpaths = struct {
         t.path_start_time.deinit(gpa);
         t.path_end_time.deinit(gpa);
         t.path_retract.deinit(gpa);
+        t.path_modifier.deinit(gpa);
         t.layer_slowed.deinit(gpa);
         t.layer_ends.deinit(gpa);
         t.layer_z.deinit(gpa);
@@ -231,6 +235,8 @@ pub const Toolpaths = struct {
         const start_time = try t.path_start_time.addManyAsSlice(gpa, n);
         const end_time = try t.path_end_time.addManyAsSlice(gpa, n);
         const retract = try t.path_retract.addManyAsSlice(gpa, n);
+        const modifier = try t.path_modifier.addManyAsSlice(gpa, n);
+        for (plan.paths.items, modifier) |p, *m| m.* = if (p.region > 0 and p.region <= plan.region_modifier.len) plan.region_modifier[p.region - 1] + 1 else 0;
         const z_start = try t.path_z_start.addManyAsSlice(gpa, n);
         const flow_ratio: f32 = @floatCast(if (plan.resolved) |r| r.settings.filament.flow_ratio else 1);
         for (plan.paths.items, 0..) |p, i| {

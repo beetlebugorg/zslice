@@ -732,6 +732,14 @@ pub const Job = struct {
         return &self.resolved;
     }
 
+    /// The settings of a path on layer i: of modifier volume k - 1 (see
+    /// `modifiers`), or of the layer for k = 0.
+    pub fn pathResolved(self: *const Job, i: usize, k: usize) *const settings_mod.Resolved {
+        if (k == 0 or k > self.modifiers.len) return self.resolvedAt(i);
+        const set: usize = if (i < self.layer_set.len) self.layer_set[i] else 0;
+        return &self.modifiers[k - 1].resolved[set];
+    }
+
     /// The combined area of each infill group (see layer.combinedArea), at
     /// the index of the last layer of the group, on all threads. Each
     /// group uses the memos of its own layers, so the plans then find the

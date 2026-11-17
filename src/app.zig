@@ -171,6 +171,10 @@ pub const App = struct {
     /// the running slice. A new model clears them.
     marks: std.ArrayList(zs.support.Mark) = .empty,
     slice_marks: []zs.support.Mark = &.{},
+    /// The settings of the parts and the modifier volumes for the running
+    /// slice (see part_settings.zig), and the meshes that it points to.
+    slice_plan: ?zs.part_settings.Plan = null,
+    slice_meshes: []zs.Mesh = &.{},
     /// The bytes of the last write3mf.
     file_bytes: []u8 = &.{},
 
@@ -194,6 +198,7 @@ pub const App = struct {
         app.gpa.free(app.file_bytes);
         app.marks.deinit(app.gpa);
         app.gpa.free(app.slice_marks);
+        app.dropSlicePlan();
         for (app.plates.items) |*slot| slot.deinit(app.gpa);
         app.plates.deinit(app.gpa);
         if (app.mesh) |*m| m.deinit(app.gpa);
@@ -260,11 +265,48 @@ pub const App = struct {
     /// fit), and its overrides apply.
     fn addLoaded(app: *App, loaded: *zs.threemf.Loaded) LoadError!void {
         try zs.threemf.joinOverlapping(app.gpa, loaded);
-        for (loaded.parts) |*p| {
+        // The parts that print first, then the volumes (modifiers and the
+        // other Cura volume types): each goes to the part that it overlaps
+        // most (see plate.Volume).
+        const index = try app.gpa.alloc(?usize, loaded.parts.len);
+        defer app.gpa.free(index);
+        var any_print = false;
+        for (loaded.parts) |p| any_print = any_print or zs.part_settings.prints(p.meta);
+        for (loaded.parts, index) |*p, *idx| {
+            idx.* = null;
+            if (any_print and !zs.part_settings.prints(p.meta)) continue;
             const m = p.mesh;
             p.mesh = .empty; // The plate owns the mesh now.
             const i = try app.plate.add(app.gpa, p.name, m, app.bedSize(), app.partGap(), true);
-            _ = i;
+            idx.* = i;
+            // With no part that prints, a volume prints as a part.
+            if (zs.part_settings.prints(p.meta)) {
+                app.plate.setMeta(app.gpa, i, p.meta);
+                p.meta = &.{};
+            }
+        }
+        for (loaded.parts) |*p| {
+            if (p.mesh.faces.items.len == 0) continue;
+            const vb = p.mesh.bounds();
+            var best: ?usize = null;
+            var best_v: f64 = -1;
+            for (loaded.parts, index) |*q, idx| {
+                const i = idx orelse continue;
+                const qb = app.plate.parts.items[i].mesh.bounds();
+                _ = q;
+                var vol: f64 = 1;
+                for (0..3) |k| vol *= @max(0, @min(vb.max[k], qb.max[k]) - @max(vb.min[k], qb.min[k]));
+                if (vol > best_v) {
+                    best_v = vol;
+                    best = i;
+                }
+            }
+            const host = best orelse continue;
+            const m = p.mesh;
+            p.mesh = .empty;
+            const meta = p.meta;
+            p.meta = &.{};
+            try app.plate.addVolume(app.gpa, host, p.name, m, meta);
         }
         try app.plateChanged();
         var lines = std.mem.tokenizeAny(u8, loaded.overrides, "\r\n");
@@ -917,6 +959,7 @@ pub const App = struct {
         app.slice_overrides = app.gpa.dupe(zs.settings.Override, app.overrides.items) catch &.{};
         app.gpa.free(app.slice_marks);
         app.slice_marks = app.gpa.dupe(zs.support.Mark, app.marks.items) catch &.{};
+        try app.makeSlicePlan();
         app.cancel_flag.store(false, .release);
         app.state.store(.slicing, .release);
         if (comptime !has_threads) {
@@ -965,6 +1008,42 @@ pub const App = struct {
             t.join();
             app.worker = null;
         }
+    }
+
+    fn dropSlicePlan(app: *App) void {
+        if (app.slice_plan) |*p| p.deinit();
+        app.slice_plan = null;
+        for (app.slice_meshes) |*m| m.deinit(app.gpa);
+        app.gpa.free(app.slice_meshes);
+        app.slice_meshes = &.{};
+    }
+
+    /// The settings of the parts and the modifier volumes for the next
+    /// slice (see part_settings.zig). Null if no part has settings or
+    /// volumes.
+    fn makeSlicePlan(app: *App) Allocator.Error!void {
+        app.dropSlicePlan();
+        var n: usize = 0;
+        for (app.plate.parts.items) |p| n += @intFromBool(p.meta.len > 0) + p.volumes.items.len;
+        if (n == 0) return;
+        app.slice_meshes = try app.gpa.alloc(zs.Mesh, n);
+        @memset(app.slice_meshes, .empty);
+        const inputs = try app.gpa.alloc(zs.part_settings.Input, n);
+        defer app.gpa.free(inputs);
+        var k: usize = 0;
+        for (app.plate.parts.items, 0..) |p, i| {
+            if (p.meta.len > 0) {
+                app.slice_meshes[k] = try app.plate.partMesh(app.gpa, i);
+                inputs[k] = .{ .name = p.name, .meta = p.meta, .mesh = &app.slice_meshes[k] };
+                k += 1;
+            }
+            for (p.volumes.items, 0..) |v, vk| {
+                app.slice_meshes[k] = try app.plate.volumeMesh(app.gpa, i, vk);
+                inputs[k] = .{ .name = v.name, .meta = v.meta, .mesh = &app.slice_meshes[k] };
+                k += 1;
+            }
+        }
+        app.slice_plan = try zs.part_settings.plan(app.gpa, inputs, &app.settings);
     }
 
     fn dropPrevJob(app: *App) void {
@@ -1020,6 +1099,9 @@ pub const App = struct {
         var part = app.slice_settings;
         // The plate has placed the parts: the engine keeps their places.
         part.project.placement = .file;
+        // The settings of the parts for the whole plate, under the
+        // overrides of the user.
+        if (app.slice_plan) |*pp| pp.applyBase(&part) catch |e| return app.finishFailed(e);
         var layer_overrides: std.ArrayList(zs.settings.Override) = .empty;
         defer layer_overrides.deinit(app.gpa);
         for (app.slice_overrides) |o| {
@@ -1036,6 +1118,10 @@ pub const App = struct {
         // old job goes in each case.
         app.dropPrevJob();
         var job = job_or catch |e| return app.finishFailed(e);
+        if (app.slice_plan) |pp| job.setModifiers(pp.modifiers) catch |e| {
+            app.keepForRegions(job);
+            return app.finishFailed(e);
+        };
         var out: std.Io.Writer.Allocating = .initOwnedSlice(app.gpa, app.spare_gcode);
         app.spare_gcode = &.{};
         out.clearRetainingCapacity();
@@ -1825,4 +1911,69 @@ test "app: the state of a group goes out as a profile and comes back" {
     // A reset of the group gives the defaults.
     back.resetGroup(.project);
     try testing.expectEqual((Settings{}).project.wall_count, back.settings.project.wall_count);
+}
+
+/// A Cura project 3MF of a plate (40 x 40 x 2 mm, 100 % lines) and a
+/// window in it (an infill mesh with no walls and no skin).
+fn grilleProject(gpa: Allocator) ![]u8 {
+    const box = struct {
+        fn mesh(w: *std.Io.Writer, x0: f64, y0: f64, x1: f64, y1: f64, h: f64) !void {
+            try w.writeAll("<mesh><vertices>");
+            for ([_][3]f64{ .{ x0, y0, 0 }, .{ x1, y0, 0 }, .{ x1, y1, 0 }, .{ x0, y1, 0 }, .{ x0, y0, h }, .{ x1, y0, h }, .{ x1, y1, h }, .{ x0, y1, h } }) |v| try w.print("<vertex x=\"{d}\" y=\"{d}\" z=\"{d}\"/>", .{ v[0], v[1], v[2] });
+            try w.writeAll("</vertices><triangles>");
+            for ([_][3]u32{ .{ 0, 2, 1 }, .{ 0, 3, 2 }, .{ 4, 5, 6 }, .{ 4, 6, 7 }, .{ 0, 1, 5 }, .{ 0, 5, 4 }, .{ 1, 2, 6 }, .{ 1, 6, 5 }, .{ 2, 3, 7 }, .{ 2, 7, 6 }, .{ 3, 0, 4 }, .{ 3, 4, 7 } }) |f| try w.print("<triangle v1=\"{d}\" v2=\"{d}\" v3=\"{d}\"/>", .{ f[0], f[1], f[2] });
+            try w.writeAll("</triangles></mesh>");
+        }
+    };
+    var model: std.Io.Writer.Allocating = .init(gpa);
+    defer model.deinit();
+    const w = &model.writer;
+    try w.writeAll("<?xml version=\"1.0\"?><model unit=\"millimeter\" xmlns:cura=\"http://software.ultimaker.com/xml/cura/3mf/2015/10\"><resources>");
+    try w.writeAll("<object id=\"1\" name=\"plate\" type=\"model\"><metadatagroup><metadata name=\"cura:infill_sparse_density\">=100</metadata><metadata name=\"cura:infill_pattern\">lines</metadata></metadatagroup>");
+    try box.mesh(w, -20, -20, 20, 20, 2);
+    try w.writeAll("</object><object id=\"2\" name=\"window\" type=\"model\"><metadatagroup><metadata name=\"cura:infill_mesh\">=True</metadata><metadata name=\"cura:wall_line_count\">=0</metadata><metadata name=\"cura:top_layers\">=0</metadata><metadata name=\"cura:bottom_layers\">=0</metadata><metadata name=\"cura:infill_sparse_density\">=25</metadata><metadata name=\"cura:infill_pattern\">grid</metadata></metadatagroup>");
+    try box.mesh(w, -10, -10, 10, 10, 2);
+    try w.writeAll("</object></resources><build><item objectid=\"1\" transform=\"1 0 0 0 1 0 0 0 1 100 100 0\"/><item objectid=\"2\" transform=\"1 0 0 0 1 0 0 0 1 100 100 0\"/></build></model>");
+    const entries = [_]zs.zipfile.Entry{.{ .name = "3D/3dmodel.model", .data = model.written() }};
+    var out: std.Io.Writer.Allocating = .init(gpa);
+    errdefer out.deinit();
+    try zs.zipfile.write(gpa, &out.writer, &entries);
+    return out.toOwnedSlice();
+}
+
+test "app: a Cura project with a modifier volume: load, slice, inspect, and save" {
+    const gpa = testing.allocator;
+    const bytes = try grilleProject(gpa);
+    defer gpa.free(bytes);
+    const app = try App.create(gpa, null, null);
+    defer app.destroy();
+    try app.loadStl("grille.3mf", bytes);
+    // One part that prints, with its settings and the window volume.
+    try testing.expectEqual(@as(usize, 1), app.plate.count());
+    const part = app.plate.parts.items[0];
+    try testing.expectEqual(@as(usize, 2), part.meta.len);
+    try testing.expectEqual(@as(usize, 1), part.volumes.items.len);
+    try testing.expectEqualStrings("window", part.volumes.items[0].name);
+    try app.startSlice();
+    app.stopWorkerForTest();
+    try testing.expectEqual(State.done, app.getState());
+    const tp = app.allToolpaths().?;
+    var in_window: ?usize = null;
+    for (tp.path_modifier.items, 0..) |m, k| if (m == 1) {
+        in_window = k;
+    };
+    try testing.expect(in_window != null);
+    // The inspector names the volume, and uses its settings.
+    const ins = try app.inspect(in_window.?);
+    try testing.expect(std.mem.indexOf(u8, ins.explain, "Modifier volume \"window\"") != null);
+    // The part and its volume go in a 3MF file and come back.
+    const saved = try gpa.dupe(u8, try app.write3mf());
+    defer gpa.free(saved);
+    const back = try App.create(gpa, null, null);
+    defer back.destroy();
+    try back.loadStl("grille.3mf", saved);
+    try testing.expectEqual(@as(usize, 1), back.plate.count());
+    try testing.expectEqual(@as(usize, 1), back.plate.parts.items[0].volumes.items.len);
+    try testing.expectEqual(@as(usize, 2), back.plate.parts.items[0].meta.len);
+    try testing.expectEqual(@as(usize, 6), back.plate.parts.items[0].volumes.items[0].meta.len);
 }

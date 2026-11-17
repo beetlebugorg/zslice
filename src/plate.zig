@@ -12,6 +12,12 @@
 //! center out. `arrange` packs all parts in rows, the largest first, with
 //! a gap between them, and puts the rows in the middle of the bed.
 //!
+//! A part can have its own settings (the metadata of a Cura project 3MF,
+//! see part_settings.zig), and modifier volumes: meshes that do not print
+//! and that change the settings of the part inside them. A volume belongs
+//! to a part: it has the pose, the scale, the turn, and the place of its
+//! part, so it moves with it.
+//!
 //! References (see REFERENCES.md): the closest point on a triangle
 //! (Ericson, "Real-Time Collision Detection"), for the side of a part
 //! nearest to a picked point.
@@ -21,6 +27,27 @@ const Allocator = std.mem.Allocator;
 const mesh_mod = @import("mesh.zig");
 const Mesh = mesh_mod.Mesh;
 const orient = @import("orient.zig");
+const threemf = @import("threemf.zig");
+const Meta = threemf.Meta;
+
+/// A modifier volume of a part (see the file comment).
+pub const Volume = struct {
+    name: [:0]u8,
+    /// The mesh with the pose and the scale of its part, in the frame of
+    /// the mesh of the part.
+    mesh: Mesh,
+    /// The mesh of the file (see `Part.source`).
+    source: ?Mesh = null,
+    /// The metadata of the volume: its role and its settings.
+    meta: []Meta = &.{},
+
+    fn deinit(v: *Volume, gpa: Allocator) void {
+        v.mesh.deinit(gpa);
+        if (v.source) |*m| m.deinit(gpa);
+        threemf.freeMeta(gpa, v.meta);
+        gpa.free(v.name);
+    }
+};
 
 /// A 3x3 matrix (rows).
 pub const M3 = [3][3]f64;
@@ -72,6 +99,44 @@ pub const Part = struct {
     half: [2]f64 = .{ 0, 0 },
     shift: [2]f64 = .{ 0, 0 },
     height: f64 = 0,
+    /// The metadata of the part (its own settings), or empty.
+    meta: []Meta = &.{},
+    /// The modifier volumes of the part.
+    volumes: std.ArrayList(Volume) = .empty,
+
+    fn deinit(p: *Part, gpa: Allocator) void {
+        p.mesh.deinit(gpa);
+        if (p.source) |*m| m.deinit(gpa);
+        gpa.free(p.name);
+        threemf.freeMeta(gpa, p.meta);
+        for (p.volumes.items) |*v| v.deinit(gpa);
+        p.volumes.deinit(gpa);
+    }
+
+    /// A mesh of the frame of the part (`mesh`) on the bed, at the place
+    /// of the part: the transform of `combined`.
+    fn placed(p: *const Part, gpa: Allocator, m: *const Mesh, out: *Mesh) Allocator.Error!void {
+        const c = p.turnCenter();
+        const b = p.mesh.bounds();
+        const a = std.math.degreesToRadians(p.rot);
+        const ca = @cos(a);
+        const sa = @sin(a);
+        const base: u32 = @intCast(out.vertices.items.len);
+        try out.vertices.ensureUnusedCapacity(gpa, m.vertices.items.len);
+        for (m.vertices.items) |v| {
+            const dx = v.x - c[0];
+            const dy = v.y - c[1];
+            const rx = dx * ca - dy * sa - p.shift[0];
+            const ry = dx * sa + dy * ca - p.shift[1];
+            out.vertices.appendAssumeCapacity(.{
+                .x = @floatCast(p.x + rx),
+                .y = @floatCast(p.y + ry),
+                .z = @floatCast(v.z - b.min[2]),
+            });
+        }
+        try out.faces.ensureUnusedCapacity(gpa, m.faces.items.len);
+        for (m.faces.items) |f| out.faces.appendAssumeCapacity(.{ f[0] + base, f[1] + base, f[2] + base });
+    }
 
     fn turnCenter(p: *const Part) [2]f64 {
         const b = p.mesh.bounds();
@@ -134,11 +199,7 @@ pub const Plate = struct {
     parts: std.ArrayList(Part) = .empty,
 
     pub fn deinit(self: *Plate, gpa: Allocator) void {
-        for (self.parts.items) |*p| {
-            p.mesh.deinit(gpa);
-            if (p.source) |*s| s.deinit(gpa);
-            gpa.free(p.name);
-        }
+        for (self.parts.items) |*p| p.deinit(gpa);
         self.parts.deinit(gpa);
     }
 
@@ -181,9 +242,58 @@ pub const Plate = struct {
     pub fn remove(self: *Plate, gpa: Allocator, i: usize) void {
         if (i >= self.parts.items.len) return;
         var p = self.parts.orderedRemove(i);
-        p.mesh.deinit(gpa);
-        if (p.source) |*s| s.deinit(gpa);
-        gpa.free(p.name);
+        p.deinit(gpa);
+    }
+
+    /// Sets the metadata of part i (its own settings). The plate owns the
+    /// metadata after the call (also on an error).
+    pub fn setMeta(self: *Plate, gpa: Allocator, i: usize, meta: []Meta) void {
+        if (i >= self.parts.items.len) return threemf.freeMeta(gpa, meta);
+        const p = &self.parts.items[i];
+        threemf.freeMeta(gpa, p.meta);
+        p.meta = meta;
+    }
+
+    /// Adds a modifier volume to part i. `mesh` is in the frame of the
+    /// file of the part, as the part was loaded. The plate owns the mesh
+    /// and the metadata after the call (also on an error).
+    pub fn addVolume(self: *Plate, gpa: Allocator, i: usize, name: []const u8, mesh: Mesh, meta: []Meta) Allocator.Error!void {
+        var v: Volume = .{ .name = undefined, .mesh = mesh, .meta = meta };
+        v.name = gpa.dupeZ(u8, name) catch |e| {
+            v.mesh.deinit(gpa);
+            threemf.freeMeta(gpa, meta);
+            return e;
+        };
+        errdefer v.deinit(gpa);
+        if (i >= self.parts.items.len) return error.OutOfMemory;
+        const p = &self.parts.items[i];
+        // A part with a pose: the volume gets it too.
+        if (p.source != null) {
+            v.source = v.mesh;
+            v.mesh = .empty;
+            try poseMesh(gpa, p, &v.source.?, &v.mesh);
+        }
+        try p.volumes.append(gpa, v);
+    }
+
+    /// The mesh of part i on the bed (the transform of `combined`). The
+    /// caller owns the result.
+    pub fn partMesh(self: *const Plate, gpa: Allocator, i: usize) Allocator.Error!Mesh {
+        var out: Mesh = .empty;
+        errdefer out.deinit(gpa);
+        const p = &self.parts.items[i];
+        try p.placed(gpa, &p.mesh, &out);
+        return out;
+    }
+
+    /// The mesh of volume k of part i on the bed, in the frame of
+    /// `combined`. The caller owns the result.
+    pub fn volumeMesh(self: *const Plate, gpa: Allocator, i: usize, k: usize) Allocator.Error!Mesh {
+        var out: Mesh = .empty;
+        errdefer out.deinit(gpa);
+        const p = &self.parts.items[i];
+        try p.placed(gpa, &p.volumes.items[k].mesh, &out);
+        return out;
     }
 
     pub fn move(self: *Plate, i: usize, x: f64, y: f64) void {
@@ -222,6 +332,14 @@ pub const Plate = struct {
         p.mesh.deinit(gpa);
         p.mesh = m;
         p.measure();
+        for (p.volumes.items) |*v| {
+            if (v.source == null) v.source = try cloneMesh(gpa, &v.mesh);
+            var vm: Mesh = .empty;
+            errdefer vm.deinit(gpa);
+            try poseMesh(gpa, p, &v.source.?, &vm);
+            v.mesh.deinit(gpa);
+            v.mesh = vm;
+        }
     }
 
     /// Sets the scale of part i along the axes of its file (1 = 100 %).
@@ -434,28 +552,7 @@ pub const Plate = struct {
     pub fn combined(self: *const Plate, gpa: Allocator) Allocator.Error!Mesh {
         var out: Mesh = .empty;
         errdefer out.deinit(gpa);
-        for (self.parts.items) |*p| {
-            const c = p.turnCenter();
-            const b = p.mesh.bounds();
-            const a = std.math.degreesToRadians(p.rot);
-            const ca = @cos(a);
-            const sa = @sin(a);
-            const base: u32 = @intCast(out.vertices.items.len);
-            try out.vertices.ensureUnusedCapacity(gpa, p.mesh.vertices.items.len);
-            for (p.mesh.vertices.items) |v| {
-                const dx = v.x - c[0];
-                const dy = v.y - c[1];
-                const rx = dx * ca - dy * sa - p.shift[0];
-                const ry = dx * sa + dy * ca - p.shift[1];
-                out.vertices.appendAssumeCapacity(.{
-                    .x = @floatCast(p.x + rx),
-                    .y = @floatCast(p.y + ry),
-                    .z = @floatCast(v.z - b.min[2]),
-                });
-            }
-            try out.faces.ensureUnusedCapacity(gpa, p.mesh.faces.items.len);
-            for (p.mesh.faces.items) |f| out.faces.appendAssumeCapacity(.{ f[0] + base, f[1] + base, f[2] + base });
-        }
+        for (self.parts.items) |*p| try p.placed(gpa, &p.mesh, &out);
         return out;
     }
 };
@@ -516,6 +613,18 @@ fn pointTriangle2(p: [3]f64, a: [3]f64, b: [3]f64, c: [3]f64) f64 {
     }
     const d = sub(p, closest);
     return dotp(d, d);
+}
+
+/// `src` with the pose and the scale of part p, in `out`.
+fn poseMesh(gpa: Allocator, p: *const Part, src: *const Mesh, out: *Mesh) Allocator.Error!void {
+    try out.vertices.ensureTotalCapacity(gpa, src.vertices.items.len);
+    for (src.vertices.items) |v| {
+        const q = mulV(p.pose, .{ v.x * p.scale[0], v.y * p.scale[1], v.z * p.scale[2] });
+        out.vertices.appendAssumeCapacity(.{ .x = @floatCast(q[0]), .y = @floatCast(q[1]), .z = @floatCast(q[2]) });
+    }
+    const flip = p.scale[0] * p.scale[1] * p.scale[2] < 0;
+    try out.faces.ensureTotalCapacity(gpa, src.faces.items.len);
+    for (src.faces.items) |f| out.faces.appendAssumeCapacity(if (flip) .{ f[0], f[2], f[1] } else f);
 }
 
 fn cloneMesh(gpa: Allocator, m: *const Mesh) Allocator.Error!Mesh {
