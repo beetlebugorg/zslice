@@ -24,7 +24,7 @@
 const std = @import("std");
 const flow = @import("flow.zig");
 
-pub const InfillPattern = enum { lines, grid, triangles, cubic, gyroid, concentric, honeycomb, zigzag, flow, lightning };
+pub const InfillPattern = enum { lines, grid, triangles, trihexagon, cubic, gyroid, concentric, honeycomb, zigzag, flow, lightning };
 pub const SeamMode = enum { hidden, sharpest, rear, nearest, random };
 pub const WallGenerator = enum { classic, arachne };
 /// How the top and bottom skin is filled. See `Project.skin_pattern`.
@@ -322,8 +322,11 @@ pub const Project = struct {
     infill_density: f64 = 0.2,
     /// The sparse infill pattern. `lines`: one direction on each layer,
     /// turned 90 degrees on the next layer. `grid`: two directions on each
-    /// layer. `triangles`: three directions at 60 degrees on each layer.
-    /// `cubic`: three directions that move with the height, so the infill
+    /// layer. `triangles`: three directions at 60 degrees on each layer,
+    /// which cross at the same points, so they make triangles.
+    /// `trihexagon`: the three directions of `triangles`, with the third
+    /// set moved by half its spacing, so the lines make triangles and
+    /// hexagons (as in Cura). `cubic`: three directions that move with the height, so the infill
     /// makes cubes in 3D. `gyroid`: smooth curves that change with the
     /// height, strong in all directions. `concentric`: loops that follow
     /// the outline. `honeycomb`: hexagon cells, the same on all layers.
@@ -340,6 +343,24 @@ pub const Project = struct {
     infill_pattern: InfillPattern = .grid,
     /// The angle of the infill and skin lines, in degrees from the X axis.
     infill_angle: f64 = 45,
+    /// A list of infill angles in degrees from the X axis, with commas
+    /// between them, one for each layer in turn: "45,45,45,135,135,135"
+    /// prints 3 layers at 45 degrees, then 3 layers at 135 degrees, and
+    /// again. The line patterns (lines, zigzag, flow, grid, triangles,
+    /// trihexagon, cubic, honeycomb) use the angle of the layer in place of
+    /// `infill_angle`, and the lines and zigzag patterns do not turn by 90
+    /// degrees on each layer. Empty: `infill_angle`. As "Infill Line
+    /// Directions" in Cura.
+    infill_angles: []const u8 = "",
+    /// Keep the infill of all layers on top of each other: the lines,
+    /// zigzag, and flow patterns do not turn by 90 degrees on each layer.
+    /// The lines of each layer lie on the lines of the layer below, and
+    /// make vertical walls, for example the openings of a grille. Grid,
+    /// triangles, trihexagon, honeycomb, and concentric stack in each case.
+    infill_stack: bool = false,
+    /// The flow of the sparse infill lines, as a ratio of the flow of a
+    /// normal line. As "Infill Flow" in Cura.
+    infill_flow: f64 = 1.0,
     /// Join the infill lines (lines, grid, triangles, cubic) at their ends
     /// with a short line along the edge, as "Connect Infill Lines" in Cura:
     /// the nozzle prints a zigzag with no travel and no retraction, and the
@@ -627,6 +648,8 @@ pub const Settings = struct {
         };
         for (ratios) |v| if (!(v >= 0 and v <= 1)) return error.InvalidValue;
         if (p.outer_wall_speed == 0 or p.inner_wall_speed == 0 or p.skin_speed == 0 or p.infill_speed == 0 or p.first_layer_speed == 0) return error.InvalidValue;
+        var angle_buf: [max_infill_angles]f64 = undefined;
+        _ = infillAngles(p.infill_angles, &angle_buf) catch return error.InvalidValue;
         if (p.ironing and (p.ironing_speed == 0 or !(p.ironing_spacing > 0))) return error.InvalidValue;
         if (p.slope_ironing and (p.slope_ironing_speed == 0 or p.slope_ironing_passes == 0 or !(p.slope_smoothing_min_width < p.slope_smoothing_max_width))) return error.InvalidValue;
         if (p.slope_smoothing and (p.slope_smoothing_speed == 0 or !(p.slope_smoothing_min_width < p.slope_smoothing_max_width))) return error.InvalidValue;
@@ -734,6 +757,40 @@ pub const Resolved = struct {
         return limit * ratio;
     }
 };
+
+/// The most angles in `Project.infill_angles`.
+pub const max_infill_angles = 64;
+
+/// The angles of `Project.infill_angles` in `buf`: numbers with commas or
+/// spaces between them. Brackets around the list are allowed, as in Cura
+/// ("[45, 135]"). An empty list is no list.
+pub fn infillAngles(text: []const u8, buf: *[max_infill_angles]f64) error{InvalidValue}![]const f64 {
+    const t = std.mem.trim(u8, text, " \t[]");
+    var n: usize = 0;
+    var it = std.mem.tokenizeAny(u8, t, ", \t");
+    while (it.next()) |tok| {
+        if (n == buf.len) return error.InvalidValue;
+        const v = std.fmt.parseFloat(f64, tok) catch return error.InvalidValue;
+        if (!(@abs(v) <= 3600)) return error.InvalidValue;
+        buf[n] = v;
+        n += 1;
+    }
+    return buf[0..n];
+}
+
+test "infill angles: a list, with or without brackets" {
+    var buf: [max_infill_angles]f64 = undefined;
+    try std.testing.expectEqual(@as(usize, 0), (try infillAngles("", &buf)).len);
+    try std.testing.expectEqual(@as(usize, 0), (try infillAngles(" [] ", &buf)).len);
+    const a = try infillAngles("[45,45, 135]", &buf);
+    try std.testing.expectEqualSlices(f64, &.{ 45, 45, 135 }, a);
+    try std.testing.expectError(error.InvalidValue, infillAngles("45,x", &buf));
+    var s: Settings = .{};
+    try s.set("project.infill_angles", "90,0");
+    _ = try s.resolve();
+    s.project.infill_angles = "9e9";
+    try std.testing.expectError(error.InvalidValue, s.resolve());
+}
 
 fn setField(target: anytype, name: []const u8, value: []const u8) Settings.SetError!void {
     const T = @typeInfo(@TypeOf(target)).pointer.child;
@@ -942,6 +999,7 @@ pub const limits = [_]struct { []const u8, f64, f64 }{
     .{ "project.top_support_layers", 0, 20 },
     .{ "project.top_support_density", 0, 1 },
     .{ "project.infill_overlap", 0, 1 },
+    .{ "project.infill_flow", 0.1, 3 },
     .{ "project.infill_layers", 1, 10 },
     .{ "project.ironing_flow", 0, 1 },
     .{ "project.ironing_spacing", 0.01, 2 },
@@ -1071,6 +1129,9 @@ pub const layer_settings = [_][]const u8{
     "project.infill_density",
     "project.infill_pattern",
     "project.infill_angle",
+    "project.infill_angles",
+    "project.infill_stack",
+    "project.infill_flow",
     "project.infill_overlap",
     "project.infill_layers",
     "project.ironing",

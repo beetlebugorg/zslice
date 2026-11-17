@@ -732,7 +732,11 @@ pub const Emitter = struct {
             // A path with its own width (a thin wall) or height has its own
             // flow.
             const base_e = if (path.width > 0 or path.height > 0) flow.beadArea(if (path.width > 0) path.width else lp.width, h) / self.r.filament_area * s.filament.flow_ratio else e_per_mm;
-            const e = if (path.feature == .ironing) base_e * lr.settings.project.ironing_flow else base_e;
+            const e = switch (path.feature) {
+                .ironing => base_e * lr.settings.project.ironing_flow,
+                .infill => base_e * lr.settings.project.infill_flow,
+                else => base_e,
+            };
             const x0 = geom.toMm(pts[0].x);
             const y0 = geom.toMm(pts[0].y);
             if (path.z_start != layer_mod.Path.planar) {

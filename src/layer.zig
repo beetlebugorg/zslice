@@ -1269,6 +1269,32 @@ fn addBeads(s: Allocator, a: Allocator, lp: *LayerPlan, pos: *Point, set: []cons
     }
 }
 
+/// The infill angle of layer `layer_no` from `Project.infill_angles`, or
+/// null if the list is empty.
+fn listAngle(p: settings_mod.Project, layer_no: usize) ?f64 {
+    if (p.infill_angles.len == 0) return null;
+    var buf: [settings_mod.max_infill_angles]f64 = undefined;
+    const list = settings_mod.infillAngles(p.infill_angles, &buf) catch return null;
+    if (list.len == 0) return null;
+    return list[layer_no % list.len];
+}
+
+/// The angle of the patterns that keep one direction on all layers (grid,
+/// triangles, trihexagon, cubic, honeycomb): `infill_angle`, or the angle
+/// of the layer in `infill_angles`.
+pub fn baseAngle(p: settings_mod.Project, layer_no: usize) f64 {
+    return listAngle(p, layer_no) orelse p.infill_angle;
+}
+
+/// The angle of the patterns that turn by 90 degrees on each layer (lines,
+/// zigzag, flow): the angle of the layer in `infill_angles`, or
+/// `infill_angle` with no turn if `infill_stack` is on.
+pub fn turnAngle(p: settings_mod.Project, layer_no: usize) f64 {
+    if (listAngle(p, layer_no)) |a| return a;
+    if (p.infill_stack) return p.infill_angle;
+    return p.infill_angle + @as(f64, if (layer_no % 2 == 0) 0 else 90);
+}
+
 /// The sparse infill lines and loops of the pattern of `p` in `region`.
 /// `layer_no`: a layer number for the patterns that turn by 90 degrees on each
 /// layer. `z`: the height for the patterns that change with the height.
@@ -1282,30 +1308,36 @@ fn fillSparse(s: Allocator, p: settings_mod.Project, region: Paths, width_mm: f6
     switch (p.infill_pattern) {
         .lines => {
             const spacing = geom.fromMm(width_mm / p.infill_density);
-            const angle = p.infill_angle + @as(f64, if (i % 2 == 0) 0 else 90);
+            const angle = turnAngle(p, i);
             const set = try infill.lines(s, region, spacing, angle, w);
             sparse_lines = if (p.infill_connect) try infill.connect(s, region, set, spacing, angle) else set;
         },
         .grid => {
             const spacing = geom.fromMm(2 * width_mm / p.infill_density);
+            const base = baseAngle(p, i);
             for ([_]f64{ 0, 90 }) |turn| {
-                const set = try infill.lines(s, region, spacing, p.infill_angle + turn, w);
-                const joined = if (p.infill_connect) try infill.connect(s, region, set, spacing, p.infill_angle + turn) else set;
+                const set = try infill.lines(s, region, spacing, base + turn, w);
+                const joined = if (p.infill_connect) try infill.connect(s, region, set, spacing, base + turn) else set;
                 try sparse_lines.appendAll(s, joined);
             }
         },
-        .triangles, .cubic => {
+        .triangles, .trihexagon, .cubic => {
             // Three line sets, so each set is 3 times as far apart as
             // one set of the same density.
             const spacing = geom.fromMm(3 * width_mm / p.infill_density);
-            const step: f64 = if (p.infill_pattern == .triangles) 60 else 120;
+            const step: f64 = if (p.infill_pattern == .cubic) 120 else 60;
             // Cubic: each set moves along its normal by the layer
             // height, so the lines of the layers make planes at 45
             // degrees, and three such planes make cubes on a corner.
             const phase: i64 = if (p.infill_pattern == .cubic) geom.fromMm(z) else 0;
+            const base = baseAngle(p, i);
             for (0..3) |k| {
-                const angle = p.infill_angle + step * @as(f64, @floatFromInt(k));
-                const set = try infill.linesPhase(s, region, spacing, angle, phase, w);
+                const angle = base + step * @as(f64, @floatFromInt(k));
+                // Trihexagon: the third set moves by half its spacing, so
+                // it does not go through the crossings of the other two
+                // sets. The lines then make triangles and hexagons.
+                const shift: i64 = if (p.infill_pattern == .trihexagon and k == 2) @divTrunc(spacing, 2) else 0;
+                const set = try infill.linesPhase(s, region, spacing, angle, phase + shift, w);
                 const joined = if (p.infill_connect) try infill.connect(s, region, set, spacing, angle) else set;
                 try sparse_lines.appendAll(s, joined);
             }
@@ -1323,7 +1355,7 @@ fn fillSparse(s: Allocator, p: settings_mod.Project, region: Paths, width_mm: f6
             sparse_loops = try infill.concentric(s, region, spacing);
         },
         .honeycomb => {
-            const set = try infill.honeycomb(s, region, w, p.infill_density, p.infill_angle, w);
+            const set = try infill.honeycomb(s, region, w, p.infill_density, baseAngle(p, i), w);
             // The rows end at the walls: join them along the walls (two
             // row spacings at most), and drop the lone short pieces.
             const row = geom.fromMm(width_mm / p.infill_density);
@@ -1339,7 +1371,7 @@ fn fillSparse(s: Allocator, p: settings_mod.Project, region: Paths, width_mm: f6
             sparse_lines = if (p.infill_connect and lightning.count() > 0) try infill.joinPaths(s, region, lightning, @divTrunc(3 * sp, 2), 0) else lightning;
         },
         .zigzag, .flow => {
-            const angle = p.infill_angle + @as(f64, if (i % 2 == 0) 0 else 90);
+            const angle = turnAngle(p, i);
             const spacing = geom.fromMm(width_mm / p.infill_density);
             if (p.infill_pattern == .zigzag) {
                 const set = try infill.lines(s, region, spacing, angle, w);
@@ -1399,7 +1431,7 @@ fn fillSparse(s: Allocator, p: settings_mod.Project, region: Paths, width_mm: f6
     // line at a notch or a corner where the next line is out of
     // reach). Short is less than one line spacing, 8 mm at most.
     switch (p.infill_pattern) {
-        .lines, .grid, .triangles, .cubic, .zigzag, .flow => if (sparse_lines.count() > 0) {
+        .lines, .grid, .triangles, .trihexagon, .cubic, .zigzag, .flow => if (sparse_lines.count() > 0) {
             const sp = geom.fromMm(width_mm / p.infill_density);
             const lone_min = @min(sp, geom.fromMm(8));
             // Cubic keeps its chains as they are: its three line sets

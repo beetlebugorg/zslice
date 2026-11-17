@@ -358,13 +358,25 @@ Skin lines go this far into the walls, as a fraction of the line width, so that 
 
 The fraction of the inside that the sparse infill fills, as a ratio. 0 makes the part hollow.
 
-**`project.infill_pattern`** (one of: `lines`, `grid`, `triangles`, `cubic`, `gyroid`, `concentric`, `honeycomb`, `zigzag`, `flow`, `lightning`; per layer). Default: `grid`
+**`project.infill_pattern`** (one of: `lines`, `grid`, `triangles`, `trihexagon`, `cubic`, `gyroid`, `concentric`, `honeycomb`, `zigzag`, `flow`, `lightning`; per layer). Default: `grid`
 
-The sparse infill pattern. `lines`: one direction on each layer, turned 90 degrees on the next layer. `grid`: two directions on each layer. `triangles`: three directions at 60 degrees on each layer. `cubic`: three directions that move with the height, so the infill makes cubes in 3D. `gyroid`: smooth curves that change with the height, strong in all directions. `concentric`: loops that follow the outline. `honeycomb`: hexagon cells, the same on all layers. `zigzag`: the lines of `lines`, joined at the walls into one path, so the nozzle does not travel or retract between them. `flow`: the zigzag, with twice the density under each top surface (a band of 3 times the top thickness, at least 2 mm), where the top skin needs it, and the density of the setting in the middle. `lightning`: thin branches only under the top surfaces; they grow down from each top, join into trees, and end at the walls, so most of the inside stays empty. For display parts: it is fast and uses little plastic, but it is weak. The density sets the distance between the branches under a top.
+The sparse infill pattern. `lines`: one direction on each layer, turned 90 degrees on the next layer. `grid`: two directions on each layer. `triangles`: three directions at 60 degrees on each layer, which cross at the same points, so they make triangles. `trihexagon`: the three directions of `triangles`, with the third set moved by half its spacing, so the lines make triangles and hexagons (as in Cura). `cubic`: three directions that move with the height, so the infill makes cubes in 3D. `gyroid`: smooth curves that change with the height, strong in all directions. `concentric`: loops that follow the outline. `honeycomb`: hexagon cells, the same on all layers. `zigzag`: the lines of `lines`, joined at the walls into one path, so the nozzle does not travel or retract between them. `flow`: the zigzag, with twice the density under each top surface (a band of 3 times the top thickness, at least 2 mm), where the top skin needs it, and the density of the setting in the middle. `lightning`: thin branches only under the top surfaces; they grow down from each top, join into trees, and end at the walls, so most of the inside stays empty. For display parts: it is fast and uses little plastic, but it is weak. The density sets the distance between the branches under a top.
 
 **`project.infill_angle`** (number; per layer). Default: `45`
 
 The angle of the infill and skin lines, in degrees from the X axis.
+
+**`project.infill_angles`** (text; per layer). Default: `""`
+
+A list of infill angles in degrees from the X axis, with commas between them, one for each layer in turn: "45,45,45,135,135,135" prints 3 layers at 45 degrees, then 3 layers at 135 degrees, and again. The line patterns (lines, zigzag, flow, grid, triangles, trihexagon, cubic, honeycomb) use the angle of the layer in place of `infill_angle`, and the lines and zigzag patterns do not turn by 90 degrees on each layer. Empty: `infill_angle`. As "Infill Line Directions" in Cura.
+
+**`project.infill_stack`** (true or false; per layer). Default: `false`
+
+Keep the infill of all layers on top of each other: the lines, zigzag, and flow patterns do not turn by 90 degrees on each layer. The lines of each layer lie on the lines of the layer below, and make vertical walls, for example the openings of a grille. Grid, triangles, trihexagon, honeycomb, and concentric stack in each case.
+
+**`project.infill_flow`** (number; per layer). Default: `1.0`
+
+The flow of the sparse infill lines, as a ratio of the flow of a normal line. As "Infill Flow" in Cura.
 
 **`project.infill_connect`** (true or false; per layer). Default: `true`
 

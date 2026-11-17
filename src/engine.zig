@@ -2255,3 +2255,104 @@ test "a job with the same outlines and support takes the islands of the old job"
     defer with_support.deinit();
     try testing.expect(with_support.islands_key != job.islands_key or with_support.support.len == 0);
 }
+
+/// The points of the infill paths of a plan, sorted, for a check that two
+/// layers have the same infill.
+fn infillPoints(gpa: Allocator, lp: *const LayerPlan) ![]geom.Point {
+    var out: std.ArrayList(geom.Point) = .empty;
+    for (lp.paths.items, 0..) |p, k| if (p.feature == .infill) try out.appendSlice(gpa, lp.points.get(k));
+    std.mem.sort(geom.Point, out.items, {}, struct {
+        fn lt(_: void, a: geom.Point, b: geom.Point) bool {
+            return if (a.x != b.x) a.x < b.x else a.y < b.y;
+        }
+    }.lt);
+    return out.toOwnedSlice(gpa);
+}
+
+/// The direction (degrees, 0 to 180) of the longest infill segment.
+fn infillDirection(lp: *const LayerPlan) f64 {
+    var best: f64 = 0;
+    var dir: f64 = 0;
+    for (lp.paths.items, 0..) |p, k| if (p.feature == .infill) {
+        const pts = lp.points.get(k);
+        for (pts[0 .. pts.len - 1], pts[1..]) |a, b| {
+            const dx: f64 = @floatFromInt(b.x - a.x);
+            const dy: f64 = @floatFromInt(b.y - a.y);
+            const l = std.math.hypot(dx, dy);
+            if (l > best) {
+                best = l;
+                dir = @mod(std.math.radiansToDegrees(std.math.atan2(dy, dx)), 180);
+            }
+        }
+    };
+    return dir;
+}
+
+test "infill: the patterns that stack have the same lines on each layer" {
+    const gpa = testing.allocator;
+    var b: mesh_mod.Builder = .init(gpa);
+    try mesh_mod.shapes.addBox(&b, 0, 0, 0, 30, 30, 8);
+    var mesh = try b.finish();
+    defer mesh.deinit(gpa);
+    const Case = struct { pattern: settings_mod.InfillPattern, stack: bool, angles: []const u8, same: bool };
+    const cases = [_]Case{
+        .{ .pattern = .lines, .stack = false, .angles = "", .same = false },
+        .{ .pattern = .lines, .stack = true, .angles = "", .same = true },
+        .{ .pattern = .zigzag, .stack = true, .angles = "", .same = true },
+        .{ .pattern = .grid, .stack = false, .angles = "", .same = true },
+        .{ .pattern = .triangles, .stack = false, .angles = "", .same = true },
+        .{ .pattern = .trihexagon, .stack = false, .angles = "", .same = true },
+        .{ .pattern = .honeycomb, .stack = false, .angles = "", .same = true },
+        .{ .pattern = .concentric, .stack = false, .angles = "", .same = true },
+        // An angle list of one angle: the same on all layers.
+        .{ .pattern = .lines, .stack = false, .angles = "30", .same = true },
+        .{ .pattern = .cubic, .stack = false, .angles = "", .same = false },
+    };
+    for (cases) |c| {
+        var s: Settings = .{};
+        s.engine.threads = 1;
+        s.project.infill_pattern = c.pattern;
+        s.project.infill_stack = c.stack;
+        s.project.infill_angles = c.angles;
+        s.project.top_support_layers = 0;
+        var job = try Job.init(gpa, &mesh, s);
+        defer job.deinit();
+        const i = job.layers.len / 2;
+        var a = try job.planLayer(i);
+        defer a.deinit();
+        var a2 = try job.planLayer(i + 1);
+        defer a2.deinit();
+        const pa = try infillPoints(gpa, &a);
+        defer gpa.free(pa);
+        const pb = try infillPoints(gpa, &a2);
+        defer gpa.free(pb);
+        try testing.expect(pa.len > 0);
+        const same = std.mem.eql(u8, std.mem.sliceAsBytes(pa), std.mem.sliceAsBytes(pb));
+        testing.expectEqual(c.same, same) catch |e| {
+            std.debug.print("pattern {s}, stack {}, angles \"{s}\"\n", .{ @tagName(c.pattern), c.stack, c.angles });
+            return e;
+        };
+    }
+}
+
+test "infill: the angle list sets the angle of each layer in turn" {
+    const gpa = testing.allocator;
+    var b: mesh_mod.Builder = .init(gpa);
+    try mesh_mod.shapes.addBox(&b, 0, 0, 0, 30, 30, 8);
+    var mesh = try b.finish();
+    defer mesh.deinit(gpa);
+    var s: Settings = .{};
+    s.engine.threads = 1;
+    s.project.infill_pattern = .lines;
+    s.project.infill_connect = false;
+    s.project.top_support_layers = 0;
+    s.project.infill_angles = "[0, 0, 90]";
+    var job = try Job.init(gpa, &mesh, s);
+    defer job.deinit();
+    for (10..16) |i| {
+        var lp = try job.planLayer(i);
+        defer lp.deinit();
+        const want: f64 = if (i % 3 == 2) 90 else 0;
+        try testing.expectApproxEqAbs(want, infillDirection(&lp), 0.5);
+    }
+}
