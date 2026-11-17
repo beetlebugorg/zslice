@@ -260,13 +260,16 @@ static void nudge(Search *s, Row *r, int dir) {
         double step = info->slider_step > 0 ? info->slider_step : info->kind == ZS_SETTING_INTEGER ? 1 : ratio ? 0.01 : 0.1;
         double v = g_ascii_strtod(value, NULL) + dir * step;
         g_free(value);
+        if (info->kind == ZS_SETTING_INTEGER) v = round(v);
+        if (info->limit_max > info->limit_min) v = CLAMP(v, info->limit_min, info->limit_max);
         char core[G_ASCII_DTOSTR_BUF_SIZE];
         g_ascii_formatd(core, sizeof core, "%.10g", v);
-        char *shown = zg_setting_display_value(info, core);
-        gtk_editable_set_text(GTK_EDITABLE(r->editor), shown);
-        g_free(shown);
-        /* Enter in the entry sends it. */
-        gtk_widget_activate(r->editor);
+        /* The editors of the setting follow the new value. */
+        if (s->part >= 0) {
+            if (zg_model_part_setting_set(s->model, (size_t)s->part, info->name, core)) zg_model_announce(s->model, info->name);
+        } else {
+            zg_model_set(s->model, info->name, core, NULL);
+        }
     }
 }
 

@@ -24,5 +24,8 @@ void zg_preview_refresh(GtkWidget *preview);
  * there), for example to show an island. */
 void zg_preview_show_layer(GtkWidget *preview, size_t layer);
 
+/* The 3D view of the preview (view3d.h). */
+GtkWidget *zg_preview_view3d(GtkWidget *preview);
+
 /* TRUE if the layer slider hides some layers (for "Show all layers"). */
 gboolean zg_preview_is_cut(GtkWidget *preview);

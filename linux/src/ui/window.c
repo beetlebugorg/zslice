@@ -26,6 +26,7 @@
 #include "setting-editor.h"
 #include "float.h"
 #include "search.h"
+#include "part-card.h"
 
 typedef struct {
     ZgModel *model;
@@ -112,6 +113,7 @@ static void on_focus_widget(GtkWindow *win, GParamSpec *pspec, gpointer data) {
 static void send_now(Window *w);
 static void send_checked(Window *w);
 static void fill_facts(Window *w);
+static void action_hook(gpointer data);
 
 enum PanelMode { PANEL_HIDDEN, PANEL_OVER, PANEL_PINNED };
 static const char *panel_modes[] = {"hidden", "overlay", "pinned"};
@@ -438,6 +440,11 @@ static void on_core_event(ZgModel *model, int event, double progress, int status
     }
     if (w->batch.on && event == ZS_EVENT_SLICED) batch_take(w);
     if (event == ZS_EVENT_SLICED) deck_estimate_soon(w);
+    static gboolean action_hooked;
+    if (event == ZS_EVENT_SLICED && !action_hooked && g_getenv("ZSLICE_ACTION")) {
+        action_hooked = TRUE;
+        g_timeout_add_once(1500, action_hook, w);
+    }
     if (w->export_pending && zs_app_state(zg_model_core(model)) != ZS_STATE_SLICING) {
         w->export_pending = FALSE;
         if (zs_app_state(zg_model_core(model)) == ZS_STATE_DONE) zg_window_export_dialog(w->window);
@@ -1054,6 +1061,23 @@ static gboolean open_cura_compare_test(gpointer data) {
     return G_SOURCE_REMOVE;
 }
 
+/* For tests: ZSLICE_ACTION=name runs an action 1.5 s after the first
+ * slice, as a click would: a detailed name, for example
+ * "win.search-part(int64 0)" or "win.show-page('history')". */
+static void action_hook(gpointer data) {
+    Window *w = data;
+    char *name = NULL;
+    GVariant *target = NULL;
+    GError *error = NULL;
+    if (!g_action_parse_detailed_name(g_getenv("ZSLICE_ACTION"), &name, &target, &error)) {
+        g_warning("ZSLICE_ACTION: %s", error->message);
+        g_error_free(error);
+        return;
+    }
+    gtk_widget_activate_action_variant(w->preview, name, target);
+    g_free(name);
+}
+
 /* For tests: ZSLICE_PREFS=1 opens Preferences at the start. */
 static gboolean open_prefs_test(gpointer data) {
     Window *w = data;
@@ -1567,7 +1591,10 @@ GtkWindow *zg_window_new(GtkApplication *app, ZgModel *model) {
     gtk_widget_set_margin_bottom(w->sum_box, 12);
     gtk_widget_set_size_request(w->sum_box, 300, -1);
     gtk_overlay_add_overlay(GTK_OVERLAY(w->preview), w->sum_box);
-    /* The search, over the view: hidden until / or a fact opens it. */
+    /* The card of a selected part, next to it. */
+    gtk_overlay_add_overlay(GTK_OVERLAY(w->preview), zg_part_card_new(model, w->preview));
+    /* The search, over the view and the cards: hidden until / or a fact
+     * opens it. */
     w->search = zg_search_new(model);
     gtk_overlay_add_overlay(GTK_OVERLAY(w->preview), w->search);
     gtk_paned_set_start_child(GTK_PANED(paned), left);

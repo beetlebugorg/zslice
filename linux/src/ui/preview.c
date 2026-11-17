@@ -1674,3 +1674,8 @@ void zg_preview_set_timeline(GtkWidget *preview, GtkWidget *timeline) {
     gtk_widget_set_halign(timeline, GTK_ALIGN_CENTER);
     gtk_box_append(GTK_BOX(p->bottom), timeline);
 }
+
+GtkWidget *zg_preview_view3d(GtkWidget *preview) {
+    Preview *p = g_object_get_data(G_OBJECT(preview), "zg-preview");
+    return p ? p->view3d : NULL;
+}
