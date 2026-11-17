@@ -136,7 +136,7 @@ pub fn compare(arena: Allocator, current: Settings, src: Source, diag: *Diagnost
             row.from = w.value.from;
             if (w.speed) row.note = try std.fmt.allocPrint(arena, "{s} mm/s in Cura", .{w.value.text});
         } else if (std.mem.eql(u8, name, "machine.max_speed")) {
-            row.note = "the highest print speed of the Cura profile";
+            row.note = "The highest Cura print speed";
             row.from = out_name;
         } else if (std.mem.startsWith(u8, name, "filament.") and stack.materials.len > 0) {
             row.from = stack.materials[0].file;

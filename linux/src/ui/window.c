@@ -13,6 +13,7 @@
 
 #include "licenses.h"
 #include "preferences.h"
+#include "cura-compare.h"
 #include "../net/printer-link.h"
 #include "../prefs/printers.h"
 #include "profile-menus.h"
@@ -898,6 +899,20 @@ static void on_prefs_action(GSimpleAction *a, GVariant *v, gpointer data) {
     zg_preferences_show(w->window, w->model);
 }
 
+static void on_compare_cura_action(GSimpleAction *a, GVariant *v, gpointer data) {
+    Window *w = get(data);
+    zg_cura_compare_show(w->window, w->model, FALSE);
+}
+
+/* ZSLICE_CURA_COMPARE=1 opens the comparison with Cura at the start, for
+ * tests and screenshots. "all" shows all mapped settings, and "use-all"
+ * also presses "Use all". */
+static gboolean open_cura_compare_test(gpointer data) {
+    Window *w = data;
+    zg_cura_compare_show(w->window, w->model, g_str_has_suffix(g_getenv("ZSLICE_CURA_COMPARE"), "all"));
+    return G_SOURCE_REMOVE;
+}
+
 /* ---- drop ---- */
 
 static gboolean on_drop(GtkDropTarget *target, const GValue *value, double x, double y, gpointer data) {
@@ -1074,6 +1089,7 @@ GtkWindow *zg_window_new(GtkApplication *app, ZgModel *model) {
         {.name = "send-only", .activate = on_send_only},
         {.name = "export", .activate = on_export_action},
         {.name = "preferences", .activate = on_prefs_action},
+        {.name = "compare-cura", .activate = on_compare_cura_action},
         {.name = "arrange", .activate = on_arrange_action},
         {.name = "smart-place", .activate = on_smart_place_action},
         {.name = "send-all", .activate = on_send_all_action},
@@ -1087,6 +1103,7 @@ GtkWindow *zg_window_new(GtkApplication *app, ZgModel *model) {
     g_signal_connect(model, "undo-changed", G_CALLBACK(on_undo_changed), w);
     on_undo_changed(model, w);
     if (g_getenv("ZSLICE_UNDO_TEST")) g_timeout_add(1000, undo_test_step, w);
+    if (g_getenv("ZSLICE_CURA_COMPARE")) g_timeout_add(1500, open_cura_compare_test, w);
 
     GMenu *menu = g_menu_new();
     GMenu *edit = g_menu_new();
@@ -1100,6 +1117,7 @@ GtkWindow *zg_window_new(GtkApplication *app, ZgModel *model) {
     g_menu_append(menu, "Smart placement", "win.smart-place");
     g_menu_append(menu, "Arrange the plate", "win.arrange");
     g_menu_append(menu, "Clear the plate", "win.clear-plate");
+    g_menu_append(menu, "Compare with Cura\u2026", "win.compare-cura");
     g_menu_append(menu, "Preferences", "win.preferences");
     g_menu_append(menu, "Licenses", "app.licenses");
     g_menu_append(menu, "About zslice", "app.about");
