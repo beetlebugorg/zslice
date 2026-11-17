@@ -155,6 +155,7 @@ pub const builtins = [_]Builtin{
     .{ .group = .project, .name = "standard", .text = @embedFile("profiles/project/standard.toml") },
     .{ .group = .project, .name = "draft", .text = @embedFile("profiles/project/draft.toml") },
     .{ .group = .project, .name = "fine", .text = @embedFile("profiles/project/fine.toml") },
+    .{ .group = .project, .name = "coarse", .text = @embedFile("profiles/project/coarse.toml") },
     .{ .group = .project, .name = "strong", .text = @embedFile("profiles/project/strong.toml") },
 };
 
@@ -308,7 +309,7 @@ test "a gray PLA extends a brand PLA, and a project overrides one value" {
     try testing.expectEqual(@as(f64, 12), s.filament.max_flow); // from generic-pla
     try testing.expectEqual(@as(f64, 5), s.machine.retract_length);
     try load(a, &s, .project, "smooth", r, &diag);
-    try testing.expectEqual(@as(f64, 0.12), s.project.layer_height); // from fine
+    try testing.expectEqual(@as(f64, 0.1), s.project.layer_height); // from fine
     try testing.expectEqual(true, s.project.ironing);
     try testing.expectEqual(@as(f64, 225), s.filament.nozzle_temp); // the project override
 }

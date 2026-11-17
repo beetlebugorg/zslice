@@ -1,0 +1,7 @@
+# The fastest print: 0.4 mm layers, 3 layers of skin, and little infill.
+# A layer is at most about 3/4 of the nozzle: use a 0.5 mm nozzle or larger.
+extends = "draft"
+layer_height = 0.4
+first_layer_height = 0.4
+top_thickness = 1.2
+bottom_thickness = 0.8
