@@ -771,7 +771,12 @@ pub const Emitter = struct {
             // A path whose width changes along it (Arachne): the flow limit
             // of its widest point.
             const widths: []const f32 = if (path.w_start != layer_mod.Path.planar) lp.point_w.items[path.w_start..][0..pts.len] else &.{};
+            // The line width of the layer of the path: of its part, on a
+            // plate of many parts (see LayerPlan.append).
             var speed_width = lp.width;
+            if (path.region > 0 and path.region <= lp.region_layer.len) {
+                speed_width = if (lp.layerOf(path) == 0) path_r.first_layer_line_width else path_r.line_width;
+            }
             for (widths) |pw| speed_width = @max(speed_width, pw);
             // The layer index in the job of the part, for the speed ramp of
             // the first layers (see LayerPlan.layerOf).
