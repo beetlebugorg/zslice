@@ -31,6 +31,29 @@ The printer library (`src/printers/library.txt`) has data from the printer defin
 | PrusaSlicer vendor bundles, Prusa Research, https://github.com/prusa3d/PrusaSlicer, `resources/profiles/*.ini`, tag `version_2.9.7` (commit `450d70dd81c9b8990bc6bc8e690e31f82ddceb11`). The main branch moved the bundles out of the repository, so the tool uses the last release. | AGPL-3.0 (the license of the PrusaSlicer repository) | `LICENSE` (the same AGPL-3.0 text as zslice) | The `[printer_model:*]` and `[printer:*]` sections, with their `inherits`. |
 | OrcaSlicer profiles, https://github.com/SoftFever/OrcaSlicer, `resources/profiles`, commit `e76b4d676c74f43ee1736675e0e8894425179cc4` (17 November 2026) | AGPL-3.0 (the license of the OrcaSlicer repository) | `LICENSE` | The `machine_model` and `machine` presets of each vendor, with their `inherits`. |
 
+## Data next to the binaries
+
+The bed models of the printers are files in `src/printers/beds/`: 456 meshes (`.mesh`) and 280 textures (`.png`), 10.5 MB in all. No binary and no wasm module contains them. The GTK app installs them in `share/zslice/beds`, and `zig build web` puts them in `zig-out/web/app/beds`. A shell loads the two files of the current printer (`zs_printers_bed`, `zs_view_set_bed`). The D lines of `src/printers/library.txt` name the files, and the P line of each printer model links its D line: 830 of the 1080 models have a bed, 813 with a mesh and 549 with a texture.
+
+`tools/printer_library.py --beds` makes the files with `tools/printer_beds.py`. The tool reads the bed files of the three sources below, converts them (a mesh in printer axes with 16-bit coordinates and at most 5000 triangles; a PNG of at most 1024 pixels with 64 colors), and writes each file once. The bed of a model comes from the first of its records that has one, in the order of the library (the vendor bundle of a brand first, then OrcaSlicer, PrusaSlicer, Cura).
+
+The bed files have no license notes of their own: no license or readme file is in the mesh, image, or vendor folders, and no mesh, SVG, or PNG file has license metadata. So the license of the repository covers them. The exceptions are in the notes of each row.
+
+| Source | License | Text | What zslice takes |
+|---|---|---|---|
+| Cura, UltiMaker, https://github.com/Ultimaker/Cura, `resources/meshes` and `resources/images`, commit `1a221ec29a86960d16a412940becc1f63534c41f` (9 November 2026) | LGPL-3.0-or-later (the license of the repository) | `licenses/lgpl-3.0.txt`, `licenses/gpl-3.0.txt` | The `platform` mesh (STL, OBJ, 3MF) of each definition, with `platform_offset`, and the `platform_texture` of an OBJ platform with UV coordinates. 275 models. The RatRig meshes (`ratrig_*.stl`) came to Cura from https://github.com/slic3r/slic3r-profiles (AGPL-3.0) "with kind permission of the author" (Cura commit `f6cc7993e`). |
+| PrusaSlicer vendor bundles, Prusa Research, https://github.com/prusa3d/PrusaSlicer, `resources/profiles/<vendor>/`, tag `version_2.9.7` (commit `450d70dd81c9b8990bc6bc8e690e31f82ddceb11`) | AGPL-3.0 (the license of the repository) | `LICENSE` | The `bed_model` STL and the `bed_texture` SVG or PNG of each `[printer_model:*]` section. 145 models. |
+| OrcaSlicer profiles, https://github.com/SoftFever/OrcaSlicer, `resources/profiles/<vendor>/`, commit `e76b4d676c74f43ee1736675e0e8894425179cc4` (17 November 2026) | AGPL-3.0 (the license of the repository) | `LICENSE` | The `bed_model` STL and the `bed_texture` SVG or PNG of each `machine_model` preset. 410 models. |
+
+Left out:
+
+- The bed textures of the PrusaSlicer RatRig bundle (`RatRig/rr-vc-300.svg`, `rr-vc-400.svg`, `rr-vc-500.svg`, `rr-vminion.svg`). The header of `RatRig.ini` says: "The graphics for the bed (SVG) was created by PwnCNC and published on Thingiverse under the Creative Commons Attribution license" (https://www.thingiverse.com/thing:4861532). The version of the license is not known (the page does not open), so the license is not clear. The RatRig models get their beds from OrcaSlicer and Cura.
+- `gCreate/gmax15p.svg` and `gCreate/gmax2.svg` of PrusaSlicer: empty images (no size).
+- `E2D/i310_bed.stl` and `E2D/i311_bed.stl` of PrusaSlicer: the bundle names them, but they are not in it.
+- The Cura textures of an STL or 3MF platform (for example `anycubic_predator.png`, `uni.png`): such a mesh has no UV coordinates, so Cura shows no texture with it either.
+
+Some textures show the logo of a brand. The logos are trademarks of their owners; the license of the files is not a license of the trademarks.
+
 ## Libraries that the app shells link
 
 The shells link these libraries as shared libraries from the system. Their code is not in a zslice binary. The Licenses window of each shell lists them.
@@ -119,6 +142,10 @@ These sources gave methods or formats. zslice does not copy their code. Each zsl
 | Daniel Ahlers, Florens Wasserfall, Norman Hendrich, Jianwei Zhang, "3D Printing of Nonplanar Layers for Smooth Surface Generation", IEEE CASE 2019 | Paper | `src/slope.zig` | Non-planar moves on top surfaces, and the check of the nozzle shape (a cone) against the printed part. zslice uses a cone on a flat tip, and checks it against the layer that it just printed, for the smoothing beads and the slope ironing. |
 | Debapriya Chakraborty, B. Aneesh Reddy, A. Roy Choudhury, "Extruder path generation for Curved Layer Fused Deposition Modeling", Computer-Aided Design 40(2), 2008 | Paper | `src/slope.zig` | Extrusion paths with a Z that changes along the path. |
 | Volume of a triangle (h * L / 2) and the distance from a point to a segment | Mathematics | `src/slope.zig`, `src/geom.zig` | The plastic of a smoothing bead, and the room for the nozzle. |
+| The bed placement of Cura: Uranium `UM/Scene/Platform.py`, the mesh readers `plugins/FileHandlers/STLReader/STLReader.py` and `OBJReader/OBJReader.py` (https://github.com/Ultimaker/Uranium, main of 17 November 2026, commit `a5dab929d07c85eb4d96b18a50973da3a46fb8b7`), and Cura `plugins/3MFReader/ThreeMFReader.py` (commit `1a221ec2`) | LGPL-3.0 (the rules, not code) | `tools/printer_beds.py` | The axes of each mesh format (the scene has y up; STL and OBJ turn (x, y, z) into (x, z, -y); a 3MF platform keeps the coordinates of its file), the origin at the bed center, `platform_offset` as the node position, and the UV of the OBJ file with the image mirrored. |
+| The bed placement of PrusaSlicer: `src/slic3r/GUI/3DBed.cpp` (tag `version_2.9.7`) | AGPL-3.0 (the rules, not code) | `tools/printer_beds.py`, `src/bed.zig` | The origin of the model at the center of the bed shape, 0.03 mm down, and the texture over the box of the bed shape. |
+| The bed placement of OrcaSlicer: `src/slic3r/GUI/3DBed.cpp` and `PartPlate.cpp` (commit `e76b4d67`) | AGPL-3.0 (the rules, not code) | `tools/printer_beds.py`, `src/bed.zig` | The origin of the model at the center of the printable area, 0.45 mm down; the printer coordinates of the "bbl-3dp-" models; the texture over the box of the printable area, 12 mm more to the front for Bambu Lab. |
+| PNG (Portable Network Graphics) Specification, W3C, https://www.w3.org/TR/png-3/ | W3C specification | `src/bed.zig` | The chunks, the filters of the rows (Paeth among them), and the color types of the texture reader. The zlib stream goes through `std.compress.flate` of the Zig standard library. |
 
 ## Test tools
 
@@ -128,3 +155,6 @@ is in zslice.
 | Program | License | Used in | How zslice uses it |
 |---|---|---|---|
 | CuraEngine (Ultimaker Cura 5.x), https://github.com/Ultimaker/CuraEngine, and the Cura definition files `fdmprinter.def.json` and `fdmextruder.def.json` | AGPL-3.0 (CuraEngine), LGPL-3.0 (the definitions) | `tools/compare_cura.py` | A test oracle. The script slices each STL file of the corpus with zslice and with CuraEngine, and compares the layer count, the filament, the time estimate, the speed, and the memory. |
+| librsvg (`rsvg-convert`), https://gitlab.gnome.org/GNOME/librsvg | LGPL-2.1-or-later | `tools/printer_beds.py` | Draws the SVG bed textures as images. |
+| Pillow, https://python-pillow.org | MIT-CMU (HPND) | `tools/printer_beds.py` | Reads, scales, and writes the texture images (PNG with a palette). |
+| NumPy, https://numpy.org | BSD-3-Clause | `tools/printer_beds.py` | The arrays of the meshes, and the vertex clustering. |

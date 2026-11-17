@@ -15,7 +15,7 @@ Each source is a folder of untrusted data: the tool only reads JSON and INI
 text from it, and runs no code from it. Run it with `python3 -I`:
 
     python3 -I tools/printer_library.py --cura <Cura> --prusa <PrusaSlicer> \
-        --orca <OrcaSlicer> > src/printers/library.txt
+        --orca <OrcaSlicer> --beds src/printers/beds > src/printers/library.txt
 
 Steps:
 
@@ -33,7 +33,12 @@ Steps:
    scripts (`{if ...}`, expressions) that zslice cannot run is not used:
    the record then has the generic start G-code of zslice.
 5. Write the library: the sources with their licenses, the G-code texts
-   once each, and one line for each model, by brand.
+   once each, the beds once each, and one line for each model, by brand.
+
+With --beds <folder>, the tool also writes the bed models and the bed
+textures of the printers into the folder (see tools/printer_beds.py), and
+the library links them. The bed of a model comes from the first of its
+records (in the order of step 3) that has one.
 
 The format of the library is in the header comment of src/printers.zig.
 
@@ -43,6 +48,7 @@ PrusaSlicer vendor bundle format, and the OrcaSlicer profile format.
 
 import argparse
 import glob
+import importlib.util
 import json
 import os
 import re
@@ -496,6 +502,14 @@ def read_cura(root):
             if pre:
                 start = "\n".join(pre) + "\n" + start
         end = translate_gcode(vals.get("machine_end_gcode"), consts)
+        bed = None
+        if meta.get("platform") or meta.get("platform_texture"):
+            bed = {
+                "src": "c",
+                "mesh": os.path.join(root, "resources", "meshes", meta["platform"]) if meta.get("platform") else None,
+                "offset": meta.get("platform_offset"),
+                "texture": os.path.join(root, "resources", "images", meta["platform_texture"]) if meta.get("platform_texture") else None,
+            }
         display = str(vals.get("machine_name") or d.get("name") or name)
         if display.lower() in ("unknown", ""):
             display = d.get("name", name)
@@ -527,6 +541,7 @@ def read_cura(root):
             "start": start,
             "end": end,
             "extruders": int(num(vals.get("machine_extruder_count"), 1) or 1),
+            "bed": bed,
         }
         # Cura's own default motion values (fdmprinter) say nothing of a
         # printer: keep only the values of a definition.
@@ -646,6 +661,17 @@ def read_prusa(root):
                 fv = resolve(filaments, dfp.split(";")[0].strip())
                 fil = num(fv.get("filament_diameter"))
             name = meta.get("name") or pname
+            bed_files = None
+            if meta.get("bed_model") or meta.get("bed_texture"):
+                vdir = os.path.join(root, "resources", "profiles", vendor_key)
+                hw, hd = bed["bed_x"] / 2, bed["bed_y"] / 2
+                bed_files = {
+                    "src": "p",
+                    "mesh": os.path.join(vdir, meta["bed_model"]) if meta.get("bed_model") else None,
+                    "texture": os.path.join(vdir, meta["bed_texture"]) if meta.get("bed_texture") else None,
+                    # PrusaSlicer stretches the texture over the box of the bed shape.
+                    "rect": (-hw, -hd, hw, hd),
+                }
             acc = num(v.get("machine_max_acceleration_extruding")) or num(v.get("machine_max_acceleration_x"))
             if v.get("machine_limits_usage") in ("ignore",):
                 acc = None
@@ -677,6 +703,7 @@ def read_prusa(root):
                 "start": start,
                 "end": end,
                 "extruders": len((v.get("nozzle_diameter") or "0.4").split(",")),
+                "bed": bed_files,
             })
     return records
 
@@ -765,6 +792,24 @@ def read_orca(root):
             brand = brand_name(vendor.get("name") or vendor_key)
             nozzles = [num(x) for x in str(model.get("nozzle_diameter", "")).split(";") if num(x)]
             structure = str(v.get("printer_structure", "") or "")
+            bed_files = None
+            if model.get("bed_model") or model.get("bed_texture"):
+                hw, hd = bed["bed_x"] / 2, bed["bed_y"] / 2
+                pts = area if isinstance(area, list) else str(area or "").split(",")
+                try:
+                    far = tuple(float(x) for x in str(pts[2]).split("x"))
+                except (IndexError, ValueError):
+                    far = (bed["bed_x"], bed["bed_y"])
+                bed_files = {
+                    "src": "o",
+                    "mesh": os.path.join(vdir, model["bed_model"]) if model.get("bed_model") else None,
+                    "texture": os.path.join(vdir, model["bed_texture"]) if model.get("bed_texture") else None,
+                    # OrcaSlicer stretches the texture over the box of the
+                    # printable area; for Bambu Lab printers the box goes
+                    # 12 mm more to the front (PartPlate::generate_logo_polygon).
+                    "rect": (-hw, -hd - (12 if vendor_key == "BBL" else 0), hw, hd),
+                    "shape_max": far,
+                }
             records.append({
                 "src": "o",
                 "id": vendor_key + "/" + mname,
@@ -793,6 +838,7 @@ def read_orca(root):
                 "start": start,
                 "end": end,
                 "extruders": len(v.get("nozzle_diameter") or [0.4]) if isinstance(v.get("nozzle_diameter"), list) else 1,
+                "bed": bed_files,
             })
     return records
 
@@ -849,6 +895,7 @@ def merge(records):
         m["nozzles"] = sorted(nozzles)
         m["heated_bed"] = any(r["heated_bed"] for r in rs)
         m["heated_chamber"] = any(r["heated_chamber"] for r in rs)
+        m["beds_all"] = [r["bed"] for r in rs if r.get("bed")]
         m["start"] = next((r["start"] for r in rs if r["start"]), None)
         m["end"] = next((r["end"] for r in rs if r["end"]), None)
         if not m.get("filament"):
@@ -886,8 +933,27 @@ def slug(text):
     return re.sub(r"-+", "-", re.sub(r"[^a-z0-9]+", "-", text.lower())).strip("-")
 
 
-def write(models, versions, out):
+def write(models, versions, out, beds=None):
     gcodes = {}
+    bed_lines = {}
+
+    def bid(m):
+        """The number of the D line of the bed of a model, or "". A bed of
+        a source that does not convert (a missing file, a license that
+        does not allow it) goes to the next record of the model."""
+        if beds is None:
+            return ""
+        for b in m.get("beds_all") or []:
+            d = beds.add(b)
+            if d is None:
+                continue
+            rect = ";".join(fmt(round(x, 3)) for x in d["rect"]) if d["rect"] else ""
+            line = "\t".join([d["mesh"], d["texture"], ";".join(fmt(round(x, 3)) for x in d["offset"]), rect, d["src"]])
+            if line not in bed_lines:
+                bed_lines[line] = len(bed_lines)
+            m["bed_used"] = d
+            return str(bed_lines[line])
+        return ""
 
     def gid(text):
         if not text:
@@ -919,6 +985,7 @@ def write(models, versions, out):
             flavor, firmware, m.get("kinematics") or "",
             fmt(m.get("retract")), fmt(m.get("retract_speed")),
             gid(m["start"]), gid(m["end"]), str(m.get("extruders") or 1),
+            bid(m),
         ]
         lines.append("\t".join(f.replace("\t", " ") for f in fields))
     out.write("zslice-printers 1\n")
@@ -929,6 +996,8 @@ def write(models, versions, out):
         out.write("S\t%s\t%s\t%s\t%s\t%s\n" % (k, name, lic, url, versions.get(k, "")))
     for text, i in sorted(gcodes.items(), key=lambda t: t[1]):
         out.write("G\t%s\n" % esc(text))
+    for line, i in sorted(bed_lines.items(), key=lambda t: t[1]):
+        out.write("D\t%s\n" % line)
     for line in lines:
         out.write(line + "\n")
 
@@ -941,14 +1010,37 @@ def main():
     ap.add_argument("--cura-version", default="")
     ap.add_argument("--prusa-version", default="")
     ap.add_argument("--orca-version", default="")
+    ap.add_argument("--beds", help="the folder of the bed files (its old .mesh and .png files go away)")
     a = ap.parse_args()
+    beds = None
+    if a.beds:
+        here = os.path.dirname(os.path.abspath(__file__))
+        spec = importlib.util.spec_from_file_location("printer_beds", os.path.join(here, "printer_beds.py"))
+        mod = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(mod)
+        os.makedirs(a.beds, exist_ok=True)
+        for f in os.listdir(a.beds):
+            if f.endswith((".mesh", ".png")):
+                os.remove(os.path.join(a.beds, f))
+        beds = mod.Beds(a.beds)
     recs = read_cura(a.cura) + read_prusa(a.prusa) + read_orca(a.orca)
     for s in "cpo":
         rs = [r for r in recs if r["src"] == s]
         warn("%s: %d records, %d with a start G-code" % (SOURCES[s][0], len(rs), sum(1 for r in rs if r["start"])))
     models = merge(recs)
     warn("library: %d models, %d brands, %d with a vendor start G-code" % (len(models), len({m["brand"] for m in models}), sum(1 for m in models if m["start"])))
-    write(models, {"c": a.cura_version, "p": a.prusa_version, "o": a.orca_version}, sys.stdout)
+    write(models, {"c": a.cura_version, "p": a.prusa_version, "o": a.orca_version}, sys.stdout, beds)
+    if beds is not None:
+        used = [m["bed_used"] for m in models if m.get("bed_used")]
+        warn("beds: %d models with a bed, %d with a mesh, %d with a texture" % (len(used), sum(1 for d in used if d["mesh"]), sum(1 for d in used if d["texture"])))
+        for src in "cpo":
+            warn("beds: from %s: %d models" % (SOURCES[src][0], sum(1 for d in used if d["src"] == src)))
+        total = sum(beds.sizes.values())
+        warn("beds: %d files, %.1f MB (%.1f MB meshes, %.1f MB textures)" % (len(beds.sizes), total / 1e6, sum(v for k, v in beds.sizes.items() if k.endswith(".mesh")) / 1e6, sum(v for k, v in beds.sizes.items() if k.endswith(".png")) / 1e6))
+        for name, size in sorted(beds.sizes.items(), key=lambda t: -t[1])[:8]:
+            warn("beds: large: %s %d KB" % (name, size // 1000))
+        for path, why in sorted(beds.left_out.items()):
+            warn("beds: left out: %s (%s)" % (path, why))
 
 
 if __name__ == "__main__":
