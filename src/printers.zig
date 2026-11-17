@@ -229,7 +229,36 @@ pub const Library = struct {
         if (id.len > 0) if (self.find(id)) |i| return i;
         if (name.len == 0) return null;
         for (self.models, 0..) |m, i| if (std.ascii.eqlIgnoreCase(m.title, name)) return i;
-        return null;
+        return self.findByWords(name);
+    }
+
+    /// The model whose title words are all in `name`, with the most words
+    /// (the longest match), or null. A name from another slicer has more
+    /// words, or other marks: "LulzBot TAZ Workhorse | SE | 0.5 mm" is the
+    /// model "TAZ Workhorse SE 0.5 mm".
+    fn findByWords(self: *const Library, name: []const u8) ?usize {
+        const seps = " \t|,/()_-";
+        var best: ?usize = null;
+        var best_n: usize = 0;
+        for (self.models, 0..) |m, i| {
+            var n: usize = 0;
+            var it = std.mem.tokenizeAny(u8, m.title, seps);
+            const all = while (it.next()) |w| {
+                var nt = std.mem.tokenizeAny(u8, name, seps);
+                const found = while (nt.next()) |x| {
+                    if (std.ascii.eqlIgnoreCase(w, x)) break true;
+                } else false;
+                if (!found) break false;
+                n += 1;
+            } else true;
+            // Two words at least, so a short title ("Ender 3") does not
+            // match a longer name by chance.
+            if (all and n >= 2 and n > best_n) {
+                best = i;
+                best_n = n;
+            }
+        }
+        return best;
     }
 
     /// The index of the model with this id, or null.
@@ -769,4 +798,12 @@ test "each model of the built-in library loads as a machine profile" {
     try testing.expect(lib.search("lulzbot taz", null, &out) > 0);
     try testing.expect(lib.search("prusa mk4", null, &out) > 0);
     try testing.expect(lib.search("ender 3 v2", null, &out) > 0);
+}
+
+test "find a machine by the words of its name" {
+    const lib = try Library.parse(testing.allocator, @embedFile("printers/library.txt"));
+    defer lib.deinit();
+    const i = lib.findMachine("", "LulzBot TAZ Workhorse | SE | 0.5 mm") orelse return error.TestExpectedEqual;
+    try testing.expectEqualStrings("lulzbot-taz-workhorse-se-0-5-mm", lib.models[i].id);
+    try testing.expect(lib.findMachine("", "No Such Printer 9000") == null);
 }
