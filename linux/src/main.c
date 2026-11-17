@@ -61,6 +61,10 @@ static const char *ZG_CSS =
     ".zg-summary { padding: 12px 14px 14px; }"
     ".zg-summary-time { font-size: 1.6em; font-weight: 700; font-feature-settings: 'tnum'; }"
     ".zg-summary.zg-stale { opacity: 0.55; }"
+    /* The source of a value in the settings (see zg_model_source_text):
+     * dim, and the accent color for a change of this print or a part. */
+    ".zg-source { opacity: 0.6; font-size: 0.8em; }"
+    ".zg-source-mine { color: @accent_color; opacity: 1; }"
     ".zg-issue-problem { color: #e01b24; }"
     ".zg-issue-warning { color: #e5a50a; }"
     ".zg-knob-label { font-size: 0.75em; font-feature-settings: 'tnum'; color: #fff; background: alpha(#202326, 0.82);"

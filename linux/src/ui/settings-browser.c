@@ -281,12 +281,32 @@ static void show_default(GtkWidget *box) {
         return;
     }
     gtk_button_set_label(GTK_BUTTON(reset), "Reset");
+    /* Where the value comes from (the cascade: default, global, printer,
+     * filament, quality, this print), and what a reset gives: the value
+     * under the changes of this print. */
     char *value = zg_model_get(model, info->name);
-    gboolean same = strcmp(value, info->default_value) == 0 ||
-                    (zg_parses_as_number(value) && zg_parses_as_number(info->default_value) &&
-                     g_ascii_strtod(value, NULL) == g_ascii_strtod(info->default_value, NULL));
+    char *inherited = zg_model_base_get(model, info->name);
+    int level = 0;
+    char *source = zg_model_source_text(model, info->name, -1, &level);
+    gboolean same = level != ZS_LEVEL_PRINT;
     char *def = zg_setting_value_with_unit(info, info->default_value);
-    char *text = g_strdup_printf(same ? "The default (%s)" : "Default: %s", def);
+    char *inh = zg_setting_value_with_unit(info, inherited);
+    char *base_src = NULL;
+    char *text;
+    if (level == ZS_LEVEL_PRINT) {
+        /* The source under the change: the quality, else the default. */
+        const char *q = zg_model_quality(model);
+        base_src = g_strdup(q && q[0] ? q : "the default");
+        text = g_strdup_printf("Changed for this print. Reset gives %s (from %s).", inh, base_src);
+    } else if (source) {
+        text = g_strdup_printf("From %s. Default: %s", source, def);
+    } else {
+        text = g_strdup_printf("The default (%s)", def);
+    }
+    g_free(inh);
+    g_free(base_src);
+    g_free(source);
+    g_free(inherited);
     gtk_label_set_text(GTK_LABEL(label), text);
     g_free(text);
     g_free(def);
@@ -312,7 +332,10 @@ static void on_reset(GtkButton *button, gpointer data) {
         show_default(box);
         return;
     }
-    zg_model_set(model, info->name, info->default_value, NULL);
+    /* Back to the value under the changes of this print. */
+    char *inherited = zg_model_base_get(model, info->name);
+    zg_model_set(model, info->name, inherited, NULL);
+    g_free(inherited);
 }
 
 static void free_info(gpointer data) {
@@ -386,6 +409,8 @@ static void show_detail(Browser *b, const char *key) {
 
 /* ---- column 2 ---- */
 
+static void update_tag(Browser *b, GtkWidget *tag, const char *key);
+
 static void on_row_value_changed(ZgModel *model, const char *key, gpointer data) {
     GtkWidget *label = data;
     const zs_setting_info *info = g_object_get_data(G_OBJECT(label), "zg-info");
@@ -396,6 +421,8 @@ static void on_row_value_changed(ZgModel *model, const char *key, gpointer data)
         if (b->in_profile && range_has(b, key)) gtk_widget_add_css_class(name, "zg-overridden");
         else gtk_widget_remove_css_class(name, "zg-overridden");
     }
+    GtkWidget *tag = g_object_get_data(G_OBJECT(label), "zg-tag");
+    if (tag) update_tag(b, tag, key);
     char *value = zg_model_get_for(model, key, b->in_profile);
     char *text = zg_setting_value_with_unit(info, value);
     gtk_label_set_text(GTK_LABEL(label), text);
@@ -420,6 +447,17 @@ static void on_more_clicked(GtkButton *button, gpointer data) {
     on_setting_activated(GTK_LIST_BOX(b->settings), row, b);
 }
 
+/* The source tag of a row: the profile or the level of the value. */
+static void update_tag(Browser *b, GtkWidget *tag, const char *key) {
+    int level = 0;
+    char *src = b->in_profile ? NULL : zg_model_source_text(b->model, key, -1, &level);
+    gtk_label_set_text(GTK_LABEL(tag), src ? src : "");
+    gtk_widget_set_visible(tag, src != NULL);
+    if (level == ZS_LEVEL_PRINT || level == ZS_LEVEL_PART) gtk_widget_add_css_class(tag, "zg-source-mine");
+    else gtk_widget_remove_css_class(tag, "zg-source-mine");
+    g_free(src);
+}
+
 static GtkWidget *setting_row(Browser *b, const zs_setting_info *src, gboolean with_section) {
     zs_setting_info *info = g_new(zs_setting_info, 1);
     *info = *src;
@@ -435,6 +473,13 @@ static GtkWidget *setting_row(Browser *b, const zs_setting_info *src, gboolean w
     gtk_label_set_xalign(GTK_LABEL(name), 0);
     gtk_label_set_ellipsize(GTK_LABEL(name), PANGO_ELLIPSIZE_END);
     gtk_box_append(GTK_BOX(names), name);
+    /* Where the value comes from (not for a default). */
+    GtkWidget *tag = gtk_label_new("");
+    gtk_label_set_xalign(GTK_LABEL(tag), 0);
+    gtk_label_set_ellipsize(GTK_LABEL(tag), PANGO_ELLIPSIZE_END);
+    gtk_widget_add_css_class(tag, "caption");
+    gtk_widget_add_css_class(tag, "zg-source");
+    gtk_box_append(GTK_BOX(names), tag);
     if (with_section) {
         char *where = g_strdup_printf("%s › %s", group_title(info->group), info->section);
         GtkWidget *w = gtk_label_new(where);
@@ -450,6 +495,7 @@ static GtkWidget *setting_row(Browser *b, const zs_setting_info *src, gboolean w
     GtkWidget *v = gtk_label_new(text);
     g_object_set_data(G_OBJECT(v), "zg-browser", b);
     g_object_set_data(G_OBJECT(v), "zg-name", name);
+    g_object_set_data(G_OBJECT(v), "zg-tag", tag);
     /* In a profile: a changed setting has the accent color, and a setting
      * for the whole print is dim (it cannot change for some layers). */
     if (b->in_profile && range_has(b, info->name)) gtk_widget_add_css_class(name, "zg-overridden");
@@ -462,6 +508,7 @@ static GtkWidget *setting_row(Browser *b, const zs_setting_info *src, gboolean w
     gtk_widget_add_css_class(v, "zg-browser-value");
     g_object_set_data_full(G_OBJECT(v), "zg-info", info, free_info);
     g_signal_connect_object(b->model, "setting-changed", G_CALLBACK(on_row_value_changed), v, 0);
+    update_tag(b, tag, info->name);
     gtk_box_append(GTK_BOX(box), names);
     GtkWidget *row = gtk_list_box_row_new();
     /* A quick change: the editor in the row (a number with its unit, a

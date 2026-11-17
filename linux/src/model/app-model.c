@@ -751,6 +751,30 @@ gboolean zg_model_set_quality(ZgModel *self, const char *name, gboolean keep_edi
     return TRUE;
 }
 
+char *zg_model_source_text(ZgModel *self, const char *key, gint64 part, int *level_out) {
+    int level = ZS_LEVEL_DEFAULT;
+    char profile[256] = "";
+    if (zs_app_setting_source(self->core, part, key, &level, profile, sizeof profile) != ZS_OK) level = ZS_LEVEL_DEFAULT;
+    if (level_out) *level_out = level;
+    switch (level) {
+    case ZS_LEVEL_GLOBAL: return g_strdup("Global");
+    case ZS_LEVEL_MACHINE: return g_strdup(profile[0] ? profile : "Printer");
+    case ZS_LEVEL_FILAMENT: return g_strdup(profile[0] ? profile : "Filament");
+    case ZS_LEVEL_QUALITY: return g_strdup(profile[0] ? profile : "Quality");
+    case ZS_LEVEL_PRINT: return g_strdup("This print");
+    case ZS_LEVEL_PART: return g_strdup("This part");
+    default: return NULL;
+    }
+}
+
+char *zg_model_base_get(ZgModel *self, const char *key) {
+    size_t len = 0;
+    if (zs_app_setting_base_get(self->core, key, NULL, 0, &len) != ZS_OK) return g_strdup("");
+    char *buf = g_malloc(len + 1);
+    zs_app_setting_base_get(self->core, key, buf, len + 1, NULL);
+    return buf;
+}
+
 const char *zg_model_quality(ZgModel *self) {
     return zs_app_quality_name(self->core);
 }

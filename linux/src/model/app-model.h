@@ -164,6 +164,14 @@ const char *zg_model_roll(ZgModel *self);
  * name as the preference profile_project. */
 gboolean zg_model_set_quality(ZgModel *self, const char *name, gboolean keep_edits);
 const char *zg_model_quality(ZgModel *self);
+/* Where the value of a setting comes from, for the plate (part -1) or a
+ * part: the text to show ("fine", "Gray", "This print", "This part"), or
+ * NULL for the built-in default. `level` (can be NULL) gets the enum
+ * zs_level. Free with g_free. */
+char *zg_model_source_text(ZgModel *self, const char *key, gint64 part, int *level);
+/* The value of a setting with no change of this print: the value of a
+ * reset. Free with g_free. */
+char *zg_model_base_get(ZgModel *self, const char *key);
 /* The full profile of a group (see zs_app_profile_write). Free with g_free. */
 char *zg_model_profile_text(ZgModel *self, int group);
 /* The key of a roll for zg_model_set_roll: the printer ID and the roll ID
