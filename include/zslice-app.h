@@ -62,6 +62,11 @@ int zs_app_new_web(zs_app **out);
 /* Stops a slice that runs, and frees the app. */
 void zs_app_free(zs_app *app);
 int zs_app_state(const zs_app *app);
+/* Frees the memory that only makes the next slice faster: the results of
+ * the slow steps of each layer, and the buffers of the results before.
+ * The last result stays. For an app that waits, for example a plate of a
+ * set that is not the active plate. No effect while a slice runs. */
+void zs_app_trim(zs_app *app);
 
 /* ---- the model ---- */
 

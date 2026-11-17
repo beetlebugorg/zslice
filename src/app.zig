@@ -1638,6 +1638,20 @@ pub const App = struct {
         app.slice_parts = parts;
     }
 
+    /// Frees the memory that only a faster next slice uses: the memos of
+    /// the job, and the results before (kept to fill them again). The
+    /// result stays. For an app that waits: a plate of a set that is not
+    /// the active plate. No effect while a slice runs.
+    pub fn trim(app: *App) void {
+        if (app.getState() == .slicing) return;
+        if (app.job) |*j| j.dropMemos();
+        app.dropPrevJob();
+        app.gpa.free(app.spare_gcode);
+        app.spare_gcode = &.{};
+        app.spare_paths.deinit(app.gpa);
+        app.spare_paths = .{};
+    }
+
     fn dropPrevJob(app: *App) void {
         if (app.prev_job) |*j| j.deinit();
         app.prev_job = null;
@@ -2136,6 +2150,35 @@ test "app: a change for the top layer gives the same G-code with the cache and w
         fresh.stopWorkerForTest();
         try testing.expectEqualStrings(fresh.gcode().?, app.gcode().?);
     }
+}
+
+test "app: a trim keeps the result, and the next slice gives the same G-code" {
+    const gpa = testing.allocator;
+    var mesh = try zs.mesh.shapes.demo(gpa);
+    var bytes: std.Io.Writer.Allocating = .init(gpa);
+    defer bytes.deinit();
+    try mesh.writeStl(&bytes.writer);
+    mesh.deinit(gpa);
+    const app = try App.create(gpa, null, null);
+    defer app.destroy();
+    try app.loadStl("demo.stl", bytes.written());
+    try app.startSlice();
+    app.stopWorkerForTest();
+    const before = try gpa.dupe(u8, app.gcode().?);
+    defer gpa.free(before);
+    app.trim();
+    try testing.expectEqualStrings(before, app.gcode().?);
+    // A change after the trim: the same G-code as a new app.
+    try app.setSetting("project.infill_density", "0.35");
+    try app.requestSlice();
+    app.stopWorkerForTest();
+    const fresh = try App.create(gpa, null, null);
+    defer fresh.destroy();
+    try fresh.loadStl("demo.stl", bytes.written());
+    try fresh.setSetting("project.infill_density", "0.35");
+    try fresh.startSlice();
+    fresh.stopWorkerForTest();
+    try testing.expectEqualStrings(fresh.gcode().?, app.gcode().?);
 }
 
 test "app: a support mark adds support where the settings have none" {

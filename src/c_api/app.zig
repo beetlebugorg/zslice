@@ -44,6 +44,12 @@ export fn zs_app_free(a: ?*App) void {
     app.destroy();
 }
 
+/// Frees the memory of the app that only a faster next slice uses.
+export fn zs_app_trim(a: ?*App) void {
+    const app = a orelse return;
+    app.trim();
+}
+
 export fn zs_app_state(a: ?*const App) c_int {
     const app = a orelse return 0;
     return @intFromEnum(app.getState());

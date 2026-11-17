@@ -253,6 +253,11 @@ pub const PlateJob = struct {
         return pj;
     }
 
+    /// Frees the memos of the job of each group (see Job.dropMemos).
+    pub fn dropMemos(self: *PlateJob) void {
+        for (self.groups) |*g| g.job.dropMemos();
+    }
+
     pub fn deinit(self: *PlateJob) void {
         const gpa = self.gpa;
         for (self.groups) |*g| {

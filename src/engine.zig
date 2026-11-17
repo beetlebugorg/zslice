@@ -617,6 +617,13 @@ pub const Job = struct {
         return true;
     }
 
+    /// Frees the memos of all layers (see `memos`). The job stays good: a
+    /// later plan or job makes the slow steps again. For a job that waits
+    /// (the slice of a plate that is not on view).
+    pub fn dropMemos(self: *Job) void {
+        for (0..self.memos.len) |i| dropMemo(self.gpa, self.memos, i);
+    }
+
     pub fn deinit(self: *Job) void {
         self.dropModifiers();
         self.gpa.free(self.groups);
