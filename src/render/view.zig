@@ -106,6 +106,10 @@ pub const View = struct {
     mark_layer_end: std.ArrayList(u32) = .empty,
     /// The print time (s) at the end of each bead, for the replay.
     bead_end: std.ArrayList(f32) = .empty,
+    /// The time (s) at the start of each bead: the end of the bead before,
+    /// or for the first bead of a path the start of the path (the travel
+    /// to it is between).
+    bead_start: std.ArrayList(f32) = .empty,
     /// The replay time (s), or null to show whole layers.
     time: ?f32 = null,
     /// The footprint of the selected part (x0, y0, x1, y1), or null: a
@@ -155,6 +159,7 @@ pub const View = struct {
         v.path_start.deinit(gpa);
         v.beads.deinit(gpa);
         v.bead_end.deinit(gpa);
+        v.bead_start.deinit(gpa);
         v.marks.deinit(gpa);
         v.mark_layer_end.deinit(gpa);
         v.renderer.deinit();
@@ -267,6 +272,7 @@ pub const View = struct {
         boxes.clearRetainingCapacity();
         defer v.beads = boxes;
         v.bead_end.clearRetainingCapacity();
+        v.bead_start.clearRetainingCapacity();
         v.layer_end.clearRetainingCapacity();
         v.path_start.clearRetainingCapacity();
         var zmax: f32 = 0;
@@ -317,6 +323,7 @@ pub const View = struct {
                     const a = start + @as(u32, @intCast(k));
                     const b = if (a + 1 < end) a + 1 else start;
                     run += std.math.hypot(pts[2 * b] - pts[2 * a], pts[2 * b + 1] - pts[2 * a + 1]);
+                    v.bead_start.append(gpa, if (k == 0) t0 else v.bead_end.items[v.bead_end.items.len - 1]) catch return error.OutOfMemory;
                     v.bead_end.append(gpa, if (path_len > 0) t0 + (t1 - t0) * run / path_len else t1) catch return error.OutOfMemory;
                     var bz = z;
                     var bh = h;
@@ -985,8 +992,17 @@ pub const View = struct {
             // end of the last bead done (on a travel).
             var tip: ?[3]f32 = null;
             if (done < v.beads.items.len) {
-                const t_start = if (done == 0) 0 else v.bead_end.items[done - 1];
+                const t_start = if (done < v.bead_start.items.len) v.bead_start.items[done] else if (done == 0) 0 else v.bead_end.items[done - 1];
                 const t_end = v.bead_end.items[done];
+                // On a travel to this bead: the nozzle moves in a line from
+                // the end of the bead before to the start of this one.
+                const t_prev = if (done == 0) 0 else v.bead_end.items[done - 1];
+                if (done > 0 and t < t_start and t_start > t_prev) {
+                    const a = v.beads.items[done - 1];
+                    const b = v.beads.items[done];
+                    const f = @max(0, (t - t_prev) / (t_start - t_prev));
+                    tip = .{ a.bx + (b.ax - a.bx) * f, a.by + (b.ay - a.by) * f, a.z + (b.z - a.z) * f };
+                }
                 if (t > t_start and t_end > t_start) {
                     var b = v.beads.items[done];
                     const f = @min(1, (t - t_start) / (t_end - t_start));
@@ -1322,6 +1338,7 @@ test "the replay shows the beads that are done" {
     const gpa = View.gpa;
     var v: View = .{ .renderer = undefined, .width = 100, .height = 100 };
     defer v.bead_end.deinit(gpa);
+    defer v.bead_start.deinit(gpa);
     try v.bead_end.appendSlice(gpa, &.{ 1, 2, 3, 4 });
     try std.testing.expectEqual(@as(usize, 0), v.beadsDoneAt(0.5));
     try std.testing.expectEqual(@as(usize, 2), v.beadsDoneAt(2));

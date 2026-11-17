@@ -56,6 +56,12 @@ typedef struct {
     guint tick;
     gint64 last_frame;
     double time;
+    /* The move of the nozzle from one segment to the next (h and l): from
+     * print time step_from to step_to, in step_dur seconds. */
+    guint step_tick;
+    gint64 step_t0;
+    double step_from, step_to, step_dur, step_now;
+    gboolean step_valid;
 } Preview;
 
 
@@ -403,6 +409,61 @@ static void on_play(GtkButton *b, gpointer data) {
     gtk_button_set_icon_name(GTK_BUTTON(p->play), "media-playback-pause-symbolic");
 }
 
+/* The print time at the end of segment `seg` of path `path`: the time of
+ * the path, spread over its segments by length (as the 3D view does). */
+static double segment_end_time(const zs_toolpaths *tp, size_t path, gint64 seg) {
+    uint32_t start = path == 0 ? 0 : tp->path_ends[path - 1], end = tp->path_ends[path];
+    double t0 = tp->path_start_time[path], t1 = tp->path_end_time[path];
+    if (end <= start + 1) return t1;
+    gboolean closed = tp->path_closed[path] && end - start > 2;
+    uint32_t segs = end - start - 1 + (closed ? 1 : 0);
+    double len = 0, run = 0;
+    for (uint32_t k = 0; k < segs; k++) {
+        uint32_t a = start + k, b = a + 1 < end ? a + 1 : start;
+        double d = hypot(tp->points[2 * b] - tp->points[2 * a], tp->points[2 * b + 1] - tp->points[2 * a + 1]);
+        len += d;
+        if ((gint64)k <= seg) run += d;
+    }
+    return len > 0 ? t0 + (t1 - t0) * run / len : t1;
+}
+
+static gboolean on_step_tick(GtkWidget *w, GdkFrameClock *clock, gpointer data) {
+    Preview *p = data;
+    gint64 now = gdk_frame_clock_get_frame_time(clock);
+    if (!p->step_t0) p->step_t0 = now;
+    double f = p->step_dur > 0 ? CLAMP((now - p->step_t0) / 1e6 / p->step_dur, 0, 1) : 1;
+    /* Linear in print time, so a fast travel looks fast and a slow wall
+     * slow, as on the printer. */
+    p->step_now = p->step_from + (p->step_to - p->step_from) * f;
+    zg_view3d_set_time(p->view3d, p->step_now);
+    if (f >= 1) {
+        p->step_tick = 0;
+        return G_SOURCE_REMOVE;
+    }
+    return G_SOURCE_CONTINUE;
+}
+
+/* Moves the nozzle to the end of the segment that h or l selected: it
+ * prints forward, or takes the plastic back in reverse. */
+static void animate_step(Preview *p, const zs_toolpaths *tp, gint64 old_path, gint64 old_seg, gint64 path, gint64 seg) {
+    double to = segment_end_time(tp, (size_t)path, seg);
+    double from = p->step_valid ? p->step_now : segment_end_time(tp, (size_t)old_path, old_seg);
+    if (p->step_tick) gtk_widget_remove_tick_callback(p->view3d, p->step_tick);
+    p->step_tick = 0;
+    stop_replay(p);
+    gtk_stack_set_visible_child_name(GTK_STACK(p->stack), "3d");
+    p->step_from = from;
+    p->step_to = to;
+    p->step_now = from;
+    p->step_valid = TRUE;
+    /* Half the print time, from 0.12 s to 0.6 s: a key held down gives a
+     * quick move. */
+    p->step_dur = CLAMP(fabs(to - from) * 0.5, 0.12, 0.6);
+    p->step_t0 = 0;
+    zg_view3d_set_time(p->view3d, from);
+    p->step_tick = gtk_widget_add_tick_callback(p->view3d, on_step_tick, p, NULL);
+}
+
 static const char *legend_units[] = {"", "", "mm/s", "mm³/s", "s", "mm"};
 
 /* The range of the ramp, beside the color menu. */
@@ -489,6 +550,10 @@ static void on_slider(ZgLayerRange *range, gpointer data) {
      * 2D view shows the top layer; the 3D view shows lo to hi. */
     stop_replay(p);
     p->time = 0;
+    /* A move of the slider ends a step of the nozzle (h and l). */
+    if (p->step_tick) gtk_widget_remove_tick_callback(p->view3d, p->step_tick);
+    p->step_tick = 0;
+    p->step_valid = FALSE;
     size_t layer = zg_layer_range_get_hi(range);
     load_layer(p, layer);
     zg_view3d_set_layer_range(p->view3d, zg_layer_range_get_lo(range), layer);
@@ -745,9 +810,12 @@ static gboolean on_preview_key(GtkEventControllerKey *c, guint key, guint code, 
             /* One segment at a time, in print order: on to the next line
              * after the last segment. Shift: a whole line at a time. */
             gint64 path = sel, seg = zg_model_segment(p->model);
+            gint64 old_path = path, old_seg = seg < 0 ? 0 : seg;
             if (!zg_toolpaths_step(&tp, &path, &seg, dir, (mods & GDK_SHIFT_MASK) != 0)) return TRUE;
             zg_model_select_segment(p->model, path, seg);
             show_layer(p, zg_toolpaths_layer_of(&tp, (size_t)path));
+            /* The nozzle moves there, with the travels between. */
+            animate_step(p, &tp, old_path, old_seg, path, seg < 0 ? 0 : seg);
             return TRUE;
         }
         /* Up or down: the nearest line, jump layers away (a layer with no
