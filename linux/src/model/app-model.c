@@ -90,6 +90,13 @@ struct _ZgModel {
     guint undo_timer;
     gboolean undo_restoring;
     gboolean undo_plate_dirty; /* the plate changed since the last step */
+    /* An edit of one setting is one step while its editor keeps the focus:
+     * `undo_pending_key` is the setting of the changes since the last step
+     * ("*" for more than one, or for the plate), `undo_edit_key` the
+     * setting of the last step while its edit is open, and
+     * `undo_focus_key` the setting whose editor has the focus (from the
+     * window, zg_model_history_set_focus). */
+    char *undo_pending_key, *undo_edit_key, *undo_focus_key;
     /* The rolls of the current printer (zg_model_set_rolls). */
     ZgRoll *rolls;
     size_t n_rolls;
@@ -1114,6 +1121,29 @@ static void undo_commit(ZgModel *self) {
     }
     Snap *now = undo_snapshot(self);
     gboolean differs = self->undo_now && (strcmp(now->settings, self->undo_now->settings) != 0 || !same_plate(now->plate, self->undo_now->plate));
+    /* The key of the changes: freed at the end (g_autofree). */
+    g_autofree char *key = g_steal_pointer(&self->undo_pending_key);
+    gboolean single = key && strcmp(key, "*") != 0;
+    /* More changes of the setting of the last step, in the same edit: they
+     * change that step. */
+    gboolean amend = differs && single && self->undo->len > 0 && g_strcmp0(key, self->undo_edit_key) == 0 &&
+                     g_strcmp0(key, self->undo_focus_key) == 0;
+    if (amend) {
+        snap_free(self->undo_now);
+        self->undo_now = now;
+        g_ptr_array_set_size(self->redo, 0);
+        /* Back at the value before the edit: the step goes. */
+        Snap *prev = self->undo->pdata[self->undo->len - 1];
+        if (strcmp(prev->settings, now->settings) == 0 && same_plate(prev->plate, now->plate)) {
+            snap_free(self->undo_now);
+            self->undo_now = g_ptr_array_steal_index(self->undo, self->undo->len - 1);
+            g_clear_pointer(&self->undo_edit_key, g_free);
+        }
+        g_signal_emit(self, signals[SIGNAL_UNDO_CHANGED], 0);
+        return;
+    }
+    g_free(self->undo_edit_key);
+    self->undo_edit_key = differs && single ? g_strdup(key) : NULL;
     if (differs) {
         g_ptr_array_add(self->undo, self->undo_now);
         if (self->undo->len > UNDO_MAX) g_ptr_array_remove_index(self->undo, 0);
@@ -1140,13 +1170,36 @@ static void undo_schedule(ZgModel *self) {
     self->undo_timer = g_timeout_add(400, on_undo_timer, self);
 }
 
+/* The changes since the last step: one setting, or "*" for more. A key
+ * that ends with '.' (a whole group, from a profile) counts as more. */
+static void undo_note_key(ZgModel *self, const char *key) {
+    gboolean whole = !key || !*key || key[strlen(key) - 1] == '.';
+    if (!self->undo_pending_key) self->undo_pending_key = g_strdup(whole ? "*" : key);
+    else if (whole || strcmp(self->undo_pending_key, key) != 0) {
+        g_free(self->undo_pending_key);
+        self->undo_pending_key = g_strdup("*");
+    }
+}
+
 static void on_undo_change(ZgModel *self, const char *key, gpointer data) {
+    if (self->undo_restoring) return;
+    undo_note_key(self, key);
     undo_schedule(self);
+}
+
+void zg_model_history_set_focus(ZgModel *self, const char *key) {
+    if (g_strcmp0(key, self->undo_focus_key) == 0) return;
+    /* The edit ends: its changes so far are a step (of the old focus). */
+    if (self->undo_timer) undo_commit(self);
+    g_clear_pointer(&self->undo_edit_key, g_free);
+    g_free(self->undo_focus_key);
+    self->undo_focus_key = g_strdup(key);
 }
 
 static void on_undo_plate(ZgModel *self, gpointer data) {
     if (self->undo_restoring) return;
     self->undo_plate_dirty = TRUE;
+    undo_note_key(self, NULL);
     undo_schedule(self);
 }
 
@@ -1192,6 +1245,7 @@ static gboolean undo_move(ZgModel *self, GPtrArray *from, GPtrArray *to) {
     g_ptr_array_add(to, before);
     self->undo_now = snap;
     undo_restore(self, snap, before);
+    g_clear_pointer(&self->undo_edit_key, g_free);
     g_signal_emit(self, signals[SIGNAL_UNDO_CHANGED], 0);
     return TRUE;
 }
@@ -1263,6 +1317,7 @@ gboolean zg_model_history_goto(ZgModel *self, guint i) {
         self->undo_now = g_ptr_array_steal_index(self->redo, self->redo->len - 1);
     }
     undo_restore(self, self->undo_now, before);
+    g_clear_pointer(&self->undo_edit_key, g_free);
     g_signal_emit(self, signals[SIGNAL_UNDO_CHANGED], 0);
     return TRUE;
 }

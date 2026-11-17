@@ -354,6 +354,9 @@ GtkWidget *zg_setting_editor_slider_new(GtkWidget *entry) {
     gtk_widget_add_css_class(slider, "zg-slider");
     gtk_widget_set_tooltip_text(slider, info->doc);
     g_object_set_data(G_OBJECT(entry), "zg-slider", slider);
+    /* The slider is a part of the editor of its setting (for the history:
+     * a drag and the typing in the entry are one edit). */
+    g_object_set_data(G_OBJECT(slider), "zg-info", (gpointer)info);
     sync_slider(entry);
     g_signal_connect(slider, "value-changed", G_CALLBACK(on_slider), entry);
     return slider;

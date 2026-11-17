@@ -21,6 +21,7 @@
 #include "preview.h"
 #include "history.h"
 #include "settings-panel.h"
+#include "setting-editor.h"
 
 typedef struct {
     ZgModel *model;
@@ -79,6 +80,21 @@ typedef struct {
         GFile *dir;
     } batch;
 } Window;
+
+
+/* The setting of the editor that has the focus (the editor, its slider,
+ * or a part of them), or NULL, for the history of the model. */
+static void on_focus_widget(GtkWindow *win, GParamSpec *pspec, gpointer data) {
+    const char *key = NULL;
+    for (GtkWidget *f = gtk_window_get_focus(win); f; f = gtk_widget_get_parent(f)) {
+        const zs_setting_info *info = g_object_get_data(G_OBJECT(f), "zg-info");
+        if (info) {
+            key = info->name;
+            break;
+        }
+    }
+    zg_model_history_set_focus(data, key);
+}
 
 static void send_now(Window *w);
 static void send_checked(Window *w);
@@ -1242,6 +1258,9 @@ GtkWindow *zg_window_new(GtkApplication *app, ZgModel *model) {
     GtkWidget *body = gtk_box_new(GTK_ORIENTATION_VERTICAL, 0);
     gtk_box_append(GTK_BOX(body), paned);
     gtk_window_set_child(w->window, body);
+    /* The history: the changes of one setting are one step while its
+     * editor keeps the focus. */
+    g_signal_connect(w->window, "notify::focus-widget", G_CALLBACK(on_focus_widget), model);
 
     GtkDropTarget *drop = gtk_drop_target_new(G_TYPE_INVALID, GDK_ACTION_COPY);
     GType drop_types[] = {GDK_TYPE_FILE_LIST, G_TYPE_FILE};
