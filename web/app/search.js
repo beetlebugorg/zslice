@@ -19,6 +19,25 @@ import { ALL_FEATURES, GROUP_TITLES, isNumber, isRatio, displayValue, toCore, fo
 const MAX_SETTINGS = 8;
 const MAX_ACTIONS = 4;
 const DRAG_MS = 90;
+// The place of the box after a move (this browser only).
+const PLACE_KEY = "zslice.search.place";
+
+function loadPlace() {
+  try {
+    const p = JSON.parse(localStorage.getItem(PLACE_KEY) ?? "null");
+    return p && Number.isFinite(p.x) && Number.isFinite(p.y) ? p : null;
+  } catch {
+    return null;
+  }
+}
+
+function savePlace(p) {
+  try {
+    localStorage.setItem(PLACE_KEY, JSON.stringify(p));
+  } catch {
+    // No storage: the box opens at its first place next time.
+  }
+}
 
 // The score of a text for the words of a query: 0 for no match.
 function score(info, words) {
@@ -76,7 +95,11 @@ export class SearchOverlay {
     input.spellcheck = false;
     input.value = text;
     input.setAttribute("aria-label", "Search settings and actions");
-    head.append(input, el("span", "search-esc", "Esc"));
+    const grip = el("span", "search-grip");
+    grip.title = "Drag to move the search. Double-click: back to the top center.";
+    grip.setAttribute("aria-hidden", "true");
+    head.append(grip, input, el("span", "search-esc", "Esc"));
+    this.movable(box, head);
     const list = el("div", "search-list");
     box.append(head, list);
     box.addEventListener("keydown", (e) => this.key(e));
@@ -88,6 +111,58 @@ export class SearchOverlay {
     this.list = list;
     this.fill();
     input.focus();
+  }
+
+  // The box moves with a drag of its head (not of the entry). It stays in
+  // the window, and opens at the same place next time.
+  movable(box, head) {
+    const place = (x, y) => {
+      const w = box.offsetWidth;
+      const h = box.offsetHeight;
+      const cx = Math.max(8, Math.min(window.innerWidth - w - 8, x));
+      const cy = Math.max(8, Math.min(window.innerHeight - Math.min(h, 80) - 8, y));
+      box.style.left = `${cx}px`;
+      box.style.top = `${cy}px`;
+      box.style.transform = "none";
+      return { x: cx, y: cy };
+    };
+    const saved = loadPlace();
+    if (saved) requestAnimationFrame(() => place(saved.x, saved.y));
+    head.addEventListener("pointerdown", (e) => {
+      if (e.button !== 0 || e.target.closest("input")) return;
+      e.preventDefault();
+      const r = box.getBoundingClientRect();
+      const dx = e.clientX - r.left;
+      const dy = e.clientY - r.top;
+      head.setPointerCapture(e.pointerId);
+      head.classList.add("moving");
+      let last = null;
+      const move = (ev) => {
+        last = place(ev.clientX - dx, ev.clientY - dy);
+      };
+      const up = () => {
+        head.removeEventListener("pointermove", move);
+        head.removeEventListener("pointerup", up);
+        head.removeEventListener("pointercancel", up);
+        head.classList.remove("moving");
+        if (last) savePlace(last);
+        this.input.focus();
+      };
+      head.addEventListener("pointermove", move);
+      head.addEventListener("pointerup", up);
+      head.addEventListener("pointercancel", up);
+    });
+    head.addEventListener("dblclick", (e) => {
+      if (e.target.closest("input")) return;
+      box.style.left = "";
+      box.style.top = "";
+      box.style.transform = "";
+      try {
+        localStorage.removeItem(PLACE_KEY);
+      } catch {
+        // No storage.
+      }
+    });
   }
 
   close() {
