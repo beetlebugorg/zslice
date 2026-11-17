@@ -57,6 +57,8 @@ A click on a path in a view picks it: `zs_app_pick_layer` in a 2D layer view (a 
 
 After a new slice, the path numbers change. The GTK shell keeps the layer and a point of the selected path, and picks the path at that place again, so that the inspector stays on the same line after a setting changes.
 
+A shell with no access to the app on its UI thread (the web app: the app is in a worker) uses the loaded view instead. `zs_view_pick_layer` picks in a 2D view, `zs_view_layer_beads`, `zs_view_layer_marks`, and `zs_view_outlines` give the data of one layer to draw, and `zs_view_step`, `zs_view_nearest_on_layer`, and `zs_view_segment_at_time` give the steps of the keys h, j, k, and l. A pick uses the pick index of the view, so it stays under a millisecond on a plate of many parts.
+
 ## Replay
 
 `zs_view_set_time(view, t)` shows the print as it is t seconds after the start: each bead that is done, and the part of the bead that the nozzle is printing. The times come from the G-code emitter, with the cooling slow-down, so the replay follows the G-code. A shell moves t on each frame while it plays (GTK: a frame-clock tick callback, at a speed of 1x to 100x), and shows `zs_view_layer_at_time` on its layer slider. `zs_view_set_layer` ends the replay.
