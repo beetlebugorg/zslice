@@ -85,6 +85,9 @@ pub fn workerMain(index: u32) noreturn {
             waitFor(&t.state.raw, s, -1);
             continue;
         }
+        // Another thread can have made the memory larger while this one
+        // was asleep (see wasm_heap.zig).
+        @import("wasm_heap.zig").sync();
         t.func(t.arg);
         t.state.store(done, .release);
         wake(&t.state.raw);

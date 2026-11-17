@@ -14,6 +14,16 @@
 //! The hot paths of a slice use the arenas of scratch.zig, so the locks
 //! have little load.
 //!
+//! One rule of the host needs care. Each thread has its own instance of
+//! the module, and V8 keeps the size of the memory in each instance. When
+//! one thread grows the memory, the other instances get the new size only
+//! at their next interrupt check. Before that, a `memory.fill` or
+//! `memory.copy` of such an instance into the new pages traps ("memory
+//! access out of bounds"), the thread ends, and the slice waits for it
+//! with no end. A `memory.grow` of 0 pages makes the instance read the
+//! size. So a thread does that before it uses memory past the size that
+//! it has seen (`see`), and before each task of the pool (`sync`).
+//!
 //! Reference (see REFERENCES.md): the WasmAllocator of the Zig standard
 //! library (MIT).
 
@@ -65,6 +75,21 @@ fn bigPages(len: usize) usize {
     return (len + (page_size + @sizeOf(usize) - 1)) / page_size;
 }
 
+/// The end of the memory that the instance of this thread has seen.
+threadlocal var seen_end: usize = 0;
+
+/// Makes the instance of this thread read the size of the memory (see the
+/// file header).
+pub fn sync() void {
+    _ = @wasmMemoryGrow(0, 0);
+    seen_end = @wasmMemorySize(0) * page_size;
+}
+
+/// Call before the first use of the bytes from `addr` to `addr + len`.
+inline fn see(addr: usize, len: usize) void {
+    if (addr + len > seen_end) sync();
+}
+
 fn alloc(_: *anyopaque, len: usize, alignment: Alignment, _: usize) ?[*]u8 {
     const actual = @max(len +| @sizeOf(usize), alignment.toByteUnits());
     const slot = math.ceilPowerOfTwo(usize, actual) catch return null;
@@ -74,6 +99,7 @@ fn alloc(_: *anyopaque, len: usize, alignment: Alignment, _: usize) ?[*]u8 {
     s.lock.lock();
     if (s.free != 0) {
         const addr = s.free;
+        see(addr, slot);
         const node: *usize = @ptrFromInt(addr + (slot - @sizeOf(usize)));
         s.free = node.*;
         s.lock.unlock();
@@ -83,6 +109,7 @@ fn alloc(_: *anyopaque, len: usize, alignment: Alignment, _: usize) ?[*]u8 {
         const addr = s.next;
         s.next = addr + slot;
         s.lock.unlock();
+        see(addr, slot);
         return @ptrFromInt(addr);
     }
     s.lock.unlock();
@@ -152,6 +179,7 @@ fn allocBig(n: usize) usize {
     b.lock.lock();
     if (b.free != 0) {
         const addr = b.free;
+        see(addr, pages * page_size);
         const node: *usize = @ptrFromInt(addr + (pages * page_size - @sizeOf(usize)));
         b.free = node.*;
         b.lock.unlock();
@@ -161,5 +189,6 @@ fn allocBig(n: usize) usize {
     // memory.grow is atomic on a shared memory.
     const index = @wasmMemoryGrow(0, pages);
     if (index == -1) return 0;
+    seen_end = @wasmMemorySize(0) * page_size;
     return @as(usize, @intCast(index)) * page_size;
 }
