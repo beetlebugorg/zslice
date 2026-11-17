@@ -50,10 +50,16 @@ static const char *ZG_CSS =
     /* The controls that float over the preview. */
     ".zg-float { background: alpha(@theme_bg_color, 0.88); border-radius: 10px; padding: 4px;"
     "  box-shadow: 0 1px 4px alpha(black, 0.25); }"
-    ".zg-layers { padding: 6px 0 4px; min-width: 28px; border-radius: 14px; }"
-    ".zg-layers label { font-size: 0.7em; font-feature-settings: 'tnum'; }"
-    ".zg-layers scale { padding: 0 6px; }"
-    ".zg-layers label { margin-top: 2px; }"
+    /* The layer slider on the 3D view: a thin track, white knobs with a
+     * soft shadow, and the numbers in small bubbles beside the knobs. */
+    ".zg-layers { padding: 10px 6px; }"
+    ".zg-layers trough { min-width: 4px; border-radius: 2px; background: alpha(#000, 0.18); }"
+    ".zg-layers highlight { border-radius: 2px; background: @accent_bg_color; }"
+    ".zg-layers slider { min-width: 18px; min-height: 18px; border-radius: 9px; background: #ffffff;"
+    "  border: 1px solid alpha(#000, 0.25); box-shadow: 0 1px 3px alpha(#000, 0.3); }"
+    ".zg-layers slider:hover { box-shadow: 0 1px 4px alpha(#000, 0.4), 0 0 0 3px alpha(@accent_bg_color, 0.25); }"
+    ".zg-knob-label { font-size: 0.75em; font-feature-settings: 'tnum'; color: #fff; background: alpha(#202326, 0.82);"
+    "  border-radius: 6px; padding: 1px 6px; min-width: 2.2em; }"
     ".zg-scrub { padding: 2px 12px; border-radius: 14px; }"
     ".zg-scrub-label { font-size: 0.8em; font-feature-settings: 'tnum'; min-width: 120px; }"
     ".zg-lost { opacity: 0.55; }"

@@ -41,6 +41,9 @@ NODE_CLASS(ZgKnob, zg_knob, "slider")
 struct _ZgLayerRange {
     GtkWidget parent;
     GtkWidget *trough, *highlight, *knob_lo, *knob_hi;
+    /* The numbers of the two layers, left of their knobs. */
+    GtkWidget *label_lo, *label_hi;
+    char *note; /* before the number of the top layer, or NULL */
     size_t count, lo, hi;
     /* The knob of a drag (0 none, 1 lo, 2 hi), and its value at the start. */
     int dragging;
@@ -102,13 +105,24 @@ static void trough_measure(GtkWidget *trough, GtkOrientation o, int for_size, in
     *min = *nat = 0;
 }
 
+/* The width of the column of the numbers: the wider of the two. */
+static int label_width(ZgLayerRange *r) {
+    int a = 0, b = 0, n = 0;
+    gtk_widget_measure(r->label_hi, GTK_ORIENTATION_HORIZONTAL, -1, &n, &a, NULL, NULL);
+    gtk_widget_measure(r->label_lo, GTK_ORIENTATION_HORIZONTAL, -1, &n, &b, NULL, NULL);
+    return MAX(a, b);
+}
+
+/* The gap between the numbers and the knobs. */
+enum { LABEL_GAP = 6 };
+
 static void range_measure(GtkWidget *w, GtkOrientation o, int for_size, int *min, int *nat, int *min_b, int *nat_b) {
     ZgLayerRange *r = ZG_LAYER_RANGE(w);
     int tmin = 0, tnat = 0;
     gtk_widget_measure(r->trough, o, -1, &tmin, &tnat, NULL, NULL);
     int k = knob_size(r->knob_hi, o);
     if (o == GTK_ORIENTATION_HORIZONTAL) {
-        *min = *nat = MAX(tmin, k);
+        *min = *nat = label_width(r) + LABEL_GAP + MAX(tmin, k);
     } else {
         *min = 2 * k + 8;
         *nat = MAX(*min, 200);
@@ -120,11 +134,42 @@ static void range_allocate(GtkWidget *w, int width, int height, int baseline) {
     int tmin = 0, tnat = 0;
     gtk_widget_measure(r->trough, GTK_ORIENTATION_HORIZONTAL, -1, &tmin, &tnat, NULL, NULL);
     int tw = MAX(tmin, 4);
-    place(r->trough, (width - tw) / 2, 0, tw, height);
+    int kw = knob_size(r->knob_hi, GTK_ORIENTATION_HORIZONTAL);
+    int lw = label_width(r);
+    /* The bar at the right, centered under the knobs; the numbers at the
+     * left, each at the height of its knob. */
+    int col = MAX(tw, kw);
+    place(r->trough, lw + LABEL_GAP + (col - tw) / 2, 0, tw, height);
+    GtkWidget *labels[2] = {r->label_hi, r->label_lo};
+    size_t values[2] = {r->hi, r->lo};
+    for (int i = 0; i < 2; i++) {
+        if (!gtk_widget_get_visible(labels[i])) continue;
+        int lh = 0, n = 0;
+        gtk_widget_measure(labels[i], GTK_ORIENTATION_VERTICAL, lw, &n, &lh, NULL, NULL);
+        double y = y_of(r, values[i], height) - lh / 2.0;
+        y = CLAMP(y, 0, MAX(0, height - lh));
+        place(labels[i], 0, (int)y, lw, lh);
+    }
+}
+
+/* The numbers of the layers (from 1): the top layer always, the bottom
+ * layer when the range does not start at the first layer. */
+static void update_labels(ZgLayerRange *r) {
+    if (!r->label_hi) return;
+    char *hi = g_strdup_printf("%s%zu", r->note ? r->note : "", r->count ? r->hi + 1 : 0);
+    gtk_label_set_text(GTK_LABEL(r->label_hi), hi);
+    g_free(hi);
+    char *lo = g_strdup_printf("%zu", r->lo + 1);
+    gtk_label_set_text(GTK_LABEL(r->label_lo), lo);
+    g_free(lo);
+    gtk_widget_set_visible(r->label_hi, r->count > 0);
+    gtk_widget_set_visible(r->label_lo, r->count > 1 && r->lo > 0 && r->lo < r->hi);
+    gtk_widget_queue_resize(GTK_WIDGET(r));
 }
 
 static void changed(ZgLayerRange *r) {
     gtk_widget_queue_allocate(r->trough);
+    update_labels(r);
     g_signal_emit(r, signals[SIGNAL_CHANGED], 0);
 }
 
@@ -238,6 +283,9 @@ static gboolean on_scroll(GtkEventControllerScroll *c, double dx, double dy, gpo
 static void zg_layer_range_dispose(GObject *o) {
     ZgLayerRange *r = ZG_LAYER_RANGE(o);
     g_clear_pointer(&r->trough, gtk_widget_unparent);
+    g_clear_pointer(&r->label_lo, gtk_widget_unparent);
+    g_clear_pointer(&r->label_hi, gtk_widget_unparent);
+    g_clear_pointer(&r->note, g_free);
     G_OBJECT_CLASS(zg_layer_range_parent_class)->dispose(o);
 }
 
@@ -265,6 +313,16 @@ static void zg_layer_range_init(ZgLayerRange *r) {
     gtk_widget_set_parent(r->knob_lo, r->trough);
     r->knob_hi = g_object_new(zg_knob_get_type(), NULL);
     gtk_widget_set_parent(r->knob_hi, r->trough);
+    for (int i = 0; i < 2; i++) {
+        GtkWidget *l = gtk_label_new("");
+        gtk_widget_add_css_class(l, "zg-knob-label");
+        gtk_widget_add_css_class(l, "numeric");
+        gtk_label_set_xalign(GTK_LABEL(l), 1);
+        gtk_widget_set_can_target(l, FALSE);
+        gtk_widget_set_parent(l, w);
+        if (i == 0) r->label_hi = l;
+        else r->label_lo = l;
+    }
 
     GtkGesture *drag = gtk_gesture_drag_new();
     g_signal_connect(drag, "drag-begin", G_CALLBACK(on_drag_begin), r);
@@ -297,6 +355,7 @@ void zg_layer_range_set_count(ZgLayerRange *self, size_t count) {
         if (self->hi >= count) self->hi = count - 1;
         if (self->lo > self->hi) self->lo = self->hi;
     }
+    update_labels(self);
     gtk_widget_queue_allocate(self->trough);
 }
 
@@ -311,6 +370,14 @@ void zg_layer_range_set(ZgLayerRange *self, size_t lo, size_t hi) {
     self->lo = lo;
     self->hi = hi;
     gtk_widget_queue_allocate(self->trough);
+    update_labels(self);
+}
+
+void zg_layer_range_set_note(ZgLayerRange *self, const char *note) {
+    if (g_strcmp0(self->note, note) == 0) return;
+    g_free(self->note);
+    self->note = note && note[0] ? g_strdup(note) : NULL;
+    update_labels(self);
 }
 
 size_t zg_layer_range_get_lo(ZgLayerRange *self) {

@@ -177,6 +177,7 @@ static void load_layer(Preview *p, size_t layer) {
         g_free(tip);
         gtk_label_set_text(GTK_LABEL(p->label), text);
         g_free(text);
+        zg_layer_range_set_note(ZG_LAYER_RANGE(p->slider), slowed ? "❄ " : NULL);
     } else {
         gtk_label_set_text(GTK_LABEL(p->label), "");
     }
@@ -869,11 +870,9 @@ GtkWidget *zg_preview_new(ZgModel *model) {
     p->slider_box = gtk_box_new(GTK_ORIENTATION_VERTICAL, 2);
     /* The on-screen-display style of the theme: the native look of
      * controls over content (as the controls of a video). */
-    gtk_widget_add_css_class(p->slider_box, "osd");
     gtk_widget_add_css_class(p->slider_box, "zg-layers");
-    /* The number under the bar: the knob is at the top for the top layer. */
+    /* The numbers of the layers are beside the knobs (layer-range.c). */
     gtk_box_append(GTK_BOX(p->slider_box), p->slider);
-    gtk_box_append(GTK_BOX(p->slider_box), p->label);
     /* A short, thin bar in the middle of the right edge. */
     gtk_widget_set_halign(p->slider_box, GTK_ALIGN_END);
     gtk_widget_set_valign(p->slider_box, GTK_ALIGN_CENTER);

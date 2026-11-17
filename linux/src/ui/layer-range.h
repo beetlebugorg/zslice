@@ -28,6 +28,9 @@ size_t zg_layer_range_get_count(ZgLayerRange *self);
 void zg_layer_range_set(ZgLayerRange *self, size_t lo, size_t hi);
 size_t zg_layer_range_get_lo(ZgLayerRange *self);
 size_t zg_layer_range_get_hi(ZgLayerRange *self);
+/* A mark before the number of the top layer (for example a snowflake for
+ * a layer that prints slower to cool), or NULL. */
+void zg_layer_range_set_note(ZgLayerRange *self, const char *note);
 
 /* Signal "changed" (void): the user moved a knob. */
 
