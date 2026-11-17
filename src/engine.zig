@@ -2685,3 +2685,42 @@ test "modifier volume: two volumes overlap, and the higher order wins" {
     // The part has no infill in the volumes.
     try testing.expect(!featureIn(&lp, .infill, 0, .{ 7, 7, 33, 33 }));
 }
+
+/// The G-code of `mesh` with `settings`, for tests.
+fn meshGcode(gpa: Allocator, mesh: *const Mesh, settings: Settings) ![]u8 {
+    var s = settings;
+    s.engine.threads = 2;
+    var job = try Job.initFull(gpa, mesh, s, &.{}, .{});
+    defer job.deinit();
+    var out: Writer.Allocating = .init(gpa);
+    defer out.deinit();
+    _ = try job.writeGcode(&out.writer);
+    return out.toOwnedSlice();
+}
+
+test "bridges: the walls of a cap over air print as bridges" {
+    const gpa = testing.allocator;
+    // A cap from z 5 on a thin post: the walls of the first cap layer are
+    // over air.
+    var b: mesh_mod.Builder = .init(gpa);
+    try mesh_mod.shapes.addBox(&b, 8, 8, 0, 12, 12, 5);
+    try mesh_mod.shapes.addBox(&b, 0, 0, 5, 20, 20, 7);
+    var mesh = try b.finish();
+    defer mesh.deinit(gpa);
+    const on = try meshGcode(gpa, &mesh, .{});
+    defer gpa.free(on);
+    try testing.expect(std.mem.indexOf(u8, on, ";TYPE:BRIDGE") != null);
+    var s: Settings = .{};
+    s.project.bridges = false;
+    const off = try meshGcode(gpa, &mesh, s);
+    defer gpa.free(off);
+    try testing.expect(std.mem.indexOf(u8, off, ";TYPE:BRIDGE") == null);
+    // The post alone (no air) has no bridge.
+    var b2: mesh_mod.Builder = .init(gpa);
+    try mesh_mod.shapes.addBox(&b2, 8, 8, 0, 12, 12, 5);
+    var post = try b2.finish();
+    defer post.deinit(gpa);
+    const plain = try meshGcode(gpa, &post, .{});
+    defer gpa.free(plain);
+    try testing.expect(std.mem.indexOf(u8, plain, ";TYPE:BRIDGE") == null);
+}

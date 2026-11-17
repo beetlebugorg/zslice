@@ -1433,6 +1433,9 @@ pub fn plan(gpa: Allocator, ctx: Context, i: usize) Allocator.Error!LayerPlan {
         try addGroup(s, a, &lp, &pos, ironing_lines, false, .ironing, null, .{ .ids = ironing_ids, .id = id });
     }
 
+    // Walls over air print as bridges (see splitBridgeWalls).
+    if (p.bridges and !first) try splitBridgeWalls(s, a, &lp, ctx.outlines[i - 1], w);
+
     // Step 10: slope smoothing, after all other paths of the layer, then
     // slope ironing.
     const slope_in: slope.Input = .{ .resolved = r, .layers = ctx.layers, .outlines = ctx.outlines, .tops = ctx.tops };
@@ -2497,6 +2500,119 @@ fn insidePoly(poly: []const Point, p: Point) bool {
         } else if (r.y <= p.y and geom.cross3(q, r, p) < 0) winding -= 1;
     }
     return winding != 0;
+}
+
+/// Walls over air: a wall (classic, of one width) whose segments go over
+/// air prints those parts as bridges, with the bridge speed, flow, and
+/// fan. A segment is over air if its middle is more than half a line
+/// outside the outline of the layer below. A run over air shorter than
+/// 1 mm stays wall (a gentle slope is not a bridge). The wall splits into
+/// open paths at the ends of each run; the path order stays, so the
+/// nozzle goes on along the wall with no travel.
+fn splitBridgeWalls(s: Allocator, a: Allocator, lp: *LayerPlan, below: Paths, w: i64) Allocator.Error!void {
+    const isWall = struct {
+        fn f(pth: Path, n: usize) bool {
+            return (pth.feature == .outer_wall or pth.feature == .inner_wall) and pth.w_start == Path.planar and pth.z_start == Path.planar and n >= 2;
+        }
+    }.f;
+    var any = false;
+    for (lp.paths.items, 0..) |pth, k| any = any or isWall(pth, lp.points.get(k).len);
+    if (!any or below.isEmpty()) return;
+    const held = try offset_mod.offset(s, below, @divTrunc(w, 2), .{});
+    const ix = try geom.EdgeIndex.init(s, held, 0);
+    const min_run: f64 = @floatFromInt(geom.fromMm(1.0));
+    var paths: std.ArrayList(Path) = .empty;
+    var points: Paths = .empty;
+    var changed = false;
+    var air: std.ArrayList(bool) = .empty;
+    for (lp.paths.items, 0..) |pth, k| {
+        const pts = lp.points.get(k);
+        if (!isWall(pth, pts.len)) {
+            try paths.append(a, pth);
+            try points.append(a, pts);
+            continue;
+        }
+        const n = pts.len;
+        const nseg = if (pth.closed) n else n - 1;
+        air.clearRetainingCapacity();
+        var some = false;
+        for (0..nseg) |j| {
+            const p0 = pts[j];
+            const p1 = pts[(j + 1) % n];
+            const mid: geom.Point = .{ .x = @divTrunc(p0.x + p1.x, 2), .y = @divTrunc(p0.y + p1.y, 2) };
+            const over = !ix.inside(mid);
+            try air.append(s, over);
+            some = some or over;
+        }
+        if (!some) {
+            try paths.append(a, pth);
+            try points.append(a, pts);
+            continue;
+        }
+        // Short runs over air stay wall. A run of a closed loop can go
+        // across the start of the loop: the runs start after a change.
+        var start: usize = 0;
+        if (pth.closed) {
+            for (0..nseg) |j| if (air.items[j] != air.items[(j + nseg - 1) % nseg]) {
+                start = j;
+                break;
+            };
+        }
+        var j: usize = 0;
+        while (j < nseg) {
+            const flag = air.items[(start + j) % nseg];
+            var e = j;
+            var len: f64 = 0;
+            while (e < nseg and air.items[(start + e) % nseg] == flag) : (e += 1) {
+                const sj = (start + e) % nseg;
+                len += pts[sj].dist(pts[(sj + 1) % n]);
+            }
+            if (flag and len < min_run) for (j..e) |q| {
+                air.items[(start + q) % nseg] = false;
+            };
+            j = e;
+        }
+        some = false;
+        for (air.items) |f| some = some or f;
+        if (!some) {
+            try paths.append(a, pth);
+            try points.append(a, pts);
+            continue;
+        }
+        changed = true;
+        // All over air: one bridge loop.
+        var all = true;
+        for (air.items) |f| all = all and f;
+        if (all) {
+            var b = pth;
+            b.feature = .bridge;
+            try paths.append(a, b);
+            try points.append(a, pts);
+            continue;
+        }
+        // The runs, as open paths.
+        var run: std.ArrayList(geom.Point) = .empty;
+        j = 0;
+        while (j < nseg) {
+            const flag = air.items[(start + j) % nseg];
+            run.clearRetainingCapacity();
+            try run.append(s, pts[(start + j) % nseg]);
+            var e = j;
+            while (e < nseg and air.items[(start + e) % nseg] == flag) : (e += 1) {
+                try run.append(s, pts[((start + e) % nseg + 1) % n]);
+            }
+            var piece = pth;
+            piece.closed = false;
+            if (flag) piece.feature = .bridge;
+            try paths.append(a, piece);
+            try points.append(a, run.items);
+            j = e;
+        }
+    }
+    if (changed) {
+        lp.paths = paths;
+        lp.points = points;
+    }
 }
 
 /// The bridges of a skin area: their area (the bridge with its anchors),

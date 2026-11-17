@@ -320,8 +320,9 @@ pub const Project = struct {
     /// solid plastic holds at its sides prints in straight lines across the
     /// air (the direction with the most lines that start and end on solid
     /// plastic), each line anchored on the solid skin around it, slower
-    /// (`bridge_speed`), with `bridge_flow` and `bridge_fan`. Off: the
-    /// bridge prints as normal skin.
+    /// (`bridge_speed`), with `bridge_flow` and `bridge_fan`. The parts of
+    /// the walls over air (1 mm or longer) print as bridges too. Off: the
+    /// bridge prints as normal skin and walls.
     bridges: bool = true,
     /// The speed of the bridge lines, as a ratio of the allowed speed. A slow
     /// line sags less.

@@ -358,7 +358,7 @@ Skin lines go this far into the walls, as a fraction of the line width, so that 
 
 **`project.bridges`** (true or false; per layer). Default: `true`
 
-Print bridges as bridges: the part of a bottom skin over air that solid plastic holds at its sides prints in straight lines across the air (the direction with the most lines that start and end on solid plastic), each line anchored on the solid skin around it, slower (`bridge_speed`), with `bridge_flow` and `bridge_fan`. Off: the bridge prints as normal skin.
+Print bridges as bridges: the part of a bottom skin over air that solid plastic holds at its sides prints in straight lines across the air (the direction with the most lines that start and end on solid plastic), each line anchored on the solid skin around it, slower (`bridge_speed`), with `bridge_flow` and `bridge_fan`. The parts of the walls over air (1 mm or longer) print as bridges too. Off: the bridge prints as normal skin and walls.
 
 **`project.bridge_speed`** (number; per layer). Default: `0.3`
 
