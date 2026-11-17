@@ -26,6 +26,19 @@
 - Profile importers. Read Cura profiles (and other slicers) and convert them into zslice machine, filament, and project profiles. The printdeck TAZ profile (`printdeck/profiles/taz-workhorse-se`) is the first test case.
 - 3MF load.
 
+## Done in November 2026
+
+- [x] The web app on WebAssembly (zslice.beetlebug.org): the same window as the GTK app, the 2D view, the Selected page, the context menu, a resizable panel, and the plate kept across a refresh
+- [x] Printer onboarding: a library of 1181 printers from Cura, Cura LulzBot Edition, PrusaSlicer, and OrcaSlicer, a picker with search, network search (printdeck, OctoPrint, Moonraker, PrusaLink), and the bed model of 830 printers in the 3D view
+- [x] A history of changes: a timeline with a badge for each kind of change, a History tab, a click goes back to a change, a double click edits it, undo of one change, and marks on the layer slider for the changes of some layers
+- [x] Tools: Select, Move, and Measure; a measure tape that snaps to the ends of the lines and to the centers of circles; the measurements of a selected line (segment, edge, path, radius)
+- [x] Retractless top and bottom skin: the pieces of the skin join into few paths along the walls
+- [x] Gap fill, and bridges for skin and for walls
+- [x] Smart placement that counts the islands of an orientation (a part on a 45 degree edge)
+- [x] Infill ribs: a line in each narrow infill area that a sparse infill misses
+- [x] A Cura-like camera: a left or right drag orbits with the bed level; a touchpad pans with two fingers and zooms with a pinch
+- [x] A privacy page: no analytics, no cookies, nothing loaded from other sites
+
 ## Feature parity with PrusaSlicer and Cura
 
 The goal is the features that people use in PrusaSlicer and Cura. zslice designs each one again, and does not copy their code or always their method. The order is by how often a print needs the feature.
@@ -34,17 +47,17 @@ The goal is the features that people use in PrusaSlicer and Cura. zslice designs
 - [x] Walls, top and bottom skin, sparse infill (lines, grid)
 - [x] Ironing
 - [x] Support: grid support with interface layers, XY and Z gaps, everywhere or bed only
-- [ ] Support: tree support, support blockers and enforcers, bridges without support
+- [x] Support: tree support, support blockers and enforcers (marks in the 3D view), bridges without support (support_style bridge)
 - [x] Skirt and brim
-- [ ] Bridges: find them, print them with their own direction, speed, flow, and fan
+- [x] Bridges: find them, print them with their own direction, speed, flow, and fan
 - [ ] Overhang walls: slower speed and more fan for overhang
 - [x] Seam placement: sharpest corner (hidden), rear, nearest, random
 - [x] Gap fill and thin walls with a variable line width: Arachne walls, ported from CuraEngine (`project.wall_generator = arachne`)
 - [x] Infill patterns: gyroid, cubic, triangles, concentric
 - [ ] Infill patterns: honeycomb, adaptive cubic
 - [x] Infill patterns: lightning
-- [ ] Top and bottom patterns: monotonic, concentric
-- [ ] Infill only where needed, and denser infill under top surfaces
+- [x] Top and bottom patterns: monotonic, concentric
+- [x] Infill only where needed, and denser infill under top surfaces
 - [ ] Wall order (inner first or outer first) and extra walls on alternate layers
 - [ ] Fuzzy skin
 - [ ] Spiral vase mode
@@ -53,35 +66,37 @@ The goal is the features that people use in PrusaSlicer and Cura. zslice designs
 - [ ] Polyholes
 
 ### Motion and extrusion
-- [ ] Avoid crossing walls (combing) on travel
-- [ ] Wipe on retraction, retraction on layer change, z hop only above parts
+- [x] Avoid crossing walls (combing) on travel
+- [x] Retraction on layer change, z hop only for a travel that crosses an edge
+- [ ] Wipe on retraction: a small swirl toward the inside of the part while it retracts, as a person wipes a drip
 - [ ] Coasting
-- [ ] Acceleration and jerk control for each feature; a time estimate with acceleration
+- [x] Acceleration and jerk control for each feature; a time estimate with acceleration
 - [ ] Arc fitting (G2/G3)
 - [ ] Pressure advance and input shaper calibration prints
 - [x] Cooling: minimum layer time, fan boost on short layers, slow down for small layers
 - [ ] Firmware flavors: Marlin, Klipper, RepRapFirmware, Bambu, with exclude-object labels
 
 ### Models and plate
-- [ ] More than one object on the plate, with automatic arrangement
+- [x] More than one object on the plate, with automatic arrangement
 - [x] 3MF load (parts at their places, components, units, zip64; items that overlap stay one part) and 3MF plate save (Ctrl+S)
 - [ ] OBJ and STEP load
-- [ ] Rotate, scale, mirror, place on face, cut
-- [ ] Modifiers (per-region settings), and settings for each object
+- [x] Rotate, scale, place on face ("Put this side on the bed")
+- [ ] Mirror, cut
+- [x] Modifiers (per-region settings), and settings for each object
 - [ ] Mesh repair
 - [ ] Sequential printing (one object at a time)
-- [ ] Multi-material: tool changes, wipe tower, ooze shield, painted regions
-- [ ] Sliced layer preview in 3D, with speed, flow, and feature views
+- [ ] Multi-material and more than one tool head: a filament (and color) for each part or region, tool changes with the start and end G-code of each tool, a wipe tower, an ooze shield, painted regions (the library has dual-extruder printers)
+- [x] Sliced layer preview in 3D, with speed, flow, and feature views
 
 ### Profiles and workflow
 - [x] Machine, filament, and project profiles in TOML, with `extends` and overrides (command line)
 - [x] The app keeps its settings after a restart (~/.config/zslice/{machine,filament,project}.toml, only the changes from the defaults)
-- [ ] Profiles in the app: pick, edit, and save profiles, through the C API with a resolver callback
+- [x] Profiles in the app: pick, edit, and save profiles, through the C API with a resolver callback
 - [x] Import of Cura profile stacks (the printdeck layout with cura.json)
 - [ ] Import of PrusaSlicer and OrcaSlicer profiles, and of a Cura profile export (.curaprofile)
 - [x] Shrinkage compensation and XY offsets for outlines, holes, and the first layer (imported from the printdeck rolls)
-- [ ] A printer profile library
-- [ ] Send to printer: printdeck, OctoPrint, Moonraker
+- [x] A printer profile library
+- [x] Send to printer: printdeck, OctoPrint, Moonraker
 - [ ] Calibration prints: temperature tower, flow, retraction, pressure advance
 
 ## App
@@ -131,13 +146,17 @@ The goal is the features that people use in PrusaSlicer and Cura. zslice designs
 - [ ] Color modes in the 2D view, and a layer height mode (with variable layer heights)
 - [ ] Ironing in the preview: the ironed top skin looks flat; the inspector shows what ironing costs in time
 - [x] Plate: more than one part (open or drop many STLs), Shift+click to select a part, Shift+drag to move it, Shift+wheel to turn it, a part page, and "Arrange the plate" (rows, the largest first)
-- [ ] Plate: a best placement that turns each part for less support, and lay flat
+- [x] Plate: a best placement that turns each part for less support, and lay flat
 - [x] Printer library: 1080 printers of 187 brands from Cura, PrusaSlicer, and OrcaSlicer (`tools/printer_library.py`, `src/printers.zig`); the printer picker with search, brands, a drawing of the build volume, and the key facts, at the first start and from the printer menu (GTK and web)
 - [x] Printers on the network: mDNS for OctoPrint, printdeck, Moonraker, and PrusaLink (`src/discovery.zig`), the kind from `/api/version`, the bed from Klipper
 - [ ] Printer library: the start G-code of the definitions with scripts (`{if}`, expressions: about 40 % of the models get the zslice start G-code now), more than one extruder, the bed shape of round beds in the plate and the 3D view, the heated bed and chamber in the G-code
-- [ ] Printer discovery: Bambu Lab (SSDP), Elegoo (SDCP), Creality, and Duet; the model of a printdeck or OctoPrint printer (it needs the API key)
+- [ ] Printer discovery: Bambu Lab in LAN mode (SSDP), Elegoo (SDCP), Creality, and Duet; the model of a printdeck or OctoPrint printer (it needs the API key)
 - [ ] Printers: a shared place for printers and their connections (printdeck remote, OctoPrint, Moonraker), and print monitoring
-- [ ] Replay: a nozzle marker, and the time estimate with acceleration (the replay is as exact as the time estimate)
+- [x] Replay: a nozzle marker, and the time estimate with acceleration (the replay is as exact as the time estimate)
+- [ ] Projects from GitHub: open a repo with a `printdeck.yml`, slice all its parts onto plates, and a print workflow that walks through the plates and keeps the status across a restart
+- [ ] Debug prints: "Print this layer" (one layer alone on the bed), and a range of about 10 layers laid flat side by side, to compare a print with the preview
+- [ ] Check the G-code of each printer of the library: slice a test part with each profile and test the start and end G-code
+- [ ] The web app: Gaps, Check, the history and undo, and the tools (the native app has them)
 - [ ] macOS and iOS shell: SwiftUI (`apple/`)
 - [ ] Windows shell: Win32 C++ (`windows/`)
 - [ ] Android shell: Kotlin (`android/`)
