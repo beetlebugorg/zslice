@@ -253,7 +253,7 @@ select.choice {
 .detail .doc { margin: 14px 0 0; line-height: 1.35; white-space: pre-wrap; }
 .detail h4 { margin: 16px 0 4px; font-size: 1em; }
 .feature-row { display: flex; align-items: center; gap: 8px; padding: 6px 10px; border-radius: var(--radius); }
-.feature-row .dot { font-size: 0.9em; }
+.feature-row .dot { font-size: 1.15em; line-height: 1; }
 .feature-row .what { flex: 1; }
 .feature-row .stat { color: var(--dim); font-variant-numeric: tabular-nums; }
 .note { color: var(--dim); margin-top: 6px; }

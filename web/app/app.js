@@ -610,4 +610,4 @@ if (modelUrl) {
 }
 
 // For tests: the state of the page.
-window.zslice = { app, view, layers, browser, client };
+window.zslice = { app, view, layers, browser, client, gl };
