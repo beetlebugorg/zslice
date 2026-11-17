@@ -74,6 +74,30 @@ fn Arith(comptime narrow: bool) type {
             if (!narrow) return dot3(a, b, c);
             return (b.x - a.x) * (c.x - a.x) + (b.y - a.y) * (c.y - a.y);
         }
+
+        /// The cross product of two directions (differences of points).
+        inline fn crossDir(a: Point, b: Point) W {
+            if (!narrow) return crossV(a, b);
+            return a.x * b.y - a.y * b.x;
+        }
+
+        /// The order of directions by angle, counterclockwise from +x.
+        /// Exact: it uses only signs of integer products.
+        inline fn angleLt(a: Point, b: Point) bool {
+            const ha = upperHalf(a);
+            const hb = upperHalf(b);
+            if (ha != hb) return ha;
+            return crossDir(a, b) > 0;
+        }
+
+        /// The distance from a to b. The 64-bit sum of squares is exact, so
+        /// both forms give the same value.
+        inline fn dist(a: Point, b: Point) f64 {
+            if (!narrow) return a.dist(b);
+            const dx = a.x - b.x;
+            const dy = a.y - b.y;
+            return @sqrt(@as(f64, @floatFromInt(dx * dx + dy * dy)));
+        }
     };
 }
 
@@ -161,7 +185,7 @@ fn arrange(arena: Allocator, subject: Paths, clip: Paths) Allocator.Error![]Merg
     if (merged.len == 0) return merged;
 
     // Step 4: winding numbers on each side of each edge.
-    try computeWinding(arena, merged);
+    if (narrow) try computeWinding(true, arena, merged) else try computeWinding(false, arena, merged);
     return merged;
 }
 
@@ -270,19 +294,19 @@ const Split = struct { edge: u32, p: Point };
 ///
 /// A pair that shares more than one cell is tested more than once. The
 /// split step removes the repeated points.
-fn findIntersections(comptime narrow: bool, arena: Allocator, edges: []const InEdge, splits: *std.ArrayList(Split)) !void {
+noinline fn findIntersections(comptime narrow: bool, arena: Allocator, edges: []const InEdge, splits: *std.ArrayList(Split)) !void {
     if (edges.len < 2) return;
     var box = geom.Box.empty;
     var total: f64 = 0;
     for (edges) |e| {
         box.extend(e.a);
         box.extend(e.b);
-        total += e.a.dist(e.b);
+        total += Arith(narrow).dist(e.a, e.b);
     }
     const span: f64 = @floatFromInt(@max(box.max.x - box.min.x, box.max.y - box.min.y) + 1);
     // The mean edge length, but not so small that the grid has more than
     // about 4096 cells on a side.
-    const cell = @max(total / @as(f64, @floatFromInt(edges.len)), span / 4096.0, 1.0);
+    const cell = larger(larger(total / @as(f64, @floatFromInt(edges.len)), span / 4096.0), 1.0);
 
     // The number of cells on each side. The walk can add a cell one step
     // past the box (at a corner), so each side gets 2 more.
@@ -331,8 +355,16 @@ fn findIntersections(comptime narrow: bool, arena: Allocator, edges: []const InE
     // cell.
     try radixSortByCell(arena, entries.items, grid.rows * grid.cols);
 
+    try testCells(narrow, arena, edges, entries.items, splits);
+}
+
+/// Tests the pairs of edges in each cell. `items` is in cell order.
+///
+/// The loop is in its own function, and it reads the edges through
+/// pointers: the compiler of a wasm host keeps the values of a small loop
+/// in registers, and a copy of each edge costs six loads and stores.
+noinline fn testCells(comptime narrow: bool, arena: Allocator, edges: []const InEdge, items: []const CellEntry, splits: *std.ArrayList(Split)) !void {
     var i: usize = 0;
-    const items = entries.items;
     while (i < items.len) {
         var j = i + 1;
         while (j < items.len and items[j].cell == items[i].cell) : (j += 1) {}
@@ -342,16 +374,20 @@ fn findIntersections(comptime narrow: bool, arena: Allocator, edges: []const InE
         while (x < j) : (x += 1) {
             if (x > i and items[x].edge == items[x - 1].edge) continue;
             const ei = items[x].edge;
-            const e = edges[ei];
+            const e = &edges[ei];
             // The rest are old edges, and two old edges do not cross.
             if (!e.fresh) break;
+            const e_min_x = @min(e.a.x, e.b.x);
+            const e_max_x = @max(e.a.x, e.b.x);
+            const e_min_y = @min(e.a.y, e.b.y);
+            const e_max_y = @max(e.a.y, e.b.y);
             var y = x + 1;
             while (y < j) : (y += 1) {
                 if (items[y].edge == items[y - 1].edge) continue;
                 const fi = items[y].edge;
-                const f = edges[fi];
-                if (@max(f.a.x, f.b.x) < e.minX() or @min(f.a.x, f.b.x) > e.maxX()) continue;
-                if (@max(f.a.y, f.b.y) < @min(e.a.y, e.b.y) or @min(f.a.y, f.b.y) > @max(e.a.y, e.b.y)) continue;
+                const f = &edges[fi];
+                if (@max(f.a.x, f.b.x) < e_min_x or @min(f.a.x, f.b.x) > e_max_x) continue;
+                if (@max(f.a.y, f.b.y) < e_min_y or @min(f.a.y, f.b.y) > e_max_y) continue;
                 // The crossing point is rounded along the first edge, so
                 // the edge with the lower index always goes first.
                 if (ei < fi) {
@@ -424,7 +460,7 @@ fn walkCells(arena: Allocator, out: *std.ArrayList(CellEntry), a: Point, b: Poin
         // A corner needs both steps to be finite: an axis-aligned edge has
         // one infinite value, and inf - inf would look like a corner.
         const corner = std.math.isFinite(t_max_x) and std.math.isFinite(t_max_y) and
-            @abs(diff) <= 1e-9 * @max(1.0, @abs(t_max_x));
+            @abs(diff) <= 1e-9 * larger(1.0, @abs(t_max_x));
         if (corner) {
             // Through a corner: add both side cells. A side cell outside the
             // grid (a negative coordinate) has no edges, so it is skipped.
@@ -446,6 +482,12 @@ fn walkCells(arena: Allocator, out: *std.ArrayList(CellEntry), a: Point, b: Poin
     }
 }
 
+/// The larger of two numbers that are not NaN. `@max` of two floats is a
+/// library call in wasm (it must handle NaN as C does).
+inline fn larger(a: f64, b: f64) f64 {
+    return if (a > b) a else b;
+}
+
 /// True if p is on the open segment from a to b. The caller has already
 /// found that p is on the line through a and b.
 fn strictlyBetween(comptime narrow: bool, a: Point, b: Point, p: Point) bool {
@@ -454,16 +496,16 @@ fn strictlyBetween(comptime narrow: bool, a: Point, b: Point, p: Point) bool {
     return A.dot(a, b, p) > 0 and A.dot(b, a, p) > 0;
 }
 
-fn intersectPair(comptime narrow: bool, arena: Allocator, splits: *std.ArrayList(Split), ei: u32, e: InEdge, fi: u32, f: InEdge) !void {
+fn intersectPair(comptime narrow: bool, arena: Allocator, splits: *std.ArrayList(Split), ei: u32, e: *const InEdge, fi: u32, f: *const InEdge) !void {
     const A = Arith(narrow);
     const p1 = e.a;
     const p2 = e.b;
     const q1 = f.a;
     const q2 = f.b;
-    const d1: i128 = A.cross(q1, q2, p1);
-    const d2: i128 = A.cross(q1, q2, p2);
-    const d3: i128 = A.cross(p1, p2, q1);
-    const d4: i128 = A.cross(p1, p2, q2);
+    const d1 = A.cross(q1, q2, p1);
+    const d2 = A.cross(q1, q2, p2);
+    const d3 = A.cross(p1, p2, q1);
+    const d4 = A.cross(p1, p2, q2);
 
     // Each end point that is on the other edge (but not at its ends) splits
     // the other edge. This covers "T" junctions and edges that overlap on
@@ -479,18 +521,39 @@ fn intersectPair(comptime narrow: bool, arena: Allocator, splits: *std.ArrayList
     const crosses_f = (d3 > 0 and d4 < 0) or (d3 < 0 and d4 > 0);
     if (crosses_e and crosses_f) {
         // The crossing is at p1 + t * (p2 - p1), with t = d1 / (d1 - d2).
-        const den = d1 - d2;
         const ip = Point{
-            .x = p1.x + roundDiv(@as(i128, p2.x - p1.x) * d1, den),
-            .y = p1.y + roundDiv(@as(i128, p2.y - p1.y) * d1, den),
+            .x = p1.x + mulDivRound(narrow, p2.x - p1.x, d1, d2),
+            .y = p1.y + mulDivRound(narrow, p2.y - p1.y, d1, d2),
         };
         if (!ip.eql(p1) and !ip.eql(p2)) try splits.append(arena, .{ .edge = ei, .p = ip });
         if (!ip.eql(q1) and !ip.eql(q2)) try splits.append(arena, .{ .edge = fi, .p = ip });
     }
 }
 
+/// d * d1 / (d1 - d2), rounded to the nearest integer (see `roundDiv`).
+/// d1 and d2 have opposite signs.
+///
+/// With `narrow`, |d| < 2^31 and |d1|, |d2| < 2^62. The exact product needs
+/// 93 bits, and a 128-bit division is slow (in wasm, a 128-bit product is
+/// also a library call). So the code divides with floats first. Each of
+/// the 4 float steps has a relative error of at most 2^-53, and the result
+/// is less than 2^31, so the float result is within 2^-20 of the exact
+/// one. If it is not that near to a half, its rounded value is the exact
+/// answer. If it is, the 128-bit division decides.
+inline fn mulDivRound(comptime narrow: bool, d: i64, d1: Arith(narrow).W, d2: Arith(narrow).W) i64 {
+    if (narrow) {
+        const den = d1 - d2;
+        const r = @as(f64, @floatFromInt(d)) * @as(f64, @floatFromInt(d1)) / @as(f64, @floatFromInt(den));
+        const fl = @floor(r + 0.5);
+        const frac = (r + 0.5) - fl;
+        const margin = 1.0 / 65536.0;
+        if (frac > margin and frac < 1.0 - margin) return @intFromFloat(fl);
+    }
+    return roundDiv(@as(i128, d) * d1, @as(i128, d1) - d2);
+}
+
 /// num / den, rounded to the nearest integer.
-fn roundDiv(num: i128, den: i128) i64 {
+noinline fn roundDiv(num: i128, den: i128) i64 {
     var n = num;
     var d = den;
     if (d < 0) {
@@ -517,7 +580,7 @@ const Merged = struct {
     fresh: bool = false,
 };
 
-fn splitAndMerge(comptime narrow: bool, arena: Allocator, edges: []const InEdge, splits: []Split, sorted_input: bool) ![]Merged {
+noinline fn splitAndMerge(comptime narrow: bool, arena: Allocator, edges: []const InEdge, splits: []Split, sorted_input: bool) ![]Merged {
     // Sort the split points by edge, then by position along the edge.
     std.mem.sortUnstable(Split, splits, edges, struct {
         fn lt(es: []const InEdge, a: Split, b: Split) bool {
@@ -677,7 +740,7 @@ const SlabIndex = struct {
         return s.items[s.starts[i]..s.starts[i + 1]];
     }
 
-    fn build(arena: Allocator, edges: []const Merged) !SlabIndex {
+    noinline fn build(arena: Allocator, edges: []const Merged) !SlabIndex {
         var lo: i64 = std.math.maxInt(i64);
         var hi: i64 = std.math.minInt(i64);
         var n: usize = 0;
@@ -726,15 +789,15 @@ const SlabIndex = struct {
 /// from v to the left crosses. An edge counts if min y <= v.y < max y (half
 /// open) and v is strictly right of it. The result is the winding number at
 /// a point just left of v and just above the ray.
-fn windingLeftOf(edges: []const Merged, index: SlabIndex, v: Point) [2]i32 {
+noinline fn windingLeftOf(comptime narrow: bool, edges: []const Merged, index: SlabIndex, v: Point) [2]i32 {
     var sum: [2]i32 = .{ 0, 0 };
     for (index.get(v.y)) |fi| {
-        const f = edges[fi];
+        const f = &edges[fi];
         const up = f.lo.y < f.hi.y;
         const u = if (up) f.lo else f.hi;
         const w = if (up) f.hi else f.lo;
         if (!(u.y <= v.y and v.y < w.y)) continue;
-        if (cross3(u, w, v) < 0) {
+        if (Arith(narrow).cross(u, w, v) < 0) {
             // An edge that goes down, on the left of the point, adds +1
             // (the left side of a counterclockwise square).
             const s: i32 = if (up) 1 else -1;
@@ -762,7 +825,8 @@ fn windingLeftOf(edges: []const Merged, index: SlabIndex, v: Point) [2]i32 {
 ///    of the other components at that point (see `windingLeftOf`).
 ///
 /// The cost is O(n log n) for the sort, plus one ray for each component.
-fn computeWinding(arena: Allocator, edges: []Merged) !void {
+fn computeWinding(comptime narrow: bool, arena: Allocator, edges: []Merged) !void {
+    const A = Arith(narrow);
     const m = edges.len;
     const h_count = 2 * m;
 
@@ -771,23 +835,23 @@ fn computeWinding(arena: Allocator, edges: []Merged) !void {
     for (order, 0..) |*o, i| o.* = @intCast(i);
     const Ctx = struct {
         edges: []const Merged,
-        fn origin(c: @This(), h: u32) Point {
-            const e = c.edges[h >> 1];
+        inline fn origin(c: @This(), h: u32) Point {
+            const e = &c.edges[h >> 1];
             return if (h & 1 == 0) e.lo else e.hi;
         }
-        fn dir(c: @This(), h: u32) Point {
-            const e = c.edges[h >> 1];
+        inline fn dir(c: @This(), h: u32) Point {
+            const e = &c.edges[h >> 1];
             return if (h & 1 == 0) e.hi.sub(e.lo) else e.lo.sub(e.hi);
         }
         fn lt(c: @This(), a: u32, b: u32) bool {
             const oa = c.origin(a);
             const ob = c.origin(b);
             if (!oa.eql(ob)) return oa.lessThan(ob);
-            return angleLess(c.dir(a), c.dir(b));
+            return A.angleLt(c.dir(a), c.dir(b));
         }
     };
     const ctx: Ctx = .{ .edges = edges };
-    if (!try sortHalfEdges(arena, edges, order)) std.mem.sortUnstable(u32, order, ctx, Ctx.lt);
+    if (!try sortHalfEdges(narrow, arena, edges, order)) sortHalfEdgesSlow(Ctx, ctx, order);
     const pos = try arena.alloc(u32, h_count);
     const group_start = try arena.alloc(u32, h_count);
     const group_len = try arena.alloc(u32, h_count);
@@ -823,7 +887,7 @@ fn computeWinding(arena: Allocator, edges: []Merged) !void {
             const k = pos[h ^ 1];
             const g = group_start[k];
             const len = group_len[k];
-            h = order[g + (k - g + len - 1) % len];
+            h = order[if (k == g) g + len - 1 else k - 1];
         }
     }
 
@@ -852,7 +916,7 @@ fn computeWinding(arena: Allocator, edges: []Merged) !void {
             var h = face_first.items[f];
             while (true) {
                 if (ctx.origin(h).lessThan(ctx.origin(lead)) or
-                    (ctx.origin(h).eql(ctx.origin(lead)) and crossV(ctx.dir(lead), ctx.dir(h)) > 0)) lead = h;
+                    (ctx.origin(h).eql(ctx.origin(lead)) and A.crossDir(ctx.dir(lead), ctx.dir(h)) > 0)) lead = h;
                 // The face on the other side of h is the face of its twin.
                 // The left of lo -> hi has the winding of its right plus d.
                 const g = face[h ^ 1];
@@ -868,14 +932,14 @@ fn computeWinding(arena: Allocator, edges: []Merged) !void {
                 const k = pos[h ^ 1];
                 const gs = group_start[k];
                 const len = group_len[k];
-                h = order[gs + (k - gs + len - 1) % len];
+                h = order[if (k == gs) gs + len - 1 else k - 1];
                 if (h == face_first.items[f]) break;
             }
         }
         // Make the numbers of this component absolute.
         if (index == null) index = try SlabIndex.build(arena, edges);
         const v = ctx.origin(lead);
-        const outside = windingLeftOf(edges, index.?, v);
+        const outside = windingLeftOf(narrow, edges, index.?, v);
         const rel = wind[face[lead]];
         const shift = [2]i32{ outside[0] - rel[0], outside[1] - rel[1] };
         for (comp.items) |f| wind[f] = .{ wind[f][0] + shift[0], wind[f][1] + shift[1] };
@@ -991,7 +1055,7 @@ fn radixPasses(comptime T: type, comptime K: type, comptime digit: u7, arena: Al
 /// insertion sort puts each vertex group (most have 2 to 4 half-edges) in
 /// angle order. Returns false if the coordinates are too large for the
 /// keys; then the caller sorts.
-fn sortHalfEdges(arena: Allocator, edges: []const Merged, order: []u32) Allocator.Error!bool {
+noinline fn sortHalfEdges(comptime narrow: bool, arena: Allocator, edges: []const Merged, order: []u32) Allocator.Error!bool {
     const ks = KeySpace.of(edges) orelse return false;
     const odd = try arena.alloc(KeyIdx, edges.len);
     for (odd, 0..) |*o, i| o.* = .{ .k = ks.key(edges[i].hi), .i = @intCast(2 * i + 1) };
@@ -1018,25 +1082,23 @@ fn sortHalfEdges(arena: Allocator, edges: []const Merged, order: []u32) Allocato
         for (1..group.len) |i| {
             const h = group[i];
             var j = i;
-            while (j > 0 and angleLess(halfDir(edges, h), halfDir(edges, group[j - 1]))) : (j -= 1) group[j] = group[j - 1];
+            while (j > 0 and Arith(narrow).angleLt(halfDir(edges, h), halfDir(edges, group[j - 1]))) : (j -= 1) group[j] = group[j - 1];
             group[j] = h;
         }
     }
     return true;
 }
 
-fn halfDir(edges: []const Merged, h: u32) Point {
-    const e = edges[h >> 1];
-    return if (h & 1 == 0) e.hi.sub(e.lo) else e.lo.sub(e.hi);
+/// The comparison sort of the half-edges, for coordinates that are too
+/// large for `sortHalfEdges`. It is in its own function so that the common
+/// path stays small.
+noinline fn sortHalfEdgesSlow(comptime Ctx: type, ctx: Ctx, order: []u32) void {
+    std.mem.sortUnstable(u32, order, ctx, Ctx.lt);
 }
 
-/// The order of directions by angle, counterclockwise from +x. Exact: it
-/// uses only signs of integer products.
-fn angleLess(a: Point, b: Point) bool {
-    const ha = upperHalf(a);
-    const hb = upperHalf(b);
-    if (ha != hb) return ha;
-    return crossV(a, b) > 0;
+inline fn halfDir(edges: []const Merged, h: u32) Point {
+    const e = &edges[h >> 1];
+    return if (h & 1 == 0) e.hi.sub(e.lo) else e.lo.sub(e.hi);
 }
 
 /// True for angles in [0, 180) degrees.
@@ -1381,13 +1443,49 @@ test "the 64-bit and the 128-bit products give the same splits" {
         const f: InEdge = .{ .a = pts[2], .b = pts[3], .d = .{ 0, 1 } };
         var a: std.ArrayList(Split) = .empty;
         var b: std.ArrayList(Split) = .empty;
-        try intersectPair(true, arena, &a, 0, e, 1, f);
-        try intersectPair(false, arena, &b, 0, e, 1, f);
+        try intersectPair(true, arena, &a, 0, &e, 1, &f);
+        try intersectPair(false, arena, &b, 0, &e, 1, &f);
         try std.testing.expectEqual(a.items.len, b.items.len);
         for (a.items, b.items) |x, y| {
             try std.testing.expectEqual(x.edge, y.edge);
             try std.testing.expect(x.p.eql(y.p));
         }
+    }
+}
+
+test "the float division gives the result of the 128-bit division" {
+    var prng = std.Random.DefaultPrng.init(23);
+    const rnd = prng.random();
+    const big: i64 = 1 << 62;
+    for (0..200_000) |k| {
+        const d = rnd.intRangeAtMost(i64, -(1 << 31) + 1, (1 << 31) - 1);
+        // d1 and d2 have opposite signs. Each third of the cases: large
+        // values, small values (many results at a half), and a result at
+        // or next to a half with large values.
+        var d1: i64 = undefined;
+        var d2: i64 = undefined;
+        switch (k % 3) {
+            0 => {
+                d1 = rnd.intRangeAtMost(i64, 1, big - 1);
+                d2 = -rnd.intRangeAtMost(i64, 1, big - 1);
+            },
+            1 => {
+                d1 = rnd.intRangeAtMost(i64, 1, 40);
+                d2 = -rnd.intRangeAtMost(i64, 1, 40);
+            },
+            else => {
+                // d * d1 / (2 * d1 + j): at a half for j = 0 and odd d.
+                d1 = rnd.intRangeAtMost(i64, 1, (big >> 1) - 2);
+                d2 = -(d1 + rnd.intRangeAtMost(i64, -1, 1));
+            },
+        }
+        if (rnd.boolean()) {
+            d1 = -d1;
+            d2 = -d2;
+        }
+        const exact = roundDiv(@as(i128, d) * d1, @as(i128, d1) - d2);
+        try std.testing.expectEqual(exact, mulDivRound(true, d, d1, d2));
+        try std.testing.expectEqual(exact, mulDivRound(false, d, d1, d2));
     }
 }
 
