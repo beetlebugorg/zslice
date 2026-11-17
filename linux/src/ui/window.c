@@ -9,6 +9,7 @@
  */
 #include "window.h"
 
+#include <stdlib.h>
 #include <string.h>
 
 #include "licenses.h"
@@ -22,6 +23,7 @@
 #include "history.h"
 #include "settings-panel.h"
 #include "setting-editor.h"
+#include "float.h"
 
 typedef struct {
     ZgModel *model;
@@ -33,6 +35,11 @@ typedef struct {
     GtkWidget *export_button;
     GtkWidget *preview;
     GtkWidget *settings_panel;
+    /* The panel is a drawer (docs/internals/one-view.md): hidden, over the
+     * view, or pinned beside it. The body overlay holds it over the view;
+     * the paned holds it beside the view. */
+    GtkWidget *body, *paned, *panel, *panel_toggle, *pin;
+    int panel_mode; /* enum PanelMode */
     GtkWidget *status;
     GtkWidget *progress;
     char *last_error;
@@ -98,6 +105,9 @@ static void on_focus_widget(GtkWindow *win, GParamSpec *pspec, gpointer data) {
 
 static void send_now(Window *w);
 static void send_checked(Window *w);
+
+enum PanelMode { PANEL_HIDDEN, PANEL_OVER, PANEL_PINNED };
+static const char *panel_modes[] = {"hidden", "overlay", "pinned"};
 
 static Window *get(GtkWindow *w) {
     return g_object_get_data(G_OBJECT(w), "zg-window");
@@ -991,6 +1001,137 @@ static void on_clear_action(GSimpleAction *a, GVariant *v, gpointer data) {
     zg_model_plate_clear(get(data)->model);
 }
 
+/* ---- the panel: a drawer ----
+ *
+ * Hidden: the view has the whole window. Over: the panel slides over the
+ * right of the view. Pinned: the panel is beside the view, with the
+ * splitter of the paned. N or the button of the header bar shows and hides
+ * it; Pin switches between over and beside. The choice stays in the app
+ * settings (panel, panel_pinned). */
+
+static void set_panel_mode(Window *w, int mode) {
+    GtkWidget *parent = gtk_widget_get_parent(w->panel);
+    gboolean in_paned = parent == w->paned;
+    if (mode == PANEL_PINNED && !in_paned) {
+        g_object_ref(w->panel);
+        if (parent) gtk_overlay_remove_overlay(GTK_OVERLAY(w->body), w->panel);
+        gtk_paned_set_end_child(GTK_PANED(w->paned), w->panel);
+        g_object_unref(w->panel);
+        gtk_widget_remove_css_class(w->panel, "zg-drawer");
+    } else if (mode == PANEL_OVER && in_paned) {
+        g_object_ref(w->panel);
+        gtk_paned_set_end_child(GTK_PANED(w->paned), NULL);
+        gtk_overlay_add_overlay(GTK_OVERLAY(w->body), w->panel);
+        g_object_unref(w->panel);
+        gtk_widget_add_css_class(w->panel, "zg-drawer");
+    }
+    gtk_widget_set_visible(w->panel, mode != PANEL_HIDDEN);
+    w->panel_mode = mode;
+    if (mode != PANEL_HIDDEN) zg_pref_set("panel_pinned", mode == PANEL_PINNED ? "1" : "0");
+    zg_pref_set("panel", panel_modes[mode]);
+    gtk_toggle_button_set_active(GTK_TOGGLE_BUTTON(w->panel_toggle), mode != PANEL_HIDDEN);
+    gtk_toggle_button_set_active(GTK_TOGGLE_BUTTON(w->pin), mode == PANEL_PINNED);
+    /* A hidden panel gives the keys to the view. */
+    if (mode == PANEL_HIDDEN && gtk_widget_get_mapped(w->preview)) gtk_widget_grab_focus(w->preview);
+}
+
+/* Shows the panel: over the view, or pinned if the user pinned it last. */
+static void show_panel(Window *w) {
+    if (w->panel_mode != PANEL_HIDDEN) return;
+    char *pinned = zg_pref_get("panel_pinned", "0");
+    set_panel_mode(w, strcmp(pinned, "1") == 0 ? PANEL_PINNED : PANEL_OVER);
+    g_free(pinned);
+}
+
+static void on_panel_toggled(GtkToggleButton *b, gpointer data) {
+    Window *w = data;
+    gboolean on = gtk_toggle_button_get_active(b);
+    if (on == (w->panel_mode != PANEL_HIDDEN)) return;
+    if (on) show_panel(w);
+    else set_panel_mode(w, PANEL_HIDDEN);
+}
+
+static void on_pin_toggled(GtkToggleButton *b, gpointer data) {
+    Window *w = data;
+    gboolean on = gtk_toggle_button_get_active(b);
+    if (on == (w->panel_mode == PANEL_PINNED) || w->panel_mode == PANEL_HIDDEN) return;
+    set_panel_mode(w, on ? PANEL_PINNED : PANEL_OVER);
+}
+
+static void on_panel_close(GtkButton *b, gpointer data) {
+    set_panel_mode(data, PANEL_HIDDEN);
+}
+
+static void on_panel_action(GSimpleAction *a, GVariant *v, gpointer data) {
+    Window *w = get(data);
+    if (w->panel_mode == PANEL_HIDDEN) show_panel(w);
+    else set_panel_mode(w, PANEL_HIDDEN);
+}
+
+/* Shows the panel at a page ("settings", "selected", "history",
+ * "project"). */
+static void on_show_page_action(GSimpleAction *a, GVariant *v, gpointer data) {
+    Window *w = get(data);
+    show_panel(w);
+    zg_settings_panel_show_page(w->settings_panel, g_variant_get_string(v, NULL));
+}
+
+/* Esc in the panel over the view hides it (an entry keeps its Esc). */
+static gboolean on_panel_key(GtkEventControllerKey *c, guint key, guint code, GdkModifierType mods, gpointer data) {
+    Window *w = data;
+    if (key != GDK_KEY_Escape || w->panel_mode != PANEL_OVER) return FALSE;
+    GtkWidget *focus = gtk_window_get_focus(w->window);
+    if (focus && (GTK_IS_EDITABLE(focus) || GTK_IS_TEXT_VIEW(focus) || gtk_widget_get_ancestor(focus, GTK_TYPE_POPOVER))) return FALSE;
+    set_panel_mode(w, PANEL_HIDDEN);
+    return TRUE;
+}
+
+/* The drawer over the view: the right part of the window, at the width
+ * of the pinned panel. */
+static gboolean on_body_child(GtkOverlay *overlay, GtkWidget *child, GdkRectangle *alloc, gpointer data) {
+    Window *w = data;
+    if (child != w->panel) return FALSE;
+    int W = gtk_widget_get_width(GTK_WIDGET(overlay)), H = gtk_widget_get_height(GTK_WIDGET(overlay));
+    char *saved = zg_pref_get("panel_width", "560");
+    int width = CLAMP(atoi(saved), 300, MAX(300, W * 3 / 4));
+    g_free(saved);
+    int min = 0;
+    gtk_widget_measure(child, GTK_ORIENTATION_HORIZONTAL, -1, &min, NULL, NULL, NULL);
+    width = MAX(width, min);
+    alloc->x = W - width;
+    alloc->y = 0;
+    alloc->width = width;
+    alloc->height = H;
+    return TRUE;
+}
+
+/* The width of the pinned panel: the drawer opens at the same width. */
+static void on_paned_position(GObject *paned, GParamSpec *pspec, gpointer data) {
+    Window *w = data;
+    if (w->panel_mode != PANEL_PINNED || !gtk_widget_get_mapped(w->panel)) return;
+    int width = gtk_widget_get_width(GTK_WIDGET(paned)) - gtk_paned_get_position(GTK_PANED(paned));
+    if (width < 300) return;
+    char buf[16];
+    g_snprintf(buf, sizeof buf, "%d", width);
+    zg_pref_set("panel_width", buf);
+}
+
+/* The keys of the whole window that no widget took: N shows or hides
+ * the panel. A text field keeps its keys. */
+static gboolean on_window_key(GtkEventControllerKey *c, guint key, guint code, GdkModifierType mods, gpointer data) {
+    Window *w = data;
+    if (mods & (GDK_CONTROL_MASK | GDK_ALT_MASK | GDK_SUPER_MASK)) return FALSE;
+    GtkWidget *focus = gtk_window_get_focus(w->window);
+    if (focus && (GTK_IS_EDITABLE(focus) || GTK_IS_TEXT_VIEW(focus))) return FALSE;
+    switch (key) {
+    case GDK_KEY_n: case GDK_KEY_N:
+        if (w->panel_mode == PANEL_HIDDEN) show_panel(w);
+        else set_panel_mode(w, PANEL_HIDDEN);
+        return TRUE;
+    default: return FALSE;
+    }
+}
+
 /* ---- window ---- */
 
 static void on_open_clicked(GtkButton *b, gpointer data) {
@@ -1073,7 +1214,10 @@ static gboolean place_paned(gpointer data) {
     GtkWidget *paned = data;
     /* The position is the width of the start child (the preview). */
     int width = gtk_widget_get_width(paned);
-    if (width > 800) gtk_paned_set_position(GTK_PANED(paned), width - 560);
+    char *saved = zg_pref_get("panel_width", "560");
+    int panel = CLAMP(atoi(saved), 300, 2000);
+    g_free(saved);
+    if (width > panel + 240) gtk_paned_set_position(GTK_PANED(paned), width - panel);
     g_object_unref(paned);
     return G_SOURCE_REMOVE;
 }
@@ -1144,6 +1288,8 @@ GtkWindow *zg_window_new(GtkApplication *app, ZgModel *model) {
         {.name = "clear-plate", .activate = on_clear_action},
         {.name = "undo", .activate = on_undo_action},
         {.name = "redo", .activate = on_redo_action},
+        {.name = "panel", .activate = on_panel_action},
+        {.name = "show-page", .activate = on_show_page_action, .parameter_type = "s"},
     };
     g_action_map_add_action_entries(G_ACTION_MAP(w->window), win_actions, G_N_ELEMENTS(win_actions), w->window);
     g_signal_connect(model, "undo-changed", G_CALLBACK(on_undo_changed), w);
@@ -1173,6 +1319,13 @@ GtkWindow *zg_window_new(GtkApplication *app, ZgModel *model) {
     gtk_menu_button_set_menu_model(GTK_MENU_BUTTON(menu_button), G_MENU_MODEL(menu));
     g_object_unref(menu);
     gtk_header_bar_pack_end(GTK_HEADER_BAR(header), menu_button);
+    /* The button of the drawer: all settings, the selected line, the
+     * history, and the project. */
+    w->panel_toggle = gtk_toggle_button_new();
+    gtk_button_set_icon_name(GTK_BUTTON(w->panel_toggle), "sidebar-show-right-symbolic");
+    gtk_widget_set_tooltip_text(w->panel_toggle, "Show or hide the panel (N): all settings, the selected line, the history, and the project");
+    g_signal_connect(w->panel_toggle, "toggled", G_CALLBACK(on_panel_toggled), w);
+    gtk_header_bar_pack_end(GTK_HEADER_BAR(header), w->panel_toggle);
 
     w->title = gtk_label_new("zslice");
     gtk_widget_add_css_class(w->title, "title");
@@ -1185,9 +1338,10 @@ GtkWindow *zg_window_new(GtkApplication *app, ZgModel *model) {
     GtkWidget *settings = zg_settings_panel_new(model);
     w->settings_panel = settings;
     gtk_widget_set_vexpand(settings, TRUE);
-    /* The summary card under the settings. */
-    w->sum_box = gtk_box_new(GTK_ORIENTATION_VERTICAL, 2);
-    gtk_widget_add_css_class(w->sum_box, "zg-summary");
+    /* The print card: it floats at the bottom right of the view. */
+    w->sum_box = zg_card_new();
+    gtk_box_set_spacing(GTK_BOX(w->sum_box), 2);
+    gtk_widget_add_css_class(w->sum_box, "zg-print-card");
     w->sum_time = gtk_label_new("—");
     gtk_widget_add_css_class(w->sum_time, "zg-summary-time");
     gtk_label_set_xalign(GTK_LABEL(w->sum_time), 0);
@@ -1246,9 +1400,25 @@ GtkWindow *zg_window_new(GtkApplication *app, ZgModel *model) {
     gtk_box_append(GTK_BOX(w->sum_box), actions);
     GtkWidget *panel = gtk_box_new(GTK_ORIENTATION_VERTICAL, 0);
     gtk_box_append(GTK_BOX(panel), settings);
-    gtk_box_append(GTK_BOX(panel), gtk_separator_new(GTK_ORIENTATION_HORIZONTAL));
-    gtk_box_append(GTK_BOX(panel), w->sum_box);
     gtk_widget_add_css_class(panel, "zg-panel");
+    w->panel = panel;
+    /* Pin and close, at the right of the tabs of the panel. */
+    GtkWidget *panel_end = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 2);
+    w->pin = gtk_toggle_button_new();
+    gtk_button_set_icon_name(GTK_BUTTON(w->pin), "view-pin-symbolic");
+    gtk_widget_add_css_class(w->pin, "flat");
+    gtk_widget_set_tooltip_text(w->pin, "Pin: the panel beside the view, with a splitter. Off: the panel slides over the view.");
+    g_signal_connect(w->pin, "toggled", G_CALLBACK(on_pin_toggled), w);
+    GtkWidget *panel_close = gtk_button_new_from_icon_name("window-close-symbolic");
+    gtk_widget_add_css_class(panel_close, "flat");
+    gtk_widget_set_tooltip_text(panel_close, "Hide the panel (N)");
+    g_signal_connect(panel_close, "clicked", G_CALLBACK(on_panel_close), w);
+    gtk_box_append(GTK_BOX(panel_end), w->pin);
+    gtk_box_append(GTK_BOX(panel_end), panel_close);
+    zg_settings_panel_set_end(settings, panel_end);
+    GtkEventController *panel_keys = gtk_event_controller_key_new();
+    g_signal_connect(panel_keys, "key-pressed", G_CALLBACK(on_panel_key), w);
+    gtk_widget_add_controller(panel, panel_keys);
     /* The model on the left, the settings on the right, as in other
      * slicers. */
     /* The preview, with the timeline of the history floating at its
@@ -1257,8 +1427,16 @@ GtkWindow *zg_window_new(GtkApplication *app, ZgModel *model) {
     gtk_widget_set_vexpand(w->preview, TRUE);
     gtk_box_append(GTK_BOX(left), w->preview);
     zg_preview_set_timeline(w->preview, zg_timeline_new(model));
+    /* The print card over the view, at its bottom right. */
+    gtk_widget_set_halign(w->sum_box, GTK_ALIGN_END);
+    gtk_widget_set_valign(w->sum_box, GTK_ALIGN_END);
+    gtk_widget_set_margin_end(w->sum_box, 12);
+    gtk_widget_set_margin_bottom(w->sum_box, 12);
+    gtk_widget_set_size_request(w->sum_box, 300, -1);
+    gtk_overlay_add_overlay(GTK_OVERLAY(w->preview), w->sum_box);
     gtk_paned_set_start_child(GTK_PANED(paned), left);
     gtk_paned_set_end_child(GTK_PANED(paned), panel);
+    w->paned = paned;
     gtk_paned_set_resize_end_child(GTK_PANED(paned), FALSE);
     gtk_paned_set_shrink_start_child(GTK_PANED(paned), FALSE);
     gtk_paned_set_shrink_end_child(GTK_PANED(paned), FALSE);
@@ -1267,11 +1445,23 @@ GtkWindow *zg_window_new(GtkApplication *app, ZgModel *model) {
      * settings browser. The user can drag it to 220. The position is from
      * the left, so it is set when the width of the window is known. */
     g_signal_connect(paned, "map", G_CALLBACK(on_paned_map), NULL);
+    g_signal_connect(paned, "notify::position", G_CALLBACK(on_paned_position), w);
     gtk_widget_set_vexpand(paned, TRUE);
 
-    GtkWidget *body = gtk_box_new(GTK_ORIENTATION_VERTICAL, 0);
-    gtk_box_append(GTK_BOX(body), paned);
-    gtk_window_set_child(w->window, body);
+    /* The body: the paned, and the drawer over it. */
+    w->body = gtk_overlay_new();
+    gtk_overlay_set_child(GTK_OVERLAY(w->body), paned);
+    g_signal_connect(w->body, "get-child-position", G_CALLBACK(on_body_child), w);
+    gtk_window_set_child(w->window, w->body);
+    /* The mode of the panel of the last session; hidden at the first
+     * start. */
+    char *mode = zg_pref_get("panel", "hidden");
+    w->panel_mode = PANEL_PINNED;
+    set_panel_mode(w, strcmp(mode, "pinned") == 0 ? PANEL_PINNED : strcmp(mode, "overlay") == 0 ? PANEL_OVER : PANEL_HIDDEN);
+    g_free(mode);
+    GtkEventController *win_keys = gtk_event_controller_key_new();
+    g_signal_connect(win_keys, "key-pressed", G_CALLBACK(on_window_key), w);
+    gtk_widget_add_controller(GTK_WIDGET(w->window), win_keys);
     /* The history: the changes of one setting are one step while its
      * editor keeps the focus. */
     g_signal_connect(w->window, "notify::focus-widget", G_CALLBACK(on_focus_widget), model);

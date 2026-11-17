@@ -22,6 +22,7 @@
 #include "toolpath-nav.h"
 #include "view3d.h"
 #include "widgets.h"
+#include "float.h"
 
 typedef struct {
     ZgModel *model;
@@ -836,6 +837,9 @@ static gboolean on_preview_key(GtkEventControllerKey *c, guint key, guint code, 
      * in it. */
     GtkWidget *focus = gtk_root_get_focus(gtk_widget_get_root(p->area));
     if (focus && (GTK_IS_EDITABLE(focus) || gtk_widget_get_ancestor(focus, GTK_TYPE_POPOVER))) return FALSE;
+    /* A card over the view (the search, a line or a part card) has its
+     * own keys. */
+    if (focus && zg_float_in_card(focus)) return FALSE;
     if (zg_view3d_menu_open(p->view3d)) return FALSE;
     /* The tools: S select, M move, T measure (a tape). Esc clears a
      * measure. */
@@ -1304,6 +1308,8 @@ GtkWidget *zg_preview_new(ZgModel *model) {
     g_signal_connect(press, "pressed", G_CALLBACK(on_preview_press), NULL);
     gtk_widget_add_controller(box, GTK_EVENT_CONTROLLER(press));
     gtk_overlay_set_child(GTK_OVERLAY(box), stack);
+    /* The cards over the view (float.h) have places of their own. */
+    zg_float_install(box);
     gtk_overlay_add_overlay(GTK_OVERLAY(box), bar);
     gtk_overlay_add_overlay(GTK_OVERLAY(box), p->slider_box);
 

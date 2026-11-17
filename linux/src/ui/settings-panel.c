@@ -23,7 +23,7 @@
 enum { HISTORY_MAX = 50 };
 
 typedef struct {
-    GtkWidget *stack, *browser, *back;
+    GtkWidget *stack, *browser, *back, *top, *pad;
     GPtrArray *history; /* char *, the oldest first */
     char *current;
     gboolean restoring;
@@ -152,6 +152,8 @@ GtkWidget *zg_settings_panel_new(ZgModel *model) {
     GtkWidget *pad = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 0);
     gtk_widget_set_size_request(pad, 34, -1);
     gtk_box_append(GTK_BOX(top), pad);
+    p->top = top;
+    p->pad = pad;
 
     GtkWidget *box = gtk_box_new(GTK_ORIENTATION_VERTICAL, 4);
     gtk_box_append(GTK_BOX(box), top);
@@ -184,4 +186,18 @@ void zg_settings_panel_show_setting(GtkWidget *panel, const char *key) {
     if (!p) return;
     gtk_stack_set_visible_child(GTK_STACK(p->stack), p->browser);
     zg_settings_browser_show_setting(p->browser, key);
+}
+
+void zg_settings_panel_show_page(GtkWidget *panel, const char *name) {
+    Panel *p = g_object_get_data(G_OBJECT(panel), "zg-panel");
+    if (p) gtk_stack_set_visible_child_name(GTK_STACK(p->stack), name);
+}
+
+void zg_settings_panel_set_end(GtkWidget *panel, GtkWidget *widget) {
+    Panel *p = g_object_get_data(G_OBJECT(panel), "zg-panel");
+    if (!p) return;
+    if (p->pad) gtk_box_remove(GTK_BOX(p->top), p->pad);
+    p->pad = NULL;
+    gtk_widget_set_valign(widget, GTK_ALIGN_CENTER);
+    gtk_box_append(GTK_BOX(p->top), widget);
 }

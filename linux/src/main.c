@@ -61,6 +61,16 @@ static const char *ZG_CSS =
     "  border: 1px solid alpha(#000, 0.25); box-shadow: 0 1px 3px alpha(#000, 0.3); }"
     ".zg-layers slider:hover { box-shadow: 0 1px 4px alpha(#000, 0.4), 0 0 0 3px alpha(@accent_bg_color, 0.25); }"
     ".zg-summary { padding: 12px 14px 14px; }"
+    /* The cards over the view (float.h), and the drawer of the panel. */
+    ".zg-card { background: @theme_bg_color; border-radius: 12px; padding: 10px 12px;"
+    "  box-shadow: 0 2px 10px alpha(black, 0.30); border: 1px solid alpha(@theme_fg_color, 0.08); }"
+    ".zg-card-head { min-height: 24px; }"
+    ".zg-card-title { font-weight: 700; }"
+    ".zg-card-handle { }"
+    ".zg-card-moving { opacity: 0.92; }"
+    "button.zg-card-close { min-height: 22px; min-width: 22px; padding: 0; }"
+    ".zg-print-card { padding: 12px 14px 14px; }"
+    ".zg-drawer { box-shadow: -2px 0 12px alpha(black, 0.30); }"
     ".zg-summary-time { font-size: 1.6em; font-weight: 700; font-feature-settings: 'tnum'; }"
     ".zg-summary.zg-stale { opacity: 0.55; }"
     /* The source of a value in the settings (see zg_model_source_text):

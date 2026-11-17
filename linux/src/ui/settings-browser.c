@@ -152,7 +152,8 @@ static void update_crumbs(Browser *b) {
 
 /* Sends the focus to the previews, only while the Settings page shows. */
 static void send_focus(Browser *b) {
-    gboolean visible = b->stack && gtk_stack_get_visible_child(GTK_STACK(b->stack)) == b->page;
+    /* A hidden panel (the drawer) shows the whole print. */
+    gboolean visible = b->stack && gtk_stack_get_visible_child(GTK_STACK(b->stack)) == b->page && gtk_widget_get_mapped(b->page);
     zg_model_set_focus(b->model, visible ? b->focus : 0, b->focus_first);
 }
 
@@ -1220,6 +1221,11 @@ static void on_page_changed(GObject *stack, GParamSpec *pspec, gpointer data) {
     if (gtk_stack_get_visible_child(GTK_STACK(b->stack)) == b->page) apply_profile_scope(b);
 }
 
+/* The panel shows or hides (the drawer): the focus follows. */
+static void on_page_mapped(GtkWidget *page, gpointer data) {
+    send_focus(data);
+}
+
 /* A new slice: new times for the lines in column 3. */
 static void on_browser_core_event(ZgModel *model, int event, double progress, int status, gpointer data) {
     Browser *b = data;
@@ -1387,6 +1393,8 @@ GtkWidget *zg_settings_browser_new(ZgModel *model, GtkWidget *panel_stack) {
     GtkListBoxRow *first = gtk_list_box_get_row_at_index(GTK_LIST_BOX(b->sections), 0);
     if (first) gtk_list_box_select_row(GTK_LIST_BOX(b->sections), first);
     g_signal_connect(panel_stack, "notify::visible-child", G_CALLBACK(on_page_changed), b);
+    g_signal_connect(b->page, "map", G_CALLBACK(on_page_mapped), b);
+    g_signal_connect(b->page, "unmap", G_CALLBACK(on_page_mapped), b);
     g_signal_connect(model, "core-event", G_CALLBACK(on_browser_core_event), b);
     g_signal_connect(model, "profiles-changed", G_CALLBACK(on_profiles_changed), b);
     g_signal_connect(model, "open-profile", G_CALLBACK(on_open_profile), b);

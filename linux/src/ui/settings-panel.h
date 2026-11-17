@@ -21,3 +21,8 @@ GtkWidget *zg_settings_panel_new(ZgModel *model);
 /* Shows the Settings page at the setting `key` (for example
  * "machine.start_gcode"). */
 void zg_settings_panel_show_setting(GtkWidget *panel, const char *key);
+/* Shows a page: "settings", "selected", "history", or "project". */
+void zg_settings_panel_show_page(GtkWidget *panel, const char *name);
+/* Puts `widget` at the right of the tabs (the Pin and the close buttons
+ * of the drawer). */
+void zg_settings_panel_set_end(GtkWidget *panel, GtkWidget *widget);
