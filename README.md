@@ -74,6 +74,7 @@ Things that most slicers do not do.
 - **h, j, k, l** step through the print segment by segment. The nozzle moves to each segment in the 3D view, with the travel moves, forward or back.
 - **A sweep of all settings.** `zslice sweep part.stl` slices with values across the range of each setting, and lists the settings that change the time and the cost the most.
 - **Printdeck.** With a [printdeck](https://github.com/beetlebugorg/printdeck) printer, the time includes the heat-up and the start (learned from its past prints), the filament settings follow the roll in the printer, the cost comes from the price of the roll, and the motion limits come from the printer.
+- **Printer picker.** More than 1000 printers of more than 180 brands, from the printer definitions of Cura, PrusaSlicer, and OrcaSlicer: search as you type, a drawing of the build volume, and the key facts. The picker finds OctoPrint, printdeck, Moonraker, and PrusaLink printers on your network.
 - **Cura profiles and projects.** Import a Cura profile stack, or open a Cura 3MF project with its per-object settings and its modifier meshes (an infill window, for example).
 
 ## Features

@@ -132,6 +132,10 @@ The goal is the features that people use in PrusaSlicer and Cura. zslice designs
 - [ ] Ironing in the preview: the ironed top skin looks flat; the inspector shows what ironing costs in time
 - [x] Plate: more than one part (open or drop many STLs), Shift+click to select a part, Shift+drag to move it, Shift+wheel to turn it, a part page, and "Arrange the plate" (rows, the largest first)
 - [ ] Plate: a best placement that turns each part for less support, and lay flat
+- [x] Printer library: 1080 printers of 187 brands from Cura, PrusaSlicer, and OrcaSlicer (`tools/printer_library.py`, `src/printers.zig`); the printer picker with search, brands, a drawing of the build volume, and the key facts, at the first start and from the printer menu (GTK and web)
+- [x] Printers on the network: mDNS for OctoPrint, printdeck, Moonraker, and PrusaLink (`src/discovery.zig`), the kind from `/api/version`, the bed from Klipper
+- [ ] Printer library: the start G-code of the definitions with scripts (`{if}`, expressions: about 40 % of the models get the zslice start G-code now), more than one extruder, the bed shape of round beds in the plate and the 3D view, the heated bed and chamber in the G-code
+- [ ] Printer discovery: Bambu Lab (SSDP), Elegoo (SDCP), Creality, and Duet; the model of a printdeck or OctoPrint printer (it needs the API key)
 - [ ] Printers: a shared place for printers and their connections (printdeck remote, OctoPrint, Moonraker), and print monitoring
 - [ ] Replay: a nozzle marker, and the time estimate with acceleration (the replay is as exact as the time estimate)
 - [ ] macOS and iOS shell: SwiftUI (`apple/`)

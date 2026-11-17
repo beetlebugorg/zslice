@@ -24,6 +24,8 @@ node web/app/test-node.mjs zig-out/web/app/zslice.wasm part.stl
 
 The test runs the code of the worker (`core.js`) and the view of the main thread (`view.js`) in Node, with no browser: settings, the saved state, a slice, the scene, frames of the view, the data of the 2D view, a pick, a step along the print, and the Selected page of a line.
 
+The picker opens at the first visit (no printer set up). `?printers` opens it at the start, with `&q=text` (a search), `&pick=id` (a model), and `&step=2` (the second step) or `&step=add` (add the printer at once).
+
 In a browser, `window.zslice` is a test hook: the state of the page, `select(path, seg)`, `showPage("2d")`, `bench(kind, frames)` (the frame times of an orbit, a pan, a zoom, or a move of the slider), and `benchPick()` (the time of picks over the view).
 
 ## How it works
@@ -47,6 +49,7 @@ The rule of `docs/app/README.md` holds: the app logic is in the core, and the we
 | `layers.js` | The layer slider with two knobs |
 | `menus.js` | The popup menus, the context menu, and the popovers |
 | `format.js` | The text of setting values, as the GTK shell shows them |
+| `printers.js` | The printer picker: the printer library of the core (`printers.txt`, loaded when the picker opens), the search, the brands, the drawing of the build volume, and the second step |
 | `serve.py` | The dev server |
 | `test-node.mjs` | The Node test |
 
@@ -99,7 +102,8 @@ The settings persist in `localStorage` (key `zslice.web.v1`): the state text of 
 
 ## Not in the web app yet
 
-- Printer links (printdeck, OctoPrint). A browser needs CORS headers on the printer for them.
+- Printer links (printdeck, OctoPrint). A browser needs CORS headers on the printer for them. The printer picker keeps the address of a printer for later.
+- The search of the network for printers: a browser cannot send mDNS packets.
 - The gaps view, the check, and the multiple selection (Shift+click).
 - Part editing on the plate (move, turn, remove), more than one plate, and undo. The context menu has the placement of a part, and the plate actions.
 - Layer profiles, settings for one part, and profiles of the user.

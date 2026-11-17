@@ -34,6 +34,10 @@ Read `include/zslice-app.h` first. The main points:
 - **Preview one layer at a time.** `zs_app_layer_paths` makes the paths of one layer in a few milliseconds. Keep only the layers on the screen.
 - **Licenses.** `zs_license_count` and `zs_license_get` give zslice and the components in the core, with full texts. A shell adds the libraries that only it links (for example GTK), and shows all of them in a Licenses screen.
 
+## The printer library and the printer search
+
+The core has the printer library (`zs_printers_*`) and the packets of the printer search (`zs_discovery_*`). A shell draws the picker from them; the facts, the search, the match of a printer on the network, and the machine profile of a model come from the core. Native builds embed the library. The web app loads `printers.txt` when the picker opens. The core does no network I/O: the shell sends the mDNS query and gives the answers to the core, and it asks a new printer for `/api/version` (or the Klipper toolhead). A browser cannot do this, so the web picker asks for an address.
+
 ## The 3D view
 
 The core draws the 3D view of a slice (`src/render/`). The shell gives a native surface, and calls the `zs_view_*` functions of `include/zslice-app.h`:
@@ -73,6 +77,7 @@ The GTK shell is in `linux/src`. Each `.c` file has a header that explains its i
 | `model/` | `app-model` | The core as a GObject: signals on the UI thread, the saved state |
 | `prefs/` | `printers` | The printers of the user, and the app settings file |
 | `net/` | `printer-link` | HTTP and USB connections to printers |
+| | `discovery` | The search of the network for printers (mDNS), with the packets of the core |
 | `ui/` | `window` | The main window: the header bar, the file dialogs, the send to a printer, and the status bar |
 | | `preview` | The 2D and 3D preview with the layer slider, the replay, and the keyboard navigation |
 | | `layer-draw` | The cairo drawing of one layer in the 2D view |
@@ -87,6 +92,7 @@ The GTK shell is in `linux/src`. Each `.c` file has a header that explains its i
 | | `setting-row` | One setting as a row of a grid |
 | | `setting-editor` | The editor of one setting, and the text of a value |
 | | `widgets` | Small widget helpers that the pages share |
+| | `printer-picker` | The printer picker: the first-start onboarding and "Add a printer…" |
 | | `preferences`, `licenses` | The Preferences and the Licenses windows |
 | | `colors.h` | The feature colors |
 
@@ -113,6 +119,7 @@ These environment variables change the start of the GTK shell, for development, 
 | `ZSLICE_ZOOM_AT=x,y,n` | Zooms `n` wheel steps toward the pixel x, y after the first load. | `ui/view3d.c` |
 | `ZSLICE_INSPECT_FOCUS=name` | Puts the focus on the row of the setting `name` in the inspector after the first selection. | `ui/inspector.c` |
 | `ZSLICE_SETTING=name` | Opens the Settings page at the setting `name`. | `ui/settings-browser.c` |
+| `ZSLICE_PICKER=1` | Opens the printer picker at the start. With it: `ZSLICE_PICKER_QUERY=text` types a search, `ZSLICE_PICKER_MODEL=id` selects a model, `ZSLICE_PICKER_FOUND=n` selects printer n of the network when the search ends, and `ZSLICE_PICKER_STEP=2` (the second step) or `add` (add the printer at once). | `ui/printer-picker.c` |
 
 To run the app for a check without your own settings:
 

@@ -112,6 +112,28 @@ The light gray area is the outline of the layer. Each line is drawn at the line 
 
 Layer numbers start at 0. If the number is too large, zslice shows the number of layers in the part.
 
+## Add your printer
+
+At the first start, zslice opens the printer picker. Later, pick "Add a printer…" at the end of the printer menu in the header bar.
+
+1. Type a part of the name in the search: "ender 3", "mk4", "k1 max", "voron 2.4". The list narrows as you type. Or pick a brand at the left: its models show in groups by series.
+2. Click a model. The card at the right draws its build volume to scale (the red dot is X0 Y0 of the G-code), and lists its nozzle, its filament, its heating, its firmware, and its motion limits.
+3. Click Next (or double-click the model). Check the name, the nozzle, the filament diameter, and the size. Set the connection, and test it.
+4. Click "Add printer". The printer is the current printer, with its machine settings.
+
+The library has more than 1000 printers of more than 180 brands. The data comes from the printer definitions of Cura, PrusaSlicer, and OrcaSlicer ("Data from" on the card). zslice uses the values of the definitions with two choices of its own:
+
+- The print speed (`machine.max_speed`, the base of the speed ratios) follows the acceleration of the printer: 100 mm/s below 1000 mm/s², 150, 200, and 300 mm/s from 10000 mm/s². It stays under the speed limit of the firmware.
+- Some definitions have a start G-code with scripts (`{if ...}`), which zslice cannot run. Such a printer gets the start G-code of zslice, and the card says so. Check the start G-code (Printer settings, G-code) before the first print.
+
+If your printer is not in the list, pick "My printer is not in the list" at the end: the generic printer, with the size that you enter.
+
+### Printers on your network
+
+The picker also searches the local network (mDNS) and lists the printers that it finds under "On your network": OctoPrint, printdeck, Moonraker (Klipper), and PrusaLink. Click one: zslice fills its address and its kind in the second step. If the printer tells its model (PrusaLink) or its bed (Klipper), zslice selects the model; else pick it in the list. An OctoPrint or printdeck printer needs its API key in the second step.
+
+The web app cannot search the network: browsers do not allow the mDNS packets. Enter the address of the printer in the second step.
+
 ## Printers
 
 Open Preferences (the menu, or Ctrl+,). The Printers page lists your printers. Each printer has its own machine settings (the bed, the nozzle, the speeds, the start G-code) and a connection:
