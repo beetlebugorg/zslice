@@ -1,6 +1,7 @@
 # TPU: flexible. It needs a low flow (slow speeds) and little retraction.
 # The temperatures are typical values. Check the label of your filament.
 name = "Generic TPU 95A"
+material = "TPU"
 diameter = 1.75
 density = 1.21
 nozzle_temp = 225

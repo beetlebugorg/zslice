@@ -141,6 +141,9 @@ pub const Filament = struct {
     // Filament
     /// The name of the filament, for the G-code header.
     name: []const u8 = "generic PLA",
+    /// The type of the plastic, for example "PLA", "PETG", "ABS", or
+    /// "TPU". The Filament menu lists the rolls of this type.
+    material: []const u8 = "PLA",
     /// The color of the filament, as "#rrggbb". The 3D view draws the
     /// print in this color.
     color: []const u8 = "#d0d0cc",

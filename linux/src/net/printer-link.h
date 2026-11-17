@@ -16,6 +16,7 @@
 #include <gio/gio.h>
 
 #include "../prefs/printers.h"
+#include "../model/app-model.h"
 
 G_BEGIN_DECLS
 
@@ -36,6 +37,8 @@ typedef struct {
     double max_velocity, max_accel, corner_velocity, max_z_velocity, max_z_accel;
     double spool_full;  /* grams of filament of a full roll, or 0 */
     char **spools;   /* the names of all spools, NULL at the end */
+    ZgRoll *rolls;   /* all rolls, with their IDs and materials */
+    size_t n_rolls;
     /* The job. */
     char *job;       /* the title of the print, or NULL */
     double progress; /* 0 to 1 */

@@ -151,6 +151,23 @@ void zg_model_filament_from_printer(ZgModel *self, const char *material, const c
  * FALSE the caller sets the settings of a new roll. */
 gboolean zg_model_set_roll(ZgModel *self, const char *roll);
 const char *zg_model_roll(ZgModel *self);
+/* The key of a roll for zg_model_set_roll: the printer ID and the roll ID
+ * of the printer, with letters, digits, and dashes. Free with g_free. */
+char *zg_model_roll_key(const char *printer, const char *roll_id);
+
+/* A roll of filament at the printer (printdeck). */
+typedef struct {
+    char *id, *name, *material, *color;
+    double left; /* grams */
+} ZgRoll;
+/* The rolls of the current printer, from its last status: copies them. */
+void zg_model_set_rolls(ZgModel *self, const char *printer, const ZgRoll *rolls, size_t n);
+/* The rolls, and the printer ID they are of (can be NULL). */
+const ZgRoll *zg_model_rolls(ZgModel *self, size_t *n, const char **printer);
+/* Uses a roll of the printer: its saved settings, or for a roll with no
+ * saved settings, the settings now (the same material) or of its
+ * material, with its name and color. */
+void zg_model_use_roll(ZgModel *self, const ZgRoll *roll);
 
 /* Loads a profile text into a group (enum zs_group): the built-in
  * defaults, then the text. On an error the settings stay as they were.

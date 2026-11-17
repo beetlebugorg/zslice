@@ -1,6 +1,7 @@
 # PLA: easy to print, stiff, and it softens at about 60 C.
 # The temperatures are typical values. Check the label of your filament.
 name = "Generic PLA"
+material = "PLA"
 diameter = 1.75
 density = 1.24
 nozzle_temp = 210

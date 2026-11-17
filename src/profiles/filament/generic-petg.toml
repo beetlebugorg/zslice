@@ -2,6 +2,7 @@
 # retraction. The temperatures are typical values. Check the label of your
 # filament.
 name = "Generic PETG"
+material = "PETG"
 diameter = 1.75
 density = 1.27
 nozzle_temp = 240

@@ -245,6 +245,43 @@ static void on_pick(GSimpleAction *a, GVariant *v, gpointer data) {
     }
 }
 
+/* A material type: the built-in profile of the material. With a roll in
+ * use, its settings stay in its file, so the switch needs no question. */
+static void on_material(GSimpleAction *a, GVariant *v, gpointer data) {
+    Menu *m = data;
+    const char *mat = g_variant_get_string(v, NULL);
+    char *lower = g_ascii_strdown(mat, -1);
+    char *base = g_strconcat("generic-", lower, NULL);
+    char *text = g_strdup_printf("extends = \"%s\"\n", base);
+    if (zg_model_roll(m->model)) {
+        zg_model_set_roll(m->model, NULL);
+        load_now(m, base, text);
+    } else {
+        switch_to(m, base, text);
+    }
+    g_free(text);
+    g_free(base);
+    g_free(lower);
+}
+
+/* A roll of the printer (by its ID): its settings. */
+static void on_roll(GSimpleAction *a, GVariant *v, gpointer data) {
+    Menu *m = data;
+    const char *id = g_variant_get_string(v, NULL);
+    size_t n = 0;
+    const ZgRoll *rolls = zg_model_rolls(m->model, &n, NULL);
+    for (size_t i = 0; i < n; i++) {
+        if (g_strcmp0(rolls[i].id, id) != 0) continue;
+        zg_model_use_roll(m->model, &rolls[i]);
+        g_free(m->name);
+        m->name = g_strdup(rolls[i].name);
+        g_free(m->loaded);
+        m->loaded = zg_model_group_text(m->model, m->group);
+        update_label(m);
+        return;
+    }
+}
+
 static void on_save(GSimpleAction *a, GVariant *v, gpointer data) {
     save_as(data, FALSE);
 }
@@ -280,7 +317,52 @@ static void fill_menu(GtkMenuButton *button, gpointer data) {
         g_menu_append(builtin, n, action);
         g_free(action);
     }
-    g_menu_append_section(menu, "Built-in", G_MENU_MODEL(builtin));
+    if (m->group == ZS_GROUP_FILAMENT) {
+        /* The filament: first the type of plastic, then a roll of that
+         * type in the printer, then the profiles. */
+        GMenu *mats = g_menu_new();
+        char *now = zg_model_get(m->model, "filament.material");
+        for (size_t i = 0; i < zs_builtin_profile_count(m->group); i++) {
+            const char *n = zs_builtin_profile_name(m->group, i);
+            if (!g_str_has_prefix(n, "generic-")) continue;
+            char *mat = g_ascii_strup(n + 8, -1);
+            gboolean current = now && g_ascii_strcasecmp(now, mat) == 0;
+            char *label = g_strdup_printf("%s%s", current ? "✓ " : "    ", mat);
+            char *action = g_strdup_printf("profiles%d.material('%s')", m->group, mat);
+            g_menu_append(mats, label, action);
+            g_free(action);
+            g_free(label);
+            g_free(mat);
+        }
+        g_menu_prepend_section(menu, "Material", G_MENU_MODEL(mats));
+        g_object_unref(mats);
+        size_t nr = 0;
+        const ZgRoll *rolls = zg_model_rolls(m->model, &nr, NULL);
+        GMenu *rmenu = g_menu_new();
+        const char *in_use = zg_model_roll(m->model);
+        for (size_t i = 0; i < nr; i++) {
+            if (!rolls[i].id || (now && rolls[i].material && g_ascii_strcasecmp(now, rolls[i].material) != 0)) continue;
+            char *key = zg_model_roll_key(NULL, rolls[i].id);
+            gboolean current = in_use && g_str_has_suffix(in_use, key);
+            g_free(key);
+            char *label = rolls[i].left > 0 ? g_strdup_printf("%s%s · %.0f g", current ? "✓ " : "    ", rolls[i].name ? rolls[i].name : "?", rolls[i].left)
+                                            : g_strdup_printf("%s%s", current ? "✓ " : "    ", rolls[i].name ? rolls[i].name : "?");
+            GMenuItem *item = g_menu_item_new(label, NULL);
+            g_menu_item_set_action_and_target_value(item, "profiles1.roll", g_variant_new_string(rolls[i].id));
+            g_menu_append_item(rmenu, item);
+            g_object_unref(item);
+            g_free(label);
+        }
+        if (g_menu_model_get_n_items(G_MENU_MODEL(rmenu)) > 0) {
+            char *title = g_strdup_printf("Rolls of %s", now ? now : "filament");
+            g_menu_insert_section(menu, 1, title, G_MENU_MODEL(rmenu));
+            g_free(title);
+        }
+        g_object_unref(rmenu);
+        g_free(now);
+    } else {
+        g_menu_append_section(menu, "Built-in", G_MENU_MODEL(builtin));
+    }
     GMenu *save = g_menu_new();
     char *action = g_strdup_printf("profiles%d.save", m->group);
     g_menu_append(save, "Save as profile…", action);
@@ -328,6 +410,8 @@ GtkWidget *zg_profile_menu_new(ZgModel *model, int group) {
     static const GActionEntry entries[] = {
         {.name = "pick", .activate = on_pick, .parameter_type = "s"},
         {.name = "save", .activate = on_save},
+        {.name = "material", .activate = on_material, .parameter_type = "s"},
+        {.name = "roll", .activate = on_roll, .parameter_type = "s"},
     };
     GSimpleActionGroup *actions = g_simple_action_group_new();
     g_action_map_add_action_entries(G_ACTION_MAP(actions), entries, G_N_ELEMENTS(entries), m);

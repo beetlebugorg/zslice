@@ -88,6 +88,7 @@ const preview_notes = [_]struct { []const u8, [:0]const u8 }{
     .{ "machine.origin_x", "The G-code position of the bed corner. The preview shows bed coordinates, so it does not change." },
     .{ "machine.origin_y", "The G-code position of the bed corner. The preview shows bed coordinates, so it does not change." },
     .{ "filament.name", "The name of the filament, for the profiles and the start G-code." },
+    .{ "filament.material", "The type of the plastic, for the Filament menu. It does not change the lines." },
     .{ "filament.diameter", "The filament diameter: it changes how far the extruder pushes, not the lines." },
     .{ "filament.density", "The weight of the plastic, for the filament weight in the status bar." },
     .{ "filament.price_per_kg", "The cost of the filament, for the cost of a print. The lines do not move." },

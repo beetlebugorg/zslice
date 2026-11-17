@@ -35,6 +35,13 @@ void zg_printer_info_free(ZgPrinterInfo *info) {
     g_free(info->spool_id);
     g_free(info->spool_color);
     g_strfreev(info->spools);
+    for (size_t i = 0; i < info->n_rolls; i++) {
+        g_free(info->rolls[i].id);
+        g_free(info->rolls[i].name);
+        g_free(info->rolls[i].material);
+        g_free(info->rolls[i].color);
+    }
+    g_free(info->rolls);
     g_free(info->job);
     g_free(info);
 }
@@ -157,7 +164,15 @@ static void read_reply(Query *q, const char *path, JsonNode *root) {
             JsonArray *a = json_node_get_array(spools);
             guint n = json_array_get_length(a);
             in->spools = g_new0(char *, n + 1);
+            in->rolls = g_new0(ZgRoll, n + 1);
+            in->n_rolls = n;
             for (guint i = 0; i < n; i++) {
+                JsonNode *e = json_array_get_element(a, i);
+                in->rolls[i].id = str(e, "id");
+                in->rolls[i].name = str(e, "name");
+                in->rolls[i].material = str(e, "material");
+                in->rolls[i].color = str(e, "color");
+                in->rolls[i].left = num(e, "left");
                 char *name = str(json_array_get_element(a, i), "name");
                 char *mat = str(json_array_get_element(a, i), "material");
                 in->spools[i] = mat ? g_strdup_printf("%s (%s)", name ? name : "?", mat) : g_strdup(name ? name : "?");

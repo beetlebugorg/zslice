@@ -66,6 +66,10 @@ struct _ZgModel {
     /* The roll of filament in the printer (see zg_model_set_roll): its
      * key, or NULL. The filament settings are saved for it too. */
     char *roll;
+    /* The rolls of the current printer (zg_model_set_rolls). */
+    ZgRoll *rolls;
+    size_t n_rolls;
+    char *rolls_printer;
     /* The time of the last slice request, and of the last slice (ms). */
     gint64 slice_start;
     double slice_ms;
@@ -286,6 +290,8 @@ static void on_core_event(void *user, int event, double progress, int status) {
     g_idle_add(deliver, p);
 }
 
+static void rolls_clear(ZgModel *self);
+
 static void zg_model_dispose(GObject *object) {
     ZgModel *self = ZG_MODEL(object);
     if (self->more) g_array_free(self->more, TRUE);
@@ -296,6 +302,7 @@ static void zg_model_dispose(GObject *object) {
         self->save_timer = 0;
     }
     if (self->core && self->dirty) save_state(self);
+    rolls_clear(self);
     if (self->core) {
         /* Stops and joins the worker, so no new events follow. */
         zs_app_free(self->core);
@@ -556,6 +563,11 @@ void zg_model_filament_from_printer(ZgModel *self, const char *material, const c
     }
     if (name) zg_model_set(self, "filament.name", name, NULL);
     else if (material) zg_model_set(self, "filament.name", material, NULL);
+    if (material) {
+        char *upper = g_ascii_strup(material, -1);
+        zg_model_set(self, "filament.material", upper, NULL);
+        g_free(upper);
+    }
     if (diameter > 0) {
         char buf[G_ASCII_DTOSTR_BUF_SIZE];
         zg_model_set(self, "filament.diameter", g_ascii_dtostr(buf, sizeof buf, diameter), NULL);
@@ -563,6 +575,57 @@ void zg_model_filament_from_printer(ZgModel *self, const char *material, const c
     if (color) zg_model_set(self, "filament.color", color, NULL);
     zg_model_announce(self, "filament.");
     zg_model_save_soon(self, ZS_GROUP_FILAMENT);
+}
+
+char *zg_model_roll_key(const char *printer, const char *roll_id) {
+    GString *key = g_string_new(NULL);
+    for (const char *c = printer ? printer : ""; *c; c++) g_string_append_c(key, g_ascii_isalnum(*c) ? *c : '-');
+    g_string_append_c(key, '-');
+    for (const char *c = roll_id ? roll_id : ""; *c; c++) g_string_append_c(key, g_ascii_isalnum(*c) ? *c : '-');
+    return g_string_free(key, FALSE);
+}
+
+static void rolls_clear(ZgModel *self) {
+    for (size_t i = 0; i < self->n_rolls; i++) {
+        g_free(self->rolls[i].id);
+        g_free(self->rolls[i].name);
+        g_free(self->rolls[i].material);
+        g_free(self->rolls[i].color);
+    }
+    g_clear_pointer(&self->rolls, g_free);
+    self->n_rolls = 0;
+    g_clear_pointer(&self->rolls_printer, g_free);
+}
+
+void zg_model_set_rolls(ZgModel *self, const char *printer, const ZgRoll *rolls, size_t n) {
+    rolls_clear(self);
+    self->rolls_printer = g_strdup(printer);
+    self->rolls = g_new0(ZgRoll, MAX(n, 1));
+    self->n_rolls = n;
+    for (size_t i = 0; i < n; i++) {
+        self->rolls[i].id = g_strdup(rolls[i].id);
+        self->rolls[i].name = g_strdup(rolls[i].name);
+        self->rolls[i].material = g_strdup(rolls[i].material);
+        self->rolls[i].color = g_strdup(rolls[i].color);
+        self->rolls[i].left = rolls[i].left;
+    }
+}
+
+const ZgRoll *zg_model_rolls(ZgModel *self, size_t *n, const char **printer) {
+    if (n) *n = self->n_rolls;
+    if (printer) *printer = self->rolls_printer;
+    return self->rolls;
+}
+
+void zg_model_use_roll(ZgModel *self, const ZgRoll *roll) {
+    char *key = zg_model_roll_key(self->rolls_printer, roll->id);
+    char *before = zg_model_get(self, "filament.material");
+    if (!zg_model_set_roll(self, key)) {
+        gboolean same = roll->material && before && g_ascii_strcasecmp(roll->material, before) == 0;
+        zg_model_filament_from_printer(self, same ? NULL : roll->material, roll->name, 0, roll->color);
+    }
+    g_free(before);
+    g_free(key);
 }
 
 gboolean zg_model_set_roll(ZgModel *self, const char *roll) {
