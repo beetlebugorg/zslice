@@ -384,6 +384,7 @@ static void on_scrub(GtkRange *range, gpointer data) {
     double t0, t1;
     if (!layer_times(p, layer, &t0, &t1)) return;
     stop_replay(p);
+    p->step_valid = FALSE; /* h and l go on from the scrub */
     gtk_stack_set_visible_child_name(GTK_STACK(p->stack), "3d");
     double f = gtk_range_get_value(range);
     p->time = t0 + f * (t1 - t0);
@@ -442,6 +443,7 @@ static void on_play(GtkButton *b, gpointer data) {
     double total = zg_view3d_duration(p->view3d);
     if (total <= 0) return;
     if (p->time >= total) p->time = 0;
+    p->step_valid = FALSE; /* h and l go on from the replay */
     p->last_frame = 0;
     p->tick = gtk_widget_add_tick_callback(p->view3d, on_tick, p, NULL);
     gtk_button_set_icon_name(GTK_BUTTON(p->play), "media-playback-pause-symbolic");
@@ -463,6 +465,28 @@ static double segment_end_time(const zs_toolpaths *tp, size_t path, gint64 seg) 
         if ((gint64)k <= seg) run += d;
     }
     return len > 0 ? t0 + (t1 - t0) * run / len : t1;
+}
+
+/* The segment that prints at time t: its path and its index in the path.
+ * FALSE if there is no path. */
+static gboolean segment_at_time(const zs_toolpaths *tp, double t, gint64 *path_out, gint64 *seg_out) {
+    if (tp->path_count == 0) return FALSE;
+    /* The first path that ends at or after t. */
+    size_t lo = 0, hi = tp->path_count;
+    while (lo < hi) {
+        size_t mid = (lo + hi) / 2;
+        if (tp->path_end_time[mid] < t) lo = mid + 1;
+        else hi = mid;
+    }
+    size_t path = MIN(lo, tp->path_count - 1);
+    uint32_t start = path == 0 ? 0 : tp->path_ends[path - 1], end = tp->path_ends[path];
+    gboolean closed = tp->path_closed[path] && end - start > 2;
+    gint64 segs = (gint64)(end - start) - 1 + (closed ? 1 : 0);
+    gint64 seg = 0;
+    while (seg + 1 < segs && segment_end_time(tp, path, seg) < t) seg++;
+    *path_out = (gint64)path;
+    *seg_out = seg;
+    return TRUE;
 }
 
 static gboolean on_step_tick(GtkWidget *w, GdkFrameClock *clock, gpointer data) {
@@ -842,6 +866,27 @@ static gboolean on_preview_key(GtkEventControllerKey *c, guint key, guint code, 
         zg_model_select(p->model, -1);
         return TRUE;
     default: return FALSE;
+    }
+    /* h and l go on from what the view shows: the segment at the time of
+     * a replay or a scrub, or the end of the top layer when the selected
+     * line is on another layer. */
+    if (dir != 0 && !p->step_valid) {
+        gint64 path = -1, seg = -1;
+        size_t top = zg_layer_range_get_hi(ZG_LAYER_RANGE(p->slider));
+        if (p->time > 0 && segment_at_time(&tp, p->time, &path, &seg)) {
+            /* the segment at the time of the replay */
+        } else if (sel < 0 || zg_toolpaths_layer_of(&tp, (size_t)sel) != top) {
+            if (top < tp.layer_count && tp.layer_ends[top] > 0) {
+                path = (gint64)tp.layer_ends[top] - 1;
+                segment_at_time(&tp, tp.path_end_time[path], &path, &seg);
+            }
+        }
+        if (path >= 0) {
+            zg_model_select_segment(p->model, path, seg);
+            sel = path;
+            p->step_valid = FALSE;
+            p->time = 0;
+        }
     }
     if (sel >= 0 && (size_t)sel < tp.path_count) {
         if (dir != 0) {
