@@ -14,6 +14,13 @@
  * group 0.5 s after a change of one of its settings, and at the end.
  * ZSLICE_STATE_DIR moves the folder (for tests).
  *
+ * Project mode: a plate of a printdeck.yml project is on the view
+ * (zg_model_project_load). Its machine settings come from the Cura stack
+ * of the project. The model does not save them in the profile of the
+ * printer of the user, and does not save the filament settings for the
+ * roll in the printer. A change of printer or a model file that the user
+ * opens ends project mode (zg_model_project_end).
+ *
  * SPDX-License-Identifier: AGPL-3.0-or-later
  */
 #include "app-model.h"
@@ -23,6 +30,7 @@
 #include "../prefs/printers.h"
 
 #include <errno.h>
+#include <json-glib/json-glib.h>
 #include <string.h>
 
 typedef struct {
@@ -107,6 +115,9 @@ struct _ZgModel {
     /* The groups to save (a bit for each enum zs_group), and the timer. */
     guint dirty;
     guint save_timer;
+    /* Project mode (see the header comment), and the title of the plate. */
+    gboolean project;
+    char *project_title;
 };
 
 static const char *group_files[] = {"machine", "filament", "project"};
@@ -142,6 +153,8 @@ static char *roll_path(const char *roll) {
 }
 
 static void save_state(ZgModel *self) {
+    /* In project mode, the machine settings are of the project. */
+    if (self->project) self->dirty &= ~(1u << ZS_GROUP_MACHINE);
     for (int g = 0; g < 3; g++) {
         if (!(self->dirty & (1u << g))) continue;
         size_t len = 0;
@@ -149,7 +162,7 @@ static void save_state(ZgModel *self) {
         char *text = g_malloc(len + 1);
         zs_app_state_write(self->core, g, text, len + 1, NULL);
         /* The filament settings: also for the roll in the printer. */
-        char *roll_file = g == ZS_GROUP_FILAMENT ? roll_path(self->roll) : NULL;
+        char *roll_file = g == ZS_GROUP_FILAMENT && !self->project ? roll_path(self->roll) : NULL;
         if (roll_file) {
             char *rdir = g_path_get_dirname(roll_file);
             if (g_mkdir_with_parents(rdir, 0700) != 0 || !g_file_set_contents(roll_file, text, (gssize)len, NULL))
@@ -224,7 +237,7 @@ static void load_group(ZgModel *self, int g) {
 
 G_DEFINE_FINAL_TYPE(ZgModel, zg_model, G_TYPE_OBJECT)
 
-enum { SIGNAL_CORE_EVENT, SIGNAL_SELECTION_CHANGED, SIGNAL_PICKED, SIGNAL_SETTING_CHANGED, SIGNAL_FOCUS_CHANGED, SIGNAL_SCOPE_CHANGED, SIGNAL_PRINTER_CHANGED, SIGNAL_PRINTERS_EDITED, SIGNAL_PART_SELECTED, SIGNAL_PLATE_CHANGED, SIGNAL_SEGMENT_CHANGED, SIGNAL_PROFILES_CHANGED, SIGNAL_OPEN_PROFILE, SIGNAL_GAPS_CHANGED, SIGNAL_UNDO_CHANGED, SIGNAL_PART_SCOPE_CHANGED, SIGNAL_TOOL_CHANGED, SIGNAL_MEASURE_CHANGED, N_SIGNALS };
+enum { SIGNAL_PROJECT_CHANGED, SIGNAL_PROJECT_SENT, SIGNAL_CORE_EVENT, SIGNAL_SELECTION_CHANGED, SIGNAL_PICKED, SIGNAL_SETTING_CHANGED, SIGNAL_FOCUS_CHANGED, SIGNAL_SCOPE_CHANGED, SIGNAL_PRINTER_CHANGED, SIGNAL_PRINTERS_EDITED, SIGNAL_PART_SELECTED, SIGNAL_PLATE_CHANGED, SIGNAL_SEGMENT_CHANGED, SIGNAL_PROFILES_CHANGED, SIGNAL_OPEN_PROFILE, SIGNAL_GAPS_CHANGED, SIGNAL_UNDO_CHANGED, SIGNAL_PART_SCOPE_CHANGED, SIGNAL_TOOL_CHANGED, SIGNAL_MEASURE_CHANGED, N_SIGNALS };
 static guint signals[N_SIGNALS];
 
 typedef struct {
@@ -364,6 +377,7 @@ static void zg_model_dispose(GObject *object) {
         self->bridge = NULL;
     }
     g_clear_pointer(&self->name, g_free);
+    g_clear_pointer(&self->project_title, g_free);
     g_clear_pointer(&self->roll, g_free);
     G_OBJECT_CLASS(zg_model_parent_class)->dispose(object);
 }
@@ -429,6 +443,12 @@ static void zg_model_class_init(ZgModelClass *klass) {
         G_SIGNAL_RUN_LAST, 0, NULL, NULL, NULL, G_TYPE_NONE, 0);
     signals[SIGNAL_OPEN_PROFILE] = g_signal_new("open-profile", G_TYPE_FROM_CLASS(klass),
         G_SIGNAL_RUN_LAST, 0, NULL, NULL, NULL, G_TYPE_NONE, 2, G_TYPE_DOUBLE, G_TYPE_DOUBLE);
+    /* project-changed(): project mode went on or off. */
+    signals[SIGNAL_PROJECT_CHANGED] = g_signal_new("project-changed", G_TYPE_FROM_CLASS(klass),
+        G_SIGNAL_RUN_LAST, 0, NULL, NULL, NULL, G_TYPE_NONE, 0);
+    /* project-sent(): the plate of a project went to a printer to print. */
+    signals[SIGNAL_PROJECT_SENT] = g_signal_new("project-sent", G_TYPE_FROM_CLASS(klass),
+        G_SIGNAL_RUN_LAST, 0, NULL, NULL, NULL, G_TYPE_NONE, 0);
     /* setting-changed(const char *key): after zg_model_set changes a value,
      * so that each editor of the setting shows the new value. */
     signals[SIGNAL_SETTING_CHANGED] = g_signal_new("setting-changed", G_TYPE_FROM_CLASS(klass),
@@ -646,12 +666,16 @@ void zg_model_announce(ZgModel *self, const char *prefix) {
     }
 }
 
+static void project_off(ZgModel *self);
+
 void zg_model_use_printer(ZgModel *self, const char *id) {
     ZgPrinter *cur = zg_printers_current();
-    if (cur && strcmp(cur->id, id) == 0) return;
-    /* Save the machine settings of the printer before. */
+    if (cur && strcmp(cur->id, id) == 0 && !self->project) return;
+    /* Save the machine settings of the printer before (save_state skips
+     * them in project mode). */
     self->dirty |= 1u << ZS_GROUP_MACHINE;
     save_state(self);
+    project_off(self);
     zg_printers_set_current(id);
     zs_app_group_reset(self->core, ZS_GROUP_MACHINE);
     load_group(self, ZS_GROUP_MACHINE);
@@ -777,7 +801,8 @@ gboolean zg_model_set_roll(ZgModel *self, const char *roll) {
     return known;
 }
 
-gboolean zg_model_load_profile(ZgModel *self, int group, const char *text, size_t len, GError **error) {
+/* zg_model_load_profile with no slice. */
+static gboolean apply_profile(ZgModel *self, int group, const char *text, size_t len, GError **error) {
     /* Check the text on a copy first: an error leaves the settings as
      * they are (zs_app_profile_apply changes nothing on an error, but the
      * reset before it would). */
@@ -799,6 +824,11 @@ gboolean zg_model_load_profile(ZgModel *self, int group, const char *text, size_
     static const char *prefixes[] = {"machine.", "filament.", "project."};
     zg_model_announce(self, prefixes[group]);
     zg_model_save_soon(self, group);
+    return TRUE;
+}
+
+gboolean zg_model_load_profile(ZgModel *self, int group, const char *text, size_t len, GError **error) {
+    if (!apply_profile(self, group, text, len, error)) return FALSE;
     slice_soon(self);
     return TRUE;
 }
@@ -1507,10 +1537,15 @@ static gboolean fail(GError **error, int rc) {
     return FALSE;
 }
 
-/* The name for the title: the first part, and how many more. */
+/* The name for the title: the first part, and how many more. A plate of
+ * a project has the names of its parts. */
 static void update_name(ZgModel *self) {
     g_free(self->name);
     self->name = NULL;
+    if (self->project && self->project_title) {
+        self->name = g_strdup(self->project_title);
+        return;
+    }
     size_t n = zs_app_part_count(self->core);
     zs_part p;
     if (n == 0 || zs_app_part_get(self->core, 0, &p) != ZS_OK) return;
@@ -1752,4 +1787,123 @@ const char *zg_status_text(int status) {
     case ZS_OUT_OF_RANGE: return "Out of range";
     default: return zs_status_string(status);
     }
+}
+
+/* ---- printdeck.yml projects ---- */
+
+/* Project mode off, with no change of the settings. */
+static void project_off(ZgModel *self) {
+    if (!self->project) return;
+    self->project = FALSE;
+    g_clear_pointer(&self->project_title, g_free);
+    update_name(self);
+    g_signal_emit(self, signals[SIGNAL_PROJECT_CHANGED], 0);
+}
+
+gboolean zg_model_project_active(ZgModel *self) {
+    return self->project;
+}
+
+void zg_model_project_end(ZgModel *self) {
+    if (!self->project) return;
+    project_off(self);
+    /* The machine settings of the printer of the user again. */
+    zs_app_group_reset(self->core, ZS_GROUP_MACHINE);
+    load_group(self, ZS_GROUP_MACHINE);
+    zg_model_announce(self, "machine.");
+    g_signal_emit(self, signals[SIGNAL_PRINTER_CHANGED], 0);
+    slice_soon(self);
+}
+
+void zg_model_project_sent(ZgModel *self) {
+    if (self->project) g_signal_emit(self, signals[SIGNAL_PROJECT_SENT], 0);
+}
+
+/* The text of member `group` ("machine") of the profiles JSON: its name
+ * and text. FALSE if it is not there. */
+static gboolean profile_of(JsonObject *o, const char *group, const char **name, const char **text) {
+    JsonNode *n = json_object_get_member(o, group);
+    if (!n || !JSON_NODE_HOLDS_OBJECT(n)) return FALSE;
+    JsonObject *g = json_node_get_object(n);
+    *name = json_object_get_string_member_with_default(g, "name", group);
+    *text = json_object_get_string_member_with_default(g, "text", NULL);
+    return *text != NULL;
+}
+
+int zg_model_project_load(ZgModel *self, const zs_files *files, const char *yml, const char *counts, size_t plate,
+                          const char *title, char **message) {
+    *message = NULL;
+    size_t len = 0;
+    int rc = zs_project_profiles(files, yml, counts, plate, NULL, 0, &len);
+    if (rc != ZS_OK) {
+        *message = g_strdup(zg_status_text(rc));
+        return rc;
+    }
+    char *json = g_malloc(len + 1);
+    zs_project_profiles(files, yml, counts, plate, json, len + 1, NULL);
+    JsonParser *parser = json_parser_new();
+    if (!json_parser_load_from_data(parser, json, (gssize)len, NULL) || !JSON_NODE_HOLDS_OBJECT(json_parser_get_root(parser))) {
+        g_object_unref(parser);
+        g_free(json);
+        *message = g_strdup("The profiles of the plate are not valid JSON.");
+        return ZS_INVALID_VALUE;
+    }
+    g_free(json);
+    JsonObject *o = json_node_get_object(json_parser_get_root(parser));
+    if (json_object_has_member(o, "error")) {
+        *message = g_strdup(json_object_get_string_member_with_default(o, "error", "error"));
+        g_object_unref(parser);
+        return ZS_INVALID_VALUE;
+    }
+    /* The machine settings of the printer of the user go to its profile
+     * before project mode starts. */
+    if (self->dirty) save_state(self);
+    gboolean was = self->project;
+    self->project = TRUE;
+    static const char *groups[] = {"machine", "filament", "project"};
+    for (int g = 0; g < 3; g++) {
+        const char *name = NULL, *text = NULL;
+        GError *error = NULL;
+        if (!profile_of(o, groups[g], &name, &text)) {
+            *message = g_strdup_printf("The %s profile is missing.", groups[g]);
+            rc = ZS_INVALID_VALUE;
+        } else if (!apply_profile(self, g, text, strlen(text), &error)) {
+            *message = g_strdup_printf("The %s profile %s: %s", groups[g], name, error->message);
+            g_error_free(error);
+            rc = ZS_INVALID_VALUE;
+        }
+        if (rc != ZS_OK) {
+            /* The machine settings of the printer of the user stay. */
+            if (!was) {
+                self->project = FALSE;
+                zs_app_group_reset(self->core, ZS_GROUP_MACHINE);
+                load_group(self, ZS_GROUP_MACHINE);
+                zg_model_announce(self, "machine.");
+            }
+            g_object_unref(parser);
+            return rc;
+        }
+    }
+    g_object_unref(parser);
+    char msg[1024] = "";
+    rc = zs_app_project_load(self->core, files, yml, counts, plate, msg, sizeof msg);
+    if (rc != ZS_OK && rc != ZS_OUT_OF_RANGE) {
+        *message = g_strdup(msg[0] ? msg : zg_status_text(rc));
+        /* The profiles of the project are on the view: project mode stays,
+         * so the machine settings of the user stay as they are. */
+    } else if (rc == ZS_OUT_OF_RANGE) {
+        *message = g_strdup(msg);
+    }
+    g_free(self->project_title);
+    self->project_title = g_strdup(title);
+    zg_model_select(self, -1);
+    zg_model_select_part(self, -1);
+    if (!was) g_signal_emit(self, signals[SIGNAL_PROJECT_CHANGED], 0);
+    /* The settings of the plate (support, adhesion) changed in the core. */
+    zg_model_announce(self, "project.");
+    zg_model_save_soon(self, ZS_GROUP_PROJECT);
+    plate_changed(self);
+    /* An empty app before the load: plate_changed does not slice it. */
+    if (zs_app_state(self->core) == ZS_STATE_EMPTY && zs_app_part_count(self->core) > 0) request_slice(self);
+    return rc;
 }

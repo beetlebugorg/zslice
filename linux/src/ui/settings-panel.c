@@ -1,7 +1,7 @@
 /* settings-panel.c: see settings-panel.h.
  *
  * The history: one list of the places of the panel, over both pages. A
- * place is the page ("selected", "history"), or the page and the place in the
+ * place is the page ("selected", "history", "project"), or the page and the place in the
  * browser ("settings" and zg_settings_browser_get_place). Each move (a
  * tab, a section, a setting, a link from the Selected page, a click on a
  * line) puts the place before it on the list, and Back (the button at the
@@ -14,6 +14,7 @@
 
 #include "history.h"
 #include "inspector.h"
+#include "project-page.h"
 #include "settings-browser.h"
 
 #include <string.h>
@@ -121,6 +122,7 @@ GtkWidget *zg_settings_panel_new(ZgModel *model) {
     gtk_stack_add_titled(GTK_STACK(stack), browser, "settings", "Settings");
     gtk_stack_add_titled(GTK_STACK(stack), zg_inspector_new(model, stack), "selected", "Selected");
     gtk_stack_add_titled(GTK_STACK(stack), zg_history_page_new(model, stack), "history", "History");
+    gtk_stack_add_titled(GTK_STACK(stack), zg_project_page_new(model), "project", "Project");
     gtk_stack_set_visible_child(GTK_STACK(stack), browser);
     GtkWidget *switcher = gtk_stack_switcher_new();
     gtk_stack_switcher_set_stack(GTK_STACK_SWITCHER(switcher), GTK_STACK(stack));

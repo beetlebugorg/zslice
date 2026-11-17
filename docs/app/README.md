@@ -80,6 +80,7 @@ The GTK shell is in `linux/src`. Each `.c` file has a header that explains its i
 | `prefs/` | `printers` | The printers of the user, and the app settings file |
 | `net/` | `printer-link` | HTTP and USB connections to printers |
 | | `discovery` | The search of the network for printers (mDNS), with the packets of the core |
+| | `project-source` | The files of a printdeck.yml project: a folder, or a public GitHub repository |
 | `ui/` | `window` | The main window: the header bar, the file dialogs, the send to a printer, and the status bar |
 | | `preview` | The 2D and 3D preview with the layer slider, the replay, and the keyboard navigation |
 | | `layer-draw` | The cairo drawing of one layer in the 2D view |
@@ -88,8 +89,9 @@ The GTK shell is in `linux/src`. Each `.c` file has a header that explains its i
 | | `view3d` | The widget of the 3D view, and the drag of a part |
 | | `bed-model` | The bed model of the current printer in the 3D view: finds the bed folder and reads the files |
 | | `native-surface` | The Wayland subsurface for the 3D view |
-| | `settings-panel` | The panel with the two pages below |
+| | `settings-panel` | The panel with its pages: Settings, Selected, History, and Project |
 | | `inspector` | The "Selected" page: the values of a line and the settings that change it |
+| | `project-page` | The "Project" page: a printdeck.yml project, its plates and parts, and the status of each plate |
 | | `part-page` | The page of a part: its place, turn, and scale, and the placement |
 | | `settings-browser` | The "Settings" page: all settings in three columns |
 | | `setting-row` | One setting as a row of a grid |
@@ -123,6 +125,8 @@ These environment variables change the start of the GTK shell, for development, 
 | `ZSLICE_ZOOM_AT=x,y,n` | Zooms `n` wheel steps toward the pixel x, y after the first load. | `ui/view3d.c` |
 | `ZSLICE_INSPECT_FOCUS=name` | Puts the focus on the row of the setting `name` in the inspector after the first selection. | `ui/inspector.c` |
 | `ZSLICE_SETTING=name` | Opens the Settings page at the setting `name`. | `ui/settings-browser.c` |
+| `ZSLICE_PROJECT=dir` or `owner/repo` | Opens the printdeck.yml project of a folder or of a GitHub repository at the start, and shows the Project page. `ZSLICE_PROJECT_PLATE=n` then opens plate n (from 1), also for the project of the last session. | `ui/project-page.c` |
+| `ZSLICE_PROJECT_DO=steps` | Changes the widgets of the Project page 3 s after the start, one step each second, as a click would. Steps, with `;` between them: `status 1 printed`, `count 2 0`, `check 2 off`, `scroll 600`, `sent`, `set machine.max_height 300`, `end`, `close`. | `ui/project-page.c` |
 | `ZSLICE_PICKER=1` | Opens the printer picker at the start. With it: `ZSLICE_PICKER_QUERY=text` types a search, `ZSLICE_PICKER_MODEL=id` selects a model, `ZSLICE_PICKER_FOUND=n` selects printer n of the network when the search ends, and `ZSLICE_PICKER_STEP=2` (the second step) or `add` (add the printer at once). | `ui/printer-picker.c` |
 
 To run the app for a check without your own settings:

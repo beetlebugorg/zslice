@@ -278,6 +278,29 @@ void zg_model_save_soon(ZgModel *self, int group);
 /* The time of the last slice, from the request to the result, in ms. */
 double zg_model_slice_ms(ZgModel *self);
 
+/* ---- printdeck.yml projects (include/zslice-app.h) ----
+ *
+ * Project mode: a plate of a project is on the view. Its machine settings
+ * come from the project, so the model does not save them in the profile
+ * of the printer of the user. "project-changed" follows each start and end
+ * of project mode. */
+
+/* Loads plate `plate` of a project: the machine, filament, and project
+ * profiles of the plate (zs_project_profiles), then its settings and
+ * parts (zs_app_project_load), and slices. Starts project mode, and the
+ * title of the window is `title`. Returns ZS_OK, ZS_OUT_OF_RANGE (the
+ * parts do not all fit on the bed; message says it), or an error with the
+ * reason in message. Free message with g_free. */
+int zg_model_project_load(ZgModel *self, const zs_files *files, const char *yml, const char *counts, size_t plate,
+                          const char *title, char **message);
+gboolean zg_model_project_active(ZgModel *self);
+/* Ends project mode: the machine settings of the current printer of the
+ * user load again. */
+void zg_model_project_end(ZgModel *self);
+/* The window sent the plate to a printer to print: in project mode,
+ * "project-sent" follows. */
+void zg_model_project_sent(ZgModel *self);
+
 /* The text for a core status code. */
 const char *zg_status_text(int status);
 

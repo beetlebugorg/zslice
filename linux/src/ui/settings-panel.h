@@ -1,9 +1,11 @@
 /* settings-panel.h: the settings panel at the side of the window.
  *
- * The panel has two pages with tabs:
- *   "Selected": the inspector of the selected line or part (inspector.h)
+ * The panel has four pages with tabs:
  *   "Settings": a browser of all settings (settings-browser.h)
- * Both pages build their rows from the setting descriptions of the core
+ *   "Selected": the inspector of the selected line or part (inspector.h)
+ *   "History": the steps of undo and redo (history.h)
+ *   "Project": a printdeck.yml project and its plates (project-page.h)
+ * The first two pages build their rows from the setting descriptions of the core
  * (zs_setting_get_info), so they need no change when the core gets a new
  * setting.
  *

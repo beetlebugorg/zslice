@@ -363,6 +363,9 @@ static void on_loaded(GObject *source, GAsyncResult *res, gpointer data) {
     gsize len = 0;
     GError *error = NULL;
     if (g_file_load_contents_finish(G_FILE(source), res, &contents, &len, NULL, &error)) {
+        /* A model file of the user ends project mode: the machine
+         * settings of the printer of the user load again. */
+        zg_model_project_end(w->model);
         /* A new part on the plate (the first one loads the plate). */
         if (!zg_model_add(w->model, job->name, contents, len, &error)) {
             show_error(w, "The model did not open", error->message);
@@ -545,6 +548,8 @@ static void on_send_done(gboolean ok, const char *message, gpointer data) {
         char *text = g_strdup_printf(w->send_print ? "Sent to %s; it prints." : "Sent to %s.", zg_printers_current()->name);
         gtk_label_set_text(GTK_LABEL(w->printer_state), text);
         g_free(text);
+        /* The plate of a project prints now. */
+        if (w->send_print) zg_model_project_sent(w->model);
     } else {
         gtk_label_set_text(GTK_LABEL(w->printer_state), "");
         show_error(w, "The G-code was not sent", message ? message : "");
@@ -794,7 +799,8 @@ static void on_poll_info(ZgPrinterInfo *info, const char *error, gpointer data) 
     if (info) zg_model_set_rolls(w->model, pr->id, info->rolls, info->n_rolls);
     /* Only a change of the roll in the printer: a roll that the user picks
      * in the Filament menu stays until the printer has another roll. */
-    if (info && info->spool_id && info->spool_id[0] && strcmp(follow, "1") == 0) {
+    /* A plate of a project keeps the filament settings of the project. */
+    if (info && info->spool_id && info->spool_id[0] && strcmp(follow, "1") == 0 && !zg_model_project_active(w->model)) {
         GString *key = g_string_new(NULL);
         char *k = zg_model_roll_key(pr->id, info->spool_id);
         g_string_append(key, k);
