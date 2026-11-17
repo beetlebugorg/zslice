@@ -38,6 +38,17 @@
 //! `writeScene` gives its beads as bytes; the view of the main thread reads
 //! them with `readScene`. The camera, the layer range, and the replay then
 //! run on the main thread, with no wait for a slice.
+//!
+//! A pick (the bead under a pixel) tests the beads that the ray can hit.
+//! The pick index has a box for each run of 32 beads in print order, and a
+//! box for each layer. The ray skips a layer or a run whose box it misses,
+//! or whose box is farther than the nearest hit so far. The layers go from
+//! the top down, so the nearest hit comes early. A plate of many parts has
+//! a million beads; a pick then tests a few thousand.
+//!
+//! A 2D view (one layer from the top) also uses the view: the beads of a
+//! layer, the outline of each layer, a pick in mm, and the steps along the
+//! print for the keys h, j, k, l (see `stepPath`).
 
 const std = @import("std");
 const builtin = @import("builtin");
@@ -92,6 +103,22 @@ pub const View = struct {
     /// The first bead of each path, and one more item at the end: the
     /// beads of path i are path_start[i] to path_start[i + 1].
     path_start: std.ArrayList(u32) = .empty,
+    /// The end of each layer in the paths: the paths of layer j are
+    /// layer_path_end[j - 1] to layer_path_end[j].
+    layer_path_end: std.ArrayList(u32) = .empty,
+    /// The outline of each layer (the material of the layer), for a 2D
+    /// view: x, y pairs in mm, in the cooled shape of the beads. Ring i has
+    /// the points outline_ends[i - 1] to outline_ends[i]; layer j has the
+    /// rings outline_layer_end[j - 1] to outline_layer_end[j]. Outer rings
+    /// go counterclockwise and holes clockwise (fill by the nonzero rule).
+    outline_points: std.ArrayList(f32) = .empty,
+    outline_ends: std.ArrayList(u32) = .empty,
+    outline_layer_end: std.ArrayList(u32) = .empty,
+    /// The pick index (see `buildPickIndex`): boxes of runs of beads, and
+    /// the box and the end of the runs of each layer. It comes from the
+    /// beads, so a scene in bytes does not have it.
+    pick_runs: std.ArrayList(PickBox) = .empty,
+    layer_boxes: std.ArrayList(PickBox) = .empty,
     highlight: [2]f32 = .{ 0, 0 },
     /// The rings of the support marks of the app (see support.Mark): 12
     /// beads each, drawn as extras.
@@ -187,6 +214,12 @@ pub const View = struct {
         if (v.extras_buf) |b| gpa.free(b);
         v.more.deinit(gpa);
         v.path_start.deinit(gpa);
+        v.layer_path_end.deinit(gpa);
+        v.outline_points.deinit(gpa);
+        v.outline_ends.deinit(gpa);
+        v.outline_layer_end.deinit(gpa);
+        v.pick_runs.deinit(gpa);
+        v.layer_boxes.deinit(gpa);
         v.beads.deinit(gpa);
         v.bead_end.deinit(gpa);
         v.bead_start.deinit(gpa);
@@ -287,6 +320,11 @@ pub const View = struct {
         const tp = app.allToolpaths() orelse {
             v.layer_end.clearRetainingCapacity();
             v.path_start.clearRetainingCapacity();
+            v.layer_path_end.clearRetainingCapacity();
+            v.outline_points.clearRetainingCapacity();
+            v.outline_ends.clearRetainingCapacity();
+            v.outline_layer_end.clearRetainingCapacity();
+            try v.buildPickIndex();
             return;
         };
         const first_load = v.layer_end.items.len == 0;
@@ -393,9 +431,15 @@ pub const View = struct {
             v.layer_end.append(gpa, @intCast(boxes.items.len)) catch return error.OutOfMemory;
         }
         v.path_start.append(gpa, @intCast(boxes.items.len)) catch return error.OutOfMemory;
+        v.layer_path_end.clearRetainingCapacity();
+        v.layer_path_end.appendSlice(gpa, tp.layer_ends.items) catch return error.OutOfMemory;
+        try v.loadOutlines(app, tp.layer_ends.items.len);
         try v.loadMarks(tp, filament, center, sxy, sz);
         try v.renderer.setInstances(boxes.items, v.marks.items);
         v.more.clearRetainingCapacity();
+        // `boxes` goes back to v.beads at the end of this function.
+        v.beads = boxes;
+        try v.buildPickIndex();
 
         if (app.partBounds()) |b| {
             // The camera turns around the center of the bed (as in other
@@ -430,10 +474,11 @@ pub const View = struct {
         extent: f32,
         bed: [2]f32,
         /// layer_end, path_start, beads, marks, mark_layer_end, bead_end,
-        /// bead_start, bead_fan, mark_rings.
-        counts: [9]u32,
+        /// bead_start, bead_fan, mark_rings, layer_path_end,
+        /// outline_points, outline_ends, outline_layer_end.
+        counts: [13]u32,
     };
-    const scene_magic: u32 = 0x31637a73; // "szc1"
+    const scene_magic: u32 = 0x32637a73; // "szc2"
 
     /// The lists of a scene, in the order of SceneHead.counts.
     fn sceneLists(v: *View) struct {
@@ -446,8 +491,12 @@ pub const View = struct {
         *std.ArrayList(f32),
         *std.ArrayList(u8),
         *std.ArrayList(vk.Instance),
+        *std.ArrayList(u32),
+        *std.ArrayList(f32),
+        *std.ArrayList(u32),
+        *std.ArrayList(u32),
     } {
-        return .{ &v.layer_end, &v.path_start, &v.beads, &v.marks, &v.mark_layer_end, &v.bead_end, &v.bead_start, &v.bead_fan, &v.mark_rings };
+        return .{ &v.layer_end, &v.path_start, &v.beads, &v.marks, &v.mark_layer_end, &v.bead_end, &v.bead_start, &v.bead_fan, &v.mark_rings, &v.layer_path_end, &v.outline_points, &v.outline_ends, &v.outline_layer_end };
     }
 
     /// The loaded scene as bytes, for a view in another wasm instance (see
@@ -509,6 +558,7 @@ pub const View = struct {
         try v.loadGrid(head.bed[0], head.bed[1]);
         try v.renderer.setInstances(v.beads.items, v.marks.items);
         v.more.clearRetainingCapacity();
+        try v.buildPickIndex();
         if (v.layer_end.items.len == 0) return;
         if (first_load) {
             v.reset();
@@ -560,6 +610,37 @@ pub const View = struct {
             v.legend = .{ lo, if (hi > lo) hi else lo + 1 };
         }
         return values;
+    }
+
+    /// The outline of each of the `layers` levels of the slice of `app`
+    /// (see `outline_points`), in the cooled shape of the beads.
+    fn loadOutlines(v: *View, app: *const app_mod.App, layers: usize) Error!void {
+        const geom = @import("../geom.zig");
+        v.outline_points.clearRetainingCapacity();
+        v.outline_ends.clearRetainingCapacity();
+        v.outline_layer_end.clearRetainingCapacity();
+        const job = if (app.job) |*j| j else null;
+        const c = v.xf_center;
+        const k = v.xf_sxy;
+        for (0..layers) |l| {
+            var part: usize = 0;
+            while (job != null) : (part += 1) {
+                const o = job.?.levelOutline(l, part) orelse break;
+                for (0..o.paths.count()) |ri| {
+                    const ring = o.paths.get(ri);
+                    if (ring.len < 3) continue;
+                    v.outline_points.ensureUnusedCapacity(gpa, 2 * ring.len) catch return error.OutOfMemory;
+                    for (ring) |q| {
+                        const x: f32 = @floatCast(geom.toMm(q.x + o.dx));
+                        const y: f32 = @floatCast(geom.toMm(q.y + o.dy));
+                        v.outline_points.appendAssumeCapacity(c[0] + (x - c[0]) * k);
+                        v.outline_points.appendAssumeCapacity(c[1] + (y - c[1]) * k);
+                    }
+                    v.outline_ends.append(gpa, @intCast(v.outline_points.items.len / 2)) catch return error.OutOfMemory;
+                }
+            }
+            v.outline_layer_end.append(gpa, @intCast(v.outline_ends.items.len)) catch return error.OutOfMemory;
+        }
     }
 
     /// The seam blobs, the travel moves, and the retractions of each
@@ -1020,35 +1101,123 @@ pub const View = struct {
     fn rayHit(v: *const View, px: f32, py: f32, grow: f32) ?struct { bead: usize, t: f32 } {
         const cam = v.camera();
         const dir = v.pixelRay(cam, px, py);
-        var count: usize = 0;
-        if (v.layer_end.items.len > 0) count = v.layer_end.items[@min(v.layer, v.layer_end.items.len - 1)];
+        const n = v.layer_end.items.len;
+        if (n == 0) return null;
+        const top = @min(v.layer, n - 1);
+        const bottom = @min(v.layer_lo, top);
         var best: ?usize = null;
         var best_t: f32 = std.math.inf(f32);
-        var start: usize = 0;
-        if (v.layer_lo > 0 and v.layer_lo - 1 < v.layer_end.items.len) start = @min(count, v.layer_end.items[@min(v.layer_lo, v.layer) - 1]);
-        for (v.beads.items[start..count], start..) |b, i| {
-            const zc = b.z - b.h / 2;
-            const k = if (b.h > 0) b.w / b.h else 1;
-            const o = [3]f32{ cam.eye[0], cam.eye[1], zc + (cam.eye[2] - zc) * k };
-            const d = [3]f32{ dir[0], dir[1], dir[2] * k };
-            const a = [3]f32{ b.ax, b.ay, zc };
-            const e = [3]f32{ b.bx - b.ax, b.by - b.ay, 0 };
-            const hit = rayToSegment(o, d, a, e) orelse continue;
-            const r = b.w / 2 * grow;
-            if (hit.dist2 <= r * r and hit.t < best_t) {
-                best_t = hit.t;
-                best = i;
+        // With no pick index (a test that fills the beads by hand), each
+        // bead of the layers.
+        if (v.layer_boxes.items.len != n or grow > pick_grow) {
+            const start: usize = if (bottom == 0) 0 else v.layer_end.items[bottom - 1];
+            v.rayBeads(cam.eye, dir, grow, start, v.layer_end.items[top], &best, &best_t);
+        } else {
+            // The layers from the top down, so a near hit comes early and
+            // the boxes behind it drop out.
+            var l = top + 1;
+            while (l > bottom) {
+                l -= 1;
+                if (!rayBox(cam.eye, dir, v.layer_boxes.items[l], best_t)) continue;
+                const r0: usize = if (l == 0) 0 else v.layer_boxes.items[l - 1].end;
+                for (v.pick_runs.items[r0..v.layer_boxes.items[l].end]) |run| {
+                    if (!rayBox(cam.eye, dir, run, best_t)) continue;
+                    v.rayBeads(cam.eye, dir, grow, run.first, run.end, &best, &best_t);
+                }
             }
         }
         const i = best orelse return null;
         return .{ .bead = i, .t = best_t };
     }
 
-    /// The path and the segment of the path under a pixel.
-    pub fn pickSegment(v: *const View, px: f32, py: f32) ?[2]usize {
-        const i = (v.rayHit(px, py, 1) orelse return null).bead;
-        // The path of bead i: the last path whose first bead is at or
-        // before i.
+    /// The ray test of the beads first to end (see `pick`): the nearest
+    /// hit nearer than `best_t` goes to `best`.
+    fn rayBeads(v: *const View, eye: [3]f32, dir: [3]f32, grow: f32, first: usize, end: usize, best: *?usize, best_t: *f32) void {
+        for (v.beads.items[first..end], first..) |b, i| {
+            const zc = b.z - b.h / 2;
+            const k = if (b.h > 0) b.w / b.h else 1;
+            const o = [3]f32{ eye[0], eye[1], zc + (eye[2] - zc) * k };
+            const d = [3]f32{ dir[0], dir[1], dir[2] * k };
+            const a = [3]f32{ b.ax, b.ay, zc };
+            const e = [3]f32{ b.bx - b.ax, b.by - b.ay, 0 };
+            const hit = rayToSegment(o, d, a, e) orelse continue;
+            const r = b.w / 2 * grow;
+            if (hit.dist2 <= r * r and hit.t < best_t.*) {
+                best_t.* = hit.t;
+                best.* = i;
+            }
+        }
+    }
+
+    /// The beads in one box of the pick index: first to end, and a box
+    /// around them (mm) with room for a bead radius grown by `pick_grow`.
+    /// For a layer box, `end` is the end of its runs in `pick_runs`.
+    pub const PickBox = struct { lo: [3]f32, hi: [3]f32, first: u32, end: u32 };
+
+    /// The largest `grow` of `rayHit` that the pick index covers.
+    const pick_grow: f32 = 1.6;
+    /// The beads in one run of the pick index. Beads in print order are
+    /// near each other, so the box of a run is small.
+    const pick_run = 32;
+
+    /// Makes the pick index: a box for each run of `pick_run` beads (a
+    /// run stays in one layer), and a box for each layer. A pick tests a
+    /// bead only if the ray goes through the box of its layer and of its
+    /// run, so a pick on a plate of many parts stays fast.
+    fn buildPickIndex(v: *View) Error!void {
+        v.pick_runs.clearRetainingCapacity();
+        v.layer_boxes.clearRetainingCapacity();
+        v.pick_runs.ensureTotalCapacity(gpa, v.beads.items.len / pick_run + v.layer_end.items.len) catch return error.OutOfMemory;
+        v.layer_boxes.ensureTotalCapacity(gpa, v.layer_end.items.len) catch return error.OutOfMemory;
+        var first: u32 = 0;
+        for (v.layer_end.items) |end| {
+            var layer = emptyBox(first, 0);
+            var i = first;
+            while (i < end) {
+                const j = @min(i + pick_run, end);
+                var run = emptyBox(i, j);
+                for (v.beads.items[i..j]) |b| {
+                    const r = b.w / 2 * pick_grow;
+                    const zr = b.h / 2 * pick_grow;
+                    const zc = b.z - b.h / 2;
+                    growBox(&run, .{ @min(b.ax, b.bx) - r, @min(b.ay, b.by) - r, zc - zr }, .{ @max(b.ax, b.bx) + r, @max(b.ay, b.by) + r, zc + zr });
+                }
+                growBox(&layer, run.lo, run.hi);
+                v.pick_runs.appendAssumeCapacity(run);
+                i = j;
+            }
+            layer.end = @intCast(v.pick_runs.items.len);
+            v.layer_boxes.appendAssumeCapacity(layer);
+            first = end;
+        }
+    }
+
+    fn emptyBox(first: u32, end: u32) PickBox {
+        const inf = std.math.inf(f32);
+        return .{ .lo = .{ inf, inf, inf }, .hi = .{ -inf, -inf, -inf }, .first = first, .end = end };
+    }
+
+    fn growBox(box: *PickBox, lo: [3]f32, hi: [3]f32) void {
+        for (0..3) |k| {
+            box.lo[k] = @min(box.lo[k], lo[k]);
+            box.hi[k] = @max(box.hi[k], hi[k]);
+        }
+    }
+
+    /// The box of all beads on the bed (x0, y0, x1, y1, in mm), or null
+    /// with no beads. A 2D view fits it in the window.
+    pub fn bounds(v: *const View) ?[4]f32 {
+        var box = emptyBox(0, 0);
+        for (v.layer_boxes.items) |l| if (l.lo[0] <= l.hi[0]) growBox(&box, l.lo, l.hi);
+        if (!(box.lo[0] <= box.hi[0])) return null;
+        // The boxes have room for a grown bead; the bounds need half of it.
+        return .{ box.lo[0], box.lo[1], box.hi[0], box.hi[1] };
+    }
+
+    /// The path of bead i, and the index of the bead in the path (its
+    /// segment).
+    fn pathOfBead(v: *const View, i: usize) [2]usize {
+        // The last path whose first bead is at or before i.
         var lo: usize = 0;
         var hi: usize = v.path_start.items.len;
         while (lo < hi) {
@@ -1059,6 +1228,151 @@ pub const View = struct {
         var p = lo - 1;
         while (p + 1 < v.path_start.items.len and v.path_start.items[p + 1] <= i) p += 1;
         return .{ p, i - v.path_start.items[p] };
+    }
+
+    /// The path and the segment of the path under a pixel.
+    pub fn pickSegment(v: *const View, px: f32, py: f32) ?[2]usize {
+        const i = (v.rayHit(px, py, 1) orelse return null).bead;
+        return v.pathOfBead(i);
+    }
+
+    // ---- the 2D view of one layer, and the steps through the paths ----
+    //
+    // A 2D view shows one layer from the top (see linux/src/ui/preview.c
+    // and web/app). These functions give it the beads of a layer, a pick
+    // in mm, and the steps of the keys h, j, k, l along the print. They
+    // work on the beads of the view, so a view from `readScene` has them
+    // with no app.
+
+    /// The beads of layer `layer`: first to end in the instances.
+    pub fn layerBeads(v: *const View, layer: usize) [2]u32 {
+        if (layer >= v.layer_end.items.len) return .{ 0, 0 };
+        return .{ if (layer == 0) 0 else v.layer_end.items[layer - 1], v.layer_end.items[layer] };
+    }
+
+    /// The beads of path `path`: first to end. Bead k is segment k.
+    pub fn pathBeads(v: *const View, path: usize) [2]u32 {
+        if (path + 1 >= v.path_start.items.len) return .{ 0, 0 };
+        return .{ v.path_start.items[path], v.path_start.items[path + 1] };
+    }
+
+    /// The number of paths.
+    pub fn pathCount(v: *const View) usize {
+        return if (v.path_start.items.len > 0) v.path_start.items.len - 1 else 0;
+    }
+
+    /// The segments of a path: its beads (a path with no bead has none).
+    pub fn segments(v: *const View, path: usize) usize {
+        const r = v.pathBeads(path);
+        return r[1] - r[0];
+    }
+
+    /// The layer of a path.
+    pub fn layerOfPath(v: *const View, path: usize) usize {
+        var lo: usize = 0;
+        var hi: usize = v.layer_path_end.items.len;
+        while (lo < hi) {
+            const mid = (lo + hi) / 2;
+            if (v.layer_path_end.items[mid] <= path) lo = mid + 1 else hi = mid;
+        }
+        return lo;
+    }
+
+    /// The path and the segment of layer `layer` nearest to (x, y) mm, in
+    /// the 2D view: closer than twice the bead width, or null. The marks
+    /// are not paths.
+    pub fn pickLayer(v: *const View, layer: usize, x: f32, y: f32) ?[2]usize {
+        const r = v.layerBeads(layer);
+        var best: ?usize = null;
+        var best_d: f32 = std.math.inf(f32);
+        for (v.beads.items[r[0]..r[1]], r[0]..) |b, i| {
+            const d = segmentDistance2(x, y, b.ax, b.ay, b.bx, b.by);
+            if (d < best_d and d < 4 * b.w * b.w) {
+                best_d = d;
+                best = i;
+            }
+        }
+        return v.pathOfBead(best orelse return null);
+    }
+
+    /// One step along the print from segment `seg` of path `path` (null:
+    /// the whole path): to the next segment (dir 1) or the segment before
+    /// (dir -1), and on to the next or the path before at an end. With
+    /// `whole_path`, a whole path at a time. Paths with no segment are
+    /// passed. Null at the start or the end of the print.
+    pub fn stepPath(v: *const View, path: usize, seg: ?usize, dir: i32, whole_path: bool) ?struct { path: usize, seg: ?usize } {
+        const n: i64 = @intCast(v.pathCount());
+        const sel: i64 = @intCast(path);
+        if (sel >= n) return null;
+        var p = sel;
+        var s: ?usize = seg;
+        if (whole_path) {
+            p = sel + dir;
+            s = null;
+        } else if (dir > 0) {
+            const next: usize = if (seg) |k| k + 1 else 0;
+            if (next >= v.segments(path)) p = sel + 1 else s = next;
+        } else if (seg == null or seg.? == 0) {
+            p = sel - 1;
+        } else {
+            s = seg.? - 1;
+        }
+        while (p >= 0 and p < n and v.segments(@intCast(p)) == 0) p += dir;
+        if (p < 0 or p >= n) return null;
+        const up: usize = @intCast(p);
+        // On another path: its first segment going forward, its last going
+        // back.
+        if (!whole_path and p != sel) s = if (dir > 0) 0 else v.segments(up) - 1;
+        return .{ .path = up, .seg = s };
+    }
+
+    /// The path of layer `layer` nearest to the middle of path `path`, for
+    /// the keys j and k: a path of the same feature wins a near tie (a
+    /// path of another feature counts as 1 mm farther). Null if the layer
+    /// has no path with a segment.
+    pub fn nearestOnLayer(v: *const View, path: usize, layer: usize) ?usize {
+        const pr = v.pathBeads(path);
+        if (pr[1] <= pr[0] or layer >= v.layer_path_end.items.len) return null;
+        const mid = v.beads.items[pr[0] + (pr[1] - pr[0]) / 2];
+        const feature = mid.rgba[3];
+        const p0: usize = if (layer == 0) 0 else v.layer_path_end.items[layer - 1];
+        var best: ?usize = null;
+        var best_d: f32 = std.math.inf(f32);
+        for (p0..v.layer_path_end.items[layer]) |p| {
+            const r = v.pathBeads(p);
+            if (r[1] <= r[0]) continue;
+            var d2: f32 = std.math.inf(f32);
+            for (v.beads.items[r[0]..r[1]]) |b| d2 = @min(d2, segmentDistance2(mid.ax, mid.ay, b.ax, b.ay, b.bx, b.by));
+            var d = @sqrt(d2);
+            if (v.beads.items[r[0]].rgba[3] != feature) d += 1;
+            if (d < best_d) {
+                best_d = d;
+                best = p;
+            }
+        }
+        return best;
+    }
+
+    /// The print time (s) at the end of segment `seg` of path `path`.
+    pub fn segmentEndTime(v: *const View, path: usize, seg: usize) f32 {
+        const r = v.pathBeads(path);
+        if (r[1] <= r[0] or r[1] > v.bead_end.items.len) return 0;
+        return v.bead_end.items[@min(r[0] + seg, r[1] - 1)];
+    }
+
+    /// The path and the segment that print at time t (s), or null with no
+    /// beads.
+    pub fn segmentAtTime(v: *const View, t: f32) ?[2]usize {
+        const n = v.bead_end.items.len;
+        if (n == 0 or v.path_start.items.len < 2) return null;
+        // The first bead that ends at or after t.
+        var lo: usize = 0;
+        var hi: usize = n;
+        while (lo < hi) {
+            const mid = (lo + hi) / 2;
+            if (v.bead_end.items[mid] < t) lo = mid + 1 else hi = mid;
+        }
+        return v.pathOfBead(@min(lo, n - 1));
     }
 
     /// The other paths of a multiple selection: yellow, as the highlighted
@@ -1294,6 +1608,38 @@ fn rayToSegment(o: [3]f32, d: [3]f32, a: [3]f32, e: [3]f32) ?struct { t: f32, di
     }
     const p = [3]f32{ o[0] + d[0] * t - a[0] - e[0] * s, o[1] + d[1] * t - a[1] - e[1] * s, o[2] + d[2] * t - a[2] - e[2] * s };
     return .{ .t = t, .dist2 = dot(p, p) };
+}
+
+/// The test of a ray o + t d (t >= 0) against a box: true if the ray goes
+/// through it nearer than `max_t`.
+fn rayBox(o: [3]f32, d: [3]f32, box: View.PickBox, max_t: f32) bool {
+    var t0: f32 = 0;
+    var t1: f32 = max_t;
+    for (0..3) |k| {
+        if (d[k] == 0) {
+            if (o[k] < box.lo[k] or o[k] > box.hi[k]) return false;
+            continue;
+        }
+        const inv = 1 / d[k];
+        var ta = (box.lo[k] - o[k]) * inv;
+        var tb = (box.hi[k] - o[k]) * inv;
+        if (ta > tb) std.mem.swap(f32, &ta, &tb);
+        t0 = @max(t0, ta);
+        t1 = @min(t1, tb);
+        if (t0 > t1) return false;
+    }
+    return true;
+}
+
+/// The squared distance from (px, py) to the segment from a to b.
+fn segmentDistance2(px: f32, py: f32, ax: f32, ay: f32, bx: f32, by: f32) f32 {
+    const dx = bx - ax;
+    const dy = by - ay;
+    const l2 = dx * dx + dy * dy;
+    const t = if (l2 > 0) std.math.clamp(((px - ax) * dx + (py - ay) * dy) / l2, 0, 1) else 0;
+    const ex = ax + t * dx - px;
+    const ey = ay + t * dy - py;
+    return ex * ex + ey * ey;
 }
 
 /// Parses "#rrggbb".
@@ -1639,4 +1985,145 @@ test "the camera animation reaches the goal, and a drag carries the goal" {
     try std.testing.expectApproxEqAbs(@as(f32, 0.08), qangle(goal_before, v.goal.?.rot), 1e-4);
     while (v.animate(1.0 / 60.0)) {}
     try std.testing.expectApproxEqAbs(@as(f32, 21), v.dist, 1e-3);
+}
+
+/// A view with no renderer, for the tests of the 2D calls and the pick
+/// index: rows of beads along x, `per_layer` paths on each of `layers`
+/// layers, each path `segs` beads long. Path p of a layer is at y = p, and
+/// its feature is p % 3.
+fn testScene(layers: usize, per_layer: usize, segs: usize) Error!View {
+    var v: View = .{ .renderer = undefined, .width = 100, .height = 100 };
+    errdefer destroyTest(&v);
+    var t: f32 = 0;
+    for (0..layers) |l| {
+        for (0..per_layer) |p| {
+            v.path_start.append(View.gpa, @intCast(v.beads.items.len)) catch return error.OutOfMemory;
+            for (0..segs) |k| {
+                const x: f32 = @floatFromInt(k);
+                const y: f32 = @floatFromInt(p);
+                const z: f32 = 0.2 * @as(f32, @floatFromInt(l + 1));
+                v.beads.append(View.gpa, .{ .ax = x, .ay = y, .bx = x + 1, .by = y, .z = z, .h = 0.2, .w = 0.4, .rgba = .{ 0, 0, 0, @intCast(p % 3) } }) catch return error.OutOfMemory;
+                t += 1;
+                v.bead_end.append(View.gpa, t) catch return error.OutOfMemory;
+            }
+        }
+        v.layer_end.append(View.gpa, @intCast(v.beads.items.len)) catch return error.OutOfMemory;
+        v.layer_path_end.append(View.gpa, @intCast(v.path_start.items.len)) catch return error.OutOfMemory;
+    }
+    v.path_start.append(View.gpa, @intCast(v.beads.items.len)) catch return error.OutOfMemory;
+    try v.buildPickIndex();
+    v.layer = layers - 1;
+    return v;
+}
+
+fn destroyTest(v: *View) void {
+    const g = View.gpa;
+    v.beads.deinit(g);
+    v.layer_end.deinit(g);
+    v.layer_path_end.deinit(g);
+    v.path_start.deinit(g);
+    v.bead_end.deinit(g);
+    v.pick_runs.deinit(g);
+    v.layer_boxes.deinit(g);
+}
+
+test "the pick index finds the same bead as a test of each bead" {
+    var v = try testScene(12, 9, 70);
+    defer destroyTest(&v);
+    v.target = .{ 35, 4, 1 };
+    v.extent = 80;
+    v.dist = 60;
+    var hits: usize = 0;
+    for ([_][2]f32{ .{ 0.3, 0.9 }, .{ -1.2, 0.4 }, .{ 2.5, 1.3 }, .{ 0.0, -0.2 } }) |ang| {
+        v.setAngles(ang[0], ang[1]);
+        var y: f32 = 0;
+        while (y < 100) : (y += 7) {
+            var x: f32 = 0;
+            while (x < 100) : (x += 7) {
+                for ([_]usize{ 0, 5 }) |lo| {
+                    v.layer_lo = lo;
+                    const fast = v.rayHit(x, y, 1);
+                    // The same test with no index.
+                    const runs = v.layer_boxes;
+                    v.layer_boxes = .empty;
+                    const slow = v.rayHit(x, y, 1);
+                    v.layer_boxes = runs;
+                    try std.testing.expectEqual(slow == null, fast == null);
+                    if (fast) |f| {
+                        try std.testing.expectEqual(slow.?.bead, f.bead);
+                        hits += 1;
+                    }
+                }
+            }
+        }
+    }
+    try std.testing.expect(hits > 50);
+}
+
+test "the 2D calls: the beads of a layer, a pick in mm, and the layer of a path" {
+    var v = try testScene(3, 4, 5);
+    defer destroyTest(&v);
+    try std.testing.expectEqual([2]u32{ 20, 40 }, v.layerBeads(1));
+    try std.testing.expectEqual([2]u32{ 25, 30 }, v.pathBeads(5));
+    try std.testing.expectEqual(@as(usize, 12), v.pathCount());
+    try std.testing.expectEqual(@as(usize, 1), v.layerOfPath(5));
+    try std.testing.expectEqual(@as(usize, 2), v.layerOfPath(8));
+    // Layer 1, near the bead from x 2 to 3 of the path at y 2 (path 6).
+    try std.testing.expectEqual(@as(?[2]usize, .{ 6, 2 }), v.pickLayer(1, 2.5, 2.1));
+    // Far from all beads: nothing.
+    try std.testing.expectEqual(@as(?[2]usize, null), v.pickLayer(1, 2.5, 9));
+    const b = v.bounds().?;
+    try std.testing.expect(b[0] < 0 and b[2] > 5 and b[1] < 0 and b[3] > 3);
+}
+
+test "the steps along the print go on to the next path, and pass paths with no segment" {
+    var v = try testScene(2, 3, 4);
+    defer destroyTest(&v);
+    // Path 2 has no beads: the paths 1 and 3 have their ends next to it.
+    const g = View.gpa;
+    var beads: std.ArrayList(vk.Instance) = .empty;
+    defer beads.deinit(g);
+    try beads.appendSlice(g, v.beads.items[0..8]);
+    try beads.appendSlice(g, v.beads.items[12..]);
+    v.beads.clearRetainingCapacity();
+    try v.beads.appendSlice(g, beads.items);
+    for (v.path_start.items[3..]) |*s| s.* -= 4;
+    for (v.layer_end.items) |*e| e.* -= 4;
+    v.bead_end.shrinkRetainingCapacity(v.beads.items.len);
+    try std.testing.expectEqual(@as(usize, 0), v.segments(2));
+    // On along path 0, then to path 1.
+    var s = v.stepPath(0, 2, 1, false).?;
+    try std.testing.expectEqual(@as(usize, 0), s.path);
+    try std.testing.expectEqual(@as(?usize, 3), s.seg);
+    s = v.stepPath(0, 3, 1, false).?;
+    try std.testing.expectEqual(@as(usize, 1), s.path);
+    try std.testing.expectEqual(@as(?usize, 0), s.seg);
+    // From the end of path 1, over path 2, to path 3.
+    s = v.stepPath(1, 3, 1, false).?;
+    try std.testing.expectEqual(@as(usize, 3), s.path);
+    try std.testing.expectEqual(@as(?usize, 0), s.seg);
+    // Back from the start of path 3: the last segment of path 1.
+    s = v.stepPath(3, 0, -1, false).?;
+    try std.testing.expectEqual(@as(usize, 1), s.path);
+    try std.testing.expectEqual(@as(?usize, 3), s.seg);
+    // A whole path at a time.
+    s = v.stepPath(1, null, 1, true).?;
+    try std.testing.expectEqual(@as(usize, 3), s.path);
+    try std.testing.expectEqual(@as(?usize, null), s.seg);
+    // The ends of the print.
+    try std.testing.expect(v.stepPath(0, 0, -1, false) == null);
+    try std.testing.expect(v.stepPath(5, 3, 1, false) == null);
+}
+
+test "the nearest path on another layer, and the segment at a time" {
+    var v = try testScene(3, 4, 5);
+    defer destroyTest(&v);
+    // Path 5 (layer 1, y 1): on layer 2, path 9 (y 1, the same feature).
+    try std.testing.expectEqual(@as(?usize, 9), v.nearestOnLayer(5, 2));
+    try std.testing.expectEqual(@as(?usize, 1), v.nearestOnLayer(5, 0));
+    // Bead i ends at time i + 1: time 12.5 is in bead 12, path 2,
+    // segment 2.
+    try std.testing.expectEqual(@as(?[2]usize, .{ 2, 2 }), v.segmentAtTime(12.5));
+    try std.testing.expectEqual(@as(f32, 13), v.segmentEndTime(2, 2));
+    try std.testing.expectEqual(@as(?[2]usize, .{ 11, 4 }), v.segmentAtTime(1e9));
 }

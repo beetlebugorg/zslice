@@ -281,6 +281,25 @@ pub const PlateJob = struct {
         return self.levels.len;
     }
 
+    /// The outline of one part on a level: the outline of the layer of its
+    /// job, and the move of the part (in the units of geom).
+    pub const PartOutline = struct { paths: *const Paths, dx: i64, dy: i64 };
+
+    /// The outline of part k of level i (k from 0 to the count of the
+    /// parts on the level), or null after the last part. The outlines of
+    /// all parts are the material of the level, for a 2D view. The
+    /// outlines stay valid as long as the job.
+    pub fn levelOutline(self: *const PlateJob, i: usize, k: usize) ?PartOutline {
+        if (i >= self.levels.len) return null;
+        const lv = self.levels[i];
+        if (lv.first + k >= lv.end) return null;
+        const e = self.entries[lv.first + k];
+        const inst = self.instances[e.instance];
+        const job = &self.groups[inst.group].job;
+        if (e.layer >= job.outlines.len) return null;
+        return .{ .paths = &job.outlines[e.layer], .dx = inst.dx, .dy = inst.dy };
+    }
+
     /// Step 4 and 5: the levels, their parts in print order, and the
     /// settings of each level.
     fn makeLevels(self: *PlateJob, settings: Settings, overrides: []const settings_mod.Override) Error!void {
@@ -775,6 +794,26 @@ test "plate job: copies slice once" {
         try testing.expect(x > x0 - 1 and x < x0 + 21);
     }
     for (outer) |o| try testing.expectEqual(@as(usize, 1), o);
+    // The outline of the level: one ring for each copy, at its place,
+    // the same as the outline of the plan.
+    // The parts are in print order: sort them by x.
+    var rings: usize = 0;
+    var k: usize = 0;
+    var xs = [_]f64{0} ** 4;
+    while (pj.levelOutline(5, k)) |o| : (k += 1) {
+        for (0..o.paths.count()) |ri| {
+            xs[k] = geom.toMm(o.paths.get(ri)[0].x + o.dx);
+            rings += 1;
+        }
+    }
+    try testing.expectEqual(@as(usize, 4), k);
+    std.mem.sort(f64, &xs, {}, std.sort.asc(f64));
+    for (xs, 0..) |x, i| {
+        const x0 = @as(f64, @floatFromInt(i)) * 30 + 0.37;
+        try testing.expect(x > x0 - 1 and x < x0 + 21);
+    }
+    try testing.expectEqual(lp.outline.count(), rings);
+    try testing.expectEqual(@as(?PlateJob.PartOutline, null), pj.levelOutline(pj.layerCount(), 0));
     // A copy with other settings slices on its own.
     parts[3].changes = &.{.{ .name = "project.infill_density", .value = "0.5" }};
     var pj2 = try PlateJob.init(gpa, s, &parts, .{ .old = &pj });

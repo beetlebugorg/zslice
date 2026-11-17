@@ -258,6 +258,108 @@ export fn zs_view_highlight_segment(view: ?*View, path: usize, seg: isize) void 
     v.setSegment(path, if (seg < 0) null else @intCast(seg));
 }
 
+// ---- the 2D view of one layer, and the steps along the print ----
+
+/// The path and the segment of `layer` nearest to (x, y) mm, closer than
+/// twice the bead width, or (size_t)-1.
+export fn zs_view_pick_layer(view: ?*const View, layer: usize, x: f64, y: f64, seg: ?*usize) usize {
+    if (!render_on) return std.math.maxInt(usize);
+    const v = view orelse return std.math.maxInt(usize);
+    const hit = v.pickLayer(layer, @floatCast(x), @floatCast(y)) orelse return std.math.maxInt(usize);
+    if (seg) |s| s.* = hit[1];
+    return hit[0];
+}
+
+/// The beads of a layer (first, end) in the instances of the view.
+export fn zs_view_layer_beads(view: ?*const View, layer: usize, first: ?*u32, end: ?*u32) c_int {
+    if (!render_on) return @intFromEnum(Status.not_supported);
+    const v = view orelse return @intFromEnum(Status.invalid_argument);
+    const r = v.layerBeads(layer);
+    if (first) |f| f.* = r[0];
+    if (end) |e| e.* = r[1];
+    return ok;
+}
+
+/// The beads of a path (first, end): bead first + k is segment k.
+export fn zs_view_path_beads(view: ?*const View, path: usize, first: ?*u32, end: ?*u32) c_int {
+    if (!render_on) return @intFromEnum(Status.not_supported);
+    const v = view orelse return @intFromEnum(Status.invalid_argument);
+    const r = v.pathBeads(path);
+    if (first) |f| f.* = r[0];
+    if (end) |e| e.* = r[1];
+    return ok;
+}
+
+export fn zs_view_path_layer(view: ?*const View, path: usize) usize {
+    if (!render_on) return 0;
+    const v = view orelse return 0;
+    return v.layerOfPath(path);
+}
+
+export fn zs_view_path_segments(view: ?*const View, path: usize) usize {
+    if (!render_on) return 0;
+    const v = view orelse return 0;
+    return v.segments(path);
+}
+
+/// The outlines of all layers: the points (x, y pairs), the end of each
+/// ring in points, and the end of each layer in rings.
+export fn zs_view_outlines(view: ?*const View, points: ?*?[*]const f32, n_points: ?*usize, ring_ends: ?*?[*]const u32, n_rings: ?*usize, layer_ends: ?*?[*]const u32, n_layers: ?*usize) c_int {
+    if (!render_on) return @intFromEnum(Status.not_supported);
+    const v = view orelse return @intFromEnum(Status.invalid_argument);
+    if (points) |p| p.* = v.outline_points.items.ptr;
+    if (n_points) |n| n.* = v.outline_points.items.len / 2;
+    if (ring_ends) |p| p.* = v.outline_ends.items.ptr;
+    if (n_rings) |n| n.* = v.outline_ends.items.len;
+    if (layer_ends) |p| p.* = v.outline_layer_end.items.ptr;
+    if (n_layers) |n| n.* = v.outline_layer_end.items.len;
+    return ok;
+}
+
+/// The box of the beads on the bed: x0, y0, x1, y1 in mm.
+export fn zs_view_bounds(view: ?*const View, out: ?*[4]f64) c_int {
+    if (!render_on) return @intFromEnum(Status.not_supported);
+    const v = view orelse return @intFromEnum(Status.invalid_argument);
+    const o = out orelse return @intFromEnum(Status.invalid_argument);
+    const b = v.bounds() orelse return @intFromEnum(Status.no_result);
+    for (0..4) |k| o[k] = b[k];
+    return ok;
+}
+
+/// One step along the print from (*path, *seg); *seg < 0 is the whole
+/// path. Returns 1 and sets both, or 0 at an end of the print.
+export fn zs_view_step(view: ?*const View, path: ?*usize, seg: ?*isize, dir: c_int, whole_path: c_int) c_int {
+    if (!render_on) return 0;
+    const v = view orelse return 0;
+    const p = path orelse return 0;
+    const s = seg orelse return 0;
+    const r = v.stepPath(p.*, if (s.* < 0) null else @intCast(s.*), if (dir < 0) -1 else 1, whole_path != 0) orelse return 0;
+    p.* = r.path;
+    s.* = if (r.seg) |k| @intCast(k) else -1;
+    return 1;
+}
+
+export fn zs_view_nearest_on_layer(view: ?*const View, path: usize, layer: usize) usize {
+    if (!render_on) return std.math.maxInt(usize);
+    const v = view orelse return std.math.maxInt(usize);
+    return v.nearestOnLayer(path, layer) orelse std.math.maxInt(usize);
+}
+
+export fn zs_view_segment_end_time(view: ?*const View, path: usize, seg: usize) f64 {
+    if (!render_on) return 0;
+    const v = view orelse return 0;
+    return v.segmentEndTime(path, seg);
+}
+
+export fn zs_view_segment_at_time(view: ?*const View, t: f64, path: ?*usize, seg: ?*usize) c_int {
+    if (!render_on) return 0;
+    const v = view orelse return 0;
+    const hit = v.segmentAtTime(@floatCast(t)) orelse return 0;
+    if (path) |p| p.* = hit[0];
+    if (seg) |s| s.* = hit[1];
+    return 1;
+}
+
 /// The loaded scene as bytes, for a view in another wasm instance (see
 /// src/render/view.zig). Free them with zs_buffer_free.
 export fn zs_view_scene_write(view: ?*View, out: ?*?[*]u8, out_len: ?*usize) c_int {

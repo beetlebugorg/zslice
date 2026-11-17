@@ -720,6 +720,50 @@ int zs_view_highlight_more(zs_view *view, const size_t *paths, size_t n);
 /* Draws and presents one frame. Call it after a change. */
 int zs_view_draw(zs_view *view);
 
+/* ---- the 2D view of one layer, and the steps along the print ----
+ *
+ * A 2D view shows one layer from the top. These calls give it the data of
+ * the loaded slice, from the view alone (a view of zs_view_scene_read has
+ * them too). The places are in mm on the bed, in the cooled shape of the
+ * beads (as the 3D view shows them). A path has one bead for each segment:
+ * bead first + k of a path is its segment k. */
+
+/* The path and the segment of `layer` nearest to (x, y) mm, closer than
+ * twice the bead width, or (size_t)-1. */
+size_t zs_view_pick_layer(const zs_view *view, size_t layer, double x, double y, size_t *seg);
+/* The beads of a layer, or of a path, in the instances of the view: from
+ * first to end. The web shell draws them from its copy of the instances. */
+int zs_view_layer_beads(const zs_view *view, size_t layer, uint32_t *first, uint32_t *end);
+int zs_view_path_beads(const zs_view *view, size_t path, uint32_t *first, uint32_t *end);
+/* The layer of a path, and its number of segments. */
+size_t zs_view_path_layer(const zs_view *view, size_t path);
+size_t zs_view_path_segments(const zs_view *view, size_t path);
+/* The outline of each layer: the material of the layer, to fill by the
+ * nonzero rule (outer rings go counterclockwise, holes clockwise). Ring i
+ * has the points ring_ends[i - 1] to ring_ends[i] (x, y pairs in points);
+ * layer j has the rings layer_ends[j - 1] to layer_ends[j]. The arrays
+ * stay valid until the next load. */
+int zs_view_outlines(const zs_view *view, const float **points, size_t *n_points, const uint32_t **ring_ends,
+                     size_t *n_rings, const uint32_t **layer_ends, size_t *n_layers);
+/* The box of all beads: min x, min y, max x, max y (mm). ZS_NO_RESULT with
+ * no beads. */
+int zs_view_bounds(const zs_view *view, double out[4]);
+/* One step along the print, for the keys h and l: from segment *seg of
+ * path *path to the next segment (dir 1) or the one before (dir -1), on to
+ * the next or the path before at an end of a path. *seg < 0 is the whole
+ * path; whole_path = 1 steps a whole path at a time. Paths with no segment
+ * are passed. Returns 1 and sets *path and *seg, or 0 at an end of the
+ * print. */
+int zs_view_step(const zs_view *view, size_t *path, ptrdiff_t *seg, int dir, int whole_path);
+/* The path of `layer` nearest to the middle of `path`, for the keys j and
+ * k; a path of another feature counts as 1 mm farther. (size_t)-1 if the
+ * layer has no path. */
+size_t zs_view_nearest_on_layer(const zs_view *view, size_t path, size_t layer);
+/* The print time (s) at the end of a segment, and the path and the segment
+ * that print at time t (returns 0 with no beads). */
+double zs_view_segment_end_time(const zs_view *view, size_t path, size_t seg);
+int zs_view_segment_at_time(const zs_view *view, double t, size_t *path, size_t *seg);
+
 /* The loaded scene as bytes, for a view in another wasm instance: the web
  * shell slices in a worker and draws on the main thread. Free the bytes
  * with zs_buffer_free. zs_view_scene_read is the same as zs_view_load of
