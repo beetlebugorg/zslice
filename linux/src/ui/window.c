@@ -44,8 +44,9 @@ typedef struct {
     GtkWidget *send_button;
     /* The summary at the bottom of the side panel: the time, the
      * filament and the cost, and a button to print (or export). */
-    GtkWidget *sum_box, *sum_time, *sum_detail, *sum_deck, *sum_button;
+    GtkWidget *sum_box, *sum_time, *sum_detail, *sum_deck;
     GtkWidget *send_menu;
+    GtkWidget *send_box; /* the print button and its menu */
     GtkWidget *printer_state;
     guint poll;
     GCancellable *poll_cancel;
@@ -136,9 +137,6 @@ static void update_summary(Window *w, int state) {
     zs_app *core = zg_model_core(w->model);
     if (state == ZS_STATE_SLICING) gtk_widget_add_css_class(w->sum_box, "zg-stale");
     else gtk_widget_remove_css_class(w->sum_box, "zg-stale");
-    gboolean linked = zg_printers_current()->kind != ZG_LINK_NONE;
-    gtk_button_set_label(GTK_BUTTON(w->sum_button), linked ? gtk_button_get_label(GTK_BUTTON(w->send_button)) : "Export G-code…");
-    gtk_widget_set_sensitive(w->sum_button, state == ZS_STATE_DONE);
     if (state == ZS_STATE_SLICING) return;
     if (state != ZS_STATE_DONE) {
         gtk_label_set_text(GTK_LABEL(w->sum_time), state == ZS_STATE_FAILED ? "Slice failed" : "—");
@@ -173,7 +171,6 @@ static void update_summary(Window *w, int state) {
     gtk_widget_set_visible(w->sum_deck, w->deck_ok);
 }
 
-static void on_sum_clicked(GtkButton *b, gpointer data);
 
 static void update(Window *w) {
     zs_app *core = zg_model_core(w->model);
@@ -187,6 +184,8 @@ static void update(Window *w) {
     /* A thin bar that is always there: full when the slice is done. */
     if (state == ZS_STATE_DONE) gtk_progress_bar_set_fraction(GTK_PROGRESS_BAR(w->progress), 1);
     if (state == ZS_STATE_EMPTY || state == ZS_STATE_FAILED) gtk_progress_bar_set_fraction(GTK_PROGRESS_BAR(w->progress), 0);
+    /* The progress bar shows only while a slice runs. */
+    gtk_widget_set_visible(w->progress, state == ZS_STATE_SLICING);
     if (state == ZS_STATE_SLICING) gtk_widget_add_css_class(w->status, "zg-stale");
     else gtk_widget_remove_css_class(w->status, "zg-stale");
 
@@ -200,7 +199,7 @@ static void update(Window *w) {
         g_snprintf(text, sizeof text, "Ready");
         break;
     case ZS_STATE_SLICING:
-        g_snprintf(text, sizeof text, "%s", w->last_stats ? w->last_stats : "Slicing");
+        g_snprintf(text, sizeof text, "Slicing…");
         break;
     case ZS_STATE_DONE: {
         zs_stats st;
@@ -232,10 +231,20 @@ static void update(Window *w) {
             g_free(v);
         }
         if (per_g > 0) g_snprintf(cost, sizeof cost, ", cost %.2f", st.filament_g * per_g);
+        /* The card shows the numbers; the status line says how long the
+         * slice took. The full text is the tooltip of the card. */
         g_snprintf(text, sizeof text, "%u layers   %.2f m filament (%.1f g%s)   about %s%s%s",
                    st.layer_count, st.filament_mm / 1000.0, st.filament_g, cost, t, deck, took);
+        gtk_widget_set_tooltip_text(w->sum_box, text);
         g_free(w->last_stats);
         w->last_stats = g_strdup(text);
+        if (ms > 0) {
+            g_strstrip(took);
+            took[0] = g_ascii_toupper(took[0]);
+            g_snprintf(text, sizeof text, "%s", took);
+        } else {
+            text[0] = 0;
+        }
         break;
     }
     case ZS_STATE_FAILED:
@@ -813,6 +822,7 @@ static void on_poll_info(ZgPrinterInfo *info, const char *error, gpointer data) 
     char *label = w->spool ? g_strdup_printf("%s · %s, %.0f g left", state_only, w->spool, w->spool_left) : g_strdup(state_only);
     char *tip = error ? g_strdup_printf("%s\n%s", text, error) : w->spool ? g_strdup_printf("%s\nIn the printer: %s, %.0f g left", text, w->spool, w->spool_left) : g_strdup(text);
     gtk_label_set_text(GTK_LABEL(w->printer_state), label);
+    gtk_widget_set_visible(w->printer_state, TRUE);
     gtk_widget_set_tooltip_text(w->printer_state, tip);
     g_free(label);
     g_free(tip);
@@ -848,6 +858,10 @@ static void update_printer_ui(Window *w) {
     gboolean linked = pr->kind != ZG_LINK_NONE;
     gtk_widget_set_visible(w->send_button, linked);
     gtk_widget_set_visible(w->send_menu, linked);
+    /* The card has one main button: print with a printer, else export
+     * (the export is in the menu of the print button). */
+    gtk_widget_set_visible(w->export_button, !linked);
+    if (w->send_box) gtk_widget_set_visible(w->send_box, linked);
     if (linked) {
         /* The label names the kind of link; the printer is in the menu at
          * the left, and in the tooltip. */
@@ -961,13 +975,6 @@ static gboolean undo_test_step(gpointer data) {
     return G_SOURCE_CONTINUE;
 }
 
-/* The button of the summary: print on the printer, or export a file. */
-static void on_sum_clicked(GtkButton *b, gpointer data) {
-    Window *w = get(data);
-    if (zg_printers_current()->kind != ZG_LINK_NONE) send(w, TRUE);
-    else zg_window_export_dialog(data);
-}
-
 static void on_export_clicked(GtkButton *b, gpointer data) {
     zg_window_export_dialog(GTK_WINDOW(data));
 }
@@ -1025,7 +1032,7 @@ GtkWindow *zg_window_new(GtkApplication *app, ZgModel *model) {
     g_signal_connect(open, "clicked", G_CALLBACK(on_open_clicked), w->window);
     gtk_header_bar_pack_start(GTK_HEADER_BAR(header), open);
 
-    w->export_button = gtk_button_new_with_label("Export");
+    w->export_button = gtk_button_new_with_label("Export G-code…");
     gtk_widget_add_css_class(w->export_button, "suggested-action");
     gtk_widget_set_tooltip_text(w->export_button, "Save the G-code (Ctrl+E)");
     g_signal_connect(w->export_button, "clicked", G_CALLBACK(on_export_clicked), w->window);
@@ -1050,6 +1057,7 @@ GtkWindow *zg_window_new(GtkApplication *app, ZgModel *model) {
     gtk_widget_add_css_class(w->send_menu, "suggested-action");
     g_object_unref(send_menu);
     GtkWidget *send_box = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 0);
+    w->send_box = send_box;
     gtk_widget_add_css_class(send_box, "linked");
     gtk_box_append(GTK_BOX(send_box), w->send_button);
     gtk_box_append(GTK_BOX(send_box), w->send_menu);
@@ -1092,8 +1100,6 @@ GtkWindow *zg_window_new(GtkApplication *app, ZgModel *model) {
     gtk_menu_button_set_menu_model(GTK_MENU_BUTTON(menu_button), G_MENU_MODEL(menu));
     g_object_unref(menu);
     gtk_header_bar_pack_end(GTK_HEADER_BAR(header), menu_button);
-    gtk_header_bar_pack_end(GTK_HEADER_BAR(header), send_box);
-    gtk_header_bar_pack_end(GTK_HEADER_BAR(header), w->export_button);
 
     w->title = gtk_label_new("zslice");
     gtk_widget_add_css_class(w->title, "title");
@@ -1121,15 +1127,49 @@ GtkWindow *zg_window_new(GtkApplication *app, ZgModel *model) {
     gtk_label_set_xalign(GTK_LABEL(w->sum_deck), 0);
     gtk_label_set_wrap(GTK_LABEL(w->sum_deck), TRUE);
     gtk_widget_set_visible(w->sum_deck, FALSE);
-    w->sum_button = gtk_button_new_with_label("Print");
-    gtk_widget_add_css_class(w->sum_button, "suggested-action");
-    gtk_widget_add_css_class(w->sum_button, "pill");
-    gtk_widget_set_margin_top(w->sum_button, 8);
-    g_signal_connect(w->sum_button, "clicked", G_CALLBACK(on_sum_clicked), w->window);
+    /* The buttons: print (with its menu: upload only, export), or export
+     * with no printer. They fill the width of the card. */
+    GtkWidget *actions = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 0);
+    gtk_widget_set_margin_top(actions, 8);
+    gtk_widget_set_hexpand(send_box, TRUE);
+    gtk_widget_set_hexpand(w->send_button, TRUE);
+    gtk_widget_set_hexpand(w->export_button, TRUE);
+    gtk_box_append(GTK_BOX(actions), send_box);
+    gtk_box_append(GTK_BOX(actions), w->export_button);
+    /* The state of the slice, and messages (an upload, an error). */
+    w->status = gtk_label_new("");
+    gtk_label_set_xalign(GTK_LABEL(w->status), 0);
+    gtk_label_set_wrap(GTK_LABEL(w->status), TRUE);
+    gtk_widget_add_css_class(w->status, "dim-label");
+    gtk_widget_add_css_class(w->status, "caption");
+    gtk_widget_add_css_class(w->status, "numeric");
+    /* Islands: a warning that goes to each island in turn. */
+    w->islands = gtk_button_new();
+    gtk_widget_add_css_class(w->islands, "flat");
+    gtk_widget_add_css_class(w->islands, "zg-islands");
+    gtk_widget_set_halign(w->islands, GTK_ALIGN_START);
+    gtk_widget_set_visible(w->islands, FALSE);
+    g_signal_connect(w->islands, "clicked", G_CALLBACK(on_islands_clicked), w);
+    w->progress = gtk_progress_bar_new();
+    gtk_widget_add_css_class(w->progress, "zg-thin");
+    gtk_widget_set_tooltip_text(w->progress, "The progress of the slice.");
+    gtk_widget_set_margin_top(w->progress, 4);
+    /* The printer: its state and the roll in it. */
+    w->printer_state = gtk_label_new("");
+    gtk_widget_add_css_class(w->printer_state, "dim-label");
+    gtk_widget_add_css_class(w->printer_state, "caption");
+    gtk_label_set_xalign(GTK_LABEL(w->printer_state), 0);
+    gtk_label_set_ellipsize(GTK_LABEL(w->printer_state), PANGO_ELLIPSIZE_END);
+    gtk_widget_set_margin_top(w->printer_state, 6);
+    gtk_widget_set_visible(w->printer_state, FALSE); /* until a printer answers */
     gtk_box_append(GTK_BOX(w->sum_box), w->sum_time);
     gtk_box_append(GTK_BOX(w->sum_box), w->sum_detail);
     gtk_box_append(GTK_BOX(w->sum_box), w->sum_deck);
-    gtk_box_append(GTK_BOX(w->sum_box), w->sum_button);
+    gtk_box_append(GTK_BOX(w->sum_box), w->status);
+    gtk_box_append(GTK_BOX(w->sum_box), w->islands);
+    gtk_box_append(GTK_BOX(w->sum_box), w->progress);
+    gtk_box_append(GTK_BOX(w->sum_box), w->printer_state);
+    gtk_box_append(GTK_BOX(w->sum_box), actions);
     GtkWidget *panel = gtk_box_new(GTK_ORIENTATION_VERTICAL, 0);
     gtk_box_append(GTK_BOX(panel), settings);
     gtk_box_append(GTK_BOX(panel), gtk_separator_new(GTK_ORIENTATION_HORIZONTAL));
@@ -1149,37 +1189,8 @@ GtkWindow *zg_window_new(GtkApplication *app, ZgModel *model) {
     g_signal_connect(paned, "map", G_CALLBACK(on_paned_map), NULL);
     gtk_widget_set_vexpand(paned, TRUE);
 
-    /* Status bar. */
-    w->status = gtk_label_new("");
-    gtk_widget_set_halign(w->status, GTK_ALIGN_START);
-    gtk_widget_set_hexpand(w->status, TRUE);
-    gtk_widget_add_css_class(w->status, "numeric");
-    w->progress = gtk_progress_bar_new();
-    gtk_widget_set_size_request(w->progress, 120, -1);
-    gtk_widget_add_css_class(w->progress, "zg-thin");
-    gtk_widget_set_tooltip_text(w->progress, "The progress of the slice.");
-    gtk_widget_set_valign(w->progress, GTK_ALIGN_CENTER);
-    GtkWidget *bar = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 12);
-    gtk_widget_add_css_class(bar, "zg-status");
-    gtk_widget_add_css_class(bar, "zg-panel");
-    gtk_box_append(GTK_BOX(bar), w->status);
-    /* Islands: a warning that goes to each island in turn. */
-    w->islands = gtk_button_new();
-    gtk_widget_add_css_class(w->islands, "flat");
-    gtk_widget_add_css_class(w->islands, "zg-islands");
-    gtk_widget_set_visible(w->islands, FALSE);
-    g_signal_connect(w->islands, "clicked", G_CALLBACK(on_islands_clicked), w);
-    gtk_box_append(GTK_BOX(bar), w->islands);
-    w->printer_state = gtk_label_new("");
-    gtk_widget_add_css_class(w->printer_state, "dim-label");
-    gtk_label_set_ellipsize(GTK_LABEL(w->printer_state), PANGO_ELLIPSIZE_END);
-    gtk_box_append(GTK_BOX(bar), w->printer_state);
-    gtk_box_append(GTK_BOX(bar), w->progress);
-
     GtkWidget *body = gtk_box_new(GTK_ORIENTATION_VERTICAL, 0);
     gtk_box_append(GTK_BOX(body), paned);
-    gtk_box_append(GTK_BOX(body), gtk_separator_new(GTK_ORIENTATION_HORIZONTAL));
-    gtk_box_append(GTK_BOX(body), bar);
     gtk_window_set_child(w->window, body);
 
     GtkDropTarget *drop = gtk_drop_target_new(G_TYPE_INVALID, GDK_ACTION_COPY);
