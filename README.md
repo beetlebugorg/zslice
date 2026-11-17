@@ -146,7 +146,7 @@ Things that most slicers do not do.
 
 ## Documentation
 
-The documentation site is at <https://zslice.beetlebug.org/docs.html>. The web app is at <https://zslice.beetlebug.org/>.
+The documentation site is at <https://zslice.beetlebug.org/docs.html>. The web app is at <https://zslice.beetlebug.org/>. [Privacy](PRIVACY.md): no analytics, no cookies, and your files stay in your browser.
 
 - For people who slice: [Getting started](docs/user/getting-started.md), [Settings reference](docs/user/settings.md).
 - For developers who use the library: [Embedding overview](docs/embedding/overview.md), with guides for Zig, C, and JavaScript.

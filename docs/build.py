@@ -57,6 +57,7 @@ SOURCES = [
     ("docs/app/README.md", "app/", "Project", "App"),
     ("REFERENCES.md", "references/", "Project", "References"),
     ("ROADMAP.md", "roadmap/", "Project", "Roadmap"),
+    ("PRIVACY.md", "privacy/", "Project", "Privacy"),
 ]
 PAGE_OF = {src: path for src, path, _, _ in SOURCES}
 
@@ -302,7 +303,8 @@ def sections(src):
 CSS = r"""
 :root { --paper: #f4f0e6; --ink: #171717; --dim: #4a4742; --edge: #a9a59c; --orange: #ff5a1f; --blue: #1d47b5;
   --plate: #e6e3dc; --plate2: #ece8dd; --outside: #d3d0c8;
-  --sans: "IBM Plex Sans", "Helvetica Neue", Arial, sans-serif; --mono: "IBM Plex Mono", ui-monospace, Menlo, monospace;
+  /* The fonts of the system: the site loads nothing from other sites. */
+  --sans: "IBM Plex Sans", system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif; --mono: "IBM Plex Mono", ui-monospace, "SF Mono", Menlo, Consolas, "DejaVu Sans Mono", monospace;
   color-scheme: light; }
 @media (prefers-color-scheme: dark) {
   :root:not([data-theme="light"]) { --paper: #1b1a17; --ink: #ebe6da; --dim: #b3ac9f; --edge: #5c574e; --orange: #ff6a33;
@@ -472,8 +474,6 @@ def page(path, section, title, lede, body, src, description=None, toc=True):
 <title>{esc(title)} · zslice</title>
 <meta name="description" content="{esc(desc)}">
 <link rel="canonical" href="{SITE}{path}">
-<link rel="preconnect" href="https://fonts.googleapis.com">
-<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@500;600;700&family=IBM+Plex+Sans:ital,wght@0,400;0,600;0,700;1,700&display=swap" rel="stylesheet">
 <link rel="icon" href="{ICON}">
 <link rel="stylesheet" href="{root}site.css">
 </head>
@@ -482,7 +482,7 @@ def page(path, section, title, lede, body, src, description=None, toc=True):
 <header class="top">
   <a class="brand" href="{root}docs.html"><span class="mark">ZSLICE</span><span class="docs">DOCS</span></a>
   <label class="menu-btn" for="menu">Contents</label>
-  <nav class="top-links"><a href="{root}index.html">Open the app</a><a href="{root}user/getting-started/">Get started</a><a href="{root}roadmap/">Roadmap</a><a href="{REPO}">GitHub</a></nav>
+  <nav class="top-links"><a href="{root}index.html">Open the app</a><a href="{root}user/getting-started/">Get started</a><a href="{root}roadmap/">Roadmap</a><a href="{root}privacy/">Privacy</a><a href="{REPO}">GitHub</a></nav>
 </header>
 <div class="layout">
 <aside class="side"><nav>{nav_html(path, root)}</nav></aside>
@@ -493,7 +493,7 @@ def page(path, section, title, lede, body, src, description=None, toc=True):
 {body_html}
 </main>
 </div>
-<footer>zslice is free software (AGPL-3.0-or-later). <a href="{REPO}/blob/{BRANCH}/docs/build.py">docs/build.py</a> writes this site from <a href="{REPO}/blob/{BRANCH}/{src}">{esc(src)}</a>.</footer>
+<footer>zslice is free software (AGPL-3.0-or-later). <a href="{root}privacy/">Privacy</a>: no analytics, no cookies, nothing from other sites. <a href="{REPO}/blob/{BRANCH}/docs/build.py">docs/build.py</a> writes this site from <a href="{REPO}/blob/{BRANCH}/{src}">{esc(src)}</a>.</footer>
 </body>
 </html>
 """
