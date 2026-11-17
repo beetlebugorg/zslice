@@ -227,11 +227,56 @@ Click a gap to select it. The Selected page then gives its size, its width, the 
 
 `zslice gaps part.stl` lists the gaps of each layer on the command line (`--layer N` for one layer).
 
-## Printer, filament, and part
+**Gap fill** (`project.gap_fill`, on by default) closes most gaps by itself: each narrow area between the walls or in the skin gets one line along its middle, with a width that follows the area. On the 3DBenchy it fills 92 % of the gap area. Turn it off to see the gaps that it fills.
 
-The settings are in three groups, each with its own menu at the top of the window: the **printer** (the machine), the **filament**, and the **part** (how to print it). In the Settings page they are the sections Printer, Filament, and Part.
+## Check the print
 
-The Filament and Part menus list the built-in profiles and your own (in `profiles/filament/` and `profiles/project/` in the settings folder, where `zslice slice -f` and `-p` find them too), and have **Save as profile…**. The Part menu shows the profile in use, with a dot when its settings have changes. When you pick another profile and the settings have changes that are in no profile, zslice asks first: save them as a profile, discard them, or cancel.
+**Check** in the preview toolbar lists what can make the print fail or print badly, the worst first:
+
+- an overhang with support off, flatter than `project.support_angle`;
+- a bridge, with its span (a long bridge can still sag);
+- a shape that starts in the air (an island);
+- a line that needs more plastic than the hot end melts (`filament.max_flow`);
+- layers that print in less than `filament.min_layer_time` (one issue for each run of such layers);
+- a layer with many retractions.
+
+Each issue says what it is and which setting changes it. Click an issue: the view goes to its layer, and the line of the issue (or the line nearest to it) is selected. `zslice check part.stl` prints the same list.
+
+## Bridges
+
+A bottom skin over air that solid plastic holds at its sides is a bridge. zslice prints it across the air, in the direction where the longest line is the shortest, of the directions where the lines start and end on plastic. The lines go 1.5 mm into the plastic around the bridge (the anchors), and join there, so the nozzle does not travel over the air. The parts of the walls over air print as bridges too.
+
+Bridges print at `project.bridge_speed` (a ratio of the allowed speed), with `project.bridge_flow` and `project.bridge_fan`. The fan goes back to the fan of the layer after them. In the previews, bridges are sky blue, and the G-code marks them `;TYPE:BRIDGE`. `project.bridges` turns all of this off.
+
+## The print card
+
+The card at the bottom of the side panel shows the print time (with a printdeck printer, its time with the heat-up and the start), the plastic in grams and meters, the cost, and the layers. Under it: the state of the slice, the islands warning, and the printer with the roll in it. Its button prints on the printer ("Print to Printdeck", with "Upload only" and "Export a G-code file…" in its menu), or exports the G-code if there is no printer.
+
+## Undo
+
+Ctrl+Z undoes a change of the settings, and Ctrl+Shift+Z (or Ctrl+Y) redoes it. A drag of a slider is one step. The main menu has Undo and Redo too.
+
+## Printer, filament, and quality
+
+Each setting gets its value from a cascade of levels. A higher level replaces the value of a lower one:
+
+1. **Default:** the built-in value.
+2. **Global:** your settings for all prints.
+3. **Printer:** the printer profile (the menu at the left of the header).
+4. **Filament:** the filament profile, or the roll in the printer (the Filament menu).
+5. **Quality:** the quality profile: fine (0.1 mm layers), standard (0.2 mm), draft (0.3 mm), coarse (0.4 mm), or your own (the Quality menu).
+6. **This print:** your changes for this plate.
+7. **This part:** the changes of one part (see [Settings for one part](#settings-for-one-part)).
+
+In the Settings page, a small tag under the name of a setting says where its value comes from ("fine", "Gray", "This print"); a default has no tag. The detail page says the same, and **Reset** goes back to the value under your change: for a change of this print, the value of the quality profile.
+
+The Filament and Quality menus list the built-in profiles and your own (in `profiles/filament/` and `profiles/project/` in the settings folder, where `zslice slice -f` and `-p` find them too), and have **Save as profile…**. The Quality menu shows the quality profile, with a dot when this print has changes on top of it. A pick of another quality keeps your changes. **Save as profile…** saves the quality with your changes, and the new profile is then the quality.
+
+## Settings for one part
+
+With more than one part on the plate, the Settings page has a bar at the top: **Settings for: This print (all parts)**, or one part. With a part, a change is for that part only, on top of the values of the print, and its tag says "This part". **Reset** gives the part the value of the print again. The part page (Ctrl+click on a part) has **Edit settings for this part**, which opens the same view.
+
+A part can have its own infill and skin settings (with their speeds) and its own support. The other settings (the walls, the layer height, the travel, the temperatures) are the same for all the parts of a print for now: in the settings for a part they say "Same for all parts", and they cannot change there. A 3MF file keeps the settings of each part.
 
 The panel at the right has two pages, Selected and Settings, and one history for both: **Back** (the arrow at the left of the tabs, the arrow of the Settings path, the back button of the mouse, or Alt+Left) goes to where you were before, also across the two pages. For example: a link from the Selected page opens a setting, and Back returns to the line.
 
@@ -254,7 +299,7 @@ Open adds each model to the plate (Ctrl+O, or drop files on the window). The fir
 - A click on a line selects the line (its settings are on the Selected page).
 - Shift+click adds a line to the selection (or takes it out). With more than one line, a change for "This layer" goes to the layers of all of them, and "This layer and up" (or down) starts at the lowest (or ends at the highest) of them.
 - Ctrl+click on a part selects the part: a blue frame shows it on the bed, and the Selected page has its place, its turn, its scale, the placement, and "Remove".
-- Ctrl+drag moves the selected part, and Ctrl+wheel turns it by 15°.
+- Ctrl+drag moves the selected part, and Ctrl+wheel turns it by 15°. `[` and `]` turn it by 15° too (with Shift, by 1°), and Delete removes it, after a question.
 
 "Clear the plate" in the menu removes all parts.
 
