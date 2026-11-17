@@ -927,6 +927,33 @@ pub const App = struct {
         app.marks.clearRetainingCapacity();
     }
 
+    /// The mark whose disk has (x, y), on a layer within `dz` of z, the
+    /// nearest first; null if none.
+    pub fn markAt(app: *const App, x: f64, y: f64, z: f64, dz: f64) ?usize {
+        var best: ?usize = null;
+        var best_d: f64 = std.math.inf(f64);
+        for (app.marks.items, 0..) |m, i| {
+            const d = std.math.hypot(m.x - x, m.y - y);
+            if (@abs(m.z - z) > dz or d > m.r) continue;
+            if (d < best_d) {
+                best_d = d;
+                best = i;
+            }
+        }
+        return best;
+    }
+
+    /// Changes the kind and the radius of mark i.
+    pub fn setMark(app: *App, i: usize, kind: zs.support.Mark.Kind, r: f64) error{NoMark}!void {
+        if (i >= app.marks.items.len) return error.NoMark;
+        app.marks.items[i].kind = kind;
+        app.marks.items[i].r = r;
+    }
+
+    pub fn removeMark(app: *App, i: usize) void {
+        if (i < app.marks.items.len) _ = app.marks.orderedRemove(i);
+    }
+
     /// The part of the plate that has a path of the last slice (the part
     /// under the first point of the path), or null.
     pub fn partOfPath(app: *const App, path: usize) ?usize {

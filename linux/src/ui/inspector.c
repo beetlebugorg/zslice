@@ -275,6 +275,89 @@ static gboolean focus_later(gpointer data) {
 }
 
 /* Builds the rows for a selection. */
+/* ---- a support mark of the user at the selected line ---- */
+
+/* The support mark at the selected line: under its point (a support line
+ * under the mark), or at its layer; -1 if none. */
+static gint64 mark_of_selection(Inspector *ins) {
+    gint64 path = zg_model_selected(ins->model);
+    zs_toolpaths tp;
+    zs_app *core = zg_model_core(ins->model);
+    if (path < 0 || zs_app_mark_count(core) == 0 || zs_app_toolpaths(core, &tp) != ZS_OK || (size_t)path >= tp.path_count) return -1;
+    uint32_t a = path == 0 ? 0 : tp.path_ends[path - 1], b = tp.path_ends[path];
+    if (b <= a) return -1;
+    gint64 seg = zg_model_segment(ins->model);
+    uint32_t i = seg >= 0 && a + (uint32_t)seg < b ? a + (uint32_t)seg : a + (b - a) / 2;
+    double x = tp.points[2 * i], y = tp.points[2 * i + 1];
+    size_t layer = 0;
+    while (layer < tp.layer_count && tp.layer_ends[layer] <= (uint32_t)path) layer++;
+    double z = layer < tp.layer_count ? tp.layer_z[layer] : 0;
+    int f = tp.path_features[path];
+    gboolean support = f == ZS_FEATURE_SUPPORT || f == ZS_FEATURE_SUPPORT_INTERFACE;
+    /* A support line: a mark above it (the support goes down from the
+     * mark: a z from the line up to 1 m above it). Another line: a mark on
+     * its layer. */
+    ptrdiff_t m = support ? zs_app_mark_at(core, x, y, z + 500, 500) : zs_app_mark_at(core, x, y, z, 0.05);
+    if (m >= 0) return m;
+    return -1;
+}
+
+static void on_mark_kind(GObject *dd, GParamSpec *ps, gpointer data) {
+    Inspector *ins = data;
+    gint64 m = GPOINTER_TO_INT(g_object_get_data(dd, "zg-mark")) - 1;
+    double r = 3;
+    zs_app_mark_get(zg_model_core(ins->model), (size_t)m, NULL, NULL, NULL, &r, NULL);
+    zg_model_mark_set(ins->model, (size_t)m, (int)gtk_drop_down_get_selected(GTK_DROP_DOWN(dd)), r);
+}
+
+static void on_mark_radius(GtkSpinButton *spin, gpointer data) {
+    Inspector *ins = data;
+    gint64 m = GPOINTER_TO_INT(g_object_get_data(G_OBJECT(spin), "zg-mark")) - 1;
+    int kind = 0;
+    zs_app_mark_get(zg_model_core(ins->model), (size_t)m, NULL, NULL, NULL, NULL, &kind);
+    zg_model_mark_set(ins->model, (size_t)m, kind, gtk_spin_button_get_value(spin));
+}
+
+static void on_mark_remove(GtkButton *b, gpointer data) {
+    Inspector *ins = data;
+    gint64 m = GPOINTER_TO_INT(g_object_get_data(G_OBJECT(b), "zg-mark")) - 1;
+    zg_model_mark_remove(ins->model, (size_t)m);
+}
+
+/* "Support you added": the kind and the size of the mark, and Remove. */
+static void add_mark_block(Inspector *ins, GtkWidget *grid, int *row) {
+    gint64 m = mark_of_selection(ins);
+    if (m < 0) return;
+    double r = 3;
+    int kind = 0;
+    if (zs_app_mark_get(zg_model_core(ins->model), (size_t)m, NULL, NULL, NULL, &r, &kind) != ZS_OK) return;
+    GtkWidget *head = zg_grid_add_heading(grid, row, "Support you added");
+    gtk_widget_set_margin_top(head, 8);
+    GtkWidget *box = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 6);
+    static const char *kinds[] = {"Grid", "Tree", "Bridge pad", "Block (no support)", NULL};
+    GtkWidget *dd = gtk_drop_down_new_from_strings(kinds);
+    gtk_drop_down_set_selected(GTK_DROP_DOWN(dd), (guint)kind);
+    g_object_set_data(G_OBJECT(dd), "zg-mark", GINT_TO_POINTER((int)m + 1));
+    g_signal_connect(dd, "notify::selected", G_CALLBACK(on_mark_kind), ins);
+    GtkWidget *spin = gtk_spin_button_new_with_range(0.5, 30, 0.5);
+    gtk_spin_button_set_value(GTK_SPIN_BUTTON(spin), r);
+    gtk_spin_button_set_digits(GTK_SPIN_BUTTON(spin), 1);
+    gtk_widget_set_tooltip_text(spin, "The radius of the area of the mark, mm");
+    g_object_set_data(G_OBJECT(spin), "zg-mark", GINT_TO_POINTER((int)m + 1));
+    g_signal_connect(spin, "value-changed", G_CALLBACK(on_mark_radius), ins);
+    GtkWidget *unit = gtk_label_new("mm");
+    gtk_widget_add_css_class(unit, "dim-label");
+    GtkWidget *rm = gtk_button_new_with_label("Remove");
+    gtk_widget_add_css_class(rm, "destructive-action");
+    g_object_set_data(G_OBJECT(rm), "zg-mark", GINT_TO_POINTER((int)m + 1));
+    g_signal_connect(rm, "clicked", G_CALLBACK(on_mark_remove), ins);
+    gtk_box_append(GTK_BOX(box), dd);
+    gtk_box_append(GTK_BOX(box), spin);
+    gtk_box_append(GTK_BOX(box), unit);
+    gtk_box_append(GTK_BOX(box), rm);
+    gtk_grid_attach(GTK_GRID(grid), box, 0, (*row)++, 4, 1);
+}
+
 static GtkWidget *build_inspector(Inspector *ins, const zs_inspect *info) {
     GtkWidget *grid = zg_grid_new();
     int row = 0;
@@ -294,22 +377,23 @@ static GtkWidget *build_inspector(Inspector *ins, const zs_inspect *info) {
     ins->stat_note = gtk_revealer_new();
     gtk_revealer_set_child(GTK_REVEALER(ins->stat_note), note);
     gtk_grid_attach(GTK_GRID(grid), ins->stat_note, 0, row++, 3, 1);
+    add_mark_block(ins, grid, &row);
 
     /* Change for: all layers, or the layers of the selection. */
     GtkWidget *scope_row = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 8);
     gtk_widget_set_margin_top(scope_row, 6);
     GtkWidget *scope_label = gtk_label_new("Change for");
     gtk_widget_add_css_class(scope_label, "dim-label");
-    const char *scopes[] = {"This part (all layers)", "This layer", "This layer and up", "This layer and down", NULL};
+    const char *scopes[] = {"This print (all layers)", "This layer", "This layer and up", "This layer and down", NULL};
     ins->scope_dd = gtk_drop_down_new_from_strings(scopes);
     gtk_drop_down_set_selected(GTK_DROP_DOWN(ins->scope_dd), (guint)ins->scope_mode);
     gtk_widget_set_hexpand(ins->scope_dd, TRUE);
-    gtk_widget_set_tooltip_text(ins->scope_dd, "Changes here are for this part only, and not for other prints: for all its layers, or only for the layers of the selected line. A changed setting shows in the accent color, with a button to remove the change. The defaults for all prints are in the Settings page.");
+    gtk_widget_set_tooltip_text(ins->scope_dd, "Changes here are for this print: for all its layers, or only for the layers of the selected line. A changed setting shows in the accent color, with a button to remove the change. For one part of the plate: Settings, then Settings for: the part.");
     g_signal_connect(ins->scope_dd, "notify::selected", G_CALLBACK(on_scope_dd), ins);
     gtk_box_append(GTK_BOX(scope_row), scope_label);
     gtk_box_append(GTK_BOX(scope_row), ins->scope_dd);
     gtk_grid_attach(GTK_GRID(grid), scope_row, 0, row++, 4, 1);
-    GtkWidget *scope_note = zg_wrapped_label_new("Changes here are for this part. The defaults for all prints are in Settings.");
+    GtkWidget *scope_note = zg_wrapped_label_new("Changes here are for this print. Settings has the settings of one part, and your profiles.");
     gtk_widget_add_css_class(scope_note, "dim-label");
     gtk_widget_add_css_class(scope_note, "caption");
     gtk_grid_attach(GTK_GRID(grid), scope_note, 0, row++, 4, 1);

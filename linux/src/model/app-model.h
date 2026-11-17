@@ -92,6 +92,10 @@ const gint64 *zg_model_more(ZgModel *self, guint *n);
 /* Support marks (see zs_app_mark_add): each call slices again. */
 void zg_model_mark_add(ZgModel *self, double x, double y, double z, double r, int kind);
 size_t zg_model_mark_remove_near(ZgModel *self, double x, double y, double z, double r);
+/* Changes the kind (enum zs_mark_kind) and the radius of mark i, or
+ * removes it; slices again. */
+void zg_model_mark_set(ZgModel *self, size_t i, int kind, double r);
+void zg_model_mark_remove(ZgModel *self, size_t i);
 void zg_model_marks_clear(ZgModel *self);
 /* With a selected line: TRUE fades all other lines (ghosts), so only the
  * selection is solid. FALSE (the default) keeps their colors. */

@@ -832,6 +832,15 @@ size_t zg_model_mark_remove_near(ZgModel *self, double x, double y, double z, do
     return n;
 }
 
+void zg_model_mark_set(ZgModel *self, size_t i, int kind, double r) {
+    if (zs_app_mark_set(self->core, i, kind, r) == ZS_OK) request_slice(self);
+}
+
+void zg_model_mark_remove(ZgModel *self, size_t i) {
+    zs_app_mark_remove(self->core, i);
+    request_slice(self);
+}
+
 void zg_model_marks_clear(ZgModel *self) {
     if (zs_app_mark_count(self->core) == 0) return;
     zs_app_marks_clear(self->core);

@@ -163,6 +163,14 @@ enum zs_mark_kind { ZS_MARK_GRID = 0, ZS_MARK_TREE = 1, ZS_MARK_BRIDGE = 2, ZS_M
 int zs_app_mark_add(zs_app *app, double x, double y, double z, double r, int kind);
 size_t zs_app_mark_remove_near(zs_app *app, double x, double y, double z, double r);
 size_t zs_app_mark_count(const zs_app *app);
+/* The mark under a place: (x, y) in its disk, on a layer within dz of z;
+ * -1 if none. */
+ptrdiff_t zs_app_mark_at(const zs_app *app, double x, double y, double z, double dz);
+/* Mark i: its place, radius, and kind (enum zs_mark_kind). */
+int zs_app_mark_get(const zs_app *app, size_t i, double *x, double *y, double *z, double *r, int *kind);
+/* Changes the kind and the radius of mark i. */
+int zs_app_mark_set(zs_app *app, size_t i, int kind, double r);
+void zs_app_mark_remove(zs_app *app, size_t i);
 void zs_app_marks_clear(zs_app *app);
 
 int zs_app_write_3mf(zs_app *app, const uint8_t **out, size_t *out_len);

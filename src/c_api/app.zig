@@ -196,6 +196,39 @@ export fn zs_app_mark_count(a: ?*const App) usize {
     return app.marks.items.len;
 }
 
+/// The support mark at a place (in its disk, on a layer within dz of z),
+/// or -1.
+export fn zs_app_mark_at(a: ?*const App, x: f64, y: f64, z: f64, dz: f64) isize {
+    const app = a orelse return -1;
+    return if (app.markAt(x, y, z, dz)) |i| @intCast(i) else -1;
+}
+
+/// Mark i: its place, its radius, and its kind (enum zs_mark_kind).
+export fn zs_app_mark_get(a: ?*const App, i: usize, x: ?*f64, y: ?*f64, z: ?*f64, r: ?*f64, kind: ?*c_int) c_int {
+    const app = a orelse return @intFromEnum(Status.invalid_argument);
+    if (i >= app.marks.items.len) return @intFromEnum(Status.out_of_range);
+    const m = app.marks.items[i];
+    if (x) |o| o.* = m.x;
+    if (y) |o| o.* = m.y;
+    if (z) |o| o.* = m.z;
+    if (r) |o| o.* = m.r;
+    if (kind) |o| o.* = @intFromEnum(m.kind);
+    return ok;
+}
+
+/// Changes the kind and the radius of mark i.
+export fn zs_app_mark_set(a: ?*App, i: usize, kind: c_int, r: f64) c_int {
+    const app = a orelse return @intFromEnum(Status.invalid_argument);
+    if (kind < 0 or kind > 3 or !(r > 0)) return @intFromEnum(Status.invalid_argument);
+    app.setMark(i, @enumFromInt(@as(u8, @intCast(kind))), r) catch return @intFromEnum(Status.out_of_range);
+    return ok;
+}
+
+export fn zs_app_mark_remove(a: ?*App, i: usize) void {
+    const app = a orelse return;
+    app.removeMark(i);
+}
+
 export fn zs_app_marks_clear(a: ?*App) void {
     const app = a orelse return;
     app.clearMarks();
