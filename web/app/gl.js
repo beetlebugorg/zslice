@@ -180,6 +180,113 @@ void main() {
     frag = vec4(color.rgb, 1.0);
 }`;
 
+// The 2D view: a stroke with round ends for each bead (instanced). The
+// quad of a bead goes from a - r to b + r along it, and r to each side;
+// the fragment shader cuts the round ends. kind 0: the feature colors,
+// with the faint colors of a focus; 1: one color; 2: a mark (only its
+// color). A faint color is the color over the bed at 12 %, so all beads
+// draw with no blending (a stroke that overlaps itself stays even).
+const lineVert = `#version 300 es
+precision highp float;
+precision highp int;
+layout(location = 2) in vec4 seg;
+layout(location = 3) in vec3 zhw;
+layout(location = 4) in vec4 color;
+uniform vec4 xf;
+uniform float px;
+uniform float grow;
+uniform float kind;
+uniform float mask;
+uniform float dim;
+uniform vec3 solid;
+out vec2 vlocal;
+out float vlen;
+out float vr;
+flat out vec3 vcolor;
+
+const vec3 feature_rgb[14] = vec3[14](
+    vec3(0.851, 0.282, 0.059), vec3(0.961, 0.624, 0.000),
+    vec3(0.110, 0.494, 0.839), vec3(0.169, 0.541, 0.243),
+    vec3(0.682, 0.243, 0.788), vec3(0.553, 0.431, 0.388),
+    vec3(0.678, 0.710, 0.741), vec3(0.286, 0.314, 0.341),
+    vec3(0.047, 0.651, 0.682), vec3(0.510, 0.788, 0.118),
+    vec3(0.400, 0.800, 0.949),
+    vec3(0.878, 0.102, 0.149), vec3(0.200, 0.451, 0.949),
+    vec3(0.949, 0.251, 0.749));
+const vec3 bed = vec3(0.906, 0.914, 0.925);
+
+void main() {
+    uint feature = uint(color.a * 255.0 + 0.5);
+    uint m = uint(mask + 0.5);
+    vec2 a = seg.xy;
+    vec2 b = seg.zw;
+    vec2 d = b - a;
+    float len = length(d);
+    vec2 dir = len > 0.0 ? d / len : vec2(1.0, 0.0);
+    vec2 side = vec2(-dir.y, dir.x);
+    float r = max(0.5 * zhw.z * grow, px);
+    // A travel move is a thin line.
+    if (kind > 1.5 && feature == 12u) r = max(0.18 * zhw.z, px);
+    int corner = gl_VertexID;
+    float u = (corner & 1) == 0 ? -r : len + r;
+    float v = corner < 2 ? -r : r;
+    vec2 p = a + dir * u + side * v;
+    vlocal = vec2(u, v);
+    vlen = len;
+    vr = r;
+    if (kind > 1.5) {
+        // A mark shows only in a focus on it.
+        bool on = feature < 14u && ((m >> feature) & 1u) != 0u;
+        vcolor = feature_rgb[min(feature, 13u)];
+        gl_Position = on ? vec4(p * xf.xy + xf.zw, 0.0, 1.0) : vec4(2.0, 2.0, 2.0, 1.0);
+        return;
+    }
+    if (kind > 0.5) {
+        vcolor = solid;
+    } else {
+        vec3 c = feature_rgb[min(feature, 13u)];
+        bool focus = m == 0u || ((m >> feature) & 1u) != 0u;
+        vcolor = (dim > 0.5 || !focus) ? mix(bed, c, 0.12) : c;
+    }
+    gl_Position = vec4(p * xf.xy + xf.zw, 0.0, 1.0);
+}`;
+
+const lineFrag = `#version 300 es
+precision highp float;
+in vec2 vlocal;
+in float vlen;
+in float vr;
+flat in vec3 vcolor;
+out vec4 frag;
+void main() {
+    // Outside the round ends: no pixel.
+    float u = vlocal.x < 0.0 ? vlocal.x : (vlocal.x > vlen ? vlocal.x - vlen : 0.0);
+    if (u * u + vlocal.y * vlocal.y > vr * vr) discard;
+    frag = vec4(vcolor, 1.0);
+}`;
+
+// The bed, the grid, and the outline: points in mm, in one color. `size`
+// scales the points (the quad of the bed is 0 to 1).
+const flatVert = `#version 300 es
+precision highp float;
+layout(location = 0) in vec2 pos;
+uniform vec4 xf;
+uniform vec2 size;
+void main() {
+    gl_Position = vec4(pos * size * xf.xy + xf.zw, 0.0, 1.0);
+}`;
+
+const flatFrag = `#version 300 es
+precision highp float;
+uniform vec4 color;
+out vec4 frag;
+void main() {
+    frag = color;
+}`;
+
+// The bits of the marks in a focus mask (ZS_MARK_SEAM and on).
+const MARK_BITS = (1 << 11) | (1 << 12) | (1 << 13);
+
 function compile(gl, vs, fs) {
   const prog = gl.createProgram();
   for (const [type, src] of [[gl.VERTEX_SHADER, vs], [gl.FRAGMENT_SHADER, fs]]) {
@@ -202,7 +309,7 @@ function compile(gl, vs, fs) {
 
 export class GlRenderer {
   constructor(canvas) {
-    const gl = canvas.getContext("webgl2", { antialias: true, alpha: false, preserveDrawingBuffer: true });
+    const gl = canvas.getContext("webgl2", { antialias: true, alpha: false, stencil: true, preserveDrawingBuffer: true });
     if (!gl) throw new Error("This browser has no WebGL2.");
     this.gl = gl;
     this.box = compile(gl, boxVert, boxFrag);
@@ -214,7 +321,14 @@ export class GlRenderer {
     this.boxVao = gl.createVertexArray();
     this.gridVao = gl.createVertexArray();
     this.gen = { mesh: -1, instances: -1, grid: -1 };
+    this.bed = new Float32Array(2);
+    this.gridVertices = 0;
+    this.init2d();
     this.indexCount = 0;
+    // The coarser meshes (lod 1 and 2): first index and count of each.
+    this.lod = new Uint32Array(4);
+    // A copy of the push constants with other params (made once).
+    this.push2 = new Float32Array(28);
     this.instanceCount = 0;
     this.instCapacity = 0;
 
@@ -248,31 +362,53 @@ export class GlRenderer {
   setPush(push) {
     const gl = this.gl;
     const u = this.box.u;
-    gl.uniformMatrix4fv(u.mvp, false, push.subarray(0, 16));
-    gl.uniform4fv(u.light, push.subarray(16, 20));
-    gl.uniform4fv(u.eye, push.subarray(20, 24));
-    gl.uniform4fv(u.params, push.subarray(24, 28));
+    gl.uniformMatrix4fv(u.mvp, false, push, 0, 16);
+    gl.uniform4fv(u.light, push, 16, 4);
+    gl.uniform4fv(u.eye, push, 20, 4);
+    gl.uniform4fv(u.params, push, 24, 4);
   }
 
-  drawBeads(first, count) {
+  // Draws the beads first .. first + count with the full mesh, or with
+  // a coarser mesh (lod 1 or 2) if there is one.
+  drawBeads(first, count, lod = 0) {
     if (count <= 0) return;
     const gl = this.gl;
     this.bindInstances(first);
     gl.uniform1f(this.box.u.base, first);
-    gl.drawElementsInstanced(gl.TRIANGLES, this.indexCount, gl.UNSIGNED_SHORT, 0, count);
+    const n = lod > 0 ? this.lod[2 * lod - 1] : 0;
+    if (n > 0) gl.drawElementsInstanced(gl.TRIANGLES, n, gl.UNSIGNED_SHORT, this.lod[2 * lod - 2] * 2, count);
+    else gl.drawElementsInstanced(gl.TRIANGLES, this.indexCount, gl.UNSIGNED_SHORT, 0, count);
   }
 
-  // Draws one frame of view.js (View3D.frame).
-  draw(f) {
+  // The beads of a frame: its draw list (the chunks in the view, each
+  // with its mesh), or all of them.
+  drawList(f, first) {
+    if (f.drawsCount === 0) {
+      this.drawBeads(first, f.boxCount - first);
+      return;
+    }
+    // The last ranges first: the top layers, which a view from above sees
+    // first, so the depth test drops the hidden pixels of the layers
+    // under them early.
+    const d = f.draws;
+    for (let i = f.drawsCount - 1; i >= 0; i--) this.drawBeads(d[3 * i], d[3 * i + 1], d[3 * i + 2]);
+  }
+
+  // Sends the buffers of a frame that changed to the GPU.
+  sync(f) {
     const gl = this.gl;
-    // The buffers that changed.
+    this.gridVertices = f.gridVertices;
     if (f.meshGen !== this.gen.mesh) {
       gl.bindVertexArray(null);
       gl.bindBuffer(gl.ARRAY_BUFFER, this.meshVbo);
       gl.bufferData(gl.ARRAY_BUFFER, f.meshVerts, gl.STATIC_DRAW);
       gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, this.meshIbo);
       gl.bufferData(gl.ELEMENT_ARRAY_BUFFER, f.meshIndex, gl.STATIC_DRAW);
-      this.indexCount = f.meshIndex.length;
+      this.indexCount = f.meshFullCount || f.meshIndex.length;
+      this.lod[0] = f.lod1First;
+      this.lod[1] = f.lod1Count;
+      this.lod[2] = f.lod2First;
+      this.lod[3] = f.lod2Count;
       this.gen.mesh = f.meshGen;
     }
     if (f.instancesGen !== this.gen.instances) {
@@ -290,7 +426,22 @@ export class GlRenderer {
       gl.bindBuffer(gl.ARRAY_BUFFER, this.gridVbo);
       gl.bufferData(gl.ARRAY_BUFFER, f.gridPoints, gl.STATIC_DRAW);
       this.gen.grid = f.gridGen;
+      // The bed size: the largest x and y of the grid.
+      let bx = 0;
+      let by = 0;
+      for (let i = 0; i < f.gridPoints.length; i += 3) {
+        if (f.gridPoints[i] > bx) bx = f.gridPoints[i];
+        if (f.gridPoints[i + 1] > by) by = f.gridPoints[i + 1];
+      }
+      this.bed[0] = bx;
+      this.bed[1] = by;
     }
+  }
+
+  // Draws one frame of view.js (View3D.frame).
+  draw(f) {
+    const gl = this.gl;
+    this.sync(f);
 
     gl.viewport(0, 0, f.width, f.height);
     gl.clearColor(f.clear[0], f.clear[1], f.clear[2], 1);
@@ -304,8 +455,8 @@ export class GlRenderer {
 
     if (f.gridVertices > 0) {
       gl.useProgram(this.grid.prog);
-      gl.uniformMatrix4fv(this.grid.u.mvp, false, f.grid.subarray(0, 16));
-      gl.uniform4fv(this.grid.u.color, f.grid.subarray(16, 20));
+      gl.uniformMatrix4fv(this.grid.u.mvp, false, f.grid, 0, 16);
+      gl.uniform4fv(this.grid.u.color, f.grid, 16, 4);
       gl.bindVertexArray(this.gridVao);
       gl.drawArrays(gl.LINES, 0, f.gridVertices);
     }
@@ -315,17 +466,18 @@ export class GlRenderer {
     gl.bindVertexArray(this.boxVao);
     this.setPush(f.box);
     const first = Math.min(f.boxFirst, f.boxCount);
-    this.drawBeads(first, f.boxCount - first);
+    this.drawList(f, first);
     this.drawBeads(f.markFirst, f.markCount);
     // With a focus: the beads out of it, as ghosts (params.w = 2).
     if (f.box[26] !== 0) {
-      const ghost = f.box.slice();
+      const ghost = this.push2;
+      ghost.set(f.box);
       ghost[27] = 2;
       gl.enable(gl.BLEND);
       gl.blendFunc(gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA);
       gl.depthMask(false);
       this.setPush(ghost);
-      this.drawBeads(first, f.boxCount - first);
+      this.drawList(f, first);
       this.drawBeads(f.markFirst, f.markCount);
       gl.disable(gl.BLEND);
       gl.depthMask(true);
@@ -341,7 +493,8 @@ export class GlRenderer {
       const at = this.instanceCount + f.extrasCount;
       gl.bindBuffer(gl.ARRAY_BUFFER, this.instVbo);
       gl.bufferSubData(gl.ARRAY_BUFFER, at * STRIDE, f.head);
-      const see = f.box.slice();
+      const see = this.push2;
+      see.set(f.box);
       see[26] = 0;
       see[27] = 3;
       gl.enable(gl.BLEND);
@@ -351,6 +504,194 @@ export class GlRenderer {
       this.drawBeads(at, f.headCount);
       gl.disable(gl.BLEND);
       gl.depthMask(true);
+    }
+    gl.bindVertexArray(null);
+  }
+
+  // ---- the 2D layer view ----
+  //
+  // One layer from the top, as linux/src/ui/layer-draw.c draws it: the bed
+  // with its 10 mm grid, the outline of the layer in gray, and each bead
+  // as a stroke with round ends in its feature color. The beads are the
+  // instances of the 3D view on the GPU (the same buffer), so a new layer
+  // only changes the range of a draw. The outlines go to the GPU once for
+  // each slice, as fans of triangles; the stencil buffer fills them by the
+  // nonzero rule.
+
+  init2d() {
+    const gl = this.gl;
+    this.line = compile(gl, lineVert, lineFrag);
+    this.flat = compile(gl, flatVert, flatFrag);
+    this.lineVao = gl.createVertexArray();
+    gl.bindVertexArray(this.lineVao);
+    gl.bindBuffer(gl.ARRAY_BUFFER, this.instVbo);
+    for (const loc of [2, 3, 4]) {
+      gl.enableVertexAttribArray(loc);
+      gl.vertexAttribDivisor(loc, 1);
+    }
+    // The outline: x, y points, and the triangles of the fans.
+    this.outlineVbo = gl.createBuffer();
+    this.outlineIbo = gl.createBuffer();
+    this.outlineVao = gl.createVertexArray();
+    gl.bindVertexArray(this.outlineVao);
+    gl.bindBuffer(gl.ARRAY_BUFFER, this.outlineVbo);
+    gl.enableVertexAttribArray(0);
+    gl.vertexAttribPointer(0, 2, gl.FLOAT, false, 8, 0);
+    gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, this.outlineIbo);
+    // The bed: one quad, 0 to 1 (scaled by a uniform).
+    this.quadVbo = gl.createBuffer();
+    this.quadVao = gl.createVertexArray();
+    gl.bindVertexArray(this.quadVao);
+    gl.bindBuffer(gl.ARRAY_BUFFER, this.quadVbo);
+    gl.bufferData(gl.ARRAY_BUFFER, new Float32Array([0, 0, 1, 0, 0, 1, 1, 1]), gl.STATIC_DRAW);
+    gl.enableVertexAttribArray(0);
+    gl.vertexAttribPointer(0, 2, gl.FLOAT, false, 8, 0);
+    // The grid of the 3D view (vec3 points): its x and y.
+    this.grid2dVao = gl.createVertexArray();
+    gl.bindVertexArray(this.grid2dVao);
+    gl.bindBuffer(gl.ARRAY_BUFFER, this.gridVbo);
+    gl.enableVertexAttribArray(0);
+    gl.vertexAttribPointer(0, 2, gl.FLOAT, false, 12, 0);
+    gl.bindVertexArray(null);
+    // The index range of the triangles of each layer.
+    this.outlineLayerEnd = new Uint32Array(0);
+  }
+
+  // The outlines of all layers (View3D.outlines): the fan of each ring.
+  setOutlines(o) {
+    const gl = this.gl;
+    let tris = 0;
+    for (let r = 0; r < o.ringEnds.length; r++) {
+      const n = o.ringEnds[r] - (r > 0 ? o.ringEnds[r - 1] : 0);
+      if (n >= 3) tris += n - 2;
+    }
+    const index = new Uint32Array(tris * 3);
+    const layerEnd = new Uint32Array(o.layerEnds.length);
+    let at = 0;
+    let ring = 0;
+    for (let l = 0; l < o.layerEnds.length; l++) {
+      for (; ring < o.layerEnds[l]; ring++) {
+        const a = ring > 0 ? o.ringEnds[ring - 1] : 0;
+        const b = o.ringEnds[ring];
+        for (let k = a + 1; k + 1 < b; k++) {
+          index[at++] = a;
+          index[at++] = k;
+          index[at++] = k + 1;
+        }
+      }
+      layerEnd[l] = at;
+    }
+    gl.bindVertexArray(null);
+    gl.bindBuffer(gl.ARRAY_BUFFER, this.outlineVbo);
+    gl.bufferData(gl.ARRAY_BUFFER, o.points, gl.STATIC_DRAW);
+    gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, this.outlineIbo);
+    gl.bufferData(gl.ELEMENT_ARRAY_BUFFER, index, gl.STATIC_DRAW);
+    this.outlineLayerEnd = layerEnd;
+  }
+
+  // Binds the instance attributes of the 2D program from instance `first`.
+  bindLines(first) {
+    const gl = this.gl;
+    const off = first * STRIDE;
+    gl.vertexAttribPointer(2, 4, gl.FLOAT, false, STRIDE, off);
+    gl.vertexAttribPointer(3, 3, gl.FLOAT, false, STRIDE, off + 16);
+    gl.vertexAttribPointer(4, 4, gl.UNSIGNED_BYTE, true, STRIDE, off + 28);
+  }
+
+  // Draws the instances first to end as strokes: kind 0 in the feature
+  // colors, else in one color (r, g, b) with the width times `grow`.
+  lines(first, end, kind, grow, r, g, b) {
+    if (end <= first) return;
+    const gl = this.gl;
+    const u = this.line.u;
+    gl.uniform1f(u.kind, kind);
+    gl.uniform1f(u.grow, grow);
+    gl.uniform3f(u.solid, r, g, b);
+    this.bindLines(first);
+    gl.drawArraysInstanced(gl.TRIANGLE_STRIP, 0, 4, end - first);
+  }
+
+  // Draws the 2D view. s: { width, height, scale, ox, oy (device pixels;
+  // a point x, y mm is at ox + x * scale, oy + y * scale from the bottom
+  // left), layer, beads [first, end), marks [first, end), mask (the focus
+  // bits), dim (1: all beads faint), sel [first, end) of the selected
+  // path or [0, 0], seg (the bead of the selected segment, or -1) }.
+  draw2d(s) {
+    const gl = this.gl;
+    const sx = (2 * s.scale) / s.width;
+    const sy = (2 * s.scale) / s.height;
+    const tx = (2 * s.ox) / s.width - 1;
+    const ty = (2 * s.oy) / s.height - 1;
+    gl.viewport(0, 0, s.width, s.height);
+    gl.clearColor(0.965, 0.969, 0.973, 1);
+    gl.clearStencil(0);
+    gl.clear(gl.COLOR_BUFFER_BIT | gl.DEPTH_BUFFER_BIT | gl.STENCIL_BUFFER_BIT);
+    gl.disable(gl.DEPTH_TEST);
+    gl.disable(gl.CULL_FACE);
+    gl.disable(gl.BLEND);
+    gl.depthMask(false);
+
+    // The bed and its grid.
+    const fu = this.flat.u;
+    gl.useProgram(this.flat.prog);
+    gl.uniform4f(fu.xf, sx, sy, tx, ty);
+    gl.uniform2f(fu.size, this.bed[0], this.bed[1]);
+    gl.uniform4f(fu.color, 0.906, 0.914, 0.925, 1);
+    gl.bindVertexArray(this.quadVao);
+    gl.drawArrays(gl.TRIANGLE_STRIP, 0, 4);
+    gl.uniform2f(fu.size, 1, 1);
+    gl.uniform4f(fu.color, 0.82, 0.84, 0.86, 1);
+    gl.bindVertexArray(this.grid2dVao);
+    if (this.gridVertices > 0) gl.drawArrays(gl.LINES, 0, this.gridVertices);
+
+    // The outline: the stencil counts the turns of the fans, then the
+    // area with a count other than 0 gets the color (and a count of 0).
+    const l = s.layer;
+    if (l < this.outlineLayerEnd.length) {
+      const i0 = l > 0 ? this.outlineLayerEnd[l - 1] : 0;
+      const i1 = this.outlineLayerEnd[l];
+      if (i1 > i0) {
+        gl.bindVertexArray(this.outlineVao);
+        gl.enable(gl.STENCIL_TEST);
+        gl.colorMask(false, false, false, false);
+        gl.stencilFunc(gl.ALWAYS, 0, 0xff);
+        gl.stencilOpSeparate(gl.FRONT, gl.KEEP, gl.KEEP, gl.INCR_WRAP);
+        gl.stencilOpSeparate(gl.BACK, gl.KEEP, gl.KEEP, gl.DECR_WRAP);
+        gl.drawElements(gl.TRIANGLES, i1 - i0, gl.UNSIGNED_INT, i0 * 4);
+        gl.colorMask(true, true, true, true);
+        gl.stencilFunc(gl.NOTEQUAL, 0, 0xff);
+        gl.stencilOp(gl.ZERO, gl.ZERO, gl.ZERO);
+        gl.uniform4f(fu.color, 0.80, 0.83, 0.86, 1);
+        gl.drawElements(gl.TRIANGLES, i1 - i0, gl.UNSIGNED_INT, i0 * 4);
+        gl.disable(gl.STENCIL_TEST);
+      }
+    }
+
+    // The beads.
+    if (this.instCapacity === 0) {
+      gl.bindVertexArray(null);
+      return;
+    }
+    const u = this.line.u;
+    gl.useProgram(this.line.prog);
+    gl.uniform4f(u.xf, sx, sy, tx, ty);
+    // Half a pixel in mm: the smallest half width of a stroke, so a thin
+    // line stays visible when the view is far out.
+    gl.uniform1f(u.px, 0.5 / s.scale);
+    gl.uniform1f(u.mask, s.mask);
+    gl.uniform1f(u.dim, s.dim);
+    gl.bindVertexArray(this.lineVao);
+    gl.bindBuffer(gl.ARRAY_BUFFER, this.instVbo);
+    const sel = s.sel;
+    // The selected path: a wide yellow line under the paths.
+    if (sel[1] > sel[0]) this.lines(sel[0], sel[1], 1, 2.5, 1.0, 0.82, 0.1);
+    this.lines(s.beads[0], s.beads[1], 0, 1, 0, 0, 0);
+    // The marks of a focus on them (seams, travel moves, retractions).
+    if (s.mask & MARK_BITS) this.lines(s.marks[0], s.marks[1], 2, 1, 0, 0, 0);
+    // The selected path again, on top, and its segment in orange.
+    if (sel[1] > sel[0]) {
+      this.lines(sel[0], sel[1], 1, 1, 1.0, 0.78, 0.05);
+      if (s.seg >= 0) this.lines(s.seg, s.seg + 1, 1, 1.6, 1.0, 0.35, 0.0);
     }
     gl.bindVertexArray(null);
   }

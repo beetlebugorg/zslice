@@ -41,6 +41,22 @@ export class Wasm {
   get u8() { return new Uint8Array(this.x.memory.buffer); }
   get dv() { return new DataView(this.x.memory.buffer); }
 
+  // Views of all wasm memory as 32-bit and 64-bit values, made again only
+  // after the memory grows: the hot paths (a frame, a pick) read out
+  // parameters with no new object.
+  get m32() {
+    const buf = this.x.memory.buffer;
+    if (this._buf !== buf) {
+      this._buf = buf;
+      this._u32 = new Uint32Array(buf);
+      this._i32 = new Int32Array(buf);
+      this._f64 = new Float64Array(buf);
+    }
+    return this._u32;
+  }
+  get mi32() { this.m32; return this._i32; }
+  get mf64() { this.m32; return this._f64; }
+
   alloc(n) {
     const p = this.x.zs_alloc(Math.max(n, 1));
     if (p === 0) throw new Error("zslice: out of memory");
