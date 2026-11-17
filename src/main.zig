@@ -10,8 +10,8 @@ const profile = zslice.profile;
 
 const usage =
     \\Usage:
-    \\  zslice slice <model.stl> [options] [-o out.gcode]
-    \\  zslice preview <model.stl> --layer N [options] [-o out.svg]
+    \\  zslice slice <model.stl|model.3mf> [options] [-o out.gcode]
+    \\  zslice preview <model.stl|model.3mf> --layer N [options] [-o out.svg]
     \\  zslice gaps <model.stl> [--layer N] [options]
     \\  zslice check <model.stl> [options]
     \\  zslice profiles
@@ -214,13 +214,41 @@ pub fn main(init: std.process.Init) !void {
         try bench(gpa, io, err, in_path, bytes, settings, opts.only, opts.runs, opts.copies);
         return;
     }
-    var m = zslice.Mesh.fromStl(gpa, bytes) catch |e| {
+    // A 3MF file: the parts that print make one mesh, and the modifier
+    // volumes and the settings of the parts go to the job (see
+    // part_settings.zig).
+    var loaded: ?zslice.threemf.Loaded = null;
+    defer if (loaded) |*l| l.deinit(gpa);
+    const is_3mf = bytes.len >= 4 and std.mem.eql(u8, bytes[0..4], "PK\x03\x04");
+    var m = if (is_3mf) blk: {
+        loaded = zslice.threemf.read(gpa, bytes) catch |e| {
+            gpa.free(bytes);
+            fail(err, "{s}: {s}\n", .{ in_path, @errorName(e) });
+        };
+        try zslice.threemf.joinOverlapping(gpa, &loaded.?);
+        var all: zslice.Mesh = .empty;
+        for (loaded.?.parts) |p| if (zslice.part_settings.prints(p.meta)) {
+            const base: u32 = @intCast(all.vertices.items.len);
+            try all.vertices.appendSlice(gpa, p.mesh.vertices.items);
+            for (p.mesh.faces.items) |f| try all.faces.append(gpa, .{ f[0] + base, f[1] + base, f[2] + base });
+        };
+        break :blk all;
+    } else zslice.Mesh.fromStl(gpa, bytes) catch |e| {
         gpa.free(bytes);
         fail(err, "{s}: {s}\n", .{ in_path, @errorName(e) });
     };
     // The mesh has its own copy of the data, so the file buffer can go now.
     gpa.free(bytes);
     defer m.deinit(gpa);
+    var parts_plan: ?zslice.part_settings.Plan = null;
+    defer if (parts_plan) |*pp| pp.deinit();
+    if (loaded) |l| {
+        const inputs = try arena.alloc(zslice.part_settings.Input, l.parts.len);
+        for (l.parts, inputs) |*p, *in| in.* = .{ .name = p.name, .meta = p.meta, .mesh = &p.mesh };
+        parts_plan = try zslice.part_settings.plan(gpa, inputs, &settings);
+        try parts_plan.?.applyBase(&settings);
+        for (parts_plan.?.notes) |n| try err.print("note: {s}\n", .{n});
+    }
 
     if (is_sweep) {
         try sweep(gpa, io, err, &m, settings, opts);
@@ -230,6 +258,7 @@ pub fn main(init: std.process.Init) !void {
     const t0 = Io.Clock.awake.now(io);
     var job = zslice.engine.Job.init(gpa, &m, settings) catch |e| fail(err, "slice failed: {s}\n", .{@errorName(e)});
     defer job.deinit();
+    if (parts_plan) |pp| job.setModifiers(pp.modifiers) catch |e| fail(err, "modifier volumes: {s}\n", .{@errorName(e)});
     // One slice: the memos need not stay (see Job.keep_memos).
     job.keep_memos = false;
     const pass1 = t0.untilNow(io, .awake);

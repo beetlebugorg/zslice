@@ -663,7 +663,7 @@ pub const PartRole = enum {
 };
 
 /// A zslice setting from a Cura key, by its dotted name.
-pub const PartSetting = struct { name: []const u8, value: []const u8 };
+pub const PartSetting = @import("settings.zig").Change;
 
 /// A Cura key that zslice does not use, and why.
 pub const Ignored = struct { key: []const u8, value: []const u8, why: []const u8 };
@@ -872,6 +872,14 @@ pub fn partSettings(arena: Allocator, meta: anytype, base: *const @import("setti
             if (key[0] == 't') try put(arena, &sets, "project.top_thickness", text);
             if (key[0] == 'b' or key[3] == '_' and key[4] == 'b') try put(arena, &sets, "project.bottom_thickness", text);
         } else if (std.mem.eql(u8, key, "initial_bottom_layers")) {
+            // The same count as bottom_layers: zslice does the same.
+            const same = for (meta) |o| {
+                const ok = curaKey(o.key) orelse continue;
+                if (!std.mem.eql(u8, ok, "bottom_layers")) continue;
+                const ov = constantText(o.value) orelse break false;
+                break std.mem.eql(u8, ov, v);
+            } else false;
+            if (same) continue;
             try skip(arena, &ignored, key, v, "zslice uses the bottom thickness on the bed too");
         } else if (std.mem.eql(u8, key, "gradual_infill_steps")) {
             if (num != null and num.? == 0) continue; // the zslice default
@@ -1067,7 +1075,7 @@ test "Cura object settings: a grille window" {
         .{ .key = "cura:top_bottom_thickness", .value = "=0" },
         .{ .key = "cura:top_layers", .value = "=0" },
         .{ .key = "cura:bottom_layers", .value = "0" },
-        .{ .key = "cura:initial_bottom_layers", .value = "=0" },
+        .{ .key = "cura:initial_bottom_layers", .value = "=2" },
         .{ .key = "cura:zig_zaggify_infill", .value = "=False" },
         .{ .key = "cura:infill_wipe_dist", .value = "=0" },
         .{ .key = "cura:speed_infill", .value = "=20" },

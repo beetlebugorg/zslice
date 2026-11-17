@@ -112,6 +112,11 @@ pub const Path = struct {
     /// walls): the index in `LayerPlan.point_w` of the width of its first
     /// point. `planar` for a path of one width.
     w_start: u32 = planar,
+    /// The settings of this path: 0 for the settings of the layer
+    /// (`LayerPlan.resolved`), k for `LayerPlan.region_resolved[k - 1]`
+    /// (the settings of a modifier volume, see `Modifier`). The emitter
+    /// takes the speed, the acceleration, and the infill flow from them.
+    region: u16 = 0,
 
     pub const planar = std.math.maxInt(u32);
 };
@@ -139,6 +144,11 @@ pub const LayerPlan = struct {
     /// The settings of this layer, with its overrides. The emitter uses
     /// them for the speeds. Valid while the job lives.
     resolved: ?*const Resolved = null,
+    /// The settings of the modifier volumes of this layer (see
+    /// `Path.region`), and the index of each in `Context.modifiers`.
+    /// Valid while the job lives.
+    region_resolved: []const *const Resolved = &.{},
+    region_modifier: []const u16 = &.{},
     /// The outline of the layer.
     outline: Paths = .empty,
     /// The area of the sparse infill: inside the walls, and not skin. Its
@@ -163,6 +173,37 @@ pub const LayerPlan = struct {
     pub fn count(self: LayerPlan) usize {
         return self.paths.items.len;
     }
+
+    /// The settings of a path (see `Path.region`), or null for the
+    /// settings of the layer.
+    pub fn pathResolved(self: *const LayerPlan, path: Path) ?*const Resolved {
+        if (path.region == 0 or path.region > self.region_resolved.len) return null;
+        return self.region_resolved[path.region - 1];
+    }
+};
+
+/// A modifier volume: a region of the plate with its own settings (a Cura
+/// "infill mesh"). On each layer, its area is its slice there, inside the
+/// inner area of the part (inside the walls of the part). In that area:
+///
+/// - The part gets no sparse infill. If the modifier has no top and no
+///   bottom thickness, the part gets no skin there either; else the skin
+///   of the part stays, and the modifier only replaces the sparse infill.
+/// - The modifier gets its own walls (its wall count, 0 for none), and its
+///   infill, with its pattern, density, angles, speed, and flow.
+/// - The walls of the part along its outline stay.
+///
+/// Where two modifiers overlap, the one first in `Context.modifiers`
+/// wins (the engine sorts them by their order).
+pub const Modifier = struct {
+    /// The outline of the volume on each layer.
+    outlines: []const Paths,
+    /// The settings of the modifier on the layers of each set of
+    /// overrides: [0] on the layers with `Context.resolved`, [k] on the
+    /// layers with `Context.layer_resolved[k - 1]`.
+    resolved: []const Resolved,
+    /// The name of the volume, for the inspector.
+    name: []const u8 = "",
 };
 
 pub const Context = struct {
@@ -202,6 +243,9 @@ pub const Context = struct {
     /// of the last layer of the group, or an empty slice: then `plan`
     /// makes the area of its group.
     combined: []const Paths = &.{},
+    /// The modifier volumes (see `Modifier`), the winner of an overlap
+    /// first.
+    modifiers: []const Modifier = &.{},
 
     pub fn canceled(ctx: Context) bool {
         const c = ctx.cancel orelse return false;
@@ -212,6 +256,12 @@ pub const Context = struct {
     pub fn resolvedAt(ctx: Context, i: usize) *const Resolved {
         if (i < ctx.layer_set.len and ctx.layer_set[i] > 0) return &ctx.layer_resolved[ctx.layer_set[i] - 1];
         return ctx.resolved;
+    }
+
+    /// The index of the set of overrides of layer i: 0 for `resolved`, k
+    /// for `layer_resolved[k - 1]`.
+    pub fn setOf(ctx: Context, i: usize) usize {
+        return if (i < ctx.layer_set.len) ctx.layer_set[i] else 0;
     }
 
     /// The infill group of layer i.
@@ -989,12 +1039,19 @@ pub fn plan(gpa: Allocator, ctx: Context, i: usize) Allocator.Error!LayerPlan {
     }
     const walls = reg.walls;
     const wall_n = walls.len;
-    const sparse = reg.sparse;
+    // The modifier volumes on this layer (see `Modifier`): their areas
+    // leave the sparse area, and the areas of the modifiers with no skin
+    // leave the skin area too.
+    const mods = try modifierAreas(s, ctx, i, reg);
+    const sparse = if (mods.taken.isEmpty()) reg.sparse else try clip.difference(s, reg.sparse, mods.taken);
     lp.sparse_area = try sparse.clone(a);
 
     // Step 5.
     const skin_inset = -@divTrunc(w, 2) + geom.fromMm(p.skin_overlap * width_mm);
-    const skin_region = try memo.fill(reg, true, skin_inset, ctx.gen);
+    const skin_region = if (mods.taken_skin.isEmpty())
+        try memo.fill(reg, true, skin_inset, ctx.gen)
+    else
+        try clip.difference(s, try memo.fill(reg, true, skin_inset, ctx.gen), mods.taken_skin);
     // Lines have no direction, so the angle is modulo 180 degrees.
     const skin_angle = @mod(p.skin_angle + p.skin_angle_step * @as(f64, @floatFromInt(i)), 180);
     var skin_lines: Paths = .empty;
@@ -1054,10 +1111,18 @@ pub fn plan(gpa: Allocator, ctx: Context, i: usize) Allocator.Error!LayerPlan {
         var region = try patternRegion(ctx, i, memo, reg) orelse return lp;
         const group = ctx.groupOf(i);
         if (group.count() > 1) {
-            const comb = if (ctx.combined.len > group.last)
+            const comb_all = if (ctx.combined.len > group.last)
                 ctx.combined[group.last]
             else
                 try combinedArea(gpa, s, ctx, group, i, memo) orelse return lp;
+            var comb = comb_all;
+            // The modifier volumes of all the layers of the group leave
+            // the combined area.
+            if (ctx.modifiers.len > 0 and !comb.isEmpty()) {
+                for (group.first..group.last + 1) |j| for (ctx.modifiers) |m| {
+                    if (!m.outlines[j].isEmpty()) comb = try clip.difference(s, comb, m.outlines[j]);
+                };
+            }
             if (!comb.isEmpty()) {
                 // Each layer fills the rest of its area. The strips along
                 // the edge of the combined area that are narrower than two
@@ -1067,15 +1132,16 @@ pub fn plan(gpa: Allocator, ctx: Context, i: usize) Allocator.Error!LayerPlan {
                 region = try offset_mod.opening(s, left, w, .{});
                 if (i == group.last) {
                     for (group.first..group.last + 1) |j| comb_height += ctx.layers[j].height;
-                    const set = try fillSparse(s, p, comb, width_mm, w, group.index, layer.z, null, .empty);
+                    const set = try fillSparse(s, p, comb, r.line_width, w, group.index, layer.z, null, .empty);
                     comb_lines = set.lines;
                     comb_loops = set.loops;
                 }
             }
         }
+        if (!mods.taken.isEmpty()) region = try clip.difference(s, region, mods.taken);
         // The lightning branches of this layer come from the engine.
         const light: Paths = if (i < ctx.lightning.len) ctx.lightning[i] else .empty;
-        const set = try fillSparse(s, p, region, width_mm, w, i, layer.z, under_band, light);
+        const set = try fillSparse(s, p, region, r.line_width, w, i, layer.z, under_band, light);
         sparse_lines = set.lines;
         sparse_loops = set.loops;
     }
@@ -1084,7 +1150,7 @@ pub fn plan(gpa: Allocator, ctx: Context, i: usize) Allocator.Error!LayerPlan {
     if (p.top_support_layers > 0 and p.top_support_density > p.infill_density and p.infill_pattern != .flow and p.infill_density > 0 and !sparse.isEmpty()) {
         const inset = -@divTrunc(w, 2) + geom.fromMm(p.infill_overlap * width_mm);
         const split = try memo.topSplit(reg, inset, ctx.outlines, ctx.bands, i, layersFor(ctx.layers, i, p.top_thickness, .up) + p.top_support_layers, ctx.gen, ctx.cancel) orelse return lp;
-        const band = split.band;
+        const band = if (mods.taken.isEmpty()) split.band else try clip.difference(s, split.band, mods.taken);
         if (!band.isEmpty()) {
             const spacing = geom.fromMm(width_mm / p.top_support_density);
             const angle = p.infill_angle + @as(f64, if (i % 2 == 0) 0 else 90);
@@ -1092,6 +1158,28 @@ pub fn plan(gpa: Allocator, ctx: Context, i: usize) Allocator.Error!LayerPlan {
             const joined = try infill.connect(s, band, set, spacing, angle);
             try sparse_lines.appendAll(s, joined);
         }
+    }
+
+    // The walls and the infill of each modifier volume, with its own
+    // settings.
+    const mod_sets = try s.alloc(ModPaths, mods.list.len);
+    if (mods.list.len > 0) {
+        const rr = try a.alloc(*const Resolved, mods.list.len);
+        const rm = try a.alloc(u16, mods.list.len);
+        const inset = -@divTrunc(w, 2) + geom.fromMm(p.infill_overlap * width_mm);
+        const inner = try clip.unite(s, reg.skin, reg.sparse);
+        const fill_inner = try offset_mod.offset(s, inner, inset, .{});
+        const fill_sparse = try memo.fill(reg, false, inset, ctx.gen);
+        for (mods.list, mod_sets, 0..) |ma, *ms, k| {
+            const mr = &ctx.modifiers[ma.k].resolved[ctx.setOf(i)];
+            rr[k] = mr;
+            rm[k] = ma.k;
+            ms.* = try modifierPaths(s, mr, ma, if (ma.keep_skin) fill_sparse else fill_inner, width_mm, r.line_width, w, i, layer.z);
+        }
+        lp.region_resolved = rr;
+        lp.region_modifier = rm;
+        // The sparse infill of a modifier is sparse on purpose.
+        for (mods.list, mod_sets) |ma, ms| if (ms.sparse) try lp.sparse_area.appendAll(a, ma.area);
     }
 
     if (ctx.canceled()) return lp;
@@ -1174,6 +1262,8 @@ pub fn plan(gpa: Allocator, ctx: Context, i: usize) Allocator.Error!LayerPlan {
     const comb_ids = try isl.ids(s, comb_lines);
     const comb_loop_ids = try isl.ids(s, comb_loops);
     const ironing_ids = try isl.ids(s, ironing_lines);
+    const mod_ids = try s.alloc([3][]const u32, mod_sets.len);
+    for (mod_sets, mod_ids) |ms, *ids| ids.* = .{ try isl.ids(s, ms.walls), try isl.ids(s, ms.lines), try isl.ids(s, ms.loops) };
     const done = try s.alloc(bool, isl.count() + 1);
     @memset(done, false);
     for (0..isl.count() + 1) |_| {
@@ -1208,6 +1298,13 @@ pub fn plan(gpa: Allocator, ctx: Context, i: usize) Allocator.Error!LayerPlan {
             try addGroup(s, a, &lp, &pos, comb_lines, false, .infill, null, .{ .ids = comb_ids, .id = id });
             try addGroup(s, a, &lp, &pos, comb_loops, true, .infill, null, .{ .ids = comb_loop_ids, .id = id });
             for (lp.paths.items[before..]) |*path| path.height = @floatCast(comb_height);
+        }
+        for (mod_sets, mod_ids, 0..) |ms, ids, mk| {
+            const before = lp.paths.items.len;
+            try addGroup(s, a, &lp, &pos, ms.walls, true, .inner_wall, null, .{ .ids = ids[0], .id = id });
+            try addGroup(s, a, &lp, &pos, ms.lines, false, .infill, null, .{ .ids = ids[1], .id = id });
+            try addGroup(s, a, &lp, &pos, ms.loops, true, .infill, null, .{ .ids = ids[2], .id = id });
+            for (lp.paths.items[before..]) |*path| path.region = @intCast(mk + 1);
         }
         try addGroup(s, a, &lp, &pos, ironing_lines, false, .ironing, null, .{ .ids = ironing_ids, .id = id });
     }
@@ -1269,6 +1366,89 @@ fn addBeads(s: Allocator, a: Allocator, lp: *LayerPlan, pos: *Point, set: []cons
     }
 }
 
+/// The area of one modifier volume on a layer (see `Modifier`).
+const ModArea = struct {
+    /// The index in `Context.modifiers`.
+    k: u16,
+    area: Paths,
+    /// The modifier has a top or a bottom thickness: the skin of the part
+    /// stays, and the modifier replaces only the sparse infill.
+    keep_skin: bool,
+};
+
+const ModAreas = struct {
+    list: []const ModArea = &.{},
+    /// The union of the areas: they leave the sparse area of the part.
+    taken: Paths = .empty,
+    /// The union of the areas of the modifiers with no skin: they leave
+    /// the skin area of the part too.
+    taken_skin: Paths = .empty,
+};
+
+/// The areas of the modifier volumes on layer i. A modifier with a top or
+/// bottom thickness takes only the sparse area of the part; one with none
+/// takes the whole inner area (skin and sparse). An area that an earlier
+/// modifier took is not taken again.
+fn modifierAreas(s: Allocator, ctx: Context, i: usize, reg: Regions) Allocator.Error!ModAreas {
+    if (ctx.modifiers.len == 0) return .{};
+    var list: std.ArrayList(ModArea) = .empty;
+    var taken: Paths = .empty;
+    var taken_skin: Paths = .empty;
+    var inner: ?Paths = null;
+    for (ctx.modifiers, 0..) |m, k| {
+        const mo = m.outlines[i];
+        if (mo.isEmpty()) continue;
+        const p = m.resolved[ctx.setOf(i)].settings.project;
+        const keep_skin = p.top_thickness > 0 or p.bottom_thickness > 0;
+        const host = if (keep_skin) reg.sparse else inner orelse blk: {
+            inner = try clip.unite(s, reg.skin, reg.sparse);
+            break :blk inner.?;
+        };
+        var area = try clip.intersect(s, mo, host);
+        if (!taken.isEmpty() and !area.isEmpty()) area = try clip.difference(s, area, taken);
+        if (area.isEmpty()) continue;
+        try list.append(s, .{ .k = @intCast(k), .area = area, .keep_skin = keep_skin });
+        taken = if (taken.isEmpty()) area else try clip.unite(s, taken, area);
+        if (!keep_skin) taken_skin = if (taken_skin.isEmpty()) area else try clip.unite(s, taken_skin, area);
+    }
+    return .{ .list = list.items, .taken = taken, .taken_skin = taken_skin };
+}
+
+/// The paths of one modifier volume on a layer.
+const ModPaths = struct {
+    walls: Paths = .empty,
+    lines: Paths = .empty,
+    loops: Paths = .empty,
+    /// The infill is sparse on purpose (density less than 1).
+    sparse: bool = false,
+};
+
+/// The walls and the infill of a modifier area, with the settings `r` of
+/// the modifier. `fill_host`: the fill region of the part (its area moved
+/// in by the fill inset), which limits the infill where the area meets
+/// the walls of the part.
+fn modifierPaths(s: Allocator, r: *const Resolved, ma: ModArea, fill_host: Paths, width_mm: f64, grid_mm: f64, w: i64, i: usize, z: f64) Allocator.Error!ModPaths {
+    const p = r.settings.project;
+    var out: ModPaths = .{ .sparse = p.infill_density < 1 };
+    var region: Paths = undefined;
+    if (p.wall_count == 0) {
+        region = try clip.intersect(s, ma.area, fill_host);
+    } else {
+        for (0..p.wall_count) |k| {
+            const loop = try offset_mod.offset(s, ma.area, -(@divTrunc(w, 2) + @as(i64, @intCast(k)) * w), .{});
+            if (loop.isEmpty()) break;
+            try out.walls.appendAll(s, loop);
+        }
+        const inner = try offset_mod.offset(s, ma.area, -@as(i64, @intCast(p.wall_count)) * w, .{});
+        region = try offset_mod.offset(s, inner, -@divTrunc(w, 2) + geom.fromMm(p.infill_overlap * width_mm), .{});
+    }
+    if (!(p.infill_density > 0) or region.isEmpty()) return out;
+    const set = try fillSparse(s, p, region, grid_mm, w, i, z, null, .empty);
+    out.lines = set.lines;
+    out.loops = set.loops;
+    return out;
+}
+
 /// The infill angle of layer `layer_no` from `Project.infill_angles`, or
 /// null if the list is empty.
 fn listAngle(p: settings_mod.Project, layer_no: usize) ?f64 {
@@ -1296,6 +1476,10 @@ pub fn turnAngle(p: settings_mod.Project, layer_no: usize) f64 {
 }
 
 /// The sparse infill lines and loops of the pattern of `p` in `region`.
+/// `width_mm`: the line width that sets the spacing of the pattern. It is
+/// the line width of the layers after the first, also on the first layer,
+/// so that the pattern has the same grid on all layers (a grille has
+/// openings that go through). `w`: the width of the lines of this layer.
 /// `layer_no`: a layer number for the patterns that turn by 90 degrees on each
 /// layer. `z`: the height for the patterns that change with the height.
 /// `under_band`: for the flow pattern, the area under the band above (see
@@ -1355,7 +1539,7 @@ fn fillSparse(s: Allocator, p: settings_mod.Project, region: Paths, width_mm: f6
             sparse_loops = try infill.concentric(s, region, spacing);
         },
         .honeycomb => {
-            const set = try infill.honeycomb(s, region, w, p.infill_density, baseAngle(p, i), w);
+            const set = try infill.honeycomb(s, region, geom.fromMm(width_mm), p.infill_density, baseAngle(p, i), w);
             // The rows end at the walls: join them along the walls (two
             // row spacings at most), and drop the lone short pieces.
             const row = geom.fromMm(width_mm / p.infill_density);

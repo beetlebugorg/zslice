@@ -51,6 +51,7 @@ pub const islands = @import("islands.zig");
 pub const toml = @import("toml.zig");
 pub const profile = @import("profile.zig");
 pub const import_cura = @import("import_cura.zig");
+pub const part_settings = @import("part_settings.zig");
 pub const app = @import("app.zig");
 
 pub const Mesh = mesh.Mesh;

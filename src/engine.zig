@@ -290,6 +290,19 @@ pub const Job = struct {
     /// The infill group of each layer (see layer.InfillGroup), or an empty
     /// slice if no layer combines its infill.
     groups: []layer_mod.InfillGroup = &.{},
+    /// Where pass 1 cut the mesh: the z of the mesh at the bottom of the
+    /// first layer, and the move of the mesh in X and Y (mm). The
+    /// modifier volumes are cut the same way.
+    z_base: f64 = 0,
+    dx: f64 = 0,
+    dy: f64 = 0,
+    /// The center of the XY shrinkage scale (mm).
+    center: [2]f64 = .{ 0, 0 },
+    /// The modifier volumes (see `setModifiers` and layer.Modifier).
+    modifiers: []layer_mod.Modifier = &.{},
+    /// The memory of the modifiers: their outlines, their settings, and
+    /// the strings of their settings.
+    mod_arena: ?std.heap.ArenaAllocator = null,
 
     /// Steps 1 to 4.
     pub fn init(gpa: Allocator, mesh: *const Mesh, settings: Settings) Error!Job {
@@ -471,8 +484,13 @@ pub const Job = struct {
         };
         errdefer job.deinit();
 
+        job.dx = dx;
+        job.dy = dy;
+        job.center = .{ (b.min[0] + b.max[0]) / 2 + dx, (b.min[1] + b.max[1]) / 2 + dy };
+        job.z_base = b.min[2];
         if (old) |o| if (o.outline_key == key and o.outlines.len > 0) {
             // The same outlines: take them, with the surfaces and the memos.
+            job.z_base = o.z_base;
             job.layers = o.layers;
             o.layers = &.{};
             job.outlines = o.outlines;
@@ -516,6 +534,7 @@ pub const Job = struct {
                 z_base = b.min[2] + lift / f.shrinkage_z;
                 sliced = try slicePart(gpa, mesh, settings, outline_overrides, height - lift, z_base, b, dx, dy, threads, monitor);
             }
+            job.z_base = z_base;
             job.layers = sliced.layers;
             job.outlines = sliced.outlines;
             job.memos = try gpa.alloc(layer_mod.Memo, job.layers.len);
@@ -563,6 +582,7 @@ pub const Job = struct {
     }
 
     pub fn deinit(self: *Job) void {
+        self.dropModifiers();
         self.gpa.free(self.groups);
         self.gpa.free(self.layer_set);
         self.gpa.free(self.layer_resolved);
@@ -601,7 +621,109 @@ pub const Job = struct {
             .lightning = self.lightning,
             .groups = self.groups,
             .bands = &self.bands,
+            .modifiers = self.modifiers,
         };
+    }
+
+    /// A modifier volume for `setModifiers`.
+    pub const ModifierInput = struct {
+        /// The volume, in the coordinates of the mesh of the job.
+        mesh: *const Mesh,
+        /// The settings of the volume. The job keeps a copy.
+        changes: []const settings_mod.Change,
+        /// Where two volumes overlap, the one with the higher order wins.
+        order: i32 = 0,
+        name: []const u8 = "",
+    };
+
+    fn dropModifiers(self: *Job) void {
+        if (self.mod_arena) |*ar| ar.deinit();
+        self.mod_arena = null;
+        self.modifiers = &.{};
+    }
+
+    /// Sets the modifier volumes of the job (see layer.Modifier), in place
+    /// of the ones before. Pass 1 cuts each volume at the layers of the
+    /// job. The settings of a volume apply over the settings of each
+    /// layer. Call it before the plans.
+    pub fn setModifiers(self: *Job, mods: []const ModifierInput) Error!void {
+        self.dropModifiers();
+        if (mods.len == 0) return;
+        self.mod_arena = .init(self.gpa);
+        const a = self.mod_arena.?.allocator();
+        // The winner of an overlap first: the higher order, then the
+        // earlier volume.
+        const order = try a.alloc(usize, mods.len);
+        for (order, 0..) |*o, k| o.* = k;
+        std.mem.sort(usize, order, mods, struct {
+            fn lt(ms: []const ModifierInput, x: usize, y: usize) bool {
+                if (ms[x].order != ms[y].order) return ms[x].order > ms[y].order;
+                return x < y;
+            }
+        }.lt);
+        const list = try a.alloc(layer_mod.Modifier, mods.len);
+        for (order, list) |k, *m| {
+            const in = mods[k];
+            const changes = try a.alloc(settings_mod.Change, in.changes.len);
+            for (in.changes, changes) |c, *d| d.* = .{ .name = try a.dupe(u8, c.name), .value = try a.dupe(u8, c.value) };
+            const res = try a.alloc(settings_mod.Resolved, 1 + self.layer_resolved.len);
+            for (res, 0..) |*r, set| {
+                var st = if (set == 0) self.resolved.settings else self.layer_resolved[set - 1].settings;
+                for (changes) |c| st.set(c.name, c.value) catch return error.InvalidSettings;
+                r.* = st.resolve() catch return error.InvalidSettings;
+            }
+            m.* = .{ .outlines = try self.sliceExtra(a, in.mesh), .resolved = res, .name = try a.dupe(u8, in.name) };
+        }
+        self.modifiers = list;
+    }
+
+    /// The outline of `mesh` on each layer of the job, cut as pass 1 cuts
+    /// the mesh of the job (the same z, move, and shrinkage, with no XY
+    /// offsets). The result goes in `a`.
+    fn sliceExtra(self: *const Job, a: Allocator, mesh: *const Mesh) Error![]Paths {
+        const n = self.layers.len;
+        const out = try a.alloc(Paths, n);
+        @memset(out, .empty);
+        if (mesh.faces.items.len == 0) return out;
+        const s = self.resolved.settings;
+        var index = try slicer.FaceIndex.buildScaled(self.gpa, mesh, self.layers, self.z_base, s.filament.shrinkage_z, self.threads);
+        defer index.deinit(self.gpa);
+        // The outlines go to `tmp` on the threads (gpa is thread-safe, the
+        // arena is not), then to the arena.
+        const tmp = try self.gpa.alloc(Paths, n);
+        defer self.gpa.free(tmp);
+        @memset(tmp, .empty);
+        defer for (tmp) |*t| t.deinit(self.gpa);
+        const Pass = struct {
+            job: *const Job,
+            mesh: *const Mesh,
+            index: *const slicer.FaceIndex,
+            out: []Paths,
+            fn run(c: *const @This(), i: usize) anyerror!void {
+                const job = c.job;
+                if (job.monitor.canceled()) return error.Canceled;
+                const st = job.resolved.settings;
+                const o = try slicer.sliceAt(job.gpa, c.mesh, c.index.get(i), job.layers[i].sliceZ() / st.filament.shrinkage_z + job.z_base, geom.fromMm(st.engine.resolution), geom.fromMm(st.engine.gap_closing));
+                const dx = geom.fromMm(job.dx);
+                const dy = geom.fromMm(job.dy);
+                const xy_scale = st.filament.shrinkage_xy;
+                const cx = geom.fromMm(job.center[0]);
+                const cy = geom.fromMm(job.center[1]);
+                for (o.points.items) |*p| {
+                    p.x += dx;
+                    p.y += dy;
+                    if (xy_scale != 1) {
+                        p.x = cx + @as(i64, @intFromFloat(@round(@as(f64, @floatFromInt(p.x - cx)) * xy_scale)));
+                        p.y = cy + @as(i64, @intFromFloat(@round(@as(f64, @floatFromInt(p.y - cy)) * xy_scale)));
+                    }
+                }
+                c.out[i] = o;
+            }
+        };
+        const c: Pass = .{ .job = self, .mesh = mesh, .index = &index, .out = tmp };
+        parallel.forEach(self.threads, n, &c, Pass.run) catch |e| return @as(Error, @errorCast(e));
+        for (tmp, out) |t, *o| o.* = try t.clone(a);
+        return out;
     }
 
     /// The settings of layer i, with its overrides.
@@ -2355,4 +2477,179 @@ test "infill: the angle list sets the angle of each layer in turn" {
         const want: f64 = if (i % 3 == 2) 90 else 0;
         try testing.expectApproxEqAbs(want, infillDirection(&lp), 0.5);
     }
+}
+
+/// The lines of the infill segments longer than 1 mm: the direction
+/// (degrees) and the distance of the line from the origin (in 20 µm
+/// steps).
+fn infillLineKeys(gpa: Allocator, lp: *const LayerPlan) ![][2]i64 {
+    var out: std.ArrayList([2]i64) = .empty;
+    for (lp.paths.items, 0..) |p, k| if (p.feature == .infill) {
+        const pts = lp.points.get(k);
+        for (pts[0 .. pts.len - 1], pts[1..]) |a, b| {
+            const dx: f64 = @floatFromInt(b.x - a.x);
+            const dy: f64 = @floatFromInt(b.y - a.y);
+            const l = std.math.hypot(dx, dy);
+            if (l < 1000) continue;
+            var ang = std.math.atan2(dy, dx);
+            if (ang < 0) ang += std.math.pi;
+            if (ang >= std.math.pi - 1e-3) ang -= std.math.pi;
+            const d = (@as(f64, @floatFromInt(a.x)) * -@sin(ang) + @as(f64, @floatFromInt(a.y)) * @cos(ang)) / 20;
+            try out.append(gpa, .{ @intFromFloat(@round(std.math.radiansToDegrees(ang))), @intFromFloat(@round(d)) });
+        }
+    };
+    return out.toOwnedSlice(gpa);
+}
+
+test "infill: the first layer has the same pattern grid as the layers above" {
+    const gpa = testing.allocator;
+    var b: mesh_mod.Builder = .init(gpa);
+    try mesh_mod.shapes.addBox(&b, 0, 0, 0, 30, 30, 3);
+    var mesh = try b.finish();
+    defer mesh.deinit(gpa);
+    for ([_]settings_mod.InfillPattern{ .honeycomb, .grid, .triangles, .trihexagon }) |pattern| {
+        var s: Settings = .{};
+        s.engine.threads = 1;
+        s.project.infill_pattern = pattern;
+        s.project.infill_connect = false;
+        s.project.bottom_thickness = 0;
+        s.project.top_support_layers = 0;
+        var job = try Job.init(gpa, &mesh, s);
+        defer job.deinit();
+        var l0 = try job.planLayer(0);
+        defer l0.deinit();
+        var l1 = try job.planLayer(1);
+        defer l1.deinit();
+        const k0 = try infillLineKeys(gpa, &l0);
+        defer gpa.free(k0);
+        const k1 = try infillLineKeys(gpa, &l1);
+        defer gpa.free(k1);
+        // The lines of layer 1 are lines of layer 0 (within 20 µm). A few
+        // short pieces at the walls of layer 0 (its walls are wider) are
+        // shorter than 1 mm there.
+        var hits: usize = 0;
+        for (k1) |q| {
+            for (k0) |r| if (q[0] == r[0] and @abs(q[1] - r[1]) <= 1) {
+                hits += 1;
+                break;
+            };
+        }
+        testing.expect(k1.len > 0 and hits * 20 >= k1.len * 19) catch |e| {
+            std.debug.print("pattern {s}: {d} of {d} lines on the first layer\n", .{ @tagName(pattern), hits, k1.len });
+            return e;
+        };
+    }
+}
+
+/// True if any point of a path of `feature` (and region, if not null) is
+/// inside the box x0, y0, x1, y1 (mm).
+fn featureIn(lp: *const LayerPlan, feature: settings_mod.Feature, region: ?u16, box: [4]f64) bool {
+    for (lp.paths.items, 0..) |p, k| {
+        if (p.feature != feature) continue;
+        if (region) |r| if (p.region != r) continue;
+        for (lp.points.get(k)) |q| {
+            const x = geom.toMm(q.x);
+            const y = geom.toMm(q.y);
+            if (x > box[0] and x < box[2] and y > box[1] and y < box[3]) return true;
+        }
+    }
+    return false;
+}
+
+test "modifier volume: its infill in place of the skin and the infill of the part" {
+    const gpa = testing.allocator;
+    var b: mesh_mod.Builder = .init(gpa);
+    try mesh_mod.shapes.addBox(&b, 0, 0, 0, 40, 40, 2);
+    var plate = try b.finish();
+    defer plate.deinit(gpa);
+    var bw: mesh_mod.Builder = .init(gpa);
+    try mesh_mod.shapes.addBox(&bw, 10, 10, 0, 30, 30, 2);
+    var window = try bw.finish();
+    defer window.deinit(gpa);
+    var s: Settings = .{};
+    s.engine.threads = 2;
+    s.project.placement = .file;
+    // All layers of the plate are skin.
+    s.project.top_thickness = 2;
+    s.project.bottom_thickness = 2;
+    var job = try Job.init(gpa, &plate, s);
+    defer job.deinit();
+    const changes = [_]settings_mod.Change{
+        .{ .name = "project.wall_count", .value = "0" },
+        .{ .name = "project.top_thickness", .value = "0" },
+        .{ .name = "project.bottom_thickness", .value = "0" },
+        .{ .name = "project.infill_density", .value = "0.3" },
+        .{ .name = "project.infill_pattern", .value = "lines" },
+        .{ .name = "project.infill_speed", .value = "0.1" },
+        .{ .name = "project.infill_flow", .value = "1.1" },
+        .{ .name = "project.infill_angles", .value = "0" },
+        .{ .name = "project.infill_connect", .value = "false" },
+    };
+    try job.setModifiers(&.{.{ .mesh = &window, .changes = &changes, .order = 1, .name = "window" }});
+    // All layers are skin, but for the window.
+    const inside = [4]f64{ 11, 11, 29, 29 };
+    for ([_]usize{ 0, job.layers.len / 2, job.layers.len - 1 }) |i| {
+        var lp = try job.planLayer(i);
+        defer lp.deinit();
+        try testing.expect(!featureIn(&lp, .skin, null, inside));
+        try testing.expect(!featureIn(&lp, .outer_wall, null, inside));
+        try testing.expect(!featureIn(&lp, .inner_wall, null, inside));
+        // The lines along X end at the edge of the window.
+        try testing.expect(featureIn(&lp, .infill, 1, .{ 9, 11, 31, 29 }));
+        // The plate keeps its walls and its skin around the window.
+        try testing.expect(featureIn(&lp, .outer_wall, 0, .{ -1, -1, 41, 41 }));
+        try testing.expect(featureIn(&lp, .skin, 0, .{ 0.5, 1, 9.95, 39 }));
+        try testing.expectEqual(@as(usize, 1), lp.region_resolved.len);
+        // The infill of the window lies along X on all layers.
+        for (lp.paths.items, 0..) |p, k| if (p.region == 1) {
+            const pts = lp.points.get(k);
+            try testing.expectEqual(pts[0].y, pts[pts.len - 1].y);
+        };
+        // The window infill is sparse on purpose: no gap there.
+        var g = try @import("gaps.zig").find(gpa, &lp, .{});
+        defer g.deinit(gpa);
+        for (g.gaps) |gap| try testing.expect(!(gap.x > 12 and gap.x < 28 and gap.y > 12 and gap.y < 28));
+    }
+    // The G-code: the window infill at its speed (10 % of 150 mm/s) and
+    // its flow.
+    var out: Writer.Allocating = .init(gpa);
+    defer out.deinit();
+    _ = try job.writeGcode(&out.writer);
+    try testing.expect(std.mem.indexOf(u8, out.written(), "F900") != null);
+}
+
+test "modifier volume: two volumes overlap, and the higher order wins" {
+    const gpa = testing.allocator;
+    var b: mesh_mod.Builder = .init(gpa);
+    try mesh_mod.shapes.addBox(&b, 0, 0, 0, 40, 40, 10);
+    var plate = try b.finish();
+    defer plate.deinit(gpa);
+    var b1: mesh_mod.Builder = .init(gpa);
+    try mesh_mod.shapes.addBox(&b1, 5, 5, 0, 25, 35, 10);
+    var m1 = try b1.finish();
+    defer m1.deinit(gpa);
+    var b2: mesh_mod.Builder = .init(gpa);
+    try mesh_mod.shapes.addBox(&b2, 15, 5, 0, 35, 35, 10);
+    var m2 = try b2.finish();
+    defer m2.deinit(gpa);
+    var s: Settings = .{};
+    s.engine.threads = 1;
+    s.project.placement = .file;
+    var job = try Job.init(gpa, &plate, s);
+    defer job.deinit();
+    const low = [_]settings_mod.Change{.{ .name = "project.infill_density", .value = "0.1" }};
+    const high = [_]settings_mod.Change{.{ .name = "project.infill_density", .value = "0.4" }};
+    try job.setModifiers(&.{ .{ .mesh = &m1, .changes = &low, .order = 1, .name = "low" }, .{ .mesh = &m2, .changes = &high, .order = 2, .name = "high" } });
+    // The higher order goes first.
+    try testing.expectEqualStrings("high", job.modifiers[0].name);
+    var lp = try job.planLayer(job.layers.len / 2);
+    defer lp.deinit();
+    // The overlap (15 to 25) belongs to "high": region 1 is "high" on
+    // this layer.
+    try testing.expectEqual(@as(u16, 0), lp.region_modifier[0]);
+    try testing.expect(featureIn(&lp, .infill, 1, .{ 16, 6, 24, 34 }));
+    try testing.expect(!featureIn(&lp, .infill, 2, .{ 16, 6, 24, 34 }));
+    try testing.expect(featureIn(&lp, .infill, 2, .{ 6, 6, 14, 34 }));
+    // The part has no infill in the volumes.
+    try testing.expect(!featureIn(&lp, .infill, 0, .{ 7, 7, 33, 33 }));
 }

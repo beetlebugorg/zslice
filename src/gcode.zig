@@ -711,7 +711,9 @@ pub const Emitter = struct {
             self.path_index = i;
             try self.travel(geom.toMm(pts[0].x), geom.toMm(pts[0].y));
             self.layer_start = false;
-            try self.setAccel(lr.accel(path.feature, first));
+            // A path in a modifier volume has the settings of the volume.
+            const path_r = lp.pathResolved(path) orelse lr;
+            try self.setAccel(path_r.accel(path.feature, first));
             const retracted = self.stats.retractions != retractions;
             if (self.feature != path.feature) {
                 self.feature = path.feature;
@@ -725,7 +727,7 @@ pub const Emitter = struct {
             const widths: []const f32 = if (path.w_start != layer_mod.Path.planar) lp.point_w.items[path.w_start..][0..pts.len] else &.{};
             var speed_width = lp.width;
             for (widths) |pw| speed_width = @max(speed_width, pw);
-            const full = lr.speedAt(path.feature, speed_width, h, lp.index);
+            const full = path_r.speedAt(path.feature, speed_width, h, lp.index);
             const speed = slowSpeed(full, slow, s.filament.min_speed);
             const start_time = self.stats.print_time_s;
             // Ironing lines use a fraction of the flow of a normal line.
@@ -734,7 +736,7 @@ pub const Emitter = struct {
             const base_e = if (path.width > 0 or path.height > 0) flow.beadArea(if (path.width > 0) path.width else lp.width, h) / self.r.filament_area * s.filament.flow_ratio else e_per_mm;
             const e = switch (path.feature) {
                 .ironing => base_e * lr.settings.project.ironing_flow,
-                .infill => base_e * lr.settings.project.infill_flow,
+                .infill => base_e * path_r.settings.project.infill_flow,
                 else => base_e,
             };
             const x0 = geom.toMm(pts[0].x);

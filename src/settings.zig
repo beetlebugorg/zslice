@@ -1082,6 +1082,12 @@ test "limits: each number has one, and each default is in it" {
     try std.testing.expectEqual(@as(f64, 8), s.project.brim_width);
 }
 
+/// A change of one setting, by its dotted name ("project.infill_density").
+pub const Change = struct {
+    name: []const u8,
+    value: []const u8,
+};
+
 /// A change of one setting for the layers with a top z from z_min to z_max
 /// (mm). The z range, and not the layer numbers, so that an override stays
 /// on the same part of the print after a change of the layer height.
