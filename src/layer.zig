@@ -77,6 +77,7 @@ const Allocator = std.mem.Allocator;
 const geom = @import("geom.zig");
 const scratch = @import("scratch.zig");
 const clip = @import("clip.zig");
+const parallel = @import("parallel.zig");
 const offset_mod = @import("offset.zig");
 const infill = @import("infill.zig");
 const settings_mod = @import("settings.zig");
@@ -177,6 +178,9 @@ pub const Context = struct {
     /// The infill group of each layer (see `groups`), or an empty slice:
     /// each layer prints its own infill.
     groups: []const InfillGroup = &.{},
+    /// The intersections of runs of outlines (see `BandTable`), or null:
+    /// then each band intersects its outlines one by one.
+    bands: ?*const BandTable = null,
     /// The combined area of each group (see `combinedArea`), at the index
     /// of the last layer of the group, or an empty slice: then `plan`
     /// makes the area of its group.
@@ -289,13 +293,13 @@ fn combinable(gpa: Allocator, s: Allocator, ctx: Context, j: usize, memo: *Memo)
     if (p.infill_pattern == .flow) {
         const band_mm = @max(2.0, 3 * p.top_thickness);
         const band = layersForTol(ctx.layers, j + 1, band_mm, .up, 0);
-        const u = try memo.underBand(ctx.outlines, j, band, ctx.gen, ctx.cancel) orelse return null;
+        const u = try memo.underBand(ctx.outlines, ctx.bands, j, band, ctx.gen, ctx.cancel) orelse return null;
         // Near the top of the part, all of it is the band.
         if (u.isEmpty()) return Paths.empty;
         return try clip.intersect(s, full, u);
     }
     if (p.top_support_layers > 0 and p.top_support_density > p.infill_density) {
-        const split = try memo.topSplit(reg, inset, ctx.outlines, j, layersFor(ctx.layers, j, p.top_thickness, .up) + p.top_support_layers, ctx.gen, ctx.cancel) orelse return null;
+        const split = try memo.topSplit(reg, inset, ctx.outlines, ctx.bands, j, layersFor(ctx.layers, j, p.top_thickness, .up) + p.top_support_layers, ctx.gen, ctx.cancel) orelse return null;
         return split.rest;
     }
     return full;
@@ -528,13 +532,13 @@ pub const Memo = struct {
     /// the area under all of the `band` layers above layer i and the rest
     /// (see `TopSplit`).
     /// Null if `cancel` became true: then the memo keeps nothing.
-    fn topSplit(self: *Memo, reg: Regions, delta: i64, outlines: []const Paths, i: usize, band: u32, gen: u32, cancel: ?*const std.atomic.Value(bool)) Allocator.Error!?TopSplit {
+    fn topSplit(self: *Memo, reg: Regions, delta: i64, outlines: []const Paths, bands: ?*const BandTable, i: usize, band: u32, gen: u32, cancel: ?*const std.atomic.Value(bool)) Allocator.Error!?TopSplit {
         for (self.splits.items) |*e| if (e.delta == delta and e.band == band and std.mem.eql(i64, &e.key, &reg.key)) {
             e.gen = gen;
             return e.split;
         };
         const full = try self.fill(reg, false, delta, gen);
-        const u = try self.underBand(outlines, i, band, gen, cancel) orelse return null;
+        const u = try self.underBand(outlines, bands, i, band, gen, cancel) orelse return null;
         const a = self.arena.allocator();
         const b = try clip.difference(a, full, u);
         const split: TopSplit = .{ .band = b, .rest = if (b.isEmpty()) full else try clip.intersect(a, full, u) };
@@ -545,7 +549,7 @@ pub const Memo = struct {
     /// For the flow infill: the area of all the layers of the band above
     /// layer i (an intersection of their outlines).
     /// Null if `cancel` became true: then the memo keeps nothing.
-    fn underBand(self: *Memo, outlines: []const Paths, i: usize, band: u32, gen: u32, cancel: ?*const std.atomic.Value(bool)) Allocator.Error!?Paths {
+    fn underBand(self: *Memo, outlines: []const Paths, bands: ?*const BandTable, i: usize, band: u32, gen: u32, cancel: ?*const std.atomic.Value(bool)) Allocator.Error!?Paths {
         for (self.bands.items) |*e| if (e.band == band) {
             e.gen = gen;
             return e.paths;
@@ -554,7 +558,9 @@ pub const Memo = struct {
         var scratch_state = scratch.get(a);
         defer scratch_state.release();
         var stopped = false;
-        const u = try stackedIntersection(scratch_state.allocator(), outlines, i, band, .up, cancel, &stopped);
+        // From the table: one intersection of two runs of layers.
+        const from_table = if (bands) |t| try t.above(scratch_state.allocator(), outlines, i, band) else null;
+        const u = if (from_table) |v| v else try stackedIntersection(scratch_state.allocator(), outlines, i, band, .up, cancel, &stopped);
         if (stopped) return null;
         const paths = if (u) |v| try v.clone(a) else Paths.empty;
         try self.bands.append(a, .{ .band = band, .paths = paths, .gen = gen });
@@ -725,7 +731,7 @@ pub fn patternRegion(ctx: Context, i: usize, memo: *Memo, reg: Regions) Allocato
     const inset = -@divTrunc(w, 2) + geom.fromMm(p.infill_overlap * width_mm);
     const full_region = try memo.fill(reg, false, inset, ctx.gen);
     if (p.top_support_layers > 0 and p.top_support_density > p.infill_density and p.infill_pattern != .flow) {
-        const split = try memo.topSplit(reg, inset, ctx.outlines, i, layersFor(ctx.layers, i, p.top_thickness, .up) + p.top_support_layers, ctx.gen, ctx.cancel) orelse return null;
+        const split = try memo.topSplit(reg, inset, ctx.outlines, ctx.bands, i, layersFor(ctx.layers, i, p.top_thickness, .up) + p.top_support_layers, ctx.gen, ctx.cancel) orelse return null;
         return split.rest;
     }
     return full_region;
@@ -816,7 +822,7 @@ pub fn plan(gpa: Allocator, ctx: Context, i: usize) Allocator.Error!LayerPlan {
     if (p.infill_pattern == .flow and p.infill_density > 0 and !reg.sparse.isEmpty()) {
         const band_mm = @max(2.0, 3 * p.top_thickness);
         const band = layersForTol(ctx.layers, i + 1, band_mm, .up, 0);
-        under_band = try memo.underBand(ctx.outlines, i, band, ctx.gen, ctx.cancel) orelse return lp;
+        under_band = try memo.underBand(ctx.outlines, ctx.bands, i, band, ctx.gen, ctx.cancel) orelse return lp;
     }
     const walls = reg.walls;
     const wall_n = walls.len;
@@ -881,7 +887,7 @@ pub fn plan(gpa: Allocator, ctx: Context, i: usize) Allocator.Error!LayerPlan {
     // degrees on the next, and joined at the walls.
     if (p.top_support_layers > 0 and p.top_support_density > p.infill_density and p.infill_pattern != .flow and p.infill_density > 0 and !sparse.isEmpty()) {
         const inset = -@divTrunc(w, 2) + geom.fromMm(p.infill_overlap * width_mm);
-        const split = try memo.topSplit(reg, inset, ctx.outlines, i, layersFor(ctx.layers, i, p.top_thickness, .up) + p.top_support_layers, ctx.gen, ctx.cancel) orelse return lp;
+        const split = try memo.topSplit(reg, inset, ctx.outlines, ctx.bands, i, layersFor(ctx.layers, i, p.top_thickness, .up) + p.top_support_layers, ctx.gen, ctx.cancel) orelse return lp;
         const band = split.band;
         if (!band.isEmpty()) {
             const spacing = geom.fromMm(width_mm / p.top_support_density);
@@ -1387,6 +1393,106 @@ fn layersForTol(layers: []const slicer.Layer, start: usize, thickness: f64, dir:
 /// part ends before n layers.
 /// `stopped` becomes true if `cancel` becomes true; then the result is not
 /// complete.
+/// The intersections of the outlines of runs of layers, for the bands of
+/// the top support and the flow infill (the area under all of the `band`
+/// layers above a layer). Level k has, for each layer i, the intersection
+/// of the outlines of layers i to i + 2^k - 1. An intersection gives the
+/// same area when an outline is in it twice, so any run is the
+/// intersection of two runs of a level: a band costs one intersection
+/// (a sparse table). The table depends on the outlines only, so a job with
+/// the same outlines keeps it.
+pub const BandTable = struct {
+    /// levels[k - 1] is level k (level 0 is the outlines). A run past the
+    /// last layer is empty.
+    levels: [][]Paths = &.{},
+
+    pub fn deinit(t: *BandTable, gpa: Allocator) void {
+        for (t.levels) |lv| {
+            for (lv) |*p| p.deinit(gpa);
+            gpa.free(lv);
+        }
+        gpa.free(t.levels);
+        t.levels = &.{};
+    }
+
+    fn get(t: *const BandTable, outlines: []const Paths, k: usize, i: usize) Paths {
+        return if (k == 0) outlines[i] else t.levels[k - 1][i];
+    }
+
+    /// Adds the levels up to `max_k` (runs of 2^max_k layers), each level on
+    /// `threads` threads. The levels that the table has stay.
+    pub fn extend(t: *BandTable, gpa: Allocator, outlines: []const Paths, max_k: usize, threads: usize, cancel: ?*const std.atomic.Value(bool)) anyerror!void {
+        const n = outlines.len;
+        while (t.levels.len < max_k) {
+            const k = t.levels.len + 1;
+            const level = try gpa.alloc(Paths, n);
+            @memset(level, .empty);
+            const Pass = struct {
+                t: *const BandTable,
+                outlines: []const Paths,
+                level: []Paths,
+                k: usize,
+                gpa: Allocator,
+                cancel: ?*const std.atomic.Value(bool),
+                fn run(c: *const @This(), i: usize) anyerror!void {
+                    if (c.cancel) |x| if (x.load(.acquire)) return error.Canceled;
+                    const half = @as(usize, 1) << @intCast(c.k - 1);
+                    if (i + 2 * half - 1 >= c.outlines.len) return;
+                    const a = c.t.get(c.outlines, c.k - 1, i);
+                    const b = c.t.get(c.outlines, c.k - 1, i + half);
+                    if (a.isEmpty() or b.isEmpty()) return;
+                    c.level[i] = try clip.intersect(c.gpa, a, b);
+                }
+            };
+            const c: Pass = .{ .t = t, .outlines = outlines, .level = level, .k = k, .gpa = gpa, .cancel = cancel };
+            parallel.forEach(threads, n, &c, Pass.run) catch |e| {
+                for (level) |*p| p.deinit(gpa);
+                gpa.free(level);
+                return e;
+            };
+            const more = try gpa.alloc([]Paths, t.levels.len + 1);
+            @memcpy(more[0..t.levels.len], t.levels);
+            more[t.levels.len] = level;
+            gpa.free(t.levels);
+            t.levels = more;
+        }
+    }
+
+    /// The intersection of the outlines of layers i + 1 to i + band, the
+    /// same area as `stackedIntersection` up: empty if the band passes the
+    /// last layer. Null if band is 0 or the table has too few levels. The
+    /// result is in `a`, or is a run of the table.
+    pub fn above(t: *const BandTable, a: Allocator, outlines: []const Paths, i: usize, band: u32) Allocator.Error!?Paths {
+        if (band == 0) return null;
+        if (i + band >= outlines.len) return .empty;
+        const k: usize = std.math.log2_int(u32, band);
+        if (k > t.levels.len) return null;
+        const lo = i + 1;
+        const hi = i + band + 1 - (@as(usize, 1) << @intCast(k));
+        const x = t.get(outlines, k, lo);
+        if (lo == hi) return x;
+        const y = t.get(outlines, k, hi);
+        if (x.isEmpty() or y.isEmpty()) return .empty;
+        return try clip.intersect(a, x, y);
+    }
+};
+
+/// The table levels that the bands of these settings need: the largest
+/// band of a layer (top support, and the flow band), as a power of two.
+pub fn bandLevels(ctx: Context) usize {
+    var most: u32 = 0;
+    for (0..ctx.layers.len) |i| {
+        const p = ctx.resolvedAt(i).settings.project;
+        if (!(p.infill_density > 0)) continue;
+        if (p.infill_pattern == .flow) {
+            most = @max(most, layersForTol(ctx.layers, i + 1, @max(2.0, 3 * p.top_thickness), .up, 0));
+        } else if (p.top_support_layers > 0 and p.top_support_density > p.infill_density) {
+            most = @max(most, layersFor(ctx.layers, i, p.top_thickness, .up) + p.top_support_layers);
+        }
+    }
+    return if (most < 2) 0 else std.math.log2_int(u32, most);
+}
+
 fn stackedIntersection(s: Allocator, outlines: []const Paths, i: usize, n: u32, dir: Direction, cancel: ?*const std.atomic.Value(bool), stopped: *bool) Allocator.Error!?Paths {
     if (n == 0) return null;
     var acc: Paths = .empty;

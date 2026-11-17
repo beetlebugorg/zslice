@@ -260,6 +260,9 @@ pub const Job = struct {
     /// job with the same outlines and the same key takes the islands of
     /// the old job: a change of the infill does not search again.
     islands_key: u64 = 0,
+    /// The intersections of runs of outlines, for the bands under the tops
+    /// (see layer.BandTable). A job with the same outlines keeps it.
+    bands: layer_mod.BandTable = .{},
     /// The top and bottom surfaces of each layer (see layer.surfaces), or
     /// empty slices if no layer has skin.
     tops: []Paths = &.{},
@@ -327,6 +330,7 @@ pub const Job = struct {
         // height must fit the line width of its layer.
         for (job.layers[1..], 1..) |l, i| if (l.height > job.resolvedAt(i).line_width + 1e-9) return error.InvalidSettings;
         if (job.tops.len == 0) try job.makeSurfaces();
+        job.bands.extend(gpa, job.outlines, layer_mod.bandLevels(job.planContext()), job.threads, job.monitor.cancel) catch |e| return @as(Error, @errorCast(e));
         try job.makeLightning();
         job.groups = try layer_mod.groups(gpa, job.planContext());
         // The work memory goes back to the operating system (see
@@ -477,6 +481,8 @@ pub const Job = struct {
             o.tops = &.{};
             job.bottoms = o.bottoms;
             o.bottoms = &.{};
+            job.bands = o.bands;
+            o.bands = .{};
             job.gen = o.gen +% 1;
             job.memos = try gpa.alloc(layer_mod.Memo, job.layers.len);
             for (job.memos) |*mm| mm.* = .init(gpa);
@@ -567,6 +573,7 @@ pub const Job = struct {
         for (self.tops) |*t| t.deinit(self.gpa);
         self.gpa.free(self.tops);
         for (self.bottoms) |*b| b.deinit(self.gpa);
+        self.bands.deinit(self.gpa);
         self.gpa.free(self.bottoms);
         if (self.support.len > 0) support_mod.deinitAll(self.gpa, self.support);
         self.gpa.free(self.islands);
@@ -593,6 +600,7 @@ pub const Job = struct {
             .layer_resolved = self.layer_resolved,
             .lightning = self.lightning,
             .groups = self.groups,
+            .bands = &self.bands,
         };
     }
 
