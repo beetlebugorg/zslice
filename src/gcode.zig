@@ -978,7 +978,7 @@ pub const Emitter = struct {
             line.num(e, 5);
             self.addFeed(&line, v);
             line.add("\n");
-            try self.w.writeAll(line.text());
+            try line.put(self.w);
             const accel = if (self.accel > 0) self.accel else m.max_accel;
             const a = if (@abs(dz) > 0) geom.fmin(accel, m.max_z_accel * d / @abs(dz)) else accel;
             try self.addMove3(dx, dy, dz, d, v, a, e / d);
@@ -1242,7 +1242,7 @@ pub const Emitter = struct {
         line.num(y + self.r.settings.machine.origin_y, 3);
         self.addFeed(&line, speed);
         line.add("\n");
-        try self.w.writeAll(line.text());
+        try line.put(self.w);
         try self.addMove(x - self.x, y - self.y, d, speed, 0);
         self.x = x;
         self.y = y;
@@ -1579,7 +1579,7 @@ pub const Emitter = struct {
         line.num(e, 5);
         self.addFeed(&line, speed);
         line.add("\n");
-        try self.w.writeAll(line.text());
+        try line.put(self.w);
         try self.addMove(x - self.x, y - self.y, d, speed, e_per_mm);
         self.x = x;
         self.y = y;
@@ -1719,6 +1719,34 @@ const Line = struct {
         l.len += t.len;
     }
 
+    /// Adds the first `n` bytes of `t`. A copy with a length that is known
+    /// only when the code runs is a call into the host in wasm. A copy of
+    /// a fixed size is a few moves. So this copies all of `t`, and counts
+    /// only `n` bytes.
+    fn addDigits(l: *Line, t: *const [digit_room]u8, n: usize) void {
+        if (l.skip) return;
+        if (l.len + digit_room <= l.buf.len) {
+            l.buf[l.len..][0..digit_room].* = t.*;
+        } else {
+            @memcpy(l.buf[l.len..][0..n], t[0..n]);
+        }
+        l.len += n;
+    }
+
+    /// The most digits of a number.
+    const digit_room = 24;
+
+    /// Writes the line to `w` (see `addDigits`: the copy has a fixed size
+    /// if the buffer of the writer has room for it).
+    fn put(l: *const Line, w: *Writer) Writer.Error!void {
+        if (w.buffer.len - w.end >= l.buf.len) {
+            w.buffer[w.end..][0..l.buf.len].* = l.buf;
+            w.end += l.len;
+        } else {
+            try w.writeAll(l.text());
+        }
+    }
+
     /// v with at most `decimals` decimal places and no trailing zeros (see
     /// `writeNum`). The digits of the scaled integer go into a buffer from
     /// the end, two at a time from a table.
@@ -1735,8 +1763,11 @@ const Line = struct {
             n = -n;
         }
         var u: u64 = @intCast(n);
-        // At least decimals + 1 digits, with leading zeros.
-        var digits: [24]u8 = undefined;
+        // At least decimals + 1 digits, with leading zeros. The digits are
+        // in the first half of the buffer. The second half is room for the
+        // fixed size copies of `addDigits`.
+        var buf: [2 * digit_room]u8 = undefined;
+        const digits = buf[0..digit_room];
         var at: usize = digits.len;
         while (u >= 100) {
             const pair: usize = @intCast((u % 100) * 2);
@@ -1756,13 +1787,13 @@ const Line = struct {
             digits[at] = '0';
         }
         const int_end = digits.len - decimals;
-        l.add(digits[at..int_end]);
+        l.addDigits(buf[at..][0..digit_room], int_end - at);
         if (decimals == 0) return;
         var frac_end: usize = digits.len;
         while (frac_end > int_end and digits[frac_end - 1] == '0') frac_end -= 1;
         if (frac_end == int_end) return;
         l.add(".");
-        l.add(digits[int_end..frac_end]);
+        l.addDigits(buf[int_end..][0..digit_room], frac_end - int_end);
     }
 };
 
