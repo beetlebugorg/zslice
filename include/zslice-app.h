@@ -557,6 +557,13 @@ const char *zs_app_quality_name(const zs_app *app);
 /* The global settings of the user: a project profile text, under the
  * quality profile. */
 int zs_app_global_set(zs_app *app, const char *text, size_t len, char *message, size_t cap);
+/* One global setting (a project setting for all prints): set it, or
+ * clear it with value NULL; the changes of this print stay on top.
+ * zs_app_global_get gives its global value (the default if not set);
+ * zs_app_global_write gives all of them as a profile text. */
+int zs_app_global_setting_set(zs_app *app, const char *name, const char *value);
+int zs_app_global_get(const zs_app *app, const char *name, char *buf, size_t cap, size_t *out_len);
+int zs_app_global_write(const zs_app *app, char *buf, size_t cap, size_t *out_len);
 /* Formulas: zs_app_setting_set with a value that starts with "=" (for
  * example "= {line_width} * 2") makes the value of the setting follow
  * the other settings (see src/expr.zig); a plain value removes the

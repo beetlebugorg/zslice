@@ -49,6 +49,12 @@ gboolean zg_model_part_setting_set(ZgModel *self, size_t i, const char *name, co
  * project and filament settings belong to a part. "part-scope-changed"
  * follows. */
 void zg_model_set_part_scope(ZgModel *self, gint64 part);
+/* The scope of the global settings (for all prints): the editors change
+ * the global project settings (zs_app_global_setting_set), saved in
+ * global.toml. */
+#define ZG_SCOPE_GLOBAL ((gint64)-2)
+/* Clears a global setting (the default again). */
+gboolean zg_model_global_clear(ZgModel *self, const char *key);
 gint64 zg_model_part_scope(ZgModel *self);
 /* The value of a setting of part i, or NULL if it has the value of the
  * plate. Free with g_free. */

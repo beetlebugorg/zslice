@@ -1035,6 +1035,55 @@ export fn zs_app_global_set(a: ?*App, text: ?[*]const u8, len: usize, message: ?
     return ok;
 }
 
+/// Sets one global setting (value NULL: clears it). See
+/// App.setGlobalSetting.
+export fn zs_app_global_setting_set(a: ?*App, name: ?[*:0]const u8, value: ?[*:0]const u8) c_int {
+    const app = a orelse return @intFromEnum(Status.invalid_argument);
+    const n = std.mem.span(name orelse return @intFromEnum(Status.invalid_argument));
+    app.setGlobalSetting(n, if (value) |v| std.mem.span(v) else null) catch |e| return switch (e) {
+        error.UnknownSetting => @intFromEnum(Status.unknown_setting),
+        error.OutOfMemory => @intFromEnum(Status.out_of_memory),
+        else => @intFromEnum(Status.invalid_value),
+    };
+    return ok;
+}
+
+/// The value of a setting in the global settings (the default if the
+/// global settings do not set it).
+export fn zs_app_global_get(a: ?*const App, name: ?[*:0]const u8, buf: ?[*]u8, cap: usize, out_len: ?*usize) c_int {
+    const app = a orelse return @intFromEnum(Status.invalid_argument);
+    const n = std.mem.span(name orelse return @intFromEnum(Status.invalid_argument));
+    var aw: Writer.Allocating = .init(gpa);
+    defer aw.deinit();
+    App.writeSettingOf(app.globalSettings(), n, &aw.writer) catch return @intFromEnum(Status.unknown_setting);
+    const text = aw.written();
+    if (out_len) |l| l.* = text.len;
+    if (buf) |b| {
+        if (cap == 0) return ok;
+        const k = @min(text.len, cap - 1);
+        @memcpy(b[0..k], text[0..k]);
+        b[k] = 0;
+    }
+    return ok;
+}
+
+/// The global settings as a profile text, for the state of a shell.
+export fn zs_app_global_write(a: ?*const App, buf: ?[*]u8, cap: usize, out_len: ?*usize) c_int {
+    const app = a orelse return @intFromEnum(Status.invalid_argument);
+    var aw: Writer.Allocating = .init(gpa);
+    defer aw.deinit();
+    app.writeGlobal(&aw.writer) catch return @intFromEnum(Status.out_of_memory);
+    const text = aw.written();
+    if (out_len) |l| l.* = text.len;
+    if (buf) |b| {
+        if (cap == 0) return ok;
+        const k = @min(text.len, cap - 1);
+        @memcpy(b[0..k], text[0..k]);
+        b[k] = 0;
+    }
+    return ok;
+}
+
 /// Where the value of a setting comes from (see App.source): the level
 /// (enum zs_level) and the name of its profile. `part` < 0: the plate.
 export fn zs_app_setting_source(a: ?*const App, part: isize, name: ?[*:0]const u8, level: ?*c_int, profile: ?[*]u8, cap: usize) c_int {

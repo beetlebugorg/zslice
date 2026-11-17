@@ -841,6 +841,38 @@ pub const App = struct {
         app.rebase(edits);
     }
 
+    /// The global settings as a Settings value: the defaults with the
+    /// global changes.
+    pub fn globalSettings(app: *const App) Settings {
+        var g: Settings = .{};
+        for (app.global) |c| g.set(c.name, c.value) catch {};
+        return g;
+    }
+
+    /// Sets one global setting (a project setting for all prints), or
+    /// clears it (value null). The changes of this print stay on top.
+    pub fn setGlobalSetting(app: *App, name: []const u8, value: ?[]const u8) (Allocator.Error || Settings.SetError)!void {
+        if (!std.mem.startsWith(u8, name, "project.")) return error.UnknownSetting;
+        var g = app.globalSettings();
+        if (value) |v| {
+            try g.set(name, try app.strings.allocator().dupe(u8, v));
+        } else {
+            const d: Settings = .{};
+            var w: std.Io.Writer.Allocating = .init(app.strings.allocator());
+            writeSettingOf(d, name, &w.writer) catch return error.UnknownSetting;
+            try g.set(name, w.written());
+        }
+        const edits = try app.diffOf(app.settings, app.base(), "project.");
+        app.global = try app.diffOf(g, .{}, "project.");
+        app.rebase(edits);
+        app.applyFormulas();
+    }
+
+    /// The global settings as a profile text (for global.toml).
+    pub fn writeGlobal(app: *const App, w: *std.Io.Writer) std.Io.Writer.Error!void {
+        return zs.profile.writeChanged(app.globalSettings(), .project, w);
+    }
+
     /// The project settings: the base, with `edits` on top.
     fn rebase(app: *App, edits: []const zs.settings.Change) void {
         var s = app.base();
@@ -2466,4 +2498,23 @@ test "formulas: an automatic line width gives the width that the slicer uses" {
     try app.setSetting("machine.nozzle_diameter", "0.5");
     try app.setSetting("project.top_thickness", "= {line_width} * 2");
     try testing.expectApproxEqAbs(@as(f64, 1.1), app.settings.project.top_thickness, 1e-9);
+}
+
+test "global settings: under the quality, and saved apart" {
+    const gpa = testing.allocator;
+    const app = try App.create(gpa, null, null);
+    defer app.destroy();
+    try app.setGlobalSetting("project.seam", "rear");
+    try testing.expectEqual(zs.settings.SeamMode.rear, app.settings.project.seam);
+    try testing.expectEqual(App.Level.global, app.source(null, "project.seam").level);
+    // A change of this print stays over a global change.
+    try app.setSetting("project.wall_count", "4");
+    try app.setGlobalSetting("project.wall_count", "3");
+    try testing.expectEqual(@as(u32, 4), app.settings.project.wall_count);
+    var w: std.Io.Writer.Allocating = .init(gpa);
+    defer w.deinit();
+    try app.writeGlobal(&w.writer);
+    try testing.expect(std.mem.indexOf(u8, w.written(), "seam = \"rear\"") != null);
+    try app.setGlobalSetting("project.seam", null);
+    try testing.expectEqual(App.Level.default, app.source(null, "project.seam").level);
 }

@@ -284,6 +284,18 @@ static void show_default(GtkWidget *box) {
         return;
     }
     gtk_button_set_label(GTK_BUTTON(reset), "Reset");
+    if (zg_model_part_scope(model) == ZG_SCOPE_GLOBAL) {
+        gboolean print = g_str_has_prefix(info->name, "project.");
+        char *def = zg_setting_value_with_unit(info, info->default_value);
+        char *t = print ? g_strdup_printf("Global: for all prints, under the quality profile. Default: %s", def)
+                        : g_strdup("Printer and filament settings are in their profiles (the menus at the top).");
+        gtk_label_set_text(GTK_LABEL(label), t);
+        g_free(t);
+        g_free(def);
+        gtk_widget_set_opacity(reset, print ? 1 : 0);
+        gtk_widget_set_sensitive(reset, print);
+        return;
+    }
     if (zg_model_part_scope(model) >= 0 && !info->per_part) {
         gtk_label_set_text(GTK_LABEL(label), "The same for all the parts of a print. Change it with \"Settings for: This print\".");
         gtk_widget_set_opacity(reset, 0);
@@ -344,6 +356,11 @@ static void on_reset(GtkButton *button, gpointer data) {
     if (b && b->in_profile) {
         zg_model_clear_override(model, info->name);
         show_default(box);
+        return;
+    }
+    /* Global: the global setting goes (the default again). */
+    if (zg_model_part_scope(model) == ZG_SCOPE_GLOBAL) {
+        zg_model_global_clear(model, info->name);
         return;
     }
     /* A value of the part of the scope: the part has the value of the
@@ -423,7 +440,7 @@ static void show_detail(Browser *b, const char *key) {
     zg_setting_row_free(zg_setting_row_add(grid, &row, b->model, info, b->in_profile ? ZG_ROW_SCOPED : 0));
     /* A formula: "= {line_width} * 2" makes the value follow other
      * settings. Enter sets it; an empty field removes it. */
-    if (!b->in_profile && zg_model_part_scope(b->model) < 0 && info->kind != ZS_SETTING_TEXT) {
+    if (!b->in_profile && zg_model_part_scope(b->model) == -1 && info->kind != ZS_SETTING_TEXT) {
         GtkWidget *fl = gtk_label_new("Formula");
         gtk_label_set_xalign(GTK_LABEL(fl), 0);
         gtk_widget_add_css_class(fl, "dim-label");
@@ -443,8 +460,10 @@ static void show_detail(Browser *b, const char *key) {
         gtk_grid_attach(GTK_GRID(grid), fl, 0, row, 1, 1);
         gtk_grid_attach(GTK_GRID(grid), fe, 1, row++, 2, 1);
     }
-    /* For a part: the editor of a setting for all parts is off. */
-    if (zg_model_part_scope(b->model) >= 0 && !info->per_part) {
+    /* For a part: the editor of a setting for all parts is off; global:
+     * the editor of a printer or filament setting. */
+    gint64 scope = zg_model_part_scope(b->model);
+    if ((scope >= 0 && !info->per_part) || (scope == ZG_SCOPE_GLOBAL && !g_str_has_prefix(info->name, "project."))) {
         for (int r = editor_row; r < row; r++)
             for (int c = 0; c < 4; c++) {
                 GtkWidget *w = gtk_grid_get_child_at(GTK_GRID(grid), c, r);
@@ -530,8 +549,16 @@ static void on_more_clicked(GtkButton *button, gpointer data) {
 /* The source tag of a row: the profile or the level of the value. */
 static void update_tag(Browser *b, GtkWidget *tag, const char *key) {
     int level = 0;
-    /* In the scope of a part: a setting that is the same for all parts. */
     zs_setting_info info;
+    /* In the global scope: only the print settings. */
+    if (zg_model_part_scope(b->model) == ZG_SCOPE_GLOBAL) {
+        gboolean print = g_str_has_prefix(key, "project.");
+        gtk_label_set_text(GTK_LABEL(tag), print ? "Global" : "In the printer or filament profile");
+        gtk_widget_set_visible(tag, TRUE);
+        gtk_widget_remove_css_class(tag, "zg-source-mine");
+        return;
+    }
+    /* In the scope of a part: a setting that is the same for all parts. */
     if (zg_model_part_scope(b->model) >= 0 && zg_setting_find(key, &info) && !info.per_part) {
         gtk_label_set_text(GTK_LABEL(tag), "Same for all parts");
         gtk_widget_set_visible(tag, TRUE);
@@ -605,6 +632,11 @@ static GtkWidget *setting_row(Browser *b, const zs_setting_info *src, gboolean w
     if (info->kind != ZS_SETTING_TEXT) {
         GtkWidget *editor = zg_setting_editor_new(b->model, info, b->in_profile);
         gtk_widget_add_css_class(editor, "zg-compact");
+        /* Global: only the print settings. */
+        if (zg_model_part_scope(b->model) == ZG_SCOPE_GLOBAL && !g_str_has_prefix(info->name, "project.")) {
+            gtk_widget_set_sensitive(editor, FALSE);
+            gtk_widget_set_tooltip_text(editor, "Printer and filament settings are in their profiles (the menus at the top).");
+        }
         /* For a part: only the settings that a part can have. */
         if (zg_model_part_scope(b->model) >= 0 && !info->per_part) {
             gtk_widget_set_sensitive(editor, FALSE);
@@ -1229,6 +1261,7 @@ static void fill_scope(Browser *b) {
     b->filling_scope = TRUE;
     GtkStringList *list = gtk_string_list_new(NULL);
     gtk_string_list_append(list, "This print (all parts)");
+    gtk_string_list_append(list, "Global (all prints)");
     zs_app *core = zg_model_core(b->model);
     size_t n = zs_app_part_count(core);
     for (size_t i = 0; i < n; i++) {
@@ -1241,9 +1274,7 @@ static void fill_scope(Browser *b) {
     gtk_drop_down_set_model(GTK_DROP_DOWN(b->scope), G_LIST_MODEL(list));
     g_object_unref(list);
     gint64 part = zg_model_part_scope(b->model);
-    gtk_drop_down_set_selected(GTK_DROP_DOWN(b->scope), part < 0 ? 0 : (guint)part + 1);
-    /* With one part, the plate and the part are the same: no choice. */
-    gtk_widget_set_visible(gtk_widget_get_parent(b->scope), n > 1 || part >= 0);
+    gtk_drop_down_set_selected(GTK_DROP_DOWN(b->scope), part == ZG_SCOPE_GLOBAL ? 1 : part < 0 ? 0 : (guint)part + 2);
     b->filling_scope = FALSE;
 }
 
@@ -1251,7 +1282,7 @@ static void on_scope_picked(GObject *dd, GParamSpec *ps, gpointer data) {
     Browser *b = data;
     if (b->filling_scope) return;
     guint ix = gtk_drop_down_get_selected(GTK_DROP_DOWN(dd));
-    zg_model_set_part_scope(b->model, ix == 0 ? -1 : (gint64)ix - 1);
+    zg_model_set_part_scope(b->model, ix == 0 ? -1 : ix == 1 ? ZG_SCOPE_GLOBAL : (gint64)ix - 2);
 }
 
 static void on_scope_plate(ZgModel *model, gpointer data) {
@@ -1271,7 +1302,7 @@ static GtkWidget *scope_bar(Browser *b) {
     gtk_widget_add_css_class(l, "dim-label");
     b->scope = gtk_drop_down_new(NULL, NULL);
     gtk_widget_set_hexpand(b->scope, TRUE);
-    gtk_widget_set_tooltip_text(b->scope, "What a change here is for: this print (all parts on the plate), or one part. A part has the values of the print, and its own changes on top.");
+    gtk_widget_set_tooltip_text(b->scope, "What a change here is for: this print (all parts on the plate), your global settings (all prints, under the quality profile), or one part (the values of the print, and its own changes on top).");
     g_signal_connect(b->scope, "notify::selected", G_CALLBACK(on_scope_picked), b);
     gtk_box_append(GTK_BOX(bar), l);
     gtk_box_append(GTK_BOX(bar), b->scope);

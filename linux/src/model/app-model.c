@@ -457,7 +457,27 @@ static gboolean part_scoped(ZgModel *self, const char *key) {
     return self->part_scope >= 0 && (g_str_has_prefix(key, "project.") || g_str_has_prefix(key, "filament."));
 }
 
+static void save_global(ZgModel *self) {
+    size_t len = 0;
+    if (zs_app_global_write(self->core, NULL, 0, &len) != ZS_OK) return;
+    char *text = g_malloc(len + 1);
+    zs_app_global_write(self->core, text, len + 1, NULL);
+    char *dir = zg_config_dir();
+    char *path = g_build_filename(dir, "global.toml", NULL);
+    g_file_set_contents(path, text, (gssize)len, NULL);
+    g_free(path);
+    g_free(dir);
+    g_free(text);
+}
+
 char *zg_model_get_for(ZgModel *self, const char *key, gboolean scoped) {
+    if (self->part_scope == ZG_SCOPE_GLOBAL && g_str_has_prefix(key, "project.")) {
+        size_t len = 0;
+        if (zs_app_global_get(self->core, key, NULL, 0, &len) != ZS_OK) return g_strdup("");
+        char *buf = g_malloc(len + 1);
+        zs_app_global_get(self->core, key, buf, len + 1, NULL);
+        return buf;
+    }
     if ((!scoped || !self->scope_on) && part_scoped(self, key)) {
         char *mine = zg_model_part_setting(self, (size_t)self->part_scope, key);
         return mine ? mine : zg_model_get(self, key);
@@ -486,6 +506,14 @@ gboolean zg_model_set_for(ZgModel *self, const char *key, const char *value, gbo
             per_layer = info.per_layer;
             break;
         }
+    }
+    if (self->part_scope == ZG_SCOPE_GLOBAL && g_str_has_prefix(key, "project.")) {
+        int rc = zs_app_global_setting_set(self->core, key, value);
+        if (rc != ZS_OK) return fail(error, rc);
+        save_global(self);
+        zg_model_announce(self, key);
+        slice_soon(self);
+        return TRUE;
     }
     if ((!scoped || !self->scope_on) && part_scoped(self, key)) {
         if (!zg_model_part_setting_set(self, (size_t)self->part_scope, key, value)) {
@@ -1189,6 +1217,19 @@ static void zg_model_init(ZgModel *self) {
         g_free(dir);
     }
     g_free(quality);
+    /* The global settings of the user, under the quality. */
+    {
+        char *dir = zg_config_dir();
+        char *path = g_build_filename(dir, "global.toml", NULL);
+        char *text = NULL;
+        gsize len = 0;
+        char message[256] = "";
+        if (g_file_get_contents(path, &text, &len, NULL) && zs_app_global_set(self->core, text, len, message, sizeof message) != ZS_OK)
+            g_warning("zslice: %s was not loaded (%s)", path, message);
+        g_free(text);
+        g_free(path);
+        g_free(dir);
+    }
     /* The formulas of the settings, on top. */
     {
         char *dir = zg_config_dir();
@@ -1338,8 +1379,17 @@ void zg_model_part_rotate(ZgModel *self, size_t i, double degrees) {
     if (zs_app_part_rotate(self->core, i, degrees) == ZS_OK) plate_changed(self);
 }
 
+gboolean zg_model_global_clear(ZgModel *self, const char *key) {
+    if (zs_app_global_setting_set(self->core, key, NULL) != ZS_OK) return FALSE;
+    save_global(self);
+    zg_model_announce(self, key);
+    slice_soon(self);
+    return TRUE;
+}
+
 void zg_model_set_part_scope(ZgModel *self, gint64 part) {
     if (part >= (gint64)zs_app_part_count(self->core)) part = -1;
+    if (part < -1 && part != ZG_SCOPE_GLOBAL) part = -1;
     if (self->part_scope == part) return;
     self->part_scope = part;
     g_signal_emit(self, signals[SIGNAL_PART_SCOPE_CHANGED], 0);

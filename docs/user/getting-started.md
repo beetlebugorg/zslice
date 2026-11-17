@@ -268,6 +268,8 @@ Each setting gets its value from a cascade of levels. A higher level replaces th
 6. **This print:** your changes for this plate.
 7. **This part:** the changes of one part (see [Settings for one part](#settings-for-one-part)).
 
+The bar at the top of the Settings page says what a change is for: **This print (all parts)**, **Global (all prints)**, or one part. A global setting is for every print, under the quality profile: for example, the seam at the rear, or your usual skirt. The global settings are in `global.toml` in the settings folder.
+
 In the Settings page, a small tag under the name of a setting says where its value comes from ("fine", "Gray", "This print"); a default has no tag. The detail page says the same, and **Reset** goes back to the value under your change: for a change of this print, the value of the quality profile.
 
 The Filament and Quality menus list the built-in profiles and your own (in `profiles/filament/` and `profiles/project/` in the settings folder, where `zslice slice -f` and `-p` find them too), and have **Save as profile…**. The Quality menu shows the quality profile, with a dot when this print has changes on top of it. A pick of another quality keeps your changes. **Save as profile…** saves the quality with your changes, and the new profile is then the quality.
