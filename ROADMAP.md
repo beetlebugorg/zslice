@@ -160,7 +160,7 @@ The goal is the features that people use in PrusaSlicer and Cura. zslice designs
 - [x] The web app: Check (the list of issues; a click shows the layer and the line)
 - [x] The web app: undo and redo (Ctrl+Z, Ctrl+Shift+Z), and the History tab
 - [x] The web app: the timeline bar
-- [ ] The web app: the tools and the measure tape (the native app has them)
+- [x] The web app: the tools (Select, Move, Measure) and the measure tape with circles
 - [ ] macOS and iOS shell: SwiftUI (`apple/`)
 - [ ] Windows shell: Win32 C++ (`windows/`)
 - [ ] Android shell: Kotlin (`android/`)

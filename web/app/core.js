@@ -349,6 +349,8 @@ export class Core {
         sizeY: w.f64(p + 40),
         shape: w.i32(p + 48),
         radius: w.f64(p + 56),
+        centerX: w.f64(p + 64),
+        centerY: w.f64(p + 72),
         angle: w.f64(p + 80),
       };
     } finally {
@@ -609,6 +611,29 @@ export class Core {
   }
 
   partOfPath(path) { return this.w.x.zs_app_part_of_path(this.app, path); }
+
+  // Part i (zs_app_part_get): its center on the bed, its turn, and its
+  // size, or null.
+  part(i) {
+    const w = this.w;
+    const size = 80; // zs_part on wasm32
+    const p = w.alloc(size);
+    try {
+      if (w.x.zs_app_part_get(this.app, i, p) !== 0) return null;
+      return {
+        index: i,
+        name: w.cstr(w.u32(p)),
+        x: w.f64(p + 8),
+        y: w.f64(p + 16),
+        rotation: w.f64(p + 24),
+        sizeX: w.f64(p + 32),
+        sizeY: w.f64(p + 40),
+        sizeZ: w.f64(p + 48),
+      };
+    } finally {
+      w.free(p, size);
+    }
+  }
 
   // The plate as a 3MF file (zs_app_write_3mf), as bytes, or null.
   plate3mf() {

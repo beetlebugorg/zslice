@@ -221,7 +221,7 @@ function historyGoto(i) {
 // The ops that change the settings, and the ops that change the plate:
 // each starts or extends a step.
 const SETTING_OPS = new Set(["set", "reset", "quality", "profile", "setScoped", "resetScoped"]);
-const PLATE_OPS = new Set(["load", "add", "plate", "putDown", "place", "markAdd", "markRemoveNear", "markSet", "markRemove", "marksClear"]);
+const PLATE_OPS = new Set(["load", "add", "plate", "putDown", "place", "partMove", "partRotate", "markAdd", "markRemoveNear", "markSet", "markRemove", "marksClear"]);
 
 const ops = {
   async init({ module, saved, mode: m }) {
@@ -355,6 +355,35 @@ const ops = {
       wantSlice();
     }
     return { error: rc === 0 ? "" : (rc === 15 ? "A move of a part cannot be undone alone: go to the step before it." : `The change was not undone (${rc}).`), ...settingsState() };
+  },
+
+  // ---- the tools: move a part, and measure ----
+
+  // The part of a line (path >= 0), or else the part at x, y on the bed
+  // (bed: false for no bed point), or null.
+  partAt({ path, bed, x, y }) {
+    let i = path >= 0 ? core.partOfPath(path) : -1;
+    if (i < 0 && bed) i = core.w.x.zs_app_part_at(core.app, x, y);
+    return { part: i >= 0 ? core.part(i) : null };
+  },
+
+  partMove({ index, x, y }) {
+    if (core.w.x.zs_app_part_move(core.app, index, x, y) === 0) wantSlice();
+    return { part: core.part(index) };
+  },
+
+  partRotate({ index, step }) {
+    const p = core.part(index);
+    if (!p) return { part: null };
+    if (core.w.x.zs_app_part_rotate(core.app, index, p.rotation + step) === 0) wantSlice();
+    return { part: core.part(index) };
+  },
+
+  // The measurements of a line at its segment (for a circle or an arc
+  // under the measure tape).
+  measureAt({ path, seg }) {
+    if (core.state() !== STATE.done) return { m: null };
+    return { m: core.measure(path, seg) };
   },
 
   // ---- the printability check ----

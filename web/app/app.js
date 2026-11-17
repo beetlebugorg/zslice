@@ -21,6 +21,7 @@ import { SettingsBrowser } from "./settings.js";
 import { Inspector } from "./inspector.js";
 import { Gaps } from "./gaps.js";
 import { HistoryPage } from "./history.js";
+import { Tools } from "./tools.js";
 import { contextItems } from "./context-menu.js";
 import { openMenu, openMenuAt, menuOpen, openPopover, closeMenu } from "./menus.js";
 import { formatClock, formatTime } from "./format.js";
@@ -204,12 +205,16 @@ function resize() {
   const r = canvas.getBoundingClientRect();
   const w = Math.max(1, Math.round(r.width * dpr));
   const h = Math.max(1, Math.round(r.height * dpr));
-  if (canvas.width !== w || canvas.height !== h) {
+  const changed = canvas.width !== w || canvas.height !== h;
+  if (changed) {
     canvas.width = w;
     canvas.height = h;
   }
   view.resize(w, h);
-  requestFrame();
+  // A new size clears the canvas: draw at once, before the browser shows
+  // it, or a drag of the splitter shows an empty (black) view.
+  if (changed && typeof drawFrame === "function") drawFrame(performance.now());
+  else requestFrame();
 }
 new ResizeObserver(resize).observe(canvas);
 
@@ -225,9 +230,18 @@ const dpr = () => window.devicePixelRatio || 1;
 
 canvas.addEventListener("pointerdown", (e) => {
   canvas.setPointerCapture(e.pointerId);
-  drag = { button: e.button, x: e.clientX, y: e.clientY, x0: e.clientX, y0: e.clientY, moved: false };
+  drag = { button: e.button, x: e.clientX, y: e.clientY, x0: e.clientX, y0: e.clientY, moved: false, part: null };
   canvas.style.cursor = "grabbing";
   canvas.focus({ preventScroll: true });
+  // The move tool, or Ctrl, in 3D: a left drag on a part moves it.
+  if (e.button === 0 && app.page === "3d" && view.loaded && (tools.tool === "move" || e.ctrlKey)) {
+    const d = drag;
+    d.part = "pending";
+    const r = canvas.getBoundingClientRect();
+    tools.moveStart((e.clientX - r.left) * dpr(), (e.clientY - r.top) * dpr()).then((ok) => {
+      if (drag === d) d.part = ok ? "moving" : null;
+    });
+  }
 });
 canvas.addEventListener("pointermove", (e) => {
   if (!drag) return;
@@ -237,6 +251,12 @@ canvas.addEventListener("pointermove", (e) => {
   drag.y = e.clientY;
   if (dx === 0 && dy === 0) return;
   if (Math.abs(e.clientX - drag.x0) > 4 || Math.abs(e.clientY - drag.y0) > 4) drag.moved = true;
+  if (drag.part === "moving") {
+    const r = canvas.getBoundingClientRect();
+    tools.moveTo((e.clientX - r.left) * dpr(), (e.clientY - r.top) * dpr());
+    return;
+  }
+  if (drag.part === "pending") return;
   // A left drag orbits. A right drag (two fingers pressed down on a
   // touchpad) and a middle drag pan, as Shift with a left drag does.
   if (app.page === "2d") view2d.pan(dx * dpr(), dy * dpr());
@@ -247,11 +267,17 @@ canvas.addEventListener("pointermove", (e) => {
 canvas.addEventListener("pointerup", (e) => {
   const d = drag;
   endDrag();
+  if (d?.part === "moving") {
+    tools.moveEnd();
+    return;
+  }
   if (!d || d.moved || !view.loaded) return;
   const r = canvas.getBoundingClientRect();
   const px = (e.clientX - r.left) * dpr();
   const py = (e.clientY - r.top) * dpr();
-  if (d.button === 0) pickAt(px, py, true);
+  if (d.button === 0 && tools.tool === "measure") tools.measureClick(px, py, e.shiftKey);
+  else if (d.button === 0 && app.page === "3d" && (tools.tool === "move" || e.ctrlKey)) tools.pickPart(px, py);
+  else if (d.button === 0) pickAt(px, py, true);
   else if (d.button === 2) {
     // A right click: the line there, then the menu.
     if (hitAt(px, py)) select(view.hit[0], view.hit[1], false);
@@ -292,6 +318,11 @@ function fromTrackpad(e) {
 canvas.addEventListener("wheel", (e) => {
   e.preventDefault();
   const r = canvas.getBoundingClientRect();
+  // The move tool and a mouse wheel: turn the selected part 15° a step.
+  if (tools.tool === "move" && tools.part && !e.ctrlKey && !fromTrackpad(e)) {
+    tools.turn(e.deltaY);
+    return;
+  }
   if (fromTrackpad(e)) {
     // A two-finger swipe zooms toward the pointer, as a pinch does: 40
     // pixels of the swipe are one wheel step.
@@ -893,6 +924,9 @@ function onPreviewKey(e) {
       showContextMenu(canvas.getBoundingClientRect().left + canvas.clientWidth / 2, canvas.getBoundingClientRect().top + canvas.clientHeight / 2);
       e.preventDefault();
       return;
+    case "s": case "S": tools.set("select"); e.preventDefault(); return;
+    case "m": case "M": tools.set("move"); e.preventDefault(); return;
+    case "t": case "T": tools.set("measure"); e.preventDefault(); return;
     case "c": case "C":
       if (e.key === "C" || e.shiftKey) showAllLayers();
       else if (app.sel >= 0) cutToSelection();
@@ -900,6 +934,11 @@ function onPreviewKey(e) {
       e.preventDefault();
       return;
     case "Escape":
+      if (tools.pts.length > 0) {
+        tools.clear();
+        e.preventDefault();
+        return;
+      }
       if (app.sel < 0) return;
       select(-1, -1, false);
       e.preventDefault();
@@ -1052,6 +1091,20 @@ const inspector = new Inspector($("page-selected"), {
   copyForAi,
   markSet: (index, kind, r) => client.call("markSet", { index, kind, r }),
   markRemove: (index) => client.call("markRemove", { index }),
+});
+
+// ---- the tools: select, move, measure ----
+
+const tools = new Tools({
+  client, view, canvas, view2d,
+  buttons: { select: $("tool-select"), move: $("tool-move"), measure: $("tool-measure") },
+  readout: $("measure-readout"),
+  page: () => app.page,
+  layer: () => layers.hi,
+  layerZ: (l) => app.layers?.z[l] ?? 0,
+  select: (path, seg, picked) => select(path, seg, picked),
+  requestFrame: () => requestFrame(),
+  toast,
 });
 
 // ---- gaps ----
@@ -1469,7 +1522,7 @@ function benchPick(step = 40) {
 
 // For tests: the state of the page.
 window.zslice = {
-  app, view, view2d, layers, browser, client, gl, inspector, gaps, history, undoRedo, pickAt, topLayerPoint, openCheck, frameTimes,
+  app, view, view2d, layers, browser, client, gl, inspector, gaps, history, undoRedo, tools, pickAt, topLayerPoint, openCheck, frameTimes,
   select, showPage, showTab, hitAt, showContextMenu, step, bench, benchPick,
   get frameCount() { return frameCount; },
   get pickMs() { return pickMs; },

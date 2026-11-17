@@ -424,3 +424,9 @@ button.destructive { background: #c01c28; color: #fff; }
 .tl-mark.later { opacity: 0.4; }
 .tl-line { flex: none; width: 10px; height: 2px; border-radius: 1px; background: rgba(255, 255, 255, 0.3); }
 .tl-line.later { background: rgba(255, 255, 255, 0.12); }
+
+/* The readout of the measure tape, under the toolbar. */
+.measure-readout {
+  top: 58px; left: 10px; padding: 6px 12px; border-radius: 8px; white-space: pre-line;
+  font-size: 0.9em; font-variant-numeric: tabular-nums; pointer-events: none; max-width: calc(100% - 20px);
+}
