@@ -122,6 +122,7 @@ These environment variables change the start of the GTK shell, for development, 
 | `ZSLICE_SETTING_LIST=1` | With `ZSLICE_SETTING`: shows the settings list of its section, not its detail page. | `ui/settings-browser.c` |
 | `ZSLICE_PROFILE=up` or `down` | With `ZSLICE_PICK`: runs "New profile from here up" (or down) on the picked line. `ZSLICE_PROFILE_SET=name=value` then changes one setting in it. | `ui/view3d.c` |
 | `ZSLICE_PART=i` | Selects part `i` of the plate after the first load. | `ui/view3d.c` |
+| `ZSLICE_RING_DRAG=x0,y0,x1,y1` | With `ZSLICE_PART`: picks the Turn tool, and drags a ring of the part from the pixel x0, y0 to x1, y1 of the 3D view in 12 steps, 1 s after the first slice. The log gives the axis and the turn. | `ui/view3d.c` |
 | `ZSLICE_ZOOM=z` | Starts the 3D view at the zoom `z` (for example 0.3: nearer). | `ui/view3d.c` |
 | `ZSLICE_ZOOM_AT=x,y,n` | Zooms `n` wheel steps toward the pixel x, y after the first load. | `ui/view3d.c` |
 | `ZSLICE_INSPECT_FOCUS=name` | Puts the focus on the row of the setting `name` in the inspector after the first selection. | `ui/inspector.c` |

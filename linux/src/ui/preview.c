@@ -41,10 +41,9 @@ typedef struct {
     /* The replay. */
     GtkWidget *stack;
     GtkWidget *slider_box;
-    GtkWidget *isolate;
     /* The tools (select, move, measure), and the readout of the measure
      * tape. */
-    GtkWidget *tools[3];
+    GtkWidget *tools[4]; /* by ZgTool */
     GtkWidget *measure_label;
     /* The gaps view: the toggle, and the number of gaps of the layer. */
     GtkWidget *gaps, *gap_count;
@@ -624,12 +623,6 @@ static void on_plates_changed(ZgModel *model, gpointer data) {
     fill_plates(data);
 }
 
-static void on_isolate(GtkToggleButton *b, gpointer data) {
-    Preview *p = data;
-    gboolean on = gtk_toggle_button_get_active(b);
-    zg_pref_set("isolate", on ? "1" : "0");
-    zg_model_set_isolate(p->model, on);
-}
 
 static void on_slider(ZgLayerRange *range, gpointer data) {
     Preview *p = data;
@@ -712,8 +705,6 @@ static void on_release(GtkGestureClick *g, int n, double x, double y, gpointer d
 
 static void on_selection(ZgModel *model, gint64 path, gpointer data) {
     Preview *p = data;
-    /* "Fade others" shows only while a line is selected. */
-    gtk_widget_set_visible(p->isolate, path >= 0);
     gtk_widget_queue_draw(p->area);
 }
 
@@ -816,29 +807,68 @@ gboolean zg_preview_is_cut(GtkWidget *preview) {
     return zg_layer_range_get_lo(r) > 0 || zg_layer_range_get_hi(r) + 1 < p->layer_count;
 }
 
-static void on_remove_answer(GObject *source, GAsyncResult *res, gpointer data) {
-    Preview *p = data;
-    int button = gtk_alert_dialog_choose_finish(GTK_ALERT_DIALOG(source), res, NULL);
-    gint64 part = GPOINTER_TO_INT(g_object_get_data(source, "zg-part")) - 1;
-    if (button == 1 && part >= 0 && part == zg_model_selected_part(p->model)) zg_model_part_remove(p->model, (size_t)part);
-}
-
-/* Asks before Delete removes a part from the plate. */
-static void confirm_remove(Preview *p, size_t part) {
-    zs_part info;
-    char *name = zs_app_part_get(zg_model_core(p->model), part, &info) == ZS_OK && info.name && info.name[0]
-                     ? g_strdup(info.name) : g_strdup_printf("part %zu", part + 1);
-    char *msg = g_strdup_printf("Remove %s from the plate?", name);
-    GtkAlertDialog *d = gtk_alert_dialog_new("%s", msg);
-    const char *buttons[] = {"Cancel", "Remove", NULL};
-    gtk_alert_dialog_set_buttons(d, buttons);
-    gtk_alert_dialog_set_cancel_button(d, 0);
-    gtk_alert_dialog_set_default_button(d, 1);
-    g_object_set_data(G_OBJECT(d), "zg-part", GINT_TO_POINTER((int)part + 1));
-    gtk_alert_dialog_choose(d, GTK_WINDOW(gtk_widget_get_root(p->area)), NULL, on_remove_answer, p);
-    g_object_unref(d);
-    g_free(msg);
-    g_free(name);
+/* The keys of a part, as in the web app (app.js, partKey): Tab and
+ * Shift+Tab select the next part and the part before; R is the Turn tool.
+ * With a selected part: the arrow keys move it 1 mm (Shift: 10 mm), D
+ * duplicates it, and Delete removes it. With the Turn tool: Left and
+ * Right turn it on the bed (about Z), Up and Down about X, Page Up and
+ * Page Down about Y, 15 degrees (Shift: 5). Returns TRUE for a key of a
+ * part. */
+static gboolean part_key(Preview *p, guint key, GdkModifierType mods) {
+    zs_app *core = zg_model_core(p->model);
+    size_t n = zs_app_part_count(core);
+    gboolean shift = (mods & GDK_SHIFT_MASK) != 0;
+    if (key == GDK_KEY_Tab || key == GDK_KEY_ISO_Left_Tab) {
+        /* Only from the view itself: in a card, Tab moves the focus. */
+        GtkWidget *focus = gtk_root_get_focus(gtk_widget_get_root(p->area));
+        if (n == 0 || (focus && zg_float_in_card(focus))) return FALSE;
+        gint64 i = zg_model_selected_part(p->model);
+        int dir = key == GDK_KEY_ISO_Left_Tab || shift ? -1 : 1;
+        gint64 j = i < 0 ? (dir > 0 ? 0 : (gint64)n - 1) : ((i + dir) % (gint64)n + (gint64)n) % (gint64)n;
+        ZgTool t = zg_model_tool(p->model);
+        if (t != ZG_TOOL_MOVE && t != ZG_TOOL_TURN) zg_model_set_tool(p->model, ZG_TOOL_MOVE);
+        zg_model_select_part(p->model, j);
+        return TRUE;
+    }
+    if ((key == GDK_KEY_r || key == GDK_KEY_R) && !shift) {
+        zg_model_set_tool(p->model, ZG_TOOL_TURN);
+        return TRUE;
+    }
+    gint64 i = zg_model_selected_part(p->model);
+    zs_part part;
+    if (i < 0 || zs_app_part_get(core, (size_t)i, &part) != ZS_OK) return FALSE;
+    if (key == GDK_KEY_d || key == GDK_KEY_D) {
+        gint64 copy = zg_model_part_duplicate(p->model, (size_t)i);
+        if (copy >= 0) zg_model_select_part(p->model, copy);
+        return TRUE;
+    }
+    if (key == GDK_KEY_Delete || key == GDK_KEY_KP_Delete) {
+        /* Ctrl+Z brings it back. */
+        zg_model_part_remove(p->model, (size_t)i);
+        return TRUE;
+    }
+    int dx = 0, dy = 0;
+    switch (key) {
+    case GDK_KEY_Left: dx = -1; break;
+    case GDK_KEY_Right: dx = 1; break;
+    case GDK_KEY_Up: dy = 1; break;
+    case GDK_KEY_Down: dy = -1; break;
+    case GDK_KEY_Page_Up:
+    case GDK_KEY_Page_Down:
+        if (zg_model_tool(p->model) != ZG_TOOL_TURN) return FALSE;
+        zg_model_part_turn(p->model, (size_t)i, 1, (shift ? 5 : 15) * (key == GDK_KEY_Page_Up ? 1 : -1));
+        return TRUE;
+    default: return FALSE;
+    }
+    if (zg_model_tool(p->model) == ZG_TOOL_TURN) {
+        double deg = shift ? 5 : 15;
+        if (dx != 0) zg_model_part_rotate(p->model, (size_t)i, part.rotation - dx * deg);
+        else zg_model_part_turn(p->model, (size_t)i, 0, dy * deg);
+        return TRUE;
+    }
+    double step = shift ? 10 : 1;
+    zg_model_part_move(p->model, (size_t)i, part.x + dx * step, part.y + dy * step);
+    return TRUE;
 }
 
 static gboolean on_preview_key(GtkEventControllerKey *c, guint key, guint code, GdkModifierType mods, gpointer data) {
@@ -855,11 +885,17 @@ static gboolean on_preview_key(GtkEventControllerKey *c, guint key, guint code, 
     if (zg_view3d_menu_open(p->view3d)) return FALSE;
     /* The tools: S select, M move, T measure (a tape). Esc clears a
      * measure. */
+    if (part_key(p, key, mods)) return TRUE;
     switch (key) {
     case GDK_KEY_s: case GDK_KEY_S: zg_model_set_tool(p->model, ZG_TOOL_SELECT); return TRUE;
     case GDK_KEY_m: case GDK_KEY_M: zg_model_set_tool(p->model, ZG_TOOL_MOVE); return TRUE;
     case GDK_KEY_t: case GDK_KEY_T: zg_model_set_tool(p->model, ZG_TOOL_MEASURE); return TRUE;
+    case GDK_KEY_g: case GDK_KEY_G: zg_model_set_gaps(p->model, !zg_model_gaps(p->model)); return TRUE;
     case GDK_KEY_Escape:
+        if (zg_model_selected_part(p->model) >= 0) {
+            zg_model_select_part(p->model, -1);
+            return TRUE;
+        }
         if (zg_model_measure(p->model, NULL) > 0) {
             zg_model_measure_clear(p->model);
             return TRUE;
@@ -877,10 +913,6 @@ static gboolean on_preview_key(GtkEventControllerKey *c, guint key, guint code, 
         double step = (mods & GDK_SHIFT_MASK) ? 1 : 15;
         if (key == GDK_KEY_bracketleft || key == GDK_KEY_braceleft) step = -step;
         zg_model_part_rotate(p->model, (size_t)part, info.rotation + step);
-        return TRUE;
-    }
-    if (part >= 0 && (key == GDK_KEY_Delete || key == GDK_KEY_KP_Delete)) {
-        confirm_remove(p, (size_t)part);
         return TRUE;
     }
     zs_toolpaths tp;
@@ -1038,6 +1070,38 @@ static void draw_tool(GtkDrawingArea *a, cairo_t *cr, int w, int h, gpointer dat
             cairo_line_to(cr, x + 3 * cos(ang - 2.4), y + 3 * sin(ang - 2.4));
         }
         cairo_stroke(cr);
+    } else if (kind == 3) {
+        /* Turn: an arc with an arrow head. */
+        cairo_arc(cr, 9, 9, 6, -G_PI * 0.15, G_PI * 1.45);
+        cairo_stroke(cr);
+        double ex = 9 + 6 * cos(-G_PI * 0.15), ey = 9 + 6 * sin(-G_PI * 0.15);
+        cairo_move_to(cr, ex - 3.5, ey - 1.2);
+        cairo_line_to(cr, ex, ey);
+        cairo_line_to(cr, ex + 0.6, ey - 3.6);
+        cairo_stroke(cr);
+    } else if (kind == 4) {
+        /* Gaps: a square of lines with a hole. */
+        for (int k = 0; k < 4; k++) {
+            double y = 4 + k * 3.3;
+            cairo_move_to(cr, 3, y);
+            cairo_line_to(cr, k == 1 || k == 2 ? 7 : 15, y);
+            if (k == 1 || k == 2) {
+                cairo_move_to(cr, 11, y);
+                cairo_line_to(cr, 15, y);
+            }
+        }
+        cairo_stroke(cr);
+        cairo_set_source_rgb(cr, 0.9, 0.15, 0.2);
+        cairo_rectangle(cr, 7.8, 6.4, 2.4, 5);
+        cairo_fill(cr);
+    } else if (kind == 5) {
+        /* Check: a check mark in a circle. */
+        cairo_arc(cr, 9, 9, 7, 0, 2 * G_PI);
+        cairo_stroke(cr);
+        cairo_move_to(cr, 5.5, 9.2);
+        cairo_line_to(cr, 8, 11.8);
+        cairo_line_to(cr, 12.8, 6.4);
+        cairo_stroke(cr);
     } else {
         /* A ruler at 45 degrees, with ticks. */
         cairo_save(cr);
@@ -1063,6 +1127,8 @@ static void on_tool_changed_preview(ZgModel *model, gpointer data) {
     Preview *p = data;
     ZgTool t = zg_model_tool(model);
     if (!gtk_toggle_button_get_active(GTK_TOGGLE_BUTTON(p->tools[t]))) gtk_toggle_button_set_active(GTK_TOGGLE_BUTTON(p->tools[t]), TRUE);
+    /* The part stays selected for the Move and the Turn tool. */
+    if (t != ZG_TOOL_MOVE && t != ZG_TOOL_TURN) zg_model_select_part(model, -1);
     /* The measure tape: a hint until the first point. */
     if (t == ZG_TOOL_MEASURE && zg_model_measure(model, NULL) == 0) {
         gtk_label_set_text(GTK_LABEL(p->measure_label), "Click a point of the print, or a circle or an arc for its size and center. Shift: no snap.");
@@ -1113,29 +1179,69 @@ static void on_measure_preview(ZgModel *model, gpointer data) {
     g_free(text);
 }
 
-static GtkWidget *tool_group(Preview *p) {
-    static const char *tips[] = {
-        "Select (S): click a line to see what it is, its measurements, and the settings that change it.",
-        "Move (M): drag a part to move it, and scroll over it to turn it. The same as Ctrl in the other tools.",
-        "Measure (T): click two points of the print. The ends of the lines snap; Shift turns the snap off. Esc clears.",
+/* A button of the tool strip: the glyph, and its key in the corner. */
+static GtkWidget *strip_button(GtkWidget *b, int glyph_kind, const char *key, const char *tip) {
+    GtkWidget *glyph = gtk_drawing_area_new();
+    gtk_drawing_area_set_content_width(GTK_DRAWING_AREA(glyph), 20);
+    gtk_drawing_area_set_content_height(GTK_DRAWING_AREA(glyph), 20);
+    gtk_drawing_area_set_draw_func(GTK_DRAWING_AREA(glyph), draw_tool, GINT_TO_POINTER(glyph_kind), NULL);
+    GtkWidget *over = gtk_overlay_new();
+    gtk_overlay_set_child(GTK_OVERLAY(over), glyph);
+    if (key) {
+        GtkWidget *k = gtk_label_new(key);
+        gtk_widget_add_css_class(k, "zg-strip-key");
+        gtk_widget_set_halign(k, GTK_ALIGN_END);
+        gtk_widget_set_valign(k, GTK_ALIGN_END);
+        gtk_widget_set_can_target(k, FALSE);
+        gtk_overlay_add_overlay(GTK_OVERLAY(over), k);
+    }
+    if (GTK_IS_MENU_BUTTON(b)) gtk_menu_button_set_child(GTK_MENU_BUTTON(b), over);
+    else gtk_button_set_child(GTK_BUTTON(b), over);
+    gtk_widget_set_tooltip_text(b, tip);
+    gtk_widget_add_css_class(b, "flat");
+    gtk_widget_add_css_class(b, "zg-strip-button");
+    return b;
+}
+
+/* The tool strip at the left of the view: the tools of the mouse (Select,
+ * Move, Turn, Measure), then the line tools (Gaps, Check). Each button
+ * shows its key. */
+static GtkWidget *tool_strip(Preview *p) {
+    static const struct { ZgTool tool; int glyph; const char *key, *tip; } tools[] = {
+        {ZG_TOOL_SELECT, 0, "S", "Select (S): click a line to see what it is, its measurements, and the settings that change it."},
+        {ZG_TOOL_MOVE, 1, "M", "Move (M): drag a part to move it, and scroll over it to turn it. The same as Ctrl in the other tools. Tab: the next part."},
+        {ZG_TOOL_TURN, 3, "R", "Turn (R): click a part, then drag a ring to turn it about X, Y, or Z, in 15° steps (Shift: 5°). Keys: Left and Right (Z), Up and Down (X), Page Up and Page Down (Y)."},
+        {ZG_TOOL_MEASURE, 2, "T", "Measure (T): click two points of the print. The ends of the lines snap; Shift turns the snap off. Esc clears."},
     };
-    GtkWidget *box = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 0);
-    gtk_widget_add_css_class(box, "linked");
-    for (int k = 0; k < 3; k++) {
-        GtkWidget *b = gtk_toggle_button_new();
-        GtkWidget *glyph = gtk_drawing_area_new();
-        gtk_drawing_area_set_content_width(GTK_DRAWING_AREA(glyph), 18);
-        gtk_drawing_area_set_content_height(GTK_DRAWING_AREA(glyph), 18);
-        gtk_drawing_area_set_draw_func(GTK_DRAWING_AREA(glyph), draw_tool, GINT_TO_POINTER(k), NULL);
-        gtk_button_set_child(GTK_BUTTON(b), glyph);
-        gtk_widget_set_tooltip_text(b, tips[k]);
-        g_object_set_data(G_OBJECT(b), "zg-tool", GINT_TO_POINTER(k));
-        if (k > 0) gtk_toggle_button_set_group(GTK_TOGGLE_BUTTON(b), GTK_TOGGLE_BUTTON(p->tools[0]));
+    GtkWidget *box = gtk_box_new(GTK_ORIENTATION_VERTICAL, 2);
+    gtk_widget_add_css_class(box, "zg-float");
+    gtk_widget_add_css_class(box, "zg-strip");
+    GtkWidget *first = NULL;
+    for (size_t k = 0; k < G_N_ELEMENTS(tools); k++) {
+        GtkWidget *b = strip_button(gtk_toggle_button_new(), tools[k].glyph, tools[k].key, tools[k].tip);
+        g_object_set_data(G_OBJECT(b), "zg-tool", GINT_TO_POINTER(tools[k].tool));
+        if (first) gtk_toggle_button_set_group(GTK_TOGGLE_BUTTON(b), GTK_TOGGLE_BUTTON(first));
+        else first = b;
         g_signal_connect(b, "toggled", G_CALLBACK(on_tool_toggled), p);
-        p->tools[k] = b;
+        p->tools[tools[k].tool] = b;
         gtk_box_append(GTK_BOX(box), b);
     }
     gtk_toggle_button_set_active(GTK_TOGGLE_BUTTON(p->tools[zg_model_tool(p->model)]), TRUE);
+    gtk_box_append(GTK_BOX(box), gtk_separator_new(GTK_ORIENTATION_HORIZONTAL));
+    /* The gaps of the top layer: areas that should be solid that no bead
+     * covers (see zs_app_layer_gaps). */
+    p->gaps = strip_button(gtk_toggle_button_new(), 4, "G",
+                           "Gaps (G): show the gaps of the top layer in red: areas that should be solid that no line covers. Click a gap for the settings that can close it.");
+    g_signal_connect(p->gaps, "toggled", G_CALLBACK(on_gaps_toggled), p);
+    gtk_box_append(GTK_BOX(box), p->gaps);
+    /* The printability check: things that can make the print fail. */
+    p->check = strip_button(gtk_menu_button_new(), 5, NULL,
+                            "Check the print: overhangs with no support, bridges, shapes in the air, lines over the flow of the hot end, layers that cool too little");
+    gtk_menu_button_set_direction(GTK_MENU_BUTTON(p->check), GTK_ARROW_RIGHT);
+    gtk_box_append(GTK_BOX(box), p->check);
+    gtk_widget_set_halign(box, GTK_ALIGN_START);
+    gtk_widget_set_valign(box, GTK_ALIGN_CENTER);
+    gtk_widget_set_margin_start(box, 10);
     return box;
 }
 
@@ -1238,33 +1344,18 @@ GtkWidget *zg_preview_new(ZgModel *model) {
     gtk_widget_set_tooltip_text(p->speed, "The replay speed: 1x is the real print speed.");
     GtkWidget *bar = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 4);
     gtk_widget_add_css_class(bar, "zg-float");
-    gtk_box_append(GTK_BOX(bar), tool_group(p));
     gtk_box_append(GTK_BOX(bar), switcher);
     gtk_box_append(GTK_BOX(bar), colors);
     gtk_box_append(GTK_BOX(bar), p->legend);
     gtk_box_append(GTK_BOX(bar), p->play);
     gtk_box_append(GTK_BOX(bar), p->speed);
-    /* With a selected line: fade the other lines, or keep their colors. */
-    p->isolate = gtk_toggle_button_new_with_label("Fade others");
-    gtk_widget_set_tooltip_text(p->isolate, "Show only the selected line solid, and the other lines as faint ghosts");
-    gtk_widget_set_visible(p->isolate, FALSE);
-    g_signal_connect(p->isolate, "toggled", G_CALLBACK(on_isolate), p);
-    gtk_box_append(GTK_BOX(bar), p->isolate);
-    /* The gaps of the top layer: areas that should be solid that no bead
-     * covers (see zs_app_layer_gaps). */
-    p->gaps = gtk_toggle_button_new_with_label("Gaps");
-    gtk_widget_set_tooltip_text(p->gaps, "Show the gaps of the top layer in red: areas that should be solid that no line covers. Click a gap for the settings that can close it.");
-    g_signal_connect(p->gaps, "toggled", G_CALLBACK(on_gaps_toggled), p);
-    gtk_box_append(GTK_BOX(bar), p->gaps);
+    GtkWidget *strip = tool_strip(p);
     p->gap_count = gtk_label_new("");
     gtk_widget_add_css_class(p->gap_count, "dim-label");
     gtk_widget_set_margin_start(p->gap_count, 6);
     gtk_widget_set_margin_end(p->gap_count, 6);
     gtk_widget_set_visible(p->gap_count, FALSE);
     /* The printability check: things that can make the print fail. */
-    p->check = gtk_menu_button_new();
-    gtk_menu_button_set_label(GTK_MENU_BUTTON(p->check), "Check");
-    gtk_widget_set_tooltip_text(p->check, "Check the slice: overhangs with no support, bridges, shapes in the air, lines over the flow of the hot end, layers that cool too little");
     GtkWidget *pop = gtk_popover_new();
     p->check_list = gtk_list_box_new();
     gtk_list_box_set_selection_mode(GTK_LIST_BOX(p->check_list), GTK_SELECTION_NONE);
@@ -1279,8 +1370,6 @@ GtkWidget *zg_preview_new(ZgModel *model) {
     gtk_popover_set_child(GTK_POPOVER(pop), check_scroll);
     g_signal_connect(pop, "show", G_CALLBACK(on_check_shown), p);
     gtk_menu_button_set_popover(GTK_MENU_BUTTON(p->check), pop);
-    gtk_widget_set_margin_start(p->check, 6);
-    gtk_box_append(GTK_BOX(bar), p->check);
     p->plates = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 0);
     gtk_widget_add_css_class(p->plates, "linked");
     gtk_widget_set_margin_start(p->plates, 6);
@@ -1323,6 +1412,7 @@ GtkWidget *zg_preview_new(ZgModel *model) {
     /* The cards over the view (float.h) have places of their own. */
     zg_float_install(box);
     gtk_overlay_add_overlay(GTK_OVERLAY(box), bar);
+    gtk_overlay_add_overlay(GTK_OVERLAY(box), strip);
     gtk_overlay_add_overlay(GTK_OVERLAY(box), p->slider_box);
 
     /* The scrub bar: a short bar in the middle of the bottom edge. */
@@ -1382,7 +1472,7 @@ GtkWidget *zg_preview_new(ZgModel *model) {
     g_signal_connect_swapped(model, "segment-changed", G_CALLBACK(gtk_widget_queue_draw), p->area);
     /* The last choice of "Fade others". */
     char *iso = zg_pref_get("isolate", "0");
-    if (strcmp(iso, "1") == 0) gtk_toggle_button_set_active(GTK_TOGGLE_BUTTON(p->isolate), TRUE);
+    zg_model_set_isolate(model, strcmp(iso, "1") == 0);
     g_free(iso);
     g_signal_connect(model, "focus-changed", G_CALLBACK(on_focus_changed), p);
     g_signal_connect(model, "profiles-changed", G_CALLBACK(on_profiles_marks), p);

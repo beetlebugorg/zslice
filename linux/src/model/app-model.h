@@ -72,6 +72,9 @@ void zg_model_plate_select(ZgModel *self, size_t i);
 void zg_model_plate_add(ZgModel *self);
 void zg_model_plate_remove(ZgModel *self, size_t i);
 void zg_model_part_remove(ZgModel *self, size_t i);
+/* A copy of part i at a free place on the bed, with its settings (see
+ * zs_app_part_duplicate). Returns the index of the copy, or -1. */
+gint64 zg_model_part_duplicate(ZgModel *self, size_t i);
 gboolean zg_model_plate_arrange(ZgModel *self);
 void zg_model_plate_clear(ZgModel *self);
 
@@ -220,7 +223,8 @@ gboolean zg_model_can_undo(ZgModel *self);
 /* The tools of the preview: select a line (the default), move and turn a
  * part (as with Ctrl), or measure (the measure tape). "tool-changed"
  * follows a change. */
-typedef enum { ZG_TOOL_SELECT = 0, ZG_TOOL_MOVE = 1, ZG_TOOL_MEASURE = 2 } ZgTool;
+/* Turn: rings around the selected part turn it about X, Y, or Z. */
+typedef enum { ZG_TOOL_SELECT = 0, ZG_TOOL_MOVE = 1, ZG_TOOL_MEASURE = 2, ZG_TOOL_TURN = 3 } ZgTool;
 ZgTool zg_model_tool(ZgModel *self);
 void zg_model_set_tool(ZgModel *self, ZgTool tool);
 /* The measure tape: up to two points (x, y, z in mm). A third point starts

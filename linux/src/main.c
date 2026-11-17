@@ -71,6 +71,11 @@ static const char *ZG_CSS =
     "button.zg-card-close { min-height: 22px; min-width: 22px; padding: 0; }"
     ".zg-print-card { padding: 12px 14px 14px; }"
     ".zg-drawer { box-shadow: -2px 0 12px alpha(black, 0.30); }"
+    /* The tool strip at the left of the view: a glyph and its key. */
+    ".zg-strip { padding: 4px; }"
+    "button.zg-strip-button { min-width: 34px; min-height: 34px; padding: 3px; }"
+    "button.zg-strip-button:checked { background: alpha(@theme_selected_bg_color, 0.45); }"
+    ".zg-strip-key { font-size: 0.62em; font-weight: 700; opacity: 0.7; margin: -3px -2px; }"
     /* The facts of the print card: small buttons. */
     "button.zg-fact { min-height: 22px; padding: 1px 7px; font-size: 0.85em; font-weight: normal; border-radius: 11px; }"
     "flowboxchild { padding: 0; }"

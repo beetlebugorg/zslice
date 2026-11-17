@@ -1693,6 +1693,13 @@ char *zg_model_part_setting(ZgModel *self, size_t i, const char *name) {
     return buf;
 }
 
+gint64 zg_model_part_duplicate(ZgModel *self, size_t i) {
+    ptrdiff_t copy = zs_app_part_duplicate(self->core, i);
+    if (copy < 0) return -1;
+    plate_changed(self);
+    return copy;
+}
+
 void zg_model_part_remove(ZgModel *self, size_t i) {
     if (zs_app_part_remove(self->core, i) != ZS_OK) return;
     zg_model_select_part(self, -1);

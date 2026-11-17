@@ -40,5 +40,11 @@ void zg_view3d_set_layer(GtkWidget *view, size_t layer);
 void zg_view3d_context_menu(GtkWidget *view);
 /* TRUE while the context menu is open (its keys are its own). */
 gboolean zg_view3d_menu_open(GtkWidget *view);
+/* The pixel of a point of the world (mm) in the widget (logical points).
+ * FALSE if it is behind the camera, or with no view. */
+gboolean zg_view3d_pixel_of(GtkWidget *view, double x, double y, double z, double *px, double *py);
+/* Calls fn(data) after each frame of the view (the cards that follow a
+ * point of the print move then). The call stays while `owner` lives. */
+void zg_view3d_on_frame(GtkWidget *view, GtkWidget *owner, void (*fn)(gpointer), gpointer data);
 /* Shows the layers from lo to hi. */
 void zg_view3d_set_layer_range(GtkWidget *view, size_t lo, size_t hi);
