@@ -194,13 +194,18 @@ def model_name(brand, name):
     """The model name without the brand at its start."""
     # PrusaSlicer writes "&&" for "&" (a menu escape).
     name = name.strip().replace("&&", "&")
+    full = re.sub(r"\s+", " ", name)
     for prefix in sorted({brand, brand.replace(" ", ""), "Original Prusa", "Prusa", "Creality3D", "Bambu Lab", "UltiMaker", "Ultimaker", "Lulzbot", "LulzBot", "QIDI Tech", "Qidi", "QIDI", "FLSun", "Flsun", "Anker", "AnkerMake", "Voron Design", "RatRig", "Rat Rig"}, key=len, reverse=True):
         if prefix and name.lower().startswith(prefix.lower() + " "):
             if norm(prefix) == norm(brand) or norm(brand) in (norm(prefix), "prusa", "bambulab", "ultimaker", "qidi", "flsun", "anker", "voron", "ratrig"):
                 name = name[len(prefix):].strip()
                 break
-    name = re.sub(r"\s+", " ", name)
-    return name.strip(" -_") or name
+    name = re.sub(r"\s+", " ", name).strip(" -_") or name
+    # A name that starts with a digit keeps the brand: "Voron 2.4 350".
+    if name[:1].isdigit():
+        return full
+    return name
+
 
 
 def series_of(model, family=""):

@@ -85,6 +85,7 @@ const CModel = extern struct {
     firmware: [*:0]const u8,
     kinematics: [*:0]const u8,
     extruders: u32,
+    title: [*:0]const u8,
 };
 
 export fn zs_printers_model_get(lib: ?*const Library, i: usize, out: ?*CModel) c_int {
@@ -116,6 +117,7 @@ export fn zs_printers_model_get(lib: ?*const Library, i: usize, out: ?*CModel) c
         .firmware = cstr(m.firmware),
         .kinematics = cstr(m.kinematics),
         .extruders = m.extruders,
+        .title = m.title.ptr,
     };
     return ok;
 }
@@ -189,7 +191,7 @@ export fn zs_printers_sources(lib: ?*const Library, i: usize, buf: ?[*]u8, cap: 
 /// "220 × 220 × 250 mm · heated bed · Klipper · CoreXY".
 pub fn facts(l: *const Library, i: usize, w: *Writer) Writer.Error!void {
     const m = l.models[i];
-    if (m.round) try w.print("⌀ {d} × {d} mm", .{ m.bed_x, m.height }) else try w.print("{d} × {d} × {d} mm", .{ m.bed_x, m.bed_y, m.height });
+    if (m.round) try w.print("⌀ {d} mm, {d} mm high", .{ m.bed_x, m.height }) else try w.print("{d} × {d} × {d} mm", .{ m.bed_x, m.bed_y, m.height });
     if (m.heated_chamber) try w.writeAll(" · heated chamber") else if (m.heated_bed) try w.writeAll(" · heated bed");
     if (m.firmware.len > 0) try w.print(" · {s}", .{m.firmware});
     const kin = m.kinematics;
@@ -321,7 +323,7 @@ test "the C API of the library" {
     try std.testing.expectEqual(@intFromEnum(Status.invalid_value), zs_printers_load("x".ptr, 1, &lib));
     // The sizes of the structs of zslice-app.h on a 64-bit target (gcc).
     if (@sizeOf(usize) == 8) {
-        try std.testing.expectEqual(@as(usize, 152), @sizeOf(CModel));
+        try std.testing.expectEqual(@as(usize, 160), @sizeOf(CModel));
         try std.testing.expectEqual(@as(usize, 112), @sizeOf(CFound));
     }
 }

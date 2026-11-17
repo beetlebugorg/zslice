@@ -952,6 +952,7 @@ typedef struct zs_printer_model {
     const char *firmware;  /* "Marlin", "Klipper", "RepRapFirmware", ... */
     const char *kinematics;/* "corexy", "i3", "delta", or "" */
     uint32_t extruders;
+    const char *title;     /* for the user: "Creality Ender-3 V2", "Voron 2.4 350" */
 } zs_printer_model;
 
 size_t zs_printers_model_count(const zs_printers *lib);

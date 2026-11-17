@@ -76,6 +76,9 @@ pub const Model = struct {
     brand: u32,
     id: []const u8,
     name: []const u8,
+    /// The name for the user: the brand and the name, or the name alone
+    /// if it starts with the brand ("Voron 2.4 350").
+    title: [:0]const u8 = "",
     series: []const u8,
     /// One letter for each source: c Cura, p PrusaSlicer, o OrcaSlicer.
     sources: []const u8,
@@ -164,7 +167,13 @@ pub const Library = struct {
                 },
                 'P' => {
                     if (brands.items.len == 0) return error.InvalidLibrary;
-                    try models.append(a, try parseModel(rest, @intCast(brands.items.len - 1), gcodes.items.len));
+                    var m = try parseModel(rest, @intCast(brands.items.len - 1), gcodes.items.len);
+                    const brand = brands.items[brands.items.len - 1].name;
+                    m.title = if (std.ascii.startsWithIgnoreCase(m.name, brand))
+                        try a.dupeZ(u8, m.name)
+                    else
+                        try std.fmt.allocPrintSentinel(a, "{s} {s}", .{ brand, m.name }, 0);
+                    try models.append(a, m);
                 },
                 else => {}, // a record of a later version
             }
@@ -286,14 +295,11 @@ pub const Library = struct {
     /// of the model).
     pub fn profileText(self: *const Library, i: usize, nozzle: f64, w: *Writer) Writer.Error!void {
         const m = self.models[i];
-        const brand = self.brands[m.brand].name;
-        try w.print("# {s} {s}, from the zslice printer library (", .{ brand, m.name });
+        try w.print("# {s}, from the zslice printer library (", .{m.title});
         try self.sourceNames(m, w);
         try w.writeAll(").\n");
-        try w.print("name = \"", .{});
-        try writeEscaped(w, brand);
-        try w.writeByte(' ');
-        try writeEscaped(w, m.name);
+        try w.writeAll("name = \"");
+        try writeEscaped(w, m.title);
         try w.writeAll("\"\n");
         try w.print("bed_size_x = {d}\nbed_size_y = {d}\nmax_height = {d}\n", .{ m.bed_x, m.bed_y, m.height });
         if (m.origin_x != 0) try w.print("origin_x = {d}\n", .{m.origin_x});

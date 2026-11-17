@@ -454,10 +454,10 @@ G	M92 E159 ;2288 for V5 extruder\n\nM140 S{bed_temp}\nM104 T1 S120\nM104 T2 S120
 G	; -- END GCODE --\nM117 cooling down....\nM106 S255\nM140 S5\nM104 T0 S5\nM104 T1 S5\nM104 T2 S5\nM104 T3 S5\n\nG91\nG1 Z1 F900\nG90\n\nG1 X20.0 Y260.0 F6000\nG4 S7\nM84\nG4 S90\nM107\nM42 P12 S0\nM42 P13 S0\nM84\nT0\nM117 Finished.\n; -- end of GCODE --
 G	M190 S{bed_temp}\nM109 S{first_layer_nozzle_temp}\n G28 ; home all axes\n M117 ; Purge extruder\n G92 E0 ; reset extruder\n G1 Z1.0 F3000 ; move z up little to prevent scratching of surface\n G1 X2 Y20 Z0.3 F5000.0 ; move to start-line position\n G1 X2 Y200.0 Z0.3 F1500.0 E15 ; draw 1st line\n G1 X2 Y200.0 Z0.4 F5000.0 ; move to side a little\n G1 X2 Y20 Z0.4 F1500.0 E30 ; draw 2nd line\n G92 E0 ; reset extruder\n G1 Z1.0 F3000 ; move z up little to prevent scratching of surface
 G	 G91; relative positioning\n G1 Z1.0 F3000 ; move z up little to prevent scratching of print\n G90; absolute positioning\n G1 X0 Y0 F1000 ; prepare for part removal\n M104 S0; turn off extruder\n M140 S0 ; turn off bed\n M84 ; disable motors\n M106 S0 ; turn off fan
-G	M190 S{bed_temp}\nM109 S{first_layer_nozzle_temp}\n G28 ; home all axes\n M420 S1\n M117 ; Purge extruder\n G92 E0 ; reset extruder\n G1 Z1.0 F1200 ; move z up little to prevent scratching of surface\n G1 X4 Y20 Z0.3 F3000.0 ; move to start-line position\n G1 X4 Y380.0 Z0.3 F1500.0 E30 ; draw 1st line\n G1 X4 Y380.0 Z0.4 F3000.0 ; move to side a little\n G1 X4 Y20 Z0.4 F1500.0 E60 ; draw 2nd line\n G92 E0 ; reset extruder\n G1 Z1.0 F1500 ; move z up little to prevent scratching of surface
 G	M190 S{bed_temp}\nM109 S{first_layer_nozzle_temp}\nG28 ; home all axes\n G29; ABL\n M117 Purge extruder\n G92 E0 ; reset extruder\n G1 Z1.0 F3000 ; move z up little to prevent scratching of surface\n G1 X2 Y20 Z0.3 F5000.0 ; move to start-line position\n G1 X2 Y200.0 Z0.3 F1500.0 E15 ; draw 1st line\n G1 X2 Y200.0 Z0.4 F5000.0 ; move to side a little\n G1 X2 Y20 Z0.4 F1500.0 E30 ; draw 2nd line\n G92 E0 ; reset extruder\n G1 Z1.0 F3000 ; move z up little to prevent scratching of surface
 G	M190 S{bed_temp}\nM109 S{first_layer_nozzle_temp}\n G28 ; home all axes\n M420 S1\n M117 ; Purge extruder\n G92 E0 ; reset extruder\n G1 Z1.0 F3000 ; move z up little to prevent scratching of surface\n G1 X2 Y20 Z0.3 F5000.0 ; move to start-line position\n G1 X2 Y200.0 Z0.3 F1500.0 E15 ; draw 1st line\n G1 X2 Y200.0 Z0.4 F5000.0 ; move to side a little\n G1 X2 Y20 Z0.4 F1500.0 E30 ; draw 2nd line\n G92 E0 ; reset extruder\n G1 Z1.0 F3000 ; move z up little to prevent scratching of surface
 G	 G91; relative positioning\n G1 Z1.0 F3000 ; move z up little to prevent scratching of print\n G90; absolute positioning\n G1 X0 Y0 F1000 ; prepare for part removal\n M104 S0; turn off extruder\n M140 S0 ; turn off bed\n M84 ; disable motors\n M420 S0\n M106 S0 ; turn off fan
+G	M190 S{bed_temp}\nM109 S{first_layer_nozzle_temp}\n G28 ; home all axes\n M420 S1\n M117 ; Purge extruder\n G92 E0 ; reset extruder\n G1 Z1.0 F1200 ; move z up little to prevent scratching of surface\n G1 X4 Y20 Z0.3 F3000.0 ; move to start-line position\n G1 X4 Y380.0 Z0.3 F1500.0 E30 ; draw 1st line\n G1 X4 Y380.0 Z0.4 F3000.0 ; move to side a little\n G1 X4 Y20 Z0.4 F1500.0 E60 ; draw 2nd line\n G92 E0 ; reset extruder\n G1 Z1.0 F1500 ; move z up little to prevent scratching of surface
 G	M140 S{bed_temp} ; Heat bed\nM109 S{nozzle_temp} ; Heat nozzle\nM190 S{bed_temp} ; Wait for bed heating\nG28 ; home all axes\nM117 Purge extruder\nG92 E0 ; reset extruder\nG1 Z5.0 F1000 ; move z up little to prevent scratching of surface\nG1 X0.1 Y20 Z0.3 F5000.0 ; move to start-line position\nG1 X0.1 Y100.0 Z0.3 F1500.0 E15 ; draw 1st line\nG1 X0.4 Y100.0 Z0.3 F5000.0 ; move to side a little\nG1 X0.4 Y20 Z0.3 F1500.0 E30 ; draw 2nd line\nG92 E0 ; reset extruder\nG1 Z5.0 F1000 ; move z up little to prevent scratching of surface
 G	G91; relative positioning\nG1 Z1.0 F3000 ; move z up little to prevent scratching of print\nG90; absolute positioning\nG1 X0 Y200 F1000 ; prepare for part removal\nM104 S0; turn off extruder\nM140 S0 ; turn off bed\nG1 X0 Y220 F1000 ; prepare for part removal\nM84 ; disable motors\nM106 S0 ; turn off fan
 G	M104 S0\nM140 S0\n;Retract the filament\nG92 E1\nG1 E-1 F300\nG28\nM84
@@ -501,14 +501,14 @@ G	G92 E0\nTURN_OFF_HEATERS\nG28 X Y\nM18\nM107
 G	;End GCode\nG91 ;relative positioning\nG1 E-1 F300 ;retract the filament a bit before lifting the nozzle, to release some of the pressure\nG1 Z+0.5 E-4 F300 ;move Z up a bit and retract filament even more\nM104 S0 ;extruder heater off\nM140 S0 ;heated bed heater off (if you have it)\nG0 Z100 F1800 ;move the platform all the way down\nG28 X0 Y0 F1800 ;move X/Y to min endstops, so the head is out of the way\nM84 ;steppers off\nG90 ;absolute positioning\nM117 Done
 G	;End GCode\nG91 ;relative positioning\nG1 E-1 F300 ;retract the filament a bit before lifting the nozzle, to release some of the pressure\nG1 Z+0.5 E-4 F300 ;move Z up a bit and retract filament even more\nM104 S0 ;extruder heater off\nM140 S0 ;heated bed heater off (if you have it)\nG0 Z120 F1800 ;move the platform all the way down\nG28 X0 Y0 F1800 ;move X/Y to min endstops, so the head is out of the way\nM84 ;steppers off\nG90 ;absolute positioning\nM117 Done
 G	;End GCode\nG91 ;relative positioning\nG1 E-1 F300 ;retract the filament a bit before lifting the nozzle, to release some of the pressure\nG1 Z+0.5 E-4 F300 ;move Z up a bit and retract filament even more\nM104 S0 ;extruder heater off\nM140 S0 ;heated bed heater off (if you have it)\nG0 Z200 F1800 ;move the platform all the way down\nG28 X0 Y0 F1800 ;move X/Y to min endstops, so the head is out of the way\nM84 ;steppers off\nG90 ;absolute positioning\nM117 Done
-G	M190 S{bed_temp}\nM109 S{first_layer_nozzle_temp}\n  ; -- START GCODE --\n  G21\n  G28 ; Home extruder\n  G29 ; Autolevel bed\n  M107 ; Turn off fan\n  G90 ; Absolute positioning\n  M82 ; Extruder in absolute mode\n  G92 E0 ; Reset extruder position\n  ; -- end of START GCODE --
-G	  ; -- END GCODE --\n  G1 X0 Y230 ; Get extruder out of way.\n  M107 ; Turn off fan\n  G91 ; Relative positioning\n  G0 Z20 ; Lift extruder up\n  T0\n  G1 E-1 ; Reduce filament pressure\n  M104 T0 S0 ; Turn ectruder heater off\n  G90 ; Absolute positioning\n  G92 E0 ; Reset extruder position\n  M140 S0 ; Disable heated bed\n  M84 ; Turn steppers off\n  ; -- end of END GCODE --
-G	  ; -- END GCODE --\n  G1 X0 Y230 ; Get extruder out of way.\n  M107 ; Turn off fan\n  G91 ; Relative positioning\n  G0 Z20 ; Lift extruder up\n  T0\n  G1 E-1 ; Reduce filament pressure\n  M104 T0 S0 ; Turn extruder heater off\n  G90 ; Absolute positioning\n  G92 E0 ; Reset extruder position\n  M140 S0 ; Disable heated bed\n  M84 ; Turn steppers off\n  ; -- end of END GCODE --
 G	M109 S{first_layer_nozzle_temp}\nG21\nG28 ; Home extruder\nM420 S1 ; Enable MBL\nM107 ; Turn off fan\nG91 ; Relative positioning\nG1 Z5 F180;\nG1 X30 Y30 F3000;\nG90 ; Absolute positioning\nM82 ; Extruder in absolute mode\nG92 E0 ; Reset extruder position
 G	G1 X0 Y145 ; Get extruder out of way.\nM107 ; Turn off fan\nG91 ; Relative positioning\nG0 Z20 ; Lift extruder up\nT0\nG1 E-1 ; Reduce filament pressure\nM104 T0 S0 ; Turn extruder heater off\nG90 ; Absolute positioning\nG92 E0 ; Reset extruder position\nM84 ; Turn steppers off
 G	G21\nG92 E0\nM140 S{bed_temp}\nM104 S{first_layer_nozzle_temp}\nG28\nM420 S1\nM107\nG90\nM190 S{bed_temp}\nM109 S{first_layer_nozzle_temp}\nG1 X10.0 Y0.1 Z0.3 F3000.0\nG1 X140.0 Y0.1 Z0.3 F1500.0 E10\nG1 X140 Y0.4 Z0.3 F3000.0\nG1 X10.0 Y0.4 Z0.3 F1500.0 E20\nG1 Z2.0 F1500.0\nG92 E0
 G	G1 X0 Y140\nM107\nG91\nG0 Z20\nT0\nG1 E-2\nM104 T0 S0\nG90\nG92 E0\nM140 S0\nM84\nM300 S2093 P150\nM300 S2637 P150\nM300 S3135 P150\nM300 S4186 P150\nM300 S3135 P150\nM300 S2637 P150\nM300 S2793 P150\nM300 S2349 P150\nM300 S1975 P150\nM300 S2093 P450
 G	G92 E0\nT0\nG1 F1800 E-2\nG27 P2\nM107\nM104 T0 S0\nM140 S0\nG90\nG92 E0\nM18
+G	M190 S{bed_temp}\nM109 S{first_layer_nozzle_temp}\n  ; -- START GCODE --\n  G21\n  G28 ; Home extruder\n  G29 ; Autolevel bed\n  M107 ; Turn off fan\n  G90 ; Absolute positioning\n  M82 ; Extruder in absolute mode\n  G92 E0 ; Reset extruder position\n  ; -- end of START GCODE --
+G	  ; -- END GCODE --\n  G1 X0 Y230 ; Get extruder out of way.\n  M107 ; Turn off fan\n  G91 ; Relative positioning\n  G0 Z20 ; Lift extruder up\n  T0\n  G1 E-1 ; Reduce filament pressure\n  M104 T0 S0 ; Turn ectruder heater off\n  G90 ; Absolute positioning\n  G92 E0 ; Reset extruder position\n  M140 S0 ; Disable heated bed\n  M84 ; Turn steppers off\n  ; -- end of END GCODE --
+G	  ; -- END GCODE --\n  G1 X0 Y230 ; Get extruder out of way.\n  M107 ; Turn off fan\n  G91 ; Relative positioning\n  G0 Z20 ; Lift extruder up\n  T0\n  G1 E-1 ; Reduce filament pressure\n  M104 T0 S0 ; Turn extruder heater off\n  G90 ; Absolute positioning\n  G92 E0 ; Reset extruder position\n  M140 S0 ; Disable heated bed\n  M84 ; Turn steppers off\n  ; -- end of END GCODE --
 G	M109 S{first_layer_nozzle_temp}\n  ; -- START GCODE --\n  G21\n  G28 ; Home extruder\n  G29 ; Autolevel bed\n  M107 ; Turn off fan\n  G90 ; Absolute positioning\n  M82 ; Extruder in absolute mode\n  G92 E0 ; Reset extruder position\n  ; -- end of START GCODE --
 G	G21\nG92 E0\nM140 S{bed_temp}\nM104 S{first_layer_nozzle_temp}\nG28\nM420 S1\nM107\nG90\nM190 S{bed_temp}\nM109 S{first_layer_nozzle_temp}\nG1 X10.0 Y0.1 Z0.3 F3000.0\nG1 X190.0 Y0.1 Z0.3 F1500.0 E15\nG1 X190 Y0.4 Z0.3 F3000.0\nG1 X10.0 Y0.4 Z0.3 F1500.0 E30\nG1 Z2.0 F1500.0\nG92 E0
 G	G1 X0 Y180\nM107\nG91\nG0 Z20\nT0\nG1 E-1\nM104 T0 S0\nG90\nG92 E0\nM140 S0\nM84\nM300 S2093 P150\nM300 S2637 P150\nM300 S3135 P150\nM300 S4186 P150\nM300 S3135 P150\nM300 S2637 P150\nM300 S2793 P150\nM300 S2349 P150\nM300 S1975 P150\nM300 S2093 P450
@@ -618,7 +618,6 @@ G	M107 ; Turn off the fan\nG21  ; set units to millimeters\nG90  ; use absolute 
 G	M104 S0 ; turn off temperature\nM140 S0 ; turn off heatbed\n\nG92 E0.0     ; reset extruder distance position\nG1 E-1 F2100 ; retract\n\nG0 X50 Y250 F12000;\nM84    ; disable motors\n\nM107   ; turn off fan\n\nSET_VELOCITY_LIMIT ACCEL_TO_DECEL=4000
 G	G21 ; set units to millimeters\nG90 ; use absolute positioning\nM82 ; absolute extrusion mode\nM140 S{bed_temp} ; set bed temp\nM104 S{nozzle_temp} ; set extruder temp\nG28 ; home X, Y and Z\nG29 ; probe sequence (for auto-leveling)\nG1 Z15 F600 ; go to Z15 position\nG1 X0 Y-20 F10000 ; go to X0 Y-20 position\nM190 S{bed_temp} ; wait for bed temp\nM109 S{nozzle_temp} ; wait for extruder temp\nG92 E0 ; reset extruder distance position\nG1 E25 F100 ; extrude 25mm of material\nG92 E0 ; reset extruder distance position\nM117 Printing...
 G	M400 ; wait for moves to finish\nG92 Z0 E0 ; reset Z position\nG1 E-2 F9000 ; retract material\nG1 Z2 ; get extruder out of the way\nM104 S0 ; turn off extruder\nG1 Y285 F3000 ; present finished print\nM140 S0 ; turn off bed\nM84 ; disable motors\nM117 Print complete
-G	; # # # # # # START Footer\nG91 \t\t\t; relative coordinates\n;G1 E-1 F1200\t\t; retract the filament\nG1 Z+15  X-10 Y-10 E-7  F6000\t\t; move Z a bit\n; G1 X-10 Y-10 F6000\t; move XY a bit\nG1 E-5.5 F300\t\t; retract the filament\nG28 X0 Y0\t\t; move X/Y to min endstops, so the head is out of the way\nM104 S0\t\t\t; extruder heater off\nM140 S0\t\t\t; heated bed heater off (if you have it)\nM84 \t\t\t; disable motors\n; # # # # # # END Footer
 G	M190 S{bed_temp}\nM109 S{first_layer_nozzle_temp}\n; Start GCode
 G	; End GCode
 G	M190 S{bed_temp}\nM109 S{first_layer_nozzle_temp}\nG28\nM132 X Y Z A B\nG1 Z50.000 F420\nG161 X Y F3300\nM7 T0\nM6 T0\nM651 S255\nSET_SERVO SERVO=my_servo ANGLE=180\nSET_FAN_SPEED FAN=external_fan SPEED=1\nSET_FAN_SPEED FAN=internal_fan SPEED=1\nG1 Z0.25 F6000\nG1 E-1.5 F800\nG1 E2 F800\nG1 X111 Y111 Z0.25 F4800\nG1 X111 Y-111 E25 F1200
@@ -626,6 +625,7 @@ G	M104 S0 T0\nM140 S0 T0\nG162 Z F1800\nG28 X Y\nM132 X Y A B\nM652\nG91
 G	M190 S{bed_temp}\nM109 S{first_layer_nozzle_temp}\nG21 ;metric values\nG90 ;absolute positioning\nM82 ;set extruder to absolute mode\nM107 ;start with the fan off\nG28 X0 Y0 ;move X/Y to min endstops\nG28 Z0 ;move Z to min endstops\nG1 Z15.0 F9000 ;move the platform down 15mm\nG92 E0 ;zero the extruded length\nG1 F200 E6 ;extrude 6 mm of feed stock\nG92 E0 ;zero the extruded length again\nG1 Y50 F9000\n;Put printing message on LCD screen\nM117 Printing...
 G	; Move toolhead out of the way\nG28 X Y\n\nM204 S3000; reset accel\nM107; fan off\n\n; heaters off\nM104 S0\nM104 T0 S0\nM104 T1 S0\nM140 S0\n\n; disable motors\nM84\n\n\nM82 ;absolute extrusion mode\n\n;End of Gcode
 G	M190 S{bed_temp}\nM109 S{first_layer_nozzle_temp}\nM213 U0.1 ;undercut 0.1mm
+G	; # # # # # # START Footer\nG91 \t\t\t; relative coordinates\n;G1 E-1 F1200\t\t; retract the filament\nG1 Z+15  X-10 Y-10 E-7  F6000\t\t; move Z a bit\n; G1 X-10 Y-10 F6000\t; move XY a bit\nG1 E-5.5 F300\t\t; retract the filament\nG28 X0 Y0\t\t; move X/Y to min endstops, so the head is out of the way\nM104 S0\t\t\t; extruder heater off\nM140 S0\t\t\t; heated bed heater off (if you have it)\nM84 \t\t\t; disable motors\n; # # # # # # END Footer
 G	G91\nG1 E-1 F600\nG1 Z+1 E-3 X-20 Y-20 F4800\nM104 S0\nM106 S0\nM140 S0\nM220 S100\nM221 S100\nG28\nG90\nM84\n;
 G	; Vertex Delta Start Gcode\nM0 Is my nozzle clean?\nM400\nG28 ; Home extruder\nM106 S128 ; Start fan\nM104 T0 R130 ; Set cold nozzle\nM109 T0 R130 ; Wait for cold nozzle\nM117 Leveling bed...\nG29 ; Level Bed\nG1 X0 Y100 Z1 F2000\nG92 Z0.9 ; Set Z position (SET Z OFFSET HERE -> 1 - OFFSET)\nM107 ; Stop fan\nG90 ; Absolute positioning\nM82 ; Extruder in absolute mode\nM104 T0 S{nozzle_temp}\nG92 E0 ; Reset extruder position\nM109 T0 S{nozzle_temp}\nM117 Priming nozzle...\nM83\nG1 E20 F100 ; purge/prime nozzle\nM82\nG92 E0 ; Reset extruder position\nG4 S3 ; Wait 3 seconds\nG1 Z5 F2000\nM117 Vertex Delta printing
 G	; Vertex Delta end code\nM107 ; Turn off fan\nG91 ; Relative positioning\nT0\nG1 E-1 F1500; Reduce filament pressure\nM104 T0 S0\nG90 ; Absolute positioning\nG92 E0 ; Reset extruder position\nM300 S4000 P500\nM300 S3000 P500\nM300 S2000 P800\nG28\nM84 ; Turn steppers off
@@ -717,10 +717,10 @@ P	anker-m5c	M5C	AnkerMake	opc	220	220	250	0	0		0.4	0.2;0.25;0.4;0.6	1.75	b	600	6
 P	anker-m5	M5	M5	oc	235	235	250	0	0		0.4	0.2;0.25;0.4;0.6	1.75	b	600	6000	30	12	marlin	Marlin 2	i3	1.5	60	17	18	1
 P	anker-m5-all-metal-hot-end	M5 All-Metal Hot End	M5	o	235	235	250	0	0		0.4	0.2;0.25;0.4;0.6	1.75	b	600	6000	30	12	marlin	Marlin 2	i3	0.5	60		18	1
 B	Anycubic
-P	anycubic-4max	4Max	4Max	c	220	220	300	0	0		0.4		1.75	b	300	1500	10	11	marlin	Marlin						1
-P	anycubic-4max-pro	4Max Pro	4Max	o	270	205	200	0	0		0.4	0.4	1.75	b	300	2000	12	9	marlin	Marlin		0.8	30		10	1
-P	anycubic-4max-pro-2	4Max Pro 2	4Max	o	270	210	190	0	0		0.4	0.4	1.75	b	200	1250	16	6	marlin	Marlin		2.5	35			1
-P	anycubic-4max-pro-2-0	4Max Pro 2.0	4Max	p	270	210	190	0	0		0.4	0.4	1.75	b	200	1250	16	6	marlin	Marlin		2.5	35			1
+P	anycubic-anycubic-4max-pro-2-0	Anycubic 4Max Pro 2.0	4Max	p	270	210	190	0	0		0.4	0.4	1.75	b	200	1250	16	6	marlin	Marlin		2.5	35			1
+P	anycubic-anycubic-4max	Anycubic 4Max	Anycubic	c	220	220	300	0	0		0.4		1.75	b	300	1500	10	11	marlin	Marlin						1
+P	anycubic-anycubic-4max-pro	Anycubic 4Max Pro	Anycubic	o	270	205	200	0	0		0.4	0.4	1.75	b	300	2000	12	9	marlin	Marlin		0.8	30		10	1
+P	anycubic-anycubic-4max-pro-2	Anycubic 4Max Pro 2	Anycubic	o	270	210	190	0	0		0.4	0.4	1.75	b	200	1250	16	6	marlin	Marlin		2.5	35			1
 P	anycubic-chiron	Chiron	Chiron	oc	400	400	450	0	0		0.4	0.4	1.75	b	300	1250	12	8	marlin	Marlin		2	40	19	20	1
 P	anycubic-i3-mega-s-pro	i3 Mega S/Pro	i3	c	210	210	205	0	0		0.4		1.75	b	500	3000	8	10	marlin	Marlin		6	30			1
 P	anycubic-i3-mega-x	i3 Mega X	i3	c	300	300	305	0	0		0.4		1.75	b	120	3000	20	10	marlin	Marlin		6	30			1
@@ -803,9 +803,9 @@ P	beamup-s	S	S	c	200	180	130	0	0		0.4		1.75						marlin	Marlin				65	64	1
 B	Beeverycreative
 P	beeverycreative-hello-bee-prusa	Hello Bee Prusa	Hello	c	185	200	190	0	0		0.4		1.75	b					marlin	Marlin		1.5	15	66	67	2
 B	BenFab
-P	benfab-450	450	450	o	426	426	480	0	0		0.4	0.4;0.6;0.8;1	1.75	b	500	5000	20	9	klipper	Klipper	i3	0.8	60			1
+P	benfab-benfab-450	BenFab 450	BenFab	o	426	426	480	0	0		0.4	0.4;0.6;0.8;1	1.75	b	500	5000	20	9	klipper	Klipper	i3	0.8	60			1
 B	BIBO
-P	bibo-2-dual	2 dual	2	c	214	186	160	-107	-93		0.4		1.75	b					marlin	Marlin					68	2
+P	bibo-bibo-2-dual	Bibo 2 dual	Bibo	c	214	186	160	-107	-93		0.4		1.75	b					marlin	Marlin					68	2
 P	bibo-bibo2-touch	BIBO2 Touch	BIBO2	p	33	186	160	-33	-93		0.4	0.4	1.75	b	350	1100	2	10	marlin	Marlin		1.5	20		69	1
 B	BIQU
 P	biqu-b1	B1	B1	oc	235	235	270	0	0		0.4	0.4	1.75	b	500	1000	10	10	marlin	Marlin		7	70	70	71	1
@@ -849,7 +849,7 @@ P	cocoon-create-cocoon-create	Cocoon Create	Cocoon	c	200	200	180	0	0		0.4		1.75	
 P	cocoon-create-modelmaker	ModelMaker	ModelMaker	c	120	135	100	0	0		0.4		1.75						marlin	Marlin		7	40	107	108	1
 P	cocoon-create-touch	Touch	Touch	c	200	200	180	0	0		0.4		1.75	b					marlin	Marlin		4.5	25			1
 B	CoLiDo
-P	colido-160-v2	160 V2	160	o	160	160	180	0	0		0.4	0.4	1.75	bc	300	1000	10	8	marlin	Marlin 2		1.2	30			1
+P	colido-colido-160-v2	CoLiDo 160 V2	CoLiDo	o	160	160	180	0	0		0.4	0.4	1.75	bc	300	1000	10	8	marlin	Marlin 2		1.2	30			1
 P	colido-diy-4-0	DIY 4.0	DIY	o	225	220	230	0	0		0.4	0.4	1.75	bc	800	20000	12	12	klipper	Klipper		0.8	20		10	1
 P	colido-diy-4-0-v2	DIY 4.0 V2	DIY	o	230	230	255	0	0		0.4	0.4	1.75	b	500	20000	12	9	klipper	Klipper		0.4	30	109	10	1
 P	colido-sr1	SR1	SR	o	220	220	251	0	0		0.4	0.4	1.75	b	500	20000	12	9	klipper	Klipper		0.4	30	109	10	1
@@ -981,9 +981,9 @@ P	deltacomb-dc-30	DC-30	DC	c	290	290	300	-145	-145	r	0.4		1.75	b			300		marlin	M
 P	deltacomb-dc-30-dual	DC-30 Dual	DC	c	290	290	300	-145	-145	r	0.4		1.75	b			300		marlin	Marlin	delta	3.5	40	182	183	2
 P	deltacomb-dc-30-flux	DC-30 Flux	DC	c	290	290	300	-145	-145	r	0.4		1.75	b			300		marlin	Marlin	delta	3.5	40	182	184	2
 B	DeltaMaker
-P	deltamaker-2	2	2	o	276	240	260	-138	-120		0.35	0.35	1.75	b	500	5000	150	10	klipper	Klipper		7	80			1
-P	deltamaker-2t	2T	2T	o	276	240	460	-138	-120		0.5	0.5	1.75	b	500	5000	150	10	klipper	Klipper		7	80			1
-P	deltamaker-2xt	2XT	2XT	o	276	240	565	-138	-120		0.5	0.5	1.75	b	500	5000	150	10	klipper	Klipper		7	80			1
+P	deltamaker-deltamaker-2	DeltaMaker 2	DeltaMaker	o	276	240	260	-138	-120		0.35	0.35	1.75	b	500	5000	150	10	klipper	Klipper		7	80			1
+P	deltamaker-deltamaker-2t	DeltaMaker 2T	DeltaMaker	o	276	240	460	-138	-120		0.5	0.5	1.75	b	500	5000	150	10	klipper	Klipper		7	80			1
+P	deltamaker-deltamaker-2xt	DeltaMaker 2XT	DeltaMaker	o	276	240	565	-138	-120		0.5	0.5	1.75	b	500	5000	150	10	klipper	Klipper		7	80			1
 B	Deltaprintr
 P	deltaprintr-delta-go	Delta Go	Delta	c	115	115	154	-57.5	-57.5	r	0.4		1.75						marlin	Marlin	delta	4.1	500			1
 B	DraftShift Design
@@ -991,9 +991,9 @@ P	draftshift-design-voron2-stealthchanger-250	Voron2 StealthChanger 250	Voron	c	
 P	draftshift-design-voron2-stealthchanger-300	Voron2 StealthChanger 300	Voron	c	300	300	300	0	0		0.4		1.75	b	500	5000	40		marlin	Marlin		0.75	30		10	1
 P	draftshift-design-voron2-stealthchanger-350	Voron2 StealthChanger 350	Voron	c	350	350	350	0	0		0.4		1.75	b	500	5000	40		marlin	Marlin		0.75	30		10	1
 B	Dremel
-P	dremel-3d20	3D20	3D20	o	230	150	140	0	0		0.4	0.4	1.75	b	1000	6200	30	12	marlin	Marlin	hbot	0.5	40	185	186	1
-P	dremel-3d40	3D40	3D40	o	225	155	170	-127.5	-77.5		0.4	0.4	1.75	b	1000	6200	30	12	marlin	Marlin	hbot	3	60	185	187	1
-P	dremel-3d45	3D45	3D45	o	225	155	170	-127.5	-77.5		0.4	0.4	1.75	b	500	1500	12	10	marlin	Marlin		1	40	188	189	1
+P	dremel-dremel-3d20	Dremel 3D20	Dremel	o	230	150	140	0	0		0.4	0.4	1.75	b	1000	6200	30	12	marlin	Marlin	hbot	0.5	40	185	186	1
+P	dremel-dremel-3d40	Dremel 3D40	Dremel	o	225	155	170	-127.5	-77.5		0.4	0.4	1.75	b	1000	6200	30	12	marlin	Marlin	hbot	3	60	185	187	1
+P	dremel-dremel-3d45	Dremel 3D45	Dremel	o	225	155	170	-127.5	-77.5		0.4	0.4	1.75	b	500	1500	12	10	marlin	Marlin		1	40	188	189	1
 B	DXU
 P	dxu-dual	Dual	Dual	c	238	223	203	0	0		0.4		1.75	b	300	3000	40		marlin	Marlin		6.5	25	190	191	2
 P	dxu-dxu	DXU	DXU	c	238	223	203	0	0		0.4		1.75	b	300	3000	40		marlin	Marlin		6.5	25	190	191	2
@@ -1262,11 +1262,11 @@ P	kingroon-kp3s-pro-s1	KP3S PRO S1	KP	o	200	200	200	0	0		0.4	0.4	1.75	b	200	1250
 P	kingroon-kp3s-pro-v2	KP3S PRO V2	KP	o	205	205	200	0	0		0.4	0.4	1.75	b	500	10000	12	20	klipper	Klipper		0.8	45	362		1
 P	kingroon-kp3s-v1	KP3S V1	KP	o	180	180	180	0	0		0.4	0.4	1.75	bc	500	10000	12	9	klipper	Klipper		0.8	30	363	364	1
 B	KLEMA
-P	klema-180	180	180	c	180	180	220	0	0		0.4		1.75	b					marlin	Marlin				365	366	1
-P	klema-250	250	250	c	250	250	350	0	0		0.4		1.75	b					marlin	Marlin				365	366	1
-P	klema-250-pro	250 Pro	250	c	250	250	350	0	0		0.4		1.75	b					marlin	Marlin				365	366	1
-P	klema-250-twin	250 Twin	250	c	250	250	350	0	0		0.4		1.75	b					marlin	Marlin				367	366	2
-P	klema-500	500	500	c	250	250	555	0	0		0.4		1.75	b					marlin	Marlin				365	366	1
+P	klema-klema-180	KLEMA 180	KLEMA	c	180	180	220	0	0		0.4		1.75	b					marlin	Marlin				365	366	1
+P	klema-klema-250	KLEMA 250	KLEMA	c	250	250	350	0	0		0.4		1.75	b					marlin	Marlin				365	366	1
+P	klema-klema-250-pro	KLEMA 250 Pro	KLEMA	c	250	250	350	0	0		0.4		1.75	b					marlin	Marlin				365	366	1
+P	klema-klema-250-twin	KLEMA 250 Twin	KLEMA	c	250	250	350	0	0		0.4		1.75	b					marlin	Marlin				367	366	2
+P	klema-klema-500	KLEMA 500	KLEMA	c	250	250	555	0	0		0.4		1.75	b					marlin	Marlin				365	366	1
 B	Koonovo
 P	koonovo-elf	Elf	Elf	c	310	310	345	0	0		0.4		1.75	b	200	500	50		marlin	Marlin		2.5	40	368	369	1
 P	koonovo-kn3-idex	KN3 Idex	KN	c	310	310	400	0	0		0.4		1.75	b	200	500	50		marlin	Marlin		2.5	40	368	369	2
@@ -1340,7 +1340,7 @@ B	Maker
 P	maker-pegasus	Pegasus	Pegasus	c	400	400	400	0	0		0.4		1.75	b					marlin	Marlin				422	423	1
 P	maker-prusa-tairona-i3	Prusa Tairona i3	Prusa	c	200	200	200	0	0		0.4		1.75	b					marlin	Marlin				422	423	1
 B	Maker Made
-P	maker-made-300x	300x	300x	c	300	300	400	0	0		0.4		1.75	b					marlin	Marlin		5	45	424	425	1
+P	maker-made-maker-made-300x	Maker Made 300x	Maker	c	300	300	400	0	0		0.4		1.75	b					marlin	Marlin		5	45	424	425	1
 B	MakerGear
 P	makergear-m2	M2	M2	c	200	250	190	0	0		0.4		1.75	b		1000	200	10	marlin	Marlin		0.2	50	426	427	1
 P	makergear-m2-dual	M2 Dual	MakerGear M2	p	200	251	200	0	0		0.35	0.25;0.35;0.5;0.75	1.75	b	300	1000	10	5	marlin	Marlin		2			428	2
@@ -1370,16 +1370,16 @@ P	meltingplot-mbl-136	MBL 136	MBL	o	850	405	396	0	0		0.4	0.4;0.6;0.8;1;1.2	2.85	
 P	meltingplot-mbl-308	MBL 308	MBL	o	850	405	896	0	0		0.4	0.4;0.6;0.8;1;1.2	2.85	b	240	800	12	9	marlin	RepRapFirmware		0	35			1
 P	meltingplot-mbl-480	MBL 480	MBL	o	850	405	1396	0	0		0.4	0.4;0.6;0.8;1;1.2	2.85	b	240	800	12	9	marlin	RepRapFirmware		0	35			1
 B	Mingda
-P	mingda-4h	4H	4H	c	300	200	200	0	0		0.4		1.75	b	500	500	10	10	marlin	Marlin		2	25	448	449	1
-P	mingda-6h	6H	6H	c	400	300	500	0	0		0.4		1.75	b	500	500	10	10	marlin	Marlin		2	25	448	449	1
-P	mingda-600pro	600Pro	600Pro	c	600	600	600	0	0		0.4		1.75	b	500	500	10	10	marlin	Marlin		2	25	450	449	1
-P	mingda-1000pro	1000Pro	1000Pro	c	1000	1000	1000	0	0		0.4		1.75	b	500	500	10	10	marlin	Marlin		2	25	450	449	1
 P	mingda-d2	D2	D2	c	230	230	260	0	0		0.4		1.75	b	500	500	10	10	marlin	Marlin		2	25	448	449	1
 P	mingda-d3-pro	D3/Pro	D3/Pro	c	320	320	400	0	0		0.4		1.75	b	500	500	10	10	marlin	Marlin		2	25	448	449	1
-P	mingda-d4-pro	D4 Pro	D4	c	420	420	400	0	0		0.4		1.75	b	500	500	10	10	marlin	Marlin		2	25	451	449	1
-P	mingda-magician-max	Magician Max	Magician	c	320	320	400	0	0		0.4		1.75	b	500	500	10	10	marlin	Marlin		2	25	452	453	1
-P	mingda-magician-pro	Magician Pro	Magician	c	400	400	400	0	0		0.4		1.75	b	500	500	10	10	marlin	Marlin		2	25	452	453	1
-P	mingda-magician-x	Magician X	Magician	c	230	230	260	0	0		0.4		1.75	b	500	500	10	10	marlin	Marlin		2	25	452	453	1
+P	mingda-d4-pro	D4 Pro	D4	c	420	420	400	0	0		0.4		1.75	b	500	500	10	10	marlin	Marlin		2	25	450	449	1
+P	mingda-magician-max	Magician Max	Magician	c	320	320	400	0	0		0.4		1.75	b	500	500	10	10	marlin	Marlin		2	25	451	452	1
+P	mingda-magician-pro	Magician Pro	Magician	c	400	400	400	0	0		0.4		1.75	b	500	500	10	10	marlin	Marlin		2	25	451	452	1
+P	mingda-magician-x	Magician X	Magician	c	230	230	260	0	0		0.4		1.75	b	500	500	10	10	marlin	Marlin		2	25	451	452	1
+P	mingda-mingda-4h	Mingda 4H	Mingda	c	300	200	200	0	0		0.4		1.75	b	500	500	10	10	marlin	Marlin		2	25	448	449	1
+P	mingda-mingda-6h	Mingda 6H	Mingda	c	400	300	500	0	0		0.4		1.75	b	500	500	10	10	marlin	Marlin		2	25	448	449	1
+P	mingda-mingda-600pro	Mingda 600Pro	Mingda	c	600	600	600	0	0		0.4		1.75	b	500	500	10	10	marlin	Marlin		2	25	453	449	1
+P	mingda-mingda-1000pro	Mingda 1000Pro	Mingda	c	1000	1000	1000	0	0		0.4		1.75	b	500	500	10	10	marlin	Marlin		2	25	453	449	1
 P	mingda-rock3-pro	Rock3/Pro	Rock	c	320	320	400	0	0		0.4		1.75	b	500	500	10	10	marlin	Marlin		2	25	448	449	1
 B	Mixware
 P	mixware-hyper-k	Hyper K	Hyper	c	225	225	250	0	0		0.4		1.75	b	500	500	10	10	marlin	Marlin			25	454	455	1
@@ -1569,14 +1569,14 @@ B	RH3D
 P	rh3d-e3ng-v1-2s	E3NG v1.2S	E3NG	o	232	232	245	0	0		0.4	0.2;0.3;0.4;0.5;0.6	1.75	b	600	20000	12		klipper	Klipper	corexy	0.6	40			1
 P	rh3d-virtu-e3	VIRTU E3	VIRTU	o	230	232	232	0	0		0.4	0.2;0.3;0.4;0.5;0.6	1.75	b	900	35000	400		klipper	Klipper	corexy	0.6	40			1
 B	Rigid3D
-P	rigid3d-2-nesil	2. Nesil	2.	c	250	250	210	0	0		0.4		1.75	b	100	600	8	10	marlin	Marlin		1.5		497	498	1
-P	rigid3d-3-nesil	3. Nesil	3.	c	270	290	240	0	0		0.4		1.75	b	100	600	8	10	marlin	Marlin		1.5		497	499	1
-P	rigid3d-hobby	Hobby	Hobby	c	150	150	150	0	0		0.4		1.75		100	600	8	10	marlin	Marlin		1.5		500	501	1
-P	rigid3d-mucit	Mucit	Mucit	pc	150	150	150	0	0		0.4	0.4	1.75	b	120	500	20	10	marlin	Marlin 2		1	25	502	503	1
-P	rigid3d-mucit2	Mucit2	Mucit	pc	150	150	150	0	0		0.4	0.4	1.75	b	120	500	20	10	marlin	Marlin 2		1	25	502	504	1
-P	rigid3d-zero	Zero	Zero	c	250	250	190	0	0		0.4		1.75		100	600	8	10	marlin	Marlin		1.5		505	498	1
+P	rigid3d-hobby	Hobby	Hobby	c	150	150	150	0	0		0.4		1.75		100	600	8	10	marlin	Marlin		1.5		497	498	1
+P	rigid3d-mucit	Mucit	Mucit	pc	150	150	150	0	0		0.4	0.4	1.75	b	120	500	20	10	marlin	Marlin 2		1	25	499	500	1
+P	rigid3d-mucit2	Mucit2	Mucit	pc	150	150	150	0	0		0.4	0.4	1.75	b	120	500	20	10	marlin	Marlin 2		1	25	499	501	1
+P	rigid3d-rigid3d-2-nesil	Rigid3D 2. Nesil	Rigid	c	250	250	210	0	0		0.4		1.75	b	100	600	8	10	marlin	Marlin		1.5		502	503	1
+P	rigid3d-rigid3d-3-nesil	Rigid3D 3. Nesil	Rigid	c	270	290	240	0	0		0.4		1.75	b	100	600	8	10	marlin	Marlin		1.5		502	504	1
+P	rigid3d-zero	Zero	Zero	c	250	250	190	0	0		0.4		1.75		100	600	8	10	marlin	Marlin		1.5		505	503	1
 P	rigid3d-zero2	Zero2	Zero	pc	200	200	190	0	0		0.4	0.4	1.75	b	120	500	20	10	marlin	Marlin 2		1	25	506	507	1
-P	rigid3d-zero3	Zero3	Zero	pc	200	200	200	0	0		0.4	0.4	1.75	b	120	500	20	10	marlin	Marlin 2		1	25	506	504	1
+P	rigid3d-zero3	Zero3	Zero	pc	200	200	200	0	0		0.4	0.4	1.75	b	120	500	20	10	marlin	Marlin 2		1	25	506	501	1
 B	RigidBot
 P	rigidbot-rigidbot	RigidBot	RigidBot	c	254	254	254	0	0		0.4		1.75	b					marlin	Marlin						1
 P	rigidbot-rigidbotbig	RigidBotBig	RigidBotBig	c	400	300	254	0	0		0.4		1.75	b					marlin	Marlin						1
@@ -1600,17 +1600,11 @@ P	seemecnc-bossdelta-500-0510	BOSSdelta 500 0510	BOSSdelta	o	500	500	1000	-250	-
 P	seemecnc-rostockmax-v3-2	RostockMAX v3.2	RostockMAX	oc	270	270	385	-135	-135	r	0.4	0.4;0.5;0.7;1	1.75	bc	300	5000	200	15	marlin	RepRapFirmware	delta	6	60	512	518	1
 P	seemecnc-rostockmax-v4	RostockMAX v4	RostockMAX	o	280	280	385	-140	-140	r	0.4	0.4;0.5;0.7;1	1.75	bc	300	5000	200	15	marlin	RepRapFirmware	delta	6	60		519	1
 B	Skriware
-P	skriware-2	2	2	c	210	260	210	0	0		0.4		1.75	b					marlin	Marlin		3	30		520	2
+P	skriware-skriware-2	Skriware 2	Skriware	c	210	260	210	0	0		0.4		1.75	b					marlin	Marlin		3	30		520	2
 B	SnakeOilXY
 P	snakeoilxy-snakeoil-standard-180	SnakeOil Standard 180	SnakeOil	c	180	180	180	0	0		0.4		1.75	b		1500	40		marlin	Marlin		0.8	35		77	1
 P	snakeoilxy-snakeoil-standard-250	SnakeOil Standard 250	SnakeOil	c	250	240	230	0	0		0.4		1.75	b		1500	40		marlin	Marlin		0.8	35		77	1
 B	Snapmaker
-P	snapmaker-2-a150	2 A150	2	c	160	160	145	0	0		0.4		1.75	b		1000			marlin	Marlin		5	60	521	522	1
-P	snapmaker-2-a150-dual-extruder	2 A150 Dual Extruder	2	c	160	160	145	0	0		0.4		1.75	b		1000			marlin	Marlin		5	60	521	522	2
-P	snapmaker-2-a250	2 A250	2	c	230	250	235	0	0		0.4		1.75	b		1000			marlin	Marlin		5	60	521	523	1
-P	snapmaker-2-a250-dual-extruder	2 A250 Dual Extruder	2	c	230	250	235	0	0		0.4		1.75	b		1000			marlin	Marlin		5	60	521	523	2
-P	snapmaker-2-a350	2 A350	2	c	320	350	330	0	0		0.4		1.75	b		1000			marlin	Marlin		5	60	521	524	1
-P	snapmaker-2-a350-dual-extruder	2 A350 Dual Extruder	2	c	320	350	330	0	0		0.4		1.75	b		1000			marlin	Marlin		5	60	521	524	2
 P	snapmaker-a250	A250	Snapmaker	op	230	250	230	0	0		0.4	0.2;0.4;0.6;0.8	1.75	b	150	1100	40	5	marlin	Marlin 2		0.8	45			1
 P	snapmaker-a250-bkit	A250 BKit	Snapmaker	op	230	250	224	0	0		0.4	0.2;0.4;0.6;0.8	1.75	b	150	3500	40	5	marlin	Marlin 2		0.8	45			1
 P	snapmaker-a250-dual	A250 Dual	Snapmaker	op	230	250	190	0	0		0.4	0.2;0.4;0.6;0.8	1.75	b	150	1100	40	5	marlin	Marlin 2		0.8	35			2
@@ -1629,6 +1623,12 @@ P	snapmaker-a350-qs-b-kit	A350 QS+B Kit	Snapmaker	op	320	350	304	0	0		0.4	0.2;0.
 P	snapmaker-a350-qskit	A350 QSKit	Snapmaker	op	320	350	310	0	0		0.4	0.2;0.4;0.6;0.8	1.75	b	150	1100	40	5	marlin	Marlin 2		0.8	45			1
 P	snapmaker-artisan	Artisan	Snapmaker	op	400	400	400	0	0		0.4	0.2;0.4;0.6;0.8	1.75	b	300	5000	40	10	marlin	Marlin 2		0.8	35			2
 P	snapmaker-j1	J1	Snapmaker	op	324	200	200	0	0		0.4	0.2;0.4;0.6;0.8	1.75	b	300	10000	10	10	marlin	Marlin 2		0.8	25			2
+P	snapmaker-snapmaker-2-a150	Snapmaker 2 A150	Snapmaker	c	160	160	145	0	0		0.4		1.75	b		1000			marlin	Marlin		5	60	521	522	1
+P	snapmaker-snapmaker-2-a150-dual-extruder	Snapmaker 2 A150 Dual Extruder	Snapmaker	c	160	160	145	0	0		0.4		1.75	b		1000			marlin	Marlin		5	60	521	522	2
+P	snapmaker-snapmaker-2-a250	Snapmaker 2 A250	Snapmaker	c	230	250	235	0	0		0.4		1.75	b		1000			marlin	Marlin		5	60	521	523	1
+P	snapmaker-snapmaker-2-a250-dual-extruder	Snapmaker 2 A250 Dual Extruder	Snapmaker	c	230	250	235	0	0		0.4		1.75	b		1000			marlin	Marlin		5	60	521	523	2
+P	snapmaker-snapmaker-2-a350	Snapmaker 2 A350	Snapmaker	c	320	350	330	0	0		0.4		1.75	b		1000			marlin	Marlin		5	60	521	524	1
+P	snapmaker-snapmaker-2-a350-dual-extruder	Snapmaker 2 A350 Dual Extruder	Snapmaker	c	320	350	330	0	0		0.4		1.75	b		1000			marlin	Marlin		5	60	521	524	2
 P	snapmaker-u1	U1	U1	o	270	270	270.05	0.5	1		0.4	0.2;0.4;0.6;0.8	1.75	b	500	20000	20	9	klipper	Klipper	corexy	1.5	30			4
 B	Sovol
 P	sovol-sovol-sv01-legacy	Sovol-SV01 (Legacy)	Sovol	c	280	240	300	0	0		0.4		1.75	b	500	500	10	10	marlin	Marlin		3	50	121	525	1
@@ -1743,17 +1743,17 @@ P	typeamachines-series-1-2014	Series 1 2014	Series	c	305	305	305	0	0		0.4		1.75	
 B	uBuild-3D
 P	ubuild-3d-mr-bot-280	Mr Bot 280	Mr	c	275	275	275	0	0		0.4		1.75	b		2000	15	20	marlin	Marlin		2	50	612	613	1
 B	UltiMaker
-P	ultimaker-2	2	2	op	223	223	205	0	0		0.4	0.4;0.6;0.8	2.85	b	300	1500	40	20	marlin	Marlin		6	50		614	1
-P	ultimaker-2-extended	2 extended+	2	o	223	223	305	0	0		0.4	0.4;0.6;0.8	2.85	b	300	1500	40	20	marlin	Marlin		6	50			1
 P	ultimaker-factor-4	Factor 4+	Factor	c	330	240	300	0	0		0.4		2.85	bc	300	3000	40	1000000	marlin	Cheetah		1.2	25			2
-P	ultimaker-makerbot-replicator	MakerBot Replicator+	MakerBot	c	295	195	165	-147.5	-97.5		0.4		1.75	b	200		25		marlin	Marlin		1	50	615	616	1
-P	ultimaker-makerbot-sketch-sprint	MakerBot Sketch Sprint	MakerBot	c	221.5	221.5	220.4	-110.75	-110.75		0.4		1.75	b	600		40		marlin	Marlin		1	35	617	618	1
+P	ultimaker-makerbot-replicator	MakerBot Replicator+	MakerBot	c	295	195	165	-147.5	-97.5		0.4		1.75	b	200		25		marlin	Marlin		1	50	614	615	1
+P	ultimaker-makerbot-sketch-sprint	MakerBot Sketch Sprint	MakerBot	c	221.5	221.5	220.4	-110.75	-110.75		0.4		1.75	b	600		40		marlin	Marlin		1	35	616	617	1
 P	ultimaker-original-dual-extrusion	Original Dual Extrusion	Original	c	205	195	200	0	0		0.4		2.85						marlin	Marlin					191	2
-P	ultimaker-original	Original+	Original	c	205	205	200	0	0		0.4		2.85	b			30		marlin	Marlin				619	191	1
-P	ultimaker-s5	S5	S5	o	330	240	300	0	0		0.4	0.4	2.85	b	500	3500	12	20	marlin	Marlin		4.5	45		620	2
-P	ultimaker-s6	S6	S6	c	330	240	300	0	0		0.4		2.85	bc	500	3000	40	1000000	marlin	Cheetah		6.5	45	621		2
-P	ultimaker-s8	S8	S8	c	330	240	300	0	0		0.4		2.85	bc	500	3000	40	1000000	marlin	Cheetah		6.5	45	621		2
+P	ultimaker-original	Original+	Original	c	205	205	200	0	0		0.4		2.85	b			30		marlin	Marlin				618	191	1
+P	ultimaker-s5	S5	S5	o	330	240	300	0	0		0.4	0.4	2.85	b	500	3500	12	20	marlin	Marlin		4.5	45		619	2
+P	ultimaker-s6	S6	S6	c	330	240	300	0	0		0.4		2.85	bc	500	3000	40	1000000	marlin	Cheetah		6.5	45	620		2
+P	ultimaker-s8	S8	S8	c	330	240	300	0	0		0.4		2.85	bc	500	3000	40	1000000	marlin	Cheetah		6.5	45	620		2
 P	ultimaker-s-line	S-line	S-line	p	230	190	200	0	0		0.4	0.4	2.85	b	300	3000	40	20	marlin	Marlin		6.5	25			2
+P	ultimaker-ultimaker-2	UltiMaker 2	UltiMaker	op	223	223	205	0	0		0.4	0.4;0.6;0.8	2.85	b	300	1500	40	20	marlin	Marlin		6	50		621	1
+P	ultimaker-ultimaker-2-extended	UltiMaker 2 extended+	UltiMaker	o	223	223	305	0	0		0.4	0.4;0.6;0.8	2.85	b	300	1500	40	20	marlin	Marlin		6	50			1
 B	Uni 3D
 P	uni-3d-uni-200	Uni 200	Uni	c	220	220	250	0	0		0.4		1.75	b					marlin	Marlin		4			622	2
 P	uni-3d-uni-250	Uni 250	Uni	c	270	220	250	0	0		0.4		1.75	b					marlin	Marlin		4			622	2
@@ -1805,11 +1805,6 @@ P	volumic-vs30sc2-performance	VS30SC2 Performance	VS	o	300	200	310	0	0		0.4	0.4	
 P	volumic-vs30sc2-stage-2	VS30SC2 Stage 2	VS	o	300	200	310	0	0		0.4	0.4	1.75	b		4000	0	0	klipper	Klipper		2.4	30	634	77	1
 P	volumic-vs30ultra	VS30ULTRA	VS	o	290	200	300	0	0		0.4	0.4	1.75	b		2000	0	0	marlin	Marlin		2.4	30	639	640	1
 B	Voron
-P	voron-0	0	0	c	120	120	120	0	0		0.4		1.75	b	500	5000	40		marlin	Marlin		0.75	30		10	1
-P	voron-0-1	0.1	0.1	o	120	120	120	0	0		0.4	0.15;0.2;0.25;0.4;0.5;0.6;0.8;1	1.75	b	500	20000	12	12	klipper	Klipper		0.8	30		10	1
-P	voron-2-4-250	2.4 250	2.4	o	250	250	225	0	0		0.4	0.15;0.2;0.25;0.4;0.5;0.6;0.8;1	1.75	b	500	20000	12	12	klipper	Klipper		0.8	30		10	1
-P	voron-2-4-300	2.4 300	2.4	o	300	300	275	0	0		0.4	0.15;0.2;0.25;0.4;0.5;0.6;0.8;1	1.75	b	500	20000	12	12	klipper	Klipper		0.8	30		10	1
-P	voron-2-4-350	2.4 350	2.4	o	350	350	325	0	0		0.4	0.15;0.2;0.25;0.4;0.5;0.6;0.8;1	1.75	b	500	20000	12	12	klipper	Klipper		0.8	30		10	1
 P	voron-switchwire-afterburner	Switchwire (Afterburner)	Historical Profiles	p	250	210	240	0	0		0.4	0.25;0.3;0.4;0.5;0.6;0.8	1.75	b	500	1500	12	10	klipper	Klipper		0.75	50	642	643	1
 P	voron-switchwire-mobius	Switchwire (Mobius)	Historical Profiles	p	250	210	240	0	0		0.4	0.25;0.3;0.4;0.5;0.6;0.8	1.75	b	500	1500	12	10	klipper	Klipper		5.8	35	642	643	1
 P	voron-voron1-250mm-afterburner	VORON1 250mm (Afterburner)	Historical Profiles	p	250	250	230	0	0		0.4	0.25;0.3;0.4;0.5;0.6;0.8	1.75	b	500	1500	12	10	klipper	Klipper		0.75	50	642	643	1
@@ -1830,6 +1825,11 @@ P	voron-voron2-250	Voron2 250	Voron	c	250	250	250	0	0		0.4		1.75	b	500	5000	40		
 P	voron-voron2-300	Voron2 300	Voron	c	300	300	300	0	0		0.4		1.75	b	500	5000	40		marlin	Marlin		0.75	30		10	1
 P	voron-voron2-350	Voron2 350	Voron	c	350	350	350	0	0		0.4		1.75	b	500	5000	40		marlin	Marlin		0.75	30		10	1
 P	voron-voron2-custom	Voron2 Custom	Voron	c	250	250	250	0	0		0.4		1.75	b	500	5000	40		marlin	Marlin		0.75	30		10	1
+P	voron-voron-0	Voron 0	Voron	c	120	120	120	0	0		0.4		1.75	b	500	5000	40		marlin	Marlin		0.75	30		10	1
+P	voron-voron-0-1	Voron 0.1	Voron	o	120	120	120	0	0		0.4	0.15;0.2;0.25;0.4;0.5;0.6;0.8;1	1.75	b	500	20000	12	12	klipper	Klipper		0.8	30		10	1
+P	voron-voron-2-4-250	Voron 2.4 250	Voron	o	250	250	225	0	0		0.4	0.15;0.2;0.25;0.4;0.5;0.6;0.8;1	1.75	b	500	20000	12	12	klipper	Klipper		0.8	30		10	1
+P	voron-voron-2-4-300	Voron 2.4 300	Voron	o	300	300	275	0	0		0.4	0.15;0.2;0.25;0.4;0.5;0.6;0.8;1	1.75	b	500	20000	12	12	klipper	Klipper		0.8	30		10	1
+P	voron-voron-2-4-350	Voron 2.4 350	Voron	o	350	350	325	0	0		0.4	0.15;0.2;0.25;0.4;0.5;0.6;0.8;1	1.75	b	500	20000	12	12	klipper	Klipper		0.8	30		10	1
 P	voron-voron2-250mm	VORON2 250mm	VORON2	p	250	250	210	0	0		0.4	0.25;0.3;0.4;0.5;0.6;0.8	1.75	b	350	7000	15	10	klipper	Klipper		0.5	35		10	1
 P	voron-voron2-300mm	VORON2 300mm	VORON2	p	300	300	260	0	0		0.4	0.25;0.3;0.4;0.5;0.6;0.8	1.75	b	350	7000	15	10	klipper	Klipper		0.5	35		10	1
 P	voron-voron2-350mm	VORON2 350mm	VORON2	p	350	350	310	0	0		0.4	0.25;0.3;0.4;0.5;0.6;0.8	1.75	b	350	7000	15	10	klipper	Klipper		0.5	35		10	1
@@ -1841,11 +1841,11 @@ P	voron-zero	Zero	VORON Zero	p	120	120	120	0	0		0.4	0.25;0.3;0.4;0.5;0.6;0.8	1.7
 B	Voxelab
 P	voxelab-aquila-x2	Aquila X2	Aquila	o	220	220	250	0	0		0.4	0.4	1.75	b	500	500	10	8	marlin	Marlin		5	60	116		1
 B	Vzbot
-P	vzbot-235	235	235	c	235	235	240	0	0		0.4		1.75	b		15000	40	20	marlin	Marlin		0.65	45		104	1
-P	vzbot-235-awd	235 AWD	235	o	235	235	200	0	0		0.4	0.4;0.5;0.6	1.75	b	2000	50000	15	0	klipper	Klipper		0.5	30	644	645	1
-P	vzbot-330	330	330	c	330	330	400	0	0		0.4		1.75	b		15000	40	20	marlin	Marlin		0.65	45		104	1
-P	vzbot-330-awd	330 AWD	330	o	330	330	400	0	0		0.4	0.4;0.5;0.6	1.75	b	2000	50000	15	0	klipper	Klipper		0.5	30	644	645	1
 P	vzbot-custom	Custom	Custom	c	400	400	400	0	0		0.4		1.75	b		15000	40	20	marlin	Marlin		0.65	45		104	1
+P	vzbot-vzbot-235	VzBot 235	VzBot	c	235	235	240	0	0		0.4		1.75	b		15000	40	20	marlin	Marlin		0.65	45		104	1
+P	vzbot-vzbot-235-awd	Vzbot 235 AWD	VzBot	o	235	235	200	0	0		0.4	0.4;0.5;0.6	1.75	b	2000	50000	15	0	klipper	Klipper		0.5	30	644	645	1
+P	vzbot-vzbot-330	VzBot 330	VzBot	c	330	330	400	0	0		0.4		1.75	b		15000	40	20	marlin	Marlin		0.65	45		104	1
+P	vzbot-vzbot-330-awd	Vzbot 330 AWD	VzBot	o	330	330	400	0	0		0.4	0.4;0.5;0.6	1.75	b	2000	50000	15	0	klipper	Klipper		0.5	30	644	645	1
 B	Wanhao
 P	wanhao-d9-300-mk1	D9-300 MK1	D9-300	o	300	300	400	0	0		0.4	0.4	1.75	b	300	500	5	10	marlin	Marlin 2		2	25	646		1
 P	wanhao-d9-300-mk1-bltouch-kit	D9-300 MK1 BLTouch kit	D9-300	o	300	300	400	0	0		0.4	0.4	1.75	b	300	1000	5	10	marlin	Marlin 2		2	25	647		1
