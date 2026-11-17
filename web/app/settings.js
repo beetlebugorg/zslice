@@ -21,6 +21,8 @@ function el(tag, cls, text) {
   return e;
 }
 
+export { el };
+
 export class SettingsBrowser {
   // ctx: { infos, effect(name), set(name, value) -> Promise<error text>,
   //        reset(name), focus(mask, firstLayerOnly) }
@@ -258,10 +260,11 @@ export class SettingsBrowser {
 
   // An editor for a setting: a number entry with its unit, a switch, a
   // list of choices, or a text entry. Returns { node, update(entry) }.
-  makeEditor(info, where) {
+  // set(name, value): the change (default: for this print).
+  makeEditor(info, where, set = this.ctx.set) {
     const box = el("div", "editor");
     const commit = async (value, input) => {
-      const error = await this.ctx.set(info.name, value);
+      const error = await set(info.name, value);
       if (input) {
         input.classList.toggle("error", !!error);
         input.title = error || info.doc;
@@ -325,6 +328,7 @@ export class SettingsBrowser {
     input.title = info.doc;
     let timer = 0;
     let sent = null;
+    let shown = null;
     const send = () => {
       clearTimeout(timer);
       const v = toCore(info, input.value);
@@ -339,7 +343,7 @@ export class SettingsBrowser {
     });
     input.addEventListener("keydown", (e) => {
       if (e.key === "Enter") send();
-      if (e.key === "Escape") { input.value = displayValue(info, this.values[info.name]?.value ?? ""); input.blur(); }
+      if (e.key === "Escape") { input.value = displayValue(info, shown ?? ""); input.blur(); }
       if (isNumber(info) && (e.key === "ArrowUp" || e.key === "ArrowDown") && parsesAsNumber(input.value)) {
         e.preventDefault();
         const k = isRatio(info) ? 100 : 1;
@@ -357,6 +361,7 @@ export class SettingsBrowser {
       update: (entry) => {
         if (!entry) return;
         sent = entry.value;
+        shown = entry.value;
         if (document.activeElement !== input) {
           input.value = displayValue(info, entry.value);
           input.classList.remove("error");
