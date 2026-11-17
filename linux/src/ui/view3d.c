@@ -572,11 +572,11 @@ static gboolean on_scroll(GtkEventControllerScroll *c, double dx, double dy, gpo
         }
         return TRUE;
     }
-    /* Two fingers on a touchpad (a scroll in pixels): pan, as in Fusion
-     * and Tinkercad. A mouse wheel (steps) zooms toward the pointer, and
-     * a pinch zooms (the zoom gesture). */
+    /* A two-finger swipe on a touchpad (a scroll in pixels) zooms toward
+     * the pointer, as a pinch does (the zoom gesture): 40 pixels are one
+     * wheel step. A mouse wheel (steps) zooms toward the pointer too. */
     if (v->view && gtk_event_controller_scroll_get_unit(c) == GDK_SCROLL_UNIT_SURFACE) {
-        zs_view_pan(v->view, (float)(-dx * scale), (float)(-dy * scale));
+        zs_view_zoom_at(v->view, powf(1.15f, (float)(dy / 40.0)), (float)(v->pointer_x * scale), (float)(v->pointer_y * scale));
         queue_frame(v);
         return TRUE;
     }

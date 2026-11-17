@@ -289,14 +289,18 @@ function fromTrackpad(e) {
 
 canvas.addEventListener("wheel", (e) => {
   e.preventDefault();
+  const r = canvas.getBoundingClientRect();
   if (fromTrackpad(e)) {
-    // The content follows the fingers.
-    if (app.page === "2d") view2d.pan(-e.deltaX * dpr(), -e.deltaY * dpr());
-    else view.pan(-e.deltaX * dpr(), -e.deltaY * dpr());
+    // A two-finger swipe zooms toward the pointer, as a pinch does: 40
+    // pixels of the swipe are one wheel step.
+    const steps = e.deltaY / 40;
+    const px = (e.clientX - r.left) * dpr();
+    const py = (e.clientY - r.top) * dpr();
+    if (app.page === "2d") view2d.zoomAt(Math.pow(1.2, -steps), px, py, canvas.height);
+    else view.zoomAt(Math.pow(1.15, steps), px, py);
     requestFrame();
     return;
   }
-  const r = canvas.getBoundingClientRect();
   // One wheel step is about 100 pixels (deltaMode 0) or 3 lines.
   // A pinch on a trackpad comes as a wheel event with Ctrl and small
   // steps, so it counts more for each pixel.
