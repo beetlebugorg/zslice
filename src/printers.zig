@@ -135,7 +135,10 @@ pub const Library = struct {
 
     fn load(self: *Library, data: []const u8) Error!void {
         const a = self.arena.allocator();
-        const text = try a.dupe(u8, data);
+        // Each field ends with a 0 byte (a tab or a line end before), so
+        // the C API can give the fields as C strings.
+        const text = try a.allocSentinel(u8, data.len, 0);
+        @memcpy(text, data);
         var sources: std.ArrayList(Source) = .empty;
         var gcodes: std.ArrayList([]const u8) = .empty;
         var brands: std.ArrayList(Brand) = .empty;
@@ -165,6 +168,11 @@ pub const Library = struct {
                 },
                 else => {}, // a record of a later version
             }
+            const off = @intFromPtr(raw.ptr) - @intFromPtr(text.ptr);
+            for (text[off .. off + raw.len]) |*c| if (c.* == '\t' or c.* == '\r') {
+                c.* = 0;
+            };
+            if (off + raw.len < text.len) text[off + raw.len] = 0;
         }
         if (brands.items.len > 0) brands.items[brands.items.len - 1].end = @intCast(models.items.len);
         self.sources = sources.items;
@@ -462,7 +470,7 @@ fn parseModel(text: []const u8, brand: u32, n_gcodes: usize) Error!Model {
 
 fn unescape(a: Allocator, text: []const u8) Allocator.Error![]const u8 {
     if (std.mem.indexOfScalar(u8, text, '\\') == null) return text;
-    const out = try a.alloc(u8, text.len);
+    const out = try a.allocSentinel(u8, text.len, 0);
     var n: usize = 0;
     var i: usize = 0;
     while (i < text.len) : (i += 1) {
@@ -476,7 +484,14 @@ fn unescape(a: Allocator, text: []const u8) Allocator.Error![]const u8 {
         } else out[n] = text[i];
         n += 1;
     }
+    out[n] = 0;
     return out[0..n];
+}
+
+/// A field of the library as a C string: each field ends with a 0 byte.
+pub fn cstr(text: []const u8) [*:0]const u8 {
+    std.debug.assert(text.ptr[text.len] == 0);
+    return @ptrCast(text.ptr);
 }
 
 fn writeEscaped(w: *Writer, text: []const u8) Writer.Error!void {
@@ -554,6 +569,10 @@ test "parse a library" {
     try testing.expectEqual(@as(f64, -100), q5.origin_x);
     try testing.expectEqual(@as(f64, 0), q5.max_accel);
     try testing.expectEqual(@as(?usize, 1), lib.find("creality-k1-max"));
+    // Each field is a C string.
+    try testing.expectEqualStrings("Klipper", std.mem.span(cstr(k1.firmware)));
+    try testing.expectEqualStrings("FLSun", std.mem.span(cstr(lib.brands[1].name)));
+    try testing.expectEqualStrings("M104 S0\nPRINT_END", std.mem.span(cstr(lib.gcodes[1])));
 }
 
 test "a bad library is an error" {

@@ -250,6 +250,7 @@ export fn zs_free(ptr: ?[*]u8, len: usize) void {
 comptime {
     _ = @import("c_api/app.zig");
     _ = @import("c_api/view.zig");
+    _ = @import("c_api/printers.zig");
 }
 
 test "C API: slice a box to a buffer and with a callback" {

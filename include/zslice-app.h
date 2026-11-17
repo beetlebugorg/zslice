@@ -910,6 +910,127 @@ typedef struct zs_license {
 size_t zs_license_count(void);
 int zs_license_get(size_t index, zs_license *out);
 
+/* ---- printer library ---- */
+
+/* The printers that zslice knows: brands, models, and the machine profile
+ * of each model (src/printers.zig). The data is a file
+ * (src/printers/library.txt) from the printer definitions of Cura,
+ * PrusaSlicer, and OrcaSlicer. Native builds embed it
+ * (zs_printers_builtin). The wasm module does not: the web app fetches the
+ * file and gives the bytes to zs_printers_load. All strings stay valid
+ * until zs_printers_free. */
+typedef struct zs_printers zs_printers;
+
+/* ZS_INVALID_VALUE if the bytes are not a library. */
+int zs_printers_load(const uint8_t *data, size_t len, zs_printers **out);
+/* ZS_NOT_SUPPORTED in the wasm module. */
+int zs_printers_builtin(zs_printers **out);
+void zs_printers_free(zs_printers *lib);
+
+/* Brands in alphabetical order. The models of brand i are first to end
+ * (not included), in the order of their series. */
+size_t zs_printers_brand_count(const zs_printers *lib);
+int zs_printers_brand_get(const zs_printers *lib, size_t i, const char **name, size_t *first, size_t *end);
+
+typedef struct zs_printer_model {
+    const char *id;        /* stable, for example "creality-ender-3-v2" */
+    const char *brand;
+    size_t brand_index;
+    const char *name;      /* without the brand, for example "Ender-3 V2" */
+    const char *series;    /* for groups, for example "Ender" */
+    double bed_x, bed_y, height; /* mm; a round bed: bed_x is the diameter */
+    double origin_x, origin_y;   /* the G-code X and Y of the front left corner */
+    bool round;            /* a round bed (most delta printers) */
+    bool heated_bed, heated_chamber;
+    bool klipper;          /* Klipper G-code (else Marlin) */
+    bool has_start_gcode;  /* false: the source G-code has scripts, and zslice uses its own */
+    double nozzle;         /* the default nozzle, mm */
+    const char *nozzles;   /* the nozzle sizes, "0.25;0.4;0.6", or "" */
+    double filament;       /* the filament diameter, mm */
+    double max_speed;      /* the limit of the firmware, mm/s, or 0 */
+    double max_accel;      /* mm/s², or 0 */
+    const char *firmware;  /* "Marlin", "Klipper", "RepRapFirmware", ... */
+    const char *kinematics;/* "corexy", "i3", "delta", or "" */
+    uint32_t extruders;
+} zs_printer_model;
+
+size_t zs_printers_model_count(const zs_printers *lib);
+int zs_printers_model_get(const zs_printers *lib, size_t i, zs_printer_model *out);
+/* The index of the model with this id, or -1. */
+ptrdiff_t zs_printers_find(const zs_printers *lib, const char *id);
+/* The models that match the query (search as you type), best first. brand:
+ * a brand index, or -1 for all. Writes up to cap model indices, and
+ * returns the count of matches (can be more than cap). An empty query
+ * gives the models in the library order. */
+size_t zs_printers_search(const zs_printers *lib, const char *query, ptrdiff_t brand, uint32_t *out, size_t cap);
+/* The model that fits a printer on the network: a name hint (a TXT model,
+ * a host name) and its bed (0 when not known), or -1. */
+ptrdiff_t zs_printers_match(const zs_printers *lib, const char *hint, double bed_x, double bed_y, double height);
+/* The text functions below write the text and a 0 to buf, and its length
+ * (without the 0) to out_len. buf NULL: the length only. */
+/* The machine profile of a model (for zs_app_profile_apply with
+ * ZS_GROUP_MACHINE), with a nozzle of `nozzle` mm (0: the default). */
+int zs_printers_profile(const zs_printers *lib, size_t i, double nozzle, char *buf, size_t cap, size_t *out_len);
+/* The key facts in one line: "220 × 220 × 250 mm · heated bed · Marlin". */
+int zs_printers_facts(const zs_printers *lib, size_t i, char *buf, size_t cap, size_t *out_len);
+/* The sources of the data of a model: "Cura, OrcaSlicer". */
+int zs_printers_sources(const zs_printers *lib, size_t i, char *buf, size_t cap, size_t *out_len);
+
+/* ---- printer discovery ---- */
+
+/* Finds printers on the local network with mDNS (src/discovery.zig). The
+ * core builds and reads the packets; the shell does the network I/O:
+ *   1. Send the zs_discovery_query packet over UDP to 224.0.0.251 port
+ *      5353, from a port of its own (the answers come back to that port).
+ *      Send it again after 1 s and 3 s: a packet can get lost.
+ *   2. Give each packet that comes back to zs_discovery_feed.
+ *   3. For a new printer: GET <url>/api/version (OctoPrint, printdeck,
+ *      PrusaLink) or <url>/printer/objects/query?toolhead (Moonraker), with
+ *      no key, and give the body to zs_discovery_reply. The kind and the bed
+ *      can change.
+ * A browser cannot send UDP: the web app asks for an address instead. */
+typedef struct zs_discovery zs_discovery;
+
+enum zs_found_kind {
+    ZS_FOUND_OCTOPRINT = 1,
+    ZS_FOUND_PRINTDECK = 2,
+    ZS_FOUND_MOONRAKER = 3,
+    ZS_FOUND_PRUSALINK = 4
+};
+
+enum zs_found_reply {
+    ZS_FOUND_REPLY_VERSION = 1,  /* the body of GET <url>/api/version */
+    ZS_FOUND_REPLY_TOOLHEAD = 2  /* the body of GET <url>/printer/objects/query?toolhead */
+};
+
+typedef struct zs_found_printer {
+    const char *name;       /* the service name, for example "Printdeck" */
+    int kind;               /* enum zs_found_kind */
+    const char *kind_title; /* "OctoPrint", "printdeck", ... */
+    const char *host;       /* "printdeck.local" */
+    const char *address;    /* "192.168.1.20" */
+    int port;
+    const char *url;        /* "http://192.168.1.20" */
+    const char *model;      /* from the TXT record, or "" */
+    const char *version;    /* "" if not known */
+    double bed_x, bed_y, height; /* from Klipper, 0 if not known */
+    double origin_x, origin_y;
+} zs_found_printer;
+
+int zs_discovery_new(zs_discovery **out);
+void zs_discovery_free(zs_discovery *d);
+/* The query packet. It stays valid until zs_discovery_free. */
+int zs_discovery_query(const zs_discovery *d, const uint8_t **out, size_t *len);
+/* from: the IPv4 address of the sender (4 bytes), or NULL. Returns 1 if
+ * the list changed, 0 if not, -1 on an error. */
+int zs_discovery_feed(zs_discovery *d, const uint8_t *data, size_t len, const uint8_t *from);
+size_t zs_discovery_count(const zs_discovery *d);
+/* The strings stay valid until zs_discovery_free. */
+int zs_discovery_get(const zs_discovery *d, size_t i, zs_found_printer *out);
+/* what: enum zs_found_reply. Returns 1 if the entry changed, 0 if not, -1
+ * on an error. */
+int zs_discovery_reply(zs_discovery *d, size_t i, int what, const char *body, size_t len);
+
 #ifdef __cplusplus
 }
 #endif
