@@ -4,10 +4,22 @@
 //! The candidates are the six axis directions and the directions of the
 //! largest flat areas of the mesh (face normals, grouped). For each
 //! candidate, the part is turned so that the direction points down. The
-//! cost is the area of the faces that need support (they face down more
-//! than the support angle allows, and they are not on the bed), less half
-//! the area on the bed (adhesion), plus the height (a tie-break: a lower
-//! part prints faster and is more stable). This is the method of "auto
+//! cost is the sum of:
+//!
+//! - the area of the faces that need support (they face down more than the
+//!   support angle allows, and they are not on the bed), weighted by how
+//!   much they face down;
+//! - less half the area on the bed (adhesion);
+//! - the islands: each low point or low edge of the part that is not on
+//!   the bed (all its neighbors are higher) starts in the air and needs a
+//!   support column: 15 mm² for each, plus 3 mm² for each mm of its height
+//!   over the bed. A part on an edge or a corner (turned 45°) has faces that
+//!   need no support, but its low corners do;
+//! - a small contact: when the area on the bed is less than 10 % of the
+//!   footprint, the part stands on a thin edge and can fall over; the
+//!   missing area counts;
+//! - the height (a tie-break: a lower part prints faster and is more
+//!   stable). This is the method of "auto
 //! orientation" in other slicers (for example the Tweaker method in Cura
 //! and PrusaSlicer, see REFERENCES.md); the code is new.
 
@@ -62,19 +74,103 @@ pub const Score = struct {
     overhang: f64,
     contact: f64,
     height: f64,
+    /// The low points and edges that are not on the bed.
+    islands: u32 = 0,
+    /// The cost of the islands and of a small contact, in mm² (see the
+    /// header).
+    island_cost: f64 = 0,
+    contact_cost: f64 = 0,
     cost: f64,
 };
 
-/// The cost of the orientation that puts `d` down.
+/// The neighbors of each vertex (the other vertices of its faces), for the
+/// low points of `score`. It does not change with the orientation.
+pub const Adjacency = struct {
+    start: []u32,
+    list: []u32,
+    /// The normal of each vertex: the sum of the normals of its faces,
+    /// weighted by their area (not unit length).
+    normal: []V,
+    /// For each vertex, how much its most downward face faces down (-n_z
+    /// of the unit normal) in the orientation of the last score: a buffer
+    /// of `scoreWith`.
+    down: []f64,
+    /// Buffers of the island search: a stack, and a stamp for each vertex
+    /// (the search that saw it last).
+    stack: []u32,
+    seen: []u32,
+    stamp: u32 = 0,
+
+    pub fn init(gpa: Allocator, mesh: *const Mesh) Allocator.Error!Adjacency {
+        const n = mesh.vertices.items.len;
+        const start = try gpa.alloc(u32, n + 1);
+        @memset(start, 0);
+        for (mesh.faces.items) |f| for (f) |v| {
+            start[v + 1] += 2;
+        };
+        for (1..n + 1) |i| start[i] += start[i - 1];
+        const list = try gpa.alloc(u32, start[n]);
+        const fill = try gpa.alloc(u32, n);
+        defer gpa.free(fill);
+        @memcpy(fill, start[0..n]);
+        for (mesh.faces.items) |f| for (0..3) |k| {
+            const v = f[k];
+            list[fill[v]] = f[(k + 1) % 3];
+            list[fill[v] + 1] = f[(k + 2) % 3];
+            fill[v] += 2;
+        };
+        const normal = try gpa.alloc(V, n);
+        @memset(normal, .{ 0, 0, 0 });
+        for (mesh.faces.items) |f| {
+            const a = vec(mesh.vertices.items[f[0]]);
+            const fn_ = cross(sub(vec(mesh.vertices.items[f[1]]), a), sub(vec(mesh.vertices.items[f[2]]), a));
+            for (f) |v| normal[v] = .{ normal[v][0] + fn_[0], normal[v][1] + fn_[1], normal[v][2] + fn_[2] };
+        }
+        const seen = try gpa.alloc(u32, n);
+        @memset(seen, 0);
+        return .{ .start = start, .list = list, .normal = normal, .down = try gpa.alloc(f64, n), .stack = try gpa.alloc(u32, n), .seen = seen };
+    }
+
+    pub fn deinit(a: *Adjacency, gpa: Allocator) void {
+        gpa.free(a.start);
+        gpa.free(a.list);
+        gpa.free(a.normal);
+        gpa.free(a.down);
+        gpa.free(a.stack);
+        gpa.free(a.seen);
+    }
+
+    fn of(a: Adjacency, v: usize) []const u32 {
+        return a.list[a.start[v]..a.start[v + 1]];
+    }
+};
+
+/// The cost of the orientation that puts `d` down. `adj` (the neighbors of
+/// the vertices) and `zs` (one value for each vertex) are from the caller;
+/// with no `adj`, the islands are not counted.
 pub fn score(mesh: *const Mesh, d: V, support_angle: f64) Score {
+    return scoreWith(mesh, null, &.{}, d, support_angle);
+}
+
+pub fn scoreWith(mesh: *const Mesh, adj_in: ?*Adjacency, zs: []f64, d: V, support_angle: f64) Score {
+    const adj: ?Adjacency = if (adj_in) |a| a.* else null;
     const m = downMatrix(d);
-    // The lowest point in the turned part, and the height.
+    // The lowest point in the turned part, the height, and the footprint.
     var zlo: f64 = std.math.inf(f64);
     var zhi: f64 = -std.math.inf(f64);
-    for (mesh.vertices.items) |v| {
-        const z = dot(m[2], vec(v));
-        zlo = @min(zlo, z);
-        zhi = @max(zhi, z);
+    var xlo: f64 = std.math.inf(f64);
+    var xhi: f64 = -std.math.inf(f64);
+    var ylo: f64 = std.math.inf(f64);
+    var yhi: f64 = -std.math.inf(f64);
+    for (mesh.vertices.items, 0..) |v, i| {
+        const p = mul(m, vec(v));
+        zlo = @min(zlo, p[2]);
+        zhi = @max(zhi, p[2]);
+        xlo = @min(xlo, p[0]);
+        xhi = @max(xhi, p[0]);
+        ylo = @min(ylo, p[1]);
+        yhi = @max(yhi, p[1]);
+        if (i < zs.len) zs[i] = p[2];
     }
     // A face needs support if its normal is nearer to down than the
     // support angle from the horizontal: -n_z > sin(angle).
@@ -82,6 +178,7 @@ pub fn score(mesh: *const Mesh, d: V, support_angle: f64) Score {
     var overhang: f64 = 0;
     var contact: f64 = 0;
     const on_bed = 0.05;
+    if (adj) |ad| @memset(ad.down, -1);
     for (mesh.faces.items) |f| {
         const a = vec(mesh.vertices.items[f[0]]);
         const b = vec(mesh.vertices.items[f[1]]);
@@ -91,6 +188,9 @@ pub fn score(mesh: *const Mesh, d: V, support_angle: f64) Score {
         if (l == 0) continue;
         const area = l / 2;
         const nz = dot(m[2], n) / l;
+        if (adj) |ad| for (f) |v| {
+            ad.down[v] = @max(ad.down[v], -nz);
+        };
         if (-nz <= limit) continue;
         const za = dot(m[2], a) - zlo;
         const zb = dot(m[2], b) - zlo;
@@ -102,7 +202,76 @@ pub fn score(mesh: *const Mesh, d: V, support_angle: f64) Score {
         }
     }
     const height = zhi - zlo;
-    return .{ .dir = d, .overhang = overhang, .contact = contact, .height = height, .cost = overhang - 0.5 * contact + height };
+    var sc: Score = .{ .dir = d, .overhang = overhang, .contact = contact, .height = height, .cost = 0 };
+    // The islands: the low points that are not on the bed. A low edge or a
+    // low flat spot is many low vertices at one height: they count once
+    // (the vertices of one island are joined by the neighbors at the same
+    // height).
+    if (adj_in) |ad| if (zs.len == mesh.vertices.items.len) {
+        // A height difference under this is level: a part turned by a
+        // fraction of a degree keeps its flat edges.
+        const eps = 0.02;
+        // How far up the search from a low point goes: a dip of the facets
+        // of a curved surface that is shallower than this is no island.
+        const rise = 0.3;
+        for (0..zs.len) |i| {
+            const z = zs[i];
+            if (z - zlo < on_bed or ad.seen[i] == ad.stamp +% 1) continue;
+            var low = true;
+            for (ad.of(i)) |nb| if (zs[nb] < z - eps) {
+                low = false;
+                break;
+            };
+            if (!low) continue;
+            // The surface at the point must face down: the plastic is above
+            // it. The bottom of a hole is low too, but the plastic is under
+            // it.
+            const vn = ad.normal[i];
+            const vl = len(vn);
+            if (vl == 0 or dot(m[2], vn) / vl > -0.3) continue;
+            // A low point on a face that needs support is in the overhang
+            // area already. An island is a point or an edge whose faces all
+            // need no support (a part on a corner or an edge).
+            if (ad.down[i] > limit) continue;
+            // Fill the surface from the point up to `rise` higher. A lower
+            // point in reach: a ripple. The filled vertices are not low
+            // points of their own (one island counts once).
+            ad.stamp +%= 1;
+            const st = ad.stamp;
+            var top: usize = 0;
+            ad.stack[0] = @intCast(i);
+            top = 1;
+            ad.seen[i] = st;
+            var island = true;
+            var steps: usize = 0;
+            while (top > 0 and island) {
+                top -= 1;
+                const v = ad.stack[top];
+                for (ad.of(v)) |nb| {
+                    if (ad.seen[nb] == st) continue;
+                    if (zs[nb] < z - eps) {
+                        island = false;
+                        break;
+                    }
+                    if (zs[nb] > z + rise) continue;
+                    ad.seen[nb] = st;
+                    ad.stack[top] = nb;
+                    top += 1;
+                }
+                steps += 1;
+                if (steps > 20000) break;
+            }
+            if (!island) continue;
+            sc.islands += 1;
+            sc.island_cost += 15 + 3 * (z - zlo);
+        }
+        // The next score starts with a new stamp.
+        ad.stamp +%= 1;
+    };
+    const footprint = (xhi - xlo) * (yhi - ylo);
+    sc.contact_cost = @max(0, 0.1 * footprint - contact);
+    sc.cost = overhang - 0.5 * contact + sc.island_cost + sc.contact_cost + height;
+    return sc;
 }
 
 /// The direction to put down for the least support. The first candidate
@@ -138,8 +307,44 @@ fn better(a: Score, b: Score, by: By) bool {
 }
 
 fn search(gpa: Allocator, mesh: *const Mesh, support_angle: f64, axis: ?V, by: By) Allocator.Error!Score {
+    var adj = try Adjacency.init(gpa, mesh);
+    defer adj.deinit(gpa);
+    const zs = try gpa.alloc(f64, mesh.vertices.items.len);
+    defer gpa.free(zs);
     var cands: std.ArrayList(V) = .empty;
     defer cands.deinit(gpa);
+    try candidates(gpa, mesh, axis, &cands);
+    const sc = struct {
+        fn f(mm: *const Mesh, a: *Adjacency, z: []f64, d: V, ang: f64) Score {
+            return scoreWith(mm, a, z, d, ang);
+        }
+    }.f;
+    if (axis != null) {
+        // No "keep as it is" rule: the part must turn if it is not strong
+        // along the axis now.
+        var top = sc(mesh, &adj, zs, cands.items[0], support_angle);
+        for (cands.items[1..]) |d| {
+            const s2 = sc(mesh, &adj, zs, d, support_angle);
+            if (better(s2, top, by)) top = s2;
+        }
+        return top;
+    }
+    var top = sc(mesh, &adj, zs, cands.items[0], support_angle);
+    const keep = top.cost;
+    for (cands.items[1..]) |d| {
+        const s2 = sc(mesh, &adj, zs, d, support_angle);
+        if (better(s2, top, by)) top = s2;
+    }
+    // Keep the file orientation unless the new one saves 1 % of the cost
+    // (or 1 mm2).
+    if (keep - top.cost < @max(1, @abs(keep) * 0.01)) return sc(mesh, &adj, zs, cands.items[0], support_angle);
+    return top;
+}
+
+/// The candidate directions to put down: the file orientation first, the
+/// six axis directions, and the normals of the largest flat areas. With an
+/// axis, only the ones at a right angle to it, and a ring around it.
+pub fn candidates(gpa: Allocator, mesh: *const Mesh, axis: ?V, cands: *std.ArrayList(V)) Allocator.Error!void {
     try cands.appendSlice(gpa, &.{ .{ 0, 0, -1 }, .{ 0, 0, 1 }, .{ 1, 0, 0 }, .{ -1, 0, 0 }, .{ 0, 1, 0 }, .{ 0, -1, 0 } });
     // The normals of the largest flat areas: group the faces by their
     // normal (rounded), and add up the area of each group.
@@ -191,25 +396,7 @@ fn search(gpa: Allocator, mesh: *const Mesh, support_angle: f64, axis: ?V, by: B
             const t = 2 * std.math.pi * @as(f64, @floatFromInt(k)) / 24.0;
             try cands.append(gpa, .{ e1[0] * @cos(t) + e2[0] * @sin(t), e1[1] * @cos(t) + e2[1] * @sin(t), e1[2] * @cos(t) + e2[2] * @sin(t) });
         }
-        // No "keep as it is" rule: the part must turn if it is not strong
-        // along the axis now.
-        var top = score(mesh, cands.items[0], support_angle);
-        for (cands.items[1..]) |d| {
-            const sc = score(mesh, d, support_angle);
-            if (better(sc, top, by)) top = sc;
-        }
-        return top;
     }
-    var top = score(mesh, cands.items[0], support_angle);
-    const keep = top.cost;
-    for (cands.items[1..]) |d| {
-        const sc = score(mesh, d, support_angle);
-        if (better(sc, top, by)) top = sc;
-    }
-    // Keep the file orientation unless the new one saves 1 % of the cost
-    // (or 1 mm2).
-    if (keep - top.cost < @max(1, @abs(keep) * 0.01)) return score(mesh, cands.items[0], support_angle);
-    return top;
 }
 
 /// Turns the mesh so that `d` points down.

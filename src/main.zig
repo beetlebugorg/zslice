@@ -14,6 +14,7 @@ const usage =
     \\  zslice preview <model.stl|model.3mf> --layer N [options] [-o out.svg]
     \\  zslice gaps <model.stl> [--layer N] [options]
     \\  zslice check <model.stl> [options]
+    \\  zslice orient <model.stl> [options]
     \\  zslice profiles
     \\  zslice profile <machine|filament|project> [options]
     \\  zslice import cura <stack folder> -o <profiles folder>
@@ -28,6 +29,8 @@ const usage =
     \\  check     The printability check: lines over the flow limit of the
     \\            hot end, layers that cool too little, overhangs with no
     \\            support, islands, and layers with many retractions.
+    \\  orient    List the orientations that smart placement compares, with
+    \\            the parts of the cost of each, and the best one.
     \\  gaps      List the gaps of one layer (or of all layers): the areas
     \\            that should be solid and that no bead covers, with their
     \\            size and the features around them.
@@ -150,7 +153,8 @@ pub fn main(init: std.process.Init) !void {
     const is_sweep = std.mem.eql(u8, cmd, "sweep");
     const is_gaps = std.mem.eql(u8, cmd, "gaps");
     const is_check = std.mem.eql(u8, cmd, "check");
-    if (!is_bench and !is_sweep and !is_gaps and !is_check and !std.mem.eql(u8, cmd, "slice") and !std.mem.eql(u8, cmd, "preview") and !is_profile) {
+    const is_orient = std.mem.eql(u8, cmd, "orient");
+    if (!is_bench and !is_sweep and !is_gaps and !is_check and !is_orient and !std.mem.eql(u8, cmd, "slice") and !std.mem.eql(u8, cmd, "preview") and !is_profile) {
         fail(err, "unknown command: {s}\n\n{s}", .{ cmd, usage });
     }
 
@@ -207,6 +211,29 @@ pub fn main(init: std.process.Init) !void {
         const sev = [_][]const u8{ "note", "warning", "problem" };
         for (r.issues) |i| try err.print("{s} {s}: {s}\n", .{ sev[i.severity], kinds[@intFromEnum(i.kind)], r.textOf(i) });
         try err.print("{d} issues\n", .{r.issues.len});
+        return;
+    }
+    if (is_orient) {
+        defer gpa.free(bytes);
+        const app = try zslice.app.App.create(gpa, null, null);
+        defer app.destroy();
+        try app.loadStl(std.fs.path.basename(in_path), bytes);
+        const mesh = &app.plate.parts.items[0].mesh;
+        const o = zslice.orient;
+        var adj = try o.Adjacency.init(gpa, mesh);
+        defer adj.deinit(gpa);
+        const zs = try gpa.alloc(f64, mesh.vertices.items.len);
+        defer gpa.free(zs);
+        var cands: std.ArrayList([3]f64) = .empty;
+        defer cands.deinit(gpa);
+        try o.candidates(gpa, mesh, null, &cands);
+        try err.print("down direction            overhang  contact islands  island$  contact$  height      cost\n", .{});
+        for (cands.items) |d| {
+            const sc = o.scoreWith(mesh, &adj, zs, d, settings.project.support_angle);
+            try err.print("{d:6.3} {d:6.3} {d:6.3}  {d:9.1} {d:8.1} {d:7} {d:8.1} {d:9.1} {d:7.1} {d:9.1}\n", .{ d[0], d[1], d[2], sc.overhang, sc.contact, sc.islands, sc.island_cost, sc.contact_cost, sc.height, sc.cost });
+        }
+        const b = try o.best(gpa, mesh, settings.project.support_angle);
+        try err.print("best: {d:.3} {d:.3} {d:.3} (cost {d:.1})\n", .{ b.dir[0], b.dir[1], b.dir[2], b.cost });
         return;
     }
     if (is_bench) {
