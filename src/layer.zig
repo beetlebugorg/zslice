@@ -1539,7 +1539,7 @@ fn fillSparse(s: Allocator, p: settings_mod.Project, region: Paths, width_mm: f6
             sparse_loops = try infill.concentric(s, region, spacing);
         },
         .honeycomb => {
-            const set = try infill.honeycomb(s, region, geom.fromMm(width_mm), p.infill_density, baseAngle(p, i), w);
+            const set = try infill.honeycombWith(s, region, geom.fromMm(width_mm), p.infill_density, baseAngle(p, i), w, p.infill_stack);
             // The rows end at the walls: join them along the walls (two
             // row spacings at most), and drop the lone short pieces.
             const row = geom.fromMm(width_mm / p.infill_density);

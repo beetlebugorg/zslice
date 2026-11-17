@@ -785,7 +785,18 @@ const link_tolerance = 50;
 /// rows on all layers make walls of hexagon tubes. A hexagon grid with a
 /// side s has 2 / (sqrt(3) s) of line for each unit of area, so the side
 /// for a density d and a line width w is 2 w / (sqrt(3) d).
+///
+/// Two rows that touch both have the flat side between them, so a flat
+/// side prints twice, and the cells have thick walls on two of their six
+/// sides. With `single`, each wall prints once: the even rows are whole
+/// zigzags, and the odd rows give only their slanted sides, each as its
+/// own line. All walls then have one width (for example for a grille),
+/// but a cell has more line starts.
 pub fn honeycomb(gpa: Allocator, region: Paths, width: i64, density: f64, angle_deg: f64, min_length: i64) Allocator.Error!Paths {
+    return honeycombWith(gpa, region, width, density, angle_deg, min_length, false);
+}
+
+pub fn honeycombWith(gpa: Allocator, region: Paths, width: i64, density: f64, angle_deg: f64, min_length: i64, single: bool) Allocator.Error!Paths {
     if (region.isEmpty() or !(density > 0)) return .empty;
     var arena_state = std.heap.ArenaAllocator.init(gpa);
     defer arena_state.deinit();
@@ -821,11 +832,23 @@ pub fn honeycomb(gpa: Allocator, region: Paths, width: i64, density: f64, angle_
         while (x <= x1) : (x += period) {
             // One period: low flat, rise, high flat, fall.
             const zs = [_][2]f64{ .{ 0, 0 }, .{ side, 0 }, .{ 1.5 * side, h }, .{ 2.5 * side, h } };
-            for (zs) |z| {
+            var pts: [5]Point = undefined;
+            for (zs, 0..) |z, k| {
                 const y = if (odd) base + h - z[1] else base + z[1];
-                try row.append(arena, rotate(.{ .x = @intFromFloat(@round(x + z[0])), .y = @intFromFloat(@round(y)) }, c, s));
+                pts[k] = rotate(.{ .x = @intFromFloat(@round(x + z[0])), .y = @intFromFloat(@round(y)) }, c, s);
             }
+            if (single and odd) {
+                // The slanted sides only: the rise, and the fall to the
+                // start of the next period.
+                const y_end = base + h;
+                pts[4] = rotate(.{ .x = @intFromFloat(@round(x + period)), .y = @intFromFloat(@round(y_end)) }, c, s);
+                try rows.append(arena, try arena.dupe(Point, pts[1..3]));
+                try rows.append(arena, try arena.dupe(Point, pts[3..5]));
+                continue;
+            }
+            try row.appendSlice(arena, pts[0..4]);
         }
+        if (single and odd) continue;
         try rows.append(arena, row.items);
     }
     return @import("clip_open.zig").clipPolylines(gpa, region, rows, min_length);
@@ -1089,6 +1112,36 @@ test "honeycomb: the density is near the target" {
     // single grid. Within 40 % of 0.2 x 4/3.
     const density = len * 400 / (60_000.0 * 60_000.0);
     try testing.expect(density > 0.2 and density < 0.2 * 4.0 / 3.0 * 1.4);
+}
+
+test "honeycomb: with single walls, each wall prints once at the target density" {
+    const gpa = testing.allocator;
+    var region: Paths = .empty;
+    defer region.deinit(gpa);
+    try region.append(gpa, &.{ .init(0, 0), .init(60_000, 0), .init(60_000, 60_000), .init(0, 60_000) });
+    var cells = try honeycombWith(gpa, region, 400, 0.2, 0, 0, true);
+    defer cells.deinit(gpa);
+    var len: f64 = 0;
+    // No segment lies on another segment.
+    var segs: std.ArrayList([2]Point) = .empty;
+    defer segs.deinit(gpa);
+    for (0..cells.count()) |i| {
+        const p = cells.get(i);
+        for (p[0 .. p.len - 1], p[1..]) |a, b| {
+            len += std.math.hypot(@as(f64, @floatFromInt(b.x - a.x)), @as(f64, @floatFromInt(b.y - a.y)));
+            const key: [2]Point = if (a.x < b.x or (a.x == b.x and a.y < b.y)) .{ a, b } else .{ b, a };
+            for (segs.items) |sg| {
+                const mid: Point = .{ .x = @divTrunc(key[0].x + key[1].x, 2), .y = @divTrunc(key[0].y + key[1].y, 2) };
+                const smid: Point = .{ .x = @divTrunc(sg[0].x + sg[1].x, 2), .y = @divTrunc(sg[0].y + sg[1].y, 2) };
+                try testing.expect(mid.distSq(smid) > 100 * 100);
+            }
+            try segs.append(gpa, key);
+        }
+    }
+    // The single grid: within 10 % of 0.2 (the edges of the square cut
+    // some cells).
+    const density = len * 400 / (60_000.0 * 60_000.0);
+    try testing.expect(density > 0.2 * 0.9 and density < 0.2 * 1.1);
 }
 
 test "fittedLines: a narrow strip along the lines gets a line on each edge" {

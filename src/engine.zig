@@ -2425,6 +2425,8 @@ test "infill: the patterns that stack have the same lines on each layer" {
         .{ .pattern = .triangles, .stack = false, .angles = "", .same = true },
         .{ .pattern = .trihexagon, .stack = false, .angles = "", .same = true },
         .{ .pattern = .honeycomb, .stack = false, .angles = "", .same = true },
+        .{ .pattern = .honeycomb, .stack = true, .angles = "", .same = true },
+        .{ .pattern = .trihexagon, .stack = true, .angles = "", .same = true },
         .{ .pattern = .concentric, .stack = false, .angles = "", .same = true },
         // An angle list of one angle: the same on all layers.
         .{ .pattern = .lines, .stack = false, .angles = "30", .same = true },

@@ -357,6 +357,8 @@ pub const Project = struct {
     /// The lines of each layer lie on the lines of the layer below, and
     /// make vertical walls, for example the openings of a grille. Grid,
     /// triangles, trihexagon, honeycomb, and concentric stack in each case.
+    /// Honeycomb also prints each cell wall once, so all its walls have
+    /// one width (else two of the six sides of a cell print twice).
     infill_stack: bool = false,
     /// The flow of the sparse infill lines, as a ratio of the flow of a
     /// normal line. As "Infill Flow" in Cura.

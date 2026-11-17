@@ -372,7 +372,7 @@ A list of infill angles in degrees from the X axis, with commas between them, on
 
 **`project.infill_stack`** (true or false; per layer). Default: `false`
 
-Keep the infill of all layers on top of each other: the lines, zigzag, and flow patterns do not turn by 90 degrees on each layer. The lines of each layer lie on the lines of the layer below, and make vertical walls, for example the openings of a grille. Grid, triangles, trihexagon, honeycomb, and concentric stack in each case.
+Keep the infill of all layers on top of each other: the lines, zigzag, and flow patterns do not turn by 90 degrees on each layer. The lines of each layer lie on the lines of the layer below, and make vertical walls, for example the openings of a grille. Grid, triangles, trihexagon, honeycomb, and concentric stack in each case. Honeycomb also prints each cell wall once, so all its walls have one width (else two of the six sides of a cell print twice).
 
 **`project.infill_flow`** (number; per layer). Default: `1.0`
 
