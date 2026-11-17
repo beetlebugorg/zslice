@@ -900,6 +900,81 @@ export fn zs_app_profile_apply(a: ?*App, group: c_int, text: ?[*]const u8, len: 
     return ok;
 }
 
+fn profileError(e: anyerror, diag: zs.profile.Diagnostic, message: ?[*]u8, cap: usize) c_int {
+    if (message) |m| if (cap > 0) {
+        const msg = std.fmt.bufPrint(m[0 .. cap - 1], "line {d}: {s}", .{ diag.line, if (diag.message.len > 0) diag.message else @errorName(e) }) catch m[0 .. cap - 1];
+        m[msg.len] = 0;
+    };
+    return switch (e) {
+        error.SyntaxError, error.InvalidValue => @intFromEnum(Status.invalid_value),
+        error.UnknownSetting => @intFromEnum(Status.unknown_setting),
+        error.OutOfRange => @intFromEnum(Status.out_of_range),
+        error.OutOfMemory => @intFromEnum(Status.out_of_memory),
+        else => @intFromEnum(Status.invalid_argument),
+    };
+}
+
+/// Sets the quality profile (see App.setQuality).
+export fn zs_app_quality_set(a: ?*App, name: ?[*:0]const u8, text: ?[*]const u8, len: usize, keep_edits: bool, message: ?[*]u8, cap: usize) c_int {
+    const app = a orelse return @intFromEnum(Status.invalid_argument);
+    const n = std.mem.span(name orelse return @intFromEnum(Status.invalid_argument));
+    const t = (text orelse return @intFromEnum(Status.invalid_argument))[0..len];
+    var diag: zs.profile.Diagnostic = .{};
+    app.setQuality(n, t, keep_edits, &diag) catch |e| return profileError(e, diag, message, cap);
+    return ok;
+}
+
+/// The name of the quality profile ("" if none). Valid until the next
+/// zs_app_quality_set.
+export fn zs_app_quality_name(a: ?*const App) [*:0]const u8 {
+    const app = a orelse return "";
+    return app.quality_name.ptr;
+}
+
+/// Sets the global settings of the user (see App.setGlobal).
+export fn zs_app_global_set(a: ?*App, text: ?[*]const u8, len: usize, message: ?[*]u8, cap: usize) c_int {
+    const app = a orelse return @intFromEnum(Status.invalid_argument);
+    const t = (text orelse return @intFromEnum(Status.invalid_argument))[0..len];
+    var diag: zs.profile.Diagnostic = .{};
+    app.setGlobal(t, &diag) catch |e| return profileError(e, diag, message, cap);
+    return ok;
+}
+
+/// Where the value of a setting comes from (see App.source): the level
+/// (enum zs_level) and the name of its profile. `part` < 0: the plate.
+export fn zs_app_setting_source(a: ?*const App, part: isize, name: ?[*:0]const u8, level: ?*c_int, profile: ?[*]u8, cap: usize) c_int {
+    const app = a orelse return @intFromEnum(Status.invalid_argument);
+    const n = std.mem.span(name orelse return @intFromEnum(Status.invalid_argument));
+    const src = app.source(if (part >= 0) @intCast(part) else null, n);
+    if (level) |l| l.* = @intFromEnum(src.level);
+    if (profile) |p| if (cap > 0) {
+        const k = @min(src.profile.len, cap - 1);
+        @memcpy(p[0..k], src.profile[0..k]);
+        p[k] = 0;
+    };
+    return ok;
+}
+
+/// The value of a setting under the changes of this print (see App.base):
+/// the value that a reset of the setting gives. The same buffer rules as
+/// zs_app_setting_get.
+export fn zs_app_setting_base_get(a: ?*const App, name: ?[*:0]const u8, buf: ?[*]u8, cap: usize, out_len: ?*usize) c_int {
+    const app = a orelse return @intFromEnum(Status.invalid_argument);
+    const n = std.mem.span(name orelse return @intFromEnum(Status.invalid_argument));
+    var aw: Writer.Allocating = .init(gpa);
+    defer aw.deinit();
+    App.writeSettingOf(app.base(), n, &aw.writer) catch return @intFromEnum(Status.unknown_setting);
+    const text = aw.written();
+    if (out_len) |l| l.* = text.len;
+    if (buf) |b| {
+        if (cap == 0) return ok;
+        const k = @min(text.len, cap - 1);
+        @memcpy(b[0..k], text[0..k]);
+        b[k] = 0;
+    }
+    return ok;
+}
+
 /// The path of a feature nearest to (x, y) mm on a layer, at any
 /// distance, or (size_t)-1.
 export fn zs_app_pick_feature(a: ?*const App, layer: usize, feature: c_int, x: f64, y: f64) usize {

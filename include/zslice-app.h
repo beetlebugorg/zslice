@@ -519,6 +519,36 @@ int zs_app_group_reset(zs_app *app, int group);
  * line and the reason, and the settings do not change. */
 int zs_app_profile_apply(zs_app *app, int group, const char *text, size_t len, char *message, size_t cap);
 
+/* The cascade of the settings, the lowest first: a higher level replaces
+ * the value of a lower one. A part has its own values on top
+ * (zs_app_part_setting_set). */
+enum zs_level {
+    ZS_LEVEL_DEFAULT = 0,  /* the built-in value */
+    ZS_LEVEL_GLOBAL = 1,   /* the global settings of the user */
+    ZS_LEVEL_MACHINE = 2,  /* the printer profile */
+    ZS_LEVEL_FILAMENT = 3, /* the filament profile */
+    ZS_LEVEL_QUALITY = 4,  /* the quality profile (fine, standard, ...) */
+    ZS_LEVEL_PRINT = 5,    /* the changes for this print */
+    ZS_LEVEL_PART = 6      /* the value of one part */
+};
+/* Sets the quality profile: a project profile text (with extends) and its
+ * name. keep_edits: the changes of this print stay on top; else they go.
+ * zs_app_state_write of the project group then writes only the changes
+ * of this print, and a reset of the group (zs_app_group_reset) goes back
+ * to the quality profile. */
+int zs_app_quality_set(zs_app *app, const char *name, const char *text, size_t len, bool keep_edits, char *message, size_t cap);
+const char *zs_app_quality_name(const zs_app *app);
+/* The global settings of the user: a project profile text, under the
+ * quality profile. */
+int zs_app_global_set(zs_app *app, const char *text, size_t len, char *message, size_t cap);
+/* Where the value of a setting comes from: its level (enum zs_level) and
+ * the name of the profile of that level (can be ""). part < 0: the plate;
+ * else part i (ZS_LEVEL_PART if the part has its own value). */
+int zs_app_setting_source(const zs_app *app, ptrdiff_t part, const char *name, int *level, char *profile, size_t cap);
+/* The value of a setting with no change of this print: the value that a
+ * reset gives. */
+int zs_app_setting_base_get(const zs_app *app, const char *name, char *buf, size_t cap, size_t *out_len);
+
 /* The path of a feature (enum zs_feature) nearest to (x, y) mm on a layer
  * (or on the last layer, if there are fewer), at any distance, or
  * (size_t)-1. To keep a selection after a new slice moves its line. */

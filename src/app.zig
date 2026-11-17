@@ -175,7 +175,7 @@ pub const App = struct {
     /// the global settings of the user, as their changes from the
     /// defaults, in `strings`. `settings` has the result, with the changes
     /// of this print on top.
-    quality_name: []const u8 = "",
+    quality_name: [:0]const u8 = "",
     quality: []const zs.settings.Change = &.{},
     global: []const zs.settings.Change = &.{},
     /// The settings of the parts and the modifier volumes for the running
@@ -692,7 +692,7 @@ pub const App = struct {
         try zs.profile.apply(a, &q, .project, "(quality)", try a.dupe(u8, text), null, diag);
         const edits = if (keep_edits) try app.diffOf(app.settings, app.base(), "project.") else &.{};
         app.quality = try app.diffOf(q, .{}, "project.");
-        app.quality_name = try a.dupe(u8, name);
+        app.quality_name = try a.dupeZ(u8, name);
         app.rebase(edits);
     }
 
