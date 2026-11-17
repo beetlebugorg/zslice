@@ -400,6 +400,16 @@ static GtkWidget *chevron(void) {
     return c;
 }
 
+static void on_setting_activated(GtkListBox *box, GtkListBoxRow *row, gpointer data);
+
+/* The › of a row: the detail page of its setting. */
+static void on_more_clicked(GtkButton *button, gpointer data) {
+    Browser *b = data;
+    GtkListBoxRow *row = g_object_get_data(G_OBJECT(button), "zg-row");
+    gtk_list_box_select_row(GTK_LIST_BOX(b->settings), row);
+    on_setting_activated(GTK_LIST_BOX(b->settings), row, b);
+}
+
 static GtkWidget *setting_row(Browser *b, const zs_setting_info *src, gboolean with_section) {
     zs_setting_info *info = g_new(zs_setting_info, 1);
     *info = *src;
@@ -410,6 +420,7 @@ static GtkWidget *setting_row(Browser *b, const zs_setting_info *src, gboolean w
     gtk_widget_set_margin_bottom(box, 6);
     GtkWidget *names = gtk_box_new(GTK_ORIENTATION_VERTICAL, 0);
     gtk_widget_set_hexpand(names, TRUE);
+    gtk_widget_set_valign(names, GTK_ALIGN_CENTER);
     GtkWidget *name = gtk_label_new(info->label);
     gtk_label_set_xalign(GTK_LABEL(name), 0);
     gtk_label_set_ellipsize(GTK_LABEL(name), PANGO_ELLIPSIZE_END);
@@ -442,10 +453,41 @@ static GtkWidget *setting_row(Browser *b, const zs_setting_info *src, gboolean w
     g_object_set_data_full(G_OBJECT(v), "zg-info", info, free_info);
     g_signal_connect_object(b->model, "setting-changed", G_CALLBACK(on_row_value_changed), v, 0);
     gtk_box_append(GTK_BOX(box), names);
-    gtk_box_append(GTK_BOX(box), v);
-    gtk_box_append(GTK_BOX(box), chevron());
-    gtk_widget_set_tooltip_text(box, info->doc);
     GtkWidget *row = gtk_list_box_row_new();
+    /* A quick change: the editor in the row (a number with its unit, a
+     * switch, a choice). A text (the start G-code) shows its value, and
+     * opens in the detail page. */
+    if (info->kind != ZS_SETTING_TEXT) {
+        GtkWidget *editor = zg_setting_editor_new(b->model, info, b->in_profile);
+        gtk_widget_add_css_class(editor, "zg-compact");
+        gtk_widget_set_valign(editor, GTK_ALIGN_CENTER);
+        gtk_box_append(GTK_BOX(box), editor);
+        if (info->kind == ZS_SETTING_NUMBER || info->kind == ZS_SETTING_INTEGER) {
+            GtkWidget *unit = gtk_label_new(info->unit);
+            gtk_widget_add_css_class(unit, "dim-label");
+            gtk_label_set_xalign(GTK_LABEL(unit), 0);
+            gtk_label_set_width_chars(GTK_LABEL(unit), 6);
+            gtk_label_set_max_width_chars(GTK_LABEL(unit), 13);
+            gtk_label_set_ellipsize(GTK_LABEL(unit), PANGO_ELLIPSIZE_END);
+            zg_setting_editor_show_speed(editor, unit);
+            gtk_box_append(GTK_BOX(box), unit);
+        }
+        /* The value label stays out of view: it follows the changes for
+         * the mark of a changed setting in a profile. */
+        g_object_set_data_full(G_OBJECT(row), "zg-value", g_object_ref_sink(v), g_object_unref);
+    } else {
+        gtk_box_append(GTK_BOX(box), v);
+    }
+    /* The detail page: what the setting does, and the lines and the time
+     * it changes in the project. */
+    GtkWidget *more = gtk_button_new_from_icon_name("go-next-symbolic");
+    gtk_widget_add_css_class(more, "flat");
+    gtk_widget_set_valign(more, GTK_ALIGN_CENTER);
+    gtk_widget_set_tooltip_text(more, "What it does, and the lines and the time it changes");
+    g_object_set_data(G_OBJECT(more), "zg-row", row);
+    g_signal_connect(more, "clicked", G_CALLBACK(on_more_clicked), b);
+    gtk_box_append(GTK_BOX(box), more);
+    gtk_widget_set_tooltip_text(names, info->doc);
     gtk_list_box_row_set_child(GTK_LIST_BOX_ROW(row), box);
     g_object_set_data(G_OBJECT(row), "zg-key", (gpointer)info->name);
     return row;
@@ -1114,7 +1156,9 @@ GtkWidget *zg_settings_browser_new(ZgModel *model, GtkWidget *panel_stack) {
     const char *start = g_getenv("ZSLICE_SETTING");
     if (start) {
         select_setting(b, start);
-        scroll_to_end(b);
+        /* ZSLICE_SETTING_LIST=1: the list of its section, not the detail. */
+        if (g_getenv("ZSLICE_SETTING_LIST")) show_column(b, 1);
+        else scroll_to_end(b);
         g_object_set_data(G_OBJECT(b->page), "zg-open", GINT_TO_POINTER(1));
     }
     update_crumbs(b);
