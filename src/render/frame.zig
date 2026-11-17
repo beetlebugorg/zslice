@@ -36,6 +36,11 @@ pub const Push = extern struct {
     params: [4]f32 = .{ 0, 0, 0, 0 },
 };
 
+/// A range of beads to draw with one mesh: the full bead mesh (lod 0), or
+/// a coarser mesh for a bead far from the camera (lod 1). See
+/// View.drawList.
+pub const Draw = extern struct { first: u32, count: u32, lod: u32 };
+
 pub const Frame = struct {
     clear: [3]f32,
     box: Push,
@@ -55,4 +60,8 @@ pub const Frame = struct {
     head: []const Instance = &.{},
     grid: Push,
     grid_vertices: u32,
+    /// The beads box_first .. box_count in ranges, with the boxes out of
+    /// the view left out and a coarse mesh far from the camera. Empty: draw
+    /// all of them with the full mesh. The web backend uses it.
+    draws: []const Draw = &.{},
 };

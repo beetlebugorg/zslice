@@ -17,6 +17,7 @@ const frame_mod = @import("frame.zig");
 pub const Instance = frame_mod.Instance;
 pub const max_extras = frame_mod.max_extras;
 pub const Push = frame_mod.Push;
+pub const Draw = frame_mod.Draw;
 
 pub const Error = error{OutOfMemory};
 
@@ -57,6 +58,15 @@ pub const WebFrame = extern struct {
     grid_gen: u32 = 0,
     width: u32 = 0,
     height: u32 = 0,
+    /// The ranges of beads to draw (frame_mod.Draw), and the meshes of
+    /// their levels of detail: the full mesh is indices 0 ..
+    /// mesh_full_count; level k (1 or 2) is mesh_lod_first[k - 1] .. +
+    /// mesh_lod_count[k - 1] (count 0 if there is none).
+    draws: usize = 0,
+    draws_count: u32 = 0,
+    mesh_full_count: u32 = 0,
+    mesh_lod_first: [2]u32 = .{ 0, 0 },
+    mesh_lod_count: [2]u32 = .{ 0, 0 },
 };
 
 pub const Renderer = struct {
@@ -97,6 +107,26 @@ pub const Renderer = struct {
         r.out.mesh_vert_count = @intCast(verts.len);
         r.out.mesh_index = @intFromPtr(r.index.items.ptr);
         r.out.mesh_index_count = @intCast(indices.len);
+        r.out.mesh_full_count = @intCast(indices.len);
+        r.out.mesh_lod_count = .{ 0, 0 };
+        r.out.mesh_gen +%= 1;
+    }
+
+    /// A coarser mesh of a bead (level 1 or 2) for a bead far from the
+    /// camera, after the full mesh in the same buffers (call it after
+    /// setMesh).
+    pub fn setLodMesh(r: *Renderer, level: usize, verts: []const [4]f32, indices: []const u16) Error!void {
+        const base: u16 = @intCast(r.verts.items.len);
+        r.verts.appendSlice(gpa, verts) catch return error.OutOfMemory;
+        const first: u32 = @intCast(r.index.items.len);
+        r.index.ensureUnusedCapacity(gpa, indices.len) catch return error.OutOfMemory;
+        for (indices) |i| r.index.appendAssumeCapacity(base + i);
+        r.out.mesh_verts = @intFromPtr(r.verts.items.ptr);
+        r.out.mesh_vert_count = @intCast(r.verts.items.len);
+        r.out.mesh_index = @intFromPtr(r.index.items.ptr);
+        r.out.mesh_index_count = @intCast(r.index.items.len);
+        r.out.mesh_lod_first[level - 1] = first;
+        r.out.mesh_lod_count[level - 1] = @intCast(indices.len);
         r.out.mesh_gen +%= 1;
     }
 
@@ -138,5 +168,7 @@ pub const Renderer = struct {
         o.head = @intFromPtr(head.ptr);
         o.head_count = @intCast(head.len);
         o.grid_vertices = frame.grid_vertices;
+        o.draws = @intFromPtr(frame.draws.ptr);
+        o.draws_count = @intCast(frame.draws.len);
     }
 };

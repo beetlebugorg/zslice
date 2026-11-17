@@ -280,6 +280,16 @@ export fn zs_view_layer_beads(view: ?*const View, layer: usize, first: ?*u32, en
     return ok;
 }
 
+/// The marks of a layer (first, end) in the instances, after the beads.
+export fn zs_view_layer_marks(view: ?*const View, layer: usize, first: ?*u32, end: ?*u32) c_int {
+    if (!render_on) return @intFromEnum(Status.not_supported);
+    const v = view orelse return @intFromEnum(Status.invalid_argument);
+    const r = v.layerMarks(layer);
+    if (first) |f| f.* = r[0];
+    if (end) |e| e.* = r[1];
+    return ok;
+}
+
 /// The beads of a path (first, end): bead first + k is segment k.
 export fn zs_view_path_beads(view: ?*const View, path: usize, first: ?*u32, end: ?*u32) c_int {
     if (!render_on) return @intFromEnum(Status.not_supported);

@@ -55,6 +55,7 @@ const builtin = @import("builtin");
 const is_web = builtin.cpu.arch.isWasm();
 const vk = if (is_web) @import("web.zig") else @import("vk.zig");
 const app_mod = @import("../app.zig");
+const Draw = @import("frame.zig").Draw;
 
 /// The feature colors, in the order of the Feature enum. The same colors
 /// as the SVG preview and docs/app/README.md.
@@ -119,6 +120,12 @@ pub const View = struct {
     /// beads, so a scene in bytes does not have it.
     pick_runs: std.ArrayList(PickBox) = .empty,
     layer_boxes: std.ArrayList(PickBox) = .empty,
+    /// Boxes of about `draw_chunk` beads (whole runs), and the widest bead
+    /// of each, for the draw list (see `drawList`).
+    draw_chunks: std.ArrayList(PickBox) = .empty,
+    chunk_width: std.ArrayList(f32) = .empty,
+    /// The draw list of the last frame.
+    draws: std.ArrayList(Draw) = .empty,
     highlight: [2]f32 = .{ 0, 0 },
     /// The rings of the support marks of the app (see support.Mark): 12
     /// beads each, drawn as extras.
@@ -220,6 +227,9 @@ pub const View = struct {
         v.outline_layer_end.deinit(gpa);
         v.pick_runs.deinit(gpa);
         v.layer_boxes.deinit(gpa);
+        v.draw_chunks.deinit(gpa);
+        v.chunk_width.deinit(gpa);
+        v.draws.deinit(gpa);
         v.beads.deinit(gpa);
         v.bead_end.deinit(gpa);
         v.bead_start.deinit(gpa);
@@ -242,13 +252,28 @@ pub const View = struct {
     /// profile angles from the bottom to the top, and a flat top face and a
     /// flat bottom face.
     fn makeMesh(v: *View) Error!void {
-        const cap = 4; // segments in each half circle
-        const prof = 4; // segments in the profile
-        const pi = std.math.pi;
         var verts: std.ArrayList([4]f32) = .empty;
         defer verts.deinit(gpa);
         var idx: std.ArrayList(u16) = .empty;
         defer idx.deinit(gpa);
+        try beadMesh(&verts, &idx, 4, 4);
+        try v.renderer.setMesh(verts.items, idx.items);
+        // A coarser mesh for beads far from the camera: 36 triangles for
+        // 100. Only the web backend has levels of detail. (A third level
+        // of 24 triangles drew no faster in WebGL: the cost is in the
+        // count of the instances there.)
+        if (@hasDecl(vk.Renderer, "setLodMesh")) {
+            verts.clearRetainingCapacity();
+            idx.clearRetainingCapacity();
+            try beadMesh(&verts, &idx, 2, 2);
+            try v.renderer.setLodMesh(1, verts.items, idx.items);
+        }
+    }
+
+    /// The bead mesh template: `cap` segments in each half circle of the
+    /// ends, and `prof` segments in the profile.
+    fn beadMesh(verts: *std.ArrayList([4]f32), idx: *std.ArrayList(u16), comptime cap: usize, comptime prof: usize) Error!void {
+        const pi = std.math.pi;
         // The plan loop: around the end b (u = 1) from -90 to 90 degrees,
         // then around the end a (u = 0) from 90 to 270 degrees.
         var loop: [2 * (cap + 1)][2]f32 = undefined;
@@ -284,7 +309,6 @@ pub const View = struct {
                 idx.appendSlice(gpa, &.{ center, a, b }) catch return error.OutOfMemory;
             }
         }
-        try v.renderer.setMesh(verts.items, idx.items);
     }
 
     /// Reads the toolpaths of the last slice of `app`, and the bed size.
@@ -1190,6 +1214,65 @@ pub const View = struct {
             v.layer_boxes.appendAssumeCapacity(layer);
             first = end;
         }
+        // The chunks of the draw list: whole runs, about draw_chunk beads.
+        v.draw_chunks.clearRetainingCapacity();
+        v.chunk_width.clearRetainingCapacity();
+        var chunk = emptyBox(0, 0);
+        var width: f32 = 0;
+        for (v.pick_runs.items, 0..) |run, k| {
+            if (chunk.end == 0) chunk = emptyBox(run.first, run.end);
+            growBox(&chunk, run.lo, run.hi);
+            chunk.end = run.end;
+            for (v.beads.items[run.first..run.end]) |b| width = @max(width, b.w);
+            if (chunk.end - chunk.first >= draw_chunk or k + 1 == v.pick_runs.items.len) {
+                v.draw_chunks.append(gpa, chunk) catch return error.OutOfMemory;
+                v.chunk_width.append(gpa, width) catch return error.OutOfMemory;
+                chunk = emptyBox(0, 0);
+                width = 0;
+            }
+        }
+    }
+
+    /// The beads in a chunk of the draw list. A draw call for each chunk
+    /// is cheap, and a chunk out of the view costs nothing.
+    const draw_chunk = 512;
+    /// A bead narrower than this on the screen (pixels) draws with the
+    /// coarser mesh (level 1).
+    const lod_pixels: f32 = 12;
+
+    /// The draw list of the beads first .. end (see Frame.draws): the
+    /// chunks in the view, each with the full mesh near the camera and a
+    /// coarser mesh where a bead is a few pixels wide. A plate of many
+    /// parts has a million beads of 100 triangles; most of them are far or
+    /// out of the view.
+    fn drawList(v: *View, mvp: [16]f32, eye: [3]f32, first: u32, end: u32) Error![]const Draw {
+        v.draws.clearRetainingCapacity();
+        if (end <= first) return v.draws.items;
+        // The pixels per mm at distance 1 from the eye.
+        const px_per_mm = @as(f32, @floatFromInt(v.height)) / (2 * @tan(@as(f32, fov) / 2));
+        for (v.draw_chunks.items, v.chunk_width.items) |c, w| {
+            const a = @max(c.first, first);
+            const b = @min(c.end, end);
+            if (b <= a) continue;
+            if (!boxInView(mvp, c)) continue;
+            // The distance from the eye to the box (0 inside it).
+            var d2: f32 = 0;
+            for (0..3) |k| {
+                const e = @max(@max(c.lo[k] - eye[k], eye[k] - c.hi[k]), 0);
+                d2 += e * e;
+            }
+            const px = w * px_per_mm / @max(@sqrt(d2), 1e-3);
+            const lod: u32 = if (px < lod_pixels) 1 else 0;
+            if (v.draws.items.len > 0) {
+                const last = &v.draws.items[v.draws.items.len - 1];
+                if (last.lod == lod and last.first + last.count == a) {
+                    last.count += b - a;
+                    continue;
+                }
+            }
+            v.draws.append(gpa, .{ .first = a, .count = b - a, .lod = lod }) catch return error.OutOfMemory;
+        }
+        return v.draws.items;
     }
 
     fn emptyBox(first: u32, end: u32) PickBox {
@@ -1248,6 +1331,14 @@ pub const View = struct {
     pub fn layerBeads(v: *const View, layer: usize) [2]u32 {
         if (layer >= v.layer_end.items.len) return .{ 0, 0 };
         return .{ if (layer == 0) 0 else v.layer_end.items[layer - 1], v.layer_end.items[layer] };
+    }
+
+    /// The marks of layer `layer` (the seams, the travel moves, and the
+    /// retractions): first to end in the instances, after the beads.
+    pub fn layerMarks(v: *const View, layer: usize) [2]u32 {
+        if (layer >= v.mark_layer_end.items.len) return .{ 0, 0 };
+        const base: u32 = @intCast(v.beads.items.len);
+        return .{ base + if (layer == 0) 0 else v.mark_layer_end.items[layer - 1], base + v.mark_layer_end.items[layer] };
     }
 
     /// The beads of path `path`: first to end. Bead k is segment k.
@@ -1563,6 +1654,7 @@ pub const View = struct {
             },
             .box_count = count,
             .box_first = first,
+            .draws = if (is_web) try v.drawList(mvp, eye, first, count) else &.{},
             .mark_first = @intCast(v.beads.items.len + mark_skip),
             .mark_count = mark_count,
             .grid = .{ .mvp = mvp, .vec = .{ 0.80, 0.82, 0.85, 1 } },
@@ -1628,6 +1720,31 @@ fn rayBox(o: [3]f32, d: [3]f32, box: View.PickBox, max_t: f32) bool {
         t1 = @min(t1, tb);
         if (t0 > t1) return false;
     }
+    return true;
+}
+
+/// False if the box is out of the view: all its corners are outside the
+/// same plane of the clip space of `mvp` (Vulkan: -w <= x, y <= w, and
+/// 0 <= z <= w). The test works in homogeneous coordinates, so a corner
+/// behind the eye gives no wrong answer.
+fn boxInView(mvp: [16]f32, box: View.PickBox) bool {
+    var out = [_]u8{0} ** 6;
+    for (0..8) |i| {
+        const p = [3]f32{
+            if (i & 1 != 0) box.hi[0] else box.lo[0],
+            if (i & 2 != 0) box.hi[1] else box.lo[1],
+            if (i & 4 != 0) box.hi[2] else box.lo[2],
+        };
+        var c: [4]f32 = undefined;
+        for (0..4) |r| c[r] = mvp[r] * p[0] + mvp[4 + r] * p[1] + mvp[8 + r] * p[2] + mvp[12 + r];
+        if (c[0] < -c[3]) out[0] += 1;
+        if (c[0] > c[3]) out[1] += 1;
+        if (c[1] < -c[3]) out[2] += 1;
+        if (c[1] > c[3]) out[3] += 1;
+        if (c[2] < 0) out[4] += 1;
+        if (c[2] > c[3]) out[5] += 1;
+    }
+    for (out) |n| if (n == 8) return false;
     return true;
 }
 
@@ -2025,6 +2142,9 @@ fn destroyTest(v: *View) void {
     v.bead_end.deinit(g);
     v.pick_runs.deinit(g);
     v.layer_boxes.deinit(g);
+    v.draw_chunks.deinit(g);
+    v.chunk_width.deinit(g);
+    v.draws.deinit(g);
 }
 
 test "the pick index finds the same bead as a test of each bead" {
@@ -2126,4 +2246,40 @@ test "the nearest path on another layer, and the segment at a time" {
     try std.testing.expectEqual(@as(?[2]usize, .{ 2, 2 }), v.segmentAtTime(12.5));
     try std.testing.expectEqual(@as(f32, 13), v.segmentEndTime(2, 2));
     try std.testing.expectEqual(@as(?[2]usize, .{ 11, 4 }), v.segmentAtTime(1e9));
+}
+
+test "the draw list leaves out the chunks out of the view, and draws far beads coarse" {
+    // 40 layers of 30 paths of 20 beads: 24000 beads, several chunks.
+    var v = try testScene(40, 30, 20);
+    defer destroyTest(&v);
+    v.height = 800;
+    v.width = 800;
+    const n: u32 = @intCast(v.beads.items.len);
+    const Case = struct { target: [3]f32, dist: f32, yaw: f32 };
+    const frame = struct {
+        fn list(view: *View, c: Case) ![]const Draw {
+            view.target = c.target;
+            view.dist = c.dist;
+            view.setAngles(c.yaw, 0.5);
+            const cam = view.camera();
+            const proj = perspective(fov, 1, 0.1, 1000);
+            const mvp = mul(proj, lookAt(cam.eye, view.target, cam.u));
+            return view.drawList(mvp, cam.eye, 0, @intCast(view.beads.items.len));
+        }
+    };
+    // From far away: all beads, coarse, in one range.
+    var d = try frame.list(&v, .{ .target = .{ 10, 15, 4 }, .dist = 400, .yaw = 0.3 });
+    try std.testing.expectEqual(@as(usize, 1), d.len);
+    try std.testing.expectEqual(Draw{ .first = 0, .count = n, .lod = 1 }, d[0]);
+    // Close: full beads, and the chunks behind the eye are left out.
+    d = try frame.list(&v, .{ .target = .{ 10, 15, 4 }, .dist = 3, .yaw = 0.3 });
+    var drawn: u32 = 0;
+    for (d) |x| {
+        drawn += x.count;
+        try std.testing.expectEqual(@as(u32, 0), x.lod);
+    }
+    try std.testing.expect(drawn > 0 and drawn <= n);
+    // Looking away from the part: nothing.
+    d = try frame.list(&v, .{ .target = .{ 500, 500, 4 }, .dist = 3, .yaw = 0.3 });
+    try std.testing.expectEqual(@as(usize, 0), d.len);
 }

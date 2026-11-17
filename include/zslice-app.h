@@ -735,6 +735,10 @@ size_t zs_view_pick_layer(const zs_view *view, size_t layer, double x, double y,
  * first to end. The web shell draws them from its copy of the instances. */
 int zs_view_layer_beads(const zs_view *view, size_t layer, uint32_t *first, uint32_t *end);
 int zs_view_path_beads(const zs_view *view, size_t path, uint32_t *first, uint32_t *end);
+/* The marks of a layer (the seams, the travel moves, and the retractions;
+ * see zs_view_focus): from first to end in the instances, after the beads.
+ * Their alpha byte is the bit of the mark (ZS_MARK_SEAM is 1 << 11). */
+int zs_view_layer_marks(const zs_view *view, size_t layer, uint32_t *first, uint32_t *end);
 /* The layer of a path, and its number of segments. */
 size_t zs_view_path_layer(const zs_view *view, size_t path);
 size_t zs_view_path_segments(const zs_view *view, size_t path);
@@ -785,6 +789,9 @@ typedef struct {
     uint8_t rgba[4];
 } zs_web_instance;
 typedef struct {
+    uint32_t first, count, lod;
+} zs_web_draw;
+typedef struct {
     zs_web_push box, grid;
     float clear[4];
     uint32_t box_first, box_count, mark_first, mark_count;
@@ -801,6 +808,15 @@ typedef struct {
     const float *grid_points; /* vec3, two for each line */
     uint32_t grid_vertices, grid_gen;
     uint32_t width, height;
+    /* The beads to draw: ranges with a level of detail (lod 0 is the full
+     * mesh, 1 and up coarser meshes for beads far from the camera). The
+     * chunks out of the view are not in the list. Empty: draw box_first
+     * to box_count with the full mesh. */
+    const zs_web_draw *draws;
+    uint32_t draws_count;
+    /* The meshes in mesh_index: the full mesh is 0 .. mesh_full_count; the
+     * mesh of lod k (1, 2) is mesh_lod_first[k - 1] .. + mesh_lod_count[k - 1]. */
+    uint32_t mesh_full_count, mesh_lod_first[2], mesh_lod_count[2];
 } zs_web_frame;
 const zs_web_frame *zs_view_web_frame(const zs_view *view);
 
