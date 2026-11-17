@@ -53,6 +53,7 @@ const flow = @import("flow.zig");
 const motion = @import("motion.zig");
 const layer_mod = @import("layer.zig");
 const settings_mod = @import("settings.zig");
+const expr = @import("expr.zig");
 const Feature = settings_mod.Feature;
 const Resolved = settings_mod.Resolved;
 const LayerPlan = layer_mod.LayerPlan;
@@ -424,6 +425,12 @@ pub const Emitter = struct {
     fan: i32 = -1,
     /// The fan of the layer (coolingFan), for after a bridge, or -1.
     layer_fan: i32 = -1,
+    /// The path rules (project.path_rules), parsed once for each text:
+    /// the text they come from, and their trees in `rules_buf`.
+    rules_text: []const u8 = "",
+    rules: [max_rules]Rule = undefined,
+    rules_n: usize = 0,
+    rules_buf: [16 * 1024]u8 = undefined,
     /// The last feed rate written, in mm/min.
     feed: f64 = -1,
     feature: ?Feature = null,
@@ -436,6 +443,91 @@ pub const Emitter = struct {
     dry: bool = false,
     /// The acceleration now (mm/s²).
     accel: f64 = 0,
+
+    const max_rules = 16;
+    const Rule = struct { target: enum { speed, flow, fan }, node: *const expr.Node };
+
+    /// The variables of a path for its rules.
+    const RuleEnv = struct {
+        feature: []const u8,
+        layer: f64,
+        z: f64,
+        part: f64,
+        speed: f64,
+        width: f64,
+        height: f64,
+        length: f64,
+        fan: f64,
+
+        fn lookup(ctx: ?*const anyopaque, name: []const u8) ?expr.Value {
+            const v: *const RuleEnv = @ptrCast(@alignCast(ctx.?));
+            const eq = std.mem.eql;
+            if (eq(u8, name, "feature")) return .{ .text = v.feature };
+            inline for (.{ "layer", "z", "part", "speed", "width", "height", "length", "fan" }) |f| {
+                if (eq(u8, name, f)) return .{ .num = @field(v, f) };
+            }
+            return null;
+        }
+    };
+
+    /// The speed, the flow factor, and the fan (or null) of a path after
+    /// the path rules `text` (see Project.path_rules).
+    fn applyRules(self: *Emitter, text: []const u8, path: layer_mod.Path, pts: []const geom.Point, lp: *const LayerPlan, speed: f64, width: f64, height: f64) struct { speed: f64, flow: f64 = 1, fan: ?f64 = null } {
+        if (text.len == 0) return .{ .speed = speed };
+        if (text.ptr != self.rules_text.ptr or text.len != self.rules_text.len) {
+            self.rules_text = text;
+            self.rules_n = 0;
+            var fba = std.heap.FixedBufferAllocator.init(&self.rules_buf);
+            var lines = std.mem.splitScalar(u8, text, '\n');
+            while (lines.next()) |raw| {
+                if (self.rules_n == max_rules) break;
+                const line = std.mem.trim(u8, raw, " \t\r");
+                if (line.len == 0 or line[0] == '#') continue;
+                const eqi = std.mem.indexOfScalar(u8, line, '=') orelse continue;
+                const name = std.mem.trim(u8, line[0..eqi], " ");
+                const target = std.meta.stringToEnum(@FieldType(Rule, "target"), name) orelse continue;
+                var diag: expr.Diagnostic = .{};
+                const node = expr.parse(fba.allocator(), std.mem.trim(u8, line[eqi + 1 ..], " "), &diag) catch continue;
+                self.rules[self.rules_n] = .{ .target = target, .node = node };
+                self.rules_n += 1;
+            }
+        }
+        if (self.rules_n == 0) return .{ .speed = speed };
+        var len: f64 = 0;
+        for (1..pts.len) |k| len += geom.toMm(@intFromFloat(pts[k - 1].dist(pts[k])));
+        var env: RuleEnv = .{
+            .feature = @tagName(path.feature),
+            .layer = @floatFromInt(lp.index),
+            .z = lp.z,
+            .part = @floatFromInt(lp.partOf(path)),
+            .speed = speed,
+            .width = width,
+            .height = height,
+            .length = len,
+            .fan = @as(f64, @floatFromInt(@max(self.fan, 0))) / 255,
+        };
+        var out: @TypeOf(self.applyRules(text, path, pts, lp, speed, width, height)) = .{ .speed = speed };
+        for (self.rules[0..self.rules_n]) |rule| {
+            const v = expr.eval(rule.node, .{ .ctx = &env, .lookup = RuleEnv.lookup }) catch continue;
+            const n = switch (v) {
+                .num => |x| x,
+                .text => continue,
+            };
+            if (!std.math.isFinite(n)) continue;
+            switch (rule.target) {
+                .speed => {
+                    out.speed = @max(n, 1);
+                    env.speed = out.speed;
+                },
+                .flow => out.flow = @max(n, 0),
+                .fan => {
+                    out.fan = n;
+                    env.fan = n;
+                },
+            }
+        }
+        return out;
+    }
 
     pub fn init(gpa: std.mem.Allocator, w: *Writer, r: *const Resolved) Emitter {
         return .{ .gpa = gpa, .w = w, .r = r, .lr = r };
@@ -783,7 +875,10 @@ pub const Emitter = struct {
             // The layer index in the job of the part, for the speed ramp of
             // the first layers (see LayerPlan.layerOf).
             const full = path_r.speedAt(path.feature, speed_width, h, lp.layerOf(path));
-            const speed = slowSpeed(full, slow, s.filament.min_speed);
+            // The path rules of the settings (project.path_rules).
+            const rr = self.applyRules(path_r.settings.project.path_rules, path, pts, lp, slowSpeed(full, slow, s.filament.min_speed), if (path.width > 0) path.width else speed_width, h);
+            const speed = rr.speed;
+            if (rr.fan) |f| if (!self.dry) try self.setFan(@intFromFloat(@round(255 * std.math.clamp(f, 0, 1))));
             const start_time = self.stats.print_time_s;
             // Ironing lines use a fraction of the flow of a normal line.
             // A path with its own width (a thin wall) or height has its own
@@ -791,7 +886,7 @@ pub const Emitter = struct {
             // The flow ratio of the part of the path (see LayerPlan.append).
             const fr = path_r.settings.filament.flow_ratio;
             const base_e = if (path.width > 0 or path.height > 0) flow.beadArea(if (path.width > 0) path.width else lp.width, h) / self.r.filament_area * fr else if (fr == s.filament.flow_ratio) e_per_mm else flow.beadArea(lp.width, lp.height) / self.r.filament_area * fr;
-            const e = switch (path.feature) {
+            const e = rr.flow * switch (path.feature) {
                 .ironing => base_e * path_r.settings.project.ironing_flow,
                 .infill => base_e * path_r.settings.project.infill_flow,
                 .bridge => base_e * path_r.settings.project.bridge_flow,
@@ -806,7 +901,7 @@ pub const Emitter = struct {
             }
             if (widths.len > 0) {
                 // The width of each segment is the mean of its ends.
-                const e_scale = fr / self.r.filament_area;
+                const e_scale = rr.flow * fr / self.r.filament_area;
                 var area_len: f64 = 0;
                 var len_sum: f64 = 0;
                 const n = pts.len + @as(usize, @intFromBool(path.closed and pts.len > 2));

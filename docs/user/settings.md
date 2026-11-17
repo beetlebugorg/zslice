@@ -372,6 +372,10 @@ The flow of the bridge lines, as a ratio of the flow of a normal line. A little 
 
 The fan speed while the bridge lines print, from 0 to 1.
 
+**`project.path_rules`** (text). Default: `""`
+
+Rules for each path, one on each line: "speed = ...", "flow = ...", or "fan = ...", with a formula (see the formulas of the settings). The variables of a path: {feature} ("outer_wall", "inner_wall", "skin", "infill", "bridge", ...), {layer} (from 0), {z} (mm), {part}, {speed} (the planned speed, mm/s), {width} and {height} (mm), {length} (mm), and {fan} (0 to 1). "speed" sets the speed in mm/s, "flow" multiplies the flow, and "fan" sets the fan (0 to 1) while the path prints. For example: speed = {feature} == "outer_wall" and {z} < 5 ? 20 : {speed}. A line that does not work is left out.
+
 **`project.gap_fill`** (true or false; per layer). Default: `true`
 
 Fill the narrow areas that no wall and no skin line covers (a strip between two walls, a wedge of skin next to a hole) with a line along the middle of each area. The width of the line follows the width of the area. These lines print at the skin speed. A part thinner than one line gets a line from `thin_walls`, not from this setting.

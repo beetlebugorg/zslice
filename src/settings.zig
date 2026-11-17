@@ -332,6 +332,17 @@ pub const Project = struct {
     bridge_flow: f64 = 0.95,
     /// The fan speed while the bridge lines print, from 0 to 1.
     bridge_fan: f64 = 1.0,
+    /// Rules for each path, one on each line: "speed = ...", "flow = ...",
+    /// or "fan = ...", with a formula (see the formulas of the settings).
+    /// The variables of a path: {feature} ("outer_wall", "inner_wall",
+    /// "skin", "infill", "bridge", ...), {layer} (from 0), {z} (mm),
+    /// {part}, {speed} (the planned speed, mm/s), {width} and {height}
+    /// (mm), {length} (mm), and {fan} (0 to 1). "speed" sets the speed in
+    /// mm/s, "flow" multiplies the flow, and "fan" sets the fan (0 to 1)
+    /// while the path prints. For example: speed = {feature} ==
+    /// "outer_wall" and {z} < 5 ? 20 : {speed}. A line that does not work
+    /// is left out.
+    path_rules: []const u8 = "",
     /// Fill the narrow areas that no wall and no skin line covers (a strip
     /// between two walls, a wedge of skin next to a hole) with a line along
     /// the middle of each area. The width of the line follows the width of

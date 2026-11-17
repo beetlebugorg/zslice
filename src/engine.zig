@@ -2806,3 +2806,29 @@ test "bridges: the walls of a cap over air print as bridges" {
     defer gpa.free(plain);
     try testing.expect(std.mem.indexOf(u8, plain, ";TYPE:BRIDGE") == null);
 }
+
+test "path rules: the outer walls at their own speed" {
+    const gpa = testing.allocator;
+    var s: Settings = .{};
+    s.project.path_rules = "speed = {feature} == \"outer_wall\" ? 7 : {speed}\n# a comment\nnot a rule";
+    const g = try demoGcodeWith(gpa, s, &.{});
+    defer gpa.free(g);
+    var in_outer = false;
+    var outer_moves: usize = 0;
+    var other_slow: usize = 0;
+    var lines = std.mem.splitScalar(u8, g, '\n');
+    while (lines.next()) |line| {
+        if (std.mem.startsWith(u8, line, ";TYPE:")) in_outer = std.mem.eql(u8, line, ";TYPE:WALL-OUTER");
+        if (!std.mem.startsWith(u8, line, "G1 ") or std.mem.indexOf(u8, line, " E") == null) continue;
+        const f = std.mem.indexOf(u8, line, " F") orelse continue;
+        var end = f + 2;
+        while (end < line.len and line[end] != ' ') end += 1;
+        const feed = try std.fmt.parseFloat(f64, line[f + 2 .. end]);
+        if (in_outer) {
+            try testing.expectEqual(@as(f64, 420), feed);
+            outer_moves += 1;
+        } else if (feed == 420) other_slow += 1;
+    }
+    try testing.expect(outer_moves > 0);
+    try testing.expectEqual(@as(usize, 0), other_slow);
+}

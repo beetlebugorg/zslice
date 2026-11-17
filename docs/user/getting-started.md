@@ -282,6 +282,18 @@ A setting can follow other settings. In the detail page of a setting (the › of
 
 `{name}` is a setting: its short name (`{layer_height}`) or its full name (`{filament.nozzle_temp}`). A formula has `+ - * / %`, `^` (a power), comparisons, `and`, `or`, `not`, `cond ? a : b`, and the functions `min`, `max`, `round` (`round(x)`, or `round(x, step)`), `floor`, `ceil`, `abs`, `sqrt`, `clamp(x, lo, hi)`, and `lerp(a, b, t)`. The value follows each change of the settings that it uses, and its tag shows the formula. A plain value in the field of the setting removes the formula; so does an empty Formula field. A formula that does not work turns the field red, and the value stays. The formulas are in `formulas.txt` in the settings folder.
 
+### Path rules
+
+`project.path_rules` (Settings, Speed ratios) changes the speed, the flow, or the fan of the paths that match a formula. Write one rule on each line:
+
+```
+speed = {feature} == "outer_wall" and {z} < 5 ? 20 : {speed}
+flow = {feature} == "bridge" ? 0.9 : 1
+fan = {layer} < 3 ? 0 : {fan}
+```
+
+The variables of a path: `{feature}` (`"outer_wall"`, `"inner_wall"`, `"skin"`, `"infill"`, `"bridge"`, ...), `{layer}` (from 0), `{z}` (mm), `{part}`, `{speed}` (the planned speed, mm/s), `{width}` and `{height}` (mm), `{length}` (mm), and `{fan}` (0 to 1). `speed` sets the speed in mm/s, `flow` multiplies the flow, and `fan` sets the fan while the path prints. The rules go in order, so a rule sees the speed and the fan of the rules before it. A line that does not work is left out; a line that starts with `#` is a note.
+
 ## Settings for one part
 
 With more than one part on the plate, the Settings page has a bar at the top: **Settings for: This print (all parts)**, or one part. With a part, a change is for that part only, on top of the values of the print, and its tag says "This part". **Reset** gives the part the value of the print again. The part page (Ctrl+click on a part) has **Edit settings for this part**, which opens the same view.
