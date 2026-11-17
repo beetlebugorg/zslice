@@ -50,7 +50,8 @@ The rule of `docs/app/README.md` holds: the app logic is in the core, and the we
 | `menus.js` | The popup menus, the context menu, and the popovers |
 | `format.js` | The text of setting values, as the GTK shell shows them |
 | `printers.js` | The printer picker: the printer library of the core (`printers.txt`, loaded when the picker opens), the search, the brands, the drawing of the build volume (with the bed texture on the plate), and the second step. Also the files of the bed model of the current printer (`bedFiles`) |
-| `serve.py` | The dev server |
+| `thread.js` | One thread of the slice, for the module with threads |
+| `serve.py` | The dev server. It sends the headers for cross-origin isolation |
 | `test-node.mjs` | The Node test |
 
 ### The bed model
@@ -61,10 +62,34 @@ The rule of `docs/app/README.md` holds: the app logic is in the core, and the we
 
 The page loads one module (`zslice.wasm`, the same file as `zig build wasm`) and makes two instances of it:
 
-1. The worker instance has the app (`zs_app_new_web`). A slice runs on the thread of the worker, so the page stays responsive. The wasm build has no threads, so a slice takes longer than in the GTK app (the Benchy: about 3 s, the GTK app: 0.3 s).
+1. The worker instance has the app (`zs_app_new_web`). A slice runs on the thread of the worker, so the page stays responsive. With no threads, a slice takes longer than in the GTK app (the Benchy: about 2.2 s, the GTK app: 0.35 s). With threads, the Benchy takes about 0.5 s (see "Threads").
 2. The main instance has the 3D view (`zs_view_new` with `ZS_SURFACE_WEB`). The camera, the layer range, and the replay run here, with no wait for the worker.
 
 After a slice, the view of the worker loads the slice (`zs_view_load`), and writes its beads as bytes (`zs_view_scene_write`). The worker sends the bytes to the page, and the main view reads them (`zs_view_scene_read`). The scene logic and the camera are the same code as in the GTK app (`src/render/view.zig`).
+
+### Threads
+
+`zig build web` makes two modules: `zslice.wasm` (no threads) and `zslice-mt.wasm` (threads). `-Dwasm-optimize=ReleaseFast` makes both faster and larger; `-Dwasm-cpu` sets the CPU features.
+
+A page that is cross-origin isolated loads `zslice-mt.wasm`. The server must send two headers for that:
+
+```
+Cross-Origin-Opener-Policy: same-origin
+Cross-Origin-Embedder-Policy: require-corp
+```
+
+`serve.py` sends them (`--no-isolation` leaves them out). Without the headers, or with `?threads=0`, the page loads `zslice.wasm`, and a slice uses one thread.
+
+How the threads work:
+
+1. `zslice-mt.wasm` imports a shared memory. `wasm.js` makes it (64 MiB at the start, 2 GiB at most: the numbers of `build.zig`).
+2. The worker of the app core starts one worker for each CPU but two (`thread.js`): one CPU stays free for the page, and the worker of the core is a thread of the slice too.
+3. Each of these workers makes an instance of the module on the same memory, with its own stack, and calls `zs_thread_run`. The call does not return: the thread waits in the core for work (`src/parallel.zig`, the wasm pool).
+4. The slice gives work to the threads that wait, as the native build gives it to new threads. The G-code is the same for each thread count.
+
+The module with threads has its own allocator (`src/wasm_heap.zig`): the wasm allocator of the Zig standard library has no support for threads.
+
+Limits of the module with threads: the progress events of the first pass come only from the worker of the core, and the memory does not shrink after a slice (about 0.7 GB after a Benchy on 7 threads, 1.2 GB after eight).
 
 ### The web backend of the view
 

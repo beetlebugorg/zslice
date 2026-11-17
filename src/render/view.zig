@@ -438,7 +438,7 @@ pub const View = struct {
                 for (0..segs) |k| {
                     const a = start + @as(u32, @intCast(k));
                     const b = if (a + 1 < end) a + 1 else start;
-                    path_len += std.math.hypot(pts[2 * b] - pts[2 * a], pts[2 * b + 1] - pts[2 * a + 1]);
+                    path_len += @import("../geom.zig").hypot(pts[2 * b] - pts[2 * a], pts[2 * b + 1] - pts[2 * a + 1]);
                 }
                 const t0 = tp.path_start_time.items[pi];
                 const t1 = tp.path_end_time.items[pi];
@@ -451,7 +451,7 @@ pub const View = struct {
                 for (0..segs) |k| {
                     const a = start + @as(u32, @intCast(k));
                     const b = if (a + 1 < end) a + 1 else start;
-                    run += std.math.hypot(pts[2 * b] - pts[2 * a], pts[2 * b + 1] - pts[2 * a + 1]);
+                    run += @import("../geom.zig").hypot(pts[2 * b] - pts[2 * a], pts[2 * b + 1] - pts[2 * a + 1]);
                     v.bead_start.append(gpa, if (k == 0) t0 else v.bead_end.items[v.bead_end.items.len - 1]) catch return error.OutOfMemory;
                     v.bead_fan.append(gpa, if (pi < tp.path_fan.items.len) tp.path_fan.items[pi] else 255) catch return error.OutOfMemory;
                     v.bead_end.append(gpa, if (path_len > 0) t0 + (t1 - t0) * run / path_len else t1) catch return error.OutOfMemory;
@@ -507,7 +507,7 @@ pub const View = struct {
             if (first_load) v.target = v.home;
             var reach: f32 = 0;
             for ([_]f64{ b[0], b[2] }) |x| for ([_]f64{ b[1], b[3] }) |y| {
-                reach = @max(reach, std.math.hypot(@as(f32, @floatCast(x)) - bx, @as(f32, @floatCast(y)) - by));
+                reach = @max(reach, @import("../geom.zig").hypot(@as(f32, @floatCast(x)) - bx, @as(f32, @floatCast(y)) - by));
             };
             v.extent = @max(2 * reach, zmax);
         }
@@ -639,8 +639,8 @@ pub const View = struct {
             const end = tp.path_ends.items[pi];
             var len: f32 = 0;
             var k = start;
-            while (k + 1 < end) : (k += 1) len += std.math.hypot(pts[2 * k + 2] - pts[2 * k], pts[2 * k + 3] - pts[2 * k + 1]);
-            if (tp.path_closed.items[pi] != 0 and end - start > 2) len += std.math.hypot(pts[2 * start] - pts[2 * (end - 1)], pts[2 * start + 1] - pts[2 * (end - 1) + 1]);
+            while (k + 1 < end) : (k += 1) len += @import("../geom.zig").hypot(pts[2 * k + 2] - pts[2 * k], pts[2 * k + 3] - pts[2 * k + 1]);
+            if (tp.path_closed.items[pi] != 0 and end - start > 2) len += @import("../geom.zig").hypot(pts[2 * start] - pts[2 * (end - 1)], pts[2 * start + 1] - pts[2 * (end - 1) + 1]);
             const dt = tp.path_end_time.items[pi] - tp.path_start_time.items[pi];
             const speed: f32 = if (dt > 0) len / dt else 0;
             values[pi] = switch (v.mode) {
@@ -738,7 +738,7 @@ pub const View = struct {
                 if (prev) |p| {
                     const retracted = tp.path_retract.items.len > pi and tp.path_retract.items[pi] != 0;
                     const lift: f32 = if (retracted) tp.z_hop else 0;
-                    if (std.math.hypot(first[0] - p[0], first[1] - p[1]) > 0.05) {
+                    if (@import("../geom.zig").hypot(first[0] - p[0], first[1] - p[1]) > 0.05) {
                         const t = feature_rgb[code_travel];
                         try v.addMark(.{ .ax = p[0], .ay = p[1], .bx = first[0], .by = first[1], .z = z + lift + 0.08, .h = 0.06, .w = 0.06, .rgba = .{ t[0], t[1], t[2], code_travel } });
                     }
@@ -1090,7 +1090,7 @@ pub const View = struct {
                 var best: f32 = 12;
                 for ([_][3]f32{ .{ b.ax, b.ay, b.z }, .{ b.bx, b.by, b.z } }) |e| {
                     const q = v.pixelOf(e) orelse continue;
-                    const dpx = std.math.hypot(q[0] - px, q[1] - py);
+                    const dpx = @import("../geom.zig").hypot(q[0] - px, q[1] - py);
                     if (dpx < best) {
                         best = dpx;
                         p = e;

@@ -139,9 +139,9 @@ pub const Toolpaths = struct {
         const pts = t.points.items;
         var len: f64 = 0;
         var k = start;
-        while (k + 1 < end) : (k += 1) len += std.math.hypot(@as(f64, pts[2 * k + 2] - pts[2 * k]), @as(f64, pts[2 * k + 3] - pts[2 * k + 1]));
+        while (k + 1 < end) : (k += 1) len += @import("../geom.zig").hypot(@as(f64, pts[2 * k + 2] - pts[2 * k]), @as(f64, pts[2 * k + 3] - pts[2 * k + 1]));
         if (t.path_closed.items[path] != 0 and end - start > 2) {
-            len += std.math.hypot(@as(f64, pts[2 * start] - pts[2 * (end - 1)]), @as(f64, pts[2 * start + 1] - pts[2 * (end - 1) + 1]));
+            len += @import("../geom.zig").hypot(@as(f64, pts[2 * start] - pts[2 * (end - 1)]), @as(f64, pts[2 * start + 1] - pts[2 * (end - 1) + 1]));
         }
         return len;
     }
@@ -372,5 +372,5 @@ fn segmentDistance(x: f64, y: f64, ax: f32, ay: f32, bx: f32, by: f32) f64 {
     const dy: f64 = by - ay;
     const len2 = dx * dx + dy * dy;
     const t = if (len2 == 0) 0 else std.math.clamp(((x - ax) * dx + (y - ay) * dy) / len2, 0, 1);
-    return std.math.hypot(x - (ax + t * dx), y - (ay + t * dy));
+    return @import("../geom.zig").hypot(x - (ax + t * dx), y - (ay + t * dy));
 }

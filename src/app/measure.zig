@@ -40,7 +40,7 @@ pub const Measure = struct {
 const Pt = [2]f64;
 
 fn dist(a: Pt, b: Pt) f64 {
-    return std.math.hypot(a[0] - b[0], a[1] - b[1]);
+    return @import("../geom.zig").hypot(a[0] - b[0], a[1] - b[1]);
 }
 
 const Circle = struct { c: Pt, r: f64 };

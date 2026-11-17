@@ -63,6 +63,16 @@ pub const Point = struct {
     }
 };
 
+/// The length of the vector (x, y). `std.math.hypot` gives the correctly
+/// rounded result, and guards against overflow, with fused multiply-adds.
+/// Wasm has no fused multiply-add, so there it is a slow function call
+/// (about 9 % of the time of a slice after an infill change). The lengths
+/// of a slice are far from the limits of a float, so the plain form is
+/// safe.
+pub inline fn hypot(x: anytype, y: anytype) @TypeOf(x, y) {
+    return @sqrt(x * x + y * y);
+}
+
 /// The z component of (b - a) x (c - a). The value is positive when c is to
 /// the left of the line from a to b, negative when c is to the right, and
 /// zero when the three points are on one line.

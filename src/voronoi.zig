@@ -1033,7 +1033,7 @@ fn cellSite(c: Cell, points: []const geom.Point, segments: []const [2]geom.Point
 
 fn siteDist(s: TestSite, x: f64, y: f64) f64 {
     switch (s) {
-        .point => |p| return std.math.hypot(x - p[0], y - p[1]),
+        .point => |p| return @import("geom.zig").hypot(x - p[0], y - p[1]),
         .segment => |sg| {
             const ax = sg[0][0];
             const ay = sg[0][1];
@@ -1042,7 +1042,7 @@ fn siteDist(s: TestSite, x: f64, y: f64) f64 {
             const l2 = dx * dx + dy * dy;
             var t = ((x - ax) * dx + (y - ay) * dy) / l2;
             t = std.math.clamp(t, 0.0, 1.0);
-            return std.math.hypot(x - (ax + t * dx), y - (ay + t * dy));
+            return @import("geom.zig").hypot(x - (ax + t * dx), y - (ay + t * dy));
         },
     }
 }

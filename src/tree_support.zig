@@ -447,7 +447,7 @@ fn nearestEdge(paths: Paths, x: f64, y: f64) EdgePoint {
             const t = if (l2 > 0) std.math.clamp(((x - ax) * ex + (y - ay) * ey) / l2, 0, 1) else 0;
             const px = ax + t * ex;
             const py = ay + t * ey;
-            const d = std.math.hypot(x - px, y - py);
+            const d = @import("geom.zig").hypot(x - px, y - py);
             if (d < best.d) best = .{ .x = px, .y = py, .d = d };
         }
     }

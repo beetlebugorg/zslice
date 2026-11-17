@@ -237,7 +237,7 @@ fn stepPaths(s: Allocator, in: Input, i: usize, region: Paths, pass: Pass) Alloc
             const n_out = rightNormal(a, b);
             var vx = n_in[0] + n_out[0];
             var vy = n_in[1] + n_out[1];
-            const vl = std.math.hypot(vx, vy);
+            const vl = @import("geom.zig").hypot(vx, vy);
             if (vl > 1e-6) {
                 vx /= vl;
                 vy /= vl;
@@ -439,7 +439,7 @@ fn ledgeWidth(below: geom.EdgeIndex, sm: *const Sample, max: f64, step: f64) ?f6
 fn rightNormal(a: Point, b: Point) [2]f64 {
     const dx: f64 = @floatFromInt(b.x - a.x);
     const dy: f64 = @floatFromInt(b.y - a.y);
-    const l = std.math.hypot(dx, dy);
+    const l = @import("geom.zig").hypot(dx, dy);
     if (l == 0) return .{ 0, 0 };
     return .{ dy / l, -dx / l };
 }

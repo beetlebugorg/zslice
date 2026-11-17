@@ -1458,7 +1458,7 @@ test "a short layer prints slower" {
                 else => {},
             }
         }
-        const d = std.math.hypot(nx - x, ny - y);
+        const d = @import("geom.zig").hypot(nx - x, ny - y);
         if (layer == 10) {
             if (d > 0) {
                 try moves.append(gpa, .{ .dir = .{ (nx - x) / d, (ny - y) / d }, .len = d, .speed = f / 60, .accel = mc.max_accel, .e_ratio = e / d, .stop_before = stop });
@@ -1565,7 +1565,7 @@ test "slope smoothing and ironing: moves with Z between the layers, and back up 
             if (in_iron) {
                 try testing.expect(z >= layer_z - 0.75 * h - 1e-3 and z <= layer_z + 1e-6);
                 iron_e += e;
-                iron_len += std.math.hypot(x - px, y - py);
+                iron_len += @import("geom.zig").hypot(x - px, y - py);
             } else if (in_smooth) {
                 try testing.expect(z >= layer_z - h / 2 - 1e-3 and z <= layer_z + 1e-6);
                 if (z < layer_z - 1e-3) below += 1;
@@ -2096,7 +2096,7 @@ fn outerWallEPerMm(text: []const u8) !f64 {
                 else => {},
             }
         }
-        if (in_wall and e > 0) return e / std.math.hypot(nx - x, ny - y);
+        if (in_wall and e > 0) return e / @import("geom.zig").hypot(nx - x, ny - y);
         x = nx;
         y = ny;
     }
@@ -2512,7 +2512,7 @@ fn infillDirection(lp: *const LayerPlan) f64 {
         for (pts[0 .. pts.len - 1], pts[1..]) |a, b| {
             const dx: f64 = @floatFromInt(b.x - a.x);
             const dy: f64 = @floatFromInt(b.y - a.y);
-            const l = std.math.hypot(dx, dy);
+            const l = @import("geom.zig").hypot(dx, dy);
             if (l > best) {
                 best = l;
                 dir = @mod(std.math.radiansToDegrees(std.math.atan2(dy, dx)), 180);
@@ -2603,7 +2603,7 @@ fn infillLineKeys(gpa: Allocator, lp: *const LayerPlan) ![][2]i64 {
         for (pts[0 .. pts.len - 1], pts[1..]) |a, b| {
             const dx: f64 = @floatFromInt(b.x - a.x);
             const dy: f64 = @floatFromInt(b.y - a.y);
-            const l = std.math.hypot(dx, dy);
+            const l = @import("geom.zig").hypot(dx, dy);
             if (l < 1000) continue;
             var ang = std.math.atan2(dy, dx);
             if (ang < 0) ang += std.math.pi;

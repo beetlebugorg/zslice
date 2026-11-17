@@ -1013,7 +1013,7 @@ pub fn regions(gpa: Allocator, ctx: Context, i: usize, memo: *Memo, list_alloc: 
             var perim: f64 = 0;
             for (poly, 0..) |q, qi| {
                 const r2 = poly[(qi + 1) % poly.len];
-                perim += std.math.hypot(@as(f64, @floatFromInt(r2.x - q.x)), @as(f64, @floatFromInt(r2.y - q.y)));
+                perim += @import("geom.zig").hypot(@as(f64, @floatFromInt(r2.x - q.x)), @as(f64, @floatFromInt(r2.y - q.y)));
             }
             const t = @as(f64, @floatFromInt(area2)) / perim; // area2 is twice the area
             // Thinner than 0.1 mm (noise), or a short piece: skip.
@@ -2068,7 +2068,7 @@ fn sameCornerBelow(b: *const geom.EdgeIndex, v: Point, back: Point, on: Point) b
     for ([_]Point{ back, on }) |q| {
         const dx: f64 = @floatFromInt(q.x - v.x);
         const dy: f64 = @floatFromInt(q.y - v.y);
-        const len = std.math.hypot(dx, dy);
+        const len = @import("geom.zig").hypot(dx, dy);
         if (len < 1) return false;
         const t = @min(200.0, len) / len;
         const p: Point = .{ .x = v.x + @as(i64, @intFromFloat(@round(dx * t))), .y = v.y + @as(i64, @intFromFloat(@round(dy * t))) };
@@ -2086,7 +2086,7 @@ fn walkFrom(path: []const Point, i: usize, dist: f64, forward: bool) Point {
     var steps: usize = 0;
     while (steps + 1 < n) : (steps += 1) {
         const next = if (forward) (j + 1) % n else (j + n - 1) % n;
-        run += std.math.hypot(@as(f64, @floatFromInt(path[next].x - path[j].x)), @as(f64, @floatFromInt(path[next].y - path[j].y)));
+        run += @import("geom.zig").hypot(@as(f64, @floatFromInt(path[next].x - path[j].x)), @as(f64, @floatFromInt(path[next].y - path[j].y)));
         j = next;
         if (run >= dist) break;
         if (steps + 2 >= n / 2) break;

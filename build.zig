@@ -57,7 +57,10 @@ pub fn build(b: *std.Build) void {
     const wasm_optimize = b.option(std.builtin.OptimizeMode, "wasm-optimize", "The optimize mode of the wasm module") orelse
         (if (optimize == .Debug) .ReleaseSmall else optimize);
     const wasm_cpu = b.option([]const u8, "wasm-cpu", "The CPU model and features of the wasm module") orelse "baseline";
-    const wasm = addWasm(b, "zslice", wasm_optimize, wasm_cpu, false);
+    // The debug data is 7 MB of a ReleaseFast module. -Dwasm-strip=false
+    // keeps it, for a profile with function names.
+    const wasm_strip = b.option(bool, "wasm-strip", "Leave the debug data out of the wasm module (default: true)") orelse true;
+    const wasm = addWasm(b, "zslice", wasm_optimize, wasm_cpu, wasm_strip, false);
     const wasm_step = b.step("wasm", "Build zslice.wasm into zig-out/web");
     const wasm_install = b.addInstallArtifact(wasm, .{ .dest_dir = .{ .override = .{ .custom = "web" } } });
     wasm_step.dependOn(&wasm_install.step);
@@ -66,7 +69,7 @@ pub fn build(b: *std.Build) void {
     // The wasm module with threads (zslice-mt.wasm), for a page that is
     // cross-origin isolated. It imports a shared memory. See
     // web/app/README.md.
-    const wasm_mt = addWasm(b, "zslice-mt", wasm_optimize, b.fmt("{s}+atomics+bulk_memory", .{wasm_cpu}), true);
+    const wasm_mt = addWasm(b, "zslice-mt", wasm_optimize, b.fmt("{s}+atomics+bulk_memory", .{wasm_cpu}), wasm_strip, true);
 
     // The web app (web/app): the page, its scripts, and zslice.wasm, in
     // zig-out/web/app. See web/app/README.md.
@@ -109,7 +112,7 @@ const wasm_mt_max = 2 << 30;
 
 /// A wasm module of the C API. `threads`: with atomics and a shared memory
 /// that the host makes (see src/parallel.zig).
-fn addWasm(b: *std.Build, name: []const u8, optimize: std.builtin.OptimizeMode, cpu: []const u8, threads: bool) *std.Build.Step.Compile {
+fn addWasm(b: *std.Build, name: []const u8, optimize: std.builtin.OptimizeMode, cpu: []const u8, strip: bool, threads: bool) *std.Build.Step.Compile {
     const query = std.Target.Query.parse(.{ .arch_os_abi = "wasm32-freestanding", .cpu_features = cpu }) catch @panic("bad -Dwasm-cpu");
     const wasm = b.addExecutable(.{
         .name = name,
@@ -118,6 +121,7 @@ fn addWasm(b: *std.Build, name: []const u8, optimize: std.builtin.OptimizeMode, 
             .target = b.resolveTargetQuery(query),
             .optimize = optimize,
             .single_threaded = !threads,
+            .strip = strip,
         }),
     });
     addLicenses(b, wasm.root_module);

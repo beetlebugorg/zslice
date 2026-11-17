@@ -1231,7 +1231,7 @@ pub const App = struct {
         var i: usize = 0;
         while (i < app.marks.items.len) {
             const m = app.marks.items[i];
-            if (@abs(m.z - z) < 0.05 and std.math.hypot(m.x - x, m.y - y) < r + m.r) {
+            if (@abs(m.z - z) < 0.05 and @import("geom.zig").hypot(m.x - x, m.y - y) < r + m.r) {
                 _ = app.marks.orderedRemove(i);
                 removed += 1;
             } else i += 1;
@@ -1249,7 +1249,7 @@ pub const App = struct {
         var best: ?usize = null;
         var best_d: f64 = std.math.inf(f64);
         for (app.marks.items, 0..) |m, i| {
-            const d = std.math.hypot(m.x - x, m.y - y);
+            const d = @import("geom.zig").hypot(m.x - x, m.y - y);
             if (@abs(m.z - z) > dz or d > m.r) continue;
             if (d < best_d) {
                 best_d = d;

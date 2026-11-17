@@ -347,7 +347,7 @@ pub const PlateJob = struct {
                 var best_d: f64 = std.math.inf(f64);
                 for (self.instances, 0..) |inst, ii| {
                     if (done[ii]) continue;
-                    const d = std.math.hypot(inst.center[0] - last[0], inst.center[1] - last[1]);
+                    const d = @import("geom.zig").hypot(inst.center[0] - last[0], inst.center[1] - last[1]);
                     if (d < best_d) {
                         best_d = d;
                         best = ii;

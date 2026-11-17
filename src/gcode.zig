@@ -330,7 +330,7 @@ pub fn prepare(gpa: std.mem.Allocator, r: *const Resolved, lp: *const LayerPlan,
         const x = geom.toMm(pts[0].x);
         const y = geom.toMm(pts[0].y);
         if (known) {
-            const d = std.math.hypot(x - em.x, y - em.y);
+            const d = @import("geom.zig").hypot(x - em.x, y - em.y);
             if (d >= 1e-4 and d > p.retract_min_travel) {
                 var way: [max_way][2]f64 = undefined;
                 if (em.findWay(x, y, d, &way)) |n| {
@@ -911,7 +911,7 @@ pub const Emitter = struct {
                     const area = flow.beadArea(sw, h);
                     const x = geom.toMm(pts[j].x);
                     const y = geom.toMm(pts[j].y);
-                    const d = std.math.hypot(x - self.x, y - self.y);
+                    const d = @import("geom.zig").hypot(x - self.x, y - self.y);
                     area_len += area * d;
                     len_sum += d;
                     try self.extrudeLen(x, y, d, area * e_scale, speed);
@@ -1051,7 +1051,7 @@ pub const Emitter = struct {
     /// Moves the nozzle position as `extrude` to x, y does, with no
     /// output. Returns the length of the move.
     fn stepTo(self: *Emitter, x: f64, y: f64) f64 {
-        const d = std.math.hypot(x - self.x, y - self.y);
+        const d = @import("geom.zig").hypot(x - self.x, y - self.y);
         if (d < 1e-4) return d;
         self.x = x;
         self.y = y;
@@ -1081,14 +1081,14 @@ pub const Emitter = struct {
             const c = corners[k % 4];
             var x = c[0];
             var y = c[1];
-            const d = std.math.hypot(x - self.x, y - self.y);
+            const d = @import("geom.zig").hypot(x - self.x, y - self.y);
             if (d / speed > left) {
                 // The last move: only as far as the time goes.
                 const f = left * speed / d;
                 x = self.x + (x - self.x) * f;
                 y = self.y + (y - self.y) * f;
             }
-            const step = std.math.hypot(x - self.x, y - self.y);
+            const step = @import("geom.zig").hypot(x - self.x, y - self.y);
             try self.w.writeAll("G0 X");
             try writeNum(self.w, x + self.r.settings.machine.origin_x, 3);
             try self.w.writeAll(" Y");
@@ -1167,7 +1167,7 @@ pub const Emitter = struct {
     }
 
     fn travel(self: *Emitter, x: f64, y: f64) Error!void {
-        const d = std.math.hypot(x - self.x, y - self.y);
+        const d = @import("geom.zig").hypot(x - self.x, y - self.y);
         if (d < 1e-4) return;
         if (d > self.lr.settings.project.retract_min_travel) {
             // Combing: a way inside the part needs no retraction (see
@@ -1232,7 +1232,7 @@ pub const Emitter = struct {
 
     /// A travel move in a straight line, with no retraction.
     fn move(self: *Emitter, x: f64, y: f64) Error!void {
-        const d = std.math.hypot(x - self.x, y - self.y);
+        const d = @import("geom.zig").hypot(x - self.x, y - self.y);
         if (d < 1e-4) return;
         const speed = self.r.settings.machine.travel_speed;
         var line: Line = .{ .skip = self.dry };
@@ -1360,7 +1360,7 @@ pub const Emitter = struct {
         var py = self.y;
         for (0..way.len + 1) |i| {
             const q = if (i < way.len) way[i] else [2]f64{ x, y };
-            const l = std.math.hypot(q[0] - px, q[1] - py);
+            const l = @import("geom.zig").hypot(q[0] - px, q[1] - py);
             if (l > 1e-6) {
                 moves[k] = .{ .dir = .{ (q[0] - px) / l, (q[1] - py) / l }, .len = l, .speed = m.travel_speed, .accel = a };
                 k += 1;
@@ -1495,7 +1495,7 @@ pub const Emitter = struct {
         const n2 = [2]f64{ -e2[1], e2[0] };
         const dot = n1[0] * n2[0] + n1[1] * n2[1];
         const d: f64 = @floatFromInt(inset);
-        const k = @min(d / @max(1 + dot, 1e-9), 3 * d / @max(std.math.hypot(n1[0] + n2[0], n1[1] + n2[1]), 1e-9));
+        const k = @min(d / @max(1 + dot, 1e-9), 3 * d / @max(@import("geom.zig").hypot(n1[0] + n2[0], n1[1] + n2[1]), 1e-9));
         return .{
             .x = v.x + @as(i64, @intFromFloat(@round((n1[0] + n2[0]) * k))),
             .y = v.y + @as(i64, @intFromFloat(@round((n1[1] + n2[1]) * k))),
@@ -1505,12 +1505,12 @@ pub const Emitter = struct {
     fn unit(a: geom.Point, b: geom.Point) [2]f64 {
         const dx: f64 = @floatFromInt(b.x - a.x);
         const dy: f64 = @floatFromInt(b.y - a.y);
-        const l = @max(std.math.hypot(dx, dy), 1e-9);
+        const l = @max(@import("geom.zig").hypot(dx, dy), 1e-9);
         return .{ dx / l, dy / l };
     }
 
     fn dist(a: geom.Point, b: geom.Point) f64 {
-        return std.math.hypot(geom.toMm(a.x - b.x), geom.toMm(a.y - b.y));
+        return @import("geom.zig").hypot(geom.toMm(a.x - b.x), geom.toMm(a.y - b.y));
     }
 
     /// `combClear`, with the combing index if the emitter has one.
@@ -1562,7 +1562,7 @@ pub const Emitter = struct {
     }
 
     fn extrude(self: *Emitter, x: f64, y: f64, e_per_mm: f64, speed: f64) Error!void {
-        return self.extrudeLen(x, y, std.math.hypot(x - self.x, y - self.y), e_per_mm, speed);
+        return self.extrudeLen(x, y, @import("geom.zig").hypot(x - self.x, y - self.y), e_per_mm, speed);
     }
 
     /// `extrude`, with `d`, the distance from the nozzle to x, y.
@@ -1849,7 +1849,7 @@ test "combing goes along a round ring, where the box of the hole is outside the 
     em.y = 50;
     const x: f64 = 50 + 19 * @cos(1.0);
     const y: f64 = 50 + 19 * @sin(1.0);
-    const d = std.math.hypot(x - em.x, y - em.y);
+    const d = @import("geom.zig").hypot(x - em.x, y - em.y);
     var way: [max_way][2]f64 = undefined;
     try std.testing.expect(em.comb(x, y, d, &way, false) == null);
     const k = em.comb(x, y, d, &way, true) orelse return error.TestUnexpectedResult;

@@ -626,7 +626,7 @@ fn toF(p: Point) [2]f64 {
 /// The distance from p to the segment a-b.
 fn lineDist(a: Point, b: Point, p: Point) f64 {
     const q = closest(toF(a), toF(b), toF(p));
-    return std.math.hypot(q[0] - @as(f64, @floatFromInt(p.x)), q[1] - @as(f64, @floatFromInt(p.y)));
+    return @import("geom.zig").hypot(q[0] - @as(f64, @floatFromInt(p.x)), q[1] - @as(f64, @floatFromInt(p.y)));
 }
 
 /// Segments in a uniform grid of square cells, for the nearest segment
@@ -727,7 +727,7 @@ const Grid = struct {
             g.seen.items[id] = g.query;
             const s = g.segs.items[id];
             const q = closest(toF(s[0]), toF(s[1]), toF(p));
-            const d = std.math.hypot(q[0] - @as(f64, @floatFromInt(p.x)), q[1] - @as(f64, @floatFromInt(p.y)));
+            const d = @import("geom.zig").hypot(q[0] - @as(f64, @floatFromInt(p.x)), q[1] - @as(f64, @floatFromInt(p.y)));
             if (best.* == null or d < best.*.?.d) best.* = .{ .item = id, .p = .{ .x = @intFromFloat(@round(q[0])), .y = @intFromFloat(@round(q[1])) }, .d = d };
         }
     }

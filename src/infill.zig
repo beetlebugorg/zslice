@@ -1176,7 +1176,7 @@ pub fn gyroid(gpa: Allocator, region: Paths, period_mm: f64, z_mm: f64, min_leng
                 // by y: a = sin(y), b = sin(z), c = -cos(z) cos(y).
                 const a = @sin(w * u);
                 const c = -su * @cos(w * u);
-                const r = std.math.hypot(a, cu);
+                const r = @import("geom.zig").hypot(a, cu);
                 if (r < 1e-9 or @abs(c) > r) {
                     try curves.endPath(arena, 2);
                     prev_phi = null;
@@ -1368,7 +1368,7 @@ test "honeycomb: the density is near the target" {
     var len: f64 = 0;
     for (0..cells.count()) |i| {
         const p = cells.get(i);
-        for (p[0 .. p.len - 1], p[1..]) |a, b| len += std.math.hypot(@as(f64, @floatFromInt(b.x - a.x)), @as(f64, @floatFromInt(b.y - a.y)));
+        for (p[0 .. p.len - 1], p[1..]) |a, b| len += @import("geom.zig").hypot(@as(f64, @floatFromInt(b.x - a.x)), @as(f64, @floatFromInt(b.y - a.y)));
     }
     // The flat sides are in two rows, so the line is about 4/3 of the
     // single grid. Within 40 % of 0.2 x 4/3.
@@ -1390,7 +1390,7 @@ test "honeycomb: with single walls, each wall prints once at the target density"
     for (0..cells.count()) |i| {
         const p = cells.get(i);
         for (p[0 .. p.len - 1], p[1..]) |a, b| {
-            len += std.math.hypot(@as(f64, @floatFromInt(b.x - a.x)), @as(f64, @floatFromInt(b.y - a.y)));
+            len += @import("geom.zig").hypot(@as(f64, @floatFromInt(b.x - a.x)), @as(f64, @floatFromInt(b.y - a.y)));
             const key: [2]Point = if (a.x < b.x or (a.x == b.x and a.y < b.y)) .{ a, b } else .{ b, a };
             for (segs.items) |sg| {
                 const mid: Point = .{ .x = @divTrunc(key[0].x + key[1].x, 2), .y = @divTrunc(key[0].y + key[1].y, 2) };
