@@ -21,7 +21,7 @@ import { SettingsBrowser } from "./settings.js";
 import { Inspector } from "./inspector.js";
 import { Gaps } from "./gaps.js";
 import { contextItems } from "./context-menu.js";
-import { openMenu, openMenuAt, menuOpen } from "./menus.js";
+import { openMenu, openMenuAt, menuOpen, openPopover, closeMenu } from "./menus.js";
 import { formatClock, formatTime } from "./format.js";
 import { openPrinterPicker, bedFiles } from "./printers.js";
 
@@ -1066,6 +1066,42 @@ const gaps = new Gaps({
   requestFrame: () => requestFrame(),
 });
 
+// ---- the printability check ----
+
+// The issues of the slice in a list under the Check button (preview.c,
+// fill_check). A click on an issue shows its layer and selects its line,
+// so the Selected page says what it is.
+const ISSUE_ICONS = ["ℹ", "⚠", "⛔"];
+async function openCheck() {
+  const button = $("check");
+  const r = await client.call("checks", {});
+  const list = document.createElement("div");
+  list.className = "check-list";
+  if (!r.issues || r.issues.length === 0) {
+    list.append(Object.assign(document.createElement("div"), { className: "dim check-empty", textContent: r.empty }));
+  } else {
+    for (const is of r.issues) {
+      const row = document.createElement("button");
+      row.className = `check-row sev${Math.min(is.severity, 2)}`;
+      const icon = Object.assign(document.createElement("span"), { className: "check-icon", textContent: ISSUE_ICONS[Math.min(is.severity, 2)] });
+      const text = Object.assign(document.createElement("span"), { className: "check-text", textContent: is.text });
+      row.append(icon, text);
+      row.onclick = () => {
+        closeMenu();
+        if (is.layer >= layers.count) return;
+        showLayer(is.layer);
+        gaps.forget();
+        if (is.path >= 0) select(is.path, 0, true);
+      };
+      list.append(row);
+    }
+  }
+  openPopover(button, list);
+}
+$("check").disabled = false;
+$("check").title = "Check the slice: overhangs with no support, bridges, shapes in the air, lines over the flow of the hot end, layers that cool too little";
+$("check").onclick = () => openCheck();
+
 // ---- the print card ----
 
 function updateSummary() {
@@ -1376,7 +1412,7 @@ function benchPick(step = 40) {
 
 // For tests: the state of the page.
 window.zslice = {
-  app, view, view2d, layers, browser, client, gl, inspector, gaps, pickAt, topLayerPoint, frameTimes,
+  app, view, view2d, layers, browser, client, gl, inspector, gaps, pickAt, topLayerPoint, openCheck, frameTimes,
   select, showPage, showTab, hitAt, showContextMenu, step, bench, benchPick,
   get frameCount() { return frameCount; },
   get pickMs() { return pickMs; },

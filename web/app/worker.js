@@ -155,6 +155,17 @@ const ops = {
     return { error, ...settingsState() };
   },
 
+  // ---- the printability check ----
+
+  // The issues of the slice. It runs when the list opens, so a slice
+  // stays fast.
+  checks() {
+    if (core.state() !== STATE.done) return { issues: null, empty: "Slice the plate first." };
+    const issues = core.checks();
+    if (!issues) return { issues: null, empty: "The check failed." };
+    return { issues, empty: issues.length === 0 ? "No issues found." : "" };
+  },
+
   // ---- gaps ----
 
   // The gaps of a layer, for the views and the count (null: no slice).

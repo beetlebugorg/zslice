@@ -356,6 +356,51 @@ export class Core {
     }
   }
 
+  // ---- the printability check (src/app/checks.zig) ----
+
+  // The issues of the slice, the worst first (zs_app_checks): { kind,
+  // severity (0 note, 1 warning, 2 problem), layer, path, x, y, value,
+  // text }. The path is the line of the issue, or the line of its layer
+  // nearest to its place (a bridge line for a bridge, skin for an
+  // overhang), or -1. Null if the check fails.
+  checks() {
+    const w = this.w;
+    const p = w.alloc(12);
+    try {
+      if (w.x.zs_app_checks(this.app, p, p + 4, p + 8) !== 0) return null;
+      const ip = w.u32(p);
+      const n = w.u32(p + 4);
+      const tp = w.u32(p + 8);
+      const issues = [];
+      for (let i = 0; i < n; i++) {
+        const q = ip + i * 48; // zs_issue on wasm32
+        const kind = w.u8[q];
+        const layer = w.u32(q + 4);
+        const x = w.f64(q + 16);
+        const y = w.f64(q + 24);
+        let path = w.u32(q + 8);
+        if (path === 0xffffffff) {
+          const feature = kind === 5 ? 10 : kind === 2 ? 2 : -1; // bridge, skin
+          path = feature >= 0 ? this.w.x.zs_app_pick_feature(this.app, layer, feature, x, y) : -1;
+          if (path < 0) path = this.w.x.zs_app_pick_layer(this.app, layer, x, y);
+        }
+        issues.push({
+          kind,
+          severity: w.u8[q + 1],
+          layer,
+          path: path < 0 ? -1 : path,
+          x,
+          y,
+          value: w.f64(q + 32),
+          text: w.text(tp + w.u32(q + 40), w.u32(q + 44)),
+        });
+      }
+      return issues;
+    } finally {
+      w.free(p, 12);
+    }
+  }
+
   // ---- gaps (src/gaps.zig) ----
 
   // The gaps of layer `layer` (zs_app_layer_gaps), the largest first, with

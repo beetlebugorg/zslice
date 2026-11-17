@@ -374,3 +374,13 @@ button.destructive { background: #c01c28; color: #fff; }
 .gap-page .gap-heading { font-weight: 700; margin-top: 10px; }
 .gap-page .gap-step { font-weight: 600; margin-top: 8px; }
 .gap-buttons { display: flex; gap: 6px; margin-top: 4px; }
+
+/* The check: a list of issues under the Check button. */
+.check-list { display: flex; flex-direction: column; width: min(396px, 85vw); max-height: 460px; overflow-y: auto; }
+.check-empty { padding: 12px; text-align: center; }
+.check-row { flex: none; display: flex; gap: 8px; align-items: flex-start; text-align: left; background: transparent; padding: 6px 8px; min-height: 0; }
+.check-row:hover { background: rgba(255, 255, 255, 0.08); }
+.check-icon { flex: none; width: 18px; text-align: center; color: var(--dim); }
+.check-row.sev1 .check-icon { color: var(--warning); }
+.check-row.sev2 .check-icon { color: #e01b24; }
+.check-text { flex: 1; white-space: normal; line-height: 1.35; }
