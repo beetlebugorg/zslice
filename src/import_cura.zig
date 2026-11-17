@@ -191,34 +191,82 @@ const gcode_vars = [_][2][]const u8{
 };
 
 /// A value from a Cura file, with the file it came from.
-const Value = struct { text: []const u8, from: []const u8 };
+pub const Value = struct { text: []const u8, from: []const u8 };
 
 /// The values of a stack, by Cura key. A later put replaces an earlier one.
-const Values = std.StringArrayHashMapUnmanaged(Value);
+pub const Values = std.StringArrayHashMapUnmanaged(Value);
+
+/// A quality profile of a stack, with the values of all its layers.
+pub const Profile = struct { name: []const u8, values: Values };
+
+/// A material of a stack, with the text of its file.
+pub const Material = struct { key: []const u8, file: []const u8, xml: []const u8 };
+
+/// The values of a stack, before they become zslice profiles.
+pub const Stack = struct {
+    version: []const u8,
+    machine_def: []const u8,
+    machine_name: []const u8,
+    /// The definition chain, the machine changes, and the variant.
+    machine: Values,
+    profiles: []Profile,
+    materials: []Material,
+    /// The highest print speed of all profiles (see `importStack`).
+    max_speed: f64,
+};
+
+pub const Options = struct {
+    /// The speed that the speed ratios of the project profiles relate to.
+    /// Null: the highest print speed of the stack, which also becomes
+    /// `machine.max_speed`. With a value, the ratios keep all their digits.
+    speed_base: ?f64 = null,
+};
 
 pub fn importStack(arena: Allocator, src: Source, diag: *Diagnostic) Error![]Output {
+    const stack = try resolveStack(arena, src, diag);
+    return writeStack(arena, &stack, .{});
+}
+
+/// The layers of a quality profile in cura.json, from the bottom. A layer
+/// of the extruder comes after the global layer of the same level, so it
+/// wins.
+const profile_layers = [_][]const u8{
+    "quality",         "quality_extruder",
+    "intent",          "intent_extruder",
+    "quality_changes", "quality_changes_extruder",
+    "user",            "user_extruder",
+};
+
+/// Reads cura.json and the files that it names, and gives the values of
+/// each layer in the order of the Cura stack.
+pub fn resolveStack(arena: Allocator, src: Source, diag: *Diagnostic) Error!Stack {
     const cura_json = try readFile(arena, src, "cura.json", diag);
     const root = std.json.parseFromSliceLeaky(std.json.Value, arena, cura_json, .{}) catch return bad(diag, "cura.json", "not valid JSON");
-    const version = str(root, "cura") orelse "?";
-    var outputs: std.ArrayList(Output) = .empty;
 
-    // The machine: the definition chain, then the machine changes.
+    // The machine: the definition chain, the machine changes, then the
+    // variant (the nozzle).
     var machine: Values = .empty;
     const machine_def = str(root, "machine") orelse return bad(diag, "cura.json", "no \"machine\"");
     const machine_name = try loadDefinition(arena, src, machine_def, &machine, diag);
     if (str(root, "extruder")) |ext| _ = try loadDefinition(arena, src, ext, &machine, diag);
     if (str(root, "definition_changes")) |f| try loadIni(arena, src, f, &machine, diag);
     if (str(root, "definition_changes_extruder")) |f| try loadIni(arena, src, f, &machine, diag);
+    if (str(root, "variant")) |f| try loadIni(arena, src, f, &machine, diag);
 
     // The quality profiles, each with its own stack.
-    var profiles: std.ArrayList(struct { name: []const u8, values: Values }) = .empty;
+    var profiles: std.ArrayList(Profile) = .empty;
     if (root.object.get("profiles")) |ps| if (ps == .object) {
         var it = ps.object.iterator();
         while (it.next()) |entry| {
             // In Cura, the definition values are the base of each quality
             // profile, and the quality files replace them.
             var values = try machine.clone(arena);
-            for ([_][]const u8{ "quality", "quality_changes", "quality_changes_extruder" }) |layer| {
+            // The material of this profile, between the machine and the
+            // quality, as in the Cura stack.
+            if (str(entry.value_ptr.*, "material")) |f| {
+                try materialValues(arena, try readFile(arena, src, f, diag), f, &values);
+            }
+            for (profile_layers) |layer| {
                 if (str(entry.value_ptr.*, layer)) |f| try loadIni(arena, src, f, &values, diag);
             }
             try profiles.append(arena, .{ .name = entry.key_ptr.*, .values = values });
@@ -234,12 +282,81 @@ pub fn importStack(arena: Allocator, src: Source, diag: *Diagnostic) Error![]Out
         };
     }
 
+    for (profiles.items) |*p| try prepareProfile(arena, &p.values, &machine);
+
+    var materials: std.ArrayList(Material) = .empty;
+    if (root.object.get("materials")) |ms| if (ms == .object) {
+        var it = ms.object.iterator();
+        while (it.next()) |entry| {
+            const file = str(entry.value_ptr.*, "file") orelse continue;
+            try materials.append(arena, .{ .key = entry.key_ptr.*, .file = file, .xml = try readFile(arena, src, file, diag) });
+        }
+    };
+
+    return .{
+        .version = str(root, "cura") orelse "?",
+        .machine_def = machine_def,
+        .machine_name = machine_name,
+        .machine = machine,
+        .profiles = profiles.items,
+        .materials = materials.items,
+        .max_speed = max_speed,
+    };
+}
+
+/// Turns the Cura values of a profile into the values that the map
+/// converts: the speeds that follow speed_print, the thickness from layer
+/// counts, the brim, and the support.
+fn prepareProfile(arena: Allocator, values: *Values, machine: *const Values) Error!void {
+    // Speeds that Cura derives from speed_print.
+    if (values.get("speed_print")) |sp| {
+        for (speed_keys[1..]) |k| if (values.get(k) == null) try values.put(arena, k, sp);
+    }
+    // Thickness from layer counts, when Cura gives counts.
+    try thicknessFromLayers(arena, values, "top_layers", "top_thickness");
+    try thicknessFromLayers(arena, values, "bottom_layers", "bottom_thickness");
+    // A brim from a line count.
+    if (values.get("adhesion_type")) |a| {
+        if (std.mem.eql(u8, a.text, "none")) try values.put(arena, "skirt_line_count", .{ .text = "0", .from = a.from });
+        if (!std.mem.eql(u8, a.text, "brim")) _ = values.orderedRemove("brim_width");
+        if (std.mem.eql(u8, a.text, "brim") and values.get("brim_width") == null) {
+            if (values.get("brim_line_count")) |n| if (number(n.text)) |count| {
+                const lw = if (machine.get("machine_nozzle_size")) |nz| number(nz.text) orelse 0.4 else 0.4;
+                try values.put(arena, "brim_width", .{ .text = try std.fmt.allocPrint(arena, "{d}", .{count * lw}), .from = n.from });
+            };
+        }
+        _ = values.orderedRemove("adhesion_type");
+    }
+    // support_enable and support_type both make zslice project.support.
+    if (values.get("support_enable")) |en| {
+        if (std.ascii.eqlIgnoreCase(en.text, "false")) {
+            try values.put(arena, "support_type", .{ .text = "off", .from = en.from });
+        } else if (values.get("support_type") == null) {
+            try values.put(arena, "support_type", .{ .text = "everywhere", .from = en.from });
+        }
+        _ = values.orderedRemove("support_enable");
+    } else {
+        // Cura has no support by default: the type alone does not turn
+        // it on.
+        _ = values.orderedRemove("support_type");
+    }
+}
+
+/// Writes the zslice profiles of a stack: one machine profile, one
+/// filament profile for each material, and one project profile for each
+/// quality profile.
+pub fn writeStack(arena: Allocator, stack: *const Stack, opts: Options) Error![]Output {
+    var outputs: std.ArrayList(Output) = .empty;
+    const max_speed = stack.max_speed;
+    const speed: SpeedBase = if (opts.speed_base) |b| .{ .base = b, .precise = true } else .{ .base = max_speed, .precise = false };
+
     // The machine profile.
     {
+        const machine = &stack.machine;
         var out: Writer.Allocating = .init(arena);
         const w = &out.writer;
-        try w.print("# Imported from Cura {s}: machine definition {s}.\n", .{ version, machine_def });
-        try w.print("name = {f}\n", .{quote(machine_name)});
+        try w.print("# Imported from Cura {s}: machine definition {s}.\n", .{ stack.version, stack.machine_def });
+        try w.print("name = {f}\n", .{quote(stack.machine_name)});
         if (max_speed > 0) {
             try w.print("# The highest print speed of the Cura quality profiles. The speeds of\n# the project profiles are ratios of it.\n", .{});
             try w.print("max_speed = {d}\n", .{max_speed});
@@ -251,65 +368,108 @@ pub fn importStack(arena: Allocator, src: Source, diag: *Diagnostic) Error![]Out
             const bd = if (machine.get("machine_depth")) |x| number(x.text) orelse 0 else 0;
             try w.print("# Cura machine_center_is_zero: the G-code origin is the bed center.\norigin_x = {d}\norigin_y = {d}\n", .{ -bw / 2, -bd / 2 });
         };
-        try writeMapped(arena, w, &machine, &machine_map, "machine", max_speed, .machine_keys);
+        try writeMapped(arena, w, machine, &machine_map, "machine", speed, .machine_keys);
         if (machine.get("material_diameter")) |v| if (number(v.text)) |n| {
             try w.print("\n# The filament diameter of this machine.\n[filament]\ndiameter = {d}\n", .{n});
         };
-        try outputs.append(arena, .{ .group = "machine", .name = slug(arena, machine_def), .text = out.written() });
+        try outputs.append(arena, .{ .group = "machine", .name = slug(arena, stack.machine_def), .text = out.written() });
     }
 
     // One filament profile for each material.
-    if (root.object.get("materials")) |ms| if (ms == .object) {
-        var it = ms.object.iterator();
-        while (it.next()) |entry| {
-            const file = str(entry.value_ptr.*, "file") orelse continue;
-            const xml = try readFile(arena, src, file, diag);
-            const text = try materialProfile(arena, xml, file, version, entry.key_ptr.*);
-            try outputs.append(arena, .{ .group = "filament", .name = entry.key_ptr.*, .text = text.text });
-        }
-    };
+    for (stack.materials) |m| {
+        const text = try materialProfile(arena, m.xml, m.file, stack.version, m.key);
+        try outputs.append(arena, .{ .group = "filament", .name = m.key, .text = text.text });
+    }
 
     // One project profile for each quality profile.
-    for (profiles.items) |*p| {
+    for (stack.profiles) |*p| {
         var out: Writer.Allocating = .init(arena);
         const w = &out.writer;
-        try w.print("# Imported from Cura {s}: quality profile {s}.\n", .{ version, p.name });
-        // Speeds that Cura derives from speed_print.
-        if (p.values.get("speed_print")) |sp| {
-            for (speed_keys[1..]) |k| if (p.values.get(k) == null) try p.values.put(arena, k, sp);
-        }
-        // Thickness from layer counts, when Cura gives counts.
-        try thicknessFromLayers(arena, &p.values, "top_layers", "top_thickness");
-        try thicknessFromLayers(arena, &p.values, "bottom_layers", "bottom_thickness");
-        // A brim from a line count.
-        if (p.values.get("adhesion_type")) |a| {
-            if (std.mem.eql(u8, a.text, "none")) try p.values.put(arena, "skirt_line_count", .{ .text = "0", .from = a.from });
-            if (!std.mem.eql(u8, a.text, "brim")) _ = p.values.orderedRemove("brim_width");
-            if (std.mem.eql(u8, a.text, "brim") and p.values.get("brim_width") == null) {
-                if (p.values.get("brim_line_count")) |n| if (number(n.text)) |count| {
-                    const lw = if (machine.get("machine_nozzle_size")) |nz| number(nz.text) orelse 0.4 else 0.4;
-                    try p.values.put(arena, "brim_width", .{ .text = try std.fmt.allocPrint(arena, "{d}", .{count * lw}), .from = n.from });
-                };
-            }
-            _ = p.values.orderedRemove("adhesion_type");
-        }
-        // support_enable and support_type both make zslice project.support.
-        if (p.values.get("support_enable")) |en| {
-            if (std.ascii.eqlIgnoreCase(en.text, "false")) {
-                try p.values.put(arena, "support_type", .{ .text = "off", .from = en.from });
-            } else if (p.values.get("support_type") == null) {
-                try p.values.put(arena, "support_type", .{ .text = "everywhere", .from = en.from });
-            }
-            _ = p.values.orderedRemove("support_enable");
-        } else {
-            // Cura has no support by default: the type alone does not turn
-            // it on.
-            _ = p.values.orderedRemove("support_type");
-        }
-        try writeMapped(arena, w, &p.values, &project_map, "project", max_speed, .other_keys);
+        try w.print("# Imported from Cura {s}: quality profile {s}.\n", .{ stack.version, p.name });
+        try writeMapped(arena, w, &p.values, &project_map, "project", speed, .other_keys);
         try outputs.append(arena, .{ .group = "project", .name = p.name, .text = out.written() });
     }
     return outputs.toOwnedSlice(arena);
+}
+
+/// A Cura key of the maps, the zslice setting that it becomes, and its
+/// value in a stack.
+pub const Mapping = struct {
+    cura: []const u8,
+    /// The dotted zslice name, for example "project.layer_height".
+    name: []const u8,
+    value: Value,
+    /// A speed in mm/s, which becomes a ratio of machine.max_speed.
+    speed: bool,
+    /// The value is a Cura formula (it starts with "="), which the
+    /// importer does not import.
+    formula: bool,
+};
+
+/// The keys of the maps that the machine and profile `p` of a stack have
+/// values for, in the order of the maps.
+pub fn mappings(arena: Allocator, stack: *const Stack, p: usize) Allocator.Error![]Mapping {
+    var list: std.ArrayList(Mapping) = .empty;
+    const sources = [_]struct { values: *const Values, map: []const Map }{
+        .{ .values = &stack.machine, .map = &machine_map },
+        .{ .values = &stack.profiles[p].values, .map = &project_map },
+    };
+    for (sources) |s| for (s.map) |m| {
+        const v = s.values.get(m.cura) orelse continue;
+        try list.append(arena, .{
+            .cura = m.cura,
+            .name = try std.fmt.allocPrint(arena, "{s}.{s}", .{ m.group, m.key }),
+            .value = v,
+            .speed = m.conv == .speed,
+            .formula = v.text.len > 0 and v.text[0] == '=',
+        });
+    };
+    return list.items;
+}
+
+/// The Cura keys of the settings in a material file, and the Cura stack
+/// keys that they set. A material file can also hold Cura keys as they
+/// are (`cura:setting`).
+const material_keys = [_][2][]const u8{
+    .{ "print temperature", "material_print_temperature" },
+    .{ "heated bed temperature", "material_bed_temperature" },
+    .{ "standby temperature", "material_standby_temperature" },
+    .{ "print cooling", "cool_fan_speed" },
+    .{ "retraction amount", "retraction_amount" },
+    .{ "retraction speed", "retraction_speed" },
+};
+
+/// The settings of a material file outside the <machine> blocks (those
+/// blocks are for other printers), by their key in the file.
+fn xmlSettings(arena: Allocator, xml: []const u8, file: []const u8) Allocator.Error!Values {
+    const top_end = std.mem.indexOf(u8, xml, "<machine>") orelse xml.len;
+    const top = xml[0..top_end];
+    var values: Values = .empty;
+    var pos: usize = 0;
+    while (std.mem.indexOfPos(u8, top, pos, "setting key=\"")) |at| {
+        const ks = at + "setting key=\"".len;
+        const ke = std.mem.indexOfScalarPos(u8, top, ks, '"') orelse break;
+        const vs = (std.mem.indexOfScalarPos(u8, top, ke, '>') orelse break) + 1;
+        const ve = std.mem.indexOfScalarPos(u8, top, vs, '<') orelse break;
+        try values.put(arena, top[ks..ke], .{ .text = std.mem.trim(u8, top[vs..ve], " \t\r\n"), .from = file });
+        pos = ve;
+    }
+    return values;
+}
+
+/// Puts the settings of a material file in `values`, with the Cura stack
+/// keys.
+fn materialValues(arena: Allocator, xml: []const u8, file: []const u8, values: *Values) Allocator.Error!void {
+    const settings = try xmlSettings(arena, xml, file);
+    var it = settings.iterator();
+    while (it.next()) |e| {
+        const key = for (material_keys) |mk| {
+            if (std.mem.eql(u8, mk[0], e.key_ptr.*)) break mk[1];
+        } else e.key_ptr.*;
+        // A key with a space is a material key with no Cura stack key.
+        if (std.mem.indexOfScalar(u8, key, ' ') != null) continue;
+        try values.put(arena, key, e.value_ptr.*);
+    }
 }
 
 /// A layer count wins over a thickness, as in Cura: CuraEngine prints the
@@ -342,7 +502,11 @@ fn laterValue(values: *const Values, map: []const Map, mi: usize) bool {
 /// the machine profile) or the other keys (for a project profile).
 const ListFilter = enum { machine_keys, other_keys };
 
-fn writeMapped(arena: Allocator, w: *Writer, values: *const Values, map: []const Map, own_group: []const u8, max_speed: f64, filter: ListFilter) !void {
+/// The speed that the speed ratios relate to, and if a ratio keeps all its
+/// digits.
+const SpeedBase = struct { base: f64, precise: bool };
+
+fn writeMapped(arena: Allocator, w: *Writer, values: *const Values, map: []const Map, own_group: []const u8, speed: SpeedBase, filter: ListFilter) !void {
     var used = std.StringHashMapUnmanaged(void).empty;
     var groups_done: [3][]const u8 = .{ own_group, "", "" };
     // The own group first (no table), then the other groups in tables.
@@ -362,7 +526,7 @@ fn writeMapped(arena: Allocator, w: *Writer, values: *const Values, map: []const
             }
             try used.put(arena, m.cura, {});
             if (v.text.len > 0 and v.text[0] == '=') continue; // an expression: listed below
-            const text = (try convert(arena, m.conv, v.text, max_speed)) orelse continue;
+            const text = (try convert(arena, m.conv, v.text, speed)) orelse continue;
             if (!header) {
                 try w.print("\n[{s}]\n", .{group});
                 header = true;
@@ -395,7 +559,7 @@ fn writeMapped(arena: Allocator, w: *Writer, values: *const Values, map: []const
 
 /// Converts a Cura value to the TOML value of a zslice setting, or null if
 /// it cannot be converted.
-fn convert(arena: Allocator, conv: Conv, text: []const u8, max_speed: f64) !?[]const u8 {
+fn convert(arena: Allocator, conv: Conv, text: []const u8, speed: SpeedBase) !?[]const u8 {
     switch (conv) {
         .copy => {
             if (number(text)) |n| return try std.fmt.allocPrint(arena, "{d}", .{n});
@@ -407,8 +571,10 @@ fn convert(arena: Allocator, conv: Conv, text: []const u8, max_speed: f64) !?[]c
         },
         .speed => {
             const n = number(text) orelse return null;
-            if (!(max_speed > 0)) return null;
-            return try std.fmt.allocPrint(arena, "{d:.3}", .{@min(n / max_speed, 1.0)});
+            if (!(speed.base > 0)) return null;
+            const ratio = @min(n / speed.base, 1.0);
+            if (speed.precise) return try std.fmt.allocPrint(arena, "{d}", .{ratio});
+            return try std.fmt.allocPrint(arena, "{d:.3}", .{ratio});
         },
         .boolean => {
             if (std.ascii.eqlIgnoreCase(text, "true")) return "true";
@@ -592,16 +758,7 @@ fn materialProfile(arena: Allocator, xml: []const u8, file: []const u8, version:
     const material = tagText(top, "material") orelse "";
     const color = tagText(top, "color") orelse "";
 
-    var values: Values = .empty;
-    var pos: usize = 0;
-    while (std.mem.indexOfPos(u8, top, pos, "setting key=\"")) |at| {
-        const ks = at + "setting key=\"".len;
-        const ke = std.mem.indexOfScalarPos(u8, top, ks, '"') orelse break;
-        const vs = (std.mem.indexOfScalarPos(u8, top, ke, '>') orelse break) + 1;
-        const ve = std.mem.indexOfScalarPos(u8, top, vs, '<') orelse break;
-        try values.put(arena, top[ks..ke], .{ .text = std.mem.trim(u8, top[vs..ve], " \t\r\n"), .from = file });
-        pos = ve;
-    }
+    const values = try xmlSettings(arena, xml, file);
 
     var out: Writer.Allocating = .init(arena);
     const w = &out.writer;
@@ -973,7 +1130,7 @@ pub fn partSettings(arena: Allocator, meta: anytype, base: *const @import("setti
                 .percent => if (num) |n| try std.fmt.allocPrint(arena, "{d}", .{std.math.clamp(n / 100, 0, 1)}) else null,
                 .boolean => if (curaBool(v)) |b| (if (b) "true" else "false") else null,
                 .copy => if (num) |n| try std.fmt.allocPrint(arena, "{d}", .{n}) else null,
-                .seam => (try convert(arena, .seam, v, 0)),
+                .seam => (try convert(arena, .seam, v, .{ .base = 0, .precise = false })),
                 else => null,
             };
             const text = value orelse {
