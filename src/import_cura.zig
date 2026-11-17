@@ -140,7 +140,7 @@ const project_map = [_]Map{
     .{ .cura = "acceleration_travel", .group = "project", .key = "travel_accel" },
     .{ .cura = "acceleration_layer_0", .group = "project", .key = "first_layer_accel" },
     .{ .cura = "machine_acceleration", .group = "machine", .key = "max_accel" },
-    .{ .cura = "acceleration_enabled", .group = "machine", .key = "accel_control" },
+    .{ .cura = "acceleration_enabled", .group = "machine", .key = "accel_control", .conv = .boolean },
     .{ .cura = "top_bottom_thickness", .group = "project", .key = "top_thickness" },
     .{ .cura = "top_bottom_thickness", .group = "project", .key = "bottom_thickness" },
     .{ .cura = "top_thickness", .group = "project", .key = "top_thickness" },
