@@ -18,6 +18,7 @@ pub const Instance = frame_mod.Instance;
 pub const max_extras = frame_mod.max_extras;
 pub const Push = frame_mod.Push;
 pub const Draw = frame_mod.Draw;
+pub const PlateFrame = frame_mod.PlateFrame;
 const BedVertex = @import("../bed.zig").Vertex;
 const BedImage = @import("../bed.zig").Image;
 
@@ -80,7 +81,25 @@ pub const WebFrame = extern struct {
     bed_tex: usize = 0,
     bed_tex_width: u32 = 0,
     bed_tex_height: u32 = 0,
+    /// The other plates of the set (PlateFrame, zs_web_plate), and their
+    /// draws (frame_mod.Draw).
+    plates: usize = 0,
+    plates_count: u32 = 0,
+    plate_draws: usize = 0,
+    plate_draws_count: u32 = 0,
+    /// The grid lines of the other plates (vec3 points, two for each
+    /// line): the vertices before plate_grid_dim are the plates that
+    /// slice, the others the plates that cannot slice (a lighter color).
+    plate_grid: usize = 0,
+    plate_grid_vertices: u32 = 0,
+    plate_grid_dim: u32 = 0,
+    plate_grid_gen: u32 = 0,
 };
+
+comptime {
+    // web/app/view.js reads the plates at this stride.
+    std.debug.assert(@sizeOf(PlateFrame) == 160);
+}
 
 pub const Renderer = struct {
     out: WebFrame,
@@ -208,5 +227,13 @@ pub const Renderer = struct {
         o.bed_vertices = @min(frame.bed_vertices, o.bed_vertex_count);
         o.draws = @intFromPtr(frame.draws.ptr);
         o.draws_count = @intCast(frame.draws.len);
+        o.plates = @intFromPtr(frame.plates.ptr);
+        o.plates_count = @intCast(frame.plates.len);
+        o.plate_draws = @intFromPtr(frame.plate_draws.ptr);
+        o.plate_draws_count = @intCast(frame.plate_draws.len);
+        o.plate_grid = @intFromPtr(frame.plate_grid.ptr);
+        o.plate_grid_vertices = @intCast(frame.plate_grid.len / 3);
+        o.plate_grid_dim = frame.plate_grid_dim;
+        o.plate_grid_gen = frame.plate_grid_gen;
     }
 };

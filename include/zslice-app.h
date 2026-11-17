@@ -819,6 +819,51 @@ int zs_view_highlight_more(zs_view *view, const size_t *paths, size_t n);
 /* Draws and presents one frame. Call it after a change. */
 int zs_view_draw(zs_view *view);
 
+/* ---- the plates of a set in one view ----
+ *
+ * A set has one app for each plate. The view shows all plates in a row
+ * from left to right, with a gap between them. The active plate is the
+ * plate of the view: zs_view_load (or zs_view_scene_read) gives its beads,
+ * and the pick, the layer range, and the selection work on it. Each other
+ * plate is a fixed buffer of beads, made once after each slice of its app
+ * (zs_view_plate_load or zs_view_plate_scene_read). It has no pick and no
+ * layer range. Far from the camera, a plate draws with fewer beads (the
+ * outside of the parts, and fewer layers).
+ *
+ * The world of the view is the frame of the active plate: its bed starts
+ * at (0, 0). zs_view_plate_origin gives the place of another plate in it.
+ * A change of the active plate moves the camera with the world, so the
+ * picture stays still. Call zs_view_frame_plate after it to move to the
+ * new plate. Only the web backend draws the other plates for now. */
+
+enum zs_plate_flag {
+    ZS_PLATE_STALE = 1,     /* the slice is old: the beads fade a little */
+    ZS_PLATE_BED_MODEL = 2, /* draw the bed model of the view (zs_view_set_bed) at this plate */
+    ZS_PLATE_DISABLED = 4   /* the plate cannot slice: a light grid and no beads */
+};
+
+/* The plates of the row: n bed sizes (beds: x, y in mm for each plate)
+ * and the index of the active plate. The plates keep their beads. n = 0:
+ * one plate, and no row. */
+int zs_view_set_plates(zs_view *view, size_t n, size_t active, const float *beds);
+/* The beads of plate i (not the active plate): from the bytes of
+ * zs_view_scene_write of its app, or from the last slice of its app. In
+ * the color mode of the view. */
+int zs_view_plate_scene_read(zs_view *view, size_t i, const uint8_t *data, size_t len);
+int zs_view_plate_load(zs_view *view, size_t i, const zs_app *app);
+/* Drops the beads of plate i (an empty plate). */
+void zs_view_plate_clear(zs_view *view, size_t i);
+/* The flags of plate i: enum zs_plate_flag bits. */
+int zs_view_plate_flags(zs_view *view, size_t i, uint32_t flags);
+/* The plate under the pixel (its bed or its beads, the nearest), or -1. */
+int64_t zs_view_plate_at(const zs_view *view, float px, float py);
+/* The origin of the bed of plate i in the world of the view (mm), for a
+ * label over the plate (zs_view_pixel_of). */
+int zs_view_plate_origin(const zs_view *view, size_t i, double *x, double *y);
+/* Moves the camera (animated, see zs_view_animate) to show plate i from
+ * the front; i = (size_t)-1 shows all plates. */
+void zs_view_frame_plate(zs_view *view, size_t i);
+
 /* ---- the 2D view of one layer, and the steps along the print ----
  *
  * A 2D view shows one layer from the top. These calls give it the data of
@@ -890,6 +935,20 @@ typedef struct {
 typedef struct {
     uint32_t first, count, lod;
 } zs_web_draw;
+/* One other plate of the frame, or the light beads of the active plate
+ * (see the plate set above): the matrices with the place of the plate,
+ * its bead buffer (upload it again when gen changes; keep one buffer for
+ * each slot), and its draws in zs_web_frame.plate_draws. fade: how much
+ * the colors go to the background. flags: 1 draws the bed model with
+ * bed_mvp; 2 is the active plate (draw with the push data of box). */
+typedef struct {
+    float mvp[16], bed_mvp[16];
+    const zs_web_instance *instances;
+    uint32_t instance_count, gen;
+    uint32_t draws_first, draws_count;
+    float fade;
+    uint32_t flags, slot;
+} zs_web_plate;
 typedef struct {
     zs_web_push box, grid;
     float clear[4];
@@ -928,6 +987,15 @@ typedef struct {
     uint32_t bed_vertex_count, bed_vertices, bed_gen;
     const uint8_t *bed_tex;
     uint32_t bed_tex_width, bed_tex_height;
+    /* The other plates and their draws, and their grid lines (vec3, two
+     * for each line; from vertex plate_grid_dim on, the plates that
+     * cannot slice). Upload the grid again when plate_grid_gen changes. */
+    const zs_web_plate *plates;
+    uint32_t plates_count;
+    const zs_web_draw *plate_draws;
+    uint32_t plate_draws_count;
+    const float *plate_grid;
+    uint32_t plate_grid_vertices, plate_grid_dim, plate_grid_gen;
 } zs_web_frame;
 const zs_web_frame *zs_view_web_frame(const zs_view *view);
 

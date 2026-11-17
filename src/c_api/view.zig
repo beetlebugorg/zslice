@@ -490,6 +490,76 @@ export fn zs_view_web_frame(view: ?*View) ?*const anyopaque {
     return &v.renderer.out;
 }
 
+// ---- the plate set (src/render/plates.zig) ----
+
+/// The plates of the row: n bed sizes (x, y pairs, mm) and the active plate.
+export fn zs_view_set_plates(view: ?*View, n: usize, active: usize, beds: ?[*]const f32) c_int {
+    if (!render_on) return @intFromEnum(Status.not_supported);
+    const v = view orelse return @intFromEnum(Status.invalid_argument);
+    if (n > 0 and beds == null) return @intFromEnum(Status.invalid_argument);
+    const list = c.gpa.alloc([2]f32, n) catch return @intFromEnum(Status.out_of_memory);
+    defer c.gpa.free(list);
+    for (list, 0..) |*b, i| b.* = .{ beds.?[2 * i], beds.?[2 * i + 1] };
+    v.setPlates(list, active) catch |e| return status(e);
+    return ok;
+}
+
+/// The beads of plate i from the bytes of zs_view_scene_write.
+export fn zs_view_plate_scene_read(view: ?*View, i: usize, data: ?[*]const u8, len: usize) c_int {
+    if (!render_on) return @intFromEnum(Status.not_supported);
+    const v = view orelse return @intFromEnum(Status.invalid_argument);
+    const d = data orelse return @intFromEnum(Status.invalid_argument);
+    v.readPlateScene(i, d[0..len]) catch |e| return status(e);
+    return ok;
+}
+
+/// The beads of plate i from the last slice of an app.
+export fn zs_view_plate_load(view: ?*View, i: usize, a: ?*const App) c_int {
+    if (!render_on) return @intFromEnum(Status.not_supported);
+    const v = view orelse return @intFromEnum(Status.invalid_argument);
+    const app = a orelse return @intFromEnum(Status.invalid_argument);
+    v.loadPlate(i, app) catch |e| return status(e);
+    return ok;
+}
+
+export fn zs_view_plate_clear(view: ?*View, i: usize) void {
+    if (!render_on) return;
+    const v = view orelse return;
+    v.clearPlate(i);
+}
+
+export fn zs_view_plate_flags(view: ?*View, i: usize, flags: u32) c_int {
+    if (!render_on) return @intFromEnum(Status.not_supported);
+    const v = view orelse return @intFromEnum(Status.invalid_argument);
+    v.setPlateFlags(i, flags) catch |e| return status(e);
+    return ok;
+}
+
+/// The plate under a pixel, or -1.
+export fn zs_view_plate_at(view: ?*const View, px: f32, py: f32) i64 {
+    if (!render_on) return -1;
+    const v = view orelse return -1;
+    const i = v.plateAt(px, py) orelse return -1;
+    return @intCast(i);
+}
+
+/// The origin of the bed of plate i in the world of the view (mm).
+export fn zs_view_plate_origin(view: ?*const View, i: usize, x: ?*f64, y: ?*f64) c_int {
+    if (!render_on) return @intFromEnum(Status.not_supported);
+    const v = view orelse return @intFromEnum(Status.invalid_argument);
+    const o = v.plateOffset(i);
+    if (x) |p| p.* = o[0];
+    if (y) |p| p.* = o[1];
+    return ok;
+}
+
+/// Moves the camera to show plate i, or all plates for (size_t)-1.
+export fn zs_view_frame_plate(view: ?*View, i: usize) void {
+    if (!render_on) return;
+    const v = view orelse return;
+    if (i == std.math.maxInt(usize)) v.frameAll() else v.framePlate(i);
+}
+
 export fn zs_view_draw(view: ?*View) c_int {
     if (!render_on) return @intFromEnum(Status.not_supported);
     const v = view orelse return @intFromEnum(Status.invalid_argument);

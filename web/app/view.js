@@ -62,6 +62,42 @@ export class View3D {
   }
   clearBed() { this.x.zs_view_clear_bed(this.v); }
 
+  // ---- the plate set (src/render/plates.zig) ----
+
+  // The plates of the row: the bed size [x, y] of each, and the active
+  // plate. The camera moves with the world, so the picture stays still.
+  setPlates(beds, active) {
+    const w = this.w;
+    const n = beds.length;
+    const p = n ? w.alloc(8 * n) : 0;
+    try {
+      const f = new Float32Array(this.x.memory.buffer, p, 2 * n);
+      beds.forEach((b, i) => { f[2 * i] = b[0]; f[2 * i + 1] = b[1]; });
+      const rc = this.x.zs_view_set_plates(this.v, n, active, p);
+      if (rc !== 0) throw new Error(`zslice: the plates did not set (${statusText(rc)})`);
+    } finally {
+      if (p) w.free(p, 8 * n);
+    }
+  }
+  // The beads of plate i from a scene of the worker (an ArrayBuffer).
+  plateScene(i, buffer) {
+    const rc = this.w.withBytes(new Uint8Array(buffer), (p, n) => this.x.zs_view_plate_scene_read(this.v, i, p, n));
+    if (rc !== 0) throw new Error(`zslice: the plate scene did not load (${statusText(rc)})`);
+  }
+  plateClear(i) { this.x.zs_view_plate_clear(this.v, i); }
+  // flags: 1 stale, 2 the bed model of the view, 4 cannot slice.
+  plateFlags(i, flags) { this.x.zs_view_plate_flags(this.v, i, flags); }
+  // The plate under a pixel, or -1.
+  plateAt(px, py) { return Number(this.x.zs_view_plate_at(this.v, px, py)); }
+  // The origin of the bed of plate i in the world of the view: [x, y].
+  plateOrigin(i) {
+    const c = this.w.cell;
+    this.x.zs_view_plate_origin(this.v, i, c, c + 8);
+    return [this.w.f64(c), this.w.f64(c + 8)];
+  }
+  // Moves the camera to plate i, or to all plates (i < 0).
+  framePlate(i) { this.x.zs_view_frame_plate(this.v, i < 0 ? -1 : i); }
+
   setLayerRange(lo, hi) { this.x.zs_view_set_layer_range(this.v, lo, hi); }
   orbit(dx, dy) { this.x.zs_view_orbit(this.v, dx, dy); }
   rotate(dx, dy) { this.x.zs_view_rotate(this.v, dx, dy); }
@@ -203,7 +239,7 @@ export class View3D {
     let f = this.f;
     if (!f || f.buf !== buf || f.p !== p) {
       f = this.f = {
-        buf, p, keys: new Uint32Array(20).fill(0xffffffff),
+        buf, p, keys: new Uint32Array(24).fill(0xffffffff),
         box: new Float32Array(buf, p, 28),
         grid: new Float32Array(buf, p + 112, 28),
         clear: new Float32Array(buf, p + 224, 4),
@@ -249,6 +285,18 @@ export class View3D {
     f.bedTexWidth = m[k + 61];
     f.bedTexHeight = m[k + 62];
     frameView(f, 16, m[k + 60], f.bedTexWidth * f.bedTexHeight, Uint8Array, 4, "bedTex");
+    // The other plates (zs_web_plate, 40 words each) and their draws.
+    // gl.js reads the plates from all memory (f.m32, f.mf32) at f.plates.
+    f.plates = m[k + 63];
+    f.platesCount = m[k + 64];
+    f.plateDrawsCount = m[k + 66];
+    frameView(f, 18, m[k + 65], f.plateDrawsCount, Uint32Array, 12, "plateDraws");
+    f.plateGridVertices = m[k + 68];
+    f.plateGridDim = m[k + 69];
+    f.plateGridGen = m[k + 70];
+    f.plateGridPtr = m[k + 67];
+    f.m32 = m;
+    f.mf32 = this.w.mf32;
     return f;
   }
 

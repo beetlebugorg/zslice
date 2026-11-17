@@ -41,6 +41,35 @@ pub const Push = extern struct {
 /// View.drawList.
 pub const Draw = extern struct { first: u32, count: u32, lod: u32 };
 
+/// One plate of a frame other than the active plate (see plates.zig), or
+/// the light beads of the active plate: its bead buffer, its matrices, and
+/// its draws in Frame.plate_draws. The layout is zs_web_plate in
+/// include/zslice-app.h. Only the web backend draws them.
+pub const PlateFrame = extern struct {
+    /// The matrix of the beads and of the bed model, with the place of the
+    /// plate in the row.
+    mvp: [16]f32,
+    bed_mvp: [16]f32,
+    /// The bead buffer of the plate (a pointer), its size, and its
+    /// generation: upload it again when the generation changes.
+    instances: usize,
+    instance_count: u32,
+    gen: u32,
+    draws_first: u32,
+    draws_count: u32,
+    /// How much the colors fade to the background (0: not at all): a plate
+    /// whose slice is old.
+    fade: f32,
+    flags: u32,
+    /// The buffer slot of the plate (its index in the set).
+    slot: u32,
+
+    /// Draw the bed model of the view at the plate.
+    pub const flag_bed: u32 = 1;
+    /// The light beads of the active plate: draw them with Frame.box.
+    pub const flag_active: u32 = 2;
+};
+
 pub const Frame = struct {
     clear: [3]f32,
     box: Push,
@@ -68,4 +97,13 @@ pub const Frame = struct {
     /// the view left out and a coarse mesh far from the camera. Empty: draw
     /// all of them with the full mesh. The web backend uses it.
     draws: []const Draw = &.{},
+    /// The other plates (see PlateFrame), and their draws. The web
+    /// backend uses them.
+    plates: []const PlateFrame = &.{},
+    plate_draws: []const Draw = &.{},
+    /// The grid lines of the other plates (x, y, z points): the plates up
+    /// to vertex `plate_grid_dim`, then the plates that cannot slice.
+    plate_grid: []const f32 = &.{},
+    plate_grid_dim: u32 = 0,
+    plate_grid_gen: u32 = 0,
 };

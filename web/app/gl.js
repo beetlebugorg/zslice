@@ -11,6 +11,11 @@
 // the instance attributes k * 32 bytes into the buffer, and the shader adds
 // k (the uniform `base`) to gl_InstanceID.
 //
+// The other plates of a set (src/render/plates.zig) have a bead buffer
+// each (a slot), uploaded when its generation changes. They draw with the
+// same program, with their own matrix, and `fade` takes the colors of a
+// plate with an old slice toward the background.
+//
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
 const MAX_EXTRAS = 4096; // max_extras in src/render/frame.zig
@@ -121,6 +126,7 @@ precision highp float;
 uniform vec4 light;
 uniform vec4 eye;
 uniform vec4 params;
+uniform float fade;
 
 in vec3 vcolor;
 in vec3 vnormal;
@@ -158,7 +164,7 @@ void main() {
         frag = vec4(toSrgb(c + vec3(0.25 * rim * rim)), 0.38 + 0.3 * rim);
         return;
     }
-    frag = vec4(toSrgb(c), 1.0);
+    frag = vec4(mix(toSrgb(c), vec3(0.965, 0.969, 0.973), fade), 1.0);
 }`;
 
 const gridVert = `#version 300 es
@@ -377,6 +383,18 @@ export class GlRenderer {
     this.push2 = new Float32Array(28);
     this.instanceCount = 0;
     this.instCapacity = 0;
+    // The bead buffers of the plates: slot -> { vbo, gen }.
+    this.slots = new Map();
+    // The grid lines of the other plates.
+    this.plateGridVbo = gl.createBuffer();
+    this.plateGridVao = gl.createVertexArray();
+    this.plateGridGen = -1;
+    // The push data of a plate (made once).
+    this.push3 = new Float32Array(28);
+    gl.bindVertexArray(this.plateGridVao);
+    gl.bindBuffer(gl.ARRAY_BUFFER, this.plateGridVbo);
+    gl.enableVertexAttribArray(0);
+    gl.vertexAttribPointer(0, 3, gl.FLOAT, false, 12, 0);
 
     gl.bindVertexArray(this.gridVao);
     gl.bindBuffer(gl.ARRAY_BUFFER, this.gridVbo);
@@ -404,11 +422,12 @@ export class GlRenderer {
     gl.bindVertexArray(null);
   }
 
-  // Binds the instance attributes from instance `first` on.
-  bindInstances(first) {
+  // Binds the instance attributes from instance `first` on, in the bead
+  // buffer `vbo` (the buffer of the active plate by default).
+  bindInstances(first, vbo = this.instVbo) {
     const gl = this.gl;
     const off = first * STRIDE;
-    gl.bindBuffer(gl.ARRAY_BUFFER, this.instVbo);
+    gl.bindBuffer(gl.ARRAY_BUFFER, vbo);
     gl.vertexAttribPointer(2, 4, gl.FLOAT, false, STRIDE, off);
     gl.vertexAttribPointer(3, 3, gl.FLOAT, false, STRIDE, off + 16);
     gl.vertexAttribPointer(4, 4, gl.UNSIGNED_BYTE, true, STRIDE, off + 28);
@@ -425,11 +444,11 @@ export class GlRenderer {
 
   // Draws the beads first .. first + count with the full mesh, or with
   // a coarser mesh (lod 1 or 2) if there is one.
-  drawBeads(first, count, lod = 0) {
+  drawBeads(first, count, lod = 0, vbo = this.instVbo, base = first) {
     if (count <= 0) return;
     const gl = this.gl;
-    this.bindInstances(first);
-    gl.uniform1f(this.box.u.base, first);
+    this.bindInstances(first, vbo);
+    gl.uniform1f(this.box.u.base, base);
     const n = lod > 0 ? this.lod[2 * lod - 1] : 0;
     if (n > 0) gl.drawElementsInstanced(gl.TRIANGLES, n, gl.UNSIGNED_SHORT, this.lod[2 * lod - 2] * 2, count);
     else gl.drawElementsInstanced(gl.TRIANGLES, this.indexCount, gl.UNSIGNED_SHORT, 0, count);
@@ -447,6 +466,45 @@ export class GlRenderer {
     // under them early.
     const d = f.draws;
     for (let i = f.drawsCount - 1; i >= 0; i--) this.drawBeads(d[3 * i], d[3 * i + 1], d[3 * i + 2]);
+  }
+
+  // The beads of the other plates, and the light beads of the active
+  // plate (flag 2): each with its matrix, its fade, and its draws. With
+  // `ghost` (the push data of the ghost pass of a focus): only the light
+  // beads of the active plate, as ghosts.
+  drawPlates(f, ghost = null) {
+    if (f.platesCount === 0) return;
+    const gl = this.gl;
+    const m = f.m32;
+    const mf = f.mf32;
+    const push = this.push3;
+    const d = f.plateDraws;
+    for (let i = 0; i < f.platesCount; i++) {
+      const q = (f.plates >>> 2) + 40 * i;
+      const n = m[q + 36];
+      if (n === 0) continue;
+      const s = this.slots.get(m[q + 39]);
+      if (!s) continue;
+      if (ghost && !(m[q + 38] & 2)) continue;
+      if (m[q + 38] & 2) {
+        this.setPush(ghost ?? f.box);
+      } else {
+        // The push data of the frame, with the matrix of the plate, no
+        // highlight, and no focus.
+        push.set(f.box);
+        for (let k = 0; k < 16; k++) push[k] = mf[q + k];
+        push[24] = 0;
+        push[25] = 0;
+        push[26] = 0;
+        this.setPush(push);
+      }
+      gl.uniform1f(this.box.u.fade, mf[q + 37]);
+      const d0 = m[q + 35];
+      // A base out of the highlight range of the active plate.
+      for (let j = d0; j < d0 + n; j++) this.drawBeads(d[3 * j], d[3 * j + 1], d[3 * j + 2], s.vbo, 1e9);
+    }
+    gl.uniform1f(this.box.u.fade, 0);
+    this.setPush(ghost ?? f.box);
   }
 
   // Sends the buffers of a frame that changed to the GPU.
@@ -493,6 +551,32 @@ export class GlRenderer {
       gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
       this.gen.bed = f.bedGen;
     }
+    // The bead buffers of the plates in the frame.
+    const m = f.m32;
+    for (let i = 0; i < f.platesCount; i++) {
+      const q = (f.plates >>> 2) + 40 * i;
+      const slot = m[q + 39];
+      const gen = m[q + 34];
+      let s = this.slots.get(slot);
+      if (!s) {
+        s = { vbo: gl.createBuffer(), gen: -1 };
+        this.slots.set(slot, s);
+      }
+      if (s.gen !== gen) {
+        gl.bindVertexArray(null);
+        gl.bindBuffer(gl.ARRAY_BUFFER, s.vbo);
+        const n = m[q + 33];
+        gl.bufferData(gl.ARRAY_BUFFER, n > 0 ? new Uint8Array(f.buf, m[q + 32], n * STRIDE) : new Uint8Array(STRIDE), gl.STATIC_DRAW);
+        s.gen = gen;
+      }
+    }
+    if (f.plateGridGen !== this.plateGridGen) {
+      gl.bindVertexArray(null);
+      gl.bindBuffer(gl.ARRAY_BUFFER, this.plateGridVbo);
+      const n = f.plateGridVertices;
+      gl.bufferData(gl.ARRAY_BUFFER, n > 0 ? new Float32Array(f.buf, f.plateGridPtr, 3 * n) : new Float32Array(3), gl.STATIC_DRAW);
+      this.plateGridGen = f.plateGridGen;
+    }
     if (f.gridGen !== this.gen.grid) {
       gl.bindBuffer(gl.ARRAY_BUFFER, this.gridVbo);
       gl.bufferData(gl.ARRAY_BUFFER, f.gridPoints, gl.STATIC_DRAW);
@@ -511,12 +595,14 @@ export class GlRenderer {
 
   // The bed model, after the beads: blended (its parts over the plate are
   // see-through), with a depth offset so the grid lines stay in front.
-  drawBed(f) {
+  // mvp: the matrix of a plate (an array and its first item), or the
+  // bed of the frame.
+  drawBed(f, mvp = f.bed, at = 0) {
     if (f.bedVertices === 0 || this.bedVertexCount === 0) return;
     const gl = this.gl;
     const u = this.bedProg.u;
     gl.useProgram(this.bedProg.prog);
-    gl.uniformMatrix4fv(u.mvp, false, f.bed, 0, 16);
+    gl.uniformMatrix4fv(u.mvp, false, mvp, at, 16);
     gl.uniform4fv(u.color, f.bed, 16, 4);
     gl.uniform4fv(u.light, f.bed, 20, 4);
     gl.uniform4fv(u.params, f.bed, 24, 4);
@@ -555,6 +641,19 @@ export class GlRenderer {
       gl.bindVertexArray(this.gridVao);
       gl.drawArrays(gl.LINES, 0, f.gridVertices);
     }
+    // The grids of the other plates: the plates that cannot slice in a
+    // lighter color.
+    if (f.plateGridVertices > 0) {
+      gl.useProgram(this.grid.prog);
+      gl.uniformMatrix4fv(this.grid.u.mvp, false, f.grid, 0, 16);
+      gl.uniform4fv(this.grid.u.color, f.grid, 16, 4);
+      gl.bindVertexArray(this.plateGridVao);
+      if (f.plateGridDim > 0) gl.drawArrays(gl.LINES, 0, f.plateGridDim);
+      if (f.plateGridVertices > f.plateGridDim) {
+        gl.uniform4f(this.grid.u.color, 0.88, 0.89, 0.91, 1);
+        gl.drawArrays(gl.LINES, f.plateGridDim, f.plateGridVertices - f.plateGridDim);
+      }
+    }
 
     if (this.indexCount === 0 || this.instCapacity === 0) {
       this.drawBed(f);
@@ -563,10 +662,12 @@ export class GlRenderer {
     }
     gl.useProgram(this.box.prog);
     gl.bindVertexArray(this.boxVao);
+    gl.uniform1f(this.box.u.fade, 0);
     this.setPush(f.box);
     const first = Math.min(f.boxFirst, f.boxCount);
     this.drawList(f, first);
     this.drawBeads(f.markFirst, f.markCount);
+    this.drawPlates(f);
     // With a focus: the beads out of it, as ghosts (params.w = 2).
     if (f.box[26] !== 0) {
       const ghost = this.push2;
@@ -577,12 +678,18 @@ export class GlRenderer {
       gl.depthMask(false);
       this.setPush(ghost);
       this.drawList(f, first);
+      this.drawPlates(f, ghost);
       this.drawBeads(f.markFirst, f.markCount);
       gl.disable(gl.BLEND);
       gl.depthMask(true);
       this.setPush(f.box);
     }
     this.drawBed(f);
+    // The bed model at each other plate of the same printer.
+    for (let i = 0; i < f.platesCount; i++) {
+      const q = (f.plates >>> 2) + 40 * i;
+      if (f.m32[q + 38] & 1) this.drawBed(f, f.mf32, q + 16);
+    }
     gl.useProgram(this.box.prog);
     gl.bindVertexArray(this.boxVao);
     this.setPush(f.box);

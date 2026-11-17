@@ -65,10 +65,12 @@ export class Wasm {
       this._u32 = new Uint32Array(buf);
       this._i32 = new Int32Array(buf);
       this._f64 = new Float64Array(buf);
+      this._f32 = new Float32Array(buf);
     }
     return this._u32;
   }
   get mi32() { this.m32; return this._i32; }
+  get mf32() { this.m32; return this._f32; }
   get mf64() { this.m32; return this._f64; }
 
   // Starts `count` threads for the slice (the module with threads only).

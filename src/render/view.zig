@@ -62,6 +62,8 @@ const is_web = builtin.cpu.arch.isWasm();
 const vk = if (is_web) @import("web.zig") else @import("vk.zig");
 const app_mod = @import("../app.zig");
 const Draw = @import("frame.zig").Draw;
+const PlateFrame = @import("frame.zig").PlateFrame;
+const plates_mod = @import("plates.zig");
 const bed_mod = @import("../bed.zig");
 
 /// The feature colors, in the order of the Feature enum. The same colors
@@ -214,6 +216,28 @@ pub const View = struct {
     /// and if it has a texture.
     bed_vertices: u32 = 0,
     bed_textured: bool = false,
+    /// A view with no renderer (`loadPlate` uses one to read an app).
+    headless: bool = false,
+    /// The light levels of the beads (see plates.zig), for a camera far
+    /// from the plate. Only the web backend draws them.
+    lite: plates_mod.Lite = .{},
+    lite_gen: u32 = 0,
+    /// The plates of the set (see plates.zig), in the row from left to
+    /// right. Item `active` is the plate of this view: it has no beads of
+    /// its own. Empty: one plate, and no row.
+    plates: std.ArrayList(plates_mod.Plate) = .empty,
+    active: usize = 0,
+    /// The generation counter of the bead buffers of the plates.
+    plate_gen: u32 = 0,
+    /// The grid lines of the other plates (x, y, z, in the world of the
+    /// view): the plates that slice first, then from `plate_grid_dim` on
+    /// the plates that cannot slice.
+    plate_grid: std.ArrayList(f32) = .empty,
+    plate_grid_dim: u32 = 0,
+    plate_grid_gen: u32 = 0,
+    /// The plates and their draws of the last frame.
+    plate_frames: std.ArrayList(PlateFrame) = .empty,
+    plate_draws: std.ArrayList(Draw) = .empty,
 
     /// The camera: the target, the angles, and the distance.
     pub const Pose = struct { target: [3]f32, rot: Quat, dist: f32 };
@@ -232,6 +256,19 @@ pub const View = struct {
     }
 
     pub fn destroy(v: *View) void {
+        v.deinitData();
+        if (!v.headless) v.renderer.deinit();
+        gpa.destroy(v);
+    }
+
+    /// Frees the data of the view, not the view and its renderer.
+    fn deinitData(v: *View) void {
+        v.lite.deinit(gpa);
+        for (v.plates.items) |*p| p.deinit(gpa);
+        v.plates.deinit(gpa);
+        v.plate_grid.deinit(gpa);
+        v.plate_frames.deinit(gpa);
+        v.plate_draws.deinit(gpa);
         v.layer_end.deinit(gpa);
         v.mark_rings.deinit(gpa);
         v.gap_beads.deinit(gpa);
@@ -253,8 +290,6 @@ pub const View = struct {
         v.bead_fan.deinit(gpa);
         v.marks.deinit(gpa);
         v.mark_layer_end.deinit(gpa);
-        v.renderer.deinit();
-        gpa.destroy(v);
     }
 
     /// Shows the bed model of a printer: the bytes of its mesh and texture
@@ -383,6 +418,8 @@ pub const View = struct {
             v.outline_points.clearRetainingCapacity();
             v.outline_ends.clearRetainingCapacity();
             v.outline_layer_end.clearRetainingCapacity();
+            v.lite.clear();
+            v.lite_gen = v.nextGen();
             try v.buildPickIndex();
             return;
         };
@@ -494,8 +531,13 @@ pub const View = struct {
         v.layer_path_end.appendSlice(gpa, tp.layer_ends.items) catch return error.OutOfMemory;
         try v.loadOutlines(app, tp.layer_ends.items.len);
         try v.loadMarks(tp, filament, center, sxy, sz);
-        try v.renderer.setInstances(boxes.items, v.marks.items);
+        if (!v.headless) try v.renderer.setInstances(boxes.items, v.marks.items);
         v.more.clearRetainingCapacity();
+        // The light levels: only the web backend draws them.
+        if (is_web and !v.headless) {
+            try v.lite.build(gpa, boxes.items, v.layer_end.items);
+            v.lite_gen = v.nextGen();
+        }
         // `boxes` goes back to v.beads at the end of this function.
         v.beads = boxes;
         try v.buildPickIndex();
@@ -532,12 +574,19 @@ pub const View = struct {
         home: [3]f32,
         extent: f32,
         bed: [2]f32,
+        /// The start of each light level (Lite.level_start).
+        lite_start: [plates_mod.n_levels + 1]u32,
         /// layer_end, path_start, beads, marks, mark_layer_end, bead_end,
         /// bead_start, bead_fan, mark_rings, layer_path_end,
-        /// outline_points, outline_ends, outline_layer_end.
-        counts: [13]u32,
+        /// outline_points, outline_ends, outline_layer_end, then the
+        /// light beads and the layer ends of each light level.
+        counts: [17]u32,
     };
-    const scene_magic: u32 = 0x32637a73; // "szc2"
+    const scene_magic: u32 = 0x33637a73; // "szc3"
+    /// The index of the beads and of the light beads in `sceneLists`.
+    const scene_beads = 2;
+    const scene_layer_end = 0;
+    const scene_lite = 13;
 
     /// The lists of a scene, in the order of SceneHead.counts.
     fn sceneLists(v: *View) struct {
@@ -554,8 +603,39 @@ pub const View = struct {
         *std.ArrayList(f32),
         *std.ArrayList(u32),
         *std.ArrayList(u32),
+        *std.ArrayList(vk.Instance),
+        *std.ArrayList(u32),
+        *std.ArrayList(u32),
+        *std.ArrayList(u32),
     } {
-        return .{ &v.layer_end, &v.path_start, &v.beads, &v.marks, &v.mark_layer_end, &v.bead_end, &v.bead_start, &v.bead_fan, &v.mark_rings, &v.layer_path_end, &v.outline_points, &v.outline_ends, &v.outline_layer_end };
+        return .{ &v.layer_end, &v.path_start, &v.beads, &v.marks, &v.mark_layer_end, &v.bead_end, &v.bead_start, &v.bead_fan, &v.mark_rings, &v.layer_path_end, &v.outline_points, &v.outline_ends, &v.outline_layer_end, &v.lite.beads, &v.lite.layer_end[0], &v.lite.layer_end[1], &v.lite.layer_end[2] };
+    }
+
+    /// The place of each list of a scene in its bytes (see `writeScene`),
+    /// and its head. error.InvalidScene if the bytes are too short.
+    fn sceneOffsets(bytes: []const u8) error{InvalidScene}!struct { head: SceneHead, at: [17]usize } {
+        if (bytes.len < @sizeOf(SceneHead)) return error.InvalidScene;
+        var head: SceneHead = undefined;
+        @memcpy(std.mem.asBytes(&head), bytes[0..@sizeOf(SceneHead)]);
+        if (head.magic != scene_magic) return error.InvalidScene;
+        const sizes = comptime blk: {
+            const T = @typeInfo(@TypeOf(sceneLists)).@"fn".return_type.?;
+            var out: [17]usize = undefined;
+            for (@typeInfo(T).@"struct".fields, 0..) |f, k| {
+                const List = @typeInfo(f.type).pointer.child;
+                out[k] = @sizeOf(@typeInfo(@FieldType(List, "items")).pointer.child);
+            }
+            break :blk out;
+        };
+        var out: [17]usize = undefined;
+        var at: usize = std.mem.alignForward(usize, @sizeOf(SceneHead), 8);
+        for (sizes, 0..) |size, k| {
+            out[k] = at;
+            const len = head.counts[k] * size;
+            if (at + len > bytes.len) return error.InvalidScene;
+            at += std.mem.alignForward(usize, len, 8);
+        }
+        return .{ .head = head, .at = out };
     }
 
     /// The loaded scene as bytes, for a view in another wasm instance (see
@@ -571,6 +651,7 @@ pub const View = struct {
             .home = v.home,
             .extent = v.extent,
             .bed = v.bed,
+            .lite_start = v.lite.level_start,
             .counts = undefined,
         };
         var size: usize = std.mem.alignForward(usize, @sizeOf(SceneHead), 8);
@@ -614,6 +695,8 @@ pub const View = struct {
         v.xf_sz = head.xf_sz;
         v.home = head.home;
         v.extent = head.extent;
+        v.lite.level_start = head.lite_start;
+        v.lite_gen = v.nextGen();
         try v.loadGrid(head.bed[0], head.bed[1]);
         try v.renderer.setInstances(v.beads.items, v.marks.items);
         v.more.clearRetainingCapacity();
@@ -832,12 +915,8 @@ pub const View = struct {
         v.bed = .{ bed_x, bed_y };
         var pts: std.ArrayList(f32) = .empty;
         defer pts.deinit(gpa);
-        // The bed outline and a 10 mm grid, at z = 0.
-        var x: f32 = 0;
-        while (x <= bed_x + 0.01) : (x += 10) pts.appendSlice(gpa, &.{ @min(x, bed_x), 0, 0, @min(x, bed_x), bed_y, 0 }) catch return error.OutOfMemory;
-        var y: f32 = 0;
-        while (y <= bed_y + 0.01) : (y += 10) pts.appendSlice(gpa, &.{ 0, @min(y, bed_y), 0, bed_x, @min(y, bed_y), 0 }) catch return error.OutOfMemory;
-        try v.renderer.setGrid(pts.items);
+        try appendGrid(&pts, .{ 0, 0 }, v.bed);
+        if (!v.headless) try v.renderer.setGrid(pts.items);
         v.grid_vertices = @intCast(pts.items.len / 3);
     }
 
@@ -1637,11 +1716,317 @@ pub const View = struct {
         return n;
     }
 
+    /// The next generation number of a bead buffer.
+    fn nextGen(v: *View) u32 {
+        v.plate_gen +%= 1;
+        return v.plate_gen;
+    }
+
+    // ---- the plate set (see plates.zig) ----
+
+    /// Sets the plates of the row: the bed size (mm) of each, from left to
+    /// right, and the active plate (the plate of this view). The plates
+    /// keep their beads. When the active plate changes, the camera moves
+    /// with the world, so the picture stays still. An empty list: one
+    /// plate, and no row.
+    pub fn setPlates(v: *View, beds: []const [2]f32, active: usize) Error!void {
+        const had = v.active < v.plates.items.len;
+        const old = if (had) v.plates.items[v.active].origin else [2]f32{ 0, 0 };
+        while (v.plates.items.len > beds.len) {
+            var p = v.plates.pop().?;
+            p.deinit(gpa);
+        }
+        while (v.plates.items.len < beds.len) v.plates.append(gpa, .{}) catch return error.OutOfMemory;
+        // The gap: 15 % of the widest bed, and at least 30 mm.
+        var gap: f32 = 30;
+        for (beds) |b| gap = @max(gap, 0.15 * b[0]);
+        var x: f32 = 0;
+        for (v.plates.items, beds) |*p, b| {
+            p.bed = b;
+            p.origin = .{ x, 0 };
+            x += b[0] + gap;
+        }
+        v.active = if (beds.len == 0) 0 else @min(active, beds.len - 1);
+        if (beds.len > 0) {
+            const new = v.plates.items[v.active].origin;
+            if (had) v.shiftWorld(.{ old[0] - new[0], old[1] - new[1] });
+            // The active plate draws from the view: its own beads go.
+            const p = &v.plates.items[v.active];
+            if (p.beads.items.len > 0) {
+                p.clear();
+                p.gen = v.nextGen();
+            }
+        }
+        try v.buildPlateGrid();
+    }
+
+    /// Moves the camera and the start view by d (mm): the world of the
+    /// view moved by d.
+    fn shiftWorld(v: *View, d: [2]f32) void {
+        for (0..2) |k| {
+            v.target[k] += d[k];
+            v.home[k] += d[k];
+            if (v.goal) |*g| g.target[k] += d[k];
+        }
+    }
+
+    /// The place of plate i in the world of the view: the origin of its
+    /// bed, from the origin of the bed of the active plate.
+    pub fn plateOffset(v: *const View, i: usize) [2]f32 {
+        if (i >= v.plates.items.len or v.active >= v.plates.items.len) return .{ 0, 0 };
+        const a = v.plates.items[v.active].origin;
+        const p = v.plates.items[i].origin;
+        return .{ p[0] - a[0], p[1] - a[1] };
+    }
+
+    /// The grid lines of the other plates, in the world of the view.
+    fn buildPlateGrid(v: *View) Error!void {
+        v.plate_grid.clearRetainingCapacity();
+        for (0..2) |pass| {
+            if (pass == 1) v.plate_grid_dim = @intCast(v.plate_grid.items.len / 3);
+            for (v.plates.items, 0..) |p, i| {
+                if (i == v.active) continue;
+                if ((p.flags & plates_mod.flag_disabled != 0) != (pass == 1)) continue;
+                try appendGrid(&v.plate_grid, v.plateOffset(i), p.bed);
+            }
+        }
+        v.plate_grid_gen = v.nextGen();
+    }
+
+    /// Reads the beads of a scene of `writeScene` into plate i (not the
+    /// active plate). The other data of the scene stay out.
+    pub fn readPlateScene(v: *View, i: usize, bytes: []const u8) (Error || error{InvalidScene})!void {
+        if (i >= v.plates.items.len or i == v.active) return;
+        const s = try sceneOffsets(bytes);
+        const copy = struct {
+            fn f(comptime T: type, list: *std.ArrayList(T), b: []const u8, at: usize, n: u32) Error!void {
+                list.resize(gpa, n) catch return error.OutOfMemory;
+                @memcpy(std.mem.sliceAsBytes(list.items), b[at..][0 .. n * @sizeOf(T)]);
+            }
+        }.f;
+        var beads: std.ArrayList(vk.Instance) = .empty;
+        defer beads.deinit(gpa);
+        var ends: std.ArrayList(u32) = .empty;
+        defer ends.deinit(gpa);
+        var lite: plates_mod.Lite = .{};
+        defer lite.deinit(gpa);
+        try copy(vk.Instance, &beads, bytes, s.at[scene_beads], s.head.counts[scene_beads]);
+        try copy(u32, &ends, bytes, s.at[scene_layer_end], s.head.counts[scene_layer_end]);
+        try copy(vk.Instance, &lite.beads, bytes, s.at[scene_lite], s.head.counts[scene_lite]);
+        for (0..plates_mod.n_levels) |k| try copy(u32, &lite.layer_end[k], bytes, s.at[scene_lite + 1 + k], s.head.counts[scene_lite + 1 + k]);
+        lite.level_start = s.head.lite_start;
+        const p = &v.plates.items[i];
+        try p.set(gpa, beads.items, ends.items, if (lite.layers() == ends.items.len) &lite else null);
+        p.gen = v.nextGen();
+    }
+
+    /// Reads the last slice of `app` into plate i (not the active plate),
+    /// in the color mode of the view.
+    pub fn loadPlate(v: *View, i: usize, app: *const app_mod.App) Error!void {
+        if (i >= v.plates.items.len or i == v.active) return;
+        var t: View = .{ .renderer = undefined, .headless = true, .width = 1, .height = 1, .mode = v.mode };
+        defer t.deinitData();
+        try t.load(app);
+        const p = &v.plates.items[i];
+        try p.set(gpa, t.beads.items, t.layer_end.items, null);
+        p.gen = v.nextGen();
+    }
+
+    /// Drops the beads of plate i (an empty plate).
+    pub fn clearPlate(v: *View, i: usize) void {
+        if (i >= v.plates.items.len) return;
+        const p = &v.plates.items[i];
+        p.clear();
+        p.gen = v.nextGen();
+    }
+
+    /// The flags of plate i (plates.flag_*).
+    pub fn setPlateFlags(v: *View, i: usize, flags: u32) Error!void {
+        if (i >= v.plates.items.len) return;
+        const p = &v.plates.items[i];
+        const before = p.flags;
+        p.flags = flags;
+        if ((before ^ flags) & plates_mod.flag_disabled != 0) try v.buildPlateGrid();
+    }
+
+    /// The box of plate i in the world of the view: its bed, and its beads.
+    fn plateBox(v: *const View, i: usize) [2][3]f32 {
+        var lo = [3]f32{ 0, 0, 0 };
+        var hi = [3]f32{ v.bed[0], v.bed[1], 1 };
+        if (i < v.plates.items.len) {
+            const p = v.plates.items[i];
+            hi = .{ p.bed[0], p.bed[1], 1 };
+            if (i != v.active and p.full_end > 0) for (0..3) |k| {
+                lo[k] = @min(lo[k], p.lo[k]);
+                hi[k] = @max(hi[k], p.hi[k]);
+            };
+        }
+        if (i == v.active or i >= v.plates.items.len) {
+            for (v.layer_boxes.items) |b| if (b.lo[0] <= b.hi[0]) for (0..3) |k| {
+                lo[k] = @min(lo[k], b.lo[k]);
+                hi[k] = @max(hi[k], b.hi[k]);
+            };
+        }
+        lo[2] = @max(lo[2], 0);
+        const o = v.plateOffset(i);
+        return .{ .{ lo[0] + o[0], lo[1] + o[1], lo[2] }, .{ hi[0] + o[0], hi[1] + o[1], hi[2] } };
+    }
+
+    /// The plate under the pixel: the first plate box (bed and beads) that
+    /// the ray meets, or null. With no row, plate 0 if the ray meets the
+    /// bed of the view.
+    pub fn plateAt(v: *const View, px: f32, py: f32) ?usize {
+        const cam = v.camera();
+        const dir = v.pixelRay(cam, px, py);
+        var best: ?usize = null;
+        var best_t: f32 = std.math.inf(f32);
+        const n = @max(v.plates.items.len, 1);
+        for (0..n) |i| {
+            const b = v.plateBox(i);
+            const t = rayBoxEntry(cam.eye, dir, b[0], b[1]) orelse continue;
+            if (t < best_t) {
+                best_t = t;
+                best = i;
+            }
+        }
+        return best;
+    }
+
+    /// Moves the camera (animated) to show plate i whole, from the front.
+    pub fn framePlate(v: *View, i: usize) void {
+        const b = v.plateBox(i);
+        v.frameBox(b[0], b[1]);
+    }
+
+    /// Moves the camera (animated) to show all plates.
+    pub fn frameAll(v: *View) void {
+        const n = @max(v.plates.items.len, 1);
+        var b = v.plateBox(0);
+        for (1..n) |i| {
+            const c = v.plateBox(i);
+            for (0..3) |k| {
+                b[0][k] = @min(b[0][k], c[0][k]);
+                b[1][k] = @max(b[1][k], c[1][k]);
+            }
+        }
+        v.frameBox(b[0], b[1]);
+    }
+
+    /// Moves the camera (animated) to look at the box lo to hi from the
+    /// front and above (the angles of `reset`), at the distance that shows
+    /// all of it.
+    fn frameBox(v: *View, lo: [3]f32, hi: [3]f32) void {
+        const now = v.pose();
+        v.setAngles(-1.75, 0.6);
+        v.target = .{ (lo[0] + hi[0]) / 2, (lo[1] + hi[1]) / 2, (lo[2] + hi[2]) / 2 };
+        const cam_b = qrotate(v.rot, .{ 0, 0, 1 });
+        const s = qrotate(v.rot, .{ 1, 0, 0 });
+        const u = qrotate(v.rot, .{ 0, 1, 0 });
+        const aspect = @as(f32, @floatFromInt(v.width)) / @as(f32, @floatFromInt(v.height));
+        const tan_half = @tan(@as(f32, fov) / 2);
+        // Each corner: its depth is dist - (corner . back), and it must be
+        // in the frustum on x and on y.
+        var dist: f32 = 1;
+        for (0..8) |c| {
+            const p = [3]f32{
+                (if (c & 1 != 0) hi[0] else lo[0]) - v.target[0],
+                (if (c & 2 != 0) hi[1] else lo[1]) - v.target[1],
+                (if (c & 4 != 0) hi[2] else lo[2]) - v.target[2],
+            };
+            const along = dot(p, cam_b);
+            dist = @max(dist, @abs(dot(p, s)) / (tan_half * aspect) + along);
+            dist = @max(dist, @abs(dot(p, u)) / tan_half + along);
+        }
+        v.dist = dist * 1.08;
+        v.goal = v.pose();
+        v.setPose(now);
+    }
+
+    /// The length of the row on x (mm), for the far plane.
+    fn rowLength(v: *const View) f32 {
+        const n = v.plates.items.len;
+        if (n == 0) return 0;
+        const last = v.plates.items[n - 1];
+        return last.origin[0] + last.bed[0];
+    }
+
+    /// The light level for the active plate, or null for the full beads:
+    /// only with no selection and no replay (the light beads are not in
+    /// the index space of the highlight and the replay).
+    fn activeLevel(v: *const View, eye: [3]f32) ?usize {
+        if (!is_web) return null;
+        const n = v.layer_end.items.len;
+        if (n == 0 or v.lite.layers() != n or v.beads.items.len == 0) return null;
+        if (v.time != null or v.highlight[1] > v.highlight[0] or v.seg_bead != null or v.more.items.len > 0) return null;
+        var lo = [3]f32{ std.math.inf(f32), std.math.inf(f32), std.math.inf(f32) };
+        var hi = [3]f32{ -std.math.inf(f32), -std.math.inf(f32), -std.math.inf(f32) };
+        for (v.layer_boxes.items) |b| if (b.lo[0] <= b.hi[0]) for (0..3) |k| {
+            lo[k] = @min(lo[k], b.lo[k]);
+            hi[k] = @max(hi[k], b.hi[k]);
+        };
+        if (!(lo[0] <= hi[0])) return null;
+        const px_per_mm = @as(f32, @floatFromInt(v.height)) / (2 * @tan(@as(f32, fov) / 2));
+        const h = v.beads.items[v.beads.items.len / 2].h;
+        return plates_mod.levelFor(h * px_per_mm / @max(boxDistance(eye, lo, hi), 1e-3));
+    }
+
+    /// The plates of a frame (web only): for each other plate in the view,
+    /// its matrices, its buffer, and its draws (the chunks in the view, or
+    /// a light level far from the camera).
+    fn drawPlates(v: *View, mvp: [16]f32, eye: [3]f32) Error!void {
+        const px_per_mm = @as(f32, @floatFromInt(v.height)) / (2 * @tan(@as(f32, fov) / 2));
+        for (v.plates.items, 0..) |*p, i| {
+            if (i == v.active) continue;
+            const o = v.plateOffset(i);
+            const pm = mul(mvp, translation(o[0], o[1], 0));
+            const pe = [3]f32{ eye[0] - o[0], eye[1] - o[1], eye[2] };
+            const box: PickBox = .{
+                .lo = .{ @min(0, p.lo[0]), @min(0, p.lo[1]), 0 },
+                .hi = .{ @max(p.bed[0], p.hi[0]), @max(p.bed[1], p.hi[1]), @max(1, p.hi[2]) },
+                .first = 0,
+                .end = 0,
+            };
+            if (!boxInView(pm, box)) continue;
+            const first: u32 = @intCast(v.plate_draws.items.len);
+            if (p.full_end > 0 and p.flags & plates_mod.flag_disabled == 0) {
+                const d = boxDistance(pe, p.lo, p.hi);
+                if (plates_mod.levelFor(p.layer_h * px_per_mm / @max(d, 1e-3))) |k| {
+                    const r = p.liteRange(k);
+                    if (r[1] > r[0]) v.plate_draws.append(gpa, .{ .first = r[0], .count = r[1] - r[0], .lod = 1 }) catch return error.OutOfMemory;
+                } else for (p.chunks.items) |c| {
+                    if (!boxInView(pm, .{ .lo = c.lo, .hi = c.hi, .first = 0, .end = 0 })) continue;
+                    const cd = boxDistance(pe, c.lo, c.hi);
+                    const lod: u32 = if (c.width * px_per_mm / @max(cd, 1e-3) < lod_pixels) 1 else 0;
+                    if (v.plate_draws.items.len > first) {
+                        const last = &v.plate_draws.items[v.plate_draws.items.len - 1];
+                        if (last.lod == lod and last.first + last.count == c.first) {
+                            last.count += c.end - c.first;
+                            continue;
+                        }
+                    }
+                    v.plate_draws.append(gpa, .{ .first = c.first, .count = c.end - c.first, .lod = lod }) catch return error.OutOfMemory;
+                }
+            }
+            v.plate_frames.append(gpa, .{
+                .mvp = pm,
+                .bed_mvp = mul(pm, translation(p.bed[0] / 2, p.bed[1] / 2, 0)),
+                .instances = @intFromPtr(p.beads.items.ptr),
+                .instance_count = @intCast(p.beads.items.len),
+                .gen = p.gen,
+                .draws_first = first,
+                .draws_count = @as(u32, @intCast(v.plate_draws.items.len)) - first,
+                .fade = if (p.flags & plates_mod.flag_stale != 0) 0.45 else 0,
+                .flags = if (p.flags & plates_mod.flag_bed_model != 0 and p.flags & plates_mod.flag_disabled == 0) PlateFrame.flag_bed else 0,
+                .slot = @intCast(i),
+            }) catch return error.OutOfMemory;
+        }
+    }
+
     pub fn draw(v: *View) Error!void {
         const cam = v.camera();
         const eye = cam.eye;
         const aspect = @as(f32, @floatFromInt(v.width)) / @as(f32, @floatFromInt(v.height));
-        const proj = perspective(fov, aspect, @max(v.dist * 0.01, 0.1), v.dist * 10 + v.extent * 4);
+        const proj = perspective(fov, aspect, @max(v.dist * 0.01, 0.1), v.dist * 10 + (v.extent + v.rowLength()) * 4);
         const view = lookAt(eye, v.target, cam.u);
         const mvp = mul(proj, view);
         var count: u32 = 0;
@@ -1711,6 +2096,40 @@ pub const View = struct {
             mark_count = v.mark_layer_end.items[@min(top, v.mark_layer_end.items.len - 1)];
         }
         mark_count -|= mark_skip;
+        // The other plates, and far from the camera the light beads of
+        // this plate under its top layers (see plates.zig).
+        v.plate_frames.clearRetainingCapacity();
+        v.plate_draws.clearRetainingCapacity();
+        if (is_web) {
+            if (v.activeLevel(eye)) |level| {
+                const n = v.layer_end.items.len;
+                const hi = @min(v.layer, n - 1);
+                const lo = @min(v.layer_lo, hi);
+                const step: usize = @as(usize, 1) << @intCast(level);
+                // The light beads up to a layer that the level keeps, and
+                // the full beads of the layers over it (the top layer
+                // shows its inside).
+                const split = (hi / step) * step;
+                if (split > lo) {
+                    const r = v.lite.range(level, lo, split - 1);
+                    first = @max(first, v.layer_end.items[split - 1]);
+                    v.plate_draws.append(gpa, .{ .first = r[0], .count = r[1] - r[0], .lod = 1 }) catch return error.OutOfMemory;
+                    v.plate_frames.append(gpa, .{
+                        .mvp = mvp,
+                        .bed_mvp = mvp,
+                        .instances = @intFromPtr(v.lite.beads.items.ptr),
+                        .instance_count = @intCast(v.lite.beads.items.len),
+                        .gen = v.lite_gen,
+                        .draws_first = 0,
+                        .draws_count = 1,
+                        .fade = 0,
+                        .flags = PlateFrame.flag_active,
+                        .slot = @intCast(v.active),
+                    }) catch return error.OutOfMemory;
+                }
+            }
+            try v.drawPlates(mvp, eye);
+        }
         try v.renderer.draw(.{
             .head = v.head_buf[0..n_head],
             .extras = blk: {
@@ -1805,6 +2224,11 @@ pub const View = struct {
                 .params = .{ if (v.bed_textured) 1 else 0, bed_clear_z, if (eye[2] < 0) 1 else 0, 0 },
             },
             .bed_vertices = v.bed_vertices,
+            .plates = v.plate_frames.items,
+            .plate_draws = v.plate_draws.items,
+            .plate_grid = v.plate_grid.items,
+            .plate_grid_dim = v.plate_grid_dim,
+            .plate_grid_gen = v.plate_grid_gen,
         });
     }
 };
@@ -1867,6 +2291,47 @@ fn rayBox(o: [3]f32, d: [3]f32, box: View.PickBox, max_t: f32) bool {
         if (t0 > t1) return false;
     }
     return true;
+}
+
+/// The bed outline and a 10 mm grid of a bed of size `bed` at `o`, at
+/// z = 0: x, y, z points, two for each line.
+fn appendGrid(pts: *std.ArrayList(f32), o: [2]f32, bed: [2]f32) Error!void {
+    const gpa = View.gpa;
+    var x: f32 = 0;
+    while (x <= bed[0] + 0.01) : (x += 10) pts.appendSlice(gpa, &.{ o[0] + @min(x, bed[0]), o[1], 0, o[0] + @min(x, bed[0]), o[1] + bed[1], 0 }) catch return error.OutOfMemory;
+    var y: f32 = 0;
+    while (y <= bed[1] + 0.01) : (y += 10) pts.appendSlice(gpa, &.{ o[0], o[1] + @min(y, bed[1]), 0, o[0] + bed[0], o[1] + @min(y, bed[1]), 0 }) catch return error.OutOfMemory;
+}
+
+/// The distance from p to the box lo to hi (0 inside it).
+fn boxDistance(p: [3]f32, lo: [3]f32, hi: [3]f32) f32 {
+    var d2: f32 = 0;
+    for (0..3) |k| {
+        const e = @max(@max(lo[k] - p[k], p[k] - hi[k]), 0);
+        d2 += e * e;
+    }
+    return @sqrt(d2);
+}
+
+/// The distance along the ray o + t d (t >= 0) to where it goes into the
+/// box lo to hi (0 if o is inside), or null if it misses the box.
+fn rayBoxEntry(o: [3]f32, d: [3]f32, lo: [3]f32, hi: [3]f32) ?f32 {
+    var t0: f32 = 0;
+    var t1: f32 = std.math.inf(f32);
+    for (0..3) |k| {
+        if (d[k] == 0) {
+            if (o[k] < lo[k] or o[k] > hi[k]) return null;
+            continue;
+        }
+        const inv = 1 / d[k];
+        var ta = (lo[k] - o[k]) * inv;
+        var tb = (hi[k] - o[k]) * inv;
+        if (ta > tb) std.mem.swap(f32, &ta, &tb);
+        t0 = @max(t0, ta);
+        t1 = @min(t1, tb);
+        if (t0 > t1) return null;
+    }
+    return t0;
 }
 
 /// False if the box is out of the view: all its corners are outside the
@@ -2451,4 +2916,38 @@ test "a point on the ray of a pixel shows at that pixel" {
         try std.testing.expectApproxEqAbs(px[0], q[0], 0.01);
         try std.testing.expectApproxEqAbs(px[1], q[1], 0.01);
     }
+}
+
+test {
+    _ = plates_mod;
+}
+
+test "the plates of a row: offsets, the active plate, the pick, and the frame" {
+    var v: View = .{ .renderer = undefined, .width = 800, .height = 600, .headless = true };
+    defer v.deinitData();
+    try v.setPlates(&.{ .{ 200, 200 }, .{ 300, 250 }, .{ 200, 200 } }, 0);
+    // The gap is 15 % of the widest bed: 45 mm.
+    try std.testing.expectEqual([2]f32{ 245, 0 }, v.plateOffset(1));
+    try std.testing.expectEqual([2]f32{ 590, 0 }, v.plateOffset(2));
+    // The camera looks at the middle of plate 1 from above.
+    v.target = .{ 245 + 150, 125, 0 };
+    v.setAngles(-std.math.pi / 2.0, 1.4);
+    v.dist = 400;
+    try std.testing.expectEqual(@as(?usize, 1), v.plateAt(400, 300));
+    // Plate 1 active: the world moves, and the camera with it.
+    try v.setPlates(&.{ .{ 200, 200 }, .{ 300, 250 }, .{ 200, 200 } }, 1);
+    try std.testing.expectApproxEqAbs(@as(f32, 150), v.target[0], 1e-4);
+    try std.testing.expectEqual([2]f32{ -245, 0 }, v.plateOffset(0));
+    try std.testing.expectEqual(@as(?usize, 1), v.plateAt(400, 300));
+    // The frame of plate 2: the goal looks at its middle, and all its
+    // corners are in the view.
+    v.framePlate(2);
+    const g = v.goal.?;
+    try std.testing.expectApproxEqAbs(@as(f32, 345 + 100), g.target[0], 1e-3);
+    v.setPose(g);
+    for ([_][2]f32{ .{ 345, 0 }, .{ 545, 0 }, .{ 345, 200 }, .{ 545, 200 } }) |c| {
+        const q = v.pixelOf(.{ c[0], c[1], 0 }).?;
+        try std.testing.expect(q[0] >= 0 and q[0] <= 800 and q[1] >= 0 and q[1] <= 600);
+    }
+    try std.testing.expectEqual(@as(?usize, 2), v.plateAt(400, 300));
 }
