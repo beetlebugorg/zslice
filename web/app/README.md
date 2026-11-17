@@ -123,6 +123,11 @@ The main thread never waits for the worker, and the bulk data goes as transferab
 
 On a desktop GPU (RTX 4070, Chromium with ANGLE on OpenGL), the frames of an orbit, a pan, a zoom, and a move of the slider hold 60 frames a second on the Benchy and on eight Benchies, in both views. The GPU time of a frame of eight Benchies is about 8 to 13 ms in 3D, and under 0.5 ms in 2D. These numbers come from one desktop GPU. In 3D, the cost of a full plate is the count of the beads (an instance each), so a weaker GPU has less room.
 
+The first slice of a visit is slower than the later ones: the browser makes optimized code for a wasm function only after the function has run for a time. Two things help:
+
+- The warm-up slice. When the plate is empty at the start, the worker slices a small sphere that it makes in code (`warmUp` in `worker.js`, about 0.3 s). The first slice of a Benchy then takes about 0.5 s and not 0.8 to 1.1 s (Chromium 155, 7 threads).
+- The code cache of the browser. Chromium keeps the optimized code of a module that it loads with `WebAssembly.compileStreaming`, if the HTTP cache keeps the file. A later visit then starts with that code: the first slice takes about 0.4 to 0.5 s. `serve.py` sends `Cache-Control: no-store`, so the dev server does not get this. A host for users must send a cache lifetime for the `.wasm` files (for example `Cache-Control: public, max-age=86400`). With `no-cache` (a check on each load), the cached code was not reliable in a test.
+
 ### Events
 
 The app core sends its events (the slice progress) to the import `env.zs_web_event` of the module. The worker sends them on to the page.

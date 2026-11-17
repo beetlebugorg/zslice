@@ -17,16 +17,77 @@ let mode = 0; // the color mode of the scene (enum zs_view_mode)
 let sliceWanted = false;
 let sliceTimer = 0;
 let lastProgress = 0;
+let warming = false; // a warm-up slice runs: its events do not go to the page
 
 function post(msg, transfer = []) {
   self.postMessage(msg, transfer);
 }
 
 function onEvent(event, progress) {
+  if (warming) return;
   // ZS_EVENT_PROGRESS: at most each 2 %, so the page gets few messages.
   if (event === 1 && (progress - lastProgress >= 0.02 || progress < lastProgress)) {
     lastProgress = progress;
     post({ event: "progress", progress });
+  }
+}
+
+// ---- the warm-up slice ----
+//
+// The browser first runs each wasm function with code from a fast, simple
+// compiler. It makes optimized code for a function only after the function
+// has run for a time. So the first slice of a visit takes about twice the
+// time of the later ones. A slice of a small part, made here in code, runs
+// the hot functions before the user opens a model: the first slice of the
+// user then starts with optimized code. (On a later visit, the browser can
+// load the optimized code from its cache: see README.md.)
+
+// A binary STL of a sphere of 24 mm on the bed.
+function warmStl() {
+  const radius = 12;
+  const seg = 48;
+  const at = (u, v) => {
+    const a = (u / seg) * 2 * Math.PI;
+    const b = (v / (seg / 2)) * Math.PI;
+    return [radius * Math.sin(b) * Math.cos(a), radius * Math.sin(b) * Math.sin(a), radius + radius * Math.cos(b)];
+  };
+  const tris = [];
+  for (let v = 0; v < seg / 2; v++) {
+    for (let u = 0; u < seg; u++) {
+      const a = at(u, v);
+      const c = at(u + 1, v + 1);
+      if (v > 0) tris.push([a, c, at(u + 1, v)]);
+      if (v < seg / 2 - 1) tris.push([a, at(u, v + 1), c]);
+    }
+  }
+  const buf = new ArrayBuffer(84 + 50 * tris.length);
+  const dv = new DataView(buf);
+  dv.setUint32(80, tris.length, true);
+  let o = 84;
+  for (const t of tris) {
+    o += 12; // the normal: zslice does not read it
+    for (const p of t) for (const x of p) { dv.setFloat32(o, x, true); o += 4; }
+    o += 2;
+  }
+  return new Uint8Array(buf);
+}
+
+// Slices the warm-up part in an app of its own, so the app of the page
+// does not change. It takes about 0.3 s. A message of the page waits for
+// that time.
+function warmUp() {
+  if (!core || core.state() !== STATE.empty) return;
+  const w = core.w;
+  const x = w.x;
+  if (x.zs_app_new_web(w.cell) !== 0) return;
+  const app = w.u32(w.cell);
+  warming = true;
+  try {
+    const rc = w.withString("warm.stl", (n) => w.withBytes(warmStl(), (p, len) => x.zs_app_load_stl(app, n, p, len)));
+    if (rc === 0) x.zs_app_request_slice(app);
+  } finally {
+    warming = false;
+    x.zs_app_free(app);
   }
 }
 
@@ -244,6 +305,8 @@ const ops = {
     // slice that runs: it sets the cancel flag of the app (client.js).
     if (wasm.shared) post({ event: "cancel-flag", memory: wasm.x.memory, address: wasm.x.zs_app_cancel_address(core.app) });
     const errors = core.restore(saved);
+    // After the threads start, and only if the plate is still empty then.
+    setTimeout(warmUp, 300);
     return { errors, ...settingsState() };
   },
 
