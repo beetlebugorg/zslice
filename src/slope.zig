@@ -378,7 +378,44 @@ fn addRun(s: Allocator, out: *std.ArrayList(Bead), pts: []const Point, data: []c
         try kd.append(s, data[j]);
     }
     if (kp.items.len < 2) return;
-    try out.append(s, .{ .points = kp.items, .data = kd.items, .closed = closed and kp.items.len > 2 });
+    var bead: Bead = .{ .points = kp.items, .data = kd.items, .closed = closed and kp.items.len > 2 };
+    // An open run stops one line width (min_run_mm / 4) short of each end:
+    // an end is often where the ledge meets the side of the part, and a
+    // bead that ends there pushes a blob out over that side, at each layer.
+    if (!bead.closed) {
+        const trim: f64 = @floatFromInt(geom.fromMm(min_run_mm / 4));
+        trimStart(&bead, trim);
+        std.mem.reverse(Point, bead.points);
+        std.mem.reverse(PointZ, bead.data);
+        trimStart(&bead, trim);
+        std.mem.reverse(Point, bead.points);
+        std.mem.reverse(PointZ, bead.data);
+        if (bead.points.len < 2) return;
+    }
+    try out.append(s, bead);
+}
+
+/// Removes `trim` µm from the start of the open run `b`: the points in it
+/// go, and the new first point is on the segment where it ends.
+fn trimStart(b: *Bead, trim: f64) void {
+    var left = trim;
+    var k: usize = 0;
+    while (k + 1 < b.points.len) {
+        const d = b.points[k].dist(b.points[k + 1]);
+        if (d > left) {
+            const t = left / d;
+            const a = b.points[k];
+            const c = b.points[k + 1];
+            b.points[k] = .{ .x = a.x + @as(i64, @intFromFloat(@round(@as(f64, @floatFromInt(c.x - a.x)) * t))), .y = a.y + @as(i64, @intFromFloat(@round(@as(f64, @floatFromInt(c.y - a.y)) * t))) };
+            b.points = b.points[k..];
+            b.data = b.data[k..];
+            return;
+        }
+        left -= d;
+        k += 1;
+    }
+    b.points = b.points[b.points.len - 1 ..];
+    b.data = b.data[b.data.len - 1 ..];
 }
 
 /// The width of the ledge at a sample: the distance along its normal to

@@ -1720,9 +1720,20 @@ fn hiddenIndex(path: []const Point, below: ?*const geom.EdgeIndex) usize {
         const turn = std.math.atan2(ax * by - ay * bx, ax * bx + ay * by);
         var score: f64 = if (turn < 0) 3.0 * -turn else 0.6 * turn;
         score += 0.35 * @as(f64, @floatFromInt(v.y - ymin)) / yspan;
-        if (below) |b| if (!b.inside(v)) {
-            score -= 2;
-        };
+        if (below) |b| {
+            // A point on the edge of the layer below (within 0.05 mm) has
+            // support: the inside test is open on some edges.
+            if (!b.inside(v) and b.distance(v, corner_reach) >= 50) {
+                score -= 2;
+            } else if (turn > 0.3 and sameCornerBelow(b, v, back, on)) {
+                // An outside corner that the layer below has at the same
+                // place: an edge of the part that goes up. The seams line
+                // up on it. A corner that moves from layer to layer (where
+                // a round hole cuts the outline) puts its seams in a curve
+                // on the face of the part.
+                score += 0.5;
+            }
+        }
         const better = score > best_score + 1e-9 or (@abs(score - best_score) <= 1e-9 and rearBefore(v, path[best]));
         if (better) {
             best = i;
@@ -1730,6 +1741,30 @@ fn hiddenIndex(path: []const Point, below: ?*const geom.EdgeIndex) usize {
         }
     }
     return best;
+}
+
+/// The farthest a wall corner can be from the edge of the layer below, for
+/// `sameCornerBelow` (µm).
+const corner_reach = 1500;
+
+/// True if the layer below has the corner v too: v is near the edge of the
+/// layer below (a wall is inside the outline), and the points 0.2 mm from v
+/// along both edges of the corner (to `back` and to `on`) are at the same
+/// distance from that edge as v (within 0.05 mm). Where the corner moves
+/// from the layer below, one of its edges goes away from that edge.
+fn sameCornerBelow(b: *const geom.EdgeIndex, v: Point, back: Point, on: Point) bool {
+    const d0 = b.distance(v, corner_reach);
+    if (d0 >= corner_reach) return false;
+    for ([_]Point{ back, on }) |q| {
+        const dx: f64 = @floatFromInt(q.x - v.x);
+        const dy: f64 = @floatFromInt(q.y - v.y);
+        const len = std.math.hypot(dx, dy);
+        if (len < 1) return false;
+        const t = @min(200.0, len) / len;
+        const p: Point = .{ .x = v.x + @as(i64, @intFromFloat(@round(dx * t))), .y = v.y + @as(i64, @intFromFloat(@round(dy * t))) };
+        if (@abs(b.distance(p, corner_reach) - d0) >= 50) return false;
+    }
+    return true;
 }
 
 /// The first point at least `dist` µm along the loop from vertex i (on, or
@@ -2370,7 +2405,9 @@ const BelowIndex = struct {
     /// The index, or null if there is no layer below.
     fn get(self: *BelowIndex) Allocator.Error!?*const geom.EdgeIndex {
         if (self.outline.isEmpty()) return null;
-        if (self.index == null) self.index = try .init(self.s, self.outline, 0);
+        // A pad of 1.5 mm, for the distance query of the seam (see
+        // hiddenIndex): the inner walls are that far in.
+        if (self.index == null) self.index = try .init(self.s, self.outline, corner_reach);
         return &self.index.?;
     }
 };
@@ -2771,10 +2808,34 @@ test "hidden seam" {
     var below: Paths = .empty;
     defer below.deinit(testing.allocator);
     try below.append(testing.allocator, &.{ .init(-1000, -1000), .init(5_000, -1000), .init(5_000, 11_000), .init(-1000, 11_000) });
-    const index: geom.EdgeIndex = try .init(testing.allocator, below, 0);
+    const index: geom.EdgeIndex = try .init(testing.allocator, below, corner_reach);
     defer testing.allocator.free(index.starts);
     defer testing.allocator.free(index.edges);
     try testing.expectEqual(@as(usize, 3), hiddenIndex(&sq, &index));
+}
+
+test "hidden seam: a corner that stays in place wins over one that moves" {
+    // The left piece of a layer through a round hole: its right side is
+    // the edge of the hole. The layer below is wider there (the hole is
+    // narrower), so the rear right corner moves from layer to layer; the
+    // rear left corner is an edge of the part.
+    const piece = [_]Point{ .init(0, 0), .init(10_000, 0), .init(10_000, 10_000), .init(0, 10_000) };
+    var below: Paths = .empty;
+    defer below.deinit(testing.allocator);
+    try below.append(testing.allocator, &.{ .init(0, 0), .init(10_500, 0), .init(10_500, 10_000), .init(0, 10_000) });
+    const index: geom.EdgeIndex = try .init(testing.allocator, below, corner_reach);
+    defer testing.allocator.free(index.starts);
+    defer testing.allocator.free(index.edges);
+    try testing.expectEqual(@as(usize, 3), hiddenIndex(&piece, &index));
+    // Mirrored: the hole at the left; the rear right corner stays.
+    const right = [_]Point{ .init(0, 0), .init(10_000, 0), .init(10_000, 10_000), .init(0, 10_000) };
+    var below2: Paths = .empty;
+    defer below2.deinit(testing.allocator);
+    try below2.append(testing.allocator, &.{ .init(-500, 0), .init(10_000, 0), .init(10_000, 10_000), .init(-500, 10_000) });
+    const index2: geom.EdgeIndex = try .init(testing.allocator, below2, corner_reach);
+    defer testing.allocator.free(index2.starts);
+    defer testing.allocator.free(index2.edges);
+    try testing.expectEqual(@as(usize, 2), hiddenIndex(&right, &index2));
 }
 
 test "the plan prints all paths of one island before the next island" {
