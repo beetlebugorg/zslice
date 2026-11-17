@@ -111,6 +111,14 @@ pub const Prepared = struct {
     index: ?CombIndex = null,
     /// The memory of `index`.
     arena: ?std.heap.ArenaAllocator = null,
+    /// The plan of the layer from the dry run: the moves with their
+    /// planned times, the speed ratio of a short layer, and the layer
+    /// time. The text run of the same layer starts from the same state, so
+    /// it takes them and does not plan again (see `Emitter.layer`).
+    plan_moves: std.ArrayList(motion.Move) = .empty,
+    plan_slow: f64 = 1,
+    plan_time: f64 = 0,
+    have_plan: bool = false,
 
     pub const PathPrep = struct {
         /// The nozzle position that the way of the travel starts from.
@@ -133,12 +141,15 @@ pub const Prepared = struct {
         t.lengths.clearRetainingCapacity();
         t.index = null;
         if (t.arena) |*a| _ = a.reset(.retain_capacity);
+        t.plan_moves.clearRetainingCapacity();
+        t.have_plan = false;
     }
 
     pub fn deinit(t: *Prepared, gpa: std.mem.Allocator) void {
         t.paths.deinit(gpa);
         t.way_points.deinit(gpa);
         t.lengths.deinit(gpa);
+        t.plan_moves.deinit(gpa);
         if (t.arena) |*a| a.deinit();
     }
 };
@@ -548,6 +559,23 @@ pub const Emitter = struct {
             try self.w.writeAll("\n");
         }
         self.bed_temp = s.filament.bed_temp;
+        // The text run of a layer takes the plan of its dry run (see
+        // Prepared.plan_moves).
+        if (!self.dry) if (self.prep) |pr| if (pr.have_plan) {
+            const layer_time = pr.plan_time;
+            try self.coolingFan(lp, layer_time);
+            const lap = s.filament.cooling_mode == .lap;
+            const short = layer_time < s.filament.min_layer_time;
+            self.planned = pr.plan_moves.items;
+            self.next_move = 0;
+            defer self.planned = &.{};
+            try self.paths(lp, pr.plan_slow, lap and short);
+            std.debug.assert(self.next_move == pr.plan_moves.items.len);
+            if (lap and lp.index >= g.filament.fan_off_layers and short) {
+                try self.coolingLap(lp, s.filament.min_layer_time - layer_time);
+            }
+            return;
+        };
         // The first pass: the moves of the layer at full speed, with no
         // text, on a copy of the emitter.
         var moves: std.ArrayList(motion.Move) = .empty;
@@ -564,14 +592,7 @@ pub const Emitter = struct {
         const fixed = probe.stats.print_time_s - self.stats.print_time_s;
         const layer_time = fixed + motion.plan(moves.items, lim);
 
-        // Cooling.
-        const ratio = if (lp.index < g.filament.fan_off_layers)
-            0
-        else if (layer_time < s.filament.fan_boost_time)
-            s.filament.fan_max_speed
-        else
-            s.filament.fan_speed;
-        try self.setFan(@intFromFloat(@round(255 * ratio)));
+        try self.coolingFan(lp, layer_time);
         var slow: f64 = 1;
         const lap = s.filament.cooling_mode == .lap;
         const short = layer_time < s.filament.min_layer_time;
@@ -607,6 +628,14 @@ pub const Emitter = struct {
             }
         }
 
+        // The dry run keeps the plan for the text run.
+        if (self.dry) if (self.prep) |pr| {
+            pr.plan_moves.clearRetainingCapacity();
+            try pr.plan_moves.appendSlice(self.gpa, moves.items);
+            pr.plan_slow = slow;
+            pr.plan_time = layer_time;
+            pr.have_plan = true;
+        };
         // The second pass: the text, with the planned time of each move.
         self.planned = moves.items;
         self.next_move = 0;
@@ -616,6 +645,20 @@ pub const Emitter = struct {
         if (lap and lp.index >= g.filament.fan_off_layers and short) {
             try self.coolingLap(lp, s.filament.min_layer_time - layer_time);
         }
+    }
+
+    /// The fan of a layer: off on the first layers, the boost speed on a
+    /// layer that prints in less than `fan_boost_time`, else the fan speed.
+    fn coolingFan(self: *Emitter, lp: *const LayerPlan, layer_time: f64) Error!void {
+        const g = self.r.settings;
+        const s = self.lr.settings;
+        const ratio = if (lp.index < g.filament.fan_off_layers)
+            0
+        else if (layer_time < s.filament.fan_boost_time)
+            s.filament.fan_max_speed
+        else
+            s.filament.fan_speed;
+        try self.setFan(@intFromFloat(@round(255 * ratio)));
     }
 
     /// The speed of an extrusion with the full speed `full` on a layer that
