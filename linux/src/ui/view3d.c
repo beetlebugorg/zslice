@@ -202,6 +202,9 @@ static void load_data(View3d *v) {
     if (part && !v->part_picked && zs_app_part_count(zg_model_core(v->model)) > (size_t)atoi(part)) {
         v->part_picked = TRUE;
         zg_model_select_part(v->model, atoi(part));
+        /* As after a Ctrl+click: the keys go to the preview. */
+        GtkWidget *preview = gtk_widget_get_ancestor(v->area, GTK_TYPE_OVERLAY);
+        if (preview) gtk_widget_grab_focus(preview);
     }
     /* For development and screenshots: ZSLICE_ZOOM=0.3 starts nearer. */
     const char *zoom = g_getenv("ZSLICE_ZOOM");

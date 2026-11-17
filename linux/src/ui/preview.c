@@ -591,6 +591,31 @@ gboolean zg_preview_is_cut(GtkWidget *preview) {
     return zg_layer_range_get_lo(r) > 0 || zg_layer_range_get_hi(r) + 1 < p->layer_count;
 }
 
+static void on_remove_answer(GObject *source, GAsyncResult *res, gpointer data) {
+    Preview *p = data;
+    int button = gtk_alert_dialog_choose_finish(GTK_ALERT_DIALOG(source), res, NULL);
+    gint64 part = GPOINTER_TO_INT(g_object_get_data(source, "zg-part")) - 1;
+    if (button == 1 && part >= 0 && part == zg_model_selected_part(p->model)) zg_model_part_remove(p->model, (size_t)part);
+}
+
+/* Asks before Delete removes a part from the plate. */
+static void confirm_remove(Preview *p, size_t part) {
+    zs_part info;
+    char *name = zs_app_part_get(zg_model_core(p->model), part, &info) == ZS_OK && info.name && info.name[0]
+                     ? g_strdup(info.name) : g_strdup_printf("part %zu", part + 1);
+    char *msg = g_strdup_printf("Remove %s from the plate?", name);
+    GtkAlertDialog *d = gtk_alert_dialog_new("%s", msg);
+    const char *buttons[] = {"Cancel", "Remove", NULL};
+    gtk_alert_dialog_set_buttons(d, buttons);
+    gtk_alert_dialog_set_cancel_button(d, 0);
+    gtk_alert_dialog_set_default_button(d, 1);
+    g_object_set_data(G_OBJECT(d), "zg-part", GINT_TO_POINTER((int)part + 1));
+    gtk_alert_dialog_choose(d, GTK_WINDOW(gtk_widget_get_root(p->area)), NULL, on_remove_answer, p);
+    g_object_unref(d);
+    g_free(msg);
+    g_free(name);
+}
+
 static gboolean on_preview_key(GtkEventControllerKey *c, guint key, guint code, GdkModifierType mods, gpointer data) {
     Preview *p = data;
     if (mods & (GDK_CONTROL_MASK | GDK_ALT_MASK | GDK_SUPER_MASK)) return FALSE;
@@ -600,6 +625,22 @@ static gboolean on_preview_key(GtkEventControllerKey *c, guint key, guint code, 
     GtkWidget *focus = gtk_root_get_focus(gtk_widget_get_root(p->area));
     if (focus && (GTK_IS_EDITABLE(focus) || gtk_widget_get_ancestor(focus, GTK_TYPE_POPOVER))) return FALSE;
     if (zg_view3d_menu_open(p->view3d)) return FALSE;
+    /* A selected part (Ctrl+click): [ and ] turn it 15 degrees (with
+     * Shift: 1 degree), and Delete removes it, after a question. */
+    gint64 part = zg_model_selected_part(p->model);
+    if (part >= 0 && (key == GDK_KEY_bracketleft || key == GDK_KEY_bracketright || key == GDK_KEY_braceleft ||
+                      key == GDK_KEY_braceright)) {
+        zs_part info;
+        if (zs_app_part_get(zg_model_core(p->model), (size_t)part, &info) != ZS_OK) return TRUE;
+        double step = (mods & GDK_SHIFT_MASK) ? 1 : 15;
+        if (key == GDK_KEY_bracketleft || key == GDK_KEY_braceleft) step = -step;
+        zg_model_part_rotate(p->model, (size_t)part, info.rotation + step);
+        return TRUE;
+    }
+    if (part >= 0 && (key == GDK_KEY_Delete || key == GDK_KEY_KP_Delete)) {
+        confirm_remove(p, (size_t)part);
+        return TRUE;
+    }
     zs_toolpaths tp;
     if (zs_app_toolpaths(zg_model_core(p->model), &tp) != ZS_OK || tp.layer_count == 0) return FALSE;
     gint64 sel = zg_model_selected(p->model);
