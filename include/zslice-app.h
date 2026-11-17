@@ -277,6 +277,25 @@ typedef struct zs_inspect {
     int slow_reason;
 } zs_inspect;
 
+/* The printability check of the last slice (src/app/checks.zig): each
+ * issue has its kind, its severity (0 note, 1 warning, 2 problem), its
+ * layer, the path it is about (ZS_NO_PATH: none), a place in mm, a size
+ * (flow in %, layer time in s, area in mm², or a count), and its text,
+ * text[text_start .. text_start + text_len) of the text of the call. The
+ * worst first. Valid until the next slice. */
+enum zs_issue_kind { ZS_ISSUE_FLOW = 0, ZS_ISSUE_COOLING = 1, ZS_ISSUE_OVERHANG = 2, ZS_ISSUE_ISLAND = 3, ZS_ISSUE_RETRACTIONS = 4, ZS_ISSUE_BRIDGE = 5 };
+#define ZS_NO_PATH 0xffffffffu
+typedef struct {
+    uint8_t kind;
+    uint8_t severity;
+    uint32_t layer;
+    uint32_t path;
+    double x, y;
+    double value;
+    uint32_t text_start, text_len;
+} zs_issue;
+int zs_app_checks(zs_app *app, const zs_issue **issues, size_t *n, const char **text);
+
 /* The built-in profiles of a group (enum zs_group): their number and
  * their names. Apply one with the text `extends = "name"`
  * (zs_app_profile_apply). */

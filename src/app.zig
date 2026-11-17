@@ -50,6 +50,8 @@ const setting_info = @import("app/setting_info.zig");
 pub const sweep = @import("app/sweep.zig");
 /// The settings that can close a gap (see app/gap_advice.zig).
 pub const gap_advice = @import("app/gap_advice.zig");
+/// The printability check (see app/checks.zig).
+pub const checks_mod = @import("app/checks.zig");
 
 pub const Toolpaths = toolpaths_mod.Toolpaths;
 pub const LayerPaths = toolpaths_mod.LayerPaths;
@@ -159,6 +161,8 @@ pub const App = struct {
     gaps_layer: ?usize = null,
     gaps_result: ?zs.gaps.Result = null,
     gaps_arena: ?std.heap.ArenaAllocator = null,
+    /// The printability check of the last slice (see `checks`).
+    checks_result: ?checks_mod.Result = null,
     /// The names of layer ranges (layer profiles): the overrides with the
     /// same range are the changes of the profile. A profile can have no
     /// changes yet. The names are in `strings`.
@@ -611,7 +615,20 @@ pub const App = struct {
         return false;
     }
 
+    /// The printability check of the last slice (app/checks.zig), the
+    /// worst issues first. Valid until the next slice.
+    pub fn checks(app: *App) (Allocator.Error || error{NoResult})!*const checks_mod.Result {
+        if (app.getState() != .done) return error.NoResult;
+        if (app.checks_result) |*r| return r;
+        const j = &(app.job orelse return error.NoResult);
+        const t = app.allToolpaths() orelse return error.NoResult;
+        app.checks_result = try checks_mod.run(app.gpa, j, t, app.settings);
+        return &app.checks_result.?;
+    }
+
     fn clearGaps(app: *App) void {
+        if (app.checks_result) |*r| r.deinit(app.gpa);
+        app.checks_result = null;
         if (app.gaps_result) |*r| r.deinit(app.gpa);
         app.gaps_result = null;
         app.gaps_layer = null;
@@ -942,7 +959,7 @@ pub const App = struct {
     }
 
     /// Waits for the worker, with no cancel. For tests.
-    fn stopWorkerForTest(app: *App) void {
+    pub fn stopWorkerForTest(app: *App) void {
         if (comptime !has_threads) return;
         if (app.worker) |t| {
             t.join();
@@ -1182,6 +1199,7 @@ test {
     _ = setting_info;
     _ = sweep;
     _ = gap_advice;
+    _ = checks_mod;
     _ = @import("app/feature_settings.zig");
 }
 

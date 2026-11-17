@@ -359,6 +359,20 @@ pub const Inspect = extern struct {
     slow_reason: c_int,
 };
 
+/// The printability check of the last slice: the issues, the worst
+/// first, and the text that they point into. Valid until the next slice.
+export fn zs_app_checks(a: ?*App, issues: ?*?[*]const zs.app.checks_mod.Issue, n: ?*usize, text: ?*?[*]const u8) c_int {
+    const app = a orelse return @intFromEnum(Status.invalid_argument);
+    const r = app.checks() catch |e| return switch (e) {
+        error.NoResult => @intFromEnum(Status.no_result),
+        else => status(e),
+    };
+    if (issues) |o| o.* = r.issues.ptr;
+    if (n) |o| o.* = r.issues.len;
+    if (text) |o| o.* = r.text.ptr;
+    return ok;
+}
+
 /// The number of built-in profiles of a group (enum zs_group).
 export fn zs_builtin_profile_count(group: c_int) usize {
     var n: usize = 0;

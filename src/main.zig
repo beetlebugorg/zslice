@@ -13,6 +13,7 @@ const usage =
     \\  zslice slice <model.stl> [options] [-o out.gcode]
     \\  zslice preview <model.stl> --layer N [options] [-o out.svg]
     \\  zslice gaps <model.stl> [--layer N] [options]
+    \\  zslice check <model.stl> [options]
     \\  zslice profiles
     \\  zslice profile <machine|filament|project> [options]
     \\  zslice import cura <stack folder> -o <profiles folder>
@@ -24,6 +25,9 @@ const usage =
     \\Commands:
     \\  slice     Slice a model and write G-code (default output: stdout).
     \\  preview   Write an SVG picture of one layer.
+    \\  check     The printability check: lines over the flow limit of the
+    \\            hot end, layers that cool too little, overhangs with no
+    \\            support, islands, and layers with many retractions.
     \\  gaps      List the gaps of one layer (or of all layers): the areas
     \\            that should be solid and that no bead covers, with their
     \\            size and the features around them.
@@ -143,7 +147,8 @@ pub fn main(init: std.process.Init) !void {
     const is_bench = std.mem.eql(u8, cmd, "bench");
     const is_sweep = std.mem.eql(u8, cmd, "sweep");
     const is_gaps = std.mem.eql(u8, cmd, "gaps");
-    if (!is_bench and !is_sweep and !is_gaps and !std.mem.eql(u8, cmd, "slice") and !std.mem.eql(u8, cmd, "preview") and !is_profile) {
+    const is_check = std.mem.eql(u8, cmd, "check");
+    if (!is_bench and !is_sweep and !is_gaps and !is_check and !std.mem.eql(u8, cmd, "slice") and !std.mem.eql(u8, cmd, "preview") and !is_profile) {
         fail(err, "unknown command: {s}\n\n{s}", .{ cmd, usage });
     }
 
@@ -188,6 +193,20 @@ pub fn main(init: std.process.Init) !void {
 
     const in_path = opts.input orelse fail(err, "{s}", .{usage});
     const bytes = try Io.Dir.cwd().readFileAlloc(io, in_path, gpa, .unlimited);
+    if (is_check) {
+        defer gpa.free(bytes);
+        const app = try zslice.app.App.create(gpa, null, null);
+        defer app.destroy();
+        app.settings = settings;
+        try app.loadStl(std.fs.path.basename(in_path), bytes);
+        _ = try benchSlice(app, io);
+        const r = try app.checks();
+        const kinds = [_][]const u8{ "flow", "cooling", "overhang", "island", "retractions", "bridge" };
+        const sev = [_][]const u8{ "note", "warning", "problem" };
+        for (r.issues) |i| try err.print("{s} {s}: {s}\n", .{ sev[i.severity], kinds[@intFromEnum(i.kind)], r.textOf(i) });
+        try err.print("{d} issues\n", .{r.issues.len});
+        return;
+    }
     if (is_bench) {
         defer gpa.free(bytes);
         try bench(gpa, io, err, in_path, bytes, settings, opts.only, opts.runs);
