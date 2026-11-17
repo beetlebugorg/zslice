@@ -10,7 +10,8 @@
 //!
 //! The 2D tools that the stages use: `geom` (points and polygons), `clip`
 //! (polygon booleans), `offset` (polygon offset), `voronoi` (the Voronoi
-//! diagram of segments), and `infill` (line fill).
+//! diagram of segments), and `infill` (line fill). `arachne` makes the
+//! variable-width walls.
 //!
 //! Basic use:
 //!
@@ -26,6 +27,7 @@ pub const clip = @import("clip.zig");
 pub const clip_open = @import("clip_open.zig");
 pub const offset = @import("offset.zig");
 pub const voronoi = @import("voronoi.zig");
+pub const arachne = @import("arachne.zig");
 pub const mesh = @import("mesh.zig");
 pub const plate = @import("plate.zig");
 pub const zipfile = @import("zipfile.zig");

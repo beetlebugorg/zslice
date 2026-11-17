@@ -16,5 +16,6 @@ pub const licenses = [_]License{
     .{ .name = "musl libc (math functions)", .license = "MIT", .text = @embedFile("license_musl") },
     .{ .name = "Go (number parsing)", .license = "BSD-3-Clause", .text = @embedFile("license_go") },
     .{ .name = "ARM optimized-routines (acos)", .license = "MIT", .text = @embedFile("license_arm") },
+    .{ .name = "CuraEngine (Arachne walls), Copyright (c) 2026 UltiMaker", .license = "AGPL-3.0-or-later", .text = @embedFile("license_zslice") },
     .{ .name = "boost::polygon (Voronoi diagram), Copyright Andrii Sydorchuk 2010-2012", .license = "BSL-1.0", .text = @embedFile("license_boost") },
 };
