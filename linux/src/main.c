@@ -130,6 +130,10 @@ static void on_startup(GApplication *app, gpointer data) {
     gtk_application_set_accels_for_action(GTK_APPLICATION(app), "app.quit", quit_keys);
     const char *prefs_keys[] = {"<Control>comma", NULL};
     gtk_application_set_accels_for_action(GTK_APPLICATION(app), "win.preferences", prefs_keys);
+    const char *undo_keys[] = {"<Control>z", NULL};
+    const char *redo_keys[] = {"<Control><Shift>z", "<Control>y", NULL};
+    gtk_application_set_accels_for_action(GTK_APPLICATION(app), "win.undo", undo_keys);
+    gtk_application_set_accels_for_action(GTK_APPLICATION(app), "win.redo", redo_keys);
     const char *save_keys[] = {"<Control>s", NULL};
     gtk_application_set_accels_for_action(GTK_APPLICATION(app), "win.save-plate", save_keys);
     /* The model loaded the printers and the app settings. */

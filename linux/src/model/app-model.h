@@ -169,6 +169,13 @@ const ZgRoll *zg_model_rolls(ZgModel *self, size_t *n, const char **printer);
  * material, with its name and color. */
 void zg_model_use_roll(ZgModel *self, const ZgRoll *roll);
 
+/* Undo and redo of the settings (all three groups). A burst of changes
+ * (a drag of a slider) is one step. "undo-changed" follows each step. */
+gboolean zg_model_undo(ZgModel *self);
+gboolean zg_model_redo(ZgModel *self);
+gboolean zg_model_can_undo(ZgModel *self);
+gboolean zg_model_can_redo(ZgModel *self);
+
 /* Loads a profile text into a group (enum zs_group): the built-in
  * defaults, then the text. On an error the settings stay as they were.
  * Saves the group and slices again. */

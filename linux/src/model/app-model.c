@@ -66,6 +66,13 @@ struct _ZgModel {
     /* The roll of filament in the printer (see zg_model_set_roll): its
      * key, or NULL. The filament settings are saved for it too. */
     char *roll;
+    /* Undo and redo of the settings: snapshots of the three groups (the
+     * texts of zg_model_group_text, joined with \x1e). `undo_now` is the
+     * state after the last step; a burst of changes (a drag) is one step. */
+    GPtrArray *undo, *redo;
+    char *undo_now;
+    guint undo_timer;
+    gboolean undo_restoring;
     /* The rolls of the current printer (zg_model_set_rolls). */
     ZgRoll *rolls;
     size_t n_rolls;
@@ -179,7 +186,7 @@ static void load_group(ZgModel *self, int g) {
 
 G_DEFINE_FINAL_TYPE(ZgModel, zg_model, G_TYPE_OBJECT)
 
-enum { SIGNAL_CORE_EVENT, SIGNAL_SELECTION_CHANGED, SIGNAL_PICKED, SIGNAL_SETTING_CHANGED, SIGNAL_FOCUS_CHANGED, SIGNAL_SCOPE_CHANGED, SIGNAL_PRINTER_CHANGED, SIGNAL_PRINTERS_EDITED, SIGNAL_PART_SELECTED, SIGNAL_PLATE_CHANGED, SIGNAL_SEGMENT_CHANGED, SIGNAL_PROFILES_CHANGED, SIGNAL_OPEN_PROFILE, SIGNAL_GAPS_CHANGED, N_SIGNALS };
+enum { SIGNAL_CORE_EVENT, SIGNAL_SELECTION_CHANGED, SIGNAL_PICKED, SIGNAL_SETTING_CHANGED, SIGNAL_FOCUS_CHANGED, SIGNAL_SCOPE_CHANGED, SIGNAL_PRINTER_CHANGED, SIGNAL_PRINTERS_EDITED, SIGNAL_PART_SELECTED, SIGNAL_PLATE_CHANGED, SIGNAL_SEGMENT_CHANGED, SIGNAL_PROFILES_CHANGED, SIGNAL_OPEN_PROFILE, SIGNAL_GAPS_CHANGED, SIGNAL_UNDO_CHANGED, N_SIGNALS };
 static guint signals[N_SIGNALS];
 
 typedef struct {
@@ -303,6 +310,11 @@ static void zg_model_dispose(GObject *object) {
     }
     if (self->core && self->dirty) save_state(self);
     rolls_clear(self);
+    if (self->undo_timer) g_source_remove(self->undo_timer);
+    self->undo_timer = 0;
+    g_clear_pointer(&self->undo, g_ptr_array_unref);
+    g_clear_pointer(&self->redo, g_ptr_array_unref);
+    g_clear_pointer(&self->undo_now, g_free);
     if (self->core) {
         /* Stops and joins the worker, so no new events follow. */
         zs_app_free(self->core);
@@ -359,6 +371,10 @@ static void zg_model_class_init(ZgModelClass *klass) {
         G_SIGNAL_RUN_LAST, 0, NULL, NULL, NULL, G_TYPE_NONE, 0);
     /* gaps-changed(): the gaps view went on or off, or another gap is
      * selected (zg_model_set_gaps, zg_model_select_gap). */
+    /* undo-changed(): a step went on the undo list, or an undo or a redo
+     * ran (zg_model_undo). */
+    signals[SIGNAL_UNDO_CHANGED] = g_signal_new("undo-changed", G_TYPE_FROM_CLASS(klass),
+        G_SIGNAL_RUN_LAST, 0, NULL, NULL, NULL, G_TYPE_NONE, 0);
     signals[SIGNAL_GAPS_CHANGED] = g_signal_new("gaps-changed", G_TYPE_FROM_CLASS(klass),
         G_SIGNAL_RUN_LAST, 0, NULL, NULL, NULL, G_TYPE_NONE, 0);
     /* open-profile(double z_min, double z_max): a request to edit the
@@ -834,6 +850,100 @@ gint64 zg_model_selected_gap(ZgModel *self, gint64 *layer) {
     return self->gap_index;
 }
 
+/* ---- undo and redo of the settings ---- */
+
+enum { UNDO_MAX = 100 };
+
+static char *undo_snapshot(ZgModel *self) {
+    GString *s = g_string_new(NULL);
+    for (int g = 0; g < 3; g++) {
+        char *t = zg_model_group_text(self, g);
+        if (g) g_string_append_c(s, '\x1e');
+        g_string_append(s, t);
+        g_free(t);
+    }
+    return g_string_free(s, FALSE);
+}
+
+/* Ends the step of the changes so far: the state before it goes on the
+ * undo list. */
+static void undo_commit(ZgModel *self) {
+    if (self->undo_timer) {
+        g_source_remove(self->undo_timer);
+        self->undo_timer = 0;
+    }
+    char *now = undo_snapshot(self);
+    if (self->undo_now && strcmp(now, self->undo_now) != 0) {
+        g_ptr_array_add(self->undo, self->undo_now);
+        if (self->undo->len > UNDO_MAX) g_ptr_array_remove_index(self->undo, 0);
+        g_ptr_array_set_size(self->redo, 0);
+        self->undo_now = now;
+        g_signal_emit(self, signals[SIGNAL_UNDO_CHANGED], 0);
+    } else {
+        g_free(self->undo_now);
+        self->undo_now = now;
+    }
+}
+
+static gboolean on_undo_timer(gpointer data) {
+    ZgModel *self = data;
+    self->undo_timer = 0;
+    undo_commit(self);
+    return G_SOURCE_REMOVE;
+}
+
+static void on_undo_change(ZgModel *self, const char *key, gpointer data) {
+    if (self->undo_restoring) return;
+    if (self->undo_timer) g_source_remove(self->undo_timer);
+    self->undo_timer = g_timeout_add(400, on_undo_timer, self);
+}
+
+/* Loads a snapshot: each group whose text differs. */
+static void undo_restore(ZgModel *self, const char *snap) {
+    char **parts = g_strsplit(snap, "\x1e", 3);
+    self->undo_restoring = TRUE;
+    for (int g = 0; g < 3 && parts[g]; g++) {
+        char *now = zg_model_group_text(self, g);
+        if (strcmp(now, parts[g]) != 0) {
+            GError *error = NULL;
+            if (!zg_model_load_profile(self, g, parts[g], strlen(parts[g]), &error)) {
+                g_warning("zslice: undo: %s", error->message);
+                g_error_free(error);
+            }
+        }
+        g_free(now);
+    }
+    self->undo_restoring = FALSE;
+    g_strfreev(parts);
+}
+
+static gboolean undo_move(ZgModel *self, GPtrArray *from, GPtrArray *to) {
+    undo_commit(self);
+    if (from->len == 0) return FALSE;
+    char *snap = g_ptr_array_steal_index(from, from->len - 1);
+    g_ptr_array_add(to, self->undo_now);
+    self->undo_now = snap;
+    undo_restore(self, snap);
+    g_signal_emit(self, signals[SIGNAL_UNDO_CHANGED], 0);
+    return TRUE;
+}
+
+gboolean zg_model_undo(ZgModel *self) {
+    return undo_move(self, self->undo, self->redo);
+}
+
+gboolean zg_model_redo(ZgModel *self) {
+    return undo_move(self, self->redo, self->undo);
+}
+
+gboolean zg_model_can_undo(ZgModel *self) {
+    return self->undo->len > 0 || self->undo_timer != 0;
+}
+
+gboolean zg_model_can_redo(ZgModel *self) {
+    return self->redo->len > 0 && self->undo_timer == 0;
+}
+
 static void zg_model_init(ZgModel *self) {
     self->selected = -1;
     self->segment = -1;
@@ -844,6 +954,10 @@ static void zg_model_init(ZgModel *self) {
     int rc = zs_app_new(on_core_event, self->bridge, &self->core);
     if (rc != ZS_OK) g_error("zslice: the app core did not start: %s", zg_status_text(rc));
     load_state(self);
+    self->undo = g_ptr_array_new_with_free_func(g_free);
+    self->redo = g_ptr_array_new_with_free_func(g_free);
+    self->undo_now = undo_snapshot(self);
+    g_signal_connect(self, "setting-changed", G_CALLBACK(on_undo_change), NULL);
 }
 
 ZgModel *zg_model_new(void) {

@@ -922,6 +922,45 @@ static void on_open_clicked(GtkButton *b, gpointer data) {
     zg_window_open_dialog(GTK_WINDOW(data));
 }
 
+/* Undo and redo of the settings (Ctrl+Z, Ctrl+Shift+Z or Ctrl+Y). */
+static void on_undo_action(GSimpleAction *a, GVariant *v, gpointer data) {
+    zg_model_undo(get(data)->model);
+}
+
+static void on_redo_action(GSimpleAction *a, GVariant *v, gpointer data) {
+    zg_model_redo(get(data)->model);
+}
+
+static void on_undo_changed(ZgModel *model, gpointer data) {
+    Window *w = data;
+    GAction *u = g_action_map_lookup_action(G_ACTION_MAP(w->window), "undo");
+    GAction *r = g_action_map_lookup_action(G_ACTION_MAP(w->window), "redo");
+    /* Undo stays on: a change can wait in its burst (zg_model_can_undo). */
+    if (u) g_simple_action_set_enabled(G_SIMPLE_ACTION(u), TRUE);
+    if (r) g_simple_action_set_enabled(G_SIMPLE_ACTION(r), zg_model_can_redo(model));
+}
+
+/* For development: ZSLICE_UNDO_TEST=1 changes the infill density twice,
+ * then undoes and redoes, and logs each value. */
+static gboolean undo_test_step(gpointer data) {
+    Window *w = data;
+    static int step = 0;
+    char *v;
+    switch (step++) {
+    case 0: zg_model_set(w->model, "project.infill_density", "0.55", NULL); break;
+    case 1: zg_model_set(w->model, "project.infill_density", "0.6", NULL);
+            zg_model_set(w->model, "project.infill_density", "0.7", NULL); break;
+    case 2: zg_model_undo(w->model); break;
+    case 3: zg_model_undo(w->model); break;
+    case 4: zg_model_redo(w->model); break;
+    default: return G_SOURCE_REMOVE;
+    }
+    v = zg_model_get(w->model, "project.infill_density");
+    g_message("undo test %d: infill_density = %s", step - 1, v);
+    g_free(v);
+    return G_SOURCE_CONTINUE;
+}
+
 /* The button of the summary: print on the printer, or export a file. */
 static void on_sum_clicked(GtkButton *b, gpointer data) {
     Window *w = get(data);
@@ -1025,10 +1064,20 @@ GtkWindow *zg_window_new(GtkApplication *app, ZgModel *model) {
         {.name = "export-all", .activate = on_export_all_action},
         {.name = "save-plate", .activate = on_save_plate_action},
         {.name = "clear-plate", .activate = on_clear_action},
+        {.name = "undo", .activate = on_undo_action},
+        {.name = "redo", .activate = on_redo_action},
     };
     g_action_map_add_action_entries(G_ACTION_MAP(w->window), win_actions, G_N_ELEMENTS(win_actions), w->window);
+    g_signal_connect(model, "undo-changed", G_CALLBACK(on_undo_changed), w);
+    on_undo_changed(model, w);
+    if (g_getenv("ZSLICE_UNDO_TEST")) g_timeout_add(1000, undo_test_step, w);
 
     GMenu *menu = g_menu_new();
+    GMenu *edit = g_menu_new();
+    g_menu_append(edit, "Undo", "win.undo");
+    g_menu_append(edit, "Redo", "win.redo");
+    g_menu_append_section(menu, NULL, G_MENU_MODEL(edit));
+    g_object_unref(edit);
     g_menu_append(menu, "Save the plate as 3MF…", "win.save-plate");
     g_menu_append(menu, "Send all plates", "win.send-all");
     g_menu_append(menu, "Export all plates\u2026", "win.export-all");
