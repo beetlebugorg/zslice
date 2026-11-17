@@ -215,6 +215,14 @@ Click in the preview first, so that it gets the keys.
 
 A click on a line selects the line (yellow) and the segment under the pointer (orange). After the last segment of a line, → goes on to the first segment of the next line. Shift with ↑ or ↓ (or k or j) moves the bottom knob of the layer slider. A line of the same feature (for example an outer wall) wins over a line of another feature that is a little nearer. The layer slider follows the selection.
 
+## Gaps
+
+Turn on **Gaps** in the preview toolbar to see the gaps of the top layer of the layer slider in red: the areas that should be solid that no line covers (the sparse infill is left out, as it is sparse on purpose). The toolbar gives the number of gaps of the layer and their area.
+
+Click a gap to select it. The Selected page then gives its size, its width, the lines next to it, and the settings that can close it, the best first, with the value to try and why. **Apply** changes the setting for all prints; **This layer** changes it only for the layer of the gap. The part slices again, and the page shows the same gap with the new settings, or says that it is closed.
+
+`zslice gaps part.stl` lists the gaps of each layer on the command line (`--layer N` for one layer).
+
 ## Layer profiles
 
 A layer profile changes settings for some layers only, for example a denser infill from layer 48 up.

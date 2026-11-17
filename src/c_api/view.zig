@@ -142,6 +142,23 @@ export fn zs_view_bed_point(view: ?*const View, px: f32, py: f32, x: ?*f64, y: ?
     return 1;
 }
 
+/// Shows the gaps of layer `layer` of the last slice of `app` in red, or
+/// none for a negative layer.
+export fn zs_view_show_gaps(view: ?*View, app: ?*App, layer: i64) void {
+    if (!render_on) return;
+    const v = view orelse return;
+    const a = app orelse return;
+    v.setGaps(a, if (layer < 0) null else @intCast(layer));
+}
+
+/// The index of the shown gap under the pixel (px, py), or -1.
+export fn zs_view_gap_at(view: ?*const View, app: ?*App, px: f32, py: f32) i64 {
+    if (!render_on) return -1;
+    const v = view orelse return -1;
+    const a = app orelse return -1;
+    return if (v.gapAt(a, px, py)) |i| @intCast(i) else -1;
+}
+
 export fn zs_view_rotate(view: ?*View, dx: f32, dy: f32) void {
     if (!render_on) return;
     const v = view orelse return;

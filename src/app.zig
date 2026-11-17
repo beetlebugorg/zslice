@@ -48,6 +48,8 @@ const setting_effect = @import("app/setting_effect.zig");
 const setting_info = @import("app/setting_info.zig");
 /// The sweep of the settings (see app/sweep.zig).
 pub const sweep = @import("app/sweep.zig");
+/// The settings that can close a gap (see app/gap_advice.zig).
+pub const gap_advice = @import("app/gap_advice.zig");
 
 pub const Toolpaths = toolpaths_mod.Toolpaths;
 pub const LayerPaths = toolpaths_mod.LayerPaths;
@@ -152,6 +154,11 @@ pub const App = struct {
     overrides: std.ArrayList(zs.settings.Override) = .empty,
     /// A copy of `overrides` for the running slice.
     slice_overrides: []zs.settings.Override = &.{},
+    /// The gaps of one layer of the last slice (see `layerGaps`), and the
+    /// memory of the advice for one of them. A new slice clears them.
+    gaps_layer: ?usize = null,
+    gaps_result: ?zs.gaps.Result = null,
+    gaps_arena: ?std.heap.ArenaAllocator = null,
     /// The names of layer ranges (layer profiles): the overrides with the
     /// same range are the changes of the profile. A profile can have no
     /// changes yet. The names are in `strings`.
@@ -178,6 +185,7 @@ pub const App = struct {
         app.spare_paths.deinit(app.gpa);
         app.overrides.deinit(app.gpa);
         app.profiles.deinit(app.gpa);
+        app.clearGaps();
         app.gpa.free(app.slice_overrides);
         app.gpa.free(app.file_bytes);
         app.marks.deinit(app.gpa);
@@ -603,6 +611,47 @@ pub const App = struct {
         return false;
     }
 
+    fn clearGaps(app: *App) void {
+        if (app.gaps_result) |*r| r.deinit(app.gpa);
+        app.gaps_result = null;
+        app.gaps_layer = null;
+        if (app.gaps_arena) |*a| a.deinit();
+        app.gaps_arena = null;
+    }
+
+    /// The gaps of layer `layer` of the last slice (see gaps.zig): the
+    /// areas that should be solid and that no bead covers. The result is
+    /// valid until the next call for another layer, or the next slice.
+    pub fn layerGaps(app: *App, layer: usize) (Allocator.Error || error{ NoResult, InvalidArgument })!*const zs.gaps.Result {
+        if (app.getState() != .done) return error.NoResult;
+        const j = &(app.job orelse return error.NoResult);
+        if (layer >= j.layerCount()) return error.InvalidArgument;
+        if (app.gaps_layer) |l| if (l == layer) if (app.gaps_result) |*r| return r;
+        app.clearGaps();
+        var lp = try j.planLayer(layer);
+        defer lp.deinit();
+        app.gaps_result = try zs.gaps.find(app.gpa, &lp, .{});
+        app.gaps_layer = layer;
+        return &app.gaps_result.?;
+    }
+
+    /// The settings that can close gap `index` of layer `layer` (see
+    /// `layerGaps`), the best first, with the values of that layer.
+    pub fn gapAdvice(app: *App, layer: usize, index: usize) (Allocator.Error || Settings.SetError || error{ NoResult, InvalidArgument })![]const gap_advice.Step {
+        const r = try app.layerGaps(layer);
+        if (index >= r.gaps.len) return error.InvalidArgument;
+        if (app.gaps_arena) |*a| _ = a.reset(.retain_capacity) else app.gaps_arena = .init(app.gpa);
+        const s = try zs.settings.withOverrides(app.settings, app.overrides.items, app.layerZ(layer) orelse 0);
+        return gap_advice.steps(app.gaps_arena.?.allocator(), r.gaps[index], s);
+    }
+
+    /// The z of the top of layer `layer` of the last slice, or null.
+    fn layerZ(app: *const App, layer: usize) ?f64 {
+        const t = app.allToolpaths() orelse return null;
+        if (layer >= t.layer_z.items.len) return null;
+        return t.layer_z.items[layer];
+    }
+
     /// The islands of the last slice (shapes that start in the air), or
     /// none.
     pub fn islands(app: *const App) []const zs.islands.Island {
@@ -830,6 +879,7 @@ pub const App = struct {
         if (app.mesh == null) return error.NoModel;
         if (app.getState() == .slicing) return error.Busy;
         app.stopWorker();
+        app.clearGaps();
         // Keep the last job for its regions, and free the rest.
         if (app.job) |j| {
             app.dropPrevJob();
@@ -1131,6 +1181,7 @@ test {
     _ = setting_effect;
     _ = setting_info;
     _ = sweep;
+    _ = gap_advice;
     _ = @import("app/feature_settings.zig");
 }
 

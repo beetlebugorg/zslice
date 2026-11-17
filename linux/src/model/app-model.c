@@ -37,6 +37,10 @@ struct _ZgModel {
     gint64 selected;
     /* With a selected line: the other lines fade (see zg_model_set_isolate). */
     gboolean isolate;
+    /* The gaps view (see zg_model_set_gaps), and the selected gap: its
+     * layer and index, or -1. */
+    gboolean gaps_on;
+    gint64 gap_layer, gap_index;
     /* The selected segment of the selected line, or -1 (the whole line). */
     gint64 segment;
     /* The place of the selection (a layer and a point of the path), so
@@ -147,7 +151,7 @@ static void load_group(ZgModel *self, int g) {
 
 G_DEFINE_FINAL_TYPE(ZgModel, zg_model, G_TYPE_OBJECT)
 
-enum { SIGNAL_CORE_EVENT, SIGNAL_SELECTION_CHANGED, SIGNAL_PICKED, SIGNAL_SETTING_CHANGED, SIGNAL_FOCUS_CHANGED, SIGNAL_SCOPE_CHANGED, SIGNAL_PRINTER_CHANGED, SIGNAL_PRINTERS_EDITED, SIGNAL_PART_SELECTED, SIGNAL_PLATE_CHANGED, SIGNAL_SEGMENT_CHANGED, SIGNAL_PROFILES_CHANGED, SIGNAL_OPEN_PROFILE, N_SIGNALS };
+enum { SIGNAL_CORE_EVENT, SIGNAL_SELECTION_CHANGED, SIGNAL_PICKED, SIGNAL_SETTING_CHANGED, SIGNAL_FOCUS_CHANGED, SIGNAL_SCOPE_CHANGED, SIGNAL_PRINTER_CHANGED, SIGNAL_PRINTERS_EDITED, SIGNAL_PART_SELECTED, SIGNAL_PLATE_CHANGED, SIGNAL_SEGMENT_CHANGED, SIGNAL_PROFILES_CHANGED, SIGNAL_OPEN_PROFILE, SIGNAL_GAPS_CHANGED, N_SIGNALS };
 static guint signals[N_SIGNALS];
 
 typedef struct {
@@ -320,6 +324,10 @@ static void zg_model_class_init(ZgModelClass *klass) {
     /* profiles-changed(): after a change of the layer profiles or of the
      * overrides (zg_model_profile_*, a scoped edit, a reset). */
     signals[SIGNAL_PROFILES_CHANGED] = g_signal_new("profiles-changed", G_TYPE_FROM_CLASS(klass),
+        G_SIGNAL_RUN_LAST, 0, NULL, NULL, NULL, G_TYPE_NONE, 0);
+    /* gaps-changed(): the gaps view went on or off, or another gap is
+     * selected (zg_model_set_gaps, zg_model_select_gap). */
+    signals[SIGNAL_GAPS_CHANGED] = g_signal_new("gaps-changed", G_TYPE_FROM_CLASS(klass),
         G_SIGNAL_RUN_LAST, 0, NULL, NULL, NULL, G_TYPE_NONE, 0);
     /* open-profile(double z_min, double z_max): a request to edit the
      * layer profile of that range (zg_model_open_profile). */
@@ -616,9 +624,33 @@ gboolean zg_model_isolate(ZgModel *self) {
     return self->isolate;
 }
 
+void zg_model_set_gaps(ZgModel *self, gboolean on) {
+    if (self->gaps_on == on) return;
+    self->gaps_on = on;
+    if (!on) self->gap_layer = self->gap_index = -1;
+    g_signal_emit(self, signals[SIGNAL_GAPS_CHANGED], 0);
+}
+
+gboolean zg_model_gaps(ZgModel *self) {
+    return self->gaps_on;
+}
+
+void zg_model_select_gap(ZgModel *self, gint64 layer, gint64 index) {
+    if (self->gap_layer == layer && self->gap_index == index) return;
+    self->gap_layer = index < 0 ? -1 : layer;
+    self->gap_index = index;
+    g_signal_emit(self, signals[SIGNAL_GAPS_CHANGED], 0);
+}
+
+gint64 zg_model_selected_gap(ZgModel *self, gint64 *layer) {
+    if (layer) *layer = self->gap_layer;
+    return self->gap_index;
+}
+
 static void zg_model_init(ZgModel *self) {
     self->selected = -1;
     self->segment = -1;
+    self->gap_layer = self->gap_index = -1;
     self->part = -1;
     self->bridge = g_atomic_rc_box_new0(Bridge);
     g_weak_ref_init(&self->bridge->model, self);

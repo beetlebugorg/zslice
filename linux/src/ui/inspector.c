@@ -15,6 +15,7 @@
 #include "setting-row.h"
 #include "widgets.h"
 
+#include <math.h>
 #include <string.h>
 
 typedef struct {
@@ -22,6 +23,10 @@ typedef struct {
     GtkWidget *stack;   /* the page stack of the panel */
     GtkWidget *slots;   /* two slots, "a" and "b", for a crossfade */
     gboolean in_a;      /* the visible slot is "a" */
+    /* The selected gap: its layer and its center, to find it again after
+     * a new slice (its index can change). */
+    gint64 gap_layer;
+    double gap_x, gap_y;
     gboolean built;     /* the visible slot has content */
     char *signature;    /* the title and the setting names of the rows */
     /* The parts that change in place. */
@@ -438,6 +443,150 @@ static void on_part_selected(ZgModel *model, gint64 part, gpointer data) {
     gtk_stack_set_visible_child_name(GTK_STACK(ins->stack), "selected");
 }
 
+/* ---- the gap page ---- */
+
+static const char *feature_names[] = {"outer wall", "inner wall", "skin", "sparse infill", "ironing", "skirt or brim",
+                                      "support", "support interface", "slope smoothing", "slope ironing"};
+
+typedef struct {
+    ZgModel *model;
+    char *name, *value;
+    double z;     /* the top of the layer of the gap */
+    gboolean layer_only;
+} GapStep;
+
+static void gap_step_free(gpointer data, GClosure *closure) {
+    GapStep *st = data;
+    g_free(st->name);
+    g_free(st->value);
+    g_free(st);
+}
+
+/* Apply a step: for all layers, or for the layer of the gap only (an
+ * override of that layer). The slice runs again, and the gaps of the layer
+ * show the result. */
+static void on_gap_apply(GtkButton *b, gpointer data) {
+    GapStep *st = data;
+    GError *error = NULL;
+    if (st->layer_only) {
+        zg_model_set_scope(st->model, TRUE, st->z, st->z, st->z);
+        zg_model_set_for(st->model, st->name, st->value, TRUE, &error);
+    } else {
+        zg_model_set(st->model, st->name, st->value, &error);
+    }
+    if (error) {
+        g_warning("zslice: %s = %s: %s", st->name, st->value, error->message);
+        g_error_free(error);
+    }
+}
+
+static GtkWidget *build_gap_page(Inspector *ins, gint64 layer, gint64 index) {
+    GtkWidget *grid = zg_grid_new();
+    int row = 0;
+    zs_app *core = zg_model_core(ins->model);
+    const zs_gap *gaps = NULL;
+    size_t n = 0;
+    if (zs_app_layer_gaps(core, (size_t)layer, &gaps, &n, NULL, NULL) != ZS_OK || index >= (gint64)n) {
+        zg_grid_add_heading(grid, &row, "The gap is gone: the layer has changed.");
+        return grid;
+    }
+    const zs_gap *g = &gaps[index];
+    ins->gap_layer = layer;
+    ins->gap_x = g->x;
+    ins->gap_y = g->y;
+    char *title = g_strdup_printf("Gap · layer %lld", (long long)layer + 1);
+    GtkWidget *t = zg_grid_add_heading(grid, &row, title);
+    gtk_widget_add_css_class(t, "title-4");
+    g_free(title);
+    GString *next = g_string_new(NULL);
+    for (size_t f = 0; f < G_N_ELEMENTS(feature_names); f++) {
+        if (!(g->features & (1u << f))) continue;
+        if (next->len) g_string_append(next, ", ");
+        g_string_append(next, feature_names[f]);
+    }
+    char *facts = g_strdup_printf("%.3f mm², %.2f mm wide, at %.1f, %.1f mm. Next to: %s.%s", g->area, g->width, g->x, g->y,
+                                  next->len ? next->str : "no bead",
+                                  g->at_edge ? " It touches the edge of the solid area (the outline, or the sparse infill)." : "");
+    g_string_free(next, TRUE);
+    GtkWidget *f = zg_wrapped_label_new(facts);
+    g_free(facts);
+    gtk_grid_attach(GTK_GRID(grid), f, 0, row++, 3, 1);
+    zs_toolpaths tp;
+    double z = 0;
+    if (zs_app_toolpaths(core, &tp) == ZS_OK && (size_t)layer < tp.layer_count) z = tp.layer_z[layer];
+
+    zg_grid_add_heading(grid, &row, "Settings that can close it");
+    zs_gap_step steps[8];
+    size_t ns = 0;
+    if (zs_app_gap_advice(core, (size_t)layer, (size_t)index, steps, G_N_ELEMENTS(steps), &ns) != ZS_OK) ns = 0;
+    for (size_t i = 0; i < MIN(ns, G_N_ELEMENTS(steps)); i++) {
+        char *name = g_strndup(steps[i].name, steps[i].name_len);
+        char *value = g_strndup(steps[i].value, steps[i].value_len);
+        char *why = g_strndup(steps[i].why, steps[i].why_len);
+        zs_setting_info info;
+        gboolean known = zg_setting_find(name, &info);
+        char *now = zg_model_get_for(ins->model, name, FALSE);
+        char *now_text = known ? zg_setting_value_with_unit(&info, now) : g_strdup(now);
+        char *to_text = known ? zg_setting_value_with_unit(&info, value) : g_strdup(value);
+        char *head = g_strdup_printf("%s: %s \u2192 %s", known ? info.label : name, now_text, to_text);
+        GtkWidget *h = gtk_label_new(head);
+        gtk_label_set_xalign(GTK_LABEL(h), 0);
+        gtk_label_set_wrap(GTK_LABEL(h), TRUE);
+        gtk_widget_add_css_class(h, "heading");
+        gtk_widget_set_margin_top(h, 8);
+        gtk_grid_attach(GTK_GRID(grid), h, 0, row++, 3, 1);
+        GtkWidget *w = zg_wrapped_label_new(why);
+        gtk_widget_add_css_class(w, "dim-label");
+        gtk_grid_attach(GTK_GRID(grid), w, 0, row++, 3, 1);
+        GtkWidget *buttons = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 6);
+        for (int k = 0; k < 2; k++) {
+            if (k == 1 && !(known && info.per_layer)) break;
+            GapStep *st = g_new0(GapStep, 1);
+            st->model = ins->model;
+            st->name = g_strdup(name);
+            st->value = g_strdup(value);
+            st->z = z;
+            st->layer_only = k == 1;
+            GtkWidget *b = gtk_button_new_with_label(k == 0 ? "Apply" : "This layer");
+            gtk_widget_set_tooltip_text(b, k == 0 ? "Change the setting for all prints, and slice again." : "Change the setting only for this layer of this part, and slice again.");
+            g_signal_connect_data(b, "clicked", G_CALLBACK(on_gap_apply), st, gap_step_free, 0);
+            gtk_box_append(GTK_BOX(buttons), b);
+        }
+        gtk_grid_attach(GTK_GRID(grid), buttons, 0, row++, 3, 1);
+        g_free(head);
+        g_free(to_text);
+        g_free(now_text);
+        g_free(now);
+        g_free(why);
+        g_free(value);
+        g_free(name);
+    }
+    return grid;
+}
+
+static void on_gaps_changed(ZgModel *model, gpointer data) {
+    Inspector *ins = data;
+    gint64 layer = -1;
+    gint64 index = zg_model_selected_gap(model, &layer);
+    if (index < 0) {
+        if (ins->signature && strcmp(ins->signature, "gap") == 0) {
+            g_clear_pointer(&ins->signature, g_free);
+            ins->built = FALSE;
+            fill_inspector(ins);
+        }
+        return;
+    }
+    const char *next = ins->in_a ? "b" : "a";
+    GtkWidget *old = gtk_stack_get_child_by_name(GTK_STACK(ins->slots), next);
+    if (old) gtk_stack_remove(GTK_STACK(ins->slots), old);
+    gtk_stack_add_named(GTK_STACK(ins->slots), zg_scrolled_new(build_gap_page(ins, layer, index)), next);
+    gtk_stack_set_visible_child_name(GTK_STACK(ins->slots), next);
+    ins->in_a = !ins->in_a;
+    g_clear_pointer(&ins->signature, g_free);
+    ins->signature = g_strdup("gap");
+    gtk_stack_set_visible_child_name(GTK_STACK(ins->stack), "selected");
+}
+
 /* Only a click on a line opens the page. */
 static void on_picked(ZgModel *model, gint64 path, gpointer data) {
     Inspector *ins = data;
@@ -450,6 +599,48 @@ static void on_core_event(ZgModel *model, int event, double progress, int status
     gboolean slicing = zs_app_state(zg_model_core(model)) == ZS_STATE_SLICING;
     if (slicing) gtk_widget_add_css_class(ins->slots, "zg-stale");
     else gtk_widget_remove_css_class(ins->slots, "zg-stale");
+    /* A new slice with a gap selected: the same gap again, by its place,
+     * or the news that it is closed. */
+    if (event == ZS_EVENT_SLICED && ins->signature && strcmp(ins->signature, "gap") == 0) {
+        const zs_gap *gaps = NULL;
+        size_t n = 0;
+        gint64 found = -1;
+        double best = 1.0; /* mm */
+        if (zs_app_layer_gaps(zg_model_core(model), (size_t)ins->gap_layer, &gaps, &n, NULL, NULL) == ZS_OK) {
+            for (size_t i = 0; i < n; i++) {
+                double d = hypot(gaps[i].x - ins->gap_x, gaps[i].y - ins->gap_y);
+                if (d < best) {
+                    best = d;
+                    found = (gint64)i;
+                }
+            }
+        }
+        if (found >= 0) {
+            /* A new page for it, also with the same index: the clear
+             * first, with no line page between. */
+            g_free(ins->signature);
+            ins->signature = g_strdup("gap-wait");
+            zg_model_select_gap(model, -1, -1);
+            zg_model_select_gap(model, ins->gap_layer, found);
+        } else {
+            GtkWidget *grid = zg_grid_new();
+            int row = 0;
+            GtkWidget *t = zg_grid_add_heading(grid, &row, "The gap is closed");
+            gtk_widget_add_css_class(t, "title-4");
+            char *text = g_strdup_printf("Layer %lld has no gap at %.1f, %.1f mm after this change.", (long long)ins->gap_layer + 1, ins->gap_x, ins->gap_y);
+            gtk_grid_attach(GTK_GRID(grid), zg_wrapped_label_new(text), 0, row++, 3, 1);
+            g_free(text);
+            const char *next = ins->in_a ? "b" : "a";
+            GtkWidget *old = gtk_stack_get_child_by_name(GTK_STACK(ins->slots), next);
+            if (old) gtk_stack_remove(GTK_STACK(ins->slots), old);
+            gtk_stack_add_named(GTK_STACK(ins->slots), zg_scrolled_new(grid), next);
+            gtk_stack_set_visible_child_name(GTK_STACK(ins->slots), next);
+            ins->in_a = !ins->in_a;
+            g_clear_pointer(&ins->signature, g_free);
+            ins->signature = g_strdup("gap-closed");
+            zg_model_select_gap(model, -1, -1);
+        }
+    }
 }
 
 /* This page shows again: its scope comes back. */
@@ -483,6 +674,7 @@ GtkWidget *zg_inspector_new(ZgModel *model, GtkWidget *panel_stack) {
     g_signal_connect(model, "picked", G_CALLBACK(on_picked), ins);
     g_signal_connect(model, "part-selected", G_CALLBACK(on_part_selected), ins);
     g_signal_connect(model, "core-event", G_CALLBACK(on_core_event), ins);
+    g_signal_connect(model, "gaps-changed", G_CALLBACK(on_gaps_changed), ins);
     g_signal_connect(panel_stack, "notify::visible-child", G_CALLBACK(on_panel_page), ins);
     return ins->slots;
 }

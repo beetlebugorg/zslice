@@ -40,6 +40,8 @@ typedef struct {
     GtkWidget *stack;
     GtkWidget *slider_box;
     GtkWidget *isolate;
+    /* The gaps view: the toggle, and the number of gaps of the layer. */
+    GtkWidget *gaps, *gap_count;
     /* The plates: a button for each, and "+". */
     GtkWidget *plates;
     /* The scrub bar: the nozzle through the top layer (0 its start, 1 the
@@ -91,8 +93,63 @@ static void fit(Preview *p) {
     p->fitted = TRUE;
 }
 
+/* The number of gaps of the top layer, next to the toggle. */
+static void update_gap_count(Preview *p) {
+    if (!p->gap_count) return;
+    const zs_gap *gaps = NULL;
+    size_t n = 0;
+    gboolean on = zg_model_gaps(p->model);
+    size_t layer = zg_layer_range_get_hi(ZG_LAYER_RANGE(p->slider));
+    if (on && zs_app_state(zg_model_core(p->model)) == ZS_STATE_DONE &&
+        zs_app_layer_gaps(zg_model_core(p->model), layer, &gaps, &n, NULL, NULL) == ZS_OK) {
+        double area = 0;
+        for (size_t i = 0; i < n; i++) area += gaps[i].area;
+        char *text = n == 0 ? g_strdup("No gaps") : g_strdup_printf("%zu gap%s · %.2f mm²", n, n == 1 ? "" : "s", area);
+        gtk_label_set_text(GTK_LABEL(p->gap_count), text);
+        g_free(text);
+        gtk_widget_set_visible(p->gap_count, TRUE);
+    } else {
+        gtk_widget_set_visible(p->gap_count, FALSE);
+    }
+}
+
+static void on_gaps_toggled(GtkToggleButton *b, gpointer data) {
+    Preview *p = data;
+    zg_model_set_gaps(p->model, gtk_toggle_button_get_active(b));
+}
+
+static void on_gaps_changed(ZgModel *model, gpointer data) {
+    Preview *p = data;
+    if (p->gaps && gtk_toggle_button_get_active(GTK_TOGGLE_BUTTON(p->gaps)) != zg_model_gaps(model))
+        gtk_toggle_button_set_active(GTK_TOGGLE_BUTTON(p->gaps), zg_model_gaps(model));
+    update_gap_count(p);
+    gtk_widget_queue_draw(p->area);
+}
+
+/* The gaps of the layer in the 2D view: red cells, the selected gap
+ * brighter. */
+static void draw_gaps(Preview *p, cairo_t *cr, size_t layer) {
+    const zs_gap *gaps = NULL;
+    const zs_gap_run *runs = NULL;
+    size_t n = 0, nr = 0;
+    if (zs_app_layer_gaps(zg_model_core(p->model), layer, &gaps, &n, &runs, &nr) != ZS_OK) return;
+    gint64 sel_layer = -1;
+    gint64 sel = zg_model_selected_gap(p->model, &sel_layer);
+    for (size_t i = 0; i < n; i++) {
+        gboolean chosen = sel == (gint64)i && sel_layer == (gint64)layer;
+        if (chosen) cairo_set_source_rgba(cr, 1.0, 0.1, 0.1, 1.0);
+        else cairo_set_source_rgba(cr, 0.9, 0.1, 0.15, 0.75);
+        for (uint32_t k = 0; k < gaps[i].run_len; k++) {
+            const zs_gap_run *r = &runs[gaps[i].run_start + k];
+            cairo_rectangle(cr, r->x0, r->y - 0.02, r->x1 - r->x0, 0.04);
+        }
+        cairo_fill(cr);
+    }
+}
+
 static void load_layer(Preview *p, size_t layer) {
     free_paths(p);
+    update_gap_count(p);
     zs_app *core = zg_model_core(p->model);
     if (layer < p->layer_count && zs_app_layer_paths(core, layer, &p->paths) == ZS_OK) {
         p->have_paths = TRUE;
@@ -173,6 +230,7 @@ static void draw(GtkDrawingArea *area, cairo_t *cr, int w, int h, gpointer data)
             style.end_path = tp.layer_ends[layer];
         }
         zg_draw_layer(cr, &p->paths, &style);
+        if (zg_model_gaps(p->model)) draw_gaps(p, cr, layer);
     }
     cairo_restore(cr);
 
@@ -744,6 +802,18 @@ GtkWidget *zg_preview_new(ZgModel *model) {
     gtk_widget_set_visible(p->isolate, FALSE);
     g_signal_connect(p->isolate, "toggled", G_CALLBACK(on_isolate), p);
     gtk_box_append(GTK_BOX(bar), p->isolate);
+    /* The gaps of the top layer: areas that should be solid that no bead
+     * covers (see zs_app_layer_gaps). */
+    p->gaps = gtk_toggle_button_new_with_label("Gaps");
+    gtk_widget_set_tooltip_text(p->gaps, "Show the gaps of the top layer in red: areas that should be solid that no line covers. Click a gap for the settings that can close it.");
+    g_signal_connect(p->gaps, "toggled", G_CALLBACK(on_gaps_toggled), p);
+    gtk_box_append(GTK_BOX(bar), p->gaps);
+    p->gap_count = gtk_label_new("");
+    gtk_widget_add_css_class(p->gap_count, "dim-label");
+    gtk_widget_set_margin_start(p->gap_count, 6);
+    gtk_widget_set_margin_end(p->gap_count, 6);
+    gtk_widget_set_visible(p->gap_count, FALSE);
+    gtk_box_append(GTK_BOX(bar), p->gap_count);
     p->plates = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 0);
     gtk_widget_add_css_class(p->plates, "linked");
     gtk_widget_set_margin_start(p->plates, 6);
@@ -814,6 +884,7 @@ GtkWidget *zg_preview_new(ZgModel *model) {
     g_action_map_add_action_entries(G_ACTION_MAP(group), actions, G_N_ELEMENTS(actions), p);
     gtk_widget_insert_action_group(box, "preview", G_ACTION_GROUP(group));
     g_object_unref(group);
+    g_signal_connect(model, "gaps-changed", G_CALLBACK(on_gaps_changed), p);
     g_signal_connect(model, "selection-changed", G_CALLBACK(on_selection), p);
     g_signal_connect(model, "plate-changed", G_CALLBACK(on_plates_changed), p);
     fill_plates(p);

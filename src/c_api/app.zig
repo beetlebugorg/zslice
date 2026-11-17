@@ -359,6 +359,50 @@ pub const Inspect = extern struct {
     slow_reason: c_int,
 };
 
+/// The gaps of a layer of the last slice (see App.layerGaps). The arrays
+/// stay valid until the next call for another layer, or the next slice.
+export fn zs_app_layer_gaps(a: ?*App, layer: usize, gaps: ?*?[*]const zs.gaps.Gap, n_gaps: ?*usize, runs: ?*?[*]const zs.gaps.Run, n_runs: ?*usize) c_int {
+    const app = a orelse return @intFromEnum(Status.invalid_argument);
+    const r = app.layerGaps(layer) catch |e| return switch (e) {
+        error.InvalidArgument => @intFromEnum(Status.invalid_argument),
+        error.NoResult => @intFromEnum(Status.no_result),
+        else => status(e),
+    };
+    if (gaps) |o| o.* = r.gaps.ptr;
+    if (n_gaps) |o| o.* = r.gaps.len;
+    if (runs) |o| o.* = r.runs.ptr;
+    if (n_runs) |o| o.* = r.runs.len;
+    return ok;
+}
+
+/// A setting that can close a gap: its name, the value to try, and why.
+/// The strings are not NUL-terminated.
+pub const GapStep = extern struct {
+    name: [*]const u8,
+    name_len: usize,
+    value: [*]const u8,
+    value_len: usize,
+    why: [*]const u8,
+    why_len: usize,
+};
+
+/// The settings that can close gap `index` of layer `layer`, the best
+/// first, at most `cap` of them in `out`. `n` gets their number. Valid
+/// until the next call or slice.
+export fn zs_app_gap_advice(a: ?*App, layer: usize, index: usize, out: ?[*]GapStep, cap: usize, n: ?*usize) c_int {
+    const app = a orelse return @intFromEnum(Status.invalid_argument);
+    const steps = app.gapAdvice(layer, index) catch |e| return switch (e) {
+        error.InvalidArgument => @intFromEnum(Status.invalid_argument),
+        error.NoResult => @intFromEnum(Status.no_result),
+        else => status(e),
+    };
+    if (n) |o| o.* = steps.len;
+    if (out) |o| for (steps[0..@min(cap, steps.len)], 0..) |st, i| {
+        o[i] = .{ .name = st.name.ptr, .name_len = st.name.len, .value = st.value.ptr, .value_len = st.value.len, .why = st.why.ptr, .why_len = st.why.len };
+    };
+    return ok;
+}
+
 /// A plain-text report of a line, for "Copy for AI". Valid until the next
 /// call or inspection.
 export fn zs_app_line_report(a: ?*App, path: usize, gcode_file: ?[*:0]const u8, out: ?*?[*]const u8, out_len: ?*usize) c_int {

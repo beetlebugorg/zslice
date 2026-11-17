@@ -92,6 +92,16 @@ gint64 zg_model_segment(ZgModel *self);
 void zg_model_set_isolate(ZgModel *self, gboolean on);
 gboolean zg_model_isolate(ZgModel *self);
 
+/* The gaps view: the previews show the gaps of the top layer in red (see
+ * zs_app_layer_gaps), and a click on a gap selects it. "gaps-changed"
+ * follows each change of the flag or of the selected gap. */
+void zg_model_set_gaps(ZgModel *self, gboolean on);
+gboolean zg_model_gaps(ZgModel *self);
+/* Selects gap `index` of layer `layer` (index -1: no gap). */
+void zg_model_select_gap(ZgModel *self, gint64 layer, gint64 index);
+/* The selected gap, or -1; `layer` (can be NULL) gets its layer. */
+gint64 zg_model_selected_gap(ZgModel *self, gint64 *layer);
+
 /* The focus of the previews: the features whose lines a setting changes
  * (a bit for each enum zs_feature, 0 for no focus), and if only the first
  * layer. The settings browser sets it. "focus-changed" follows each

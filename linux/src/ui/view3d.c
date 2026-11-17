@@ -57,6 +57,7 @@ typedef struct {
     double drag_x, drag_y;
     double press_x, press_y;
     double pointer_x, pointer_y;
+    gboolean gaps_hook, gap_hook; /* the test hooks ran */
 } View3d;
 
 static void queue_frame(View3d *v);
@@ -158,6 +159,19 @@ static void on_focus_changed(ZgModel *model, gpointer data) {
 static void on_copy_for_ai(GSimpleAction *a, GVariant *p, gpointer data);
 static void on_new_profile(GSimpleAction *a, GVariant *p, gpointer data);
 
+/* The gaps of the top layer, in red, while the gaps view is on. */
+static void refresh_gaps(View3d *v) {
+    if (!v->view) return;
+    gboolean on = zg_model_gaps(v->model) && zs_app_state(zg_model_core(v->model)) == ZS_STATE_DONE;
+    zs_view_show_gaps(v->view, zg_model_core(v->model), on ? (int64_t)v->layer : -1);
+}
+
+static void on_gaps_changed(ZgModel *model, gpointer data) {
+    View3d *v = data;
+    refresh_gaps(v);
+    queue_frame(v);
+}
+
 static void load_data(View3d *v) {
     if (!v->view) return;
     zs_view_set_mode(v->view, v->mode);
@@ -170,6 +184,18 @@ static void load_data(View3d *v) {
     gint64 sel = zg_model_selected(v->model);
     zs_view_highlight(v->view, sel < 0 ? (size_t)-1 : (size_t)sel);
     apply_focus(v);
+    /* For tests: ZSLICE_GAPS=1 turns the gaps view on, and ZSLICE_GAP=N
+     * selects gap N of the top layer after a slice. */
+    if (g_getenv("ZSLICE_GAPS") && !v->gaps_hook) {
+        v->gaps_hook = TRUE;
+        zg_model_set_gaps(v->model, TRUE);
+    }
+    refresh_gaps(v);
+    const char *gap = g_getenv("ZSLICE_GAP");
+    if (gap && zg_model_gaps(v->model) && !v->gap_hook && zs_app_state(zg_model_core(v->model)) == ZS_STATE_DONE) {
+        v->gap_hook = TRUE;
+        zg_model_select_gap(v->model, (gint64)v->layer, atoi(gap));
+    }
     /* For development and screenshots: ZSLICE_PART=1 selects that part of
      * the plate after the first load. */
     const char *part = g_getenv("ZSLICE_PART");
@@ -342,6 +368,7 @@ void zg_view3d_set_layer_range(GtkWidget *view, size_t lo, size_t hi) {
     v->layer = hi;
     v->layer_lo = lo;
     if (v->view) zs_view_set_layer_range(v->view, lo, hi);
+    refresh_gaps(v);
     queue_frame(v);
 }
 
@@ -350,7 +377,7 @@ void zg_view3d_set_layer(GtkWidget *view, size_t layer) {
     v->layer = layer;
     v->layer_lo = 0;
     if (v->view) zs_view_set_layer(v->view, layer);
-
+    refresh_gaps(v);
     queue_frame(v);
 }
 
@@ -501,6 +528,16 @@ static void on_release(GtkGestureClick *g, int n, double x, double y, gpointer d
     if (mods & GDK_CONTROL_MASK) {
         zg_model_select_part(v->model, part_at(v, x, y, NULL, NULL));
         return;
+    }
+    /* The gaps view: a click on a gap selects it. */
+    if (zg_model_gaps(v->model)) {
+        int64_t gap = zs_view_gap_at(v->view, zg_model_core(v->model), (float)(x * scale), (float)(y * scale));
+        if (gap >= 0) {
+            zg_model_select(v->model, -1);
+            zg_model_select_gap(v->model, (gint64)v->layer, gap);
+            return;
+        }
+        zg_model_select_gap(v->model, -1, -1);
     }
     /* The line, and the segment of it under the pointer (the keys h and l
      * go on from there). */
@@ -857,6 +894,7 @@ GtkWidget *zg_view3d_new(ZgModel *model) {
 
     g_object_set_data_full(G_OBJECT(v->area), "zg-view3d", v, view_free);
     g_signal_connect(model, "selection-changed", G_CALLBACK(on_selection), v);
+    g_signal_connect(model, "gaps-changed", G_CALLBACK(on_gaps_changed), v);
     g_signal_connect(model, "part-selected", G_CALLBACK(on_part_selected), v);
     g_signal_connect(model, "segment-changed", G_CALLBACK(on_segment), v);
     g_signal_connect(model, "plate-changed", G_CALLBACK(on_plate_changed), v);

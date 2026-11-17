@@ -36,9 +36,9 @@ pub const Options = struct {
 
 /// A run of gap cells along x, in mm: from x0 to x1 at the row y (the
 /// center of the row; a row is one cell tall).
-pub const Run = struct { y: f32, x0: f32, x1: f32 };
+pub const Run = extern struct { y: f32, x0: f32, x1: f32 };
 
-pub const Gap = struct {
+pub const Gap = extern struct {
     /// mm²
     area: f64,
     /// The center, in mm, in the frame of the layer (as its points).

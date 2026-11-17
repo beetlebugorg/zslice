@@ -72,6 +72,17 @@ pub const View = struct {
     /// The rings of the support marks of the app (see support.Mark): 12
     /// beads each, drawn as extras.
     mark_rings: std.ArrayList(vk.Instance) = .empty,
+    /// The gaps of one layer (see gaps.zig): a thin red bead for each run
+    /// of gap cells, and the layer, or null.
+    gap_beads: std.ArrayList(vk.Instance) = .empty,
+    gap_layer: ?usize = null,
+    /// The extra beads of a frame (max_extras), made once.
+    extras_buf: ?[]vk.Instance = null,
+    /// The cooled shape (see `load`): points move about `xf_center` by
+    /// `xf_sxy`, and z by `xf_sz`.
+    xf_center: [2]f32 = .{ 0, 0 },
+    xf_sxy: f32 = 1,
+    xf_sz: f32 = 1,
     /// The other selected paths (a multiple selection): their beads are
     /// yellow in the instance buffer. A load clears them.
     more: std.ArrayList(usize) = .empty,
@@ -138,6 +149,8 @@ pub const View = struct {
     pub fn destroy(v: *View) void {
         v.layer_end.deinit(gpa);
         v.mark_rings.deinit(gpa);
+        v.gap_beads.deinit(gpa);
+        if (v.extras_buf) |b| gpa.free(b);
         v.more.deinit(gpa);
         v.path_start.deinit(gpa);
         v.beads.deinit(gpa);
@@ -242,6 +255,9 @@ pub const View = struct {
         if (app.partBounds()) |b| center = .{ @floatCast((b[0] + b[2]) / 2), @floatCast((b[1] + b[3]) / 2) };
         const sxy: f32 = @floatCast(1 / s.filament.shrinkage_xy);
         const sz: f32 = @floatCast(1 / s.filament.shrinkage_z);
+        v.xf_center = center;
+        v.xf_sxy = sxy;
+        v.xf_sz = sz;
 
         var boxes = v.beads;
         boxes.clearRetainingCapacity();
@@ -723,6 +739,63 @@ pub const View = struct {
         return .{ cam.eye[0] + dir[0] * t, cam.eye[1] + dir[1] * t };
     }
 
+    /// Shows the gaps of layer `layer` of the last slice of `app` (see
+    /// App.layerGaps), or none for null: a thin red bead over each run of
+    /// gap cells, on top of the layer.
+    pub fn setGaps(v: *View, app: *app_mod.App, layer: ?usize) void {
+        v.gap_beads.clearRetainingCapacity();
+        v.gap_layer = null;
+        const l = layer orelse return;
+        const r = app.layerGaps(l) catch return;
+        const tp = app.allToolpaths() orelse return;
+        if (l >= tp.layer_z.items.len) return;
+        v.gap_layer = l;
+        const z = tp.layer_z.items[l] * v.xf_sz;
+        const c = v.xf_center;
+        const w: f32 = @floatCast(r.cell * 1.4);
+        for (r.runs) |run| {
+            // A bead has round ends: the run is shorter by half a width at
+            // each end, where it is long enough.
+            var x0 = run.x0;
+            var x1 = run.x1;
+            if (x1 - x0 > w) {
+                x0 += w / 2;
+                x1 -= w / 2;
+            } else {
+                x0 = (x0 + x1) / 2;
+                x1 = x0;
+            }
+            v.gap_beads.append(gpa, .{
+                .ax = c[0] + (x0 - c[0]) * v.xf_sxy,
+                .ay = c[1] + (run.y - c[1]) * v.xf_sxy,
+                .bx = c[0] + (x1 - c[0]) * v.xf_sxy,
+                .by = c[1] + (run.y - c[1]) * v.xf_sxy,
+                .z = z + 0.04,
+                .h = 0.06,
+                .w = w * v.xf_sxy,
+                .rgba = .{ 0xe8, 0x1c, 0x24, 13 },
+            }) catch return;
+        }
+    }
+
+    /// The gap of the shown layer (see `setGaps`) under the pixel (px, py),
+    /// or null: the ray meets the top of the layer within 0.3 mm of a gap.
+    pub fn gapAt(v: *const View, app: *app_mod.App, px: f32, py: f32) ?usize {
+        const l = v.gap_layer orelse return null;
+        const r = app.layerGaps(l) catch return null;
+        const tp = app.allToolpaths() orelse return null;
+        const cam = v.camera();
+        const dir = v.pixelRay(cam, px, py);
+        if (@abs(dir[2]) < 1e-6) return null;
+        const zt = tp.layer_z.items[l] * v.xf_sz;
+        const t = (zt - cam.eye[2]) / dir[2];
+        if (t <= 0) return null;
+        const c = v.xf_center;
+        const x = c[0] + (cam.eye[0] + dir[0] * t - c[0]) / v.xf_sxy;
+        const y = c[1] + (cam.eye[1] + dir[1] * t - c[1]) / v.xf_sxy;
+        return r.at(x, y, 0.3);
+    }
+
     /// The unit direction of the ray from the camera through pixel (px, py).
     fn pixelRay(v: *const View, cam: anytype, px: f32, py: f32) [3]f32 {
         const aspect = @as(f32, @floatFromInt(v.width)) / @as(f32, @floatFromInt(v.height));
@@ -850,7 +923,11 @@ pub const View = struct {
         const view = lookAt(eye, v.target, cam.u);
         const mvp = mul(proj, view);
         var count: u32 = 0;
-        var extras: [vk.max_extras]vk.Instance = undefined;
+        const extras = v.extras_buf orelse blk: {
+            const b = gpa.alloc(vk.Instance, vk.max_extras) catch return error.OutOfMemory;
+            v.extras_buf = b;
+            break :blk b;
+        };
         var n_extras: usize = 0;
         if (v.time) |t| {
             const done = v.beadsDoneAt(t);
@@ -920,6 +997,12 @@ pub const View = struct {
                 };
                 // The rings of the support marks.
                 for (v.mark_rings.items) |b| {
+                    if (n_extras == extras.len) break;
+                    extras[n_extras] = b;
+                    n_extras += 1;
+                }
+                // The gaps of a layer.
+                for (v.gap_beads.items) |b| {
                     if (n_extras == extras.len) break;
                     extras[n_extras] = b;
                     n_extras += 1;

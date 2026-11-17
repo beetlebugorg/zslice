@@ -25,6 +25,8 @@
 #ifndef ZSLICE_APP_H
 #define ZSLICE_APP_H
 
+#include <stdbool.h>
+
 #include "zslice.h"
 
 #ifdef __cplusplus
@@ -275,6 +277,38 @@ typedef struct zs_inspect {
     int slow_reason;
 } zs_inspect;
 
+/* Gaps: the parts of a layer that should be solid and that no bead covers
+ * (src/gaps.zig). x, y are the center in mm; width is the width of a bead
+ * that fills the gap; features has a bit (1 << enum zs_feature) for each
+ * feature of the beads next to it. Its cells are runs[run_start ..
+ * run_start + run_len): rows one cell (0.04 mm) tall, from x0 to x1. */
+typedef struct {
+    double area, x, y, width;
+    uint32_t features;
+    bool at_edge;
+    uint32_t run_start, run_len;
+} zs_gap;
+typedef struct {
+    float y, x0, x1;
+} zs_gap_run;
+/* The gaps of layer `layer` of the last slice, the largest first. Valid
+ * until the next call for another layer, or the next slice. */
+int zs_app_layer_gaps(zs_app *app, size_t layer, const zs_gap **gaps, size_t *n_gaps, const zs_gap_run **runs,
+                      size_t *n_runs);
+/* A setting that can close a gap: the name, the value to try, and why (not
+ * NUL-terminated). */
+typedef struct {
+    const char *name;
+    size_t name_len;
+    const char *value;
+    size_t value_len;
+    const char *why;
+    size_t why_len;
+} zs_gap_step;
+/* The settings that can close gap `index` of layer `layer`, the best
+ * first: at most `cap` in `out`, and their number in `n`. */
+int zs_app_gap_advice(zs_app *app, size_t layer, size_t index, zs_gap_step *out, size_t cap, size_t *n);
+
 /* A plain-text report of path `path`, for "Copy for AI": what it is, its
  * numbers, why, the values of the settings that change it, the printer,
  * the filament, its first points, and its place in the G-code: the file
@@ -519,6 +553,12 @@ void zs_view_focus(zs_view *view, uint32_t features, double zmax);
 /* Turns the camera freely around the axes of the screen, by a drag of dx,
  * dy pixels. Drags in turn can roll the view, so the part can turn to any
  * direction. zs_view_orbit keeps the bed level; this does not. */
+/* Shows the gaps of a layer (see zs_app_layer_gaps) in red, or none for a
+ * negative layer. Call it again after a new slice. */
+void zs_view_show_gaps(zs_view *view, zs_app *app, int64_t layer);
+/* The index of the shown gap under the pixel, or -1. */
+int64_t zs_view_gap_at(const zs_view *view, zs_app *app, float px, float py);
+
 void zs_view_rotate(zs_view *view, float dx, float dy);
 /* Turns the camera around the vertical axis only (a turntable), by a drag
  * of dx pixels. */
