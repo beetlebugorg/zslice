@@ -13,6 +13,7 @@
  */
 #include "preferences.h"
 
+#include <math.h>
 #include <string.h>
 
 #include "../net/printer-link.h"
@@ -239,6 +240,17 @@ static void on_info(ZgPrinterInfo *info, const char *error, gpointer data) {
     g_string_append(s, ".");
     if (info->bed_x > 0) g_string_append_printf(s, "\nBed %.0f × %.0f × %.0f mm.", info->bed_x, info->bed_y, info->height);
     if (info->nozzle > 0) g_string_append_printf(s, " Nozzle %.2f mm.", info->nozzle);
+    if (info->max_accel > 0) {
+        g_string_append_printf(s, "\nMotion limits: %.0f mm/s, %.0f mm/s², corner %.0f mm/s", info->max_velocity, info->max_accel, info->corner_velocity);
+        if (info->max_z_velocity > 0) g_string_append_printf(s, ", Z %.0f mm/s at %.0f mm/s²", info->max_z_velocity, info->max_z_accel);
+        g_string_append(s, ".");
+        /* A note when zslice plans with other limits. */
+        char *acc = zg_model_get(p->model, "machine.max_accel");
+        double mine = g_ascii_strtod(acc, NULL);
+        g_free(acc);
+        if (mine > 0 && fabs(mine - info->max_accel) > 1)
+            g_string_append_printf(s, " zslice plans with %.0f mm/s² now: \"Use the printer's bed, nozzle, and motion\" takes the printer's limits.", mine);
+    }
     if (info->material || info->spool) {
         g_string_append(s, "\nFilament in the printer:");
         if (info->spool) g_string_append_printf(s, " %s", info->spool);
@@ -261,7 +273,7 @@ static void on_info(ZgPrinterInfo *info, const char *error, gpointer data) {
     gtk_label_set_text(GTK_LABEL(p->result), s->str);
     g_string_free(s, TRUE);
     gboolean current = p->printer == zg_printers_current();
-    gtk_widget_set_visible(p->use_machine, current && (info->bed_x > 0 || info->nozzle > 0));
+    gtk_widget_set_visible(p->use_machine, current && (info->bed_x > 0 || info->nozzle > 0 || info->max_accel > 0));
     gtk_widget_set_visible(p->use_filament, current && (info->material || info->diameter > 0));
 }
 
@@ -290,6 +302,12 @@ static void on_use_machine(GtkButton *b, gpointer data) {
     if (in->bed_y > 0) set_num(p->model, "machine.bed_size_y", in->bed_y);
     if (in->height > 0) set_num(p->model, "machine.max_height", in->height);
     if (in->nozzle > 0) set_num(p->model, "machine.nozzle_diameter", in->nozzle);
+    /* The motion limits of the printer, for a time estimate that matches
+     * it (the speed of the print stays a setting of zslice). */
+    if (in->max_accel > 0) set_num(p->model, "machine.max_accel", in->max_accel);
+    if (in->corner_velocity > 0) set_num(p->model, "machine.corner_speed", in->corner_velocity);
+    if (in->max_z_velocity > 0) set_num(p->model, "machine.max_z_speed", in->max_z_velocity);
+    if (in->max_z_accel > 0) set_num(p->model, "machine.max_z_accel", in->max_z_accel);
     gtk_widget_set_visible(p->use_machine, FALSE);
 }
 
@@ -468,7 +486,7 @@ static GtkWidget *printers_page(Prefs *p) {
     gtk_label_set_wrap(GTK_LABEL(p->result), TRUE);
     gtk_label_set_selectable(GTK_LABEL(p->result), TRUE);
     gtk_grid_attach(GTK_GRID(g), p->result, 1, row++, 2, 1);
-    p->use_machine = gtk_button_new_with_label("Use the bed and nozzle of the printer");
+    p->use_machine = gtk_button_new_with_label("Use the printer's bed, nozzle, and motion");
     gtk_widget_set_tooltip_text(p->use_machine, "Copies the bed size, the height, and the nozzle that the printer tells to the machine settings of this printer.");
     g_signal_connect(p->use_machine, "clicked", G_CALLBACK(on_use_machine), p);
     p->use_filament = gtk_button_new_with_label("Use the filament in the printer");

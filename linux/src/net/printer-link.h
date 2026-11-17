@@ -31,6 +31,9 @@ typedef struct {
     char *spool_color; /* "#rrggbb" */
     double spool_left; /* grams */
     double spool_price; /* the price of the roll, or 0 */
+    /* The motion limits of the printer (printdeck: [printer] of
+     * printer.cfg), 0 when not known: mm/s and mm/s². */
+    double max_velocity, max_accel, corner_velocity, max_z_velocity, max_z_accel;
     double spool_full;  /* grams of filament of a full roll, or 0 */
     char **spools;   /* the names of all spools, NULL at the end */
     /* The job. */

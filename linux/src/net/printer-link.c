@@ -146,6 +146,11 @@ static void read_reply(Query *q, const char *path, JsonNode *root) {
         in->spool_color = str(root, "spool.color");
         in->spool_left = num(root, "spool.left");
         in->spool_price = num(root, "spool.price");
+        in->max_velocity = num(root, "limits.max_velocity");
+        in->max_accel = num(root, "limits.max_accel");
+        in->corner_velocity = num(root, "limits.square_corner_velocity");
+        in->max_z_velocity = num(root, "limits.max_z_velocity");
+        in->max_z_accel = num(root, "limits.max_z_accel");
         in->spool_full = num(root, "spool.full");
         JsonNode *spools = path_get(root, "spools");
         if (spools && JSON_NODE_HOLDS_ARRAY(spools)) {

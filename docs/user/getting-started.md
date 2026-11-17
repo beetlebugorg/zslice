@@ -121,7 +121,7 @@ Open Preferences (the menu, or Ctrl+,). The Printers page lists your printers. E
 - Moonraker (Klipper): the address of Moonraker.
 - USB: the serial port and the speed. The app sends the print itself, line by line, so the computer must stay on while it prints.
 
-"Test the connection" shows what the printer tells: its state, its bed and nozzle (OctoPrint, Moonraker), and the filament in it (printdeck). "Use the bed and nozzle of the printer" and "Use the filament in the printer" copy them to your settings.
+"Test the connection" shows what the printer tells: its state, its bed and nozzle (OctoPrint, Moonraker), its motion limits and the filament in it (printdeck). "Use the printer's bed, nozzle, and motion" copies the bed, the nozzle, and the motion limits (acceleration, corner speed, Z speed and acceleration: so the time estimate plans as the printer moves) to the printer settings, and "Use the filament in the printer" copies the filament.
 
 With a printdeck printer, the status bar also shows the printer's own estimate after each slice, for example "LulzBot TAZ Workhorse: 1 h 41 min (3 min start)". printdeck learns it from its past prints: the time of the start macro (homing, heating, probing, priming), and how its real move times compare with the plan. zslice sends the G-code to the printer for this (compressed), and only reads the answer: the printer does not keep the file or print it.
 
