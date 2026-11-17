@@ -451,7 +451,9 @@ pub fn insideAny(paths: Paths, p: Point) bool {
 /// edges in the band of the point.
 pub const EdgeIndex = struct {
     min: i64,
-    width: i64,
+    /// The width of a band is 1 << shift: the band of a y is a shift, with
+    /// no division.
+    shift: u6,
     /// Band k has the edges from starts[k] to starts[k + 1].
     starts: []u32,
     edges: [][2]Point,
@@ -465,10 +467,12 @@ pub const EdgeIndex = struct {
         }
         const n = paths.points.items.len;
         const want: usize = std.math.clamp(2 * std.math.sqrt(n), 1, 4096);
-        const span: i64 = @max(hi - lo + 1, 1);
-        const width: i64 = @max(1, @divFloor(span + @as(i64, @intCast(want)) - 1, @as(i64, @intCast(want))));
-        const bands: usize = @intCast(@divFloor(span + width - 1, width));
-        var idx: EdgeIndex = .{ .min = lo, .width = width, .starts = try s.alloc(u32, bands + 1), .edges = &.{} };
+        const span: u64 = @intCast(@max(hi - lo + 1, 1));
+        // The smallest power of two width that gives at most `want` bands.
+        var shift: u6 = 0;
+        while ((span - 1) >> shift >= want) shift += 1;
+        const bands: usize = @intCast(((span - 1) >> shift) + 1);
+        var idx: EdgeIndex = .{ .min = lo, .shift = shift, .starts = try s.alloc(u32, bands + 1), .edges = &.{} };
         @memset(idx.starts, 0);
         // Two passes over the edges: count, then fill.
         var fill: []u32 = &.{};
@@ -481,8 +485,11 @@ pub const EdgeIndex = struct {
             }
             for (0..paths.count()) |k| {
                 const poly = paths.get(k);
-                for (poly, 0..) |a, i| {
-                    const b = poly[(i + 1) % poly.len];
+                if (poly.len == 0) continue;
+                // Each edge a -> b: a is the point before b.
+                var a = poly[poly.len - 1];
+                for (poly) |b| {
+                    defer a = b;
                     // A horizontal edge never counts for `inside`.
                     if (a.y == b.y and pad == 0) continue;
                     const b0 = idx.band(@min(a.y, b.y) - pad);
@@ -508,8 +515,8 @@ pub const EdgeIndex = struct {
         s.free(idx.edges);
     }
 
-    fn band(idx: EdgeIndex, y: i64) usize {
-        const k = @divFloor(y - idx.min, idx.width);
+    inline fn band(idx: *const EdgeIndex, y: i64) usize {
+        const k = (y - idx.min) >> idx.shift;
         return @intCast(std.math.clamp(k, 0, @as(i64, @intCast(idx.starts.len - 2))));
     }
 
@@ -543,7 +550,7 @@ pub const EdgeIndex = struct {
             const apx: f64 = @floatFromInt(p.x - a.x);
             const apy: f64 = @floatFromInt(p.y - a.y);
             const len2 = abx * abx + aby * aby;
-            const t = if (len2 > 0) std.math.clamp((apx * abx + apy * aby) / len2, 0, 1) else 0;
+            const t = if (len2 > 0) fmax(0, fmin((apx * abx + apy * aby) / len2, 1)) else 0;
             const dx = apx - t * abx;
             const dy = apy - t * aby;
             if (dx * dx + dy * dy <= t2) return true;
@@ -565,7 +572,7 @@ pub const EdgeIndex = struct {
             const apx: f64 = @floatFromInt(p.x - a.x);
             const apy: f64 = @floatFromInt(p.y - a.y);
             const len2 = abx * abx + aby * aby;
-            const t = if (len2 > 0) std.math.clamp((apx * abx + apy * aby) / len2, 0, 1) else 0;
+            const t = if (len2 > 0) fmax(0, fmin((apx * abx + apy * aby) / len2, 1)) else 0;
             const dx = apx - t * abx;
             const dy = apy - t * aby;
             const d2 = dx * dx + dy * dy;

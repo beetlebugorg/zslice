@@ -585,6 +585,7 @@ pub const Memo = struct {
     gap_fills: std.ArrayList(GapFillEntry) = .empty,
     skin_gaps: std.ArrayList(SkinGapEntry) = .empty,
     helds: std.ArrayList(HeldEntry) = .empty,
+    bridge_sets: std.ArrayList(BridgeEntry) = .empty,
 
     const ArachneEntry = struct { key: ArachneKey, walls: []VarWall, inner: Paths, gen: u32 };
     const OffsetEntry = struct {
@@ -605,6 +606,7 @@ pub const Memo = struct {
     const GapFillEntry = struct { key: u64, fill: gapfill.Fill, gen: u32 };
     const SkinGapEntry = struct { key: u64, paths: Paths, gen: u32 };
     const HeldEntry = struct { key: u64, paths: Paths, gen: u32 };
+    const BridgeEntry = struct { key: u64, bridges: Bridges, gen: u32 };
 
     /// The sparse area of a layer, split for top support (see `topSplit`).
     pub const TopSplit = struct {
@@ -694,6 +696,9 @@ pub const Memo = struct {
         for (self.helds.items) |e| if (e.gen >= min_gen) {
             try out.helds.append(a, .{ .key = e.key, .paths = try e.paths.clone(a), .gen = e.gen });
         };
+        for (self.bridge_sets.items) |e| if (e.gen >= min_gen) {
+            try out.bridge_sets.append(a, .{ .key = e.key, .bridges = .{ .area = try e.bridges.area.clone(a), .lines = try e.bridges.lines.clone(a) }, .gen = e.gen });
+        };
         return out;
     }
 
@@ -755,6 +760,30 @@ pub const Memo = struct {
         const paths = try (try offset_mod.offset(scratch_state.allocator(), below, @divTrunc(w, 2), .{})).clone(a);
         try self.helds.append(a, .{ .key = key, .paths = paths, .gen = gen });
         return paths;
+    }
+
+    /// The bridges of a skin area over the outline below (see
+    /// `bridgeLines`), by a hash of both and the line width. A change of
+    /// the infill keeps the skin, and so the bridges: their offsets and
+    /// booleans were a tenth of the time of an infill change.
+    fn bridges(self: *Memo, skin: Paths, below: Paths, w: i64, gen: u32) Allocator.Error!Bridges {
+        var h: std.hash.Wyhash = .init(@bitCast(w));
+        for ([_]Paths{ skin, below }) |ps| {
+            h.update(std.mem.sliceAsBytes(ps.points.items));
+            h.update(std.mem.sliceAsBytes(ps.ends.items));
+        }
+        const key = h.final();
+        for (self.bridge_sets.items) |*e| if (e.key == key) {
+            e.gen = gen;
+            return e.bridges;
+        };
+        const a = self.arena.allocator();
+        var scratch_state = scratch.get(a);
+        defer scratch_state.release();
+        const b = try bridgeLines(scratch_state.allocator(), skin, below, w);
+        const kept: Bridges = .{ .area = try b.area.clone(a), .lines = try b.lines.clone(a) };
+        try self.bridge_sets.append(a, .{ .key = key, .bridges = kept, .gen = gen });
+        return kept;
     }
 
     /// The gap fill lines of `gaps` (see gapfill.centerLines), by a hash
@@ -1264,7 +1293,7 @@ pub fn plan(gpa: Allocator, ctx: Context, i: usize) Allocator.Error!LayerPlan {
     var bridge_lines: Paths = .empty;
     var bridge_area: Paths = .empty;
     if (p.bridges and i > 0 and !skin_region.isEmpty()) {
-        const br = try bridgeLines(s, skin_region, ctx.outlines[i - 1], w);
+        const br = try memo.bridges(skin_region, ctx.outlines[i - 1], w, ctx.gen);
         if (!br.area.isEmpty()) {
             bridge_lines = br.lines;
             bridge_area = br.area;
