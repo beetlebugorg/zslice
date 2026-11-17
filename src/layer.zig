@@ -1541,12 +1541,12 @@ pub fn plan(gpa: Allocator, ctx: Context, i: usize) Allocator.Error!LayerPlan {
         }
         try addThin(a, &lp, &pos, &reg, .{ .ids = thin_ids, .id = id });
         if (skin_tour) |t| {
-            try addSkinTour(s, a, &lp, &pos, t.lines, t.point_w, t.island, t.n_islands, .{ .ids = skin_tour_ids, .id = id });
+            try addSkinTour(s, a, &lp, &pos, t.lines, t.point_w, .{ .ids = skin_tour_ids, .id = id }, gap_fill.lines, gap_fill.line_widths, .{ .ids = gap_line_ids, .id = id });
         } else try addSkinIslands(s, a, &lp, &pos, skin_lines, skin_line_w, skin_island, skin_n_islands, .{ .ids = skin_ids, .id = id }, skin_angle, p.skin_pattern == .monotonic);
         try addGroup(s, a, &lp, &pos, skin_loops, true, .skin, null, .{ .ids = skin_loop_ids, .id = id });
         try addGroup(s, a, &lp, &pos, bridge_lines, false, .bridge, null, .{ .ids = bridge_ids, .id = id });
         try addGroupWidths(s, a, &lp, &pos, gap_fill.loops, gap_fill.loop_widths, true, .skin, null, .{ .ids = gap_loop_ids, .id = id });
-        try addGroupWidths(s, a, &lp, &pos, gap_fill.lines, gap_fill.line_widths, false, .skin, null, .{ .ids = gap_line_ids, .id = id });
+        if (skin_tour == null) try addGroupWidths(s, a, &lp, &pos, gap_fill.lines, gap_fill.line_widths, false, .skin, null, .{ .ids = gap_line_ids, .id = id });
         try addGroup(s, a, &lp, &pos, sparse_lines, false, .infill, null, .{ .ids = sparse_ids, .id = id });
         try addGroup(s, a, &lp, &pos, sparse_loops, true, .infill, null, .{ .ids = sparse_loop_ids, .id = id });
         if (comb_height > 0) {
@@ -2357,56 +2357,44 @@ fn addSkinIslands(s: Allocator, a: Allocator, lp: *LayerPlan, pos: *Point, lines
     }
 }
 
-/// The paths of a retractless skin (see `infill.tour`), island by island:
-/// first the island with the path end nearest to the nozzle. The paths of
-/// an island print in the nearest order, with the width of each point.
-fn addSkinTour(s: Allocator, a: Allocator, lp: *LayerPlan, pos: *Point, lines: Paths, point_w: []const f32, island: []const u32, n_islands: usize, group: Group) Allocator.Error!void {
-    const done = try s.alloc(bool, n_islands);
-    @memset(done, false);
-    while (true) {
-        var best: ?u32 = null;
-        var best_d: i128 = std.math.maxInt(i128);
-        for (0..lines.count()) |k| {
-            if (group.ids[k] != group.id or done[island[k]]) continue;
-            const path = lines.get(k);
-            const d = @min(pos.distSq(path[0]), pos.distSq(path[path.len - 1]));
-            if (d < best_d) {
-                best_d = d;
-                best = island[k];
-            }
-        }
-        const ii = best orelse return;
-        done[ii] = true;
-        var set: Paths = .empty;
-        var ws: std.ArrayList(f32) = .empty;
-        for (0..lines.count()) |k| if (group.ids[k] == group.id and island[k] == ii) {
-            try set.append(s, lines.get(k));
-            const base: usize = if (k == 0) 0 else lines.ends.items[k - 1];
-            try ws.appendSlice(s, point_w[base..lines.ends.items[k]]);
+/// The paths of a retractless skin (see `infill.tour`) and the lines of
+/// the gap fill, in one nearest order, with the width of each point. In
+/// one order, the nozzle fills the gaps near a skin path when it is there,
+/// and does not go back and forth between the skin and the gaps.
+fn addSkinTour(s: Allocator, a: Allocator, lp: *LayerPlan, pos: *Point, lines: Paths, point_w: []const f32, group: Group, gaps: Paths, gap_w: []const f32, gap_group: Group) Allocator.Error!void {
+    var set: Paths = .empty;
+    var ws: std.ArrayList(f32) = .empty;
+    for ([_]struct { Paths, []const f32, Group }{ .{ lines, point_w, group }, .{ gaps, gap_w, gap_group } }) |src| {
+        const ps, const pw, const g = src;
+        for (0..ps.count()) |k| if (g.ids[k] == g.id) {
+            try set.append(s, ps.get(k));
+            const base: usize = if (k == 0) 0 else ps.ends.items[k - 1];
+            try ws.appendSlice(s, pw[base..ps.ends.items[k]]);
         };
-        const first = lp.paths.items.len;
-        const w0 = lp.point_w.items.len;
-        try addGroupWidths(s, a, lp, pos, set, ws.items, false, .skin, null, null);
-        // A path of one width is a path of one width (no width for each
-        // point): the widths of the other paths move down.
-        var keep = w0;
-        for (lp.paths.items[first..], first..) |*path, pi| {
-            const pts = lp.points.get(pi).len;
-            const pw = lp.point_w.items[path.w_start..][0..pts];
-            const one = for (pw) |x| {
-                if (x != pw[0]) break false;
-            } else true;
-            if (one) {
-                path.width = pw[0];
-                path.w_start = Path.planar;
-            } else {
-                std.mem.copyForwards(f32, lp.point_w.items[keep..][0..pts], pw);
-                path.w_start = @intCast(keep);
-                keep += pts;
-            }
-        }
-        lp.point_w.shrinkRetainingCapacity(keep);
     }
+    if (set.isEmpty()) return;
+    const first = lp.paths.items.len;
+    const w0 = lp.point_w.items.len;
+    try addGroupWidths(s, a, lp, pos, set, ws.items, false, .skin, null, null);
+    // A path of one width is a path of one width (no width for each
+    // point): the widths of the other paths move down.
+    var keep = w0;
+    for (lp.paths.items[first..], first..) |*path, pi| {
+        const pts = lp.points.get(pi).len;
+        const pw = lp.point_w.items[path.w_start..][0..pts];
+        const one = for (pw) |x| {
+            if (x != pw[0]) break false;
+        } else true;
+        if (one) {
+            path.width = pw[0];
+            path.w_start = Path.planar;
+        } else {
+            std.mem.copyForwards(f32, lp.point_w.items[keep..][0..pts], pw);
+            path.w_start = @intCast(keep);
+            keep += pts;
+        }
+    }
+    lp.point_w.shrinkRetainingCapacity(keep);
 }
 
 fn addMonotonic(s: Allocator, a: Allocator, lp: *LayerPlan, pos: *Point, set: Paths, angle_deg: f64, feature: Feature) Allocator.Error!void {
