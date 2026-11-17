@@ -32,6 +32,7 @@
 <a href="../../embedding/javascript/">JavaScript</a>
 <div class="group">Internals</div>
 <a href="../../internals/architecture/" aria-current="page">Architecture</a>
+<a href="../../internals/one-view/">Plan: one view</a>
 <a href="../../internals/how-slicing-works/">How slicing works</a>
 <a href="../../internals/layer-settings/">Settings for some layers</a>
 <a href="../../internals/arachne/">Arachne walls</a>
@@ -149,7 +150,7 @@
 <ul><li>Allocation errors go up to the caller as <code>error.OutOfMemory</code>.</li><li>Bad input (a broken STL file, bad settings) returns an error from <code>Mesh.fromStl</code> or <code>Settings.resolve</code>.</li><li>Bad geometry is not an error. A mesh with holes or overlaps gives the best output that the code can make: open chains are closed or removed, and overlaps are joined by a union.</li></ul>
 <h2 id="the-c-api-layer">The C API layer</h2>
 <p><code>c_api.zig</code> and the files in <code>c_api/</code> are a thin layer:</p>
-<ul><li>Each exported function checks its pointers, calls the Zig API, and changes the Zig error to a status code.</li><li><code>CSettings</code> has <code>Settings</code> and an arena for the string values, because <code>Settings.set</code> does not copy strings.</li><li><code>CallbackWriter</code> is a <code>std.Io.Writer</code> that sends its buffer to the C callback.</li><li>The wasm build compiles the same file for <code>wasm32-freestanding</code>.</li></ul><nav class="pager"><a class="prev" href="../../embedding/javascript/"><span>Previous</span><b>JavaScript</b></a><a class="next" href="../../internals/how-slicing-works/"><span>Next</span><b>How slicing works</b></a></nav>
+<ul><li>Each exported function checks its pointers, calls the Zig API, and changes the Zig error to a status code.</li><li><code>CSettings</code> has <code>Settings</code> and an arena for the string values, because <code>Settings.set</code> does not copy strings.</li><li><code>CallbackWriter</code> is a <code>std.Io.Writer</code> that sends its buffer to the C callback.</li><li>The wasm build compiles the same file for <code>wasm32-freestanding</code>.</li></ul><nav class="pager"><a class="prev" href="../../embedding/javascript/"><span>Previous</span><b>JavaScript</b></a><a class="next" href="../../internals/one-view/"><span>Next</span><b>Plan: one view</b></a></nav>
 </main>
 </div>
 <footer>zslice is free software (AGPL-3.0-or-later). <a href="../../privacy/">Privacy</a>: no analytics, no cookies, nothing from other sites. <a href="https://github.com/beetlebugorg/zslice/blob/main/docs/build.py">docs/build.py</a> writes this site from <a href="https://github.com/beetlebugorg/zslice/blob/main/docs/internals/architecture.md">docs/internals/architecture.md</a>.</footer>

@@ -49,6 +49,7 @@ SOURCES = [
     ("docs/embedding/zig.md", "embedding/zig/", "Embedding", "Zig"),
     ("docs/embedding/javascript.md", "embedding/javascript/", "Embedding", "JavaScript"),
     ("docs/internals/architecture.md", "internals/architecture/", "Internals", "Architecture"),
+    ("docs/internals/one-view.md", "internals/one-view/", "Internals", "Plan: one view"),
     ("docs/internals/how-slicing-works.md", "internals/how-slicing-works/", "Internals", "How slicing works"),
     ("docs/internals/layer-settings.md", "internals/layer-settings/", "Internals", "Settings for some layers"),
     ("docs/internals/arachne.md", "internals/arachne/", "Internals", "Arachne walls"),
