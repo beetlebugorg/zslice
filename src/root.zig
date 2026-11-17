@@ -46,6 +46,8 @@ pub const scratch = @import("scratch.zig");
 pub const engine = @import("engine.zig");
 pub const svg = @import("svg.zig");
 pub const support = @import("support.zig");
+/// Expressions: the formulas of the settings (see expr.zig).
+pub const expr = @import("expr.zig");
 pub const gaps = @import("gaps.zig");
 pub const gapfill = @import("gapfill.zig");
 pub const islands = @import("islands.zig");
