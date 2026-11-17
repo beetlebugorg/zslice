@@ -132,6 +132,10 @@ pub const LayerPlan = struct {
     resolved: ?*const Resolved = null,
     /// The outline of the layer.
     outline: Paths = .empty,
+    /// The area of the sparse infill: inside the walls, and not skin. Its
+    /// infill is sparse on purpose, so a check for gaps (see gaps.zig)
+    /// leaves it out.
+    sparse_area: Paths = .empty,
     /// One entry for each path in `points`, in print order.
     paths: std.ArrayList(Path) = .empty,
     points: Paths = .empty,
@@ -827,6 +831,7 @@ pub fn plan(gpa: Allocator, ctx: Context, i: usize) Allocator.Error!LayerPlan {
     const walls = reg.walls;
     const wall_n = walls.len;
     const sparse = reg.sparse;
+    lp.sparse_area = try sparse.clone(a);
 
     // Step 5.
     const skin_inset = -@divTrunc(w, 2) + geom.fromMm(p.skin_overlap * width_mm);

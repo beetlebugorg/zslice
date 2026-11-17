@@ -12,6 +12,7 @@ const usage =
     \\Usage:
     \\  zslice slice <model.stl> [options] [-o out.gcode]
     \\  zslice preview <model.stl> --layer N [options] [-o out.svg]
+    \\  zslice gaps <model.stl> [--layer N] [options]
     \\  zslice profiles
     \\  zslice profile <machine|filament|project> [options]
     \\  zslice import cura <stack folder> -o <profiles folder>
@@ -23,6 +24,9 @@ const usage =
     \\Commands:
     \\  slice     Slice a model and write G-code (default output: stdout).
     \\  preview   Write an SVG picture of one layer.
+    \\  gaps      List the gaps of one layer (or of all layers): the areas
+    \\            that should be solid and that no bead covers, with their
+    \\            size and the features around them.
     \\  profiles  List the built-in profiles and where profile files go.
     \\  profile   Write the settings of one group as a profile file, with
     \\            the options applied. Start a new profile from this output.
@@ -138,7 +142,8 @@ pub fn main(init: std.process.Init) !void {
     const is_profile = std.mem.eql(u8, cmd, "profile");
     const is_bench = std.mem.eql(u8, cmd, "bench");
     const is_sweep = std.mem.eql(u8, cmd, "sweep");
-    if (!is_bench and !is_sweep and !std.mem.eql(u8, cmd, "slice") and !std.mem.eql(u8, cmd, "preview") and !is_profile) {
+    const is_gaps = std.mem.eql(u8, cmd, "gaps");
+    if (!is_bench and !is_sweep and !is_gaps and !std.mem.eql(u8, cmd, "slice") and !std.mem.eql(u8, cmd, "preview") and !is_profile) {
         fail(err, "unknown command: {s}\n\n{s}", .{ cmd, usage });
     }
 
@@ -207,6 +212,32 @@ pub fn main(init: std.process.Init) !void {
     // One slice: the memos need not stay (see Job.keep_memos).
     job.keep_memos = false;
     const pass1 = t0.untilNow(io, .awake);
+
+    if (is_gaps) {
+        const first: usize = opts.layer orelse 0;
+        const last: usize = if (opts.layer) |l| l + 1 else job.layerCount();
+        if (first >= job.layerCount()) fail(err, "the part has {d} layers\n", .{job.layerCount()});
+        var total: usize = 0;
+        var area: f64 = 0;
+        for (first..@min(last, job.layerCount())) |li| {
+            var lp = try job.planLayer(li);
+            defer lp.deinit();
+            var r = try zslice.gaps.find(gpa, &lp, .{});
+            defer r.deinit(gpa);
+            for (r.gaps) |g| {
+                total += 1;
+                area += g.area;
+                if (opts.layer == null and total > 40) continue;
+                try err.print("layer {d}: {d:.3} mm2, {d:.2} mm wide, at {d:.2}, {d:.2}{s}, next to", .{ li + 1, g.area, g.width, g.x, g.y, if (g.at_edge) " (edge)" else "" });
+                inline for (@typeInfo(zslice.settings.Feature).@"enum".fields) |f| {
+                    if (g.features & (@as(u32, 1) << f.value) != 0) try err.print(" {s}", .{f.name});
+                }
+                try err.print("\n", .{});
+            }
+        }
+        try err.print("{d} gaps, {d:.2} mm2 in all\n", .{ total, area });
+        return;
+    }
 
     if (std.mem.eql(u8, cmd, "preview")) {
         const n = opts.layer orelse fail(err, "preview needs --layer N\n", .{});
