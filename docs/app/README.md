@@ -82,14 +82,19 @@ The GTK shell is in `linux/src`. Each `.c` file has a header that explains its i
 | | `discovery` | The search of the network for printers (mDNS), with the packets of the core |
 | | `project-source` | The files of a printdeck.yml project: a folder, or a public GitHub repository |
 | `ui/` | `window` | The main window: the header bar, the file dialogs, the send to a printer, and the status bar |
-| | `preview` | The 2D and 3D preview with the layer slider, the replay, and the keyboard navigation |
+| | `preview` | The 2D and 3D preview with the tool strip, the layer slider, the replay, the measure readout, and the keyboard navigation |
 | | `layer-draw` | The cairo drawing of one layer in the 2D view |
 | | `toolpath-nav` | The next segment and the nearest line, for the keyboard navigation |
 | | `layer-range` | The slider with two knobs for the layers that show |
-| | `view3d` | The widget of the 3D view, and the drag of a part |
+| | `view3d` | The widget of the 3D view, the drag of a part, and the rings of the Turn tool |
 | | `bed-model` | The bed model of the current printer in the 3D view: finds the bed folder and reads the files |
 | | `native-surface` | The Wayland subsurface for the 3D view |
-| | `settings-panel` | The panel with its pages: Settings, Selected, History, and Project |
+| | `float` | The cards over the view: their places in the overlay of the preview, and the drag of their head |
+| | `search` | The settings search (`/`): settings with live controls, and actions |
+| | `line-card` | The card of a selected line: its numbers, and the settings that matter for it |
+| | `part-card` | The card of a selected part: its actions and its own settings |
+| | `shortcuts` | The sheet of the keyboard shortcuts (`?`): one table of the keys |
+| | `settings-panel` | The panel (a drawer: hidden, over the view, or pinned) with its pages: Settings, Selected, History, and Project |
 | | `inspector` | The "Selected" page: the values of a line and the settings that change it |
 | | `project-page` | The "Project" page: a printdeck.yml project, its plates and parts, and the status of each plate |
 | | `part-page` | The page of a part: its place, turn, and scale, and the placement |

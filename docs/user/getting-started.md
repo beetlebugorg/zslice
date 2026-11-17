@@ -161,7 +161,7 @@ Pick the printer in the menu at the left of the header bar. With a connection, t
 
 The API keys are in `~/.config/zslice/app.ini`, which only you can read.
 
-In the web app, "Manage printers…" has the connection, the API key, and **Get a key** for each printer. Get a key asks the printer for a key of its own for zslice: the printer asks "Allow zslice to use the Printdeck?" on its touch screen (printdeck), or in its web page (OctoPrint, with the App Keys plugin). Allow it within 2 minutes, and zslice keeps the key. You can also copy the key: printdeck shows it on its System page (`http://<printer>/system`, "Slicer API key"), and OctoPrint in Settings › API. A printdeck starts a print from zslice only after a press of Print on its screen.
+"Manage printers…" in the web app, and the Printers page of Preferences in the GTK app, have the connection, the API key, and **Get a key** for each printer. Get a key asks the printer for a key of its own for zslice: the printer asks "Allow zslice to use the Printdeck?" on its touch screen (printdeck), or in its web page (OctoPrint, with the App Keys plugin). Allow it within 2 minutes, and zslice keeps the key. You can also copy the key: printdeck shows it on its System page (`http://<printer>/system`, "Slicer API key"), and OctoPrint in Settings › API. A printdeck starts a print from zslice only after a press of Print on its screen.
 
 ## Your settings stay
 
@@ -204,15 +204,15 @@ A value out of the usual range shows in the warning color, and its tooltip gives
 
 ## The panel and the print card
 
-In the web app, the view has the whole window. The print card floats at the bottom right of the view: the print time, the plastic, the layers, Export or Print, and the main settings of the print (the layer height, the walls, the infill, the support, the brim or the skirt, the temperatures, and the nozzle). Click one of these settings to change it in the search.
+The view has the whole window. The print card floats at the bottom right of the view: the print time, the plastic, the layers, Export or Print, and the main settings of the print (the layer height, the walls, the infill, the support, the brim or the skirt, the temperatures, and the nozzle). Click one of these settings to change it in the search.
 
-The panel has all settings, the selected line, the history, and the project. Press `N`, or click the sliders button at the top right, to show it or hide it. It slides over the view. Click **Pin** to put it beside the view, as a column with a splitter; click **Pin** again to let it slide over. Esc hides it when it slides over the view. A link to a setting shows the panel.
+The panel has all settings, the selected line, the history, and the project. Press `N`, or click the panel button at the top right, to show it or hide it. It slides over the view. Click **Pin** to put it beside the view, as a column with a splitter; click **Pin** again to let it slide over. Esc hides it when it slides over the view. A link to a setting shows the panel. The app keeps the choice for the next start. A hidden panel shows the whole print: the lines of the selected setting show only while the panel shows.
 
 A click on a line opens a card next to it: the feature and the layer, the planned speed, the real speed, and the flow, why the line is slow, its size (a circle shows its diameter), and the settings that matter for it. The card picks them from the line: the setting that makes it slow (the minimum layer time of a short layer, or the acceleration for short segments), the first layer settings on the first layer, a setting that you changed, and then the main settings of its feature (for infill: the density, the pattern, and the speed). Each pick says why it is there. Change a setting in the card, and the part slices at once. **Fade the others** shows the line solid and the other lines as faint ghosts. **All settings…** opens the Selected page of the panel. Esc, ×, or a click on no line closes the card.
 
 ## The part card
 
-With the Move tool (M), or Ctrl and a click with any tool, a click on a part selects it, and a card opens next to it:
+With the Move tool (M) or the Turn tool (R), or Ctrl and a click with any tool, a click on a part selects it, and a card opens next to it:
 
 - its name, its size, and its turn;
 - **Duplicate** (D): a copy at a free place on the bed, with the settings of the part;
@@ -220,20 +220,20 @@ With the Move tool (M), or Ctrl and a click with any tool, a click on a part sel
 - **Reset**: the orientation and the scale of the file again;
 - **Remove** (Delete);
 - the settings that the part has of its own, each with an editor and × (the value of the plate again);
-- the keyboard: Tab and Shift+Tab select the next part and the part before; the arrow keys move the selected part 1 mm (with Shift: 10 mm), and the part slices after a pause of 0.6 s in the keys; R with Left or Right turns it 15°; Esc clears the selection;
+- the keyboard: Tab and Shift+Tab select the next part and the part before; the arrow keys move the selected part 1 mm (with Shift: 10 mm); R with Left or Right turns it 15°; Esc clears the selection. In the web app, the part slices after a pause of 0.6 s in the keys; in the GTK app, each key slices at once;
 - **+ Add a setting for this part**: the search for this part. It shows only the settings that a part can have of its own, and a change goes to the part.
 
 Drag the top row of a card (the part card or the line card) to move it. It keeps that place until it closes.
 
-In the web app, the background of the view follows the dark mode of your system.
+The background of the view follows the dark mode of your system (in the GTK app: the theme of the app, which follows the system unless Preferences sets one).
 
 ## Keyboard shortcuts
 
-Press `?` to see all keyboard shortcuts of the web app, grouped. Type in the sheet to filter it. Esc closes it.
+Press `?` to see all keyboard shortcuts of the app, grouped (in the GTK app, also in the main menu). Type in the sheet to filter it. Esc closes it.
 
 ## Search settings and actions
 
-Press `/` (or click **Search** in the preview toolbar, in the web app) to search the settings and the actions. Type a few letters, for example `infill`, `brim`, or `export`. A word also finds its other names: `speed` finds the motion settings, `perimeters` the walls, `cooling` the fans, and `temp` the temperatures.
+Press `/` (or click **Search** in the preview toolbar of the web app) to search the settings and the actions. Type a few letters, for example `infill`, `brim`, or `export`. A word also finds its other names: `speed` finds the motion settings, `perimeters` the walls, `cooling` the fans, and `temp` the temperatures.
 
 - Each setting in the results has its control: a slider and an entry for a number, a list for a choice, and a switch. Change it right there. The part slices again at once, and the view under the search shows the new lines. A drag of a slider slices as you drag.
 - The view does not change while you go through the results. Click the eye of a setting (or press V on it) to show only the lines that it changes, with the other lines as ghosts; click it again, or close the search, for all lines.
@@ -245,16 +245,16 @@ Press `/` (or click **Search** in the preview toolbar, in the web app) to search
 
 ## Tools
 
-The tool strip at the left of the view (in the GTK app: the group of three buttons at the left of the preview toolbar) picks the tool of the mouse. The key of each tool is in the corner of its button:
+The tool strip at the left of the view picks the tool of the mouse. In the GTK app, the strip also has **Gaps** (G) and **Check**. The key of each tool is in the corner of its button:
 
 | Tool | Key | What a click does |
 |---|---|---|
 | Select (arrow) | S | Selects a line. The Selected page shows what it is and its measurements. |
 | Move (cross) | M | A drag on a part moves it, and the wheel over it turns it by 15°: the same as Ctrl in the other tools. |
-| Turn (arrow in a circle) | R | Click a part: three rings go around it. Drag the red ring to turn the part about X, the green ring about Y, and the blue ring about Z (on the bed), in steps of 15° (Shift: 5°). The part turns at once, and it slices once, when you let go of the ring. Keys: Left and Right turn it about Z, Up and Down about X, Page Up and Page Down about Y. |
+| Turn (arrow in a circle) | R | Click a part: three rings go around it. Drag the red ring to turn the part about X, the green ring about Y, and the blue ring about Z (on the bed), in steps of 15° (Shift: 5°). The part turns at once. In the web app, it slices once, when you let go of the ring; in the GTK app, each step slices at once. Keys: Left and Right turn it about Z, Up and Down about X, Page Up and Page Down about Y. |
 | Measure (ruler) | T | Two clicks measure between two points of the print or the bed, in the 3D or the 2D view. The distance shows on a label over the middle of the tape, with its parts along x, y, and z. A point near the end of a line snaps to it. A click on a circle or an arc (a hole, a boss) shows its diameter and radius, selects the line, and puts the point at its center, so two holes give the distance between their centers. Hold Shift for no snap. Esc clears the measure. |
 
-The measure shows under the toolbar: the distance, its parts along X, Y, and Z, and the distance on the bed. A gold line in the 3D view joins the two points.
+The readout floats on the tape: the distance, its parts along X, Y, and Z, and the distance on the bed. A gold line joins the two points, in the 3D and the 2D view.
 
 **Measurements of a line.** The Selected page shows them for the selected segment: its length, the length of the straight edge it is a part of, the length and the size of the whole line, and for a circle its radius and diameter, or for a segment in an arc the radius and the angle of the arc. They follow the segment as h and l move it.
 
@@ -309,7 +309,7 @@ A click on a line selects the line (yellow) and the segment under the pointer (o
 
 ## Gaps
 
-Turn on **Gaps** in the preview toolbar to see the gaps of the top layer of the layer slider in red: the areas that should be solid that no line covers (the sparse infill is left out, as it is sparse on purpose). The toolbar gives the number of gaps of the layer and their area.
+Turn on **Gaps** (G, in the tool strip of the GTK app) to see the gaps of the top layer of the layer slider in red: the areas that should be solid that no line covers (the sparse infill is left out, as it is sparse on purpose). The toolbar gives the number of gaps of the layer and their area.
 
 Click a gap to select it. The Selected page then gives its size, its width, the lines next to it, and the settings that can close it, the best first, with the value to try and why. **Apply** changes the setting for all prints; **This layer** changes it only for the layer of the gap. The part slices again, and the page shows the same gap with the new settings, or says that it is closed.
 
@@ -321,7 +321,7 @@ Click a gap to select it. The Selected page then gives its size, its width, the 
 
 ## Check the print
 
-**Check** in the preview toolbar lists what can make the print fail or print badly, the worst first:
+**Check** (in the tool strip of the GTK app) lists what can make the print fail or print badly, the worst first:
 
 - an overhang with support off, flatter than `project.support_angle`;
 - a bridge, with its span (a long bridge can still sag);
@@ -340,7 +340,7 @@ Bridges print at `project.bridge_speed` (a ratio of the allowed speed), with `pr
 
 ## The print card
 
-The card at the bottom of the side panel shows the print time (with a printdeck printer, its time with the heat-up and the start), the plastic in grams and meters, the cost, and the layers. Under it: the state of the slice, the islands warning, and the printer with the roll in it. Its button prints on the printer ("Print to Printdeck", with "Upload only" and "Export a G-code file…" in its menu), or exports the G-code if there is no printer.
+The print card at the bottom right of the view shows the print time (with a printdeck printer, its time with the heat-up and the start), the plastic in grams and meters, the cost, and the layers. Under it: the state of the slice, the islands warning, and the printer with the roll in it. Its button prints on the printer ("Print to Printdeck", with "Upload only" and "Export a G-code file…" in its menu), or exports the G-code if there is no printer.
 
 ## Undo
 

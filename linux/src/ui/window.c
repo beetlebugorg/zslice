@@ -1229,15 +1229,13 @@ static gboolean on_panel_key(GtkEventControllerKey *c, guint key, guint code, Gd
     return TRUE;
 }
 
-/* The drawer over the view: the right part of the window, at the width
- * of the pinned panel. */
+/* The drawer over the view: the right part of the window, 460 points
+ * wide (as the web app), or less in a narrow window. */
 static gboolean on_body_child(GtkOverlay *overlay, GtkWidget *child, GdkRectangle *alloc, gpointer data) {
     Window *w = data;
     if (child != w->panel) return FALSE;
     int W = gtk_widget_get_width(GTK_WIDGET(overlay)), H = gtk_widget_get_height(GTK_WIDGET(overlay));
-    char *saved = zg_pref_get("panel_width", "560");
-    int width = CLAMP(atoi(saved), 300, MAX(300, W * 3 / 4));
-    g_free(saved);
+    int width = MIN(460, W * 92 / 100);
     int min = 0;
     gtk_widget_measure(child, GTK_ORIENTATION_HORIZONTAL, -1, &min, NULL, NULL, NULL);
     width = MAX(width, min);
@@ -1248,7 +1246,7 @@ static gboolean on_body_child(GtkOverlay *overlay, GtkWidget *child, GdkRectangl
     return TRUE;
 }
 
-/* The width of the pinned panel: the drawer opens at the same width. */
+/* The width of the pinned panel, for the next start. */
 static void on_paned_position(GObject *paned, GParamSpec *pspec, gpointer data) {
     Window *w = data;
     if (w->panel_mode != PANEL_PINNED || !gtk_widget_get_mapped(w->panel)) return;

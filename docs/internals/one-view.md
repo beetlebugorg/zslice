@@ -78,7 +78,30 @@ Each plate is one `App` (`zs_app`), with its own settings, profiles, parts, slic
 - The measure on the tape, and the tape in the 2D view.
 - The Turn tool (turn.js): rings for X, Y, and Z around the selected part, and keys for each axis.
 - A double click on a side of a part lays the part down on that side.
-- The view follows the dark mode of the system (core: `zs_view_set_dark`). The GTK app does not call it yet.
+- The view follows the dark mode of the system (core: `zs_view_set_dark`).
+
+## Done in the GTK app (phase A of step 4)
+
+The GTK app has the layout of the web app for one plate. The files are in `linux/src/ui`.
+
+- `float.c`: the cards over the view are children of the overlay of the preview. A card has a point in the overlay, and it stays inside it. A drag of its head moves it.
+- The panel is a drawer (`window.c`): hidden, over the view, or pinned beside it in the paned (`N`, the panel button, Pin). The mode stays in `app.ini` (`panel`, `panel_pinned`, `panel_width`). A hidden panel ends the focus of the settings browser (`send_focus` checks that its page is mapped).
+- The print card floats at the bottom right of the view, with the facts of the print. A fact opens the search on its setting.
+- `search.c`: the settings search (`/`), with the same score and the same groups of words as `search.js`. The setting editors (`setting-editor.c`) can now edit the value of one part, and a slider can send a value at most each 90 ms (`zg_setting_editor_slider_throttle`).
+- `shortcuts.c`: the sheet of the keys (`?`), one table.
+- The tool strip at the left of the view (`preview.c`): Select, Move, Turn, Measure, Gaps, and Check, each with its key.
+- `line-card.c` and `part-card.c`: the cards of a line and of a part. The part card follows the part after each frame of the view (`zg_view3d_on_frame`, `zg_view3d_pixel_of`).
+- The Turn tool (`view3d.c`): the view widget draws the rings with cairo over the Vulkan subsurface.
+- A double click on a side of a part turns the view to that side (`zs_view_look_at`).
+- The measure readout floats on the tape, and the 2D view draws the tape and takes the clicks of the Measure tool.
+- The views follow the theme of the app (`zg_theme_dark`, `zs_view_set_dark`), also for the 2D view.
+- Get a key (`printer-link.c`, `zg_link_request_key`) in the Printers page of Preferences.
+
+Differences from the web app:
+
+- A turn or a move of a part slices at each step. The GTK view shows only the slice (no mesh of the part), so a held slice gives no feedback during a drag.
+- The sheet of the keys is a window of its own.
+- No plate set yet: the GTK app has one App with the plates of the core (`zs_app_plate_*`), and the plate buttons stay in the toolbar.
 
 ## The steps
 
