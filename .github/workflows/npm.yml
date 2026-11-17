@@ -51,7 +51,14 @@ jobs:
           npx zslice slice cube.stl -o cube.gcode --stats -
           grep -q ";LAYER:" cube.gcode
 
+      # The registry keeps the tarball of npm pack as it is, so its sha256
+      # here is the sha256 of the package (the Buildroot hash of printdeck).
       # ./ : npm reads "zig-out/npm" as a GitHub repository.
-      - run: npm publish ./zig-out/npm
+      - name: Publish
+        run: |
+          mkdir pack
+          npm pack ./zig-out/npm --pack-destination pack
+          sha256sum pack/*.tgz | tee -a "$GITHUB_STEP_SUMMARY"
+          npm publish pack/*.tgz
         env:
           NODE_AUTH_TOKEN: ${{ secrets.GITHUB_TOKEN }}

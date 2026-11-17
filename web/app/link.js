@@ -34,8 +34,12 @@ function join(base, path) {
 // (Chrome's Local Network Access), and the name must match the real one:
 // "loopback" for this computer, "local" for the LAN. Other calls leave it
 // out, and Chrome finds it.
+//
+// The fetch sends cookies only to the origin of the page (credentials
+// "same-origin"). A printdeck that serves the app takes its login cookie
+// in place of an API key. A printer on another origin gets no cookies.
 function fetchOptions(url, init) {
-  const opts = { ...init, mode: "cors", credentials: "omit", cache: "no-store" };
+  const opts = { ...init, mode: "cors", credentials: "same-origin", cache: "no-store" };
   try {
     const u = new URL(url, location.href);
     if (u.origin !== location.origin && location.protocol === "https:" && u.protocol === "http:") {
