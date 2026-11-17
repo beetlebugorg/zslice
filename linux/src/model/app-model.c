@@ -154,6 +154,20 @@ static void save_state(ZgModel *self) {
         g_free(path);
         g_free(text);
     }
+    /* The formulas of the settings (any group): with each save. */
+    if (self->dirty) {
+        size_t len = 0;
+        if (zs_app_formulas_write(self->core, NULL, 0, &len) == ZS_OK) {
+            char *text = g_malloc(len + 1);
+            zs_app_formulas_write(self->core, text, len + 1, NULL);
+            char *dir = zg_config_dir();
+            char *path = g_build_filename(dir, "formulas.txt", NULL);
+            if (len > 0 || g_file_test(path, G_FILE_TEST_EXISTS)) g_file_set_contents(path, text, (gssize)len, NULL);
+            g_free(path);
+            g_free(dir);
+            g_free(text);
+        }
+    }
     self->dirty = 0;
 }
 
@@ -783,6 +797,14 @@ gboolean zg_model_set_quality(ZgModel *self, const char *name, gboolean keep_edi
 
 char *zg_model_source_text(ZgModel *self, const char *key, gint64 part, int *level_out) {
     int level = ZS_LEVEL_DEFAULT;
+    /* A formula of this print: it says so. */
+    char *formula = part < 0 ? zg_model_formula(self, key) : NULL;
+    if (formula) {
+        if (level_out) *level_out = ZS_LEVEL_PRINT;
+        char *t = g_strdup_printf("= %s", formula);
+        g_free(formula);
+        return t;
+    }
     char profile[256] = "";
     if (zs_app_setting_source(self->core, part, key, &level, profile, sizeof profile) != ZS_OK) level = ZS_LEVEL_DEFAULT;
     if (level_out) *level_out = level;
@@ -795,6 +817,14 @@ char *zg_model_source_text(ZgModel *self, const char *key, gint64 part, int *lev
     case ZS_LEVEL_PART: return g_strdup("This part");
     default: return NULL;
     }
+}
+
+char *zg_model_formula(ZgModel *self, const char *key) {
+    size_t len = 0;
+    if (zs_app_formula_get(self->core, key, NULL, 0, &len) != ZS_OK) return NULL;
+    char *buf = g_malloc(len + 1);
+    zs_app_formula_get(self->core, key, buf, len + 1, NULL);
+    return buf;
 }
 
 char *zg_model_base_get(ZgModel *self, const char *key) {
@@ -1159,6 +1189,17 @@ static void zg_model_init(ZgModel *self) {
         g_free(dir);
     }
     g_free(quality);
+    /* The formulas of the settings, on top. */
+    {
+        char *dir = zg_config_dir();
+        char *path = g_build_filename(dir, "formulas.txt", NULL);
+        char *text = NULL;
+        gsize len = 0;
+        if (g_file_get_contents(path, &text, &len, NULL)) zs_app_formulas_read(self->core, text, len);
+        g_free(text);
+        g_free(path);
+        g_free(dir);
+    }
     self->undo = g_ptr_array_new_with_free_func(snap_free);
     self->redo = g_ptr_array_new_with_free_func(snap_free);
     self->undo_now = undo_snapshot(self);
@@ -1350,6 +1391,21 @@ gboolean zg_model_set(ZgModel *self, const char *key, const char *value, GError 
     int rc = zs_app_setting_set(self->core, key, value);
     if (rc != ZS_OK) return fail(error, rc);
     g_signal_emit(self, signals[SIGNAL_SETTING_CHANGED], 0, key);
+    /* The settings with a formula can change with this one. */
+    size_t flen = 0;
+    if (zs_app_formulas_write(self->core, NULL, 0, &flen) == ZS_OK && flen > 0) {
+        char *text = g_malloc(flen + 1);
+        zs_app_formulas_write(self->core, text, flen + 1, NULL);
+        char **lines = g_strsplit(text, "\n", -1);
+        for (int i = 0; lines[i]; i++) {
+            char *eq = strstr(lines[i], " = ");
+            if (!eq) continue;
+            *eq = 0;
+            if (strcmp(lines[i], key) != 0) g_signal_emit(self, signals[SIGNAL_SETTING_CHANGED], 0, lines[i]);
+        }
+        g_strfreev(lines);
+        g_free(text);
+    }
     /* Save the group of the setting soon. */
     for (int g = 0; g < 3; g++) {
         size_t n = strlen(group_files[g]);

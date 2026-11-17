@@ -557,6 +557,16 @@ const char *zs_app_quality_name(const zs_app *app);
 /* The global settings of the user: a project profile text, under the
  * quality profile. */
 int zs_app_global_set(zs_app *app, const char *text, size_t len, char *message, size_t cap);
+/* Formulas: zs_app_setting_set with a value that starts with "=" (for
+ * example "= {line_width} * 2") makes the value of the setting follow
+ * the other settings (see src/expr.zig); a plain value removes the
+ * formula. zs_app_formula_get gives the text after "=", or ZS_NO_RESULT.
+ * zs_app_formulas_write and zs_app_formulas_read keep them in the state
+ * of a shell. */
+int zs_app_formula_get(const zs_app *app, const char *name, char *buf, size_t cap, size_t *out_len);
+int zs_app_formulas_write(const zs_app *app, char *buf, size_t cap, size_t *out_len);
+int zs_app_formulas_read(zs_app *app, const char *text, size_t len);
+
 /* Where the value of a setting comes from: its level (enum zs_level) and
  * the name of the profile of that level (can be ""). part < 0: the plate;
  * else part i (ZS_LEVEL_PART if the part has its own value). */

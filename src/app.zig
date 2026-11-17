@@ -176,6 +176,8 @@ pub const App = struct {
     /// defaults, in `strings`. `settings` has the result, with the changes
     /// of this print on top.
     quality_name: [:0]const u8 = "",
+    /// The settings whose value comes from a formula (see setFormula).
+    formulas: std.ArrayList(Formula) = .empty,
     quality: []const zs.settings.Change = &.{},
     global: []const zs.settings.Change = &.{},
     /// The settings of the parts and the modifier volumes for the running
@@ -199,6 +201,7 @@ pub const App = struct {
         app.gpa.free(app.spare_gcode);
         app.spare_paths.deinit(app.gpa);
         app.overrides.deinit(app.gpa);
+        app.formulas.deinit(app.gpa);
         app.profiles.deinit(app.gpa);
         app.clearGaps();
         app.gpa.free(app.slice_overrides);
@@ -623,10 +626,135 @@ pub const App = struct {
     /// Sets a setting from text. A slice that runs keeps the settings that
     /// it started with. A done result stays until the next slice.
     pub fn setSetting(app: *App, name: []const u8, value: []const u8) Settings.SetError!void {
+        const trimmed = std.mem.trim(u8, value, " ");
+        // A formula: "= {line_width} * 2" (see expr.zig and Formula).
+        if (trimmed.len > 0 and trimmed[0] == '=') {
+            app.setFormula(name, trimmed[1..]) catch return error.InvalidValue;
+            return;
+        }
         const copy = app.strings.allocator().dupe(u8, value) catch return error.InvalidValue;
         var s = app.settings;
         try s.set(name, copy);
         app.settings = s;
+        // A plain value replaces the formula of the setting.
+        app.removeFormula(name);
+        app.applyFormulas();
+    }
+
+    /// A setting whose value comes from a formula (see expr.zig).
+    pub const Formula = struct { name: []const u8, text: []const u8, node: *const zs.expr.Node };
+
+    /// Sets the formula of a setting (the text after "="), and the values
+    /// of all formulas. error.InvalidValue: the text does not parse, or
+    /// its value is not valid for the setting.
+    pub fn setFormula(app: *App, name: []const u8, text: []const u8) (Allocator.Error || Settings.SetError || zs.expr.Error)!void {
+        const a = app.strings.allocator();
+        var diag: zs.expr.Diagnostic = .{};
+        const t = try a.dupe(u8, std.mem.trim(u8, text, " "));
+        const node = try zs.expr.parse(a, t, &diag);
+        // The value now, to check it.
+        var check = app.settings;
+        const lc: LookupCtx = .{ .s = &check, .a = a };
+        const v = try zs.expr.eval(node, .{ .ctx = &lc, .lookup = lookupSetting });
+        try setValue(&check, a, name, v);
+        app.removeFormula(name);
+        try app.formulas.append(app.gpa, .{ .name = try a.dupe(u8, name), .text = t, .node = node });
+        app.settings = check;
+        app.applyFormulas();
+    }
+
+    pub fn removeFormula(app: *App, name: []const u8) void {
+        for (app.formulas.items, 0..) |f, i| if (std.mem.eql(u8, f.name, name)) {
+            _ = app.formulas.orderedRemove(i);
+            return;
+        };
+    }
+
+    /// The formula of a setting (the text after "="), or null.
+    pub fn formulaOf(app: *const App, name: []const u8) ?[]const u8 {
+        for (app.formulas.items) |f| if (std.mem.eql(u8, f.name, name)) return f.text;
+        return null;
+    }
+
+    /// The values of the formulas, in passes until no value changes (a
+    /// formula can use the value of another). A loop of formulas stops
+    /// after as many passes as there are formulas. A formula that fails
+    /// (an unknown name, a bad value) keeps the value before.
+    pub fn applyFormulas(app: *App) void {
+        if (app.formulas.items.len == 0) return;
+        const a = app.strings.allocator();
+        var pass: usize = 0;
+        while (pass <= app.formulas.items.len) : (pass += 1) {
+            var changed = false;
+            for (app.formulas.items) |f| {
+                const lc: LookupCtx = .{ .s = &app.settings, .a = a };
+                const v = zs.expr.eval(f.node, .{ .ctx = &lc, .lookup = lookupSetting }) catch continue;
+                var s = app.settings;
+                setValue(&s, a, f.name, v) catch continue;
+                if (!sameValue(s, app.settings, f.name)) {
+                    app.settings = s;
+                    changed = true;
+                }
+            }
+            if (!changed) return;
+        }
+    }
+
+    /// The formulas as text, one "name = text" on each line (for the state
+    /// of a shell).
+    pub fn writeFormulas(app: *const App, w: *std.Io.Writer) std.Io.Writer.Error!void {
+        for (app.formulas.items) |f| try w.print("{s} = {s}\n", .{ f.name, f.text });
+    }
+
+    /// Reads the text of writeFormulas. A line that fails is left out.
+    pub fn readFormulas(app: *App, text: []const u8) void {
+        var lines = std.mem.splitScalar(u8, text, '\n');
+        while (lines.next()) |line| {
+            const eq = std.mem.indexOf(u8, line, " = ") orelse continue;
+            app.setFormula(line[0..eq], line[eq + 3 ..]) catch {};
+        }
+    }
+
+    fn setValue(s: *Settings, a: Allocator, name: []const u8, v: zs.expr.Value) (Allocator.Error || Settings.SetError)!void {
+        const text = switch (v) {
+            .num => |n| try std.fmt.allocPrint(a, "{d}", .{n}),
+            .text => |t| t,
+        };
+        try s.set(name, text);
+    }
+
+    /// The value of a setting for a formula: a full name ("project.line_width"),
+    /// or a short name that the first group with it gives (project,
+    /// filament, machine).
+    const LookupCtx = struct { s: *const Settings, a: Allocator };
+
+    fn lookupSetting(ctx: ?*const anyopaque, name: []const u8) ?zs.expr.Value {
+        const lc: *const LookupCtx = @ptrCast(@alignCast(ctx.?));
+        const s = lc.s;
+        // The widths that the slicer uses: 0 means automatic (1.1 times
+        // the nozzle), so the resolved value.
+        const short = if (std.mem.startsWith(u8, name, "project.")) name["project.".len..] else name;
+        if (std.mem.eql(u8, short, "line_width") or std.mem.eql(u8, short, "first_layer_line_width")) {
+            if (s.resolve()) |r| {
+                return .{ .num = if (std.mem.eql(u8, short, "line_width")) r.line_width else r.first_layer_line_width };
+            } else |_| {}
+        }
+        var buf: [128]u8 = undefined;
+        const tries = [_][]const u8{ "", "project.", "filament.", "machine." };
+        for (tries) |pre| {
+            const full = std.fmt.bufPrint(&buf, "{s}{s}", .{ pre, name }) catch continue;
+            var out: [256]u8 = undefined;
+            var w: std.Io.Writer = .fixed(&out);
+            writeSettingOf(s.*, full, &w) catch continue;
+            const text = w.buffered();
+            if (std.fmt.parseFloat(f64, text)) |n| return .{ .num = n } else |_| {}
+            if (std.mem.eql(u8, text, "true")) return .{ .num = 1 };
+            if (std.mem.eql(u8, text, "false")) return .{ .num = 0 };
+            // A text (a choice, a name): a copy, as the buffer goes.
+            const copy = lc.a.dupe(u8, std.mem.trim(u8, text, "\"")) catch return null;
+            return .{ .text = copy };
+        }
+        return null;
     }
 
     /// Writes the settings of a group that differ from the defaults, as a
@@ -2274,4 +2402,42 @@ test "settings cascade: quality, the changes of this print, and a part" {
     // A filament value from its profile.
     try app.setSetting("filament.nozzle_temp", "230");
     try testing.expectEqual(App.Level.filament, app.source(null, "filament.nozzle_temp").level);
+}
+
+test "formulas: a setting from other settings, kept up to date" {
+    const gpa = testing.allocator;
+    const app = try App.create(gpa, null, null);
+    defer app.destroy();
+    try app.setSetting("project.line_width", "0.5");
+    try app.setSetting("project.top_thickness", "= {line_width} * 2");
+    try testing.expectEqual(@as(f64, 1.0), app.settings.project.top_thickness);
+    try testing.expectEqualStrings("{line_width} * 2", app.formulaOf("project.top_thickness").?);
+    // A change of the input changes the value.
+    try app.setSetting("project.line_width", "0.6");
+    try testing.expectApproxEqAbs(@as(f64, 1.2), app.settings.project.top_thickness, 1e-9);
+    // A plain value replaces the formula.
+    try app.setSetting("project.top_thickness", "0.8");
+    try testing.expect(app.formulaOf("project.top_thickness") == null);
+    try app.setSetting("project.line_width", "0.4");
+    try testing.expectEqual(@as(f64, 0.8), app.settings.project.top_thickness);
+    // A bad formula is an error, and changes nothing.
+    try testing.expectError(error.InvalidValue, app.setSetting("project.top_thickness", "= {nope} * 2"));
+    try testing.expectError(error.InvalidValue, app.setSetting("project.top_thickness", "= 1 +"));
+    // A text setting in a choice.
+    try app.setSetting("project.wall_count", "= {infill_pattern} == \"grid\" ? 3 : 2");
+    try testing.expectEqual(@as(u32, 3), app.settings.project.wall_count);
+    // The state text, and back.
+    var w: std.Io.Writer.Allocating = .init(gpa);
+    defer w.deinit();
+    try app.writeFormulas(&w.writer);
+    try testing.expect(std.mem.indexOf(u8, w.written(), "project.wall_count = {infill_pattern}") != null);
+}
+
+test "formulas: an automatic line width gives the width that the slicer uses" {
+    const gpa = testing.allocator;
+    const app = try App.create(gpa, null, null);
+    defer app.destroy();
+    try app.setSetting("machine.nozzle_diameter", "0.5");
+    try app.setSetting("project.top_thickness", "= {line_width} * 2");
+    try testing.expectApproxEqAbs(@as(f64, 1.1), app.settings.project.top_thickness, 1e-9);
 }

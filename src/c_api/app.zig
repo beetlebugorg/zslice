@@ -969,6 +969,46 @@ fn profileError(e: anyerror, diag: zs.profile.Diagnostic, message: ?[*]u8, cap: 
     };
 }
 
+/// The formula of a setting (the text after "="), or ZS_NO_RESULT. A
+/// setting gets a formula from zs_app_setting_set with a value that
+/// starts with "=". The same buffer rules as zs_app_setting_get.
+export fn zs_app_formula_get(a: ?*const App, name: ?[*:0]const u8, buf: ?[*]u8, cap: usize, out_len: ?*usize) c_int {
+    const app = a orelse return @intFromEnum(Status.invalid_argument);
+    const text = app.formulaOf(std.mem.span(name orelse return @intFromEnum(Status.invalid_argument))) orelse return @intFromEnum(Status.no_result);
+    if (out_len) |l| l.* = text.len;
+    if (buf) |b| {
+        if (cap == 0) return ok;
+        const k = @min(text.len, cap - 1);
+        @memcpy(b[0..k], text[0..k]);
+        b[k] = 0;
+    }
+    return ok;
+}
+
+/// All formulas as text ("name = text" lines), for the state of a shell.
+export fn zs_app_formulas_write(a: ?*const App, buf: ?[*]u8, cap: usize, out_len: ?*usize) c_int {
+    const app = a orelse return @intFromEnum(Status.invalid_argument);
+    var aw: Writer.Allocating = .init(gpa);
+    defer aw.deinit();
+    app.writeFormulas(&aw.writer) catch return @intFromEnum(Status.out_of_memory);
+    const text = aw.written();
+    if (out_len) |l| l.* = text.len;
+    if (buf) |b| {
+        if (cap == 0) return ok;
+        const k = @min(text.len, cap - 1);
+        @memcpy(b[0..k], text[0..k]);
+        b[k] = 0;
+    }
+    return ok;
+}
+
+/// Reads the text of zs_app_formulas_write.
+export fn zs_app_formulas_read(a: ?*App, text: ?[*]const u8, len: usize) c_int {
+    const app = a orelse return @intFromEnum(Status.invalid_argument);
+    app.readFormulas((text orelse return @intFromEnum(Status.invalid_argument))[0..len]);
+    return ok;
+}
+
 /// Sets the quality profile (see App.setQuality).
 export fn zs_app_quality_set(a: ?*App, name: ?[*:0]const u8, text: ?[*]const u8, len: usize, keep_edits: bool, message: ?[*]u8, cap: usize) c_int {
     const app = a orelse return @intFromEnum(Status.invalid_argument);

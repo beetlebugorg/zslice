@@ -368,6 +368,29 @@ static void free_info(gpointer data) {
     g_free(data);
 }
 
+/* Enter in the formula field: the formula, or none for an empty field
+ * (the value stays). A bad formula turns the field red. */
+static void on_formula_activate(GtkEntry *entry, gpointer data) {
+    Browser *b = data;
+    const char *key = g_object_get_data(G_OBJECT(entry), "zg-key");
+    const char *text = gtk_editable_get_text(GTK_EDITABLE(entry));
+    char *t = g_strstrip(g_strdup(text));
+    gboolean ok;
+    if (!t[0]) {
+        /* No formula: the value now, as a plain value. */
+        char *v = zg_model_get(b->model, key);
+        ok = zg_model_set(b->model, key, v, NULL);
+        g_free(v);
+    } else {
+        char *f = t[0] == '=' ? g_strdup(t) : g_strconcat("= ", t, NULL);
+        ok = zg_model_set(b->model, key, f, NULL);
+        g_free(f);
+    }
+    g_free(t);
+    if (ok) gtk_widget_remove_css_class(GTK_WIDGET(entry), "error");
+    else gtk_widget_add_css_class(GTK_WIDGET(entry), "error");
+}
+
 static void show_detail(Browser *b, const char *key) {
     GtkWidget *child;
     while ((child = gtk_widget_get_first_child(b->detail))) gtk_box_remove(GTK_BOX(b->detail), child);
@@ -398,6 +421,28 @@ static void show_detail(Browser *b, const char *key) {
     gtk_grid_attach(GTK_GRID(grid), path, 0, row++, 3, 1);
     int editor_row = row;
     zg_setting_row_free(zg_setting_row_add(grid, &row, b->model, info, b->in_profile ? ZG_ROW_SCOPED : 0));
+    /* A formula: "= {line_width} * 2" makes the value follow other
+     * settings. Enter sets it; an empty field removes it. */
+    if (!b->in_profile && zg_model_part_scope(b->model) < 0 && info->kind != ZS_SETTING_TEXT) {
+        GtkWidget *fl = gtk_label_new("Formula");
+        gtk_label_set_xalign(GTK_LABEL(fl), 0);
+        gtk_widget_add_css_class(fl, "dim-label");
+        GtkWidget *fe = gtk_entry_new();
+        gtk_entry_set_placeholder_text(GTK_ENTRY(fe), "= {line_width} * 2");
+        gtk_widget_set_hexpand(fe, TRUE);
+        gtk_widget_set_tooltip_text(fe, "A formula makes the value follow other settings: {name} is a setting (for example {layer_height} or {filament.nozzle_temp}); + - * / ^, min, max, round, clamp, and cond ? a : b. Enter sets it. A plain value in the field above removes it.");
+        char *f = zg_model_formula(b->model, info->name);
+        if (f) {
+            char *t = g_strdup_printf("= %s", f);
+            gtk_editable_set_text(GTK_EDITABLE(fe), t);
+            g_free(t);
+            g_free(f);
+        }
+        g_object_set_data_full(G_OBJECT(fe), "zg-key", g_strdup(info->name), g_free);
+        g_signal_connect(fe, "activate", G_CALLBACK(on_formula_activate), b);
+        gtk_grid_attach(GTK_GRID(grid), fl, 0, row, 1, 1);
+        gtk_grid_attach(GTK_GRID(grid), fe, 1, row++, 2, 1);
+    }
     /* For a part: the editor of a setting for all parts is off. */
     if (zg_model_part_scope(b->model) >= 0 && !info->per_part) {
         for (int r = editor_row; r < row; r++)

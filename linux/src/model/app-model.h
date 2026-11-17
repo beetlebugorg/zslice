@@ -182,6 +182,10 @@ char *zg_model_source_text(ZgModel *self, const char *key, gint64 part, int *lev
 /* The value of a setting with no change of this print: the value of a
  * reset. Free with g_free. */
 char *zg_model_base_get(ZgModel *self, const char *key);
+/* The formula of a setting (the text after "="), or NULL. A setting gets
+ * one from zg_model_set with a value that starts with "=". Free with
+ * g_free. */
+char *zg_model_formula(ZgModel *self, const char *key);
 /* The full profile of a group (see zs_app_profile_write). Free with g_free. */
 char *zg_model_profile_text(ZgModel *self, int group);
 /* The key of a roll for zg_model_set_roll: the printer ID and the roll ID

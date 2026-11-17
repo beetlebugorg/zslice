@@ -272,6 +272,16 @@ In the Settings page, a small tag under the name of a setting says where its val
 
 The Filament and Quality menus list the built-in profiles and your own (in `profiles/filament/` and `profiles/project/` in the settings folder, where `zslice slice -f` and `-p` find them too), and have **Save as profile…**. The Quality menu shows the quality profile, with a dot when this print has changes on top of it. A pick of another quality keeps your changes. **Save as profile…** saves the quality with your changes, and the new profile is then the quality.
 
+### Formulas
+
+A setting can follow other settings. In the detail page of a setting (the › of its row), type a formula in **Formula** and press Enter, for example:
+
+- `= {line_width} * 2`: twice the line width (for an automatic width, the width that the slicer uses).
+- `= max({layer_height} * 4, 0.8)`: four layers, and at least 0.8 mm.
+- `= {infill_pattern} == "gyroid" ? 3 : 2`: three walls with gyroid infill, else two.
+
+`{name}` is a setting: its short name (`{layer_height}`) or its full name (`{filament.nozzle_temp}`). A formula has `+ - * / %`, `^` (a power), comparisons, `and`, `or`, `not`, `cond ? a : b`, and the functions `min`, `max`, `round` (`round(x)`, or `round(x, step)`), `floor`, `ceil`, `abs`, `sqrt`, `clamp(x, lo, hi)`, and `lerp(a, b, t)`. The value follows each change of the settings that it uses, and its tag shows the formula. A plain value in the field of the setting removes the formula; so does an empty Formula field. A formula that does not work turns the field red, and the value stays. The formulas are in `formulas.txt` in the settings folder.
+
 ## Settings for one part
 
 With more than one part on the plate, the Settings page has a bar at the top: **Settings for: This print (all parts)**, or one part. With a part, a change is for that part only, on top of the values of the print, and its tag says "This part". **Reset** gives the part the value of the print again. The part page (Ctrl+click on a part) has **Edit settings for this part**, which opens the same view.
