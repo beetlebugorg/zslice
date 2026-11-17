@@ -356,6 +356,41 @@ export class Core {
     }
   }
 
+  // ---- the history of changes (src/app/history.zig) ----
+
+  // The facts of the state now: lines of "scope\tkey\tvalue".
+  historyFacts() {
+    const w = this.w;
+    return w.readText((b, c, l) => w.x.zs_app_history_facts(this.app, b, c, l)) ?? "";
+  }
+
+  // The changes from facts `a` to facts `b`: lines of
+  // "scope\tkey\told\tnew".
+  historyDiff(a, b) {
+    const w = this.w;
+    return w.withString(a, (pa, la) => w.withString(b, (pb, lb) =>
+      w.readText((buf, c, l) => w.x.zs_history_diff(pa, la, pb, lb, buf, c, l)))) ?? "";
+  }
+
+  // The changes in words, one line for each, with the layer numbers of
+  // the last slice.
+  historyDescribe(changes) {
+    const w = this.w;
+    return w.withString(changes, (p, len) => w.readText((b, c, l) => w.x.zs_app_history_describe(this.app, p, len, b, c, l))) ?? "";
+  }
+
+  // The kind of a step ("walls", "infill", "speed", "move", ...).
+  historyKind(changes) {
+    const w = this.w;
+    return w.withString(changes, (p, len) => w.cstr(w.x.zs_history_kind(p, len)));
+  }
+
+  // Undoes one change line and keeps the others. Returns 0 or a status.
+  historyRevert(line) {
+    const w = this.w;
+    return w.withString(line, (p, len) => w.x.zs_app_history_revert(this.app, p, len));
+  }
+
   // ---- the printability check (src/app/checks.zig) ----
 
   // The issues of the slice, the worst first (zs_app_checks): { kind,

@@ -158,7 +158,8 @@ The goal is the features that people use in PrusaSlicer and Cura. zslice designs
 - [ ] Check the G-code of each printer of the library: slice a test part with each profile and test the start and end G-code
 - [x] The web app: Gaps (the red cells in both views, the count, and the gap page with Apply and This layer)
 - [x] The web app: Check (the list of issues; a click shows the layer and the line)
-- [ ] The web app: the history and undo, and the tools (the native app has them)
+- [x] The web app: undo and redo (Ctrl+Z, Ctrl+Shift+Z), and the History tab
+- [ ] The web app: the timeline bar, and the tools and the measure tape (the native app has them)
 - [ ] macOS and iOS shell: SwiftUI (`apple/`)
 - [ ] Windows shell: Win32 C++ (`windows/`)
 - [ ] Android shell: Kotlin (`android/`)

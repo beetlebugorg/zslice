@@ -77,6 +77,125 @@ function settingsState() {
   return { ...core.snapshot(), saved: core.savedState() };
 }
 
+// ---- undo and the history (linux/src/model/app-model.c: undo_*) ----
+//
+// The history is a list of steps: the undo list, the step now, and the
+// redo list. A step has the texts of the three groups of settings, the
+// plate (a 3MF file, null for an empty plate; steps with the same plate
+// share its bytes), the facts of the state (for the history in words),
+// and its time. A step ends 400 ms after the last change.
+
+const UNDO_MAX = 100;
+const hist = { undo: [], now: null, redo: [], timer: 0, plateDirty: true, restoring: false };
+
+function snapshot() {
+  const settings = [0, 1, 2].map((g) => core.stateText(g));
+  let plate = null;
+  if (!hist.plateDirty && hist.now) plate = hist.now.plate;
+  else plate = core.plate3mf();
+  hist.plateDirty = false;
+  return { settings, quality: core.qualityName(), plate, facts: core.historyFacts(), time: Date.now() };
+}
+
+function samePlate(a, b) {
+  if (a === b) return true;
+  if (!a || !b || a.length !== b.length) return false;
+  for (let i = 0; i < a.length; i++) if (a[i] !== b[i]) return false;
+  return true;
+}
+
+function sameSettings(a, b) {
+  return a.quality === b.quality && a.settings.every((t, g) => t === b.settings[g]);
+}
+
+// Ends the step of the changes so far.
+function undoCommit() {
+  clearTimeout(hist.timer);
+  hist.timer = 0;
+  const now = snapshot();
+  const before = hist.now;
+  if (before && (!sameSettings(now, before) || !samePlate(now.plate, before.plate))) {
+    hist.undo.push(before);
+    if (hist.undo.length > UNDO_MAX) hist.undo.shift();
+    hist.redo = [];
+    hist.now = now;
+    post({ event: "history" });
+  } else {
+    hist.now = now;
+  }
+}
+
+function undoSchedule(plate) {
+  if (hist.restoring || !core) return;
+  if (plate) hist.plateDirty = true;
+  clearTimeout(hist.timer);
+  hist.timer = setTimeout(undoCommit, 400);
+}
+
+// Loads a step: the plate if it differs, then each group of settings
+// whose text differs, then the quality.
+function undoRestore(snap, before) {
+  hist.restoring = true;
+  try {
+    if (!samePlate(snap.plate, before?.plate ?? null)) {
+      if (snap.plate) {
+        core.loadStl("plate.3mf", snap.plate);
+      } else {
+        core.w.x.zs_app_plate_clear(core.app);
+        core.modelName = "";
+        const scene = core.scene(mode);
+        post({ event: "cleared", scene }, scene ? [scene] : []);
+      }
+    }
+    for (let g = 0; g < 3; g++) {
+      if (core.stateText(g) !== snap.settings[g]) core.loadProfile(g, snap.settings[g]);
+    }
+    if (snap.quality !== core.qualityName() && snap.quality !== "custom") core.setQuality(snap.quality, true);
+  } finally {
+    hist.restoring = false;
+    hist.plateDirty = false;
+  }
+  if (core.w.x.zs_app_part_count(core.app) > 0) wantSlice();
+}
+
+// The steps, the oldest first: their time, kind, and changes in words.
+function historyList() {
+  const steps = [...hist.undo, ...(hist.now ? [hist.now] : []), ...[...hist.redo].reverse()];
+  return {
+    current: hist.undo.length,
+    steps: steps.map((s, i) => {
+      if (i === 0) return { time: s.time, kind: "start", changes: "", text: "The start" };
+      const changes = core.historyDiff(steps[i - 1].facts, s.facts);
+      return { time: s.time, kind: core.historyKind(changes), changes, text: core.historyDescribe(changes) };
+    }),
+  };
+}
+
+// Goes to step i of the list.
+function historyGoto(i) {
+  undoCommit();
+  const cur = hist.undo.length;
+  const count = hist.undo.length + 1 + hist.redo.length;
+  if (!hist.now || i === cur || i < 0 || i >= count) return false;
+  const before = hist.now;
+  if (i < cur) {
+    hist.redo.push(hist.now);
+    while (hist.undo.length > i + 1) hist.redo.push(hist.undo.pop());
+    hist.now = hist.undo.pop();
+  } else {
+    hist.undo.push(hist.now);
+    while (hist.undo.length < i) hist.undo.push(hist.redo.pop());
+    hist.now = hist.redo.pop();
+  }
+  undoRestore(hist.now, before);
+  return true;
+}
+
+// The ops that change the settings, and the ops that change the plate:
+// each starts or extends a step.
+const SETTING_OPS = new Set(["set", "reset", "quality", "profile", "setScoped", "resetScoped"]);
+const PLATE_OPS = new Set(["load", "add", "plate", "putDown", "place", "markAdd", "markRemoveNear", "markSet", "markRemove", "marksClear"]);
+
 const ops = {
   async init({ module, saved, mode: m }) {
     mode = m ?? 0;
@@ -153,6 +272,40 @@ const ops = {
     const error = core.resetScoped(name, zmin, zmax, z);
     if (!error) wantSlice();
     return { error, ...settingsState() };
+  },
+
+  // ---- undo and the history ----
+
+  history() {
+    undoCommit();
+    return historyList();
+  },
+
+  undo() {
+    undoCommit();
+    const ok = historyGoto(hist.undo.length - 1);
+    return { ok, ...settingsState() };
+  },
+
+  redo() {
+    undoCommit();
+    const ok = historyGoto(hist.undo.length + 1);
+    return { ok, ...settingsState() };
+  },
+
+  historyGoto({ index }) {
+    const ok = historyGoto(index);
+    return { ok, ...settingsState() };
+  },
+
+  // Undoes one change line of a step and keeps the others: a new step.
+  historyRevert({ line }) {
+    const rc = core.historyRevert(line);
+    if (rc === 0) {
+      undoSchedule(line.startsWith("part:"));
+      wantSlice();
+    }
+    return { error: rc === 0 ? "" : (rc === 15 ? "A move of a part cannot be undone alone: go to the step before it." : `The change was not undone (${rc}).`), ...settingsState() };
   },
 
   // ---- the printability check ----
@@ -279,6 +432,9 @@ self.onmessage = async (e) => {
   const { id, op, ...args } = e.data;
   try {
     const result = await ops[op](args);
+    if (op === "init") undoCommit();
+    else if (SETTING_OPS.has(op)) undoSchedule(false);
+    else if (PLATE_OPS.has(op)) undoSchedule(true);
     const transfer = result?.bytes ? [result.bytes] : [];
     post({ id, result }, transfer);
   } catch (err) {

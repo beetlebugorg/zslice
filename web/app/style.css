@@ -384,3 +384,21 @@ button.destructive { background: #c01c28; color: #fff; }
 .check-row.sev1 .check-icon { color: var(--warning); }
 .check-row.sev2 .check-icon { color: #e01b24; }
 .check-text { flex: 1; white-space: normal; line-height: 1.35; }
+
+/* The History tab. */
+#page-history { overflow-y: auto; outline: none; }
+.history { display: flex; flex-direction: column; padding: 8px 10px 18px; gap: 4px; }
+.hist-empty { padding: 16px 6px; line-height: 1.4; }
+.hist-step { border-radius: 8px; padding: 8px 10px; display: flex; flex-direction: column; gap: 4px; outline: none; }
+.hist-step:hover { background: rgba(255, 255, 255, 0.05); }
+.hist-step.hist-now { background: rgba(53, 132, 228, 0.18); box-shadow: inset 3px 0 0 var(--accent); }
+.hist-step.hist-later { opacity: 0.55; }
+.hist-head { display: flex; align-items: center; gap: 8px; }
+.hist-badge { font-size: 0.75em; font-weight: 700; color: #fff; border-radius: 999px; padding: 2px 8px; white-space: nowrap; }
+.hist-title { font-weight: 700; }
+.hist-time { flex: 1; font-variant-numeric: tabular-nums; font-size: 0.9em; }
+.hist-now-badge { font-size: 0.75em; font-weight: 700; border-radius: 999px; padding: 2px 8px; background: var(--accent-bg); color: #fff; }
+.hist-change { display: flex; align-items: center; gap: 6px; padding-left: 4px; }
+.hist-words { flex: 1; min-width: 0; }
+.hist-scope { font-size: 0.8em; }
+.hist-undo { min-height: 26px; padding: 2px 8px; }

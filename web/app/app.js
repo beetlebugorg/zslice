@@ -20,6 +20,7 @@ import { LayerRange } from "./layers.js";
 import { SettingsBrowser } from "./settings.js";
 import { Inspector } from "./inspector.js";
 import { Gaps } from "./gaps.js";
+import { HistoryPage } from "./history.js";
 import { contextItems } from "./context-menu.js";
 import { openMenu, openMenuAt, menuOpen, openPopover, closeMenu } from "./menus.js";
 import { formatClock, formatTime } from "./format.js";
@@ -681,12 +682,16 @@ function showLicenses() {
 function showTab(name) {
   $("tab-settings").classList.toggle("checked", name === "settings");
   $("tab-selected").classList.toggle("checked", name === "selected");
+  $("tab-history").classList.toggle("checked", name === "history");
   $("page-settings").hidden = name !== "settings";
   $("page-selected").hidden = name !== "selected";
+  $("page-history").hidden = name !== "history";
+  if (name === "history") history.refresh();
   updateFocus();
 }
 $("tab-settings").onclick = () => showTab("settings");
 $("tab-selected").onclick = () => showTab("selected");
+$("tab-history").onclick = () => showTab("history");
 $("panel-back").onclick = () => browser.back();
 
 // ---- the 2D and the 3D view ----
@@ -1066,6 +1071,26 @@ const gaps = new Gaps({
   requestFrame: () => requestFrame(),
 });
 
+// ---- the history and undo ----
+
+const history = new HistoryPage($("page-history"), {
+  client,
+  applySettings: (r) => applySettings(r),
+  openSetting: (name) => {
+    showTab("settings");
+    browser.openSetting(name);
+  },
+  toast,
+  visible: () => !$("page-history").hidden,
+});
+
+async function undoRedo(op) {
+  const r = await client.call(op, {});
+  applySettings(r);
+  if (!r.ok) toast(op === "undo" ? "Nothing to undo." : "Nothing to redo.");
+  history.refresh();
+}
+
 // ---- the printability check ----
 
 // The issues of the slice in a list under the Check button (preview.c,
@@ -1186,6 +1211,9 @@ function onWorkerEvent(m) {
       keepSoon();
       break;
     }
+    case "history":
+      history.refresh();
+      break;
     case "cleared":
       // An empty plate: nothing to keep.
       clearTimeout(keepTimer);
@@ -1308,6 +1336,9 @@ document.addEventListener("keydown", (e) => {
   } else if (e.key === "e") {
     e.preventDefault();
     exportGcode();
+  } else if ((e.key === "z" || e.key === "Z" || e.key === "y") && !e.target.closest("input, textarea, select")) {
+    e.preventDefault();
+    undoRedo(e.key === "z" && !e.shiftKey ? "undo" : "redo");
   }
 });
 
@@ -1412,7 +1443,7 @@ function benchPick(step = 40) {
 
 // For tests: the state of the page.
 window.zslice = {
-  app, view, view2d, layers, browser, client, gl, inspector, gaps, pickAt, topLayerPoint, openCheck, frameTimes,
+  app, view, view2d, layers, browser, client, gl, inspector, gaps, history, undoRedo, pickAt, topLayerPoint, openCheck, frameTimes,
   select, showPage, showTab, hitAt, showContextMenu, step, bench, benchPick,
   get frameCount() { return frameCount; },
   get pickMs() { return pickMs; },
