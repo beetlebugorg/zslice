@@ -14,12 +14,18 @@ export class LayerRange {
     this.highlight = root.querySelector(".highlight");
     this.hiKnob = root.querySelector(".knob.hi");
     this.loKnob = root.querySelector(".knob.lo");
-    this.bubble = root.querySelector(".bubble");
+    // The numbers of the layers: the top layer always, the bottom layer
+    // when the range does not start at the first layer. Each is at the
+    // height of its knob, as in layer-range.c.
+    this.bubble = root.querySelector(".bubble.hi");
+    this.loBubble = root.querySelector(".bubble.lo");
     this.count = 0;
     this.lo = 0;
     this.hi = 0;
     this.slowed = null;
     this.zs = null;
+    // The numbers are placed in pixels: again after a change of size.
+    new ResizeObserver(() => this.update()).observe(root);
     for (const [knob, which] of [[this.hiKnob, "hi"], [this.loKnob, "lo"]]) {
       knob.addEventListener("pointerdown", (e) => this.drag(e, which));
       knob.addEventListener("keydown", (e) => this.key(e, which));
@@ -94,13 +100,21 @@ export class LayerRange {
     const place = (el, v) => { el.style.top = `calc(9px + (100% - 18px) * ${1 - v / max})`; };
     place(this.hiKnob, this.hi);
     place(this.loKnob, this.lo);
-    place(this.bubble, this.hi);
     this.highlight.style.top = pos(this.hi);
     this.highlight.style.bottom = `${(this.lo / max) * 100}%`;
     const slow = (l) => (this.slowed && this.slowed[l] ? "❄ " : "");
-    this.bubble.textContent = this.lo > 0 && this.lo < this.hi
-      ? `${slow(this.hi)}${this.hi + 1}\n${this.lo + 1}`
-      : `${slow(this.hi)}${this.hi + 1}`;
+    this.bubble.textContent = `${slow(this.hi)}${this.hi + 1}`;
+    const showLo = this.lo > 0 && this.lo < this.hi;
+    this.loBubble.hidden = !showLo;
+    this.loBubble.textContent = String(this.lo + 1);
+    // The two numbers in pixels: the bottom one goes under the top one
+    // when the knobs are close, so it never draws under it.
+    const h = this.root.clientHeight;
+    const y = (v) => 9 + (h - 18) * (1 - v / max);
+    const hiY = y(this.hi);
+    const bh = this.bubble.offsetHeight || 18;
+    this.bubble.style.top = `${hiY}px`;
+    if (showLo) this.loBubble.style.top = `${Math.max(y(this.lo), hiY + bh + 2)}px`;
     const z = this.zs ? this.zs[this.hi] : 0;
     this.root.title = `Layer ${this.hi + 1} of ${this.count}, at z ${z.toFixed(2)} mm. Drag a knob: the top knob is the top layer, and the bottom knob the lowest layer that shows. Arrow keys: the top knob; Shift+arrow keys: the bottom knob.`;
   }
