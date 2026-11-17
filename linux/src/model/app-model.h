@@ -44,6 +44,12 @@ void zg_model_part_rotate(ZgModel *self, size_t i, double degrees);
 /* A setting of one part (see zs_app_part_setting_set): value NULL gives
  * the part the value of the plate again. FALSE for a bad value. */
 gboolean zg_model_part_setting_set(ZgModel *self, size_t i, const char *name, const char *value);
+/* The part whose settings the editors change (zg_model_get_for and
+ * zg_model_set_for, out of a layer scope), or -1 for the plate. Only the
+ * project and filament settings belong to a part. "part-scope-changed"
+ * follows. */
+void zg_model_set_part_scope(ZgModel *self, gint64 part);
+gint64 zg_model_part_scope(ZgModel *self);
 /* The value of a setting of part i, or NULL if it has the value of the
  * plate. Free with g_free. */
 char *zg_model_part_setting(ZgModel *self, size_t i, const char *name);

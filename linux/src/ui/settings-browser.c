@@ -30,6 +30,9 @@ typedef struct {
     GtkWidget *page;     /* the Settings page of the panel stack */
     GtkWidget *columns;  /* a stack: one column at a time */
     GtkWidget *search;
+    /* What the editors change: this print (all parts), or one part. */
+    GtkWidget *scope;
+    gboolean filling_scope;
     GtkWidget *sections; /* column 1 */
     GtkWidget *settings; /* column 2 */
     GtkWidget *detail;   /* column 3: a box; its child is rebuilt */
@@ -287,13 +290,18 @@ static void show_default(GtkWidget *box) {
     char *value = zg_model_get(model, info->name);
     char *inherited = zg_model_base_get(model, info->name);
     int level = 0;
-    char *source = zg_model_source_text(model, info->name, -1, &level);
-    gboolean same = level != ZS_LEVEL_PRINT;
+    char *source = zg_model_source_text(model, info->name, zg_model_part_scope(model), &level);
+    gboolean same = level != ZS_LEVEL_PRINT && level != ZS_LEVEL_PART;
     char *def = zg_setting_value_with_unit(info, info->default_value);
     char *inh = zg_setting_value_with_unit(info, inherited);
     char *base_src = NULL;
     char *text;
-    if (level == ZS_LEVEL_PRINT) {
+    if (level == ZS_LEVEL_PART) {
+        /* zg_model_get has the value of the print (not of the part). */
+        char *pv = zg_setting_value_with_unit(info, value);
+        text = g_strdup_printf("Changed for this part. Reset gives the value of the print (%s).", pv);
+        g_free(pv);
+    } else if (level == ZS_LEVEL_PRINT) {
         /* The source under the change: the quality, else the default. */
         const char *q = zg_model_quality(model);
         base_src = g_strdup(q && q[0] ? q : "the default");
@@ -331,6 +339,18 @@ static void on_reset(GtkButton *button, gpointer data) {
         zg_model_clear_override(model, info->name);
         show_default(box);
         return;
+    }
+    /* A value of the part of the scope: the part has the value of the
+     * print again. */
+    gint64 part = zg_model_part_scope(model);
+    if (part >= 0) {
+        char *mine = zg_model_part_setting(model, (size_t)part, info->name);
+        if (mine) {
+            g_free(mine);
+            zg_model_part_setting_set(model, (size_t)part, info->name, NULL);
+            zg_model_announce(model, info->name);
+            return;
+        }
     }
     /* Back to the value under the changes of this print. */
     char *inherited = zg_model_base_get(model, info->name);
@@ -450,7 +470,7 @@ static void on_more_clicked(GtkButton *button, gpointer data) {
 /* The source tag of a row: the profile or the level of the value. */
 static void update_tag(Browser *b, GtkWidget *tag, const char *key) {
     int level = 0;
-    char *src = b->in_profile ? NULL : zg_model_source_text(b->model, key, -1, &level);
+    char *src = b->in_profile ? NULL : zg_model_source_text(b->model, key, zg_model_part_scope(b->model), &level);
     gtk_label_set_text(GTK_LABEL(tag), src ? src : "");
     gtk_widget_set_visible(tag, src != NULL);
     if (level == ZS_LEVEL_PRINT || level == ZS_LEVEL_PART) gtk_widget_add_css_class(tag, "zg-source-mine");
@@ -1130,6 +1150,60 @@ static void select_setting(Browser *b, const char *key) {
     }
 }
 
+/* ---- the scope: this print, or one part ---- */
+
+static void fill_scope(Browser *b) {
+    b->filling_scope = TRUE;
+    GtkStringList *list = gtk_string_list_new(NULL);
+    gtk_string_list_append(list, "This print (all parts)");
+    zs_app *core = zg_model_core(b->model);
+    size_t n = zs_app_part_count(core);
+    for (size_t i = 0; i < n; i++) {
+        zs_part p;
+        if (zs_app_part_get(core, i, &p) != ZS_OK) continue;
+        char *t = g_strdup_printf("Part: %s", p.name);
+        gtk_string_list_append(list, t);
+        g_free(t);
+    }
+    gtk_drop_down_set_model(GTK_DROP_DOWN(b->scope), G_LIST_MODEL(list));
+    g_object_unref(list);
+    gint64 part = zg_model_part_scope(b->model);
+    gtk_drop_down_set_selected(GTK_DROP_DOWN(b->scope), part < 0 ? 0 : (guint)part + 1);
+    /* With one part, the plate and the part are the same: no choice. */
+    gtk_widget_set_visible(gtk_widget_get_parent(b->scope), n > 1 || part >= 0);
+    b->filling_scope = FALSE;
+}
+
+static void on_scope_picked(GObject *dd, GParamSpec *ps, gpointer data) {
+    Browser *b = data;
+    if (b->filling_scope) return;
+    guint ix = gtk_drop_down_get_selected(GTK_DROP_DOWN(dd));
+    zg_model_set_part_scope(b->model, ix == 0 ? -1 : (gint64)ix - 1);
+}
+
+static void on_scope_plate(ZgModel *model, gpointer data) {
+    fill_scope(data);
+}
+
+static GtkWidget *scope_bar(Browser *b) {
+    GtkWidget *bar = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 6);
+    gtk_widget_set_margin_start(bar, 10);
+    gtk_widget_set_margin_end(bar, 8);
+    gtk_widget_set_margin_top(bar, 4);
+    GtkWidget *l = gtk_label_new("Settings for");
+    gtk_widget_add_css_class(l, "dim-label");
+    b->scope = gtk_drop_down_new(NULL, NULL);
+    gtk_widget_set_hexpand(b->scope, TRUE);
+    gtk_widget_set_tooltip_text(b->scope, "What a change here is for: this print (all parts on the plate), or one part. A part has the values of the print, and its own changes on top.");
+    g_signal_connect(b->scope, "notify::selected", G_CALLBACK(on_scope_picked), b);
+    gtk_box_append(GTK_BOX(bar), l);
+    gtk_box_append(GTK_BOX(bar), b->scope);
+    g_signal_connect_swapped(b->model, "plate-changed", G_CALLBACK(fill_scope), b);
+    g_signal_connect(b->model, "part-scope-changed", G_CALLBACK(on_scope_plate), b);
+    fill_scope(b);
+    return bar;
+}
+
 GtkWidget *zg_settings_browser_new(ZgModel *model, GtkWidget *panel_stack) {
     Browser *b = g_new0(Browser, 1);
     b->model = model;
@@ -1195,6 +1269,7 @@ GtkWidget *zg_settings_browser_new(ZgModel *model, GtkWidget *panel_stack) {
     gtk_box_append(GTK_BOX(page), gtk_separator_new(GTK_ORIENTATION_HORIZONTAL));
     gtk_box_append(GTK_BOX(page), make_bar(b));
     /* The search stays in view on all columns. */
+    gtk_box_append(GTK_BOX(page), scope_bar(b));
     gtk_box_append(GTK_BOX(page), b->search);
     gtk_box_append(GTK_BOX(page), b->columns);
     b->page = page;

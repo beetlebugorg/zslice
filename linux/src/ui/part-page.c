@@ -68,6 +68,13 @@ static void on_part_remove(GtkButton *b, gpointer data) {
     if (i >= 0) zg_model_part_remove(pp->model, (size_t)i);
 }
 
+/* The settings browser for this part (see zg_model_set_part_scope). */
+static void on_part_edit(GtkButton *b, gpointer data) {
+    PartPage *pp = data;
+    gint64 i = zg_model_selected_part(pp->model);
+    if (i >= 0) zg_model_set_part_scope(pp->model, i);
+}
+
 static void on_part_arrange(GtkButton *b, gpointer data) {
     PartPage *pp = data;
     zg_model_plate_arrange(pp->model);
@@ -138,6 +145,14 @@ GtkWidget *zg_part_page_new(ZgModel *model) {
     gtk_box_append(GTK_BOX(buttons), arrange);
     gtk_box_append(GTK_BOX(buttons), remove);
     gtk_grid_attach(GTK_GRID(grid), buttons, 0, row++, 4, 1);
+    /* The settings of this part: any project or filament setting, over
+     * the values of the print. */
+    GtkWidget *edit = gtk_button_new_with_label("Edit settings for this part");
+    gtk_widget_add_css_class(edit, "suggested-action");
+    gtk_widget_set_margin_top(edit, 8);
+    gtk_widget_set_tooltip_text(edit, "Opens the settings for this part: a change there is for this part only, on top of the values of the print.");
+    g_signal_connect(edit, "clicked", G_CALLBACK(on_part_edit), pp);
+    gtk_grid_attach(GTK_GRID(grid), edit, 0, row++, 4, 1);
 
     /* Placement: the smart placement first; then the other modes. */
     static const GActionEntry part_actions[] = {
@@ -186,7 +201,7 @@ GtkWidget *zg_part_page_new(ZgModel *model) {
     gtk_widget_set_tooltip_text(turns, "Reset: the orientation and the size of the file.");
     gtk_grid_attach(GTK_GRID(grid), turns, 0, row++, 4, 1);
     /* The settings from the file (a Cura project): read only. */
-    pp->settings_head = zg_grid_add_heading(grid, &row, "Settings from the file");
+    pp->settings_head = zg_grid_add_heading(grid, &row, "Settings of this part");
     gtk_widget_set_margin_top(pp->settings_head, 12);
     pp->settings = zg_wrapped_label_new("");
     gtk_label_set_selectable(GTK_LABEL(pp->settings), TRUE);

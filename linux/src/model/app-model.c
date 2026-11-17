@@ -66,6 +66,9 @@ struct _ZgModel {
     /* The roll of filament in the printer (see zg_model_set_roll): its
      * key, or NULL. The filament settings are saved for it too. */
     char *roll;
+    /* The part whose settings the editors change, or -1 for the plate
+     * (zg_model_set_part_scope). */
+    gint64 part_scope;
     /* Undo and redo of the settings: snapshots of the three groups (the
      * texts of zg_model_group_text, joined with \x1e). `undo_now` is the
      * state after the last step; a burst of changes (a drag) is one step. */
@@ -186,7 +189,7 @@ static void load_group(ZgModel *self, int g) {
 
 G_DEFINE_FINAL_TYPE(ZgModel, zg_model, G_TYPE_OBJECT)
 
-enum { SIGNAL_CORE_EVENT, SIGNAL_SELECTION_CHANGED, SIGNAL_PICKED, SIGNAL_SETTING_CHANGED, SIGNAL_FOCUS_CHANGED, SIGNAL_SCOPE_CHANGED, SIGNAL_PRINTER_CHANGED, SIGNAL_PRINTERS_EDITED, SIGNAL_PART_SELECTED, SIGNAL_PLATE_CHANGED, SIGNAL_SEGMENT_CHANGED, SIGNAL_PROFILES_CHANGED, SIGNAL_OPEN_PROFILE, SIGNAL_GAPS_CHANGED, SIGNAL_UNDO_CHANGED, N_SIGNALS };
+enum { SIGNAL_CORE_EVENT, SIGNAL_SELECTION_CHANGED, SIGNAL_PICKED, SIGNAL_SETTING_CHANGED, SIGNAL_FOCUS_CHANGED, SIGNAL_SCOPE_CHANGED, SIGNAL_PRINTER_CHANGED, SIGNAL_PRINTERS_EDITED, SIGNAL_PART_SELECTED, SIGNAL_PLATE_CHANGED, SIGNAL_SEGMENT_CHANGED, SIGNAL_PROFILES_CHANGED, SIGNAL_OPEN_PROFILE, SIGNAL_GAPS_CHANGED, SIGNAL_UNDO_CHANGED, SIGNAL_PART_SCOPE_CHANGED, N_SIGNALS };
 static guint signals[N_SIGNALS];
 
 typedef struct {
@@ -375,6 +378,10 @@ static void zg_model_class_init(ZgModelClass *klass) {
      * ran (zg_model_undo). */
     signals[SIGNAL_UNDO_CHANGED] = g_signal_new("undo-changed", G_TYPE_FROM_CLASS(klass),
         G_SIGNAL_RUN_LAST, 0, NULL, NULL, NULL, G_TYPE_NONE, 0);
+    /* part-scope-changed(): the editors now change another part, or the
+     * plate (zg_model_set_part_scope). */
+    signals[SIGNAL_PART_SCOPE_CHANGED] = g_signal_new("part-scope-changed", G_TYPE_FROM_CLASS(klass),
+        G_SIGNAL_RUN_LAST, 0, NULL, NULL, NULL, G_TYPE_NONE, 0);
     signals[SIGNAL_GAPS_CHANGED] = g_signal_new("gaps-changed", G_TYPE_FROM_CLASS(klass),
         G_SIGNAL_RUN_LAST, 0, NULL, NULL, NULL, G_TYPE_NONE, 0);
     /* open-profile(double z_min, double z_max): a request to edit the
@@ -425,7 +432,17 @@ gboolean zg_model_scope(ZgModel *self, double *z_min, double *z_max, double *z_s
     return self->scope_on;
 }
 
+/* A setting that a part can have of its own: the project and the
+ * filament settings. */
+static gboolean part_scoped(ZgModel *self, const char *key) {
+    return self->part_scope >= 0 && (g_str_has_prefix(key, "project.") || g_str_has_prefix(key, "filament."));
+}
+
 char *zg_model_get_for(ZgModel *self, const char *key, gboolean scoped) {
+    if ((!scoped || !self->scope_on) && part_scoped(self, key)) {
+        char *mine = zg_model_part_setting(self, (size_t)self->part_scope, key);
+        return mine ? mine : zg_model_get(self, key);
+    }
     if (!scoped || !self->scope_on) return zg_model_get(self, key);
     size_t len = 0;
     if (zs_app_setting_get_at(self->core, self->scope_show, key, NULL, 0, &len) != ZS_OK) return g_strdup("");
@@ -450,6 +467,14 @@ gboolean zg_model_set_for(ZgModel *self, const char *key, const char *value, gbo
             per_layer = info.per_layer;
             break;
         }
+    }
+    if ((!scoped || !self->scope_on) && part_scoped(self, key)) {
+        if (!zg_model_part_setting_set(self, (size_t)self->part_scope, key, value)) {
+            g_set_error(error, G_IO_ERROR, G_IO_ERROR_INVALID_DATA, "not a valid value");
+            return FALSE;
+        }
+        g_signal_emit(self, signals[SIGNAL_SETTING_CHANGED], 0, key);
+        return TRUE;
     }
     if (!scoped || !self->scope_on || !per_layer) return zg_model_set(self, key, value, error);
     int rc = ZS_OK;
@@ -1011,6 +1036,7 @@ static void zg_model_init(ZgModel *self) {
     self->segment = -1;
     self->gap_layer = self->gap_index = -1;
     self->part = -1;
+    self->part_scope = -1;
     self->bridge = g_atomic_rc_box_new0(Bridge);
     g_weak_ref_init(&self->bridge->model, self);
     int rc = zs_app_new(on_core_event, self->bridge, &self->core);
@@ -1073,6 +1099,11 @@ static void update_name(ZgModel *self) {
 
 static void plate_changed(ZgModel *self) {
     update_name(self);
+    /* The part of the scope went: the plate. */
+    if (self->part_scope >= (gint64)zs_app_part_count(self->core)) {
+        self->part_scope = -1;
+        g_signal_emit(self, signals[SIGNAL_PART_SCOPE_CHANGED], 0);
+    }
     if ((size_t)self->part >= zs_app_part_count(self->core)) zg_model_select_part(self, -1);
     g_signal_emit(self, signals[SIGNAL_PLATE_CHANGED], 0);
     if (zs_app_part_count(self->core) > 0) slice_soon(self);
@@ -1168,6 +1199,20 @@ gboolean zg_model_plate_smart_place(ZgModel *self) {
 
 void zg_model_part_rotate(ZgModel *self, size_t i, double degrees) {
     if (zs_app_part_rotate(self->core, i, degrees) == ZS_OK) plate_changed(self);
+}
+
+void zg_model_set_part_scope(ZgModel *self, gint64 part) {
+    if (part >= (gint64)zs_app_part_count(self->core)) part = -1;
+    if (self->part_scope == part) return;
+    self->part_scope = part;
+    g_signal_emit(self, signals[SIGNAL_PART_SCOPE_CHANGED], 0);
+    /* The editors show the values of the scope. */
+    zg_model_announce(self, "project.");
+    zg_model_announce(self, "filament.");
+}
+
+gint64 zg_model_part_scope(ZgModel *self) {
+    return self->part_scope;
 }
 
 gboolean zg_model_part_setting_set(ZgModel *self, size_t i, const char *name, const char *value) {

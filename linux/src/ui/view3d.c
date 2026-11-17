@@ -214,6 +214,16 @@ static void load_data(View3d *v) {
         /* As after a Ctrl+click: the keys go to the preview. */
         GtkWidget *preview = gtk_widget_get_ancestor(v->area, GTK_TYPE_OVERLAY);
         if (preview) gtk_widget_grab_focus(preview);
+        /* ZSLICE_PART_SCOPE=1: the editors change that part, and
+         * ZSLICE_PART_SET=name=value sets one value of it. */
+        const char *scope = g_getenv("ZSLICE_PART_SCOPE");
+        if (scope) {
+            zg_model_set_part_scope(v->model, atoi(scope));
+            const char *set = g_getenv("ZSLICE_PART_SET");
+            char **kv = set ? g_strsplit(set, "=", 2) : NULL;
+            if (kv && kv[0] && kv[1]) zg_model_set_for(v->model, kv[0], kv[1], FALSE, NULL);
+            g_strfreev(kv);
+        }
     }
     /* For development and screenshots: ZSLICE_ZOOM=0.3 starts nearer. */
     const char *zoom = g_getenv("ZSLICE_ZOOM");

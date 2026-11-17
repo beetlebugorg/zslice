@@ -95,6 +95,11 @@ static gboolean on_alt_left(GtkWidget *w, GVariant *args, gpointer data) {
     return TRUE;
 }
 
+static void on_part_scope(ZgModel *model, gpointer data) {
+    Panel *p = data;
+    if (zg_model_part_scope(model) >= 0) gtk_stack_set_visible_child(GTK_STACK(p->stack), p->browser);
+}
+
 static void panel_free(gpointer data) {
     Panel *p = data;
     g_ptr_array_free(p->history, TRUE);
@@ -164,6 +169,8 @@ GtkWidget *zg_settings_panel_new(ZgModel *model) {
     p->current = place_now(p);
     g_signal_connect(stack, "notify::visible-child", G_CALLBACK(on_page), p);
     zg_settings_browser_set_history(browser, moved, go_back, p);
+    /* Settings for a part: the settings page shows them. */
+    g_signal_connect(model, "part-scope-changed", G_CALLBACK(on_part_scope), p);
     update_back(p);
     return box;
 }
