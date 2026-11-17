@@ -31,6 +31,7 @@ typedef struct {
     size_t island_next;
     GtkWidget *export_button;
     GtkWidget *preview;
+    GtkWidget *settings_panel;
     GtkWidget *status;
     GtkWidget *progress;
     char *last_error;
@@ -848,14 +849,16 @@ static void update_printer_ui(Window *w) {
     ZgPrinter *pr = zg_printers_current();
     w->filling_printers = TRUE;
     guint n = g_list_model_get_n_items(G_LIST_MODEL(w->printer_names));
-    const char **names = g_new0(const char *, zg_printers_count() + 2);
+    const char **names = g_new0(const char *, zg_printers_count() + 3);
     guint selected = 0;
     for (guint i = 0; i < zg_printers_count(); i++) {
         names[i] = zg_printers_get(i)->name;
         if (zg_printers_get(i) == pr) selected = i;
     }
-    /* The last entry opens the printer picker. */
-    names[zg_printers_count()] = "Add a printer\u2026";
+    /* Then the settings of this printer (the Printer group of the
+     * settings, at its start G-code), and the printer picker. */
+    names[zg_printers_count()] = "Printer settings and G-code\u2026";
+    names[zg_printers_count() + 1] = "Add a printer\u2026";
     gtk_string_list_splice(w->printer_names, 0, n, names);
     g_free(names);
     gtk_drop_down_set_selected(GTK_DROP_DOWN(w->printer_dd), selected);
@@ -890,6 +893,11 @@ static void on_printer_dd(GObject *dd, GParamSpec *pspec, gpointer data) {
     Window *w = data;
     if (w->filling_printers) return;
     if (gtk_drop_down_get_selected(GTK_DROP_DOWN(dd)) == zg_printers_count()) {
+        update_printer_ui(w);
+        zg_settings_panel_show_setting(w->settings_panel, "machine.start_gcode");
+        return;
+    }
+    if (gtk_drop_down_get_selected(GTK_DROP_DOWN(dd)) == zg_printers_count() + 1) {
         update_printer_ui(w);
         zg_printer_picker_show(w->window, w->model, FALSE);
         return;
@@ -1072,7 +1080,7 @@ GtkWindow *zg_window_new(GtkApplication *app, ZgModel *model) {
     /* The printer, and the send button with its menu. */
     w->printer_names = gtk_string_list_new(NULL);
     w->printer_dd = gtk_drop_down_new(G_LIST_MODEL(w->printer_names), NULL);
-    gtk_widget_set_tooltip_text(w->printer_dd, "The printer: its machine settings, and where Send goes. Add a printer from this list; edit the printers in Preferences.");
+    gtk_widget_set_tooltip_text(w->printer_dd, "The printer: its machine settings, and where Send goes. From this list: the settings and the start and end G-code of the printer, or add a printer. Edit the connections in Preferences.");
     g_signal_connect(w->printer_dd, "notify::selected", G_CALLBACK(on_printer_dd), w);
     gtk_header_bar_pack_start(GTK_HEADER_BAR(header), w->printer_dd);
     /* The three profiles of the settings: printer, filament, part. */
@@ -1145,6 +1153,7 @@ GtkWindow *zg_window_new(GtkApplication *app, ZgModel *model) {
     w->preview = zg_preview_new(model);
     GtkWidget *paned = gtk_paned_new(GTK_ORIENTATION_HORIZONTAL);
     GtkWidget *settings = zg_settings_panel_new(model);
+    w->settings_panel = settings;
     gtk_widget_set_vexpand(settings, TRUE);
     /* The summary card under the settings. */
     w->sum_box = gtk_box_new(GTK_ORIENTATION_VERTICAL, 2);

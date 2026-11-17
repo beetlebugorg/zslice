@@ -16,3 +16,6 @@
 #include "../model/app-model.h"
 
 GtkWidget *zg_settings_panel_new(ZgModel *model);
+/* Shows the Settings page at the setting `key` (for example
+ * "machine.start_gcode"). */
+void zg_settings_panel_show_setting(GtkWidget *panel, const char *key);

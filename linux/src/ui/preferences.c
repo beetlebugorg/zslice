@@ -506,7 +506,7 @@ static GtkWidget *printers_page(Prefs *p) {
     g_signal_connect(follow, "toggled", G_CALLBACK(on_follow_roll), NULL);
     gtk_grid_attach(GTK_GRID(g), follow, 1, row++, 2, 1);
 
-    GtkWidget *note = gtk_label_new("The machine settings of the current printer (bed, nozzle, speeds, start G-code) are in the Settings page, under Machine. Each printer keeps its own.");
+    GtkWidget *note = gtk_label_new("The machine settings of the current printer (bed, nozzle, speeds, start and end G-code) are in the Settings page, under Printer, and in the printer list of the header bar (Printer settings and G-code). Each printer keeps its own.");
     gtk_label_set_wrap(GTK_LABEL(note), TRUE);
     gtk_label_set_xalign(GTK_LABEL(note), 0);
     gtk_widget_add_css_class(note, "dim-label");

@@ -176,3 +176,10 @@ GtkWidget *zg_settings_panel_new(ZgModel *model) {
     update_back(p);
     return box;
 }
+
+void zg_settings_panel_show_setting(GtkWidget *panel, const char *key) {
+    Panel *p = g_object_get_data(G_OBJECT(panel), "zg-panel");
+    if (!p) return;
+    gtk_stack_set_visible_child(GTK_STACK(p->stack), p->browser);
+    zg_settings_browser_show_setting(p->browser, key);
+}
