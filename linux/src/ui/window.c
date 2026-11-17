@@ -27,6 +27,7 @@
 #include "float.h"
 #include "search.h"
 #include "part-card.h"
+#include "line-card.h"
 
 typedef struct {
     ZgModel *model;
@@ -1591,6 +1592,8 @@ GtkWindow *zg_window_new(GtkApplication *app, ZgModel *model) {
     gtk_widget_set_margin_bottom(w->sum_box, 12);
     gtk_widget_set_size_request(w->sum_box, 300, -1);
     gtk_overlay_add_overlay(GTK_OVERLAY(w->preview), w->sum_box);
+    /* The card of a selected line, next to the click. */
+    gtk_overlay_add_overlay(GTK_OVERLAY(w->preview), zg_line_card_new(model, w->preview));
     /* The card of a selected part, next to it. */
     gtk_overlay_add_overlay(GTK_OVERLAY(w->preview), zg_part_card_new(model, w->preview));
     /* The search, over the view and the cards: hidden until / or a fact

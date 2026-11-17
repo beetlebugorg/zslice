@@ -76,6 +76,7 @@ static const char *ZG_CSS =
     "button.zg-strip-button { min-width: 34px; min-height: 34px; padding: 3px; }"
     "button.zg-strip-button:checked { background: alpha(@theme_selected_bg_color, 0.45); }"
     ".zg-strip-key { font-size: 0.62em; font-weight: 700; opacity: 0.7; margin: -3px -2px; }"
+    ".zg-lc-why { font-size: 0.8em; color: mix(@theme_selected_bg_color, @theme_fg_color, 0.45); }"
     ".zg-card-heading { font-size: 0.8em; font-weight: 700; opacity: 0.6; margin-top: 4px; }"
     "button.zg-card-action { min-height: 26px; padding: 2px 8px; }"
     /* The facts of the print card: small buttons. */

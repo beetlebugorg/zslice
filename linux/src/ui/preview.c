@@ -37,6 +37,9 @@ typedef struct {
     double pointer_x, pointer_y;
     double drag_ox, drag_oy;
     double press_x, press_y;
+    /* The last press in the preview (the point of a pick, for the line
+     * card). */
+    double pick_x, pick_y;
     gboolean fitted;
     /* The replay. */
     GtkWidget *stack;
@@ -1029,7 +1032,13 @@ static gboolean on_preview_key(GtkEventControllerKey *c, guint key, guint code, 
 /* A press in the preview gives it the keyboard focus, so the keys work
  * after a click on a line. */
 static void on_preview_press(GtkGestureClick *g, int n, double x, double y, gpointer data) {
+    Preview *p = data;
     GtkWidget *box = gtk_event_controller_get_widget(GTK_EVENT_CONTROLLER(g));
+    p->pick_x = x;
+    p->pick_y = y;
+    /* A card keeps the focus of its own controls. */
+    GtkWidget *target = gtk_widget_pick(box, x, y, GTK_PICK_DEFAULT);
+    if (target && zg_float_in_card(target)) return;
     gtk_widget_grab_focus(box);
 }
 
@@ -1406,7 +1415,7 @@ GtkWidget *zg_preview_new(ZgModel *model) {
     GtkGesture *press = gtk_gesture_click_new();
     gtk_gesture_single_set_button(GTK_GESTURE_SINGLE(press), 0);
     gtk_event_controller_set_propagation_phase(GTK_EVENT_CONTROLLER(press), GTK_PHASE_CAPTURE);
-    g_signal_connect(press, "pressed", G_CALLBACK(on_preview_press), NULL);
+    g_signal_connect(press, "pressed", G_CALLBACK(on_preview_press), p);
     gtk_widget_add_controller(box, GTK_EVENT_CONTROLLER(press));
     gtk_overlay_set_child(GTK_OVERLAY(box), stack);
     /* The cards over the view (float.h) have places of their own. */
@@ -1678,4 +1687,10 @@ void zg_preview_set_timeline(GtkWidget *preview, GtkWidget *timeline) {
 GtkWidget *zg_preview_view3d(GtkWidget *preview) {
     Preview *p = g_object_get_data(G_OBJECT(preview), "zg-preview");
     return p ? p->view3d : NULL;
+}
+
+void zg_preview_pick_point(GtkWidget *preview, double *x, double *y) {
+    Preview *p = g_object_get_data(G_OBJECT(preview), "zg-preview");
+    *x = p ? p->pick_x : 120;
+    *y = p ? p->pick_y : 120;
 }
