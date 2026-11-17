@@ -25,9 +25,10 @@ The documentation pages are on the same site and follow the same rules: no analy
 The desktop app sends no data about you. It connects only to:
 
 - the printers that you set up (printdeck, OctoPrint, Moonraker, PrusaLink), to send prints and read their state;
-- your local network, to find printers (mDNS, when you open the printer list). These packets stay on your network.
+- your local network, to find printers (mDNS, when you open the printer list). These packets stay on your network;
+- GitHub, when you open a project from a GitHub repository (the Project tab). The app makes the same requests as the web app: the commit and the list of files from `api.github.com`, and the files that a plate needs from `raw.githubusercontent.com` (and `media.githubusercontent.com` for a file in Git LFS). It sends no login and no data of yours. After a restart, it gets the list of files of the open project again, at the same commit. GitHub sees these requests under the [GitHub Privacy Statement](https://docs.github.com/site-policy/privacy-policies/github-general-privacy-statement).
 
-It keeps its settings in your user folder (`~/.config/zslice` on Linux).
+It keeps its settings in your user folder (`~/.config/zslice` on Linux). The open project (its printdeck.yml, the counts, and the status of each plate) is in `project.json` there.
 
 ## Questions
 

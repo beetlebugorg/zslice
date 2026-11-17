@@ -4,12 +4,12 @@ A project is a repository with a `printdeck.yml` file at its root. The file list
 
 ## Open a project
 
-In the web app, open the **Project** tab in the panel, then do one of these:
+The web app and the desktop app both open projects. Open the **Project** tab in the panel, then do one of these:
 
 - Type `owner/repo`, or the address of a repository on github.com, and click **Open**. An address with `/tree/<branch>` opens that branch. The repository must be public.
 - Click **Open a folder…**, and choose the folder of the repository on your computer.
 
-The tab shows the plates of the project, and its parts.
+The tab shows the plates of the project, and its parts. The app reads only the files that a plate needs, when you open the plate: the model files of its parts, and the files of `profiles/<folder>/`.
 
 ## The parts
 
@@ -30,7 +30,9 @@ Click **Open** on a plate. zslice then does these steps:
 3. It puts the copies of the files on the bed, each part with its own settings, and arranges them.
 4. It slices the plate.
 
-Then export the G-code, or send it to your printer. If you have a printer with the name of the printer of the plate (for example `taz`), zslice chooses it for the print.
+Then export the G-code, or send it to your printer. If you have a printer with the name of the printer of the plate (for example `taz`), zslice chooses it for the print. The case of the letters does not matter.
+
+The machine settings of the plate come from the Cura stack of the project. They do not change your printer: while the plate is on the view, zslice does not save a change of a machine setting in the profile of your printer. Choose a printer, or open a model file, to go back to the settings of your printer.
 
 A plate that has no Cura stack is a resin plate. zslice does not slice resin plates yet.
 
@@ -38,7 +40,12 @@ A plate that has no Cura stack is a resin plate. zslice does not slice resin pla
 
 Each plate has a status: **To print**, **Printing**, **Printed**, or **Failed**. Set it with the list on the plate. A print that you send to the printer from the plate sets **Printing**. The tab counts the printed plates.
 
-The project, the counts, and the status stay in your browser after a reload. A GitHub project gets its files again from GitHub. A folder must be opened again, because the browser forgets the files of a folder.
+The project, the counts, the status, and the open plate stay after a reload or a restart:
+
+- The web app keeps them in your browser. A GitHub project gets its files again from GitHub. A folder must be opened again, because the browser forgets the files of a folder.
+- The desktop app keeps them in `~/.config/zslice/project.json`. A GitHub project gets its list of files again from GitHub, at the same commit. The app opens a folder again from its path.
+
+**Close** removes the project and the status of its plates.
 
 ## printdeck.yml
 
@@ -70,4 +77,4 @@ The settings use the names of Cura. zslice converts them with the map of its Cur
 
 ## Privacy
 
-To open a GitHub project, the app reads the repository from `api.github.com` and `raw.githubusercontent.com`. It sends no login and no data of yours. See [Privacy](../../privacy/).
+To open a GitHub project, the app reads the repository from `api.github.com` and `raw.githubusercontent.com` (and `media.githubusercontent.com` for a file in Git LFS). It sends no login and no data of yours. The web app and the desktop app make the same requests. See [Privacy](../../privacy/).
