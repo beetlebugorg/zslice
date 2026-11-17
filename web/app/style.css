@@ -92,7 +92,7 @@ button.pill { border-radius: 999px; padding: 6px 22px; background: var(--accent-
 .preview canvas { position: absolute; inset: 0; width: 100%; height: 100%; display: block; touch-action: none; outline: none; }
 .preview.drop { outline: 3px dashed var(--accent-bg); outline-offset: -8px; }
 .panel {
-  width: 560px; max-width: 46vw; min-width: 340px;
+  width: 560px; max-width: 75vw; min-width: 300px; flex: none;
   display: flex; flex-direction: column;
   background: var(--bg);
   border-left: 1px solid var(--border);
@@ -359,3 +359,7 @@ button.destructive { background: #c01c28; color: #fff; }
 .num { font-variant-numeric: tabular-nums; }
 
 .insp-measure { margin: 6px 0 2px; font-variant-numeric: tabular-nums; line-height: 1.5; }
+
+/* The splitter between the preview and the panel (a GtkPaned handle). */
+.splitter { flex: none; width: 6px; margin: 0 -3px; z-index: 2; cursor: col-resize; position: relative; touch-action: none; }
+.splitter:hover, .splitter.dragging { background: var(--accent-bg); opacity: 0.6; }

@@ -159,6 +159,40 @@ function drawFrame(now) {
   else lastFrameTime = 0;
 }
 
+// ---- the splitter: the width of the panel, kept in the store ----
+
+{
+  const panel = $("panel");
+  const splitter = $("splitter");
+  const DEFAULT = 560;
+  const clampWidth = (w) => Math.max(300, Math.min(w, window.innerWidth * 0.75));
+  if (store.panelWidth) panel.style.width = `${clampWidth(store.panelWidth)}px`;
+  let drag = null;
+  splitter.addEventListener("pointerdown", (e) => {
+    splitter.setPointerCapture(e.pointerId);
+    drag = { x: e.clientX, w: panel.getBoundingClientRect().width };
+    splitter.classList.add("dragging");
+  });
+  splitter.addEventListener("pointermove", (e) => {
+    if (!drag) return;
+    panel.style.width = `${clampWidth(drag.w - (e.clientX - drag.x))}px`;
+  });
+  const end = () => {
+    if (!drag) return;
+    drag = null;
+    splitter.classList.remove("dragging");
+    store.panelWidth = Math.round(panel.getBoundingClientRect().width);
+    saveStore();
+  };
+  splitter.addEventListener("pointerup", end);
+  splitter.addEventListener("pointercancel", end);
+  splitter.addEventListener("dblclick", () => {
+    panel.style.width = `${DEFAULT}px`;
+    delete store.panelWidth;
+    saveStore();
+  });
+}
+
 function resize() {
   const dpr = window.devicePixelRatio || 1;
   const r = canvas.getBoundingClientRect();
