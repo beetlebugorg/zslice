@@ -227,6 +227,10 @@ void zg_model_set_tool(ZgModel *self, ZgTool tool);
  * a new measure. "measure-changed" follows each change. zg_model_measure
  * gives the number of points and the points. */
 void zg_model_measure_add(ZgModel *self, double x, double y, double z);
+/* A point at the center of a circle (shape 1) or an arc (shape 2) of the
+ * radius, and the radius of point i (0: a plain point). */
+void zg_model_measure_add_shape(ZgModel *self, double x, double y, double z, double radius, int shape);
+double zg_model_measure_radius(ZgModel *self, int i, int *shape);
 void zg_model_measure_clear(ZgModel *self);
 int zg_model_measure(ZgModel *self, const double **pts);
 

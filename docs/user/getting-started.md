@@ -202,7 +202,7 @@ The group of three buttons at the left of the preview toolbar picks the tool of 
 |---|---|---|
 | Select (arrow) | S | Selects a line. The Selected page shows what it is and its measurements. |
 | Move (cross) | M | A drag on a part moves it, and the wheel over it turns it by 15°: the same as Ctrl in the other tools. |
-| Measure (ruler) | T | Two clicks measure between two points of the print or the bed. A point near the end of a line snaps to it; hold Shift for no snap. Esc clears the measure. |
+| Measure (ruler) | T | Two clicks measure between two points of the print or the bed. A point near the end of a line snaps to it. A click on a circle or an arc (a hole, a boss) shows its diameter and radius, selects the line, and puts the point at its center, so two holes give the distance between their centers. Hold Shift for no snap. Esc clears the measure. |
 
 The measure shows under the toolbar: the distance, its parts along X, Y, and Z, and the distance on the bed. A gold line in the 3D view joins the two points.
 

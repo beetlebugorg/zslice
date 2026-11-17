@@ -41,6 +41,10 @@ struct _ZgModel {
     int tool;
     int measure_n;
     double measure[6];
+    /* For each point: the radius of the circle or the arc at it (the
+     * point is its center), or 0. */
+    double measure_r[2];
+    int measure_shape[2];
     Bridge *bridge;
     char *name;
     gint64 selected;
@@ -1299,14 +1303,26 @@ void zg_model_set_tool(ZgModel *self, ZgTool tool) {
     g_signal_emit(self, signals[SIGNAL_TOOL_CHANGED], 0);
 }
 
-void zg_model_measure_add(ZgModel *self, double x, double y, double z) {
+void zg_model_measure_add_shape(ZgModel *self, double x, double y, double z, double radius, int shape) {
     /* A third point starts a new measure. */
     if (self->measure_n >= 2) self->measure_n = 0;
     self->measure[3 * self->measure_n] = x;
     self->measure[3 * self->measure_n + 1] = y;
     self->measure[3 * self->measure_n + 2] = z;
+    self->measure_r[self->measure_n] = radius;
+    self->measure_shape[self->measure_n] = shape;
     self->measure_n++;
     g_signal_emit(self, signals[SIGNAL_MEASURE_CHANGED], 0);
+}
+
+void zg_model_measure_add(ZgModel *self, double x, double y, double z) {
+    zg_model_measure_add_shape(self, x, y, z, 0, 0);
+}
+
+double zg_model_measure_radius(ZgModel *self, int i, int *shape) {
+    if (i < 0 || i >= self->measure_n) return 0;
+    if (shape) *shape = self->measure_shape[i];
+    return self->measure_r[i];
 }
 
 void zg_model_measure_clear(ZgModel *self) {

@@ -1044,7 +1044,7 @@ static void on_tool_changed_preview(ZgModel *model, gpointer data) {
     if (!gtk_toggle_button_get_active(GTK_TOGGLE_BUTTON(p->tools[t]))) gtk_toggle_button_set_active(GTK_TOGGLE_BUTTON(p->tools[t]), TRUE);
     /* The measure tape: a hint until the first point. */
     if (t == ZG_TOOL_MEASURE && zg_model_measure(model, NULL) == 0) {
-        gtk_label_set_text(GTK_LABEL(p->measure_label), "Click a point of the print. Shift: no snap to the ends of the lines.");
+        gtk_label_set_text(GTK_LABEL(p->measure_label), "Click a point of the print, or a circle or an arc for its size and center. Shift: no snap.");
         gtk_widget_set_visible(p->measure_label, TRUE);
     } else if (t != ZG_TOOL_MEASURE) {
         gtk_widget_set_visible(p->measure_label, FALSE);
@@ -1062,13 +1062,31 @@ static void on_measure_preview(ZgModel *model, gpointer data) {
         return;
     }
     char *text;
-    if (n == 0) text = g_strdup("Click a point of the print. Shift: no snap to the ends of the lines.");
-    else if (n == 1) text = g_strdup_printf("From %.2f, %.2f, %.2f mm: click a second point.", m[0], m[1], m[2]);
-    else {
-        double dx = m[3] - m[0], dy = m[4] - m[1], dz = m[5] - m[2];
-        text = g_strdup_printf("%.2f mm   ·   ΔX %.2f   ΔY %.2f   ΔZ %.2f   ·   on the bed %.2f mm", sqrt(dx * dx + dy * dy + dz * dz), fabs(dx),
-                               fabs(dy), fabs(dz), sqrt(dx * dx + dy * dy));
+    /* A circle or an arc at a point: its size, and the point is its
+     * center. */
+    char *shapes[2] = {NULL, NULL};
+    for (int i = 0; i < n; i++) {
+        int shape = 0;
+        double r = zg_model_measure_radius(model, i, &shape);
+        if (r > 0) shapes[i] = shape == 1 ? g_strdup_printf("circle ⌀ %.2f mm (radius %.2f)", 2 * r, r)
+                                           : g_strdup_printf("arc radius %.2f mm", r);
     }
+    if (n == 0) text = g_strdup("Click a point of the print, or a circle or an arc for its size and center. Shift: no snap.");
+    else if (n == 1) {
+        if (shapes[0]) text = g_strdup_printf("%s, center %.2f, %.2f mm: click a second point to measure from its center.", shapes[0], m[0], m[1]);
+        else text = g_strdup_printf("From %.2f, %.2f, %.2f mm: click a second point.", m[0], m[1], m[2]);
+    } else {
+        double dx = m[3] - m[0], dy = m[4] - m[1], dz = m[5] - m[2];
+        char *what = shapes[0] || shapes[1] ? g_strdup_printf("\nFirst: %s   ·   second: %s", shapes[0] ? shapes[0] : "a point",
+                                                               shapes[1] ? shapes[1] : "a point")
+                                            : g_strdup("");
+        text = g_strdup_printf("%.2f mm%s   ·   ΔX %.2f   ΔY %.2f   ΔZ %.2f   ·   on the bed %.2f mm%s",
+                               sqrt(dx * dx + dy * dy + dz * dz), shapes[0] || shapes[1] ? " between the centers" : "", fabs(dx), fabs(dy),
+                               fabs(dz), sqrt(dx * dx + dy * dy), what);
+        g_free(what);
+    }
+    g_free(shapes[0]);
+    g_free(shapes[1]);
     gtk_label_set_text(GTK_LABEL(p->measure_label), text);
     gtk_widget_set_visible(p->measure_label, TRUE);
     g_free(text);

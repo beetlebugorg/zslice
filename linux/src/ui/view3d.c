@@ -569,8 +569,20 @@ static void on_release(GtkGestureClick *g, int n, double x, double y, gpointer d
      * pointer), or of the bed. */
     if (zg_model_tool(v->model) == ZG_TOOL_MEASURE) {
         double p[3];
-        if (zs_view_surface_point(v->view, (float)(x * scale), (float)(y * scale), !(mods & GDK_SHIFT_MASK), p))
-            zg_model_measure_add(v->model, p[0], p[1], p[2]);
+        if (!zs_view_surface_point(v->view, (float)(x * scale), (float)(y * scale), !(mods & GDK_SHIFT_MASK), p)) return;
+        /* A circle or an arc under the pointer: the point is its center,
+         * with its radius, and the line shows selected. Shift: the point
+         * itself. */
+        size_t seg = 0;
+        size_t path = zs_view_pick_segment(v->view, (float)(x * scale), (float)(y * scale), &seg);
+        zs_measure m;
+        if (!(mods & GDK_SHIFT_MASK) && path != (size_t)-1 && zs_app_measure(zg_model_core(v->model), path, seg, &m) == ZS_OK &&
+            (m.shape == 1 || m.shape == 2)) {
+            zg_model_select_segment(v->model, (gint64)path, (gint64)seg);
+            zg_model_measure_add_shape(v->model, m.center_x, m.center_y, p[2], m.radius, m.shape);
+            return;
+        }
+        zg_model_measure_add(v->model, p[0], p[1], p[2]);
         return;
     }
     if ((mods & GDK_CONTROL_MASK) || zg_model_tool(v->model) == ZG_TOOL_MOVE) {
