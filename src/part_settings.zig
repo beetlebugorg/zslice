@@ -29,6 +29,7 @@ const settings_mod = @import("settings.zig");
 const import_cura = @import("import_cura.zig");
 const threemf = @import("threemf.zig");
 const engine = @import("engine.zig");
+const support_mod = @import("support.zig");
 const Mesh = mesh_mod.Mesh;
 const Change = settings_mod.Change;
 
@@ -53,6 +54,9 @@ pub const Plan = struct {
     modifiers: []const engine.Job.ModifierInput = &.{},
     /// One line for each note.
     notes: []const []const u8 = &.{},
+    /// The support of the parts with their own `project.support`: a box
+    /// mark around each (support.Mark area_on or area_off).
+    marks: []const support_mod.Mark = &.{},
 
     pub fn deinit(self: *Plan) void {
         self.arena.deinit();
@@ -96,9 +100,32 @@ pub fn plan(gpa: Allocator, inputs: []const Input, settings: *const settings_mod
     var notes: std.ArrayList([]const u8) = .empty;
     var mods: std.ArrayList(engine.Job.ModifierInput) = .empty;
     const parts = try a.alloc(import_cura.PartSettings, inputs.len);
+    var marks: std.ArrayList(support_mod.Mark) = .empty;
     for (inputs, parts) |in, *ps| {
         ps.* = try import_cura.partSettings(a, in.meta, settings);
         for (ps.ignored) |ig| try notes.append(a, try std.fmt.allocPrint(a, "{s}: {s} = {s} is not used: {s}", .{ in.name, ig.key, ig.value, ig.why }));
+        // The support of a part: a box mark around it, not a change of the
+        // plate or a modifier (support is for the whole plate).
+        if (ps.role != .normal) continue;
+        var rest: std.ArrayList(Change) = .empty;
+        for (ps.sets) |c| {
+            if (!std.mem.eql(u8, c.name, "project.support")) {
+                try rest.append(a, c);
+                continue;
+            }
+            const mesh = in.mesh orelse continue;
+            const b = mesh.bounds();
+            // 1 mm more on each side: the support reaches past the part.
+            try marks.append(a, .{
+                .x = (b.min[0] + b.max[0]) / 2,
+                .y = (b.min[1] + b.max[1]) / 2,
+                .z = 0,
+                .hw = (b.max[0] - b.min[0]) / 2 + 1,
+                .hh = (b.max[1] - b.min[1]) / 2 + 1,
+                .kind = if (std.mem.eql(u8, c.value, "off")) .area_off else .area_on,
+            });
+        }
+        ps.sets = rest.items;
     }
 
     // The settings of the parts that print: the same for all, or not.
@@ -155,6 +182,7 @@ pub fn plan(gpa: Allocator, inputs: []const Input, settings: *const settings_mod
         }
     }
     out.modifiers = mods.items;
+    out.marks = marks.items;
     out.notes = notes.items;
     return out;
 }

@@ -668,6 +668,39 @@ export fn zs_app_part_get(a: ?*App, i: usize, out: ?*Part) c_int {
 
 /// The settings of part i and of its modifier volumes, as text (see
 /// App.partSettingsText). The same buffer rules as zs_app_setting_get.
+/// Sets a zslice setting of part i (value NULL: the part has the value of
+/// the plate again). See App.setPartSetting.
+export fn zs_app_part_setting_set(a: ?*App, i: usize, name: ?[*:0]const u8, value: ?[*:0]const u8) c_int {
+    const app = a orelse return @intFromEnum(Status.invalid_argument);
+    const n = std.mem.span(name orelse return @intFromEnum(Status.invalid_argument));
+    const v: ?[]const u8 = if (value) |p| std.mem.span(p) else null;
+    app.setPartSetting(i, n, v) catch |e| return switch (e) {
+        error.NoPart => @intFromEnum(Status.out_of_range),
+        error.UnknownSetting => @intFromEnum(Status.unknown_setting),
+        error.OutOfMemory => @intFromEnum(Status.out_of_memory),
+        else => @intFromEnum(Status.invalid_value),
+    };
+    return ok;
+}
+
+/// The value of a zslice setting of part i, or ZS_NO_RESULT if the part
+/// has the value of the plate. The same buffer rules as
+/// zs_app_setting_get.
+export fn zs_app_part_setting_get(a: ?*const App, i: usize, name: ?[*:0]const u8, buf: ?[*]u8, cap: usize, out_len: ?*usize) c_int {
+    const app = a orelse return @intFromEnum(Status.invalid_argument);
+    const n = std.mem.span(name orelse return @intFromEnum(Status.invalid_argument));
+    if (i >= app.plate.count()) return @intFromEnum(Status.out_of_range);
+    const text = app.partSetting(i, n) orelse return @intFromEnum(Status.no_result);
+    if (out_len) |l| l.* = text.len;
+    if (buf) |b| {
+        if (cap == 0) return ok;
+        const k = @min(text.len, cap - 1);
+        @memcpy(b[0..k], text[0..k]);
+        b[k] = 0;
+    }
+    return ok;
+}
+
 export fn zs_app_part_settings(a: ?*const App, i: usize, buf: ?[*]u8, cap: usize, out_len: ?*usize) c_int {
     const app = a orelse return @intFromEnum(Status.invalid_argument);
     if (i >= app.plate.count()) return @intFromEnum(Status.out_of_range);

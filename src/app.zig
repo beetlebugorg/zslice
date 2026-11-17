@@ -487,6 +487,50 @@ pub const App = struct {
         }
     }
 
+    /// Sets one zslice setting of part i (stored as "zslice:<name>" in its
+    /// metadata, so a 3MF save keeps it), or clears it with a null value.
+    /// The part then prints with it, as a modifier of its volume (the
+    /// infill and the skin), or for support, with its own support (see
+    /// part_settings.zig).
+    pub fn setPartSetting(app: *App, i: usize, name: []const u8, value: ?[]const u8) (Allocator.Error || Settings.SetError || error{NoPart})!void {
+        if (i >= app.plate.parts.items.len) return error.NoPart;
+        if (value) |v| {
+            var check = app.settings;
+            try check.set(name, v);
+        }
+        const old = app.plate.parts.items[i].meta;
+        var list: std.ArrayList(zs.threemf.Meta) = .empty;
+        errdefer {
+            for (list.items) |m| {
+                app.gpa.free(m.key);
+                app.gpa.free(m.value);
+            }
+            list.deinit(app.gpa);
+        }
+        for (old) |m| {
+            if (std.mem.startsWith(u8, m.key, "zslice:") and std.mem.eql(u8, m.key["zslice:".len..], name)) continue;
+            try list.append(app.gpa, .{ .key = try app.gpa.dupe(u8, m.key), .value = try app.gpa.dupe(u8, m.value) });
+        }
+        if (value) |v| {
+            const key = try std.fmt.allocPrint(app.gpa, "zslice:{s}", .{name});
+            errdefer app.gpa.free(key);
+            try list.append(app.gpa, .{ .key = key, .value = try app.gpa.dupe(u8, v) });
+        }
+        app.stopWorker();
+        app.plate.setMeta(app.gpa, i, try list.toOwnedSlice(app.gpa));
+        try app.plateChanged();
+    }
+
+    /// The value of a zslice setting of part i, or null if the part has no
+    /// value of its own.
+    pub fn partSetting(app: *const App, i: usize, name: []const u8) ?[]const u8 {
+        if (i >= app.plate.parts.items.len) return null;
+        for (app.plate.parts.items[i].meta) |m| {
+            if (std.mem.startsWith(u8, m.key, "zslice:") and std.mem.eql(u8, m.key["zslice:".len..], name)) return m.value;
+        }
+        return null;
+    }
+
     pub fn removePart(app: *App, i: usize) Allocator.Error!void {
         app.stopWorker();
         app.plate.remove(app.gpa, i);
@@ -1043,16 +1087,21 @@ pub const App = struct {
     /// volumes.
     fn makeSlicePlan(app: *App) Allocator.Error!void {
         app.dropSlicePlan();
+        // Once a part has settings, the plan needs all the parts: a part
+        // with no settings has the settings of the plate, and so the
+        // parts do not all have the same settings.
+        var any = false;
+        for (app.plate.parts.items) |p| any = any or p.meta.len > 0 or p.volumes.items.len > 0;
+        if (!any) return;
         var n: usize = 0;
-        for (app.plate.parts.items) |p| n += @intFromBool(p.meta.len > 0) + p.volumes.items.len;
-        if (n == 0) return;
+        for (app.plate.parts.items) |p| n += 1 + p.volumes.items.len;
         app.slice_meshes = try app.gpa.alloc(zs.Mesh, n);
         @memset(app.slice_meshes, .empty);
         const inputs = try app.gpa.alloc(zs.part_settings.Input, n);
         defer app.gpa.free(inputs);
         var k: usize = 0;
         for (app.plate.parts.items, 0..) |p, i| {
-            if (p.meta.len > 0) {
+            {
                 app.slice_meshes[k] = try app.plate.partMesh(app.gpa, i);
                 inputs[k] = .{ .name = p.name, .meta = p.meta, .mesh = &app.slice_meshes[k] };
                 k += 1;
@@ -1064,6 +1113,15 @@ pub const App = struct {
             }
         }
         app.slice_plan = try zs.part_settings.plan(app.gpa, inputs, &app.settings);
+        // The support of the parts: box marks with the marks of the user.
+        const pm = app.slice_plan.?.marks;
+        if (pm.len > 0) {
+            const all = try app.gpa.alloc(zs.support.Mark, app.slice_marks.len + pm.len);
+            @memcpy(all[0..app.slice_marks.len], app.slice_marks);
+            @memcpy(all[app.slice_marks.len..], pm);
+            app.gpa.free(app.slice_marks);
+            app.slice_marks = all;
+        }
     }
 
     fn dropPrevJob(app: *App) void {
@@ -2005,4 +2063,36 @@ test "app: a Cura project with a modifier volume: load, slice, inspect, and save
     try testing.expectEqual(@as(usize, 1), back.plate.parts.items[0].volumes.items.len);
     try testing.expectEqual(@as(usize, 2), back.plate.parts.items[0].meta.len);
     try testing.expectEqual(@as(usize, 6), back.plate.parts.items[0].volumes.items[0].meta.len);
+}
+
+test "part settings: one part with its own infill and support" {
+    const gpa = testing.allocator;
+    var b: zs.mesh.Builder = .init(gpa);
+    try zs.mesh.shapes.addBox(&b, 0, 0, 0, 20, 20, 10);
+    var mesh = try b.finish();
+    defer mesh.deinit(gpa);
+    var stl: std.Io.Writer.Allocating = .init(gpa);
+    defer stl.deinit();
+    try mesh.writeStl(&stl.writer);
+    const app = try App.create(gpa, null, null);
+    defer app.destroy();
+    try app.loadStl("a.stl", stl.written());
+    _ = try app.addStl("b.stl", stl.written());
+    _ = try app.arrangePlate();
+    try app.setPartSetting(0, "project.infill_density", "0.8");
+    try app.setPartSetting(0, "project.support", "everywhere");
+    try testing.expectEqualStrings("0.8", app.partSetting(0, "project.infill_density").?);
+    try testing.expect(app.partSetting(1, "project.infill_density") == null);
+    try testing.expectError(error.InvalidValue, app.setPartSetting(0, "project.infill_density", "lots"));
+    try app.startSlice();
+    app.stopWorkerForTest();
+    const plan = app.slice_plan.?;
+    try testing.expectEqual(@as(usize, 0), plan.base.len);
+    try testing.expectEqual(@as(usize, 1), plan.modifiers.len);
+    try testing.expectEqual(@as(usize, 1), plan.marks.len);
+    try testing.expectEqual(zs.support.Mark.Kind.area_on, plan.marks[0].kind);
+    // Cleared: no plan.
+    try app.setPartSetting(0, "project.infill_density", null);
+    try app.setPartSetting(0, "project.support", null);
+    try testing.expect(app.partSetting(0, "project.support") == null);
 }

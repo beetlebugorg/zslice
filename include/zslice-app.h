@@ -448,6 +448,14 @@ int zs_app_part_get(zs_app *app, size_t i, zs_part *out);
  * setting that it becomes, or why zslice does not use it. Empty for a
  * part with no settings. The same buffer rules as zs_app_setting_get. */
 int zs_app_part_settings(const zs_app *app, size_t i, char *buf, size_t cap, size_t *out_len);
+/* The settings of one part: a zslice setting that this part prints with,
+ * not the value of the plate (value NULL: the value of the plate again).
+ * The infill and skin settings change the part (its walls stay those of
+ * the plate); project.support gives the part its own support. A 3MF save
+ * keeps them. zs_app_part_setting_get gives ZS_NO_RESULT when the part
+ * has the value of the plate. */
+int zs_app_part_setting_set(zs_app *app, size_t i, const char *name, const char *value);
+int zs_app_part_setting_get(const zs_app *app, size_t i, const char *name, char *buf, size_t cap, size_t *out_len);
 /* Moves a part (the center of its footprint) to (x, y) on the bed. */
 int zs_app_part_move(zs_app *app, size_t i, double x, double y);
 /* Sets the turn of a part, in degrees, around the center of its footprint. */

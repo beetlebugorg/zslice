@@ -53,8 +53,15 @@ pub const Mark = struct {
     /// The radius of the disk, mm.
     r: f64 = 3,
     kind: Kind,
+    /// For `area_on` and `area_off`: half the width and half the depth of
+    /// the box around (x, y), mm, at all heights.
+    hw: f64 = 0,
+    hh: f64 = 0,
 
-    pub const Kind = enum(u8) { grid = 0, tree = 1, bridge = 2, block = 3 };
+    /// `area_on` and `area_off` come from the settings of one part (see
+    /// part_settings.zig): support in its box with support off for the
+    /// plate, or no support in its box.
+    pub const Kind = enum(u8) { grid = 0, tree = 1, bridge = 2, block = 3, area_on = 4, area_off = 5 };
 };
 
 pub const SupportLayer = struct {
@@ -84,14 +91,25 @@ pub fn compute(
 ) anyerror![]SupportLayer {
     const p = r.settings.project;
     var adds = false;
-    for (marks) |m| if (m.kind != .block) {
-        adds = true;
+    var on_area = false;
+    var off_area = false;
+    for (marks) |m| switch (m.kind) {
+        .grid, .tree, .bridge => adds = true,
+        .area_on => on_area = true,
+        .area_off => off_area = true,
+        .block => {},
     };
-    if ((p.support == .off and !adds) or outlines.len < 2) return &.{};
+    if ((p.support == .off and !adds and !on_area) or outlines.len < 2) return &.{};
     // Support from the settings, less the blocked marks; then the support
-    // of each kind of mark, with its own style, joined in.
-    var main = try computeStyle(gpa, outlines, layers, r, threads, marks, null);
+    // of each kind of mark, with its own style, joined in. With support
+    // off and parts with support on: the support of the settings, in the
+    // boxes of those parts only.
+    var rr = r.*;
+    const only_on = p.support == .off and on_area;
+    if (only_on) rr.settings.project.support = .everywhere;
+    var main = try computeStyle(gpa, outlines, layers, &rr, threads, marks, null);
     errdefer deinitAll(gpa, main);
+    if (only_on or (p.support != .off and off_area)) try clipToAreas(gpa, main, marks, only_on);
     for ([_]Mark.Kind{ .grid, .tree, .bridge }) |kind| {
         var has = false;
         for (marks) |m| if (m.kind == kind) {
@@ -119,6 +137,31 @@ pub fn compute(
         }
     }
     return main;
+}
+
+/// Keeps the support in the boxes of the `area_on` marks (`keep_on`), or
+/// removes the support in the boxes of the `area_off` marks.
+fn clipToAreas(gpa: Allocator, layers_out: []SupportLayer, marks: []const Mark, keep_on: bool) Allocator.Error!void {
+    var boxes: Paths = .empty;
+    defer boxes.deinit(gpa);
+    for (marks) |m| if (m.kind == (if (keep_on) Mark.Kind.area_on else Mark.Kind.area_off)) {
+        const x0 = geom.fromMm(m.x - m.hw);
+        const x1 = geom.fromMm(m.x + m.hw);
+        const y0 = geom.fromMm(m.y - m.hh);
+        const y1 = geom.fromMm(m.y + m.hh);
+        try boxes.append(gpa, &.{ .init(x0, y0), .init(x1, y0), .init(x1, y1), .init(x0, y1) });
+    };
+    if (boxes.isEmpty()) return;
+    const area = try clip.unite(gpa, boxes, .empty);
+    defer @constCast(&area).deinit(gpa);
+    for (layers_out) |*l| {
+        for ([_]*Paths{ &l.body, &l.interface }) |pp| {
+            if (pp.isEmpty()) continue;
+            const next = if (keep_on) try clip.intersect(gpa, pp.*, area) else try clip.difference(gpa, pp.*, area);
+            pp.deinit(gpa);
+            pp.* = next;
+        }
+    }
 }
 
 /// A disk of radius r at x, y (mm), as a polygon.
@@ -160,7 +203,7 @@ fn computeStyle(
             .grid => .grid,
             .tree => .tree,
             .bridge => .bridge,
-            .block => unreachable,
+            .block, .area_on, .area_off => unreachable,
         };
         if (p.support == .off) p.support = .everywhere;
     } else if (p.support == .off) return &.{};
@@ -522,6 +565,38 @@ test "support marks: a pad with support off, and a block" {
     const less = try compute(gpa, sl.outlines, sl.layers, &r2, 1, &block);
     defer deinitAll(gpa, less);
     try testing.expect(less[10].body.areaMm2() < all[10].body.areaMm2() - 5);
+}
+
+test "support areas: a part with support on, and a part with support off" {
+    const gpa = testing.allocator;
+    var b: mesh_mod.Builder = .init(gpa);
+    try mesh_mod.shapes.addBox(&b, 8, 8, 0, 12, 12, 5);
+    try mesh_mod.shapes.addBox(&b, 0, 0, 5, 20, 20, 7);
+    var m = try b.finish();
+    defer m.deinit(gpa);
+    const sl = try sliceAll(gpa, &m, 7);
+    defer {
+        for (sl.outlines) |*o| o.deinit(gpa);
+        gpa.free(sl.outlines);
+        gpa.free(sl.layers);
+    }
+    // Support off for the plate; the part has support on (a box around
+    // its left half): support only in that box.
+    var st: settings_mod.Settings = .{};
+    const r = try st.resolve();
+    const on = [_]Mark{.{ .x = 5, .y = 10, .z = 0, .hw = 5, .hh = 11, .kind = .area_on }};
+    const sup = try compute(gpa, sl.outlines, sl.layers, &r, 1, &on);
+    defer deinitAll(gpa, sup);
+    try testing.expect(sup.len > 0 and !sup[10].body.isEmpty());
+    const box = sup[10].body.bounds();
+    try testing.expect(geom.toMm(box.max.x) <= 10.01);
+    // Support on for the plate; the part has support off: no support.
+    st.project.support = .everywhere;
+    const r2 = try st.resolve();
+    const off = [_]Mark{.{ .x = 10, .y = 10, .z = 0, .hw = 11, .hh = 11, .kind = .area_off }};
+    const none = try compute(gpa, sl.outlines, sl.layers, &r2, 1, &off);
+    defer deinitAll(gpa, none);
+    for (none) |l| try testing.expect(l.body.isEmpty() and l.interface.isEmpty());
 }
 
 test "bed-only support skips a column that rests on the part" {

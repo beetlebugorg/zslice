@@ -804,6 +804,18 @@ pub fn partSettings(arena: Allocator, meta: anytype, base: *const @import("setti
     var layer_keys: [2]?f64 = .{ null, null };
 
     for (meta) |m| {
+        // A zslice setting of the part ("zslice:project.infill_density"):
+        // as it is, if the setting takes the value.
+        if (std.mem.startsWith(u8, m.key, "zslice:")) {
+            const name = m.key["zslice:".len..];
+            var check = base.*;
+            check.set(name, m.value) catch {
+                try ignored.append(arena, .{ .key = m.key, .value = m.value, .why = "not a zslice setting or not a valid value" });
+                continue;
+            };
+            try put(arena, &sets, name, m.value);
+            continue;
+        }
         const key = curaKey(m.key) orelse {
             try ignored.append(arena, .{ .key = m.key, .value = m.value, .why = "not a Cura setting" });
             continue;
