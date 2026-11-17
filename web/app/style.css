@@ -430,3 +430,10 @@ button.destructive { background: #c01c28; color: #fff; }
   top: 58px; left: 10px; padding: 6px 12px; border-radius: 8px; white-space: pre-line;
   font-size: 0.9em; font-variant-numeric: tabular-nums; pointer-events: none; max-width: calc(100% - 20px);
 }
+
+/* Manage printers. */
+.printers-dialog { background: #303030; color: inherit; border: none; border-radius: 12px; padding: 16px; width: min(760px, 94vw); }
+.printers-dialog h3 { margin: 0 0 10px; }
+.printers-list { display: flex; flex-direction: column; gap: 8px; margin-bottom: 14px; }
+.printers-row { display: grid; grid-template-columns: 1.2fr 1.5fr auto auto auto auto; gap: 6px; align-items: center; }
+.printers-row input { background: var(--entry); border: none; border-radius: 6px; padding: 7px 8px; min-width: 0; }

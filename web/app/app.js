@@ -557,6 +557,10 @@ function applySettings(r) {
   browser.setValues(r);
   if (r.saved) {
     store.saved = r.saved;
+    // An edit of the machine settings stays with the printer: its profile
+    // is the machine settings now.
+    const mine = store.printers?.[store.printer];
+    if (mine && r.saved.machine && mine.profile !== r.saved.machine) mine.profile = r.saved.machine;
     saveStore();
   }
   updateMenus();
@@ -635,6 +639,85 @@ async function addPrinter(p) {
   toast(`${p.name} is the printer now.`);
 }
 
+// The machine settings in the panel, at the start G-code (window.c).
+function openPrinterSettings() {
+  showTab("settings");
+  browser.openSetting("machine.start_gcode");
+}
+
+// The printers of the user (store.printers): rename, the address for
+// prints, or remove. The settings of the printer now are in the panel.
+function managePrinters() {
+  const d = document.createElement("dialog");
+  d.className = "printers-dialog";
+  const title = Object.assign(document.createElement("h3"), { textContent: "Your printers" });
+  const list = document.createElement("div");
+  list.className = "printers-list";
+  const fill = () => {
+    list.replaceChildren();
+    const names = Object.keys(store.printers ?? {});
+    if (names.length === 0) list.append(Object.assign(document.createElement("div"), { className: "dim", textContent: "No printers. Add one with Add a printer… in the printer menu." }));
+    for (const n of names) {
+      const p = store.printers[n];
+      const row = document.createElement("div");
+      row.className = "printers-row";
+      const name = Object.assign(document.createElement("input"), { value: n, title: "The name of the printer" });
+      const url = Object.assign(document.createElement("input"), { value: p.url ?? "", placeholder: "http://printer.local", title: "The address of the printer, to send it prints (printdeck, OctoPrint, Moonraker)" });
+      const now = Object.assign(document.createElement("span"), { className: "dim", textContent: n === store.printer ? "in use" : "" });
+      const use = Object.assign(document.createElement("button"), { textContent: "Use", disabled: n === store.printer });
+      use.onclick = async () => {
+        await loadProfile(0, n, store.printers[n].profile);
+        fill();
+      };
+      const settings = Object.assign(document.createElement("button"), { textContent: "Settings…" });
+      settings.onclick = async () => {
+        if (n !== store.printer) await loadProfile(0, n, store.printers[n].profile);
+        d.close();
+        openPrinterSettings();
+      };
+      const rm = Object.assign(document.createElement("button"), { className: "destructive", textContent: "Remove" });
+      rm.onclick = () => {
+        if (!confirm(`Remove the printer ${n}? Its settings go too.`)) return;
+        delete store.printers[n];
+        if (store.printer === n) store.printer = "";
+        saveStore();
+        updateMenus();
+        fill();
+      };
+      name.onchange = async () => {
+        const to = name.value.trim();
+        if (!to || to === n || store.printers[to]) {
+          name.value = n;
+          if (to && to !== n) toast(`A printer named ${to} is there already.`);
+          return;
+        }
+        store.printers[to] = store.printers[n];
+        delete store.printers[n];
+        if (store.printer === n) {
+          store.printer = to;
+          await setSetting("machine.name", to);
+        }
+        saveStore();
+        updateMenus();
+        fill();
+      };
+      url.onchange = () => {
+        p.url = url.value.trim();
+        saveStore();
+      };
+      row.append(name, url, now, use, settings, rm);
+      list.append(row);
+    }
+  };
+  fill();
+  const close = Object.assign(document.createElement("button"), { className: "suggested", textContent: "Close" });
+  close.onclick = () => d.close();
+  d.append(title, list, close);
+  d.onclose = () => d.remove();
+  document.body.append(d);
+  d.showModal();
+}
+
 function showPrinterPicker(hooks) {
   openPrinterPicker(wasm, addPrinter, hooks).catch((e) => toast(`The printer picker failed: ${e.message}`));
 }
@@ -650,7 +733,12 @@ $("printer-menu").onclick = () => {
   for (const n of wasm.builtinProfiles(0)) {
     items.push({ label: n, checked: n === (store.printer || "generic"), action: () => loadProfile(0, n, `extends = "${n}"\n`) });
   }
-  items.push({ sep: true }, { label: "Add a printer…", action: () => showPrinterPicker() });
+  items.push(
+    { sep: true },
+    { label: "Printer settings and G-code…", tip: "The bed, the nozzle, the speeds, and the start and end G-code of this printer.", action: openPrinterSettings },
+    { label: "Manage printers…", disabled: mine.length === 0, tip: "Rename your printers, set their addresses, or remove them.", action: managePrinters },
+    { label: "Add a printer…", action: () => showPrinterPicker() },
+  );
   openMenu($("printer-menu"), items);
 };
 
@@ -1522,7 +1610,7 @@ function benchPick(step = 40) {
 
 // For tests: the state of the page.
 window.zslice = {
-  app, view, view2d, layers, browser, client, gl, inspector, gaps, history, undoRedo, tools, pickAt, topLayerPoint, openCheck, frameTimes,
+  app, view, view2d, layers, browser, client, gl, inspector, gaps, history, undoRedo, tools, store, managePrinters, openPrinterSettings, loadProfile, setSetting, pickAt, topLayerPoint, openCheck, frameTimes,
   select, showPage, showTab, hitAt, showContextMenu, step, bench, benchPick,
   get frameCount() { return frameCount; },
   get pickMs() { return pickMs; },
