@@ -172,8 +172,8 @@ fn movePoint(p: Point, n: [2]f64, d: f64) Point {
     const px: f64 = @floatFromInt(p.x);
     const py: f64 = @floatFromInt(p.y);
     return .{
-        .x = @intFromFloat(@round(px + n[0] * d)),
-        .y = @intFromFloat(@round(py + n[1] * d)),
+        .x = @intFromFloat(geom.round(px + n[0] * d)),
+        .y = @intFromFloat(geom.round(py + n[1] * d)),
     };
 }
 
@@ -201,8 +201,8 @@ fn addJoin(arena: Allocator, out: *Paths, p: Point, n1: [2]f64, n2: [2]f64, d: f
         const px: f64 = @floatFromInt(p.x);
         const py: f64 = @floatFromInt(p.y);
         try out.appendPoint(arena, .{
-            .x = @intFromFloat(@round(px + (n1[0] + n2[0]) * k)),
-            .y = @intFromFloat(@round(py + (n1[1] + n2[1]) * k)),
+            .x = @intFromFloat(geom.round(px + (n1[0] + n2[0]) * k)),
+            .y = @intFromFloat(geom.round(py + (n1[1] + n2[1]) * k)),
         });
         return;
     }
@@ -224,8 +224,8 @@ fn addJoin(arena: Allocator, out: *Paths, p: Point, n1: [2]f64, n2: [2]f64, d: f
                 const px: f64 = @floatFromInt(p.x);
                 const py: f64 = @floatFromInt(p.y);
                 try out.appendPoint(arena, .{
-                    .x = @intFromFloat(@round(px + (n1[0] + n2[0]) * k)),
-                    .y = @intFromFloat(@round(py + (n1[1] + n2[1]) * k)),
+                    .x = @intFromFloat(geom.round(px + (n1[0] + n2[0]) * k)),
+                    .y = @intFromFloat(geom.round(py + (n1[1] + n2[1]) * k)),
                 });
             } else {
                 try out.appendPoint(arena, movePoint(p, n1, d));

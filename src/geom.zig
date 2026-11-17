@@ -8,7 +8,10 @@
 //! broken output. CuraEngine uses the same unit (see REFERENCES.md).
 //!
 //! Cross products of two vectors can be as large as (2^31)^2, so the code
-//! does them in i128.
+//! does them in i128. Wasm has no instruction for a 64 x 64 -> 128 bit
+//! product: each one is a call of a library function. So in wasm the
+//! products first test if all factors are small (see `mulSub`), and then
+//! use 64-bit products. Both forms give the same value.
 //!
 //! References (see REFERENCES.md): the shoelace formula for the area, and
 //! polyline simplification with an anchor point and a distance bound.
@@ -20,7 +23,30 @@ const Allocator = std.mem.Allocator;
 pub const units_per_mm: f64 = 1000.0;
 
 pub fn fromMm(mm: f64) i64 {
-    return @intFromFloat(@round(mm * units_per_mm));
+    return @intFromFloat(round(mm * units_per_mm));
+}
+
+/// The smaller of two floats that are not NaN. `@min`, `@max`, and `@round`
+/// of floats are calls of library functions in wasm: wasm has other rules
+/// for NaN and for a half than C. These three are a few wasm instructions,
+/// and one instruction on x86-64. Use them in hot loops.
+pub inline fn fmin(a: anytype, b: anytype) @TypeOf(a, b) {
+    return if (a < b) a else b;
+}
+
+/// The larger of two floats that are not NaN (see `fmin`).
+pub inline fn fmax(a: anytype, b: anytype) @TypeOf(a, b) {
+    return if (a < b) b else a;
+}
+
+/// x rounded to the nearest whole number, a half away from zero: the
+/// value of `@round` (see `fmin`).
+pub inline fn round(x: anytype) @TypeOf(x) {
+    const T = @TypeOf(x);
+    if (T == comptime_float) return @round(x);
+    const t = @trunc(x);
+    // x - t is exact.
+    return if (@abs(x - t) >= 0.5) t + std.math.copysign(@as(T, 1), x) else t;
 }
 
 pub fn toMm(units: i64) f64 {
@@ -53,12 +79,17 @@ pub const Point = struct {
     }
 
     pub fn distSq(a: Point, b: Point) i128 {
-        const dx: i128 = a.x - b.x;
-        const dy: i128 = a.y - b.y;
-        return dx * dx + dy * dy;
+        const dx = a.x - b.x;
+        const dy = a.y - b.y;
+        return mulAdd(dx, dx, dy, dy);
     }
 
     pub fn dist(a: Point, b: Point) f64 {
+        const dx = a.x - b.x;
+        const dy = a.y - b.y;
+        // A 64-bit sum of squares is exact, so its float is the same as
+        // the float of the 128-bit sum (which is a library call in wasm).
+        if (slow_wide and small4(dx, dy, 0, 0)) return @sqrt(@as(f64, @floatFromInt(dx * dx + dy * dy)));
         return @sqrt(@as(f64, @floatFromInt(distSq(a, b))));
     }
 };
@@ -77,19 +108,45 @@ pub inline fn hypot(x: anytype, y: anytype) @TypeOf(x, y) {
 /// the left of the line from a to b, negative when c is to the right, and
 /// zero when the three points are on one line.
 pub fn cross3(a: Point, b: Point, c: Point) i128 {
-    const abx: i128 = b.x - a.x;
-    const aby: i128 = b.y - a.y;
-    const acx: i128 = c.x - a.x;
-    const acy: i128 = c.y - a.y;
-    return abx * acy - aby * acx;
+    return mulSub(b.x - a.x, c.y - a.y, b.y - a.y, c.x - a.x);
 }
 
 pub fn dot3(a: Point, b: Point, c: Point) i128 {
-    const abx: i128 = b.x - a.x;
-    const aby: i128 = b.y - a.y;
-    const acx: i128 = c.x - a.x;
-    const acy: i128 = c.y - a.y;
-    return abx * acx + aby * acy;
+    return mulAdd(b.x - a.x, c.x - a.x, b.y - a.y, c.y - a.y);
+}
+
+/// True if a 128-bit product is slow on the target (see the file header).
+const slow_wide = @import("builtin").cpu.arch.isWasm();
+
+/// a * b - c * d, exact.
+pub inline fn mulSub(a: i64, b: i64, c: i64, d: i64) i128 {
+    return mulSubFor(slow_wide, a, b, c, d);
+}
+
+/// a * b + c * d, exact.
+pub inline fn mulAdd(a: i64, b: i64, c: i64, d: i64) i128 {
+    return mulAddFor(slow_wide, a, b, c, d);
+}
+
+/// `mulSub`. With `narrow_first`, it uses 64-bit products if the factors
+/// are small.
+pub inline fn mulSubFor(comptime narrow_first: bool, a: i64, b: i64, c: i64, d: i64) i128 {
+    if (narrow_first and small4(a, b, c, d)) return a * b - c * d;
+    return @as(i128, a) * b - @as(i128, c) * d;
+}
+
+pub inline fn mulAddFor(comptime narrow_first: bool, a: i64, b: i64, c: i64, d: i64) i128 {
+    if (narrow_first and small4(a, b, c, d)) return a * b + c * d;
+    return @as(i128, a) * b + @as(i128, c) * d;
+}
+
+/// True if each value is in -2^30 .. 2^30 - 1 (about 1 km). Then a product
+/// of two values is at most 2^60, and a sum of two products fits in an i64.
+inline fn small4(a: i64, b: i64, c: i64, d: i64) bool {
+    const bias: i64 = 1 << 30;
+    const bits = @as(u64, @bitCast(a +% bias)) | @as(u64, @bitCast(b +% bias)) |
+        @as(u64, @bitCast(c +% bias)) | @as(u64, @bitCast(d +% bias));
+    return bits >> 31 == 0;
 }
 
 /// Two times the signed area of a closed polygon (the shoelace formula).
@@ -99,7 +156,7 @@ pub fn area2(poly: []const Point) i128 {
     var sum: i128 = 0;
     var prev = poly[poly.len - 1];
     for (poly) |p| {
-        sum += @as(i128, prev.x) * p.y - @as(i128, p.x) * prev.y;
+        sum += mulSub(prev.x, p.y, p.x, prev.y);
         prev = p;
     }
     return sum;
@@ -552,4 +609,48 @@ test "insideAny: a square with a hole" {
     try std.testing.expect(insideAny(ps, .init(1, 5)));
     try std.testing.expect(!insideAny(ps, .init(5, 5)));
     try std.testing.expect(!insideAny(ps, .init(20, 5)));
+}
+
+test "the 64-bit products give the values of the 128-bit products" {
+    var prng = std.Random.DefaultPrng.init(31);
+    const rnd = prng.random();
+    const lim: i64 = 1 << 30;
+    for (0..100_000) |k| {
+        // Values at the limits, small values, and values past the limits.
+        var v: [4]i64 = undefined;
+        for (&v) |*x| x.* = switch (k % 4) {
+            0 => rnd.intRangeAtMost(i64, -lim, lim - 1),
+            1 => if (rnd.boolean()) -lim else lim - 1,
+            2 => rnd.intRangeAtMost(i64, -50, 50),
+            else => rnd.intRangeAtMost(i64, -(lim << 20), lim << 20),
+        };
+        try std.testing.expectEqual(mulSubFor(false, v[0], v[1], v[2], v[3]), mulSubFor(true, v[0], v[1], v[2], v[3]));
+        try std.testing.expectEqual(mulAddFor(false, v[0], v[1], v[2], v[3]), mulAddFor(true, v[0], v[1], v[2], v[3]));
+    }
+    try std.testing.expect(small4(-lim, lim - 1, 0, -1));
+    try std.testing.expect(!small4(lim, 0, 0, 0));
+    try std.testing.expect(!small4(0, 0, 0, -lim - 1));
+    try std.testing.expect(!small4(std.math.minInt(i64), std.math.maxInt(i64), 0, 0));
+}
+
+test "round gives the value of @round" {
+    var prng = std.Random.DefaultPrng.init(37);
+    const rnd = prng.random();
+    const cases = [_]f64{ 0, -0.0, 0.5, -0.5, 1.5, -1.5, 2.5, -2.5, 0.49999999999999994, -0.49999999999999994, 4503599627370495.5, -4503599627370495.5, 4503599627370496, 9007199254740994, 1e300, -1e300, std.math.inf(f64), -std.math.inf(f64) };
+    for (cases) |x| {
+        try std.testing.expectEqual(@as(u64, @bitCast(@round(x))), @as(u64, @bitCast(round(x))));
+    }
+    for (0..200_000) |k| {
+        const whole: f64 = @floatFromInt(rnd.intRangeAtMost(i64, -1 << 40, 1 << 40));
+        const x = switch (k % 3) {
+            0 => whole + 0.5,
+            1 => whole + rnd.float(f64),
+            else => (rnd.float(f64) - 0.5) * 4,
+        };
+        try std.testing.expectEqual(@as(u64, @bitCast(@round(x))), @as(u64, @bitCast(round(x))));
+        const y: f32 = @floatCast(x / 1024);
+        try std.testing.expectEqual(@as(u32, @bitCast(@round(y))), @as(u32, @bitCast(round(y))));
+    }
+    try std.testing.expectEqual(@as(f64, 2), fmin(2, 3.0));
+    try std.testing.expectEqual(@as(f64, 3), fmax(2, 3.0));
 }

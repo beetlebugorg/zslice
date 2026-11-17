@@ -372,7 +372,7 @@ fn mid(p: Point, q: Point) Point {
 }
 
 fn pt(x: f64, y: f64) Point {
-    return .{ .x = @intFromFloat(@round(x)), .y = @intFromFloat(@round(y)) };
+    return .{ .x = @intFromFloat(geom.round(x)), .y = @intFromFloat(geom.round(y)) };
 }
 
 /// The gap fill lines of `gaps` (the areas to fill) for a line width of

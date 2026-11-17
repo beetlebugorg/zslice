@@ -1248,11 +1248,11 @@ fn leftHalf(u: Point, w: Point) bool {
 }
 
 fn crossV(a: Point, b: Point) i128 {
-    return @as(i128, a.x) * b.y - @as(i128, a.y) * b.x;
+    return geom.mulSub(a.x, b.y, a.y, b.x);
 }
 
 fn dotV(a: Point, b: Point) i128 {
-    return @as(i128, a.x) * b.x + @as(i128, a.y) * b.y;
+    return geom.mulAdd(a.x, b.x, a.y, b.y);
 }
 
 // ---------------------------------------------------------------------------

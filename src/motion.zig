@@ -42,6 +42,8 @@
 //! documents them (docs/Kinematics.md).
 
 const std = @import("std");
+const fmin = @import("geom.zig").fmin;
+const fmax = @import("geom.zig").fmax;
 
 pub const Limits = struct {
     /// The speed at a 90 degree corner, in mm/s.
@@ -93,24 +95,24 @@ pub fn plan(moves: []Move, limits: Limits) f64 {
         const p = &moves[i - 1];
         const v2 = m.speed * m.speed;
         const pv2 = p.speed * p.speed;
-        var ms = @min(v2, pv2, p.max_start + 2 * p.accel * p.len);
+        var ms = fmin(fmin(v2, pv2), p.max_start + 2 * p.accel * p.len);
         const dr = @abs(m.e_ratio - p.e_ratio);
         if (dr > 0) {
             const ve = limits.extruder_corner_speed / dr;
-            ms = @min(ms, ve * ve);
+            ms = fmin(ms, ve * ve);
         }
         // The cosine of the angle between the reversed first move and the
         // second move. 1: a reversal. -1: straight on.
         const cos = -(m.dir[0] * p.dir[0] + m.dir[1] * p.dir[1] + m.dir_z * p.dir_z);
-        const sin_h = @sqrt(@max(0.5 * (1 - cos), 0));
-        const cos_h = @sqrt(@max(0.5 * (1 + cos), 0));
+        const sin_h = @sqrt(fmax(0.5 * (1 - cos), 0));
+        const cos_h = @sqrt(fmax(0.5 * (1 + cos), 0));
         if (1 - sin_h > 0 and cos_h > 0) {
             const r = sin_h / (1 - sin_h);
             const tan_q = 0.25 * sin_h / cos_h;
-            ms = @min(ms, r * jd_v2, 2 * m.accel * m.len * tan_q, 2 * p.accel * p.len * tan_q);
+            ms = fmin(fmin(ms, r * jd_v2), fmin(2 * m.accel * m.len * tan_q, 2 * p.accel * p.len * tan_q));
         }
         m.max_start = ms;
-        m.max_smooth = @min(ms, p.max_smooth + 2 * p.accel * smooth * p.len);
+        m.max_smooth = fmin(ms, p.max_smooth + 2 * p.accel * smooth * p.len);
     }
     // The backward pass of step 2, and step 3. The moves of a hill after
     // its peak (in print order) wait in `pending` (the moves from i + 1 to
@@ -126,25 +128,25 @@ pub fn plan(moves: []Move, limits: Limits) f64 {
         const v2 = m.speed * m.speed;
         const delta = 2 * m.accel * m.len;
         const reach = next_end + delta;
-        const start = @min(m.max_start, reach);
+        const start = fmin(m.max_start, reach);
         const reach_smooth = next_smooth + delta * smooth;
-        const sm = @min(m.max_smooth, reach_smooth);
+        const sm = fmin(m.max_smooth, reach_smooth);
         m.start = start;
         m.end = next_end;
         if (sm < reach_smooth) {
             // The move can speed up. If it can also slow down, or moves
             // after it slow down, it is the top of a hill.
             if (sm + delta * smooth > next_smooth or pend_end > i + 1) {
-                peak = @min(v2, (sm + reach_smooth) * 0.5);
+                peak = fmin(v2, (sm + reach_smooth) * 0.5);
                 var cruise = peak;
                 for (moves[i + 1 .. pend_end]) |*q| {
-                    cruise = @min(cruise, q.start);
-                    setTime(q, @min(q.start, cruise), cruise, @min(q.end, cruise));
+                    cruise = fmin(cruise, q.start);
+                    setTime(q, fmin(q.start, cruise), cruise, fmin(q.end, cruise));
                 }
                 pend_end = i + 1;
             }
-            const cruise = @min((start + reach) * 0.5, v2, peak);
-            setTime(m, @min(start, cruise), cruise, @min(next_end, cruise));
+            const cruise = fmin(fmin((start + reach) * 0.5, v2), peak);
+            setTime(m, fmin(start, cruise), cruise, fmin(next_end, cruise));
             pend_end = i;
         }
         next_end = start;
@@ -152,8 +154,8 @@ pub fn plan(moves: []Move, limits: Limits) f64 {
     }
     // Moves that never found a peak (not possible with a ratio below 1).
     for (moves[0..pend_end]) |*q| {
-        const cruise = @min(q.speed * q.speed, q.start);
-        setTime(q, @min(q.start, cruise), cruise, @min(q.end, cruise));
+        const cruise = fmin(q.speed * q.speed, q.start);
+        setTime(q, fmin(q.start, cruise), cruise, fmin(q.end, cruise));
     }
     var total: f64 = 0;
     for (moves) |m| total += m.time;
@@ -170,7 +172,7 @@ fn setTime(m: *Move, start: f64, cruise: f64, end: f64) void {
     const half_inv = 0.5 / m.accel;
     const accel_d = (cruise - start) * half_inv;
     const decel_d = (cruise - end) * half_inv;
-    const cruise_d = @max(m.len - accel_d - decel_d, 0);
+    const cruise_d = fmax(m.len - accel_d - decel_d, 0);
     const sv = @sqrt(start);
     const cv = @sqrt(cruise);
     const ev = @sqrt(end);

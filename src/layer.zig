@@ -2096,7 +2096,7 @@ fn sameCornerBelow(b: *const geom.EdgeIndex, v: Point, back: Point, on: Point) b
         const dy: f64 = @floatFromInt(q.y - v.y);
         const len = @import("geom.zig").hypot(dx, dy);
         if (len < 1) return false;
-        const t = @min(200.0, len) / len;
+        const t = geom.fmin(200.0, len) / len;
         const p: Point = .{ .x = v.x + @as(i64, @intFromFloat(@round(dx * t))), .y = v.y + @as(i64, @intFromFloat(@round(dy * t))) };
         if (@abs(b.distance(p, corner_reach) - d0) >= 50) return false;
     }
@@ -2121,7 +2121,7 @@ fn walkFrom(path: []const Point, i: usize, dist: f64, forward: bool) Point {
 }
 
 fn cross3(a: Point, b: Point, p: Point) i128 {
-    return @as(i128, b.x - a.x) * @as(i128, p.y - a.y) - @as(i128, p.x - a.x) * @as(i128, b.y - a.y);
+    return geom.mulSub(b.x - a.x, p.y - a.y, p.x - a.x, b.y - a.y);
 }
 
 fn rearBefore(a: Point, b: Point) bool {

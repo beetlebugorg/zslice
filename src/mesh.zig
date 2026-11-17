@@ -49,8 +49,8 @@ pub const Mesh = struct {
         for (self.vertices.items) |v| {
             const p = [3]f64{ v.x, v.y, v.z };
             for (0..3) |i| {
-                b.min[i] = @min(b.min[i], p[i]);
-                b.max[i] = @max(b.max[i], p[i]);
+                b.min[i] = @import("geom.zig").fmin(b.min[i], p[i]);
+                b.max[i] = @import("geom.zig").fmax(b.max[i], p[i]);
             }
         }
         return b;

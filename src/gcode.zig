@@ -188,7 +188,7 @@ pub const CombIndex = struct {
         const w: f64 = @floatFromInt(@max(box.max.x - box.min.x, 1));
         const h: f64 = @floatFromInt(@max(box.max.y - box.min.y, 1));
         // About one edge for each cell.
-        const cell = @max(@sqrt(w * h / @as(f64, @floatFromInt(n))), 1);
+        const cell = geom.fmax(@sqrt(w * h / @as(f64, @floatFromInt(n))), 1);
         var idx: CombIndex = .{
             .x0 = @floatFromInt(box.min.x),
             .y0 = @floatFromInt(box.min.y),
@@ -242,31 +242,31 @@ pub const CombIndex = struct {
         const py: f64 = @floatFromInt(p.y);
         const qx: f64 = @floatFromInt(q.x);
         const qy: f64 = @floatFromInt(q.y);
-        const lo_x = @min(px, qx) - margin;
-        const hi_x = @max(px, qx) + margin;
+        const lo_x = geom.fmin(px, qx) - margin;
+        const hi_x = geom.fmax(px, qx) + margin;
         const last_col: f64 = @floatFromInt(idx.cols - 1);
         const last_row: f64 = @floatFromInt(idx.rows - 1);
         const c0 = @floor((lo_x - idx.x0) / idx.cell);
         const c1 = @floor((hi_x - idx.x0) / idx.cell);
         if (c1 < 0 or c0 > last_col) return;
-        const first: usize = @intFromFloat(@max(c0, 0));
-        const end: usize = @intFromFloat(@min(c1, last_col));
+        const first: usize = @intFromFloat(geom.fmax(c0, 0));
+        const end: usize = @intFromFloat(geom.fmin(c1, last_col));
         const dx = qx - px;
         for (first..end + 1) |cx| {
             const col_lo = idx.x0 + @as(f64, @floatFromInt(cx)) * idx.cell;
             var ya = py;
             var yb = qy;
             if (dx != 0) {
-                const xa = std.math.clamp(col_lo, @min(px, qx), @max(px, qx));
-                const xb = std.math.clamp(col_lo + idx.cell, @min(px, qx), @max(px, qx));
+                const xa = std.math.clamp(col_lo, geom.fmin(px, qx), geom.fmax(px, qx));
+                const xb = std.math.clamp(col_lo + idx.cell, geom.fmin(px, qx), geom.fmax(px, qx));
                 ya = py + (xa - px) * (qy - py) / dx;
                 yb = py + (xb - px) * (qy - py) / dx;
             }
-            const r0 = @floor((@min(ya, yb) - margin - idx.y0) / idx.cell);
-            const r1 = @floor((@max(ya, yb) + margin - idx.y0) / idx.cell);
+            const r0 = @floor((geom.fmin(ya, yb) - margin - idx.y0) / idx.cell);
+            const r1 = @floor((geom.fmax(ya, yb) + margin - idx.y0) / idx.cell);
             if (r1 < 0 or r0 > last_row) continue;
-            const ry0: usize = @intFromFloat(@max(r0, 0));
-            const ry1: usize = @intFromFloat(@min(r1, last_row));
+            const ry0: usize = @intFromFloat(geom.fmax(r0, 0));
+            const ry1: usize = @intFromFloat(geom.fmin(r1, last_row));
             for (ry0..ry1 + 1) |cy| v.visit(cx * idx.rows + cy);
         }
     }
@@ -796,7 +796,7 @@ pub const Emitter = struct {
     /// The speed of an extrusion with the full speed `full` on a layer that
     /// prints slower by the ratio `k` < 1 (see `layer`).
     fn slowSpeed(full: f64, k: f64, min_speed: f64) f64 {
-        return if (k < 1) @max(full * k, @min(full, min_speed)) else full;
+        return if (k < 1) geom.fmax(full * k, geom.fmin(full, min_speed)) else full;
     }
 
     /// The moves of a layer: the layer change, and each path with the
@@ -871,7 +871,7 @@ pub const Emitter = struct {
             if (path.region > 0 and path.region <= lp.region_layer.len) {
                 speed_width = if (lp.layerOf(path) == 0) path_r.first_layer_line_width else path_r.line_width;
             }
-            for (widths) |pw| speed_width = @max(speed_width, pw);
+            for (widths) |pw| speed_width = geom.fmax(speed_width, pw);
             // The layer index in the job of the part, for the speed ramp of
             // the first layers (see LayerPlan.layerOf).
             const full = path_r.speedAt(path.feature, speed_width, h, lp.layerOf(path));
@@ -966,7 +966,7 @@ pub const Emitter = struct {
             const area = (@as(f64, prev.area) + data[j].area) / 2;
             const e = d * area * e_scale;
             var v = speed;
-            if (@abs(dz) > 0) v = @min(v, m.max_z_speed * d / @abs(dz));
+            if (@abs(dz) > 0) v = geom.fmin(v, m.max_z_speed * d / @abs(dz));
             var line: Line = .{ .skip = self.dry };
             line.add("G1 X");
             line.num(x + m.origin_x, 3);
@@ -980,7 +980,7 @@ pub const Emitter = struct {
             line.add("\n");
             try self.w.writeAll(line.text());
             const accel = if (self.accel > 0) self.accel else m.max_accel;
-            const a = if (@abs(dz) > 0) @min(accel, m.max_z_accel * d / @abs(dz)) else accel;
+            const a = if (@abs(dz) > 0) geom.fmin(accel, m.max_z_accel * d / @abs(dz)) else accel;
             try self.addMove3(dx, dy, dz, d, v, a, e / d);
             self.x = x;
             self.y = y;
@@ -1002,7 +1002,7 @@ pub const Emitter = struct {
         const from = self.nozzle_z orelse self.z;
         if (@abs(z - from) < 1e-6) return;
         self.zMove(z - from);
-        const f = @round(self.r.settings.machine.max_z_speed * 60);
+        const f = geom.round(self.r.settings.machine.max_z_speed * 60);
         if (!self.dry) {
             try self.w.writeAll("G1 Z");
             try writeNum(self.w, z, 3);
@@ -1495,17 +1495,17 @@ pub const Emitter = struct {
         const n2 = [2]f64{ -e2[1], e2[0] };
         const dot = n1[0] * n2[0] + n1[1] * n2[1];
         const d: f64 = @floatFromInt(inset);
-        const k = @min(d / @max(1 + dot, 1e-9), 3 * d / @max(@import("geom.zig").hypot(n1[0] + n2[0], n1[1] + n2[1]), 1e-9));
+        const k = geom.fmin(d / geom.fmax(1 + dot, 1e-9), 3 * d / geom.fmax(@import("geom.zig").hypot(n1[0] + n2[0], n1[1] + n2[1]), 1e-9));
         return .{
-            .x = v.x + @as(i64, @intFromFloat(@round((n1[0] + n2[0]) * k))),
-            .y = v.y + @as(i64, @intFromFloat(@round((n1[1] + n2[1]) * k))),
+            .x = v.x + @as(i64, @intFromFloat(geom.round((n1[0] + n2[0]) * k))),
+            .y = v.y + @as(i64, @intFromFloat(geom.round((n1[1] + n2[1]) * k))),
         };
     }
 
     fn unit(a: geom.Point, b: geom.Point) [2]f64 {
         const dx: f64 = @floatFromInt(b.x - a.x);
         const dy: f64 = @floatFromInt(b.y - a.y);
-        const l = @max(@import("geom.zig").hypot(dx, dy), 1e-9);
+        const l = geom.fmax(@import("geom.zig").hypot(dx, dy), 1e-9);
         return .{ dx / l, dy / l };
     }
 
@@ -1589,7 +1589,7 @@ pub const Emitter = struct {
 
     /// `writeFeed`, into a line.
     fn addFeed(self: *Emitter, line: *Line, speed: f64) void {
-        const f = @round(speed * 60);
+        const f = geom.round(speed * 60);
         if (f == self.feed) return;
         self.feed = f;
         line.add(" F");
@@ -1597,7 +1597,7 @@ pub const Emitter = struct {
     }
 
     fn writeFeed(self: *Emitter, speed: f64) Writer.Error!void {
-        const f = @round(speed * 60);
+        const f = geom.round(speed * 60);
         if (f == self.feed) return;
         self.feed = f;
         try self.w.writeAll(" F");
@@ -1729,7 +1729,7 @@ const Line = struct {
             for (0..decimals) |_| p *= 10;
             break :blk p;
         };
-        var n: i64 = @intFromFloat(@round(v * scale));
+        var n: i64 = @intFromFloat(geom.round(v * scale));
         if (n < 0) {
             l.add("-");
             n = -n;

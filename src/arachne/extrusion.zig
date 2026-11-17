@@ -448,7 +448,7 @@ pub fn dist2FromLine(p: Point, a: Point, b: Point) i64 {
     const vap = p.sub(a);
     const ab_len2: f64 = @floatFromInt(vSize2(vab));
     if (ab_len2 == 0) return vSize2(vap);
-    const dott: f64 = @floatFromInt(@as(i128, vab.x) * vap.x + @as(i128, vab.y) * vap.y);
+    const dott: f64 = @floatFromInt(geom.mulAdd(vab.x, vap.x, vab.y, vap.y));
     const ap_len2: f64 = @floatFromInt(vSize2(vap));
     const ax_len2 = dott * dott / ab_len2;
     const px_len2 = ap_len2 - ax_len2;
@@ -460,8 +460,8 @@ pub fn dist2FromLine(p: Point, a: Point, b: Point) i64 {
 pub fn dist2FromLineSegment(a: Point, p: Point, b: Point) i64 {
     const vab = b.sub(a);
     const vap = p.sub(a);
-    const ab_len2: i128 = @as(i128, vab.x) * vab.x + @as(i128, vab.y) * vab.y;
-    const dott: i128 = @as(i128, vab.x) * vap.x + @as(i128, vab.y) * vap.y;
+    const ab_len2: i128 = geom.mulAdd(vab.x, vab.x, vab.y, vab.y);
+    const dott: i128 = geom.mulAdd(vab.x, vap.x, vab.y, vap.y);
     if (dott <= 0) return vSize2(vap);
     if (dott >= ab_len2) return vSize2(p.sub(b));
     // The closest point on the segment.
