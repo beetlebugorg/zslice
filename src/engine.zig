@@ -2311,7 +2311,24 @@ test "combined infill: a group is never thicker than the nozzle" {
     defer gpa.free(ga);
     const gb = try demoGcodeWith(gpa, b, &.{});
     defer gpa.free(gb);
-    try testing.expectEqualStrings(ga, gb);
+    // The same moves: the settings at the end differ.
+    try testing.expectEqualStrings(withoutSettings(ga), withoutSettings(gb));
+}
+
+/// The G-code before the list of settings at its end.
+fn withoutSettings(g: []const u8) []const u8 {
+    const i = std.mem.indexOf(u8, g, ";zslice settings") orelse return g;
+    return g[0..i];
+}
+
+test "the G-code ends with the settings that differ from the defaults" {
+    const gpa = testing.allocator;
+    var s: Settings = .{};
+    s.project.layer_height = 0.25;
+    const g = try demoGcodeWith(gpa, s, &.{});
+    defer gpa.free(g);
+    try testing.expect(std.mem.indexOf(u8, g, ";  project.layer_height = 0.25\n") != null);
+    try testing.expect(std.mem.indexOf(u8, g, ";  project.infill_layers") == null);
 }
 
 test "combined infill: each pattern makes tall beads" {

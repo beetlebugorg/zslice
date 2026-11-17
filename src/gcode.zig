@@ -537,6 +537,37 @@ pub const Emitter = struct {
         try self.w.writeAll("g\n;Estimated time: ");
         try writeNum(self.w, st.print_time_s, 0);
         try self.w.writeAll("s\n");
+        try self.writeSettings();
+    }
+
+    /// The settings of the print that differ from the defaults, as
+    /// comments at the end of the file: a print can be checked against
+    /// its settings, and a profile can be made from them.
+    fn writeSettings(self: *Emitter) Writer.Error!void {
+        try self.w.writeAll(";zslice settings (the ones that differ from the defaults):\n");
+        var buf: [16 * 1024]u8 = undefined;
+        inline for (.{ .machine, .filament, .project }) |g| {
+            var fw: std.Io.Writer = .fixed(&buf);
+            // A full buffer cuts the list: the comments are only a record.
+            @import("profile.zig").writeChanged(self.r.settings, g, &fw) catch {};
+            var lines = std.mem.splitScalar(u8, fw.buffered(), '\n');
+            // A text of more than one line (the start and the end G-code)
+            // is in the file already, as G-code: it is left out.
+            var in_text = false;
+            while (lines.next()) |line| {
+                if (in_text) {
+                    if (std.mem.endsWith(u8, line, "\'\'\'")) in_text = false;
+                    continue;
+                }
+                if (std.mem.indexOf(u8, line, "= \'\'\'")) |_| {
+                    // Open until a line that ends it, unless it ends here.
+                    in_text = std.mem.count(u8, line, "\'\'\'") == 1;
+                    continue;
+                }
+                if (line.len == 0 or line[0] == '#') continue;
+                try self.w.print(";  {s}.{s}\n", .{ @tagName(g), line });
+            }
+        }
     }
 
     pub fn layer(self: *Emitter, lp: *const LayerPlan) Error!void {
