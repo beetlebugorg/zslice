@@ -1,0 +1,17 @@
+{
+ "cura": "5.14.0",
+ "machine": "acme_box",
+ "extruder": "acme_box_extruder",
+ "definition_changes": "machine_settings.inst.cfg",
+ "profiles": {
+  "fast": {
+   "material": "gray.xml.fdm_material",
+   "quality": "draft.inst.cfg",
+   "quality_changes": "fast.inst.cfg",
+   "quality_changes_extruder": "fast_e0.inst.cfg",
+   "user": "user.inst.cfg",
+   "user_extruder": "user_e0.inst.cfg"
+  }
+ },
+ "materials": {"gray": {"file": "gray.xml.fdm_material"}}
+}

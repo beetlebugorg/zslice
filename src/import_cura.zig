@@ -32,6 +32,17 @@
 //! Each Cura setting that has no zslice setting goes in a comment at the end
 //! of the profile, so the user can see what is not imported.
 //!
+//! cura.json can name all the layers of a Cura stack. The machine has
+//! `definition_changes`, `definition_changes_extruder`, and `variant`. A
+//! quality profile has `material`, then `quality`, `intent`,
+//! `quality_changes`, and `user`, each also with an `_extruder` layer.
+//! The extruder layer of a level comes after the global layer, so its
+//! values win. The comparison with Cura (cura_compare.zig) uses them.
+//!
+//! The import has two steps: `resolveStack` reads the files and gives the
+//! Cura values of each layer in stack order, and `writeStack` converts them
+//! to zslice profiles.
+//!
 //! The core does no file I/O, so the importer reads files through a
 //! `Source` callback.
 //!

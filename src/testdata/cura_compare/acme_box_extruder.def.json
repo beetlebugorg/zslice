@@ -1,0 +1,9 @@
+{
+    "version": 2,
+    "name": "Acme Box extruder",
+    "inherits": "fdmextruder",
+    "overrides": {
+        "machine_nozzle_size": {"default_value": 0.5},
+        "material_diameter": {"default_value": 2.85}
+    }
+}

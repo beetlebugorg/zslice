@@ -53,6 +53,8 @@ src/
   threemf.zig    3MF load and save. zipfile.zig: the zip container.
   profile.zig    Profiles in TOML files. toml.zig: the parser.
   import_cura.zig  Import of Cura profile stacks.
+  cura_compare.zig  The zslice settings next to the settings of a Cura
+                 stack.
 
   The app core (see docs/app/README.md):
   app.zig        The state of the app: the plates, the settings, the

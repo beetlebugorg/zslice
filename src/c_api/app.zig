@@ -1151,6 +1151,112 @@ export fn zs_license_get(index: usize, out: ?*License) c_int {
     return ok;
 }
 
+// ---- comparison with Cura ----
+
+/// Reads the file at `path` for the core. Returns its bytes and sets
+/// `len`, or returns null. The bytes stay valid until the call that gave
+/// the callback returns.
+pub const ReadFn = *const fn (ctx: ?*anyopaque, path: [*:0]const u8, len: *usize) callconv(.c) ?[*]const u8;
+
+pub const CuraRow = extern struct {
+    name: [*:0]const u8,
+    zslice_value: [*:0]const u8,
+    cura_value: [*:0]const u8,
+    cura_keys: [*:0]const u8,
+    from: [*:0]const u8,
+    note: [*:0]const u8,
+    differs: c_int,
+    formula: c_int,
+    in_use_all: c_int,
+};
+
+/// The rows of a comparison, with the memory of their strings.
+pub const CuraCompare = struct {
+    arena: std.heap.ArenaAllocator,
+    rows: []CuraRow,
+};
+
+const CuraReader = struct {
+    read: ReadFn,
+    ctx: ?*anyopaque,
+    fn readFile(ctx: ?*anyopaque, arena: std.mem.Allocator, path: []const u8) ?[]const u8 {
+        const self: *const CuraReader = @ptrCast(@alignCast(ctx.?));
+        const p = arena.dupeZ(u8, path) catch return null;
+        var len: usize = 0;
+        const bytes = self.read(self.ctx, p, &len) orelse return null;
+        return arena.dupe(u8, bytes[0..len]) catch null;
+    }
+};
+
+/// Compares the settings of the app with a Cura stack (see
+/// src/cura_compare.zig). `read` gives "cura.json" and the files that it
+/// names. On an error, `message` (can be NULL) gets the file and the
+/// reason.
+export fn zs_app_cura_compare(a: ?*const App, read: ?ReadFn, ctx: ?*anyopaque, out: ?*?*CuraCompare, message: ?[*]u8, cap: usize) c_int {
+    const app = a orelse return @intFromEnum(Status.invalid_argument);
+    const r = read orelse return @intFromEnum(Status.invalid_argument);
+    const o = out orelse return @intFromEnum(Status.invalid_argument);
+    const cc = gpa.create(CuraCompare) catch return @intFromEnum(Status.out_of_memory);
+    cc.arena = .init(gpa);
+    const arena = cc.arena.allocator();
+    var reader: CuraReader = .{ .read = r, .ctx = ctx };
+    var diag: zs.cura_compare.Diagnostic = .{};
+    const rows = zs.cura_compare.compare(arena, app.settings, .{ .ctx = &reader, .read = CuraReader.readFile }, &diag) catch |e| {
+        if (message) |m| if (cap > 0) {
+            const msg = std.fmt.bufPrint(m[0 .. cap - 1], "{s}: {s}", .{ diag.file, if (diag.message.len > 0) diag.message else @errorName(e) }) catch m[0 .. cap - 1];
+            m[msg.len] = 0;
+        };
+        cc.arena.deinit();
+        gpa.destroy(cc);
+        return switch (e) {
+            error.OutOfMemory => @intFromEnum(Status.out_of_memory),
+            else => @intFromEnum(Status.invalid_value),
+        };
+    };
+    cc.rows = cRows(arena, rows) catch {
+        cc.arena.deinit();
+        gpa.destroy(cc);
+        return @intFromEnum(Status.out_of_memory);
+    };
+    o.* = cc;
+    return ok;
+}
+
+fn cRows(arena: std.mem.Allocator, rows: []const zs.cura_compare.Row) ![]CuraRow {
+    const out = try arena.alloc(CuraRow, rows.len);
+    for (rows, out) |src, *dst| dst.* = .{
+        .name = (try arena.dupeZ(u8, src.name)).ptr,
+        .zslice_value = (try arena.dupeZ(u8, src.zslice)).ptr,
+        .cura_value = (try arena.dupeZ(u8, src.cura)).ptr,
+        .cura_keys = (try arena.dupeZ(u8, src.cura_keys)).ptr,
+        .from = (try arena.dupeZ(u8, src.from)).ptr,
+        .note = (try arena.dupeZ(u8, src.note)).ptr,
+        .differs = @intFromBool(src.differs),
+        .formula = @intFromBool(src.formula),
+        .in_use_all = @intFromBool(src.in_use_all),
+    };
+    return out;
+}
+
+export fn zs_cura_compare_count(cc: ?*const CuraCompare) usize {
+    const c_ = cc orelse return 0;
+    return c_.rows.len;
+}
+
+export fn zs_cura_compare_get(cc: ?*const CuraCompare, i: usize, out: ?*CuraRow) c_int {
+    const c_ = cc orelse return @intFromEnum(Status.invalid_argument);
+    const o = out orelse return @intFromEnum(Status.invalid_argument);
+    if (i >= c_.rows.len) return @intFromEnum(Status.out_of_range);
+    o.* = c_.rows[i];
+    return ok;
+}
+
+export fn zs_cura_compare_free(cc: ?*CuraCompare) void {
+    const c_ = cc orelse return;
+    c_.arena.deinit();
+    gpa.destroy(c_);
+}
+
 test "C API: the app" {
     var app: ?*App = null;
     try std.testing.expectEqual(ok, zs_app_new(null, null, &app));
@@ -1167,4 +1273,54 @@ test "C API: the app" {
     var lic: License = undefined;
     try std.testing.expectEqual(ok, zs_license_get(0, &lic));
     try std.testing.expect(std.mem.indexOf(u8, std.mem.span(lic.text), "AFFERO") != null);
+}
+
+test "C API: compare with Cura" {
+    var app: ?*App = null;
+    try std.testing.expectEqual(ok, zs_app_new(null, null, &app));
+    defer zs_app_free(app);
+    const Files = struct {
+        fn read(ctx: ?*anyopaque, path: [*:0]const u8, len: *usize) callconv(.c) ?[*]const u8 {
+            _ = ctx;
+            const p = std.mem.span(path);
+            const text: []const u8 = if (std.mem.eql(u8, p, "cura.json"))
+                \\{"machine": "box", "profiles": {"q": {"quality_changes": "q.inst.cfg"}}}
+            else if (std.mem.eql(u8, p, "definitions/box.def.json"))
+                \\{"name": "Box", "inherits": "fdmprinter", "overrides": {"machine_width": {"default_value": 123}}}
+            else if (std.mem.eql(u8, p, "q.inst.cfg"))
+                "[values]\nlayer_height = 0.25\n"
+            else
+                return null;
+            len.* = text.len;
+            return text.ptr;
+        }
+    };
+    var cc: ?*CuraCompare = null;
+    var msg: [128]u8 = undefined;
+    try std.testing.expectEqual(ok, zs_app_cura_compare(app, Files.read, null, &cc, &msg, msg.len));
+    defer zs_cura_compare_free(cc);
+    var found: usize = 0;
+    for (0..zs_cura_compare_count(cc)) |i| {
+        var row: CuraRow = undefined;
+        try std.testing.expectEqual(ok, zs_cura_compare_get(cc, i, &row));
+        if (std.mem.eql(u8, std.mem.span(row.name), "machine.bed_size_x")) {
+            try std.testing.expectEqualStrings("123", std.mem.span(row.cura_value));
+            try std.testing.expectEqual(@as(c_int, 1), row.in_use_all);
+            found += 1;
+        }
+        if (std.mem.eql(u8, std.mem.span(row.name), "project.layer_height")) found += 1;
+    }
+    try std.testing.expectEqual(@as(usize, 2), found);
+    // A missing file gives its name.
+    const None = struct {
+        fn read(ctx: ?*anyopaque, path: [*:0]const u8, len: *usize) callconv(.c) ?[*]const u8 {
+            _ = ctx;
+            _ = path;
+            _ = len;
+            return null;
+        }
+    };
+    var cc2: ?*CuraCompare = null;
+    try std.testing.expect(zs_app_cura_compare(app, None.read, null, &cc2, &msg, msg.len) != ok);
+    try std.testing.expect(std.mem.startsWith(u8, std.mem.span(@as([*:0]u8, @ptrCast(&msg))), "cura.json:"));
 }

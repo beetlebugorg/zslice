@@ -711,6 +711,46 @@ int zs_view_highlight_more(zs_view *view, const size_t *paths, size_t n);
 /* Draws and presents one frame. Call it after a change. */
 int zs_view_draw(zs_view *view);
 
+/* ---- comparison with Cura ---- */
+
+/* Reads the file at path for the core. Returns its bytes and sets *len,
+ * or returns NULL. The bytes stay valid until zs_app_cura_compare
+ * returns. */
+typedef const char *(*zs_read_fn)(void *ctx, const char *path, size_t *len);
+
+/* One setting of a comparison. The strings live until
+ * zs_cura_compare_free. */
+typedef struct zs_cura_row {
+    const char *name;         /* the zslice setting, "machine.max_speed" */
+    const char *zslice_value; /* the value of zslice now */
+    const char *cura_value;   /* the value of Cura, ready for
+                                 zs_app_setting_set; for a formula, the
+                                 formula of Cura */
+    const char *cura_keys;    /* the Cura keys, with ", " between them */
+    const char *from;         /* the Cura file of the value */
+    const char *note;         /* for example "25 mm/s in Cura", or "" */
+    int differs;              /* 1 if the values differ */
+    int formula;              /* 1 if the Cura value is a formula */
+    int in_use_all;           /* 1 if "Use all" takes this value: it
+                                 differs, and it is not a name or the
+                                 start or end G-code */
+} zs_cura_row;
+
+typedef struct zs_cura_compare zs_cura_compare;
+
+/* Compares the settings of the app with a Cura stack (src/cura_compare.zig).
+ * read gives "cura.json" (the layout of the Cura import, see
+ * docs/user/profiles.md), the files that it names, and
+ * "definitions/<id>.def.json" for each definition of the inherits chain.
+ * The first quality profile and the first material are the active ones.
+ * A speed of Cura becomes a ratio of the machine.max_speed of the app: to
+ * take all values, set machine.max_speed first, then compare again. On an
+ * error, message (can be NULL) gets the file and the reason. */
+int zs_app_cura_compare(const zs_app *app, zs_read_fn read, void *ctx, zs_cura_compare **out, char *message, size_t cap);
+size_t zs_cura_compare_count(const zs_cura_compare *cc);
+int zs_cura_compare_get(const zs_cura_compare *cc, size_t i, zs_cura_row *out);
+void zs_cura_compare_free(zs_cura_compare *cc);
+
 /* ---- licenses ---- */
 
 /* zslice and the components in the core. A shell adds the components that
