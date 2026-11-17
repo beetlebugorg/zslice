@@ -51,6 +51,7 @@ jobs:
           npx zslice slice cube.stl -o cube.gcode --stats -
           grep -q ";LAYER:" cube.gcode
 
-      - run: npm publish zig-out/npm
+      # ./ : npm reads "zig-out/npm" as a GitHub repository.
+      - run: npm publish ./zig-out/npm
         env:
           NODE_AUTH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
