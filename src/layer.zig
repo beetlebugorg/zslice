@@ -763,6 +763,10 @@ pub const Memo = struct {
         const w = work.allocator();
         const res = arachne.walls.generate(w, outline, params) catch |err| switch (err) {
             error.OutOfMemory => return error.OutOfMemory,
+            // An outline that the Voronoi diagram cannot take: no
+            // variable walls on this layer, and the fill takes all of it
+            // (better than a failed slice; it is very rare).
+            else => arachne.walls.Result{ .insets = &.{}, .inner = outline },
         };
         var walls: std.ArrayList(VarWall) = .empty;
         for (res.insets) |inset| {

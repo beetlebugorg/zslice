@@ -312,7 +312,24 @@ pub const SkeletalTrapezoidation = struct {
     pub fn init(a: Allocator, polys: geom.Paths, strategy: *const Strategy, params: Params) !SkeletalTrapezoidation {
         var st: SkeletalTrapezoidation = .{ .a = a, .strategy = strategy, .params = params };
         try st.constructFromPolygons(polys);
+        // A degenerate input (a sliver, points on a line) can give a graph
+        // with a missing link; the steps after this one follow the links,
+        // so such a graph is an error here, not a crash later.
+        if (!st.linked()) return error.Degenerate;
         return st;
+    }
+
+    /// True if each live edge has a live twin that has it as its twin, and
+    /// its next edge (if any) has it as its previous edge.
+    fn linked(st: *const SkeletalTrapezoidation) bool {
+        for (st.edges.items) |e| {
+            if (e.dead) continue;
+            const tw = e.twin orelse return false;
+            if (tw.dead or tw.twin != e) return false;
+            if (e.next) |n| if (!n.dead and n.prev != e) return false;
+            if (e.prev) |pv| if (!pv.dead and pv.next != e) return false;
+        }
+        return true;
     }
 
     fn newNode(st: *SkeletalTrapezoidation, p: Point) Allocator.Error!*Node {
@@ -397,19 +414,19 @@ pub const SkeletalTrapezoidation = struct {
             const end_e = ending_vd_edge orelse continue;
             // Copy the edges from the start to the end to the graph.
             var prev_edge: ?*Edge = null;
-            try st.transferEdge(start_source_point, vdPoint(&vd, vd.vertex1(start_e).?), &vd, start_e, &prev_edge, start_source_point, end_source_point);
-            const starting_node = st.vd_node_to_he_node[vd.edges[start_e].vertex0.?].?;
+            try st.transferEdge(start_source_point, vdPoint(&vd, (vd.vertex1(start_e) orelse return error.Degenerate)), &vd, start_e, &prev_edge, start_source_point, end_source_point);
+            const starting_node = (st.vd_node_to_he_node[(vd.edges[start_e].vertex0 orelse return error.Degenerate)] orelse return error.Degenerate);
             starting_node.distance_to_boundary = 0;
             try st.makeRib(&prev_edge, start_source_point, end_source_point);
             var vd_edge = vd.edges[start_e].next;
             while (vd_edge != end_e) : (vd_edge = vd.edges[vd_edge].next) {
-                const v1 = vdPoint(&vd, vd.edges[vd_edge].vertex0.?);
-                const v2 = vdPoint(&vd, vd.vertex1(vd_edge).?);
+                const v1 = vdPoint(&vd, (vd.edges[vd_edge].vertex0 orelse return error.Degenerate));
+                const v2 = vdPoint(&vd, (vd.vertex1(vd_edge) orelse return error.Degenerate));
                 try st.transferEdge(v1, v2, &vd, vd_edge, &prev_edge, start_source_point, end_source_point);
                 try st.makeRib(&prev_edge, start_source_point, end_source_point);
             }
-            try st.transferEdge(vdPoint(&vd, vd.edges[end_e].vertex0.?), end_source_point, &vd, end_e, &prev_edge, start_source_point, end_source_point);
-            prev_edge.?.to.distance_to_boundary = 0;
+            try st.transferEdge(vdPoint(&vd, (vd.edges[end_e].vertex0 orelse return error.Degenerate)), end_source_point, &vd, end_e, &prev_edge, start_source_point, end_source_point);
+            (prev_edge orelse return error.Degenerate).to.distance_to_boundary = 0;
         }
         try st.separatePointyQuadEndNodes();
         st.collapseSmallEdges(5);
@@ -424,7 +441,7 @@ pub const SkeletalTrapezoidation = struct {
     fn transferEdge(st: *SkeletalTrapezoidation, from: Point, to: Point, vd: *const voronoi.Diagram, vd_edge: u32, prev_edge: *?*Edge, start_source_point: Point, end_source_point: Point) !void {
         if (st.vd_edge_to_he_edge[voronoi.Diagram.twin(vd_edge)]) |source_twin| {
             // The twin edges are made already.
-            const end_node = st.vd_node_to_he_node[vd.vertex1(vd_edge).?] orelse return;
+            const end_node = st.vd_node_to_he_node[(vd.vertex1(vd_edge) orelse return error.Degenerate)] orelse return;
             var twin: *Edge = source_twin;
             while (true) {
                 const edge = try st.newEdge(.normal);
@@ -449,10 +466,10 @@ pub const SkeletalTrapezoidation = struct {
         }
         const discretized = try st.discretize(vd, vd_edge);
         if (discretized.len < 2) return;
-        var v0: *Node = if (prev_edge.*) |pe| pe.to else try st.makeNode(vd.edges[vd_edge].vertex0.?, from);
+        var v0: *Node = if (prev_edge.*) |pe| pe.to else try st.makeNode((vd.edges[vd_edge].vertex0 orelse return error.Degenerate), from);
         for (1..discretized.len) |p1_idx| {
             const p1 = discretized[p1_idx];
-            const v1: *Node = if (p1_idx < discretized.len - 1) try st.newNode(p1) else try st.makeNode(vd.vertex1(vd_edge).?, to);
+            const v1: *Node = if (p1_idx < discretized.len - 1) try st.newNode(p1) else try st.makeNode((vd.vertex1(vd_edge) orelse return error.Degenerate), to);
             const edge = try st.newEdge(.normal);
             edge.from = v0;
             edge.to = v1;
@@ -466,7 +483,7 @@ pub const SkeletalTrapezoidation = struct {
             // The rib of the last segment comes outside this function.
             if (p1_idx < discretized.len - 1) try st.makeRib(prev_edge, start_source_point, end_source_point);
         }
-        st.vd_edge_to_he_edge[vd_edge] = prev_edge.*.?;
+        st.vd_edge_to_he_edge[vd_edge] = prev_edge.* orelse return error.Degenerate;
     }
 
     /// Points along a Voronoi edge. A curved edge (between a point and a
@@ -477,8 +494,8 @@ pub const SkeletalTrapezoidation = struct {
         const e = vd.edges[vd_edge];
         const left_cell = vd.cells[e.cell];
         const right_cell = vd.cells[vd.edges[voronoi.Diagram.twin(vd_edge)].cell];
-        const start = vdPoint(vd, e.vertex0.?);
-        const end = vdPoint(vd, vd.vertex1(vd_edge).?);
+        const start = vdPoint(vd, (e.vertex0 orelse return error.Degenerate));
+        const end = vdPoint(vd, (vd.vertex1(vd_edge) orelse return error.Degenerate));
         const point_left = left_cell.containsPoint();
         const point_right = right_cell.containsPoint();
         // A source vertex connected to its source segment.
@@ -554,18 +571,19 @@ pub const SkeletalTrapezoidation = struct {
     /// point to the edge that comes back. False if the cell is outside the
     /// polygons (then no part of it goes into the graph).
     fn computePointCellRange(st: *SkeletalTrapezoidation, vd: *const voronoi.Diagram, cell: voronoi.Cell, start_source_point: *Point, end_source_point: *Point, starting_vd_edge: *?u32, ending_vd_edge: *?u32, polys: geom.Paths) bool {
-        const first = cell.incident_edge.?;
+        // A cell with no edges (a degenerate input) has no part in the graph.
+        const first = cell.incident_edge orelse return false;
         // Infinite edges are only outside the polygons.
         if (vd.isInfinite(first)) return false;
         // The cell is all inside or all outside.
         const source_point = st.sourcePoint(cell);
-        var some_point = vdPoint(vd, vd.edges[first].vertex0.?);
-        if (some_point.eql(source_point)) some_point = vdPoint(vd, vd.vertex1(first).?);
+        var some_point = vdPoint(vd, (vd.edges[first].vertex0 orelse return false));
+        if (some_point.eql(source_point)) some_point = vdPoint(vd, (vd.vertex1(first) orelse return false));
         if (!geom.insideAny(polys, some_point)) return false;
         var e = first;
         while (true) {
             if (vd.isInfinite(e)) return false;
-            const p1 = vdPoint(vd, vd.vertex1(e).?);
+            const p1 = vdPoint(vd, (vd.vertex1(e) orelse return false));
             if (p1.eql(source_point)) {
                 start_source_point.* = source_point;
                 end_source_point.* = source_point;
@@ -588,12 +606,13 @@ pub const SkeletalTrapezoidation = struct {
         var seen_possible_start = false;
         var after_start = false;
         var ending_edge_is_set_before_start = false;
-        const first = cell.incident_edge.?;
+        // A cell with no edges: no range (the caller skips the cell).
+        const first = cell.incident_edge orelse return;
         var e = first;
         while (true) {
             if (!vd.isInfinite(e)) {
-                const v0 = vdPoint(vd, vd.edges[e].vertex0.?);
-                const v1 = vdPoint(vd, vd.vertex1(e).?);
+                const v0 = vdPoint(vd, (vd.edges[e].vertex0 orelse return));
+                const v1 = vdPoint(vd, (vd.vertex1(e) orelse return));
                 if (v0.eql(to) and !after_start) {
                     // The last edge that starts at the end of the segment.
                     starting_vd_edge.* = e;
@@ -651,15 +670,19 @@ pub const SkeletalTrapezoidation = struct {
             if (quad_mid) |qm| {
                 if (shouldCollapse(qm.from, qm.to, snap)) collapse_top: {
                     const qmt = qm.twin orelse break :collapse_top;
+                    // A degenerate graph can miss a link: then no collapse
+                    // (checked before any change).
+                    if (qm.prev == null or qm.next == null or qmt.next == null or qmt.prev == null) break :collapse_top;
                     var count: usize = 0;
                     var e3: ?*Edge = quad_end;
                     while (e3) |edge_from_3| {
                         if (edge_from_3 == qmt) break;
                         edge_from_3.from = qm.from;
-                        edge_from_3.twin.?.to = qm.from;
+                        const tw = edge_from_3.twin orelse break;
+                        tw.to = qm.from;
                         count += 1;
                         if (count > 1000) break;
-                        e3 = edge_from_3.twin.?.next;
+                        e3 = tw.next;
                     }
                     // o-o > collapse the top
                     // | |
@@ -679,7 +702,8 @@ pub const SkeletalTrapezoidation = struct {
             //  o-o
             //  | | > collapse the sides
             //  o o
-            if (shouldCollapse(quad_start.from, quad_end.to, snap) and shouldCollapse(quad_start.to, quad_end.from, snap)) {
+            const sides_ok = quad_start.twin != null and quad_end.twin != null and (quad_end.twin.?.next != null or quad_end.prev != null);
+            if (sides_ok and shouldCollapse(quad_start.from, quad_end.to, snap) and shouldCollapse(quad_start.to, quad_end.from, snap)) {
                 // Remove the start and end edges, and the whole cell.
                 quad_start.twin.?.to = quad_end.to;
                 quad_end.to.incident_edge = quad_end.twin;

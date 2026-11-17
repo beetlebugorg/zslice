@@ -423,6 +423,9 @@ pub fn centerLines(a: Allocator, gaps: Paths, w: i64) Allocator.Error!Fill {
     };
     const res = arachne.walls.generate(a, kept, params) catch |err| switch (err) {
         error.OutOfMemory => return error.OutOfMemory,
+        // A shape that the Voronoi diagram cannot take (a sliver, points
+        // on a line): no gap fill there.
+        else => return .{},
     };
     var out: Fill = .{};
     var loop_w: std.ArrayList(f32) = .empty;
