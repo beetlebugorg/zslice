@@ -1,9 +1,9 @@
 #!/usr/bin/env python3
-"""zslice: write the documentation site in docs/ (https://beetlebug.org/zslice/).
+"""zslice: write the documentation site in docs/ (https://zslice.beetlebug.org/docs.html).
 
 Each Markdown file of the repository below is one page of the site:
 
-  README.md                    the home page
+  README.md                    the home page of the docs (docs.html; the web app is the site root)
   docs/README.md               all documents
   docs/user/*.md               the user guide (tools/settings_doc.py makes settings.md)
   docs/embedding/*.md          the library guides
@@ -11,7 +11,7 @@ Each Markdown file of the repository below is one page of the site:
   docs/app/README.md           the app
   REFERENCES.md, ROADMAP.md    the references and the roadmap
 
-A page goes in its own folder, as index.html. A link to one of these files goes to its page. A
+A page goes in its own folder, as index.html (the home page is docs.html). A link to one of these files goes to its page. A
 link to another file of the repository goes to the file on GitHub.
 
 Run it after a change to a Markdown file. It needs only Python 3. At the end it checks each link
@@ -30,14 +30,14 @@ DOCS = Path(__file__).resolve().parent
 ROOT = DOCS.parent
 REPO = "https://github.com/beetlebugorg/zslice"
 BRANCH = "main"
-SITE = "https://beetlebug.org/zslice/"
+SITE = "https://zslice.beetlebug.org/"
 
 esc = html.escape
 
 # The pages: (source file, folder on the site, group in the sidebar, title in the sidebar).
 # The order is the order of the sidebar, and of the previous and next links.
 SOURCES = [
-    ("README.md", "", None, "Home"),
+    ("README.md", "docs.html", None, "Home"),
     ("docs/README.md", "contents/", None, "All documents"),
     ("docs/user/getting-started.md", "user/getting-started/", "User guide", "Getting started"),
     ("docs/user/settings.md", "user/settings/", "User guide", "Settings"),
@@ -61,7 +61,8 @@ SOURCES = [
 PAGE_OF = {src: path for src, path, _, _ in SOURCES}
 
 # Files that the site links to, but that can be missing. The check prints a note for each.
-OPTIONAL = {"img/benchy.png"}
+# The site root is the web app: the Pages workflow puts it there.
+OPTIONAL = {"img/benchy.png", "index.html"}
 
 
 def read(path):
@@ -479,9 +480,9 @@ def page(path, section, title, lede, body, src, description=None, toc=True):
 <body>
 <input type="checkbox" id="menu">
 <header class="top">
-  <a class="brand" href="{root}"><span class="mark">ZSLICE</span><span class="docs">DOCS</span></a>
+  <a class="brand" href="{root}docs.html"><span class="mark">ZSLICE</span><span class="docs">DOCS</span></a>
   <label class="menu-btn" for="menu">Contents</label>
-  <nav class="top-links"><a href="{root}user/getting-started/">Get started</a><a href="{root}roadmap/">Roadmap</a><a href="{REPO}">GitHub</a></nav>
+  <nav class="top-links"><a href="{root}index.html">Open the app</a><a href="{root}user/getting-started/">Get started</a><a href="{root}roadmap/">Roadmap</a><a href="{REPO}">GitHub</a></nav>
 </header>
 <div class="layout">
 <aside class="side"><nav>{nav_html(path, root)}</nav></aside>
@@ -541,7 +542,7 @@ def landing():
 </div>
 {chr(10).join(parts)}
 """
-    page("", "Documentation", "zslice", lede, body, src, toc=False,
+    page("docs.html", "Documentation", "zslice", lede, body, src, toc=False,
          description="The documentation of zslice, a slicer for FDM 3D printers, written from scratch in Zig.")
 
 
@@ -602,7 +603,7 @@ def main():
     doc_pages()
     (DOCS / "site.css").write_text(CSS.strip() + "\n", encoding="utf-8")
     for path, doc in PAGES.items():
-        out = DOCS / path / "index.html"
+        out = DOCS / path if path.endswith(".html") else DOCS / path / "index.html"
         out.parent.mkdir(parents=True, exist_ok=True)
         out.write_text(doc, encoding="utf-8")
     print(f"wrote {len(PAGES)} pages")
