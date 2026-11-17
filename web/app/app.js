@@ -206,6 +206,11 @@ function setPanelMode(mode) {
   if (mode !== "hidden") store.panelPinned = mode === "pinned";
   store.panelMode = mode;
   saveStore();
+  // A hidden panel leaves the view of the whole print; a panel that
+  // shows again brings back the focus of its page.
+  if (typeof browser === "undefined") return;
+  if (mode === "hidden") clearFocus();
+  else browser.sendFocus();
 }
 
 // Shows the panel (over the view, or pinned if the user pinned it last).
@@ -620,17 +625,30 @@ async function setSetting(name, value) {
   }
 }
 
-const browser = new SettingsBrowser({
+var browser = new SettingsBrowser({ // var: setPanelMode runs before this line
   infos,
   effect: (name) => wasm.settingEffect(name),
   set: setSetting,
   reset: async (name) => applySettings(await client.call("reset", { name })),
+  // The focus of a section or a setting of the panel: only while the
+  // panel shows. A hidden panel shows the whole print.
   focus: (mask, first) => {
+    if (panelMode() === "hidden") {
+      clearFocus();
+      return;
+    }
     app.focusMask = mask;
     app.focusFirst = first;
     updateFocus();
   },
 });
+
+// The whole print again, with no focus on a feature.
+function clearFocus() {
+  app.focusMask = 0;
+  app.focusFirst = false;
+  updateFocus();
+}
 
 // The card of a selected line, next to it in the view (linecard.js).
 var lineCard = new LineCard({
@@ -1729,7 +1747,7 @@ const search = new SearchOverlay({
     app.focusFirst = first;
     updateFocus();
   },
-  unfocus: () => browser.sendFocus(),
+  unfocus: () => (panelMode() === "hidden" ? clearFocus() : browser.sendFocus()),
   actions: () => [
     { label: "Open a model…", keys: "Ctrl+O", run: () => $("file").click() },
     { label: "Add models to the plate…", run: () => addModels() },
