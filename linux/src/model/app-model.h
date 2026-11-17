@@ -152,6 +152,14 @@ void zg_model_filament_from_printer(ZgModel *self, const char *material, const c
 gboolean zg_model_set_roll(ZgModel *self, const char *roll);
 const char *zg_model_roll(ZgModel *self);
 
+/* Loads a profile text into a group (enum zs_group): the built-in
+ * defaults, then the text. On an error the settings stay as they were.
+ * Saves the group and slices again. */
+gboolean zg_model_load_profile(ZgModel *self, int group, const char *text, size_t len, GError **error);
+/* The settings of a group that differ from the defaults, as profile text
+ * (zs_app_state_write). Free with g_free. */
+char *zg_model_group_text(ZgModel *self, int group);
+
 /* Emits "setting-changed" for each setting whose name starts with
  * `prefix` (for example "filament."), after a change of many values. */
 void zg_model_announce(ZgModel *self, const char *prefix);

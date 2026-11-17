@@ -359,6 +359,26 @@ pub const Inspect = extern struct {
     slow_reason: c_int,
 };
 
+/// The number of built-in profiles of a group (enum zs_group).
+export fn zs_builtin_profile_count(group: c_int) usize {
+    var n: usize = 0;
+    for (zs.profile.builtins) |b| {
+        if (@intFromEnum(b.group) == group) n += 1;
+    }
+    return n;
+}
+
+/// The name of built-in profile i of a group, or null.
+export fn zs_builtin_profile_name(group: c_int, i: usize) ?[*:0]const u8 {
+    var k: usize = 0;
+    for (zs.profile.builtins) |b| {
+        if (@intFromEnum(b.group) != group) continue;
+        if (k == i) return b.name.ptr;
+        k += 1;
+    }
+    return null;
+}
+
 /// The gaps of a layer of the last slice (see App.layerGaps). The arrays
 /// stay valid until the next call for another layer, or the next slice.
 export fn zs_app_layer_gaps(a: ?*App, layer: usize, gaps: ?*?[*]const zs.gaps.Gap, n_gaps: ?*usize, runs: ?*?[*]const zs.gaps.Run, n_runs: ?*usize) c_int {

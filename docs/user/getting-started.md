@@ -227,6 +227,12 @@ Click a gap to select it. The Selected page then gives its size, its width, the 
 
 `zslice gaps part.stl` lists the gaps of each layer on the command line (`--layer N` for one layer).
 
+## Printer, filament, and part
+
+The settings are in three groups, each with its own menu at the top of the window: the **printer** (the machine), the **filament**, and the **part** (how to print it). In the Settings page they are the sections Printer, Filament, and Part.
+
+The Filament and Part menus list the built-in profiles and your own (in `profiles/filament/` and `profiles/project/` in the settings folder, where `zslice slice -f` and `-p` find them too), and have **Save as profile…**. The Part menu shows the profile in use, with a dot when its settings have changes. When you pick another profile and the settings have changes that are in no profile, zslice asks first: save them as a profile, discard them, or cancel.
+
 ## Layer profiles
 
 A layer profile changes settings for some layers only, for example a denser infill from layer 48 up.

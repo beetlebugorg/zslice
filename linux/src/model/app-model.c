@@ -596,6 +596,40 @@ gboolean zg_model_set_roll(ZgModel *self, const char *roll) {
     return known;
 }
 
+gboolean zg_model_load_profile(ZgModel *self, int group, const char *text, size_t len, GError **error) {
+    /* Check the text on a copy first: an error leaves the settings as
+     * they are (zs_app_profile_apply changes nothing on an error, but the
+     * reset before it would). */
+    size_t now_len = 0;
+    char *now = NULL;
+    if (zs_app_state_write(self->core, group, NULL, 0, &now_len) == ZS_OK) {
+        now = g_malloc(now_len + 1);
+        zs_app_state_write(self->core, group, now, now_len + 1, NULL);
+    }
+    zs_app_group_reset(self->core, group);
+    char message[256] = "";
+    if (zs_app_profile_apply(self->core, group, text, len, message, sizeof message) != ZS_OK) {
+        if (now) zs_app_profile_apply(self->core, group, now, now_len, NULL, 0);
+        g_free(now);
+        g_set_error(error, G_IO_ERROR, G_IO_ERROR_INVALID_DATA, "%s", message);
+        return FALSE;
+    }
+    g_free(now);
+    static const char *prefixes[] = {"machine.", "filament.", "project."};
+    zg_model_announce(self, prefixes[group]);
+    zg_model_save_soon(self, group);
+    slice_soon(self);
+    return TRUE;
+}
+
+char *zg_model_group_text(ZgModel *self, int group) {
+    size_t len = 0;
+    if (zs_app_state_write(self->core, group, NULL, 0, &len) != ZS_OK) return g_strdup("");
+    char *text = g_malloc(len + 1);
+    zs_app_state_write(self->core, group, text, len + 1, NULL);
+    return text;
+}
+
 const char *zg_model_roll(ZgModel *self) {
     return self->roll;
 }

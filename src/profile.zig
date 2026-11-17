@@ -143,7 +143,7 @@ fn isGroup(name: []const u8) bool {
 // ---------------------------------------------------------------------------
 // Built-in profiles
 
-pub const Builtin = struct { group: Group, name: []const u8, text: []const u8 };
+pub const Builtin = struct { group: Group, name: [:0]const u8, text: []const u8 };
 
 pub const builtins = [_]Builtin{
     .{ .group = .machine, .name = "generic", .text = @embedFile("profiles/machine/generic.toml") },

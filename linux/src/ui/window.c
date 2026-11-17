@@ -15,6 +15,7 @@
 #include "preferences.h"
 #include "../net/printer-link.h"
 #include "../prefs/printers.h"
+#include "profile-menus.h"
 #include "preview.h"
 #include "settings-panel.h"
 
@@ -926,6 +927,9 @@ GtkWindow *zg_window_new(GtkApplication *app, ZgModel *model) {
     gtk_widget_set_tooltip_text(w->printer_dd, "The printer: its machine settings, and where Send goes. Edit the printers in Preferences.");
     g_signal_connect(w->printer_dd, "notify::selected", G_CALLBACK(on_printer_dd), w);
     gtk_header_bar_pack_start(GTK_HEADER_BAR(header), w->printer_dd);
+    /* The three profiles of the settings: printer, filament, part. */
+    gtk_header_bar_pack_start(GTK_HEADER_BAR(header), zg_profile_menu_new(model, ZS_GROUP_FILAMENT));
+    gtk_header_bar_pack_start(GTK_HEADER_BAR(header), zg_profile_menu_new(model, ZS_GROUP_PROJECT));
     w->send_button = gtk_button_new_with_label("Send");
     gtk_widget_add_css_class(w->send_button, "suggested-action");
     g_signal_connect(w->send_button, "clicked", G_CALLBACK(on_send_clicked), w->window);

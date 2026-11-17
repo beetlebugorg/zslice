@@ -18,9 +18,9 @@ static const struct {
     const char *title;
 } groups[] = {
     {"profiles", "Layer profiles"},
-    {"project", "Project"},
+    {"project", "Part"},
     {"filament", "Filament"},
-    {"machine", "Machine"},
+    {"machine", "Printer"},
     {"engine", "Engine"},
 };
 

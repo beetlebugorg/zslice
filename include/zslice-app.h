@@ -277,6 +277,12 @@ typedef struct zs_inspect {
     int slow_reason;
 } zs_inspect;
 
+/* The built-in profiles of a group (enum zs_group): their number and
+ * their names. Apply one with the text `extends = "name"`
+ * (zs_app_profile_apply). */
+size_t zs_builtin_profile_count(int group);
+const char *zs_builtin_profile_name(int group, size_t i);
+
 /* Gaps: the parts of a layer that should be solid and that no bead covers
  * (src/gaps.zig). x, y are the center in mm; width is the width of a bead
  * that fills the gap; features has a bit (1 << enum zs_feature) for each
