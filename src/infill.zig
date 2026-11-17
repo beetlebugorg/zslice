@@ -858,7 +858,9 @@ const Spot = struct { poly: u32, edge: u32, pos: Point, t: f64 };
 const Boundary = struct {
     region: Paths,
     min: i64,
-    width: i64,
+    /// The width of a band is 1 << shift: the band of a y is a shift, with
+    /// no division.
+    shift: u6,
     starts: []u32,
     edges: [][2]u32, // polygon, edge
 
@@ -871,10 +873,12 @@ const Boundary = struct {
         }
         const pts = region.points.items.len;
         const want: usize = std.math.clamp(2 * std.math.sqrt(pts), 1, 4096);
-        const span: i64 = @max(hi - lo + 1, 1);
-        const width: i64 = @max(1, @divFloor(span + @as(i64, @intCast(want)) - 1, @as(i64, @intCast(want))));
-        const bands: usize = @intCast(@divFloor(span + width - 1, width));
-        var b: Boundary = .{ .region = region, .min = lo, .width = width, .starts = try arena.alloc(u32, bands + 1), .edges = &.{} };
+        const span: u64 = @intCast(@max(hi - lo + 1, 1));
+        // The smallest power of two width that gives at most `want` bands.
+        var shift: u6 = 0;
+        while ((span - 1) >> shift >= want) shift += 1;
+        const bands: usize = @intCast(((span - 1) >> shift) + 1);
+        var b: Boundary = .{ .region = region, .min = lo, .shift = shift, .starts = try arena.alloc(u32, bands + 1), .edges = &.{} };
         @memset(b.starts, 0);
         var fill: []u32 = &.{};
         for (0..2) |pass| {
@@ -886,7 +890,7 @@ const Boundary = struct {
             for (0..region.count()) |k| {
                 const poly = region.get(k);
                 for (poly, 0..) |p, i| {
-                    const q = poly[(i + 1) % poly.len];
+                    const q = poly[if (i + 1 == poly.len) 0 else i + 1];
                     const b0 = b.band(@min(p.y, q.y) - link_tolerance);
                     const b1 = b.band(@max(p.y, q.y) + link_tolerance);
                     for (b0..b1 + 1) |bi| {
@@ -903,8 +907,8 @@ const Boundary = struct {
         return b;
     }
 
-    fn band(b: Boundary, y: i64) usize {
-        const k = @divFloor(y - b.min, b.width);
+    inline fn band(b: *const Boundary, y: i64) usize {
+        const k = (y - b.min) >> b.shift;
         return @intCast(std.math.clamp(k, 0, @as(i64, @intCast(b.starts.len - 2))));
     }
 
@@ -917,13 +921,13 @@ const Boundary = struct {
         for (b.edges[b.starts[k]..b.starts[k + 1]]) |e| {
             const poly = b.region.get(e[0]);
             const u = poly[e[1]];
-            const v = poly[(e[1] + 1) % poly.len];
+            const v = poly[if (e[1] + 1 == poly.len) 0 else e[1] + 1];
             const ux: f64 = @floatFromInt(v.x - u.x);
             const uy: f64 = @floatFromInt(v.y - u.y);
             const px: f64 = @floatFromInt(p.x - u.x);
             const py: f64 = @floatFromInt(p.y - u.y);
             const len2 = ux * ux + uy * uy;
-            const t = if (len2 > 0) std.math.clamp((px * ux + py * uy) / len2, 0, 1) else 0;
+            const t = if (len2 > 0) geom.fmax(0, geom.fmin((px * ux + py * uy) / len2, 1)) else 0;
             const dx = px - t * ux;
             const dy = py - t * uy;
             const d = dx * dx + dy * dy;
@@ -964,7 +968,7 @@ const Boundary = struct {
                     break;
                 }
                 if (i == to.edge) break;
-                i = (i + 1) % m;
+                i = if (i + 1 == m) 0 else i + 1;
             }
             if (fwd_ok) fwd += Point.dist(prev, to.pos);
         }
@@ -988,7 +992,7 @@ const Boundary = struct {
                     break;
                 }
                 if (i == stop) break;
-                i = (i + m - 1) % m;
+                i = if (i == 0) m - 1 else i - 1;
             }
             if (bwd_ok) bwd += Point.dist(prev, to.pos);
         }
