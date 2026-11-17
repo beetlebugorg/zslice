@@ -27,6 +27,11 @@ class Handler(http.server.SimpleHTTPRequestHandler):
 
     def end_headers(self):
         self.send_header("Cache-Control", "no-store")
+        # Cross-origin isolation: the page can share wasm memory with its
+        # workers, so the slice has threads (zslice-mt.wasm).
+        if not self.server.no_isolation:
+            self.send_header("Cross-Origin-Opener-Policy", "same-origin")
+            self.send_header("Cross-Origin-Embedder-Policy", "require-corp")
         super().end_headers()
 
 
@@ -35,10 +40,12 @@ def main():
     p.add_argument("folder", nargs="?", default="zig-out/web/app")
     p.add_argument("--port", type=int, default=8000)
     p.add_argument("--bind", default="127.0.0.1")
+    p.add_argument("--no-isolation", action="store_true", help="send no COOP and COEP headers: the slice has no threads")
     a = p.parse_args()
     folder = os.path.abspath(a.folder)
     handler = functools.partial(Handler, directory=folder)
     with http.server.ThreadingHTTPServer((a.bind, a.port), handler) as httpd:
+        httpd.no_isolation = a.no_isolation
         print(f"zslice: serving {folder} at http://{a.bind}:{a.port}/", flush=True)
         httpd.serve_forever()
 

@@ -57,27 +57,22 @@ pub fn build(b: *std.Build) void {
     const wasm_optimize = b.option(std.builtin.OptimizeMode, "wasm-optimize", "The optimize mode of the wasm module") orelse
         (if (optimize == .Debug) .ReleaseSmall else optimize);
     const wasm_cpu = b.option([]const u8, "wasm-cpu", "The CPU model and features of the wasm module") orelse "baseline";
-    const wasm_query = std.Target.Query.parse(.{ .arch_os_abi = "wasm32-freestanding", .cpu_features = wasm_cpu }) catch @panic("bad -Dwasm-cpu");
-    const wasm = b.addExecutable(.{
-        .name = "zslice",
-        .root_module = b.createModule(.{
-            .root_source_file = b.path("src/c_api.zig"),
-            .target = b.resolveTargetQuery(wasm_query),
-            .optimize = wasm_optimize,
-        }),
-    });
-    addLicenses(b, wasm.root_module);
-    wasm.entry = .disabled;
-    wasm.rdynamic = true;
+    const wasm = addWasm(b, "zslice", wasm_optimize, wasm_cpu, false);
     const wasm_step = b.step("wasm", "Build zslice.wasm into zig-out/web");
     const wasm_install = b.addInstallArtifact(wasm, .{ .dest_dir = .{ .override = .{ .custom = "web" } } });
     wasm_step.dependOn(&wasm_install.step);
     wasm_step.dependOn(&b.addInstallFileWithDir(b.path("web/zslice.mjs"), .{ .custom = "web" }, "zslice.mjs").step);
 
+    // The wasm module with threads (zslice-mt.wasm), for a page that is
+    // cross-origin isolated. It imports a shared memory. See
+    // web/app/README.md.
+    const wasm_mt = addWasm(b, "zslice-mt", wasm_optimize, b.fmt("{s}+atomics+bulk_memory", .{wasm_cpu}), true);
+
     // The web app (web/app): the page, its scripts, and zslice.wasm, in
     // zig-out/web/app. See web/app/README.md.
     const web_step = b.step("web", "Build the web app into zig-out/web/app");
     web_step.dependOn(&b.addInstallArtifact(wasm, .{ .dest_dir = .{ .override = .{ .custom = "web/app" } } }).step);
+    web_step.dependOn(&b.addInstallArtifact(wasm_mt, .{ .dest_dir = .{ .override = .{ .custom = "web/app" } } }).step);
     web_step.dependOn(&b.addInstallDirectory(.{
         .source_dir = b.path("web/app"),
         .install_dir = .{ .custom = "web" },
@@ -105,6 +100,36 @@ pub fn build(b: *std.Build) void {
     test_step.dependOn(&b.addRunArtifact(c_tests).step);
     // The wasm module must also compile.
     test_step.dependOn(&wasm.step);
+}
+
+/// The memory limits of the wasm module with threads. A shared memory
+/// needs a maximum. wasm.js makes the memory with the same numbers.
+const wasm_mt_initial = 64 << 20;
+const wasm_mt_max = 2 << 30;
+
+/// A wasm module of the C API. `threads`: with atomics and a shared memory
+/// that the host makes (see src/parallel.zig).
+fn addWasm(b: *std.Build, name: []const u8, optimize: std.builtin.OptimizeMode, cpu: []const u8, threads: bool) *std.Build.Step.Compile {
+    const query = std.Target.Query.parse(.{ .arch_os_abi = "wasm32-freestanding", .cpu_features = cpu }) catch @panic("bad -Dwasm-cpu");
+    const wasm = b.addExecutable(.{
+        .name = name,
+        .root_module = b.createModule(.{
+            .root_source_file = b.path("src/c_api.zig"),
+            .target = b.resolveTargetQuery(query),
+            .optimize = optimize,
+            .single_threaded = !threads,
+        }),
+    });
+    addLicenses(b, wasm.root_module);
+    wasm.entry = .disabled;
+    wasm.rdynamic = true;
+    if (threads) {
+        wasm.shared_memory = true;
+        wasm.import_memory = true;
+        wasm.initial_memory = wasm_mt_initial;
+        wasm.max_memory = wasm_mt_max;
+    }
+    return wasm;
 }
 
 /// The license texts that the app core embeds for its Licenses screen

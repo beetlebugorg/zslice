@@ -22,18 +22,32 @@ export function statusText(code) {
 const enc = new TextEncoder();
 const dec = new TextDecoder();
 
+// The memory of the module with threads (zslice-mt.wasm), in pages of
+// 64 KiB: the numbers of build.zig (wasm_mt_initial, wasm_mt_max).
+const MT_MEMORY = { initial: 1024, maximum: 32768, shared: true };
+// The stack of a thread, in bytes.
+const THREAD_STACK = (2 << 20) - 64;
+
+// True if the module is the one with threads: it imports its memory.
+export function hasThreads(module) {
+  return WebAssembly.Module.imports(module).some((i) => i.kind === "memory");
+}
+
 export class Wasm {
   // module: a WebAssembly.Module. onEvent(event, progress, status): the
   // events of the app core (env.zs_web_event).
   static async create(module, onEvent = () => {}) {
-    const instance = await WebAssembly.instantiate(module, {
-      env: { zs_web_event: (e, p, s) => onEvent(e, p, s) },
-    });
-    return new Wasm(instance);
+    const env = { zs_web_event: (e, p, s) => onEvent(e, p, s) };
+    if (hasThreads(module)) env.memory = new WebAssembly.Memory(MT_MEMORY);
+    const instance = await WebAssembly.instantiate(module, { env });
+    return new Wasm(instance, module, env.memory ?? null);
   }
 
-  constructor(instance) {
-    this.x = instance.exports;
+  constructor(instance, module = null, memory = null) {
+    this.module = module;
+    // The module with threads does not export its memory.
+    this.shared = memory !== null;
+    this.x = memory ? { ...instance.exports, memory } : instance.exports;
     // A small scratch area for out parameters.
     this.cell = this.x.zs_alloc(256);
   }
@@ -56,6 +70,20 @@ export class Wasm {
   }
   get mi32() { this.m32; return this._i32; }
   get mf64() { this.m32; return this._f64; }
+
+  // Starts `count` threads for the slice (the module with threads only).
+  // start(data) starts one thread: a worker that runs thread.js with the
+  // data. A thread joins the pool of the core when it runs, so a slice
+  // can start before all threads run.
+  startThreads(count, start) {
+    if (!this.shared) return 0;
+    const tls = Math.max(this.x.zs_thread_tls_size(), 16);
+    for (let i = 0; i < count; i++) {
+      const stack = this.alloc(THREAD_STACK);
+      start({ module: this.module, memory: this.x.memory, index: i, stackTop: (stack + THREAD_STACK) & ~15, tls: this.alloc(tls) });
+    }
+    return count;
+  }
 
   alloc(n) {
     const p = this.x.zs_alloc(Math.max(n, 1));
@@ -89,11 +117,13 @@ export class Wasm {
     const mem = this.u8;
     let end = ptr;
     while (mem[end] !== 0) end++;
-    return dec.decode(mem.subarray(ptr, end));
+    return dec.decode(this.shared ? mem.slice(ptr, end) : mem.subarray(ptr, end));
   }
 
   text(ptr, len) {
-    return ptr ? dec.decode(this.u8.subarray(ptr, ptr + len)) : "";
+    if (!ptr) return "";
+    // A text decoder takes no view of a shared memory.
+    return dec.decode(this.shared ? this.u8.slice(ptr, ptr + len) : this.u8.subarray(ptr, ptr + len));
   }
 
   u32(p) { return this.dv.getUint32(p, true); }

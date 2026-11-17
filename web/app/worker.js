@@ -227,7 +227,13 @@ const ops = {
   async init({ module, saved, mode: m }) {
     mode = m ?? 0;
     const wasm = await Wasm.create(module, onEvent);
+    // The threads of a slice: this worker is one, and one CPU stays free
+    // for the page, as in the GTK app.
+    const threads = wasm.startThreads(Math.max((navigator.hardwareConcurrency ?? 1) - 2, 0), (data) => {
+      new Worker(new URL("./thread.js", import.meta.url), { type: "module" }).postMessage(data);
+    });
     core = new Core(wasm);
+    core.threads = threads + 1;
     const errors = core.restore(saved);
     return { errors, ...settingsState() };
   },

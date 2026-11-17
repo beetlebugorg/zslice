@@ -43,6 +43,8 @@ pub const gcode = @import("gcode.zig");
 pub const motion = @import("motion.zig");
 pub const parallel = @import("parallel.zig");
 pub const scratch = @import("scratch.zig");
+/// The allocator of the wasm module with threads.
+pub const wasm_heap = @import("wasm_heap.zig");
 pub const engine = @import("engine.zig");
 pub const plate_job = @import("plate_job.zig");
 pub const svg = @import("svg.zig");

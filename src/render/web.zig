@@ -91,7 +91,7 @@ pub const Renderer = struct {
     bed_verts: std.ArrayList(BedVertex) = .empty,
     bed_tex: std.ArrayList(u8) = .empty,
 
-    const gpa = std.heap.wasm_allocator;
+    const gpa = (if (@import("../parallel.zig").wasm_pool) @import("../wasm_heap.zig").allocator else std.heap.wasm_allocator);
 
     pub fn init(surface: Surface, width: u32, height: u32) Error!*Renderer {
         _ = surface;

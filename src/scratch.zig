@@ -24,9 +24,13 @@ const std = @import("std");
 const Allocator = std.mem.Allocator;
 const ArenaAllocator = std.heap.ArenaAllocator;
 
+/// The wasm module with threads has its own allocator: the page allocator
+/// of the standard library has no support for threads on wasm.
+const page_allocator = if (@import("parallel.zig").wasm_pool) @import("wasm_heap.zig").allocator else std.heap.page_allocator;
+
 const Slot = struct {
     busy: std.atomic.Value(bool) = .init(false),
-    arena: ArenaAllocator = .init(std.heap.page_allocator),
+    arena: ArenaAllocator = .init(page_allocator),
 };
 
 /// An arena keeps at most this much memory between calls. Most calls need

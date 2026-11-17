@@ -915,17 +915,17 @@ pub fn emitAll(gpa: Allocator, src: PlanSource, threads: usize, monitor: Monitor
     // runs the emitter: a dry run of each layer in order (see
     // gcode.Emitter.dry), and then the text of each layer in order. It
     // also plans or writes a layer while it waits.
-    var pool: [64]if (parallel.has_threads) std.Thread else void = undefined;
+    var pool: [64]parallel.Thread = undefined;
     var spawned: usize = 0;
-    defer if (comptime parallel.has_threads) {
+    defer if (comptime parallel.can_spawn) {
         pipe.stop.store(true, .release);
         pipe.signal.notify();
-        for (pool[0..spawned]) |t| t.join();
+        for (pool[0..spawned]) |t| parallel.join(t);
     };
-    if (comptime parallel.has_threads) {
+    if (comptime parallel.can_spawn) {
         const want = @min(threads, pool.len + 1, src.layers) -| 1;
         while (spawned < want) : (spawned += 1) {
-            pool[spawned] = std.Thread.spawn(.{}, Pipeline.work, .{&pipe}) catch break;
+            pool[spawned] = parallel.spawn(Pipeline, Pipeline.work, &pipe) catch break;
         }
     }
     var discard: Writer.Discarding = .init(&.{});

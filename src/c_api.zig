@@ -15,7 +15,7 @@ const zs = @import("root.zig");
 const Writer = std.Io.Writer;
 
 pub const is_wasm = builtin.cpu.arch.isWasm();
-pub const gpa = if (is_wasm) std.heap.wasm_allocator else std.heap.smp_allocator;
+pub const gpa = if (zs.parallel.wasm_pool) zs.wasm_heap.allocator else if (is_wasm) std.heap.wasm_allocator else std.heap.smp_allocator;
 
 pub const Status = enum(c_int) {
     ok = 0,
@@ -247,7 +247,44 @@ export fn zs_free(ptr: ?[*]u8, len: usize) void {
     gpa.free(p[0..len]);
 }
 
+/// The wasm module with threads: the host calls this on each thread that
+/// it starts, with a number (0, 1, ...), the top of a stack for the thread,
+/// and memory for its thread-local data (`zs_thread_tls_size` bytes, from
+/// zs_alloc). The call does not return: the thread waits for work of a
+/// slice (see parallel.zig).
+fn threadRun(index: u32, stack_top: [*]u8, tls: [*]u8) callconv(.c) void {
+    // The instance of the thread starts with the stack of the first
+    // instance. No code can use the stack before this.
+    asm volatile (
+        \\ local.get %[ptr]
+        \\ global.set __stack_pointer
+        :
+        : [ptr] "r" (stack_top),
+    );
+    threadMain(index, tls);
+}
+
+extern fn __wasm_init_tls(memory: [*]u8) void;
+
+noinline fn threadMain(index: u32, tls: [*]u8) void {
+    __wasm_init_tls(tls);
+    zs.parallel.workerMain(index);
+}
+
+fn threadTlsSize() callconv(.c) u32 {
+    return asm volatile (
+        \\ .globaltype __tls_size, i32, immutable
+        \\ global.get __tls_size
+        \\ local.set %[ret]
+        : [ret] "=r" (-> u32),
+    );
+}
+
 comptime {
+    if (zs.parallel.wasm_pool) {
+        @export(&threadRun, .{ .name = "zs_thread_run" });
+        @export(&threadTlsSize, .{ .name = "zs_thread_tls_size" });
+    }
     _ = @import("c_api/app.zig");
     _ = @import("c_api/view.zig");
     _ = @import("c_api/printers.zig");

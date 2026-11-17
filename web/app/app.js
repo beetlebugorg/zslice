@@ -76,18 +76,25 @@ function download(bytes, name, type) {
 
 // ---- start ----
 
-async function compileModule() {
-  const url = new URL("zslice.wasm", import.meta.url);
+async function compileModule(name) {
+  const url = new URL(name, import.meta.url);
   try {
     return await WebAssembly.compileStreaming(fetch(url));
   } catch {
     // A server with another MIME type for .wasm.
     const r = await fetch(url);
+    if (!r.ok) throw new Error(`${name}: HTTP ${r.status}`);
     return WebAssembly.compile(await r.arrayBuffer());
   }
 }
 
-const module = await compileModule();
+// The module with threads needs a shared memory, and a browser gives one
+// only to a page that is cross-origin isolated (COOP and COEP headers).
+// ?threads=0 takes the module with no threads.
+const wantThreads = globalThis.crossOriginIsolated && new URLSearchParams(location.search).get("threads") !== "0";
+const module = wantThreads
+  ? await compileModule("zslice-mt.wasm").catch(() => compileModule("zslice.wasm"))
+  : await compileModule("zslice.wasm");
 const wasm = await Wasm.create(module);
 const infos = wasm.settingInfos();
 

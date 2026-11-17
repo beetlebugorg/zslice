@@ -215,7 +215,7 @@ pub const View = struct {
     /// The camera: the target, the angles, and the distance.
     pub const Pose = struct { target: [3]f32, rot: Quat, dist: f32 };
 
-    const gpa = if (is_web) std.heap.wasm_allocator else std.heap.c_allocator;
+    const gpa = if (is_web) (if (@import("../parallel.zig").wasm_pool) @import("../wasm_heap.zig").allocator else std.heap.wasm_allocator) else std.heap.c_allocator;
 
     pub fn create(surface: Surface, width: u32, height: u32) Error!*View {
         const r = try vk.Renderer.init(surface, width, height);
