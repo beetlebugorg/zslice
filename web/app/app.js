@@ -1167,7 +1167,54 @@ function isCut() {
   return layers.count > 0 && (layers.lo > 0 || layers.hi + 1 < layers.count);
 }
 
+// The keys of a selected part, and Tab through the parts: before the keys
+// of the layers. Returns true if the key was for a part.
+let turnKey = false; // R is down: the arrows turn the part
+document.addEventListener("keyup", (e) => {
+  if (e.key === "r" || e.key === "R") turnKey = false;
+});
+function partKey(e) {
+  if (e.ctrlKey || e.metaKey || e.altKey) return false;
+  const t = e.target;
+  if (t?.closest?.("input, textarea, select, [contenteditable], .panel, .search-layer, .keys-layer")) return false;
+  if (e.key === "Tab" && (t === document.body || t === canvas || t?.closest?.(".part-card"))) {
+    if (!view.loaded && app.state === "empty") return false;
+    e.preventDefault();
+    const index = tools.part ? tools.part.index : -1;
+    client.call("partStep", { index, dir: e.shiftKey ? -1 : 1 }).then((r) => {
+      if (!r.part) return;
+      if (tools.tool !== "move") tools.set("move");
+      tools.selectPart(r.part);
+    });
+    return true;
+  }
+  const part = tools.part;
+  if (!part) return false;
+  if (e.key === "r" || e.key === "R") {
+    turnKey = true;
+    e.preventDefault();
+    return true;
+  }
+  const dirs = { ArrowLeft: [-1, 0], ArrowRight: [1, 0], ArrowUp: [0, 1], ArrowDown: [0, -1] };
+  const d = dirs[e.key];
+  if (!d) return false;
+  e.preventDefault();
+  e.stopPropagation();
+  if (turnKey) {
+    if (d[0] === 0) return true;
+    client.call("partRotate", { index: part.index, step: d[0] > 0 ? -15 : 15 }).then((r) => r.part && tools.selectPart(r.part));
+    return true;
+  }
+  const step = e.shiftKey ? 10 : 1;
+  const x = part.x + d[0] * step;
+  const y = part.y + d[1] * step;
+  tools.selectPart({ ...part, x, y });
+  client.call("partMove", { index: part.index, x, y }).then((r) => r.part && tools.selectPart(r.part));
+  return true;
+}
+
 function onPreviewKey(e) {
+  if (partKey(e)) return;
   if (e.ctrlKey || e.metaKey || e.altKey) return;
   if (menuOpen() || !view.loaded || layers.count === 0) return;
   const t = e.target;
@@ -1205,6 +1252,11 @@ function onPreviewKey(e) {
       e.preventDefault();
       return;
     case "Escape":
+      if (tools.part) {
+        tools.selectPart(null);
+        e.preventDefault();
+        return;
+      }
       if (tools.pts.length > 0) {
         tools.clear();
         e.preventDefault();

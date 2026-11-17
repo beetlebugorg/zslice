@@ -218,6 +218,7 @@ With the Move tool (M), or Ctrl and a click with any tool, a click on a part sel
 - **Reset**: the orientation and the scale of the file again;
 - **Remove** (Delete);
 - the settings that the part has of its own, each with an editor and × (the value of the plate again);
+- the keyboard: Tab and Shift+Tab select the next part and the part before; the arrow keys move the selected part 1 mm (with Shift: 10 mm); R with Left or Right turns it 15°; Esc clears the selection;
 - **+ Add a setting for this part**: the search for this part. It shows only the settings that a part can have of its own, and a change goes to the part.
 
 Drag the top row of a card (the part card or the line card) to move it. It keeps that place until it closes.

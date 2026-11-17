@@ -582,6 +582,15 @@ const ops = {
     return { ok: r >= 0, part: action === "remove" || at >= n ? null : core.part(at) };
   },
 
+  // The part `dir` steps from part `index` (Tab and Shift+Tab), around
+  // the plate. index -1: the first part (or the last, for dir < 0).
+  partStep({ index, dir }) {
+    const n = core.w.x.zs_app_part_count(core.app);
+    if (n === 0) return { part: null };
+    const j = index < 0 ? (dir > 0 ? 0 : n - 1) : (((index + dir) % n) + n) % n;
+    return { part: core.part(j) };
+  },
+
   partSettings({ index }) {
     return { list: core.partSettings(index) };
   },
