@@ -225,7 +225,7 @@ Press `/` (or click **Search** in the preview toolbar, in the web app) to search
 
 ## Tools
 
-The group of three buttons at the left of the preview toolbar picks the tool of the mouse:
+The tool strip at the left of the view (in the GTK app: the group of three buttons at the left of the preview toolbar) picks the tool of the mouse. The key of each tool is in the corner of its button:
 
 | Tool | Key | What a click does |
 |---|---|---|

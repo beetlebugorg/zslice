@@ -72,6 +72,7 @@ Each plate is one `App` (`zs_app`), with its own settings, profiles, parts, slic
 - The sheet of the keyboard shortcuts (`?`, shortcuts.js).
 - The panel as a drawer: hidden, over the view, or pinned (`N`, the sliders button, Pin). The print card floats over the view.
 - The line card next to a selected line, with the three numbers and live editors of its first settings (linecard.js).
+- The tool strip at the left of the view (Select, Move, Measure), with the key of each tool.
 
 ## The steps
 

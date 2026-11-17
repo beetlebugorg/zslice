@@ -126,10 +126,15 @@ button.pill { border-radius: 999px; padding: 6px 22px; background: var(--accent-
 .toolbar .tool { min-height: 34px; padding: 4px 11px; }
 .toolbar .tool.icon { padding: 4px 10px; }
 .linked { display: flex; }
+/* The tool strip at the left of the view: one tool for the mouse, with
+   its key in the corner. */
+.toolstrip { top: 58px; left: 10px; display: flex; flex-direction: column; gap: 2px; }
+.toolstrip .tool { position: relative; width: 40px; height: 40px; min-height: 0; padding: 0; display: flex; align-items: center; justify-content: center; border-radius: 8px; }
+.toolstrip .tool::after { content: attr(data-key); position: absolute; right: 3px; bottom: 1px; font-size: 9px; opacity: 0.55; }
 .linked .tool { border-radius: 0; }
 .linked .tool:first-child { border-radius: var(--radius) 0 0 var(--radius); }
 .linked .tool:last-child { border-radius: 0 var(--radius) var(--radius) 0; }
-.legend { top: 58px; left: 10px; font-size: 0.8em; padding: 3px 10px; font-variant-numeric: tabular-nums; }
+.legend { top: 58px; left: 62px; font-size: 0.8em; padding: 3px 10px; font-variant-numeric: tabular-nums; }
 
 .empty {
   position: absolute; inset: 0;
@@ -490,7 +495,7 @@ button.destructive { background: #c01c28; color: #fff; }
 
 /* The readout of the measure tape, under the toolbar. */
 .measure-readout {
-  top: 58px; left: 10px; padding: 6px 12px; border-radius: 8px; white-space: pre-line;
+  top: 58px; left: 62px; padding: 6px 12px; border-radius: 8px; white-space: pre-line;
   font-size: 0.9em; font-variant-numeric: tabular-nums; pointer-events: none; max-width: calc(100% - 20px);
 }
 
