@@ -584,6 +584,7 @@ pub const Memo = struct {
     wall_gaps: std.ArrayList(WallGapEntry) = .empty,
     gap_fills: std.ArrayList(GapFillEntry) = .empty,
     skin_gaps: std.ArrayList(SkinGapEntry) = .empty,
+    helds: std.ArrayList(HeldEntry) = .empty,
 
     const ArachneEntry = struct { key: ArachneKey, walls: []VarWall, inner: Paths, gen: u32 };
     const OffsetEntry = struct {
@@ -603,6 +604,7 @@ pub const Memo = struct {
     const WallGapEntry = struct { w: i64, k: u32, paths: Paths, gen: u32 };
     const GapFillEntry = struct { key: u64, fill: gapfill.Fill, gen: u32 };
     const SkinGapEntry = struct { key: u64, paths: Paths, gen: u32 };
+    const HeldEntry = struct { key: u64, paths: Paths, gen: u32 };
 
     /// The sparse area of a layer, split for top support (see `topSplit`).
     pub const TopSplit = struct {
@@ -689,6 +691,9 @@ pub const Memo = struct {
         for (self.gap_fills.items) |e| if (e.gen >= min_gen) {
             try out.gap_fills.append(a, .{ .key = e.key, .fill = try e.fill.clone(a), .gen = e.gen });
         };
+        for (self.helds.items) |e| if (e.gen >= min_gen) {
+            try out.helds.append(a, .{ .key = e.key, .paths = try e.paths.clone(a), .gen = e.gen });
+        };
         return out;
     }
 
@@ -728,6 +733,27 @@ pub const Memo = struct {
         defer scratch_state.release();
         const paths = try (try gapfill.skinGaps(scratch_state.allocator(), skin, lines, widths, angle_deg, w)).clone(a);
         try self.skin_gaps.append(a, .{ .key = key, .paths = paths, .gen = gen });
+        return paths;
+    }
+
+    /// The area that holds a wall of this layer: the outline of the layer
+    /// below, grown by half a wall width `w` (see splitBridgeWalls), by a
+    /// hash of that outline and `w`. A change of the infill or the skin
+    /// keeps it: the offset was a quarter of the time of an infill change.
+    fn heldBelow(self: *Memo, below: Paths, w: i64, gen: u32) Allocator.Error!Paths {
+        var h: std.hash.Wyhash = .init(@bitCast(w));
+        h.update(std.mem.sliceAsBytes(below.points.items));
+        h.update(std.mem.sliceAsBytes(below.ends.items));
+        const key = h.final();
+        for (self.helds.items) |*e| if (e.key == key) {
+            e.gen = gen;
+            return e.paths;
+        };
+        const a = self.arena.allocator();
+        var scratch_state = scratch.get(a);
+        defer scratch_state.release();
+        const paths = try (try offset_mod.offset(scratch_state.allocator(), below, @divTrunc(w, 2), .{})).clone(a);
+        try self.helds.append(a, .{ .key = key, .paths = paths, .gen = gen });
         return paths;
     }
 
@@ -1566,7 +1592,7 @@ pub fn plan(gpa: Allocator, ctx: Context, i: usize) Allocator.Error!LayerPlan {
     }
 
     // Walls over air print as bridges (see splitBridgeWalls).
-    if (p.bridges and !first) try splitBridgeWalls(s, a, &lp, ctx.outlines[i - 1], w);
+    if (p.bridges and !first) try splitBridgeWalls(s, a, &lp, memo, ctx.outlines[i - 1], w, ctx.gen);
 
     // Step 10: slope smoothing, after all other paths of the layer, then
     // slope ironing.
@@ -2738,7 +2764,7 @@ fn insidePoly(poly: []const Point, p: Point) bool {
 /// 1 mm stays wall (a gentle slope is not a bridge). The wall splits into
 /// open paths at the ends of each run; the path order stays, so the
 /// nozzle goes on along the wall with no travel.
-fn splitBridgeWalls(s: Allocator, a: Allocator, lp: *LayerPlan, below: Paths, w: i64) Allocator.Error!void {
+fn splitBridgeWalls(s: Allocator, a: Allocator, lp: *LayerPlan, memo: *Memo, below: Paths, w: i64, gen: u32) Allocator.Error!void {
     const isWall = struct {
         fn f(pth: Path, n: usize) bool {
             return (pth.feature == .outer_wall or pth.feature == .inner_wall) and pth.w_start == Path.planar and pth.z_start == Path.planar and n >= 2;
@@ -2747,7 +2773,7 @@ fn splitBridgeWalls(s: Allocator, a: Allocator, lp: *LayerPlan, below: Paths, w:
     var any = false;
     for (lp.paths.items, 0..) |pth, k| any = any or isWall(pth, lp.points.get(k).len);
     if (!any or below.isEmpty()) return;
-    const held = try offset_mod.offset(s, below, @divTrunc(w, 2), .{});
+    const held = try memo.heldBelow(below, w, gen);
     const ix = try geom.EdgeIndex.init(s, held, 0);
     const min_run: f64 = @floatFromInt(geom.fromMm(1.0));
     var paths: std.ArrayList(Path) = .empty;
