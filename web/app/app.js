@@ -23,6 +23,7 @@ import { Gaps } from "./gaps.js";
 import { HistoryPage } from "./history.js";
 import { ProjectPage } from "./project.js";
 import { SearchOverlay } from "./search.js";
+import { ShortcutSheet } from "./shortcuts.js";
 import { Tools } from "./tools.js";
 import { KINDS, send as sendToPrinter, test as testPrinter } from "./link.js";
 import { contextItems } from "./context-menu.js";
@@ -1674,15 +1675,23 @@ const search = new SearchOverlay({
     { label: "Manage printers…", run: () => managePrinters() },
     { label: "Open a project", hint: "printdeck.yml from GitHub or a folder", run: () => showTab("project") },
     { label: "History", hint: "the changes, undo one change", run: () => showTab("history") },
+    { label: "Keyboard shortcuts", keys: "?", run: () => shortcuts.show() },
   ],
 });
+const shortcuts = new ShortcutSheet();
 $("search-open").onclick = () => search.show();
 
 document.addEventListener("keydown", (e) => {
-  if (e.key !== "/" || e.ctrlKey || e.metaKey || e.altKey) return;
+  if ((e.key !== "/" && e.key !== "?") || e.ctrlKey || e.metaKey || e.altKey) return;
   if (e.target.closest?.("input, textarea, select, [contenteditable]")) return;
   e.preventDefault();
-  search.show();
+  if (e.key === "?") {
+    search.close();
+    shortcuts.toggle();
+  } else {
+    shortcuts.close();
+    search.show();
+  }
 });
 
 // ---- the worker starts ----
@@ -1816,6 +1825,7 @@ function benchPick(step = 40) {
 window.zslice = {
   project,
   search,
+  shortcuts,
   app, view, view2d, layers, browser, client, gl, inspector, gaps, history, undoRedo, tools, store, managePrinters, openPrinterSettings, loadProfile, setSetting, pickAt, topLayerPoint, openCheck, frameTimes,
   select, showPage, showTab, hitAt, showContextMenu, step, bench, benchPick,
   get frameCount() { return frameCount; },

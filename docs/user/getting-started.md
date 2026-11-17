@@ -200,6 +200,10 @@ To change a number:
 
 A value out of the usual range shows in the warning color, and its tooltip gives the usual range. A value out of the limits of the setting (for example a 300 mm brim) is an error, and the tooltip gives the limits.
 
+## Keyboard shortcuts
+
+Press `?` to see all keyboard shortcuts of the web app, grouped. Type in the sheet to filter it. Esc closes it.
+
 ## Search settings and actions
 
 Press `/` (or click **Search** in the preview toolbar, in the web app) to search the settings and the actions. Type a few letters, for example `infill`, `brim`, or `export`.
