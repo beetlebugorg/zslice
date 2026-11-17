@@ -1935,6 +1935,15 @@ fn fillSparse(s: Allocator, p: settings_mod.Project, region: Paths, width_mm: f6
         },
         else => {},
     }
+    // A rib in each island that the lines miss (see infill.spines).
+    if (p.infill_ribs and p.infill_density > 0) switch (p.infill_pattern) {
+        .lines, .grid, .triangles, .trihexagon, .cubic, .zigzag, .flow, .honeycomb, .gyroid => {
+            const rw = geom.fromMm(width_mm);
+            const ribs = try infill.spines(s, region, sparse_lines, rw, 4 * rw);
+            try sparse_lines.appendAll(s, ribs);
+        },
+        else => {},
+    };
     return .{ .lines = sparse_lines, .loops = sparse_loops };
 }
 

@@ -412,6 +412,13 @@ pub const Project = struct {
     /// the nozzle prints a zigzag with no travel and no retraction, and the
     /// joints tie the infill to the walls. Off: each line on its own.
     infill_connect: bool = true,
+    /// A rib in each narrow infill area that the infill lines miss: one
+    /// line along the length of the area, through its middle, on each
+    /// layer, so the lines stack into a rib. At a low density the lines
+    /// are far apart (10 % grid: 11 mm), and an area narrower than that
+    /// gets no infill on most layers; the top over it then sags. Off: such
+    /// an area stays empty.
+    infill_ribs: bool = true,
     /// The lightning infill: how far a branch leans from vertical, in
     /// degrees. On each layer down, the end of a branch gets shorter by
     /// the layer height times tan(angle), and a bent branch gets
@@ -1239,6 +1246,7 @@ pub const layer_settings = [_][]const u8{
     "project.infill_angles",
     "project.infill_stack",
     "project.infill_flow",
+    "project.infill_ribs",
     "project.bridges",
     "project.bridge_speed",
     "project.bridge_flow",

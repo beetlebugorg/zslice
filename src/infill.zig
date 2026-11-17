@@ -21,6 +21,7 @@
 const std = @import("std");
 const Allocator = std.mem.Allocator;
 const geom = @import("geom.zig");
+const clip_open = @import("clip_open.zig");
 const scratch = @import("scratch.zig");
 const Point = geom.Point;
 const Paths = geom.Paths;
@@ -632,6 +633,95 @@ pub fn tour(gpa: Allocator, region: Paths, set: Paths, set_w: []const f32, group
         try out.ends.append(gpa, @intCast(out.points.items.len));
     }
     return .{ .paths = out, .widths = widths.items };
+}
+
+/// A line for each island of `region` that `have` misses: one line along
+/// the length of the island, through its middle (the main axis of its
+/// points, from their covariance). A sparse infill with a wide spacing
+/// (10 % grid: 11 mm) misses a narrow island on most layers, and a lone
+/// short piece goes, so the island stays empty and the top over it sags.
+/// The line is the same on each layer of the same island, so the lines
+/// stack into a rib. Islands smaller than 3 x 3 line widths, and lines
+/// shorter than `min_len`, are left out. The memory is in `gpa`, an arena.
+pub fn spines(gpa: Allocator, region: Paths, have: Paths, width: i64, min_len: i64) Allocator.Error!Paths {
+    var out: Paths = .empty;
+    const islands = try islandsOf(gpa, region);
+    const w: f64 = @floatFromInt(width);
+    for (islands) |isl| {
+        if (isl.isEmpty()) continue;
+        var area: f64 = 0;
+        for (0..isl.count()) |k| area += geom.areaMm2(isl.get(k));
+        const wmm = geom.toMm(width);
+        if (area < 9 * wmm * wmm) continue;
+        // Does a line of `have` cross the island? A point of a line inside
+        // it, or the middle of a segment.
+        const idx: geom.EdgeIndex = try .init(gpa, isl, width);
+        var hit = false;
+        outer: for (0..have.count()) |k| {
+            const path = have.get(k);
+            // A line along the edge of the island (a joint of the lines
+            // along the wall) counts too.
+            for (path, 0..) |q, i| {
+                if (idx.inside(q) or idx.near(q, width)) {
+                    hit = true;
+                    break :outer;
+                }
+                if (i + 1 < path.len) {
+                    const m: Point = .{ .x = @divTrunc(q.x + path[i + 1].x, 2), .y = @divTrunc(q.y + path[i + 1].y, 2) };
+                    if (idx.inside(m) or idx.near(m, width)) {
+                        hit = true;
+                        break :outer;
+                    }
+                }
+            }
+        }
+        if (hit) continue;
+        // The main axis of the outer boundary.
+        const outer_poly = isl.get(0);
+        var mx: f64 = 0;
+        var my: f64 = 0;
+        for (outer_poly) |q| {
+            mx += @floatFromInt(q.x);
+            my += @floatFromInt(q.y);
+        }
+        const nf: f64 = @floatFromInt(outer_poly.len);
+        mx /= nf;
+        my /= nf;
+        var cxx: f64 = 0;
+        var cxy: f64 = 0;
+        var cyy: f64 = 0;
+        var reach: f64 = 0;
+        for (outer_poly) |q| {
+            const dx = @as(f64, @floatFromInt(q.x)) - mx;
+            const dy = @as(f64, @floatFromInt(q.y)) - my;
+            cxx += dx * dx;
+            cxy += dx * dy;
+            cyy += dy * dy;
+            reach = @max(reach, @sqrt(dx * dx + dy * dy));
+        }
+        const ang = 0.5 * std.math.atan2(2 * cxy, cxx - cyy);
+        const ux = @cos(ang) * (reach + w);
+        const uy = @sin(ang) * (reach + w);
+        var line: Paths = .empty;
+        try line.append(gpa, &.{
+            .{ .x = @intFromFloat(@round(mx - ux)), .y = @intFromFloat(@round(my - uy)) },
+            .{ .x = @intFromFloat(@round(mx + ux)), .y = @intFromFloat(@round(my + uy)) },
+        });
+        const pieces = try clip_open.clipPolylines(gpa, isl, line, min_len);
+        // The longest piece (a bent island can cut the line in two).
+        var best: ?usize = null;
+        var best_len: f64 = 0;
+        for (0..pieces.count()) |k| {
+            const pc = pieces.get(k);
+            const l = Point.dist(pc[0], pc[pc.len - 1]);
+            if (l > best_len) {
+                best_len = l;
+                best = k;
+            }
+        }
+        if (best) |k| try out.append(gpa, pieces.get(k));
+    }
+    return out;
 }
 
 /// Joins open paths of any shape (gyroid curves, honeycomb rows) where

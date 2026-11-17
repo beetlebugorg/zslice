@@ -256,6 +256,8 @@ M84</code></pre>
 <p>The flow of the sparse infill lines, as a ratio of the flow of a normal line. As "Infill Flow" in Cura.</p>
 <p><strong><code>project.infill_connect</code></strong> (true or false; per layer). Default: <code>true</code></p>
 <p>Join the infill lines (lines, grid, triangles, cubic) at their ends with a short line along the edge, as "Connect Infill Lines" in Cura: the nozzle prints a zigzag with no travel and no retraction, and the joints tie the infill to the walls. Off: each line on its own.</p>
+<p><strong><code>project.infill_ribs</code></strong> (true or false; per layer). Default: <code>true</code></p>
+<p>A rib in each narrow infill area that the infill lines miss: one line along the length of the area, through its middle, on each layer, so the lines stack into a rib. At a low density the lines are far apart (10 % grid: 11 mm), and an area narrower than that gets no infill on most layers; the top over it then sags. Off: such an area stays empty.</p>
 <p><strong><code>project.lightning_angle</code></strong> (number). Default: <code>40</code></p>
 <p>The lightning infill: how far a branch leans from vertical, in degrees. On each layer down, the end of a branch gets shorter by the layer height times tan(angle), and a bent branch gets straighter by at most the same distance. A larger angle gives smaller trees and less plastic, but the lines hang out more over the layer below.</p>
 <p><strong><code>project.top_support_layers</code></strong> (integer; per layer). Default: <code>2</code></p>
