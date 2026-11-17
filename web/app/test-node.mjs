@@ -101,4 +101,31 @@ view.setTime(view.duration() / 2);
 f = view.frame();
 check(f.headCount > 0, "the toolhead of a replay");
 console.log(`frame: ${f.boxCount} beads, ${f.markCount} marks, ${f.headCount} toolhead beads`);
+
+// The 2D view and the selection: the beads of a layer, a pick in mm, the
+// outlines, and the steps along the print, from the view alone.
+view.setLayerRange(0, layers.z.length - 1);
+const mid = Math.floor(layers.z.length / 2);
+const range = new Uint32Array(2);
+view.layerBeads(mid, range);
+check(range[1] > range[0], "the beads of a layer");
+const o = view.outlines();
+check(o.layerEnds.length === layers.z.length && o.points.length > 0, "the outlines of the layers");
+const b = view.bounds();
+check(b && b[2] > b[0] && b[3] > b[1], "the box of the beads");
+const p0 = view.beadPoint(range[0]);
+t0 = performance.now();
+check(view.pickLayer(mid, p0.x, p0.y), "a pick in mm on a layer");
+const pickMs = performance.now() - t0;
+const path = view.hit[0];
+check(view.pathLayer(path) === mid, "the layer of the picked path");
+check(view.step(path, 0, 1, false) && view.hit[0] >= path, "a step along the print");
+check(view.nearestOnLayer(path, mid + 1) >= 0, "the nearest path on the layer above");
+const info = core.inspect(path, 0);
+check(info && info.layer === mid && info.title.length > 0 && Object.keys(info.values).length > 0, "the Selected page of the path");
+check((core.lineReport(path) ?? "").includes("## The line"), "the report of Copy for AI");
+// A 3D pick in the middle of the view.
+t0 = performance.now();
+const hit3d = view.pickSegment(400, 300);
+console.log(`2D pick: ${pickMs.toFixed(2)} ms; 3D pick: ${(performance.now() - t0).toFixed(2)} ms (${hit3d ? "a hit" : "no hit"}); ${info.title}, layer ${info.layer + 1}`);
 console.log("ok");
