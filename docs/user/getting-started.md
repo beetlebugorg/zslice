@@ -200,6 +200,16 @@ To change a number:
 
 A value out of the usual range shows in the warning color, and its tooltip gives the usual range. A value out of the limits of the setting (for example a 300 mm brim) is an error, and the tooltip gives the limits.
 
+## Search settings and actions
+
+Press `/` (or click **Search** in the preview toolbar, in the web app) to search the settings and the actions. Type a few letters, for example `infill`, `brim`, or `export`.
+
+- Each setting in the results has its control: a slider and an entry for a number, a list for a choice, and a switch. Change it right there. The part slices again at once, and the view under the search shows the new lines. A drag of a slider slices as you drag.
+- The pointer over a setting shows only the lines that it changes.
+- The tag under each setting says its section and where its value comes from (the printer, the profile, or this print).
+- An action (Export G-code, Print, Arrange the plate, Undo, and others) runs with a click or Enter.
+- Keys: Up and Down go through the results. Left and Right change the value of the result (a step, or the next choice). Space or Enter turns a switch or runs an action. Tab goes into the controls. Esc closes the search.
+
 ## Tools
 
 The group of three buttons at the left of the preview toolbar picks the tool of the mouse:

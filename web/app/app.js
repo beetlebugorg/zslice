@@ -22,6 +22,7 @@ import { Inspector } from "./inspector.js";
 import { Gaps } from "./gaps.js";
 import { HistoryPage } from "./history.js";
 import { ProjectPage } from "./project.js";
+import { SearchOverlay } from "./search.js";
 import { Tools } from "./tools.js";
 import { KINDS, send as sendToPrinter, test as testPrinter } from "./link.js";
 import { contextItems } from "./context-menu.js";
@@ -1647,6 +1648,43 @@ document.addEventListener("keydown", (e) => {
   }
 });
 
+// ---- the search of settings and actions (/) ----
+
+const search = new SearchOverlay({
+  browser,
+  infos,
+  focus: (mask, first) => {
+    app.focusMask = mask;
+    app.focusFirst = first;
+    updateFocus();
+  },
+  unfocus: () => browser.sendFocus(),
+  actions: () => [
+    { label: "Open a model…", keys: "Ctrl+O", run: () => $("file").click() },
+    { label: "Add models to the plate…", run: () => addModels() },
+    { label: "Export G-code…", keys: "Ctrl+E", run: () => exportGcode() },
+    { label: "Print", hint: "send the G-code to the printer and start", run: () => sendGcode(true) },
+    { label: "Arrange the plate", hint: "pack the parts on the bed", run: () => client.call("plate", { action: "arrange" }) },
+    { label: "Smart placement", hint: "turn and arrange the parts", run: () => client.call("plate", { action: "smart" }) },
+    { label: "Check the print", hint: "problems and advice", run: () => openCheck() },
+    { label: "Undo", keys: "Ctrl+Z", run: () => undoRedo("undo") },
+    { label: "Redo", keys: "Ctrl+Shift+Z", run: () => undoRedo("redo") },
+    { label: "2D layer view", run: () => showPage("2d") },
+    { label: "3D view", run: () => showPage("3d") },
+    { label: "Manage printers…", run: () => managePrinters() },
+    { label: "Open a project", hint: "printdeck.yml from GitHub or a folder", run: () => showTab("project") },
+    { label: "History", hint: "the changes, undo one change", run: () => showTab("history") },
+  ],
+});
+$("search-open").onclick = () => search.show();
+
+document.addEventListener("keydown", (e) => {
+  if (e.key !== "/" || e.ctrlKey || e.metaKey || e.altKey) return;
+  if (e.target.closest?.("input, textarea, select, [contenteditable]")) return;
+  e.preventDefault();
+  search.show();
+});
+
 // ---- the worker starts ----
 
 // A printer that serves this page (for example a printdeck on the LAN) can
@@ -1777,6 +1815,7 @@ function benchPick(step = 40) {
 // For tests: the state of the page.
 window.zslice = {
   project,
+  search,
   app, view, view2d, layers, browser, client, gl, inspector, gaps, history, undoRedo, tools, store, managePrinters, openPrinterSettings, loadProfile, setSetting, pickAt, topLayerPoint, openCheck, frameTimes,
   select, showPage, showTab, hitAt, showContextMenu, step, bench, benchPick,
   get frameCount() { return frameCount; },
