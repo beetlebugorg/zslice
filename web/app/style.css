@@ -699,3 +699,9 @@ button.destructive { background: #c01c28; color: #fff; }
 .search-eye { flex: none; min-height: 28px; min-width: 28px; padding: 0; opacity: 0.45; border-radius: 7px; }
 .search-eye:hover { opacity: 0.85; }
 .search-eye.on { opacity: 1; background: var(--accent-bg); color: #fff; }
+
+/* The print status of a project plate on its label. */
+.pl-print { margin-right: 6px; padding: 0 6px; border-radius: 6px; font-weight: 600; }
+.pl-printing { background: #1c71d8; }
+.pl-printed { background: #26a269; }
+.pl-failed { background: #c01c28; }

@@ -351,6 +351,20 @@ export class ProjectPage {
     this.render();
   }
 
+  // The print status of plate i of the set ("todo", "printing",
+  // "printed", "failed"), or null when the set is not this project.
+  printStatus(i) {
+    if (!this.plan || this.loaded !== this.planKey()) return null;
+    const plate = this.plan.plates[i];
+    return plate ? this.state.status?.[plateKey(this.plan, plate)] ?? "todo" : null;
+  }
+
+  // Sets the print status of plate i of the set.
+  setPrintStatus(i, status) {
+    const plate = this.plan?.plates[i];
+    if (plate) this.setStatus(plateKey(this.plan, plate), status);
+  }
+
   // The plate set is no longer the plates of this project (a file opened).
   unload() {
     this.loaded = null;
@@ -360,6 +374,7 @@ export class ProjectPage {
     this.state.status[key] = status;
     save(this.state);
     this.render();
+    this.ctx.statusChanged?.();
   }
 
   // The plate on the view was sent to a printer.

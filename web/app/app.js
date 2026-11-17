@@ -1571,7 +1571,9 @@ const history = new HistoryPage($("page-history"), {
 
 // ---- printdeck.yml projects ----
 
-const project = new ProjectPage($("page-project"), {
+var project = new ProjectPage( // var: the plate labels can ask before this line
+  $("page-project"), {
+  statusChanged: () => updatePlateLabels(),
   client,
   applySettings: (r) => applySettings(r),
   toast,
@@ -1998,6 +2000,14 @@ function updatePlateLabels() {
     el.classList.toggle("active", i === app.activePlate);
     const status = STATUS_TEXT[p.status] ?? p.status;
     el.replaceChildren(`${i + 1}. ${p.name || "Empty plate"}`);
+    // The print status of a project plate: a mark at the front.
+    const ps = project?.printStatus(i);
+    if (ps && ps !== "todo") {
+      const m = document.createElement("span");
+      m.className = `pl-print pl-${ps}`;
+      m.textContent = { printing: "Printing", printed: "✓ Printed", failed: "Failed" }[ps] ?? ps;
+      el.prepend(m);
+    }
     if (status) {
       const s = document.createElement("span");
       s.className = "pl-status";
@@ -2030,6 +2040,20 @@ function placePlateLabels() {
     el.style.left = `${q[0] / k}px`;
     el.style.top = `${q[1] / k}px`;
   });
+  // A label that covers one at its left goes up over it.
+  const shown = [...root.children].filter((e) => e.style.display !== "none").map((e) => ({ e, r: e.getBoundingClientRect() }));
+  shown.sort((a, b) => a.r.left - b.r.left);
+  for (let i = 1; i < shown.length; i++) {
+    for (let j = 0; j < i; j++) {
+      const a = shown[j].r;
+      const b = shown[i].r;
+      if (b.left < a.right + 4 && b.right > a.left - 4 && b.top < a.bottom + 2 && b.bottom > a.top - 2) {
+        const up = b.bottom - a.top + 4;
+        shown[i].e.style.top = `${parseFloat(shown[i].e.style.top) - up}px`;
+        shown[i].r = shown[i].e.getBoundingClientRect();
+      }
+    }
+  }
 }
 
 $("plate-prev").onclick = () => activatePlate(app.activePlate - 1, true);
