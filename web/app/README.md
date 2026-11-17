@@ -51,7 +51,6 @@ The rule of `docs/app/README.md` holds: the app logic is in the core, and the we
 | `format.js` | The text of setting values, as the GTK shell shows them |
 | `printers.js` | The printer picker: the printer library of the core (`printers.txt`, loaded when the picker opens), the search, the brands, the drawing of the build volume (with the bed texture on the plate), and the second step. Also the files of the bed model of the current printer (`bedFiles`) |
 | `thread.js` | One thread of the slice, for the module with threads |
-| `isolate.js`, `isolate-sw.js` | Cross-origin isolation on a server that cannot send the headers |
 | `serve.py` | The dev server. It sends the headers for cross-origin isolation |
 | `test-node.mjs` | The Node test |
 
@@ -81,7 +80,7 @@ Cross-Origin-Embedder-Policy: require-corp
 
 `serve.py` sends them (`--no-isolation` leaves them out). With `?threads=0`, or in a browser that does not isolate the page, the page loads `zslice.wasm`, and a slice uses one thread.
 
-A server that cannot send headers (for example GitHub Pages) needs `isolate.js`. It installs a service worker (`isolate-sw.js`) that adds the two headers to each answer of the server, and loads the page again once. The service worker keeps no cache, and sends nothing to another server. Its costs: the first visit loads the page two times, and a browser with no service workers (for example a private window of Firefox) slices with one thread.
+zslice.beetlebug.org is in S3 behind CloudFront, which sends the two headers (the zslice-ops repository). GitHub Pages cannot send them.
 
 How the threads work:
 

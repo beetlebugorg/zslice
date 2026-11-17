@@ -55,7 +55,7 @@ pub fn build(b: *std.Build) void {
     // -Dwasm-optimize sets its optimize mode. -Dwasm-cpu sets its CPU
     // features, for example -Dwasm-cpu=baseline+simd128+bulk_memory.
     const wasm_optimize = b.option(std.builtin.OptimizeMode, "wasm-optimize", "The optimize mode of the wasm module") orelse
-        (if (optimize == .Debug) .ReleaseSmall else optimize);
+        (if (optimize == .Debug) .ReleaseFast else optimize);
     const wasm_cpu = b.option([]const u8, "wasm-cpu", "The CPU model and features of the wasm module") orelse "baseline";
     // The debug data is 7 MB of a ReleaseFast module. -Dwasm-strip=false
     // keeps it, for a profile with function names.
