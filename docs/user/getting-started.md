@@ -117,7 +117,7 @@ Layer numbers start at 0. If the number is too large, zslice shows the number of
 At the first start, zslice opens the printer picker. Later, pick "Add a printer…" at the end of the printer menu in the header bar.
 
 1. Type a part of the name in the search: "ender 3", "mk4", "k1 max", "voron 2.4". The list narrows as you type. Or pick a brand at the left: its models show in groups by series.
-2. Click a model. The card at the right draws its build volume to scale (the red dot is X0 Y0 of the G-code), and lists its nozzle, its filament, its heating, its firmware, and its motion limits.
+2. Click a model. The card at the right draws its build volume to scale (the red dot is X0 Y0 of the G-code), with the print sheet of the printer on the plate if the library has one, and lists its nozzle, its filament, its heating, its firmware, and its motion limits.
 3. Click Next (or double-click the model). Check the name, the nozzle, the filament diameter, and the size. Set the connection, and test it.
 4. Click "Add printer". The printer is the current printer, with its machine settings.
 
@@ -127,6 +127,12 @@ The library has more than 1000 printers of more than 180 brands. The data comes 
 - Some definitions have a start G-code with scripts (`{if ...}`), which zslice cannot run. Such a printer gets the start G-code of zslice, and the card says so. Check the start G-code (Printer settings, G-code) before the first print.
 
 If your printer is not in the list, pick "My printer is not in the list" at the end: the generic printer, with the size that you enter.
+
+### The bed in the 3D view
+
+For most printers of the library (830 of 1080), the 3D view shows the bed of the printer under the plate: the shape of the bed, and the print of the sheet (the logo and the marks) if the source has one. The bed is a soft gray, so the print stands out. The parts of a bed model above the plate (a frame, a back plate) are see-through. The 10 mm grid stays on the bed. A printer with no bed model in the library, and the generic printer, show the grid alone.
+
+The setting `machine.model` (Printer settings) has the id of the model in the library, for example `prusa-mk4s`. The picker sets it. A printer from before this setting gets its bed if its name is the name of a model in the library. Clear `machine.model` to see the grid alone.
 
 ### Printers on your network
 

@@ -22,7 +22,7 @@ zig build web
 node web/app/test-node.mjs zig-out/web/app/zslice.wasm part.stl
 ```
 
-The test runs the code of the worker (`core.js`) and the view of the main thread (`view.js`) in Node, with no browser: settings, the saved state, a slice, the scene, frames of the view, the data of the 2D view, a pick, a step along the print, and the Selected page of a line.
+The test runs the code of the worker (`core.js`) and the view of the main thread (`view.js`) in Node, with no browser: settings, the saved state, a slice, the scene, frames of the view, the data of the 2D view, a pick, a step along the print, the Selected page of a line, the printer library, and a bed model in a frame.
 
 The picker opens at the first visit (no printer set up). `?printers` opens it at the start, with `&q=text` (a search), `&pick=id` (a model), and `&step=2` (the second step) or `&step=add` (add the printer at once).
 
@@ -49,9 +49,13 @@ The rule of `docs/app/README.md` holds: the app logic is in the core, and the we
 | `layers.js` | The layer slider with two knobs |
 | `menus.js` | The popup menus, the context menu, and the popovers |
 | `format.js` | The text of setting values, as the GTK shell shows them |
-| `printers.js` | The printer picker: the printer library of the core (`printers.txt`, loaded when the picker opens), the search, the brands, the drawing of the build volume, and the second step |
+| `printers.js` | The printer picker: the printer library of the core (`printers.txt`, loaded when the picker opens), the search, the brands, the drawing of the build volume (with the bed texture on the plate), and the second step. Also the files of the bed model of the current printer (`bedFiles`) |
 | `serve.py` | The dev server |
 | `test-node.mjs` | The Node test |
+
+### The bed model
+
+`zig build web` copies the bed models of the printers (`src/printers/beds`, 10.5 MB in 736 files) to `beds/`. The wasm module has none of them. When the settings name a printer of the library (`machine.model`, or a `machine.name` that is the title of a model), `app.js` loads `printers.txt` in the main instance, asks the core for the names of the two files of its bed (`zs_printers_bed`), fetches them (about 20 to 60 kB), and gives them to the view (`zs_view_set_bed`). The core places the bed; `gl.js` uploads its vertices and its texture once (`bed_gen` of the frame), and draws it after the beads. A printer with no bed model keeps the grid alone.
 
 ### Two wasm instances
 

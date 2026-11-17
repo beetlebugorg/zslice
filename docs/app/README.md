@@ -38,6 +38,8 @@ Read `include/zslice-app.h` first. The main points:
 
 The core has the printer library (`zs_printers_*`) and the packets of the printer search (`zs_discovery_*`). A shell draws the picker from them; the facts, the search, the match of a printer on the network, and the machine profile of a model come from the core. Native builds embed the library. The web app loads `printers.txt` when the picker opens. The core does no network I/O: the shell sends the mDNS query and gives the answers to the core, and it asks a new printer for `/api/version` (or the Klipper toolhead). A browser cannot do this, so the web picker asks for an address.
 
+The bed model of the current printer comes from the library too. `zs_printers_find_machine` finds the model of the machine profile (`machine.model`, else a `machine.name` that is the title of a model), and `zs_printers_bed` names its two files in the bed folder. The shell reads the files and gives the bytes to `zs_view_set_bed`; the core reads the mesh and the PNG, places the bed, and sends it to the GPU once. The GTK shell reads the files from `share/zslice/beds` (installed by meson), or from `src/printers/beds` of the source tree, or from `$ZSLICE_BEDS_DIR` (see `ui/bed-model.h`). The web app fetches them from `beds/`. Both pickers draw a flat texture (`zs_printer_bed.flat`) on the plate of the build volume.
+
 ## The 3D view
 
 The core draws the 3D view of a slice (`src/render/`). The shell gives a native surface, and calls the `zs_view_*` functions of `include/zslice-app.h`:
@@ -84,6 +86,7 @@ The GTK shell is in `linux/src`. Each `.c` file has a header that explains its i
 | | `toolpath-nav` | The next segment and the nearest line, for the keyboard navigation |
 | | `layer-range` | The slider with two knobs for the layers that show |
 | | `view3d` | The widget of the 3D view, and the drag of a part |
+| | `bed-model` | The bed model of the current printer in the 3D view: finds the bed folder and reads the files |
 | | `native-surface` | The Wayland subsurface for the 3D view |
 | | `settings-panel` | The panel with the two pages below |
 | | `inspector` | The "Selected" page: the values of a line and the settings that change it |
@@ -102,6 +105,7 @@ These environment variables change the start of the GTK shell, for development, 
 
 | Variable | Effect | Read in |
 |---|---|---|
+| `ZSLICE_BEDS_DIR=dir` | Reads the bed models of the printers from `dir`. | `ui/bed-model.c` |
 | `ZSLICE_STATE_DIR=dir` | Keeps the settings and the printers in `dir`, not in `~/.config/zslice`. | `prefs/printers.c` |
 | `ZSLICE_NON_UNIQUE=1` | Starts a separate instance. Without it, a second start sends its file to the running instance. | `main.c` |
 | `ZSLICE_TEST_HANG=s` | Stops the UI thread for `s` seconds, 3 s after the start, to test the watchdog. | `main.c` |
