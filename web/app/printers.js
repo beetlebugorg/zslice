@@ -42,6 +42,34 @@ async function load(wasm) {
   return loading;
 }
 
+// The bed model of the printer of a machine profile (its settings
+// machine.model and machine.name), for the 3D view: { index, mesh,
+// texture } with the bytes of the files in beds/, or null if the model
+// has none. The library and the files load only for a printer with a bed
+// model in the library.
+export async function bedFiles(wasm, modelId, name) {
+  if (!modelId && !name) return null;
+  const l = await load(wasm);
+  const i = wasm.withStrings([modelId ?? "", name ?? ""], (a, b) => wasm.x.zs_printers_find_machine(l, a, b));
+  if (i < 0) return null;
+  const p = wasm.alloc(12);
+  let names;
+  try {
+    if (wasm.x.zs_printers_bed(l, i, p) !== 0) return null;
+    names = [wasm.cstr(wasm.u32(p)), wasm.cstr(wasm.u32(p + 4))];
+  } finally {
+    wasm.free(p, 12);
+  }
+  const get = async (n) => {
+    if (!n) return null;
+    const r = await fetch(`beds/${encodeURIComponent(n)}`);
+    return r.ok ? new Uint8Array(await r.arrayBuffer()) : null;
+  };
+  const [mesh, texture] = await Promise.all(names.map(get));
+  if (!mesh && !texture) return null;
+  return { lib: l, index: i, mesh, texture };
+}
+
 export function model(wasm, i) {
   const p = wasm.alloc(MODEL_SIZE);
   try {
@@ -100,6 +128,30 @@ export function profileText(wasm, i, nozzle) {
 
 // ---- the drawing of the build volume (draw_volume in printer-picker.c) ----
 
+// The flat bed textures for the plate of the drawing (zs_printer_bed.flat):
+// model index to an Image, or null for none. `done` runs when an image
+// loads. zs_printer_bed on wasm32: three pointers and a bool (16 bytes).
+const bedImages = new Map();
+function bedImage(wasm, i, done) {
+  if (bedImages.has(i)) {
+    const im = bedImages.get(i);
+    return im?.complete && im.naturalWidth > 0 ? im : null;
+  }
+  let im = null;
+  const p = wasm.alloc(16);
+  try {
+    if (wasm.x.zs_printers_bed(lib, i, p) === 0 && wasm.u8[p + 12] !== 0) {
+      im = new Image();
+      im.onload = done;
+      im.src = `beds/${encodeURIComponent(wasm.cstr(wasm.u32(p + 4)))}`;
+    }
+  } finally {
+    wasm.free(p, 16);
+  }
+  bedImages.set(i, im);
+  return null;
+}
+
 function iso(x, y, z) {
   return [(x + y) * 0.866, (x - y) * 0.5 - z];
 }
@@ -142,6 +194,17 @@ function drawVolume(canvas, v) {
   path(v.round ? circle(0) : [P(0, 0, 0), P(v.bx, 0, 0), P(v.bx, v.by, 0), P(0, v.by, 0)], true);
   cr.fillStyle = accent + "0.16)";
   cr.fill();
+  // The bed texture of the model on the plate: the image spans the plate,
+  // its top row at the back. In the isometric view this is one affine map.
+  if (v.tex) {
+    const iw = v.tex.naturalWidth, ih = v.tex.naturalHeight;
+    cr.save();
+    cr.clip();
+    cr.transform(0.866 * s * v.bx / iw, 0.5 * s * v.bx / iw, -0.866 * s * v.by / ih, 0.5 * s * v.by / ih, cx + 0.866 * s * v.by, cy - 0.5 * s * v.by);
+    cr.globalAlpha = 0.55;
+    cr.drawImage(v.tex, 0, 0);
+    cr.restore();
+  }
   cr.strokeStyle = accent + "0.9)";
   cr.lineWidth = 2;
   cr.stroke();
@@ -305,7 +368,7 @@ export async function openPrinterPicker(wasm, onAdd, hooks = {}) {
   card.append(cardTitle, cardSub, canvas, facts);
   choose.append(side, mid, card);
 
-  const volumeOf = (m) => m ? { bx: m.bedX, by: m.bedY, bz: m.height, ox: m.originX, oy: m.originY, round: m.round }
+  const volumeOf = (m) => m ? { bx: m.bedX, by: m.bedY, bz: m.height, ox: m.originX, oy: m.originY, round: m.round, tex: bedImage(wasm, m.index, () => updateCard()) }
     : st.current === -2 ? { bx: 220, by: 220, bz: 250, ox: 0, oy: 0, round: false } : null;
 
   const updateCard = () => {

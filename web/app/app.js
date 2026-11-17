@@ -21,7 +21,7 @@ import { Inspector } from "./inspector.js";
 import { contextItems } from "./context-menu.js";
 import { openMenu, openMenuAt, menuOpen } from "./menus.js";
 import { formatClock, formatTime } from "./format.js";
-import { openPrinterPicker } from "./printers.js";
+import { openPrinterPicker, bedFiles } from "./printers.js";
 
 const $ = (id) => document.getElementById(id);
 const STORE_KEY = "zslice.web.v1";
@@ -473,6 +473,30 @@ function applySettings(r) {
     saveStore();
   }
   updateMenus();
+  updateBed();
+}
+
+// The bed model of the printer in the 3D view: loaded when the printer
+// (machine.model, or machine.name) changes. A printer with no bed model in
+// the library keeps the grid.
+let bedKey = null;
+async function updateBed() {
+  const id = value("machine.model");
+  const name = value("machine.name");
+  const key = `${id}\n${name}`;
+  if (key === bedKey) return;
+  bedKey = key;
+  let shown = false;
+  try {
+    const b = await bedFiles(wasm, id, name);
+    if (key !== bedKey) return;
+    shown = !!b && view.setBed(b.lib, b.index, b.mesh, b.texture) === 0;
+  } catch (e) {
+    console.warn("zslice: the bed model did not load", e);
+  }
+  if (key !== bedKey) return;
+  if (!shown) view.clearBed();
+  requestFrame();
 }
 
 // ---- the header menus ----

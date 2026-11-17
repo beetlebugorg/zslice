@@ -45,6 +45,23 @@ export class View3D {
     this.loaded = true;
   }
 
+  // The bed model of model i of the printer library `lib` (a pointer in
+  // this instance): the bytes of its files (Uint8Array or null).
+  setBed(lib, i, mesh, texture) {
+    const w = this.w;
+    const mp = mesh?.length ? w.alloc(mesh.length) : 0;
+    const tp = texture?.length ? w.alloc(texture.length) : 0;
+    try {
+      if (mp) w.u8.set(mesh, mp);
+      if (tp) w.u8.set(texture, tp);
+      return this.x.zs_view_set_bed(this.v, lib, i, mp, mesh?.length ?? 0, tp, texture?.length ?? 0);
+    } finally {
+      if (mp) w.free(mp, mesh.length);
+      if (tp) w.free(tp, texture.length);
+    }
+  }
+  clearBed() { this.x.zs_view_clear_bed(this.v); }
+
   setLayerRange(lo, hi) { this.x.zs_view_set_layer_range(this.v, lo, hi); }
   orbit(dx, dy) { this.x.zs_view_orbit(this.v, dx, dy); }
   rotate(dx, dy) { this.x.zs_view_rotate(this.v, dx, dy); }
@@ -186,10 +203,12 @@ export class View3D {
     let f = this.f;
     if (!f || f.buf !== buf || f.p !== p) {
       f = this.f = {
-        buf, p, keys: new Uint32Array(16).fill(0xffffffff),
+        buf, p, keys: new Uint32Array(20).fill(0xffffffff),
         box: new Float32Array(buf, p, 28),
         grid: new Float32Array(buf, p + 112, 28),
         clear: new Float32Array(buf, p + 224, 4),
+        bed: new Float32Array(buf, p + 352, 28),
+        bedVerts: null, bedTex: null,
         extras: null, head: null, instances: null, meshVerts: null, meshIndex: null, gridPoints: null, draws: null,
       };
     }
@@ -222,6 +241,14 @@ export class View3D {
     f.lod2First = m[k + 25];
     f.lod1Count = m[k + 26];
     f.lod2Count = m[k + 27];
+    // The bed model (k + 28 .. k + 55 is its push data).
+    f.bedVertexCount = m[k + 57];
+    frameView(f, 14, m[k + 56], f.bedVertexCount, Float32Array, 32, "bedVerts");
+    f.bedVertices = m[k + 58];
+    f.bedGen = m[k + 59];
+    f.bedTexWidth = m[k + 61];
+    f.bedTexHeight = m[k + 62];
+    frameView(f, 16, m[k + 60], f.bedTexWidth * f.bedTexHeight, Uint8Array, 4, "bedTex");
     return f;
   }
 

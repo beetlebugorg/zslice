@@ -81,6 +81,13 @@ pub fn build(b: *std.Build) void {
     // The printer library: the picker loads it when it opens (the wasm
     // module does not embed it).
     web_step.dependOn(&b.addInstallFileWithDir(b.path("src/printers/library.txt"), .{ .custom = "web/app" }, "printers.txt").step);
+    // The bed models of the printers: the page loads the files of the
+    // current printer from beds/ (see web/app/README.md).
+    web_step.dependOn(&b.addInstallDirectory(.{
+        .source_dir = b.path("src/printers/beds"),
+        .install_dir = .{ .custom = "web/app" },
+        .install_subdir = "beds",
+    }).step);
 
     // Tests.
     const mod_tests = b.addTest(.{ .root_module = mod });

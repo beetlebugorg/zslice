@@ -180,6 +180,47 @@ void main() {
     frag = vec4(color.rgb, 1.0);
 }`;
 
+// The bed model: ports of src/render/shaders/bed.vert and bed.frag.
+const bedVert = `#version 300 es
+precision highp float;
+layout(location = 0) in vec3 pos;
+layout(location = 1) in vec3 normal;
+layout(location = 2) in vec2 uv;
+uniform mat4 mvp;
+out vec3 vnormal;
+out vec2 vuv;
+out float vz;
+void main() {
+    gl_Position = mvp * vec4(pos, 1.0);
+    gl_Position.y = -gl_Position.y;
+    gl_Position.z = 2.0 * gl_Position.z - gl_Position.w;
+    vnormal = normal;
+    vuv = uv;
+    vz = pos.z;
+}`;
+
+const bedFrag = `#version 300 es
+precision highp float;
+uniform vec4 color;
+uniform vec4 light;
+uniform vec4 params;
+uniform sampler2D tex;
+in vec3 vnormal;
+in vec2 vuv;
+in float vz;
+out vec4 frag;
+void main() {
+    vec3 n = normalize(vnormal);
+    float lit = 0.7 + 0.3 * abs(dot(n, normalize(light.xyz)));
+    vec3 col = color.rgb * lit;
+    if (params.x > 0.5 && vuv.x > -0.5) {
+        vec4 t = texture(tex, vuv);
+        col = mix(col, t.rgb * lit, t.a * 0.7);
+    }
+    float a = (vz > params.y || params.z > 0.5) ? 0.3 : 1.0;
+    frag = vec4(col, a);
+}`;
+
 // The 2D view: a stroke with round ends for each bead (instanced). The
 // quad of a bead goes from a - r to b + r along it, and r to each side;
 // the fragment shader cuts the round ends. kind 0: the feature colors,
@@ -314,13 +355,18 @@ export class GlRenderer {
     this.gl = gl;
     this.box = compile(gl, boxVert, boxFrag);
     this.grid = compile(gl, gridVert, gridFrag);
+    this.bedProg = compile(gl, bedVert, bedFrag);
+    this.bedVbo = gl.createBuffer();
+    this.bedVao = gl.createVertexArray();
+    this.bedTex = gl.createTexture();
+    this.bedVertexCount = 0;
     this.meshVbo = gl.createBuffer();
     this.meshIbo = gl.createBuffer();
     this.instVbo = gl.createBuffer();
     this.gridVbo = gl.createBuffer();
     this.boxVao = gl.createVertexArray();
     this.gridVao = gl.createVertexArray();
-    this.gen = { mesh: -1, instances: -1, grid: -1 };
+    this.gen = { mesh: -1, instances: -1, grid: -1, bed: -1 };
     this.bed = new Float32Array(2);
     this.gridVertices = 0;
     this.init2d();
@@ -336,6 +382,15 @@ export class GlRenderer {
     gl.bindBuffer(gl.ARRAY_BUFFER, this.gridVbo);
     gl.enableVertexAttribArray(0);
     gl.vertexAttribPointer(0, 3, gl.FLOAT, false, 12, 0);
+
+    gl.bindVertexArray(this.bedVao);
+    gl.bindBuffer(gl.ARRAY_BUFFER, this.bedVbo);
+    gl.enableVertexAttribArray(0);
+    gl.vertexAttribPointer(0, 3, gl.FLOAT, false, 32, 0);
+    gl.enableVertexAttribArray(1);
+    gl.vertexAttribPointer(1, 3, gl.FLOAT, false, 32, 12);
+    gl.enableVertexAttribArray(2);
+    gl.vertexAttribPointer(2, 2, gl.FLOAT, false, 32, 24);
 
     gl.bindVertexArray(this.boxVao);
     gl.bindBuffer(gl.ARRAY_BUFFER, this.meshVbo);
@@ -422,6 +477,22 @@ export class GlRenderer {
       this.instanceCount = f.instanceCount;
       this.gen.instances = f.instancesGen;
     }
+    if (f.bedGen !== this.gen.bed) {
+      // The bed model: static, so it goes to the GPU once for each printer.
+      gl.bindVertexArray(null);
+      gl.bindBuffer(gl.ARRAY_BUFFER, this.bedVbo);
+      gl.bufferData(gl.ARRAY_BUFFER, f.bedVerts, gl.STATIC_DRAW);
+      this.bedVertexCount = f.bedVertexCount;
+      gl.bindTexture(gl.TEXTURE_2D, this.bedTex);
+      gl.pixelStorei(gl.UNPACK_ALIGNMENT, 1);
+      if (f.bedTexWidth > 0) gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, f.bedTexWidth, f.bedTexHeight, 0, gl.RGBA, gl.UNSIGNED_BYTE, f.bedTex);
+      else gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, 1, 1, 0, gl.RGBA, gl.UNSIGNED_BYTE, new Uint8Array([255, 255, 255, 255]));
+      gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR);
+      gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR);
+      gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE);
+      gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
+      this.gen.bed = f.bedGen;
+    }
     if (f.gridGen !== this.gen.grid) {
       gl.bindBuffer(gl.ARRAY_BUFFER, this.gridVbo);
       gl.bufferData(gl.ARRAY_BUFFER, f.gridPoints, gl.STATIC_DRAW);
@@ -436,6 +507,30 @@ export class GlRenderer {
       this.bed[0] = bx;
       this.bed[1] = by;
     }
+  }
+
+  // The bed model, after the beads: blended (its parts over the plate are
+  // see-through), with a depth offset so the grid lines stay in front.
+  drawBed(f) {
+    if (f.bedVertices === 0 || this.bedVertexCount === 0) return;
+    const gl = this.gl;
+    const u = this.bedProg.u;
+    gl.useProgram(this.bedProg.prog);
+    gl.uniformMatrix4fv(u.mvp, false, f.bed, 0, 16);
+    gl.uniform4fv(u.color, f.bed, 16, 4);
+    gl.uniform4fv(u.light, f.bed, 20, 4);
+    gl.uniform4fv(u.params, f.bed, 24, 4);
+    gl.activeTexture(gl.TEXTURE0);
+    gl.bindTexture(gl.TEXTURE_2D, this.bedTex);
+    gl.uniform1i(u.tex, 0);
+    gl.bindVertexArray(this.bedVao);
+    gl.enable(gl.BLEND);
+    gl.blendFunc(gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA);
+    gl.enable(gl.POLYGON_OFFSET_FILL);
+    gl.polygonOffset(2, 4);
+    gl.drawArrays(gl.TRIANGLES, 0, Math.min(f.bedVertices, this.bedVertexCount));
+    gl.disable(gl.POLYGON_OFFSET_FILL);
+    gl.disable(gl.BLEND);
   }
 
   // Draws one frame of view.js (View3D.frame).
@@ -461,7 +556,11 @@ export class GlRenderer {
       gl.drawArrays(gl.LINES, 0, f.gridVertices);
     }
 
-    if (this.indexCount === 0 || this.instCapacity === 0) return;
+    if (this.indexCount === 0 || this.instCapacity === 0) {
+      this.drawBed(f);
+      gl.bindVertexArray(null);
+      return;
+    }
     gl.useProgram(this.box.prog);
     gl.bindVertexArray(this.boxVao);
     this.setPush(f.box);
@@ -483,6 +582,10 @@ export class GlRenderer {
       gl.depthMask(true);
       this.setPush(f.box);
     }
+    this.drawBed(f);
+    gl.useProgram(this.box.prog);
+    gl.bindVertexArray(this.boxVao);
+    this.setPush(f.box);
     // The extras and the toolhead, in the spare slots after the instances.
     gl.bindBuffer(gl.ARRAY_BUFFER, this.instVbo);
     if (f.extrasCount > 0) {

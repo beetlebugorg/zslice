@@ -134,7 +134,7 @@ console.log(`2D pick: ${pickMs.toFixed(2)} ms; 3D pick: ${(performance.now() - t
 // The printer library (printers.txt, next to the wasm file): the layout
 // of zs_printer_model on wasm32, a search, and the profile of a model.
 const { loadLibrary, model, search, brands, profileText } = await import("./printers.js");
-loadLibrary(wasm2, await readFile(wasmPath.replace(/[^/]*$/, "printers.txt")));
+const lib = loadLibrary(wasm2, await readFile(wasmPath.replace(/[^/]*$/, "printers.txt")));
 const found = search(wasm2, "lulzbot taz 6", -1);
 check(found.total > 0, "a search of the printer library");
 const taz = model(wasm2, found.idx[0]);
@@ -142,4 +142,24 @@ check(taz.brand === "LulzBot" && taz.title === "LulzBot Taz 6" && taz.bedX === 2
 check(brands(wasm2).length > 100, "the brands of the library");
 check((profileText(wasm2, taz.index, 0.5) ?? "").includes("bed_size_x = 280"), "the machine profile of the model");
 console.log(`printers: ${found.total} for "lulzbot taz 6"; first: ${taz.brand} ${taz.name}, ${taz.bedX} x ${taz.bedY} x ${taz.height} mm, ${taz.firmware}`);
+// The bed model of a printer (beds/, next to the wasm file): the model of a
+// machine profile, the names of its files, and the bed in a frame.
+const mk4 = wasm2.withStrings(["prusa-mk4s", ""], (a, b) => wasm2.x.zs_printers_find_machine(lib, a, b));
+check(mk4 >= 0, "the model of a machine profile");
+check((profileText(wasm2, mk4, 0) ?? "").includes('model = "prusa-mk4s"'), "the model id in the machine profile");
+const bp = wasm2.alloc(12);
+check(wasm2.x.zs_printers_bed(lib, mk4, bp) === 0, "the bed of the model");
+const bedNames = [wasm2.cstr(wasm2.u32(bp)), wasm2.cstr(wasm2.u32(bp + 4)), wasm2.cstr(wasm2.u32(bp + 8))];
+wasm2.free(bp, 12);
+const bedDir = wasmPath.replace(/[^/]*$/, "beds/");
+const bedRc = view.setBed(lib, mk4, await readFile(bedDir + bedNames[0]), await readFile(bedDir + bedNames[1]));
+check(bedRc === 0, `the bed model loads (${bedNames.join(", ")})`);
+const bf = view.frame();
+check(bf.bedVertices > 0 && bf.bedVertices === bf.bedVertexCount && bf.bedVerts.length === 8 * bf.bedVertexCount, "the bed vertices in the frame");
+check(bf.bedTexWidth > 0 && bf.bedTex.length === 4 * bf.bedTexWidth * bf.bedTexHeight, "the bed texture in the frame");
+const bedTris = bf.bedVertexCount / 3;
+const bedTex = `${bf.bedTexWidth} x ${bf.bedTexHeight}`;
+view.clearBed();
+check(view.frame().bedVertices === 0, "no bed after zs_view_clear_bed");
+console.log(`bed: ${bedNames[0]} and ${bedNames[1]} (${bedNames[2]}): ${bedTris} triangles, texture ${bedTex}`);
 console.log("ok");
