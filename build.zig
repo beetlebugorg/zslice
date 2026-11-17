@@ -68,6 +68,17 @@ pub fn build(b: *std.Build) void {
     wasm_step.dependOn(&wasm_install.step);
     wasm_step.dependOn(&b.addInstallFileWithDir(b.path("web/zslice.mjs"), .{ .custom = "web" }, "zslice.mjs").step);
 
+    // The web app (web/app): the page, its scripts, and zslice.wasm, in
+    // zig-out/web/app. See web/app/README.md.
+    const web_step = b.step("web", "Build the web app into zig-out/web/app");
+    web_step.dependOn(&b.addInstallArtifact(wasm, .{ .dest_dir = .{ .override = .{ .custom = "web/app" } } }).step);
+    web_step.dependOn(&b.addInstallDirectory(.{
+        .source_dir = b.path("web/app"),
+        .install_dir = .{ .custom = "web" },
+        .install_subdir = "app",
+        .exclude_extensions = &.{ ".md", ".mjs", ".py" },
+    }).step);
+
     // Tests.
     const mod_tests = b.addTest(.{ .root_module = mod });
     // The C API tests link libc. The self-hosted Debug linker does not

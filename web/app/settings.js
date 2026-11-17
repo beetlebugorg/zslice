@@ -1,0 +1,504 @@
+// settings.js: the Settings page of the panel
+// (linux/src/ui/settings-browser.c). It has three columns, one at a time:
+// the sections, the settings of a section with an editor in each row, and
+// the detail page of one setting. All of it comes from the setting infos of
+// the core (zs_setting_get_info); the shell lists no setting.
+//
+// SPDX-License-Identifier: AGPL-3.0-or-later
+
+import {
+  ALL_FEATURES, FEATURE_COLORS, FEATURE_COUNT, FEATURE_TITLES, GROUP_TITLES,
+  displayValue, formatNumber, isNumber, isRatio, parsesAsNumber, sourceText, toCore, valueWithUnit,
+} from "./format.js";
+
+const GROUP_ORDER = ["project", "filament", "machine", "engine"];
+const LIVE_DELAY_MS = 450;
+
+function el(tag, cls, text) {
+  const e = document.createElement(tag);
+  if (cls) e.className = cls;
+  if (text !== undefined) e.textContent = text;
+  return e;
+}
+
+export class SettingsBrowser {
+  // ctx: { infos, effect(name), set(name, value) -> Promise<error text>,
+  //        reset(name), focus(mask, firstLayerOnly) }
+  constructor(ctx) {
+    this.ctx = ctx;
+    this.infos = ctx.infos;
+    this.byName = new Map(this.infos.map((i) => [i.name, i]));
+    this.values = {};
+    this.quality = "";
+    this.featureStats = null;
+    this.column = 0;
+    this.group = null;
+    this.section = null;
+    this.feature = -1;
+    this.search = "";
+    this.key = null;
+    // The live editors: name -> [{ update(entry) }].
+    this.editors = new Map();
+    this.cols = [
+      document.getElementById("col-sections"),
+      document.getElementById("col-settings"),
+      document.getElementById("col-detail"),
+    ];
+    this.crumbs = document.getElementById("crumbs");
+    document.getElementById("crumb-back").onclick = () => this.back();
+    const search = document.getElementById("search");
+    search.addEventListener("input", () => this.onSearch(search.value));
+    this.searchEntry = search;
+    this.fillSections();
+    // The first section is selected at the start, as in the GTK shell.
+    const first = this.infos.find((i) => i.group === "project");
+    if (first) this.selectSection(first.group, first.section, false);
+    this.showColumn(0);
+  }
+
+  // ---- data from the worker ----
+
+  setValues(snapshot) {
+    this.values = snapshot.values;
+    this.quality = snapshot.quality;
+    for (const [name, list] of this.editors) {
+      for (const ed of list) ed.update(this.values[name]);
+    }
+  }
+
+  setFeatureStats(stats) {
+    this.featureStats = stats;
+    if (this.column === 2 && this.key) this.fillEffect();
+  }
+
+  // ---- navigation ----
+
+  showColumn(c) {
+    this.column = c;
+    this.cols.forEach((col, i) => { col.hidden = i !== c; });
+    this.updateCrumbs();
+    this.sendFocus();
+  }
+
+  back() {
+    if (this.column > 0) this.showColumn(this.column - 1);
+  }
+
+  updateCrumbs() {
+    const c = this.crumbs;
+    c.replaceChildren();
+    const add = (text, column) => {
+      if (c.childElementCount > 0) c.append(el("span", "sep", "›"));
+      const b = el("button", column === this.column ? "here" : "", text);
+      b.onclick = () => this.showColumn(column);
+      c.append(b);
+    };
+    add("Settings", 0);
+    if (this.column >= 1) {
+      if (this.search) add(`Search: ${this.search}`, 1);
+      else if (this.feature >= 0) add(FEATURE_TITLES[this.feature], 1);
+      else if (this.group) add(`${GROUP_TITLES[this.group] ?? this.group} · ${this.section || "General"}`, 1);
+    }
+    if (this.column >= 2 && this.key) add(this.byName.get(this.key)?.label ?? this.key, 2);
+    document.getElementById("crumb-back").disabled = this.column === 0;
+  }
+
+  // The focus of the previews: the lines that the selection changes.
+  sendFocus() {
+    let mask = 0;
+    let first = false;
+    if (this.column === 2 && this.key) {
+      const e = this.ctx.effect(this.key);
+      mask = e.features || ALL_FEATURES;
+      first = e.firstLayerOnly;
+    } else if (this.column === 1 && this.feature >= 0) {
+      mask = 1 << this.feature;
+    } else if (this.group) {
+      mask = this.sectionFocus(this.group, this.section);
+    }
+    this.ctx.focus(mask, first);
+  }
+
+  sectionFocus(group, section) {
+    let mask = 0;
+    for (const i of this.infos) {
+      if (i.group === group && i.section === section) mask |= this.ctx.effect(i.name).features;
+    }
+    return mask || ALL_FEATURES;
+  }
+
+  // ---- column 1: the sections ----
+
+  fillSections() {
+    const col = this.cols[0];
+    col.replaceChildren();
+    this.sectionRows = [];
+    for (const g of GROUP_ORDER) {
+      const seen = new Set();
+      for (const i of this.infos) {
+        if (i.group !== g || seen.has(i.section)) continue;
+        if (seen.size === 0) col.append(el("div", "group-title", GROUP_TITLES[g] ?? g));
+        seen.add(i.section);
+        const row = el("div", "row");
+        row.tabIndex = 0;
+        row.append(el("div", "label", i.section || "General"), el("span", "chevron"));
+        row.onclick = () => this.selectSection(g, i.section, true);
+        row.onkeydown = (e) => {
+          if (e.key === "Enter" || e.key === "ArrowRight") this.selectSection(g, i.section, true);
+        };
+        row.onmouseenter = () => {
+          if (this.column === 0) this.ctx.focus(this.sectionFocus(g, i.section), false);
+        };
+        row.onmouseleave = () => { if (this.column === 0) this.sendFocus(); };
+        row.dataset.group = g;
+        row.dataset.section = i.section;
+        this.sectionRows.push(row);
+        col.append(row);
+      }
+    }
+  }
+
+  selectSection(group, section, open) {
+    this.group = group;
+    this.section = section;
+    this.feature = -1;
+    if (this.search) {
+      this.search = "";
+      this.searchEntry.value = "";
+    }
+    for (const r of this.sectionRows) r.classList.toggle("selected", r.dataset.group === group && r.dataset.section === section);
+    this.fillSettings((i) => i.group === group && i.section === section, false);
+    if (open) this.showColumn(1);
+    else this.sendFocus();
+  }
+
+  onSearch(text) {
+    this.search = text.trim();
+    this.feature = -1;
+    if (this.search) {
+      const needle = this.search.toLowerCase();
+      this.fillSettings((i) => i.label.toLowerCase().includes(needle) || i.doc.toLowerCase().includes(needle) || i.name.includes(needle), true);
+      this.showColumn(1);
+    } else if (this.group) {
+      this.selectSection(this.group, this.section, false);
+      this.showColumn(0);
+    }
+  }
+
+  // Column 2 lists the settings that change the lines of feature f: not
+  // the settings that change all lines, because they are in each list.
+  showFeature(f) {
+    this.feature = f;
+    this.search = "";
+    this.searchEntry.value = "";
+    this.fillSettings((i) => {
+      const e = this.ctx.effect(i.name).features;
+      return ((e >> f) & 1) !== 0 && (e & ALL_FEATURES) !== ALL_FEATURES;
+    }, true);
+    this.showColumn(1);
+  }
+
+  // ---- column 2: the settings ----
+
+  fillSettings(filter, withSection) {
+    const col = this.cols[1];
+    for (const [name, list] of this.editors) this.editors.set(name, list.filter((e) => e.where !== "row"));
+    col.replaceChildren();
+    for (const info of this.infos) {
+      if (!filter(info)) continue;
+      col.append(this.settingRow(info, withSection));
+    }
+    if (!col.childElementCount) col.append(el("div", "note", "No setting matches."));
+  }
+
+  settingRow(info, withSection) {
+    const row = el("div", "row setting-row");
+    row.tabIndex = 0;
+    if (info.name === this.key) row.classList.add("selected");
+    const label = el("div", "label");
+    const name = el("div", "name", info.label);
+    name.title = info.doc;
+    const tag = el("div", "tag");
+    label.append(name, tag);
+    const editor = this.makeEditor(info, "row");
+    row.append(label, editor.node, el("span", "chevron"));
+    const open = () => this.openSetting(info.name);
+    row.addEventListener("click", (e) => {
+      if (e.target.closest("input, select, .switch")) return;
+      open();
+    });
+    row.onkeydown = (e) => {
+      if ((e.key === "Enter" || e.key === "ArrowRight") && e.target === row) open();
+      if (e.key === "ArrowLeft" && e.target === row) this.back();
+    };
+    row.onmouseenter = () => {
+      if (this.column !== 1) return;
+      const fx = this.ctx.effect(info.name);
+      this.ctx.focus(fx.features || ALL_FEATURES, fx.firstLayerOnly);
+    };
+    row.onmouseleave = () => { if (this.column === 1) this.sendFocus(); };
+    this.track(info.name, {
+      where: "row",
+      update: (entry) => {
+        editor.update(entry);
+        const t = sourceText(entry);
+        tag.textContent = withSection ? `${GROUP_TITLES[info.group]} · ${info.section}${t ? ` · ${t}` : ""}` : t;
+        tag.hidden = !tag.textContent;
+        tag.classList.toggle("mine", entry?.level === 5 || entry?.level === 6);
+      },
+    });
+    return row;
+  }
+
+  track(name, ed) {
+    if (!this.editors.has(name)) this.editors.set(name, []);
+    this.editors.get(name).push(ed);
+    ed.update(this.values[name]);
+  }
+
+  // An editor for a setting: a number entry with its unit, a switch, a
+  // list of choices, or a text entry. Returns { node, update(entry) }.
+  makeEditor(info, where) {
+    const box = el("div", "editor");
+    const commit = async (value, input) => {
+      const error = await this.ctx.set(info.name, value);
+      if (input) {
+        input.classList.toggle("error", !!error);
+        input.title = error || info.doc;
+      }
+      return error;
+    };
+    if (info.kind === "boolean") {
+      const sw = el("button", "switch");
+      sw.setAttribute("role", "switch");
+      sw.title = info.doc;
+      sw.onclick = (e) => {
+        e.stopPropagation();
+        const on = !sw.classList.contains("on");
+        sw.classList.toggle("on", on);
+        commit(on ? "true" : "false");
+      };
+      box.append(sw);
+      return {
+        node: box,
+        update: (entry) => {
+          const on = entry?.value === "true";
+          sw.classList.toggle("on", on);
+          sw.setAttribute("aria-checked", String(on));
+        },
+      };
+    }
+    if (info.kind === "choice") {
+      const sel = el("select", "choice");
+      sel.title = info.doc;
+      for (const c of info.choices) sel.append(new Option(c, c));
+      sel.onchange = () => commit(sel.value);
+      box.append(sel);
+      return { node: box, update: (entry) => { if (entry && document.activeElement !== sel) sel.value = entry.value; } };
+    }
+    if (info.kind === "text" && info.multiline && where === "row") {
+      const t = el("span", "dim");
+      t.style.maxWidth = "170px";
+      t.style.overflow = "hidden";
+      t.style.textOverflow = "ellipsis";
+      t.style.whiteSpace = "nowrap";
+      box.append(t);
+      return { node: box, update: (entry) => { t.textContent = entry ? displayValue(info, entry.value) : ""; } };
+    }
+    if (info.kind === "text" && info.multiline) {
+      const ta = el("textarea", "text");
+      ta.rows = 8;
+      ta.style.width = "100%";
+      ta.style.fontFamily = "monospace";
+      ta.style.background = "var(--entry)";
+      ta.style.border = "none";
+      ta.style.borderRadius = "6px";
+      ta.style.padding = "6px";
+      ta.onchange = () => commit(ta.value, ta);
+      box.style.flex = "1";
+      box.append(ta);
+      return { node: box, update: (entry) => { if (entry && document.activeElement !== ta) ta.value = entry.value; } };
+    }
+    const input = el("input", isNumber(info) ? "num" : "text");
+    input.type = "text";
+    input.spellcheck = false;
+    input.title = info.doc;
+    let timer = 0;
+    let sent = null;
+    const send = () => {
+      clearTimeout(timer);
+      const v = toCore(info, input.value);
+      if (v === sent) return;
+      sent = v;
+      commit(v, input);
+    };
+    input.addEventListener("input", () => {
+      clearTimeout(timer);
+      // Live: a number goes to the core after a pause in the typing.
+      if (isNumber(info) && parsesAsNumber(input.value)) timer = setTimeout(send, LIVE_DELAY_MS);
+    });
+    input.addEventListener("keydown", (e) => {
+      if (e.key === "Enter") send();
+      if (e.key === "Escape") { input.value = displayValue(info, this.values[info.name]?.value ?? ""); input.blur(); }
+      if (isNumber(info) && (e.key === "ArrowUp" || e.key === "ArrowDown") && parsesAsNumber(input.value)) {
+        e.preventDefault();
+        const k = isRatio(info) ? 100 : 1;
+        const step = (info.sliderStep > 0 ? info.sliderStep : (info.kind === "integer" ? 1 : 0.1)) * k;
+        input.value = formatNumber(Number(input.value) + (e.key === "ArrowUp" ? step : -step));
+        send();
+      }
+    });
+    input.addEventListener("change", send);
+    input.addEventListener("click", (e) => e.stopPropagation());
+    box.append(input);
+    if (info.unit) box.append(el("span", "unit", info.unit));
+    return {
+      node: box,
+      update: (entry) => {
+        if (!entry) return;
+        sent = entry.value;
+        if (document.activeElement !== input) {
+          input.value = displayValue(info, entry.value);
+          input.classList.remove("error");
+        }
+        // A value out of the usual range is valid, but unusual.
+        const v = Number(entry.value);
+        const unusual = isNumber(info) && info.sliderMax > info.sliderMin && parsesAsNumber(entry.value) &&
+          (v < info.sliderMin - 1e-9 || v > info.sliderMax + 1e-9);
+        input.classList.toggle("unusual", unusual);
+      },
+    };
+  }
+
+  // ---- column 3: the detail page ----
+
+  openSetting(name) {
+    this.key = name;
+    for (const r of this.cols[1].querySelectorAll(".row.selected")) r.classList.remove("selected");
+    this.fillDetail();
+    this.showColumn(2);
+  }
+
+  fillDetail() {
+    const col = this.cols[2];
+    for (const [name, list] of this.editors) this.editors.set(name, list.filter((e) => e.where !== "detail"));
+    col.replaceChildren();
+    const info = this.byName.get(this.key);
+    if (!info) return;
+    col.append(el("h3", "", info.label));
+    col.append(el("div", "path", `${GROUP_TITLES[info.group] ?? info.group} › ${info.section || "General"}`));
+    const line = el("div", "edit-line");
+    line.append(el("div", "name", info.label));
+    const editor = this.makeEditor(info, "detail");
+    line.append(editor.node);
+    col.append(line);
+
+    // A slider for the usual values.
+    let slider = null;
+    if (isNumber(info) && info.sliderMax > info.sliderMin) {
+      slider = el("input", "slider");
+      slider.type = "range";
+      const k = isRatio(info) ? 100 : 1;
+      slider.min = String(info.sliderMin * k);
+      slider.max = String(info.sliderMax * k);
+      slider.step = String((info.sliderStep > 0 ? info.sliderStep : (info.kind === "integer" ? 1 : (info.sliderMax - info.sliderMin) / 100)) * k);
+      let t = 0;
+      slider.oninput = () => {
+        clearTimeout(t);
+        t = setTimeout(() => this.ctx.set(info.name, toCore(info, slider.value)), 120);
+      };
+      col.append(slider);
+    }
+
+    // The formula of a number.
+    let formula = null;
+    if (isNumber(info)) {
+      const row = el("div", "formula");
+      row.append(el("span", "name", "Formula"));
+      formula = el("input", "text");
+      formula.placeholder = "= {line_width} * 2";
+      formula.spellcheck = false;
+      formula.title = "A formula of other settings, for example {line_width} * 2. Empty: a plain value.";
+      formula.onkeydown = async (e) => {
+        if (e.key !== "Enter") return;
+        const t = formula.value.trim();
+        const v = t === "" ? (this.values[info.name]?.value ?? "") : (t.startsWith("=") ? t : `= ${t}`);
+        const err = await this.ctx.set(info.name, v);
+        formula.classList.toggle("error", !!err);
+      };
+      row.append(formula);
+      col.append(row);
+    }
+
+    // Where the value comes from, and Reset.
+    const def = el("div", "default");
+    const defText = el("div", "text");
+    const reset = el("button", "", "Reset");
+    reset.onclick = () => this.ctx.reset(info.name);
+    def.append(defText, reset);
+    col.append(def);
+
+    col.append(el("div", "doc", info.doc));
+    col.append(el("h4", "", "In your project"));
+    this.effectBox = el("div", "");
+    col.append(this.effectBox);
+    this.fillEffect();
+
+    this.track(info.name, {
+      where: "detail",
+      update: (entry) => {
+        editor.update(entry);
+        if (!entry) return;
+        if (slider && document.activeElement !== slider && parsesAsNumber(entry.value)) {
+          slider.value = String(Number(entry.value) * (isRatio(info) ? 100 : 1));
+        }
+        if (formula && document.activeElement !== formula) formula.value = entry.formula !== null ? `= ${entry.formula}` : "";
+        const defv = valueWithUnit(info, info.defaultValue);
+        const mine = entry.level === 5 || entry.level === 6;
+        let text;
+        if (entry.level === 5) {
+          text = `Changed for this print. Reset gives ${valueWithUnit(info, entry.base)} (from ${this.quality || "the default"}).`;
+        } else {
+          const src = sourceText(entry);
+          text = src ? `From ${src}. Default: ${defv}` : `The default (${defv})`;
+        }
+        defText.textContent = text;
+        reset.style.visibility = mine ? "visible" : "hidden";
+      },
+    });
+  }
+
+  // What the setting changes: the lines of each feature, with their time.
+  fillEffect() {
+    const box = this.effectBox;
+    if (!box || !this.key) return;
+    box.replaceChildren();
+    const e = this.ctx.effect(this.key);
+    if (e.features === 0) {
+      box.append(el("div", "dim", `${e.note || "It changes no line."} The preview shows all lines, in their feature colors.`));
+      return;
+    }
+    const stats = this.featureStats;
+    const total = stats ? stats.reduce((s, f) => s + f.timeS, 0) : 0;
+    box.append(el("div", "", e.firstLayerOnly ? "It changes these lines on the first layer:" : "It changes these lines:"));
+    let shown = 0;
+    for (let f = 0; f < FEATURE_TITLES.length; f++) {
+      if (!((e.features >>> f) & 1)) continue;
+      if (f < FEATURE_COUNT && stats && stats[f].paths === 0) continue;
+      const row = el("div", "feature-row row");
+      row.style.paddingLeft = "10px";
+      const dot = el("span", "dot", "●");
+      dot.style.color = FEATURE_COLORS[f];
+      row.append(dot, el("span", "what", FEATURE_TITLES[f]));
+      if (f < FEATURE_COUNT && stats && total > 0 && !e.firstLayerOnly) {
+        row.append(el("span", "stat", `${Math.round(stats[f].timeS / 60)} min · ${Math.round((100 * stats[f].timeS) / total)} %`));
+      }
+      row.title = `Show all settings that change the ${FEATURE_TITLES[f]} lines`;
+      row.onclick = () => this.showFeature(f);
+      box.append(row);
+      shown++;
+    }
+    if (shown === 0) box.append(el("div", "dim", "This part has none of these lines now."));
+    else box.append(el("div", "note", "The preview shows these lines, and the other lines fade."));
+  }
+}

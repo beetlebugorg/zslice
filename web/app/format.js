@@ -1,0 +1,90 @@
+// format.js: the text of setting values, as the GTK shell shows them
+// (linux/src/ui/setting-editor.c): a ratio as a percentage, a line width of
+// 0 as "auto", and the unit after the value.
+//
+// SPDX-License-Identifier: AGPL-3.0-or-later
+
+export const FEATURE_TITLES = ["Outer wall", "Inner wall", "Skin", "Sparse infill",
+  "Ironing", "Skirt or brim", "Support", "Support interface",
+  "Slope smoothing", "Slope ironing", "Bridge",
+  "Seams", "Travel moves", "Retractions"];
+
+// The feature and mark colors (feature_rgb in src/render/view.zig).
+export const FEATURE_COLORS = ["#d9480f", "#f59f00", "#1c7ed6", "#2b8a3e", "#ae3ec9", "#8d6e63",
+  "#adb5bd", "#495057", "#0ca6ae", "#82c91e", "#66ccf2", "#e01a26", "#3373f2", "#f240bf"];
+
+export const FEATURE_COUNT = 11;
+export const ALL_FEATURES = (1 << FEATURE_COUNT) - 1;
+
+// The groups of the settings browser, in order, with their titles.
+export const GROUP_TITLES = { project: "Part", filament: "Filament", machine: "Printer", engine: "Engine" };
+
+export function parsesAsNumber(text) {
+  return text.trim() !== "" && Number.isFinite(Number(text));
+}
+
+// A number with no more digits than it needs (%.6g).
+export function formatNumber(v) {
+  return String(Number(v.toPrecision(6)));
+}
+
+function isAuto(info) { return info.name.endsWith("line_width"); }
+export function isRatio(info) { return (info.kind === "number" || info.kind === "integer") && info.unit === "%"; }
+export function isNumber(info) { return info.kind === "number" || info.kind === "integer"; }
+
+// The value as an editor shows it.
+export function displayValue(info, value) {
+  if (isAuto(info) && parsesAsNumber(value) && Number(value) === 0) return "auto";
+  if (isRatio(info) && parsesAsNumber(value)) return formatNumber(Number(value) * 100);
+  if (info.kind === "text" && info.multiline) {
+    const nl = value.indexOf("\n");
+    return nl >= 0 ? `${value.slice(0, nl)} …` : value;
+  }
+  return value;
+}
+
+// The value with its unit: "0.8 mm", "1 layer", "auto".
+export function valueWithUnit(info, value) {
+  const shown = displayValue(info, value);
+  const n = info.unit.length;
+  const one = shown === "1" && n > 1 && info.unit.endsWith("s") && info.kind === "integer";
+  if (!info.unit || shown === "auto") return shown;
+  return `${shown} ${one ? info.unit.slice(0, n - 1) : info.unit}`;
+}
+
+// The core value of the text of an editor.
+export function toCore(info, text) {
+  const t = text.trim();
+  if (isAuto(info) && t.toLowerCase() === "auto") return "0";
+  if (!isRatio(info) || !parsesAsNumber(t)) return t;
+  return String(Number((Number(t) / 100).toPrecision(10)));
+}
+
+// The level of a value (enum zs_level) as a source tag, or "".
+export function sourceText(entry) {
+  if (!entry) return "";
+  if (entry.formula !== null && entry.formula !== undefined) return `= ${entry.formula}`;
+  switch (entry.level) {
+    case 1: return "Global";
+    case 2: return entry.profile || "Printer";
+    case 3: return entry.profile || "Filament";
+    case 4: return entry.profile || "Quality";
+    case 5: return "This print";
+    case 6: return "This part";
+    default: return "";
+  }
+}
+
+// "50 min", "1 h 5 min".
+export function formatTime(seconds) {
+  const minutes = Math.round(seconds / 60);
+  return minutes < 60 ? `${minutes} min` : `${Math.floor(minutes / 60)} h ${minutes % 60} min`;
+}
+
+// "0:06", "1:02:03".
+export function formatClock(seconds) {
+  const s = Math.max(0, Math.floor(seconds));
+  const pad = (n) => String(n).padStart(2, "0");
+  if (s >= 3600) return `${Math.floor(s / 3600)}:${pad(Math.floor(s / 60) % 60)}:${pad(s % 60)}`;
+  return `${Math.floor(s / 60)}:${pad(s % 60)}`;
+}
