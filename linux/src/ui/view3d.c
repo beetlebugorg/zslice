@@ -405,10 +405,11 @@ void zg_view3d_set_layer(GtkWidget *view, size_t layer) {
     queue_frame(v);
 }
 
-/* The mouse, as in Cura, Tinkercad, and Fusion: a left or a right drag
- * orbits (turn and tilt, the bed stays level), a middle drag pans, and the
- * scroll wheel zooms toward the pointer. */
-enum { DRAG_ORBIT, DRAG_PAN, DRAG_ROTATE };
+/* The mouse: a left drag orbits (turn and tilt, the bed stays level), a
+ * middle or a right drag pans, and the scroll wheel zooms toward the
+ * pointer. On a touchpad: two fingers pressed down and dragged pan (a
+ * right or a middle drag), and a light two-finger swipe or a pinch zooms. */
+enum { DRAG_ORBIT, DRAG_PAN, DRAG_RIGHT };
 
 /* The part under a pixel: the part of the path there, or the part whose
  * footprint holds the bed point there. */
@@ -500,7 +501,7 @@ static void on_drag_end(GtkGestureDrag *g, double dx, double dy, gpointer data) 
     v->moving = -1;
     tool_cursor(v);
     int mode = GPOINTER_TO_INT(g_object_get_data(G_OBJECT(g), "zg-drag"));
-    if (mode == DRAG_ROTATE && fabs(dx) < 4 && fabs(dy) < 4) {
+    if (mode == DRAG_RIGHT && fabs(dx) < 4 && fabs(dy) < 4) {
         double sx, sy;
         gtk_gesture_drag_get_start_point(g, &sx, &sy);
         menu_at(v, sx, sy);
@@ -525,7 +526,8 @@ static void on_drag_update(GtkGestureDrag *g, double dx, double dy, gpointer dat
     }
     if (v->view) {
         switch (mode) {
-        case DRAG_PAN: zs_view_pan(v->view, ddx * scale, ddy * scale); break;
+        case DRAG_PAN:
+        case DRAG_RIGHT: zs_view_pan(v->view, ddx * scale, ddy * scale); break;
         default: zs_view_orbit(v->view, ddx, ddy); break;
         }
     }
@@ -940,7 +942,9 @@ GtkWidget *zg_view3d_new(ZgModel *model) {
     const struct { guint button; int mode; } drags[] = {
         {GDK_BUTTON_PRIMARY, DRAG_ORBIT},
         {GDK_BUTTON_MIDDLE, DRAG_PAN},
-        {GDK_BUTTON_SECONDARY, DRAG_ROTATE},
+        /* A right drag (two fingers pressed down on a touchpad) pans; a
+         * right click opens the menu (on_drag_end). */
+        {GDK_BUTTON_SECONDARY, DRAG_RIGHT},
     };
     for (size_t i = 0; i < G_N_ELEMENTS(drags); i++) {
         GtkGesture *drag = gtk_gesture_drag_new();

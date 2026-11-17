@@ -218,10 +218,11 @@ The measure shows under the toolbar: the distance, its parts along X, Y, and Z, 
 
 | Mouse | Action |
 |---|---|
-| Left or right drag | Orbit: turn and tilt around the part, as in Cura and Tinkercad; the bed stays level, and the tilt stops at 89° over the top and under the bed |
-| Middle drag | Pan: move the view |
+| Left drag | Orbit: turn and tilt around the part; the bed stays level, and the tilt stops at 89° over the top and under the bed |
+| Middle or right drag | Pan: move the view |
 | Scroll (mouse wheel) | Zoom toward the pointer |
-| Two fingers on a touchpad | A swipe zooms, and a pinch zooms |
+| Two fingers pressed down on a touchpad, and a drag | Pan |
+| A light two-finger swipe, or a pinch | Zoom toward the pointer |
 | Double-click | Reset the view |
 | Left click | Pick a line (see below) |
 

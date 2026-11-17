@@ -213,9 +213,10 @@ function resize() {
 }
 new ResizeObserver(resize).observe(canvas);
 
-// The mouse, as in Cura and Tinkercad. In 3D: a left or a right drag
-// orbits, a middle drag (or Shift and a drag) pans, and the wheel zooms
-// toward the pointer (linux/src/ui/view3d.c); a trackpad pinch zooms too.
+// The mouse. In 3D: a left drag orbits, a middle or a right drag (or Shift
+// and a drag) pans, and the wheel zooms toward the pointer
+// (linux/src/ui/view3d.c). On a trackpad: two fingers pressed down and
+// dragged pan, and a light two-finger swipe or a pinch zooms.
 // In 2D: a drag pans, and the wheel zooms (preview.c). In both: a click (a
 // release within 4 pixels of the press) selects the line under the
 // pointer, and a right click opens the context menu there.
@@ -236,9 +237,10 @@ canvas.addEventListener("pointermove", (e) => {
   drag.y = e.clientY;
   if (dx === 0 && dy === 0) return;
   if (Math.abs(e.clientX - drag.x0) > 4 || Math.abs(e.clientY - drag.y0) > 4) drag.moved = true;
-  if (app.page === "2d") {
-    if (drag.button !== 2) view2d.pan(dx * dpr(), dy * dpr());
-  } else if (drag.button === 1 || e.shiftKey) view.pan(dx * dpr(), dy * dpr());
+  // A left drag orbits. A right drag (two fingers pressed down on a
+  // touchpad) and a middle drag pan, as Shift with a left drag does.
+  if (app.page === "2d") view2d.pan(dx * dpr(), dy * dpr());
+  else if (drag.button === 1 || drag.button === 2 || e.shiftKey) view.pan(dx * dpr(), dy * dpr());
   else view.orbit(dx, dy);
   requestFrame();
 });
@@ -714,7 +716,7 @@ function showPage(page) {
 }
 $("view-2d").disabled = false;
 $("view-2d").title = "2D: one layer from the top. A drag pans, the wheel zooms, a double click fits the part.";
-$("view-3d").title = "3D: the layers up to the slider. A left or right drag orbits, a middle drag pans, scroll to zoom, double-click to reset.";
+$("view-3d").title = "3D: the layers up to the slider. A left drag orbits, a middle or right drag pans (two fingers pressed down on a trackpad), scroll or pinch to zoom, double-click to reset.";
 $("view-2d").onclick = () => showPage("2d");
 $("view-3d").onclick = () => showPage("3d");
 $("view-2d").classList.toggle("checked", app.page === "2d");

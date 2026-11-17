@@ -1183,7 +1183,7 @@ GtkWidget *zg_preview_new(ZgModel *model) {
     gtk_widget_add_css_class(switcher, "linked");
     gtk_box_append(GTK_BOX(switcher), b2d);
     gtk_box_append(GTK_BOX(switcher), b3d);
-    gtk_widget_set_tooltip_text(switcher, "2D: one layer. 3D: the layers up to the slider. In 3D: a left or right drag orbits, a middle drag pans, scroll to zoom, double-click to reset.");
+    gtk_widget_set_tooltip_text(switcher, "2D: one layer. 3D: the layers up to the slider. In 3D: a left drag orbits, a middle or right drag pans (two fingers pressed down on a touchpad), scroll or pinch to zoom, double-click to reset.");
 
     /* The controls float over the view, so the view has all the room. The
      * window is transparent (for the 3D view), so each control paints its
