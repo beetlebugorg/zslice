@@ -66,6 +66,12 @@ Each plate is one `App` (`zs_app`), with its own settings, profiles, parts, slic
 | Bottom right | The print card of the active plate: time, layers, grams, meters, and Print (with a menu: upload only, export). |
 | Right, on demand | The settings drawer: all settings by section, with search. Pin docks it beside the view. |
 
+## Done in the web app
+
+- The settings search (`/`) with live controls in the results, which the user can move (search.js).
+- The sheet of the keyboard shortcuts (`?`, shortcuts.js).
+- The panel as a drawer: hidden, over the view, or pinned (`N`, the sliders button, Pin). The print card floats over the view.
+
 ## The steps
 
 1. The plate set in the web app: one `Core` (`zs_app`) for each plate in the worker, the slice order, and the status. The project plates load into their own apps.

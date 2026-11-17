@@ -90,7 +90,19 @@ button.pill { border-radius: 999px; padding: 6px 22px; background: var(--accent-
 
 /* ---- the window ---- */
 
-.window { flex: 1; display: flex; min-height: 0; }
+.window { flex: 1; display: flex; min-height: 0; position: relative; }
+/* The panel is a drawer (docs/internals/one-view.md): hidden, over the
+   view (overlay), or pinned beside it. */
+.window.panel-hidden .panel, .window.panel-hidden .splitter { display: none; }
+.window.panel-overlay .splitter { display: none; }
+.window.panel-overlay .panel {
+  position: absolute; right: 0; top: 0; bottom: 0; z-index: 20;
+  width: min(460px, 92vw) !important;
+  box-shadow: -18px 0 44px rgba(0, 0, 0, 0.45);
+}
+.panel-pin { min-height: 28px; padding: 2px 10px; font-size: 0.85em; }
+.panel-pin[aria-pressed="true"] { background: var(--accent-bg); color: #fff; }
+#panel-toggle[aria-pressed="true"] { background: var(--accent-bg); color: #fff; }
 .preview { flex: 1; position: relative; background: var(--view-bg); min-width: 0; overflow: hidden; }
 .preview canvas { position: absolute; inset: 0; width: 100%; height: 100%; display: block; touch-action: none; outline: none; }
 .preview.drop { outline: 3px dashed var(--accent-bg); outline-offset: -8px; }
@@ -175,9 +187,9 @@ input[type=range] { accent-color: var(--accent-bg); }
 /* ---- the panel ---- */
 
 .panel-top { display: flex; align-items: center; padding: 8px 8px 4px; gap: 6px; }
-.panel-top .switcher { margin: 0 auto; transform: translateX(-14px); }
+.panel-top .switcher { flex: 1; min-width: 0; }
 .switcher { display: flex; background: var(--button); border-radius: var(--radius); }
-.switcher button { min-width: 133px; background: transparent; }
+.switcher button { flex: 1; min-width: 0; padding-left: 6px; padding-right: 6px; background: transparent; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .switcher button.checked { background: var(--button-active); }
 .page { flex: 1; display: flex; flex-direction: column; min-height: 0; }
 .crumbbar { display: flex; align-items: center; gap: 4px; padding: 2px 6px; border-bottom: 1px solid var(--border); min-height: 40px; }
@@ -266,6 +278,22 @@ select.choice {
 
 /* The print card (.zg-summary). */
 .summary { background: var(--card); padding: 12px 14px 14px; border-top: 1px solid var(--border); }
+/* The print card floats at the bottom right of the view. */
+.summary.float-card {
+  position: absolute; right: 14px; bottom: 12px; width: 290px; z-index: 3;
+  border: 1px solid rgba(255, 255, 255, 0.12); border-radius: 12px;
+  background: rgba(40, 40, 44, 0.94); color: #ececee;
+  box-shadow: 0 6px 24px rgba(0, 0, 0, 0.35);
+}
+@media (max-width: 900px) { .summary.float-card { width: 230px; } }
+/* In a narrow view, the bars of the bottom center go to the left, out of
+   the way of the print card. */
+.preview { container-type: inline-size; }
+@container (max-width: 1100px) {
+  .preview .scrub, .preview .timeline { left: 12px; transform: none; }
+  .preview .scrub { width: calc(100% - 350px); }
+  .preview .timeline { max-width: calc(100% - 350px); }
+}
 .summary.stale > :not(.progress):not(button) { opacity: 0.55; }
 .sum-time { font-size: 1.6em; font-weight: 700; font-variant-numeric: tabular-nums; }
 .sum-detail { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }

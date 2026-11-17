@@ -177,6 +177,50 @@ function drawFrame(now) {
   else lastFrameTime = 0;
 }
 
+// ---- the panel: a drawer (docs/internals/one-view.md) ----
+//
+// "hidden": the view has the whole window. "overlay": the panel slides
+// over the right of the view. "pinned": the panel is beside the view, as
+// a column with the splitter. N shows and hides it; Pin switches between
+// over and beside. The choice stays in the store.
+
+function panelMode() {
+  return store.panelMode === "pinned" || store.panelMode === "overlay" ? store.panelMode : "hidden";
+}
+
+function setPanelMode(mode) {
+  const w = document.querySelector(".window");
+  w.classList.toggle("panel-hidden", mode === "hidden");
+  w.classList.toggle("panel-overlay", mode === "overlay");
+  $("panel-toggle").setAttribute("aria-pressed", String(mode !== "hidden"));
+  $("panel-pin").setAttribute("aria-pressed", String(mode === "pinned"));
+  if (mode !== "hidden") store.panelPinned = mode === "pinned";
+  store.panelMode = mode;
+  saveStore();
+}
+
+// Shows the panel (over the view, or pinned if the user pinned it last).
+function showPanel() {
+  if (panelMode() === "hidden") setPanelMode(store.panelPinned ? "pinned" : "overlay");
+}
+
+function togglePanel() {
+  if (panelMode() === "hidden") showPanel();
+  else setPanelMode("hidden");
+}
+
+setPanelMode(panelMode());
+$("panel-toggle").onclick = () => togglePanel();
+$("panel-close").onclick = () => setPanelMode("hidden");
+$("panel-pin").onclick = () => setPanelMode(panelMode() === "pinned" ? "overlay" : "pinned");
+// Esc in the panel over the view hides it (an entry keeps its own Esc).
+$("panel").addEventListener("keydown", (e) => {
+  if (e.key !== "Escape" || panelMode() !== "overlay") return;
+  if (e.target.closest?.("input, textarea, select")) return;
+  setPanelMode("hidden");
+  canvas.focus();
+});
+
 // ---- the splitter: the width of the panel, kept in the store ----
 
 {
@@ -869,6 +913,7 @@ function showLicenses() {
 // ---- the panel tabs ----
 
 function showTab(name) {
+  showPanel();
   $("tab-settings").classList.toggle("checked", name === "settings");
   $("tab-selected").classList.toggle("checked", name === "selected");
   $("tab-history").classList.toggle("checked", name === "history");
@@ -1676,16 +1721,19 @@ const search = new SearchOverlay({
     { label: "Open a project", hint: "printdeck.yml from GitHub or a folder", run: () => showTab("project") },
     { label: "History", hint: "the changes, undo one change", run: () => showTab("history") },
     { label: "Keyboard shortcuts", keys: "?", run: () => shortcuts.show() },
+    { label: "All settings", keys: "N", hint: "the panel of the settings, the selected line, the history, and the project", run: () => showTab("settings") },
   ],
 });
 const shortcuts = new ShortcutSheet();
 $("search-open").onclick = () => search.show();
 
 document.addEventListener("keydown", (e) => {
-  if ((e.key !== "/" && e.key !== "?") || e.ctrlKey || e.metaKey || e.altKey) return;
+  if ((e.key !== "/" && e.key !== "?" && e.key !== "n" && e.key !== "N") || e.ctrlKey || e.metaKey || e.altKey) return;
   if (e.target.closest?.("input, textarea, select, [contenteditable]")) return;
   e.preventDefault();
-  if (e.key === "?") {
+  if (e.key === "n" || e.key === "N") {
+    togglePanel();
+  } else if (e.key === "?") {
     search.close();
     shortcuts.toggle();
   } else {

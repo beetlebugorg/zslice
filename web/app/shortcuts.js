@@ -15,6 +15,7 @@ export const SHORTCUTS = [
     keys: [
       ["?", "Show this sheet of the keyboard shortcuts"],
       ["/", "Search the settings and the actions, and change a setting in the results"],
+      ["N", "Show or hide the panel: all settings, the selected line, the history, and the project"],
       ["Ctrl+O", "Open a model"],
       ["Ctrl+E", "Export the G-code"],
       ["Ctrl+Z", "Undo"],

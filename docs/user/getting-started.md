@@ -200,6 +200,12 @@ To change a number:
 
 A value out of the usual range shows in the warning color, and its tooltip gives the usual range. A value out of the limits of the setting (for example a 300 mm brim) is an error, and the tooltip gives the limits.
 
+## The panel and the print card
+
+In the web app, the view has the whole window. The print card (the print time, the plastic, and Export or Print) floats at the bottom right of the view.
+
+The panel has all settings, the selected line, the history, and the project. Press `N`, or click the sliders button at the top right, to show it or hide it. It slides over the view. Click **Pin** to put it beside the view, as a column with a splitter; click **Pin** again to let it slide over. Esc hides it when it slides over the view. A click on a line, or a link to a setting, shows the panel.
+
 ## Keyboard shortcuts
 
 Press `?` to see all keyboard shortcuts of the web app, grouped. Type in the sheet to filter it. Esc closes it.
