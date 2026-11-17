@@ -23,7 +23,7 @@ zslice has ports of the code of CuraEngine and boost::polygon (see above). It co
 
 ## Data in the binaries
 
-The printer library (`src/printers/library.txt`) has data from the printer definitions of three slicers. `tools/printer_library.py` converts them: it reads the bed, the nozzle, the motion limits, the firmware, and the start and end G-code of each printer model, and writes one record for each model. The native library and the command line tool embed the file (`src/printers.zig`). The wasm module does not: the web app loads the file as `printers.txt`. The header of the file names the sources and their versions.
+The printer library (`src/printers/library.txt`) has data from the printer definitions of three slicers. `tools/printer_library.py` converts them: it reads the bed, the nozzle, the motion limits, the firmware, and the start and end G-code of each printer model, and writes one record for each model. The native C library (`libzslice`, which the GTK app links) embeds the file (`src/printers.zig`). The license texts of the sources are in all binaries, also the wasm module. The wasm module does not: the web app loads the file as `printers.txt`. The header of the file names the sources and their versions.
 
 | Source | License | Text | Notes |
 |---|---|---|---|
