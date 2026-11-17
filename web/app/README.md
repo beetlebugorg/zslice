@@ -51,6 +51,7 @@ The rule of `docs/app/README.md` holds: the app logic is in the core, and the we
 | `format.js` | The text of setting values, as the GTK shell shows them |
 | `printers.js` | The printer picker: the printer library of the core (`printers.txt`, loaded when the picker opens), the search, the brands, the drawing of the build volume (with the bed texture on the plate), and the second step. Also the files of the bed model of the current printer (`bedFiles`) |
 | `thread.js` | One thread of the slice, for the module with threads |
+| `isolate.js`, `isolate-sw.js` | Cross-origin isolation on a server that cannot send the headers |
 | `serve.py` | The dev server. It sends the headers for cross-origin isolation |
 | `test-node.mjs` | The Node test |
 
@@ -69,7 +70,7 @@ After a slice, the view of the worker loads the slice (`zs_view_load`), and writ
 
 ### Threads
 
-`zig build web` makes two modules: `zslice.wasm` (no threads) and `zslice-mt.wasm` (threads). `-Dwasm-optimize=ReleaseFast` makes both faster and larger; `-Dwasm-cpu` sets the CPU features.
+`zig build web` makes two modules: `zslice.wasm` (no threads) and `zslice-mt.wasm` (threads). A page loads one of them. `-Dwasm-optimize=ReleaseFast` makes a slice about 20 % faster and each module larger (2.9 MB, 0.84 MB with gzip; ReleaseSmall: 1.4 MB, 0.52 MB with gzip). `-Dwasm-cpu` sets the CPU features, and `-Dwasm-strip=false` keeps the debug data, for a profile with function names.
 
 A page that is cross-origin isolated loads `zslice-mt.wasm`. The server must send two headers for that:
 
@@ -78,7 +79,9 @@ Cross-Origin-Opener-Policy: same-origin
 Cross-Origin-Embedder-Policy: require-corp
 ```
 
-`serve.py` sends them (`--no-isolation` leaves them out). Without the headers, or with `?threads=0`, the page loads `zslice.wasm`, and a slice uses one thread.
+`serve.py` sends them (`--no-isolation` leaves them out). With `?threads=0`, or in a browser that does not isolate the page, the page loads `zslice.wasm`, and a slice uses one thread.
+
+A server that cannot send headers (for example GitHub Pages) needs `isolate.js`. It installs a service worker (`isolate-sw.js`) that adds the two headers to each answer of the server, and loads the page again once. The service worker keeps no cache, and sends nothing to another server. Its costs: the first visit loads the page two times, and a browser with no service workers (for example a private window of Firefox) slices with one thread.
 
 How the threads work:
 
