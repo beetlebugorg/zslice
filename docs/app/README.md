@@ -133,6 +133,7 @@ All shells use the same colors, in the order of `enum zs_feature`:
 | Support interface | `#495057` |
 | Slope smoothing | `#0ca6ae` |
 | Slope ironing | `#82c91e` |
+| Bridge | `#66ccf2` |
 
 ## Add a shell
 

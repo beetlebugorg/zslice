@@ -33,12 +33,15 @@ layout(location = 4) out float vfocus;
 // bead in focus shows its feature color, so it stands out also when the
 // filament color is pale.
 // After the 10 features: the marks (seam, travel, retraction).
-const vec3 feature_rgb[13] = vec3[13](
+// The colors of the features, then of the marks (seam, travel,
+// retraction), as feature_rgb in view.zig.
+const vec3 feature_rgb[14] = vec3[14](
     vec3(0.851, 0.282, 0.059), vec3(0.961, 0.624, 0.000),
     vec3(0.110, 0.494, 0.839), vec3(0.169, 0.541, 0.243),
     vec3(0.682, 0.243, 0.788), vec3(0.553, 0.431, 0.388),
     vec3(0.678, 0.710, 0.741), vec3(0.286, 0.314, 0.341),
     vec3(0.047, 0.651, 0.682), vec3(0.510, 0.788, 0.118),
+    vec3(0.400, 0.800, 0.949),
     vec3(0.878, 0.102, 0.149), vec3(0.200, 0.451, 0.949),
     vec3(0.949, 0.251, 0.749));
 
@@ -110,16 +113,17 @@ void main() {
     // params.w = 0: the filament color mode, where all beads have one
     // color, so a bead in focus shows its feature color. In the other
     // modes (params.w = 1) the beads keep the colors of the mode.
-    if (mask != 0u && vfocus > 0.5 && pc.params.w < 0.5) vcolor = feature_rgb[min(feature, 12u)];
+    if (mask != 0u && vfocus > 0.5 && pc.params.w < 0.5) vcolor = feature_rgb[min(feature, 13u)];
     // The travel and retraction marks show only in a focus on them: they
     // are not part of the printed part. A mark that does not show goes
     // behind the camera (w = 0 clips it).
-    // Feature 13 and up: overlays (the frame of a selected part). They
-    // are always solid, in their own color.
-    if (feature >= 13u) {
+    // Code 14 and up: overlays (the frame of a selected part). They
+    // are always solid, in their own color. Codes 12 and 13: the travel
+    // and retraction marks (code_travel and code_retract in view.zig).
+    if (feature >= 14u) {
         vfocus = 1.0;
         vhigh = -1.0;
-    } else if (feature >= 11u && !in_mask) {
+    } else if (feature >= 12u && !in_mask) {
         gl_Position = vec4(0.0, 0.0, 0.0, 0.0);
         return;
     }

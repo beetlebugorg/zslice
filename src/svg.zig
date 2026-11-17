@@ -23,7 +23,7 @@ fn color(f: Feature) []const u8 {
         .support_interface => "#495057",
         .slope_smoothing => "#0ca6ae",
         .slope_ironing => "#82c91e",
-        .bridge => "#f08c00",
+        .bridge => "#66ccf2",
     };
 }
 
