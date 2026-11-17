@@ -69,6 +69,7 @@ export const SHORTCUTS = [
       ["Up, Down", "Go through the results"],
       ["Left, Right", "Change the value of the result: a step, or the next choice"],
       ["Space, Enter", "Turn a switch, or run an action"],
+      ["V", "The eye of the result: show only the lines of its setting, or all lines again"],
       ["Tab", "Go into the controls of the result"],
       ["Esc", "Leave a control, then close the search"],
     ],

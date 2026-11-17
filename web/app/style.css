@@ -694,3 +694,8 @@ button.destructive { background: #c01c28; color: #fff; }
 }
 .plate-label.active { background: var(--accent-bg); }
 .plate-label .pl-status { opacity: 0.75; margin-left: 6px; }
+
+/* The eye of a search result: show only the lines of its setting. */
+.search-eye { flex: none; min-height: 28px; min-width: 28px; padding: 0; opacity: 0.45; border-radius: 7px; }
+.search-eye:hover { opacity: 0.85; }
+.search-eye.on { opacity: 1; background: var(--accent-bg); color: #fff; }

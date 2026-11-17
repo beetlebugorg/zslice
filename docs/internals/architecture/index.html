@@ -110,7 +110,10 @@
   app/setting_info.zig      The description of each setting for a panel.
   app/licenses.zig          The licenses for a Licenses screen.
   render/view.zig  The 3D view: the scene, the camera, the beads.
-  render/vk.zig    The Vulkan backend of the 3D view.</code></pre>
+  render/plates.zig  The other plates of a set in the view, and the
+                 light beads of a slice for a far camera.
+  render/vk.zig    The Vulkan backend of the 3D view.
+  render/web.zig   The web backend: the frame data for WebGL2.</code></pre>
 <p>The dependencies go one way: stages use tools, and later stages use earlier stages. No tool uses a stage, with two exceptions: <code>svg.zig</code> reads a layer plan (it is an output, like <code>gcode.zig</code>), and a test in <code>offset.zig</code> uses <code>slicer.zig</code> to make a real input. The app core uses the stages and the tools. No stage or tool uses the app core.</p>
 <h2 id="data-flow">Data flow</h2>
 <pre><code>STL bytes

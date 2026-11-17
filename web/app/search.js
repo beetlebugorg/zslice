@@ -9,7 +9,8 @@
 //
 // Keys: the arrow keys go through the results; Left and Right change the
 // value of the result (a step, or the next choice); Space or Enter turns a
-// switch or runs an action; Tab goes into the controls; Esc closes.
+// switch or runs an action; V turns the eye of the result on or off; Tab
+// goes into the controls; Esc closes.
 //
 // The search does not block the view: a drag in the view turns it, the
 // wheel zooms, and a click picks a line, while the search stays open. Esc,
@@ -181,8 +182,25 @@ export class SearchOverlay {
     });
   }
 
+  // The setting whose lines the view shows alone (its eye is on), or null.
+  setEye(name) {
+    this.eyeOn = name;
+    for (const r of this.rows) {
+      if (!r.eye) continue;
+      r.eye.classList.toggle("on", r.name === name);
+      r.eye.setAttribute("aria-pressed", String(r.name === name));
+    }
+    if (!name) {
+      this.ctx.unfocus();
+      return;
+    }
+    const fx = this.ctx.browser.ctx.effect(name);
+    this.ctx.focus(fx.features || ALL_FEATURES, fx.firstLayerOnly);
+  }
+
   close() {
     if (!this.root) return;
+    this.eyeOn = null;
     // The editors of the search leave the live list of the browser.
     for (const [name, list] of this.ctx.browser.editors) this.ctx.browser.editors.set(name, list.filter((e) => e.where !== "search"));
     this.root.remove();
@@ -231,7 +249,6 @@ export class SearchOverlay {
     const r = this.rows[this.index];
     r.node.scrollIntoView({ block: "nearest" });
     if (focusRow) r.node.focus();
-    r.hover?.();
   }
 
   key(e) {
@@ -248,6 +265,9 @@ export class SearchOverlay {
     } else if ((e.key === "ArrowLeft" || e.key === "ArrowRight") && !inControl && e.target !== this.input && r?.nudge) {
       e.preventDefault();
       r.nudge(e.key === "ArrowRight" ? 1 : -1);
+    } else if ((e.key === "v" || e.key === "V") && !inControl && e.target !== this.input && r?.eye) {
+      e.preventDefault();
+      this.setEye(this.eyeOn === r.name ? null : r.name);
     } else if ((e.key === "Enter" || e.key === " ") && !inControl && e.target !== this.input && r?.activate) {
       e.preventDefault();
       r.activate();
@@ -337,10 +357,20 @@ export class SearchOverlay {
     } else {
       browser.track(info.name, { where: "search", update: show });
     }
-    const hover = () => {
-      const fx = browser.ctx.effect(info.name);
-      this.ctx.focus(fx.features || ALL_FEATURES, fx.firstLayerOnly);
+    // The eye: the view shows only the lines that this setting changes
+    // (the others as ghosts), until a click on it again. The view does
+    // not change by itself while the user goes through the results.
+    const eye = el("button", "flat icon search-eye");
+    eye.innerHTML = '<svg viewBox="0 0 18 18" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.5" aria-hidden="true"><path d="M1.5 9s2.8-5 7.5-5 7.5 5 7.5 5-2.8 5-7.5 5-7.5-5-7.5-5z"/><circle cx="9" cy="9" r="2.3"/></svg>';
+    eye.title = "Show only the lines that this setting changes (the others as ghosts)";
+    eye.setAttribute("aria-label", `${info.label}: show only its lines`);
+    eye.setAttribute("aria-pressed", String(this.eyeOn === info.name));
+    eye.classList.toggle("on", this.eyeOn === info.name);
+    eye.onclick = (e) => {
+      e.stopPropagation();
+      this.setEye(this.eyeOn === info.name ? null : info.name);
     };
+    label.after(eye);
     row.onmouseenter = () => {
       this.select(this.rows.indexOf(entryRow), false);
     };
@@ -367,7 +397,7 @@ export class SearchOverlay {
       if (info.kind === "boolean") nudge(1);
       else editor.node.querySelector("input, select, textarea")?.focus();
     };
-    const entryRow = { node: row, hover, nudge, activate };
+    const entryRow = { node: row, nudge, activate, name: info.name, eye };
     this.rows.push(entryRow);
     return row;
   }
@@ -385,7 +415,7 @@ export class SearchOverlay {
       a.run();
     };
     row.onclick = activate;
-    const entryRow = { node: row, activate, hover: () => this.ctx.unfocus() };
+    const entryRow = { node: row, activate };
     row.onmouseenter = () => this.select(this.rows.indexOf(entryRow), false);
     this.rows.push(entryRow);
     return row;

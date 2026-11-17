@@ -234,7 +234,7 @@ Press `?` to see all keyboard shortcuts of the web app, grouped. Type in the she
 Press `/` (or click **Search** in the preview toolbar, in the web app) to search the settings and the actions. Type a few letters, for example `infill`, `brim`, or `export`.
 
 - Each setting in the results has its control: a slider and an entry for a number, a list for a choice, and a switch. Change it right there. The part slices again at once, and the view under the search shows the new lines. A drag of a slider slices as you drag.
-- The pointer over a setting shows only the lines that it changes.
+- The view does not change while you go through the results. Click the eye of a setting (or press V on it) to show only the lines that it changes, with the other lines as ghosts; click it again, or close the search, for all lines.
 - The tag under each setting says its section and where its value comes from (the printer, the profile, or this print).
 - An action (Export G-code, Print, Arrange the plate, Undo, and others) runs with a click or Enter.
 - The search does not block the view: while it is open, drag in the view to turn it, use the wheel to zoom, and click a line, to see the change from any side. Esc, `/`, or × closes it.
