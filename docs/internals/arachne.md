@@ -52,4 +52,4 @@ A path with a width for each point has `Path.w_start`, and its widths are in `La
 - `src/arachne/beading.zig`: the bead counts and widths for known thicknesses.
 - `src/arachne/walls.zig`: a 1.2 mm wall with 0.4 mm lines gets 3 beads of 0.4 mm; a 0.3 mm fin gets one narrow bead; a wedge gets a bead count that goes up along it.
 
-The [Cura comparison](cura-compare.md) can compare the walls with CuraEngine, which also uses Arachne.
+The [CuraEngine test](cura-compare.md#testing-against-curaengine) can compare the walls with CuraEngine, which also uses Arachne.
