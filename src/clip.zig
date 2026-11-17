@@ -306,15 +306,20 @@ noinline fn findIntersections(comptime narrow: bool, arena: Allocator, edges: []
     const span: f64 = @floatFromInt(@max(box.max.x - box.min.x, box.max.y - box.min.y) + 1);
     // The mean edge length, but not so small that the grid has more than
     // about 4096 cells on a side.
-    const cell = larger(larger(total / @as(f64, @floatFromInt(edges.len)), span / 4096.0), 1.0);
+    const want = larger(larger(total / @as(f64, @floatFromInt(edges.len)), span / 4096.0), 1.0);
+    // The cell size is the power of two nearest to that length. Then the
+    // cell of a point is a shift of its coordinates, with no division and
+    // no float, and a coordinate in cells is an exact float.
+    const shift: u6 = @intCast(std.math.clamp(@as(i32, @intFromFloat(@floor(@log2(want) + 0.5))), 0, 62));
 
     // The number of cells on each side. The walk can add a cell one step
     // past the box (at a corner), so each side gets 2 more.
     const grid: Grid = .{
         .origin = box.min,
-        .cell = cell,
-        .rows = @as(u32, @intFromFloat(@floor(@as(f64, @floatFromInt(box.max.y - box.min.y)) / cell))) + 2,
-        .cols = @as(u32, @intFromFloat(@floor(@as(f64, @floatFromInt(box.max.x - box.min.x)) / cell))) + 2,
+        .shift = shift,
+        .cell = @floatFromInt(@as(u64, 1) << shift),
+        .rows = @as(u32, @intCast((box.max.y - box.min.y) >> shift)) + 2,
+        .cols = @as(u32, @intCast((box.max.x - box.min.x) >> shift)) + 2,
     };
 
     var entries: std.ArrayList(CellEntry) = .empty;
@@ -322,7 +327,7 @@ noinline fn findIntersections(comptime narrow: bool, arena: Allocator, edges: []
     var all_fresh = true;
     for (edges) |e| all_fresh = all_fresh and e.fresh;
     if (all_fresh) {
-        for (edges, 0..) |e, i| try walkCells(arena, &entries, e.a, e.b, grid, @intCast(i));
+        for (edges, 0..) |e, i| try walkCells(arena, &entries, e.a, e.b, &grid, @intCast(i));
     } else {
         // A later pass: only pairs with a fresh edge can cross. So the grid
         // gets the cells of the fresh edges, and the other edges only in
@@ -331,7 +336,7 @@ noinline fn findIntersections(comptime narrow: bool, arena: Allocator, edges: []
         for (edges, 0..) |e, i| {
             if (!e.fresh) continue;
             const start = entries.items.len;
-            try walkCells(arena, &entries, e.a, e.b, grid, @intCast(i));
+            try walkCells(arena, &entries, e.a, e.b, &grid, @intCast(i));
             for (entries.items[start..]) |c| marked.set(c.cell);
         }
         if (entries.items.len == 0) return;
@@ -340,7 +345,7 @@ noinline fn findIntersections(comptime narrow: bool, arena: Allocator, edges: []
         for (edges, 0..) |e, i| {
             if (e.fresh) continue;
             const start = entries.items.len;
-            try walkCells(arena, &entries, e.a, e.b, grid, @intCast(i));
+            try walkCells(arena, &entries, e.a, e.b, &grid, @intCast(i));
             var keep = start;
             for (entries.items[start..]) |c| {
                 if (!marked.isSet(c.cell)) continue;
@@ -405,15 +410,28 @@ const CellEntry = struct { cell: u32, edge: u32 };
 
 const Grid = struct {
     origin: Point,
+    /// The cell size is 1 << shift.
+    shift: u6,
+    /// The cell size as a float.
     cell: f64,
     rows: u32,
     cols: u32,
 
     /// The index of a cell: column major, so the order is by x, then y.
-    fn key(g: Grid, cx: i64, cy: i64) u32 {
+    inline fn key(g: *const Grid, cx: i64, cy: i64) u32 {
         return @as(u32, @intCast(cx)) * g.rows + @as(u32, @intCast(cy));
     }
 };
+
+/// Adds one entry. The list has room in most calls, so the common path is
+/// a store.
+inline fn push(arena: Allocator, out: *std.ArrayList(CellEntry), entry: CellEntry) !void {
+    if (out.items.len < out.capacity) {
+        out.appendAssumeCapacity(entry);
+    } else {
+        try out.append(arena, entry);
+    }
+}
 
 /// Sorts the entries by cell, and keeps the order of entries in the same
 /// cell (see `radixSort`).
@@ -431,19 +449,31 @@ fn radixSortByCell(arena: Allocator, items: []CellEntry, cell_count: u32) !void 
 /// both side cells are added too, so that a rounding error cannot skip a
 /// cell. Cell coordinates are relative to `origin`, so they are not
 /// negative.
-fn walkCells(arena: Allocator, out: *std.ArrayList(CellEntry), a: Point, b: Point, g: Grid, edge: u32) !void {
+inline fn walkCells(arena: Allocator, out: *std.ArrayList(CellEntry), a: Point, b: Point, g: *const Grid, edge: u32) !void {
+    const origin = g.origin;
+    const cx = (a.x - origin.x) >> g.shift;
+    const cy = (a.y - origin.y) >> g.shift;
+    const ex = (b.x - origin.x) >> g.shift;
+    const ey = (b.y - origin.y) >> g.shift;
+    try push(arena, out, .{ .cell = g.key(cx, cy), .edge = edge });
+    // Most edges are in one cell.
+    if (cx == ex and cy == ey) return;
+    return walkLine(arena, out, a, b, g, edge);
+}
+
+/// The cells of an edge after its first cell (see `walkCells`).
+noinline fn walkLine(arena: Allocator, out: *std.ArrayList(CellEntry), a: Point, b: Point, g: *const Grid, edge: u32) !void {
     const origin = g.origin;
     const cell = g.cell;
+    // The cell size is a power of two, so these divisions are exact.
     const ax = @as(f64, @floatFromInt(a.x - origin.x)) / cell;
     const ay = @as(f64, @floatFromInt(a.y - origin.y)) / cell;
     const bx = @as(f64, @floatFromInt(b.x - origin.x)) / cell;
     const by = @as(f64, @floatFromInt(b.y - origin.y)) / cell;
-    var cx: i64 = @intFromFloat(@floor(ax));
-    var cy: i64 = @intFromFloat(@floor(ay));
-    const ex: i64 = @intFromFloat(@floor(bx));
-    const ey: i64 = @intFromFloat(@floor(by));
-    try out.append(arena, .{ .cell = g.key(cx, cy), .edge = edge });
-    if (cx == ex and cy == ey) return;
+    var cx = (a.x - origin.x) >> g.shift;
+    var cy = (a.y - origin.y) >> g.shift;
+    const ex = (b.x - origin.x) >> g.shift;
+    const ey = (b.y - origin.y) >> g.shift;
 
     const dx = bx - ax;
     const dy = by - ay;
@@ -464,8 +494,8 @@ fn walkCells(arena: Allocator, out: *std.ArrayList(CellEntry), a: Point, b: Poin
         if (corner) {
             // Through a corner: add both side cells. A side cell outside the
             // grid (a negative coordinate) has no edges, so it is skipped.
-            if (cx + sx >= 0) try out.append(arena, .{ .cell = g.key(cx + sx, cy), .edge = edge });
-            if (cy + sy >= 0) try out.append(arena, .{ .cell = g.key(cx, cy + sy), .edge = edge });
+            if (cx + sx >= 0) try push(arena, out, .{ .cell = g.key(cx + sx, cy), .edge = edge });
+            if (cy + sy >= 0) try push(arena, out, .{ .cell = g.key(cx, cy + sy), .edge = edge });
             cx += sx;
             cy += sy;
             t_max_x += t_dx;
@@ -478,7 +508,7 @@ fn walkCells(arena: Allocator, out: *std.ArrayList(CellEntry), a: Point, b: Poin
             t_max_y += t_dy;
         }
         if (cx < 0 or cy < 0) break;
-        try out.append(arena, .{ .cell = g.key(cx, cy), .edge = edge });
+        try push(arena, out, .{ .cell = g.key(cx, cy), .edge = edge });
     }
 }
 
@@ -726,16 +756,18 @@ fn sortMerged(items: []Merged) void {
 /// looks only at the edges in one slab.
 const SlabIndex = struct {
     min: i64,
-    width: i64,
+    /// The width of a slab is 1 << shift: a slab number is a shift, with
+    /// no division.
+    shift: u6,
     starts: []u32,
     items: []u32,
 
-    fn slab(s: SlabIndex, v: i64) usize {
-        const i = @divFloor(v - s.min, s.width);
+    inline fn slab(s: *const SlabIndex, v: i64) usize {
+        const i = (v - s.min) >> s.shift;
         return @intCast(std.math.clamp(i, 0, @as(i64, @intCast(s.starts.len - 2))));
     }
 
-    fn get(s: SlabIndex, v: i64) []const u32 {
+    fn get(s: *const SlabIndex, v: i64) []const u32 {
         const i = s.slab(v);
         return s.items[s.starts[i]..s.starts[i + 1]];
     }
@@ -754,13 +786,15 @@ const SlabIndex = struct {
             const starts = try arena.alloc(u32, 2);
             starts[0] = 0;
             starts[1] = 0;
-            return .{ .min = 0, .width = 1, .starts = starts, .items = &.{} };
+            return .{ .min = 0, .shift = 0, .starts = starts, .items = &.{} };
         }
-        const want: usize = std.math.clamp(2 * std.math.sqrt(n), 1, 4096);
-        const span: i64 = hi - lo + 1;
-        const width: i64 = @max(1, @divFloor(span + @as(i64, @intCast(want)) - 1, @as(i64, @intCast(want))));
-        const slabs: usize = @intCast(@divFloor(span + width - 1, width));
-        var s: SlabIndex = .{ .min = lo, .width = width, .starts = try arena.alloc(u32, slabs + 1), .items = &.{} };
+        const want: u64 = std.math.clamp(2 * std.math.sqrt(n), 1, 4096);
+        const span: u64 = @intCast(hi - lo + 1);
+        // The smallest power of two width that gives at most `want` slabs.
+        var shift: u6 = 0;
+        while ((span - 1) >> shift >= want) shift += 1;
+        const slabs: usize = @intCast(((span - 1) >> shift) + 1);
+        var s: SlabIndex = .{ .min = lo, .shift = shift, .starts = try arena.alloc(u32, slabs + 1), .items = &.{} };
         @memset(s.starts, 0);
         for (edges) |e| {
             const r = range(e) orelse continue;
@@ -789,7 +823,7 @@ const SlabIndex = struct {
 /// from v to the left crosses. An edge counts if min y <= v.y < max y (half
 /// open) and v is strictly right of it. The result is the winding number at
 /// a point just left of v and just above the ray.
-noinline fn windingLeftOf(comptime narrow: bool, edges: []const Merged, index: SlabIndex, v: Point) [2]i32 {
+noinline fn windingLeftOf(comptime narrow: bool, edges: []const Merged, index: *const SlabIndex, v: Point) [2]i32 {
     var sum: [2]i32 = .{ 0, 0 };
     for (index.get(v.y)) |fi| {
         const f = &edges[fi];
@@ -852,19 +886,22 @@ fn computeWinding(comptime narrow: bool, arena: Allocator, edges: []Merged) !voi
     };
     const ctx: Ctx = .{ .edges = edges };
     if (!try sortHalfEdges(narrow, arena, edges, order)) sortHalfEdgesSlow(Ctx, ctx, order);
-    const pos = try arena.alloc(u32, h_count);
-    const group_start = try arena.alloc(u32, h_count);
-    const group_len = try arena.alloc(u32, h_count);
+    // next[h]: the half-edge after h around the face on its left. It is at
+    // the end of h: the outgoing half-edge just clockwise from the twin of
+    // h. One table makes each step of a face walk one load.
+    const next = try arena.alloc(u32, h_count);
     {
         var k: usize = 0;
         while (k < h_count) {
             var j = k + 1;
             const o = ctx.origin(order[k]);
             while (j < h_count and ctx.origin(order[j]).eql(o)) : (j += 1) {}
-            for (k..j) |q| {
-                pos[order[q]] = @intCast(q);
-                group_start[q] = @intCast(k);
-                group_len[q] = @intCast(j - k);
+            // order[k..j]: the half-edges that start at one vertex, in
+            // angle order. The twin of each one ends at the vertex.
+            var prev = order[j - 1];
+            for (order[k..j]) |h| {
+                next[h ^ 1] = prev;
+                prev = h;
             }
             k = j;
         }
@@ -882,12 +919,7 @@ fn computeWinding(comptime narrow: bool, arena: Allocator, edges: []Merged) !voi
         var h: u32 = @intCast(start);
         while (face[h] == no_face) {
             face[h] = f;
-            // next(h): at the end of h, the outgoing half-edge just
-            // clockwise from the twin of h.
-            const k = pos[h ^ 1];
-            const g = group_start[k];
-            const len = group_len[k];
-            h = order[if (k == g) g + len - 1 else k - 1];
+            h = next[h];
         }
     }
 
@@ -929,17 +961,20 @@ fn computeWinding(comptime narrow: bool, arena: Allocator, edges: []Merged) !voi
                         .{ wind[f][0] + d[0], wind[f][1] + d[1] };
                     try queue.append(arena, g);
                 }
-                const k = pos[h ^ 1];
-                const gs = group_start[k];
-                const len = group_len[k];
-                h = order[if (k == gs) gs + len - 1 else k - 1];
+                h = next[h];
                 if (h == face_first.items[f]) break;
             }
         }
-        // Make the numbers of this component absolute.
-        if (index == null) index = try SlabIndex.build(arena, edges);
+        // Make the numbers of this component absolute. The edges are in
+        // (lo, hi) order, so the first one starts at the leftmost vertex of
+        // all. No edge is on the left of that vertex, so its component
+        // needs no ray.
         const v = ctx.origin(lead);
-        const outside = windingLeftOf(narrow, edges, index.?, v);
+        var outside: [2]i32 = .{ 0, 0 };
+        if (!v.eql(edges[0].lo)) {
+            if (index == null) index = try SlabIndex.build(arena, edges);
+            outside = windingLeftOf(narrow, edges, &index.?, v);
+        }
         const rel = wind[face[lead]];
         const shift = [2]i32{ outside[0] - rel[0], outside[1] - rel[1] };
         for (comp.items) |f| wind[f] = .{ wind[f][0] + shift[0], wind[f][1] + shift[1] };
