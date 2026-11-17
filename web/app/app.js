@@ -28,7 +28,7 @@ import { LineCard } from "./linecard.js";
 import { PartCard } from "./partcard.js";
 import { TurnRings } from "./turn.js";
 import { Tools } from "./tools.js";
-import { KINDS, send as sendToPrinter, test as testPrinter } from "./link.js";
+import { KINDS, send as sendToPrinter, test as testPrinter, requestKey } from "./link.js";
 import { contextItems } from "./context-menu.js";
 import { openMenu, openMenuAt, menuOpen, openPopover, closeMenu } from "./menus.js";
 import { formatClock, formatTime } from "./format.js";
@@ -939,7 +939,34 @@ function managePrinters() {
       };
       const line2 = document.createElement("div");
       line2.className = "printers-row2";
-      line2.append(kind, key, testB, result);
+      // A key from the printer: it asks its user "Allow zslice?" (the
+      // touch screen of a printdeck, the web page of OctoPrint).
+      const getKey = Object.assign(document.createElement("button"), {
+        textContent: "Get a key",
+        title: "Ask the printer for a key: allow zslice on its touch screen (printdeck) or in its web page (OctoPrint)",
+      });
+      getKey.hidden = p.kind === "moonraker";
+      getKey.onclick = async () => {
+        getKey.disabled = true;
+        result.classList.remove("error");
+        const r = await requestKey({ ...p, url: url.value.trim() || p.url, name: n }, (sec) => {
+          result.textContent = `Allow zslice on the printer (${120 - sec} s)…`;
+        });
+        getKey.disabled = false;
+        result.textContent = r.message;
+        result.classList.toggle("error", !r.ok);
+        if (r.ok) {
+          p.apiKey = r.key;
+          key.value = r.key;
+          saveStore();
+        }
+      };
+      const kindChanged = kind.onchange;
+      kind.onchange = () => {
+        kindChanged();
+        getKey.hidden = kind.value === "moonraker";
+      };
+      line2.append(kind, key, getKey, testB, result);
       row.append(name, url, now, use, settings, rm, line2);
       list.append(row);
     }

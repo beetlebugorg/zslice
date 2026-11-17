@@ -102,6 +102,50 @@ export async function send(printer, filename, bytes, print) {
   return { ok: true, message: print ? `Sent to ${printer.name} (${where}); the print starts.` : `Uploaded to ${printer.name} (${where}).` };
 }
 
+// Asks the printer for an API key with the App Keys flow of OctoPrint
+// (printdeck and OctoPrint): the printer asks its user "Allow zslice?" (on
+// the touch screen of a printdeck, in the web page of OctoPrint), and the
+// app gets a key of its own after "Allow". wait(seconds): called while the
+// user decides. Returns { ok, key, message }. Moonraker has no such flow.
+export async function requestKey(printer, wait = () => {}) {
+  if (!printer?.url) return { ok: false, message: "No address." };
+  if (printer.kind === "moonraker") return { ok: false, message: "Moonraker gives no API keys this way: it needs none, or the key of its config." };
+  const base = join(printer.url, "/plugin/appkeys/request");
+  let token;
+  try {
+    const r = await fetch(base, fetchOptions(printer.url, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ app: "zslice" }),
+    }));
+    if (r.status === 404) return { ok: false, message: "The printer does not give keys to apps (App Keys is off or missing)." };
+    if (!r.ok) return { ok: false, message: `The printer answered ${r.status}.` };
+    token = (await r.json()).app_token;
+  } catch (e) {
+    return { ok: false, message: explain(e, printer) };
+  }
+  if (!token) return { ok: false, message: "The printer gave no request token." };
+  // The printer keeps a request for 2 minutes.
+  const t0 = performance.now();
+  while (performance.now() - t0 < 125000) {
+    wait(Math.round((performance.now() - t0) / 1000));
+    await new Promise((res) => setTimeout(res, 1000));
+    let r;
+    try {
+      r = await fetch(`${base}/${encodeURIComponent(token)}`, fetchOptions(printer.url, {}));
+    } catch (e) {
+      return { ok: false, message: explain(e, printer) };
+    }
+    if (r.status === 202) continue;
+    if (r.status === 404) return { ok: false, message: "The printer did not allow it (Deny), or the request waited too long." };
+    if (!r.ok) return { ok: false, message: `The printer answered ${r.status}.` };
+    const key = (await r.json()).api_key;
+    if (!key) return { ok: false, message: "The printer gave no key." };
+    return { ok: true, key, message: "The printer gave zslice a key." };
+  }
+  return { ok: false, message: "No answer on the printer in 2 minutes." };
+}
+
 // A test of the connection: the version of the API. Returns { ok, message }.
 export async function test(printer) {
   if (!printer?.url) return { ok: false, message: "No address." };

@@ -161,6 +161,8 @@ Pick the printer in the menu at the left of the header bar. With a connection, t
 
 The API keys are in `~/.config/zslice/app.ini`, which only you can read.
 
+In the web app, "Manage printers…" has the connection, the API key, and **Get a key** for each printer. Get a key asks the printer for a key of its own for zslice: the printer asks "Allow zslice to use the Printdeck?" on its touch screen (printdeck), or in its web page (OctoPrint, with the App Keys plugin). Allow it within 2 minutes, and zslice keeps the key. You can also copy the key: printdeck shows it on its System page (`http://<printer>/system`, "Slicer API key"), and OctoPrint in Settings › API. A printdeck starts a print from zslice only after a press of Print on its screen.
+
 ## Your settings stay
 
 The app saves the machine, filament, and project settings that you change, and loads them at the next start. They are in `~/.config/zslice/machine.toml`, `filament.toml`, and `project.toml`. Each file has only the settings that differ from the defaults, with the help of each one, in the profile format (see docs/user/profiles.md), so you can also edit them. If a file does not load, the app says why in its log and keeps a copy with the extension `.bad`.
