@@ -990,7 +990,10 @@ function onWorkerEvent(m) {
     }
     case "cleared":
       // An empty plate.
-      if (m.scene) view.readScene(m.scene);
+      if (m.scene) {
+        view.readScene(m.scene);
+        gl.setOutlines(view.outlines());
+      }
       app.state = "empty";
       app.stats = null;
       layers.setLayers(0, null, null);

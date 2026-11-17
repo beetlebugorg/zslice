@@ -158,7 +158,7 @@ export function openMenuAt(x, y, items, closed) {
 document.addEventListener("keydown", (e) => {
   if (e.key === "Escape" && !layer().hidden) {
     e.preventDefault();
-    e.stopPropagation();
+    e.stopImmediatePropagation();
     closeMenu();
   }
 }, true);
