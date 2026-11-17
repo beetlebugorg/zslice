@@ -29,6 +29,10 @@ typedef struct {
     GWeakRef model;
 } Bridge;
 
+/* One step of undo (see undo_snapshot). */
+typedef struct Snap Snap;
+static void snap_free(gpointer data);
+
 struct _ZgModel {
     GObject parent;
     zs_app *core;
@@ -73,9 +77,10 @@ struct _ZgModel {
      * texts of zg_model_group_text, joined with \x1e). `undo_now` is the
      * state after the last step; a burst of changes (a drag) is one step. */
     GPtrArray *undo, *redo;
-    char *undo_now;
+    Snap *undo_now;
     guint undo_timer;
     gboolean undo_restoring;
+    gboolean undo_plate_dirty; /* the plate changed since the last step */
     /* The rolls of the current printer (zg_model_set_rolls). */
     ZgRoll *rolls;
     size_t n_rolls;
@@ -317,7 +322,7 @@ static void zg_model_dispose(GObject *object) {
     self->undo_timer = 0;
     g_clear_pointer(&self->undo, g_ptr_array_unref);
     g_clear_pointer(&self->redo, g_ptr_array_unref);
-    g_clear_pointer(&self->undo_now, g_free);
+    g_clear_pointer(&self->undo_now, snap_free);
     if (self->core) {
         /* Stops and joins the worker, so no new events follow. */
         zs_app_free(self->core);
@@ -946,11 +951,38 @@ gint64 zg_model_selected_gap(ZgModel *self, gint64 *layer) {
     return self->gap_index;
 }
 
-/* ---- undo and redo of the settings ---- */
+/* ---- undo and redo of the settings and the plate ---- */
 
 enum { UNDO_MAX = 100 };
+/* The most bytes of plate snapshots on the lists: the oldest steps go. */
+#define UNDO_PLATE_BYTES (200u << 20)
 
-static char *undo_snapshot(ZgModel *self) {
+/* One step: the settings (the texts of the three groups, joined with
+ * \x1e) and the plate (a 3MF file, NULL for an empty plate). Steps with
+ * the same plate share its bytes. */
+struct Snap {
+    char *settings;
+    GBytes *plate;
+};
+
+static void plate_changed(ZgModel *self);
+
+static void snap_free(gpointer data) {
+    Snap *s = data;
+    if (!s) return;
+    g_free(s->settings);
+    if (s->plate) g_bytes_unref(s->plate);
+    g_free(s);
+}
+
+static gboolean same_plate(GBytes *a, GBytes *b) {
+    if (a == b) return TRUE;
+    if (!a || !b) return FALSE;
+    return g_bytes_equal(a, b);
+}
+
+static Snap *undo_snapshot(ZgModel *self) {
+    Snap *snap = g_new0(Snap, 1);
     GString *s = g_string_new(NULL);
     for (int g = 0; g < 3; g++) {
         char *t = zg_model_group_text(self, g);
@@ -958,7 +990,33 @@ static char *undo_snapshot(ZgModel *self) {
         g_string_append(s, t);
         g_free(t);
     }
-    return g_string_free(s, FALSE);
+    snap->settings = g_string_free(s, FALSE);
+    /* The plate: the same bytes as the step before if it did not change. */
+    if (!self->undo_plate_dirty && self->undo_now) {
+        snap->plate = self->undo_now->plate ? g_bytes_ref(self->undo_now->plate) : NULL;
+    } else if (zs_app_part_count(self->core) > 0) {
+        const uint8_t *bytes = NULL;
+        size_t len = 0;
+        if (zs_app_write_3mf(self->core, &bytes, &len) == ZS_OK) snap->plate = g_bytes_new(bytes, len);
+    }
+    self->undo_plate_dirty = FALSE;
+    return snap;
+}
+
+/* The oldest steps go while the plates of the lists take too much memory
+ * (a plate counts once for the steps that share it). */
+static void undo_trim(ZgModel *self) {
+    for (;;) {
+        gsize total = 0;
+        GBytes *last = NULL;
+        for (guint i = 0; i < self->undo->len; i++) {
+            Snap *sn = self->undo->pdata[i];
+            if (sn->plate && sn->plate != last) total += g_bytes_get_size(sn->plate);
+            last = sn->plate;
+        }
+        if (total <= UNDO_PLATE_BYTES || self->undo->len == 0) return;
+        g_ptr_array_remove_index(self->undo, 0);
+    }
 }
 
 /* Ends the step of the changes so far: the state before it goes on the
@@ -968,15 +1026,17 @@ static void undo_commit(ZgModel *self) {
         g_source_remove(self->undo_timer);
         self->undo_timer = 0;
     }
-    char *now = undo_snapshot(self);
-    if (self->undo_now && strcmp(now, self->undo_now) != 0) {
+    Snap *now = undo_snapshot(self);
+    gboolean differs = self->undo_now && (strcmp(now->settings, self->undo_now->settings) != 0 || !same_plate(now->plate, self->undo_now->plate));
+    if (differs) {
         g_ptr_array_add(self->undo, self->undo_now);
         if (self->undo->len > UNDO_MAX) g_ptr_array_remove_index(self->undo, 0);
+        undo_trim(self);
         g_ptr_array_set_size(self->redo, 0);
         self->undo_now = now;
         g_signal_emit(self, signals[SIGNAL_UNDO_CHANGED], 0);
     } else {
-        g_free(self->undo_now);
+        snap_free(self->undo_now);
         self->undo_now = now;
     }
 }
@@ -988,16 +1048,40 @@ static gboolean on_undo_timer(gpointer data) {
     return G_SOURCE_REMOVE;
 }
 
-static void on_undo_change(ZgModel *self, const char *key, gpointer data) {
+static void undo_schedule(ZgModel *self) {
     if (self->undo_restoring) return;
     if (self->undo_timer) g_source_remove(self->undo_timer);
     self->undo_timer = g_timeout_add(400, on_undo_timer, self);
 }
 
-/* Loads a snapshot: each group whose text differs. */
-static void undo_restore(ZgModel *self, const char *snap) {
-    char **parts = g_strsplit(snap, "\x1e", 3);
+static void on_undo_change(ZgModel *self, const char *key, gpointer data) {
+    undo_schedule(self);
+}
+
+static void on_undo_plate(ZgModel *self, gpointer data) {
+    if (self->undo_restoring) return;
+    self->undo_plate_dirty = TRUE;
+    undo_schedule(self);
+}
+
+/* Loads a step: the plate if it differs, then each group of settings
+ * whose text differs. */
+static void undo_restore(ZgModel *self, const Snap *snap, const Snap *before) {
     self->undo_restoring = TRUE;
+    if (!same_plate(snap->plate, before ? before->plate : NULL)) {
+        if (snap->plate) {
+            gsize len = 0;
+            const void *data = g_bytes_get_data(snap->plate, &len);
+            if (zs_app_load_stl(self->core, "plate.3mf", data, len) == ZS_OK) {
+                zg_model_select_part(self, -1);
+                zg_model_select(self, -1);
+                plate_changed(self);
+            }
+        } else {
+            zg_model_plate_clear(self);
+        }
+    }
+    char **parts = g_strsplit(snap->settings, "\x1e", 3);
     for (int g = 0; g < 3 && parts[g]; g++) {
         char *now = zg_model_group_text(self, g);
         if (strcmp(now, parts[g]) != 0) {
@@ -1010,16 +1094,18 @@ static void undo_restore(ZgModel *self, const char *snap) {
         g_free(now);
     }
     self->undo_restoring = FALSE;
+    self->undo_plate_dirty = FALSE;
     g_strfreev(parts);
 }
 
 static gboolean undo_move(ZgModel *self, GPtrArray *from, GPtrArray *to) {
     undo_commit(self);
     if (from->len == 0) return FALSE;
-    char *snap = g_ptr_array_steal_index(from, from->len - 1);
-    g_ptr_array_add(to, self->undo_now);
+    Snap *snap = g_ptr_array_steal_index(from, from->len - 1);
+    Snap *before = self->undo_now;
+    g_ptr_array_add(to, before);
     self->undo_now = snap;
-    undo_restore(self, snap);
+    undo_restore(self, snap, before);
     g_signal_emit(self, signals[SIGNAL_UNDO_CHANGED], 0);
     return TRUE;
 }
@@ -1073,9 +1159,10 @@ static void zg_model_init(ZgModel *self) {
         g_free(dir);
     }
     g_free(quality);
-    self->undo = g_ptr_array_new_with_free_func(g_free);
-    self->redo = g_ptr_array_new_with_free_func(g_free);
+    self->undo = g_ptr_array_new_with_free_func(snap_free);
+    self->redo = g_ptr_array_new_with_free_func(snap_free);
     self->undo_now = undo_snapshot(self);
+    g_signal_connect(self, "plate-changed", G_CALLBACK(on_undo_plate), NULL);
     g_signal_connect(self, "setting-changed", G_CALLBACK(on_undo_change), NULL);
 }
 

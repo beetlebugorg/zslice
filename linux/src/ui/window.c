@@ -967,7 +967,15 @@ static gboolean undo_test_step(gpointer data) {
     case 2: zg_model_undo(w->model); break;
     case 3: zg_model_undo(w->model); break;
     case 4: zg_model_redo(w->model); break;
+    case 5: zg_model_part_move(w->model, 0, 60, 70); break;
+    case 6: break; /* the step of the move ends */
+    case 7: zg_model_undo(w->model); break;
     default: return G_SOURCE_REMOVE;
+    }
+    if (step - 1 >= 5) {
+        zs_part part;
+        if (zs_app_part_get(zg_model_core(w->model), 0, &part) == ZS_OK)
+            g_message("undo test %d: part 0 at %.1f, %.1f", step - 1, part.x, part.y);
     }
     v = zg_model_get(w->model, "project.infill_density");
     g_message("undo test %d: infill_density = %s", step - 1, v);

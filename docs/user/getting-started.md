@@ -254,7 +254,7 @@ The card at the bottom of the side panel shows the print time (with a printdeck 
 
 ## Undo
 
-Ctrl+Z undoes a change of the settings, and Ctrl+Shift+Z (or Ctrl+Y) redoes it. A drag of a slider is one step. The main menu has Undo and Redo too.
+Ctrl+Z undoes a change of the settings or of the plate (a move, a turn, a scale, a removed part, the settings of a part), and Ctrl+Shift+Z (or Ctrl+Y) redoes it. A drag of a slider is one step. The main menu has Undo and Redo too. The undo list keeps 100 steps; the plates in it take at most 200 MB, so on a plate of large parts the oldest steps go first.
 
 ## Printer, filament, and quality
 
