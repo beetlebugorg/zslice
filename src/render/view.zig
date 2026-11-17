@@ -125,6 +125,8 @@ pub const View = struct {
     /// or for the first bead of a path the start of the path (the travel
     /// to it is between).
     bead_start: std.ArrayList(f32) = .empty,
+    /// The fan of each bead, from 0 to 255 (for the toolhead).
+    bead_fan: std.ArrayList(u8) = .empty,
     /// The beads of the toolhead of a replay (see `toolhead`).
     head_buf: [128]vk.Instance = undefined,
     /// The replay time (s), or null to show whole layers.
@@ -177,6 +179,7 @@ pub const View = struct {
         v.beads.deinit(gpa);
         v.bead_end.deinit(gpa);
         v.bead_start.deinit(gpa);
+        v.bead_fan.deinit(gpa);
         v.marks.deinit(gpa);
         v.mark_layer_end.deinit(gpa);
         v.renderer.deinit();
@@ -293,6 +296,7 @@ pub const View = struct {
         defer v.beads = boxes;
         v.bead_end.clearRetainingCapacity();
         v.bead_start.clearRetainingCapacity();
+        v.bead_fan.clearRetainingCapacity();
         v.layer_end.clearRetainingCapacity();
         v.path_start.clearRetainingCapacity();
         var zmax: f32 = 0;
@@ -344,6 +348,7 @@ pub const View = struct {
                     const b = if (a + 1 < end) a + 1 else start;
                     run += std.math.hypot(pts[2 * b] - pts[2 * a], pts[2 * b + 1] - pts[2 * a + 1]);
                     v.bead_start.append(gpa, if (k == 0) t0 else v.bead_end.items[v.bead_end.items.len - 1]) catch return error.OutOfMemory;
+                    v.bead_fan.append(gpa, if (pi < tp.path_fan.items.len) tp.path_fan.items[pi] else 255) catch return error.OutOfMemory;
                     v.bead_end.append(gpa, if (path_len > 0) t0 + (t1 - t0) * run / path_len else t1) catch return error.OutOfMemory;
                     var bz = z;
                     var bh = h;
@@ -1089,10 +1094,12 @@ pub const View = struct {
                 const b = v.beads.items[done - 1];
                 tip = .{ b.bx, b.by, b.z };
             }
-            // The impeller turns with the print time: half a turn each
-            // second of the print (a replay at 10x turns it 5 times a
-            // second).
-            const spin: f32 = @floatCast(@mod(t * std.math.pi, 2 * std.math.pi));
+            // The impeller turns with the print time, at the fan of the
+            // bead that prints: at full fan, half a turn each second of
+            // the print (a replay at 10x turns it 5 times a second); with
+            // the fan off it stands still.
+            const fb = if (v.bead_fan.items.len == 0) 255 else v.bead_fan.items[@min(done, v.bead_fan.items.len - 1)];
+            const spin: f32 = @floatCast(@mod(t * std.math.pi * @as(f32, @floatFromInt(fb)) / 255, 2 * std.math.pi));
             if (tip) |p| n_head = toolhead(&v.head_buf, p, spin);
         } else if (v.layer_end.items.len > 0) {
             count = v.layer_end.items[@min(v.layer, v.layer_end.items.len - 1)];
@@ -1416,6 +1423,7 @@ test "the replay shows the beads that are done" {
     var v: View = .{ .renderer = undefined, .width = 100, .height = 100 };
     defer v.bead_end.deinit(gpa);
     defer v.bead_start.deinit(gpa);
+    defer v.bead_fan.deinit(gpa);
     try v.bead_end.appendSlice(gpa, &.{ 1, 2, 3, 4 });
     try std.testing.expectEqual(@as(usize, 0), v.beadsDoneAt(0.5));
     try std.testing.expectEqual(@as(usize, 2), v.beadsDoneAt(2));

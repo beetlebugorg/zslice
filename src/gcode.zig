@@ -85,6 +85,8 @@ pub const PathInfo = struct {
     retracted: bool = false,
     /// The layer prints slower than planned, to cool (min_layer_time).
     slowed: bool = false,
+    /// The fan while the path prints, from 0 (off) to 255.
+    fan: u8 = 0,
 };
 
 /// The most waypoints of a combing travel.
@@ -799,7 +801,7 @@ pub const Emitter = struct {
             const y0 = geom.toMm(pts[0].y);
             if (path.z_start != layer_mod.Path.planar) {
                 const area = try self.nonPlanar(lp, path, pts, speed, fr);
-                if (self.record) |rec| rec.appendAssumeCapacity(.{ .start_time = start_time, .end_time = self.stats.print_time_s, .area = area, .retracted = retracted, .slowed = slow < 1 or lapped });
+                if (self.record) |rec| rec.appendAssumeCapacity(.{ .start_time = start_time, .end_time = self.stats.print_time_s, .area = area, .retracted = retracted, .slowed = slow < 1 or lapped, .fan = fanByte(self.fan) });
                 continue;
             }
             if (widths.len > 0) {
@@ -820,7 +822,7 @@ pub const Emitter = struct {
                     try self.extrudeLen(x, y, d, area * e_scale, speed);
                 }
                 const mean_area = if (len_sum > 0) area_len / len_sum else flow.beadArea(widths[0], h);
-                if (self.record) |rec| rec.appendAssumeCapacity(.{ .start_time = start_time, .end_time = self.stats.print_time_s, .area = mean_area * fr, .retracted = retracted, .slowed = slow < 1 or lapped });
+                if (self.record) |rec| rec.appendAssumeCapacity(.{ .start_time = start_time, .end_time = self.stats.print_time_s, .area = mean_area * fr, .retracted = retracted, .slowed = slow < 1 or lapped, .fan = fanByte(self.fan) });
                 continue;
             }
             if (self.prep != null and self.x == x0 and self.y == y0) {
@@ -834,7 +836,7 @@ pub const Emitter = struct {
                 for (pts[1..]) |q| try self.extrude(geom.toMm(q.x), geom.toMm(q.y), e, speed);
                 if (path.closed and pts.len > 2) try self.extrude(x0, y0, e, speed);
             }
-            if (self.record) |rec| rec.appendAssumeCapacity(.{ .start_time = start_time, .end_time = self.stats.print_time_s, .area = e * self.r.filament_area, .retracted = retracted, .slowed = slow < 1 or lapped });
+            if (self.record) |rec| rec.appendAssumeCapacity(.{ .start_time = start_time, .end_time = self.stats.print_time_s, .area = e * self.r.filament_area, .retracted = retracted, .slowed = slow < 1 or lapped, .fan = fanByte(self.fan) });
         }
     }
 
@@ -1563,6 +1565,11 @@ pub const Emitter = struct {
         try self.w.writeAll(rest);
     }
 };
+
+/// The fan value of the emitter (-1: not set yet) as a byte.
+fn fanByte(fan: i32) u8 {
+    return @intCast(std.math.clamp(fan, 0, 255));
+}
 
 fn typeName(f: Feature) []const u8 {
     return switch (f) {

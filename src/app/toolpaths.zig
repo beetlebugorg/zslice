@@ -39,6 +39,8 @@ pub const Toolpaths = struct {
     path_end_time: std.ArrayList(f32) = .empty,
     /// 1 if the travel to the path retracted the filament.
     path_retract: std.ArrayList(u8) = .empty,
+    /// The fan of each path, from 0 (off) to 255.
+    path_fan: std.ArrayList(u8) = .empty,
     /// The modifier volume of each path: 0 for none, k + 1 for
     /// `Job.modifiers[k]` of the job of its part (see layer.Modifier).
     path_modifier: std.ArrayList(u16) = .empty,
@@ -72,6 +74,7 @@ pub const Toolpaths = struct {
         t.path_start_time.deinit(gpa);
         t.path_end_time.deinit(gpa);
         t.path_retract.deinit(gpa);
+        t.path_fan.deinit(gpa);
         t.path_modifier.deinit(gpa);
         t.path_part.deinit(gpa);
         t.layer_slowed.deinit(gpa);
@@ -239,6 +242,7 @@ pub const Toolpaths = struct {
         const start_time = try t.path_start_time.addManyAsSlice(gpa, n);
         const end_time = try t.path_end_time.addManyAsSlice(gpa, n);
         const retract = try t.path_retract.addManyAsSlice(gpa, n);
+        const fan = try t.path_fan.addManyAsSlice(gpa, n);
         const modifier = try t.path_modifier.addManyAsSlice(gpa, n);
         for (plan.paths.items, modifier) |p, *m| {
             const k: u16 = if (p.region > 0 and p.region <= plan.region_modifier.len) plan.region_modifier[p.region - 1] else zs.layer.LayerPlan.no_modifier;
@@ -280,6 +284,7 @@ pub const Toolpaths = struct {
             start_time[i] = @floatCast(info.start_time);
             end_time[i] = @floatCast(info.end_time);
             retract[i] = @intFromBool(info.retracted);
+            fan[i] = info.fan;
         }
         var slowed = false;
         for (infos) |info| slowed = slowed or info.slowed;
