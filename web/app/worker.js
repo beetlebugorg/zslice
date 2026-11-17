@@ -231,6 +231,12 @@ const ops = {
     return {};
   },
 
+  // The plate as a 3MF file, for keep.js.
+  plate3mf() {
+    const bytes = core.plate3mf();
+    return { bytes: bytes ? bytes.buffer : null, name: core.modelName };
+  },
+
   gcode() {
     const bytes = core.gcode();
     return { bytes: bytes ? bytes.buffer : null, name: core.modelName };

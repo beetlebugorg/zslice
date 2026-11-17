@@ -463,6 +463,16 @@ export class Core {
 
   partOfPath(path) { return this.w.x.zs_app_part_of_path(this.app, path); }
 
+  // The plate as a 3MF file (zs_app_write_3mf), as bytes, or null.
+  plate3mf() {
+    const w = this.w;
+    if (w.x.zs_app_part_count(this.app) === 0) return null;
+    if (w.x.zs_app_write_3mf(this.app, w.cell, w.cell + 4) !== 0) return null;
+    const p = w.u32(w.cell);
+    const n = w.u32(w.cell + 4);
+    return w.u8.slice(p, p + n);
+  }
+
   // The G-code of the slice, as bytes.
   gcode() {
     const w = this.w;

@@ -11,6 +11,7 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
 import { Wasm } from "./wasm.js";
+import { savePlate, loadPlate, clearPlate } from "./keep.js";
 import { Client } from "./client.js";
 import { View3D, MODES } from "./view.js";
 import { GlRenderer } from "./gl.js";
@@ -1074,10 +1075,13 @@ function onWorkerEvent(m) {
       if (key) inspect(key);
       else if (app.sel >= 0) select(-1, -1, false);
       requestFrame();
+      keepSoon();
       break;
     }
     case "cleared":
-      // An empty plate.
+      // An empty plate: nothing to keep.
+      clearTimeout(keepTimer);
+      clearPlate();
       if (m.scene) {
         view.readScene(m.scene);
         gl.setOutlines(view.outlines());
@@ -1104,6 +1108,21 @@ function onWorkerEvent(m) {
       toast(`The worker stopped: ${m.error}`);
       break;
   }
+}
+
+// ---- the work across a refresh (keep.js) ----
+
+let keepTimer = 0;
+function keepSoon() {
+  clearTimeout(keepTimer);
+  keepTimer = setTimeout(async () => {
+    try {
+      const r = await client.call("plate3mf");
+      if (r.bytes) await savePlate(app.modelName || r.name || "plate", r.bytes);
+    } catch {
+      // The next slice tries again.
+    }
+  }, 1500);
 }
 
 // ---- open a model ----
@@ -1199,8 +1218,22 @@ if (params.has("printers") || (!store.printer && !stateHasChanges(store.saved?.m
   showPrinterPicker({ query: params.get("q"), model: params.get("pick"), step: params.get("step"), welcome: !params.has("printers") });
 }
 
-// A test hook: ?model=<url> opens a model at the start.
+// The plate of the last visit (keep.js), when the page has no model to
+// open: the work goes on after a refresh.
 const modelUrl = new URLSearchParams(location.search).get("model");
+if (!modelUrl) {
+  const kept = await loadPlate();
+  if (kept?.bytes) {
+    await openFile(new File([kept.bytes], "plate.3mf"));
+    if (app.state !== "empty" && kept.name) {
+      app.modelName = kept.name;
+      $("title").textContent = kept.name;
+      document.title = `${kept.name} · zslice`;
+    }
+  }
+}
+
+// A test hook: ?model=<url> opens a model at the start.
 if (modelUrl) {
   const r = await fetch(modelUrl);
   const name = decodeURIComponent(modelUrl.split("/").pop() || "model.stl");
