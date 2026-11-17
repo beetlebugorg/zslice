@@ -72,6 +72,7 @@ An adaptive layer height (thin layers where a surface has a small slope) can use
 | `line_width` | yes | layer, gcode | The support areas and the island search use the line width of the print. |
 | `first_layer_line_width` | no | layer | The first layer only. |
 | `wall_count`, `wall_thickness`, `thin_walls`, `seam` | yes | layer | |
+| `wall_generator`, `min_wall_line_width`, `min_feature_size`, `min_bead_width`, `wall_transition_length`, `wall_transition_angle`, `wall_transition_filter_distance`, `wall_distribution_count` | yes | layer | Arachne makes the walls of each layer from the outline of that layer only. The memo keeps the walls of each layer by their settings (see `Memo.arachneWalls`). |
 | `top_thickness`, `bottom_thickness` | yes | layer | Counted with the heights of the layers. |
 | `skin_removal_width`, `skin_expand_distance`, `solid_infill_width` | yes | layer | |
 | `skin_pattern`, `skin_angle`, `skin_angle_step`, `skin_overlap` | yes | layer | |

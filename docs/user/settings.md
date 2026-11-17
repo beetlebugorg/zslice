@@ -282,6 +282,38 @@ Print parts of the outline that are thinner than one line width (a thin fin, a s
 
 Where each wall loop starts and ends (the seam). `hidden`: at the point where the seam is hardest to see: an inside corner first, then an outside corner, toward the back, and not where the wall hangs over air; similar layers pick the same point, so the seam is one clean line. `sharpest`: in the deepest inside corner, or else in the sharpest outside corner, or else at the rear. `rear`: at the back of the part (the largest y), in one straight line. `nearest`: at the point nearest to the nozzle, which is the fastest. `random`: at a different point on each layer, so that no seam line shows.
 
+**`project.wall_generator`** (one of: `classic`, `arachne`; per layer). Default: `classic`
+
+The method that makes the walls. `classic`: each wall is the outline moved in by a whole number of line widths, with one line width. `arachne`: the walls follow the center lines of the part, and the width of each line changes along it, so that a whole number of lines fills the part. A part thinner than two lines gets one line in its middle, so `thin_walls` has no effect. This is the method of Cura and the other open source slicers.
+
+**`project.min_wall_line_width`** (number; per layer). Default: `0`
+
+Arachne: the narrowest wall line. Where the wall count changes, the lines go from this width to two times this width. 0 uses 0.85 x the nozzle diameter.
+
+**`project.min_feature_size`** (number; per layer). Default: `0`
+
+Arachne: parts thinner than this print nothing. A thicker part that is thinner than a line gets one line of at least `min_bead_width`. 0 uses 1/4 of the line width.
+
+**`project.min_bead_width`** (number; per layer). Default: `0`
+
+Arachne: the narrowest line in a part thinner than a line. 0 uses `min_wall_line_width`.
+
+**`project.wall_transition_length`** (number; per layer). Default: `0`
+
+Arachne: the length over which one line splits into two, or two join into one, where the wall count changes. 0 uses the line width.
+
+**`project.wall_transition_angle`** (number; per layer). Default: `10`
+
+Arachne: in a wedge with a larger angle than this (in degrees), the wall count does not change along the middle: the walls follow the sides, and no line fills the middle.
+
+**`project.wall_transition_filter_distance`** (number; per layer). Default: `100`
+
+Arachne: two changes of the wall count closer together than this cancel out, so that the walls do not go back and forth.
+
+**`project.wall_distribution_count`** (integer; per layer). Default: `1`
+
+Arachne: the number of walls, counted from the middle, that share a change of the line width. 1: only the middle line changes, and the outer walls keep their width.
+
 ### Top and bottom skin
 
 **`project.top_thickness`** (number; per layer). Default: `0.8`

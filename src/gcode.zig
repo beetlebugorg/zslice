@@ -720,7 +720,12 @@ pub const Emitter = struct {
             // A path with its own height (combined infill) has a larger
             // bead, so its flow limit gives a lower speed.
             const h: f64 = if (path.height > 0) path.height else lp.height;
-            const full = lr.speedAt(path.feature, lp.width, h, lp.index);
+            // A path whose width changes along it (Arachne): the flow limit
+            // of its widest point.
+            const widths: []const f32 = if (path.w_start != layer_mod.Path.planar) lp.point_w.items[path.w_start..][0..pts.len] else &.{};
+            var speed_width = lp.width;
+            for (widths) |pw| speed_width = @max(speed_width, pw);
+            const full = lr.speedAt(path.feature, speed_width, h, lp.index);
             const speed = slowSpeed(full, slow, s.filament.min_speed);
             const start_time = self.stats.print_time_s;
             // Ironing lines use a fraction of the flow of a normal line.
@@ -733,6 +738,27 @@ pub const Emitter = struct {
             if (path.z_start != layer_mod.Path.planar) {
                 const area = try self.nonPlanar(lp, path, pts, speed);
                 if (self.record) |rec| rec.appendAssumeCapacity(.{ .start_time = start_time, .end_time = self.stats.print_time_s, .area = area, .retracted = retracted, .slowed = slow < 1 or lapped });
+                continue;
+            }
+            if (widths.len > 0) {
+                // The width of each segment is the mean of its ends.
+                const e_scale = s.filament.flow_ratio / self.r.filament_area;
+                var area_len: f64 = 0;
+                var len_sum: f64 = 0;
+                const n = pts.len + @as(usize, @intFromBool(path.closed and pts.len > 2));
+                for (1..n) |k| {
+                    const j = k % pts.len;
+                    const sw = (@as(f64, widths[k - 1]) + widths[j]) / 2;
+                    const area = flow.beadArea(sw, h);
+                    const x = geom.toMm(pts[j].x);
+                    const y = geom.toMm(pts[j].y);
+                    const d = std.math.hypot(x - self.x, y - self.y);
+                    area_len += area * d;
+                    len_sum += d;
+                    try self.extrudeLen(x, y, d, area * e_scale, speed);
+                }
+                const mean_area = if (len_sum > 0) area_len / len_sum else flow.beadArea(widths[0], h);
+                if (self.record) |rec| rec.appendAssumeCapacity(.{ .start_time = start_time, .end_time = self.stats.print_time_s, .area = mean_area * s.filament.flow_ratio, .retracted = retracted, .slowed = slow < 1 or lapped });
                 continue;
             }
             if (self.prep != null and self.x == x0 and self.y == y0) {
@@ -1673,4 +1699,26 @@ test "combing goes along a round ring, where the box of the hole is outside the 
         try std.testing.expect(Emitter.combClear(outline, em.boxes[0..2], p, q, &hit));
         p = q;
     }
+}
+
+test "a path with a width for each point extrudes the bead of each segment" {
+    const gpa = std.testing.allocator;
+    const r = try (settings_mod.Settings{}).resolve();
+    var lp: LayerPlan = .{ .arena = .init(gpa), .index = 3, .z = 0.9, .height = 0.2, .width = 0.44, .resolved = &r };
+    defer lp.deinit();
+    const a = lp.arena.allocator();
+    // An open line of two 10 mm segments: 0.4 mm to 0.6 mm, then 0.6 mm.
+    try lp.outline.append(a, &.{ .{ .x = 0, .y = -5000 }, .{ .x = 30000, .y = -5000 }, .{ .x = 30000, .y = 5000 }, .{ .x = 0, .y = 5000 } });
+    try lp.points.append(a, &.{ .{ .x = 0, .y = 0 }, .{ .x = 10000, .y = 0 }, .{ .x = 20000, .y = 0 } });
+    try lp.point_w.appendSlice(a, &.{ 0.4, 0.6, 0.6 });
+    try lp.paths.append(a, .{ .feature = .inner_wall, .closed = false, .w_start = 0 });
+    var discard: Writer.Discarding = .init(&.{});
+    var em: Emitter = .init(gpa, &discard.writer, &r);
+    em.x = 0;
+    em.y = 0;
+    em.extruded = true;
+    try em.layer(&lp);
+    const want = 10 * (flow.beadArea(0.5, 0.2) + flow.beadArea(0.6, 0.2)) / r.filament_area * r.settings.filament.flow_ratio;
+    // The widths are f32.
+    try std.testing.expectApproxEqRel(want, em.stats.filament_mm, 1e-6);
 }

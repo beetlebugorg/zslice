@@ -26,6 +26,7 @@ const flow = @import("flow.zig");
 
 pub const InfillPattern = enum { lines, grid, triangles, cubic, gyroid, concentric, honeycomb, zigzag, flow, lightning };
 pub const SeamMode = enum { hidden, sharpest, rear, nearest, random };
+pub const WallGenerator = enum { classic, arachne };
 /// How the top and bottom skin is filled. See `Project.skin_pattern`.
 pub const SkinPattern = enum { lines, monotonic, concentric };
 /// Where the part goes on the bed. See `Project.placement`.
@@ -247,6 +248,39 @@ pub const Project = struct {
     /// point nearest to the nozzle, which is the fastest. `random`: at a
     /// different point on each layer, so that no seam line shows.
     seam: SeamMode = .hidden,
+    /// The method that makes the walls. `classic`: each wall is the outline
+    /// moved in by a whole number of line widths, with one line width.
+    /// `arachne`: the walls follow the center lines of the part, and the
+    /// width of each line changes along it, so that a whole number of lines
+    /// fills the part. A part thinner than two lines gets one line in its
+    /// middle, so `thin_walls` has no effect. This is the method of Cura
+    /// and the other open source slicers.
+    wall_generator: WallGenerator = .classic,
+    /// Arachne: the narrowest wall line. Where the wall count changes, the
+    /// lines go from this width to two times this width. 0 uses 0.85 x the
+    /// nozzle diameter.
+    min_wall_line_width: f64 = 0,
+    /// Arachne: parts thinner than this print nothing. A thicker part
+    /// that is thinner than a line gets one line of at least
+    /// `min_bead_width`. 0 uses 1/4 of the line width.
+    min_feature_size: f64 = 0,
+    /// Arachne: the narrowest line in a part thinner than a line. 0 uses
+    /// `min_wall_line_width`.
+    min_bead_width: f64 = 0,
+    /// Arachne: the length over which one line splits into two, or two
+    /// join into one, where the wall count changes. 0 uses the line width.
+    wall_transition_length: f64 = 0,
+    /// Arachne: in a wedge with a larger angle than this (in degrees), the
+    /// wall count does not change along the middle: the walls follow the
+    /// sides, and no line fills the middle.
+    wall_transition_angle: f64 = 10,
+    /// Arachne: two changes of the wall count closer together than this
+    /// cancel out, so that the walls do not go back and forth.
+    wall_transition_filter_distance: f64 = 100,
+    /// Arachne: the number of walls, counted from the middle, that share a
+    /// change of the line width. 1: only the middle line changes, and the
+    /// outer walls keep their width.
+    wall_distribution_count: u32 = 1,
 
     // Top and bottom skin, as a thickness. The engine computes the number
     // of layers, so a change of the layer height keeps the strength.
@@ -884,6 +918,13 @@ pub const limits = [_]struct { []const u8, f64, f64 }{
     .{ "project.first_layer_line_width", 0, 2 },
     .{ "project.wall_count", 0, 50 },
     .{ "project.wall_thickness", 0, 50 },
+    .{ "project.min_wall_line_width", 0, 2 },
+    .{ "project.min_feature_size", 0, 2 },
+    .{ "project.min_bead_width", 0, 2 },
+    .{ "project.wall_transition_length", 0, 10 },
+    .{ "project.wall_transition_angle", 1, 59 },
+    .{ "project.wall_transition_filter_distance", 0.01, 1000 },
+    .{ "project.wall_distribution_count", 1, 20 },
     .{ "project.top_thickness", 0, 20 },
     .{ "project.bottom_thickness", 0, 20 },
     .{ "project.skin_removal_width", 0, 10 },
@@ -1066,6 +1107,14 @@ pub const layer_settings = [_][]const u8{
     "project.line_width",
     "project.wall_thickness",
     "project.thin_walls",
+    "project.wall_generator",
+    "project.min_wall_line_width",
+    "project.min_feature_size",
+    "project.min_bead_width",
+    "project.wall_transition_length",
+    "project.wall_transition_angle",
+    "project.wall_transition_filter_distance",
+    "project.wall_distribution_count",
     "project.skin_removal_width",
     "project.skin_expand_distance",
     "project.solid_infill_width",
