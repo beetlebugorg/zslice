@@ -11,6 +11,10 @@
 // value of the result (a step, or the next choice); Space or Enter turns a
 // switch or runs an action; Tab goes into the controls; Esc closes.
 //
+// The search does not block the view: a drag in the view turns it, the
+// wheel zooms, and a click picks a line, while the search stays open. Esc,
+// /, or × closes it.
+//
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
 import { el } from "./settings.js";
@@ -89,8 +93,8 @@ export class SearchOverlay {
       this.input.select();
       return;
     }
-    const shade = el("div", "search-shade");
-    shade.onclick = () => this.close();
+    // No shade over the view: the view takes the mouse while the search
+    // is open, so the user can turn the view to see a change.
     const box = el("div", "search-box");
     box.setAttribute("role", "dialog");
     box.setAttribute("aria-label", "Search settings and actions");
@@ -102,18 +106,22 @@ export class SearchOverlay {
     input.value = text;
     input.setAttribute("aria-label", "Search settings and actions");
     const grip = el("span", "search-grip");
-    grip.title = "Drag to move the search. Double-click: back to the top center.";
+    grip.title = "Drag to move the search. Double-click: back to its first place.";
     grip.setAttribute("aria-hidden", "true");
     head.append(grip);
     if (scope) head.append(el("span", "search-scope", scope.label));
-    head.append(input, el("span", "search-esc", "Esc"));
+    const closeBtn = el("button", "flat icon search-close", "×");
+    closeBtn.title = "Close the search (Esc)";
+    closeBtn.setAttribute("aria-label", "Close the search");
+    closeBtn.onclick = () => this.close();
+    head.append(input, closeBtn);
     this.movable(box, head);
     const list = el("div", "search-list");
     box.append(head, list);
     box.addEventListener("keydown", (e) => this.key(e));
     input.addEventListener("input", () => this.fill());
     this.root = el("div", "search-layer");
-    this.root.append(shade, box);
+    this.root.append(box);
     document.body.append(this.root);
     this.input = input;
     this.list = list;

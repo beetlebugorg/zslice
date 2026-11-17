@@ -1932,6 +1932,15 @@ const search = new SearchOverlay({
 const shortcuts = new ShortcutSheet();
 $("search-open").onclick = () => search.show();
 
+// Esc closes the search also when the view has the focus (after a turn of
+// the view), once the keys of the view (a selection, the tape) are done.
+document.addEventListener("keydown", (e) => {
+  if (e.key !== "Escape" || e.defaultPrevented || !search.open) return;
+  if (e.target.closest?.("input:not(.search-input), textarea, select")) return;
+  e.preventDefault();
+  search.close();
+});
+
 document.addEventListener("keydown", (e) => {
   if (e.key === "Delete" && partCard.open && !e.target.closest?.("input, textarea, select, [contenteditable]")) {
     e.preventDefault();
@@ -1949,6 +1958,9 @@ document.addEventListener("keydown", (e) => {
   } else if (e.key === "?") {
     search.close();
     shortcuts.toggle();
+  } else if (search.open) {
+    // / again closes the search (it stays open while the view moves).
+    search.close();
   } else {
     shortcuts.close();
     search.show();

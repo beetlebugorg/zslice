@@ -237,7 +237,8 @@ Press `/` (or click **Search** in the preview toolbar, in the web app) to search
 - The pointer over a setting shows only the lines that it changes.
 - The tag under each setting says its section and where its value comes from (the printer, the profile, or this print).
 - An action (Export G-code, Print, Arrange the plate, Undo, and others) runs with a click or Enter.
-- Drag the top bar of the search to move it, so it does not cover the part. It opens at the same place next time. A double click on the top bar puts it back at the top center.
+- The search does not block the view: while it is open, drag in the view to turn it, use the wheel to zoom, and click a line, to see the change from any side. Esc, `/`, or × closes it.
+- It opens at the left of the view. Drag its top bar to move it; it opens at the same place next time. A double click on the top bar puts it back.
 - Keys: Up and Down go through the results. Left and Right change the value of the result (a step, or the next choice). Space or Enter turns a switch or runs an action. Tab goes into the controls. Esc closes the search.
 
 ## Tools
