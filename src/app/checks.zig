@@ -139,22 +139,50 @@ fn flowIssues(b: *Builder, job: *const zs.engine.Job, t: *const Toolpaths) Alloc
     }
 }
 
+/// The layers that print in less than the minimum layer time: one issue
+/// for each run of such layers next to each other (a thin tower makes many
+/// short layers), with the shortest time of the run.
 fn coolingIssues(b: *Builder, job: *const zs.engine.Job, t: *const Toolpaths) Allocator.Error!void {
     var n: usize = 0;
-    for (0..t.layer_ends.items.len) |l| {
-        const first: usize = if (l == 0) 0 else t.layer_ends.items[l - 1];
-        const last: usize = t.layer_ends.items[l];
-        if (last <= first) continue;
-        const s = job.resolvedAt(l).settings.filament;
-        if (!(s.min_layer_time > 0)) continue;
-        const begin: f64 = if (first == 0) 0 else t.path_end_time.items[first - 1];
-        const time = t.path_end_time.items[last - 1] - begin;
-        if (time >= s.min_layer_time - 0.5) continue;
+    var run_first: ?usize = null;
+    var run_min: f64 = 0;
+    var run_at: usize = 0;
+    const count = t.layer_ends.items.len;
+    for (0..count + 1) |l| {
+        var short = false;
+        var time: f64 = 0;
+        if (l < count) {
+            const first: usize = if (l == 0) 0 else t.layer_ends.items[l - 1];
+            const last: usize = t.layer_ends.items[l];
+            if (last > first) {
+                const st = job.resolvedAt(l).settings.filament;
+                const begin: f64 = if (first == 0) 0 else t.path_end_time.items[first - 1];
+                time = t.path_end_time.items[last - 1] - begin;
+                short = st.min_layer_time > 0 and time < st.min_layer_time - 0.5;
+            }
+        }
+        if (short) {
+            if (run_first == null or time < run_min) {
+                run_min = time;
+                run_at = l;
+            }
+            if (run_first == null) run_first = l;
+            continue;
+        }
+        const f = run_first orelse continue;
+        run_first = null;
         n += 1;
         if (n > max_per_kind) break;
-        const c = midpoint(t, first);
-        try b.add(.{ .kind = .cooling, .severity = 1, .layer = @intCast(l), .path = Issue.no_path, .x = c[0], .y = c[1], .value = time, .text_start = 0, .text_len = 0 },
-            "Layer {d} prints in {d:.1} s, less than the minimum layer time ({d:.0} s), also at the minimum speed ({d:.0} mm/s). The plastic can still be soft under the next layer. Print two parts at once, or lower filament.min_speed.", .{ l + 1, time, s.min_layer_time, s.min_speed });
+        const last_l = l - 1;
+        const st = job.resolvedAt(run_at).settings.filament;
+        const first_path: usize = if (run_at == 0) 0 else t.layer_ends.items[run_at - 1];
+        const c = midpoint(t, first_path);
+        const issue: Issue = .{ .kind = .cooling, .severity = 1, .layer = @intCast(run_at), .path = Issue.no_path, .x = c[0], .y = c[1], .value = run_min, .text_start = 0, .text_len = 0 };
+        if (last_l == f) {
+            try b.add(issue, "Layer {d} prints in {d:.1} s, less than the minimum layer time ({d:.0} s), also at the minimum speed ({d:.0} mm/s). The plastic can still be soft under the next layer. Print two parts at once, or lower filament.min_speed.", .{ f + 1, run_min, st.min_layer_time, st.min_speed });
+        } else {
+            try b.add(issue, "Layers {d} to {d} print in less than the minimum layer time ({d:.0} s), down to {d:.1} s at layer {d}, also at the minimum speed ({d:.0} mm/s). The plastic can still be soft under the next layer. Print two parts at once, or lower filament.min_speed.", .{ f + 1, last_l + 1, st.min_layer_time, run_min, run_at + 1, st.min_speed });
+        }
     }
 }
 
@@ -268,8 +296,15 @@ fn overhangIssues(b: *Builder, job: *const zs.engine.Job, s: zs.Settings) Alloca
         // A bridge: held at two or more places, or along most of its edge
         // (a roof held all around). An overhang is held at one side.
         if (hh.anchors >= 2 or hh.held >= 0.6) {
-            try b.add(.{ .kind = .bridge, .severity = if (hh.span > 15) 1 else 0, .layer = hh.layer, .path = Issue.no_path, .x = hh.x, .y = hh.y, .value = hh.span, .text_start = 0, .text_len = 0 },
-                "Layer {d}: a bridge of about {d:.1} mm over air ({d:.1} mm²), held along {d:.0} % of its edge. A long bridge can sag; it prints best slow, with the fan on.", .{ hh.layer + 1, hh.span, hh.area, hh.held * 100 });
+            // A bridge of less than 2 mm prints well in any case.
+            if (hh.span < 2) continue;
+            if (s.project.bridges) {
+                try b.add(.{ .kind = .bridge, .severity = if (hh.span > 15) 1 else 0, .layer = hh.layer, .path = Issue.no_path, .x = hh.x, .y = hh.y, .value = hh.span, .text_start = 0, .text_len = 0 },
+                    "Layer {d}: a bridge of about {d:.1} mm over air ({d:.1} mm²). It prints as a bridge (project.bridges): straight lines across, anchored at both ends, slow, with the fan on.{s}", .{ hh.layer + 1, hh.span, hh.area, if (hh.span > 15) " A bridge this long can still sag: add support under it, or turn the part." else "" });
+            } else {
+                try b.add(.{ .kind = .bridge, .severity = if (hh.span > 15) 2 else 1, .layer = hh.layer, .path = Issue.no_path, .x = hh.x, .y = hh.y, .value = hh.span, .text_start = 0, .text_len = 0 },
+                    "Layer {d}: a bridge of about {d:.1} mm over air ({d:.1} mm²), printed as normal skin. Turn on project.bridges: it prints the bridge across the air, slow, with the fan on.", .{ hh.layer + 1, hh.span, hh.area });
+            }
         } else {
             try b.add(.{ .kind = .overhang, .severity = if (hh.area > 10) 2 else 1, .layer = hh.layer, .path = Issue.no_path, .x = hh.x, .y = hh.y, .value = hh.area, .text_start = 0, .text_len = 0 },
                 "Layer {d}: {d:.1} mm² hang out past the layer below, flatter than {d:.0}° (project.support_angle), with support off. It can sag or curl. Turn on support, or add support there (right click).", .{ hh.layer + 1, hh.area, s.project.support_angle });
