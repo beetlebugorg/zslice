@@ -156,6 +156,17 @@ function wantSlice() {
   markStale(active);
 }
 
+// A change of a part while a drag or keys go on: the slice waits until
+// sliceHeld (the end of the drag, or a pause of the keys).
+let held = false;
+function sliceOrHold(hold) {
+  if (hold) held = true;
+  else {
+    held = false;
+    wantSlice();
+  }
+}
+
 // Plate i waits for a slice. Its old slice stays until the new one.
 function markStale(i) {
   const p = plates[i];
@@ -632,15 +643,17 @@ const ops = {
     return { part: i >= 0 ? core.part(i) : null };
   },
 
-  partMove({ index, x, y }) {
-    if (core.w.x.zs_app_part_move(core.app, index, x, y) === 0) wantSlice();
+  // hold: a drag or a key goes on, so the slice waits (sliceHeld starts
+  // it at the end): a turn or a move of a part slices once, when it ends.
+  partMove({ index, x, y, hold }) {
+    if (core.w.x.zs_app_part_move(core.app, index, x, y) === 0) sliceOrHold(hold);
     return { part: core.part(index) };
   },
 
   partRotate({ index, step }) {
     const p = core.part(index);
     if (!p) return { part: null };
-    if (core.w.x.zs_app_part_rotate(core.app, index, p.rotation + step) === 0) wantSlice();
+    if (core.w.x.zs_app_part_rotate(core.app, index, p.rotation + step) === 0) sliceOrHold(false);
     return { part: core.part(index) };
   },
 
@@ -783,7 +796,7 @@ const ops = {
 
   // Turns part `index` about X (axis 0) or Y (axis 1) by `degrees`, or
   // about Z (axis 2): the Turn tool.
-  partTurn({ index, axis, degrees }) {
+  partTurn({ index, axis, degrees, hold }) {
     const x = core.w.x;
     let rc;
     if (axis === 2) {
@@ -793,7 +806,7 @@ const ops = {
     } else {
       rc = x.zs_app_part_turn(core.app, index, axis, degrees);
     }
-    if (rc === 0) wantSlice();
+    if (rc === 0) sliceOrHold(hold);
     return { part: core.part(index) };
   },
 
@@ -802,6 +815,12 @@ const ops = {
   partPutDown({ index, x, y, z }) {
     if (core.w.x.zs_app_part_put_down_at(core.app, index, x, y, z) === 0) wantSlice();
     return { part: core.part(index) };
+  },
+
+  // The end of a drag or of the keys of a part: the slice that waited.
+  sliceHeld() {
+    if (held) sliceOrHold(false);
+    return {};
   },
 
   partSettings({ index }) {

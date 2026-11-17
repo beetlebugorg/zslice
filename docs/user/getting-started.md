@@ -220,7 +220,7 @@ With the Move tool (M), or Ctrl and a click with any tool, a click on a part sel
 - **Reset**: the orientation and the scale of the file again;
 - **Remove** (Delete);
 - the settings that the part has of its own, each with an editor and × (the value of the plate again);
-- the keyboard: Tab and Shift+Tab select the next part and the part before; the arrow keys move the selected part 1 mm (with Shift: 10 mm); R with Left or Right turns it 15°; Esc clears the selection;
+- the keyboard: Tab and Shift+Tab select the next part and the part before; the arrow keys move the selected part 1 mm (with Shift: 10 mm), and the part slices after a pause of 0.6 s in the keys; R with Left or Right turns it 15°; Esc clears the selection;
 - **+ Add a setting for this part**: the search for this part. It shows only the settings that a part can have of its own, and a change goes to the part.
 
 Drag the top row of a card (the part card or the line card) to move it. It keeps that place until it closes.
@@ -251,7 +251,7 @@ The tool strip at the left of the view (in the GTK app: the group of three butto
 |---|---|---|
 | Select (arrow) | S | Selects a line. The Selected page shows what it is and its measurements. |
 | Move (cross) | M | A drag on a part moves it, and the wheel over it turns it by 15°: the same as Ctrl in the other tools. |
-| Turn (arrow in a circle) | R | Click a part: three rings go around it. Drag the red ring to turn the part about X, the green ring about Y, and the blue ring about Z (on the bed), in steps of 15° (Shift: 5°). Each step slices at once. Keys: Left and Right turn it about Z, Up and Down about X, Page Up and Page Down about Y. |
+| Turn (arrow in a circle) | R | Click a part: three rings go around it. Drag the red ring to turn the part about X, the green ring about Y, and the blue ring about Z (on the bed), in steps of 15° (Shift: 5°). The part turns at once, and it slices once, when you let go of the ring. Keys: Left and Right turn it about Z, Up and Down about X, Page Up and Page Down about Y. |
 | Measure (ruler) | T | Two clicks measure between two points of the print or the bed, in the 3D or the 2D view. The distance shows on a label over the middle of the tape, with its parts along x, y, and z. A point near the end of a line snaps to it. A click on a circle or an arc (a hole, a boss) shows its diameter and radius, selects the line, and puts the point at its center, so two holes give the distance between their centers. Hold Shift for no snap. Esc clears the measure. |
 
 The measure shows under the toolbar: the distance, its parts along X, Y, and Z, and the distance on the bed. A gold line in the 3D view joins the two points.

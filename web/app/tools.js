@@ -320,7 +320,8 @@ export class Tools {
     const now = performance.now();
     if (now - this.moveSent > 60) {
       this.moveSent = now;
-      this.ctx.client.call("partMove", { index: m.index, x: m.x, y: m.y });
+      // The slice waits for the end of the drag (moveEnd).
+      this.ctx.client.call("partMove", { index: m.index, x: m.x, y: m.y, hold: true });
     }
   }
 

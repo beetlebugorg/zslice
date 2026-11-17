@@ -2,7 +2,7 @@
 // selected part, three rings go around the part: red turns it about X,
 // green about Y, and blue about Z (a turn on the bed). A drag along a ring
 // turns the part in steps of 15° (Shift: 5°); each step goes to the core
-// at once, and the part slices again. The rings are an SVG over the view,
+// at once, and the part slices once, at the end of the drag. The rings are an SVG over the view,
 // made from the pixels of points around the part (zs_view_pixel_of), so
 // they follow the camera.
 //
@@ -132,6 +132,8 @@ export class TurnRings {
       this.send();
     };
     const up = () => {
+      // The turn is done: the slice that waited starts.
+      this.ctx.done?.();
       target.removeEventListener("pointermove", move);
       target.removeEventListener("pointerup", up);
       target.removeEventListener("pointercancel", up);

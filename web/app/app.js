@@ -741,11 +741,20 @@ var turnRings = new TurnRings({
   turn: async (axis, degrees) => {
     const part = tools.part;
     if (!part) return;
-    const r = await client.call("partTurn", { index: part.index, axis, degrees });
+    const r = await client.call("partTurn", { index: part.index, axis, degrees, hold: true });
     if (r.part) tools.selectPart(r.part);
     requestFrame();
   },
+  done: () => client.call("sliceHeld"),
 });
+
+// The keys of a part move and turn it at once; the slice waits for a pause
+// of 0.6 s in the keys.
+let heldKeys = 0;
+function sliceAfterKeys() {
+  clearTimeout(heldKeys);
+  heldKeys = setTimeout(() => client.call("sliceHeld"), 600);
+}
 
 // The card of a selected part, next to it in the view (partcard.js).
 var partCard = new PartCard({
@@ -1302,7 +1311,8 @@ function partKey(e) {
     e.preventDefault();
     e.stopPropagation();
     const deg = (e.shiftKey ? 5 : 15) * (e.key === "PageUp" ? 1 : -1);
-    client.call("partTurn", { index: part.index, axis: 1, degrees: deg }).then((r) => r.part && tools.selectPart(r.part));
+    client.call("partTurn", { index: part.index, axis: 1, degrees: deg, hold: true }).then((r) => r.part && tools.selectPart(r.part));
+    sliceAfterKeys();
     return true;
   }
   const dirs = { ArrowLeft: [-1, 0], ArrowRight: [1, 0], ArrowUp: [0, 1], ArrowDown: [0, -1] };
@@ -1317,14 +1327,16 @@ function partKey(e) {
     const deg = e.shiftKey ? 5 : 15;
     const axis = d[0] !== 0 ? 2 : 0;
     const sign = d[0] !== 0 ? -d[0] : d[1];
-    client.call("partTurn", { index: part.index, axis, degrees: sign * deg }).then((r) => r.part && tools.selectPart(r.part));
+    client.call("partTurn", { index: part.index, axis, degrees: sign * deg, hold: true }).then((r) => r.part && tools.selectPart(r.part));
+    sliceAfterKeys();
     return true;
   }
   const step = e.shiftKey ? 10 : 1;
   const x = part.x + d[0] * step;
   const y = part.y + d[1] * step;
   tools.selectPart({ ...part, x, y });
-  client.call("partMove", { index: part.index, x, y }).then((r) => r.part && tools.selectPart(r.part));
+  client.call("partMove", { index: part.index, x, y, hold: true }).then((r) => r.part && tools.selectPart(r.part));
+  sliceAfterKeys();
   return true;
 }
 
