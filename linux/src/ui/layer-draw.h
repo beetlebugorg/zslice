@@ -40,10 +40,13 @@ typedef struct {
     const gint64 *more;
     guint n_more;
     gint64 first_path, end_path;
+    /* The dark look (zg_theme_dark): a darker outline. */
+    gboolean dark;
 } ZgLayerStyle;
 
 /* The bed of size_x by size_y mm, with a 10 mm grid. `scale` is the pixels
- * for each mm, for a grid line of one pixel. */
-void zg_draw_bed(cairo_t *cr, double size_x, double size_y, double scale);
+ * for each mm, for a grid line of one pixel. `dark`: the colors of the
+ * dark look, as the 3D view (zs_view_set_dark). */
+void zg_draw_bed(cairo_t *cr, double size_x, double size_y, double scale, gboolean dark);
 
 void zg_draw_layer(cairo_t *cr, const zs_layer_paths *lp, const ZgLayerStyle *style);

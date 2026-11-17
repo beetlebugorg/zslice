@@ -22,13 +22,15 @@ static void add_path(cairo_t *cr, const zs_layer_paths *lp, size_t i) {
     add_polyline(cr, lp->points, path_start(lp, i), lp->path_ends[i], lp->path_closed[i]);
 }
 
-void zg_draw_bed(cairo_t *cr, double size_x, double size_y, double scale) {
+void zg_draw_bed(cairo_t *cr, double size_x, double size_y, double scale, gboolean dark) {
     double bx = size_x, by = size_y;
     cairo_rectangle(cr, 0, 0, bx, by);
-    cairo_set_source_rgb(cr, 0.906, 0.914, 0.925);
+    if (dark) cairo_set_source_rgb(cr, 0.16, 0.16, 0.18);
+    else cairo_set_source_rgb(cr, 0.906, 0.914, 0.925);
     cairo_fill(cr);
     cairo_set_line_width(cr, 1.0 / scale);
-    cairo_set_source_rgb(cr, 0.82, 0.84, 0.86);
+    if (dark) cairo_set_source_rgb(cr, 0.25, 0.26, 0.28);
+    else cairo_set_source_rgb(cr, 0.82, 0.84, 0.86);
     for (double x = 0; x <= bx; x += 10) {
         cairo_move_to(cr, x, 0);
         cairo_line_to(cr, x, by);
@@ -48,7 +50,8 @@ void zg_draw_layer(cairo_t *cr, const zs_layer_paths *lp, const ZgLayerStyle *st
         add_polyline(cr, lp->outline_points, start, lp->outline_ends[i], TRUE);
     }
     cairo_set_fill_rule(cr, CAIRO_FILL_RULE_WINDING);
-    cairo_set_source_rgb(cr, 0.80, 0.83, 0.86);
+    if (style->dark) cairo_set_source_rgb(cr, 0.30, 0.32, 0.35);
+    else cairo_set_source_rgb(cr, 0.80, 0.83, 0.86);
     cairo_fill(cr);
 
     cairo_set_line_cap(cr, CAIRO_LINE_CAP_ROUND);

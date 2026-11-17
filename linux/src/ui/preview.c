@@ -21,6 +21,7 @@
 #include "layer-range.h"
 #include "toolpath-nav.h"
 #include "view3d.h"
+#include "widgets.h"
 
 typedef struct {
     ZgModel *model;
@@ -318,7 +319,9 @@ static void draw(GtkDrawingArea *area, cairo_t *cr, int w, int h, gpointer data)
     zs_app *core = zg_model_core(p->model);
     int state = zs_app_state(core);
 
-    cairo_set_source_rgb(cr, 0.965, 0.969, 0.973);
+    gboolean dark = zg_theme_dark(p->area);
+    if (dark) cairo_set_source_rgb(cr, 0.114, 0.114, 0.125);
+    else cairo_set_source_rgb(cr, 0.965, 0.969, 0.973);
     cairo_paint(cr);
 
     if (state == ZS_STATE_EMPTY) {
@@ -331,11 +334,11 @@ static void draw(GtkDrawingArea *area, cairo_t *cr, int w, int h, gpointer data)
     cairo_translate(cr, p->ox, h - p->oy);
     cairo_scale(cr, p->scale, -p->scale);
 
-    zg_draw_bed(cr, setting_mm(p, "machine.bed_size_x", 220), setting_mm(p, "machine.bed_size_y", 220), p->scale);
+    zg_draw_bed(cr, setting_mm(p, "machine.bed_size_x", 220), setting_mm(p, "machine.bed_size_y", 220), p->scale, dark);
 
     if (p->have_paths) {
         size_t layer = zg_layer_range_get_hi(ZG_LAYER_RANGE(p->slider));
-        ZgLayerStyle style = {.selected = -1, .segment = zg_model_segment(p->model), .first_layer = layer == 0};
+        ZgLayerStyle style = {.selected = -1, .segment = zg_model_segment(p->model), .first_layer = layer == 0, .dark = dark};
         gint64 sel = zg_model_selected(p->model);
         style.fade_others = sel >= 0 && zg_model_isolate(p->model);
         style.focus = zg_model_focus(p->model, &style.focus_first);
@@ -1126,6 +1129,8 @@ GtkWidget *zg_preview_new(ZgModel *model) {
     p->scale = 1;
 
     p->area = gtk_drawing_area_new();
+    /* The 2D view follows the dark mode, as the 3D view. */
+    zg_on_theme_changed(p->area, (void (*)(gpointer))gtk_widget_queue_draw, p->area);
     gtk_widget_set_hexpand(p->area, TRUE);
     gtk_widget_set_vexpand(p->area, TRUE);
     gtk_drawing_area_set_draw_func(GTK_DRAWING_AREA(p->area), draw, p, NULL);

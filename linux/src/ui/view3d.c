@@ -26,6 +26,7 @@
 
 #include "bed-model.h"
 #include "native-surface.h"
+#include "widgets.h"
 
 typedef struct {
     ZgModel *model;
@@ -296,6 +297,15 @@ void zg_view3d_set_color_mode(GtkWidget *view, int mode) {
     load_data(v);
 }
 
+/* The view follows the dark mode of the theme (zg_theme_dark): the
+ * background, the grid, and the bed. */
+static void apply_dark(gpointer data) {
+    View3d *v = data;
+    if (!v->view) return;
+    zs_view_set_dark(v->view, zg_theme_dark(v->area) ? 1 : 0);
+    queue_frame(v);
+}
+
 static void on_map(GtkWidget *w, gpointer data) {
     View3d *v = data;
     v->hidden = FALSE;
@@ -331,6 +341,7 @@ static void on_map(GtkWidget *w, gpointer data) {
         gtk_widget_queue_draw(w);
         return;
     }
+    apply_dark(v);
     load_data(v);
     sync_geometry(v);
 }
@@ -974,6 +985,7 @@ GtkWidget *zg_view3d_new(ZgModel *model) {
     g_signal_connect(v->area, "map", G_CALLBACK(on_map), v);
     g_signal_connect(v->area, "unmap", G_CALLBACK(on_unmap), v);
     g_signal_connect(v->area, "resize", G_CALLBACK(on_resize), v);
+    zg_on_theme_changed(v->area, apply_dark, v);
 
     const struct { guint button; int mode; } drags[] = {
         {GDK_BUTTON_PRIMARY, DRAG_ORBIT},

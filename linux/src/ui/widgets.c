@@ -41,3 +41,54 @@ GtkWidget *zg_wrapped_label_new(const char *text) {
     gtk_widget_set_hexpand(l, TRUE);
     return l;
 }
+
+gboolean zg_theme_dark(GtkWidget *widget) {
+    GdkRGBA c;
+    gtk_widget_get_color(widget, &c);
+    return 0.2126 * c.red + 0.7152 * c.green + 0.0722 * c.blue > 0.5;
+}
+
+typedef struct {
+    GtkWidget *owner;
+    void (*fn)(gpointer);
+    gpointer data;
+    guint idle;
+} ThemeWatch;
+
+static gboolean theme_idle(gpointer data) {
+    ThemeWatch *t = data;
+    t->idle = 0;
+    t->fn(t->data);
+    return G_SOURCE_REMOVE;
+}
+
+static void on_theme_setting(GObject *settings, GParamSpec *pspec, gpointer data) {
+    ThemeWatch *t = data;
+    /* The style of the widgets changes after this signal: read it later. */
+    if (!t->idle) t->idle = g_timeout_add(60, theme_idle, t);
+}
+
+static void theme_watch_free(gpointer data) {
+    ThemeWatch *t = data;
+    GtkSettings *s = gtk_settings_get_default();
+    if (s) g_signal_handlers_disconnect_by_data(s, t);
+    if (t->idle) g_source_remove(t->idle);
+    g_free(t);
+}
+
+void zg_on_theme_changed(GtkWidget *owner, void (*fn)(gpointer), gpointer data) {
+    GtkSettings *s = gtk_settings_get_default();
+    if (!s) return;
+    ThemeWatch *t = g_new0(ThemeWatch, 1);
+    t->owner = owner;
+    t->fn = fn;
+    t->data = data;
+    static const char *props[] = {"gtk-interface-color-scheme", "gtk-application-prefer-dark-theme", "gtk-theme-name"};
+    for (size_t i = 0; i < G_N_ELEMENTS(props); i++) {
+        if (!g_object_class_find_property(G_OBJECT_GET_CLASS(s), props[i])) continue;
+        char *sig = g_strconcat("notify::", props[i], NULL);
+        g_signal_connect(s, sig, G_CALLBACK(on_theme_setting), t);
+        g_free(sig);
+    }
+    g_object_set_data_full(G_OBJECT(owner), "zg-theme-watch", t, theme_watch_free);
+}
