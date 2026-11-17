@@ -40,6 +40,10 @@ void zg_view3d_set_layer(GtkWidget *view, size_t layer);
 void zg_view3d_context_menu(GtkWidget *view);
 /* TRUE while the context menu is open (its keys are its own). */
 gboolean zg_view3d_menu_open(GtkWidget *view);
+/* A click of the measure tape at x, y (logical points): a point of the
+ * print or the bed, or the center of a circle or an arc there. shift: no
+ * snap. */
+void zg_view3d_measure_click(GtkWidget *view, double x, double y, gboolean shift);
 /* The pixel of a point of the world (mm) in the widget (logical points).
  * FALSE if it is behind the camera, or with no view. */
 gboolean zg_view3d_pixel_of(GtkWidget *view, double x, double y, double z, double *px, double *py);

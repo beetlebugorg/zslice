@@ -931,6 +931,25 @@ static gboolean on_scroll(GtkEventControllerScroll *c, double dx, double dy, gpo
     return TRUE;
 }
 
+void zg_view3d_measure_click(GtkWidget *view, double x, double y, gboolean shift) {
+    View3d *v = g_object_get_data(G_OBJECT(view), "zg-view3d");
+    if (!v || !v->view) return;
+    int scale = gtk_widget_get_scale_factor(v->area);
+    double p[3];
+    if (!zs_view_surface_point(v->view, (float)(x * scale), (float)(y * scale), !shift, p)) return;
+    /* A circle or an arc under the pointer: the point is its center, with
+     * its radius, and the line shows selected. Shift: the point itself. */
+    size_t seg = 0;
+    size_t path = zs_view_pick_segment(v->view, (float)(x * scale), (float)(y * scale), &seg);
+    zs_measure m;
+    if (!shift && path != (size_t)-1 && zs_app_measure(zg_model_core(v->model), path, seg, &m) == ZS_OK && (m.shape == 1 || m.shape == 2)) {
+        zg_model_select_segment(v->model, (gint64)path, (gint64)seg);
+        zg_model_measure_add_shape(v->model, m.center_x, m.center_y, p[2], m.radius, m.shape);
+        return;
+    }
+    zg_model_measure_add(v->model, p[0], p[1], p[2]);
+}
+
 static void on_release(GtkGestureClick *g, int n, double x, double y, gpointer data) {
     View3d *v = data;
     if (n != 1 || !v->view || fabs(x - v->press_x) > 4 || fabs(y - v->press_y) > 4) return;
@@ -941,21 +960,7 @@ static void on_release(GtkGestureClick *g, int n, double x, double y, gpointer d
     /* The measure tape: a point of the print (the end of a line near the
      * pointer), or of the bed. */
     if (zg_model_tool(v->model) == ZG_TOOL_MEASURE) {
-        double p[3];
-        if (!zs_view_surface_point(v->view, (float)(x * scale), (float)(y * scale), !(mods & GDK_SHIFT_MASK), p)) return;
-        /* A circle or an arc under the pointer: the point is its center,
-         * with its radius, and the line shows selected. Shift: the point
-         * itself. */
-        size_t seg = 0;
-        size_t path = zs_view_pick_segment(v->view, (float)(x * scale), (float)(y * scale), &seg);
-        zs_measure m;
-        if (!(mods & GDK_SHIFT_MASK) && path != (size_t)-1 && zs_app_measure(zg_model_core(v->model), path, seg, &m) == ZS_OK &&
-            (m.shape == 1 || m.shape == 2)) {
-            zg_model_select_segment(v->model, (gint64)path, (gint64)seg);
-            zg_model_measure_add_shape(v->model, m.center_x, m.center_y, p[2], m.radius, m.shape);
-            return;
-        }
-        zg_model_measure_add(v->model, p[0], p[1], p[2]);
+        zg_view3d_measure_click(v->area, x, y, (mods & GDK_SHIFT_MASK) != 0);
         return;
     }
     if ((mods & GDK_CONTROL_MASK) || zg_model_tool(v->model) == ZG_TOOL_MOVE || zg_model_tool(v->model) == ZG_TOOL_TURN) {

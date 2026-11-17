@@ -307,6 +307,73 @@ static void load_layer(Preview *p, size_t layer) {
     gtk_widget_queue_draw(p->area);
 }
 
+/* The readout of the measure tape floats on the tape: over the middle of
+ * the tape, or next to its first point. With no point, the hint stays
+ * under the toolbar. */
+static void place_measure(Preview *p) {
+    if (!p->measure_label || !gtk_widget_get_visible(p->measure_label)) return;
+    const double *m = NULL;
+    int n = zg_model_measure(p->model, &m);
+    if (n == 0) {
+        if (zg_float_get(p->measure_label, NULL, NULL)) zg_float_unplace(p->measure_label);
+        return;
+    }
+    double wx = n == 2 ? (m[0] + m[3]) / 2 : m[0], wy = n == 2 ? (m[1] + m[4]) / 2 : m[1], wz = n == 2 ? (m[2] + m[5]) / 2 : m[2];
+    double x, y;
+    if (strcmp(gtk_stack_get_visible_child_name(GTK_STACK(p->stack)), "3d") == 0) {
+        if (!zg_view3d_pixel_of(p->view3d, wx, wy, wz, &x, &y)) return;
+    } else {
+        int h = gtk_widget_get_height(p->area);
+        x = p->ox + wx * p->scale;
+        y = h - (p->oy + wy * p->scale);
+    }
+    int lw = 0, lh = 0;
+    gtk_widget_measure(p->measure_label, GTK_ORIENTATION_HORIZONTAL, -1, NULL, &lw, NULL, NULL);
+    gtk_widget_measure(p->measure_label, GTK_ORIENTATION_VERTICAL, lw, NULL, &lh, NULL, NULL);
+    double px = n == 2 ? x - lw / 2.0 : x + 14, py = n == 2 ? y - lh - 12 : y - lh / 2.0;
+    double ox, oy;
+    if (zg_float_get(p->measure_label, &ox, &oy) && fabs(ox - px) < 0.5 && fabs(oy - py) < 0.5) return;
+    zg_float_place(p->measure_label, px, py);
+}
+
+static void on_view_frame(gpointer data) {
+    place_measure(data);
+}
+
+/* The measure tape in the 2D view (the 3D view draws it in the core): a
+ * gold line between the points, and a ring at each point. */
+static void draw_tape(Preview *p, cairo_t *cr, int h) {
+    const double *m = NULL;
+    int n = zg_model_measure(p->model, &m);
+    if (n == 0) return;
+    double px[2], py[2];
+    for (int i = 0; i < n; i++) {
+        px[i] = p->ox + m[3 * i] * p->scale;
+        py[i] = h - (p->oy + m[3 * i + 1] * p->scale);
+    }
+    cairo_set_line_cap(cr, CAIRO_LINE_CAP_ROUND);
+    if (n == 2) {
+        cairo_set_source_rgba(cr, 0.0, 0.0, 0.0, 0.45);
+        cairo_set_line_width(cr, 4);
+        cairo_move_to(cr, px[0], py[0]);
+        cairo_line_to(cr, px[1], py[1]);
+        cairo_stroke(cr);
+        cairo_set_source_rgb(cr, 0.96, 0.72, 0.10);
+        cairo_set_line_width(cr, 2);
+        cairo_move_to(cr, px[0], py[0]);
+        cairo_line_to(cr, px[1], py[1]);
+        cairo_stroke(cr);
+    }
+    for (int i = 0; i < n; i++) {
+        cairo_arc(cr, px[i], py[i], 5, 0, 2 * G_PI);
+        cairo_set_source_rgb(cr, 0.96, 0.72, 0.10);
+        cairo_fill_preserve(cr);
+        cairo_set_source_rgba(cr, 0, 0, 0, 0.6);
+        cairo_set_line_width(cr, 1.5);
+        cairo_stroke(cr);
+    }
+}
+
 static void draw_message(cairo_t *cr, int w, int h, const char *text) {
     cairo_set_source_rgb(cr, 0.45, 0.48, 0.52);
     cairo_select_font_face(cr, "sans-serif", CAIRO_FONT_SLANT_NORMAL, CAIRO_FONT_WEIGHT_NORMAL);
@@ -359,6 +426,8 @@ static void draw(GtkDrawingArea *area, cairo_t *cr, int w, int h, gpointer data)
         if (zg_model_gaps(p->model)) draw_gaps(p, cr, layer);
     }
     cairo_restore(cr);
+    draw_tape(p, cr, h);
+    place_measure(p);
 
     if (state == ZS_STATE_FAILED) draw_message(cr, w, h, "The slice failed. See the status bar.");
 }
@@ -686,12 +755,69 @@ static void on_double_click(GtkGestureClick *g, int n, double x, double y, gpoin
     gtk_widget_queue_draw(p->area);
 }
 
+/* A click of the measure tape in the 2D view: a point on the top layer,
+ * or the center of a circle or an arc there. shift: the point itself. */
+static void measure_click_2d(Preview *p, double x, double y, gboolean shift) {
+    zs_app *core = zg_model_core(p->model);
+    int h = gtk_widget_get_height(p->area);
+    double mx = (x - p->ox) / p->scale, my = ((h - y) - p->oy) / p->scale;
+    size_t layer = zg_layer_range_get_hi(ZG_LAYER_RANGE(p->slider));
+    zs_toolpaths tp;
+    double z = zs_app_toolpaths(core, &tp) == ZS_OK && layer < tp.layer_count ? tp.layer_z[layer] : 0;
+    size_t path = zs_app_pick_layer(core, layer, mx, my);
+    if (!shift && path != (size_t)-1) {
+        /* The segment of the path nearest to the point. */
+        uint32_t a = path == 0 ? 0 : tp.path_ends[path - 1], b = tp.path_ends[path];
+        size_t seg = 0;
+        double best = G_MAXDOUBLE;
+        for (uint32_t k = a; k + 1 < b; k++) {
+            double ax = tp.points[2 * k], ay = tp.points[2 * k + 1], bx = tp.points[2 * k + 2], by = tp.points[2 * k + 3];
+            double dx = bx - ax, dy = by - ay, l2 = dx * dx + dy * dy;
+            double t = l2 > 0 ? CLAMP(((mx - ax) * dx + (my - ay) * dy) / l2, 0, 1) : 0;
+            double d = hypot(mx - ax - t * dx, my - ay - t * dy);
+            if (d < best) {
+                best = d;
+                seg = k - a;
+            }
+        }
+        zs_measure m;
+        if (zs_app_measure(core, path, seg, &m) == ZS_OK && (m.shape == 1 || m.shape == 2)) {
+            zg_model_select_segment(p->model, (gint64)path, (gint64)seg);
+            zg_model_measure_add_shape(p->model, m.center_x, m.center_y, z, m.radius, m.shape);
+            return;
+        }
+    }
+    zg_model_measure_add(p->model, mx, my, z);
+}
+
+/* For tests: ZSLICE_MEASURE=x0,y0,x1,y1 measures between two pixels of the
+ * view that shows, 1 s after the first slice. */
+static void measure_hook(gpointer data) {
+    Preview *p = data;
+    char **f = g_strsplit(g_getenv("ZSLICE_MEASURE"), ",", 4);
+    if (g_strv_length(f) == 4) {
+        zg_model_set_tool(p->model, ZG_TOOL_MEASURE);
+        gboolean is3d = strcmp(gtk_stack_get_visible_child_name(GTK_STACK(p->stack)), "3d") == 0;
+        for (int i = 0; i < 2; i++) {
+            double x = g_ascii_strtod(f[2 * i], NULL), y = g_ascii_strtod(f[2 * i + 1], NULL);
+            if (is3d) zg_view3d_measure_click(p->view3d, x, y, FALSE);
+            else measure_click_2d(p, x, y, FALSE);
+        }
+    }
+    g_strfreev(f);
+}
+
 /* A click (a release near the press) picks the path under the pointer. */
 static void on_release(GtkGestureClick *g, int n, double x, double y, gpointer data) {
     Preview *p = data;
     if (n != 1 || fabs(x - p->press_x) > 4 || fabs(y - p->press_y) > 4) return;
     zs_app *core = zg_model_core(p->model);
     if (zs_app_state(core) != ZS_STATE_DONE) return;
+    if (zg_model_tool(p->model) == ZG_TOOL_MEASURE) {
+        GdkModifierType m = gtk_event_controller_get_current_event_state(GTK_EVENT_CONTROLLER(g));
+        measure_click_2d(p, x, y, (m & GDK_SHIFT_MASK) != 0);
+        return;
+    }
     int h = gtk_widget_get_height(p->area);
     double mx = (x - p->ox) / p->scale;
     double my = ((h - y) - p->oy) / p->scale;
@@ -1186,6 +1312,8 @@ static void on_measure_preview(ZgModel *model, gpointer data) {
     gtk_label_set_text(GTK_LABEL(p->measure_label), text);
     gtk_widget_set_visible(p->measure_label, TRUE);
     g_free(text);
+    place_measure(p);
+    gtk_widget_queue_draw(p->area);
 }
 
 /* A button of the tool strip: the glyph, and its key in the corner. */
@@ -1456,7 +1584,7 @@ GtkWidget *zg_preview_new(ZgModel *model) {
     gtk_widget_add_css_class(p->measure_label, "numeric");
     gtk_widget_set_halign(p->measure_label, GTK_ALIGN_START);
     gtk_widget_set_valign(p->measure_label, GTK_ALIGN_START);
-    gtk_widget_set_margin_start(p->measure_label, 10);
+    gtk_widget_set_margin_start(p->measure_label, 64);
     gtk_widget_set_margin_top(p->measure_label, 58);
     gtk_widget_set_can_target(p->measure_label, FALSE);
     gtk_widget_set_visible(p->measure_label, FALSE);
@@ -1488,6 +1616,8 @@ GtkWidget *zg_preview_new(ZgModel *model) {
     g_signal_connect(model, "tool-changed", G_CALLBACK(on_tool_changed_preview), p);
     g_signal_connect(model, "measure-changed", G_CALLBACK(on_measure_preview), p);
     g_signal_connect(p->slider, "mark-activated", G_CALLBACK(on_mark_activated), p);
+    /* The readout of the tape follows the camera. */
+    zg_view3d_on_frame(p->view3d, box, on_view_frame, p);
     return box;
 }
 
@@ -1669,6 +1799,7 @@ void zg_preview_refresh(GtkWidget *preview) {
     if (layer_times(p, layer, &t0, &t1)) show_scrub(p, layer, t1);
     /* For development: ZSLICE_CHECK=1 opens the check on the first result. */
     if (old_count == 0 && g_getenv("ZSLICE_CHECK")) gtk_menu_button_popup(GTK_MENU_BUTTON(p->check));
+    if (old_count == 0 && g_getenv("ZSLICE_MEASURE")) g_timeout_add_once(1000, measure_hook, p);
 }
 
 void zg_preview_show_layer(GtkWidget *preview, size_t layer) {
