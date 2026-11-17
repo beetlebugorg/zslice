@@ -252,7 +252,11 @@ static void on_material(GSimpleAction *a, GVariant *v, gpointer data) {
     const char *mat = g_variant_get_string(v, NULL);
     char *lower = g_ascii_strdown(mat, -1);
     char *base = g_strconcat("generic-", lower, NULL);
-    char *text = g_strdup_printf("extends = \"%s\"\n", base);
+    /* The diameter of the filament stays (a property of the printer: the
+     * built-in profiles are for 1.75 mm). */
+    char *dia = zg_model_get(m->model, "filament.diameter");
+    char *text = g_strdup_printf("extends = \"%s\"\ndiameter = %s\n", base, dia && dia[0] ? dia : "1.75");
+    g_free(dia);
     if (zg_model_roll(m->model)) {
         zg_model_set_roll(m->model, NULL);
         load_now(m, base, text);

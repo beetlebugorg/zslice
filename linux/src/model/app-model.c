@@ -551,6 +551,14 @@ void zg_model_use_printer(ZgModel *self, const char *id) {
 }
 
 void zg_model_filament_from_printer(ZgModel *self, const char *material, const char *name, double diameter, const char *color) {
+    /* The diameter is a property of the printer: a switch of the material
+     * keeps it, unless the printer tells another one. The built-in
+     * profiles of the materials are for 1.75 mm. */
+    if (diameter <= 0) {
+        char *now = zg_model_get(self, "filament.diameter");
+        diameter = now ? g_ascii_strtod(now, NULL) : 0;
+        g_free(now);
+    }
     /* The material picks the built-in base profile, if there is one. */
     if (material) {
         char *lower = g_ascii_strdown(material, -1);
