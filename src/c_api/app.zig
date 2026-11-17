@@ -1341,3 +1341,72 @@ test "C API: compare with Cura" {
     try std.testing.expect(zs_app_cura_compare(app, None.read, null, &cc2, &msg, msg.len) != ok);
     try std.testing.expect(std.mem.startsWith(u8, std.mem.span(@as([*:0]u8, @ptrCast(&msg))), "cura.json:"));
 }
+
+// ---- the history of changes (see app/history.zig) ----
+
+fn copyOut(text: []const u8, buf: ?[*]u8, cap: usize, out_len: ?*usize) c_int {
+    if (out_len) |l| l.* = text.len;
+    if (buf) |b| {
+        if (cap == 0) return ok;
+        const n = @min(text.len, cap - 1);
+        @memcpy(b[0..n], text[0..n]);
+        b[n] = 0;
+    }
+    return ok;
+}
+
+/// The facts of the state, for a step of the history: one line for each
+/// value that differs from the start ("scope\tkey\tvalue").
+export fn zs_app_history_facts(a: ?*const App, buf: ?[*]u8, cap: usize, out_len: ?*usize) c_int {
+    const app = a orelse return @intFromEnum(Status.invalid_argument);
+    var aw: Writer.Allocating = .init(gpa);
+    defer aw.deinit();
+    app.writeFacts(&aw.writer) catch return @intFromEnum(Status.out_of_memory);
+    return copyOut(aw.written(), buf, cap, out_len);
+}
+
+/// The changes from the facts `before` to the facts `after`, one on each
+/// line ("scope\tkey\told\tnew").
+export fn zs_history_diff(before: ?[*]const u8, before_len: usize, after: ?[*]const u8, after_len: usize, buf: ?[*]u8, cap: usize, out_len: ?*usize) c_int {
+    const b = if (before) |p| p[0..before_len] else "";
+    const af = if (after) |p| p[0..after_len] else "";
+    var aw: Writer.Allocating = .init(gpa);
+    defer aw.deinit();
+    app_mod.history.diff(gpa, b, af, &aw.writer) catch return @intFromEnum(Status.out_of_memory);
+    return copyOut(aw.written(), buf, cap, out_len);
+}
+
+/// The changes of a diff in words, one on each line: "scope\tchange", for
+/// example "Part Benchy\tWall count the print value → 4".
+export fn zs_history_describe(changes: ?[*]const u8, len: usize, buf: ?[*]u8, cap: usize, out_len: ?*usize) c_int {
+    const t = if (changes) |p| p[0..len] else "";
+    var aw: Writer.Allocating = .init(gpa);
+    defer aw.deinit();
+    app_mod.history.describe(gpa, t, zs.settings.part_z, &.{}, &aw.writer) catch return @intFromEnum(Status.out_of_memory);
+    return copyOut(aw.written(), buf, cap, out_len);
+}
+
+/// zs_history_describe, with the layer numbers of the last slice of the app
+/// for the changes of some layers ("Layers 86 and up").
+export fn zs_app_history_describe(a: ?*const App, changes: ?[*]const u8, len: usize, buf: ?[*]u8, cap: usize, out_len: ?*usize) c_int {
+    const app = a orelse return @intFromEnum(Status.invalid_argument);
+    const t = if (changes) |p| p[0..len] else "";
+    var aw: Writer.Allocating = .init(gpa);
+    defer aw.deinit();
+    app.describeChanges(t, &aw.writer) catch return @intFromEnum(Status.out_of_memory);
+    return copyOut(aw.written(), buf, cap, out_len);
+}
+
+/// Undoes one change (one line of zs_history_diff) and keeps the others.
+/// ZS_NOT_SUPPORTED for a change of the place of a part. Slice again after
+/// it.
+export fn zs_app_history_revert(a: ?*App, change: ?[*]const u8, len: usize) c_int {
+    const app = a orelse return @intFromEnum(Status.invalid_argument);
+    const line = (change orelse return @intFromEnum(Status.invalid_argument))[0..len];
+    app.revertChange(line) catch |e| return switch (e) {
+        error.NotSupported => @intFromEnum(Status.not_supported),
+        error.NoPart, error.NotPerLayer => @intFromEnum(Status.invalid_argument),
+        else => status(e),
+    };
+    return ok;
+}

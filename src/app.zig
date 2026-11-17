@@ -50,6 +50,7 @@ const setting_info = @import("app/setting_info.zig");
 pub const sweep = @import("app/sweep.zig");
 /// The settings that can close a gap (see app/gap_advice.zig).
 pub const gap_advice = @import("app/gap_advice.zig");
+pub const history = @import("app/history.zig");
 /// The printability check (see app/checks.zig).
 pub const checks_mod = @import("app/checks.zig");
 
@@ -777,6 +778,133 @@ pub const App = struct {
         // quality profile and the global settings (see `base`).
         if (group == .project) return zs.profile.writeChangedFrom(app.settings, app.base(), group, w);
         return zs.profile.writeChanged(app.settings, group, w);
+    }
+
+    /// The facts of the state for the history of changes (see
+    /// app/history.zig): the settings that differ from the built-in
+    /// defaults, the settings and the place of each part, and the changes
+    /// for some layers. Two steps with the same facts look the same.
+    pub fn writeFacts(app: *const App, w: *std.Io.Writer) std.Io.Writer.Error!void {
+        const defaults: Settings = .{};
+        inline for (.{ "machine", "filament", "project" }, .{ "machine", "filament", "print" }) |g, scope| {
+            const values = @field(app.settings, g);
+            const base_values = @field(defaults, g);
+            inline for (@typeInfo(@TypeOf(values)).@"struct".fields) |f| {
+                const v = @field(values, f.name);
+                const d = @field(base_values, f.name);
+                const same = switch (@typeInfo(f.type)) {
+                    .pointer => std.mem.eql(u8, v, d),
+                    else => v == d,
+                };
+                if (!same) {
+                    try w.print("{s}\t{s}.{s}\t", .{ scope, g, f.name });
+                    var buf: [64]u8 = undefined;
+                    switch (@typeInfo(f.type)) {
+                        .pointer => try history.writeEscaped(w, v),
+                        else => {
+                            var fw: std.Io.Writer = .fixed(&buf);
+                            writeValue(&fw, v) catch {};
+                            try w.writeAll(fw.buffered());
+                        },
+                    }
+                    try w.writeByte('\n');
+                }
+            }
+        }
+        for (app.plate.parts.items) |p| {
+            const name: []const u8 = p.name;
+            try w.print("part:{s}\t(part)\tyes\n", .{name});
+            try w.print("part:{s}\tposition\t{d:.2}, {d:.2}\n", .{ name, p.x, p.y });
+            if (p.rot != 0) try w.print("part:{s}\trotation\t{d:.1}\n", .{ name, p.rot });
+            if (p.scale[0] != 1 or p.scale[1] != 1 or p.scale[2] != 1) try w.print("part:{s}\tscale\t{d:.3}, {d:.3}, {d:.3}\n", .{ name, p.scale[0], p.scale[1], p.scale[2] });
+            for (p.meta) |m| {
+                if (!std.mem.startsWith(u8, m.key, "zslice:")) continue;
+                try w.print("part:{s}\t{s}\t", .{ name, m.key["zslice:".len..] });
+                try history.writeEscaped(w, m.value);
+                try w.writeByte('\n');
+            }
+        }
+        for (app.profiles.items) |p| {
+            try w.print("layers:{d:.4}:{d:.4}\t(name)\t", .{ p.z_min, p.z_max });
+            try history.writeEscaped(w, p.name);
+            try w.writeByte('\n');
+        }
+        for (app.overrides.items) |o| {
+            try w.print("layers:{d:.4}:{d:.4}\t{s}\t", .{ o.z_min, o.z_max, o.name });
+            try history.writeEscaped(w, o.value);
+            try w.writeByte('\n');
+        }
+    }
+
+    /// The changes of a history diff in words (see history.describe), with
+    /// layer numbers from the last slice.
+    pub fn describeChanges(app: *const App, changes: []const u8, w: *std.Io.Writer) (Allocator.Error || std.Io.Writer.Error)!void {
+        const layer_z: []const f32 = if (app.allToolpaths()) |t| t.layer_z.items else &.{};
+        return history.describe(app.gpa, changes, zs.settings.part_z, layer_z, w);
+    }
+
+    pub const RevertError = Allocator.Error || Settings.SetError || OverrideError || error{ NoPart, NotSupported };
+
+    /// Undoes one change of the history (a line of history.diff) and keeps
+    /// all other changes: the setting, the setting of the part, or the
+    /// change for the layers goes back to its old value (or to no value of
+    /// its own). The place of a part (moved, turned, added) cannot go back
+    /// this way: error.NotSupported. The shell slices again after it.
+    pub fn revertChange(app: *App, line: []const u8) RevertError!void {
+        var arena_state = std.heap.ArenaAllocator.init(app.gpa);
+        defer arena_state.deinit();
+        const ar = arena_state.allocator();
+        const cs = try history.parseChanges(ar, line);
+        if (cs.len != 1) return error.InvalidValue;
+        const c = cs[0];
+        const old = try unescape(ar, c.old);
+        if (std.mem.eql(u8, c.scope, "machine") or std.mem.eql(u8, c.scope, "filament") or std.mem.eql(u8, c.scope, "print")) {
+            if (old.len > 0) return app.setSetting(c.key, try app.strings.allocator().dupe(u8, old));
+            // No old value: the built-in default.
+            for (settings_info) |i| if (std.mem.eql(u8, i.name, c.key)) return app.setSetting(c.key, i.default_value);
+            return error.UnknownSetting;
+        }
+        if (history.partName(c.scope)) |name| {
+            if (c.key.len > 0 and c.key[0] == '(' or std.mem.eql(u8, c.key, "position") or std.mem.eql(u8, c.key, "rotation") or std.mem.eql(u8, c.key, "scale")) return error.NotSupported;
+            for (app.plate.parts.items, 0..) |p, i| if (std.mem.eql(u8, p.name, name)) {
+                return app.setPartSetting(i, c.key, if (old.len > 0) old else null);
+            };
+            return error.NoPart;
+        }
+        if (history.layerRange(c.scope)) |r| {
+            if (std.mem.eql(u8, c.key, "(name)")) {
+                if (old.len > 0) return app.setProfile(r[0], r[1], old);
+                for (app.profiles.items, 0..) |p, i| if (@abs(p.z_min - r[0]) < 1e-3 and @abs(p.z_max - r[1]) < 1e-3) {
+                    _ = app.profiles.orderedRemove(i);
+                    return;
+                };
+                return;
+            }
+            if (old.len > 0) return app.setOverride(r[0], r[1], c.key, old);
+            for (app.overrides.items, 0..) |o, i| if (std.mem.eql(u8, o.name, c.key) and @abs(o.z_min - r[0]) < 1e-3 and @abs(o.z_max - r[1]) < 1e-3) {
+                _ = app.overrides.orderedRemove(i);
+                return;
+            };
+            return;
+        }
+        return error.NotSupported;
+    }
+
+    fn unescape(a: Allocator, v: []const u8) Allocator.Error![]const u8 {
+        if (std.mem.indexOfScalar(u8, v, '\\') == null) return v;
+        var out: std.ArrayList(u8) = .empty;
+        var i: usize = 0;
+        while (i < v.len) : (i += 1) {
+            if (v[i] == '\\' and i + 1 < v.len) {
+                i += 1;
+                try out.append(a, switch (v[i]) {
+                    't' => '\t',
+                    'n' => '\n',
+                    else => v[i],
+                });
+            } else try out.append(a, v[i]);
+        }
+        return out.items;
     }
 
     /// The levels of the cascade of the settings, the lowest first: a
@@ -2558,4 +2686,42 @@ test "part settings: a part with its own quality profile" {
         seen[part] = true;
     }
     try testing.expect(seen[0] and seen[1]);
+}
+
+test "app: the facts of a state, a change in the history, and its revert" {
+    const app = try App.create(std.testing.allocator, null, null);
+    defer app.destroy();
+    var before: std.Io.Writer.Allocating = .init(std.testing.allocator);
+    defer before.deinit();
+    try app.writeFacts(&before.writer);
+    try app.setSetting("project.infill_density", "0.55");
+    try app.setSetting("project.wall_count", "4");
+    try app.setOverride(2, 5, "project.infill_density", "0.3");
+    var after: std.Io.Writer.Allocating = .init(std.testing.allocator);
+    defer after.deinit();
+    try app.writeFacts(&after.writer);
+    var d: std.Io.Writer.Allocating = .init(std.testing.allocator);
+    defer d.deinit();
+    try history.diff(std.testing.allocator, before.written(), after.written(), &d.writer);
+    // Three changes: the wall count, the infill density, and the change
+    // for the layers.
+    try std.testing.expectEqual(@as(usize, 3), std.mem.count(u8, d.written(), "\n"));
+    var density: []const u8 = "";
+    var third: []const u8 = "";
+    var it = std.mem.splitScalar(u8, d.written(), '\n');
+    while (it.next()) |line| {
+        if (std.mem.startsWith(u8, line, "print\tproject.infill_density")) density = line;
+        if (std.mem.startsWith(u8, line, "layers:")) third = line;
+    }
+    try std.testing.expectEqualStrings("print\tproject.infill_density\t\t0.55", density);
+    // Revert the density: it goes back to the default, and the wall count
+    // and the change for the layers stay.
+    try app.revertChange(density);
+    try std.testing.expectEqual(@as(f64, 0.2), app.settings.project.infill_density);
+    try std.testing.expectEqual(@as(u32, 4), app.settings.project.wall_count);
+    try std.testing.expectEqual(@as(usize, 1), app.overrides.items.len);
+    // Revert the change for the layers: the override goes.
+    try std.testing.expect(std.mem.startsWith(u8, third, "layers:2.0000:5.0000\tproject.infill_density"));
+    try app.revertChange(third);
+    try std.testing.expectEqual(@as(usize, 0), app.overrides.items.len);
 }

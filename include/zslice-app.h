@@ -532,6 +532,23 @@ int zs_app_state_write(const zs_app *app, int group, char *buf, size_t cap, size
  * profile. For the project group, the quality profile and the changes of
  * this print together (zs_app_state_write has the changes only). */
 int zs_app_profile_write(const zs_app *app, int group, char *buf, size_t cap, size_t *out_len);
+/* The history of changes. A shell keeps the facts of each step of its undo
+ * list: zs_app_history_facts writes the state as lines of
+ * "scope\tkey\tvalue" (only the values that differ from the start).
+ * zs_history_diff gives the changes from one step to the next, one on each
+ * line ("scope\tkey\told\tnew"), and zs_history_describe writes them in
+ * words ("Part Benchy\tWall count the print value -> 4"). The scopes:
+ * "machine", "filament", "print", "part:<name>", "layers:<z_min>:<z_max>".
+ * zs_app_history_revert undoes one change line and keeps the others
+ * (ZS_NOT_SUPPORTED for a move of a part); slice again after it. The same
+ * buffer rules as zs_app_setting_get. */
+int zs_app_history_facts(const zs_app *app, char *buf, size_t cap, size_t *out_len);
+int zs_history_diff(const char *before, size_t before_len, const char *after, size_t after_len, char *buf, size_t cap, size_t *out_len);
+int zs_history_describe(const char *changes, size_t len, char *buf, size_t cap, size_t *out_len);
+/* zs_history_describe with the layer numbers of the last slice of the app
+ * ("Layers 86 and up"). */
+int zs_app_history_describe(const zs_app *app, const char *changes, size_t len, char *buf, size_t cap, size_t *out_len);
+int zs_app_history_revert(zs_app *app, const char *change, size_t len);
 /* Sets all settings of a group to the built-in defaults: for example
  * before the profile of an other printer. */
 int zs_app_group_reset(zs_app *app, int group);
