@@ -9,7 +9,8 @@
 //! - `engine`: run all stages on all threads, with low memory use.
 //!
 //! The 2D tools that the stages use: `geom` (points and polygons), `clip`
-//! (polygon booleans), `offset` (polygon offset), and `infill` (line fill).
+//! (polygon booleans), `offset` (polygon offset), `voronoi` (the Voronoi
+//! diagram of segments), and `infill` (line fill).
 //!
 //! Basic use:
 //!
@@ -24,6 +25,7 @@ pub const flow = @import("flow.zig");
 pub const clip = @import("clip.zig");
 pub const clip_open = @import("clip_open.zig");
 pub const offset = @import("offset.zig");
+pub const voronoi = @import("voronoi.zig");
 pub const mesh = @import("mesh.zig");
 pub const plate = @import("plate.zig");
 pub const zipfile = @import("zipfile.zig");

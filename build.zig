@@ -89,6 +89,7 @@ fn addLicenses(b: *std.Build, m: *std.Build.Module) void {
         .{ "license_musl", "licenses/musl-MIT.txt" },
         .{ "license_go", "licenses/go-BSD-3-Clause.txt" },
         .{ "license_arm", "licenses/arm-optimized-routines.txt" },
+        .{ "license_boost", "licenses/boost-BSL-1.0.txt" },
     };
     for (files) |f| m.addAnonymousImport(f[0], .{ .root_source_file = b.path(f[1]) });
 }
