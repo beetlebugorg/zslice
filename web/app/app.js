@@ -395,12 +395,28 @@ const endDrag = () => {
 };
 canvas.addEventListener("pointercancel", endDrag);
 canvas.addEventListener("contextmenu", (e) => e.preventDefault());
-canvas.addEventListener("dblclick", () => {
+// A double click: on a side of a part (3D), the part lies down on that
+// side; elsewhere, the view resets.
+canvas.addEventListener("dblclick", async (e) => {
   if (app.page === "2d") {
     view2d.fit(canvas.width, canvas.height);
-  } else {
-    view.resetSmooth();
+    requestFrame();
+    return;
   }
+  const px = e.offsetX * dpr();
+  const py = e.offsetY * dpr();
+  const c = wasm.cell;
+  const onPrint = app.state !== "empty" && view.x.zs_view_surface_point(view.v, px, py, 0, c);
+  const pt = onPrint ? [wasm.f64(c), wasm.f64(c + 8), wasm.f64(c + 16)] : null;
+  const part = pt && pt[2] > 0.05 ? await tools.partAt(px, py) : null;
+  if (part) {
+    select(-1, -1, false);
+    const r = await client.call("partPutDown", { index: part.index, x: pt[0], y: pt[1], z: pt[2] });
+    if (r.part && tools.part) tools.selectPart(r.part);
+    toast("The part lies on that side now. Ctrl+Z undoes it.");
+    return;
+  }
+  view.resetSmooth();
   requestFrame();
 });
 // A wheel event from a trackpad: two fingers that move (pixels, small

@@ -263,7 +263,8 @@ The measure shows under the toolbar: the distance, its parts along X, Y, and Z, 
 | Scroll (mouse wheel) | Zoom toward the pointer |
 | Two fingers pressed down on a touchpad, and a drag | Pan |
 | A light two-finger swipe, or a pinch | Zoom toward the pointer |
-| Double-click | Reset the view |
+| Double-click on a side of a part | The part lies down on that side (the side goes on the bed). Ctrl+Z undoes it. |
+| Double-click elsewhere | Reset the view |
 | Left click | Pick a line (see below) |
 
 ## The context menu

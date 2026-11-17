@@ -288,7 +288,7 @@ function historyGoto(i) {
 // The ops that change the settings, and the ops that change the plate:
 // each starts or extends a step.
 const SETTING_OPS = new Set(["set", "reset", "quality", "profile", "setScoped", "resetScoped"]);
-const PLATE_OPS = new Set(["load", "add", "plate", "projectLoad", "partAction", "partSettingSet", "putDown", "place", "partMove", "partRotate", "markAdd", "markRemoveNear", "markSet", "markRemove", "marksClear"]);
+const PLATE_OPS = new Set(["load", "add", "plate", "projectLoad", "partAction", "partSettingSet", "partPutDown", "putDown", "place", "partMove", "partRotate", "markAdd", "markRemoveNear", "markSet", "markRemove", "marksClear"]);
 
 const ops = {
   async init({ module, saved, mode: m }) {
@@ -589,6 +589,13 @@ const ops = {
     if (n === 0) return { part: null };
     const j = index < 0 ? (dir > 0 ? 0 : n - 1) : (((index + dir) % n) + n) % n;
     return { part: core.part(j) };
+  },
+
+  // Lays part `index` down on the side nearest to the point x, y, z (mm)
+  // of its surface (a double click on a side).
+  partPutDown({ index, x, y, z }) {
+    if (core.w.x.zs_app_part_put_down_at(core.app, index, x, y, z) === 0) wantSlice();
+    return { part: core.part(index) };
   },
 
   partSettings({ index }) {
