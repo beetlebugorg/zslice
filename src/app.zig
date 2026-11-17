@@ -467,6 +467,26 @@ pub const App = struct {
         }
     }
 
+    /// The settings of part i and of its modifier volumes, one on each
+    /// line, for a part page: each Cura setting with the zslice setting
+    /// it becomes, or why zslice does not use it. Empty for a part with
+    /// no settings and no volumes.
+    pub fn partSettingsText(app: *const App, i: usize, w: *std.Io.Writer) (Allocator.Error || std.Io.Writer.Error)!void {
+        if (i >= app.plate.count()) return;
+        var arena_state = std.heap.ArenaAllocator.init(app.gpa);
+        defer arena_state.deinit();
+        const a = arena_state.allocator();
+        const p = &app.plate.parts.items[i];
+        if (p.meta.len > 0) {
+            try w.writeAll("Settings of this part:\n");
+            for (try zs.part_settings.describe(a, p.meta, &app.settings)) |line| try w.print("  {s}\n", .{line});
+        }
+        for (p.volumes.items) |v| {
+            try w.print("Volume \"{s}\":\n", .{v.name});
+            for (try zs.part_settings.describe(a, v.meta, &app.settings)) |line| try w.print("  {s}\n", .{line});
+        }
+    }
+
     pub fn removePart(app: *App, i: usize) Allocator.Error!void {
         app.stopWorker();
         app.plate.remove(app.gpa, i);
@@ -1954,6 +1974,11 @@ test "app: a Cura project with a modifier volume: load, slice, inspect, and save
     try testing.expectEqual(@as(usize, 2), part.meta.len);
     try testing.expectEqual(@as(usize, 1), part.volumes.items.len);
     try testing.expectEqualStrings("window", part.volumes.items[0].name);
+    var text: std.Io.Writer.Allocating = .init(gpa);
+    defer text.deinit();
+    try app.partSettingsText(0, &text.writer);
+    try testing.expect(std.mem.indexOf(u8, text.written(), "project.infill_density = 1") != null);
+    try testing.expect(std.mem.indexOf(u8, text.written(), "a modifier volume") != null);
     try app.startSlice();
     app.stopWorkerForTest();
     try testing.expectEqual(State.done, app.getState());

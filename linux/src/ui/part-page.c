@@ -11,6 +11,8 @@
 typedef struct {
     ZgModel *model;
     GtkWidget *title, *size, *x, *y, *rot, *scale;
+    /* The settings of the part from its file, and its modifier volumes. */
+    GtkWidget *settings_head, *settings;
     gboolean filling;
 } PartPage;
 
@@ -27,6 +29,16 @@ static void part_fill(PartPage *pp) {
     gtk_spin_button_set_value(GTK_SPIN_BUTTON(pp->y), p.y);
     gtk_spin_button_set_value(GTK_SPIN_BUTTON(pp->rot), p.rotation);
     gtk_spin_button_set_value(GTK_SPIN_BUTTON(pp->scale), p.scale_x * 100);
+    size_t len = 0;
+    char *text = NULL;
+    if (zs_app_part_settings(zg_model_core(pp->model), (size_t)i, NULL, 0, &len) == ZS_OK && len > 0) {
+        text = g_malloc(len + 1);
+        zs_app_part_settings(zg_model_core(pp->model), (size_t)i, text, len + 1, NULL);
+    }
+    gtk_label_set_text(GTK_LABEL(pp->settings), text ? text : "");
+    gtk_widget_set_visible(pp->settings_head, text != NULL);
+    gtk_widget_set_visible(pp->settings, text != NULL);
+    g_free(text);
     pp->filling = FALSE;
 }
 
@@ -173,6 +185,13 @@ GtkWidget *zg_part_page_new(ZgModel *model) {
     }
     gtk_widget_set_tooltip_text(turns, "Reset: the orientation and the size of the file.");
     gtk_grid_attach(GTK_GRID(grid), turns, 0, row++, 4, 1);
+    /* The settings from the file (a Cura project): read only. */
+    pp->settings_head = zg_grid_add_heading(grid, &row, "Settings from the file");
+    gtk_widget_set_margin_top(pp->settings_head, 12);
+    pp->settings = zg_wrapped_label_new("");
+    gtk_label_set_selectable(GTK_LABEL(pp->settings), TRUE);
+    gtk_widget_add_css_class(pp->settings, "monospace");
+    gtk_grid_attach(GTK_GRID(grid), pp->settings, 0, row++, 4, 1);
     GtkWidget *hint = zg_wrapped_label_new("Ctrl+drag the part in the 3D view to move it, and Ctrl+wheel to turn it. Click a line to see its settings.");
     gtk_widget_add_css_class(hint, "dim-label");
     gtk_widget_set_margin_top(hint, 8);

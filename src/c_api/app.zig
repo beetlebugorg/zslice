@@ -666,6 +666,25 @@ export fn zs_app_part_get(a: ?*App, i: usize, out: ?*Part) c_int {
     return ok;
 }
 
+/// The settings of part i and of its modifier volumes, as text (see
+/// App.partSettingsText). The same buffer rules as zs_app_setting_get.
+export fn zs_app_part_settings(a: ?*const App, i: usize, buf: ?[*]u8, cap: usize, out_len: ?*usize) c_int {
+    const app = a orelse return @intFromEnum(Status.invalid_argument);
+    if (i >= app.plate.count()) return @intFromEnum(Status.out_of_range);
+    var aw: Writer.Allocating = .init(gpa);
+    defer aw.deinit();
+    app.partSettingsText(i, &aw.writer) catch return @intFromEnum(Status.out_of_memory);
+    const text = aw.written();
+    if (out_len) |l| l.* = text.len;
+    if (buf) |b| {
+        if (cap == 0) return ok;
+        const k = @min(text.len, cap - 1);
+        @memcpy(b[0..k], text[0..k]);
+        b[k] = 0;
+    }
+    return ok;
+}
+
 export fn zs_app_part_move(a: ?*App, i: usize, x: f64, y: f64) c_int {
     const app = a orelse return @intFromEnum(Status.invalid_argument);
     if (i >= app.plate.count()) return @intFromEnum(Status.out_of_range);

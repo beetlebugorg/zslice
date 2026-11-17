@@ -442,6 +442,11 @@ typedef struct zs_part {
 
 size_t zs_app_part_count(const zs_app *app);
 int zs_app_part_get(zs_app *app, size_t i, zs_part *out);
+/* The settings of a part from its 3MF file (a Cura project) and its
+ * modifier volumes, one on each line: each Cura setting with the zslice
+ * setting that it becomes, or why zslice does not use it. Empty for a
+ * part with no settings. The same buffer rules as zs_app_setting_get. */
+int zs_app_part_settings(const zs_app *app, size_t i, char *buf, size_t cap, size_t *out_len);
 /* Moves a part (the center of its footprint) to (x, y) on the bed. */
 int zs_app_part_move(zs_app *app, size_t i, double x, double y);
 /* Sets the turn of a part, in degrees, around the center of its footprint. */

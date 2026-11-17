@@ -240,6 +240,10 @@ pub const View = struct {
                 }) catch return error.OutOfMemory;
             }
         }
+        // The modifier volumes: thin purple rings of their outline at a
+        // few heights (they do not print, so the view has no beads for
+        // them).
+        if (app.job) |*job| try v.addVolumeRings(job);
         try v.loadGrid(@floatCast(s.machine.bed_size_x), @floatCast(s.machine.bed_size_y));
         const tp = app.allToolpaths() orelse {
             v.layer_end.clearRetainingCapacity();
@@ -476,6 +480,51 @@ pub const View = struct {
 
     /// The colors: the filament color, or one color for each feature. Call
     /// `load` again after a change.
+    /// Adds rings of the outline of each modifier volume of `job` to
+    /// `mark_rings`: on its first and last layer, and on about 6 layers
+    /// between. The rings stay within a budget of overlay beads.
+    fn addVolumeRings(v: *View, job: *const @import("../engine.zig").Job) Error!void {
+        const geom = @import("../geom.zig");
+        const budget: usize = vk.max_extras / 2;
+        const color: [4]u8 = .{ 0x9c, 0x36, 0xb5, 13 };
+        for (job.modifiers) |m| {
+            var lo: ?usize = null;
+            var hi: usize = 0;
+            for (m.outlines, 0..) |o, i| if (!o.isEmpty()) {
+                if (lo == null) lo = i;
+                hi = i;
+            };
+            const first = lo orelse continue;
+            const step = @max(1, (hi - first) / 6);
+            var i = first;
+            while (true) : (i = @min(hi, i + step)) {
+                const o = m.outlines[i];
+                const z: f32 = @floatCast(job.layers[i].z);
+                for (0..o.count()) |k| {
+                    const poly = o.get(k);
+                    // Joins short edges, so a curve costs fewer beads.
+                    var a = poly[poly.len - 1];
+                    for (poly) |b| {
+                        if (a.distSq(b) < 1000 * 1000 and !std.meta.eql(b, poly[poly.len - 1])) continue;
+                        if (v.mark_rings.items.len >= budget) return;
+                        v.mark_rings.append(gpa, .{
+                            .ax = @floatCast(geom.toMm(a.x)),
+                            .ay = @floatCast(geom.toMm(a.y)),
+                            .bx = @floatCast(geom.toMm(b.x)),
+                            .by = @floatCast(geom.toMm(b.y)),
+                            .z = z,
+                            .h = 0.12,
+                            .w = 0.3,
+                            .rgba = color,
+                        }) catch return error.OutOfMemory;
+                        a = b;
+                    }
+                }
+                if (i == hi) break;
+            }
+        }
+    }
+
     pub fn setMode(v: *View, mode: Mode) void {
         v.mode = mode;
     }
