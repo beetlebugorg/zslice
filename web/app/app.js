@@ -173,9 +173,17 @@ function drawFrame(now) {
   } else {
     gl.draw(f);
   }
+  tools?.placeTape();
   frameTimes[frameCount++ % frameTimes.length] = performance.now() - t0;
   if (more) requestFrame();
   else lastFrameTime = 0;
+}
+
+// The height of the toolbar of the preview, for the floats under it (it
+// wraps onto a second row in a narrow view).
+{
+  const bar = document.querySelector(".preview .toolbar");
+  new ResizeObserver(() => $("preview").style.setProperty("--toolbar-h", `${bar.offsetHeight}px`)).observe(bar);
 }
 
 // ---- the panel: a drawer (docs/internals/one-view.md) ----
@@ -1310,7 +1318,7 @@ const inspector = new Inspector($("page-selected"), {
 
 // ---- the tools: select, move, measure ----
 
-const tools = new Tools({
+var tools = new Tools({ // var: drawFrame can run before this line
   client, view, canvas, view2d,
   buttons: { select: $("tool-select"), move: $("tool-move"), measure: $("tool-measure") },
   readout: $("measure-readout"),

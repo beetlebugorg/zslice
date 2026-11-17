@@ -2,7 +2,9 @@
 // (docs/internals/one-view.md). A click on a line opens it at the click.
 // It shows what the line is (the feature and the layer), its three
 // numbers (the planned speed, the real speed, the flow), why it is slow,
-// its size, and the first settings that change it, with live editors. A
+// its size, and the settings that matter for it (why it is slow, the first
+// layer, a setting the user changed, the settings of its feature), with
+// live editors. A
 // change slices at once. "More" opens the Selected page of the panel,
 // with all the settings and the reasons.
 //
@@ -18,7 +20,60 @@ const SLOW = [
   "Slow: the layer is short, so it prints slower to cool.",
   "Slow: the segments are short, so the head does not reach full speed.",
 ];
-const MAX_SETTINGS = 3;
+const MAX_SETTINGS = 4;
+
+// The settings that matter most for each feature (FEATURE_TITLES in
+// format.js), in order.
+const BY_FEATURE = [
+  ["project.outer_wall_speed", "project.seam", "project.wall_count", "project.outer_wall_accel"],
+  ["project.wall_count", "project.inner_wall_speed", "project.wall_thickness", "project.infill_overlap"],
+  ["project.top_thickness", "project.bottom_thickness", "project.skin_pattern", "project.skin_speed"],
+  ["project.infill_density", "project.infill_pattern", "project.infill_speed", "project.infill_angle"],
+  ["project.ironing", "project.ironing_flow", "project.ironing_speed", "project.ironing_spacing"],
+  ["project.brim_width", "project.skirt_loops", "project.skirt_distance", "project.skirt_layers"],
+  ["project.support", "project.support_style", "project.support_density", "project.support_xy_gap"],
+  ["project.support_interface_layers", "project.support_z_gap_layers", "project.support_interface_density", "project.support_xy_gap"],
+  ["project.slope_smoothing", "project.slope_smoothing_flow", "project.slope_smoothing_speed", "project.slope_smoothing_max_width"],
+  ["project.slope_ironing", "project.slope_ironing_passes", "project.slope_ironing_flow", "project.slope_ironing_speed"],
+  ["project.bridge_speed", "project.bridge_flow", "project.bridge_fan", "project.bridges"],
+];
+
+// The acceleration setting of each feature, for a line that is slow
+// because its segments are short.
+const ACCEL = ["project.outer_wall_accel", "project.inner_wall_accel", "project.skin_accel", "project.infill_accel"];
+
+// The settings for the card, from what the line is and what happens to it:
+// [{ name, why }]. First the reasons of this line (slow, the first layer,
+// a change of the user for these layers), then the settings of its
+// feature, then the list of the inspector. Each name must be a setting
+// that changes the line (in info.settings) or one of the rules here.
+export function contextSettings(info, byName, max = MAX_SETTINGS) {
+  const changes = new Set(info.settings.split("\n").filter((l) => l && !l.startsWith("# ")));
+  const out = [];
+  const add = (name, why) => {
+    if (out.length >= max || !byName.has(name) || out.some((o) => o.name === name)) return;
+    out.push({ name, why });
+  };
+  if (info.slowReason === 1) {
+    add("filament.min_layer_time", "Why it is slow: the layer is short");
+    add("filament.fan_speed", "More fan cools a short layer");
+  } else if (info.slowReason === 2) {
+    add(ACCEL[info.feature] ?? "machine.max_accel", "Why it is slow: short segments");
+  }
+  if (info.layer === 0) {
+    add("project.first_layer_speed", "The first layer");
+    add("project.first_layer_height", "The first layer");
+  }
+  // A setting that the user changed for this print or for these layers:
+  // likely the one to tune.
+  for (const name of changes) {
+    const v = info.values?.[name];
+    if (v && (v.over || v.level === 5 || v.level === 6)) add(name, v.over ? "You changed it for some layers" : "You changed it");
+  }
+  for (const name of BY_FEATURE[info.feature] ?? []) add(name, "");
+  for (const name of changes) add(name, "");
+  return out;
+}
 
 export class LineCard {
   // ctx: { browser (SettingsBrowser), host (the element of the view),
@@ -90,20 +145,16 @@ export class LineCard {
     this.size = el("div", "lc-size");
     card.append(head, this.stats, this.note, this.size);
 
-    // The first settings that change the line: the first section of the
-    // inspector list (Speed, then Shape).
-    const names = [];
-    for (const line of info.settings.split("\n")) {
-      if (line.startsWith("# ") || !line) continue;
-      if (this.ctx.browser.byName.has(line)) names.push(line);
-      if (names.length >= MAX_SETTINGS) break;
-    }
-    if (names.length > 0) {
+    // The settings that matter for this line, with the reason of each.
+    const picks = contextSettings(info, this.ctx.browser.byName);
+    if (picks.length > 0) {
       const box = el("div", "lc-settings");
-      for (const name of names) {
+      for (const { name, why } of picks) {
         const s = this.ctx.browser.byName.get(name);
         const row = el("div", "lc-row");
-        const label = el("div", "lc-label", s.label);
+        const label = el("div", "lc-label");
+        label.append(el("div", "lc-name", s.label));
+        if (why) label.append(el("div", "lc-why", why));
         label.title = s.doc;
         const ed = this.ctx.browser.makeEditor(s, "card");
         row.append(label, ed.node);

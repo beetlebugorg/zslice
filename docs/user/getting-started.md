@@ -206,7 +206,7 @@ In the web app, the view has the whole window. The print card (the print time, t
 
 The panel has all settings, the selected line, the history, and the project. Press `N`, or click the sliders button at the top right, to show it or hide it. It slides over the view. Click **Pin** to put it beside the view, as a column with a splitter; click **Pin** again to let it slide over. Esc hides it when it slides over the view. A link to a setting shows the panel.
 
-A click on a line opens a card next to it: the feature and the layer, the planned speed, the real speed, and the flow, why the line is slow, its size (a circle shows its diameter), and the first settings that change it. Change a setting in the card, and the part slices at once. **All settings of this line…** opens the Selected page of the panel. Esc, ×, or a click on no line closes the card.
+A click on a line opens a card next to it: the feature and the layer, the planned speed, the real speed, and the flow, why the line is slow, its size (a circle shows its diameter), and the settings that matter for it. The card picks them from the line: the setting that makes it slow (the minimum layer time of a short layer, or the acceleration for short segments), the first layer settings on the first layer, a setting that you changed, and then the main settings of its feature (for infill: the density, the pattern, and the speed). Each pick says why it is there. Change a setting in the card, and the part slices at once. **All settings of this line…** opens the Selected page of the panel. Esc, ×, or a click on no line closes the card.
 
 ## Keyboard shortcuts
 
@@ -231,7 +231,7 @@ The tool strip at the left of the view (in the GTK app: the group of three butto
 |---|---|---|
 | Select (arrow) | S | Selects a line. The Selected page shows what it is and its measurements. |
 | Move (cross) | M | A drag on a part moves it, and the wheel over it turns it by 15°: the same as Ctrl in the other tools. |
-| Measure (ruler) | T | Two clicks measure between two points of the print or the bed. A point near the end of a line snaps to it. A click on a circle or an arc (a hole, a boss) shows its diameter and radius, selects the line, and puts the point at its center, so two holes give the distance between their centers. Hold Shift for no snap. Esc clears the measure. |
+| Measure (ruler) | T | Two clicks measure between two points of the print or the bed, in the 3D or the 2D view. The distance shows on a label over the middle of the tape, with its parts along x, y, and z. A point near the end of a line snaps to it. A click on a circle or an arc (a hole, a boss) shows its diameter and radius, selects the line, and puts the point at its center, so two holes give the distance between their centers. Hold Shift for no snap. Esc clears the measure. |
 
 The measure shows under the toolbar: the distance, its parts along X, Y, and Z, and the distance on the bed. A gold line in the 3D view joins the two points.
 

@@ -35,6 +35,21 @@ export class Tools {
     this.moving = null; // a drag of a part: { index, x0, y0, bx0, by0 }
     this.moveSent = 0;
     for (const t of TOOLS) ctx.buttons[t].onclick = () => this.set(t);
+    // The readout floats on the tape (a label at its middle), and in the
+    // 2D view an overlay draws the tape itself (the 3D view draws it in
+    // the core: zs_view_set_measure).
+    const NS = "http://www.w3.org/2000/svg";
+    this.overlay = document.createElementNS(NS, "svg");
+    this.overlay.classList.add("tape-overlay");
+    this.overlay.setAttribute("aria-hidden", "true");
+    this.tapeLine = document.createElementNS(NS, "line");
+    this.tapeEnds = [0, 1].map(() => document.createElementNS(NS, "circle"));
+    for (const c of this.tapeEnds) c.setAttribute("r", "5");
+    this.overlay.append(this.tapeLine, ...this.tapeEnds);
+    this.label = document.createElement("div");
+    this.label.className = "tape-label";
+    this.label.hidden = true;
+    ctx.canvas.parentElement.append(this.overlay, this.label);
     this.set("select");
   }
 
@@ -150,6 +165,48 @@ export class Tools {
     this.showReadout();
   }
 
+  // The label on the tape and the 2D tape: at the pixels of the points in
+  // the view that shows now. app.js calls it after each frame, so it
+  // follows the camera.
+  placeTape() {
+    const dpr = window.devicePixelRatio || 1;
+    const pts = this.tool === "measure" ? this.pts.map((p) => this.pixelOf(p)) : [];
+    const two = pts.length === 2 && pts[0] && pts[1];
+    const flat = this.ctx.page() === "2d";
+    this.overlay.style.display = flat && pts.length > 0 ? "" : "none";
+    if (flat) {
+      pts.forEach((q, i) => {
+        const c = this.tapeEnds[i];
+        c.style.display = q ? "" : "none";
+        if (q) {
+          c.setAttribute("cx", String(q[0] / dpr));
+          c.setAttribute("cy", String(q[1] / dpr));
+        }
+      });
+      for (let i = pts.length; i < 2; i++) this.tapeEnds[i].style.display = "none";
+      this.tapeLine.style.display = two ? "" : "none";
+      if (two) {
+        this.tapeLine.setAttribute("x1", String(pts[0][0] / dpr));
+        this.tapeLine.setAttribute("y1", String(pts[0][1] / dpr));
+        this.tapeLine.setAttribute("x2", String(pts[1][0] / dpr));
+        this.tapeLine.setAttribute("y2", String(pts[1][1] / dpr));
+      }
+    }
+    if (!two) {
+      this.label.hidden = true;
+      return;
+    }
+    // Over the middle of the tape, a little above it.
+    const x = (pts[0][0] + pts[1][0]) / 2 / dpr;
+    const y = Math.min(pts[0][1], pts[1][1]) / dpr;
+    const host = this.ctx.canvas.getBoundingClientRect();
+    this.label.hidden = false;
+    const w = this.label.offsetWidth;
+    const h = this.label.offsetHeight;
+    this.label.style.left = `${Math.max(6, Math.min(host.width - w - 6, x - w / 2))}px`;
+    this.label.style.top = `${Math.max(6, Math.min(host.height - h - 6, y - h - 14))}px`;
+  }
+
   // The tape in the 3D view (zs_view_set_measure).
   showTape() {
     const { view } = this.ctx;
@@ -164,6 +221,7 @@ export class Tools {
     const el = this.ctx.readout;
     if (this.tool !== "measure") {
       el.hidden = true;
+      this.placeTape();
       return;
     }
     const m = this.pts;
@@ -183,9 +241,28 @@ export class Tools {
       const s1 = shape(m[1]);
       text = `${Math.hypot(dx, dy, dz).toFixed(2)} mm${s0 || s1 ? " between the centers" : ""}   ·   ΔX ${Math.abs(dx).toFixed(2)}   ΔY ${Math.abs(dy).toFixed(2)}   ΔZ ${Math.abs(dz).toFixed(2)}   ·   on the bed ${Math.hypot(dx, dy).toFixed(2)} mm`;
       if (s0 || s1) text += `\nFirst: ${s0 ?? "a point"}   ·   second: ${s1 ?? "a point"}`;
+      // The details go on the tape; the bar shows no copy of them.
+      const big = document.createElement("div");
+      big.className = "tape-dist";
+      big.textContent = `${Math.hypot(dx, dy, dz).toFixed(2)} mm`;
+      const small = document.createElement("div");
+      small.className = "tape-parts";
+      small.textContent = `ΔX ${Math.abs(dx).toFixed(2)} · ΔY ${Math.abs(dy).toFixed(2)} · ΔZ ${Math.abs(dz).toFixed(2)}${Math.abs(dz) > 0.005 ? ` · bed ${Math.hypot(dx, dy).toFixed(2)}` : ""}`;
+      this.label.replaceChildren(big, small);
+      if (s0 || s1) {
+        const sh = document.createElement("div");
+        sh.className = "tape-parts";
+        sh.textContent = `between the centers · ${[s0, s1].filter(Boolean).join(" · ")}`;
+        this.label.append(sh);
+      }
+      el.hidden = true;
+      el.textContent = text;
+      this.placeTape();
+      return;
     }
     el.textContent = text;
     el.hidden = false;
+    this.placeTape();
   }
 
   // ---- move ----

@@ -122,19 +122,22 @@ button.pill { border-radius: 999px; padding: 6px 22px; background: var(--accent-
   box-shadow: 0 1px 4px rgba(0, 0, 0, 0.35);
   color: var(--fg);
 }
-.toolbar { top: 10px; left: 10px; display: flex; gap: 4px; align-items: center; }
-.toolbar .tool { min-height: 34px; padding: 4px 11px; }
+/* The toolbar wraps whole buttons onto a second row in a narrow view;
+   app.js puts its height in --toolbar-h, and the tool strip, the legend,
+   and the measure readout go under it. */
+.toolbar { top: 10px; left: 10px; display: flex; flex-wrap: wrap; gap: 4px; align-items: center; max-width: calc(100% - 70px); }
+.toolbar .tool { min-height: 34px; padding: 4px 11px; white-space: nowrap; }
 .toolbar .tool.icon { padding: 4px 10px; }
 .linked { display: flex; }
 /* The tool strip at the left of the view: one tool for the mouse, with
    its key in the corner. */
-.toolstrip { top: 58px; left: 10px; display: flex; flex-direction: column; gap: 2px; }
+.toolstrip { top: calc(18px + var(--toolbar-h, 40px)); left: 10px; display: flex; flex-direction: column; gap: 2px; }
 .toolstrip .tool { position: relative; width: 40px; height: 40px; min-height: 0; padding: 0; display: flex; align-items: center; justify-content: center; border-radius: 8px; }
 .toolstrip .tool::after { content: attr(data-key); position: absolute; right: 3px; bottom: 1px; font-size: 9px; opacity: 0.55; }
 .linked .tool { border-radius: 0; }
 .linked .tool:first-child { border-radius: var(--radius) 0 0 var(--radius); }
 .linked .tool:last-child { border-radius: 0 var(--radius) var(--radius) 0; }
-.legend { top: 58px; left: 62px; font-size: 0.8em; padding: 3px 10px; font-variant-numeric: tabular-nums; }
+.legend { top: calc(18px + var(--toolbar-h, 40px)); left: 62px; font-size: 0.8em; padding: 3px 10px; font-variant-numeric: tabular-nums; }
 
 .empty {
   position: absolute; inset: 0;
@@ -298,6 +301,16 @@ select.choice {
   .preview .scrub, .preview .timeline { left: 12px; transform: none; }
   .preview .scrub { width: calc(100% - 350px); }
   .preview .timeline { max-width: calc(100% - 350px); }
+}
+/* A very narrow view: the print card takes the width of the view, and
+   the scrub bar and the timeline go over it. */
+@container (max-width: 700px) {
+  .preview .summary.float-card { left: 10px; right: 10px; width: auto; }
+  .preview .scrub { width: calc(100% - 24px); bottom: 150px; }
+  .preview .timeline:not([hidden]) ~ .scrub { bottom: 194px; }
+  .preview .timeline { max-width: calc(100% - 24px); bottom: 150px; }
+  .preview .search-button .search-word { display: none; }
+  .preview .layers { bottom: 250px; }
 }
 .summary.stale > :not(.progress):not(button) { opacity: 0.55; }
 .sum-time { font-size: 1.6em; font-weight: 700; font-variant-numeric: tabular-nums; }
@@ -495,7 +508,7 @@ button.destructive { background: #c01c28; color: #fff; }
 
 /* The readout of the measure tape, under the toolbar. */
 .measure-readout {
-  top: 58px; left: 62px; padding: 6px 12px; border-radius: 8px; white-space: pre-line;
+  top: calc(18px + var(--toolbar-h, 40px)); left: 62px; padding: 6px 12px; border-radius: 8px; white-space: pre-line;
   font-size: 0.9em; font-variant-numeric: tabular-nums; pointer-events: none; max-width: calc(100% - 20px);
 }
 
@@ -592,8 +605,24 @@ button.destructive { background: #c01c28; color: #fff; }
 .lc-size { font-size: 0.85em; opacity: 0.75; }
 .lc-settings { display: flex; flex-direction: column; gap: 4px; border-top: 1px solid rgba(255, 255, 255, 0.1); padding-top: 8px; }
 .lc-row { display: flex; align-items: center; gap: 8px; }
-.lc-label { flex: 1; min-width: 0; font-size: 0.92em; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.lc-label { flex: 1; min-width: 0; font-size: 0.92em; }
+.lc-name { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.lc-why { font-size: 0.78em; color: var(--accent); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .lc-row .editor { display: flex; align-items: center; gap: 4px; }
 .lc-row input.num { width: 58px; }
 .lc-foot { display: flex; justify-content: flex-end; }
 .lc-foot button { min-height: 26px; padding: 2px 8px; font-size: 0.85em; color: var(--accent); }
+
+/* The measure on the tape (tools.js): a label over its middle, and in
+   the 2D view the tape itself. */
+.tape-overlay { position: absolute; inset: 0; width: 100%; height: 100%; pointer-events: none; z-index: 2; overflow: visible; }
+.tape-overlay line { stroke: #f5c211; stroke-width: 2.5; }
+.tape-overlay circle { fill: #f5c211; stroke: #1b1b1d; stroke-width: 1.5; }
+.tape-label {
+  position: absolute; z-index: 4; pointer-events: none; text-align: center;
+  padding: 5px 10px; border-radius: 9px; white-space: nowrap;
+  background: rgba(30, 30, 34, 0.92); color: #ececee; box-shadow: 0 4px 14px rgba(0, 0, 0, 0.35);
+  font-variant-numeric: tabular-nums;
+}
+.tape-dist { font-weight: 700; font-size: 1.15em; color: #f5c211; }
+.tape-parts { font-size: 0.8em; opacity: 0.8; }
