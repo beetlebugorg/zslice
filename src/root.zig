@@ -55,6 +55,7 @@ pub const gaps = @import("gaps.zig");
 pub const gapfill = @import("gapfill.zig");
 pub const islands = @import("islands.zig");
 pub const toml = @import("toml.zig");
+pub const yaml = @import("yaml.zig");
 pub const profile = @import("profile.zig");
 pub const import_cura = @import("import_cura.zig");
 pub const cura_compare = @import("cura_compare.zig");
