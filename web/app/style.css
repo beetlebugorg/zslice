@@ -83,10 +83,12 @@ button.pill { border-radius: 999px; padding: 6px 22px; background: var(--accent-
 .hb-start, .hb-end { display: flex; gap: 6px; align-items: center; z-index: 1; }
 .hb-end { margin-left: auto; }
 .hb-title {
-  position: absolute; left: 0; right: 0; text-align: center;
-  font-weight: 700; pointer-events: none;
-  white-space: nowrap; overflow: hidden; text-overflow: ellipsis; padding: 0 30%;
+  font-weight: 700; padding: 0 6px; min-width: 0;
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
 }
+.hb-start { min-width: 0; flex: 1; }
+.hb-end { flex: none; }
+@media (max-width: 760px) { .hb-end .menu-button { max-width: 120px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; } }
 
 /* ---- the window ---- */
 
