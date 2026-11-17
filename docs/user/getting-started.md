@@ -233,7 +233,7 @@ Press `?` to see all keyboard shortcuts of the web app, grouped. Type in the she
 
 ## Search settings and actions
 
-Press `/` (or click **Search** in the preview toolbar, in the web app) to search the settings and the actions. Type a few letters, for example `infill`, `brim`, or `export`.
+Press `/` (or click **Search** in the preview toolbar, in the web app) to search the settings and the actions. Type a few letters, for example `infill`, `brim`, or `export`. A word also finds its other names: `speed` finds the motion settings, `perimeters` the walls, `cooling` the fans, and `temp` the temperatures.
 
 - Each setting in the results has its control: a slider and an entry for a number, a list for a choice, and a switch. Change it right there. The part slices again at once, and the view under the search shows the new lines. A drag of a slider slices as you drag.
 - The view does not change while you go through the results. Click the eye of a setting (or press V on it) to show only the lines that it changes, with the other lines as ghosts; click it again, or close the search, for all lines.

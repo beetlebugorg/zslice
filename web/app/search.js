@@ -21,7 +21,58 @@
 import { el } from "./settings.js";
 import { ALL_FEATURES, GROUP_TITLES, isNumber, isRatio, displayValue, toCore, formatNumber, sourceText } from "./format.js";
 
-const MAX_SETTINGS = 8;
+const MAX_SETTINGS = 14;
+
+// Words with the same meaning in a search: the names of zslice, and the
+// names of other slicers (Cura, PrusaSlicer). A word of the query also
+// finds the other words of its groups, with a lower score.
+const SAME = [
+  ["speed", "speeds", "motion", "velocity", "fast", "slow", "mm/s", "feedrate", "accel", "acceleration", "jerk", "max speed"],
+  ["acceleration", "accel", "jerk", "motion"],
+  ["temperature", "temp", "heat", "hot", "nozzle temp", "bed temp", "temperatures"],
+  ["fan", "cooling", "cool", "fans"],
+  ["wall", "walls", "perimeter", "perimeters", "shell", "shells", "outline"],
+  ["infill", "fill", "density", "sparse"],
+  ["skin", "top", "bottom", "solid", "top and bottom"],
+  ["support", "supports", "overhang", "overhangs", "tree"],
+  ["brim", "skirt", "adhesion", "raft"],
+  ["retraction", "retract", "stringing", "z hop", "wipe"],
+  ["travel", "moves", "combing", "avoid"],
+  ["layer", "layers", "height", "layer height", "resolution"],
+  ["first layer", "initial", "first", "bed adhesion"],
+  ["flow", "extrusion", "multiplier", "extrusion multiplier", "volumetric"],
+  ["seam", "z seam", "scarf"],
+  ["bridge", "bridges", "bridging"],
+  ["ironing", "iron", "smooth"],
+  ["shrink", "shrinkage", "compensation", "xy offset", "horizontal expansion", "elephant foot"],
+  ["gcode", "g-code", "start", "end", "macro"],
+  ["bed", "plate", "build plate", "bed size"],
+  ["line width", "extrusion width", "width"],
+];
+
+// The words of the query word `w`: itself (score 1), and the words of its
+// groups (score 0.75). A group counts when one of its words starts with w.
+function alternatives(w) {
+  const out = new Map([[w, 1]]);
+  if (w.length < 3) return out;
+  for (const g of SAME) {
+    if (!g.some((x) => x.startsWith(w))) continue;
+    for (const x of g) if (!out.has(x)) out.set(x, 0.75);
+  }
+  return out;
+}
+
+// The score of one word (or a phrase) in a setting: 0 for no match.
+function wordScore(info, w) {
+  const label = info.label.toLowerCase();
+  if (label.startsWith(w)) return 40;
+  if (label.split(/\s+/).some((x) => x.startsWith(w))) return 30;
+  if (label.includes(w)) return 20;
+  if (info.name.toLowerCase().includes(w.replace(/\s+/g, "_"))) return 14;
+  if (info.section.toLowerCase().includes(w)) return 12;
+  if (info.doc.toLowerCase().includes(w)) return 3;
+  return 0;
+}
 const MAX_ACTIONS = 4;
 const DRAG_MS = 90;
 // The place of the box after a move (this browser only).
@@ -44,23 +95,15 @@ function savePlace(p) {
   }
 }
 
-// The score of a text for the words of a query: 0 for no match.
+// The score of a setting for the words of a query: 0 for no match. Each
+// word must match, by itself or by a word of its groups (SAME).
 function score(info, words) {
-  const label = info.label.toLowerCase();
-  const name = info.name.toLowerCase();
-  const section = info.section.toLowerCase();
-  const doc = info.doc.toLowerCase();
   let total = 0;
   for (const w of words) {
-    let s = 0;
-    if (label.startsWith(w)) s = 40;
-    else if (label.split(/\s+/).some((x) => x.startsWith(w))) s = 30;
-    else if (label.includes(w)) s = 20;
-    else if (name.includes(w)) s = 14;
-    else if (section.includes(w)) s = 10;
-    else if (doc.includes(w)) s = 3;
-    if (s === 0) return 0;
-    total += s;
+    let best = 0;
+    for (const [x, k] of alternatives(w)) best = Math.max(best, k * wordScore(info, x));
+    if (best === 0) return 0;
+    total += best;
   }
   // The settings of the part first, then the filament, then the printer.
   if (info.group === "project") total += 2;
@@ -220,12 +263,12 @@ export class SearchOverlay {
       this.list.append(el("div", "search-note", "Type a setting (infill, walls, brim, speed) or an action (export, arrange, print)."));
       return;
     }
-    const settings = this.ctx.infos
+    const matches = this.ctx.infos
       .filter((info) => !this.scope || info.perPart)
       .map((info) => ({ info, s: score(info, words) }))
       .filter((r) => r.s > 0)
-      .sort((a, b) => b.s - a.s)
-      .slice(0, MAX_SETTINGS);
+      .sort((a, b) => b.s - a.s);
+    const settings = matches.slice(0, MAX_SETTINGS);
     const actions = (this.scope ? [] : this.ctx.actions())
       .map((a) => ({ a, s: words.every((w) => a.label.toLowerCase().includes(w) || (a.hint ?? "").toLowerCase().includes(w)) ? 1 : 0 }))
       .filter((r) => r.s > 0)
@@ -233,6 +276,9 @@ export class SearchOverlay {
     if (settings.length > 0) {
       this.list.append(el("div", "search-group", "Settings"));
       for (const { info } of settings) this.list.append(this.settingRow(info));
+      if (matches.length > settings.length) {
+        this.list.append(el("div", "search-note", `${matches.length - settings.length} more settings match. Type more words to narrow the list.`));
+      }
     }
     if (actions.length > 0) {
       this.list.append(el("div", "search-group", "Actions"));
