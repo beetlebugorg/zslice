@@ -204,7 +204,9 @@ A value out of the usual range shows in the warning color, and its tooltip gives
 
 In the web app, the view has the whole window. The print card (the print time, the plastic, and Export or Print) floats at the bottom right of the view.
 
-The panel has all settings, the selected line, the history, and the project. Press `N`, or click the sliders button at the top right, to show it or hide it. It slides over the view. Click **Pin** to put it beside the view, as a column with a splitter; click **Pin** again to let it slide over. Esc hides it when it slides over the view. A click on a line, or a link to a setting, shows the panel.
+The panel has all settings, the selected line, the history, and the project. Press `N`, or click the sliders button at the top right, to show it or hide it. It slides over the view. Click **Pin** to put it beside the view, as a column with a splitter; click **Pin** again to let it slide over. Esc hides it when it slides over the view. A link to a setting shows the panel.
+
+A click on a line opens a card next to it: the feature and the layer, the planned speed, the real speed, and the flow, why the line is slow, its size (a circle shows its diameter), and the first settings that change it. Change a setting in the card, and the part slices at once. **All settings of this line…** opens the Selected page of the panel. Esc, ×, or a click on no line closes the card.
 
 ## Keyboard shortcuts
 

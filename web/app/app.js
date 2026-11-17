@@ -24,6 +24,7 @@ import { HistoryPage } from "./history.js";
 import { ProjectPage } from "./project.js";
 import { SearchOverlay } from "./search.js";
 import { ShortcutSheet } from "./shortcuts.js";
+import { LineCard } from "./linecard.js";
 import { Tools } from "./tools.js";
 import { KINDS, send as sendToPrinter, test as testPrinter } from "./link.js";
 import { contextItems } from "./context-menu.js";
@@ -436,6 +437,7 @@ async function pickAt(px, py, picked) {
     if (pt && (await gaps.pick(pt[0], pt[1]))) return;
   }
   gaps.forget();
+  app.pickPoint = [px / dpr(), py / dpr()];
   if (hitAt(px, py)) select(view.hit[0], view.hit[1], picked);
   else select(-1, -1, false);
 }
@@ -620,6 +622,14 @@ const browser = new SettingsBrowser({
     app.focusFirst = first;
     updateFocus();
   },
+});
+
+// The card of a selected line, next to it in the view (linecard.js).
+var lineCard = new LineCard({
+  browser,
+  host: $("preview"),
+  more: () => showTab("selected"),
+  close: () => select(-1, -1, false),
 });
 
 // A plate of a printdeck.yml project is on the view (project.js): its
@@ -961,7 +971,13 @@ function select(path, seg, picked) {
   view.highlight(path, app.seg, app.isolate);
   $("isolate").hidden = path < 0;
   requestFrame();
-  if (picked && path >= 0) showTab("selected");
+  if (picked && path >= 0) {
+    // The card of the line opens at the click; a panel that shows also
+    // turns to the Selected page.
+    lineCard.openAt(...(app.pickPoint ?? [120, 120]));
+    if (panelMode() !== "hidden") showTab("selected");
+  }
+  if (path < 0) lineCard.close();
   inspect();
 }
 
@@ -977,6 +993,7 @@ async function inspect(refind) {
   }
   const r = await client.call("inspect", { path: app.sel, seg: app.seg, refind });
   if (id !== inspectId) return;
+  lineCard.show(r.info);
   app.info = r.info;
   if (refind) {
     // The same line in the new slice, or none.
