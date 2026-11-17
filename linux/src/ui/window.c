@@ -42,6 +42,9 @@ typedef struct {
     GtkStringList *printer_names;
     gboolean filling_printers;
     GtkWidget *send_button;
+    /* The summary at the bottom of the side panel: the time, the
+     * filament and the cost, and a button to print (or export). */
+    GtkWidget *sum_box, *sum_time, *sum_detail, *sum_deck, *sum_button;
     GtkWidget *send_menu;
     GtkWidget *printer_state;
     guint poll;
@@ -126,6 +129,52 @@ static void on_islands_clicked(GtkButton *b, gpointer data) {
     w->island_next = (w->island_next + 1) % n;
 }
 
+/* The summary card: the numbers of the last result, faded while a new
+ * slice runs. */
+static void update_summary(Window *w, int state) {
+    if (!w->sum_box) return;
+    zs_app *core = zg_model_core(w->model);
+    if (state == ZS_STATE_SLICING) gtk_widget_add_css_class(w->sum_box, "zg-stale");
+    else gtk_widget_remove_css_class(w->sum_box, "zg-stale");
+    gboolean linked = zg_printers_current()->kind != ZG_LINK_NONE;
+    gtk_button_set_label(GTK_BUTTON(w->sum_button), linked ? gtk_button_get_label(GTK_BUTTON(w->send_button)) : "Export G-code…");
+    gtk_widget_set_sensitive(w->sum_button, state == ZS_STATE_DONE);
+    if (state == ZS_STATE_SLICING) return;
+    if (state != ZS_STATE_DONE) {
+        gtk_label_set_text(GTK_LABEL(w->sum_time), state == ZS_STATE_FAILED ? "Slice failed" : "—");
+        gtk_label_set_text(GTK_LABEL(w->sum_detail), "");
+        gtk_widget_set_visible(w->sum_deck, FALSE);
+        return;
+    }
+    zs_stats st;
+    zs_app_stats(core, &st);
+    char t[32];
+    format_time(t, sizeof t, w->deck_ok ? w->deck.total : st.print_time_s);
+    gtk_label_set_text(GTK_LABEL(w->sum_time), t);
+    double per_g = w->spool_price_g;
+    if (per_g <= 0) {
+        char *v = zg_model_get(w->model, "filament.price_per_kg");
+        per_g = g_ascii_strtod(v, NULL) / 1000;
+        g_free(v);
+    }
+    char cost[32] = "";
+    if (per_g > 0) g_snprintf(cost, sizeof cost, " · %.2f", st.filament_g * per_g);
+    char *detail = g_strdup_printf("%.1f g · %.2f m%s · %u layers", st.filament_g, st.filament_mm / 1000.0, cost, st.layer_count);
+    gtk_label_set_text(GTK_LABEL(w->sum_detail), detail);
+    g_free(detail);
+    if (w->deck_ok) {
+        char prep[32], slice[32];
+        format_time(prep, sizeof prep, w->deck.prep);
+        format_time(slice, sizeof slice, st.print_time_s);
+        char *d = g_strdup_printf("%s: with %s of start and heat. The slice alone: %s.", zg_printers_current()->name, prep, slice);
+        gtk_label_set_text(GTK_LABEL(w->sum_deck), d);
+        g_free(d);
+    }
+    gtk_widget_set_visible(w->sum_deck, w->deck_ok);
+}
+
+static void on_sum_clicked(GtkButton *b, gpointer data);
+
 static void update(Window *w) {
     zs_app *core = zg_model_core(w->model);
     int state = zs_app_state(core);
@@ -196,6 +245,7 @@ static void update(Window *w) {
         text[0] = 0;
     }
     gtk_label_set_text(GTK_LABEL(w->status), text);
+    update_summary(w, state);
     zg_preview_refresh(w->preview);
     show_islands(w, state);
 }
@@ -872,6 +922,13 @@ static void on_open_clicked(GtkButton *b, gpointer data) {
     zg_window_open_dialog(GTK_WINDOW(data));
 }
 
+/* The button of the summary: print on the printer, or export a file. */
+static void on_sum_clicked(GtkButton *b, gpointer data) {
+    Window *w = get(data);
+    if (zg_printers_current()->kind != ZG_LINK_NONE) send(w, TRUE);
+    else zg_window_export_dialog(data);
+}
+
 static void on_export_clicked(GtkButton *b, gpointer data) {
     zg_window_export_dialog(GTK_WINDOW(data));
 }
@@ -997,7 +1054,37 @@ GtkWindow *zg_window_new(GtkApplication *app, ZgModel *model) {
     /* Body: settings | preview. */
     w->preview = zg_preview_new(model);
     GtkWidget *paned = gtk_paned_new(GTK_ORIENTATION_HORIZONTAL);
-    GtkWidget *panel = zg_settings_panel_new(model);
+    GtkWidget *settings = zg_settings_panel_new(model);
+    gtk_widget_set_vexpand(settings, TRUE);
+    /* The summary card under the settings. */
+    w->sum_box = gtk_box_new(GTK_ORIENTATION_VERTICAL, 2);
+    gtk_widget_add_css_class(w->sum_box, "zg-summary");
+    w->sum_time = gtk_label_new("—");
+    gtk_widget_add_css_class(w->sum_time, "zg-summary-time");
+    gtk_label_set_xalign(GTK_LABEL(w->sum_time), 0);
+    w->sum_detail = gtk_label_new("");
+    gtk_widget_add_css_class(w->sum_detail, "dim-label");
+    gtk_label_set_xalign(GTK_LABEL(w->sum_detail), 0);
+    gtk_label_set_ellipsize(GTK_LABEL(w->sum_detail), PANGO_ELLIPSIZE_END);
+    w->sum_deck = gtk_label_new("");
+    gtk_widget_add_css_class(w->sum_deck, "dim-label");
+    gtk_widget_add_css_class(w->sum_deck, "caption");
+    gtk_label_set_xalign(GTK_LABEL(w->sum_deck), 0);
+    gtk_label_set_wrap(GTK_LABEL(w->sum_deck), TRUE);
+    gtk_widget_set_visible(w->sum_deck, FALSE);
+    w->sum_button = gtk_button_new_with_label("Print");
+    gtk_widget_add_css_class(w->sum_button, "suggested-action");
+    gtk_widget_add_css_class(w->sum_button, "pill");
+    gtk_widget_set_margin_top(w->sum_button, 8);
+    g_signal_connect(w->sum_button, "clicked", G_CALLBACK(on_sum_clicked), w->window);
+    gtk_box_append(GTK_BOX(w->sum_box), w->sum_time);
+    gtk_box_append(GTK_BOX(w->sum_box), w->sum_detail);
+    gtk_box_append(GTK_BOX(w->sum_box), w->sum_deck);
+    gtk_box_append(GTK_BOX(w->sum_box), w->sum_button);
+    GtkWidget *panel = gtk_box_new(GTK_ORIENTATION_VERTICAL, 0);
+    gtk_box_append(GTK_BOX(panel), settings);
+    gtk_box_append(GTK_BOX(panel), gtk_separator_new(GTK_ORIENTATION_HORIZONTAL));
+    gtk_box_append(GTK_BOX(panel), w->sum_box);
     gtk_widget_add_css_class(panel, "zg-panel");
     /* The model on the left, the settings on the right, as in other
      * slicers. */
