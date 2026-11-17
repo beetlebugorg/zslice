@@ -168,6 +168,16 @@ export fn zs_app_cancel(a: ?*App) void {
     app.cancel();
 }
 
+/// The address of the cancel flag of the app (a byte: 1 stops the slice
+/// that runs), or 0. On the web, the slice runs on the thread of the core
+/// worker, so the worker cannot take a call while it slices; with a shared
+/// memory, the page sets the byte with Atomics.store. A new slice sets it
+/// back to 0.
+export fn zs_app_cancel_address(a: ?*App) usize {
+    const app = a orelse return 0;
+    return @intFromPtr(&app.cancel_flag.raw);
+}
+
 export fn zs_app_stats(a: ?*const App, out: ?*Stats) c_int {
     const app = a orelse return @intFromEnum(Status.invalid_argument);
     const o = out orelse return @intFromEnum(Status.invalid_argument);

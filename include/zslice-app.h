@@ -138,6 +138,10 @@ int zs_app_slice(zs_app *app);
 int zs_app_request_slice(zs_app *app);
 /* Asks a slice that runs to stop. ZS_EVENT_CANCELED follows. */
 void zs_app_cancel(zs_app *app);
+/* The address of the cancel flag (a byte: 1 stops the slice that runs),
+ * for a shell that shares the memory of the app with another thread (the
+ * web page: Atomics.store). A new slice sets it back to 0. */
+size_t zs_app_cancel_address(zs_app *app);
 
 /* ---- the result (state ZS_STATE_DONE) ---- */
 

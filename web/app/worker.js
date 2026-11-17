@@ -33,6 +33,12 @@ function onEvent(event, progress) {
 // The result of a slice for the page.
 function sendResult(ms) {
   const state = core.state();
+  // A canceled slice: the change that canceled it waits, and its slice
+  // comes next.
+  if (state === STATE.ready && ms > 0) {
+    post({ event: "canceled" });
+    return;
+  }
   if (state !== STATE.done) {
     post({ event: "failed", state });
     return;
@@ -234,6 +240,9 @@ const ops = {
     });
     core = new Core(wasm);
     core.threads = threads + 1;
+    // With a shared memory (the module with threads), the page can stop a
+    // slice that runs: it sets the cancel flag of the app (client.js).
+    if (wasm.shared) post({ event: "cancel-flag", memory: wasm.x.memory, address: wasm.x.zs_app_cancel_address(core.app) });
     const errors = core.restore(saved);
     return { errors, ...settingsState() };
   },
