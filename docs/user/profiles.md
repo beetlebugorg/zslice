@@ -101,7 +101,7 @@ A value with a `/` or a `.toml` ending is a path: `-f ./acme-pla.toml`. A relati
 zslice import cura printdeck/profiles/taz-workhorse-se -o profiles
 ```
 
-The stack folder has the layout of the printdeck profiles: a `cura.json` that names the machine definition, the machine changes, the quality profiles, and the materials (see `printdeck/profiles/README.md`). The output folder gets:
+The stack folder has the layout of the printdeck profiles: a `cura.json` that names the machine definition, the machine changes, the quality profiles, and the materials (see `printdeck/profiles/README.md`). A quality profile can also name a `material`, an `intent`, and the `user` changes, and the machine a `variant`. Each layer of a quality profile can have an `_extruder` layer too, for example `quality_changes_extruder`. The output folder gets:
 
 - `machine/<definition>.toml`: the printer, from the definition chain and the machine changes.
 - `filament/<material>.toml`: one for each material.

@@ -367,6 +367,22 @@ Some infill settings are made for parts like a grille:
 - `project.infill_flow`: the flow of the sparse infill ("Infill Flow" in Cura).
 - The `trihexagon` pattern: three line directions that make triangles and hexagons (as in Cura).
 
+## Compare with Cura
+
+If you also print with Cura, "Compare with Cura…" in the menu shows your zslice settings next to the settings of the printer that is active in Cura. zslice reads the Cura files on this computer, and it does not change them:
+
+- The newest Cura version folder in `~/.config/cura` and `~/.local/share/cura`, for example `5.14`.
+- The printer that `cura.cfg` names as `active_machine`, its extruder, and all layers of their stacks: your changes, the quality changes, the intent, the quality, the material, the variant, the machine changes, and the definition.
+- The files of Cura itself, in `/opt/ultimaker-cura/share/cura/resources` or `/usr/share/cura/resources`. Set `ZSLICE_CURA_RESOURCES` for another folder.
+
+Each row has the zslice setting, its group (Printer, Filament, or This print), the value in zslice, the value of Cura, and the Cura key that gives it. The mapping is the same as in `zslice import cura` (see [profiles](profiles.md)). By default the list has only the settings that differ. Turn on "Show all mapped settings" to see all of them.
+
+- **Use** sets the Cura value in zslice: in the printer, in the filament, or for this print. Undo takes it back.
+- **Use all** sets each value that differs. It does not change the names of the printer and the filament, or the start and end G-code: a printer with Klipper often has its own macros there.
+- A speed shows as a ratio and in mm/s. zslice keeps a speed as a ratio of `machine.max_speed`, and the Cura value is the ratio that gives the mm/s of Cura with your max speed now. The max speed of Cura is the highest print speed of the Cura profile. "Use all" sets the max speed first, so the speeds stay the same as in Cura.
+- A Cura value that is a formula (it starts with "=") shows with "Show all mapped settings", but zslice cannot take it.
+- "Reload" reads the Cura files again, for example after you change a setting in Cura.
+
 ## Watch the print
 
 In the app, press the play button under the 3D and 2D switch. The 3D view shows the print as it grows, line by line, at the speed in the list (1x is the real speed). The layer slider follows. Move the slider to stop.
