@@ -1,0 +1,56 @@
+name: npm
+
+# Publishes @beetlebugorg/zslice to GitHub Packages (not npmjs.com) for a
+# version tag (v0.1.0-beta): the web app, the JavaScript API, and the Node
+# command (web/npm, tools/npm_package.py). printdeck installs it from there.
+on:
+  push:
+    tags: ["v*"]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  packages: write
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
+
+      - uses: mlugg/setup-zig@d1434d08867e3ee9daa34448df10607b98908d29 # v2
+        with:
+          version: 0.16.0
+
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version: 22
+          registry-url: https://npm.pkg.github.com
+          scope: "@beetlebugorg"
+
+      - run: zig build web
+
+      # The version is the tag without its v.
+      - run: python3 -I tools/npm_package.py "${GITHUB_REF_NAME}"
+
+      # The package works from a clean install: slice a 20 mm cube.
+      - name: Test
+        run: |
+          mkdir /tmp/t && cd /tmp/t && npm init -y > /dev/null
+          npm install "$GITHUB_WORKSPACE/zig-out/npm"
+          npx zslice version
+          python3 - <<'PY'
+          v = [(x, y, z) for x in (0, 20) for y in (0, 20) for z in (0, 20)]
+          faces = [(0, 2, 3, 1), (4, 5, 7, 6), (0, 1, 5, 4), (2, 6, 7, 3), (0, 4, 6, 2), (1, 3, 7, 5)]
+          out = ["solid cube"]
+          for a, b, c, d in faces:
+              for t in ((a, b, c), (a, c, d)):
+                  out += ["facet normal 0 0 0", "outer loop"] + [f"vertex {v[i][0]} {v[i][1]} {v[i][2]}" for i in t] + ["endloop", "endfacet"]
+          open("cube.stl", "w").write("\n".join(out + ["endsolid cube"]) + "\n")
+          PY
+          npx zslice slice cube.stl -o cube.gcode --stats -
+          grep -q ";LAYER:" cube.gcode
+
+      - run: npm publish zig-out/npm
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.GITHUB_TOKEN }}

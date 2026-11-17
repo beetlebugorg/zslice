@@ -1,5 +1,18 @@
 # JavaScript and WebAssembly
 
+## The npm package
+
+The package `@beetlebugorg/zslice` is on GitHub Packages (not npmjs.com). It has the web app (`app/`), this API (`zslice.mjs`), and a Node command, `zslice slice`, that slices a model to G-code with profiles. Each version tag publishes it (`.github/workflows/npm.yml`). See [its README](https://github.com/beetlebugorg/zslice/blob/main/web/npm/README.md) for the install: GitHub Packages needs a token, also to install.
+
+```sh
+npm install @beetlebugorg/zslice
+npx zslice slice part.stl -m printer.toml -p fine -o part.gcode
+```
+
+To serve the web app from your own server (for example a printer on the LAN), serve `node_modules/@beetlebugorg/zslice/app/`. It uses only relative URLs. Send `Cross-Origin-Opener-Policy: same-origin` and `Cross-Origin-Embedder-Policy: require-corp` for the threads.
+
+To build the package from the source: `zig build web && python3 -I tools/npm_package.py`, then `zig-out/npm`.
+
 ## Build
 
 ```sh

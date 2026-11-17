@@ -1,0 +1,21 @@
+{
+  "name": "@beetlebugorg/zslice",
+  "version": "0.0.0",
+  "description": "The zslice 3D print slicer in WebAssembly: the web app, a JavaScript API, and a Node command that slices to G-code.",
+  "license": "AGPL-3.0-or-later",
+  "type": "module",
+  "homepage": "https://zslice.beetlebug.org/",
+  "repository": { "type": "git", "url": "git+https://github.com/beetlebugorg/zslice.git" },
+  "bugs": "https://github.com/beetlebugorg/zslice/issues",
+  "engines": { "node": ">=20" },
+  "bin": { "zslice": "./bin/zslice.mjs" },
+  "exports": {
+    ".": "./zslice.mjs",
+    "./core.js": "./app/core.js",
+    "./wasm.js": "./app/wasm.js",
+    "./app/*": "./app/*",
+    "./package.json": "./package.json"
+  },
+  "files": ["app/", "bin/", "zslice.mjs", "README.md", "LICENSE"],
+  "publishConfig": { "registry": "https://npm.pkg.github.com" }
+}
