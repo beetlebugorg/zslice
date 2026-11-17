@@ -549,6 +549,12 @@ int zs_history_describe(const char *changes, size_t len, char *buf, size_t cap, 
  * ("Layers 86 and up"). */
 int zs_app_history_describe(const zs_app *app, const char *changes, size_t len, char *buf, size_t cap, size_t *out_len);
 int zs_app_history_revert(zs_app *app, const char *change, size_t len);
+/* The kind of a step, from its changes, for its look in a timeline: "walls",
+ * "infill", "surface" (top and bottom skin, ironing, slope smoothing),
+ * "speed", "heat" (temperatures, cooling, filament, flow), "support",
+ * "layers", "move", "rotate", "scale", "add", "remove", "quality",
+ * "printer", or "other". A static string. */
+const char *zs_history_kind(const char *changes, size_t len);
 /* Sets all settings of a group to the built-in defaults: for example
  * before the profile of an other printer. */
 int zs_app_group_reset(zs_app *app, int group);

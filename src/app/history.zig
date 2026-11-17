@@ -9,8 +9,9 @@
 //!   filament, or of the print (the effective value, over the built-in
 //!   default).
 //! - "part:<name>": a setting of one part ("project.wall_count"), and its
-//!   place: "(part)" (the part is on the plate), "position", "rotation",
-//!   and "scale".
+//!   place: "(part)" (the part is on the plate), "position", "rotation"
+//!   (the turn around the vertical axis), "orientation" (the side on the
+//!   bed), and "scale".
 //! - "layers:<z_min>:<z_max>": a change for some layers (an override), and
 //!   "(name)", the name of a layer profile.
 //!
@@ -183,13 +184,18 @@ pub fn writeChange(w: *std.Io.Writer, c: Change) std.Io.Writer.Error!void {
     if (is_part and std.mem.eql(u8, c.key, "(part)")) return w.writeAll(if (c.new.len > 0) "Added to the plate" else "Removed from the plate");
     if (is_part and std.mem.eql(u8, c.key, "position")) return w.print("Moved to {s} mm", .{c.new});
     if (is_part and std.mem.eql(u8, c.key, "rotation")) return w.print("Turned to {s}°", .{if (c.new.len > 0) c.new else "0"});
+    if (is_part and std.mem.eql(u8, c.key, "orientation")) return w.writeAll(if (c.new.len > 0) "Put on another side" else "Back on its first side");
     if (is_part and std.mem.eql(u8, c.key, "scale")) return w.print("Scaled to {s}", .{if (c.new.len > 0) c.new else "1, 1, 1"});
     if (is_layers and std.mem.eql(u8, c.key, "(name)")) {
         if (c.new.len == 0) return w.print("Layer profile \"{s}\" removed", .{c.old});
         if (c.old.len == 0) return w.print("Layer profile \"{s}\"", .{c.new});
         return w.print("Layer profile \"{s}\" → \"{s}\"", .{ c.old, c.new });
     }
-    if (std.mem.eql(u8, c.key, "quality")) return w.print("Quality {s} → {s}", .{ if (c.old.len > 0) c.old else "the print", if (c.new.len > 0) c.new else "the print" });
+    if (std.mem.eql(u8, c.key, "quality")) {
+        if (c.new.len == 0) return w.print("Quality {s} → custom", .{c.old});
+        if (c.old.len == 0) return w.print("Quality → {s}", .{c.new});
+        return w.print("Quality {s} → {s}", .{ c.old, c.new });
+    }
     const info = infoOf(c.key);
     if (info) |i| try w.writeAll(i.label) else try w.writeAll(c.key);
     try w.writeByte(' ');
@@ -209,6 +215,90 @@ pub fn writeChange(w: *std.Io.Writer, c: Change) std.Io.Writer.Error!void {
     try writeValue(w, info, if (c.old.len > 0) c.old else none);
     try w.writeAll(" → ");
     try writeValue(w, info, if (c.new.len > 0) c.new else none);
+}
+
+/// The kind of a change, in broad strokes, for the look of a step in a
+/// timeline: what part of the print it changes.
+pub const Kind = enum {
+    walls,
+    infill,
+    /// The top and bottom skin, ironing, and slope smoothing.
+    surface,
+    /// Speeds, acceleration, travel, and retraction.
+    speed,
+    /// Temperatures, cooling, the filament, and the flow.
+    heat,
+    /// Support, skirt, and brim.
+    support,
+    /// The layer height, the first layer, the lines, and the changes for
+    /// some layers.
+    layers,
+    move,
+    rotate,
+    scale,
+    add,
+    remove,
+    quality,
+    printer,
+    other,
+};
+
+fn kindOfSection(group: []const u8, section: []const u8) Kind {
+    const eq = std.mem.eql;
+    if (eq(u8, group, "machine")) return .printer;
+    const map = [_]struct { []const u8, Kind }{
+        .{ "Walls", .walls },              .{ "Size compensation", .walls },
+        .{ "Infill", .infill },            .{ "Top and bottom skin", .surface },
+        .{ "Ironing", .surface },          .{ "Slope smoothing", .surface },
+        .{ "Speed ratios", .speed },       .{ "Acceleration", .speed },
+        .{ "Motion", .speed },             .{ "Travel", .speed },
+        .{ "Retraction", .speed },         .{ "Temperatures", .heat },
+        .{ "Cooling", .heat },             .{ "Filament", .heat },
+        .{ "Flow", .heat },                .{ "Extruder", .heat },
+        .{ "Support", .support },          .{ "Skirt and brim", .support },
+        .{ "Layers", .layers },            .{ "First layer", .layers },
+        .{ "Lines", .layers },             .{ "Placement", .move },
+    };
+    for (map) |m| if (eq(u8, m[0], section)) return m[1];
+    return .other;
+}
+
+/// The kind of one change.
+pub fn kindOf(c: Change) Kind {
+    const eq = std.mem.eql;
+    if (partName(c.scope) != null) {
+        if (eq(u8, c.key, "(part)")) return if (c.new.len > 0) .add else .remove;
+        if (eq(u8, c.key, "position")) return .move;
+        if (eq(u8, c.key, "rotation") or eq(u8, c.key, "orientation")) return .rotate;
+        if (eq(u8, c.key, "scale")) return .scale;
+    }
+    if (eq(u8, c.key, "quality")) return .quality;
+    if (layerRange(c.scope) != null and eq(u8, c.key, "(name)")) return .layers;
+    const info = infoOf(c.key) orelse return .other;
+    return kindOfSection(info.group, info.section);
+}
+
+/// The kind of a step: the kind of most of its changes (the first one of
+/// a tie). An added part with its place is an add, a part that is gone is
+/// a remove, and a new quality profile (with its settings) is a quality
+/// step. No change: other.
+pub fn stepKind(gpa: Allocator, changes: []const u8) Allocator.Error!Kind {
+    var arena_state = std.heap.ArenaAllocator.init(gpa);
+    defer arena_state.deinit();
+    const cs = try parseChanges(arena_state.allocator(), changes);
+    var counts = std.EnumArray(Kind, usize).initFill(0);
+    var first: ?Kind = null;
+    for (cs) |c| {
+        const k = kindOf(c);
+        if (k == .add or k == .remove or k == .quality) return k;
+        counts.getPtr(k).* += 1;
+        if (first == null) first = k;
+    }
+    var best = first orelse return .other;
+    for (std.enums.values(Kind)) |k| {
+        if (counts.get(k) > counts.get(best)) best = k;
+    }
+    return best;
 }
 
 /// Writes the changes of a diff in words, one on each line: "scope in
@@ -264,4 +354,15 @@ test "history: the scope of a layer range in words" {
     buf.clearRetainingCapacity();
     try writeScope(&buf.writer, "layers:2.9:4.1", 1e5, &zs_);
     try testing.expectEqualStrings("Layers 3–4", buf.written());
+}
+
+test "history: the kind of a step" {
+    const a = testing.allocator;
+    try testing.expectEqual(Kind.infill, try stepKind(a, "print\tproject.infill_density\t0.2\t0.55\n"));
+    try testing.expectEqual(Kind.walls, try stepKind(a, "part:Benchy\tproject.wall_count\t\t4\n"));
+    try testing.expectEqual(Kind.rotate, try stepKind(a, "part:Benchy\trotation\t\t90.0\n"));
+    try testing.expectEqual(Kind.add, try stepKind(a, "part:Benchy\t(part)\t\tyes\npart:Benchy\tposition\t\t10, 20\n"));
+    try testing.expectEqual(Kind.printer, try stepKind(a, "machine\tmachine.bed_size_x\t220\t300\n"));
+    try testing.expectEqual(Kind.other, try stepKind(a, ""));
+    try testing.expectEqual(Kind.quality, try stepKind(a, "print\tproject.layer_height\t0.2\t0.1\nprint\tproject.ironing\t\ttrue\nprint\tquality\tstandard\tfine\n"));
 }

@@ -811,11 +811,24 @@ pub const App = struct {
                 }
             }
         }
+        if (app.quality_name.len > 0) try w.print("print\tquality\t{s}\n", .{app.quality_name});
         for (app.plate.parts.items) |p| {
             const name: []const u8 = p.name;
             try w.print("part:{s}\t(part)\tyes\n", .{name});
             try w.print("part:{s}\tposition\t{d:.2}, {d:.2}\n", .{ name, p.x, p.y });
             if (p.rot != 0) try w.print("part:{s}\trotation\t{d:.1}\n", .{ name, p.rot });
+            // The orientation of the part (a side on the bed), as the rows of
+            // its pose.
+            const id = zs.plate.identity;
+            var turned = false;
+            for (0..3) |r| for (0..3) |c| {
+                if (@abs(p.pose[r][c] - id[r][c]) > 1e-9) turned = true;
+            };
+            if (turned) {
+                try w.print("part:{s}\torientation\t", .{name});
+                for (0..3) |r| for (0..3) |c| try w.print("{s}{d:.3}", .{ if (r == 0 and c == 0) "" else " ", p.pose[r][c] });
+                try w.writeByte('\n');
+            }
             if (p.scale[0] != 1 or p.scale[1] != 1 or p.scale[2] != 1) try w.print("part:{s}\tscale\t{d:.3}, {d:.3}, {d:.3}\n", .{ name, p.scale[0], p.scale[1], p.scale[2] });
             for (p.meta) |m| {
                 if (!std.mem.startsWith(u8, m.key, "zslice:")) continue;
@@ -859,13 +872,15 @@ pub const App = struct {
         const c = cs[0];
         const old = try unescape(ar, c.old);
         if (std.mem.eql(u8, c.scope, "machine") or std.mem.eql(u8, c.scope, "filament") or std.mem.eql(u8, c.scope, "print")) {
+            // The quality profile: its settings are changes of their own.
+            if (std.mem.eql(u8, c.key, "quality")) return error.NotSupported;
             if (old.len > 0) return app.setSetting(c.key, try app.strings.allocator().dupe(u8, old));
             // No old value: the built-in default.
             for (settings_info) |i| if (std.mem.eql(u8, i.name, c.key)) return app.setSetting(c.key, i.default_value);
             return error.UnknownSetting;
         }
         if (history.partName(c.scope)) |name| {
-            if (c.key.len > 0 and c.key[0] == '(' or std.mem.eql(u8, c.key, "position") or std.mem.eql(u8, c.key, "rotation") or std.mem.eql(u8, c.key, "scale")) return error.NotSupported;
+            if (c.key.len > 0 and c.key[0] == '(' or std.mem.eql(u8, c.key, "position") or std.mem.eql(u8, c.key, "rotation") or std.mem.eql(u8, c.key, "orientation") or std.mem.eql(u8, c.key, "scale")) return error.NotSupported;
             for (app.plate.parts.items, 0..) |p, i| if (std.mem.eql(u8, p.name, name)) {
                 return app.setPartSetting(i, c.key, if (old.len > 0) old else null);
             };

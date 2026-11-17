@@ -4,6 +4,7 @@
  */
 #include "history.h"
 
+#include <math.h>
 #include <string.h>
 
 static const char *css =
@@ -13,11 +14,11 @@ static const char *css =
     ".zg-history-badge { font-size: 0.8em; font-weight: bold; padding: 0 6px; border-radius: 8px;"
     " background: @accent_bg_color; color: @accent_fg_color; }\n"
     ".zg-timeline { padding: 3px 8px; border-top: 1px solid alpha(currentColor, 0.15); }\n"
-    ".zg-tl-step { min-width: 14px; min-height: 14px; padding: 0; margin: 0 2px; border-radius: 7px;"
-    " background: alpha(currentColor, 0.35); }\n"
-    ".zg-tl-step:hover { background: alpha(currentColor, 0.7); }\n"
-    ".zg-tl-step.zg-tl-now { background: @accent_bg_color; min-width: 18px; min-height: 18px; border-radius: 9px; }\n"
-    ".zg-tl-step.zg-tl-later { background: alpha(currentColor, 0.15); }\n"
+    ".zg-tl-step { min-width: 0; min-height: 0; padding: 2px; margin: 0 1px; border-radius: 99px;"
+    " background: none; box-shadow: none; }\n"
+    ".zg-tl-step:hover { background: alpha(currentColor, 0.15); }\n"
+    ".zg-tl-step.zg-tl-now { box-shadow: 0 0 0 2px @accent_bg_color; }\n"
+    ".zg-tl-step.zg-tl-later { opacity: 0.35; }\n"
     ".zg-tl-line { min-width: 10px; min-height: 2px; background: alpha(currentColor, 0.25); }\n";
 
 static void ensure_css(void) {
@@ -29,6 +30,191 @@ static void ensure_css(void) {
     gtk_style_context_add_provider_for_display(gdk_display_get_default(), GTK_STYLE_PROVIDER(p),
                                                GTK_STYLE_PROVIDER_PRIORITY_APPLICATION);
     g_object_unref(p);
+}
+
+
+/* ---- the badge of a step: a disc in the color of its kind, with a glyph
+ * of the kind (zs_history_kind) ---- */
+
+typedef struct {
+    const char *kind;
+    double r, g, b;
+    const char *label;
+} KindLook;
+
+static const KindLook looks[] = {
+    {"walls", 0.851, 0.282, 0.059, "Walls"},
+    {"infill", 0.169, 0.541, 0.243, "Infill"},
+    {"surface", 0.110, 0.494, 0.839, "Top and bottom"},
+    {"speed", 0.486, 0.227, 0.929, "Speed"},
+    {"heat", 0.863, 0.149, 0.149, "Temperature and cooling"},
+    {"support", 0.420, 0.447, 0.502, "Support"},
+    {"layers", 0.851, 0.565, 0.000, "Layers"},
+    {"move", 0.047, 0.580, 0.620, "Move"},
+    {"rotate", 0.047, 0.580, 0.620, "Turn"},
+    {"scale", 0.047, 0.580, 0.620, "Scale"},
+    {"add", 0.047, 0.580, 0.620, "Part added"},
+    {"remove", 0.047, 0.580, 0.620, "Part removed"},
+    {"quality", 0.859, 0.153, 0.467, "Quality"},
+    {"printer", 0.200, 0.255, 0.333, "Printer"},
+    {"other", 0.500, 0.500, 0.500, "Other"},
+    {"start", 0.500, 0.500, 0.500, "Start"},
+};
+
+static const KindLook *look_of(const char *kind) {
+    for (size_t i = 0; i < G_N_ELEMENTS(looks); i++)
+        if (strcmp(looks[i].kind, kind) == 0) return &looks[i];
+    return &looks[G_N_ELEMENTS(looks) - 2];
+}
+
+/* The kind of step i: "start" for step 0. */
+static const char *step_kind(ZgModel *model, guint i) {
+    if (i == 0) return "start";
+    char *changes = zg_model_history_changes(model, i);
+    const char *k = zs_history_kind(changes ? changes : "", changes ? strlen(changes) : 0);
+    g_free(changes);
+    return k;
+}
+
+static void arrow_head(cairo_t *cr, double x, double y, double ang, double s) {
+    cairo_move_to(cr, x + s * cos(ang + 2.5), y + s * sin(ang + 2.5));
+    cairo_line_to(cr, x, y);
+    cairo_line_to(cr, x + s * cos(ang - 2.5), y + s * sin(ang - 2.5));
+}
+
+/* The glyph of a kind, in white, in a box of size u * 20 around (cx, cy). */
+static void draw_glyph(cairo_t *cr, const char *k, double cx, double cy, double u) {
+    cairo_set_source_rgb(cr, 1, 1, 1);
+    cairo_set_line_width(cr, 1.6 * u);
+    cairo_set_line_cap(cr, CAIRO_LINE_CAP_ROUND);
+    cairo_set_line_join(cr, CAIRO_LINE_JOIN_ROUND);
+#define P(x, y) (cx + (x) * u), (cy + (y) * u)
+    if (!strcmp(k, "walls")) {
+        cairo_rectangle(cr, P(-5.5, -5.5), 11 * u, 11 * u);
+        cairo_rectangle(cr, P(-2.5, -2.5), 5 * u, 5 * u);
+    } else if (!strcmp(k, "infill")) {
+        /* Crossed lines in a disc, as a grid infill. */
+        cairo_save(cr);
+        cairo_arc(cr, cx, cy, 5.8 * u, 0, 2 * G_PI);
+        cairo_clip(cr);
+        cairo_set_line_width(cr, 1.3 * u);
+        for (int d = -1; d <= 1; d++) {
+            cairo_move_to(cr, P(-6 + d * 4.5, -6));
+            cairo_line_to(cr, P(6 + d * 4.5, 6));
+            cairo_move_to(cr, P(6 + d * 4.5, -6));
+            cairo_line_to(cr, P(-6 + d * 4.5, 6));
+        }
+        cairo_stroke(cr);
+        cairo_restore(cr);
+        return;
+    } else if (!strcmp(k, "surface")) {
+        for (int d = -1; d <= 1; d++) {
+            cairo_move_to(cr, P(-5 + d * 4 - 1, 4));
+            cairo_line_to(cr, P(1 + d * 4, -4));
+        }
+    } else if (!strcmp(k, "speed")) {
+        for (int d = 0; d < 2; d++) {
+            cairo_move_to(cr, P(-5 + d * 5, -4.5));
+            cairo_line_to(cr, P(-0.5 + d * 5, 0));
+            cairo_line_to(cr, P(-5 + d * 5, 4.5));
+        }
+    } else if (!strcmp(k, "heat")) {
+        /* A thermometer. */
+        cairo_move_to(cr, P(0, -6));
+        cairo_line_to(cr, P(0, 2));
+        cairo_stroke(cr);
+        cairo_arc(cr, P(0, 3.5), 2.6 * u, 0, 2 * G_PI);
+        cairo_fill(cr);
+        cairo_move_to(cr, P(2.5, -4));
+        cairo_line_to(cr, P(4, -4));
+        cairo_move_to(cr, P(2.5, -1));
+        cairo_line_to(cr, P(4, -1));
+    } else if (!strcmp(k, "support")) {
+        cairo_move_to(cr, P(-6, -4.5));
+        cairo_line_to(cr, P(6, -4.5));
+        for (int d = -1; d <= 1; d++) {
+            cairo_move_to(cr, P(d * 4, -4.5));
+            cairo_line_to(cr, P(d * 4, 5.5));
+        }
+    } else if (!strcmp(k, "layers")) {
+        for (int d = -1; d <= 1; d++) {
+            cairo_move_to(cr, P(-5.5, d * 3.8));
+            cairo_line_to(cr, P(5.5, d * 3.8));
+        }
+    } else if (!strcmp(k, "move")) {
+        cairo_move_to(cr, P(-6, 0));
+        cairo_line_to(cr, P(6, 0));
+        cairo_move_to(cr, P(0, -6));
+        cairo_line_to(cr, P(0, 6));
+        arrow_head(cr, P(6, 0), 0, 2.4 * u);
+        arrow_head(cr, P(-6, 0), G_PI, 2.4 * u);
+        arrow_head(cr, P(0, 6), G_PI / 2, 2.4 * u);
+        arrow_head(cr, P(0, -6), -G_PI / 2, 2.4 * u);
+    } else if (!strcmp(k, "rotate")) {
+        cairo_arc(cr, cx, cy, 5 * u, -G_PI / 2, G_PI);
+        cairo_stroke(cr);
+        arrow_head(cr, P(-5, 0), G_PI / 2, 2.6 * u);
+    } else if (!strcmp(k, "scale")) {
+        cairo_move_to(cr, P(-5, 5));
+        cairo_line_to(cr, P(5, -5));
+        cairo_move_to(cr, P(1, -5));
+        cairo_line_to(cr, P(5, -5));
+        cairo_line_to(cr, P(5, -1));
+        cairo_move_to(cr, P(-5, 1));
+        cairo_line_to(cr, P(-5, 5));
+        cairo_line_to(cr, P(-1, 5));
+    } else if (!strcmp(k, "add") || !strcmp(k, "remove")) {
+        cairo_move_to(cr, P(-5, 0));
+        cairo_line_to(cr, P(5, 0));
+        if (!strcmp(k, "add")) {
+            cairo_move_to(cr, P(0, -5));
+            cairo_line_to(cr, P(0, 5));
+        }
+    } else if (!strcmp(k, "quality")) {
+        for (int i = 0; i < 10; i++) {
+            double a = -G_PI / 2 + i * G_PI / 5, rr = (i % 2 ? 2.6 : 6.0) * u;
+            if (i == 0) cairo_move_to(cr, cx + rr * cos(a), cy + rr * sin(a));
+            else cairo_line_to(cr, cx + rr * cos(a), cy + rr * sin(a));
+        }
+        cairo_close_path(cr);
+        cairo_fill(cr);
+        return;
+    } else if (!strcmp(k, "printer")) {
+        cairo_rectangle(cr, P(-6, -2), 12 * u, 6 * u);
+        cairo_rectangle(cr, P(-3.5, -6), 7 * u, 4 * u);
+        cairo_move_to(cr, P(-2, 5.5));
+        cairo_line_to(cr, P(2, 5.5));
+    } else if (!strcmp(k, "start")) {
+        cairo_move_to(cr, P(-3, 6));
+        cairo_line_to(cr, P(-3, -6));
+        cairo_line_to(cr, P(5, -3.5));
+        cairo_line_to(cr, P(-3, -1));
+    } else {
+        cairo_arc(cr, cx, cy, 2 * u, 0, 2 * G_PI);
+        cairo_fill(cr);
+        return;
+    }
+#undef P
+    cairo_stroke(cr);
+}
+
+static void draw_badge(GtkDrawingArea *area, cairo_t *cr, int w, int h, gpointer data) {
+    const KindLook *l = data;
+    double r = MIN(w, h) / 2.0;
+    cairo_arc(cr, w / 2.0, h / 2.0, r - 0.5, 0, 2 * G_PI);
+    cairo_set_source_rgb(cr, l->r, l->g, l->b);
+    cairo_fill(cr);
+    draw_glyph(cr, l->kind, w / 2.0, h / 2.0, (r * 2) / 20.0 * 0.85);
+}
+
+static GtkWidget *kind_badge(const char *kind, int size) {
+    GtkWidget *a = gtk_drawing_area_new();
+    gtk_drawing_area_set_content_width(GTK_DRAWING_AREA(a), size);
+    gtk_drawing_area_set_content_height(GTK_DRAWING_AREA(a), size);
+    gtk_drawing_area_set_draw_func(GTK_DRAWING_AREA(a), draw_badge, (gpointer)look_of(kind), NULL);
+    gtk_widget_set_valign(a, GTK_ALIGN_CENTER);
+    gtk_widget_set_can_target(a, FALSE);
+    return a;
 }
 
 /* The time of a step: "14:32" today, else the date too. */
@@ -46,11 +232,12 @@ static char *step_time(gint64 t) {
 
 /* A change that cannot be undone alone: the place of a part. */
 static gboolean revertible(const char *line) {
+    if (strstr(line, "\tquality\t")) return FALSE;
     if (!g_str_has_prefix(line, "part:")) return TRUE;
     const char *key = strchr(line, '\t');
     if (!key) return FALSE;
     key++;
-    return !(g_str_has_prefix(key, "(part)") || g_str_has_prefix(key, "position") || g_str_has_prefix(key, "rotation") ||
+    return !(g_str_has_prefix(key, "(part)") || g_str_has_prefix(key, "position") || g_str_has_prefix(key, "rotation") || g_str_has_prefix(key, "orientation") ||
              g_str_has_prefix(key, "scale"));
 }
 
@@ -59,7 +246,7 @@ static char *step_tooltip(ZgModel *model, guint i) {
     GString *s = g_string_new(NULL);
     char *t = step_time(zg_model_history_time(model, i));
     if (i == 0) g_string_append(s, "<b>Start</b>");
-    else g_string_append_printf(s, "<b>Step %u</b>", i);
+    else g_string_append_printf(s, "<b>Step %u · %s</b>", i, look_of(step_kind(model, i))->label);
     if (*t) g_string_append_printf(s, " · %s", t);
     g_free(t);
     if (i == zg_model_history_current(model)) g_string_append(s, " · now");
@@ -85,6 +272,20 @@ static char *step_tooltip(ZgModel *model, guint i) {
     g_free(words);
     g_free(changes);
     return g_string_free(s, FALSE);
+}
+
+/* ---- keys: the arrows go to the step before or after, and Space goes
+ * back to the step shown before (to compare two steps) ---- */
+
+static void go_step(ZgModel *model, gint64 i) {
+    guint cur = zg_model_history_current(model);
+    if (i < 0 || i >= (gint64)zg_model_history_count(model)) return;
+    if (zg_model_history_goto(model, (guint)i)) g_object_set_data(G_OBJECT(model), "zg-history-last", GUINT_TO_POINTER(cur + 1));
+}
+
+static void flip_step(ZgModel *model) {
+    guint last = GPOINTER_TO_UINT(g_object_get_data(G_OBJECT(model), "zg-history-last"));
+    if (last > 0) go_step(model, (gint64)last - 1);
 }
 
 /* ---- the History page ---- */
@@ -145,6 +346,7 @@ static GtkWidget *step_row(Page *p, guint i) {
     gtk_widget_add_css_class(tt, "numeric");
     gtk_widget_set_hexpand(tt, TRUE);
     gtk_label_set_xalign(GTK_LABEL(tt), 0);
+    gtk_box_append(GTK_BOX(head), kind_badge(step_kind(p->model, i), 22));
     gtk_box_append(GTK_BOX(head), tl);
     gtk_box_append(GTK_BOX(head), tt);
     if (i == now) {
@@ -192,7 +394,10 @@ static GtkWidget *step_row(Page *p, guint i) {
     return box;
 }
 
-static void page_fill(Page *p) {
+static void page_fill_focus(Page *p, gboolean take_focus) {
+    GtkRoot *root = gtk_widget_get_root(p->list);
+    GtkWidget *focus = root ? gtk_root_get_focus(root) : NULL;
+    gboolean had_focus = take_focus || (focus && gtk_widget_is_ancestor(focus, p->list));
     GtkWidget *child;
     while ((child = gtk_widget_get_first_child(p->list))) gtk_list_box_remove(GTK_LIST_BOX(p->list), child);
     guint n = zg_model_history_count(p->model);
@@ -203,13 +408,52 @@ static void page_fill(Page *p) {
         gtk_list_box_row_set_child(GTK_LIST_BOX_ROW(row), step_row(p, k));
         g_object_set_data(G_OBJECT(row), "zg-step", GUINT_TO_POINTER(k));
         gtk_list_box_append(GTK_LIST_BOX(p->list), row);
+        if (k == zg_model_history_current(p->model) && had_focus) gtk_widget_grab_focus(row);
+    }
+}
+
+static void page_fill(Page *p) {
+    page_fill_focus(p, FALSE);
+}
+
+/* The page shows: the step now has the focus, so the arrow keys move
+ * through the steps at once. */
+static gboolean focus_now_row(gpointer data) {
+    Page *p = data;
+    if (!gtk_widget_get_mapped(p->list)) return G_SOURCE_REMOVE;
+    for (GtkWidget *row = gtk_widget_get_first_child(p->list); row; row = gtk_widget_get_next_sibling(row)) {
+        if (GPOINTER_TO_UINT(g_object_get_data(G_OBJECT(row), "zg-step")) == zg_model_history_current(p->model)) {
+            gtk_widget_grab_focus(row);
+            break;
+        }
+    }
+    return G_SOURCE_REMOVE;
+}
+
+static void on_page_map(GtkWidget *w, gpointer data) {
+    page_fill(data);
+    /* After the click on the tab: its button takes the focus on the
+     * release. */
+    g_timeout_add(150, focus_now_row, data);
+}
+
+/* Up: the newer step (above), Down: the older step, Space: the step shown
+ * before. */
+static gboolean on_page_key(GtkEventControllerKey *c, guint key, guint code, GdkModifierType mods, gpointer data) {
+    Page *p = data;
+    gint64 cur = zg_model_history_current(p->model);
+    switch (key) {
+    case GDK_KEY_Up: case GDK_KEY_KP_Up: go_step(p->model, cur + 1); return TRUE;
+    case GDK_KEY_Down: case GDK_KEY_KP_Down: go_step(p->model, cur - 1); return TRUE;
+    case GDK_KEY_space: flip_step(p->model); return TRUE;
+    default: return FALSE;
     }
 }
 
 static void on_row(GtkListBox *list, GtkListBoxRow *row, gpointer data) {
     Page *p = data;
     guint i = GPOINTER_TO_UINT(g_object_get_data(G_OBJECT(row), "zg-step"));
-    zg_model_history_goto(p->model, i);
+    go_step(p->model, i);
 }
 
 static void on_history(ZgModel *model, gpointer data) {
@@ -237,7 +481,9 @@ GtkWidget *zg_history_page_new(ZgModel *model) {
     GtkWidget *box = gtk_box_new(GTK_ORIENTATION_VERTICAL, 4);
     GtkWidget *help = gtk_label_new("Each step is a change of the settings or of the plate, the newest first. "
                                     "Click a step to go back to it: the preview slices at that step. "
-                                    "A new change there drops the later steps. ↶ undoes only one change.");
+                                    "↑ and ↓ go to the next step, and Space goes back to the step before, "
+                                    "to compare two steps. A new change there drops the later steps. "
+                                    "↶ undoes only one change.");
     gtk_label_set_wrap(GTK_LABEL(help), TRUE);
     gtk_label_set_xalign(GTK_LABEL(help), 0);
     gtk_widget_add_css_class(help, "dim-label");
@@ -248,6 +494,10 @@ GtkWidget *zg_history_page_new(ZgModel *model) {
     gtk_list_box_set_activate_on_single_click(GTK_LIST_BOX(p->list), TRUE);
     gtk_widget_add_css_class(p->list, "navigation-sidebar");
     g_signal_connect(p->list, "row-activated", G_CALLBACK(on_row), p);
+    GtkEventController *pk = gtk_event_controller_key_new();
+    gtk_event_controller_set_propagation_phase(pk, GTK_PHASE_CAPTURE);
+    g_signal_connect(pk, "key-pressed", G_CALLBACK(on_page_key), p);
+    gtk_widget_add_controller(p->list, pk);
     p->scroller = gtk_scrolled_window_new();
     gtk_scrolled_window_set_policy(GTK_SCROLLED_WINDOW(p->scroller), GTK_POLICY_NEVER, GTK_POLICY_AUTOMATIC);
     gtk_scrolled_window_set_child(GTK_SCROLLED_WINDOW(p->scroller), p->list);
@@ -257,7 +507,7 @@ GtkWidget *zg_history_page_new(ZgModel *model) {
     g_object_set_data_full(G_OBJECT(box), "zg-history", p, page_free);
     g_signal_connect(model, "undo-changed", G_CALLBACK(on_history), p);
     g_signal_connect(model, "core-event", G_CALLBACK(on_page_core), p);
-    g_signal_connect_swapped(p->list, "map", G_CALLBACK(page_fill), p);
+    g_signal_connect(p->list, "map", G_CALLBACK(on_page_map), p);
     page_fill(p);
     return box;
 }
@@ -271,7 +521,20 @@ typedef struct {
 
 static void on_step(GtkButton *b, gpointer data) {
     Timeline *t = data;
-    zg_model_history_goto(t->model, GPOINTER_TO_UINT(g_object_get_data(G_OBJECT(b), "zg-step")));
+    go_step(t->model, GPOINTER_TO_UINT(g_object_get_data(G_OBJECT(b), "zg-step")));
+}
+
+/* Left: the older step, Right: the newer step, Space: the step shown
+ * before. */
+static gboolean on_timeline_key(GtkEventControllerKey *c, guint key, guint code, GdkModifierType mods, gpointer data) {
+    Timeline *t = data;
+    gint64 cur = zg_model_history_current(t->model);
+    switch (key) {
+    case GDK_KEY_Left: case GDK_KEY_KP_Left: go_step(t->model, cur - 1); return TRUE;
+    case GDK_KEY_Right: case GDK_KEY_KP_Right: go_step(t->model, cur + 1); return TRUE;
+    case GDK_KEY_space: flip_step(t->model); return TRUE;
+    default: return FALSE;
+    }
 }
 
 static gboolean on_step_tooltip(GtkWidget *b, int x, int y, gboolean keyboard, GtkTooltip *tip, gpointer data) {
@@ -296,6 +559,9 @@ static gboolean scroll_to_now(gpointer data) {
 }
 
 static void timeline_fill(Timeline *t) {
+    GtkRoot *root = gtk_widget_get_root(t->steps);
+    GtkWidget *focus = root ? gtk_root_get_focus(root) : NULL;
+    gboolean had_focus = focus && gtk_widget_is_ancestor(focus, t->steps);
     GtkWidget *child;
     while ((child = gtk_widget_get_first_child(t->steps))) gtk_box_remove(GTK_BOX(t->steps), child);
     guint n = zg_model_history_count(t->model), now = zg_model_history_current(t->model);
@@ -308,6 +574,7 @@ static void timeline_fill(Timeline *t) {
             gtk_box_append(GTK_BOX(t->steps), line);
         }
         GtkWidget *b = gtk_button_new();
+        gtk_button_set_child(GTK_BUTTON(b), kind_badge(step_kind(t->model, i), i == now ? 22 : 18));
         gtk_widget_add_css_class(b, "zg-tl-step");
         if (i == now) gtk_widget_add_css_class(b, "zg-tl-now");
         else if (i > now) gtk_widget_add_css_class(b, "zg-tl-later");
@@ -319,6 +586,7 @@ static void timeline_fill(Timeline *t) {
         g_object_set_data(G_OBJECT(b), "zg-step", GUINT_TO_POINTER(i));
         g_signal_connect(b, "clicked", G_CALLBACK(on_step), t);
         gtk_box_append(GTK_BOX(t->steps), b);
+        if (i == now && had_focus) gtk_widget_grab_focus(b);
     }
     gtk_widget_set_sensitive(t->undo, now > 0);
     gtk_widget_set_sensitive(t->redo, now + 1 < n);
@@ -376,6 +644,10 @@ GtkWidget *zg_timeline_new(ZgModel *model) {
     gtk_box_append(GTK_BOX(bar), t->redo);
     gtk_box_append(GTK_BOX(bar), label);
     gtk_box_append(GTK_BOX(bar), t->scroller);
+    GtkEventController *tk = gtk_event_controller_key_new();
+    gtk_event_controller_set_propagation_phase(tk, GTK_PHASE_CAPTURE);
+    g_signal_connect(tk, "key-pressed", G_CALLBACK(on_timeline_key), t);
+    gtk_widget_add_controller(bar, tk);
     g_object_set_data_full(G_OBJECT(bar), "zg-timeline", t, timeline_free);
     g_signal_connect(model, "undo-changed", G_CALLBACK(on_timeline), t);
     timeline_fill(t);
