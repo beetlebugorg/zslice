@@ -406,6 +406,38 @@ button.destructive { background: #c01c28; color: #fff; }
 .hist-scope { font-size: 0.8em; }
 .hist-undo { min-height: 26px; padding: 2px 8px; }
 
+/* The Project tab (project.js). */
+#page-project { overflow-y: auto; }
+.project { display: flex; flex-direction: column; padding: 10px 12px 18px; gap: 8px; }
+.proj-open { display: flex; flex-direction: column; gap: 8px; line-height: 1.4; }
+.proj-title { font-weight: 700; font-size: 1.05em; }
+.proj-label { font-size: 0.85em; font-weight: 700; opacity: 0.75; margin-top: 6px; }
+.proj-row { display: flex; gap: 6px; }
+.proj-row input { flex: 1; min-width: 0; }
+.proj-head { display: flex; align-items: flex-start; justify-content: space-between; gap: 8px; }
+.proj-busy { font-size: 0.9em; color: var(--accent); }
+.proj-error { color: #e01b24; line-height: 1.4; }
+.proj-h { margin: 8px 0 0; font-size: 0.85em; text-transform: uppercase; letter-spacing: 0.04em; opacity: 0.7; }
+.proj-plates, .proj-parts { display: flex; flex-direction: column; gap: 6px; }
+.proj-plate { border-radius: 8px; padding: 8px 10px; background: rgba(255, 255, 255, 0.05); display: flex; flex-direction: column; gap: 6px; }
+.proj-plate.active { box-shadow: inset 3px 0 0 var(--accent); background: rgba(53, 132, 228, 0.15); }
+.proj-plate.st-printed { opacity: 0.6; }
+.proj-plate-head { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.proj-plate-title { font-weight: 700; }
+.proj-plate-head .dim { flex: 1; min-width: 0; font-size: 0.85em; }
+.proj-status { font-size: 0.85em; }
+.proj-plate.st-printing .proj-status { color: var(--accent); }
+.proj-plate.st-failed .proj-status { color: #e01b24; }
+.proj-items { font-size: 0.9em; line-height: 1.4; }
+.proj-plate > button { align-self: flex-start; }
+.proj-count { font-size: 0.85em; }
+.proj-group { font-size: 0.8em; font-weight: 700; opacity: 0.7; margin-top: 6px; }
+.proj-part { display: flex; align-items: center; gap: 8px; }
+.proj-part > div { flex: 1; min-width: 0; }
+.proj-part-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.proj-facts { font-size: 0.8em; }
+.proj-n { width: 52px; }
+
 /* The timeline of the history: a floating bar under the scrub bar. */
 .timeline {
   left: 50%; bottom: 10px; transform: translateX(-50%);

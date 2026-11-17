@@ -6,7 +6,7 @@
 // with threads) the page sets the cancel flag of the app itself.
 
 // The calls that start a slice.
-const SLICE_OPS = new Set(["set", "reset", "quality", "profile", "setScoped", "resetScoped", "load", "add", "plate",
+const SLICE_OPS = new Set(["set", "reset", "quality", "profile", "setScoped", "resetScoped", "load", "add", "plate", "projectLoad",
   "putDown", "place", "partMove", "partRotate", "markAdd", "markRemoveNear", "markSet", "markRemove", "marksClear",
   "undo", "redo", "historyGoto", "historyRevert", "historyTruncate"]);
 //

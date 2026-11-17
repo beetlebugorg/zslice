@@ -42,6 +42,7 @@ SOURCES = [
     ("docs/user/getting-started.md", "user/getting-started/", "User guide", "Getting started"),
     ("docs/user/settings.md", "user/settings/", "User guide", "Settings"),
     ("docs/user/profiles.md", "user/profiles/", "User guide", "Profiles"),
+    ("docs/user/projects.md", "user/projects/", "User guide", "Projects"),
     ("docs/user/troubleshooting.md", "user/troubleshooting/", "User guide", "Troubleshooting"),
     ("docs/embedding/overview.md", "embedding/", "Embedding", "Overview"),
     ("docs/embedding/c.md", "embedding/c/", "Embedding", "C"),

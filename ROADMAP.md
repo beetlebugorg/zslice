@@ -153,7 +153,8 @@ The goal is the features that people use in PrusaSlicer and Cura. zslice designs
 - [ ] Printer discovery: Bambu Lab in LAN mode (SSDP), Elegoo (SDCP), Creality, and Duet; the model of a printdeck or OctoPrint printer (it needs the API key)
 - [ ] Printers: a shared place for printers and their connections (printdeck remote, OctoPrint, Moonraker), and print monitoring
 - [x] Replay: a nozzle marker, and the time estimate with acceleration (the replay is as exact as the time estimate)
-- [ ] Projects from GitHub: open a repo with a `printdeck.yml`, slice all its parts onto plates, and a print workflow that walks through the plates and keeps the status across a restart
+- [x] Projects from GitHub in the web app: open a repo or a folder with a `printdeck.yml`, choose the parts, slice each plate with its Cura profile stack, and keep the status of each plate across a reload
+- [ ] Projects in the desktop app
 - [ ] Debug prints: "Print this layer" (one layer alone on the bed), and a range of about 10 layers laid flat side by side, to compare a print with the preview
 - [ ] Check the G-code of each printer of the library: slice a test part with each profile and test the start and end G-code
 - [x] The web app: Gaps (the red cells in both views, the count, and the gap page with Apply and This layer)

@@ -21,6 +21,7 @@ import { SettingsBrowser } from "./settings.js";
 import { Inspector } from "./inspector.js";
 import { Gaps } from "./gaps.js";
 import { HistoryPage } from "./history.js";
+import { ProjectPage } from "./project.js";
 import { Tools } from "./tools.js";
 import { KINDS, send as sendToPrinter, test as testPrinter } from "./link.js";
 import { contextItems } from "./context-menu.js";
@@ -575,6 +576,10 @@ const browser = new SettingsBrowser({
   },
 });
 
+// A plate of a printdeck.yml project is on the view (project.js): its
+// profiles come from the project.
+var projectActive = false; // var: applySettings can run before this line
+
 // The answer of the worker to a change: the values, and the state to keep.
 function applySettings(r) {
   if (!r?.values) return;
@@ -584,7 +589,9 @@ function applySettings(r) {
     store.saved = r.saved;
     // An edit of the machine settings stays with the printer: its profile
     // is the machine settings now.
-    const mine = store.printers?.[store.printer];
+    // A plate of a project has the machine of its Cura stack: it does not
+    // change the printer of the user.
+    const mine = projectActive ? null : store.printers?.[store.printer];
     if (mine && r.saved.machine && mine.profile !== r.saved.machine) mine.profile = r.saved.machine;
     saveStore();
   }
@@ -640,7 +647,10 @@ async function loadProfile(group, name, text) {
     toast(`The profile ${name} did not load: ${r.error}`);
     return;
   }
-  if (group === 0) store.printer = name;
+  if (group === 0) {
+    store.printer = name;
+    projectActive = false;
+  }
   if (group === 1) store.filament = name;
   saveStore();
   applySettings(r);
@@ -860,6 +870,8 @@ function showTab(name) {
   $("tab-settings").classList.toggle("checked", name === "settings");
   $("tab-selected").classList.toggle("checked", name === "selected");
   $("tab-history").classList.toggle("checked", name === "history");
+  $("tab-project").classList.toggle("checked", name === "project");
+  $("page-project").hidden = name !== "project";
   $("page-settings").hidden = name !== "settings";
   $("page-selected").hidden = name !== "selected";
   $("page-history").hidden = name !== "history";
@@ -869,6 +881,7 @@ function showTab(name) {
 $("tab-settings").onclick = () => showTab("settings");
 $("tab-selected").onclick = () => showTab("selected");
 $("tab-history").onclick = () => showTab("history");
+$("tab-project").onclick = () => showTab("project");
 $("panel-back").onclick = () => browser.back();
 
 // ---- the 2D and the 3D view ----
@@ -1285,6 +1298,34 @@ const history = new HistoryPage($("page-history"), {
   undoRedo: (op) => undoRedo(op),
 });
 
+// ---- printdeck.yml projects ----
+
+const project = new ProjectPage($("page-project"), {
+  client,
+  applySettings: (r) => applySettings(r),
+  toast,
+  loading: () => {
+    projectActive = true;
+  },
+  opened: (name) => {
+    stopReplay();
+    select(-1, -1, false);
+    view2d.fitted = false;
+    app.modelName = name;
+    $("title").textContent = name;
+    document.title = `${name} · zslice`;
+    $("empty").hidden = true;
+    app.state = "ready";
+    history.refresh();
+  },
+  printers: () => Object.keys(store.printers ?? {}),
+  usePrinter: (name) => {
+    store.printer = name;
+    saveStore();
+    updateSummary();
+  },
+});
+
 // The setting whose editor has the focus, for the history (one step for
 // the edits of one setting while its editor keeps the focus).
 var focusKey = null; // var: setSetting can run before this line
@@ -1411,6 +1452,7 @@ async function sendGcode(print) {
   try {
     const res = await sendToPrinter(pr, `${base}.gcode`, new Uint8Array(r.bytes), print);
     toast(res.message);
+    if (res.ok && print) project.sent();
   } finally {
     sending = false;
     updateSummary();
@@ -1528,6 +1570,7 @@ function keepSoon() {
 async function openFile(file) {
   if (!file) return;
   stopReplay();
+  projectActive = false;
   const bytes = await file.arrayBuffer();
   try {
     await client.call("load", { name: file.name, bytes }, [bytes]);
@@ -1733,6 +1776,7 @@ function benchPick(step = 40) {
 
 // For tests: the state of the page.
 window.zslice = {
+  project,
   app, view, view2d, layers, browser, client, gl, inspector, gaps, history, undoRedo, tools, store, managePrinters, openPrinterSettings, loadProfile, setSetting, pickAt, topLayerPoint, openCheck, frameTimes,
   select, showPage, showTab, hitAt, showContextMenu, step, bench, benchPick,
   get frameCount() { return frameCount; },

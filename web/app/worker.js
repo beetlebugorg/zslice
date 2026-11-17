@@ -227,7 +227,7 @@ function historyGoto(i) {
 // The ops that change the settings, and the ops that change the plate:
 // each starts or extends a step.
 const SETTING_OPS = new Set(["set", "reset", "quality", "profile", "setScoped", "resetScoped"]);
-const PLATE_OPS = new Set(["load", "add", "plate", "putDown", "place", "partMove", "partRotate", "markAdd", "markRemoveNear", "markSet", "markRemove", "marksClear"]);
+const PLATE_OPS = new Set(["load", "add", "plate", "projectLoad", "putDown", "place", "partMove", "partRotate", "markAdd", "markRemoveNear", "markSet", "markRemove", "marksClear"]);
 
 const ops = {
   async init({ module, saved, mode: m }) {
@@ -509,7 +509,29 @@ const ops = {
     return {};
   },
 
-  // The plate as a 3MF file, for keep.js.
+  // ---- printdeck.yml projects (project.js) ----
+
+  projectPlan({ text, counts }) {
+    return core.projectPlan(text, counts ?? []);
+  },
+
+  // Plate i of a project: its profiles, settings, and parts. files:
+  // { path: bytes } of the files that the plate needs.
+  projectLoad({ text, counts, plate, files }) {
+    const f = core.filesNew(files);
+    try {
+      const r = core.projectLoad(f, text, counts ?? [], plate);
+      if (!r.error) {
+        core.modelName = "";
+        wantSlice();
+      }
+      return { ...r, profiles: undefined, info: core.modelInfo(), parts: core.w.x.zs_app_part_count(core.app), ...settingsState() };
+    } finally {
+      core.filesFree(f);
+    }
+  },
+
+  // The plate as a 3MF file, for keep.js.  // The plate as a 3MF file, for keep.js.
   plate3mf() {
     const bytes = core.plate3mf();
     return { bytes: bytes ? bytes.buffer : null, name: core.modelName };
