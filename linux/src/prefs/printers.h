@@ -62,6 +62,12 @@ ZgPrinter *zg_printers_add(const char *name);
 /* Removes a printer and its profile file. The last printer stays. */
 void zg_printers_remove(const char *id);
 
+/* TRUE after zg_printers_load made the first printer ("My printer") with
+ * the default settings: no printer was set up. The window then shows the
+ * printer picker. */
+gboolean zg_printers_first_start(void);
+void zg_printers_set_first_start(gboolean on);
+
 /* The machine profile file of a printer. Free with g_free. */
 char *zg_printer_profile_path(const ZgPrinter *p);
 

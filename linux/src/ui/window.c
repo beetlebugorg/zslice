@@ -16,6 +16,7 @@
 #include "cura-compare.h"
 #include "../net/printer-link.h"
 #include "../prefs/printers.h"
+#include "printer-picker.h"
 #include "profile-menus.h"
 #include "preview.h"
 #include "history.h"
@@ -847,12 +848,14 @@ static void update_printer_ui(Window *w) {
     ZgPrinter *pr = zg_printers_current();
     w->filling_printers = TRUE;
     guint n = g_list_model_get_n_items(G_LIST_MODEL(w->printer_names));
-    const char **names = g_new0(const char *, zg_printers_count() + 1);
+    const char **names = g_new0(const char *, zg_printers_count() + 2);
     guint selected = 0;
     for (guint i = 0; i < zg_printers_count(); i++) {
         names[i] = zg_printers_get(i)->name;
         if (zg_printers_get(i) == pr) selected = i;
     }
+    /* The last entry opens the printer picker. */
+    names[zg_printers_count()] = "Add a printer\u2026";
     gtk_string_list_splice(w->printer_names, 0, n, names);
     g_free(names);
     gtk_drop_down_set_selected(GTK_DROP_DOWN(w->printer_dd), selected);
@@ -886,6 +889,11 @@ static void update_printer_ui(Window *w) {
 static void on_printer_dd(GObject *dd, GParamSpec *pspec, gpointer data) {
     Window *w = data;
     if (w->filling_printers) return;
+    if (gtk_drop_down_get_selected(GTK_DROP_DOWN(dd)) == zg_printers_count()) {
+        update_printer_ui(w);
+        zg_printer_picker_show(w->window, w->model, FALSE);
+        return;
+    }
     ZgPrinter *pr = zg_printers_get(gtk_drop_down_get_selected(GTK_DROP_DOWN(dd)));
     if (pr) zg_model_use_printer(w->model, pr->id);
 }
@@ -1064,7 +1072,7 @@ GtkWindow *zg_window_new(GtkApplication *app, ZgModel *model) {
     /* The printer, and the send button with its menu. */
     w->printer_names = gtk_string_list_new(NULL);
     w->printer_dd = gtk_drop_down_new(G_LIST_MODEL(w->printer_names), NULL);
-    gtk_widget_set_tooltip_text(w->printer_dd, "The printer: its machine settings, and where Send goes. Edit the printers in Preferences.");
+    gtk_widget_set_tooltip_text(w->printer_dd, "The printer: its machine settings, and where Send goes. Add a printer from this list; edit the printers in Preferences.");
     g_signal_connect(w->printer_dd, "notify::selected", G_CALLBACK(on_printer_dd), w);
     gtk_header_bar_pack_start(GTK_HEADER_BAR(header), w->printer_dd);
     /* The three profiles of the settings: printer, filament, part. */

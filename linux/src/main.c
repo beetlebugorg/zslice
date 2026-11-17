@@ -13,6 +13,7 @@
 #include "model/app-model.h"
 #include "ui/licenses.h"
 #include "ui/preferences.h"
+#include "ui/printer-picker.h"
 #include "ui/window.h"
 
 #define ZG_APP_ID "org.beetlebug.Zslice"
@@ -80,6 +81,21 @@ static const char *ZG_CSS =
     /* The slice indicator over the preview. */
     ".zg-busy { padding: 4px 10px; border-radius: 999px; margin: 10px;"
     "  background: alpha(@theme_bg_color, 0.85); box-shadow: 0 1px 4px alpha(black, 0.25); }"
+    /* The printer picker. */
+    ".zg-pick-hero { padding: 18px 24px 14px; background: alpha(@accent_bg_color, 0.10); }"
+    ".zg-pick-hero-title { font-size: 1.6em; font-weight: 800; }"
+    ".zg-pick-side, .zg-pick-mid { padding: 12px; }"
+    ".zg-pick-card { padding: 18px 22px; }"
+    ".zg-pick-form { padding: 18px 22px; }"
+    ".zg-pick-section { font-size: 0.8em; font-weight: 700; letter-spacing: 0.06em; opacity: 0.6; }"
+    ".zg-pick-title { font-size: 1.45em; font-weight: 800; }"
+    ".zg-pick-name { font-weight: 600; }"
+    ".zg-pick-row { padding: 5px 4px; }"
+    ".zg-brand-row { padding: 2px 2px; }"
+    ".zg-found-row { padding: 6px 8px; }"
+    ".zg-pick-group { font-size: 0.8em; font-weight: 700; opacity: 0.55; padding: 10px 8px 2px; }"
+    ".zg-pick-facts { padding: 10px 12px; border-radius: 10px; background: alpha(@theme_fg_color, 0.04); }"
+    ".zg-pick-hint { padding: 8px 12px; border-radius: 8px; background: alpha(@accent_bg_color, 0.14); }"
     "entry { font-feature-settings: 'tnum'; }";
 
 static ZgModel *model;
@@ -151,7 +167,12 @@ static void on_startup(GApplication *app, gpointer data) {
 }
 
 static void on_activate(GApplication *app, gpointer data) {
-    gtk_window_present(main_window(GTK_APPLICATION(app)));
+    GtkWindow *w = main_window(GTK_APPLICATION(app));
+    gtk_window_present(w);
+    /* The first start (no printer set up): the printer picker. */
+    static gboolean once;
+    if (!once) zg_printer_picker_startup(w, model);
+    once = TRUE;
 }
 
 static void on_open(GApplication *app, GFile **files, int n, const char *hint, gpointer data) {

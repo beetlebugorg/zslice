@@ -16,6 +16,7 @@ static const char *const link_keys[ZG_N_LINKS] = {"none", "printdeck", "octoprin
 static GPtrArray *printers;
 static GKeyFile *general;
 static char *current_id;
+static gboolean first_start;
 
 char *zg_config_dir(void) {
     const char *dir = g_getenv("ZSLICE_STATE_DIR");
@@ -124,6 +125,7 @@ void zg_printers_load(void) {
         char *pdir = g_path_get_dirname(profile);
         g_mkdir_with_parents(pdir, 0700);
         if (g_file_test(old, G_FILE_TEST_EXISTS)) g_rename(old, profile);
+        else first_start = TRUE;
         g_free(pdir);
         g_free(profile);
         g_free(old);
@@ -241,4 +243,12 @@ void zg_pref_set(const char *key, const char *value) {
     if (!general) general = g_key_file_new();
     g_key_file_set_string(general, "general", key, value);
     zg_printers_save();
+}
+
+gboolean zg_printers_first_start(void) {
+    return first_start;
+}
+
+void zg_printers_set_first_start(gboolean on) {
+    first_start = on;
 }
