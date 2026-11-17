@@ -981,6 +981,9 @@ pub const Renderer = struct {
         /// slots (at most max_extras): the bead that the replay is
         /// printing, and the frame of a selected part.
         extras: []const Instance = &.{},
+        /// The toolhead of a replay: drawn last, lit and see-through (the
+        /// print shows through it). In the spare slots after `extras`.
+        head: []const Instance = &.{},
         grid: Push,
         grid_vertices: u32,
     };
@@ -1083,6 +1086,24 @@ pub const Renderer = struct {
                 d.vkCmdBindIndexBuffer.?(cmd, r.box_index.buf, 0, c.VK_INDEX_TYPE_UINT16);
             }
             d.vkCmdDrawIndexed.?(cmd, r.box_index_count, @intCast(extras.len), 0, 0, r.instance_count);
+        }
+        if (frame.head.len > 0 and r.instances.buf != null and r.box_index_count > 0) {
+            const used = @min(frame.extras.len, max_extras);
+            const head = frame.head[0..@min(frame.head.len, max_extras - used)];
+            const off = (@as(usize, r.instance_count) + used) * @sizeOf(Instance);
+            const hb = std.mem.sliceAsBytes(head);
+            @memcpy(r.instances.map.?[off .. off + hb.len], hb);
+            // Blended, with no depth write; params.w = 3 in the shader.
+            var see = frame.box;
+            see.params[2] = 0;
+            see.params[3] = 3;
+            d.vkCmdBindPipeline.?(cmd, c.VK_PIPELINE_BIND_POINT_GRAPHICS, r.ghost_pipeline);
+            d.vkCmdPushConstants.?(cmd, r.layout, stages, 0, @sizeOf(Push), &see);
+            const bufs = [_]c.VkBuffer{ r.box_mesh.buf, r.instances.buf };
+            const offs = [_]c.VkDeviceSize{ 0, 0 };
+            d.vkCmdBindVertexBuffers.?(cmd, 0, 2, &bufs, &offs);
+            d.vkCmdBindIndexBuffer.?(cmd, r.box_index.buf, 0, c.VK_INDEX_TYPE_UINT16);
+            d.vkCmdDrawIndexed.?(cmd, r.box_index_count, @intCast(head.len), 0, 0, r.instance_count + @as(u32, @intCast(used)));
         }
         d.vkCmdEndRenderPass.?(cmd);
         try check(d.vkEndCommandBuffer.?(cmd));

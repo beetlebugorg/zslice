@@ -50,5 +50,12 @@ void main() {
     vec3 hv = normalize(l + v);
     float spec = pow(max(dot(n, hv), 0.0), 40.0) * 0.18;
     vec3 c = base * (ambient + 0.85 * diffuse) + vec3(spec);
+    // The toolhead of a replay (params.w = 3): lit, and see-through, with a
+    // brighter rim so its shape shows.
+    if (pc.params.w > 2.5) {
+        float rim = 1.0 - abs(dot(n, v));
+        frag = vec4(toSrgb(c + vec3(0.25 * rim * rim)), 0.38 + 0.3 * rim);
+        return;
+    }
     frag = vec4(toSrgb(c), 1.0);
 }

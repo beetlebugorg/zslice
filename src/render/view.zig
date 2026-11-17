@@ -125,6 +125,8 @@ pub const View = struct {
     /// or for the first bead of a path the start of the path (the travel
     /// to it is between).
     bead_start: std.ArrayList(f32) = .empty,
+    /// The beads of the toolhead of a replay (see `toolhead`).
+    head_buf: [128]vk.Instance = undefined,
     /// The replay time (s), or null to show whole layers.
     time: ?f32 = null,
     /// The footprint of the selected part (x0, y0, x1, y1), or null: a
@@ -964,24 +966,72 @@ pub const View = struct {
         if (b < v.path_start.items[path + 1]) v.seg_bead = b;
     }
 
-    /// A nozzle over the point p (x, y, and the top z of the bead): a cone
-    /// of round discs (beads of almost no length) to the tip, and a block
-    /// over it. Returns the number of beads.
-    fn nozzle(out: []vk.Instance, p: [3]f32) usize {
+    /// A toolhead over the point p (x, y, and the top z of the bead), made
+    /// of beads: a brass nozzle (a cone of discs), an aluminium heater
+    /// block, the heat break, the fins of a heat sink, and a blower fan at
+    /// the front with a duct down to the tip. The blower lies flat, so its
+    /// impeller shows from above; it turns by the angle `spin` (radians).
+    /// It is not a real toolhead, but it has the parts of one. Returns the
+    /// number of beads.
+    fn toolhead(out: []vk.Instance, p: [3]f32, spin: f32) usize {
         const brass = [4]u8{ 0xc9, 0xa2, 0x4e, code_overlay };
-        // A cone 4 mm high, from 0.4 mm at the tip to 4.4 mm, as 8 discs
-        // that overlap, and a block of 7 mm over it.
-        var parts: [9]struct { dz: f32, h: f32, w: f32 } = undefined;
+        const alu = [4]u8{ 0xb8, 0xbe, 0xc6, code_overlay };
+        const steel = [4]u8{ 0x8a, 0x90, 0x99, code_overlay };
+        const fins = [4]u8{ 0x3a, 0x43, 0x50, code_overlay };
+        const shroud = [4]u8{ 0x2b, 0x2f, 0x36, code_overlay };
+        const blade = [4]u8{ 0x4a, 0xa3, 0xff, code_overlay };
+        var n: usize = 0;
+        const put = struct {
+            fn f(o: []vk.Instance, k: *usize, ax: f32, ay: f32, bx: f32, by: f32, z: f32, h: f32, w: f32, c: [4]u8) void {
+                if (k.* == o.len) return;
+                o[k.*] = .{ .ax = ax, .ay = ay, .bx = if (ax == bx and ay == by) bx + 0.001 else bx, .by = by, .z = z, .h = h, .w = w, .rgba = c };
+                k.* += 1;
+            }
+        }.f;
+        const x = p[0];
+        const y = p[1];
+        const z0 = p[2];
+        // The nozzle: a cone 4 mm high, from 0.4 mm at the tip to 4.4 mm,
+        // as 8 discs that overlap, and its hex (a wider disc).
         for (0..8) |k| {
             const f: f32 = @as(f32, @floatFromInt(k)) / 7;
-            parts[k] = .{ .dz = 0.5 + f * 3.5, .h = 1.0, .w = 0.4 + f * 4.0 };
+            put(out, &n, x, y, x, y, z0 + 0.5 + f * 3.5, 1.0, 0.4 + f * 4.0, brass);
         }
-        parts[8] = .{ .dz = 7.4, .h = 3.6, .w = 7.0 };
-        var n: usize = 0;
-        for (parts) |q| {
-            if (n == out.len) break;
-            out[n] = .{ .ax = p[0], .ay = p[1], .bx = p[0] + 0.001, .by = p[1], .z = p[2] + q.dz, .h = q.h, .w = q.w, .rgba = brass };
-            n += 1;
+        put(out, &n, x, y, x, y, z0 + 5.6, 1.4, 6.5, brass);
+        // The heater block: 16 x 12 mm, 8 mm high, a little to the side.
+        put(out, &n, x - 3, y, x + 6, y, z0 + 14.2, 8.0, 12.0, alu);
+        // The heat break, then the fins of the heat sink.
+        put(out, &n, x, y, x, y, z0 + 18.4, 4.0, 3.2, steel);
+        for (0..7) |k| {
+            const fz = z0 + 20.0 + @as(f32, @floatFromInt(k)) * 2.3;
+            put(out, &n, x, y, x, y, fz, 1.1, 22.0, fins);
+        }
+        put(out, &n, x, y, x, y, z0 + 35.5, 3.0, 9.0, steel);
+        // The blower at the front: a flat housing (a ring of short beads
+        // on a base), 30 mm across, and its impeller of 9 blades.
+        const fy = y - 26;
+        const r: f32 = 14;
+        const hz = z0 + 30.0;
+        put(out, &n, x, fy, x, fy, hz - 4.6, 1.0, 2 * r + 2, shroud);
+        const segs = 18;
+        for (0..segs) |k| {
+            const t0 = 2 * std.math.pi * @as(f32, @floatFromInt(k)) / segs;
+            const t1 = 2 * std.math.pi * @as(f32, @floatFromInt(k + 1)) / segs;
+            put(out, &n, x + r * @cos(t0), fy + r * @sin(t0), x + r * @cos(t1), fy + r * @sin(t1), hz, 9.0, 1.6, shroud);
+        }
+        for (0..9) |k| {
+            const t = spin + 2 * std.math.pi * @as(f32, @floatFromInt(k)) / 9;
+            // A blade bends back a little: from the hub out to the rim.
+            put(out, &n, x + 3.5 * @cos(t), fy + 3.5 * @sin(t), x + 12 * @cos(t - 0.35), fy + 12 * @sin(t - 0.35), hz - 1.0, 5.0, 1.4, blade);
+        }
+        put(out, &n, x, fy, x, fy, hz - 0.2, 6.0, 6.5, shroud);
+        // The duct: from under the blower down to 2 mm over the tip.
+        const steps = 9;
+        for (0..steps) |k| {
+            const f = @as(f32, @floatFromInt(k)) / (steps - 1);
+            const dy = fy + 10 + f * (y - 7 - (fy + 10));
+            const dz = z0 + 24 - f * 21;
+            put(out, &n, x, dy, x, dy, dz, 3.2, 9.0 - f * 3.5, shroud);
         }
         return n;
     }
@@ -1000,6 +1050,8 @@ pub const View = struct {
             break :blk b;
         };
         var n_extras: usize = 0;
+        // The toolhead of a replay: drawn last, see-through.
+        var n_head: usize = 0;
         if (v.time) |t| {
             const done = v.beadsDoneAt(t);
             count = @intCast(done);
@@ -1032,7 +1084,11 @@ pub const View = struct {
                 const b = v.beads.items[done - 1];
                 tip = .{ b.bx, b.by, b.z };
             }
-            if (tip) |p| n_extras += nozzle(extras[n_extras..], p);
+            // The impeller turns with the print time: half a turn each
+            // second of the print (a replay at 10x turns it 5 times a
+            // second).
+            const spin: f32 = @floatCast(@mod(t * std.math.pi, 2 * std.math.pi));
+            if (tip) |p| n_head = toolhead(&v.head_buf, p, spin);
         } else if (v.layer_end.items.len > 0) {
             count = v.layer_end.items[@min(v.layer, v.layer_end.items.len - 1)];
         }
@@ -1053,6 +1109,7 @@ pub const View = struct {
         }
         mark_count -|= mark_skip;
         try v.renderer.draw(.{
+            .head = v.head_buf[0..n_head],
             .extras = blk: {
                 // The frame of the selected part: four thin beads on the bed.
                 if (v.part_box) |pb| {
