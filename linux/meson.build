@@ -68,6 +68,7 @@ executable('zslice-gtk',
   'src/ui/printer-picker.c',
   'src/ui/cura-compare.c',
   'src/ui/view3d.c',
+  'src/ui/bed-model.c',
   'src/ui/native-surface.c',
   'src/prefs/printers.c',
   'src/prefs/cura-stack.c',
@@ -75,9 +76,15 @@ executable('zslice-gtk',
   'src/net/discovery.c',
   core[1], core[2],
   link_with: core[0],
-  c_args: ['-DZG_VERSION="' + meson.project_version() + '"'],
+  c_args: ['-DZG_VERSION="' + meson.project_version() + '"',
+           '-DZG_BEDS_SRC_DIR="' + meson.current_source_dir() / '..' / 'src' / 'printers' / 'beds' + '"'],
   dependencies: [gtk_dep, wayland_dep, thread_dep, m_dep, soup_dep, json_dep],
   install: true,
 )
 
 install_data('data/org.beetlebug.Zslice.desktop', install_dir: get_option('datadir') / 'applications')
+
+# The bed models of the printers (src/printers/beds, made by
+# tools/printer_library.py). The 3D view loads the file of the current
+# printer from share/zslice/beds (see src/ui/bed-model.h).
+install_subdir('../src/printers/beds', install_dir: get_option('datadir') / 'zslice')

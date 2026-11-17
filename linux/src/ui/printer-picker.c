@@ -11,6 +11,7 @@
 #include "../net/discovery.h"
 #include "../net/printer-link.h"
 #include "../prefs/printers.h"
+#include "bed-model.h"
 
 /* The most rows of the model list. A search narrows it. */
 #define MAX_ROWS 400
@@ -38,6 +39,10 @@ typedef struct {
     GtkWidget *name, *nozzle, *filament, *bx, *by, *bz, *kind, *url, *key, *key_row, *url_row, *test, *test_result;
     GtkStringList *nozzle_list;
     GCancellable *test_cancel;
+    /* The flat bed texture of a model for the drawing of the plate, and
+     * the model that it is for (-1: none loaded). */
+    cairo_surface_t *bed_tex;
+    ptrdiff_t bed_tex_model;
 } Picker;
 
 /* The kinds of the connection drop-down: the order of ZgLinkKind. */
@@ -47,6 +52,7 @@ static void picker_free(gpointer data) {
     if (p->test_cancel) g_cancellable_cancel(p->test_cancel);
     g_clear_object(&p->test_cancel);
     zg_discovery_free(p->disc);
+    if (p->bed_tex) cairo_surface_destroy(p->bed_tex);
     if (p->lib) zs_printers_free(p->lib);
     g_object_unref(p->model);
     g_free(p);
@@ -111,6 +117,26 @@ static void label_at(cairo_t *cr, double x, double y, const char *text, double a
     cairo_text_extents(cr, text, &e);
     cairo_move_to(cr, x - e.width * align - e.x_bearing, y - e.height / 2 - e.y_bearing);
     cairo_show_text(cr, text);
+}
+
+/* The flat bed texture of the current model, or NULL (see bed-model.h). */
+static cairo_surface_t *bed_texture(Picker *p) {
+    if (p->current < 0) return NULL;
+    if (p->bed_tex_model == p->current) return p->bed_tex;
+    if (p->bed_tex) cairo_surface_destroy(p->bed_tex);
+    p->bed_tex = NULL;
+    p->bed_tex_model = p->current;
+    zs_printer_bed bed;
+    if (zs_printers_bed(p->lib, (size_t)p->current, &bed) != ZS_OK || !bed.flat) return NULL;
+    char *path = zg_bed_file_path(bed.texture);
+    if (!path) return NULL;
+    cairo_surface_t *s = cairo_image_surface_create_from_png(path);
+    g_free(path);
+    if (cairo_surface_status(s) != CAIRO_STATUS_SUCCESS) {
+        cairo_surface_destroy(s);
+        return NULL;
+    }
+    return p->bed_tex = s;
 }
 
 static void draw_volume(GtkDrawingArea *area, cairo_t *cr, int width, int height, gpointer data) {
@@ -179,6 +205,22 @@ static void draw_volume(GtkDrawingArea *area, cairo_t *cr, int width, int height
     }
     cairo_set_source_rgba(cr, accent[0], accent[1], accent[2], 0.16);
     cairo_fill_preserve(cr);
+    /* The bed texture of the model on the plate: the image spans the
+     * plate, its top row at the back. In the isometric view this is one
+     * affine map. */
+    cairo_surface_t *tex = bed_texture(p);
+    if (tex) {
+        double iw = cairo_image_surface_get_width(tex), ih = cairo_image_surface_get_height(tex);
+        cairo_save(cr);
+        cairo_clip_preserve(cr);
+        cairo_matrix_t m;
+        cairo_matrix_init(&m, 0.866 * s * v.bx / iw, 0.5 * s * v.bx / iw, -0.866 * s * v.by / ih, 0.5 * s * v.by / ih,
+                          cx + 0.866 * s * v.by, cy - 0.5 * s * v.by);
+        cairo_transform(cr, &m);
+        cairo_set_source_surface(cr, tex, 0, 0);
+        cairo_paint_with_alpha(cr, 0.55);
+        cairo_restore(cr);
+    }
     cairo_set_source_rgba(cr, accent[0], accent[1], accent[2], 0.9);
     cairo_set_line_width(cr, 2);
     cairo_stroke(cr);
@@ -1182,6 +1224,7 @@ void zg_printer_picker_show(GtkWindow *parent, ZgModel *model, gboolean welcome)
     p->brand = -1;
     p->current = -1;
     p->link = -1;
+    p->bed_tex_model = -1;
     if (zs_printers_builtin(&p->lib) != ZS_OK) {
         g_warning("zslice: the printer library did not load");
         g_object_unref(p->model);

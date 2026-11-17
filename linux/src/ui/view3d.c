@@ -24,6 +24,7 @@
 
 #include <math.h>
 
+#include "bed-model.h"
 #include "native-surface.h"
 
 typedef struct {
@@ -187,6 +188,7 @@ static void load_data(View3d *v) {
         g_warning("zslice: the 3D view did not load the toolpaths: %s", zg_status_text(rc));
         return;
     }
+    zg_bed_model_update(v->view, zg_model_core(v->model));
     zs_view_set_layer_range(v->view, v->layer_lo, v->layer);
     gint64 sel = zg_model_selected(v->model);
     zs_view_highlight(v->view, sel < 0 ? (size_t)-1 : (size_t)sel);
