@@ -275,7 +275,28 @@ The "+" at the end of the preview toolbar adds a plate. Each plate has its own p
 
 ## Save the plate
 
-"Save the plate as 3MF" in the menu (Ctrl+S) writes one 3MF file with all parts at their places, and the changes that you made for the parts and for some layers. The global settings (Settings) do not go in the file. Open the 3MF file to get the plate back. zslice also opens 3MF files from other slicers; parts that touch in the file (for example a sign and its text) stay one part.
+"Save the plate as 3MF" in the menu (Ctrl+S) writes one 3MF file with all parts at their places, and the changes that you made for the parts and for some layers. The global settings (Settings) do not go in the file. Open the 3MF file to get the plate back. zslice also opens 3MF files from other slicers; parts that touch in the file (for example a sign and its text) stay one part, but a part with its own settings or a volume stays apart (see "Cura projects" below).
+
+## Cura projects: part settings and modifier volumes
+
+zslice opens a Cura project (a 3MF file that Cura saved). It reads the settings of each object of the project:
+
+- **Settings of a part.** Cura keeps the settings that you set for one object in the file ("Per Model Settings"). zslice changes each to its own setting, for example `infill_sparse_density` to `project.infill_density`. If all parts that print have the same settings, the settings apply to the whole plate. If the parts have different settings, each part gets its settings for its infill and skin; the walls stay the walls of the plate. Your overrides go over them.
+- **Modifier volumes.** An object that is a Cura "infill mesh" ("Modify settings for infill of other models") does not print. It belongs to the part that it overlaps, and moves with it. Inside it, the part gets the infill of the volume: its pattern, density, angles, speed, and flow. A volume with no walls and no top and bottom layers (0 in Cura) removes the skin of the part inside it too, so only its infill prints there. This is how a speaker grille works: a plate, and a window volume with an open infill. The walls of the part along its outline stay. Where two volumes overlap, the one with the higher `infill_mesh_order` wins. A volume has the settings of your profile and its own, as in Cura, and not the settings of the part.
+- **Other volume types.** Cura cutting meshes, anti overhang meshes, and support meshes do not print. zslice does not support them yet.
+
+The part page lists the settings of the part and of its volumes, each with the zslice setting that it becomes, or why zslice does not use it (for example a Cura formula, or a setting that zslice does not have). The 3D view draws each volume as thin purple rings. "Save the plate as 3MF" keeps the settings and the volumes. The command line tool slices a Cura project too, and prints a note for each setting that it does not use:
+
+```sh
+zslice slice grille.3mf -o grille.gcode
+```
+
+Some infill settings are made for parts like a grille:
+
+- `project.infill_angles`: a list of angles, one for each layer in turn ("Infill Line Directions" in Cura). "45,45,45,135,135,135" prints 3 layers at 45 degrees, then 3 at 135 degrees. zslice measures the angle from the X axis, and Cura from the Y axis: zslice changes the angles of a Cura file for you.
+- `project.infill_stack`: the lines and zigzag patterns keep one direction on all layers, so the lines of each layer lie on the lines below and make vertical walls. Honeycomb then prints each cell wall once. Grid, triangles, trihexagon, and honeycomb stack on all layers in each case, also on the first layer.
+- `project.infill_flow`: the flow of the sparse infill ("Infill Flow" in Cura).
+- The `trihexagon` pattern: three line directions that make triangles and hexagons (as in Cura).
 
 ## Watch the print
 

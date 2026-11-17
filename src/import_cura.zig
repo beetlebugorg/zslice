@@ -47,7 +47,9 @@
 //! axis: a Cura angle a is the zslice angle 90 - a.
 //!
 //! References (see REFERENCES.md): the Cura profile formats (`.def.json`,
-//! `.inst.cfg`, `.xml.fdm_material`) and the Cura setting names.
+//! `.inst.cfg`, `.xml.fdm_material`) and the Cura setting names; the Cura
+//! project 3MF metadata; the infill line distance and the infill angles
+//! of CuraEngine.
 
 const std = @import("std");
 const Allocator = std.mem.Allocator;

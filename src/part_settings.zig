@@ -18,6 +18,9 @@
 //!   and the skin of the part; its walls stay the walls of the plate.
 //!
 //! Each Cura key that zslice does not use gets a note.
+//!
+//! References (see REFERENCES.md): the Cura project 3MF metadata, and the
+//! infill meshes of CuraEngine (the behavior, not code).
 
 const std = @import("std");
 const Allocator = std.mem.Allocator;

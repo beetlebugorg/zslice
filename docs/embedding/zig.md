@@ -80,6 +80,24 @@ You can also write the G-code from the same job: `try job.writeGcode(out)`. A `J
 
 `Job.init` does the work that needs all layers: the support areas and, with `project.infill_pattern = lightning`, the lightning branches (`job.lightning`, one `Paths` for each layer). `planLayer` then plans one layer on its own.
 
+## Modifier volumes
+
+A modifier volume is a mesh that does not print. Inside it, the part gets the settings of the volume (see `layer.Modifier`). Give the volumes to the job after `init` and before the plans. The meshes are in the coordinates of the mesh of the job:
+
+```zig
+var job = try zslice.Job.init(gpa, &mesh, settings);
+defer job.deinit();
+const changes = [_]zslice.settings.Change{
+    .{ .name = "project.wall_count", .value = "0" },
+    .{ .name = "project.top_thickness", .value = "0" },
+    .{ .name = "project.bottom_thickness", .value = "0" },
+    .{ .name = "project.infill_density", .value = "0.3" },
+};
+try job.setModifiers(&.{.{ .mesh = &window, .changes = &changes, .order = 1, .name = "window" }});
+```
+
+A path of a plan in a volume has `path.region > 0`; `LayerPlan.pathResolved(path)` gives its settings. For a Cura project 3MF, `zslice.threemf.read` keeps the metadata of each object, and `zslice.part_settings.plan` sorts the parts: the settings for the whole plate (`applyBase`) and the modifiers for `setModifiers`.
+
 ## Make a mesh from triangles
 
 ```zig

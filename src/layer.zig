@@ -42,6 +42,10 @@
 //!    sparse infill once, on its last layer, as one bead as tall as the
 //!    group. Only the area that is sparse in all layers of the group gets
 //!    the tall bead. The other layers fill the rest of their sparse area.
+//!    Modifier volumes (see `Modifier`): the area of each volume inside
+//!    the walls leaves the sparse area (and, for a volume with no skin,
+//!    the skin area) of the part, and gets the walls and the infill of
+//!    the settings of the volume.
 //! 6. Ironing (if on). The top surfaces of the layer are the outline minus
 //!    the outline of the layer above. The nozzle goes over them again with
 //!    close lines, turned 90 degrees from the skin lines of this layer.
@@ -74,7 +78,9 @@
 //!
 //! References (see REFERENCES.md): the greedy nearest-neighbor order with
 //! a uniform grid search, the order by island, the opening, memoization
-//! (see `Memo`), and combined infill (the idea of PrusaSlicer and Cura).
+//! (see `Memo`), combined infill (the idea of PrusaSlicer and Cura), the
+//! infill meshes of CuraEngine (see `Modifier`), and the trihexagon
+//! pattern of CuraEngine.
 
 const std = @import("std");
 const Allocator = std.mem.Allocator;

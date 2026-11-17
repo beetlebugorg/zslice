@@ -76,7 +76,7 @@ An adaptive layer height (thin layers where a surface has a small slope) can use
 | `top_thickness`, `bottom_thickness` | yes | layer | Counted with the heights of the layers. |
 | `skin_removal_width`, `skin_expand_distance`, `solid_infill_width` | yes | layer | |
 | `skin_pattern`, `skin_angle`, `skin_angle_step`, `skin_overlap` | yes | layer | |
-| `infill_density`, `infill_pattern`, `infill_angle`, `infill_connect`, `infill_overlap` | yes | layer | |
+| `infill_density`, `infill_pattern`, `infill_angle`, `infill_angles`, `infill_stack`, `infill_flow`, `infill_connect`, `infill_overlap` | yes | layer | |
 | `top_support_layers`, `top_support_density` | yes | layer | |
 | `lightning_angle` | no | lightning | The branches of all layers come from one pass, from the top down. A layer with another `infill_pattern` cuts the trees: its infill holds the layer above, and the trees start again below it. |
 | `infill_layers` | yes | layer | A group of combined infill has the settings of all its layers: a change of the settings starts a new group (see "Combined infill"). |

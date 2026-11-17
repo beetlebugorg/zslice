@@ -23,7 +23,7 @@
 //! line each: z_min, z_max, name, value, with tabs between them).
 //!
 //! Format: 3MF Core Specification 1.3 and the Production Extension, 3MF
-//! Consortium (see REFERENCES.md). The XML reader handles the elements and
+//! Consortium, and the Cura project metadata (see REFERENCES.md). The XML reader handles the elements and
 //! attributes of these files; it is not a general XML parser.
 
 const std = @import("std");

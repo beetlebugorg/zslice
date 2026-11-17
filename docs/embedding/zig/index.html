@@ -47,7 +47,7 @@
 <p class="eyebrow">Embedding</p>
 <h1>Zig API</h1>
 
-<nav class="onpage"><b>On this page</b><ol><li><a href="#add-zslice-to-your-project">Add zslice to your project</a></li><li><a href="#slice-to-a-writer">Slice to a writer</a></li><li><a href="#get-the-paths-of-one-layer">Get the paths of one layer</a></li><li><a href="#make-a-mesh-from-triangles">Make a mesh from triangles</a></li><li><a href="#allocators">Allocators</a></li><li><a href="#the-lower-level-modules">The lower-level modules</a></li></ol></nav><h2 id="add-zslice-to-your-project">Add zslice to your project</h2>
+<nav class="onpage"><b>On this page</b><ol><li><a href="#add-zslice-to-your-project">Add zslice to your project</a></li><li><a href="#slice-to-a-writer">Slice to a writer</a></li><li><a href="#get-the-paths-of-one-layer">Get the paths of one layer</a></li><li><a href="#modifier-volumes">Modifier volumes</a></li><li><a href="#make-a-mesh-from-triangles">Make a mesh from triangles</a></li><li><a href="#allocators">Allocators</a></li><li><a href="#the-lower-level-modules">The lower-level modules</a></li></ol></nav><h2 id="add-zslice-to-your-project">Add zslice to your project</h2>
 <pre><code>zig fetch --save git+&lt;zslice repo url&gt;</code></pre>
 <p>In <code>build.zig</code>:</p>
 <pre><code>const zslice = b.dependency("zslice", .{ .target = target, .optimize = optimize });
@@ -94,6 +94,18 @@ for (plan.paths.items, 0..) |path, i| {
 <p>Coordinates are integers in micrometers (<code>zslice.geom.Point</code>). Use <code>zslice.geom.toMm</code> to change them to millimeters.</p>
 <p>You can also write the G-code from the same job: <code>try job.writeGcode(out)</code>. A <code>Job</code> must not move in memory after <code>init</code>.</p>
 <p><code>Job.init</code> does the work that needs all layers: the support areas and, with <code>project.infill_pattern = lightning</code>, the lightning branches (<code>job.lightning</code>, one <code>Paths</code> for each layer). <code>planLayer</code> then plans one layer on its own.</p>
+<h2 id="modifier-volumes">Modifier volumes</h2>
+<p>A modifier volume is a mesh that does not print. Inside it, the part gets the settings of the volume (see <code>layer.Modifier</code>). Give the volumes to the job after <code>init</code> and before the plans. The meshes are in the coordinates of the mesh of the job:</p>
+<pre><code>var job = try zslice.Job.init(gpa, &amp;mesh, settings);
+defer job.deinit();
+const changes = [_]zslice.settings.Change{
+    .{ .name = "project.wall_count", .value = "0" },
+    .{ .name = "project.top_thickness", .value = "0" },
+    .{ .name = "project.bottom_thickness", .value = "0" },
+    .{ .name = "project.infill_density", .value = "0.3" },
+};
+try job.setModifiers(&amp;.{.{ .mesh = &amp;window, .changes = &amp;changes, .order = 1, .name = "window" }});</code></pre>
+<p>A path of a plan in a volume has <code>path.region &gt; 0</code>; <code>LayerPlan.pathResolved(path)</code> gives its settings. For a Cura project 3MF, <code>zslice.threemf.read</code> keeps the metadata of each object, and <code>zslice.part_settings.plan</code> sorts the parts: the settings for the whole plate (<code>applyBase</code>) and the modifiers for <code>setModifiers</code>.</p>
 <h2 id="make-a-mesh-from-triangles">Make a mesh from triangles</h2>
 <pre><code>// 9 floats for each triangle: x, y, z of 3 vertices, in mm.
 // The vertices are counterclockwise as seen from outside the part.

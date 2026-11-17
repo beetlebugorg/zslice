@@ -12,6 +12,11 @@
 //!    the layers above and below it, so pass 2 starts after pass 1 ends.
 //!    With combined infill, pass 2 first makes the combined area of each
 //!    group of layers (see `Job.combinedAreas`).
+//! 6. Modifier volumes (`Job.setModifiers`, optional): pass 1 cuts each
+//!    volume at the layers of the job, with the same z and the same move
+//!    as the part. The plans then give the area of each volume its own
+//!    settings (see layer.Modifier). The idea is the infill mesh of
+//!    CuraEngine (see REFERENCES.md).
 //!
 //! Memory. The engine keeps the outlines of all layers until the end. They
 //! are small: a few kilobytes per layer. The layer plans are much larger,
