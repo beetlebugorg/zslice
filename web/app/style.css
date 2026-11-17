@@ -368,3 +368,9 @@ button.destructive { background: #c01c28; color: #fff; }
 .panel-foot { display: flex; flex-wrap: wrap; gap: 6px; justify-content: center; padding: 6px 12px 8px; font-size: 12px; color: var(--dim, #9a9a9a); border-top: 1px solid var(--border); }
 .panel-foot a { color: inherit; text-decoration: none; }
 .panel-foot a:hover { color: var(--fg); text-decoration: underline; }
+
+/* Gaps: the count in the toolbar, and the gap page. */
+.gap-count { align-self: center; padding: 0 6px; font-size: 0.9em; white-space: nowrap; }
+.gap-page .gap-heading { font-weight: 700; margin-top: 10px; }
+.gap-page .gap-step { font-weight: 600; margin-top: 8px; }
+.gap-buttons { display: flex; gap: 6px; margin-top: 4px; }

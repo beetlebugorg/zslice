@@ -155,6 +155,27 @@ const ops = {
     return { error, ...settingsState() };
   },
 
+  // ---- gaps ----
+
+  // The gaps of a layer, for the views and the count (null: no slice).
+  gaps({ layer }) {
+    if (core.state() !== STATE.done) return { gaps: null };
+    const r = core.gaps(layer);
+    return r ?? { gaps: null };
+  },
+
+  // The gap at x, y (mm) on a layer: its index, its facts, and the
+  // settings that can close it; or index -1.
+  gapAt({ layer, x, y }) {
+    if (core.state() !== STATE.done) return { index: -1 };
+    const index = core.gapAt(layer, x, y);
+    if (index < 0) return { index };
+    const r = core.gaps(layer);
+    const gap = r?.gaps[index];
+    if (!gap) return { index: -1 };
+    return { index, gap, steps: core.gapAdvice(layer, index) };
+  },
+
   // ---- the context menu ----
 
   // Support marks at the selected segment (view3d.c: mark_place).

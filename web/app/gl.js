@@ -658,6 +658,36 @@ export class GlRenderer {
     gl.bindVertexArray(null);
     // The index range of the triangles of each layer.
     this.outlineLayerEnd = new Uint32Array(0);
+    // The gaps of the top layer: two triangles for each run of cells.
+    this.gapVbo = gl.createBuffer();
+    this.gapVao = gl.createVertexArray();
+    gl.bindVertexArray(this.gapVao);
+    gl.bindBuffer(gl.ARRAY_BUFFER, this.gapVbo);
+    gl.enableVertexAttribArray(0);
+    gl.vertexAttribPointer(0, 2, gl.FLOAT, false, 8, 0);
+    gl.bindVertexArray(null);
+    this.gapVertices = 0;
+  }
+
+  // The gaps of the layer of the 2D view: runs (y, x0, x1 for each, mm) of
+  // cells `cell` mm tall; null: none.
+  setGaps2d(runs, cell) {
+    const gl = this.gl;
+    const n = runs ? runs.length / 3 : 0;
+    this.gapVertices = n * 6;
+    if (n === 0) return;
+    const v = new Float32Array(n * 12);
+    const h = cell / 2;
+    for (let i = 0; i < n; i++) {
+      const y = runs[i * 3];
+      // A run of one cell is still a cell wide.
+      const x0 = runs[i * 3 + 1] - h;
+      const x1 = Math.max(runs[i * 3 + 2], runs[i * 3 + 1]) + h;
+      v.set([x0, y - h, x1, y - h, x0, y + h, x1, y - h, x1, y + h, x0, y + h], i * 12);
+    }
+    gl.bindVertexArray(null);
+    gl.bindBuffer(gl.ARRAY_BUFFER, this.gapVbo);
+    gl.bufferData(gl.ARRAY_BUFFER, v, gl.DYNAMIC_DRAW);
   }
 
   // The outlines of all layers (View3D.outlines): the fan of each ring.
@@ -795,6 +825,15 @@ export class GlRenderer {
     if (sel[1] > sel[0]) {
       this.lines(sel[0], sel[1], 1, 1, 1.0, 0.78, 0.05);
       if (s.seg >= 0) this.lines(s.seg, s.seg + 1, 1, 1.6, 1.0, 0.35, 0.0);
+    }
+    // The gaps, red, over the lines.
+    if (s.gaps && this.gapVertices > 0) {
+      gl.useProgram(this.flat.prog);
+      gl.uniform4f(fu.xf, sx, sy, tx, ty);
+      gl.uniform2f(fu.size, 1, 1);
+      gl.uniform4f(fu.color, 0.91, 0.11, 0.14, 1);
+      gl.bindVertexArray(this.gapVao);
+      gl.drawArrays(gl.TRIANGLES, 0, this.gapVertices);
     }
     gl.bindVertexArray(null);
   }

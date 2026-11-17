@@ -356,6 +356,73 @@ export class Core {
     }
   }
 
+  // ---- gaps (src/gaps.zig) ----
+
+  // The gaps of layer `layer` (zs_app_layer_gaps), the largest first, with
+  // their cells as runs (y, x0, x1 for each run, in mm), the size of a
+  // cell, and the top z of the layer. Null with no slice.
+  gaps(layer) {
+    const w = this.w;
+    const p = w.alloc(16);
+    try {
+      if (w.x.zs_app_layer_gaps(this.app, layer, p, p + 4, p + 8, p + 12) !== 0) return null;
+      const gp = w.u32(p);
+      const n = w.u32(p + 4);
+      const rp = w.u32(p + 8);
+      const nr = w.u32(p + 12);
+      const gaps = [];
+      for (let i = 0; i < n; i++) {
+        const q = gp + i * 48; // zs_gap on wasm32
+        gaps.push({
+          area: w.f64(q),
+          x: w.f64(q + 8),
+          y: w.f64(q + 16),
+          width: w.f64(q + 24),
+          features: w.u32(q + 32),
+          atEdge: w.u8[q + 36] !== 0,
+          runStart: w.u32(q + 40),
+          runLen: w.u32(q + 44),
+        });
+      }
+      const runs = nr > 0 ? new Float32Array(w.x.memory.buffer, rp, nr * 3).slice() : new Float32Array(0);
+      return { gaps, runs, cell: w.x.zs_app_gap_cell(this.app, layer) };
+    } finally {
+      w.free(p, 16);
+    }
+  }
+
+  // The gap of layer `layer` at x, y (mm), or the nearest within 0.3 mm,
+  // or -1.
+  gapAt(layer, x, y) {
+    return Number(this.w.x.zs_app_gap_at(this.app, layer, x, y, 0));
+  }
+
+  // The settings that can close gap `index` of layer `layer`, the best
+  // first: { name, value, why, now } (zs_app_gap_advice).
+  gapAdvice(layer, index) {
+    const w = this.w;
+    const cap = 8;
+    const size = 24; // zs_gap_step on wasm32
+    const p = w.alloc(cap * size + 4);
+    try {
+      if (w.x.zs_app_gap_advice(this.app, layer, index, p, cap, p + cap * size) !== 0) return [];
+      const n = Math.min(w.u32(p + cap * size), cap);
+      const steps = [];
+      for (let i = 0; i < n; i++) {
+        const q = p + i * size;
+        steps.push({
+          name: w.text(w.u32(q), w.u32(q + 4)),
+          value: w.text(w.u32(q + 8), w.u32(q + 12)),
+          why: w.text(w.u32(q + 16), w.u32(q + 20)),
+        });
+      }
+      for (const st of steps) st.now = this.get(st.name);
+      return steps;
+    } finally {
+      w.free(p, cap * size + 4);
+    }
+  }
+
   // The value of a setting at z, and 1 if an override covers z.
   valueAt(z, name) {
     const w = this.w;

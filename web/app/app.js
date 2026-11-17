@@ -19,6 +19,7 @@ import { View2D } from "./view2d.js";
 import { LayerRange } from "./layers.js";
 import { SettingsBrowser } from "./settings.js";
 import { Inspector } from "./inspector.js";
+import { Gaps } from "./gaps.js";
 import { contextItems } from "./context-menu.js";
 import { openMenu, openMenuAt, menuOpen } from "./menus.js";
 import { formatClock, formatTime } from "./format.js";
@@ -147,8 +148,11 @@ function drawFrame(now) {
     more = more || replay.playing;
   }
   if (step.active) more = animateStep(now) || more;
+  // The gaps follow the top layer.
+  if (gaps.on && gaps.wanted !== layers.hi && app.state === "done") gaps.refresh(layers.hi);
   const f = view.frame();
   if (app.page === "2d") {
+    view2d.state.gaps = gaps.on && gaps.layer === layers.hi;
     gl.sync(f);
     const dim = (app.isolate && app.sel >= 0) || (app.focus2d && app.focusFirst && layers.hi !== 0) ? 1 : 0;
     view2d.draw(f.width, f.height, layers.hi, app.sel, app.seg, app.focus2d, dim);
@@ -314,10 +318,27 @@ function hitAt(px, py) {
   return hit;
 }
 
-// A click: the line there (its segment too), or no selection.
-function pickAt(px, py, picked) {
+// A click: with Gaps on, the gap there; else the line there (its
+// segment too), or no selection.
+async function pickAt(px, py, picked) {
+  if (picked && gaps.on) {
+    const pt = topLayerPoint(px, py);
+    if (pt && (await gaps.pick(pt[0], pt[1]))) return;
+  }
+  gaps.forget();
   if (hitAt(px, py)) select(view.hit[0], view.hit[1], picked);
   else select(-1, -1, false);
+}
+
+// The point (mm) under a device pixel on the top of the top shown layer,
+// or null.
+function topLayerPoint(px, py) {
+  if (app.page === "2d") return [(px - view2d.ox) / view2d.scale, (canvas.height - py - view2d.oy) / view2d.scale];
+  const z = app.layers?.z[layers.hi];
+  if (z === undefined) return null;
+  const c = wasm.cell;
+  if (!view.x.zs_view_layer_point(view.v, px, py, z, c, c + 8)) return null;
+  return [wasm.f64(c), wasm.f64(c + 8)];
 }
 
 // ---- the layer slider and the replay ----
@@ -331,6 +352,7 @@ const layers = new LayerRange($("layers"), (lo, hi) => {
   view.setLayerRange(lo, hi);
   showScrub(hi, null);
   updateFocus();
+  gaps.refresh(hi);
   requestFrame();
 });
 
@@ -1019,6 +1041,31 @@ const inspector = new Inspector($("page-selected"), {
   markRemove: (index) => client.call("markRemove", { index }),
 });
 
+// ---- gaps ----
+
+const gaps = new Gaps({
+  client, view, gl, browser,
+  button: $("gaps"),
+  count: $("gap-count"),
+  page: $("page-selected"),
+  layerZ: (l) => app.layers?.z[l] ?? 0,
+  // The gap page replaces the Selected page: no line is selected, and the
+  // next line builds the page again.
+  showPage: () => {
+    app.sel = -1;
+    app.seg = -1;
+    app.info = null;
+    view.highlight(-1, -1, false);
+    $("isolate").hidden = true;
+    inspector.signature = null;
+    showTab("selected");
+    requestFrame();
+  },
+  setSetting: (name, value) => setSetting(name, value),
+  setScoped: (name, value, zmin, zmax) => inspector.ctx.setScoped(name, value, zmin, zmax),
+  requestFrame: () => requestFrame(),
+});
+
 // ---- the print card ----
 
 function updateSummary() {
@@ -1098,6 +1145,7 @@ function onWorkerEvent(m) {
       updateSummary();
       if (key) inspect(key);
       else if (app.sel >= 0) select(-1, -1, false);
+      gaps.refresh(layers.hi, true);
       requestFrame();
       keepSoon();
       break;
@@ -1328,7 +1376,7 @@ function benchPick(step = 40) {
 
 // For tests: the state of the page.
 window.zslice = {
-  app, view, view2d, layers, browser, client, gl, inspector, frameTimes,
+  app, view, view2d, layers, browser, client, gl, inspector, gaps, pickAt, topLayerPoint, frameTimes,
   select, showPage, showTab, hitAt, showContextMenu, step, bench, benchPick,
   get frameCount() { return frameCount; },
   get pickMs() { return pickMs; },

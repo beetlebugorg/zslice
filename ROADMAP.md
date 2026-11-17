@@ -156,7 +156,8 @@ The goal is the features that people use in PrusaSlicer and Cura. zslice designs
 - [ ] Projects from GitHub: open a repo with a `printdeck.yml`, slice all its parts onto plates, and a print workflow that walks through the plates and keeps the status across a restart
 - [ ] Debug prints: "Print this layer" (one layer alone on the bed), and a range of about 10 layers laid flat side by side, to compare a print with the preview
 - [ ] Check the G-code of each printer of the library: slice a test part with each profile and test the start and end G-code
-- [ ] The web app: Gaps, Check, the history and undo, and the tools (the native app has them)
+- [x] The web app: Gaps (the red cells in both views, the count, and the gap page with Apply and This layer)
+- [ ] The web app: Check, the history and undo, and the tools (the native app has them)
 - [ ] macOS and iOS shell: SwiftUI (`apple/`)
 - [ ] Windows shell: Win32 C++ (`windows/`)
 - [ ] Android shell: Kotlin (`android/`)
