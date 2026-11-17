@@ -159,13 +159,17 @@ static void show_layer(Preview *p, size_t layer);
 /* The printability check (zs_app_checks): a list of the issues of the
  * slice, the worst first. It runs when the list opens, so a slice stays
  * fast. A click on an issue shows its layer. */
-/* The path of `layer` with a point nearest to (x, y), or -1. */
-static gint64 nearest_path(const zs_toolpaths *tp, size_t layer, double x, double y) {
+/* The path of `layer` with a point nearest to (x, y), or -1. With
+ * `feature` >= 0, a path of that feature if the layer has one. */
+static gint64 nearest_path(const zs_toolpaths *tp, size_t layer, double x, double y, int feature) {
     if (layer >= tp->layer_count) return -1;
     size_t first = layer == 0 ? 0 : tp->layer_ends[layer - 1], last = tp->layer_ends[layer];
+    gboolean has = FALSE;
+    if (feature >= 0) for (size_t path = first; path < last; path++) has = has || tp->path_features[path] == feature;
     gint64 best = -1;
     double best_d = G_MAXDOUBLE;
     for (size_t path = first; path < last; path++) {
+        if (has && tp->path_features[path] != feature) continue;
         uint32_t a = path == 0 ? 0 : tp->path_ends[path - 1], b = tp->path_ends[path];
         for (uint32_t k = a; k < b; k++) {
             double dx = tp->points[2 * k] - x, dy = tp->points[2 * k + 1] - y;
@@ -189,8 +193,13 @@ static void on_check_row(GtkListBox *box, GtkListBoxRow *row, gpointer data) {
      * what it is. */
     zs_toolpaths tp;
     if (zs_app_toolpaths(zg_model_core(p->model), &tp) != ZS_OK) return;
-    gint64 path = is->path != ZS_NO_PATH ? (gint64)is->path : nearest_path(&tp, is->layer, is->x, is->y);
+    /* The line of the kind of the issue: a bridge line for a bridge, skin
+     * for an overhang. */
+    int feature = is->kind == ZS_ISSUE_BRIDGE ? ZS_FEATURE_BRIDGE : is->kind == ZS_ISSUE_OVERHANG ? ZS_FEATURE_SKIN : -1;
+    gint64 path = is->path != ZS_NO_PATH ? (gint64)is->path : nearest_path(&tp, is->layer, is->x, is->y, feature);
     if (path >= 0) zg_model_select(p->model, path);
+    /* The list closes: the view shows the issue. */
+    gtk_menu_button_popdown(GTK_MENU_BUTTON(p->check));
 }
 
 static void fill_check(Preview *p) {
@@ -443,6 +452,12 @@ static void on_play(GtkButton *b, gpointer data) {
     double total = zg_view3d_duration(p->view3d);
     if (total <= 0) return;
     if (p->time >= total) p->time = 0;
+    /* After a move of the slider: from the start of the top layer that
+     * shows. */
+    if (p->time <= 0 && zg_layer_range_get_hi(ZG_LAYER_RANGE(p->slider)) + 1 < p->layer_count) {
+        double t0, t1;
+        if (layer_times(p, zg_layer_range_get_hi(ZG_LAYER_RANGE(p->slider)), &t0, &t1)) p->time = t0;
+    }
     p->step_valid = FALSE; /* h and l go on from the replay */
     p->last_frame = 0;
     p->tick = gtk_widget_add_tick_callback(p->view3d, on_tick, p, NULL);
@@ -875,7 +890,7 @@ static gboolean on_preview_key(GtkEventControllerKey *c, guint key, guint code, 
         size_t top = zg_layer_range_get_hi(ZG_LAYER_RANGE(p->slider));
         if (p->time > 0 && segment_at_time(&tp, p->time, &path, &seg)) {
             /* the segment at the time of the replay */
-        } else if (sel < 0 || zg_toolpaths_layer_of(&tp, (size_t)sel) != top) {
+        } else if (sel < 0 || zg_toolpaths_layer_of(&tp, (size_t)sel) > top) {
             if (top < tp.layer_count && tp.layer_ends[top] > 0) {
                 path = (gint64)tp.layer_ends[top] - 1;
                 segment_at_time(&tp, tp.path_end_time[path], &path, &seg);
@@ -1066,7 +1081,6 @@ GtkWidget *zg_preview_new(ZgModel *model) {
     gtk_widget_set_margin_start(p->gap_count, 6);
     gtk_widget_set_margin_end(p->gap_count, 6);
     gtk_widget_set_visible(p->gap_count, FALSE);
-    gtk_box_append(GTK_BOX(bar), p->gap_count);
     /* The printability check: things that can make the print fail. */
     p->check = gtk_menu_button_new();
     gtk_menu_button_set_label(GTK_MENU_BUTTON(p->check), "Check");
@@ -1091,6 +1105,9 @@ GtkWidget *zg_preview_new(ZgModel *model) {
     gtk_widget_add_css_class(p->plates, "linked");
     gtk_widget_set_margin_start(p->plates, 6);
     gtk_box_append(GTK_BOX(bar), p->plates);
+    /* The gap count last: it shows and hides, and the buttons before it
+     * stay in place. */
+    gtk_box_append(GTK_BOX(bar), p->gap_count);
     gtk_widget_set_halign(bar, GTK_ALIGN_START);
     gtk_widget_set_valign(bar, GTK_ALIGN_START);
     gtk_widget_set_margin_start(bar, 10);
@@ -1176,6 +1193,10 @@ void zg_preview_refresh(GtkWidget *preview) {
         p->fitted = FALSE;
         p->layer_count = 0;
         free_paths(p);
+        /* An empty plate: the 3D view and the slider of the plate before
+         * go. */
+        zg_layer_range_set_count(ZG_LAYER_RANGE(p->slider), 0);
+        zg_view3d_reload(p->view3d);
     }
     if (state != ZS_STATE_DONE) {
         /* Keep the old layer on the screen while a new slice runs. */

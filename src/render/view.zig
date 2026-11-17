@@ -244,7 +244,7 @@ pub const View = struct {
         // The support marks: a ring at the place and the layer of each.
         v.mark_rings.clearRetainingCapacity();
         for (app.marks.items) |m| {
-            const color: [4]u8 = if (m.kind == .block) .{ 0xe0, 0x31, 0x31, 13 } else .{ 0x1c, 0x7e, 0xd6, 13 };
+            const color: [4]u8 = if (m.kind == .block) .{ 0xe0, 0x31, 0x31, code_overlay } else .{ 0x1c, 0x7e, 0xd6, code_overlay };
             for (0..12) |k| {
                 const t0 = 2 * std.math.pi * @as(f64, @floatFromInt(k)) / 12.0;
                 const t1 = 2 * std.math.pi * @as(f64, @floatFromInt(k + 1)) / 12.0;
