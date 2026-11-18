@@ -84,6 +84,8 @@ The picker also finds Bambu Lab printers in LAN mode. **The support of Bambu pri
 
 A Bambu printer has a certificate of its own that no authority signs. zslice trusts it on the first connection and says so, and from then on accepts only that certificate at that address. After a reset of the printer, Forget the trusted certificate in Settings > Printers.
 
+A printdeck that drives more than one printer shows a row for each of its printers in the picker, with its color; each one is a printer of its own, with its own address (`<deck>/printers/<id>`) and its own key.
+
 The first search of the network asks for the permission to find devices on the local network. Allow it to see your printers in the picker.
 
 ## Filament and quality

@@ -430,6 +430,14 @@ final class Workspace {
             let last = String(decoding: signed.suffix(120), as: UTF8.self).split(separator: "\n").last ?? ""
             NSLog("zslice sign: key %@; last line %@; good %d (%@); changed %d", Signer.keyID, String(last.prefix(60)), verify(signed).0, verify(signed).1, verify(bad).0)
         }
+        // ZSLICE_DECK_JSON=path logs the printers that a printer.json of a
+        // printdeck gives (Discovery.deckPrinters).
+        if let path = env["ZSLICE_DECK_JSON"], let d = try? Data(contentsOf: URL(fileURLWithPath: path)) {
+            let f = FoundPrinter(name: "Deck", kind: Int32(ZS_FOUND_PRINTDECK.rawValue), kindTitle: "printdeck", url: "http://deck.local",
+                                 model: "", bedX: 0, bedY: 0, height: 0)
+            let list = Discovery.deckPrinters(f, json: d) ?? [f]
+            NSLog("zslice deck: %@", list.map { "\($0.name) \($0.url) \($0.color)" }.joined(separator: "; "))
+        }
         // ZSLICE_RECORD=path.mov records the demo of Recorder.swift.
         if let path = env["ZSLICE_RECORD"] {
             Task { @MainActor in await Recorder.record(self, to: URL(fileURLWithPath: path)) }

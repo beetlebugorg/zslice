@@ -38,7 +38,9 @@ struct FoundPrinter: Identifiable, Equatable {
     var model: String
     var bedX: Double, bedY: Double, height: Double
     /// Bambu Lab: the serial number, else "".
-    var serial: String
+    var serial: String = ""
+    /// A printer of a printdeck that drives more than one: its color.
+    var color: String = ""
 
     var bambu: Bool { kind == Int32(ZS_FOUND_BAMBU.rawValue) }
 
@@ -56,6 +58,15 @@ struct FoundPrinter: Identifiable, Equatable {
 @Observable
 final class Discovery {
     private(set) var found: [FoundPrinter] = []
+    /// The printers of each printdeck that drives more than one (from its
+    /// /slicer/printer.json), by the address of the deck.
+    private(set) var decks: [String: [FoundPrinter]] = [:]
+
+    /// The printers to offer: a printdeck with more than one FDM printer
+    /// gives one row for each, at its own address (<deck>/printers/<id>).
+    var offered: [FoundPrinter] {
+        found.flatMap { f in decks[f.url] ?? [f] }
+    }
     private(set) var searching = false
 
     @ObservationIgnored private var d: OpaquePointer?
@@ -163,6 +174,37 @@ final class Discovery {
         for (i, f) in found.enumerated() where !f.url.isEmpty && !f.bambu && !asked.contains(f.url) {
             asked.insert(f.url)
             ask(i, f)
+            askDeck(f)
+        }
+    }
+
+    /// The printers of a printdeck: "printers" of /slicer/printer.json, each
+    /// with its id, name, label, color, kind, and url ("" for the first,
+    /// "/printers/<id>" for the others). Only the FDM ones, and only when
+    /// there are two or more.
+    static func deckPrinters(_ f: FoundPrinter, json: Data) -> [FoundPrinter]? {
+        guard let j = (try? JSONSerialization.jsonObject(with: json)) as? [String: Any],
+              let list = j["printers"] as? [[String: Any]] else { return nil }
+        let fdm = list.filter { ($0["kind"] as? String ?? "fdm") == "fdm" }
+        guard fdm.count >= 2 else { return nil }
+        return fdm.map { e in
+            var p = f
+            let label = e["label"] as? String ?? ""
+            let name = e["name"] as? String ?? label
+            p.name = label.isEmpty || label == name ? "\(f.name): \(name)" : "\(f.name): \(label)"
+            p.url = f.url + (e["url"] as? String ?? "")
+            p.color = e["color"] as? String ?? ""
+            return p
+        }
+    }
+
+    private func askDeck(_ f: FoundPrinter) {
+        guard f.printerKind == .printdeck, let url = URL(string: f.url + "/slicer/printer.json") else { return }
+        var r = URLRequest(url: url)
+        r.timeoutInterval = 4
+        Task { @MainActor [weak self] in
+            guard let (data, _) = try? await URLSession.shared.data(for: r), let list = Self.deckPrinters(f, json: data) else { return }
+            self?.decks[f.url] = list
         }
     }
 

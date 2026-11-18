@@ -55,13 +55,17 @@ struct PrinterPicker: View {
                 List(selection: $selected) {
                     if query.isEmpty && brand < 0 {
                         Section {
-                            if discovery.found.isEmpty {
+                            if discovery.offered.isEmpty {
                                 Text(discovery.searching ? "Searching…" : "No printer answered.").foregroundStyle(.secondary)
                             }
-                            ForEach(discovery.found) { f in
+                            ForEach(discovery.offered) { f in
                                 Button { useFound(f) } label: {
                                     HStack {
-                                        Image(systemName: "wifi").foregroundStyle(.secondary)
+                                        if let c = Color(hex: f.color) {
+                                            Circle().fill(c).frame(width: 10, height: 10).frame(width: 18)
+                                        } else {
+                                            Image(systemName: "wifi").foregroundStyle(.secondary)
+                                        }
                                         VStack(alignment: .leading, spacing: 1) {
                                             Text(f.name)
                                             Text("\(f.kindTitle) · \(f.url)\(f.model.isEmpty ? "" : " · \(f.model)")"
@@ -436,5 +440,14 @@ struct QualityMenu: View {
                 .labelStyle(.titleAndIcon)
         }
         .help("The quality of the plate. A dot: this print has changes on top of it. A pick of another quality keeps your changes.")
+    }
+}
+
+extension Color {
+    /// "#rrggbb", or nil.
+    init?(hex: String) {
+        let h = hex.hasPrefix("#") ? String(hex.dropFirst()) : hex
+        guard h.count == 6, let v = UInt32(h, radix: 16) else { return nil }
+        self.init(red: Double(v >> 16 & 0xFF) / 255, green: Double(v >> 8 & 0xFF) / 255, blue: Double(v & 0xFF) / 255)
     }
 }
