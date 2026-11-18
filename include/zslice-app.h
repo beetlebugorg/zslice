@@ -716,6 +716,12 @@ int zs_app_part_scale(zs_app *app, size_t i, double sx, double sy, double sz);
 /* Turns a part by `degrees` about the X (axis 0) or Y (axis 1) axis of the
  * bed; it then rests on the bed. */
 int zs_app_part_turn(zs_app *app, size_t i, int axis, double degrees);
+/* Physics: part i falls over if it cannot stand as it is (its center of
+ * mass past the area it stands on), and rolls onto a face until it rests.
+ * With support on, the support holds it, and it stays. Call it when a turn
+ * ends (the release of a ring, a turn key). Returns the angle of the fall in
+ * degrees (0: it stands; an app can animate the fall), or -status. */
+double zs_app_part_settle(zs_app *app, size_t i);
 /* "This side on the bed": the side of the part nearest to the bed point
  * (x, y, z), for example a picked line, goes down. */
 int zs_app_part_put_down_at(zs_app *app, size_t i, double x, double y, double z);

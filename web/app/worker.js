@@ -369,7 +369,7 @@ function tinyParts(c) {
   return out;
 }
 
-const PLATE_OPS = new Set(["load", "add", "plate", "projectLoad", "partAction", "partCut", "partMove", "partFill", "editAdd", "editDot", "editRemove", "partSettingSet", "partPutDown", "partTurn", "putDown", "place", "partMove", "partRotate", "partScale", "markAdd", "markRemoveNear", "markSet", "markRemove", "marksClear", "supportAreaAdd", "supportAreaSet", "supportAreaKind", "supportAreaRemove"]);
+const PLATE_OPS = new Set(["load", "add", "plate", "projectLoad", "partAction", "partCut", "partMove", "partFill", "editAdd", "editDot", "editRemove", "partSettingSet", "partPutDown", "partTurn", "putDown", "place", "partMove", "partRotate", "partScale", "partSettle", "markAdd", "markRemoveNear", "markSet", "markRemove", "marksClear", "supportAreaAdd", "supportAreaSet", "supportAreaKind", "supportAreaRemove"]);
 
 const ops = {
   async init({ module, saved, mode: m }) {
@@ -788,6 +788,13 @@ const ops = {
     }
     if (rc === 0) sliceOrHold(hold);
     return { part: core.part(index) };
+  },
+
+  // Physics after a turn: the part falls over if it cannot stand, and
+  // rolls until it rests (with support on, it stays). degrees: the fall.
+  partSettle({ index }) {
+    const deg = core.w.x.zs_app_part_settle(core.app, index);
+    return { part: core.part(index), degrees: deg > 0 ? deg : 0 };
   },
 
   // Lays part `index` down on the side nearest to the point x, y, z (mm)

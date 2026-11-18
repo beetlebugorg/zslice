@@ -730,6 +730,21 @@ pub const App = struct {
         try app.plateChanged();
     }
 
+    /// Physics: part i falls over if it cannot stand as it is (its center
+    /// of mass past the area it stands on), and rolls until it rests (see
+    /// physics.zig). With support on, the support holds it, and it stays.
+    /// Returns the angle of the fall in degrees (0: it stands).
+    pub fn settlePart(app: *App, i: usize) Allocator.Error!f64 {
+        if (i >= app.plate.count()) return 0;
+        if (app.settings.project.support != .off) return 0;
+        const s = try zs.physics.settle(app.gpa, &app.plate.parts.items[i].mesh);
+        if (s.rolls == 0) return 0;
+        try app.plate.putDown(app.gpa, i, zs.physics.downOf(s));
+        app.plate.keepOnBed(i, app.bedSize(), app.partGap());
+        try app.plateChanged();
+        return s.degrees;
+    }
+
     /// Puts the side of part i nearest to the bed point (x, y, z) on the
     /// bed ("this side on the bed", from a picked line).
     pub fn putPartDownAt(app: *App, i: usize, x: f64, y: f64, z: f64) Allocator.Error!void {

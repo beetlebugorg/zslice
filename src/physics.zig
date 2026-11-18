@@ -147,7 +147,9 @@ fn footMargin(a: Allocator, pts: []const V, c: V, eps: f64, edge: *[2]V) Allocat
         const l = @sqrt(ex * ex + ey * ey);
         const side = (ex * (c[1] - h[0][1]) - ey * (c[0] - h[0][0])) / l;
         if (@abs(side) < 1e-6) return 0;
-        const dir: V = if (side > 0) .{ ex / l, ey / l, 0 } else .{ -ex / l, -ey / l, 0 };
+        // The roll lowers the side to the right of the axis: the axis
+        // points so that the center of mass is on its right.
+        const dir: V = if (side > 0) .{ -ex / l, -ey / l, 0 } else .{ ex / l, ey / l, 0 };
         edge.* = .{ .{ h[0][0], h[0][1], zmin }, dir };
         return -@abs(side);
     }
@@ -164,8 +166,9 @@ fn footMargin(a: Allocator, pts: []const V, c: V, eps: f64, edge: *[2]V) Allocat
         if (d < worst) {
             worst = d;
             // The roll about this edge: the center goes out over it, to
-            // the right of the edge; the axis points along the edge.
-            edge.* = .{ .{ p[0], p[1], zmin }, .{ -ex / l, -ey / l, 0 } };
+            // the right of the edge; the axis points along the edge, so
+            // that the side of the center is on its right.
+            edge.* = .{ .{ p[0], p[1], zmin }, .{ ex / l, ey / l, 0 } };
         }
     }
     return worst;
@@ -294,4 +297,31 @@ test "physics: a tall board on its thin edge, turned, falls flat" {
     }
     const s2 = try settle(gpa, &m2);
     try testing.expectEqual(@as(u32, 0), s2.rolls);
+}
+
+test "physics: a tall board tipped 30 degrees falls flat, the way it leans" {
+    const gpa = testing.allocator;
+    // A board 40 x 4 x 30 mm on its 40 x 4 face, tipped 30 degrees about
+    // X: its center of mass is past its foot. It falls forward onto its
+    // 40 x 30 face (60 degrees more), and does not stand up again.
+    var m = try boxMesh(gpa, -20, -2, 0, 20, 2, 30);
+    defer m.deinit(gpa);
+    const t = std.math.degreesToRadians(30.0);
+    for (m.vertices.items) |*v| {
+        const y = v.y;
+        const z = v.z;
+        v.y = @floatCast(@cos(t) * y - @sin(t) * z);
+        v.z = @floatCast(@sin(t) * y + @cos(t) * z);
+    }
+    const s = try settle(gpa, &m);
+    try testing.expectApproxEqAbs(@as(f64, 60), s.degrees, 0.5);
+    // At rest it is 4 mm high.
+    var zmax: f64 = -1e9;
+    var zmin: f64 = 1e9;
+    for (m.vertices.items) |v| {
+        const q = mulV(s.rot, .{ v.x, v.y, v.z });
+        zmax = @max(zmax, q[2]);
+        zmin = @min(zmin, q[2]);
+    }
+    try testing.expectApproxEqAbs(@as(f64, 4), zmax - zmin, 0.01);
 }

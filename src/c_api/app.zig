@@ -1587,6 +1587,18 @@ export fn zs_app_part_scale(a: ?*App, i: usize, sx: f64, sy: f64, sz: f64) c_int
     return ok;
 }
 
+/// Physics: part i falls over if it cannot stand as it is, and rolls until
+/// it rests; with support on, it stays. Call it after a turn ends (the
+/// release of a ring, a turn key). Returns the angle of the fall in
+/// degrees (0: it stands), or a negative status.
+export fn zs_app_part_settle(a: ?*App, i: usize) f64 {
+    const app = a orelse return -@as(f64, @floatFromInt(@intFromEnum(Status.invalid_argument)));
+    if (i >= app.plate.count()) return -@as(f64, @floatFromInt(@intFromEnum(Status.out_of_range)));
+    const deg = app.settlePart(i) catch |e| return -@as(f64, @floatFromInt(status(e)));
+    if (deg > 0) noted(app, null, true);
+    return deg;
+}
+
 export fn zs_app_part_turn(a: ?*App, i: usize, axis: c_int, degrees: f64) c_int {
     const app = a orelse return @intFromEnum(Status.invalid_argument);
     if (i >= app.plate.count() or axis < 0 or axis > 1) return @intFromEnum(Status.out_of_range);
