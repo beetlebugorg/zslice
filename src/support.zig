@@ -616,6 +616,12 @@ fn treeSupport(
         // a bend of at most 0.1 mm at the tip. A tip 30 mm up needs a
         // branch of about 4.4 mm across; 60 mm up, about 9 mm.
         .bend = 0.3 / (3 * 2000 * std.math.pi * r.line_width * 0.1),
+        // The buckling rule (tree.Params.buckle): a push down of 2 N from
+        // the nozzle on the pad, a safety factor of 2, and one wall.
+        .buckle = 4 * 2.0 * 2.0 / (std.math.pow(f64, std.math.pi, 3) * 2000 * r.line_width),
+        // The foot rule (tree.Params.peel): the push of 0.3 N at the top,
+        // and a hold of 0.3 N/mm2 of the first layer on the bed.
+        .peel = 4 * 0.3 / (std.math.pi * 0.3),
         // A branch is at least 2 mm thick under its tip layers.
         .min_r = @floatFromInt(geom.fromMm(1.0)),
     };
@@ -998,7 +1004,6 @@ test "bed-only support skips a column that rests on the part" {
     for (bed) |l| try testing.expect(l.body.isEmpty() and l.interface.isEmpty());
 }
 
-
 test "tree support: branches under a cap, and a branch down a narrow hole" {
     const gpa = testing.allocator;
     // A post with a cap (as in the test of grid support).
@@ -1211,10 +1216,190 @@ test "tree support: a branch beside a tall wall is thick, and thicker down low" 
         const z = sl.layers[i].z;
         if (z < 2 or z > 36 or l.body.isEmpty()) continue;
         const s = stat(l.body);
-try testing.expect(s.min > 3);
+        try testing.expect(s.min > 3);
         if (i == 25) low = s;
         if (i == 170) high = s;
     }
     // The bend rule: the branches are thicker at 5 mm than at 34 mm.
     try testing.expect(low.mean > high.mean);
+}
+
+/// The area (mm2) and the centroid (mm) of the part of `paths` in the
+/// band x0 <= x <= x1, for the tests of equal support.
+const BandStat = struct { area: f64, cx: f64, cy: f64 };
+fn bandStat(a: Allocator, paths: Paths, x0: f64, x1: f64) !BandStat {
+    var box: Paths = .empty;
+    try box.append(a, &.{ .init(geom.fromMm(x0), -geom.fromMm(1000)), .init(geom.fromMm(x1), -geom.fromMm(1000)), .init(geom.fromMm(x1), geom.fromMm(1000)), .init(geom.fromMm(x0), geom.fromMm(1000)) });
+    const part = try clip.intersect(a, paths, box);
+    var s: f64 = 0;
+    var sx: f64 = 0;
+    var sy: f64 = 0;
+    for (0..part.count()) |k| {
+        const poly = part.get(k);
+        for (poly, 0..) |p, i| {
+            const q = poly[(i + 1) % poly.len];
+            const px = geom.toMm(p.x);
+            const py = geom.toMm(p.y);
+            const qx = geom.toMm(q.x);
+            const qy = geom.toMm(q.y);
+            const c = px * qy - qx * py;
+            s += c;
+            sx += (px + qx) * c;
+            sy += (py + qy) * c;
+        }
+    }
+    if (@abs(s) < 1e-9) return .{ .area = 0, .cx = 0, .cy = 0 };
+    return .{ .area = s / 2, .cx = sx / (3 * s), .cy = sy / (3 * s) };
+}
+
+/// The support of each layer as one set (body and interface).
+fn supportOf(a: Allocator, l: SupportLayer) !Paths {
+    return clip.unite(a, l.body, l.interface);
+}
+
+test "tree support: two equal ledges get equal trees" {
+    const gpa = testing.allocator;
+    // A wall 60 x 4 x 50 mm, and two equal ledges at z 40 that stick out
+    // 8 mm from its face: x 8 to 22 and x 38 to 52. The right ledge is the
+    // left ledge moved by 30 mm, and the mirror of it about x = 30.
+    var b: mesh_mod.Builder = .init(gpa);
+    try mesh_mod.shapes.addBox(&b, 0, 0, 0, 60, 4, 50);
+    try mesh_mod.shapes.addBox(&b, 8, 4, 40, 22, 12, 43);
+    try mesh_mod.shapes.addBox(&b, 38, 4, 40, 52, 12, 43);
+    var m = try b.finish();
+    defer m.deinit(gpa);
+    const sl = try sliceAll(gpa, &m, 50);
+    defer {
+        for (sl.outlines) |*o| o.deinit(gpa);
+        gpa.free(sl.outlines);
+        gpa.free(sl.layers);
+    }
+    var st: settings_mod.Settings = .{};
+    st.project.support = .everywhere;
+    st.project.support_style = .tree;
+    const r = try st.resolve();
+    // One thread and four threads give the same support.
+    for ([_]usize{ 1, 4 }) |threads| {
+        const sup = try compute(gpa, sl.outlines, sl.layers, &r, threads, &.{});
+        defer deinitAll(gpa, sup);
+        var arena = std.heap.ArenaAllocator.init(gpa);
+        defer arena.deinit();
+        const a = arena.allocator();
+        var layers_with: usize = 0;
+        for (sup) |l| {
+            const all = try supportOf(a, l);
+            const left = try bandStat(a, all, -10, 30);
+            const right = try bandStat(a, all, 30, 70);
+            if (left.area + right.area < 0.01) continue;
+            layers_with += 1;
+            // Moved: the same area, and the centroid 30 mm to the right.
+            try testing.expectApproxEqAbs(left.area, right.area, 0.02 * @max(left.area, right.area) + 0.05);
+            if (left.area < 0.05) continue;
+            try testing.expectApproxEqAbs(left.cx + 30, right.cx, 0.1);
+            try testing.expectApproxEqAbs(left.cy, right.cy, 0.1);
+            // Each tree is the mirror of itself about the middle of its
+            // ledge (x 15 and x 45).
+            const ll = try bandStat(a, all, -10, 15);
+            const lr = try bandStat(a, all, 15, 30);
+            try testing.expectApproxEqAbs(ll.area, lr.area, 0.02 * left.area + 0.05);
+        }
+        try testing.expect(layers_with > 150);
+    }
+}
+
+test "tree support: a mirrored part gets mirrored support" {
+    const gpa = testing.allocator;
+    // A post, an L-shaped shelf on it at z 20, and a small cap at z 12:
+    // no symmetry. The second part is the mirror of the first about x = 0.
+    var parts: [2]mesh_mod.Mesh = undefined;
+    for (0..2) |k| {
+        const sx: f64 = if (k == 0) 1 else -1;
+        var b: mesh_mod.Builder = .init(gpa);
+        const boxes = [_][6]f64{
+            .{ 2, 2, 0, 6, 6, 23 },
+            .{ 2, 2, 20, 20, 8, 23 },
+            .{ 2, 2, 20, 8, 16, 23 },
+            .{ 6, 4, 12, 11, 7, 13 },
+        };
+        for (boxes) |bx| {
+            const x0 = @min(sx * bx[0], sx * bx[3]);
+            const x1 = @max(sx * bx[0], sx * bx[3]);
+            try mesh_mod.shapes.addBox(&b, x0 + 30, bx[1] + 10, bx[2], x1 + 30, bx[4] + 10, bx[5]);
+        }
+        parts[k] = try b.finish();
+    }
+    defer for (&parts) |*p| p.deinit(gpa);
+    var st: settings_mod.Settings = .{};
+    st.project.support = .everywhere;
+    st.project.support_style = .tree;
+    const r = try st.resolve();
+    var stats: [2][]BandStat = undefined;
+    var arena = std.heap.ArenaAllocator.init(gpa);
+    defer arena.deinit();
+    const a = arena.allocator();
+    for (0..2) |k| {
+        const sl = try sliceAll(gpa, &parts[k], 23);
+        defer {
+            for (sl.outlines) |*o| o.deinit(gpa);
+            gpa.free(sl.outlines);
+            gpa.free(sl.layers);
+        }
+        const sup = try compute(gpa, sl.outlines, sl.layers, &r, 2, &.{});
+        defer deinitAll(gpa, sup);
+        stats[k] = try a.alloc(BandStat, sup.len);
+        for (sup, stats[k]) |l, *s| s.* = try bandStat(a, try supportOf(a, l), -100, 200);
+    }
+    try testing.expectEqual(stats[0].len, stats[1].len);
+    var with: usize = 0;
+    for (stats[0], stats[1]) |p, q| {
+        try testing.expectApproxEqAbs(p.area, q.area, 0.02 * @max(p.area, q.area) + 0.05);
+        if (p.area < 0.05) continue;
+        with += 1;
+        // Mirrored about x = 30.
+        try testing.expectApproxEqAbs(p.cx - 30, 30 - q.cx, 0.1);
+        try testing.expectApproxEqAbs(p.cy, q.cy, 0.1);
+    }
+    try testing.expect(with > 50);
+}
+
+test "tree support: each layer of a branch stands on the layer under it" {
+    const gpa = testing.allocator;
+    // The wall with the two ledges, and a small ledge lower down under the
+    // left one: the branches of the left ledge go around it.
+    var b: mesh_mod.Builder = .init(gpa);
+    try mesh_mod.shapes.addBox(&b, 0, 0, 0, 60, 4, 50);
+    try mesh_mod.shapes.addBox(&b, 8, 4, 40, 22, 12, 43);
+    try mesh_mod.shapes.addBox(&b, 38, 4, 40, 52, 12, 43);
+    try mesh_mod.shapes.addBox(&b, 12, 4, 24, 18, 9, 26);
+    var m = try b.finish();
+    defer m.deinit(gpa);
+    const sl = try sliceAll(gpa, &m, 50);
+    defer {
+        for (sl.outlines) |*o| o.deinit(gpa);
+        gpa.free(sl.outlines);
+        gpa.free(sl.layers);
+    }
+    var st: settings_mod.Settings = .{};
+    st.project.support = .everywhere;
+    st.project.support_style = .tree;
+    const r = try st.resolve();
+    const sup = try compute(gpa, sl.outlines, sl.layers, &r, 2, &.{});
+    defer deinitAll(gpa, sup);
+    var arena = std.heap.ArenaAllocator.init(gpa);
+    defer arena.deinit();
+    const a = arena.allocator();
+    // The body of a layer, out of the support, the part, and the pads of
+    // the layer under it moved out by one step of the branch angle (and a
+    // tenth of a millimeter): it hangs in the air.
+    const step = 0.2 * @tan(std.math.degreesToRadians(st.project.support_tree_angle)) + 0.1;
+    var worst: f64 = 0;
+    for (sup[2..], 2..) |l, i| {
+        if (l.body.isEmpty()) continue;
+        var under = try clip.unite(a, sup[i - 1].body, sup[i - 1].interface);
+        under = try clip.unite(a, under, sl.outlines[i - 1]);
+        const grown = try offset_mod.offset(a, under, geom.fromMm(step), .{});
+        const hang = try clip.difference(a, l.body, grown);
+        worst = @max(worst, hang.areaMm2());
+    }
+    try testing.expect(worst < 0.5);
 }
