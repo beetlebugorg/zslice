@@ -58,6 +58,10 @@ With a connection and its API key, the print card shows the state of the printer
 
 The first search of the network asks for the permission to find devices on the local network. Allow it to see your printers in the picker.
 
+## Filament and quality
+
+The Filament and Quality menus sit beside the printer menu in the toolbar. They list the built-in profiles and your own, and have Save as Profile. The Quality menu shows a dot when this print has changes on top of the quality. Your profiles are in `~/Library/Application Support/zslice/profiles/filament` and `profiles/project`.
+
 ## Your settings
 
 The app keeps your settings in `~/Library/Application Support/zslice`: `machine.toml`, `filament.toml`, and `project.toml`, as in the other apps.
@@ -65,6 +69,3 @@ The app keeps your settings in `~/Library/Application Support/zslice`: `machine.
 ## Projects
 
 Open a project with File > Open Project Folder (Shift-Command-O): choose the folder of a repository with a printdeck.yml. The plates of the project show in a row, and each plate slices. The Project page of the drawer lists the plates and the parts; the check box and the count of a part change the plates at once. File > Open Project from GitHub opens a public repository: type `owner/repo`, or its address on github.com (with `/tree/<branch>` for a branch).
-
-## Not yet in the macOS app
-

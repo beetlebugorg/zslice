@@ -335,3 +335,75 @@ private struct PrinterEditor: View {
         .onChange(of: key) { printer.apiKey = key }
     }
 }
+
+/// The Filament menu of the toolbar: the built-in materials and the
+/// filaments of the user, and Save as Profile.
+struct FilamentMenu: View {
+    let workspace: Workspace
+
+    var body: some View {
+        let model = workspace.model
+        let now = model.materialName
+        Menu {
+            Section("Material") {
+                ForEach(Profiles.builtin(Profiles.filament).filter { $0.hasPrefix("generic-") }, id: \.self) { n in
+                    let mat = String(n.dropFirst(8)).uppercased()
+                    Toggle(mat, isOn: Binding(get: { now == mat }, set: { _ in model.useFilament(name: n) }))
+                }
+            }
+            let mine = Profiles.mine(Profiles.filament)
+            if !mine.isEmpty {
+                Section("My Filaments") {
+                    ForEach(mine, id: \.self) { n in
+                        Button(n) { model.useFilament(name: n, text: Profiles.text(of: n, group: Profiles.filament)) }
+                    }
+                }
+            }
+            Divider()
+            Button("Save as Profile…") {
+                if let name = askProfileName("Save the Filament as a Profile") { try? model.saveProfile(group: Profiles.filament, name: name) }
+            }
+        } label: {
+            Label(now.isEmpty ? "Filament" : now, systemImage: "circle.dashed")
+                .labelStyle(.titleAndIcon)
+        }
+        .help("The filament of the plate: its material, or a filament profile of yours")
+    }
+}
+
+/// The Quality menu of the toolbar: the built-in qualities and the
+/// qualities of the user, and Save as Profile. A dot: this print has
+/// changes on top of the quality.
+struct QualityMenu: View {
+    let workspace: Workspace
+
+    var body: some View {
+        let model = workspace.model
+        let q = model.qualityName
+        let changed = !(coreString({ zs_app_state_write(model.core, Profiles.quality, $0, $1, $2) }) ?? "")
+            .split(separator: "\n").filter { !$0.hasPrefix("#") && !$0.trimmingCharacters(in: .whitespaces).isEmpty && !$0.hasPrefix("extends") }.isEmpty
+        Menu {
+            Section("Built-in") {
+                ForEach(Profiles.builtin(Profiles.quality), id: \.self) { n in
+                    Toggle(n, isOn: Binding(get: { q == n }, set: { _ in model.useQuality(name: n) }))
+                }
+            }
+            let mine = Profiles.mine(Profiles.quality)
+            if !mine.isEmpty {
+                Section("My Qualities") {
+                    ForEach(mine, id: \.self) { n in
+                        Toggle(n, isOn: Binding(get: { q == n }, set: { _ in model.useQuality(name: n, text: Profiles.text(of: n, group: Profiles.quality)) }))
+                    }
+                }
+            }
+            Divider()
+            Button("Save as Profile…") {
+                if let name = askProfileName("Save the Quality as a Profile") { try? model.saveProfile(group: Profiles.quality, name: name) }
+            }
+        } label: {
+            Label((q.isEmpty ? "Quality" : q) + (changed ? " •" : ""), systemImage: "dial.medium")
+                .labelStyle(.titleAndIcon)
+        }
+        .help("The quality of the plate. A dot: this print has changes on top of it. A pick of another quality keeps your changes.")
+    }
+}

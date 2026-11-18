@@ -139,8 +139,10 @@ struct DocumentWindow: View {
                 .inspectorColumnWidth(min: 320, ideal: 400, max: 560)
         }
         .toolbar {
-            ToolbarItem(placement: .navigation) {
+            ToolbarItemGroup(placement: .navigation) {
                 PrinterMenu(workspace: workspace)
+                FilamentMenu(workspace: workspace)
+                QualityMenu(workspace: workspace)
             }
             ToolbarItem(placement: .primaryAction) {
                 Button {
