@@ -64,13 +64,20 @@ enum PrinterLink {
             if let contentType { r.setValue(contentType, forHTTPHeaderField: "Content-Type") }
             if let encoding { r.setValue(encoding, forHTTPHeaderField: "Content-Encoding") }
             if key, !p.apiKey.isEmpty { r.setValue(p.apiKey, forHTTPHeaderField: "X-Api-Key") }
+            // An https printer: the trust of the system, and the pin of its
+            // certificate (Signing.swift).
+            let https = u.scheme == "https"
+            let host = u.host ?? ""
+            if https { CertPins.refused.remove(host) }
             do {
-                let (d, resp) = try await URLSession.shared.data(for: r)
+                let (d, resp) = try await (https ? PinningDelegate.session : URLSession.shared).data(for: r)
                 if let h = resp as? HTTPURLResponse {
                     worked[p.id] = base
                     return (d, h)
                 }
             } catch {
+                // A refused certificate stops: no fall back to http.
+                if https, CertPins.refused.contains(host) { throw PinError(host: host) }
                 last = error
             }
         }
@@ -78,7 +85,8 @@ enum PrinterLink {
     }
 
     private static func explain(_ e: Error) -> String {
-        "The printer did not answer (\(e.localizedDescription)). Check the address, and that the printer is on."
+        if let pin = e as? PinError { return pin.localizedDescription }
+        return "The printer did not answer (\(e.localizedDescription)). Check the address, and that the printer is on."
     }
 
     /// Sends the G-code as `filename`; print: start the print.
@@ -98,6 +106,10 @@ enum PrinterLink {
         do {
             let (d, r) = try await request(p, path, method: "POST", body: body, contentType: "multipart/form-data; boundary=\(boundary)")
             if r.statusCode == 401 || r.statusCode == 403 { return LinkResult(ok: false, message: "The printer refused the API key.") }
+            if r.statusCode == 422 {
+                let why = ((try? JSONSerialization.jsonObject(with: d)) as? [String: Any])?["error"] as? String
+                return LinkResult(ok: false, message: why ?? "Rejected: not signed by a trusted slicer (key \(Signer.keyID)). Use Get a Key in Settings > Printers so that the printer trusts zslice.")
+            }
             guard (200 ..< 300).contains(r.statusCode) else {
                 let text = String(decoding: d.prefix(200), as: UTF8.self)
                 return LinkResult(ok: false, message: "The printer answered \(r.statusCode)\(text.isEmpty ? "" : ": \(text)").")
@@ -106,7 +118,8 @@ enum PrinterLink {
             return LinkResult(ok: false, message: explain(error))
         }
         if p.kind == .printdeck && print { return LinkResult(ok: true, message: "Sent to \(p.name). Press Print on its screen to start.") }
-        return LinkResult(ok: true, message: print ? "Sent to \(p.name) (\(p.kind.title)); the print starts." : "Uploaded to \(p.name) (\(p.kind.title)).")
+        // OctoPrint and Moonraker do not check the signature.
+        return LinkResult(ok: true, message: (print ? "Sent to \(p.name) (\(p.kind.title)); the print starts." : "Uploaded to \(p.name) (\(p.kind.title)).") + " Not verified: \(p.kind.title) does not check signatures.")
     }
 
     /// A test of the connection: the version of the API.
@@ -135,8 +148,14 @@ enum PrinterLink {
         }
         let base = "/plugin/appkeys/request"
         let token: String
+        // A new key pins the certificate again, and gives the printer the
+        // public key of the app, so the deck can trust the signed prints.
+        for a in [p.https, p.url] { if let h = URL(string: a)?.host { CertPins.forget(host: h) } }
+        var ask: [String: Any] = ["app": "zslice"]
+        if let pk = Signer.publicKey { ask["public_key"] = pk }
+        let askBody = (try? JSONSerialization.data(withJSONObject: ask)) ?? Data(#"{"app":"zslice"}"#.utf8)
         do {
-            let (d, r) = try await request(p, base, method: "POST", body: Data(#"{"app":"zslice"}"#.utf8), contentType: "application/json", key: false)
+            let (d, r) = try await request(p, base, method: "POST", body: askBody, contentType: "application/json", key: false)
             if r.statusCode == 404 { return LinkResult(ok: false, message: "The printer does not give keys to apps (App Keys is off or missing).") }
             guard (200 ..< 300).contains(r.statusCode) else { return LinkResult(ok: false, message: "The printer answered \(r.statusCode).") }
             guard let t = ((try? JSONSerialization.jsonObject(with: d)) as? [String: Any])?["app_token"] as? String else {

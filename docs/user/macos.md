@@ -72,6 +72,10 @@ Add a printer with the printer menu at the left of the toolbar. The picker start
 
 With a connection, the printer menu has Use the Printer's Bed, Nozzle, and Motion, and Use the Filament in the Printer: the settings of the plate take the values that the printer reports.
 
+Each print that zslice exports or sends is signed: its last line is a signature of the app, made with a key that zslice keeps in the Keychain ("zslice signing key"). Get a Key gives the printer the public key of the app, and while the printer asks you to allow zslice, the app shows its key id, so you can check that the deck shows the same one. A printdeck that does not trust the key rejects the print, and the app says so. OctoPrint, Moonraker, and Bambu printers do not check signatures: the app says "not verified".
+
+A printdeck with an https address: zslice trusts its certificate on the first connection, and a newer certificate after that (the deck renews it every 60 days). An older or another certificate stops the send with a warning; Get a Key trusts the printer again.
+
 The API keys of your printers are in the Keychain of macOS (Keychain Access, "zslice printer API key"), never in a file. The list of your printers is in `~/Library/Application Support/zslice/printers.json`.
 
 With a connection and its API key, the print card shows the state of the printer (its job and progress, or the roll in it and the grams left), and a printdeck gives its own estimate of the print time after each slice ("Workhorse: 1h 41m (3 min start)"). zslice sends the G-code to the printdeck for the estimate, compressed; the printer does not keep it or print it.

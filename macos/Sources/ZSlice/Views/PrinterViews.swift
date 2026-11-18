@@ -241,7 +241,10 @@ struct ConnectionSection: View {
                     if kind != .moonraker && kind != .bambu {
                         Button("Get a Key") {
                             run {
-                                let r = await PrinterLink.requestKey(probe) { s in result = "Allow zslice on the printer (\(s) s)…" }
+                                let id = Signer.keyID
+                                let r = await PrinterLink.requestKey(probe) { s in
+                                    result = "Allow zslice on the printer (\(s) s)…" + (id.isEmpty ? "" : " The deck shows the key \(id): check that it is the same.")
+                                }
                                 if let k = r.key { key = k }
                                 return r
                             }

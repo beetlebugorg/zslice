@@ -415,6 +415,21 @@ final class Workspace {
             selectPart(i)
             model.settingsChanged()
         }
+        // ZSLICE_SIGN_TEST=1 signs the G-code of the plate, and checks it,
+        // and checks a copy with one byte changed.
+        if env["ZSLICE_SIGN_TEST"] != nil, let g = model.gcode(), let pk = Signer.publicKey {
+            let signed = Signer.sign(g)
+            func verify(_ d: Data) -> (Int32, String) {
+                var result: Int32 = -1
+                var id = [CChar](repeating: 0, count: 17)
+                _ = d.withUnsafeBytes { zs_verify_gcode($0.bindMemory(to: UInt8.self).baseAddress, $0.count, pk, &result, &id) }
+                return (result, id.withUnsafeBufferPointer { coreText($0.baseAddress) })
+            }
+            var bad = signed
+            bad[bad.count / 2] ^= 1
+            let last = String(decoding: signed.suffix(120), as: UTF8.self).split(separator: "\n").last ?? ""
+            NSLog("zslice sign: key %@; last line %@; good %d (%@); changed %d", Signer.keyID, String(last.prefix(60)), verify(signed).0, verify(signed).1, verify(bad).0)
+        }
         // ZSLICE_RECORD=path.mov records the demo of Recorder.swift.
         if let path = env["ZSLICE_RECORD"] {
             Task { @MainActor in await Recorder.record(self, to: URL(fileURLWithPath: path)) }
@@ -1063,7 +1078,9 @@ final class Workspace {
 
     /// Sends G-code to a printer of any kind, and starts it with `print`.
     /// The caller asked the user that the plate is clear.
-    func transfer(_ gcode: Data, title: String, to p: Printer, print: Bool) async -> LinkResult {
+    func transfer(_ unsigned: Data, title: String, to p: Printer, print: Bool) async -> LinkResult {
+        // Each print that leaves the app is signed (Signing.swift).
+        let gcode = Signer.sign(unsigned)
         guard p.kind == .bambu else {
             return await PrinterLink.send(p, filename: title + ".gcode", gcode: gcode, print: print)
         }
@@ -1080,7 +1097,7 @@ final class Workspace {
             try await BambuLink.upload(p, name: file, data: bytes, pinned: &pinned)
             if print { try await BambuLink.start(p, file: file, title: title, gcode: gcode, pinned: &pinned) }
             if let pinned { showNote("zslice trusts the certificate of \(p.name) from now on (SHA-256 \(pinned.prefix(11))…)", seconds: 8) }
-            return LinkResult(ok: true, message: print ? "Printing on \(p.name)" : "Uploaded to \(p.name)")
+            return LinkResult(ok: true, message: (print ? "Printing on \(p.name)" : "Uploaded to \(p.name)") + ". Not verified: Bambu printers do not check signatures.")
         } catch {
             return LinkResult(ok: false, message: error.localizedDescription)
         }
@@ -1099,7 +1116,7 @@ final class Workspace {
             showNote("The test print did not work")
             return
         }
-        let data = Data(bytes: out, count: len)
+        let data = Signer.sign(Data(bytes: out, count: len))
         zs_buffer_free(out, len)
         let panel = NSSavePanel()
         panel.allowedContentTypes = [.gcode]
@@ -1170,7 +1187,8 @@ final class Workspace {
 
     /// Exports the G-code of the last slice with a save panel.
     func exportGcode(from window: NSWindow?) {
-        guard let data = model.gcode(), goOnOffBed() else { return }
+        guard let unsigned = model.gcode(), goOnOffBed() else { return }
+        let data = Signer.sign(unsigned)
         let panel = NSSavePanel()
         panel.allowedContentTypes = [.gcode]
         panel.nameFieldStringValue = model.gcodeName() + ".gcode"

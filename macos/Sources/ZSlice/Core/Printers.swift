@@ -215,14 +215,14 @@ enum Keychain {
         return String(data: d, encoding: .utf8)
     }
 
-    static func write(_ value: String, account: String) {
+    static func write(_ value: String, account: String, label: String = "zslice printer API key") {
         let q: [String: Any] = [kSecClass as String: kSecClassGenericPassword, kSecAttrService as String: service,
                                 kSecAttrAccount as String: account]
         SecItemDelete(q as CFDictionary)
         guard !value.isEmpty else { return }
         var add = q
         add[kSecValueData as String] = Data(value.utf8)
-        add[kSecAttrLabel as String] = "zslice printer API key"
+        add[kSecAttrLabel as String] = label
         SecItemAdd(add as CFDictionary, nil)
     }
 }
