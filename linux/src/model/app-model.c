@@ -1567,6 +1567,13 @@ gint64 zg_model_part_fill(ZgModel *self, size_t i, size_t n, size_t *plates) {
     return r;
 }
 
+gboolean zg_model_edit_line(ZgModel *self, gint64 path, int kind, double value) {
+    if (path < 0 || zs_app_edit_add(self->core, (size_t)path, kind, value) != ZS_OK) return FALSE;
+    zg_model_select(self, -1);
+    plate_changed(self);
+    return TRUE;
+}
+
 gint64 zg_model_part_to_new_plate(ZgModel *self, size_t i) {
     ptrdiff_t to = zs_set_part_move(self->set, zs_set_active(self->set), i, -1);
     if (to < 0) return -1;

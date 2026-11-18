@@ -1072,6 +1072,12 @@ static gboolean part_key(Preview *p, guint key, GdkModifierType mods) {
         return TRUE;
     }
     gint64 i = zg_model_selected_part(p->model);
+    /* A selected line and no part: Delete takes the line out of the print
+     * (an edit, kept across slices). */
+    if (i < 0 && (key == GDK_KEY_Delete || key == GDK_KEY_KP_Delete) && zg_model_selected(p->model) >= 0) {
+        zg_model_edit_line(p->model, zg_model_selected(p->model), 0, 1);
+        return TRUE;
+    }
     zs_part part;
     if (i < 0 || zs_app_part_get(core, (size_t)i, &part) != ZS_OK) return FALSE;
     if (key == GDK_KEY_d || key == GDK_KEY_D) {

@@ -222,6 +222,15 @@ static void on_close(GtkButton *b, gpointer data) {
     zg_model_select(c->model, -1);
 }
 
+/* The edit buttons of the card: kind and value by the button. */
+static void on_edit(GtkButton *b, gpointer data) {
+    LineCard *c = data;
+    static const int kinds[] = {0, 1, 1};
+    static const double values[] = {1, 0.9, 1.1};
+    int k = GPOINTER_TO_INT(g_object_get_data(G_OBJECT(b), "zg-edit"));
+    zg_model_edit_line(c->model, zg_model_selected(c->model), kinds[k], values[k]);
+}
+
 static void on_fade(GtkToggleButton *b, gpointer data) {
     LineCard *c = data;
     if (c->quiet) return;
@@ -297,6 +306,22 @@ GtkWidget *zg_line_card_new(ZgModel *model, GtkWidget *preview) {
     gtk_box_append(GTK_BOX(foot), c->fade);
     gtk_box_append(GTK_BOX(foot), more);
     gtk_box_append(GTK_BOX(c->card), foot);
+    /* The segment editor: an edit of this line alone, kept across slices. */
+    GtkWidget *edits = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 6);
+    static const struct { const char *label, *tip; int kind; double value; } eds[] = {
+        {"Don't print this line", "Take this line out of the print (Delete). The edit stays, and applies again to a new slice that makes the same line.", 0, 1},
+        {"−10 % plastic", "This line with 10 % less plastic", 1, 0.9},
+        {"+10 % plastic", "This line with 10 % more plastic, for a gap", 1, 1.1},
+    };
+    for (size_t k = 0; k < G_N_ELEMENTS(eds); k++) {
+        GtkWidget *b = gtk_button_new_with_label(eds[k].label);
+        gtk_widget_add_css_class(b, "flat");
+        gtk_widget_set_tooltip_text(b, eds[k].tip);
+        g_object_set_data(G_OBJECT(b), "zg-edit", GINT_TO_POINTER((int)k));
+        g_signal_connect(b, "clicked", G_CALLBACK(on_edit), c);
+        gtk_box_append(GTK_BOX(edits), b);
+    }
+    gtk_box_append(GTK_BOX(c->card), edits);
     GtkEventController *keys = gtk_event_controller_key_new();
     g_signal_connect(keys, "key-pressed", G_CALLBACK(on_key), c);
     gtk_widget_add_controller(c->card, keys);

@@ -53,6 +53,7 @@ static const Group SHORTCUTS[] = {
         {"Page Up, Page Down (Turn tool)", "Tilt the selected part about Y, 15° (with Shift: 5°)"},
         {"[, ] (a part)", "Turn the selected part 15° on the bed (with Shift: 1°)"},
         {"D", "Duplicate the selected part"},
+        {"Delete (a selected line)", "Take the line out of the print: an edit, kept across slices"},
         {"Delete", "Remove the selected part"},
         {"Shift+click", "Add a line to the selection"},
         {"Shift (measure)", "No snap"},
