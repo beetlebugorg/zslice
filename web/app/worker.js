@@ -387,6 +387,8 @@ function tinyParts(c) {
 const PLATE_OPS = new Set(["load", "add", "plate", "projectLoad", "partAction", "partCut", "partMove", "partFill", "partToPlate", "editAdd", "editDot", "editRemove", "partSettingSet", "partPutDown", "partTurn", "putDown", "place", "partMove", "partRotate", "partScale", "partSettle", "markAdd", "markRemoveNear", "markSet", "markRemove", "marksClear", "supportAreaAdd", "supportAreaSet", "supportAreaKind", "supportAreaRemove"]);
 
 const ops = {
+  // ---- the model and the plate: open, add, and arrange ----
+
   async init({ module, saved, mode: m }) {
     mode = m ?? 0;
     wasm = await Wasm.create(module, () => {}, onSetEvent);
@@ -421,6 +423,78 @@ const ops = {
     wasm.withString(name, (n) => wasm.x.zs_set_name(set, activeIndex(), n));
     wantSlice();
     return { info: core.modelInfo() };
+  },
+
+  add({ name, bytes }) {
+    core.addStl(name, new Uint8Array(bytes));
+    wantSlice();
+    return { info: core.modelInfo(), parts: core.w.x.zs_app_part_count(core.app) };
+  },
+
+  plate({ action }) {
+    const x = core.w.x;
+    if (action === "smart") x.zs_app_plate_smart_place(core.app);
+    else if (action === "arrange") x.zs_app_plate_arrange(core.app);
+    else if (action === "clear") {
+      x.zs_app_plate_clear(core.app);
+      clearIfEmpty();
+      return {};
+    }
+    wantSlice();
+    return {};
+  },
+
+  // ---- the settings ----
+
+  set({ name, value }) {
+    const error = core.set(name, value);
+    if (!error) wantSlice();
+    return { error, ...settingsState() };
+  },
+
+  reset({ name }) {
+    const error = core.reset(name);
+    if (!error) wantSlice();
+    return { error, ...settingsState() };
+  },
+
+  quality({ name }) {
+    const error = core.setQuality(name, true);
+    if (!error) wantSlice();
+    return { error, ...settingsState() };
+  },
+
+  profile({ group, text }) {
+    const error = core.loadProfile(group, text);
+    if (!error) wantSlice();
+    return { error, ...settingsState() };
+  },
+
+  // A new color mode: the scenes again, with no new slice.
+  mode({ value }) {
+    mode = value;
+    wasm.x.zs_set_view_mode(set, mode);
+    const i = activeIndex();
+    if (plateInfo(i)?.status === "done") sendResult(i, 0);
+    postPlates();
+    return {};
+  },
+
+  setScoped({ name, value, zmin, zmax, perLayer }) {
+    const error = core.setScoped(name, value, zmin, zmax, perLayer);
+    if (!error) wantSlice();
+    return { error, ...settingsState() };
+  },
+
+  resetScoped({ name, zmin, zmax, z }) {
+    const error = core.resetScoped(name, zmin, zmax, z);
+    if (!error) wantSlice();
+    return { error, ...settingsState() };
+  },
+
+  slice() {
+    wantSlice();
+    return {};
   },
 
   // ---- the plate set ----
@@ -458,43 +532,36 @@ const ops = {
     return { ok, index: activeIndex(), info: core.modelInfo(), parts: core.w.x.zs_app_part_count(core.app), ...settingsState() };
   },
 
-  set({ name, value }) {
-    const error = core.set(name, value);
-    if (!error) wantSlice();
-    return { error, ...settingsState() };
+  // The sums of the plates (zs_set_totals).
+  totals() {
+    const w = wasm;
+    const p = w.alloc(80);
+    try {
+      if (w.x.zs_set_totals(set, p) !== 0) return null;
+      // zs_totals on wasm32: 4 sizes of 4 bytes, then 6 doubles at 16.
+      return {
+        plates: w.u32(p), sliced: w.u32(p + 4), missing: w.u32(p + 8), parts: w.u32(p + 12),
+        timeS: w.f64(p + 16), filamentG: w.f64(p + 24), filamentMm: w.f64(p + 32),
+        costFilament: w.f64(p + 40), costMachine: w.f64(p + 48), cost: w.f64(p + 56),
+      };
+    } finally {
+      w.free(p, 80);
+    }
   },
 
-  reset({ name }) {
-    const error = core.reset(name);
-    if (!error) wantSlice();
-    return { error, ...settingsState() };
-  },
-
-  quality({ name }) {
-    const error = core.setQuality(name, true);
-    if (!error) wantSlice();
-    return { error, ...settingsState() };
-  },
-
-  profile({ group, text }) {
-    const error = core.loadProfile(group, text);
-    if (!error) wantSlice();
-    return { error, ...settingsState() };
-  },
-
-  // A new color mode: the scenes again, with no new slice.
-  mode({ value }) {
-    mode = value;
-    wasm.x.zs_set_view_mode(set, mode);
-    const i = activeIndex();
-    if (plateInfo(i)?.status === "done") sendResult(i, 0);
-    postPlates();
-    return {};
-  },
-
-  slice() {
-    wantSlice();
-    return {};
+  // The time and the filament of each plate with a slice (zs_set_plate_totals).
+  plateTotals() {
+    const w = wasm;
+    const out = [];
+    const p = w.alloc(80);
+    try {
+      for (let i = 0; i < w.x.zs_set_count(set); i++) {
+        out.push(w.x.zs_set_plate_totals(set, i, p) === 0 && w.u32(p + 4) > 0 ? { timeS: w.f64(p + 16), filamentG: w.f64(p + 24) } : null);
+      }
+    } finally {
+      w.free(p, 80);
+    }
+    return { totals: out };
   },
 
   // ---- a selected line ----
@@ -512,16 +579,53 @@ const ops = {
     return { text: core.lineReport(path) };
   },
 
-  setScoped({ name, value, zmin, zmax, perLayer }) {
-    const error = core.setScoped(name, value, zmin, zmax, perLayer);
-    if (!error) wantSlice();
-    return { error, ...settingsState() };
+  // ---- the edits of the user (the line card) ----
+
+  // An edit of the user on line `path` (zs_app_edit_add), then a slice.
+  // With a key (read when the line was selected), it works while a slice
+  // runs.
+  editAdd({ path, key, layer, kind, value }) {
+    const rc = key && key !== "0"
+      ? core.w.x.zs_app_edit_add_key(core.app, BigInt(key), layer ?? 0, kind, value)
+      : core.w.x.zs_app_edit_add(core.app, path, kind, value);
+    if (rc !== 0) return { ok: false, rc };
+    wantSlice();
+    return { ok: true, count: core.w.x.zs_app_edit_count(core.app) };
   },
 
-  resetScoped({ name, zmin, zmax, z }) {
-    const error = core.resetScoped(name, zmin, zmax, z);
-    if (!error) wantSlice();
-    return { error, ...settingsState() };
+  // A drop of plastic on layer `layer` at (x, y), d mm wide
+  // (zs_app_edit_add_dot), then a slice.
+  editDot({ layer, z, x, y, d }) {
+    const rc = z != null
+      ? core.w.x.zs_app_edit_add_dot_z(core.app, layer, z, x, y, d)
+      : core.w.x.zs_app_edit_add_dot(core.app, layer, x, y, d);
+    if (rc !== 0) return { ok: false };
+    wantSlice();
+    return { ok: true };
+  },
+
+  // The edits of the user: [{ kind, value, layer, applied }].
+  edits() {
+    const w = core.w;
+    const n = w.x.zs_app_edit_count(core.app);
+    const out = [];
+    const p = w.alloc(32);
+    try {
+      for (let i = 0; i < n; i++) {
+        if (w.x.zs_app_edit_get(core.app, i, p, p + 8, p + 16, p + 20) !== 0) continue;
+        out.push({ kind: w.i32(p), value: w.f64(p + 8), layer: w.u32(p + 16), applied: w.i32(p + 20) === 1 });
+      }
+    } finally {
+      w.free(p, 32);
+    }
+    return out;
+  },
+
+  // Removes edit i, then a slice.
+  editRemove({ index }) {
+    const rc = core.w.x.zs_app_edit_remove(core.app, index);
+    if (rc === 0) wantSlice();
+    return { ok: rc === 0 };
   },
 
   // ---- undo and the history ----
@@ -574,7 +678,7 @@ const ops = {
     return { error: rc === 0 ? "" : (rc === 15 ? "A move of a part cannot be undone alone: go to the step before it." : `The change was not undone (${rc}).`), ...settingsState() };
   },
 
-  // ---- the tools: move a part, and measure ----
+  // ---- the parts: move, turn, and the card (tools.js, turn.js, partcard.js) ----
 
   // The part of a line (path >= 0), or else the part at x, y on the bed
   // (bed: false for no bed point), or null.
@@ -607,14 +711,136 @@ const ops = {
     return { part: core.part(index) };
   },
 
+  // Turns part `index` about X (axis 0) or Y (axis 1) by `degrees`, or
+  // about Z (axis 2): the Turn tool.
+  partTurn({ index, axis, degrees, hold }) {
+    const x = core.w.x;
+    let rc;
+    if (axis === 2) {
+      const p = core.part(index);
+      if (!p) return { part: null };
+      rc = x.zs_app_part_rotate(core.app, index, p.rotation + degrees);
+    } else {
+      rc = x.zs_app_part_turn(core.app, index, axis, degrees);
+    }
+    if (rc === 0) sliceOrHold(hold);
+    return { part: core.part(index) };
+  },
+
+  // Physics after a turn: the part falls over if it cannot stand, and
+  // rolls until it rests (with support on, it stays). degrees: the fall.
+  partSettle({ index }) {
+    const deg = core.w.x.zs_app_part_settle(core.app, index);
+    return { part: core.part(index), degrees: deg > 0 ? deg : 0 };
+  },
+
+  // The end of a drag or of the keys of a part: the slice that waited.
+  sliceHeld() {
+    wasm.x.zs_set_release(set);
+    schedule();
+    return {};
+  },
+
+  // Lays part `index` down on the side nearest to the point x, y, z (mm)
+  // of its surface (a double click on a side).
+  partPutDown({ index, x, y, z }) {
+    if (core.w.x.zs_app_part_put_down_at(core.app, index, x, y, z) === 0) wantSlice();
+    return { part: core.part(index) };
+  },
+
+  // The part of a path: "Put this side on the bed", and its placement.
+  putDown({ path, seg }) {
+    const part = core.partOfPath(path);
+    const pt = core.pathPoint(path, seg);
+    if (part < 0 || !pt) return {};
+    if (core.w.x.zs_app_part_put_down_at(core.app, part, pt[0], pt[1], pt[2]) === 0) wantSlice();
+    return {};
+  },
+
+  place({ path, code }) {
+    const part = core.partOfPath(path);
+    if (part < 0) return {};
+    // 0 smart, 1 less support, 10 + axis: strong along that axis.
+    const rc = code >= 10 ? core.w.x.zs_app_part_place(core.app, part, 2, code - 10) : core.w.x.zs_app_part_place(core.app, part, code, 0);
+    if (rc === 0) wantSlice();
+    return {};
+  },
+
+  partAction({ index, action }) {
+    const r = core.partAction(index, action);
+    // A split of one body changes nothing.
+    if (action === "split" && r === 0) return { ok: false, part: core.part(index), message: "The part has one body: nothing to split." };
+    if (r >= 0 && !clearIfEmpty()) wantSlice();
+    const n = core.w.x.zs_app_part_count(core.app);
+    const at = action === "duplicate" && r >= 0 ? r : index;
+    return { ok: r >= 0, count: action === "split" ? r : 0, part: action === "remove" || at >= n ? null : core.part(at) };
+  },
+
+  // Cuts part `index` at height z (mm above the bed): two parts, at index
+  // and index + 1 (zs_app_part_cut). flip: the top goes onto its cut face.
+  // pegs: the most pegs (0: none), pegD: their diameter (mm).
+  partCut({ index, z, flip, pegs, pegD }) {
+    const r = core.w.x.zs_app_part_cut(core.app, index, z, flip ? 1 : 0, pegs ?? 0, pegD ?? 5);
+    if (r <= 0) return { ok: false, message: r === 0 ? "The plane does not cut the part." : "The cut failed." };
+    wantSlice();
+    return { ok: true, pegs: r - 2, fits: core.w.x.zs_app_plate_fits(core.app) === 1, part: core.part(index) };
+  },
+
+  // The part `dir` steps from part `index` (Tab and Shift+Tab), around
+  // the plate. index -1: the first part (or the last, for dir < 0).
+  partStep({ index, dir }) {
+    const n = core.w.x.zs_app_part_count(core.app);
+    if (n === 0) return { part: null };
+    const j = index < 0 ? (dir > 0 ? 0 : n - 1) : (((index + dir) % n) + n) % n;
+    return { part: core.part(j) };
+  },
+
+  partSettings({ index }) {
+    return { list: core.partSettings(index) };
+  },
+
+  partSettingSet({ index, name, value }) {
+    const error = core.setPartSetting(index, name, value);
+    if (!error) wantSlice();
+    return { error, value: core.partSetting(index, name), list: core.partSettings(index) };
+  },
+
+  // Copies of part `index` until there are n in all, over new plates when
+  // the bed is full (zs_set_fill). Returns { ok, copies, plates }.
+  partFill({ index, n }) {
+    commitPending();
+    const w = wasm;
+    const r = w.x.zs_set_fill(set, activeIndex(), index, n, w.cell);
+    if (r < 0) return { ok: false };
+    const plates = w.u32(w.cell);
+    syncCore();
+    postPlates();
+    wantSlice();
+    return { ok: true, copies: r, plates };
+  },
+
+  // Moves part `index` of the active plate to plate `to` (-1: a new
+  // plate). Returns { ok, to }.
+  partToPlate({ index, to }) {
+    commitPending();
+    const r = wasm.x.zs_set_part_move(set, activeIndex(), index, to);
+    if (r < 0) return { ok: false };
+    syncCore();
+    postPlates();
+    // The plate that gets the part slices in the background.
+    if (clearIfEmpty()) schedule();
+    else wantSlice();
+    return { ok: true, to: r };
+  },
+
+  // ---- the measure tape and the printability check ----
+
   // The measurements of a line at its segment (for a circle or an arc
   // under the measure tape).
   measureAt({ path, seg }) {
     if (core.state() !== STATE.done) return { m: null };
     return { m: core.measure(path, seg) };
   },
-
-  // ---- the printability check ----
 
   // The issues of the slice. It runs when the list opens, so a slice
   // stays fast.
@@ -646,7 +872,7 @@ const ops = {
     return { index, gap, steps: core.gapAdvice(layer, index) };
   },
 
-  // ---- the context menu ----
+  // ---- the support marks (the context menu) ----
 
   // Support marks at the selected segment (view3d.c: mark_place).
   markAdd({ path, seg, kind }) {
@@ -712,122 +938,7 @@ const ops = {
     return { areas: core.supportAreas() };
   },
 
-  // The part of a path: "Put this side on the bed", and its placement.
-  putDown({ path, seg }) {
-    const part = core.partOfPath(path);
-    const pt = core.pathPoint(path, seg);
-    if (part < 0 || !pt) return {};
-    if (core.w.x.zs_app_part_put_down_at(core.app, part, pt[0], pt[1], pt[2]) === 0) wantSlice();
-    return {};
-  },
-
-  place({ path, code }) {
-    const part = core.partOfPath(path);
-    if (part < 0) return {};
-    // 0 smart, 1 less support, 10 + axis: strong along that axis.
-    const rc = code >= 10 ? core.w.x.zs_app_part_place(core.app, part, 2, code - 10) : core.w.x.zs_app_part_place(core.app, part, code, 0);
-    if (rc === 0) wantSlice();
-    return {};
-  },
-
-  add({ name, bytes }) {
-    core.addStl(name, new Uint8Array(bytes));
-    wantSlice();
-    return { info: core.modelInfo(), parts: core.w.x.zs_app_part_count(core.app) };
-  },
-
-  plate({ action }) {
-    const x = core.w.x;
-    if (action === "smart") x.zs_app_plate_smart_place(core.app);
-    else if (action === "arrange") x.zs_app_plate_arrange(core.app);
-    else if (action === "clear") {
-      x.zs_app_plate_clear(core.app);
-      clearIfEmpty();
-      return {};
-    }
-    wantSlice();
-    return {};
-  },
-
-  // ---- one part (partcard.js) ----
-
-  partAction({ index, action }) {
-    const r = core.partAction(index, action);
-    // A split of one body changes nothing.
-    if (action === "split" && r === 0) return { ok: false, part: core.part(index), message: "The part has one body: nothing to split." };
-    if (r >= 0 && !clearIfEmpty()) wantSlice();
-    const n = core.w.x.zs_app_part_count(core.app);
-    const at = action === "duplicate" && r >= 0 ? r : index;
-    return { ok: r >= 0, count: action === "split" ? r : 0, part: action === "remove" || at >= n ? null : core.part(at) };
-  },
-
-  // Cuts part `index` at height z (mm above the bed): two parts, at index
-  // and index + 1 (zs_app_part_cut). flip: the top goes onto its cut face.
-  // pegs: the most pegs (0: none), pegD: their diameter (mm).
-  partCut({ index, z, flip, pegs, pegD }) {
-    const r = core.w.x.zs_app_part_cut(core.app, index, z, flip ? 1 : 0, pegs ?? 0, pegD ?? 5);
-    if (r <= 0) return { ok: false, message: r === 0 ? "The plane does not cut the part." : "The cut failed." };
-    wantSlice();
-    return { ok: true, pegs: r - 2, fits: core.w.x.zs_app_plate_fits(core.app) === 1, part: core.part(index) };
-  },
-
-  // The part `dir` steps from part `index` (Tab and Shift+Tab), around
-  // the plate. index -1: the first part (or the last, for dir < 0).
-  partStep({ index, dir }) {
-    const n = core.w.x.zs_app_part_count(core.app);
-    if (n === 0) return { part: null };
-    const j = index < 0 ? (dir > 0 ? 0 : n - 1) : (((index + dir) % n) + n) % n;
-    return { part: core.part(j) };
-  },
-
-  // Turns part `index` about X (axis 0) or Y (axis 1) by `degrees`, or
-  // about Z (axis 2): the Turn tool.
-  partTurn({ index, axis, degrees, hold }) {
-    const x = core.w.x;
-    let rc;
-    if (axis === 2) {
-      const p = core.part(index);
-      if (!p) return { part: null };
-      rc = x.zs_app_part_rotate(core.app, index, p.rotation + degrees);
-    } else {
-      rc = x.zs_app_part_turn(core.app, index, axis, degrees);
-    }
-    if (rc === 0) sliceOrHold(hold);
-    return { part: core.part(index) };
-  },
-
-  // Physics after a turn: the part falls over if it cannot stand, and
-  // rolls until it rests (with support on, it stays). degrees: the fall.
-  partSettle({ index }) {
-    const deg = core.w.x.zs_app_part_settle(core.app, index);
-    return { part: core.part(index), degrees: deg > 0 ? deg : 0 };
-  },
-
-  // Lays part `index` down on the side nearest to the point x, y, z (mm)
-  // of its surface (a double click on a side).
-  partPutDown({ index, x, y, z }) {
-    if (core.w.x.zs_app_part_put_down_at(core.app, index, x, y, z) === 0) wantSlice();
-    return { part: core.part(index) };
-  },
-
-  // The end of a drag or of the keys of a part: the slice that waited.
-  sliceHeld() {
-    wasm.x.zs_set_release(set);
-    schedule();
-    return {};
-  },
-
-  partSettings({ index }) {
-    return { list: core.partSettings(index) };
-  },
-
-  partSettingSet({ index, name, value }) {
-    const error = core.setPartSetting(index, name, value);
-    if (!error) wantSlice();
-    return { error, value: core.partSetting(index, name), list: core.partSettings(index) };
-  },
-
-  // ---- printdeck.yml projects (project.js) ----
+  // ---- printdeck.yml projects (project.js), and the project file ----
 
   projectPlan({ text, counts }) {
     return core.projectPlan(text, counts ?? []);
@@ -880,8 +991,6 @@ const ops = {
     return { results, index: activeIndex(), info: core.modelInfo(), parts: core.w.x.zs_app_part_count(core.app), ...settingsState() };
   },
 
-  // ---- the project file (zs_set_project_*) ----
-
   // All plates as one project file: { bytes, name }.
   projectSave({ name }) {
     commitPending();
@@ -893,23 +1002,6 @@ const ops = {
     const bytes = w.u8.slice(ptr, ptr + len).buffer;
     w.x.zs_buffer_free(ptr, len);
     return { bytes };
-  },
-
-  // The sums of the plates (zs_set_totals).
-  totals() {
-    const w = wasm;
-    const p = w.alloc(80);
-    try {
-      if (w.x.zs_set_totals(set, p) !== 0) return null;
-      // zs_totals on wasm32: 4 sizes of 4 bytes, then 6 doubles at 16.
-      return {
-        plates: w.u32(p), sliced: w.u32(p + 4), missing: w.u32(p + 8), parts: w.u32(p + 12),
-        timeS: w.f64(p + 16), filamentG: w.f64(p + 24), filamentMm: w.f64(p + 32),
-        costFilament: w.f64(p + 40), costMachine: w.f64(p + 48), cost: w.f64(p + 56),
-      };
-    } finally {
-      w.free(p, 80);
-    }
   },
 
   // True if the bytes are a project file of zslice.
@@ -939,85 +1031,12 @@ const ops = {
     return { note, index: activeIndex(), info: core.modelInfo(), ...settingsState() };
   },
 
-  // Copies of part `index` until there are n in all, over new plates when
-  // the bed is full (zs_set_fill). Returns { ok, copies, plates }.
-  partFill({ index, n }) {
-    commitPending();
-    const w = wasm;
-    const r = w.x.zs_set_fill(set, activeIndex(), index, n, w.cell);
-    if (r < 0) return { ok: false };
-    const plates = w.u32(w.cell);
-    syncCore();
-    postPlates();
-    wantSlice();
-    return { ok: true, copies: r, plates };
-  },
-
-  // Moves part `index` of the active plate to plate `to` (-1: a new
-  // plate). Returns { ok, to }.
-  partToPlate({ index, to }) {
-    commitPending();
-    const r = wasm.x.zs_set_part_move(set, activeIndex(), index, to);
-    if (r < 0) return { ok: false };
-    syncCore();
-    postPlates();
-    // The plate that gets the part slices in the background.
-    if (clearIfEmpty()) schedule();
-    else wantSlice();
-    return { ok: true, to: r };
-  },
+  // ---- the files: G-code and 3MF ----
 
   // The plate as a 3MF file, for keep.js.
   plate3mf() {
     const bytes = core.plate3mf();
     return { bytes: bytes ? bytes.buffer : null, name: core.modelName };
-  },
-
-  // An edit of the user on line `path` (zs_app_edit_add), then a slice.
-  // With a key (read when the line was selected), it works while a slice
-  // runs.
-  editAdd({ path, key, layer, kind, value }) {
-    const rc = key && key !== "0"
-      ? core.w.x.zs_app_edit_add_key(core.app, BigInt(key), layer ?? 0, kind, value)
-      : core.w.x.zs_app_edit_add(core.app, path, kind, value);
-    if (rc !== 0) return { ok: false, rc };
-    wantSlice();
-    return { ok: true, count: core.w.x.zs_app_edit_count(core.app) };
-  },
-
-  // A drop of plastic on layer `layer` at (x, y), d mm wide
-  // (zs_app_edit_add_dot), then a slice.
-  editDot({ layer, z, x, y, d }) {
-    const rc = z != null
-      ? core.w.x.zs_app_edit_add_dot_z(core.app, layer, z, x, y, d)
-      : core.w.x.zs_app_edit_add_dot(core.app, layer, x, y, d);
-    if (rc !== 0) return { ok: false };
-    wantSlice();
-    return { ok: true };
-  },
-
-  // The edits of the user: [{ kind, value, layer, applied }].
-  edits() {
-    const w = core.w;
-    const n = w.x.zs_app_edit_count(core.app);
-    const out = [];
-    const p = w.alloc(32);
-    try {
-      for (let i = 0; i < n; i++) {
-        if (w.x.zs_app_edit_get(core.app, i, p, p + 8, p + 16, p + 20) !== 0) continue;
-        out.push({ kind: w.i32(p), value: w.f64(p + 8), layer: w.u32(p + 16), applied: w.i32(p + 20) === 1 });
-      }
-    } finally {
-      w.free(p, 32);
-    }
-    return out;
-  },
-
-  // Removes edit i, then a slice.
-  editRemove({ index }) {
-    const rc = core.w.x.zs_app_edit_remove(core.app, index);
-    if (rc === 0) wantSlice();
-    return { ok: rc === 0 };
   },
 
   // The G-code of plate `index` (each plate keeps the G-code of its last
@@ -1040,21 +1059,6 @@ const ops = {
     const count = w.x.zs_set_count(set);
     const fileName = w.withString(model, (m) => w.readText((b, c, l) => w.x.zs_app_gcode_name(a, m, count > 1 ? index + 1 : 0, b, c, l)));
     return { bytes: w.u8.slice(p, p + n).buffer, name: info?.name ?? "", fileName };
-  },
-
-  // The time and the filament of each plate with a slice (zs_set_plate_totals).
-  plateTotals() {
-    const w = wasm;
-    const out = [];
-    const p = w.alloc(80);
-    try {
-      for (let i = 0; i < w.x.zs_set_count(set); i++) {
-        out.push(w.x.zs_set_plate_totals(set, i, p) === 0 && w.u32(p + 4) > 0 ? { timeS: w.f64(p + 16), filamentG: w.f64(p + 24) } : null);
-      }
-    } finally {
-      w.free(p, 80);
-    }
-    return { totals: out };
   },
 
   // The start or the end G-code of the last slice, with the values of the
