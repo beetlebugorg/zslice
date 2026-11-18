@@ -771,3 +771,31 @@ button.destructive { background: #c01c28; color: #fff; }
 /* A plate of the queue that went to a printer in this session. */
 .farm-qrow.farm-sent .farm-qname { opacity: 0.6; }
 .farm-qrow.farm-sent .farm-qname::before { content: "✓ "; color: #2ea043; }
+
+/* The panel: a title, Pin, and close. */
+.panel-title { flex: 1; min-width: 0; font-weight: 700; padding-left: 6px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+/* The history: a popover over the history bar. */
+.tl-title { background: transparent; border: none; color: inherit; font: inherit; font-weight: 600; padding: 2px 6px; border-radius: 8px; cursor: pointer; min-height: 0; }
+.tl-title:hover { background: rgba(255, 255, 255, 0.1); }
+.history-pop {
+  left: 50%; bottom: 60px; transform: translateX(-50%); z-index: 12;
+  width: min(460px, calc(100% - 24px)); max-height: min(60vh, 560px); overflow-y: auto;
+  border-radius: 12px; padding: 4px 0;
+}
+.history-pop[hidden] { display: none; }
+/* The printers: a page over the view. */
+.farm-view { position: absolute; inset: 0; z-index: 20; background: var(--bg); color: var(--fg, inherit); overflow-y: auto; display: flex; flex-direction: column; }
+.farm-view[hidden] { display: none; }
+.farm-bar { display: flex; align-items: center; gap: 8px; padding: 10px 14px; border-bottom: 1px solid var(--border); }
+.farm-view .page { padding: 14px 18px; max-width: 1200px; width: 100%; box-sizing: border-box; }
+.farm-view .farm-grid { grid-template-columns: repeat(auto-fill, minmax(240px, 1fr)); }
+#printers-page[aria-pressed="true"] { background: var(--button-active); }
+/* The project: a dialog. */
+.project-dialog { width: min(620px, calc(100vw - 32px)); max-height: calc(100vh - 64px); padding: 0; border: none; border-radius: 12px; background: var(--bg); color: inherit; }
+.project-dialog::backdrop { background: rgba(0, 0, 0, 0.45); }
+.project-dialog .page { padding: 12px 16px 18px; }
+@media (max-width: 640px) { #printers-page { display: none; } }
+/* The back arrow of the settings shows only where it goes back. */
+#crumb-back:disabled { display: none; }
+.panel-top .crumbs { flex: 1; min-width: 0; }
+.panel-top [hidden] { display: none !important; }

@@ -85,7 +85,7 @@ export class HistoryPage {
       tool("↶", "Undo (Ctrl+Z)", now > 0, () => this.ctx.undoRedo("undo")),
       tool("↷", "Redo (Ctrl+Shift+Z)", now + 1 < n, () => this.ctx.undoRedo("redo")),
       el("span", "tl-sep"),
-      el("span", "tl-title", "History"),
+      Object.assign(el("button", "tl-title", "History"), { title: "Show the list of the changes", onclick: () => this.ctx.toggle?.() }),
     ];
     if (n <= 1) {
       parts.push(el("span", "tl-empty", "Your changes show here"));

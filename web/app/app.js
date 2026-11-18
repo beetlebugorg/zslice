@@ -1169,6 +1169,10 @@ $("main-menu").onclick = () => openMenu($("main-menu"), [
   { label: "Export G-code…", disabled: app.state !== "done", action: exportGcode },
   { label: "Remove this plate", action: () => removePlate(app.activePlate) },
   { sep: true },
+  { label: "Open a project…", action: () => showTab("project") },
+  { label: "Printers", action: () => showFarm(true) },
+  { label: "History", action: () => toggleHistory(true) },
+  { sep: true },
   { label: "Licenses", action: showLicenses },
   { label: "About zslice", action: () => toast(`zslice ${wasm.cstr(wasm.x.zs_version())}: a slicer in Zig, in WebAssembly. AGPL-3.0-or-later.`) },
 ]);
@@ -1196,31 +1200,66 @@ function showLicenses() {
   d.showModal();
 }
 
-// ---- the panel tabs ----
+// ---- the panel and the pages ----
 
+// The panel has the settings, and the long form of the selected line
+// (with one back arrow to the settings). The history is a popover over
+// the history bar, the project a dialog, and the printers a page over the
+// view.
 function showTab(name) {
+  if (name === "history") {
+    toggleHistory(true);
+    return;
+  }
+  if (name === "project") {
+    const d = $("project-dialog");
+    if (!d.open) d.showModal();
+    return;
+  }
+  if (name === "farm") {
+    showFarm(true);
+    return;
+  }
   showPanel();
-  $("tab-settings").classList.toggle("checked", name === "settings");
-  $("tab-selected").classList.toggle("checked", name === "selected");
-  $("tab-history").classList.toggle("checked", name === "history");
-  $("tab-project").classList.toggle("checked", name === "project");
-  $("tab-farm").classList.toggle("checked", name === "farm");
-  $("page-project").hidden = name !== "project";
-  $("page-farm").hidden = name !== "farm";
-  if (name === "farm") farm.start();
-  else farm.stop();
-  $("page-settings").hidden = name !== "settings";
-  $("page-selected").hidden = name !== "selected";
-  $("page-history").hidden = name !== "history";
-  if (name === "history") history.refresh();
+  const selected = name === "selected";
+  $("page-settings").hidden = selected;
+  $("page-selected").hidden = !selected;
+  // One back arrow: to the settings from the selected line, else the
+  // arrow of the settings (it hides at their first column).
+  $("selected-back").hidden = !selected;
+  $("crumb-back").hidden = selected;
+  $("crumbs").hidden = selected;
+  $("panel-title").hidden = !selected;
   updateFocus();
 }
-$("tab-settings").onclick = () => showTab("settings");
-$("tab-selected").onclick = () => showTab("selected");
-$("tab-history").onclick = () => showTab("history");
-$("tab-project").onclick = () => showTab("project");
-$("tab-farm").onclick = () => showTab("farm");
-$("panel-back").onclick = () => browser.back();
+$("selected-back").onclick = () => showTab("settings");
+
+// The history popover: open (true), closed (false), or the other state.
+function toggleHistory(open) {
+  const pop = $("history-pop");
+  const show = open ?? pop.hidden;
+  pop.hidden = !show;
+  if (show) history.refresh();
+}
+document.addEventListener("pointerdown", (e) => {
+  const pop = $("history-pop");
+  if (pop.hidden || pop.contains(e.target) || $("timeline").contains(e.target)) return;
+  pop.hidden = true;
+});
+
+// The Printers page over the view: the tiles read the printers only while
+// it shows.
+function showFarm(show) {
+  $("farm-view").hidden = !show;
+  // The page has the width of the window.
+  if (show && panelMode() === "overlay") setPanelMode("hidden");
+  $("printers-page").setAttribute("aria-pressed", String(show));
+  if (show) farm.start();
+  else farm.stop();
+}
+$("printers-page").onclick = () => showFarm($("farm-view").hidden);
+$("farm-back").onclick = () => showFarm(false);
+$("project-close").onclick = () => $("project-dialog").close();
 
 // ---- the 2D and the 3D view ----
 
@@ -1725,9 +1764,10 @@ const history = new HistoryPage($("page-history"), {
     browser.openSetting(name);
   },
   toast,
-  visible: () => !$("page-history").hidden,
+  visible: () => !$("history-pop").hidden,
   timeline: $("timeline"),
   undoRedo: (op) => undoRedo(op),
+  toggle: () => toggleHistory(),
 });
 
 // ---- printdeck.yml projects ----
@@ -2564,7 +2604,8 @@ const search = new SearchOverlay({
     { label: "Open a project", hint: "printdeck.yml from GitHub or a folder", run: () => showTab("project") },
     { label: "History", hint: "the changes, undo one change", run: () => showTab("history") },
     { label: "Keyboard shortcuts", keys: "?", run: () => shortcuts.show() },
-    { label: "All settings", keys: "N", hint: "the panel of the settings, the selected line, the history, and the project", run: () => showTab("settings") },
+    { label: "All settings", keys: "N", hint: "the panel of the settings", run: () => showTab("settings") },
+    { label: "Printers", hint: "your printers, their jobs, and the plates to print", run: () => showFarm(true) },
   ],
 });
 const shortcuts = new ShortcutSheet();
