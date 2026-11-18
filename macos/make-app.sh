@@ -13,5 +13,7 @@ rm -rf "$app"
 mkdir -p "$app/Contents/MacOS" "$app/Contents/Resources"
 cp "$bin/ZSlice" "$app/Contents/MacOS/zslice"
 cp Info.plist "$app/Contents/Info.plist"
+# The bed models of the printers (src/printers/beds; see REFERENCES.md).
+cp -R ../src/printers/beds "$app/Contents/Resources/beds"
 codesign --force --sign - "$app"
 echo "$app"

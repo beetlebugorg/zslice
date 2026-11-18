@@ -40,6 +40,11 @@ final class Workspace {
 
     static let speeds: [Double] = [1, 2, 5, 10, 25, 50, 100]
 
+    /// The state of the last send to the printer, for the print card.
+    var sendState: String?
+    /// The sheet of the printer picker shows.
+    var pickerOpen = false
+
     // The tools (Tools.swift).
     var tool = Tool.select
     var selectedPart: Int?
@@ -90,6 +95,11 @@ final class Workspace {
         if ProcessInfo.processInfo.environment["ZSLICE_PANEL"] != nil { showSettings = true }
         // ZSLICE_SEARCH=text opens the search with that text (the field reads it).
         if ProcessInfo.processInfo.environment["ZSLICE_SEARCH"] != nil { searchOpen = true }
+        // ZSLICE_PRINTER=id: the printer of that model of the library.
+        if let id = ProcessInfo.processInfo.environment["ZSLICE_PRINTER"], let i = PrinterLibrary.shared.find(id: id),
+           let m = PrinterLibrary.shared.model(i), let prof = PrinterLibrary.shared.profile(i) {
+            usePrinter(Printer(name: coreText(m.title), model: id, machine: prof))
+        }
         // ZSLICE_GAPS=1 shows the gaps, and ZSLICE_CHECK=1 the check.
         if ProcessInfo.processInfo.environment["ZSLICE_GAPS"] != nil { gapsOn = true }
         if ProcessInfo.processInfo.environment["ZSLICE_CHECK"] != nil { checkOpen = true }
@@ -111,6 +121,8 @@ final class Workspace {
         stopReplay()
         if let v = canvas.view { zs_view_set_mode(v, Int32(colorMode)) }
         canvas.load(model.core)
+        // The bed model of the printer (it needs the bed size of the load).
+        if let v = canvas.view { PrinterLibrary.shared.showBed(of: model.core, in: v) }
         readLegend()
         var tp = zs_toolpaths()
         guard zs_app_toolpaths(model.core, &tp) == 0 else { return }
@@ -523,6 +535,39 @@ final class Workspace {
         } else if let v = canvas.view {
             zs_view_reset_smooth(v)
             canvas.startAnimation()
+        }
+    }
+
+    // MARK: - the printer
+
+    /// Makes a printer of the user the printer of the active plate: its
+    /// machine settings replace the machine settings of the plate.
+    func usePrinter(_ p: Printer) {
+        PrinterStore.shared.currentID = p.id
+        guard !p.machine.isEmpty else { return }
+        zs_app_group_reset(model.core, Int32(ZS_GROUP_MACHINE.rawValue))
+        var message = [CChar](repeating: 0, count: 256)
+        let rc = p.machine.withCString { zs_app_profile_apply(model.core, Int32(ZS_GROUP_MACHINE.rawValue), $0, strlen($0), &message, message.count) }
+        if rc != 0 { NSLog("zslice: the printer %@ did not load: %@", p.name, message.withUnsafeBufferPointer { coreText($0.baseAddress) }) }
+        model.settingsChanged()
+    }
+
+
+    /// Sends the G-code to the current printer; print: start the print.
+    func send(print: Bool) {
+        guard let p = PrinterStore.shared.current, p.kind != .none, let data = model.gcode() else { return }
+        let base = (model.name as NSString).deletingPathExtension
+        let name = (base.isEmpty ? "plate" : base) + ".gcode"
+        sendState = print ? "Sending to \(p.name)…" : "Uploading to \(p.name)…"
+        Task { @MainActor in
+            let r = await PrinterLink.send(p, filename: name, gcode: data, print: print)
+            sendState = r.message
+            if !r.ok {
+                let a = NSAlert()
+                a.messageText = print ? "The print did not start" : "The upload failed"
+                a.informativeText = r.message
+                a.runModal()
+            }
         }
     }
 

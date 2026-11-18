@@ -103,11 +103,15 @@ struct DocumentWindow: View {
             }
         .frame(minWidth: 720, minHeight: 480)
         .sheet(isPresented: Bindable(workspace).shortcutsOpen) { ShortcutSheet() }
+        .sheet(isPresented: Bindable(workspace).pickerOpen) { PrinterPicker(workspace: workspace) }
         .inspector(isPresented: Bindable(workspace).showSettings) {
             InspectorPanel(workspace: workspace)
                 .inspectorColumnWidth(min: 320, ideal: 400, max: 560)
         }
         .toolbar {
+            ToolbarItem(placement: .navigation) {
+                PrinterMenu(workspace: workspace)
+            }
             ToolbarItem(placement: .primaryAction) {
                 Button {
                     workspace.showSettings.toggle()
@@ -256,17 +260,37 @@ struct PrintCard: View {
                 }
                 .opacity(slicing && model.stats != nil ? 0.5 : 1)
                 Spacer(minLength: 12)
-                Button("Export…") { workspace.exportGcode(from: NSApp.keyWindow) }
-                    .keyboardShortcut("e", modifiers: .command)
+                if let p = PrinterStore.shared.current, p.kind != .none {
+                    Menu {
+                        Button("Upload Only") { workspace.send(print: false) }
+                        Button("Export G-code…") { workspace.exportGcode(from: NSApp.keyWindow) }
+                            .keyboardShortcut("e", modifiers: .command)
+                    } label: {
+                        Text("Print")
+                    } primaryAction: {
+                        workspace.send(print: true)
+                    }
+                    .menuStyle(.button)
                     .buttonStyle(.borderedProminent)
+                    .fixedSize()
                     .disabled(model.state != .done)
-                    .help("Export the G-code (⌘E)")
+                    .help("Print on \(p.name) (⌘P). Its menu: Upload Only, Export G-code.")
+                    .keyboardShortcut("p", modifiers: .command)
+                } else {
+                    Button("Export…") { workspace.exportGcode(from: NSApp.keyWindow) }
+                        .keyboardShortcut("e", modifiers: .command)
+                        .buttonStyle(.borderedProminent)
+                        .disabled(model.state != .done)
+                        .help("Export the G-code (⌘E)")
+                }
             }
             // The progress of a slice, or the time of the last one, in one
             // line of the same height, so the card does not jump.
             Group {
                 if slicing {
                     ProgressView(value: model.progress).progressViewStyle(.linear)
+                } else if let s = workspace.sendState {
+                    Text(s).font(.caption).foregroundStyle(.secondary).lineLimit(1)
                 } else if let t = model.sliceSeconds {
                     Text(t < 1 ? String(format: "Sliced in %.0f ms", t * 1000) : String(format: "Sliced in %.1f s", t))
                         .font(.caption)

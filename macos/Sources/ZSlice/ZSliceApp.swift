@@ -47,6 +47,13 @@ struct ZSliceApp: App {
                 HelpCommands()
             }
         }
+        Settings {
+            TabView {
+                PrintersSettings()
+                    .tabItem { Label("Printers", systemImage: "printer") }
+            }
+            .frame(minWidth: 680, minHeight: 460)
+        }
     }
 }
 

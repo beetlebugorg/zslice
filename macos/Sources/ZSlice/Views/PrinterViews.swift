@@ -1,0 +1,282 @@
+//! The printer views: the picker of the library (docs/user/
+//! getting-started.md, "Add your printer"), the printer menu of the
+//! toolbar, and the Printers page of the Settings window.
+//!
+//! The picker: a search field (search as you type), the brands at the
+//! left, the models in the middle, and the card of the selected model at
+//! the right (its facts, its sources, the nozzle). Below the card: the
+//! name and the connection. "Add Printer" makes it a printer of the user
+//! and the printer of the plate. "My printer is not in the list" adds the
+//! generic printer.
+//!
+//! SPDX-License-Identifier: AGPL-3.0-or-later
+
+import CZslice
+import SwiftUI
+
+struct PrinterPicker: View {
+    let workspace: Workspace
+    @Environment(\.dismiss) private var dismiss
+    @State private var query = ""
+    @State private var brand = -1
+    @State private var selected: Int?
+    @State private var name = ""
+    @State private var nozzle = 0.0
+    @State private var kind = Printer.Kind.none
+    @State private var url = ""
+    @State private var key = ""
+
+    private let lib = PrinterLibrary.shared
+
+    var body: some View {
+        VStack(spacing: 0) {
+            HStack {
+                Text("Add a Printer").font(.title2.weight(.semibold))
+                Spacer()
+                SearchField(text: $query, prompt: "Search: ender 3, mk4, k1 max, voron 2.4")
+                    .frame(width: 320)
+            }
+            .padding()
+            Divider()
+            HSplitView {
+                List(selection: Binding(get: { brand }, set: { brand = $0 ?? -1 })) {
+                    Text("All Brands").tag(-1)
+                    ForEach(Array(lib.brands.enumerated()), id: \.offset) { i, b in
+                        Text(b.name).tag(i)
+                    }
+                }
+                .frame(minWidth: 160, maxWidth: 220)
+                List(selection: $selected) {
+                    ForEach(lib.search(query, brand: brand), id: \.self) { i in
+                        if let m = lib.model(i) {
+                            VStack(alignment: .leading, spacing: 1) {
+                                Text(coreText(m.title))
+                                Text(lib.facts(i)).font(.caption).foregroundStyle(.secondary)
+                            }
+                            .tag(i)
+                        }
+                    }
+                }
+                .frame(minWidth: 280)
+                detail
+                    .frame(minWidth: 300, maxWidth: .infinity)
+            }
+            Divider()
+            HStack {
+                Button("My Printer Is Not in the List") { addGeneric() }
+                Spacer()
+                Button("Cancel") { dismiss() }.keyboardShortcut(.cancelAction)
+                Button("Add Printer") { add() }
+                    .keyboardShortcut(.defaultAction)
+                    .disabled(selected == nil || name.isEmpty)
+            }
+            .padding()
+        }
+        .frame(width: 960, height: 620)
+        .onChange(of: selected) {
+            if let i = selected, let m = lib.model(i) {
+                name = coreText(m.title)
+                nozzle = m.nozzle
+            }
+        }
+    }
+
+    @ViewBuilder private var detail: some View {
+        if let i = selected, let m = lib.model(i) {
+            Form {
+                Section {
+                    LabeledContent("Model", value: coreText(m.title))
+                    LabeledContent("Facts", value: lib.facts(i))
+                    LabeledContent("Firmware", value: coreText(m.firmware))
+                    LabeledContent("Data from", value: lib.sources(i))
+                    if !m.has_start_gcode {
+                        Text("The start G-code of this printer has scripts, which zslice cannot run: it gets the start G-code of zslice. Check it before the first print.")
+                            .font(.callout)
+                            .foregroundStyle(.orange)
+                    }
+                }
+                Section("This printer") {
+                    TextField("Name", text: $name)
+                    let sizes = coreText(m.nozzles).split(separator: ";").compactMap { Double($0) }
+                    if !sizes.isEmpty {
+                        Picker("Nozzle", selection: $nozzle) {
+                            ForEach(sizes, id: \.self) { Text(String(format: "%.2g mm", $0)).tag($0) }
+                        }
+                    }
+                }
+                ConnectionSection(kind: $kind, url: $url, key: $key)
+            }
+            .formStyle(.grouped)
+        } else {
+            ContentUnavailableView("Pick a Model", systemImage: "printer",
+                                   description: Text("Search, or pick a brand at the left. The library has more than 1000 printers."))
+        }
+    }
+
+    private func add() {
+        guard let i = selected, let m = lib.model(i), let profile = lib.profile(i, nozzle: nozzle) else { return }
+        var p = Printer(name: name, model: coreText(m.id), machine: profile, kind: kind, url: url)
+        if !key.isEmpty { p.apiKey = key }
+        p.machine = profile
+        finish(p)
+    }
+
+    private func addGeneric() {
+        finish(Printer(name: "My Printer"))
+    }
+
+    private func finish(_ p: Printer) {
+        PrinterStore.shared.add(p)
+        workspace.usePrinter(p)
+        dismiss()
+        // A printdeck: its https address, so the key never travels in clear text.
+        if p.kind == .printdeck {
+            Task { @MainActor in
+                if let https = await PrinterLink.printdeckHTTPS(p) {
+                    var q = p
+                    q.https = https
+                    PrinterStore.shared.update(q)
+                }
+            }
+        }
+    }
+}
+
+/// The connection of a printer: its kind, its address, and its API key,
+/// with Test and Get a Key.
+struct ConnectionSection: View {
+    @Binding var kind: Printer.Kind
+    @Binding var url: String
+    @Binding var key: String
+    @State private var result: String?
+    @State private var busy = false
+
+    var body: some View {
+        Section("Connection") {
+            Picker("Send prints to", selection: $kind) {
+                ForEach(Printer.Kind.allCases, id: \.self) { Text($0.title).tag($0) }
+            }
+            if kind != .none {
+                TextField("Address", text: $url, prompt: Text("http://printer.local"))
+                if kind != .moonraker {
+                    SecureField("API key", text: $key)
+                }
+                HStack {
+                    Button("Test the Connection") { run { await PrinterLink.test(probe) } }
+                    if kind != .moonraker {
+                        Button("Get a Key") {
+                            run {
+                                let r = await PrinterLink.requestKey(probe) { s in result = "Allow zslice on the printer (\(s) s)…" }
+                                if let k = r.key { key = k }
+                                return r
+                            }
+                        }
+                        .help("The printer asks \"Allow zslice?\" on its screen (printdeck) or in its web page (OctoPrint). Allow it within 2 minutes.")
+                    }
+                    if busy { ProgressView().controlSize(.small) }
+                }
+                .disabled(busy || url.isEmpty)
+                if let result {
+                    Text(result).font(.callout).foregroundStyle(.secondary)
+                }
+            }
+        }
+    }
+
+    /// A printer with this connection, for a test.
+    private var probe: Printer {
+        var p = Printer(name: "test", kind: kind, url: url)
+        p.id = UUID(uuidString: "00000000-0000-0000-0000-000000000000")!
+        return p
+    }
+
+    private func run(_ op: @escaping @MainActor () async -> LinkResult) {
+        busy = true
+        result = nil
+        Task { @MainActor in
+            // The test sends the key of the field.
+            Keychain.write(key, account: probe.id.uuidString)
+            let r = await op()
+            Keychain.write("", account: probe.id.uuidString)
+            result = r.message
+            busy = false
+        }
+    }
+}
+
+/// The printer menu of the toolbar: the printers of the user, Add a
+/// Printer, and Manage Printers.
+struct PrinterMenu: View {
+    let workspace: Workspace
+    private var store: PrinterStore { PrinterStore.shared }
+
+    var body: some View {
+        Menu {
+            ForEach(store.printers) { p in
+                Toggle(p.name, isOn: Binding(get: { store.currentID == p.id }, set: { _ in workspace.usePrinter(p) }))
+            }
+            if !store.printers.isEmpty { Divider() }
+            Button("Add a Printer…") { workspace.pickerOpen = true }
+            SettingsLink { Text("Manage Printers…") }
+        } label: {
+            Label(store.current?.name ?? "No Printer", systemImage: "printer")
+                .labelStyle(.titleAndIcon)
+        }
+        .help("The printer of this plate")
+    }
+}
+
+/// The Printers page of the Settings window: each printer, its name, and
+/// its connection.
+struct PrintersSettings: View {
+    @State private var selected: UUID?
+    private var store: PrinterStore { PrinterStore.shared }
+
+    var body: some View {
+        HSplitView {
+            List(selection: $selected) {
+                ForEach(store.printers) { p in
+                    Label(p.name, systemImage: "printer").tag(p.id)
+                }
+            }
+            .frame(minWidth: 180, maxWidth: 240)
+            .contextMenu(forSelectionType: UUID.self) { ids in
+                Button("Remove", role: .destructive) { ids.forEach { store.remove($0) } }
+            }
+            if let id = selected, let p = store.printers.first(where: { $0.id == id }) {
+                PrinterEditor(printer: p).id(id)
+            } else {
+                ContentUnavailableView("No Printer Selected", systemImage: "printer",
+                                       description: Text("Add a printer with the printer menu of a window."))
+            }
+        }
+        .frame(minWidth: 640, minHeight: 420)
+        .onAppear { selected = store.currentID }
+    }
+}
+
+private struct PrinterEditor: View {
+    @State var printer: Printer
+    @State private var key = ""
+
+    var body: some View {
+        Form {
+            Section {
+                TextField("Name", text: $printer.name)
+                LabeledContent("Model", value: PrinterLibrary.shared.find(id: printer.model).flatMap { PrinterLibrary.shared.model($0) }.map { coreText($0.title) } ?? "Generic")
+                if !printer.https.isEmpty {
+                    LabeledContent("Secure address", value: printer.https)
+                }
+            }
+            ConnectionSection(kind: $printer.kind, url: $printer.url, key: $key)
+            HStack {
+                Spacer()
+                Button("Remove Printer", role: .destructive) { PrinterStore.shared.remove(printer.id) }
+            }
+        }
+        .formStyle(.grouped)
+        .onAppear { key = printer.apiKey }
+        .onChange(of: printer) { PrinterStore.shared.update(printer) }
+        .onChange(of: key) { printer.apiKey = key }
+    }
+}

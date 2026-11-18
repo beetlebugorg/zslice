@@ -24,6 +24,20 @@
 	<true/>
 	<key>NSHumanReadableCopyright</key>
 	<string>AGPL-3.0-or-later</string>
+	<key>NSAppTransportSecurity</key>
+	<dict>
+		<key>NSAllowsLocalNetworking</key>
+		<true/>
+	</dict>
+	<key>NSLocalNetworkUsageDescription</key>
+	<string>zslice finds your printers on the local network and sends prints to them.</string>
+	<key>NSBonjourServices</key>
+	<array>
+		<string>_octoprint._tcp</string>
+		<string>_moonraker._tcp</string>
+		<string>_printdeck._tcp</string>
+		<string>_http._tcp</string>
+	</array>
 	<key>CFBundleDocumentTypes</key>
 	<array>
 		<dict>
