@@ -21,7 +21,8 @@
 import { Wasm } from "./wasm.js";
 import { Core, STATE } from "./core.js";
 
-// The plates: { core, hist, name, status, wanted }. status: "empty",
+// The plates: { id, core, name, status, wanted }. The core of each plate
+// keeps its own undo list. status: "empty",
 // "stale" (an old slice, or none yet), "slicing", "done", "failed", or
 // "resin" (a plate that zslice cannot slice). wanted: it waits for a
 // slice.
@@ -216,20 +217,11 @@ function runSlice() {
 
 // ---- the plate set ----
 
-function newHist() {
-  return { undo: [], now: null, redo: [], timer: 0, plateDirty: true, restoring: false,
-    // An edit of one setting is one step while its editor keeps the focus:
-    // the setting of the changes since the last step ("*" for more than one,
-    // or the plate), the setting of the last step while its edit is open,
-    // and the setting whose editor has the focus (op "historyFocus").
-    pendingKey: null, editKey: null, focusKey: null };
-}
-
 // Each plate has an id, new for each plate: the page clears the old scene
 // of a place in the view when another plate comes there (a new project).
 let plateIds = 0;
 function newPlate(c, name = "") {
-  return { id: ++plateIds, core: c, hist: newHist(), name, status: c.state() === STATE.empty ? "empty" : "stale", wanted: false };
+  return { id: ++plateIds, core: c, name, status: c.state() === STATE.empty ? "empty" : "stale", wanted: false };
 }
 
 // The list of the plates for the page: the name, the status, the bed size,
@@ -271,13 +263,11 @@ function activate(i) {
   const before = active;
   if (i !== before) {
     // The changes so far are a step of the plate that was active.
-    if (hist.timer) undoCommit();
-    plates[before].hist = hist;
+    if (histTimer) historyCommit();
     plates[before].core.trim();
   }
   active = i;
   core = plates[i].core;
-  hist = plates[i].hist;
   showActive(before);
   return true;
 }
@@ -321,141 +311,52 @@ function settingsState() {
   return { ...core.snapshot(), saved: core.savedState() };
 }
 
-// ---- undo and the history (linux/src/model/app-model.c: undo_*) ----
+// ---- undo and the history (src/app/history.zig) ----
 //
-// The history is a list of steps: the undo list, the step now, and the
-// redo list. A step has the texts of the three groups of settings, the
-// plate (a 3MF file, null for an empty plate; steps with the same plate
-// share its bytes), the facts of the state (for the history in words),
-// and its time. A step ends 400 ms after the last change.
+// The core of each plate keeps its undo list, and notes each change. The
+// worker keeps the timer: a step ends 400 ms after the last change.
 
-const UNDO_MAX = 100;
-// The history of the active plate (each plate keeps its own).
-let hist = newHist();
-
-function snapshot() {
-  const settings = [0, 1, 2].map((g) => core.stateText(g));
-  let plate = null;
-  if (!hist.plateDirty && hist.now) plate = hist.now.plate;
-  else plate = core.plate3mf();
-  hist.plateDirty = false;
-  return { settings, quality: core.qualityName(), plate, facts: core.historyFacts(), time: Date.now() };
-}
-
-function samePlate(a, b) {
-  if (a === b) return true;
-  if (!a || !b || a.length !== b.length) return false;
-  for (let i = 0; i < a.length; i++) if (a[i] !== b[i]) return false;
-  return true;
-}
-
-function sameSettings(a, b) {
-  return a.quality === b.quality && a.settings.every((t, g) => t === b.settings[g]);
-}
+let histTimer = 0;
 
 // Ends the step of the changes so far.
-function undoCommit() {
-  clearTimeout(hist.timer);
-  hist.timer = 0;
-  const now = snapshot();
-  const before = hist.now;
-  const differs = before && (!sameSettings(now, before) || !samePlate(now.plate, before.plate));
-  const key = hist.pendingKey;
-  hist.pendingKey = null;
-  const single = key && key !== "*";
-  if (differs && single && hist.undo.length > 0 && key === hist.editKey && key === hist.focusKey) {
-    // More changes of the setting of the last step: they change that step.
-    hist.now = now;
-    hist.redo = [];
-    const prev = hist.undo[hist.undo.length - 1];
-    if (sameSettings(prev, now) && samePlate(prev.plate, now.plate)) {
-      // Back at the value before the edit: the step goes.
-      hist.now = hist.undo.pop();
-      hist.editKey = null;
-    }
-    post({ event: "history" });
-    return;
-  }
-  // A commit with no change keeps the edit open.
-  if (differs) hist.editKey = single ? key : null;
-  if (differs) {
-    hist.undo.push(before);
-    if (hist.undo.length > UNDO_MAX) hist.undo.shift();
-    hist.redo = [];
-    hist.now = now;
-    post({ event: "history" });
-  } else {
-    hist.now = now;
-  }
+function historyCommit() {
+  clearTimeout(histTimer);
+  histTimer = 0;
+  if (core && core.historyCommit(Date.now())) post({ event: "history" });
 }
 
-function undoSchedule(plate, key) {
-  if (hist.restoring || !core) return;
-  const k = plate || !key ? "*" : key;
-  hist.pendingKey = hist.pendingKey === null || hist.pendingKey === k ? k : "*";
-  if (plate) hist.plateDirty = true;
-  clearTimeout(hist.timer);
-  hist.timer = setTimeout(undoCommit, 400);
+function historySchedule() {
+  clearTimeout(histTimer);
+  histTimer = setTimeout(historyCommit, 400);
 }
 
-// Loads a step: the plate if it differs, then each group of settings
-// whose text differs, then the quality.
-function undoRestore(snap, before) {
-  hist.restoring = true;
-  try {
-    if (!samePlate(snap.plate, before?.plate ?? null)) {
-      if (snap.plate) {
-        core.loadStl("plate.3mf", snap.plate);
-      } else {
-        core.w.x.zs_app_plate_clear(core.app);
-        core.modelName = "";
-        const scene = core.scene(mode);
-        post({ event: "cleared", scene, plate: active }, scene ? [scene] : []);
-      }
+// After an undo, a redo, or a jump (the bits of enum zs_history_restored):
+// the name of the plate, the scene of an empty plate, and a new slice.
+function historyRestored(bits) {
+  clearTimeout(histTimer);
+  histTimer = 0;
+  if (!(bits & 1)) return;
+  const parts = core.w.x.zs_app_part_count(core.app);
+  if (bits & 2) {
+    if (parts > 0) core.modelName = "plate.3mf";
+    else {
+      core.modelName = "";
+      const scene = core.scene(mode);
+      post({ event: "cleared", scene, plate: active }, scene ? [scene] : []);
     }
-    for (let g = 0; g < 3; g++) {
-      if (core.stateText(g) !== snap.settings[g]) core.loadProfile(g, snap.settings[g]);
-    }
-    if (snap.quality !== core.qualityName() && snap.quality !== "custom") core.setQuality(snap.quality, true);
-  } finally {
-    hist.restoring = false;
-    hist.plateDirty = false;
   }
-  if (core.w.x.zs_app_part_count(core.app) > 0) wantSlice();
+  if (parts > 0) wantSlice();
 }
 
 // The steps, the oldest first: their time, kind, and changes in words.
 function historyList() {
-  const steps = [...hist.undo, ...(hist.now ? [hist.now] : []), ...[...hist.redo].reverse()];
-  return {
-    current: hist.undo.length,
-    steps: steps.map((s, i) => {
-      if (i === 0) return { time: s.time, kind: "start", changes: "", text: "The start" };
-      const changes = core.historyDiff(steps[i - 1].facts, s.facts);
-      return { time: s.time, kind: core.historyKind(changes), changes, text: core.historyDescribe(changes) };
-    }),
-  };
-}
-
-// Goes to step i of the list.
-function historyGoto(i) {
-  undoCommit();
-  const cur = hist.undo.length;
-  const count = hist.undo.length + 1 + hist.redo.length;
-  if (!hist.now || i === cur || i < 0 || i >= count) return false;
-  const before = hist.now;
-  if (i < cur) {
-    hist.redo.push(hist.now);
-    while (hist.undo.length > i + 1) hist.redo.push(hist.undo.pop());
-    hist.now = hist.undo.pop();
-  } else {
-    hist.undo.push(hist.now);
-    while (hist.undo.length < i) hist.undo.push(hist.redo.pop());
-    hist.now = hist.redo.pop();
+  const steps = [];
+  const n = core.historyCount();
+  for (let i = 0; i < n; i++) {
+    const s = core.historyStep(i);
+    steps.push(i === 0 ? { ...s, text: "The start" } : s);
   }
-  undoRestore(hist.now, before);
-  hist.editKey = null;
-  return true;
+  return { current: core.historyCurrent(), steps };
 }
 
 // The ops that change the settings, and the ops that change the plate:
@@ -586,54 +487,51 @@ const ops = {
   // ---- undo and the history ----
 
   history() {
-    undoCommit();
+    historyCommit();
     return historyList();
   },
 
   // The setting whose editor has the focus now, or null. A move of the
   // focus ends the edit: its changes so far are a step.
   historyFocus({ key }) {
-    if (key === hist.focusKey) return {};
-    if (hist.timer) undoCommit();
-    hist.editKey = null;
-    hist.focusKey = key;
+    if (core.historyFocus(key ?? null, Date.now())) post({ event: "history" });
+    if (!core.historyPending()) {
+      clearTimeout(histTimer);
+      histTimer = 0;
+    }
     return {};
   },
 
   undo() {
-    undoCommit();
-    const ok = historyGoto(hist.undo.length - 1);
-    return { ok, ...settingsState() };
+    const bits = core.historyUndo(Date.now());
+    historyRestored(bits);
+    return { ok: bits !== 0, ...settingsState() };
   },
 
   redo() {
-    undoCommit();
-    const ok = historyGoto(hist.undo.length + 1);
-    return { ok, ...settingsState() };
+    const bits = core.historyRedo(Date.now());
+    historyRestored(bits);
+    return { ok: bits !== 0, ...settingsState() };
   },
 
   // Clears the history after step `index`: goes to it first if it is not
   // the step now, then drops the later steps (they cannot be redone).
   historyTruncate({ index }) {
-    undoCommit();
-    if (index !== hist.undo.length) historyGoto(index);
-    if (index === hist.undo.length) {
-      hist.redo = [];
-      hist.editKey = null;
-    }
+    historyRestored(core.historyTruncate(index, Date.now()));
     return { ...settingsState() };
   },
 
   historyGoto({ index }) {
-    const ok = historyGoto(index);
-    return { ok, ...settingsState() };
+    const bits = core.historyGoto(index, Date.now());
+    historyRestored(bits);
+    return { ok: bits !== 0, ...settingsState() };
   },
 
   // Undoes one change line of a step and keeps the others: a new step.
   historyRevert({ line }) {
     const rc = core.historyRevert(line);
     if (rc === 0) {
-      undoSchedule(line.startsWith("part:"));
+      historySchedule();
       wantSlice();
     }
     return { error: rc === 0 ? "" : (rc === 15 ? "A move of a part cannot be undone alone: go to the step before it." : `The change was not undone (${rc}).`), ...settingsState() };
@@ -866,7 +764,7 @@ const ops = {
   // resin: true } for a plate that zslice cannot slice. The plates slice
   // in the background, the active plate (`active`) first.
   projectSet({ text, counts, plates: list, active: want }) {
-    if (hist.timer) undoCommit();
+    if (histTimer) historyCommit();
     const threads = core.threads;
     const infos = core.infos;
     for (const p of plates) p.core.free();
@@ -908,7 +806,6 @@ const ops = {
     }
     active = Math.max(0, Math.min(want ?? 0, plates.length - 1));
     core = plates[active].core;
-    hist = plates[active].hist;
     showActive(-1);
     schedule();
     return { results, index: active, info: core.modelInfo(), parts: core.w.x.zs_app_part_count(core.app), ...settingsState() };
@@ -930,10 +827,10 @@ self.onmessage = async (e) => {
   const { id, op, ...args } = e.data;
   try {
     const result = await ops[op](args);
-    // The first step of a plate: its state at the start.
-    if (op === "init" || op === "projectSet" || !hist.now) undoCommit();
-    else if (SETTING_OPS.has(op)) undoSchedule(false, op === "quality" || op === "profile" ? null : args.name);
-    else if (PLATE_OPS.has(op)) undoSchedule(true);
+    // The first step of a plate: its state at the start. The core notes
+    // each change; a change starts or extends a step.
+    if (op === "init" || op === "projectSet" || (core && core.historyCount() === 0)) historyCommit();
+    else if (SETTING_OPS.has(op) || PLATE_OPS.has(op)) historySchedule();
     const transfer = result?.bytes ? [result.bytes] : [];
     post({ id, result }, transfer);
   } catch (err) {

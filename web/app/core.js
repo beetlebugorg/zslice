@@ -478,33 +478,58 @@ export class Core {
     }
   }
 
-  // ---- the history of changes (src/app/history.zig) ----
+  // ---- the undo list and the history (src/app/history.zig) ----
+  //
+  // The app keeps its undo list and notes each change. The worker keeps
+  // the timer: it calls historyCommit 400 ms after the last change. The
+  // time is ms since 1970 (Date.now()).
 
-  // The facts of the state now: lines of "scope\tkey\tvalue".
-  historyFacts() {
-    const w = this.w;
-    return w.readText((b, c, l) => w.x.zs_app_history_facts(this.app, b, c, l)) ?? "";
+  // Ends the step of the changes so far. True if the list changed.
+  historyCommit(nowMs) {
+    return this.w.x.zs_app_history_commit(this.app, BigInt(Math.floor(nowMs))) === 1;
   }
 
-  // The changes from facts `a` to facts `b`: lines of
-  // "scope\tkey\told\tnew".
-  historyDiff(a, b) {
+  // The setting whose editor has the focus, or null. True if the commit
+  // of the edit before changed the list.
+  historyFocus(key, nowMs) {
     const w = this.w;
-    return w.withString(a, (pa, la) => w.withString(b, (pb, lb) =>
-      w.readText((buf, c, l) => w.x.zs_history_diff(pa, la, pb, lb, buf, c, l)))) ?? "";
+    const t = BigInt(Math.floor(nowMs));
+    if (key == null) return w.x.zs_app_history_set_focus(this.app, 0, t) === 1;
+    return w.withString(key, (k) => w.x.zs_app_history_set_focus(this.app, k, t)) === 1;
   }
 
-  // The changes in words, one line for each, with the layer numbers of
+  // Undo, redo, go to step i, and clear the history after step i. Each
+  // returns the bits of enum zs_history_restored (0: no move).
+  historyUndo(nowMs) { return this.w.x.zs_app_history_undo(this.app, BigInt(Math.floor(nowMs))); }
+  historyRedo(nowMs) { return this.w.x.zs_app_history_redo(this.app, BigInt(Math.floor(nowMs))); }
+  historyGoto(i, nowMs) { return this.w.x.zs_app_history_goto(this.app, i, BigInt(Math.floor(nowMs))); }
+  historyTruncate(i, nowMs) { return this.w.x.zs_app_history_truncate(this.app, i, BigInt(Math.floor(nowMs))); }
+  historyReset() { this.w.x.zs_app_history_reset(this.app); }
+  historyCount() { return this.w.x.zs_app_history_count(this.app); }
+  historyCurrent() { return this.w.x.zs_app_history_current(this.app); }
+  // True if changes wait for a commit.
+  historyPending() { return this.w.x.zs_app_history_pending(this.app) === 1; }
+
+  // Step i: { time, kind, changes, text }. kind is "start" for step 0;
+  // changes are lines of "scope\tkey\told\tnew" from step i - 1, and text
+  // has them in words ("scope\tchange" lines), with the layer numbers of
   // the last slice.
-  historyDescribe(changes) {
+  historyStep(i) {
     const w = this.w;
-    return w.withString(changes, (p, len) => w.readText((b, c, l) => w.x.zs_app_history_describe(this.app, p, len, b, c, l))) ?? "";
-  }
-
-  // The kind of a step ("walls", "infill", "speed", "move", ...).
-  historyKind(changes) {
-    const w = this.w;
-    return w.withString(changes, (p, len) => w.cstr(w.x.zs_history_kind(p, len)));
+    const size = 32; // zs_history_step on wasm32
+    const p = w.alloc(size);
+    try {
+      if (w.x.zs_app_history_step(this.app, i, p) !== 0) return null;
+      const dv = w.dv;
+      return {
+        time: Number(dv.getBigInt64(p, true)),
+        kind: w.cstr(w.u32(p + 8)),
+        changes: w.text(w.u32(p + 12), w.u32(p + 16)),
+        text: w.text(w.u32(p + 20), w.u32(p + 24)),
+      };
+    } finally {
+      w.free(p, size);
+    }
   }
 
   // Undoes one change line and keeps the others. Returns 0 or a status.
