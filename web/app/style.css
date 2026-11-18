@@ -835,4 +835,10 @@ button.destructive { background: #c01c28; color: #fff; }
 .preview .dock .scrub-label { white-space: nowrap; flex: none; }
 @container (max-width: 700px) {
   .preview .layers { bottom: calc(var(--dock-h, 40px) + var(--card-h, 120px) + 30px); }
+  /* The rows of a narrow dock: no line at the left, and the label of the
+     replay shrinks in place of running past the dock. */
+  .preview .dock > .scrub, .preview .dock > .timeline { border-left: none; padding-left: 0; }
+  .preview .dock > .scrub { min-width: 0; }
+  .preview .dock .scrub input { min-width: 60px; }
+  .preview .dock .scrub-label { flex: 0 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; }
 }
