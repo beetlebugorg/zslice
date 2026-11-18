@@ -313,12 +313,15 @@ select.choice {
 /* A very narrow view: the print card takes the width of the view, and
    the scrub bar and the timeline go over it. */
 @container (max-width: 700px) {
-  .preview .summary.float-card { left: 10px; right: 10px; width: auto; }
-  .preview .scrub { width: calc(100% - 24px); bottom: 150px; }
-  .preview .timeline:not([hidden]) ~ .scrub { bottom: 194px; }
-  .preview .timeline { max-width: calc(100% - 24px); bottom: 150px; }
+  /* The plate bar stays at the bottom; the print card goes over it. */
+  .preview .summary.float-card { left: 10px; right: 10px; width: auto; bottom: 52px; }
+  .preview .scrub { width: calc(100% - 24px); bottom: 192px; }
+  .preview .timeline:not([hidden]) ~ .scrub { bottom: 236px; }
+  .preview .timeline { max-width: calc(100% - 24px); bottom: 192px; }
   .preview .search-button .search-word { display: none; }
-  .preview .layers { bottom: 250px; }
+  .preview .layers { bottom: 292px; }
+  /* The facts of the card are in the Settings: a short card. */
+  .preview .sum-facts { display: none; }
 }
 .summary.stale > :not(.progress):not(button) { opacity: 0.55; }
 .sum-time { font-size: 1.6em; font-weight: 700; font-variant-numeric: tabular-nums; }
@@ -746,3 +749,21 @@ button.destructive { background: #c01c28; color: #fff; }
 .pl-printing { background: #1c71d8; }
 .pl-printed { background: #26a269; }
 .pl-failed { background: #c01c28; }
+
+/* A phone: the printer picker is one column (the search and the list,
+   then the card of the printer), and the menus of the header get
+   narrower. */
+@media (max-width: 640px) {
+  .picker { width: 100vw; height: 100dvh; border-radius: 0; }
+  .picker-title { overflow: hidden; text-overflow: ellipsis; font-size: 0.92em; }
+  .picker-choose { flex-direction: column; }
+  .picker-side { display: none; }
+  .picker-mid { width: auto; flex: 1; border-right: none; }
+  .picker-card { flex: none; max-height: 34dvh; overflow-y: auto; border-top: 1px solid var(--border); padding: 10px 14px; }
+  .picker-card .picker-bed { display: none; }
+  .hb-end .menu-button { max-width: 22vw; }
+  .hb-start { flex: none; }
+  .hb-start #open { flex: none; }
+  .hb-start .hb-title { display: none; }
+  .hb-end { gap: 3px; }
+}
