@@ -363,6 +363,18 @@ final class Workspace {
         }
         // ZSLICE_INCHES=1 presses "Inches (×25.4)" of the print card.
         if env["ZSLICE_INCHES"] != nil { scaleParts(tinyParts.map(\.index), by: 25.4) }
+        // ZSLICE_ASSIGN="plate:printer;..." assigns plates (0-based) to the
+        // printers of the store (0-based), after a project loads.
+        if let spec = env["ZSLICE_ASSIGN"] {
+            DispatchQueue.main.asyncAfter(deadline: .now() + 3) { [weak self] in
+                guard let self else { return }
+                for pair in spec.split(separator: ";") {
+                    let f = pair.split(separator: ":").compactMap { Int($0) }
+                    let list = PrinterStore.shared.printers
+                    if f.count == 2, f[1] < list.count { assign(plate: f[0], to: list[f[1]]) }
+                }
+            }
+        }
         // ZSLICE_RECORD=path.mov records the demo of Recorder.swift.
         if let path = env["ZSLICE_RECORD"] {
             Task { @MainActor in await Recorder.record(self, to: URL(fileURLWithPath: path)) }
@@ -440,6 +452,8 @@ final class Workspace {
     /// Another plate became active: the selection and the tools are of the
     /// plate that was active.
     private func activePlateChanged() {
+        // The printer menu of the toolbar shows the printer of this plate.
+        if let p = assigned(plate: model.active) { PrinterStore.shared.currentID = p.id }
         stopReplay()
         clearSelection()
         selectPart(nil)
@@ -509,10 +523,12 @@ final class Workspace {
                 sendState = nil
                 if counts == nil {
                     framePlate(-1)
-                    projectOpen = true
+                    // A note, not a sheet: the plates are what the user wants to see.
+                    showNote("Opened \(model.name): \(model.plates.count) plates. File > Show Project lists its parts.", seconds: 6)
                 }
             } catch {
                 sendState = nil
+                NSLog("zslice: the project did not open: %@", error.localizedDescription)
                 let a = NSAlert()
                 a.messageText = "The project did not open"
                 a.informativeText = error.localizedDescription
@@ -708,6 +724,12 @@ final class Workspace {
     /// The plates sent from the Printers page in this session, by plate id:
     /// "sent to Workhorse at 06:41".
     var sentPlates: [UInt64: String] = [:]
+    /// The printer of each plate (plate id to printer id), from the plate
+    /// bar, the printer menu, or the Printers page.
+    var plateAssign: [UInt64: UUID] = [:]
+    /// The plate that each printer prints (printer id to plate id): the
+    /// last plate sent to it in this session.
+    var printing: [UUID: UInt64] = [:]
 
     // MARK: - the colors and the line types
 
@@ -850,12 +872,38 @@ final class Workspace {
     /// machine settings replace the machine settings of the plate.
     func usePrinter(_ p: Printer) {
         PrinterStore.shared.currentID = p.id
-        guard !p.machine.isEmpty else { return }
-        zs_app_group_reset(model.core, Int32(ZS_GROUP_MACHINE.rawValue))
-        var message = [CChar](repeating: 0, count: 256)
-        let rc = p.machine.withCString { zs_app_profile_apply(model.core, Int32(ZS_GROUP_MACHINE.rawValue), $0, strlen($0), &message, message.count) }
-        if rc != 0 { NSLog("zslice: the printer %@ did not load: %@", p.name, message.withUnsafeBufferPointer { coreText($0.baseAddress) }) }
+        if model.plates.indices.contains(model.active) { plateAssign[model.plates[model.active].id] = p.id }
+        guard applyMachine(p, to: model.core) else { return }
         model.settingsChanged()
+    }
+
+    /// The machine profile of a printer on the app of a plate.
+    @discardableResult
+    private func applyMachine(_ p: Printer, to app: OpaquePointer) -> Bool {
+        guard !p.machine.isEmpty else { return false }
+        zs_app_group_reset(app, Int32(ZS_GROUP_MACHINE.rawValue))
+        var message = [CChar](repeating: 0, count: 256)
+        let rc = p.machine.withCString { zs_app_profile_apply(app, Int32(ZS_GROUP_MACHINE.rawValue), $0, strlen($0), &message, message.count) }
+        if rc != 0 { NSLog("zslice: the printer %@ did not load: %@", p.name, message.withUnsafeBufferPointer { coreText($0.baseAddress) }) }
+        return rc == 0
+    }
+
+    /// Plate i prints on printer p: the plate slices for it (its machine
+    /// profile), and the Printers page sends it there.
+    func assign(plate i: Int, to p: Printer) {
+        guard model.plates.indices.contains(i) else { return }
+        if i == model.active {
+            usePrinter(p)
+            return
+        }
+        plateAssign[model.plates[i].id] = p.id
+        if let app = zs_set_app(model.set, i), applyMachine(p, to: app) { zs_set_changed(model.set, i) }
+    }
+
+    /// The printer that plate i prints on, if the user chose one.
+    func assigned(plate i: Int) -> Printer? {
+        guard model.plates.indices.contains(i), let id = plateAssign[model.plates[i].id] else { return nil }
+        return PrinterStore.shared.printers.first { $0.id == id }
     }
 
 

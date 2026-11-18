@@ -35,6 +35,22 @@ struct PlateBar: View {
             Button { workspace.selectPlate(i + 1) } label: { Image(systemName: "chevron.right") }
                 .disabled(i >= n - 1)
                 .help("The next plate (])")
+            Divider().frame(height: 16)
+            // The printer of this plate: it slices for that printer, and the
+            // Printers page sends it there.
+            Menu {
+                ForEach(PrinterStore.shared.printers) { p in
+                    Toggle(p.name, isOn: Binding(get: { workspace.assigned(plate: i)?.id == p.id }, set: { _ in workspace.assign(plate: i, to: p) }))
+                }
+                if PrinterStore.shared.printers.isEmpty {
+                    Button("Add a Printer…") { workspace.pickerOpen = true }
+                }
+            } label: {
+                Label(workspace.assigned(plate: i)?.name ?? "Printer", systemImage: "printer")
+            }
+            .menuStyle(.borderlessButton)
+            .fixedSize()
+            .help("The printer of this plate: the plate slices for it, and the Printers page sends it there")
             if n > 1 {
                 Button("All") { workspace.framePlate(-1) }
                     .help("Show all plates (Home)")

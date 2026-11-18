@@ -78,9 +78,13 @@ The first search of the network asks for the permission to find devices on the l
 
 The Filament and Quality menus sit beside the printer menu in the toolbar. They list the built-in profiles and your own, and have Save as Profile. The Quality menu shows a dot when this print has changes on top of the quality. Your profiles are in `~/Library/Application Support/zslice/profiles/filament` and `profiles/project`.
 
+## The printer of a plate
+
+The printer menu in the plate bar assigns the plate to a printer: the plate slices for that printer (its bed, nozzle, and limits), the toolbar shows the printer of the plate in view, and the Printers page sends the plate there.
+
 ## The Printers page
 
-The Printers page covers the view: the Printers button of the toolbar, or View > Printers (Option-Command-P), and Back to the Plate. It has a tile for each printer with a connection: its state, its job with the progress and the time left, or the filament in it. The tiles read again every 10 seconds while the page shows. A printer that does not answer fades and says so. Send the Plate on a tile sends the active plate. Plates to Print lists the plates with parts, each with a printer (the free ones first, then the busy ones with when they are free, and none whose bed is too small), its time and grams, and Send. A plate that you sent says where and when. Each send asks you first if the bed of that printer is clear, and says when the plate is sliced for another printer.
+The Printers page covers the view: the Printers button of the toolbar, or View > Printers (Option-Command-P), and Back to the Plate. It has a tile for each printer with a connection: its state, its job with the progress and the time left, or the filament in it. The tiles read again every 10 seconds while the page shows. A printer that does not answer fades and says so. Send the Plate on a tile sends the active plate. Plates to Print lists the plates with parts, each with a printer (the free ones first, then the busy ones with when they are free, and none whose bed is too small), its time and grams, and Send. A plate row shows its printer, and a plate that you sent says where and when. Each tile shows the plate that the printer prints (sent from zslice) and the plates up next for it. Each send asks you first if the bed of that printer is clear, and says when the plate is sliced for another printer.
 
 ## Your settings
 

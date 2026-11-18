@@ -213,25 +213,9 @@ struct DocumentWindow: View {
             }
         }
         .animation(.easeInOut(duration: 0.2), value: workspace.note)
-        // The Printers page covers the view and the pane.
+        // The Printers page covers the window; the settings pane hides.
         .overlay {
-            if workspace.farmOpen {
-                VStack(spacing: 0) {
-                    HStack {
-                        Button { workspace.farmOpen = false } label: { Label("Back to the Plate", systemImage: "chevron.left") }
-                            .keyboardShortcut(.cancelAction)
-                        Spacer()
-                        Text("Printers").font(.title2.weight(.semibold))
-                        Spacer()
-                        // As wide as the button, so the title is in the middle.
-                        Label("Back to the Plate", systemImage: "chevron.left").hidden()
-                    }
-                    .padding(12)
-                    Divider()
-                    FarmPage(workspace: workspace)
-                }
-                .background(Color(nsColor: .windowBackgroundColor))
-            }
+            if workspace.farmOpen { FarmPage(workspace: workspace) }
         }
         .sheet(isPresented: Bindable(workspace).projectOpen) {
             VStack(spacing: 0) {
@@ -247,7 +231,7 @@ struct DocumentWindow: View {
         }
         .sheet(isPresented: Bindable(workspace).shortcutsOpen) { ShortcutSheet() }
         .sheet(isPresented: Bindable(workspace).pickerOpen) { PrinterPicker(workspace: workspace) }
-        .inspector(isPresented: Bindable(workspace).showSettings) {
+        .inspector(isPresented: Binding(get: { workspace.showSettings && !workspace.farmOpen }, set: { workspace.showSettings = $0 })) {
             InspectorPanel(workspace: workspace)
                 .inspectorColumnWidth(min: 320, ideal: 400, max: 560)
         }
