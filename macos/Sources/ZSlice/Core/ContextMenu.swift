@@ -7,6 +7,10 @@
 //!   Remove the Support Marks Here, and Clear All Support Marks
 //!   (zs_app_mark_*): a disk of 3 mm radius at the middle of the selected
 //!   segment, on its layer;
+//! - Put This Side on the Bed (zs_app_part_put_down_at), and the
+//!   Placement of the part of the line (zs_app_part_place);
+//! - for the plate: Smart Placement, Arrange the Plate, Add Models, and
+//!   Clear the Plate (zs_app_plate_*);
 //! - Copy for AI: a report of the line (zs_app_line_report) on the
 //!   clipboard, with its place in the G-code of the slice, which the app
 //!   writes to its cache folder;
@@ -65,6 +69,28 @@ extension Workspace {
             menu.addItem(ClosureItem("New Profile from Here Up") { [weak self] in self?.newLayerProfile(up: true) })
             menu.addItem(ClosureItem("New Profile from Here Down") { [weak self] in self?.newLayerProfile(up: false) })
         }
+        if let s = selection, zs_app_part_of_path(model.core, s.path) >= 0 {
+            menu.addItem(.separator())
+            menu.addItem(ClosureItem("Put This Side on the Bed") { [weak self] in self?.putDown() })
+            let place = NSMenuItem(title: "Placement", action: nil, keyEquivalent: "")
+            let sub = NSMenu()
+            let modes: [(String, Int32, Int32)] = [
+                ("Smart Placement", Int32(ZS_PLACE_SMART.rawValue), 0), ("Less Support", Int32(ZS_PLACE_LESS_SUPPORT.rawValue), 0),
+                ("Strong Along X of the Part", Int32(ZS_PLACE_STRENGTH.rawValue), 0),
+                ("Strong Along Y of the Part", Int32(ZS_PLACE_STRENGTH.rawValue), 1),
+                ("Strong Along Z of the Part", Int32(ZS_PLACE_STRENGTH.rawValue), 2),
+            ]
+            for (title, mode, axis) in modes {
+                sub.addItem(ClosureItem(title) { [weak self] in self?.placeLinePart(mode, axis) })
+            }
+            place.submenu = sub
+            menu.addItem(place)
+        }
+        menu.addItem(.separator())
+        menu.addItem(ClosureItem("Smart Placement") { [weak self] in self?.plateAction(zs_app_plate_smart_place) })
+        menu.addItem(ClosureItem("Arrange the Plate") { [weak self] in self?.plateAction(zs_app_plate_arrange) })
+        menu.addItem(ClosureItem("Add Models…") { [weak self] in self?.addModels() })
+        menu.addItem(ClosureItem("Clear the Plate") { [weak self] in self?.plateAction(zs_app_plate_clear) })
         if zs_app_mark_count(model.core) > 0 {
             menu.addItem(ClosureItem("Clear All Support Marks") { [weak self] in
                 guard let self else { return }
@@ -120,6 +146,31 @@ extension Workspace {
         showSettings = true
         drawerPage = .settings
         settingsPath = []
+    }
+
+    /// The part of the selected line lies on the bed with the side of the
+    /// line down.
+    private func putDown() {
+        guard let s = selection, let m = markPlace() else { return }
+        let part = zs_app_part_of_path(model.core, s.path)
+        guard part >= 0, zs_app_part_put_down_at(model.core, Int(part), m.x, m.y, m.z) == 0 else { return }
+        clearSelection()
+        model.settingsChanged()
+    }
+
+    private func placeLinePart(_ mode: Int32, _ axis: Int32) {
+        guard let s = selection else { return }
+        let part = zs_app_part_of_path(model.core, s.path)
+        guard part >= 0, zs_app_part_place(model.core, Int(part), mode, axis) == 0 else { return }
+        clearSelection()
+        model.settingsChanged()
+    }
+
+    /// Smart placement, arrange, or clear, for all the parts of the plate.
+    func plateAction(_ action: (OpaquePointer?) -> Int32) {
+        guard action(model.core) == 0 else { return }
+        clearSelection()
+        model.settingsChanged()
     }
 
     private func addMark(_ kind: Int32) {

@@ -273,6 +273,20 @@ final class Workspace {
     func syncPlates() {
         guard let v = canvas.view else { return }
         zs_set_view_sync(model.set, v)
+        // A plate with no parts (Clear the Plate): no layers, and the
+        // controls of the layers go.
+        if model.state == .empty, layerCount > 0 {
+            stopReplay()
+            clearSelection()
+            layerCount = 0
+            lo = 0
+            hi = 0
+            layerZ = []
+            layerEnd = []
+            layerSlowed = []
+            canvas.load(model.core)
+            readLegend()
+        }
         canvas.requestFrame()
     }
 

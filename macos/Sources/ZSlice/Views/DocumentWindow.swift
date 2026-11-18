@@ -39,7 +39,7 @@ struct DocumentWindow: View {
                     }
                     if workspace.checkOpen {
                         CheckPanel(workspace: workspace)
-                    } else {
+                    } else if workspace.layerCount > 0 {
                         Legend(workspace: workspace)
                     }
                 }
