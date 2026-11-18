@@ -1156,7 +1156,7 @@ $("printer-menu").onclick = () => {
   const mine = Object.keys(store.printers ?? {});
   if (mine.length) {
     items.push({ title: "Your printers" });
-    for (const n of mine) items.push({ label: n, checked: n === store.printer, action: () => loadProfile(0, n, store.printers[n].profile) });
+    for (const n of mine) items.push({ label: n, color: store.printers[n].color, checked: n === store.printer, action: () => loadProfile(0, n, store.printers[n].profile) });
   }
   items.push({ title: "Built-in" });
   for (const n of wasm.builtinProfiles(0)) {
@@ -2747,6 +2747,34 @@ async function hostPrinter() {
     // The https address of a printdeck with a certificate, or "".
     https: p.https || known?.https || "",
   };
+  // A deck that drives more than one printer lists them: each one is a
+  // printer of its own, at <base>/printers/<id> (the first at the base),
+  // with its own API key, and its label and color, so the user sees which
+  // is which.
+  if (Array.isArray(p.printers) && p.printers.length > 1) {
+    const base = (p.url || location.origin).replace(/\/$/, "");
+    const httpsBase = (p.https || "").replace(/\/$/, "");
+    for (const q of p.printers) {
+      if (!q?.name || q.kind === "resin") continue;
+      const sub = typeof q.url === "string" ? q.url : "";
+      // The first printer is at the base: the deck's own entry.
+      if (sub === "") {
+        Object.assign(store.printers[p.name], { color: q.color || "", label: q.label || "" });
+        continue;
+      }
+      const name = q.label && q.label !== q.name ? `${q.name} (${q.label})` : q.name;
+      const had = store.printers[name];
+      store.printers[name] = {
+        profile: had?.profile ?? store.printers[p.name].profile,
+        url: base + sub,
+        kind: "printdeck",
+        apiKey: had?.apiKey ?? "",
+        https: httpsBase ? httpsBase + sub : "",
+        color: q.color || had?.color || "",
+        label: q.label || "",
+      };
+    }
+  }
   if (!store.printer) store.printer = p.name;
   saveStore();
   // On a deck page over http, offer its secure address. The work of this

@@ -819,3 +819,4 @@ button.destructive { background: #c01c28; color: #fff; }
   .hb-end { margin-left: auto; }
 }
 .summary.float-card.is-empty { display: none; }
+.menu-dot { display: inline-block; width: 9px; height: 9px; border-radius: 50%; margin-right: 7px; vertical-align: middle; }

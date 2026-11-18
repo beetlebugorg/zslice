@@ -65,6 +65,14 @@ function fill(menu, items, back) {
       const t = document.createElement("span");
       t.className = "label";
       t.textContent = it.label;
+      // A dot of a color before the label (a printer of a deck with more
+      // than one printer).
+      if (/^#[0-9a-f]{6}$/i.test(it.color ?? "")) {
+        const dot = document.createElement("span");
+        dot.className = "menu-dot";
+        dot.style.background = it.color;
+        t.prepend(dot);
+      }
       b.append(c, t);
       if (it.accel || it.submenu) {
         const a = document.createElement("span");
