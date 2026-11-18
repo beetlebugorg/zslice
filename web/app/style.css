@@ -688,6 +688,13 @@ button.destructive { background: #c01c28; color: #fff; }
 .sum-warn.sum-hint { background: #8a5a00; }
 .sum-warn button { margin-left: 4px; padding: 2px 8px; }
 .sum-project { font-size: 0.85em; margin-top: 2px; }
+.refine-tips { border-top: 1px solid var(--border); margin-top: 6px; padding-top: 6px; font-size: 0.85em; display: flex; flex-direction: column; gap: 4px; }
+.refine-head { display: flex; align-items: center; gap: 6px; font-weight: 600; }
+.refine-head span { flex: 1; }
+.refine-row { display: flex; align-items: center; gap: 6px; }
+.refine-text { flex: 1; min-width: 0; overflow-wrap: anywhere; }
+.refine-text .dim { display: block; font-size: 0.9em; }
+.refine-tips button { min-height: 26px; padding: 2px 8px; font-size: 0.9em; border-radius: 7px; }
 .pc-actions { display: flex; flex-wrap: wrap; gap: 4px; }
 .pc-cut { display: flex; flex-direction: column; gap: 6px; padding: 6px 0; border-top: 1px solid var(--border); }
 .pc-cut-row { display: flex; align-items: center; gap: 6px; font-size: 0.9em; }

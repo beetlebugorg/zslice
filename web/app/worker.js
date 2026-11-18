@@ -379,7 +379,7 @@ function historyList() {
 
 // The ops that change the settings, and the ops that change the plate:
 // each starts or extends a step.
-const SETTING_OPS = new Set(["set", "reset", "quality", "profile", "setScoped", "resetScoped"]);
+const SETTING_OPS = new Set(["refineApply", "set", "reset", "quality", "profile", "setScoped", "resetScoped"]);
 // The parts whose largest side is under 3 mm: a file in inches or in
 // meters loads that small. The print card offers a scale.
 function tinyParts(c) {
@@ -641,6 +641,43 @@ const ops = {
   // The list does not end an edit that goes on.
   history() {
     return historyList();
+  },
+
+  // The refinements of the plate (its changes from the first slice) go in
+  // the store of the app, in place of the last records of `project`. The
+  // reply has the new store and the suggestions for the plate: each with
+  // its line (for refineApply), its text, and the count of projects.
+  refine({ store, project }) {
+    const w = wasm;
+    const a = core?.app;
+    if (!a) return { store, suggestions: [] };
+    const records = w.readText((b, c, l) => w.x.zs_app_refine_records(a, b, c, l)) ?? "";
+    const merged = w.withString(store, (sp, sn) => w.withString(project, (pp) => w.withString(records, (rp, rn) =>
+      w.readText((b, c, l) => w.x.zs_refine_merge(sp, sn, pp, rp, rn, b, c, l))))) ?? store;
+    const text = w.withString(merged, (sp, sn) => w.withString(project, (pp) =>
+      w.readText((b, c, l) => w.x.zs_app_refine_suggest(a, sp, sn, pp, b, c, l)))) ?? "";
+    const suggestions = [];
+    for (const line of text.split("\n")) {
+      const f = line.split("\t");
+      if (f.length < 7) continue;
+      const [kind, , key, value, count, lo, hi] = f;
+      // The words of the change, as the history writes them.
+      const scope = kind === "layers" ? `layers:${lo}:${hi}` : kind === "part" ? "part:each part" : "print";
+      const change = `${scope}\t${key}\t\t${value}\n`;
+      const words = w.withString(change, (cp, cn) => w.readText((b, c, l) => w.x.zs_app_history_describe(a, cp, cn, b, c, l))) ?? "";
+      const [where, what] = words.trim().split("\t");
+      suggestions.push({ line, where: where ?? "", what: what ?? key, count: Number(count) });
+    }
+    return { store: merged, suggestions };
+  },
+
+  // Applies one suggestion of `refine`: one history step, then a slice.
+  refineApply({ line }) {
+    const w = wasm;
+    const rc = w.withString(line, (p, n) => w.x.zs_app_refine_apply(core.app, p, n));
+    if (rc !== 0) return { error: statusText(rc), ...settingsState() };
+    wantSlice();
+    return { ...settingsState() };
   },
 
   // The setting whose editor has the focus now, or null. A move of the

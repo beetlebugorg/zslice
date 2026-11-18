@@ -2162,6 +2162,7 @@ function onWorkerEvent(m) {
       gaps.refresh(layers.hi, true);
       requestFrame();
       keepSoon();
+      refineSoon();
       break;
     }
     case "history":
@@ -2288,6 +2289,7 @@ async function removePlate(i) {
   if (p.parts > 0 && !confirm(`Remove plate ${i + 1} and its ${p.parts === 1 ? "part" : `${p.parts} parts`}? This cannot be undone.`)) return;
   const r = await client.call("plateRemove", { index: i });
   project.removed(i);
+  app.refineIds?.splice(i, 1);
   applySettings(r);
   const q = app.plates[r.index];
   const name = q?.name || "zslice";
@@ -2440,6 +2442,120 @@ function setCamera(c) {
 
 // The state of the page, to come back exactly after a reload.
 const UI_KEY = "zslice-ui";
+// ---- refinements: the first slice is a guide ----
+//
+// The refinements of each plate (its changes from the first slice) go in a
+// store in the browser, with the records of the past projects, and stay on
+// the device. The core finds the refinements that the user made in two or
+// more other projects with the same material and nozzle, and the card on
+// the print card offers them.
+
+const REFINE_KEY = "zslice-refine";
+const REFINE_HIDDEN_KEY = "zslice-refine-hidden";
+
+function loadText(key) {
+  try {
+    return localStorage.getItem(key) ?? "";
+  } catch {
+    return "";
+  }
+}
+
+function saveText(key, text) {
+  try {
+    localStorage.setItem(key, text);
+  } catch {
+    // No storage: the store stays empty.
+  }
+}
+
+// The id of the project of plate i in the store: one id for each plate,
+// kept with the state of the page.
+function refineId(i) {
+  app.refineIds ??= [];
+  app.refineIds[i] ??= `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`;
+  return app.refineIds[i];
+}
+
+function hiddenTips() {
+  try {
+    return new Set(JSON.parse(loadText(REFINE_HIDDEN_KEY) || "[]"));
+  } catch {
+    return new Set();
+  }
+}
+
+let refineTimer = 0;
+function refineSoon() {
+  clearTimeout(refineTimer);
+  refineTimer = setTimeout(refreshRefine, 800);
+}
+
+async function refreshRefine() {
+  if (app.state !== "done") return;
+  const project = refineId(app.activePlate);
+  let r;
+  try {
+    r = await client.call("refine", { store: loadText(REFINE_KEY), project });
+  } catch {
+    return;
+  }
+  saveText(REFINE_KEY, r.store);
+  const hidden = hiddenTips();
+  showRefineTips(r.suggestions.filter((s) => !hidden.has(s.line)));
+}
+
+function showRefineTips(list) {
+  const box = $("refine-tips");
+  box.replaceChildren();
+  box.hidden = list.length === 0;
+  if (!list.length) return;
+  const head = el("div", "refine-head");
+  head.append(el("span", "", list.length === 1 ? "Your usual refinement" : `Your usual refinements: ${list.length}`));
+  if (list.length > 1) {
+    const all = el("button", "", "Apply all");
+    all.title = "Apply each refinement (one undo step each)";
+    all.onclick = async () => {
+      for (const s of list) await applyRefine(s, false);
+      refineSoon();
+    };
+    head.append(all);
+  }
+  box.append(head);
+  for (const s of list) {
+    const row = el("div", "refine-row");
+    const text = el("div", "refine-text");
+    text.append(document.createTextNode(`${s.where}: ${s.what}`));
+    text.append(el("span", "dim", `You made this change in ${s.count} other prints.`));
+    const apply = el("button", "", "Apply");
+    apply.onclick = () => applyRefine(s, true);
+    const hide = el("button", "", "×");
+    hide.title = "Do not offer this again";
+    hide.setAttribute("aria-label", "Do not offer this again");
+    hide.onclick = () => {
+      const h = hiddenTips();
+      h.add(s.line);
+      saveText(REFINE_HIDDEN_KEY, JSON.stringify([...h]));
+      row.remove();
+      if (!box.querySelector(".refine-row")) box.hidden = true;
+    };
+    row.append(text, apply, hide);
+    box.append(row);
+  }
+}
+
+async function applyRefine(s, refresh) {
+  const r = await client.call("refineApply", { line: s.line });
+  if (r.error) {
+    toast(r.error);
+    return;
+  }
+  applySettings(r);
+  history.refresh();
+  toast(`Applied: ${s.what}. Undo removes it.`);
+  if (refresh) refineSoon();
+}
+
 function captureUi() {
   const col = (id) => $(id)?.scrollTop ?? 0;
   const f = document.activeElement;
@@ -2461,6 +2577,7 @@ function captureUi() {
     farm: !$("farm-view").hidden,
     part: tools.part?.index ?? -1,
     focus,
+    refineIds: app.refineIds ?? [],
   };
 }
 
@@ -2766,6 +2883,7 @@ if (!modelUrl && !project.willRestore()) {
 // The UI state of the page, after the plates are back.
 async function restoreUi(camera) {
   const u = loadUi();
+  if (Array.isArray(u?.refineIds)) app.refineIds = u.refineIds;
   if (u?.page && u.page !== app.page) showPage(u.page);
   if (u?.tool) tools.set(u.tool);
   setCamera(u?.camera ?? camera);

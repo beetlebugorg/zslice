@@ -54,6 +54,7 @@ pub const sweep = @import("app/sweep.zig");
 /// The settings that can close a gap (see app/gap_advice.zig).
 pub const gap_advice = @import("app/gap_advice.zig");
 pub const history = @import("app/history.zig");
+pub const refine = @import("app/refine.zig");
 /// The support areas of the user (see app/support_areas.zig).
 pub const support_areas = @import("app/support_areas.zig");
 pub const plate_set = @import("app/plate_set.zig");
@@ -953,6 +954,62 @@ pub const App = struct {
     /// app/history.zig): the settings that differ from the built-in
     /// defaults, the settings and the place of each part, and the changes
     /// for some layers. Two steps with the same facts look the same.
+    /// The context of the refinements of the app (see app/refine.zig).
+    pub fn refineContext(app: *App) refine.Context {
+        const t = app.allToolpaths();
+        const height: f64 = if (t) |tp| (if (tp.layer_z.items.len > 0) tp.layer_z.items[tp.layer_z.items.len - 1] else 0) else 0;
+        return .{
+            .material = app.settings.filament.material,
+            .printer = app.settings.machine.name,
+            .nozzle = app.settings.machine.nozzle_diameter,
+            .height = height,
+        };
+    }
+
+    /// The records of the refinements of the plate: its changes from the
+    /// guide, the first slice (see app/refine.zig).
+    pub fn writeRefinements(app: *App, gpa: Allocator, w: *std.Io.Writer) (Allocator.Error || std.Io.Writer.Error)!void {
+        const guide = refine.guideFacts(&app.undo) orelse return;
+        var now: std.Io.Writer.Allocating = .init(gpa);
+        defer now.deinit();
+        try app.writeFacts(&now.writer);
+        try refine.records(gpa, guide, now.written(), app.refineContext(), w);
+    }
+
+    /// Applies a suggestion line of refine.suggest: a setting of the print,
+    /// of each part, or of the bottom or top layers.
+    pub fn applySuggestion(app: *App, line: []const u8) (OverrideError || error{ BadSuggestion, NoPart })!void {
+        const sg = refine.Suggestion.parse(line) orelse return error.BadSuggestion;
+        var value_buf: [256]u8 = undefined;
+        // The value of a suggestion is escaped (history.writeEscaped).
+        var vw: std.Io.Writer = .fixed(&value_buf);
+        var i: usize = 0;
+        while (i < sg.value.len) : (i += 1) {
+            const c = sg.value[i];
+            if (c == '\\' and i + 1 < sg.value.len) {
+                i += 1;
+                vw.writeByte(switch (sg.value[i]) {
+                    't' => '\t',
+                    'n' => '\n',
+                    else => sg.value[i],
+                }) catch return error.BadSuggestion;
+            } else vw.writeByte(c) catch return error.BadSuggestion;
+        }
+        const value = vw.buffered();
+        if (std.mem.eql(u8, sg.kind, "print")) return app.setSetting(sg.key, value);
+        if (std.mem.eql(u8, sg.kind, "layers")) return app.setOverride(sg.lo, sg.hi, sg.key, value);
+        if (std.mem.eql(u8, sg.kind, "part")) {
+            if (app.plate.count() == 0) return error.NoPart;
+            for (0..app.plate.count()) |p| app.setPartSetting(p, sg.key, value) catch |e| switch (e) {
+                error.NoPart => return error.NoPart,
+                error.OutOfMemory => return error.OutOfMemory,
+                else => return error.BadSuggestion,
+            };
+            return;
+        }
+        return error.BadSuggestion;
+    }
+
     pub fn writeFacts(app: *const App, w: *std.Io.Writer) std.Io.Writer.Error!void {
         const defaults: Settings = .{};
         inline for (.{ "machine", "filament", "project" }, .{ "machine", "filament", "print" }) |g, scope| {
@@ -2163,6 +2220,7 @@ pub fn statusOf(e: anyerror) c_int {
 const testing = std.testing;
 
 test {
+    _ = refine;
     _ = inspect_mod;
     _ = toolpaths_mod;
     _ = setting_effect;

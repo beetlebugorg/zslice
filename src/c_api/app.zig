@@ -2266,6 +2266,55 @@ fn copyOut(text: []const u8, buf: ?[*]u8, cap: usize, out_len: ?*usize) c_int {
 
 /// The facts of the state, for a step of the history: one line for each
 /// value that differs from the start ("scope\tkey\tvalue").
+// ---- refinements: the first slice is a guide ----
+
+/// The records of the refinements of the plate: its changes from the first
+/// slice, one on each line (see src/app/refine.zig).
+export fn zs_app_refine_records(a: ?*App, buf: ?[*]u8, cap: usize, out_len: ?*usize) c_int {
+    const app = a orelse return @intFromEnum(Status.invalid_argument);
+    var aw: Writer.Allocating = .init(gpa);
+    defer aw.deinit();
+    app.writeRefinements(gpa, &aw.writer) catch return @intFromEnum(Status.out_of_memory);
+    return copyOut(aw.written(), buf, cap, out_len);
+}
+
+/// The store with the records of `project` replaced by `records`.
+export fn zs_refine_merge(store: ?[*]const u8, store_len: usize, project: ?[*:0]const u8, records: ?[*]const u8, records_len: usize, buf: ?[*]u8, cap: usize, out_len: ?*usize) c_int {
+    const p = std.mem.span(project orelse return @intFromEnum(Status.invalid_argument));
+    var aw: Writer.Allocating = .init(gpa);
+    defer aw.deinit();
+    app_mod.refine.merge(gpa, if (store) |s| s[0..store_len] else "", p, if (records) |r| r[0..records_len] else "", &aw.writer) catch return @intFromEnum(Status.out_of_memory);
+    return copyOut(aw.written(), buf, cap, out_len);
+}
+
+/// The suggestions for the plate of the app from the store: refinements of
+/// at least two other projects with the same material and nozzle.
+export fn zs_app_refine_suggest(a: ?*App, store: ?[*]const u8, store_len: usize, project: ?[*:0]const u8, buf: ?[*]u8, cap: usize, out_len: ?*usize) c_int {
+    const app = a orelse return @intFromEnum(Status.invalid_argument);
+    const p = std.mem.span(project orelse return @intFromEnum(Status.invalid_argument));
+    var now: Writer.Allocating = .init(gpa);
+    defer now.deinit();
+    app.writeFacts(&now.writer) catch return @intFromEnum(Status.out_of_memory);
+    var aw: Writer.Allocating = .init(gpa);
+    defer aw.deinit();
+    app_mod.refine.suggest(gpa, if (store) |s| s[0..store_len] else "", p, now.written(), app.refineContext(), &aw.writer) catch return @intFromEnum(Status.out_of_memory);
+    return copyOut(aw.written(), buf, cap, out_len);
+}
+
+/// Applies one suggestion line of zs_app_refine_suggest. Slice again after
+/// it. One history step.
+export fn zs_app_refine_apply(a: ?*App, line: ?[*]const u8, len: usize) c_int {
+    const app = a orelse return @intFromEnum(Status.invalid_argument);
+    const l = (line orelse return @intFromEnum(Status.invalid_argument))[0..len];
+    app.applySuggestion(l) catch |e| return switch (e) {
+        error.OutOfMemory => @intFromEnum(Status.out_of_memory),
+        error.NoPart => @intFromEnum(Status.no_model),
+        else => @intFromEnum(Status.invalid_argument),
+    };
+    app.undo.note(gpa, "*", true);
+    return ok;
+}
+
 export fn zs_app_history_facts(a: ?*const App, buf: ?[*]u8, cap: usize, out_len: ?*usize) c_int {
     const app = a orelse return @intFromEnum(Status.invalid_argument);
     var aw: Writer.Allocating = .init(gpa);

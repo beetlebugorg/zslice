@@ -779,6 +779,20 @@ int zs_app_state_write(const zs_app *app, int group, char *buf, size_t cap, size
  * profile. For the project group, the quality profile and the changes of
  * this print together (zs_app_state_write has the changes only). */
 int zs_app_profile_write(const zs_app *app, int group, char *buf, size_t cap, size_t *out_len);
+/* Refinements (src/app/refine.zig): the first slice is a guide.
+ * zs_app_refine_records gives the changes of the plate from the guide,
+ * one record on each line. The app keeps a store of the records of its
+ * projects on the device: zs_refine_merge replaces the records of one
+ * project. zs_app_refine_suggest gives the refinements that the user made
+ * in at least two other projects with the same material and nozzle
+ * ("kind\tzone\tkey\tvalue\tcount\tz_lo\tz_hi"), and
+ * zs_app_refine_apply applies one of them (one history step; slice
+ * again after it). */
+int zs_app_refine_records(zs_app *app, char *buf, size_t cap, size_t *out_len);
+int zs_refine_merge(const char *store, size_t store_len, const char *project, const char *records, size_t records_len, char *buf, size_t cap, size_t *out_len);
+int zs_app_refine_suggest(zs_app *app, const char *store, size_t store_len, const char *project, char *buf, size_t cap, size_t *out_len);
+int zs_app_refine_apply(zs_app *app, const char *line, size_t len);
+
 /* The history of changes (src/app/history.zig). zs_app_history_facts
  * writes the state as lines of "scope\tkey\tvalue" (only the values that
  * differ from the start). zs_history_diff gives the changes from one state
