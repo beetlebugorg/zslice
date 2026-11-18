@@ -104,6 +104,13 @@ struct ViewCommands: Commands {
                 .keyboardShortcut("0", modifiers: .command)
                 .disabled(workspace == nil)
             Divider()
+            Button("Show Gaps") { workspace?.toggleGaps() }
+                .keyboardShortcut("g", modifiers: [.command, .shift])
+                .disabled(workspace == nil)
+            Button("Check the Print") { workspace?.checkOpen.toggle() }
+                .keyboardShortcut("k", modifiers: [.command, .shift])
+                .disabled(workspace == nil)
+            Divider()
             Button("Search Settings and Actions…") { workspace?.searchOpen = true }
                 .keyboardShortcut("f", modifiers: .command)
                 .disabled(workspace == nil)

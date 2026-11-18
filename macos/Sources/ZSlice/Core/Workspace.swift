@@ -50,6 +50,13 @@ final class Workspace {
     /// The points of the tape in the view (points), for the readout.
     var tapeScreen: [CGPoint] = []
 
+    // Gaps and Check (Checks.swift).
+    var gapsOn = false
+    var gapSummary: (count: Int, area: Double)?
+    var gapCard: GapInfo?
+    var checkOpen = false
+    var issues: [Issue] = []
+
     // The selected line and its card (Selection.swift).
     var selection: Selection?
     var lineInfo: LineInfo?
@@ -78,6 +85,9 @@ final class Workspace {
         if ProcessInfo.processInfo.environment["ZSLICE_PANEL"] != nil { showSettings = true }
         // ZSLICE_SEARCH=text opens the search with that text (the field reads it).
         if ProcessInfo.processInfo.environment["ZSLICE_SEARCH"] != nil { searchOpen = true }
+        // ZSLICE_GAPS=1 shows the gaps, and ZSLICE_CHECK=1 the check.
+        if ProcessInfo.processInfo.environment["ZSLICE_GAPS"] != nil { gapsOn = true }
+        if ProcessInfo.processInfo.environment["ZSLICE_CHECK"] != nil { checkOpen = true }
         // For screenshots: ZSLICE_DARK=1 or 0 sets the look of the app.
         if let d = ProcessInfo.processInfo.environment["ZSLICE_DARK"] {
             NSApp.appearance = NSAppearance(named: d == "1" ? .darkAqua : .aqua)
@@ -111,6 +121,9 @@ final class Workspace {
         applyRange()
         applyFocus()
         refindSelection()
+        gapCard = nil
+        showGaps()
+        readIssues()
         if let i = selectedPart { selectPart(i < zs_app_part_count(model.core) ? i : nil) }
         // For tests of memory and time: ZSLICE_RESLICE=n changes the wall
         // count after each slice, n times, so the plate slices n times more.
@@ -203,6 +216,7 @@ final class Workspace {
     private func applyRange() {
         guard let v = canvas.view else { return }
         zs_view_set_layer_range(v, lo, hi)
+        if gapsOn { showGaps() }
         canvas.layer2D = hi
         canvas.dim2D = focusMask != 0 && focusFirst && hi > 0
         canvas.requestFrame()
@@ -431,6 +445,7 @@ final class Workspace {
 
 extension Workspace: SliceViewDelegate {
     func sliceViewClick(_ p: CGPoint) {
+        if gapsOn && pickGap(at: p) { return }
         switch tool {
         case .measure:
             measureClick(p, snap: !NSEvent.modifierFlags.contains(.shift))
@@ -487,6 +502,7 @@ extension Workspace: SliceViewDelegate {
             case "n" where !shift: showSettings.toggle()
             case "/": searchOpen.toggle()
             case "?": shortcutsOpen = true
+            case "g" where !shift: toggleGaps()
             default: return false
             }
         }

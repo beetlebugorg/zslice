@@ -25,6 +25,10 @@ struct DocumentWindow: View {
             .overlay {
                 GeometryReader { geo in
                     TapeOverlay(workspace: workspace, area: geo.size)
+                    if let gap = workspace.gapCard {
+                        GapCard(workspace: workspace, gap: gap)
+                            .position(x: min(workspace.cardAt.x + 180, geo.size.width - 170), y: min(max(workspace.cardAt.y, 160), geo.size.height - 160))
+                    }
                     if workspace.cardOpen, let info = workspace.lineInfo {
                         LineCard(workspace: workspace, info: info, area: geo.size)
                     }
@@ -33,10 +37,23 @@ struct DocumentWindow: View {
             }
             .overlay(alignment: .topLeading) {
                 HStack(alignment: .top, spacing: 10) {
-                    ToolStrip(workspace: workspace)
-                    Legend(workspace: workspace)
+                    VStack(spacing: 8) {
+                        ToolStrip(workspace: workspace)
+                        CheckButtons(workspace: workspace)
+                    }
+                    if workspace.checkOpen {
+                        CheckPanel(workspace: workspace)
+                    } else {
+                        Legend(workspace: workspace)
+                    }
                 }
                 .padding(12)
+            }
+            .overlay(alignment: .topTrailing) {
+                // Left of the layer slider and its number.
+                GapSummary(workspace: workspace)
+                    .padding(.top, 12)
+                    .padding(.trailing, 92)
             }
             .overlay(alignment: .trailing) {
                 if workspace.layerCount > 0 {
@@ -56,8 +73,8 @@ struct DocumentWindow: View {
                         .fixedSize()
                 }
                 .padding(.leading, 64)
-                // Clear of the layer slider at the right edge.
-                .padding(.trailing, 48)
+                // Clear of the layer slider and its number at the right edge.
+                .padding(.trailing, 84)
                 .padding(.bottom, 16)
             }
             // The search last, over the other controls.
@@ -215,6 +232,8 @@ struct PrintCard: View {
                         Text(String(format: "%.1f g · %.2f m · %d layers", s.filament_g, s.filament_mm / 1000, s.layer_count))
                             .font(.callout.monospacedDigit())
                             .foregroundStyle(.secondary)
+                            .lineLimit(1)
+                            .minimumScaleFactor(0.75)
                     } else {
                         Text("Slicing…").font(.title3.weight(.semibold))
                     }
