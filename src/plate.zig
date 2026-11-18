@@ -273,6 +273,41 @@ pub const Plate = struct {
         return self.parts.items.len - 1;
     }
 
+    /// Splits part i into its separate bodies (Mesh.components), each a
+    /// part at its place on the bed, with the settings of part i. The
+    /// modifier volumes of the part go. Returns the count of the new parts
+    /// (they replace part i, from index i on), or 0 if the part has one
+    /// body (no change).
+    pub fn split(self: *Plate, gpa: Allocator, i: usize, bed: [2]f64, gap: f64) Allocator.Error!usize {
+        if (i >= self.parts.items.len) return 0;
+        var placed = try self.partMesh(gpa, i);
+        defer placed.deinit(gpa);
+        const bodies = try placed.components(gpa);
+        defer gpa.free(bodies);
+        var taken: usize = 0;
+        defer for (bodies[taken..]) |*m| m.deinit(gpa);
+        if (bodies.len <= 1) return 0;
+        const src = &self.parts.items[i];
+        const base = try gpa.dupe(u8, src.name);
+        defer gpa.free(base);
+        const meta = try threemf.cloneMeta(gpa, src.meta);
+        defer threemf.freeMeta(gpa, meta);
+        self.remove(gpa, i);
+        for (bodies, 0..) |m, k| {
+            taken = k + 1;
+            const name = try std.fmt.allocPrint(gpa, "{s} ({d})", .{ base, k + 1 });
+            defer gpa.free(name);
+            // The body keeps its place: `add` keeps the place of a mesh in
+            // bed coordinates if it fits.
+            const j = try self.add(gpa, name, m, bed, gap, true);
+            self.setMeta(gpa, j, try threemf.cloneMeta(gpa, meta));
+            // From the end to index i + k.
+            const part = self.parts.pop().?;
+            try self.parts.insert(gpa, i + k, part);
+        }
+        return bodies.len;
+    }
+
     pub fn remove(self: *Plate, gpa: Allocator, i: usize) void {
         if (i >= self.parts.items.len) return;
         var p = self.parts.orderedRemove(i);
@@ -755,4 +790,27 @@ test "duplicate a part" {
     try std.testing.expectEqual(plate.parts.items[0].mesh.faces.items.len, plate.parts.items[1].mesh.faces.items.len);
     // The copy is at another place, with no overlap.
     try std.testing.expect(!plate.overlaps(&plate.parts.items[1], 3, 1));
+}
+
+test "plate: split a part into its bodies" {
+    const gpa = std.testing.allocator;
+    var b: mesh_mod.Builder = .init(gpa);
+    try mesh_mod.shapes.addBox(&b, 0, 0, 0, 10, 10, 10);
+    try mesh_mod.shapes.addBox(&b, 20, 0, 0, 25, 5, 5);
+    const m = try b.finish();
+    var plate: Plate = .{};
+    defer plate.deinit(gpa);
+    _ = try plate.add(gpa, "two", m, .{ 200, 200 }, 2, true);
+    const before = plate.parts.items[0].footprint();
+    try std.testing.expectEqual(@as(usize, 2), try plate.split(gpa, 0, .{ 200, 200 }, 2));
+    try std.testing.expectEqual(@as(usize, 2), plate.count());
+    try std.testing.expectEqualStrings("two (1)", plate.parts.items[0].name);
+    // The bodies keep their places: the large box at the left of the old
+    // footprint, the small one at its right.
+    const f0 = plate.parts.items[0].footprint();
+    const f1 = plate.parts.items[1].footprint();
+    try std.testing.expectApproxEqAbs(before[0], f0[0], 1e-6);
+    try std.testing.expectApproxEqAbs(before[2], f1[2], 1e-6);
+    // One body: no change.
+    try std.testing.expectEqual(@as(usize, 0), try plate.split(gpa, 0, .{ 200, 200 }, 2));
 }

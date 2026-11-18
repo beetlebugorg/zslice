@@ -80,6 +80,9 @@ void zg_model_part_remove(ZgModel *self, size_t i);
 /* A copy of part i at a free place on the bed, with its settings (see
  * zs_app_part_duplicate). Returns the index of the copy, or -1. */
 gint64 zg_model_part_duplicate(ZgModel *self, size_t i);
+/* Splits part i into its separate bodies (zs_app_part_split): the count of
+ * new parts (at index i on), 0 for a part of one body, or -1. */
+gint64 zg_model_part_split(ZgModel *self, size_t i);
 gboolean zg_model_plate_arrange(ZgModel *self);
 void zg_model_plate_clear(ZgModel *self);
 

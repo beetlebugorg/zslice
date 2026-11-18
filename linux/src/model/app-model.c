@@ -1588,6 +1588,13 @@ gint64 zg_model_part_duplicate(ZgModel *self, size_t i) {
     return copy;
 }
 
+gint64 zg_model_part_split(ZgModel *self, size_t i) {
+    ptrdiff_t n = zs_app_part_split(self->core, i);
+    if (n <= 0) return n < 0 ? -1 : 0;
+    plate_changed(self);
+    return n;
+}
+
 void zg_model_part_remove(ZgModel *self, size_t i) {
     if (zs_app_part_remove(self->core, i) != ZS_OK) return;
     zg_model_select_part(self, -1);

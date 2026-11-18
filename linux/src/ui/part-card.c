@@ -152,6 +152,10 @@ static void on_action(GSimpleAction *a, GVariant *v, gpointer data) {
     if (strcmp(name, "duplicate") == 0) {
         gint64 copy = zg_model_part_duplicate(c->model, i);
         if (copy >= 0) zg_model_select_part(c->model, copy);
+    } else if (strcmp(name, "split") == 0) {
+        gint64 n = zg_model_part_split(c->model, i);
+        if (n == 0) gtk_widget_set_tooltip_text(c->card, "The part has one body: nothing to split.");
+        else if (n > 0) zg_model_select_part(c->model, (gint64)i);
     } else if (strcmp(name, "smart") == 0) {
         zg_model_part_place(c->model, i, ZS_PLACE_SMART, 0);
     } else if (strcmp(name, "less-support") == 0) {
@@ -207,6 +211,7 @@ GtkWidget *zg_part_card_new(ZgModel *model, GtkWidget *preview) {
     gtk_box_append(GTK_BOX(c->card), c->facts);
     static const GActionEntry actions[] = {
         {.name = "duplicate", .activate = on_action},
+        {.name = "split", .activate = on_action},
         {.name = "smart", .activate = on_action},
         {.name = "less-support", .activate = on_action},
         {.name = "reset", .activate = on_action},
@@ -219,6 +224,7 @@ GtkWidget *zg_part_card_new(ZgModel *model, GtkWidget *preview) {
     g_object_unref(group);
     static const struct { const char *label, *action, *tip; } buttons[] = {
         {"Duplicate", "partcard.duplicate", "A copy of the part at a free place on the bed (D)"},
+        {"Split to parts", "partcard.split", "Make each separate body of the part a part of its own, at its place"},
         {"Best orientation", "partcard.smart", "Turn the part to its best orientation: less support, more on the bed, low"},
         {"Less support", "partcard.less-support", "Turn the part to need the least support"},
         {"Reset", "partcard.reset", "The orientation and the scale of the file again"},

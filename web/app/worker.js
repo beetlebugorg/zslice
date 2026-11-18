@@ -690,10 +690,12 @@ const ops = {
 
   partAction({ index, action }) {
     const r = core.partAction(index, action);
+    // A split of one body changes nothing.
+    if (action === "split" && r === 0) return { ok: false, part: core.part(index), message: "The part has one body: nothing to split." };
     if (r >= 0) wantSlice();
     const n = core.w.x.zs_app_part_count(core.app);
     const at = action === "duplicate" && r >= 0 ? r : index;
-    return { ok: r >= 0, part: action === "remove" || at >= n ? null : core.part(at) };
+    return { ok: r >= 0, count: action === "split" ? r : 0, part: action === "remove" || at >= n ? null : core.part(at) };
   },
 
   // The part `dir` steps from part `index` (Tab and Shift+Tab), around

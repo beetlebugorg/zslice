@@ -3,8 +3,8 @@
 // part, and the card shows:
 //
 // - its name, its size, and its turn;
-// - its actions: Duplicate (D), Best orientation, Less support, Reset, and
-//   Remove (Delete);
+// - its actions: Duplicate (D), Split to parts, Best orientation, Less
+//   support, Reset, and Remove (Delete);
 // - the settings that the part has of its own (not the values of the
 //   plate), each with a live editor and × to give it the value of the
 //   plate again. "+ Add a setting for this part" opens the search for the
@@ -80,6 +80,7 @@ export class PartCard {
       actions.append(b);
     };
     action("Duplicate", "D", "A copy of the part at a free place on the bed", "duplicate");
+    action("Split to parts", "", "Make each separate body of the part a part of its own, at its place", "split");
     action("Best orientation", "", "Turn the part to its best orientation: less support, more on the bed, low", "smart");
     action("Less support", "", "Turn the part to need the least support", "less-support");
     action("Reset", "", "The orientation and the scale of the file again", "reset");
@@ -166,9 +167,10 @@ export class PartCard {
     if (!this.part) return;
     const r = await this.ctx.client.call("partAction", { index: this.part.index, action });
     if (!r.ok) {
-      this.ctx.toast("The part did not change.");
+      this.ctx.toast(r.message ?? "The part did not change.");
       return;
     }
+    if (action === "split") this.ctx.toast(`Split into ${r.count} parts.`);
     this.ctx.select(r.part);
   }
 

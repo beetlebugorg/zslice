@@ -567,6 +567,11 @@ typedef struct zs_part {
  * volumes) at a free place on the bed. Returns its index, or a negative
  * status. */
 ptrdiff_t zs_app_part_duplicate(zs_app *app, size_t i);
+/* Splits part i into its separate bodies (the sets of faces that share no
+ * vertex), each a part at its place, with the settings of part i. The new
+ * parts are at index i on. Returns their count, 0 for a part of one body,
+ * or -status. */
+ptrdiff_t zs_app_part_split(zs_app *app, size_t i);
 
 size_t zs_app_part_count(const zs_app *app);
 int zs_app_part_get(zs_app *app, size_t i, zs_part *out);

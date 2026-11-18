@@ -73,6 +73,81 @@ pub const Mesh = struct {
         }
     }
 
+    /// The separate bodies of the mesh: the sets of faces that share
+    /// vertices, each as a mesh of its own, the largest first (by face
+    /// count). A mesh of one body gives one mesh. The caller owns the
+    /// meshes and the slice.
+    pub fn components(self: Mesh, gpa: Allocator) Allocator.Error![]Mesh {
+        const nv = self.vertices.items.len;
+        // Union-find over the vertices; each face joins its three.
+        const parent = try gpa.alloc(u32, nv);
+        defer gpa.free(parent);
+        for (parent, 0..) |*q, i| q.* = @intCast(i);
+        const find = struct {
+            fn f(par: []u32, x0: u32) u32 {
+                var x = x0;
+                while (par[x] != x) {
+                    par[x] = par[par[x]];
+                    x = par[x];
+                }
+                return x;
+            }
+        }.f;
+        for (self.faces.items) |f| {
+            const a = find(parent, f[0]);
+            for (f[1..]) |v| {
+                const b = find(parent, v);
+                if (a != b) parent[b] = a;
+            }
+        }
+        // The body of each root, in the order of first use.
+        const body = try gpa.alloc(u32, nv);
+        defer gpa.free(body);
+        @memset(body, std.math.maxInt(u32));
+        var n: u32 = 0;
+        var counts: std.ArrayList(usize) = .empty;
+        defer counts.deinit(gpa);
+        for (self.faces.items) |f| {
+            const r = find(parent, f[0]);
+            if (body[r] == std.math.maxInt(u32)) {
+                body[r] = n;
+                n += 1;
+                try counts.append(gpa, 0);
+            }
+            counts.items[body[r]] += 1;
+        }
+        const out = try gpa.alloc(Mesh, n);
+        for (out) |*m| m.* = .empty;
+        errdefer {
+            for (out) |*m| m.deinit(gpa);
+            gpa.free(out);
+        }
+        // The new index of each vertex in its body.
+        const remap = try gpa.alloc(u32, nv);
+        defer gpa.free(remap);
+        @memset(remap, std.math.maxInt(u32));
+        for (self.faces.items) |f| {
+            const m = &out[body[find(parent, f[0])]];
+            var g: [3]u32 = undefined;
+            for (f, 0..) |v, k| {
+                if (remap[v] == std.math.maxInt(u32)) {
+                    remap[v] = @intCast(m.vertices.items.len);
+                    try m.vertices.append(gpa, self.vertices.items[v]);
+                }
+                g[k] = remap[v];
+            }
+            try m.faces.append(gpa, g);
+        }
+        // The largest first.
+        const Ctx = struct {
+            fn lt(_: void, a: Mesh, b: Mesh) bool {
+                return a.faces.items.len > b.faces.items.len;
+            }
+        };
+        std.mem.sort(Mesh, out, {}, Ctx.lt);
+        return out;
+    }
+
     /// Loads a binary or ASCII STL file.
     pub fn fromStl(gpa: Allocator, bytes: []const u8) Error!Mesh {
         if (isBinaryStl(bytes)) return parseBinaryStl(gpa, bytes);
@@ -431,4 +506,23 @@ test "a binary STL with extra bytes at the end" {
     var m2 = try Mesh.fromStl(gpa, out.written());
     defer m2.deinit(gpa);
     try testing.expectEqual(@as(usize, 12), m2.faces.items.len);
+}
+
+test "mesh: the separate bodies of a mesh" {
+    const gpa = std.testing.allocator;
+    var b: Builder = .init(gpa);
+    try shapes.addBox(&b, 0, 0, 0, 10, 10, 10);
+    try shapes.addBox(&b, 20, 0, 0, 25, 5, 5);
+    var m = try b.finish();
+    defer m.deinit(gpa);
+    const parts = try m.components(gpa);
+    defer {
+        for (parts) |*p| p.deinit(gpa);
+        gpa.free(parts);
+    }
+    try std.testing.expectEqual(@as(usize, 2), parts.len);
+    try std.testing.expectEqual(@as(usize, 12), parts[0].faces.items.len);
+    try std.testing.expectEqual(@as(usize, 8), parts[0].vertices.items.len);
+    const bb = parts[1].bounds();
+    try std.testing.expectEqual(@as(f64, 20), bb.min[0]);
 }

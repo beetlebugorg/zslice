@@ -615,6 +615,15 @@ pub const App = struct {
         return j;
     }
 
+    /// Splits part i into its separate bodies (Plate.split). Returns the
+    /// count of new parts, or 0 for a part of one body.
+    pub fn splitPart(app: *App, i: usize) Allocator.Error!usize {
+        app.stopWorker();
+        const n = try app.plate.split(app.gpa, i, app.bedSize(), app.partGap());
+        if (n > 0) try app.plateChanged();
+        return n;
+    }
+
     pub fn removePart(app: *App, i: usize) Allocator.Error!void {
         app.stopWorker();
         app.plate.remove(app.gpa, i);

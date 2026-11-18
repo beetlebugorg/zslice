@@ -808,13 +808,15 @@ export class Core {
 
   // ---- one part ----
 
-  // An action on part i: "duplicate", "smart", "less-support", "reset",
-  // or "remove". Returns the index of a new part (duplicate), or 0, or a
-  // negative status.
+  // An action on part i: "duplicate", "split", "smart", "less-support",
+  // "reset", or "remove". Returns the index of a new part (duplicate), the
+  // count of new parts (split; 0 for one body), or 0, or a negative
+  // status.
   partAction(i, action) {
     const x = this.w.x;
     switch (action) {
       case "duplicate": return x.zs_app_part_duplicate(this.app, i);
+      case "split": return x.zs_app_part_split(this.app, i);
       case "smart": return -x.zs_app_part_place(this.app, i, 0, 0);
       case "less-support": return -x.zs_app_part_place(this.app, i, 1, 0);
       case "reset": return -x.zs_app_part_reset(this.app, i);

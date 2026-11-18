@@ -1152,6 +1152,16 @@ export fn zs_app_part_place(a: ?*App, i: usize, mode: c_int, axis: c_int) c_int 
 
 /// A copy of part i at a free place on the bed. Returns its index, or a
 /// negative status.
+/// Splits part i into its separate bodies, each a part at its place with
+/// the settings of part i (the new parts are at index i on). Returns the
+/// count of new parts, 0 for a part of one body, or -status.
+export fn zs_app_part_split(a: ?*App, i: usize) isize {
+    const app = a orelse return -@as(isize, @intFromEnum(Status.invalid_argument));
+    if (i >= app.plate.count()) return -@as(isize, @intFromEnum(Status.out_of_range));
+    const n = app.splitPart(i) catch |e| return -@as(isize, status(e));
+    return @intCast(n);
+}
+
 export fn zs_app_part_duplicate(a: ?*App, i: usize) isize {
     const app = a orelse return -@as(isize, @intFromEnum(Status.invalid_argument));
     if (i >= app.plate.count()) return -@as(isize, @intFromEnum(Status.out_of_range));
