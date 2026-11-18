@@ -8,6 +8,46 @@
 // instance (view.js), and draws with WebGL2 (gl.js). The settings persist in
 // localStorage, as the texts of zs_app_state_write.
 //
+// The parts of the window have modules of their own: input.js (the mouse
+// and the touch over the view), tools.js, turn.js, support.js, partcard.js,
+// linecard.js, settings.js, search.js, history.js, farm.js, and more (see
+// the imports). This file joins them. Its sections, in order:
+//   - the saved state
+//   - small helpers
+//   - start
+//   - the 3D view
+//   - the panel: a drawer (docs/internals/one-view.md)
+//   - the splitter: the width of the panel, kept in the store
+//   - the size of the view, and a pick in it
+//   - the layer slider and the replay
+//   - the colors
+//   - the settings
+//   - the turn of a part, and the cards of a part and a line
+//   - the settings: the answer of the worker, and the bed
+//   - the header menus
+//   - the panel and the pages
+//   - the 2D and the 3D view
+//   - the selection
+//   - the keys of the preview (preview.c, on_preview_key)
+//   - the keys of the window
+//   - the context menu (context-menu.js has its entries)
+//   - the Selected page
+//   - the tools: select, move, measure
+//   - the Support tool (support.js)
+//   - the mouse, the touch screen, and the wheel over the view
+//   - gaps
+//   - the history and undo
+//   - printdeck.yml projects
+//   - the printability check
+//   - the print card
+//   - print: send the G-code to the printer
+//   - the worker events
+//   - the plate set
+//   - the work across a refresh (keep.js)
+//   - open a model
+//   - the search of settings and actions (/)
+//   - the worker starts
+//
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
 import { Wasm } from "./wasm.js";
@@ -302,6 +342,8 @@ $("panel").addEventListener("keydown", (e) => {
   });
 }
 
+// ---- the size of the view, and a pick in it ----
+
 function resize() {
   const dpr = window.devicePixelRatio || 1;
   const r = canvas.getBoundingClientRect();
@@ -577,6 +619,8 @@ function clearFocus() {
   updateFocus();
 }
 
+// ---- the turn of a part, and the cards of a part and a line ----
+
 // The rings of the Turn tool around the selected part (turn.js).
 var turnRings = new TurnRings({
   host: $("preview"),
@@ -681,6 +725,8 @@ var lineCard = new LineCard({
     toast(kind === 0 ? `The line does not print now. ${r.count} ${r.count === 1 ? "edit" : "edits"} on this plate; undo with Ctrl+Z.` : `The line has ${Math.round((value - 1) * 100)} % plastic now.`);
   },
 });
+
+// ---- the settings: the answer of the worker, and the bed ----
 
 // A plate of a printdeck.yml project is on the view (project.js): its
 // profiles come from the project.
@@ -1461,6 +1507,96 @@ function onPreviewKey(e) {
 // Before the knobs of the slider see the keys, as the capture phase of
 // the GTK preview.
 document.addEventListener("keydown", onPreviewKey, true);
+
+// ---- the keys of the window ----
+//
+// The keys of the view are above (onPreviewKey). These work in the whole
+// window: the plates, Ctrl and a letter, Esc of the search, and the keys
+// of the cards, the panel, and the search.
+
+// The keys of the plates: [ and ] (the plate before and the next plate,
+// framed), F (frame the active plate), and Home (all plates), also with no
+// slice.
+document.addEventListener("keydown", (e) => {
+  if (e.ctrlKey || e.metaKey || e.altKey || menuOpen()) return;
+  const t = e.target;
+  if (t && (t.closest?.("input, textarea, select, [contenteditable]") || t.closest?.(".panel"))) return;
+  if (e.key === "[" || e.key === "]") {
+    activatePlate(app.activePlate + (e.key === "]" ? 1 : -1), true);
+  } else if ((e.key === "f" || e.key === "F") && !e.shiftKey) {
+    view.framePlate(app.activePlate);
+    requestFrame();
+  } else if (e.key === "Home") {
+    if (app.plates.length > 1) view.framePlate(-1);
+    else view.resetSmooth();
+    requestFrame();
+  } else return;
+  e.preventDefault();
+  e.stopPropagation();
+}, true);
+
+// Ctrl+O opens, Ctrl+E exports, Ctrl+S saves the project, and Ctrl+Z,
+// Ctrl+Shift+Z, and Ctrl+Y undo and redo.
+document.addEventListener("keydown", (e) => {
+  if (!(e.ctrlKey || e.metaKey)) return;
+  if (e.key === "o") {
+    e.preventDefault();
+    $("file").click();
+  } else if (e.key === "e") {
+    e.preventDefault();
+    exportGcode();
+  } else if (e.key === "s") {
+    e.preventDefault();
+    saveProject();
+  } else if ((e.key === "z" || e.key === "Z" || e.key === "y") && !e.target.closest("input, textarea, select")) {
+    e.preventDefault();
+    undoRedo(e.key === "z" && !e.shiftKey ? "undo" : "redo");
+  }
+});
+
+// Esc closes the search also when the view has the focus (after a turn of
+// the view), once the keys of the view (a selection, the tape) are done.
+document.addEventListener("keydown", (e) => {
+  if (e.key !== "Escape" || e.defaultPrevented || !search.open) return;
+  if (e.target.closest?.("input:not(.search-input), textarea, select")) return;
+  e.preventDefault();
+  search.close();
+});
+
+// Delete removes the part of the card, or takes the selected line out of
+// the print. N shows the panel, D copies the part of the card, ? shows
+// the keys, and / opens the search.
+document.addEventListener("keydown", (e) => {
+  if (e.key === "Delete" && partCard.open && !e.target.closest?.("input, textarea, select, [contenteditable]")) {
+    e.preventDefault();
+    partCard.act("remove");
+    return;
+  }
+  // A selected line: Delete takes it out of the print (an edit).
+  if (e.key === "Delete" && app.sel >= 0 && !partCard.open && !e.target.closest?.("input, textarea, select, [contenteditable]")) {
+    e.preventDefault();
+    if (lineCard.info) lineCard.ctx.edit(lineCard.info, 0, 1);
+    return;
+  }
+  if (!["/", "?", "n", "N", "d", "D"].includes(e.key) || e.ctrlKey || e.metaKey || e.altKey) return;
+  if ((e.key === "d" || e.key === "D") && !partCard.open) return;
+  if (e.target.closest?.("input, textarea, select, [contenteditable]")) return;
+  e.preventDefault();
+  if (e.key === "n" || e.key === "N") {
+    togglePanel();
+  } else if ((e.key === "d" || e.key === "D") && partCard.open) {
+    partCard.act("duplicate");
+  } else if (e.key === "?") {
+    search.close();
+    shortcuts.toggle();
+  } else if (search.open) {
+    // / again closes the search (it stays open while the view moves).
+    search.close();
+  } else {
+    shortcuts.close();
+    search.show();
+  }
+});
 
 // ---- the context menu (context-menu.js has its entries) ----
 
@@ -2254,26 +2390,6 @@ $("plate-all").onclick = () => {
 $("plate-add").onclick = () => addPlate();
 $("plate-remove").onclick = () => removePlate(app.activePlate);
 
-// The keys of the plates: [ and ] (the plate before and the next plate,
-// framed), F (frame the active plate), and Home (all plates), also with no
-// slice.
-document.addEventListener("keydown", (e) => {
-  if (e.ctrlKey || e.metaKey || e.altKey || menuOpen()) return;
-  const t = e.target;
-  if (t && (t.closest?.("input, textarea, select, [contenteditable]") || t.closest?.(".panel"))) return;
-  if (e.key === "[" || e.key === "]") {
-    activatePlate(app.activePlate + (e.key === "]" ? 1 : -1), true);
-  } else if ((e.key === "f" || e.key === "F") && !e.shiftKey) {
-    view.framePlate(app.activePlate);
-    requestFrame();
-  } else if (e.key === "Home") {
-    if (app.plates.length > 1) view.framePlate(-1);
-    else view.resetSmooth();
-    requestFrame();
-  } else return;
-  e.preventDefault();
-  e.stopPropagation();
-}, true);
 
 // ---- the work across a refresh (keep.js) ----
 
@@ -2426,22 +2542,6 @@ preview.addEventListener("drop", (e) => {
   openFile(e.dataTransfer.files[0]);
 });
 
-document.addEventListener("keydown", (e) => {
-  if (!(e.ctrlKey || e.metaKey)) return;
-  if (e.key === "o") {
-    e.preventDefault();
-    $("file").click();
-  } else if (e.key === "e") {
-    e.preventDefault();
-    exportGcode();
-  } else if (e.key === "s") {
-    e.preventDefault();
-    saveProject();
-  } else if ((e.key === "z" || e.key === "Z" || e.key === "y") && !e.target.closest("input, textarea, select")) {
-    e.preventDefault();
-    undoRedo(e.key === "z" && !e.shiftKey ? "undo" : "redo");
-  }
-});
 
 // ---- the search of settings and actions (/) ----
 
@@ -2482,46 +2582,7 @@ const search = new SearchOverlay({
 const shortcuts = new ShortcutSheet();
 $("search-open").onclick = () => search.show();
 
-// Esc closes the search also when the view has the focus (after a turn of
-// the view), once the keys of the view (a selection, the tape) are done.
-document.addEventListener("keydown", (e) => {
-  if (e.key !== "Escape" || e.defaultPrevented || !search.open) return;
-  if (e.target.closest?.("input:not(.search-input), textarea, select")) return;
-  e.preventDefault();
-  search.close();
-});
 
-document.addEventListener("keydown", (e) => {
-  if (e.key === "Delete" && partCard.open && !e.target.closest?.("input, textarea, select, [contenteditable]")) {
-    e.preventDefault();
-    partCard.act("remove");
-    return;
-  }
-  // A selected line: Delete takes it out of the print (an edit).
-  if (e.key === "Delete" && app.sel >= 0 && !partCard.open && !e.target.closest?.("input, textarea, select, [contenteditable]")) {
-    e.preventDefault();
-    if (lineCard.info) lineCard.ctx.edit(lineCard.info, 0, 1);
-    return;
-  }
-  if (!["/", "?", "n", "N", "d", "D"].includes(e.key) || e.ctrlKey || e.metaKey || e.altKey) return;
-  if ((e.key === "d" || e.key === "D") && !partCard.open) return;
-  if (e.target.closest?.("input, textarea, select, [contenteditable]")) return;
-  e.preventDefault();
-  if (e.key === "n" || e.key === "N") {
-    togglePanel();
-  } else if ((e.key === "d" || e.key === "D") && partCard.open) {
-    partCard.act("duplicate");
-  } else if (e.key === "?") {
-    search.close();
-    shortcuts.toggle();
-  } else if (search.open) {
-    // / again closes the search (it stays open while the view moves).
-    search.close();
-  } else {
-    shortcuts.close();
-    search.show();
-  }
-});
 
 // ---- the worker starts ----
 
