@@ -13,6 +13,13 @@ import { statusText } from "./wasm.js";
 export const GROUPS = ["machine", "filament", "project"];
 export const STATE = { empty: 0, ready: 1, slicing: 2, done: 3, failed: 4 };
 
+// Why a file did not open, in words a beginner can act on (the texts of
+// the core: zs_status_message).
+function openError(rc, w) {
+  const text = w?.x?.zs_status_message ? w.cstr(w.x.zs_status_message(rc)) : statusText(rc);
+  return `The file did not open. ${text}`;
+}
+
 export class Core {
   // wasm: a Wasm (wasm.js) whose onEvent goes to this.onEvent. infos: the
   // setting infos of another Core of the same Wasm, to share. app: an app
@@ -54,7 +61,7 @@ export class Core {
   loadStl(name, bytes) {
     const w = this.w;
     const rc = w.withString(name, (n) => w.withBytes(bytes, (p, len) => w.x.zs_app_load_stl(this.app, n, p, len)));
-    if (rc !== 0) throw new Error(`The file did not open: ${statusText(rc)}.`);
+    if (rc !== 0) throw new Error(openError(rc, w));
     this.modelName = name;
   }
 

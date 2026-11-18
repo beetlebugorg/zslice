@@ -94,6 +94,32 @@ export fn zs_version() [*:0]const u8 {
     return zs.version;
 }
 
+/// A status in words for a person, with what to do where it helps. The
+/// same texts in each app.
+export fn zs_status_message(code: c_int) [*:0]const u8 {
+    const s = std.enums.fromInt(Status, code) orelse return "Something went wrong.";
+    return switch (s) {
+        .ok => "OK.",
+        .out_of_memory => "Out of memory. Close other programs or tabs, or use a smaller model or fewer parts.",
+        .invalid_argument => "The app asked the core for something it cannot do.",
+        .invalid_mesh => "The file is not an STL or 3MF model, or it is damaged. Export it again from your CAD program, or open another file.",
+        .empty_mesh => "The model has no solid part (no closed surface to print). Check that it is a solid in your CAD program.",
+        .unknown_setting => "This version of zslice does not know the setting.",
+        .invalid_value => "The value does not fit the setting.",
+        .invalid_settings => "The settings cannot make a print. Check the layer height, the line width, and the nozzle.",
+        .part_too_large => "The part is higher than the printer. Turn it, scale it down, or cut it (Cut on the part card).",
+        .write_failed => "The file did not write.",
+        .canceled => "Canceled.",
+        .busy => "A slice is running. Try again in a moment.",
+        .no_model => "No model. Open a model first.",
+        .no_result => "No slice yet. Wait for the slice to finish.",
+        .out_of_range => "Out of range.",
+        .not_supported => "This is not supported here.",
+        .gpu_failed => "The 3D view did not start. Update the graphics driver, or use the 2D view.",
+        .part_too_thin => "The part is lower than half of the first layer, so no layer cuts it. Scale it up, or lower the first layer height.",
+    };
+}
+
 export fn zs_status_string(code: c_int) [*:0]const u8 {
     const s = std.enums.fromInt(Status, code) orelse return "unknown status";
     return @tagName(s);

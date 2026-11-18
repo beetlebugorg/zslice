@@ -70,6 +70,9 @@ typedef int (*zs_write_fn)(void *user, const uint8_t *data, size_t len);
 
 const char *zs_version(void);
 const char *zs_status_string(int status);
+/* A status in words for a person, with what to do where it helps (the same
+ * texts in each app). */
+const char *zs_status_message(int status);
 /* All setting names ("group.name"), one on each line. */
 const char *zs_setting_names(void);
 

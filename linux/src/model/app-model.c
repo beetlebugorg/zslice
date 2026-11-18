@@ -1760,25 +1760,8 @@ char *zg_model_get(ZgModel *self, const char *key) {
 }
 
 const char *zg_status_text(int status) {
-    switch (status) {
-    case ZS_OK: return "OK";
-    case ZS_OUT_OF_MEMORY: return "Out of memory";
-    case ZS_INVALID_ARGUMENT: return "Invalid argument";
-    case ZS_INVALID_MESH: return "The file is not a valid STL file";
-    case ZS_EMPTY_MESH: return "The model has no triangles or no height";
-    case ZS_UNKNOWN_SETTING: return "Unknown setting";
-    case ZS_INVALID_VALUE: return "The value has the wrong type";
-    case ZS_INVALID_SETTINGS: return "The settings cannot make a print";
-    case ZS_PART_TOO_LARGE: return "The part is higher than the printer";
-    case ZS_PART_TOO_THIN: return "The part is lower than half of the first layer, so no layer cuts it";
-    case ZS_WRITE_FAILED: return "Write failed";
-    case ZS_CANCELED: return "Canceled";
-    case ZS_BUSY: return "A slice is running";
-    case ZS_NO_MODEL: return "No model";
-    case ZS_NO_RESULT: return "No slice result";
-    case ZS_OUT_OF_RANGE: return "Out of range";
-    default: return zs_status_string(status);
-    }
+    /* The texts of the core, the same in each app. */
+    return zs_status_message(status);
 }
 
 /* ---- printdeck.yml projects ---- */
