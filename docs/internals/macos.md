@@ -146,6 +146,7 @@ Like the GTK shell, the app reads some environment variables for development and
 - `ZSLICE_MODE=n` sets the colors (0 filament, 1 line type, 2 speed, 3 flow, 4 layer time, 5 line width).
 - `ZSLICE_RESLICE=n` changes a setting after each slice, n times, to test time and memory. `ZSLICE_TIMING=1` logs the time of each slice.
 - `ZSLICE_CUT=1` opens the Cut popover of a selected part; `ZSLICE_CUT=z` cuts it at z mm. `ZSLICE_MOVE=i` moves part i to a new plate. `ZSLICE_SAVE=path` saves the project file there.
+- `ZSLICE_DOC_SAVE=path` and `ZSLICE_DOC_AUTOSAVE=1` change the wall count of an opened file, then undo and redo, and save or autosave through the NSDocument, with a log line for each step.
 - `ZSLICE_RECORD=path.mov` records a demo video of the window (Recorder.swift): a turn, the colors, the layer slider, the replay, and the 2D view, frame by frame at 30 frames a second.
 - `ZSLICE_ADD_PLATE="path;path"` puts each file on a new plate after the first slice.
 - `ZSLICE_SEARCH=text` opens the search, `ZSLICE_GAPS=1` and `ZSLICE_CHECK=1` turn on Gaps and Check, `ZSLICE_MENU="x,y;Title"` (or `center;Title`) runs an item of the context menu, and `ZSLICE_DARK=1` sets the dark look.
@@ -171,3 +172,11 @@ The work goes in steps. Each step keeps `zig build test`, `zig build web`, and t
 2. The slicing UI: the print card and Export G-code, the layer slider, the replay, the 2D layer view, the settings drawer, and history and undo (done).
 3. The tools (Select, Move, Turn, Measure, Gaps, Check), the line and part cards, the settings search, the shortcut sheet, the context menu, and a double click that faces a side (done).
 4. Printers (the picker, the library, App Keys, printdeck, OctoPrint, Moonraker, discovery), printdeck.yml projects, the menus, drag and drop, and the user docs (done). The status of a printer comes from the core (`zs_printer_status_*`); the estimate of a printdeck is a POST of the gzipped G-code (`Gzip.swift`).
+
+## The document
+
+`ProjectDocument` (ZSliceApp.swift) is a `ReferenceFileDocument` of a `DocumentGroup`, so the window has the Save, Save As, Revert, Versions, and autosave of macOS. The core history stays the source of truth: `History` drives the UndoManager of the NSDocument, as it drove its own one before, and tells the document when the step now is or is not the step of the last save (the dot of the close button). Only the history of the active plate uses the UndoManager, and a switch of the plate makes its actions again.
+
+SwiftUI calls `snapshot` on another thread. So the model keeps the bytes of the project file (`zs_set_project_save`), made on the main thread at each step of the history, and `snapshot` returns them. A change in the 400 ms before its step clears them, and `snapshot` then makes them on the main thread.
+
+A model file (an STL, or a 3MF that `zs_project_file_is` does not know) becomes an untitled document after the load (`fileURL = nil`, the type 3MF, the name of the model), so a save never writes over the model.

@@ -1,7 +1,7 @@
 //! The macOS app of zslice: a SwiftUI shell over the Zig core.
 //!
-//! Each window is one document: an STL or 3MF file. The document holds the
-//! bytes of the file. The window makes a SliceModel (one zs_app of the
+//! Each window is one document: a project file, or an STL or 3MF file
+//! that the window imports. The document holds the bytes of the file. The window makes a SliceModel (one zs_app of the
 //! core) and loads the bytes into it, and the core slices. The shell only
 //! draws, reads files, and moves the events of the core to the main
 //! thread. The app logic is in the core (see docs/app/README.md).
@@ -19,43 +19,65 @@ extension UTType {
     static let gcode = UTType(filenameExtension: "gcode", conformingTo: .plainText) ?? .plainText
 }
 
-/// A model file. The bytes go to the core when the window opens.
-struct ModelDocument: FileDocument {
-    static let readableContentTypes: [UTType] = [.stl, .threeMF]
-    let data: Data
+/// The document of a window: a project file (all plates, ProjectFile.swift),
+/// or a model file that the window imports. It holds the bytes of the file
+/// until the window loads them into its plates. A save writes the plates of
+/// the window as a project file (zs_set_project_save): snapshot runs on the
+/// main thread, where the plates are, and the write runs on another thread.
+/// A model file (STL, or a 3MF that is not a project) becomes an untitled
+/// document after the load, so a save never writes over the model.
+final class ProjectDocument: ReferenceFileDocument, @unchecked Sendable {
+    static let readableContentTypes: [UTType] = [.threeMF, .stl]
+    static let writableContentTypes: [UTType] = [.threeMF]
 
-    /// A zslice project file (all plates), not a model.
-    var isProject: Bool { data.withUnsafeBytes { zs_project_file_is($0.bindMemory(to: UInt8.self).baseAddress, $0.count) } == 1 }
+    let data: Data
+    /// The plates of the window, for a save.
+    nonisolated(unsafe) weak var model: SliceModel?
+
+    init() { data = Data() }
 
     init(configuration: ReadConfiguration) throws {
         guard let data = configuration.file.regularFileContents else { throw CocoaError(.fileReadCorruptFile) }
         self.data = data
     }
 
-    func fileWrapper(configuration: WriteConfiguration) throws -> FileWrapper {
-        FileWrapper(regularFileWithContents: data)
+    /// A zslice project file (all plates), not a model.
+    var isProject: Bool { data.withUnsafeBytes { zs_project_file_is($0.bindMemory(to: UInt8.self).baseAddress, $0.count) } == 1 }
+
+    /// The bytes of the plates, made on the main thread at each step of the
+    /// history (SliceModel.refreshSaveBytes). SwiftUI calls snapshot on
+    /// another thread; a copy that is not current (a change in the 400 ms
+    /// before its step) is made again on the main thread.
+    func snapshot(contentType: UTType) throws -> Data {
+        let make: @MainActor () -> Data? = { [weak self] in
+            guard let model = self?.model else { return nil }
+            model.refreshSaveBytes()
+            return model.saveBytes.current
+        }
+        if let bytes = model?.saveBytes.current { return bytes }
+        let bytes: Data? = Thread.isMainThread ? MainActor.assumeIsolated { make() } : DispatchQueue.main.sync { MainActor.assumeIsolated { make() } }
+        guard let bytes else { throw CocoaError(.fileWriteUnknown) }
+        return bytes
+    }
+
+    func fileWrapper(snapshot: Data, configuration: WriteConfiguration) throws -> FileWrapper {
+        FileWrapper(regularFileWithContents: snapshot)
     }
 }
 
 @main
 struct ZSliceApp: App {
     var body: some Scene {
-        DocumentGroup(viewing: ModelDocument.self) { file in
-            DocumentWindow(document: file.document, name: file.fileURL?.lastPathComponent ?? "model.stl", url: file.fileURL)
+        DocumentGroup(newDocument: { ProjectDocument() }) { file in
+            DocumentWindow(document: file.document, name: file.fileURL?.lastPathComponent ?? "", url: file.fileURL)
         }
         .commands {
             ViewCommands()
             UndoCommands()
             CommandGroup(after: .newItem) { PlateCommands() }
-            CommandGroup(replacing: .saveItem) { SaveCommands() }
             CommandGroup(after: .help) {
                 HelpCommands()
             }
-        }
-        // A window with an empty plate (File > New Window): for a project,
-        // a printer, or models to add.
-        WindowGroup("Untitled", id: "plate") {
-            DocumentWindow(document: nil, name: "")
         }
         Window("Licenses", id: "licenses") {
             LicensesView()
@@ -101,12 +123,8 @@ struct UndoCommands: Commands {
 /// File > New Plate and Add Models.
 struct PlateCommands: View {
     @FocusedValue(\.workspace) private var workspace
-    @Environment(\.openWindow) private var openWindow
 
     var body: some View {
-        Button("New Window") { openWindow(id: "plate") }
-            .keyboardShortcut("n", modifiers: .command)
-        Divider()
         Button("New Plate") { workspace?.model.addPlate() }
             .keyboardShortcut("n", modifiers: [.command, .option])
             .disabled(workspace == nil)
@@ -126,20 +144,6 @@ struct PlateCommands: View {
             .keyboardShortcut("o", modifiers: [.command, .shift])
             .disabled(workspace == nil)
         Button("Open Project from GitHub…") { workspace?.askGitHub() }
-            .disabled(workspace == nil)
-    }
-}
-
-/// File > Save Project and Save Project As (ProjectFile.swift).
-struct SaveCommands: View {
-    @FocusedValue(\.workspace) private var workspace
-
-    var body: some View {
-        Button("Save Project") { workspace?.saveProject() }
-            .keyboardShortcut("s", modifiers: .command)
-            .disabled(workspace == nil)
-        Button("Save Project As…") { workspace?.saveProject(as: true) }
-            .keyboardShortcut("s", modifiers: [.command, .shift])
             .disabled(workspace == nil)
     }
 }

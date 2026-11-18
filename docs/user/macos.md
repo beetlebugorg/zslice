@@ -68,7 +68,9 @@ The app keeps your settings in `~/Library/Application Support/zslice`: `machine.
 
 ## Save a project
 
-File > Save Project (Command-S) saves all the plates of the window in one .3mf file: the parts, their places and settings, the layer profiles, and the printer, filament, and print settings of each plate. Save Project As (Shift-Command-S) asks for a new file. The close button of the window has a dot while there are changes that are not saved. Open the file as any other file: the plates come back. Other slicers open its first plate.
+A window is a document. File > Save (Command-S) saves all its plates in one .3mf project file: the parts, their places and settings, the layer profiles, and the printer, filament, and print settings of each plate. Other slicers open its first plate. Save As, Duplicate, Rename, Revert To, and Browse All Versions are those of macOS, and the app saves your changes as you work (autosave). The close button has a dot while there are changes that are not saved, and an undo back to the saved state clears it.
+
+An STL file, or a 3MF file that is not a zslice project, opens as a new untitled project with the name of the model. The model file itself never changes: the first save asks where to save the project. File > New (Command-N) opens an empty window.
 
 Move to a New Plate on the part card moves a part to a new plate, with the settings of this one. The alert after a cut whose parts do not fit offers it too.
 

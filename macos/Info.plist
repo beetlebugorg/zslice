@@ -54,9 +54,9 @@
 		</dict>
 		<dict>
 			<key>CFBundleTypeName</key>
-			<string>3MF Model</string>
+			<string>3MF Model or zslice Project</string>
 			<key>CFBundleTypeRole</key>
-			<string>Viewer</string>
+			<string>Editor</string>
 			<key>LSHandlerRank</key>
 			<string>Alternate</string>
 			<key>LSItemContentTypes</key>

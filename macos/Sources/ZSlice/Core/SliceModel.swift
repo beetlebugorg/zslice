@@ -18,6 +18,7 @@
 //!
 //! SPDX-License-Identifier: AGPL-3.0-or-later
 
+import AppKit
 import CZslice
 import Foundation
 import Observation
@@ -112,6 +113,17 @@ final class SliceModel {
         bridge.release()
     }
 
+    /// The document of the window: its UndoManager has the steps of the
+    /// active plate, and a save writes the plates.
+    @ObservationIgnored weak var document: NSDocument? {
+        didSet {
+            history.attach()
+            refreshSaveBytes()
+        }
+    }
+    /// The project file of the plates for a save (ProjectFile.swift).
+    @ObservationIgnored let saveBytes = SaveBytes()
+
     /// The undo list of the active plate.
     var history: History {
         let id = plates.indices.contains(active) ? plates[active].id : 0
@@ -124,6 +136,7 @@ final class SliceModel {
     // MARK: - the plates
 
     func readPlates() {
+        saveBytes.set(nil)
         active = zs_set_active(set)
         plates = (0 ..< zs_set_count(set)).compactMap { i in
             var p = zs_plate_info()
@@ -149,6 +162,7 @@ final class SliceModel {
         stats = zs_app_stats(core, &s) == 0 ? s : nil
         name = plates.indices.contains(active) ? plates[active].name : ""
         settingsGeneration += 1
+        history.attach()
     }
 
     /// Makes plate i the active plate.

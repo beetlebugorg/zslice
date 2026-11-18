@@ -7,15 +7,70 @@
 
 import CZslice
 import SwiftUI
+import UniformTypeIdentifiers
 
 struct DocumentWindow: View {
     /// The file of the window, or nil for a window with an empty plate.
-    let document: ModelDocument?
+    let document: ProjectDocument
     let name: String
     var url: URL? = nil
     @State private var workspace = Workspace()
     @State private var loadError: String?
     @State private var dropping = false
+
+    /// Loads the file of the document into the plates, and gives the
+    /// NSDocument of the window to the model.
+    private func open() async {
+        document.model = workspace.model
+        if !document.data.isEmpty {
+            do {
+                try workspace.model.load(name: name, data: document.data)
+                // The open is a step of the history, at once.
+                workspace.model.history.commit()
+            } catch {
+                loadError = error.localizedDescription
+            }
+        }
+        // The NSDocument of the window: its UndoManager takes the steps.
+        for _ in 0 ..< 50 where workspace.canvas.window == nil {
+            try? await Task.sleep(for: .milliseconds(20))
+        }
+        guard let w = workspace.canvas.window, let doc = NSDocumentController.shared.document(for: w) else { return }
+        workspace.model.document = doc
+        // A model file: the window imports it, as an untitled project
+        // with the name of the model, so a save asks where to save and
+        // never writes over the model.
+        if !document.data.isEmpty, !document.isProject {
+            doc.fileURL = nil
+            doc.fileType = UTType.threeMF.identifier
+            doc.displayName = ((url?.lastPathComponent ?? name) as NSString).deletingPathExtension
+        }
+        doc.updateChangeCount(.changeCleared)
+        // For tests: ZSLICE_DOC_SAVE=path saves through the NSDocument, and
+        // ZSLICE_DOC_AUTOSAVE=1 autosaves, after a change of the wall count.
+        let env = ProcessInfo.processInfo.environment
+        if !document.data.isEmpty, env["ZSLICE_DOC_SAVE"] != nil || env["ZSLICE_DOC_AUTOSAVE"] != nil {
+            NSLog("zslice doc: start, edited %d, url %@, name %@", doc.isDocumentEdited ? 1 : 0, doc.fileURL?.path ?? "none", doc.displayName)
+            try? await Task.sleep(for: .seconds(1))
+            workspace.model.set("project.wall_count", "3")
+            workspace.model.history.commit()
+            NSLog("zslice doc: edited %d, url %@, name %@", doc.isDocumentEdited ? 1 : 0, doc.fileURL?.path ?? "none", doc.displayName)
+            if let path = env["ZSLICE_DOC_SAVE"] {
+                doc.save(to: URL(fileURLWithPath: path), ofType: UTType.threeMF.identifier, for: .saveToOperation) { e in
+                    NSLog("zslice doc: saved %@", e?.localizedDescription ?? "ok")
+                }
+            }
+            workspace.model.history.undoManager.undo()
+            NSLog("zslice doc: after undo, edited %d", doc.isDocumentEdited ? 1 : 0)
+            workspace.model.history.undoManager.redo()
+            NSLog("zslice doc: after redo, edited %d", doc.isDocumentEdited ? 1 : 0)
+            if env["ZSLICE_DOC_AUTOSAVE"] != nil {
+                doc.autosave(withImplicitCancellability: false) { e in
+                    NSLog("zslice doc: autosaved to %@ (%@)", doc.autosavedContentsFileURL?.path ?? "none", e?.localizedDescription ?? "ok")
+                }
+            }
+        }
+    }
 
     /// Under the title: the project, and the plate of the view.
     private var subtitle: String {
@@ -187,20 +242,7 @@ struct DocumentWindow: View {
             }
         }
         .focusedSceneValue(\.workspace, workspace)
-        .onChange(of: workspace.model.history.generation) {
-            workspace.canvas.window?.isDocumentEdited = workspace.unsaved
-        }
-        .task {
-            guard let document else { return }
-            do {
-                try workspace.model.load(name: name, data: document.data)
-                // A project file saves back to itself.
-                workspace.projectURL = document.isProject ? url : nil
-                workspace.savedGeneration = workspace.model.history.generation
-            } catch {
-                loadError = error.localizedDescription
-            }
-        }
+        .task { await open() }
         .overlay {
             if workspace.model.state == .empty && workspace.model.plates.count <= 1 && workspace.model.project == nil {
                 WelcomeCard(workspace: workspace)

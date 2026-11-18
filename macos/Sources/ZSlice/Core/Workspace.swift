@@ -26,10 +26,6 @@ final class Workspace {
 
     // The layers of the last slice, and the range that shows.
     private(set) var layerCount = 0
-    /// The project file of the window (ProjectFile.swift), and the step of
-    /// the history at its last save.
-    var projectURL: URL?
-    var savedGeneration = 0
     /// The Cut popover of the part card is open.
     var cutOpen = false
     private(set) var lo = 0
@@ -236,9 +232,8 @@ final class Workspace {
         // ZSLICE_MOVE=i moves part i to a new plate; ZSLICE_SAVE=path saves
         // the project file there.
         if let m = env["ZSLICE_MOVE"], let i = Int(m) { movePartToNewPlate(i) }
-        if let path = env["ZSLICE_SAVE"] {
-            projectURL = URL(fileURLWithPath: path)
-            saveProject()
+        if let path = env["ZSLICE_SAVE"], let data = model.projectFileData(name: model.name) {
+            try? data.write(to: URL(fileURLWithPath: path))
         }
         // ZSLICE_RECORD=path.mov records the demo of Recorder.swift.
         if let path = env["ZSLICE_RECORD"] {

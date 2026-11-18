@@ -6,6 +6,11 @@
 //! the last change, and it tells the core which setting editor has the
 //! focus, so an edit of one setting is one step.
 //!
+//! The UndoManager is the one of the document of the window (an NSDocument
+//! counts its changes from it, for the dot of the close button and for
+//! autosave), else one of its own. Only the history of the active plate
+//! uses it: a switch of the plate makes its actions again (attach).
+//!
 //! The UndoManager mirrors the list. Each step before the step now is one
 //! undo action, and each step after it one redo action. An undo action
 //! calls zs_app_history_undo and registers the redo action, as AppKit
@@ -29,12 +34,22 @@ import SwiftUI
 @MainActor
 @Observable
 final class History {
-    @ObservationIgnored let undoManager: UndoManager = {
+    @ObservationIgnored private let ownUndoManager: UndoManager = {
         let u = UndoManager()
         u.groupsByEvent = false
         u.levelsOfUndo = 0
         return u
     }()
+
+    /// The UndoManager of the document, else the own one.
+    var undoManager: UndoManager { model.document?.undoManager ?? ownUndoManager }
+
+    /// The step at the last save of the document (-1: unknown), so an undo
+    /// back to it clears the dot of the close button.
+    @ObservationIgnored private var savedStep = -1
+
+    /// This history is the one of the active plate.
+    private var active: Bool { model.history === self }
     @ObservationIgnored private unowned let model: SliceModel
     @ObservationIgnored private var timer: Task<Void, Never>?
     /// The undo actions on the UndoManager: the steps before the step now
@@ -58,6 +73,7 @@ final class History {
 
     /// A change went to the core: the step comes 400 ms after the last one.
     func noteChange() {
+        model.saveBytes.set(nil)
         timer?.cancel()
         timer = Task { @MainActor [weak self] in
             try? await Task.sleep(for: .milliseconds(400))
@@ -86,7 +102,15 @@ final class History {
     /// After a commit: a new step is one more undo action. Any other
     /// change of the list makes the undo actions again.
     private func listChanged(from before: Int) {
+        model.refreshSaveBytes()
         let after = current
+        guard active else {
+            generation += 1
+            return
+        }
+        // A step amended in place is a change too.
+        if after == before { savedStep = -1 }
+        defer { syncEdited(before: before) }
         if after == before + 1 && undoActions == before {
             register()
         } else {
@@ -109,12 +133,39 @@ final class History {
     /// The redo actions go (the core keeps its redo steps, and a jump in
     /// the timeline still reaches them).
     private func rebuild() {
+        // The new actions are no change of the document.
+        let doc = model.document
+        let edited = doc?.isDocumentEdited ?? false
         undoManager.removeAllActions()
         undoActions = 0
         for _ in 0 ..< current { register() }
+        if !edited { doc?.updateChangeCount(.changeCleared) }
+    }
+
+    /// The dot of the close button: the document is edited when the step
+    /// now is not the step of the last save. A document with no dot before
+    /// this change was saved at the step before it.
+    private func syncEdited(before: Int) {
+        guard let d = model.document else { return }
+        if !d.isDocumentEdited { savedStep = before }
+        if current == savedStep {
+            if d.isDocumentEdited { d.updateChangeCount(.changeCleared) }
+        } else if !d.isDocumentEdited {
+            d.updateChangeCount(.changeDone)
+        }
+    }
+
+    /// The plate of this history became active, or the window has its
+    /// document now: the UndoManager mirrors this list.
+    func attach() {
+        if model.document?.isDocumentEdited == false { savedStep = current }
+        rebuild()
+        generation += 1
     }
 
     private func undoStep() {
+        let before = current
+        defer { syncEdited(before: before) }
         let name = label(of: current)
         applied(zs_app_history_undo(core, now))
         undoActions -= 1
@@ -123,6 +174,8 @@ final class History {
     }
 
     private func redoStep() {
+        let before = current
+        defer { syncEdited(before: before) }
         applied(zs_app_history_redo(core, now))
         undoActions += 1
         undoManager.registerUndo(withTarget: self) { $0.undoStep() }
@@ -131,6 +184,7 @@ final class History {
 
     private func applied(_ bits: Int32) {
         generation += 1
+        model.refreshSaveBytes()
         if bits != 0, ProcessInfo.processInfo.environment["ZSLICE_FRESH"] == nil { SavedSettings.save(from: core) }
         if bits != 0 { model.restored() }
     }
