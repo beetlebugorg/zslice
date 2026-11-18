@@ -199,6 +199,10 @@ struct PrintCard: View {
                     Text(duration(s.print_time_s)).font(.title2.weight(.semibold))
                     Text(String(format: "%.1f g · %.2f m", s.filament_g, s.filament_mm / 1000))
                     Text("\(s.layer_count) layers").foregroundStyle(.secondary)
+                    if let t = model.sliceSeconds, !slicing {
+                        Text(t < 1 ? String(format: "Sliced in %.0f ms", t * 1000) : String(format: "Sliced in %.1f s", t))
+                            .font(.caption).foregroundStyle(.tertiary)
+                    }
                 }
                 .opacity(slicing ? 0.5 : 1)
             }

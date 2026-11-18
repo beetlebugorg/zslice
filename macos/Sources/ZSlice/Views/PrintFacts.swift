@@ -95,7 +95,7 @@ private struct FactButton: View {
 struct QuickSetting: View {
     let model: SliceModel
     let info: SettingInfo
-    @State private var sliding: Task<Void, Never>?
+    @State private var throttle = Throttle()
 
     var body: some View {
         let entry = model.entry(info.name)
@@ -114,12 +114,8 @@ struct QuickSetting: View {
     }
 
     private func slide(_ v: Double) {
-        sliding?.cancel()
         let text = ValueText.number(v)
-        sliding = Task { @MainActor in
-            try? await Task.sleep(for: .milliseconds(120))
-            if !Task.isCancelled { model.set(info.name, text) }
-        }
+        throttle.run { model.set(info.name, text) }
     }
 }
 

@@ -370,7 +370,7 @@ struct SettingDetail: View {
     let info: SettingInfo
     @State private var formula = ""
     @State private var formulaError = false
-    @State private var sliding: Task<Void, Never>?
+    @State private var throttle = Throttle()
 
     private var model: SliceModel { workspace.model }
 
@@ -422,12 +422,8 @@ struct SettingDetail: View {
     }
 
     private func slide(_ v: Double) {
-        sliding?.cancel()
         let text = ValueText.number(v)
-        sliding = Task { @MainActor in
-            try? await Task.sleep(for: .milliseconds(120))
-            if !Task.isCancelled { model.set(info.name, text) }
-        }
+        throttle.run { model.set(info.name, text) }
     }
 
     private func setFormula(_ entry: SettingEntry) {
