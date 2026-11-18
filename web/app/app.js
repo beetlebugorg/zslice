@@ -519,7 +519,7 @@ function showLegend() {
   box.hidden = false;
 }
 
-$("colors").textContent = MODES[app.mode];
+$("colors").title = `The colors of the lines: ${MODES[app.mode]}`;
 $("colors").onclick = () => openMenu($("colors"), MODES.map((m, i) => ({
   label: m,
   checked: i === app.mode,
@@ -527,7 +527,7 @@ $("colors").onclick = () => openMenu($("colors"), MODES.map((m, i) => ({
     app.mode = i;
     store.mode = i;
     saveStore();
-    $("colors").textContent = m;
+    $("colors").title = `The colors of the lines: ${m}`;
     // A color mode is for the 3D view.
     showPage("3d");
     client.call("mode", { value: i });
@@ -791,7 +791,7 @@ function updateMenus() {
   const fname = value("filament.name");
   $("filament-menu").textContent = fname || store.filament || "Filament";
   const q = app.snapshot?.quality || "custom";
-  $("quality-menu").textContent = `Quality: ${q}${stateHasChanges(store.saved?.project) ? " •" : ""}`;
+  $("quality-menu").textContent = `${q}${stateHasChanges(store.saved?.project) ? " •" : ""}`;
   $("quality-menu").title = `Quality settings: ${q}. Pick a profile.`;
 }
 
@@ -1030,6 +1030,7 @@ $("quality-menu").onclick = () => {
 
 $("main-menu").onclick = () => openMenu($("main-menu"), [
   { label: "Open…", action: () => $("file").click() },
+  { label: "Add models to this plate…", disabled: app.state === "empty", action: () => addModels() },
   { label: "Save project…", action: () => saveProject() },
   { label: "Export G-code…", disabled: app.state !== "done", action: exportGcode },
   { label: "Remove this plate", action: () => removePlate(app.activePlate) },
@@ -1135,6 +1136,7 @@ function showFarm(show) {
   // The page has the width of the window.
   if (show && panelMode() === "overlay") setPanelMode("hidden");
   $("printers-page").setAttribute("aria-pressed", String(show));
+  $("printers-page").classList.toggle("checked", show);
   if (show) farm.start();
   else farm.stop();
 }
@@ -2765,9 +2767,13 @@ function addModels() {
   input.click();
 }
 
-$("open").onclick = () => $("file").click();
+$("open").onclick = () => openMenu($("open"), [
+  { label: "Open a model…", action: () => $("file").click() },
+  { label: "Add models to this plate…", disabled: app.state === "empty", action: () => addModels() },
+  { label: "Open a project…", action: () => showTab("project") },
+  { label: "Save project…", disabled: app.state === "empty", action: () => saveProject() },
+]);
 // + adds models to the active plate; Open replaces the active plate.
-$("add").onclick = () => addModels();
 $("empty-open").onclick = () => $("file").click();
 $("file").onchange = () => {
   openFile($("file").files[0]);

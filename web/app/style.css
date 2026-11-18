@@ -911,3 +911,24 @@ button.destructive { background: #c01c28; color: #fff; }
   .preview .layers { bottom: calc(var(--dock-h, 110px) + 24px); }
   .preview .sum-facts { display: flex; }
 }
+
+/* ---- the top bar ----
+   Few things over the slice: the file and its name, 2D or 3D and the
+   search, then the setup of the print as one group, and three icons. */
+.setup { display: flex; align-items: center; border: 1px solid var(--border); border-radius: 9px; overflow: hidden; }
+.setup .setup-part { border: none; border-radius: 0; background: transparent; padding: 4px 10px; font-size: 0.9em; white-space: nowrap; min-height: 30px; }
+.setup .setup-part + .setup-part { border-left: 1px solid var(--border); }
+.setup .setup-part:hover { background: rgba(255, 255, 255, 0.08); }
+.hb-end { display: flex; align-items: center; gap: 4px; }
+#printers-page.checked { background: var(--accent-bg); color: #fff; }
+/* A narrow window: the setup goes before the icons, in smaller type. */
+@media (max-width: 900px) {
+  .setup .setup-part { padding: 3px 7px; font-size: 0.82em; }
+  .headerbar .toolbar .search-word { display: none; }
+}
+/* Three columns: the middle group stays in the center of the window. */
+@media (min-width: 641px) {
+  .headerbar { display: grid; grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr); }
+  .headerbar .hb-start { min-width: 0; }
+  .headerbar .hb-end { justify-self: end; margin-left: 0; }
+}
