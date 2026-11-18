@@ -35,6 +35,8 @@
 //! - `setting_info.zig`: the description of each setting for a panel.
 //! - `setting_text.zig`: the text of a setting value in an editor, and back.
 //! - `licenses.zig`: the licenses for a Licenses screen.
+//! - `history.zig`: the undo list of an app.
+//! - `plate_set.zig`: the plates of a set, each with its own app.
 //!
 //! The split of a core and native shells comes from Lookout Marine (see
 //! REFERENCES.md).
@@ -52,6 +54,7 @@ pub const sweep = @import("app/sweep.zig");
 /// The settings that can close a gap (see app/gap_advice.zig).
 pub const gap_advice = @import("app/gap_advice.zig");
 pub const history = @import("app/history.zig");
+pub const plate_set = @import("app/plate_set.zig");
 pub const measure = @import("app/measure.zig");
 /// The printability check (see app/checks.zig).
 pub const checks_mod = @import("app/checks.zig");
@@ -140,6 +143,9 @@ pub const App = struct {
     /// events, because a new slice replaces it.
     quiet: std.atomic.Value(bool) = .init(false),
     worker: ?Worker = null,
+    /// The count of the slices that ended with a result. A plate set
+    /// (app/plate_set.zig) compares it to see a new result.
+    done_count: std.atomic.Value(u32) = .init(0),
 
     // The results. The worker writes them before it sets the state to
     // `done` or `failed`.
@@ -1565,6 +1571,57 @@ pub const App = struct {
         return app.startSlice();
     }
 
+    /// Stops a slice that runs, with no event. The app keeps no result of
+    /// that slice. A plate set stops a plate this way when another plate
+    /// slices first.
+    pub fn halt(app: *App) void {
+        app.quiet.store(true, .release);
+        app.stopWorker();
+        app.quiet.store(false, .release);
+        if (app.getState() == .slicing) app.state.store(.ready, .release);
+    }
+
+    /// Waits for the end of the slice that runs, with no cancel.
+    pub fn waitSlice(app: *App) void {
+        if (comptime !has_threads) return;
+        if (app.worker) |t| {
+            t.join();
+            app.worker = null;
+        }
+    }
+
+    /// Copies the settings of another app: the global settings, the three
+    /// groups, the quality profile, and the formulas (the saved state of a
+    /// shell). For a new plate of a set with the settings of the active
+    /// plate.
+    pub fn copySettingsFrom(app: *App, other: *const App) (Allocator.Error || zs.profile.Error)!void {
+        const a = app.strings.allocator();
+        const copy = struct {
+            fn f(al: Allocator, list: []const zs.settings.Change) Allocator.Error![]const zs.settings.Change {
+                const out = try al.alloc(zs.settings.Change, list.len);
+                for (list, out) |c, *d| d.* = .{ .name = try al.dupe(u8, c.name), .value = try al.dupe(u8, c.value) };
+                return out;
+            }
+        }.f;
+        // The base (the quality profile and the global settings) first,
+        // then the groups over it.
+        app.global = try copy(a, other.global);
+        app.quality = try copy(a, other.quality);
+        app.quality_name = try a.dupeZ(u8, other.quality_name);
+        app.rebase(&.{});
+        var aw: std.Io.Writer.Allocating = .init(app.gpa);
+        defer aw.deinit();
+        var diag: zs.profile.Diagnostic = .{};
+        for ([_]zs.profile.Group{ .machine, .filament, .project }) |g| {
+            aw.clearRetainingCapacity();
+            other.writeState(g, &aw.writer) catch return error.OutOfMemory;
+            if (aw.written().len > 0) try app.applyProfile(g, "saved", aw.written(), &diag);
+        }
+        aw.clearRetainingCapacity();
+        other.writeFormulas(&aw.writer) catch return error.OutOfMemory;
+        app.readFormulas(aw.written());
+    }
+
     /// Asks a slice that runs to stop. The `canceled` event follows.
     pub fn cancel(app: *App) void {
         app.cancel_flag.store(true, .release);
@@ -1581,11 +1638,7 @@ pub const App = struct {
 
     /// Waits for the worker, with no cancel. For tests.
     pub fn stopWorkerForTest(app: *App) void {
-        if (comptime !has_threads) return;
-        if (app.worker) |t| {
-            t.join();
-            app.worker = null;
-        }
+        app.waitSlice();
     }
 
     fn dropSlicePlan(app: *App) void {
@@ -1765,6 +1818,7 @@ pub const App = struct {
         app.gcode_bytes = bytes;
         app.gcode_buf = buf;
         app.stats = stats;
+        _ = app.done_count.fetchAdd(1, .release);
         app.state.store(.done, .release);
         app.emit(.sliced, 1, 0);
     }
@@ -1917,6 +1971,7 @@ test {
     _ = sweep;
     _ = gap_advice;
     _ = checks_mod;
+    _ = plate_set;
     _ = @import("app/feature_settings.zig");
 }
 

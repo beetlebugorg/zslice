@@ -265,7 +265,7 @@ pub const View = struct {
     }
 
     /// Frees the data of the view, not the view and its renderer.
-    fn deinitData(v: *View) void {
+    pub fn deinitData(v: *View) void {
         v.lite.deinit(gpa);
         for (v.plates.items) |*p| p.deinit(gpa);
         v.plates.deinit(gpa);
@@ -1868,6 +1868,16 @@ pub const View = struct {
 
     /// Reads the last slice of `app` into plate i (not the active plate),
     /// in the color mode of the view.
+    /// The scene bytes (`writeScene`) of the last slice of an app in a
+    /// color mode, with no GPU: the beads of a plate of a set
+    /// (app/plate_set.zig).
+    pub fn appScene(alloc: std.mem.Allocator, app: *const app_mod.App, mode: Mode) (Error || error{InvalidScene})![]u8 {
+        var t: View = .{ .renderer = undefined, .headless = true, .width = 1, .height = 1, .mode = mode };
+        defer t.deinitData();
+        try t.load(app);
+        return t.writeScene(alloc);
+    }
+
     pub fn loadPlate(v: *View, i: usize, app: *const app_mod.App) Error!void {
         if (i >= v.plates.items.len or i == v.active) return;
         var t: View = .{ .renderer = undefined, .headless = true, .width = 1, .height = 1, .mode = v.mode };

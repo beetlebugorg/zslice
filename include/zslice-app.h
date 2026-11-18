@@ -47,7 +47,8 @@ enum zs_event {
     ZS_EVENT_PROGRESS = 1, /* progress is 0 to 1 */
     ZS_EVENT_SLICED = 2,
     ZS_EVENT_FAILED = 3,   /* status has the error code */
-    ZS_EVENT_CANCELED = 4
+    ZS_EVENT_CANCELED = 4,
+    ZS_EVENT_PLATES = 5    /* a plate set: the list or a status changed */
 };
 
 /* Runs on the worker thread. */
@@ -965,7 +966,9 @@ int zs_view_draw(zs_view *view);
  * at (0, 0). zs_view_plate_origin gives the place of another plate in it.
  * A change of the active plate moves the camera with the world, so the
  * picture stays still. Call zs_view_frame_plate after it to move to the
- * new plate. Only the web backend draws the other plates for now. */
+ * new plate. Only the frame backend (wasm and macOS) draws the other
+ * plates for now; the Vulkan backend draws the active plate only. A plate
+ * set (zs_set_view_sync, below) makes these calls. */
 
 enum zs_plate_flag {
     ZS_PLATE_STALE = 1,     /* the slice is old: the beads fade a little */
@@ -1209,6 +1212,150 @@ int zs_project_profiles(const zs_files *files, const char *yml, const char *coun
  * ZS_OUT_OF_RANGE: the parts do not all fit on the bed (they stay on the
  * plate). On an error, message (can be NULL) gets the reason. */
 int zs_app_project_load(zs_app *app, const zs_files *files, const char *yml, const char *counts, size_t plate, char *message, size_t cap);
+
+/* ---- the plate set (src/app/plate_set.zig) ----
+ *
+ * A set has one or more plates, each with its own zs_app: its own
+ * settings, parts, undo list, and slice. The active plate is the plate
+ * that the shell shows and changes: call the zs_app functions on
+ * zs_set_app(set, zs_set_active(set)). The set slices the other plates in
+ * the background, one plate at a time, so that a view shows all plates in
+ * a row (zs_view_set_plates).
+ *
+ * After each change of a plate, call zs_set_changed (not
+ * zs_app_request_slice): the plate waits for a slice. The active plate
+ * slices first, then each other waiting plate in order. A plate keeps its
+ * old slice until its new slice is done. During a drag of a part, call
+ * zs_set_changed_held, and zs_set_release at the end: a move or a turn
+ * slices once, at the end.
+ *
+ * Two modes:
+ * - zs_set_new (native): the core starts each slice. A change of the
+ *   active plate starts its slice at once, and stops the slice of another
+ *   plate (that plate slices again later).
+ * - zs_set_new_web (wasm): a slice runs on the calling thread. Call
+ *   zs_set_step from a timer while it returns 1, so that the other
+ *   messages of the worker come between the slices.
+ *
+ * Events: the callback gets the events of the app of each plate (the
+ * index of the plate, then the values of zs_app_event_fn), and
+ * ZS_EVENT_PLATES with plate (size_t)-1 when the list or a status
+ * changes. In the native mode it runs on the slice threads and on the
+ * thread of the call: move each event to the UI thread, and call no zs_set
+ * function in the callback. Call the zs_set functions from one thread. */
+
+typedef struct zs_set zs_set;
+
+typedef void (*zs_set_event_fn)(void *user, size_t plate, int event, double progress, int status);
+
+/* A new set with one empty plate. */
+int zs_set_new(zs_set_event_fn event_fn, void *user, zs_set **out);
+/* wasm only: the same, with the events to the import env.zs_web_set_event
+ * (plate, event, progress, status) of the module. */
+int zs_set_new_web(zs_set **out);
+/* Stops each slice, and frees the set and its apps. */
+void zs_set_free(zs_set *set);
+
+size_t zs_set_count(zs_set *set);
+size_t zs_set_active(zs_set *set);
+/* The app of plate i, or NULL. It stays valid until the plate goes
+ * (zs_set_remove, zs_set_keep_active, zs_set_project_load). */
+zs_app *zs_set_app(zs_set *set, size_t i);
+
+/* A new empty plate after the others, with the settings of the active
+ * plate, named "Plate n". It becomes the active plate. Returns its index,
+ * or a negative status. */
+ptrdiff_t zs_set_add(zs_set *set);
+/* Makes plate i the active plate. The plate that was active frees the
+ * memory that only makes its next slice faster (zs_app_trim). A plate
+ * with parts and no current slice waits for a slice. */
+int zs_set_select(zs_set *set, size_t i);
+/* Removes plate i. The last plate stays, with no parts. */
+int zs_set_remove(zs_set *set, size_t i);
+/* Keeps only the active plate: a set of one plate. For example before a
+ * file opens in place of the plates of a project. */
+int zs_set_keep_active(zs_set *set);
+
+enum zs_plate_status {
+    ZS_PLATE_EMPTY = 0,   /* no parts */
+    ZS_PLATE_STALE = 1,   /* waits for a slice; the old slice shows */
+    ZS_PLATE_SLICING = 2,
+    ZS_PLATE_DONE = 3,
+    ZS_PLATE_FAILED = 4,  /* the slice or the load failed (see message) */
+    ZS_PLATE_CANNOT = 5   /* zslice cannot slice the plate (a resin plate) */
+};
+
+typedef struct zs_plate_info {
+    uint64_t id;              /* new for each plate; never used again */
+    int status;               /* enum zs_plate_status */
+    double bed_x, bed_y;      /* the bed size, mm */
+    const char *name;         /* for a list: the name of the plate, or of its model */
+    const char *printer_key;  /* "<machine.model>\n<machine.name>": two
+                                 plates with the same key share a bed model */
+    size_t part_count;
+    const char *message;      /* why the load failed, or why the parts do
+                                 not fit; "" if none */
+} zs_plate_info;
+
+/* The facts of plate i. The strings stay valid until the next
+ * zs_set_plate_info of the same plate, or a change of the list. */
+int zs_set_plate_info(zs_set *set, size_t i, zs_plate_info *out);
+/* The name of plate i for a list (a file name); NULL or "": the name of
+ * its model. */
+int zs_set_name(zs_set *set, size_t i, const char *name);
+
+/* Plate i changed: it waits for a slice. In the native mode, a change of
+ * the active plate starts its slice at once. A plate with no parts does
+ * not slice, and its beads go (ZS_PLATE_EMPTY). */
+int zs_set_changed(zs_set *set, size_t i);
+/* A change of plate i during a drag: the slice waits for zs_set_release.
+ * A zs_set_changed of the plate ends the wait. */
+int zs_set_changed_held(zs_set *set, size_t i);
+int zs_set_release(zs_set *set);
+/* The plate that zs_set_step slices next, or -1 (for example, to give the
+ * cancel flag of its app to the page: zs_app_cancel_address). */
+ptrdiff_t zs_set_next(zs_set *set);
+/* Slices the next waiting plate on the calling thread. Returns 1 if a
+ * plate waited, 0 if none. A canceled slice waits again. */
+int zs_set_step(zs_set *set);
+
+/* Loads all plates of a printdeck.yml in place of the plates of the set:
+ * one app for each plate, with the profiles, the settings, and the parts
+ * of the plate (see zs_app_project_load). files has the files of all
+ * plates. A plate with no Cura stack (a resin plate) gets its parts, for
+ * their footprints, and ZS_PLATE_CANNOT. A plate that does not load is
+ * ZS_PLATE_FAILED with a message. Plate `active` becomes the active plate,
+ * and the plates slice. On an error of the yml, the set does not change,
+ * and message (can be NULL) gets the reason. */
+int zs_set_project_load(zs_set *set, const zs_files *files, const char *yml, const char *counts, size_t active,
+                        char *message, size_t cap);
+
+/* ---- the plates of a set in a view ----
+ *
+ * zs_set_view_sync brings a view up to date with the set after
+ * ZS_EVENT_PLATES or a slice: the row of the beds (220 mm for a bed of 0),
+ * zs_view_plate_clear where another plate came to a place, the flags of
+ * each plate (ZS_PLATE_STALE while it waits or slices, ZS_PLATE_BED_MODEL
+ * when its printer_key is the key of the active plate, ZS_PLATE_DISABLED
+ * when it cannot slice or failed), the footprints of the parts of a plate
+ * that cannot slice (once for each change), and the beads of each other
+ * plate with a new slice. The shell still draws the active plate with
+ * zs_view_load (or zs_view_scene_read) after its slice. One view follows
+ * one set; zs_set_view_reset starts again for a new view. */
+int zs_set_view_sync(zs_set *set, zs_view *view);
+void zs_set_view_reset(zs_set *set);
+/* The same as bytes, for a view in another wasm instance (the web app
+ * slices in a worker, and the page owns the view): zs_set_sync_write in
+ * the worker (free the bytes with zs_buffer_free), and zs_view_sync_read
+ * in the page. zs_set_view_mode sets the color mode of the beads (enum
+ * zs_view_mode); zs_set_view_sync takes the mode of its view. */
+int zs_set_sync_write(zs_set *set, uint8_t **out, size_t *out_len);
+int zs_view_sync_read(zs_view *view, const uint8_t *data, size_t len);
+void zs_set_view_mode(zs_set *set, int mode);
+/* The scene bytes of plate i, for zs_view_scene_read: of its last slice,
+ * or its old beads while it slices again. ZS_NO_RESULT if it has none.
+ * The bytes stay valid until the next zs_set call. */
+int zs_set_plate_scene(zs_set *set, size_t i, const uint8_t **out, size_t *out_len);
 
 /* ---- licenses ---- */
 

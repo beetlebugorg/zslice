@@ -18,9 +18,9 @@ const App = zs.app.App;
 /// the shell draws it (WebGL2 in JavaScript, Metal in Swift). Other
 /// targets get "not supported" from each call.
 const is_mac = builtin.os.tag == .macos and builtin.link_libc;
-const frame_backend = is_wasm or is_mac;
-const render_on = (builtin.os.tag == .linux and builtin.link_libc and !is_wasm) or frame_backend;
-const view_mod = if (render_on) @import("../render/view.zig") else struct {
+pub const frame_backend = is_wasm or is_mac;
+pub const render_on = (builtin.os.tag == .linux and builtin.link_libc and !is_wasm) or frame_backend;
+pub const view_mod = if (render_on) @import("../render/view.zig") else struct {
     pub const View = opaque {};
 };
 const View = view_mod.View;

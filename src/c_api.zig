@@ -289,6 +289,7 @@ comptime {
     _ = @import("c_api/view.zig");
     _ = @import("c_api/printers.zig");
     _ = @import("c_api/project.zig");
+    _ = @import("c_api/set.zig");
 }
 
 test "C API: slice a box to a buffer and with a callback" {

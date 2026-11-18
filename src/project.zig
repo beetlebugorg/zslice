@@ -390,6 +390,69 @@ pub fn addParts(arena: Allocator, app: anytype, files: *const Files, project: *c
     return app.arrangePlate();
 }
 
+/// The choices of the parts from a text "count,count,...", with one entry
+/// for each part. "-" (or a missing entry) is the count of printdeck.yml,
+/// and 0 leaves the part out.
+pub fn choicesOf(arena: Allocator, text: []const u8, n: usize) Allocator.Error![]Choice {
+    const out = try arena.alloc(Choice, n);
+    @memset(out, .{});
+    var it = std.mem.splitScalar(u8, text, ',');
+    var i: usize = 0;
+    while (it.next()) |t0| : (i += 1) {
+        if (i >= n) break;
+        const t = std.mem.trim(u8, t0, " ");
+        if (t.len == 0 or std.mem.eql(u8, t, "-")) continue;
+        const count = std.fmt.parseInt(u32, t, 10) catch continue;
+        out[i] = .{ .on = count > 0, .count = count };
+    }
+    return out;
+}
+
+/// A parsed project and its plates.
+pub const Planned = struct {
+    project: Project,
+    plates: []const Plate,
+};
+
+/// Parses a printdeck.yml and plans its plates with the counts of a text
+/// (see `choicesOf`).
+pub fn planText(arena: Allocator, text: []const u8, counts: []const u8, diag: *Diagnostic) Error!Planned {
+    const p = try parse(arena, text, diag);
+    const plates = try plan(arena, &p, try choicesOf(arena, counts, p.parts.len));
+    return .{ .project = p, .plates = plates };
+}
+
+/// The name of a plate for a list: the name of its part, or "<first part>
+/// and <n> more".
+pub fn plateName(arena: Allocator, project: *const Project, plate: Plate) Allocator.Error![]const u8 {
+    if (plate.items.len == 0) return "";
+    const first = project.parts[plate.items[0].part].name;
+    if (plate.items.len == 1) return first;
+    return std.fmt.allocPrint(arena, "{s} and {d} more", .{ first, plate.items.len - 1 });
+}
+
+/// True if zslice cannot slice the plate: its profile folder has no Cura
+/// stack (profiles/<folder>/cura.json). A resin plate is such a plate.
+pub fn plateCannot(arena: Allocator, files: *const Files, plate: Plate) Allocator.Error!bool {
+    const slash = std.mem.indexOfScalar(u8, plate.profile, '/') orelse plate.profile.len;
+    const folder = plate.profile[0..slash];
+    if (folder.len == 0) return true;
+    return files.get(try std.fmt.allocPrint(arena, "profiles/{s}/cura.json", .{folder})) == null;
+}
+
+/// Puts plate `plate` of a planned project on the plate of `app`: the
+/// settings of the plate (support, adhesion) as changes of the print, then
+/// the parts (`addParts`). Load the profiles of the plate first. Returns
+/// false if the parts do not all fit on the bed.
+pub fn loadPlate(arena: Allocator, app: anytype, files: *const Files, planned: *const Planned, plate: Plate, diag: *Diagnostic) (Error || error{ BadModel, InvalidValue, UnknownSetting, OutOfRange })!bool {
+    const sets = try plateSettings(arena, &planned.project, plate, &app.settings, diag);
+    for (sets) |s| app.setSetting(s.name, s.value) catch |e| {
+        diag.* = .{ .message = try std.fmt.allocPrint(arena, "{s} = {s}: {s}", .{ s.name, s.value, @errorName(e) }) };
+        return e;
+    };
+    return addParts(arena, app, files, &planned.project, plate, diag);
+}
+
 const testing = std.testing;
 
 const sample =

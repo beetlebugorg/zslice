@@ -46,33 +46,8 @@ fn copyOut(text: []const u8, buf: ?[*]u8, cap: usize, out_len: ?*usize) c_int {
     return ok;
 }
 
-/// The choices of the parts: "count,count,..." with one entry for each
-/// part. "-" (or a missing entry) is the count of printdeck.yml, 0 leaves
-/// the part out.
-fn choicesOf(arena: std.mem.Allocator, text: []const u8, n: usize) ![]project.Choice {
-    const out = try arena.alloc(project.Choice, n);
-    @memset(out, .{});
-    var it = std.mem.splitScalar(u8, text, ',');
-    var i: usize = 0;
-    while (it.next()) |t0| : (i += 1) {
-        if (i >= n) break;
-        const t = std.mem.trim(u8, t0, " ");
-        if (t.len == 0 or std.mem.eql(u8, t, "-")) continue;
-        const count = std.fmt.parseInt(u32, t, 10) catch continue;
-        out[i] = .{ .on = count > 0, .count = count };
-    }
-    return out;
-}
-
-const Planned = struct {
-    project: project.Project,
-    plates: []const project.Plate,
-};
-
-fn planOf(arena: std.mem.Allocator, text: []const u8, counts: []const u8, diag: *project.Diagnostic) !Planned {
-    const p = try project.parse(arena, text, diag);
-    const plates = try project.plan(arena, &p, try choicesOf(arena, counts, p.parts.len));
-    return .{ .project = p, .plates = plates };
+fn planOf(arena: std.mem.Allocator, text: []const u8, counts: []const u8, diag: *project.Diagnostic) !project.Planned {
+    return project.planText(arena, text, counts, diag);
 }
 
 fn errorJson(arena: std.mem.Allocator, diag: project.Diagnostic, e: anyerror) ![]const u8 {
@@ -163,13 +138,7 @@ export fn zs_app_project_load(a: ?*App, files: ?*const project.Files, text: ?[*:
         fn go(ar: std.mem.Allocator, ap: *App, fs: *const project.Files, tx: []const u8, cs: []const u8, pl: usize, d: *project.Diagnostic) !bool {
             const planned = try planOf(ar, tx, cs, d);
             if (pl >= planned.plates.len) return error.OutOfRange;
-            const p = planned.plates[pl];
-            const sets = try project.plateSettings(ar, &planned.project, p, &ap.settings, d);
-            for (sets) |s| ap.setSetting(s.name, s.value) catch |e| {
-                d.* = .{ .message = try std.fmt.allocPrint(ar, "{s} = {s}: {s}", .{ s.name, s.value, @errorName(e) }) };
-                return e;
-            };
-            return project.addParts(ar, ap, fs, &planned.project, p, d);
+            return project.loadPlate(ar, ap, fs, &planned, planned.plates[pl], d);
         }
     }.go;
     const fits = run(arena, app, f, t, if (counts) |cs| std.mem.span(cs) else "", plate, &diag) catch |e| {
