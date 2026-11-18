@@ -166,6 +166,7 @@ fn kindOf(kind: c_int) ?zs.app.printer_status.Kind {
         1 => .octoprint,
         2 => .printdeck,
         3 => .moonraker,
+        4 => .bambu,
         else => null,
     };
 }
@@ -329,6 +330,44 @@ export fn zs_app_apply_printer_status(a: ?*App, s: ?*const PStatus, what: c_int)
     }
     noted(app, null, false);
     return ok;
+}
+
+/// A .gcode.3mf file for a Bambu Lab printer, with the G-code as plate 1
+/// and its MD5 (see src/bambu.zig). Free the bytes with zs_buffer_free.
+export fn zs_bambu_file(gcode: ?[*]const u8, len: usize, title: ?[*:0]const u8, out: ?*?[*]u8, out_len: ?*usize) c_int {
+    const g = gcode orelse return @intFromEnum(Status.invalid_argument);
+    const o = out orelse return @intFromEnum(Status.invalid_argument);
+    const l = out_len orelse return @intFromEnum(Status.invalid_argument);
+    const bytes = zs.bambu.gcode3mf(gpa, g[0..len], if (title) |t| std.mem.span(t) else "zslice") catch return @intFromEnum(Status.out_of_memory);
+    o.* = bytes.ptr;
+    l.* = bytes.len;
+    return ok;
+}
+
+/// The MQTT message (JSON) that starts the print of `file` (the name of the
+/// uploaded .gcode.3mf) on a Bambu Lab printer. Publish it to
+/// "device/<serial>/request" only after a fresh confirmation of the user
+/// that the plate is clear. flags: 1 bed leveling, 2 the AMS, 4 a time
+/// lapse. Free the bytes with zs_buffer_free.
+export fn zs_bambu_start_message(file: ?[*:0]const u8, title: ?[*:0]const u8, flags: c_int, out: ?*?[*]u8, out_len: ?*usize) c_int {
+    const f = file orelse return @intFromEnum(Status.invalid_argument);
+    const o = out orelse return @intFromEnum(Status.invalid_argument);
+    const l = out_len orelse return @intFromEnum(Status.invalid_argument);
+    const m = zs.bambu.startMessage(gpa, .{
+        .file = std.mem.span(f),
+        .title = if (title) |t| std.mem.span(t) else "zslice",
+        .bed_leveling = flags & 1 != 0,
+        .use_ams = flags & 2 != 0,
+        .timelapse = flags & 4 != 0,
+    }) catch return @intFromEnum(Status.out_of_memory);
+    o.* = m.ptr;
+    l.* = m.len;
+    return ok;
+}
+
+/// The MQTT message that asks a Bambu Lab printer for its full status.
+export fn zs_bambu_push_all_message() [*:0]const u8 {
+    return zs.bambu.push_all_message;
 }
 
 /// 1 if a change line of a history step (zs_history_step.changes) can be

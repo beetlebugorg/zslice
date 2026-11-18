@@ -11,6 +11,8 @@
 //!   /api/plugin/printdeck (the material, the rolls, the limits, the job).
 //! - Moonraker: /printer/objects/query with print_stats, virtual_sdcard,
 //!   toolhead, and the extruder settings.
+//! - Bambu Lab (LAN): no paths; each MQTT report of the printer (topic
+//!   device/<serial>/report) goes to `feed` with the path "report".
 //!
 //! SPDX-License-Identifier: AGPL-3.0-or-later
 
@@ -18,7 +20,7 @@ const std = @import("std");
 const Allocator = std.mem.Allocator;
 const Value = std.json.Value;
 
-pub const Kind = enum(u8) { none = 0, octoprint = 1, printdeck = 2, moonraker = 3 };
+pub const Kind = enum(u8) { none = 0, octoprint = 1, printdeck = 2, moonraker = 3, bambu = 4 };
 
 /// The paths to GET for a kind, one on each line.
 pub fn paths(kind: Kind) [:0]const u8 {
@@ -26,7 +28,7 @@ pub fn paths(kind: Kind) [:0]const u8 {
         .octoprint => "/api/printer\n/api/printerprofiles\n/api/job",
         .printdeck => "/api/printer\n/api/plugin/printdeck",
         .moonraker => "/printer/objects/query?print_stats&virtual_sdcard&toolhead&configfile=settings",
-        .none => "",
+        .bambu, .none => "",
     };
 }
 
@@ -139,6 +141,20 @@ pub const Status = struct {
                 s.layer = @intFromFloat(num(root, "job.layer"));
                 s.layers = @intFromFloat(num(root, "job.layers"));
             }
+        } else if (std.mem.eql(u8, path, "report")) {
+            // A report of a Bambu Lab printer: a full report or a change.
+            const p = get(root, "print") orelse return;
+            if (try str(a, p, "gcode_state")) |t| s.state = t;
+            if (try str(a, p, "subtask_name")) |t| s.job = t;
+            if (get(p, "mc_percent")) |v| s.progress = (numOf(v) orelse 0) / 100;
+            // Minutes.
+            if (get(p, "mc_remaining_time")) |v| s.time_left = (numOf(v) orelse -1) * 60;
+            if (get(p, "layer_num")) |v| s.layer = @intFromFloat(numOf(v) orelse 0);
+            if (get(p, "total_layer_num")) |v| s.layers = @intFromFloat(numOf(v) orelse 0);
+            if (get(p, "nozzle_diameter")) |v| s.nozzle = switch (v) {
+                .string => |t| std.fmt.parseFloat(f64, t) catch 0,
+                else => numOf(v) orelse 0,
+            };
         } else if (std.mem.startsWith(u8, path, "/printer/objects/query")) {
             const st = get(root, "result.status") orelse return;
             if (try str(a, st, "print_stats.state")) |t| s.state = t;
@@ -233,3 +249,19 @@ test "printer status: printdeck and Moonraker" {
     try m.feed(.moonraker, "/printer/objects/query", "<html>");
     try testing.expectEqualStrings("printing", m.state);
 }
+
+test "printer status: a Bambu Lab report" {
+    var s = Status.init(testing.allocator);
+    defer s.deinit();
+    try s.feed(.bambu, "report", "{\"print\":{\"gcode_state\":\"RUNNING\",\"subtask_name\":\"Benchy\",\"mc_percent\":42,\"mc_remaining_time\":65,\"layer_num\":20,\"total_layer_num\":239,\"nozzle_diameter\":\"0.4\"}}");
+    try testing.expectEqualStrings("RUNNING", s.state);
+    try testing.expectEqualStrings("Benchy", s.job);
+    try testing.expectEqual(@as(f64, 3900), s.time_left);
+    try testing.expectEqual(@as(i32, 239), s.layers);
+    try testing.expectEqual(@as(f64, 0.4), s.nozzle);
+    // A change report keeps the rest.
+    try s.feed(.bambu, "report", "{\"print\":{\"mc_percent\":43}}");
+    try testing.expectEqualStrings("Benchy", s.job);
+    try testing.expectApproxEqAbs(@as(f64, 0.43), s.progress, 1e-9);
+}
+

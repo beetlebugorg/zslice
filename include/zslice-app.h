@@ -183,6 +183,17 @@ int zs_printer_status_feed(zs_printer_status *s, int kind, const char *path, con
 /* The status so far; the strings stay valid until the next feed or free. */
 int zs_printer_status_get(const zs_printer_status *s, zs_printer_info *out);
 int zs_printer_status_roll(const zs_printer_status *s, size_t i, zs_printer_roll *out);
+/* Bambu Lab printers (kind 4 of zs_printer_status): no paths; give each
+ * MQTT report (topic device/<serial>/report) to zs_printer_status_feed
+ * with the path "report". The shell does the network: an upload of
+ * zs_bambu_file over FTPS (implicit TLS, port 990, user "bblp", the access
+ * code as the password), then MQTT over TLS (port 8883, the same user and
+ * password). Start a print only after a fresh confirmation of the user
+ * that the plate is clear. */
+int zs_bambu_file(const uint8_t *gcode, size_t len, const char *title, uint8_t **out, size_t *out_len);
+/* flags: 1 bed leveling, 2 the AMS, 4 a time lapse. */
+int zs_bambu_start_message(const char *file, const char *title, int flags, uint8_t **out, size_t *out_len);
+const char *zs_bambu_push_all_message(void);
 /* Applies the status of a printer to the settings. what: 1 the machine (the
  * bed, the height, the nozzle, and the motion limits, each only when the
  * printer gives it), 2 the filament (the built-in profile of its material,

@@ -1,0 +1,174 @@
+//! Bambu Lab printers in LAN mode: the file that they print, and the
+//! messages that start a print and ask for the status.
+//!
+//! A shell sends a print in three steps (the network is the shell's work):
+//!
+//! 1. It uploads the file of `gcode3mf` over FTPS: implicit TLS on port
+//!    990, the user "bblp", the access code of the printer (on its screen)
+//!    as the password, to the root folder, with a name that ends in
+//!    ".gcode.3mf".
+//! 2. It connects to the MQTT broker of the printer: TLS on port 8883, the
+//!    same user and password, and subscribes to "device/<serial>/report".
+//! 3. After the user confirms that the plate is clear (a fresh click; never
+//!    a timer or a retry), it publishes `startMessage` to
+//!    "device/<serial>/request". `pushAllMessage` asks for the full status,
+//!    and each report gives the state, the layer, and the time left.
+//!
+//! The printer reads the G-code of plate 1 (Metadata/plate_1.gcode) and its
+//! MD5 (Metadata/plate_1.gcode.md5) from the 3MF file. The model part of
+//! the file is empty: the printer prints the G-code.
+//!
+//! The file layout and the messages follow the public documents of the
+//! LAN mode and the open source tools for it (see REFERENCES.md). No code
+//! comes from them.
+//!
+//! SPDX-License-Identifier: AGPL-3.0-or-later
+
+const std = @import("std");
+const Allocator = std.mem.Allocator;
+const zipfile = @import("zipfile.zig");
+
+/// A .gcode.3mf file with the G-code as plate 1, in gpa.
+pub fn gcode3mf(gpa: Allocator, gcode: []const u8, title: []const u8) (Allocator.Error || std.Io.Writer.Error)![]u8 {
+    var arena_state = std.heap.ArenaAllocator.init(gpa);
+    defer arena_state.deinit();
+    const a = arena_state.allocator();
+    var digest: [16]u8 = undefined;
+    std.crypto.hash.Md5.hash(gcode, &digest, .{});
+    const md5 = try std.fmt.allocPrint(a, "{X}", .{&digest});
+    const types =
+        \\<?xml version="1.0" encoding="UTF-8"?>
+        \\<Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types"><Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/><Default Extension="model" ContentType="application/vnd.ms-package.3dmanufacturing-3dmodel+xml"/><Default Extension="gcode" ContentType="text/x.gcode"/><Default Extension="png" ContentType="image/png"/></Types>
+        \\
+    ;
+    const rels =
+        \\<?xml version="1.0" encoding="UTF-8"?>
+        \\<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Target="/3D/3dmodel.model" Id="rel-1" Type="http://schemas.microsoft.com/3dmanufacturing/2013/01/3dmodel"/></Relationships>
+        \\
+    ;
+    const model = try std.fmt.allocPrint(a,
+        \\<?xml version="1.0" encoding="UTF-8"?>
+        \\<model unit="millimeter" xml:lang="en-US" xmlns="http://schemas.microsoft.com/3dmanufacturing/core/2015/02">
+        \\ <metadata name="Application">zslice</metadata>
+        \\ <metadata name="Title">{s}</metadata>
+        \\ <resources/>
+        \\ <build/>
+        \\</model>
+        \\
+    , .{title});
+    const settings =
+        \\<?xml version="1.0" encoding="UTF-8"?>
+        \\<config>
+        \\  <plate>
+        \\    <metadata key="plater_id" value="1"/>
+        \\    <metadata key="gcode_file" value="Metadata/plate_1.gcode"/>
+        \\  </plate>
+        \\</config>
+        \\
+    ;
+    const entries = [_]zipfile.Entry{
+        .{ .name = "[Content_Types].xml", .data = @constCast(types) },
+        .{ .name = "_rels/.rels", .data = @constCast(rels) },
+        .{ .name = "3D/3dmodel.model", .data = model },
+        .{ .name = "Metadata/model_settings.config", .data = @constCast(settings) },
+        .{ .name = "Metadata/plate_1.gcode", .data = @constCast(gcode) },
+        .{ .name = "Metadata/plate_1.gcode.md5", .data = md5 },
+    };
+    var out: std.Io.Writer.Allocating = .init(gpa);
+    errdefer out.deinit();
+    try zipfile.write(gpa, &out.writer, &entries);
+    return out.toOwnedSlice();
+}
+
+pub const Start = struct {
+    /// The name of the file on the printer ("part.gcode.3mf").
+    file: []const u8,
+    /// The name of the print on the screen of the printer.
+    title: []const u8,
+    /// Level the bed before the print.
+    bed_leveling: bool = true,
+    /// Use the AMS (the filament changer), slot 0.
+    use_ams: bool = false,
+    timelapse: bool = false,
+};
+
+/// The MQTT message that starts the print of a file on the printer. Send
+/// it only after a fresh confirmation of the user that the plate is clear.
+pub fn startMessage(gpa: Allocator, s: Start) Allocator.Error![]u8 {
+    const Msg = struct {
+        print: struct {
+            sequence_id: []const u8 = "0",
+            command: []const u8 = "project_file",
+            param: []const u8 = "Metadata/plate_1.gcode",
+            project_id: []const u8 = "0",
+            profile_id: []const u8 = "0",
+            task_id: []const u8 = "0",
+            subtask_id: []const u8 = "0",
+            subtask_name: []const u8,
+            url: []const u8,
+            md5: []const u8 = "",
+            timelapse: bool,
+            bed_type: []const u8 = "auto",
+            bed_levelling: bool,
+            flow_cali: bool = false,
+            vibration_cali: bool = false,
+            layer_inspect: bool = false,
+            use_ams: bool,
+            ams_mapping: []const i32 = &.{0},
+        },
+    };
+    const url = try std.fmt.allocPrint(gpa, "file:///sdcard/{s}", .{s.file});
+    defer gpa.free(url);
+    return std.json.Stringify.valueAlloc(gpa, Msg{ .print = .{
+        .subtask_name = s.title,
+        .url = url,
+        .timelapse = s.timelapse,
+        .bed_levelling = s.bed_leveling,
+        .use_ams = s.use_ams,
+    } }, .{});
+}
+
+/// The MQTT message that asks the printer for its full status.
+pub const push_all_message = "{\"pushing\":{\"sequence_id\":\"0\",\"command\":\"pushall\"}}";
+
+/// The MQTT topics of a printer.
+pub fn reportTopic(gpa: Allocator, serial: []const u8) Allocator.Error![]u8 {
+    return std.fmt.allocPrint(gpa, "device/{s}/report", .{serial});
+}
+
+pub fn requestTopic(gpa: Allocator, serial: []const u8) Allocator.Error![]u8 {
+    return std.fmt.allocPrint(gpa, "device/{s}/request", .{serial});
+}
+
+const testing = std.testing;
+
+test "bambu: the file has the G-code and its MD5" {
+    const gpa = testing.allocator;
+    const gcode = "G28\nG1 X10 Y10 E1\n";
+    const bytes = try gcode3mf(gpa, gcode, "Benchy");
+    defer gpa.free(bytes);
+    const list = try zipfile.readAll(gpa, bytes);
+    defer zipfile.freeAll(gpa, list);
+    var found_gcode = false;
+    var found_md5 = false;
+    for (list) |e| {
+        if (std.mem.eql(u8, e.name, "Metadata/plate_1.gcode")) {
+            try testing.expectEqualStrings(gcode, e.data);
+            found_gcode = true;
+        }
+        if (std.mem.eql(u8, e.name, "Metadata/plate_1.gcode.md5")) {
+            try testing.expectEqual(@as(usize, 32), e.data.len);
+            found_md5 = true;
+        }
+    }
+    try testing.expect(found_gcode and found_md5);
+}
+
+test "bambu: the start message" {
+    const gpa = testing.allocator;
+    const m = try startMessage(gpa, .{ .file = "benchy.gcode.3mf", .title = "Benchy" });
+    defer gpa.free(m);
+    try testing.expect(std.mem.indexOf(u8, m, "\"command\":\"project_file\"") != null);
+    try testing.expect(std.mem.indexOf(u8, m, "\"url\":\"file:///sdcard/benchy.gcode.3mf\"") != null);
+    try testing.expect(std.mem.indexOf(u8, m, "\"param\":\"Metadata/plate_1.gcode\"") != null);
+}
