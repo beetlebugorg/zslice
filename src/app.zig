@@ -368,8 +368,11 @@ pub const App = struct {
                 const kind = std.fmt.parseInt(u8, f.next() orelse continue, 10) catch continue;
                 const value = std.fmt.parseFloat(f32, f.next() orelse continue) catch continue;
                 const layer = std.fmt.parseInt(u32, f.next() orelse "0", 10) catch 0;
-                if (kind > 1) continue;
-                try app.edits.put(app.gpa, .{ .key = key, .kind = @enumFromInt(kind), .value = value, .layer = layer });
+                const x = std.fmt.parseFloat(f32, f.next() orelse "0") catch 0;
+                const y = std.fmt.parseFloat(f32, f.next() orelse "0") catch 0;
+                const z = std.fmt.parseFloat(f32, f.next() orelse "0") catch 0;
+                if (kind > 2) continue;
+                try app.edits.put(app.gpa, .{ .key = key, .kind = @enumFromInt(kind), .value = value, .layer = layer, .x = x, .y = y, .z = z });
                 continue;
             }
             // "profile <tab> z_min <tab> z_max <tab> name": a layer profile.
@@ -406,7 +409,7 @@ pub const App = struct {
         var text: std.Io.Writer.Allocating = .init(gpa);
         defer text.deinit();
         for (app.profiles.items) |p| try text.writer.print("profile\t{d}\t{d}\t{s}\n", .{ p.z_min, p.z_max, p.name });
-        for (app.edits.list.items) |e| try text.writer.print("edit\t{x}\t{d}\t{d}\t{d}\n", .{ e.key, @intFromEnum(e.kind), e.value, e.layer });
+        for (app.edits.list.items) |e| try text.writer.print("edit\t{x}\t{d}\t{d}\t{d}\t{d}\t{d}\t{d}\n", .{ e.key, @intFromEnum(e.kind), e.value, e.layer, e.x, e.y, e.z });
         for (app.overrides.items) |o| try text.writer.print("{d}\t{d}\t{s}\t{s}\n", .{ o.z_min, o.z_max, o.name, o.value });
         var out: std.Io.Writer.Allocating = .init(gpa);
         errdefer out.deinit();
@@ -941,6 +944,7 @@ pub const App = struct {
             switch (e.kind) {
                 .delete => try w.writeAll("does not print\n"),
                 .flow => try w.print("{d:.0} % plastic\n", .{e.value * 100}),
+                .dot => try w.print("a drop of {d:.1} mm at {d:.1}, {d:.1}\n", .{ e.value, e.x, e.y }),
             }
         }
         for (app.plate.parts.items) |p| {

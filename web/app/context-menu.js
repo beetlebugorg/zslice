@@ -26,6 +26,7 @@ export const CONTEXT_MENU = [
       { label: "Block support here", gtk: "view3d.add-support(3)", act: "addSupport", arg: 3 },
       { label: "Remove the support marks here", gtk: "view3d.remove-marks", act: "removeMarks" },
       { label: "Copy for AI", gtk: "view3d.copy-for-ai", act: "copyForAi" },
+      { label: "Add a drop of plastic here", gtk: "view3d.add-drop", act: "drop" },
     ],
   },
   {

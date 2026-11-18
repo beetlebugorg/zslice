@@ -350,7 +350,7 @@ function historyList() {
 // The ops that change the settings, and the ops that change the plate:
 // each starts or extends a step.
 const SETTING_OPS = new Set(["set", "reset", "quality", "profile", "setScoped", "resetScoped"]);
-const PLATE_OPS = new Set(["load", "add", "plate", "projectLoad", "partAction", "partCut", "partMove", "partFill", "editAdd", "editRemove", "partSettingSet", "partPutDown", "partTurn", "putDown", "place", "partMove", "partRotate", "markAdd", "markRemoveNear", "markSet", "markRemove", "marksClear"]);
+const PLATE_OPS = new Set(["load", "add", "plate", "projectLoad", "partAction", "partCut", "partMove", "partFill", "editAdd", "editDot", "editRemove", "partSettingSet", "partPutDown", "partTurn", "putDown", "place", "partMove", "partRotate", "markAdd", "markRemoveNear", "markSet", "markRemove", "marksClear"]);
 
 const ops = {
   async init({ module, saved, mode: m }) {
@@ -907,6 +907,15 @@ const ops = {
     if (rc !== 0) return { ok: false, rc };
     wantSlice();
     return { ok: true, count: core.w.x.zs_app_edit_count(core.app) };
+  },
+
+  // A drop of plastic on layer `layer` at (x, y), d mm wide
+  // (zs_app_edit_add_dot), then a slice.
+  editDot({ layer, x, y, d }) {
+    const rc = core.w.x.zs_app_edit_add_dot(core.app, layer, x, y, d);
+    if (rc !== 0) return { ok: false };
+    wantSlice();
+    return { ok: true };
   },
 
   // The edits of the user: [{ kind, value, layer, applied }].

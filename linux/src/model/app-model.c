@@ -1567,6 +1567,11 @@ gint64 zg_model_part_fill(ZgModel *self, size_t i, size_t n, size_t *plates) {
     return r;
 }
 
+void zg_model_edits_changed(ZgModel *self) {
+    zg_model_select(self, -1);
+    plate_changed(self);
+}
+
 gboolean zg_model_edit_line(ZgModel *self, gint64 path, int kind, double value) {
     if (path < 0 || zs_app_edit_add(self->core, (size_t)path, kind, value) != ZS_OK) return FALSE;
     zg_model_select(self, -1);

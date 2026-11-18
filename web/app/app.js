@@ -1486,6 +1486,8 @@ document.addEventListener("keydown", onPreviewKey, true);
 // ---- the context menu (context-menu.js has its entries) ----
 
 function showContextMenu(x, y) {
+  // The place of the click, for "Add a drop of plastic here".
+  app.menuAt = [x, y];
   const items = contextItems({
     onLine: app.sel >= 0,
     marks: app.marks > 0,
@@ -1510,6 +1512,7 @@ async function runMenu(act, arg) {
     case "clearMarks": await client.call("marksClear"); break;
     case "allLayers": showAllLayers(); break;
     case "debugPrint": await debugPrint(arg === 1); break;
+    case "drop": await dropHere(); break;
     case "resetView":
       if (app.page === "2d") view2d.fit(canvas.width, canvas.height);
       else view.resetSmooth();
@@ -1790,6 +1793,24 @@ async function exportGcode() {
   download(r.bytes, `${base}.gcode`, "text/x-gcode");
 }
 $("export").onclick = exportGcode;
+
+// A drop of plastic at the place of the right click, on the top layer of
+// the view (zs_app_edit_add_dot): for a small gap.
+async function dropHere() {
+  if (app.state !== "done" || !app.menuAt) return;
+  const r = canvas.getBoundingClientRect();
+  const px = (app.menuAt[0] - r.left) * dpr();
+  const py = (app.menuAt[1] - r.top) * dpr();
+  const c = wasm.cell;
+  if (!view.x.zs_view_surface_point(view.v, px, py, 0, c)) {
+    toast("Right-click on the print for a drop.");
+    return;
+  }
+  const x = wasm.f64(c);
+  const y = wasm.f64(c + 8);
+  const res = await client.call("editDot", { layer: layers.hi, x, y, d: 1.0 });
+  toast(res.ok ? `A drop of plastic at ${x.toFixed(1)}, ${y.toFixed(1)} on layer ${layers.hi + 1}. Undo with Ctrl+Z.` : "No drop: slice first.");
+}
 
 // A test print (zs_app_debug_gcode): the top layer of the view, or the
 // layers that show, alone and lowered onto the bed, to check them before

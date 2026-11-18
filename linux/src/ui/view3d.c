@@ -69,6 +69,8 @@ typedef struct {
     guint idle;
     double drag_x, drag_y;
     double press_x, press_y;
+    /* The place of the last right click (points), for a drop. */
+    double menu_x, menu_y;
     double pointer_x, pointer_y;
     gboolean gaps_hook, gap_hook; /* the test hooks ran */
     gboolean dbl_hook, ring_hook;
@@ -197,6 +199,7 @@ static void on_focus_changed(ZgModel *model, gpointer data) {
 }
 
 static void on_copy_for_ai(GSimpleAction *a, GVariant *p, gpointer data);
+static void on_add_drop(GSimpleAction *a, GVariant *p, gpointer data);
 static void on_new_profile(GSimpleAction *a, GVariant *p, gpointer data);
 
 /* The gaps of the top layer, in red, while the gaps view is on. */
@@ -1137,7 +1140,24 @@ void zg_view3d_context_menu(GtkWidget *view) {
     show_menu(v, gtk_widget_get_width(v->area) / 2.0, gtk_widget_get_height(v->area) / 2.0);
 }
 
+/* A drop of plastic at the right click, on the layer of the selected
+ * line (zs_app_edit_add_dot): for a small gap. */
+static void on_add_drop(GSimpleAction *a, GVariant *p, gpointer data) {
+    View3d *v = data;
+    gint64 path = zg_model_selected(v->model);
+    zs_app *core = zg_model_core(v->model);
+    if (path < 0 || !v->view) return;
+    int s = gtk_widget_get_scale_factor(v->area);
+    double pt[3];
+    if (!zs_view_surface_point(v->view, (float)(v->menu_x * s), (float)(v->menu_y * s), 0, pt)) return;
+    ptrdiff_t layer = zs_app_path_layer(core, (size_t)path);
+    if (layer < 0) return;
+    if (zs_app_edit_add_dot(core, (size_t)layer, pt[0], pt[1], 1.0) == ZS_OK) zg_model_edits_changed(v->model);
+}
+
 static void show_menu(View3d *v, double x, double y) {
+    v->menu_x = x;
+    v->menu_y = y;
     gboolean on_line = zg_model_selected(v->model) >= 0;
     GMenu *menu = g_menu_new();
     if (on_line) {
@@ -1150,6 +1170,7 @@ static void show_menu(View3d *v, double x, double y) {
         g_menu_append(here, "Block support here", "view3d.add-support(3)");
         g_menu_append(here, "Remove the support marks here", "view3d.remove-marks");
         g_menu_append(here, "Copy for AI", "view3d.copy-for-ai");
+        g_menu_append(here, "Add a drop of plastic here", "view3d.add-drop");
         GMenuItem *cut = g_menu_item_new("Preview to this layer", "preview.cut-to-layer");
         g_menu_item_set_attribute(cut, "accel", "s", "c");
         g_menu_prepend_item(here, cut);
@@ -1330,6 +1351,7 @@ GtkWidget *zg_view3d_new(ZgModel *model) {
         {.name = "clear-marks", .activate = on_clear_marks},
         {.name = "put-down", .activate = on_put_down},
         {.name = "copy-for-ai", .activate = on_copy_for_ai},
+        {.name = "add-drop", .activate = on_add_drop},
         {.name = "new-profile", .activate = on_new_profile, .parameter_type = "i"},
         {.name = "place", .activate = on_place, .parameter_type = "i"},
         {.name = "reset-view", .activate = on_reset_view},

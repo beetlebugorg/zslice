@@ -90,6 +90,8 @@ gint64 zg_model_part_to_new_plate(ZgModel *self, size_t i);
 /* An edit of line `path` (zs_app_edit_add): kind 0 does not print it, 1
  * prints it with `value` times its plastic. Then a slice. */
 gboolean zg_model_edit_line(ZgModel *self, gint64 path, int kind, double value);
+/* The edits changed in the core (a drop): a history step and a slice. */
+void zg_model_edits_changed(ZgModel *self);
 /* Copies of part i until there are n in all, over new plates when the bed
  * is full (zs_set_fill): the copies in all, or -status. */
 gint64 zg_model_part_fill(ZgModel *self, size_t i, size_t n, size_t *plates);

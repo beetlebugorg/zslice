@@ -284,7 +284,12 @@ int zs_app_debug_gcode(zs_app *app, size_t lo, size_t hi, uint8_t **out, size_t 
  * match of the layer, the feature, and the points to 10 um). Slice again
  * after an add or a remove. Each is one history step. */
 int zs_app_edit_add(zs_app *app, size_t path, int kind, double value);
+/* A drop of plastic of diameter d mm at (x, y) mm on layer `layer`, to fill
+ * a small gap: a short closed loop at the end of the layer (edit kind 2). */
+int zs_app_edit_add_dot(zs_app *app, size_t layer, double x, double y, double d);
 size_t zs_app_edit_count(const zs_app *app);
+/* The layer of path `path` of the last slice, or -1. */
+ptrdiff_t zs_app_path_layer(const zs_app *app, size_t path);
 /* applied: 1 if the last slice found the line of the edit, 0 if the line
  * is not there now (the edit waits). Any output can be NULL. */
 int zs_app_edit_get(const zs_app *app, size_t i, int *kind, double *value, size_t *layer, int *applied);

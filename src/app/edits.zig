@@ -29,6 +29,9 @@ pub const Kind = enum(u8) {
     delete = 0,
     /// The line prints with `value` times its plastic (its width).
     flow = 1,
+    /// A drop of plastic at (x, y) on the layer at z: a short closed
+    /// loop of diameter `value` mm, to fill a small gap.
+    dot = 2,
 };
 
 pub const Edit = struct {
@@ -37,6 +40,10 @@ pub const Edit = struct {
     value: f32 = 1,
     /// The layer of the line when the edit was made, for a list.
     layer: u32 = 0,
+    /// A drop: its place (mm, on the bed) and the z of its layer (mm).
+    x: f32 = 0,
+    y: f32 = 0,
+    z: f32 = 0,
     /// The last slice found the line (set by `apply`).
     applied: std.atomic.Value(bool) = .init(false),
 };
@@ -60,6 +67,15 @@ pub const Edits = struct {
 
     pub fn deinit(e: *Edits, gpa: Allocator) void {
         e.list.deinit(gpa);
+    }
+
+    /// The key of a drop: its layer and its place, so a second drop at the
+    /// same place replaces the first.
+    pub fn dotKey(z: f32, x: f32, y: f32) u64 {
+        var h = std.hash.Wyhash.init(1);
+        const q = [3]i64{ @intFromFloat(@round(z * 100)), @intFromFloat(@round(x * 100)), @intFromFloat(@round(y * 100)) };
+        h.update(std.mem.asBytes(&q));
+        return h.final();
     }
 
     /// Adds an edit, or changes the edit of the same line.
@@ -91,9 +107,26 @@ pub const Edits = struct {
     pub fn apply(e: *const Edits, plan: *LayerPlan) Allocator.Error!void {
         if (e.list.items.len == 0) return;
         const a = plan.arena.allocator();
+        // The drops of this layer: a small closed loop each, at the end of
+        // the layer.
+        for (e.list.items) |*d| {
+            if (d.kind != .dot or @abs(@as(f64, d.z) - plan.z) > 0.005) continue;
+            const r = geom.fromMm(@max(0.05, (d.value - @as(f32, @floatCast(plan.width))) / 2));
+            const cx = geom.fromMm(d.x);
+            const cy = geom.fromMm(d.y);
+            var loop: [8]geom.Point = undefined;
+            for (&loop, 0..) |*q, k| {
+                const t = 2 * std.math.pi * @as(f64, @floatFromInt(k)) / 8;
+                q.* = .{ .x = cx + @as(i64, @intFromFloat(@as(f64, @floatFromInt(r)) * @cos(t))), .y = cy + @as(i64, @intFromFloat(@as(f64, @floatFromInt(r)) * @sin(t))) };
+            }
+            try plan.paths.append(a, .{ .feature = .skin, .closed = true });
+            try plan.points.append(a, &loop);
+            d.applied.store(true, .release);
+        }
         var deleted = false;
         for (plan.paths.items, 0..) |*p, i| {
             const edit = e.find(pathKey(plan, i)) orelse continue;
+            if (edit.kind == .dot) continue;
             edit.applied.store(true, .release);
             switch (edit.kind) {
                 .delete => deleted = true,
@@ -101,6 +134,7 @@ pub const Edits = struct {
                     const w: f32 = if (p.width > 0) p.width else @floatCast(plan.width);
                     p.width = w * std.math.clamp(edit.value, 0.1, 3);
                 },
+                .dot => {},
             }
         }
         if (!deleted) return;
@@ -147,3 +181,23 @@ test "edits: delete a line, and change the flow of another" {
     try testing.expect(e.list.items[0].applied.load(.acquire));
     try testing.expect(!e.list.items[2].applied.load(.acquire));
 }
+
+test "edits: a drop of plastic on its layer" {
+    const gpa = testing.allocator;
+    var plan: LayerPlan = .{ .arena = .init(gpa), .index = 3, .z = 0.8, .height = 0.2, .width = 0.4 };
+    defer plan.deinit();
+    var e: Edits = .{};
+    defer e.deinit(gpa);
+    try e.put(gpa, .{ .key = Edits.dotKey(0.8, 10, 12), .kind = .dot, .value = 1.2, .x = 10, .y = 12, .z = 0.8 });
+    try e.put(gpa, .{ .key = Edits.dotKey(1.0, 10, 12), .kind = .dot, .value = 1.2, .x = 10, .y = 12, .z = 1.0 });
+    try e.apply(&plan);
+    try testing.expectEqual(@as(usize, 1), plan.paths.items.len);
+    try testing.expect(plan.paths.items[0].closed);
+    try testing.expect(e.list.items[0].applied.load(.acquire));
+    try testing.expect(!e.list.items[1].applied.load(.acquire));
+    // Around (10, 12): the loop has a radius of (1.2 - 0.4) / 2 mm.
+    const p0 = plan.points.get(0)[0];
+    try testing.expectApproxEqAbs(@as(f64, 10.4), geom.toMm(p0.x), 0.01);
+    try testing.expectApproxEqAbs(@as(f64, 12), geom.toMm(p0.y), 0.01);
+}
+

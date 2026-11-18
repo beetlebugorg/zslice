@@ -611,6 +611,29 @@ export fn zs_app_edit_add(a: ?*App, path: usize, kind: c_int, value: f64) c_int 
     return ok;
 }
 
+/// A drop of plastic of diameter d (mm, at least the line width) at (x, y)
+/// mm on layer `layer` of the last slice, to fill a small gap: a short
+/// closed loop at the end of the layer. A drop at the same place replaces
+/// the one before. Slice again after it. One history step.
+export fn zs_app_edit_add_dot(a: ?*App, layer: usize, x: f64, y: f64, d: f64) c_int {
+    const app = a orelse return @intFromEnum(Status.invalid_argument);
+    const t = app.allToolpaths() orelse return @intFromEnum(Status.no_result);
+    if (layer >= t.layer_z.items.len) return @intFromEnum(Status.out_of_range);
+    const z = t.layer_z.items[layer];
+    const xf: f32 = @floatCast(x);
+    const yf: f32 = @floatCast(y);
+    app.edits.put(app.gpa, .{ .key = zs.app.edits_mod.Edits.dotKey(z, xf, yf), .kind = .dot, .value = @floatCast(@max(d, 0.2)), .layer = @intCast(layer), .x = xf, .y = yf, .z = z }) catch return @intFromEnum(Status.out_of_memory);
+    noted(app, null, true);
+    return ok;
+}
+
+/// The layer of path `path` of the last slice, or -1.
+export fn zs_app_path_layer(a: ?*const App, path: usize) isize {
+    const app = a orelse return -1;
+    const l = app.layerOfPath(path) orelse return -1;
+    return @intCast(l);
+}
+
 /// The count of the edits of the user.
 export fn zs_app_edit_count(a: ?*const App) usize {
     const app = a orelse return 0;
