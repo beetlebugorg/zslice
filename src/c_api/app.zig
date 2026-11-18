@@ -348,8 +348,10 @@ export fn zs_bambu_file(gcode: ?[*]const u8, len: usize, title: ?[*:0]const u8, 
 /// uploaded .gcode.3mf) on a Bambu Lab printer. Publish it to
 /// "device/<serial>/request" only after a fresh confirmation of the user
 /// that the plate is clear. flags: 1 bed leveling, 2 the AMS, 4 a time
-/// lapse. Free the bytes with zs_buffer_free.
-export fn zs_bambu_start_message(file: ?[*:0]const u8, title: ?[*:0]const u8, flags: c_int, out: ?*?[*]u8, out_len: ?*usize) c_int {
+/// lapse, 8 the url form "ftp://<file>" (P1 and A1) in place of
+/// "file:///sdcard/<file>" (X1). md5: the MD5 of the G-code
+/// (zs_bambu_md5), or NULL. Free the bytes with zs_buffer_free.
+export fn zs_bambu_start_message(file: ?[*:0]const u8, title: ?[*:0]const u8, md5: ?[*:0]const u8, flags: c_int, out: ?*?[*]u8, out_len: ?*usize) c_int {
     const f = file orelse return @intFromEnum(Status.invalid_argument);
     const o = out orelse return @intFromEnum(Status.invalid_argument);
     const l = out_len orelse return @intFromEnum(Status.invalid_argument);
@@ -359,9 +361,22 @@ export fn zs_bambu_start_message(file: ?[*:0]const u8, title: ?[*:0]const u8, fl
         .bed_leveling = flags & 1 != 0,
         .use_ams = flags & 2 != 0,
         .timelapse = flags & 4 != 0,
+        .ftp_url = flags & 8 != 0,
+        .md5 = if (md5) |m| std.mem.span(m) else "",
     }) catch return @intFromEnum(Status.out_of_memory);
     o.* = m.ptr;
     l.* = m.len;
+    return ok;
+}
+
+/// The MD5 of G-code, as 32 upper case hex digits and a 0, in out (33
+/// bytes): the md5 of zs_bambu_start_message.
+export fn zs_bambu_md5(gcode: ?[*]const u8, len: usize, out: ?*[33]u8) c_int {
+    const g = gcode orelse return @intFromEnum(Status.invalid_argument);
+    const o = out orelse return @intFromEnum(Status.invalid_argument);
+    const h = zs.bambu.gcodeMd5(g[0..len]);
+    @memcpy(o[0..32], &h);
+    o[32] = 0;
     return ok;
 }
 

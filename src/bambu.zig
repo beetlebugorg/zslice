@@ -33,9 +33,7 @@ pub fn gcode3mf(gpa: Allocator, gcode: []const u8, title: []const u8) (Allocator
     var arena_state = std.heap.ArenaAllocator.init(gpa);
     defer arena_state.deinit();
     const a = arena_state.allocator();
-    var digest: [16]u8 = undefined;
-    std.crypto.hash.Md5.hash(gcode, &digest, .{});
-    const md5 = try std.fmt.allocPrint(a, "{X}", .{&digest});
+    const md5 = try a.dupe(u8, &gcodeMd5(gcode));
     const types =
         \\<?xml version="1.0" encoding="UTF-8"?>
         \\<Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types"><Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/><Default Extension="model" ContentType="application/vnd.ms-package.3dmanufacturing-3dmodel+xml"/><Default Extension="gcode" ContentType="text/x.gcode"/><Default Extension="png" ContentType="image/png"/></Types>
@@ -90,7 +88,20 @@ pub const Start = struct {
     /// Use the AMS (the filament changer), slot 0.
     use_ams: bool = false,
     timelapse: bool = false,
+    /// The MD5 of plate_1.gcode (32 hex digits; `gcodeMd5`), or "". Some
+    /// firmware checks it.
+    md5: []const u8 = "",
+    /// The url form "ftp://<file>" (P1 and A1, reported), in place of
+    /// "file:///sdcard/<file>" (X1).
+    ftp_url: bool = false,
 };
+
+/// The MD5 of the G-code in upper case hex, as the .md5 entry of the file.
+pub fn gcodeMd5(gcode: []const u8) [32]u8 {
+    var digest: [16]u8 = undefined;
+    std.crypto.hash.Md5.hash(gcode, &digest, .{});
+    return std.fmt.bytesToHex(digest, .upper);
+}
 
 /// The MQTT message that starts the print of a file on the printer. Send
 /// it only after a fresh confirmation of the user that the plate is clear.
@@ -117,11 +128,12 @@ pub fn startMessage(gpa: Allocator, s: Start) Allocator.Error![]u8 {
             ams_mapping: []const i32 = &.{0},
         },
     };
-    const url = try std.fmt.allocPrint(gpa, "file:///sdcard/{s}", .{s.file});
+    const url = if (s.ftp_url) try std.fmt.allocPrint(gpa, "ftp://{s}", .{s.file}) else try std.fmt.allocPrint(gpa, "file:///sdcard/{s}", .{s.file});
     defer gpa.free(url);
     return std.json.Stringify.valueAlloc(gpa, Msg{ .print = .{
         .subtask_name = s.title,
         .url = url,
+        .md5 = s.md5,
         .timelapse = s.timelapse,
         .bed_levelling = s.bed_leveling,
         .use_ams = s.use_ams,
@@ -171,4 +183,9 @@ test "bambu: the start message" {
     try testing.expect(std.mem.indexOf(u8, m, "\"command\":\"project_file\"") != null);
     try testing.expect(std.mem.indexOf(u8, m, "\"url\":\"file:///sdcard/benchy.gcode.3mf\"") != null);
     try testing.expect(std.mem.indexOf(u8, m, "\"param\":\"Metadata/plate_1.gcode\"") != null);
+    const md5 = gcodeMd5("G28\n");
+    const m2 = try startMessage(gpa, .{ .file = "a.gcode.3mf", .title = "A", .md5 = &md5, .ftp_url = true });
+    defer gpa.free(m2);
+    try testing.expect(std.mem.indexOf(u8, m2, "\"url\":\"ftp://a.gcode.3mf\"") != null);
+    try testing.expect(std.mem.indexOf(u8, m2, &md5) != null);
 }

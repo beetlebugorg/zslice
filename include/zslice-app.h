@@ -191,8 +191,12 @@ int zs_printer_status_roll(const zs_printer_status *s, size_t i, zs_printer_roll
  * password). Start a print only after a fresh confirmation of the user
  * that the plate is clear. */
 int zs_bambu_file(const uint8_t *gcode, size_t len, const char *title, uint8_t **out, size_t *out_len);
-/* flags: 1 bed leveling, 2 the AMS, 4 a time lapse. */
-int zs_bambu_start_message(const char *file, const char *title, int flags, uint8_t **out, size_t *out_len);
+/* flags: 1 bed leveling, 2 the AMS, 4 a time lapse, 8 the url form
+ * "ftp://<file>" (P1 and A1, reported) in place of "file:///sdcard/<file>"
+ * (X1). md5: zs_bambu_md5 of the G-code, or NULL. */
+int zs_bambu_start_message(const char *file, const char *title, const char *md5, int flags, uint8_t **out, size_t *out_len);
+/* The MD5 of the G-code: 32 upper case hex digits and a 0 in out. */
+int zs_bambu_md5(const uint8_t *gcode, size_t len, char out[33]);
 const char *zs_bambu_push_all_message(void);
 /* Applies the status of a printer to the settings. what: 1 the machine (the
  * bed, the height, the nozzle, and the motion limits, each only when the
