@@ -60,7 +60,16 @@ struct DocumentWindow: View {
                 .padding(.trailing, 48)
                 .padding(.bottom, 16)
             }
+            // The search last, over the other controls.
+            .overlay(alignment: .topLeading) {
+                if workspace.searchOpen {
+                    SearchOverlay(workspace: workspace)
+                        .padding(.leading, 64)
+                        .padding(.top, 12)
+                }
+            }
         .frame(minWidth: 720, minHeight: 480)
+        .sheet(isPresented: Bindable(workspace).shortcutsOpen) { ShortcutSheet() }
         .inspector(isPresented: Bindable(workspace).showSettings) {
             InspectorPanel(workspace: workspace)
                 .inspectorColumnWidth(min: 320, ideal: 400, max: 560)

@@ -76,6 +76,8 @@ final class Workspace {
     init() {
         canvas.delegate = self
         if ProcessInfo.processInfo.environment["ZSLICE_PANEL"] != nil { showSettings = true }
+        // ZSLICE_SEARCH=text opens the search with that text (the field reads it).
+        if ProcessInfo.processInfo.environment["ZSLICE_SEARCH"] != nil { searchOpen = true }
         // For screenshots: ZSLICE_DARK=1 or 0 sets the look of the app.
         if let d = ProcessInfo.processInfo.environment["ZSLICE_DARK"] {
             NSApp.appearance = NSAppearance(named: d == "1" ? .darkAqua : .aqua)
@@ -359,9 +361,29 @@ final class Workspace {
     @ObservationIgnored private var focusMask: UInt32 = 0
     @ObservationIgnored private var focusFirst = false
 
-    func focus(_ mask: UInt32, firstLayer: Bool) {
+    /// The search: open, and the setting whose eye is on (its lines show,
+    /// the others fade, while the search is open).
+    /// The sheet of the keyboard shortcuts shows.
+    var shortcutsOpen = false
+
+    var searchOpen = false {
+        didSet { if !searchOpen { searchEye = nil } }
+    }
+    var searchEye: String? {
+        didSet {
+            if let n = searchEye {
+                let e = SettingEffect(n)
+                focus(e.features != 0 ? e.features : Feature.all, firstLayer: e.firstLayerOnly, always: true)
+            } else {
+                focus(0, firstLayer: false, always: true)
+            }
+        }
+    }
+
+    /// always: also with the drawer hidden (the eye of the search).
+    func focus(_ mask: UInt32, firstLayer: Bool, always: Bool = false) {
         // A hidden drawer shows the whole print.
-        let m = showSettings ? mask : 0
+        let m = showSettings || always ? mask : 0
         focusMask = m
         focusFirst = firstLayer
         applyFocus()
@@ -463,6 +485,8 @@ extension Workspace: SliceViewDelegate {
             case "l": scrubStep(0.02)
             case "C" where shift: setRange(lo: 0, hi: layerCount - 1)
             case "n" where !shift: showSettings.toggle()
+            case "/": searchOpen.toggle()
+            case "?": shortcutsOpen = true
             default: return false
             }
         }

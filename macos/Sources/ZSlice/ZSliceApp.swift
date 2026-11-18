@@ -42,6 +42,9 @@ struct ZSliceApp: App {
         .commands {
             ViewCommands()
             UndoCommands()
+            CommandGroup(after: .help) {
+                HelpCommands()
+            }
         }
     }
 }
@@ -74,6 +77,17 @@ struct UndoCommands: Commands {
     }
 }
 
+/// Help > Keyboard Shortcuts.
+struct HelpCommands: View {
+    @FocusedValue(\.workspace) private var workspace
+
+    var body: some View {
+        Button("Keyboard Shortcuts") { workspace?.shortcutsOpen = true }
+            .keyboardShortcut("/", modifiers: .command)
+            .disabled(workspace == nil)
+    }
+}
+
 /// The View menu: the page of the view.
 struct ViewCommands: Commands {
     @FocusedValue(\.workspace) private var workspace
@@ -90,6 +104,9 @@ struct ViewCommands: Commands {
                 .keyboardShortcut("0", modifiers: .command)
                 .disabled(workspace == nil)
             Divider()
+            Button("Search Settings and Actions…") { workspace?.searchOpen = true }
+                .keyboardShortcut("f", modifiers: .command)
+                .disabled(workspace == nil)
             Button(workspace?.showSettings == true ? "Hide Settings" : "Show Settings") { workspace?.showSettings.toggle() }
                 .keyboardShortcut("i", modifiers: [.command, .option])
                 .disabled(workspace == nil)
