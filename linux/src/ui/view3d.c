@@ -632,6 +632,9 @@ static void ring_release(View3d *v) {
     if (v->turn_axis < 0) return;
     v->turn_axis = -1;
     if (v->view) zs_view_ring_release(v->view);
+    /* Physics: a part that cannot stand as turned falls over. */
+    gint64 part = zg_model_selected_part(v->model);
+    if (part >= 0) zg_model_part_settle(v->model, (size_t)part);
     zg_model_hold(v->model, FALSE);
     queue_frame(v);
     gtk_widget_queue_draw(v->area);

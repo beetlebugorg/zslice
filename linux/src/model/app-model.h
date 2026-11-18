@@ -350,4 +350,8 @@ const char *zg_status_text(int status);
  * hold goes back to FALSE. The changes of the hold are one history step. */
 void zg_model_hold(ZgModel *self, gboolean hold);
 
+/* Physics after a turn: part i falls over if it cannot stand (unless
+ * support holds it). Returns the angle of the fall, 0 if it stands. */
+double zg_model_part_settle(ZgModel *self, size_t i);
+
 G_END_DECLS

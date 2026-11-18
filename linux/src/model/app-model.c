@@ -1544,6 +1544,14 @@ void zg_model_part_move(ZgModel *self, size_t i, double x, double y) {
     if (zs_app_part_move(self->core, i, x, y) == ZS_OK) plate_changed(self);
 }
 
+/* Physics after a turn: the part falls over if it cannot stand (unless
+ * support holds it). Returns the angle of the fall, 0 if it stands. */
+double zg_model_part_settle(ZgModel *self, size_t i) {
+    double deg = zs_app_part_settle(self->core, i);
+    if (deg > 0) plate_changed(self);
+    return deg > 0 ? deg : 0;
+}
+
 void zg_model_part_scale(ZgModel *self, size_t i, double s) {
     if (zs_app_part_scale(self->core, i, s, s, s) == ZS_OK) plate_changed(self);
 }
