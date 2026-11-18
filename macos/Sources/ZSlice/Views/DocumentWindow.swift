@@ -23,7 +23,7 @@ struct DocumentWindow: View {
     /// NSDocument of the window to the model.
     /// Puts a session of the last run into this window, and gives the
     /// document its file and its unsaved changes.
-    private func restore(_ session: Data, into doc: NSDocument, window w: NSWindow) {
+    private func restore(_ session: SessionStore.Pending, into doc: NSDocument, window w: NSWindow) {
         let state = workspace.restoreSession(session)
         workspace.model.history.commit()
         if let path = state?.file, FileManager.default.fileExists(atPath: path) {
@@ -674,8 +674,19 @@ enum EmptyWindows {
     }
 
     private static var list: [Entry] = []
+    /// A file opened in the first seconds of the app with no empty window
+    /// to replace: the empty window of the start comes just after it.
+    private static var fileAtLaunch: NSWindow?
 
     static func note(_ doc: NSDocument, _ ws: Workspace) {
+        // A launch with a file opens the empty window and the window of the
+        // file at once; the empty one goes, and the file takes its place.
+        if let w = fileAtLaunch, CACurrentMediaTime() - SessionStore.launch < 5 {
+            fileAtLaunch = nil
+            if let frame = doc.windowControllers.first?.window?.frame { w.setFrame(frame, display: true) }
+            doc.close()
+            return
+        }
         list.append(Entry(document: doc, workspace: ws))
     }
 
@@ -689,7 +700,10 @@ enum EmptyWindows {
         }
         // The window that the user looks at first.
         let front = empty.first { list[$0].document?.windowControllers.first?.window?.isMainWindow == true }
-        guard let i = front ?? empty.last, let old = list[i].document else { return }
+        guard let i = front ?? empty.last, let old = list[i].document else {
+            if CACurrentMediaTime() - SessionStore.launch < 5 { fileAtLaunch = window }
+            return
+        }
         list.remove(at: i)
         if let frame = old.windowControllers.first?.window?.frame { window.setFrame(frame, display: true) }
         old.close()

@@ -9,11 +9,14 @@
 //! written to a temporary file first, then renamed, so a crash never
 //! leaves half a file.
 //!
-//! When: 1.5 s after the last change of a window (a change of the plates,
-//! a new slice, a move of the camera, a change of the page, the layers,
-//! the tool), and not while a slice runs. The core writes all meshes, so
-//! the write waits for the window to be idle. At a quit, the app writes
-//! once more before the windows close.
+//! Two files for each window: the session file of the core (the plates
+//! and their scenes) and a small view file (the camera and the state of
+//! the window, as JSON). The view file comes 1 s after a move of the
+//! camera, the page, or the layers, on the main thread: it is small. The
+//! session file comes only after a change of the plates or a new slice,
+//! 1.5 s after the last one and not while a slice runs, on a background
+//! queue (the core reads the set under its lock). At a quit, the app
+//! writes both once more before the windows close.
 //!
 //! At launch, the first window takes the first session, and the app opens
 //! a window for each other one. The view shows the last scene of the
@@ -40,6 +43,8 @@ struct WindowState: Codable {
     var file: String?
     var edited: Bool?
     var name: String?
+    /// The camera (8 floats of zs_view_get_camera), in the view file.
+    var camera: [Float]?
 }
 
 @MainActor
@@ -54,11 +59,24 @@ final class SessionStore {
         let id: String
     }
 
+    /// A session of the last run: the plates, and the newer view state.
+    struct Pending {
+        var plates: Data
+        var view: WindowState?
+    }
+
     private var windows: [Entry] = []
     /// The sessions of the last run that no window has taken yet.
-    private(set) var pending: [Data] = []
-    private var timer: DispatchWorkItem?
+    private(set) var pending: [Pending] = []
+    private var platesTimer: DispatchWorkItem?
+    private var viewTimer: DispatchWorkItem?
+    /// The plates changed since the last write of the session files.
+    private var platesDirty = false
+    /// A write of the session files runs on `queue`.
+    private var writing = false
+    private let queue = DispatchQueue(label: "zslice.session", qos: .utility)
     private var terminating = false
+    private let timing = ProcessInfo.processInfo.environment["ZSLICE_TIMING"] != nil
     private let off = ProcessInfo.processInfo.environment["ZSLICE_FRESH"] != nil
         && ProcessInfo.processInfo.environment["ZSLICE_SESSION"] == nil
 
@@ -72,7 +90,11 @@ final class SessionStore {
         // The sessions of the last run, in the order of their windows.
         let index = folder.appendingPathComponent("index.json")
         guard let d = try? Data(contentsOf: index), let ids = try? JSONDecoder().decode([String].self, from: d) else { return }
-        pending = ids.compactMap { try? Data(contentsOf: folder.appendingPathComponent("\($0).zss")) }
+        pending = ids.compactMap { id in
+            guard let plates = try? Data(contentsOf: folder.appendingPathComponent("\(id).zss")) else { return nil }
+            let view = (try? Data(contentsOf: folder.appendingPathComponent("\(id).json"))).flatMap { try? JSONDecoder().decode(WindowState.self, from: $0) }
+            return Pending(plates: plates, view: view)
+        }
     }
 
     // MARK: - the windows
@@ -87,38 +109,138 @@ final class SessionStore {
     func closed(_ ws: Workspace) {
         guard !terminating else { return }
         windows.removeAll { $0.workspace == nil || $0.workspace === ws }
-        changed()
+        changedView()
     }
 
     /// The next session of the last run, for a new window.
-    func takePending() -> Data? {
+    func takePending() -> Pending? {
         pending.isEmpty ? nil : pending.removeFirst()
     }
 
     // MARK: - the writes
 
-    /// A change: a write when the windows are idle.
+    /// The plates changed (an edit, a new slice): the session files, 1.5 s
+    /// after the last change, on a background queue.
     func changed() {
         guard !off, !terminating else { return }
-        timer?.cancel()
-        let item = DispatchWorkItem { [weak self] in self?.writeIfIdle() }
-        timer = item
+        platesDirty = true
+        platesTimer?.cancel()
+        let item = DispatchWorkItem { [weak self] in self?.writePlatesWhenIdle() }
+        platesTimer = item
         DispatchQueue.main.asyncAfter(deadline: .now() + 1.5, execute: item)
+        changedView()
     }
 
-    private func writeIfIdle() {
-        if windows.contains(where: { $0.workspace?.model.state == .slicing }) {
+    /// The camera, the page, or the layers moved: the small view files, 1 s
+    /// after the last change. The session files stay.
+    func changedView() {
+        guard !off, !terminating else { return }
+        viewTimer?.cancel()
+        let item = DispatchWorkItem { [weak self] in self?.writeViews() }
+        viewTimer = item
+        DispatchQueue.main.asyncAfter(deadline: .now() + 1, execute: item)
+    }
+
+    private func writePlatesWhenIdle() {
+        guard platesDirty, pending.isEmpty else { return }
+        if writing || windows.contains(where: { $0.workspace?.model.state == .slicing }) {
             changed()
             return
         }
-        write()
+        platesDirty = false
+        writing = true
+        // The state of each window comes from the main thread; the core
+        // writes the files on the queue (it reads each set under its lock).
+        let jobs = windows.compactMap { e -> (String, SliceModel, String, [Float]?)? in
+            guard let ws = e.workspace else { return nil }
+            let (text, cam) = ws.sessionState()
+            return (e.id, ws.model, text, cam)
+        }
+        let folder = folder
+        let timing = timing
+        queue.async {
+            let t = CACurrentMediaTime()
+            try? FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
+            var ok = true
+            for (id, model, text, cam) in jobs {
+                guard let bytes = Self.sessionFile(model.set, text, cam),
+                      Self.atomicWrite(bytes, to: folder.appendingPathComponent("\(id).zss")) else {
+                    ok = false
+                    continue
+                }
+            }
+            if timing { NSLog("zslice session: wrote %d session files in %.0f ms (background)%@", jobs.count, (CACurrentMediaTime() - t) * 1000, ok ? "" : ", with an error") }
+            DispatchQueue.main.async {
+                MainActor.assumeIsolated {
+                    self.writing = false
+                    // A failed write comes again with the next change.
+                    if !ok { self.platesDirty = true }
+                    self.writeViews()
+                }
+            }
+        }
+    }
+
+    /// The view file of each window, and the index (main thread: small).
+    @discardableResult
+    private func writeViews() -> Bool {
+        guard !off, pending.isEmpty else { return false }
+        windows.removeAll { $0.workspace == nil }
+        let fm = FileManager.default
+        try? fm.createDirectory(at: folder, withIntermediateDirectories: true)
+        var all = true
+        var ids: [String] = []
+        for e in windows {
+            guard let ws = e.workspace else { continue }
+            var state = ws.windowState()
+            state.camera = ws.camera()
+            guard let d = try? JSONEncoder().encode(state), Self.atomicWrite(d, to: folder.appendingPathComponent("\(e.id).json")) else {
+                all = false
+                continue
+            }
+            // A window whose session file is not written yet waits for it.
+            if fm.fileExists(atPath: folder.appendingPathComponent("\(e.id).zss").path) { ids.append(e.id) }
+        }
+        if let d = try? JSONEncoder().encode(ids), Self.atomicWrite(d, to: folder.appendingPathComponent("index.json")) {} else { all = false }
+        // The files of windows that are gone.
+        let live = Set(windows.map(\.id))
+        for f in (try? fm.contentsOfDirectory(atPath: folder.path)) ?? [] where f.hasSuffix(".zss") || f.hasSuffix(".json") {
+            let id = (f as NSString).deletingPathExtension
+            if id != "index", !live.contains(id) { try? fm.removeItem(at: folder.appendingPathComponent(f)) }
+        }
+        return all
+    }
+
+    /// At a quit, on the main thread: the session files if the plates
+    /// changed, then the view files. Returns false if a write failed.
+    private func writeAllNow() -> Bool {
+        guard !off, pending.isEmpty else { return false }
+        platesTimer?.cancel()
+        viewTimer?.cancel()
+        queue.sync {}
+        var all = true
+        if platesDirty || windows.contains(where: { e in !FileManager.default.fileExists(atPath: folder.appendingPathComponent("\(e.id).zss").path) }) {
+            platesDirty = false
+            try? FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
+            let t = CACurrentMediaTime()
+            for e in windows {
+                guard let ws = e.workspace else { continue }
+                let (text, cam) = ws.sessionState()
+                guard let bytes = Self.sessionFile(ws.model.set, text, cam),
+                      Self.atomicWrite(bytes, to: folder.appendingPathComponent("\(e.id).zss")) else {
+                    all = false
+                    continue
+                }
+            }
+            if timing { NSLog("zslice session: wrote the session files at the quit in %.0f ms", (CACurrentMediaTime() - t) * 1000) }
+        }
+        return writeViews() && all
     }
 
     /// At a quit: one last write, and no window leaves the session.
     func terminate() {
         guard !off, !terminating else { return }
-        timer?.cancel()
-        write()
+        _ = writeAllNow()
         terminating = true
     }
 
@@ -127,49 +249,33 @@ final class SessionStore {
     /// "Save changes?" alert. If the write fails, the alerts come as usual.
     func quit() {
         if !off, !terminating {
-            timer?.cancel()
-            let ok = write()
+            let ok = writeAllNow()
             terminating = true
             if ok { for d in NSDocumentController.shared.documents { d.updateChangeCount(.changeCleared) } }
         }
         NSApp.terminate(nil)
     }
 
-    @discardableResult
-    private func write() -> Bool {
-        // A session of the last run that no window took stays (a launch
-        // with a file opens no empty window).
-        guard pending.isEmpty else { return false }
-        var all = true
-        windows.removeAll { $0.workspace == nil }
-        let t = CACurrentMediaTime()
-        let fm = FileManager.default
-        try? fm.createDirectory(at: folder, withIntermediateDirectories: true)
-        var ids: [String] = []
-        for e in windows {
-            guard let ws = e.workspace else { continue }
-            guard let bytes = ws.sessionBytes(), atomicWrite(bytes, to: folder.appendingPathComponent("\(e.id).zss")) else {
-                all = false
-                continue
-            }
-            ids.append(e.id)
-        }
-        if let d = try? JSONEncoder().encode(ids), atomicWrite(d, to: folder.appendingPathComponent("index.json")) {} else { all = false }
-        // The files of windows that are gone.
-        for f in (try? fm.contentsOfDirectory(atPath: folder.path)) ?? [] where f.hasSuffix(".zss") {
-            if !ids.contains(String(f.dropLast(4))) { try? fm.removeItem(at: folder.appendingPathComponent(f)) }
-        }
-        if ProcessInfo.processInfo.environment["ZSLICE_TIMING"] != nil {
-            NSLog("zslice session: wrote %d windows in %.0f ms", ids.count, (CACurrentMediaTime() - t) * 1000)
-        }
-        return all
+    /// The session file of a set (any thread).
+    nonisolated private static func sessionFile(_ set: OpaquePointer, _ text: String, _ cam: [Float]?) -> Data? {
+        var out: UnsafeMutablePointer<UInt8>?
+        var len = 0
+        let rc = cam.map { zs_session_write(set, $0, text, &out, &len) } ?? zs_session_write(set, nil, text, &out, &len)
+        guard rc == 0, let out else { return nil }
+        defer { zs_buffer_free(out, len) }
+        return Data(bytes: out, count: len)
     }
 
-    private func atomicWrite(_ d: Data, to url: URL) -> Bool {
+    nonisolated private static func atomicWrite(_ d: Data, to url: URL) -> Bool {
         let tmp = url.appendingPathExtension("tmp")
+        let fm = FileManager.default
         do {
             try d.write(to: tmp)
-            _ = try FileManager.default.replaceItemAt(url, withItemAt: tmp)
+            if fm.fileExists(atPath: url.path) {
+                _ = try fm.replaceItemAt(url, withItemAt: tmp)
+            } else {
+                try fm.moveItem(at: tmp, to: url)
+            }
             return true
         } catch {
             try? FileManager.default.removeItem(at: tmp)
@@ -179,8 +285,8 @@ final class SessionStore {
 }
 
 extension Workspace {
-    /// The session of this window: its plates, scenes, camera, and state.
-    func sessionBytes() -> Data? {
+    /// The state of this window, besides its plates and its camera.
+    func windowState() -> WindowState {
         var state = WindowState()
         if let f = canvas.window?.frame { state.frame = [f.minX, f.minY, f.width, f.height] }
         state.page = page.rawValue
@@ -197,23 +303,28 @@ extension Workspace {
             state.edited = doc.isDocumentEdited
             state.name = doc.displayName
         }
-        let text = (try? JSONEncoder().encode(state)).flatMap { String(data: $0, encoding: .utf8) } ?? "{}"
+        return state
+    }
+
+    /// The camera of the view (8 floats of zs_view_get_camera), or nil.
+    func camera() -> [Float]? {
+        guard let v = canvas.view else { return nil }
         var cam = [Float](repeating: 0, count: 8)
-        if let v = canvas.view { zs_view_get_camera(v, &cam) }
-        var out: UnsafeMutablePointer<UInt8>?
-        var len = 0
-        let rc = canvas.view == nil
-            ? zs_session_write(model.set, nil, text, &out, &len)
-            : zs_session_write(model.set, cam, text, &out, &len)
-        guard rc == 0, let out else { return nil }
-        defer { zs_buffer_free(out, len) }
-        return Data(bytes: out, count: len)
+        zs_view_get_camera(v, &cam)
+        return cam
+    }
+
+    /// The app text and the camera for the session file.
+    func sessionState() -> (String, [Float]?) {
+        let text = (try? JSONEncoder().encode(windowState())).flatMap { String(data: $0, encoding: .utf8) } ?? "{}"
+        return (text, camera())
     }
 
     /// Puts a session back into this window. Returns the state of the
     /// window for its document (its file, its unsaved changes).
     @discardableResult
-    func restoreSession(_ bytes: Data) -> WindowState? {
+    func restoreSession(_ session: SessionStore.Pending) -> WindowState? {
+        let bytes = session.plates
         var cam = [Float](repeating: 0, count: 8)
         var hasCamera: Int32 = 0
         var text: UnsafeMutablePointer<UInt8>?
@@ -238,6 +349,14 @@ extension Workspace {
         if let text {
             if let s = try? JSONDecoder().decode(WindowState.self, from: Data(bytes: text, count: textLen)) { state = s }
             zs_buffer_free(text, textLen)
+        }
+        // The view file is newer than the session file: its state wins.
+        if let v = session.view {
+            state = v
+            if let c = v.camera, c.count == 8 {
+                cam = c
+                hasCamera = 1
+            }
         }
         model.readPlatesAfterLoad()
         // The window as it was.

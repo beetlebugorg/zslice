@@ -129,7 +129,7 @@ final class Workspace {
         didSet {
             canvas.page = page
             UserDefaults.standard.set(page.rawValue, forKey: "view")
-            SessionStore.shared.changed()
+            SessionStore.shared.changedView()
         }
     }
 
@@ -1339,8 +1339,8 @@ extension Workspace: SliceViewDelegate {
     func sliceViewMenu(_ p: CGPoint) -> NSMenu? { contextMenu(at: p) }
     func sliceViewDidDraw() {
         if !tape.isEmpty { placeTape() }
-        // The camera, the layers, or the page moved: the session follows.
-        SessionStore.shared.changed()
+        // The camera, the layers, or the page moved: the view file follows.
+        SessionStore.shared.changedView()
     }
     func sliceViewDoubleClick(_ p: CGPoint) -> Bool { lookAtSide(p) }
 
