@@ -269,6 +269,19 @@ export fn zs_printer_status_get(s: ?*const PStatus, out: ?*PrinterInfo) c_int {
 }
 
 /// Roll i of the printer (i < roll_count).
+/// Why the print failed or stopped ("" for none), valid until the next
+/// feed.
+export fn zs_printer_status_message(s: ?*const PStatus) [*:0]const u8 {
+    const x = s orelse return "";
+    return x.message.ptr;
+}
+
+/// The state for the farm (enum zs_farm_printer_state) from the state text.
+export fn zs_printer_status_farm_state(s: ?*const PStatus) c_int {
+    const x = s orelse return 0;
+    return zs.app.printer_status.farmState(x.state);
+}
+
 export fn zs_printer_status_roll(s: ?*const PStatus, i: usize, out: ?*PrinterRoll) c_int {
     const st = s orelse return @intFromEnum(Status.invalid_argument);
     const o = out orelse return @intFromEnum(Status.invalid_argument);

@@ -183,6 +183,13 @@ int zs_printer_status_feed(zs_printer_status *s, int kind, const char *path, con
 /* The status so far; the strings stay valid until the next feed or free. */
 int zs_printer_status_get(const zs_printer_status *s, zs_printer_info *out);
 int zs_printer_status_roll(const zs_printer_status *s, size_t i, zs_printer_roll *out);
+/* Why the print failed or stopped ("" for none): the error of OctoPrint and
+ * printdeck, the message of Moonraker, the error code of a Bambu Lab
+ * printer. Valid until the next feed. */
+const char *zs_printer_status_message(const zs_printer_status *s);
+/* The state of the printer for the farm (enum zs_farm_printer_state, 0 to
+ * 5), from its state text, the same for each kind of printer. */
+int zs_printer_status_farm_state(const zs_printer_status *s);
 /* Bambu Lab printers (kind 4 of zs_printer_status): no paths; give each
  * MQTT report (topic device/<serial>/report) to zs_printer_status_feed
  * with the path "report". The shell does the network: an upload of

@@ -75,6 +75,10 @@ pub const Status = struct {
     time_left: f64 = -1,
     layer: i32 = 0,
     layers: i32 = 0,
+    /// Why the print failed or stopped, as the printer says it ("" for
+    /// none): the error of OctoPrint and printdeck, the message of
+    /// Moonraker, the error code of a Bambu Lab printer.
+    message: [:0]const u8 = "",
 
     pub fn init(gpa: Allocator) Status {
         return .{ .arena = .init(gpa) };
@@ -114,6 +118,7 @@ pub const Status = struct {
             }
         } else if (std.mem.eql(u8, path, "/api/job")) {
             s.job = (try str(a, root, "job.file.display")) orelse (try str(a, root, "job.file.name")) orelse "";
+            s.message = (try str(a, root, "error")) orelse (try str(a, root, "job.error")) orelse "";
             s.progress = num(root, "progress.completion") / 100;
             const left = get(root, "progress.printTimeLeft");
             s.time_left = if (left) |l| numOf(l) orelse -1 else -1;
@@ -146,6 +151,10 @@ pub const Status = struct {
             const p = get(root, "print") orelse return;
             if (try str(a, p, "gcode_state")) |t| s.state = t;
             if (try str(a, p, "subtask_name")) |t| s.job = t;
+            if (get(p, "print_error")) |v| {
+                const code: i64 = @intFromFloat(numOf(v) orelse 0);
+                s.message = if (code != 0) try std.fmt.allocPrintSentinel(a, "Error code {X:0>8}", .{@as(u64, @bitCast(code))}, 0) else "";
+            }
             if (get(p, "mc_percent")) |v| s.progress = (numOf(v) orelse 0) / 100;
             // Minutes.
             if (get(p, "mc_remaining_time")) |v| s.time_left = (numOf(v) orelse -1) * 60;
@@ -159,6 +168,7 @@ pub const Status = struct {
             const st = get(root, "result.status") orelse return;
             if (try str(a, st, "print_stats.state")) |t| s.state = t;
             s.job = (try str(a, st, "print_stats.filename")) orelse "";
+            s.message = (try str(a, st, "print_stats.message")) orelse "";
             s.progress = num(st, "virtual_sdcard.progress");
             if (get(st, "toolhead.axis_maximum")) |m| if (m == .array and m.array.items.len >= 3) {
                 s.bed_x = numOf(m.array.items[0]) orelse 0;
@@ -170,6 +180,47 @@ pub const Status = struct {
         }
     }
 };
+
+/// The state of a printer for the farm (farm.zig, PrinterState), from the
+/// state text of each kind of printer: OctoPrint and printdeck
+/// ("Operational", "Printing", "Paused", "Error", "Offline"), Moonraker
+/// ("standby", "printing", "paused", "complete", "cancelled", "error"),
+/// and Bambu Lab ("IDLE", "PREPARE", "RUNNING", "PAUSE", "FINISH",
+/// "FAILED"). 0 offline, 1 idle, 2 printing, 3 paused, 4 finished (the
+/// print is still on the bed), 5 failed.
+pub fn farmState(state: []const u8) u8 {
+    if (state.len == 0) return 0;
+    var low: [48]u8 = undefined;
+    const t = std.ascii.lowerString(low[0..@min(state.len, low.len)], state[0..@min(state.len, low.len)]);
+    const has = struct {
+        fn f(x: []const u8, words: []const []const u8) bool {
+            for (words) |w| if (std.mem.indexOf(u8, x, w) != null) return true;
+            return false;
+        }
+    }.f;
+    // "Offline after error" (OctoPrint) is a failure.
+    if (has(t, &.{ "error", "fail", "cancel" })) return 5;
+    if (has(t, &.{ "offline", "closed", "disconnect", "unknown" })) return 0;
+    if (has(t, &.{ "pause" })) return 3;
+    if (has(t, &.{ "finish", "complete" })) return 4;
+    if (has(t, &.{ "print", "running", "prepare", "busy", "heating" })) return 2;
+    return 1;
+}
+
+test "printer status: the state for the farm, and why it failed" {
+    try std.testing.expectEqual(@as(u8, 1), farmState("Operational"));
+    try std.testing.expectEqual(@as(u8, 2), farmState("Printing from SD"));
+    try std.testing.expectEqual(@as(u8, 2), farmState("RUNNING"));
+    try std.testing.expectEqual(@as(u8, 3), farmState("PAUSE"));
+    try std.testing.expectEqual(@as(u8, 4), farmState("complete"));
+    try std.testing.expectEqual(@as(u8, 5), farmState("Offline after error"));
+    try std.testing.expectEqual(@as(u8, 0), farmState("Offline"));
+    try std.testing.expectEqual(@as(u8, 1), farmState("standby"));
+    var m: Status = .init(std.testing.allocator);
+    defer m.deinit();
+    try m.feed(.moonraker, "/printer/objects/query?print_stats", "{\"result\":{\"status\":{\"print_stats\":{\"state\":\"error\",\"filename\":\"x.gcode\",\"message\":\"Heater extruder not heating at expected rate\"}}}}");
+    try std.testing.expectEqualStrings("Heater extruder not heating at expected rate", m.message);
+}
 
 fn rollOf(a: Allocator, v: ?Value) Allocator.Error!Roll {
     const e = v orelse return .{};
