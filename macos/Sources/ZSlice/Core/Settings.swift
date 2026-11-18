@@ -69,6 +69,19 @@ struct SettingInfo: Identifiable, Hashable {
 
     static let byName = Dictionary(all.map { ($0.name, $0) }, uniquingKeysWith: { a, _ in a })
 
+    /// The settings that match a query, best first (zs_setting_search: the
+    /// words, their other names, and a boost for the common settings).
+    /// partOnly: only the settings that a part can have of its own.
+    static func search(_ query: String, partOnly: Bool = false, max: Int = 60) -> [SettingInfo] {
+        var out = [UInt32](repeating: 0, count: max)
+        let n = zs_setting_search(query, partOnly ? 1 : 0, &out, nil, max)
+        return out.prefix(min(n, max)).compactMap { i in
+            var c = zs_setting_info()
+            guard zs_setting_get_info(Int(i), &c) == 0 else { return nil }
+            return byName[coreText(c.name)]
+        }
+    }
+
     /// The groups of the settings browser, in order, with their titles.
     static let groups: [(key: String, title: String)] = [
         ("project", "Part"), ("filament", "Filament"), ("machine", "Printer"), ("engine", "Engine"),

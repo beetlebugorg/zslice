@@ -4,7 +4,10 @@
 //! The results are live controls: a number has its field and a slider, a
 //! choice its menu, a switch its switch. A change goes to the core at once
 //! (a drag sends a value at most each 90 ms), the core slices again, and
-//! the view behind the search shows the new slice. The eye of a setting
+//! the view behind the search shows the new slice. The core ranks the
+//! settings (zs_setting_search: the words, their other names in other
+//! slicers, and a boost for the common settings); the shell ranks its few
+//! actions by a plain match of their words. The eye of a setting
 //! shows only the lines that it changes, with the other lines as ghosts,
 //! while the search is open. An action runs with a click or Return.
 //!
@@ -62,14 +65,8 @@ struct SearchOverlay: View {
     private var settings: [SettingInfo] {
         let w = words
         guard !w.isEmpty else { return [] }
-        // A plain match until the core ranks the search: the settings whose
-        // label has the words first, then those whose help has them.
-        let all = SettingInfo.all.filter { info in
-            w.allSatisfy { info.label.lowercased().contains($0) || info.doc.lowercased().contains($0) || info.name.contains($0) }
-        }
-        let inLabel = all.filter { info in w.allSatisfy { info.label.lowercased().contains($0) } }
-        let rest = all.filter { info in !w.allSatisfy { info.label.lowercased().contains($0) } }
-        return Array((inLabel + rest).prefix(Self.maxSettings))
+        // The core ranks the settings (zs_setting_search).
+        return SettingInfo.search(query, max: Self.maxSettings)
     }
 
     private var matchingActions: [SearchAction] {

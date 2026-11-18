@@ -121,12 +121,8 @@ struct SettingsInspector: View {
         }
     }
 
-    private var matches: [SettingInfo] {
-        let needle = search.trimmingCharacters(in: .whitespaces).lowercased()
-        return SettingInfo.all.filter {
-            $0.label.lowercased().contains(needle) || $0.doc.lowercased().contains(needle) || $0.name.contains(needle)
-        }
-    }
+    /// The core ranks the search (zs_setting_search).
+    private var matches: [SettingInfo] { SettingInfo.search(search) }
 
     private var sections: some View {
         List {
