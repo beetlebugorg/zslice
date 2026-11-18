@@ -463,6 +463,7 @@ fn planAll(c: *Ctx, nodes: *std.ArrayList(PlanNode), need: []const Paths, near: 
 /// (see `join`).
 fn pairs(c: *Ctx, nodes: *std.ArrayList(PlanNode), units: *std.ArrayList(u32), max_d: f64, worth: f64) Allocator.Error!void {
     const a = c.a;
+    const max_rounds: usize = if (worth > 0) 8 else 16;
     // The pairs that cannot join: they do not count as nearest again.
     var no: std.AutoHashMapUnmanaged([2]u32, void) = .empty;
     const Pair = struct {
@@ -471,32 +472,62 @@ fn pairs(c: *Ctx, nodes: *std.ArrayList(PlanNode), units: *std.ArrayList(u32), m
         }
     };
     var round: usize = 0;
-    while (round < 64 and units.items.len > 1) : (round += 1) {
+    while (round < max_rounds and units.items.len > 1) : (round += 1) {
         const us = units.items;
         const m = us.len;
-        const nn = try a.alloc(f64, m);
         const ok = struct {
             fn f(ns: []const PlanNode, nop: *const std.AutoHashMapUnmanaged([2]u32, void), u: u32, v: u32) bool {
                 if (ns[u].free != ns[v].free) return false;
                 return !nop.contains(Pair.key(u, v));
             }
         }.f;
+        // No join can be further apart than the drop of the highest
+        // branch allows.
+        var ztop: f64 = 0;
+        for (us) |u| ztop = @max(ztop, c.z[nodes.items[u].layer]);
+        const reach = @min(max_d, 2 * ztop * c.params.tan_angle * c.params.plan_lean);
+        // The units in cells of a square grid, for the search of the
+        // nearest unit: rings of cells around a unit, until a ring is
+        // further than the nearest unit found.
+        const grid = try Grid.build(a, nodes.items, us, @max(2 * c.params.spacing, @min(reach, 1e6) / 3));
+        const nn = try a.alloc(f64, m);
         for (us, 0..) |u, i| {
             nn[i] = std.math.inf(f64);
-            for (us, 0..) |v, k| {
-                if (k == i or !ok(nodes.items, &no, u, v)) continue;
-                const d = planDist(nodes.items[u], nodes.items[v]);
-                if (d <= max_d) nn[i] = @min(nn[i], d);
+            const p = nodes.items[u];
+            // A join of this unit is at most as high as the unit, and the
+            // join must be `worth` times as high as its segments reach.
+            const zi = c.z[p.layer];
+            const reach_i = @min(reach, if (worth > 0) zi / worth else 2 * zi * c.params.tan_angle * c.params.plan_lean);
+            var ring: i64 = 0;
+            while (true) : (ring += 1) {
+                const near_d = @as(f64, @floatFromInt(@max(ring - 1, 0))) * grid.size;
+                if (near_d > @min(nn[i], reach_i)) break;
+                var it = grid.ring(p.x, p.y, ring);
+                while (it.next()) |k| {
+                    const v = us[k];
+                    if (k == i) continue;
+                    const d = planDist(p, nodes.items[v]);
+                    if (d > reach_i or d >= nn[i]) continue;
+                    if (ok(nodes.items, &no, u, v)) nn[i] = d;
+                }
             }
         }
         const up = try a.alloc(u32, m);
         for (up, 0..) |*x, i| x.* = @intCast(i);
         for (us, 0..) |u, i| {
             if (nn[i] == std.math.inf(f64)) continue;
-            for (us[i + 1 ..], i + 1..) |v, k| {
-                if (!ok(nodes.items, &no, u, v)) continue;
-                const d = planDist(nodes.items[u], nodes.items[v]);
-                if (d <= nn[i] * (1 + 1e-3) + 5 and d <= nn[k] * (1 + 1e-3) + 5) unite(up, @intCast(i), @intCast(k));
+            const p = nodes.items[u];
+            const lim = nn[i] * (1 + 1e-3) + 5;
+            var ring: i64 = 0;
+            while (@as(f64, @floatFromInt(@max(ring - 1, 0))) * grid.size <= lim) : (ring += 1) {
+                var it = grid.ring(p.x, p.y, ring);
+                while (it.next()) |k| {
+                    if (k <= i) continue;
+                    const v = us[k];
+                    const d = planDist(p, nodes.items[v]);
+                    if (d > lim or d > nn[k] * (1 + 1e-3) + 5) continue;
+                    if (ok(nodes.items, &no, u, v)) unite(up, @intCast(i), @intCast(k));
+                }
             }
         }
         const slot = try a.alloc(u32, m);
@@ -568,6 +599,94 @@ fn fits(c: *Ctx, nodes: *std.ArrayList(PlanNode), kids: []const u32, ml: u32, mx
     }
     return .ok;
 }
+
+/// Units (plan nodes) in the cells of a square grid: the cell key of each
+/// unit, sorted, for the search of near units in rings of cells.
+const Grid = struct {
+    size: f64,
+    keys: []u64,
+    ids: []u32,
+
+    fn key(cx: i64, cy: i64) u64 {
+        const ux: u64 = @bitCast(cx +% (1 << 31));
+        const uy: u64 = @bitCast(cy +% (1 << 31));
+        return (ux << 32) | (uy & 0xffff_ffff);
+    }
+
+    fn cellOf(g: Grid, v: f64) i64 {
+        return @intFromFloat(@floor(v / g.size));
+    }
+
+    fn build(a: Allocator, nodes: []const PlanNode, units: []const u32, size: f64) Allocator.Error!Grid {
+        var g: Grid = .{ .size = size, .keys = try a.alloc(u64, units.len), .ids = try a.alloc(u32, units.len) };
+        const pairs_ = try a.alloc([2]u64, units.len);
+        for (units, pairs_, 0..) |u, *p, i| p.* = .{ key(g.cellOf(nodes[u].x), g.cellOf(nodes[u].y)), i };
+        std.mem.sort([2]u64, pairs_, {}, struct {
+            fn lt(_: void, x: [2]u64, y: [2]u64) bool {
+                return x[0] < y[0] or (x[0] == y[0] and x[1] < y[1]);
+            }
+        }.lt);
+        for (pairs_, 0..) |p, i| {
+            g.keys[i] = p[0];
+            g.ids[i] = @intCast(p[1]);
+        }
+        return g;
+    }
+
+    /// The units (indexes into the unit list) of one cell.
+    fn cell(g: Grid, cx: i64, cy: i64) []const u32 {
+        const kk = key(cx, cy);
+        var lo: usize = 0;
+        var hi: usize = g.keys.len;
+        while (lo < hi) {
+            const mid = (lo + hi) / 2;
+            if (g.keys[mid] < kk) lo = mid + 1 else hi = mid;
+        }
+        var end = lo;
+        while (end < g.keys.len and g.keys[end] == kk) end += 1;
+        return g.ids[lo..end];
+    }
+
+    /// The units of the cells at Chebyshev distance `r` from the cell of
+    /// (x, y).
+    fn ring(g: *const Grid, x: f64, y: f64, r: i64) RingIter {
+        return .{ .g = g, .cx = g.cellOf(x), .cy = g.cellOf(y), .r = r, .dx = -r, .dy = -r };
+    }
+
+    const RingIter = struct {
+        g: *const Grid,
+        cx: i64,
+        cy: i64,
+        r: i64,
+        dx: i64,
+        dy: i64,
+        cur: []const u32 = &.{},
+        done: bool = false,
+
+        fn next(it: *RingIter) ?u32 {
+            while (true) {
+                if (it.cur.len > 0) {
+                    const v = it.cur[0];
+                    it.cur = it.cur[1..];
+                    return v;
+                }
+                if (it.done) return null;
+                // The next cell of the ring: rows -r and r in full, the
+                // other rows at their two ends.
+                const dx = it.dx;
+                const dy = it.dy;
+                if (dy == -it.r or dy == it.r or dx == it.r) {
+                    if (dx < it.r) it.dx += 1 else {
+                        it.dx = -it.r;
+                        it.dy += 1;
+                    }
+                } else it.dx = it.r;
+                if (it.dy > it.r or it.r == 0) it.done = true;
+                it.cur = it.g.cell(it.cx + dx, it.cy + dy);
+            }
+        }
+    };
+};
 
 fn planDist(p: PlanNode, q: PlanNode) f64 {
     return @sqrt((p.x - q.x) * (p.x - q.x) + (p.y - q.y) * (p.y - q.y));
