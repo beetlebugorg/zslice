@@ -548,7 +548,21 @@ def control_handler(farm):
             self.end_headers()
             self.wfile.write(body)
 
+        def local(self):
+            """Only a client on this computer: the Host header must name
+            127.0.0.1 or localhost, and a request from a web page (with an
+            Origin header) is refused. A page on another site in a browser
+            on this computer can then not use the control API, even with
+            DNS rebinding."""
+            host = (self.headers.get("Host") or "").rsplit(":", 1)[0].strip("[]")
+            if host not in ("127.0.0.1", "localhost", "::1") or self.headers.get("Origin"):
+                self.send(403, {"error": "The control API is for clients on this computer"})
+                return False
+            return True
+
         def do_GET(self):
+            if not self.local():
+                return
             with LOCK:
                 if self.path.startswith("/farm"):
                     ps = [p.summary(farm.clock) for p in farm.printers]
@@ -563,6 +577,8 @@ def control_handler(farm):
             self.send(404, {"error": "Not found"})
 
         def do_POST(self):
+            if not self.local():
+                return
             m = re.match(r"/farm/(\d+)/(clear|fail|pause|resume|press)", self.path)
             with LOCK:
                 if m:

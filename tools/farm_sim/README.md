@@ -36,7 +36,7 @@ fails.
 
 ## The control API
 
-On 127.0.0.1:8800 (`--control`):
+On 127.0.0.1:8800 (`--control`). It answers only a client on this computer: the Host header must be 127.0.0.1 or localhost, and a request with an Origin header (from a web page) gets 403.
 
 | Request | What it does |
 |---|---|
