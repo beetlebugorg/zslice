@@ -104,11 +104,13 @@ export class TurnRings {
       target.removeEventListener("pointercancel", up, true);
       x.zs_view_ring_release(v);
       this.label.hidden = true;
+      const d = this.drag;
       this.drag = null;
       this.ctx.host.style.cursor = "";
-      // The turn is done: the slice that waited starts.
-      this.ctx.done?.();
       this.ctx.frame();
+      // The last steps go to the core first; then the turn is done, and
+      // the slice that waited starts.
+      this.finish(d);
     };
     target.addEventListener("pointermove", move, true);
     target.addEventListener("pointerup", up, true);
@@ -117,15 +119,23 @@ export class TurnRings {
   }
 
   // One step at a time to the core: the turn since the last step.
-  async send() {
-    const d = this.drag;
+  async send(d = this.drag) {
     if (!d || d.busy || d.want === d.sent) return;
     d.busy = true;
     const step = d.want - d.sent;
     d.sent = d.want;
-    await this.ctx.turn(d.axis, step);
+    d.flight = this.ctx.turn(d.axis, step);
+    await d.flight;
     d.busy = false;
-    if (this.drag === d) this.send();
+    this.send(d);
+  }
+
+  // The end of a drag: the step in flight and the last step, then done.
+  async finish(d) {
+    if (!d) return;
+    while (d.busy) await d.flight;
+    await this.send(d);
+    await this.ctx.done?.();
   }
 
   showLabel(ev, deg) {

@@ -830,11 +830,12 @@ var turnRings = new TurnRings({
 
 // Physics after a turn: a part that cannot stand falls onto a face, unless
 // support holds it. The toast says so.
-async function settleSelected() {
-  const part = tools.part;
-  if (!part) return;
-  const r = await client.call("partSettle", { index: part.index });
-  if (r.part) tools.selectPart(r.part);
+// index: the part that turned (the selected part if none).
+async function settleSelected(index = tools.part?.index) {
+  if (index === undefined || index < 0) return;
+  const r = await client.call("partSettle", { index });
+  // A part that is no longer selected stays so.
+  if (r.part && tools.part?.index === index) tools.selectPart(r.part);
   if (r.degrees > 0) {
     toast(`The part could not stand like that, and fell over (${Math.round(r.degrees)}°). Turn on support to hold it in place.`);
     requestFrame();
@@ -843,11 +844,17 @@ async function settleSelected() {
 
 // The keys of a part move and turn it at once; the slice waits for a pause
 // of 0.6 s in the keys.
+// turned: the index of the part that the keys turned. A click away in the
+// pause clears the selection, and that part still settles.
 let heldKeys = 0;
-function sliceAfterKeys(turned = false) {
+let keysTurned = new Set();
+function sliceAfterKeys(turned = -1) {
   clearTimeout(heldKeys);
+  if (turned >= 0) keysTurned.add(turned);
   heldKeys = setTimeout(async () => {
-    if (turned) await settleSelected();
+    const parts = keysTurned;
+    keysTurned = new Set();
+    for (const i of parts) await settleSelected(i);
     client.call("sliceHeld");
   }, 600);
 }
@@ -1514,7 +1521,7 @@ function partKey(e) {
     e.stopPropagation();
     const deg = (e.shiftKey ? 5 : 15) * (e.key === "PageUp" ? 1 : -1);
     client.call("partTurn", { index: part.index, axis: 1, degrees: deg, hold: true }).then((r) => r.part && tools.selectPart(r.part));
-    sliceAfterKeys(true);
+    sliceAfterKeys(part.index);
     return true;
   }
   const dirs = { ArrowLeft: [-1, 0], ArrowRight: [1, 0], ArrowUp: [0, 1], ArrowDown: [0, -1] };
@@ -1530,7 +1537,7 @@ function partKey(e) {
     const axis = d[0] !== 0 ? 2 : 0;
     const sign = d[0] !== 0 ? -d[0] : d[1];
     client.call("partTurn", { index: part.index, axis, degrees: sign * deg, hold: true }).then((r) => r.part && tools.selectPart(r.part));
-    sliceAfterKeys(true);
+    sliceAfterKeys(part.index);
     return true;
   }
   const step = e.shiftKey ? 10 : 1;
