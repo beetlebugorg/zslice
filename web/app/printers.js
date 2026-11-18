@@ -12,13 +12,6 @@
 //
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
-// The printers that most people have: a search for each, the first hit.
-// The Popular group of the picker shows them first.
-const POPULAR = [
-  "bambu a1 mini", "bambu a1", "bambu p1s", "bambu p1p", "bambu x1 carbon",
-  "prusa core one", "prusa mk4", "prusa mini", "ender 3 v3", "creality k1",
-  "elegoo neptune 4", "anycubic kobra 3", "voron 2.4", "sovol sv06", "taz workhorse",
-];
 
 const MAX_ROWS = 400;
 
@@ -112,6 +105,20 @@ export function brands(wasm) {
     wasm.free(p, 12);
   }
   return out;
+}
+
+// The printers that most people have (zs_printers_popular), for the
+// Popular group that the picker shows first.
+export function popularModels(wasm) {
+  const p = wasm.alloc(64 * 4);
+  try {
+    const n = wasm.x.zs_printers_popular(lib, p, 64);
+    const out = [];
+    for (let k = 0; k < n; k++) out.push(wasm.u32(p + 4 * k));
+    return out;
+  } finally {
+    wasm.free(p, 64 * 4);
+  }
 }
 
 export function search(wasm, query, brand) {
@@ -336,11 +343,7 @@ export async function openPrinterPicker(wasm, onAdd, hooks = {}) {
   // A beginner starts with the printers that most people have
   // ("Popular"), and not with the whole list in the order of the alphabet.
   const st = { brand: -2, current: -1 };
-  const popular = [];
-  for (const q of POPULAR) {
-    const r = search(wasm, q, -1);
-    if (r.idx.length > 0 && !popular.includes(r.idx[0])) popular.push(r.idx[0]);
-  }
+  const popular = popularModels(wasm);
   const allBrands = brands(wasm);
   const total = wasm.x.zs_printers_model_count(lib);
 

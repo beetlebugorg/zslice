@@ -1598,6 +1598,10 @@ ptrdiff_t zs_printers_find(const zs_printers *lib, const char *id);
  * returns the count of matches (can be more than cap). An empty query
  * gives the models in the library order. */
 size_t zs_printers_search(const zs_printers *lib, const char *query, ptrdiff_t brand, uint32_t *out, size_t cap);
+/* The printers that most people have (Bambu Lab, Prusa, Creality, Elegoo,
+ * Anycubic, Voron, Sovol, LulzBot), for the first view of a picker: model
+ * indices, at most cap. Returns the count. */
+size_t zs_printers_popular(const zs_printers *lib, uint32_t *out, size_t cap);
 /* The model of a machine profile: by its setting machine.model (the id that
  * zs_printers_profile writes), else by a machine.name that is the title of
  * a model (a profile from before machine.model). -1 if none fits. */

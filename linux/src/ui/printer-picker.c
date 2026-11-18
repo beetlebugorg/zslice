@@ -29,7 +29,7 @@ typedef struct {
     /* Step 1. */
     GtkWidget *search, *brands, *models, *count, *found, *found_state, *rescan;
     GtkWidget *bed, *card_title, *card_sub, *facts, *pick_hint;
-    ptrdiff_t brand;   /* the selected brand, or -1 for all */
+    ptrdiff_t brand;   /* the selected brand, -1 for all, -2 for the popular printers */
     ptrdiff_t current; /* the selected model, CUSTOM, or -1 */
     gboolean filling;
     /* The printer on the network that the user picked, or -1. */
@@ -524,7 +524,8 @@ static void fill_models(Picker *p) {
     gtk_list_box_remove_all(GTK_LIST_BOX(p->models));
     const char *q = gtk_editable_get_text(GTK_EDITABLE(p->search));
     uint32_t *idx = g_new(uint32_t, MAX_ROWS);
-    size_t n = zs_printers_search(p->lib, q, p->brand, idx, MAX_ROWS);
+    /* "Popular" with no search: the printers that most people have. */
+    size_t n = p->brand == -2 && q[0] == 0 ? zs_printers_popular(p->lib, idx, MAX_ROWS) : zs_printers_search(p->lib, q, p->brand == -2 ? -1 : p->brand, idx, MAX_ROWS);
     size_t shown = MIN(n, (size_t)MAX_ROWS);
     /* Groups by series only for one brand with no search. */
     gboolean by_series = p->brand >= 0 && q[0] == 0;
@@ -1024,6 +1025,9 @@ static GtkWidget *build_choose(Picker *p) {
     p->brands = gtk_list_box_new();
     gtk_widget_add_css_class(p->brands, "zg-pick-list");
     gtk_widget_add_css_class(p->brands, "navigation-sidebar");
+    uint32_t pop[64];
+    size_t npop = zs_printers_popular(p->lib, pop, 64);
+    if (npop > 0) gtk_list_box_append(GTK_LIST_BOX(p->brands), brand_row("Popular", npop, -2));
     gtk_list_box_append(GTK_LIST_BOX(p->brands), brand_row("All brands", zs_printers_model_count(p->lib), -1));
     for (size_t i = 0; i < zs_printers_brand_count(p->lib); i++) {
         const char *name = NULL;
@@ -1221,7 +1225,8 @@ void zg_printer_picker_show(GtkWindow *parent, ZgModel *model, gboolean welcome)
     Picker *p = g_new0(Picker, 1);
     p->model = g_object_ref(model);
     p->welcome = welcome;
-    p->brand = -1;
+    /* A beginner starts with the popular printers. */
+    p->brand = -2;
     p->current = -1;
     p->link = -1;
     p->bed_tex_model = -1;

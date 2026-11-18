@@ -139,6 +139,34 @@ export fn zs_printers_search(lib: ?*const Library, query: ?[*:0]const u8, brand:
     return l.search(q, if (brand >= 0) @intCast(brand) else null, dest);
 }
 
+/// The printers that most people have, for the first view of a printer
+/// picker: a search for each name, the first hit.
+const popular = [_][]const u8{
+    "bambu a1 mini", "bambu a1",     "bambu p1s",        "bambu p1p",        "bambu x1 carbon",
+    "prusa core one", "prusa mk4",   "prusa mini",       "ender 3 v3",       "creality k1",
+    "elegoo neptune 4", "anycubic kobra 3", "voron 2.4", "sovol sv06",       "taz workhorse",
+};
+
+/// The model indices of the popular printers (at most cap), in order.
+/// Returns the count.
+export fn zs_printers_popular(lib: ?*const Library, out: ?[*]u32, cap: usize) usize {
+    const l = lib orelse return 0;
+    const o = out orelse return 0;
+    var n: usize = 0;
+    for (popular) |q| {
+        if (n >= cap) break;
+        var hit: [1]u32 = undefined;
+        if (l.search(q, null, &hit) == 0) continue;
+        const dup = for (o[0..n]) |x| {
+            if (x == hit[0]) break true;
+        } else false;
+        if (dup) continue;
+        o[n] = hit[0];
+        n += 1;
+    }
+    return n;
+}
+
 /// zs_printer_bed in zslice-app.h.
 const CBed = extern struct {
     mesh: [*:0]const u8,
