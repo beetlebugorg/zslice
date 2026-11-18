@@ -42,6 +42,7 @@ struct ZSliceApp: App {
         .commands {
             ViewCommands()
             UndoCommands()
+            CommandGroup(after: .newItem) { PlateCommands() }
             CommandGroup(after: .help) {
                 HelpCommands()
             }
@@ -74,6 +75,21 @@ struct UndoCommands: Commands {
             .keyboardShortcut("z", modifiers: [.command, .shift])
             .disabled(!(editingText || u?.canRedo == true))
         }
+    }
+}
+
+/// File > New Plate and Add Models.
+struct PlateCommands: View {
+    @FocusedValue(\.workspace) private var workspace
+
+    var body: some View {
+        Divider()
+        Button("New Plate") { workspace?.model.addPlate() }
+            .keyboardShortcut("n", modifiers: [.command, .option])
+            .disabled(workspace == nil)
+        Button("Add Models to the Plate…") { workspace?.addModels() }
+            .keyboardShortcut("i", modifiers: [.command, .shift])
+            .disabled(workspace == nil)
     }
 }
 

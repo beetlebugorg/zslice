@@ -69,8 +69,11 @@ struct DocumentWindow: View {
             }
             .overlay(alignment: .bottom) {
                 HStack(alignment: .bottom, spacing: 12) {
-                    if workspace.layerCount > 0 {
-                        ScrubBar(workspace: workspace)
+                    VStack(alignment: .leading, spacing: 8) {
+                        PlateBar(workspace: workspace)
+                        if workspace.layerCount > 0 {
+                            ScrubBar(workspace: workspace)
+                        }
                     }
                     Spacer(minLength: 0)
                     PrintCard(workspace: workspace)

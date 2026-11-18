@@ -97,6 +97,8 @@ final class Workspace {
         if let p = ProcessInfo.processInfo.environment["ZSLICE_VIEW"].flatMap(MetalSliceView.Page.init) { page = p }
         canvas.page = page
         model.onSliced = { [weak self] in self?.sliced() }
+        model.onPlates = { [weak self] in self?.syncPlates() }
+        model.onActivePlate = { [weak self] in self?.activePlateChanged() }
     }
 
     // MARK: - the slice
@@ -177,6 +179,14 @@ final class Workspace {
             self.drag(drag[1], .command)
             release(drag[1])
         }
+        // ZSLICE_ADD_PLATE="path;path": each file on a new plate.
+        for path in (env["ZSLICE_ADD_PLATE"] ?? "").split(separator: ";") {
+            model.addPlate()
+            if let data = FileManager.default.contents(atPath: String(path)) {
+                try? model.load(name: (String(path) as NSString).lastPathComponent, data: data)
+            }
+        }
+        if env["ZSLICE_ADD_PLATE"] != nil { framePlate(-1) }
         // ZSLICE_MENU="x,y;Title" runs an item of the context menu there.
         if let spec = env["ZSLICE_MENU"]?.split(separator: ";"), spec.count == 2 {
             // "center": the middle of the view.
@@ -208,6 +218,77 @@ final class Workspace {
             canvas.layer2D = hi
             canvas.requestFrame()
         }
+    }
+
+    // MARK: - the plates
+
+    /// The other plates of the set in the row of the view.
+    func syncPlates() {
+        guard let v = canvas.view else { return }
+        zs_set_view_sync(model.set, v)
+        canvas.requestFrame()
+    }
+
+    /// Another plate became active: the selection and the tools are of the
+    /// plate that was active.
+    private func activePlateChanged() {
+        stopReplay()
+        clearSelection()
+        selectPart(nil)
+        clearTape()
+        gapCard = nil
+        if model.state != .done, let v = canvas.view {
+            // No slice yet: the view shows the row, and this plate empty.
+            zs_view_load(v, model.core)
+            canvas.requestFrame()
+        }
+        framePlate(model.active)
+    }
+
+    /// Moves the camera to plate i (-1: all plates).
+    func framePlate(_ i: Int) {
+        guard let v = canvas.view else { return }
+        zs_view_frame_plate(v, i < 0 ? -1 : i)
+        canvas.startAnimation()
+    }
+
+    func selectPlate(_ i: Int) {
+        if i == model.active { framePlate(i) } else { model.select(i) }
+    }
+
+    /// Asks before it removes a plate with parts (the plates are not in the
+    /// undo list).
+    func removePlate(_ i: Int) {
+        guard model.plates.indices.contains(i) else { return }
+        if model.plates[i].parts > 0 {
+            let a = NSAlert()
+            a.messageText = "Remove \(model.plates[i].name.isEmpty ? "Plate \(i + 1)" : model.plates[i].name)?"
+            a.informativeText = "The plate has \(model.plates[i].parts) part\(model.plates[i].parts == 1 ? "" : "s"). Undo cannot bring a removed plate back."
+            a.addButton(withTitle: "Remove")
+            a.addButton(withTitle: "Cancel")
+            a.buttons[0].hasDestructiveAction = true
+            guard a.runModal() == .alertFirstButtonReturn else { return }
+        }
+        model.removePlate(i)
+    }
+
+    /// Adds models to the active plate with an open panel.
+    func addModels() {
+        let panel = NSOpenPanel()
+        panel.allowedContentTypes = [.stl, .threeMF]
+        panel.allowsMultipleSelection = true
+        panel.message = "Choose the models to add to the plate."
+        let add = { [weak self] (r: NSApplication.ModalResponse) in
+            guard let self, r == .OK else { return }
+            for url in panel.urls {
+                do {
+                    try model.add(name: url.lastPathComponent, data: Data(contentsOf: url))
+                } catch {
+                    NSAlert(error: error).runModal()
+                }
+            }
+        }
+        if let w = canvas.window { panel.beginSheetModal(for: w, completionHandler: add) } else { add(panel.runModal()) }
     }
 
     // MARK: - the layer range
@@ -460,6 +541,14 @@ final class Workspace {
 
 extension Workspace: SliceViewDelegate {
     func sliceViewClick(_ p: CGPoint) {
+        if model.plates.count > 1, page == .threeD, let v = canvas.view {
+            let s = canvas.window?.backingScaleFactor ?? 2
+            let i = zs_view_plate_at(v, Float(p.x * s), Float(p.y * s))
+            if i >= 0 && Int(i) != model.active {
+                model.select(Int(i))
+                return
+            }
+        }
         if gapsOn && pickGap(at: p) { return }
         switch tool {
         case .measure:
@@ -505,6 +594,7 @@ extension Workspace: SliceViewDelegate {
         switch event.specialKey {
         case .upArrow?: shift ? moveBottom(1) : moveTop(1)
         case .downArrow?: shift ? moveBottom(-1) : moveTop(-1)
+        case .home?: framePlate(-1)
         case .pageUp?: moveTop(10)
         case .pageDown?: moveTop(-10)
         case .leftArrow?: scrubStep(-0.02)
@@ -520,6 +610,9 @@ extension Workspace: SliceViewDelegate {
             case "/": searchOpen.toggle()
             case "?": shortcutsOpen = true
             case "g" where !shift: toggleGaps()
+            case "[": selectPlate(max(0, model.active - 1))
+            case "]": selectPlate(min(model.plates.count - 1, model.active + 1))
+            case "f" where !shift: framePlate(model.active)
             default: return false
             }
         }

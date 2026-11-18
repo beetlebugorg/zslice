@@ -163,6 +163,7 @@ extension Workspace {
         if Date().timeIntervalSince(d.sent) > 0.06 {
             d.sent = Date()
             zs_app_part_move(model.core, d.index, d.x, d.y)
+            model.changedHeld()
         }
         partDrag = d
     }
@@ -175,7 +176,9 @@ extension Workspace {
         guard let d = partDrag else { return }
         partDrag = nil
         zs_app_part_move(model.core, d.index, d.x, d.y)
-        model.settingsChanged()
+        // The move slices once, at the end of the drag.
+        model.changedHeld()
+        model.release()
     }
 
     /// Command and the wheel: the selected part turns 15° a step.
@@ -183,7 +186,8 @@ extension Workspace {
         guard let i = selectedPart, let p = part(i) else { return false }
         zs_app_part_rotate(model.core, i, p.rotation + (dy > 0 ? 15 : -15))
         selectPart(i)
-        wheelSlice.run { [weak self] in self?.model.settingsChanged() }
+        model.changedHeld()
+        wheelSlice.run { [weak self] in self?.model.release() }
         return true
     }
 
@@ -354,7 +358,8 @@ extension Workspace {
         func move(_ dx: Double, _ dy: Double) {
             zs_app_part_move(model.core, i, p.x + dx, p.y + dy)
             selectPart(i)
-            keySlice.run { [weak self] in self?.model.settingsChanged() }
+            model.changedHeld()
+            keySlice.run { [weak self] in self?.model.release() }
         }
         switch event.specialKey {
         case .leftArrow?: move(-d, 0)
