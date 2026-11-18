@@ -705,7 +705,7 @@ const ops = {
     const r = core.w.x.zs_app_part_cut(core.app, index, z, flip ? 1 : 0, pegs ?? 0, pegD ?? 5);
     if (r <= 0) return { ok: false, message: r === 0 ? "The plane does not cut the part." : "The cut failed." };
     wantSlice();
-    return { ok: true, pegs: r - 2, part: core.part(index) };
+    return { ok: true, pegs: r - 2, fits: core.w.x.zs_app_plate_fits(core.app) === 1, part: core.part(index) };
   },
 
   // The part `dir` steps from part `index` (Tab and Shift+Tab), around

@@ -362,7 +362,16 @@ pub const Plate = struct {
             defer gpa.free(name);
             _ = try self.add(gpa, name, m, bed, gap, false);
         }
+        // A new part with no free place sits on another part: arrange the
+        // plate. If the parts still do not fit, `allFit` says so.
+        if (!self.allFit(bed, gap)) _ = try self.arrange(gpa, bed, gap);
         return 2 + r.pegs.len;
+    }
+
+    /// True if each part is on the bed and overlaps no other part.
+    pub fn allFit(self: *const Plate, bed: [2]f64, gap: f64) bool {
+        for (self.parts.items, 0..) |*p, i| if (!self.fits(p, bed, gap, i)) return false;
+        return true;
     }
 
     pub fn remove(self: *Plate, gpa: Allocator, i: usize) void {
@@ -894,5 +903,18 @@ test "plate: cut a part in two" {
     // With pegs: 2 parts and 2 pegs.
     try std.testing.expectEqual(@as(usize, 4), try plate.cut(gpa, 1, 10, false, .{ .count = 2 }, .{ 200, 200 }, 2));
     try std.testing.expectEqualStrings("box (top) (peg)", plate.parts.items[plate.count() - 1].name);
+}
+
+test "plate: a cut that does not fit side by side arranges the plate" {
+    const gpa = std.testing.allocator;
+    var b: mesh_mod.Builder = .init(gpa);
+    try mesh_mod.shapes.addBox(&b, 0, 0, 0, 170, 130, 36);
+    const m = try b.finish();
+    var plate: Plate = .{};
+    defer plate.deinit(gpa);
+    _ = try plate.add(gpa, "wide", m, .{ 220, 220 }, 2, false);
+    try std.testing.expectEqual(@as(usize, 2), try plate.cut(gpa, 0, 18, true, .{}, .{ 220, 220 }, 2));
+    // Two parts of 170 x 130 do not fit on a bed of 220 x 220.
+    try std.testing.expect(!plate.allFit(.{ 220, 220 }, 2));
 }
 

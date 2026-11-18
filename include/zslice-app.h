@@ -587,6 +587,11 @@ ptrdiff_t zs_app_part_split(zs_app *app, size_t i);
  * the plane misses the part, or -status. zs_view_set_cut shows the plane
  * while the user picks the height. */
 ptrdiff_t zs_app_part_cut(zs_app *app, size_t i, double z, int flip, int pegs, double peg_d);
+/* 1 if each part of the plate is on the bed and overlaps no other part. A
+ * cut arranges the plate when a new part has no free place; after it, 0
+ * means the parts do not fit on this bed: say so, and offer to move parts
+ * to another plate. */
+int zs_app_plate_fits(const zs_app *app);
 
 size_t zs_app_part_count(const zs_app *app);
 int zs_app_part_get(zs_app *app, size_t i, zs_part *out);
@@ -964,7 +969,10 @@ int zs_view_pixel_of(const zs_view *view, double x, double y, double z, float *p
  * (1 << enum zs_feature) for each feature, or 0 to end the focus. Only the
  * beads with a top at or under zmax (mm) are in focus; a negative zmax is
  * all layers. For a settings browser: zs_setting_get_effect gives the bits. */
-void zs_view_focus(zs_view *view, uint32_t features, double zmax);
+/* Returns 1 if the focus shows lines, 0 if the plate has no line of these
+ * features: the view then shows the whole print (say "no lines of this
+ * setting on this plate"), and never shows an empty view. */
+int zs_view_focus(zs_view *view, uint32_t features, double zmax);
 /* Turns the camera freely around the axes of the screen, by a drag of dx,
  * dy pixels. Drags in turn can roll the view, so the part can turn to any
  * direction. zs_view_orbit keeps the bed level; this does not. */

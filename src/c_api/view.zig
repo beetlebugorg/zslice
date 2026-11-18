@@ -165,10 +165,13 @@ export fn zs_view_pan(view: ?*View, dx: f32, dy: f32) void {
 }
 
 /// A negative zmax: all layers.
-export fn zs_view_focus(view: ?*View, features: u32, zmax: f64) void {
-    if (!render_on) return;
-    const v = view orelse return;
-    v.setFocus(features, if (zmax < 0) std.math.inf(f32) else @floatCast(zmax));
+/// Returns 1 if the focus shows lines, 0 if the plate has no line of these
+/// features (the view then shows the whole print, so a shell can say "no
+/// lines of this setting on this plate").
+export fn zs_view_focus(view: ?*View, features: u32, zmax: f64) c_int {
+    if (!render_on) return 0;
+    const v = view orelse return 0;
+    return @intFromBool(v.setFocus(features, if (zmax < 0) std.math.inf(f32) else @floatCast(zmax)));
 }
 
 /// A frame on the bed around (x0, y0)-(x1, y1), for a selected part; no

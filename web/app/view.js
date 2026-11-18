@@ -134,7 +134,9 @@ export class View3D {
   // Moves the camera for dt seconds. True while it still moves.
   animate(dt) { return this.x.zs_view_animate(this.v, dt) !== 0; }
   // A bit for each feature in focus (0: none); zmax < 0: all layers.
-  focus(features, zmax) { this.x.zs_view_focus(this.v, features >>> 0, zmax); }
+  // False if the plate has no line of these features: the view then shows
+  // the whole print.
+  focus(features, zmax) { return this.x.zs_view_focus(this.v, features >>> 0, zmax) === 1; }
   setTime(t) { this.x.zs_view_set_time(this.v, t); }
   duration() { return this.x.zs_view_duration(this.v); }
   layerAtTime(t) { return this.x.zs_view_layer_at_time(this.v, t); }

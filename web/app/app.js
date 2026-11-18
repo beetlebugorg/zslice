@@ -673,8 +673,12 @@ function updateFocus() {
   const settingsVisible = !$("page-settings").hidden;
   const mask = settingsVisible ? app.focusMask : 0;
   const zmax = app.focusFirst && app.layers?.z?.length ? app.layers.z[0] : -1;
-  view.focus(mask, zmax);
-  app.focus2d = mask;
+  const shows = view.focus(mask, zmax);
+  // A setting whose lines are not on this plate: the whole print shows,
+  // and a note says why (once for each new focus).
+  if (!shows && mask !== app.noLinesMask) toast("No lines of this setting on this plate: the view shows the whole print.");
+  app.noLinesMask = shows ? 0 : mask;
+  app.focus2d = shows ? mask : 0;
   requestFrame();
 }
 

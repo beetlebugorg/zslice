@@ -167,9 +167,11 @@ export class PartCard {
         this.ctx.toast(r.message);
         return;
       }
-      if (pegOn.checked && r.pegs === 0) this.ctx.toast("Cut into two parts. No peg fits: the cut is too small or too thin for one.");
-      else if (r.pegs > 0) this.ctx.toast(`Cut into two parts, with ${r.pegs} ${r.pegs === 1 ? "peg" : "pegs"}. Glue the pegs into the holes to join the parts.`);
-      else this.ctx.toast("Cut into two parts.");
+      let text = "Cut into two parts.";
+      if (pegOn.checked && r.pegs === 0) text = "Cut into two parts. No peg fits: the cut is too small or too thin for one.";
+      else if (r.pegs > 0) text = `Cut into two parts, with ${r.pegs} ${r.pegs === 1 ? "peg" : "pegs"}. Glue the pegs into the holes to join the parts.`;
+      if (!r.fits) text += " The parts do not all fit on this bed: they overlap now. Move some to another plate (+ Plate, then cut or move them there).";
+      this.ctx.toast(text);
       this.ctx.select(r.part);
     };
     show();

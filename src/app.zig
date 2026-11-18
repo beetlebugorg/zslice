@@ -401,12 +401,12 @@ pub const App = struct {
         return i;
     }
 
-    fn bedSize(app: *const App) [2]f64 {
+    pub fn bedSize(app: *const App) [2]f64 {
         return .{ app.settings.machine.bed_size_x, app.settings.machine.bed_size_y };
     }
 
     /// The gap between parts: the skirt and the brim go around each part.
-    fn partGap(app: *const App) f64 {
+    pub fn partGap(app: *const App) f64 {
         const p = app.settings.project;
         const w = if (p.first_layer_line_width > 0) p.first_layer_line_width else 1.25 * app.settings.machine.nozzle_diameter;
         const skirt = if (p.skirt_loops > 0 and p.skirt_layers > 0) p.skirt_distance + @as(f64, @floatFromInt(p.skirt_loops)) * w else 0;

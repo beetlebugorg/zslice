@@ -172,6 +172,10 @@ pub const View = struct {
     /// With a focus: only the beads with a top at or under this z are in
     /// focus (the first layer, for a first layer setting).
     focus_zmax: f32 = std.math.inf(f32),
+    /// The features that have beads (a bit for each), and the beads that
+    /// the mask is for (their pointer and count).
+    present: u32 = 0,
+    present_key: [2]usize = .{ 0, 0 },
     /// A copy of the beads, for `pick` and the replay.
     beads: std.ArrayList(vk.Instance) = .empty,
     /// The marks: a seam blob at the start of each outer wall loop, and
@@ -943,9 +947,32 @@ pub const View = struct {
     /// bit (1 << feature) for each feature in `mask`, or 0 to end the
     /// focus. Only beads with a top at or under `zmax` are in focus (pass
     /// infinity for all layers).
-    pub fn setFocus(v: *View, mask: u32, zmax: f32) void {
-        v.focus_mask = mask & 0xffff;
+    /// A focus on features with no beads on the plate (for example the
+    /// ironing, when it is off) would show no line at all: the view then
+    /// shows the whole print, and returns false.
+    pub fn setFocus(v: *View, mask: u32, zmax: f32) bool {
+        var m = mask & 0xffff;
+        const shows = m == 0 or (m & v.presentFeatures()) != 0;
+        if (!shows) m = 0;
+        v.focus_mask = m;
         v.focus_zmax = zmax;
+        return shows;
+    }
+
+    /// The features that have beads, a bit for each. Kept until the beads
+    /// change.
+    fn presentFeatures(v: *View) u32 {
+        const key = [2]usize{ @intFromPtr(v.beads.items.ptr), v.beads.items.len };
+        if (key[0] == v.present_key[0] and key[1] == v.present_key[1]) return v.present;
+        var m: u32 = 0;
+        for (v.beads.items) |b| {
+            if (b.rgba[3] < 32) m |= @as(u32, 1) << @intCast(b.rgba[3]);
+            // All 16 feature bits found: no need to look on.
+            if (m & 0xffff == 0xffff) break;
+        }
+        v.present = m;
+        v.present_key = key;
+        return m;
     }
 
     /// Shows the layers 0 to `layer`, and stops the replay.
