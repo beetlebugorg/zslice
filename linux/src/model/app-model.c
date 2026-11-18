@@ -560,6 +560,8 @@ char *zg_model_get_for(ZgModel *self, const char *key, gboolean scoped) {
 }
 
 static gboolean fail(GError **error, int rc);
+static void plate_leave(ZgModel *self);
+static void plate_switched(ZgModel *self);
 
 static void slice_soon(ZgModel *self) {
     int state = zs_app_state(self->core);
@@ -1442,6 +1444,20 @@ static void plate_changed(ZgModel *self) {
 }
 
 gboolean zg_model_load(ZgModel *self, const char *name, const void *data, gsize len, GError **error) {
+    /* A project file of zslice: its plates replace the plates. */
+    if (zs_project_file_is(data, len)) {
+        char message[512] = "";
+        plate_leave(self);
+        int prc = zs_set_project_open(self->set, data, len, message, sizeof message);
+        if (prc != ZS_OK) {
+            g_set_error(error, G_IO_ERROR, G_IO_ERROR_FAILED, "%s", message[0] ? message : zs_status_string(prc));
+            return FALSE;
+        }
+        for (size_t i = 0; i < zs_set_count(self->set); i++) zs_set_changed(self->set, i);
+        plate_switched(self);
+        if (message[0]) g_message("zslice: %s", message);
+        return TRUE;
+    }
     int rc = zs_app_load_stl(self->core, name, data, len);
     if (rc != ZS_OK) return fail(error, rc);
     /* The plate takes the name of the file. */
@@ -1533,6 +1549,23 @@ void zg_model_plate_select(ZgModel *self, size_t i) {
     plate_leave(self);
     if (zs_set_select(self->set, i) != ZS_OK) return;
     plate_switched(self);
+}
+
+GBytes *zg_model_project_bytes(ZgModel *self, const char *name) {
+    uint8_t *out = NULL;
+    size_t len = 0;
+    if (zs_set_project_save(self->set, name, &out, &len) != ZS_OK) return NULL;
+    GBytes *b = g_bytes_new(out, len);
+    zs_buffer_free(out, len);
+    return b;
+}
+
+gint64 zg_model_part_to_new_plate(ZgModel *self, size_t i) {
+    ptrdiff_t to = zs_set_part_move(self->set, zs_set_active(self->set), i, -1);
+    if (to < 0) return -1;
+    zg_model_select_part(self, -1);
+    plate_changed(self);
+    return to;
 }
 
 void zg_model_plate_add(ZgModel *self) {

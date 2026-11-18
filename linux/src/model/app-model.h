@@ -83,6 +83,10 @@ gint64 zg_model_part_duplicate(ZgModel *self, size_t i);
 /* Splits part i into its separate bodies (zs_app_part_split): the count of
  * new parts (at index i on), 0 for a part of one body, or -1. */
 gint64 zg_model_part_split(ZgModel *self, size_t i);
+/* All plates as one project file (zs_set_project_save), or NULL. */
+GBytes *zg_model_project_bytes(ZgModel *self, const char *name);
+/* Moves part i to a new plate (zs_set_part_move): the new plate, or -1. */
+gint64 zg_model_part_to_new_plate(ZgModel *self, size_t i);
 /* Cuts part i at height z (zs_app_part_cut): the count of new parts (2 and
  * the pegs), 0 if the plane misses the part, or -1. */
 gint64 zg_model_part_cut(ZgModel *self, size_t i, double z, gboolean flip, int pegs, double peg_d);

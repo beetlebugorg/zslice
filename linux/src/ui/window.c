@@ -603,17 +603,23 @@ static void on_save_plate_chosen(GObject *source, GAsyncResult *res, gpointer da
     const uint8_t *bytes = NULL;
     size_t len = 0;
     if (file) {
-        int st = zs_app_write_3mf(zg_model_core(w->model), &bytes, &len);
-        if (st == ZS_OK) {
-            GBytes *copy = g_bytes_new(bytes, len);
+        /* All plates in one project file (a 3MF file). */
+        char *base = g_file_get_basename(file);
+        char *dot = strrchr(base, '.');
+        if (dot) *dot = 0;
+        GBytes *copy = zg_model_project_bytes(w->model, base);
+        g_free(base);
+        if (copy) {
             g_file_replace_contents_bytes_async(file, copy, NULL, FALSE, G_FILE_CREATE_REPLACE_DESTINATION,
                                                 NULL, on_plate_saved, g_object_ref(window));
             g_bytes_unref(copy);
         } else {
-            show_error(w, "The 3MF file was not saved", zs_status_string(st));
+            show_error(w, "The 3MF file was not saved", "The project did not write.");
         }
         g_object_unref(file);
     }
+    (void)bytes;
+    (void)len;
     g_object_unref(window);
 }
 

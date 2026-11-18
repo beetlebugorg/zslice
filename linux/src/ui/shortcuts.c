@@ -24,7 +24,7 @@ static const Group SHORTCUTS[] = {
         {"N", "Show or hide the panel: all settings, the selected line, the history, and the project"},
         {"Ctrl+O", "Add models to the plate"},
         {"Ctrl+E", "Export the G-code"},
-        {"Ctrl+S", "Save the plate as 3MF"},
+        {"Ctrl+S", "Save the project: all plates in one 3MF file"},
         {"Ctrl+Z", "Undo"},
         {"Ctrl+Shift+Z, Ctrl+Y", "Redo"},
         {"Ctrl+,", "Preferences: the printers and the app"},

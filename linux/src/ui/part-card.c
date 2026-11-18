@@ -257,6 +257,8 @@ static void on_action(GSimpleAction *a, GVariant *v, gpointer data) {
     if (strcmp(name, "duplicate") == 0) {
         gint64 copy = zg_model_part_duplicate(c->model, i);
         if (copy >= 0) zg_model_select_part(c->model, copy);
+    } else if (strcmp(name, "new-plate") == 0) {
+        zg_model_part_to_new_plate(c->model, i);
     } else if (strcmp(name, "split") == 0) {
         gint64 n = zg_model_part_split(c->model, i);
         if (n == 0) gtk_widget_set_tooltip_text(c->card, "The part has one body: nothing to split.");
@@ -317,6 +319,7 @@ GtkWidget *zg_part_card_new(ZgModel *model, GtkWidget *preview) {
     static const GActionEntry actions[] = {
         {.name = "duplicate", .activate = on_action},
         {.name = "split", .activate = on_action},
+        {.name = "new-plate", .activate = on_action},
         {.name = "smart", .activate = on_action},
         {.name = "less-support", .activate = on_action},
         {.name = "reset", .activate = on_action},
@@ -333,6 +336,7 @@ GtkWidget *zg_part_card_new(ZgModel *model, GtkWidget *preview) {
         {"Best orientation", "partcard.smart", "Turn the part to its best orientation: less support, more on the bed, low"},
         {"Less support", "partcard.less-support", "Turn the part to need the least support"},
         {"Reset", "partcard.reset", "The orientation and the scale of the file again"},
+        {"To a new plate", "partcard.new-plate", "Move the part to a new plate, with the settings of this plate"},
         {"Remove", "partcard.remove", "Remove the part from the plate (Delete). Ctrl+Z brings it back."},
     };
     GtkWidget *flow = gtk_flow_box_new();

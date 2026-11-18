@@ -38,7 +38,7 @@ static const Action ACTIONS[] = {
     {"Remove this plate", NULL, "the plate and its parts", "win.remove-plate", NULL},
     {"Smart placement", NULL, "turn and arrange the parts", "win.smart-place", NULL},
     {"Check the print", NULL, "problems and advice", "preview.check", NULL},
-    {"Save the plate as 3MF…", "Ctrl+S", "the parts and their settings", "win.save-plate", NULL},
+    {"Save the project…", "Ctrl+S", "all plates in one 3MF file", "win.save-plate", NULL},
     {"Undo", "Ctrl+Z", NULL, "win.undo", NULL},
     {"Redo", "Ctrl+Shift+Z", NULL, "win.redo", NULL},
     {"2D layer view", NULL, NULL, "preview.view", "2d"},
