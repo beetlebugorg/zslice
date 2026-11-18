@@ -76,6 +76,10 @@ final class Workspace {
     init() {
         canvas.delegate = self
         if ProcessInfo.processInfo.environment["ZSLICE_PANEL"] != nil { showSettings = true }
+        // For screenshots: ZSLICE_DARK=1 or 0 sets the look of the app.
+        if let d = ProcessInfo.processInfo.environment["ZSLICE_DARK"] {
+            NSApp.appearance = NSAppearance(named: d == "1" ? .darkAqua : .aqua)
+        }
         if let m = ProcessInfo.processInfo.environment["ZSLICE_MODE"].flatMap(Int.init) { colorMode = m }
         if let p = ProcessInfo.processInfo.environment["ZSLICE_VIEW"].flatMap(MetalSliceView.Page.init) { page = p }
         canvas.page = page

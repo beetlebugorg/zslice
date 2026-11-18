@@ -40,38 +40,46 @@ struct SettingsInspector: View {
 
     private var model: SliceModel { workspace.model }
 
+    /// The drawer has its own search field and its own header with a back
+    /// button: a navigation stack in an inspector shows neither.
     var body: some View {
-        NavigationStack(path: Bindable(workspace).settingsPath) {
-            Group {
-                if search.trimmingCharacters(in: .whitespaces).isEmpty {
-                    sections
-                } else {
-                    SettingsList(workspace: workspace, title: "Search", withSection: true, settings: matches)
-                }
-            }
-            .navigationDestination(for: SettingsRoute.self) { route in
-                switch route {
-                case let .section(group, section):
-                    SettingsList(workspace: workspace, title: section.isEmpty ? "General" : section, withSection: false,
-                                 settings: SettingInfo.all.filter { $0.group == group && $0.section == section })
-                case let .feature(f):
-                    SettingsList(workspace: workspace, title: Feature.titles[f], withSection: true,
-                                 settings: SettingInfo.all.filter {
-                                     let e = SettingEffect($0.name).features
-                                     return (e >> f) & 1 != 0 && e & Feature.all != Feature.all
-                                 })
-                case .line:
-                    LineSettings(workspace: workspace)
-                case let .setting(name):
-                    if let info = SettingInfo.byName[name] {
-                        SettingDetail(workspace: workspace, info: info)
+        VStack(spacing: 0) {
+            SearchField(text: $search, prompt: "Search settings")
+                .padding(.horizontal, 10)
+                .padding(.bottom, 6)
+            if !searching, let last = path.last {
+                HStack(spacing: 6) {
+                    Button {
+                        workspace.settingsPath.removeLast()
+                    } label: {
+                        Image(systemName: "chevron.left")
+                            .font(.body.weight(.semibold))
+                            .frame(width: 24, height: 24)
+                            .contentShape(Rectangle())
                     }
+                    .buttonStyle(.borderless)
+                    .keyboardShortcut("[", modifiers: .command)
+                    .help("Back (⌘[)")
+                    Text(title(of: last)).font(.headline).lineLimit(1)
+                    Spacer()
+                }
+                .padding(.horizontal, 8)
+                .padding(.bottom, 4)
+                Divider()
+            }
+            Group {
+                if searching {
+                    SettingsList(workspace: workspace, title: "Search", withSection: true, settings: matches)
+                } else if let last = path.last {
+                    page(last)
+                } else {
+                    sections
                 }
             }
+            .frame(maxHeight: .infinity)
         }
-        .searchable(text: $search, placement: .sidebar, prompt: "Search settings")
         .onChange(of: path, initial: true) { sendFocus() }
-        .onChange(of: search) { if !search.isEmpty { workspace.settingsPath = [] } }
+        .onChange(of: search) { if searching { workspace.settingsPath = [] } }
         .onDisappear { workspace.focus(0, firstLayer: false) }
         .onAppear {
             // For development and screenshots: ZSLICE_SETTING=name opens the
@@ -79,6 +87,37 @@ struct SettingsInspector: View {
             if let name = ProcessInfo.processInfo.environment["ZSLICE_SETTING"], let info = SettingInfo.byName[name], path.isEmpty {
                 workspace.settingsPath = [.section(group: info.group, section: info.section), .setting(name)]
             }
+        }
+    }
+
+    private var searching: Bool { !search.trimmingCharacters(in: .whitespaces).isEmpty }
+
+    @ViewBuilder private func page(_ route: SettingsRoute) -> some View {
+        switch route {
+        case let .section(group, section):
+            SettingsList(workspace: workspace, title: section.isEmpty ? "General" : section, withSection: false,
+                         settings: SettingInfo.all.filter { $0.group == group && $0.section == section })
+        case let .feature(f):
+            SettingsList(workspace: workspace, title: Feature.titles[f], withSection: true,
+                         settings: SettingInfo.all.filter {
+                             let e = SettingEffect($0.name).features
+                             return (e >> f) & 1 != 0 && e & Feature.all != Feature.all
+                         })
+        case .line:
+            LineSettings(workspace: workspace)
+        case let .setting(name):
+            if let info = SettingInfo.byName[name] {
+                SettingDetail(workspace: workspace, info: info)
+            }
+        }
+    }
+
+    private func title(of route: SettingsRoute) -> String {
+        switch route {
+        case let .section(g, s): "\(SettingInfo.groupTitle(g)) › \(s.isEmpty ? "General" : s)"
+        case let .feature(f): Feature.titles[f]
+        case .line: "Selected Line"
+        case let .setting(name): SettingInfo.byName[name]?.label ?? name
         }
     }
 
@@ -96,7 +135,7 @@ struct SettingsInspector: View {
                 if !names.isEmpty {
                     Section(g.title) {
                         ForEach(names, id: \.self) { s in
-                            NavigationLink(value: SettingsRoute.section(group: g.key, section: s)) {
+                            RouteRow(workspace: workspace, route: .section(group: g.key, section: s)) {
                                 Text(s.isEmpty ? "General" : s)
                             }
                             .onHover { inside in
@@ -175,6 +214,55 @@ struct LineSettings: View {
     }
 }
 
+/// A row that opens a page of the drawer, with a chevron.
+struct RouteRow<Label: View>: View {
+    let workspace: Workspace
+    let route: SettingsRoute
+    @ViewBuilder let label: () -> Label
+
+    var body: some View {
+        Button {
+            workspace.settingsPath.append(route)
+        } label: {
+            HStack {
+                label()
+                Spacer(minLength: 8)
+                Image(systemName: "chevron.right").foregroundStyle(.tertiary)
+            }
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+    }
+}
+
+/// A search field in the style of AppKit (NSSearchField).
+struct SearchField: NSViewRepresentable {
+    @Binding var text: String
+    let prompt: String
+
+    func makeNSView(context: Context) -> NSSearchField {
+        let f = NSSearchField()
+        f.placeholderString = prompt
+        f.delegate = context.coordinator
+        f.sendsSearchStringImmediately = true
+        return f
+    }
+
+    func updateNSView(_ f: NSSearchField, context: Context) {
+        if f.stringValue != text { f.stringValue = text }
+    }
+
+    func makeCoordinator() -> Coordinator { Coordinator(text: $text) }
+
+    final class Coordinator: NSObject, NSSearchFieldDelegate {
+        var text: Binding<String>
+        init(text: Binding<String>) { self.text = text }
+        func controlTextDidChange(_ n: Notification) {
+            if let f = n.object as? NSSearchField { text.wrappedValue = f.stringValue }
+        }
+    }
+}
+
 /// The settings of a section, of a search, or of a feature.
 struct SettingsList: View {
     let workspace: Workspace
@@ -202,21 +290,29 @@ struct SettingRow: View {
 
     var body: some View {
         let entry = workspace.model.entry(info.name)
-        NavigationLink(value: SettingsRoute.setting(info.name)) {
-            HStack(alignment: .firstTextBaseline) {
-                VStack(alignment: .leading, spacing: 2) {
-                    Text(info.label)
-                    let tag = tagText(entry)
-                    if !tag.isEmpty {
-                        Text(tag)
-                            .font(.caption)
-                            .foregroundStyle(entry.isMine ? Color.accentColor : .secondary)
-                    }
+        // The label opens the page of the setting; the editor stays live.
+        HStack(alignment: .firstTextBaseline) {
+            VStack(alignment: .leading, spacing: 2) {
+                Text(info.label)
+                let tag = tagText(entry)
+                if !tag.isEmpty {
+                    Text(tag)
+                        .font(.caption)
+                        .foregroundStyle(entry.isMine ? Color.accentColor : .secondary)
                 }
-                .help(info.doc)
-                Spacer(minLength: 8)
-                SettingEditor(model: workspace.model, info: info, entry: entry, compact: true)
             }
+            .help(info.doc)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .contentShape(Rectangle())
+            .onTapGesture { workspace.settingsPath.append(.setting(info.name)) }
+            SettingEditor(model: workspace.model, info: info, entry: entry, compact: true)
+            Button {
+                workspace.settingsPath.append(.setting(info.name))
+            } label: {
+                Image(systemName: "chevron.right").foregroundStyle(.tertiary)
+            }
+            .buttonStyle(.borderless)
+            .help("Open the page of \(info.label)")
         }
         .onHover { inside in
             let e = SettingEffect(info.name)
@@ -464,7 +560,7 @@ struct EffectList: View {
                 Text("This part has none of these lines now.").foregroundStyle(.secondary)
             }
             ForEach(shown, id: \.self) { f in
-                NavigationLink(value: SettingsRoute.feature(f)) {
+                RouteRow(workspace: workspace, route: .feature(f)) {
                     HStack {
                         Circle().fill(Feature.colors[f]).frame(width: 9, height: 9)
                         Text(Feature.titles[f])

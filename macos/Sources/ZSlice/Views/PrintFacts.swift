@@ -60,7 +60,7 @@ struct PrintFacts: View {
                 FactButton(model: model, text: f.text, help: f.help, settings: f.settings)
             }
         }
-        .frame(width: 260, alignment: .leading)
+        .frame(width: 250, alignment: .leading)
     }
 }
 
@@ -72,9 +72,15 @@ private struct FactButton: View {
     @State private var open = false
 
     var body: some View {
-        Button(text) { open.toggle() }
-            .buttonStyle(.bordered)
-            .controlSize(.small)
+        Button { open.toggle() } label: {
+            Text(text)
+                .font(.caption)
+                .padding(.horizontal, 7)
+                .padding(.vertical, 3)
+                .background(.quaternary.opacity(open ? 1 : 0.6), in: Capsule())
+                .contentShape(Capsule())
+        }
+            .buttonStyle(.plain)
             .help("\(help). Click to change it.")
             .popover(isPresented: $open, arrowEdge: .leading) {
                 Form {

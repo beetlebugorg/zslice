@@ -187,46 +187,58 @@ struct PrintCard: View {
     private var model: SliceModel { workspace.model }
 
     /// The card keeps the facts of the last slice while a new one runs, so
-    /// an editor of the card stays open, and shows the progress over them.
+    /// an editor of the card stays open, and shows the progress under them.
+    /// It is small: the time, the plastic, Export, and the main settings.
     var body: some View {
         let slicing = model.state == .slicing
-        VStack(alignment: .leading, spacing: 6) {
+        VStack(alignment: .leading, spacing: 8) {
             if case .failed(let why) = model.state {
-                Label(why, systemImage: "exclamationmark.triangle")
-                    .frame(maxWidth: 260, alignment: .leading)
+                Label(why, systemImage: "exclamationmark.triangle.fill")
+                    .foregroundStyle(.orange)
+                    .font(.callout)
+                    .fixedSize(horizontal: false, vertical: true)
             }
-            if slicing {
-                ProgressView(value: model.progress) { Text("Slicing…").font(.caption) }
-                    .frame(width: 260)
-            }
-            if let s = model.stats {
-                Group {
-                    Text(duration(s.print_time_s)).font(.title2.weight(.semibold))
-                    Text(String(format: "%.1f g · %.2f m", s.filament_g, s.filament_mm / 1000))
-                    Text("\(s.layer_count) layers").foregroundStyle(.secondary)
-                    if let t = model.sliceSeconds, !slicing {
-                        Text(t < 1 ? String(format: "Sliced in %.0f ms", t * 1000) : String(format: "Sliced in %.1f s", t))
-                            .font(.caption).foregroundStyle(.tertiary)
+            HStack(alignment: .firstTextBaseline) {
+                VStack(alignment: .leading, spacing: 2) {
+                    if let s = model.stats {
+                        Text(duration(s.print_time_s))
+                            .font(.title2.weight(.semibold).monospacedDigit())
+                        Text(String(format: "%.1f g · %.2f m · %d layers", s.filament_g, s.filament_mm / 1000, s.layer_count))
+                            .font(.callout.monospacedDigit())
+                            .foregroundStyle(.secondary)
+                    } else {
+                        Text("Slicing…").font(.title3.weight(.semibold))
                     }
                 }
-                .opacity(slicing ? 0.5 : 1)
+                .opacity(slicing && model.stats != nil ? 0.5 : 1)
+                Spacer(minLength: 12)
+                Button("Export…") { workspace.exportGcode(from: NSApp.keyWindow) }
+                    .keyboardShortcut("e", modifiers: .command)
+                    .buttonStyle(.borderedProminent)
+                    .disabled(model.state != .done)
+                    .help("Export the G-code (⌘E)")
             }
-            if model.state != .empty {
-                PrintFacts(workspace: workspace).padding(.top, 2)
-            }
-            if model.stats != nil {
-                Button("Export G-code…") {
-                    workspace.exportGcode(from: NSApp.keyWindow)
+            // The progress of a slice, or the time of the last one, in one
+            // line of the same height, so the card does not jump.
+            Group {
+                if slicing {
+                    ProgressView(value: model.progress).progressViewStyle(.linear)
+                } else if let t = model.sliceSeconds {
+                    Text(t < 1 ? String(format: "Sliced in %.0f ms", t * 1000) : String(format: "Sliced in %.1f s", t))
+                        .font(.caption)
+                        .foregroundStyle(.tertiary)
                 }
-                .keyboardShortcut("e", modifiers: .command)
-                .controlSize(.large)
-                .buttonStyle(.borderedProminent)
-                .disabled(model.state != .done)
-                .padding(.top, 4)
+            }
+            .frame(height: 12, alignment: .leading)
+            if model.state != .empty {
+                Divider()
+                PrintFacts(workspace: workspace)
             }
         }
-        .padding(14)
+        .frame(width: 250)
+        .padding(12)
         .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 12))
+        .overlay(RoundedRectangle(cornerRadius: 12).strokeBorder(.separator.opacity(0.5)))
         .opacity(model.state == .empty ? 0 : 1)
     }
 
