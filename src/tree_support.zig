@@ -346,6 +346,7 @@ pub fn grow(
         };
         nodes.items.len = keep;
     }
+    try steady(arena, disks, &branches);
     try taper(arena, disks, &branches, 2 * params.tip, params.tip);
     // The circles of each layer. Bed only: the circles of the branches that
     // do not reach the bed go.
@@ -389,6 +390,32 @@ pub fn grow(
         else => unreachable,
     };
     return .{ .body = out, .filled = filled };
+}
+
+/// Makes each branch at least as thick as the branch above it, from the
+/// top down: a disk gets the radius of the disks above it that go on in
+/// it (its own branch, and the branches that join it). So a branch never
+/// gets thinner on the way down: no thin neck under a thick part, and no
+/// collar where a branch joins. Where the part is near, the XY gap cuts
+/// the circle later (support.zig).
+fn steady(a: Allocator, disks: []std.ArrayList(Disk), branches: *const Branches) Allocator.Error!void {
+    var at: std.AutoHashMapUnmanaged(u32, u32) = .empty;
+    var j = disks.len;
+    while (j > 1) {
+        j -= 1;
+        if (disks[j].items.len == 0 or disks[j - 1].items.len == 0) continue;
+        at.clearRetainingCapacity();
+        for (disks[j - 1].items, 0..) |d, k| try at.put(a, d.id, @intCast(k));
+        for (disks[j].items) |d| {
+            const k = at.get(d.id) orelse blk: {
+                const into = branches.into.items[d.id];
+                if (into == no_branch) break :blk null;
+                break :blk at.get(into);
+            } orelse continue;
+            const u = &disks[j - 1].items[k];
+            u.r = @max(u.r, d.r);
+        }
+    }
 }
 
 /// A circle of a branch on one layer.
@@ -977,21 +1004,21 @@ test "join waits until one circle holds the other" {
     try testing.expectEqual(@as(u32, 0), branches.into.items[1]);
 }
 
-test "taper makes a branch over a thin disk thin, as a cone" {
+test "a branch never gets thinner on the way down" {
     var arena = std.heap.ArenaAllocator.init(testing.allocator);
     defer arena.deinit();
     const a = arena.allocator();
     var branches: Branches = .{};
     try branches.into.append(a, no_branch);
     try branches.bed.append(a, true);
-    const disks = try a.alloc(std.ArrayList(Disk), 4);
+    const disks = try a.alloc(std.ArrayList(Disk), 5);
     for (disks) |*d| d.* = .empty;
-    // A branch of radius 5 mm with a thin layer (1 mm) at layer 1.
-    const radii = [_]f64{ 5000, 1000, 5000, 5000 };
+    // A thin neck (1 mm at layer 1) under a thick collar (5 mm at layer 2),
+    // and a thin tip on top: the neck gets the collar's radius.
+    const radii = [_]f64{ 3000, 1000, 5000, 2000, 1000 };
     for (disks, radii) |*d, r| try d.append(a, .{ .x = 0, .y = 0, .r = r, .id = 0 });
+    try steady(a, disks, &branches);
     try taper(a, disks, &branches, 1000, 500);
-    try testing.expectEqual(@as(f64, 5000), disks[0].items[0].r);
-    try testing.expectEqual(@as(f64, 1000), disks[1].items[0].r);
-    try testing.expectEqual(@as(f64, 2000), disks[2].items[0].r);
-    try testing.expectEqual(@as(f64, 3000), disks[3].items[0].r);
+    const want = [_]f64{ 5000, 5000, 5000, 2000, 1000 };
+    for (disks, want) |d, w| try testing.expectEqual(w, d.items[0].r);
 }
