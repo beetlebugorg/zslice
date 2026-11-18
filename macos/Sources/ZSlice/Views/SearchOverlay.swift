@@ -235,7 +235,7 @@ private struct SearchRow: View {
         .onHover { inside in
             guard workspace.searchEye == nil else { return }
             let e = SettingEffect(info.name)
-            workspace.focus(inside ? (e.features != 0 ? e.features : Feature.all) : 0, firstLayer: e.firstLayerOnly, always: true)
+            workspace.focus(inside ? e.features : 0, firstLayer: e.firstLayerOnly, always: true)
         }
     }
 }

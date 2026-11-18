@@ -154,7 +154,7 @@ struct SettingsInspector: View {
     private func sectionFocus(_ group: String, _ section: String) -> UInt32 {
         let mask = SettingInfo.all.filter { $0.group == group && $0.section == section }
             .reduce(UInt32(0)) { $0 | SettingEffect($1.name).features }
-        return mask != 0 ? mask : Feature.all
+        return mask
     }
 
     /// The focus of the view: the lines that the page changes.
@@ -162,7 +162,8 @@ struct SettingsInspector: View {
         switch path.last {
         case let .setting(name)?:
             let e = SettingEffect(name)
-            workspace.focus(e.features != 0 ? e.features : Feature.all, firstLayer: e.firstLayerOnly)
+            // A setting that changes no line: all lines, in their colors.
+            workspace.focus(e.features, firstLayer: e.firstLayerOnly)
         case let .feature(f)?:
             workspace.focus(1 << UInt32(f), firstLayer: false)
         case let .section(g, s)?:
@@ -351,7 +352,7 @@ struct SettingRow: View {
         }
         .onHover { inside in
             let e = SettingEffect(info.name)
-            if inside { workspace.focus(e.features != 0 ? e.features : Feature.all, firstLayer: e.firstLayerOnly) }
+            if inside { workspace.focus(e.features, firstLayer: e.firstLayerOnly) }
         }
     }
 
@@ -408,7 +409,8 @@ struct ValueField: View {
 
     var body: some View {
         HStack(spacing: 4) {
-            TextField(info.label, text: $text)
+            // A prompt, so an empty text field shows where to type.
+            TextField(info.label, text: $text, prompt: Text(info.isNumber ? "" : "None"))
                 .labelsHidden()
                 .multilineTextAlignment(info.isNumber ? .trailing : .leading)
                 .frame(width: info.isNumber ? 72 : 150)
@@ -564,7 +566,7 @@ struct SettingDetail: View {
     }
 
     private func sourceLine(_ entry: SettingEntry) -> String {
-        let def = ValueText.withUnit(info, info.defaultValue)
+        let def = info.defaultValue.isEmpty ? "none" : ValueText.withUnit(info, info.defaultValue)
         if entry.level == 5 {
             let q = coreText(zs_app_quality_name(model.core))
             return "Changed for this print. Reset gives \(ValueText.withUnit(info, entry.base)) (from \(q.isEmpty ? "the default" : q))."

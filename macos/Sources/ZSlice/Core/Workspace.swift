@@ -709,7 +709,7 @@ final class Workspace {
         didSet {
             if let n = searchEye {
                 let e = SettingEffect(n)
-                focus(e.features != 0 ? e.features : Feature.all, firstLayer: e.firstLayerOnly, always: true)
+                focus(e.features, firstLayer: e.firstLayerOnly, always: true)
             } else {
                 focus(0, firstLayer: false, always: true)
             }
