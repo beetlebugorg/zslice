@@ -301,7 +301,9 @@ select.choice {
   background: rgba(40, 40, 44, 0.94); color: #ececee;
   box-shadow: 0 6px 24px rgba(0, 0, 0, 0.35);
 }
-@media (max-width: 900px) { .summary.float-card { width: 230px; } }
+/* The width of the view (a pinned panel makes it narrow), not of the
+   window: the dock leaves room for this card (right: 254px). */
+@container (max-width: 900px) { .preview .summary.float-card { width: 230px; } }
 /* In a narrow view, the bars of the bottom center go to the left, out of
    the way of the print card. */
 .preview { container-type: inline-size; }
@@ -833,6 +835,10 @@ button.destructive { background: #c01c28; color: #fff; }
 .preview .dock .tl-marks { min-width: 0; overflow-x: auto; scrollbar-width: none; }
 .preview .dock > .scrub { flex: 1 1 220px; min-width: 200px; }
 .preview .dock .scrub-label { white-space: nowrap; flex: none; }
+/* A dock with no room for one row (a pinned panel): its parts wrap to a
+   second row, and do not go past the dock. */
+.preview .dock { flex-wrap: wrap; row-gap: 2px; }
+.preview .dock .scrub input { min-width: 60px; width: 60px; }
 @container (max-width: 700px) {
   .preview .layers { bottom: calc(var(--dock-h, 40px) + var(--card-h, 120px) + 30px); }
   /* The rows of a narrow dock: no line at the left, and the label of the
