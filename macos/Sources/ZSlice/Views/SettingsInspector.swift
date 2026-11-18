@@ -625,46 +625,45 @@ struct ScopeBar: View {
     var body: some View {
         let parts = zs_app_part_count(model.core)
         let profiles = model.layerProfiles
-        if parts > 1 || !profiles.isEmpty || model.scope != .print {
-            HStack {
-                Text("For").foregroundStyle(.secondary)
-                Picker("Settings for", selection: Binding(get: { model.scope }, set: { model.scope = $0 })) {
-                    Text("This Print (All Parts)").tag(SettingScope.print)
-                    if parts > 1 {
-                        Divider()
-                        ForEach(0 ..< parts, id: \.self) { i in
-                            Text(partName(i)).tag(SettingScope.part(i))
-                        }
-                    }
-                    if !profiles.isEmpty {
-                        Divider()
-                        ForEach(profiles.indices, id: \.self) { k in
-                            let p = profiles[k]
-                            Text(p.name.isEmpty ? "Layer profile \(k + 1)" : p.name).tag(SettingScope.layers(zMin: p.zMin, zMax: p.zMax, name: p.name))
-                        }
+        HStack {
+            Text("For").foregroundStyle(.secondary)
+            Picker("Settings for", selection: Binding(get: { model.scope }, set: { model.scope = $0 })) {
+                Text("This Print (All Parts)").tag(SettingScope.print)
+                Text("Global (All Prints)").tag(SettingScope.global)
+                if parts > 1 {
+                    Divider()
+                    ForEach(0 ..< parts, id: \.self) { i in
+                        Text(partName(i)).tag(SettingScope.part(i))
                     }
                 }
-                .labelsHidden()
-                .frame(maxWidth: 220)
-                Spacer(minLength: 4)
-                if case let .layers(zMin, zMax, _) = model.scope {
-                    Button(role: .destructive) {
-                        zs_app_profile_remove(model.core, zMin, zMax)
-                        model.scope = .print
-                        model.settingsChanged()
-                    } label: { Image(systemName: "trash") }
-                    .buttonStyle(.borderless)
-                    .help("Delete this layer profile and all its changes")
-                }
-                if model.scope != .print {
-                    Button("Done") { model.scope = .print }
-                        .fixedSize()
+                if !profiles.isEmpty {
+                    Divider()
+                    ForEach(profiles.indices, id: \.self) { k in
+                        let p = profiles[k]
+                        Text(p.name.isEmpty ? "Layer profile \(k + 1)" : p.name).tag(SettingScope.layers(zMin: p.zMin, zMax: p.zMax, name: p.name))
+                    }
                 }
             }
-            .padding(.horizontal, 10)
-            .padding(.vertical, 6)
-            .background(model.scope == .print ? Color.clear : Color.accentColor.opacity(0.12))
+            .labelsHidden()
+            .frame(maxWidth: 220)
+            Spacer(minLength: 4)
+            if case let .layers(zMin, zMax, _) = model.scope {
+                Button(role: .destructive) {
+                    zs_app_profile_remove(model.core, zMin, zMax)
+                    model.scope = .print
+                    model.settingsChanged()
+                } label: { Image(systemName: "trash") }
+                .buttonStyle(.borderless)
+                .help("Delete this layer profile and all its changes")
+            }
+            if model.scope != .print {
+                Button("Done") { model.scope = .print }
+                    .fixedSize()
+            }
         }
+        .padding(.horizontal, 10)
+        .padding(.vertical, 6)
+        .background(model.scope == .print ? Color.clear : Color.accentColor.opacity(0.12))
     }
 
     private func partName(_ i: Int) -> String {

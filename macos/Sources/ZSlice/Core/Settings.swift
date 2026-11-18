@@ -199,6 +199,10 @@ extension SliceModel {
         var e = SettingEntry(value: value, level: rc == 0 ? level : 0,
                              profile: rc == 0 ? profile.withUnsafeBufferPointer { coreText($0.baseAddress) } : "",
                              base: base, formula: formula)
+        if scope == .global {
+            e.value = coreString { zs_app_global_get(core, name, $0, $1, $2) } ?? value
+            e.level = 1
+        }
         if case .layers = scope, let z = scope.z {
             e.value = coreString { zs_app_setting_get_at(core, z, name, $0, $1, $2) } ?? value
             // A change of these layers shows as "this print" (the accent).
@@ -215,6 +219,9 @@ extension SliceModel {
         switch scope {
         case .print:
             rc = zs_app_setting_set(core, name, value)
+        case .global:
+            guard name.hasPrefix("project.") else { return "This setting is in the printer or the filament profile: it has no global value." }
+            rc = setGlobal(name, value)
         case let .part(i):
             rc = zs_app_part_setting_set(core, i, name, value)
         case let .layers(zMin, zMax, _):
@@ -234,6 +241,8 @@ extension SliceModel {
         switch scope {
         case .print:
             set(name, entry(name).base)
+        case .global:
+            if setGlobal(name, nil) == 0 { settingsChanged() }
         case let .part(i):
             zs_app_part_setting_set(core, i, name, nil)
             settingsChanged()
@@ -241,6 +250,21 @@ extension SliceModel {
             zs_app_override_remove(core, zMin, zMax, name)
             settingsChanged()
         }
+    }
+
+    /// A global setting (nil: the default again), on each plate of the
+    /// window, and in global.toml. The other plates slice again.
+    private func setGlobal(_ name: String, _ value: String?) -> Int32 {
+        let rc = zs_app_global_setting_set(core, name, value)
+        guard rc == 0 else { return rc }
+        for i in plates.indices where i != active {
+            if let app = zs_set_app(set, i) {
+                zs_app_global_setting_set(app, name, value)
+                zs_set_changed(set, i)
+            }
+        }
+        SavedSettings.saveGlobal(from: core)
+        return 0
     }
 
     /// The layer profiles of the plate.
@@ -265,6 +289,8 @@ extension SliceModel {
 /// layers of a layer profile (z_min..z_max).
 enum SettingScope: Hashable {
     case print
+    /// The global settings of the user: project settings for all prints.
+    case global
     case part(Int)
     case layers(zMin: Double, zMax: Double, name: String)
 

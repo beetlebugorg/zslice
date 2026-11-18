@@ -40,7 +40,7 @@ Command and a click selects a part, Command and a drag moves it, and Command and
 
 The drawer is the inspector at the right of the window. It always sits beside the view, so it has no Pin. Settings and History are its two pages. Its header has a back button (Command-[).
 
-The bar at the top of the Settings page picks what the editors change: This Print, one part (with more than one part on the plate), or a layer profile. With a part or a profile, a change goes only there, the bar is in the accent color, and Done goes back to the print. New Profile from Here Up (or Down) in the context menu of a line makes a layer profile, and Edit Settings for This Part on the part card opens the settings of the part. The editors of the search and of the print card follow the same bar.
+The bar at the top of the Settings page picks what the editors change: This Print, Global (your settings for all prints, in `global.toml`), one part (with more than one part on the plate), or a layer profile. With a part or a profile, a change goes only there, the bar is in the accent color, and Done goes back to the print. New Profile from Here Up (or Down) in the context menu of a line makes a layer profile, and Edit Settings for This Part on the part card opens the settings of the part. The editors of the search and of the print card follow the same bar.
 
 ## The print card
 
