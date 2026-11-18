@@ -188,7 +188,7 @@ pub fn grow(
                 if (nd.alive and oi.inside(pointOf(nd))) nd.alive = false;
             }
         }
-        try join(la, nodes.items);
+        try join(la, nodes.items, params.max_r);
         // 4. The circles of this layer.
         for (nodes.items) |nd| if (nd.alive) try circles[j].append(arena, try circle(arena, nd.x, nd.y, nd.r));
         // Drop the nodes that ended.
@@ -540,8 +540,8 @@ fn attract(a: Allocator, nodes: []Node, step: f64, params: Params) Allocator.Err
 
 /// Joins nodes that touch (the center of one is in the other): the new
 /// node is at the middle (weighted by the area of each), with the radius of
-/// the same area.
-fn join(a: Allocator, nodes: []Node) Allocator.Error!void {
+/// the same area, up to `max_r`.
+fn join(a: Allocator, nodes: []Node, max_r: f64) Allocator.Error!void {
     var big: f64 = 1;
     for (nodes) |nd| big = @max(big, nd.r);
     const cells = try Cells.build(a, nodes, 2 * big);
@@ -565,7 +565,7 @@ fn join(a: Allocator, nodes: []Node) Allocator.Error!void {
                     const wb = b.r * b.r;
                     nd.x = (nd.x * wa + b.x * wb) / (wa + wb);
                     nd.y = (nd.y * wa + b.y * wb) / (wa + wb);
-                    nd.r = @sqrt(wa + wb);
+                    nd.r = @min(max_r, @sqrt(wa + wb));
                     nd.age = @min(nd.age, b.age);
                     b.alive = false;
                 }
