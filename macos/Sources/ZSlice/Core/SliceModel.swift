@@ -96,6 +96,9 @@ final class SliceModel {
         set = s
         b.model = self
         readPlates()
+        // The settings of the last session (SavedSettings.swift); a test
+        // run (ZSLICE_FRESH=1) starts from the defaults.
+        if ProcessInfo.processInfo.environment["ZSLICE_FRESH"] == nil { SavedSettings.load(into: core) }
     }
 
     isolated deinit {

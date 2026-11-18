@@ -71,7 +71,10 @@ final class History {
         timer?.cancel()
         timer = nil
         let before = current
-        if zs_app_history_commit(core, now) != 0 { listChanged(from: before) }
+        if zs_app_history_commit(core, now) != 0 {
+            listChanged(from: before)
+            if ProcessInfo.processInfo.environment["ZSLICE_FRESH"] == nil { SavedSettings.save(from: core) }
+        }
     }
 
     /// The setting whose editor has the focus (nil: none).
@@ -128,6 +131,7 @@ final class History {
 
     private func applied(_ bits: Int32) {
         generation += 1
+        if bits != 0, ProcessInfo.processInfo.environment["ZSLICE_FRESH"] == nil { SavedSettings.save(from: core) }
         if bits != 0 { model.restored() }
     }
 
