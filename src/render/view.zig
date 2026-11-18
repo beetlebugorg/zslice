@@ -198,6 +198,8 @@ pub const View = struct {
     /// The rings of the Turn tool around the selected part (see
     /// `setRings`): the center and the radius, mm.
     rings: ?struct { c: [3]f32, r: f32 } = null,
+    /// The plane of a cut (see `setCut`): x0, y0, x1, y1, and z (mm).
+    cut_plane: ?[5]f32 = null,
     /// The ring of a turn in progress (0 X, 1 Y, 2 Z), or -1.
     ring_axis: i8 = -1,
     /// The press of a turn: the center of the ring on the screen, the
@@ -1093,6 +1095,12 @@ pub const View = struct {
         const s = if (size > 0) size else v.extent;
         v.lookAtSmooth(.{ p[0], p[1], p[2] }, n, @max(20, 1.4 * s));
         return true;
+    }
+
+    /// The plane of a cut: the box x0, y0, x1, y1 at height z (mm), drawn
+    /// as a frame with lines across it. A box with no area: no plane.
+    pub fn setCut(v: *View, box: [4]f32, z: f32) void {
+        v.cut_plane = if (box[2] > box[0] and box[3] > box[1]) .{ box[0], box[1], box[2], box[3], z } else null;
     }
 
     /// The rings of the Turn tool: a ring for each axis around the point
@@ -2387,6 +2395,32 @@ pub const View = struct {
                                 .{ .ax = a[0], .ay = a[1], .bx = b[0], .by = b[1], .z = (a[2] + b[2]) / 2 + h / 2, .h = h, .w = w, .rgba = colors[axis] };
                             n_extras += 1;
                         };
+                    }
+                }
+                // The plane of a cut: a frame and lines across it, orange.
+                if (v.cut_plane) |cp| {
+                    const orange = [4]u8{ 0xff, 0x7a, 0x1a, code_overlay };
+                    const span = std.math.clamp(v.dist * 0.003, 0.12, 2);
+                    const z = cp[4];
+                    const across = 6;
+                    var k: usize = 0;
+                    while (k <= across + 4) : (k += 1) {
+                        if (n_extras == extras.len) break;
+                        // 4 sides, then lines across in X.
+                        const seg: [4]f32 = switch (k) {
+                            0 => .{ cp[0], cp[1], cp[2], cp[1] },
+                            1 => .{ cp[2], cp[1], cp[2], cp[3] },
+                            2 => .{ cp[2], cp[3], cp[0], cp[3] },
+                            3 => .{ cp[0], cp[3], cp[0], cp[1] },
+                            else => across_line: {
+                                const t = @as(f32, @floatFromInt(k - 3)) / (across + 2);
+                                const x = cp[0] + (cp[2] - cp[0]) * t;
+                                break :across_line .{ x, cp[1], x, cp[3] };
+                            },
+                        };
+                        const w = if (k < 4) span * 2 else span;
+                        extras[n_extras] = .{ .ax = seg[0], .ay = seg[1], .bx = seg[2], .by = seg[3], .z = z + w / 2, .h = w, .w = w, .rgba = orange };
+                        n_extras += 1;
                     }
                 }
                 // The frame of the selected part: four thin beads on the bed.

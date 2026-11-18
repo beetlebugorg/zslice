@@ -1214,6 +1214,23 @@ export fn zs_app_part_split(a: ?*App, i: usize) isize {
     const app = a orelse return -@as(isize, @intFromEnum(Status.invalid_argument));
     if (i >= app.plate.count()) return -@as(isize, @intFromEnum(Status.out_of_range));
     const n = app.splitPart(i) catch |e| return -@as(isize, status(e));
+    if (n > 0) noted(app, null, true);
+    return @intCast(n);
+}
+
+/// Cuts part i with a level plane at height z (mm above the bed): the part
+/// below and the part above, each closed, with the settings of part i, at
+/// index i and i + 1. flip != 0 turns the upper part over, onto its cut
+/// face. pegs > 0: at most that many holes for pegs in both parts, and the
+/// pegs (diameter `peg_d` mm, 0: 5 mm) as parts at the end of the plate.
+/// Returns the count of new parts (2 and the pegs), 0 if the plane misses
+/// the part, or -status.
+export fn zs_app_part_cut(a: ?*App, i: usize, z: f64, flip: c_int, pegs: c_int, peg_d: f64) isize {
+    const app = a orelse return -@as(isize, @intFromEnum(Status.invalid_argument));
+    if (i >= app.plate.count()) return -@as(isize, @intFromEnum(Status.out_of_range));
+    const p: zs.cut.Pegs = .{ .count = @intCast(std.math.clamp(pegs, 0, 8)), .diameter = if (peg_d > 0) peg_d else 5 };
+    const n = app.cutPart(i, z, flip != 0, p) catch |e| return -@as(isize, status(e));
+    if (n > 0) noted(app, null, true);
     return @intCast(n);
 }
 

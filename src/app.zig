@@ -624,6 +624,15 @@ pub const App = struct {
         return n;
     }
 
+    /// Cuts part i at height z above the bed (Plate.cut). Returns 2, or 0
+    /// if the plane misses the part.
+    pub fn cutPart(app: *App, i: usize, z: f64, flip: bool, pegs: zs.cut.Pegs) Allocator.Error!usize {
+        app.stopWorker();
+        const n = try app.plate.cut(app.gpa, i, z, flip, pegs, app.bedSize(), app.partGap());
+        if (n > 0) try app.plateChanged();
+        return n;
+    }
+
     pub fn removePart(app: *App, i: usize) Allocator.Error!void {
         app.stopWorker();
         app.plate.remove(app.gpa, i);

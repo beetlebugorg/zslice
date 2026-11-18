@@ -308,6 +308,63 @@ pub const Plate = struct {
         return bodies.len;
     }
 
+    /// Cuts part i with a level plane at height z above the bed (cut.zig):
+    /// the part below and the part above, each closed, with the settings
+    /// of part i. `flip` turns the upper part over (180 degrees about X),
+    /// so that it prints on its cut face. `pegs`: holes for pegs in both
+    /// parts, and the pegs as parts of their own ("<name> (peg)"), so the
+    /// parts line up when they are joined. The parts replace part i, from
+    /// index i on, the upper part and the pegs go to free places. Returns
+    /// the count of new parts (2 and the pegs), or 0 if the plane misses
+    /// the part.
+    pub fn cut(self: *Plate, gpa: Allocator, i: usize, z: f64, flip: bool, pegs: @import("cut.zig").Pegs, bed: [2]f64, gap: f64) Allocator.Error!usize {
+        if (i >= self.parts.items.len) return 0;
+        var placed = try self.partMesh(gpa, i);
+        defer placed.deinit(gpa);
+        var r = try @import("cut.zig").cutZPegs(gpa, placed, z, pegs);
+        defer gpa.free(r.pegs);
+        var given: u2 = 0;
+        defer {
+            if (given < 1) r.below.deinit(gpa);
+            if (given < 2) r.above.deinit(gpa);
+        }
+        if (r.below.faces.items.len == 0 or r.above.faces.items.len == 0) return 0;
+        if (flip) for (r.above.vertices.items) |*v| {
+            v.y = -v.y;
+            v.z = -v.z;
+        };
+        const src = &self.parts.items[i];
+        const base = try gpa.dupe(u8, src.name);
+        defer gpa.free(base);
+        const meta = try threemf.cloneMeta(gpa, src.meta);
+        defer threemf.freeMeta(gpa, meta);
+        self.remove(gpa, i);
+        const names = [2][]const u8{ "bottom", "top" };
+        for (0..2) |k| {
+            given = @intCast(k + 1);
+            const m = if (k == 0) r.below else r.above;
+            const name = try std.fmt.allocPrint(gpa, "{s} ({s})", .{ base, names[k] });
+            defer gpa.free(name);
+            // The bottom keeps its place; the top keeps it if it fits.
+            const j = try self.add(gpa, name, m, bed, gap, true);
+            self.setMeta(gpa, j, try threemf.cloneMeta(gpa, meta));
+            const part = self.parts.pop().?;
+            try self.parts.insert(gpa, i + k, part);
+        }
+        // The pegs: a cylinder each, 1 mm shorter than its two holes.
+        for (r.pegs) |pg| {
+            const len = pg.below + pg.above - 1;
+            const m = mesh_mod.shapes.frustum(gpa, 0, 0, pegs.diameter / 2, pegs.diameter / 2, len, 24) catch |e| switch (e) {
+                error.OutOfMemory => return error.OutOfMemory,
+                else => continue,
+            };
+            const name = try std.fmt.allocPrint(gpa, "{s} (peg)", .{base});
+            defer gpa.free(name);
+            _ = try self.add(gpa, name, m, bed, gap, false);
+        }
+        return 2 + r.pegs.len;
+    }
+
     pub fn remove(self: *Plate, gpa: Allocator, i: usize) void {
         if (i >= self.parts.items.len) return;
         var p = self.parts.orderedRemove(i);
@@ -814,3 +871,28 @@ test "plate: split a part into its bodies" {
     // One body: no change.
     try std.testing.expectEqual(@as(usize, 0), try plate.split(gpa, 0, .{ 200, 200 }, 2));
 }
+
+test "plate: cut a part in two" {
+    const gpa = std.testing.allocator;
+    var b: mesh_mod.Builder = .init(gpa);
+    try mesh_mod.shapes.addBox(&b, 0, 0, 0, 20, 20, 30);
+    const m = try b.finish();
+    var plate: Plate = .{};
+    defer plate.deinit(gpa);
+    _ = try plate.add(gpa, "box", m, .{ 200, 200 }, 2, false);
+    try std.testing.expectEqual(@as(usize, 2), try plate.cut(gpa, 0, 10, true, .{}, .{ 200, 200 }, 2));
+    try std.testing.expectEqual(@as(usize, 2), plate.count());
+    try std.testing.expectEqualStrings("box (bottom)", plate.parts.items[0].name);
+    try std.testing.expectApproxEqAbs(@as(f64, 10), plate.parts.items[0].height, 1e-4);
+    try std.testing.expectApproxEqAbs(@as(f64, 20), plate.parts.items[1].height, 1e-4);
+    // The two parts do not overlap on the bed.
+    const f0 = plate.parts.items[0].footprint();
+    const f1 = plate.parts.items[1].footprint();
+    try std.testing.expect(f1[0] >= f0[2] or f1[2] <= f0[0] or f1[1] >= f0[3] or f1[3] <= f0[1]);
+    // A plane over the part: no change.
+    try std.testing.expectEqual(@as(usize, 0), try plate.cut(gpa, 0, 50, false, .{}, .{ 200, 200 }, 2));
+    // With pegs: 2 parts and 2 pegs.
+    try std.testing.expectEqual(@as(usize, 4), try plate.cut(gpa, 1, 10, false, .{ .count = 2 }, .{ 200, 200 }, 2));
+    try std.testing.expectEqualStrings("box (top) (peg)", plate.parts.items[plate.count() - 1].name);
+}
+

@@ -657,6 +657,10 @@ button.destructive { background: #c01c28; color: #fff; }
   box-shadow: 0 10px 30px rgba(0, 0, 0, 0.45);
 }
 .pc-actions { display: flex; flex-wrap: wrap; gap: 4px; }
+.pc-cut { display: flex; flex-direction: column; gap: 6px; padding: 6px 0; border-top: 1px solid var(--border); }
+.pc-cut-row { display: flex; align-items: center; gap: 6px; font-size: 0.9em; }
+.pc-cut-row input[type="range"] { flex: 1; min-width: 80px; }
+.pc-cut-n { width: 4.5em; }
 .pc-action { min-height: 28px; padding: 3px 9px; font-size: 0.85em; border-radius: 7px; }
 .pc-heading { font-size: 0.75em; font-weight: 700; letter-spacing: 0.04em; text-transform: uppercase; opacity: 0.6; }
 .pc-clear { min-height: 22px; min-width: 22px; padding: 0; opacity: 0.7; }

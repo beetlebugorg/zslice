@@ -749,6 +749,12 @@ var partCard = new PartCard({
   select: (part) => tools.selectPart(part),
   search: (text, scope) => search.show(text, scope),
   toast: (t) => toast(t),
+  // The plane of a cut (zs_view_set_cut): a box and a height, or null.
+  cutPlane: (b) => {
+    if (b) view.x.zs_view_set_cut(view.v, b[0], b[1], b[2], b[3], b[4]);
+    else view.x.zs_view_set_cut(view.v, 0, 0, 0, 0, 0);
+    requestFrame();
+  },
 });
 
 // The card of a selected line, next to it in the view (linecard.js).

@@ -350,7 +350,7 @@ function historyList() {
 // The ops that change the settings, and the ops that change the plate:
 // each starts or extends a step.
 const SETTING_OPS = new Set(["set", "reset", "quality", "profile", "setScoped", "resetScoped"]);
-const PLATE_OPS = new Set(["load", "add", "plate", "projectLoad", "partAction", "partSettingSet", "partPutDown", "partTurn", "putDown", "place", "partMove", "partRotate", "markAdd", "markRemoveNear", "markSet", "markRemove", "marksClear"]);
+const PLATE_OPS = new Set(["load", "add", "plate", "projectLoad", "partAction", "partCut", "partSettingSet", "partPutDown", "partTurn", "putDown", "place", "partMove", "partRotate", "markAdd", "markRemoveNear", "markSet", "markRemove", "marksClear"]);
 
 const ops = {
   async init({ module, saved, mode: m }) {
@@ -696,6 +696,16 @@ const ops = {
     const n = core.w.x.zs_app_part_count(core.app);
     const at = action === "duplicate" && r >= 0 ? r : index;
     return { ok: r >= 0, count: action === "split" ? r : 0, part: action === "remove" || at >= n ? null : core.part(at) };
+  },
+
+  // Cuts part `index` at height z (mm above the bed): two parts, at index
+  // and index + 1 (zs_app_part_cut). flip: the top goes onto its cut face.
+  // pegs: the most pegs (0: none), pegD: their diameter (mm).
+  partCut({ index, z, flip, pegs, pegD }) {
+    const r = core.w.x.zs_app_part_cut(core.app, index, z, flip ? 1 : 0, pegs ?? 0, pegD ?? 5);
+    if (r <= 0) return { ok: false, message: r === 0 ? "The plane does not cut the part." : "The cut failed." };
+    wantSlice();
+    return { ok: true, pegs: r - 2, part: core.part(index) };
   },
 
   // The part `dir` steps from part `index` (Tab and Shift+Tab), around

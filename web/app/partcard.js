@@ -3,8 +3,9 @@
 // part, and the card shows:
 //
 // - its name, its size, and its turn;
-// - its actions: Duplicate (D), Split to parts, Best orientation, Less
-//   support, Reset, and Remove (Delete);
+// - its actions: Duplicate (D), Split to parts, Cut… (a level plane at a
+//   height, shown in the view while the slider moves), Best orientation,
+//   Less support, Reset, and Remove (Delete);
 // - the settings that the part has of its own (not the values of the
 //   plate), each with a live editor and × to give it the value of the
 //   plate again. "+ Add a setting for this part" opens the search for the
@@ -49,6 +50,7 @@ export class PartCard {
   }
 
   close() {
+    this.endCut();
     this.userAt = null;
     this.node?.remove();
     this.node = null;
@@ -81,15 +83,21 @@ export class PartCard {
     };
     action("Duplicate", "D", "A copy of the part at a free place on the bed", "duplicate");
     action("Split to parts", "", "Make each separate body of the part a part of its own, at its place", "split");
+    const cutB = el("button", "pc-action", "Cut…");
+    cutB.title = "Cut the part in two with a level plane";
+    cutB.onclick = () => this.toggleCut();
+    actions.append(cutB);
     action("Best orientation", "", "Turn the part to its best orientation: less support, more on the bed, low", "smart");
     action("Less support", "", "Turn the part to need the least support", "less-support");
     action("Reset", "", "The orientation and the scale of the file again", "reset");
     action("Remove", "Delete", "Remove the part from the plate", "remove");
+    this.cutBox = el("div", "pc-cut");
+    this.cutBox.hidden = true;
     this.settingsBox = el("div", "lc-settings");
     const add = el("button", "flat pc-add", "+ Add a setting for this part");
     add.title = "Search the settings that a part can have of its own";
     add.onclick = () => this.ctx.search("", this.scope());
-    card.append(head, this.facts, actions, this.settingsBox, add);
+    card.append(head, this.facts, actions, this.cutBox, this.settingsBox, add);
     card.addEventListener("keydown", (e) => {
       if (e.key === "Escape" && !e.target.closest("input, select, textarea")) {
         e.preventDefault();
@@ -99,6 +107,81 @@ export class PartCard {
     });
     this.ctx.host.append(card);
     this.node = card;
+  }
+
+  // ---- the cut ----
+
+  // Opens the row of the cut: the height (a slider and a number), the flip,
+  // and Cut. The plane shows in the view while the row is open.
+  toggleCut() {
+    if (!this.cutBox.hidden) {
+      this.endCut();
+      return;
+    }
+    const p = this.part;
+    const box = this.cutBox;
+    box.replaceChildren();
+    const h = el("label", "pc-cut-row");
+    h.append(el("span", "", "Height"));
+    const slider = Object.assign(document.createElement("input"), { type: "range", min: "0.2", max: String(Math.max(0.4, p.sizeZ - 0.2)), step: "0.1", value: String((p.sizeZ / 2).toFixed(1)) });
+    const num = Object.assign(document.createElement("input"), { type: "number", min: slider.min, max: slider.max, step: "0.1", value: slider.value, className: "pc-cut-n" });
+    num.setAttribute("aria-label", "The height of the cut, mm");
+    h.append(slider, num, el("span", "dim", "mm"));
+    const flipL = el("label", "pc-cut-row");
+    const flip = Object.assign(document.createElement("input"), { type: "checkbox", checked: true });
+    flipL.append(flip, el("span", "", "Turn the top over (it prints on its cut face)"));
+    // Pegs: holes in both cut faces, and the pegs as parts, to line the
+    // parts up when they are glued.
+    const pegL = el("label", "pc-cut-row");
+    const pegOn = Object.assign(document.createElement("input"), { type: "checkbox", checked: true });
+    const pegN = document.createElement("select");
+    for (const n of [1, 2, 3, 4]) pegN.append(new Option(String(n), String(n), false, n === 2));
+    pegN.setAttribute("aria-label", "The most pegs");
+    const pegD = Object.assign(document.createElement("input"), { type: "number", min: "2", max: "20", step: "0.5", value: "5", className: "pc-cut-n" });
+    pegD.setAttribute("aria-label", "The diameter of a peg, mm");
+    pegL.title = "Holes in both cut faces, and pegs that print as parts of their own. Glue the pegs into the holes: the parts line up. A peg goes only where the part is wide and deep enough.";
+    pegL.append(pegOn, el("span", "", "Pegs to line up the parts:"), pegN, el("span", "", "of"), pegD, el("span", "dim", "mm"));
+    const go = el("button", "pc-action", "Cut");
+    const cancel = el("button", "flat", "Cancel");
+    const row = el("div", "pc-cut-row");
+    row.append(go, cancel);
+    box.append(h, flipL, pegL, row);
+    box.hidden = false;
+    const show = () => {
+      const z = Number(num.value) || 0;
+      this.ctx.cutPlane?.([p.x - p.sizeX / 2 - 3, p.y - p.sizeY / 2 - 3, p.x + p.sizeX / 2 + 3, p.y + p.sizeY / 2 + 3, z]);
+    };
+    slider.oninput = () => {
+      num.value = slider.value;
+      show();
+    };
+    num.oninput = () => {
+      slider.value = num.value;
+      show();
+    };
+    cancel.onclick = () => this.endCut();
+    go.onclick = async () => {
+      const r = await this.ctx.client.call("partCut", { index: p.index, z: Number(num.value), flip: flip.checked, pegs: pegOn.checked ? Number(pegN.value) : 0, pegD: Number(pegD.value) || 5 });
+      this.endCut();
+      if (!r.ok) {
+        this.ctx.toast(r.message);
+        return;
+      }
+      if (pegOn.checked && r.pegs === 0) this.ctx.toast("Cut into two parts. No peg fits: the cut is too small or too thin for one.");
+      else if (r.pegs > 0) this.ctx.toast(`Cut into two parts, with ${r.pegs} ${r.pegs === 1 ? "peg" : "pegs"}. Glue the pegs into the holes to join the parts.`);
+      else this.ctx.toast("Cut into two parts.");
+      this.ctx.select(r.part);
+    };
+    show();
+    this.place();
+  }
+
+  endCut() {
+    if (!this.cutBox || this.cutBox.hidden) return;
+    this.cutBox.hidden = true;
+    this.cutBox.replaceChildren();
+    this.ctx.cutPlane?.(null);
+    this.place();
   }
 
   updateFacts() {

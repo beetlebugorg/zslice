@@ -15,6 +15,13 @@
 //!    holes the same way). The cap of the lower part faces up, the cap of
 //!    the upper part faces down.
 //!
+//! Pegs (`Pegs`): to join the two parts after the print, the cut can put
+//! holes for pegs in both caps. Each hole goes into the solid of each part
+//! as a closed well (a ring wall and an end disc), and the pegs print as
+//! parts of their own. A peg goes only where its hole, with a wall around
+//! it, lies inside the solid of the cut, and the depth of each well stops
+//! 1 mm before the next surface of the mesh under or over the cut.
+//!
 //! SPDX-License-Identifier: AGPL-3.0-or-later
 
 const std = @import("std");
@@ -23,13 +30,34 @@ const mesh_mod = @import("mesh.zig");
 const Mesh = mesh_mod.Mesh;
 const Vec3 = mesh_mod.Vec3;
 
+/// The pegs of a cut.
+pub const Pegs = struct {
+    /// The count: 0 none, or the most to place (the largest outline of the
+    /// cut gets them, as far apart as possible).
+    count: u8 = 0,
+    /// The diameter of a peg, mm.
+    diameter: f64 = 5,
+    /// The gap between a peg and its hole, mm (on the radius).
+    clearance: f64 = 0.15,
+    /// The most depth of a hole in each part, mm.
+    depth: f64 = 8,
+};
+
+/// A placed peg: its center on the cut, and the depth of its hole in each
+/// part (mm). A peg for the plate is a cylinder of the peg diameter and
+/// the length below + above - 1 mm.
+pub const Peg = struct { x: f64, y: f64, below: f64, above: f64 };
+
 pub const Result = struct {
     below: Mesh,
     above: Mesh,
+    /// The pegs that the cut placed (gpa), or empty.
+    pegs: []Peg = &.{},
 
     pub fn deinit(r: *Result, gpa: Allocator) void {
         r.below.deinit(gpa);
         r.above.deinit(gpa);
+        gpa.free(r.pegs);
     }
 };
 
@@ -55,6 +83,11 @@ fn cross(a0: Vec3, b0: Vec3, z: f32) Vec3 {
 /// Cuts `mesh` at height z. Either result can be empty (all of the mesh on
 /// one side).
 pub fn cutZ(gpa: Allocator, mesh: Mesh, z_in: f64) Allocator.Error!Result {
+    return cutZPegs(gpa, mesh, z_in, .{});
+}
+
+/// `cutZ`, with holes for pegs.
+pub fn cutZPegs(gpa: Allocator, mesh: Mesh, z_in: f64, pegs: Pegs) Allocator.Error!Result {
     const z: f32 = @floatCast(z_in);
     var below: mesh_mod.Builder = .init(gpa);
     defer below.deinit();
@@ -96,8 +129,148 @@ pub fn cutZ(gpa: Allocator, mesh: Mesh, z_in: f64) Allocator.Error!Result {
         // piece), and from pab to pac when it is above.
         try segs.append(gpa, if (lone_up) .{ pab, pac } else .{ pac, pab });
     }
-    try capCut(gpa, segs.items, z, &below, &above);
-    return .{ .below = try finishOrEmpty(&below), .above = try finishOrEmpty(&above) };
+    const placed = try capCut(gpa, segs.items, z, &below, &above, mesh, pegs);
+    errdefer gpa.free(placed);
+    return .{ .below = try finishOrEmpty(&below), .above = try finishOrEmpty(&above), .pegs = placed };
+}
+
+const peg_sides = 24;
+
+/// The distance from (x, y, z) along -z (down < 0) or +z to the nearest
+/// face of the mesh, or inf.
+fn rayDist(mesh: Mesh, x: f32, y: f32, z: f32, up: bool) f32 {
+    var best: f32 = std.math.inf(f32);
+    const vs = mesh.vertices.items;
+    for (mesh.faces.items) |f| {
+        const a = vs[f[0]];
+        const b = vs[f[1]];
+        const c = vs[f[2]];
+        // The point (x, y) in the triangle, seen from above.
+        const d = (b.y - c.y) * (a.x - c.x) + (c.x - b.x) * (a.y - c.y);
+        if (d == 0) continue;
+        const l0 = ((b.y - c.y) * (x - c.x) + (c.x - b.x) * (y - c.y)) / d;
+        const l1 = ((c.y - a.y) * (x - c.x) + (a.x - c.x) * (y - c.y)) / d;
+        const l2 = 1 - l0 - l1;
+        if (l0 < 0 or l1 < 0 or l2 < 0) continue;
+        const fz = l0 * a.z + l1 * b.z + l2 * c.z;
+        const dist = if (up) fz - z else z - fz;
+        if (dist > 1e-4 and dist < best) best = dist;
+    }
+    return best;
+}
+
+/// The distance from q to the polygon edges.
+fn edgeDist(poly: []const P2, q: P2) f32 {
+    var best: f32 = std.math.inf(f32);
+    for (poly, 0..) |a, i| {
+        const b = poly[(i + 1) % poly.len];
+        const ex = b[0] - a[0];
+        const ey = b[1] - a[1];
+        const l2 = ex * ex + ey * ey;
+        const t = if (l2 > 0) std.math.clamp(((q[0] - a[0]) * ex + (q[1] - a[1]) * ey) / l2, 0, 1) else 0;
+        const dx = a[0] + ex * t - q[0];
+        const dy = a[1] + ey * t - q[1];
+        best = @min(best, @sqrt(dx * dx + dy * dy));
+    }
+    return best;
+}
+
+/// The places of the pegs in an outline with its holes: the points of a
+/// grid where a hole of radius r and a wall of 2 mm fit, as far apart as
+/// possible (the first two: the farthest pair).
+fn pegPlaces(gpa: Allocator, outer: []const P2, holes: []const []P2, r: f32, count: u8) Allocator.Error![]P2 {
+    var lo = P2{ std.math.inf(f32), std.math.inf(f32) };
+    var hi = P2{ -std.math.inf(f32), -std.math.inf(f32) };
+    for (outer) |q| {
+        lo = .{ @min(lo[0], q[0]), @min(lo[1], q[1]) };
+        hi = .{ @max(hi[0], q[0]), @max(hi[1], q[1]) };
+    }
+    const keep = r + 2;
+    var cands: std.ArrayList(P2) = .empty;
+    defer cands.deinit(gpa);
+    const step: f32 = @max(1, @max(hi[0] - lo[0], hi[1] - lo[1]) / 40);
+    var y = lo[1] + keep;
+    while (y <= hi[1] - keep) : (y += step) {
+        var x = lo[0] + keep;
+        while (x <= hi[0] - keep) : (x += step) {
+            const q = P2{ x, y };
+            if (!inside(outer, q) or edgeDist(outer, q) < keep) continue;
+            var ok = true;
+            for (holes) |h| if (inside(h, q) or edgeDist(h, q) < keep) {
+                ok = false;
+            };
+            if (ok) try cands.append(gpa, q);
+        }
+    }
+    var out: std.ArrayList(P2) = .empty;
+    errdefer out.deinit(gpa);
+    if (cands.items.len == 0 or count == 0) return out.toOwnedSlice(gpa);
+    // The farthest pair, then each next point farthest from the chosen.
+    var best_d: f32 = -1;
+    var pa: usize = 0;
+    var pb: usize = 0;
+    for (cands.items, 0..) |a, i| for (cands.items[i + 1 ..], i + 1..) |b, j| {
+        const d = (a[0] - b[0]) * (a[0] - b[0]) + (a[1] - b[1]) * (a[1] - b[1]);
+        if (d > best_d) {
+            best_d = d;
+            pa = i;
+            pb = j;
+        }
+    };
+    try out.append(gpa, cands.items[pa]);
+    if (count >= 2 and pb != pa and best_d >= (2 * keep) * (2 * keep)) try out.append(gpa, cands.items[pb]);
+    while (out.items.len < count) {
+        var far: f32 = -1;
+        var at: usize = 0;
+        for (cands.items, 0..) |c, i| {
+            var m: f32 = std.math.inf(f32);
+            for (out.items) |o| m = @min(m, (c[0] - o[0]) * (c[0] - o[0]) + (c[1] - o[1]) * (c[1] - o[1]));
+            if (m > far) {
+                far = m;
+                at = i;
+            }
+        }
+        if (far < (2 * keep) * (2 * keep)) break;
+        try out.append(gpa, cands.items[at]);
+    }
+    return out.toOwnedSlice(gpa);
+}
+
+/// The ring of a peg hole, clockwise (a hole).
+fn pegRing(c: P2, r: f32) [peg_sides]P2 {
+    var out: [peg_sides]P2 = undefined;
+    for (&out, 0..) |*q, k| {
+        const a = -2 * std.math.pi * @as(f32, @floatFromInt(k)) / peg_sides;
+        q.* = .{ c[0] + r * @cos(a), c[1] + r * @sin(a) };
+    }
+    return out;
+}
+
+/// The well of a peg hole in one part: the ring wall from the cut at z to
+/// z + dz (dz < 0: down into the lower part), and the end disc. The faces
+/// point into the hole.
+fn addWell(b: *mesh_mod.Builder, ring: []const P2, c: P2, z: f32, dz: f32) void {
+    const end = z + dz;
+    for (ring, 0..) |p, k| {
+        const q = ring[(k + 1) % ring.len];
+        // The ring is clockwise from above.
+        const tp = Vec3{ .x = p[0], .y = p[1], .z = z };
+        const tq = Vec3{ .x = q[0], .y = q[1], .z = z };
+        const ep = Vec3{ .x = p[0], .y = p[1], .z = end };
+        const eq_ = Vec3{ .x = q[0], .y = q[1], .z = end };
+        const mid = Vec3{ .x = c[0], .y = c[1], .z = end };
+        if (dz < 0) {
+            addTri(b, tp, ep, eq_);
+            addTri(b, tp, eq_, tq);
+            // The floor faces up: counterclockwise from above.
+            addTri(b, mid, eq_, ep);
+        } else {
+            addTri(b, tp, eq_, ep);
+            addTri(b, tp, tq, eq_);
+            // The roof faces down.
+            addTri(b, mid, ep, eq_);
+        }
+    }
 }
 
 fn addTri(b: *mesh_mod.Builder, p: Vec3, q: Vec3, r: Vec3) void {
@@ -113,9 +286,15 @@ fn finishOrEmpty(b: *mesh_mod.Builder) Allocator.Error!Mesh {
     };
 }
 
-/// Joins the segments into loops, and adds the caps.
-fn capCut(gpa: Allocator, segs: []const [2]Vec3, z: f32, below: *mesh_mod.Builder, above: *mesh_mod.Builder) Allocator.Error!void {
-    if (segs.len == 0) return;
+/// Joins the segments into loops, and adds the caps (with the holes and
+/// the wells of the pegs). Returns the pegs, in gpa.
+fn capCut(gpa: Allocator, segs: []const [2]Vec3, z: f32, below: *mesh_mod.Builder, above: *mesh_mod.Builder, mesh: Mesh, pegs: Pegs) Allocator.Error![]Peg {
+    var placed: std.ArrayList(Peg) = .empty;
+    errdefer placed.deinit(gpa);
+    if (segs.len == 0) return placed.toOwnedSlice(gpa);
+    const hole_r: f32 = @floatCast(pegs.diameter / 2 + pegs.clearance);
+    // The pegs go into the largest outline.
+    var largest: ?usize = null;
     var next: std.AutoHashMapUnmanaged(u64, usize) = .empty;
     defer next.deinit(gpa);
     for (segs, 0..) |s, i| try next.put(gpa, key(s[0]), i);
@@ -148,6 +327,13 @@ fn capCut(gpa: Allocator, segs: []const [2]Vec3, z: f32, below: *mesh_mod.Builde
             depth[i] += 1;
         };
     }
+    if (pegs.count > 0) {
+        var big: f64 = 0;
+        for (loops.items, 0..) |l, i| if (depth[i] % 2 == 0 and @abs(area(l)) > big) {
+            big = @abs(area(l));
+            largest = i;
+        };
+    }
     for (loops.items, 0..) |outer, i| {
         if (depth[i] % 2 != 0) continue;
         // An outline counterclockwise, its holes clockwise.
@@ -174,6 +360,33 @@ fn capCut(gpa: Allocator, segs: []const [2]Vec3, z: f32, below: *mesh_mod.Builde
                 return maxX(a) > maxX(b);
             }
         }.lt);
+        // The pegs of this outline: a hole in the cap and a well in each
+        // part, where the depth allows.
+        if (largest == i) {
+            const spots = try pegPlaces(gpa, outer, holes.items, hole_r, pegs.count);
+            defer gpa.free(spots);
+            for (spots) |c| {
+                var dn: f32 = @floatCast(pegs.depth);
+                var upd: f32 = @floatCast(pegs.depth);
+                const probe = [_]P2{ c, .{ c[0] + hole_r, c[1] }, .{ c[0] - hole_r, c[1] }, .{ c[0], c[1] + hole_r }, .{ c[0], c[1] - hole_r } };
+                for (probe) |q| {
+                    dn = @min(dn, rayDist(mesh, q[0], q[1], z, false) - 1);
+                    upd = @min(upd, rayDist(mesh, q[0], q[1], z, true) - 1);
+                }
+                if (dn < 2 or upd < 2) continue;
+                const ring = pegRing(c, hole_r);
+                const h = try gpa.dupe(P2, &ring);
+                try holes.append(gpa, h);
+                addWell(below, &ring, c, z, -dn);
+                addWell(above, &ring, c, z, upd);
+                try placed.append(gpa, .{ .x = c[0], .y = c[1], .below = dn, .above = upd });
+            }
+            std.mem.sort([]P2, holes.items, {}, struct {
+                fn lt(_: void, a: []P2, b: []P2) bool {
+                    return maxX(a) > maxX(b);
+                }
+            }.lt);
+        }
         for (holes.items) |h| try bridge(gpa, &poly, h);
         var tris: std.ArrayList([3]P2) = .empty;
         defer tris.deinit(gpa);
@@ -187,6 +400,7 @@ fn capCut(gpa: Allocator, segs: []const [2]Vec3, z: f32, below: *mesh_mod.Builde
             addTri(above, a, c, b);
         }
     }
+    return placed.toOwnedSlice(gpa);
 }
 
 fn area(p: []const P2) f64 {
@@ -404,3 +618,35 @@ test "cut: a plane under the mesh leaves it whole" {
     try testing.expectEqual(@as(usize, 0), r.below.faces.items.len);
     try testing.expectEqual(@as(usize, 12), r.above.faces.items.len);
 }
+
+test "cut: pegs in a box" {
+    const gpa = testing.allocator;
+    var b: mesh_mod.Builder = .init(gpa);
+    try mesh_mod.shapes.addBox(&b, 0, 0, 0, 60, 30, 40);
+    var m = try b.finish();
+    defer m.deinit(gpa);
+    var r = try cutZPegs(gpa, m, 20, .{ .count = 2, .diameter = 5, .depth = 8 });
+    defer r.deinit(gpa);
+    try testing.expectEqual(@as(usize, 2), r.pegs.len);
+    try testing.expectApproxEqAbs(@as(f64, 8), r.pegs[0].below, 1e-4);
+    // The pegs are far apart along the long side.
+    try testing.expect(@abs(r.pegs[0].x - r.pegs[1].x) > 30);
+    // Both parts stay closed, and lose the volume of the wells.
+    try testing.expect(try closed(gpa, r.below));
+    try testing.expect(try closed(gpa, r.above));
+    const well = std.math.pi * 2.65 * 2.65 * 8 * 2;
+    try testing.expect(volume(r.below) < 60 * 30 * 20 - well * 0.9 and volume(r.below) > 60 * 30 * 20 - well * 1.1);
+}
+
+test "cut: no peg where the part is thin" {
+    const gpa = testing.allocator;
+    var b: mesh_mod.Builder = .init(gpa);
+    try mesh_mod.shapes.addBox(&b, 0, 0, 0, 60, 30, 4);
+    var m = try b.finish();
+    defer m.deinit(gpa);
+    // 2 mm under and over the cut: a hole of 2 - 1 mm is too short.
+    var r = try cutZPegs(gpa, m, 2, .{ .count = 2 });
+    defer r.deinit(gpa);
+    try testing.expectEqual(@as(usize, 0), r.pegs.len);
+}
+

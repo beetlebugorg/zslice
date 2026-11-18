@@ -213,6 +213,14 @@ export fn zs_view_pixel_of(view: ?*const View, x: f64, y: f64, z: f64, px: ?*f32
 }
 
 /// The points of the measure tape: n (0, 1, or 2) points of 3 values.
+/// The plane of a cut: the box x0, y0, x1, y1 (mm) at height z, drawn in
+/// orange. A box with no area hides it.
+export fn zs_view_set_cut(view: ?*View, x0: f64, y0: f64, x1: f64, y1: f64, z: f64) void {
+    if (!render_on) return;
+    const v = view orelse return;
+    v.setCut(.{ @floatCast(x0), @floatCast(y0), @floatCast(x1), @floatCast(y1) }, @floatCast(z));
+}
+
 /// The rings of the Turn tool around (x, y, z) with radius `radius` mm
 /// (0: no rings). The view draws them: red about X, green about Y, blue
 /// about Z.

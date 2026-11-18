@@ -577,6 +577,16 @@ ptrdiff_t zs_app_part_duplicate(zs_app *app, size_t i);
  * parts are at index i on. Returns their count, 0 for a part of one body,
  * or -status. */
 ptrdiff_t zs_app_part_split(zs_app *app, size_t i);
+/* Cuts part i with a level plane at height z (mm above the bed): the part
+ * below and the part above, each closed (with a cap), with the settings of
+ * part i, at index i and i + 1. flip != 0 turns the upper part over onto
+ * its cut face. pegs > 0: at most that many holes for pegs in both parts
+ * (where the part is wide and deep enough), and the pegs (diameter peg_d
+ * mm, 0: 5 mm) as parts at the end of the plate, to line the parts up when
+ * they are joined. Returns the count of new parts (2 and the pegs), 0 if
+ * the plane misses the part, or -status. zs_view_set_cut shows the plane
+ * while the user picks the height. */
+ptrdiff_t zs_app_part_cut(zs_app *app, size_t i, double z, int flip, int pegs, double peg_d);
 
 size_t zs_app_part_count(const zs_app *app);
 int zs_app_part_get(zs_app *app, size_t i, zs_part *out);
@@ -932,6 +942,9 @@ void zs_view_set_measure(zs_view *view, size_t n, const double *pts);
  * in progress is thicker. The shells use the center (x, y, size_z / 2) of
  * the part and the radius 0.62 * the largest size + 4 mm. */
 void zs_view_set_rings(zs_view *view, double x, double y, double z, double radius);
+/* The plane of a cut (zs_app_part_cut): the box x0, y0, x1, y1 (mm) at
+ * height z, drawn in orange. A box with no area hides it. */
+void zs_view_set_cut(zs_view *view, double x0, double y0, double x1, double y1, double z);
 /* The ring under the pixel within tol pixels: 0 X, 1 Y, 2 Z, or -1. */
 int zs_view_ring_at(const zs_view *view, float px, float py, float tol);
 /* Starts a turn on the ring of axis at the pixel of the press. 1 if it
