@@ -1847,6 +1847,8 @@ pub const App = struct {
         store.gpa = app.gpa;
         store.z_hop = @floatCast(part.project.z_hop);
         const sink: zs.engine.Job.LayerSink = .{ .ctx = &store, .func = Toolpaths.addLayer };
+        // The pictures for the screen of the printer, first.
+        writeThumbnails(app.gpa, app.slice_parts, part.machine.thumbnails, part.filament.color, &out.writer) catch {};
         const stats = job.writeGcodeWith(&out.writer, sink) catch |e| {
             store.deinit(app.gpa);
             out.deinit();
@@ -1867,6 +1869,33 @@ pub const App = struct {
         _ = app.done_count.fetchAdd(1, .release);
         app.state.store(.done, .release);
         app.emit(.sliced, 1, 0);
+    }
+
+    /// The thumbnails of `sizes` ("300x300,32x32") of the parts, in the
+    /// color of the filament ("#rrggbb"), at the top of the G-code.
+    fn writeThumbnails(gpa: Allocator, parts: []const zs.plate_job.PartInput, sizes: []const u8, color: []const u8, out: *std.Io.Writer) !void {
+        if (sizes.len == 0 or parts.len == 0) return;
+        var rgb = [3]u8{ 0xd0, 0xd0, 0xcc };
+        if (color.len == 7 and color[0] == '#') {
+            for (0..3) |k| rgb[k] = std.fmt.parseInt(u8, color[1 + 2 * k ..][0..2], 16) catch rgb[k];
+        }
+        const meshes = try gpa.alloc(zs.Mesh, parts.len);
+        defer gpa.free(meshes);
+        for (parts, meshes) |p, *m| m.* = p.mesh.*;
+        var it = std.mem.tokenizeAny(u8, sizes, ", ");
+        while (it.next()) |size| {
+            // "300x300", or "300x300/PNG" (the form of PrusaSlicer).
+            const spec = if (std.mem.indexOfScalar(u8, size, '/')) |k| size[0..k] else size;
+            const x = std.mem.indexOfScalar(u8, spec, 'x') orelse continue;
+            const w = std.fmt.parseInt(u32, spec[0..x], 10) catch continue;
+            const h = std.fmt.parseInt(u32, spec[x + 1 ..], 10) catch continue;
+            if (w == 0 or h == 0 or w > 1024 or h > 1024) continue;
+            var img = try zs.cpu_render.render(gpa, meshes, w, h, rgb);
+            defer img.deinit(gpa);
+            const bytes = try zs.cpu_render.png(gpa, img);
+            defer gpa.free(bytes);
+            try zs.cpu_render.gcodeThumbnail(gpa, bytes, w, h, out);
+        }
     }
 
     fn finishFailed(app: *App, e: anyerror) void {

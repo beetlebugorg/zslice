@@ -123,6 +123,10 @@ pub const Machine = struct {
     retract_speed: f64 = 40,
 
     // G-code
+    /// The pictures of the print at the top of the G-code, for the screen
+    /// of the printer: sizes in pixels, as "300x300,32x32" (PNG, the form
+    /// of PrusaSlicer and Klipper). Empty: none.
+    thumbnails: []const u8 = "",
     /// The text before the print. These variables are replaced:
     /// {nozzle_temp}, {first_layer_nozzle_temp}, {bed_temp}, {standby_temp},
     /// {layer_height}, {first_layer_height}, {first_layer_speed} (mm/s),
