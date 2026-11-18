@@ -327,20 +327,38 @@ final class MetalSliceView: NSView {
     }
 
     private func writeSnapshot(_ frame: CGImage, to url: URL) {
-        guard let content = window?.contentView, let rep = content.bitmapImageRepForCachingDisplay(in: content.bounds) else { return }
-        content.cacheDisplay(in: content.bounds, to: rep)
-        let w = rep.pixelsWide, h = rep.pixelsHigh
-        guard let ui = rep.cgImage,
-              let ctx = CGContext(data: nil, width: w, height: h, bitsPerComponent: 8, bytesPerRow: 0,
+        // Three layers: the frame of the window (the title bar and the
+        // toolbar), the Metal picture, then the controls of the content (the
+        // content is clear where the 3D view shows).
+        guard let window, let content = window.contentView else { return }
+        let outer = content.superview ?? content
+        func image(of v: NSView) -> CGImage? {
+            guard let rep = v.bitmapImageRepForCachingDisplay(in: v.bounds) else { return nil }
+            v.cacheDisplay(in: v.bounds, to: rep)
+            return rep.cgImage
+        }
+        guard let back = image(of: outer), let front = image(of: content) else { return }
+        let k = CGFloat(back.width) / outer.bounds.width
+        let w = back.width, h = back.height
+        guard let ctx = CGContext(data: nil, width: w, height: h, bitsPerComponent: 8, bytesPerRow: 0,
                                   space: CGColorSpace(name: CGColorSpace.sRGB)!, bitmapInfo: CGImageAlphaInfo.premultipliedFirst.rawValue)
         else { return }
-        // The 3D view at its place in the window (AppKit has y up).
-        let r = convert(bounds, to: content)
-        let k = CGFloat(w) / content.bounds.width
-        ctx.draw(frame, in: CGRect(x: r.minX * k, y: (content.bounds.height - r.maxY) * k, width: r.width * k, height: r.height * k))
-        ctx.draw(ui, in: CGRect(x: 0, y: 0, width: w, height: h))
-        guard let image = ctx.makeImage(), let dest = CGImageDestinationCreateWithURL(url as CFURL, "public.png" as CFString, 1, nil) else { return }
-        CGImageDestinationAddImage(dest, image, nil)
+        // A rect of a view in the context, which has its origin at the bottom left.
+        func place(_ v: NSView) -> CGRect {
+            let r = v.convert(v.bounds, to: nil)
+            return CGRect(x: r.minX * k, y: r.minY * k, width: r.width * k, height: r.height * k)
+        }
+        ctx.draw(back, in: CGRect(x: 0, y: 0, width: w, height: h))
+        ctx.draw(frame, in: place(self))
+        ctx.draw(front, in: place(content))
+        // The title bar and the toolbar again, over the 3D view under them.
+        let bar = window.contentLayoutRect.maxY * k
+        ctx.saveGState()
+        ctx.clip(to: CGRect(x: 0, y: bar, width: CGFloat(w), height: CGFloat(h) - bar))
+        ctx.draw(back, in: CGRect(x: 0, y: 0, width: w, height: h))
+        ctx.restoreGState()
+        guard let out = ctx.makeImage(), let dest = CGImageDestinationCreateWithURL(url as CFURL, "public.png" as CFString, 1, nil) else { return }
+        CGImageDestinationAddImage(dest, out, nil)
         CGImageDestinationFinalize(dest)
     }
 

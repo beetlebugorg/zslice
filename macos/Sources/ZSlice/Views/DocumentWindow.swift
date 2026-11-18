@@ -25,6 +25,14 @@ struct DocumentWindow: View {
                 }
             }
             .ignoresSafeArea()
+            VStack {
+                HStack {
+                    Legend(workspace: workspace)
+                    Spacer()
+                }
+                Spacer()
+            }
+            .padding(12)
             if workspace.layerCount > 0 {
                 HStack {
                     Spacer()
@@ -41,6 +49,8 @@ struct DocumentWindow: View {
                     if workspace.layerCount > 0 { ScrubBar(workspace: workspace) }
                     Spacer()
                     PrintCard(workspace: workspace)
+                        // Clear of the layer slider at the right edge.
+                        .padding(.trailing, 36)
                 }
                 .padding(16)
             }
@@ -58,6 +68,16 @@ struct DocumentWindow: View {
                     Label("Settings", systemImage: "sidebar.right")
                 }
                 .help("Show or hide the settings (N)")
+            }
+            ToolbarItem(placement: .principal) {
+                Picker("Colors", selection: Bindable(workspace).colorMode) {
+                    ForEach(Workspace.colorModes.indices, id: \.self) { i in
+                        Text(Workspace.colorModes[i]).tag(i)
+                    }
+                }
+                .pickerStyle(.menu)
+                .fixedSize()
+                .help("The colors of the lines: the filament, one color for each line type, or the speed, the flow, the layer time, or the line width")
             }
             ToolbarItem(placement: .principal) {
                 Picker("View", selection: Bindable(workspace).page) {
@@ -161,35 +181,44 @@ struct PrintCard: View {
 
     private var model: SliceModel { workspace.model }
 
+    /// The card keeps the facts of the last slice while a new one runs, so
+    /// an editor of the card stays open, and shows the progress over them.
     var body: some View {
+        let slicing = model.state == .slicing
         VStack(alignment: .leading, spacing: 6) {
-            switch model.state {
-            case .slicing:
-                ProgressView(value: model.progress) { Text("Slicing") }
-                    .frame(width: 200)
-            case .failed(let why):
+            if case .failed(let why) = model.state {
                 Label(why, systemImage: "exclamationmark.triangle")
                     .frame(maxWidth: 260, alignment: .leading)
-            case .done:
-                if let s = model.stats {
+            }
+            if slicing {
+                ProgressView(value: model.progress) { Text("Slicing…").font(.caption) }
+                    .frame(width: 260)
+            }
+            if let s = model.stats {
+                Group {
                     Text(duration(s.print_time_s)).font(.title2.weight(.semibold))
                     Text(String(format: "%.1f g · %.2f m", s.filament_g, s.filament_mm / 1000))
                     Text("\(s.layer_count) layers").foregroundStyle(.secondary)
-                    Button("Export G-code…") {
-                        workspace.exportGcode(from: NSApp.keyWindow)
-                    }
-                    .keyboardShortcut("e", modifiers: .command)
-                    .controlSize(.large)
-                    .buttonStyle(.borderedProminent)
-                    .padding(.top, 4)
                 }
-            default:
-                EmptyView()
+                .opacity(slicing ? 0.5 : 1)
+            }
+            if model.state != .empty {
+                PrintFacts(workspace: workspace).padding(.top, 2)
+            }
+            if model.stats != nil {
+                Button("Export G-code…") {
+                    workspace.exportGcode(from: NSApp.keyWindow)
+                }
+                .keyboardShortcut("e", modifiers: .command)
+                .controlSize(.large)
+                .buttonStyle(.borderedProminent)
+                .disabled(model.state != .done)
+                .padding(.top, 4)
             }
         }
         .padding(14)
         .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 12))
-        .opacity(model.state == .empty || model.state == .ready ? 0 : 1)
+        .opacity(model.state == .empty ? 0 : 1)
     }
 
     private func duration(_ seconds: Double) -> String {

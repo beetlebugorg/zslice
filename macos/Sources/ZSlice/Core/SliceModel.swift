@@ -104,7 +104,12 @@ final class SliceModel {
         requestSlice()
     }
 
+    @ObservationIgnored private var sliceStart = Date()
+    /// The time of the last slice, from the request to the result.
+    private(set) var sliceSeconds: Double?
+
     func requestSlice() {
+        sliceStart = Date()
         let rc = zs_app_request_slice(core)
         if rc == 0 {
             state = .slicing
@@ -126,7 +131,15 @@ final class SliceModel {
             stats = zs_app_stats(core, &s) == 0 ? s : nil
             state = .done
             self.progress = 1
+            sliceSeconds = Date().timeIntervalSince(sliceStart)
+            if ProcessInfo.processInfo.environment["ZSLICE_TIMING"] != nil {
+                NSLog("zslice timing: sliced in %.3f s", sliceSeconds ?? 0)
+            }
+            let t0 = Date()
             onSliced?()
+            if ProcessInfo.processInfo.environment["ZSLICE_TIMING"] != nil {
+                NSLog("zslice timing: view load in %.3f s", Date().timeIntervalSince(t0))
+            }
         case Int(ZS_EVENT_FAILED.rawValue):
             if zs_app_state(core) == Int32(ZS_STATE_FAILED.rawValue) { state = .failed(statusText(status)) }
         default:

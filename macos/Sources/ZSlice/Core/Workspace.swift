@@ -66,6 +66,7 @@ final class Workspace {
     init() {
         canvas.delegate = self
         if ProcessInfo.processInfo.environment["ZSLICE_PANEL"] != nil { showSettings = true }
+        if let m = ProcessInfo.processInfo.environment["ZSLICE_MODE"].flatMap(Int.init) { colorMode = m }
         if let p = ProcessInfo.processInfo.environment["ZSLICE_VIEW"].flatMap(MetalSliceView.Page.init) { page = p }
         canvas.page = page
         model.onSliced = { [weak self] in self?.sliced() }
@@ -75,7 +76,9 @@ final class Workspace {
 
     private func sliced() {
         stopReplay()
+        if let v = canvas.view { zs_view_set_mode(v, Int32(colorMode)) }
         canvas.load(model.core)
+        readLegend()
         var tp = zs_toolpaths()
         guard zs_app_toolpaths(model.core, &tp) == 0 else { return }
         let n = tp.layer_count
@@ -263,6 +266,55 @@ final class Workspace {
     /// The page of the drawer.
     var drawerPage = DrawerPage(rawValue: ProcessInfo.processInfo.environment["ZSLICE_PAGE"] ?? "") ?? .settings
 
+    // MARK: - the colors and the line types
+
+    /// The colors of the view (enum zs_view_mode): the filament, one color
+    /// for each line type, or a ramp of a value. The app keeps the choice.
+    static let colorModes = ["Filament", "Line Type", "Speed", "Flow", "Layer Time", "Line Width"]
+    static let legendUnits = ["", "", "mm/s", "mm³/s", "s", "mm"]
+
+    var colorMode = UserDefaults.standard.integer(forKey: "mode") {
+        didSet {
+            UserDefaults.standard.set(colorMode, forKey: "mode")
+            applyMode()
+        }
+    }
+
+    /// The range of the ramp of a value mode, after a load.
+    private(set) var legend: (lo: Double, hi: Double)?
+
+    /// The line types that show (a bit for each feature and mark; 0: all
+    /// in their colors). The others fade to ghosts.
+    var shownTypes: UInt32 = 0 {
+        didSet { applyFocus() }
+    }
+
+    func toggleType(_ f: Int) {
+        let bit = UInt32(1) << UInt32(f)
+        var m = shownTypes == 0 ? Feature.all : shownTypes
+        m ^= bit
+        shownTypes = m == Feature.all || m == 0 ? 0 : m
+    }
+
+    /// Sets the color mode of the view, and loads the slice again (the
+    /// colors come with the data).
+    private func applyMode() {
+        guard let v = canvas.view else { return }
+        zs_view_set_mode(v, Int32(colorMode))
+        if model.state == .done {
+            canvas.load(model.core)
+            applyRange()
+            applyFocus()
+            showSelection()
+        }
+        readLegend()
+    }
+
+    private func readLegend() {
+        var lo = 0.0, hi = 0.0
+        if let v = canvas.view, colorMode >= 2, zs_view_legend(v, &lo, &hi) != 0 { legend = (lo, hi) } else { legend = nil }
+    }
+
     /// The lines that the drawer points at: a bit for each feature and mark
     /// (0: all lines, in their colors). firstLayer: only the lines of the
     /// first layer.
@@ -279,11 +331,12 @@ final class Workspace {
 
     private func applyFocus() {
         guard let v = canvas.view else { return }
-        let zmax = focusFirst && !layerZ.isEmpty ? Double(layerZ[0]) : -1
-        zs_view_focus(v, focusMask, zmax)
+        let mask = focusMask != 0 ? focusMask : shownTypes
+        let zmax = focusMask != 0 && focusFirst && !layerZ.isEmpty ? Double(layerZ[0]) : -1
+        zs_view_focus(v, mask, zmax)
         // In 2D, a focus on the first layer while the view shows another
         // layer: all lines are faint (web/app/view2d.js, dim).
-        canvas.focus2D = focusMask
+        canvas.focus2D = mask
         canvas.dim2D = focusMask != 0 && focusFirst && hi > 0
         canvas.requestFrame()
     }
