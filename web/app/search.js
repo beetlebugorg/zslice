@@ -190,7 +190,9 @@ export class SearchOverlay {
     const saved = loadPlace();
     if (saved) requestAnimationFrame(() => place(saved.x, saved.y));
     head.addEventListener("pointerdown", (e) => {
-      if (e.button !== 0 || e.target.closest("input")) return;
+      // The entry and the × keep their own clicks: a capture here sends
+      // the click to the head.
+      if (e.button !== 0 || e.target.closest("input, button")) return;
       e.preventDefault();
       const r = box.getBoundingClientRect();
       const dx = e.clientX - r.left;
