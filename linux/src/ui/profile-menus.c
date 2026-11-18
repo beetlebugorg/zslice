@@ -55,6 +55,15 @@ static gboolean edits(Menu *m) {
     return any;
 }
 
+/* The label of the button shortens with "…" in a narrow window. */
+static void ellipsize_labels(GtkWidget *w) {
+    for (GtkWidget *c = gtk_widget_get_first_child(w); c; c = gtk_widget_get_next_sibling(c)) {
+        if (GTK_IS_POPOVER(c)) continue;
+        if (GTK_IS_LABEL(c)) gtk_label_set_ellipsize(GTK_LABEL(c), PANGO_ELLIPSIZE_END);
+        else ellipsize_labels(c);
+    }
+}
+
 static void update_label(Menu *m) {
     char *label;
     if (m->group == ZS_GROUP_FILAMENT) {
@@ -69,6 +78,7 @@ static void update_label(Menu *m) {
         label = g_strdup_printf("Quality: %s%s", q && q[0] ? q : "custom", edits(m) ? " •" : "");
     }
     gtk_menu_button_set_label(GTK_MENU_BUTTON(m->button), label);
+    ellipsize_labels(m->button);
     char *tip = g_strdup_printf("%s settings: %s%s. Pick a profile, or save these settings as one.", group_titles[m->group],
                                 m->name ? m->name : "custom", changed(m) ? ", with changes" : "");
     gtk_widget_set_tooltip_text(m->button, tip);

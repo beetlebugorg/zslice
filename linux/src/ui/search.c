@@ -18,9 +18,9 @@
 
 enum { MAX_SETTINGS = 14, MAX_ACTIONS = 4, DRAG_MS = 90 };
 
-/* The first place of the box: at the left of the view, under the
- * toolbar, right of the tool strip. */
-static const double PLACE_X = 64, PLACE_Y = 62;
+/* The first place of the box: at the top left of the view, right of the
+ * tool strip. */
+static const double PLACE_X = 64, PLACE_Y = 12;
 
 
 /* The actions in the results: the label, the keys, a hint, and the

@@ -85,7 +85,7 @@ The GTK shell is in `linux/src`. Each `.c` file has a header that explains its i
 | | `discovery` | The search of the network for printers (mDNS), with the packets of the core |
 | | `project-source` | The files of a printdeck.yml project: a folder, or a public GitHub repository |
 | `ui/` | `window` | The main window: the header bar, the file dialogs, the send to a printer, and the status bar |
-| | `preview` | The 2D and 3D preview with the tool strip, the layer slider, the replay, the measure readout, and the keyboard navigation |
+| | `preview` | The 2D and 3D preview with the tool strip, the layer slider, the dock at the bottom (the plates, the replay, and the history), the place of the print card, the view buttons of the header bar, the measure readout, and the keyboard navigation |
 | | `layer-draw` | The cairo drawing of one layer in the 2D view |
 | | `toolpath-nav` | The next segment and the nearest line, for the keyboard navigation |
 | | `layer-range` | The slider with two knobs for the layers that show |
@@ -101,7 +101,7 @@ The GTK shell is in `linux/src`. Each `.c` file has a header that explains its i
 | | `inspector` | The "Selected" page: the values of a line and the settings that change it |
 | | `project-page` | The page of the Project dialog: a printdeck.yml project, its plates and parts, and the status of each plate |
 | | `farm-page` | The Printers page over the view: a tile for each printer, and the plates to print |
-| | `history` | The history bar under the preview, and the list of the changes in a popover over it |
+| | `history` | The history group of the dock under the preview, and the list of the changes in a popover over it |
 | | `part-page` | The page of a part: its place, turn, and scale, and the placement |
 | | `settings-browser` | The "Settings" page: all settings in three columns |
 | | `setting-row` | One setting as a row of a grid |
@@ -141,7 +141,7 @@ These environment variables change the start of the GTK shell, for development, 
 | `ZSLICE_SETTING=name` | Opens the Settings page at the setting `name`. | `ui/settings-browser.c` |
 | `ZSLICE_PROJECT=dir` or `owner/repo` | Opens the printdeck.yml project of a folder or of a GitHub repository at the start, and shows the Project dialog. `ZSLICE_PROJECT_PLATE=n` then opens plate n (from 1), also for the project of the last session. | `ui/project-page.c` |
 | `ZSLICE_PROJECT_DO=steps` | Changes the widgets of the Project page 3 s after the start, one step each second, as a click would. Steps, with `;` between them: `status 1 printed`, `count 2 0`, `check 2 off`, `scroll 600`, `sent`, `set machine.max_height 300`, `end`, `close`. | `ui/project-page.c` |
-| `ZSLICE_ACTION=name` | Runs an action 1.5 s after the first slice, as a click would. The name is a detailed action name, for example `win.search-part(int64 0)` (the search of part 0), `win.show-page('history')`, or `win.shortcuts`. `win.show-page` accepts `settings`, `selected`, `history` (the popover over the history bar), `project` (the dialog), or `farm` (the Printers page). `win.show-setting('project.infill_density')` opens the panel at a setting. | `ui/window.c` |
+| `ZSLICE_ACTION=name` | Runs an action 1.5 s after the first slice, as a click would. The name is a detailed action name, for example `win.search-part(int64 0)` (the search of part 0), `win.show-page('history')`, or `win.shortcuts`. `win.show-page` accepts `settings`, `selected`, `history` (the popover over the dock), `project` (the dialog), or `farm` (the Printers page). `win.show-setting('project.infill_density')` opens the panel at a setting. | `ui/window.c` |
 | `ZSLICE_UNDO_TEST=1` | Changes the infill, undoes and redoes, moves part 0 and undoes the move, edits the wall count with the focus on its editor, goes to step 1, and clears the history after it, one step each second. The log gives the values and the steps of the history. | `ui/window.c` |
 | `ZSLICE_PLATE_TEST=file` | Adds a plate and puts the model `file` on it, adds an empty plate and removes it, goes to plate 1 and back, and removes the plate with the file, one step each second. The log gives the plates of the set (zs_set_plate_info). | `ui/window.c` |
 | `ZSLICE_PREFS=1` | Opens Preferences 1.5 s after the start. With it, `ZSLICE_GET_KEY=1` presses "Get a key" for the current printer. | `ui/window.c`, `ui/preferences.c` |

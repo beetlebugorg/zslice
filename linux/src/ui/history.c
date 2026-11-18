@@ -13,13 +13,13 @@ static const char *css =
     ".zg-history-later { opacity: 0.55; }\n"
     ".zg-history-badge { font-size: 0.8em; font-weight: bold; padding: 0 6px; border-radius: 8px;"
     " background: @accent_bg_color; color: @accent_fg_color; }\n"
-    /* The timeline: a floating bar as the scrub bar over the preview. */
+    /* The timeline: the history group of the dock of the preview. */
     ".zg-timeline { padding: 2px 6px; border-radius: 14px; }\n"
     ".zg-timeline button.zg-tl-tool { min-width: 26px; min-height: 26px; padding: 0; border-radius: 13px; }\n"
     ".zg-timeline .zg-tl-sep { min-width: 1px; margin: 6px 4px; background: alpha(currentColor, 0.2); }\n"
     ".zg-timeline button.zg-tl-title { font-size: 0.8em; font-weight: bold; min-height: 22px; padding: 1px 6px; margin: 0 2px;"
     " border-radius: 11px; }\n"
-    /* The list of the changes: a popover over the history bar. */
+    /* The list of the changes: a popover over the dock. */
     /* It is a child of the bar (.osd), so it sets its own background. */
     "popover.zg-history-pop > contents { padding: 4px 0; background-color: @theme_bg_color; }\n"
     "popover.zg-history-pop > arrow { background-color: @theme_bg_color; }\n"
@@ -836,8 +836,9 @@ GtkWidget *zg_timeline_new(ZgModel *model) {
     ensure_css();
     Timeline *t = g_new0(Timeline, 1);
     t->model = g_object_ref(model);
-    /* A floating bar as the scrub bar: undo and redo, the title, the marks
-     * of the steps (the oldest at the left), and the count. */
+    /* A group of the dock: undo and redo, the title, the marks of the
+     * steps (the oldest at the left), and the count. The dock paints its
+     * background (zg_preview_set_timeline removes "osd"). */
     GtkWidget *bar = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 2);
     gtk_widget_add_css_class(bar, "osd");
     gtk_widget_add_css_class(bar, "zg-timeline");

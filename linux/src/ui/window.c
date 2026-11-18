@@ -46,7 +46,7 @@ typedef struct {
      * view, or pinned beside it. The body overlay holds it over the view;
      * the paned holds it beside the view. */
     GtkWidget *body, *paned, *panel, *panel_toggle, *pin;
-    /* The other places of the old tabs: the history bar (its popover has
+    /* The other places of the old tabs: the dock (the popover of History has
      * the list of the changes), the Project dialog, and the Printers page
      * over the view with its button in the header bar. */
     GtkWidget *timeline, *project_dialog, *farm_view, *printers_button;
@@ -278,6 +278,8 @@ static void show_hint(Window *w, int state, gboolean fits) {
  * slice runs. */
 static void update_summary(Window *w, int state) {
     if (!w->sum_box) return;
+    /* An empty plate has no print: no card. */
+    gtk_widget_set_visible(w->sum_box, state != ZS_STATE_EMPTY);
     zs_app *core = zg_model_core(w->model);
     if (state == ZS_STATE_SLICING) gtk_widget_add_css_class(w->sum_box, "zg-stale");
     else gtk_widget_remove_css_class(w->sum_box, "zg-stale");
@@ -1423,7 +1425,7 @@ static GtkWidget *project_dialog_new(Window *w) {
 }
 
 /* Shows a place: "settings" or "selected" in the panel, "history" (the
- * popover over the history bar), "project" (the dialog), or "farm" (the
+ * popover over the dock), "project" (the dialog), or "farm" (the
  * Printers page). */
 static void on_show_page_action(GSimpleAction *a, GVariant *v, gpointer data) {
     Window *w = get(data);
@@ -1545,6 +1547,20 @@ static gboolean on_window_key(GtkEventControllerKey *c, guint key, guint code, G
 }
 
 /* ---- window ---- */
+
+/* The labels of the printer menu: data 1 makes a label that shortens
+ * with "…". */
+static void on_name_setup(GtkSignalListItemFactory *f, GtkListItem *item, gpointer data) {
+    GtkWidget *label = gtk_label_new(NULL);
+    gtk_label_set_xalign(GTK_LABEL(label), 0);
+    if (data) gtk_label_set_ellipsize(GTK_LABEL(label), PANGO_ELLIPSIZE_END);
+    gtk_list_item_set_child(item, label);
+}
+
+static void on_name_bind(GtkSignalListItemFactory *f, GtkListItem *item, gpointer data) {
+    GtkStringObject *s = gtk_list_item_get_item(item);
+    gtk_label_set_text(GTK_LABEL(gtk_list_item_get_child(item)), s ? gtk_string_object_get_string(s) : "");
+}
 
 static void on_open_clicked(GtkButton *b, gpointer data) {
     zg_window_open_dialog(GTK_WINDOW(data));
@@ -1714,10 +1730,11 @@ GtkWindow *zg_window_new(GtkApplication *app, ZgModel *model) {
 
     /* Header bar. */
     GtkWidget *header = gtk_header_bar_new();
-    GtkWidget *open = gtk_button_new_from_icon_name("document-open-symbolic");
+    /* + adds models: it goes in the middle, with the view buttons. */
+    GtkWidget *open = gtk_button_new_from_icon_name("list-add-symbolic");
     gtk_widget_set_tooltip_text(open, "Add models to the plate (Ctrl+O). Ctrl+click a part to select it; Ctrl+drag moves it, and Ctrl+wheel turns it. Shift+click adds a line to the selection.");
+    gtk_widget_set_focus_on_click(open, FALSE);
     g_signal_connect(open, "clicked", G_CALLBACK(on_open_clicked), w->window);
-    gtk_header_bar_pack_start(GTK_HEADER_BAR(header), open);
 
     w->export_button = gtk_button_new_with_label("Export G-code…");
     gtk_widget_add_css_class(w->export_button, "suggested-action");
@@ -1727,6 +1744,18 @@ GtkWindow *zg_window_new(GtkApplication *app, ZgModel *model) {
     /* The printer, and the send button with its menu. */
     w->printer_names = gtk_string_list_new(NULL);
     w->printer_dd = gtk_drop_down_new(G_LIST_MODEL(w->printer_names), NULL);
+    /* The name on the button shortens with "…" in a narrow window. The
+     * list shows the whole names. */
+    GtkListItemFactory *short_names = gtk_signal_list_item_factory_new();
+    g_signal_connect(short_names, "setup", G_CALLBACK(on_name_setup), GINT_TO_POINTER(1));
+    g_signal_connect(short_names, "bind", G_CALLBACK(on_name_bind), NULL);
+    GtkListItemFactory *names = gtk_signal_list_item_factory_new();
+    g_signal_connect(names, "setup", G_CALLBACK(on_name_setup), GINT_TO_POINTER(0));
+    g_signal_connect(names, "bind", G_CALLBACK(on_name_bind), NULL);
+    gtk_drop_down_set_factory(GTK_DROP_DOWN(w->printer_dd), short_names);
+    gtk_drop_down_set_list_factory(GTK_DROP_DOWN(w->printer_dd), names);
+    g_object_unref(short_names);
+    g_object_unref(names);
     gtk_widget_set_tooltip_text(w->printer_dd, "The printer: its machine settings, and where Send goes. From this list: the settings and the start and end G-code of the printer, or add a printer. Edit the connections in Preferences.");
     g_signal_connect(w->printer_dd, "notify::selected", G_CALLBACK(on_printer_dd), w);
     gtk_header_bar_pack_start(GTK_HEADER_BAR(header), w->printer_dd);
@@ -1828,13 +1857,40 @@ GtkWindow *zg_window_new(GtkApplication *app, ZgModel *model) {
     g_signal_connect(w->printers_button, "toggled", G_CALLBACK(on_printers_toggled), w);
     gtk_header_bar_pack_end(GTK_HEADER_BAR(header), w->printers_button);
 
+    /* The name of the file, after the menus of the profiles. */
     w->title = gtk_label_new("zslice");
     gtk_widget_add_css_class(w->title, "title");
-    gtk_header_bar_set_title_widget(GTK_HEADER_BAR(header), w->title);
-    gtk_window_set_titlebar(w->window, header);
+    gtk_label_set_ellipsize(GTK_LABEL(w->title), PANGO_ELLIPSIZE_END);
+    gtk_label_set_max_width_chars(GTK_LABEL(w->title), 28);
+    gtk_widget_set_margin_start(w->title, 6);
+    gtk_header_bar_pack_start(GTK_HEADER_BAR(header), w->title);
 
     /* Body: settings | preview. */
     w->preview = zg_preview_new(model);
+    /* The middle of the header bar: the view buttons of the preview (2D
+     * and 3D, the colors), Search, and + to add models. */
+    GtkWidget *view_bar = zg_preview_view_bar(w->preview);
+    GtkWidget *search = gtk_button_new();
+    GtkWidget *search_box = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 6);
+    gtk_box_append(GTK_BOX(search_box), gtk_image_new_from_icon_name("system-search-symbolic"));
+    gtk_box_append(GTK_BOX(search_box), gtk_label_new("Search"));
+    GtkWidget *search_key = gtk_label_new("/");
+    gtk_widget_add_css_class(search_key, "zg-keycap");
+    gtk_box_append(GTK_BOX(search_box), search_key);
+    gtk_button_set_child(GTK_BUTTON(search), search_box);
+    gtk_widget_set_tooltip_text(search, "Search settings and actions (/). Change a setting right in the results, and watch the slice.");
+    gtk_actionable_set_detailed_action_name(GTK_ACTIONABLE(search), "win.search('')");
+    gtk_widget_set_focus_on_click(search, FALSE);
+    gtk_box_insert_child_after(GTK_BOX(view_bar), search, gtk_widget_get_first_child(view_bar));
+    /* + at the end, after the legend of the colors and the gap count. */
+    gtk_box_append(GTK_BOX(view_bar), open);
+    gtk_header_bar_set_title_widget(GTK_HEADER_BAR(header), view_bar);
+    /* In a narrow window, the menus at the start keep their names, and
+     * the view bar moves off the middle first. */
+    for (GtkWidget *c = gtk_widget_get_parent(view_bar); c && c != header; c = gtk_widget_get_parent(c)) {
+        if (GTK_IS_CENTER_BOX(c)) gtk_center_box_set_shrink_center_last(GTK_CENTER_BOX(c), FALSE);
+    }
+    gtk_window_set_titlebar(w->window, header);
     GtkWidget *paned = gtk_paned_new(GTK_ORIENTATION_HORIZONTAL);
     GtkWidget *settings = zg_settings_panel_new(model);
     w->settings_panel = settings;
@@ -1951,20 +2007,15 @@ GtkWindow *zg_window_new(GtkApplication *app, ZgModel *model) {
     gtk_widget_add_controller(panel, panel_keys);
     /* The model on the left, the settings on the right, as in other
      * slicers. */
-    /* The preview, with the timeline of the history floating at its
-     * bottom. */
+    /* The preview, with the timeline of the history in its dock. */
     GtkWidget *left = gtk_box_new(GTK_ORIENTATION_VERTICAL, 0);
     gtk_widget_set_vexpand(w->preview, TRUE);
     gtk_box_append(GTK_BOX(left), w->preview);
     w->timeline = zg_timeline_new(model);
     zg_preview_set_timeline(w->preview, w->timeline);
     /* The print card over the view, at its bottom right. */
-    gtk_widget_set_halign(w->sum_box, GTK_ALIGN_END);
-    gtk_widget_set_valign(w->sum_box, GTK_ALIGN_END);
-    gtk_widget_set_margin_end(w->sum_box, 12);
-    gtk_widget_set_margin_bottom(w->sum_box, 12);
     gtk_widget_set_size_request(w->sum_box, 300, -1);
-    gtk_overlay_add_overlay(GTK_OVERLAY(w->preview), w->sum_box);
+    zg_preview_set_card(w->preview, w->sum_box);
     /* The card of a selected line, next to the click. */
     gtk_overlay_add_overlay(GTK_OVERLAY(w->preview), zg_line_card_new(model, w->preview));
     /* The card of a selected part, next to it. */

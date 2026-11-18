@@ -115,8 +115,16 @@ static const char *ZG_CSS =
     ".zg-issue-warning { color: #e5a50a; }"
     ".zg-knob-label { font-size: 0.75em; font-feature-settings: 'tnum'; color: #fff; background: alpha(#202326, 0.82);"
     "  border-radius: 6px; padding: 1px 6px; min-width: 2.2em; }"
-    ".zg-scrub { padding: 2px 12px; border-radius: 14px; }"
-    ".zg-scrub-label { font-size: 0.8em; font-feature-settings: 'tnum'; min-width: 120px; }"
+    /* The dock: one bar at the bottom of the preview. Its groups (the
+     * plates, the replay, the history) have no background of their own,
+     * and a thin line separates them. */
+    ".zg-dock { padding: 3px 8px; border-radius: 14px; }"
+    ".zg-dock separator.zg-dock-sep { min-width: 1px; min-height: 1px; margin: 6px 6px; background: alpha(currentColor, 0.2); }"
+    ".zg-dock separator.zg-dock-sep.horizontal { margin: 2px 6px; }"
+    ".zg-dock button { min-height: 28px; }"
+    ".zg-scrub-label { font-size: 0.8em; font-feature-settings: 'tnum'; }"
+    /* The view buttons in the middle of the header bar. */
+    ".zg-view-bar .zg-keycap { margin-left: 4px; }"
     ".zg-lost { opacity: 0.55; }"
     "button.zg-islands { color: @warning_color; padding: 0 8px; min-height: 20px; }"
     ".zg-why { font-size: 0.85em; color: @accent_color; margin: 2px 0 6px; }"

@@ -56,8 +56,16 @@ typedef struct {
     /* The scrub bar: the nozzle through the top layer (0 its start, 1 the
      * layer done), and its time label. */
     GtkWidget *scrub, *scrub_label, *scrub_box;
-    /* The box at the bottom of the preview: the scrub bar and the timeline. */
-    GtkWidget *bottom;
+    /* The dock: one bar at the bottom of the preview with three groups
+     * (the plates, the replay, the history), and the lines between them. */
+    GtkWidget *dock, *dock_seps[2];
+    guint dock_idle;
+    /* The print card at the bottom right (zg_preview_set_card). */
+    GtkWidget *card;
+    /* The view buttons for the header bar (zg_preview_view_bar). */
+    GtkWidget *view_bar;
+    /* The overlay of the preview. */
+    GtkWidget *root;
     gboolean scrub_quiet;
     GtkWidget *colors;
     GtkWidget *legend;
@@ -309,7 +317,7 @@ static void load_layer(Preview *p, size_t layer) {
 
 /* The readout of the measure tape floats on the tape: over the middle of
  * the tape, or next to its first point. With no point, the hint stays
- * under the toolbar. */
+ * at the top of the view. */
 static void place_measure(Preview *p) {
     if (!p->measure_label || !gtk_widget_get_visible(p->measure_label)) return;
     const double *m = NULL;
@@ -651,10 +659,15 @@ static void on_color_mode(GObject *dd, GParamSpec *pspec, gpointer data) {
     /* A color mode is for the 3D view. */
     gtk_stack_set_visible_child_name(GTK_STACK(p->stack), "3d");
     show_legend(p);
+    /* The menu is in the header bar: the focus goes back to the view, for
+     * its keys. */
+    GtkRoot *root = p->root ? gtk_widget_get_root(p->root) : NULL;
+    GtkWidget *focus = root ? gtk_root_get_focus(root) : NULL;
+    if (focus && gtk_widget_is_ancestor(focus, p->view_bar)) gtk_widget_grab_focus(p->root);
 }
 
 
-/* ---- the plate bar ----
+/* ---- the plates: the first group of the dock ----
  *
  * The plates of the set (zs_set): ‹ Plate n of N ›, + Plate, and × (remove
  * this plate), as in the web app. The keys [ and ] go to the plate before
@@ -905,6 +918,11 @@ static void preview_free(gpointer data) {
     Preview *p = data;
     /* The 3D view can be gone already (its tick callback with it). */
     if (p->tick && GTK_IS_WIDGET(p->view3d)) gtk_widget_remove_tick_callback(p->view3d, p->tick);
+    if (p->dock_idle) g_source_remove(p->dock_idle);
+    /* The view bar is in the header bar, and can live on: its signals
+     * stop here. The preview keeps a reference to it. */
+    g_signal_handlers_disconnect_by_data(p->colors, p);
+    g_object_unref(p->view_bar);
     g_signal_handlers_disconnect_by_data(p->model, p);
     free_paths(p);
     g_object_unref(p->model);
@@ -1539,6 +1557,103 @@ static GtkWidget *tool_strip(Preview *p) {
     return box;
 }
 
+/* ---- the bottom of the view: the dock, the print card, and the layer
+ * slider ----
+ *
+ * The dock starts at the left edge, and ends where the print card starts.
+ * With no room beside the card, the dock takes the whole width, and the
+ * card goes over it. With no room for one row, the groups of the dock go
+ * in a column. The layer slider stays in the middle of the right edge, and
+ * moves up when the card or the dock is in its way. */
+
+enum { EDGE = 10, CARD_EDGE = 12, GAP = 8, DOCK_PAD = 16 };
+
+typedef struct {
+    GdkRectangle dock, card, slider;
+    gboolean vertical;
+} BottomPlaces;
+
+/* The width of the dock in one row: the smallest widths of its groups and
+ * its lines, the spaces between them, and the padding (the zg-dock style). */
+static int dock_row_width(Preview *p) {
+    int sum = 0, n = 0;
+    for (GtkWidget *c = gtk_widget_get_first_child(p->dock); c; c = gtk_widget_get_next_sibling(c)) {
+        if (!gtk_widget_get_visible(c)) continue;
+        int min = 0;
+        gtk_widget_measure(c, GTK_ORIENTATION_HORIZONTAL, -1, &min, NULL, NULL, NULL);
+        sum += min;
+        n++;
+    }
+    return sum + MAX(n - 1, 0) * gtk_box_get_spacing(GTK_BOX(p->dock)) + DOCK_PAD;
+}
+
+static void place_bottom(Preview *p, BottomPlaces *l) {
+    int W = gtk_widget_get_width(p->root), H = gtk_widget_get_height(p->root);
+    int row = dock_row_width(p);
+    gboolean card = p->card && gtk_widget_get_visible(p->card);
+    int cw = 0, ch = 0;
+    if (card) {
+        int min = 0, nat = 0;
+        gtk_widget_measure(p->card, GTK_ORIENTATION_HORIZONTAL, -1, &min, &nat, NULL, NULL);
+        cw = MAX(min, MIN(nat, W - 2 * EDGE));
+        gtk_widget_measure(p->card, GTK_ORIENTATION_VERTICAL, cw, NULL, &ch, NULL, NULL);
+    }
+    int side = W - EDGE - cw - CARD_EDGE - GAP;
+    gboolean beside = card && side >= row;
+    int dw = MAX(beside ? side : W - 2 * EDGE, 1);
+    l->vertical = dw < row;
+    int dmin = 0, dh = 0;
+    gtk_widget_measure(p->dock, GTK_ORIENTATION_HORIZONTAL, -1, &dmin, NULL, NULL, NULL);
+    dw = MAX(dw, dmin);
+    gtk_widget_measure(p->dock, GTK_ORIENTATION_VERTICAL, dw, NULL, &dh, NULL, NULL);
+    l->dock = (GdkRectangle){EDGE, H - EDGE - dh, dw, dh};
+    int top = l->dock.y;
+    if (card) {
+        int y = beside ? H - CARD_EDGE - ch : l->dock.y - GAP - ch;
+        l->card = (GdkRectangle){W - CARD_EDGE - cw, MAX(y, 0), cw, ch};
+        top = l->card.y;
+    }
+    int sw = 0, sh = 0;
+    gtk_widget_measure(p->slider_box, GTK_ORIENTATION_HORIZONTAL, -1, NULL, &sw, NULL, NULL);
+    gtk_widget_measure(p->slider_box, GTK_ORIENTATION_VERTICAL, sw, NULL, &sh, NULL, NULL);
+    int sy = (H - sh) / 2;
+    if (sy + sh > top - GAP) sy = MAX(EDGE, top - GAP - sh);
+    l->slider = (GdkRectangle){W - 8 - sw, sy, sw, sh};
+}
+
+/* Turns the dock to a row or a column, after the layout. */
+static gboolean turn_dock(gpointer data) {
+    Preview *p = data;
+    p->dock_idle = 0;
+    BottomPlaces l;
+    place_bottom(p, &l);
+    GtkOrientation o = l.vertical ? GTK_ORIENTATION_VERTICAL : GTK_ORIENTATION_HORIZONTAL;
+    if (gtk_orientable_get_orientation(GTK_ORIENTABLE(p->dock)) == o) return G_SOURCE_REMOVE;
+    gtk_orientable_set_orientation(GTK_ORIENTABLE(p->dock), o);
+    for (int k = 0; k < 2; k++) {
+        gtk_orientable_set_orientation(GTK_ORIENTABLE(p->dock_seps[k]),
+                                       l.vertical ? GTK_ORIENTATION_HORIZONTAL : GTK_ORIENTATION_VERTICAL);
+    }
+    return G_SOURCE_REMOVE;
+}
+
+static gboolean on_bottom_position(GtkOverlay *overlay, GtkWidget *child, GdkRectangle *alloc, gpointer data) {
+    Preview *p = data;
+    if (child != p->dock && child != p->slider_box && (!p->card || child != p->card)) return FALSE;
+    BottomPlaces l;
+    place_bottom(p, &l);
+    if (child == p->dock) {
+        *alloc = l.dock;
+        gboolean vertical = gtk_orientable_get_orientation(GTK_ORIENTABLE(p->dock)) == GTK_ORIENTATION_VERTICAL;
+        if (vertical != l.vertical && !p->dock_idle) p->dock_idle = g_idle_add(turn_dock, p);
+    } else if (child == p->card) {
+        *alloc = l.card;
+    } else {
+        *alloc = l.slider;
+    }
+    return TRUE;
+}
+
 GtkWidget *zg_preview_new(ZgModel *model) {
     Preview *p = g_new0(Preview, 1);
     p->model = g_object_ref(model);
@@ -1606,9 +1721,8 @@ GtkWidget *zg_preview_new(ZgModel *model) {
     gtk_box_append(GTK_BOX(switcher), b3d);
     gtk_widget_set_tooltip_text(switcher, "2D: one layer. 3D: the layers up to the slider. In 3D: a left drag orbits, a middle or right drag pans (two fingers pressed down on a touchpad), scroll or pinch to zoom, double-click to reset.");
 
-    /* The controls float over the view, so the view has all the room. The
-     * window is transparent (for the 3D view), so each control paints its
-     * own background (the zg-float style). */
+    /* The view buttons go in the middle of the header bar
+     * (zg_preview_view_bar), so the view has more room. */
     const char *modes[] = {"Filament", "Feature", "Speed", "Flow", "Layer time", "Line width", NULL};
     GtkWidget *colors = gtk_drop_down_new_from_strings(modes);
     p->colors = colors;
@@ -1636,13 +1750,17 @@ GtkWidget *zg_preview_new(ZgModel *model) {
     p->speed = gtk_drop_down_new_from_strings(speeds);
     gtk_drop_down_set_selected(GTK_DROP_DOWN(p->speed), 3);
     gtk_widget_set_tooltip_text(p->speed, "The replay speed: 1x is the real print speed.");
+    /* The view bar: 2D and 3D, and the colors. The window adds Search and
+     * + to it. A click on a button of the bar leaves the focus where it
+     * was, so the keys of the view go on. */
     GtkWidget *bar = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 4);
-    gtk_widget_add_css_class(bar, "zg-float");
+    gtk_widget_add_css_class(bar, "zg-view-bar");
+    gtk_widget_set_focus_on_click(b2d, FALSE);
+    gtk_widget_set_focus_on_click(b3d, FALSE);
     gtk_box_append(GTK_BOX(bar), switcher);
     gtk_box_append(GTK_BOX(bar), colors);
     gtk_box_append(GTK_BOX(bar), p->legend);
-    gtk_box_append(GTK_BOX(bar), p->play);
-    gtk_box_append(GTK_BOX(bar), p->speed);
+    p->view_bar = g_object_ref_sink(bar);
     GtkWidget *strip = tool_strip(p);
     p->gap_count = gtk_label_new("");
     gtk_widget_add_css_class(p->gap_count, "dim-label");
@@ -1666,16 +1784,10 @@ GtkWidget *zg_preview_new(ZgModel *model) {
     gtk_menu_button_set_popover(GTK_MENU_BUTTON(p->check), pop);
     p->plates = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 0);
     gtk_widget_add_css_class(p->plates, "linked");
-    gtk_widget_set_margin_start(p->plates, 6);
+    gtk_widget_set_halign(p->plates, GTK_ALIGN_START);
     make_plate_bar(p);
-    gtk_box_append(GTK_BOX(bar), p->plates);
-    /* The gap count last: it shows and hides, and the buttons before it
-     * stay in place. */
+    /* The gap count last: it shows and hides. */
     gtk_box_append(GTK_BOX(bar), p->gap_count);
-    gtk_widget_set_halign(bar, GTK_ALIGN_START);
-    gtk_widget_set_valign(bar, GTK_ALIGN_START);
-    gtk_widget_set_margin_start(bar, 10);
-    gtk_widget_set_margin_top(bar, 10);
 
     /* The layer slider: a thin bar on the right edge, with the layer and
      * the z (or the replay time) above it. */
@@ -1706,36 +1818,46 @@ GtkWidget *zg_preview_new(ZgModel *model) {
     gtk_overlay_set_child(GTK_OVERLAY(box), stack);
     /* The cards over the view (float.h) have places of their own. */
     zg_float_install(box);
-    gtk_overlay_add_overlay(GTK_OVERLAY(box), bar);
+    /* The dock, the print card, and the layer slider share the bottom
+     * right corner: place_bottom gives each its place. */
+    g_signal_connect(box, "get-child-position", G_CALLBACK(on_bottom_position), p);
+    p->root = box;
     gtk_overlay_add_overlay(GTK_OVERLAY(box), strip);
     gtk_overlay_add_overlay(GTK_OVERLAY(box), p->slider_box);
 
-    /* The scrub bar: a short bar in the middle of the bottom edge. */
+    /* The replay: play, its speed, the scrub bar, and its label. */
     p->scrub = gtk_scale_new_with_range(GTK_ORIENTATION_HORIZONTAL, 0, 1, 0.001);
     gtk_scale_set_draw_value(GTK_SCALE(p->scrub), FALSE);
     gtk_range_set_value(GTK_RANGE(p->scrub), 1);
-    gtk_widget_set_size_request(p->scrub, 300, -1);
+    gtk_widget_set_size_request(p->scrub, 120, -1);
+    gtk_widget_set_hexpand(p->scrub, TRUE);
     gtk_widget_set_tooltip_text(p->scrub, "Move the nozzle through the top layer: the left end is the start of the layer, the right end the layer done. ← and → with no selected line move it too.");
     g_signal_connect(p->scrub, "value-changed", G_CALLBACK(on_scrub), p);
     p->scrub_label = gtk_label_new("");
     gtk_widget_add_css_class(p->scrub_label, "zg-scrub-label");
-    p->scrub_box = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 8);
-    gtk_widget_add_css_class(p->scrub_box, "osd");
-    gtk_widget_add_css_class(p->scrub_box, "zg-scrub");
+    gtk_label_set_xalign(GTK_LABEL(p->scrub_label), 0);
+    gtk_label_set_width_chars(GTK_LABEL(p->scrub_label), 22);
+    gtk_label_set_ellipsize(GTK_LABEL(p->scrub_label), PANGO_ELLIPSIZE_END);
+    p->scrub_box = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 4);
+    gtk_widget_set_hexpand(p->scrub_box, TRUE);
+    gtk_box_append(GTK_BOX(p->scrub_box), p->play);
+    gtk_box_append(GTK_BOX(p->scrub_box), p->speed);
     gtk_box_append(GTK_BOX(p->scrub_box), p->scrub);
     gtk_box_append(GTK_BOX(p->scrub_box), p->scrub_label);
-    gtk_widget_set_halign(p->scrub_box, GTK_ALIGN_CENTER);
-    /* The bottom of the preview: the scrub bar, and under it the timeline
-     * of the history (zg_preview_set_timeline). */
-    p->bottom = gtk_box_new(GTK_ORIENTATION_VERTICAL, 6);
-    gtk_widget_set_halign(p->bottom, GTK_ALIGN_CENTER);
-    gtk_widget_set_valign(p->bottom, GTK_ALIGN_END);
-    gtk_widget_set_margin_bottom(p->bottom, 10);
-    gtk_widget_set_margin_start(p->bottom, 10);
-    gtk_widget_set_margin_end(p->bottom, 10);
-    gtk_box_append(GTK_BOX(p->bottom), p->scrub_box);
-    gtk_overlay_add_overlay(GTK_OVERLAY(box), p->bottom);
-    /* The readout of the measure tape, under the toolbar. */
+    /* The dock: the plates, the replay, and the history
+     * (zg_preview_set_timeline), with a thin line between the groups. */
+    p->dock = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 4);
+    gtk_widget_add_css_class(p->dock, "osd");
+    gtk_widget_add_css_class(p->dock, "zg-dock");
+    gtk_box_append(GTK_BOX(p->dock), p->plates);
+    for (int k = 0; k < 2; k++) {
+        p->dock_seps[k] = gtk_separator_new(GTK_ORIENTATION_VERTICAL);
+        gtk_widget_add_css_class(p->dock_seps[k], "zg-dock-sep");
+    }
+    gtk_box_append(GTK_BOX(p->dock), p->dock_seps[0]);
+    gtk_box_append(GTK_BOX(p->dock), p->scrub_box);
+    gtk_overlay_add_overlay(GTK_OVERLAY(box), p->dock);
+    /* The readout of the measure tape, at the top of the view. */
     p->measure_label = gtk_label_new("");
     gtk_widget_add_css_class(p->measure_label, "osd");
     gtk_widget_add_css_class(p->measure_label, "zg-measure-readout");
@@ -1743,7 +1865,7 @@ GtkWidget *zg_preview_new(ZgModel *model) {
     gtk_widget_set_halign(p->measure_label, GTK_ALIGN_START);
     gtk_widget_set_valign(p->measure_label, GTK_ALIGN_START);
     gtk_widget_set_margin_start(p->measure_label, 64);
-    gtk_widget_set_margin_top(p->measure_label, 58);
+    gtk_widget_set_margin_top(p->measure_label, 10);
     gtk_widget_set_can_target(p->measure_label, FALSE);
     gtk_widget_set_visible(p->measure_label, FALSE);
     gtk_overlay_add_overlay(GTK_OVERLAY(box), p->measure_label);
@@ -1973,9 +2095,24 @@ void zg_preview_show_layer(GtkWidget *preview, size_t layer) {
 
 void zg_preview_set_timeline(GtkWidget *preview, GtkWidget *timeline) {
     Preview *p = g_object_get_data(G_OBJECT(preview), "zg-preview");
-    if (!p || !p->bottom) return;
-    gtk_widget_set_halign(timeline, GTK_ALIGN_CENTER);
-    gtk_box_append(GTK_BOX(p->bottom), timeline);
+    if (!p || !p->dock) return;
+    /* The dock paints the background. */
+    gtk_widget_remove_css_class(timeline, "osd");
+    gtk_widget_set_halign(timeline, GTK_ALIGN_START);
+    gtk_box_append(GTK_BOX(p->dock), p->dock_seps[1]);
+    gtk_box_append(GTK_BOX(p->dock), timeline);
+}
+
+void zg_preview_set_card(GtkWidget *preview, GtkWidget *card) {
+    Preview *p = g_object_get_data(G_OBJECT(preview), "zg-preview");
+    if (!p) return;
+    p->card = card;
+    gtk_overlay_add_overlay(GTK_OVERLAY(preview), card);
+}
+
+GtkWidget *zg_preview_view_bar(GtkWidget *preview) {
+    Preview *p = g_object_get_data(G_OBJECT(preview), "zg-preview");
+    return p ? p->view_bar : NULL;
 }
 
 GtkWidget *zg_preview_view3d(GtkWidget *preview) {

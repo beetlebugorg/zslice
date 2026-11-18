@@ -194,7 +194,7 @@ static void build_card(ZgSupport *s) {
     gtk_widget_set_halign(s->card, GTK_ALIGN_START);
     gtk_widget_set_valign(s->card, GTK_ALIGN_START);
     gtk_widget_set_margin_start(s->card, 64);
-    gtk_widget_set_margin_top(s->card, 58);
+    gtk_widget_set_margin_top(s->card, 10);
     gtk_widget_set_size_request(s->card, 300, -1);
     s->title = gtk_label_new("Draw support");
     gtk_widget_add_css_class(s->title, "zg-card-title");

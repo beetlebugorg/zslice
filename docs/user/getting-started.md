@@ -259,7 +259,7 @@ Press `?` to see all keyboard shortcuts of the app, grouped (in the GTK app, als
 
 ## Search settings and actions
 
-Press `/` (or click **Search** in the header of the web app) to search the settings and the actions. Type a few letters, for example `infill`, `brim`, or `export`. A word also finds its other names: `speed` finds the motion settings, `perimeters` the walls, `cooling` the fans, and `temp` the temperatures.
+Press `/` (or click **Search** in the header) to search the settings and the actions. Type a few letters, for example `infill`, `brim`, or `export`. A word also finds its other names: `speed` finds the motion settings, `perimeters` the walls, `cooling` the fans, and `temp` the temperatures.
 
 - Each setting in the results has its control: a slider and an entry for a number, a list for a choice, and a switch. Change it right there. The part slices again at once, and the view under the search shows the new lines. A drag of a slider slices as you drag.
 - The view does not change while you go through the results. Click the eye of a setting (or press V on it) to show only the lines that it changes, with the other lines as ghosts; click it again, or close the search, for all lines.
@@ -339,7 +339,7 @@ The areas are in the project file and the plate 3MF, and Ctrl+Z undoes each chan
 
 ## Scrub through a layer
 
-The bar at the bottom of the preview moves the nozzle through the top layer of the layer slider. At the left end, the layer starts; at the right end, the layer is done. The label gives the time in the layer. Play moves the bar, and a drag of the bar pauses the replay. A nozzle in the 3D view shows where the print is.
+The slider on the bar at the bottom of the preview moves the nozzle through the top layer of the layer slider. At the left end, the layer starts; at the right end, the layer is done. The label gives the time in the layer. Play moves the bar, and a drag of the bar pauses the replay. A nozzle in the 3D view shows where the print is.
 
 ## Keys in the preview
 
@@ -360,7 +360,7 @@ A click on a line selects the line (yellow) and the segment under the pointer (o
 
 ## Gaps
 
-Turn on **Gaps** (G, in the tool strip of the GTK app) to see the gaps of the top layer of the layer slider in red: the areas that should be solid that no line covers (the sparse infill is left out, as it is sparse on purpose). The toolbar gives the number of gaps of the layer and their area.
+Turn on **Gaps** (G, in the tool strip of the GTK app) to see the gaps of the top layer of the layer slider in red: the areas that should be solid that no line covers (the sparse infill is left out, as it is sparse on purpose). The header gives the number of gaps of the layer and their area.
 
 Click a gap to select it. The Selected page then gives its size, its width, the lines next to it, and the settings that can close it, the best first, with the value to try and why. **Apply** changes the setting for all prints; **This layer** changes it only for the layer of the gap. The part slices again, and the page shows the same gap with the new settings, or says that it is closed.
 
@@ -402,7 +402,7 @@ Ctrl+Z undoes a change of the settings or of the plate (a move, a turn, a scale,
 Each change of the settings or of the plate is a change in the history (the steps of undo and redo). Two views show it:
 
 - **The timeline** under the preview: one badge for each change, the oldest at the left, as the timeline of Fusion. The color and the glyph of a badge show the kind of change: walls (orange squares), infill (green grid), top and bottom (blue lines), speed (purple chevrons), temperature and cooling (red thermometer), support (gray pillars), layers (amber lines), quality (pink star), the printer, and the place of a part (teal: move, turn, scale, add, remove). Point at a badge to see its changes in words ("Infill density 28 % → 45 % · This print"). Click a badge to go back to that change: the preview slices as it was then, at once. The changes after it stay (dimmed) until you edit something. With the focus on the timeline, ← and → go to the change before and after.
-- **The list of the changes**: click **History** on the history bar (or History in the main menu). It opens over the bar. It has each change with its badge, its time, and its changes, the newest first, and the scope of each change: the printer, the filament, this print, a part, or a layer range ("Layers 86 and up"). Click a change to go back to it, or use ↑ and ↓. Space goes back to the change shown before, so two changes are easy to compare. The ↶ button of one setting in a change undoes only that setting and keeps the later changes: it adds a new change. A double click on a setting goes back to that change and opens the setting where it changed (this print, the part, or the layer profile), so you can edit it there.
+- **The list of the changes**: click **History** on the bar at the bottom of the view (or History in the main menu). It opens over the bar. It has each change with its badge, its time, and its changes, the newest first, and the scope of each change: the printer, the filament, this print, a part, or a layer range ("Layers 86 and up"). Click a change to go back to it, or use ↑ and ↓. Space goes back to the change shown before, so two changes are easy to compare. The ↶ button of one setting in a change undoes only that setting and keeps the later changes: it adds a new change. A double click on a setting goes back to that change and opens the setting where it changed (this print, the part, or the layer profile), so you can edit it there.
 
 The changes for some layers (layer profiles and changes for one layer or a range) also show as orange marks on the right of the layer slider. Point at a mark to see its changes, and click it to go to its top layer and open its layer profile in the settings.
 
@@ -454,9 +454,9 @@ With more than one part on the plate, the Settings page has a bar at the top: **
 
 A part can have its own value of almost any part or filament setting: the walls, the layer height, the seam, the speeds, the infill, the skin, the support. Each part slices as its own job, and the G-code joins the layers of all parts by height (a part with thicker layers prints at every second height, for example). The settings that are for the whole plate (the temperatures, the fan and the cooling, the travel and the retraction, the first layer height, the skirt and the brim) say "Same for all parts", and cannot change there. The part page also has **Quality**: a quality profile for this part only, for example a jig in draft next to a figure in fine. A 3MF file keeps the settings of each part.
 
-In the web app, the view has four floating parts: the tool strip at the left, the layer slider at the right, the print card at the bottom right, and one bar at the bottom. The bar has the plates (‹ › "Plate n of N", All, + Plate, ×), the replay of the print (▶, its speed, and the slider), and the history (↶ ↷, History, and the marks of the changes). The view buttons (2D and 3D, Search, the colors of the lines, and + to add models) are in the header. The print card hides on an empty plate.
+The view has four floating parts: the tool strip at the left, the layer slider at the right, the print card at the bottom right, and one bar at the bottom. The bar has the plates (‹ › "Plate n of N", + Plate, ×, and in the web app also All), the replay of the print (▶, its speed, and the slider), and the history (↶ ↷, History, and the marks of the changes). The view buttons (2D and 3D, Search, the colors of the lines, and + to add models) are in the middle of the header. The print card hides on an empty plate. In a narrow window, the bar takes the whole width, and the print card goes over it.
 
-The panel at the right has the settings. Its top row has the path in the settings, with one back arrow where there is a level to go back to, then Pin and ×. **More** (in the GTK app: **All settings…**) on the card of a line opens the long form of the line in the panel (the Selected page), with one back arrow to the settings. In the GTK app, Alt+Left and the back button of the mouse go back to where you were before, also from the settings to the Selected page. The history is on the history bar, the project in the main menu (Open a project…), and the printers on their own page.
+The panel at the right has the settings. Its top row has the path in the settings, with one back arrow where there is a level to go back to, then Pin and ×. **More** (in the GTK app: **All settings…**) on the card of a line opens the long form of the line in the panel (the Selected page), with one back arrow to the settings. In the GTK app, Alt+Left and the back button of the mouse go back to where you were before, also from the settings to the Selected page. The history is on the bar at the bottom of the view, the project in the main menu (Open a project…), and the printers on their own page.
 
 In the Settings page, each row of a section has the setting's field (a number with its unit, a switch, or a choice), so a quick change needs no other page. The › at the end of a row opens its detail page: what it does, its default, and the lines of the project that it changes, with their time.
 
@@ -494,18 +494,18 @@ Open adds each model to the plate (Ctrl+O, or drop files on the window). The fir
 
 ## More than one plate
 
-Each plate has its own parts, settings, changes, support marks, and undo history. The plate bar has ‹ and › (the plate before and the next plate), "Plate n of N", **+ Plate** (a new empty plate after the others, with the settings of the active plate), and **×** (remove the active plate). All plates slice: the active plate first, then the others in the background. "Send all plates" in the menu slices each plate with parts and sends it to the current printer, one file for each plate; "Export all plates…" writes the files into a folder (name-plate-1.gcode, and so on).
+Each plate has its own parts, settings, changes, support marks, and undo history. The bar at the bottom of the view has ‹ and › (the plate before and the next plate), "Plate n of N", **+ Plate** (a new empty plate after the others, with the settings of the active plate), and **×** (remove the active plate). All plates slice: the active plate first, then the others in the background. "Send all plates" in the menu slices each plate with parts and sends it to the current printer, one file for each plate; "Export all plates…" writes the files into a folder (name-plate-1.gcode, and so on).
 
-To remove a plate, click **×** on the plate bar, right-click the label of a plate (in the GTK app: the name on the plate bar) and choose "Remove plate n", or choose "Remove this plate" in the menu or in the search. A plate with parts asks first. A removal cannot be undone. The plate on the left of the removed plate becomes active. The last plate stays, with no parts. You can remove a plate of a project: its print status stays in the Project dialog.
+To remove a plate, click **×** on the bar at the bottom, right-click the label of a plate (in the GTK app: the name on the bar) and choose "Remove plate n", or choose "Remove this plate" in the menu or in the search. A plate with parts asks first. A removal cannot be undone. The plate on the left of the removed plate becomes active. The last plate stays, with no parts. You can remove a plate of a project: its print status stays in the Project dialog.
 
-In the web app, all plates are in one view, in a row, and the plate bar also has **All** (Home). The GTK app shows the active plate only. The keys of the plates:
+In the web app, all plates are in one view, in a row, and the bar also has **All** (Home). The GTK app shows the active plate only. The keys of the plates:
 
 - `]` makes the next plate active, and shows it.
 - `[` makes the plate before active, and shows it.
 - `F` shows the active plate.
 - `Home` shows all plates (in the GTK app: the start view).
 
- Each plate slices: the active plate first, then the others. With your own plates, **Open** puts the file on the active plate, and **+** in the header adds models to it; the other plates stay. A printdeck.yml project makes way for an opened file.
+ Each plate slices: the active plate first, then the others. With your own plates, **Open** puts the file on the active plate, and **+** in the header adds models to it; the other plates stay. In the GTK app, **+** is the open button (Ctrl+O). A printdeck.yml project makes way for an opened file.
 
 ## Make many of one part
 
@@ -560,7 +560,7 @@ Each row has the zslice setting, its group (Printer, Filament, or This print), t
 
 ## Watch the print
 
-In the app, press the play button under the 3D and 2D switch. The 3D view shows the print as it grows, line by line, at the speed in the list (1x is the real speed). The layer slider follows. Move the slider to stop.
+In the app, press the play button on the bar at the bottom of the view. The 3D view shows the print as it grows, line by line, at the speed in the list (1x is the real speed). The layer slider follows. Move the slider to stop.
 
 ## Try the demo part
 

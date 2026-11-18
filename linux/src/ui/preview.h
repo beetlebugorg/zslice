@@ -13,9 +13,15 @@
 
 /* Returns the preview widget (the area and the slider in one box). */
 GtkWidget *zg_preview_new(ZgModel *model);
-/* Puts the timeline of the history (zg_timeline_new) at the bottom of the
- * preview, under the scrub bar. */
+/* Puts the timeline of the history (zg_timeline_new) in the dock at the
+ * bottom of the preview, after the plates and the replay. */
 void zg_preview_set_timeline(GtkWidget *preview, GtkWidget *timeline);
+/* Puts the print card at the bottom right of the preview. The dock ends
+ * where the card starts. A hidden card leaves the whole width to the dock. */
+void zg_preview_set_card(GtkWidget *preview, GtkWidget *card);
+/* The view buttons (2D and 3D, the colors) for the middle of the header
+ * bar. The window adds its own buttons to the box. */
+GtkWidget *zg_preview_view_bar(GtkWidget *preview);
 
 /* Reads the result from the core again. Call it when the state changes. */
 void zg_preview_refresh(GtkWidget *preview);
