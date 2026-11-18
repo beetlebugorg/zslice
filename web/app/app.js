@@ -891,6 +891,8 @@ var lineCard = new LineCard({
   more: () => {
     lineCard.close();
     showTab("selected");
+    // The focus goes into the panel, so Esc hides it.
+    $("selected-back").focus({ preventScroll: true });
   },
   // With the panel on the line, a close of the card keeps the selection
   // (the panel has its data); else it clears it.
