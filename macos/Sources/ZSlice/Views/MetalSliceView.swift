@@ -160,6 +160,11 @@ final class MetalSliceView: NSView {
         }
         updateDark()
         resizeDrawable()
+        // The keys of the view work at once in a new window.
+        DispatchQueue.main.async { [weak self] in
+            guard let self, let w = window, w.firstResponder === w || w.firstResponder == nil else { return }
+            w.makeFirstResponder(self)
+        }
     }
 
     override func viewDidChangeBackingProperties() {
