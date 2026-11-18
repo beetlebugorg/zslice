@@ -225,8 +225,11 @@ function newHist() {
     pendingKey: null, editKey: null, focusKey: null };
 }
 
+// Each plate has an id, new for each plate: the page clears the old scene
+// of a place in the view when another plate comes there (a new project).
+let plateIds = 0;
 function newPlate(c, name = "") {
-  return { core: c, hist: newHist(), name, status: c.state() === STATE.empty ? "empty" : "stale", wanted: false };
+  return { id: ++plateIds, core: c, hist: newHist(), name, status: c.state() === STATE.empty ? "empty" : "stale", wanted: false };
 }
 
 // The list of the plates for the page: the name, the status, the bed size,
@@ -237,13 +240,14 @@ function postPlates() {
     event: "plates",
     active,
     plates: plates.map((p) => ({
+      id: p.id,
       name: p.name || p.core.modelName,
       status: p.status,
       bed: [num(p.core, "machine.bed_size_x"), num(p.core, "machine.bed_size_y")],
       model: p.core.get("machine.model"),
       printer: p.core.get("machine.name"),
       // A plate that cannot slice: the footprints of its parts.
-      outline: p.status === "resin" ? footprints(p.core) : null,
+      outline: p.status === "resin" || p.status === "failed" ? footprints(p.core) : null,
     })),
   });
 }

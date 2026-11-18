@@ -114,6 +114,8 @@ const Conv = enum {
     seam,
     /// support_type.
     support_type,
+    /// support_structure: normal (grid) or tree.
+    support_structure,
 };
 
 const machine_map = [_]Map{
@@ -150,6 +152,7 @@ const project_map = [_]Map{
     .{ .cura = "ironing_enabled", .group = "project", .key = "ironing", .conv = .boolean },
     .{ .cura = "z_seam_type", .group = "project", .key = "seam", .conv = .seam },
     .{ .cura = "support_type", .group = "project", .key = "support", .conv = .support_type },
+    .{ .cura = "support_structure", .group = "project", .key = "support_style", .conv = .support_structure },
     .{ .cura = "support_angle", .group = "project", .key = "support_angle" },
     .{ .cura = "support_infill_rate", .group = "project", .key = "support_density", .conv = .percent },
     .{ .cura = "support_xy_distance", .group = "project", .key = "support_xy_gap" },
@@ -609,6 +612,11 @@ fn convert(arena: Allocator, conv: Conv, text: []const u8, speed: SpeedBase) !?[
             if (std.mem.eql(u8, text, "shortest")) return "\"nearest\"";
             if (std.mem.eql(u8, text, "random")) return "\"random\"";
             if (std.mem.eql(u8, text, "sharpest_corner")) return "\"sharpest\"";
+            return null;
+        },
+        .support_structure => {
+            if (std.mem.eql(u8, text, "tree")) return "\"tree\"";
+            if (std.mem.eql(u8, text, "normal")) return "\"grid\"";
             return null;
         },
         .support_type => {
@@ -1316,6 +1324,7 @@ fn mapSettings(arena: Allocator, meta: anytype, base: *const @import("settings.z
                 .copy => if (num) |n| try std.fmt.allocPrint(arena, "{d}", .{n}) else null,
                 .seam => (try convert(arena, .seam, v, .{ .base = 0, .precise = false })),
                 .support_type => (try convert(arena, .support_type, v, .{ .base = 0, .precise = false })),
+                .support_structure => (try convert(arena, .support_structure, v, .{ .base = 0, .precise = false })),
                 else => null,
             };
             const text = value orelse {
@@ -1579,6 +1588,12 @@ test "plate settings: the keys of a printdeck.yml" {
     const pb = try plateSettings(a, &unmapped, &base);
     try testing.expectEqual(@as(usize, 3), pb.ignored.len);
     try testing.expectEqualStrings("zslice has no raft", pb.ignored[0].why);
+
+    // support_structure picks the style of the support.
+    const st = [_]Pair{.{ .key = "support_structure", .value = "tree" }};
+    const ps_st = try plateSettings(a, &st, &base);
+    try testing.expectEqual(@as(usize, 0), ps_st.ignored.len);
+    try testing.expectEqualStrings("tree", ps_st.sets[0].value);
 
     // Support on with no type: everywhere, when the profile has none.
     base.project.support = .off;

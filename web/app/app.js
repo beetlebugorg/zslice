@@ -1938,6 +1938,16 @@ function onPlates(m) {
   // plate (updateBed): it shows on the plates of the same printer.
   const printerOf = (p) => (p ? `${p.model}\n${p.printer}` : "");
   const printer = printerOf(m.plates[m.active]);
+  // Another plate at a place of the view (a new project, or a plate
+  // removed): its old scene and outline go.
+  app.plateIds = app.plateIds ?? [];
+  m.plates.forEach((p, i) => {
+    if (app.plateIds[i] !== p.id && i !== m.active) {
+      view.plateClear(i);
+      app.outlines[i] = "";
+    }
+  });
+  app.plateIds = m.plates.map((p) => p.id);
   m.plates.forEach((p, i) => {
     let flags = 0;
     if (p.status === "stale" || p.status === "slicing") flags |= 1;
