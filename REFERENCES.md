@@ -67,6 +67,7 @@ The shells link these libraries as shared libraries from the system. Their code 
 | Linux (`linux/`) | cairo | LGPL-2.1-only OR MPL-1.1 |
 | Linux (`linux/`) | libsoup 3 (HTTP for the printer connections) | LGPL-2.0-or-later |
 | Linux (`linux/`) | json-glib (the JSON of the printer APIs) | LGPL-2.1-or-later |
+| macOS (`macos/`) | The system frameworks of macOS: SwiftUI, AppKit, Metal, QuartzCore, ImageIO, UniformTypeIdentifiers | Apple system frameworks, part of macOS |
 
 ## Algorithms, formats, and conventions
 
@@ -131,6 +132,8 @@ These sources gave methods or formats. zslice does not copy their code. Each zsl
 | Lookout Marine (same author): a Zig core with a C API and one native shell for each platform | Same author | `src/app.zig`, `linux/` | The structure of the app: the core has the logic, and each shell draws widgets, does file I/O, and moves events to its UI thread. |
 | Grid ("normal") support: overhang by angle, columns down to the bed or the part, XY and Z gaps, dense interface layers. As in CuraEngine and PrusaSlicer | General slicer technique (the method, not code) | `src/support.zig` | The support areas of each layer. |
 | PKWARE, ".ZIP File Format Specification" (APPNOTE.TXT), https://pkware.cachefly.net/webdocs/casestudies/APPNOTE.TXT | Public specification | `src/zipfile.zig` | The zip records (local header, central directory, end record, and the zip64 records and extra field). The header structs and deflate come from the Zig standard library (MIT). |
+| Apple, "Metal Shading Language Specification" and the Metal, AppKit, and SwiftUI documentation, https://developer.apple.com/documentation/ | Documentation | `macos/Sources/ZSlice/Render/`, `macos/Sources/ZSlice/Views/` | The Metal API, the shader language, `CAMetalLayer`, the display link of a view (macOS 14), and the document windows of SwiftUI. The shaders port `src/render/shaders/*` to the Metal Shading Language. The code is new. |
+| Uniform Type Identifiers: `public.standard-tesselated-geometry-format` (STL, a system type of macOS) and `org.3mf.3mf` (3MF, declared by the app) | Apple documentation | `macos/Info.plist`, `macos/Sources/ZSlice/ZSliceApp.swift` | The file types that the app opens. |
 | 3MF Consortium, "3MF Core Specification" 1.3 and "Production Extension", https://github.com/3MFConsortium/spec_core | BSD-2-Clause (the specification) | `src/threemf.zig` | The 3MF package, the model file, objects, components, build items, transforms, and units. The code is new. |
 | Christer Ericson, "Real-Time Collision Detection" (2005), 5.1.5: the closest point on a triangle | General computational geometry technique | `src/plate.zig` (`pointTriangle2`) | The side of a part nearest to a picked point, for "this side on the bed". |
 | Auto orientation of a part for less support (the method of the "Tweaker" auto-rotation of Cura and PrusaSlicer: score candidate directions by overhang area, bed contact, and height) | General slicer technique (the method, not code) | `src/orient.zig` | The best orientation of a part for the smart, less-support, and strength placements. |

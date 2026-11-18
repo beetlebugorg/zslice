@@ -56,6 +56,7 @@ SOURCES = [
     ("docs/internals/cura-compare.md", "internals/cura-compare/", "Internals", "Compared with other slicers"),
     ("docs/internals/contributing.md", "internals/contributing/", "Internals", "Contributing"),
     ("docs/internals/code-quality.md", "internals/code-quality/", "Internals", "Code quality"),
+    ("docs/internals/macos.md", "internals/macos/", "Internals", "The macOS app"),
     ("docs/app/README.md", "app/", "Project", "App"),
     ("REFERENCES.md", "references/", "Project", "References"),
     ("ROADMAP.md", "roadmap/", "Project", "Roadmap"),

@@ -28,6 +28,7 @@
 - [Arachne walls](internals/arachne.md): walls with a variable line width, ported from CuraEngine.
 - [Contributing](internals/contributing.md): the rules, the tests, and step-by-step guides to add a setting, a feature, or an infill pattern.
 - [Code quality](internals/code-quality.md): the plan to make the code clearer, ranked by value.
+- [The macOS app](internals/macos.md): the SwiftUI shell, its build, and the Metal renderer of the 3D view.
 
 ## Documentation
 

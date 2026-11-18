@@ -1,0 +1,5 @@
+module CZslice [system] {
+    header "../../../include/zslice-app.h"
+    link "zslice"
+    export *
+}

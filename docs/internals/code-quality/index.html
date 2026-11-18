@@ -39,6 +39,7 @@
 <a href="../../internals/cura-compare/">Compared with other slicers</a>
 <a href="../../internals/contributing/">Contributing</a>
 <a href="../../internals/code-quality/" aria-current="page">Code quality</a>
+<a href="../../internals/macos/">The macOS app</a>
 <div class="group">Project</div>
 <a href="../../app/">App</a>
 <a href="../../references/">References</a>
@@ -69,7 +70,7 @@
 <ul class="tasks"><li><span class="box done" aria-label="done"></span><div>No warnings from <code>zig build</code>, <code>zig build test</code>, <code>zig build wasm</code>, and <code>ninja -C linux/build</code> (meson <code>warning_level=2</code>).</div></li><li><span class="box done" aria-label="done"></span><div><code>zig fmt</code> for the files outside the slicing stages.</div></li><li><span class="box" aria-label="to do"></span><div><code>zig fmt --check</code> fails for <code>src/engine.zig</code>, <code>src/layer.zig</code>, and <code>src/support.zig</code>. Run <code>zig fmt</code> on them when no other branch changes them.</div></li></ul>
 <h2 id="later-files-that-other-work-changes-now">Later: files that other work changes now</h2>
 <p>These files change often. Change them only in small, safe steps.</p>
-<ul><li><code>src/layer.zig</code> (1690 lines) and <code>src/engine.zig</code> (1210 lines) are the largest stage files.</li><li><code>linux/src/ui/view3d.c</code> (780 lines) has the 3D view widget, the drag of a part, the context menu, the support marks, the multiple selection, and the test hooks. Split it when the work on the 3D view is stable: the context menu and the support marks first.</li></ul><nav class="pager"><a class="prev" href="../../internals/contributing/"><span>Previous</span><b>Contributing</b></a><a class="next" href="../../app/"><span>Next</span><b>App</b></a></nav>
+<ul><li><code>src/layer.zig</code> (1690 lines) and <code>src/engine.zig</code> (1210 lines) are the largest stage files.</li><li><code>linux/src/ui/view3d.c</code> (780 lines) has the 3D view widget, the drag of a part, the context menu, the support marks, the multiple selection, and the test hooks. Split it when the work on the 3D view is stable: the context menu and the support marks first.</li></ul><nav class="pager"><a class="prev" href="../../internals/contributing/"><span>Previous</span><b>Contributing</b></a><a class="next" href="../../internals/macos/"><span>Next</span><b>The macOS app</b></a></nav>
 </main>
 </div>
 <footer>zslice is free software (AGPL-3.0-or-later). <a href="../../privacy/">Privacy</a>: no analytics, no cookies, nothing from other sites. <a href="https://github.com/beetlebugorg/zslice/blob/main/docs/build.py">docs/build.py</a> writes this site from <a href="https://github.com/beetlebugorg/zslice/blob/main/docs/internals/code-quality.md">docs/internals/code-quality.md</a>.</footer>
