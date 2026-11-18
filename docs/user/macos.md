@@ -58,10 +58,9 @@ The app keeps your settings in `~/Library/Application Support/zslice`: `machine.
 
 ## Projects
 
-Open a project with File > Open Project Folder (Shift-Command-O): choose the folder of a repository with a printdeck.yml. The plates of the project show in a row, and each plate slices.
+Open a project with File > Open Project Folder (Shift-Command-O): choose the folder of a repository with a printdeck.yml. The plates of the project show in a row, and each plate slices. The Project page of the drawer lists the plates and the parts; the check box and the count of a part change the plates at once.
 
 ## Not yet in the macOS app
 
-- The Project page: the check boxes and the counts of the parts. The app opens the plates of the plan as they are.
 - A project from GitHub (owner/repo). Clone the repository, and open its folder.
 - The status of a printdeck printer and its estimate of the print time.

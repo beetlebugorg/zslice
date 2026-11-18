@@ -45,6 +45,7 @@ open build/zslice.app
 | `Sources/ZSlice/Views/PrintFacts.swift` | The main settings of the print on the print card, each with a popover of editors. |
 | `Sources/ZSlice/Views/PlateBar.swift` | The plate bar: the plate before and after, all plates, a new plate, and Remove. |
 | `Sources/ZSlice/Views/PartCard.swift` | The card of a selected part. |
+| `Sources/ZSlice/Views/ProjectPage.swift` | The Project page of the drawer: the plates and the parts of a project. |
 | `Sources/ZSlice/Views/LayerSlider.swift` | The slider with two knobs for the layers that show. |
 | `Sources/ZSlice/Views/HistoryPage.swift` | The History page of the drawer: the steps, the newest first, with their changes. |
 | `Sources/ZSlice/Views/SettingsInspector.swift` | The settings drawer: the sections, the settings with their editors, the page of a setting, and the search. |
@@ -164,4 +165,4 @@ The work goes in steps. Each step keeps `zig build test`, `zig build web`, and t
 1. The core link and the 3D view: open a file, slice, and show the beads with Metal. Done.
 2. The slicing UI: the print card and Export G-code, the layer slider, the replay, the 2D layer view, the settings drawer, and history and undo (done).
 3. The tools (Select, Move, Turn, Measure, Gaps, Check), the line and part cards, the settings search, the shortcut sheet, the context menu, and a double click that faces a side (done).
-4. Printers (the picker, the library, App Keys, printdeck, OctoPrint, Moonraker, discovery), printdeck.yml projects, the menus, drag and drop, and the user docs (done). Still to do: the Project page (the parts of a project), projects from GitHub, and the status of a printdeck printer.
+4. Printers (the picker, the library, App Keys, printdeck, OctoPrint, Moonraker, discovery), printdeck.yml projects, the menus, drag and drop, and the user docs (done). Still to do: projects from GitHub, and the status of a printdeck printer.

@@ -317,6 +317,8 @@ final class Workspace {
         do {
             try model.openProject(url)
             framePlate(-1)
+            showSettings = true
+            drawerPage = .project
         } catch {
             let a = NSAlert()
             a.messageText = "The project did not open"
@@ -463,7 +465,7 @@ final class Workspace {
         }
     }
 
-    enum DrawerPage: String { case settings, history }
+    enum DrawerPage: String { case settings, history, project }
 
     /// The pages of the settings browser that show, from its first page.
     var settingsPath: [SettingsRoute] = []

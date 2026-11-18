@@ -180,6 +180,9 @@ struct InspectorPanel: View {
             Picker("Page", selection: Bindable(workspace).drawerPage) {
                 Text("Settings").tag(Workspace.DrawerPage.settings)
                 Text("History").tag(Workspace.DrawerPage.history)
+                if workspace.model.project != nil {
+                    Text("Project").tag(Workspace.DrawerPage.project)
+                }
             }
             .pickerStyle(.segmented)
             .labelsHidden()
@@ -187,6 +190,7 @@ struct InspectorPanel: View {
             switch workspace.drawerPage {
             case .settings: SettingsInspector(workspace: workspace)
             case .history: HistoryPage(history: workspace.model.history)
+            case .project: ProjectPage(workspace: workspace)
             }
         }
     }

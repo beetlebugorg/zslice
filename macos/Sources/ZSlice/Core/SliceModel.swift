@@ -71,6 +71,8 @@ final class SliceModel {
     private(set) var plates: [PlateInfo] = []
     private(set) var active = 0
     var name = ""
+    /// The open project, or nil (Project.swift).
+    var project: ProjectState?
     private(set) var state = State.empty
     private(set) var progress = 0.0
     private(set) var stats: zs_stats?
@@ -196,6 +198,7 @@ final class SliceModel {
         guard rc == 0 else { throw CoreError(code: rc) }
         zs_set_name(set, active, name)
         self.name = name
+        project = nil
         stats = nil
         state = .ready
         // Opening a file is a step of the history.
