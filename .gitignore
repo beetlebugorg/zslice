@@ -10,3 +10,6 @@ macos/Signing.local.xcconfig
 # Xcode state of a user.
 macos/ZSlice.xcodeproj/xcuserdata/
 macos/ZSlice.xcodeproj/project.xcworkspace/xcuserdata/
+
+# Finder state of macOS.
+.DS_Store
