@@ -155,6 +155,10 @@ struct DocumentWindow: View {
                         GapCard(workspace: workspace, gap: gap)
                             .position(x: min(workspace.cardAt.x + 180, geo.size.width - 170), y: min(max(workspace.cardAt.y, 160), geo.size.height - 160))
                     }
+                    if workspace.tool == .support, workspace.page == .threeD {
+                        SupportCard(workspace: workspace)
+                            .position(x: geo.size.width - 145 - 92, y: 200)
+                    }
                     if let i = workspace.selectedPart {
                         PartCard(workspace: workspace, index: i, area: geo.size)
                             .id(i)

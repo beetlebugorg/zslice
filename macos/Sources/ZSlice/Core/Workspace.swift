@@ -46,6 +46,17 @@ final class Workspace {
 
     /// Fit the view to the plate after the next slice (after a fill).
     @ObservationIgnored var fitAfterSlice = false
+    /// The Support tool (Support.swift): the areas of the core, the points
+    /// of the area that the user draws now, the selected area, the kind of
+    /// the next area, and "See through the support".
+    var supportAreas: [SupportArea] = []
+    var supportDraft: [SIMD3<Double>] = []
+    var supportSelected: Int?
+    var supportKind = Int32(ZS_MARK_GRID.rawValue)
+    var supportSee = true {
+        didSet { applyFocus() }
+    }
+    @ObservationIgnored var supportDrag: SupportDrag?
     /// The Cut popover of the part card is open.
     var cutOpen = false
     private(set) var lo = 0
@@ -187,6 +198,7 @@ final class Workspace {
         showGaps()
         readIssues()
         if let i = selectedPart { selectPart(i < zs_app_part_count(model.core) ? i : nil) }
+        readSupportAreas()
         if ProcessInfo.processInfo.environment["ZSLICE_EDIT"] != nil {
             let n = zs_app_edit_count(model.core)
             var line = "zslice edits: \(n), \(tp.path_count) paths"
@@ -248,6 +260,12 @@ final class Workspace {
         }
         if let t = env["ZSLICE_TOOL"].flatMap(Tool.init) { setTool(t) }
         for p in points("ZSLICE_CLICKS") { sliceViewClick(p) }
+        // ZSLICE_SUPPORT_CLOSE=1 closes the area that the clicks drew.
+        if env["ZSLICE_SUPPORT_CLOSE"] != nil {
+            NSLog("zslice support: draft %d", supportDraft.count)
+            closeSupportArea()
+            NSLog("zslice support: areas %d", zs_app_support_area_count(model.core))
+        }
         let drag = points("ZSLICE_DRAG")
         if drag.count == 2, press(drag[0], .command) {
             self.drag(drag[1], .command)
@@ -782,9 +800,14 @@ final class Workspace {
         applyFocus()
     }
 
-    private func applyFocus() {
+    func applyFocus() {
         guard let v = canvas.view else { return }
-        let mask = focusMask != 0 ? focusMask : shownTypes
+        var mask = focusMask != 0 ? focusMask : shownTypes
+        // The Support tool: the support lines are faint, so the outlines of
+        // the areas show through them.
+        if tool == .support, supportSee, focusMask == 0 {
+            mask = (mask == 0 ? Feature.all : mask) & ~Workspace.supportFeatures
+        }
         let zmax = focusMask != 0 && focusFirst && !layerZ.isEmpty ? Double(layerZ[0]) : -1
         // 0: the plate has no line of those features; the view keeps the
         // whole print, and a note says why, once for each new focus.
@@ -1070,6 +1093,8 @@ extension Workspace: SliceViewDelegate {
         switch tool {
         case .measure:
             measureClick(p, snap: !NSEvent.modifierFlags.contains(.shift))
+        case .support:
+            supportClick(p, snap: !NSEvent.modifierFlags.contains(.shift))
         case .turn, .move:
             // A click on a part selects it; a click on a line selects it too.
             if let i = partAt(p) { selectPart(i) } else { selectPart(nil); pick(at: p) }
@@ -1094,6 +1119,7 @@ extension Workspace: SliceViewDelegate {
     /// The keys of the preview (docs/user/getting-started.md, "Keys in the
     /// preview"), for the case with no selected line.
     func sliceViewKey(_ event: NSEvent) -> Bool {
+        if supportKey(event) { return true }
         if turnKey(event) { return true }
         if selection == nil, partKey(event) { return true }
         // Delete on a selected line (with no part card): the line does not print.

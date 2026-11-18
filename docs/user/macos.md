@@ -46,6 +46,10 @@ The bar at the top of the Settings page picks what the editors change: This Prin
 
 The card of a selected line has Don't Print This Line (or press Delete with the line selected), and −10 % and +10 % plastic. The plate slices again with the edit. Each edit is a step of the history, so Command-Z takes it back, and a project file keeps it. Add a Drop of Plastic Here in the context menu of a line puts a dot of 1 mm of plastic at that point, on the layer of the line, to fill a small gap. An edit holds to its line: after a change that moves the line, the edit waits. The History page lists the edits under Line Edits, marks the ones that wait, and × removes one.
 
+## Draw support
+
+The Support tool (U) draws an area of support on the part: click points on the part (they snap to the lines; Shift: no snap), then click the first point or press Return to close the area. Delete removes the last point, and Esc stops. Grid or Tree grows support under all of the part in the area that faces down, also where the support angle gives none; Block puts no support there. Click an outline to select its area, drag a point to move it, and press Delete (or Delete Area on the card) to remove it. While the tool is on, the support lines are faint (See through the support), so the outlines show. Each change is one step of the history.
+
 ## The print card
 
 The print card has the main settings of the print as small buttons. A click opens a popover with the editor and the slider of each setting; a change slices at once.

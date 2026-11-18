@@ -22,7 +22,7 @@ import AppKit
 import CZslice
 
 enum Tool: String, CaseIterable {
-    case select, move, turn, measure
+    case select, move, turn, measure, support
 
     var key: String {
         switch self {
@@ -30,6 +30,7 @@ enum Tool: String, CaseIterable {
         case .move: "m"
         case .turn: "r"
         case .measure: "t"
+        case .support: "u"
         }
     }
 
@@ -39,6 +40,7 @@ enum Tool: String, CaseIterable {
         case .move: "Move"
         case .turn: "Turn"
         case .measure: "Measure"
+        case .support: "Support"
         }
     }
 
@@ -48,6 +50,7 @@ enum Tool: String, CaseIterable {
         case .move: "arrow.up.and.down.and.arrow.left.and.right"
         case .turn: "arrow.trianglehead.2.clockwise.rotate.90"
         case .measure: "ruler"
+        case .support: "pencil.and.outline"
         }
     }
 
@@ -57,6 +60,7 @@ enum Tool: String, CaseIterable {
         case .move: "Move (M): drag a part to move it on the bed. Command-scroll turns it by 15°. Command-drag moves a part in any tool."
         case .turn: "Turn (R): click a part, then drag its red, green, or blue ring to turn it about X, Y, or Z (15°; Shift: 5°). Keys: Left and Right about Z, Up and Down about X, Page Up and Page Down about Y."
         case .measure: "Measure (T): click two points of the print or the bed. A click on a circle or an arc measures from its center. Shift: no snap. Esc clears."
+        case .support: "Support (U): click points on the part to draw an area of support, or of no support. Click the first point or press Return to close it. Click an outline to select an area, and drag its points."
         }
     }
 }
@@ -80,7 +84,9 @@ struct PartDrag {
 
 extension Workspace {
     func setTool(_ t: Tool) {
+        let was = tool
         tool = t
+        if (was == .support) != (t == .support) { supportToolChanged(on: t == .support) }
         if t != .measure { clearTape() }
         if t == .select { selectPart(nil) }
         showRings()
@@ -147,6 +153,7 @@ extension Workspace {
     /// A press: the Move tool or Command on a part starts a move, and the
     /// Measure tool on an end of the tape starts a drag of that end.
     func press(_ p: CGPoint, _ flags: NSEvent.ModifierFlags) -> Bool {
+        if supportPress(p) { return true }
         if tool == .measure, let i = tapeEnd(near: p) {
             tapeDrag = i
             return true
@@ -172,6 +179,10 @@ extension Workspace {
     }
 
     func drag(_ p: CGPoint, _ flags: NSEvent.ModifierFlags) {
+        if supportDrag != nil {
+            supportDragged(p, snap: !flags.contains(.shift))
+            return
+        }
         if let r = ringDrag, let i = selectedPart, let v = canvas.view, let info = part(i) {
             let total = zs_view_ring_drag(v, Float(p.x * pixelScale), Float(p.y * pixelScale), flags.contains(.shift) ? 5 : 15)
             let step = total - r.sent
@@ -210,6 +221,10 @@ extension Workspace {
     }
 
     func release(_ p: CGPoint) {
+        if supportDrag != nil {
+            supportReleased()
+            return
+        }
         if let r = ringDrag, let v = canvas.view {
             zs_view_ring_release(v)
             ringDrag = nil
