@@ -205,6 +205,16 @@ export fn zs_printers_match(lib: ?*const Library, hint: ?[*:0]const u8, bed_x: f
     return if (l.match(h, bed_x, bed_y, height)) |i| @intCast(i) else -1;
 }
 
+/// As zs_printers_match, with the nozzle of the printer in mm (0: not
+/// known), for example from zs_printer_status_get. In a family of models
+/// (one name, many tool heads) the model with that nozzle wins; with no
+/// nozzle, the stock size.
+export fn zs_printers_match_nozzle(lib: ?*const Library, hint: ?[*:0]const u8, bed_x: f64, bed_y: f64, height: f64, nozzle: f64) isize {
+    const l = lib orelse return -1;
+    const h = if (hint) |s| std.mem.span(s) else "";
+    return if (l.matchNozzle(h, bed_x, bed_y, height, nozzle)) |i| @intCast(i) else -1;
+}
+
 /// Writes `text` to buf (with a 0 at the end, if it fits) and its length to
 /// out_len. A buf of NULL asks for the length only.
 fn give(text: []const u8, buf: ?[*]u8, cap: usize, out_len: ?*usize) c_int {
@@ -400,4 +410,22 @@ test "the C API of the discovery" {
     try std.testing.expectEqual(@as(c_int, 0), zs_discovery_feed(f, q, n));
     try std.testing.expectEqual(@as(usize, 0), zs_discovery_count(f));
     try std.testing.expectEqual(@as(c_int, -1), zs_discovery_reply(f, 0, 9, "x", 1));
+}
+
+test "printers: a family name matches the stock tool head, or the nozzle" {
+    var lib: ?*Library = null;
+    if (zs_printers_builtin(&lib) != ok) return error.SkipZigTest;
+    defer zs_printers_free(lib);
+    const l = lib.?;
+    const Case = struct { hint: [:0]const u8, nozzle: f64, want: f64 };
+    for ([_]Case{
+        .{ .hint = "LulzBot TAZ Workhorse", .nozzle = 0, .want = 0.5 },
+        .{ .hint = "TAZ Workhorse", .nozzle = 0, .want = 0.5 },
+        .{ .hint = "TAZ Workhorse", .nozzle = 0.5, .want = 0.5 },
+        .{ .hint = "TAZ Workhorse", .nozzle = 0.8, .want = 0.8 },
+    }) |case| {
+        const i = zs_printers_match_nozzle(l, case.hint.ptr, 280, 280, 285, case.nozzle);
+        try std.testing.expect(i >= 0);
+        try std.testing.expectApproxEqAbs(case.want, l.models[@intCast(i)].nozzle, 0.01);
+    }
 }

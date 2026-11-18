@@ -324,6 +324,16 @@ pub const Library = struct {
     /// host name) and the size of its bed (0 when not known). Returns null
     /// when nothing fits well.
     pub fn match(self: *const Library, hint: []const u8, bed_x: f64, bed_y: f64, height: f64) ?usize {
+        return self.matchNozzle(hint, bed_x, bed_y, height, 0);
+    }
+
+    /// As `match`, with the nozzle of the printer (0: not known). A name
+    /// that starts the names of several models (a family, such as "LulzBot
+    /// TAZ Workhorse" with ten tool heads) matches the family. In it, the
+    /// model with that nozzle wins; with no nozzle, the stock size (the
+    /// nozzle nearest 0.45 mm), so a 0.5 mm printer does not get a 1.2 mm
+    /// line width.
+    pub fn matchNozzle(self: *const Library, hint: []const u8, bed_x: f64, bed_y: f64, height: f64, nozzle: f64) ?usize {
         var best: ?usize = null;
         var best_score: i64 = 0;
         var hint_key: [128]u8 = undefined;
@@ -341,6 +351,16 @@ pub const Library = struct {
                     s += 1000;
                 } else if (name_key.len >= 3 and std.mem.indexOf(u8, hk, name_key) != null) {
                     s += 200 + @as(i64, @intCast(name_key.len)) * 10;
+                } else if (hk.len >= 6 and (std.mem.startsWith(u8, full_key, hk) or std.mem.startsWith(u8, name_key, hk))) {
+                    // The name of a family.
+                    s += 300;
+                }
+                if (s > 0) {
+                    if (nozzle > 0) {
+                        if (@abs(m.nozzle - nozzle) < 0.01) s += 150;
+                    } else {
+                        s -= @intFromFloat(@round(@abs(m.nozzle - 0.45) * 40));
+                    }
                 }
             }
             if (bed_x > 0 and bed_y > 0) {

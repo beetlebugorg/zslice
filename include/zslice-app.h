@@ -1808,6 +1808,11 @@ int zs_printers_bed(const zs_printers *lib, size_t i, zs_printer_bed *out);
 /* The model that fits a printer on the network: a name hint (a TXT model,
  * a host name) and its bed (0 when not known), or -1. */
 ptrdiff_t zs_printers_match(const zs_printers *lib, const char *hint, double bed_x, double bed_y, double height);
+/* As zs_printers_match, with the nozzle of the printer in mm (0: not known;
+ * take it from zs_printer_status_get). A name that starts the names of a
+ * family of models (one printer, many tool heads) matches the family; in
+ * it, the model with that nozzle wins, and with no nozzle the stock size. */
+ptrdiff_t zs_printers_match_nozzle(const zs_printers *lib, const char *hint, double bed_x, double bed_y, double height, double nozzle);
 /* The text functions below write the text and a 0 to buf, and its length
  * (without the 0) to out_len. buf NULL: the length only. */
 /* The machine profile of a model (for zs_app_profile_apply with
