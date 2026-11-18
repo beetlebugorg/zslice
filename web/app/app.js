@@ -224,9 +224,60 @@ function requestFrame() {
 const frameTimes = new Float64Array(240);
 let frameCount = 0;
 
+// ---- the detail governor ----
+//
+// While the view moves (frames 250 ms apart or less), a frame that comes
+// late (over 26 ms after the one before, two times) raises the detail
+// value of the core view (zs_view_set_detail): wider beads get the coarse
+// meshes, so a slow GPU draws fewer triangles. 60 fast frames lower it
+// again. When the view rests for 250 ms, one frame draws at full detail.
+// The next move starts at the detail of the last move.
+const detail = { now: 1, moving: 1, last: 0, slow: 0, fast: 0, rest: 0 };
+
+function setDetail(d) {
+  d = Math.min(16, Math.max(1, d));
+  if (d === detail.now || !view?.v) return;
+  detail.now = d;
+  // No ribbons: they need a discard in the shader (see gl.js).
+  view.x.zs_view_set_detail(view.v, d, 0);
+}
+
+function governDetail(now) {
+  const gap = detail.last ? now - detail.last : Infinity;
+  detail.last = now;
+  clearTimeout(detail.rest);
+  detail.rest = setTimeout(() => {
+    detail.last = 0;
+    if (detail.now !== 1) {
+      setDetail(1);
+      requestFrame();
+    }
+  }, 250);
+  if (gap > 250) {
+    setDetail(detail.moving);
+    return;
+  }
+  if (gap > 26) {
+    detail.fast = 0;
+    if (++detail.slow >= 2) {
+      detail.slow = 0;
+      detail.moving = Math.min(16, detail.moving * 1.5);
+      setDetail(detail.moving);
+    }
+  } else if (gap < 18) {
+    detail.slow = 0;
+    if (++detail.fast >= 60 && detail.moving > 1) {
+      detail.fast = 0;
+      detail.moving = Math.max(1, detail.moving / 1.25);
+      setDetail(detail.moving);
+    }
+  }
+}
+
 function drawFrame(now) {
   frameQueued = false;
   const t0 = performance.now();
+  if (app.page === "3d") governDetail(now);
   const dt = lastFrameTime ? Math.min(0.1, (now - lastFrameTime) / 1000) : 1 / 60;
   lastFrameTime = now;
   let more = app.page === "3d" && view.animate(dt);
@@ -3077,6 +3128,7 @@ window.zslice = {
   select, showPage, showTab, hitAt, showContextMenu, step, bench, benchPick,
   get frameCount() { return frameCount; },
   get pickMs() { return pickMs; },
+  detail,
   requestFrame,
   drawNow: () => drawFrame(performance.now()),
 };

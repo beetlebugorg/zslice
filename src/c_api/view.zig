@@ -517,6 +517,17 @@ export fn zs_view_part_preview(view: ?*View, part: c_int, qx: f32, qy: f32, qz: 
     return ok;
 }
 
+/// The detail of the beads, for a governor of the frame time in the shell:
+/// 1 is full detail; a larger value (up to 16) draws the coarse meshes for
+/// wider beads. ribbon_ok != 0: the shell can draw mesh level 2 as a
+/// ribbon, and the view uses it at a detail of 2 or more.
+export fn zs_view_set_detail(view: ?*View, detail: f32, ribbon_ok: c_int) void {
+    if (!render_on) return;
+    const v = view orelse return;
+    v.detail = if (std.math.isFinite(detail)) std.math.clamp(detail, 1, 16) else 1;
+    v.ribbon_ok = ribbon_ok != 0;
+}
+
 /// The shell draws mesh level 2 as a ribbon (on != 0). See View.ribbons.
 export fn zs_view_set_ribbons(view: ?*View, on: c_int) void {
     if (!render_on) return;

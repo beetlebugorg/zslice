@@ -171,7 +171,9 @@ void main() {
     if (vsec.w > 0.0) {
         float t = 2.0 * vsec.z;
         float o = min(min(vend.x, vend.y), 0.0);
+#ifndef SOLID
         if (o * o + t * t > 1.0) discard;
+#endif
         // The bead seen from the eye: a round side, the flat top (or
         // bottom) face, and the other round side. u: the place on a
         // round side, from its middle (-1 to 1).
@@ -191,12 +193,16 @@ void main() {
     float flat_k = 1.0 - smoothstep(2.0, 5.0, px);
     bool focus = params.z > 0.5 || params.z < -0.5;
     if (focus && params.w > 1.5 && params.w < 2.5) {
+#ifndef SOLID
         if (vfocus > 0.5) discard;
+#endif
         float rim = 1.0 - abs(dot(n, v));
         frag = vec4(vec3(0.55, 0.58, 0.62), 0.03 + 0.09 * rim);
         return;
     }
+#ifndef SOLID
     if (focus && vfocus < 0.5) discard;
+#endif
     vec3 l = normalize(light.xyz);
     vec3 base = toLinear(vcolor);
     if (params.y > params.x && vhigh > 0.5) {
@@ -407,7 +413,14 @@ export class GlRenderer {
     const gl = canvas.getContext("webgl2", { antialias: true, alpha: false, stencil: true, preserveDrawingBuffer: true });
     if (!gl) throw new Error("This browser has no WebGL2.");
     this.gl = gl;
-    this.box = compile(gl, boxVert, boxFrag);
+    // Two programs for the beads. A shader with a discard turns off the
+    // early depth test on many GPUs, so each pixel of each bead is shaded,
+    // also the hidden ones: zoomed in, that is most of the frame time (an
+    // Intel HD 530). The solid program has no discard; it draws the beads
+    // with no focus and no ribbons. The other draws a focus and ribbons.
+    this.boxAll = compile(gl, boxVert, boxFrag);
+    this.boxSolid = compile(gl, boxVert, boxFrag.replace("#version 300 es\n", "#version 300 es\n#define SOLID\n"));
+    this.box = this.boxAll;
     this.grid = compile(gl, gridVert, gridFrag);
     this.bedProg = compile(gl, bedVert, bedFrag);
     this.bedVbo = gl.createBuffer();
@@ -706,6 +719,9 @@ export class GlRenderer {
       gl.bindVertexArray(null);
       return;
     }
+    // The solid program with no focus (see the constructor). The web view
+    // has no ribbons (zs_view_set_ribbons and ribbon_ok stay off).
+    this.box = f.box[26] === 0 ? this.boxSolid : this.boxAll;
     gl.useProgram(this.box.prog);
     gl.bindVertexArray(this.boxVao);
     gl.uniform1f(this.box.u.fade, 0);
