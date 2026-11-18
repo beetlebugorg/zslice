@@ -69,6 +69,14 @@ struct CutPopover: View {
         }
     }
 
+    /// The parts overlap now: the user moves some to another plate.
+    private func askToMove() {
+        let a = NSAlert()
+        a.messageText = "The parts do not all fit on this bed"
+        a.informativeText = "They overlap now. Move some to another plate (+ Plate, then add them there)."
+        a.runModal()
+    }
+
     private func showPlane(_ p: zs_part) {
         guard let v = workspace.canvas.view else { return }
         // A square around the footprint, so a turned part is inside it too.
@@ -98,6 +106,7 @@ struct CutPopover: View {
         open = false
         workspace.model.settingsChanged()
         workspace.selectPart(index)
+        if zs_app_plate_fits(workspace.model.core) == 0 { askToMove() }
         let fit = Int(n) - 2
         if want > 0, fit < want {
             let a = NSAlert()

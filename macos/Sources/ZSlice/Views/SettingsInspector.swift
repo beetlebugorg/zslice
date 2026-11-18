@@ -522,7 +522,7 @@ struct SettingDetail: View {
                 }
                 if info.isNumber {
                     LabeledContent("Formula") {
-                        TextField("Formula", text: $formula, prompt: Text("= {line_width} * 2"))
+                        TextField("Formula", text: $formula, prompt: Text("None"))
                             .labelsHidden()
                             .foregroundStyle(formulaError ? Color.red : Color.primary)
                             .help("A formula of other settings, for example {line_width} * 2. Empty: a plain value.")

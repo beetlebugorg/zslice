@@ -624,6 +624,21 @@ final class Workspace {
     /// (0: all lines, in their colors). firstLayer: only the lines of the
     /// first layer.
     @ObservationIgnored private var focusMask: UInt32 = 0
+    /// The focus that the last "no lines" note was for, so it shows once.
+    @ObservationIgnored private var notedMask: UInt32 = 0
+
+    /// A short note at the top of the view, which goes after a few seconds.
+    private(set) var note: String?
+    @ObservationIgnored private var noteTask: Task<Void, Never>?
+
+    func showNote(_ text: String, seconds: Double = 4) {
+        note = text
+        noteTask?.cancel()
+        noteTask = Task { @MainActor [weak self] in
+            try? await Task.sleep(for: .seconds(seconds))
+            if !Task.isCancelled { self?.note = nil }
+        }
+    }
     @ObservationIgnored private var focusFirst = false
 
     /// The search: open, and the setting whose eye is on (its lines show,
@@ -658,7 +673,16 @@ final class Workspace {
         guard let v = canvas.view else { return }
         let mask = focusMask != 0 ? focusMask : shownTypes
         let zmax = focusMask != 0 && focusFirst && !layerZ.isEmpty ? Double(layerZ[0]) : -1
-        zs_view_focus(v, mask, zmax)
+        // 0: the plate has no line of those features; the view keeps the
+        // whole print, and a note says why, once for each new focus.
+        if zs_view_focus(v, mask, zmax) == 0, focusMask != 0 {
+            if notedMask != focusMask {
+                notedMask = focusMask
+                showNote("No lines of this setting on this plate")
+            }
+        } else if focusMask == 0 {
+            notedMask = 0
+        }
         // In 2D, a focus on the first layer while the view shows another
         // layer: all lines are faint (web/app/view2d.js, dim).
         canvas.focus2D = mask
