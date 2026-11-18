@@ -167,6 +167,8 @@ pub const App = struct {
     /// (see Job.initReuse and plate_job.Options.old). Only the worker uses
     /// it while a slice runs.
     prev_job: ?zs.PlateJob = null,
+    /// A part that slices coarse (see `setCoarsePart`), or null.
+    coarse_part: ?usize = null,
     gcode_bytes: []u8 = &.{},
     /// The memory of `gcode_bytes`: it can be larger.
     gcode_buf: []u8 = &.{},
@@ -1782,6 +1784,35 @@ pub const App = struct {
         return app.gpa.dupe(zs.support.Mark, list.items);
     }
 
+    /// Slices part i coarse in the next slices (null: none): thicker
+    /// layers, one wall, no skin, and no infill. A part that turns with
+    /// the drag of a ring slices so, a few times faster, and the full
+    /// slice comes at the release. The other parts keep their work (see
+    /// plate_job.Options.old). Only the shell uses it, during a drag.
+    pub fn setCoarsePart(app: *App, i: ?usize) void {
+        if (std.meta.eql(app.coarse_part, i)) return;
+        app.stopWorker();
+        app.coarse_part = i;
+    }
+
+    /// The changes of a part, then the changes of a coarse slice.
+    fn coarseChanges(app: *const App, a: Allocator, own: []const zs.settings.Change) Allocator.Error![]const zs.settings.Change {
+        const nozzle = app.settings.machine.nozzle_diameter;
+        const h = @min(app.settings.project.layer_height * 2, 0.75 * nozzle);
+        const lh = try std.fmt.allocPrint(a, "{d:.3}", .{@max(h, app.settings.project.layer_height)});
+        const extra = [_]zs.settings.Change{
+            .{ .name = "project.layer_height", .value = lh },
+            .{ .name = "project.wall_count", .value = "1" },
+            .{ .name = "project.infill_density", .value = "0" },
+            .{ .name = "project.top_thickness", .value = "0" },
+            .{ .name = "project.bottom_thickness", .value = "0" },
+        };
+        const out = try a.alloc(zs.settings.Change, own.len + extra.len);
+        @memcpy(out[0..own.len], own);
+        @memcpy(out[own.len..], &extra);
+        return out;
+    }
+
     /// The parts of the plate job for the next slice: the mesh of each
     /// part on the bed, its settings and its modifier volumes (see
     /// part_settings.zig), and the support marks of the user over it.
@@ -1824,9 +1855,13 @@ pub const App = struct {
                 if (mk.x + rx < b.min[0] or mk.x - rx > b.max[0] or mk.y + ry < b.min[1] or mk.y - ry > b.max[1]) continue;
                 try marks.append(a, mk);
             }
+            var changes = pp.changes;
+            if (app.coarse_part != null and part_of[pp.input] != null and part_of[pp.input].? == app.coarse_part.?) {
+                changes = try app.coarseChanges(a, pp.changes);
+            }
             out.* = .{
                 .mesh = mesh,
-                .changes = pp.changes,
+                .changes = changes,
                 .modifiers = pp.modifiers,
                 .marks = marks.items,
                 .part = part_of[pp.input] orelse 0,
@@ -2384,6 +2419,33 @@ test "app: load, slice, preview, and export" {
     // A new model clears the result.
     try app.loadStl("demo.stl", stl.written());
     try testing.expectEqual(@as(usize, 0), app.layerCount());
+}
+
+test "app: a coarse part slices with fewer layers, and the full slice comes back" {
+    const gpa = testing.allocator;
+    var mesh = try zs.mesh.shapes.demo(gpa);
+    defer mesh.deinit(gpa);
+    var stl: std.Io.Writer.Allocating = .init(gpa);
+    defer stl.deinit();
+    try mesh.writeStl(&stl.writer);
+    const app = try App.create(gpa, null, null);
+    defer app.destroy();
+    try app.loadStl("demo.stl", stl.written());
+    try app.startSlice();
+    app.stopWorkerForTest();
+    const full = app.layerCount();
+    const gcode = try gpa.dupe(u8, app.gcode().?);
+    defer gpa.free(gcode);
+    app.setCoarsePart(0);
+    try app.startSlice();
+    app.stopWorkerForTest();
+    try testing.expectEqual(State.done, app.getState());
+    try testing.expect(app.layerCount() < full);
+    app.setCoarsePart(null);
+    try app.startSlice();
+    app.stopWorkerForTest();
+    try testing.expectEqual(full, app.layerCount());
+    try testing.expectEqualStrings(gcode, app.gcode().?);
 }
 
 test "app: cancel a slice" {

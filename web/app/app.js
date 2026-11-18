@@ -630,10 +630,10 @@ var turnRings = new TurnRings({
   frame: () => requestFrame(),
   part: () => (app.page === "3d" ? tools.part : null),
   active: () => tools.tool === "turn",
-  turn: async (axis, degrees) => {
+  turn: async (axis, degrees, total) => {
     const part = tools.part;
     if (!part) return;
-    const r = await client.call("partTurn", { index: part.index, axis, degrees, hold: true });
+    const r = await client.call("partTurn", { index: part.index, axis, degrees, hold: true, total });
     if (r.part) tools.selectPart(r.part);
     requestFrame();
   },
@@ -2147,6 +2147,8 @@ function onWorkerEvent(m) {
       if (m.scene) {
         view.readScene(m.scene);
         gl.setOutlines(view.outlines());
+        // A live turn: the preview goes on from the turn of this slice.
+        turnRings.sliced(m.turn);
       }
       if (first) view2d.fitted = false;
       layers.setLayers(m.layers.z.length, m.layers.slowed, m.layers.z);

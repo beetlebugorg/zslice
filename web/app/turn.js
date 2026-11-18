@@ -115,7 +115,7 @@ export class TurnRings {
       this.drag = null;
       this.ctx.host.style.cursor = "";
       // No turn: no slice comes to end the preview.
-      if (d && d.want === 0) x.zs_view_part_preview(v, -1, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0, 0);
+      if (d && d.want === (d.shown ?? 0)) x.zs_view_part_preview(v, -1, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0, 0);
       this.ctx.frame();
       // The last steps go to the core first; then the turn is done, and
       // the slice that waited starts.
@@ -141,13 +141,25 @@ export class TurnRings {
     this.ctx.frame();
   }
 
+  // A slice of the drag came (the coarse slice of the part, at `turn`
+  // degrees): the view shows it, so the preview turns from there.
+  sliced(turn) {
+    const d = this.drag;
+    if (!d || turn === undefined) return;
+    d.shown = turn;
+    // The pivot of the part as it is now.
+    const p = this.ctx.part();
+    if (p) d.pivot = [p.x, p.y, p.sizeZ / 2];
+    this.preview(d);
+  }
+
   // One step at a time to the core: the turn since the last step.
   async send(d = this.drag) {
     if (!d || d.busy || d.want === d.sent) return;
     d.busy = true;
     const step = d.want - d.sent;
     d.sent = d.want;
-    d.flight = this.ctx.turn(d.axis, step);
+    d.flight = this.ctx.turn(d.axis, step, d.sent);
     await d.flight;
     d.busy = false;
     this.send(d);

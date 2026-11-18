@@ -1618,6 +1618,15 @@ export fn zs_app_part_turn(a: ?*App, i: usize, axis: c_int, degrees: f64) c_int 
     return ok;
 }
 
+/// Part i slices coarse in the next slices (App.setCoarsePart); i < 0:
+/// no part. For the live slice of a drag.
+export fn zs_app_set_coarse_part(a: ?*App, i: c_int) c_int {
+    const app = a orelse return @intFromEnum(Status.invalid_argument);
+    if (i >= 0 and @as(usize, @intCast(i)) >= app.plate.count()) return @intFromEnum(Status.out_of_range);
+    app.setCoarsePart(if (i < 0) null else @intCast(i));
+    return ok;
+}
+
 export fn zs_app_part_put_down_at(a: ?*App, i: usize, x: f64, y: f64, z: f64) c_int {
     const app = a orelse return @intFromEnum(Status.invalid_argument);
     if (i >= app.plate.count()) return @intFromEnum(Status.out_of_range);

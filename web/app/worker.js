@@ -138,7 +138,7 @@ function warmUp() {
 
 // The result of a slice of plate i for the page. Only the active plate
 // sends its slice: the beads of the other plates go in the "plates" event.
-function sendResult(i, ms) {
+function sendResult(i, ms, turn) {
   if (i !== activeIndex()) return;
   const c = coreAt(i);
   const state = c.state();
@@ -169,6 +169,7 @@ function sendResult(i, ms) {
     // Each part on the bed, with no part on another (zs_app_plate_fits).
     fits: c.w.x.zs_app_plate_fits(c.app) === 1,
     tiny: tinyParts(c),
+    turn,
   };
   post(msg, scene ? [scene, layers.z.buffer, layers.height.buffer, layers.endTime.buffer, layers.slowed.buffer] : []);
 }
@@ -196,6 +197,11 @@ function clearIfEmpty() {
   post({ event: "cleared", scene, plate: activeIndex() }, scene ? [scene] : []);
   return true;
 }
+
+// A live turn (partTurn with total): its app and the turn so far.
+let coarse = null;
+// The most parts on a plate for a live turn.
+const LIVE_PARTS = 2;
 
 // The active plate waits for a slice.
 function wantSlice() {
@@ -234,11 +240,13 @@ function runSlice() {
   lastProgress = 0;
   failStatus = 0;
   slicing = i;
+  // The turn of a live turn that this slice shows.
+  const turn = coarse ? coarse.total : undefined;
   const t0 = performance.now();
   wasm.x.zs_set_step(set);
   const ms = performance.now() - t0;
   slicing = -1;
-  sendResult(i, ms);
+  sendResult(i, ms, turn);
   postPlates();
   if (wasm.x.zs_set_next(set) >= 0) schedule();
 }
@@ -713,7 +721,10 @@ const ops = {
 
   // Turns part `index` about X (axis 0) or Y (axis 1) by `degrees`, or
   // about Z (axis 2): the Turn tool.
-  partTurn({ index, axis, degrees, hold }) {
+  // total: the turn of the drag so far (degrees). During a drag (hold),
+  // the part slices coarse at once, and the other parts keep their work:
+  // the slice follows the ring. Its result names the turn that it shows.
+  partTurn({ index, axis, degrees, hold, total }) {
     const x = core.w.x;
     let rc;
     if (axis === 2) {
@@ -723,7 +734,14 @@ const ops = {
     } else {
       rc = x.zs_app_part_turn(core.app, index, axis, degrees);
     }
-    if (rc === 0) sliceOrHold(hold);
+    // A plate of many parts holds the slice to the release, as before: the
+    // work of the whole plate after each slice (the G-code, the scene) is
+    // slower than the turn now.
+    if (rc === 0 && hold && total !== undefined && x.zs_app_part_count(core.app) <= LIVE_PARTS) {
+      x.zs_app_set_coarse_part(core.app, index);
+      coarse = { app: core.app, total };
+      wantSlice();
+    } else if (rc === 0) sliceOrHold(hold);
     return { part: core.part(index) };
   },
 
@@ -739,6 +757,12 @@ const ops = {
   // The end of a drag or of the keys of a part: the slice that waited.
   sliceHeld() {
     wasm.x.zs_set_release(set);
+    // The end of a live turn: the full slice of the part.
+    if (coarse) {
+      wasm.x.zs_app_set_coarse_part(coarse.app, -1);
+      coarse = null;
+      wantSlice();
+    }
     schedule();
     return {};
   },

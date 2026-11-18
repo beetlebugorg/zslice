@@ -716,6 +716,11 @@ int zs_app_part_scale(zs_app *app, size_t i, double sx, double sy, double sz);
 /* Turns a part by `degrees` about the X (axis 0) or Y (axis 1) axis of the
  * bed; it then rests on the bed. */
 int zs_app_part_turn(zs_app *app, size_t i, int axis, double degrees);
+/* Part `part` slices coarse in the next slices (thicker layers, one wall,
+ * no skin, no infill), a few times faster; part < 0: none. For the live
+ * slice of a part while a turn ring drags; the full slice comes after the
+ * drag. ZS_OUT_OF_RANGE for no such part. */
+int zs_app_set_coarse_part(zs_app *app, int part);
 /* Physics: part i falls over if it cannot stand as it is (its center of
  * mass past the area it stands on), and rolls onto a face until it rests.
  * With support on, the support holds it, and it stays. Call it when a turn
