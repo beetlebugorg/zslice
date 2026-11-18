@@ -19,14 +19,32 @@
 //! - a two-finger scroll on a trackpad zooms toward the pointer, and so do
 //!   the mouse wheel and a pinch.
 //!
+//! The window model (Workspace) is the delegate of the view. It gets the
+//! keys of the view, a call on each frame of a replay, and a call when the
+//! appearance changes (the colors of the view come with its data).
+//!
 //! SPDX-License-Identifier: AGPL-3.0-or-later
 
 import AppKit
 import CZslice
+import ImageIO
 import QuartzCore
 import SwiftUI
 
+/// The window side of the 3D view.
+@MainActor
+protocol SliceViewDelegate: AnyObject {
+    /// One frame of the display link, dt seconds after the frame before.
+    /// Returns true while it needs more frames (a replay).
+    func sliceViewTick(_ dt: Double) -> Bool
+    /// A key in the view. Returns true if it used the key.
+    func sliceViewKey(_ event: NSEvent) -> Bool
+    /// The light or dark look changed: load the scene again.
+    func sliceViewAppearanceChanged()
+}
+
 final class MetalSliceView: NSView {
+    weak var delegate: SliceViewDelegate?
     private(set) var view: OpaquePointer?
     private let renderer: FrameRenderer?
     private var link: CADisplayLink?
@@ -34,7 +52,8 @@ final class MetalSliceView: NSView {
     private var animating = false
     private var lastTick: CFTimeInterval = 0
     private var lastDrag: NSPoint?
-    private var loadedGeneration = -1
+    private var loaded = false
+    private var ticking = false
 
     var metalLayer: CAMetalLayer { layer as! CAMetalLayer }
 
@@ -115,23 +134,19 @@ final class MetalSliceView: NSView {
         effectiveAppearance.bestMatch(from: [.darkAqua, .aqua]) == .darkAqua
     }
 
-    private var model: SliceModel?
-
     private func updateDark() {
         guard let view else { return }
         zs_view_set_dark(view, isDark ? 1 : 0)
-        // The colors of the view come with its data.
-        if let model, model.resultGeneration > 0 { zs_view_load(view, model.core) }
+        delegate?.sliceViewAppearanceChanged()
         requestFrame()
     }
 
-    /// Loads the new slice of the model into the view.
-    func show(_ model: SliceModel) {
-        self.model = model
-        guard let view, model.resultGeneration != loadedGeneration, model.state == .done else { return }
-        loadedGeneration = model.resultGeneration
-        let rc = zs_view_load(view, model.core)
+    /// Loads the last slice of an app into the view.
+    func load(_ core: OpaquePointer) {
+        guard let view else { return }
+        let rc = zs_view_load(view, core)
         if rc != 0 { NSLog("zslice: the 3D view did not load the toolpaths: \(statusText(rc))") }
+        loaded = rc == 0
         requestFrame()
     }
 
@@ -140,7 +155,14 @@ final class MetalSliceView: NSView {
         link?.isPaused = false
     }
 
-    private func startAnimation() {
+    /// Calls the delegate on each frame until it returns false.
+    func startTicking() {
+        ticking = true
+        lastTick = 0
+        requestFrame()
+    }
+
+    func startAnimation() {
         animating = true
         lastTick = 0
         requestFrame()
@@ -148,22 +170,32 @@ final class MetalSliceView: NSView {
 
     @objc private func tick(_ link: CADisplayLink) {
         guard let view else { return }
+        let now = link.timestamp
+        let dt = min(lastTick == 0 ? 1.0 / 60 : now - lastTick, 0.1)
+        lastTick = now
+        if ticking {
+            ticking = delegate?.sliceViewTick(dt) ?? false
+            needsFrame = true
+        }
         if animating {
-            let now = link.timestamp
-            let dt = lastTick == 0 ? 1.0 / 60 : now - lastTick
-            lastTick = now
-            animating = zs_view_animate(view, min(dt, 0.1)) != 0
+            animating = zs_view_animate(view, dt) != 0
             needsFrame = true
         }
         if needsFrame {
             needsFrame = false
             drawFrame()
         }
-        if !animating && !needsFrame { link.isPaused = true }
+        if !animating && !ticking && !needsFrame {
+            link.isPaused = true
+            lastTick = 0
+        }
     }
 
     /// For development and screenshots: ZSLICE_SNAPSHOT=path.png writes the
-    /// first frame of a slice to that file.
+    /// window to that file, after the first frame of a slice. The 3D view
+    /// comes from Metal, and the controls over it from AppKit
+    /// (cacheDisplay draws them, but not the Metal layer). So it needs no
+    /// permission to record the screen.
     private var snapshot = ProcessInfo.processInfo.environment["ZSLICE_SNAPSHOT"].map { URL(fileURLWithPath: $0) }
 
     private func drawFrame() {
@@ -173,12 +205,35 @@ final class MetalSliceView: NSView {
             if rc != 0 { NSLog("zslice: the 3D view did not draw: \(statusText(rc))") }
             return
         }
-        var shot: URL?
-        if loadedGeneration >= 0, let s = snapshot {
-            shot = s
+        var shot: (@Sendable (CGImage) -> Void)?
+        if loaded, let url = snapshot {
             snapshot = nil
+            shot = { image in
+                // A moment later, so the controls show the new slice.
+                DispatchQueue.main.asyncAfter(deadline: .now() + 1) {
+                    MainActor.assumeIsolated { self.writeSnapshot(image, to: url) }
+                }
+            }
         }
         renderer.draw(frame.pointee, in: metalLayer, snapshot: shot)
+    }
+
+    private func writeSnapshot(_ frame: CGImage, to url: URL) {
+        guard let content = window?.contentView, let rep = content.bitmapImageRepForCachingDisplay(in: content.bounds) else { return }
+        content.cacheDisplay(in: content.bounds, to: rep)
+        let w = rep.pixelsWide, h = rep.pixelsHigh
+        guard let ui = rep.cgImage,
+              let ctx = CGContext(data: nil, width: w, height: h, bitsPerComponent: 8, bytesPerRow: 0,
+                                  space: CGColorSpace(name: CGColorSpace.sRGB)!, bitmapInfo: CGImageAlphaInfo.premultipliedFirst.rawValue)
+        else { return }
+        // The 3D view at its place in the window (AppKit has y up).
+        let r = convert(bounds, to: content)
+        let k = CGFloat(w) / content.bounds.width
+        ctx.draw(frame, in: CGRect(x: r.minX * k, y: (content.bounds.height - r.maxY) * k, width: r.width * k, height: r.height * k))
+        ctx.draw(ui, in: CGRect(x: 0, y: 0, width: w, height: h))
+        guard let image = ctx.makeImage(), let dest = CGImageDestinationCreateWithURL(url as CFURL, "public.png" as CFString, 1, nil) else { return }
+        CGImageDestinationAddImage(dest, image, nil)
+        CGImageDestinationFinalize(dest)
     }
 
     // MARK: - input
@@ -186,6 +241,10 @@ final class MetalSliceView: NSView {
     private func pixel(_ event: NSEvent) -> (Float, Float) {
         let p = convert(event.locationInWindow, from: nil)
         return (Float(p.x * scale), Float(p.y * scale))
+    }
+
+    override func keyDown(with event: NSEvent) {
+        if delegate?.sliceViewKey(event) != true { super.keyDown(with: event) }
     }
 
     override func mouseDown(with event: NSEvent) {
@@ -242,18 +301,11 @@ final class MetalSliceView: NSView {
     }
 }
 
-/// The 3D view for SwiftUI.
+/// The 3D view for SwiftUI. The window model owns the NSView, so the view
+/// and its camera stay when SwiftUI makes this struct again.
 struct SliceView: NSViewRepresentable {
-    let model: SliceModel
+    let canvas: MetalSliceView
 
-    func makeNSView(context: Context) -> MetalSliceView {
-        MetalSliceView(frame: .zero)
-    }
-
-    func updateNSView(_ nsView: MetalSliceView, context: Context) {
-        // Reading resultGeneration here makes SwiftUI call this again for
-        // each new slice.
-        _ = model.resultGeneration
-        nsView.show(model)
-    }
+    func makeNSView(context: Context) -> MetalSliceView { canvas }
+    func updateNSView(_ nsView: MetalSliceView, context: Context) {}
 }

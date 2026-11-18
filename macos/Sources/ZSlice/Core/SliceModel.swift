@@ -51,8 +51,8 @@ final class SliceModel {
     private(set) var state = State.empty
     private(set) var progress = 0.0
     private(set) var stats: zs_stats?
-    /// Counts the slice results, so a view can load each new one.
-    private(set) var resultGeneration = 0
+    /// Runs on the main thread after each new slice result.
+    @ObservationIgnored var onSliced: (() -> Void)?
 
     init() {
         let b = EventBridge()
@@ -103,12 +103,33 @@ final class SliceModel {
             stats = zs_app_stats(core, &s) == 0 ? s : nil
             state = .done
             self.progress = 1
-            resultGeneration += 1
+            onSliced?()
         case Int(ZS_EVENT_FAILED.rawValue):
             if zs_app_state(core) == Int32(ZS_STATE_FAILED.rawValue) { state = .failed(statusText(status)) }
         default:
             break
         }
+    }
+}
+
+extension SliceModel {
+    /// The value of a setting as text ("" if the name is not known).
+    func setting(_ name: String) -> String {
+        var len = 0
+        guard zs_app_setting_get(core, name, nil, 0, &len) == 0 else { return "" }
+        var buf = [UInt8](repeating: 0, count: len + 1)
+        buf.withUnsafeMutableBufferPointer { b in
+            b.withMemoryRebound(to: CChar.self) { _ = zs_app_setting_get(core, name, $0.baseAddress, $0.count, nil) }
+        }
+        return String(decoding: buf.prefix(len), as: UTF8.self)
+    }
+
+    /// The G-code of the last slice.
+    func gcode() -> Data? {
+        var ptr: UnsafePointer<UInt8>?
+        var len = 0
+        guard zs_app_gcode(core, &ptr, &len) == 0, let ptr else { return nil }
+        return Data(bytes: ptr, count: len)
     }
 }
 

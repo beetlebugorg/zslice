@@ -23,10 +23,12 @@ open build/zslice.app
 | `Sources/CZslice/module.modulemap` | The C API of the core (`include/zslice-app.h`) as the Swift module `CZslice`. |
 | `Sources/ZSlice/ZSliceApp.swift` | The app and its document type. Each window is one STL or 3MF file. |
 | `Sources/ZSlice/Core/SliceModel.swift` | One plate: one `zs_app` of the core, its state, and its events. |
+| `Sources/ZSlice/Core/Workspace.swift` | The model of a window: the plate, the 3D view, the layer range, the replay, and the keys of the view. |
 | `Sources/ZSlice/Views/MetalSliceView.swift` | The 3D view: an `NSView` over a `CAMetalLayer`, its display link, and the input. |
 | `Sources/ZSlice/Render/FrameRenderer.swift` | Draws the frame data of the core with Metal. |
 | `Sources/ZSlice/Render/Shaders.swift` | The Metal shaders. They port `src/render/shaders/*`. |
-| `Sources/ZSlice/Views/DocumentWindow.swift` | The window: the 3D view and the print card. |
+| `Sources/ZSlice/Views/DocumentWindow.swift` | The window: the 3D view, the scrub bar, and the print card. |
+| `Sources/ZSlice/Views/LayerSlider.swift` | The slider with two knobs for the layers that show. |
 
 ## Threads
 
@@ -69,13 +71,22 @@ The app uses the system parts of macOS where it can:
 
 Like the GTK shell, the app reads some environment variables for development and screenshots:
 
-- `ZSLICE_SNAPSHOT=path.png` writes the first frame of the 3D view after a slice to that PNG file.
+- `ZSLICE_SNAPSHOT=path.png` writes the window to that PNG file, a moment after the first frame of a slice. The 3D view comes from Metal and the controls from AppKit (`cacheDisplay`), so it needs no permission to record the screen.
+- `ZSLICE_LAYERS=lo,hi` sets the layer range after the first slice (layer numbers from 1).
+- `ZSLICE_TIME=t` shows the replay at t seconds after the first slice.
+
+## Work that moves to the core
+
+App logic goes in the core, so that the three shells do not each have a copy. Two parts of the app move there:
+
+- The history of undo and redo (the steps, the amend rule of an edit, the memory cap, and the restore). Today `linux/src/model/app-model.c` and `web/app/worker.js` each have it. The Mac app maps the core history onto `UndoManager`.
+- The plate set: one `zs_app` for each plate, the order of the slices (the active plate first), and the sync of the plates of the 3D view. Until it lands, a Mac window has one plate.
 
 ## Status and plan
 
 The work goes in steps. Each step keeps `zig build test`, `zig build web`, and the GTK build working.
 
 1. The core link and the 3D view: open a file, slice, and show the beads with Metal. Done.
-2. The slicing UI: the print card, the layer slider, the 2D layer view, the replay, history and undo, and the settings drawer.
+2. The slicing UI: the print card and Export G-code, the layer slider, and the replay (done); the 2D layer view, the settings drawer, and history and undo (after the core history).
 3. The tools (Select, Move, Turn, Measure, Gaps, Check), the line and part cards, the settings search, the shortcut sheet, and a double click that faces a side.
 4. Printers (the picker, the library, App Keys, printdeck, OctoPrint, Moonraker, discovery) and printdeck.yml projects. The menus, drag and drop, and the user docs.

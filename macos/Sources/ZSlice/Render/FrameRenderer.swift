@@ -20,8 +20,7 @@
 //! SPDX-License-Identifier: AGPL-3.0-or-later
 
 import CZslice
-import Metal
-import ImageIO
+@preconcurrency import Metal
 import QuartzCore
 import simd
 
@@ -195,9 +194,9 @@ final class FrameRenderer {
     }
 
     /// Draws one frame into the next drawable of the layer. With
-    /// `snapshot`, it also writes the frame to that PNG file (the layer
-    /// must not be framebufferOnly).
-    func draw(_ f: zs_web_frame, in layer: CAMetalLayer, snapshot: URL? = nil) {
+    /// `snapshot`, it also gives the frame as an image, on a thread of
+    /// Metal (the layer must not be framebufferOnly).
+    func draw(_ f: zs_web_frame, in layer: CAMetalLayer, snapshot: (@Sendable (CGImage) -> Void)? = nil) {
         sync(f)
         guard let drawable = layer.nextDrawable(), let cmd = queue.makeCommandBuffer() else { return }
         targets(for: layer.drawableSize)
@@ -217,27 +216,26 @@ final class FrameRenderer {
         var pass = Pass(f: f, r: self, enc: enc)
         pass.run()
         enc.endEncoding()
-        if let snapshot { copyOut(drawable.texture, to: snapshot, in: cmd) }
+        if let snapshot { copyOut(drawable.texture, in: cmd, then: snapshot) }
         cmd.present(drawable)
         cmd.commit()
     }
 
-    /// Copies the texture to a buffer, and writes it as a PNG file when the
+    /// Copies the texture to a buffer, and makes an image of it when the
     /// GPU is done. For development and screenshots (ZSLICE_SNAPSHOT).
-    private func copyOut(_ tex: MTLTexture, to url: URL, in cmd: MTLCommandBuffer) {
+    private func copyOut(_ tex: MTLTexture, in cmd: MTLCommandBuffer, then done: @escaping @Sendable (CGImage) -> Void) {
         let w = tex.width, h = tex.height, row = w * 4
-        guard let buf = device.makeBuffer(length: row * h, options: .storageModeShared), let blit = cmd.makeBlitCommandEncoder() else { return }
+        guard let made = device.makeBuffer(length: row * h, options: .storageModeShared), let blit = cmd.makeBlitCommandEncoder() else { return }
         blit.copy(from: tex, sourceSlice: 0, sourceLevel: 0, sourceOrigin: MTLOrigin(), sourceSize: MTLSize(width: w, height: h, depth: 1),
-                  to: buf, destinationOffset: 0, destinationBytesPerRow: row, destinationBytesPerImage: row * h)
+                  to: made, destinationOffset: 0, destinationBytesPerRow: row, destinationBytesPerImage: row * h)
         blit.endEncoding()
+        nonisolated(unsafe) let buf = made
         cmd.addCompletedHandler { _ in
             let info = CGBitmapInfo(rawValue: CGImageAlphaInfo.noneSkipFirst.rawValue | CGBitmapInfo.byteOrder32Little.rawValue)
             guard let ctx = CGContext(data: buf.contents(), width: w, height: h, bitsPerComponent: 8, bytesPerRow: row,
                                       space: CGColorSpace(name: CGColorSpace.sRGB)!, bitmapInfo: info.rawValue),
-                  let image = ctx.makeImage(),
-                  let dest = CGImageDestinationCreateWithURL(url as CFURL, "public.png" as CFString, 1, nil) else { return }
-            CGImageDestinationAddImage(dest, image, nil)
-            CGImageDestinationFinalize(dest)
+                  let image = ctx.makeImage() else { return }
+            done(image)
         }
     }
 

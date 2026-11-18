@@ -14,6 +14,7 @@ import UniformTypeIdentifiers
 extension UTType {
     static let stl = UTType(importedAs: "public.standard-tesselated-geometry-format", conformingTo: .threeDContent)
     static let threeMF = UTType(importedAs: "org.3mf.3mf", conformingTo: .threeDContent)
+    static let gcode = UTType(filenameExtension: "gcode", conformingTo: .plainText) ?? .plainText
 }
 
 /// A model file. The bytes go to the core when the window opens.
