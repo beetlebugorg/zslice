@@ -487,8 +487,10 @@ const ops = {
   },
 
   // A file opens on the active plate: a set of one plate.
-  load({ name, bytes }) {
-    if (plates.length > 1) onePlate();
+  // keepSet: the file goes on the active plate, and the other plates stay
+  // (plates that the user made); else the set becomes this one plate.
+  load({ name, bytes, keepSet }) {
+    if (plates.length > 1 && !keepSet) onePlate();
     core.loadStl(name, new Uint8Array(bytes));
     plates[active].name = name;
     wantSlice();

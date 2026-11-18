@@ -2139,11 +2139,15 @@ function keepSoon() {
 async function openFile(file) {
   if (!file) return;
   stopReplay();
+  const wasProject = projectActive || project.loaded != null;
   projectActive = false;
   project.unload();
   const bytes = await file.arrayBuffer();
   try {
-    await client.call("load", { name: file.name, bytes }, [bytes]);
+    // With plates of the user, the file goes on the active plate, and the
+    // other plates stay. A project set makes way for the file.
+    const keepSet = app.plates.length > 1 && !wasProject;
+    await client.call("load", { name: file.name, bytes, keepSet }, [bytes]);
     select(-1, -1, false);
     view2d.fitted = false;
     app.modelName = file.name;
@@ -2184,7 +2188,8 @@ function addModels() {
 }
 
 $("open").onclick = () => $("file").click();
-$("add").onclick = () => $("file").click();
+// + adds models to the active plate; Open replaces the active plate.
+$("add").onclick = () => addModels();
 $("empty-open").onclick = () => $("file").click();
 $("file").onchange = () => {
   openFile($("file").files[0]);
