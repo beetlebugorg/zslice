@@ -23,6 +23,7 @@ const usage =
     \\  zslice demo <out.stl>
     \\  zslice bench <model.stl> [options]
     \\  zslice sweep <model.stl> [options] [--points N] [--only TEXT] [-o out.tsv]
+    \\  zslice gcode <file.gcode>
     \\
     \\Commands:
     \\  slice     Slice a model and write G-code (default output: stdout).
@@ -45,6 +46,9 @@ const usage =
     \\            the printdeck profiles) to zslice profiles. The output folder
     \\            gets machine/, filament/, and project/ files.
     \\  settings  List all settings and their default values.
+    \\  gcode     Read a G-code file as the print view does (any slicer):
+    \\            print the layers, the moves, the box, the time, the
+    \\            time to read it, and the peak memory.
     \\  demo      Write the demo part as an STL file.
     \\  bench     Slice in the app core: once from the start, then again
     \\            after a change of each kind of setting. Print the times
@@ -152,6 +156,12 @@ pub fn main(init: std.process.Init) !void {
     if (std.mem.eql(u8, cmd, "import")) {
         if (args.len != 6 or !std.mem.eql(u8, args[2], "cura") or !std.mem.eql(u8, args[4], "-o")) fail(err, "{s}", .{usage});
         try importCura(arena, io, err, args[3], args[5]);
+        return;
+    }
+
+    if (std.mem.eql(u8, cmd, "gcode")) {
+        if (args.len != 3) fail(err, "{s}", .{usage});
+        try gcodeInfo(gpa, io, err, args[2]);
         return;
     }
 
@@ -633,6 +643,31 @@ fn printTimes(err: *Io.Writer, kind: []const u8, samples: []Sample) !void {
     for ([_][]f64{ wall[0..n], cpu[0..n], faults[0..n] }) |v| std.mem.sort(f64, v, {}, std.sort.asc(f64));
     try err.print("{s:<14} wall median {d:>7.1} min {d:>7.1} ms   cpu median {d:>7.1} ms   faults {d:>7.0}\n", .{ kind, wall[n / 2], wall[0], cpu[n / 2], faults[n / 2] });
     try err.flush();
+}
+
+/// Reads a G-code file in pieces of 1 MB, as a printer host does, and
+/// prints what the reader finds, its time, and the peak memory.
+fn gcodeInfo(gpa: std.mem.Allocator, io: Io, err: *Io.Writer, path: []const u8) !void {
+    var counter: CountingAllocator = .{ .backing = gpa };
+    const t0 = Io.Clock.awake.now(io);
+    const file = try Io.Dir.cwd().openFile(io, path, .{});
+    defer file.close(io);
+    var r: zslice.gcode_read.Reader = .init(counter.allocator());
+    defer r.deinit();
+    var fr = file.reader(io, &.{});
+    const piece = try gpa.alloc(u8, 1 << 20);
+    defer gpa.free(piece);
+    while (true) {
+        const n = try fr.interface.readSliceShort(piece);
+        if (n == 0) break;
+        try r.feed(piece[0..n]);
+    }
+    try r.finish();
+    const ms = @as(f64, @floatFromInt(t0.untilNow(io, .awake).toNanoseconds())) / 1e6;
+    try err.print("{d} bytes, {d} layers, {d} moves ({d} beads)\n", .{ r.size, r.layers.items.len, r.len, r.bead_count });
+    try err.print("box: x {d:.2} to {d:.2}, y {d:.2} to {d:.2}, z {d:.2} to {d:.2} mm\n", .{ r.box[0], r.box[3], r.box[1], r.box[4], r.box[2], r.box[5] });
+    try err.print("filament {d:.2} mm, print time {d:.0} s\n", .{ r.filament, r.total_time });
+    try err.print("read in {d:.0} ms; peak memory: {d} MB resident (VmHWM), {d} MB allocated\n", .{ ms, peakMb(io), counter.peak.load(.monotonic) >> 20 });
 }
 
 /// The peak resident memory of this process, in MB, from /proc.

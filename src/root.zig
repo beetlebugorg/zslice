@@ -38,6 +38,8 @@ pub const threemf = @import("threemf.zig");
 pub const orient = @import("orient.zig");
 pub const physics = @import("physics.zig");
 pub const gcode_sign = @import("gcode_sign.zig");
+/// The reader of G-code files, for a view of a print that runs.
+pub const gcode_read = @import("gcode_read.zig");
 pub const slicer = @import("slicer.zig");
 pub const settings = @import("settings.zig");
 pub const infill = @import("infill.zig");
