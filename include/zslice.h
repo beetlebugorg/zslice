@@ -99,6 +99,41 @@ void zs_buffer_free(uint8_t *ptr, size_t len);
 uint8_t *zs_alloc(size_t len);
 void zs_free(uint8_t *ptr, size_t len);
 
+/* ---- signed G-code (src/gcode_sign.zig) ----
+ *
+ * The last line of a signed file is a comment:
+ *   ; zslice-signature: ed25519 <key id> <base64 signature>
+ * The signature is Ed25519 over the SHA-256 hash of all bytes before that
+ * line. The key id is the first 8 bytes of the SHA-256 hash of the public
+ * key, in hex (16 characters).
+ *
+ * The key texts: "zslice-secret-key ed25519 <base64 seed>" and
+ * "ed25519 <base64 public key>". Each fits in ZS_SIGN_TEXT_MAX bytes with
+ * its NUL byte. */
+#define ZS_SIGN_TEXT_MAX 128
+
+enum zs_signature_result {
+    ZS_SIGNATURE_OK = 0,          /* a good signature of a trusted key */
+    ZS_SIGNATURE_UNSIGNED = 1,    /* no signature line */
+    ZS_SIGNATURE_UNKNOWN_KEY = 2, /* the key is not in the trusted list */
+    ZS_SIGNATURE_BAD = 3          /* a malformed line, or a changed file */
+};
+
+/* The secret key text of 32 random bytes from the OS (getrandom,
+ * SecRandomCopyBytes). out gets cap bytes at most. */
+int zs_sign_key_from_seed(const uint8_t *seed, size_t seed_len, char *out, size_t cap);
+/* The public key text of a secret key text. */
+int zs_sign_public_key(const char *secret, char *out, size_t cap);
+/* The key id of a public key text (17 bytes with the NUL byte). */
+int zs_sign_key_id(const char *public_key, char *out, size_t cap);
+/* A copy of the G-code with the signature line at its end. An old
+ * signature line goes away first. Free it with zs_buffer_free. */
+int zs_sign_gcode(const char *secret, const uint8_t *gcode, size_t len, uint8_t **out, size_t *out_len);
+/* Checks the signature of G-code. trusted: public key texts, one on each
+ * line. result gets an enum zs_signature_result. key_id (17 bytes, or
+ * NULL) gets the key id of the signature line, or "". */
+int zs_verify_gcode(const uint8_t *gcode, size_t len, const char *trusted, int *result, char *key_id);
+
 #ifdef __cplusplus
 }
 #endif

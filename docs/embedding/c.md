@@ -69,8 +69,17 @@ Link with `-lzslice`. The free functions accept NULL. `examples/c/slice.c` has t
 | `zs_slice(mesh, settings, write, user, &stats)` | Slices, and sends the G-code to `write` in parts while it runs. |
 | `zs_slice_to_buffer(mesh, settings, &ptr, &len, &stats)` | Slices into one buffer. Free it with `zs_buffer_free(ptr, len)`. |
 | `zs_alloc(len)`, `zs_free(ptr, len)` | Memory for data that the host passes in. For wasm hosts. |
+| `zs_sign_key_from_seed(seed, 32, out, cap)` | The secret key text of 32 random bytes from the OS. |
+| `zs_sign_public_key(secret, out, cap)` | The public key text of a secret key text. |
+| `zs_sign_key_id(public, out, cap)` | The key id: 16 hex characters. |
+| `zs_sign_gcode(secret, gcode, len, &ptr, &len)` | A copy of the G-code with a signature line at its end. Free it with `zs_buffer_free`. |
+| `zs_verify_gcode(gcode, len, trusted, &result, key_id)` | Checks the signature line against the trusted public keys (one on each line): ok, unsigned, unknown key, or bad. |
 
 `settings` can be NULL in `zs_slice` and `zs_slice_to_buffer`: the slice then uses all defaults. `stats` can be NULL.
+
+## Signed G-code
+
+The last line of a signed file is a comment: `; zslice-signature: ed25519 <key id> <base64 signature>`. The signature is Ed25519 over the SHA-256 hash of all bytes before that line. The key id is the first 8 bytes of the SHA-256 hash of the public key, in hex. A printer with no check reads a comment, so a signed file prints on any printer. A printdeck with "Signed prints only" queues only files with a good signature of a trusted key.
 
 ## The write callback
 
