@@ -489,12 +489,16 @@ static void zg_model_class_init(ZgModelClass *klass) {
 void zg_model_select(ZgModel *self, gint64 path) {
     if (self->more) g_array_set_size(self->more, 0);
     if (self->more_anchor) g_array_set_size(self->more_anchor, 0);
+    /* During a slice the key reads 0: the same line keeps its key. */
+    uint64_t key = path >= 0 ? zs_app_path_key(self->core, (size_t)path) : 0;
+    if (key || path != self->selected) {
+        self->selected_key = key;
+        ptrdiff_t sl = path >= 0 ? zs_app_path_layer(self->core, (size_t)path) : -1;
+        self->selected_layer = sl > 0 ? (size_t)sl : 0;
+    }
     self->selected = path;
     self->segment = -1;
     self->anchored = FALSE;
-    self->selected_key = path >= 0 ? zs_app_path_key(self->core, (size_t)path) : 0;
-    ptrdiff_t sl = path >= 0 ? zs_app_path_layer(self->core, (size_t)path) : -1;
-    self->selected_layer = sl > 0 ? (size_t)sl : 0;
     zs_toolpaths tp;
     if (path >= 0 && zs_app_toolpaths(self->core, &tp) == ZS_OK && (size_t)path < tp.path_count) {
         uint32_t start = path == 0 ? 0 : tp.path_ends[path - 1];

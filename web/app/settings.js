@@ -23,6 +23,11 @@ function el(tag, cls, text) {
 
 export { el };
 
+// The variables of the start and the end G-code (machine.start_gcode):
+// the names of zslice. The names of Cura, PrusaSlicer, OrcaSlicer, and
+// Bambu Studio work too (src/gcode_vars.zig).
+const GCODE_VARS = ["nozzle_temp", "first_layer_nozzle_temp", "bed_temp", "standby_temp", "layer_height", "first_layer_height", "first_layer_speed", "nozzle_diameter", "filament_diameter", "filament_name", "machine_name", "job_name"];
+
 export class SettingsBrowser {
   // ctx: { infos, effect(name), set(name, value) -> Promise<error text>,
   //        reset(name), focus(mask, firstLayerOnly) }
@@ -323,6 +328,42 @@ export class SettingsBrowser {
       ta.onchange = () => commit(ta.value, ta);
       box.style.flex = "1";
       box.append(ta);
+      // The start and the end G-code: the variables to insert, and the
+      // result with the values of this print.
+      if (/_gcode$/.test(info.name)) {
+        box.style.flexDirection = "column";
+        box.style.alignItems = "stretch";
+        const vars = el("div", "gcode-vars");
+        vars.append(el("span", "dim", "Insert:"));
+        for (const v of GCODE_VARS) {
+          const b = el("button", "chip", `{${v}}`);
+          b.type = "button";
+          b.title = `Insert {${v}} at the cursor`;
+          b.onclick = () => {
+            const at = ta.selectionStart ?? ta.value.length;
+            ta.value = ta.value.slice(0, at) + `{${v}}` + ta.value.slice(ta.selectionEnd ?? at);
+            ta.focus();
+            ta.selectionStart = ta.selectionEnd = at + v.length + 2;
+            commit(ta.value, ta);
+          };
+          vars.append(b);
+        }
+        const show = el("button", "flat", "Show the result");
+        show.type = "button";
+        show.title = "The start of the G-code of the last slice, with the values of the variables";
+        const out = el("pre", "gcode-result");
+        out.hidden = true;
+        show.onclick = async () => {
+          if (!out.hidden) {
+            out.hidden = true;
+            return;
+          }
+          const text = (await this.ctx.gcodeHead?.(info.name)) ?? "";
+          out.textContent = text || "Slice first: the result comes from the G-code of the last slice.";
+          out.hidden = false;
+        };
+        box.append(vars, show, out);
+      }
       return { node: box, update: (entry) => { if (entry && document.activeElement !== ta) ta.value = entry.value; } };
     }
     const input = el("input", isNumber(info) ? "num" : "text");

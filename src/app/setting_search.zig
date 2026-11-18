@@ -121,6 +121,10 @@ pub fn score(s: *const SettingInfo, query: []const u8) f64 {
         total += b;
     }
     if (!any) return 0;
+    // The whole query at the start of the label: the setting the user
+    // types ("start gcode" is Start gcode, not Gcode flavor).
+    const tq = std.mem.trim(u8, q, " \t");
+    if (tq.len > 0 and std.ascii.startsWithIgnoreCase(s.label, tq)) total += 15;
     if (std.mem.eql(u8, s.group, "project")) total += 2;
     if (std.mem.eql(u8, s.group, "engine")) total -= 2;
     if (isCommon(s.name)) total += 4;
@@ -191,6 +195,10 @@ test "setting search: the common settings first" {
         };
         try testing.expect(found);
     }
+}
+
+test "setting search: the whole query first" {
+    try testing.expectEqualStrings("machine.start_gcode", top("start gcode"));
 }
 
 test "setting search: the settings of a part" {

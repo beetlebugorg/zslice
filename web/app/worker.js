@@ -960,6 +960,24 @@ const ops = {
     return { bytes: w.u8.slice(p, p + n).buffer, name: info?.name ?? "" };
   },
 
+  // The start or the end G-code of the last slice, with the values of the
+  // variables: the text before the first layer, or the lines before the
+  // filament totals at the end.
+  gcodeHead({ name }) {
+    const bytes = core.gcode();
+    if (!bytes) return "";
+    const dec = new TextDecoder();
+    if (/end_gcode$/.test(name)) {
+      const tail = dec.decode(bytes.slice(Math.max(0, bytes.length - 16384)));
+      const k = tail.lastIndexOf(";Filament used:");
+      const lines = (k >= 0 ? tail.slice(0, k) : tail).split("\n");
+      return lines.slice(-40).join("\n").trim();
+    }
+    const head = dec.decode(bytes.slice(0, Math.min(bytes.length, 65536)));
+    const k = head.indexOf(";LAYER:0");
+    return (k >= 0 ? head.slice(0, k) : head.slice(0, 4000)).replace(/; thumbnail begin[\s\S]*?; thumbnail end\n;?\n?/g, "; (thumbnails)\n").trim();
+  },
+
   // A test print of the layers lo to hi - 1 (zs_app_debug_gcode).
   debugGcode({ lo, hi }) {
     const w = core.w;

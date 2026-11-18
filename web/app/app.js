@@ -697,6 +697,8 @@ async function setSetting(name, value) {
 
 var browser = new SettingsBrowser({ // var: setPanelMode runs before this line
   infos,
+  // The start or the end G-code with its values, from the last slice.
+  gcodeHead: (name) => client.call("gcodeHead", { name }),
   effect: (name) => wasm.settingEffect(name),
   set: setSetting,
   reset: async (name) => applySettings(await client.call("reset", { name })),
