@@ -188,6 +188,11 @@ struct PrinterStatus: Equatable {
     var roll = ""
     var rollLeft = 0.0
     var bedX = 0.0, bedY = 0.0, height = 0.0, nozzle = 0.0
+    /// Why it failed or stopped (zs_printer_status_message), else "".
+    var why = ""
+    /// The state for the farm (enum zs_farm_printer_state), the same for
+    /// each kind of printer (zs_printer_status_farm_state).
+    var farmState: Int32 = 1
 
     /// One line for the print card: "Operational · Gray, 818 g left", or
     /// the job and its progress.
@@ -254,7 +259,8 @@ extension PrinterLink {
         return PrinterStatus(state: coreText(info.state), job: coreText(info.job), progress: info.progress, timeLeft: info.time_left,
                              layer: Int(info.layer), layers: Int(info.layers), material: coreText(info.material),
                              roll: coreText(info.spool.name), rollLeft: info.spool.left,
-                             bedX: info.bed_x, bedY: info.bed_y, height: info.height, nozzle: info.nozzle)
+                             bedX: info.bed_x, bedY: info.bed_y, height: info.height, nozzle: info.nozzle,
+                             why: coreText(zs_printer_status_message(s)), farmState: zs_printer_status_farm_state(s))
     }
 
     /// The estimate of a printdeck for the G-code: POST it with gzip to

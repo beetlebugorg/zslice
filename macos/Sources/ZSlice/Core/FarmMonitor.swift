@@ -98,18 +98,12 @@ final class FarmMonitor {
             let st = status[p.id]
             let i = zs_farm_printer_set(farm, p.id.uuidString, st?.bedX ?? 0, st?.bedY ?? 0, st?.nozzle ?? 0, st?.material ?? "", p.kind == .printdeck ? 1 : 0)
             guard i >= 0 else { continue }
-            let state: Int32 = st.map { Self.farmState($0) } ?? Int32(ZS_FARM_OFFLINE.rawValue)
-            zs_farm_status(farm, Int(i), state, st?.progress ?? 0, nil, now)
+            let state = st?.farmState ?? Int32(ZS_FARM_OFFLINE.rawValue)
+            let why = st?.why ?? ""
+            zs_farm_status(farm, Int(i), state, st?.progress ?? 0, why.isEmpty ? nil : why, now)
         }
         readEvents()
         generation += 1
-    }
-
-    static func farmState(_ st: PrinterStatus) -> Int32 {
-        if failed(st) { return Int32(ZS_FARM_FAILED.rawValue) }
-        if done(st) { return Int32(ZS_FARM_FINISHED.rawValue) }
-        if paused(st) { return Int32(ZS_FARM_PAUSED.rawValue) }
-        return Int32(printing(st) ? ZS_FARM_PRINTING.rawValue : ZS_FARM_IDLE.rawValue)
     }
 
     /// The events of the farm as notifications.
@@ -221,23 +215,13 @@ final class FarmMonitor {
         generation += 1
     }
 
-    // MARK: - the states
+    // MARK: - the states (zs_printer_status_farm_state, the same for each kind)
 
-    static func printing(_ st: PrinterStatus) -> Bool {
-        if done(st) || failed(st) { return false }
-        return (!st.job.isEmpty && st.progress > 0 && st.progress < 1) || st.state.range(of: "print|running|heating|busy", options: [.regularExpression, .caseInsensitive]) != nil
-    }
-
-    static func paused(_ st: PrinterStatus) -> Bool { st.state.range(of: "pause", options: .caseInsensitive) != nil }
-
+    static func printing(_ st: PrinterStatus) -> Bool { st.farmState == ZS_FARM_PRINTING.rawValue }
+    static func paused(_ st: PrinterStatus) -> Bool { st.farmState == ZS_FARM_PAUSED.rawValue }
     /// The print ended and waits on the bed.
-    static func done(_ st: PrinterStatus) -> Bool {
-        st.state.range(of: "^(finish|finished|complete|completed)$", options: [.regularExpression, .caseInsensitive]) != nil
-    }
-
-    static func failed(_ st: PrinterStatus) -> Bool {
-        st.state.range(of: "error|fail|cancel", options: [.regularExpression, .caseInsensitive]) != nil
-    }
+    static func done(_ st: PrinterStatus) -> Bool { st.farmState == ZS_FARM_FINISHED.rawValue }
+    static func failed(_ st: PrinterStatus) -> Bool { st.farmState == ZS_FARM_FAILED.rawValue }
 
     // MARK: - the notifications
 

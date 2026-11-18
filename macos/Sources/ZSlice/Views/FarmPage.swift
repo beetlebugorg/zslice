@@ -206,6 +206,10 @@ struct FarmPage: View {
                 VStack(alignment: .leading, spacing: 2) {
                     Label("Failed", systemImage: "xmark.octagon.fill").foregroundStyle(.red).font(.callout.weight(.semibold))
                     if let st, !st.job.isEmpty { Text(st.job).lineLimit(1) }
+                    Text(st.map { $0.why.isEmpty ? "" : $0.why + ". " } ?? "")
+                        .font(.caption)
+                        .foregroundStyle(.red)
+                        .fixedSize(horizontal: false, vertical: true)
                     Text("Check the printer, then clear the bed.").font(.caption).foregroundStyle(.secondary)
                 }
             case .printing, .paused:

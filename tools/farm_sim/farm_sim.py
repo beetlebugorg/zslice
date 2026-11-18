@@ -241,9 +241,13 @@ class Printer:
         j = self.job or self.done_job
         if not j:
             return {"job": {"file": {"name": None}}, "progress": {"completion": None, "printTimeLeft": None}, "state": self.state}
-        return {"job": {"file": {"name": j["name"], "display": j["name"]}, "estimatedPrintTime": j["total"]},
-                "progress": {"completion": round(self.progress(clock) * 100, 2), "printTimeLeft": int(self.time_left(clock))},
-                "state": self.state}
+        out = {"job": {"file": {"name": j["name"], "display": j["name"]}, "estimatedPrintTime": j["total"]},
+               "progress": {"completion": round(self.progress(clock) * 100, 2), "printTimeLeft": int(self.time_left(clock))},
+               "state": self.state}
+        # OctoPrint gives the error of a failed job at the top.
+        if self.reason and self.state == "Error":
+            out["error"] = self.reason
+        return out
 
     def printdeck_plugin(self, clock):
         out = {"queue": len(self.queue), "material": self.material, "diameter": 0 if self.resin else 1.75,
@@ -259,8 +263,6 @@ class Printer:
             p = self.progress(clock)
             out["job"] = {"title": t, "state": self.state, "progress": round(p, 4), "left": int(self.time_left(clock)),
                           "layer": int(p * layers), "layers": layers}
-            if self.reason:
-                out["job"]["error"] = self.reason
             del j
         return out
 
