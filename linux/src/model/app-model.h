@@ -87,6 +87,9 @@ gint64 zg_model_part_split(ZgModel *self, size_t i);
 GBytes *zg_model_project_bytes(ZgModel *self, const char *name);
 /* Moves part i to a new plate (zs_set_part_move): the new plate, or -1. */
 gint64 zg_model_part_to_new_plate(ZgModel *self, size_t i);
+/* Copies of part i until there are n in all, over new plates when the bed
+ * is full (zs_set_fill): the copies in all, or -status. */
+gint64 zg_model_part_fill(ZgModel *self, size_t i, size_t n, size_t *plates);
 /* Cuts part i at height z (zs_app_part_cut): the count of new parts (2 and
  * the pegs), 0 if the plane misses the part, or -1. */
 gint64 zg_model_part_cut(ZgModel *self, size_t i, double z, gboolean flip, int pegs, double peg_d);

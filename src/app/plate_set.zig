@@ -737,6 +737,59 @@ pub const Set = struct {
         return target;
     }
 
+    pub const Fill = struct { copies: usize, plates: usize };
+
+    /// Copies of part `part` of plate `from` until there are `n` in all:
+    /// on its plate while they fit the bed, then on new plates after the
+    /// others, each with the settings of plate `from`, full in turn. At
+    /// most 200 new plates. Returns the copies in all (with the part) and
+    /// the plates that have them.
+    pub fn fill(set: *Set, from: usize, part: usize, n: usize) Error!Fill {
+        if (from >= set.plates.items.len) return error.OutOfRange;
+        const src = set.plates.items[from].app;
+        if (part >= src.plate.count()) return error.OutOfRange;
+        var copies: usize = 1;
+        var plates: usize = 1;
+        // On the plate of the part.
+        while (copies < n) {
+            const j = try src.duplicatePart(part);
+            if (!src.plate.allFit(src.bedSize(), src.partGap())) {
+                try src.removePart(j);
+                break;
+            }
+            copies += 1;
+        }
+        src.undo.note(src.gpa, null, true);
+        try set.changed(from, false);
+        // On new plates.
+        const keep = set.active;
+        var made: usize = 0;
+        while (copies < n and made < 200) : (made += 1) {
+            set.active = from;
+            const t = try set.add();
+            const dst = set.plates.items[t].app;
+            // A first copy goes over; the plate then fills as the first.
+            const j = try src.duplicatePart(part);
+            _ = try src.movePartTo(j, dst);
+            copies += 1;
+            plates += 1;
+            while (copies < n) {
+                const k = try dst.duplicatePart(0);
+                if (!dst.plate.allFit(dst.bedSize(), dst.partGap())) {
+                    try dst.removePart(k);
+                    break;
+                }
+                copies += 1;
+            }
+            dst.undo.note(dst.gpa, null, true);
+            try set.changed(t, false);
+            // A part that does not fit an empty bed: no more plates.
+            if (dst.plate.count() == 1 and !dst.plate.allFit(dst.bedSize(), dst.partGap())) break;
+        }
+        try set.select(@min(keep, set.plates.items.len - 1));
+        return .{ .copies = copies, .plates = plates };
+    }
+
     pub const Totals = struct {
         plates: usize = 0,
         /// The plates with parts and a slice; the others are not in the
@@ -1348,3 +1401,34 @@ test "plate set: move a part to a new plate and back" {
     try testing.expectEqual(@as(usize, 0), app1.plate.count());
     try testing.expectError(error.OutOfRange, set.movePart(0, 0, 0));
 }
+
+test "plate set: fill copies over plates" {
+    var ev: Events = .{};
+    const set = try Set.create(testing.allocator, Events.f, &ev, false);
+    defer set.destroy();
+    const app0 = set.appOf(0).?;
+    try app0.setSetting("machine.bed_size_x", "100");
+    try app0.setSetting("machine.bed_size_y", "100");
+    var b: zs.mesh.Builder = .init(testing.allocator);
+    try zs.mesh.shapes.addBox(&b, 0, 0, 0, 30, 30, 5);
+    var m = try b.finish();
+    defer m.deinit(testing.allocator);
+    var stl: std.Io.Writer.Allocating = .init(testing.allocator);
+    defer stl.deinit();
+    try m.writeStl(&stl.writer);
+    _ = try app0.addStl("square", stl.written());
+    // About 4 to 9 squares of 30 mm fit a bed of 100 mm: 20 need more plates.
+    const f = try set.fill(0, 0, 20);
+    try testing.expectEqual(@as(usize, 20), f.copies);
+    try testing.expect(f.plates >= 2);
+    var total: usize = 0;
+    for (0..set.count()) |i| {
+        const a = set.appOf(i).?;
+        total += a.plate.count();
+        try testing.expect(a.plate.allFit(a.bedSize(), a.partGap()));
+        try testing.expectEqual(@as(f64, 100), a.settings.machine.bed_size_x);
+    }
+    try testing.expectEqual(@as(usize, 20), total);
+    try testing.expectEqual(@as(usize, 0), set.activeIndex());
+}
+

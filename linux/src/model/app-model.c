@@ -1560,6 +1560,13 @@ GBytes *zg_model_project_bytes(ZgModel *self, const char *name) {
     return b;
 }
 
+gint64 zg_model_part_fill(ZgModel *self, size_t i, size_t n, size_t *plates) {
+    plate_leave(self);
+    ptrdiff_t r = zs_set_fill(self->set, zs_set_active(self->set), i, n, plates);
+    plate_switched(self);
+    return r;
+}
+
 gint64 zg_model_part_to_new_plate(ZgModel *self, size_t i) {
     ptrdiff_t to = zs_set_part_move(self->set, zs_set_active(self->set), i, -1);
     if (to < 0) return -1;

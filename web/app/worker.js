@@ -869,6 +869,20 @@ const ops = {
     return { note, index: activeIndex(), info: core.modelInfo(), ...settingsState() };
   },
 
+  // Copies of part `index` until there are n in all, over new plates when
+  // the bed is full (zs_set_fill). Returns { ok, copies, plates }.
+  partFill({ index, n }) {
+    if (histTimer) historyCommit();
+    const w = wasm;
+    const r = w.x.zs_set_fill(set, activeIndex(), index, n, w.cell);
+    if (r < 0) return { ok: false };
+    const plates = w.u32(w.cell);
+    syncCore();
+    postPlates();
+    wantSlice();
+    return { ok: true, copies: r, plates };
+  },
+
   // Moves part `index` of the active plate to plate `to` (-1: a new
   // plate). Returns { ok, to }.
   partMove({ index, to }) {

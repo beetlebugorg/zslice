@@ -1449,6 +1449,12 @@ typedef struct zs_totals {
     double time_s, filament_g, filament_mm;
     double cost_filament, cost_machine, cost;
 } zs_totals;
+/* Copies of part `part` of plate `from` until there are n in all: on its
+ * plate while they fit the bed, then on new plates after the others, with
+ * the settings of plate from ("make 100 of this part"). Returns the copies
+ * in all, and the count of plates that have them in *plates (can be NULL),
+ * or -status. One history step on each plate that changed. */
+ptrdiff_t zs_set_fill(zs_set *set, size_t from, size_t part, size_t n, size_t *plates);
 int zs_set_totals(zs_set *set, zs_totals *out);
 /* The same sums for plate i alone. */
 int zs_set_plate_totals(zs_set *set, size_t i, zs_totals *out);

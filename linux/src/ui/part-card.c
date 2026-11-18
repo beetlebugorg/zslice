@@ -22,6 +22,7 @@ typedef struct {
     GtkWidget *preview, *card, *title, *facts, *settings;
     /* The popover of the cut: the height, the flip, and the pegs. */
     GtkWidget *cut_pop, *cut_z, *cut_flip, *cut_pegs, *cut_n, *cut_d;
+    GtkWidget *make_n;
     gint64 part;
     char *names; /* the names of the listed settings, one a line */
 } PartCard;
@@ -248,6 +249,21 @@ static GtkWidget *cut_button(PartCard *c) {
     return mb;
 }
 
+/* Make: copies until there are this many in all. */
+static void on_make(GtkButton *b, gpointer data) {
+    PartCard *c = data;
+    if (c->part < 0) return;
+    size_t n = (size_t)gtk_spin_button_get_value_as_int(GTK_SPIN_BUTTON(c->make_n));
+    size_t plates = 0;
+    gint64 r = zg_model_part_fill(c->model, (size_t)c->part, n, &plates);
+    char *tip = r < 0 ? g_strdup("No copies were made.")
+                      : (size_t)r < n ? g_strdup_printf("%d of %d fit: the part is too big for more plates.", (int)r, (int)n)
+                                      : g_strdup_printf("%d in all, on %d plates.", (int)r, (int)plates);
+    gtk_widget_set_tooltip_text(c->card, tip);
+    g_free(tip);
+    zg_model_select_part(c->model, -1);
+}
+
 /* The actions of the card ("partcard.*"). */
 static void on_action(GSimpleAction *a, GVariant *v, gpointer data) {
     PartCard *c = data;
@@ -354,6 +370,20 @@ GtkWidget *zg_part_card_new(ZgModel *model, GtkWidget *preview) {
         if (strcmp(buttons[i].label, "Split to parts") == 0) gtk_flow_box_append(GTK_FLOW_BOX(flow), cut_button(c));
     }
     gtk_box_append(GTK_BOX(c->card), flow);
+    GtkWidget *make = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 6);
+    gtk_box_append(GTK_BOX(make), gtk_label_new("Make"));
+    c->make_n = gtk_spin_button_new_with_range(2, 10000, 1);
+    gtk_spin_button_set_value(GTK_SPIN_BUTTON(c->make_n), 10);
+    gtk_box_append(GTK_BOX(make), c->make_n);
+    GtkWidget *in_all = gtk_label_new("in all");
+    gtk_widget_add_css_class(in_all, "dim-label");
+    gtk_box_append(GTK_BOX(make), in_all);
+    GtkWidget *make_b = gtk_button_new_with_label("Make");
+    gtk_widget_set_tooltip_text(make_b, "Copies of the part until there are this many in all: on this plate while they fit, then on new plates with the same settings");
+    gtk_widget_add_css_class(make_b, "zg-card-action");
+    g_signal_connect(make_b, "clicked", G_CALLBACK(on_make), c);
+    gtk_box_append(GTK_BOX(make), make_b);
+    gtk_box_append(GTK_BOX(c->card), make);
     c->settings = gtk_grid_new();
     gtk_grid_set_row_spacing(GTK_GRID(c->settings), 4);
     gtk_grid_set_column_spacing(GTK_GRID(c->settings), 6);

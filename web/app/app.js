@@ -755,6 +755,8 @@ var partCard = new PartCard({
   toast: (t) => toast(t),
   // Moves the part to another plate (-1: a new plate).
   movePart: async (index, to) => client.call("partMove", { index, to }),
+  // Copies until there are n in all (zs_set_fill).
+  fillPart: async (index, n) => client.call("partFill", { index, n }),
   // The plane of a cut (zs_view_set_cut): a box and a height, or null.
   cutPlane: (b) => {
     if (b) view.x.zs_view_set_cut(view.v, b[0], b[1], b[2], b[3], b[4]);

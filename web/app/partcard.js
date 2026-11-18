@@ -95,13 +95,21 @@ export class PartCard {
     moveB.onclick = () => this.moveToNewPlate();
     actions.append(moveB);
     action("Remove", "Delete", "Remove the part from the plate", "remove");
+    // Make n in all: copies on this plate, then on new plates.
+    const make = el("div", "pc-cut-row pc-make");
+    const makeN = Object.assign(document.createElement("input"), { type: "number", min: "2", max: "10000", step: "1", value: "10", className: "pc-cut-n" });
+    makeN.setAttribute("aria-label", "How many of this part to make");
+    const makeB = el("button", "pc-action", "Make");
+    makeB.title = "Copies of the part until there are this many in all: on this plate while they fit, then on new plates with the same settings";
+    makeB.onclick = () => this.fill(Math.max(2, Math.min(10000, Number(makeN.value) || 2)));
+    make.append(el("span", "", "Make"), makeN, el("span", "dim", "in all"), makeB);
     this.cutBox = el("div", "pc-cut");
     this.cutBox.hidden = true;
     this.settingsBox = el("div", "lc-settings");
     const add = el("button", "flat pc-add", "+ Add a setting for this part");
     add.title = "Search the settings that a part can have of its own";
     add.onclick = () => this.ctx.search("", this.scope());
-    card.append(head, this.facts, actions, this.cutBox, this.settingsBox, add);
+    card.append(head, this.facts, actions, make, this.cutBox, this.settingsBox, add);
     card.addEventListener("keydown", (e) => {
       if (e.key === "Escape" && !e.target.closest("input, select, textarea")) {
         e.preventDefault();
@@ -180,6 +188,18 @@ export class PartCard {
     };
     show();
     this.place();
+  }
+
+  async fill(n) {
+    if (!this.part) return;
+    const r = await this.ctx.fillPart?.(this.part.index, n);
+    if (!r?.ok) {
+      this.ctx.toast("No copies were made.");
+      return;
+    }
+    const plates = r.plates === 1 ? "this plate" : `${r.plates} plates`;
+    this.ctx.toast(r.copies < n ? `${r.copies} of ${n} fit: the part is too big for more plates.` : `${r.copies} in all, on ${plates}.`);
+    this.ctx.select(null);
   }
 
   async moveToNewPlate() {

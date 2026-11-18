@@ -270,6 +270,20 @@ export fn zs_set_project_open(set: ?*Set, bytes: ?[*]const u8, len: usize, messa
     return ok;
 }
 
+/// Copies of part `part` of plate `from` until there are n in all: on its
+/// plate while they fit the bed, then on new plates (after the others,
+/// with the settings of plate from). Returns the copies in all, and the
+/// plates that have them in *plates (can be NULL), or -status.
+export fn zs_set_fill(set: ?*Set, from: usize, part: usize, n: usize, plates: ?*usize) isize {
+    const s = set orelse return -@as(isize, @intFromEnum(Status.invalid_argument));
+    const f = s.fill(from, part, @min(n, 100000)) catch |e| return -@as(isize, switch (e) {
+        error.OutOfRange => @intFromEnum(Status.out_of_range),
+        error.OutOfMemory => @intFromEnum(Status.out_of_memory),
+    });
+    if (plates) |p| p.* = f.plates;
+    return @intCast(f.copies);
+}
+
 pub const Totals = extern struct {
     plates: usize,
     sliced: usize,
