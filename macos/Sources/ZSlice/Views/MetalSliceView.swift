@@ -310,6 +310,11 @@ final class MetalSliceView: NSView {
 
     private func drawFrame() {
         guard let view, let renderer else { return }
+        let tf = CACurrentMediaTime()
+        defer {
+            let ms = (CACurrentMediaTime() - tf) * 1000
+            if ms > 8, ProcessInfo.processInfo.environment["ZSLICE_TIMING"] != nil { NSLog("zslice timing: a frame took %.1f ms", ms) }
+        }
         if Self.firstFrame, loaded {
             Self.firstFrame = false
             if ProcessInfo.processInfo.environment["ZSLICE_TIMING"] != nil {

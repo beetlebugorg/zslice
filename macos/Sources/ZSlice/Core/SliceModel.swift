@@ -120,6 +120,7 @@ final class SliceModel {
     @ObservationIgnored let saveBytes = SaveBytes()
     @ObservationIgnored var saveBytesDue = false
     @ObservationIgnored var saveBytesTimer: DispatchWorkItem?
+    @ObservationIgnored var saveBytesBusy = false
 
     /// The undo list of the active plate.
     var history: History {

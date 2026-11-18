@@ -101,6 +101,7 @@ final class Workspace {
     @ObservationIgnored var refineIDs: [String: String] = [:]
     @ObservationIgnored var refineTask: Task<Void, Never>?
     @ObservationIgnored var refineApplied = false
+    @ObservationIgnored var issuesTask: Task<Void, Never>?
     /// The card of the Support tool shows (S again hides it; kept).
     var supportPaneOpen = UserDefaults.standard.object(forKey: "supportPane") as? Bool ?? true {
         didSet { UserDefaults.standard.set(supportPaneOpen, forKey: "supportPane") }
@@ -203,9 +204,19 @@ final class Workspace {
     // MARK: - the slice
 
     private func sliced() {
+        let t0 = CACurrentMediaTime()
+        defer {
+            if ProcessInfo.processInfo.environment["ZSLICE_TIMING"] != nil {
+                NSLog("zslice timing: after the slice %.1f ms on the main thread", (CACurrentMediaTime() - t0) * 1000)
+            }
+        }
         stopReplay()
         if let v = canvas.view { zs_view_set_mode(v, Int32(colorMode)) }
+        let tl = CACurrentMediaTime()
         canvas.load(model.core)
+        if ProcessInfo.processInfo.environment["ZSLICE_TIMING"] != nil {
+            NSLog("zslice timing: view load %.1f ms", (CACurrentMediaTime() - tl) * 1000)
+        }
         // The bed model of the printer (it needs the bed size of the load).
         if let v = canvas.view { PrinterLibrary.shared.showBed(of: model.core, in: v) }
         readLegend()
@@ -233,7 +244,14 @@ final class Workspace {
         askEstimate()
         gapCard = nil
         showGaps()
-        readIssues()
+        // The checks (about 10 ms on a large part) come after the frame of
+        // the new slice, so the slice shows at once.
+        issuesTask?.cancel()
+        issuesTask = Task { @MainActor [weak self] in
+            try? await Task.sleep(for: .milliseconds(120))
+            guard !Task.isCancelled, let self, model.state == .done else { return }
+            readIssues()
+        }
         if let i = selectedPart { selectPart(i < zs_app_part_count(model.core) ? i : nil) }
         if let i = restoredPart {
             restoredPart = nil
@@ -494,9 +512,17 @@ final class Workspace {
                     worst = max(worst, now - last)
                     last = now
                 }
-                for d in ["0.3", "0.15", "0.25"] {
+                // ZSLICE_RESLICE=name=a,b,c changes that setting instead.
+                var name = "project.infill_density"
+                var values = ["0.3", "0.15", "0.25"]
+                if let spec = env["ZSLICE_RESLICE"], spec.contains("=") {
+                    let kv = spec.split(separator: "=", maxSplits: 1).map(String.init)
+                    name = kv[0]
+                    values = kv[1].split(separator: ",").map(String.init)
+                }
+                for d in values {
                     try? await Task.sleep(for: .seconds(1.5))
-                    zs_app_setting_set(model.core, "project.infill_density", d)
+                    zs_app_setting_set(model.core, name, d)
                     model.settingsChanged()
                 }
                 try? await Task.sleep(for: .seconds(3))

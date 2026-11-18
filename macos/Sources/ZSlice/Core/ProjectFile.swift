@@ -28,6 +28,13 @@ final class SaveBytes: @unchecked Sendable {
     var current: Data? { lock.withLock { data } }
     func set(_ d: Data?) { lock.withLock { data = d; gen = changes } }
     func changed() { lock.withLock { changes += 1 } }
+    /// The count of the changes now, for a copy made on another thread.
+    var changeCount: Int { lock.withLock { changes } }
+    /// A copy that shows the plates as they were at change `at`.
+    func set(_ d: Data?, at: Int) { lock.withLock { data = d; gen = at } }
+
+    /// The copy runs on this queue (the core reads the set under its lock).
+    static let queue = DispatchQueue(label: "zslice.savebytes", qos: .utility)
 
     /// The bytes for a save (any thread). It notes a save of old bytes.
     func forSave() -> Data? {
@@ -48,10 +55,10 @@ final class SaveBytes: @unchecked Sendable {
 
 extension SliceModel {
     /// After a change: a new copy when the window is idle. The copy writes
-    /// all meshes, which takes long for a large project, on the main
-    /// thread; so it waits until the changes stop and the slice is done,
-    /// and never slows a slice. The last copy stays until then, so a save
-    /// never waits (see ProjectDocument.snapshot).
+    /// all meshes, so it waits until the changes stop and the slice is
+    /// done, and the core makes it on a background queue: it never slows a
+    /// slice or the window. The last copy stays until then, so a save never
+    /// waits (see ProjectDocument.snapshot).
     func scheduleSaveBytes() {
         SessionStore.shared.changed()
         saveBytes.changed()
@@ -65,19 +72,62 @@ extension SliceModel {
     /// Makes the copy if one is due and no slice runs (else the end of the
     /// slice calls this again).
     func flushSaveBytesIfIdle() {
-        guard saveBytesDue, state != .slicing else { return }
-        refreshSaveBytes()
+        guard saveBytesDue, state != .slicing, !saveBytesBusy else { return }
+        saveBytesDue = false
+        guard document != nil else {
+            saveBytes.set(nil)
+            return
+        }
+        saveBytesBusy = true
+        let at = saveBytes.changeCount
+        let set = set, name = name, bytes = saveBytes
+        let timing = ProcessInfo.processInfo.environment["ZSLICE_TIMING"] != nil
+        // The model (and its set) lives until the copy is done, also when
+        // its window closes meanwhile.
+        let keep = self
+        SaveBytes.queue.async {
+            let t = CACurrentMediaTime()
+            withExtendedLifetime(keep) { bytes.set(Self.projectBytes(set, name), at: at) }
+            if timing { NSLog("zslice timing: save copy %.1f ms (background)", (CACurrentMediaTime() - t) * 1000) }
+            DispatchQueue.main.async {
+                MainActor.assumeIsolated { [weak self] in
+                    guard let self else { return }
+                    saveBytesBusy = false
+                    markStaleSave()
+                    // A change while the copy ran: one more copy.
+                    if saveBytesDue { flushSaveBytesIfIdle() }
+                }
+            }
+        }
     }
 
-    /// A copy of the plates as a project file, for the next save.
-    func refreshSaveBytes() {
-        saveBytesDue = false
-        saveBytes.set(document == nil ? nil : projectFileData(name: name))
-        // A save in the moment before wrote the copy before the last
-        // change: the document has changes again.
+    /// The bytes of the project file of a set (any thread).
+    nonisolated static func projectBytes(_ set: OpaquePointer, _ name: String) -> Data? {
+        var out: UnsafeMutablePointer<UInt8>?
+        var len = 0
+        guard zs_set_project_save(set, name, &out, &len) == 0, let out else { return nil }
+        defer { zs_buffer_free(out, len) }
+        return Data(bytes: out, count: len)
+    }
+
+    /// A save in the moment before wrote the copy before the last change:
+    /// the document has changes again.
+    private func markStaleSave() {
         if saveBytes.takeStaleSave(), let document, !document.isDocumentEdited {
             document.updateChangeCount(.changeDone)
         }
+    }
+
+    /// A copy of the plates as a project file, at once on the main thread
+    /// (a save from the main thread, and the open of a document).
+    func refreshSaveBytes() {
+        let t = CACurrentMediaTime()
+        defer {
+            if ProcessInfo.processInfo.environment["ZSLICE_TIMING"] != nil { NSLog("zslice timing: save copy %.1f ms", (CACurrentMediaTime() - t) * 1000) }
+        }
+        saveBytesDue = false
+        saveBytes.set(document == nil ? nil : projectFileData(name: name))
+        markStaleSave()
     }
 
     /// Opens a project file in place of the plates of the window.
