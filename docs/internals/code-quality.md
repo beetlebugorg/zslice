@@ -11,7 +11,7 @@ Mark an item done when its commit is in `master`. Add an item when you find a pr
 - [x] Move each concern to its own file in `src/app/`. `src/app.zig` keeps `App` and the state, and exports the names that `c_api/` and `render/view.zig` use.
 - [x] Compute the length of a path in one function (`Toolpaths.pathLength`). `featureStats` and `inspect` had the same loop.
 - [x] Move logic out of the C API into the core: the part of a path (`App.partOfPath`), the clear of the marks (`App.clearMarks`), and the name of a part (a part keeps its name with a 0 at the end).
-- [ ] `src/app.zig` grows again (1360 lines): the plates (`PlateSlot`, `selectPlate`, `addPlate`, `removePlate`) and the part placement (`placePart`, `turnPart`, `scalePart`) are in `App`. Move the list of plates and the switch between them to `src/app/plates.zig`, and keep in `App` only the calls that also stop the worker and mark the plate as changed.
+- [ ] `src/app.zig` grows again (1360 lines): the plates (`PlateSlot`, `selectPlate`, `addPlate`, `removePlate`; no shell uses them now that the plate set is `src/app/plate_set.zig`) and the part placement (`placePart`, `turnPart`, `scalePart`) are in `App`. Move the list of plates and the switch between them to `src/app/plates.zig`, and keep in `App` only the calls that also stop the worker and mark the plate as changed.
 - [ ] `App.statusOf` is a second, shorter copy of `status` in `c_api.zig`. The failure event of a slice gives status 2 for some errors that `status` knows, for example `PartTooThin` (17). Use one function. This changes the status of some failure events, so it needs the approval of the owner.
 
 ## 2. The GTK settings panel: `linux/src/ui/settings-panel.c`

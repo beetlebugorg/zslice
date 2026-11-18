@@ -67,6 +67,9 @@ src/
   app/history.zig    The undo list of each app (the steps, the amend of
                  one edit, undo, redo, goto, truncate), and the changes
                  of a step in words.
+  app/plate_set.zig  The plate set: one app for each plate, the
+                 active plate, the status of each, the order of the
+                 slices, project loads, and the sync of a view.
   app/licenses.zig          The licenses for a Licenses screen.
   render/view.zig  The 3D view: the scene, the camera, the beads.
   render/plates.zig  The other plates of a set in the view, and the
@@ -185,4 +188,15 @@ The undo list is in the core (`src/app/history.zig`), one list for each app. The
 2. The focus. It calls `zs_app_history_set_focus` with the setting of the editor that has the focus. The edits of one setting are one step while its editor keeps the focus.
 3. The UI: the history list, the timeline, and the undo and redo keys. After an undo, it updates its editors from the bits of `enum zs_history_restored`, saves the groups that changed, and slices again.
 
-A step keeps the texts of the three groups (`zs_app_state_write`), the quality profile, the plate as a 3MF file (steps with the same plate share one file), and the facts of the state. The text of a step comes from the diff of its facts and the facts of the step before. The web worker keeps one app for each plate, so each plate has its own undo list.
+A step keeps the texts of the three groups (`zs_app_state_write`), the quality profile, the plate as a 3MF file (steps with the same plate share one file), and the facts of the state. The text of a step comes from the diff of its facts and the facts of the step before. A plate set has one app for each plate, so each plate has its own undo list. The plates themselves are not in an undo list: a removal of a plate cannot be undone.
+
+## The plate set
+
+The plate set is in the core (`src/app/plate_set.zig`, `zs_set_*`). A `zs_set` owns one `zs_app` for each plate. The shells had a copy each (the web worker had the list of plates, and the GTK app had the `PlateSlot` swap in one app); now they call `zs_set_*`, and the `zs_app_*` calls on the app of the active plate (`zs_set_app`).
+
+- The status of a plate comes from the state of its app and two marks of the set: wanted (a slice waits) and cannot (a resin plate). `zs_set_plate_info` gives it with the id (new for each plate), the bed, the name, the printer key, the part count, and the message of a load.
+- The order: a change (`zs_set_changed`) marks a plate wanted. The active plate slices first, then the other wanted plates in order, one at a time. A held change (`zs_set_changed_held`) waits for `zs_set_release`, so a drag slices once at the end.
+- Two modes. Native (`zs_set_new`): the core starts each slice on its threads. A change of the active plate starts its slice at once and stops a background slice; that plate slices again later. A slice thread never waits for the lock of the set: it marks the work as pending, and the holder of the lock starts the next slice. wasm (`zs_set_new_web`): a slice runs on the calling thread, and the worker calls `zs_set_step` from a timer, so the messages of the page come between the slices.
+- Projects: `zs_set_project_load` loads all plates of a printdeck.yml, one app for each plate. A plate with no Cura stack gets its parts (for the footprints) and the status cannot.
+- The view: `zs_set_view_sync` gives a view the beds, the clears where another plate came to a place (by id), the flags, the footprints, and the beads of the other plates with a new slice. The set keeps the scene bytes of the last slice of each plate, so a plate that slices again shows its old beads. The web app slices in a worker and draws on the page: `zs_set_sync_write` writes the same sync as bytes, and `zs_view_sync_read` applies it to the view of the page.
+- The shells keep the UI: the plate bar, the labels, the keys, the framing of the camera, and the question before a removal.

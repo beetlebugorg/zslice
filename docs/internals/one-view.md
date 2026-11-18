@@ -30,8 +30,7 @@ Each action of the app has a key, or a path from the keyboard. No action needs t
 
 Each plate is one `App` (`zs_app`), with its own settings, profiles, parts, slice result, and cancel flag. A project plate has the profiles of its Cura stack, so the plates cannot share one set of settings.
 
-- The C API stays per App. The `PlateSlot` swap in `App.selectPlate` stays for files that have more than one plate, until the shells use one App for each plate.
-- The shells keep a plate set: the list of apps, the active one, and the order of the slices.
+- The C API of the settings and the parts stays per App. The plate set is in the core (`zs_set`, `src/app/plate_set.zig`; see architecture.md): the list of apps, the active one, the status of each, and the order of the slices. The `PlateSlot` swap in `App.selectPlate` stays for the C API, but no shell uses it now.
   - After a change, the active plate slices first. The other plates that are not up to date slice after it, one at a time, in the background.
   - A plate that is not up to date shows its old slice, dimmed a little, until its new one is done.
   - A change of a setting applies to the active plate. A change in the settings drawer can also apply to all plates that use the same profile (a choice in the drawer).
@@ -101,7 +100,7 @@ Differences from the web app:
 
 - A turn or a move of a part slices at each step. The GTK view shows only the slice (no mesh of the part), so a held slice gives no feedback during a drag.
 - The sheet of the keys is a window of its own.
-- No plate set yet: the GTK app has one App with the plates of the core (`zs_app_plate_*`), and the plate buttons stay in the toolbar.
+- The GTK app has the plate set of the core (`zs_set`) and the plate bar of the web app (‹ Plate n of N › + Plate ×), with the keys `[`, `]`, `F`, and `Home`. The Vulkan backend draws only the active plate, so the bar has no **All**, and `F` and `Home` reset the camera. The plates have no labels in the view; the tooltip of "Plate n of N" lists the plates and their status.
 
 ## The steps
 
@@ -115,13 +114,14 @@ Differences from the web app:
 
 ### The plate set in the web app
 
-- `web/app/worker.js` keeps a list of plates. Each plate has a `Core` (`web/app/core.js`: one `zs_app` and one view to write its scenes), its own history, a name, and a status: empty, stale, slicing, done, failed, or resin.
-- The ops of the page work on the active plate. A change marks the active plate stale. `runSlice` slices the active plate first, then each other stale plate in the order of the row, one at a time. A timer runs each slice after the messages that wait, so a change is never behind a slice of another plate.
-- At the start of each slice, the worker sends the cancel flag of the app that slices. A change on the page sets it, so a background slice stops at once. The stopped plate is stale again, and it slices later.
-- Events to the page: `plates` (the list, the active plate, the status, the bed size, and the printer of each), `plateScene` (the beads of another plate after its slice), and `stale` (the old slice of a new active plate that slices again). `sliced` is for the active plate only.
-- Ops: `plateAdd` (an empty plate with the settings of the active plate; it becomes active), `plateActivate`, and `projectSet` (all plates of a printdeck.yml project, each in its own app). `load` (a file) makes a set of one plate.
-- The history stays per plate: the worker keeps the history of each plate, and the active plate uses its own.
-- `web/app/project.js`: "Open" on a plate loads all plates of the project into the set, and that plate is the active plate. With the set loaded, the button makes its plate active. A plate with no Cura stack (a resin plate) is in the set as a plate that cannot slice.
+The plate set was first in `web/app/worker.js`. It is in the core now (`zs_set`), and the worker keeps only the timers and the messages.
+
+- The worker has one `zs_set` (`zs_set_new_web`). Each plate has its own app, history, name, and status: empty, stale, slicing, done, failed, or resin (`ZS_PLATE_STATUS_CANNOT`). A `Core` (`web/app/core.js`) wraps the app of a plate (`zs_set_app`).
+- The ops of the page work on the active plate. A change calls `zs_set_changed`. `runSlice` calls `zs_set_step` from a timer: it slices the active plate first, then each other wanted plate in the order of the row, one at a time. A timer runs each slice after the messages that wait, so a change is never behind a slice of another plate.
+- At the start of each slice, the worker sends the cancel flag of the app that slices (`zs_set_next`). A change on the page sets it, so a background slice stops at once. The stopped plate waits again, and it slices later.
+- Events to the page: `plates` (the list from `zs_set_plate_info`, the active plate, and the changes for the view as bytes from `zs_set_sync_write`; the page applies them with `zs_view_sync_read`), and `stale` (the old slice of a new active plate that slices again, `zs_set_plate_scene`). `sliced` is for the active plate only.
+- Ops: `plateAdd` (an empty plate with the settings of the active plate; it becomes active), `plateActivate`, `plateRemove` (the plate on the left becomes active), and `projectSet` (`zs_set_project_load` with the files of all plates). `load` (a file) keeps only the active plate for a project set (`zs_set_keep_active`).
+- `web/app/project.js`: "Open" on a plate loads all plates of the project into the set, and that plate is the active plate. With the set loaded, the button makes its plate active. A plate with no Cura stack (a resin plate) is in the set as a plate that cannot slice. After a removal, the page maps the plates of the set to the plates of the plan; the print status of a removed plate stays in the Project tab.
 
 ### The renderer
 
@@ -135,7 +135,7 @@ Differences from the web app:
 - The beds: the grid of each plate, in a lighter color for a plate that cannot slice, and the bed model of the view at each plate of the same printer.
 - A plate with an old slice fades to the background a little (`fade` in the bead shader of `gl.js`).
 - The C API (`include/zslice-app.h`): `zs_view_set_plates`, `zs_view_plate_scene_read`, `zs_view_plate_load`, `zs_view_plate_clear`, `zs_view_plate_flags`, `zs_view_plate_at`, `zs_view_plate_origin`, and `zs_view_frame_plate`. The web frame has a list of `zs_web_plate` items, their draws, and the grid lines of the plates.
-- Only the web backend draws the other plates and the light beads. The Vulkan backend draws the active plate as before (step 4).
+- Only the frame backend (web and macOS) draws the other plates and the light beads. The Vulkan backend draws the active plate as before (step 4).
 
 ### Memory
 

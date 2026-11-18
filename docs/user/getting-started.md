@@ -441,14 +441,16 @@ Open adds each model to the plate (Ctrl+O, or drop files on the window). The fir
 
 ## More than one plate
 
-The "+" at the end of the preview toolbar adds a plate. Each plate has its own parts, its own changes, and its own support marks, and the buttons 1, 2, 3, and so on switch between them (the plate that shows is the plate that slices). "Send all plates" in the menu slices each plate with parts and sends it to the current printer, one file for each plate; "Export all plates…" writes the files into a folder (name-plate-1.gcode, and so on).
+Each plate has its own parts, settings, changes, support marks, and undo history. The plate bar has ‹ and › (the plate before and the next plate), "Plate n of N", **+ Plate** (a new empty plate after the others, with the settings of the active plate), and **×** (remove the active plate). All plates slice: the active plate first, then the others in the background. "Send all plates" in the menu slices each plate with parts and sends it to the current printer, one file for each plate; "Export all plates…" writes the files into a folder (name-plate-1.gcode, and so on).
 
-In the web app, all plates are in one view, in a row. The plate bar at the bottom left has ‹ and › (the keys `[` and `]`), **All** (Home), and **+ Plate** (a new empty plate, after the others). The keys of the plates:
+To remove a plate, click **×** on the plate bar, right-click the label of a plate (in the GTK app: the name on the plate bar) and choose "Remove plate n", or choose "Remove this plate" in the menu or in the search. A plate with parts asks first. A removal cannot be undone. The plate on the left of the removed plate becomes active. The last plate stays, with no parts. You can remove a plate of a project: its print status stays in the Project tab.
+
+In the web app, all plates are in one view, in a row, and the plate bar at the bottom left also has **All** (Home). The GTK app shows the active plate only. The keys of the plates:
 
 - `]` makes the next plate active, and shows it.
 - `[` makes the plate before active, and shows it.
 - `F` shows the active plate.
-- `Home` shows all plates.
+- `Home` shows all plates (in the GTK app: the start view).
 
  Each plate slices: the active plate first, then the others. With your own plates, **Open** puts the file on the active plate, and **+** in the toolbar adds models to it; the other plates stay. A printdeck.yml project makes way for an opened file.
 

@@ -120,7 +120,7 @@ App logic goes in the core, so that the three shells do not each have a copy. Tw
 - The value text: done (`src/app/setting_text.zig`).
 - The settings that the line card picks for a line: done (`zs_app_inspect_picks`).
 - The turn of the camera to face the side under a double click: done (`zs_view_look_at_side`).
-- The plate set: one `zs_app` for each plate, the order of the slices (the active plate first), and the sync of the plates of the 3D view. Until it lands, a Mac window has one plate.
+- The plate set: one `zs_app` for each plate, the order of the slices (the active plate first), and the sync of the plates of the 3D view. It is in the core now (`zs_set`, see architecture.md); the Mac shell does not use it yet, so a Mac window has one plate.
 
 ## Status and plan
 

@@ -30,6 +30,7 @@ Read `include/zslice-app.h` first. The main points:
 - **One thread.** Call each `zs_app_*` function from the UI thread.
 - **Events come from a worker thread.** The callback of `zs_app_new` runs on the slice thread. Copy the event and post it to the UI thread: `g_idle_add` (GTK), `DispatchQueue.main.async` (Swift), `PostMessage` (Win32), `Handler.post` (Android).
 - **The state is the truth.** On each event, read `zs_app_state`. An event from an old slice can arrive after a new slice starts.
+- **Plates are in the core.** A shell with more than one plate keeps one `zs_set` (`zs_set_new`). Its callback gets the plate of each event, and `ZS_EVENT_PLATES` when the list or a status changes. Call the `zs_app_*` functions on the app of the active plate (`zs_set_app`), and `zs_set_changed` after each change in place of `zs_app_request_slice`. See "The plate set" in docs/internals/architecture.md.
 - **Slice after each change.** After the user changes a setting or opens a model, call `zs_app_request_slice`. It stops the old slice and starts a new one. A slice of a typical part takes less than a second, so the preview follows the settings.
 - **Settings panel from data.** `zs_setting_count` and `zs_setting_get_info` give each setting with its group, section, label, help text, kind, and choices. Build the panel from these. Do not list settings in the shell.
 - **Preview one layer at a time.** `zs_app_layer_paths` makes the paths of one layer in a few milliseconds. Keep only the layers on the screen.
@@ -170,7 +171,7 @@ All shells use the same colors, in the order of `enum zs_feature`:
 ## Add a shell
 
 1. Build the core for the platform: `zig build lib -Dtarget=<target> -Doptimize=ReleaseFast`. It makes `libzslice.a` and the two headers.
-2. Wrap `zs_app` in one object of the platform (a GObject, an ObservableObject, a ViewModel) that owns the core and moves the events to the UI thread. See `linux/src/model/app-model.c`.
+2. Wrap `zs_set` (or one `zs_app`) in one object of the platform (a GObject, an ObservableObject, a ViewModel) that owns the core and moves the events to the UI thread. See `linux/src/model/app-model.c`.
 3. Build the window: open, export, the settings panel, the preview with a layer slider, a status bar, and a Licenses screen.
 4. Use the GTK shell as the reference for the behavior.
 
