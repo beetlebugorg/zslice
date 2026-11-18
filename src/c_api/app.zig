@@ -1710,13 +1710,15 @@ export fn zs_app_part_remove(a: ?*App, i: usize) c_int {
     return ok;
 }
 
-/// 1 if all parts fit on the bed, 0 if not.
-/// 1 if each part of the plate is on the bed and overlaps no other part.
-/// After a cut (zs_app_part_cut) or a duplicate, 0 means the parts do not
-/// fit on this bed: move some to another plate.
+/// 1 if each part of the plate is on the bed (with room for the brim at
+/// the edges) and overlaps no other part; 0 if a part is off the bed or on
+/// another part. After a cut (zs_app_part_cut) or a duplicate, 0 means the
+/// parts do not fit on this bed: move some to another plate.
 export fn zs_app_plate_fits(a: ?*const App) c_int {
     const app = a orelse return 0;
-    return @intFromBool(app.plate.allFit(app.bedSize(), app.partGap()));
+    // A real fault only: off the bed (with room for the brim), or on
+    // another part. Parts nearer than the gap of arrange print well.
+    return @intFromBool(app.plate.noFault(app.bedSize(), app.settings.project.brim_width));
 }
 
 export fn zs_app_plate_arrange(a: ?*App) c_int {

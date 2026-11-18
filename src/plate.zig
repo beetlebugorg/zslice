@@ -630,6 +630,20 @@ pub const Plate = struct {
         return false;
     }
 
+    /// True if no part is off the bed (with `edge` mm of room at the
+    /// edges, for the brim) and no two parts overlap (their boxes). This
+    /// is the check of a real fault: arrange keeps the larger gap between
+    /// parts, but parts nearer than it print well (their brims join).
+    pub fn noFault(self: *const Plate, bed: [2]f64, edge: f64) bool {
+        for (self.parts.items, 0..) |*p, i| {
+            const f = p.footprint();
+            const e = edge - 0.01;
+            if (f[0] < e or f[1] < e or f[2] > bed[0] - e or f[3] > bed[1] - e) return false;
+            if (self.overlaps(p, -0.01, i)) return false;
+        }
+        return true;
+    }
+
     fn fits(self: *const Plate, part: *const Part, bed: [2]f64, gap: f64, skip: ?usize) bool {
         const f = part.footprint();
         if (f[0] < gap or f[1] < gap or f[2] > bed[0] - gap or f[3] > bed[1] - gap) return false;
@@ -977,4 +991,27 @@ test "plate: a part that grows off the bed goes back on it" {
     const x = plate.parts.items[0].x;
     plate.keepOnBed(0, .{ 220, 220 }, 2);
     try std.testing.expectEqual(x, plate.parts.items[0].x);
+}
+
+test "plate: parts near each other with a wide brim are no fault" {
+    const gpa = std.testing.allocator;
+    var plate: Plate = .{};
+    defer plate.deinit(gpa);
+    for ([_]f64{ 50, 75 }) |x| {
+        var b: mesh_mod.Builder = .init(gpa);
+        try mesh_mod.shapes.addBox(&b, 0, 0, 0, 20, 20, 10);
+        const m = try b.finish();
+        const i = try plate.add(gpa, "box", m, .{ 220, 220 }, 2, false);
+        plate.parts.items[i].x = x;
+        plate.parts.items[i].y = 100;
+    }
+    // 5 mm apart: arrange wants 16 mm (an 8 mm brim), but they print.
+    try std.testing.expect(!plate.allFit(.{ 220, 220 }, 16));
+    try std.testing.expect(plate.noFault(.{ 220, 220 }, 8));
+    // On top of each other: a fault.
+    plate.parts.items[1].x = 60;
+    try std.testing.expect(!plate.noFault(.{ 220, 220 }, 8));
+    // Past the edge of the bed, with room for the brim: a fault.
+    plate.parts.items[1].x = 214;
+    try std.testing.expect(!plate.noFault(.{ 220, 220 }, 8));
 }
