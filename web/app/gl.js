@@ -43,6 +43,8 @@ out vec3 vnormal;
 out vec3 vpos;
 out float vhigh;
 out float vfocus;
+out vec4 vsec;
+out vec3 vend;
 
 const vec3 feature_rgb[14] = vec3[14](
     vec3(0.851, 0.282, 0.059), vec3(0.961, 0.624, 0.000),
@@ -69,14 +71,35 @@ void main() {
     float zmid = zhw.x - 0.5 * h;
     vec3 pos;
     vec3 n;
-    if (tv.w > 0.5) {
+    vend = vec3(0.0);
+    if (tv.w > 1.5) {
+        vec3 d3 = vec3(dir, 0.0);
+        vec3 s3 = vec3(side, 0.0);
+        vec3 e = eye.xyz - vec3(0.5 * (a + b), zmid);
+        e = length(e) > 0.0 ? normalize(e) : vec3(0.0, 0.0, 1.0);
+        vec3 al = d3 - e * dot(d3, e);
+        al = length(al) > 1e-4 ? normalize(al) : normalize(cross(e, abs(e.z) < 0.9 ? vec3(0.0, 0.0, 1.0) : vec3(1.0, 0.0, 0.0)));
+        vec3 ac = cross(e, al);
+        float flat_w = core * abs(dot(ac, s3));
+        float hw = flat_w + r;
+        float ext = max(length(vec2(0.5 * w * length(al.xy), r * al.z)), 1e-4);
+        vec3 end = vec3(tv.x < 0.5 ? a : b, zmid);
+        pos = end + al * ((tv.x < 0.5 ? -1.0 : 1.0) * ext) + ac * (tv.y * hw) + e * r;
+        n = ac;
+        vsec = vec4(dot(e, s3) < 0.0 ? -side : side, 0.5 * tv.y, max(r, 1e-4));
+        float q = (len * dot(d3, al) + ext) / ext;
+        vend = vec3(tv.x < 0.5 ? vec2(-1.0, q) : vec2(q, -1.0), flat_w);
+    } else if (tv.w > 0.5) {
         pos = vec3(c, zmid + r);
         n = vec3(0.0, 0.0, 1.0);
+        vsec = vec4(0.0, 0.0, 0.5, 0.0);
     } else if (tv.w < -0.5) {
         pos = vec3(c, zmid - r);
         n = vec3(0.0, 0.0, -1.0);
+        vsec = vec4(0.0, 0.0, -0.5, 0.0);
     } else {
         vec2 np = dir * cos(tv.y) + side * sin(tv.y);
+        vsec = vec4(np, tv.z / 3.14159265, 0.0);
         uint feat = uint(color.a * 255.0 + 0.5);
         if (feat == 2u || feat == 7u) {
             float hw = 0.52 * w;
@@ -133,23 +156,49 @@ in vec3 vnormal;
 in vec3 vpos;
 in float vhigh;
 in float vfocus;
+in vec4 vsec;
+in vec3 vend;
 out vec4 frag;
 
 vec3 toLinear(vec3 c) { return pow(c, vec3(2.2)); }
 vec3 toSrgb(vec3 c) { return pow(clamp(c, 0.0, 1.0), vec3(1.0 / 2.2)); }
 
 void main() {
+    vec3 v = normalize(eye.xyz - vpos);
+    vec3 n = normalize(vnormal);
+    vec3 sd = vec3(vsec.xy, 0.0);
+    vec3 ev = normalize(sd * dot(v, sd) + vec3(0.0, 0.0, v.z + 1e-4));
+    if (vsec.w > 0.0) {
+        float t = 2.0 * vsec.z;
+        float o = min(min(vend.x, vend.y), 0.0);
+        if (o * o + t * t > 1.0) discard;
+        // The bead seen from the eye: a round side, the flat top (or
+        // bottom) face, and the other round side. u: the place on a
+        // round side, from its middle (-1 to 1).
+        float r = vsec.w;
+        float f = vend.z;
+        vec3 ac = normalize(vnormal);
+        vec3 zf = vec3(0.0, 0.0, ev.z < 0.0 ? -1.0 : 1.0);
+        float zac = dot(zf, ac);
+        float x = t * (f + r);
+        float u = 0.0;
+        n = zf;
+        if (x > f + r * zac) u = clamp((x - f) / r, -1.0, 1.0);
+        else if (x < r * zac - f) u = clamp((x + f) / r, -1.0, 1.0);
+        if (u != 0.0) n = normalize(ev * sqrt(max(1.0 - u * u, 0.0)) + ac * u);
+    }
+    float px = 1.0 / max(fwidth(vsec.z), 1e-6);
+    float flat_k = 1.0 - smoothstep(2.0, 5.0, px);
+    n = normalize(mix(n, ev, flat_k));
     bool focus = params.z > 0.5 || params.z < -0.5;
     if (focus && params.w > 1.5 && params.w < 2.5) {
         if (vfocus > 0.5) discard;
-        float rim = 1.0 - abs(dot(normalize(vnormal), normalize(eye.xyz - vpos)));
+        float rim = 1.0 - abs(dot(n, v));
         frag = vec4(vec3(0.55, 0.58, 0.62), 0.03 + 0.09 * rim);
         return;
     }
     if (focus && vfocus < 0.5) discard;
-    vec3 n = normalize(vnormal);
     vec3 l = normalize(light.xyz);
-    vec3 v = normalize(eye.xyz - vpos);
     vec3 base = toLinear(vcolor);
     if (params.y > params.x && vhigh > 0.5) {
         base = toLinear(vec3(1.0, 0.78, 0.05));
@@ -157,7 +206,7 @@ void main() {
     float ambient = mix(0.18, 0.32, 0.5 + 0.5 * n.z);
     float diffuse = max(dot(n, l), 0.0);
     vec3 hv = normalize(l + v);
-    float spec = pow(max(dot(n, hv), 0.0), 40.0) * 0.18;
+    float spec = pow(max(dot(n, hv), 0.0), 40.0) * 0.18 * (1.0 - flat_k);
     vec3 c = base * (ambient + 0.85 * diffuse) + vec3(spec);
     if (params.w > 2.5) {
         float rim = 1.0 - abs(dot(n, v));

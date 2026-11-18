@@ -1117,6 +1117,12 @@ int zs_view_legend(const zs_view *view, double *min, double *max);
 /* The dark look (on != 0): a dark background, grid, and bed, for the dark
  * mode of the system. */
 void zs_view_set_dark(zs_view *view, int on);
+/* A frame shell (WebGL, Metal) whose bead shader draws mesh level 2 as a
+ * ribbon that faces the camera (see src/render/shaders/box.vert, tv.w = 2)
+ * calls this with on != 0. The view then draws the beads a few pixels
+ * wide with it. Off at the start for a frame shell; the Vulkan backend
+ * always has it. */
+void zs_view_set_ribbons(zs_view *view, int on);
 void zs_view_set_mode(zs_view *view, int mode);
 /* Highlights the beads of one path (an index into zs_app_toolpaths), or
  * nothing if path is (size_t)-1. */

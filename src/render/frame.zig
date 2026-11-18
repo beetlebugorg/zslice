@@ -36,8 +36,9 @@ pub const Push = extern struct {
     params: [4]f32 = .{ 0, 0, 0, 0 },
 };
 
-/// A range of beads to draw with one mesh: the full bead mesh (lod 0), or
-/// a coarser mesh for a bead far from the camera (lod 1). See
+/// A range of beads to draw with one mesh: the full bead mesh (lod 0), a
+/// coarser mesh for a bead far from the camera (lod 1), or a ribbon that
+/// faces the camera for a bead a few pixels wide (lod 2). See
 /// View.drawList.
 pub const Draw = extern struct { first: u32, count: u32, lod: u32 };
 
@@ -98,6 +99,9 @@ pub const Frame = struct {
     /// backend uses it: an empty list there is no bead in the view. The
     /// Vulkan backend draws box_first .. box_count.
     draws: []const Draw = &.{},
+    /// The Vulkan backend draws `draws` (and no other beads) when this is
+    /// true. A print view has no draw list.
+    culled: bool = false,
     /// The other plates (see PlateFrame), and their draws. The frame
     /// backend uses them.
     plates: []const PlateFrame = &.{},

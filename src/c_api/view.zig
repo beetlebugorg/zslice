@@ -476,6 +476,13 @@ export fn zs_view_set_dark(view: ?*View, on: c_int) void {
     v.dark = on != 0;
 }
 
+/// The shell draws mesh level 2 as a ribbon (on != 0). See View.ribbons.
+export fn zs_view_set_ribbons(view: ?*View, on: c_int) void {
+    if (!render_on) return;
+    const v = view orelse return;
+    v.ribbons = on != 0;
+}
+
 export fn zs_view_set_mode(view: ?*View, mode: c_int) void {
     if (!render_on) return;
     const v = view orelse return;

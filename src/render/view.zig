@@ -294,6 +294,11 @@ pub const View = struct {
     /// The reduced view of a printer screen: no tools, gizmos, selection,
     /// marks, or labels. Only the beads, the bed, and the nozzle draw.
     reduced: bool = false,
+    /// The backend draws mesh level 2 as a ribbon that faces the camera
+    /// (box.vert, tv.w = 2), for the beads a few pixels wide. Vulkan
+    /// does. A frame shell turns it on (zs_view_set_ribbons) when its
+    /// shader has the ribbon.
+    ribbons: bool = !frame_backend,
     /// The fingers on a touch screen (see `touch`): an id (-1: none) and
     /// the last point of each.
     touches: [2]Touch = .{ .{}, .{} },
@@ -415,15 +420,29 @@ pub const View = struct {
         if (v.reduced) try beadMesh(&verts, &idx, 2, 2) else try beadMesh(&verts, &idx, 4, 4);
         try v.renderer.setMesh(verts.items, idx.items);
         // A coarser mesh for beads far from the camera: 36 triangles for
-        // 100. Only the web backend has levels of detail. (A third level
-        // of 24 triangles drew no faster in WebGL: the cost is in the
-        // count of the instances there.)
-        if (@hasDecl(vk.Renderer, "setLodMesh")) {
-            verts.clearRetainingCapacity();
-            idx.clearRetainingCapacity();
-            try beadMesh(&verts, &idx, 2, 2);
-            try v.renderer.setLodMesh(1, verts.items, idx.items);
-        }
+        // 100. Then the ribbon: 4 triangles. The GPU time goes with the
+        // count of the triangles (a Benchy at a few pixels a bead on an
+        // RTX 4070: 13.6 ms with the full mesh, 5.5 ms with 36 triangles,
+        // 0.8 ms with 2).
+        verts.clearRetainingCapacity();
+        idx.clearRetainingCapacity();
+        try beadMesh(&verts, &idx, 2, 2);
+        try v.renderer.setLodMesh(1, verts.items, idx.items);
+        verts.clearRetainingCapacity();
+        idx.clearRetainingCapacity();
+        try ribbonMesh(&verts, &idx);
+        try v.renderer.setLodMesh(2, verts.items, idx.items);
+    }
+
+    /// The ribbon template (mesh level 2): a strip across the bead, from
+    /// end a (x = 0) to end b (x = 1), with y from -1 to 1 across it, and
+    /// w = 2. box.vert turns it to face the camera and gives it the normals
+    /// of a round bead.
+    fn ribbonMesh(verts: *std.ArrayList([4]f32), idx: *std.ArrayList(u16)) Error!void {
+        for ([_]f32{ 0, 1 }) |u| for ([_]f32{ -1, 0, 1 }) |k| {
+            verts.append(gpa, .{ u, k, 0, 2 }) catch return error.OutOfMemory;
+        };
+        idx.appendSlice(gpa, &.{ 0, 3, 4, 0, 4, 1, 1, 4, 5, 1, 5, 2 }) catch return error.OutOfMemory;
     }
 
     /// The bead mesh template: `cap` segments in each half circle of the
@@ -1970,6 +1989,22 @@ pub const View = struct {
     /// A bead narrower than this on the screen (pixels) draws with the
     /// coarser mesh (level 1).
     const lod_pixels: f32 = 20;
+    /// A bead narrower than this draws as a ribbon (level 2), if the
+    /// backend has it.
+    const ribbon_pixels: f32 = 7;
+
+    /// The mesh level of a bead `px` pixels wide.
+    fn lodFor(v: *const View, px: f32) u32 {
+        if (px >= lod_pixels) return 0;
+        if (px >= ribbon_pixels or !v.ribbons) return 1;
+        return 2;
+    }
+
+    /// The mesh level of the light beads: they are less than a few
+    /// pixels wide.
+    fn liteLod(v: *const View) u32 {
+        return if (v.ribbons) 2 else 1;
+    }
 
     /// The draw list of the beads first .. end (see Frame.draws): the
     /// chunks in the view, each with the full mesh near the camera and a
@@ -1997,8 +2032,7 @@ pub const View = struct {
                 const e = @max(@max(c.lo[k] - eye[k], eye[k] - c.hi[k]), 0);
                 d2 += e * e;
             }
-            const px = w * px_per_mm / @max(@sqrt(d2), 1e-3);
-            const lod: u32 = if (px < lod_pixels) 1 else 0;
+            const lod = v.lodFor(w * px_per_mm / @max(@sqrt(d2), 1e-3));
             if (v.draws.items.len > 0) {
                 const last = &v.draws.items[v.draws.items.len - 1];
                 if (last.lod == lod and last.first + last.count == a) {
@@ -2613,11 +2647,11 @@ pub const View = struct {
                 const d = boxDistance(pe, p.lo, p.hi);
                 if (plates_mod.levelFor(p.layer_h * px_per_mm / @max(d, 1e-3))) |k| {
                     const r = p.liteRange(k);
-                    if (r[1] > r[0]) v.plate_draws.append(gpa, .{ .first = r[0], .count = r[1] - r[0], .lod = 1 }) catch return error.OutOfMemory;
+                    if (r[1] > r[0]) v.plate_draws.append(gpa, .{ .first = r[0], .count = r[1] - r[0], .lod = v.liteLod() }) catch return error.OutOfMemory;
                 } else for (p.chunks.items) |c| {
                     if (!boxInView(pm, .{ .lo = c.lo, .hi = c.hi, .first = 0, .end = 0 })) continue;
                     const cd = boxDistance(pe, c.lo, c.hi);
-                    const lod: u32 = if (c.width * px_per_mm / @max(cd, 1e-3) < lod_pixels) 1 else 0;
+                    const lod = v.lodFor(c.width * px_per_mm / @max(cd, 1e-3));
                     if (v.plate_draws.items.len > first) {
                         const last = &v.plate_draws.items[v.plate_draws.items.len - 1];
                         if (last.lod == lod and last.first + last.count == c.first) {
@@ -2754,7 +2788,7 @@ pub const View = struct {
                 if (split > lo) {
                     const r = v.lite.range(level, lo, split - 1);
                     first = @max(first, v.layer_end.items[split - 1]);
-                    v.plate_draws.append(gpa, .{ .first = r[0], .count = r[1] - r[0], .lod = 1 }) catch return error.OutOfMemory;
+                    v.plate_draws.append(gpa, .{ .first = r[0], .count = r[1] - r[0], .lod = v.liteLod() }) catch return error.OutOfMemory;
                     v.plate_frames.append(gpa, .{
                         .mvp = mvp,
                         .bed_mvp = mvp,
@@ -2922,7 +2956,8 @@ pub const View = struct {
             },
             .box_count = count,
             .box_first = first,
-            .draws = if (frame_backend) try v.drawList(mvp, eye, first, count) else &.{},
+            .draws = if (frame_backend or v.gcode == null) try v.drawList(mvp, eye, first, count) else &.{},
+            .culled = !frame_backend and v.gcode == null,
             .mark_first = @intCast(v.beads.items.len + mark_skip),
             .mark_count = mark_count,
             // On a bed model the grid is darker, so it shows on the gray bed.
@@ -3602,6 +3637,7 @@ test "the nearest path on another layer, and the segment at a time" {
 }
 
 test "the draw list leaves out the chunks out of the view, and draws far beads coarse" {
+    if (frame_backend) return error.SkipZigTest;
     // 40 layers of 30 paths of 20 beads: 24000 beads, several chunks.
     var v = try testScene(40, 30, 20);
     defer destroyTest(&v);
@@ -3620,10 +3656,15 @@ test "the draw list leaves out the chunks out of the view, and draws far beads c
             return view.drawList(mvp, cam.eye, 0, @intCast(view.beads.items.len));
         }
     };
-    // From far away: all beads, coarse, in one range.
+    // From far away: all beads, as ribbons, in one range.
     var d = try frame.list(&v, .{ .target = .{ 10, 15, 4 }, .dist = 400, .yaw = 0.3 });
     try std.testing.expectEqual(@as(usize, 1), d.len);
+    try std.testing.expectEqual(Draw{ .first = 0, .count = n, .lod = 2 }, d[0]);
+    // A backend with no ribbons: the coarse mesh.
+    v.ribbons = false;
+    d = try frame.list(&v, .{ .target = .{ 10, 15, 4 }, .dist = 400, .yaw = 0.3 });
     try std.testing.expectEqual(Draw{ .first = 0, .count = n, .lod = 1 }, d[0]);
+    v.ribbons = true;
     // Close: full beads, and the chunks behind the eye are left out.
     d = try frame.list(&v, .{ .target = .{ 10, 15, 4 }, .dist = 3, .yaw = 0.3 });
     var drawn: u32 = 0;

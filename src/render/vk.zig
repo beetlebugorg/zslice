@@ -318,6 +318,15 @@ pub const Renderer = struct {
     box_mesh: Buffer = .{},
     box_index: Buffer = .{},
     box_index_count: u32 = 0,
+    /// A copy of the bead meshes: the full mesh, then the levels of detail
+    /// (see setLodMesh). Level k is indices lod_first[k - 1] ..
+    /// + lod_count[k - 1].
+    mesh_verts: [max_mesh_verts][4]f32 = undefined,
+    mesh_vert_count: usize = 0,
+    mesh_index: [max_mesh_index]u16 = undefined,
+    mesh_index_count: usize = 0,
+    lod_first: [2]u32 = .{ 0, 0 },
+    lod_count: [2]u32 = .{ 0, 0 },
     instance_count: u32 = 0,
     samples: c.VkSampleCountFlagBits = c.VK_SAMPLE_COUNT_1_BIT,
     msaa_image: c.VkImage = null,
@@ -932,15 +941,66 @@ pub const Renderer = struct {
     /// Replaces the template mesh of a bead: vertices of 4 floats (see
     /// shaders/box.vert) and triangle indices.
     pub fn setMesh(r: *Renderer, verts: []const [4]f32, indices: []const u16) Error!void {
+        if (verts.len > max_mesh_verts or indices.len > max_mesh_index) return error.OutOfMemory;
+        @memcpy(r.mesh_verts[0..verts.len], verts);
+        @memcpy(r.mesh_index[0..indices.len], indices);
+        r.mesh_vert_count = verts.len;
+        r.mesh_index_count = indices.len;
+        r.lod_count = .{ 0, 0 };
+        r.box_index_count = @intCast(indices.len);
+        try r.uploadMesh();
+    }
+
+    /// A coarser mesh of a bead (level 1 or 2), after the full mesh in the
+    /// same buffers. Call it after setMesh.
+    pub fn setLodMesh(r: *Renderer, level: usize, verts: []const [4]f32, indices: []const u16) Error!void {
+        const nv = r.mesh_vert_count;
+        const ni = r.mesh_index_count;
+        if (nv + verts.len > max_mesh_verts or ni + indices.len > max_mesh_index) return error.OutOfMemory;
+        @memcpy(r.mesh_verts[nv .. nv + verts.len], verts);
+        for (indices, r.mesh_index[ni .. ni + indices.len]) |i, *o| o.* = @intCast(nv + i);
+        r.mesh_vert_count = nv + verts.len;
+        r.mesh_index_count = ni + indices.len;
+        r.lod_first[level - 1] = @intCast(ni);
+        r.lod_count[level - 1] = @intCast(indices.len);
+        try r.uploadMesh();
+    }
+
+    const max_mesh_verts = 256;
+    const max_mesh_index = 1024;
+
+    fn uploadMesh(r: *Renderer) Error!void {
         r.cache_valid = false;
         _ = r.d.vkDeviceWaitIdle.?(r.device);
-        const vb = std.mem.sliceAsBytes(verts);
+        const vb = std.mem.sliceAsBytes(r.mesh_verts[0..r.mesh_vert_count]);
         try r.makeBuffer(&r.box_mesh, vb.len, c.VK_BUFFER_USAGE_VERTEX_BUFFER_BIT);
         @memcpy(r.box_mesh.map.?[0..vb.len], vb);
-        const ib = std.mem.sliceAsBytes(indices);
+        const ib = std.mem.sliceAsBytes(r.mesh_index[0..r.mesh_index_count]);
         try r.makeBuffer(&r.box_index, ib.len, c.VK_BUFFER_USAGE_INDEX_BUFFER_BIT);
         @memcpy(r.box_index.map.?[0..ib.len], ib);
-        r.box_index_count = @intCast(indices.len);
+    }
+
+    /// Draws the beads of a frame: its draw list (the chunks in the view,
+    /// each with its mesh level), or all beads box_first .. box_count
+    /// with the full mesh for a frame with no list (a print view).
+    fn drawBeads(r: *Renderer, cmd: c.VkCommandBuffer, frame: Frame) void {
+        const d = r.d;
+        if (!frame.culled) {
+            const first = @min(frame.box_first, frame.box_count);
+            d.vkCmdDrawIndexed.?(cmd, r.box_index_count, frame.box_count - first, 0, 0, first);
+            return;
+        }
+        // The last ranges first: the top layers, so the depth test drops
+        // the hidden pixels of the layers under them early.
+        var i = frame.draws.len;
+        while (i > 0) {
+            i -= 1;
+            const dr = frame.draws[i];
+            const lod = @min(dr.lod, 2);
+            if (lod > 0 and r.lod_count[lod - 1] > 0) {
+                d.vkCmdDrawIndexed.?(cmd, r.lod_count[lod - 1], dr.count, r.lod_first[lod - 1], 0, dr.first);
+            } else d.vkCmdDrawIndexed.?(cmd, r.box_index_count, dr.count, 0, 0, dr.first);
+        }
     }
 
     /// Replaces the boxes. Waits for the GPU, because the buffer can be in
@@ -1489,7 +1549,7 @@ pub const Renderer = struct {
             const offs = [_]c.VkDeviceSize{ 0, 0 };
             d.vkCmdBindVertexBuffers.?(cmd, 0, 2, &bufs, &offs);
             d.vkCmdBindIndexBuffer.?(cmd, r.box_index.buf, 0, c.VK_INDEX_TYPE_UINT16);
-            d.vkCmdDrawIndexed.?(cmd, r.box_index_count, frame.box_count - @min(frame.box_first, frame.box_count), 0, 0, @min(frame.box_first, frame.box_count));
+            r.drawBeads(cmd, frame);
             if (frame.mark_count > 0) d.vkCmdDrawIndexed.?(cmd, r.box_index_count, frame.mark_count, 0, 0, frame.mark_first);
             // With a focus (params.z != 0): the beads out of the focus, as
             // ghosts, after the solid beads (params.w = 2 in the shader).
@@ -1498,7 +1558,7 @@ pub const Renderer = struct {
                 ghost.params[3] = 2;
                 d.vkCmdBindPipeline.?(cmd, c.VK_PIPELINE_BIND_POINT_GRAPHICS, r.ghost_pipeline);
                 d.vkCmdPushConstants.?(cmd, r.layout, stages, 0, @sizeOf(Push), &ghost);
-                d.vkCmdDrawIndexed.?(cmd, r.box_index_count, frame.box_count - @min(frame.box_first, frame.box_count), 0, 0, @min(frame.box_first, frame.box_count));
+                r.drawBeads(cmd, frame);
                 if (frame.mark_count > 0) d.vkCmdDrawIndexed.?(cmd, r.box_index_count, frame.mark_count, 0, 0, frame.mark_first);
                 d.vkCmdBindPipeline.?(cmd, c.VK_PIPELINE_BIND_POINT_GRAPHICS, r.box_pipeline);
                 d.vkCmdPushConstants.?(cmd, r.layout, stages, 0, @sizeOf(Push), &frame.box);

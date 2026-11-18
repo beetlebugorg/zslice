@@ -6,7 +6,8 @@
 // The template vertex: x: the end (0 at a, 1 at b), y: the direction alpha
 // in the plan view (0 along the segment, pi/2 to its left), z: the profile
 // angle phi (-pi/2 at the bottom, pi/2 at the top), w: 0 for the side, 1
-// for the center of the top face, -1 for the center of the bottom face.
+// for the center of the top face, -1 for the center of the bottom face, 2
+// for the ribbon of a far bead (y: -1 to 1 across it).
 layout(location = 0) in vec4 tv;
 // The instance: the two end points, then the top z, the layer height, and
 // the bead width, then the color.
@@ -28,6 +29,13 @@ layout(location = 2) out vec3 vpos;
 layout(location = 3) out float vhigh;
 // 1 for a bead in focus (or no focus), 0 for a bead that fades.
 layout(location = 4) out float vfocus;
+// xy: the plan normal of the side of the bead, z: the place across the
+// cross section (-0.5 to 0.5), w: the radius of a ribbon (0 for the
+// meshes). box.frag measures the bead on the screen with z.
+layout(location = 5) out vec4 vsec;
+// The ribbon: the place along it past each end (-1 at the tip of the
+// round end, > 0 between the ends), and the half width of its flat face.
+layout(location = 6) out vec3 vend;
 
 // The feature colors (sRGB), as in linux/src/ui/colors.h. In a focus, a
 // bead in focus shows its feature color, so it stands out also when the
@@ -62,14 +70,43 @@ void main() {
     float zmid = zhw.x - 0.5 * h;
     vec3 pos;
     vec3 n;
-    if (tv.w > 0.5) {
+    vend = vec3(0.0);
+    if (tv.w > 1.5) {
+        // The ribbon of a far bead (mesh level 2): a strip that faces the
+        // camera, as wide as the bead looks from there. The normals go
+        // from one side of the bead, through the middle, to the other
+        // side, so the strip shades as a round bead.
+        vec3 d3 = vec3(dir, 0.0);
+        vec3 s3 = vec3(side, 0.0);
+        vec3 e = pc.eye.xyz - vec3(0.5 * (a + b), zmid);
+        e = length(e) > 0.0 ? normalize(e) : vec3(0.0, 0.0, 1.0);
+        // al: the bead on the screen. ac: across it, in the cross section.
+        vec3 al = d3 - e * dot(d3, e);
+        al = length(al) > 1e-4 ? normalize(al) : normalize(cross(e, abs(e.z) < 0.9 ? vec3(0.0, 0.0, 1.0) : vec3(1.0, 0.0, 0.0)));
+        vec3 ac = cross(e, al);
+        float flat_w = core * abs(dot(ac, s3));
+        float hw = flat_w + r;
+        float ext = max(length(vec2(0.5 * w * length(al.xy), r * al.z)), 1e-4);
+        vec3 end = vec3(tv.x < 0.5 ? a : b, zmid);
+        // A radius closer to the eye: about at the front of the bead.
+        pos = end + al * ((tv.x < 0.5 ? -1.0 : 1.0) * ext) + ac * (tv.y * hw) + e * r;
+        // box.frag makes the normal of each pixel from ac and the place
+        // across (vsec.z), and cuts round ends with vend.
+        n = ac;
+        vsec = vec4(dot(e, s3) < 0.0 ? -side : side, 0.5 * tv.y, max(r, 1e-4));
+        float q = (len * dot(d3, al) + ext) / ext;
+        vend = vec3(tv.x < 0.5 ? vec2(-1.0, q) : vec2(q, -1.0), flat_w);
+    } else if (tv.w > 0.5) {
         pos = vec3(c, zmid + r);
         n = vec3(0.0, 0.0, 1.0);
+        vsec = vec4(0.0, 0.0, 0.5, 0.0);
     } else if (tv.w < -0.5) {
         pos = vec3(c, zmid - r);
         n = vec3(0.0, 0.0, -1.0);
+        vsec = vec4(0.0, 0.0, -0.5, 0.0);
     } else {
         vec2 np = dir * cos(tv.y) + side * sin(tv.y);
+        vsec = vec4(np, tv.z / 3.14159265, 0.0);
         // A skin or interface bead lies against its neighbor: the plastic
         // fills the groove between them, so the bead is pressed square
         // with small round corners (a superellipse), and the surface is

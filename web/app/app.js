@@ -193,6 +193,8 @@ const client = new Client(onWorkerEvent);
 const canvas = $("gl");
 const gl = new GlRenderer(canvas);
 const view = new View3D(wasm, 16, 16);
+// The bead shader of gl.js draws mesh level 2 as a ribbon.
+view.x.zs_view_set_ribbons(view.v, 1);
 
 // The view follows the dark mode of the system: the background, the grid,
 // and the bed of the 3D view (zs_view_set_dark) and of the 2D view.
