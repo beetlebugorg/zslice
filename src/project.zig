@@ -48,6 +48,12 @@ pub const Part = struct {
     settings: []const Pair = &.{},
     /// The part prints on a plate of its own.
     alone: bool = false,
+    /// The part is on the plates when the user did not choose a count: a
+    /// part with no variants, and the first variant of a part. The other
+    /// variants are other qualities of the same part, so a person prints
+    /// one of them (printdeck docs/specs/github-builds.md: each variant is
+    /// a row that the person checks).
+    on: bool = true,
     /// A file that a person sliced (a resin file), or "".
     prebuilt: []const u8 = "",
 
@@ -105,9 +111,11 @@ pub fn parse(arena: Allocator, text: []const u8, diag: *Diagnostic) Error!Projec
             continue;
         }
         if (variants.?.* != .list) return fail(diag, 0, try std.fmt.allocPrint(arena, "the variants of {s} are not a list", .{base.name}));
-        for (variants.?.list) |vv| {
+        for (variants.?.list, 0..) |vv, k| {
             if (vv.* != .map) return fail(diag, 0, try std.fmt.allocPrint(arena, "a variant of {s} is not a map", .{base.name}));
-            try parts.append(arena, try readPart(arena, vv, &base, diag, i));
+            var part = try readPart(arena, vv, &base, diag, i);
+            part.on = k == 0;
+            try parts.append(arena, part);
         }
     }
     out.parts = parts.items;
@@ -204,7 +212,9 @@ pub fn plateKey(arena: Allocator, part: *const Part) Allocator.Error![]const u8 
 }
 
 /// The suggested plates of the chosen parts (`choices`: one for each
-/// part, or empty for all parts). The parts with the same printer,
+/// part, or empty for all parts that are `on`: the first variant of each
+/// part). This is the suggestion rule of printdeck docs/specs/
+/// github-builds.md, "The plates". The parts with the same printer,
 /// profile, material, and plate settings share a plate; a part with
 /// `alone` has its own. The order is the order of printdeck.yml. A part
 /// with a count of 0 is left out.
@@ -221,6 +231,8 @@ pub fn plan(arena: Allocator, project: *const Project, choices: []const Choice) 
     for (project.parts, 0..) |*p, i| {
         const c: Choice = if (i < choices.len) choices[i] else .{};
         if (!c.on) continue;
+        // With no choice of the user: the first variant only.
+        if (c.count == null and !p.on) continue;
         const count = c.count orelse p.count;
         if (count == 0) continue;
         const key = try plateKey(arena, p);
@@ -520,13 +532,19 @@ test "project: the plates of a plan" {
     const p = try parse(a, sample, &diag);
     const plates = try plan(a, &p, &.{});
     // Feet and Arm share a plate: the infill can differ from part to
-    // part. Head has support: its own plate. Each Tower is alone. The
-    // case is on the phenom.
-    try testing.expectEqual(@as(usize, 5), plates.len);
+    // part. Head has support: its own plate. The Tower is alone, and only
+    // its first variant ("fine") is on. The case is on the phenom.
+    try testing.expectEqual(@as(usize, 4), plates.len);
     try testing.expectEqual(@as(usize, 2), plates[0].items.len);
     try testing.expectEqual(@as(u32, 4), plates[0].items[0].count);
     try testing.expectEqual(@as(usize, 2), plates[1].items[0].part);
-    try testing.expectEqualStrings("phenom", plates[4].printer);
+    try testing.expectEqual(@as(usize, 3), plates[2].items[0].part);
+    try testing.expectEqualStrings("phenom", plates[3].printer);
+    try testing.expect(p.parts[3].on);
+    try testing.expect(!p.parts[4].on);
+    // A count for the second variant puts it on a plate of its own too.
+    const both = try plan(a, &p, &.{ .{}, .{}, .{}, .{}, .{ .count = 1 }, .{} });
+    try testing.expectEqual(@as(usize, 5), both.len);
     // A choice leaves a part out, and changes a count.
     const chosen = try plan(a, &p, &.{ .{ .count = 2 }, .{ .on = false }, .{ .on = false }, .{ .on = false }, .{ .on = false }, .{ .on = false } });
     try testing.expectEqual(@as(usize, 1), chosen.len);

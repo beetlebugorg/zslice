@@ -804,13 +804,14 @@ static void fill_plates(Page *p) {
     }
 }
 
-/* A count changed: plan again, and show the new plates. */
-static void set_count(Page *p, guint part, int value, int file_count) {
+/* A count changed: plan again, and show the new plates. base: the count
+ * with no choice of the user (-1 stores it as no choice). */
+static void set_count(Page *p, guint part, int value, int base) {
     while (p->counts->len <= part) {
         int none = -1;
         g_array_append_val(p->counts, none);
     }
-    g_array_index(p->counts, int, part) = value == file_count ? -1 : value;
+    g_array_index(p->counts, int, part) = value == base ? -1 : value;
     save(p);
     replan(p);
     char *err = plan_error(p);
@@ -825,13 +826,13 @@ static void set_count(Page *p, guint part, int value, int file_count) {
 static void on_count(GtkSpinButton *spin, gpointer data) {
     Page *p = data;
     guint part = GPOINTER_TO_UINT(g_object_get_data(G_OBJECT(spin), "zg-part"));
-    int file_count = GPOINTER_TO_INT(g_object_get_data(G_OBJECT(spin), "zg-file-count"));
+    int base = GPOINTER_TO_INT(g_object_get_data(G_OBJECT(spin), "zg-base-count"));
     int value = gtk_spin_button_get_value_as_int(spin);
     GtkWidget *check = g_object_get_data(G_OBJECT(spin), "zg-check");
     g_signal_handlers_block_matched(check, G_SIGNAL_MATCH_DATA, 0, 0, NULL, NULL, p);
     gtk_check_button_set_active(GTK_CHECK_BUTTON(check), value > 0);
     g_signal_handlers_unblock_matched(check, G_SIGNAL_MATCH_DATA, 0, 0, NULL, NULL, p);
-    set_count(p, part, value, file_count);
+    set_count(p, part, value, base);
 }
 
 static void on_check(GtkCheckButton *check, gpointer data) {
@@ -853,7 +854,10 @@ static GtkWidget *parts_list(Page *p) {
             gtk_box_append(GTK_BOX(list), label(g, "zg-proj-group"));
         }
         int file_count = (int)int_member(part, "count");
-        int count = i < p->counts->len && g_array_index(p->counts, int, i) >= 0 ? g_array_index(p->counts, int, i) : file_count;
+        /* A later variant ("on" false) is off until the user chooses it. */
+        gboolean on = !json_object_has_member(part, "on") || json_object_get_boolean_member(part, "on");
+        int base = on ? file_count : 0;
+        int count = i < p->counts->len && g_array_index(p->counts, int, i) >= 0 ? g_array_index(p->counts, int, i) : base;
         GtkWidget *row = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 8);
         GtkWidget *check = gtk_check_button_new();
         gtk_check_button_set_active(GTK_CHECK_BUTTON(check), count > 0);
@@ -864,6 +868,7 @@ static GtkWidget *parts_list(Page *p) {
         gtk_widget_set_tooltip_text(spin, "The copies of each file on the plate");
         g_object_set_data(G_OBJECT(spin), "zg-part", GUINT_TO_POINTER(i));
         g_object_set_data(G_OBJECT(spin), "zg-file-count", GINT_TO_POINTER(file_count));
+        g_object_set_data(G_OBJECT(spin), "zg-base-count", GINT_TO_POINTER(base));
         g_object_set_data(G_OBJECT(spin), "zg-check", check);
         g_object_set_data(G_OBJECT(check), "zg-spin", spin);
         g_signal_connect(spin, "value-changed", G_CALLBACK(on_count), p);

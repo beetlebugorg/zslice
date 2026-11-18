@@ -543,7 +543,9 @@ export class ProjectPage {
         list.append(el("div", "proj-group", group));
       }
       const counts = this.state.counts ?? [];
-      const count = counts[i] ?? part.count;
+      // A later variant (part.on false) is off until the user chooses it.
+      const base = part.on === false ? 0 : part.count;
+      const count = counts[i] ?? base;
       const row = el("div", "proj-part");
       const on = document.createElement("input");
       on.type = "checkbox";
@@ -558,7 +560,7 @@ export class ProjectPage {
       const change = async (value) => {
         const c = [...(this.state.counts ?? [])];
         while (c.length < plan.parts.length) c.push(null);
-        c[i] = value === part.count ? null : value;
+        c[i] = value === base ? null : value;
         this.state.counts = c;
         save(this.state);
         await this.replan();
