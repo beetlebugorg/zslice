@@ -1237,6 +1237,11 @@ int zs_view_load_gcode(zs_view *view, const zs_gcode *g, double bed_x, double be
  * last one, and its layer lit. zs_view_set_layer (the scrubber) shows
  * whole layers again, up to a layer. */
 void zs_view_set_position(zs_view *view, uint64_t offset);
+/* Frames the beads of a loaded G-code file at once: the part in the middle,
+ * filling `fill` of the smaller side of the view (0.8 is a good value), at
+ * the start angle. The reduced view starts so, and zs_view_reset does it.
+ * Call it again after a resize. Returns 1, or 0 with no G-code. */
+int zs_view_frame_part(zs_view *view, float fill);
 /* The colors of a G-code file: by_feature != 0 for one color for each
  * feature, else the filament color rgb (0xRRGGBB, the default 0xd0d0cc). */
 int zs_view_gcode_colors(zs_view *view, int by_feature, uint32_t rgb);

@@ -453,6 +453,15 @@ export fn zs_view_turn(view: ?*View, dx: f32) void {
     v.turn(dx);
 }
 
+/// Frames the beads of a loaded G-code file at once: the part in the
+/// middle, filling `fill` of the smaller side (0.8 is a good value). Call it
+/// again after a resize. Returns 1, or 0 with no G-code.
+export fn zs_view_frame_part(view: ?*View, fill: f32) c_int {
+    if (!render_on) return 0;
+    const v = view orelse return 0;
+    return @intFromBool(v.framePart(fill));
+}
+
 export fn zs_view_reset(view: ?*View) void {
     if (!render_on) return;
     const v = view orelse return;

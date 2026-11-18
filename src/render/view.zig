@@ -1666,6 +1666,8 @@ pub const View = struct {
     }
 
     pub fn reset(v: *View) void {
+        // The reduced view (a printer screen) frames the part.
+        if (v.reduced and v.framePart(0.8)) return;
         v.goal = null;
         v.target = v.home;
         v.setAngles(-1.9, 0.6);
@@ -2229,9 +2231,11 @@ pub const View = struct {
     /// The rotor is absent with the fan off. p is x, y, and the top z of
     /// the bead; `spin` is the rotor angle (radians). Returns the number
     /// of beads.
-    fn toolhead(out: []vk.Instance, p: [3]f32, spin: f32, fan_on: bool) usize {
-        const brass = [4]u8{ 0xc9, 0xa2, 0x4e, code_overlay };
-        const alu = [4]u8{ 0xb8, 0xbe, 0xc6, code_overlay };
+    /// `bright`: a white nozzle and a cyan hex and block, which read well
+    /// on a dark background and a small screen (the reduced view).
+    fn toolhead(out: []vk.Instance, p: [3]f32, spin: f32, fan_on: bool, bright: bool) usize {
+        const brass: [4]u8 = if (bright) .{ 0xff, 0xff, 0xff, code_overlay } else .{ 0xc9, 0xa2, 0x4e, code_overlay };
+        const alu: [4]u8 = if (bright) .{ 0x22, 0xd3, 0xee, code_overlay } else .{ 0xb8, 0xbe, 0xc6, code_overlay };
         const blade = [4]u8{ 0x4a, 0xa3, 0xff, code_overlay };
         var n: usize = 0;
         const put = struct {
@@ -2498,6 +2502,24 @@ pub const View = struct {
     /// front and above (the angles of `reset`), at the distance that shows
     /// all of it.
     fn frameBox(v: *View, lo: [3]f32, hi: [3]f32) void {
+        v.frameBoxScaled(lo, hi, 1.08);
+    }
+
+    /// Frames the beads of a G-code file at once (no animation): the box
+    /// of the part in the middle, at the angle of `reset`, so that it fills
+    /// `fill` (0.8: 80 %) of the smaller side of the view. A printer screen
+    /// shows the part as the subject. False with no G-code beads.
+    pub fn framePart(v: *View, fill: f32) bool {
+        const r = v.gcode orelse return false;
+        const b = r.box;
+        if (!(b[3] >= b[0])) return false;
+        v.frameBoxScaled(.{ b[0], b[1], b[2] }, .{ b[3], b[4], b[5] }, 1 / std.math.clamp(fill, 0.1, 1));
+        if (v.goal) |g| v.setPose(g);
+        v.goal = null;
+        return true;
+    }
+
+    fn frameBoxScaled(v: *View, lo: [3]f32, hi: [3]f32, margin: f32) void {
         const now = v.pose();
         v.setAngles(-1.75, 0.6);
         v.target = .{ (lo[0] + hi[0]) / 2, (lo[1] + hi[1]) / 2, (lo[2] + hi[2]) / 2 };
@@ -2519,7 +2541,7 @@ pub const View = struct {
             dist = @max(dist, @abs(dot(p, s)) / (tan_half * aspect) + along);
             dist = @max(dist, @abs(dot(p, u)) / tan_half + along);
         }
-        v.dist = dist * 1.08;
+        v.dist = dist * margin;
         v.goal = v.pose();
         v.setPose(now);
     }
@@ -2666,7 +2688,7 @@ pub const View = struct {
             // the fan off it stands still.
             const fb = if (v.bead_fan.items.len == 0) 255 else v.bead_fan.items[@min(done, v.bead_fan.items.len - 1)];
             const spin: f32 = @floatCast(@mod(t * std.math.pi * @as(f32, @floatFromInt(fb)) / 255, 2 * std.math.pi));
-            if (tip) |p| n_head = toolhead(&v.head_buf, p, spin, fb > 0);
+            if (tip) |p| n_head = toolhead(&v.head_buf, p, spin, fb > 0, v.reduced);
         } else if (v.layer_end.items.len > 0) {
             count = v.layer_end.items[@min(v.layer, v.layer_end.items.len - 1)];
         }
@@ -2687,7 +2709,7 @@ pub const View = struct {
             if (v.lit) lit_range = .{ @floatFromInt(g[0]), @floatFromInt(g[1]) };
             if (v.position) |off| if (v.show_head) if (r.segmentAt(off)) |i| {
                 const sg = r.at(i);
-                n_head = toolhead(&v.head_buf, .{ sg.x, sg.y, sg.z }, 0, false);
+                n_head = toolhead(&v.head_buf, .{ sg.x, sg.y, sg.z }, 0, false, v.reduced);
             };
         };
         // The bottom of the layer range: the beads and marks of the layers
