@@ -79,6 +79,13 @@ export class View3D {
       if (p) w.free(p, 8 * n);
     }
   }
+  // The changes of the plate set of the worker (zs_set_sync_write, an
+  // ArrayBuffer): the row of the beds, the clears, the flags, the
+  // footprints, and the beads of the other plates (zs_view_sync_read).
+  syncPlates(buffer) {
+    const rc = this.w.withBytes(new Uint8Array(buffer), (p, n) => this.x.zs_view_sync_read(this.v, p, n));
+    if (rc !== 0) throw new Error(`zslice: the plates did not load (${statusText(rc)})`);
+  }
   // The beads of plate i from a scene of the worker (an ArrayBuffer).
   plateScene(i, buffer) {
     const rc = this.w.withBytes(new Uint8Array(buffer), (p, n) => this.x.zs_view_plate_scene_read(this.v, i, p, n));

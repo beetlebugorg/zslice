@@ -21,10 +21,10 @@ zig build wasm
 
 This makes `zig-out/web/zslice.wasm` (about 1.2 MB) and `zig-out/web/zslice.mjs` (the wrapper).
 
-The module has one import, `env.zs_web_event`: the events of the app core (see [The app core in a browser](#the-app-core-in-a-browser)). `zslice.mjs` gives an empty function for it. If you instantiate the module yourself, give one too:
+The module has two imports, `env.zs_web_event` and `env.zs_web_set_event`: the events of the app core (see [The app core in a browser](#the-app-core-in-a-browser)). `zslice.mjs` gives an empty function for each. If you instantiate the module yourself, give them too:
 
 ```js
-const { instance } = await WebAssembly.instantiate(wasmBytes, { env: { zs_web_event() {} } });
+const { instance } = await WebAssembly.instantiate(wasmBytes, { env: { zs_web_event() {}, zs_web_set_event() {} } });
 ```
 
 ## Use
@@ -100,9 +100,10 @@ node web/test.mjs zig-out/web/zslice.wasm part.stl
 The module also exports the app core and the 3D view of `include/zslice-app.h`. The web app (`web/app/`, see its [README](../../web/app/README.md)) uses them:
 
 - `zs_app_new_web` makes an app whose events go to the import `env.zs_web_event(event, progress, status)`. A slice runs on the calling thread, so run the app in a Web Worker.
+- `zs_set_new_web` makes a plate set (one app for each plate) whose events go to the import `env.zs_web_set_event(plate, event, progress, status)`. Call `zs_set_step` from a timer: each call slices the next waiting plate, the active plate first.
 - `zs_view_new` with `ZS_SURFACE_WEB` (3) makes a 3D view with no GPU in the core. After `zs_view_draw`, `zs_view_web_frame` gives the frame data in wasm memory, and the page draws it with WebGL2 (see `web/app/gl.js`).
 - `zs_view_scene_write` and `zs_view_scene_read` move the loaded scene from the view of one wasm instance (the worker) to the view of another (the main thread).
-- A set of plates has one app for each plate. `zs_view_set_plates` puts the plates in a row in one view, and `zs_view_plate_scene_read` gives the view the beads of a plate that is not the active plate. `zs_app_trim` frees the memory of an app that waits (the memos of its last slice), and keeps its result.
+- A set of plates has one app for each plate. `zs_view_set_plates` puts the plates in a row in one view, and `zs_view_plate_scene_read` gives the view the beads of a plate that is not the active plate. With a `zs_set` in the worker, `zs_set_sync_write` writes all of these changes as bytes, and `zs_view_sync_read` applies them to the view of the page. `zs_app_trim` frees the memory of an app that waits (the memos of its last slice), and keeps its result.
 
 ## Memory
 

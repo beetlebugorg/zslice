@@ -35,9 +35,14 @@ export function hasThreads(module) {
 
 export class Wasm {
   // module: a WebAssembly.Module. onEvent(event, progress, status): the
-  // events of the app core (env.zs_web_event).
-  static async create(module, onEvent = () => {}) {
-    const env = { zs_web_event: (e, p, s) => onEvent(e, p, s) };
+  // events of the app core (env.zs_web_event). onSetEvent(plate, event,
+  // progress, status): the events of a plate set (env.zs_web_set_event);
+  // plate is -1 for ZS_EVENT_PLATES.
+  static async create(module, onEvent = () => {}, onSetEvent = () => {}) {
+    const env = {
+      zs_web_event: (e, p, s) => onEvent(e, p, s),
+      zs_web_set_event: (i, e, p, s) => onSetEvent(i, e, p, s),
+    };
     if (hasThreads(module)) env.memory = new WebAssembly.Memory(MT_MEMORY);
     const instance = await WebAssembly.instantiate(module, { env });
     return new Wasm(instance, module, env.memory ?? null);

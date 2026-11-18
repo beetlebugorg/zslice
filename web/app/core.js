@@ -15,21 +15,28 @@ export const STATE = { empty: 0, ready: 1, slicing: 2, done: 3, failed: 4 };
 
 export class Core {
   // wasm: a Wasm (wasm.js) whose onEvent goes to this.onEvent. infos: the
-  // setting infos of another Core of the same Wasm, to share.
-  constructor(wasm, infos = null) {
+  // setting infos of another Core of the same Wasm, to share. app: an app
+  // that a plate set owns (zs_set_app); without it, the Core makes its
+  // own app.
+  constructor(wasm, infos = null, app = 0) {
     this.w = wasm;
     const x = wasm.x;
-    const rc = x.zs_app_new_web(wasm.cell);
-    if (rc !== 0) throw new Error(`zslice: no app (${statusText(rc)})`);
-    this.app = wasm.u32(wasm.cell);
+    this.owned = !app;
+    if (!app) {
+      const rc = x.zs_app_new_web(wasm.cell);
+      if (rc !== 0) throw new Error(`zslice: no app (${statusText(rc)})`);
+      app = wasm.u32(wasm.cell);
+    }
+    this.app = app;
     this.last = null;
     this.infos = infos ?? wasm.settingInfos();
     this.modelName = "";
   }
 
-  // Frees the app. The Core is of no use after it.
+  // Frees the app (only an app of this Core). The Core is of no use after
+  // it.
   free() {
-    this.w.x.zs_app_free(this.app);
+    if (this.owned) this.w.x.zs_app_free(this.app);
     this.app = 0;
     this.last = null;
   }

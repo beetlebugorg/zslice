@@ -132,16 +132,14 @@ const app = {
   // The print time that the 3D view shows (a replay, a scrub, or a step
   // of h and l), or 0 for whole layers.
   time: 0,
-  // The plate set (worker.js): the list from the worker ({ name, status,
-  // bed, model, printer }), the active plate, the plate that the page
-  // asked to make active (-1: none), and the plate that the camera goes
-  // to when it is active (-1: none).
+  // The plate set (zs_set in the worker): the list from the worker ({ id,
+  // name, status, bed, model, printer, parts, message }), the active
+  // plate, the plate that the page asked to make active (-1: none), and
+  // the plate that the camera goes to when it is active (-1: none).
   plates: [],
   activePlate: 0,
   wantPlate: -1,
   framePlate: -1,
-  // The footprints that the view has for each plate (a key of the boxes).
-  outlines: [],
 };
 
 const client = new Client(onWorkerEvent);
@@ -1048,6 +1046,7 @@ $("quality-menu").onclick = () => {
 $("main-menu").onclick = () => openMenu($("main-menu"), [
   { label: "Open…", action: () => $("file").click() },
   { label: "Export G-code…", disabled: app.state !== "done", action: exportGcode },
+  { label: "Remove this plate", action: () => removePlate(app.activePlate) },
   { sep: true },
   { label: "Licenses", action: showLicenses },
   { label: "About zslice", action: () => toast(`zslice ${wasm.cstr(wasm.x.zs_version())}: a slicer in Zig, in WebAssembly. AGPL-3.0-or-later.`) },
@@ -1607,6 +1606,8 @@ var project = new ProjectPage( // var: the plate labels can ask before this line
     history.refresh();
   },
   printers: () => Object.keys(store.printers ?? {}),
+  // The name of plate i of the set (from the core).
+  plateName: (i) => app.plates[i]?.name ?? "",
   activate: (i) => activatePlate(i, true),
   usePrinter: (name) => {
     store.printer = name;
@@ -1798,12 +1799,6 @@ function onWorkerEvent(m) {
     case "plates":
       onPlates(m);
       break;
-    case "plateScene":
-      if (m.plate !== app.activePlate && m.plate < app.plates.length) {
-        view.plateScene(m.plate, m.scene);
-        requestFrame();
-      }
-      break;
     case "stale":
       // A new active plate that slices again: its old slice until then.
       if (m.scene) {
@@ -1902,47 +1897,29 @@ function onWorkerEvent(m) {
 
 // ---- the plate set ----
 //
-// The worker keeps one app for each plate (worker.js). The view shows all
-// plates in a row (src/render/plates.zig): the active plate is the full
-// view, and the others are fixed beads. `[` and `]` go to the plate before
+// The core keeps one app for each plate (zs_set, in the worker). The view
+// of the page shows all plates in a row (src/render/plates.zig): the
+// active plate is the full view, and the others are fixed beads. `[` and `]` go to the plate before
 // and the next plate, Home shows all plates, and a double click on a plate
 // goes to it. A click on another plate makes it active.
 
 const STATUS_TEXT = { empty: "empty", stale: "to slice", slicing: "slicing", done: "", failed: "failed", resin: "Resin: not yet" };
 
-// The list of the plates from the worker.
+// The list of the plates from the worker, and the changes for the view
+// (m.sync: the beds, the clears, the flags, the footprints, and the beads
+// of the other plates; see zs_set_view_sync).
 function onPlates(m) {
   const before = app.activePlate;
   app.plates = m.plates;
   app.activePlate = m.active;
   if (app.wantPlate === m.active) app.wantPlate = -1;
-  const beds = m.plates.map((p) => [p.bed[0] > 0 ? p.bed[0] : 220, p.bed[1] > 0 ? p.bed[1] : 220]);
-  view.setPlates(beds, m.active);
-  // The bed model of the view is the model of the printer of the active
-  // plate (updateBed): it shows on the plates of the same printer.
-  const printerOf = (p) => (p ? `${p.model}\n${p.printer}` : "");
-  const printer = printerOf(m.plates[m.active]);
-  // Another plate at a place of the view (a new project, or a plate
-  // removed): its old scene and outline go.
-  app.plateIds = app.plateIds ?? [];
-  m.plates.forEach((p, i) => {
-    if (app.plateIds[i] !== p.id && i !== m.active) {
-      view.plateClear(i);
-      app.outlines[i] = "";
+  if (m.sync) {
+    try {
+      view.syncPlates(m.sync);
+    } catch (e) {
+      toast(e.message);
     }
-  });
-  app.plateIds = m.plates.map((p) => p.id);
-  m.plates.forEach((p, i) => {
-    let flags = 0;
-    if (p.status === "stale" || p.status === "slicing") flags |= 1;
-    if (printerOf(p) === printer) flags |= 2;
-    if (p.status === "resin" || p.status === "failed") flags |= 4;
-    view.plateFlags(i, flags);
-    // A plate that cannot slice: the footprints of its parts, once.
-    const key = p.outline ? JSON.stringify(p.outline) : "";
-    if (key && i !== m.active && app.outlines[i] !== key) view.plateOutline(i, p.outline);
-    app.outlines[i] = i === m.active ? "" : key;
-  });
+  }
   if (m.active !== before) {
     // The selection and the tools are of the plate that was active.
     stopReplay();
@@ -1995,6 +1972,23 @@ async function addPlate() {
   history.refresh();
 }
 
+// Removes plate i, after a question if it has parts. The plates are not
+// in the undo list, so a removal cannot be undone.
+async function removePlate(i) {
+  const p = app.plates[i];
+  if (!p) return;
+  if (p.parts > 0 && !confirm(`Remove plate ${i + 1} and its ${p.parts === 1 ? "part" : `${p.parts} parts`}? This cannot be undone.`)) return;
+  const r = await client.call("plateRemove", { index: i });
+  project.removed(i);
+  applySettings(r);
+  const q = app.plates[r.index];
+  const name = q?.name || "zslice";
+  app.modelName = q?.name ?? "";
+  $("title").textContent = name;
+  document.title = `${name} · zslice`;
+  history.refresh();
+}
+
 function updatePlateBar() {
   const n = app.plates.length;
   $("plate-name").textContent = `Plate ${app.activePlate + 1} of ${Math.max(n, 1)}`;
@@ -2015,6 +2009,10 @@ function updatePlateLabels() {
     el.className = "plate-label";
     const i = root.children.length;
     el.onclick = () => activatePlate(i, true);
+    el.oncontextmenu = (e) => {
+      e.preventDefault();
+      openMenuAt(e.clientX, e.clientY, [{ label: `Remove plate ${i + 1}`, action: () => removePlate(i) }]);
+    };
     root.append(el);
   }
   app.plates.forEach((p, i) => {
@@ -2086,6 +2084,7 @@ $("plate-all").onclick = () => {
   requestFrame();
 };
 $("plate-add").onclick = () => addPlate();
+$("plate-remove").onclick = () => removePlate(app.activePlate);
 
 // The keys of the plates: [ and ] (the plate before and the next plate,
 // framed), F (frame the active plate), and Home (all plates), also with no
@@ -2229,6 +2228,7 @@ const search = new SearchOverlay({
     { label: "Print", hint: "send the G-code to the printer and start", run: () => sendGcode(true) },
     { label: "Arrange the plate", hint: "pack the parts on the bed", run: () => client.call("plate", { action: "arrange" }) },
     { label: "Smart placement", hint: "turn and arrange the parts", run: () => client.call("plate", { action: "smart" }) },
+    { label: "Remove this plate", hint: "the plate and its parts", run: () => removePlate(app.activePlate) },
     { label: "Check the print", hint: "problems and advice", run: () => openCheck() },
     { label: "Undo", keys: "Ctrl+Z", run: () => undoRedo("undo") },
     { label: "Redo", keys: "Ctrl+Shift+Z", run: () => undoRedo("redo") },

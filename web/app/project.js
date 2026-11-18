@@ -312,9 +312,12 @@ export class ProjectPage {
   // app for each plate), so they all slice and show at once; plate i is
   // the active plate. With the set loaded, plate i only becomes active.
   async openPlate(i) {
-    if (this.loaded === this.planKey()) {
-      await this.ctx.activate(i);
-      this.showActive(i);
+    // The place of plan plate i in the set; -1 if the user removed it
+    // (then the set loads again).
+    const at = this.setMap?.indexOf(i) ?? i;
+    if (this.loaded === this.planKey() && at >= 0) {
+      await this.ctx.activate(at);
+      this.showActive(at);
       return;
     }
     if (!this.source) {
@@ -323,42 +326,36 @@ export class ProjectPage {
     }
     const plates = this.plan.plates;
     await this.run(`Loading ${plates.length} plates…`, async () => {
-      const list = [];
-      for (const [k, plate] of plates.entries()) {
-        const names = plate.items.map((it) => this.plan.parts[it.part].name);
-        const name = names.length === 1 ? names[0] : `${names[0]} and ${names.length - 1} more`;
-        // A plate with no Cura stack (cura.json) in its profile folder: a
-        // resin plate, which zslice does not slice yet.
+      // The files of all plates: the profile folders and the models. The
+      // core finds the plates with no Cura stack (cura.json in the profile
+      // folder): resin plates, which zslice does not slice yet. It loads
+      // their parts for their footprints on the view.
+      const files = {};
+      const read = async (f) => {
+        if (!(f in files)) files[f] = await this.source.read(f);
+      };
+      for (const plate of plates) {
         const folder = plate.profile.split("/")[0];
-        if (!folder || !this.source.has(`profiles/${folder}/cura.json`)) {
-          // Its parts, for their footprints on the view.
-          const parts = [];
-          for (const it of plate.items) {
-            const files = {};
-            for (const f of this.plan.parts[it.part].files) files[f] = await this.source.read(f);
-            parts.push({ files, count: it.count });
-          }
-          list.push({ index: k, name, resin: true, parts });
-          continue;
+        if (folder && this.source.has(`profiles/${folder}/cura.json`)) {
+          for (const p of this.source.list(`profiles/${folder}`)) await read(p);
         }
-        const files = {};
-        for (const p of this.source.list(`profiles/${folder}`)) files[p] = await this.source.read(p);
         for (const it of plate.items) {
-          for (const f of this.plan.parts[it.part].files) files[f] = await this.source.read(f);
+          for (const f of this.plan.parts[it.part].files) await read(f);
         }
-        list.push({ index: k, name, files });
       }
       // The profiles of the plates replace the profiles of the user's
       // printer on the view, and do not change that printer.
       this.ctx.loading();
-      const r = await this.ctx.client.call("projectSet", { text: this.state.text, counts: this.state.counts ?? [], plates: list, active: i });
+      const r = await this.ctx.client.call("projectSet", { text: this.state.text, counts: this.state.counts ?? [], files, active: i });
       this.ctx.applySettings(r);
       this.loaded = this.planKey();
+      // The plan plate of each plate of the set.
+      this.setMap = plates.map((_, k) => k);
       this.state.setLoaded = true;
       save(this.state);
       const bad = r.results.map((x, k) => (x.error ? `Plate ${k + 1}: ${x.error}` : x.fits === false ? x.message : "")).filter(Boolean);
       if (bad.length > 0) this.ctx.toast(bad.join(" "));
-      this.ctx.opened(list[i].name);
+      this.ctx.opened(this.ctx.plateName(i));
       this.showActive(i);
       // The printer of the plate, if the user has one with its name.
       const match = this.ctx.printers().find((n) => n.toLowerCase() === plates[i].printer.toLowerCase());
@@ -369,7 +366,7 @@ export class ProjectPage {
   // Plate i of the set is the active plate (from the view or this page).
   showActive(i) {
     if (!this.plan || this.loaded !== this.planKey()) return;
-    const plate = this.plan.plates[i];
+    const plate = this.plan.plates[this.planIndex(i)];
     // A plate after the plates of the project ("+ Plate"): no plate of the
     // project is active.
     const key = plate ? plateKey(this.plan, plate) : null;
@@ -383,19 +380,32 @@ export class ProjectPage {
   // "printed", "failed"), or null when the set is not this project.
   printStatus(i) {
     if (!this.plan || this.loaded !== this.planKey()) return null;
-    const plate = this.plan.plates[i];
+    const plate = this.plan.plates[this.planIndex(i)];
     return plate ? this.state.status?.[plateKey(this.plan, plate)] ?? "todo" : null;
   }
 
   // Sets the print status of plate i of the set.
   setPrintStatus(i, status) {
-    const plate = this.plan?.plates[i];
+    const plate = this.plan?.plates[this.planIndex(i)];
     if (plate) this.setStatus(plateKey(this.plan, plate), status);
+  }
+
+  // The plan plate of plate i of the set (-1 for a plate of the user).
+  planIndex(i) {
+    if (!this.setMap) return i;
+    return i < this.setMap.length ? this.setMap[i] : -1;
+  }
+
+  // Plate i of the set was removed. Its print status stays in the plan.
+  removed(i) {
+    if (this.setMap && i < this.setMap.length) this.setMap.splice(i, 1);
+    this.render();
   }
 
   // The plate set is no longer the plates of this project (a file opened).
   unload() {
     this.loaded = null;
+    this.setMap = null;
     if (this.state?.setLoaded) {
       this.state.setLoaded = false;
       save(this.state);

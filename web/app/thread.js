@@ -8,6 +8,6 @@
 self.onmessage = async (e) => {
   const { module, memory, index, stackTop, tls } = e.data;
   // The events of a slice come from the thread that starts the slice.
-  const instance = await WebAssembly.instantiate(module, { env: { memory, zs_web_event: () => {} } });
+  const instance = await WebAssembly.instantiate(module, { env: { memory, zs_web_event: () => {}, zs_web_set_event: () => {} } });
   instance.exports.zs_thread_run(index, stackTop, tls);
 };

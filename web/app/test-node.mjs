@@ -190,4 +190,34 @@ check(Math.abs(view.plateOrigin(0)[0] + o2[0]) < 1e-3, "the world of the active 
 const q2 = view.pixelOf(125, 105, 0);
 check(q2 && Math.abs(q2[0] - q[0]) < 0.5 && Math.abs(q2[1] - q[1]) < 0.5, "the picture stays still");
 console.log(`plates: ${f.platesCount} in the frame, ${plateBeads} light beads of ${all}`);
+
+// The plate set of the core (zs_set, as in worker.js): two plates, the
+// active plate slices first, and a sync as bytes to the view of the
+// other instance.
+const sliced = [];
+const wasm3 = await Wasm.create(module, () => {}, (plate, event) => {
+  if (event === 2) sliced.push(plate);
+});
+const x3 = wasm3.x;
+check(x3.zs_set_new_web(wasm3.cell) === 0, "a plate set");
+const set = wasm3.u32(wasm3.cell);
+const stl = await readFile(stlPath);
+const setCore = (i) => new Core(wasm3, null, x3.zs_set_app(set, i));
+setCore(0).loadStl("part.stl", stl);
+x3.zs_set_changed(set, 0);
+check(x3.zs_set_add(set) === 1, "a second plate");
+setCore(1).loadStl("part.stl", stl);
+x3.zs_set_changed(set, 1);
+check(x3.zs_set_next(set) === 1, "the active plate slices first");
+while (x3.zs_set_step(set) === 1);
+check(sliced.join(",") === "1,0", `the order of the slices (${sliced.join(",")})`);
+check(x3.zs_set_sync_write(set, wasm3.cell, wasm3.cell + 4) === 0, "the sync bytes");
+const sp = wasm3.u32(wasm3.cell);
+const sn = wasm3.u32(wasm3.cell + 4);
+const syncBytes = wasm3.u8.slice(sp, sp + sn).buffer;
+x3.zs_buffer_free(sp, sn);
+view.syncPlates(syncBytes);
+check(Math.abs(view.plateOrigin(0)[0]) > 100, "plate 1 is the active plate of the view");
+x3.zs_set_free(set);
+console.log(`plate set: slices ${sliced.join(", ")}, sync ${(sn / 1e6).toFixed(2)} MB`);
 console.log("ok");

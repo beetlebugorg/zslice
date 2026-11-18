@@ -7,46 +7,74 @@
 // fast series of changes gives one slice. Events to the page: { event:
 // "progress", progress }, { event: "sliced", ... }, { event: "failed" }.
 //
-// The plate set. The worker keeps one Core (one app) for each plate, and
-// the active plate. The ops of the page work on the active plate. After a
-// change, the active plate slices first; then each other plate that is not
-// up to date slices, one at a time. A plate keeps its old slice until its
-// new one is done. Events of the set: { event: "plates" } (the list, the
-// active plate, and the status of each), { event: "plateScene", plate,
-// scene } (the beads of another plate), and { event: "stale", scene } (the
-// old slice of a new active plate that slices again).
+// The plate set is in the core (zs_set, src/app/plate_set.zig): one app
+// for each plate, the active plate, the status of each, and the order of
+// the slices. The worker keeps the timers and the messages. The ops of
+// the page work on the active plate; after a change, the worker tells the
+// set (zs_set_changed), and slices with zs_set_step when no message waits.
+// Events of the set: { event: "plates" } (the list, the active plate, the
+// status of each, and the changes for the view of the page as bytes,
+// zs_set_sync_write), and { event: "stale", scene } (the old slice of a
+// new active plate that slices again).
 //
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
-import { Wasm } from "./wasm.js";
+import { Wasm, statusText } from "./wasm.js";
 import { Core, STATE } from "./core.js";
 
-// The plates: { id, core, name, status, wanted }. The core of each plate
-// keeps its own undo list. status: "empty",
-// "stale" (an old slice, or none yet), "slicing", "done", "failed", or
-// "resin" (a plate that zslice cannot slice). wanted: it waits for a
-// slice.
-let plates = [];
-let active = 0;
-let core = null; // the Core of the active plate
 let wasm = null;
+let set = 0; // the zs_set
+let infos = null; // the setting infos, shared by the Cores
+const cores = new Map(); // a Core for each app of the set
 let mode = 0; // the color mode of the scene (enum zs_view_mode)
 let sliceTimer = 0;
 let lastProgress = 0;
 let slicing = -1; // the plate that slices now
+let failStatus = 0; // the status of the last ZS_EVENT_FAILED
 let warming = false; // a warm-up slice runs: its events do not go to the page
+let platesDirty = false; // the list changed: a "plates" event waits
 
 function post(msg, transfer = []) {
   self.postMessage(msg, transfer);
 }
 
-function onEvent(event, progress) {
+// The events of the apps of the set (env.zs_web_set_event).
+function onSetEvent(plate, event, progress, status) {
   if (warming) return;
+  if (event === 5) {
+    // ZS_EVENT_PLATES: the worker sends the list when the op ends.
+    platesDirty = true;
+    return;
+  }
+  if (event === 3) failStatus = status;
   // ZS_EVENT_PROGRESS: at most each 2 %, so the page gets few messages.
   if (event === 1 && (progress - lastProgress >= 0.02 || progress < lastProgress)) {
     lastProgress = progress;
-    post({ event: "progress", progress, plate: slicing });
+    post({ event: "progress", progress, plate });
   }
+}
+
+// The index of the active plate, and the Core of a plate.
+function activeIndex() { return wasm.x.zs_set_active(set); }
+function coreAt(i) {
+  const app = wasm.x.zs_set_app(set, i);
+  if (!app) return null;
+  let c = cores.get(app);
+  if (!c) {
+    c = new Core(wasm, infos, app);
+    cores.set(app, c);
+  }
+  return c;
+}
+// The Core of the active plate.
+let core = null;
+function syncCore() {
+  core = coreAt(activeIndex());
+  // The Cores of the apps that are not in the set now.
+  const live = new Set();
+  const n = wasm.x.zs_set_count(set);
+  for (let i = 0; i < n; i++) live.add(wasm.x.zs_set_app(set, i));
+  for (const app of cores.keys()) if (!live.has(app)) cores.delete(app);
 }
 
 // ---- the warm-up slice ----
@@ -108,34 +136,23 @@ function warmUp() {
   }
 }
 
-// The result of a slice of plate i for the page.
+// The result of a slice of plate i for the page. Only the active plate
+// sends its slice: the beads of the other plates go in the "plates" event.
 function sendResult(i, ms) {
-  const p = plates[i];
-  const c = p.core;
+  if (i !== activeIndex()) return;
+  const c = coreAt(i);
   const state = c.state();
   // A canceled slice: the change that canceled it waits, and its slice
   // comes next.
   if (state === STATE.ready && ms > 0) {
-    p.wanted = true;
-    p.status = "stale";
-    if (i === active) post({ event: "canceled" });
+    post({ event: "canceled" });
     return;
   }
   if (state !== STATE.done) {
-    p.status = state === STATE.empty ? "empty" : "failed";
-    if (i === active) post({ event: "failed", state });
+    if (state === STATE.failed) post({ event: "failed", state, error: failStatus ? statusText(failStatus) : "" });
     return;
   }
-  p.status = "done";
-  if (i !== active) {
-    const scene = c.scene(mode);
-    if (scene) post({ event: "plateScene", plate: i, scene }, [scene]);
-    // A plate that waits keeps its result, and not the memory for a
-    // faster next slice.
-    c.trim();
-    return;
-  }
-  const scene = c.scene(mode);
+  const scene = sceneOf(i);
   const layers = c.layers();
   const msg = {
     event: "sliced",
@@ -152,29 +169,27 @@ function sendResult(i, ms) {
   post(msg, scene ? [scene, layers.z.buffer, layers.height.buffer, layers.endTime.buffer, layers.slowed.buffer] : []);
 }
 
+// The scene bytes of plate i (zs_set_plate_scene): of its last slice, or
+// its old beads while it slices again. An ArrayBuffer, or null.
+function sceneOf(i) {
+  const w = wasm;
+  if (w.x.zs_set_plate_scene(set, i, w.cell, w.cell + 4) !== 0) return null;
+  const p = w.u32(w.cell);
+  const n = w.u32(w.cell + 4);
+  return w.u8.slice(p, p + n).buffer;
+}
+
 // The active plate waits for a slice.
 function wantSlice() {
-  markStale(active);
+  wasm.x.zs_set_changed(set, activeIndex());
+  schedule();
 }
 
 // A change of a part while a drag or keys go on: the slice waits until
 // sliceHeld (the end of the drag, or a pause of the keys).
-let held = false;
 function sliceOrHold(hold) {
-  if (hold) held = true;
-  else {
-    held = false;
-    wantSlice();
-  }
-}
-
-// Plate i waits for a slice. Its old slice stays until the new one.
-function markStale(i) {
-  const p = plates[i];
-  if (!p || p.status === "resin") return;
-  p.wanted = true;
-  if (p.status !== "slicing") p.status = "stale";
-  schedule();
+  if (hold) wasm.x.zs_set_changed_held(set, activeIndex());
+  else wantSlice();
 }
 
 function schedule() {
@@ -183,127 +198,98 @@ function schedule() {
   sliceTimer = setTimeout(runSlice, 0);
 }
 
-// Slices one plate: the active plate first, then the other plates in
-// order. Then the next, after the messages that wait.
+// Slices one plate (zs_set_step): the active plate first, then the other
+// plates in order. Then the next, after the messages that wait.
 function runSlice() {
-  const i = plates[active]?.wanted ? active : plates.findIndex((p) => p.wanted);
-  if (i < 0) return;
-  const p = plates[i];
-  p.wanted = false;
-  if (p.core.state() === STATE.empty) {
-    p.status = "empty";
-    postPlates();
-    schedule();
+  const i = wasm.x.zs_set_next(set);
+  if (i < 0) {
+    if (platesDirty) postPlates();
     return;
   }
-  p.status = "slicing";
-  postPlates();
-  post({ event: "slicing", plate: i });
-  // The page stops this slice with the cancel flag of its app.
-  if (wasm.shared) post({ event: "cancel-flag", memory: wasm.x.memory, address: wasm.x.zs_app_cancel_address(p.core.app) });
+  const c = coreAt(i);
+  if (c.state() !== STATE.empty) {
+    postPlates(i);
+    if (i === activeIndex()) post({ event: "slicing", plate: i });
+    // The page stops this slice with the cancel flag of its app.
+    if (wasm.shared) post({ event: "cancel-flag", memory: wasm.x.memory, address: wasm.x.zs_app_cancel_address(c.app) });
+  }
   lastProgress = 0;
+  failStatus = 0;
   slicing = i;
   const t0 = performance.now();
-  const r = p.core.slice();
+  wasm.x.zs_set_step(set);
   const ms = performance.now() - t0;
   slicing = -1;
-  if (r.error) {
-    p.status = "failed";
-    if (i === active) post({ event: "failed", state: p.core.state(), error: r.error });
-  } else sendResult(i, ms);
+  sendResult(i, ms);
   postPlates();
-  if (plates.some((q) => q.wanted)) schedule();
+  if (wasm.x.zs_set_next(set) >= 0) schedule();
 }
 
 // ---- the plate set ----
 
-// Each plate has an id, new for each plate: the page clears the old scene
-// of a place in the view when another plate comes there (a new project).
-let plateIds = 0;
-function newPlate(c, name = "") {
-  return { id: ++plateIds, core: c, name, status: c.state() === STATE.empty ? "empty" : "stale", wanted: false };
+const STATUS = ["empty", "stale", "slicing", "done", "failed", "resin"];
+
+// The facts of plate i (zs_set_plate_info).
+function plateInfo(i) {
+  const w = wasm;
+  const at = w.cell;
+  if (w.x.zs_set_plate_info(set, i, at) !== 0) return null;
+  const dv = w.dv;
+  const key = w.cstr(w.u32(at + 36)).split("\n");
+  return {
+    id: Number(dv.getBigUint64(at, true)),
+    status: STATUS[dv.getInt32(at + 8, true)] ?? "stale",
+    bed: [dv.getFloat64(at + 16, true), dv.getFloat64(at + 24, true)],
+    name: w.cstr(w.u32(at + 32)),
+    model: key[0] ?? "",
+    printer: key[1] ?? "",
+    parts: w.u32(at + 40),
+    message: w.cstr(w.u32(at + 44)),
+  };
 }
 
 // The list of the plates for the page: the name, the status, the bed size,
-// and the printer of each, and the active plate.
-function postPlates() {
-  const num = (c, k) => Number(c.get(k)) || 0;
-  post({
-    event: "plates",
-    active,
-    plates: plates.map((p) => ({
-      id: p.id,
-      name: p.name || p.core.modelName,
-      status: p.status,
-      bed: [num(p.core, "machine.bed_size_x"), num(p.core, "machine.bed_size_y")],
-      model: p.core.get("machine.model"),
-      printer: p.core.get("machine.name"),
-      // A plate that cannot slice: the footprints of its parts.
-      outline: p.status === "resin" || p.status === "failed" ? footprints(p.core) : null,
-    })),
-  });
-}
-
-// The box (x0, y0, x1, y1) of each part of an app on its bed.
-function footprints(c) {
-  const out = [];
-  const n = c.w.x.zs_app_part_count(c.app);
+// and the printer of each, the active plate, and the changes for the view
+// of the page (zs_set_sync_write). `slicingPlate`: a plate that starts its
+// slice now.
+function postPlates(slicingPlate = -1) {
+  platesDirty = false;
+  syncCore();
+  const n = wasm.x.zs_set_count(set);
+  const plates = [];
   for (let i = 0; i < n; i++) {
-    const q = c.part(i);
-    if (q) out.push([q.x - q.sizeX / 2, q.y - q.sizeY / 2, q.x + q.sizeX / 2, q.y + q.sizeY / 2]);
+    const p = plateInfo(i);
+    if (i === slicingPlate) p.status = "slicing";
+    plates.push(p);
   }
-  return out;
+  const w = wasm;
+  let sync = null;
+  if (w.x.zs_set_sync_write(set, w.cell, w.cell + 4) === 0) {
+    const ptr = w.u32(w.cell);
+    const len = w.u32(w.cell + 4);
+    sync = w.u8.slice(ptr, ptr + len).buffer;
+    w.x.zs_buffer_free(ptr, len);
+  }
+  post({ event: "plates", active: activeIndex(), plates, sync }, sync ? [sync] : []);
 }
 
-// Makes plate i the active plate. The page gets the list, then the slice
-// of the new active plate (or its old slice while it slices again), then
-// the beads of the plate that was active.
-function activate(i) {
-  if (i < 0 || i >= plates.length) return false;
-  const before = active;
-  if (i !== before) {
-    // The changes so far are a step of the plate that was active.
-    if (histTimer) historyCommit();
-    plates[before].core.trim();
-  }
-  active = i;
-  core = plates[i].core;
-  showActive(before);
-  return true;
-}
-
-// Sends the list, and the slice of the active plate (or its old slice
-// while it slices again), then the beads of plate `before` (the plate that
-// was active, or -1).
-function showActive(before) {
-  const i = active;
+// Sends the list, then the slice of the active plate (or its old slice
+// while it slices again). The beads of the plate that was active go in
+// the list.
+function showActive() {
   postPlates();
-  const p = plates[i];
+  const i = activeIndex();
+  const p = plateInfo(i);
   if (p.status === "done") sendResult(i, 0);
   else if (core.state() === STATE.empty) {
     const scene = core.scene(mode);
     post({ event: "cleared", scene, plate: i }, scene ? [scene] : []);
   } else {
     // Its last slice, or an empty scene (no slice yet).
-    const scene = core.lastScene() ?? core.scene(mode);
+    const scene = sceneOf(i) ?? core.scene(mode);
     post({ event: "stale", scene, plate: i }, scene ? [scene] : []);
-    // A plate that cannot slice (a resin plate) waits for no slice.
-    if (p.status !== "resin") {
-      p.wanted = true;
-      schedule();
-    }
   }
-  if (i !== before && before >= 0 && before < plates.length) {
-    const scene = plates[before].core.lastScene();
-    if (scene) post({ event: "plateScene", plate: before, scene }, [scene]);
-  }
-}
-
-// Drops all plates but the active plate: a set of one plate.
-function onePlate() {
-  for (let i = 0; i < plates.length; i++) if (i !== active) plates[i].core.free();
-  plates = [plates[active]];
-  active = 0;
+  schedule();
 }
 
 // The settings, the quality, and the saved state, after a change.
@@ -342,10 +328,12 @@ function historyRestored(bits) {
     else {
       core.modelName = "";
       const scene = core.scene(mode);
-      post({ event: "cleared", scene, plate: active }, scene ? [scene] : []);
+      post({ event: "cleared", scene, plate: activeIndex() }, scene ? [scene] : []);
     }
   }
+  // A plate with no parts: the set drops its beads.
   if (parts > 0) wantSlice();
+  else wasm.x.zs_set_changed(set, activeIndex());
 }
 
 // The steps, the oldest first: their time, kind, and changes in words.
@@ -367,16 +355,17 @@ const PLATE_OPS = new Set(["load", "add", "plate", "projectLoad", "partAction", 
 const ops = {
   async init({ module, saved, mode: m }) {
     mode = m ?? 0;
-    wasm = await Wasm.create(module, onEvent);
+    wasm = await Wasm.create(module, () => {}, onSetEvent);
     // The threads of a slice: this worker is one, and one CPU stays free
     // for the page, as in the GTK app.
-    const threads = wasm.startThreads(Math.max((navigator.hardwareConcurrency ?? 1) - 2, 0), (data) => {
+    wasm.startThreads(Math.max((navigator.hardwareConcurrency ?? 1) - 2, 0), (data) => {
       new Worker(new URL("./thread.js", import.meta.url), { type: "module" }).postMessage(data);
     });
-    core = new Core(wasm);
-    core.threads = threads + 1;
-    plates = [newPlate(core)];
-    active = 0;
+    infos = wasm.settingInfos();
+    if (wasm.x.zs_set_new_web(wasm.cell) !== 0) throw new Error("zslice: no plate set");
+    set = wasm.u32(wasm.cell);
+    wasm.x.zs_set_view_mode(set, mode);
+    syncCore();
     // With a shared memory (the module with threads), the page can stop a
     // slice that runs: it sets the cancel flag of the app (client.js).
     if (wasm.shared) post({ event: "cancel-flag", memory: wasm.x.memory, address: wasm.x.zs_app_cancel_address(core.app) });
@@ -387,15 +376,16 @@ const ops = {
     return { errors, ...settingsState() };
   },
 
-  // A file opens on the active plate: a set of one plate.
-  // keepSet: the file goes on the active plate, and the other plates stay
+  // A file opens on the active plate. keepSet: the other plates stay
   // (plates that the user made); else the set becomes this one plate.
   load({ name, bytes, keepSet }) {
-    if (plates.length > 1 && !keepSet) onePlate();
+    if (wasm.x.zs_set_count(set) > 1 && !keepSet) {
+      wasm.x.zs_set_keep_active(set);
+      syncCore();
+    }
     core.loadStl(name, new Uint8Array(bytes));
-    plates[active].name = name;
+    wasm.withString(name, (n) => wasm.x.zs_set_name(set, activeIndex(), n));
     wantSlice();
-    postPlates();
     return { info: core.modelInfo() };
   },
 
@@ -404,19 +394,34 @@ const ops = {
   // A new empty plate after the others, with the settings of the active
   // plate. It becomes the active plate.
   plateAdd() {
-    const c = new Core(wasm, core.infos);
-    c.threads = core.threads;
-    const st = core.savedState();
-    c.restore(st);
-    plates.push(newPlate(c, `Plate ${plates.length + 1}`));
-    activate(plates.length - 1);
-    return { index: active, count: plates.length, ...settingsState() };
+    if (histTimer) historyCommit();
+    wasm.x.zs_set_add(set);
+    syncCore();
+    showActive();
+    return { index: activeIndex(), count: wasm.x.zs_set_count(set), ...settingsState() };
+  },
+
+  // Removes plate i (zs_set_remove). The plate on its left becomes the
+  // active plate if plate i was active. The last plate stays, empty.
+  plateRemove({ index }) {
+    if (histTimer) historyCommit();
+    const rc = wasm.x.zs_set_remove(set, index);
+    syncCore();
+    showActive();
+    return { ok: rc === 0, index: activeIndex(), info: core.modelInfo(), parts: core.w.x.zs_app_part_count(core.app), ...settingsState() };
   },
 
   // Plate i becomes the active plate.
   plateActivate({ index }) {
-    const ok = activate(index);
-    return { ok, index: active, info: core.modelInfo(), parts: core.w.x.zs_app_part_count(core.app), ...settingsState() };
+    let ok = index >= 0 && index < wasm.x.zs_set_count(set);
+    if (ok && index !== activeIndex()) {
+      // The changes so far are a step of the plate that was active.
+      if (histTimer) historyCommit();
+      ok = wasm.x.zs_set_select(set, index) === 0;
+      syncCore();
+    }
+    if (ok) showActive();
+    return { ok, index: activeIndex(), info: core.modelInfo(), parts: core.w.x.zs_app_part_count(core.app), ...settingsState() };
   },
 
   set({ name, value }) {
@@ -446,9 +451,10 @@ const ops = {
   // A new color mode: the scenes again, with no new slice.
   mode({ value }) {
     mode = value;
-    plates.forEach((p, i) => {
-      if (p.status === "done") sendResult(i, 0);
-    });
+    wasm.x.zs_set_view_mode(set, mode);
+    const i = activeIndex();
+    if (plateInfo(i)?.status === "done") sendResult(i, 0);
+    postPlates();
     return {};
   },
 
@@ -667,12 +673,13 @@ const ops = {
     else if (action === "clear") {
       x.zs_app_plate_clear(core.app);
       core.modelName = "";
-      plates[active].status = "empty";
-      plates[active].wanted = false;
+      // A plate with no parts: no slice, and no beads.
+      x.zs_set_changed(set, activeIndex());
+      x.zs_set_name(set, activeIndex(), 0);
+      postPlates();
       // An empty plate: an empty scene for the page.
       const scene = core.scene(mode);
-      post({ event: "cleared", scene, plate: active }, scene ? [scene] : []);
-      postPlates();
+      post({ event: "cleared", scene, plate: activeIndex() }, scene ? [scene] : []);
       return {};
     }
     wantSlice();
@@ -723,7 +730,8 @@ const ops = {
 
   // The end of a drag or of the keys of a part: the slice that waited.
   sliceHeld() {
-    if (held) sliceOrHold(false);
+    wasm.x.zs_set_release(set);
+    schedule();
     return {};
   },
 
@@ -759,56 +767,35 @@ const ops = {
     }
   },
 
-  // All plates of a project, each in its own app. list: one item for each
-  // plate: { index, name, files } ({ path: bytes }), or { index, name,
-  // resin: true } for a plate that zslice cannot slice. The plates slice
-  // in the background, the active plate (`active`) first.
-  projectSet({ text, counts, plates: list, active: want }) {
+  // All plates of a project, each in its own app (zs_set_project_load).
+  // files: { path: bytes } of all plates. The plates slice in the
+  // background, the active plate (`active`) first. results: for each
+  // plate, the reason it did not load, or the message that its parts do
+  // not all fit.
+  projectSet({ text, counts, files, active: want }) {
     if (histTimer) historyCommit();
-    const threads = core.threads;
-    const infos = core.infos;
-    for (const p of plates) p.core.free();
-    plates = [];
-    const results = [];
-    for (const item of list) {
-      const c = new Core(wasm, infos);
-      c.threads = threads;
-      const p = newPlate(c, item.name);
-      plates.push(p);
-      if (item.resin) {
-        // Its parts, with no slice: the page shows their footprints.
-        p.status = "resin";
-        try {
-          for (const part of item.parts ?? []) {
-            for (const [path, bytes] of Object.entries(part.files)) {
-              for (let k = 0; k < part.count; k++) c.addStl(path.split("/").pop(), bytes);
-            }
-          }
-          if (c.w.x.zs_app_part_count(c.app) > 1) c.w.x.zs_app_plate_arrange(c.app);
-        } catch {
-          // A part that does not open: the plate shows no footprint for it.
-        }
-        results.push({ error: "" });
-        continue;
-      }
-      const f = c.filesNew(item.files);
-      try {
-        const r = c.projectLoad(f, text, counts ?? [], item.index);
-        results.push({ error: r.error, fits: r.fits, message: r.message });
-        if (r.error) p.status = "failed";
-        else {
-          p.status = "stale";
-          p.wanted = true;
-        }
-      } finally {
-        c.filesFree(f);
-      }
+    const f = core.filesNew(files);
+    const w = wasm;
+    const cap = 1024;
+    const msg = w.alloc(cap);
+    try {
+      const c = (counts ?? []).map((n) => (n == null ? "-" : String(n))).join(",");
+      const rc = w.withStrings([text, c], (t, cs) => w.x.zs_set_project_load(set, f, t, cs, want ?? 0, msg, cap));
+      if (rc !== 0) throw new Error(w.cstr(msg) || statusText(rc));
+    } finally {
+      w.free(msg, cap);
+      core.filesFree(f);
     }
-    active = Math.max(0, Math.min(want ?? 0, plates.length - 1));
-    core = plates[active].core;
-    showActive(-1);
-    schedule();
-    return { results, index: active, info: core.modelInfo(), parts: core.w.x.zs_app_part_count(core.app), ...settingsState() };
+    syncCore();
+    const results = [];
+    const n = w.x.zs_set_count(set);
+    for (let i = 0; i < n; i++) {
+      const p = plateInfo(i);
+      const failed = p.status === "failed";
+      results.push({ error: failed ? p.message || "The plate did not load." : "", fits: failed || !p.message, message: failed ? "" : p.message });
+    }
+    showActive();
+    return { results, index: activeIndex(), info: core.modelInfo(), parts: core.w.x.zs_app_part_count(core.app), ...settingsState() };
   },
 
   // The plate as a 3MF file, for keep.js.
@@ -831,6 +818,7 @@ self.onmessage = async (e) => {
     // each change; a change starts or extends a step.
     if (op === "init" || op === "projectSet" || (core && core.historyCount() === 0)) historyCommit();
     else if (SETTING_OPS.has(op) || PLATE_OPS.has(op)) historySchedule();
+    if (platesDirty) postPlates();
     const transfer = result?.bytes ? [result.bytes] : [];
     post({ id, result }, transfer);
   } catch (err) {
