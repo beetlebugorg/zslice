@@ -19,6 +19,7 @@ let package = Package(
                 .unsafeFlags(["-L", "lib"]),
                 .linkedFramework("Metal"),
                 .linkedFramework("QuartzCore"),
+                .linkedFramework("AVFoundation"),
             ]
         ),
     ]

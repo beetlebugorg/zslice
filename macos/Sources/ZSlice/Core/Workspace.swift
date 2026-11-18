@@ -216,6 +216,10 @@ final class Workspace {
             self.drag(drag[1], .command)
             release(drag[1])
         }
+        // ZSLICE_RECORD=path.mov records the demo of Recorder.swift.
+        if let path = env["ZSLICE_RECORD"] {
+            Task { @MainActor in await Recorder.record(self, to: URL(fileURLWithPath: path)) }
+        }
         // ZSLICE_ADD_PLATE="path;path": each file on a new plate.
         for path in (env["ZSLICE_ADD_PLATE"] ?? "").split(separator: ";") {
             model.addPlate()

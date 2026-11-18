@@ -361,22 +361,29 @@ final class MetalSliceView: NSView {
     }
 
     private func writeSnapshot(_ frame: CGImage, to url: URL) {
-        // Three layers: the frame of the window (the title bar and the
-        // toolbar), the Metal picture, then the controls of the content (the
-        // content is clear where the 3D view shows).
-        guard let window, let content = window.contentView else { return }
+        guard let out = windowImage(frame), let dest = CGImageDestinationCreateWithURL(url as CFURL, "public.png" as CFString, 1, nil) else { return }
+        CGImageDestinationAddImage(dest, out, nil)
+        CGImageDestinationFinalize(dest)
+    }
+
+    /// The window as an image, with a frame of the 3D view: three layers,
+    /// the frame of the window (the title bar and the toolbar), the Metal
+    /// picture, then the controls of the content (the content is clear
+    /// where the 3D view shows).
+    func windowImage(_ frame: CGImage) -> CGImage? {
+        guard let window, let content = window.contentView else { return nil }
         let outer = content.superview ?? content
         func image(of v: NSView) -> CGImage? {
             guard let rep = v.bitmapImageRepForCachingDisplay(in: v.bounds) else { return nil }
             v.cacheDisplay(in: v.bounds, to: rep)
             return rep.cgImage
         }
-        guard let back = image(of: outer), let front = image(of: content) else { return }
+        guard let back = image(of: outer), let front = image(of: content) else { return nil }
         let k = CGFloat(back.width) / outer.bounds.width
         let w = back.width, h = back.height
         guard let ctx = CGContext(data: nil, width: w, height: h, bitsPerComponent: 8, bytesPerRow: 0,
                                   space: CGColorSpace(name: CGColorSpace.sRGB)!, bitmapInfo: CGImageAlphaInfo.premultipliedFirst.rawValue)
-        else { return }
+        else { return nil }
         // A rect of a view in the context, which has its origin at the bottom left.
         func place(_ v: NSView) -> CGRect {
             let r = v.convert(v.bounds, to: nil)
@@ -391,9 +398,26 @@ final class MetalSliceView: NSView {
         ctx.clip(to: CGRect(x: 0, y: bar, width: CGFloat(w), height: CGFloat(h) - bar))
         ctx.draw(back, in: CGRect(x: 0, y: 0, width: w, height: h))
         ctx.restoreGState()
-        guard let out = ctx.makeImage(), let dest = CGImageDestinationCreateWithURL(url as CFURL, "public.png" as CFString, 1, nil) else { return }
-        CGImageDestinationAddImage(dest, out, nil)
-        CGImageDestinationFinalize(dest)
+        return ctx.makeImage()
+    }
+
+    /// Draws one frame now and gives the window as an image (for a video).
+    func captureWindow() async -> CGImage? {
+        guard let view, let renderer else { return nil }
+        let rc = zs_view_draw(view)
+        guard rc == 0, let frame = zs_view_web_frame(view) else { return nil }
+        let image: CGImage? = await withCheckedContinuation { (k: CheckedContinuation<CGImage?, Never>) in
+            let done: @Sendable (CGImage) -> Void = { img in k.resume(returning: img) }
+            if page == .twoD, let lr = layerRenderer {
+                renderer.sync(frame.pointee)
+                lr.setBed(from: frame.pointee)
+                lr.draw(layerFrame(view), in: metalLayer, snapshot: done)
+            } else {
+                renderer.draw(frame.pointee, in: metalLayer, snapshot: done)
+            }
+        }
+        delegate?.sliceViewDidDraw()
+        return image.flatMap { windowImage($0) }
     }
 
     // MARK: - input
