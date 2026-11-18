@@ -22,34 +22,6 @@ struct DocumentWindow: View {
     var body: some View {
         Color.clear
             .background { SliceView(canvas: workspace.canvas).ignoresSafeArea() }
-            // The cards and the tape float over the view, in the coordinates
-            // of the view (from the top of the window).
-            .overlay {
-                GeometryReader { geo in
-                    TapeOverlay(workspace: workspace, area: geo.size)
-                    if let l = workspace.ringLabel {
-                        Text(l.text)
-                            .font(.callout.weight(.semibold).monospacedDigit())
-                            .padding(.horizontal, 8)
-                            .padding(.vertical, 4)
-                            .background(.regularMaterial, in: Capsule())
-                            .position(x: l.at.x + 60, y: l.at.y - 24)
-                            .allowsHitTesting(false)
-                    }
-                    if let gap = workspace.gapCard {
-                        GapCard(workspace: workspace, gap: gap)
-                            .position(x: min(workspace.cardAt.x + 180, geo.size.width - 170), y: min(max(workspace.cardAt.y, 160), geo.size.height - 160))
-                    }
-                    if let i = workspace.selectedPart {
-                        PartCard(workspace: workspace, index: i, area: geo.size)
-                            .id(i)
-                    }
-                    if workspace.cardOpen, let info = workspace.lineInfo {
-                        LineCard(workspace: workspace, info: info, area: geo.size)
-                    }
-                }
-                .ignoresSafeArea()
-            }
             .overlay(alignment: .topLeading) {
                 HStack(alignment: .top, spacing: 10) {
                     VStack(spacing: 8) {
@@ -97,6 +69,34 @@ struct DocumentWindow: View {
                 // Clear of the layer slider and its number at the right edge.
                 .padding(.trailing, 84)
                 .padding(.bottom, 16)
+            }
+            // The cards and the tape float over all the controls, in the coordinates
+            // of the view (from the top of the window).
+            .overlay {
+                GeometryReader { geo in
+                    TapeOverlay(workspace: workspace, area: geo.size)
+                    if let l = workspace.ringLabel {
+                        Text(l.text)
+                            .font(.callout.weight(.semibold).monospacedDigit())
+                            .padding(.horizontal, 8)
+                            .padding(.vertical, 4)
+                            .background(.regularMaterial, in: Capsule())
+                            .position(x: l.at.x + 60, y: l.at.y - 24)
+                            .allowsHitTesting(false)
+                    }
+                    if let gap = workspace.gapCard {
+                        GapCard(workspace: workspace, gap: gap)
+                            .position(x: min(workspace.cardAt.x + 180, geo.size.width - 170), y: min(max(workspace.cardAt.y, 160), geo.size.height - 160))
+                    }
+                    if let i = workspace.selectedPart {
+                        PartCard(workspace: workspace, index: i, area: geo.size)
+                            .id(i)
+                    }
+                    if workspace.cardOpen, let info = workspace.lineInfo {
+                        LineCard(workspace: workspace, info: info, area: geo.size)
+                    }
+                }
+                .ignoresSafeArea()
             }
             // The search last, over the other controls.
             .overlay(alignment: .topLeading) {

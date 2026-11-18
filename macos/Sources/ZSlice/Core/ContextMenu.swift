@@ -35,7 +35,7 @@ final class ClosureItem: NSMenuItem {
 extension Workspace {
     /// The menu for a point of the view: it selects the line there first.
     func contextMenu(at p: CGPoint) -> NSMenu {
-        pick(at: p)
+        pick(at: p, card: false)
         let menu = NSMenu()
         if let s = selection, let v = canvas.view {
             let layer = zs_view_path_layer(v, s.path)
@@ -61,6 +61,9 @@ extension Workspace {
             menu.addItem(support)
             menu.addItem(ClosureItem("Block Support Here") { [weak self] in self?.addMark(Int32(ZS_MARK_BLOCK.rawValue)) })
             menu.addItem(ClosureItem("Remove the Support Marks Here") { [weak self] in self?.removeMarks() })
+            menu.addItem(.separator())
+            menu.addItem(ClosureItem("New Profile from Here Up") { [weak self] in self?.newLayerProfile(up: true) })
+            menu.addItem(ClosureItem("New Profile from Here Down") { [weak self] in self?.newLayerProfile(up: false) })
         }
         if zs_app_mark_count(model.core) > 0 {
             menu.addItem(ClosureItem("Clear All Support Marks") { [weak self] in
@@ -96,6 +99,27 @@ extension Workspace {
         while layer < tp.layer_count && Int(tp.layer_ends[layer]) <= s.path { layer += 1 }
         let z = layer < tp.layer_count ? Double(tp.layer_z[layer]) : 0
         return ((Double(pts[2 * i]) + Double(pts[2 * j])) / 2, (Double(pts[2 * i + 1]) + Double(pts[2 * j + 1])) / 2, z)
+    }
+
+    /// A layer profile from the layer of the selected line, up or down. The
+    /// drawer opens on it: a change goes only to its layers.
+    func newLayerProfile(up: Bool) {
+        guard let s = selection else { return }
+        var info = zs_inspect()
+        guard zs_app_inspect(model.core, s.path, &info) == 0 else { return }
+        let zMin = up ? info.z : -1e6, zMax = up ? 1e6 : info.z
+        let name = up ? "Layers \(info.layer + 1) and up" : "Layers 1 to \(info.layer + 1)"
+        guard zs_app_profile_set(model.core, zMin, zMax, name) == 0 else { return }
+        model.settingsChanged()
+        editScope(.layers(zMin: zMin, zMax: zMax, name: name))
+    }
+
+    /// Opens the settings drawer on a scope.
+    func editScope(_ scope: SettingScope) {
+        model.scope = scope
+        showSettings = true
+        drawerPage = .settings
+        settingsPath = []
     }
 
     private func addMark(_ kind: Int32) {

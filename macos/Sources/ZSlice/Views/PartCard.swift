@@ -67,6 +67,8 @@ struct PartCard: View {
                         PartSettingRow(workspace: workspace, index: index, info: s.info, value: s.value)
                     }
                 }
+                Button("Edit Settings for This Part…") { workspace.editScope(.part(index)) }
+                    .buttonStyle(.link)
                 Menu("Add a Setting for This Part") {
                     ForEach(sections, id: \.self) { section in
                         Menu(section.isEmpty ? "General" : section) {

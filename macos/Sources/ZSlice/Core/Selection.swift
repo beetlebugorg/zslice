@@ -50,8 +50,9 @@ extension Workspace {
 
     // MARK: - pick and select
 
-    /// A click at a point of the view (in points from its top left).
-    func pick(at p: CGPoint) {
+    /// A click at a point of the view (in points from its top left). card:
+    /// open the card of the line (a right click for the menu does not).
+    func pick(at p: CGPoint, card: Bool = true) {
         guard let v = canvas.view, model.state == .done || layerCount > 0 else { return }
         var seg = 0
         let path: Int
@@ -66,7 +67,7 @@ extension Workspace {
             clearSelection()
         } else {
             cardAt = p
-            select(path: path, seg: seg, openCard: true)
+            select(path: path, seg: seg, openCard: card)
         }
     }
 

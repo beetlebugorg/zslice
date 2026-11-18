@@ -183,24 +183,44 @@ enum ValueText {
 
 extension SliceModel {
     /// The value of a setting and its source.
+    /// The value of a setting and its source, in the scope of the editors:
+    /// the print, one part (its own value, else the value of the print), or
+    /// the layers of a profile (with their overrides).
     func entry(_ name: String) -> SettingEntry {
         _ = settingsGeneration
-        let value = setting(name)
+        let part: Int = if case let .part(i) = scope { i } else { -1 }
+        var value = setting(name)
         var level: Int32 = 0
         var profile = [CChar](repeating: 0, count: 256)
-        let rc = profile.withUnsafeMutableBufferPointer { zs_app_setting_source(core, -1, name, &level, $0.baseAddress, $0.count) }
+        let rc = profile.withUnsafeMutableBufferPointer { zs_app_setting_source(core, part, name, &level, $0.baseAddress, $0.count) }
+        if part >= 0, let own = coreString({ zs_app_part_setting_get(core, part, name, $0, $1, $2) }) { value = own }
         let base = coreString { zs_app_setting_base_get(core, name, $0, $1, $2) } ?? value
         let formula = coreString { zs_app_formula_get(core, name, $0, $1, $2) }
-        return SettingEntry(value: value, level: rc == 0 ? level : 0,
-                            profile: rc == 0 ? profile.withUnsafeBufferPointer { coreText($0.baseAddress) } : "",
-                            base: base, formula: formula)
+        var e = SettingEntry(value: value, level: rc == 0 ? level : 0,
+                             profile: rc == 0 ? profile.withUnsafeBufferPointer { coreText($0.baseAddress) } : "",
+                             base: base, formula: formula)
+        if case .layers = scope, let z = scope.z {
+            e.value = coreString { zs_app_setting_get_at(core, z, name, $0, $1, $2) } ?? value
+            // A change of these layers shows as "this print" (the accent).
+            if zs_app_override_at(core, z, name) != 0 { e.level = 5 }
+        }
+        return e
     }
 
-    /// Sets a setting for this print, and slices again. Returns the error
-    /// in words, or nil.
+    /// Sets a setting in the scope of the editors, and slices again.
+    /// Returns the error in words, or nil.
     @discardableResult
     func set(_ name: String, _ value: String) -> String? {
-        let rc = zs_app_setting_set(core, name, value)
+        let rc: Int32
+        switch scope {
+        case .print:
+            rc = zs_app_setting_set(core, name, value)
+        case let .part(i):
+            rc = zs_app_part_setting_set(core, i, name, value)
+        case let .layers(zMin, zMax, _):
+            guard SettingInfo.byName[name]?.perLayer == true else { return "This setting is for the whole print: it cannot change for some layers." }
+            rc = zs_app_override_set(core, zMin, zMax, name, value)
+        }
         guard rc == 0 else {
             return rc == ZS_OUT_OF_RANGE.rawValue ? "The value is out of the limits." : "The value is not valid (\(statusText(rc)))."
         }
@@ -208,14 +228,49 @@ extension SliceModel {
         return nil
     }
 
-    /// Sets a setting back to the value without the change of this print.
+    /// Sets a setting back: the value with no change of this print, the
+    /// value of the print for a part, or no change for the layers.
     func reset(_ name: String) {
-        set(name, entry(name).base)
+        switch scope {
+        case .print:
+            set(name, entry(name).base)
+        case let .part(i):
+            zs_app_part_setting_set(core, i, name, nil)
+            settingsChanged()
+        case let .layers(zMin, zMax, _):
+            zs_app_override_remove(core, zMin, zMax, name)
+            settingsChanged()
+        }
+    }
+
+    /// The layer profiles of the plate.
+    var layerProfiles: [(zMin: Double, zMax: Double, name: String)] {
+        _ = settingsGeneration
+        return (0 ..< zs_app_profile_count(core)).compactMap { i in
+            var p = zs_layer_profile()
+            guard zs_app_profile_get(core, i, &p) == 0 else { return nil }
+            let name = p.name.map { String(decoding: UnsafeRawBufferPointer(start: $0, count: p.name_len), as: UTF8.self) } ?? ""
+            return (p.z_min, p.z_max, name)
+        }
     }
 
     /// The print time and the plastic of each feature in the last slice.
     func featureStats() -> [zs_feature_stats]? {
         var out = [zs_feature_stats](repeating: zs_feature_stats(), count: Feature.count)
         return zs_app_feature_stats(core, &out) == 0 ? out : nil
+    }
+}
+
+/// What the editors of the settings change: the print, one part, or the
+/// layers of a layer profile (z_min..z_max).
+enum SettingScope: Hashable {
+    case print
+    case part(Int)
+    case layers(zMin: Double, zMax: Double, name: String)
+
+    /// A z in the range of a layer profile, to read its values.
+    var z: Double? {
+        guard case let .layers(a, b, _) = self else { return nil }
+        return a > -1e5 ? a : b
     }
 }

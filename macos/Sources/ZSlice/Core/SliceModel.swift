@@ -71,6 +71,10 @@ final class SliceModel {
     private(set) var plates: [PlateInfo] = []
     private(set) var active = 0
     var name = ""
+    /// What the editors change (Settings.swift).
+    var scope = SettingScope.print {
+        didSet { settingsGeneration += 1 }
+    }
     /// The open project, or nil (Project.swift).
     var project: ProjectState?
     private(set) var state = State.empty
@@ -133,6 +137,7 @@ final class SliceModel {
 
     /// The state of the active plate from its app, after it became active.
     private func readActive() {
+        scope = .print
         switch Int(zs_app_state(core)) {
         case Int(ZS_STATE_EMPTY.rawValue): state = .empty
         case Int(ZS_STATE_SLICING.rawValue): state = .slicing
