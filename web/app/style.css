@@ -672,11 +672,6 @@ button.destructive { background: #c01c28; color: #fff; }
 .lc-foot { gap: 6px; justify-content: space-between; }
 
 /* The rings of the Turn tool (turn.js). */
-.turn-rings { position: absolute; inset: 0; width: 100%; height: 100%; z-index: 3; pointer-events: none; overflow: visible; }
-.turn-rings polyline { fill: none; }
-.turn-hit { stroke: transparent; stroke-width: 16; pointer-events: stroke; cursor: grab; }
-.turn-line { stroke-width: 2.5; opacity: 0.85; pointer-events: none; }
-.turn-rings g:hover .turn-line, .turn-rings g.on .turn-line { stroke-width: 4; opacity: 1; }
 .turn-label { position: absolute; z-index: 7; pointer-events: none; padding: 3px 8px; border-radius: 7px; background: rgba(30, 30, 34, 0.92); color: #ececee; font-size: 0.85em; font-variant-numeric: tabular-nums; }
 /* The plate set: the bar of the plates, and a label over each plate. */
 .plate-bar {

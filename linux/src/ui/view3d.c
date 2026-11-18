@@ -15,13 +15,14 @@
  * Frames are drawn on demand: one idle callback for each change, so a view
  * that does not change uses no CPU.
  *
- * The widget draws over the subsurface with cairo: the rings of the Turn
- * tool (as web/app/turn.js). With the Turn tool and a selected part, three
- * rings go around the part: red turns it about X, green about Y, and blue
- * about Z (on the bed). A drag along a ring turns the part in steps of 15
- * degrees (Shift: 5); each step goes to the core at once. The rings are
- * made from the pixels of points around the part (zs_view_pixel_of), so
- * they follow the camera.
+ * The rings of the Turn tool (as web/app/turn.js): with the Turn tool and
+ * a selected part, three rings go around the part: red turns it about X,
+ * green about Y, and blue about Z (on the bed). The core view draws them,
+ * finds the ring under the pointer, and gives the angle of a drag
+ * (zs_view_set_rings, zs_view_ring_*). A drag turns the part in steps of
+ * 15 degrees (Shift: 5); each step goes to the core at once, and the part
+ * slices once, at the end of the drag. The widget draws over the
+ * subsurface with cairo: the label of the angle.
  *
  * SPDX-License-Identifier: AGPL-3.0-or-later
  */
@@ -73,18 +74,13 @@ typedef struct {
     gboolean dbl_hook, ring_hook;
     /* The calls after each frame (zg_view3d_on_frame). */
     GArray *hooks;
-    /* The rings of the Turn tool in widget points: SAMPLES + 1 points for
-     * each axis, and the center of the part. */
-    double ring[3][49][2];
-    int ring_n[3];
-    double ring_cx, ring_cy;
+    /* The rings of the Turn tool are on (the core view draws them). */
     gboolean rings_on;
     /* A drag of a ring: its axis (-1: none), the angle of the press, the
      * sense of the ring on the screen, the turn that the drag wants, the
      * turn sent to the core, and the pointer (for the label). */
     int turn_axis;
-    double turn_start, turn_want, turn_sent;
-    int turn_sense;
+    double turn_want, turn_sent;
     double turn_px, turn_py;
 } View3d;
 
@@ -94,7 +90,6 @@ typedef struct {
     gpointer data;
 } FrameHook;
 
-enum { RING_SAMPLES = 48 };
 
 static void queue_frame(View3d *v);
 static void compute_rings(View3d *v);
@@ -429,20 +424,10 @@ static void on_resize(GtkDrawingArea *area, int width, int height, gpointer data
 
 /* Draws only a message if the view could not start. Otherwise the widget
  * stays transparent. */
-static const double ring_colors[3][3] = {{0.898, 0.282, 0.302}, {0.188, 0.643, 0.424}, {0.243, 0.557, 0.969}};
 static const char *const axis_names[] = {"X", "Y", "Z"};
 
+/* The core view draws the rings. Here: the label of a turn. */
 static void draw_rings(View3d *v, cairo_t *cr) {
-    cairo_set_line_cap(cr, CAIRO_LINE_CAP_ROUND);
-    cairo_set_line_join(cr, CAIRO_LINE_JOIN_ROUND);
-    for (int a = 0; a < 3; a++) {
-        if (v->ring_n[a] < 2) continue;
-        cairo_move_to(cr, v->ring[a][0][0], v->ring[a][0][1]);
-        for (int i = 1; i < v->ring_n[a]; i++) cairo_line_to(cr, v->ring[a][i][0], v->ring[a][i][1]);
-        cairo_set_source_rgba(cr, ring_colors[a][0], ring_colors[a][1], ring_colors[a][2], v->turn_axis == a ? 1.0 : 0.85);
-        cairo_set_line_width(cr, v->turn_axis == a ? 5 : 3);
-        cairo_stroke(cr);
-    }
     if (v->turn_axis < 0) return;
     /* The turn of the drag, next to the pointer. */
     char text[48];
@@ -546,66 +531,28 @@ void zg_view3d_on_frame(GtkWidget *view, GtkWidget *owner, void (*fn)(gpointer),
 
 /* ---- the rings of the Turn tool ---- */
 
-/* The rings around the selected part, at the pixels of the camera now. */
+/* The rings around the selected part: the core view draws them, and finds
+ * the ring under a pixel (zs_view_set_rings, zs_view_ring_at). */
 static void compute_rings(View3d *v) {
+    gboolean was = v->rings_on;
     v->rings_on = FALSE;
     gint64 i = zg_model_selected_part(v->model);
     zs_part p;
-    if (!v->view || zg_model_tool(v->model) != ZG_TOOL_TURN || i < 0 ||
-        zs_app_part_get(zg_model_core(v->model), (size_t)i, &p) != ZS_OK)
-        return;
-    double c[3] = {p.x, p.y, p.size_z / 2};
-    double r = 0.62 * MAX(p.size_x, MAX(p.size_y, p.size_z)) + 4;
-    if (!zg_view3d_pixel_of(v->area, c[0], c[1], c[2], &v->ring_cx, &v->ring_cy)) return;
-    for (int a = 0; a < 3; a++) {
-        int n = 0;
-        for (int k = 0; k <= RING_SAMPLES; k++) {
-            double t = 2 * G_PI * k / RING_SAMPLES, ca = r * cos(t), sb = r * sin(t);
-            double q[3] = {c[0], c[1], c[2]};
-            if (a == 0) q[1] += ca, q[2] += sb;
-            else if (a == 1) q[0] += ca, q[2] += sb;
-            else q[0] += ca, q[1] += sb;
-            if (zg_view3d_pixel_of(v->area, q[0], q[1], q[2], &v->ring[a][n][0], &v->ring[a][n][1])) n++;
-        }
-        v->ring_n[a] = n;
+    if (v->view && zg_model_tool(v->model) == ZG_TOOL_TURN && i >= 0 && zs_app_part_get(zg_model_core(v->model), (size_t)i, &p) == ZS_OK) {
+        zs_view_set_rings(v->view, p.x, p.y, p.size_z / 2, 0.62 * MAX(p.size_x, MAX(p.size_y, p.size_z)) + 4);
+        v->rings_on = TRUE;
+    } else if (was && v->view) {
+        zs_view_set_rings(v->view, 0, 0, 0, 0);
     }
-    v->rings_on = TRUE;
+    if (was != v->rings_on) queue_frame(v);
 }
 
 /* The ring under the point x, y (within 8 points), or -1. */
 static int ring_at(View3d *v, double x, double y) {
     compute_rings(v);
     if (!v->rings_on) return -1;
-    int best = -1;
-    double best_d = 8;
-    for (int a = 0; a < 3; a++) {
-        for (int i = 1; i < v->ring_n[a]; i++) {
-            double ax = v->ring[a][i - 1][0], ay = v->ring[a][i - 1][1], bx = v->ring[a][i][0], by = v->ring[a][i][1];
-            double dx = bx - ax, dy = by - ay, len2 = dx * dx + dy * dy;
-            double t = len2 > 0 ? CLAMP(((x - ax) * dx + (y - ay) * dy) / len2, 0, 1) : 0;
-            double d = hypot(x - (ax + t * dx), y - (ay + t * dy));
-            if (d < best_d) {
-                best_d = d;
-                best = a;
-            }
-        }
-    }
-    return best;
-}
-
-/* The sense of a ring on the screen: +1 if the angle about the center
- * grows with the angle of the ring (with y down), else -1. */
-static int ring_sense(View3d *v, int a) {
-    double sum = 0;
-    for (int i = 1; i < v->ring_n[a]; i++) {
-        double a0 = atan2(v->ring[a][i - 1][1] - v->ring_cy, v->ring[a][i - 1][0] - v->ring_cx);
-        double a1 = atan2(v->ring[a][i][1] - v->ring_cy, v->ring[a][i][0] - v->ring_cx);
-        double d = a1 - a0;
-        if (d > G_PI) d -= 2 * G_PI;
-        if (d < -G_PI) d += 2 * G_PI;
-        sum += d;
-    }
-    return sum >= 0 ? 1 : -1;
+    int s = gtk_widget_get_scale_factor(v->area);
+    return zs_view_ring_at(v->view, (float)(x * s), (float)(y * s), 8.0f * s);
 }
 
 /* One step of a ring drag to the core: the turn since the last step. The
@@ -623,31 +570,42 @@ static void turn_send(View3d *v) {
     }
 }
 
-/* A press on a ring at x, y starts a turn. FALSE if no ring is there. */
+/* A press on a ring at x, y starts a turn. FALSE if no ring is there. The
+ * slices wait for the end of the drag. */
 static gboolean ring_press(View3d *v, double x, double y) {
     int a = ring_at(v, x, y);
     if (a < 0) return FALSE;
+    int s = gtk_widget_get_scale_factor(v->area);
+    if (!zs_view_ring_press(v->view, a, (float)(x * s), (float)(y * s))) return FALSE;
     v->turn_axis = a;
-    v->turn_start = atan2(y - v->ring_cy, x - v->ring_cx);
-    v->turn_sense = ring_sense(v, a);
     v->turn_want = v->turn_sent = 0;
     v->turn_px = x;
     v->turn_py = y;
+    zg_model_hold(v->model, TRUE);
+    queue_frame(v);
     gtk_widget_queue_draw(v->area);
     return TRUE;
 }
 
-/* The pointer of a ring drag is at x, y: the part turns in steps. */
+/* The pointer of a ring drag is at x, y: the part turns in steps (the core
+ * gives the angle, in the sense of the ring on the screen). */
 static void ring_move(View3d *v, double x, double y, gboolean fine) {
     v->turn_px = x;
     v->turn_py = y;
-    double delta = (atan2(y - v->ring_cy, x - v->ring_cx) - v->turn_start) * 180 / G_PI;
-    while (delta > 180) delta -= 360;
-    while (delta < -180) delta += 360;
-    double step = fine ? 5 : 15;
-    /* The part turns with the drag, in the sense of the ring. */
-    v->turn_want = round(v->turn_sense * delta / step) * step;
+    int s = gtk_widget_get_scale_factor(v->area);
+    v->turn_want = round(zs_view_ring_drag(v->view, (float)(x * s), (float)(y * s), fine ? 5 : 15));
     turn_send(v);
+    queue_frame(v);
+    gtk_widget_queue_draw(v->area);
+}
+
+/* The end of a ring drag: the part slices once. */
+static void ring_release(View3d *v) {
+    if (v->turn_axis < 0) return;
+    v->turn_axis = -1;
+    if (v->view) zs_view_ring_release(v->view);
+    zg_model_hold(v->model, FALSE);
+    queue_frame(v);
     gtk_widget_queue_draw(v->area);
 }
 
@@ -672,15 +630,31 @@ static gboolean ring_drag_step(gpointer data) {
     ring_move(v, d->x0 + (d->x1 - d->x0) * t, d->y0 + (d->y1 - d->y0) * t, FALSE);
     if (d->step < 12) return G_SOURCE_CONTINUE;
     g_message("ring drag: axis %d, %.0f degrees", v->turn_axis, v->turn_want);
-    /* The end of the drag: the label goes. */
-    v->turn_axis = -1;
-    gtk_widget_queue_draw(v->area);
+    /* The end of the drag: the label goes, and the part slices. */
+    ring_release(v);
     g_free(d);
     return G_SOURCE_REMOVE;
 }
 
 static void ring_drag_hook(gpointer data) {
     View3d *v = data;
+    /* "auto": from the point of the rings at +X to the point at +Y. */
+    if (strcmp(g_getenv("ZSLICE_RING_DRAG"), "auto") == 0) {
+        gint64 i = zg_model_selected_part(v->model);
+        zs_part p;
+        if (i < 0 || zs_app_part_get(zg_model_core(v->model), (size_t)i, &p) != ZS_OK) return;
+        double r = 0.62 * MAX(p.size_x, MAX(p.size_y, p.size_z)) + 4;
+        RingDrag *d = g_new0(RingDrag, 1);
+        d->v = v;
+        if (!zg_view3d_pixel_of(v->area, p.x + r, p.y, p.size_z / 2, &d->x0, &d->y0) ||
+            !zg_view3d_pixel_of(v->area, p.x, p.y + r, p.size_z / 2, &d->x1, &d->y1)) {
+            g_free(d);
+            return;
+        }
+        zg_model_set_tool(v->model, ZG_TOOL_TURN);
+        g_timeout_add(50, ring_drag_step, d);
+        return;
+    }
     char **f = g_strsplit(g_getenv("ZSLICE_RING_DRAG"), ",", 4);
     if (g_strv_length(f) == 4) {
         RingDrag *d = g_new0(RingDrag, 1);
@@ -820,10 +794,7 @@ static void on_drag_end(GtkGestureDrag *g, double dx, double dy, gpointer data) 
     View3d *v = data;
     v->moving = -1;
     v->tape_end = -1;
-    if (v->turn_axis >= 0) {
-        v->turn_axis = -1;
-        gtk_widget_queue_draw(v->area);
-    }
+    ring_release(v);
     tool_cursor(v);
     int mode = GPOINTER_TO_INT(g_object_get_data(G_OBJECT(g), "zg-drag"));
     if (mode == DRAG_RIGHT && fabs(dx) < 4 && fabs(dy) < 4) {

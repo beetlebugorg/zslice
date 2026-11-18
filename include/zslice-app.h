@@ -874,6 +874,24 @@ int zs_view_surface_point(const zs_view *view, float px, float py, int snap, dou
  * (x, y, z) for each point. The view draws a mark at each point and a line
  * between two. */
 void zs_view_set_measure(zs_view *view, size_t n, const double *pts);
+
+/* The rings of the Turn tool around (x, y, z), radius mm (0: none). The view
+ * draws them: red about X, green about Y, blue about Z; the ring of a turn
+ * in progress is thicker. The shells use the center (x, y, size_z / 2) of
+ * the part and the radius 0.62 * the largest size + 4 mm. */
+void zs_view_set_rings(zs_view *view, double x, double y, double z, double radius);
+/* The ring under the pixel within tol pixels: 0 X, 1 Y, 2 Z, or -1. */
+int zs_view_ring_at(const zs_view *view, float px, float py, float tol);
+/* Starts a turn on the ring of axis at the pixel of the press. 1 if it
+ * started. */
+int zs_view_ring_press(zs_view *view, int axis, float px, float py);
+/* The turn since the press in degrees, in steps of step_deg (0: none), in
+ * the sense of the ring on the screen, so the part turns with the pointer.
+ * Send the difference to the last value (zs_app_part_turn), with
+ * zs_set_changed_held, and zs_set_release at the end. */
+double zs_view_ring_drag(const zs_view *view, float px, float py, float step_deg);
+/* The end of a turn. */
+void zs_view_ring_release(zs_view *view);
 /* The pixel of a point of the world (mm), or 0 if it is behind the camera
  * (to grab an end of the measure tape). */
 int zs_view_pixel_of(const zs_view *view, double x, double y, double z, float *px, float *py);

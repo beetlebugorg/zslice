@@ -213,6 +213,47 @@ export fn zs_view_pixel_of(view: ?*const View, x: f64, y: f64, z: f64, px: ?*f32
 }
 
 /// The points of the measure tape: n (0, 1, or 2) points of 3 values.
+/// The rings of the Turn tool around (x, y, z) with radius `radius` mm
+/// (0: no rings). The view draws them: red about X, green about Y, blue
+/// about Z.
+export fn zs_view_set_rings(view: ?*View, x: f64, y: f64, z: f64, radius: f64) void {
+    if (!render_on) return;
+    const v = view orelse return;
+    v.setRings(.{ @floatCast(x), @floatCast(y), @floatCast(z) }, @floatCast(radius));
+}
+
+/// The ring under the pixel (px, py) within tol pixels: 0 X, 1 Y, 2 Z,
+/// or -1.
+export fn zs_view_ring_at(view: ?*const View, px: f32, py: f32, tol: f32) c_int {
+    if (!render_on) return -1;
+    const v = view orelse return -1;
+    return v.ringAt(px, py, tol);
+}
+
+/// Starts a turn on the ring of `axis` at the pixel. 1 if it started.
+export fn zs_view_ring_press(view: ?*View, axis: c_int, px: f32, py: f32) c_int {
+    if (!render_on) return 0;
+    const v = view orelse return 0;
+    if (axis < 0 or axis > 2) return 0;
+    return @intFromBool(v.ringPress(@intCast(axis), px, py));
+}
+
+/// The turn since the press, degrees, in steps of step_deg (0: none),
+/// with the sense of the ring on the screen. Send the difference to the
+/// last value to the part (zs_app_part_turn).
+export fn zs_view_ring_drag(view: ?*const View, px: f32, py: f32, step_deg: f32) f64 {
+    if (!render_on) return 0;
+    const v = view orelse return 0;
+    return v.ringDrag(px, py, step_deg);
+}
+
+/// The end of a turn.
+export fn zs_view_ring_release(view: ?*View) void {
+    if (!render_on) return;
+    const v = view orelse return;
+    v.ringRelease();
+}
+
 export fn zs_view_set_measure(view: ?*View, n: usize, pts: ?[*]const f64) void {
     if (!render_on) return;
     const v = view orelse return;

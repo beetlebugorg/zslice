@@ -48,6 +48,9 @@ struct _ZgModel {
     /* The plate set, and the app of its active plate. */
     zs_set *set;
     zs_app *core;
+    /* A drag or a turn holds the slices: each change marks the plate, and
+     * one slice starts at the release (zg_model_hold). */
+    gboolean held;
     /* The tool of the preview (ZgTool), and the points of the measure tape
      * (x, y, z each). */
     int tool;
@@ -125,8 +128,18 @@ static void sync_core(ZgModel *self) {
 /* The active plate changed: the set starts its slice. Notes the time for
  * the slice time in the status bar. */
 static int request_slice(ZgModel *self) {
+    if (self->held) return zs_set_changed_held(self->set, zs_set_active(self->set));
     self->slice_start = g_get_monotonic_time();
     return zs_set_changed(self->set, zs_set_active(self->set));
+}
+
+void zg_model_hold(ZgModel *self, gboolean hold) {
+    if (self->held == hold) return;
+    self->held = hold;
+    if (!hold) {
+        self->slice_start = g_get_monotonic_time();
+        zs_set_release(self->set);
+    }
 }
 
 /* The machine settings are the profile of the current printer; the

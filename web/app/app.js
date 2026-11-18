@@ -193,6 +193,8 @@ function drawFrame(now) {
   if (step.active) more = animateStep(now) || more;
   // The gaps follow the top layer.
   if (gaps.on && gaps.wanted !== layers.hi && app.state === "done") gaps.refresh(layers.hi);
+  // The rings of the Turn tool go in this frame (the core draws them).
+  turnRings?.place();
   const f = view.frame();
   if (app.page === "2d") {
     view2d.state.gaps = gaps.on && gaps.layer === layers.hi;
@@ -204,7 +206,6 @@ function drawFrame(now) {
   }
   tools?.placeTape();
   partCard?.place();
-  turnRings?.place();
   placePlateLabels();
   frameTimes[frameCount++ % frameTimes.length] = performance.now() - t0;
   if (more) requestFrame();
@@ -717,7 +718,8 @@ function clearFocus() {
 // The rings of the Turn tool around the selected part (turn.js).
 var turnRings = new TurnRings({
   host: $("preview"),
-  pixelOf: (p) => tools.pixelOf(p),
+  view,
+  frame: () => requestFrame(),
   part: () => (app.page === "3d" ? tools.part : null),
   active: () => tools.tool === "turn",
   turn: async (axis, degrees) => {

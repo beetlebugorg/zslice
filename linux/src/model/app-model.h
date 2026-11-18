@@ -313,4 +313,8 @@ void zg_model_project_sent(ZgModel *self);
 /* The text for a core status code. */
 const char *zg_status_text(int status);
 
+/* Holds the slices while hold is TRUE (a ring drag): each change marks the
+ * plate, and one slice starts when hold goes back to FALSE. */
+void zg_model_hold(ZgModel *self, gboolean hold);
+
 G_END_DECLS

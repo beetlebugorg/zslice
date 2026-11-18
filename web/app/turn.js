@@ -2,148 +2,118 @@
 // selected part, three rings go around the part: red turns it about X,
 // green about Y, and blue about Z (a turn on the bed). A drag along a ring
 // turns the part in steps of 15° (Shift: 5°); each step goes to the core
-// at once, and the part slices once, at the end of the drag. The rings are an SVG over the view,
-// made from the pixels of points around the part (zs_view_pixel_of), so
-// they follow the camera.
+// at once, and the part slices once, at the end of the drag.
+//
+// The core view draws the rings, finds the ring under the pointer, and
+// gives the angle of a drag (zs_view_set_rings, zs_view_ring_at,
+// zs_view_ring_press, zs_view_ring_drag, zs_view_ring_release), so the GTK
+// app and the macOS app have the same rings. This file has the events, the
+// cursor, and the label of the angle.
 //
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
-const NS = "http://www.w3.org/2000/svg";
-const AXES = [
-  { axis: 0, color: "#e5484d", name: "X" },
-  { axis: 1, color: "#30a46c", name: "Y" },
-  { axis: 2, color: "#3e8ef7", name: "Z" },
-];
-const SAMPLES = 48;
+const NAMES = ["X", "Y", "Z"];
+// The distance from a ring that still hits it, CSS pixels.
+const TOL = 8;
 
 export class TurnRings {
-  // ctx: { host (the element of the view), pixelOf(point) -> device
-  //        pixels or null, part() (the selected part or null), active()
-  //        (the Turn tool is on), turn(axis, degrees) -> Promise }
+  // ctx: { host (the element of the view), view (view.js: x, v), part()
+  //        (the selected part or null), active() (the Turn tool is on),
+  //        turn(axis, degrees) -> Promise, done() (the end of a drag),
+  //        frame() (request a frame) }
   constructor(ctx) {
     this.ctx = ctx;
-    this.svg = document.createElementNS(NS, "svg");
-    this.svg.classList.add("turn-rings");
-    this.rings = AXES.map((a) => {
-      const g = document.createElementNS(NS, "g");
-      const hit = document.createElementNS(NS, "polyline");
-      hit.classList.add("turn-hit");
-      const line = document.createElementNS(NS, "polyline");
-      line.classList.add("turn-line");
-      line.setAttribute("stroke", a.color);
-      const title = document.createElementNS(NS, "title");
-      title.textContent = `Drag to turn the part about ${a.name} (15° steps; Shift: 5°)`;
-      g.append(hit, line, title);
-      g.dataset.axis = String(a.axis);
-      g.addEventListener("pointerdown", (e) => this.press(e, a.axis));
-      this.svg.append(g);
-      return { g, hit, line, pts: [], center: null };
-    });
     this.label = document.createElement("div");
     this.label.className = "turn-label";
     this.label.hidden = true;
-    ctx.host.append(this.svg, this.label);
+    ctx.host.append(this.label);
     this.drag = null;
+    this.on = false;
+    // Capture: a press on a ring is a turn, and not an orbit of the view.
+    ctx.host.addEventListener("pointerdown", (e) => this.press(e), true);
+    ctx.host.addEventListener("pointermove", (e) => this.hover(e));
   }
 
-  // The points of the ring of `axis` around the part, in mm.
-  ringPoints(p, axis) {
-    const c = [p.x, p.y, p.sizeZ / 2];
-    const r = 0.62 * Math.max(p.sizeX, p.sizeY, p.sizeZ) + 4;
-    const out = [];
-    for (let i = 0; i <= SAMPLES; i++) {
-      const t = (2 * Math.PI * i) / SAMPLES;
-      const a = r * Math.cos(t);
-      const b = r * Math.sin(t);
-      if (axis === 0) out.push({ x: c[0], y: c[1] + a, z: c[2] + b });
-      else if (axis === 1) out.push({ x: c[0] + a, y: c[1], z: c[2] + b });
-      else out.push({ x: c[0] + a, y: c[1] + b, z: c[2] });
-    }
-    return out;
+  dpr() {
+    return window.devicePixelRatio || 1;
   }
 
-  // After each frame: the rings at the pixels of the part now.
+  // The pixel of a pointer event in the view, device pixels.
+  at(e) {
+    const r = this.ctx.host.getBoundingClientRect();
+    return [(e.clientX - r.left) * this.dpr(), (e.clientY - r.top) * this.dpr()];
+  }
+
+  // Before each frame: the rings around the part now, or none.
   place() {
     const p = this.ctx.part();
     const on = !!p && this.ctx.active();
-    this.svg.style.display = on ? "" : "none";
-    if (!on) {
-      this.label.hidden = true;
-      return;
+    const x = this.ctx.view.x;
+    const v = this.ctx.view.v;
+    if (on) {
+      x.zs_view_set_rings(v, p.x, p.y, p.sizeZ / 2, 0.62 * Math.max(p.sizeX, p.sizeY, p.sizeZ) + 4);
+    } else if (this.on) {
+      x.zs_view_set_rings(v, 0, 0, 0, 0);
     }
-    const dpr = window.devicePixelRatio || 1;
-    const center = this.ctx.pixelOf({ x: p.x, y: p.y, z: p.sizeZ / 2 });
-    for (const a of AXES) {
-      const ring = this.rings[a.axis];
-      const pts = [];
-      for (const q of this.ringPoints(p, a.axis)) {
-        const px = this.ctx.pixelOf(q);
-        if (px) pts.push([px[0] / dpr, px[1] / dpr]);
-      }
-      ring.pts = pts;
-      ring.center = center ? [center[0] / dpr, center[1] / dpr] : null;
-      const text = pts.map((q) => `${q[0].toFixed(1)},${q[1].toFixed(1)}`).join(" ");
-      ring.hit.setAttribute("points", text);
-      ring.line.setAttribute("points", text);
-    }
+    this.on = on;
+    if (!on) this.label.hidden = true;
   }
 
-  // The sense of a ring on the screen: +1 if the angle about the center
-  // grows with the angle of the ring (counterclockwise on the screen,
-  // with y down), else -1.
-  sense(ring) {
-    const c = ring.center;
-    if (!c || ring.pts.length < 3) return 1;
-    let sum = 0;
-    for (let i = 1; i < ring.pts.length; i++) {
-      const a0 = Math.atan2(ring.pts[i - 1][1] - c[1], ring.pts[i - 1][0] - c[0]);
-      const a1 = Math.atan2(ring.pts[i][1] - c[1], ring.pts[i][0] - c[0]);
-      let d = a1 - a0;
-      if (d > Math.PI) d -= 2 * Math.PI;
-      if (d < -Math.PI) d += 2 * Math.PI;
-      sum += d;
-    }
-    return sum >= 0 ? 1 : -1;
+  ringAt(e) {
+    if (!this.on) return -1;
+    const [px, py] = this.at(e);
+    return this.ctx.view.x.zs_view_ring_at(this.ctx.view.v, px, py, TOL * this.dpr());
   }
 
-  press(e, axis) {
-    if (e.button !== 0) return;
-    const ring = this.rings[axis];
-    if (!ring.center) return;
+  hover(e) {
+    if (this.drag || !this.on) return;
+    this.ctx.host.style.cursor = this.ringAt(e) >= 0 ? "grab" : "";
+  }
+
+  press(e) {
+    if (e.button !== 0 || !this.on) return;
+    const axis = this.ringAt(e);
+    if (axis < 0) return;
+    const [px, py] = this.at(e);
+    const x = this.ctx.view.x;
+    const v = this.ctx.view.v;
+    if (!x.zs_view_ring_press(v, axis, px, py)) return;
     e.preventDefault();
     e.stopPropagation();
-    const host = this.ctx.host.getBoundingClientRect();
-    const at = (ev) => Math.atan2(ev.clientY - host.top - ring.center[1], ev.clientX - host.left - ring.center[0]);
-    const sense = this.sense(ring);
-    this.drag = { axis, start: at(e), sent: 0, busy: false, want: 0 };
-    ring.g.classList.add("on");
-    const target = e.currentTarget;
-    target.setPointerCapture(e.pointerId);
+    this.drag = { axis, sent: 0, want: 0, busy: false };
+    this.ctx.host.style.cursor = "grabbing";
+    const target = e.target;
+    try {
+      target.setPointerCapture(e.pointerId);
+    } catch {
+      // A pointer with no capture (a test): the events still come here.
+    }
     const move = (ev) => {
       const d = this.drag;
       if (!d) return;
-      let delta = ((at(ev) - d.start) * 180) / Math.PI;
-      while (delta > 180) delta -= 360;
-      while (delta < -180) delta += 360;
-      const step = ev.shiftKey ? 5 : 15;
-      // The sense of the ring on the screen: the part turns with the drag.
-      d.want = Math.round((sense * delta) / step) * step;
+      ev.stopPropagation();
+      const [mx, my] = this.at(ev);
+      d.want = Math.round(x.zs_view_ring_drag(v, mx, my, ev.shiftKey ? 5 : 15));
       this.showLabel(ev, d.want);
       this.send();
     };
-    const up = () => {
-      // The turn is done: the slice that waited starts.
-      this.ctx.done?.();
-      target.removeEventListener("pointermove", move);
-      target.removeEventListener("pointerup", up);
-      target.removeEventListener("pointercancel", up);
-      ring.g.classList.remove("on");
+    const up = (ev) => {
+      ev.stopPropagation();
+      target.removeEventListener("pointermove", move, true);
+      target.removeEventListener("pointerup", up, true);
+      target.removeEventListener("pointercancel", up, true);
+      x.zs_view_ring_release(v);
       this.label.hidden = true;
       this.drag = null;
+      this.ctx.host.style.cursor = "";
+      // The turn is done: the slice that waited starts.
+      this.ctx.done?.();
+      this.ctx.frame();
     };
-    target.addEventListener("pointermove", move);
-    target.addEventListener("pointerup", up);
-    target.addEventListener("pointercancel", up);
+    target.addEventListener("pointermove", move, true);
+    target.addEventListener("pointerup", up, true);
+    target.addEventListener("pointercancel", up, true);
+    this.ctx.frame();
   }
 
   // One step at a time to the core: the turn since the last step.
@@ -160,7 +130,7 @@ export class TurnRings {
 
   showLabel(ev, deg) {
     const host = this.ctx.host.getBoundingClientRect();
-    this.label.textContent = `${deg > 0 ? "+" : ""}${deg}° about ${AXES[this.drag.axis].name}`;
+    this.label.textContent = `${deg > 0 ? "+" : ""}${deg}° about ${NAMES[this.drag.axis]}`;
     this.label.hidden = false;
     this.label.style.left = `${ev.clientX - host.left + 16}px`;
     this.label.style.top = `${ev.clientY - host.top - 30}px`;

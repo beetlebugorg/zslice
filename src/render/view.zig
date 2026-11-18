@@ -195,6 +195,14 @@ pub const View = struct {
     /// The footprint of the selected part (x0, y0, x1, y1), or null: a
     /// frame on the bed around it.
     part_box: ?[4]f32 = null,
+    /// The rings of the Turn tool around the selected part (see
+    /// `setRings`): the center and the radius, mm.
+    rings: ?struct { c: [3]f32, r: f32 } = null,
+    /// The ring of a turn in progress (0 X, 1 Y, 2 Z), or -1.
+    ring_axis: i8 = -1,
+    /// The press of a turn: the center of the ring on the screen, the
+    /// angle of the press about it, and the sense of the ring.
+    ring_press: struct { cx: f32 = 0, cy: f32 = 0, a0: f32 = 0, sense: f32 = 1 } = .{},
     layer: usize = 0,
     /// The lowest layer that shows (the bottom of the layer range).
     layer_lo: usize = 0,
@@ -1085,6 +1093,101 @@ pub const View = struct {
         const s = if (size > 0) size else v.extent;
         v.lookAtSmooth(.{ p[0], p[1], p[2] }, n, @max(20, 1.4 * s));
         return true;
+    }
+
+    /// The rings of the Turn tool: a ring for each axis around the point
+    /// c, with radius r mm (0: none). The view draws them (red X, green Y,
+    /// blue Z), and finds them under a pixel (`ringAt`).
+    pub fn setRings(v: *View, c: [3]f32, r: f32) void {
+        v.rings = if (r > 0) .{ .c = c, .r = r } else null;
+        if (v.rings == null) v.ring_axis = -1;
+    }
+
+    pub const ring_samples = 48;
+
+    /// The points of the ring of `axis`, mm.
+    pub fn ringPoints(v: *const View, axis: usize) [ring_samples + 1][3]f32 {
+        var out: [ring_samples + 1][3]f32 = undefined;
+        const rg = v.rings orelse return out;
+        for (&out, 0..) |*q, i| {
+            const t = 2 * std.math.pi * @as(f32, @floatFromInt(i)) / ring_samples;
+            const a = rg.r * @cos(t);
+            const b = rg.r * @sin(t);
+            q.* = switch (axis) {
+                0 => .{ rg.c[0], rg.c[1] + a, rg.c[2] + b },
+                1 => .{ rg.c[0] + a, rg.c[1], rg.c[2] + b },
+                else => .{ rg.c[0] + a, rg.c[1] + b, rg.c[2] },
+            };
+        }
+        return out;
+    }
+
+    /// The ring under the pixel (px, py), within tol pixels: 0, 1, or 2;
+    /// -1 for none. The nearest ring wins.
+    pub fn ringAt(v: *const View, px: f32, py: f32, tol: f32) i32 {
+        if (v.rings == null) return -1;
+        var best: i32 = -1;
+        var best_d = tol;
+        for (0..3) |axis| {
+            const pts = v.ringPoints(axis);
+            var prev: ?[2]f32 = null;
+            for (pts) |q| {
+                const cur = v.pixelOf(q);
+                if (prev != null and cur != null) {
+                    const d = segDist(px, py, prev.?, cur.?);
+                    if (d < best_d) {
+                        best_d = d;
+                        best = @intCast(axis);
+                    }
+                }
+                prev = cur;
+            }
+        }
+        return best;
+    }
+
+    /// Starts a turn on the ring of `axis` at the pixel (px, py). False if
+    /// there are no rings, or the center is behind the camera.
+    pub fn ringPress(v: *View, axis: u2, px: f32, py: f32) bool {
+        const rg = v.rings orelse return false;
+        const c = v.pixelOf(rg.c) orelse return false;
+        // The sense of the ring on the screen: +1 if the angle about the
+        // center grows with the angle of the ring (y down).
+        const pts = v.ringPoints(axis);
+        var sum: f32 = 0;
+        var prev: ?f32 = null;
+        for (pts) |q| {
+            const p = v.pixelOf(q) orelse continue;
+            const a = std.math.atan2(p[1] - c[1], p[0] - c[0]);
+            if (prev) |a0| {
+                var d = a - a0;
+                if (d > std.math.pi) d -= 2 * std.math.pi;
+                if (d < -std.math.pi) d += 2 * std.math.pi;
+                sum += d;
+            }
+            prev = a;
+        }
+        v.ring_axis = axis;
+        v.ring_press = .{ .cx = c[0], .cy = c[1], .a0 = std.math.atan2(py - c[1], px - c[0]), .sense = if (sum >= 0) 1 else -1 };
+        return true;
+    }
+
+    /// The turn since the press, in degrees, in steps of `step` degrees
+    /// (0: no steps), with the sense of the ring: the part turns with the
+    /// pointer. Between -180 and 180.
+    pub fn ringDrag(v: *const View, px: f32, py: f32, step: f32) f32 {
+        if (v.ring_axis < 0) return 0;
+        const rp = v.ring_press;
+        var d = (std.math.atan2(py - rp.cy, px - rp.cx) - rp.a0) * 180 / std.math.pi;
+        while (d > 180) d -= 360;
+        while (d < -180) d += 360;
+        d *= rp.sense;
+        return if (step > 0) @round(d / step) * step else d;
+    }
+
+    /// The end of a turn.
+    pub fn ringRelease(v: *View) void {
+        v.ring_axis = -1;
     }
 
     /// The angle of a drag: radians for each pixel.
@@ -2249,6 +2352,43 @@ pub const View = struct {
                         }
                     }
                 }
+                // The rings of the Turn tool: short beads along each ring
+                // (a bead is level, so a slope of the ring is a stair).
+                if (v.rings) |_| {
+                    const span = std.math.clamp(v.dist * 0.003, 0.12, 2);
+                    const colors = [3][4]u8{ .{ 0xe5, 0x48, 0x4d, code_overlay }, .{ 0x30, 0xa4, 0x6c, code_overlay }, .{ 0x3e, 0x8e, 0xf7, code_overlay } };
+                    for (0..3) |axis| {
+                        const active = v.ring_axis == @as(i8, @intCast(axis));
+                        const w = if (active) span * 2.5 else span * 1.4;
+                        const pts = v.ringPoints(axis);
+                        // 4 short beads for each sample, which overlap,
+                        // so a steep part of a ring has no gaps.
+                        const sub = 4;
+                        for (0..ring_samples) |k| for (0..sub) |q| {
+                            if (n_extras == extras.len) break;
+                            const t0 = @as(f32, @floatFromInt(q)) / sub;
+                            const t1 = @as(f32, @floatFromInt(q + 1)) / sub;
+                            const p0 = pts[k];
+                            const p1 = pts[k + 1];
+                            const a = [3]f32{ p0[0] + (p1[0] - p0[0]) * t0, p0[1] + (p1[1] - p0[1]) * t0, p0[2] + (p1[2] - p0[2]) * t0 };
+                            const b = [3]f32{ p0[0] + (p1[0] - p0[0]) * t1, p0[1] + (p1[1] - p0[1]) * t1, p0[2] + (p1[2] - p0[2]) * t1 };
+                            const h = @max(w, @abs(b[2] - a[2]) * 1.6);
+                            const dx = b[0] - a[0];
+                            const dy = b[1] - a[1];
+                            const len = @sqrt(dx * dx + dy * dy);
+                            // A vertical piece: a bead as long as it is wide.
+                            const ex = if (len < w) (if (len > 1e-6) dx / len else 1) * w / 2 else 0;
+                            const ey = if (len < w) (if (len > 1e-6) dy / len else 0) * w / 2 else 0;
+                            const mx = (a[0] + b[0]) / 2;
+                            const my = (a[1] + b[1]) / 2;
+                            extras[n_extras] = if (len < w)
+                                .{ .ax = mx - ex, .ay = my - ey, .bx = mx + ex, .by = my + ey, .z = (a[2] + b[2]) / 2 + h / 2, .h = h, .w = w, .rgba = colors[axis] }
+                            else
+                                .{ .ax = a[0], .ay = a[1], .bx = b[0], .by = b[1], .z = (a[2] + b[2]) / 2 + h / 2, .h = h, .w = w, .rgba = colors[axis] };
+                            n_extras += 1;
+                        };
+                    }
+                }
                 // The frame of the selected part: four thin beads on the bed.
                 if (v.part_box) |pb| {
                     const corners = [_][2]f32{ .{ pb[0], pb[1] }, .{ pb[2], pb[1] }, .{ pb[2], pb[3] }, .{ pb[0], pb[3] } };
@@ -2607,6 +2747,17 @@ fn lookAt(eye: [3]f32, at: [3]f32, up: [3]f32) [16]f32 {
 
 fn cross(a: [3]f32, b: [3]f32) [3]f32 {
     return .{ a[1] * b[2] - a[2] * b[1], a[2] * b[0] - a[0] * b[2], a[0] * b[1] - a[1] * b[0] };
+}
+
+/// The distance from (px, py) to the segment a-b, pixels.
+fn segDist(px: f32, py: f32, a: [2]f32, b: [2]f32) f32 {
+    const ex = b[0] - a[0];
+    const ey = b[1] - a[1];
+    const l2 = ex * ex + ey * ey;
+    const t = if (l2 > 0) std.math.clamp(((px - a[0]) * ex + (py - a[1]) * ey) / l2, 0, 1) else 0;
+    const dx = a[0] + ex * t - px;
+    const dy = a[1] + ey * t - py;
+    return @sqrt(dx * dx + dy * dy);
 }
 
 fn dot(a: [3]f32, b: [3]f32) f32 {
