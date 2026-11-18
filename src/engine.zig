@@ -1072,8 +1072,8 @@ const Slot = struct {
 ///    the start of the layer (the nozzle position, the fan, the time). This
 ///    step is fast, because it formats no numbers.
 /// 3. Text. Any thread writes the G-code text of a layer into its slot,
-///    with a copy of the emitter from step 2. The emitter thread writes the
-///    texts out in layer order.
+///    with a copy of the emitter from step 2. Any thread then sends the
+///    texts out in layer order, one thread at a time (see `outSome`).
 ///
 /// Each step depends only on the layer index and on the steps before it,
 /// so the output is the same for each thread count.
@@ -1174,7 +1174,7 @@ const Pipeline = struct {
     /// Sends out the texts that are ready, in layer order, and gives each
     /// layer to the sink. One thread does this at a time, and any thread
     /// can: the emitter thread stays free for the dry runs. Returns false
-    /// if there was nothing to do now.
+    /// if no text was ready.
     fn outSome(p: *Pipeline) bool {
         var progress = false;
         while (true) {
