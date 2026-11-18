@@ -155,8 +155,8 @@ static void ask_send(Page *p, const char *id, gint64 plate, gboolean busy) {
     const char *pname = zs_set_plate_info(set, idx, &info) == ZS_OK && info.name[0] ? info.name : "the plate";
     ZgPrinter *cur = zg_printers_current();
     gboolean other = cur && g_strcmp0(cur->id, pr->id) != 0;
-    /* A printdeck waits for a press of Print on the deck. */
-    char *detail = g_strdup_printf(pr->kind == ZG_LINK_PRINTDECK ? "It waits on %s until someone presses Print on the deck.%s%s%s%s" : "Is the bed of %s clear? The print can start when the file is there.%s%s%s%s", pr->name, busy ? "\n\nThe printer looks busy now." : "",
+    /* A printdeck set to ask waits for a press of Print on the deck. */
+    char *detail = g_strdup_printf(pr->kind == ZG_LINK_PRINTDECK ? "Is the bed of %s clear? The print can start when the file is there (a deck set to ask waits for a press of Print on it).%s%s%s%s" : "Is the bed of %s clear? The print can start when the file is there.%s%s%s%s", pr->name, busy ? "\n\nThe printer looks busy now." : "",
                                    other ? "\n\nThe plate is sliced for " : "", other ? cur->name : "", other ? ", another printer." : "");
     char *msg = g_strdup_printf("Send \"%s\" to %s?", pname, pr->name);
     GtkAlertDialog *d = gtk_alert_dialog_new("%s", msg);

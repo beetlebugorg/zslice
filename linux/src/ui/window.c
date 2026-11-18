@@ -791,9 +791,9 @@ static void on_send_done(gboolean ok, const char *message, gpointer data) {
     if (ok) {
         /* A printdeck waits for a press of Print on the deck. */
         ZgPrinter *cur = zg_printers_current();
-        const char *fmt = cur->kind == ZG_LINK_PRINTDECK ? "Sent to %s. It waits there: press Print on the deck to start it."
-                          : w->send_print ? "Sent to %s; it prints."
-                                          : "Sent to %s.";
+        const char *fmt = !w->send_print ? "Sent to %s."
+                          : cur->kind == ZG_LINK_PRINTDECK ? "Sent to %s. It prints, or waits for a press of Print if the deck is set to ask."
+                                                           : "Sent to %s; it prints.";
         char *text = g_strdup_printf(fmt, cur->name);
         gtk_label_set_text(GTK_LABEL(w->printer_state), text);
         g_free(text);
@@ -847,14 +847,41 @@ static void send_checked(Window *w) {
     send_now(w);
 }
 
-static void send(Window *w, gboolean print) {
-    w->send_print = print;
+static void send_go(Window *w) {
     int state = zs_app_state(zg_model_core(w->model));
     if (state == ZS_STATE_SLICING) {
         w->send_pending = TRUE;
         return;
     }
     if (state == ZS_STATE_DONE) send_checked(w);
+}
+
+static void on_bed_clear_answer(GObject *src, GAsyncResult *res, gpointer data) {
+    Window *w = data;
+    int choice = gtk_alert_dialog_choose_finish(GTK_ALERT_DIALOG(src), res, NULL);
+    if (choice == 1) send_go(w);
+}
+
+/* A print can start as soon as the file is there: a fresh yes of the
+ * person, each time. (A printdeck set to ask waits for a press on it.) */
+static void send(Window *w, gboolean print) {
+    w->send_print = print;
+    ZgPrinter *pr = zg_printers_current();
+    if (!print || !pr) {
+        send_go(w);
+        return;
+    }
+    char *msg = g_strdup_printf("Is the bed of %s clear?", pr->name);
+    GtkAlertDialog *d = gtk_alert_dialog_new("%s", msg);
+    gtk_alert_dialog_set_detail(d, pr->kind == ZG_LINK_PRINTDECK ? "The print starts when the file is there. A deck set to ask waits for a press of Print on it."
+                                                                  : "The print starts when the file is there.");
+    const char *buttons[] = {"Cancel", "Print", NULL};
+    gtk_alert_dialog_set_buttons(d, buttons);
+    gtk_alert_dialog_set_cancel_button(d, 0);
+    gtk_alert_dialog_set_default_button(d, 1);
+    gtk_alert_dialog_choose(d, GTK_WINDOW(w->window), NULL, on_bed_clear_answer, w);
+    g_object_unref(d);
+    g_free(msg);
 }
 
 /* ---- all plates ---- */
@@ -1146,15 +1173,13 @@ static void update_printer_ui(Window *w) {
     if (linked) {
         /* The label names the kind of link; the printer is in the menu at
          * the left, and in the tooltip. */
-        /* A printdeck starts a print only with a press of Print on the
-         * deck: the button sends. */
-        const char *label = pr->kind == ZG_LINK_PRINTDECK ? "Send to Deck"
+        const char *label = pr->kind == ZG_LINK_PRINTDECK ? "Print to Printdeck"
                             : pr->kind == ZG_LINK_OCTOPRINT ? "Print to OctoPrint"
                             : pr->kind == ZG_LINK_MOONRAKER ? "Print to Moonraker"
                                                              : "Print";
         gtk_button_set_label(GTK_BUTTON(w->send_button), label);
         char *tip = g_strdup_printf(pr->kind == ZG_LINK_USB ? "Print on %s over USB"
-                                    : pr->kind == ZG_LINK_PRINTDECK ? "Send the G-code to %s. It waits there until someone presses Print on the deck."
+                                    : pr->kind == ZG_LINK_PRINTDECK ? "Upload the G-code to %s and start the print (a deck set to ask waits for a press of Print on it)"
                                                                     : "Upload the G-code to %s and start the print",
                                     pr->name);
         gtk_widget_set_tooltip_text(w->send_button, tip);

@@ -1911,10 +1911,10 @@ function updateSummary() {
   $("send-box").hidden = !linked;
   $("export").hidden = linked;
   if (linked) {
-    // A printdeck starts a print only with a press of Print on the deck.
-    const deck = pr.kind === "printdeck";
-    $("send").textContent = sending ? "Sending…" : deck ? "Send to Deck" : `Print to ${KINDS[pr.kind] ?? pr.kind}`;
-    $("send").title = deck ? `Send the G-code to ${pr.name}. It waits there until someone presses Print on the deck.` : `Upload the G-code to ${pr.name} and start the print`;
+    $("send").textContent = sending ? "Sending…" : `Print to ${KINDS[pr.kind] ?? pr.kind}`;
+    // A printdeck with "Start prints from the slicer" off waits for a
+    // press of Print on the deck.
+    $("send").title = pr.kind === "printdeck" ? `Upload the G-code to ${pr.name} and start the print (a deck set to ask waits for a press of Print on it)` : `Upload the G-code to ${pr.name} and start the print`;
     $("send").disabled = app.state !== "done" || sending;
     $("send-menu").disabled = app.state !== "done" || sending;
   }
@@ -2081,6 +2081,9 @@ async function sendGcode(print) {
   const pr = currentPrinter();
   if (!pr || app.state !== "done" || sending) return;
   if (app.fits === false && !window.confirm("A part is off the bed or on another part. The printer can hit its frame or the other part. Go on?")) return;
+  // A print can start as soon as the file is there: a fresh yes of the
+  // person, each time. (A printdeck set to ask waits for a press on it.)
+  if (print && !window.confirm(`Is the bed of ${pr.name} clear? The print starts when the file is there.`)) return;
   const r = await client.call("gcode", { plate: app.activePlate, plates: app.plates.length });
   if (!r.bytes) {
     toast("No G-code: slice first.");

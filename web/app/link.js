@@ -198,10 +198,19 @@ export async function send(printer, filename, bytes, print) {
     return { ok: false, message: `The printer answered ${r.status}${text ? `: ${text}` : ""}.` };
   }
   const where = KINDS[printer.kind] ?? printer.kind;
-  // A printdeck never starts a print from the network: a person at the
-  // deck presses Print.
-  if (printer.kind === "printdeck") return { ok: true, message: `Sent to ${printer.name}. It waits there: press Print on the deck to start it.` };
-  return { ok: true, message: print ? `Sent to ${printer.name} (${where}); the print starts.` : `Uploaded to ${printer.name} (${where}).` };
+  // A printdeck with "Start prints from the slicer" off asks on its screen:
+  // its reply has effectivePrint false, and the print waits for a press of
+  // Print on the deck.
+  let started = print;
+  if (print && printer.kind === "printdeck") {
+    try {
+      started = (await r.json()).effectivePrint !== false;
+    } catch {
+      // No JSON: as asked.
+    }
+    if (!started) return { ok: true, message: `Sent to ${printer.name}. It waits there: press Print on the deck to start it.` };
+  }
+  return { ok: true, message: started ? `Sent to ${printer.name} (${where}); the print starts.` : `Uploaded to ${printer.name} (${where}).` };
 }
 
 // Asks the printer for an API key with the App Keys flow of OctoPrint
