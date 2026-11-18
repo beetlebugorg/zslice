@@ -136,6 +136,11 @@ int zs_setting_parse(const char *name, const char *text, char *buf, size_t cap, 
  * print", "This part", or "= formula". */
 int zs_setting_source_text(int level, const char *profile, const char *formula, char *buf, size_t cap, size_t *out_len);
 
+/* 1 if a change line of a history step (zs_history_step.changes, one change
+ * a line) can be undone alone with zs_app_history_revert: not the quality,
+ * and not a move, turn, orientation, or scale of a part. */
+int zs_history_revertible(const char *line, size_t len);
+
 /* The settings, in the order to show them. */
 size_t zs_setting_count(void);
 int zs_setting_get_info(size_t index, zs_setting_info *out);

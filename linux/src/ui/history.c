@@ -240,14 +240,9 @@ static char *step_time(gint64 t) {
 }
 
 /* A change that cannot be undone alone: the place of a part. */
+/* A change that can be undone alone: the rule of the core. */
 static gboolean revertible(const char *line) {
-    if (strstr(line, "\tquality\t")) return FALSE;
-    if (!g_str_has_prefix(line, "part:")) return TRUE;
-    const char *key = strchr(line, '\t');
-    if (!key) return FALSE;
-    key++;
-    return !(g_str_has_prefix(key, "(part)") || g_str_has_prefix(key, "position") || g_str_has_prefix(key, "rotation") || g_str_has_prefix(key, "orientation") ||
-             g_str_has_prefix(key, "scale"));
+    return zs_history_revertible(line, strlen(line)) != 0;
 }
 
 /* The changes of step i in words, as markup for a tooltip. */

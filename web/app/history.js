@@ -12,6 +12,7 @@
 
 import { el } from "./settings.js";
 import { openMenuAt } from "./menus.js";
+import { revertible } from "./format.js";
 
 // The look of each kind of step (history.c, looks).
 const LOOKS = {
@@ -32,15 +33,6 @@ const LOOKS = {
   other: ["#808080", "Other"],
   start: ["#808080", "Start"],
 };
-
-// A change that can be undone alone (history.c, revertible): not the
-// quality, and not a move, turn, or scale of a part.
-function revertible(line) {
-  if (line.includes("\tquality\t")) return false;
-  if (!line.startsWith("part:")) return true;
-  const key = line.split("\t")[1] ?? "";
-  return !/^(\(part\)|position|rotation|orientation|scale)/.test(key);
-}
 
 function clock(ms) {
   const d = new Date(ms);

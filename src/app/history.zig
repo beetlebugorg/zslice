@@ -334,6 +334,27 @@ pub fn stepKind(gpa: Allocator, changes: []const u8) Allocator.Error!Kind {
 
 /// Writes the changes of a diff in words, one on each line: "scope in
 /// words\tchange in words".
+/// True if a change line of a step (a line of the diff) can be undone
+/// alone: not the quality, and not a move, turn, orientation, or scale of
+/// a part (those come only with the whole step).
+pub fn revertible(line: []const u8) bool {
+    if (std.mem.indexOf(u8, line, "\tquality\t") != null) return false;
+    if (!std.mem.startsWith(u8, line, "part:")) return true;
+    const tab = std.mem.indexOfScalar(u8, line, '\t') orelse return false;
+    const key = line[tab + 1 ..];
+    for ([_][]const u8{ "(part)", "position", "rotation", "orientation", "scale" }) |k| {
+        if (std.mem.startsWith(u8, key, k)) return false;
+    }
+    return true;
+}
+
+test "history: the changes that can be undone alone" {
+    try std.testing.expect(revertible("print\tproject.infill_density\t0.2\t0.4"));
+    try std.testing.expect(!revertible("print\tquality\tfine\tdraft"));
+    try std.testing.expect(!revertible("part:0\tposition\t1,2\t3,4"));
+    try std.testing.expect(revertible("part:0\tproject.wall_count\t2\t3"));
+}
+
 pub fn describe(gpa: Allocator, changes: []const u8, part_z: f64, layer_z: []const f32, w: *std.Io.Writer) (Allocator.Error || std.Io.Writer.Error)!void {
     var arena_state = std.heap.ArenaAllocator.init(gpa);
     defer arena_state.deinit();

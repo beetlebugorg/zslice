@@ -45,6 +45,23 @@ function coreText(fn) {
   }
 }
 
+// A change line of a history step that can be undone alone
+// (zs_history_revertible): not the quality, and not a move, turn,
+// orientation, or scale of a part.
+export function revertible(line) {
+  if (core) {
+    try {
+      return core.withString(line, (p, n) => core.x.zs_history_revertible(p, n)) === 1;
+    } catch {
+      // The rule below.
+    }
+  }
+  if (line.includes("\tquality\t")) return false;
+  if (!line.startsWith("part:")) return true;
+  const key = line.split("\t")[1] ?? "";
+  return !/^(\(part\)|position|rotation|orientation|scale)/.test(key);
+}
+
 function isAuto(info) { return info.name.endsWith("line_width"); }
 export function isRatio(info) { return (info.kind === "number" || info.kind === "integer") && info.unit === "%"; }
 export function isNumber(info) { return info.kind === "number" || info.kind === "integer"; }

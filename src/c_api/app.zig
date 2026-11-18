@@ -143,6 +143,14 @@ export fn zs_setting_source_text(level: c_int, profile: ?[*:0]const u8, formula:
     return copyOut(aw.written(), buf, cap, out_len);
 }
 
+/// 1 if a change line of a history step (zs_history_step.changes) can be
+/// undone alone (zs_app_history_revert): not the quality, and not a move,
+/// turn, orientation, or scale of a part.
+export fn zs_history_revertible(line: ?[*]const u8, len: usize) c_int {
+    const l = line orelse return 0;
+    return @intFromBool(zs.app.history.revertible(l[0..len]));
+}
+
 export fn zs_setting_count() usize {
     return app_mod.settings_info.len;
 }
