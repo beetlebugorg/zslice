@@ -560,6 +560,9 @@ fn fits(c: *Ctx, nodes: *std.ArrayList(PlanNode), kids: []const u32, ml: u32, mx
             const pt: Point = .{ .x = @intFromFloat(nd.x + (mx - nd.x) * t), .y = @intFromFloat(nd.y + (my - nd.y) * t) };
             const fence = if (nd.layer - l <= p.tip_layers) try c.near.get(l) else try c.blocked.get(l);
             if (fence) |fi| if (fi.inside(pt)) return .strut;
+            // A branch that can reach the bed stays out of the avoidance
+            // area on the way.
+            if (nd.free and nd.layer - l > p.tip_layers) if (try c.avoid.get(l)) |ai| if (ai.inside(pt)) return .avoid;
             if (l < 2) break;
         }
     }
@@ -913,6 +916,12 @@ fn build(gpa: Allocator, c: *Ctx, outlines: []const Paths, pl: []const PlanNode)
         const step = @as(f64, @floatFromInt(h)) * p.tan_angle;
         // 1. Each node goes toward its join (or down), then the tips and
         // the joins of this layer start.
+        const aidx = try c.avoid.get(j);
+        // The avoidance of this layer is the computed avoidance of a layer
+        // under it, moved in by `slack` (see `avoidance`).
+        var slack: f64 = 0;
+        for (j - j % avoid_every + 1..j + 1) |q| slack += @as(f64, @floatFromInt(geom.fromMm(c.layers[q].height))) * p.tan_angle;
+        const av: Avoid = .{ .idx = aidx, .slack = slack, .pad = c.pad };
         for (nodes.items) |*nd| if (nd.alive) {
             var tx: f64 = nd.x;
             var ty: f64 = nd.y;
@@ -935,6 +944,12 @@ fn build(gpa: Allocator, c: *Ctx, outlines: []const Paths, pl: []const PlanNode)
             if (d > step) {
                 dx *= step / d;
                 dy *= step / d;
+            }
+            // A free branch does not move into the avoidance area: it
+            // follows its join when it is out of the way.
+            if (nd.free and av.into(nd.x, nd.y, nd.x + dx, nd.y + dy)) {
+                if (!nd.chase and par != none) nd.chase = true;
+                continue;
             }
             nd.x += dx;
             nd.y += dy;
@@ -989,11 +1004,6 @@ fn build(gpa: Allocator, c: *Ctx, outlines: []const Paths, pl: []const PlanNode)
         if (nodes.items.len == 0) continue;
         const bidx = try c.blocked.get(j);
         const nidx = try c.near.get(j);
-        const aidx = try c.avoid.get(j);
-        // The avoidance of this layer is the computed avoidance of a layer
-        // under it, moved in by `slack` (see `avoidance`).
-        var slack: f64 = 0;
-        for (j - j % avoid_every + 1..j + 1) |q| slack += @as(f64, @floatFromInt(geom.fromMm(c.layers[q].height))) * p.tan_angle;
         for (nodes.items) |*nd| {
             if (!nd.alive) continue;
             nd.age +|= 1;
@@ -1075,7 +1085,7 @@ fn build(gpa: Allocator, c: *Ctx, outlines: []const Paths, pl: []const PlanNode)
             }
         }
         // Trunks that touch join (see `touch`).
-        try touch(a, nodes.items, pl, &branches, step, p.join_slack, p.touch * p.spacing, j -| p.fill_layers);
+        try touch(a, nodes.items, pl, &branches, step, p.join_slack, p.touch * p.spacing, j -| p.fill_layers, av);
         // 4. The circles of this layer.
         for (nodes.items) |nd| if (nd.alive) {
             try disks[j].append(a, .{ .x = nd.x, .y = nd.y, .r = nd.r, .id = nd.id });
@@ -1095,6 +1105,29 @@ fn build(gpa: Allocator, c: *Ctx, outlines: []const Paths, pl: []const PlanNode)
     return skeletonOf(gpa, a, disks, &branches);
 }
 
+/// The avoidance area of one layer: the edge index of a computed layer,
+/// moved in by `slack` (see `avoidance`).
+const Avoid = struct {
+    idx: ?geom.EdgeIndex,
+    slack: f64,
+    pad: f64,
+
+    /// How far (x, y) is in the area, µm; 0 or less: out of it.
+    fn depth(av: Avoid, x: f64, y: f64) f64 {
+        const ai = av.idx orelse return 0;
+        if (!ai.inside(.{ .x = @intFromFloat(x), .y = @intFromFloat(y) })) return 0;
+        const e = ai.nearestPoint(x, y, av.pad) orelse return std.math.inf(f64);
+        return e[2] - av.slack;
+    }
+
+    /// True if a move from (x0, y0) to (x1, y1) goes into the area, or
+    /// deeper into it.
+    fn into(av: Avoid, x0: f64, y0: f64, x1: f64, y1: f64) bool {
+        const d1 = av.depth(x1, y1);
+        return d1 > 0 and d1 > av.depth(x0, y0);
+    }
+};
+
 /// Trunks (branches with no join in the plan) whose circles are less
 /// than `reach` apart move toward each other by up to one step, if they
 /// can meet in `layers_left` layers, and join when the circle of one
@@ -1105,7 +1138,7 @@ fn build(gpa: Allocator, c: *Ctx, outlines: []const Paths, pl: []const PlanNode)
 /// from groups (union-find), so no order of the nodes counts. A group
 /// goes on as its widest circle (the mean of the widest, if there are
 /// two).
-fn touch(a: Allocator, nodes: []Node, pl: []const PlanNode, branches: *Branches, step: f64, slack: f64, reach: f64, layers_left: usize) Allocator.Error!void {
+fn touch(a: Allocator, nodes: []Node, pl: []const PlanNode, branches: *Branches, step: f64, slack: f64, reach: f64, layers_left: usize, av: Avoid) Allocator.Error!void {
     var roots: std.ArrayList(u32) = .empty;
     for (nodes, 0..) |nd, i| if (nd.alive and (pl[nd.plan].parent == none or nd.chase)) try roots.append(a, @intCast(i));
     const rs = roots.items;
@@ -1133,8 +1166,11 @@ fn touch(a: Allocator, nodes: []Node, pl: []const PlanNode, branches: *Branches,
     for (rs, moves) |i, m| {
         const len = @sqrt(m[0] * m[0] + m[1] * m[1]);
         const f = if (len > step) step / len else 1;
-        nodes[i].x += m[0] * f;
-        nodes[i].y += m[1] * f;
+        const nd = &nodes[i];
+        // A free trunk does not move into the avoidance area.
+        if (nd.free and av.into(nd.x, nd.y, nd.x + m[0] * f, nd.y + m[1] * f)) continue;
+        nd.x += m[0] * f;
+        nd.y += m[1] * f;
     }
     const up = try a.alloc(u32, rs.len);
     for (up, 0..) |*u, x| u.* = @intCast(x);
