@@ -15,6 +15,7 @@
 #include "history.h"
 #include "inspector.h"
 #include "project-page.h"
+#include "farm-page.h"
 #include "settings-browser.h"
 
 #include <string.h>
@@ -123,6 +124,7 @@ GtkWidget *zg_settings_panel_new(ZgModel *model) {
     gtk_stack_add_titled(GTK_STACK(stack), zg_inspector_new(model, stack), "selected", "Selected");
     gtk_stack_add_titled(GTK_STACK(stack), zg_history_page_new(model, stack), "history", "History");
     gtk_stack_add_titled(GTK_STACK(stack), zg_project_page_new(model), "project", "Project");
+    gtk_stack_add_titled(GTK_STACK(stack), zg_farm_page_new(model), "farm", "Printers");
     gtk_stack_set_visible_child(GTK_STACK(stack), browser);
     GtkWidget *switcher = gtk_stack_switcher_new();
     gtk_stack_switcher_set_stack(GTK_STACK_SWITCHER(switcher), GTK_STACK(stack));
