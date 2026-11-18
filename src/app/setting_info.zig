@@ -112,6 +112,10 @@ const units = [_][2][]const u8{
     .{ "machine.hour_rate", "/h" },
     .{ "machine.max_accel", "mm/s²" },
     .{ "machine.corner_speed", "mm/s" },
+    .{ "machine.max_accel_x", "mm/s²" },
+    .{ "machine.max_accel_y", "mm/s²" },
+    .{ "machine.max_speed_x", "mm/s" },
+    .{ "machine.max_speed_y", "mm/s" },
     .{ "machine.retract_length", "mm" },
     .{ "machine.retract_speed", "mm/s" },
     // filament
@@ -230,6 +234,10 @@ const sliders = [_]struct { []const u8, f64, f64, f64 }{
     .{ "machine.hour_rate", 0, 10, 0.05 },
     .{ "machine.max_accel", 100, 10000, 100 },
     .{ "machine.corner_speed", 0, 30, 1 },
+    .{ "machine.max_accel_x", 0, 20000, 100 },
+    .{ "machine.max_accel_y", 0, 20000, 100 },
+    .{ "machine.max_speed_x", 0, 1000, 10 },
+    .{ "machine.max_speed_y", 0, 1000, 10 },
     .{ "machine.retract_length", 0, 8, 0.1 },
     .{ "machine.retract_speed", 10, 80, 5 },
     // filament

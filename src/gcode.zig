@@ -636,8 +636,24 @@ pub const Emitter = struct {
     /// The time of an XY move of length d at speed v: in the first pass,
     /// the move goes into the list; in the second pass, its planned time
     /// goes into the statistics.
-    fn addMove(self: *Emitter, dx: f64, dy: f64, d: f64, v: f64, e_ratio: f64) Error!void {
-        const a = if (self.accel > 0) self.accel else self.r.settings.machine.max_accel;
+    /// The limits of the axes of the machine, for the time estimate (the
+    /// firmware applies them; the G-code keeps its speeds).
+    fn axes(self: *const Emitter) motion.Axes {
+        const m = self.r.settings.machine;
+        return .{
+            .corexy = m.kinematics == .corexy,
+            // Klipper limits the head in all directions alike.
+            .motors = m.gcode_flavor != .klipper,
+            .accel = if (m.gcode_flavor == .klipper) .{ 0, 0 } else .{ m.max_accel_x, m.max_accel_y },
+            .speed = if (m.gcode_flavor == .klipper) .{ 0, 0 } else .{ m.max_speed_x, m.max_speed_y },
+        };
+    }
+
+    fn addMove(self: *Emitter, dx: f64, dy: f64, d: f64, v0: f64, e_ratio: f64) Error!void {
+        const a0 = if (self.accel > 0) self.accel else self.r.settings.machine.max_accel;
+        const va = self.axes().cap(dx / d, dy / d, v0, a0);
+        const v = va[0];
+        const a = va[1];
         if (self.collect) |list| {
             try list.append(self.gpa, .{ .dir = .{ dx / d, dy / d }, .len = d, .speed = v, .accel = a, .e_ratio = e_ratio, .stop_before = self.stop });
         } else if (self.next_move < self.planned.len) {
@@ -1076,7 +1092,10 @@ pub const Emitter = struct {
     }
 
     /// `addMove` for a move with a Z part, and its own acceleration.
-    fn addMove3(self: *Emitter, dx: f64, dy: f64, dz: f64, d: f64, v: f64, a: f64, e_ratio: f64) Error!void {
+    fn addMove3(self: *Emitter, dx: f64, dy: f64, dz: f64, d: f64, v0: f64, a0: f64, e_ratio: f64) Error!void {
+        const va = self.axes().cap(dx / d, dy / d, v0, a0);
+        const v = va[0];
+        const a = va[1];
         if (self.collect) |list| {
             try list.append(self.gpa, .{ .dir = .{ dx / d, dy / d }, .dir_z = dz / d, .len = d, .speed = v, .accel = a, .e_ratio = e_ratio, .stop_before = self.stop });
         } else if (self.next_move < self.planned.len) {

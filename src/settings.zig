@@ -43,6 +43,8 @@ pub const SupportStyle = enum { grid, tree, bridge };
 /// The G-code dialect for the acceleration commands. See `Machine.gcode_flavor`.
 pub const GcodeFlavor = enum { marlin, klipper, reprap, repetier };
 pub const ExtruderKind = enum { direct, bowden };
+/// How the motors move the head. See `Machine.kinematics`.
+pub const Kinematics = enum { cartesian, corexy };
 
 pub const Machine = struct {
 
@@ -103,6 +105,23 @@ pub const Machine = struct {
     /// Marlin, square corner velocity in Klipper), in mm/s. The time
     /// estimate uses it.
     corner_speed: f64 = 8,
+    /// How the motors move the head, for the time estimate. `cartesian`: a
+    /// motor for X and one for Y (also a bed slinger, which moves the bed
+    /// on Y). `corexy`: two motors, A = X + Y and B = X - Y, both on the
+    /// frame. With per-axis limits (`max_accel_x` and the others) and
+    /// Marlin, the limits of a CoreXY apply to its motors: a diagonal move
+    /// turns one motor at 1.41 times the speed of the head.
+    kinematics: Kinematics = .cartesian,
+    /// The acceleration limits of the X and Y axes (of the motors A and B
+    /// on a CoreXY with Marlin), in mm/s², as the firmware has them (M201
+    /// X Y). A bed slinger has a lower Y. 0: `max_accel`. Klipper has one
+    /// limit for all directions: leave them at 0.
+    max_accel_x: f64 = 0,
+    max_accel_y: f64 = 0,
+    /// The speed limits of the X and Y axes (M203 X Y), in mm/s. 0:
+    /// `max_speed`.
+    max_speed_x: f64 = 0,
+    max_speed_y: f64 = 0,
     /// Write acceleration commands in the G-code: the acceleration of each
     /// feature (project `*_accel`), and the corner speed at the start.
     /// Off: the printer uses its own values; the time estimate still uses
@@ -1040,6 +1059,10 @@ pub const limits = [_]struct { []const u8, f64, f64 }{
     .{ "machine.hour_rate", 0, 100000 },
     .{ "machine.max_accel", 10, 100000 },
     .{ "machine.corner_speed", 0, 100 },
+    .{ "machine.max_accel_x", 0, 100000 },
+    .{ "machine.max_accel_y", 0, 100000 },
+    .{ "machine.max_speed_x", 0, 2000 },
+    .{ "machine.max_speed_y", 0, 2000 },
     .{ "machine.retract_length", 0, 20 },
     .{ "machine.retract_speed", 1, 200 },
     // filament

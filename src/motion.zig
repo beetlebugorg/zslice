@@ -56,6 +56,46 @@ pub const Limits = struct {
     extruder_corner_speed: f64 = 1,
 };
 
+/// The limits of the axes, for `Axes.cap`. A value of 0 is no limit of
+/// its own.
+pub const Axes = struct {
+    corexy: bool = false,
+    /// Apply the limits to the motors A = X + Y and B = X - Y (Marlin on a
+    /// CoreXY); else to X and Y.
+    motors: bool = false,
+    accel: [2]f64 = .{ 0, 0 },
+    speed: [2]f64 = .{ 0, 0 },
+
+    /// The speed and the acceleration of a move in direction (ux, uy) (a
+    /// unit vector in the bed), within the limits of each axis: a move
+    /// that turns an axis at a part u of its speed gets at most limit / u.
+    pub fn cap(a: Axes, ux: f64, uy: f64, v: f64, acc: f64) [2]f64 {
+        // The part of the move on each axis (or motor).
+        const parts: [2]f64 = if (a.corexy and a.motors) .{ @abs(ux + uy), @abs(ux - uy) } else .{ @abs(ux), @abs(uy) };
+        var out_v = v;
+        var out_a = acc;
+        for (0..2) |k| {
+            if (parts[k] < 1e-9) continue;
+            if (a.speed[k] > 0) out_v = fmin(out_v, a.speed[k] / parts[k]);
+            if (a.accel[k] > 0) out_a = fmin(out_a, a.accel[k] / parts[k]);
+        }
+        return .{ out_v, out_a };
+    }
+};
+
+test "axes: a bed slinger is slower on Y, a CoreXY on its diagonals" {
+    const slinger: Axes = .{ .accel = .{ 3000, 1000 } };
+    // Along X: the X limit; along Y: the Y limit; at 45 degrees: Y wins.
+    try std.testing.expectApproxEqAbs(@as(f64, 3000), slinger.cap(1, 0, 100, 5000)[1], 1e-9);
+    try std.testing.expectApproxEqAbs(@as(f64, 1000), slinger.cap(0, 1, 100, 5000)[1], 1e-9);
+    try std.testing.expectApproxEqAbs(@as(f64, 1414.21), slinger.cap(0.7071068, 0.7071068, 100, 5000)[1], 0.01);
+    // Marlin on a CoreXY: along X both motors turn at the head speed; at
+    // 45 degrees one motor turns at 1.41 times it.
+    const cxy: Axes = .{ .corexy = true, .motors = true, .speed = .{ 300, 300 } };
+    try std.testing.expectApproxEqAbs(@as(f64, 300), cxy.cap(1, 0, 500, 1000)[0], 1e-9);
+    try std.testing.expectApproxEqAbs(@as(f64, 212.13), cxy.cap(0.7071068, 0.7071068, 500, 1000)[0], 0.01);
+}
+
 pub const Move = struct {
     /// The direction of the move: a unit vector in X, Y, and Z, with the
     /// Z part in `dir_z`. A move in one layer has `dir_z` = 0.
