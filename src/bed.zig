@@ -193,30 +193,48 @@ fn appendMesh(gpa: Allocator, out: *std.ArrayList(Vertex), b: []const u8, offset
         if (!g.found_existing) g.value_ptr.* = slots.count() - 1;
         slot_of[i] = g.value_ptr.*;
     }
-    const smooth = try gpa.alloc([3]f32, slots.count());
-    defer gpa.free(smooth);
-    @memset(smooth, .{ 0, 0, 0 });
+    // The faces at each place (a list for each slot), with the normal of
+    // each face times its area, and its unit normal.
+    const nslots = slots.count();
+    const area_n = try gpa.alloc([3]f32, t);
+    defer gpa.free(area_n);
+    const unit_n = try gpa.alloc([3]f32, t);
+    defer gpa.free(unit_n);
+    const first = try gpa.alloc(u32, nslots + 1);
+    defer gpa.free(first);
+    @memset(first, 0);
     for (0..t) |k| {
         var p: [3][3]f32 = undefined;
-        var ids: [3]usize = undefined;
         for (0..3) |j| {
-            ids[j] = index(b, idx_at, wide, 3 * k + j);
-            if (ids[j] >= n) return error.InvalidMesh;
-            p[j] = posOf(b, pos_at, ids[j], center, scale, off);
+            const i = index(b, idx_at, wide, 3 * k + j);
+            if (i >= n) return error.InvalidMesh;
+            p[j] = posOf(b, pos_at, i, center, scale, off);
+            first[slot_of[i] + 1] += 1;
         }
-        const w = faceArea(p[0], p[1], p[2]);
-        for (ids) |i| for (0..3) |a| {
-            smooth[slot_of[i]][a] += w[a];
-        };
+        area_n[k] = faceArea(p[0], p[1], p[2]);
+        unit_n[k] = unit(area_n[k]) orelse .{ 0, 0, 1 };
     }
-    const crease = @cos(std.math.degreesToRadians(40.0));
+    for (1..nslots + 1) |q| first[q] += first[q - 1];
+    const faces_at = try gpa.alloc(u32, 3 * t);
+    defer gpa.free(faces_at);
+    const fill = try gpa.alloc(u32, nslots);
+    defer gpa.free(fill);
+    @memset(fill, 0);
+    for (0..t) |k| for (0..3) |j| {
+        const sl = slot_of[index(b, idx_at, wide, 3 * k + j)];
+        faces_at[first[sl] + fill[sl]] = @intCast(k);
+        fill[sl] += 1;
+    };
+    // The normal of a corner: the sum of the faces at its place that turn
+    // less than the crease angle from its own face. A flat face then has
+    // the same normal at its three corners (no triangles show on it), a
+    // curved surface of small faces is smooth, and an edge stays sharp.
+    const crease = @cos(std.math.degreesToRadians(25.0));
     try out.ensureUnusedCapacity(gpa, 3 * t);
     for (0..t) |k| {
         var corner: [3]Vertex = undefined;
-        var ids: [3]usize = undefined;
         for (0..3) |j| {
             const i = index(b, idx_at, wide, 3 * k + j);
-            ids[j] = i;
             var uv: [2]f32 = .{ -1, -1 };
             if (has_uv and use_uv) {
                 uv = .{
@@ -224,12 +242,15 @@ fn appendMesh(gpa: Allocator, out: *std.ArrayList(Vertex), b: []const u8, offset
                     @as(f32, @floatFromInt(readInt(i16, b, uv_at + 4 * i + 2))) / 8192.0,
                 };
             }
-            corner[j] = .{ .pos = posOf(b, pos_at, i, center, scale, off), .normal = .{ 0, 0, 1 }, .uv = uv };
-        }
-        const nrm = faceNormal(corner[0].pos, corner[1].pos, corner[2].pos);
-        for (&corner, ids) |*cv, i| {
-            const sm = unit(smooth[slot_of[i]]) orelse nrm;
-            cv.normal = if (sm[0] * nrm[0] + sm[1] * nrm[1] + sm[2] * nrm[2] >= crease) sm else nrm;
+            const fk = unit_n[k];
+            var sum = [3]f32{ 0, 0, 0 };
+            const sl = slot_of[i];
+            for (faces_at[first[sl]..first[sl + 1]]) |f| {
+                const nf = unit_n[f];
+                if (nf[0] * fk[0] + nf[1] * fk[1] + nf[2] * fk[2] < crease) continue;
+                for (0..3) |a| sum[a] += area_n[f][a];
+            }
+            corner[j] = .{ .pos = posOf(b, pos_at, i, center, scale, off), .normal = unit(sum) orelse fk, .uv = uv };
         }
         out.appendSliceAssumeCapacity(&corner);
     }
