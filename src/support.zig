@@ -480,30 +480,32 @@ fn computeStyle(
         }
 
         /// Takes out the small ledges of layer i: each piece of the strip
-        /// that is within `ledge` of the layer below at each point, with no
-        /// new overhang of the layer above near it.
+        /// that is within `ledge` of the layer below at each point, and
+        /// within `ledge` plus a lean of half the support angle of the layer
+        /// 2 mm lower. A raised letter stays near the face under it at any
+        /// height (also with a round bottom, where each layer adds a little
+        /// beside the layer below); a slope moves further out on each
+        /// layer, so it keeps its support.
         fn dropLedges(c: *const @This(), s: Allocator, i: usize, strip: Paths, d: i64) !Paths {
+            _ = d;
             const reach = try offset_mod.offset(s, c.outlines[i - 1], c.ledge, .{});
             const far = try clip.difference(s, strip, reach);
-            // The new overhang of the layer above (a slope goes on).
-            var above: Paths = .empty;
-            if (i + 1 < c.outlines.len) {
-                // The same margin as the overhang of layer i (see run).
-                const under = try offset_mod.offset(s, c.outlines[i], d - 3 * sliver, .{});
-                above = try offset_mod.opening(s, try clip.difference(s, c.outlines[i + 1], under), sliver, .{});
-            }
+            // The layer 2 mm lower (or the lowest layer).
+            const z = c.layers[i].z;
+            var j: usize = i - 1;
+            while (j > 0 and c.layers[j].z > z - 2.0) j -= 1;
+            const drop_mm = z - c.layers[j].z;
+            const lean = geom.fromMm(drop_mm * c.tan_angle / 2);
+            const reach_low = try offset_mod.offset(s, c.outlines[j], c.ledge + lean, .{});
+            const far_low = try clip.difference(s, strip, reach_low);
             var out: Paths = .empty;
             for (0..strip.count()) |k| {
                 const poly = strip.get(k);
                 var one: Paths = .empty;
                 try one.append(s, poly);
-                const small = blk: {
-                    if (geom.area2(poly) < 0) break :blk false; // a hole stays with its piece
-                    if (!(try clip.intersect(s, one, far)).isEmpty()) break :blk false;
-                    if (above.isEmpty()) break :blk true;
-                    const near_piece = try offset_mod.offset(s, one, c.ledge + d, .{});
-                    break :blk (try clip.intersect(s, near_piece, above)).isEmpty();
-                };
+                const small = geom.area2(poly) > 0 and
+                    (try clip.intersect(s, one, far)).isEmpty() and
+                    (try clip.intersect(s, one, far_low)).isEmpty();
                 if (!small) try out.append(s, poly);
             }
             return out;
@@ -1709,6 +1711,35 @@ test "small ledges: an embossed letter gets no support, a shelf and a slope keep
         var area: f64 = 0;
         for (sup) |l| area += l.body.areaMm2() + l.interface.areaMm2();
         try testing.expectEqual(cs.want_support, area > 1);
+    }
+    {
+        // A round letter ("o") 0.34 mm out of a wall: its bottom widens on
+        // each layer, as thin slabs of a circle of radius 3 mm at z 27.
+        var b: mesh_mod.Builder = .init(gpa);
+        try mesh_mod.shapes.addBox(&b, 0, 0, 0, 40, 4, 40);
+        var k: usize = 0;
+        while (k < 30) : (k += 1) {
+            const z0 = 27 + @as(f64, @floatFromInt(k)) * 0.2;
+            const dz = z0 + 0.2 - 27;
+            const half = @sqrt(@max(0.01, 9 - (3 - @min(dz, 3)) * (3 - @min(dz, 3))));
+            try mesh_mod.shapes.addBox(&b, 20 - half, 4, z0, 20 + half, 4.34, z0 + 0.2);
+        }
+        var m = try b.finish();
+        defer m.deinit(gpa);
+        const sl = try sliceAll(gpa, &m, 40);
+        defer {
+            for (sl.outlines) |*o| o.deinit(gpa);
+            gpa.free(sl.outlines);
+            gpa.free(sl.layers);
+        }
+        var st: settings_mod.Settings = .{};
+        st.project.support = .everywhere;
+        const r = try st.resolve();
+        const sup = try compute(gpa, sl.outlines, sl.layers, &r, 1, &.{});
+        defer deinitAll(gpa, sup);
+        var area: f64 = 0;
+        for (sup) |l| area += l.body.areaMm2() + l.interface.areaMm2();
+        try testing.expect(area < 1);
     }
     // A slope that leans 70 degrees from vertical (a cone that opens up):
     // each layer adds a thin strip, and it keeps its support.
