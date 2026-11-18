@@ -345,6 +345,26 @@ final class MetalSliceView: NSView {
         delegate?.sliceViewDidDraw()
     }
 
+    /// For tests (ZSLICE_ORBIT_TEST): close to the part, then an orbit
+    /// for 3 s at 120 steps a second; logs the mean GPU time.
+    func orbitTest() {
+        guard let view else { return }
+        for _ in 0 ..< 14 { zs_view_zoom(view, 0.8) }
+        let start = CACurrentMediaTime()
+        Task { @MainActor [weak self] in
+            var gpu: [Double] = []
+            while let self, let view = self.view, let renderer = self.renderer, CACurrentMediaTime() - start < 3 {
+                zs_view_orbit(view, 3, 0.5)
+                self.requestFrame()
+                gpu.append(renderer.lastGPUms)
+                try? await Task.sleep(for: .milliseconds(8))
+            }
+            let tail = gpu.suffix(200)
+            NSLog("zslice orbit test: mean GPU %.1f ms over the last %d steps", tail.reduce(0, +) / Double(max(tail.count, 1)), tail.count)
+        }
+    }
+
+
     /// The point of the view (points from the top left) of a point of the
     /// print (mm), on the page that shows, or nil (behind the camera).
     func viewPoint(x: Double, y: Double, z: Double) -> CGPoint? {
