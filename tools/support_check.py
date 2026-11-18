@@ -8,6 +8,7 @@ Usage:
   python3 -I tools/support_check.py rotate <in.stl> <out.stl> [x90] [y45] ...
   python3 -I tools/support_check.py review <out folder> <parts folder>
       [--zslice NAME=BINARY ...] [--cura] [--orca] [--only TEXT]
+      [--reuse NAME,...]
 
 check: The checker. It cuts the mesh at the middle of each layer of the
 G-code, and draws the outline of the part and the support lines of the
@@ -41,7 +42,9 @@ review: Slice each STL file of the parts folder with each slicer (support
 everywhere, grid and tree), check each slice, and write the pictures and
 an index.html with a table of the numbers. Each --zslice gives a zslice
 binary and its name (for example base=../zslice/zig-out/bin/zslice).
-CuraEngine runs as in compare_cura.py; OrcaSlicer runs with the profiles in
+--only TEXT slices only the parts with TEXT in the name. --reuse
+keeps the G-code of the named slicers from an earlier run, and checks it
+again. CuraEngine runs as in compare_cura.py; OrcaSlicer runs with the profiles in
 <out folder>/orca (machine.json, process.json, filament.json).
 
 CuraEngine (AGPL-3.0) and OrcaSlicer (AGPL-3.0) are tools that this script
@@ -565,7 +568,8 @@ def crop(img):
 
 
 def picture(path, front, side, top_sup, top_bad, top_part, title, res):
-    scale = 2
+    # 0.2 mm for each pixel; a small part gets 0.1 mm.
+    scale = 2 if top_sup.shape[1] > 1200 else 1
     f = crop(stack(front, scale))
     s = crop(stack(side, scale))
     # Top view: the part grey; support by height (light to dark blue);
@@ -737,6 +741,7 @@ def review(args):
     zs = []
     cura = orca = False
     only = None
+    reuse = set()
     rest = args[2:]
     i = 0
     while i < len(rest):
@@ -752,6 +757,9 @@ def review(args):
             i += 1
         elif rest[i] == "--only":
             only = rest[i + 1]
+            i += 2
+        elif rest[i] == "--reuse":
+            reuse = set(rest[i + 1].split(","))
             i += 2
         else:
             raise SystemExit("unknown option " + rest[i])
@@ -776,7 +784,10 @@ def review(args):
                 g = os.path.join(out, "g", "%s-%s-%s.gcode" % (part, name, style))
                 png = os.path.join(out, "png", "%s-%s-%s.png" % (part, name, style))
                 try:
-                    dt = fn(stl, g, style)
+                    if name in reuse and os.path.exists(g) and "slice_s" in db.get(key, {}):
+                        dt = db[key]["slice_s"]
+                    else:
+                        dt = fn(stl, g, style)
                     r = check(stl, g, png=png, title="%s %s %s" % (part, name, style))
                     r["slice_s"] = round(dt, 3)
                 except Exception as e:  # report and go on
