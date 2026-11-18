@@ -481,7 +481,9 @@ pub const Set = struct {
         set.kick(false, null);
     }
 
-    /// Removes plate i. The last plate stays, with no parts.
+    /// Removes plate i. If it is the active plate, the plate on its left
+    /// becomes active (the first plate, if it was the first); else the
+    /// active plate stays. The last plate stays, with no parts.
     pub fn remove(set: *Set, i: usize) error{OutOfRange}!void {
         set.enter();
         defer set.leave();
@@ -495,6 +497,8 @@ pub const Set = struct {
             p.wanted = false;
             p.cannot = false;
             p.load_failed = false;
+            set.gpa.free(p.name);
+            p.name = &.{};
             set.dropScene(p);
             return;
         }
@@ -504,7 +508,9 @@ pub const Set = struct {
         if (i < set.active) {
             set.setActive(set.active - 1);
         } else if (i == set.active) {
-            set.setActive(@min(i, n - 2));
+            // The plate on its left becomes active (the first plate, if
+            // it was the first).
+            set.setActive(if (i > 0) i - 1 else 0);
             set.selectLocked(set.active);
         }
         set.kick(false, null);
@@ -903,6 +909,21 @@ test "plate set: add, select, remove, keep the active plate, and the ids" {
     try testing.expectEqual(@as(usize, 1), set.count());
     try testing.expectEqual(@as(usize, 0), set.activeIndex());
 
+    // The active plate goes: the plate on its left becomes active, or the
+    // first plate if it was the first.
+    _ = try set.add();
+    _ = try set.add();
+    const left = set.info(1).?.id;
+    try set.remove(2);
+    try testing.expectEqual(@as(usize, 1), set.activeIndex());
+    try testing.expectEqual(left, set.info(1).?.id);
+    try set.select(0);
+    const right = set.info(1).?.id;
+    try set.remove(0);
+    try testing.expectEqual(@as(usize, 0), set.activeIndex());
+    try testing.expectEqual(right, set.info(0).?.id);
+    try set.remove(0);
+
     // Keep the active plate alone.
     _ = try set.add();
     _ = try set.add();
@@ -919,6 +940,7 @@ test "plate set: add, select, remove, keep the active plate, and the ids" {
     try testing.expectEqual(@as(usize, 1), set.count());
     try testing.expectEqual(@as(usize, 0), set.info(0).?.part_count);
     try testing.expectEqual(Status.empty, set.info(0).?.status);
+    try testing.expectEqualStrings("", set.info(0).?.name);
 }
 
 test "plate set: the active plate slices first, then the others" {

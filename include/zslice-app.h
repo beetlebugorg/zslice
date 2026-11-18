@@ -1270,19 +1270,22 @@ ptrdiff_t zs_set_add(zs_set *set);
  * memory that only makes its next slice faster (zs_app_trim). A plate
  * with parts and no current slice waits for a slice. */
 int zs_set_select(zs_set *set, size_t i);
-/* Removes plate i. The last plate stays, with no parts. */
+/* Removes plate i and its app (no undo: the plates are not in the undo
+ * list of an app). If it is the active plate, the plate on its left
+ * becomes active (the first plate, if it was the first); else the active
+ * plate stays. The last plate stays, with no parts. */
 int zs_set_remove(zs_set *set, size_t i);
 /* Keeps only the active plate: a set of one plate. For example before a
  * file opens in place of the plates of a project. */
 int zs_set_keep_active(zs_set *set);
 
 enum zs_plate_status {
-    ZS_PLATE_EMPTY = 0,   /* no parts */
-    ZS_PLATE_STALE = 1,   /* waits for a slice; the old slice shows */
-    ZS_PLATE_SLICING = 2,
-    ZS_PLATE_DONE = 3,
-    ZS_PLATE_FAILED = 4,  /* the slice or the load failed (see message) */
-    ZS_PLATE_CANNOT = 5   /* zslice cannot slice the plate (a resin plate) */
+    ZS_PLATE_STATUS_EMPTY = 0,   /* no parts */
+    ZS_PLATE_STATUS_STALE = 1,   /* waits for a slice; the old slice shows */
+    ZS_PLATE_STATUS_SLICING = 2,
+    ZS_PLATE_STATUS_DONE = 3,
+    ZS_PLATE_STATUS_FAILED = 4,  /* the slice or the load failed (see message) */
+    ZS_PLATE_STATUS_CANNOT = 5   /* zslice cannot slice the plate (a resin plate) */
 };
 
 typedef struct zs_plate_info {
@@ -1306,7 +1309,7 @@ int zs_set_name(zs_set *set, size_t i, const char *name);
 
 /* Plate i changed: it waits for a slice. In the native mode, a change of
  * the active plate starts its slice at once. A plate with no parts does
- * not slice, and its beads go (ZS_PLATE_EMPTY). */
+ * not slice, and its beads go (ZS_PLATE_STATUS_EMPTY). */
 int zs_set_changed(zs_set *set, size_t i);
 /* A change of plate i during a drag: the slice waits for zs_set_release.
  * A zs_set_changed of the plate ends the wait. */
@@ -1323,8 +1326,8 @@ int zs_set_step(zs_set *set);
  * one app for each plate, with the profiles, the settings, and the parts
  * of the plate (see zs_app_project_load). files has the files of all
  * plates. A plate with no Cura stack (a resin plate) gets its parts, for
- * their footprints, and ZS_PLATE_CANNOT. A plate that does not load is
- * ZS_PLATE_FAILED with a message. Plate `active` becomes the active plate,
+ * their footprints, and ZS_PLATE_STATUS_CANNOT. A plate that does not load is
+ * ZS_PLATE_STATUS_FAILED with a message. Plate `active` becomes the active plate,
  * and the plates slice. On an error of the yml, the set does not change,
  * and message (can be NULL) gets the reason. */
 int zs_set_project_load(zs_set *set, const zs_files *files, const char *yml, const char *counts, size_t active,
