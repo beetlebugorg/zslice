@@ -57,8 +57,10 @@ export class HistoryPage {
   async refresh() {
     const id = ++this.asked;
     const r = await this.ctx.client.call("history", {});
+    const edits = await this.ctx.client.call("edits", {});
     if (id !== this.asked) return;
     this.list = r;
+    this.edits = edits ?? [];
     if (this.ctx.visible()) this.render();
     this.renderTimeline();
   }
@@ -167,11 +169,36 @@ export class HistoryPage {
     const l = this.list;
     if (!l || l.steps.length <= 1) {
       box.append(el("div", "dim hist-empty", "No changes yet. Each change of a setting or of the plate shows here, and you can go back to it."));
-      root.replaceChildren(box);
-      return;
+    } else {
+      for (let i = l.steps.length; i-- > 0;) box.append(this.step(i));
     }
-    for (let i = l.steps.length; i-- > 0;) box.append(this.step(i));
     root.replaceChildren(box);
+    this.renderEdits();
+  }
+
+  // The edits of lines (the segment editor): each with its layer, what it
+  // does, a mark when its line is not in the slice now, and ×.
+  renderEdits() {
+    const edits = this.edits ?? [];
+    if (edits.length === 0) return;
+    const box = el("div", "hist-edits");
+    box.append(el("div", "hist-edits-title", `Line edits (${edits.length})`));
+    edits.forEach((e, i) => {
+      const row = el("div", "hist-edit");
+      const what = e.kind === 0 ? "does not print" : `${Math.round(e.value * 100)} % plastic`;
+      const text = el("div", "", `Layer ${e.layer + 1}: ${what}`);
+      const state = el("div", e.applied ? "dim" : "hist-edit-wait", e.applied ? "" : "waits: its line is not in this slice");
+      const x = el("button", "flat icon", "×");
+      x.title = "Remove this edit: the line prints as the slice makes it";
+      x.setAttribute("aria-label", `Remove the edit of layer ${e.layer + 1}`);
+      x.onclick = async () => {
+        await this.ctx.client.call("editRemove", { index: i });
+        this.refresh();
+      };
+      row.append(text, state, x);
+      box.append(row);
+    });
+    this.root.append(box);
   }
 
   step(i) {
