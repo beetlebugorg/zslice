@@ -157,6 +157,7 @@ Like the GTK shell, the app reads some environment variables for development and
 - `ZSLICE_SIGN_TEST=1` signs the G-code of the plate, checks it (zs_verify_gcode), and checks a copy with one byte changed. In a fresh run (`ZSLICE_FRESH`) the signing key stays in memory, not in the Keychain.
 - `ZSLICE_DECK_JSON=path` logs the printers that a printer.json of a printdeck with more than one printer gives.
 - `ZSLICE_PICKER=1` opens the printer picker.
+- `ZSLICE_PAGE_FLIP=dir` turns the view, goes to 2D and back, and turns it again. It writes `a.png`, `b.png`, and `c.png` there: `a.png` and `b.png` must be the same.
 - `ZSLICE_OPEN_AFTER=path` opens a file 3 s after the start, as File > Open does, and logs the windows (the empty window must give its place to the file).
 - `ZSLICE_RECORD=path.mov` records a demo video of the window (Recorder.swift): a turn, the colors, the layer slider, the replay, and the 2D view, frame by frame at 30 frames a second.
 - `ZSLICE_ADD_PLATE="path;path"` puts each file on a new plate after the first slice.

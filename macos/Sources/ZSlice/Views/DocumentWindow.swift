@@ -205,7 +205,11 @@ struct DocumentWindow: View {
         }
         .overlay(alignment: .top) {
             if let note = workspace.note {
-                Label(note, systemImage: "info.circle")
+                Label {
+                    Text(note)
+                } icon: {
+                    if workspace.busy { ProgressView().controlSize(.small) } else { Image(systemName: "info.circle") }
+                }
                     .font(.callout)
                     .padding(.horizontal, 12)
                     .padding(.vertical, 6)

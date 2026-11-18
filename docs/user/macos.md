@@ -26,7 +26,7 @@ The keys of the other apps work in the 3D view. A key with Ctrl in the other app
 | Print | Command-P |
 | Search the settings and the actions | `/` or Command-F |
 | The keys | `?` or Help > Keyboard Shortcuts (Command-/) |
-| The settings drawer | N or Option-Command-I |
+| The settings drawer | N or Option-Command-I; Esc or its × hides it |
 | The 3D view, the 2D layer view | Command-1, Command-2 |
 | Fit the part | Command-0 |
 | Gaps, Check | G or Shift-Command-G, Shift-Command-K |

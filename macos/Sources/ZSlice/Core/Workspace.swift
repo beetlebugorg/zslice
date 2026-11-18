@@ -15,6 +15,7 @@
 //! SPDX-License-Identifier: AGPL-3.0-or-later
 
 import AppKit
+import ImageIO
 import CZslice
 import Observation
 
@@ -406,6 +407,29 @@ final class Workspace {
                         NSLog("zslice queue: sent job %u to %@: %@", s.job, p.name, r.message)
                     }
                 }
+            }
+        }
+        // ZSLICE_PAGE_FLIP=dir: a turn, then 2D and back to 3D, then a turn;
+        // writes a.png (before the flip), b.png (after it), and c.png (after
+        // the second turn) there. The camera must not move with the page.
+        if let dir = env["ZSLICE_PAGE_FLIP"], let v = canvas.view {
+            Task { @MainActor in
+                func shot(_ name: String) async {
+                    guard let img = await canvas.captureWindow(),
+                          let d = CGImageDestinationCreateWithURL(URL(fileURLWithPath: dir).appendingPathComponent(name) as CFURL, "public.png" as CFString, 1, nil) else { return }
+                    CGImageDestinationAddImage(d, img, nil)
+                    CGImageDestinationFinalize(d)
+                }
+                zs_view_orbit(v, 120, 40)
+                await shot("a.png")
+                page = .twoD
+                try? await Task.sleep(for: .seconds(1))
+                page = .threeD
+                try? await Task.sleep(for: .seconds(1))
+                await shot("b.png")
+                zs_view_orbit(v, 120, 0)
+                await shot("c.png")
+                NSLog("zslice flip: done")
             }
         }
         // ZSLICE_TURN=deg turns the selected part about X, then lets it settle.
@@ -868,6 +892,8 @@ final class Workspace {
 
     /// A short note at the top of the view, which goes after a few seconds.
     private(set) var note: String?
+    /// A long action runs on the main thread: the note shows a spinner.
+    var busy = false
     @ObservationIgnored private var noteTask: Task<Void, Never>?
 
     func showNote(_ text: String, seconds: Double = 4) {
@@ -1312,6 +1338,8 @@ extension Workspace: SliceViewDelegate {
             case "l": scrubStep(0.02)
             case "C" where shift: setRange(lo: 0, hi: layerCount - 1)
             case "n" where !shift: showSettings.toggle()
+            // Esc with nothing else to close: the settings pane.
+            case "\u{1b}" where showSettings: showSettings = false
             case "/": searchOpen.toggle()
             case "?": shortcutsOpen = true
             case "g" where !shift: toggleGaps()

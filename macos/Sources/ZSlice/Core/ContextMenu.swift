@@ -91,8 +91,8 @@ extension Workspace {
             menu.addItem(place)
         }
         menu.addItem(.separator())
-        menu.addItem(ClosureItem("Smart Placement") { [weak self] in self?.plateAction(zs_app_plate_smart_place) })
-        menu.addItem(ClosureItem("Arrange the Plate") { [weak self] in self?.plateAction(zs_app_plate_arrange) })
+        menu.addItem(ClosureItem("Smart Placement") { [weak self] in self?.smartPlace() })
+        menu.addItem(ClosureItem("Arrange the Plate") { [weak self] in self?.plateAction(zs_app_plate_arrange, fits: true) })
         menu.addItem(ClosureItem("Add Models…") { [weak self] in self?.addModels() })
         menu.addItem(ClosureItem("Clear the Plate") { [weak self] in self?.plateAction(zs_app_plate_clear) })
         if zs_app_mark_count(model.core) > 0 {
@@ -183,10 +183,39 @@ extension Workspace {
     }
 
     /// Smart placement, arrange, or clear, for all the parts of the plate.
-    func plateAction(_ action: (OpaquePointer?) -> Int32) {
-        guard action(model.core) == 0 else { return }
+    /// fits: the action gives 1 if all parts fit (arrange, smart placement).
+    func plateAction(_ action: (OpaquePointer?) -> Int32, fits: Bool = false) {
+        // Arrange and smart placement give 1 if all parts fit, 0 if not; a
+        // status is below 0.
+        let rc = action(model.core)
+        guard rc >= 0 else {
+            showNote(statusText(rc))
+            return
+        }
         clearSelection()
         model.settingsChanged()
+        if fits, rc == 0 {
+            showNote("Not all parts fit on the plate.")
+        }
+    }
+
+    /// Smart placement: it turns each part and tries its sides, which can
+    /// take some seconds on the main thread (the core has no progress for
+    /// it). The window shows that it works first, then runs it.
+    func smartPlace() {
+        guard !busy else { return }
+        busy = true
+        showNote("Smart placement: finding the best side of each part…", seconds: 120)
+        Task { @MainActor in
+            // Two frames, so the note and its spinner draw before the wait.
+            try? await Task.sleep(for: .milliseconds(80))
+            let t = CACurrentMediaTime()
+            plateAction(zs_app_plate_smart_place, fits: true)
+            busy = false
+            if note?.hasPrefix("Smart placement") == true {
+                showNote(String(format: "Smart placement done in %.1f s.", CACurrentMediaTime() - t), seconds: 2.5)
+            }
+        }
     }
 
     /// A drop of plastic of 1 mm at the middle of the selected segment, on

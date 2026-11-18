@@ -155,10 +155,10 @@ struct PlateCommands: View {
         Button("Add Models to the Plate…") { workspace?.addModels() }
             .keyboardShortcut("i", modifiers: [.command, .shift])
             .disabled(workspace == nil)
-        Button("Smart Placement") { workspace?.plateAction(zs_app_plate_smart_place) }
+        Button("Smart Placement") { workspace?.smartPlace() }
             .help("Turns each part to need less support, then arranges the plate")
             .disabled(workspace == nil)
-        Button("Arrange the Plate") { workspace?.plateAction(zs_app_plate_arrange) }
+        Button("Arrange the Plate") { workspace?.plateAction(zs_app_plate_arrange, fits: true) }
             .keyboardShortcut("a", modifiers: [.command, .shift])
             .disabled(workspace == nil)
         Button("Clear the Plate") { workspace?.plateAction(zs_app_plate_clear) }
