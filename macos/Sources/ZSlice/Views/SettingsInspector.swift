@@ -183,6 +183,11 @@ struct LineSettings: View {
         List {
             if let info {
                 Text("\(info.title) · layer \(info.layer + 1)").font(.headline)
+                Section("How these values come about") {
+                    why(String(format: "Planned speed %.0f mm/s", info.plannedSpeed), info.whyPlanned)
+                    why(String(format: "Real speed %.0f mm/s", info.speed), info.whyReal)
+                    why(String(format: "Flow %.1f mm³/s", info.flow), info.whyFlow)
+                }
                 ForEach(sections(info.settings), id: \.title) { sec in
                     Section(sec.title) {
                         ForEach(sec.names.compactMap { SettingInfo.byName[$0] }) { s in
@@ -195,6 +200,39 @@ struct LineSettings: View {
             }
         }
         .navigationTitle("Selected Line")
+    }
+
+    /// A text of the core with {{name}} marks as links to the settings.
+    @ViewBuilder private func why(_ title: String, _ text: String) -> some View {
+        if !text.isEmpty {
+            VStack(alignment: .leading, spacing: 3) {
+                Text(title).font(.callout.weight(.semibold))
+                Text(linked(text))
+                    .font(.callout)
+                    .foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+                    .environment(\.openURL, OpenURLAction { url in
+                        guard url.scheme == "zslice-setting", let name = url.host(), let info = SettingInfo.byName[name] else { return .discarded }
+                        workspace.settingsPath.append(contentsOf: [.section(group: info.group, section: info.section), .setting(name)])
+                        return .handled
+                    })
+            }
+        }
+    }
+
+    private func linked(_ text: String) -> AttributedString {
+        var out = AttributedString()
+        var rest = Substring(text)
+        while let open = rest.range(of: "{{"), let close = rest.range(of: "}}", range: open.upperBound ..< rest.endIndex) {
+            out += AttributedString(String(rest[..<open.lowerBound]))
+            let name = String(rest[open.upperBound ..< close.lowerBound])
+            var link = AttributedString(SettingInfo.byName[name]?.label ?? name)
+            link.link = URL(string: "zslice-setting://\(name)")
+            out += link
+            rest = rest[close.upperBound...]
+        }
+        out += AttributedString(String(rest))
+        return out
     }
 
     private func sections(_ lines: [String]) -> [(title: String, names: [String])] {

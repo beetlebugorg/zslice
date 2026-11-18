@@ -39,6 +39,9 @@ struct LineInfo {
     /// All settings that change the line, by section ("# Speed" lines start
     /// a section).
     var settings: [String]
+    /// Why the planned speed, the real speed, and the flow are what they
+    /// are, in words; a setting is a mark {{name}}.
+    var whyPlanned = "", whyReal = "", whyFlow = ""
 }
 
 /// (size_t)-1 of the C API: no path.
@@ -128,7 +131,8 @@ extension Workspace {
             slowReason: info.slow_reason, slowText: coreText(info.slow_text),
             measure: measured ? m : nil,
             picks: picks.prefix(n).map { (coreText($0.name), coreText($0.why)) }.filter { SettingInfo.byName[$0.0] != nil },
-            settings: coreText(info.settings).split(separator: "\n").map(String.init))
+            settings: coreText(info.settings).split(separator: "\n").map(String.init),
+            whyPlanned: coreText(info.why_planned), whyReal: coreText(info.why_real), whyFlow: coreText(info.why_flow))
         refindKey = middle(of: s.path).map { RefindKey(layer: info.layer, feature: info.feature, x: $0.x, y: $0.y) }
     }
 

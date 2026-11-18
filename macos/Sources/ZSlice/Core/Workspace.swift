@@ -246,6 +246,8 @@ final class Workspace {
         if let xy = env["ZSLICE_PICK"]?.split(separator: ",").compactMap({ Double($0) }), xy.count == 2 {
             pick(at: CGPoint(x: xy[0], y: xy[1]))
         }
+        // ZSLICE_LINE_PAGE=1 opens the page of the picked line.
+        if env["ZSLICE_LINE_PAGE"] != nil, selection != nil { showLineSettings() }
         // ZSLICE_DOUBLE_CLICK=x,y: a double click there (as in the GTK app).
         if let xy = env["ZSLICE_DOUBLE_CLICK"]?.split(separator: ",").compactMap({ Double($0) }), xy.count == 2, let v = canvas.view {
             if !lookAtSide(CGPoint(x: xy[0], y: xy[1])) { zs_view_reset_smooth(v) }
