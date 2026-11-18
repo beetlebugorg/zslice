@@ -511,8 +511,13 @@ struct SettingDetail: View {
         let entry = model.entry(info.name)
         Form {
             Section {
-                LabeledContent(info.label) {
-                    SettingEditor(model: model, info: info, entry: entry)
+                if GcodeEditor.names.contains(info.name) {
+                    // The width of the drawer, with no label row.
+                    GcodeEditor(model: model, info: info, entry: entry)
+                } else {
+                    LabeledContent(info.label) {
+                        SettingEditor(model: model, info: info, entry: entry)
+                    }
                 }
                 if info.hasSlider, let v = Double(entry.value) {
                     let k = info.isRatio ? 100.0 : 1
