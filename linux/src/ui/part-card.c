@@ -20,6 +20,8 @@
 typedef struct {
     ZgModel *model;
     GtkWidget *preview, *card, *title, *facts, *settings;
+    /* The popover of the cut: the height, the flip, and the pegs. */
+    GtkWidget *cut_pop, *cut_z, *cut_flip, *cut_pegs, *cut_n, *cut_d;
     gint64 part;
     char *names; /* the names of the listed settings, one a line */
 } PartCard;
@@ -143,6 +145,109 @@ static void on_plate_changed(ZgModel *model, gpointer data) {
     if (c->part >= 0 && gtk_widget_get_visible(c->card)) refresh(c);
 }
 
+/* ---- the cut ---- */
+
+/* The plane of the cut in the view, at the height of the scale. */
+static void show_cut(PartCard *c) {
+    GtkWidget *v3 = zg_preview_view3d(c->preview);
+    zs_part p;
+    if (c->part < 0 || zs_app_part_get(zg_model_core(c->model), (size_t)c->part, &p) != ZS_OK) {
+        zg_view3d_set_cut(v3, 0, 0, 0, 0, 0);
+        return;
+    }
+    double z = gtk_range_get_value(GTK_RANGE(c->cut_z));
+    zg_view3d_set_cut(v3, p.x - p.size_x / 2 - 3, p.y - p.size_y / 2 - 3, p.x + p.size_x / 2 + 3, p.y + p.size_y / 2 + 3, z);
+}
+
+static void on_cut_z(GtkRange *r, gpointer data) {
+    show_cut(data);
+}
+
+static void on_cut_shown(GtkPopover *pop, gpointer data) {
+    PartCard *c = data;
+    zs_part p;
+    if (c->part < 0 || zs_app_part_get(zg_model_core(c->model), (size_t)c->part, &p) != ZS_OK) return;
+    gtk_range_set_range(GTK_RANGE(c->cut_z), 0.2, MAX(0.4, p.size_z - 0.2));
+    gtk_range_set_value(GTK_RANGE(c->cut_z), round(p.size_z / 2 * 10) / 10);
+    show_cut(c);
+}
+
+static void on_cut_hidden(GtkPopover *pop, gpointer data) {
+    PartCard *c = data;
+    zg_view3d_set_cut(zg_preview_view3d(c->preview), 0, 0, 0, 0, 0);
+}
+
+static void on_cut_go(GtkButton *b, gpointer data) {
+    PartCard *c = data;
+    if (c->part < 0) return;
+    size_t i = (size_t)c->part;
+    int pegs = gtk_check_button_get_active(GTK_CHECK_BUTTON(c->cut_pegs)) ? gtk_spin_button_get_value_as_int(GTK_SPIN_BUTTON(c->cut_n)) : 0;
+    gint64 n = zg_model_part_cut(c->model, i, gtk_range_get_value(GTK_RANGE(c->cut_z)), gtk_check_button_get_active(GTK_CHECK_BUTTON(c->cut_flip)), pegs,
+                                 gtk_spin_button_get_value(GTK_SPIN_BUTTON(c->cut_d)));
+    gtk_popover_popdown(GTK_POPOVER(c->cut_pop));
+    if (n <= 0) {
+        gtk_widget_set_tooltip_text(c->card, "The plane does not cut the part.");
+        return;
+    }
+    char *tip = n > 2 ? g_strdup_printf("Cut into two parts, with %d pegs. Glue the pegs into the holes to join the parts.", (int)(n - 2))
+                      : g_strdup(pegs > 0 ? "Cut into two parts. No peg fits: the cut is too small or too thin for one." : "Cut into two parts.");
+    gtk_widget_set_tooltip_text(c->card, tip);
+    g_free(tip);
+    zg_model_select_part(c->model, (gint64)i);
+}
+
+/* The Cut… button: a popover with the height (the plane follows in the
+ * view), the flip of the top, the pegs, and Cut. */
+static GtkWidget *cut_button(PartCard *c) {
+    GtkWidget *box = gtk_box_new(GTK_ORIENTATION_VERTICAL, 6);
+    gtk_widget_set_margin_start(box, 8);
+    gtk_widget_set_margin_end(box, 8);
+    gtk_widget_set_margin_top(box, 8);
+    gtk_widget_set_margin_bottom(box, 8);
+    GtkWidget *hrow = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 6);
+    gtk_box_append(GTK_BOX(hrow), gtk_label_new("Height (mm)"));
+    c->cut_z = gtk_scale_new_with_range(GTK_ORIENTATION_HORIZONTAL, 0.2, 10, 0.1);
+    gtk_scale_set_draw_value(GTK_SCALE(c->cut_z), TRUE);
+    gtk_scale_set_digits(GTK_SCALE(c->cut_z), 1);
+    gtk_widget_set_hexpand(c->cut_z, TRUE);
+    gtk_widget_set_size_request(c->cut_z, 200, -1);
+    g_signal_connect(c->cut_z, "value-changed", G_CALLBACK(on_cut_z), c);
+    gtk_box_append(GTK_BOX(hrow), c->cut_z);
+    gtk_box_append(GTK_BOX(box), hrow);
+    c->cut_flip = gtk_check_button_new_with_label("Turn the top over (it prints on its cut face)");
+    gtk_check_button_set_active(GTK_CHECK_BUTTON(c->cut_flip), TRUE);
+    gtk_box_append(GTK_BOX(box), c->cut_flip);
+    GtkWidget *prow = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 6);
+    c->cut_pegs = gtk_check_button_new_with_label("Pegs to line up the parts:");
+    gtk_check_button_set_active(GTK_CHECK_BUTTON(c->cut_pegs), TRUE);
+    gtk_widget_set_tooltip_text(c->cut_pegs, "Holes in both cut faces, and pegs that print as parts of their own. Glue the pegs into the holes: the parts line up. A peg goes only where the part is wide and deep enough.");
+    c->cut_n = gtk_spin_button_new_with_range(1, 4, 1);
+    gtk_spin_button_set_value(GTK_SPIN_BUTTON(c->cut_n), 2);
+    c->cut_d = gtk_spin_button_new_with_range(2, 20, 0.5);
+    gtk_spin_button_set_value(GTK_SPIN_BUTTON(c->cut_d), 5);
+    gtk_box_append(GTK_BOX(prow), c->cut_pegs);
+    gtk_box_append(GTK_BOX(prow), c->cut_n);
+    gtk_box_append(GTK_BOX(prow), gtk_label_new("of"));
+    gtk_box_append(GTK_BOX(prow), c->cut_d);
+    gtk_box_append(GTK_BOX(prow), gtk_label_new("mm"));
+    gtk_box_append(GTK_BOX(box), prow);
+    GtkWidget *go = gtk_button_new_with_label("Cut");
+    gtk_widget_add_css_class(go, "suggested-action");
+    gtk_widget_set_halign(go, GTK_ALIGN_END);
+    g_signal_connect(go, "clicked", G_CALLBACK(on_cut_go), c);
+    gtk_box_append(GTK_BOX(box), go);
+    c->cut_pop = gtk_popover_new();
+    gtk_popover_set_child(GTK_POPOVER(c->cut_pop), box);
+    g_signal_connect(c->cut_pop, "show", G_CALLBACK(on_cut_shown), c);
+    g_signal_connect(c->cut_pop, "closed", G_CALLBACK(on_cut_hidden), c);
+    GtkWidget *mb = gtk_menu_button_new();
+    gtk_menu_button_set_label(GTK_MENU_BUTTON(mb), "Cut…");
+    gtk_menu_button_set_popover(GTK_MENU_BUTTON(mb), c->cut_pop);
+    gtk_widget_set_tooltip_text(mb, "Cut the part in two with a level plane");
+    gtk_widget_add_css_class(mb, "zg-card-action");
+    return mb;
+}
+
 /* The actions of the card ("partcard.*"). */
 static void on_action(GSimpleAction *a, GVariant *v, gpointer data) {
     PartCard *c = data;
@@ -242,6 +347,7 @@ GtkWidget *zg_part_card_new(ZgModel *model, GtkWidget *preview) {
         gtk_widget_add_css_class(b, "zg-card-action");
         if (strcmp(buttons[i].label, "Remove") == 0) gtk_widget_add_css_class(b, "destructive-action");
         gtk_flow_box_append(GTK_FLOW_BOX(flow), b);
+        if (strcmp(buttons[i].label, "Split to parts") == 0) gtk_flow_box_append(GTK_FLOW_BOX(flow), cut_button(c));
     }
     gtk_box_append(GTK_BOX(c->card), flow);
     c->settings = gtk_grid_new();

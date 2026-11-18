@@ -502,6 +502,13 @@ void zg_view3d_set_layer(GtkWidget *view, size_t layer) {
     queue_frame(v);
 }
 
+void zg_view3d_set_cut(GtkWidget *view, double x0, double y0, double x1, double y1, double z) {
+    View3d *v = g_object_get_data(G_OBJECT(view), "zg-view3d");
+    if (!v || !v->view) return;
+    zs_view_set_cut(v->view, x0, y0, x1, y1, z);
+    queue_frame(v);
+}
+
 gboolean zg_view3d_pixel_of(GtkWidget *view, double x, double y, double z, double *px, double *py) {
     View3d *v = g_object_get_data(G_OBJECT(view), "zg-view3d");
     float qx, qy;

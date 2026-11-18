@@ -52,6 +52,9 @@ void zg_view3d_measure_click(GtkWidget *view, double x, double y, gboolean shift
 /* The pixel of a point of the world (mm) in the widget (logical points).
  * FALSE if it is behind the camera, or with no view. */
 gboolean zg_view3d_pixel_of(GtkWidget *view, double x, double y, double z, double *px, double *py);
+/* The plane of a cut in the view (zs_view_set_cut); a box with no area
+ * hides it. */
+void zg_view3d_set_cut(GtkWidget *view, double x0, double y0, double x1, double y1, double z);
 /* Calls fn(data) after each frame of the view (the cards that follow a
  * point of the print move then). The call stays while `owner` lives. */
 void zg_view3d_on_frame(GtkWidget *view, GtkWidget *owner, void (*fn)(gpointer), gpointer data);

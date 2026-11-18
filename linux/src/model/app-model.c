@@ -1601,6 +1601,13 @@ gint64 zg_model_part_duplicate(ZgModel *self, size_t i) {
     return copy;
 }
 
+gint64 zg_model_part_cut(ZgModel *self, size_t i, double z, gboolean flip, int pegs, double peg_d) {
+    ptrdiff_t n = zs_app_part_cut(self->core, i, z, flip ? 1 : 0, pegs, peg_d);
+    if (n <= 0) return n < 0 ? -1 : 0;
+    plate_changed(self);
+    return n;
+}
+
 gint64 zg_model_part_split(ZgModel *self, size_t i) {
     ptrdiff_t n = zs_app_part_split(self->core, i);
     if (n <= 0) return n < 0 ? -1 : 0;

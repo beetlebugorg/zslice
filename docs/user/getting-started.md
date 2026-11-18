@@ -216,12 +216,26 @@ With the Move tool (M) or the Turn tool (R), or Ctrl and a click with any tool, 
 
 - its name, its size, and its turn;
 - **Duplicate** (D): a copy at a free place on the bed, with the settings of the part;
+- **Split to parts**: each separate body of the part becomes a part of its own, at its place, with the settings of the part (see "Cut a part" below);
+- **Cut…**: cut the part in two with a level plane (see "Cut a part" below);
 - **Best orientation** and **Less support**: turn the part;
 - **Reset**: the orientation and the scale of the file again;
 - **Remove** (Delete);
 - the settings that the part has of its own, each with an editor and × (the value of the plate again);
 - the keyboard: Tab and Shift+Tab select the next part and the part before; the arrow keys move the selected part 1 mm (with Shift: 10 mm); R with Left or Right turns it 15°; Esc clears the selection. In the web app, the part slices after a pause of 0.6 s in the keys; in the GTK app, each key slices at once;
 - **+ Add a setting for this part**: the search for this part. It shows only the settings that a part can have of its own, and a change goes to the part.
+
+### Cut a part
+
+Cut a part that is too tall or too big for the bed, or a part that prints better in two pieces (for example with less support):
+
+1. Select the part, and click **Cut…** on its card.
+2. Set the height of the cut with the slider or the number. An orange plane shows the cut in the view.
+3. Keep **Turn the top over** on, so the top prints on its flat cut face.
+4. Keep **Pegs to line up the parts** on, and choose the count and the diameter (2 pegs of 5 mm at first).
+5. Click **Cut**.
+
+The part below and the part above each have a closed cut face. With pegs, both cut faces get matching holes, and the pegs print as small parts of their own next to them. After the print, glue the pegs into the holes of one part, and press the other part on: the pegs line the parts up. The holes are 0.15 mm wider than the pegs. A peg goes only where the cut face is wide enough for it and its wall, and where each part has 1 mm of material past the end of its hole. A message says how many pegs fit. Undo (Ctrl+Z) puts the part back.
 
 Drag the top row of a card (the part card or the line card) to move it. It keeps that place until it closes.
 
