@@ -43,7 +43,9 @@
 //! one line width further out than the overhang area of grid support, so
 //! that the pad under a slope is wide enough for the interface lines. A
 //! pad stays only where a branch, the part (under the Z gap), or a pad is
-//! under it. A pad on a pad reaches at most half a line past it. On the
+//! under it: it reaches at most half a line past a branch, so it does not
+//! hang. A pad on a pad reaches at most half a line past it, and spans
+//! its gaps up to two lines wide (the lines bridge them). On the
 //! bed layer, a tree prints its wall loop and dense interface lines in it.
 //! A tree layer is hollow (see `SupportLayer.hollow`).
 //!
@@ -759,6 +761,10 @@ fn treeSupport(
         .peel = 4 * 0.3 / (std.math.pi * 0.3),
         // A branch is at least 2 mm thick under its tip layers.
         .min_r = @floatFromInt(geom.fromMm(1.0)),
+        // The head of a tip: 3 layers that grow at 80 % of the branch
+        // angle, so a tip of 0.8 mm is about 2 mm wide under its pad.
+        .head_layers = 3,
+        .head_grow = 0.8 * @as(f64, @floatFromInt(geom.fromMm(p.layer_height))) * @tan(std.math.degreesToRadians(p.support_tree_angle)),
     };
     const areas = try tree.growCached(gpa, threads, outlines, layers, need, blocked, near, 1 + gap + pads, params, avoid_cache, step1_key);
     defer gpa.free(areas.body);
@@ -800,7 +806,9 @@ fn treeSupport(
     var arena_state = std.heap.ArenaAllocator.init(gpa);
     defer arena_state.deinit();
     const s = arena_state.allocator();
-    const reach = @min(geom.fromMm(p.support_tree_spacing), geom.fromMm(2 * r.line_width));
+    // A pad reaches at most half a line past the branch under it: more
+    // hangs in the air.
+    const reach = @divTrunc(geom.fromMm(r.line_width), 2);
     for (1..out.len) |j| {
         if (out[j].interface.isEmpty()) continue;
         var pad = out[j].interface;
@@ -809,7 +817,11 @@ fn treeSupport(
         // A pad on a pad reaches only half a line past it: the lines of
         // the two pads end at the same place.
         const on_body = try offset_mod.offset(s, out[j - 1].body, reach, .{});
-        const on_pad = try offset_mod.offset(s, out[j - 1].interface, @divTrunc(geom.fromMm(r.line_width), 2), .{});
+        // A pad on a pad also spans the gaps of the pad under it up to two
+        // lines wide: the lines bridge them.
+        const lw = geom.fromMm(r.line_width);
+        const grown = try offset_mod.offset(s, out[j - 1].interface, lw, .{});
+        const on_pad = try offset_mod.offset(s, grown, -@divTrunc(lw, 2), .{});
         var held = try clip.unite(s, on_body, on_pad);
         if (j >= gap + 1) held = try clip.unite(s, held, outlines[j - 1 - gap]);
         const kept = try clip.intersect(gpa, pad, held);
@@ -1580,5 +1592,56 @@ test "support cache: the same support as with no cache, after a change of the ma
                 try testing.expectApproxEqAbs(x.filled.areaMm2(), y.filled.areaMm2(), 1e-9);
             }
         }
+    }
+}
+
+test "tree pads touch the cap, cover it, and stand on the branches" {
+    const gpa = testing.allocator;
+    // A post with a cap 15 mm over the bed (a user saw pads that did not
+    // touch the part, and pads that hung past their branches).
+    var b: mesh_mod.Builder = .init(gpa);
+    try mesh_mod.shapes.addBox(&b, 8, 8, 0, 12, 12, 15);
+    try mesh_mod.shapes.addBox(&b, 0, 0, 15, 20, 20, 17);
+    var m = try b.finish();
+    defer m.deinit(gpa);
+    const sl = try sliceAll(gpa, &m, 17);
+    defer {
+        for (sl.outlines) |*o| o.deinit(gpa);
+        gpa.free(sl.outlines);
+        gpa.free(sl.layers);
+    }
+    var st: settings_mod.Settings = .{};
+    st.project.support = .everywhere;
+    st.project.support_style = .tree;
+    const r = try st.resolve();
+    const sup = try compute(gpa, sl.outlines, sl.layers, &r, 1, &.{});
+    defer deinitAll(gpa, sup);
+    var arena = std.heap.ArenaAllocator.init(gpa);
+    defer arena.deinit();
+    const a = arena.allocator();
+    // 1. The top pad is right under the Z gap: layer 74 is the first layer
+    // of the cap, layer 73 the gap.
+    const cap: usize = 74;
+    try testing.expect(sl.outlines[cap].areaMm2() > 300 and sl.outlines[cap - 1].areaMm2() < 20);
+    const gap = st.project.support_z_gap_layers;
+    try testing.expect(!sup[cap - 1 - gap].interface.isEmpty());
+    for (cap - gap..cap) |i| try testing.expect(sup[i].interface.isEmpty() and sup[i].body.isEmpty());
+    // 2. The top pad covers the overhang: the cap minus the post and its
+    // XY gap, all but a thin rim.
+    const post = try offset_mod.offset(a, sl.outlines[cap - 1], geom.fromMm(st.project.support_xy_gap), .{});
+    const over = try clip.difference(a, sl.outlines[cap], post);
+    const bare = try clip.difference(a, over, sup[cap - 1 - gap].interface);
+    try testing.expect(bare.areaMm2() < 0.07 * over.areaMm2());
+    // 3. No pad reaches more than half a line past the support or the pad
+    // under it (with a little room for the circles). A pad on a pad spans
+    // the gaps of the pad under it up to two lines wide.
+    const lw = geom.fromMm(r.line_width);
+    for (1..cap) |i| {
+        if (sup[i].interface.isEmpty()) continue;
+        const pad = try offset_mod.offset(a, try offset_mod.offset(a, sup[i - 1].interface, lw, .{}), -@divTrunc(lw, 2) + 50, .{});
+        const body = try offset_mod.offset(a, sup[i - 1].body, @divTrunc(lw, 2) + 50, .{});
+        const held = try clip.unite(a, pad, body);
+        const hang = try clip.difference(a, sup[i].interface, held);
+        try testing.expect(hang.areaMm2() < 0.1);
     }
 }

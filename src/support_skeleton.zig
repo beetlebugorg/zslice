@@ -116,6 +116,14 @@ pub const Skeleton = struct {
     /// prints filled on the layers 1 to `fill_layers`, and within
     /// `fill_layers` under a tip.
     pub fn disks(s: *const Skeleton, a: Allocator, n: usize, fill_layers: u32, keep: ?[]const bool) Allocator.Error![]std.ArrayList(Disk) {
+        return s.disksHead(a, n, fill_layers, keep, 0, 0);
+    }
+
+    /// `disks`, with a head on each tip: on the `head_layers` layers of a
+    /// tip, the radius grows by `head_grow` µm a layer up to the top. So
+    /// the pad over a tip stands on the tip, and the head under it leans
+    /// at the angle of a branch.
+    pub fn disksHead(s: *const Skeleton, a: Allocator, n: usize, fill_layers: u32, keep: ?[]const bool, head_layers: u32, head_grow: f64) Allocator.Error![]std.ArrayList(Disk) {
         const out = try a.alloc(std.ArrayList(Disk), n);
         for (out) |*o| o.* = .empty;
         const items = s.nodes.items;
@@ -146,7 +154,13 @@ pub const Skeleton = struct {
                     return (j >= 1 and j <= fl) or (t > 0 and j + fl >= t and j <= t);
                 }
             }.f;
-            try out[nd.layer].append(a, .{ .x = nd.x, .y = nd.y, .r = nd.r, .fill = fill(nd.layer, top[i], fill_layers) });
+            const head = struct {
+                fn f(t: u32, j: u32, hl: u32, hg: f64) f64 {
+                    if (t == 0 or j > t or t - j >= hl) return 0;
+                    return @as(f64, @floatFromInt(hl - (t - j))) * hg;
+                }
+            }.f;
+            try out[nd.layer].append(a, .{ .x = nd.x, .y = nd.y, .r = nd.r + head(top[i], nd.layer, head_layers, head_grow), .fill = fill(nd.layer, top[i], fill_layers) });
             if (nd.down == none) continue;
             const d = items[nd.down];
             const span: f64 = @floatFromInt(nd.layer - d.layer);
@@ -156,7 +170,7 @@ pub const Skeleton = struct {
                 try out[j].append(a, .{
                     .x = nd.x + (d.x - nd.x) * t,
                     .y = nd.y + (d.y - nd.y) * t,
-                    .r = nd.r + (d.r - nd.r) * t,
+                    .r = nd.r + (d.r - nd.r) * t + head(top[i], j, head_layers, head_grow),
                     .fill = fill(j, top[i], fill_layers),
                 });
             }

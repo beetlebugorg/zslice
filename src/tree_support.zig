@@ -77,7 +77,10 @@
 //!    (`Params.bend`), and the tube must not buckle under the push down
 //!    of the nozzle (`Params.buckle`). Under a tip, a branch gets wider at
 //!    45 degrees to at least `min_r`. A join has the radius of its widest
-//!    branch, and its centers meet, so there is no collar. The foot of a
+//!    branch, and its centers meet, so there is no collar. A tip has a
+//!    head: on its top layers it grows at the branch angle (and it stays
+//!    straight there), so the pad over it stands on it and reaches past
+//!    it by at most half a line. The foot of a
 //!    branch on the bed gets wider at 45 degrees, to a radius that holds
 //!    the push of the nozzle at the top against the pull off the bed
 //!    (`Params.peel`). Then each branch is made at least as thick as the
@@ -233,6 +236,10 @@ pub const Params = struct {
     /// Trunks whose circles are at most this many spacings apart move
     /// toward each other and join (see `touch`).
     touch: f64 = 3,
+    /// The head of a tip (see support_skeleton.disksHead): its layers,
+    /// and the growth of its radius on each layer up, µm.
+    head_layers: u32 = 0,
+    head_grow: f64 = 0,
     /// The trunks of regions at most this many spacings apart are
     /// planned together, so that they can join.
     forest: f64 = 8,
@@ -427,6 +434,13 @@ const Ctx = struct {
             if (c.z[mid] <= zt) lo = mid else hi = mid;
         }
         return @intCast(lo);
+    }
+
+    /// The layer where a branch can start to lean: under the head of a
+    /// tip (see `Params.head_layers`), else its own layer.
+    fn leanStart(c: *const Ctx, nd: PlanNode) u32 {
+        if (nd.layer != nd.top or nd.weight != 1) return nd.layer;
+        return nd.layer -| c.params.head_layers;
     }
 
     /// The radius that the physics rules give a branch on layer j under
@@ -1004,7 +1018,7 @@ fn joinAt(c: *Ctx, nodes: *std.ArrayList(PlanNode), kids: []const u32, cell: f64
         const nd = nodes.items[k];
         if (nd.layer == 0) return null;
         const d = @sqrt((nd.x - mx) * (nd.x - mx) + (nd.y - my) * (nd.y - my));
-        var l = c.layerAt(c.z[nd.layer] - d / tan_plan) orelse return null;
+        var l = c.layerAt(c.z[c.leanStart(nd)] - d / tan_plan) orelse return null;
         l = @min(l, nd.layer - 1);
         ml = @min(ml, l);
     }
@@ -1056,7 +1070,7 @@ fn joinAt(c: *Ctx, nodes: *std.ArrayList(PlanNode), kids: []const u32, cell: f64
         for (kids) |k| {
             const nd = nodes.items[k];
             const d = @sqrt((nd.x - mx) * (nd.x - mx) + (nd.y - my) * (nd.y - my));
-            var l = c.layerAt(c.z[nd.layer] - d / tan_plan) orelse return null;
+            var l = c.layerAt(c.z[c.leanStart(nd)] - d / tan_plan) orelse return null;
             l = @min(l, nd.layer - 1);
             ml = @min(ml, l);
         }
@@ -1111,6 +1125,8 @@ fn build(gpa: Allocator, c: *Ctx, outlines: []const Paths, pl: []const PlanNode)
             var ty: f64 = nd.y;
             var left: f64 = 1;
             const par = pl[nd.plan].parent;
+            // A tip stays straight under its head.
+            if (nd.top -| j < p.head_layers and nd.age < p.head_layers) continue;
             if (nd.chase) {
                 const k = if (par != none) node_of[par] else none;
                 if (k != none) {
@@ -1485,7 +1501,7 @@ pub fn areasOf(gpa: Allocator, a: Allocator, threads: usize, sk: *const skel_mod
         for (sk.nodes.items, k) |nd, *x| x.* = nd.down == none and nd.layer == 0;
         keep = k;
     }
-    const ds = try sk.disks(a, n, params.fill_layers, keep);
+    const ds = try sk.disksHead(a, n, params.fill_layers, keep, params.head_layers, params.head_grow);
     const circles = try a.alloc(Paths, n);
     const fills = try a.alloc(Paths, n);
     for (circles, fills, ds) |*cc, *f, list| {
