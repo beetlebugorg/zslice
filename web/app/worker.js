@@ -901,6 +901,18 @@ const ops = {
     return { bytes: bytes ? bytes.buffer : null, name: core.modelName };
   },
 
+  // The G-code of plate `index` (each plate keeps the G-code of its last
+  // slice), with its name, or { bytes: null }.
+  plateGcode({ index }) {
+    const w = wasm;
+    const a = w.x.zs_set_app(set, index);
+    if (!a || w.x.zs_app_gcode(a, w.cell, w.cell + 4) !== 0) return { bytes: null };
+    const p = w.u32(w.cell);
+    const n = w.u32(w.cell + 4);
+    const info = plateInfo(index);
+    return { bytes: w.u8.slice(p, p + n).buffer, name: info?.name ?? "" };
+  },
+
   // A test print of the layers lo to hi - 1 (zs_app_debug_gcode).
   debugGcode({ lo, hi }) {
     const w = core.w;

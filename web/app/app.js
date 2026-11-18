@@ -1838,6 +1838,13 @@ var farm = new FarmPage({
   canSend: () => app.state === "done",
   plateName: () => app.plates[app.activePlate]?.name || app.modelName || "the plate",
   slicedFor: () => store.printer ?? "",
+  plates: () => app.plates,
+  sendPlate: async (i, pr) => {
+    const r = await client.call("plateGcode", { index: i });
+    if (!r.bytes) return { ok: false, message: "No G-code: the plate has no slice yet." };
+    const base = (r.name || `plate-${i + 1}`).replace(/\.(stl|3mf)$/i, "");
+    return sendToPrinter(pr, `${base}.gcode`, new Uint8Array(r.bytes), true);
+  },
   toast: (t) => toast(t),
   send: async (pr, print) => {
     const r = await client.call("gcode");
