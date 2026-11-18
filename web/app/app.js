@@ -2668,6 +2668,7 @@ const search = new SearchOverlay({
     updateFocus();
   },
   unfocus: () => (panelMode() === "hidden" ? clearFocus() : browser.sendFocus()),
+  closed: () => noteFocus(),
   actions: () => [
     { label: "Open a model…", keys: "Ctrl+O", run: () => $("file").click() },
     { label: "Add models to the plate…", run: () => addModels() },

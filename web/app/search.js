@@ -253,6 +253,9 @@ export class SearchOverlay {
     this.root = null;
     this.rows = [];
     this.ctx.unfocus();
+    // A removed element sends no focusout: the edit of the history ends
+    // here.
+    this.ctx.closed?.();
   }
 
   fill() {
@@ -340,6 +343,9 @@ export class SearchOverlay {
     const browser = this.ctx.browser;
     const row = el("div", "search-row");
     row.tabIndex = -1;
+    // The history: the edits of this row are one step while the focus
+    // stays in it (app.js, sendFocus).
+    row.dataset.setting = info.name;
     const label = el("div", "search-label");
     const tag = el("div", "search-tag");
     label.append(el("div", "", info.label), tag);

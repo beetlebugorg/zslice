@@ -317,31 +317,32 @@ function settingsState() {
 
 // ---- undo and the history (src/app/history.zig) ----
 //
-// The core of each plate keeps its undo list, and notes each change. The
-// worker keeps the timer: a step ends 400 ms after the last change.
+// The core of each plate keeps its undo list, and notes each change. A
+// step ends when the user ends the change, with no timer:
+// - an edit of the setting whose editor has the focus: when the focus
+//   moves (historyFocus), so a drag of its slider is one step;
+// - a drag (ops with hold): at its end (sliceHeld);
+// - each other change (a button, a menu, a choice): at once.
 
-let histTimer = 0;
 // A drag goes on (an op with hold): its changes are one step, which ends
 // after sliceHeld.
 let histHolding = false;
+// The setting whose editor has the focus (historyFocus), or null.
+let histFocus = null;
 
 // Ends the step of the changes so far.
 function historyCommit() {
-  clearTimeout(histTimer);
-  histTimer = 0;
   if (core && core.historyCommit(Date.now())) post({ event: "history" });
 }
 
-function historySchedule() {
-  clearTimeout(histTimer);
-  histTimer = setTimeout(historyCommit, 400);
+// Ends the step of the changes that wait, if any.
+function commitPending() {
+  if (core && core.historyPending()) historyCommit();
 }
 
 // After an undo, a redo, or a jump (the bits of enum zs_history_restored):
 // the name of the plate, the scene of an empty plate, and a new slice.
 function historyRestored(bits) {
-  clearTimeout(histTimer);
-  histTimer = 0;
   if (!(bits & 1)) return;
   const parts = core.w.x.zs_app_part_count(core.app);
   if (bits & 2) {
@@ -427,7 +428,7 @@ const ops = {
   // A new empty plate after the others, with the settings of the active
   // plate. It becomes the active plate.
   plateAdd() {
-    if (histTimer) historyCommit();
+    commitPending();
     wasm.x.zs_set_add(set);
     syncCore();
     showActive();
@@ -437,7 +438,7 @@ const ops = {
   // Removes plate i (zs_set_remove). The plate on its left becomes the
   // active plate if plate i was active. The last plate stays, empty.
   plateRemove({ index }) {
-    if (histTimer) historyCommit();
+    commitPending();
     const rc = wasm.x.zs_set_remove(set, index);
     syncCore();
     showActive();
@@ -449,7 +450,7 @@ const ops = {
     let ok = index >= 0 && index < wasm.x.zs_set_count(set);
     if (ok && index !== activeIndex()) {
       // The changes so far are a step of the plate that was active.
-      if (histTimer) historyCommit();
+      commitPending();
       ok = wasm.x.zs_set_select(set, index) === 0;
       syncCore();
     }
@@ -525,19 +526,16 @@ const ops = {
 
   // ---- undo and the history ----
 
+  // The list does not end an edit that goes on.
   history() {
-    historyCommit();
     return historyList();
   },
 
   // The setting whose editor has the focus now, or null. A move of the
   // focus ends the edit: its changes so far are a step.
   historyFocus({ key }) {
-    if (core.historyFocus(key ?? null, Date.now())) post({ event: "history" });
-    if (!core.historyPending()) {
-      clearTimeout(histTimer);
-      histTimer = 0;
-    }
+    histFocus = key ?? null;
+    if (core.historyFocus(histFocus, Date.now())) post({ event: "history" });
     return {};
   },
 
@@ -570,7 +568,7 @@ const ops = {
   historyRevert({ line }) {
     const rc = core.historyRevert(line);
     if (rc === 0) {
-      historySchedule();
+      historyCommit();
       wantSlice();
     }
     return { error: rc === 0 ? "" : (rc === 15 ? "A move of a part cannot be undone alone: go to the step before it." : `The change was not undone (${rc}).`), ...settingsState() };
@@ -857,7 +855,7 @@ const ops = {
   // plate, the reason it did not load, or the message that its parts do
   // not all fit.
   projectSet({ text, counts, files, active: want }) {
-    if (histTimer) historyCommit();
+    commitPending();
     const f = core.filesNew(files);
     const w = wasm;
     const cap = 1024;
@@ -886,7 +884,7 @@ const ops = {
 
   // All plates as one project file: { bytes, name }.
   projectSave({ name }) {
-    if (histTimer) historyCommit();
+    commitPending();
     const w = wasm;
     const rc = w.withString(name ?? "", (n) => w.x.zs_set_project_save(set, n, w.cell, w.cell + 4));
     if (rc !== 0) throw new Error(statusText(rc));
@@ -921,7 +919,7 @@ const ops = {
 
   // Opens a project file: its plates replace the plates.
   projectFileOpen({ bytes }) {
-    if (histTimer) historyCommit();
+    commitPending();
     const w = wasm;
     const cap = 512;
     const msg = w.alloc(cap);
@@ -944,7 +942,7 @@ const ops = {
   // Copies of part `index` until there are n in all, over new plates when
   // the bed is full (zs_set_fill). Returns { ok, copies, plates }.
   partFill({ index, n }) {
-    if (histTimer) historyCommit();
+    commitPending();
     const w = wasm;
     const r = w.x.zs_set_fill(set, activeIndex(), index, n, w.cell);
     if (r < 0) return { ok: false };
@@ -958,7 +956,7 @@ const ops = {
   // Moves part `index` of the active plate to plate `to` (-1: a new
   // plate). Returns { ok, to }.
   partToPlate({ index, to }) {
-    if (histTimer) historyCommit();
+    commitPending();
     const r = wasm.x.zs_set_part_move(set, activeIndex(), index, to);
     if (r < 0) return { ok: false };
     syncCore();
@@ -1101,19 +1099,22 @@ self.onmessage = async (e) => {
   const { id, op, ...args } = e.data;
   try {
     // The first op of a drag ends the step of the changes before it.
-    if (args.hold && !histHolding && histTimer) historyCommit();
+    if (args.hold && !histHolding) commitPending();
     const result = await ops[op](args);
     // The first step of a plate: its state at the start. The core notes
     // each change; a change starts or extends a step. During a drag, the
     // step waits for its end.
     if (op === "init" || op === "projectSet" || (core && core.historyCount() === 0)) historyCommit();
-    else if (args.hold) {
-      histHolding = true;
-      clearTimeout(histTimer);
-      histTimer = 0;
-    } else if (SETTING_OPS.has(op) || PLATE_OPS.has(op) || (op === "sliceHeld" && histHolding)) {
-      if (op === "sliceHeld") histHolding = false;
-      historySchedule();
+    else if (args.hold) histHolding = true;
+    else if (op === "sliceHeld") {
+      if (histHolding) historyCommit();
+      histHolding = false;
+    } else if ((op === "set" || op === "setScoped") && args.name === histFocus) {
+      // The edit of the setting with the focus goes on: its step ends
+      // when the focus moves.
+    } else if (SETTING_OPS.has(op) || PLATE_OPS.has(op)) {
+      historyCommit();
+      histHolding = false;
     }
     if (platesDirty) postPlates();
     const transfer = result?.bytes ? [result.bytes] : [];
