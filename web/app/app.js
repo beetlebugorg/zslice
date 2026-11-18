@@ -1302,6 +1302,14 @@ document.addEventListener("pointerdown", (e) => {
   if (pop.hidden || pop.contains(e.target) || $("timeline").contains(e.target)) return;
   pop.hidden = true;
 });
+// Esc closes the popover first, before the keys of the view see it.
+document.addEventListener("keydown", (e) => {
+  if (e.key !== "Escape" || $("history-pop").hidden) return;
+  if (e.target.closest?.("input, textarea, select")) return;
+  e.preventDefault();
+  e.stopPropagation();
+  toggleHistory(false);
+}, true);
 
 // The Printers page over the view: the tiles read the printers only while
 // it shows.
