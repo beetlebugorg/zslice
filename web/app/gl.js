@@ -720,7 +720,7 @@ export class GlRenderer {
       return;
     }
     // The solid program with no focus (see the constructor). The web view
-    // has no ribbons (zs_view_set_ribbons and ribbon_ok stay off).
+    // has no ribbons (zs_view_set_ribbons stays off).
     this.box = f.box[26] === 0 ? this.boxSolid : this.boxAll;
     gl.useProgram(this.box.prog);
     gl.bindVertexArray(this.boxVao);

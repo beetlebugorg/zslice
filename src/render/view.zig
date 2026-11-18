@@ -300,12 +300,6 @@ pub const View = struct {
     /// default: the ribbons changed the look of the beads (a far part
     /// looked flat and hatched). zs_view_set_ribbons turns it on.
     ribbons: bool = false,
-    /// The detail governor of the shell (zs_view_set_detail): 1 is full
-    /// detail; a larger value moves the mesh levels to wider beads, so a
-    /// slow GPU draws fewer triangles. At 2 or more, a shell that can draw
-    /// ribbons (`ribbon_ok`) uses them for the narrow beads.
-    detail: f32 = 1,
-    ribbon_ok: bool = false,
     /// The fingers on a touch screen (see `touch`): an id (-1: none) and
     /// the last point of each.
     touches: [2]Touch = .{ .{}, .{} },
@@ -2020,27 +2014,27 @@ pub const View = struct {
     /// is cheap, and a chunk out of the view costs nothing.
     const draw_chunk = 96;
     /// A bead narrower than this on the screen (pixels) draws with the
-    /// coarser mesh (level 1).
-    const lod_pixels: f32 = 20;
+    /// coarser mesh (level 1). The view must show the print exactly: the
+    /// coarse mesh has 2 segments in each half circle of an end, so its
+    /// corners are off by 0.29 of the radius, under 1 pixel below 7
+    /// pixels wide.
+    const lod_pixels: f32 = 7;
     /// A bead narrower than this draws as a ribbon (level 2), if the
     /// backend has it.
     const ribbon_pixels: f32 = 7;
 
     /// The mesh level of a bead `px` pixels wide.
     fn lodFor(v: *const View, px: f32) u32 {
-        if (px >= lod_pixels * v.detail) return 0;
-        if (px >= ribbon_pixels * v.detail or !v.useRibbons()) return 1;
+        if (px >= lod_pixels) return 0;
+        if (px >= ribbon_pixels or !v.ribbons) return 1;
         return 2;
     }
 
-    fn useRibbons(v: *const View) bool {
-        return v.ribbons or (v.ribbon_ok and v.detail >= 2);
-    }
 
     /// The mesh level of the light beads: they are less than a few
     /// pixels wide.
     fn liteLod(v: *const View) u32 {
-        return if (v.useRibbons()) 2 else 1;
+        return if (v.ribbons) 2 else 1;
     }
 
     /// The draw list of the beads first .. end (see Frame.draws): the
@@ -2798,9 +2792,7 @@ pub const View = struct {
         // layers, the beads that it leaves out do not show from outside,
         // and the full beads of a large plate can keep the GPU busy for
         // longer than a driver allows (a reset of the context).
-        // A slow GPU while the view moves (the detail governor at 2 or
-        // more) also uses level 0.
-        const near: ?usize = if (v.beads.items.len > large_plate or v.detail >= 2) 0 else null;
+        const near: ?usize = if (v.beads.items.len > large_plate) 0 else null;
         return plates_mod.levelFor(h * px_per_mm / @max(boxDistance(eye, lo, hi), 1e-3)) orelse near;
     }
 

@@ -1154,13 +1154,6 @@ void zs_view_set_dark(zs_view *view, int on);
  * wide with it. Off at the start for a frame shell; the Vulkan backend
  * always has it. */
 void zs_view_set_ribbons(zs_view *view, int on);
-/* The detail of the beads, for a governor of the frame time: 1 is full
- * detail; a larger value (up to 16) draws the coarse meshes for wider
- * beads, so a slow GPU draws fewer triangles. ribbon_ok != 0: the shell
- * can draw mesh level 2 as a ribbon, and the view uses it at a detail of
- * 2 or more. A shell raises the detail value when frames run late while
- * the view moves, and lowers it again when they are fast. */
-void zs_view_set_detail(zs_view *view, float detail, int ribbon_ok);
 /* Shows part `part` of the plate (the part index of zs_app) turned and
  * moved in the view only: the turn is the unit quaternion (qx, qy, qz,
  * qw) about the point (px, py, pz), then the part moves by (mx, my, mz)
