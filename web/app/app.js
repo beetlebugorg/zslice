@@ -333,7 +333,63 @@ new ResizeObserver(resize).observe(canvas);
 let drag = null;
 const dpr = () => window.devicePixelRatio || 1;
 
+// Two fingers on a touch screen: a pinch zooms about the point between
+// them, and a move of that point pans. These listeners run first (the
+// capture phase) and stop the one-pointer handlers while two fingers are
+// down. One finger orbits, as a left drag does.
+const touches = new Map();
+let pinch = null;
+const touchPair = () => {
+  const [a, b] = [...touches.values()];
+  return { dist: Math.hypot(a.x - b.x, a.y - b.y), mx: (a.x + b.x) / 2, my: (a.y + b.y) / 2 };
+};
 canvas.addEventListener("pointerdown", (e) => {
+  if (e.pointerType !== "touch") return;
+  touches.set(e.pointerId, { x: e.clientX, y: e.clientY });
+  if (touches.size === 2) {
+    canvas.setPointerCapture(e.pointerId);
+    // The first finger's drag ends: no orbit, and no click at the end.
+    drag = null;
+    pinch = touchPair();
+    e.stopImmediatePropagation();
+  }
+}, { capture: true });
+canvas.addEventListener("pointermove", (e) => {
+  if (e.pointerType !== "touch" || !touches.has(e.pointerId)) return;
+  touches.set(e.pointerId, { x: e.clientX, y: e.clientY });
+  if (!pinch || touches.size !== 2) return;
+  e.stopImmediatePropagation();
+  const now = touchPair();
+  const r = canvas.getBoundingClientRect();
+  const px = (now.mx - r.left) * dpr();
+  const py = (now.my - r.top) * dpr();
+  const k = pinch.dist > 0 && now.dist > 0 ? now.dist / pinch.dist : 1;
+  if (app.page === "2d") {
+    view2d.pan((now.mx - pinch.mx) * dpr(), (now.my - pinch.my) * dpr());
+    if (k !== 1) view2d.zoomAt(k, px, py, canvas.height);
+  } else {
+    view.pan((now.mx - pinch.mx) * dpr(), (now.my - pinch.my) * dpr());
+    if (k !== 1) view.zoomAt(1 / k, px, py);
+  }
+  pinch = now;
+  requestFrame();
+}, { capture: true });
+const touchUp = (e) => {
+  if (e.pointerType !== "touch") return;
+  touches.delete(e.pointerId);
+  if (pinch) {
+    // The end of a pinch is no click, also for the last finger.
+    e.stopImmediatePropagation();
+    if (touches.size === 0) pinch = null;
+    drag = null;
+    canvas.style.cursor = "";
+  }
+};
+canvas.addEventListener("pointerup", touchUp, { capture: true });
+canvas.addEventListener("pointercancel", touchUp, { capture: true });
+
+canvas.addEventListener("pointerdown", (e) => {
+  if (pinch) return;
   canvas.setPointerCapture(e.pointerId);
   drag = { button: e.button, x: e.clientX, y: e.clientY, x0: e.clientX, y0: e.clientY, moved: false, part: null };
   canvas.style.cursor = "grabbing";
