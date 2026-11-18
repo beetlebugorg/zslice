@@ -309,6 +309,9 @@ pub const Context = struct {
     resolved: *const Resolved,
     layers: []const slicer.Layer,
     outlines: []const Paths,
+    /// The center of the part, units: the start of the grid of the sparse
+    /// infill with `infill_anchor` "part".
+    infill_origin: [2]i64 = .{ 0, 0 },
     /// The support areas of each layer, or an empty slice (no support).
     support: []const support_mod.SupportLayer = &.{},
     /// The memo of each layer (see `Memo`), or an empty slice (no cache).
@@ -1432,7 +1435,7 @@ pub fn plan(gpa: Allocator, ctx: Context, i: usize) Allocator.Error!LayerPlan {
                 region = try offset_mod.opening(s, left, w, .{});
                 if (i == group.last) {
                     for (group.first..group.last + 1) |j| comb_height += ctx.layers[j].height;
-                    const set = try fillSparse(s, p, comb, r.line_width, w, group.index, layer.z, null, .empty);
+                    const set = try fillSparseAt(s, p, ctx.infill_origin, comb, r.line_width, w, group.index, layer.z, null, .empty);
                     comb_lines = set.lines;
                     comb_loops = set.loops;
                 }
@@ -1441,7 +1444,7 @@ pub fn plan(gpa: Allocator, ctx: Context, i: usize) Allocator.Error!LayerPlan {
         if (!mods.taken.isEmpty()) region = try clip.difference(s, region, mods.taken);
         // The lightning branches of this layer come from the engine.
         const light: Paths = if (i < ctx.lightning.len) ctx.lightning[i] else .empty;
-        const set = try fillSparse(s, p, region, r.line_width, w, i, layer.z, under_band, light);
+        const set = try fillSparseAt(s, p, ctx.infill_origin, region, r.line_width, w, i, layer.z, under_band, light);
         sparse_lines = set.lines;
         sparse_loops = set.loops;
     }
@@ -1847,7 +1850,31 @@ pub fn turnAngle(p: settings_mod.Project, layer_no: usize) f64 {
 /// `under_band`: for the flow pattern, the area under the band above (see
 /// `Memo.underBand`); null for no band. `lightning`: the branches of the
 /// layer for the lightning pattern (see lightning.zig).
-fn fillSparse(s: Allocator, p: settings_mod.Project, region: Paths, width_mm: f64, w: i64, layer_no: usize, z: f64, under_band: ?Paths, lightning: Paths) Allocator.Error!struct { lines: Paths, loops: Paths } {
+const Sparse = struct { lines: Paths, loops: Paths };
+
+/// `fillSparse` with the grid of the pattern at `origin` (units) when
+/// `infill_anchor` is "part": the region moves by -origin, and the lines
+/// move back. The lightning branches stay where they are.
+fn fillSparseAt(s: Allocator, p: settings_mod.Project, origin: [2]i64, region: Paths, width_mm: f64, w: i64, layer_no: usize, z: f64, under_band: ?Paths, lightning: Paths) Allocator.Error!Sparse {
+    if (p.infill_anchor == .bed or p.infill_pattern == .lightning or (origin[0] == 0 and origin[1] == 0))
+        return fillSparse(s, p, region, width_mm, w, layer_no, z, under_band, lightning);
+    const moved = try translated(s, region, -origin[0], -origin[1]);
+    const band = if (under_band) |b| try translated(s, b, -origin[0], -origin[1]) else null;
+    const set = try fillSparse(s, p, moved, width_mm, w, layer_no, z, band, lightning);
+    return .{ .lines = try translated(s, set.lines, origin[0], origin[1]), .loops = try translated(s, set.loops, origin[0], origin[1]) };
+}
+
+/// A copy of `paths` moved by (dx, dy), in `s`.
+fn translated(s: Allocator, paths: Paths, dx: i64, dy: i64) Allocator.Error!Paths {
+    const out = try paths.clone(s);
+    for (out.points.items) |*q| {
+        q.x += dx;
+        q.y += dy;
+    }
+    return out;
+}
+
+fn fillSparse(s: Allocator, p: settings_mod.Project, region: Paths, width_mm: f64, w: i64, layer_no: usize, z: f64, under_band: ?Paths, lightning: Paths) Allocator.Error!Sparse {
     var sparse_lines: Paths = .empty;
     var sparse_loops: Paths = .empty;
     const i = layer_no;

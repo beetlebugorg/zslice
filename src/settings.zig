@@ -26,6 +26,10 @@ const flow = @import("flow.zig");
 
 pub const InfillPattern = enum { lines, grid, triangles, trihexagon, cubic, gyroid, concentric, honeycomb, zigzag, flow, lightning };
 pub const SeamMode = enum { hidden, sharpest, rear, nearest, random };
+/// Where the grid of the sparse infill starts: the center of each part (a
+/// symmetric part gets symmetric infill, and copies of a part get the same
+/// infill), or the origin of the bed (the infill of all parts lines up).
+pub const InfillAnchor = enum { part, bed };
 pub const WallGenerator = enum { classic, arachne };
 /// How the top and bottom skin is filled. See `Project.skin_pattern`.
 pub const SkinPattern = enum { lines, monotonic, concentric };
@@ -408,6 +412,11 @@ pub const Project = struct {
     /// Honeycomb also prints each cell wall once, so all its walls have
     /// one width (else two of the six sides of a cell print twice).
     infill_stack: bool = false,
+    /// Where the grid of the sparse infill starts. "part": at the center of
+    /// each part, so a part with two equal sides gets equal infill on both,
+    /// and the copies of a part get the same infill. "bed": at the origin
+    /// of the bed, as before.
+    infill_anchor: InfillAnchor = .part,
     /// The flow of the sparse infill lines, as a ratio of the flow of a
     /// normal line. As "Infill Flow" in Cura.
     infill_flow: f64 = 1.0,
@@ -1252,6 +1261,7 @@ pub const layer_settings = [_][]const u8{
     "project.infill_angle",
     "project.infill_angles",
     "project.infill_stack",
+    "project.infill_anchor",
     "project.infill_flow",
     "project.infill_ribs",
     "project.bridges",

@@ -654,6 +654,7 @@ pub const Job = struct {
             .resolved = &self.resolved,
             .layers = self.layers,
             .outlines = self.outlines,
+            .infill_origin = .{ geom.fromMm(self.center[0]), geom.fromMm(self.center[1]) },
             .support = self.support,
             .cache = self.memos,
             .gen = self.gen,
@@ -2622,6 +2623,53 @@ fn infillLineKeys(gpa: Allocator, lp: *const LayerPlan) ![][2]i64 {
     return out.toOwnedSlice(gpa);
 }
 
+test "infill: with the part anchor, a part gets the same infill at each place" {
+    const gpa = testing.allocator;
+    var b: mesh_mod.Builder = .init(gpa);
+    try mesh_mod.shapes.addBox(&b, 0, 0, 0, 30, 20, 3);
+    var mesh = try b.finish();
+    defer mesh.deinit(gpa);
+    for ([_]settings_mod.InfillAnchor{ .part, .bed }) |anchor| {
+        var keys: [2][]const [2]i64 = undefined;
+        for ([_][2]f64{ .{ 40, 40 }, .{ 47.3, 52.9 } }, 0..) |at, k| {
+            var s: Settings = .{};
+            s.engine.threads = 1;
+            s.project.infill_pattern = .grid;
+            s.project.infill_connect = false;
+            s.project.bottom_thickness = 0;
+            s.project.top_support_layers = 0;
+            s.project.infill_anchor = anchor;
+            var job = try Job.initOpts(gpa, &mesh, s, .{ .offset = at });
+            defer job.deinit();
+            var l1 = try job.planLayer(1);
+            defer l1.deinit();
+            // The keys of the lines, from the center of the part.
+            const raw = try infillLineKeys(gpa, &l1);
+            defer gpa.free(raw);
+            const out = try gpa.alloc([2]i64, raw.len);
+            const c = [2]f64{ job.center[0] * 1000, job.center[1] * 1000 };
+            for (raw, out) |q, *o| {
+                const ang = std.math.degreesToRadians(@as(f64, @floatFromInt(q[0])));
+                const dc = (c[0] * -@sin(ang) + c[1] * @cos(ang)) / 20;
+                o.* = .{ q[0], q[1] - @as(i64, @intFromFloat(@round(dc))) };
+            }
+            keys[k] = out;
+        }
+        defer for (keys) |kk| gpa.free(kk);
+        var same: usize = 0;
+        for (keys[1]) |q| {
+            for (keys[0]) |r| if (q[0] == r[0] and @abs(q[1] - r[1]) <= 1) {
+                same += 1;
+                break;
+            };
+        }
+        const all = keys[1].len > 0 and same == keys[1].len;
+        // With the part anchor the lines are the same; with the bed anchor
+        // they move with the bed grid.
+        try testing.expectEqual(anchor == .part, all);
+    }
+}
+
 test "infill: the first layer has the same pattern grid as the layers above" {
     const gpa = testing.allocator;
     var b: mesh_mod.Builder = .init(gpa);
@@ -2635,6 +2683,8 @@ test "infill: the first layer has the same pattern grid as the layers above" {
         s.project.infill_connect = false;
         s.project.bottom_thickness = 0;
         s.project.top_support_layers = 0;
+        // The grid of the bed: the keys below measure from its origin.
+        s.project.infill_anchor = .bed;
         var job = try Job.init(gpa, &mesh, s);
         defer job.deinit();
         var l0 = try job.planLayer(0);
