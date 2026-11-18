@@ -199,11 +199,22 @@ struct PrinterPicker: View {
         kind = f.printerKind
         url = f.bambu ? f.url.replacingOccurrences(of: "ftps://", with: "") : f.url
         serial = f.serial
-        if let i = lib.match(hint: f.model.isEmpty ? f.name : f.model, bedX: f.bedX, bedY: f.bedY, height: f.height) {
+        let hint = f.model.isEmpty ? f.name : f.model
+        if let i = lib.match(hint: hint, bedX: f.bedX, bedY: f.bedY, height: f.height) {
             selected = i
             guessed = i
         }
         if !f.name.isEmpty { name = f.name }
+        // The nozzle of the printer, if its status tells it: the tool head
+        // with that nozzle (printdeck, Moonraker, OctoPrint).
+        guard !f.bambu else { return }
+        Task { @MainActor in
+            guard let st = await PrinterLink.status(Printer(name: name, kind: kind, url: url)), st.nozzle > 0,
+                  network == f, let i = lib.match(hint: hint, bedX: f.bedX, bedY: f.bedY, height: f.height, nozzle: st.nozzle) else { return }
+            selected = i
+            guessed = i
+            nozzle = st.nozzle
+        }
     }
 
     private func add() {
