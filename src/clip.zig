@@ -173,9 +173,15 @@ fn arrange(arena: Allocator, subject: Paths, clip: Paths) Allocator.Error![]Merg
         var splits: std.ArrayList(Split) = .empty;
         if (narrow) {
             try findIntersections(true, arena, cur, &splits);
-            merged = try splitAndMerge(true, arena, cur, splits.items, pass > 0);
         } else {
             try findIntersections(false, arena, cur, &splits);
+        }
+        // A later pass with no split points: the edges of the pass before
+        // are the result. They are already split, merged, and in order.
+        if (pass > 0 and splits.items.len == 0) break;
+        if (narrow) {
+            merged = try splitAndMerge(true, arena, cur, splits.items, pass > 0);
+        } else {
             merged = try splitAndMerge(false, arena, cur, splits.items, pass > 0);
         }
         if (splits.items.len == 0 or pass == max_passes) break;
@@ -533,6 +539,18 @@ fn intersectPair(comptime narrow: bool, arena: Allocator, splits: *std.ArrayList
     const p2 = e.b;
     const q1 = f.a;
     const q2 = f.b;
+    // Two edges with a shared end point are most of the pairs: the next
+    // edge of a loop, and the pieces around a split point. They can only
+    // touch more if they are on one line, and one product tells that.
+    const share1 = p1.eql(q1) or p1.eql(q2);
+    const share2 = p2.eql(q1) or p2.eql(q2);
+    if (share1 or share2) {
+        if (share1 and share2) return;
+        const s = if (share1) p1 else p2;
+        const u = if (share1) p2 else p1;
+        const v = if (s.eql(q1)) q2 else q1;
+        if (A.cross(s, u, v) != 0) return;
+    }
     const d1 = A.cross(q1, q2, p1);
     const d2 = A.cross(q1, q2, p2);
     const d3 = A.cross(p1, p2, q1);
@@ -612,20 +630,7 @@ const Merged = struct {
 };
 
 noinline fn splitAndMerge(comptime narrow: bool, arena: Allocator, edges: []const InEdge, splits: []Split, sorted_input: bool) ![]Merged {
-    // Sort the split points by edge, then by position along the edge.
-    std.mem.sortUnstable(Split, splits, edges, struct {
-        fn lt(es: []const InEdge, a: Split, b: Split) bool {
-            if (a.edge != b.edge) return a.edge < b.edge;
-            const e = es[a.edge];
-            const da = Arith(narrow).dot(e.a, e.b, a.p);
-            const db = Arith(narrow).dot(e.a, e.b, b.p);
-            if (da != db) return da < db;
-            // A rounded crossing point can be off the line, so two points
-            // can have the same place along the edge. The point order
-            // makes the result the same for each input order.
-            return a.p.lessThan(b.p);
-        }
-    }.lt);
+    try sortSplits(narrow, arena, edges, splits);
 
     // The pieces of the edges. In a later pass, the edges come from the
     // pass before and are in (lo, hi) order. Then the pieces of the edges
@@ -700,6 +705,51 @@ noinline fn splitAndMerge(comptime narrow: bool, arena: Allocator, edges: []cons
         i = j;
     }
     return items[0..out];
+}
+
+/// Sorts the split points by edge, then by position along the edge.
+///
+/// A counting sort puts the points of each edge together. Most edges have
+/// one to three points, so an insertion sort then orders each group. The
+/// place of a point along its edge (a dot product) is found once, before
+/// the sort.
+fn sortSplits(comptime narrow: bool, arena: Allocator, edges: []const InEdge, splits: []Split) Allocator.Error!void {
+    if (splits.len < 2) return;
+    const A = Arith(narrow);
+    const start = try arena.alloc(u32, edges.len + 1);
+    @memset(start, 0);
+    for (splits) |sp| start[sp.edge + 1] += 1;
+    for (1..start.len) |i| start[i] += start[i - 1];
+    const sorted = try arena.alloc(Split, splits.len);
+    const along = try arena.alloc(A.W, splits.len);
+    for (splits) |sp| {
+        const at = start[sp.edge];
+        start[sp.edge] = at + 1;
+        sorted[at] = sp;
+        const e = &edges[sp.edge];
+        along[at] = A.dot(e.a, e.b, sp.p);
+    }
+    // start[e] is now the end of the group of edge e.
+    var g: usize = 0;
+    while (g < sorted.len) {
+        const end = start[sorted[g].edge];
+        for (g + 1..end) |i| {
+            const v = sorted[i];
+            const dv = along[i];
+            var j = i;
+            // A rounded crossing point can be off the line, so two points
+            // can have the same place along the edge. The point order
+            // makes the result the same for each input order.
+            while (j > g and (dv < along[j - 1] or (dv == along[j - 1] and v.p.lessThan(sorted[j - 1].p)))) : (j -= 1) {
+                sorted[j] = sorted[j - 1];
+                along[j] = along[j - 1];
+            }
+            sorted[j] = v;
+            along[j] = dv;
+        }
+        g = end;
+    }
+    @memcpy(splits, sorted);
 }
 
 /// The piece of an edge from a to b, with the lower end point first, or
