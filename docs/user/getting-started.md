@@ -148,6 +148,9 @@ Open Preferences (the menu, or Ctrl+,). The Printers page lists your printers. E
 - printdeck, or OctoPrint: the address of the printer and its API key.
 - Moonraker (Klipper): the address of Moonraker.
 - USB: the serial port and the speed. The app sends the print itself, line by line, so the computer must stay on while it prints.
+- Bambu Lab (LAN mode, in the macOS app for now): the printer shows on the network search with its name and model. Its access code (on the screen of the printer) is the password. zslice uploads the file, and starts the print only after you confirm that the plate is clear. This is not yet tested with a real Bambu printer.
+
+A printdeck with a secure address (`https://….d.printdeck.beetlebug.org`, on its System page) works from the web app on any browser: paste that address. zslice tries the secure address first, and the plain address after it.
 
 "Test the connection" shows what the printer tells: its state, its bed and nozzle (OctoPrint, Moonraker), its motion limits and the filament in it (printdeck). "Use the printer's bed, nozzle, and motion" copies the bed, the nozzle, and the motion limits (acceleration, corner speed, Z speed and acceleration: so the time estimate plans as the printer moves) to the printer settings, and "Use the filament in the printer" copies the filament.
 
@@ -162,6 +165,15 @@ Pick the printer in the menu at the left of the header bar. With a connection, t
 The API keys are in `~/.config/zslice/app.ini`, which only you can read.
 
 "Manage printers…" in the web app, and the Printers page of Preferences in the GTK app, have the connection, the API key, and **Get a key** for each printer. Get a key asks the printer for a key of its own for zslice: the printer asks "Allow zslice to use the Printdeck?" on its touch screen (printdeck), or in its web page (OctoPrint, with the App Keys plugin). Allow it within 2 minutes, and zslice keeps the key. You can also copy the key: printdeck shows it on its System page (`http://<printer>/system`, "Slicer API key"), and OctoPrint in Settings › API. A printdeck starts a print from zslice only after a press of Print on its screen.
+
+## The Printers page
+
+The **Printers** page of the panel shows all your printers with a connection, side by side, for a shop with more than one printer. Each tile has the state of the printer, its job with the progress and the time left, and the filament in it. The tiles read again every 10 seconds while the page shows.
+
+- **Send the plate** on a tile sends the active plate to that printer.
+- **Plates to print** lists each plate with parts, with the printers that fit it (a printer that tells a smaller bed than the plate does not), the free printers first, and **Send**.
+
+Each send asks first: "Is the bed clear?". It also warns when the printer looks busy, or when the plate is sliced for another printer (choose that printer in the printer menu to slice the plate for it first).
 
 ## Your settings stay
 
@@ -468,6 +480,10 @@ In the web app, all plates are in one view, in a row, and the plate bar at the b
 
  Each plate slices: the active plate first, then the others. With your own plates, **Open** puts the file on the active plate, and **+** in the toolbar adds models to it; the other plates stay. A printdeck.yml project makes way for an opened file.
 
+## Make many of one part
+
+**Make [10] in all** on the part card makes copies of the part until there are that many: on its plate while they fit the bed, then on new plates with the same settings, each full in turn. For example, Make 100 of a small clip fills as many plates as it needs. With two plates or more, the print card shows the sums of all plates: "All 3 plates: 20 h 12 min · 292 g · 7.31". The cost counts the filament (`filament.price_per_kg`) and the time of the printer (`machine.hour_rate`, 0 at first).
+
 ## Save the project
 
 **Save project** (Ctrl+S in the web app) writes all plates into one 3MF file: the parts of each plate at their places, their settings, the changes for some layers, and the printer, the filament, and the print settings of each plate. Open the file (Ctrl+O, or drop it on the view) to get all plates back. Another slicer opens the same file as its first plate.
@@ -560,6 +576,22 @@ zslice slice part.stl -o part.gcode -s project.slope_smoothing=true -s project.s
 ```
 
 It uses the same ledges and the same nozzle settings as slope smoothing. `project.slope_ironing_flow` and `project.slope_ironing_speed` control it. It adds about 10 % to the time of a Benchy, and both together about 15 %.
+
+## Test print a few layers
+
+To check a layer before a long print, right-click the view: **Test print: the top layer…** saves the G-code of the top layer of the slider alone, on the bed. With the slider cut to some layers, **Test print: the layers shown…** saves those layers, lowered so that the first of them prints on the bed. Each layer keeps its height, its lines, and its speeds. Compare the test print with the 3D view.
+
+## Pictures for the printer screen
+
+Printers with a screen (Prusa, Klipper with Mainsail or Fluidd, and others) show a picture of the print. Set `machine.thumbnails` to the sizes that your printer wants, for example `300x300,32x32`: zslice puts one PNG picture of the parts of each size at the top of the G-code.
+
+## Wipe the nozzle inside the part
+
+With stringy filament (PETG, TPU), turn on `project.retract_wipe`. At each retraction after a line of the part, the nozzle moves on a small arc inside the part while the filament pulls back, so the plastic that oozes stays inside the part. Where no arc fits inside the layer, the retraction stays plain.
+
+## Infill that sits in the middle of each part
+
+The grid of the sparse infill starts at the center of each part (`project.infill_anchor` = part), so a part with two equal sides gets equal infill on both sides, and each copy of a part gets the same infill. Set it to bed for the old grid, the same for all parts.
 
 ## Where the part goes on the bed
 
