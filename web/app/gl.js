@@ -714,6 +714,13 @@ export class GlRenderer {
     const first = Math.min(f.boxFirst, f.boxCount);
     this.drawList(f, first);
     this.drawBeads(f.markFirst, f.markCount);
+    // A part that turns in the view only, with its own matrix.
+    if (f.partDrawsCount > 0) {
+      this.setPush(f.part);
+      const d = f.partDraws;
+      for (let i = 0; i < f.partDrawsCount; i++) this.drawBeads(d[3 * i], d[3 * i + 1], d[3 * i + 2]);
+      this.setPush(f.box);
+    }
     this.drawPlates(f);
     // With a focus: the beads out of it, as ghosts (params.w = 2).
     if (f.box[26] !== 0) {

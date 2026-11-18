@@ -68,6 +68,7 @@ const frame_mod = @import("frame.zig");
 pub const Instance = frame_mod.Instance;
 pub const max_extras = frame_mod.max_extras;
 pub const Push = frame_mod.Push;
+pub const Draw = frame_mod.Draw;
 
 // ---------------------------------------------------------------------------
 // Function tables
@@ -990,12 +991,18 @@ pub const Renderer = struct {
             d.vkCmdDrawIndexed.?(cmd, r.box_index_count, frame.box_count - first, 0, 0, first);
             return;
         }
-        // The last ranges first: the top layers, so the depth test drops
-        // the hidden pixels of the layers under them early.
-        var i = frame.draws.len;
+        r.drawList(cmd, frame.draws);
+    }
+
+    /// Draws ranges of beads, each with its mesh level. The last ranges
+    /// first: the top layers, so the depth test drops the hidden pixels of
+    /// the layers under them early.
+    fn drawList(r: *Renderer, cmd: c.VkCommandBuffer, list: []const Draw) void {
+        const d = r.d;
+        var i = list.len;
         while (i > 0) {
             i -= 1;
-            const dr = frame.draws[i];
+            const dr = list[i];
             const lod = @min(dr.lod, 2);
             if (lod > 0 and r.lod_count[lod - 1] > 0) {
                 d.vkCmdDrawIndexed.?(cmd, r.lod_count[lod - 1], dr.count, r.lod_first[lod - 1], 0, dr.first);
@@ -1551,6 +1558,12 @@ pub const Renderer = struct {
             d.vkCmdBindIndexBuffer.?(cmd, r.box_index.buf, 0, c.VK_INDEX_TYPE_UINT16);
             r.drawBeads(cmd, frame);
             if (frame.mark_count > 0) d.vkCmdDrawIndexed.?(cmd, r.box_index_count, frame.mark_count, 0, 0, frame.mark_first);
+            // A part that turns in the view only: its own push data.
+            if (frame.part_draws.len > 0) {
+                d.vkCmdPushConstants.?(cmd, r.layout, stages, 0, @sizeOf(Push), &frame.part);
+                r.drawList(cmd, frame.part_draws);
+                d.vkCmdPushConstants.?(cmd, r.layout, stages, 0, @sizeOf(Push), &frame.box);
+            }
             // With a focus (params.z != 0): the beads out of the focus, as
             // ghosts, after the solid beads (params.w = 2 in the shader).
             if (frame.box.params[2] != 0) {

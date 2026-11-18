@@ -324,6 +324,10 @@ export class View3D {
     f.plateGridDim = m[k + 69];
     f.plateGridGen = m[k + 70];
     f.plateGridPtr = m[k + 67];
+    // A part that turns in the view only: its push data and its draws.
+    if (!f.part || f.part.buffer !== buf) f.part = new Float32Array(buf, p + 240 + 71 * 4, 28);
+    f.partDrawsCount = m[k + 100];
+    frameView(f, 20, m[k + 99], f.partDrawsCount, Uint32Array, 12, "partDraws");
     f.m32 = m;
     f.mf32 = this.w.mf32;
     return f;

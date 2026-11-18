@@ -75,6 +75,7 @@ const vk = if (frame_backend) @import("web.zig") else @import("vk.zig");
 const app_mod = @import("../app.zig");
 const Draw = @import("frame.zig").Draw;
 const PlateFrame = @import("frame.zig").PlateFrame;
+const Push = @import("frame.zig").Push;
 const plates_mod = @import("plates.zig");
 const bed_mod = @import("../bed.zig");
 const gcode_read = @import("../gcode_read.zig");
@@ -322,6 +323,19 @@ pub const View = struct {
     /// The plates and their draws of the last frame.
     plate_frames: std.ArrayList(PlateFrame) = .empty,
     plate_draws: std.ArrayList(Draw) = .empty,
+    /// The part of the plate of each path (Toolpaths.path_part), for a
+    /// part preview.
+    path_part: std.ArrayList(u32) = .empty,
+    /// A part that turns or moves in the view only (see `setPartPreview`):
+    /// its beads draw with their own matrix, until the next slice shows
+    /// the part in its new place.
+    preview: ?PartPreview = null,
+    /// The bead ranges of the part of the preview, in print order.
+    preview_ranges: std.ArrayList([2]u32) = .empty,
+    /// The draws of the frame: the part of the preview, and the beads of
+    /// the draw list without it.
+    preview_draws: std.ArrayList(Draw) = .empty,
+    rest_draws: std.ArrayList(Draw) = .empty,
 
     /// The camera: the target, the angles, and the distance.
     pub const Pose = struct { target: [3]f32, rot: Quat, dist: f32 };
@@ -356,6 +370,10 @@ pub const View = struct {
         v.plate_grid.deinit(gpa);
         v.plate_frames.deinit(gpa);
         v.plate_draws.deinit(gpa);
+        v.path_part.deinit(gpa);
+        v.preview_ranges.deinit(gpa);
+        v.preview_draws.deinit(gpa);
+        v.rest_draws.deinit(gpa);
         v.layer_end.deinit(gpa);
         v.mark_rings.deinit(gpa);
         v.sup_pts.deinit(gpa);
@@ -535,6 +553,8 @@ pub const View = struct {
             v.outline_points.clearRetainingCapacity();
             v.outline_ends.clearRetainingCapacity();
             v.outline_layer_end.clearRetainingCapacity();
+            v.path_part.clearRetainingCapacity();
+            v.clearPreview();
             v.lite.clear();
             v.lite_gen = v.nextGen();
             try v.buildPickIndex();
@@ -646,6 +666,9 @@ pub const View = struct {
         v.path_start.append(gpa, @intCast(boxes.items.len)) catch return error.OutOfMemory;
         v.layer_path_end.clearRetainingCapacity();
         v.layer_path_end.appendSlice(gpa, tp.layer_ends.items) catch return error.OutOfMemory;
+        v.path_part.clearRetainingCapacity();
+        v.path_part.appendSlice(gpa, tp.path_part.items) catch return error.OutOfMemory;
+        v.clearPreview();
         try v.loadOutlines(app, tp.layer_ends.items.len);
         try v.loadMarks(tp, filament, center, sxy, sz);
         if (!v.headless) try v.renderer.setInstances(boxes.items, v.marks.items);
@@ -725,7 +748,8 @@ pub const View = struct {
 
     /// Clears the beads and the lists of a slice (for a G-code file).
     fn clearScene(v: *View) void {
-        inline for (.{ &v.layer_end, &v.path_start, &v.layer_path_end, &v.outline_points, &v.outline_ends, &v.outline_layer_end, &v.pick_runs, &v.layer_boxes, &v.draw_chunks, &v.chunk_width, &v.draws, &v.mark_rings, &v.sup_pts, &v.sup_areas, &v.gap_beads, &v.more, &v.beads, &v.marks, &v.mark_layer_end, &v.bead_end, &v.bead_start, &v.bead_fan }) |l| l.clearRetainingCapacity();
+        inline for (.{ &v.layer_end, &v.path_start, &v.layer_path_end, &v.outline_points, &v.outline_ends, &v.outline_layer_end, &v.pick_runs, &v.layer_boxes, &v.draw_chunks, &v.chunk_width, &v.draws, &v.mark_rings, &v.sup_pts, &v.sup_areas, &v.gap_beads, &v.more, &v.beads, &v.marks, &v.mark_layer_end, &v.bead_end, &v.bead_start, &v.bead_fan, &v.path_part }) |l| l.clearRetainingCapacity();
+        v.clearPreview();
         v.highlight = .{ 0, 0 };
         v.seg_bead = null;
         v.focus_mask = 0;
@@ -856,10 +880,11 @@ pub const View = struct {
         /// layer_end, path_start, beads, marks, mark_layer_end, bead_end,
         /// bead_start, bead_fan, mark_rings, layer_path_end,
         /// outline_points, outline_ends, outline_layer_end, then the
-        /// light beads and the layer ends of each light level.
-        counts: [17]u32,
+        /// light beads and the layer ends of each light level, then
+        /// path_part.
+        counts: [18]u32,
     };
-    const scene_magic: u32 = 0x33637a73; // "szc3"
+    const scene_magic: u32 = 0x34637a73; // "szc4"
     /// The index of the beads and of the light beads in `sceneLists`.
     const scene_beads = 2;
     const scene_layer_end = 0;
@@ -884,27 +909,28 @@ pub const View = struct {
         *std.ArrayList(u32),
         *std.ArrayList(u32),
         *std.ArrayList(u32),
+        *std.ArrayList(u32),
     } {
-        return .{ &v.layer_end, &v.path_start, &v.beads, &v.marks, &v.mark_layer_end, &v.bead_end, &v.bead_start, &v.bead_fan, &v.mark_rings, &v.layer_path_end, &v.outline_points, &v.outline_ends, &v.outline_layer_end, &v.lite.beads, &v.lite.layer_end[0], &v.lite.layer_end[1], &v.lite.layer_end[2] };
+        return .{ &v.layer_end, &v.path_start, &v.beads, &v.marks, &v.mark_layer_end, &v.bead_end, &v.bead_start, &v.bead_fan, &v.mark_rings, &v.layer_path_end, &v.outline_points, &v.outline_ends, &v.outline_layer_end, &v.lite.beads, &v.lite.layer_end[0], &v.lite.layer_end[1], &v.lite.layer_end[2], &v.path_part };
     }
 
     /// The place of each list of a scene in its bytes (see `writeScene`),
     /// and its head. error.InvalidScene if the bytes are too short.
-    fn sceneOffsets(bytes: []const u8) error{InvalidScene}!struct { head: SceneHead, at: [17]usize } {
+    fn sceneOffsets(bytes: []const u8) error{InvalidScene}!struct { head: SceneHead, at: [18]usize } {
         if (bytes.len < @sizeOf(SceneHead)) return error.InvalidScene;
         var head: SceneHead = undefined;
         @memcpy(std.mem.asBytes(&head), bytes[0..@sizeOf(SceneHead)]);
         if (head.magic != scene_magic) return error.InvalidScene;
         const sizes = comptime blk: {
             const T = @typeInfo(@TypeOf(sceneLists)).@"fn".return_type.?;
-            var out: [17]usize = undefined;
+            var out: [18]usize = undefined;
             for (@typeInfo(T).@"struct".fields, 0..) |f, k| {
                 const List = @typeInfo(f.type).pointer.child;
                 out[k] = @sizeOf(@typeInfo(@FieldType(List, "items")).pointer.child);
             }
             break :blk out;
         };
-        var out: [17]usize = undefined;
+        var out: [18]usize = undefined;
         var at: usize = std.mem.alignForward(usize, @sizeOf(SceneHead), 8);
         for (sizes, 0..) |size, k| {
             out[k] = at;
@@ -977,6 +1003,7 @@ pub const View = struct {
         try v.loadGrid(head.bed[0], head.bed[1]);
         try v.renderer.setInstances(v.beads.items, v.marks.items);
         v.more.clearRetainingCapacity();
+        v.clearPreview();
         try v.buildPickIndex();
         if (v.layer_end.items.len == 0) return;
         if (first_load) {
@@ -2597,6 +2624,148 @@ pub const View = struct {
         return last.origin[0] + last.bed[0];
     }
 
+    /// The beads of a part that turn or move in the view only.
+    pub const PartPreview = struct {
+        part: u32,
+        /// The model matrix of the beads (column-major): a turn about the
+        /// pivot, then a move.
+        m: [16]f32,
+        /// The turn (rows of a 3x3 matrix), and the pivot and the move
+        /// after the turn: for the eye and the light in the frame of the
+        /// beads.
+        rot: [9]f32,
+        pivot: [3]f32,
+        move: [3]f32,
+        /// The box of the beads of the part, before the turn.
+        lo: [3]f32,
+        hi: [3]f32,
+    };
+
+    pub fn clearPreview(v: *View) void {
+        v.preview = null;
+        v.preview_ranges.clearRetainingCapacity();
+    }
+
+    /// Shows part `part` of the plate (Toolpaths.path_part) turned by the
+    /// unit quaternion q (x, y, z, w) about `pivot`, then moved by `move`
+    /// (mm). With `on_bed`, the move also puts the lowest bead on the bed.
+    /// Only the view changes: a turn of a ring or the fall of a part
+    /// moves the beads at once, before the slice of the new place. A load
+    /// ends it. null: no preview.
+    pub fn setPartPreview(v: *View, part: ?u32, q: [4]f32, pivot: [3]f32, move: [3]f32, on_bed: bool) Error!void {
+        const pi = part orelse {
+            v.clearPreview();
+            return;
+        };
+        if (v.preview == null or v.preview.?.part != pi) {
+            v.preview_ranges.clearRetainingCapacity();
+            const n = @min(v.path_part.items.len, v.path_start.items.len -| 1);
+            for (0..n) |path| {
+                if (v.path_part.items[path] != pi) continue;
+                const a = v.path_start.items[path];
+                const b = v.path_start.items[path + 1];
+                if (b <= a) continue;
+                const items = v.preview_ranges.items;
+                if (items.len > 0 and items[items.len - 1][1] == a) {
+                    items[items.len - 1][1] = b;
+                } else v.preview_ranges.append(gpa, .{ a, b }) catch return error.OutOfMemory;
+            }
+        }
+        var lo = [3]f32{ std.math.inf(f32), std.math.inf(f32), std.math.inf(f32) };
+        var hi = [3]f32{ -std.math.inf(f32), -std.math.inf(f32), -std.math.inf(f32) };
+        for (v.preview_ranges.items) |r| for (v.beads.items[r[0]..r[1]]) |b| {
+            const r2 = b.w / 2;
+            lo = .{ @min(lo[0], @min(b.ax, b.bx) - r2), @min(lo[1], @min(b.ay, b.by) - r2), @min(lo[2], b.z - b.h) };
+            hi = .{ @max(hi[0], @max(b.ax, b.bx) + r2), @max(hi[1], @max(b.ay, b.by) + r2), @max(hi[2], b.z) };
+        };
+        if (!(lo[0] <= hi[0])) {
+            v.preview = null;
+            return;
+        }
+        // The rotation matrix of q, in rows.
+        const len = @sqrt(q[0] * q[0] + q[1] * q[1] + q[2] * q[2] + q[3] * q[3]);
+        const x = q[0] / len;
+        const y = q[1] / len;
+        const z = q[2] / len;
+        const w = q[3] / len;
+        const rot = [9]f32{
+            1 - 2 * (y * y + z * z), 2 * (x * y - z * w),     2 * (x * z + y * w),
+            2 * (x * y + z * w),     1 - 2 * (x * x + z * z), 2 * (y * z - x * w),
+            2 * (x * z - y * w),     2 * (y * z + x * w),     1 - 2 * (x * x + y * y),
+        };
+        var mv = move;
+        if (on_bed) {
+            // The lowest point of the turned part: the corners of the
+            // beads (a bead is no wider than its box).
+            var zmin = std.math.inf(f32);
+            for (v.preview_ranges.items) |r| for (v.beads.items[r[0]..r[1]]) |b| {
+                const r2 = b.w / 2;
+                for ([_][2]f32{ .{ b.ax, b.ay }, .{ b.bx, b.by } }) |e| for ([_]f32{ b.z, b.z - b.h }) |bz| {
+                    // The x and y of the corner do not matter much: use
+                    // the end point, and the width as a margin.
+                    const d = [3]f32{ e[0] - pivot[0], e[1] - pivot[1], bz - pivot[2] };
+                    const zz = rot[6] * d[0] + rot[7] * d[1] + rot[8] * d[2];
+                    zmin = @min(zmin, zz - r2 * @sqrt(rot[6] * rot[6] + rot[7] * rot[7]));
+                };
+            };
+            mv[2] = -(zmin + pivot[2]);
+        }
+        // m = T(pivot + move) * R * T(-pivot), column-major.
+        var m: [16]f32 = .{ rot[0], rot[3], rot[6], 0, rot[1], rot[4], rot[7], 0, rot[2], rot[5], rot[8], 0, 0, 0, 0, 1 };
+        for (0..3) |row| {
+            m[12 + row] = pivot[row] + mv[row] - (rot[row * 3] * pivot[0] + rot[row * 3 + 1] * pivot[1] + rot[row * 3 + 2] * pivot[2]);
+        }
+        v.preview = .{ .part = pi, .m = m, .rot = rot, .pivot = pivot, .move = mv, .lo = lo, .hi = hi };
+    }
+
+    /// A point of the world in the frame of the beads of the preview: the
+    /// inverse turn (the transpose) about the pivot.
+    fn previewLocal(p: PartPreview, w: [3]f32) [3]f32 {
+        const d = [3]f32{ w[0] - p.pivot[0] - p.move[0], w[1] - p.pivot[1] - p.move[1], w[2] - p.pivot[2] - p.move[2] };
+        return .{
+            p.rot[0] * d[0] + p.rot[3] * d[1] + p.rot[6] * d[2] + p.pivot[0],
+            p.rot[1] * d[0] + p.rot[4] * d[1] + p.rot[7] * d[2] + p.pivot[1],
+            p.rot[2] * d[0] + p.rot[5] * d[1] + p.rot[8] * d[2] + p.pivot[2],
+        };
+    }
+
+    /// The draws of the part of the preview in beads first .. end, and
+    /// the draw list `list` without them (in v.rest_draws). The part gets
+    /// the mesh level of its distance from the eye.
+    fn splitPreview(v: *View, list: []const Draw, eye_local: [3]f32, first: u32, end: u32) Error![]const Draw {
+        const p = v.preview.?;
+        v.preview_draws.clearRetainingCapacity();
+        v.rest_draws.clearRetainingCapacity();
+        const px_per_mm = @as(f32, @floatFromInt(v.height)) / (2 * @tan(@as(f32, fov) / 2));
+        const w = if (v.beads.items.len > 0) v.beads.items[v.beads.items.len / 2].w else 0.4;
+        const lod = v.lodFor(w * px_per_mm / @max(boxDistance(eye_local, p.lo, p.hi), 1e-3));
+        for (v.preview_ranges.items) |r| {
+            const a = @max(r[0], first);
+            const b = @min(r[1], end);
+            if (b > a) v.preview_draws.append(gpa, .{ .first = a, .count = b - a, .lod = lod }) catch return error.OutOfMemory;
+        }
+        // The ranges of the list minus the ranges of the part (both in
+        // print order).
+        const parts = v.preview_ranges.items;
+        var k: usize = 0;
+        for (list) |d| {
+            var a = d.first;
+            const b = d.first + d.count;
+            while (k < parts.len and parts[k][1] <= a) k += 1;
+            var j = k;
+            while (a < b) {
+                if (j >= parts.len or parts[j][0] >= b) {
+                    v.rest_draws.append(gpa, .{ .first = a, .count = b - a, .lod = d.lod }) catch return error.OutOfMemory;
+                    break;
+                }
+                if (parts[j][0] > a) v.rest_draws.append(gpa, .{ .first = a, .count = parts[j][0] - a, .lod = d.lod }) catch return error.OutOfMemory;
+                a = @max(a, parts[j][1]);
+                j += 1;
+            }
+        }
+        return v.rest_draws.items;
+    }
+
     /// The light level for the active plate, or null for the full beads:
     /// only with no selection and no replay (the light beads are not in
     /// the index space of the highlight and the replay).
@@ -2605,6 +2774,7 @@ pub const View = struct {
         const n = v.layer_end.items.len;
         if (n == 0 or v.lite.layers() != n or v.beads.items.len == 0) return null;
         if (v.time != null or v.highlight[1] > v.highlight[0] or v.seg_bead != null or v.more.items.len > 0) return null;
+        if (v.preview != null) return null;
         var lo = [3]f32{ std.math.inf(f32), std.math.inf(f32), std.math.inf(f32) };
         var hi = [3]f32{ -std.math.inf(f32), -std.math.inf(f32), -std.math.inf(f32) };
         for (v.layer_boxes.items) |b| if (b.lo[0] <= b.hi[0]) for (0..3) |k| {
@@ -2805,8 +2975,27 @@ pub const View = struct {
             }
             try v.drawPlates(mvp, eye);
         }
+        // The draw list, and the part of a preview with its own matrix.
+        var draws: []const Draw = if (frame_backend or v.gcode == null) try v.drawList(mvp, eye, first, count) else &.{};
+        var part_draws: []const Draw = &.{};
+        var part_push: Push = .{ .mvp = @splat(0), .vec = .{ 0, 0, 0, 0 } };
+        if (v.preview) |pv| if (v.gcode == null) {
+            const le = previewLocal(pv, eye);
+            draws = try v.splitPreview(draws, le, first, count);
+            part_draws = v.preview_draws.items;
+            const l = [3]f32{ 0.35, -0.45, 0.82 };
+            const r = pv.rot;
+            part_push = .{
+                .mvp = mul(mvp, pv.m),
+                .vec = .{ r[0] * l[0] + r[3] * l[1] + r[6] * l[2], r[1] * l[0] + r[4] * l[1] + r[7] * l[2], r[2] * l[0] + r[5] * l[1] + r[8] * l[2], 0 },
+                .eye = .{ le[0], le[1], le[2], 1e9 },
+                .params = .{ 0, 0, 0, if (v.mode == .print) 0 else 1 },
+            };
+        };
         try v.renderer.draw(.{
             .head = v.head_buf[0..n_head],
+            .part = part_push,
+            .part_draws = part_draws,
             .extras = blk: {
                 // The reduced view has no tools and no marks.
                 if (v.reduced) break :blk extras[0..n_extras];
@@ -2956,7 +3145,7 @@ pub const View = struct {
             },
             .box_count = count,
             .box_first = first,
-            .draws = if (frame_backend or v.gcode == null) try v.drawList(mvp, eye, first, count) else &.{},
+            .draws = draws,
             .culled = !frame_backend and v.gcode == null,
             .mark_first = @intCast(v.beads.items.len + mark_skip),
             .mark_count = mark_count,
@@ -3533,6 +3722,51 @@ fn destroyTest(v: *View) void {
     v.draw_chunks.deinit(g);
     v.chunk_width.deinit(g);
     v.draws.deinit(g);
+    v.path_part.deinit(g);
+    v.preview_ranges.deinit(g);
+    v.preview_draws.deinit(g);
+    v.rest_draws.deinit(g);
+}
+
+test "a part preview draws the beads of the part apart, turned" {
+    // 6 layers of 4 paths of 5 beads; the paths 1 and 2 of each layer are
+    // part 1, the others part 0.
+    var v = try testScene(6, 4, 5);
+    defer destroyTest(&v);
+    const paths = v.path_start.items.len - 1;
+    for (0..paths) |p| try v.path_part.append(View.gpa, if (p % 4 == 1 or p % 4 == 2) 1 else 0);
+    // A quarter turn about z through (1, 2, 0).
+    const s = @sqrt(0.5);
+    try v.setPartPreview(1, .{ 0, 0, s, s }, .{ 1, 2, 0 }, .{ 0, 0, 0 }, false);
+    const pv = v.preview.?;
+    try std.testing.expectEqual(@as(usize, 6), v.preview_ranges.items.len);
+    // The matrix turns (2, 2, 0) to (1, 3, 0).
+    const q = [3]f32{ pv.m[0] * 2 + pv.m[4] * 2 + pv.m[12], pv.m[1] * 2 + pv.m[5] * 2 + pv.m[13], pv.m[2] * 2 + pv.m[6] * 2 + pv.m[14] };
+    try std.testing.expectApproxEqAbs(@as(f32, 1), q[0], 1e-5);
+    try std.testing.expectApproxEqAbs(@as(f32, 3), q[1], 1e-5);
+    try std.testing.expectApproxEqAbs(@as(f32, 0), q[2], 1e-5);
+    // The eye in the frame of the beads turns back.
+    const le = View.previewLocal(pv, .{ 1, 3, 5 });
+    try std.testing.expectApproxEqAbs(@as(f32, 2), le[0], 1e-5);
+    try std.testing.expectApproxEqAbs(@as(f32, 2), le[1], 1e-5);
+    // The draws of the part and the rest cover each bead once.
+    const n: u32 = @intCast(v.beads.items.len);
+    const rest = try v.splitPreview(&.{.{ .first = 0, .count = n, .lod = 0 }}, le, 0, n);
+    var seen = try std.testing.allocator.alloc(u8, n);
+    defer std.testing.allocator.free(seen);
+    @memset(seen, 0);
+    for (rest) |d| for (d.first..d.first + d.count) |i| {
+        seen[i] += 1;
+    };
+    for (v.preview_draws.items) |d| for (d.first..d.first + d.count) |i| {
+        seen[i] += 1;
+    };
+    for (seen) |k| try std.testing.expectEqual(@as(u8, 1), k);
+    // On the bed: the lowest bead goes to z 0 after a half turn about x.
+    try v.setPartPreview(1, .{ 1, 0, 0, 0 }, .{ 0, 0, 3 }, .{ 0, 0, 0 }, true);
+    try std.testing.expect(v.preview.?.move[2] != 0);
+    v.clearPreview();
+    try std.testing.expect(v.preview == null);
 }
 
 test "the pick index finds the same bead as a test of each bead" {

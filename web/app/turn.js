@@ -2,7 +2,8 @@
 // selected part, three rings go around the part: red turns it about X,
 // green about Y, and blue about Z (a turn on the bed). A drag along a ring
 // turns the part in steps of 15° (Shift: 5°); each step goes to the core
-// at once, and the part slices once, at the end of the drag.
+// at once, and the part slices once, at the end of the drag. The beads of
+// the part turn in the view with the drag (a preview of the core view).
 //
 // The core view draws the rings, finds the ring under the pointer, and
 // gives the angle of a drag (zs_view_set_rings, zs_view_ring_at,
@@ -82,7 +83,10 @@ export class TurnRings {
     if (!x.zs_view_ring_press(v, axis, px, py)) return;
     e.preventDefault();
     e.stopPropagation();
-    this.drag = { axis, sent: 0, want: 0, busy: false };
+    // The part at the press: the center of the rings is the pivot of the
+    // preview, and its turn about Z gives the X and Y axes of a turn.
+    const p = this.ctx.part();
+    this.drag = { axis, sent: 0, want: 0, busy: false, index: p.index, pivot: [p.x, p.y, p.sizeZ / 2], rot: p.rotation ?? 0 };
     this.ctx.host.style.cursor = "grabbing";
     const target = e.target;
     try {
@@ -97,6 +101,7 @@ export class TurnRings {
       const [mx, my] = this.at(ev);
       d.want = Math.round(x.zs_view_ring_drag(v, mx, my, ev.shiftKey ? 5 : 15));
       this.showLabel(ev, d.want);
+      this.preview(d);
       this.send();
     };
     const up = (ev) => {
@@ -109,6 +114,8 @@ export class TurnRings {
       const d = this.drag;
       this.drag = null;
       this.ctx.host.style.cursor = "";
+      // No turn: no slice comes to end the preview.
+      if (d && d.want === 0) x.zs_view_part_preview(v, -1, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0, 0);
       this.ctx.frame();
       // The last steps go to the core first; then the turn is done, and
       // the slice that waited starts.
@@ -117,6 +124,20 @@ export class TurnRings {
     target.addEventListener("pointermove", move, true);
     target.addEventListener("pointerup", up, true);
     target.addEventListener("pointercancel", up, true);
+    this.ctx.frame();
+  }
+
+  // The beads of the part turn in the view at once (zs_view_part_preview),
+  // by the angle of the drag since the slice that the view shows. The
+  // slice of the new place ends the preview.
+  preview(d) {
+    const deg = d.want - (d.shown ?? 0);
+    const t = (deg * Math.PI) / 180 / 2;
+    const r = (d.rot * Math.PI) / 180;
+    const axis = d.axis === 0 ? [Math.cos(r), Math.sin(r), 0] : d.axis === 1 ? [-Math.sin(r), Math.cos(r), 0] : [0, 0, 1];
+    const s = Math.sin(t);
+    const [px, py, pz] = d.pivot;
+    this.ctx.view.x.zs_view_part_preview(this.ctx.view.v, d.index, axis[0] * s, axis[1] * s, axis[2] * s, Math.cos(t), px, py, pz, 0, 0, 0, 1);
     this.ctx.frame();
   }
 

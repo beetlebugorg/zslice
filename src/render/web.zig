@@ -97,6 +97,11 @@ pub const WebFrame = extern struct {
     plate_grid_vertices: u32 = 0,
     plate_grid_dim: u32 = 0,
     plate_grid_gen: u32 = 0,
+    /// A part that turns in the view only (frame_mod.Frame.part): its push
+    /// data, and its draws in the bead buffer. draws leaves them out.
+    part: Push = .{ .mvp = @splat(0), .vec = .{ 0, 0, 0, 0 } },
+    part_draws: usize = 0,
+    part_draws_count: u32 = 0,
 };
 
 comptime {
@@ -247,5 +252,8 @@ pub const Renderer = struct {
         o.plate_grid_vertices = @intCast(frame.plate_grid.len / 3);
         o.plate_grid_dim = frame.plate_grid_dim;
         o.plate_grid_gen = frame.plate_grid_gen;
+        o.part = frame.part;
+        o.part_draws = @intFromPtr(frame.part_draws.ptr);
+        o.part_draws_count = @intCast(frame.part_draws.len);
     }
 };

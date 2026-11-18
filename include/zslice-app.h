@@ -1123,6 +1123,16 @@ void zs_view_set_dark(zs_view *view, int on);
  * wide with it. Off at the start for a frame shell; the Vulkan backend
  * always has it. */
 void zs_view_set_ribbons(zs_view *view, int on);
+/* Shows part `part` of the plate (the part index of zs_app) turned and
+ * moved in the view only: the turn is the unit quaternion (qx, qy, qz,
+ * qw) about the point (px, py, pz), then the part moves by (mx, my, mz)
+ * mm. Flag ZS_PREVIEW_ON_BED also puts its lowest bead on the bed. The
+ * beads of the last slice turn at once, for the drag of a turn ring or
+ * the fall of a part; the next zs_view_load (the slice of the new place)
+ * ends it. part < 0 ends it now. Each call replaces the last one. */
+enum { ZS_PREVIEW_ON_BED = 1 };
+int zs_view_part_preview(zs_view *view, int part, float qx, float qy, float qz, float qw,
+                         float px, float py, float pz, float mx, float my, float mz, int flags);
 void zs_view_set_mode(zs_view *view, int mode);
 /* Highlights the beads of one path (an index into zs_app_toolpaths), or
  * nothing if path is (size_t)-1. */
@@ -1455,6 +1465,13 @@ typedef struct {
     uint32_t plate_draws_count;
     const float *plate_grid;
     uint32_t plate_grid_vertices, plate_grid_dim, plate_grid_gen;
+    /* A part that turns in the view only (zs_view_part_preview): its push
+     * constants (the matrix of the turn; the light and the eye in the
+     * frame of its beads), and its draws in the bead buffer. draws leaves
+     * these beads out. */
+    zs_web_push part;
+    const zs_web_draw *part_draws;
+    uint32_t part_draws_count;
 } zs_web_frame;
 const zs_web_frame *zs_view_web_frame(const zs_view *view);
 

@@ -102,6 +102,11 @@ pub const Frame = struct {
     /// The Vulkan backend draws `draws` (and no other beads) when this is
     /// true. A print view has no draw list.
     culled: bool = false,
+    /// A part that turns in the view only (View.setPartPreview): its
+    /// beads, with this push data (the matrix of the turn, and the eye and
+    /// the light in the frame of the beads). `draws` leaves them out.
+    part: Push = .{ .mvp = @splat(0), .vec = .{ 0, 0, 0, 0 } },
+    part_draws: []const Draw = &.{},
     /// The other plates (see PlateFrame), and their draws. The frame
     /// backend uses them.
     plates: []const PlateFrame = &.{},

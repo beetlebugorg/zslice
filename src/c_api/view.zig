@@ -476,6 +476,18 @@ export fn zs_view_set_dark(view: ?*View, on: c_int) void {
     v.dark = on != 0;
 }
 
+/// Shows a part turned and moved in the view only (View.setPartPreview).
+/// part < 0 ends it.
+export fn zs_view_part_preview(view: ?*View, part: c_int, qx: f32, qy: f32, qz: f32, qw: f32, px: f32, py: f32, pz: f32, mx: f32, my: f32, mz: f32, flags: c_int) c_int {
+    if (!render_on) return @intFromEnum(Status.not_supported);
+    const v = view orelse return @intFromEnum(Status.invalid_argument);
+    const q = [4]f32{ qx, qy, qz, qw };
+    for (q) |k| if (!std.math.isFinite(k)) return @intFromEnum(Status.invalid_argument);
+    if (part >= 0 and q[0] * q[0] + q[1] * q[1] + q[2] * q[2] + q[3] * q[3] < 1e-12) return @intFromEnum(Status.invalid_argument);
+    v.setPartPreview(if (part < 0) null else @intCast(part), q, .{ px, py, pz }, .{ mx, my, mz }, flags & 1 != 0) catch |e| return status(e);
+    return ok;
+}
+
 /// The shell draws mesh level 2 as a ribbon (on != 0). See View.ribbons.
 export fn zs_view_set_ribbons(view: ?*View, on: c_int) void {
     if (!render_on) return;
