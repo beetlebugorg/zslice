@@ -14,6 +14,7 @@
 
 import CZslice
 import Foundation
+import QuartzCore
 
 /// A suggestion: its line for zs_app_refine_apply, its words, and the
 /// number of other projects with it.
@@ -88,6 +89,10 @@ extension Workspace {
     }
 
     func refreshRefinements() {
+        let t = CACurrentMediaTime()
+        defer {
+            if ProcessInfo.processInfo.environment["ZSLICE_TIMING"] != nil { NSLog("zslice timing: refinements %.1f ms", (CACurrentMediaTime() - t) * 1000) }
+        }
         let core = model.core
         let project = refineProject
         let records = coreString { zs_app_refine_records(core, $0, $1, $2) } ?? ""

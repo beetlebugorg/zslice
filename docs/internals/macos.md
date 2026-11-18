@@ -161,6 +161,7 @@ Like the GTK shell, the app reads some environment variables for development and
 - `ZSLICE_SESSION=dir` keeps the session in that folder, also with `ZSLICE_FRESH` (which turns the session off without it). `ZSLICE_QUIT_AFTER=s` quits as Command-Q does, after s seconds. With `ZSLICE_TIMING=1`, the app logs the session reads and writes, and the time of the first frame with beads.
 - `ZSLICE_REFINE=path` keeps the store of refinements in that file, also with `ZSLICE_FRESH`. `ZSLICE_DETAILS=1` opens the details of the print, and `ZSLICE_REFINE_APPLY=1` applies the first suggestion and logs it.
 - `ZSLICE_HOVER_SCAN=1` picks the Support tool, hovers over a grid of the view, logs the picks and their time, and clicks the first overhang.
+- `ZSLICE_RESLICE=name=a,b,c` changes that setting to each value in turn (`ZSLICE_RESLICE=1`: the infill). With `ZSLICE_TIMING=1`, the app logs the time of each slice, of the work after it on the main thread, of the save copy, and of each frame over 8 ms.
 - `ZSLICE_RESLICE=1` changes the infill 3 times, one change after each slice, and logs the longest wait of the main thread. With `ZSLICE_TIMING=1`, it logs the time of each slice too.
 - `ZSLICE_PAGE_FLIP=dir` turns the view, goes to 2D and back, and turns it again. It writes `a.png`, `b.png`, and `c.png` there: `a.png` and `b.png` must be the same.
 - `ZSLICE_OPEN_AFTER=path` opens a file 3 s after the start, as File > Open does, and logs the windows (the empty window must give its place to the file).
