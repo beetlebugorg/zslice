@@ -10,6 +10,8 @@ zig build lib -Doptimize=ReleaseFast
 
 This makes `zig-out/lib/libzslice.a`, `zig-out/lib/libzslice.so`, `zig-out/include/zslice.h`, and `zig-out/include/zslice-app.h`. Link a program with the static library and `-lc -lpthread`, or with the shared library.
 
+On macOS, the linker, `lipo`, and `libtool` skip an archive member that is not aligned to 8 bytes ("64-bit mach-o not 8-byte aligned"), and the archive of Zig 0.16 does not always align it. The link then fails with undefined symbols, depending on the size of the symbol table. Make the archive again before you link: take the object out with `ar x`, give it mode 644 (`chmod 644`), and make a new archive with `libtool -static`. `macos/build-core.sh` does this.
+
 For another target, add `-Dtarget`. Example: `zig build lib -Doptimize=ReleaseFast -Dtarget=aarch64-linux-gnu` for a Raspberry Pi.
 
 ## Example

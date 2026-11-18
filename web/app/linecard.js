@@ -160,7 +160,8 @@ export class LineCard {
     card.append(head, this.stats, this.note, this.size);
 
     // The settings that matter for this line, with the reason of each.
-    const picks = contextSettings(info, this.ctx.browser.byName);
+    // The picks of the core (zs_app_inspect_picks), else the rules here.
+    const picks = info.picks?.length ? info.picks.filter((p) => this.ctx.browser.byName.has(p.name)).slice(0, MAX_SETTINGS) : contextSettings(info, this.ctx.browser.byName);
     if (picks.length > 0) {
       const box = el("div", "lc-settings");
       for (const { name, why } of picks) {
@@ -216,7 +217,7 @@ export class LineCard {
         return d;
       }),
     );
-    this.note.textContent = SLOW[info.slowReason] ?? "";
+    this.note.textContent = info.slowText ?? SLOW[info.slowReason] ?? "";
     this.note.hidden = !this.note.textContent;
     const m = info.measure;
     let size = "";

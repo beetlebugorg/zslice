@@ -19,32 +19,6 @@
 
 enum { MAX_PICKS = 4 };
 
-static const char *const SLOW[] = {
-    "",
-    "Slow: the layer is short, so it prints slower to cool.",
-    "Slow: the segments are short, so the head does not reach full speed.",
-};
-
-/* The settings that matter most for each feature (enum zs_feature), in
- * order. */
-static const char *const BY_FEATURE[ZS_FEATURE_COUNT][4] = {
-    {"project.outer_wall_speed", "project.seam", "project.wall_count", "project.outer_wall_accel"},
-    {"project.wall_count", "project.inner_wall_speed", "project.wall_thickness", "project.infill_overlap"},
-    {"project.top_thickness", "project.bottom_thickness", "project.skin_pattern", "project.skin_speed"},
-    {"project.infill_density", "project.infill_pattern", "project.infill_speed", "project.infill_angle"},
-    {"project.ironing", "project.ironing_flow", "project.ironing_speed", "project.ironing_spacing"},
-    {"project.brim_width", "project.skirt_loops", "project.skirt_distance", "project.skirt_layers"},
-    {"project.support", "project.support_style", "project.support_density", "project.support_xy_gap"},
-    {"project.support_interface_layers", "project.support_z_gap_layers", "project.support_interface_density", "project.support_xy_gap"},
-    {"project.slope_smoothing", "project.slope_smoothing_flow", "project.slope_smoothing_speed", "project.slope_smoothing_max_width"},
-    {"project.slope_ironing", "project.slope_ironing_passes", "project.slope_ironing_flow", "project.slope_ironing_speed"},
-    {"project.bridge_speed", "project.bridge_flow", "project.bridge_fan", "project.bridges"},
-};
-
-/* The acceleration of each feature, for a line that is slow because its
- * segments are short. */
-static const char *const ACCEL[] = {"project.outer_wall_accel", "project.inner_wall_accel", "project.skin_accel", "project.infill_accel"};
-
 typedef struct {
     char *name;
     const char *why;
@@ -59,57 +33,26 @@ typedef struct {
     gboolean quiet;
 } LineCard;
 
-static void add_pick(GPtrArray *out, const char *name, const char *why) {
-    if (out->len >= MAX_PICKS) return;
-    zs_setting_info info;
-    if (!zg_setting_find(name, &info)) return;
-    for (guint i = 0; i < out->len; i++)
-        if (strcmp(((Pick *)g_ptr_array_index(out, i))->name, name) == 0) return;
-    Pick *p = g_new0(Pick, 1);
-    p->name = g_strdup(name);
-    p->why = why;
-    g_ptr_array_add(out, p);
-}
-
 static void pick_free(gpointer data) {
     Pick *p = data;
     g_free(p->name);
     g_free(p);
 }
 
-/* The settings for the card: [{name, why}]. */
+/* The settings for the card, from the core (zs_app_inspect_picks): why
+ * the line is slow, the first layer, the user's changes, then the main
+ * settings of its feature. [{name, why}]. */
 static GPtrArray *pick_settings(LineCard *c, const zs_inspect *info) {
     GPtrArray *out = g_ptr_array_new_with_free_func(pick_free);
-    char **lines = g_strsplit(info->settings ? info->settings : "", "\n", -1);
-    if (info->slow_reason == 1) {
-        add_pick(out, "filament.min_layer_time", "Why it is slow: the layer is short");
-        add_pick(out, "filament.fan_speed", "More fan cools a short layer");
-    } else if (info->slow_reason == 2) {
-        add_pick(out, info->feature >= 0 && info->feature < 4 ? ACCEL[info->feature] : "machine.max_accel", "Why it is slow: short segments");
+    zs_pick picks[MAX_PICKS];
+    size_t n = 0;
+    if (zs_app_inspect_picks(zg_model_core(c->model), info->path, picks, MAX_PICKS, &n) != ZS_OK) return out;
+    for (size_t i = 0; i < n; i++) {
+        Pick *p = g_new0(Pick, 1);
+        p->name = g_strdup(picks[i].name);
+        p->why = picks[i].why;
+        g_ptr_array_add(out, p);
     }
-    if (info->layer == 0) {
-        add_pick(out, "project.first_layer_speed", "The first layer");
-        add_pick(out, "project.first_layer_height", "The first layer");
-    }
-    /* A setting that the user changed for this print or for these layers:
-     * likely the one to tune. */
-    zs_app *core = zg_model_core(c->model);
-    for (int i = 0; lines[i]; i++) {
-        if (!lines[i][0] || g_str_has_prefix(lines[i], "# ")) continue;
-        if (zs_app_override_at(core, info->z, lines[i])) {
-            add_pick(out, lines[i], "You changed it for some layers");
-            continue;
-        }
-        int level = 0;
-        char *src = zg_model_source_text(c->model, lines[i], -1, &level);
-        g_free(src);
-        if (level == ZS_LEVEL_PRINT || level == ZS_LEVEL_PART) add_pick(out, lines[i], "You changed it");
-    }
-    if (info->feature >= 0 && info->feature < ZS_FEATURE_COUNT)
-        for (int k = 0; k < 4; k++) add_pick(out, BY_FEATURE[info->feature][k], "");
-    for (int i = 0; lines[i]; i++)
-        if (lines[i][0] && !g_str_has_prefix(lines[i], "# ")) add_pick(out, lines[i], "");
-    g_strfreev(lines);
     return out;
 }
 
@@ -142,7 +85,7 @@ static void update_numbers(LineCard *c, const zs_inspect *info, size_t path) {
     stat_box(c->stats, 0, a, "planned", FALSE);
     stat_box(c->stats, 1, b, "real", info->slow_reason != 0);
     stat_box(c->stats, 2, f, "flow", FALSE);
-    const char *slow = info->slow_reason >= 0 && info->slow_reason < 3 ? SLOW[info->slow_reason] : "";
+    const char *slow = info->slow_text ? info->slow_text : "";
     gtk_label_set_text(GTK_LABEL(c->note), slow);
     gtk_widget_set_visible(c->note, slow[0] != 0);
     /* The size: a circle or an arc, the segment, and the path. */

@@ -72,6 +72,8 @@ pub const SettingInfo = setting_info.SettingInfo;
 pub const settings_info = setting_info.settings_info;
 /// The text of a setting value, as the editors show it (setting_text.zig).
 pub const setting_text = @import("app/setting_text.zig");
+/// The settings that matter most for a selected line (inspect_picks.zig).
+pub const inspect_picks = @import("app/inspect_picks.zig");
 pub const License = @import("app/licenses.zig").License;
 pub const licenses = @import("app/licenses.zig").licenses;
 
@@ -1839,6 +1841,16 @@ pub const App = struct {
         if (app.inspect_arena) |*a| a.deinit();
         app.inspect_arena = .init(app.gpa);
         return inspect_mod.inspect(app.inspect_arena.?.allocator(), t, &app.job.?, path) catch |e| switch (e) {
+            error.OutOfRange => error.OutOfRange,
+            error.OutOfMemory, error.WriteFailed => error.OutOfMemory,
+        };
+    }
+
+    /// The same as `inspect`, in `arena`: the strings of the last `inspect`
+    /// stay valid (for the picks of a line card that shows them).
+    pub fn inspectIn(app: *const App, arena: Allocator, path: usize) error{ NoResult, OutOfRange, OutOfMemory }!Inspection {
+        const t = app.allToolpaths() orelse return error.NoResult;
+        return inspect_mod.inspect(arena, t, &app.job.?, path) catch |e| switch (e) {
             error.OutOfRange => error.OutOfRange,
             error.OutOfMemory, error.WriteFailed => error.OutOfMemory,
         };

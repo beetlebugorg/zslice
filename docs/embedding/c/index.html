@@ -52,6 +52,7 @@
 <nav class="onpage"><b>On this page</b><ol><li><a href="#build">Build</a></li><li><a href="#example">Example</a></li><li><a href="#functions">Functions</a></li><li><a href="#the-write-callback">The write callback</a></li><li><a href="#threads">Threads</a></li><li><a href="#memory">Memory</a></li></ol></nav><h2 id="build">Build</h2>
 <pre><code>zig build lib -Doptimize=ReleaseFast</code></pre>
 <p>This makes <code>zig-out/lib/libzslice.a</code>, <code>zig-out/lib/libzslice.so</code>, <code>zig-out/include/zslice.h</code>, and <code>zig-out/include/zslice-app.h</code>. Link a program with the static library and <code>-lc -lpthread</code>, or with the shared library.</p>
+<p>On macOS, the linker, <code>lipo</code>, and <code>libtool</code> skip an archive member that is not aligned to 8 bytes ("64-bit mach-o not 8-byte aligned"), and the archive of Zig 0.16 does not always align it. The link then fails with undefined symbols, depending on the size of the symbol table. Make the archive again before you link: take the object out with <code>ar x</code>, give it mode 644 (<code>chmod 644</code>), and make a new archive with <code>libtool -static</code>. <code>macos/build-core.sh</code> does this.</p>
 <p>For another target, add <code>-Dtarget</code>. Example: <code>zig build lib -Doptimize=ReleaseFast -Dtarget=aarch64-linux-gnu</code> for a Raspberry Pi.</p>
 <h2 id="example">Example</h2>
 <pre><code>#include &lt;stdio.h&gt;

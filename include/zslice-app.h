@@ -317,6 +317,7 @@ typedef struct zs_inspect {
      * cooling slow-down (filament.min_layer_time), 2 the acceleration on
      * short segments. */
     int slow_reason;
+    const char *slow_text; /* the sentence of slow_reason, or "" */
 } zs_inspect;
 
 /* The measurements of a path at its segment seg (src/app/measure.zig):
@@ -436,6 +437,20 @@ int zs_app_feature_stats(const zs_app *app, zs_feature_stats *out);
 /* The strings stay valid until the next zs_app_inspect, the next slice, or
  * zs_app_free. */
 int zs_app_inspect(zs_app *app, size_t path, zs_inspect *out);
+
+/* A setting that matters for a selected line, and why ("" for the main
+ * settings of its feature). The strings are static. */
+typedef struct zs_pick {
+    const char *name;
+    const char *why;
+} zs_pick;
+/* The settings that matter most for path `path`, best first, at most max:
+ * why it is slow (the minimum layer time and the fan, or the acceleration
+ * of its feature), the first layer settings on layer 1, the settings of the
+ * line that the user changed (for some layers, or for the print or the
+ * part), the main settings of its feature, then the other settings that
+ * change it. *n gets the count. For the line card of each app. */
+int zs_app_inspect_picks(zs_app *app, size_t path, zs_pick *out, size_t max, size_t *n);
 /* ---- settings for some layers ---- */
 
 /* Changes a setting for the layers with a top z from z_min to z_max (mm),

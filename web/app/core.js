@@ -444,10 +444,29 @@ export class Core {
         info.values[name] = this.valueAt(info.z, name);
       }
       info.mark = this.markOfPath(path, seg, info);
+      info.slowText = s(124);
+      info.picks = this.picks(path, 8);
       info.measure = this.measure(path, seg < 0 ? 0 : seg);
       return info;
     } finally {
       w.free(p, size);
+    }
+  }
+
+  // The settings that matter most for a line (zs_app_inspect_picks):
+  // [{ name, why }], best first.
+  picks(path, max) {
+    const w = this.w;
+    const size = 8 * max; // zs_pick on wasm32: two pointers
+    const p = w.alloc(size + 8);
+    try {
+      if (w.x.zs_app_inspect_picks(this.app, path, p, max, p + size) !== 0) return [];
+      const n = w.u32(p + size);
+      const out = [];
+      for (let k = 0; k < n; k++) out.push({ name: w.cstr(w.u32(p + 8 * k)), why: w.cstr(w.u32(p + 8 * k + 4)) });
+      return out;
+    } finally {
+      w.free(p, size + 8);
     }
   }
 

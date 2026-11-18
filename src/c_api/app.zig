@@ -477,6 +477,8 @@ pub const Inspect = extern struct {
     why_real: [*:0]const u8,
     why_flow: [*:0]const u8,
     slow_reason: c_int,
+    /// The sentence of slow_reason, or "".
+    slow_text: [*:0]const u8,
 };
 
 /// The printability check of the last slice: the issues, the worst
@@ -611,7 +613,47 @@ export fn zs_app_inspect(a: ?*App, path: usize, out: ?*Inspect) c_int {
         .why_flow = i.why_flow.ptr,
         .slow_reason = i.slow_reason,
         .settings = i.settings.ptr,
+        .slow_text = app_mod.inspect_picks.slowText(i.slow_reason).ptr,
     };
+    return ok;
+}
+
+pub const Pick = extern struct {
+    name: [*:0]const u8,
+    why: [*:0]const u8,
+};
+
+/// The settings that matter most for path `path`, best first, at most max
+/// (see src/app/inspect_picks.zig). The strings are static.
+export fn zs_app_inspect_picks(a: ?*App, path: usize, out: ?[*]Pick, max: usize, n: ?*usize) c_int {
+    const app = a orelse return @intFromEnum(Status.invalid_argument);
+    const o = out orelse return @intFromEnum(Status.invalid_argument);
+    // A separate arena: the strings of the last zs_app_inspect stay valid.
+    var arena = std.heap.ArenaAllocator.init(gpa);
+    defer arena.deinit();
+    const i = app.inspectIn(arena.allocator(), path) catch |e| return status(e);
+    const Ctx = struct {
+        app: *const App,
+        z: f64,
+        fn changed(ctx: *const anyopaque, name: []const u8) u8 {
+            const self: *const @This() = @ptrCast(@alignCast(ctx));
+            if (self.app.hasOverrideAt(self.z, name)) return 1;
+            const src = self.app.source(null, name);
+            return if (src.level == .print or src.level == .part) 2 else 0;
+        }
+    };
+    const ctx: Ctx = .{ .app = app, .z = i.z };
+    var buf: [32]app_mod.inspect_picks.Pick = undefined;
+    const count = app_mod.inspect_picks.picks(.{
+        .feature = @intFromEnum(i.feature),
+        .layer = i.layer,
+        .slow_reason = i.slow_reason,
+        .settings = i.settings,
+        .ctx = &ctx,
+        .changed = Ctx.changed,
+    }, buf[0..@min(max, buf.len)]);
+    for (buf[0..count], 0..) |p, k| o[k] = .{ .name = p.name.ptr, .why = p.why.ptr };
+    if (n) |cnt| cnt.* = count;
     return ok;
 }
 
