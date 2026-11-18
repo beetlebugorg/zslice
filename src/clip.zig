@@ -317,7 +317,10 @@ noinline fn findIntersections(comptime narrow: bool, arena: Allocator, edges: []
     // The cell size is the power of two nearest to that length. Then the
     // cell of a point is a shift of its coordinates, with no division and
     // no float, and a coordinate in cells is an exact float.
-    const shift: u6 = @intCast(std.math.clamp(@as(i32, @intFromFloat(@floor(@log2(want) + 0.5))), 0, 62));
+    // The wide box test makes a pair in a cell cheap, so its best cell is
+    // 4 times as large: fewer cells for each edge to walk and to sort.
+    const bias: f64 = if (box_lanes > 1) 2.5 else 0.5;
+    const shift: u6 = @intCast(std.math.clamp(@as(i32, @intFromFloat(@floor(@log2(want) + bias))), 0, 62));
 
     // The number of cells on each side. The walk can add a cell one step
     // past the box (at a corner), so each side gets 2 more.
