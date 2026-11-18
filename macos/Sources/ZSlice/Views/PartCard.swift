@@ -1,7 +1,7 @@
 //! The card of a selected part (docs/user/getting-started.md, "The part
 //! card"; web/app/partcard.js). A click on a part with the Move or the Turn
 //! tool, or Command and a click with any tool, selects it, and the card
-//! opens next to it: its name, its size, and its turn; Duplicate (D), Best
+//! opens at the top right of the view: its name, its size, and its turn; Duplicate (D), Best
 //! Orientation, Less Support, Reset, and Remove (Delete); and the settings
 //! that the part has of its own, each with an editor and a button that
 //! gives it the value of the plate again. "Add a Setting" lists the
@@ -96,17 +96,12 @@ struct PartCard: View {
         return SettingInfo.all.filter(\.perPart).compactMap { seen.insert($0.section).inserted ? $0.section : nil }
     }
 
-    /// Next to the part, inside the view; a card that the user moved stays.
+    /// At the top right of the view, left of the layer slider, so it does
+    /// not cover the part and its rings; a card that the user moved stays.
     private var place: CGPoint {
         if let moved { return moved }
-        let w = 300.0, h = 220.0
-        var at = CGPoint(x: area.width / 2, y: area.height / 2)
-        if let p = workspace.part(index), let s = workspace.canvas.viewPoint(x: p.x + p.size_x / 2, y: p.y, z: p.size_z / 2) {
-            at = s
-        }
-        let x = min(max(at.x + 24 + w / 2, w / 2 + 70), area.width - w / 2 - 90)
-        let y = min(max(at.y, h / 2 + 60), area.height - h / 2 - 20)
-        return CGPoint(x: x, y: y)
+        let w = 300.0
+        return CGPoint(x: area.width - w / 2 - 92, y: 190)
     }
 }
 

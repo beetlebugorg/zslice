@@ -45,6 +45,10 @@ final class Workspace {
     var selectedPart: Int?
     @ObservationIgnored var partDrag: PartDrag?
     @ObservationIgnored var tapeDrag: Int?
+    /// A drag of a ring of the Turn tool: its axis, and the degrees sent.
+    @ObservationIgnored var ringDrag: (axis: Int, sent: Double)?
+    /// The label of a ring drag ("+30° about Z") and its place.
+    var ringLabel: (text: String, at: CGPoint)?
     @ObservationIgnored let wheelSlice = Throttle(.milliseconds(300))
     @ObservationIgnored let keySlice = Throttle(.milliseconds(600))
     var tape: [TapePoint] = []

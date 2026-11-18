@@ -55,7 +55,7 @@ enum Tool: String, CaseIterable {
         switch self {
         case .select: "Select (S): click a line to see what it is and the settings that change it."
         case .move: "Move (M): drag a part to move it on the bed. Command-scroll turns it by 15°. Command-drag moves a part in any tool."
-        case .turn: "Turn (R): click a part, then Left and Right turn it about Z, Up and Down about X, Page Up and Page Down about Y (15°; Shift: 5°)."
+        case .turn: "Turn (R): click a part, then drag its red, green, or blue ring to turn it about X, Y, or Z (15°; Shift: 5°). Keys: Left and Right about Z, Up and Down about X, Page Up and Page Down about Y."
         case .measure: "Measure (T): click two points of the print or the bed. A click on a circle or an arc measures from its center. Shift: no snap. Esc clears."
         }
     }
@@ -83,6 +83,7 @@ extension Workspace {
         tool = t
         if t != .measure { clearTape() }
         if t == .select { selectPart(nil) }
+        showRings()
         canvas.window?.invalidateCursorRects(for: canvas)
     }
 
@@ -111,10 +112,24 @@ extension Workspace {
         return zs_app_part_get(model.core, i, &p) == 0 ? p : nil
     }
 
-    /// Selects a part (nil: none). The view draws its frame on the bed.
+    /// Selects a part (nil: none). The view draws its frame on the bed,
+    /// and in the Turn tool the rings around it.
     func selectPart(_ i: Int?) {
         selectedPart = i
         showPartBox(i.flatMap { part($0) }.map { ($0.x, $0.y, $0.size_x, $0.size_y) })
+        showRings()
+    }
+
+    /// The rings of the Turn tool around the selected part (the core draws
+    /// them): its center at half its height, and a radius for its size.
+    func showRings() {
+        guard let v = canvas.view else { return }
+        if tool == .turn, let i = selectedPart, let p = part(i) {
+            zs_view_set_rings(v, p.x, p.y, p.size_z / 2, 0.62 * max(p.size_x, p.size_y, p.size_z) + 4)
+        } else {
+            zs_view_set_rings(v, 0, 0, 0, 0)
+        }
+        canvas.requestFrame()
     }
 
     private func showPartBox(_ b: (x: Double, y: Double, w: Double, h: Double)?) {
@@ -136,6 +151,15 @@ extension Workspace {
             tapeDrag = i
             return true
         }
+        if tool == .turn, selectedPart != nil, let v = canvas.view {
+            let px = Float(p.x * pixelScale), py = Float(p.y * pixelScale)
+            let axis = zs_view_ring_at(v, px, py, Float(8 * pixelScale))
+            if axis >= 0, zs_view_ring_press(v, axis, px, py) != 0 {
+                ringDrag = (Int(axis), 0)
+                canvas.requestFrame()
+                return true
+            }
+        }
         guard tool == .move || flags.contains(.command), let i = partAt(p), let info = part(i), let v = canvas.view else {
             return false
         }
@@ -148,6 +172,23 @@ extension Workspace {
     }
 
     func drag(_ p: CGPoint, _ flags: NSEvent.ModifierFlags) {
+        if let r = ringDrag, let i = selectedPart, let v = canvas.view, let info = part(i) {
+            let total = zs_view_ring_drag(v, Float(p.x * pixelScale), Float(p.y * pixelScale), flags.contains(.shift) ? 5 : 15)
+            let step = total - r.sent
+            if step != 0 {
+                if r.axis == 2 {
+                    zs_app_part_rotate(model.core, i, info.rotation + step)
+                } else {
+                    zs_app_part_turn(model.core, i, Int32(r.axis), step)
+                }
+                ringDrag = (r.axis, total)
+                model.changedHeld()
+                selectPart(i)
+            }
+            ringLabel = (String(format: "%@%.0f° about %@", total > 0 ? "+" : "", total, ["X", "Y", "Z"][r.axis]), p)
+            canvas.requestFrame()
+            return
+        }
         if let i = tapeDrag {
             moveTapeEnd(i, to: p, snap: !flags.contains(.shift))
             return
@@ -169,6 +210,15 @@ extension Workspace {
     }
 
     func release(_ p: CGPoint) {
+        if let r = ringDrag, let v = canvas.view {
+            zs_view_ring_release(v)
+            ringDrag = nil
+            ringLabel = nil
+            // The turn slices once, at the end of the drag.
+            if r.sent != 0 { model.release() }
+            canvas.requestFrame()
+            return
+        }
         if tapeDrag != nil {
             tapeDrag = nil
             return

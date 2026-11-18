@@ -25,6 +25,15 @@ struct DocumentWindow: View {
             .overlay {
                 GeometryReader { geo in
                     TapeOverlay(workspace: workspace, area: geo.size)
+                    if let l = workspace.ringLabel {
+                        Text(l.text)
+                            .font(.callout.weight(.semibold).monospacedDigit())
+                            .padding(.horizontal, 8)
+                            .padding(.vertical, 4)
+                            .background(.regularMaterial, in: Capsule())
+                            .position(x: l.at.x + 60, y: l.at.y - 24)
+                            .allowsHitTesting(false)
+                    }
                     if let gap = workspace.gapCard {
                         GapCard(workspace: workspace, gap: gap)
                             .position(x: min(workspace.cardAt.x + 180, geo.size.width - 170), y: min(max(workspace.cardAt.y, 160), geo.size.height - 160))
