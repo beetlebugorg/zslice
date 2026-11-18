@@ -183,6 +183,20 @@ function sceneOf(i) {
   return w.u8.slice(p, p + n).buffer;
 }
 
+// The active plate with no parts left (the last part removed, or moved to
+// another plate): no slice, and no beads. The page gets an empty scene.
+// Returns true if the plate is empty.
+function clearIfEmpty() {
+  if (core.w.x.zs_app_part_count(core.app) > 0) return false;
+  core.modelName = "";
+  wasm.x.zs_set_changed(set, activeIndex());
+  wasm.x.zs_set_name(set, activeIndex(), 0);
+  postPlates();
+  const scene = core.scene(mode);
+  post({ event: "cleared", scene, plate: activeIndex() }, scene ? [scene] : []);
+  return true;
+}
+
 // The active plate waits for a slice.
 function wantSlice() {
   wasm.x.zs_set_changed(set, activeIndex());
@@ -730,14 +744,7 @@ const ops = {
     else if (action === "arrange") x.zs_app_plate_arrange(core.app);
     else if (action === "clear") {
       x.zs_app_plate_clear(core.app);
-      core.modelName = "";
-      // A plate with no parts: no slice, and no beads.
-      x.zs_set_changed(set, activeIndex());
-      x.zs_set_name(set, activeIndex(), 0);
-      postPlates();
-      // An empty plate: an empty scene for the page.
-      const scene = core.scene(mode);
-      post({ event: "cleared", scene, plate: activeIndex() }, scene ? [scene] : []);
+      clearIfEmpty();
       return {};
     }
     wantSlice();
@@ -750,7 +757,7 @@ const ops = {
     const r = core.partAction(index, action);
     // A split of one body changes nothing.
     if (action === "split" && r === 0) return { ok: false, part: core.part(index), message: "The part has one body: nothing to split." };
-    if (r >= 0) wantSlice();
+    if (r >= 0 && !clearIfEmpty()) wantSlice();
     const n = core.w.x.zs_app_part_count(core.app);
     const at = action === "duplicate" && r >= 0 ? r : index;
     return { ok: r >= 0, count: action === "split" ? r : 0, part: action === "remove" || at >= n ? null : core.part(at) };
@@ -956,7 +963,9 @@ const ops = {
     if (r < 0) return { ok: false };
     syncCore();
     postPlates();
-    wantSlice();
+    // The plate that gets the part slices in the background.
+    if (clearIfEmpty()) schedule();
+    else wantSlice();
     return { ok: true, to: r };
   },
 
