@@ -24,7 +24,9 @@ const dec = new TextDecoder();
 
 // The memory of the module with threads (zslice-mt.wasm), in pages of
 // 64 KiB: the numbers of build.zig (wasm_mt_initial, wasm_mt_max).
-const MT_MEMORY = { initial: 1024, maximum: 32768, shared: true };
+// The memory of the threads: 64 MiB at first, at most 4 GiB (the limit of
+// wasm32). A large plate (many copies of a part) needs more than 2 GiB.
+const MT_MEMORY = { initial: 1024, maximum: 65536, shared: true };
 // The stack of a thread, in bytes.
 const THREAD_STACK = (2 << 20) - 64;
 

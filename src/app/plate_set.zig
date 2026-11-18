@@ -568,7 +568,17 @@ pub const Set = struct {
             .name = p.info_name,
             .printer_key = p.info_key,
             .part_count = p.app.plate.count(),
-            .message = p.message,
+            .message = if (p.message.len == 0 and set.statusOf(p) == .failed) failureText(p.app.failure) else p.message,
+        };
+    }
+
+    /// Why a slice failed, in words, for a plate with no message.
+    fn failureText(e: ?anyerror) [:0]const u8 {
+        const err = e orelse return "The slice failed.";
+        return switch (err) {
+            error.OutOfMemory => "Out of memory: the plate is too big to slice here. Put fewer parts on it (Make n in all spreads them over plates), or use the desktop app.",
+            error.EmptyMesh => "A part has no material to print.",
+            else => "The slice failed.",
         };
     }
 

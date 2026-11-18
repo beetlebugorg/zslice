@@ -113,7 +113,8 @@ pub fn build(b: *std.Build) void {
 /// The memory limits of the wasm module with threads. A shared memory
 /// needs a maximum. wasm.js makes the memory with the same numbers.
 const wasm_mt_initial = 64 << 20;
-const wasm_mt_max = 2 << 30;
+// The most memory of the web app: 4 GiB, the limit of wasm32 (65536 pages).
+const wasm_mt_max = 4 << 30;
 
 /// A wasm module of the C API. `threads`: with atomics and a shared memory
 /// that the host makes (see src/parallel.zig).
