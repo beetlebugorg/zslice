@@ -66,6 +66,12 @@ The Filament and Quality menus sit beside the printer menu in the toolbar. They 
 
 The app keeps your settings in `~/Library/Application Support/zslice`: `machine.toml`, `filament.toml`, and `project.toml`, as in the other apps.
 
+## Save a project
+
+File > Save Project (Command-S) saves all the plates of the window in one .3mf file: the parts, their places and settings, the layer profiles, and the printer, filament, and print settings of each plate. Save Project As (Shift-Command-S) asks for a new file. The close button of the window has a dot while there are changes that are not saved. Open the file as any other file: the plates come back. Other slicers open its first plate.
+
+Move to a New Plate on the part card moves a part to a new plate, with the settings of this one. The alert after a cut whose parts do not fit offers it too.
+
 ## Projects
 
 Open a project with File > Open Project Folder (Shift-Command-O): choose the folder of a repository with a printdeck.yml. The plates of the project show in a row, and each plate slices. The Project page of the drawer lists the plates and the parts; the check box and the count of a part change the plates at once. File > Open Project from GitHub opens a public repository: type `owner/repo`, or its address on github.com (with `/tree/<branch>` for a branch).

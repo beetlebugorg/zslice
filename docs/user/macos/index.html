@@ -50,7 +50,7 @@
 <p class="eyebrow">User guide</p>
 <h1>The macOS app</h1>
 <p class="lede">The macOS app has the features of the other apps, in the way of a Mac app. This page lists where it differs. The rest of the user guide applies.</p>
-<nav class="onpage"><b>On this page</b><ol><li><a href="#build-and-open-it">Build and open it</a></li><li><a href="#the-keys">The keys</a></li><li><a href="#the-drawer">The drawer</a></li><li><a href="#the-print-card">The print card</a></li><li><a href="#printers">Printers</a></li><li><a href="#filament-and-quality">Filament and quality</a></li><li><a href="#your-settings">Your settings</a></li><li><a href="#projects">Projects</a></li></ol></nav><h2 id="build-and-open-it">Build and open it</h2>
+<nav class="onpage"><b>On this page</b><ol><li><a href="#build-and-open-it">Build and open it</a></li><li><a href="#the-keys">The keys</a></li><li><a href="#the-drawer">The drawer</a></li><li><a href="#the-print-card">The print card</a></li><li><a href="#printers">Printers</a></li><li><a href="#filament-and-quality">Filament and quality</a></li><li><a href="#your-settings">Your settings</a></li><li><a href="#save-a-project">Save a project</a></li><li><a href="#projects">Projects</a></li></ol></nav><h2 id="build-and-open-it">Build and open it</h2>
 <p>The app needs macOS 14 or later. Build it from the source tree (see <a href="../../internals/macos/">The macOS app</a> in the internals):</p>
 <pre><code>cd macos
 ZIG=/path/to/zig-0.16/zig ./build-core.sh
@@ -76,6 +76,9 @@ open build/zslice.app</code></pre>
 <p>The Filament and Quality menus sit beside the printer menu in the toolbar. They list the built-in profiles and your own, and have Save as Profile. The Quality menu shows a dot when this print has changes on top of the quality. Your profiles are in <code>~/Library/Application Support/zslice/profiles/filament</code> and <code>profiles/project</code>.</p>
 <h2 id="your-settings">Your settings</h2>
 <p>The app keeps your settings in <code>~/Library/Application Support/zslice</code>: <code>machine.toml</code>, <code>filament.toml</code>, and <code>project.toml</code>, as in the other apps.</p>
+<h2 id="save-a-project">Save a project</h2>
+<p>File &gt; Save Project (Command-S) saves all the plates of the window in one .3mf file: the parts, their places and settings, the layer profiles, and the printer, filament, and print settings of each plate. Save Project As (Shift-Command-S) asks for a new file. The close button of the window has a dot while there are changes that are not saved. Open the file as any other file: the plates come back. Other slicers open its first plate.</p>
+<p>Move to a New Plate on the part card moves a part to a new plate, with the settings of this one. The alert after a cut whose parts do not fit offers it too.</p>
 <h2 id="projects">Projects</h2>
 <p>Open a project with File &gt; Open Project Folder (Shift-Command-O): choose the folder of a repository with a printdeck.yml. The plates of the project show in a row, and each plate slices. The Project page of the drawer lists the plates and the parts; the check box and the count of a part change the plates at once. File &gt; Open Project from GitHub opens a public repository: type <code>owner/repo</code>, or its address on github.com (with <code>/tree/&lt;branch&gt;</code> for a branch).</p><nav class="pager"><a class="prev" href="../../user/projects/"><span>Previous</span><b>Projects</b></a><a class="next" href="../../user/troubleshooting/"><span>Next</span><b>Troubleshooting</b></a></nav>
 </main>

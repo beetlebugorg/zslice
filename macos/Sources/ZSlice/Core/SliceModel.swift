@@ -82,7 +82,7 @@ final class SliceModel {
     private(set) var stats: zs_stats?
     /// Counts the changes of the settings, so a view that shows a value
     /// reads it again.
-    private(set) var settingsGeneration = 0
+    var settingsGeneration = 0
     /// The undo list of each plate, by the id of the plate.
     @ObservationIgnored private var histories: [UInt64: History] = [:]
     /// Runs on the main thread after each new slice of the active plate.
@@ -123,7 +123,7 @@ final class SliceModel {
 
     // MARK: - the plates
 
-    private func readPlates() {
+    func readPlates() {
         active = zs_set_active(set)
         plates = (0 ..< zs_set_count(set)).compactMap { i in
             var p = zs_plate_info()
@@ -197,6 +197,11 @@ final class SliceModel {
 
     /// Loads an STL or 3MF file in place of the parts of the active plate.
     func load(name: String, data: Data) throws {
+        let isProject = data.withUnsafeBytes { zs_project_file_is($0.bindMemory(to: UInt8.self).baseAddress, $0.count) } == 1
+        if isProject {
+            try openProjectFile(data)
+            return
+        }
         let rc = data.withUnsafeBytes { buf in
             zs_app_load_stl(core, name, buf.bindMemory(to: UInt8.self).baseAddress, buf.count)
         }

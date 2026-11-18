@@ -24,6 +24,9 @@ struct ModelDocument: FileDocument {
     static let readableContentTypes: [UTType] = [.stl, .threeMF]
     let data: Data
 
+    /// A zslice project file (all plates), not a model.
+    var isProject: Bool { data.withUnsafeBytes { zs_project_file_is($0.bindMemory(to: UInt8.self).baseAddress, $0.count) } == 1 }
+
     init(configuration: ReadConfiguration) throws {
         guard let data = configuration.file.regularFileContents else { throw CocoaError(.fileReadCorruptFile) }
         self.data = data
@@ -38,12 +41,13 @@ struct ModelDocument: FileDocument {
 struct ZSliceApp: App {
     var body: some Scene {
         DocumentGroup(viewing: ModelDocument.self) { file in
-            DocumentWindow(document: file.document, name: file.fileURL?.lastPathComponent ?? "model.stl")
+            DocumentWindow(document: file.document, name: file.fileURL?.lastPathComponent ?? "model.stl", url: file.fileURL)
         }
         .commands {
             ViewCommands()
             UndoCommands()
             CommandGroup(after: .newItem) { PlateCommands() }
+            CommandGroup(replacing: .saveItem) { SaveCommands() }
             CommandGroup(after: .help) {
                 HelpCommands()
             }
@@ -122,6 +126,20 @@ struct PlateCommands: View {
             .keyboardShortcut("o", modifiers: [.command, .shift])
             .disabled(workspace == nil)
         Button("Open Project from GitHub…") { workspace?.askGitHub() }
+            .disabled(workspace == nil)
+    }
+}
+
+/// File > Save Project and Save Project As (ProjectFile.swift).
+struct SaveCommands: View {
+    @FocusedValue(\.workspace) private var workspace
+
+    var body: some View {
+        Button("Save Project") { workspace?.saveProject() }
+            .keyboardShortcut("s", modifiers: .command)
+            .disabled(workspace == nil)
+        Button("Save Project As…") { workspace?.saveProject(as: true) }
+            .keyboardShortcut("s", modifiers: [.command, .shift])
             .disabled(workspace == nil)
     }
 }

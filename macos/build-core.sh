@@ -11,7 +11,7 @@ mkdir -p "$out"
 tmp=$(mktemp -d)
 trap 'rm -rf "$tmp"' EXIT
 for arch in aarch64 x86_64; do
-    "$ZIG" build lib -Dtarget="$arch-macos" -Doptimize="$OPT" --prefix "zig-out/macos-$arch"
+    "$ZIG" build lib -Dtarget="$arch-macos" -Doptimize="$OPT" -Dcompiler-rt --prefix "zig-out/macos-$arch"
     # The archive of Zig 0.16 does not align its object to 8 bytes, and
     # the Apple tools (ld, lipo, libtool) then skip it. So the script takes
     # the object out and makes the archive again with libtool.

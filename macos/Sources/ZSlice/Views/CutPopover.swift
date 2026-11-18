@@ -73,8 +73,10 @@ struct CutPopover: View {
     private func askToMove() {
         let a = NSAlert()
         a.messageText = "The parts do not all fit on this bed"
-        a.informativeText = "They overlap now. Move some to another plate (+ Plate, then add them there)."
-        a.runModal()
+        a.informativeText = "They overlap now. Move some to another plate."
+        a.addButton(withTitle: "Move the Top to a New Plate")
+        a.addButton(withTitle: "Keep Them Here")
+        if a.runModal() == .alertFirstButtonReturn { workspace.movePartToNewPlate(index + 1) }
     }
 
     private func showPlane(_ p: zs_part) {

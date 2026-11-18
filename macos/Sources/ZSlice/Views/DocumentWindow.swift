@@ -12,6 +12,7 @@ struct DocumentWindow: View {
     /// The file of the window, or nil for a window with an empty plate.
     let document: ModelDocument?
     let name: String
+    var url: URL? = nil
     @State private var workspace = Workspace()
     @State private var loadError: String?
     @State private var dropping = false
@@ -186,10 +187,16 @@ struct DocumentWindow: View {
             }
         }
         .focusedSceneValue(\.workspace, workspace)
+        .onChange(of: workspace.model.history.generation) {
+            workspace.canvas.window?.isDocumentEdited = workspace.unsaved
+        }
         .task {
             guard let document else { return }
             do {
                 try workspace.model.load(name: name, data: document.data)
+                // A project file saves back to itself.
+                workspace.projectURL = document.isProject ? url : nil
+                workspace.savedGeneration = workspace.model.history.generation
             } catch {
                 loadError = error.localizedDescription
             }

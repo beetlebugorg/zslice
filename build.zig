@@ -44,6 +44,11 @@ pub fn build(b: *std.Build) void {
     // The Vulkan headers of the renderer (vendor/vulkan, Apache-2.0).
     c_mod.addIncludePath(b.path("vendor/vulkan/include"));
     const static_lib = b.addLibrary(.{ .name = "zslice", .linkage = .static, .root_module = c_mod });
+    // -Dcompiler-rt puts the compiler-rt of Zig (std/compiler_rt, MIT, as
+    // the rest of the Zig standard library) in the static library: the
+    // helpers of f128 math that std.json and std.fmt.parseFloat call. The
+    // Apple linker has no libgcc to give them, so macos/build-core.sh sets it.
+    if (b.option(bool, "compiler-rt", "Bundle compiler-rt in the static library") orelse false) static_lib.bundle_compiler_rt = true;
     const shared_lib = b.addLibrary(.{ .name = "zslice", .linkage = .dynamic, .root_module = c_mod });
     const lib_step = b.step("lib", "Build the C library");
     lib_step.dependOn(&b.addInstallArtifact(static_lib, .{}).step);

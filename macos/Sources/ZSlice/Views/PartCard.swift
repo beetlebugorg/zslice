@@ -75,8 +75,13 @@ struct PartCard: View {
                         PartSettingRow(workspace: workspace, index: index, info: s.info, value: s.value)
                     }
                 }
-                Button("Edit Settings for This Part…") { workspace.editScope(.part(index)) }
-                    .buttonStyle(.link)
+                HStack {
+                    Button("Edit Settings for This Part…") { workspace.editScope(.part(index)) }
+                    Spacer()
+                    Button("Move to a New Plate") { workspace.movePartToNewPlate() }
+                        .help("The part goes to a new plate with the settings of this one")
+                }
+                .buttonStyle(.link)
                 Menu("Add a Setting for This Part") {
                     ForEach(sections, id: \.self) { section in
                         Menu(section.isEmpty ? "General" : section) {
