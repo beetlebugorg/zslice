@@ -260,7 +260,9 @@ export class LineCard {
     let y = this.at[1] - 24;
     if (x + w > host.width - 60) x = this.at[0] - w - 18;
     x = Math.max(8, Math.min(host.width - w - 8, x));
-    y = Math.max(60, Math.min(host.height - h - 8, y));
+    // Above the dock at the bottom of the view (--dock-h of app.js).
+    const dock = parseFloat(getComputedStyle(this.ctx.host).getPropertyValue("--dock-h")) || 40;
+    y = Math.max(60, Math.min(host.height - h - dock - 20, y));
     card.style.left = `${x}px`;
     card.style.top = `${y}px`;
   }

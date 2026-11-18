@@ -784,7 +784,8 @@ button.destructive { background: #c01c28; color: #fff; }
 /* The printers: a page over the view. */
 .farm-view { position: absolute; inset: 0; z-index: 20; background: var(--bg); color: var(--fg, inherit); overflow-y: auto; display: flex; flex-direction: column; }
 .farm-view[hidden] { display: none; }
-.farm-bar { display: flex; align-items: center; gap: 8px; padding: 10px 14px; border-bottom: 1px solid var(--border); }
+/* The top row of the Printers page and of the Project dialog. */
+.page-bar { display: flex; align-items: center; gap: 8px; padding: 10px 14px; border-bottom: 1px solid var(--border); }
 .farm-view .page { padding: 14px 18px; max-width: 1200px; width: 100%; box-sizing: border-box; }
 .farm-view .farm-grid { grid-template-columns: repeat(auto-fill, minmax(240px, 1fr)); }
 #printers-page[aria-pressed="true"] { background: var(--button-active); }
@@ -820,3 +821,18 @@ button.destructive { background: #c01c28; color: #fff; }
 }
 .summary.float-card.is-empty { display: none; }
 .menu-dot { display: inline-block; width: 9px; height: 9px; border-radius: 50%; margin-right: 7px; vertical-align: middle; }
+
+/* The edit buttons of the line card wrap in place of running past it. */
+.lc-foot.lc-edits { flex-wrap: wrap; justify-content: flex-start; }
+.lc-foot.lc-edits button { white-space: normal; text-align: left; }
+/* The layer slider ends over the print card, at its height (--card-h). */
+.preview .layers { bottom: calc(var(--card-h, 190px) + 30px); }
+/* A crowded dock: the history marks shrink and scroll, and the scrub label
+   keeps its room. */
+.preview .dock > .timeline { min-width: 0; flex: 0 1 auto; overflow: hidden; }
+.preview .dock .tl-marks { min-width: 0; overflow-x: auto; scrollbar-width: none; }
+.preview .dock > .scrub { flex: 1 1 220px; min-width: 200px; }
+.preview .dock .scrub-label { white-space: nowrap; flex: none; }
+@container (max-width: 700px) {
+  .preview .layers { bottom: calc(var(--dock-h, 40px) + var(--card-h, 120px) + 30px); }
+}

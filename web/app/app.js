@@ -1242,6 +1242,8 @@ function showLicenses() {
 // The height of the dock, for the print card over it in a narrow view
 // (the dock wraps onto more rows).
 new ResizeObserver(() => $("preview").style.setProperty("--dock-h", `${$("dock").offsetHeight}px`)).observe($("dock"));
+// The height of the print card, for the layer slider over it.
+new ResizeObserver(() => $("preview").style.setProperty("--card-h", `${$("summary").offsetHeight}px`)).observe($("summary"));
 
 // ---- the panel and the pages ----
 
@@ -1273,6 +1275,8 @@ function showTab(name) {
   $("crumb-back").hidden = selected;
   $("crumbs").hidden = selected;
   $("panel-title").hidden = !selected;
+  // The title of the Selected page: a line, a gap, or a part.
+  if (selected) $("panel-title").textContent = app.selectedKind === "gap" ? "Selected gap" : "Selected line";
   updateFocus();
 }
 $("selected-back").onclick = () => showTab("settings");
@@ -1339,6 +1343,7 @@ function select(path, seg, picked) {
     // With the panel on the Selected page, the panel shows the new line,
     // and no card opens (the same data twice). Else the card opens at the
     // click.
+    app.selectedKind = "line";
     if (panelMode() !== "hidden" && !$("page-selected").hidden) showTab("selected");
     else {
       lineCard.openAt(...(app.pickPoint ?? [120, 120]));
@@ -1790,6 +1795,7 @@ const gaps = new Gaps({
   // The gap page replaces the Selected page: no line is selected, and the
   // next line builds the page again.
   showPage: () => {
+    app.selectedKind = "gap";
     app.sel = -1;
     app.seg = -1;
     app.info = null;
@@ -1971,7 +1977,7 @@ function updateSummary() {
       return b;
     };
     warn.append(`${t.name || "The part"} is only ${t.size.toFixed(2)} mm. Was the file in inches or in meters? `, by(25.4, "Inches (×25.4)"), by(1000, "Meters (×1000)"));
-  } else if (app.overhang >= OVERHANG_HINT_MM2 && (value("project.support") || "off") === "off") {
+  } else if (app.overhang >= OVERHANG_HINT_MM2 && (value("project.support") || "off") === "off" && !(supportTool?.areas?.length > 0)) {
     // Support is off, and a large area faces down in the air: the print
     // can fail there. One click turns support on.
     warn.hidden = false;

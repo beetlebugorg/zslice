@@ -15,7 +15,7 @@ export const SHORTCUTS = [
     keys: [
       ["?", "Show this sheet of the keyboard shortcuts"],
       ["/", "Search the settings and the actions, and change a setting in the results"],
-      ["N", "Show or hide the panel: all settings, the selected line, the history, and the project"],
+      ["N", "Show or hide the panel of the settings (and the selected line, from All settings on its card)"],
       ["Ctrl+O", "Open a model or a project"],
       ["Ctrl+S", "Save the project: all plates in one 3MF file"],
       ["Ctrl+E", "Export the G-code"],
@@ -93,7 +93,7 @@ export const SHORTCUTS = [
   {
     group: "History",
     keys: [
-      ["Up, Down (History tab)", "The next step, or the step before"],
+      ["Up, Down (History list)", "The next step, or the step before"],
       ["Left, Right (timeline)", "The step before, or the next step"],
     ],
   },

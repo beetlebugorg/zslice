@@ -423,6 +423,14 @@ export class SettingsBrowser {
 
   openSetting(name) {
     this.key = name;
+    // The path names the section of this setting, and no search.
+    const info = this.byName.get(name);
+    if (info) {
+      this.group = info.group;
+      this.section = info.section;
+      this.feature = -1;
+      this.search = "";
+    }
     for (const r of this.cols[1].querySelectorAll(".row.selected")) r.classList.remove("selected");
     this.fillDetail();
     this.showColumn(2);
