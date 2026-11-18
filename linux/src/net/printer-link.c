@@ -44,6 +44,7 @@ void zg_printer_info_free(ZgPrinterInfo *info) {
     }
     g_free(info->rolls);
     g_free(info->job);
+    zs_printer_status_free(info->core);
     g_free(info);
 }
 
@@ -207,6 +208,9 @@ static void on_query_reply(GObject *source, GAsyncResult *res, gpointer data) {
 static void query_next(Query *q) {
     if (!q->paths[q->step]) {
         fill_info(q->info, q->status);
+        /* The info keeps the status of the core. */
+        q->info->core = q->status;
+        q->status = NULL;
         ZgPrinterInfo *info = q->info;
         q->info = NULL;
         q->fn(info, NULL, q->data);

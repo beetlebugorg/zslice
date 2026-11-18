@@ -183,6 +183,11 @@ int zs_printer_status_feed(zs_printer_status *s, int kind, const char *path, con
 /* The status so far; the strings stay valid until the next feed or free. */
 int zs_printer_status_get(const zs_printer_status *s, zs_printer_info *out);
 int zs_printer_status_roll(const zs_printer_status *s, size_t i, zs_printer_roll *out);
+/* Applies the status of a printer to the settings. what: 1 the machine (the
+ * bed, the height, the nozzle, and the motion limits, each only when the
+ * printer gives it), 2 the filament (the built-in profile of its material,
+ * the roll name, the diameter, the color), 3 both. One history step. */
+int zs_app_apply_printer_status(zs_app *app, const zs_printer_status *s, int what);
 
 /* The settings, in the order to show them. */
 size_t zs_setting_count(void);

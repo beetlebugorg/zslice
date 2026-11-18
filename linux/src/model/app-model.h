@@ -83,6 +83,9 @@ gint64 zg_model_part_duplicate(ZgModel *self, size_t i);
 /* Splits part i into its separate bodies (zs_app_part_split): the count of
  * new parts (at index i on), 0 for a part of one body, or -1. */
 gint64 zg_model_part_split(ZgModel *self, size_t i);
+/* Applies the status of a printer (zs_app_apply_printer_status): what 1
+ * the machine, 2 the filament, 3 both. */
+void zg_model_apply_printer_status(ZgModel *self, const zs_printer_status *status, int what);
 gboolean zg_model_plate_arrange(ZgModel *self);
 void zg_model_plate_clear(ZgModel *self);
 

@@ -348,28 +348,18 @@ static void set_num(ZgModel *model, const char *key, double v) {
     zg_model_set(model, key, buf, NULL);
 }
 
+/* The rules of both buttons are in the core (zs_app_apply_printer_status). */
 static void on_use_machine(GtkButton *b, gpointer data) {
     Prefs *p = data;
-    ZgPrinterInfo *in = p->info;
-    if (!in) return;
-    if (in->bed_x > 0) set_num(p->model, "machine.bed_size_x", in->bed_x);
-    if (in->bed_y > 0) set_num(p->model, "machine.bed_size_y", in->bed_y);
-    if (in->height > 0) set_num(p->model, "machine.max_height", in->height);
-    if (in->nozzle > 0) set_num(p->model, "machine.nozzle_diameter", in->nozzle);
-    /* The motion limits of the printer, for a time estimate that matches
-     * it (the speed of the print stays a setting of zslice). */
-    if (in->max_accel > 0) set_num(p->model, "machine.max_accel", in->max_accel);
-    if (in->corner_velocity > 0) set_num(p->model, "machine.corner_speed", in->corner_velocity);
-    if (in->max_z_velocity > 0) set_num(p->model, "machine.max_z_speed", in->max_z_velocity);
-    if (in->max_z_accel > 0) set_num(p->model, "machine.max_z_accel", in->max_z_accel);
+    if (!p->info) return;
+    zg_model_apply_printer_status(p->model, p->info->core, 1);
     gtk_widget_set_visible(p->use_machine, FALSE);
 }
 
 static void on_use_filament(GtkButton *b, gpointer data) {
     Prefs *p = data;
-    ZgPrinterInfo *in = p->info;
-    if (!in) return;
-    zg_model_filament_from_printer(p->model, in->material, in->spool, in->diameter, in->spool_color);
+    if (!p->info) return;
+    zg_model_apply_printer_status(p->model, p->info->core, 2);
     gtk_widget_set_visible(p->use_filament, FALSE);
 }
 

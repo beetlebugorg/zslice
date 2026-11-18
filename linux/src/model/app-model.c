@@ -746,6 +746,19 @@ void zg_model_filament_from_printer(ZgModel *self, const char *material, const c
     zg_model_save_soon(self, ZS_GROUP_FILAMENT);
 }
 
+void zg_model_apply_printer_status(ZgModel *self, const zs_printer_status *status, int what) {
+    if (!status || zs_app_apply_printer_status(self->core, status, what) != ZS_OK) return;
+    if (what & 1) {
+        zg_model_announce(self, "machine.");
+        zg_model_save_soon(self, ZS_GROUP_MACHINE);
+    }
+    if (what & 2) {
+        zg_model_announce(self, "filament.");
+        zg_model_save_soon(self, ZS_GROUP_FILAMENT);
+    }
+    request_slice(self);
+}
+
 char *zg_model_roll_key(const char *printer, const char *roll_id) {
     GString *key = g_string_new(NULL);
     for (const char *c = printer ? printer : ""; *c; c++) g_string_append_c(key, g_ascii_isalnum(*c) ? *c : '-');

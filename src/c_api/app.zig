@@ -276,6 +276,61 @@ export fn zs_printer_status_roll(s: ?*const PStatus, i: usize, out: ?*PrinterRol
     return ok;
 }
 
+/// Applies the status of a printer to the settings of the app. what: 1
+/// the machine (the bed, the height, the nozzle, and the motion limits
+/// that the printer gives, each only when known), 2 the filament (the
+/// built-in profile of its material, the name of the roll, the diameter,
+/// and the color), 3 both. A material with no built-in profile keeps the
+/// profile, and sets only the name, the material, the diameter, and the
+/// color. Noted in the history as one step.
+export fn zs_app_apply_printer_status(a: ?*App, s: ?*const PStatus, what: c_int) c_int {
+    const app = a orelse return @intFromEnum(Status.invalid_argument);
+    const st = s orelse return @intFromEnum(Status.invalid_argument);
+    var buf: [64]u8 = undefined;
+    const Num = struct {
+        fn set(ap: *App, b: []u8, name: []const u8, v: f64) void {
+            if (!(v > 0)) return;
+            const t = std.fmt.bufPrint(b, "{d}", .{v}) catch return;
+            ap.setSetting(name, t) catch {};
+        }
+    };
+    if (what & 1 != 0) {
+        Num.set(app, &buf, "machine.bed_size_x", st.bed_x);
+        Num.set(app, &buf, "machine.bed_size_y", st.bed_y);
+        Num.set(app, &buf, "machine.max_height", st.height);
+        Num.set(app, &buf, "machine.nozzle_diameter", st.nozzle);
+        // The motion limits, for a time estimate that matches the printer
+        // (the speed of the print stays a setting of zslice).
+        Num.set(app, &buf, "machine.max_accel", st.max_accel);
+        Num.set(app, &buf, "machine.corner_speed", st.corner_velocity);
+        Num.set(app, &buf, "machine.max_z_speed", st.max_z_velocity);
+        Num.set(app, &buf, "machine.max_z_accel", st.max_z_accel);
+    }
+    if (what & 2 != 0) {
+        const material = if (st.material.len > 0) st.material else st.spool.material;
+        // The diameter belongs to the printer: a new base profile keeps it,
+        // unless the printer gives one.
+        const keep_diameter = app.settings.filament.diameter;
+        if (material.len > 0 and material.len < 40) {
+            var low: [40]u8 = undefined;
+            const lower = std.ascii.lowerString(&low, material);
+            var pb: [80]u8 = undefined;
+            const text = std.fmt.bufPrint(&pb, "extends = \"generic-{s}\"\n", .{lower}) catch "";
+            var diag: zs.profile.Diagnostic = .{};
+            app.applyProfile(.filament, "saved", text, &diag) catch {};
+            var up: [40]u8 = undefined;
+            app.setSetting("filament.material", std.ascii.upperString(&up, material)) catch {};
+        }
+        const name = if (st.spool.name.len > 0) st.spool.name else material;
+        if (name.len > 0) app.setSetting("filament.name", name) catch {};
+        Num.set(app, &buf, "filament.diameter", if (st.diameter > 0) st.diameter else keep_diameter);
+        const color = if (st.spool.color.len > 0) st.spool.color else "";
+        if (color.len > 0) app.setSetting("filament.color", color) catch {};
+    }
+    noted(app, null, false);
+    return ok;
+}
+
 /// 1 if a change line of a history step (zs_history_step.changes) can be
 /// undone alone (zs_app_history_revert): not the quality, and not a move,
 /// turn, orientation, or scale of a part.
@@ -1662,6 +1717,23 @@ test "C API: the app" {
     var lic: License = undefined;
     try std.testing.expectEqual(ok, zs_license_get(0, &lic));
     try std.testing.expect(std.mem.indexOf(u8, std.mem.span(lic.text), "AFFERO") != null);
+}
+
+test "C API: apply the status of a printer" {
+    var app: ?*App = null;
+    try std.testing.expectEqual(ok, zs_app_new(null, null, &app));
+    defer zs_app_free(app);
+    const st = zs_printer_status_new();
+    defer zs_printer_status_free(st);
+    const body = "{\"material\":\"PETG\",\"diameter\":2.85,\"spool\":{\"name\":\"Navy\",\"color\":\"#1a2b4c\"},\"limits\":{\"max_accel\":1500}}";
+    try std.testing.expectEqual(ok, zs_printer_status_feed(st, 2, "/api/plugin/printdeck", body, body.len));
+    try std.testing.expectEqual(ok, zs_app_apply_printer_status(app, st, 3));
+    const a = app.?;
+    try std.testing.expectEqual(@as(f64, 1500), a.settings.machine.max_accel);
+    try std.testing.expectEqualStrings("Navy", a.settings.filament.name);
+    try std.testing.expectEqualStrings("PETG", a.settings.filament.material);
+    try std.testing.expectEqualStrings("#1a2b4c", a.settings.filament.color);
+    try std.testing.expectEqual(@as(f64, 2.85), a.settings.filament.diameter);
 }
 
 test "C API: compare with Cura" {

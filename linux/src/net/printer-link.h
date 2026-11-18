@@ -44,6 +44,8 @@ typedef struct {
     double progress; /* 0 to 1 */
     double time_left; /* seconds, or -1 */
     int layer, layers;
+    /* The status of the core, for zs_app_apply_printer_status. */
+    zs_printer_status *core;
 } ZgPrinterInfo;
 
 void zg_printer_info_free(ZgPrinterInfo *info);
