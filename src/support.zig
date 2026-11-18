@@ -81,6 +81,13 @@ pub const Mark = struct {
     /// the box around (x, y), mm, at all heights.
     hw: f64 = 0,
     hh: f64 = 0,
+    /// A support area of the user (the support editor): a polygon on the
+    /// bed (x, y in mm) over the heights `z` to `z_hi`. With kind grid,
+    /// tree, or bridge, all of the surface in the polygon that faces down
+    /// in that range gets support, also under the support angle. With kind
+    /// block, that surface gets no support. Empty: a mark at a point.
+    poly: []const [2]f64 = &.{},
+    z_hi: f64 = 0,
 
     /// `area_on` and `area_off` come from the settings of one part (see
     /// part_settings.zig): support in its box with support off for the
@@ -215,6 +222,59 @@ fn disk(a: Allocator, x: f64, y: f64, r: f64) Allocator.Error!Paths {
     return out;
 }
 
+/// The polygon of an area, as paths.
+fn polygon(a: Allocator, pts: []const [2]f64) Allocator.Error!Paths {
+    var out: Paths = .empty;
+    const q = try a.alloc(geom.Point, pts.len);
+    for (pts, q) |p, *o| o.* = .{ .x = geom.fromMm(p[0]), .y = geom.fromMm(p[1]) };
+    try out.append(a, q);
+    // The union gives the polygon a positive orientation, and splits a
+    // polygon that crosses itself.
+    return clip.unite(a, out, .empty);
+}
+
+/// The room in z around the points of an area, mm. The points come from
+/// clicks on the surface, so they can be a little off its height.
+const area_z_room = 0.3;
+
+/// The layers of an area, first to end: the layers whose top is in the
+/// z range of the area. A surface that faces down at height z is the
+/// bottom of the layer over z, so the range reaches one layer higher.
+fn areaLayers(layers: []const slicer.Layer, m: Mark) [2]usize {
+    const lo = @min(m.z, m.z_hi) - area_z_room;
+    const hi = @max(m.z, m.z_hi) + area_z_room;
+    var first: usize = layers.len;
+    var end: usize = 0;
+    for (layers, 0..) |l, i| {
+        if (l.z < lo or l.z - l.height > hi) continue;
+        first = @min(first, i);
+        end = i + 1;
+    }
+    if (first >= end) return .{ 0, 0 };
+    return .{ first, end };
+}
+
+/// Adds the overhangs of an area of the user to `need`: on each layer of
+/// its z range, the part of the layer in the polygon that is not on the
+/// layer below. That is all of the surface that faces down, at any angle.
+fn enforceArea(gpa: Allocator, a: Allocator, outlines: []const Paths, layers: []const slicer.Layer, need: []Paths, m: Mark) Allocator.Error!void {
+    const area = try polygon(a, m.poly);
+    const range = areaLayers(layers, m);
+    for (@max(1, range[0])..range[1]) |i| {
+        const on = try clip.intersect(a, outlines[i], area);
+        if (on.isEmpty()) continue;
+        const free = try clip.difference(a, on, outlines[i - 1]);
+        if (free.isEmpty()) continue;
+        // Only slivers of the arithmetic go. A steep wall gives a thin
+        // strip on each layer, and the user wants support under it.
+        const strip = try offset_mod.opening(a, free, sliver, .{});
+        if (strip.isEmpty()) continue;
+        const u = try clip.unite(gpa, need[i], strip);
+        need[i].deinit(gpa);
+        need[i] = u;
+    }
+}
+
 /// The layer of a z (the nearest nozzle z).
 fn layerAt(layers: []const slicer.Layer, z: f64) usize {
     var best: usize = 0;
@@ -320,7 +380,9 @@ fn computeStyle(
 
     // The marks: a block mark removes the overhang near it (2 mm up and
     // down); a mark of the kind of this pass replaces the overhangs with
-    // the part of its disk that is not on the layer under it.
+    // the part of its disk that is not on the layer under it. An area of
+    // the kind of this pass adds the surface in it that faces down, and a
+    // block area removes the overhangs in it.
     {
         var arena_m = std.heap.ArenaAllocator.init(gpa);
         defer arena_m.deinit();
@@ -328,10 +390,11 @@ fn computeStyle(
         if (kind) |k| {
             for (need) |*x| x.deinit(gpa);
             for (need) |*x| x.* = .empty;
+            for (marks) |m| if (m.kind == k and m.poly.len > 0) try enforceArea(gpa, am, outlines, layers, need, m);
             // The first overhang at or above the layer of the mark, in its
             // disk: so a mark on the floor under an arch, or on a wall
             // under a shelf, supports the overhang over it.
-            for (marks) |m| if (m.kind == k) {
+            for (marks) |m| if (m.kind == k and m.poly.len == 0) {
                 const d = try disk(am, m.x, m.y, m.r);
                 var i = @max(1, layerAt(layers, m.z));
                 while (i < n) : (i += 1) {
@@ -345,7 +408,7 @@ fn computeStyle(
                 }
             };
         } else {
-            for (marks) |m| if (m.kind == .block) {
+            for (marks) |m| if (m.kind == .block and m.poly.len == 0) {
                 const d = try disk(am, m.x, m.y, m.r);
                 for (layers, 0..) |l, i| {
                     if (@abs(l.z - m.z) > 2 or need[i].isEmpty()) continue;
@@ -355,6 +418,17 @@ fn computeStyle(
                 }
             };
         }
+        // A block area wins over the other marks and areas.
+        for (marks) |m| if (m.kind == .block and m.poly.len > 0) {
+            const area = try polygon(am, m.poly);
+            const range = areaLayers(layers, m);
+            for (range[0]..range[1]) |i| {
+                if (need[i].isEmpty()) continue;
+                const rest = try clip.difference(gpa, need[i], area);
+                need[i].deinit(gpa);
+                need[i] = rest;
+            }
+        };
     }
 
     // The overhangs moved out by one line width (`wide`). The columns and
@@ -799,6 +873,89 @@ test "support areas: a part with support on, and a part with support off" {
     const none = try compute(gpa, sl.outlines, sl.layers, &r2, 1, &off);
     defer deinitAll(gpa, none);
     for (none) |l| try testing.expect(l.body.isEmpty() and l.interface.isEmpty());
+}
+
+test "support editor: an area under a slope of 30 degrees gets support" {
+    const gpa = testing.allocator;
+    // A cone that opens up with a wall at 30 degrees from vertical: under
+    // the support angle, so the settings give it no support.
+    const r1 = 5 + @tan(std.math.degreesToRadians(30.0)) * 10;
+    var m = try mesh_mod.shapes.frustum(gpa, 30, 30, 5, r1, 10, 64);
+    defer m.deinit(gpa);
+    const sl = try sliceAll(gpa, &m, 10);
+    defer {
+        for (sl.outlines) |*o| o.deinit(gpa);
+        gpa.free(sl.outlines);
+        gpa.free(sl.layers);
+    }
+    // The right half of the slope, from z 1 to 9.
+    const poly = [_][2]f64{ .{ 30, 15 }, .{ 45, 15 }, .{ 45, 45 }, .{ 30, 45 } };
+    for ([_]Mark.Kind{ .grid, .tree }) |kind| {
+        var st: settings_mod.Settings = .{};
+        st.project.support = .everywhere;
+        const r = try st.resolve();
+        const none = try compute(gpa, sl.outlines, sl.layers, &r, 2, &.{});
+        defer deinitAll(gpa, none);
+        for (none) |l| try testing.expect(l.body.isEmpty() and l.interface.isEmpty());
+        // Support on, and support off: the area gets support both times.
+        for ([_]settings_mod.SupportMode{ .everywhere, .off }) |mode| {
+            st.project.support = mode;
+            const r2 = try st.resolve();
+            const area = [_]Mark{.{ .x = 0, .y = 0, .z = 1, .z_hi = 9, .kind = kind, .poly = &poly }};
+            const sup = try compute(gpa, sl.outlines, sl.layers, &r2, 2, &area);
+            defer deinitAll(gpa, sup);
+            const l = sup[25];
+            try testing.expect(l.body.areaMm2() + l.interface.areaMm2() > 5);
+            // Only under the right half (the left edge of the cone is at
+            // x 22 on this layer).
+            const box = try clip.unite(gpa, l.body, l.interface);
+            defer @constCast(&box).deinit(gpa);
+            try testing.expect(geom.toMm(box.bounds().min.x) > 28.5);
+        }
+    }
+}
+
+test "support editor: a block area removes the support of an overhang" {
+    const gpa = testing.allocator;
+    // The mushroom: a cap from z 5 over a post.
+    var b: mesh_mod.Builder = .init(gpa);
+    try mesh_mod.shapes.addBox(&b, 8, 8, 0, 12, 12, 5);
+    try mesh_mod.shapes.addBox(&b, 0, 0, 5, 20, 20, 7);
+    var m = try b.finish();
+    defer m.deinit(gpa);
+    const sl = try sliceAll(gpa, &m, 7);
+    defer {
+        for (sl.outlines) |*o| o.deinit(gpa);
+        gpa.free(sl.outlines);
+        gpa.free(sl.layers);
+    }
+    for ([_]settings_mod.SupportStyle{ .grid, .tree }) |style| {
+        var st: settings_mod.Settings = .{};
+        st.project.support = .everywhere;
+        st.project.support_style = style;
+        const r = try st.resolve();
+        // A block area over the whole cap, drawn on its bottom (z 5).
+        const poly = [_][2]f64{ .{ -1, -1 }, .{ 21, -1 }, .{ 21, 21 }, .{ -1, 21 } };
+        const block = [_]Mark{.{ .x = 0, .y = 0, .z = 5, .z_hi = 5, .kind = .block, .poly = &poly }};
+        const sup = try compute(gpa, sl.outlines, sl.layers, &r, 2, &block);
+        defer deinitAll(gpa, sup);
+        for (sup) |l| try testing.expect(l.body.isEmpty() and l.interface.isEmpty());
+        // A block area on the left half only: support on the right half.
+        const half = [_][2]f64{ .{ -1, -1 }, .{ 10, -1 }, .{ 10, 21 }, .{ -1, 21 } };
+        const left = [_]Mark{.{ .x = 0, .y = 0, .z = 4.9, .z_hi = 5.1, .kind = .block, .poly = &half }};
+        const some = try compute(gpa, sl.outlines, sl.layers, &r, 2, &left);
+        defer deinitAll(gpa, some);
+        const l = some[22];
+        try testing.expect(l.interface.areaMm2() + l.body.areaMm2() > 20);
+        const box = try clip.unite(gpa, l.body, l.interface);
+        defer @constCast(&box).deinit(gpa);
+        try testing.expect(geom.toMm(box.bounds().min.x) > 9);
+        // A block area at another height changes nothing.
+        const high = [_]Mark{.{ .x = 0, .y = 0, .z = 6.5, .z_hi = 7, .kind = .block, .poly = &poly }};
+        const same = try compute(gpa, sl.outlines, sl.layers, &r, 2, &high);
+        defer deinitAll(gpa, same);
+        try testing.expect(same[10].body.areaMm2() > 100 or same[10].interface.areaMm2() + same[22].interface.areaMm2() > 100);
+    }
 }
 
 test "bed-only support skips a column that rests on the part" {

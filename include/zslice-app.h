@@ -270,6 +270,27 @@ int zs_app_mark_set(zs_app *app, size_t i, int kind, double r);
 void zs_app_mark_remove(zs_app *app, size_t i);
 void zs_app_marks_clear(zs_app *app);
 
+/* Support areas (the support editor): a polygon of n points on the surface
+ * of a part, x, y, z (mm) each, in points (3 n values, 3 to 256 points).
+ * Kind (enum zs_mark_kind) grid or tree: support under the surface in the
+ * polygon that faces down in the z range z_lo to z_hi, also under the
+ * support angle and with support off; bridge: a pad there; block: no
+ * support there. A z range with z_lo over z_hi (or NaN) comes from the z
+ * of the points. The areas are in the plate 3MF and the history. Each
+ * change is one history step; slice again after it. zs_app_support_area_add
+ * returns the index of the new area, or -status. */
+ptrdiff_t zs_app_support_area_add(zs_app *app, int kind, const double *points, size_t n, double z_lo, double z_hi);
+/* New points and z range for area i: a drag of a point. Hold the slice of
+ * the plate during a drag (zs_set_changed_held), and release it at the
+ * end (zs_set_release). */
+int zs_app_support_area_set(zs_app *app, size_t i, const double *points, size_t n, double z_lo, double z_hi);
+int zs_app_support_area_set_kind(zs_app *app, size_t i, int kind);
+int zs_app_support_area_remove(zs_app *app, size_t i);
+size_t zs_app_support_area_count(const zs_app *app);
+/* Area i: its kind, its z range, and its points: *n gets the count, and
+ * points gets at most cap of them (3 values each). Any output can be NULL. */
+int zs_app_support_area_get(const zs_app *app, size_t i, int *kind, double *points, size_t cap, size_t *n, double *z_lo, double *z_hi);
+
 int zs_app_write_3mf(zs_app *app, const uint8_t **out, size_t *out_len);
 /* A debug print: the G-code of the layers lo to hi - 1 of the last slice
  * alone, lowered so that layer lo prints on the bed ("print this layer":
@@ -994,6 +1015,18 @@ void zs_view_set_rings(zs_view *view, double x, double y, double z, double radiu
 /* The plane of a cut (zs_app_part_cut): the box x0, y0, x1, y1 (mm) at
  * height z, drawn in orange. A box with no area hides it. */
 void zs_view_set_cut(zs_view *view, double x0, double y0, double x1, double y1, double z);
+/* The support areas that the view draws (the support editor). A load of
+ * the app fills them from its areas (zs_app_support_area_*). A shell that
+ * edits an area clears them and adds each again: n points of x, y, z (mm)
+ * in pts, the kind (enum zs_mark_kind: block is red, the others blue), and
+ * flags: 1 closed (an area, with lines across it; else the path that the
+ * user draws now, with a large first point), 2 selected (a thicker line
+ * and its points), 4 its points. */
+void zs_view_support_clear(zs_view *view);
+int zs_view_support_add(zs_view *view, const double *pts, size_t n, int kind, int flags);
+/* on != 0: zs_view_surface_point and the picks skip the support lines, so
+ * a click finds the part under them (the Support tool). */
+void zs_view_pick_skip_support(zs_view *view, int on);
 /* The ring under the pixel within tol pixels: 0 X, 1 Y, 2 Z, or -1. */
 int zs_view_ring_at(const zs_view *view, float px, float py, float tol);
 /* Starts a turn on the ring of axis at the pixel of the press. 1 if it

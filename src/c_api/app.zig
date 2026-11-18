@@ -569,6 +569,89 @@ export fn zs_app_marks_clear(a: ?*App) void {
     noted(app, null, true);
 }
 
+/// The status of an error of the support areas.
+fn areaStatus(e: zs.app.support_areas.Error) c_int {
+    return switch (e) {
+        error.OutOfMemory => @intFromEnum(Status.out_of_memory),
+        error.NoArea => @intFromEnum(Status.out_of_range),
+        error.BadArea => @intFromEnum(Status.invalid_argument),
+    };
+}
+
+/// The points of an area: n points of x, y, z (3 n values).
+fn areaPoints(points: ?[*]const f64, n: usize) ?[]const [3]f64 {
+    const p = points orelse return null;
+    if (n < 3 or n > zs.app.support_areas.max_points) return null;
+    return @as([*]const [3]f64, @ptrCast(p))[0..n];
+}
+
+/// Adds a support area (the support editor): a polygon of n points on the
+/// surface of a part, x, y, z (mm) each, in `points` (3 n values). Kind 0
+/// grid and 1 tree: support under the surface in the polygon that faces
+/// down, in the z range z_lo to z_hi; 2 a pad; 3 block: no support there.
+/// A z range with z_lo over z_hi (or NaN) comes from the z of the points.
+/// Returns the index of the area, or -status. One history step. Slice
+/// again after it.
+export fn zs_app_support_area_add(a: ?*App, kind: c_int, points: ?[*]const f64, n: usize, z_lo: f64, z_hi: f64) isize {
+    const app = a orelse return -@as(isize, @intFromEnum(Status.invalid_argument));
+    const pts = areaPoints(points, n) orelse return -@as(isize, @intFromEnum(Status.invalid_argument));
+    if (!zs.app.support_areas.validKind(kind)) return -@as(isize, @intFromEnum(Status.invalid_argument));
+    const i = app.areas.add(app.gpa, @enumFromInt(@as(u8, @intCast(kind))), pts, z_lo, z_hi) catch |e| return -@as(isize, areaStatus(e));
+    noted(app, null, true);
+    return @intCast(i);
+}
+
+/// Gives area i new points and a z range (as zs_app_support_area_add): a
+/// drag of a point. For a drag, hold the slice of the plate (zs_set_changed_held)
+/// and release it at the end.
+export fn zs_app_support_area_set(a: ?*App, i: usize, points: ?[*]const f64, n: usize, z_lo: f64, z_hi: f64) c_int {
+    const app = a orelse return @intFromEnum(Status.invalid_argument);
+    const pts = areaPoints(points, n) orelse return @intFromEnum(Status.invalid_argument);
+    app.areas.set(app.gpa, i, pts, z_lo, z_hi) catch |e| return areaStatus(e);
+    noted(app, null, true);
+    return ok;
+}
+
+/// Changes the kind of area i.
+export fn zs_app_support_area_set_kind(a: ?*App, i: usize, kind: c_int) c_int {
+    const app = a orelse return @intFromEnum(Status.invalid_argument);
+    if (!zs.app.support_areas.validKind(kind)) return @intFromEnum(Status.invalid_argument);
+    app.areas.setKind(i, @enumFromInt(@as(u8, @intCast(kind)))) catch |e| return areaStatus(e);
+    noted(app, null, true);
+    return ok;
+}
+
+export fn zs_app_support_area_remove(a: ?*App, i: usize) c_int {
+    const app = a orelse return @intFromEnum(Status.invalid_argument);
+    app.areas.remove(app.gpa, i) catch |e| return areaStatus(e);
+    noted(app, null, true);
+    return ok;
+}
+
+export fn zs_app_support_area_count(a: ?*const App) usize {
+    const app = a orelse return 0;
+    return app.areas.count();
+}
+
+/// Area i: its kind, its z range, and its points. *n gets the count of
+/// points; `points` gets at most `cap` of them (3 values each). Any output
+/// can be NULL.
+export fn zs_app_support_area_get(a: ?*const App, i: usize, kind: ?*c_int, points: ?[*]f64, cap: usize, n: ?*usize, z_lo: ?*f64, z_hi: ?*f64) c_int {
+    const app = a orelse return @intFromEnum(Status.invalid_argument);
+    if (i >= app.areas.count()) return @intFromEnum(Status.out_of_range);
+    const area = app.areas.list.items[i];
+    if (kind) |o| o.* = @intFromEnum(area.kind);
+    if (n) |o| o.* = area.points.len;
+    if (z_lo) |o| o.* = area.z_lo;
+    if (z_hi) |o| o.* = area.z_hi;
+    if (points) |o| {
+        const out: [*][3]f64 = @ptrCast(o);
+        const k = @min(cap, area.points.len);
+        @memcpy(out[0..k], area.points[0..k]);
+    }
+    return ok;
+}
+
 export fn zs_app_write_3mf(a: ?*App, out: ?*?[*]const u8, out_len: ?*usize) c_int {
     const app = a orelse return @intFromEnum(Status.invalid_argument);
     const o = out orelse return @intFromEnum(Status.invalid_argument);

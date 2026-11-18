@@ -224,6 +224,39 @@ export fn zs_view_set_cut(view: ?*View, x0: f64, y0: f64, x1: f64, y1: f64, z: f
     v.setCut(.{ @floatCast(x0), @floatCast(y0), @floatCast(x1), @floatCast(y1) }, @floatCast(z));
 }
 
+/// The support areas that the view draws (the support editor): no areas.
+/// A load of the app fills them from its areas; a shell that edits an area
+/// sets them again with zs_view_support_add.
+export fn zs_view_support_clear(view: ?*View) void {
+    if (!render_on) return;
+    const v = view orelse return;
+    v.clearSupportAreas();
+}
+
+/// One more support area to draw: n points of x, y, z (mm) in pts, its
+/// kind (enum zs_mark_kind: block is red, the others blue), and flags: 1
+/// closed (an area with a fill hint; else a path that the user draws now),
+/// 2 selected (a thicker line and its points), 4 its points.
+export fn zs_view_support_add(view: ?*View, pts: ?[*]const f64, n: usize, kind: c_int, flags: c_int) c_int {
+    if (!render_on) return 0;
+    const v = view orelse return 0;
+    const p = pts orelse return 0;
+    var buf: [256][3]f32 = undefined;
+    const k = @min(n, buf.len);
+    for (buf[0..k], 0..) |*q, i| q.* = .{ @floatCast(p[3 * i]), @floatCast(p[3 * i + 1]), @floatCast(p[3 * i + 2]) };
+    v.addSupportArea(buf[0..k], @intCast(std.math.clamp(kind, 0, 255)), @intCast(std.math.clamp(flags, 0, 255))) catch return 0;
+    return 1;
+}
+
+/// on != 0: a pick of a point of the print (zs_view_surface_point,
+/// zs_view_pick) skips the support lines, so a click finds the part under
+/// them (the Support tool).
+export fn zs_view_pick_skip_support(view: ?*View, on: c_int) void {
+    if (!render_on) return;
+    const v = view orelse return;
+    v.pick_skip_support = on != 0;
+}
+
 /// The rings of the Turn tool around (x, y, z) with radius `radius` mm
 /// (0: no rings). The view draws them: red about X, green about Y, blue
 /// about Z.

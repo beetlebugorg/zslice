@@ -107,6 +107,23 @@ pub const Error = vk.Error;
 
 pub const Mode = enum(c_int) { print = 0, features = 1, speed = 2, flow = 3, layer_time = 4, width = 5 };
 
+/// A support area that the view draws (see View.sup_areas).
+pub const SupportArea = struct {
+    first: u32,
+    n: u32,
+    /// The kind of support.Mark: 3 (block) is red, the others blue.
+    kind: u8,
+    flags: u8,
+
+    /// The path is closed (an area). Else the path that the user draws
+    /// now: no fill, and its first point is large, to close it.
+    pub const closed: u8 = 1;
+    /// The selected area: a thicker line, and its points.
+    pub const selected: u8 = 2;
+    /// Draw the points.
+    pub const points: u8 = 4;
+};
+
 pub const View = struct {
     renderer: *vk.Renderer,
     mode: Mode = .print,
@@ -145,6 +162,15 @@ pub const View = struct {
     /// The rings of the support marks of the app (see support.Mark): 12
     /// beads each, drawn as extras.
     mark_rings: std.ArrayList(vk.Instance) = .empty,
+    /// The support areas of the support editor (see app/support_areas.zig):
+    /// the points of all areas, and for each area its points in them, its
+    /// kind, and its flags. A load fills them from the app; a shell that
+    /// edits an area sets them (`setSupportAreas`).
+    sup_pts: std.ArrayList([3]f32) = .empty,
+    sup_areas: std.ArrayList(SupportArea) = .empty,
+    /// A pick (`surfacePoint`) skips the support lines: the Support tool
+    /// is on, and the user clicks the part under the support.
+    pick_skip_support: bool = false,
     /// The gaps of one layer (see gaps.zig): a thin red bead for each run
     /// of gap cells, and the layer, or null.
     gap_beads: std.ArrayList(vk.Instance) = .empty,
@@ -288,6 +314,8 @@ pub const View = struct {
         v.plate_draws.deinit(gpa);
         v.layer_end.deinit(gpa);
         v.mark_rings.deinit(gpa);
+        v.sup_pts.deinit(gpa);
+        v.sup_areas.deinit(gpa);
         v.gap_beads.deinit(gpa);
         if (v.extras_buf) |b| gpa.free(b);
         v.more.deinit(gpa);
@@ -419,6 +447,15 @@ pub const View = struct {
                     .rgba = color,
                 }) catch return error.OutOfMemory;
             }
+        }
+        // The support areas of the user.
+        v.sup_pts.clearRetainingCapacity();
+        v.sup_areas.clearRetainingCapacity();
+        for (app.areas.list.items) |a| {
+            var pts: [256][3]f32 = undefined;
+            const n = @min(a.points.len, pts.len);
+            for (a.points[0..n], pts[0..n]) |p, *q| q.* = .{ @floatCast(p[0]), @floatCast(p[1]), @floatCast(p[2]) };
+            try v.addSupportArea(pts[0..n], @intFromEnum(a.kind), SupportArea.closed);
         }
         // The modifier volumes: thin purple rings of their outline at a
         // few heights (they do not print, so the view has no beads for
@@ -1130,6 +1167,110 @@ pub const View = struct {
         v.cut_plane = if (box[2] > box[0] and box[3] > box[1]) .{ box[0], box[1], box[2], box[3], z } else null;
     }
 
+    /// No support areas to draw.
+    pub fn clearSupportAreas(v: *View) void {
+        v.sup_pts.clearRetainingCapacity();
+        v.sup_areas.clearRetainingCapacity();
+    }
+
+    /// One more support area to draw: its points (x, y, z in mm), its kind
+    /// (as support.Mark.Kind), and its flags (see SupportArea).
+    pub fn addSupportArea(v: *View, pts: []const [3]f32, kind: u8, flags: u8) Error!void {
+        if (pts.len == 0) return;
+        const first: u32 = @intCast(v.sup_pts.items.len);
+        v.sup_pts.appendSlice(gpa, pts) catch return error.OutOfMemory;
+        v.sup_areas.append(gpa, .{ .first = first, .n = @intCast(pts.len), .kind = kind, .flags = flags }) catch return error.OutOfMemory;
+    }
+
+    /// The beads of the support areas, into `out` from `n.*`: the outline
+    /// of each area, a dot at its points, and lines across a closed area
+    /// (the fill hint). A slope of a line is a stair of level beads.
+    fn supportAreaBeads(v: *const View, out: []vk.Instance, n: *usize) void {
+        const span = std.math.clamp(v.dist * 0.003, 0.12, 2);
+        for (v.sup_areas.items) |a| {
+            const pts = v.sup_pts.items[a.first..][0..a.n];
+            const block = a.kind == 3;
+            const sel = a.flags & SupportArea.selected != 0;
+            const closed = a.flags & SupportArea.closed != 0;
+            const line: [4]u8 = if (block) .{ 0xe0, 0x31, 0x31, code_overlay } else .{ 0x1c, 0x7e, 0xd6, code_overlay };
+            const fill: [4]u8 = if (block) .{ 0xf0, 0x9a, 0x9a, code_overlay } else .{ 0x8c, 0xbf, 0xf0, code_overlay };
+            const w = if (sel) span * 2.2 else span * 1.4;
+            // The fill hint first, so the outline stays on top where they
+            // meet.
+            if (closed and pts.len >= 3) hatch(out, n, pts, span * 0.7, fill, if (sel) 12 else 8);
+            const edges = if (closed) pts.len else pts.len - 1;
+            for (0..edges) |k| stair(out, n, pts[k], pts[(k + 1) % pts.len], w, line);
+            if (a.flags & SupportArea.points != 0 or sel or !closed) {
+                for (pts, 0..) |p, k| {
+                    if (n.* >= out.len) return;
+                    // The first point of an open path is larger: a click on
+                    // it closes the path.
+                    const big: f32 = if (!closed and k == 0 and pts.len >= 3) 6 else 4;
+                    const s = span * big;
+                    out[n.*] = .{ .ax = p[0], .ay = p[1], .bx = p[0] + 0.001, .by = p[1], .z = p[2] + s / 2, .h = s, .w = s, .rgba = .{ 0xff, 0xff, 0xff, code_overlay } };
+                    n.* += 1;
+                    if (n.* >= out.len) return;
+                    const c = s * 0.6;
+                    out[n.*] = .{ .ax = p[0], .ay = p[1], .bx = p[0] + 0.001, .by = p[1], .z = p[2] + s / 2 + 0.01, .h = s + 0.02, .w = c, .rgba = line };
+                    n.* += 1;
+                }
+            }
+        }
+    }
+
+    /// A line from a to b as level beads: one bead if it is level, else a
+    /// stair of up to 16 steps.
+    fn stair(out: []vk.Instance, n: *usize, a: [3]f32, b: [3]f32, w: f32, rgba: [4]u8) void {
+        const dz = @abs(b[2] - a[2]);
+        const steps: usize = if (dz < w * 0.5) 1 else @min(16, @as(usize, @intFromFloat(@ceil(dz / w))));
+        for (0..steps) |k| {
+            if (n.* >= out.len) return;
+            const f0 = @as(f32, @floatFromInt(k)) / @as(f32, @floatFromInt(steps));
+            const f1 = @as(f32, @floatFromInt(k + 1)) / @as(f32, @floatFromInt(steps));
+            const x0 = a[0] + (b[0] - a[0]) * f0;
+            const y0 = a[1] + (b[1] - a[1]) * f0;
+            const x1 = a[0] + (b[0] - a[0]) * f1;
+            const y1 = a[1] + (b[1] - a[1]) * f1;
+            const z = a[2] + (b[2] - a[2]) * (f0 + f1) / 2;
+            const h = @max(w, dz / @as(f32, @floatFromInt(steps)));
+            out[n.*] = .{ .ax = x0, .ay = y0, .bx = if (x0 == x1 and y0 == y1) x1 + 0.001 else x1, .by = y1, .z = z + h / 2, .h = h, .w = w, .rgba = rgba };
+            n.* += 1;
+        }
+    }
+
+    /// Lines across a polygon along X (the fill hint): `count` lines over
+    /// its box in Y. The z of a line end comes from the edge that it meets.
+    fn hatch(out: []vk.Instance, n: *usize, pts: []const [3]f32, w: f32, rgba: [4]u8, count: usize) void {
+        var y0: f32 = std.math.inf(f32);
+        var y1: f32 = -std.math.inf(f32);
+        for (pts) |p| {
+            y0 = @min(y0, p[1]);
+            y1 = @max(y1, p[1]);
+        }
+        if (!(y1 > y0)) return;
+        for (1..count + 1) |k| {
+            const y = y0 + (y1 - y0) * @as(f32, @floatFromInt(k)) / @as(f32, @floatFromInt(count + 1));
+            // The points where the line meets the edges, by x.
+            var hits: [64][2]f32 = undefined;
+            var m: usize = 0;
+            for (pts, 0..) |a, i| {
+                const b = pts[(i + 1) % pts.len];
+                if ((a[1] <= y) == (b[1] <= y)) continue;
+                const t = (y - a[1]) / (b[1] - a[1]);
+                if (m == hits.len) break;
+                hits[m] = .{ a[0] + (b[0] - a[0]) * t, a[2] + (b[2] - a[2]) * t };
+                m += 1;
+            }
+            std.mem.sort([2]f32, hits[0..m], {}, struct {
+                fn lt(_: void, p: [2]f32, q: [2]f32) bool {
+                    return p[0] < q[0];
+                }
+            }.lt);
+            var j: usize = 0;
+            while (j + 1 < m) : (j += 2) stair(out, n, .{ hits[j][0], y, hits[j][1] }, .{ hits[j + 1][0], y, hits[j + 1][1] }, w, rgba);
+        }
+    }
+
     /// The rings of the Turn tool: a ring for each axis around the point
     /// c, with radius r mm (0: none). The view draws them (red X, green Y,
     /// blue Z), and finds them under a pixel (`ringAt`).
@@ -1522,7 +1663,10 @@ pub const View = struct {
     /// The ray test of the beads first to end (see `pick`): the nearest
     /// hit nearer than `best_t` goes to `best`.
     fn rayBeads(v: *const View, eye: [3]f32, dir: [3]f32, grow: f32, first: usize, end: usize, best: *?usize, best_t: *f32) void {
+        const sup: u8 = @intFromEnum(@import("../settings.zig").Feature.support);
+        const sup_if: u8 = @intFromEnum(@import("../settings.zig").Feature.support_interface);
         for (v.beads.items[first..end], first..) |b, i| {
+            if (v.pick_skip_support and (b.rgba[3] == sup or b.rgba[3] == sup_if)) continue;
             const zc = b.z - b.h / 2;
             const k = if (b.h > 0) b.w / b.h else 1;
             const o = [3]f32{ eye[0], eye[1], zc + (eye[2] - zc) * k };
@@ -2450,6 +2594,9 @@ pub const View = struct {
                         n_extras += 1;
                     }
                 }
+                // The support areas of the support editor.
+                // Some room stays for the beads after them.
+                v.supportAreaBeads(extras[0 .. extras.len - 16], &n_extras);
                 // The frame of the selected part: four thin beads on the bed.
                 if (v.part_box) |pb| {
                     const corners = [_][2]f32{ .{ pb[0], pb[1] }, .{ pb[2], pb[1] }, .{ pb[2], pb[3] }, .{ pb[0], pb[3] } };

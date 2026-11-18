@@ -54,6 +54,8 @@ pub const sweep = @import("app/sweep.zig");
 /// The settings that can close a gap (see app/gap_advice.zig).
 pub const gap_advice = @import("app/gap_advice.zig");
 pub const history = @import("app/history.zig");
+/// The support areas of the user (see app/support_areas.zig).
+pub const support_areas = @import("app/support_areas.zig");
 pub const plate_set = @import("app/plate_set.zig");
 pub const measure = @import("app/measure.zig");
 /// The printability check (see app/checks.zig).
@@ -197,6 +199,11 @@ pub const App = struct {
     /// the running slice. A new model clears them.
     marks: std.ArrayList(zs.support.Mark) = .empty,
     slice_marks: []zs.support.Mark = &.{},
+    /// The support areas of the user (the support editor). A new model
+    /// clears them. The running slice has them in `slice_marks`, with
+    /// their polygons in `area_arena`.
+    areas: support_areas.Areas = .{},
+    area_arena: ?std.heap.ArenaAllocator = null,
     /// The cascade of the settings (see `Level`): the quality profile and
     /// the global settings of the user, as their changes from the
     /// defaults, in `strings`. `settings` has the result, with the changes
@@ -244,6 +251,8 @@ pub const App = struct {
         app.edits.deinit(app.gpa);
         app.marks.deinit(app.gpa);
         app.gpa.free(app.slice_marks);
+        app.areas.deinit(app.gpa);
+        if (app.area_arena) |*a| a.deinit();
         app.dropSlicePlan();
         for (app.plates.items) |*slot| slot.deinit(app.gpa);
         app.plates.deinit(app.gpa);
@@ -285,6 +294,7 @@ pub const App = struct {
         app.overrides.clearRetainingCapacity();
         app.profiles.clearRetainingCapacity();
         app.marks.clearRetainingCapacity();
+        app.areas.clear(app.gpa);
         // The edits were for the lines of the old parts.
         app.edits.list.clearRetainingCapacity();
         app.plate.clear(app.gpa);
@@ -361,6 +371,8 @@ pub const App = struct {
         try app.plateChanged();
         var lines = std.mem.tokenizeAny(u8, loaded.overrides, "\r\n");
         while (lines.next()) |line| {
+            // A support area of the user (app/support_areas.zig).
+            if (try app.areas.read3mfLine(app.gpa, line)) continue;
             // "edit <tab> key <tab> kind <tab> value <tab> layer": an edit of
             // the user on a line (app/edits.zig).
             if (std.mem.startsWith(u8, line, "edit\t")) {
@@ -410,6 +422,7 @@ pub const App = struct {
         var text: std.Io.Writer.Allocating = .init(gpa);
         defer text.deinit();
         for (app.profiles.items) |p| try text.writer.print("profile\t{d}\t{d}\t{s}\n", .{ p.z_min, p.z_max, p.name });
+        try app.areas.write3mfLines(&text.writer);
         for (app.edits.list.items) |e| try text.writer.print("edit\t{x}\t{d}\t{d}\t{d}\t{d}\t{d}\t{d}\n", .{ e.key, @intFromEnum(e.kind), e.value, e.layer, e.x, e.y, e.z });
         for (app.overrides.items) |o| try text.writer.print("{d}\t{d}\t{s}\t{s}\n", .{ o.z_min, o.z_max, o.name, o.value });
         var out: std.Io.Writer.Allocating = .init(gpa);
@@ -442,12 +455,14 @@ pub const App = struct {
         overrides: std.ArrayList(zs.settings.Override) = .empty,
         profiles: std.ArrayList(Profile) = .empty,
         marks: std.ArrayList(zs.support.Mark) = .empty,
+        areas: support_areas.Areas = .{},
 
         fn deinit(s: *PlateSlot, gpa: Allocator) void {
             s.plate.deinit(gpa);
             s.overrides.deinit(gpa);
             s.profiles.deinit(gpa);
             s.marks.deinit(gpa);
+            s.areas.deinit(gpa);
         }
     };
 
@@ -477,10 +492,12 @@ pub const App = struct {
         std.mem.swap(std.ArrayList(zs.settings.Override), &app.overrides, &app.plates.items[app.active].overrides);
         std.mem.swap(std.ArrayList(Profile), &app.profiles, &app.plates.items[app.active].profiles);
         std.mem.swap(std.ArrayList(zs.support.Mark), &app.marks, &app.plates.items[app.active].marks);
+        std.mem.swap(support_areas.Areas, &app.areas, &app.plates.items[app.active].areas);
         std.mem.swap(zs.plate.Plate, &app.plate, &app.plates.items[i].plate);
         std.mem.swap(std.ArrayList(zs.settings.Override), &app.overrides, &app.plates.items[i].overrides);
         std.mem.swap(std.ArrayList(Profile), &app.profiles, &app.plates.items[i].profiles);
         std.mem.swap(std.ArrayList(zs.support.Mark), &app.marks, &app.plates.items[i].marks);
+        std.mem.swap(support_areas.Areas, &app.areas, &app.plates.items[i].areas);
         app.active = i;
         if (app.mesh) |*old| old.deinit(app.gpa);
         app.mesh = null;
@@ -745,6 +762,7 @@ pub const App = struct {
         app.stopWorker();
         app.overrides.clearRetainingCapacity();
         app.profiles.clearRetainingCapacity();
+        app.areas.clear(app.gpa);
         app.plate.clear(app.gpa);
         try app.plateChanged();
     }
@@ -948,6 +966,7 @@ pub const App = struct {
                 .dot => try w.print("a drop of {d:.1} mm at {d:.1}, {d:.1}\n", .{ e.value, e.x, e.y }),
             }
         }
+        try app.areas.writeFacts(w);
         for (app.plate.parts.items) |p| {
             const name: []const u8 = p.name;
             try w.print("part:{s}\t(part)\tyes\n", .{name});
@@ -1621,7 +1640,7 @@ pub const App = struct {
         app.gpa.free(app.slice_overrides);
         app.slice_overrides = app.gpa.dupe(zs.settings.Override, app.overrides.items) catch &.{};
         app.gpa.free(app.slice_marks);
-        app.slice_marks = app.gpa.dupe(zs.support.Mark, app.marks.items) catch &.{};
+        app.slice_marks = app.sliceMarks() catch &.{};
         try app.makeSlicePlan();
         app.cancel_flag.store(false, .release);
         app.state.store(.slicing, .release);
@@ -1729,6 +1748,18 @@ pub const App = struct {
         if (app.slice_arena) |*a| a.deinit();
         app.slice_arena = null;
         app.slice_parts = &.{};
+    }
+
+    /// The support marks and the support areas for the next slice.
+    fn sliceMarks(app: *App) Allocator.Error![]zs.support.Mark {
+        if (app.areas.count() == 0) return app.gpa.dupe(zs.support.Mark, app.marks.items);
+        if (app.area_arena == null) app.area_arena = .init(app.gpa);
+        _ = app.area_arena.?.reset(.retain_capacity);
+        const a = app.area_arena.?.allocator();
+        var list: std.ArrayList(zs.support.Mark) = .empty;
+        try list.appendSlice(a, app.marks.items);
+        try app.areas.marks(a, &list);
+        return app.gpa.dupe(zs.support.Mark, list.items);
     }
 
     /// The parts of the plate job for the next slice: the mesh of each
@@ -2083,7 +2114,78 @@ test {
     _ = gap_advice;
     _ = checks_mod;
     _ = plate_set;
+    _ = support_areas;
     _ = @import("app/feature_settings.zig");
+}
+
+test "app: support areas slice, go into the 3MF, and undo" {
+    const gpa = testing.allocator;
+    // A mushroom: a 4 mm post and a 20 mm cap from z 5 to 7.
+    var b: zs.mesh.Builder = .init(gpa);
+    try zs.mesh.shapes.addBox(&b, 8, 8, 0, 12, 12, 5);
+    try zs.mesh.shapes.addBox(&b, 0, 0, 5, 20, 20, 7);
+    var mesh = try b.finish();
+    var bytes: std.Io.Writer.Allocating = .init(gpa);
+    defer bytes.deinit();
+    try mesh.writeStl(&bytes.writer);
+    mesh.deinit(gpa);
+    const app = try App.create(gpa, null, null);
+    defer app.destroy();
+    try app.loadStl("mushroom.stl", bytes.written());
+    const has_support = struct {
+        fn f(a: *App) !bool {
+            try a.startSlice();
+            a.stopWorkerForTest();
+            return std.mem.indexOf(u8, a.gcode().?, ";TYPE:SUPPORT") != null;
+        }
+    }.f;
+    // Support off: none.
+    try testing.expect(!try has_support(app));
+    _ = app.undo.commit(app, 0);
+    // A support area under the cap, drawn on its bottom: support.
+    const box = app.part_box;
+    const cx = (box[0] + box[2]) / 2;
+    const cy = (box[1] + box[3]) / 2;
+    const pts = [_][3]f64{ .{ cx - 11, cy - 11, 5 }, .{ cx + 11, cy - 11, 5 }, .{ cx + 11, cy + 11, 5 }, .{ cx - 11, cy + 11, 5 } };
+    _ = try app.areas.add(gpa, .grid, &pts, std.math.nan(f64), std.math.nan(f64));
+    app.undo.note(gpa, null, true);
+    _ = app.undo.commit(app, 1000);
+    try testing.expect(try has_support(app));
+    const with_area = try gpa.dupe(u8, app.gcode().?);
+    defer gpa.free(with_area);
+
+    // The 3MF keeps the area: a new app slices the same G-code.
+    const file = try app.write3mfAlloc(gpa);
+    defer gpa.free(file);
+    const other = try App.create(gpa, null, null);
+    defer other.destroy();
+    other.keep_places = true;
+    try other.loadStl("plate.3mf", file);
+    try testing.expectEqual(@as(usize, 1), other.areas.count());
+    try testing.expectEqualSlices([3]f64, &pts, other.areas.list.items[0].points);
+    try testing.expect(try has_support(other));
+    try testing.expectEqualStrings(with_area, other.gcode().?);
+
+    // The facts name the area.
+    var facts: std.Io.Writer.Allocating = .init(gpa);
+    defer facts.deinit();
+    try app.writeFacts(&facts.writer);
+    try testing.expect(std.mem.indexOf(u8, facts.written(), "Support\tarea 1\tsupport (grid), 4 points") != null);
+
+    // Support on, and the area becomes a block: no support under the cap.
+    try app.setSetting("project.support", "everywhere");
+    try testing.expect(try has_support(app));
+    try app.areas.setKind(0, .block);
+    try testing.expect(!try has_support(app));
+
+    // Undo to the step before the area: no area; redo: the area again.
+    try app.setSetting("project.support", "off");
+    try app.areas.setKind(0, .grid);
+    _ = app.undo.undo(app, 2000);
+    try testing.expectEqual(@as(usize, 0), app.areas.count());
+    _ = app.undo.redo(app, 3000);
+    try testing.expectEqual(@as(usize, 1), app.areas.count());
+    try testing.expect(try has_support(app));
 }
 
 test "app: Arachne walls carry a bead area for each point, at the z of the layer" {
