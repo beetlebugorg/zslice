@@ -60,3 +60,7 @@ void zg_view3d_set_cut(GtkWidget *view, double x0, double y0, double x1, double 
 void zg_view3d_on_frame(GtkWidget *view, GtkWidget *owner, void (*fn)(gpointer), gpointer data);
 /* Shows the layers from lo to hi. */
 void zg_view3d_set_layer_range(GtkWidget *view, size_t lo, size_t hi);
+/* A key for the Support tool (support-tool.h): TRUE if it used the key. */
+gboolean zg_view3d_support_key(GtkWidget *view, guint key);
+/* The card of the Support tool, for the overlay of the preview. */
+GtkWidget *zg_view3d_support_card(GtkWidget *view);

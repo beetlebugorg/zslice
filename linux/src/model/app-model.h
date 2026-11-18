@@ -132,6 +132,15 @@ size_t zg_model_mark_remove_near(ZgModel *self, double x, double y, double z, do
 void zg_model_mark_set(ZgModel *self, size_t i, int kind, double r);
 void zg_model_mark_remove(ZgModel *self, size_t i);
 void zg_model_marks_clear(ZgModel *self);
+/* Support areas (see zs_app_support_area_add): n points of x, y, z (mm)
+ * in pts; the z range comes from the points. Each change slices again.
+ * A change is one history step; while the slices are held (a drag of a
+ * point, zg_model_hold), the step ends at the release. add returns the
+ * index of the new area, or -1. */
+gint64 zg_model_support_add(ZgModel *self, int kind, const double *pts, size_t n);
+gboolean zg_model_support_set(ZgModel *self, size_t i, const double *pts, size_t n);
+gboolean zg_model_support_set_kind(ZgModel *self, size_t i, int kind);
+gboolean zg_model_support_remove(ZgModel *self, size_t i);
 /* With a selected line: TRUE fades all other lines (ghosts), so only the
  * selection is solid. FALSE (the default) keeps their colors. */
 /* Selects one segment of a line (segment k goes from point k to point
@@ -249,8 +258,10 @@ gboolean zg_model_can_undo(ZgModel *self);
 /* The tools of the preview: select a line (the default), move and turn a
  * part (as with Ctrl), or measure (the measure tape). "tool-changed"
  * follows a change. */
-/* Turn: rings around the selected part turn it about X, Y, or Z. */
-typedef enum { ZG_TOOL_SELECT = 0, ZG_TOOL_MOVE = 1, ZG_TOOL_MEASURE = 2, ZG_TOOL_TURN = 3 } ZgTool;
+/* Turn: rings around the selected part turn it about X, Y, or Z.
+ * Support: draw support areas on the part (ui/support-tool.h). */
+typedef enum { ZG_TOOL_SELECT = 0, ZG_TOOL_MOVE = 1, ZG_TOOL_MEASURE = 2, ZG_TOOL_TURN = 3, ZG_TOOL_SUPPORT = 4 } ZgTool;
+#define ZG_TOOL_COUNT 5
 ZgTool zg_model_tool(ZgModel *self);
 void zg_model_set_tool(ZgModel *self, ZgTool tool);
 /* The measure tape: up to two points (x, y, z in mm). A third point starts
@@ -334,8 +345,9 @@ void zg_model_project_sent(ZgModel *self);
 /* The text for a core status code. */
 const char *zg_status_text(int status);
 
-/* Holds the slices while hold is TRUE (a ring drag): each change marks the
- * plate, and one slice starts when hold goes back to FALSE. */
+/* Holds the slices while hold is TRUE (a ring drag, a drag of a point of
+ * a support area): each change marks the plate, and one slice starts when
+ * hold goes back to FALSE. The changes of the hold are one history step. */
 void zg_model_hold(ZgModel *self, gboolean hold);
 
 G_END_DECLS

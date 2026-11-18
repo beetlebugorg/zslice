@@ -12,7 +12,7 @@ typedef struct {
 
 typedef struct {
     const char *group;
-    Key keys[20];
+    Key keys[28];
 } Group;
 
 /* The keys of the GTK app. "A, B": two keys for the same thing. A note in
@@ -44,6 +44,11 @@ static const Group SHORTCUTS[] = {
         {"M", "Move: a drag moves a part, the wheel turns it 15°"},
         {"R", "Turn: drag a ring of the selected part to turn it about X, Y, or Z"},
         {"T", "Measure: two clicks measure between two points"},
+        {"U", "Support: click points on the part to draw a support area, and drag the points of an area"},
+        {"Enter (Support tool)", "Close the area that you draw (also: click its first point)"},
+        {"Backspace (Support tool)", "Remove the last point of the area that you draw"},
+        {"Delete (Support tool)", "Delete the selected support area"},
+        {"Esc (Support tool)", "Stop the area that you draw, then clear the selected area"},
         {"G", "Gaps: show the gaps of the top layer"},
         {"Ctrl+click, Ctrl+drag, Ctrl+wheel", "Select, move, and turn a part with any tool"},
         {"Tab, Shift+Tab", "Select the next part, or the part before"},
@@ -56,7 +61,7 @@ static const Group SHORTCUTS[] = {
         {"Delete (a selected line)", "Take the line out of the print: an edit, kept across slices"},
         {"Delete", "Remove the selected part"},
         {"Shift+click", "Add a line to the selection"},
-        {"Shift (measure)", "No snap"},
+        {"Shift (measure, support)", "No snap"},
         {NULL, NULL}}},
     {"Layers", {
         {"Up, K", "The top layer one up (with a selected line: the nearest line one layer up)"},

@@ -43,6 +43,8 @@ static const Action ACTIONS[] = {
     {"Redo", "Ctrl+Shift+Z", NULL, "win.redo", NULL},
     {"2D layer view", NULL, NULL, "preview.view", "2d"},
     {"3D view", NULL, NULL, "preview.view", "3d"},
+    {"Support tool", "U", "draw an area on the part: support under it, or none", "preview.tool", "support"},
+    {"Measure tool", "T", "measure between two points of the print", "preview.tool", "measure"},
     {"Manage printers…", "Ctrl+,", "preferences, connections, API keys", "win.preferences", NULL},
     {"Compare with Cura…", NULL, NULL, "win.compare-cura", NULL},
     {"Open a project", NULL, "printdeck.yml from GitHub or a folder", "win.show-page", "project"},

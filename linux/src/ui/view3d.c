@@ -24,6 +24,9 @@
  * slices once, at the end of the drag. The widget draws over the
  * subsurface with cairo: the label of the angle.
  *
+ * The Support tool (support-tool.h) gets the clicks, the drags, and the
+ * keys of the view while it is on.
+ *
  * SPDX-License-Identifier: AGPL-3.0-or-later
  */
 #include "view3d.h"
@@ -35,6 +38,7 @@
 
 #include "bed-model.h"
 #include "native-surface.h"
+#include "support-tool.h"
 #include "widgets.h"
 
 typedef struct {
@@ -84,6 +88,9 @@ typedef struct {
     int turn_axis;
     double turn_want, turn_sent;
     double turn_px, turn_py;
+    /* The Support tool, and the cursor that it set last. */
+    ZgSupport *support;
+    const char *cursor;
 } View3d;
 
 typedef struct {
@@ -186,6 +193,12 @@ static void apply_focus(View3d *v) {
     if (!v->view) return;
     gboolean first = FALSE;
     guint32 mask = zg_model_focus(v->model, &first);
+    /* The Support tool: a focus on all features but the support, so the
+     * support lines are faint and the outlines of the areas show. */
+    if (!mask && zg_support_see_through(v->support)) {
+        mask = ((1u << ZS_FEATURE_COUNT) - 1) & ~((1u << ZS_FEATURE_SUPPORT) | (1u << ZS_FEATURE_SUPPORT_INTERFACE));
+        first = FALSE;
+    }
     double zmax = -1;
     zs_toolpaths tp;
     if (first && zs_app_toolpaths(zg_model_core(v->model), &tp) == ZS_OK && tp.layer_count > 0) zmax = tp.layer_z[0];
@@ -248,6 +261,7 @@ static void load_data(View3d *v) {
     zs_view_set_layer_range(v->view, v->layer_lo, v->layer);
     gint64 sel = zg_model_selected(v->model);
     zs_view_highlight(v->view, sel < 0 ? (size_t)-1 : (size_t)sel);
+    zg_support_loaded(v->support);
     apply_focus(v);
     /* For tests: ZSLICE_GAPS=1 turns the gaps view on, and ZSLICE_GAP=N
      * selects gap N of the top layer after a slice. */
@@ -371,6 +385,7 @@ static void apply_dark(gpointer data) {
 static void on_map(GtkWidget *w, gpointer data) {
     View3d *v = data;
     v->hidden = FALSE;
+    zg_support_set_shown(v->support, TRUE);
     if (v->view) {
         /* Mapped again: the next frame attaches a buffer, and that shows
          * the subsurface. The data can be new since the unmap. */
@@ -403,6 +418,7 @@ static void on_map(GtkWidget *w, gpointer data) {
         gtk_widget_queue_draw(w);
         return;
     }
+    zg_support_set_view(v->support, v->view);
     apply_dark(v);
     load_data(v);
     sync_geometry(v);
@@ -411,6 +427,8 @@ static void on_map(GtkWidget *w, gpointer data) {
 static void on_unmap(GtkWidget *w, gpointer data) {
     View3d *v = data;
     v->hidden = TRUE;
+    zg_support_release(v->support);
+    zg_support_set_shown(v->support, FALSE);
     /* No frame clock ticks while unmapped: stop the animation. */
     if (v->anim) gtk_widget_remove_tick_callback(v->area, v->anim);
     v->anim = 0;
@@ -723,14 +741,24 @@ static void on_plate_changed(ZgModel *model, gpointer data) {
     show_part_box(data);
 }
 
-/* The cursor of the tool: a cross for the measure tape. */
+/* The cursor of the tool: a cross for the measure tape and the Support
+ * tool. */
+static void set_cursor(View3d *v, const char *name) {
+    if (v->cursor == name) return;
+    v->cursor = name;
+    gtk_widget_set_cursor_from_name(v->area, name);
+}
+
 static void tool_cursor(View3d *v) {
     ZgTool t = zg_model_tool(v->model);
-    gtk_widget_set_cursor_from_name(v->area, t == ZG_TOOL_MEASURE ? "crosshair" : NULL);
+    set_cursor(v, t == ZG_TOOL_MEASURE || t == ZG_TOOL_SUPPORT ? "crosshair" : NULL);
 }
 
 static void on_tool_changed(ZgModel *model, gpointer data) {
-    tool_cursor(data);
+    View3d *v = data;
+    tool_cursor(v);
+    /* The Support tool: the support lines faint, or solid again. */
+    apply_focus(v);
     /* The rings show or go. */
     queue_frame(data);
 }
@@ -755,7 +783,7 @@ static void on_drag_begin(GtkGestureDrag *g, double x, double y, gpointer data) 
     int mode0 = GPOINTER_TO_INT(g_object_get_data(G_OBJECT(g), "zg-drag"));
     /* The Turn tool: a drag along a ring turns the part. */
     if (v->view && mode0 == DRAG_ORBIT && zg_model_tool(v->model) == ZG_TOOL_TURN && ring_press(v, x, y)) {
-        gtk_widget_set_cursor_from_name(v->area, "grabbing");
+        set_cursor(v, "grabbing");
         return;
     }
     if (v->view && mode0 == DRAG_ORBIT && zg_model_tool(v->model) == ZG_TOOL_MEASURE) {
@@ -773,9 +801,14 @@ static void on_drag_begin(GtkGestureDrag *g, double x, double y, gpointer data) 
             }
         }
         if (v->tape_end >= 0) {
-            gtk_widget_set_cursor_from_name(v->area, "grabbing");
+            set_cursor(v, "grabbing");
             return;
         }
+    }
+    /* The Support tool: a press on a point of an area drags it. */
+    if (v->view && mode0 == DRAG_ORBIT && zg_model_tool(v->model) == ZG_TOOL_SUPPORT && zg_support_press(v->support, x, y)) {
+        set_cursor(v, "grabbing");
+        return;
     }
     /* Ctrl and the left button on a part: move the part. */
     GdkModifierType mods = gtk_event_controller_get_current_event_state(GTK_EVENT_CONTROLLER(g));
@@ -791,11 +824,11 @@ static void on_drag_begin(GtkGestureDrag *g, double x, double y, gpointer data) 
             v->move_y0 = p.y;
             v->bed_x0 = bx;
             v->bed_y0 = by;
-            gtk_widget_set_cursor_from_name(v->area, "move");
+            set_cursor(v, "move");
             return;
         }
     }
-    gtk_widget_set_cursor_from_name(v->area, "grabbing");
+    set_cursor(v, "grabbing");
 }
 
 static void menu_at(View3d *v, double x, double y);
@@ -805,6 +838,7 @@ static void on_drag_end(GtkGestureDrag *g, double dx, double dy, gpointer data) 
     v->moving = -1;
     v->tape_end = -1;
     ring_release(v);
+    zg_support_release(v->support);
     tool_cursor(v);
     int mode = GPOINTER_TO_INT(g_object_get_data(G_OBJECT(g), "zg-drag"));
     if (mode == DRAG_RIGHT && fabs(dx) < 4 && fabs(dy) < 4) {
@@ -824,6 +858,15 @@ static void on_drag_update(GtkGestureDrag *g, double dx, double dy, gpointer dat
         gtk_gesture_drag_get_start_point(g, &sx, &sy);
         GdkModifierType mods = gtk_event_controller_get_current_event_state(GTK_EVENT_CONTROLLER(g));
         ring_move(v, sx + dx, sy + dy, (mods & GDK_SHIFT_MASK) != 0);
+        v->drag_x = dx;
+        v->drag_y = dy;
+        return;
+    }
+    if (zg_support_dragging(v->support)) {
+        double sx, sy;
+        gtk_gesture_drag_get_start_point(g, &sx, &sy);
+        GdkModifierType mods = gtk_event_controller_get_current_event_state(GTK_EVENT_CONTROLLER(g));
+        zg_support_drag(v->support, sx + dx, sy + dy, (mods & GDK_SHIFT_MASK) != 0);
         v->drag_x = dx;
         v->drag_y = dy;
         return;
@@ -865,6 +908,10 @@ static void on_motion(GtkEventControllerMotion *c, double x, double y, gpointer 
     View3d *v = data;
     v->pointer_x = x;
     v->pointer_y = y;
+    /* The Support tool: a hand over a point of an area. */
+    GdkModifierType mods = gtk_event_controller_get_current_event_state(GTK_EVENT_CONTROLLER(c));
+    gboolean pressed = (mods & (GDK_BUTTON1_MASK | GDK_BUTTON2_MASK | GDK_BUTTON3_MASK)) != 0;
+    if (zg_model_tool(v->model) == ZG_TOOL_SUPPORT && v->view && !pressed) set_cursor(v, zg_support_cursor(v->support, x, y));
 }
 
 /* A pinch on a touchpad: zoom toward the pointer, by the change of the
@@ -942,6 +989,11 @@ static void on_release(GtkGestureClick *g, int n, double x, double y, gpointer d
      * pointer), or of the bed. */
     if (zg_model_tool(v->model) == ZG_TOOL_MEASURE) {
         zg_view3d_measure_click(v->area, x, y, (mods & GDK_SHIFT_MASK) != 0);
+        return;
+    }
+    /* The Support tool: a point of an area, or a click on an outline. */
+    if (zg_model_tool(v->model) == ZG_TOOL_SUPPORT && !(mods & GDK_CONTROL_MASK)) {
+        zg_support_click(v->support, x, y, (mods & GDK_SHIFT_MASK) != 0);
         return;
     }
     if ((mods & GDK_CONTROL_MASK) || zg_model_tool(v->model) == ZG_TOOL_MOVE || zg_model_tool(v->model) == ZG_TOOL_TURN) {
@@ -1277,6 +1329,26 @@ static gboolean look_at_side(View3d *v, double x, double y) {
     return TRUE;
 }
 
+static void support_frame(gpointer data) {
+    queue_frame(data);
+}
+
+static void support_focus(gpointer data) {
+    View3d *v = data;
+    apply_focus(v);
+    queue_frame(v);
+}
+
+gboolean zg_view3d_support_key(GtkWidget *view, guint key) {
+    View3d *v = g_object_get_data(G_OBJECT(view), "zg-view3d");
+    return v && !v->hidden && zg_support_key(v->support, key);
+}
+
+GtkWidget *zg_view3d_support_card(GtkWidget *view) {
+    View3d *v = g_object_get_data(G_OBJECT(view), "zg-view3d");
+    return zg_support_card(v->support);
+}
+
 static void on_click(GtkGestureClick *g, int n, double x, double y, gpointer data) {
     View3d *v = data;
     v->press_x = x;
@@ -1295,6 +1367,7 @@ static void view_free(gpointer data) {
     for (guint i = 0; v->hooks && i < v->hooks->len; i++)
         g_signal_handlers_disconnect_by_data(g_array_index(v->hooks, FrameHook, i).owner, v);
     if (v->hooks) g_array_free(v->hooks, TRUE);
+    zg_support_free(v->support);
     if (v->view) zs_view_free(v->view);
     zg_native_surface_free(v->native);
     g_free(v->error);
@@ -1308,6 +1381,7 @@ GtkWidget *zg_view3d_new(ZgModel *model) {
     v->tape_end = -1;
     v->turn_axis = -1;
     v->area = gtk_drawing_area_new();
+    v->support = zg_support_new(model, v->area, (ZgSupportHost){support_frame, support_focus, v});
     gtk_widget_set_hexpand(v->area, TRUE);
     gtk_widget_set_vexpand(v->area, TRUE);
     gtk_drawing_area_set_draw_func(GTK_DRAWING_AREA(v->area), draw_message, v, NULL);

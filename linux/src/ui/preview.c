@@ -44,9 +44,9 @@ typedef struct {
     /* The replay. */
     GtkWidget *stack;
     GtkWidget *slider_box;
-    /* The tools (select, move, measure), and the readout of the measure
-     * tape. */
-    GtkWidget *tools[4]; /* by ZgTool */
+    /* The tools (select, move, turn, measure, support), and the readout
+     * of the measure tape. */
+    GtkWidget *tools[ZG_TOOL_COUNT]; /* by ZgTool */
     GtkWidget *measure_label;
     /* The gaps view: the toggle, and the number of gaps of the layer. */
     GtkWidget *gaps, *gap_count;
@@ -981,6 +981,17 @@ static void on_view_action(GSimpleAction *a, GVariant *v, gpointer data) {
     gtk_stack_set_visible_child_name(GTK_STACK(p->stack), g_variant_get_string(v, NULL));
 }
 
+/* "preview.tool('support')": a tool of the strip, by its name. */
+static void on_tool_action(GSimpleAction *a, GVariant *v, gpointer data) {
+    Preview *p = data;
+    static const struct { const char *name; ZgTool tool; } names[] = {
+        {"select", ZG_TOOL_SELECT}, {"move", ZG_TOOL_MOVE}, {"turn", ZG_TOOL_TURN}, {"measure", ZG_TOOL_MEASURE}, {"support", ZG_TOOL_SUPPORT},
+    };
+    const char *name = g_variant_get_string(v, NULL);
+    for (size_t i = 0; i < G_N_ELEMENTS(names); i++)
+        if (strcmp(names[i].name, name) == 0) zg_model_set_tool(p->model, names[i].tool);
+}
+
 /* "preview.check": the list of the printability check. */
 static void on_check_action(GSimpleAction *a, GVariant *v, gpointer data) {
     Preview *p = data;
@@ -1126,13 +1137,17 @@ static gboolean on_preview_key(GtkEventControllerKey *c, guint key, guint code, 
      * own keys. */
     if (focus && zg_float_in_card(focus)) return FALSE;
     if (zg_view3d_menu_open(p->view3d)) return FALSE;
-    /* The tools: S select, M move, T measure (a tape). Esc clears a
-     * measure. */
+    /* The Support tool first: Enter, Backspace, Delete, and Esc for its
+     * areas, in the 3D view. */
+    if (zg_model_tool(p->model) == ZG_TOOL_SUPPORT && zg_view3d_support_key(p->view3d, key)) return TRUE;
+    /* The tools: S select, M move, T measure (a tape), U support. Esc
+     * clears a measure. */
     if (part_key(p, key, mods)) return TRUE;
     switch (key) {
     case GDK_KEY_s: case GDK_KEY_S: zg_model_set_tool(p->model, ZG_TOOL_SELECT); return TRUE;
     case GDK_KEY_m: case GDK_KEY_M: zg_model_set_tool(p->model, ZG_TOOL_MOVE); return TRUE;
     case GDK_KEY_t: case GDK_KEY_T: zg_model_set_tool(p->model, ZG_TOOL_MEASURE); return TRUE;
+    case GDK_KEY_u: case GDK_KEY_U: zg_model_set_tool(p->model, ZG_TOOL_SUPPORT); return TRUE;
     case GDK_KEY_g: case GDK_KEY_G: zg_model_set_gaps(p->model, !zg_model_gaps(p->model)); return TRUE;
     case GDK_KEY_Escape:
         if (zg_model_selected_part(p->model) >= 0) {
@@ -1300,7 +1315,8 @@ static void on_mark_activated(ZgLayerRange *range, guint index, gpointer data);
 /* ---- the tools: a group of three buttons at the left of the toolbar ---- */
 
 /* The glyph of a tool, in the color of the text: 0 an arrow (select), 1 a
- * cross of arrows (move), 2 a ruler (measure). */
+ * cross of arrows (move), 2 a ruler (measure), 3 an arc (turn), 4 gaps,
+ * 5 a check mark, 6 a shelf on posts (support). */
 static void draw_tool(GtkDrawingArea *a, cairo_t *cr, int w, int h, gpointer data) {
     int kind = GPOINTER_TO_INT(data);
     GdkRGBA c;
@@ -1355,6 +1371,20 @@ static void draw_tool(GtkDrawingArea *a, cairo_t *cr, int w, int h, gpointer dat
         cairo_set_source_rgb(cr, 0.9, 0.15, 0.2);
         cairo_rectangle(cr, 7.8, 6.4, 2.4, 5);
         cairo_fill(cr);
+    } else if (kind == 6) {
+        /* Support: a shelf on three posts, on the bed. */
+        cairo_move_to(cr, 2, 4.5);
+        cairo_line_to(cr, 16, 4.5);
+        cairo_line_to(cr, 14, 7.5);
+        cairo_line_to(cr, 4, 7.5);
+        cairo_close_path(cr);
+        for (int k = 0; k < 3; k++) {
+            cairo_move_to(cr, 5 + 4 * k, 7.5);
+            cairo_line_to(cr, 5 + 4 * k, 15.5);
+        }
+        cairo_move_to(cr, 3.5, 15.5);
+        cairo_line_to(cr, 14.5, 15.5);
+        cairo_stroke(cr);
     } else if (kind == 5) {
         /* Check: a check mark in a circle. */
         cairo_arc(cr, 9, 9, 7, 0, 2 * G_PI);
@@ -1467,13 +1497,14 @@ static GtkWidget *strip_button(GtkWidget *b, int glyph_kind, const char *key, co
 }
 
 /* The tool strip at the left of the view: the tools of the mouse (Select,
- * Move, Turn, Measure), then the line tools (Gaps, Check). Each button
+ * Move, Turn, Support, Measure), then the line tools (Gaps, Check). Each button
  * shows its key. */
 static GtkWidget *tool_strip(Preview *p) {
     static const struct { ZgTool tool; int glyph; const char *key, *tip; } tools[] = {
         {ZG_TOOL_SELECT, 0, "S", "Select (S): click a line to see what it is, its measurements, and the settings that change it."},
         {ZG_TOOL_MOVE, 1, "M", "Move (M): drag a part to move it, and scroll over it to turn it. The same as Ctrl in the other tools. Tab: the next part."},
         {ZG_TOOL_TURN, 3, "R", "Turn (R): click a part, then drag a ring to turn it about X, Y, or Z, in 15° steps (Shift: 5°). Keys: Left and Right (Z), Up and Down (X), Page Up and Page Down (Y)."},
+        {ZG_TOOL_SUPPORT, 6, "U", "Support (U): click points on the part to draw an area, and click the first point (or press Enter) to close it. Support grows under the area, or Block keeps support out. Click an outline to select it, and drag its points. Shift: no snap."},
         {ZG_TOOL_MEASURE, 2, "T", "Measure (T): click two points of the print. The ends of the lines snap; Shift turns the snap off. Esc clears."},
     };
     GtkWidget *box = gtk_box_new(GTK_ORIENTATION_VERTICAL, 2);
@@ -1716,6 +1747,8 @@ GtkWidget *zg_preview_new(ZgModel *model) {
     gtk_widget_set_can_target(p->measure_label, FALSE);
     gtk_widget_set_visible(p->measure_label, FALSE);
     gtk_overlay_add_overlay(GTK_OVERLAY(box), p->measure_label);
+    /* The card of the Support tool, at the top left of the 3D view. */
+    gtk_overlay_add_overlay(GTK_OVERLAY(box), zg_view3d_support_card(p->view3d));
     gtk_widget_set_size_request(stack, 200, -1);
     g_object_set_data_full(G_OBJECT(box), "zg-preview", p, preview_free);
     /* For the 3D context menu (a child of the preview). */
@@ -1724,6 +1757,7 @@ GtkWidget *zg_preview_new(ZgModel *model) {
         {.name = "all-layers", .activate = on_all_layers},
         {.name = "debug-print", .activate = on_debug_print, .parameter_type = "i"},
         {.name = "view", .activate = on_view_action, .parameter_type = "s"},
+        {.name = "tool", .activate = on_tool_action, .parameter_type = "s"},
         {.name = "check", .activate = on_check_action},
     };
     GSimpleActionGroup *group = g_simple_action_group_new();

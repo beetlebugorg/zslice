@@ -137,12 +137,16 @@ static int request_slice(ZgModel *self) {
     return zs_set_changed(self->set, zs_set_active(self->set));
 }
 
+static void undo_commit(ZgModel *self);
+
 void zg_model_hold(ZgModel *self, gboolean hold) {
     if (self->held == hold) return;
     self->held = hold;
     if (!hold) {
         self->slice_start = g_get_monotonic_time();
         zs_set_release(self->set);
+        /* The changes of the drag are one step. */
+        if (zs_app_history_pending(self->core)) undo_commit(self);
     }
 }
 
@@ -1015,6 +1019,38 @@ void zg_model_marks_clear(ZgModel *self) {
     request_slice(self);
 }
 
+/* A change of the support areas: a slice, and a history step (at the
+ * release of a hold). */
+static void support_changed(ZgModel *self) {
+    request_slice(self);
+    if (!self->held) undo_commit(self);
+}
+
+gint64 zg_model_support_add(ZgModel *self, int kind, const double *pts, size_t n) {
+    ptrdiff_t i = zs_app_support_area_add(self->core, kind, pts, n, NAN, NAN);
+    if (i < 0) return -1;
+    support_changed(self);
+    return i;
+}
+
+gboolean zg_model_support_set(ZgModel *self, size_t i, const double *pts, size_t n) {
+    if (zs_app_support_area_set(self->core, i, pts, n, NAN, NAN) != ZS_OK) return FALSE;
+    support_changed(self);
+    return TRUE;
+}
+
+gboolean zg_model_support_set_kind(ZgModel *self, size_t i, int kind) {
+    if (zs_app_support_area_set_kind(self->core, i, kind) != ZS_OK) return FALSE;
+    support_changed(self);
+    return TRUE;
+}
+
+gboolean zg_model_support_remove(ZgModel *self, size_t i) {
+    if (zs_app_support_area_remove(self->core, i) != ZS_OK) return FALSE;
+    support_changed(self);
+    return TRUE;
+}
+
 void zg_model_toggle_more(ZgModel *self, gint64 path) {
     if (path < 0) return;
     if (self->selected < 0) {
@@ -1147,6 +1183,8 @@ static gboolean on_undo_timer(gpointer data) {
 static void undo_schedule(ZgModel *self) {
     if (self->undo_restoring) return;
     undo_stop_timer(self);
+    /* A drag: the step ends at the release (zg_model_hold). */
+    if (self->held) return;
     self->undo_timer = g_timeout_add(400, on_undo_timer, self);
 }
 
