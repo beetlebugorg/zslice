@@ -11,7 +11,10 @@
 //!    of two layers do not touch. So the overhang that needs support is the
 //!    full strip: the part of layer i that is not on layer i - 1, within d
 //!    of the basic overhang. The strips of a slope then cover its whole
-//!    area. Only slivers of the arithmetic and specks are removed.
+//!    area. Only slivers of the arithmetic and specks are removed. The
+//!    layer below moves out by a little less than d, so that the removal
+//!    of the slivers keeps the strip of a wall that leans just over the
+//!    angle.
 //! 2. Columns, from the top down. An overhang of layer i needs support from
 //!    layer i - 1 - gap down, where gap is `support_z_gap_layers`: the
 //!    empty layers between the support and the part, so that the support
@@ -34,6 +37,13 @@
 //! 4. Interface. The top `support_interface_layers` layers under each
 //!    overhang are the interface. They are dense, so that the bottom
 //!    surface of the part is smooth.
+//!
+//! Tree support (see tree_support.zig) replaces steps 2 and 3 with
+//! branches. Its interface is a pad under each overhang. A pad reaches
+//! one line width further out than the overhang area of grid support, so
+//! that the pad under a slope is wide enough for the interface lines. A
+//! pad stays only where a branch, the part (under the Z gap), or a pad is
+//! under it. A pad on the bed layer prints as the body.
 //!
 //! Step 1 (with the XY offset of the model), the clean-up after step 2,
 //! and step 4 run on all threads. Step 2 and step 3 go one layer at a time,
@@ -260,7 +270,10 @@ fn computeStyle(
             c.near[i] = try offset_mod.offset(c.gpa, c.outlines[i], c.xy_under, .{});
             if (i == 0) return;
             const d = geom.fromMm(c.layers[i].height * c.tan_angle);
-            const below = try offset_mod.offset(s, c.outlines[i - 1], d, .{});
+            // The opening below removes strips thinner than 2 slivers. The
+            // layer below moves out by that much less, so that a wall that
+            // leans just over the angle keeps its strip.
+            const below = try offset_mod.offset(s, c.outlines[i - 1], d - 3 * sliver, .{});
             const raw = try clip.difference(s, c.outlines[i], below);
             if (raw.isEmpty()) return;
             // Only slivers of the arithmetic go. A slope that leans a little
@@ -509,23 +522,57 @@ fn treeSupport(
     const branches = try tree.grow(gpa, threads, outlines, layers, need, blocked, near, 1 + gap + pads, params);
     defer gpa.free(branches);
     for (out, branches) |*o, b| o.body = b;
-    try addPads(gpa, wide, near, gap, pads, out);
-    // A pad holds only where a branch is under it. The parts of a pad more
-    // than one spacing from the support of the layer below go: for
-    // example the pads of the branches that bed-only support removes.
+    // The pads reach further out than the pads of grid support. The
+    // interface lines miss a pad thinner than about two lines, and under a
+    // slope the pad is a thin strip.
+    const padsrc = try gpa.alloc(Paths, wide.len);
+    for (padsrc) |*x| x.* = .empty;
+    defer {
+        for (padsrc) |*x| x.deinit(gpa);
+        gpa.free(padsrc);
+    }
+    const Widen = struct {
+        gpa: Allocator,
+        wide: []const Paths,
+        out: []Paths,
+        w: i64,
+        fn run(c: *const @This(), i: usize) anyerror!void {
+            if (c.wide[i].isEmpty()) return;
+            var x = try offset_mod.offset(c.gpa, c.wide[i], c.w, .{});
+            simplifyAll(&x, 20);
+            c.out[i] = x;
+        }
+    };
+    const wc: Widen = .{ .gpa = gpa, .wide = wide, .out = padsrc, .w = @divTrunc(geom.fromMm(r.line_width) * pad_widen, 4) };
+    try parallel.forEach(threads, wide.len, &wc, Widen.run);
+    try addPads(gpa, padsrc, near, gap, pads, out);
+    // A pad holds only where a branch or the part is under it. The parts
+    // of a pad more than `reach` from the support of the layer below go:
+    // for example the pads of the branches that bed-only support removes.
+    // A pad over the part keeps the Z gap, and rests on the part under
+    // the gap.
     var arena_state = std.heap.ArenaAllocator.init(gpa);
     defer arena_state.deinit();
     const s = arena_state.allocator();
-    const reach = geom.fromMm(p.support_tree_spacing);
+    const reach = @min(geom.fromMm(p.support_tree_spacing), geom.fromMm(2.5 * r.line_width));
     for (1..out.len) |j| {
         if (out[j].interface.isEmpty()) continue;
+        var pad = out[j].interface;
+        var k: usize = 1;
+        while (k <= gap and k <= j) : (k += 1) pad = try clip.difference(s, pad, outlines[j - k]);
         const below = try clip.unite(s, out[j - 1].body, out[j - 1].interface);
-        const held = try offset_mod.offset(s, below, reach, .{});
-        const kept = try clip.intersect(gpa, out[j].interface, held);
+        var held = try offset_mod.offset(s, below, reach, .{});
+        if (j >= gap + 1) held = try clip.unite(s, held, outlines[j - 1 - gap]);
+        const kept = try clip.intersect(gpa, pad, held);
         out[j].interface.deinit(gpa);
         out[j].interface = kept;
     }
-    if (out.len > 0) {
+    // A pad on the bed layer prints as the body, so that the pad of the
+    // layer above has lines under it.
+    if (out.len > 0 and !out[0].interface.isEmpty()) {
+        const u = try clip.unite(gpa, out[0].body, out[0].interface);
+        out[0].body.deinit(gpa);
+        out[0].body = u;
         out[0].interface.deinit(gpa);
         out[0].interface = .empty;
     }
@@ -554,6 +601,10 @@ fn addPads(gpa: Allocator, need: []const Paths, blocked: []const Paths, gap: usi
         }
     }
 }
+
+/// The pads of tree support reach this many quarter line widths further
+/// out than the pads of grid support.
+const pad_widen: i64 = 4;
 
 /// The width of the slivers that the overhang test removes, in units.
 const sliver: i64 = 10;
@@ -815,4 +866,74 @@ test "a slope of 60 degrees gets support (grid and tree)" {
         const area = sup[25].body.areaMm2() + sup[25].interface.areaMm2();
         try testing.expect(area > 20);
     }
+}
+
+test "a wall that leans just over the support angle gets support" {
+    const gpa = testing.allocator;
+    // A cone that opens up with a wall at 51 degrees from vertical: one
+    // degree over the angle. Each layer moves out by only 9 um more than
+    // the limit.
+    const r1 = 5 + @tan(std.math.degreesToRadians(51.0)) * 10;
+    var m = try mesh_mod.shapes.frustum(gpa, 30, 30, 5, r1, 10, 64);
+    defer m.deinit(gpa);
+    const sl = try sliceAll(gpa, &m, 10);
+    defer {
+        for (sl.outlines) |*o| o.deinit(gpa);
+        gpa.free(sl.outlines);
+        gpa.free(sl.layers);
+    }
+    var st: settings_mod.Settings = .{};
+    st.project.support = .everywhere;
+    const r = try st.resolve();
+    const sup = try compute(gpa, sl.outlines, sl.layers, &r, 2, &.{});
+    defer deinitAll(gpa, sup);
+    try testing.expect(sup[25].body.areaMm2() + sup[25].interface.areaMm2() > 20);
+}
+
+test "tree pads under a slope are wide enough for the interface lines" {
+    const gpa = testing.allocator;
+    const r1 = 5 + @tan(std.math.degreesToRadians(55.0)) * 10;
+    var m = try mesh_mod.shapes.frustum(gpa, 30, 30, 5, r1, 10, 64);
+    defer m.deinit(gpa);
+    const sl = try sliceAll(gpa, &m, 10);
+    defer {
+        for (sl.outlines) |*o| o.deinit(gpa);
+        gpa.free(sl.outlines);
+        gpa.free(sl.layers);
+    }
+    var st: settings_mod.Settings = .{};
+    st.project.support = .everywhere;
+    st.project.support_style = .tree;
+    const r = try st.resolve();
+    const sup = try compute(gpa, sl.outlines, sl.layers, &r, 2, &.{});
+    defer deinitAll(gpa, sup);
+    // The pad of a layer, moved in by more than half a line, is still a
+    // ring: the layer plan can put a line in it.
+    const in = try offset_mod.offset(gpa, sup[25].interface, -geom.fromMm(0.35), .{});
+    defer @constCast(&in).deinit(gpa);
+    try testing.expect(in.areaMm2() > 5);
+}
+
+test "tree support: a pad on the bed layer prints as the body" {
+    const gpa = testing.allocator;
+    // A plate a few layers over the bed, on a post.
+    var b: mesh_mod.Builder = .init(gpa);
+    try mesh_mod.shapes.addBox(&b, 9, 9, 0, 11, 11, 0.65);
+    try mesh_mod.shapes.addBox(&b, 0, 0, 0.65, 20, 20, 3);
+    var m = try b.finish();
+    defer m.deinit(gpa);
+    const sl = try sliceAll(gpa, &m, 3);
+    defer {
+        for (sl.outlines) |*o| o.deinit(gpa);
+        gpa.free(sl.outlines);
+        gpa.free(sl.layers);
+    }
+    var st: settings_mod.Settings = .{};
+    st.project.support = .everywhere;
+    st.project.support_style = .tree;
+    const r = try st.resolve();
+    const sup = try compute(gpa, sl.outlines, sl.layers, &r, 1, &.{});
+    defer deinitAll(gpa, sup);
+    try testing.expect(sup[0].interface.isEmpty());
+    try testing.expect(sup[0].body.areaMm2() > 50);
 }

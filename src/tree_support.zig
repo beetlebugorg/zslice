@@ -11,14 +11,18 @@
 //!    the overhang (`support_tree_spacing` apart, the same grid on all
 //!    layers, so that the tips of a slope line up), and on points along the
 //!    edge of the overhang, one spacing apart, so that the edges of the pad
-//!    have support too. An island with no tip gets one. An edge point or an
-//!    island point is skipped if a tip of the same layer or of the layers
-//!    just above is near: on a slope, each layer adds only a thin strip.
+//!    have support too. Under a slope, the overhang is a strip thinner than
+//!    a tip, so the edge points go along the strip itself. An island with
+//!    no tip gets one. An edge point or an island point is skipped if a tip
+//!    of the same layer or of the layers just above is near: on a slope,
+//!    each layer adds only a thin strip. A tip near the part moves out
+//!    until it has room for its radius. The pad above spans the gap.
 //! 2. Down, one layer at a time. Each branch is a node: a center and a
 //!    radius. In one layer, a node moves at most h * tan(branch angle).
 //!    It moves toward its nearest node, if the two can meet within a few
-//!    spacings; two nodes that touch join into one thicker node. So the
-//!    branches of an overhang join into a few strong trunks.
+//!    spacings. Two nodes that touch join into one thicker node, if the
+//!    new circle holds the two old circles; two thick branches first come
+//!    nearer. So the branches of an overhang join into a few strong trunks.
 //!    To reach the bed (not rest on the part), a branch also stays out of
 //!    the avoidance area of each layer: the points from which no branch
 //!    can reach the bed. Layer 0 avoids the part. Layer j avoids the part
@@ -33,12 +37,17 @@
 //!    smaller again where the space is narrow, down to the tip radius. So
 //!    a branch can go down a deep, narrow hole. A branch keeps the XY gap
 //!    from the part; its top layers keep only the smaller gap under an
-//!    overhang, so that the tips under a slope stay. Where a branch cannot
-//!    go on, it rests on the part (it stops the Z gap above it), or, with
-//!    bed-only support, it is removed. Each branch keeps the branch that it
-//!    joins, so the removal also takes the branches above it that do not
-//!    join a branch to the bed.
-//! 4. The area of each layer is the union of the circles of its nodes.
+//!    overhang, so that the tips under a slope stay. A branch beside the
+//!    part with no room for its radius goes on, and the gap cuts its
+//!    circle. A branch in the gap stops: it rests on the part (it stops
+//!    the Z gap above it), or, with bed-only support, it is removed. Each
+//!    branch keeps the branch that it joins. So the branches above it that
+//!    do not join a branch to the bed go too.
+//! 4. Taper, from the bed up. A circle must be in the circle of its branch
+//!    on the layer under it, moved out by two tip radii. So where a branch
+//!    gets thin in a narrow space, the branch above it gets thin too, as a
+//!    cone, and no part of a branch hangs in the air.
+//! 5. The area of each layer is the union of the circles of its nodes.
 //!    support.zig then adds the interface, and the layer plan prints the
 //!    area as it prints grid support.
 //!
@@ -148,12 +157,9 @@ pub fn grow(
     defer arena_state.deinit();
     const arena = arena_state.allocator();
 
-    // Each layer adds its circles; the union comes at the end.
-    const circles = try arena.alloc(Paths, n);
-    for (circles) |*c| c.* = .empty;
-    // The branch of each circle.
-    const circle_ids = try arena.alloc(std.ArrayList(u32), n);
-    for (circle_ids) |*c| c.* = .empty;
+    // Each layer adds its disks; the union comes at the end.
+    const disks = try arena.alloc(std.ArrayList(Disk), n);
+    for (disks) |*c| c.* = .empty;
     var branches: Branches = .{};
     const avoid = try avoidance(gpa, arena, threads, layers, need, blocked, tips_below, params);
 
@@ -216,9 +222,12 @@ pub fn grow(
             nd.r = @min(params.max_r, nd.r + params.growth * @as(f64, @floatFromInt(h)));
             const fence = if (nd.age <= params.tip_layers) nidx else bidx;
             if (!fit(nd, fence, pad, step, params.tip)) {
-                // No room on this layer: the branch is over the part. It
-                // rests there, or stops (bed only).
-                nd.alive = false;
+                // No room for the radius. Beside the part, the branch goes
+                // on, and the gap cuts its circle. In the gap, it stops: it
+                // rests on the part, or (bed only) it is removed.
+                if (fence) |fi| {
+                    if (fi.inside(pointOf(nd))) nd.alive = false;
+                }
             }
         }
         // A branch over the part rests on it: the Z gap above the part.
@@ -229,11 +238,10 @@ pub fn grow(
                 if (nd.alive and oi.inside(pointOf(nd))) nd.alive = false;
             }
         }
-        try join(la, nodes.items, params.max_r, &branches);
+        try join(la, nodes.items, params.max_r, 2 * params.tip, &branches);
         // 4. The circles of this layer.
         for (nodes.items) |nd| if (nd.alive) {
-            try circles[j].append(arena, try circle(arena, nd.x, nd.y, nd.r));
-            try circle_ids[j].append(arena, nd.id);
+            try disks[j].append(arena, .{ .x = nd.x, .y = nd.y, .r = nd.r, .id = nd.id });
             if (j == 0) branches.bed.items[nd.id] = true;
         };
         // Drop the nodes that ended.
@@ -244,14 +252,15 @@ pub fn grow(
         };
         nodes.items.len = keep;
     }
-    // Bed only: the circles of the branches that do not reach the bed go.
-    if (params.bed_only) {
-        for (circles, circle_ids) |*c, ids| {
-            var kept: Paths = .empty;
-            for (ids.items, 0..) |id, k| {
-                if (branches.reaches(id)) try kept.append(arena, c.get(k));
-            }
-            c.* = kept;
+    try taper(arena, disks, &branches, 2 * params.tip, params.tip);
+    // The circles of each layer. Bed only: the circles of the branches that
+    // do not reach the bed go.
+    const circles = try arena.alloc(Paths, n);
+    for (circles, disks) |*c, ds| {
+        c.* = .empty;
+        for (ds.items) |d| {
+            if (params.bed_only and !branches.reaches(d.id)) continue;
+            try c.append(arena, try circle(arena, d.x, d.y, d.r));
         }
     }
     // The union of the circles of each layer, minus the part, on all
@@ -276,6 +285,36 @@ pub fn grow(
         else => unreachable,
     };
     return out;
+}
+
+/// A circle of a branch on one layer.
+const Disk = struct { x: f64, y: f64, r: f64, id: u32 };
+
+/// Makes the disks of a branch thinner where the disk under them is
+/// thinner, from the bed up: a disk must be in the disk under it moved
+/// out by `slack`, so that no part of a branch hangs in the air. A branch
+/// gets thin in a narrow space; with this, the branch above it gets thin
+/// again by `slack` on each layer, as a cone. A disk keeps at least the
+/// radius `tip`.
+fn taper(a: Allocator, disks: []std.ArrayList(Disk), branches: *const Branches, slack: f64, tip: f64) Allocator.Error!void {
+    var at: std.AutoHashMapUnmanaged(u32, u32) = .empty;
+    for (1..disks.len) |j| {
+        if (disks[j].items.len == 0 or disks[j - 1].items.len == 0) continue;
+        at.clearRetainingCapacity();
+        for (disks[j - 1].items, 0..) |d, k| try at.put(a, d.id, @intCast(k));
+        for (disks[j].items) |*d| {
+            // The same branch, or the branch that it joins, on the layer
+            // under it.
+            const k = at.get(d.id) orelse blk: {
+                const into = branches.into.items[d.id];
+                if (into == no_branch) break :blk null;
+                break :blk at.get(into);
+            } orelse continue;
+            const u = disks[j - 1].items[k];
+            const dist = @sqrt((d.x - u.x) * (d.x - u.x) + (d.y - u.y) * (d.y - u.y));
+            d.r = @max(tip, @min(d.r, u.r + slack - dist));
+        }
+    }
 }
 
 fn pointOf(nd: *const Node) Point {
@@ -424,11 +463,53 @@ fn addTips(
             }
         }
     }
-    // The edge: points along the area moved in by the tip radius.
+    // The edge: points along the area moved in by the tip radius. A strip
+    // thinner than a tip (under a slope) has no inner area, so then the
+    // points go along the edge of the area itself.
     const min_d = 0.6 * sp;
     const inner = try offset_mod.offset(la, area, -@as(i64, @intFromFloat(params.tip)), .{});
-    for (0..inner.count()) |k| {
-        const poly = inner.get(k);
+    try edgeTips(a, nodes, first, recent.items, inner, sp, min_d, params.tip);
+    try edgeTips(a, nodes, first, recent.items, area, sp, min_d, params.tip);
+    // Islands with no tip: a tip at a point inside each one.
+    for (0..area.count()) |k| {
+        const poly = area.get(k);
+        if (geom.area2(poly) <= 0) continue; // a hole
+        var has = false;
+        for (nodes.items[first..]) |nd| {
+            if (insidePoly(poly, nd.x, nd.y)) {
+                has = true;
+                break;
+            }
+        }
+        if (has) continue;
+        const p = pointInside(poly) orelse continue;
+        if (hasTipNear(nodes.items[first..], recent.items, p[0], p[1], min_d)) continue;
+        try nodes.append(a, .{ .x = p[0], .y = p[1], .r = params.tip });
+    }
+    // A tip near the part moves out, so that it has room for its radius.
+    // The pad above spans the gap.
+    const pad = 2 * params.max_r + params.spacing;
+    if (try index(la, near, pad)) |ni| {
+        for (nodes.items[first..]) |*nd| _ = fit(nd, ni, pad, 2 * params.tip, params.tip);
+    }
+    for (nodes.items[first..]) |nd| try recent.append(a, .{ .x = nd.x, .y = nd.y, .layer = j });
+}
+
+/// Adds a tip at points along the loops of `paths`, one spacing apart,
+/// where no tip of this layer (from `first`) or of the recent layers is
+/// nearer than `min_d`.
+fn edgeTips(
+    a: Allocator,
+    nodes: *std.ArrayList(Node),
+    first: usize,
+    recent: []const Tip,
+    paths: Paths,
+    sp: f64,
+    min_d: f64,
+    tip: f64,
+) Allocator.Error!void {
+    for (0..paths.count()) |k| {
+        const poly = paths.get(k);
         var walked: f64 = sp; // a point at the start of each loop
         for (poly, 0..) |p, i| {
             const q = poly[(i + 1) % poly.len];
@@ -448,29 +529,12 @@ fn addTips(
                 walked = 0;
                 const x = px + ex * t / len;
                 const y = py + ey * t / len;
-                if (!hasTipNear(nodes.items[first..], recent.items, x, y, min_d)) {
-                    try nodes.append(a, .{ .x = x, .y = y, .r = params.tip });
+                if (!hasTipNear(nodes.items[first..], recent, x, y, min_d)) {
+                    try nodes.append(a, .{ .x = x, .y = y, .r = tip });
                 }
             }
         }
     }
-    // Islands with no tip: a tip at a point inside each one.
-    for (0..area.count()) |k| {
-        const poly = area.get(k);
-        if (geom.area2(poly) <= 0) continue; // a hole
-        var has = false;
-        for (nodes.items[first..]) |nd| {
-            if (insidePoly(poly, nd.x, nd.y)) {
-                has = true;
-                break;
-            }
-        }
-        if (has) continue;
-        const p = pointInside(poly) orelse continue;
-        if (hasTipNear(nodes.items[first..], recent.items, p[0], p[1], min_d)) continue;
-        try nodes.append(a, .{ .x = p[0], .y = p[1], .r = params.tip });
-    }
-    for (nodes.items[first..]) |nd| try recent.append(a, .{ .x = nd.x, .y = nd.y, .layer = j });
 }
 
 fn hasTipNear(new: []const Node, recent: []const Tip, x: f64, y: f64, d: f64) bool {
@@ -594,8 +658,10 @@ fn attract(a: Allocator, nodes: []Node, step: f64, params: Params, avoid: ?geom.
 
 /// Joins nodes that touch (the center of one is in the other): the new
 /// node is at the middle (weighted by the area of each), with the radius of
-/// the same area, up to `max_r`.
-fn join(a: Allocator, nodes: []Node, max_r: f64, branches: *Branches) Allocator.Error!void {
+/// the same area, up to `max_r`. Two nodes join only if the new circle
+/// holds each old circle, up to `slack`: else the new layer has support
+/// under only a part of the layer above.
+fn join(a: Allocator, nodes: []Node, max_r: f64, slack: f64, branches: *Branches) Allocator.Error!void {
     var big: f64 = 1;
     for (nodes) |nd| big = @max(big, nd.r);
     const cells = try Cells.build(a, nodes, 2 * big);
@@ -617,9 +683,16 @@ fn join(a: Allocator, nodes: []Node, max_r: f64, branches: *Branches) Allocator.
                     if (dx * dx + dy * dy > touch * touch) continue;
                     const wa = nd.r * nd.r;
                     const wb = b.r * b.r;
-                    nd.x = (nd.x * wa + b.x * wb) / (wa + wb);
-                    nd.y = (nd.y * wa + b.y * wb) / (wa + wb);
-                    nd.r = @min(max_r, @sqrt(wa + wb));
+                    const x = (nd.x * wa + b.x * wb) / (wa + wb);
+                    const y = (nd.y * wa + b.y * wb) / (wa + wb);
+                    const r = @min(max_r, @sqrt(wa + wb));
+                    // The new circle must hold the two circles above it,
+                    // up to `slack`. Two thick branches first come nearer.
+                    if (@sqrt((x - nd.x) * (x - nd.x) + (y - nd.y) * (y - nd.y)) + nd.r > r + slack) continue;
+                    if (@sqrt((x - b.x) * (x - b.x) + (y - b.y) * (y - b.y)) + b.r > r + slack) continue;
+                    nd.x = x;
+                    nd.y = y;
+                    nd.r = r;
                     nd.age = @min(nd.age, b.age);
                     branches.into.items[b.id] = nd.id;
                     b.alive = false;
@@ -697,13 +770,20 @@ fn fit(nd: *Node, fence: ?geom.EdgeIndex, pad: f64, step: f64, tip: f64) bool {
         var dx = nd.x - near[0];
         var dy = nd.y - near[1];
         var d = @sqrt(dx * dx + dy * dy);
-        if (d < 1e-6) return false;
-        if (inside) {
-            dx = -dx;
-            dy = -dy;
+        if (d < 1) {
+            // On the edge: the way out is a direction to a point out of
+            // the fence.
+            const dir = outward(fi, nd.x, nd.y) orelse return false;
+            dx = dir[0];
+            dy = dir[1];
+        } else {
+            if (inside) {
+                dx = -dx;
+                dy = -dy;
+            }
+            dx /= d;
+            dy /= d;
         }
-        dx /= d;
-        dy /= d;
         const want = @min(step - moved, (if (inside) near[2] else 0) + tip - (if (inside) 0 else near[2]) + 1);
         d = @max(want, 1);
         nd.x += dx * d;
@@ -711,6 +791,18 @@ fn fit(nd: *Node, fence: ?geom.EdgeIndex, pad: f64, step: f64, tip: f64) bool {
         moved += d;
     }
     return false;
+}
+
+/// A unit direction from (x, y), a point on the edge of `fi`, to a point
+/// out of the area, or null.
+fn outward(fi: geom.EdgeIndex, x: f64, y: f64) ?[2]f64 {
+    for (0..16) |k| {
+        const t = 2 * std.math.pi * @as(f64, @floatFromInt(k)) / 16.0;
+        const c = @cos(t);
+        const sn = @sin(t);
+        if (!fi.inside(.{ .x = @intFromFloat(x + 20 * c), .y = @intFromFloat(y + 20 * sn) })) return .{ c, sn };
+    }
+    return null;
 }
 
 /// A circle as a counterclockwise polygon with 16 points.
@@ -721,4 +813,83 @@ fn circle(a: Allocator, x: f64, y: f64, r: f64) Allocator.Error![]Point {
         p.* = .{ .x = @intFromFloat(@round(x + r * @cos(t))), .y = @intFromFloat(@round(y + r * @sin(t))) };
     }
     return pts;
+}
+
+const testing = std.testing;
+
+fn squarePaths(a: Allocator, x0: i64, y0: i64, x1: i64, y1: i64) !Paths {
+    var p: Paths = .empty;
+    try p.append(a, &.{ .init(x0, y0), .init(x1, y0), .init(x1, y1), .init(x0, y1) });
+    return p;
+}
+
+test "fit moves a node on the edge of the part out of it" {
+    var arena = std.heap.ArenaAllocator.init(testing.allocator);
+    defer arena.deinit();
+    const a = arena.allocator();
+    const part = try squarePaths(a, 0, 0, 10_000, 10_000);
+    const fi = (try index(a, part, 5000)).?;
+    // On the edge x = 10 mm, as a tip on the edge of a pad is.
+    var nd: Node = .{ .x = 10_000, .y = 5000, .r = 500 };
+    try testing.expect(fit(&nd, fi, 5000, 1000, 500));
+    try testing.expect(nd.x >= 10_499 and @abs(nd.y - 5000) < 1);
+}
+
+test "edge tips go along a strip thinner than a tip" {
+    var arena = std.heap.ArenaAllocator.init(testing.allocator);
+    defer arena.deinit();
+    const a = arena.allocator();
+    // A strip 0.2 mm wide and 20 mm long: no inner area.
+    const strip = try squarePaths(a, 0, 0, 20_000, 200);
+    var nodes: std.ArrayList(Node) = .empty;
+    try edgeTips(a, &nodes, 0, &.{}, strip, 3000, 1800, 500);
+    // A tip about each 3 mm along the strip.
+    try testing.expect(nodes.items.len >= 6);
+    for (nodes.items) |nd| try testing.expect(nd.y >= 0 and nd.y <= 200);
+}
+
+test "join keeps two thick branches apart until they are near" {
+    var arena = std.heap.ArenaAllocator.init(testing.allocator);
+    defer arena.deinit();
+    const a = arena.allocator();
+    var branches: Branches = .{};
+    for (0..2) |_| {
+        try branches.into.append(a, no_branch);
+        try branches.bed.append(a, false);
+    }
+    // Two nodes at the largest radius, 4 mm apart: one circle of 5 mm
+    // cannot hold both.
+    var nodes = [_]Node{
+        .{ .x = 0, .y = 0, .r = 5000, .id = 0 },
+        .{ .x = 4000, .y = 0, .r = 5000, .id = 1 },
+    };
+    try join(a, &nodes, 5000, 1000, &branches);
+    try testing.expect(nodes[0].alive and nodes[1].alive);
+    // Two thin nodes join into one.
+    nodes = .{
+        .{ .x = 0, .y = 0, .r = 500, .id = 0 },
+        .{ .x = 400, .y = 0, .r = 500, .id = 1 },
+    };
+    try join(a, &nodes, 5000, 1000, &branches);
+    try testing.expect(nodes[0].alive and !nodes[1].alive);
+    try testing.expectEqual(@as(u32, 0), branches.into.items[1]);
+}
+
+test "taper makes a branch over a thin disk thin, as a cone" {
+    var arena = std.heap.ArenaAllocator.init(testing.allocator);
+    defer arena.deinit();
+    const a = arena.allocator();
+    var branches: Branches = .{};
+    try branches.into.append(a, no_branch);
+    try branches.bed.append(a, true);
+    const disks = try a.alloc(std.ArrayList(Disk), 4);
+    for (disks) |*d| d.* = .empty;
+    // A branch of radius 5 mm with a thin layer (1 mm) at layer 1.
+    const radii = [_]f64{ 5000, 1000, 5000, 5000 };
+    for (disks, radii) |*d, r| try d.append(a, .{ .x = 0, .y = 0, .r = r, .id = 0 });
+    try taper(a, disks, &branches, 1000, 500);
+    try testing.expectEqual(@as(f64, 5000), disks[0].items[0].r);
+    try testing.expectEqual(@as(f64, 1000), disks[1].items[0].r);
+    try testing.expectEqual(@as(f64, 2000), disks[2].items[0].r);
+    try testing.expectEqual(@as(f64, 3000), disks[3].items[0].r);
 }
