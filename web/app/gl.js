@@ -189,7 +189,6 @@ void main() {
     }
     float px = 1.0 / max(fwidth(vsec.z), 1e-6);
     float flat_k = 1.0 - smoothstep(2.0, 5.0, px);
-    n = normalize(mix(n, ev, flat_k));
     bool focus = params.z > 0.5 || params.z < -0.5;
     if (focus && params.w > 1.5 && params.w < 2.5) {
         if (vfocus > 0.5) discard;

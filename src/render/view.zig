@@ -296,10 +296,10 @@ pub const View = struct {
     /// marks, or labels. Only the beads, the bed, and the nozzle draw.
     reduced: bool = false,
     /// The backend draws mesh level 2 as a ribbon that faces the camera
-    /// (box.vert, tv.w = 2), for the beads a few pixels wide. Vulkan
-    /// does. A frame shell turns it on (zs_view_set_ribbons) when its
-    /// shader has the ribbon.
-    ribbons: bool = !frame_backend,
+    /// (box.vert, tv.w = 2), for the beads a few pixels wide. Off by
+    /// default: the ribbons changed the look of the beads (a far part
+    /// looked flat and hatched). zs_view_set_ribbons turns it on.
+    ribbons: bool = false,
     /// The fingers on a touch screen (see `touch`): an id (-1: none) and
     /// the last point of each.
     touches: [2]Touch = .{ .{}, .{} },

@@ -58,7 +58,6 @@ void main() {
     // far wall then looks even.
     float px = 1.0 / max(fwidth(vsec.z), 1e-6);
     float flat_k = 1.0 - smoothstep(2.0, 5.0, px);
-    n = normalize(mix(n, ev, flat_k));
     // A focus (params.z != 0) draws in two passes: the beads in focus,
     // solid (params.w < 2), then the other beads as faint ghosts that do
     // not hide what is behind them (params.w = 2, blended, no depth write).
