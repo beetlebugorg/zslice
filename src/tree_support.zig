@@ -37,7 +37,8 @@
 //!    smaller again where the space is narrow, down to the tip radius. So
 //!    a branch can go down a deep, narrow hole. Near the bed, a branch to
 //!    the bed gets wider at 45 degrees, up to the foot radius, so that it
-//!    holds on the bed. A branch keeps the XY gap
+//!    holds on the bed. (Cura has a wider branch on the bed too; see
+//!    REFERENCES.md.) A branch keeps the XY gap
 //!    from the part; its top layers keep only the smaller gap under an
 //!    overhang, so that the tips under a slope stay. A branch beside the
 //!    part with no room for its radius goes on, and the gap cuts its
