@@ -1109,7 +1109,7 @@ self.onmessage = async (e) => {
     else if (op === "sliceHeld") {
       if (histHolding) historyCommit();
       histHolding = false;
-    } else if ((op === "set" || op === "setScoped") && args.name === histFocus) {
+    } else if ((op === "set" || op === "setScoped" || op === "partSettingSet") && args.name === histFocus) {
       // The edit of the setting with the focus goes on: its step ends
       // when the focus moves.
     } else if (SETTING_OPS.has(op) || PLATE_OPS.has(op)) {
