@@ -1,5 +1,5 @@
 //! The session of an app: all that it needs to come back exactly as it was
-//! after a reload or a quit (specs: session restore). One file, the same in
+//! after a reload or a quit. One file, the same in
 //! each app:
 //!
 //! - project.zslice: the plates (the project file of the set, with the

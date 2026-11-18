@@ -1,7 +1,7 @@
 //! The session of the app: after Command-Q, or a crash, the app comes back
 //! exactly as it was, with each window, its plates, the last scene of each
 //! plate, the camera, and the state of the window (zs_session_write and
-//! zs_session_read; specs: session restore).
+//! zs_session_read).
 //!
 //! The files are in Application Support/zslice/session: one session file
 //! for each window (the zip of the core, with the window state as its app

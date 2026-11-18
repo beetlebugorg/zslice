@@ -1,6 +1,5 @@
 //! Physics of a part on the bed: its mass, its center of mass, the area it
-//! stands on, and the roll of a part that cannot stand until it rests
-//! (specs: hands-on support and physics).
+//! stands on, and the roll of a part that cannot stand until it rests.
 //!
 //! - The center of mass comes from the closed mesh: the sum of the signed
 //!   tetrahedra of each face with the origin (a solid of even density).
@@ -17,7 +16,7 @@
 //!
 //! This is the model of one rigid part on a flat bed. A full game physics
 //! engine (collisions between parts, bounces) is more than a slicer needs,
-//! and costs size and speed (see specs/28).
+//! and costs size and speed.
 //!
 //! SPDX-License-Identifier: AGPL-3.0-or-later
 

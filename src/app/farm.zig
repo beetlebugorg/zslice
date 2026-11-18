@@ -1,5 +1,5 @@
 //! The farm: printers, orders, and the jobs of the orders, for a shop that
-//! runs many printers (specs: the farm). The apps poll each printer
+//! runs many printers. The apps poll each printer
 //! (zs_printer_status) and give the core its state; the core keeps the
 //! jobs, proposes which job goes to which printer, and says when a print
 //! is ready to collect or failed.

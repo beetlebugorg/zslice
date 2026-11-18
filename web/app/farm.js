@@ -1,6 +1,6 @@
-// farm.js: the Printers page of the drawer (specs: the print farm, phase
-// 1). A tile for each printer of the user: its state, its job with the
-// progress and the time left, and the filament in it, from the core
+// farm.js: the Printers page of the drawer. A tile for each printer of
+// the user: its state, its job with the progress and the time left, and
+// the filament in it, from the core
 // (link.js status, zs_printer_status). While the page shows, the tiles
 // read again every 10 s. Each tile can send the active plate: after a
 // fresh "Is the bed clear?" of the user, never by itself.
