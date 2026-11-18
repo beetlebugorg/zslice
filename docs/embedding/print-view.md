@@ -13,7 +13,7 @@ Link `zig-out/lib/libzslice.a` with `-lc -lm -lpthread -ldl`. The library loads 
 
 ## The flow
 
-1. Read the file: `zs_gcode_open(path, &g)`. To stream it (an upload), use `zs_gcode_new`, then `zs_gcode_feed` for each piece, then `zs_gcode_finish`. The reader takes G-code of zslice, Cura, PrusaSlicer, OrcaSlicer, and Bambu Studio.
+1. Read the file: `zs_gcode_open(path, &g)`. To stream it (an upload), use `zs_gcode_new`, then `zs_gcode_feed` for each piece, then `zs_gcode_finish`. The reader reads G-code of zslice, Cura, PrusaSlicer, OrcaSlicer, and Bambu Studio.
 2. Make the view: `zs_view_offscreen(800, 480, ZS_VIEW_REDUCED | ZS_VIEW_BGRA, &v)`. The view needs no window system and no display.
 3. Show the file: `zs_view_load_gcode(v, g, bed_x, bed_y)`. Keep `g` while the view shows it.
 4. On each change, set the state, then draw and read the pixels:
@@ -70,7 +70,7 @@ import "C"
 
 ## Speed and memory
 
-- The reader takes about 0.4 s for 85 MB of G-code on a desktop CPU (x86-64). The Pi 5 is slower: plan for a few seconds.
+- The reader needs about 0.4 s for 85 MB of G-code on a desktop CPU (x86-64). The Pi 5 is slower: plan for a few seconds.
 - The reader keeps 24 bytes for each move: 70 MB for an 85 MB file with 3 million moves. It never holds the whole file.
 - The view puts 32 bytes for each bead in one GPU buffer, once. A position or a layer only changes how many beads draw.
 - An offscreen print view keeps the finished layers in a cached image. When the camera and the colors stay the same, a frame draws only the new beads and the top layer. A touch that moves the camera draws all the beads once.

@@ -3747,7 +3747,7 @@ test "touch: one finger orbits, two fingers pinch and pan" {
     v.touch(1, .move, 150, 100);
     v.touch(2, .move, 350, 100);
     try std.testing.expect(@abs(v.target[2] - t0[2]) > 1e-3);
-    // A third finger does nothing; a cancel ends all.
+    // A third finger has no effect; a cancel ends all.
     const rot1 = v.rot;
     v.touch(3, .down, 10, 10);
     v.touch(3, .move, 90, 10);

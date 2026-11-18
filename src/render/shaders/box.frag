@@ -42,7 +42,7 @@ void main() {
     // yellow. The other beads keep their colors (to fade them, the view
     // isolates the selection: params.z < 0).
     // A print view (params.w = 4): params.x to params.y are the beads of
-    // the top layer, not a selection.
+    // the top layer (a print view has no selection).
     bool lit = pc.params.w > 3.5;
     if (!lit && pc.params.y > pc.params.x && vhigh > 0.5) {
         base = toLinear(vec3(1.0, 0.78, 0.05));

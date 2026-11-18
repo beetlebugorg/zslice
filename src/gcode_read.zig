@@ -28,11 +28,11 @@
 //!    comment of the slicer. With no such comment, the reader tries 1.75
 //!    and 2.85 mm and keeps the one that gives widths near the nozzle.
 //! 5. The time of each layer comes from the comments (";TIME_ELAPSED:" of
-//!    Cura), or from a quick estimate: each move takes its length over
-//!    its speed, with the time to speed up and slow down. A total time in
-//!    a comment of the slicer scales the estimate.
+//!    Cura), or from a quick estimate: the time of each move is its
+//!    length over its speed, with the time to speed up and slow down. A
+//!    total time in a comment of the slicer scales the estimate.
 //!
-//! The reader takes the file in pieces of any size (`feed`), so a host
+//! The reader gets the file in pieces of any size (`feed`), so a host
 //! can stream a large file and never hold all of it. The segments are 24
 //! bytes each, in blocks of 4096, so the list never moves in memory.
 //!
@@ -1043,7 +1043,7 @@ test "gcode_read: Cura G-code with absolute E" {
     try testing.expectEqual(@as(u32, 0), r.layers.items[0].first);
     const s0 = r.at(0);
     try testing.expectEqual(@as(u8, @intFromEnum(Feature.skirt)), s0.feature);
-    // The box has the part, not the purge line at x = 0.
+    // The box has the part and leaves out the purge line at x = 0.
     try testing.expectEqual([6]f32{ 10, 10, 0, 20, 20, 0.5 }, r.box);
     // The wall: 0.4991 mm of 1.75 mm filament over 10 mm is a bead of
     // 0.12 mm2: 0.2 mm high (0.5 - 0.3) in layer 1, and 0.3 mm (its z) in
