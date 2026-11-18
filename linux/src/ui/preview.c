@@ -1158,14 +1158,14 @@ static gboolean on_preview_key(GtkEventControllerKey *c, guint key, guint code, 
     /* The Support tool first: Enter, Backspace, Delete, and Esc for its
      * areas, in the 3D view. */
     if (zg_model_tool(p->model) == ZG_TOOL_SUPPORT && zg_view3d_support_key(p->view3d, key)) return TRUE;
-    /* The tools: S select, M move, T measure (a tape), U support. Esc
-     * clears a measure. */
+    /* The tools: V select, M move, T measure (a tape), S support (U is
+     * its old key). Esc clears a measure. */
     if (part_key(p, key, mods)) return TRUE;
     switch (key) {
-    case GDK_KEY_s: case GDK_KEY_S: zg_model_set_tool(p->model, ZG_TOOL_SELECT); return TRUE;
+    case GDK_KEY_v: case GDK_KEY_V: zg_model_set_tool(p->model, ZG_TOOL_SELECT); return TRUE;
     case GDK_KEY_m: case GDK_KEY_M: zg_model_set_tool(p->model, ZG_TOOL_MOVE); return TRUE;
     case GDK_KEY_t: case GDK_KEY_T: zg_model_set_tool(p->model, ZG_TOOL_MEASURE); return TRUE;
-    case GDK_KEY_u: case GDK_KEY_U: zg_model_set_tool(p->model, ZG_TOOL_SUPPORT); return TRUE;
+    case GDK_KEY_s: case GDK_KEY_S: case GDK_KEY_u: case GDK_KEY_U: zg_model_set_tool(p->model, ZG_TOOL_SUPPORT); return TRUE;
     case GDK_KEY_g: case GDK_KEY_G: zg_model_set_gaps(p->model, !zg_model_gaps(p->model)); return TRUE;
     case GDK_KEY_Escape:
         if (zg_model_selected_part(p->model) >= 0) {
@@ -1519,10 +1519,10 @@ static GtkWidget *strip_button(GtkWidget *b, int glyph_kind, const char *key, co
  * shows its key. */
 static GtkWidget *tool_strip(Preview *p) {
     static const struct { ZgTool tool; int glyph; const char *key, *tip; } tools[] = {
-        {ZG_TOOL_SELECT, 0, "S", "Select (S): click a line to see what it is, its measurements, and the settings that change it."},
+        {ZG_TOOL_SELECT, 0, "V", "Select (V): click a line to see what it is, its measurements, and the settings that change it."},
         {ZG_TOOL_MOVE, 1, "M", "Move (M): drag a part to move it, and scroll over it to turn it. The same as Ctrl in the other tools. Tab: the next part."},
         {ZG_TOOL_TURN, 3, "R", "Turn (R): click a part, then drag a ring to turn it about X, Y, or Z, in 15° steps (Shift: 5°). Keys: Left and Right (Z), Up and Down (X), Page Up and Page Down (Y)."},
-        {ZG_TOOL_SUPPORT, 6, "U", "Support (U): click points on the part to draw an area, and click the first point (or press Enter) to close it. Support grows under the area, or Block keeps support out. Click an outline to select it, and drag its points. Shift: no snap."},
+        {ZG_TOOL_SUPPORT, 6, "S", "Support (S): click points on the part to draw an area, and click the first point (or press Enter) to close it. Support grows under the area, or Block keeps support out. Click an outline to select it, and drag its points. Shift: no snap."},
         {ZG_TOOL_MEASURE, 2, "T", "Measure (T): click two points of the print. The ends of the lines snap; Shift turns the snap off. Esc clears."},
     };
     GtkWidget *box = gtk_box_new(GTK_ORIENTATION_VERTICAL, 2);

@@ -40,11 +40,11 @@ static const Group SHORTCUTS[] = {
         {"Home", "The start view (the view shows the active plate only)"},
         {NULL, NULL}}},
     {"Tools", {
-        {"S", "Select: a click selects a line"},
+        {"V", "Select: a click selects a line"},
         {"M", "Move: a drag moves a part, the wheel turns it 15°"},
         {"R", "Turn: drag a ring of the selected part to turn it about X, Y, or Z"},
         {"T", "Measure: two clicks measure between two points"},
-        {"U", "Support: click points on the part to draw a support area, and drag the points of an area"},
+        {"S", "Support: click points on the part to draw a support area, and drag the points of an area"},
         {"Enter (Support tool)", "Close the area that you draw (also: click its first point)"},
         {"Backspace (Support tool)", "Remove the last point of the area that you draw"},
         {"Delete (Support tool)", "Delete the selected support area"},

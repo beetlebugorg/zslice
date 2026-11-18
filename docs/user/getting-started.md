@@ -24,7 +24,7 @@ Do these steps for your first print. You need only this section.
 2. **Choose your printer.** At the first start, the printer picker opens on the popular printers. Click your printer, then click **Next** and **Add printer**. If your printer is not in the list, type a part of its name in the search, for example "ender 3" or "k1 max".
 3. **Open a model.** Drop an STL or 3MF file on the view, or click **Open…**. zslice slices the model at once.
 4. **Choose the material and the quality.** Use the **Filament** menu (for example "generic PLA") and the **Quality** menu (for example "standard", 0.2 mm layers) in the header.
-5. **Look at the preview.** Drag in the view to turn it, and turn the mouse wheel to zoom. The print card at the bottom right gives the print time and the plastic.
+5. **Look at the preview.** Drag in the view to turn it, and turn the mouse wheel to zoom. The print card gives the print time and the plastic.
 6. **Export or send.** Click **Export G-code…** on the print card, and copy the file to your printer. With a printer connection, the button is **Print**. It sends the file to the printer.
 
 ![The printer picker: the Popular list has 15 printers of Bambu Lab, Prusa, Creality, Elegoo, Anycubic, Voron, and Sovol. The Prusa MK4 is selected, and its card draws its build volume and lists its nozzle, its filament, and its motion limits](../img/printer-picker.png)
@@ -39,21 +39,20 @@ The print card can show a note in a colored box. Read it before you print:
 
 ## The window
 
-![The window of the web app, with numbers: 1 the header, 2 the tool strip, 3 the layer slider, 4 the dock, 5 the print card](../img/guide-window.png)
+![The window of the web app, with numbers: 1 the header, 2 the tool strip, 3 the layer slider, 4 the bottom bar](../img/guide-window.png)
 
-The view fills the window. The header is at the top, and four things float over the view:
+The view fills the window. The header is at the top, the bottom bar is at the bottom, and two things float over the view:
 
-1. **The header.** At the left: Open and the name of the file. In the middle: 2D and 3D, **Search** (`/`), the colors of the lines, and **+** (add models to this plate). At the right: the printer, the filament, and the quality menus, **Printers** (the Printers page), the settings panel (N), and the main menu.
-2. **The tool strip** (at the left): Select (S), Move (M), Turn (R), Support (U), Measure (T), then Gaps (G) and Check. The key of each tool is in the corner of its button.
+1. **The header.** At the left: the file button (open a model, add models to this plate, open or save a project) and the name of the file. In the middle: 2D and 3D, and **Search** (`/`). At the right: the printer, the filament, and the quality as one group (click each one for its menu), then **Printers** (the Printers page), the settings panel (N), and the main menu.
+2. **The tool strip** (at the left): Select (V), Move (M), Turn (R), Support (S), Measure (T), then the colors of the lines, Gaps (G), and Check. The key of each tool is in the corner of its button.
 3. **The layer slider** (at the right): the top knob is the top layer that shows, and the bottom knob cuts away the layers below it.
-4. **The dock** (at the bottom) has three groups. The plates: ‹ › "Plate 1 of 1", All, + Plate, and ×. The replay: ▶, its speed, and the scrub bar. The history: ↶ ↷, **History**, and a mark for each change.
-5. **The print card** (at the bottom right): the print time, the plastic, the cost, the layers, the main settings of the print, and **Export G-code…** or **Print**. It hides on an empty plate.
+4. **The bottom bar** fills the width of the view. Its first row has the plates (‹ › "Plate 1 of 1", All, + Plate, and ×) and the history (↶ ↷, **History**, and a mark for each change). Its second row has the replay: ▶, its speed, and the scrub bar. At the right end is the **print card**: the print time, the plastic, the cost, and the layers, then **Export G-code…** or **Print**. Click the print time to open the details of the card: the main settings of the print, the notes, and your usual refinements. A badge on the time counts the notes and the refinements, and a new note opens the details. The print card hides on an empty plate. In the GTK and Mac apps, the print card floats at the bottom right, with its details in it.
 
 The settings panel is at the right. It has only the settings. Press N, or click the panel button in the header, to show it or hide it. It slides over the view. Click **Pin** to put it beside the view as a column. Drag the splitter to change its width. The app keeps your choice for the next start.
 
-The history is a popover over the dock. The project is a dialog: **Open a project…** in the main menu. The Printers page covers the view: **Printers** in the header. **‹ Back to the plate** closes it.
+The history is a popover over the bottom bar. The project is a dialog: **Open a project…** in the main menu. The Printers page covers the view: **Printers** in the header. **‹ Back to the plate** closes it.
 
-In a narrow window, the dock fills the width, and the print card sits over it. For a phone, see [For each platform](#for-each-platform).
+In a narrow window, the print card goes to a third row of the bottom bar. For a phone, see [For each platform](#for-each-platform).
 
 ## Look at the print
 
@@ -96,7 +95,7 @@ Shift with ↑ or ↓ (or k or j) moves the bottom knob of the layer slider.
 
 ### Replay the print
 
-Press ▶ on the dock. The 3D view shows the print as it grows, line by line, at the speed in the menu next to it (1× is the real speed). The scrub bar moves the nozzle through the top layer: at the left end the layer starts, and at the right end it is done. The label gives the time in the layer. A drag of the bar pauses the replay. A nozzle in the 3D view shows where the print is.
+Press ▶ on the bottom bar. The 3D view shows the print as it grows, line by line, at the speed in the menu next to it (1× is the real speed). The scrub bar moves the nozzle through the top layer: at the left end the layer starts, and at the right end it is done. The label gives the time in the layer. A drag of the bar pauses the replay. A nozzle in the 3D view shows where the print is.
 
 ### Click a line
 
@@ -538,10 +537,10 @@ Press `?` to see all keyboard shortcuts of the app (in the GTK app, also in the 
 | F | Show the active plate |
 | Home | Show all plates |
 | **Tools** | |
-| S | Select: a click selects a line |
+| V | Select: a click selects a line |
 | M | Move: a drag moves a part, the wheel turns it 15° |
 | R | Turn: drag a ring of the selected part to turn it about X, Y, or Z |
-| U | Support: draw a support area, and drag the points of an area |
+| S | Support: draw a support area, and drag the points of an area. S again opens or closes the pane of the tool (the web app). U also selects the tool. |
 | T | Measure: two clicks measure between two points |
 | G | Gaps: show the gaps of the top layer |
 | Enter (Support tool) | Close the area that you draw |
