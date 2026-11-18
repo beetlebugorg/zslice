@@ -292,6 +292,49 @@ export fn zs_set_project_open(set: ?*Set, bytes: ?[*]const u8, len: usize, messa
     return ok;
 }
 
+/// The session of the app (src/app/session.zig): the plates, the last
+/// scene of each, the camera (8 floats of zs_view_get_camera, or NULL), and
+/// the text of the app (its own state). Free the bytes with zs_buffer_free.
+export fn zs_session_write(set: ?*Set, camera: ?[*]const f32, app_text: ?[*:0]const u8, out: ?*?[*]u8, out_len: ?*usize) c_int {
+    const s = set orelse return @intFromEnum(Status.invalid_argument);
+    const o = out orelse return @intFromEnum(Status.invalid_argument);
+    const l = out_len orelse return @intFromEnum(Status.invalid_argument);
+    const cam: ?[8]f32 = if (camera) |c8| c8[0..8].* else null;
+    const bytes = zs.app.session.write(gpa, s, cam, if (app_text) |t| std.mem.span(t) else "") catch return @intFromEnum(Status.out_of_memory);
+    o.* = bytes.ptr;
+    l.* = bytes.len;
+    return ok;
+}
+
+/// Puts a session back: its plates replace those of the set, each plate
+/// shows its last scene at once, camera_out gets the camera (has_camera:
+/// 1) or stays, and app_text gets the text of the app (free it with
+/// zs_buffer_free). ZS_INVALID_VALUE with a message for a bad file.
+export fn zs_session_read(set: ?*Set, bytes: ?[*]const u8, len: usize, camera_out: ?[*]f32, has_camera: ?*c_int, app_text: ?*?[*]u8, app_len: ?*usize, message: ?[*]u8, cap: usize) c_int {
+    const s = set orelse return @intFromEnum(Status.invalid_argument);
+    const b = bytes orelse return @intFromEnum(Status.invalid_argument);
+    sayMsg(message, cap, "");
+    var diag: project_file.Diagnostic = .{};
+    const r = zs.app.session.read(gpa, b[0..len], s, &diag) catch |e| {
+        sayMsg(message, cap, if (diag.message.len > 0) diag.message else switch (e) {
+            error.NotSession, error.NotProject => "The file is not a zslice session.",
+            else => @errorName(e),
+        });
+        return switch (e) {
+            error.OutOfMemory => @intFromEnum(Status.out_of_memory),
+            else => @intFromEnum(Status.invalid_value),
+        };
+    };
+    if (has_camera) |h| h.* = @intFromBool(r.camera != null);
+    if (r.camera) |c8| if (camera_out) |co| {
+        co[0..8].* = c8;
+    };
+    if (app_text) |t| t.* = r.app_text.ptr else gpa.free(r.app_text);
+    if (app_len) |al| al.* = r.app_text.len;
+    sayMsg(message, cap, diag.message);
+    return ok;
+}
+
 /// Copies of part `part` of plate `from` until there are n in all: on its
 /// plate while they fit the bed, then on new plates (after the others,
 /// with the settings of plate from). Returns the copies in all, and the

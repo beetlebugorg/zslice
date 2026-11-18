@@ -1103,6 +1103,11 @@ void zs_view_rotate(zs_view *view, float dx, float dy);
 void zs_view_turn(zs_view *view, float dx);
 /* Returns the camera to the start view around the part. */
 void zs_view_reset(zs_view *view);
+/* The camera, for a restore after a reload: 8 floats, the target (x, y, z),
+ * the rotation (a quaternion x, y, z, w), and the distance. Set it back at
+ * once with zs_view_set_camera (a bad value leaves the camera as it is). */
+void zs_view_get_camera(const zs_view *view, float out[8]);
+void zs_view_set_camera(zs_view *view, const float in[8]);
 enum zs_view_mode {
     ZS_VIEW_PRINT = 0,      /* the filament color: the print as it will look */
     ZS_VIEW_FEATURES = 1,   /* one color for each feature */
@@ -1684,6 +1689,17 @@ int zs_set_project_load(zs_set *set, const zs_files *files, const char *yml, con
  * plate): the parts, their places and settings, and the printer, filament,
  * and print settings of each plate. Free *out with zs_buffer_free. */
 int zs_set_project_save(zs_set *set, const char *name, uint8_t **out, size_t *len);
+/* The session of the app, for a restore after a reload or a quit: the
+ * plates, the last scene of each (the view shows it at once at startup),
+ * the camera (8 floats of zs_view_get_camera, or NULL), and the text of the
+ * app (its own state: pages, scroll, focus). Free the bytes with
+ * zs_buffer_free. */
+int zs_session_write(zs_set *set, const float *camera, const char *app_text, uint8_t **out, size_t *len);
+/* Puts a session back: its plates replace the plates of the set, each plate
+ * shows its last scene until it slices again, camera_out gets the camera
+ * (*has_camera = 1), and *app_text the text of the app (free it with
+ * zs_buffer_free). ZS_INVALID_VALUE with a message for a bad file. */
+int zs_session_read(zs_set *set, const uint8_t *bytes, size_t len, float camera_out[8], int *has_camera, uint8_t **app_text, size_t *app_len, char *message, size_t cap);
 /* 1 if the bytes are a zslice project file (zs_set_project_open), 0 for
  * another file (a plain 3MF opens as a model). */
 int zs_project_file_is(const uint8_t *bytes, size_t len);

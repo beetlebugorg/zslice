@@ -960,6 +960,22 @@ pub const Set = struct {
         p.scene_serial +%= 1;
     }
 
+    /// Puts back the last scene of plate i from a session (session.zig):
+    /// the view shows it at once, until the plate slices again.
+    pub fn restoreScene(set: *Set, i: usize, bytes: []const u8) Allocator.Error!void {
+        set.enter();
+        defer set.leave();
+        if (i >= set.plates.items.len) return;
+        const p = set.plates.items[i];
+        const copy = try set.gpa.dupe(u8, bytes);
+        set.gpa.free(p.scene);
+        p.scene = copy;
+        // No slice made it: the first slice of the plate replaces it.
+        p.scene_gen = std.math.maxInt(@TypeOf(p.scene_gen));
+        p.scene_mode = set.mode;
+        p.scene_serial +%= 1;
+    }
+
     /// The scene bytes of plate i: of its last slice, or its old beads
     /// while it slices again. Null if it has none. The bytes stay valid
     /// until the next call of the set.
@@ -1470,3 +1486,26 @@ test "plate set: fill copies over plates" {
     try testing.expectEqual(@as(usize, 0), set.activeIndex());
 }
 
+
+test "plate set: a session brings back the plates, the camera, and the app text" {
+    const session = @import("session.zig");
+    var ev: Events = .{};
+    const set = try Set.create(testing.allocator, Events.f, &ev, false);
+    defer set.destroy();
+    _ = try set.add();
+    try set.setName(1, "Second");
+    try set.appOf(1).?.setSetting("project.infill_density", "0.35");
+    const cam = [8]f32{ 1, 2, 3, 0, 0, 0, 1, 250 };
+    const bytes = try session.write(testing.allocator, set, cam, "panel=settings;scroll=120");
+    defer testing.allocator.free(bytes);
+    const back = try Set.create(testing.allocator, Events.f, &ev, false);
+    defer back.destroy();
+    var diag: @import("project_file.zig").Diagnostic = .{};
+    const r = try session.read(testing.allocator, bytes, back, &diag);
+    defer testing.allocator.free(r.app_text);
+    try testing.expectEqual(@as(usize, 2), back.count());
+    try testing.expectEqualStrings("Second", back.info(1).?.name);
+    try testing.expectEqual(@as(f64, 0.35), back.appOf(1).?.settings.project.infill_density);
+    try testing.expectEqual(cam, r.camera.?);
+    try testing.expectEqualStrings("panel=settings;scroll=120", r.app_text);
+}

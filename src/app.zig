@@ -87,6 +87,8 @@ pub const printer_status = @import("app/printer_status.zig");
 pub const edits_mod = @import("app/edits.zig");
 /// The farm: printers, orders, and jobs (farm.zig).
 pub const farm_mod = @import("app/farm.zig");
+/// The session of an app, for a restore after a reload or a quit.
+pub const session = @import("app/session.zig");
 pub const License = @import("app/licenses.zig").License;
 pub const licenses = @import("app/licenses.zig").licenses;
 
@@ -2172,6 +2174,7 @@ test {
     _ = support_areas;
     _ = @import("app/feature_settings.zig");
     _ = @import("app/farm.zig");
+    _ = @import("app/session.zig");
 }
 
 test "app: support areas slice, go into the 3MF, and undo" {

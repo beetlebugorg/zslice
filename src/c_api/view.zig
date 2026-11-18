@@ -462,6 +462,35 @@ export fn zs_view_frame_part(view: ?*View, fill: f32) c_int {
     return @intFromBool(v.framePart(fill));
 }
 
+/// The camera, for a restore after a reload: 8 floats, the target (x, y,
+/// z), the rotation (a quaternion x, y, z, w), and the distance.
+export fn zs_view_get_camera(view: ?*const View, out: ?[*]f32) void {
+    if (!render_on) return;
+    const v = view orelse return;
+    const o = out orelse return;
+    o[0..3].* = v.target;
+    o[3..7].* = v.rot;
+    o[7] = v.dist;
+}
+
+/// Sets the camera from 8 floats of zs_view_get_camera, at once (no
+/// animation). A bad value (not finite, or a distance of 0 or less) leaves
+/// the camera as it is.
+export fn zs_view_set_camera(view: ?*View, in: ?[*]const f32) void {
+    if (!render_on) return;
+    const v = view orelse return;
+    const cam = in orelse return;
+    for (cam[0..8]) |x| if (!std.math.isFinite(x)) return;
+    if (!(cam[7] > 0)) return;
+    const q = cam[3..7].*;
+    const l = @sqrt(q[0] * q[0] + q[1] * q[1] + q[2] * q[2] + q[3] * q[3]);
+    if (!(l > 0.5 and l < 2)) return;
+    v.goal = null;
+    v.target = cam[0..3].*;
+    v.rot = .{ q[0] / l, q[1] / l, q[2] / l, q[3] / l };
+    v.dist = cam[7];
+}
+
 export fn zs_view_reset(view: ?*View) void {
     if (!render_on) return;
     const v = view orelse return;
