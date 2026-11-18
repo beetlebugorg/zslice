@@ -143,6 +143,9 @@ export fn zs_app_project_load(a: ?*App, files: ?*const project.Files, text: ?[*:
     const app = a orelse return @intFromEnum(Status.invalid_argument);
     const f = files orelse return @intFromEnum(Status.invalid_argument);
     const t = std.mem.span(text orelse return @intFromEnum(Status.invalid_argument));
+    // For the undo list: the settings and the plate change, also on an
+    // error.
+    defer app.undo.note(app.gpa, null, true);
     var arena_state = std.heap.ArenaAllocator.init(gpa);
     defer arena_state.deinit();
     const arena = arena_state.allocator();

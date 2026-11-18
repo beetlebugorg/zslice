@@ -595,16 +595,17 @@ int zs_app_state_write(const zs_app *app, int group, char *buf, size_t cap, size
  * profile. For the project group, the quality profile and the changes of
  * this print together (zs_app_state_write has the changes only). */
 int zs_app_profile_write(const zs_app *app, int group, char *buf, size_t cap, size_t *out_len);
-/* The history of changes. A shell keeps the facts of each step of its undo
- * list: zs_app_history_facts writes the state as lines of
- * "scope\tkey\tvalue" (only the values that differ from the start).
- * zs_history_diff gives the changes from one step to the next, one on each
- * line ("scope\tkey\told\tnew"), and zs_history_describe writes them in
- * words ("Part Benchy\tWall count the print value -> 4"). The scopes:
- * "machine", "filament", "print", "part:<name>", "layers:<z_min>:<z_max>".
- * zs_app_history_revert undoes one change line and keeps the others
- * (ZS_NOT_SUPPORTED for a move of a part); slice again after it. The same
- * buffer rules as zs_app_setting_get. */
+/* The history of changes (src/app/history.zig). zs_app_history_facts
+ * writes the state as lines of "scope\tkey\tvalue" (only the values that
+ * differ from the start). zs_history_diff gives the changes from one state
+ * to the next, one on each line ("scope\tkey\told\tnew"), and
+ * zs_history_describe writes them in words ("Part Benchy\tWall count the
+ * print value -> 4"). The scopes: "machine", "filament", "print",
+ * "part:<name>", "layers:<z_min>:<z_max>". zs_app_history_revert undoes one
+ * change line and keeps the others (ZS_NOT_SUPPORTED for a move of a
+ * part); slice again after it. The same buffer rules as
+ * zs_app_setting_get. The undo list of the app (zs_app_history_commit and
+ * the functions after it) keeps the steps. */
 int zs_app_history_facts(const zs_app *app, char *buf, size_t cap, size_t *out_len);
 int zs_history_diff(const char *before, size_t before_len, const char *after, size_t after_len, char *buf, size_t cap, size_t *out_len);
 int zs_history_describe(const char *changes, size_t len, char *buf, size_t cap, size_t *out_len);
@@ -618,6 +619,81 @@ int zs_app_history_revert(zs_app *app, const char *change, size_t len);
  * "layers", "move", "rotate", "scale", "add", "remove", "quality",
  * "printer", or "other". A static string. */
 const char *zs_history_kind(const char *changes, size_t len);
+
+/* The undo list. Each app keeps a list of steps, the oldest first, and the
+ * step now (zs_app_history_current). The steps after the step now are the
+ * redo steps. A step has the settings of the three groups, the quality
+ * profile, and the plate (as a 3MF file).
+ *
+ * Each change through this API notes its key: the name of one setting
+ * (zs_app_setting_set, zs_app_global_setting_set, zs_app_override_set), or
+ * "more" for a profile, a quality, the plate, a part, a mark, or a
+ * project. The shell keeps a timer: it calls zs_app_history_commit 400 ms
+ * after the last change. The commit makes a step if the state differs
+ * from the step now; the redo steps go. The first commit takes the start
+ * (step 0). The shell gives the time (ms since 1970, for the list).
+ *
+ * An edit of one setting is one step while its editor has the focus: the
+ * shell calls zs_app_history_set_focus with the name of the setting of the
+ * editor with the focus (NULL: none). A commit of changes of only that
+ * setting, after a step of only that setting, amends that step. If the
+ * value goes back to the value before the edit, the step goes. A move of
+ * the focus ends the edit: the changes so far become a step.
+ *
+ * Undo, redo, goto, and truncate commit first, then restore the state of
+ * the new step: the plate if it differs, then the quality profile and each
+ * group of settings that differs. Their changes are not noted. They return
+ * 0 if the step did not change, else the bits of enum zs_history_restored.
+ * The shell then updates its editors, saves the groups that changed, and
+ * slices again.
+ *
+ * Limits: 100 steps before the step now, and 200 MB of 3MF files in them.
+ * The oldest steps go first. Steps with the same plate share its file. */
+enum zs_history_restored {
+    ZS_HISTORY_MOVED = 1,     /* the step now changed */
+    ZS_HISTORY_PLATE = 2,     /* the plate loaded again (or cleared) */
+    ZS_HISTORY_MACHINE = 4,   /* the group restored: 4 << enum zs_group */
+    ZS_HISTORY_FILAMENT = 8,
+    ZS_HISTORY_PROJECT = 16,
+    ZS_HISTORY_QUALITY = 32,  /* the quality profile changed */
+    ZS_HISTORY_DROPPED = 64,  /* truncate: the later steps went */
+};
+/* Ends the step of the changes so far. Returns 1 if a step was added,
+ * amended, or dropped (the shell then shows the list again). */
+int zs_app_history_commit(zs_app *app, int64_t now_ms);
+/* The setting whose editor has the focus, or NULL. A new focus commits
+ * the changes that wait; returns 1 if that commit changed the list. */
+int zs_app_history_set_focus(zs_app *app, const char *key, int64_t now_ms);
+int zs_app_history_undo(zs_app *app, int64_t now_ms);
+int zs_app_history_redo(zs_app *app, int64_t now_ms);
+/* Goes to step i (0 is the start). */
+int zs_app_history_goto(zs_app *app, size_t i, int64_t now_ms);
+/* Clears the history after step i: goes to step i first if it is not the
+ * step now, then drops the later steps (redo cannot bring them back). */
+int zs_app_history_truncate(zs_app *app, size_t i, int64_t now_ms);
+/* Drops all steps, for example for a new file. The next commit takes the
+ * start. */
+void zs_app_history_reset(zs_app *app);
+/* The number of steps (0 before the first commit), and the step now. */
+size_t zs_app_history_count(const zs_app *app);
+size_t zs_app_history_current(const zs_app *app);
+/* 1 if changes wait for a commit. */
+int zs_app_history_pending(const zs_app *app);
+/* Step i: the time of its commit, its kind (zs_history_kind, or "start"
+ * for step 0), and its changes from step i - 1: as lines of
+ * zs_history_diff, and in words (zs_app_history_describe). Both are ""
+ * for step 0. The strings are not 0-terminated (except kind). They are
+ * valid until the next zs_app_history_step or the next change of the
+ * list. */
+typedef struct {
+    int64_t time_ms;
+    const char *kind;
+    const char *changes;
+    size_t changes_len;
+    const char *text;
+    size_t text_len;
+} zs_history_step;
+int zs_app_history_step(zs_app *app, size_t i, zs_history_step *out);
 /* Sets all settings of a group to the built-in defaults: for example
  * before the profile of an other printer. */
 int zs_app_group_reset(zs_app *app, int group);

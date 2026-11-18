@@ -16,6 +16,12 @@ const Writer = std.Io.Writer;
 const app_mod = zs.app;
 const App = app_mod.App;
 
+/// Notes a change for the undo list (see app/history.zig): the name of one
+/// setting, or null for more; `plate`: the plate changed.
+fn noted(app: *App, key: ?[]const u8, plate: bool) void {
+    app.undo.note(app.gpa, key, plate);
+}
+
 export fn zs_app_new(event_fn: ?app_mod.EventFn, user: ?*anyopaque, out: ?*?*App) c_int {
     const o = out orelse return @intFromEnum(Status.invalid_argument);
     o.* = App.create(gpa, event_fn, user) catch |e| return status(e);
@@ -60,6 +66,7 @@ export fn zs_app_load_stl(a: ?*App, name: ?[*:0]const u8, data: ?[*]const u8, le
     const d = data orelse return @intFromEnum(Status.invalid_argument);
     const n = if (name) |p| std.mem.span(p) else "";
     app.loadStl(n, d[0..len]) catch |e| return status(e);
+    noted(app, null, true);
     return ok;
 }
 
@@ -192,6 +199,7 @@ export fn zs_app_setting_set(a: ?*App, name: ?[*:0]const u8, value: ?[*:0]const 
     const n = std.mem.span(name orelse return @intFromEnum(Status.invalid_argument));
     const v = std.mem.span(value orelse return @intFromEnum(Status.invalid_argument));
     app.setSetting(n, v) catch |e| return status(e);
+    noted(app, n, false);
     return ok;
 }
 
@@ -253,13 +261,16 @@ export fn zs_app_mark_add(a: ?*App, x: f64, y: f64, z: f64, r: f64, kind: c_int)
     const app = a orelse return @intFromEnum(Status.invalid_argument);
     if (kind < 0 or kind > 3 or !(r > 0)) return @intFromEnum(Status.invalid_argument);
     app.addMark(.{ .x = x, .y = y, .z = z, .r = r, .kind = @enumFromInt(@as(u8, @intCast(kind))) }) catch |e| return status(e);
+    noted(app, null, true);
     return ok;
 }
 
 /// Removes the marks near a place. Returns how many.
 export fn zs_app_mark_remove_near(a: ?*App, x: f64, y: f64, z: f64, r: f64) usize {
     const app = a orelse return 0;
-    return app.removeMarksNear(x, y, z, r);
+    const n = app.removeMarksNear(x, y, z, r);
+    if (n > 0) noted(app, null, true);
+    return n;
 }
 
 export fn zs_app_mark_count(a: ?*const App) usize {
@@ -292,17 +303,20 @@ export fn zs_app_mark_set(a: ?*App, i: usize, kind: c_int, r: f64) c_int {
     const app = a orelse return @intFromEnum(Status.invalid_argument);
     if (kind < 0 or kind > 3 or !(r > 0)) return @intFromEnum(Status.invalid_argument);
     app.setMark(i, @enumFromInt(@as(u8, @intCast(kind))), r) catch return @intFromEnum(Status.out_of_range);
+    noted(app, null, true);
     return ok;
 }
 
 export fn zs_app_mark_remove(a: ?*App, i: usize) void {
     const app = a orelse return;
     app.removeMark(i);
+    noted(app, null, true);
 }
 
 export fn zs_app_marks_clear(a: ?*App) void {
     const app = a orelse return;
     app.clearMarks();
+    noted(app, null, true);
 }
 
 export fn zs_app_write_3mf(a: ?*App, out: ?*?[*]const u8, out_len: ?*usize) c_int {
@@ -650,6 +664,8 @@ export fn zs_app_override_set(a: ?*App, z_min: f64, z_max: f64, name: ?[*:0]cons
         error.NotPerLayer => @intFromEnum(Status.invalid_argument),
         else => status(e),
     };
+    // The changes for some layers are in the 3MF file of the plate.
+    noted(app, n, true);
     return ok;
 }
 
@@ -682,7 +698,10 @@ export fn zs_app_override_get(a: ?*const App, i: usize, out: ?*Override) c_int {
 /// Returns 1 if there was one.
 export fn zs_app_override_remove(a: ?*App, z_min: f64, z_max: f64, name: ?[*:0]const u8) c_int {
     const app = a orelse return 0;
-    return @intFromBool(app.removeOverride(z_min, z_max, std.mem.span(name orelse return 0)));
+    const n = std.mem.span(name orelse return 0);
+    const removed = app.removeOverride(z_min, z_max, n);
+    if (removed) noted(app, n, true);
+    return @intFromBool(removed);
 }
 
 /// Layer profiles: a name for a layer range. The overrides with the same
@@ -690,6 +709,7 @@ export fn zs_app_override_remove(a: ?*App, z_min: f64, z_max: f64, name: ?[*:0]c
 export fn zs_app_profile_set(a: ?*App, z_min: f64, z_max: f64, name: ?[*:0]const u8) c_int {
     const app = a orelse return @intFromEnum(Status.invalid_argument);
     app.setProfile(z_min, z_max, std.mem.span(name orelse return @intFromEnum(Status.invalid_argument))) catch |e| return status(e);
+    noted(app, null, true);
     return ok;
 }
 
@@ -718,13 +738,17 @@ export fn zs_app_profile_get(a: ?*const App, i: usize, out: ?*Profile) c_int {
 /// number of overrides removed.
 export fn zs_app_profile_remove(a: ?*App, z_min: f64, z_max: f64) usize {
     const app = a orelse return 0;
+    defer noted(app, null, true);
     return app.removeProfile(z_min, z_max);
 }
 
 /// Removes the overrides of a setting that cover z. Returns how many.
 export fn zs_app_override_clear_at(a: ?*App, z: f64, name: ?[*:0]const u8) usize {
     const app = a orelse return 0;
-    return app.clearOverridesAt(z, std.mem.span(name orelse return 0));
+    const n = std.mem.span(name orelse return 0);
+    const k = app.clearOverridesAt(z, n);
+    if (k > 0) noted(app, n, true);
+    return k;
 }
 
 export fn zs_app_override_at(a: ?*const App, z: f64, name: ?[*:0]const u8) c_int {
@@ -757,6 +781,7 @@ export fn zs_app_add_stl(a: ?*App, name: ?[*:0]const u8, data: ?[*]const u8, len
     const app = a orelse return -@as(isize, @intFromEnum(Status.invalid_argument));
     const d = data orelse return -@as(isize, @intFromEnum(Status.invalid_argument));
     const i = app.addStl(std.mem.span(name orelse "part.stl"), d[0..len]) catch |e| return -@as(isize, status(e));
+    noted(app, null, true);
     return @intCast(i);
 }
 
@@ -802,6 +827,7 @@ export fn zs_app_part_setting_set(a: ?*App, i: usize, name: ?[*:0]const u8, valu
         error.OutOfMemory => @intFromEnum(Status.out_of_memory),
         else => @intFromEnum(Status.invalid_value),
     };
+    noted(app, null, true);
     return ok;
 }
 
@@ -897,6 +923,7 @@ export fn zs_app_part_move(a: ?*App, i: usize, x: f64, y: f64) c_int {
     const app = a orelse return @intFromEnum(Status.invalid_argument);
     if (i >= app.plate.count()) return @intFromEnum(Status.out_of_range);
     app.movePart(i, x, y) catch |e| return status(e);
+    noted(app, null, true);
     return ok;
 }
 
@@ -904,6 +931,7 @@ export fn zs_app_part_rotate(a: ?*App, i: usize, degrees: f64) c_int {
     const app = a orelse return @intFromEnum(Status.invalid_argument);
     if (i >= app.plate.count()) return @intFromEnum(Status.out_of_range);
     app.rotatePart(i, degrees) catch |e| return status(e);
+    noted(app, null, true);
     return ok;
 }
 
@@ -911,6 +939,7 @@ export fn zs_app_part_scale(a: ?*App, i: usize, sx: f64, sy: f64, sz: f64) c_int
     const app = a orelse return @intFromEnum(Status.invalid_argument);
     if (i >= app.plate.count()) return @intFromEnum(Status.out_of_range);
     app.scalePart(i, .{ sx, sy, sz }) catch |e| return status(e);
+    noted(app, null, true);
     return ok;
 }
 
@@ -918,6 +947,7 @@ export fn zs_app_part_turn(a: ?*App, i: usize, axis: c_int, degrees: f64) c_int 
     const app = a orelse return @intFromEnum(Status.invalid_argument);
     if (i >= app.plate.count() or axis < 0 or axis > 1) return @intFromEnum(Status.out_of_range);
     app.turnPart(i, @intCast(axis), degrees) catch |e| return status(e);
+    noted(app, null, true);
     return ok;
 }
 
@@ -925,6 +955,7 @@ export fn zs_app_part_put_down_at(a: ?*App, i: usize, x: f64, y: f64, z: f64) c_
     const app = a orelse return @intFromEnum(Status.invalid_argument);
     if (i >= app.plate.count()) return @intFromEnum(Status.out_of_range);
     app.putPartDownAt(i, x, y, z) catch |e| return status(e);
+    noted(app, null, true);
     return ok;
 }
 
@@ -932,6 +963,7 @@ export fn zs_app_part_place(a: ?*App, i: usize, mode: c_int, axis: c_int) c_int 
     const app = a orelse return @intFromEnum(Status.invalid_argument);
     if (i >= app.plate.count() or mode < 0 or mode > 2 or axis < 0 or axis > 2) return @intFromEnum(Status.out_of_range);
     app.placePart(i, @enumFromInt(@as(u8, @intCast(mode))), @intCast(axis)) catch |e| return status(e);
+    noted(app, null, true);
     return ok;
 }
 
@@ -941,6 +973,7 @@ export fn zs_app_part_duplicate(a: ?*App, i: usize) isize {
     const app = a orelse return -@as(isize, @intFromEnum(Status.invalid_argument));
     if (i >= app.plate.count()) return -@as(isize, @intFromEnum(Status.out_of_range));
     const j = app.duplicatePart(i) catch |e| return -@as(isize, status(e));
+    noted(app, null, true);
     return @intCast(j);
 }
 
@@ -948,6 +981,7 @@ export fn zs_app_part_reset(a: ?*App, i: usize) c_int {
     const app = a orelse return @intFromEnum(Status.invalid_argument);
     if (i >= app.plate.count()) return @intFromEnum(Status.out_of_range);
     app.resetPart(i) catch |e| return status(e);
+    noted(app, null, true);
     return ok;
 }
 
@@ -970,6 +1004,7 @@ export fn zs_app_plate_parts(a: ?*const App, i: usize) usize {
 export fn zs_app_plate_add(a: ?*App) isize {
     const app = a orelse return -1;
     const i = app.addPlate() catch return -1;
+    noted(app, null, true);
     return @intCast(i);
 }
 
@@ -977,6 +1012,7 @@ export fn zs_app_plate_select(a: ?*App, i: usize) c_int {
     const app = a orelse return @intFromEnum(Status.invalid_argument);
     if (i >= app.plateCount()) return @intFromEnum(Status.out_of_range);
     app.selectPlate(i) catch |e| return status(e);
+    noted(app, null, true);
     return ok;
 }
 
@@ -984,12 +1020,14 @@ export fn zs_app_plate_remove(a: ?*App, i: usize) c_int {
     const app = a orelse return @intFromEnum(Status.invalid_argument);
     if (i >= app.plateCount()) return @intFromEnum(Status.out_of_range);
     app.removePlate(i) catch |e| return status(e);
+    noted(app, null, true);
     return ok;
 }
 
 /// Smart placement of all parts, then an arrange. 1 if they all fit.
 export fn zs_app_plate_smart_place(a: ?*App) c_int {
     const app = a orelse return 0;
+    defer noted(app, null, true);
     return @intFromBool(app.smartPlacePlate() catch return 0);
 }
 
@@ -997,18 +1035,21 @@ export fn zs_app_part_remove(a: ?*App, i: usize) c_int {
     const app = a orelse return @intFromEnum(Status.invalid_argument);
     if (i >= app.plate.count()) return @intFromEnum(Status.out_of_range);
     app.removePart(i) catch |e| return status(e);
+    noted(app, null, true);
     return ok;
 }
 
 /// 1 if all parts fit on the bed, 0 if not.
 export fn zs_app_plate_arrange(a: ?*App) c_int {
     const app = a orelse return 0;
+    defer noted(app, null, true);
     return @intFromBool(app.arrangePlate() catch false);
 }
 
 export fn zs_app_plate_clear(a: ?*App) c_int {
     const app = a orelse return @intFromEnum(Status.invalid_argument);
     app.clearPlate() catch |e| return status(e);
+    noted(app, null, true);
     return ok;
 }
 
@@ -1078,6 +1119,7 @@ export fn zs_app_profile_write(a: ?*const App, group: c_int, buf: ?[*]u8, cap: u
 export fn zs_app_group_reset(a: ?*App, group: c_int) c_int {
     const app = a orelse return @intFromEnum(Status.invalid_argument);
     app.resetGroup(groupOf(group) orelse return @intFromEnum(Status.invalid_argument));
+    noted(app, null, false);
     return ok;
 }
 
@@ -1101,6 +1143,7 @@ export fn zs_app_profile_apply(a: ?*App, group: c_int, text: ?[*]const u8, len: 
             else => @intFromEnum(Status.invalid_argument),
         };
     };
+    noted(app, null, false);
     return ok;
 }
 
@@ -1155,6 +1198,7 @@ export fn zs_app_formulas_write(a: ?*const App, buf: ?[*]u8, cap: usize, out_len
 export fn zs_app_formulas_read(a: ?*App, text: ?[*]const u8, len: usize) c_int {
     const app = a orelse return @intFromEnum(Status.invalid_argument);
     app.readFormulas((text orelse return @intFromEnum(Status.invalid_argument))[0..len]);
+    noted(app, null, false);
     return ok;
 }
 
@@ -1165,6 +1209,7 @@ export fn zs_app_quality_set(a: ?*App, name: ?[*:0]const u8, text: ?[*]const u8,
     const t = (text orelse return @intFromEnum(Status.invalid_argument))[0..len];
     var diag: zs.profile.Diagnostic = .{};
     app.setQuality(n, t, keep_edits, &diag) catch |e| return profileError(e, diag, message, cap);
+    noted(app, null, false);
     return ok;
 }
 
@@ -1181,6 +1226,7 @@ export fn zs_app_global_set(a: ?*App, text: ?[*]const u8, len: usize, message: ?
     const t = (text orelse return @intFromEnum(Status.invalid_argument))[0..len];
     var diag: zs.profile.Diagnostic = .{};
     app.setGlobal(t, &diag) catch |e| return profileError(e, diag, message, cap);
+    noted(app, null, false);
     return ok;
 }
 
@@ -1194,6 +1240,7 @@ export fn zs_app_global_setting_set(a: ?*App, name: ?[*:0]const u8, value: ?[*:0
         error.OutOfMemory => @intFromEnum(Status.out_of_memory),
         else => @intFromEnum(Status.invalid_value),
     };
+    noted(app, n, false);
     return ok;
 }
 
@@ -1540,6 +1587,101 @@ export fn zs_app_history_revert(a: ?*App, change: ?[*]const u8, len: usize) c_in
         error.NoPart, error.NotPerLayer => @intFromEnum(Status.invalid_argument),
         else => status(e),
     };
+    // A new step: it never amends the step of an edit.
+    const settings = std.mem.startsWith(u8, line, "machine\t") or std.mem.startsWith(u8, line, "filament\t") or std.mem.startsWith(u8, line, "print\t");
+    noted(app, null, !settings);
+    return ok;
+}
+
+// ---- the undo list (see app/history.zig) ----
+
+fn keyOf(key: ?[*:0]const u8) ?[]const u8 {
+    return if (key) |k| std.mem.span(k) else null;
+}
+
+/// Ends the step of the changes so far. 1 if a step was added, amended,
+/// or dropped.
+export fn zs_app_history_commit(a: ?*App, now_ms: i64) c_int {
+    const app = a orelse return 0;
+    return @intFromBool(app.undo.commit(app, now_ms));
+}
+
+/// The setting whose editor has the focus (NULL: none). 1 if the commit
+/// of the edit before changed the list.
+export fn zs_app_history_set_focus(a: ?*App, key: ?[*:0]const u8, now_ms: i64) c_int {
+    const app = a orelse return 0;
+    return @intFromBool(app.undo.setFocus(app, keyOf(key), now_ms));
+}
+
+export fn zs_app_history_undo(a: ?*App, now_ms: i64) c_int {
+    const app = a orelse return 0;
+    return @intCast(app.undo.undo(app, now_ms));
+}
+
+export fn zs_app_history_redo(a: ?*App, now_ms: i64) c_int {
+    const app = a orelse return 0;
+    return @intCast(app.undo.redo(app, now_ms));
+}
+
+export fn zs_app_history_goto(a: ?*App, i: usize, now_ms: i64) c_int {
+    const app = a orelse return 0;
+    return @intCast(app.undo.goto(app, i, now_ms));
+}
+
+export fn zs_app_history_truncate(a: ?*App, i: usize, now_ms: i64) c_int {
+    const app = a orelse return 0;
+    return @intCast(app.undo.truncate(app, i, now_ms));
+}
+
+/// Drops all steps. The next commit takes the start.
+export fn zs_app_history_reset(a: ?*App) void {
+    const app = a orelse return;
+    app.undo.reset(app.gpa);
+}
+
+export fn zs_app_history_count(a: ?*const App) usize {
+    const app = a orelse return 0;
+    return app.undo.count();
+}
+
+export fn zs_app_history_current(a: ?*const App) usize {
+    const app = a orelse return 0;
+    return app.undo.current;
+}
+
+/// 1 if changes wait for a commit.
+export fn zs_app_history_pending(a: ?*const App) c_int {
+    const app = a orelse return 0;
+    return @intFromBool(app.undo.pending_key != null);
+}
+
+pub const HistoryStep = extern struct {
+    time_ms: i64,
+    kind: [*:0]const u8,
+    changes: [*]const u8,
+    changes_len: usize,
+    text: [*]const u8,
+    text_len: usize,
+};
+
+/// Step i of the undo list: its time, its kind, and its changes from step
+/// i - 1 (as lines and in words). The strings are valid until the next
+/// zs_app_history_step or the next change of the list.
+export fn zs_app_history_step(a: ?*App, i: usize, out: ?*HistoryStep) c_int {
+    const app = a orelse return @intFromEnum(Status.invalid_argument);
+    const o = out orelse return @intFromEnum(Status.invalid_argument);
+    const info = app.undo.step(app, i) catch |e| return switch (e) {
+        error.OutOfRange => @intFromEnum(Status.out_of_range),
+        error.OutOfMemory => @intFromEnum(Status.out_of_memory),
+    };
+    o.* = .{
+        .time_ms = info.time_ms,
+        .kind = info.kind.ptr,
+        .changes = info.changes.ptr,
+        .changes_len = info.changes.len,
+        .text = info.text.ptr,
+        .text_len = info.text.len,
+    };
     return ok;
 }
 
@@ -1590,4 +1732,187 @@ export fn zs_app_measure(a: ?*const App, path: usize, seg: usize, out: ?*CMeasur
         .angle = m.angle,
     };
     return ok;
+}
+
+/// An app with one box on the plate, and the start of its undo list.
+fn historyTestApp() !*App {
+    var a: ?*App = null;
+    try std.testing.expectEqual(ok, zs_app_new(null, null, &a));
+    errdefer zs_app_free(a);
+    var mesh = try zs.mesh.shapes.box(gpa, 20, 20, 10);
+    defer mesh.deinit(gpa);
+    var stl: Writer.Allocating = .init(gpa);
+    defer stl.deinit();
+    try mesh.writeStl(&stl.writer);
+    try std.testing.expectEqual(ok, zs_app_load_stl(a, "box.stl", stl.written().ptr, stl.written().len));
+    try std.testing.expectEqual(@as(c_int, 0), zs_app_history_commit(a, 0));
+    try std.testing.expectEqual(@as(usize, 1), zs_app_history_count(a));
+    return a.?;
+}
+
+fn settingOf(app: *App, name: [*:0]const u8) []const u8 {
+    const S = struct {
+        var buf: [64]u8 = undefined;
+    };
+    var len: usize = 0;
+    _ = zs_app_setting_get(app, name, &S.buf, S.buf.len, &len);
+    return S.buf[0..len];
+}
+
+test "C API: the undo list: one step for an edit with the focus, undo, redo, goto, and truncate" {
+    const t = std.testing;
+    const app = try historyTestApp();
+    defer zs_app_free(app);
+    var step: HistoryStep = undefined;
+
+    // Three changes of the infill while its editor has the focus: one step.
+    _ = zs_app_history_set_focus(app, "project.infill_density", 1);
+    for ([_][*:0]const u8{ "0.3", "0.4", "0.5" }, 0..) |v, k| {
+        try t.expectEqual(ok, zs_app_setting_set(app, "project.infill_density", v));
+        try t.expectEqual(@as(c_int, 1), zs_app_history_commit(app, @intCast(10 + k)));
+    }
+    try t.expectEqual(@as(usize, 2), zs_app_history_count(app));
+    try t.expectEqual(ok, zs_app_history_step(app, 1, &step));
+    try t.expectEqualStrings("infill", std.mem.span(step.kind));
+    try t.expectEqualStrings("This print\tInfill density 20 % → 50 %\n", step.text[0..step.text_len]);
+    try t.expectEqual(@as(i64, 12), step.time_ms);
+    // A commit with no change keeps the edit open.
+    try t.expectEqual(@as(c_int, 0), zs_app_history_commit(app, 20));
+    try t.expectEqual(ok, zs_app_setting_set(app, "project.infill_density", "0.6"));
+    try t.expectEqual(@as(c_int, 1), zs_app_history_commit(app, 21));
+    try t.expectEqual(@as(usize, 2), zs_app_history_count(app));
+
+    // The walls: a new step.
+    _ = zs_app_history_set_focus(app, "project.wall_count", 30);
+    try t.expectEqual(ok, zs_app_setting_set(app, "project.wall_count", "4"));
+    try t.expectEqual(@as(c_int, 1), zs_app_history_commit(app, 31));
+    try t.expectEqual(@as(usize, 3), zs_app_history_count(app));
+
+    // A move of the part: a step.
+    _ = zs_app_history_set_focus(app, null, 40);
+    var part: Part = undefined;
+    try t.expectEqual(ok, zs_app_part_get(app, 0, &part));
+    const x0 = part.x;
+    try t.expectEqual(ok, zs_app_part_move(app, 0, x0 + 30, part.y));
+    try t.expectEqual(@as(c_int, 1), zs_app_history_commit(app, 41));
+    try t.expectEqual(@as(usize, 4), zs_app_history_count(app));
+    try t.expectEqual(ok, zs_app_history_step(app, 3, &step));
+    try t.expectEqualStrings("move", std.mem.span(step.kind));
+    try t.expectEqual(ok, zs_app_history_step(app, 0, &step));
+    try t.expectEqualStrings("start", std.mem.span(step.kind));
+
+    // Undo three times: the move, the walls, the infill.
+    const H = app_mod.history;
+    const undo1 = zs_app_history_undo(app, 50);
+    try t.expect(undo1 & H.restored_moved != 0 and undo1 & H.restored_plate != 0);
+    try t.expectEqual(ok, zs_app_part_get(app, 0, &part));
+    try t.expectApproxEqAbs(x0, part.x, 1e-6);
+    const undo2 = zs_app_history_undo(app, 51);
+    try t.expect(undo2 & H.restored_plate == 0 and undo2 & (H.restored_group << 2) != 0);
+    try t.expectEqualStrings("2", settingOf(app, "project.wall_count"));
+    try t.expect(zs_app_history_undo(app, 52) != 0);
+    try t.expectEqualStrings("0.2", settingOf(app, "project.infill_density"));
+    try t.expectEqual(@as(usize, 0), zs_app_history_current(app));
+    try t.expectEqual(@as(c_int, 0), zs_app_history_undo(app, 53));
+    // A restore is not a change: no step waits, and a commit adds none.
+    try t.expectEqual(@as(c_int, 0), zs_app_history_pending(app));
+    try t.expectEqual(@as(c_int, 0), zs_app_history_commit(app, 54));
+    try t.expectEqual(@as(usize, 4), zs_app_history_count(app));
+
+    // Redo, then go to the last step.
+    try t.expect(zs_app_history_redo(app, 60) != 0);
+    try t.expectEqualStrings("0.6", settingOf(app, "project.infill_density"));
+    try t.expect(zs_app_history_goto(app, 3, 61) & H.restored_plate != 0);
+    try t.expectEqual(@as(usize, 3), zs_app_history_current(app));
+    try t.expectEqualStrings("4", settingOf(app, "project.wall_count"));
+    try t.expectEqual(ok, zs_app_part_get(app, 0, &part));
+    try t.expectApproxEqAbs(x0 + 30, part.x, 1e-6);
+    try t.expectEqual(@as(c_int, 0), zs_app_history_goto(app, 3, 62));
+
+    // Clear the history after step 1: it goes to step 1 first.
+    const tr = zs_app_history_truncate(app, 1, 70);
+    try t.expect(tr & H.restored_dropped != 0 and tr & H.restored_moved != 0);
+    try t.expectEqual(@as(usize, 2), zs_app_history_count(app));
+    try t.expectEqual(@as(usize, 1), zs_app_history_current(app));
+    try t.expectEqualStrings("2", settingOf(app, "project.wall_count"));
+    try t.expectEqual(@as(c_int, 0), zs_app_history_redo(app, 71));
+
+    // A revert of one change is a new step.
+    try t.expectEqual(ok, zs_app_history_step(app, 1, &step));
+    const line = try gpa.dupe(u8, step.changes[0..step.changes_len]);
+    defer gpa.free(line);
+    try t.expectEqual(ok, zs_app_history_revert(app, line.ptr, line.len));
+    try t.expectEqual(@as(c_int, 1), zs_app_history_commit(app, 80));
+    try t.expectEqual(@as(usize, 3), zs_app_history_count(app));
+    try t.expectEqualStrings("0.2", settingOf(app, "project.infill_density"));
+
+    // A reset drops the steps; the next commit takes the start.
+    zs_app_history_reset(app);
+    try t.expectEqual(@as(usize, 0), zs_app_history_count(app));
+    try t.expectEqual(@as(c_int, 0), zs_app_history_commit(app, 90));
+    try t.expectEqual(@as(usize, 1), zs_app_history_count(app));
+}
+
+test "C API: the undo list: an edit back at its old value drops its step; other keys make new steps" {
+    const t = std.testing;
+    const app = try historyTestApp();
+    defer zs_app_free(app);
+    _ = zs_app_history_set_focus(app, "project.infill_density", 1);
+    try t.expectEqual(ok, zs_app_setting_set(app, "project.infill_density", "0.4"));
+    try t.expectEqual(@as(c_int, 1), zs_app_history_commit(app, 2));
+    try t.expectEqual(ok, zs_app_setting_set(app, "project.infill_density", "0.2"));
+    try t.expectEqual(@as(c_int, 1), zs_app_history_commit(app, 3));
+    try t.expectEqual(@as(usize, 1), zs_app_history_count(app));
+    // With no focus, each commit is a step.
+    _ = zs_app_history_set_focus(app, null, 4);
+    try t.expectEqual(ok, zs_app_setting_set(app, "project.infill_density", "0.4"));
+    try t.expectEqual(@as(c_int, 1), zs_app_history_commit(app, 5));
+    try t.expectEqual(ok, zs_app_setting_set(app, "project.infill_density", "0.5"));
+    try t.expectEqual(@as(c_int, 1), zs_app_history_commit(app, 6));
+    try t.expectEqual(@as(usize, 3), zs_app_history_count(app));
+    // A move of the focus commits the edit before it.
+    _ = zs_app_history_set_focus(app, "project.infill_density", 7);
+    try t.expectEqual(ok, zs_app_setting_set(app, "project.infill_density", "0.6"));
+    try t.expectEqual(@as(c_int, 1), zs_app_history_set_focus(app, "project.wall_count", 8));
+    try t.expectEqual(@as(usize, 4), zs_app_history_count(app));
+    // Two settings at once: a step that the next edit does not amend.
+    _ = zs_app_history_set_focus(app, "project.wall_count", 9);
+    try t.expectEqual(ok, zs_app_setting_set(app, "project.wall_count", "3"));
+    try t.expectEqual(ok, zs_app_setting_set(app, "project.infill_density", "0.7"));
+    try t.expectEqual(@as(c_int, 1), zs_app_history_commit(app, 10));
+    try t.expectEqual(ok, zs_app_setting_set(app, "project.wall_count", "5"));
+    try t.expectEqual(@as(c_int, 1), zs_app_history_commit(app, 11));
+    try t.expectEqual(@as(usize, 6), zs_app_history_count(app));
+}
+
+test "C API: the undo list keeps at most max_steps steps and max_plate_bytes of plates" {
+    const t = std.testing;
+    const app = try historyTestApp();
+    defer zs_app_free(app);
+    app.undo.max_steps = 3;
+    for (0..6) |k| {
+        var buf: [16]u8 = undefined;
+        const v = try std.fmt.bufPrintZ(&buf, "0.{d}", .{k + 3});
+        try t.expectEqual(ok, zs_app_setting_set(app, "project.infill_density", v.ptr));
+        try t.expectEqual(@as(c_int, 1), zs_app_history_commit(app, @intCast(k)));
+    }
+    try t.expectEqual(@as(usize, 3), zs_app_history_current(app));
+    try t.expectEqual(@as(usize, 4), zs_app_history_count(app));
+    // Steps with the same plate share its file: the cap counts it once.
+    const file = try app.write3mfAlloc(gpa);
+    const size = file.len;
+    gpa.free(file);
+    app.undo.max_steps = 100;
+    app.undo.max_plate_bytes = size + size / 2;
+    try t.expectEqual(ok, zs_app_setting_set(app, "project.infill_density", "0.9"));
+    try t.expectEqual(@as(c_int, 1), zs_app_history_commit(app, 10));
+    try t.expectEqual(@as(usize, 4), zs_app_history_current(app));
+    var part: Part = undefined;
+    try t.expectEqual(ok, zs_app_part_get(app, 0, &part));
+    for (0..3) |k| {
+        try t.expectEqual(ok, zs_app_part_move(app, 0, part.x + @as(f64, @floatFromInt(k + 1)), part.y));
+        try t.expectEqual(@as(c_int, 1), zs_app_history_commit(app, @intCast(20 + k)));
+    }
+    // Before the step now: one plate file is left.
+    try t.expectEqual(@as(usize, 1), zs_app_history_current(app));
 }

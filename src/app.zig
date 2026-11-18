@@ -201,6 +201,8 @@ pub const App = struct {
     slice_arena: ?std.heap.ArenaAllocator = null,
     /// The bytes of the last write3mf.
     file_bytes: []u8 = &.{},
+    /// The undo list (see app/history.zig). The C API notes each change.
+    undo: history.History = .{},
 
     pub fn create(gpa: Allocator, event_fn: ?EventFn, user: ?*anyopaque) Allocator.Error!*App {
         const app = try gpa.create(App);
@@ -221,6 +223,7 @@ pub const App = struct {
         app.clearGaps();
         app.gpa.free(app.slice_overrides);
         app.gpa.free(app.file_bytes);
+        app.undo.deinit(app.gpa);
         app.marks.deinit(app.gpa);
         app.gpa.free(app.slice_marks);
         app.dropSlicePlan();
@@ -359,18 +362,24 @@ pub const App = struct {
     /// A 3MF file of the plate and its overrides. The bytes are valid
     /// until the next call or until the app goes.
     pub fn write3mf(app: *App) (Allocator.Error || error{WriteFailed} || error{NoModel})![]const u8 {
+        const bytes = try app.write3mfAlloc(app.gpa);
+        app.gpa.free(app.file_bytes);
+        app.file_bytes = bytes;
+        return app.file_bytes;
+    }
+
+    /// A 3MF file of the plate and its overrides, in memory of `gpa` that
+    /// the caller owns.
+    pub fn write3mfAlloc(app: *const App, gpa: Allocator) (Allocator.Error || error{WriteFailed} || error{NoModel})![]u8 {
         if (app.plate.count() == 0) return error.NoModel;
-        var text: std.Io.Writer.Allocating = .init(app.gpa);
+        var text: std.Io.Writer.Allocating = .init(gpa);
         defer text.deinit();
         for (app.profiles.items) |p| try text.writer.print("profile\t{d}\t{d}\t{s}\n", .{ p.z_min, p.z_max, p.name });
         for (app.overrides.items) |o| try text.writer.print("{d}\t{d}\t{s}\t{s}\n", .{ o.z_min, o.z_max, o.name, o.value });
-        var out: std.Io.Writer.Allocating = .init(app.gpa);
+        var out: std.Io.Writer.Allocating = .init(gpa);
         errdefer out.deinit();
-        try zs.threemf.write(app.gpa, &out.writer, &app.plate, text.written());
-        app.gpa.free(app.file_bytes);
-        app.file_bytes = &.{};
-        app.file_bytes = try out.toOwnedSlice();
-        return app.file_bytes;
+        try zs.threemf.write(gpa, &out.writer, &app.plate, text.written());
+        return out.toOwnedSlice();
     }
 
     fn addMesh(app: *App, name: []const u8, m: zs.Mesh) zs.mesh.Error!usize {

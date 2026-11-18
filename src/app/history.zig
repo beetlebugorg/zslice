@@ -21,14 +21,45 @@
 //! and the change ("Infill density 20 % → 55 %").
 //!
 //! The facts escape a tab as "\t" and a new line as "\n", so each value is
-//! on one line. Only the shell keeps the facts of each step: the core keeps
-//! no list (the undo list of the shell has the steps).
+//! on one line.
+//!
+//! `History` is the undo list of one app: a list of steps, the oldest
+//! first, and the step now. A step has the state of the app: the texts of
+//! the three groups of settings (`App.writeState`), the quality profile,
+//! the plate as a 3MF file, the facts, and the time.
+//!
+//! The steps come from changes. Each change of the C API notes its key
+//! (`note`): the name of one setting, or "*" for a change of the plate or
+//! of more than one setting. The shell calls `commit` 400 ms after the
+//! last change. A commit makes a snapshot of the state. If it differs from
+//! the step now, it is a new step, and the redo steps go. The shell keeps
+//! the timer, so the core needs no clock: the shell gives the time.
+//!
+//! An edit of one setting is one step while its editor has the focus. The
+//! shell tells the core which setting has the focus (`setFocus`). A commit
+//! of a change of only that setting, after a step of only that setting,
+//! amends that step. If the value goes back to the value before the edit,
+//! the step goes.
+//!
+//! An undo, a redo, or a jump to a step (`goto`) restores the state of
+//! that step: it loads the 3MF file if the plate differs, then it applies
+//! each group of settings that differs. These changes are not noted.
+//!
+//! Limits: at most `max_steps` steps before the step now, and at most
+//! `max_plate_bytes` of 3MF files in them. The oldest steps go first.
+//! Steps with the same plate share one copy of its 3MF file.
+//!
+//! The undo lists of the GTK shell and the web app were the model for this
+//! code (linux/src/model/app-model.c and web/app/worker.js before the
+//! history moved here).
 //!
 //! SPDX-License-Identifier: AGPL-3.0-or-later
 
 const std = @import("std");
 const Allocator = std.mem.Allocator;
 const setting_info = @import("setting_info.zig");
+const zs = @import("../root.zig");
+const App = @import("../app.zig").App;
 
 /// One line of a facts text, or of a diff.
 pub const Fact = struct { scope: []const u8, key: []const u8, value: []const u8 };
@@ -313,6 +344,378 @@ pub fn describe(gpa: Allocator, changes: []const u8, part_z: f64, layer_z: []con
         try w.writeByte('\n');
     }
 }
+
+// ---- the undo list ----
+
+/// The bits of the result of a restore (`History.undo`, `redo`, `goto`,
+/// `truncate`): what changed in the app. The shell updates its widgets
+/// and its saved files for them.
+pub const restored_moved: u32 = 1;
+pub const restored_plate: u32 = 2;
+/// The bit of a group of settings: `restored_group << group`.
+pub const restored_group: u32 = 4;
+pub const restored_quality: u32 = 32;
+/// `truncate` dropped the later steps.
+pub const restored_dropped: u32 = 64;
+
+/// A 3MF file of the plate, shared by the steps with the same plate.
+const Plate3mf = struct {
+    refs: usize,
+    bytes: []u8,
+
+    fn ref(p: *Plate3mf) *Plate3mf {
+        p.refs += 1;
+        return p;
+    }
+
+    fn unref(p: *Plate3mf, gpa: Allocator) void {
+        p.refs -= 1;
+        if (p.refs > 0) return;
+        gpa.free(p.bytes);
+        gpa.destroy(p);
+    }
+};
+
+/// One step: the state of the app at a commit.
+pub const Step = struct {
+    /// The texts of the machine, filament, and project groups.
+    settings: [3][]u8,
+    /// The quality profile. The strings are in `App.strings`, which only
+    /// grows, so the step keeps them as they are.
+    quality_name: [:0]const u8,
+    quality: []const zs.settings.Change,
+    /// The plate, or null for an empty plate.
+    plate: ?*Plate3mf,
+    facts: []u8,
+    time_ms: i64,
+
+    fn deinit(s: *Step, gpa: Allocator) void {
+        for (s.settings) |t| gpa.free(t);
+        gpa.free(s.facts);
+        if (s.plate) |p| p.unref(gpa);
+    }
+};
+
+fn samePlate(a: ?*Plate3mf, b: ?*Plate3mf) bool {
+    if (a == b) return true;
+    const x = a orelse return false;
+    const y = b orelse return false;
+    return std.mem.eql(u8, x.bytes, y.bytes);
+}
+
+/// The same settings, quality profile, and plate.
+fn sameState(a: *const Step, b: *const Step) bool {
+    for (a.settings, b.settings) |x, y| if (!std.mem.eql(u8, x, y)) return false;
+    if (!std.mem.eql(u8, a.quality_name, b.quality_name)) return false;
+    return samePlate(a.plate, b.plate);
+}
+
+fn eqlKey(a: ?[]const u8, b: ?[]const u8) bool {
+    const x = a orelse return b == null;
+    const y = b orelse return false;
+    return std.mem.eql(u8, x, y);
+}
+
+/// What `History.step` gives for one step. The strings are valid until
+/// the next call of `step` or the next change of the history.
+pub const StepInfo = struct {
+    time_ms: i64,
+    /// "start" for step 0, else the name of the `Kind` of its changes.
+    kind: [:0]const u8,
+    /// The changes from the step before (`diff` lines). "" for step 0.
+    changes: []const u8,
+    /// The changes in words (`describe` lines). "" for step 0.
+    text: []const u8,
+};
+
+/// The undo list of one app (see the header comment).
+pub const History = struct {
+    /// The steps, the oldest first. The steps after `current` are the redo
+    /// steps.
+    steps: std.ArrayList(Step) = .empty,
+    current: usize = 0,
+    /// The key of the changes since the last commit: a setting, or "*".
+    pending_key: ?[]u8 = null,
+    /// The setting of the last step while its edit is open.
+    edit_key: ?[]u8 = null,
+    /// The setting whose editor has the focus.
+    focus_key: ?[]u8 = null,
+    /// The plate changed since the last commit: the next snapshot writes
+    /// a new 3MF file.
+    plate_dirty: bool = true,
+    /// A restore runs: its changes are not noted.
+    restoring: bool = false,
+    max_steps: usize = 100,
+    max_plate_bytes: usize = 200 << 20,
+    /// The memory of the strings of `step`.
+    info: ?std.heap.ArenaAllocator = null,
+
+    pub fn deinit(h: *History, gpa: Allocator) void {
+        for (h.steps.items) |*s| s.deinit(gpa);
+        h.steps.deinit(gpa);
+        for ([_]?[]u8{ h.pending_key, h.edit_key, h.focus_key }) |k| if (k) |t| gpa.free(t);
+        if (h.info) |*a| a.deinit();
+        h.* = .{};
+    }
+
+    fn setKey(gpa: Allocator, slot: *?[]u8, key: ?[]const u8) void {
+        if (slot.*) |t| gpa.free(t);
+        slot.* = null;
+        if (key) |k| slot.* = gpa.dupe(u8, k) catch null;
+    }
+
+    /// Notes a change: `key` is the name of one setting, or null for more
+    /// than one (a key that ends with "." is a whole group). `plate`: the
+    /// plate changed (its parts, their settings, or the changes for some
+    /// layers).
+    pub fn note(h: *History, gpa: Allocator, key: ?[]const u8, plate: bool) void {
+        if (h.restoring) return;
+        if (plate) h.plate_dirty = true;
+        const k = key orelse "*";
+        const whole = plate or k.len == 0 or k[k.len - 1] == '.';
+        if (h.pending_key) |p| {
+            if (whole or !std.mem.eql(u8, p, k)) setKey(gpa, &h.pending_key, "*");
+        } else setKey(gpa, &h.pending_key, if (whole) "*" else k);
+    }
+
+    pub fn count(h: *const History) usize {
+        return h.steps.items.len;
+    }
+
+    fn snapshot(h: *History, app: *App, now_ms: i64) Allocator.Error!Step {
+        const gpa = app.gpa;
+        var s: Step = .{ .settings = .{ &.{}, &.{}, &.{} }, .quality_name = app.quality_name, .quality = app.quality, .plate = null, .facts = &.{}, .time_ms = now_ms };
+        errdefer s.deinit(gpa);
+        inline for (.{ zs.profile.Group.machine, .filament, .project }, 0..) |g, i| {
+            var w: std.Io.Writer.Allocating = .init(gpa);
+            app.writeState(g, &w.writer) catch return error.OutOfMemory;
+            s.settings[i] = try w.toOwnedSlice();
+        }
+        if (!h.plate_dirty and h.steps.items.len > 0) {
+            if (h.steps.items[h.current].plate) |p| s.plate = p.ref();
+        } else if (app.plate.count() > 0) {
+            const bytes = app.write3mfAlloc(gpa) catch |e| switch (e) {
+                error.OutOfMemory => return error.OutOfMemory,
+                else => null,
+            };
+            if (bytes) |b| {
+                const p = gpa.create(Plate3mf) catch |e| {
+                    gpa.free(b);
+                    return e;
+                };
+                p.* = .{ .refs = 1, .bytes = b };
+                s.plate = p;
+            }
+        }
+        var fw: std.Io.Writer.Allocating = .init(gpa);
+        app.writeFacts(&fw.writer) catch return error.OutOfMemory;
+        s.facts = try fw.toOwnedSlice();
+        h.plate_dirty = false;
+        return s;
+    }
+
+    /// Drops the steps after the step now (the redo steps).
+    fn dropRedo(h: *History, gpa: Allocator) void {
+        for (h.steps.items[h.current + 1 ..]) |*s| s.deinit(gpa);
+        h.steps.shrinkRetainingCapacity(h.current + 1);
+    }
+
+    fn dropOldest(h: *History, gpa: Allocator) void {
+        var s = h.steps.orderedRemove(0);
+        s.deinit(gpa);
+        h.current -= 1;
+    }
+
+    /// The limits: the oldest steps go while there are too many steps
+    /// before the step now, or while their 3MF files are too large (a file
+    /// counts once for the steps that share it).
+    fn trim(h: *History, gpa: Allocator) void {
+        while (h.current > h.max_steps) h.dropOldest(gpa);
+        while (h.current > 0) {
+            var total: usize = 0;
+            var last: ?*Plate3mf = null;
+            for (h.steps.items[0..h.current]) |s| {
+                if (s.plate) |p| if (p != last) {
+                    total += p.bytes.len;
+                };
+                last = s.plate;
+            }
+            if (total <= h.max_plate_bytes) return;
+            h.dropOldest(gpa);
+        }
+    }
+
+    /// Ends the step of the changes so far. The first commit takes the
+    /// start. Returns true if a step was added, amended, or dropped.
+    pub fn commit(h: *History, app: *App, now_ms: i64) bool {
+        const gpa = app.gpa;
+        var now = h.snapshot(app, now_ms) catch return false;
+        const key = h.pending_key;
+        h.pending_key = null;
+        defer if (key) |k| gpa.free(k);
+        if (h.steps.items.len == 0) {
+            h.steps.append(gpa, now) catch {
+                now.deinit(gpa);
+                return false;
+            };
+            h.current = 0;
+            return false;
+        }
+        const before = &h.steps.items[h.current];
+        const differs = !sameState(&now, before);
+        const single = if (key) |k| !std.mem.eql(u8, k, "*") else false;
+        // More changes of the setting of the last step, in the same edit:
+        // they change that step.
+        if (differs and single and h.current > 0 and eqlKey(key, h.edit_key) and eqlKey(key, h.focus_key)) {
+            h.dropRedo(gpa);
+            before.deinit(gpa);
+            before.* = now;
+            // Back at the value before the edit: the step goes.
+            if (sameState(&h.steps.items[h.current - 1], &now)) {
+                var s = h.steps.pop().?;
+                s.deinit(gpa);
+                h.current -= 1;
+                setKey(gpa, &h.edit_key, null);
+            }
+            return true;
+        }
+        if (!differs) {
+            // No change: the step now gets the new time and facts. An open
+            // edit stays open.
+            before.deinit(gpa);
+            before.* = now;
+            return false;
+        }
+        setKey(gpa, &h.edit_key, if (single) key else null);
+        h.dropRedo(gpa);
+        h.steps.append(gpa, now) catch {
+            now.deinit(gpa);
+            return false;
+        };
+        h.current += 1;
+        h.trim(gpa);
+        return true;
+    }
+
+    /// The setting whose editor has the focus now, or null. A move of the
+    /// focus ends the edit: the changes so far are a step (of the old
+    /// focus). Returns true if that commit changed the list.
+    pub fn setFocus(h: *History, app: *App, key: ?[]const u8, now_ms: i64) bool {
+        if (eqlKey(key, h.focus_key)) return false;
+        const changed = if (h.pending_key != null) h.commit(app, now_ms) else false;
+        setKey(app.gpa, &h.edit_key, null);
+        setKey(app.gpa, &h.focus_key, key);
+        return changed;
+    }
+
+    /// Loads the state of step `to` over the state of step `from`: the
+    /// plate if it differs, then the quality profile, then each group of
+    /// settings that differs. Returns the `restored_*` bits.
+    fn restore(h: *History, app: *App, to: *const Step, from: *const Step) u32 {
+        h.restoring = true;
+        defer {
+            h.restoring = false;
+            h.plate_dirty = false;
+        }
+        var bits: u32 = restored_moved;
+        if (!samePlate(to.plate, from.plate)) {
+            if (to.plate) |p| {
+                // A file of the history loaded before: an error here is
+                // only a lack of memory, and the plate stays as it is.
+                app.loadStl("plate.3mf", p.bytes) catch {};
+            } else {
+                app.clearPlate() catch {};
+            }
+            bits |= restored_plate;
+        }
+        const quality = !std.mem.eql(u8, to.quality_name, app.quality_name) or to.quality.ptr != app.quality.ptr or to.quality.len != app.quality.len;
+        if (quality) {
+            app.quality = to.quality;
+            app.quality_name = to.quality_name;
+            bits |= restored_quality;
+        }
+        inline for (.{ zs.profile.Group.machine, .filament, .project }, 0..) |g, i| {
+            var w: std.Io.Writer.Allocating = .init(app.gpa);
+            defer w.deinit();
+            app.writeState(g, &w.writer) catch {};
+            if (!std.mem.eql(u8, w.written(), to.settings[i]) or (quality and g == .project)) {
+                app.resetGroup(g);
+                var diag: zs.profile.Diagnostic = .{};
+                // On an error, the settings stay as they were.
+                app.applyProfile(g, "saved", to.settings[i], &diag) catch {
+                    app.resetGroup(g);
+                    app.applyProfile(g, "saved", w.written(), &diag) catch {};
+                };
+                bits |= restored_group << i;
+            }
+        }
+        return bits;
+    }
+
+    /// Goes to step i: it restores the state of that step. Returns the
+    /// `restored_*` bits, or 0 if it did not move.
+    pub fn goto(h: *History, app: *App, i: usize, now_ms: i64) u32 {
+        _ = h.commit(app, now_ms);
+        if (h.steps.items.len == 0 or i == h.current or i >= h.steps.items.len) return 0;
+        const from = h.current;
+        h.current = i;
+        const bits = h.restore(app, &h.steps.items[i], &h.steps.items[from]);
+        setKey(app.gpa, &h.edit_key, null);
+        return bits;
+    }
+
+    pub fn undo(h: *History, app: *App, now_ms: i64) u32 {
+        _ = h.commit(app, now_ms);
+        if (h.current == 0) return 0;
+        return h.goto(app, h.current - 1, now_ms);
+    }
+
+    pub fn redo(h: *History, app: *App, now_ms: i64) u32 {
+        _ = h.commit(app, now_ms);
+        return h.goto(app, h.current + 1, now_ms);
+    }
+
+    /// Clears the history after step i: goes to step i first if it is not
+    /// the step now, then drops the later steps (redo cannot bring them
+    /// back). Returns the `restored_*` bits, with `restored_dropped` if
+    /// steps went, or 0 if nothing changed.
+    pub fn truncate(h: *History, app: *App, i: usize, now_ms: i64) u32 {
+        _ = h.commit(app, now_ms);
+        if (i >= h.steps.items.len) return 0;
+        var bits: u32 = 0;
+        if (i != h.current) bits = h.goto(app, i, now_ms);
+        if (h.current + 1 >= h.steps.items.len) return bits;
+        h.dropRedo(app.gpa);
+        setKey(app.gpa, &h.edit_key, null);
+        return bits | restored_dropped;
+    }
+
+    /// Drops all steps (a new file). The next commit takes the start.
+    pub fn reset(h: *History, gpa: Allocator) void {
+        for (h.steps.items) |*s| s.deinit(gpa);
+        h.steps.clearRetainingCapacity();
+        h.current = 0;
+        setKey(gpa, &h.pending_key, null);
+        setKey(gpa, &h.edit_key, null);
+        h.plate_dirty = true;
+    }
+
+    /// Step i: its time, kind, and changes, with the layer numbers of the
+    /// last slice of the app.
+    pub fn step(h: *History, app: *const App, i: usize) (Allocator.Error || error{OutOfRange})!StepInfo {
+        if (i >= h.steps.items.len) return error.OutOfRange;
+        const s = &h.steps.items[i];
+        if (i == 0) return .{ .time_ms = s.time_ms, .kind = "start", .changes = "", .text = "" };
+        if (h.info) |*a| _ = a.reset(.retain_capacity) else h.info = .init(app.gpa);
+        const a = h.info.?.allocator();
+        var cw: std.Io.Writer.Allocating = .init(a);
+        diff(a, h.steps.items[i - 1].facts, s.facts, &cw.writer) catch return error.OutOfMemory;
+        const changes = cw.written();
+        var tw: std.Io.Writer.Allocating = .init(a);
+        app.describeChanges(changes, &tw.writer) catch return error.OutOfMemory;
+        return .{ .time_ms = s.time_ms, .kind = @tagName(try stepKind(a, changes)), .changes = changes, .text = tw.written() };
+    }
+};
 
 const testing = std.testing;
 
