@@ -95,6 +95,8 @@ final class Workspace {
     var ringLabel: (text: String, at: CGPoint)?
     @ObservationIgnored let wheelSlice = Throttle(.milliseconds(300))
     @ObservationIgnored let keySlice = Throttle(.milliseconds(600))
+    /// The fall of a part 0.6 s after the last turn key (Tools.swift).
+    @ObservationIgnored var settleTask: Task<Void, Never>?
     var tape: [TapePoint] = []
     /// The points of the tape in the view (points), for the readout.
     var tapeScreen: [CGPoint] = []
@@ -405,6 +407,13 @@ final class Workspace {
                     }
                 }
             }
+        }
+        // ZSLICE_TURN=deg turns the selected part about X, then lets it settle.
+        if let t = env["ZSLICE_TURN"].flatMap(Double.init), let i = selectedPart {
+            zs_app_part_turn(model.core, i, 0, t)
+            NSLog("zslice settle: %.1f", zs_app_part_settle(model.core, i))
+            selectPart(i)
+            model.settingsChanged()
         }
         // ZSLICE_RECORD=path.mov records the demo of Recorder.swift.
         if let path = env["ZSLICE_RECORD"] {

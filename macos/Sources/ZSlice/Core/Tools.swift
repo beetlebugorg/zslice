@@ -229,8 +229,12 @@ extension Workspace {
             zs_view_ring_release(v)
             ringDrag = nil
             ringLabel = nil
-            // The turn slices once, at the end of the drag.
-            if r.sent != 0 { model.release() }
+            // The turn slices once, at the end of the drag, after the part
+            // fell over if it cannot stand like that.
+            if r.sent != 0 {
+                settle()
+                model.release()
+            }
             canvas.requestFrame()
             return
         }
@@ -271,9 +275,30 @@ extension Workspace {
         case .pageDown?: zs_app_part_turn(model.core, i, 1, -step)
         default: return false
         }
+        // The part turns at once; 0.6 s after the last key it falls over if
+        // it cannot stand, and the plate slices.
         selectPart(i)
-        model.settingsChanged()
+        model.changedHeld()
+        settleTask?.cancel()
+        settleTask = Task { @MainActor [weak self] in
+            try? await Task.sleep(for: .milliseconds(600))
+            guard let self, !Task.isCancelled else { return }
+            settle()
+            model.settingsChanged()
+            model.release()
+        }
         return true
+    }
+
+    /// A turned part that cannot stand falls over (zs_app_part_settle: its
+    /// center of mass past its foot), unless support holds it. A note says so.
+    func settle() {
+        guard let i = selectedPart else { return }
+        let deg = zs_app_part_settle(model.core, i)
+        guard deg > 0.5 else { return }
+        selectPart(i)
+        model.changedHeld()
+        showNote("The part could not stand like that, and fell over (\(Int(deg.rounded()))°). Turn on support to hold it in place.", seconds: 7)
     }
 
     // MARK: - the measure tape

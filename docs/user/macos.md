@@ -46,6 +46,10 @@ The drawer is the inspector at the right of the window, and it has only the sett
 
 The bar at the top of the Settings page picks what the editors change: This Print, Global (your settings for all prints, in `global.toml`), one part (with more than one part on the plate), or a layer profile. With a part or a profile, a change goes only there, the bar is in the accent color, and Done goes back to the print. New Profile from Here Up (or Down) in the context menu of a line makes a layer profile, and Part Settings on the part card opens the settings of the part. The editors of the search and of the print card follow the same bar.
 
+## A part falls over
+
+When you turn a part (the rings of the Turn tool, or its keys) so that it cannot stand, it falls over onto a side that holds it, and a note says so, unless support is on, which holds it in place.
+
 ## Edit one line
 
 The card of a selected line has Don't Print This Line (or press Delete with the line selected), and −10 % and +10 % plastic. The plate slices again with the edit. Each edit is a step of the history, so Command-Z takes it back, and a project file keeps it. Add a Drop of Plastic Here in the context menu of a line puts a dot of 1 mm of plastic at that point, on the layer of the line, to fill a small gap. An edit holds to its line: after a change that moves the line, the edit waits. The History page lists the edits under Line Edits, marks the ones that wait, and × removes one.
