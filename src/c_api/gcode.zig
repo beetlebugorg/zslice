@@ -177,6 +177,52 @@ export fn zs_gcode_state_at(g: ?*const GCode, offset: u64, out: ?*At) c_int {
     return ok;
 }
 
+/// A PNG picture of the file (see cpu_render.renderBeads). Free the bytes
+/// with zs_buffer_free.
+export fn zs_gcode_thumbnail_png(g: ?*const GCode, width: u32, height: u32, by_feature: c_int, rgb: u32, out: ?*?[*]u8, out_len: ?*usize) c_int {
+    const r = finished(g) orelse return bad();
+    const o = out orelse return bad();
+    const ol = out_len orelse return bad();
+    if (width == 0 or height == 0 or width > 4096 or height > 4096) return bad();
+    const Src = struct {
+        r: *const Reader,
+        features: bool,
+        rgb: [3]u8,
+        /// The first move of the top two layers.
+        top: u32,
+        pub fn count(s: @This()) usize {
+            return s.r.len;
+        }
+        pub fn bead(s: @This(), i: usize) ?zs.cpu_render.Bead {
+            const k: u32 = @intCast(i);
+            const sg = s.r.at(k);
+            if (sg.feature == zs.gcode_read.travel) return null;
+            // The outer walls and the skin hide the infill and the inner
+            // walls under the top layers: leave them out (most beads).
+            const Feature = zs.gcode_read.Feature;
+            if (k < s.top and (sg.feature == @intFromEnum(Feature.infill) or sg.feature == @intFromEnum(Feature.inner_wall))) return null;
+            const a = s.r.startOf(k);
+            const f = sg.feature;
+            return .{
+                .a = .{ a[0], a[1], sg.z },
+                .b = .{ sg.x, sg.y, sg.z },
+                .w = sg.w,
+                .h = sg.h,
+                .rgb = if (s.features) zs.cpu_render.feature_rgb[if (f < zs.cpu_render.feature_rgb.len) f else 0] else s.rgb,
+            };
+        }
+    };
+    const n_layers = r.layers.items.len;
+    const top: u32 = if (n_layers >= 2) r.layers.items[n_layers - 2].first else 0;
+    const src: Src = .{ .r = r, .features = by_feature != 0, .rgb = .{ @truncate(rgb >> 16), @truncate(rgb >> 8), @truncate(rgb) }, .top = top };
+    var img = zs.cpu_render.renderBeads(c.gpa, src, width, height) catch |e| return status(e);
+    defer img.deinit(c.gpa);
+    const bytes = zs.cpu_render.png(c.gpa, img) catch |e| return status(e);
+    o.* = bytes.ptr;
+    ol.* = bytes.len;
+    return ok;
+}
+
 const testing = std.testing;
 
 test "C API: read G-code in pieces and ask at an offset" {
@@ -222,4 +268,9 @@ test "C API: read G-code in pieces and ask at an offset" {
     try testing.expectEqual(ok, zs_gcode_state_at(g, l.start, &at));
     try testing.expectEqual(@as(c_int, 0), at.feature);
     try testing.expectEqual(@as(usize, 0), at.layer);
+    var png: ?[*]u8 = null;
+    var png_len: usize = 0;
+    try testing.expectEqual(ok, zs_gcode_thumbnail_png(g, 32, 24, 1, 0, &png, &png_len));
+    defer c.gpa.free(png.?[0..png_len]);
+    try testing.expectEqualStrings("\x89PNG", png.?[0..4]);
 }

@@ -108,6 +108,8 @@ const code_travel: u8 = n_features + 1;
 const code_retract: u8 = n_features + 2;
 const code_overlay: u8 = n_features + 3;
 comptime {
+    // The thumbnails of G-code (cpu.zig) have the same feature colors.
+    for (@import("cpu.zig").feature_rgb, 0..) |rgb, i| std.debug.assert(std.mem.eql(u8, &rgb, &feature_rgb[i]));
     // shaders/box.vert has the same codes and colors: change it with them.
     std.debug.assert(n_features == 11 and feature_rgb.len == n_features + 3);
 }
@@ -675,30 +677,8 @@ pub const View = struct {
         try v.layer_end.ensureTotalCapacity(gpa, r.layers.items.len);
         var none: [0]vk.Instance = .{};
         const inst: []vk.Instance = if (v.headless) &none else try v.renderer.instanceBuffer(r.bead_count);
-        var k: usize = 0;
-        // The first move starts where it ends (the reader does not know
-        // the place of the nozzle before it).
-        var prev: [2]f32 = if (r.len > 0) .{ r.at(0).x, r.at(0).y } else .{ 0, 0 };
-        for (r.blocks.items, 0..) |blk, bi| {
-            const n = @min(gcode_read.block_len, r.len - bi * gcode_read.block_len);
-            for (blk[0..n]) |sg| {
-                defer prev = .{ sg.x, sg.y };
-                if (sg.feature == gcode_read.travel) continue;
-                if (k < inst.len) inst[k] = .{
-                    .ax = prev[0],
-                    .ay = prev[1],
-                    .bx = sg.x,
-                    .by = sg.y,
-                    .z = sg.z,
-                    .h = sg.h,
-                    .w = sg.w,
-                    .rgba = .{ 0, 0, 0, sg.feature },
-                };
-                k += 1;
-            }
-        }
+        fillGcode(r, inst, v.gcode_features, v.filament_rgb);
         for (0..r.layers.items.len) |l| v.layer_end.appendAssumeCapacity(r.beadsIn(r.layerSegments(l)[1]));
-        v.paintGcode(inst);
 
         // The bed, and the camera: around the center of the bed, at half
         // the height of the part.
@@ -735,13 +715,24 @@ pub const View = struct {
         v.lite_gen = v.nextGen();
     }
 
-    /// Sets the colors of the beads of a G-code file in place: by feature,
-    /// or the filament color.
-    fn paintGcode(v: *View, inst: []vk.Instance) void {
-        for (inst) |*b| {
-            const f = b.rgba[3];
-            const rgb = if (v.gcode_features) feature_rgb[if (f < n_features) f else 0] else v.filament_rgb;
-            b.rgba = .{ rgb[0], rgb[1], rgb[2], f };
+    /// Writes the beads of a G-code file, in print order. It only writes
+    /// to `inst` (a GPU buffer can be slow to read).
+    fn fillGcode(r: *const gcode_read.Reader, inst: []vk.Instance, features: bool, filament: [3]u8) void {
+        var k: usize = 0;
+        // The first move starts where it ends (the reader does not know
+        // the place of the nozzle before it).
+        var prev: [2]f32 = if (r.len > 0) .{ r.at(0).x, r.at(0).y } else .{ 0, 0 };
+        for (r.blocks.items, 0..) |blk, bi| {
+            const n = @min(gcode_read.block_len, r.len - bi * gcode_read.block_len);
+            for (blk[0..n]) |sg| {
+                defer prev = .{ sg.x, sg.y };
+                if (sg.feature == gcode_read.travel) continue;
+                if (k == inst.len) return;
+                const f = sg.feature;
+                const rgb = if (features) feature_rgb[if (f < n_features) f else 0] else filament;
+                inst[k] = .{ .ax = prev[0], .ay = prev[1], .bx = sg.x, .by = sg.y, .z = sg.z, .h = sg.h, .w = sg.w, .rgba = .{ rgb[0], rgb[1], rgb[2], f } };
+                k += 1;
+            }
         }
     }
 
@@ -753,13 +744,13 @@ pub const View = struct {
     }
 
     /// The colors of a print view: by feature, or one filament color. The
-    /// beads change in place (no allocation).
+    /// beads are written again in place (no allocation).
     pub fn setGcodeColors(v: *View, features: bool, rgb: [3]u8) Error!void {
         v.gcode_features = features;
         v.filament_rgb = rgb;
         const r = v.gcode orelse return;
         if (v.headless) return;
-        v.paintGcode(try v.renderer.instanceBuffer(r.bead_count));
+        fillGcode(r, try v.renderer.instanceBuffer(r.bead_count), features, rgb);
     }
 
     /// Shows the print as it is at a byte offset of the file: the moves

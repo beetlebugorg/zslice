@@ -1208,6 +1208,13 @@ typedef struct zs_gcode_state {
 /* The state at a byte offset. ZS_NO_RESULT before the first move. */
 int zs_gcode_state_at(const zs_gcode *g, uint64_t offset, zs_gcode_state *out);
 
+/* A PNG picture of the file from the front right, above (as the
+ * thumbnails of zs_slice), width x height pixels, with a clear
+ * background. by_feature != 0: one color for each feature, else rgb
+ * (0xRRGGBB). Free the bytes with zs_buffer_free. */
+int zs_gcode_thumbnail_png(const zs_gcode *g, uint32_t width, uint32_t height, int by_feature, uint32_t rgb,
+                           uint8_t **out, size_t *out_len);
+
 enum zs_view_offscreen_mode {
     ZS_VIEW_REDUCED = 1, /* the reduced view: no tools, gizmos, selection,
                             marks, or labels */
