@@ -67,6 +67,24 @@ function explain(e, printer) {
       return false;
     }
   })();
+  // An https page and an http printer: the browser blocks the request
+  // (mixed content) before it leaves, so CORS is not the cause.
+  let mixed = false;
+  try {
+    mixed = location.protocol === "https:" && new URL(printer.url, location.href).protocol === "http:";
+  } catch {
+    // Not a URL: the text below.
+  }
+  if (mixed) {
+    const deck = (() => {
+      try {
+        return new URL("/slicer/", printer.url).href;
+      } catch {
+        return "";
+      }
+    })();
+    return `The browser blocked the request (${e.message}). This page is https and the printer is http, and some browsers (Firefox, Safari) block that. Open zslice from the printer instead${deck ? `: ${deck} (printdeck has it)` : ""}, or give the printer an https address.`;
+  }
   const why = cross
     ? " Check the address, that the printer allows this page (CORS: printdeck allows zslice.beetlebug.org; OctoPrint: Settings › API › Allow Cross Origin Requests; Moonraker: cors_domains), and that the browser may reach the local network."
     : " Check the address.";
