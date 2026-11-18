@@ -51,7 +51,7 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
 import { Wasm } from "./wasm.js";
-import { savePlate, loadPlate, clearPlate } from "./keep.js";
+import { savePlate, loadPlate, clearPlate, saveSession, loadSession } from "./keep.js";
 import { Client } from "./client.js";
 import { View3D, MODES } from "./view.js";
 import { GlRenderer } from "./gl.js";
@@ -2397,17 +2397,91 @@ $("plate-remove").onclick = () => removePlate(app.activePlate);
 
 // ---- the work across a refresh (keep.js) ----
 
+// The session (zs_session_write): all plates, their last scenes, and the
+// camera, in IndexedDB, after each change of the plates (when idle). The
+// state of the page itself (the page, the panel, the scroll, the focus)
+// is in localStorage (captureUi), written when it changes and when the
+// page closes.
 let keepTimer = 0;
 function keepSoon() {
   clearTimeout(keepTimer);
   keepTimer = setTimeout(async () => {
     try {
-      const r = await client.call("plate3mf");
-      if (r.bytes) await savePlate(app.modelName || r.name || "plate", r.bytes);
+      const r = await client.call("sessionWrite", { camera: cameraNow() });
+      if (r.bytes) await saveSession(r.bytes);
     } catch {
-      // The next slice tries again.
+      // The next change tries again.
     }
   }, 1500);
+}
+
+// The camera of the view: 8 floats (zs_view_get_camera).
+function cameraNow() {
+  const p = wasm.alloc(32);
+  try {
+    view.x.zs_view_get_camera(view.v, p);
+    return Array.from(new Float32Array(wasm.x.memory.buffer, p, 8));
+  } finally {
+    wasm.free(p, 32);
+  }
+}
+
+function setCamera(c) {
+  if (!Array.isArray(c) || c.length !== 8) return;
+  const p = wasm.alloc(32);
+  try {
+    new Float32Array(wasm.x.memory.buffer, p, 8).set(c);
+    view.x.zs_view_set_camera(view.v, p);
+  } finally {
+    wasm.free(p, 32);
+  }
+  requestFrame();
+}
+
+// The state of the page, to come back exactly after a reload.
+const UI_KEY = "zslice-ui";
+function captureUi() {
+  const col = (id) => $(id)?.scrollTop ?? 0;
+  const f = document.activeElement;
+  const focus = f && f !== document.body ? {
+    id: f.id || "",
+    setting: f.closest?.("[data-setting]")?.dataset.setting ?? "",
+    start: typeof f.selectionStart === "number" ? f.selectionStart : null,
+    end: typeof f.selectionEnd === "number" ? f.selectionEnd : null,
+  } : null;
+  return {
+    camera: cameraNow(),
+    page: app.page,
+    tool: tools.tool,
+    mode: app.mode,
+    layers: { lo: layers.lo, hi: layers.hi, count: layers.count },
+    panel: { selected: !$("page-selected").hidden, column: browser.column, group: browser.group, section: browser.section, search: browser.search, key: browser.key },
+    scroll: { sections: col("col-sections"), settings: col("col-settings"), detail: col("col-detail"), selected: col("page-selected") },
+    history: !$("history-pop").hidden,
+    farm: !$("farm-view").hidden,
+    part: tools.part?.index ?? -1,
+    focus,
+  };
+}
+
+let uiText = "";
+function keepUi() {
+  try {
+    const t = JSON.stringify(captureUi());
+    if (t === uiText) return;
+    uiText = t;
+    localStorage.setItem(UI_KEY, t);
+  } catch {
+    // No storage: no restore.
+  }
+}
+
+function loadUi() {
+  try {
+    return JSON.parse(localStorage.getItem(UI_KEY) ?? "null");
+  } catch {
+    return null;
+  }
 }
 
 // ---- open a model ----
@@ -2662,17 +2736,74 @@ resize();
 // The saved printdeck.yml project: its plan, and its plates again.
 project.start();
 
-// The first visit (no printer set up), and the test hook
-// ?printers&q=<search>&pick=<model id>&step=2: the printer picker.
-const params = new URLSearchParams(location.search);
-if (params.has("printers") || (!store.printer && !stateHasChanges(store.saved?.machine) && !params.has("model"))) {
-  showPrinterPicker({ query: params.get("q"), model: params.get("pick"), step: params.get("step"), welcome: !params.has("printers") });
-}
 
-// The plate of the last visit (keep.js), when the page has no model to
-// open: the work goes on after a refresh.
+// The session of the last visit (keep.js), when the page has no model to
+// open: the plates come back with their last scenes at once, then the
+// camera, the layers, the panel, the scroll, and the focus.
 const modelUrl = new URLSearchParams(location.search).get("model");
-if (!modelUrl) {
+let restored = false;
+if (!modelUrl && !project.willRestore()) {
+  const s = await loadSession();
+  if (s?.bytes) {
+    try {
+      const r = await client.call("sessionRead", { bytes: s.bytes });
+      applySettings(r);
+      $("empty").hidden = true;
+      app.state = "ready";
+      restored = true;
+      const name = app.plates[r.index]?.name || app.plates[0]?.name || "";
+      if (name) {
+        app.modelName = name;
+        $("title").textContent = name;
+        document.title = `${name} · zslice`;
+      }
+      await restoreUi(r.camera);
+    } catch {
+      // A session of another version: the plate of keep.js below.
+    }
+  }
+}
+// The UI state of the page, after the plates are back.
+async function restoreUi(camera) {
+  const u = loadUi();
+  if (u?.page && u.page !== app.page) showPage(u.page);
+  if (u?.tool) tools.set(u.tool);
+  setCamera(u?.camera ?? camera);
+  if (u?.panel) {
+    if (u.panel.key) browser.openSetting(u.panel.key);
+    else if (u.panel.column > 0 && u.panel.group) browser.showColumn?.(u.panel.column);
+  }
+  if (u?.history) toggleHistory(true);
+  if (u?.farm) showFarm(true);
+  // The layers and the scroll after the first slice is shown.
+  const later = () => {
+    if (u?.layers && layers.count === u.layers.count) layers.set(u.layers.lo, u.layers.hi, false);
+    for (const [k, id] of [["sections", "col-sections"], ["settings", "col-settings"], ["detail", "col-detail"], ["selected", "page-selected"]]) {
+      if ($(id) && u?.scroll?.[k]) $(id).scrollTop = u.scroll[k];
+    }
+    const f = u?.focus;
+    if (f) {
+      const el = f.id ? $(f.id) : f.setting ? document.querySelector(`[data-setting="${CSS.escape(f.setting)}"] input, [data-setting="${CSS.escape(f.setting)}"] textarea, [data-setting="${CSS.escape(f.setting)}"] select`) : null;
+      if (el) {
+        el.focus({ preventScroll: true });
+        if (f.start != null && el.setSelectionRange) try { el.setSelectionRange(f.start, f.end ?? f.start); } catch { /* not a text field */ }
+      }
+    }
+  };
+  requestAnimationFrame(() => requestAnimationFrame(later));
+  setTimeout(later, 1500);
+}
+// The state of the page goes to localStorage when it changes, and when
+// the page closes.
+setInterval(keepUi, 1000);
+addEventListener("pagehide", () => {
+  keepUi();
+  keepSoon();
+});
+document.addEventListener("visibilitychange", () => {
+  if (document.visibilityState === "hidden") keepUi();
+});
+if (!modelUrl && !restored) {
   // The plates of a saved project come back instead (project.start).
   const kept = project.willRestore() ? null : await loadPlate();
   if (kept?.bytes) {
@@ -2683,6 +2814,13 @@ if (!modelUrl) {
       document.title = `${kept.name} · zslice`;
     }
   }
+}
+
+// The first visit (no printer set up), and the test hook
+// ?printers&q=<search>&pick=<model id>&step=2: the printer picker.
+const params = new URLSearchParams(location.search);
+if (params.has("printers") || (!restored && !store.printer && !stateHasChanges(store.saved?.machine) && !params.has("model"))) {
+  showPrinterPicker({ query: params.get("q"), model: params.get("pick"), step: params.get("step"), welcome: !params.has("printers") });
 }
 
 // A test hook: ?model=<url> opens a model at the start.

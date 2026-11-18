@@ -1036,6 +1036,57 @@ const ops = {
   },
 
   // Opens a project file: its plates replace the plates.
+  // The session of the set (zs_session_write): the plates, their last
+  // scenes, and the camera (8 floats, or null).
+  sessionWrite({ camera }) {
+    const w = wasm;
+    const cam = camera ? w.alloc(32) : 0;
+    try {
+      if (cam) new Float32Array(w.x.memory.buffer, cam, 8).set(camera);
+      const out = w.alloc(8);
+      try {
+        const rc = w.x.zs_session_write(set, cam, 0, out, out + 4);
+        if (rc !== 0) throw new Error(statusText(rc));
+        const p = w.u32(out);
+        const n = w.u32(out + 4);
+        const bytes = w.u8.slice(p, p + n).buffer;
+        w.x.zs_buffer_free(p, n);
+        return { bytes };
+      } finally {
+        w.free(out, 8);
+      }
+    } finally {
+      if (cam) w.free(cam, 32);
+    }
+  },
+
+  // Puts a session back: the plates, with their last scenes at once, and
+  // the camera. The plates slice in the background.
+  sessionRead({ bytes }) {
+    commitPending();
+    const w = wasm;
+    const cap = 512;
+    const msg = w.alloc(cap);
+    const cam = w.alloc(32);
+    const has = w.alloc(4);
+    let camera = null;
+    try {
+      const rc = w.withBytes(new Uint8Array(bytes), (p, n) => w.x.zs_session_read(set, p, n, cam, has, 0, 0, msg, cap));
+      if (rc !== 0) throw new Error(w.cstr(msg) || statusText(rc));
+      if (w.u32(has)) camera = Array.from(new Float32Array(w.x.memory.buffer, cam, 8));
+    } finally {
+      w.free(msg, cap);
+      w.free(cam, 32);
+      w.free(has, 4);
+    }
+    syncCore();
+    const n = w.x.zs_set_count(set);
+    for (let i = 0; i < n; i++) w.x.zs_set_changed(set, i);
+    showActive();
+    wantSlice();
+    return { camera, index: activeIndex(), info: core.modelInfo(), ...settingsState() };
+  },
+
   projectFileOpen({ bytes }) {
     commitPending();
     const w = wasm;
