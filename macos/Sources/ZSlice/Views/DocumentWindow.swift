@@ -380,6 +380,19 @@ struct PrintCard: View {
                     .foregroundStyle(.red)
                     .font(.callout)
                     .fixedSize(horizontal: false, vertical: true)
+            } else if model.state == .done, let area = workspace.unsupportedArea {
+                // The red warning of a part off the bed wins over this one.
+                VStack(alignment: .leading, spacing: 6) {
+                    Label("About \(Int(area.rounded())) mm² of the part hangs in the air with no support. It can droop or fail.",
+                          systemImage: "exclamationmark.triangle.fill")
+                        .fixedSize(horizontal: false, vertical: true)
+                    Button("Turn On Support") { model.set("project.support", "everywhere") }
+                        .controlSize(.small)
+                        .help("Support everywhere a part hangs over the air (Support > Support)")
+                }
+                .font(.callout)
+                .padding(8)
+                .background(Color.orange.opacity(0.15), in: RoundedRectangle(cornerRadius: 8))
             }
             if case .failed(let why) = model.state {
                 Label(why, systemImage: "exclamationmark.triangle.fill")

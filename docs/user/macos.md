@@ -52,6 +52,8 @@ The Support tool (U) draws an area of support on the part: click points on the p
 
 ## The print card
 
+With support off, when about 20 mm² or more of the part hangs in the air (overhangs and islands, not bridges), the print card says so in an amber box, with Turn On Support. A part off the bed shows its red warning instead.
+
 The print card has the main settings of the print as small buttons. A click opens a popover with the editor and the slider of each setting; a change slices at once.
 
 ## Printers

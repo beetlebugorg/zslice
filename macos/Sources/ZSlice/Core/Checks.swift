@@ -33,6 +33,8 @@ struct Issue: Identifiable {
     var severity: UInt8
     var layer: Int
     var path: Int?
+    /// Its size: an area in mm² for an overhang or an island.
+    var value: Double
     var text: String
 
     var symbol: String {
@@ -130,8 +132,18 @@ extension Workspace {
             let it = list[i]
             let t = String(decoding: UnsafeRawBufferPointer(start: text + Int(it.text_start), count: Int(it.text_len)), as: UTF8.self)
             return Issue(id: i, kind: it.kind, severity: it.severity, layer: Int(it.layer),
-                         path: it.path == ZS_NO_PATH ? nil : Int(it.path), text: t)
+                         path: it.path == ZS_NO_PATH ? nil : Int(it.path), value: it.value, text: t)
         }
+    }
+
+    /// With support off: the area of the part that hangs in the air (the
+    /// overhangs and islands of severity 1 or more, not the bridges), in
+    /// mm², when it is 20 mm² or more; else nil.
+    var unsupportedArea: Double? {
+        guard model.setting("project.support") == "off" else { return nil }
+        let sum = issues.filter { ($0.kind == UInt8(ZS_ISSUE_OVERHANG.rawValue) || $0.kind == UInt8(ZS_ISSUE_ISLAND.rawValue)) && $0.severity >= 1 }
+            .reduce(0) { $0 + $1.value }
+        return sum >= 20 ? sum : nil
     }
 
     /// Goes to the layer of an issue, and selects its line.
