@@ -140,7 +140,7 @@ final class PrinterLibrary {
 /// A printer of the user.
 struct Printer: Codable, Identifiable, Equatable {
     enum Kind: String, Codable, CaseIterable {
-        case none, printdeck, octoprint, moonraker
+        case none, printdeck, octoprint, moonraker, bambu
 
         var title: String {
             switch self {
@@ -148,6 +148,7 @@ struct Printer: Codable, Identifiable, Equatable {
             case .printdeck: "printdeck"
             case .octoprint: "OctoPrint"
             case .moonraker: "Moonraker (Klipper)"
+            case .bambu: "Bambu Lab (LAN mode, untested)"
             }
         }
     }
@@ -162,8 +163,32 @@ struct Printer: Codable, Identifiable, Equatable {
     var url = ""
     /// The https address of a printdeck with a certificate, or "".
     var https = ""
+    /// Bambu Lab: the serial number (for the MQTT topics), else "".
+    var serial = ""
 
-    /// The API key, in the Keychain.
+    init(name: String, model: String = "", machine: String = "", kind: Kind = .none, url: String = "") {
+        self.name = name
+        self.model = model
+        self.machine = machine
+        self.kind = kind
+        self.url = url
+    }
+
+    /// A file of an older app may lack a field, and a newer one may have
+    /// a kind that this app does not know: each field has its default then.
+    init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        id = try c.decodeIfPresent(UUID.self, forKey: .id) ?? UUID()
+        name = try c.decodeIfPresent(String.self, forKey: .name) ?? "Printer"
+        model = try c.decodeIfPresent(String.self, forKey: .model) ?? ""
+        machine = try c.decodeIfPresent(String.self, forKey: .machine) ?? ""
+        kind = (try? c.decodeIfPresent(Kind.self, forKey: .kind)) ?? Kind.none
+        url = try c.decodeIfPresent(String.self, forKey: .url) ?? ""
+        https = try c.decodeIfPresent(String.self, forKey: .https) ?? ""
+        serial = try c.decodeIfPresent(String.self, forKey: .serial) ?? ""
+    }
+
+    /// The API key, in the Keychain (for a Bambu printer: its access code).
     var apiKey: String {
         get { Keychain.read(account: id.uuidString) ?? "" }
         nonmutating set { Keychain.write(newValue, account: id.uuidString) }

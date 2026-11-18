@@ -252,6 +252,39 @@ final class Workspace {
                 zs_buffer_free(out, len)
             }
         }
+        // ZSLICE_BAMBU=address:serial:code runs the link of Bambu.swift on
+        // the plate: the upload, the start, and the status, with logs.
+        if let b = env["ZSLICE_BAMBU"], let data = model.gcode() {
+            let f = b.split(separator: ":").map(String.init)
+            var p = Printer(name: "bambu-test", kind: .bambu, url: f[0])
+            p.id = UUID(uuidString: "00000000-0000-0000-0000-0000000000bb")!
+            p.serial = f[1]
+            p.apiKey = f[2]
+            Task { @MainActor in
+                var out: UnsafeMutablePointer<UInt8>?
+                var len = 0
+                _ = data.withUnsafeBytes { zs_bambu_file($0.bindMemory(to: UInt8.self).baseAddress, $0.count, "test", &out, &len) }
+                let bytes = out.map { Data(bytes: $0, count: len) } ?? Data()
+                if let out { zs_buffer_free(out, len) }
+                var pinned: String?
+                do {
+                    try await BambuLink.upload(p, name: "test.gcode.3mf", data: bytes, pinned: &pinned)
+                    NSLog("zslice bambu: uploaded %d bytes, pinned %@", bytes.count, pinned ?? "no")
+                    try await BambuLink.start(p, file: "test.gcode.3mf", title: "test", flags: 1, pinned: &pinned)
+                    NSLog("zslice bambu: started")
+                } catch {
+                    NSLog("zslice bambu: error %@", error.localizedDescription)
+                }
+                let st = await PrinterLink.status(p)
+                NSLog("zslice bambu: status %@", st?.line ?? "none")
+                let t = await PrinterLink.test(p)
+                NSLog("zslice bambu: test %@", t.message)
+                p.apiKey = "wrong"
+                let bad = await PrinterLink.test(p)
+                NSLog("zslice bambu: wrong code: %@", bad.message)
+                p.apiKey = ""
+            }
+        }
         // ZSLICE_RECORD=path.mov records the demo of Recorder.swift.
         if let path = env["ZSLICE_RECORD"] {
             Task { @MainActor in await Recorder.record(self, to: URL(fileURLWithPath: path)) }
@@ -799,6 +832,10 @@ final class Workspace {
     /// Sends the G-code to the current printer; print: start the print.
     func send(print: Bool) {
         guard let p = PrinterStore.shared.current, p.kind != .none, let data = model.gcode() else { return }
+        if p.kind == .bambu {
+            sendBambu(p, gcode: data, print: print)
+            return
+        }
         let base = (model.name as NSString).deletingPathExtension
         let name = (base.isEmpty ? "plate" : base) + ".gcode"
         sendState = print ? "Sending to \(p.name)…" : "Uploading to \(p.name)…"
@@ -814,9 +851,54 @@ final class Workspace {
         }
     }
 
+    /// A Bambu printer: the .gcode.3mf over FTPS, then the start over MQTT
+    /// (Bambu.swift). A print starts only after the user says, each time,
+    /// that the plate is clear.
+    private func sendBambu(_ p: Printer, gcode: Data, print: Bool) {
+        if print {
+            let a = NSAlert()
+            a.messageText = "Is the plate of \(p.name) clear?"
+            a.informativeText = "The printer starts at once, and its nozzle and bed move into anything on the plate. (Bambu support is untested with a real printer.)"
+            a.addButton(withTitle: "The Plate Is Clear: Print")
+            a.addButton(withTitle: "Cancel")
+            guard a.runModal() == .alertFirstButtonReturn else { return }
+        }
+        let base = (model.name as NSString).deletingPathExtension
+        let title = base.isEmpty ? "plate" : base
+        let file = title.replacingOccurrences(of: " ", with: "_") + ".gcode.3mf"
+        var out: UnsafeMutablePointer<UInt8>?
+        var len = 0
+        guard gcode.withUnsafeBytes({ zs_bambu_file($0.bindMemory(to: UInt8.self).baseAddress, $0.count, title, &out, &len) }) == 0, let out else {
+            sendState = "The file for the printer did not build"
+            return
+        }
+        let bytes = Data(bytes: out, count: len)
+        zs_buffer_free(out, len)
+        sendState = "Uploading to \(p.name)…"
+        Task { @MainActor in
+            var pinned: String?
+            do {
+                try await BambuLink.upload(p, name: file, data: bytes, pinned: &pinned)
+                if print {
+                    sendState = "Starting the print on \(p.name)…"
+                    try await BambuLink.start(p, file: file, title: title, flags: 1, pinned: &pinned)
+                    sendState = "Printing on \(p.name)"
+                } else {
+                    sendState = "Uploaded to \(p.name)"
+                }
+                if let pinned { showNote("zslice trusts the certificate of \(p.name) from now on (SHA-256 \(pinned.prefix(11))…)", seconds: 8) }
+            } catch {
+                sendState = error.localizedDescription
+                let a = NSAlert()
+                a.messageText = print ? "The print did not start" : "The upload failed"
+                a.informativeText = error.localizedDescription
+                a.runModal()
+            }
+        }
+    }
+
     // MARK: - the G-code
 
-    /// Exports the G-code of the last slice with a save panel.
     /// A test print: the G-code of layers lo to hi - 1 alone, lowered to
     /// the bed, with the start and end G-code (zs_app_debug_gcode), to a
     /// file. It checks a few layers before a long print.
@@ -841,6 +923,7 @@ final class Workspace {
         if let w = canvas.window { panel.beginSheetModal(for: w, completionHandler: write) } else { write(panel.runModal()) }
     }
 
+    /// Exports the G-code of the last slice with a save panel.
     func exportGcode(from window: NSWindow?) {
         guard let data = model.gcode() else { return }
         let panel = NSSavePanel()

@@ -25,6 +25,7 @@ struct PrinterPicker: View {
     @State private var kind = Printer.Kind.none
     @State private var url = ""
     @State private var key = ""
+    @State private var serial = ""
     @State private var discovery = Discovery()
     @State private var network: FoundPrinter?
 
@@ -61,7 +62,7 @@ struct PrinterPicker: View {
                                         VStack(alignment: .leading, spacing: 1) {
                                             Text(f.name)
                                             Text("\(f.kindTitle) · \(f.url)\(f.model.isEmpty ? "" : " · \(f.model)")"
-                                                 + (f.bambu ? " · zslice exports the G-code for it; sending comes later" : ""))
+                                                 + (f.bambu ? " · type its access code below" : ""))
                                                 .font(.caption).foregroundStyle(.secondary)
                                         }
                                         Spacer()
@@ -141,7 +142,7 @@ struct PrinterPicker: View {
                         }
                     }
                 }
-                ConnectionSection(kind: $kind, url: $url, key: $key)
+                ConnectionSection(kind: $kind, url: $url, key: $key, serial: $serial)
             }
             .formStyle(.grouped)
         } else {
@@ -155,7 +156,8 @@ struct PrinterPicker: View {
     private func useFound(_ f: FoundPrinter) {
         network = f
         kind = f.printerKind
-        url = f.bambu ? "" : f.url
+        url = f.bambu ? f.url.replacingOccurrences(of: "ftps://", with: "") : f.url
+        serial = f.serial
         if let i = lib.match(hint: f.model.isEmpty ? f.name : f.model, bedX: f.bedX, bedY: f.bedY, height: f.height) {
             selected = i
         }
@@ -165,6 +167,7 @@ struct PrinterPicker: View {
     private func add() {
         guard let i = selected, let m = lib.model(i), let profile = lib.profile(i, nozzle: nozzle) else { return }
         var p = Printer(name: name, model: coreText(m.id), machine: profile, kind: kind, url: url)
+        p.serial = serial
         if !key.isEmpty { p.apiKey = key }
         p.machine = profile
         finish(p)
@@ -197,6 +200,7 @@ struct ConnectionSection: View {
     @Binding var kind: Printer.Kind
     @Binding var url: String
     @Binding var key: String
+    @Binding var serial: String
     @State private var result: String?
     @State private var busy = false
 
@@ -205,14 +209,32 @@ struct ConnectionSection: View {
             Picker("Send prints to", selection: $kind) {
                 ForEach(Printer.Kind.allCases, id: \.self) { Text($0.title).tag($0) }
             }
-            if kind != .none {
+            if kind == .bambu {
+                Text("Bambu Lab support is untested with a real printer. Turn on LAN mode on the printer: its screen shows the access code.")
+                    .font(.callout)
+                    .foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+                TextField("Address", text: $url, prompt: Text("192.168.1.42"))
+                TextField("Serial number", text: $serial, prompt: Text("01P00A123456789"))
+                SecureField("Access code", text: $key)
+                let host = BambuLink.host(probe)
+                if let pin = BambuPins.pin(for: host) {
+                    LabeledContent("Trusted certificate") {
+                        HStack {
+                            Text(pin.prefix(23) + "…").font(.caption.monospaced()).textSelection(.enabled)
+                            Button("Forget") { BambuPins.set(nil, for: host) }
+                                .help("The next connection trusts the certificate of the printer again (after a reset of the printer, for example)")
+                        }
+                    }
+                }
+            } else if kind != .none {
                 TextField("Address", text: $url, prompt: Text("http://printer.local"))
                 if kind != .moonraker {
                     SecureField("API key", text: $key)
                 }
                 HStack {
                     Button("Test the Connection") { run { await PrinterLink.test(probe) } }
-                    if kind != .moonraker {
+                    if kind != .moonraker && kind != .bambu {
                         Button("Get a Key") {
                             run {
                                 let r = await PrinterLink.requestKey(probe) { s in result = "Allow zslice on the printer (\(s) s)…" }
@@ -235,6 +257,7 @@ struct ConnectionSection: View {
     /// A printer with this connection, for a test.
     private var probe: Printer {
         var p = Printer(name: "test", kind: kind, url: url)
+        p.serial = serial
         p.id = UUID(uuidString: "00000000-0000-0000-0000-000000000000")!
         return p
     }
@@ -324,7 +347,7 @@ private struct PrinterEditor: View {
                     LabeledContent("Secure address", value: printer.https)
                 }
             }
-            ConnectionSection(kind: $printer.kind, url: $printer.url, key: $key)
+            ConnectionSection(kind: $printer.kind, url: $printer.url, key: $key, serial: $printer.serial)
             HStack {
                 Spacer()
                 Button("Remove Printer", role: .destructive) { PrinterStore.shared.remove(printer.id) }

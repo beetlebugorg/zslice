@@ -56,7 +56,9 @@ The API keys of your printers are in the Keychain of macOS (Keychain Access, "zs
 
 With a connection and its API key, the print card shows the state of the printer (its job and progress, or the roll in it and the grams left), and a printdeck gives its own estimate of the print time after each slice ("Workhorse: 1h 41m (3 min start)"). zslice sends the G-code to the printdeck for the estimate, compressed; the printer does not keep it or print it.
 
-The picker also finds Bambu Lab printers in LAN mode. zslice picks their model from the library and exports the G-code for them; it cannot send to them yet.
+The picker also finds Bambu Lab printers in LAN mode. **The support of Bambu printers is untested with a real printer.** Turn on LAN mode on the printer; its screen shows the access code. Type the code in the picker (the serial number comes from the search, or from the printer). Upload sends a .gcode.3mf to the printer. Print uploads it and starts it, after you say each time that the plate is clear. The print card shows the state of the printer.
+
+A Bambu printer has a certificate of its own that no authority signs. zslice trusts it on the first connection and says so, and from then on accepts only that certificate at that address. After a reset of the printer, Forget the trusted certificate in Settings > Printers.
 
 The first search of the network asks for the permission to find devices on the local network. Allow it to see your printers in the picker.
 

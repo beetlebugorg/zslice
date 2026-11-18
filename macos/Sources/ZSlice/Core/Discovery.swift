@@ -46,8 +46,7 @@ struct FoundPrinter: Identifiable, Equatable {
         switch Int(kind) {
         case Int(ZS_FOUND_PRINTDECK.rawValue): .printdeck
         case Int(ZS_FOUND_MOONRAKER.rawValue): .moonraker
-        // zslice cannot send to a Bambu printer yet: export a file.
-        case Int(ZS_FOUND_BAMBU.rawValue): .none
+        case Int(ZS_FOUND_BAMBU.rawValue): .bambu
         default: .octoprint
         }
     }

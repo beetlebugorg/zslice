@@ -111,6 +111,7 @@ enum PrinterLink {
 
     /// A test of the connection: the version of the API.
     @MainActor static func test(_ p: Printer) async -> LinkResult {
+        if p.kind == .bambu { return await BambuLink.test(p) }
         guard !(p.url.isEmpty && p.https.isEmpty) else { return LinkResult(ok: false, message: "No address.") }
         do {
             let (d, r) = try await request(p, p.kind == .moonraker ? "/server/info" : "/api/version")
@@ -217,6 +218,7 @@ extension PrinterLink {
         case .octoprint: 1
         case .printdeck: 2
         case .moonraker: 3
+        case .bambu: 4
         case .none: 0
         }
     }
@@ -225,6 +227,7 @@ extension PrinterLink {
     /// zs_printer_status_paths, or nil if the printer does not answer.
     /// Free it with zs_printer_status_free.
     @MainActor static func statusObject(_ p: Printer) async -> OpaquePointer? {
+        if p.kind == .bambu { return await BambuLink.statusObject(p) }
         let kind = coreKind(p.kind)
         guard kind > 0, let s = zs_printer_status_new() else { return nil }
         let paths = coreText(zs_printer_status_paths(kind)).split(separator: "\n").map(String.init)
@@ -244,17 +247,8 @@ extension PrinterLink {
     /// The status of a printer: GET each path of zs_printer_status_paths and
     /// give each reply to the core. nil if the printer does not answer.
     @MainActor static func status(_ p: Printer) async -> PrinterStatus? {
-        let kind = coreKind(p.kind)
-        guard kind > 0, let s = zs_printer_status_new() else { return nil }
+        guard let s = await statusObject(p) else { return nil }
         defer { zs_printer_status_free(s) }
-        let paths = coreText(zs_printer_status_paths(kind)).split(separator: "\n").map(String.init)
-        for (i, path) in paths.enumerated() {
-            guard let (d, r) = try? await request(p, path), (200 ..< 300).contains(r.statusCode) else {
-                if i == 0 { return nil }
-                continue
-            }
-            _ = d.withUnsafeBytes { zs_printer_status_feed(s, kind, path, $0.bindMemory(to: CChar.self).baseAddress, $0.count) }
-        }
         var info = zs_printer_info()
         guard zs_printer_status_get(s, &info) == 0 else { return nil }
         return PrinterStatus(state: coreText(info.state), job: coreText(info.job), progress: info.progress, timeLeft: info.time_left,
