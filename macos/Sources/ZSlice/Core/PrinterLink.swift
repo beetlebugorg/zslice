@@ -90,7 +90,10 @@ enum PrinterLink {
     }
 
     /// Sends the G-code as `filename`; print: start the print.
-    @MainActor static func send(_ p: Printer, filename: String, gcode: Data, print: Bool) async -> LinkResult {
+    @MainActor static func send(_ p: Printer, filename: String, gcode unsigned: Data, print: Bool) async -> LinkResult {
+        // Each send is signed here, whatever path called it (an old
+        // signature line goes first, so signing twice is the same).
+        let gcode = Signer.sign(unsigned)
         guard p.kind != .none, !(p.url.isEmpty && p.https.isEmpty) else { return LinkResult(ok: false, message: "This printer has no connection.") }
         let boundary = "zslice-\(UUID().uuidString)"
         var body = Data()
