@@ -37,10 +37,6 @@ typedef struct {
     GWeakRef model;
 } Bridge;
 
-/* One step of undo (see undo_snapshot). */
-typedef struct Snap Snap;
-static void snap_free(gpointer data);
-
 struct _ZgModel {
     GObject parent;
     zs_app *core;
@@ -90,21 +86,12 @@ struct _ZgModel {
     /* The part whose settings the editors change, or -1 for the plate
      * (zg_model_set_part_scope). */
     gint64 part_scope;
-    /* Undo and redo of the settings: snapshots of the three groups (the
-     * texts of zg_model_group_text, joined with \x1e). `undo_now` is the
-     * state after the last step; a burst of changes (a drag) is one step. */
-    GPtrArray *undo, *redo;
-    Snap *undo_now;
+    /* Undo and redo: the undo list is in the core (zs_app_history_*). The
+     * model ends a step 400 ms after the last change (`undo_timer`), so a
+     * burst of changes (a drag) is one step. `undo_restoring`: the model
+     * updates its editors after an undo, and these signals start no step. */
     guint undo_timer;
     gboolean undo_restoring;
-    gboolean undo_plate_dirty; /* the plate changed since the last step */
-    /* An edit of one setting is one step while its editor keeps the focus:
-     * `undo_pending_key` is the setting of the changes since the last step
-     * ("*" for more than one, or for the plate), `undo_edit_key` the
-     * setting of the last step while its edit is open, and
-     * `undo_focus_key` the setting whose editor has the focus (from the
-     * window, zg_model_history_set_focus). */
-    char *undo_pending_key, *undo_edit_key, *undo_focus_key;
     /* The rolls of the current printer (zg_model_set_rolls). */
     ZgRoll *rolls;
     size_t n_rolls;
@@ -363,9 +350,6 @@ static void zg_model_dispose(GObject *object) {
     rolls_clear(self);
     if (self->undo_timer) g_source_remove(self->undo_timer);
     self->undo_timer = 0;
-    g_clear_pointer(&self->undo, g_ptr_array_unref);
-    g_clear_pointer(&self->redo, g_ptr_array_unref);
-    g_clear_pointer(&self->undo_now, snap_free);
     if (self->core) {
         /* Stops and joins the worker, so no new events follow. */
         zs_app_free(self->core);
@@ -1061,133 +1045,27 @@ gint64 zg_model_selected_gap(ZgModel *self, gint64 *layer) {
     return self->gap_index;
 }
 
-/* ---- undo and redo of the settings and the plate ---- */
-
-enum { UNDO_MAX = 100 };
-/* The most bytes of plate snapshots on the lists: the oldest steps go. */
-#define UNDO_PLATE_BYTES (200u << 20)
-
-/* One step: the settings (the texts of the three groups, joined with
- * \x1e) and the plate (a 3MF file, NULL for an empty plate). Steps with
- * the same plate share its bytes. */
-struct Snap {
-    char *settings;
-    GBytes *plate;
-    /* The facts of the state (zs_app_history_facts), for the history, and
-     * the time of the step (g_get_real_time). */
-    char *facts;
-    gint64 time;
-};
+/* ---- undo and redo of the settings and the plate ----
+ *
+ * The core keeps the undo list (zs_app_history_*), and notes each change.
+ * The model keeps the timer of a step and the focus, and updates the
+ * editors after an undo. */
 
 static void plate_changed(ZgModel *self);
 
-static void snap_free(gpointer data) {
-    Snap *s = data;
-    if (!s) return;
-    g_free(s->settings);
-    g_free(s->facts);
-    if (s->plate) g_bytes_unref(s->plate);
-    g_free(s);
+static gint64 now_ms(void) {
+    return g_get_real_time() / 1000;
 }
 
-static gboolean same_plate(GBytes *a, GBytes *b) {
-    if (a == b) return TRUE;
-    if (!a || !b) return FALSE;
-    return g_bytes_equal(a, b);
+static void undo_stop_timer(ZgModel *self) {
+    if (self->undo_timer) g_source_remove(self->undo_timer);
+    self->undo_timer = 0;
 }
 
-static Snap *undo_snapshot(ZgModel *self) {
-    Snap *snap = g_new0(Snap, 1);
-    GString *s = g_string_new(NULL);
-    for (int g = 0; g < 3; g++) {
-        char *t = zg_model_group_text(self, g);
-        if (g) g_string_append_c(s, '\x1e');
-        g_string_append(s, t);
-        g_free(t);
-    }
-    snap->settings = g_string_free(s, FALSE);
-    /* The plate: the same bytes as the step before if it did not change. */
-    if (!self->undo_plate_dirty && self->undo_now) {
-        snap->plate = self->undo_now->plate ? g_bytes_ref(self->undo_now->plate) : NULL;
-    } else if (zs_app_part_count(self->core) > 0) {
-        const uint8_t *bytes = NULL;
-        size_t len = 0;
-        if (zs_app_write_3mf(self->core, &bytes, &len) == ZS_OK) snap->plate = g_bytes_new(bytes, len);
-    }
-    self->undo_plate_dirty = FALSE;
-    size_t flen = 0;
-    if (zs_app_history_facts(self->core, NULL, 0, &flen) == ZS_OK) {
-        snap->facts = g_malloc(flen + 1);
-        zs_app_history_facts(self->core, snap->facts, flen + 1, NULL);
-    } else {
-        snap->facts = g_strdup("");
-    }
-    snap->time = g_get_real_time();
-    return snap;
-}
-
-/* The oldest steps go while the plates of the lists take too much memory
- * (a plate counts once for the steps that share it). */
-static void undo_trim(ZgModel *self) {
-    for (;;) {
-        gsize total = 0;
-        GBytes *last = NULL;
-        for (guint i = 0; i < self->undo->len; i++) {
-            Snap *sn = self->undo->pdata[i];
-            if (sn->plate && sn->plate != last) total += g_bytes_get_size(sn->plate);
-            last = sn->plate;
-        }
-        if (total <= UNDO_PLATE_BYTES || self->undo->len == 0) return;
-        g_ptr_array_remove_index(self->undo, 0);
-    }
-}
-
-/* Ends the step of the changes so far: the state before it goes on the
- * undo list. */
+/* Ends the step of the changes so far. */
 static void undo_commit(ZgModel *self) {
-    if (self->undo_timer) {
-        g_source_remove(self->undo_timer);
-        self->undo_timer = 0;
-    }
-    Snap *now = undo_snapshot(self);
-    gboolean differs = self->undo_now && (strcmp(now->settings, self->undo_now->settings) != 0 || !same_plate(now->plate, self->undo_now->plate));
-    /* The key of the changes: freed at the end (g_autofree). */
-    g_autofree char *key = g_steal_pointer(&self->undo_pending_key);
-    gboolean single = key && strcmp(key, "*") != 0;
-    /* More changes of the setting of the last step, in the same edit: they
-     * change that step. */
-    gboolean amend = differs && single && self->undo->len > 0 && g_strcmp0(key, self->undo_edit_key) == 0 &&
-                     g_strcmp0(key, self->undo_focus_key) == 0;
-    if (amend) {
-        snap_free(self->undo_now);
-        self->undo_now = now;
-        g_ptr_array_set_size(self->redo, 0);
-        /* Back at the value before the edit: the step goes. */
-        Snap *prev = self->undo->pdata[self->undo->len - 1];
-        if (strcmp(prev->settings, now->settings) == 0 && same_plate(prev->plate, now->plate)) {
-            snap_free(self->undo_now);
-            self->undo_now = g_ptr_array_steal_index(self->undo, self->undo->len - 1);
-            g_clear_pointer(&self->undo_edit_key, g_free);
-        }
-        g_signal_emit(self, signals[SIGNAL_UNDO_CHANGED], 0);
-        return;
-    }
-    /* A commit with no change keeps the edit open. */
-    if (differs) {
-        g_free(self->undo_edit_key);
-        self->undo_edit_key = single ? g_strdup(key) : NULL;
-    }
-    if (differs) {
-        g_ptr_array_add(self->undo, self->undo_now);
-        if (self->undo->len > UNDO_MAX) g_ptr_array_remove_index(self->undo, 0);
-        undo_trim(self);
-        g_ptr_array_set_size(self->redo, 0);
-        self->undo_now = now;
-        g_signal_emit(self, signals[SIGNAL_UNDO_CHANGED], 0);
-    } else {
-        snap_free(self->undo_now);
-        self->undo_now = now;
-    }
+    undo_stop_timer(self);
+    if (zs_app_history_commit(self->core, now_ms())) g_signal_emit(self, signals[SIGNAL_UNDO_CHANGED], 0);
 }
 
 static gboolean on_undo_timer(gpointer data) {
@@ -1199,132 +1077,87 @@ static gboolean on_undo_timer(gpointer data) {
 
 static void undo_schedule(ZgModel *self) {
     if (self->undo_restoring) return;
-    if (self->undo_timer) g_source_remove(self->undo_timer);
+    undo_stop_timer(self);
     self->undo_timer = g_timeout_add(400, on_undo_timer, self);
 }
 
-/* The changes since the last step: one setting, or "*" for more. A key
- * that ends with '.' (a whole group, from a profile) counts as more. */
-static void undo_note_key(ZgModel *self, const char *key) {
-    gboolean whole = !key || !*key || key[strlen(key) - 1] == '.';
-    if (!self->undo_pending_key) self->undo_pending_key = g_strdup(whole ? "*" : key);
-    else if (whole || strcmp(self->undo_pending_key, key) != 0) {
-        g_free(self->undo_pending_key);
-        self->undo_pending_key = g_strdup("*");
-    }
+static void on_undo_change(ZgModel *self, const char *key, gpointer data) {
+    undo_schedule(self);
 }
 
-static void on_undo_change(ZgModel *self, const char *key, gpointer data) {
-    if (self->undo_restoring) return;
-    undo_note_key(self, key);
+static void on_undo_plate(ZgModel *self, gpointer data) {
     undo_schedule(self);
 }
 
 void zg_model_history_set_focus(ZgModel *self, const char *key) {
-    if (g_strcmp0(key, self->undo_focus_key) == 0) return;
-    /* The edit ends: its changes so far are a step (of the old focus). */
-    if (self->undo_timer) undo_commit(self);
-    g_clear_pointer(&self->undo_edit_key, g_free);
-    g_free(self->undo_focus_key);
-    self->undo_focus_key = g_strdup(key);
+    /* A new focus ends the edit: the core commits its changes. */
+    gboolean changed = zs_app_history_set_focus(self->core, key, now_ms());
+    if (!zs_app_history_pending(self->core)) undo_stop_timer(self);
+    if (changed) g_signal_emit(self, signals[SIGNAL_UNDO_CHANGED], 0);
 }
 
-static void on_undo_plate(ZgModel *self, gpointer data) {
-    if (self->undo_restoring) return;
-    self->undo_plate_dirty = TRUE;
-    undo_note_key(self, NULL);
-    undo_schedule(self);
-}
-
-/* Loads a step: the plate if it differs, then each group of settings
- * whose text differs. */
-static void undo_restore(ZgModel *self, const Snap *snap, const Snap *before) {
-    self->undo_restoring = TRUE;
-    if (!same_plate(snap->plate, before ? before->plate : NULL)) {
-        if (snap->plate) {
-            gsize len = 0;
-            const void *data = g_bytes_get_data(snap->plate, &len);
-            if (zs_app_load_stl(self->core, "plate.3mf", data, len) == ZS_OK) {
-                zg_model_select_part(self, -1);
-                zg_model_select(self, -1);
-                plate_changed(self);
-            }
-        } else {
-            zg_model_plate_clear(self);
+/* After an undo, a redo, or a jump (the bits of enum
+ * zs_history_restored): the selection, the editors, the saved groups, and
+ * a new slice. */
+static void undo_restored(ZgModel *self, int bits) {
+    if (bits & ZS_HISTORY_MOVED) {
+        self->undo_restoring = TRUE;
+        if (bits & ZS_HISTORY_PLATE) {
+            zg_model_select_part(self, -1);
+            zg_model_select(self, -1);
+            plate_changed(self);
+            if (zs_app_part_count(self->core) == 0) g_signal_emit(self, signals[SIGNAL_CORE_EVENT], 0, ZS_EVENT_CANCELED, 0.0, 0);
         }
-    }
-    char **parts = g_strsplit(snap->settings, "\x1e", 3);
-    for (int g = 0; g < 3 && parts[g]; g++) {
-        char *now = zg_model_group_text(self, g);
-        if (strcmp(now, parts[g]) != 0) {
-            GError *error = NULL;
-            if (!zg_model_load_profile(self, g, parts[g], strlen(parts[g]), &error)) {
-                g_warning("zslice: undo: %s", error->message);
-                g_error_free(error);
-            }
+        if (bits & ZS_HISTORY_QUALITY) {
+            const char *q = zs_app_quality_name(self->core);
+            zg_pref_set("profile_project", q);
         }
-        g_free(now);
+        static const char *prefixes[] = {"machine.", "filament.", "project."};
+        for (int g = 0; g < 3; g++) {
+            if (!(bits & (ZS_HISTORY_MACHINE << g))) continue;
+            zg_model_announce(self, prefixes[g]);
+            zg_model_save_soon(self, g);
+        }
+        self->undo_restoring = FALSE;
+        slice_soon(self);
     }
-    self->undo_restoring = FALSE;
-    self->undo_plate_dirty = FALSE;
-    g_strfreev(parts);
-}
-
-static gboolean undo_move(ZgModel *self, GPtrArray *from, GPtrArray *to) {
-    undo_commit(self);
-    if (from->len == 0) return FALSE;
-    Snap *snap = g_ptr_array_steal_index(from, from->len - 1);
-    Snap *before = self->undo_now;
-    g_ptr_array_add(to, before);
-    self->undo_now = snap;
-    undo_restore(self, snap, before);
-    g_clear_pointer(&self->undo_edit_key, g_free);
     g_signal_emit(self, signals[SIGNAL_UNDO_CHANGED], 0);
-    return TRUE;
 }
 
 gboolean zg_model_undo(ZgModel *self) {
-    return undo_move(self, self->undo, self->redo);
+    undo_stop_timer(self);
+    int bits = zs_app_history_undo(self->core, now_ms());
+    undo_restored(self, bits);
+    return bits != 0;
 }
 
 gboolean zg_model_redo(ZgModel *self) {
-    return undo_move(self, self->redo, self->undo);
+    undo_stop_timer(self);
+    int bits = zs_app_history_redo(self->core, now_ms());
+    undo_restored(self, bits);
+    return bits != 0;
 }
 
-/* ---- the history: the undo list, the step now, and the redo list as one
- * list of steps, the oldest first ---- */
-
-static Snap *history_at(ZgModel *self, guint i) {
-    if (i < self->undo->len) return self->undo->pdata[i];
-    if (i == self->undo->len) return self->undo_now;
-    guint k = i - self->undo->len - 1;
-    if (k < self->redo->len) return self->redo->pdata[self->redo->len - 1 - k];
-    return NULL;
-}
+/* ---- the history: the steps of the undo list, the oldest first ---- */
 
 guint zg_model_history_count(ZgModel *self) {
-    return self->undo->len + (self->undo_now ? 1 : 0) + self->redo->len;
+    return zs_app_history_count(self->core);
 }
 
 guint zg_model_history_current(ZgModel *self) {
-    return self->undo->len;
+    return zs_app_history_current(self->core);
 }
 
 gint64 zg_model_history_time(ZgModel *self, guint i) {
-    Snap *s = history_at(self, i);
-    return s ? s->time : 0;
+    zs_history_step st;
+    if (zs_app_history_step(self->core, i, &st) != ZS_OK) return 0;
+    return st.time_ms * 1000;
 }
 
 char *zg_model_history_changes(ZgModel *self, guint i) {
-    if (i == 0) return NULL;
-    Snap *a = history_at(self, i - 1), *b = history_at(self, i);
-    if (!a || !b) return NULL;
-    const char *fa = a->facts ? a->facts : "", *fb = b->facts ? b->facts : "";
-    size_t len = 0;
-    if (zs_history_diff(fa, strlen(fa), fb, strlen(fb), NULL, 0, &len) != ZS_OK) return NULL;
-    char *out = g_malloc(len + 1);
-    zs_history_diff(fa, strlen(fa), fb, strlen(fb), out, len + 1, NULL);
-    return out;
+    zs_history_step st;
+    if (i == 0 || zs_app_history_step(self->core, i, &st) != ZS_OK) return NULL;
+    return g_strndup(st.changes, st.changes_len);
 }
 
 char *zg_model_history_describe(ZgModel *self, const char *changes) {
@@ -1336,33 +1169,17 @@ char *zg_model_history_describe(ZgModel *self, const char *changes) {
 }
 
 gboolean zg_model_history_goto(ZgModel *self, guint i) {
-    undo_commit(self);
-    guint cur = self->undo->len;
-    if (!self->undo_now || i == cur || i >= zg_model_history_count(self)) return FALSE;
-    Snap *before = self->undo_now;
-    if (i < cur) {
-        g_ptr_array_add(self->redo, self->undo_now);
-        while (self->undo->len > i + 1) g_ptr_array_add(self->redo, g_ptr_array_steal_index(self->undo, self->undo->len - 1));
-        self->undo_now = g_ptr_array_steal_index(self->undo, self->undo->len - 1);
-    } else {
-        g_ptr_array_add(self->undo, self->undo_now);
-        while (self->undo->len < i) g_ptr_array_add(self->undo, g_ptr_array_steal_index(self->redo, self->redo->len - 1));
-        self->undo_now = g_ptr_array_steal_index(self->redo, self->redo->len - 1);
-    }
-    undo_restore(self, self->undo_now, before);
-    g_clear_pointer(&self->undo_edit_key, g_free);
-    g_signal_emit(self, signals[SIGNAL_UNDO_CHANGED], 0);
-    return TRUE;
+    undo_stop_timer(self);
+    int bits = zs_app_history_goto(self->core, i, now_ms());
+    undo_restored(self, bits);
+    return bits != 0;
 }
 
 gboolean zg_model_history_truncate(ZgModel *self, guint i) {
-    undo_commit(self);
-    if (i != self->undo->len && !zg_model_history_goto(self, i)) return FALSE;
-    if (self->redo->len == 0) return FALSE;
-    g_ptr_array_set_size(self->redo, 0);
-    g_clear_pointer(&self->undo_edit_key, g_free);
-    g_signal_emit(self, signals[SIGNAL_UNDO_CHANGED], 0);
-    return TRUE;
+    undo_stop_timer(self);
+    int bits = zs_app_history_truncate(self->core, i, now_ms());
+    undo_restored(self, bits);
+    return (bits & ZS_HISTORY_DROPPED) != 0;
 }
 
 static void save_soon(ZgModel *self, const char *key);
@@ -1446,11 +1263,11 @@ int zg_model_measure(ZgModel *self, const double **pts) {
 }
 
 gboolean zg_model_can_undo(ZgModel *self) {
-    return self->undo->len > 0 || self->undo_timer != 0;
+    return zs_app_history_current(self->core) > 0 || self->undo_timer != 0;
 }
 
 gboolean zg_model_can_redo(ZgModel *self) {
-    return self->redo->len > 0 && self->undo_timer == 0;
+    return zs_app_history_current(self->core) + 1 < zs_app_history_count(self->core) && self->undo_timer == 0;
 }
 
 static void zg_model_init(ZgModel *self) {
@@ -1510,9 +1327,8 @@ static void zg_model_init(ZgModel *self) {
         g_free(path);
         g_free(dir);
     }
-    self->undo = g_ptr_array_new_with_free_func(snap_free);
-    self->redo = g_ptr_array_new_with_free_func(snap_free);
-    self->undo_now = undo_snapshot(self);
+    /* The start of the undo list: the state after the start. */
+    zs_app_history_commit(self->core, now_ms());
     g_signal_connect(self, "plate-changed", G_CALLBACK(on_undo_plate), NULL);
     g_signal_connect(self, "setting-changed", G_CALLBACK(on_undo_change), NULL);
     /* The layer profiles and the changes for some layers are in the plate

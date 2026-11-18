@@ -1313,7 +1313,9 @@ static void on_undo_changed(ZgModel *model, gpointer data) {
 }
 
 /* For development: ZSLICE_UNDO_TEST=1 changes the infill density twice,
- * then undoes and redoes, and logs each value. */
+ * then undoes and redoes, moves part 0 and undoes the move, edits the wall
+ * count three times with the focus on its editor (one step), goes to step
+ * 1, and clears the history after it. It logs each value and the steps. */
 static gboolean undo_test_step(gpointer data) {
     Window *w = data;
     static int step = 0;
@@ -1328,7 +1330,27 @@ static gboolean undo_test_step(gpointer data) {
     case 5: zg_model_part_move(w->model, 0, 60, 70); break;
     case 6: break; /* the step of the move ends */
     case 7: zg_model_undo(w->model); break;
+    /* The edits of one setting while its editor has the focus: one step. */
+    case 8: zg_model_history_set_focus(w->model, "project.wall_count");
+            zg_model_set(w->model, "project.wall_count", "3", NULL); break;
+    case 9: zg_model_set(w->model, "project.wall_count", "4", NULL); break;
+    case 10: zg_model_set(w->model, "project.wall_count", "5", NULL); break;
+    case 11: zg_model_history_set_focus(w->model, NULL); break;
+    case 12: zg_model_history_goto(w->model, 1); break;
+    case 13: zg_model_history_truncate(w->model, 1); break;
     default: return G_SOURCE_REMOVE;
+    }
+    {
+        guint n = zg_model_history_count(w->model);
+        g_message("undo test %d: step %u of %u", step - 1, zg_model_history_current(w->model), n);
+        for (guint i = 1; i < n; i++) {
+            char *changes = zg_model_history_changes(w->model, i);
+            char *words = zg_model_history_describe(w->model, changes);
+            g_strdelimit(words, "\n", ';');
+            g_message("undo test %d:   %u %s", step - 1, i, words);
+            g_free(words);
+            g_free(changes);
+        }
     }
     if (step - 1 >= 5) {
         zs_part part;
