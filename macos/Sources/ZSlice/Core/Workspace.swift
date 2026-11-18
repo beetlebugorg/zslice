@@ -87,6 +87,10 @@ final class Workspace {
 
     // The tools (Tools.swift).
     var tool = Tool.select
+    /// The card of the Support tool shows (S again hides it; kept).
+    var supportPaneOpen = UserDefaults.standard.object(forKey: "supportPane") as? Bool ?? true {
+        didSet { UserDefaults.standard.set(supportPaneOpen, forKey: "supportPane") }
+    }
     var selectedPart: Int?
     @ObservationIgnored var partDrag: PartDrag?
     @ObservationIgnored var tapeDrag: Int?
@@ -1368,7 +1372,7 @@ extension Workspace: SliceViewDelegate {
         if selectionKey(event) { return true }
         // The keys of the tools (with no modifier).
         if event.modifierFlags.intersection([.command, .control, .option, .shift]).isEmpty,
-           let t = Tool.allCases.first(where: { $0.key == event.charactersIgnoringModifiers }) {
+           let t = Tool.of(key: event.charactersIgnoringModifiers ?? "") {
             setTool(t)
             return true
         }

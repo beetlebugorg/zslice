@@ -56,7 +56,7 @@ The card of a selected line has Don't Print This Line (or press Delete with the 
 
 ## Draw support
 
-The Support tool (U) draws an area of support on the part: click points on the part (they snap to the lines; Shift: no snap), then click the first point or press Return to close the area. Delete removes the last point, and Esc stops. Grid or Tree grows support under all of the part in the area that faces down, also where the support angle gives none; Block puts no support there. Click an outline to select its area, drag a point to move it, and press Delete (or Delete Area on the card) to remove it. While the tool is on, the support lines are faint (See through the support), so the outlines show. Each change is one step of the history.
+The Support tool (S, or U) draws an area of support on the part: click points on the part (they snap to the lines; Shift: no snap), then click the first point or press Return to close the area. Delete removes the last point, and Esc stops. Grid or Tree grows support under all of the part in the area that faces down, also where the support angle gives none; Block puts no support there. Click an outline to select its area, drag a point to move it, and press Delete (or Delete Area on the card) to remove it. While the tool is on, the support lines are faint (See through the support), so the outlines show. Each change is one step of the history. Press S again, or click the tool, to show or hide its card; zslice keeps that choice.
 
 ## The print card
 

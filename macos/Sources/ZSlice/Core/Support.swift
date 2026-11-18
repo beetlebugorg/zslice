@@ -1,4 +1,4 @@
-//! The Support tool (U): the support editor of the 3D view
+//! The Support tool (S, or U): the support editor of the 3D view
 //! (web/app/support.js).
 //!
 //! - Draw: click points on the part. A point snaps to the end of the

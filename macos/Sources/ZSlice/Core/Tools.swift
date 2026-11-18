@@ -1,7 +1,7 @@
 //! The tools of the view (web/app/tools.js, linux/src/ui/view3d.c): the
 //! tool strip at the left picks what the mouse does.
 //!
-//! - Select (S): a click selects a line (Selection.swift).
+//! - Select (V): a click selects a line (Selection.swift).
 //! - Move (M): a drag on a part moves it on the bed. Command and a drag do
 //!   the same in the other tools. The frame of the part follows the pointer
 //!   at once (zs_view_part_box), the core gets the place at most each 60
@@ -26,12 +26,17 @@ enum Tool: String, CaseIterable {
 
     var key: String {
         switch self {
-        case .select: "s"
+        case .select: "v"
         case .move: "m"
         case .turn: "r"
         case .measure: "t"
-        case .support: "u"
+        case .support: "s"
         }
+    }
+
+    /// The tool of a key: its own key, or U, the old key of Support.
+    static func of(key: String) -> Tool? {
+        key == "u" ? .support : allCases.first { $0.key == key }
     }
 
     var title: String {
@@ -56,11 +61,11 @@ enum Tool: String, CaseIterable {
 
     var help: String {
         switch self {
-        case .select: "Select (S): click a line to see what it is and the settings that change it."
+        case .select: "Select (V): click a line to see what it is and the settings that change it."
         case .move: "Move (M): drag a part to move it on the bed. Command-scroll turns it by 15°. Command-drag moves a part in any tool."
         case .turn: "Turn (R): click a part, then drag its red, green, or blue ring to turn it about X, Y, or Z (15°; Shift: 5°). Keys: Left and Right about Z, Up and Down about X, Page Up and Page Down about Y."
         case .measure: "Measure (T): click two points of the print or the bed. A click on a circle or an arc measures from its center. Shift: no snap. Esc clears."
-        case .support: "Support (U): click points on the part to draw an area of support, or of no support. Click the first point or press Return to close it. Click an outline to select an area, and drag its points."
+        case .support: "Support (S): click points on the part to draw an area of support, or of no support. Click the first point or press Return to close it. Click an outline to select an area, and drag its points."
         }
     }
 }
@@ -85,6 +90,12 @@ struct PartDrag {
 extension Workspace {
     func setTool(_ t: Tool) {
         let was = tool
+        // Support again (its key, or a click on it): its card opens or
+        // closes, and the choice stays.
+        if t == .support, was == .support {
+            supportPaneOpen.toggle()
+            return
+        }
         tool = t
         if (was == .support) != (t == .support) { supportToolChanged(on: t == .support) }
         if t != .measure { clearTape() }
