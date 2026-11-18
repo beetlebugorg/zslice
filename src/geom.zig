@@ -546,6 +546,10 @@ pub const EdgeIndex = struct {
         for (idx.bandEdges(p.y)) |e| {
             const a = e[0];
             const b = e[1];
+            // An edge whose box is more than `tol` away is too far. Four
+            // integer tests cost less than the division below.
+            if (p.x < @min(a.x, b.x) - tol or p.x > @max(a.x, b.x) + tol or
+                p.y < @min(a.y, b.y) - tol or p.y > @max(a.y, b.y) + tol) continue;
             const abx: f64 = @floatFromInt(b.x - a.x);
             const aby: f64 = @floatFromInt(b.y - a.y);
             const apx: f64 = @floatFromInt(p.x - a.x);
@@ -568,6 +572,9 @@ pub const EdgeIndex = struct {
         for (idx.bandEdges(p.y)) |e| {
             const a = e[0];
             const b = e[1];
+            // See `near`.
+            if (p.x < @min(a.x, b.x) - limit or p.x > @max(a.x, b.x) + limit or
+                p.y < @min(a.y, b.y) - limit or p.y > @max(a.y, b.y) + limit) continue;
             const abx: f64 = @floatFromInt(b.x - a.x);
             const aby: f64 = @floatFromInt(b.y - a.y);
             const apx: f64 = @floatFromInt(p.x - a.x);
