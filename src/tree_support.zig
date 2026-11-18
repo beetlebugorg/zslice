@@ -31,7 +31,7 @@
 //!    lattice centered on the anchor. The branches of a cell join at
 //!    their centroid (weighted by their tips), on the highest layer where
 //!    each of them can reach it with a straight segment that leans at
-//!    most 80 % of the branch angle. Then, in rounds, the branches that
+//!    most the branch angle (`plan_lean`). Then, in rounds, the branches that
 //!    are each other's nearest branch join (`pairs`); a branch with
 //!    several nearest branches at the same distance joins them all, so a
 //!    mirror of the part gives the mirror of the plan. Last, the trunks of
@@ -52,8 +52,9 @@
 //!    On the join layer, the branches of the join become one node at
 //!    their mean point. A branch that was pushed away and is not yet in
 //!    the circle of its join follows it, and joins when it is. Two trunks
-//!    whose circles touch (for example after a bend around the part) move
-//!    toward each other and join (`touch`).
+//!    whose circles are less than 3 spacings apart (for example after a
+//!    bend around the part) move toward each other, if they can meet over
+//!    the foot, and join when one circle holds the other (`touch`).
 //!    To reach the bed (not rest on the part), a branch stays out of the
 //!    avoidance area of each layer: the points from which no branch can
 //!    reach the bed. Layer 0 avoids the part. Layer j avoids the part
@@ -229,6 +230,9 @@ pub const Params = struct {
     /// The least radius of a branch under its tip layers, µm. A branch
     /// with no room for it rests on the part, or stops.
     min_r: f64 = 0,
+    /// Trunks whose circles are at most this many spacings apart move
+    /// toward each other and join (see `touch`).
+    touch: f64 = 3,
     /// The trunks of regions at most this many spacings apart are
     /// planned together, so that they can join.
     forest: f64 = 8,
@@ -239,7 +243,7 @@ pub const Params = struct {
     worth: f64 = 1.5,
     /// The plan leans a segment at most this part of the branch angle,
     /// so that a branch has room to move around the part.
-    plan_lean: f64 = 0.8,
+    plan_lean: f64 = 1,
 };
 
 /// The tree areas of each layer: `body` is the union of the circles, and
@@ -1071,7 +1075,7 @@ fn build(gpa: Allocator, c: *Ctx, outlines: []const Paths, pl: []const PlanNode)
             }
         }
         // Trunks that touch join (see `touch`).
-        try touch(a, nodes.items, pl, &branches, step, p.join_slack);
+        try touch(a, nodes.items, pl, &branches, step, p.join_slack, p.touch * p.spacing, j -| p.fill_layers);
         // 4. The circles of this layer.
         for (nodes.items) |nd| if (nd.alive) {
             try disks[j].append(a, .{ .x = nd.x, .y = nd.y, .r = nd.r, .id = nd.id });
@@ -1091,8 +1095,9 @@ fn build(gpa: Allocator, c: *Ctx, outlines: []const Paths, pl: []const PlanNode)
     return skeletonOf(gpa, a, disks, &branches);
 }
 
-/// Trunks (branches with no join in the plan) whose circles overlap move
-/// toward each other by up to one step, and join when the circle of one
+/// Trunks (branches with no join in the plan) whose circles are less
+/// than `reach` apart move toward each other by up to one step, if they
+/// can meet in `layers_left` layers, and join when the circle of one
 /// holds the other (up to `slack`). The plan joins only along straight
 /// segments; a trunk that goes around the part can come to touch another
 /// trunk, and two touching trunks are one thick trunk with a groove.
@@ -1100,7 +1105,7 @@ fn build(gpa: Allocator, c: *Ctx, outlines: []const Paths, pl: []const PlanNode)
 /// from groups (union-find), so no order of the nodes counts. A group
 /// goes on as its widest circle (the mean of the widest, if there are
 /// two).
-fn touch(a: Allocator, nodes: []Node, pl: []const PlanNode, branches: *Branches, step: f64, slack: f64) Allocator.Error!void {
+fn touch(a: Allocator, nodes: []Node, pl: []const PlanNode, branches: *Branches, step: f64, slack: f64, reach: f64, layers_left: usize) Allocator.Error!void {
     var roots: std.ArrayList(u32) = .empty;
     for (nodes, 0..) |nd, i| if (nd.alive and (pl[nd.plan].parent == none or nd.chase)) try roots.append(a, @intCast(i));
     const rs = roots.items;
@@ -1114,7 +1119,10 @@ fn touch(a: Allocator, nodes: []Node, pl: []const PlanNode, branches: *Branches,
         const dx = q.x - p.x;
         const dy = q.y - p.y;
         const d = @sqrt(dx * dx + dy * dy);
-        if (d >= p.r + q.r or d < 1e-6) continue;
+        if (d >= p.r + q.r + reach or d < 1e-6) continue;
+        // Only if they can meet over the foot: each goes one step a layer.
+        const gap = @max(0, d - @abs(p.r - q.r) - slack);
+        if (gap / (2 * step) > @as(f64, @floatFromInt(layers_left))) continue;
         // Each goes half the way, at most one step in all.
         const m = @min(step, d / 2) / d;
         moves[x][0] += dx * m;
