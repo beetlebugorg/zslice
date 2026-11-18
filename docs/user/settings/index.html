@@ -92,8 +92,8 @@
 <p>The speed at which the head turns a corner with no stop (jerk in Marlin, square corner velocity in Klipper), in mm/s. The time estimate uses it.</p>
 <p><strong><code>machine.accel_control</code></strong> (true or false). Default: <code>false</code></p>
 <p>Write acceleration commands in the G-code: the acceleration of each feature (project <code>*_accel</code>), and the corner speed at the start. Off: the printer uses its own values; the time estimate still uses <code>max_accel</code> and <code>corner_speed</code>.</p>
-<p><strong><code>machine.gcode_flavor</code></strong> (one of: <code>marlin</code>, <code>klipper</code>). Default: <code>marlin</code></p>
-<p>The G-code dialect of the acceleration commands. <code>marlin</code>: M204 S and M205 X Y. <code>klipper</code>: SET_VELOCITY_LIMIT ACCEL and SQUARE_CORNER_VELOCITY.</p>
+<p><strong><code>machine.gcode_flavor</code></strong> (one of: <code>marlin</code>, <code>klipper</code>, <code>reprap</code>, <code>repetier</code>). Default: <code>marlin</code></p>
+<p>The G-code dialect of the acceleration commands. <code>marlin</code>: M204 S and M205 X Y. <code>klipper</code>: SET_VELOCITY_LIMIT ACCEL and SQUARE_CORNER_VELOCITY. <code>reprap</code> (RepRapFirmware): M204 P T and M566 X Y. <code>repetier</code>: M201 X Y and M207 X.</p>
 <h3 id="extruder">Extruder</h3>
 <p><strong><code>machine.extruder</code></strong> (one of: <code>direct</code>, <code>bowden</code>). Default: <code>direct</code></p>
 <p>The extruder type. <code>direct</code>: the motor is on the print head. <code>bowden</code>: the motor pushes the filament through a long tube.</p>
@@ -110,7 +110,7 @@ M104 S{first_layer_nozzle_temp}
 G28 ; home all axes
 M190 S{bed_temp}
 M109 S{first_layer_nozzle_temp}</code></pre>
-<p>The text before the print. These variables are replaced: {nozzle_temp}, {first_layer_nozzle_temp}, {bed_temp}, {standby_temp}, {layer_height}, {first_layer_height}, {first_layer_speed} (mm/s), {nozzle_diameter}, {filament_diameter}, {filament_name}, {machine_name}, and {job_name}.</p>
+<p>The text before the print. These variables are replaced: {nozzle_temp}, {first_layer_nozzle_temp}, {bed_temp}, {standby_temp}, {layer_height}, {first_layer_height}, {first_layer_speed} (mm/s), {nozzle_diameter}, {filament_diameter}, {filament_name}, {machine_name}, and {job_name}. The variables and the expressions of Cura, PrusaSlicer, OrcaSlicer, and Bambu Studio also work. A line with a variable that has no value becomes a comment. If the text does not heat the nozzle or the bed, zslice heats them before it.</p>
 <p><strong><code>machine.end_gcode</code></strong> (text). Default: (multi-line text)</p>
 <pre><code>M104 S0
 M140 S0
@@ -257,6 +257,8 @@ M84</code></pre>
 <p>A list of infill angles in degrees from the X axis, with commas between them, one for each layer in turn: "45,45,45,135,135,135" prints 3 layers at 45 degrees, then 3 layers at 135 degrees, and again. The line patterns (lines, zigzag, flow, grid, triangles, trihexagon, cubic, honeycomb) use the angle of the layer in place of <code>infill_angle</code>, and the lines and zigzag patterns do not turn by 90 degrees on each layer. Empty: <code>infill_angle</code>. As "Infill Line Directions" in Cura.</p>
 <p><strong><code>project.infill_stack</code></strong> (true or false; per layer). Default: <code>false</code></p>
 <p>Keep the infill of all layers on top of each other: the lines, zigzag, and flow patterns do not turn by 90 degrees on each layer. The lines of each layer lie on the lines of the layer below, and make vertical walls, for example the openings of a grille. Grid, triangles, trihexagon, honeycomb, and concentric stack in each case. Honeycomb also prints each cell wall once, so all its walls have one width (else two of the six sides of a cell print twice).</p>
+<p><strong><code>project.infill_anchor</code></strong> (one of: <code>part</code>, <code>bed</code>; per layer). Default: <code>part</code></p>
+<p>Where the grid of the sparse infill starts. "part": at the center of each part, so a part with two equal sides gets equal infill on both, and the copies of a part get the same infill. "bed": at the origin of the bed, as before.</p>
 <p><strong><code>project.infill_flow</code></strong> (number; per layer). Default: <code>1.0</code></p>
 <p>The flow of the sparse infill lines, as a ratio of the flow of a normal line. As "Infill Flow" in Cura.</p>
 <p><strong><code>project.infill_connect</code></strong> (true or false; per layer). Default: <code>true</code></p>

@@ -116,7 +116,7 @@ final class Workspace {
             let d = Discovery()
             d.start()
             DispatchQueue.main.asyncAfter(deadline: .now() + 8.5) {
-                NSLog("zslice discovery: %d printers: %@", d.found.count, d.found.map { "\($0.name) \($0.kindTitle) \($0.url) \($0.model)" }.joined(separator: "; "))
+                NSLog("zslice discovery: %d printers: %@", d.found.count, d.found.map { "\($0.name) \($0.kindTitle) \($0.url) \($0.model) \($0.serial)" }.joined(separator: "; "))
             }
         }
         // ZSLICE_PRINTER=id: the printer of that model of the library.

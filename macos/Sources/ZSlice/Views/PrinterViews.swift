@@ -60,7 +60,8 @@ struct PrinterPicker: View {
                                         Image(systemName: "wifi").foregroundStyle(.secondary)
                                         VStack(alignment: .leading, spacing: 1) {
                                             Text(f.name)
-                                            Text("\(f.kindTitle) · \(f.url)\(f.model.isEmpty ? "" : " · \(f.model)")")
+                                            Text("\(f.kindTitle) · \(f.url)\(f.model.isEmpty ? "" : " · \(f.model)")"
+                                                 + (f.bambu ? " · zslice exports the G-code for it; sending comes later" : ""))
                                                 .font(.caption).foregroundStyle(.secondary)
                                         }
                                         Spacer()
@@ -154,7 +155,7 @@ struct PrinterPicker: View {
     private func useFound(_ f: FoundPrinter) {
         network = f
         kind = f.printerKind
-        url = f.url
+        url = f.bambu ? "" : f.url
         if let i = lib.match(hint: f.model.isEmpty ? f.name : f.model, bedX: f.bedX, bedY: f.bedY, height: f.height) {
             selected = i
         }

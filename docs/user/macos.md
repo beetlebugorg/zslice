@@ -56,6 +56,8 @@ The API keys of your printers are in the Keychain of macOS (Keychain Access, "zs
 
 With a connection and its API key, the print card shows the state of the printer (its job and progress, or the roll in it and the grams left), and a printdeck gives its own estimate of the print time after each slice ("Workhorse: 1h 41m (3 min start)"). zslice sends the G-code to the printdeck for the estimate, compressed; the printer does not keep it or print it.
 
+The picker also finds Bambu Lab printers in LAN mode. zslice picks their model from the library and exports the G-code for them; it cannot send to them yet.
+
 The first search of the network asks for the permission to find devices on the local network. Allow it to see your printers in the picker.
 
 ## Filament and quality

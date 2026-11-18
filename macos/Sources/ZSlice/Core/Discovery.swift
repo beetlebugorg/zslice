@@ -11,9 +11,13 @@
 //!    sends the query again after 1 s and 3 s, as a packet can get lost.
 //! 2. It gives each packet to zs_discovery_feed. When the core has new
 //!    questions, it sends the query again.
-//! 3. For each new printer, it asks the printer what it is: GET /api/version
+//! 3. It listens on UDP port 2021 (ZS_DISCOVERY_BAMBU_PORT), where Bambu Lab
+//!    printers in LAN mode broadcast SSDP text packets, and gives those to
+//!    zs_discovery_feed too.
+//! 4. For each new printer, it asks the printer what it is: GET /api/version
 //!    (OctoPrint, printdeck, PrusaLink) or /printer/objects/query?toolhead
 //!    (Moonraker), with no key, and gives the body to zs_discovery_reply.
+//!    A Bambu printer has no HTTP API, so the app does not ask it.
 //!
 //! The search runs for 8 seconds. The picker shows the printers that it
 //! finds under "On Your Network".
@@ -33,11 +37,17 @@ struct FoundPrinter: Identifiable, Equatable {
     var url: String
     var model: String
     var bedX: Double, bedY: Double, height: Double
+    /// Bambu Lab: the serial number, else "".
+    var serial: String
+
+    var bambu: Bool { kind == Int32(ZS_FOUND_BAMBU.rawValue) }
 
     var printerKind: Printer.Kind {
         switch Int(kind) {
         case Int(ZS_FOUND_PRINTDECK.rawValue): .printdeck
         case Int(ZS_FOUND_MOONRAKER.rawValue): .moonraker
+        // zslice cannot send to a Bambu printer yet: export a file.
+        case Int(ZS_FOUND_BAMBU.rawValue): .none
         default: .octoprint
         }
     }
@@ -64,7 +74,8 @@ final class Discovery {
         found = []
         asked = []
         searching = true
-        sockets = [openSocket(port: 5353, join: true), openSocket(port: 0, join: false)].compactMap { $0 }
+        sockets = [openSocket(port: 5353, join: true), openSocket(port: 0, join: false),
+                   openSocket(port: UInt16(ZS_DISCOVERY_BAMBU_PORT), join: false)].compactMap { $0 }
         for s in sockets {
             let src = DispatchSource.makeReadSource(fileDescriptor: s, queue: .main)
             src.setEventHandler { [weak self] in MainActor.assumeIsolated { self?.receive(s) } }
@@ -147,9 +158,10 @@ final class Discovery {
             var f = zs_found_printer()
             guard zs_discovery_get(d, i, &f) == 0 else { return nil }
             return FoundPrinter(name: coreText(f.name), kind: f.kind, kindTitle: coreText(f.kind_title), url: coreText(f.url),
-                                model: coreText(f.model), bedX: f.bed_x, bedY: f.bed_y, height: f.height)
+                                model: coreText(f.model), bedX: f.bed_x, bedY: f.bed_y, height: f.height,
+                                serial: coreText(f.serial))
         }
-        for (i, f) in found.enumerated() where !f.url.isEmpty && !asked.contains(f.url) {
+        for (i, f) in found.enumerated() where !f.url.isEmpty && !f.bambu && !asked.contains(f.url) {
             asked.insert(f.url)
             ask(i, f)
         }
