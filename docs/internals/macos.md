@@ -189,3 +189,31 @@ The work goes in steps. Each step keeps `zig build test`, `zig build web`, and t
 SwiftUI calls `snapshot` on another thread. So the model keeps the bytes of the project file (`zs_set_project_save`), made on the main thread at each step of the history, and `snapshot` returns them. A change in the 400 ms before its step clears them, and `snapshot` then makes them on the main thread.
 
 A model file (an STL, or a 3MF that `zs_project_file_is` does not know) becomes an untitled document after the load (`fileURL = nil`, the type 3MF, the name of the model), so a save never writes over the model.
+
+## The Xcode project and signing
+
+`macos/ZSlice.xcodeproj` builds the same app as the Swift package, as a real app target that Xcode can sign, archive, and notarize. XcodeGen (https://github.com/yonaskolb/XcodeGen) makes it from `macos/project.yml`; after a change of that file, run `xcodegen generate` in `macos/`, and commit both. The project:
+
+- builds the core first (a script phase runs `build-core.sh`; it finds Zig 0.16 in `ZIG`, on the path, or in Homebrew, and keeps `lib/libzslice.a` as it is when the core did not change, so Xcode does not link again);
+- uses the module map of the package (`Sources/CZslice`) and `lib/libzslice.a`;
+- uses `Info.plist` of the package, with the bundle id `org.beetlebug.zslice`;
+- copies `src/printers/beds` to `Resources/beds` after the build, before Xcode signs the app;
+- has the hardened runtime, which notarization needs. The app is not sandboxed: the search of the network uses multicast UDP, which a sandboxed app may use only with an entitlement of Apple;
+- builds for Apple silicon and Intel in a release and an archive.
+
+Signing: `macos/Signing.xcconfig` signs ad hoc, so the project builds with no Apple account. To sign with your Developer ID, make `macos/Signing.local.xcconfig` (git ignores it):
+
+```
+DEVELOPMENT_TEAM = ABCDE12345
+CODE_SIGN_STYLE = Manual
+CODE_SIGN_IDENTITY = Developer ID Application
+```
+
+Then Product > Archive in Xcode, and in the Organizer, Distribute App > Direct Distribution, which signs and notarizes the app. From the command line:
+
+```sh
+cd macos
+xcodebuild -project ZSlice.xcodeproj -scheme ZSlice -configuration Release \
+  -destination 'generic/platform=macOS' -archivePath build/zslice.xcarchive archive
+```
+

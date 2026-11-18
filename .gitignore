@@ -4,3 +4,9 @@ linux/build/
 __pycache__/
 *.pyc
 /specs/
+
+# The signing team of a developer (macos/Signing.xcconfig).
+macos/Signing.local.xcconfig
+# Xcode state of a user.
+macos/ZSlice.xcodeproj/xcuserdata/
+macos/ZSlice.xcodeproj/project.xcworkspace/xcuserdata/

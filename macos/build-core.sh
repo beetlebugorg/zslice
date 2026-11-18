@@ -19,5 +19,7 @@ for arch in aarch64 x86_64; do
     (cd "$tmp/$arch" && ar x "$OLDPWD/zig-out/macos-$arch/lib/libzslice.a" && chmod 644 ./*.o)
     libtool -static -o "$tmp/$arch.a" "$tmp/$arch"/*.o
 done
-lipo -create "$tmp/aarch64.a" "$tmp/x86_64.a" -output "$out/libzslice.a"
+lipo -create "$tmp/aarch64.a" "$tmp/x86_64.a" -output "$tmp/libzslice.a"
+# The same library keeps its time, so a build of Xcode does not link again.
+cmp -s "$tmp/libzslice.a" "$out/libzslice.a" || cp "$tmp/libzslice.a" "$out/libzslice.a"
 echo "$out/libzslice.a"

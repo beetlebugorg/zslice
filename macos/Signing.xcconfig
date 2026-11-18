@@ -1,0 +1,21 @@
+// The signing of the app of the Xcode project (project.yml).
+//
+// By default the app is signed to run on this Mac only (ad hoc), so the
+// project builds with no Apple account. To sign it with your Developer ID,
+// make Signing.local.xcconfig next to this file (git ignores it) with your
+// team, for example:
+//
+//   DEVELOPMENT_TEAM = ABCDE12345
+//   CODE_SIGN_STYLE = Manual
+//   CODE_SIGN_IDENTITY = Developer ID Application
+//
+// Then Product > Archive, and Distribute App > Developer ID in the
+// Organizer, which notarizes the app. See docs/internals/macos.md.
+//
+// SPDX-License-Identifier: AGPL-3.0-or-later
+
+CODE_SIGN_STYLE = Manual
+CODE_SIGN_IDENTITY = -
+DEVELOPMENT_TEAM =
+
+#include? "Signing.local.xcconfig"

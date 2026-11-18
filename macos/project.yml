@@ -1,0 +1,77 @@
+# The Xcode project of the macOS app, for XcodeGen
+# (https://github.com/yonaskolb/XcodeGen): `xcodegen generate` in macos/
+# writes ZSlice.xcodeproj from this file. The Swift package (Package.swift)
+# builds the same app for the command line; this project is for the
+# signed and notarized app (see docs/internals/macos.md, "Sign the app").
+# SPDX-License-Identifier: AGPL-3.0-or-later
+
+name: ZSlice
+options:
+  deploymentTarget:
+    macOS: "14.0"
+  createIntermediateGroups: true
+  developmentLanguage: en
+configFiles:
+  Debug: Signing.xcconfig
+  Release: Signing.xcconfig
+settings:
+  base:
+    SWIFT_VERSION: "6.0"
+    MACOSX_DEPLOYMENT_TARGET: "14.0"
+targets:
+  ZSlice:
+    type: application
+    platform: macOS
+    sources:
+      - path: Sources/ZSlice
+      - path: Info.plist
+        buildPhase: none
+      - path: build-core.sh
+        buildPhase: none
+    settings:
+      base:
+        PRODUCT_NAME: zslice
+        PRODUCT_MODULE_NAME: ZSlice
+        PRODUCT_BUNDLE_IDENTIFIER: org.beetlebug.zslice
+        INFOPLIST_FILE: Info.plist
+        GENERATE_INFOPLIST_FILE: NO
+        MARKETING_VERSION: "0.1"
+        CURRENT_PROJECT_VERSION: "1"
+        # The C API of the core: the module map of the Swift package, and
+        # the universal library of build-core.sh.
+        SWIFT_INCLUDE_PATHS: $(SRCROOT)/Sources/CZslice
+        LIBRARY_SEARCH_PATHS: $(SRCROOT)/lib
+        OTHER_LDFLAGS: -lzslice
+        # Notarization needs the hardened runtime. The app is not
+        # sandboxed: the search of the network uses multicast UDP.
+        ENABLE_HARDENED_RUNTIME: YES
+        DEAD_CODE_STRIPPING: YES
+        # The script writes ../zig-out and lib/.
+        ENABLE_USER_SCRIPT_SANDBOXING: NO
+        COMBINE_HIDPI_IMAGES: YES
+      configs:
+        # A release (and an archive) is for Apple silicon and Intel Macs.
+        Release:
+          ONLY_ACTIVE_ARCH: NO
+    postBuildScripts:
+      - name: Copy the bed models
+        basedOnDependencyAnalysis: false
+        script: |
+          # The bed models of the printers (src/printers/beds; see
+          # REFERENCES.md), as Resources/beds of the app. Xcode signs the
+          # app after this phase.
+          dest="$TARGET_BUILD_DIR/$UNLOCALIZED_RESOURCES_FOLDER_PATH/beds"
+          rm -rf "$dest"
+          mkdir -p "$(dirname "$dest")"
+          cp -R "$SRCROOT/../src/printers/beds" "$dest"
+    preBuildScripts:
+      - name: Build the core (Zig)
+        basedOnDependencyAnalysis: false
+        script: |
+          # The Zig core as lib/libzslice.a (arm64 and x86_64). ZIG names
+          # Zig 0.16; else the zig of Homebrew.
+          export ZIG="${ZIG:-$(command -v zig 2>/dev/null || true)}"
+          for z in "$ZIG" /opt/homebrew/opt/zig@0.16/bin/zig /usr/local/opt/zig@0.16/bin/zig; do
+            if [ -x "$z" ] && "$z" version | grep -q '^0\.16'; then export ZIG="$z"; break; fi
+          done
+          cd "$SRCROOT" && ./build-core.sh
