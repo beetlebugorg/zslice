@@ -162,9 +162,7 @@ struct FarmPage: View {
             workspace.showNote("No G-code: the plate has no slice yet.")
             return
         }
-        let plate = model.plates.indices.contains(i) ? model.plates[i] : nil
-        let name = plate.map { ($0.name as NSString).deletingPathExtension } ?? ""
-        let title = name.isEmpty ? "plate-\(i + 1)" : name
+        let title = model.gcodeName(plate: i)
         // A fresh confirmation each time. G-code for another printer can
         // have another bed, nozzle, or temperatures: say so.
         let a = NSAlert()

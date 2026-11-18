@@ -339,6 +339,20 @@ extension SliceModel {
     }
 
     /// The G-code of the last slice.
+    /// The name of the G-code file of the last slice of plate i (nil: the
+    /// active plate), with no extension (zs_app_gcode_name): the model, the
+    /// plate with more than one, the layer height, the material, the
+    /// printer, and the time, as "3DBenchy_0.2mm_PLA_MK4_50m".
+    func gcodeName(plate: Int? = nil) -> String {
+        let i = plate ?? active
+        guard let app = zs_set_app(set, i) else { return "plate" }
+        var p = zs_part()
+        let part = zs_app_part_get(app, 0, &p) == 0 ? coreText(p.name) : ""
+        let model = part.isEmpty ? name : part
+        let n = coreString { zs_app_gcode_name(app, model, plates.count > 1 ? i + 1 : 0, $0, $1, $2) } ?? ""
+        return n.isEmpty ? "plate" : n
+    }
+
     /// The G-code of the last slice of plate i.
     func gcode(plate i: Int) -> Data? {
         guard let app = zs_set_app(set, i) else { return nil }

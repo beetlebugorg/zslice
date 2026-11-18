@@ -210,6 +210,7 @@ final class Workspace {
             NSLog("%@", line)
         }
         plateFits = zs_app_plate_fits(model.core) != 0
+        if ProcessInfo.processInfo.environment["ZSLICE_GCODE_NAME"] != nil { NSLog("zslice gcode name: %@", model.gcodeName()) }
         if fitAfterSlice {
             fitAfterSlice = false
             fit()
@@ -918,8 +919,7 @@ final class Workspace {
             sendBambu(p, gcode: data, print: print)
             return
         }
-        let base = (model.name as NSString).deletingPathExtension
-        let name = (base.isEmpty ? "plate" : base) + ".gcode"
+        let name = model.gcodeName() + ".gcode"
         sendState = print ? "Sending to \(p.name)…" : "Uploading to \(p.name)…"
         Task { @MainActor in
             let r = await PrinterLink.send(p, filename: name, gcode: data, print: print)
@@ -945,10 +945,10 @@ final class Workspace {
             a.addButton(withTitle: "Cancel")
             guard a.runModal() == .alertFirstButtonReturn else { return }
         }
-        let base = (model.name as NSString).deletingPathExtension
+        let title = model.gcodeName()
         sendState = "Uploading to \(p.name)…"
         Task { @MainActor in
-            let r = await transfer(gcode, title: base.isEmpty ? "plate" : base, to: p, print: print)
+            let r = await transfer(gcode, title: title, to: p, print: print)
             sendState = r.message
             if !r.ok {
                 let a = NSAlert()
@@ -1071,8 +1071,7 @@ final class Workspace {
         guard let data = model.gcode(), goOnOffBed() else { return }
         let panel = NSSavePanel()
         panel.allowedContentTypes = [.gcode]
-        let base = (model.name as NSString).deletingPathExtension
-        panel.nameFieldStringValue = (base.isEmpty ? "plate" : base) + ".gcode"
+        panel.nameFieldStringValue = model.gcodeName() + ".gcode"
         let write = { (r: NSApplication.ModalResponse) in
             guard r == .OK, let url = panel.url else { return }
             do { try data.write(to: url) } catch { NSAlert(error: error).runModal() }
