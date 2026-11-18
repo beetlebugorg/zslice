@@ -2087,13 +2087,18 @@ $("plate-all").onclick = () => {
 };
 $("plate-add").onclick = () => addPlate();
 
-// The keys of the plates: [ and ] and Home, also with no slice.
+// The keys of the plates: [ and ] (the plate before and the next plate,
+// framed), F (frame the active plate), and Home (all plates), also with no
+// slice.
 document.addEventListener("keydown", (e) => {
   if (e.ctrlKey || e.metaKey || e.altKey || menuOpen()) return;
   const t = e.target;
   if (t && (t.closest?.("input, textarea, select, [contenteditable]") || t.closest?.(".panel"))) return;
   if (e.key === "[" || e.key === "]") {
     activatePlate(app.activePlate + (e.key === "]" ? 1 : -1), true);
+  } else if ((e.key === "f" || e.key === "F") && !e.shiftKey) {
+    view.framePlate(app.activePlate);
+    requestFrame();
   } else if (e.key === "Home") {
     if (app.plates.length > 1) view.framePlate(-1);
     else view.resetSmooth();

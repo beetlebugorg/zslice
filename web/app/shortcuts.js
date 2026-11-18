@@ -25,6 +25,15 @@ export const SHORTCUTS = [
     ],
   },
   {
+    group: "Plates",
+    keys: [
+      ["]", "The next plate: make it active, and show it"],
+      ["[", "The plate before: make it active, and show it"],
+      ["F", "Show the active plate"],
+      ["Home", "Show all plates (with one plate: the start view)"],
+    ],
+  },
+  {
     group: "Tools",
     keys: [
       ["S", "Select: a click selects a line"],
