@@ -966,8 +966,10 @@ final class Workspace {
     /// the edit with the plate and makes a step of the history; the plate
     /// slices again.
     func editLine(kind: Int32, value: Double = 1) {
-        guard let s = selection else { return }
-        let rc = zs_app_edit_add(model.core, s.path, kind, value)
+        // By the key of the line, read when it was selected: it works while
+        // a new slice runs.
+        guard let s = selection, s.key != 0, s.layer >= 0 else { return }
+        let rc = zs_app_edit_add_key(model.core, s.key, s.layer, kind, value)
         guard rc == 0 else {
             showNote("The edit did not work (\(statusText(rc))).")
             return

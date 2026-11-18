@@ -130,7 +130,7 @@ extension Workspace {
 
     /// The place of a support mark: the middle of the selected segment,
     /// at the z of its layer.
-    private func markPlace() -> (x: Double, y: Double, z: Double)? {
+    func markPlace() -> (x: Double, y: Double, z: Double)? {
         guard let s = selection else { return nil }
         var tp = zs_toolpaths()
         guard zs_app_toolpaths(model.core, &tp) == 0, s.path < tp.path_count, let ends = tp.path_ends, let pts = tp.points else { return nil }
@@ -193,15 +193,11 @@ extension Workspace {
     /// A drop of plastic of 1 mm at the middle of the selected segment, on
     /// the layer of its line.
     private func addDrop() {
-        guard let s = selection else { return }
-        // While the plate slices, its lines are not there to measure.
-        guard let m = markPlace() else {
-            showNote("The plate is slicing. Add the drop again in a moment.")
-            return
-        }
-        let layer = zs_app_path_layer(model.core, s.path)
-        guard layer >= 0 else { return }
-        let rc = zs_app_edit_add_dot(model.core, Int(layer), m.x, m.y, 1.0)
+        // The place and the layer of the selection, which work while a new
+        // slice runs (zs_app_edit_add_dot_z).
+        guard let s = selection, s.layer >= 0 else { return }
+        let layer = s.layer
+        let rc = zs_app_edit_add_dot_z(model.core, layer, s.z, s.x, s.y, 1.0)
         guard rc == 0 else {
             showNote("The drop did not work (\(statusText(rc))).")
             return

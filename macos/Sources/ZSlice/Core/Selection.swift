@@ -75,7 +75,24 @@ extension Workspace {
     }
 
     func select(path: Int, seg: Int, openCard: Bool) {
+        let before = selection
         selection = Selection(path: path, seg: seg)
+        selection?.key = zs_app_path_key(model.core, path)
+        // The same line again while a new slice runs (a right click on it):
+        // the core has no slice to read, so the facts of before stay.
+        if selection?.key == 0, let before, before.path == path, before.key != 0 {
+            selection = before
+            selection?.seg = seg
+            if openCard { cardOpen = true }
+            showSelection()
+            return
+        }
+        selection?.layer = Int(zs_app_path_layer(model.core, path))
+        if let m = markPlace() {
+            selection?.x = m.x
+            selection?.y = m.y
+            selection?.z = m.z
+        }
         if openCard { cardOpen = true }
         showSelection()
         inspect()
@@ -237,6 +254,12 @@ extension Workspace {
 struct Selection: Equatable {
     var path: Int
     var seg: Int
+    /// Read when the line is selected, from its slice, so an edit works
+    /// while a new slice runs: the key of the line (zs_app_path_key, 0: no
+    /// slice), its layer, and the middle of the segment for a drop.
+    var key: UInt64 = 0
+    var layer = -1
+    var x = 0.0, y = 0.0, z = 0.0
 }
 
 struct RefindKey {
