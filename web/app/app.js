@@ -1932,8 +1932,26 @@ async function exportGcode() {
     toast("No G-code: slice first.");
     return;
   }
-  const base = (r.name || "part").replace(/\.(stl|3mf)$/i, "");
-  download(r.bytes, `${base}.gcode`, "text/x-gcode");
+  download(r.bytes, `${gcodeFileName(r.name)}.gcode`, "text/x-gcode");
+}
+
+// The name of a G-code file, so that many files of a project or a farm
+// tell what they are: the model, the plate (of more than one), the layer
+// height, the material, the printer, and the time. For example
+// "3DBenchy_0.2mm_PLA_MK4_50m".
+function gcodeFileName(model) {
+  const safe = (t) => String(t ?? "").replace(/[^A-Za-z0-9.+-]+/g, "-").replace(/^-+|-+$/g, "");
+  const parts = [safe((model || "part").replace(/\.(stl|3mf|obj|step|stp)$/i, "")) || "part"];
+  if (app.plates.length > 1) parts.push(`plate${app.activePlate + 1}`);
+  const lh = Number(value("project.layer_height"));
+  if (lh > 0) parts.push(`${Math.round(lh * 1000) / 1000}mm`);
+  const mat = safe(value("filament.material"));
+  if (mat) parts.push(mat);
+  const printer = safe(value("machine.name")).replace(/^generic$/i, "");
+  if (printer) parts.push(printer.slice(0, 32));
+  const t = app.stats?.printTimeS ?? 0;
+  if (t > 0) parts.push(t >= 3600 ? `${Math.floor(t / 3600)}h${String(Math.round((t % 3600) / 60)).padStart(2, "0")}m` : `${Math.max(1, Math.round(t / 60))}m`);
+  return parts.join("_");
 }
 $("export").onclick = exportGcode;
 
@@ -1991,7 +2009,7 @@ async function sendGcode(print) {
     toast("No G-code: slice first.");
     return;
   }
-  const base = (r.name || "part").replace(/\.(stl|3mf)$/i, "");
+  const base = gcodeFileName(r.name);
   sending = true;
   updateSummary();
   try {
@@ -2024,8 +2042,7 @@ var farm = new FarmPage({
   send: async (pr, print) => {
     const r = await client.call("gcode");
     if (!r.bytes) return { ok: false, message: "No G-code: slice first." };
-    const base = (r.name || "part").replace(/\.(stl|3mf)$/i, "");
-    const res = await sendToPrinter(pr, `${base}.gcode`, new Uint8Array(r.bytes), print);
+    const res = await sendToPrinter(pr, `${gcodeFileName(r.name)}.gcode`, new Uint8Array(r.bytes), print);
     if (res.ok && print) project.sent();
     return res;
   },
