@@ -669,6 +669,19 @@ static void on_export_chosen(GObject *source, GAsyncResult *res, gpointer data) 
     g_object_unref(window);
 }
 
+/* The name of the G-code file of the active plate, from the core: the
+ * model, the plate, the layer height, the material, the printer, and the
+ * time. Free it with g_free. */
+static char *gcode_file_name(Window *w) {
+    const char *name = zg_model_name(w->model);
+    zs_set *set = zg_model_plate_set(w->model);
+    size_t plate = set && zs_set_count(set) > 1 ? zs_set_active(set) + 1 : 0;
+    char base[256] = "";
+    if (zs_app_gcode_name(zg_model_core(w->model), name && *name ? name : "part", plate, base, sizeof base, NULL) != ZS_OK || !base[0])
+        g_strlcpy(base, "part", sizeof base);
+    return g_strconcat(base, ".gcode", NULL);
+}
+
 void zg_window_export_dialog(GtkWindow *window) {
     Window *w = get(window);
     int state = zs_app_state(zg_model_core(w->model));
@@ -679,15 +692,10 @@ void zg_window_export_dialog(GtkWindow *window) {
     if (state != ZS_STATE_DONE) return;
     GtkFileDialog *dialog = gtk_file_dialog_new();
     gtk_file_dialog_set_title(dialog, "Export G-code");
-    const char *name = zg_model_name(w->model);
-    char *base = g_strdup(name ? name : "part.stl");
-    char *dot = strrchr(base, '.');
-    if (dot) *dot = 0;
-    char *initial = g_strconcat(base, ".gcode", NULL);
+    char *initial = gcode_file_name(w);
     gtk_file_dialog_set_initial_name(dialog, initial);
     gtk_file_dialog_save(dialog, window, NULL, on_export_chosen, g_object_ref(window));
     g_free(initial);
-    g_free(base);
     g_object_unref(dialog);
 }
 
@@ -785,11 +793,7 @@ static void send_now(Window *w) {
     const uint8_t *gcode = NULL;
     size_t len = 0;
     if (zs_app_gcode(zg_model_core(w->model), &gcode, &len) != ZS_OK) return;
-    const char *name = zg_model_name(w->model);
-    char *base = g_strdup(name ? name : "part.stl");
-    char *dot = strrchr(base, '.');
-    if (dot) *dot = 0;
-    char *file = g_strconcat(base, ".gcode", NULL);
+    char *file = gcode_file_name(w);
     GBytes *bytes = g_bytes_new(gcode, len);
     w->send_cancel = g_cancellable_new();
     gtk_widget_set_sensitive(w->send_button, FALSE);
@@ -799,7 +803,6 @@ static void send_now(Window *w) {
     zg_link_send(pr, file, bytes, w->send_print, w->send_cancel, on_send_progress, on_send_done, w);
     g_bytes_unref(bytes);
     g_free(file);
-    g_free(base);
 }
 
 static void on_low_answer(GObject *source, GAsyncResult *res, gpointer data) {

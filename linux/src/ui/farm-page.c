@@ -131,7 +131,14 @@ static void on_confirmed(GObject *source, GAsyncResult *res, gpointer data) {
         return;
     }
     GBytes *bytes = g_bytes_new(g, len);
-    char *file = g_strdup_printf("plate-%d.gcode", (int)(s->plate < 0 ? (gint64)zs_set_active(set) : s->plate) + 1);
+    /* The name of the core, from the first part of the plate. */
+    size_t index = s->plate < 0 ? zs_set_active(set) : (size_t)s->plate;
+    zs_part first = {0};
+    const char *model = zs_app_part_count(app) > 0 && zs_app_part_get(app, 0, &first) == ZS_OK && first.name ? first.name : "plate";
+    char base[256] = "";
+    if (zs_app_gcode_name(app, model, zs_set_count(set) > 1 ? index + 1 : 0, base, sizeof base, NULL) != ZS_OK || !base[0])
+        g_snprintf(base, sizeof base, "plate-%zu", index + 1);
+    char *file = g_strconcat(base, ".gcode", NULL);
     zg_link_send(pr, file, bytes, TRUE, s->page->cancel, on_progress, on_sent, s->page);
     g_free(file);
     g_bytes_unref(bytes);
