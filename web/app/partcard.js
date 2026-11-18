@@ -90,6 +90,10 @@ export class PartCard {
     action("Best orientation", "", "Turn the part to its best orientation: less support, more on the bed, low", "smart");
     action("Less support", "", "Turn the part to need the least support", "less-support");
     action("Reset", "", "The orientation and the scale of the file again", "reset");
+    const moveB = el("button", "pc-action", "To a new plate");
+    moveB.title = "Move the part to a new plate, with the settings of this plate";
+    moveB.onclick = () => this.moveToNewPlate();
+    actions.append(moveB);
     action("Remove", "Delete", "Remove the part from the plate", "remove");
     this.cutBox = el("div", "pc-cut");
     this.cutBox.hidden = true;
@@ -170,12 +174,23 @@ export class PartCard {
       let text = "Cut into two parts.";
       if (pegOn.checked && r.pegs === 0) text = "Cut into two parts. No peg fits: the cut is too small or too thin for one.";
       else if (r.pegs > 0) text = `Cut into two parts, with ${r.pegs} ${r.pegs === 1 ? "peg" : "pegs"}. Glue the pegs into the holes to join the parts.`;
-      if (!r.fits) text += " The parts do not all fit on this bed: they overlap now. Move some to another plate (+ Plate, then cut or move them there).";
+      if (!r.fits) text += " The parts do not all fit on this bed: they overlap now. Select a part, and click To a new plate.";
       this.ctx.toast(text);
       this.ctx.select(r.part);
     };
     show();
     this.place();
+  }
+
+  async moveToNewPlate() {
+    if (!this.part) return;
+    const r = await this.ctx.movePart?.(this.part.index, -1);
+    if (!r?.ok) {
+      this.ctx.toast("The part did not move.");
+      return;
+    }
+    this.ctx.toast(`Moved to plate ${r.to + 1}.`);
+    this.ctx.select(null);
   }
 
   endCut() {

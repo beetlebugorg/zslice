@@ -753,6 +753,8 @@ var partCard = new PartCard({
   select: (part) => tools.selectPart(part),
   search: (text, scope) => search.show(text, scope),
   toast: (t) => toast(t),
+  // Moves the part to another plate (-1: a new plate).
+  movePart: async (index, to) => client.call("partMove", { index, to }),
   // The plane of a cut (zs_view_set_cut): a box and a height, or null.
   cutPlane: (b) => {
     if (b) view.x.zs_view_set_cut(view.v, b[0], b[1], b[2], b[3], b[4]);
@@ -1057,6 +1059,7 @@ $("quality-menu").onclick = () => {
 
 $("main-menu").onclick = () => openMenu($("main-menu"), [
   { label: "Open…", action: () => $("file").click() },
+  { label: "Save project…", action: () => saveProject() },
   { label: "Export G-code…", disabled: app.state !== "done", action: exportGcode },
   { label: "Remove this plate", action: () => removePlate(app.activePlate) },
   { sep: true },
@@ -2136,9 +2139,44 @@ function keepSoon() {
 
 // ---- open a model ----
 
+// Saves all plates as one project file (zs_set_project_save): a 3MF file
+// that zslice opens with its plates, and other slicers as its first plate.
+async function saveProject() {
+  try {
+    const name = (app.plates[0]?.name || app.modelName || "project").replace(/\.(stl|3mf)$/i, "");
+    const r = await client.call("projectSave", { name });
+    download(new Uint8Array(r.bytes), `${name}.3mf`, "model/3mf");
+    toast(app.plates.length > 1 ? `Saved ${app.plates.length} plates in ${name}.3mf.` : `Saved ${name}.3mf.`);
+  } catch (e) {
+    toast(e.message);
+  }
+}
+
 async function openFile(file) {
   if (!file) return;
   stopReplay();
+  // A project file of zslice: its plates replace the plates.
+  if (/\.3mf$/i.test(file.name)) {
+    const probe = await file.arrayBuffer();
+    if (await client.call("projectFileIs", { bytes: probe })) {
+      projectActive = false;
+      project.unload();
+      try {
+        const r = await client.call("projectFileOpen", { bytes: probe }, [probe]);
+        applySettings(r);
+        select(-1, -1, false);
+        $("empty").hidden = true;
+        app.state = "ready";
+        $("title").textContent = file.name;
+        document.title = `${file.name} · zslice`;
+        if (r.note) toast(r.note);
+        history.refresh();
+      } catch (e) {
+        toast(e.message);
+      }
+      return;
+    }
+  }
   const wasProject = projectActive || project.loaded != null;
   projectActive = false;
   project.unload();
@@ -2216,6 +2254,9 @@ document.addEventListener("keydown", (e) => {
   } else if (e.key === "e") {
     e.preventDefault();
     exportGcode();
+  } else if (e.key === "s") {
+    e.preventDefault();
+    saveProject();
   } else if ((e.key === "z" || e.key === "Z" || e.key === "y") && !e.target.closest("input, textarea, select")) {
     e.preventDefault();
     undoRedo(e.key === "z" && !e.shiftKey ? "undo" : "redo");
@@ -2237,6 +2278,7 @@ const search = new SearchOverlay({
     { label: "Open a model…", keys: "Ctrl+O", run: () => $("file").click() },
     { label: "Add models to the plate…", run: () => addModels() },
     { label: "Export G-code…", keys: "Ctrl+E", run: () => exportGcode() },
+    { label: "Save the project…", keys: "Ctrl+S", hint: "all plates in one 3MF file", run: () => saveProject() },
     { label: "Print", hint: "send the G-code to the printer and start", run: () => sendGcode(true) },
     { label: "Arrange the plate", hint: "pack the parts on the bed", run: () => client.call("plate", { action: "arrange" }) },
     { label: "Smart placement", hint: "turn and arrange the parts", run: () => client.call("plate", { action: "smart" }) },

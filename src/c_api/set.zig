@@ -212,6 +212,79 @@ export fn zs_set_project_load(set: ?*Set, files: ?*const project.Files, yml: ?[*
     return ok;
 }
 
+const project_file = @import("../app/project_file.zig");
+
+fn sayMsg(message: ?[*]u8, cap: usize, text: []const u8) void {
+    const m = message orelse return;
+    if (cap == 0) return;
+    const k = @min(text.len, cap - 1);
+    @memcpy(m[0..k], text[0..k]);
+    m[k] = 0;
+}
+
+/// All plates of the set as one project file (a 3MF file that other
+/// slicers open as its first plate; see src/app/project_file.zig): the
+/// parts, their places and settings, and the printer, the filament, and
+/// the print settings of each plate. Free the bytes with zs_buffer_free.
+export fn zs_set_project_save(set: ?*Set, name: ?[*:0]const u8, out: ?*?[*]u8, out_len: ?*usize) c_int {
+    const s = set orelse return @intFromEnum(Status.invalid_argument);
+    const o = out orelse return @intFromEnum(Status.invalid_argument);
+    const l = out_len orelse return @intFromEnum(Status.invalid_argument);
+    const bytes = s.saveProject(gpa, if (name) |n| std.mem.span(n) else "") catch |e| switch (e) {
+        error.OutOfMemory => return @intFromEnum(Status.out_of_memory),
+        error.WriteFailed => return @intFromEnum(Status.out_of_memory),
+    };
+    o.* = bytes.ptr;
+    l.* = bytes.len;
+    return ok;
+}
+
+/// 1 if the bytes are a project file of zslice (open it with
+/// zs_set_project_open); 0 for another file (a plain 3MF: open it as a
+/// model).
+export fn zs_project_file_is(bytes: ?[*]const u8, len: usize) c_int {
+    const b = bytes orelse return 0;
+    return @intFromBool(project_file.isProject(gpa, b[0..len]));
+}
+
+/// Opens a project file: its plates replace the plates of the set, and the
+/// active plate of the file becomes active. ZS_INVALID_VALUE with a
+/// message for a bad file; the set stays as it was. A message can also
+/// come with ZS_OK (a plate that did not load fully).
+export fn zs_set_project_open(set: ?*Set, bytes: ?[*]const u8, len: usize, message: ?[*]u8, cap: usize) c_int {
+    const s = set orelse return @intFromEnum(Status.invalid_argument);
+    const b = bytes orelse return @intFromEnum(Status.invalid_argument);
+    sayMsg(message, cap, "");
+    var diag: project_file.Diagnostic = .{};
+    s.openProject(b[0..len], &diag) catch |e| {
+        sayMsg(message, cap, if (diag.message.len > 0) diag.message else switch (e) {
+            error.NotProject => "The file is not a zslice project.",
+            else => @errorName(e),
+        });
+        return switch (e) {
+            error.OutOfMemory => @intFromEnum(Status.out_of_memory),
+            else => @intFromEnum(Status.invalid_value),
+        };
+    };
+    sayMsg(message, cap, diag.message);
+    return ok;
+}
+
+/// Moves part `part` of plate `from` to plate `to`, or to a new plate after
+/// the others (to < 0, with the settings of plate `from`). The part keeps
+/// its mesh, pose, scale, settings, and volumes, and goes to a free place.
+/// One history step on each plate; both slice again. Returns the index of
+/// the target plate, or -status.
+export fn zs_set_part_move(set: ?*Set, from: usize, part: usize, to: isize) isize {
+    const s = set orelse return -@as(isize, @intFromEnum(Status.invalid_argument));
+    const t: ?usize = if (to < 0) null else @intCast(to);
+    const j = s.movePart(from, part, t) catch |e| return -@as(isize, switch (e) {
+        error.OutOfRange => @intFromEnum(Status.out_of_range),
+        error.OutOfMemory => @intFromEnum(Status.out_of_memory),
+    });
+    return @intCast(j);
+}
+
 /// The color mode of the scenes of the set (enum zs_view_mode).
 export fn zs_set_view_mode(set: ?*Set, mode: c_int) void {
     const s = set orelse return;

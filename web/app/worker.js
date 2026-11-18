@@ -810,6 +810,60 @@ const ops = {
     return { results, index: activeIndex(), info: core.modelInfo(), parts: core.w.x.zs_app_part_count(core.app), ...settingsState() };
   },
 
+  // ---- the project file (zs_set_project_*) ----
+
+  // All plates as one project file: { bytes, name }.
+  projectSave({ name }) {
+    if (histTimer) historyCommit();
+    const w = wasm;
+    const rc = w.withString(name ?? "", (n) => w.x.zs_set_project_save(set, n, w.cell, w.cell + 4));
+    if (rc !== 0) throw new Error(statusText(rc));
+    const ptr = w.u32(w.cell);
+    const len = w.u32(w.cell + 4);
+    const bytes = w.u8.slice(ptr, ptr + len).buffer;
+    w.x.zs_buffer_free(ptr, len);
+    return { bytes };
+  },
+
+  // True if the bytes are a project file of zslice.
+  projectFileIs({ bytes }) {
+    return wasm.withBytes(new Uint8Array(bytes), (p, n) => wasm.x.zs_project_file_is(p, n)) === 1;
+  },
+
+  // Opens a project file: its plates replace the plates.
+  projectFileOpen({ bytes }) {
+    if (histTimer) historyCommit();
+    const w = wasm;
+    const cap = 512;
+    const msg = w.alloc(cap);
+    let note = "";
+    try {
+      const rc = w.withBytes(new Uint8Array(bytes), (p, n) => w.x.zs_set_project_open(set, p, n, msg, cap));
+      note = w.cstr(msg);
+      if (rc !== 0) throw new Error(note || statusText(rc));
+    } finally {
+      w.free(msg, cap);
+    }
+    syncCore();
+    const n = w.x.zs_set_count(set);
+    for (let i = 0; i < n; i++) w.x.zs_set_changed(set, i);
+    showActive();
+    wantSlice();
+    return { note, index: activeIndex(), info: core.modelInfo(), ...settingsState() };
+  },
+
+  // Moves part `index` of the active plate to plate `to` (-1: a new
+  // plate). Returns { ok, to }.
+  partMove({ index, to }) {
+    if (histTimer) historyCommit();
+    const r = wasm.x.zs_set_part_move(set, activeIndex(), index, to);
+    if (r < 0) return { ok: false };
+    syncCore();
+    postPlates();
+    wantSlice();
+    return { ok: true, to: r };
+  },
+
   // The plate as a 3MF file, for keep.js.
   plate3mf() {
     const bytes = core.plate3mf();

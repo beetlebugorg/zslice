@@ -56,6 +56,7 @@ const zs = @import("../root.zig");
 const App = @import("../app.zig").App;
 const parallel = zs.parallel;
 const project = zs.project;
+const project_file = @import("project_file.zig");
 
 pub const Status = enum(c_int) {
     /// No parts.
@@ -710,6 +711,79 @@ pub const Set = struct {
         p.wanted = app.getState() != .empty;
     }
 
+    /// Moves part `part` of plate `from` to plate `to` (null: a new plate
+    /// after the others, with the settings of plate `from`). Both plates
+    /// slice again. Returns the index of the target plate.
+    pub fn movePart(set: *Set, from: usize, part: usize, to: ?usize) Error!usize {
+        if (from >= set.plates.items.len) return error.OutOfRange;
+        if (to) |t| if (t >= set.plates.items.len or t == from) return error.OutOfRange;
+        const src = set.plates.items[from].app;
+        if (part >= src.plate.count()) return error.OutOfRange;
+        const target = to orelse blk: {
+            const keep = set.active;
+            set.active = from;
+            const n = try set.add();
+            // `add` copies the settings of the active plate and selects
+            // the new plate; the active plate stays the one before.
+            try set.select(keep);
+            break :blk n;
+        };
+        const dst = set.plates.items[target].app;
+        _ = try src.movePartTo(part, dst);
+        src.undo.note(src.gpa, null, true);
+        dst.undo.note(dst.gpa, null, true);
+        try set.changed(from, false);
+        try set.changed(target, false);
+        return target;
+    }
+
+    // ---- the project file ----
+
+    /// The plates as one file (see project_file.zig), in gpa.
+    pub fn saveProject(set: *Set, gpa: Allocator, name: []const u8) (Allocator.Error || error{WriteFailed})![]u8 {
+        set.enter();
+        defer set.leave();
+        var list: std.ArrayList(project_file.PlateIn) = .empty;
+        defer list.deinit(gpa);
+        for (set.plates.items) |p| try list.append(gpa, .{ .app = p.app, .name = p.name });
+        return project_file.save(gpa, name, list.items, set.active);
+    }
+
+    /// Opens a project file: its plates replace the plates of the set. A
+    /// file that is not a project changes nothing (error.NotProject).
+    pub fn openProject(set: *Set, bytes: []const u8, diag: *project_file.Diagnostic) project_file.Error!void {
+        var arena_state = std.heap.ArenaAllocator.init(set.gpa);
+        defer arena_state.deinit();
+        const arena = arena_state.allocator();
+        const parsed = try project_file.parse(arena, bytes, diag);
+        var list: std.ArrayList(*Plate) = .empty;
+        defer list.deinit(set.gpa);
+        errdefer for (list.items) |p| p.deinit(set.gpa);
+        for (parsed.plates) |pl| {
+            const p = try set.newPlate();
+            list.append(set.gpa, p) catch |e| {
+                p.deinit(set.gpa);
+                return e;
+            };
+            p.name = try set.gpa.dupe(u8, pl.name);
+            try project_file.loadPlate(p.app, pl, diag);
+            p.wanted = p.app.getState() != .empty;
+        }
+        if (list.items.len == 0) return error.NotProject;
+        set.enter();
+        defer set.leave();
+        for (set.plates.items) |p| p.app.halt();
+        for (set.plates.items) |p| p.deinit(set.gpa);
+        set.plates.clearRetainingCapacity();
+        try set.plates.appendSlice(set.gpa, list.items);
+        list.clearRetainingCapacity();
+        set.held = 0;
+        set.setActive(@min(parsed.active, set.plates.items.len - 1));
+        set.reindex();
+        set.markDirty();
+        set.selectLocked(set.active);
+    }
+
     // ---- the view ----
 
     /// The color mode of the scenes (enum zs_view_mode). The scenes of the
@@ -1188,4 +1262,36 @@ test "plate set: auto mode slices the active plate, then the others, on threads"
     try testing.expectEqual(Status.done, set.info(0).?.status);
     try testing.expectEqual(Status.done, set.info(1).?.status);
     try testing.expect(ev.n_order.load(.monotonic) >= 2);
+}
+
+test "plate set: move a part to a new plate and back" {
+    var ev: Events = .{};
+    const set = try Set.create(testing.allocator, Events.f, &ev, false);
+    defer set.destroy();
+    const app0 = set.appOf(0).?;
+    try app0.setSetting("machine.bed_size_x", "250");
+    var b: zs.mesh.Builder = .init(testing.allocator);
+    try zs.mesh.shapes.addBox(&b, 0, 0, 0, 20, 20, 10);
+    var m = try b.finish();
+    defer m.deinit(testing.allocator);
+    var stl: std.Io.Writer.Allocating = .init(testing.allocator);
+    defer stl.deinit();
+    try m.writeStl(&stl.writer);
+    _ = try app0.addStl("a", stl.written());
+    _ = try app0.addStl("b", stl.written());
+    try testing.expectEqual(@as(usize, 2), app0.plate.count());
+    // To a new plate: it has the settings of plate 0, and the part.
+    const t = try set.movePart(0, 1, null);
+    try testing.expectEqual(@as(usize, 1), t);
+    try testing.expectEqual(@as(usize, 2), set.count());
+    try testing.expectEqual(@as(usize, 0), set.activeIndex());
+    try testing.expectEqual(@as(usize, 1), app0.plate.count());
+    const app1 = set.appOf(1).?;
+    try testing.expectEqual(@as(usize, 1), app1.plate.count());
+    try testing.expectEqual(@as(f64, 250), app1.settings.machine.bed_size_x);
+    // Back to plate 0.
+    try testing.expectEqual(@as(usize, 0), try set.movePart(1, 0, 0));
+    try testing.expectEqual(@as(usize, 2), app0.plate.count());
+    try testing.expectEqual(@as(usize, 0), app1.plate.count());
+    try testing.expectError(error.OutOfRange, set.movePart(0, 0, 0));
 }

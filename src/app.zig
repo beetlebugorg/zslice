@@ -633,6 +633,18 @@ pub const App = struct {
         return n;
     }
 
+    /// Moves part i of this app to the plate of `to` (another app), at a
+    /// free place. Returns its index there.
+    pub fn movePartTo(app: *App, i: usize, to: *App) Allocator.Error!usize {
+        app.stopWorker();
+        to.stopWorker();
+        const part = app.plate.take(i) orelse return error.OutOfMemory;
+        try app.plateChanged();
+        const j = try to.plate.put(to.gpa, part, to.bedSize(), to.partGap());
+        try to.plateChanged();
+        return j;
+    }
+
     pub fn removePart(app: *App, i: usize) Allocator.Error!void {
         app.stopWorker();
         app.plate.remove(app.gpa, i);

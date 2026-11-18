@@ -468,6 +468,12 @@ In the web app, all plates are in one view, in a row, and the plate bar at the b
 
  Each plate slices: the active plate first, then the others. With your own plates, **Open** puts the file on the active plate, and **+** in the toolbar adds models to it; the other plates stay. A printdeck.yml project makes way for an opened file.
 
+## Save the project
+
+**Save project** (Ctrl+S in the web app) writes all plates into one 3MF file: the parts of each plate at their places, their settings, the changes for some layers, and the printer, the filament, and the print settings of each plate. Open the file (Ctrl+O, or drop it on the view) to get all plates back. Another slicer opens the same file as its first plate.
+
+**To a new plate** on the part card moves the part to a new plate after the others, with the settings of its plate. Use it after a cut, when the parts do not fit on one bed.
+
 ## Save the plate
 
 "Save the plate as 3MF" in the menu (Ctrl+S) writes one 3MF file with all parts at their places, and the changes that you made for the parts and for some layers. The global settings (Settings) do not go in the file. Open the 3MF file to get the plate back. zslice also opens 3MF files from other slicers; parts that touch in the file (for example a sign and its text) stay one part, but a part with its own settings or a volume stays apart (see "Cura projects" below).

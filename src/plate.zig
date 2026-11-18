@@ -374,6 +374,27 @@ pub const Plate = struct {
         return true;
     }
 
+    /// Takes part i off the plate, with its mesh, pose, settings, and
+    /// volumes; the caller owns it (put it on a plate with `put`).
+    pub fn take(self: *Plate, i: usize) ?Part {
+        if (i >= self.parts.items.len) return null;
+        return self.parts.orderedRemove(i);
+    }
+
+    /// Puts a part on the plate at a free place (the center of the bed if
+    /// none is free). The plate owns it after the call, also on an error.
+    pub fn put(self: *Plate, gpa: Allocator, part: Part, bed: [2]f64, gap: f64) Allocator.Error!usize {
+        var p = part;
+        const spot = self.freeSpot(&p, bed, gap);
+        p.x = spot[0];
+        p.y = spot[1];
+        self.parts.append(gpa, p) catch |e| {
+            p.deinit(gpa);
+            return e;
+        };
+        return self.parts.items.len - 1;
+    }
+
     pub fn remove(self: *Plate, gpa: Allocator, i: usize) void {
         if (i >= self.parts.items.len) return;
         var p = self.parts.orderedRemove(i);

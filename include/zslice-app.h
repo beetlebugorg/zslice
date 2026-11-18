@@ -1423,6 +1423,23 @@ int zs_set_step(zs_set *set);
  * and message (can be NULL) gets the reason. */
 int zs_set_project_load(zs_set *set, const zs_files *files, const char *yml, const char *counts, size_t active,
                         char *message, size_t cap);
+/* All plates as one project file (.3mf; other slicers open its first
+ * plate): the parts, their places and settings, and the printer, filament,
+ * and print settings of each plate. Free *out with zs_buffer_free. */
+int zs_set_project_save(zs_set *set, const char *name, uint8_t **out, size_t *len);
+/* 1 if the bytes are a zslice project file (zs_set_project_open), 0 for
+ * another file (a plain 3MF opens as a model). */
+int zs_project_file_is(const uint8_t *bytes, size_t len);
+/* Opens a project file: its plates replace the plates of the set. On an
+ * error the set stays, and message says why; a message can also come with
+ * ZS_OK (a plate that did not load fully). */
+int zs_set_project_open(zs_set *set, const uint8_t *bytes, size_t len, char *message, size_t cap);
+/* Moves part `part` of plate `from` to plate `to`, or to a new plate after
+ * the others (to < 0, with the settings of plate from). The part keeps its
+ * mesh, pose, scale, settings, and volumes, and goes to a free place. One
+ * history step on each plate; both slice again. Returns the index of the
+ * target plate, or -status. */
+ptrdiff_t zs_set_part_move(zs_set *set, size_t from, size_t part, ptrdiff_t to);
 
 /* ---- the plates of a set in a view ----
  *
