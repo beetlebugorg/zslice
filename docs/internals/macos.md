@@ -26,7 +26,8 @@ open build/zslice.app
 | `Sources/ZSlice/Core/Workspace.swift` | The model of a window: the plate, the 3D view, the layer range, the replay, and the keys of the view. |
 | `Sources/ZSlice/Views/MetalSliceView.swift` | The 3D view: an `NSView` over a `CAMetalLayer`, its display link, and the input. |
 | `Sources/ZSlice/Render/FrameRenderer.swift` | Draws the frame data of the core with Metal. |
-| `Sources/ZSlice/Render/Shaders.swift` | The Metal shaders. They port `src/render/shaders/*`. |
+| `Sources/ZSlice/Render/LayerRenderer.swift` | Draws the 2D view of one layer with Metal: the bed, the outline (a stencil fill), and the beads as strokes. |
+| `Sources/ZSlice/Render/Shaders.swift` | The Metal shaders. They port `src/render/shaders/*`, and the 2D shaders of `web/app/gl.js`. |
 | `Sources/ZSlice/Views/DocumentWindow.swift` | The window: the 3D view, the scrub bar, and the print card. |
 | `Sources/ZSlice/Views/LayerSlider.swift` | The slider with two knobs for the layers that show. |
 
@@ -46,6 +47,10 @@ On macOS the core does not draw. The view is a `zs_view` with no surface (`ZS_SU
 - The view draws only after a change. Its display link (`NSView.displayLink`, macOS 14) runs while a frame waits or the camera moves, and pauses after that.
 - The view passes pixels to the core: points times the backing scale, with the origin at the top left (the view is flipped).
 - The dark look of the view follows the appearance of the window (`zs_view_set_dark`).
+
+### The 2D page
+
+The 2D page shows one layer from the top: the top layer of the layer slider. It uses the same bead buffer on the GPU as the 3D page, so a new layer only changes the range of a draw. The outlines of all layers (`zs_view_outlines`) go to the GPU once for each slice, as fans of triangles. The stencil buffer fills them by the nonzero rule. The toolbar of the window switches the page, and so do View > 3D View (Command-1) and View > 2D Layer View (Command-2). The app keeps the choice for the next window. On the 2D page, a drag pans, the wheel and a pinch zoom toward the pointer, and a double click fits the part (View > Fit the Part, Command-0).
 
 ### Input
 
@@ -74,6 +79,7 @@ Like the GTK shell, the app reads some environment variables for development and
 - `ZSLICE_SNAPSHOT=path.png` writes the window to that PNG file, a moment after the first frame of a slice. The 3D view comes from Metal and the controls from AppKit (`cacheDisplay`), so it needs no permission to record the screen.
 - `ZSLICE_LAYERS=lo,hi` sets the layer range after the first slice (layer numbers from 1).
 - `ZSLICE_TIME=t` shows the replay at t seconds after the first slice.
+- `ZSLICE_VIEW=2d` (or `3d`) opens the window on that page.
 
 ## Work that moves to the core
 
@@ -87,6 +93,6 @@ App logic goes in the core, so that the three shells do not each have a copy. Tw
 The work goes in steps. Each step keeps `zig build test`, `zig build web`, and the GTK build working.
 
 1. The core link and the 3D view: open a file, slice, and show the beads with Metal. Done.
-2. The slicing UI: the print card and Export G-code, the layer slider, and the replay (done); the 2D layer view, the settings drawer, and history and undo (after the core history).
+2. The slicing UI: the print card and Export G-code, the layer slider, the replay, and the 2D layer view (done); the settings drawer, and history and undo (after the core history).
 3. The tools (Select, Move, Turn, Measure, Gaps, Check), the line and part cards, the settings search, the shortcut sheet, and a double click that faces a side.
 4. Printers (the picker, the library, App Keys, printdeck, OctoPrint, Moonraker, discovery) and printdeck.yml projects. The menus, drag and drop, and the user docs.

@@ -39,6 +39,17 @@ struct DocumentWindow: View {
             }
         }
         .frame(minWidth: 720, minHeight: 480)
+        .toolbar {
+            ToolbarItem(placement: .principal) {
+                Picker("View", selection: Bindable(workspace).page) {
+                    Text("3D").tag(MetalSliceView.Page.threeD)
+                    Text("2D").tag(MetalSliceView.Page.twoD)
+                }
+                .pickerStyle(.segmented)
+                .help("3D: the layers up to the slider. 2D: one layer from the top. A drag pans, the wheel zooms, a double click fits the part.")
+            }
+        }
+        .focusedSceneValue(\.workspace, workspace)
         .task {
             do {
                 try workspace.model.load(name: name, data: document.data)
@@ -52,6 +63,11 @@ struct DocumentWindow: View {
             Text(loadError ?? "")
         }
     }
+}
+
+extension FocusedValues {
+    /// The model of the window in front, for the menu commands.
+    @Entry var workspace: Workspace?
 }
 
 /// The scrub bar: play, the time in the top layer, and the replay speed.

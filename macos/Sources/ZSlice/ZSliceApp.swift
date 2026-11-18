@@ -38,5 +38,26 @@ struct ZSliceApp: App {
         DocumentGroup(viewing: ModelDocument.self) { file in
             DocumentWindow(document: file.document, name: file.fileURL?.lastPathComponent ?? "model.stl")
         }
+        .commands { ViewCommands() }
+    }
+}
+
+/// The View menu: the page of the view.
+struct ViewCommands: Commands {
+    @FocusedValue(\.workspace) private var workspace
+
+    var body: some Commands {
+        CommandGroup(before: .toolbar) {
+            Button("3D View") { workspace?.page = .threeD }
+                .keyboardShortcut("1", modifiers: .command)
+                .disabled(workspace == nil)
+            Button("2D Layer View") { workspace?.page = .twoD }
+                .keyboardShortcut("2", modifiers: .command)
+                .disabled(workspace == nil)
+            Button("Fit the Part") { workspace?.fit() }
+                .keyboardShortcut("0", modifiers: .command)
+                .disabled(workspace == nil)
+            Divider()
+        }
     }
 }

@@ -19,6 +19,12 @@
 //! - a two-finger scroll on a trackpad zooms toward the pointer, and so do
 //!   the mouse wheel and a pinch.
 //!
+//! The view has two pages. The 3D page draws the frame data of the core
+//! (FrameRenderer). The 2D page draws one layer from the top
+//! (LayerRenderer): a drag pans, the wheel and a pinch zoom toward the
+//! pointer, and a double click fits the part in the view (as
+//! web/app/view2d.js).
+//!
 //! The window model (Workspace) is the delegate of the view. It gets the
 //! keys of the view, a call on each frame of a replay, and a call when the
 //! appearance changes (the colors of the view come with its data).
@@ -44,7 +50,22 @@ protocol SliceViewDelegate: AnyObject {
 }
 
 final class MetalSliceView: NSView {
+    enum Page: String { case threeD = "3d", twoD = "2d" }
+
     weak var delegate: SliceViewDelegate?
+    /// The page that shows.
+    var page = Page.threeD {
+        didSet { if page != oldValue { requestFrame() } }
+    }
+    /// The layer of the 2D page.
+    var layer2D = 0 {
+        didSet { if page == .twoD { requestFrame() } }
+    }
+    private var layerRenderer: LayerRenderer?
+    // The camera of the 2D page: a point (x, y) mm is at
+    // (ox + x * scale, oy + y * scale) pixels from the bottom left.
+    private var scale2D = 1.0, ox2D = 0.0, oy2D = 0.0
+    private var fitted2D = false
     private(set) var view: OpaquePointer?
     private let renderer: FrameRenderer?
     private var link: CADisplayLink?
@@ -60,6 +81,7 @@ final class MetalSliceView: NSView {
     override init(frame: NSRect) {
         renderer = FrameRenderer()
         super.init(frame: frame)
+        if let renderer { layerRenderer = LayerRenderer(renderer) }
         wantsLayer = true
         layerContentsRedrawPolicy = .never
         var surface = zs_surface(kind: Int32(ZS_SURFACE_FRAME.rawValue), display: nil, surface: nil, window: 0)
@@ -147,6 +169,8 @@ final class MetalSliceView: NSView {
         let rc = zs_view_load(view, core)
         if rc != 0 { NSLog("zslice: the 3D view did not load the toolpaths: \(statusText(rc))") }
         loaded = rc == 0
+        layerRenderer?.setOutlines(from: view)
+        fitted2D = false
         requestFrame()
     }
 
@@ -215,7 +239,55 @@ final class MetalSliceView: NSView {
                 }
             }
         }
-        renderer.draw(frame.pointee, in: metalLayer, snapshot: shot)
+        if page == .twoD, let lr = layerRenderer {
+            renderer.sync(frame.pointee)
+            lr.setBed(from: frame.pointee)
+            lr.draw(layerFrame(view), in: metalLayer, snapshot: shot)
+        } else {
+            renderer.draw(frame.pointee, in: metalLayer, snapshot: shot)
+        }
+    }
+
+    private var pixelSize: (Int, Int) { (Int(metalLayer.drawableSize.width), Int(metalLayer.drawableSize.height)) }
+
+    /// What the 2D page draws now.
+    private func layerFrame(_ view: OpaquePointer) -> LayerFrame {
+        let (w, h) = pixelSize
+        if !fitted2D { fit2D() }
+        var f = LayerFrame(width: w, height: h, scale: scale2D, ox: ox2D, oy: oy2D, layer: layer2D)
+        var a: UInt32 = 0, b: UInt32 = 0
+        if zs_view_layer_beads(view, layer2D, &a, &b) == 0 { f.beads = (a, b) }
+        if zs_view_layer_marks(view, layer2D, &a, &b) == 0 { f.marks = (a, b) }
+        f.dark = isDark
+        return f
+    }
+
+    /// Fits the beads (or the bed, with no beads) in the view: 85 % of it.
+    func fit2D() {
+        guard let view else { return }
+        let (w, h) = pixelSize
+        var b = [Double](repeating: 0, count: 4)
+        if zs_view_bounds(view, &b) != 0 {
+            let bed = layerRenderer?.bed ?? [220, 220]
+            b = [0, 0, Double(bed.x), Double(bed.y)]
+        }
+        let bw = max(b[2] - b[0], 1), bh = max(b[3] - b[1], 1)
+        scale2D = 0.85 * min(Double(w) / bw, Double(h) / bh)
+        ox2D = Double(w) / 2 - (b[0] + b[2]) / 2 * scale2D
+        oy2D = Double(h) / 2 - (b[1] + b[3]) / 2 * scale2D
+        fitted2D = true
+        requestFrame()
+    }
+
+    /// Zooms the 2D page by `factor` about the pixel (px, py) from the top
+    /// left.
+    private func zoom2D(_ factor: Double, _ px: Double, _ py: Double) {
+        let y = Double(pixelSize.1) - py
+        let mx = (px - ox2D) / scale2D, my = (y - oy2D) / scale2D
+        scale2D = min(2000, max(0.05, scale2D * factor))
+        ox2D = px - mx * scale2D
+        oy2D = y - my * scale2D
+        requestFrame()
     }
 
     private func writeSnapshot(_ frame: CGImage, to url: URL) {
@@ -262,9 +334,23 @@ final class MetalSliceView: NSView {
         return (Float(p.x - last.x), Float(p.y - last.y))
     }
 
+    override func mouseUp(with event: NSEvent) {
+        if event.clickCount == 2 && page == .twoD { fit2D() }
+    }
+
     override func mouseDragged(with event: NSEvent) {
         guard let view, let (dx, dy) = dragDelta(event) else { return }
+        if page == .twoD {
+            pan2D(dx, dy)
+            return
+        }
         zs_view_orbit(view, dx, dy)
+        requestFrame()
+    }
+
+    private func pan2D(_ dx: Float, _ dy: Float) {
+        ox2D += Double(dx) * scale
+        oy2D -= Double(dy) * scale
         requestFrame()
     }
 
@@ -273,6 +359,10 @@ final class MetalSliceView: NSView {
 
     private func pan(_ event: NSEvent) {
         guard let view, let (dx, dy) = dragDelta(event) else { return }
+        if page == .twoD {
+            pan2D(dx, dy)
+            return
+        }
         let s = Float(scale)
         zs_view_pan(view, dx * s, dy * s)
         requestFrame()
@@ -281,6 +371,11 @@ final class MetalSliceView: NSView {
     override func scrollWheel(with event: NSEvent) {
         guard let view else { return }
         let (px, py) = pixel(event)
+        if page == .twoD {
+            let steps = event.hasPreciseScrollingDeltas ? event.scrollingDeltaY / 40 : (event.scrollingDeltaY > 0 ? 1 : -1)
+            if event.scrollingDeltaY != 0 { zoom2D(pow(1.2, steps), Double(px), Double(py)) }
+            return
+        }
         // A positive delta of AppKit scrolls up (away from the user); it
         // zooms in, as a GTK scroll with a negative dy does.
         if event.hasPreciseScrollingDeltas {
@@ -296,6 +391,10 @@ final class MetalSliceView: NSView {
     override func magnify(with event: NSEvent) {
         guard let view else { return }
         let (px, py) = pixel(event)
+        if page == .twoD {
+            zoom2D(1 + event.magnification, Double(px), Double(py))
+            return
+        }
         zs_view_zoom_at(view, Float(1 / (1 + event.magnification)), px, py)
         requestFrame()
     }

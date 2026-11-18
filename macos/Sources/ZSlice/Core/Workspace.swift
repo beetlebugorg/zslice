@@ -40,8 +40,19 @@ final class Workspace {
 
     static let speeds: [Double] = [1, 2, 5, 10, 25, 50, 100]
 
+    /// The page of the view: 3D, or one layer from the top. The app keeps
+    /// the choice for the next window.
+    var page: MetalSliceView.Page = MetalSliceView.Page(rawValue: UserDefaults.standard.string(forKey: "view") ?? "") ?? .threeD {
+        didSet {
+            canvas.page = page
+            UserDefaults.standard.set(page.rawValue, forKey: "view")
+        }
+    }
+
     init() {
         canvas.delegate = self
+        if let p = ProcessInfo.processInfo.environment["ZSLICE_VIEW"].flatMap(MetalSliceView.Page.init) { page = p }
+        canvas.page = page
         model.onSliced = { [weak self] in self?.sliced() }
     }
 
@@ -84,6 +95,7 @@ final class Workspace {
             zs_view_set_time(v, t)
             hi = Int(zs_view_layer_at_time(v, t))
             lo = min(lo, hi)
+            canvas.layer2D = hi
             canvas.requestFrame()
         }
     }
@@ -109,6 +121,7 @@ final class Workspace {
     private func applyRange() {
         guard let v = canvas.view else { return }
         zs_view_set_layer_range(v, lo, hi)
+        canvas.layer2D = hi
         canvas.requestFrame()
     }
 
@@ -134,6 +147,7 @@ final class Workspace {
     func scrub(to f: Double) {
         stopReplay()
         guard let v = canvas.view else { return }
+        page = .threeD
         let (t0, t1) = layerTimes(hi)
         if f >= 1 {
             time = nil
@@ -149,6 +163,7 @@ final class Workspace {
 
     func startReplay() {
         guard let v = canvas.view, layerCount > 0 else { return }
+        page = .threeD
         let d = zs_view_duration(v)
         var t = time ?? 0
         if t <= 0 || t >= d { t = 0 }
@@ -179,7 +194,19 @@ final class Workspace {
         let layer = Int(zs_view_layer_at_time(v, t))
         hi = layer
         lo = min(lo, layer)
+        canvas.layer2D = layer
         return true
+    }
+
+    /// Fits the part in the view: the 2D page fits the layer, and the 3D
+    /// page moves the camera back to the start view.
+    func fit() {
+        if page == .twoD {
+            canvas.fit2D()
+        } else if let v = canvas.view {
+            zs_view_reset_smooth(v)
+            canvas.startAnimation()
+        }
     }
 
     // MARK: - the G-code

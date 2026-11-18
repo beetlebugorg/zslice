@@ -243,4 +243,99 @@ fragment float4 bed_fragment(BedOut in [[stage_in]],
     float a = (in.z > pc.params.y || pc.params.z > 0.5) ? 0.3 : 1.0;
     return float4(col, a);
 }
+// ---- the 2D view of one layer (web/app/gl.js, lineVert and flatVert) ----
+//
+// A point (x, y) in mm goes to clip space as (x, y) * xf.xy + xf.zw: y goes
+// up, as on the bed, and as in the clip space of Metal.
+
+struct Line2D {
+    float4 xf;     // the transform from mm to clip space
+    float3 solid;  // kind 1: the color
+    float px;      // half a pixel in mm: the smallest half width
+    float grow;    // the width times this
+    float kind;    // 0: the feature colors; 1: one color; 2: a mark
+    float mask;    // the focus bits
+    float dim;     // 1: all beads faint
+};
+
+struct LineOut {
+    float4 position [[position]];
+    float2 local;
+    float len;
+    float r;
+    float3 color [[flat]];
+};
+
+constant float3 bed2d = float3(0.906, 0.914, 0.925);
+
+// A stroke with round ends for each bead (instanced): the quad goes from
+// a - r to b + r along the bead, and r to each side. The fragment shader
+// cuts the round ends.
+vertex LineOut line_vertex(uint vid [[vertex_id]],
+                           uint iid [[instance_id]],
+                           const device Instance *inst [[buffer(1)]],
+                           constant Line2D &u [[buffer(2)]]) {
+    Instance in = inst[iid];
+    uint feature = uint(in.color.a);
+    uint m = uint(u.mask + 0.5);
+    float3 zhw = float3(in.zhw);
+    float2 a = in.seg.xy;
+    float2 b = in.seg.zw;
+    float2 d = b - a;
+    float len = length(d);
+    float2 dir = len > 0.0 ? d / len : float2(1.0, 0.0);
+    float2 side = float2(-dir.y, dir.x);
+    float r = max(0.5 * zhw.z * u.grow, u.px);
+    // A travel move is a thin line.
+    if (u.kind > 1.5 && feature == 12u) r = max(0.18 * zhw.z, u.px);
+    float s = (vid & 1u) == 0u ? -r : len + r;
+    float t = vid < 2u ? -r : r;
+    float2 p = a + dir * s + side * t;
+    LineOut o;
+    o.local = float2(s, t);
+    o.len = len;
+    o.r = r;
+    o.position = float4(p * u.xf.xy + u.xf.zw, 0.0, 1.0);
+    if (u.kind > 1.5) {
+        // A mark shows only in a focus on it.
+        bool on = feature < 14u && ((m >> feature) & 1u) != 0u;
+        o.color = feature_rgb[min(feature, 13u)];
+        if (!on) o.position = float4(2.0, 2.0, 2.0, 1.0);
+        return o;
+    }
+    if (u.kind > 0.5) {
+        o.color = u.solid;
+    } else {
+        float3 c = feature_rgb[min(feature, 13u)];
+        bool focus = m == 0u || ((m >> feature) & 1u) != 0u;
+        o.color = (u.dim > 0.5 || !focus) ? mix(bed2d, c, 0.12) : c;
+    }
+    return o;
+}
+
+fragment float4 line_fragment(LineOut in [[stage_in]]) {
+    // Outside the round ends: no pixel.
+    float s = in.local.x < 0.0 ? in.local.x : (in.local.x > in.len ? in.local.x - in.len : 0.0);
+    if (s * s + in.local.y * in.local.y > in.r * in.r) discard_fragment();
+    return float4(in.color, 1.0);
+}
+
+struct Flat2D {
+    float4 xf;
+    float4 color;
+    float2 size;   // scales the points (the bed quad is 0 to 1)
+    uint stride;   // the floats of a point: 2, or 3 for the grid of the 3D view
+};
+
+// The bed, the grid, and the outline: points in mm, in one color.
+vertex float4 flat_vertex(uint vid [[vertex_id]],
+                          const device float *pts [[buffer(0)]],
+                          constant Flat2D &u [[buffer(1)]]) {
+    float2 p = float2(pts[vid * u.stride], pts[vid * u.stride + 1]);
+    return float4(p * u.size * u.xf.xy + u.xf.zw, 0.0, 1.0);
+}
+
+fragment float4 flat_fragment(constant Flat2D &u [[buffer(0)]]) {
+    return u.color;
+}
 """

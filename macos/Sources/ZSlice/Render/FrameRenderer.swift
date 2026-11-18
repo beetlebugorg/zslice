@@ -38,7 +38,7 @@ private let noHighlight: Float = 1e9
 @MainActor
 final class FrameRenderer {
     let device: MTLDevice
-    private let queue: MTLCommandQueue
+    let queue: MTLCommandQueue
     private let boxOpaque: MTLRenderPipelineState
     private let boxBlend: MTLRenderPipelineState
     private let grid: MTLRenderPipelineState
@@ -54,14 +54,15 @@ final class FrameRenderer {
     private var meshIndex: MTLBuffer?
     private var meshFull = 0
     private var lod: [(first: Int, count: Int)] = [(0, 0), (0, 0)]
-    private var instances: MTLBuffer?
+    private(set) var instances: MTLBuffer?
     private var instanceCount = 0
-    private var gridPoints: MTLBuffer?
+    private(set) var gridPoints: MTLBuffer?
     private var bedVerts: MTLBuffer?
     private var bedVertexCount = 0
     private var bedTexture: MTLTexture?
     private var plateGrid: MTLBuffer?
     private var slots: [UInt32: (buffer: MTLBuffer?, gen: UInt32)] = [:]
+    private(set) var gridVertices = 0
     private var gen = (mesh: UInt32.max, instances: UInt32.max, grid: UInt32.max, bed: UInt32.max, plateGrid: UInt32.max)
 
     // The targets: the multisample color and the depth, at the drawable size.
@@ -113,13 +114,13 @@ final class FrameRenderer {
         sampler = device.makeSamplerState(descriptor: sd)!
     }
 
-    private func buffer(_ ptr: UnsafeRawPointer?, _ length: Int) -> MTLBuffer? {
+    func buffer(_ ptr: UnsafeRawPointer?, _ length: Int) -> MTLBuffer? {
         guard let ptr, length > 0 else { return nil }
         return device.makeBuffer(bytes: ptr, length: length, options: .storageModeShared)
     }
 
     /// Sends the buffers of the frame that changed to the GPU.
-    private func sync(_ f: zs_web_frame) {
+    func sync(_ f: zs_web_frame) {
         if f.mesh_gen != gen.mesh {
             meshVerts = buffer(f.mesh_verts, Int(f.mesh_vert_count) * 16)
             meshIndex = buffer(f.mesh_index, Int(f.mesh_index_count) * 2)
@@ -134,6 +135,7 @@ final class FrameRenderer {
         }
         if f.grid_gen != gen.grid {
             gridPoints = buffer(f.grid_points, Int(f.grid_vertices) * 12)
+            gridVertices = Int(f.grid_vertices)
             gen.grid = f.grid_gen
         }
         if f.bed_gen != gen.bed {
@@ -223,7 +225,7 @@ final class FrameRenderer {
 
     /// Copies the texture to a buffer, and makes an image of it when the
     /// GPU is done. For development and screenshots (ZSLICE_SNAPSHOT).
-    private func copyOut(_ tex: MTLTexture, in cmd: MTLCommandBuffer, then done: @escaping @Sendable (CGImage) -> Void) {
+    func copyOut(_ tex: MTLTexture, in cmd: MTLCommandBuffer, then done: @escaping @Sendable (CGImage) -> Void) {
         let w = tex.width, h = tex.height, row = w * 4
         guard let made = device.makeBuffer(length: row * h, options: .storageModeShared), let blit = cmd.makeBlitCommandEncoder() else { return }
         blit.copy(from: tex, sourceSlice: 0, sourceLevel: 0, sourceOrigin: MTLOrigin(), sourceSize: MTLSize(width: w, height: h, depth: 1),
