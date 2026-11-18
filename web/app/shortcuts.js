@@ -49,6 +49,7 @@ export const SHORTCUTS = [
       ["Up, Down (Turn tool)", "Tilt the selected part about X, 15° (with Shift: 5°)"],
       ["Page Up, Page Down (Turn tool)", "Tilt the selected part about Y, 15° (with Shift: 5°)"],
       ["D", "Duplicate the selected part"],
+      ["Delete (a selected line)", "Take the line out of the print: an edit, kept across slices (Ctrl+Z undoes it)"],
       ["Delete", "Remove the selected part"],
       ["Shift+click", "Add a line to the selection"],
       ["Shift (measure)", "No snap"],

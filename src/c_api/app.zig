@@ -591,6 +591,55 @@ export fn zs_app_gcode(a: ?*const App, out: ?*?[*]const u8, out_len: ?*usize) c_
     return ok;
 }
 
+/// An edit of the user on a line of the last slice (the segment editor):
+/// kind 0 deletes the line, kind 1 prints it with `value` times its plastic
+/// (0.1 to 3). An edit of the same line replaces the one before. The edit
+/// stays, and applies to each new slice that makes the same line again.
+/// Slice again after it (zs_app_request_slice). One history step.
+export fn zs_app_edit_add(a: ?*App, path: usize, kind: c_int, value: f64) c_int {
+    const app = a orelse return @intFromEnum(Status.invalid_argument);
+    const t = app.allToolpaths() orelse return @intFromEnum(Status.no_result);
+    if (path >= t.path_key.items.len) return @intFromEnum(Status.out_of_range);
+    const k: zs.app.edits_mod.Kind = switch (kind) {
+        0 => .delete,
+        1 => .flow,
+        else => return @intFromEnum(Status.invalid_argument),
+    };
+    const layer = t.layerOfPath(path) orelse 0;
+    app.edits.put(app.gpa, .{ .key = t.path_key.items[path], .kind = k, .value = @floatCast(value), .layer = @intCast(layer) }) catch return @intFromEnum(Status.out_of_memory);
+    noted(app, null, true);
+    return ok;
+}
+
+/// The count of the edits of the user.
+export fn zs_app_edit_count(a: ?*const App) usize {
+    const app = a orelse return 0;
+    return app.edits.list.items.len;
+}
+
+/// Edit i: its kind, its value, the layer of its line when it was made,
+/// and 1 in *applied if the last slice found its line (0: the line is not
+/// there now; the edit waits). Any output can be NULL.
+export fn zs_app_edit_get(a: ?*const App, i: usize, kind: ?*c_int, value: ?*f64, layer: ?*usize, applied: ?*c_int) c_int {
+    const app = a orelse return @intFromEnum(Status.invalid_argument);
+    if (i >= app.edits.list.items.len) return @intFromEnum(Status.out_of_range);
+    const e = &app.edits.list.items[i];
+    if (kind) |o| o.* = @intFromEnum(e.kind);
+    if (value) |o| o.* = e.value;
+    if (layer) |o| o.* = e.layer;
+    if (applied) |o| o.* = @intFromBool(e.applied.load(.acquire));
+    return ok;
+}
+
+/// Removes edit i. Slice again after it. One history step.
+export fn zs_app_edit_remove(a: ?*App, i: usize) c_int {
+    const app = a orelse return @intFromEnum(Status.invalid_argument);
+    if (i >= app.edits.list.items.len) return @intFromEnum(Status.out_of_range);
+    app.edits.remove(i);
+    noted(app, null, true);
+    return ok;
+}
+
 /// A debug print: the G-code of the layers lo to hi - 1 of the last slice
 /// alone, lowered so that layer lo prints on the bed ("print this layer":
 /// hi = lo + 1). Each layer keeps its height, lines, and speeds. Free the

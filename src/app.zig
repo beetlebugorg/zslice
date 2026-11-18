@@ -81,6 +81,8 @@ pub const inspect_picks = @import("app/inspect_picks.zig");
 pub const setting_search = @import("app/setting_search.zig");
 /// The status of a printer from its API replies (printer_status.zig).
 pub const printer_status = @import("app/printer_status.zig");
+/// The edits of the user on the lines of a slice (edits.zig).
+pub const edits_mod = @import("app/edits.zig");
 pub const License = @import("app/licenses.zig").License;
 pub const licenses = @import("app/licenses.zig").licenses;
 
@@ -215,6 +217,8 @@ pub const App = struct {
     file_bytes: []u8 = &.{},
     /// The undo list (see app/history.zig). The C API notes each change.
     undo: history.History = .{},
+    /// The edits of the user on the lines of the slice (app/edits.zig).
+    edits: edits_mod.Edits = .{},
 
     pub fn create(gpa: Allocator, event_fn: ?EventFn, user: ?*anyopaque) Allocator.Error!*App {
         const app = try gpa.create(App);
@@ -236,6 +240,7 @@ pub const App = struct {
         app.gpa.free(app.slice_overrides);
         app.gpa.free(app.file_bytes);
         app.undo.deinit(app.gpa);
+        app.edits.deinit(app.gpa);
         app.marks.deinit(app.gpa);
         app.gpa.free(app.slice_marks);
         app.dropSlicePlan();
@@ -279,6 +284,8 @@ pub const App = struct {
         app.overrides.clearRetainingCapacity();
         app.profiles.clearRetainingCapacity();
         app.marks.clearRetainingCapacity();
+        // The edits were for the lines of the old parts.
+        app.edits.list.clearRetainingCapacity();
         app.plate.clear(app.gpa);
     }
 
@@ -353,6 +360,18 @@ pub const App = struct {
         try app.plateChanged();
         var lines = std.mem.tokenizeAny(u8, loaded.overrides, "\r\n");
         while (lines.next()) |line| {
+            // "edit <tab> key <tab> kind <tab> value <tab> layer": an edit of
+            // the user on a line (app/edits.zig).
+            if (std.mem.startsWith(u8, line, "edit\t")) {
+                var f = std.mem.splitScalar(u8, line["edit\t".len..], '\t');
+                const key = std.fmt.parseInt(u64, f.next() orelse continue, 16) catch continue;
+                const kind = std.fmt.parseInt(u8, f.next() orelse continue, 10) catch continue;
+                const value = std.fmt.parseFloat(f32, f.next() orelse continue) catch continue;
+                const layer = std.fmt.parseInt(u32, f.next() orelse "0", 10) catch 0;
+                if (kind > 1) continue;
+                try app.edits.put(app.gpa, .{ .key = key, .kind = @enumFromInt(kind), .value = value, .layer = layer });
+                continue;
+            }
             // "profile <tab> z_min <tab> z_max <tab> name": a layer profile.
             if (std.mem.startsWith(u8, line, "profile\t")) {
                 var f = std.mem.splitScalar(u8, line["profile\t".len..], '\t');
@@ -387,6 +406,7 @@ pub const App = struct {
         var text: std.Io.Writer.Allocating = .init(gpa);
         defer text.deinit();
         for (app.profiles.items) |p| try text.writer.print("profile\t{d}\t{d}\t{s}\n", .{ p.z_min, p.z_max, p.name });
+        for (app.edits.list.items) |e| try text.writer.print("edit\t{x}\t{d}\t{d}\t{d}\n", .{ e.key, @intFromEnum(e.kind), e.value, e.layer });
         for (app.overrides.items) |o| try text.writer.print("{d}\t{d}\t{s}\t{s}\n", .{ o.z_min, o.z_max, o.name, o.value });
         var out: std.Io.Writer.Allocating = .init(gpa);
         errdefer out.deinit();
@@ -915,6 +935,14 @@ pub const App = struct {
             }
         }
         if (app.quality_name.len > 0) try w.print("print\tquality\t{s}\n", .{app.quality_name});
+        // The edits of the user on lines.
+        for (app.edits.list.items) |e| {
+            try w.print("edits\tlayer {d}, line {x:0>4}\t", .{ e.layer + 1, e.key & 0xffff });
+            switch (e.kind) {
+                .delete => try w.writeAll("does not print\n"),
+                .flow => try w.print("{d:.0} % plastic\n", .{e.value * 100}),
+            }
+        }
         for (app.plate.parts.items) |p| {
             const name: []const u8 = p.name;
             try w.print("part:{s}\t(part)\tyes\n", .{name});
@@ -1837,7 +1865,10 @@ pub const App = struct {
         // example, a cancel) can leave the old job without outlines, so the
         // old job goes in each case.
         app.dropPrevJob();
-        const job = job_or catch |e| return app.finishFailed(e);
+        var job = job_or catch |e| return app.finishFailed(e);
+        // The edits of the user apply to each layer plan.
+        app.edits.resetApplied();
+        job.edits = &app.edits;
         var out: std.Io.Writer.Allocating = .initOwnedSlice(app.gpa, app.spare_gcode);
         app.spare_gcode = &.{};
         out.clearRetainingCapacity();

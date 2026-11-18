@@ -339,6 +339,8 @@ pub fn stepKind(gpa: Allocator, changes: []const u8) Allocator.Error!Kind {
 /// a part (those come only with the whole step).
 pub fn revertible(line: []const u8) bool {
     if (std.mem.indexOf(u8, line, "\tquality\t") != null) return false;
+    // The edits of lines come back with the whole step.
+    if (std.mem.startsWith(u8, line, "edits\t")) return false;
     if (!std.mem.startsWith(u8, line, "part:")) return true;
     const tab = std.mem.indexOfScalar(u8, line, '\t') orelse return false;
     const key = line[tab + 1 ..];

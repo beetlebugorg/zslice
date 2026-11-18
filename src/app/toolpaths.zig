@@ -47,6 +47,8 @@ pub const Toolpaths = struct {
     /// The part of the plate of each path (see plate_job.zig), or
     /// LayerPlan.no_part for the skirt and the brim around many parts.
     path_part: std.ArrayList(u32) = .empty,
+    /// The key of each path for the edits of the user (edits.pathKey).
+    path_key: std.ArrayList(u64) = .empty,
     /// The nozzle lift of a retracted travel (project.z_hop), in mm.
     z_hop: f32 = 0,
     /// 1 if the layer prints slower than planned, to cool
@@ -77,6 +79,7 @@ pub const Toolpaths = struct {
         t.path_fan.deinit(gpa);
         t.path_modifier.deinit(gpa);
         t.path_part.deinit(gpa);
+        t.path_key.deinit(gpa);
         t.layer_slowed.deinit(gpa);
         t.layer_ends.deinit(gpa);
         t.layer_z.deinit(gpa);
@@ -250,6 +253,8 @@ pub const Toolpaths = struct {
         }
         const part = try t.path_part.addManyAsSlice(gpa, n);
         for (plan.paths.items, part) |p, *q| q.* = plan.partOf(p);
+        const keys = try t.path_key.addManyAsSlice(gpa, n);
+        for (keys, 0..) |*k, i| k.* = @import("edits.zig").pathKey(plan, i);
         const z_start = try t.path_z_start.addManyAsSlice(gpa, n);
         for (plan.paths.items, 0..) |p, i| {
             z_start[i] = no_z;

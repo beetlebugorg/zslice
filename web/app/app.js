@@ -774,6 +774,16 @@ var lineCard = new LineCard({
   host: $("preview"),
   more: () => showTab("selected"),
   close: () => select(-1, -1, false),
+  // An edit of the line (zs_app_edit_add): kind 0 delete, 1 flow.
+  edit: async (path, kind, value) => {
+    const r = await client.call("editAdd", { path, kind, value });
+    if (!r.ok) {
+      toast("The line did not change.");
+      return;
+    }
+    select(-1, -1, false);
+    toast(kind === 0 ? `The line does not print now. ${r.count} ${r.count === 1 ? "edit" : "edits"} on this plate; undo with Ctrl+Z.` : `The line has ${Math.round((value - 1) * 100)} % plastic now.`);
+  },
 });
 
 // A plate of a printdeck.yml project is on the view (project.js): its
@@ -2396,6 +2406,12 @@ document.addEventListener("keydown", (e) => {
   if (e.key === "Delete" && partCard.open && !e.target.closest?.("input, textarea, select, [contenteditable]")) {
     e.preventDefault();
     partCard.act("remove");
+    return;
+  }
+  // A selected line: Delete takes it out of the print (an edit).
+  if (e.key === "Delete" && app.sel >= 0 && !partCard.open && !e.target.closest?.("input, textarea, select, [contenteditable]")) {
+    e.preventDefault();
+    lineCard.ctx.edit(app.sel, 0, 1);
     return;
   }
   if (!["/", "?", "n", "N", "d", "D"].includes(e.key) || e.ctrlKey || e.metaKey || e.altKey) return;

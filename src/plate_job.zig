@@ -134,6 +134,9 @@ pub const Options = struct {
 
 pub const PlateJob = struct {
     gpa: Allocator,
+    /// The edits of the user on the lines (app/edits.zig), or null. The
+    /// writer applies them to each layer plan.
+    edits: ?*const @import("app/edits.zig").Edits = null,
     /// The settings of the plate.
     resolved: Resolved,
     monitor: engine.Monitor,
@@ -577,6 +580,7 @@ pub const PlateJob = struct {
             fn plan(ctx: *const anyopaque, g: Allocator, i: usize) Allocator.Error!LayerPlan {
                 const c: *const @This() = @ptrCast(@alignCast(ctx));
                 var lp = try c.pj.planLevel(g, c.ctxs, c.lo + i);
+                if (c.pj.edits) |e| try e.apply(&lp);
                 if (c.lo > 0) {
                     lp.z -= c.drop;
                     lp.index = @intCast(i);

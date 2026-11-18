@@ -191,6 +191,21 @@ export class LineCard {
     more.onclick = () => this.ctx.more();
     foot.append(more);
     card.append(foot);
+    // The segment editor: an edit of this line alone, kept across slices.
+    if (this.ctx.edit && info.path != null) {
+      const edits = el("div", "lc-foot lc-edits");
+      const del = el("button", "flat", "Don't print this line");
+      del.title = "Take this line out of the print (Delete). The edit stays, and applies again to a new slice that makes the same line.";
+      del.onclick = () => this.ctx.edit(info.path, 0, 1);
+      const less = el("button", "flat", "−10 % plastic");
+      less.title = "This line with 10 % less plastic";
+      less.onclick = () => this.ctx.edit(info.path, 1, 0.9);
+      const moreP = el("button", "flat", "+10 % plastic");
+      moreP.title = "This line with 10 % more plastic, for a gap";
+      moreP.onclick = () => this.ctx.edit(info.path, 1, 1.1);
+      edits.append(del, less, moreP);
+      card.append(edits);
+    }
     card.addEventListener("keydown", (e) => {
       if (e.key === "Escape" && !e.target.closest("input, select, textarea")) {
         e.preventDefault();

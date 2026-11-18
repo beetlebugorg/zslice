@@ -277,6 +277,18 @@ int zs_app_write_3mf(zs_app *app, const uint8_t **out, size_t *out_len);
  * keeps its height, lines, and speeds, with the start and end G-code. Free
  * *out with zs_buffer_free. */
 int zs_app_debug_gcode(zs_app *app, size_t lo, size_t hi, uint8_t **out, size_t *len);
+/* The segment editor: edits of the user on the lines of a slice. kind 0
+ * deletes line `path` (an index of zs_app_toolpaths), kind 1 prints it with
+ * `value` times its plastic (0.1 to 3). An edit stays apart from the slice,
+ * and applies to each new slice that makes the same line again (a strict
+ * match of the layer, the feature, and the points to 10 um). Slice again
+ * after an add or a remove. Each is one history step. */
+int zs_app_edit_add(zs_app *app, size_t path, int kind, double value);
+size_t zs_app_edit_count(const zs_app *app);
+/* applied: 1 if the last slice found the line of the edit, 0 if the line
+ * is not there now (the edit waits). Any output can be NULL. */
+int zs_app_edit_get(const zs_app *app, size_t i, int *kind, double *value, size_t *layer, int *applied);
+int zs_app_edit_remove(zs_app *app, size_t i);
 size_t zs_app_layer_count(const zs_app *app);
 /* The part on the bed: min x, min y, max x, max y, in mm. */
 int zs_app_part_bounds(const zs_app *app, double out[4]);

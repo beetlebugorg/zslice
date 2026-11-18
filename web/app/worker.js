@@ -350,7 +350,7 @@ function historyList() {
 // The ops that change the settings, and the ops that change the plate:
 // each starts or extends a step.
 const SETTING_OPS = new Set(["set", "reset", "quality", "profile", "setScoped", "resetScoped"]);
-const PLATE_OPS = new Set(["load", "add", "plate", "projectLoad", "partAction", "partCut", "partMove", "partFill", "partSettingSet", "partPutDown", "partTurn", "putDown", "place", "partMove", "partRotate", "markAdd", "markRemoveNear", "markSet", "markRemove", "marksClear"]);
+const PLATE_OPS = new Set(["load", "add", "plate", "projectLoad", "partAction", "partCut", "partMove", "partFill", "editAdd", "editRemove", "partSettingSet", "partPutDown", "partTurn", "putDown", "place", "partMove", "partRotate", "markAdd", "markRemoveNear", "markSet", "markRemove", "marksClear"]);
 
 const ops = {
   async init({ module, saved, mode: m }) {
@@ -899,6 +899,38 @@ const ops = {
   plate3mf() {
     const bytes = core.plate3mf();
     return { bytes: bytes ? bytes.buffer : null, name: core.modelName };
+  },
+
+  // An edit of the user on line `path` (zs_app_edit_add), then a slice.
+  editAdd({ path, kind, value }) {
+    const rc = core.w.x.zs_app_edit_add(core.app, path, kind, value);
+    if (rc !== 0) return { ok: false, rc };
+    wantSlice();
+    return { ok: true, count: core.w.x.zs_app_edit_count(core.app) };
+  },
+
+  // The edits of the user: [{ kind, value, layer, applied }].
+  edits() {
+    const w = core.w;
+    const n = w.x.zs_app_edit_count(core.app);
+    const out = [];
+    const p = w.alloc(32);
+    try {
+      for (let i = 0; i < n; i++) {
+        if (w.x.zs_app_edit_get(core.app, i, p, p + 8, p + 16, p + 20) !== 0) continue;
+        out.push({ kind: w.i32(p), value: w.f64(p + 8), layer: w.u32(p + 16), applied: w.i32(p + 20) === 1 });
+      }
+    } finally {
+      w.free(p, 32);
+    }
+    return out;
+  },
+
+  // Removes edit i, then a slice.
+  editRemove({ index }) {
+    const rc = core.w.x.zs_app_edit_remove(core.app, index);
+    if (rc === 0) wantSlice();
+    return { ok: rc === 0 };
   },
 
   // The G-code of plate `index` (each plate keeps the G-code of its last
