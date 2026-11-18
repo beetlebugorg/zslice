@@ -16,6 +16,11 @@
 
 GtkWidget *zg_view3d_new(ZgModel *model);
 
+/* Moves the camera smoothly back to the start view (the Home key). The
+ * view draws the active plate of the set only: the Vulkan backend has no
+ * draws of the other plates (see zs_view_set_plates). */
+void zg_view3d_reset(GtkWidget *view);
+
 /* Reads the toolpaths of the last slice from the core again. */
 void zg_view3d_reload(GtkWidget *view);
 

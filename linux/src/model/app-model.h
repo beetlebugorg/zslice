@@ -22,6 +22,10 @@ ZgModel *zg_model_new(void);
 
 /* The core. Call it only from the main thread. */
 zs_app *zg_model_core(ZgModel *self);
+/* The plate set: one app for each plate; zg_model_core is the app of the
+ * active plate. "plates-changed" follows a change of the list, of the
+ * active plate, or of a status. */
+zs_set *zg_model_plate_set(ZgModel *self);
 
 /* The name of the loaded model file, or NULL. */
 const char *zg_model_name(ZgModel *self);
@@ -67,7 +71,8 @@ void zg_model_part_put_down_at(ZgModel *self, size_t i, double x, double y, doub
 void zg_model_part_place(ZgModel *self, size_t i, int mode, int axis);
 void zg_model_part_reset(ZgModel *self, size_t i);
 gboolean zg_model_plate_smart_place(ZgModel *self);
-/* Plates (see zs_app_plate_count): each call slices the active plate. */
+/* Plates (see zs_set): each plate has its own app, settings, undo list,
+ * and slice. The set slices the plates in the background. */
 void zg_model_plate_select(ZgModel *self, size_t i);
 void zg_model_plate_add(ZgModel *self);
 void zg_model_plate_remove(ZgModel *self, size_t i);

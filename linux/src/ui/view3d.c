@@ -1108,6 +1108,10 @@ static void on_reset_view(GSimpleAction *a, GVariant *p, gpointer data) {
     start_animation(v);
 }
 
+void zg_view3d_reset(GtkWidget *view) {
+    on_reset_view(NULL, NULL, g_object_get_data(G_OBJECT(view), "zg-view3d"));
+}
+
 static void show_menu(View3d *v, double x, double y);
 
 static gboolean on_menu_key(GtkEventControllerKey *c, guint key, guint code, GdkModifierType mods, gpointer data) {

@@ -33,6 +33,12 @@ static const Group SHORTCUTS[] = {
         {"Menu key, Shift+F10", "The menu of the view"},
         {"Ctrl+Q", "Quit"},
         {NULL, NULL}}},
+    {"Plates", {
+        {"]", "The next plate: make it active"},
+        {"[", "The plate before: make it active"},
+        {"F", "Show the active plate"},
+        {"Home", "The start view (the view shows the active plate only)"},
+        {NULL, NULL}}},
     {"Tools", {
         {"S", "Select: a click selects a line"},
         {"M", "Move: a drag moves a part, the wheel turns it 15°"},

@@ -63,6 +63,7 @@ static const Action ACTIONS[] = {
     {"Print", NULL, "send the G-code to the printer and start", "win.send-print", NULL},
     {"Upload to the printer", NULL, "send the G-code, and do not start", "win.send-only", NULL},
     {"Arrange the plate", NULL, "pack the parts on the bed", "win.arrange", NULL},
+    {"Remove this plate", NULL, "the plate and its parts", "win.remove-plate", NULL},
     {"Smart placement", NULL, "turn and arrange the parts", "win.smart-place", NULL},
     {"Check the print", NULL, "problems and advice", "preview.check", NULL},
     {"Save the plate as 3MF…", "Ctrl+S", "the parts and their settings", "win.save-plate", NULL},

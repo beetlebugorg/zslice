@@ -768,7 +768,7 @@ static char *batch_file(Window *w) {
 
 /* The slice of plate i is done: send it, or write it. */
 static void batch_take(Window *w) {
-    if (!w->batch.on || zs_app_plate_active(zg_model_core(w->model)) != w->batch.i) return;
+    if (!w->batch.on || zs_set_active(zg_model_plate_set(w->model)) != w->batch.i) return;
     const uint8_t *gcode = NULL;
     size_t len = 0;
     if (zs_app_gcode(zg_model_core(w->model), &gcode, &len) != ZS_OK) {
@@ -808,27 +808,30 @@ static gboolean batch_take_later(gpointer data) {
 
 /* The next plate with parts: switch to it, and wait for its slice. */
 static void batch_next(Window *w) {
-    zs_app *core = zg_model_core(w->model);
-    while (w->batch.i < w->batch.n && zs_app_plate_parts(core, w->batch.i) == 0) w->batch.i++;
+    zs_set *set = zg_model_plate_set(w->model);
+    zs_plate_info info;
+    while (w->batch.i < w->batch.n &&
+           (zs_set_plate_info(set, w->batch.i, &info) != ZS_OK || info.part_count == 0 || info.status == ZS_PLATE_STATUS_CANNOT))
+        w->batch.i++;
     if (w->batch.i >= w->batch.n) {
         batch_finish(w, NULL);
         return;
     }
-    if (zs_app_plate_active(core) != w->batch.i) {
+    if (zs_set_active(set) != w->batch.i) {
         zg_model_plate_select(w->model, w->batch.i);
-    } else if (zs_app_state(core) == ZS_STATE_DONE) {
+    } else if (zs_app_state(zg_model_core(w->model)) == ZS_STATE_DONE) {
         g_idle_add(batch_take_later, w);
     }
 }
 
 static void batch_start(Window *w, gboolean send, GFile *dir) {
-    zs_app *core = zg_model_core(w->model);
+    zs_set *set = zg_model_plate_set(w->model);
     w->batch.on = TRUE;
     w->batch.send = send;
     w->batch.i = 0;
     w->batch.done = 0;
-    w->batch.n = zs_app_plate_count(core);
-    w->batch.back = zs_app_plate_active(core);
+    w->batch.n = zs_set_count(set);
+    w->batch.back = zs_set_active(set);
     w->batch.dir = dir ? g_object_ref(dir) : NULL;
     gtk_widget_set_sensitive(w->send_button, FALSE);
     batch_next(w);
@@ -1101,6 +1104,37 @@ static gboolean on_drop(GtkDropTarget *target, const GValue *value, double x, do
     return TRUE;
 }
 
+/* "Remove this plate": a plate with parts asks first. The plates are not
+ * in the undo list, so the question says that the removal is final. */
+static void on_remove_plate_answer(GObject *source, GAsyncResult *res, gpointer data) {
+    Window *w = data;
+    int button = gtk_alert_dialog_choose_finish(GTK_ALERT_DIALOG(source), res, NULL);
+    size_t i = GPOINTER_TO_SIZE(g_object_get_data(source, "zg-plate"));
+    if (button == 1) zg_model_plate_remove(w->model, i);
+}
+
+static void on_remove_plate_action(GSimpleAction *a, GVariant *v, gpointer data) {
+    Window *w = get(data);
+    zs_set *set = zg_model_plate_set(w->model);
+    size_t i = zs_set_active(set);
+    zs_plate_info info;
+    if (zs_set_plate_info(set, i, &info) != ZS_OK) return;
+    if (info.part_count == 0) {
+        zg_model_plate_remove(w->model, i);
+        return;
+    }
+    GtkAlertDialog *d = info.part_count == 1 ? gtk_alert_dialog_new("Remove plate %zu and its part?", i + 1)
+                                             : gtk_alert_dialog_new("Remove plate %zu and its %zu parts?", i + 1, info.part_count);
+    gtk_alert_dialog_set_detail(d, "This cannot be undone.");
+    const char *buttons[] = {"Cancel", "Remove", NULL};
+    gtk_alert_dialog_set_buttons(d, buttons);
+    gtk_alert_dialog_set_cancel_button(d, 0);
+    gtk_alert_dialog_set_default_button(d, 0);
+    g_object_set_data(G_OBJECT(d), "zg-plate", GSIZE_TO_POINTER(i));
+    gtk_alert_dialog_choose(d, GTK_WINDOW(w->window), NULL, on_remove_plate_answer, w);
+    g_object_unref(d);
+}
+
 static void on_arrange_action(GSimpleAction *a, GVariant *v, gpointer data) {
     Window *w = get(data);
     if (!zg_model_plate_arrange(w->model)) {
@@ -1312,6 +1346,46 @@ static void on_undo_changed(ZgModel *model, gpointer data) {
     if (r) g_simple_action_set_enabled(G_SIMPLE_ACTION(r), zg_model_can_redo(model));
 }
 
+/* For development: ZSLICE_PLATE_TEST=file adds a plate, puts the model
+ * file on it, adds an empty plate and removes it, goes to the plate before
+ * and back with the keys of the plate bar, and removes the plate with the
+ * file, one step each second. The log gives the plates of the set. */
+static gboolean plate_test_step(gpointer data) {
+    Window *w = data;
+    static int step = 0;
+    zs_set *set = zg_model_plate_set(w->model);
+    switch (step++) {
+    case 0: zg_model_plate_add(w->model); break;
+    case 1: {
+        char *bytes = NULL;
+        gsize len = 0;
+        const char *path = g_getenv("ZSLICE_PLATE_TEST");
+        if (g_file_get_contents(path, &bytes, &len, NULL)) {
+            char *name = g_path_get_basename(path);
+            zg_model_load(w->model, name, bytes, len, NULL);
+            g_free(name);
+        }
+        g_free(bytes);
+        break;
+    }
+    case 2: case 3: break; /* the slices */
+    case 4: zg_model_plate_add(w->model); break;
+    case 5: g_action_group_activate_action(G_ACTION_GROUP(w->window), "remove-plate", NULL); break;
+    case 6: zg_model_plate_select(w->model, 0); break;
+    case 7: zg_model_plate_select(w->model, 1); break;
+    case 8: zg_model_plate_remove(w->model, 1); break;
+    default: return G_SOURCE_REMOVE;
+    }
+    size_t n = zs_set_count(set);
+    for (size_t i = 0; i < n; i++) {
+        zs_plate_info info;
+        if (zs_set_plate_info(set, i, &info) != ZS_OK) continue;
+        g_message("plate test %d: %s%zu %s, status %d, %zu parts, app state %d", step - 1, i == zs_set_active(set) ? "*" : " ", i + 1,
+                  info.name, info.status, info.part_count, zs_app_state(zs_set_app(set, i)));
+    }
+    return G_SOURCE_CONTINUE;
+}
+
 /* For development: ZSLICE_UNDO_TEST=1 changes the infill density twice,
  * then undoes and redoes, moves part 0 and undoes the move, edits the wall
  * count three times with the focus on its editor (one step), goes to step
@@ -1459,6 +1533,7 @@ GtkWindow *zg_window_new(GtkApplication *app, ZgModel *model) {
         {.name = "preferences", .activate = on_prefs_action},
         {.name = "compare-cura", .activate = on_compare_cura_action},
         {.name = "arrange", .activate = on_arrange_action},
+        {.name = "remove-plate", .activate = on_remove_plate_action},
         {.name = "smart-place", .activate = on_smart_place_action},
         {.name = "send-all", .activate = on_send_all_action},
         {.name = "export-all", .activate = on_export_all_action},
@@ -1477,6 +1552,7 @@ GtkWindow *zg_window_new(GtkApplication *app, ZgModel *model) {
     g_signal_connect(model, "undo-changed", G_CALLBACK(on_undo_changed), w);
     on_undo_changed(model, w);
     if (g_getenv("ZSLICE_UNDO_TEST")) g_timeout_add(1000, undo_test_step, w);
+    if (g_getenv("ZSLICE_PLATE_TEST")) g_timeout_add(1000, plate_test_step, w);
     if (g_getenv("ZSLICE_CURA_COMPARE")) g_timeout_add(1500, open_cura_compare_test, w);
     if (g_getenv("ZSLICE_PREFS")) g_timeout_add(1500, open_prefs_test, w);
 
@@ -1492,6 +1568,7 @@ GtkWindow *zg_window_new(GtkApplication *app, ZgModel *model) {
     g_menu_append(menu, "Smart placement", "win.smart-place");
     g_menu_append(menu, "Arrange the plate", "win.arrange");
     g_menu_append(menu, "Clear the plate", "win.clear-plate");
+    g_menu_append(menu, "Remove this plate", "win.remove-plate");
     g_menu_append(menu, "Compare with Cura\u2026", "win.compare-cura");
     g_menu_append(menu, "Keyboard shortcuts", "win.shortcuts");
     g_menu_append(menu, "Preferences", "win.preferences");

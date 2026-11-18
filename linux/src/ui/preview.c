@@ -52,7 +52,7 @@ typedef struct {
     GtkWidget *gaps, *gap_count;
     GtkWidget *check, *check_list; /* the printability check */
     /* The plates: a button for each, and "+". */
-    GtkWidget *plates;
+    GtkWidget *plates, *plate_prev, *plate_name, *plate_next;
     /* The scrub bar: the nozzle through the top layer (0 its start, 1 the
      * layer done), and its time label. */
     GtkWidget *scrub, *scrub_label, *scrub_box;
@@ -654,13 +654,45 @@ static void on_color_mode(GObject *dd, GParamSpec *pspec, gpointer data) {
 }
 
 
-/* ---- the plate bar ---- */
+/* ---- the plate bar ----
+ *
+ * The plates of the set (zs_set): ‹ Plate n of N ›, + Plate, and × (remove
+ * this plate), as in the web app. The keys [ and ] go to the plate before
+ * and the next plate (with no selected part), and F and Home move the
+ * camera back. The view draws
+ * the active plate only (the Vulkan backend has no draws of the other
+ * plates), so the bar has no "All" button. */
 
-static void fill_plates(Preview *p);
+static const char *plate_status_text[] = {"empty", "to slice", "slicing", "", "failed", "resin: not yet"};
 
-static void on_plate_clicked(GtkButton *b, gpointer data) {
+static void plate_step(Preview *p, int dir) {
+    zs_set *set = zg_model_plate_set(p->model);
+    size_t n = zs_set_count(set), a = zs_set_active(set);
+    if ((dir < 0 && a == 0) || (dir > 0 && a + 1 >= n)) return;
+    zg_model_plate_select(p->model, dir < 0 ? a - 1 : a + 1);
+}
+
+/* A right click on the name of the plate: "Remove plate n". */
+static void on_plate_name_menu(GtkGestureClick *g, int n_press, double x, double y, gpointer data) {
     Preview *p = data;
-    zg_model_plate_select(p->model, (size_t)GPOINTER_TO_INT(g_object_get_data(G_OBJECT(b), "zg-plate")));
+    size_t a = zs_set_active(zg_model_plate_set(p->model));
+    GMenu *menu = g_menu_new();
+    char *label = g_strdup_printf("Remove plate %zu", a + 1);
+    g_menu_append(menu, label, "win.remove-plate");
+    g_free(label);
+    GtkWidget *pop = gtk_popover_menu_new_from_model(G_MENU_MODEL(menu));
+    g_object_unref(menu);
+    gtk_widget_set_parent(pop, p->plate_name);
+    g_signal_connect(pop, "closed", G_CALLBACK(gtk_widget_unparent), NULL);
+    gtk_popover_popup(GTK_POPOVER(pop));
+}
+
+static void on_plate_prev(GtkButton *b, gpointer data) {
+    plate_step(data, -1);
+}
+
+static void on_plate_next(GtkButton *b, gpointer data) {
+    plate_step(data, 1);
 }
 
 static void on_plate_add(GtkButton *b, gpointer data) {
@@ -668,27 +700,54 @@ static void on_plate_add(GtkButton *b, gpointer data) {
     zg_model_plate_add(p->model);
 }
 
-static void fill_plates(Preview *p) {
-    GtkWidget *child;
-    while ((child = gtk_widget_get_first_child(p->plates))) gtk_box_remove(GTK_BOX(p->plates), child);
-    zs_app *core = zg_model_core(p->model);
-    size_t n = zs_app_plate_count(core), active = zs_app_plate_active(core);
-    for (size_t i = 0; n > 1 && i < n; i++) {
-        char label[16];
-        g_snprintf(label, sizeof label, "%zu", i + 1);
-        GtkWidget *b = gtk_toggle_button_new_with_label(label);
-        gtk_toggle_button_set_active(GTK_TOGGLE_BUTTON(b), i == active);
-        char *tip = g_strdup_printf("Plate %zu: %zu part%s", i + 1, zs_app_plate_parts(core, i), zs_app_plate_parts(core, i) == 1 ? "" : "s");
-        gtk_widget_set_tooltip_text(b, tip);
-        g_free(tip);
-        g_object_set_data(G_OBJECT(b), "zg-plate", GINT_TO_POINTER((int)i));
-        g_signal_connect(b, "clicked", G_CALLBACK(on_plate_clicked), p);
-        gtk_box_append(GTK_BOX(p->plates), b);
-    }
-    GtkWidget *add = gtk_button_new_from_icon_name("list-add-symbolic");
-    gtk_widget_set_tooltip_text(add, n > 1 ? "A new plate" : "A new plate: more plates for one print job each (send or export them all from the menu)");
+/* Builds the bar once. */
+static void make_plate_bar(Preview *p) {
+    p->plate_prev = gtk_button_new_from_icon_name("go-previous-symbolic");
+    gtk_widget_set_tooltip_text(p->plate_prev, "The plate before ([)");
+    g_signal_connect(p->plate_prev, "clicked", G_CALLBACK(on_plate_prev), p);
+    p->plate_name = gtk_label_new("");
+    GtkGesture *menu_click = gtk_gesture_click_new();
+    gtk_gesture_single_set_button(GTK_GESTURE_SINGLE(menu_click), GDK_BUTTON_SECONDARY);
+    g_signal_connect(menu_click, "pressed", G_CALLBACK(on_plate_name_menu), p);
+    gtk_widget_add_controller(p->plate_name, GTK_EVENT_CONTROLLER(menu_click));
+    gtk_widget_set_margin_start(p->plate_name, 8);
+    gtk_widget_set_margin_end(p->plate_name, 8);
+    p->plate_next = gtk_button_new_from_icon_name("go-next-symbolic");
+    gtk_widget_set_tooltip_text(p->plate_next, "The next plate (])");
+    g_signal_connect(p->plate_next, "clicked", G_CALLBACK(on_plate_next), p);
+    GtkWidget *remove = gtk_button_new_from_icon_name("window-close-symbolic");
+    gtk_widget_set_tooltip_text(remove, "Remove this plate");
+    gtk_actionable_set_action_name(GTK_ACTIONABLE(remove), "win.remove-plate");
+    GtkWidget *add = gtk_button_new_with_label("+ Plate");
+    gtk_widget_set_tooltip_text(add, "A new plate with the settings of this plate: a print job of its own (send or export all plates from the menu)");
     g_signal_connect(add, "clicked", G_CALLBACK(on_plate_add), p);
+    gtk_box_append(GTK_BOX(p->plates), p->plate_prev);
+    gtk_box_append(GTK_BOX(p->plates), p->plate_name);
+    gtk_box_append(GTK_BOX(p->plates), p->plate_next);
     gtk_box_append(GTK_BOX(p->plates), add);
+    gtk_box_append(GTK_BOX(p->plates), remove);
+}
+
+/* The text of the bar, and a tooltip with the name and the status of
+ * each plate. */
+static void fill_plates(Preview *p) {
+    zs_set *set = zg_model_plate_set(p->model);
+    size_t n = zs_set_count(set), a = zs_set_active(set);
+    char text[48];
+    g_snprintf(text, sizeof text, "Plate %zu of %zu", a + 1, n);
+    gtk_label_set_text(GTK_LABEL(p->plate_name), text);
+    gtk_widget_set_sensitive(p->plate_prev, a > 0);
+    gtk_widget_set_sensitive(p->plate_next, a + 1 < n);
+    GString *tip = g_string_new(NULL);
+    for (size_t i = 0; i < n; i++) {
+        zs_plate_info info;
+        if (zs_set_plate_info(set, i, &info) != ZS_OK) continue;
+        const char *status = info.status >= 0 && info.status <= ZS_PLATE_STATUS_CANNOT ? plate_status_text[info.status] : "";
+        g_string_append_printf(tip, "%s%s%zu. %s%s%s", i > 0 ? "\n" : "", i == a ? "\u25b8 " : "", i + 1,
+                               info.name[0] ? info.name : "Empty plate", status[0] ? " \u00b7 " : "", status);
+    }
+    gtk_widget_set_tooltip_text(p->plate_name, tip->str);
+    g_string_free(tip, TRUE);
 }
 
 static void on_plates_changed(ZgModel *model, gpointer data) {
@@ -1042,6 +1101,18 @@ static gboolean on_preview_key(GtkEventControllerKey *c, guint key, guint code, 
         double step = (mods & GDK_SHIFT_MASK) ? 1 : 15;
         if (key == GDK_KEY_bracketleft || key == GDK_KEY_braceleft) step = -step;
         zg_model_part_rotate(p->model, (size_t)part, info.rotation + step);
+        return TRUE;
+    }
+    /* The plates: [ and ] go to the plate before and the next plate, and
+     * Home moves the camera back. */
+    if (key == GDK_KEY_bracketleft || key == GDK_KEY_bracketright) {
+        plate_step(p, key == GDK_KEY_bracketleft ? -1 : 1);
+        return TRUE;
+    }
+    /* F shows the active plate, and Home the start view: the view
+     * draws the active plate only, so both reset the camera. */
+    if (key == GDK_KEY_Home || ((key == GDK_KEY_f || key == GDK_KEY_F) && !(mods & GDK_SHIFT_MASK))) {
+        zg_view3d_reset(p->view3d);
         return TRUE;
     }
     zs_toolpaths tp;
@@ -1510,6 +1581,7 @@ GtkWidget *zg_preview_new(ZgModel *model) {
     p->plates = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 0);
     gtk_widget_add_css_class(p->plates, "linked");
     gtk_widget_set_margin_start(p->plates, 6);
+    make_plate_bar(p);
     gtk_box_append(GTK_BOX(bar), p->plates);
     /* The gap count last: it shows and hides, and the buttons before it
      * stay in place. */
@@ -1605,6 +1677,7 @@ GtkWidget *zg_preview_new(ZgModel *model) {
     g_signal_connect(model, "gaps-changed", G_CALLBACK(on_gaps_changed), p);
     g_signal_connect(model, "selection-changed", G_CALLBACK(on_selection), p);
     g_signal_connect(model, "plate-changed", G_CALLBACK(on_plates_changed), p);
+    g_signal_connect(model, "plates-changed", G_CALLBACK(on_plates_changed), p);
     fill_plates(p);
     g_signal_connect_swapped(model, "segment-changed", G_CALLBACK(gtk_widget_queue_draw), p->area);
     /* The last choice of "Fade others". */

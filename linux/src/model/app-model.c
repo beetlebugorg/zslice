@@ -1,8 +1,14 @@
 /* app-model.c: see app-model.h.
  *
- * Event bridge: the core callback runs on the worker thread. It puts the
+ * Plates: the model has a plate set of the core (zs_set). Each plate has
+ * its own app; `core` is the app of the active plate. The set slices the
+ * other plates in the background. A change of a plate calls
+ * zs_set_changed, and the set starts the slice.
+ *
+ * Event bridge: the core callback runs on a slice thread. It puts the
  * event in a heap block and queues it with g_idle_add. The idle handler
- * runs on the main thread and emits "core-event".
+ * runs on the main thread and emits "core-event" for the events of the
+ * active plate, and "plates-changed" for ZS_EVENT_PLATES.
  *
  * The core keeps a pointer to a Bridge, not to the ZgModel: a queued event
  * can run after the model is gone. The bridge holds a weak reference to the
@@ -39,6 +45,8 @@ typedef struct {
 
 struct _ZgModel {
     GObject parent;
+    /* The plate set, and the app of its active plate. */
+    zs_set *set;
     zs_app *core;
     /* The tool of the preview (ZgTool), and the points of the measure tape
      * (x, y, z each). */
@@ -109,10 +117,16 @@ struct _ZgModel {
 
 static const char *group_files[] = {"machine", "filament", "project"};
 
-/* Starts a slice, and notes the time for the slice time in the status bar. */
+/* The active plate changed: `core` is its app. */
+static void sync_core(ZgModel *self) {
+    self->core = zs_set_app(self->set, zs_set_active(self->set));
+}
+
+/* The active plate changed: the set starts its slice. Notes the time for
+ * the slice time in the status bar. */
 static int request_slice(ZgModel *self) {
     self->slice_start = g_get_monotonic_time();
-    return zs_app_request_slice(self->core);
+    return zs_set_changed(self->set, zs_set_active(self->set));
 }
 
 /* The machine settings are the profile of the current printer; the
@@ -224,11 +238,12 @@ static void load_group(ZgModel *self, int g) {
 
 G_DEFINE_FINAL_TYPE(ZgModel, zg_model, G_TYPE_OBJECT)
 
-enum { SIGNAL_PROJECT_CHANGED, SIGNAL_PROJECT_SENT, SIGNAL_CORE_EVENT, SIGNAL_SELECTION_CHANGED, SIGNAL_PICKED, SIGNAL_SETTING_CHANGED, SIGNAL_FOCUS_CHANGED, SIGNAL_SCOPE_CHANGED, SIGNAL_PRINTER_CHANGED, SIGNAL_PRINTERS_EDITED, SIGNAL_PART_SELECTED, SIGNAL_PLATE_CHANGED, SIGNAL_SEGMENT_CHANGED, SIGNAL_PROFILES_CHANGED, SIGNAL_OPEN_PROFILE, SIGNAL_GAPS_CHANGED, SIGNAL_UNDO_CHANGED, SIGNAL_PART_SCOPE_CHANGED, SIGNAL_TOOL_CHANGED, SIGNAL_MEASURE_CHANGED, N_SIGNALS };
+enum { SIGNAL_PLATES_CHANGED, SIGNAL_PROJECT_CHANGED, SIGNAL_PROJECT_SENT, SIGNAL_CORE_EVENT, SIGNAL_SELECTION_CHANGED, SIGNAL_PICKED, SIGNAL_SETTING_CHANGED, SIGNAL_FOCUS_CHANGED, SIGNAL_SCOPE_CHANGED, SIGNAL_PRINTER_CHANGED, SIGNAL_PRINTERS_EDITED, SIGNAL_PART_SELECTED, SIGNAL_PLATE_CHANGED, SIGNAL_SEGMENT_CHANGED, SIGNAL_PROFILES_CHANGED, SIGNAL_OPEN_PROFILE, SIGNAL_GAPS_CHANGED, SIGNAL_UNDO_CHANGED, SIGNAL_PART_SCOPE_CHANGED, SIGNAL_TOOL_CHANGED, SIGNAL_MEASURE_CHANGED, N_SIGNALS };
 static guint signals[N_SIGNALS];
 
 typedef struct {
     Bridge *bridge;
+    size_t plate;
     int event;
     double progress;
     int status;
@@ -273,6 +288,15 @@ static gint64 find_anchor(ZgModel *self, const Anchor *a) {
 static gboolean deliver(gpointer data) {
     Pending *p = data;
     ZgModel *model = g_weak_ref_get(&p->bridge->model);
+    if (model && p->event == ZS_EVENT_PLATES) {
+        g_signal_emit(model, signals[SIGNAL_PLATES_CHANGED], 0);
+        g_object_unref(model);
+        model = NULL;
+    } else if (model && p->plate != zs_set_active(model->set)) {
+        /* A slice of another plate: only its status shows. */
+        g_object_unref(model);
+        model = NULL;
+    }
     if (model) {
         /* A new slice has new paths: pick the path at the place of the old
          * selection again, so the inspector stays on the same line. */
@@ -325,10 +349,11 @@ static gboolean deliver(gpointer data) {
     return G_SOURCE_REMOVE;
 }
 
-/* Runs on the worker thread. */
-static void on_core_event(void *user, int event, double progress, int status) {
+/* Runs on a slice thread, or on the main thread in a zs_set call. */
+static void on_core_event(void *user, size_t plate, int event, double progress, int status) {
     Pending *p = g_new(Pending, 1);
     p->bridge = g_atomic_rc_box_acquire(user);
+    p->plate = plate;
     p->event = event;
     p->progress = progress;
     p->status = status;
@@ -350,9 +375,10 @@ static void zg_model_dispose(GObject *object) {
     rolls_clear(self);
     if (self->undo_timer) g_source_remove(self->undo_timer);
     self->undo_timer = 0;
-    if (self->core) {
-        /* Stops and joins the worker, so no new events follow. */
-        zs_app_free(self->core);
+    if (self->set) {
+        /* Stops and joins each slice, so no new events follow. */
+        zs_set_free(self->set);
+        self->set = NULL;
         self->core = NULL;
     }
     if (self->bridge) {
@@ -386,6 +412,10 @@ static void zg_model_class_init(ZgModelClass *klass) {
     /* part-selected(gint64 part): see zg_model_select_part. */
     signals[SIGNAL_PART_SELECTED] = g_signal_new("part-selected", G_TYPE_FROM_CLASS(klass),
         G_SIGNAL_RUN_LAST, 0, NULL, NULL, NULL, G_TYPE_NONE, 1, G_TYPE_INT64);
+    /* plates-changed(): the list of the plates, the active plate, or a
+     * status changed (zs_set). */
+    signals[SIGNAL_PLATES_CHANGED] = g_signal_new("plates-changed", G_TYPE_FROM_CLASS(klass),
+        G_SIGNAL_RUN_LAST, 0, NULL, NULL, NULL, G_TYPE_NONE, 0);
     /* plate-changed(): a part was added, removed, moved, or turned. */
     signals[SIGNAL_PLATE_CHANGED] = g_signal_new("plate-changed", G_TYPE_FROM_CLASS(klass),
         G_SIGNAL_RUN_LAST, 0, NULL, NULL, NULL, G_TYPE_NONE, 0);
@@ -1278,8 +1308,9 @@ static void zg_model_init(ZgModel *self) {
     self->part_scope = -1;
     self->bridge = g_atomic_rc_box_new0(Bridge);
     g_weak_ref_init(&self->bridge->model, self);
-    int rc = zs_app_new(on_core_event, self->bridge, &self->core);
+    int rc = zs_set_new(on_core_event, self->bridge, &self->set);
     if (rc != ZS_OK) g_error("zslice: the app core did not start: %s", zg_status_text(rc));
+    sync_core(self);
     load_state(self);
     /* The quality profile of the last session, under the changes of this
      * print (the state of the project group). */
@@ -1344,6 +1375,10 @@ zs_app *zg_model_core(ZgModel *self) {
     return self->core;
 }
 
+zs_set *zg_model_plate_set(ZgModel *self) {
+    return self->set;
+}
+
 const char *zg_model_name(ZgModel *self) {
     return self->name;
 }
@@ -1383,6 +1418,8 @@ static void plate_changed(ZgModel *self) {
 gboolean zg_model_load(ZgModel *self, const char *name, const void *data, gsize len, GError **error) {
     int rc = zs_app_load_stl(self->core, name, data, len);
     if (rc != ZS_OK) return fail(error, rc);
+    /* The plate takes the name of the file. */
+    zs_set_name(self->set, zs_set_active(self->set), name);
     zg_model_select_part(self, -1);
     update_name(self);
     g_signal_emit(self, signals[SIGNAL_PLATE_CHANGED], 0);
@@ -1436,30 +1473,52 @@ void zg_model_part_reset(ZgModel *self, size_t i) {
     if (zs_app_part_reset(self->core, i) == ZS_OK) plate_changed(self);
 }
 
-/* Plates: a switch clears the selection, and slices the new plate. */
-void zg_model_plate_select(ZgModel *self, size_t i) {
-    if (i == zs_app_plate_active(self->core)) return;
+/* Plates: each plate has its own app (zs_set). After a switch, the
+ * editors show the settings of the new plate, and the view its slice. */
+static void plate_switched(ZgModel *self) {
+    sync_core(self);
+    /* The first step of the undo list of a new plate. */
+    if (zs_app_history_count(self->core) == 0) zs_app_history_commit(self->core, now_ms());
+    self->undo_restoring = TRUE;
+    update_name(self);
+    self->part_scope = -1;
+    g_signal_emit(self, signals[SIGNAL_PART_SCOPE_CHANGED], 0);
+    static const char *prefixes[] = {"machine.", "filament.", "project."};
+    for (int g = 0; g < 3; g++) zg_model_announce(self, prefixes[g]);
+    g_signal_emit(self, signals[SIGNAL_PLATE_CHANGED], 0);
+    self->undo_restoring = FALSE;
+    g_signal_emit(self, signals[SIGNAL_UNDO_CHANGED], 0);
+    g_signal_emit(self, signals[SIGNAL_PLATES_CHANGED], 0);
+    /* The view: the slice of the plate, or no slice yet. */
+    int state = zs_app_state(self->core);
+    g_signal_emit(self, signals[SIGNAL_CORE_EVENT], 0, state == ZS_STATE_DONE ? ZS_EVENT_SLICED : ZS_EVENT_CANCELED, 0.0, 0);
+}
+
+/* Ends the step of the changes of the active plate before a switch. */
+static void plate_leave(ZgModel *self) {
+    if (self->undo_timer) undo_commit(self);
     zg_model_select_part(self, -1);
     zg_model_select(self, -1);
-    if (zs_app_plate_select(self->core, i) != ZS_OK) return;
-    plate_changed(self);
-    g_signal_emit(self, signals[SIGNAL_CORE_EVENT], 0, ZS_EVENT_CANCELED, 0.0, 0);
+    self->slice_pending = FALSE;
+}
+
+void zg_model_plate_select(ZgModel *self, size_t i) {
+    if (i == zs_set_active(self->set) || i >= zs_set_count(self->set)) return;
+    plate_leave(self);
+    if (zs_set_select(self->set, i) != ZS_OK) return;
+    plate_switched(self);
 }
 
 void zg_model_plate_add(ZgModel *self) {
-    zg_model_select_part(self, -1);
-    zg_model_select(self, -1);
-    if (zs_app_plate_add(self->core) < 0) return;
-    plate_changed(self);
-    g_signal_emit(self, signals[SIGNAL_CORE_EVENT], 0, ZS_EVENT_CANCELED, 0.0, 0);
+    plate_leave(self);
+    if (zs_set_add(self->set) < 0) return;
+    plate_switched(self);
 }
 
 void zg_model_plate_remove(ZgModel *self, size_t i) {
-    zg_model_select_part(self, -1);
-    zg_model_select(self, -1);
-    if (zs_app_plate_remove(self->core, i) != ZS_OK) return;
-    plate_changed(self);
-    g_signal_emit(self, signals[SIGNAL_CORE_EVENT], 0, ZS_EVENT_CANCELED, 0.0, 0);
+    plate_leave(self);
+    if (zs_set_remove(self->set, i) != ZS_OK) return;
+    plate_switched(self);
 }
 
 gboolean zg_model_plate_smart_place(ZgModel *self) {
@@ -1531,6 +1590,9 @@ gboolean zg_model_plate_arrange(ZgModel *self) {
 
 void zg_model_plate_clear(ZgModel *self) {
     zs_app_plate_clear(self->core);
+    /* No parts: the plate has no name, and the set drops its slice. */
+    zs_set_name(self->set, zs_set_active(self->set), NULL);
+    zs_set_changed(self->set, zs_set_active(self->set));
     zg_model_select_part(self, -1);
     zg_model_select(self, -1);
     plate_changed(self);
