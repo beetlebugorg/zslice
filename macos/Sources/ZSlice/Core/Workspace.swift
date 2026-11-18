@@ -169,6 +169,16 @@ final class Workspace {
         showGaps()
         readIssues()
         if let i = selectedPart { selectPart(i < zs_app_part_count(model.core) ? i : nil) }
+        if ProcessInfo.processInfo.environment["ZSLICE_EDIT"] != nil {
+            let n = zs_app_edit_count(model.core)
+            var line = "zslice edits: \(n), \(tp.path_count) paths"
+            for i in 0 ..< n {
+                var kind: Int32 = 0, value = 0.0, layer = 0, applied: Int32 = 0
+                zs_app_edit_get(model.core, i, &kind, &value, &layer, &applied)
+                line += "; kind \(kind) value \(value) layer \(layer) applied \(applied)"
+            }
+            NSLog("%@", line)
+        }
         if fitAfterSlice {
             fitAfterSlice = false
             fit()
@@ -298,6 +308,14 @@ final class Workspace {
                 } else {
                     PrinterStore.shared.add(Printer(name: "Printer \(i + 1)", kind: .printdeck, url: item))
                 }
+            }
+        }
+        // ZSLICE_EDIT=kind edits the selected line (0: do not print it);
+        // ZSLICE_EDIT_UNDO=1 undoes it 3 s later. The edits log after each slice.
+        if let k = env["ZSLICE_EDIT"].flatMap(Int32.init), selection != nil {
+            editLine(kind: k, value: 0.9)
+            if env["ZSLICE_EDIT_UNDO"] != nil {
+                DispatchQueue.main.asyncAfter(deadline: .now() + 3) { [weak self] in self?.model.history.undoManager.undo() }
             }
         }
         // ZSLICE_RECORD=path.mov records the demo of Recorder.swift.
@@ -943,6 +961,28 @@ final class Workspace {
         if let w = canvas.window { panel.beginSheetModal(for: w, completionHandler: write) } else { write(panel.runModal()) }
     }
 
+    /// An edit of the selected line (zs_app_edit_add): kind 0, the line
+    /// does not print; kind 1, `value` times its plastic. The core keeps
+    /// the edit with the plate and makes a step of the history; the plate
+    /// slices again.
+    func editLine(kind: Int32, value: Double = 1) {
+        guard let s = selection else { return }
+        let rc = zs_app_edit_add(model.core, s.path, kind, value)
+        guard rc == 0 else {
+            showNote("The edit did not work (\(statusText(rc))).")
+            return
+        }
+        if kind == 0 { clearSelection() }
+        model.history.commit()
+        // The core made the step: the undo actions follow.
+        model.history.attach()
+        model.settingsGeneration += 1
+        model.requestSlice()
+        let n = zs_app_edit_count(model.core)
+        let what = kind == 0 ? "The line does not print now." : (value < 1 ? "The line has \(Int(((1 - value) * 100).rounded())) % less plastic now." : "The line has \(Int(((value - 1) * 100).rounded())) % more plastic now.")
+        showNote("\(what) \(n) edit\(n == 1 ? "" : "s") on this plate; undo with ⌘Z.", seconds: 6)
+    }
+
     /// Exports the G-code of the last slice with a save panel.
     func exportGcode(from window: NSWindow?) {
         guard let data = model.gcode() else { return }
@@ -998,6 +1038,11 @@ extension Workspace: SliceViewDelegate {
     func sliceViewKey(_ event: NSEvent) -> Bool {
         if turnKey(event) { return true }
         if selection == nil, partKey(event) { return true }
+        // Delete on a selected line (with no part card): the line does not print.
+        if selection != nil, selectedPart == nil, event.specialKey == .delete || event.specialKey == .deleteForward {
+            editLine(kind: 0)
+            return true
+        }
         if event.charactersIgnoringModifiers == "\u{1b}", !tape.isEmpty {
             clearTape()
             return true

@@ -13,6 +13,8 @@
 //! The card follows the line after a new slice, and closes with Esc, with
 //! a click on no line, or with the close button. A drag of its head moves
 //! it, and it keeps that place for the next lines until it closes.
+//! A second row edits the line itself (zs_app_edit_add): Don't Print This
+//! Line (also Delete), and 10 % less or more plastic. Undo takes an edit back.
 //!
 //! SPDX-License-Identifier: AGPL-3.0-or-later
 
@@ -68,6 +70,16 @@ struct LineCard: View {
                 Button("All Settings…") { workspace.showLineSettings() }
                     .help("All the settings that change this line")
             }
+            HStack {
+                Button("Don't Print This Line") { workspace.editLine(kind: 0) }
+                    .help("The line does not print (Delete). Undo brings it back.")
+                Spacer()
+                Button("−10 %") { workspace.editLine(kind: 1, value: 0.9) }
+                    .help("10 % less plastic in this line")
+                Button("+10 %") { workspace.editLine(kind: 1, value: 1.1) }
+                    .help("10 % more plastic in this line")
+            }
+            .controlSize(.small)
         }
         .padding(14)
         .frame(width: 320)
