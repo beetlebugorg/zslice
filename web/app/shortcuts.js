@@ -37,10 +37,10 @@ export const SHORTCUTS = [
   {
     group: "Tools",
     keys: [
-      ["S", "Select: a click selects a line"],
+      ["V", "Select: a click selects a line"],
       ["M", "Move: a drag moves a part, the wheel turns it 15°"],
       ["T", "Measure: two clicks measure between two points"],
-      ["U", "Support: click points on the part to draw a support area, and drag the points of an area"],
+      ["S", "Support (S again opens or closes its pane): click points on the part to draw a support area, and drag the points of an area"],
       ["Enter (Support tool)", "Close the area that you draw (also: click its first point)"],
       ["Backspace (Support tool)", "Remove the last point of the area that you draw"],
       ["Delete (Support tool)", "Delete the selected support area"],

@@ -33,6 +33,14 @@ const BLOCK = 3;
 // The distance from a point or an outline that still hits it, CSS pixels.
 const NEAR = 10;
 
+function loadPaneOpen() {
+  try {
+    return localStorage.getItem("zslice-support-pane") !== "0";
+  } catch {
+    return true;
+  }
+}
+
 export class SupportTool {
   // ctx: { client, view (view.js: x, v, w), canvas, host (the element of
   //        the view), active() (the tool is on), page() ("2d" or "3d"),
@@ -47,6 +55,9 @@ export class SupportTool {
     this.see = true; // the support lines are faint while the tool is on
     this.drag = null;
     this.on = false;
+    // The pane of the tool: open at the start; the user closes it when
+    // they know the tool, and S or a click on the tool opens it again.
+    this.paneOpen = loadPaneOpen();
     this.card = el("div", "support-card");
     this.card.hidden = true;
     ctx.host.append(this.card);
@@ -117,21 +128,38 @@ export class SupportTool {
 
   // Before each frame: the card shows only in the 3D view.
   place() {
-    const want = this.on && this.ctx.page() === "3d";
+    const want = this.on && this.paneOpen && this.ctx.page() === "3d";
     if (want === this.card.hidden) this.showCard();
+  }
+
+  // Opens or closes the pane (S again, or a click on the tool).
+  togglePane() {
+    this.paneOpen = !this.paneOpen;
+    try {
+      localStorage.setItem("zslice-support-pane", this.paneOpen ? "1" : "0");
+    } catch {
+      // No storage: the pane opens at the next start.
+    }
+    this.showCard();
   }
 
   showCard() {
     const card = this.card;
-    if (!this.on || this.ctx.page() !== "3d") {
+    if (!this.on || this.ctx.page() !== "3d" || !this.paneOpen) {
       card.hidden = true;
       return;
     }
     card.hidden = false;
     card.replaceChildren();
     const a = this.sel >= 0 ? this.areas[this.sel] : null;
+    const head = el("div", "sc-head");
     const title = el("div", "sc-title", a ? `Support area ${this.sel + 1}` : "Draw support");
-    card.append(title);
+    const close = el("button", "tool icon sc-close", "×");
+    close.title = "Close this pane (S opens it again)";
+    close.setAttribute("aria-label", "Close this pane");
+    close.onclick = () => this.togglePane();
+    head.append(title, close);
+    card.append(head);
     const kindOf = a ? a.kind : this.kind;
     const row = el("div", "sc-kinds");
     for (const k of KINDS) {

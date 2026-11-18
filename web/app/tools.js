@@ -1,5 +1,5 @@
 // tools.js: the tools of the preview (linux/src/ui/preview.c, tool_group;
-// view3d.c): Select (S), Move (M), Turn (R), Measure (T), and Support (U),
+// view3d.c): Select (V), Move (M), Turn (R), Measure (T), and Support (S),
 // as a group at the left of the toolbar. support.js has the Support tool.
 //
 // - Select: a click selects a line (app.js does it).
@@ -35,7 +35,9 @@ export class Tools {
     this.part = null; // the selected part (zs_part of the worker)
     this.moving = null; // a drag of a part: { index, x0, y0, bx0, by0 }
     this.moveSent = 0;
-    for (const t of TOOLS) ctx.buttons[t].onclick = () => this.set(t);
+    // A click on the button of the tool that is on: the tool's own action
+    // (the Support tool opens or closes its pane).
+    for (const t of TOOLS) ctx.buttons[t].onclick = () => (t === this.tool && ctx.again ? ctx.again(t) : this.set(t));
     // The readout floats on the tape (a label at its middle), and in the
     // 2D view an overlay draws the tape itself (the 3D view draws it in
     // the core: zs_view_set_measure).

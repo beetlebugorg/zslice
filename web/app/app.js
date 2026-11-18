@@ -1411,10 +1411,16 @@ function onPreviewKey(e) {
       showContextMenu(canvas.getBoundingClientRect().left + canvas.clientWidth / 2, canvas.getBoundingClientRect().top + canvas.clientHeight / 2);
       e.preventDefault();
       return;
-    case "s": case "S": tools.set("select"); e.preventDefault(); return;
+    case "v": case "V": tools.set("select"); e.preventDefault(); return;
+    // S: the Support tool; S again opens or closes its pane. U is the old
+    // key of the tool.
+    case "s": case "S": case "u": case "U":
+      if (tools.tool === "support") supportTool?.togglePane();
+      else tools.set("support");
+      e.preventDefault();
+      return;
     case "m": case "M": tools.set("move"); e.preventDefault(); return;
     case "t": case "T": tools.set("measure"); e.preventDefault(); return;
-    case "u": case "U": tools.set("support"); e.preventDefault(); return;
     case "g": case "G": if (!$("gaps").disabled) $("gaps").click(); e.preventDefault(); return;
     case "c": case "C":
       if (e.key === "C" || e.shiftKey) showAllLayers();
@@ -1687,6 +1693,7 @@ var tools = new Tools({ // var: drawFrame can run before this line
   partSelected: (part) => partCard?.show(part),
   client, view, canvas, view2d,
   buttons: { select: $("tool-select"), move: $("tool-move"), turn: $("tool-turn"), measure: $("tool-measure"), support: $("tool-support") },
+  again: (t) => { if (t === "support") supportTool?.togglePane(); },
   toolChanged: (tool) => supportTool?.setActive(tool === "support"),
   readout: $("measure-readout"),
   page: () => app.page,
@@ -1847,8 +1854,47 @@ $("check").title = "Check the print: overhangs with no support, bridges, shapes 
 $("check").onclick = () => openCheck();
 
 // ---- the print card ----
+//
+// The print is at the right end of the bottom bar: its time, and Print or
+// Export. A click on the time opens the details pane over the bar: the
+// main settings, the warnings, and the usual refinements. A badge on the
+// time counts the warnings and the refinements.
+
+function showSumPop(open) {
+  const pop = $("sum-pop");
+  pop.hidden = !open;
+  $("sum-more").setAttribute("aria-expanded", String(open));
+}
+$("sum-more").onclick = () => showSumPop($("sum-pop").hidden);
+document.addEventListener("pointerdown", (e) => {
+  if ($("sum-pop").hidden) return;
+  if (e.target.closest?.("#sum-pop, #sum-more")) return;
+  showSumPop(false);
+});
+document.addEventListener("keydown", (e) => {
+  if (e.key === "Escape" && !$("sum-pop").hidden) showSumPop(false);
+});
+
+let lastWarn = "";
+function updateBadge() {
+  const badge = $("sum-badge");
+  const warn = !$("sum-warn").hidden;
+  const tips = $("refine-tips").hidden ? 0 : $("refine-tips").querySelectorAll(".refine-row").length;
+  badge.classList.toggle("warn", warn);
+  badge.hidden = !warn && tips === 0;
+  badge.textContent = warn ? "Check" : tips === 1 ? "1 refinement" : `${tips} refinements`;
+  // A new warning opens the details once, so it is seen.
+  const text = warn ? $("sum-warn").textContent : "";
+  if (text && text !== lastWarn) showSumPop(true);
+  lastWarn = text;
+}
 
 function updateSummary() {
+  updateSummaryCard();
+  updateBadge();
+}
+
+function updateSummaryCard() {
   // An empty plate has no print: no card.
   $("summary").classList.toggle("is-empty", app.state === "empty");
   const card = $("summary");
@@ -2509,6 +2555,7 @@ function showRefineTips(list) {
   const box = $("refine-tips");
   box.replaceChildren();
   box.hidden = list.length === 0;
+  updateBadge();
   if (!list.length) return;
   const head = el("div", "refine-head");
   head.append(el("span", "", list.length === 1 ? "Your usual refinement" : `Your usual refinements: ${list.length}`));
@@ -2538,10 +2585,12 @@ function showRefineTips(list) {
       saveText(REFINE_HIDDEN_KEY, JSON.stringify([...h]));
       row.remove();
       if (!box.querySelector(".refine-row")) box.hidden = true;
+      updateBadge();
     };
     row.append(text, apply, hide);
     box.append(row);
   }
+  updateBadge();
 }
 
 async function applyRefine(s, refresh) {

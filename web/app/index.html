@@ -52,7 +52,7 @@
     <section id="preview" class="preview">
       <canvas id="gl" tabindex="0"></canvas>
       <div class="float toolstrip" role="toolbar" aria-label="Tools" aria-orientation="vertical">
-          <button id="tool-select" class="tool icon" data-key="S" title="Select (S): click a line to see what it is, its measurements, and the settings that change it." aria-label="Select">
+          <button id="tool-select" class="tool icon" data-key="V" title="Select (V): click a line to see what it is, its measurements, and the settings that change it." aria-label="Select">
             <svg viewBox="0 0 18 18" width="18" height="18"><path d="M5 2v13l3.2-3 2.3 4.5 2.1-1-2.3-4.5h4.2z" fill="currentColor"/></svg>
           </button>
           <button id="tool-move" class="tool icon" data-key="M" title="Move (M): drag a part to move it, and turn the mouse wheel to turn it. Ctrl does the same in the other tools." aria-label="Move">
@@ -61,7 +61,7 @@
           <button id="tool-turn" class="tool icon" data-key="R" title="Turn (R): click a part, then drag one of its rings to turn it about X (red), Y (green), or Z (blue), in steps of 15°. Keys: Left and Right (about Z), Up and Down (about X), Page Up and Page Down (about Y); Shift: 5°." aria-label="Turn">
             <svg viewBox="0 0 18 18" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M14.5 9a5.5 5.5 0 1 1-1.6-3.9"/><path d="M13.6 2.2v3.3h-3.3"/></svg>
           </button>
-          <button id="tool-support" class="tool icon" data-key="U" title="Support (U): click points on the part to draw an area, and click the first point (or press Enter) to close it. Support grows under the area, or Block keeps support out. Click an outline to select it, and drag its points. Shift: no snap." aria-label="Support">
+          <button id="tool-support" class="tool icon" data-key="S" title="Support (S; S again opens or closes its pane): click points on the part to draw an area, and click the first point (or press Enter) to close it. Support grows under the area, or Block keeps support out. Click an outline to select it, and drag its points. Shift: no snap." aria-label="Support">
             <svg viewBox="0 0 18 18" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round" stroke-linecap="round"><path d="M2 4.5h14l-2 3H4z"/><path d="M5 7.5v8M9 7.5v8M13 7.5v8M3.5 15.5h11"/></svg>
           </button>
           <button id="tool-measure" class="tool icon" data-key="T" title="Measure (T): click two points of the print. The ends of the lines snap; Shift turns the snap off. A circle or an arc gives its size. Esc clears." aria-label="Measure">
@@ -84,8 +84,8 @@
         <div class="bubble hi"></div>
         <div class="bubble lo" hidden></div>
       </div>
-      <!-- One bar at the bottom: the plates, the replay of the print, and
-           the history. -->
+      <!-- One bar at the bottom, the full width of the view: the plates,
+           the history, the replay of the print, and the print. -->
       <div id="dock" class="float dock">
       <div id="plate-bar" class="float plate-bar">
         <button id="plate-prev" class="tool icon" title="The plate before ([)" aria-label="The plate before">‹</button>
@@ -104,6 +104,27 @@
         <span id="scrub-label" class="scrub-label"></span>
       </div>
       <div id="timeline" class="float timeline" tabindex="0" hidden></div>
+        <!-- The print: its time, the details pane, and Print or Export. -->
+        <div id="summary" class="summary dock-summary" aria-label="The print">
+          <button id="sum-more" class="sum-head" title="The details of the print" aria-expanded="false" aria-controls="sum-pop">
+            <span id="sum-time" class="sum-time">—</span>
+            <span id="sum-detail" class="dim sum-detail"></span>
+            <span id="sum-badge" class="sum-badge" hidden></span>
+          </button>
+          <div id="sum-pop" class="float sum-pop" role="dialog" aria-label="The details of the print" hidden>
+            <div id="sum-facts" class="sum-facts" aria-label="The main settings of the print"></div>
+            <div id="sum-took" class="dim sum-took"></div>
+            <div id="sum-warn" class="sum-warn" role="alert" hidden></div>
+            <div id="refine-tips" class="refine-tips" aria-label="Your usual refinements" hidden></div>
+            <div id="sum-project" class="dim sum-project" hidden></div>
+          </div>
+          <div id="sum-progress" class="progress" hidden><div></div></div>
+          <div id="send-box" class="send-box" hidden>
+            <button id="send" class="suggested" disabled>Print</button>
+            <button id="send-menu" class="suggested menu-button" title="More: upload only, or export a file" aria-label="More"></button>
+          </div>
+          <button id="export" class="suggested" disabled>Export G-code…</button>
+        </div>
       </div>
       <div id="empty" class="empty">
         <div class="empty-title">Open a model</div>
@@ -111,21 +132,6 @@
         <button id="empty-open" class="pill">Open…</button>
       </div>
       <div id="plate-labels" class="plate-labels"></div>
-      <div id="summary" class="summary float-card" aria-label="The print">
-        <div id="sum-time" class="sum-time">—</div>
-        <div id="sum-detail" class="dim sum-detail"></div>
-        <div id="sum-facts" class="sum-facts" aria-label="The main settings of the print"></div>
-        <div id="sum-took" class="dim sum-took"></div>
-        <div id="sum-warn" class="sum-warn" role="alert" hidden></div>
-        <div id="refine-tips" class="refine-tips" aria-label="Your usual refinements" hidden></div>
-        <div id="sum-project" class="dim sum-project" hidden></div>
-        <div id="sum-progress" class="progress" hidden><div></div></div>
-        <div id="send-box" class="send-box" hidden>
-          <button id="send" class="suggested" disabled>Print</button>
-          <button id="send-menu" class="suggested menu-button" title="More: upload only, or export a file" aria-label="More"></button>
-        </div>
-        <button id="export" class="suggested" disabled>Export G-code…</button>
-      </div>
       <div id="busy" class="busy" hidden>Slicing…</div>
       <div id="toast" class="toast" hidden></div>
       <!-- The history: a popover over the history bar. -->
