@@ -958,13 +958,20 @@ pub fn emitAll(gpa: Allocator, src: PlanSource, threads: usize, monitor: Monitor
     defer gpa.free(slots);
     for (slots) |*sl| sl.* = .{ .text = .init(gpa) };
     defer for (slots) |*sl| sl.deinit(gpa);
-    var pipe: Pipeline = .{ .gpa = gpa, .src = src, .slots = slots, .n = src.layers, .monitor = monitor, .record = sink != null, .out = out, .sink = sink, .reporter = &reporter };
+    const guesses = try gpa.alloc(Guess, src.layers);
+    defer gpa.free(guesses);
+    for (guesses) |*g| g.* = .{};
+    // The emitter after the start G-code: each early run starts from a
+    // copy of it.
+    const base = try gpa.create(gcode.Emitter);
+    defer gpa.destroy(base);
+    base.* = em;
+    base.record = null;
+    var pipe: Pipeline = .{ .gpa = gpa, .src = src, .slots = slots, .n = src.layers, .monitor = monitor, .record = sink != null, .out = out, .sink = sink, .reporter = &reporter, .guesses = guesses, .base = base };
 
-    // The other threads plan layers, write their text, and send the
-    // texts out in layer order. This thread runs the emitter: a dry run
-    // of each layer in order (see gcode.Emitter.dry). The dry runs are
-    // the one step that no other thread can do, so this thread does
-    // other work only while it waits for a plan.
+    // All threads plan layers, run them early, write their text, and
+    // send the texts out in layer order. This thread also links the
+    // layers in order: the one step that no other thread can do.
     var pool: [64]parallel.Thread = undefined;
     var spawned: usize = 0;
     defer if (comptime parallel.can_spawn) {
@@ -986,11 +993,21 @@ pub fn emitAll(gpa: Allocator, src: PlanSource, threads: usize, monitor: Monitor
         if (monitor.canceled()) return error.Canceled;
         const seen = pipe.signal.current();
         var progress = false;
-        // Dry runs: the state at the start of each planned layer.
-        while (dried < n and slots[dried % window].ready.load(.acquire) == dried + 1) {
+        // The link: the state at the start of each layer with an early
+        // run. A layer with no early run, or with a run from another
+        // state, gets a dry run here.
+        while (dried < n and slots[dried % window].compiled.load(.acquire) == dried + 1) {
             const slot = &slots[dried % window];
             slot.start = em;
             slot.start.?.w = undefined;
+            const linked = if (slot.assumed) |a| em.at(a) and em.link(&slot.plan.?, &slot.exit, &slot.terms, &slot.prep) else false;
+            if (linked) {
+                dried += 1;
+                pipe.dried.store(dried, .release);
+                pipe.signal.notify();
+                progress = true;
+                continue;
+            }
             const out_w = em.w;
             em.w = &discard.writer;
             em.dry = true;
@@ -1009,7 +1026,7 @@ pub fn emitAll(gpa: Allocator, src: PlanSource, threads: usize, monitor: Monitor
             progress = true;
         }
         if (progress) continue;
-        if (!pipe.outSome() and !pipe.writeOne() and !pipe.planOne()) pipe.signal.wait(seen);
+        if (!pipe.outSome() and !pipe.writeOne() and !pipe.runOne() and !pipe.planOne()) pipe.signal.wait(seen);
     }
     if (pipe.failed()) |e| return e;
     try em.end();
@@ -1041,6 +1058,14 @@ const Slot = struct {
     /// The work of the layer that the planning thread does before the dry
     /// run (see gcode.Prepared).
     prep: gcode.Prepared = .{},
+    /// i + 1 after the early run of layer i (see `Pipeline.runOne`).
+    compiled: std.atomic.Value(usize) = .init(0),
+    /// The state that the early run started from, or null if the layer
+    /// had no early run.
+    assumed: ?gcode.Entry = null,
+    /// The state after the early run, and the terms of its sums.
+    exit: gcode.Exit = .{},
+    terms: gcode.Terms = .{},
     written: std.atomic.Value(usize) = .init(0),
 
     /// Frees the plan, and keeps the memory of the text for the next layer.
@@ -1051,6 +1076,8 @@ const Slot = struct {
         slot.text.clearRetainingCapacity();
         slot.records.clearRetainingCapacity();
         slot.prep.clear();
+        slot.assumed = null;
+        slot.terms.clear();
     }
 
     fn deinit(slot: *Slot, gpa: Allocator) void {
@@ -1058,20 +1085,35 @@ const Slot = struct {
         slot.text.deinit();
         slot.records.deinit(gpa);
         slot.prep.deinit(gpa);
+        slot.terms.deinit(gpa);
     }
 };
 
-/// Pass 2, with the G-code in parallel. Three steps for each layer:
+/// The state that the early run of the next layer starts from: a guess
+/// from the plan of a layer (see gcode.Entry). `state` is 0 before the
+/// plan, 1 with a guess, and 2 if the plan gives no guess.
+const Guess = struct {
+    state: std.atomic.Value(u8) = .init(0),
+    entry: gcode.Entry = .{},
+};
+
+/// Pass 2, with the G-code in parallel. Four steps for each layer:
 ///
 /// 1. Plan. Each thread takes the next layer from one counter and plans it
 ///    into its slot of the ring. Layer i uses slot i mod (ring size), so a
 ///    thread waits until layer i - (ring size) is out. The same thread
 ///    then finds the combing ways and the move lengths of the layer (see
 ///    gcode.Prepared).
-/// 2. Dry run, in layer order on the emitter thread: the emitter state at
-///    the start of the layer (the nozzle position, the fan, the time). This
-///    step is fast, because it formats no numbers.
-/// 3. Text. Any thread writes the G-code text of a layer into its slot,
+/// 2. Early run. Any thread runs the emitter on the layer with no text:
+///    the moves, their planned times, and the speed of a short layer.
+///    The run starts from a guess of the state after the layer before:
+///    the nozzle at the end of its last path (see `Guess`).
+/// 3. Link, in layer order on the emitter thread: it checks the guess
+///    against the real state, and adds the times, the filament, and the
+///    travel of the layer to the sums of the print (see
+///    gcode.Emitter.link). A layer with a wrong guess gets a dry run
+///    here. The link is short: a few adds for each move.
+/// 4. Text. Any thread writes the G-code text of a layer into its slot,
 ///    with a copy of the emitter from step 2. Any thread then sends the
 ///    texts out in layer order, one thread at a time (see `outSome`).
 ///
@@ -1086,7 +1128,11 @@ const Pipeline = struct {
     /// True if the sink needs the path records.
     record: bool,
     next: std.atomic.Value(usize) = .init(0),
-    /// The number of layers with a dry run.
+    /// The next layer that a thread runs early.
+    next_run: std.atomic.Value(usize) = .init(0),
+    guesses: []Guess,
+    base: *const gcode.Emitter,
+    /// The number of layers with a link.
     dried: std.atomic.Value(usize) = .init(0),
     /// The next layer whose text a thread writes.
     next_text: std.atomic.Value(usize) = .init(0),
@@ -1116,7 +1162,7 @@ const Pipeline = struct {
             if (p.next_text.load(.monotonic) >= p.n) return;
             const seen = p.signal.current();
             // The text first: a slot is free only after its text is out.
-            if (!p.writeOne() and !p.outSome() and !p.planOne()) p.signal.wait(seen);
+            if (!p.writeOne() and !p.outSome() and !p.runOne() and !p.planOne()) p.signal.wait(seen);
         }
     }
 
@@ -1150,9 +1196,50 @@ const Pipeline = struct {
             return true;
         };
         if (p.src.done) |done| done(p.src.ctx, p.gpa, i);
+        const g = &p.guesses[i];
+        if (slot.prep.end) |e| {
+            g.entry = .{ .x = e[0], .y = e[1], .z = slot.plan.?.z, .feature = slot.prep.end_feature, .extruded = true };
+            g.state.store(1, .release);
+        } else g.state.store(2, .release);
         slot.ready.store(i + 1, .release);
         p.signal.notify();
         return true;
+    }
+
+    /// Runs the next planned layer early, from the guess of the layer
+    /// before it. Returns false if there was nothing to do now.
+    fn runOne(p: *Pipeline) bool {
+        const i = p.next_run.load(.monotonic);
+        if (i >= p.n) return false;
+        const slot = &p.slots[i % p.slots.len];
+        if (slot.ready.load(.acquire) != i + 1) return false;
+        const state: u8 = if (i == 0) 1 else p.guesses[i - 1].state.load(.acquire);
+        if (state == 0) return false;
+        if (p.next_run.cmpxchgWeak(i, i + 1, .monotonic, .monotonic) != null) return true;
+        slot.assumed = null;
+        if (state == 1) {
+            const entry = if (i == 0) p.base.entry() else p.guesses[i - 1].entry;
+            p.run(slot, entry) catch |e| {
+                p.fail(e);
+                return true;
+            };
+            slot.assumed = entry;
+        }
+        slot.compiled.store(i + 1, .release);
+        p.signal.notify();
+        return true;
+    }
+
+    fn run(p: *Pipeline, slot: *Slot, entry: gcode.Entry) Error!void {
+        var discard: Writer.Discarding = .init(&.{});
+        var em = p.base.*;
+        em.w = &discard.writer;
+        em.dry = true;
+        em.prep = &slot.prep;
+        em.terms = &slot.terms;
+        em.setEntry(entry);
+        try em.layer(&slot.plan.?);
+        slot.exit = em.exit();
     }
 
     /// Writes the text of the next layer after its dry run. Returns false

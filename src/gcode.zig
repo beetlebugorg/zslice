@@ -129,6 +129,11 @@ pub const Prepared = struct {
     plan_slow: f64 = 1,
     plan_time: f64 = 0,
     have_plan: bool = false,
+    /// The nozzle position after the last path, and the feature of that
+    /// path, or null for a layer with no path. The run of the next layer
+    /// starts from them (see `Entry`).
+    end: ?[2]f64 = null,
+    end_feature: ?Feature = null,
 
     pub const PathPrep = struct {
         /// The nozzle position that the way of the travel starts from.
@@ -153,6 +158,8 @@ pub const Prepared = struct {
         if (t.arena) |*a| _ = a.reset(.retain_capacity);
         t.plan_moves.clearRetainingCapacity();
         t.have_plan = false;
+        t.end = null;
+        t.end_feature = null;
     }
 
     pub fn deinit(t: *Prepared, gpa: std.mem.Allocator) void {
@@ -354,6 +361,8 @@ pub fn prepare(gpa: std.mem.Allocator, r: *const Resolved, lp: *const LayerPlan,
         for (pts[1..], lengths[1..]) |q, *l| l.* = em.stepTo(geom.toMm(q.x), geom.toMm(q.y));
         if (path.closed and pts.len > 2) t.close = em.stepTo(x, y);
         out.paths.appendAssumeCapacity(t);
+        out.end = .{ em.x, em.y };
+        out.end_feature = path.feature;
     }
     // Room for the way of the first travel, which the dry run adds.
     try out.way_points.ensureUnusedCapacity(gpa, max_way);
@@ -361,12 +370,92 @@ pub fn prepare(gpa: std.mem.Allocator, r: *const Resolved, lp: *const LayerPlan,
 
 pub const Error = Writer.Error || std.mem.Allocator.Error;
 
+/// The emitter state that a layer run reads from the layer before it.
+/// A planning thread runs a layer early from a guess of this state (see
+/// engine.zig). The link pass then compares the guess with the real state.
+pub const Entry = struct {
+    x: f64 = 0,
+    y: f64 = 0,
+    z: f64 = 0,
+    feature: ?Feature = null,
+    extruded: bool = false,
+};
+
+/// The emitter state after an early run of a layer, for the layer after
+/// it. `retract_len`, `hop_len`, and `accel` are `unset` if the layer did
+/// not set them.
+pub const Exit = struct {
+    x: f64 = 0,
+    y: f64 = 0,
+    z: f64 = 0,
+    nozzle_z: ?f64 = null,
+    retracted: bool = false,
+    retract_len: f64 = 0,
+    hopped: bool = false,
+    hop_len: f64 = 0,
+    nozzle_temp: ?f64 = null,
+    bed_temp: ?f64 = null,
+    extruded: bool = false,
+    feature: ?Feature = null,
+    accel: f64 = 0,
+    stop: bool = true,
+    feed: f64 = -1,
+    width: f64 = 0.4,
+    layer_start: bool = false,
+    lr: ?*const Resolved = null,
+    retractions: u32 = 0,
+
+    pub const unset: f64 = -1;
+};
+
+/// What an early run of a layer keeps for the link pass (see `link`).
+/// The print time, the filament length, and the travel length are float
+/// sums over all moves of the print. The link pass adds the terms of
+/// each layer in the order of the emitter, so the sums are the same bit
+/// for bit.
+pub const Terms = struct {
+    /// Each term of the print time. The first `probe` terms are from the
+    /// first pass of the layer (retractions and Z moves, at full speed).
+    time: std.ArrayList(f64) = .empty,
+    probe: usize = 0,
+    filament: std.ArrayList(f64) = .empty,
+    travel: std.ArrayList(f64) = .empty,
+    /// The planned time of the moves at full speed.
+    full_time: f64 = 0,
+    /// The layer was shorter than `min_layer_time`.
+    short: bool = false,
+    /// The speed search compared planned times with the time it wants.
+    /// `below` is the largest time that was less, and `above` the smallest
+    /// time that was not. Each wanted time between them gives the same
+    /// speed ratio.
+    below: f64 = -std.math.inf(f64),
+    above: f64 = std.math.inf(f64),
+    /// A path rule ran. A rule can read the fan, and the fan depends on
+    /// the exact time of the layers before.
+    rules: bool = false,
+
+    pub fn clear(g: *Terms) void {
+        g.time.clearRetainingCapacity();
+        g.filament.clearRetainingCapacity();
+        g.travel.clearRetainingCapacity();
+        g.* = .{ .time = g.time, .filament = g.filament, .travel = g.travel };
+    }
+
+    pub fn deinit(g: *Terms, gpa: std.mem.Allocator) void {
+        g.time.deinit(gpa);
+        g.filament.deinit(gpa);
+        g.travel.deinit(gpa);
+    }
+};
+
 pub const Emitter = struct {
     /// The memory of the move list of a layer.
     gpa: std.mem.Allocator,
     /// The first pass of `layer`: each move goes into this list, and its
     /// time comes later from the planner.
     collect: ?*std.ArrayList(motion.Move) = null,
+    /// If set, the run keeps the terms of its sums here (see `Terms`).
+    terms: ?*Terms = null,
     /// The second pass: the planned moves of the layer, and the next one.
     planned: []const motion.Move = &.{},
     next_move: usize = 0,
@@ -500,6 +589,7 @@ pub const Emitter = struct {
             }
         }
         if (self.rules_n == 0) return .{ .speed = speed };
+        if (self.terms) |g| g.rules = true;
         var len: f64 = 0;
         for (1..pts.len) |k| len += geom.toMm(@intFromFloat(pts[k - 1].dist(pts[k])));
         var env: RuleEnv = .{
@@ -534,6 +624,123 @@ pub const Emitter = struct {
             }
         }
         return out;
+    }
+
+    /// The state that the run of the next layer reads (see `Entry`).
+    pub fn entry(self: *const Emitter) Entry {
+        return .{ .x = self.x, .y = self.y, .z = self.z, .feature = self.feature, .extruded = self.extruded };
+    }
+
+    /// True if the emitter is in the state `e`, with the filament not
+    /// retracted and the nozzle at the z of the layer.
+    pub fn at(self: *const Emitter, e: Entry) bool {
+        return self.x == e.x and self.y == e.y and self.z == e.z and self.feature == e.feature and
+            self.extruded == e.extruded and !self.retracted and !self.hopped and self.nozzle_z == null;
+    }
+
+    /// Puts the emitter in the state `e` for an early run of a layer. The
+    /// values that the layer sets before it reads them are `Exit.unset`.
+    pub fn setEntry(self: *Emitter, e: Entry) void {
+        self.x = e.x;
+        self.y = e.y;
+        self.z = e.z;
+        self.feature = e.feature;
+        self.extruded = e.extruded;
+        self.retracted = false;
+        self.hopped = false;
+        self.nozzle_z = null;
+        self.retract_len = Exit.unset;
+        self.hop_len = Exit.unset;
+        self.accel = Exit.unset;
+        self.stats = .{};
+    }
+
+    pub fn exit(self: *const Emitter) Exit {
+        return .{
+            .x = self.x,
+            .y = self.y,
+            .z = self.z,
+            .nozzle_z = self.nozzle_z,
+            .retracted = self.retracted,
+            .retract_len = self.retract_len,
+            .hopped = self.hopped,
+            .hop_len = self.hop_len,
+            .nozzle_temp = self.nozzle_temp,
+            .bed_temp = self.bed_temp,
+            .extruded = self.extruded,
+            .feature = self.feature,
+            .accel = self.accel,
+            .stop = self.stop,
+            .feed = self.feed,
+            .width = self.width,
+            .layer_start = self.layer_start,
+            .lr = self.lr,
+            .retractions = self.stats.retractions,
+        };
+    }
+
+    /// The link pass of a layer: joins an early run of `lp` (its exit
+    /// state `x`, its terms `g`, and its plan in `pr`) to the real state
+    /// at the start of the layer. The caller checked `at` with the entry
+    /// state of the run. On success, the emitter is in the state after the
+    /// layer, as after `layer` in a dry run, and `pr` has the exact layer
+    /// time for the text. False: the exact times give another result than
+    /// the run found, and the emitter did not change. Then the caller
+    /// runs `layer`.
+    pub fn link(self: *Emitter, lp: *const LayerPlan, x: *const Exit, g: *const Terms, pr: *Prepared) bool {
+        if (g.rules) return false;
+        const lr = lp.resolved orelse self.r;
+        const f = lr.settings.filament;
+        // The time of the retractions and the Z moves is a difference of
+        // two sums that start at the time of the print.
+        var t = self.stats.print_time_s;
+        for (g.time.items[0..g.probe]) |v| t += v;
+        const fixed = t - self.stats.print_time_s;
+        const layer_time = fixed + g.full_time;
+        const short = layer_time < f.min_layer_time;
+        if (short != g.short) return false;
+        if (short) {
+            // The cooling lap moves the nozzle for a time that comes from
+            // the exact layer time.
+            if (f.cooling_mode == .lap) return false;
+            const want = f.min_layer_time - fixed;
+            if (!(g.below < want and want <= g.above)) return false;
+        }
+        pr.plan_time = layer_time;
+        const st = &self.stats;
+        for (g.time.items[g.probe..]) |v| st.print_time_s += v;
+        for (g.filament.items) |v| st.filament_mm += v;
+        for (g.travel.items) |v| st.travel_mm += v;
+        st.retractions += x.retractions;
+        st.layer_count += 1;
+        self.lr = x.lr.?;
+        self.x = x.x;
+        self.y = x.y;
+        self.z = x.z;
+        self.nozzle_z = x.nozzle_z;
+        self.retracted = x.retracted;
+        if (x.retract_len != Exit.unset) self.retract_len = x.retract_len;
+        self.hopped = x.hopped;
+        if (x.hop_len != Exit.unset) self.hop_len = x.hop_len;
+        self.nozzle_temp = x.nozzle_temp;
+        self.bed_temp = x.bed_temp;
+        self.extruded = x.extruded;
+        self.feature = x.feature;
+        if (x.accel != Exit.unset) self.accel = x.accel;
+        self.stop = x.stop;
+        self.feed = x.feed;
+        self.width = x.width;
+        self.layer_start = x.layer_start;
+        // The fan of the layer, as `coolingFan` sets it.
+        const ratio = if (lp.index < self.r.settings.filament.fan_off_layers)
+            0
+        else if (layer_time < f.fan_boost_time)
+            f.fan_max_speed
+        else
+            f.fan_speed;
+        self.layer_fan = @intFromFloat(@round(255 * ratio));
+        self.fan = self.layer_fan;
+        return true;
     }
 
     pub fn init(gpa: std.mem.Allocator, w: *Writer, r: *const Resolved) Emitter {
@@ -657,10 +864,10 @@ pub const Emitter = struct {
         if (self.collect) |list| {
             try list.append(self.gpa, .{ .dir = .{ dx / d, dy / d }, .len = d, .speed = v, .accel = a, .e_ratio = e_ratio, .stop_before = self.stop });
         } else if (self.next_move < self.planned.len) {
-            self.stats.print_time_s += self.planned[self.next_move].time;
+            try self.addTime(self.planned[self.next_move].time);
             self.next_move += 1;
         } else {
-            self.stats.print_time_s += motion.restTime(d, v, a);
+            try self.addTime(motion.restTime(d, v, a));
         }
         self.stop = false;
     }
@@ -691,13 +898,33 @@ pub const Emitter = struct {
     }
 
     /// A Z move from rest to rest.
-    fn zMove(self: *Emitter, dz: f64) void {
+    fn zMove(self: *Emitter, dz: f64) Error!void {
         const m = self.r.settings.machine;
-        self.stats.print_time_s += motion.restTime(@abs(dz), m.max_z_speed, m.max_z_accel);
+        try self.addTime(motion.restTime(@abs(dz), m.max_z_speed, m.max_z_accel));
         self.stop = true;
     }
 
-    pub fn end(self: *Emitter) Writer.Error!void {
+    /// Adds `t` to the print time. A run with `terms` also keeps `t`: the
+    /// link pass adds the same terms in the same order (see `link`).
+    fn addTime(self: *Emitter, t: f64) Error!void {
+        self.stats.print_time_s += t;
+        if (self.terms) |g| try g.time.append(self.gpa, t);
+    }
+
+    /// Adds `e` to the filament length (see `addTime`). The first pass of
+    /// a layer keeps no term: its sums are not the sums of the print.
+    fn addFilament(self: *Emitter, e: f64) Error!void {
+        self.stats.filament_mm += e;
+        if (self.terms) |g| if (self.collect == null) try g.filament.append(self.gpa, e);
+    }
+
+    /// Adds `d` to the travel length (see `addFilament`).
+    fn addTravel(self: *Emitter, d: f64) Error!void {
+        self.stats.travel_mm += d;
+        if (self.terms) |g| if (self.collect == null) try g.travel.append(self.gpa, d);
+    }
+
+    pub fn end(self: *Emitter) Error!void {
         try self.retract();
         const st = &self.stats;
         const r = self.r.settings.filament.diameter / 2;
@@ -804,7 +1031,13 @@ pub const Emitter = struct {
         try probe.paths(lp, 1, false);
         const lim = self.limits();
         const fixed = probe.stats.print_time_s - self.stats.print_time_s;
-        const layer_time = fixed + motion.plan(moves.items, lim);
+        const full_time = motion.plan(moves.items, lim);
+        const layer_time = fixed + full_time;
+        if (self.terms) |t| {
+            t.probe = t.time.items.len;
+            t.full_time = full_time;
+            t.short = layer_time < s.filament.min_layer_time;
+        }
 
         try self.coolingFan(lp, layer_time);
         var slow: f64 = 1;
@@ -832,11 +1065,28 @@ pub const Emitter = struct {
                 const want = s.filament.min_layer_time - fixed;
                 var lo: f64 = 0;
                 var hi: f64 = 1;
-                if (time(moves.items, full, lo, s.filament.min_speed, lim) >= want) {
+                // The bounds of the wanted time that give the same result
+                // (see Terms.below).
+                var below = -std.math.inf(f64);
+                var above = std.math.inf(f64);
+                const t0 = time(moves.items, full, lo, s.filament.min_speed, lim);
+                if (t0 >= want) {
+                    above = t0;
                     for (0..24) |_| {
                         const mid = (lo + hi) / 2;
-                        if (time(moves.items, full, mid, s.filament.min_speed, lim) >= want) lo = mid else hi = mid;
+                        const t = time(moves.items, full, mid, s.filament.min_speed, lim);
+                        if (t >= want) {
+                            lo = mid;
+                            above = geom.fmin(above, t);
+                        } else {
+                            hi = mid;
+                            below = geom.fmax(below, t);
+                        }
                     }
+                } else below = t0;
+                if (self.terms) |t| {
+                    t.below = below;
+                    t.above = above;
                 }
                 slow = lo;
                 _ = time(moves.items, full, slow, s.filament.min_speed, lim);
@@ -901,7 +1151,7 @@ pub const Emitter = struct {
         defer self.outline = null;
         self.comb_index = if (self.prep) |pr| (if (pr.index) |*ix| ix else null) else null;
         defer self.comb_index = null;
-        self.zMove(lp.z - self.z);
+        try self.zMove(lp.z - self.z);
         self.z = lp.z;
         try self.w.writeAll("G0 Z");
         try writeNum(self.w, self.z, 3);
@@ -1067,7 +1317,7 @@ pub const Emitter = struct {
             self.x = x;
             self.y = y;
             cz = z;
-            self.stats.filament_mm += e;
+            try self.addFilament(e);
             len_sum += d;
             area_sum += d * area;
         }
@@ -1078,12 +1328,12 @@ pub const Emitter = struct {
 
     /// A Z move to z, from rest to rest, with no extrusion. The emitter
     /// keeps `self.z` as the z of the layer.
-    fn zTo(self: *Emitter, z: f64) Writer.Error!void {
+    fn zTo(self: *Emitter, z: f64) Error!void {
         // The nozzle is at the z of the layer, or at the z of the last
         // point of a path that is not planar.
         const from = self.nozzle_z orelse self.z;
         if (@abs(z - from) < 1e-6) return;
-        self.zMove(z - from);
+        try self.zMove(z - from);
         const f = geom.round(self.r.settings.machine.max_z_speed * 60);
         if (!self.dry) {
             try self.w.writeAll("G1 Z");
@@ -1104,10 +1354,10 @@ pub const Emitter = struct {
         if (self.collect) |list| {
             try list.append(self.gpa, .{ .dir = .{ dx / d, dy / d }, .dir_z = dz / d, .len = d, .speed = v, .accel = a, .e_ratio = e_ratio, .stop_before = self.stop });
         } else if (self.next_move < self.planned.len) {
-            self.stats.print_time_s += self.planned[self.next_move].time;
+            try self.addTime(self.planned[self.next_move].time);
             self.next_move += 1;
         } else {
-            self.stats.print_time_s += motion.restTime(d, v, a);
+            try self.addTime(motion.restTime(d, v, a));
         }
         self.stop = false;
     }
@@ -1143,7 +1393,7 @@ pub const Emitter = struct {
         return d;
     }
 
-    fn coolingLap(self: *Emitter, lp: *const LayerPlan, seconds: f64) Writer.Error!void {
+    fn coolingLap(self: *Emitter, lp: *const LayerPlan, seconds: f64) Error!void {
         const box = lp.points.bounds();
         if (box.isEmpty()) return;
         try self.retract();
@@ -1182,8 +1432,8 @@ pub const Emitter = struct {
             try self.w.writeAll("\n");
             self.x = x;
             self.y = y;
-            self.stats.print_time_s += step / speed;
-            self.stats.travel_mm += step;
+            try self.addTime(step / speed);
+            try self.addTravel(step);
             left -= step / speed;
             if (step < 1e-6) break;
         }
@@ -1200,7 +1450,7 @@ pub const Emitter = struct {
         }
     }
 
-    fn retract(self: *Emitter) Writer.Error!void {
+    fn retract(self: *Emitter) Error!void {
         return self.retractHop(true);
     }
 
@@ -1230,7 +1480,7 @@ pub const Emitter = struct {
     /// A retraction on an arc inside the part: 270 degrees around a center
     /// one radius from the nozzle, in 9 moves, each with its part of the
     /// retraction. False if no arc fits (then the caller retracts plainly).
-    fn wipeRetract(self: *Emitter, len: f64) Writer.Error!bool {
+    fn wipeRetract(self: *Emitter, len: f64) Error!bool {
         // After a line in the part: the arc check keeps the nozzle inside
         // the layer. The support and the skirt are outside the part.
         const f = self.feature orelse return false;
@@ -1263,7 +1513,7 @@ pub const Emitter = struct {
             self.x = x;
             self.y = y;
         }
-        self.stats.print_time_s += @max(arc / speed, self.retractTime(len));
+        try self.addTime(@max(arc / speed, self.retractTime(len)));
         return true;
     }
 
@@ -1272,7 +1522,7 @@ pub const Emitter = struct {
     }
 
     /// A retraction, and a z hop if `hop` and `z_hop` is on.
-    fn retractHop(self: *Emitter, hop: bool) Writer.Error!void {
+    fn retractHop(self: *Emitter, hop: bool) Error!void {
         const len = self.lr.retract_length;
         if (self.retracted or !self.extruded or len <= 0) return;
         const wiped = self.lr.settings.project.retract_wipe and try self.wipeRetract(len);
@@ -1287,11 +1537,11 @@ pub const Emitter = struct {
         self.retract_len = len;
         self.feed = -1;
         self.stats.retractions += 1;
-        if (!wiped) self.stats.print_time_s += self.retractTime(len);
+        if (!wiped) try self.addTime(self.retractTime(len));
         self.stop = true;
         const hop_len = self.lr.settings.project.z_hop;
         if (hop and hop_len > 0) {
-            self.zMove(hop_len);
+            try self.zMove(hop_len);
             try self.w.writeAll("G0 Z");
             try writeNum(self.w, self.z + hop_len, 3);
             try self.w.writeAll("\n");
@@ -1300,10 +1550,10 @@ pub const Emitter = struct {
         }
     }
 
-    fn unretract(self: *Emitter) Writer.Error!void {
+    fn unretract(self: *Emitter) Error!void {
         if (!self.retracted) return;
         if (self.hopped) {
-            self.zMove(self.hop_len);
+            try self.zMove(self.hop_len);
             try self.w.writeAll("G0 Z");
             try writeNum(self.w, self.z, 3);
             try self.w.writeAll("\n");
@@ -1317,7 +1567,7 @@ pub const Emitter = struct {
         try self.w.writeAll("\n");
         self.retracted = false;
         self.feed = -1;
-        self.stats.print_time_s += self.retractTime(len);
+        try self.addTime(self.retractTime(len));
         self.stop = true;
     }
 
@@ -1422,7 +1672,7 @@ pub const Emitter = struct {
         try self.addMove(x - self.x, y - self.y, d, speed, 0);
         self.x = x;
         self.y = y;
-        self.stats.travel_mm += d;
+        try self.addTravel(d);
     }
 
     /// The combing way to x, y, or null (retract). First the way of
@@ -1759,7 +2009,7 @@ pub const Emitter = struct {
         try self.addMove(x - self.x, y - self.y, d, speed, e_per_mm);
         self.x = x;
         self.y = y;
-        self.stats.filament_mm += e;
+        try self.addFilament(e);
         self.extruded = true;
     }
 
