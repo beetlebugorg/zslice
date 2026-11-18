@@ -97,10 +97,6 @@ private struct PartRow: View {
         var counts = project.counts
         while counts.count < project.parts.count { counts.append(nil) }
         counts[part.id] = count
-        do {
-            try workspace.model.openProject(project.folder, counts: counts)
-        } catch {
-            NSAlert(error: error).runModal()
-        }
+        workspace.openProject(project.source, counts: counts)
     }
 }

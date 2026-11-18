@@ -165,4 +165,4 @@ The work goes in steps. Each step keeps `zig build test`, `zig build web`, and t
 1. The core link and the 3D view: open a file, slice, and show the beads with Metal. Done.
 2. The slicing UI: the print card and Export G-code, the layer slider, the replay, the 2D layer view, the settings drawer, and history and undo (done).
 3. The tools (Select, Move, Turn, Measure, Gaps, Check), the line and part cards, the settings search, the shortcut sheet, the context menu, and a double click that faces a side (done).
-4. Printers (the picker, the library, App Keys, printdeck, OctoPrint, Moonraker, discovery), printdeck.yml projects, the menus, drag and drop, and the user docs (done). Still to do: projects from GitHub, and the status of a printdeck printer.
+4. Printers (the picker, the library, App Keys, printdeck, OctoPrint, Moonraker, discovery), printdeck.yml projects, the menus, drag and drop, and the user docs (done). Still to do: the status of a printdeck printer.

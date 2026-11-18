@@ -100,6 +100,8 @@ struct PlateCommands: View {
         Button("Open Project Folder…") { workspace?.openProject() }
             .keyboardShortcut("o", modifiers: [.command, .shift])
             .disabled(workspace == nil)
+        Button("Open Project from GitHub…") { workspace?.askGitHub() }
+            .disabled(workspace == nil)
     }
 }
 

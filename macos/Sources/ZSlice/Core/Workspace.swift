@@ -212,7 +212,9 @@ final class Workspace {
         }
         if env["ZSLICE_ADD_PLATE"] != nil { framePlate(-1) }
         // ZSLICE_PROJECT=folder opens a project.
-        if let folder = env["ZSLICE_PROJECT"] { openProject(URL(fileURLWithPath: folder)) }
+        if let p = env["ZSLICE_PROJECT"] {
+            if p.hasPrefix("/") { openProject(URL(fileURLWithPath: p)) } else { openGitHub(p) }
+        }
         // ZSLICE_MENU="x,y;Title" runs an item of the context menu there.
         if let spec = env["ZSLICE_MENU"]?.split(separator: ";"), spec.count == 2 {
             // "center": the middle of the view.
@@ -314,17 +316,60 @@ final class Workspace {
     }
 
     func openProject(_ url: URL) {
-        do {
-            try model.openProject(url)
-            framePlate(-1)
-            showSettings = true
-            drawerPage = .project
-        } catch {
-            let a = NSAlert()
-            a.messageText = "The project did not open"
-            a.informativeText = error.localizedDescription
-            a.runModal()
+        openProject(FolderSource(url))
+    }
+
+    /// Opens a project from a folder or from GitHub. While it reads the
+    /// files, the print card says so.
+    func openProject(_ source: ProjectSource, counts: [Int?]? = nil) {
+        sendState = "Opening \(source.label)…"
+        Task { @MainActor in
+            do {
+                try await model.openProject(source, counts: counts)
+                sendState = nil
+                if counts == nil {
+                    framePlate(-1)
+                    showSettings = true
+                    drawerPage = .project
+                }
+            } catch {
+                sendState = nil
+                let a = NSAlert()
+                a.messageText = "The project did not open"
+                a.informativeText = error.localizedDescription
+                a.runModal()
+            }
         }
+    }
+
+    /// Opens a public repository on GitHub (owner/repo, or its address).
+    func openGitHub(_ text: String) {
+        sendState = "Reading \(text) on GitHub…"
+        Task { @MainActor in
+            do {
+                openProject(try await GitHubSource.open(text))
+            } catch {
+                sendState = nil
+                let a = NSAlert()
+                a.messageText = "The project did not open"
+                a.informativeText = error.localizedDescription
+                a.runModal()
+            }
+        }
+    }
+
+    /// Asks for owner/repo, and opens it.
+    func askGitHub() {
+        let a = NSAlert()
+        a.messageText = "Open a Project from GitHub"
+        a.informativeText = "Type owner/repo, or the address of a public repository on github.com. An address with /tree/<branch> opens that branch."
+        let field = NSTextField(frame: NSRect(x: 0, y: 0, width: 320, height: 24))
+        field.placeholderString = "beetlebugorg/bittlex"
+        a.accessoryView = field
+        a.addButton(withTitle: "Open")
+        a.addButton(withTitle: "Cancel")
+        a.window.initialFirstResponder = field
+        if a.runModal() == .alertFirstButtonReturn, !field.stringValue.isEmpty { openGitHub(field.stringValue) }
     }
 
     /// Adds a model file to the active plate.
