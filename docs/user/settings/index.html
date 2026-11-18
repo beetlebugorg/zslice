@@ -86,6 +86,8 @@
 <p>The speed of Z moves at each layer change.</p>
 <p><strong><code>machine.max_z_accel</code></strong> (number). Default: <code>100</code></p>
 <p>The acceleration of Z moves (the layer change and the z hop), in mm/s². Only the time estimate uses it.</p>
+<p><strong><code>machine.hour_rate</code></strong> (number). Default: <code>0</code></p>
+<p>The cost of one hour of this printer, in your currency: the power, the wear, and the time of the machine. A print costs its hours times this, and its filament. 0: only the filament counts.</p>
 <p><strong><code>machine.max_accel</code></strong> (number). Default: <code>1500</code></p>
 <p>The acceleration of the print head in X and Y, in mm/s². The time estimate uses it, and it is the acceleration of each feature that has no acceleration of its own (0 in the project).</p>
 <p><strong><code>machine.corner_speed</code></strong> (number). Default: <code>8</code></p>
@@ -348,8 +350,8 @@ M84</code></pre>
 <p><strong><code>project.support</code></strong> (one of: <code>off</code>, <code>everywhere</code>, <code>buildplate</code>). Default: <code>off</code></p>
 <p>Support under overhangs. <code>off</code>: no support. <code>everywhere</code>: support can stand on the bed or on the part. <code>buildplate</code>: only support that stands on the bed.</p>
 <p><strong><code>project.support_style</code></strong> (one of: <code>grid</code>, <code>tree</code>, <code>bridge</code>). Default: <code>grid</code></p>
-<p>The shape of the support. <code>grid</code>: all the space under each overhang, filled with lines. <code>tree</code>: branches from points under each overhang down to the bed or the part; they join on the way, get thicker as they go down, and thinner in narrow spaces (so a branch can go down a deep, narrow hole). A tree uses less plastic and comes off more easily. <code>bridge</code>: only a sacrificial pad under each overhang (the interface layers, with the Z gap over it), with nothing under the pad. The pad bridges from the part around it, as a bridge does, and breaks off easily. For overhangs over a hole or a short gap, where a column down to the bed would be a waste.</p>
-<p><strong><code>project.support_tree_angle</code></strong> (number). Default: <code>40</code></p>
+<p>The shape of the support. <code>grid</code>: all the space under each overhang, filled with lines. <code>tree</code>: branches from points under each overhang down to the bed or the part; they join on the way, get thicker as they go down, and thinner in narrow spaces (so a branch can go down a deep, narrow hole). Each branch prints as one wall loop, with lines only at its foot and under its tip. A tree uses less plastic and comes off more easily. <code>bridge</code>: only a sacrificial pad under each overhang (the interface layers, with the Z gap over it), with nothing under the pad. The pad bridges from the part around it, as a bridge does, and breaks off easily. For overhangs over a hole or a short gap, where a column down to the bed would be a waste.</p>
+<p><strong><code>project.support_tree_angle</code></strong> (number). Default: <code>50</code></p>
 <p>Tree support: the largest angle of a branch from vertical, in degrees. A larger angle lets branches reach farther, with less strength.</p>
 <p><strong><code>project.support_tree_spacing</code></strong> (number). Default: <code>3</code></p>
 <p>Tree support: the distance of the tips under an overhang. Tips also go along the edges of each overhang, at the same distance.</p>

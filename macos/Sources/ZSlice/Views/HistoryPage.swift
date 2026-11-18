@@ -4,7 +4,9 @@
 //! changes in words. A click on a step goes to it, and the plate slices at
 //! that step. Each change of the step now or an earlier step has an undo
 //! button that undoes only that change and keeps the later ones. The menu
-//! of a step clears the history after it.
+//! of a step clears the history after it. Line Edits at the top lists the
+//! edits of single lines (zs_app_edit_*), each with × to remove it, and
+//! marks an edit whose line is not in this slice.
 //!
 //! SPDX-License-Identifier: AGPL-3.0-or-later
 
@@ -12,12 +14,32 @@ import SwiftUI
 
 struct HistoryPage: View {
     let history: History
+    var workspace: Workspace? = nil
     @State private var error: String?
 
     var body: some View {
         let n = history.count
         let now = history.current
         List {
+            if let workspace, !workspace.lineEdits.isEmpty {
+                let edits = workspace.lineEdits
+                Section("Line Edits (\(edits.count))") {
+                    ForEach(edits) { e in
+                        HStack {
+                            VStack(alignment: .leading, spacing: 2) {
+                                Text(e.text)
+                                if e.waits {
+                                    Text("Waits: its line is not in this slice.").font(.caption).foregroundStyle(.orange)
+                                }
+                            }
+                            Spacer()
+                            Button { workspace.removeEdit(e.id) } label: { Image(systemName: "xmark.circle.fill").foregroundStyle(.secondary) }
+                                .buttonStyle(.borderless)
+                                .help("Remove this edit")
+                        }
+                    }
+                }
+            }
             if n <= 1 {
                 Text("No changes yet. Each change of a setting or of the plate shows here, and you can go back to it.")
                     .foregroundStyle(.secondary)

@@ -11,6 +11,8 @@
 //!   Placement of the part of the line (zs_app_part_place);
 //! - for the plate: Smart Placement, Arrange the Plate, Add Models, and
 //!   Clear the Plate (zs_app_plate_*);
+//! - Add a Drop of Plastic Here: a dot of 1 mm at the middle of the
+//!   selected segment, on its layer (zs_app_edit_add_dot), to fill a gap;
 //! - Copy for AI: a report of the line (zs_app_line_report) on the
 //!   clipboard, with its place in the G-code of the slice, which the app
 //!   writes to its cache folder;
@@ -103,6 +105,7 @@ extension Workspace {
         if selection != nil {
             menu.addItem(.separator())
             menu.addItem(ClosureItem("Copy for AI") { [weak self] in self?.copyForAI() })
+            menu.addItem(ClosureItem("Add a Drop of Plastic Here") { [weak self] in self?.addDrop() })
         }
         menu.addItem(.separator())
         if layerCount > 0 {
@@ -187,13 +190,38 @@ extension Workspace {
         model.settingsChanged()
     }
 
+    /// A drop of plastic of 1 mm at the middle of the selected segment, on
+    /// the layer of its line.
+    private func addDrop() {
+        guard let s = selection else { return }
+        // While the plate slices, its lines are not there to measure.
+        guard let m = markPlace() else {
+            showNote("The plate is slicing. Add the drop again in a moment.")
+            return
+        }
+        let layer = zs_app_path_layer(model.core, s.path)
+        guard layer >= 0 else { return }
+        let rc = zs_app_edit_add_dot(model.core, Int(layer), m.x, m.y, 1.0)
+        guard rc == 0 else {
+            showNote("The drop did not work (\(statusText(rc))).")
+            return
+        }
+        editsChanged("A drop of plastic of 1.0 mm on layer \(layer + 1).")
+    }
+
     private func addMark(_ kind: Int32) {
-        guard let m = markPlace() else { return }
+        guard let m = markPlace() else {
+            showNote("The plate is slicing. Add the mark again in a moment.")
+            return
+        }
         if zs_app_mark_add(model.core, m.x, m.y, m.z, 3, kind) == 0 { model.settingsChanged() }
     }
 
     private func removeMarks() {
-        guard let m = markPlace() else { return }
+        guard let m = markPlace() else {
+            showNote("The plate is slicing. Remove the marks again in a moment.")
+            return
+        }
         if zs_app_mark_remove_near(model.core, m.x, m.y, m.z, 3) > 0 { model.settingsChanged() }
     }
 

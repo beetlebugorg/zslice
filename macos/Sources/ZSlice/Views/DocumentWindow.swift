@@ -277,7 +277,7 @@ struct InspectorPanel: View {
             .padding(8)
             switch workspace.drawerPage {
             case .settings: SettingsInspector(workspace: workspace)
-            case .history: HistoryPage(history: workspace.model.history)
+            case .history: HistoryPage(history: workspace.model.history, workspace: workspace)
             case .project: ProjectPage(workspace: workspace)
             case .printers: FarmPage(workspace: workspace)
             }

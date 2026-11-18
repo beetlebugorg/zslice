@@ -44,7 +44,7 @@ The bar at the top of the Settings page picks what the editors change: This Prin
 
 ## Edit one line
 
-The card of a selected line has Don't Print This Line (or press Delete with the line selected), and −10 % and +10 % plastic. The plate slices again with the edit. Each edit is a step of the history, so Command-Z takes it back, and a project file keeps it. An edit holds to its line: after a change that moves the line, the edit waits.
+The card of a selected line has Don't Print This Line (or press Delete with the line selected), and −10 % and +10 % plastic. The plate slices again with the edit. Each edit is a step of the history, so Command-Z takes it back, and a project file keeps it. Add a Drop of Plastic Here in the context menu of a line puts a dot of 1 mm of plastic at that point, on the layer of the line, to fill a small gap. An edit holds to its line: after a change that moves the line, the edit waits. The History page lists the edits under Line Edits, marks the ones that wait, and × removes one.
 
 ## The print card
 

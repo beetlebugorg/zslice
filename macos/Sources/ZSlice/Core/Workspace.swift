@@ -973,14 +973,46 @@ final class Workspace {
             return
         }
         if kind == 0 { clearSelection() }
+        editsChanged(kind == 0 ? "The line does not print now." : (value < 1 ? "The line has \(Int(((1 - value) * 100).rounded())) % less plastic now." : "The line has \(Int(((value - 1) * 100).rounded())) % more plastic now."))
+    }
+
+    /// After the core added or removed an edit: it made the step of the
+    /// history, so the undo actions follow; the plate slices again.
+    func editsChanged(_ what: String) {
         model.history.commit()
-        // The core made the step: the undo actions follow.
         model.history.attach()
         model.settingsGeneration += 1
         model.requestSlice()
         let n = zs_app_edit_count(model.core)
-        let what = kind == 0 ? "The line does not print now." : (value < 1 ? "The line has \(Int(((1 - value) * 100).rounded())) % less plastic now." : "The line has \(Int(((value - 1) * 100).rounded())) % more plastic now.")
         showNote("\(what) \(n) edit\(n == 1 ? "" : "s") on this plate; undo with ⌘Z.", seconds: 6)
+    }
+
+    /// The edits of the plate, for the History page.
+    struct LineEdit: Identifiable {
+        var id: Int
+        var text: String
+        var waits: Bool
+    }
+
+    var lineEdits: [LineEdit] {
+        _ = model.settingsGeneration
+        _ = model.history.generation
+        _ = layerCount
+        return (0 ..< zs_app_edit_count(model.core)).map { i in
+            var kind: Int32 = 0, value = 0.0, layer = 0, applied: Int32 = 0
+            zs_app_edit_get(model.core, i, &kind, &value, &layer, &applied)
+            let what = switch kind {
+            case 0: "does not print"
+            case 1: "\(Int((value * 100).rounded())) % plastic"
+            default: String(format: "a drop of %.1f mm", value)
+            }
+            return LineEdit(id: i, text: "Layer \(layer + 1): \(what)", waits: applied == 0)
+        }
+    }
+
+    func removeEdit(_ i: Int) {
+        guard zs_app_edit_remove(model.core, i) == 0 else { return }
+        editsChanged("The edit is gone.")
     }
 
     /// Exports the G-code of the last slice with a save panel.
