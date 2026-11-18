@@ -59,8 +59,10 @@ export class TurnRings {
     if (!on) this.label.hidden = true;
   }
 
+  // The ring under the pointer, or -1. Only the view counts: a card, the
+  // dock, or a button over a ring keeps its own clicks.
   ringAt(e) {
-    if (!this.on) return -1;
+    if (!this.on || e.target?.tagName !== "CANVAS") return -1;
     const [px, py] = this.at(e);
     return this.ctx.view.x.zs_view_ring_at(this.ctx.view.v, px, py, TOL * this.dpr());
   }
