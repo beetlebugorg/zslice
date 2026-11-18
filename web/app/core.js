@@ -851,6 +851,8 @@ export class Core {
         sizeX: w.f64(p + 32),
         sizeY: w.f64(p + 40),
         sizeZ: w.f64(p + 48),
+        // Along the axes of the file, 1 = 100 %.
+        scale: [w.f64(p + 56), w.f64(p + 64), w.f64(p + 72)],
       };
     } finally {
       w.free(p, size);

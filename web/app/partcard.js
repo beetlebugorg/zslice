@@ -89,6 +89,20 @@ export class PartCard {
     actions.append(cutB);
     action("Best orientation", "", "Turn the part to its best orientation: less support, more on the bed, low", "smart");
     action("Less support", "", "Turn the part to need the least support", "less-support");
+    // The scale, in % of the file, the same along each axis.
+    const scaleRow = el("label", "pc-cut-row pc-scale");
+    this.scaleIn = Object.assign(document.createElement("input"), { type: "number", min: "1", max: "100000", step: "any", className: "pc-cut-n" });
+    this.scaleIn.title = "The size of the part, in % of the file (Enter applies)";
+    const applyScale = async () => {
+      const v = Number(this.scaleIn.value);
+      if (!(v > 0) || !this.part) return;
+      const r = await this.ctx.client.call("partScale", { index: this.part.index, s: v / 100 });
+      if (r.part) this.show(r.part);
+    };
+    this.scaleIn.onkeydown = (e) => { if (e.key === "Enter") applyScale(); e.stopPropagation(); };
+    this.scaleIn.onchange = applyScale;
+    scaleRow.append("Scale ", this.scaleIn, " %");
+    actions.append(scaleRow);
     action("Reset", "", "The orientation and the scale of the file again", "reset");
     const moveB = el("button", "pc-action", "To a new plate");
     moveB.title = "Move the part to a new plate, with the settings of this plate";
@@ -225,6 +239,7 @@ export class PartCard {
     const p = this.part;
     this.title.textContent = p.name || `Part ${p.index + 1}`;
     const turn = Math.round(((p.rotation % 360) + 360) % 360);
+    if (this.scaleIn && document.activeElement !== this.scaleIn && p.scale) this.scaleIn.value = String(Math.round(p.scale[0] * 10000) / 100);
     this.facts.textContent = `${p.sizeX.toFixed(1)} × ${p.sizeY.toFixed(1)} × ${p.sizeZ.toFixed(1)} mm${turn ? ` · turned ${turn}°` : ""}`;
   }
 

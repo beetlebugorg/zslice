@@ -716,6 +716,9 @@ pub const App = struct {
 
     pub fn scalePart(app: *App, i: usize, s: [3]f64) Allocator.Error!void {
         try app.plate.setScale(app.gpa, i, s);
+        // A file in inches is at its small place: the larger part goes
+        // where it fits.
+        app.plate.keepOnBed(i, app.bedSize(), app.partGap());
         try app.plateChanged();
     }
 

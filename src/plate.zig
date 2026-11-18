@@ -498,6 +498,18 @@ pub const Plate = struct {
         }
     }
 
+    /// After a change of the size of part i: when it no longer fits where
+    /// it is (off the bed, or on another part), it goes to a free place,
+    /// near the center of the bed first. A part that fits stays.
+    pub fn keepOnBed(self: *Plate, i: usize, bed: [2]f64, gap: f64) void {
+        if (i >= self.parts.items.len) return;
+        const p = &self.parts.items[i];
+        if (self.fits(p, bed, gap, i)) return;
+        const spot = self.freeSpotSkip(p, bed, gap, i);
+        p.x = spot[0];
+        p.y = spot[1];
+    }
+
     /// Sets the scale of part i along the axes of its file (1 = 100 %).
     pub fn setScale(self: *Plate, gpa: Allocator, i: usize, s: [3]f64) Allocator.Error!void {
         if (i >= self.parts.items.len) return;
@@ -627,6 +639,11 @@ pub const Plate = struct {
     /// A free place for a part: the center of the bed, or the nearest free
     /// place to it on a 5 mm grid. If there is none, the center.
     fn freeSpot(self: *const Plate, part: *const Part, bed: [2]f64, gap: f64) [2]f64 {
+        return self.freeSpotSkip(part, bed, gap, null);
+    }
+
+    /// As freeSpot, with part `skip` (the part itself) out of the check.
+    fn freeSpotSkip(self: *const Plate, part: *const Part, bed: [2]f64, gap: f64, skip: ?usize) [2]f64 {
         var probe = part.*;
         const cx = bed[0] / 2;
         const cy = bed[1] / 2;
@@ -645,7 +662,7 @@ pub const Plate = struct {
                 for (cands) |c| {
                     probe.x = c[0];
                     probe.y = c[1];
-                    if (self.fits(&probe, bed, gap, null)) return c;
+                    if (self.fits(&probe, bed, gap, skip)) return c;
                 }
             }
         }
@@ -939,3 +956,25 @@ test "plate: a cut that does not fit side by side arranges the plate" {
     try std.testing.expect(!plate.allFit(.{ 220, 220 }, 2));
 }
 
+
+test "plate: a part that grows off the bed goes back on it" {
+    const gpa = std.testing.allocator;
+    var plate: Plate = .{};
+    defer plate.deinit(gpa);
+    var m: Mesh = .empty;
+    // A 2 mm cube at the corner of the bed, as a file in inches.
+    const v = [_][3]f32{ .{ 4, 4, 0 }, .{ 6, 4, 0 }, .{ 6, 6, 0 }, .{ 4, 6, 0 }, .{ 4, 4, 2 }, .{ 6, 4, 2 }, .{ 6, 6, 2 }, .{ 4, 6, 2 } };
+    for (v) |q| try m.vertices.append(gpa, .{ .x = q[0], .y = q[1], .z = q[2] });
+    const f = [_][3]u32{ .{ 0, 2, 1 }, .{ 0, 3, 2 }, .{ 4, 5, 6 }, .{ 4, 6, 7 }, .{ 0, 1, 5 }, .{ 0, 5, 4 }, .{ 1, 2, 6 }, .{ 1, 6, 5 }, .{ 2, 3, 7 }, .{ 2, 7, 6 }, .{ 3, 0, 4 }, .{ 3, 4, 7 } };
+    for (f) |q| try m.faces.append(gpa, q);
+    _ = try plate.add(gpa, "cube", m, .{ 220, 220 }, 2, true);
+    try std.testing.expectApproxEqAbs(@as(f64, 5), plate.parts.items[0].x, 1e-6);
+    try plate.setScale(gpa, 0, .{ 25.4, 25.4, 25.4 });
+    try std.testing.expect(!plate.allFit(.{ 220, 220 }, 2));
+    plate.keepOnBed(0, .{ 220, 220 }, 2);
+    try std.testing.expect(plate.allFit(.{ 220, 220 }, 2));
+    // A part that fits stays where it is.
+    const x = plate.parts.items[0].x;
+    plate.keepOnBed(0, .{ 220, 220 }, 2);
+    try std.testing.expectEqual(x, plate.parts.items[0].x);
+}

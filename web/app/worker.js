@@ -168,6 +168,7 @@ function sendResult(i, ms) {
     parts: c.w.x.zs_app_part_count(c.app),
     // Each part on the bed, with no part on another (zs_app_plate_fits).
     fits: c.w.x.zs_app_plate_fits(c.app) === 1,
+    tiny: tinyParts(c),
   };
   post(msg, scene ? [scene, layers.z.buffer, layers.height.buffer, layers.endTime.buffer, layers.slowed.buffer] : []);
 }
@@ -356,7 +357,19 @@ function historyList() {
 // The ops that change the settings, and the ops that change the plate:
 // each starts or extends a step.
 const SETTING_OPS = new Set(["set", "reset", "quality", "profile", "setScoped", "resetScoped"]);
-const PLATE_OPS = new Set(["load", "add", "plate", "projectLoad", "partAction", "partCut", "partMove", "partFill", "editAdd", "editDot", "editRemove", "partSettingSet", "partPutDown", "partTurn", "putDown", "place", "partMove", "partRotate", "markAdd", "markRemoveNear", "markSet", "markRemove", "marksClear", "supportAreaAdd", "supportAreaSet", "supportAreaKind", "supportAreaRemove"]);
+// The parts whose largest side is under 3 mm: a file in inches or in
+// meters loads that small. The print card offers a scale.
+function tinyParts(c) {
+  const out = [];
+  const n = c.w.x.zs_app_part_count(c.app);
+  for (let i = 0; i < n && out.length < 8; i++) {
+    const p = c.part(i);
+    if (p && Math.max(p.sizeX, p.sizeY, p.sizeZ) < 3) out.push({ index: i, name: p.name, size: Math.max(p.sizeX, p.sizeY, p.sizeZ), scale: p.scale[0] });
+  }
+  return out;
+}
+
+const PLATE_OPS = new Set(["load", "add", "plate", "projectLoad", "partAction", "partCut", "partMove", "partFill", "editAdd", "editDot", "editRemove", "partSettingSet", "partPutDown", "partTurn", "putDown", "place", "partMove", "partRotate", "partScale", "markAdd", "markRemoveNear", "markSet", "markRemove", "marksClear", "supportAreaAdd", "supportAreaSet", "supportAreaKind", "supportAreaRemove"]);
 
 const ops = {
   async init({ module, saved, mode: m }) {
@@ -563,6 +576,14 @@ const ops = {
   // it at the end): a turn or a move of a part slices once, when it ends.
   partMove({ index, x, y, hold }) {
     if (core.w.x.zs_app_part_move(core.app, index, x, y) === 0) sliceOrHold(hold);
+    return { part: core.part(index) };
+  },
+
+  // Scales part i to s times the size of its file (1 = 100 %), the same
+  // along each axis.
+  partScale({ index, s }) {
+    if (!(s > 1e-3 && s < 1e3)) return { part: core.part(index) };
+    if (core.w.x.zs_app_part_scale(core.app, index, s, s, s) === 0) sliceOrHold(false);
     return { part: core.part(index) };
   },
 

@@ -1809,6 +1809,19 @@ function updateSummary() {
   if (app.fits === false) {
     warn.hidden = false;
     warn.textContent = "A part is off the bed or on another part. Move it, turn it, scale it, or cut it (the part card) before you print.";
+  } else if (app.tiny?.length > 0) {
+    // A file in inches or in meters: offer the scale.
+    const t = app.tiny[0];
+    warn.hidden = false;
+    warn.classList.add("sum-hint");
+    const by = (k, label) => {
+      const b = el("button", "", label);
+      b.onclick = async () => {
+        for (const p of app.tiny) await client.call("partScale", { index: p.index, s: p.scale * k });
+      };
+      return b;
+    };
+    warn.append(`${t.name || "The part"} is only ${t.size.toFixed(2)} mm. Was the file in inches or in meters? `, by(25.4, "Inches (×25.4)"), by(1000, "Meters (×1000)"));
   } else if (app.overhang >= OVERHANG_HINT_MM2 && (value("project.support") || "off") === "off") {
     // Support is off, and a large area faces down in the air: the print
     // can fail there. One click turns support on.
@@ -2016,6 +2029,7 @@ function onWorkerEvent(m) {
       app.parts = m.parts;
       app.fits = m.fits !== false;
       app.overhang = 0;
+      app.tiny = m.tiny ?? [];
       checkOverhang();
       // The selection, to find it again in the new slice.
       const key = refindKey();
