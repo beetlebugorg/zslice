@@ -1014,7 +1014,32 @@ const ops = {
     const p = w.u32(w.cell);
     const n = w.u32(w.cell + 4);
     const info = plateInfo(index);
-    return { bytes: w.u8.slice(p, p + n).buffer, name: info?.name ?? "" };
+    // The name of the core, from the first part of the plate.
+    let model = info?.name || "plate";
+    const pp = w.alloc(80);
+    try {
+      if (w.x.zs_app_part_count(a) > 0 && w.x.zs_app_part_get(a, 0, pp) === 0) model = w.cstr(w.u32(pp)) || model;
+    } finally {
+      w.free(pp, 80);
+    }
+    const count = w.x.zs_set_count(set);
+    const fileName = w.withString(model, (m) => w.readText((b, c, l) => w.x.zs_app_gcode_name(a, m, count > 1 ? index + 1 : 0, b, c, l)));
+    return { bytes: w.u8.slice(p, p + n).buffer, name: info?.name ?? "", fileName };
+  },
+
+  // The time and the filament of each plate with a slice (zs_set_plate_totals).
+  plateTotals() {
+    const w = wasm;
+    const out = [];
+    const p = w.alloc(80);
+    try {
+      for (let i = 0; i < w.x.zs_set_count(set); i++) {
+        out.push(w.x.zs_set_plate_totals(set, i, p) === 0 && w.u32(p + 4) > 0 ? { timeS: w.f64(p + 16), filamentG: w.f64(p + 24) } : null);
+      }
+    } finally {
+      w.free(p, 80);
+    }
+    return { totals: out };
   },
 
   // The start or the end G-code of the last slice, with the values of the

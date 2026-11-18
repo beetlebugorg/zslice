@@ -767,3 +767,7 @@ button.destructive { background: #c01c28; color: #fff; }
   .hb-start .hb-title { display: none; }
   .hb-end { gap: 3px; }
 }
+
+/* A plate of the queue that went to a printer in this session. */
+.farm-qrow.farm-sent .farm-qname { opacity: 0.6; }
+.farm-qrow.farm-sent .farm-qname::before { content: "✓ "; color: #2ea043; }

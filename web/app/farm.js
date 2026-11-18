@@ -25,6 +25,11 @@ export class FarmPage {
     this.tiles = new Map();
     // The last status of each printer, by name.
     this.state = new Map();
+    // The sends of this session, by plate: { printer, at }. A farm sees
+    // which plates are out.
+    this.sent = new Map();
+    // The time and the filament of each plate (plateTotals).
+    this.totals = [];
     this.busy = false;
   }
 
@@ -87,6 +92,14 @@ export class FarmPage {
     return !printing && !/print|busy|running|pause/i.test(st.state || "");
   }
 
+  // ", free in 1 h 5 min" for a printer with a job and its time left.
+  freeIn(name) {
+    const st = this.state.get(name);
+    const left = st?.timeLeft ?? 0;
+    if (!(left > 0)) return "";
+    return `, free in ${this.ctx.formatTime ? this.ctx.formatTime(left) : `${Math.round(left / 60)} min`}`;
+  }
+
   renderQueue() {
     if (!this.queue || !this.ctx.plates) return;
     const plates = this.ctx.plates();
@@ -100,7 +113,12 @@ export class FarmPage {
     for (const p of list) {
       const row = el("div", "farm-qrow");
       const what = el("div", "farm-qname", `${p.i + 1}. ${p.name || `Plate ${p.i + 1}`}`);
-      const st = el("div", "dim", p.status === "done" ? `${p.parts} parts, sliced` : `${p.parts} parts, ${p.status}`);
+      const t = this.totals[p.i];
+      const parts = `${p.parts} part${p.parts === 1 ? "" : "s"}`;
+      const facts = p.status === "done" && t ? `${parts}, ${this.ctx.formatTime ? this.ctx.formatTime(t.timeS) : `${Math.round(t.timeS / 60)} min`}, ${t.filamentG.toFixed(1)} g` : `${parts}, ${p.status === "done" ? "sliced" : p.status}`;
+      const sent = this.sent.get(p.i);
+      const st = el("div", "dim", sent ? `${facts} · sent to ${sent.printer} at ${sent.at}` : facts);
+      if (sent) row.classList.add("farm-sent");
       const pick = document.createElement("select");
       pick.setAttribute("aria-label", `The printer for plate ${p.i + 1}`);
       // Free printers first; a printer with a known bed smaller than the
@@ -110,7 +128,7 @@ export class FarmPage {
         return !(s && s.bedX > 0 && p.bed && (s.bedX + 0.5 < p.bed[0] || s.bedY + 0.5 < p.bed[1]));
       };
       const order = names.filter(fits).sort((a, b) => Number(this.free(b)) - Number(this.free(a)));
-      for (const n of order) pick.append(new Option(`${n}${this.free(n) ? "" : " (busy)"}`, n));
+      for (const n of order) pick.append(new Option(`${n}${this.free(n) ? "" : ` (busy${this.freeIn(n)})`}`, n));
       const go = el("button", "pc-action", "Send");
       go.disabled = p.status !== "done" || order.length === 0;
       go.title = order.length === 0 ? "No printer with a connection fits this plate" : "Send this plate to the printer, after you confirm that its bed is clear";
@@ -124,6 +142,7 @@ export class FarmPage {
         try {
           const r = await this.ctx.sendPlate(p.i, { ...pr, name });
           this.ctx.toast(r.message);
+          if (r.ok) this.sent.set(p.i, { printer: name, at: new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }) });
           this.refresh();
         } finally {
           go.disabled = false;
@@ -159,6 +178,7 @@ export class FarmPage {
         t.tile.classList.toggle("farm-busy", printing);
       }));
       for (const t of this.tiles.values()) t.send.disabled = !this.ctx.canSend();
+      if (this.ctx.plateTotals) this.totals = await this.ctx.plateTotals();
       this.renderQueue();
     } finally {
       this.busy = false;
