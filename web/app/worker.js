@@ -369,7 +369,7 @@ function tinyParts(c) {
   return out;
 }
 
-const PLATE_OPS = new Set(["load", "add", "plate", "projectLoad", "partAction", "partCut", "partMove", "partFill", "editAdd", "editDot", "editRemove", "partSettingSet", "partPutDown", "partTurn", "putDown", "place", "partMove", "partRotate", "partScale", "partSettle", "markAdd", "markRemoveNear", "markSet", "markRemove", "marksClear", "supportAreaAdd", "supportAreaSet", "supportAreaKind", "supportAreaRemove"]);
+const PLATE_OPS = new Set(["load", "add", "plate", "projectLoad", "partAction", "partCut", "partMove", "partFill", "partToPlate", "editAdd", "editDot", "editRemove", "partSettingSet", "partPutDown", "partTurn", "putDown", "place", "partMove", "partRotate", "partScale", "partSettle", "markAdd", "markRemoveNear", "markSet", "markRemove", "marksClear", "supportAreaAdd", "supportAreaSet", "supportAreaKind", "supportAreaRemove"]);
 
 const ops = {
   async init({ module, saved, mode: m }) {
@@ -575,6 +575,7 @@ const ops = {
   // hold: a drag or a key goes on, so the slice waits (sliceHeld starts
   // it at the end): a turn or a move of a part slices once, when it ends.
   partMove({ index, x, y, hold }) {
+    if (!Number.isFinite(x) || !Number.isFinite(y)) return { part: core.part(index) };
     if (core.w.x.zs_app_part_move(core.app, index, x, y) === 0) sliceOrHold(hold);
     return { part: core.part(index) };
   },
@@ -949,7 +950,7 @@ const ops = {
 
   // Moves part `index` of the active plate to plate `to` (-1: a new
   // plate). Returns { ok, to }.
-  partMove({ index, to }) {
+  partToPlate({ index, to }) {
     if (histTimer) historyCommit();
     const r = wasm.x.zs_set_part_move(set, activeIndex(), index, to);
     if (r < 0) return { ok: false };
