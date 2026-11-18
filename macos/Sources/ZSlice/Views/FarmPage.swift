@@ -173,6 +173,9 @@ struct FarmPage: View {
         if let current = PrinterStore.shared.current, current.id != p.id {
             info = "The plate is sliced for \(current.name), not for \(p.name). Choose \(p.name) in the printer menu to slice it for that printer first.\n\n" + info
         }
+        if let app = zs_set_app(model.set, i), zs_app_plate_fits(app) == 0 {
+            info = "A part is off the bed or on another part. The printer can hit its frame or the other part.\n\n" + info
+        }
         if busyNow(p) { info = "\(p.name) looks busy now.\n\n" + info }
         if p.kind == .bambu { info += " (Bambu support is untested with a real printer.)" }
         a.informativeText = info

@@ -199,7 +199,7 @@ extension Workspace {
         let layer = s.layer
         let rc = zs_app_edit_add_dot_z(model.core, layer, s.z, s.x, s.y, 1.0)
         guard rc == 0 else {
-            showNote("The drop did not work (\(statusText(rc))).")
+            showNote("The drop did not work. \(statusText(rc))")
             return
         }
         editsChanged("A drop of plastic of 1.0 mm on layer \(layer + 1).")

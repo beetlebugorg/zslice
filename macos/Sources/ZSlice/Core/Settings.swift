@@ -229,7 +229,7 @@ extension SliceModel {
             rc = zs_app_override_set(core, zMin, zMax, name, value)
         }
         guard rc == 0 else {
-            return rc == ZS_OUT_OF_RANGE.rawValue ? "The value is out of the limits." : "The value is not valid (\(statusText(rc)))."
+            return rc == ZS_OUT_OF_RANGE.rawValue ? "The value is out of the limits." : "The value is not valid. \(statusText(rc))"
         }
         settingsChanged()
         return nil

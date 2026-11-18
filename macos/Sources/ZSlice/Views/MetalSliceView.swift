@@ -205,7 +205,7 @@ final class MetalSliceView: NSView {
     func load(_ core: OpaquePointer) {
         guard let view else { return }
         let rc = zs_view_load(view, core)
-        if rc != 0 { NSLog("zslice: the 3D view did not load the toolpaths: \(statusText(rc))") }
+        if rc != 0 { NSLog("zslice: the 3D view did not load the toolpaths: \(statusName(rc))") }
         loaded = rc == 0
         if loaded, snapshot != nil, snapshotDue == nil {
             // ZSLICE_SNAPSHOT_DELAY: more seconds, for pages that wait on the network.
@@ -272,7 +272,7 @@ final class MetalSliceView: NSView {
         guard let view, let renderer else { return }
         let rc = zs_view_draw(view)
         guard rc == 0, let frame = zs_view_web_frame(view) else {
-            if rc != 0 { NSLog("zslice: the 3D view did not draw: \(statusText(rc))") }
+            if rc != 0 { NSLog("zslice: the 3D view did not draw: \(statusName(rc))") }
             return
         }
         var shot: (@Sendable (CGImage) -> Void)?

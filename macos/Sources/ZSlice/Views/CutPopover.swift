@@ -101,7 +101,7 @@ struct CutPopover: View {
             return
         }
         guard n > 0 else {
-            note = "The cut did not work (\(statusText(Int32(n))))."
+            note = "The cut did not work. \(statusText(Int32(n)))"
             return
         }
         hidePlane()

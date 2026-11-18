@@ -74,7 +74,7 @@ extension Workspace {
         var plates = 0
         let made = zs_set_fill(model.set, model.active, i, n, &plates)
         guard made >= 0 else {
-            showNote("The copies did not work (\(statusText(Int32(made)))).")
+            showNote("The copies did not work. \(statusText(Int32(made)))")
             return
         }
         model.readPlates()

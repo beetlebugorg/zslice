@@ -42,7 +42,14 @@ private func onSetEvent(user: UnsafeMutableRawPointer?, plate: Int, event: Int32
 }
 
 /// The text of a status code of the core.
+/// A status in plain words, with what to do (zs_status_message), the same
+/// in each app: for the user.
 func statusText(_ rc: Int32) -> String {
+    coreText(zs_status_message(rc))
+}
+
+/// The name of a status (zs_status_string): for the logs.
+func statusName(_ rc: Int32) -> String {
     coreText(zs_status_string(rc))
 }
 
@@ -99,7 +106,7 @@ final class SliceModel {
         bridge = Unmanaged.passRetained(b)
         var s: OpaquePointer?
         let rc = zs_set_new(onSetEvent, bridge.toOpaque(), &s)
-        guard rc == 0, let s else { fatalError("zslice: zs_set_new failed: \(statusText(rc))") }
+        guard rc == 0, let s else { fatalError("zslice: zs_set_new failed: \(statusName(rc))") }
         set = s
         b.model = self
         readPlates()

@@ -371,6 +371,12 @@ struct PrintCard: View {
     var body: some View {
         let slicing = model.state == .slicing
         VStack(alignment: .leading, spacing: 8) {
+            if !workspace.plateFits, model.state == .done {
+                Label(Workspace.offBed, systemImage: "exclamationmark.octagon.fill")
+                    .foregroundStyle(.red)
+                    .font(.callout)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
             if case .failed(let why) = model.state {
                 Label(why, systemImage: "exclamationmark.triangle.fill")
                     .foregroundStyle(.orange)

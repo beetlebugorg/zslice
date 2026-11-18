@@ -26,6 +26,24 @@ final class Workspace {
 
     // The layers of the last slice, and the range that shows.
     private(set) var layerCount = 0
+    /// After each slice: each part is on the bed and on no other part
+    /// (zs_app_plate_fits).
+    private(set) var plateFits = true
+    static let offBed = "A part is off the bed or on another part. Move it, turn it, scale it, or cut it (the part card) before you print."
+
+    /// Before an export or a send of a plate whose parts do not fit: the
+    /// user goes on only after a warning.
+    func goOnOffBed() -> Bool {
+        guard !plateFits else { return true }
+        let a = NSAlert()
+        a.alertStyle = .warning
+        a.messageText = "A part is off the bed or on another part"
+        a.informativeText = "The printer can hit its frame or the other part. Go on?"
+        a.addButton(withTitle: "Cancel")
+        a.addButton(withTitle: "Go On")
+        return a.runModal() == .alertSecondButtonReturn
+    }
+
     /// Fit the view to the plate after the next slice (after a fill).
     @ObservationIgnored var fitAfterSlice = false
     /// The Cut popover of the part card is open.
@@ -179,6 +197,7 @@ final class Workspace {
             }
             NSLog("%@", line)
         }
+        plateFits = zs_app_plate_fits(model.core) != 0
         if fitAfterSlice {
             fitAfterSlice = false
             fit()
@@ -869,7 +888,7 @@ final class Workspace {
 
     /// Sends the G-code to the current printer; print: start the print.
     func send(print: Bool) {
-        guard let p = PrinterStore.shared.current, p.kind != .none, let data = model.gcode() else { return }
+        guard let p = PrinterStore.shared.current, p.kind != .none, let data = model.gcode(), goOnOffBed() else { return }
         if p.kind == .bambu {
             sendBambu(p, gcode: data, print: print)
             return
@@ -976,7 +995,7 @@ final class Workspace {
         guard let s = selection, s.key != 0, s.layer >= 0 else { return }
         let rc = zs_app_edit_add_key(model.core, s.key, s.layer, kind, value)
         guard rc == 0 else {
-            showNote("The edit did not work (\(statusText(rc))).")
+            showNote("The edit did not work. \(statusText(rc))")
             return
         }
         if kind == 0 { clearSelection() }
@@ -1024,7 +1043,7 @@ final class Workspace {
 
     /// Exports the G-code of the last slice with a save panel.
     func exportGcode(from window: NSWindow?) {
-        guard let data = model.gcode() else { return }
+        guard let data = model.gcode(), goOnOffBed() else { return }
         let panel = NSSavePanel()
         panel.allowedContentTypes = [.gcode]
         let base = (model.name as NSString).deletingPathExtension
