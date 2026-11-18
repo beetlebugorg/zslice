@@ -3,3 +3,4 @@ zig-out/
 linux/build/
 __pycache__/
 *.pyc
+/specs/
