@@ -149,6 +149,7 @@ Like the GTK shell, the app reads some environment variables for development and
 - `ZSLICE_DOC_SAVE=path` and `ZSLICE_DOC_AUTOSAVE=1` change the wall count of an opened file, then undo and redo, and save or autosave through the NSDocument, with a log line for each step.
 - `ZSLICE_TEST_PRINT=path` writes the test print of layers 10 to 12 (zs_app_debug_gcode).
 - `ZSLICE_BAMBU=address:serial:code` (with an optional fourth field, the library id of the model, such as `bambu-lab-p1s`) runs the Bambu link (Bambu.swift) on the plate: the upload, the start, the status, the test, and a wrong code, with a log line for each. `ZSLICE_BAMBU_FTP_PORT` sets the FTPS port, for a test server that cannot have port 990. `macos/tools/fake_bambu.py` is such a server: FTPS and MQTT over TLS with a self-signed certificate.
+- `ZSLICE_FARM="url;bambu:address:serial:code"` adds printers in a fresh run, for the Printers page (`ZSLICE_PAGE=printers`). `ZSLICE_SNAPSHOT_DELAY=s` waits s more seconds before the snapshot, for pages that wait on the network.
 - `ZSLICE_RECORD=path.mov` records a demo video of the window (Recorder.swift): a turn, the colors, the layer slider, the replay, and the 2D view, frame by frame at 30 frames a second.
 - `ZSLICE_ADD_PLATE="path;path"` puts each file on a new plate after the first slice.
 - `ZSLICE_SEARCH=text` opens the search, `ZSLICE_GAPS=1` and `ZSLICE_CHECK=1` turn on Gaps and Check, `ZSLICE_MENU="x,y;Title"` (or `center;Title`) runs an item of the context menu, and `ZSLICE_DARK=1` sets the dark look.

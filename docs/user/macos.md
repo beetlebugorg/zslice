@@ -66,6 +66,10 @@ The first search of the network asks for the permission to find devices on the l
 
 The Filament and Quality menus sit beside the printer menu in the toolbar. They list the built-in profiles and your own, and have Save as Profile. The Quality menu shows a dot when this print has changes on top of the quality. Your profiles are in `~/Library/Application Support/zslice/profiles/filament` and `profiles/project`.
 
+## The Printers page
+
+The Printers page of the drawer has a tile for each printer with a connection: its state, its job with the progress and the time left, or the filament in it. The tiles read again every 10 seconds while the page shows. A printer that does not answer fades and says so. Send the Plate on a tile sends the active plate. Plates to Print lists the plates with parts, each with a printer (the free ones first, and none whose bed is too small) and Send. Each send asks you first if the bed of that printer is clear, and says when the plate is sliced for another printer.
+
 ## Your settings
 
 The app keeps your settings in `~/Library/Application Support/zslice`: `machine.toml`, `filament.toml`, and `project.toml`, as in the other apps.

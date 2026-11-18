@@ -285,6 +285,21 @@ final class Workspace {
                 p.apiKey = ""
             }
         }
+        // ZSLICE_FARM="url;bambu:address:serial:code" adds printers (in a
+        // fresh run only), for the Printers page.
+        if let farm = env["ZSLICE_FARM"], env["ZSLICE_FRESH"] != nil, PrinterStore.shared.printers.isEmpty {
+            for (i, item) in farm.split(separator: ";").map(String.init).enumerated() {
+                let f = item.split(separator: ":", maxSplits: 3).map(String.init)
+                if f.first == "bambu", f.count == 4 {
+                    var p = Printer(name: "Bambu \(i + 1)", model: "bambu-lab-p1s", kind: .bambu, url: f[1])
+                    p.serial = f[2]
+                    p.apiKey = f[3]
+                    PrinterStore.shared.add(p)
+                } else {
+                    PrinterStore.shared.add(Printer(name: "Printer \(i + 1)", kind: .printdeck, url: item))
+                }
+            }
+        }
         // ZSLICE_RECORD=path.mov records the demo of Recorder.swift.
         if let path = env["ZSLICE_RECORD"] {
             Task { @MainActor in await Recorder.record(self, to: URL(fileURLWithPath: path)) }
@@ -612,7 +627,7 @@ final class Workspace {
         }
     }
 
-    enum DrawerPage: String { case settings, history, project }
+    enum DrawerPage: String { case settings, history, project, printers }
 
     /// The pages of the settings browser that show, from its first page.
     var settingsPath: [SettingsRoute] = []
@@ -864,36 +879,41 @@ final class Workspace {
             guard a.runModal() == .alertFirstButtonReturn else { return }
         }
         let base = (model.name as NSString).deletingPathExtension
-        let title = base.isEmpty ? "plate" : base
+        sendState = "Uploading to \(p.name)…"
+        Task { @MainActor in
+            let r = await transfer(gcode, title: base.isEmpty ? "plate" : base, to: p, print: print)
+            sendState = r.message
+            if !r.ok {
+                let a = NSAlert()
+                a.messageText = print ? "The print did not start" : "The upload failed"
+                a.informativeText = r.message
+                a.runModal()
+            }
+        }
+    }
+
+    /// Sends G-code to a printer of any kind, and starts it with `print`.
+    /// The caller asked the user that the plate is clear.
+    func transfer(_ gcode: Data, title: String, to p: Printer, print: Bool) async -> LinkResult {
+        guard p.kind == .bambu else {
+            return await PrinterLink.send(p, filename: title + ".gcode", gcode: gcode, print: print)
+        }
         let file = title.replacingOccurrences(of: " ", with: "_") + ".gcode.3mf"
         var out: UnsafeMutablePointer<UInt8>?
         var len = 0
         guard gcode.withUnsafeBytes({ zs_bambu_file($0.bindMemory(to: UInt8.self).baseAddress, $0.count, title, &out, &len) }) == 0, let out else {
-            sendState = "The file for the printer did not build"
-            return
+            return LinkResult(ok: false, message: "The file for the printer did not build.")
         }
         let bytes = Data(bytes: out, count: len)
         zs_buffer_free(out, len)
-        sendState = "Uploading to \(p.name)…"
-        Task { @MainActor in
-            var pinned: String?
-            do {
-                try await BambuLink.upload(p, name: file, data: bytes, pinned: &pinned)
-                if print {
-                    sendState = "Starting the print on \(p.name)…"
-                    try await BambuLink.start(p, file: file, title: title, gcode: gcode, pinned: &pinned)
-                    sendState = "Printing on \(p.name)"
-                } else {
-                    sendState = "Uploaded to \(p.name)"
-                }
-                if let pinned { showNote("zslice trusts the certificate of \(p.name) from now on (SHA-256 \(pinned.prefix(11))…)", seconds: 8) }
-            } catch {
-                sendState = error.localizedDescription
-                let a = NSAlert()
-                a.messageText = print ? "The print did not start" : "The upload failed"
-                a.informativeText = error.localizedDescription
-                a.runModal()
-            }
+        var pinned: String?
+        do {
+            try await BambuLink.upload(p, name: file, data: bytes, pinned: &pinned)
+            if print { try await BambuLink.start(p, file: file, title: title, gcode: gcode, pinned: &pinned) }
+            if let pinned { showNote("zslice trusts the certificate of \(p.name) from now on (SHA-256 \(pinned.prefix(11))…)", seconds: 8) }
+            return LinkResult(ok: true, message: print ? "Printing on \(p.name)" : "Uploaded to \(p.name)")
+        } catch {
+            return LinkResult(ok: false, message: error.localizedDescription)
         }
     }
 

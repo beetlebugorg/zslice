@@ -208,8 +208,10 @@ final class MetalSliceView: NSView {
         if rc != 0 { NSLog("zslice: the 3D view did not load the toolpaths: \(statusText(rc))") }
         loaded = rc == 0
         if loaded, snapshot != nil, snapshotDue == nil {
-            snapshotDue = CACurrentMediaTime() + 1.5
-            DispatchQueue.main.asyncAfter(deadline: .now() + 1.6) { self.requestFrame() }
+            // ZSLICE_SNAPSHOT_DELAY: more seconds, for pages that wait on the network.
+            let wait = 1.5 + (ProcessInfo.processInfo.environment["ZSLICE_SNAPSHOT_DELAY"].flatMap(Double.init) ?? 0)
+            snapshotDue = CACurrentMediaTime() + wait
+            DispatchQueue.main.asyncAfter(deadline: .now() + wait + 0.1) { self.requestFrame() }
         }
         layerRenderer?.setOutlines(from: view)
         fitted2D = false

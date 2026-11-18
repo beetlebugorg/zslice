@@ -332,6 +332,15 @@ extension SliceModel {
     }
 
     /// The G-code of the last slice.
+    /// The G-code of the last slice of plate i.
+    func gcode(plate i: Int) -> Data? {
+        guard let app = zs_set_app(set, i) else { return nil }
+        var ptr: UnsafePointer<UInt8>?
+        var len = 0
+        guard zs_app_gcode(app, &ptr, &len) == 0, let ptr else { return nil }
+        return Data(bytes: ptr, count: len)
+    }
+
     func gcode() -> Data? {
         var ptr: UnsafePointer<UInt8>?
         var len = 0

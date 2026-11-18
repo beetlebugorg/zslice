@@ -50,7 +50,7 @@
 <p class="eyebrow">User guide</p>
 <h1>The macOS app</h1>
 <p class="lede">The macOS app has the features of the other apps, in the way of a Mac app. This page lists where it differs. The rest of the user guide applies.</p>
-<nav class="onpage"><b>On this page</b><ol><li><a href="#build-and-open-it">Build and open it</a></li><li><a href="#the-keys">The keys</a></li><li><a href="#the-drawer">The drawer</a></li><li><a href="#the-print-card">The print card</a></li><li><a href="#printers">Printers</a></li><li><a href="#filament-and-quality">Filament and quality</a></li><li><a href="#your-settings">Your settings</a></li><li><a href="#save-a-project">Save a project</a></li><li><a href="#projects">Projects</a></li></ol></nav><h2 id="build-and-open-it">Build and open it</h2>
+<nav class="onpage"><b>On this page</b><ol><li><a href="#build-and-open-it">Build and open it</a></li><li><a href="#the-keys">The keys</a></li><li><a href="#the-drawer">The drawer</a></li><li><a href="#the-print-card">The print card</a></li><li><a href="#printers">Printers</a></li><li><a href="#filament-and-quality">Filament and quality</a></li><li><a href="#the-printers-page">The Printers page</a></li><li><a href="#your-settings">Your settings</a></li><li><a href="#save-a-project">Save a project</a></li><li><a href="#projects">Projects</a></li></ol></nav><h2 id="build-and-open-it">Build and open it</h2>
 <p>The app needs macOS 14 or later. Build it from the source tree (see <a href="../../internals/macos/">The macOS app</a> in the internals):</p>
 <pre><code>cd macos
 ZIG=/path/to/zig-0.16/zig ./build-core.sh
@@ -76,6 +76,8 @@ open build/zslice.app</code></pre>
 <p>The first search of the network asks for the permission to find devices on the local network. Allow it to see your printers in the picker.</p>
 <h2 id="filament-and-quality">Filament and quality</h2>
 <p>The Filament and Quality menus sit beside the printer menu in the toolbar. They list the built-in profiles and your own, and have Save as Profile. The Quality menu shows a dot when this print has changes on top of the quality. Your profiles are in <code>~/Library/Application Support/zslice/profiles/filament</code> and <code>profiles/project</code>.</p>
+<h2 id="the-printers-page">The Printers page</h2>
+<p>The Printers page of the drawer has a tile for each printer with a connection: its state, its job with the progress and the time left, or the filament in it. The tiles read again every 10 seconds while the page shows. A printer that does not answer fades and says so. Send the Plate on a tile sends the active plate. Plates to Print lists the plates with parts, each with a printer (the free ones first, and none whose bed is too small) and Send. Each send asks you first if the bed of that printer is clear, and says when the plate is sliced for another printer.</p>
 <h2 id="your-settings">Your settings</h2>
 <p>The app keeps your settings in <code>~/Library/Application Support/zslice</code>: <code>machine.toml</code>, <code>filament.toml</code>, and <code>project.toml</code>, as in the other apps.</p>
 <h2 id="save-a-project">Save a project</h2>

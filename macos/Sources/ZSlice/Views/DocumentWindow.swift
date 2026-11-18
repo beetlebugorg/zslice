@@ -270,6 +270,7 @@ struct InspectorPanel: View {
                 if workspace.model.project != nil {
                     Text("Project").tag(Workspace.DrawerPage.project)
                 }
+                Text("Printers").tag(Workspace.DrawerPage.printers)
             }
             .pickerStyle(.segmented)
             .labelsHidden()
@@ -278,6 +279,7 @@ struct InspectorPanel: View {
             case .settings: SettingsInspector(workspace: workspace)
             case .history: HistoryPage(history: workspace.model.history)
             case .project: ProjectPage(workspace: workspace)
+            case .printers: FarmPage(workspace: workspace)
             }
         }
     }
