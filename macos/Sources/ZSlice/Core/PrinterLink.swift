@@ -221,6 +221,26 @@ extension PrinterLink {
         }
     }
 
+    /// The status object of the core for a printer, from each path of
+    /// zs_printer_status_paths, or nil if the printer does not answer.
+    /// Free it with zs_printer_status_free.
+    @MainActor static func statusObject(_ p: Printer) async -> OpaquePointer? {
+        let kind = coreKind(p.kind)
+        guard kind > 0, let s = zs_printer_status_new() else { return nil }
+        let paths = coreText(zs_printer_status_paths(kind)).split(separator: "\n").map(String.init)
+        for (i, path) in paths.enumerated() {
+            guard let (d, r) = try? await request(p, path), (200 ..< 300).contains(r.statusCode) else {
+                if i == 0 {
+                    zs_printer_status_free(s)
+                    return nil
+                }
+                continue
+            }
+            _ = d.withUnsafeBytes { zs_printer_status_feed(s, kind, path, $0.bindMemory(to: CChar.self).baseAddress, $0.count) }
+        }
+        return s
+    }
+
     /// The status of a printer: GET each path of zs_printer_status_paths and
     /// give each reply to the core. nil if the printer does not answer.
     @MainActor static func status(_ p: Printer) async -> PrinterStatus? {

@@ -686,6 +686,25 @@ final class Workspace {
         }
     }
 
+    /// "Use the printer's bed, nozzle, and motion" (what 1) and "Use the
+    /// filament in the printer" (what 2): the core applies the status of
+    /// the printer to the settings of the plate (zs_app_apply_printer_status),
+    /// as one step of the history, and the plate slices again.
+    func applyPrinterStatus(_ what: Int32) {
+        guard let p = connectedPrinter else { return }
+        Task { @MainActor in
+            guard let s = await PrinterLink.statusObject(p) else {
+                let a = NSAlert()
+                a.messageText = "The printer did not answer"
+                a.informativeText = "Check its address and its API key (Settings > Printers)."
+                a.runModal()
+                return
+            }
+            defer { zs_printer_status_free(s) }
+            if zs_app_apply_printer_status(model.core, s, what) == 0 { model.settingsChanged() }
+        }
+    }
+
     /// After a slice: the estimate of a printdeck for the G-code.
     private func askEstimate() {
         if let path = ProcessInfo.processInfo.environment["ZSLICE_GZIP"], let g = model.gcode(), let gz = Gzip.compress(g) {

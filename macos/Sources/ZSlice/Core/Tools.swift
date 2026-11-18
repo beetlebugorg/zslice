@@ -376,6 +376,21 @@ extension Workspace {
         model.settingsChanged()
     }
 
+    /// Makes each separate body of the selected part a part of its own.
+    func splitPart() {
+        guard let i = selectedPart else { return }
+        let n = zs_app_part_split(model.core, i)
+        if n > 0 {
+            model.settingsChanged()
+            selectPart(i)
+        } else if n == 0 {
+            let a = NSAlert()
+            a.messageText = "The part is one body"
+            a.informativeText = "It has no separate bodies to split."
+            a.runModal()
+        }
+    }
+
     func placePart(_ mode: Int32) {
         guard let i = selectedPart else { return }
         if zs_app_part_place(model.core, i, mode, 2) == 0 {

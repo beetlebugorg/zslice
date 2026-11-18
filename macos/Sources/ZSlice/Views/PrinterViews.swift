@@ -264,6 +264,13 @@ struct PrinterMenu: View {
                 Toggle(p.name, isOn: Binding(get: { store.currentID == p.id }, set: { _ in workspace.usePrinter(p) }))
             }
             if !store.printers.isEmpty { Divider() }
+            if workspace.connectedPrinter != nil {
+                Button("Use the Printer's Bed, Nozzle, and Motion") { workspace.applyPrinterStatus(1) }
+                    .help("The bed, the nozzle, and the motion limits that the printer reports, so the time estimate plans as it moves")
+                Button("Use the Filament in the Printer") { workspace.applyPrinterStatus(2) }
+                    .help("The material, the name, the diameter, and the color of the filament that the printer reports")
+                Divider()
+            }
             Button("Add a Printer…") { workspace.pickerOpen = true }
             SettingsLink { Text("Manage Printers…") }
         } label: {

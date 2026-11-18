@@ -50,6 +50,8 @@ The print card has the main settings of the print as small buttons. A click open
 
 Add a printer with the printer menu at the left of the toolbar. The picker searches the library and lists the printers on your network. Manage your printers in zslice > Settings (Command-,), on the Printers page: the connection, Test the Connection, and Get a Key.
 
+With a connection, the printer menu has Use the Printer's Bed, Nozzle, and Motion, and Use the Filament in the Printer: the settings of the plate take the values that the printer reports.
+
 The API keys of your printers are in the Keychain of macOS (Keychain Access, "zslice printer API key"), never in a file. The list of your printers is in `~/Library/Application Support/zslice/printers.json`.
 
 With a connection and its API key, the print card shows the state of the printer (its job and progress, or the roll in it and the grams left), and a printdeck gives its own estimate of the print time after each slice ("Workhorse: 1h 41m (3 min start)"). zslice sends the G-code to the printdeck for the estimate, compressed; the printer does not keep it or print it.

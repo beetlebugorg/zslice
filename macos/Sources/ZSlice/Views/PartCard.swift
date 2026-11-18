@@ -47,6 +47,7 @@ struct PartCard: View {
                     .foregroundStyle(.secondary)
                 HStack {
                     Button("Duplicate") { workspace.duplicatePart() }.help("A copy at a free place (D)")
+                    Button("Split") { workspace.splitPart() }.help("Split to parts: each separate body of the part becomes a part of its own")
                     Menu("Orient") {
                         Button("Best Orientation") { workspace.placePart(Int32(ZS_PLACE_SMART.rawValue)) }
                         Button("Less Support") { workspace.placePart(Int32(ZS_PLACE_LESS_SUPPORT.rawValue)) }
