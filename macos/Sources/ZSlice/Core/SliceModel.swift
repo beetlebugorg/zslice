@@ -41,18 +41,6 @@ private func onSetEvent(user: UnsafeMutableRawPointer?, plate: Int, event: Int32
     Unmanaged<EventBridge>.fromOpaque(user).takeUnretainedValue().post(plate, event, progress, status)
 }
 
-/// The text of a status code of the core.
-/// A status in plain words, with what to do (zs_status_message), the same
-/// in each app: for the user.
-func statusText(_ rc: Int32) -> String {
-    coreText(zs_status_message(rc))
-}
-
-/// The name of a status (zs_status_string): for the logs.
-func statusName(_ rc: Int32) -> String {
-    coreText(zs_status_string(rc))
-}
-
 /// One plate of the set, for the plate bar.
 struct PlateInfo: Identifiable, Equatable {
     var id: UInt64

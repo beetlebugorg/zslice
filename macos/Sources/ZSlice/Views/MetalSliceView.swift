@@ -218,6 +218,20 @@ final class MetalSliceView: NSView {
         requestFrame()
     }
 
+    /// Shows a finished G-code file of any slicer (zs_view_load_gcode), with
+    /// one color for each feature. Keep the file while the view shows it.
+    func load(gcode g: OpaquePointer) {
+        guard let view else { return }
+        let rc = zs_view_load_gcode(view, g, 0, 0)
+        if rc != 0 { NSLog("zslice: the 3D view did not load the G-code: \(statusName(rc))") }
+        loaded = rc == 0
+        _ = zs_view_gcode_colors(view, 1, 0)
+        zs_view_print_look(view, 0, 0)
+        layerRenderer?.setOutlines(from: view)
+        fitted2D = false
+        requestFrame()
+    }
+
     func requestFrame() {
         needsFrame = true
         link?.isPaused = false

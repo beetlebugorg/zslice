@@ -18,7 +18,75 @@ settings:
   base:
     SWIFT_VERSION: "6.0"
     MACOSX_DEPLOYMENT_TARGET: "14.0"
+aggregateTargets:
+  # The Zig core as lib/libzslice.a, before the app and the extensions,
+  # which link it.
+  ZSliceCore:
+    buildScripts:
+      - name: Build the core (Zig)
+        basedOnDependencyAnalysis: false
+        script: |
+          # The Zig core as lib/libzslice.a (arm64 and x86_64). ZIG names
+          # Zig 0.16; else the zig of Homebrew.
+          export ZIG="${ZIG:-$(command -v zig 2>/dev/null || true)}"
+          for z in "$ZIG" /opt/homebrew/opt/zig@0.16/bin/zig /usr/local/opt/zig@0.16/bin/zig; do
+            if [ -x "$z" ] && "$z" version | grep -q '^0\.16'; then export ZIG="$z"; break; fi
+          done
+          cd "$SRCROOT" && ./build-core.sh
+
+# The Quick Look extensions (QuickLook/): the thumbnails of Finder and the
+# previews of the space bar, for STL, 3MF, and G-code files.
+targetTemplates:
+  QuickLookExtension:
+    type: app-extension
+    platform: macOS
+    settings:
+      base:
+        PRODUCT_NAME: ${target_name}
+        MARKETING_VERSION: "0.1"
+        CURRENT_PROJECT_VERSION: "1"
+        GENERATE_INFOPLIST_FILE: NO
+        SWIFT_INCLUDE_PATHS: $(SRCROOT)/Sources/CZslice
+        LIBRARY_SEARCH_PATHS: $(SRCROOT)/lib
+        OTHER_LDFLAGS: -lzslice
+        ENABLE_HARDENED_RUNTIME: YES
+        DEAD_CODE_STRIPPING: YES
+        SKIP_INSTALL: YES
+      configs:
+        Release:
+          ONLY_ACTIVE_ARCH: NO
 targets:
+  ZSliceThumbnail:
+    templates: [QuickLookExtension]
+    sources:
+      - QuickLook/Shared
+      - QuickLook/Thumbnail
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: org.beetlebug.zslice.thumbnail
+        INFOPLIST_FILE: QuickLook/Thumbnail/Info.plist
+        CODE_SIGN_ENTITLEMENTS: QuickLook/Thumbnail/Thumbnail.entitlements
+    dependencies:
+      - target: ZSliceCore
+      - sdk: QuickLookThumbnailing.framework
+  ZSlicePreview:
+    templates: [QuickLookExtension]
+    sources:
+      - QuickLook/Shared
+      - QuickLook/Preview
+      # The 3D view of the app, with its Metal renderers.
+      - Sources/ZSlice/Views/MetalSliceView.swift
+      - Sources/ZSlice/Render
+      - Sources/ZSlice/Core/CoreText.swift
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: org.beetlebug.zslice.preview
+        INFOPLIST_FILE: QuickLook/Preview/Info.plist
+        CODE_SIGN_ENTITLEMENTS: QuickLook/Preview/Preview.entitlements
+    dependencies:
+      - target: ZSliceCore
+      - sdk: QuickLookUI.framework
+      - sdk: Metal.framework
   ZSlice:
     type: application
     platform: macOS
@@ -53,6 +121,12 @@ targets:
         # A release (and an archive) is for Apple silicon and Intel Macs.
         Release:
           ONLY_ACTIVE_ARCH: NO
+    dependencies:
+      - target: ZSliceCore
+      - target: ZSliceThumbnail
+        embed: true
+      - target: ZSlicePreview
+        embed: true
     postBuildScripts:
       - name: Copy the bed models
         basedOnDependencyAnalysis: false
@@ -64,14 +138,3 @@ targets:
           rm -rf "$dest"
           mkdir -p "$(dirname "$dest")"
           cp -R "$SRCROOT/../src/printers/beds" "$dest"
-    preBuildScripts:
-      - name: Build the core (Zig)
-        basedOnDependencyAnalysis: false
-        script: |
-          # The Zig core as lib/libzslice.a (arm64 and x86_64). ZIG names
-          # Zig 0.16; else the zig of Homebrew.
-          export ZIG="${ZIG:-$(command -v zig 2>/dev/null || true)}"
-          for z in "$ZIG" /opt/homebrew/opt/zig@0.16/bin/zig /usr/local/opt/zig@0.16/bin/zig; do
-            if [ -x "$z" ] && "$z" version | grep -q '^0\.16'; then export ZIG="$z"; break; fi
-          done
-          cd "$SRCROOT" && ./build-core.sh

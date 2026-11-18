@@ -103,6 +103,24 @@
 				</array>
 			</dict>
 		</dict>
+		<dict>
+			<key>UTTypeIdentifier</key>
+			<string>org.reprap.gcode</string>
+			<key>UTTypeDescription</key>
+			<string>G-code</string>
+			<key>UTTypeConformsTo</key>
+			<array>
+				<string>public.data</string>
+			</array>
+			<key>UTTypeTagSpecification</key>
+			<dict>
+				<key>public.filename-extension</key>
+				<array>
+					<string>gcode</string>
+					<string>gco</string>
+				</array>
+			</dict>
+		</dict>
 	</array>
 </dict>
 </plist>

@@ -123,3 +123,13 @@ To a New Plate on the part card moves a part to a new plate, with the settings o
 ## Projects
 
 Open a project with File > Open Project Folder (Shift-Command-O): choose the folder of a repository with a printdeck.yml. The plates of the project show in a row, and each plate slices. The project sheet (File > Show Project) lists the plates and the parts; the check box and the count of a part change the plates at once. File > Open Project from GitHub opens a public repository: type `owner/repo`, or its address on github.com (with `/tree/<branch>` for a branch).
+
+## Quick Look
+
+Select a G-code file in Finder and press the space bar. The preview shows the print in 3D. Drag to turn it, and scroll or pinch to zoom. The slider shows the layers up to one layer. Under it are the print time, the layers, the size, and the filament. G-code from any slicer works.
+
+Finder shows a picture of each G-code file as its icon.
+
+An STL file shows in the 3D viewer of macOS. A 3MF file that macOS does not show gets the zslice preview: zslice slices it with its default settings, and the slider shows its layers.
+
+Quick Look finds the previews after the first start of zslice.app. If it does not, run `qlmanage -r`.

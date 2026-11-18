@@ -219,3 +219,16 @@ xcodebuild -project ZSlice.xcodeproj -scheme ZSlice -configuration Release \
   -destination 'generic/platform=macOS' -archivePath build/zslice.xcarchive archive
 ```
 
+
+## Quick Look
+
+Two app extensions in `QuickLook/` are part of zslice.app. `project.yml` builds them.
+
+- `ZSliceThumbnail` (`QLThumbnailProvider`) draws the icon of a file in Finder on the CPU: `zs_gcode_thumbnail_png` for G-code, and `zs_app_thumbnail_png` for a model (`Shared/Render.swift`).
+- `ZSlicePreview` (`QLPreviewingController`) is the preview of the space bar. It has the 3D view of the app: `MetalSliceView.swift`, `Render/`, and `Core/CoreText.swift` are part of its target. A G-code file loads with `zs_view_load_gcode`. A model is sliced with the default settings (`zs_app_slice`), and loads with `zs_view_load` after `ZS_EVENT_SLICED`. The slider calls `zs_view_set_layer`.
+
+Both read STL, 3MF, and G-code. The app declares the type `org.reprap.gcode` (`.gcode`, `.gco`) in `Info.plist`. macOS keeps its own previews for STL, so those win for an STL file.
+
+The aggregate target `ZSliceCore` builds `lib/libzslice.a` before the app and the extensions, which all link it.
+
+To test, build the app, then run `qlmanage -x -t file` for a thumbnail, and `qlmanage -x -p file` for a preview. Old builds of the app with the same extension ids can win: `pluginkit -mAvvv -p com.apple.quicklook.preview` lists them, and `pluginkit -r path.appex` removes one.

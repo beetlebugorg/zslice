@@ -15,12 +15,6 @@ import CZslice
 import Foundation
 import SwiftUI
 
-/// The text of a C string of the core ("" for NULL).
-func coreText(_ p: UnsafePointer<CChar>?) -> String {
-    guard let p else { return "" }
-    return String(decoding: UnsafeRawBufferPointer(start: p, count: strlen(p)), as: UTF8.self)
-}
-
 /// Calls a core function with the buffer rules of zs_app_setting_get: a
 /// first call for the length, then one with a buffer.
 func coreString(_ call: (UnsafeMutablePointer<CChar>?, Int, UnsafeMutablePointer<Int>?) -> Int32) -> String? {

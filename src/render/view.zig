@@ -1979,6 +1979,11 @@ pub const View = struct {
     fn drawList(v: *View, mvp: [16]f32, eye: [3]f32, first: u32, end: u32) Error![]const Draw {
         v.draws.clearRetainingCapacity();
         if (end <= first) return v.draws.items;
+        // A G-code file has no chunks: one draw of its beads.
+        if (v.draw_chunks.items.len == 0) {
+            v.draws.append(gpa, .{ .first = first, .count = end - first, .lod = 0 }) catch return error.OutOfMemory;
+            return v.draws.items;
+        }
         // The pixels per mm at distance 1 from the eye.
         const px_per_mm = @as(f32, @floatFromInt(v.height)) / (2 * @tan(@as(f32, fov) / 2));
         for (v.draw_chunks.items, v.chunk_width.items) |c, w| {
