@@ -69,12 +69,23 @@ final class FrameRenderer {
     private var msaa: MTLTexture?
     private var depth: MTLTexture?
 
+    /// The shaders, compiled once for the app (a compile takes long, and
+    /// each window and the 2D page use the same library).
+    nonisolated(unsafe) private static var shared: MTLLibrary?
+    let library: MTLLibrary
+
     init?() {
         guard let device = MTLCreateSystemDefaultDevice(), let queue = device.makeCommandQueue() else { return nil }
         self.device = device
         self.queue = queue
         do {
-            let lib = try device.makeLibrary(source: shaderSource, options: nil)
+            let t = CACurrentMediaTime()
+            let lib = try Self.shared ?? device.makeLibrary(source: shaderSource, options: nil)
+            if Self.shared == nil, ProcessInfo.processInfo.environment["ZSLICE_TIMING"] != nil {
+                NSLog("zslice timing: shaders compiled in %.0f ms", (CACurrentMediaTime() - t) * 1000)
+            }
+            Self.shared = lib
+            library = lib
             func pipeline(_ vertex: String, _ fragment: String, blend: Bool) throws -> MTLRenderPipelineState {
                 let d = MTLRenderPipelineDescriptor()
                 d.vertexFunction = lib.makeFunction(name: vertex)

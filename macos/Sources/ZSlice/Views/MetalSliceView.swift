@@ -232,6 +232,13 @@ final class MetalSliceView: NSView {
         requestFrame()
     }
 
+    /// The view shows beads that came another way (zs_view_scene_read).
+    func sceneLoaded() {
+        loaded = true
+        layerRenderer?.setOutlines(from: view!)
+        requestFrame()
+    }
+
     func requestFrame() {
         needsFrame = true
         link?.isPaused = false
@@ -282,8 +289,16 @@ final class MetalSliceView: NSView {
     private var snapshotDue: CFTimeInterval?
     private var snapshot = ProcessInfo.processInfo.environment["ZSLICE_SNAPSHOT"].map { URL(fileURLWithPath: $0) }
 
+    private static var firstFrame = true
+
     private func drawFrame() {
         guard let view, let renderer else { return }
+        if Self.firstFrame, loaded {
+            Self.firstFrame = false
+            if ProcessInfo.processInfo.environment["ZSLICE_TIMING"] != nil {
+                NSLog("zslice timing: first frame with beads %.0f ms after the start", (CACurrentMediaTime() - SessionStore.launch) * 1000)
+            }
+        }
         let rc = zs_view_draw(view)
         guard rc == 0, let frame = zs_view_web_frame(view) else {
             if rc != 0 { NSLog("zslice: the 3D view did not draw: \(statusName(rc))") }

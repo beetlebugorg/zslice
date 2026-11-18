@@ -82,7 +82,7 @@ final class LayerRenderer {
     init?(_ r: FrameRenderer) {
         self.r = r
         let device = r.device
-        guard let lib = try? device.makeLibrary(source: shaderSource, options: nil) else { return nil }
+        let lib = r.library
         func pipeline(_ v: String, _ f: String, color: Bool) -> MTLRenderPipelineState? {
             let d = MTLRenderPipelineDescriptor()
             d.vertexFunction = lib.makeFunction(name: v)

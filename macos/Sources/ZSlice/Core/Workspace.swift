@@ -129,6 +129,7 @@ final class Workspace {
         didSet {
             canvas.page = page
             UserDefaults.standard.set(page.rawValue, forKey: "view")
+            SessionStore.shared.changed()
         }
     }
 
@@ -169,7 +170,17 @@ final class Workspace {
         model.onSliced = { [weak self] in self?.sliced() }
         model.onPlates = { [weak self] in self?.syncPlates() }
         model.onActivePlate = { [weak self] in self?.activePlateChanged() }
+        SessionStore.shared.register(self)
+        if ProcessInfo.processInfo.environment["ZSLICE_TIMING"] != nil {
+            NSLog("zslice timing: window model ready %.0f ms after the start", (CACurrentMediaTime() - SessionStore.launch) * 1000)
+        }
     }
+
+    /// A session goes back into the window (Session.swift): the camera of
+    /// the session stays, and the first slice takes its layers and part.
+    @ObservationIgnored var restoring = false
+    @ObservationIgnored var restoredRange: (Int, Int)?
+    @ObservationIgnored var restoredPart: Int?
 
     // MARK: - the slice
 
@@ -193,6 +204,11 @@ final class Workspace {
         layerCount = n
         if wasTop || hi >= n { hi = max(0, n - 1) }
         lo = min(lo, hi)
+        if let r = restoredRange {
+            restoredRange = nil
+            hi = max(0, min(r.1, n - 1))
+            lo = max(0, min(r.0, hi))
+        }
         applyRange()
         applyFocus()
         refindSelection()
@@ -201,7 +217,12 @@ final class Workspace {
         showGaps()
         readIssues()
         if let i = selectedPart { selectPart(i < zs_app_part_count(model.core) ? i : nil) }
+        if let i = restoredPart {
+            restoredPart = nil
+            if i < zs_app_part_count(model.core) { selectPart(i) }
+        }
         readSupportAreas()
+        SessionStore.shared.changed()
         if ProcessInfo.processInfo.environment["ZSLICE_EDIT"] != nil {
             let n = zs_app_edit_count(model.core)
             var line = "zslice edits: \(n), \(tp.path_count) paths"
@@ -579,7 +600,7 @@ final class Workspace {
             zs_view_load(v, model.core)
             canvas.requestFrame()
         }
-        framePlate(model.active)
+        if !restoring { framePlate(model.active) }
     }
 
     /// Moves the camera to plate i (-1: all plates).
@@ -1316,7 +1337,11 @@ extension Workspace: SliceViewDelegate {
     func sliceViewRelease(_ p: CGPoint) { release(p) }
     func sliceViewTurnWheel(_ dy: CGFloat) -> Bool { turnWheel(dy) }
     func sliceViewMenu(_ p: CGPoint) -> NSMenu? { contextMenu(at: p) }
-    func sliceViewDidDraw() { if !tape.isEmpty { placeTape() } }
+    func sliceViewDidDraw() {
+        if !tape.isEmpty { placeTape() }
+        // The camera, the layers, or the page moved: the session follows.
+        SessionStore.shared.changed()
+    }
     func sliceViewDoubleClick(_ p: CGPoint) -> Bool { lookAtSide(p) }
 
     func sliceViewTick(_ dt: Double) -> Bool { stepReplay(dt) }

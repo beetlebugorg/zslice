@@ -158,6 +158,7 @@ Like the GTK shell, the app reads some environment variables for development and
 - `ZSLICE_DECK_JSON=path` logs the printers that a printer.json of a printdeck with more than one printer gives.
 - `ZSLICE_PICKER=1` opens the printer picker.
 - `ZSLICE_TURN=deg` turns the selected part about X, lets it settle, and logs the note. `ZSLICE_SUPPORT=1` turns support on first. Select the part with `ZSLICE_TOOL=move ZSLICE_CLICKS=center`.
+- `ZSLICE_SESSION=dir` keeps the session in that folder, also with `ZSLICE_FRESH` (which turns the session off without it). `ZSLICE_QUIT_AFTER=s` quits as Command-Q does, after s seconds. With `ZSLICE_TIMING=1`, the app logs the session reads and writes, and the time of the first frame with beads.
 - `ZSLICE_RESLICE=1` changes the infill 3 times, one change after each slice, and logs the longest wait of the main thread. With `ZSLICE_TIMING=1`, it logs the time of each slice too.
 - `ZSLICE_PAGE_FLIP=dir` turns the view, goes to 2D and back, and turns it again. It writes `a.png`, `b.png`, and `c.png` there: `a.png` and `b.png` must be the same.
 - `ZSLICE_OPEN_AFTER=path` opens a file 3 s after the start, as File > Open does, and logs the windows (the empty window must give its place to the file).
@@ -235,3 +236,13 @@ Both read STL, 3MF, and G-code. The app declares the type `org.reprap.gcode` (`.
 The aggregate target `ZSliceCore` builds `lib/libzslice.a` before the app and the extensions, which all link it.
 
 To test, build the app, then run `qlmanage -x -t file` for a thumbnail, and `qlmanage -x -p file` for a preview. Old builds of the app with the same extension ids can win: `pluginkit -mAvvv -p com.apple.quicklook.preview` lists them, and `pluginkit -r path.appex` removes one.
+
+## The session
+
+`Core/Session.swift` brings the app back exactly as it was after Command-Q or a crash (`zs_session_write`, `zs_session_read`).
+
+- Each window has one session file in `Application Support/zslice/session`, and `index.json` keeps their order. A file goes to a temporary file first, then a rename.
+- The app text of a session is the state of the window as JSON (`WindowState`): its frame, the page, the layer range, the tool, the colour mode, the open panes, the selected part, and the file of the document with its unsaved changes.
+- A write comes 1.5 s after the last change of any window (the plates, a slice, the camera, the page), and not while a slice runs. Command-Q, and the Quit event of the Dock or a logout, write once more (`SessionStore.quit`). If that write works, the documents are marked as saved, so no "Save changes?" alert comes: the session has the changes. A window that the user closes leaves the session.
+- At launch, the first empty window takes the first session, and each other session opens a window. The view reads the last scene of the active plate (`zs_set_plate_scene`, `zs_view_scene_read`) and the camera (`zs_view_set_camera`) at once. The slices run after that, and the first slice takes the layer range and the part of the session.
+- Times on an M-series Mac for one window with pod.stl: the window opens about 400 ms after the start of the app (AppKit and SwiftUI), the session reads in about 30 ms, and the first frame with beads comes at about 460 to 490 ms. A write takes about 150 ms, mostly the meshes of the project file. The Metal shaders compile once for the app.

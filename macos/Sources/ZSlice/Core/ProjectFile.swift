@@ -53,6 +53,7 @@ extension SliceModel {
     /// and never slows a slice. The last copy stays until then, so a save
     /// never waits (see ProjectDocument.snapshot).
     func scheduleSaveBytes() {
+        SessionStore.shared.changed()
         saveBytes.changed()
         saveBytesDue = true
         saveBytesTimer?.cancel()

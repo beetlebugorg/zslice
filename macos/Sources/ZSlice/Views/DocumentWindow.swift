@@ -6,6 +6,7 @@
 //! SPDX-License-Identifier: AGPL-3.0-or-later
 
 import CZslice
+import QuartzCore
 import SwiftUI
 import UniformTypeIdentifiers
 
@@ -20,8 +21,39 @@ struct DocumentWindow: View {
 
     /// Loads the file of the document into the plates, and gives the
     /// NSDocument of the window to the model.
+    /// Puts a session of the last run into this window, and gives the
+    /// document its file and its unsaved changes.
+    private func restore(_ session: Data, into doc: NSDocument, window w: NSWindow) {
+        let state = workspace.restoreSession(session)
+        workspace.model.history.commit()
+        if let path = state?.file, FileManager.default.fileExists(atPath: path) {
+            doc.fileURL = URL(fileURLWithPath: path)
+            doc.fileType = UTType.threeMF.identifier
+        } else if let name = state?.name, !name.isEmpty {
+            doc.displayName = name
+        }
+        for c in doc.windowControllers { c.synchronizeWindowTitleWithDocumentName() }
+        doc.updateChangeCount(state?.edited == true ? .changeDone : .changeCleared)
+        if ProcessInfo.processInfo.environment["ZSLICE_TIMING"] != nil {
+            NSLog("zslice session: window restored %.0f ms after the start", (CACurrentMediaTime() - SessionStore.launch) * 1000)
+        }
+        openPendingSessions()
+    }
+
+    /// A new window for each session of the last run that is left.
+    private func openPendingSessions() {
+        guard !SessionStore.shared.pending.isEmpty else { return }
+        DispatchQueue.main.async {
+            NSDocumentController.shared.newDocument(nil)
+        }
+    }
+
     private func open() async {
         document.model = workspace.model
+        // A session of the last run: the window comes back as it was.
+        let session = document.data.isEmpty ? SessionStore.shared.takePending() : nil
+        let timing = ProcessInfo.processInfo.environment["ZSLICE_TIMING"] != nil
+        if timing { NSLog("zslice session: open at %.0f ms", (CACurrentMediaTime() - SessionStore.launch) * 1000) }
         if !document.data.isEmpty {
             do {
                 try workspace.model.load(name: name, data: document.data)
@@ -36,7 +68,18 @@ struct DocumentWindow: View {
             try? await Task.sleep(for: .milliseconds(20))
         }
         guard let w = workspace.canvas.window, let doc = NSDocumentController.shared.document(for: w) else { return }
+        if timing { NSLog("zslice session: window at %.0f ms", (CACurrentMediaTime() - SessionStore.launch) * 1000) }
         workspace.model.document = doc
+        let ws = workspace
+        NotificationCenter.default.addObserver(forName: NSWindow.willCloseNotification, object: w, queue: .main) { _ in
+            MainActor.assumeIsolated { SessionStore.shared.closed(ws) }
+        }
+        if let session {
+            restore(session, into: doc, window: w)
+            return
+        }
+        // The other sessions of the last run: a window for each.
+        openPendingSessions()
         // A file opens in place of the empty window of the start (or of
         // File > New), at its place: no second window.
         if document.data.isEmpty {

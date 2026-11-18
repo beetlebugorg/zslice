@@ -67,9 +67,32 @@ final class ProjectDocument: ReferenceFileDocument, @unchecked Sendable {
     }
 }
 
+/// The app delegate: the last write of the session at a quit, before
+/// the windows close.
+final class AppDelegate: NSObject, NSApplicationDelegate {
+    /// The Quit event of the Dock and of a logout goes through the session
+    /// too (SessionStore.quit).
+    func applicationWillFinishLaunching(_ notification: Notification) {
+        NSAppleEventManager.shared().setEventHandler(self, andSelector: #selector(quitEvent(_:reply:)),
+                                                     forEventClass: AEEventClass(kCoreEventClass), andEventID: AEEventID(kAEQuitApplication))
+    }
+
+    @objc func quitEvent(_ event: NSAppleEventDescriptor, reply: NSAppleEventDescriptor) {
+        MainActor.assumeIsolated { SessionStore.shared.quit() }
+    }
+
+    func applicationShouldTerminate(_ sender: NSApplication) -> NSApplication.TerminateReply {
+        MainActor.assumeIsolated { SessionStore.shared.terminate() }
+        return .terminateNow
+    }
+}
+
 @main
 struct ZSliceApp: App {
+    @NSApplicationDelegateAdaptor(AppDelegate.self) private var appDelegate
+
     init() {
+        _ = SessionStore.launch
         // At launch with no file, a new window with an empty plate (the
         // whole app, with "Drop an STL or 3MF file here"), not the Open
         // panel that a document app shows by default.
@@ -77,6 +100,14 @@ struct ZSliceApp: App {
         // empty windows (an untitled import has no file to read again).
         UserDefaults.standard.register(defaults: ["NSShowAppCentricOpenPanelInsteadOfUntitledFile": false,
                                                   "NSQuitAlwaysKeepsWindows": false])
+        // ZSLICE_QUIT_AFTER=s quits as Command-Q does, s seconds after the
+        // start, and logs the quit (for tests of the session).
+        if let s = ProcessInfo.processInfo.environment["ZSLICE_QUIT_AFTER"].flatMap(Double.init) {
+            DispatchQueue.main.asyncAfter(deadline: .now() + s) {
+                NSLog("zslice quit: terminate")
+                SessionStore.shared.quit()
+            }
+        }
         // ZSLICE_OPEN_AFTER=path opens a file 3 s after the start, as File >
         // Open does, and logs the windows 3 s later (for tests).
         if let path = ProcessInfo.processInfo.environment["ZSLICE_OPEN_AFTER"] {
@@ -99,6 +130,11 @@ struct ZSliceApp: App {
         .commands {
             ViewCommands()
             UndoCommands()
+            // Command-Q keeps the session (SessionStore.quit).
+            CommandGroup(replacing: .appTermination) {
+                Button("Quit zslice") { SessionStore.shared.quit() }
+                    .keyboardShortcut("q", modifiers: .command)
+            }
             CommandGroup(after: .newItem) { PlateCommands() }
             CommandGroup(after: .help) {
                 HelpCommands()

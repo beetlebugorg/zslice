@@ -133,3 +133,7 @@ Finder shows a picture of each G-code file as its icon.
 An STL file shows in the 3D viewer of macOS. A 3MF file that macOS does not show gets the zslice preview: zslice slices it with its default settings, and the slider shows its layers.
 
 Quick Look finds the previews after the first start of zslice.app. If it does not, run `qlmanage -r`.
+
+## Quit and come back
+
+zslice keeps your session. After Command-Q, or a crash, it opens each window as it was: its plates and their unsaved changes, the camera, the layers, the page, and the tool. The last slice of each plate shows at once, and the new slice follows. Quit asks no "Save changes?": the session keeps them. When you close a window yourself, it leaves the session, and zslice asks about unsaved changes as usual.

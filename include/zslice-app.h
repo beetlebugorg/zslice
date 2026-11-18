@@ -1746,6 +1746,11 @@ int zs_set_plate_totals(zs_set *set, size_t i, zs_totals *out);
  * one set; zs_set_view_reset starts again for a new view. */
 int zs_set_view_sync(zs_set *set, zs_view *view);
 void zs_set_view_reset(zs_set *set);
+/* The scene bytes of plate i (for zs_view_scene_read): its last slice, or
+ * its old beads while it slices again (after zs_session_read: the scene of
+ * the session). ZS_NO_RESULT if none. The bytes stay valid until the next
+ * call of the set. */
+int zs_set_plate_scene(zs_set *set, size_t i, const uint8_t **out, size_t *out_len);
 /* The same as bytes, for a view in another wasm instance (the web app
  * slices in a worker, and the page owns the view): zs_set_sync_write in
  * the worker (free the bytes with zs_buffer_free), and zs_view_sync_read
