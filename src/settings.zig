@@ -570,6 +570,11 @@ pub const Project = struct {
     combing_max_distance: f64 = 0,
     /// Lift the nozzle by this distance during a travel move with a retraction. 0 turns it off.
     z_hop: f64 = 0,
+    /// A retraction after a line of the part moves the nozzle on a small
+    /// arc inside the part while the filament pulls back, as a hand wipes a drip off: the
+    /// plastic that oozes goes inside, and not onto the surface. The arc
+    /// stays inside the layer, or the retraction stays plain.
+    retract_wipe: bool = false,
     /// Lift the nozzle (`z_hop`) only for a travel that crosses an edge of
     /// the layer: it leaves the part, or it goes over a hole. A travel in
     /// a straight line inside the part (it retracts because it is longer
@@ -1220,6 +1225,7 @@ pub const plate_settings = [_][]const u8{
     "filament.min_speed",             "filament.cooling_mode",      "filament.retract_ratio",
     "project.first_layer_height",     "project.retract_min_travel", "project.combing",
     "project.combing_max_distance",   "project.z_hop",              "project.z_hop_only_crossing",
+    "project.retract_wipe",
     "project.retract_layer_change",   "project.travel_accel",       "project.skirt_loops",
     "project.skirt_distance",         "project.skirt_layers",       "project.brim_width",
     "project.placement",
@@ -1312,6 +1318,7 @@ pub const layer_settings = [_][]const u8{
     "project.combing",
     "project.combing_max_distance",
     "project.z_hop",
+    "project.retract_wipe",
     // The layer planner reads these from the settings of each layer.
     "project.line_width",
     "project.wall_thickness",

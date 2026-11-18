@@ -2942,3 +2942,58 @@ test "start G-code: zslice heats if it does not, and the first layer sets the fi
     try testing.expect(std.mem.startsWith(u8, b[layer0..], ";LAYER:0\nM109 S207\n"));
     try testing.expect(std.mem.indexOf(u8, b, "; zslice: the start G-code does not heat") == null);
 }
+
+test "gcode: a wipe retraction stays inside the part" {
+    const gpa = testing.allocator;
+    var b: mesh_mod.Builder = .init(gpa);
+    try mesh_mod.shapes.addBox(&b, 0, 0, 0, 20, 20, 2);
+    try mesh_mod.shapes.addBox(&b, 40, 0, 0, 60, 20, 2);
+    var mesh = try b.finish();
+    defer mesh.deinit(gpa);
+    var s: Settings = .{};
+    s.engine.threads = 1;
+    s.project.retract_wipe = true;
+    var job = try Job.init(gpa, &mesh, s);
+    defer job.deinit();
+    var out: std.Io.Writer.Allocating = .init(gpa);
+    defer out.deinit();
+    _ = try job.writeGcode(&out.writer);
+    const text = out.written();
+    var it = std.mem.splitScalar(u8, text, '\n');
+    var left: usize = 0;
+    var moves: usize = 0;
+    const ox = s.machine.origin_x + job.dx;
+    const oy = s.machine.origin_y + job.dy;
+    while (it.next()) |line| {
+        if (std.mem.eql(u8, line, ";WIPE")) {
+            left = 9;
+            continue;
+        }
+        if (left == 0) continue;
+        left -= 1;
+        try testing.expect(std.mem.startsWith(u8, line, "G1 X"));
+        try testing.expect(std.mem.indexOf(u8, line, " E-") != null);
+        // X and Y of the move, in the frame of the mesh.
+        var words = std.mem.tokenizeScalar(u8, line, ' ');
+        var x: f64 = 0;
+        var y: f64 = 0;
+        while (words.next()) |w| {
+            if (w[0] == 'X') x = try std.fmt.parseFloat(f64, w[1..]) - ox;
+            if (w[0] == 'Y') y = try std.fmt.parseFloat(f64, w[1..]) - oy;
+        }
+        const in_a = x > 0 and x < 20 and y > 0 and y < 20;
+        const in_b = x > 40 and x < 60 and y > 0 and y < 20;
+        try testing.expect(in_a or in_b);
+        moves += 1;
+    }
+    try testing.expect(moves >= 9);
+    // With no wipe: no arc.
+    s.project.retract_wipe = false;
+    var plain = try Job.init(gpa, &mesh, s);
+    defer plain.deinit();
+    var out2: std.Io.Writer.Allocating = .init(gpa);
+    defer out2.deinit();
+    _ = try plain.writeGcode(&out2.writer);
+    try testing.expect(std.mem.indexOf(u8, out2.written(), ";WIPE") == null);
+}
+

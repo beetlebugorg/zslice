@@ -56,6 +56,7 @@ const mark_settings = [_]struct { []const u8, u32 }{
     .{ "project.combing", mark_travel | mark_retract },
     .{ "project.combing_max_distance", mark_travel | mark_retract },
     .{ "project.z_hop", mark_travel | mark_retract },
+    .{ "project.retract_wipe", mark_retract },
     .{ "project.retract_layer_change", mark_travel | mark_retract },
     .{ "machine.travel_speed", mark_travel },
     .{ "machine.retract_length", mark_retract | mark_travel },

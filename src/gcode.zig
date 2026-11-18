@@ -1178,20 +1178,90 @@ pub const Emitter = struct {
         return self.retractHop(true);
     }
 
+    /// The arc of a wipe (see `Project.retract_wipe`): its center, inside
+    /// the layer, or null if no arc fits.
+    fn wipeCenter(self: *const Emitter, r: f64, margin: f64) ?[2]f64 {
+        const outline = self.outline orelse return null;
+        // Each direction from the nozzle, until the whole arc and a margin
+        // around it are inside.
+        for (0..8) |k| {
+            const a = std.math.pi * @as(f64, @floatFromInt(k)) / 4;
+            const c = [2]f64{ self.x + r * @cos(a), self.y + r * @sin(a) };
+            var ok = true;
+            for (0..12) |j| {
+                const t = 2 * std.math.pi * @as(f64, @floatFromInt(j)) / 12;
+                const q = geom.Point{ .x = geom.fromMm(c[0] + (r + margin) * @cos(t)), .y = geom.fromMm(c[1] + (r + margin) * @sin(t)) };
+                if (!geom.insideAny(outline.*, q)) {
+                    ok = false;
+                    break;
+                }
+            }
+            if (ok) return c;
+        }
+        return null;
+    }
+
+    /// A retraction on an arc inside the part: 270 degrees around a center
+    /// one radius from the nozzle, in 9 moves, each with its part of the
+    /// retraction. False if no arc fits (then the caller retracts plainly).
+    fn wipeRetract(self: *Emitter, len: f64) Writer.Error!bool {
+        // After a line in the part: the arc check keeps the nozzle inside
+        // the layer. The support and the skirt are outside the part.
+        const f = self.feature orelse return false;
+        if (f == .support or f == .support_interface or f == .skirt) return false;
+        const r = 0.4;
+        const c = self.wipeCenter(r, self.width_mm() / 2) orelse return false;
+        const steps = 9;
+        const sweep = 1.5 * std.math.pi;
+        const arc = r * sweep;
+        // The arc lasts as long as the retraction, at most the travel speed.
+        const t = len / self.r.settings.machine.retract_speed;
+        const speed = @min(self.r.settings.machine.travel_speed, arc / @max(t, 1e-3));
+        const a0 = std.math.atan2(self.y - c[1], self.x - c[0]);
+        try self.w.writeAll(";WIPE\n");
+        for (1..steps + 1) |k| {
+            const a = a0 + sweep * @as(f64, @floatFromInt(k)) / steps;
+            const x = c[0] + r * @cos(a);
+            const y = c[1] + r * @sin(a);
+            try self.w.writeAll("G1 X");
+            try writeNum(self.w, x + self.r.settings.machine.origin_x, 3);
+            try self.w.writeAll(" Y");
+            try writeNum(self.w, y + self.r.settings.machine.origin_y, 3);
+            try self.w.writeAll(" E-");
+            try writeNum(self.w, len / steps, 4);
+            if (k == 1) {
+                try self.w.writeAll(" F");
+                try writeNum(self.w, speed * 60, 0);
+            }
+            try self.w.writeAll("\n");
+            self.x = x;
+            self.y = y;
+        }
+        self.stats.print_time_s += @max(arc / speed, self.retractTime(len));
+        return true;
+    }
+
+    fn width_mm(self: *const Emitter) f64 {
+        return self.width;
+    }
+
     /// A retraction, and a z hop if `hop` and `z_hop` is on.
     fn retractHop(self: *Emitter, hop: bool) Writer.Error!void {
         const len = self.lr.retract_length;
         if (self.retracted or !self.extruded or len <= 0) return;
-        try self.w.writeAll("G1 E-");
-        try writeNum(self.w, len, 4);
-        try self.w.writeAll(" F");
-        try writeNum(self.w, self.r.settings.machine.retract_speed * 60, 0);
-        try self.w.writeAll("\n");
+        const wiped = self.lr.settings.project.retract_wipe and try self.wipeRetract(len);
+        if (!wiped) {
+            try self.w.writeAll("G1 E-");
+            try writeNum(self.w, len, 4);
+            try self.w.writeAll(" F");
+            try writeNum(self.w, self.r.settings.machine.retract_speed * 60, 0);
+            try self.w.writeAll("\n");
+        }
         self.retracted = true;
         self.retract_len = len;
         self.feed = -1;
         self.stats.retractions += 1;
-        self.stats.print_time_s += self.retractTime(len);
+        if (!wiped) self.stats.print_time_s += self.retractTime(len);
         self.stop = true;
         const hop_len = self.lr.settings.project.z_hop;
         if (hop and hop_len > 0) {
