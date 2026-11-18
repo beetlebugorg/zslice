@@ -101,6 +101,9 @@ pub fn inspect(arena: Allocator, t: *const Toolpaths, pj: *const zs.PlateJob, pa
     }
     try out.print("The bead is {d:.3} mm wide and {d:.2} mm tall. The line width is {d:.3} mm. The cross section is {d:.4} mm\u{b2}.\n", .{ bead, h, w, area });
     try out.print("The path is {d:.1} mm long, and it uses {d:.2} mm\u{b3} of plastic.\n\n", .{ length, length * area });
+    if (feature == .skin and s.project.solid_infill_width > 0) {
+        try out.print("Skin is the solid fill of the top and bottom layers. It also fills an infill area that is narrower than {d:.1} mm (project.solid_infill_width): a strip that narrow gets no infill lines, so it prints solid. A skin line far from a top or bottom surface is such a narrow infill area. Set the width to 0 to give narrow areas sparse infill.\n\n", .{s.project.solid_infill_width});
+    }
     if (feature == .infill and s.project.infill_pattern == .lightning) {
         try out.print("Lightning infill: this branch holds up a top surface above it. The branches start {d:.1} mm apart under each top (the density), and on each layer down the end of a branch gets {d:.2} mm shorter (the lightning angle, {d:.0}\u{b0}), until the branch ends at a wall.\n\n", .{ w / s.project.infill_density, h * @tan(s.project.lightning_angle * std.math.pi / 180.0), s.project.lightning_angle });
     }
