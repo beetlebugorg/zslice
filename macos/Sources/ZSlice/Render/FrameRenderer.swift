@@ -40,6 +40,8 @@ final class FrameRenderer {
     let device: MTLDevice
     let queue: MTLCommandQueue
     private let boxOpaque: MTLRenderPipelineState
+    /// The beads with a focus (a discard for the beads out of it).
+    private let boxFocus: MTLRenderPipelineState
     private let boxBlend: MTLRenderPipelineState
     private let grid: MTLRenderPipelineState
     private let bed: MTLRenderPipelineState
@@ -103,8 +105,12 @@ final class FrameRenderer {
                 }
                 return try device.makeRenderPipelineState(descriptor: d)
             }
-            boxOpaque = try pipeline("box_vertex", "box_fragment", blend: false)
-            boxBlend = try pipeline("box_vertex", "box_fragment", blend: true)
+            // ZSLICE_DISCARD_SHADER=1: the plain beads with the shader of a
+            // focus, to measure the cost of a discard (for tests).
+            let plain = ProcessInfo.processInfo.environment["ZSLICE_DISCARD_SHADER"] != nil ? "box_fragment_focus" : "box_fragment"
+            boxOpaque = try pipeline("box_vertex", plain, blend: false)
+            boxFocus = try pipeline("box_vertex", "box_fragment_focus", blend: false)
+            boxBlend = try pipeline("box_vertex", "box_fragment_focus", blend: true)
             grid = try pipeline("grid_vertex", "grid_fragment", blend: false)
             bed = try pipeline("bed_vertex", "bed_fragment", blend: true)
         } catch {
@@ -231,8 +237,15 @@ final class FrameRenderer {
         enc.endEncoding()
         if let snapshot { copyOut(drawable.texture, in: cmd, then: snapshot) }
         cmd.present(drawable)
+        let gpu = gpuTime
+        cmd.addCompletedHandler { cb in gpu.set((cb.gpuEndTime - cb.gpuStartTime) * 1000) }
         cmd.commit()
     }
+
+    /// The GPU time of the last frame that is done (ms), for the detail
+    /// governor of the view.
+    let gpuTime = GPUTime()
+    var lastGPUms: Double { gpuTime.ms }
 
     /// Copies the texture to a buffer, and makes an image of it when the
     /// GPU is done. For development and screenshots (ZSLICE_SNAPSHOT).
@@ -273,7 +286,8 @@ final class FrameRenderer {
                 drawBed(mvp: f.bed.mvp)
                 return
             }
-            enc.setRenderPipelineState(r.boxOpaque)
+            // The plain pipeline with no focus: the early depth test stays on.
+            enc.setRenderPipelineState(f.box.params.2 != 0 ? r.boxFocus : r.boxOpaque)
             setPush(f.box)
             drawList(first: min(f.box_first, f.box_count))
             drawBeads(first: Int(f.mark_first), count: Int(f.mark_count))
@@ -429,4 +443,12 @@ final class FrameRenderer {
             }
         }
     }
+}
+
+/// The GPU time of a frame, set on a thread of Metal.
+final class GPUTime: @unchecked Sendable {
+    private let lock = NSLock()
+    private var value = 0.0
+    var ms: Double { lock.withLock { value } }
+    func set(_ v: Double) { lock.withLock { value = v } }
 }

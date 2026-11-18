@@ -98,6 +98,12 @@ final class MetalSliceView: NSView {
         didSet { if page == .twoD { requestFrame() } }
     }
     private var pressAt: NSPoint?
+    // The detail governor (zs_view_set_detail): while the view moves, late
+    // frames raise the detail value (coarser meshes for the wider beads),
+    // fast frames lower it; at rest the view draws one frame at full detail.
+    private var detail: Float = 1
+    private var slowFrames = 0, fastFrames = 0
+    private var movingUntil: CFTimeInterval = 0
     private(set) var view: OpaquePointer?
     private let renderer: FrameRenderer?
     private var link: CADisplayLink?
@@ -286,6 +292,7 @@ final class MetalSliceView: NSView {
         if animating {
             animating = zs_view_animate(view, dt) != 0
             needsFrame = true
+            noteMoving()
         }
         if needsFrame {
             needsFrame = false
@@ -343,6 +350,73 @@ final class MetalSliceView: NSView {
             renderer.draw(frame.pointee, in: metalLayer, snapshot: shot)
         }
         delegate?.sliceViewDidDraw()
+        if page == .threeD { governDetail(cpu: (CACurrentMediaTime() - tf) * 1000) }
+    }
+
+    /// The view moves (a drag, the wheel, a pinch, an animation of the
+    /// camera): the governor watches the frames until 0.3 s after it.
+    private func noteMoving() {
+        movingUntil = CACurrentMediaTime() + 0.3
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.35) { [weak self] in self?.restIfStill() }
+    }
+
+    private func governDetail(cpu: Double) {
+        guard let view, let renderer, CACurrentMediaTime() < movingUntil,
+              ProcessInfo.processInfo.environment["ZSLICE_NO_GOVERNOR"] == nil else { return }
+        let ms = max(renderer.lastGPUms, cpu)
+        if ms > 26 {
+            fastFrames = 0
+            slowFrames += 1
+            if slowFrames >= 2, detail < 16 {
+                slowFrames = 0
+                detail = min(16, detail * 1.5)
+                zs_view_set_detail(view, detail, 0)
+            }
+        } else if ms < 18 {
+            slowFrames = 0
+            fastFrames += 1
+            if fastFrames >= 60, detail > 1 {
+                fastFrames = 0
+                detail = max(1, detail / 1.5)
+                zs_view_set_detail(view, detail, 0)
+            }
+        } else {
+            slowFrames = 0
+            fastFrames = 0
+        }
+        if ProcessInfo.processInfo.environment["ZSLICE_DETAIL_LOG"] != nil {
+            NSLog("zslice detail: frame %.1f ms (gpu %.1f), detail %.2f", ms, renderer.lastGPUms, detail)
+        }
+    }
+
+    /// For tests (ZSLICE_ORBIT_TEST): close to the part, then an orbit
+    /// for 3 s at 120 steps a second; logs the mean GPU time and the detail.
+    func orbitTest() {
+        guard let view else { return }
+        for _ in 0 ..< 14 { zs_view_zoom(view, 0.8) }
+        let start = CACurrentMediaTime()
+        Task { @MainActor [weak self] in
+            var gpu: [Double] = []
+            while let self, let view = self.view, let renderer = self.renderer, CACurrentMediaTime() - start < 3 {
+                zs_view_orbit(view, 3, 0.5)
+                self.noteMoving()
+                self.requestFrame()
+                gpu.append(renderer.lastGPUms)
+                try? await Task.sleep(for: .milliseconds(8))
+            }
+            let tail = gpu.suffix(200)
+            NSLog("zslice orbit test: mean GPU %.1f ms over the last %d steps, detail %.2f", tail.reduce(0, +) / Double(max(tail.count, 1)), tail.count, self?.detail ?? 0)
+        }
+    }
+
+    /// At rest: full detail, and one frame of it.
+    private func restIfStill() {
+        guard let view, CACurrentMediaTime() >= movingUntil, detail > 1 else { return }
+        detail = 1
+        slowFrames = 0
+        fastFrames = 0
+        zs_view_set_detail(view, 1, 0)
+        requestFrame()
     }
 
     /// The point of the view (points from the top left) of a point of the
@@ -563,6 +637,7 @@ final class MetalSliceView: NSView {
             return
         }
         zs_view_orbit(view, dx, dy)
+        noteMoving()
         requestFrame()
     }
 
@@ -583,6 +658,7 @@ final class MetalSliceView: NSView {
         }
         let s = Float(scale)
         zs_view_pan(view, dx * s, dy * s)
+        noteMoving()
         requestFrame()
     }
 
@@ -598,6 +674,7 @@ final class MetalSliceView: NSView {
             if event.scrollingDeltaY != 0 { zoom2D(pow(1.2, steps), Double(px), Double(py)) }
             return
         }
+        noteMoving()
         // A positive delta of AppKit scrolls up (away from the user); it
         // zooms in, as a GTK scroll with a negative dy does.
         if event.hasPreciseScrollingDeltas {
@@ -618,6 +695,7 @@ final class MetalSliceView: NSView {
             return
         }
         zs_view_zoom_at(view, Float(1 / (1 + event.magnification)), px, py)
+        noteMoving()
         requestFrame()
     }
 }

@@ -157,18 +157,7 @@ static float3 toSrgb(float3 c) { return pow(clamp(c, 0.0, 1.0), float3(1.0 / 2.2
 // Light for a bead of plastic: a sky and ground ambient term, a diffuse
 // term, and a soft specular term. The colors come in and go out as sRGB
 // values (the drawable format is UNORM).
-fragment float4 box_fragment(BoxOut in [[stage_in]],
-                             constant Push &pc [[buffer(0)]],
-                             constant Extra &ex [[buffer(1)]]) {
-    // A focus draws in two passes: the beads in focus (params.w < 2), then
-    // the other beads as faint ghosts (params.w = 2).
-    bool focus = pc.params.z > 0.5 || pc.params.z < -0.5;
-    if (focus && pc.params.w > 1.5 && pc.params.w < 2.5) {
-        if (in.focus > 0.5) discard_fragment();
-        float rim = 1.0 - abs(dot(normalize(in.normal), normalize(pc.eye.xyz - in.pos)));
-        return float4(float3(0.55, 0.58, 0.62), 0.03 + 0.09 * rim);
-    }
-    if (focus && in.focus < 0.5) discard_fragment();
+static float4 shade(BoxOut in, constant Push &pc, constant Extra &ex) {
     float3 n = normalize(in.normal);
     float3 l = normalize(pc.vec.xyz);
     float3 v = normalize(pc.eye.xyz - in.pos);
@@ -186,6 +175,31 @@ fragment float4 box_fragment(BoxOut in [[stage_in]],
         return float4(toSrgb(c + float3(0.25 * rim * rim)), 0.38 + 0.3 * rim);
     }
     return float4(mix(toSrgb(c), ex.background, ex.fade), 1.0);
+}
+
+// The plain beads: no discard, so the GPU tests the depth before the
+// fragment runs (a discard turns the early test off, which costs much
+// when the view is close to many beads).
+fragment float4 box_fragment(BoxOut in [[stage_in]],
+                             constant Push &pc [[buffer(0)]],
+                             constant Extra &ex [[buffer(1)]]) {
+    return shade(in, pc, ex);
+}
+
+// The beads with a focus, and the see-through passes. A focus draws in
+// two passes: the beads in focus (params.w < 2), then the other beads as
+// faint ghosts (params.w = 2).
+fragment float4 box_fragment_focus(BoxOut in [[stage_in]],
+                                   constant Push &pc [[buffer(0)]],
+                                   constant Extra &ex [[buffer(1)]]) {
+    bool focus = pc.params.z > 0.5 || pc.params.z < -0.5;
+    if (focus && pc.params.w > 1.5 && pc.params.w < 2.5) {
+        if (in.focus > 0.5) discard_fragment();
+        float rim = 1.0 - abs(dot(normalize(in.normal), normalize(pc.eye.xyz - in.pos)));
+        return float4(float3(0.55, 0.58, 0.62), 0.03 + 0.09 * rim);
+    }
+    if (focus && in.focus < 0.5) discard_fragment();
+    return shade(in, pc, ex);
 }
 
 // The bed outline and the grid lines.
