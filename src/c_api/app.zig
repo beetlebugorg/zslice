@@ -159,6 +159,123 @@ export fn zs_setting_search(query: ?[*:0]const u8, part_only: c_int, out_index: 
     return n;
 }
 
+const PStatus = zs.app.printer_status.Status;
+
+fn kindOf(kind: c_int) ?zs.app.printer_status.Kind {
+    return switch (kind) {
+        1 => .octoprint,
+        2 => .printdeck,
+        3 => .moonraker,
+        else => null,
+    };
+}
+
+/// The paths of the status of a printer of `kind` (1 OctoPrint, 2
+/// printdeck, 3 Moonraker), one on each line, to GET in order. Static.
+export fn zs_printer_status_paths(kind: c_int) [*:0]const u8 {
+    const k = kindOf(kind) orelse return "";
+    return zs.app.printer_status.paths(k).ptr;
+}
+
+/// A new, empty printer status. Free it with zs_printer_status_free.
+export fn zs_printer_status_new() ?*PStatus {
+    const s = gpa.create(PStatus) catch return null;
+    s.* = .init(gpa);
+    return s;
+}
+
+export fn zs_printer_status_free(s: ?*PStatus) void {
+    const st = s orelse return;
+    st.deinit();
+    gpa.destroy(st);
+}
+
+/// Reads the reply of a path (see zs_printer_status_paths). A reply that is
+/// not JSON changes nothing.
+export fn zs_printer_status_feed(s: ?*PStatus, kind: c_int, path: ?[*:0]const u8, body: ?[*]const u8, len: usize) c_int {
+    const st = s orelse return @intFromEnum(Status.invalid_argument);
+    const k = kindOf(kind) orelse return @intFromEnum(Status.invalid_argument);
+    const b = body orelse return @intFromEnum(Status.invalid_argument);
+    st.feed(k, std.mem.span(path orelse return @intFromEnum(Status.invalid_argument)), b[0..len]) catch return @intFromEnum(Status.out_of_memory);
+    return ok;
+}
+
+pub const PrinterRoll = extern struct {
+    id: [*:0]const u8,
+    name: [*:0]const u8,
+    material: [*:0]const u8,
+    color: [*:0]const u8,
+    left: f64,
+};
+
+pub const PrinterInfo = extern struct {
+    state: [*:0]const u8,
+    bed_x: f64,
+    bed_y: f64,
+    height: f64,
+    nozzle: f64,
+    material: [*:0]const u8,
+    diameter: f64,
+    spool: PrinterRoll,
+    spool_price: f64,
+    spool_full: f64,
+    roll_count: usize,
+    max_velocity: f64,
+    max_accel: f64,
+    corner_velocity: f64,
+    max_z_velocity: f64,
+    max_z_accel: f64,
+    job: [*:0]const u8,
+    progress: f64,
+    time_left: f64,
+    layer: c_int,
+    layers: c_int,
+};
+
+fn rollOut(r: zs.app.printer_status.Roll) PrinterRoll {
+    return .{ .id = r.id.ptr, .name = r.name.ptr, .material = r.material.ptr, .color = r.color.ptr, .left = r.left };
+}
+
+/// The status read so far. The strings stay valid until the next feed or
+/// the free.
+export fn zs_printer_status_get(s: ?*const PStatus, out: ?*PrinterInfo) c_int {
+    const st = s orelse return @intFromEnum(Status.invalid_argument);
+    const o = out orelse return @intFromEnum(Status.invalid_argument);
+    o.* = .{
+        .state = st.state.ptr,
+        .bed_x = st.bed_x,
+        .bed_y = st.bed_y,
+        .height = st.height,
+        .nozzle = st.nozzle,
+        .material = st.material.ptr,
+        .diameter = st.diameter,
+        .spool = rollOut(st.spool),
+        .spool_price = st.spool_price,
+        .spool_full = st.spool_full,
+        .roll_count = st.rolls.len,
+        .max_velocity = st.max_velocity,
+        .max_accel = st.max_accel,
+        .corner_velocity = st.corner_velocity,
+        .max_z_velocity = st.max_z_velocity,
+        .max_z_accel = st.max_z_accel,
+        .job = st.job.ptr,
+        .progress = st.progress,
+        .time_left = st.time_left,
+        .layer = st.layer,
+        .layers = st.layers,
+    };
+    return ok;
+}
+
+/// Roll i of the printer (i < roll_count).
+export fn zs_printer_status_roll(s: ?*const PStatus, i: usize, out: ?*PrinterRoll) c_int {
+    const st = s orelse return @intFromEnum(Status.invalid_argument);
+    const o = out orelse return @intFromEnum(Status.invalid_argument);
+    if (i >= st.rolls.len) return @intFromEnum(Status.out_of_range);
+    o.* = rollOut(st.rolls[i]);
+    return ok;
+}
+
 /// 1 if a change line of a history step (zs_history_step.changes) can be
 /// undone alone (zs_app_history_revert): not the quality, and not a move,
 /// turn, orientation, or scale of a part.

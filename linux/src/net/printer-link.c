@@ -96,14 +96,13 @@ typedef struct {
     ZgInfoFn fn;
     gpointer data;
     ZgPrinterInfo *info;
-    const char *const *paths; /* the requests, NULL at the end */
+    /* The requests (from the core), NULL at the end, and the status that
+     * the core reads from the replies. */
+    char **paths;
+    int kind;
+    zs_printer_status *status;
     int step;
 } Query;
-
-static const char *const octo_paths[] = {"/api/printer", "/api/printerprofiles", "/api/job", NULL};
-static const char *const deck_paths[] = {"/api/printer", "/api/plugin/printdeck", NULL};
-static const char *const moon_paths[] = {
-    "/printer/objects/query?print_stats&virtual_sdcard&toolhead&configfile=settings", NULL};
 
 static void query_free(Query *q) {
     g_free(q->p.id);
@@ -112,101 +111,61 @@ static void query_free(Query *q) {
     g_free(q->p.api_key);
     g_free(q->p.device);
     if (q->cancel) g_object_unref(q->cancel);
+    g_strfreev(q->paths);
+    zs_printer_status_free(q->status);
     zg_printer_info_free(q->info);
     g_free(q);
 }
 
 static void query_next(Query *q);
 
-static void read_reply(Query *q, const char *path, JsonNode *root) {
-    ZgPrinterInfo *in = q->info;
-    if (strcmp(path, "/api/printer") == 0) {
-        g_free(in->state);
-        in->state = str(root, "state.text");
-    } else if (strcmp(path, "/api/printerprofiles") == 0) {
-        /* The current profile. */
-        JsonNode *profiles = path_get(root, "profiles");
-        if (profiles && JSON_NODE_HOLDS_OBJECT(profiles)) {
-            GList *members = json_object_get_values(json_node_get_object(profiles));
-            for (GList *l = members; l; l = l->next) {
-                JsonNode *prof = l->data;
-                JsonNode *cur = path_get(prof, "current");
-                if (members->next && !(cur && json_node_get_boolean(cur))) continue;
-                in->bed_x = num(prof, "volume.width");
-                in->bed_y = num(prof, "volume.depth");
-                in->height = num(prof, "volume.height");
-                in->nozzle = num(prof, "extruder.nozzleDiameter");
-                break;
-            }
-            g_list_free(members);
-        }
-    } else if (strcmp(path, "/api/job") == 0) {
-        in->job = str(root, "job.file.display");
-        if (!in->job) in->job = str(root, "job.file.name");
-        in->progress = num(root, "progress.completion") / 100;
-        JsonNode *left = path_get(root, "progress.printTimeLeft");
-        in->time_left = left && JSON_NODE_HOLDS_VALUE(left) ? json_node_get_double(left) : -1;
-    } else if (strcmp(path, "/api/plugin/printdeck") == 0) {
-        in->material = str(root, "material");
-        in->diameter = num(root, "diameter");
-        in->spool = str(root, "spool.name");
-        in->spool_id = str(root, "spool.id");
-        in->spool_color = str(root, "spool.color");
-        in->spool_left = num(root, "spool.left");
-        in->spool_price = num(root, "spool.price");
-        in->max_velocity = num(root, "limits.max_velocity");
-        in->max_accel = num(root, "limits.max_accel");
-        in->corner_velocity = num(root, "limits.square_corner_velocity");
-        in->max_z_velocity = num(root, "limits.max_z_velocity");
-        in->max_z_accel = num(root, "limits.max_z_accel");
-        in->spool_full = num(root, "spool.full");
-        JsonNode *spools = path_get(root, "spools");
-        if (spools && JSON_NODE_HOLDS_ARRAY(spools)) {
-            JsonArray *a = json_node_get_array(spools);
-            guint n = json_array_get_length(a);
-            in->spools = g_new0(char *, n + 1);
-            in->rolls = g_new0(ZgRoll, n + 1);
-            in->n_rolls = n;
-            for (guint i = 0; i < n; i++) {
-                JsonNode *e = json_array_get_element(a, i);
-                in->rolls[i].id = str(e, "id");
-                in->rolls[i].name = str(e, "name");
-                in->rolls[i].material = str(e, "material");
-                in->rolls[i].color = str(e, "color");
-                in->rolls[i].left = num(e, "left");
-                char *name = str(json_array_get_element(a, i), "name");
-                char *mat = str(json_array_get_element(a, i), "material");
-                in->spools[i] = mat ? g_strdup_printf("%s (%s)", name ? name : "?", mat) : g_strdup(name ? name : "?");
-                g_free(name);
-                g_free(mat);
-            }
-        }
-        in->job = str(root, "job.title");
-        if (in->job) {
-            char *st = str(root, "job.state");
-            if (st) { g_free(in->state); in->state = st; }
-            in->progress = num(root, "job.progress");
-            in->time_left = num(root, "job.left");
-            in->layer = (int)num(root, "job.layer");
-            in->layers = (int)num(root, "job.layers");
-        }
-    } else if (g_str_has_prefix(path, "/printer/objects/query")) {
-        JsonNode *st = path_get(root, "result.status");
-        if (st) {
-            in->state = str(st, "print_stats.state");
-            in->job = str(st, "print_stats.filename");
-            in->progress = num(st, "virtual_sdcard.progress");
-            JsonNode *max = path_get(st, "toolhead.axis_maximum");
-            if (max && JSON_NODE_HOLDS_ARRAY(max) && json_array_get_length(json_node_get_array(max)) >= 3) {
-                JsonArray *a = json_node_get_array(max);
-                in->bed_x = json_array_get_double_element(a, 0);
-                in->bed_y = json_array_get_double_element(a, 1);
-                in->height = json_array_get_double_element(a, 2);
-            }
-            in->nozzle = num(st, "configfile.settings.extruder.nozzle_diameter");
-            in->diameter = num(st, "configfile.settings.extruder.filament_diameter");
+static char *dup_or_null(const char *t) {
+    return t && t[0] ? g_strdup(t) : NULL;
+}
+
+/* The status of the core (zs_printer_status) as the info of the app. */
+static void fill_info(ZgPrinterInfo *in, const zs_printer_status *st) {
+    zs_printer_info i;
+    if (zs_printer_status_get(st, &i) != ZS_OK) return;
+    g_free(in->state);
+    in->state = dup_or_null(i.state);
+    in->bed_x = i.bed_x;
+    in->bed_y = i.bed_y;
+    in->height = i.height;
+    in->nozzle = i.nozzle;
+    in->material = dup_or_null(i.material);
+    in->diameter = i.diameter;
+    in->spool = dup_or_null(i.spool.name);
+    in->spool_id = dup_or_null(i.spool.id);
+    in->spool_color = dup_or_null(i.spool.color);
+    in->spool_left = i.spool.left;
+    in->spool_price = i.spool_price;
+    in->spool_full = i.spool_full;
+    in->max_velocity = i.max_velocity;
+    in->max_accel = i.max_accel;
+    in->corner_velocity = i.corner_velocity;
+    in->max_z_velocity = i.max_z_velocity;
+    in->max_z_accel = i.max_z_accel;
+    if (i.roll_count > 0) {
+        in->spools = g_new0(char *, i.roll_count + 1);
+        in->rolls = g_new0(ZgRoll, i.roll_count + 1);
+        in->n_rolls = i.roll_count;
+        for (size_t k = 0; k < i.roll_count; k++) {
+            zs_printer_roll r;
+            if (zs_printer_status_roll(st, k, &r) != ZS_OK) continue;
+            in->rolls[k].id = dup_or_null(r.id);
+            in->rolls[k].name = dup_or_null(r.name);
+            in->rolls[k].material = dup_or_null(r.material);
+            in->rolls[k].color = dup_or_null(r.color);
+            in->rolls[k].left = r.left;
+            in->spools[k] = r.material[0] ? g_strdup_printf("%s (%s)", r.name[0] ? r.name : "?", r.material) : g_strdup(r.name[0] ? r.name : "?");
         }
     }
+    in->job = dup_or_null(i.job);
+    in->progress = i.progress;
+    in->time_left = i.time_left;
+    in->layer = i.layer;
+    in->layers = i.layers;
 }
 
 static void on_query_reply(GObject *source, GAsyncResult *res, gpointer data) {
@@ -229,11 +188,9 @@ static void on_query_reply(GObject *source, GAsyncResult *res, gpointer data) {
         return;
     }
     if (status >= 200 && status < 300) {
-        JsonParser *parser = json_parser_new();
         gsize len = 0;
         const char *text = g_bytes_get_data(body, &len);
-        if (json_parser_load_from_data(parser, text, (gssize)len, NULL)) read_reply(q, path, json_parser_get_root(parser));
-        g_object_unref(parser);
+        zs_printer_status_feed(q->status, q->kind, path, text, len);
     } else if (q->step == 0) {
         char *m = g_strdup_printf("The printer answered %u %s.", status, soup_message_get_reason_phrase(msg));
         q->fn(NULL, m, q->data);
@@ -249,6 +206,7 @@ static void on_query_reply(GObject *source, GAsyncResult *res, gpointer data) {
 
 static void query_next(Query *q) {
     if (!q->paths[q->step]) {
+        fill_info(q->info, q->status);
         ZgPrinterInfo *info = q->info;
         q->info = NULL;
         q->fn(info, NULL, q->data);
@@ -310,7 +268,10 @@ void zg_link_query(const ZgPrinter *p, GCancellable *cancel, ZgInfoFn fn, gpoint
     Query *q = query_new(p, cancel);
     q->fn = fn;
     q->data = data;
-    q->paths = p->kind == ZG_LINK_MOONRAKER ? moon_paths : p->kind == ZG_LINK_PRINTDECK ? deck_paths : octo_paths;
+    /* The kinds of the core: 1 OctoPrint, 2 printdeck, 3 Moonraker. */
+    q->kind = p->kind == ZG_LINK_MOONRAKER ? 3 : p->kind == ZG_LINK_PRINTDECK ? 2 : 1;
+    q->paths = g_strsplit(zs_printer_status_paths(q->kind), "\n", -1);
+    q->status = zs_printer_status_new();
     query_next(q);
 }
 

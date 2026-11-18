@@ -18,6 +18,8 @@
 //
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
+import { printerStatusPaths, readPrinterStatus } from "./format.js";
+
 export const KINDS = {
   none: "None (export a file)",
   printdeck: "printdeck",
@@ -219,6 +221,47 @@ export async function requestKey(printer, wait = () => {}) {
   return { ok: false, message: "No answer on the printer in 2 minutes." };
 }
 
+// The status of the printer (its state, job, bed, nozzle, and rolls), read
+// by the core from the replies of its API. Returns { ok, status, message }.
+export async function status(printer) {
+  if (!printer?.url && !printer?.https) return { ok: false, message: "No address." };
+  const paths = printerStatusPaths(printer.kind);
+  if (paths.length === 0) return { ok: false, message: "This kind of printer gives no status." };
+  const replies = [];
+  try {
+    for (const [k, path] of paths.entries()) {
+      const r = await request(printer, path, { headers: headers(printer) });
+      if (r.status === 401 || r.status === 403) return { ok: false, message: "The printer refused the API key." };
+      if (!r.ok) {
+        if (k === 0) return { ok: false, message: `The printer answered ${r.status}.` };
+        continue;
+      }
+      replies.push([path, await r.text()]);
+    }
+  } catch (e) {
+    return { ok: false, message: explain(e, printer) };
+  }
+  const st = readPrinterStatus(printer.kind, replies);
+  return st ? { ok: true, status: st, message: statusText(st) } : { ok: false, message: "The status did not read." };
+}
+
+// The status in words: "Printing Slate frame, 50 %, 1 h 5 min left".
+export function statusText(st) {
+  const parts = [st.state || "Connected"];
+  if (st.job) {
+    let j = st.job;
+    if (st.progress > 0) j += `, ${Math.round(st.progress * 100)} %`;
+    if (st.timeLeft > 0) {
+      const m = Math.round(st.timeLeft / 60);
+      j += `, ${m >= 60 ? `${Math.floor(m / 60)} h ${m % 60} min` : `${m} min`} left`;
+    }
+    parts.push(j);
+  }
+  if (st.spool?.name) parts.push(`${st.spool.name}${st.material ? ` (${st.material})` : ""}${st.spool.left > 0 ? `, ${Math.round(st.spool.left)} g left` : ""}`);
+  else if (st.material) parts.push(st.material);
+  return parts.join(" · ");
+}
+
 // A test of the connection: the version of the API. Returns { ok, message }.
 export async function test(printer) {
   if (!printer?.url && !printer?.https) return { ok: false, message: "No address." };
@@ -229,7 +272,8 @@ export async function test(printer) {
     if (!r.ok) return { ok: false, message: `The printer answered ${r.status}.` };
     const j = await r.json();
     const v = j.server ?? j.text ?? j.result?.moonraker_version ?? j.result?.klippy_state ?? "";
-    return { ok: true, message: `Connected${v ? `: ${v}` : ""}.` };
+    const st = await status(printer);
+    return { ok: true, message: `Connected${v ? `: ${v}` : ""}.${st.ok ? ` ${st.message}.` : ""}` };
   } catch (e) {
     return { ok: false, message: explain(e, printer) };
   }

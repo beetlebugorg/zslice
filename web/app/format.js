@@ -82,6 +82,61 @@ export function searchSettings(query, partOnly, max) {
   }
 }
 
+// The kinds of zs_printer_status: 1 OctoPrint, 2 printdeck, 3 Moonraker.
+const STATUS_KIND = { octoprint: 1, printdeck: 2, moonraker: 3 };
+
+// The paths of the status of a printer kind (zs_printer_status_paths), or
+// [] with no core.
+export function printerStatusPaths(kind) {
+  const k = STATUS_KIND[kind];
+  if (!core || !k) return [];
+  return core.cstr(core.x.zs_printer_status_paths(k)).split("\n").filter(Boolean);
+}
+
+// The status of a printer from the replies of its API ([[path, text]]),
+// read by the core (zs_printer_status): { state, bedX, bedY, height,
+// nozzle, material, diameter, spool, rolls, job, progress, timeLeft,
+// layer, layers, limits }, or null with no core.
+export function readPrinterStatus(kind, replies) {
+  const k = STATUS_KIND[kind];
+  if (!core || !k) return null;
+  const x = core.x;
+  const st = x.zs_printer_status_new();
+  if (!st) return null;
+  try {
+    for (const [path, text] of replies) {
+      const bytes = new TextEncoder().encode(text);
+      core.withString(path, (pp) => core.withBytes(bytes, (b, n) => x.zs_printer_status_feed(st, k, pp, b, n)));
+    }
+    // zs_printer_info on wasm32 (pointers 4 bytes, doubles 8-aligned).
+    const size = 176;
+    const p = core.alloc(size + 24);
+    try {
+      if (x.zs_printer_status_get(st, p) !== 0) return null;
+      const s = (o) => core.cstr(core.u32(p + o));
+      const f = (o) => core.f64(p + o);
+      const roll = (o) => ({ id: s(o), name: s(o + 4), material: s(o + 8), color: s(o + 12), left: f(o + 16) });
+      const n = core.u32(p + 96);
+      const rolls = [];
+      for (let i = 0; i < n; i++) {
+        if (x.zs_printer_status_roll(st, i, p + size) === 0) rolls.push(roll(size));
+      }
+      return {
+        state: s(0), bedX: f(8), bedY: f(16), height: f(24), nozzle: f(32),
+        material: s(40), diameter: f(48), spool: roll(56), spoolPrice: f(80), spoolFull: f(88), rolls,
+        limits: { velocity: f(104), accel: f(112), corner: f(120), zVelocity: f(128), zAccel: f(136) },
+        job: s(144), progress: f(152), timeLeft: f(160), layer: core.i32(p + 168), layers: core.i32(p + 172),
+      };
+    } finally {
+      core.free(p, size + 24);
+    }
+  } catch {
+    return null;
+  } finally {
+    x.zs_printer_status_free(st);
+  }
+}
+
 function isAuto(info) { return info.name.endsWith("line_width"); }
 export function isRatio(info) { return (info.kind === "number" || info.kind === "integer") && info.unit === "%"; }
 export function isNumber(info) { return info.kind === "number" || info.kind === "integer"; }

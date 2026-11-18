@@ -151,6 +151,39 @@ int zs_history_revertible(const char *line, size_t len);
  * Returns the count. The actions of an app stay in the app. */
 size_t zs_setting_search(const char *query, int part_only, uint32_t *out_index, double *out_score, size_t max);
 
+/* ---- the status of a printer ----
+ * The app GETs each path of zs_printer_status_paths(kind) from the printer
+ * (with its API key), and gives each reply to zs_printer_status_feed. The
+ * kinds: 1 OctoPrint, 2 printdeck, 3 Moonraker. */
+typedef struct zs_printer_status zs_printer_status;
+typedef struct zs_printer_roll {
+    const char *id, *name, *material, *color; /* color: "#rrggbb" */
+    double left;                              /* grams */
+} zs_printer_roll;
+typedef struct zs_printer_info {
+    const char *state;        /* "Operational", "Printing", "standby", ... */
+    double bed_x, bed_y, height, nozzle;
+    const char *material;     /* the filament in the printer, "PLA" */
+    double diameter;
+    zs_printer_roll spool;    /* the loaded roll (printdeck) */
+    double spool_price, spool_full; /* 0 when not known */
+    size_t roll_count;        /* zs_printer_status_roll */
+    double max_velocity, max_accel, corner_velocity, max_z_velocity, max_z_accel; /* 0: not known */
+    const char *job;          /* "" for no job */
+    double progress;          /* 0 to 1 */
+    double time_left;         /* seconds, -1: not known */
+    int layer, layers;        /* 0: not known */
+} zs_printer_info;
+/* The paths to GET for a kind, one on each line (static). */
+const char *zs_printer_status_paths(int kind);
+zs_printer_status *zs_printer_status_new(void);
+void zs_printer_status_free(zs_printer_status *s);
+/* Reads the reply body of a path. A reply that is not JSON changes nothing. */
+int zs_printer_status_feed(zs_printer_status *s, int kind, const char *path, const char *body, size_t len);
+/* The status so far; the strings stay valid until the next feed or free. */
+int zs_printer_status_get(const zs_printer_status *s, zs_printer_info *out);
+int zs_printer_status_roll(const zs_printer_status *s, size_t i, zs_printer_roll *out);
+
 /* The settings, in the order to show them. */
 size_t zs_setting_count(void);
 int zs_setting_get_info(size_t index, zs_setting_info *out);
