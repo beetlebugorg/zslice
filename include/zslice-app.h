@@ -657,6 +657,11 @@ ptrdiff_t zs_app_part_cut(zs_app *app, size_t i, double z, int flip, int pegs, d
  * means the parts do not fit on this bed: say so, and offer to move parts
  * to another plate. */
 int zs_app_plate_fits(const zs_app *app);
+/* A picture of the parts of the plate: a PNG of w by h pixels (at most
+ * 1024), from the front right and above, in the filament color, on a clear
+ * background. It works with no slice. ZS_NO_MODEL for an empty plate. Free
+ * the bytes with zs_buffer_free. */
+int zs_app_thumbnail_png(const zs_app *app, uint32_t w, uint32_t h, uint8_t **out, size_t *out_len);
 /* A name for the G-code file of the last slice, with no extension: the
  * model (its extension dropped), the plate (when plate > 0, 1-based), the
  * layer height, the material, the printer, and the time, for example

@@ -557,6 +557,65 @@ test "gcode name: the facts of the slice, safe for a file" {
     try std.testing.expectEqualStrings("Prusa-MK4-S_Ender", w.buffered());
 }
 
+/// A picture of the parts of the plate as a PNG of w by h pixels (at most
+/// 1024): from the front right and above, in the filament color, on a
+/// clear background. It comes from the meshes, so a plate with no slice
+/// has one too. A plate with no parts gives no_model. Free the bytes with
+/// zs_buffer_free.
+export fn zs_app_thumbnail_png(a: ?*const App, w: u32, h: u32, out: ?*?[*]u8, out_len: ?*usize) c_int {
+    const app = a orelse return @intFromEnum(Status.invalid_argument);
+    const o = out orelse return @intFromEnum(Status.invalid_argument);
+    const l = out_len orelse return @intFromEnum(Status.invalid_argument);
+    if (w == 0 or h == 0 or w > 1024 or h > 1024) return @intFromEnum(Status.out_of_range);
+    const n = app.plate.parts.items.len;
+    if (n == 0) return @intFromEnum(Status.no_model);
+    const meshes = gpa.alloc(zs.Mesh, n) catch return @intFromEnum(Status.out_of_memory);
+    var made: usize = 0;
+    defer {
+        for (meshes[0..made]) |*m| m.deinit(gpa);
+        gpa.free(meshes);
+    }
+    for (meshes, 0..) |*m, i| {
+        m.* = app.plate.partMesh(gpa, i) catch return @intFromEnum(Status.out_of_memory);
+        made += 1;
+    }
+    var rgb = [3]u8{ 0xd0, 0xd0, 0xcc };
+    const color = app.settings.filament.color;
+    if (color.len == 7 and color[0] == '#') {
+        for (0..3) |k| rgb[k] = std.fmt.parseInt(u8, color[1 + 2 * k ..][0..2], 16) catch rgb[k];
+    }
+    var img = zs.cpu_render.render(gpa, meshes, w, h, rgb) catch return @intFromEnum(Status.out_of_memory);
+    defer img.deinit(gpa);
+    const bytes = zs.cpu_render.png(gpa, img) catch return @intFromEnum(Status.out_of_memory);
+    o.* = bytes.ptr;
+    l.* = bytes.len;
+    return ok;
+}
+
+test "thumbnail: a PNG of the parts, also with no slice" {
+    var app: ?*App = null;
+    try std.testing.expectEqual(ok, zs_app_new(null, null, &app));
+    defer zs_app_free(app);
+    var out: ?[*]u8 = null;
+    var len: usize = 0;
+    try std.testing.expectEqual(@intFromEnum(Status.no_model), zs_app_thumbnail_png(app, 64, 64, &out, &len));
+    // A 10 mm cube as a binary STL.
+    var stl: [84 + 12 * 50]u8 = @splat(0);
+    std.mem.writeInt(u32, stl[80..84], 12, .little);
+    const v = [_][3]f32{ .{ 0, 0, 0 }, .{ 10, 0, 0 }, .{ 10, 10, 0 }, .{ 0, 10, 0 }, .{ 0, 0, 10 }, .{ 10, 0, 10 }, .{ 10, 10, 10 }, .{ 0, 10, 10 } };
+    const f = [_][3]u8{ .{ 0, 2, 1 }, .{ 0, 3, 2 }, .{ 4, 5, 6 }, .{ 4, 6, 7 }, .{ 0, 1, 5 }, .{ 0, 5, 4 }, .{ 1, 2, 6 }, .{ 1, 6, 5 }, .{ 2, 3, 7 }, .{ 2, 7, 6 }, .{ 3, 0, 4 }, .{ 3, 4, 7 } };
+    for (f, 0..) |t, k| {
+        for (t, 0..) |vi, corner| for (0..3) |q| {
+            std.mem.writeInt(u32, stl[84 + k * 50 + 12 + corner * 12 + q * 4 ..][0..4], @bitCast(v[vi][q]), .little);
+        };
+    }
+    try std.testing.expectEqual(ok, zs_app_load_stl(app, "cube.stl", &stl, stl.len));
+    try std.testing.expectEqual(ok, zs_app_thumbnail_png(app, 64, 48, &out, &len));
+    defer gpa.free(out.?[0..len]);
+    try std.testing.expect(len > 60);
+    try std.testing.expectEqualSlices(u8, "\x89PNG", out.?[0..4]);
+}
+
 /// The number of islands of the last slice (see islands.zig).
 export fn zs_app_island_count(a: ?*const App) usize {
     const app = a orelse return 0;
