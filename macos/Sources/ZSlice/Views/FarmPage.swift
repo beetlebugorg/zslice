@@ -407,9 +407,12 @@ struct FarmPage: View {
     private func jobLabel(_ j: zs_farm_job) -> some View {
         let p = j.printer >= 0 ? monitor.printer(at: Int(j.printer))?.name ?? "a printer" : ""
         let tries = j.tries > 1 ? " (try \(j.tries))" : ""
+        // A printdeck waits for a press of Print on the deck.
+        let deck = j.printer >= 0 && monitor.printer(at: Int(j.printer))?.kind == .printdeck
+        let sent = deck ? "Waiting on \(p): press Print on the deck" : "Sent to \(p)"
         let (text, icon, color): (String, String, Color) = switch Int(j.state) {
         case Int(ZS_FARM_JOB_WAITING.rawValue): ("In the queue, waiting for a printer" + tries, "clock", .secondary)
-        case Int(ZS_FARM_JOB_SENT.rawValue): ("Sent to \(p)" + tries, "paperplane", .accentColor)
+        case Int(ZS_FARM_JOB_SENT.rawValue): (sent + tries, "paperplane", .accentColor)
         case Int(ZS_FARM_JOB_PRINTING.rawValue): ("Printing on \(p), \(Int((j.progress * 100).rounded())) %", "printer.fill", .accentColor)
         case Int(ZS_FARM_JOB_DONE.rawValue): ("Ready to collect on \(p)", "checkmark.circle.fill", .green)
         case Int(ZS_FARM_JOB_COLLECTED.rawValue): ("Done", "checkmark.seal.fill", .green)

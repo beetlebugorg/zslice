@@ -117,7 +117,10 @@ enum PrinterLink {
         } catch {
             return LinkResult(ok: false, message: explain(error))
         }
-        if p.kind == .printdeck && print { return LinkResult(ok: true, message: "Sent to \(p.name). Press Print on its screen to start.") }
+        // A printdeck asks on the deck for each print: it never starts by itself.
+        if p.kind == .printdeck {
+            return LinkResult(ok: true, message: "Sent to \(p.name). It waits there: press Print on the deck to start it.")
+        }
         // OctoPrint and Moonraker do not check the signature.
         return LinkResult(ok: true, message: (print ? "Sent to \(p.name) (\(p.kind.title)); the print starts." : "Uploaded to \(p.name) (\(p.kind.title)).") + " Not verified: \(p.kind.title) does not check signatures.")
     }
