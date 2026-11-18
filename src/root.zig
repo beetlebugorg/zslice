@@ -29,6 +29,7 @@ pub const offset = @import("offset.zig");
 pub const voronoi = @import("voronoi.zig");
 pub const arachne = @import("arachne.zig");
 pub const mesh = @import("mesh.zig");
+pub const cut = @import("cut.zig");
 pub const plate = @import("plate.zig");
 pub const zipfile = @import("zipfile.zig");
 pub const threemf = @import("threemf.zig");
