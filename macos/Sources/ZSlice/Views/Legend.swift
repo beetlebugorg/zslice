@@ -1,4 +1,4 @@
-//! The legend of the colors of the view, at the top left.
+//! The legend of the colors of the view, in the Colors popover of the toolbar.
 //!
 //! With the line type colors, it lists the line types of the print (the
 //! features that the slice has, and the marks), each with its color. A
@@ -13,6 +13,8 @@ import SwiftUI
 
 struct Legend: View {
     let workspace: Workspace
+    /// In the Colors popover: no panel of its own.
+    var bare = false
 
     private static let stops = [(0.19, 0.29, 0.86), (0.10, 0.70, 0.85), (0.25, 0.75, 0.30), (0.95, 0.80, 0.15), (0.85, 0.20, 0.15)]
         .map { Color(red: $0.0, green: $0.1, blue: $0.2) }
@@ -27,8 +29,8 @@ struct Legend: View {
                 ramp(lg, mode: mode)
             }
         }
-        .padding(10)
-        .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 10))
+        .padding(bare ? 0 : 10)
+        .background(bare ? AnyShapeStyle(Color.clear) : AnyShapeStyle(.regularMaterial), in: RoundedRectangle(cornerRadius: 10))
         .opacity(mode == 1 || workspace.shownTypes != 0 || workspace.legend != nil ? 1 : 0)
     }
 

@@ -95,21 +95,12 @@ struct DocumentWindow: View {
                         ToolStrip(workspace: workspace)
                         CheckButtons(workspace: workspace)
                     }
+                    // The legend is in the Colors popover of the toolbar.
                     if workspace.checkOpen {
                         CheckPanel(workspace: workspace)
-                    } else if workspace.layerCount > 0 {
-                        Legend(workspace: workspace)
                     }
                 }
                 .padding(12)
-            }
-            .overlay(alignment: .top) {
-                Timeline(history: workspace.model.history) { workspace.historyOpen = true }
-                    .popover(isPresented: Bindable(workspace).historyOpen, arrowEdge: .bottom) {
-                        HistoryPage(history: workspace.model.history, workspace: workspace)
-                            .frame(width: 400, height: 480)
-                    }
-                    .padding(.top, 12)
             }
             .overlay(alignment: .topTrailing) {
                 // Left of the layer slider and its number.
@@ -126,16 +117,22 @@ struct DocumentWindow: View {
                 }
             }
             .overlay(alignment: .bottom) {
-                HStack(alignment: .bottom, spacing: 12) {
-                    VStack(alignment: .leading, spacing: 8) {
-                        PlateBar(workspace: workspace)
-                        if workspace.layerCount > 0 {
-                            ScrubBar(workspace: workspace)
+                // The dock and the print card side by side when they fit;
+                // else the card above the dock. An empty plate has no card.
+                let card = workspace.model.state != .empty
+                ViewThatFits(in: .horizontal) {
+                    HStack(alignment: .bottom, spacing: 12) {
+                        Dock(workspace: workspace).fixedSize()
+                        Spacer(minLength: 0)
+                        if card { PrintCard(workspace: workspace).fixedSize() }
+                    }
+                    VStack(alignment: .trailing, spacing: 10) {
+                        if card { PrintCard(workspace: workspace).fixedSize() }
+                        HStack {
+                            Dock(workspace: workspace).fixedSize()
+                            Spacer(minLength: 0)
                         }
                     }
-                    Spacer(minLength: 0)
-                    PrintCard(workspace: workspace)
-                        .fixedSize()
                 }
                 .padding(.leading, 64)
                 // Clear of the layer slider and its number at the right edge.
@@ -250,14 +247,15 @@ struct DocumentWindow: View {
                 .help("Show or hide the settings (N)")
             }
             ToolbarItem(placement: .principal) {
-                Picker("Colors", selection: Bindable(workspace).colorMode) {
-                    ForEach(Workspace.colorModes.indices, id: \.self) { i in
-                        Text(Workspace.colorModes[i]).tag(i)
-                    }
-                }
-                .pickerStyle(.menu)
-                .fixedSize()
-                .help("The colors of the lines: the filament, one color for each line type, or the speed, the flow, the layer time, or the line width")
+                ColorsButton(workspace: workspace)
+            }
+            ToolbarItem(placement: .primaryAction) {
+                Button { workspace.addModels() } label: { Label("Add Models", systemImage: "plus") }
+                    .help("Add models to the plate (⇧⌘I)")
+            }
+            ToolbarItem(placement: .primaryAction) {
+                Button { workspace.searchOpen = true } label: { Label("Search", systemImage: "magnifyingglass") }
+                    .help("Search the settings and the actions (/ or ⌘F)")
             }
             ToolbarItem(placement: .primaryAction) {
                 Button { workspace.farmOpen.toggle() } label: { Label("Printers", systemImage: "printer.dotmatrix.filled.and.paper") }
@@ -307,6 +305,8 @@ extension FocusedValues {
 /// The scrub bar: play, the time in the top layer, and the replay speed.
 struct ScrubBar: View {
     let workspace: Workspace
+    /// In the dock: no capsule of its own.
+    var bare = false
 
     var body: some View {
         let (t0, t1) = workspace.layerTimes(workspace.hi)
@@ -321,9 +321,9 @@ struct ScrubBar: View {
             .buttonStyle(.borderless)
             .help(workspace.playing ? "Pause the replay" : "Play the print from the top layer")
             Slider(value: Binding(get: { workspace.scrubFraction }, set: { workspace.scrub(to: $0) }))
-                .frame(minWidth: 60, maxWidth: 320)
+                .frame(minWidth: bare ? 110 : 60, idealWidth: bare ? 110 : nil, maxWidth: bare ? 110 : 320)
                 .help("Moves the nozzle through the top layer")
-            Text("Layer \(workspace.hi + 1) · \(clock(inLayer)) / \(clock(t1 - t0))")
+            Text(bare ? "\(clock(inLayer))/\(clock(t1 - t0))" : "Layer \(workspace.hi + 1) · \(clock(inLayer)) / \(clock(t1 - t0))")
                 .font(.callout.monospacedDigit())
                 .foregroundStyle(.secondary)
                 .fixedSize()
@@ -336,9 +336,9 @@ struct ScrubBar: View {
             .fixedSize()
             .help("The speed of the replay")
         }
-        .padding(.horizontal, 14)
-        .padding(.vertical, 8)
-        .background(.regularMaterial, in: Capsule())
+        .padding(.horizontal, bare ? 0 : 14)
+        .padding(.vertical, bare ? 0 : 8)
+        .background(bare ? AnyShapeStyle(Color.clear) : AnyShapeStyle(.regularMaterial), in: Capsule())
     }
 }
 
@@ -544,5 +544,66 @@ struct WelcomeCard: View {
         }
         .padding(28)
         .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 16))
+    }
+}
+
+/// The one bar at the bottom of the view: the plates, the replay, and the
+/// history, as three groups. It ends where the print card starts.
+struct Dock: View {
+    let workspace: Workspace
+
+    var body: some View {
+        HStack(spacing: 10) {
+            PlateBar(workspace: workspace, bare: true)
+            if workspace.layerCount > 0 {
+                Divider().frame(height: 18)
+                ScrubBar(workspace: workspace, bare: true)
+            }
+            Divider().frame(height: 18)
+            Timeline(history: workspace.model.history, bare: true) { workspace.historyOpen = true }
+                .popover(isPresented: Bindable(workspace).historyOpen, arrowEdge: .top) {
+                    HistoryPage(history: workspace.model.history, workspace: workspace)
+                        .frame(width: 400, height: 480)
+                }
+                .fixedSize()
+        }
+        .padding(.horizontal, 12)
+        .padding(.vertical, 7)
+        .background(.regularMaterial, in: Capsule())
+    }
+}
+
+/// The colors of the lines, in the toolbar: a button with the mode, and a
+/// popover with the modes and the legend (the line types to show or fade,
+/// or the range of a ramp).
+struct ColorsButton: View {
+    let workspace: Workspace
+    @State private var open = false
+
+    var body: some View {
+        Button { open.toggle() } label: {
+            HStack(spacing: 4) {
+                Text(Workspace.colorModes[workspace.colorMode])
+                Image(systemName: "chevron.down").font(.caption2)
+            }
+        }
+        .help("The colors of the lines, and the legend: the filament, one color for each line type, or the speed, the flow, the layer time, or the line width")
+        .popover(isPresented: $open, arrowEdge: .bottom) {
+            VStack(alignment: .leading, spacing: 10) {
+                Picker("Colors", selection: Bindable(workspace).colorMode) {
+                    ForEach(Workspace.colorModes.indices, id: \.self) { i in
+                        Text(Workspace.colorModes[i]).tag(i)
+                    }
+                }
+                .pickerStyle(.radioGroup)
+                .labelsHidden()
+                if workspace.layerCount > 0 {
+                    Divider()
+                    Legend(workspace: workspace, bare: true)
+                }
+            }
+            .padding(14)
+            .frame(minWidth: 220)
+        }
     }
 }

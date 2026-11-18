@@ -36,9 +36,13 @@ The keys of the other apps work in the 3D view. A key with Ctrl in the other app
 
 Command and a click selects a part, Command and a drag moves it, and Command and the wheel turns it. Control and a click opens the context menu, as a right click does.
 
+## The view
+
+Four things float over the 3D view: the tools at the left, the layer slider at the right, the print card, and the dock at the bottom. The dock has the plates (the plate menu also shows all plates, adds one, and removes one; the printer of the plate; a new plate), the replay (play, the time in the top layer, the speed), and the history (undo, redo, and History). When the window is narrow, the print card sits above the dock. The toolbar has the colors of the lines with the legend (a click on a line type shows or fades it), 3D and 2D, the settings pane, Add Models, Search, and Printers. The print card hides on an empty plate.
+
 ## The drawer
 
-The drawer is the inspector at the right of the window, and it has only the settings. It always sits beside the view, so it has no Pin. Its header has one back button (Command-[), when there is a page to go back to. The history is a popover: click History in the bar at the top of the view, or View > History (Command-Y). An open project is a sheet: File > Show Project.
+The drawer is the inspector at the right of the window, and it has only the settings. It always sits beside the view, so it has no Pin. Its header has one back button (Command-[), when there is a page to go back to. The history is a popover: click History in the dock, or View > History (Command-Y). An open project is a sheet: File > Show Project.
 
 The bar at the top of the Settings page picks what the editors change: This Print, Global (your settings for all prints, in `global.toml`), one part (with more than one part on the plate), or a layer profile. With a part or a profile, a change goes only there, the bar is in the accent color, and Done goes back to the print. New Profile from Here Up (or Down) in the context menu of a line makes a layer profile, and Part Settings on the part card opens the settings of the part. The editors of the search and of the print card follow the same bar.
 

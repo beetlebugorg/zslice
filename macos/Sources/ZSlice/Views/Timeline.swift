@@ -11,6 +11,8 @@ import SwiftUI
 
 struct Timeline: View {
     let history: History
+    /// In the dock: no capsule of its own, and fewer marks.
+    var bare = false
     /// Opens the History popover.
     var showHistory: () -> Void = {}
 
@@ -26,6 +28,7 @@ struct Timeline: View {
                     .disabled(!history.undoManager.canRedo)
                     .help("Redo (⇧⌘Z)")
                 Divider().frame(height: 14)
+                if !bare {
                 ScrollViewReader { proxy in
                     ScrollView(.horizontal, showsIndicators: false) {
                         HStack(spacing: 3) {
@@ -49,20 +52,21 @@ struct Timeline: View {
                         }
                     }
                     // As wide as its marks, up to a limit; it scrolls past it.
-                    .frame(width: min(260, CGFloat(n) * 17))
+                    .frame(width: min(bare ? 120 : 260, CGFloat(n) * 17))
                     .onAppear { proxy.scrollTo(now) }
                     .onChange(of: now) { proxy.scrollTo(now) }
                 }
                 Text("\(now) / \(n - 1)").font(.caption.monospacedDigit()).foregroundStyle(.secondary)
                 Divider().frame(height: 14)
+                }
             }
             Button("History", action: showHistory)
                 .font(.caption)
                 .help("All the changes of the plate, the line edits, and undo of one change (⌘Y)")
         }
         .buttonStyle(.borderless)
-        .padding(.horizontal, 12)
-        .padding(.vertical, 6)
-        .background(.regularMaterial, in: Capsule())
+        .padding(.horizontal, bare ? 0 : 12)
+        .padding(.vertical, bare ? 0 : 6)
+        .background(bare ? AnyShapeStyle(Color.clear) : AnyShapeStyle(.regularMaterial), in: Capsule())
     }
 }

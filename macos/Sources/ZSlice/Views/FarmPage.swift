@@ -409,26 +409,55 @@ struct FarmPage: View {
     }
 }
 
-/// A small picture of a plate, for the Printers page. Until the core draws
-/// plates (zs_app_thumbnail_png), it is the number of the plate on a bed.
+/// A small picture of a plate, for the Printers page: the parts in their
+/// filament color (zs_app_thumbnail_png), from the meshes, so a plate shows
+/// before it slices. The pictures are kept until the plate changes.
 struct PlatePreview: View {
     let workspace: Workspace
     let plate: Int
     var size: CGFloat = 44
 
+    @MainActor private static var cache: [String: NSImage] = [:]
+
     var body: some View {
         RoundedRectangle(cornerRadius: size * 0.18)
-            .fill(Color.secondary.opacity(0.12))
+            .fill(Color.secondary.opacity(0.10))
             .overlay(RoundedRectangle(cornerRadius: size * 0.18).strokeBorder(Color(nsColor: .separatorColor)))
             .overlay {
-                VStack(spacing: 0) {
-                    Image(systemName: "cube.fill").font(.system(size: size * 0.32)).foregroundStyle(.orange)
-                    if size >= 40 {
-                        Text("\(plate + 1)").font(.system(size: size * 0.24, weight: .semibold).monospacedDigit()).foregroundStyle(.secondary)
-                    }
+                if let img = image {
+                    Image(nsImage: img).resizable().interpolation(.high).scaledToFit().padding(size * 0.06)
+                } else {
+                    Image(systemName: "square.dashed").font(.system(size: size * 0.4)).foregroundStyle(.tertiary)
+                }
+            }
+            .overlay(alignment: .bottomTrailing) {
+                if size >= 40 {
+                    Text("\(plate + 1)")
+                        .font(.system(size: max(9, size * 0.2), weight: .semibold).monospacedDigit())
+                        .padding(.horizontal, 3)
+                        .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 3))
+                        .padding(2)
                 }
             }
             .frame(width: size, height: size)
             .accessibilityLabel("Plate \(plate + 1)")
+    }
+
+    private var image: NSImage? {
+        let model = workspace.model
+        guard model.plates.indices.contains(plate), let app = zs_set_app(model.set, plate) else { return nil }
+        let info = model.plates[plate]
+        // A new picture when the plate or its parts change.
+        let px = UInt32(min(1024, size * 2))
+        let key = "\(info.id)-\(info.parts)-\(info.status)-\(model.settingsGeneration)-\(px)"
+        if let img = Self.cache[key] { return img }
+        var out: UnsafeMutablePointer<UInt8>?
+        var len = 0
+        guard zs_app_thumbnail_png(app, px, px, &out, &len) == 0, let out else { return nil }
+        let img = NSImage(data: Data(bytes: out, count: len))
+        zs_buffer_free(out, len)
+        if Self.cache.count > 300 { Self.cache.removeAll() }
+        Self.cache[key] = img
+        return img
     }
 }
