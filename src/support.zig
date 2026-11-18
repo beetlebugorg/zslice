@@ -611,6 +611,13 @@ fn treeSupport(
         .bed_only = p.support == .buildplate,
         // A branch is at least 5 mm thick on the bed.
         .foot = @floatFromInt(geom.fromMm(2.5)),
+        // The bend rule (tree.Params.bend): a push of 0.3 N from the
+        // nozzle, printed PLA at 2000 N/mm², one wall of a line width, and
+        // a bend of at most 0.1 mm at the tip. A tip 30 mm up needs a
+        // branch of about 4.4 mm across; 60 mm up, about 9 mm.
+        .bend = 0.3 / (3 * 2000 * std.math.pi * r.line_width * 0.1),
+        // A branch is at least 2 mm thick under its tip layers.
+        .min_r = @floatFromInt(geom.fromMm(1.0)),
     };
     const areas = try tree.grow(gpa, threads, outlines, layers, need, blocked, near, 1 + gap + pads, params);
     defer gpa.free(areas.body);
@@ -1155,4 +1162,59 @@ test "tree support is hollow, and filled at the foot and under the tips" {
     // The middle: a wall loop only.
     try testing.expect(!sup[40].body.isEmpty());
     try testing.expect(sup[40].filled.areaMm2() < 0.1 * sup[40].body.areaMm2());
+}
+
+test "tree support: a branch beside a tall wall is thick, and thicker down low" {
+    const gpa = testing.allocator;
+    // A wall 50 mm high, with a shelf at 40 mm that sticks out 8 mm from
+    // its face. The branches under the shelf go down beside the wall.
+    var b: mesh_mod.Builder = .init(gpa);
+    try mesh_mod.shapes.addBox(&b, 0, 0, 0, 40, 4, 50);
+    try mesh_mod.shapes.addBox(&b, 5, 4, 40, 35, 12, 43);
+    var m = try b.finish();
+    defer m.deinit(gpa);
+    const sl = try sliceAll(gpa, &m, 50);
+    defer {
+        for (sl.outlines) |*o| o.deinit(gpa);
+        gpa.free(sl.outlines);
+        gpa.free(sl.layers);
+    }
+    var st: settings_mod.Settings = .{};
+    st.project.support = .everywhere;
+    st.project.support_style = .tree;
+    const r = try st.resolve();
+    const sup = try compute(gpa, sl.outlines, sl.layers, &r, 1, &.{});
+    defer deinitAll(gpa, sup);
+    // The thinnest piece of each layer, and the mean area of a piece.
+    const Stat = struct { min: f64, mean: f64 };
+    const stat = struct {
+        fn of(p: geom.Paths) Stat {
+            var lo: f64 = std.math.inf(f64);
+            var sum: f64 = 0;
+            var n: f64 = 0;
+            for (0..p.count()) |i| {
+                const a = geom.areaMm2(p.get(i));
+                if (a <= 0) continue; // a hole
+                lo = @min(lo, a);
+                sum += a;
+                n += 1;
+            }
+            return .{ .min = lo, .mean = if (n > 0) sum / n else 0 };
+        }
+    }.of;
+    // Under the tip layers, no piece is thinner than a disk of 2 mm
+    // (3.1 mm2). Before the bend rule, branches beside the wall were one
+    // or two lines wide all the way down.
+    var low: Stat = undefined;
+    var high: Stat = undefined;
+    for (sup, 0..) |l, i| {
+        const z = sl.layers[i].z;
+        if (z < 2 or z > 36 or l.body.isEmpty()) continue;
+        const s = stat(l.body);
+try testing.expect(s.min > 3);
+        if (i == 25) low = s;
+        if (i == 170) high = s;
+    }
+    // The bend rule: the branches are thicker at 5 mm than at 34 mm.
+    try testing.expect(low.mean > high.mean);
 }

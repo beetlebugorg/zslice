@@ -87,8 +87,17 @@ const Paths = geom.Paths;
 const Node = struct {
     x: f64,
     y: f64,
-    /// The radius, in µm.
+    /// The radius of this layer, in µm (`want`, or less in a narrow
+    /// space).
     r: f64,
+    /// The radius that the branch should have here, µm: it grows as the
+    /// branch goes down, and the bend rule (`Params.bend`) sets its least
+    /// value. A narrow space makes `r` smaller on one layer only, so a
+    /// branch next to the part is thin only where it must be.
+    want: f64 = 0,
+    /// The layer of the highest tip of the branch (or of a branch that
+    /// joins it), for the bend rule.
+    top: u32 = 0,
     alive: bool = true,
     /// The branch can still reach the bed (it is out of the avoidance
     /// area, or one step from its edge). A branch that can does not join or
@@ -150,6 +159,18 @@ pub const Params = struct {
     /// Two branches join when one circle holds the other, up to this
     /// distance, µm.
     join_slack: f64 = 250,
+    /// The bend rule. A branch is a tube fixed at the bed, and the nozzle
+    /// pushes on its top layer from the side. With a tip at L mm over a
+    /// point of the branch, the radius there must be at least
+    /// cbrt(bend * L^3) mm, so that the tip bends by at most a set amount:
+    /// a thin-walled tube of radius r and wall t bends by
+    /// F L^3 / (3 E pi r^3 t). bend = F / (3 E pi t d), with F the push of
+    /// the nozzle, E the stiffness of the plastic, and d the bend that the
+    /// print allows (see support.zig). 0: no bend rule.
+    bend: f64 = 0,
+    /// The least radius of a branch under its tip layers, µm. A branch
+    /// with no room for it rests on the part, or stops.
+    min_r: f64 = 0,
 };
 
 /// The tree areas of each layer: `body` is the union of the circles, and
@@ -234,6 +255,7 @@ pub fn grow(
         for (nodes.items) |*nd| {
             if (!nd.alive) continue;
             nd.age +|= 1;
+            if (nd.top == 0) nd.top = @intCast(@min(n - 1, j + nd.age));
             // 2. Out of the avoidance area, toward the bed, if one step is
             // enough. Else the branch goes on, and rests on the part.
             nd.free = true;
@@ -255,7 +277,21 @@ pub fn grow(
             // 3. The radius grows with the drop, but not over the free
             // space. Near the tip, the branch keeps the XY gap under an
             // overhang only, so the tips under a slope stay.
-            nd.r = @min(params.max_r, nd.r + params.growth * @as(f64, @floatFromInt(h)));
+            if (nd.want == 0) nd.want = nd.r;
+            nd.want = @min(params.max_r, nd.want + params.growth * @as(f64, @floatFromInt(h)));
+            // The bend rule: thick enough for the branch above it.
+            if (params.bend > 0) {
+                const l_mm = layers[nd.top].z - layers[j].z;
+                const bent = 1000 * std.math.cbrt(params.bend * l_mm * l_mm * l_mm);
+                nd.want = @min(params.max_r, @max(nd.want, bent));
+            }
+            // Under its tip layers, a branch gets wider at 45 degrees up
+            // to min_r: a thin branch under a tip does not hold.
+            if (nd.age > params.tip_layers and params.min_r > 0) {
+                const cone = params.tip + @as(f64, @floatFromInt((nd.age - params.tip_layers) * h));
+                nd.want = @min(params.max_r, @max(nd.want, @min(params.min_r, cone)));
+            }
+            nd.r = nd.want;
             // The foot: near the bed, a branch to the bed gets wider at 45
             // degrees, up to `foot`, so that it holds on the bed. A short
             // branch needs a smaller foot: a fifth of its height, but at
@@ -266,7 +302,9 @@ pub fn grow(
                 nd.r = @max(nd.r, @min(params.foot, @max(1000, top / 5)) - z);
             }
             const fence = if (nd.age <= params.tip_layers) nidx else bidx;
-            if (!fit(nd, fence, pad, step, params.tip)) {
+            // A branch under its tip layers is never thinner than min_r.
+            const floor = if (nd.age <= params.tip_layers) params.tip else @max(params.tip, @min(params.min_r, nd.want));
+            if (!fit(nd, fence, pad, step, floor)) {
                 // No room for the radius. Beside the part, the branch goes
                 // on, and the gap cuts its circle. In the gap, it stops: it
                 // rests on the part, or (bed only) it is removed.
@@ -752,6 +790,8 @@ fn join(a: Allocator, nodes: []Node, slack: f64, branches: *Branches) Allocator.
                     nd.x = wide.x;
                     nd.y = wide.y;
                     nd.r = @max(wide.r, d + small);
+                    nd.want = @max(@max(nd.want, b.want), nd.r);
+                    nd.top = @max(nd.top, b.top);
                     nd.age = @min(nd.age, b.age);
                     branches.into.items[b.id] = nd.id;
                     b.alive = false;
@@ -808,28 +848,31 @@ fn pointInside(poly: []const Point) ?[2]f64 {
 }
 
 /// Moves a node out of the part (the area of `fence`) by at most `step`,
-/// and makes its radius smaller where the space is narrow, down to `tip`.
-/// Returns false if there is no room.
-fn fit(nd: *Node, fence: ?geom.EdgeIndex, pad: f64, step: f64, tip: f64) bool {
+/// so that its radius fits. Only if the move is not enough does the
+/// radius get smaller, down to `floor`. Returns false if there is no room
+/// for `floor`.
+fn fit(nd: *Node, fence: ?geom.EdgeIndex, pad: f64, step: f64, floor: f64) bool {
     const fi = fence orelse return true;
     var moved: f64 = 0;
     var iter: usize = 0;
-    while (iter < 4) : (iter += 1) {
+    while (true) : (iter += 1) {
         const inside = fi.inside(pointOf(nd));
         const near = fi.nearestPoint(nd.x, nd.y, pad) orelse return !inside;
         const clearance = if (inside) -near[2] else near[2];
         if (clearance >= nd.r) return true;
-        // Narrow space: a thinner branch fits without a move.
-        if (clearance >= tip) {
-            nd.r = clearance;
-            return true;
+        if (moved >= step or iter >= 6) {
+            // No more move on this layer: a thinner branch, if it can.
+            if (clearance >= floor) {
+                nd.r = clearance;
+                return true;
+            }
+            return false;
         }
         // Move away from the nearest edge point, out of the part.
-        if (moved >= step) return false;
         var dx = nd.x - near[0];
         var dy = nd.y - near[1];
-        var d = @sqrt(dx * dx + dy * dy);
-        if (d < 1) {
+        const dist = @sqrt(dx * dx + dy * dy);
+        if (dist < 1) {
             // On the edge: the way out is a direction to a point out of
             // the fence.
             const dir = outward(fi, nd.x, nd.y) orelse return false;
@@ -840,16 +883,14 @@ fn fit(nd: *Node, fence: ?geom.EdgeIndex, pad: f64, step: f64, tip: f64) bool {
                 dx = -dx;
                 dy = -dy;
             }
-            dx /= d;
-            dy /= d;
+            dx /= dist;
+            dy /= dist;
         }
-        const want = @min(step - moved, (if (inside) near[2] else 0) + tip - (if (inside) 0 else near[2]) + 1);
-        d = @max(want, 1);
+        const d = @max(1, @min(step - moved, nd.r - clearance + 1));
         nd.x += dx * d;
         nd.y += dy * d;
         moved += d;
     }
-    return false;
 }
 
 /// A unit direction from (x, y), a point on the edge of `fi`, to a point
