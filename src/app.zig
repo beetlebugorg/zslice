@@ -615,6 +615,18 @@ pub const App = struct {
         return j;
     }
 
+    /// A debug print: the G-code of the layers lo to hi - 1 of the last
+    /// slice alone, lowered so that layer lo prints on the bed, with the
+    /// start and the end G-code. In `gpa`, for the caller.
+    pub fn debugGcode(app: *App, gpa: Allocator, lo: usize, hi: usize) (Allocator.Error || error{ NoResult, WriteFailed } || zs.engine.Error)![]u8 {
+        if (app.getState() != .done) return error.NoResult;
+        const job = &(app.job orelse return error.NoResult);
+        var out: std.Io.Writer.Allocating = .init(gpa);
+        errdefer out.deinit();
+        _ = try job.writeLevels(&out.writer, lo, hi);
+        return out.toOwnedSlice();
+    }
+
     /// Splits part i into its separate bodies (Plate.split). Returns the
     /// count of new parts, or 0 for a part of one body.
     pub fn splitPart(app: *App, i: usize) Allocator.Error!usize {

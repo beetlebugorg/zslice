@@ -901,6 +901,17 @@ const ops = {
     return { bytes: bytes ? bytes.buffer : null, name: core.modelName };
   },
 
+  // A test print of the layers lo to hi - 1 (zs_app_debug_gcode).
+  debugGcode({ lo, hi }) {
+    const w = core.w;
+    if (w.x.zs_app_debug_gcode(core.app, lo, hi, w.cell, w.cell + 4) !== 0) return { bytes: null };
+    const ptr = w.u32(w.cell);
+    const len = w.u32(w.cell + 4);
+    const bytes = w.u8.slice(ptr, ptr + len).buffer;
+    w.x.zs_buffer_free(ptr, len);
+    return { bytes, name: core.modelName };
+  },
+
   gcode() {
     const bytes = core.gcode();
     return { bytes: bytes ? bytes.buffer : null, name: core.modelName };

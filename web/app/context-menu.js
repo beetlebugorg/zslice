@@ -66,6 +66,8 @@ export const CONTEXT_MENU = [
     items: [
       { label: "Clear all support marks", gtk: "view3d.clear-marks", act: "clearMarks", when: "marks" },
       { label: "Show all layers", accel: "Shift+C", gtk: "preview.all-layers", act: "allLayers", when: "cut" },
+      { label: "Test print: the top layer…", gtk: "preview.debug-print(1)", act: "debugPrint", arg: 1 },
+      { label: "Test print: the layers shown…", gtk: "preview.debug-print(0)", act: "debugPrint", arg: 0, when: "cut" },
       { label: "Reset the view", gtk: "view3d.reset-view", act: "resetView" },
     ],
   },

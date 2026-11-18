@@ -534,7 +534,22 @@ pub const PlateJob = struct {
 
     /// `writeGcode`, and each level plan also goes to `sink`.
     pub fn writeGcodeWith(self: *const PlateJob, out: *Writer, sink: ?Job.LayerSink) Error!engine.Stats {
+        return self.writeRange(out, sink, 0, self.levels.len);
+    }
+
+    /// The G-code of the levels lo to hi - 1 alone, lowered so that level
+    /// lo prints on the bed (a debug print: "print this layer", or a few
+    /// layers to check them before a long print). Each level keeps its
+    /// height, its lines, and its speeds.
+    pub fn writeLevels(self: *const PlateJob, out: *Writer, lo: usize, hi: usize) Error!engine.Stats {
+        return self.writeRange(out, null, @min(lo, self.levels.len), @min(@max(hi, lo + 1), self.levels.len));
+    }
+
+    fn writeRange(self: *const PlateJob, out: *Writer, sink: ?Job.LayerSink, lo: usize, hi: usize) Error!engine.Stats {
         const gpa = self.gpa;
+        // The drop of the levels: level lo prints at its own height above
+        // the bed.
+        const drop = if (lo == 0 or lo >= self.levels.len) 0 else self.levels[lo].z - self.levels[lo].height;
         const ctxs = try self.contexts();
         defer gpa.free(ctxs);
         const combined = try gpa.alloc([]Paths, self.groups.len);
@@ -557,25 +572,32 @@ pub const PlateJob = struct {
         const Ctx = struct {
             pj: *const PlateJob,
             ctxs: []const layer_mod.Context,
+            lo: usize,
+            drop: f64,
             fn plan(ctx: *const anyopaque, g: Allocator, i: usize) Allocator.Error!LayerPlan {
                 const c: *const @This() = @ptrCast(@alignCast(ctx));
-                return c.pj.planLevel(g, c.ctxs, i);
+                var lp = try c.pj.planLevel(g, c.ctxs, c.lo + i);
+                if (c.lo > 0) {
+                    lp.z -= c.drop;
+                    lp.index = @intCast(i);
+                }
+                return lp;
             }
             fn done(ctx: *const anyopaque, g: Allocator, i: usize) void {
                 const c: *const @This() = @ptrCast(@alignCast(ctx));
-                const lv = c.pj.levels[i];
+                const lv = c.pj.levels[c.lo + i];
                 for (c.pj.entries[lv.first..lv.end]) |e| {
                     engine.dropMemo(g, c.ctxs[c.pj.instances[e.instance].group].cache, e.layer);
                 }
             }
         };
-        const ctx: Ctx = .{ .pj = self, .ctxs = ctxs };
+        const ctx: Ctx = .{ .pj = self, .ctxs = ctxs, .lo = lo, .drop = drop };
         const src: engine.PlanSource = .{
             .ctx = &ctx,
             .plan = Ctx.plan,
             .done = if (keep) null else Ctx.done,
             .resolved = if (self.single()) &self.groups[0].job.resolved else &self.resolved,
-            .layers = self.levels.len,
+            .layers = hi - lo,
         };
         return engine.emitAll(gpa, src, self.threads, self.monitor, out, sink);
     }
@@ -825,3 +847,37 @@ test "plate job: copies slice once" {
     defer pj2.deinit();
     try testing.expectEqual(@as(usize, 2), pj2.groups.len);
 }
+
+test "plate job: a debug print of a few layers starts on the bed" {
+    const gpa = std.testing.allocator;
+    var b: mesh_mod.Builder = .init(gpa);
+    try mesh_mod.shapes.addBox(&b, 0, 0, 0, 20, 20, 10);
+    var mesh = try b.finish();
+    defer mesh.deinit(gpa);
+    var s: settings_mod.Settings = .{};
+    s.engine.threads = 1;
+    const parts = [_]PartInput{.{ .mesh = &mesh, .part = 0 }};
+    var pj = try PlateJob.init(gpa, s, &parts, .{});
+    defer pj.deinit();
+    var out: std.Io.Writer.Allocating = .init(gpa);
+    defer out.deinit();
+    _ = try pj.writeLevels(&out.writer, 20, 23);
+    const text = out.written();
+    // 3 layers, the first at its own height over the bed.
+    try std.testing.expectEqual(@as(usize, 3), std.mem.count(u8, text, ";LAYER:"));
+    var lowest: f64 = 1e9;
+    var it = std.mem.splitScalar(u8, text, '\n');
+    var in_layers = false;
+    while (it.next()) |line| {
+        if (std.mem.startsWith(u8, line, ";LAYER:")) in_layers = true;
+        if (!in_layers) continue;
+        if (std.mem.indexOf(u8, line, " Z")) |k| {
+            const rest = line[k + 2 ..];
+            const end = std.mem.indexOfScalar(u8, rest, ' ') orelse rest.len;
+            const z = std.fmt.parseFloat(f64, rest[0..end]) catch continue;
+            lowest = @min(lowest, z);
+        }
+    }
+    try std.testing.expect(lowest < 0.5);
+}
+

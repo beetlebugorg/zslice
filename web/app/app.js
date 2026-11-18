@@ -1493,6 +1493,7 @@ async function runMenu(act, arg) {
     case "addModels": addModels(); break;
     case "clearMarks": await client.call("marksClear"); break;
     case "allLayers": showAllLayers(); break;
+    case "debugPrint": await debugPrint(arg === 1); break;
     case "resetView":
       if (app.page === "2d") view2d.fit(canvas.width, canvas.height);
       else view.resetSmooth();
@@ -1773,6 +1774,24 @@ async function exportGcode() {
   download(r.bytes, `${base}.gcode`, "text/x-gcode");
 }
 $("export").onclick = exportGcode;
+
+// A test print (zs_app_debug_gcode): the top layer of the view, or the
+// layers that show, alone and lowered onto the bed, to check them before
+// a long print.
+async function debugPrint(topOnly) {
+  if (app.state !== "done") return;
+  const hi = layers.hi;
+  const lo = topOnly ? hi : layers.lo;
+  const r = await client.call("debugGcode", { lo, hi: hi + 1 });
+  if (!r.bytes) {
+    toast("No G-code: slice first.");
+    return;
+  }
+  const base = (r.name || "part").replace(/\.(stl|3mf)$/i, "");
+  const what = lo === hi ? `layer-${hi + 1}` : `layers-${lo + 1}-${hi + 1}`;
+  download(new Uint8Array(r.bytes), `${base}-test-${what}.gcode`, "text/x-gcode");
+  toast(lo === hi ? `A test print of layer ${hi + 1}, on the bed.` : `A test print of layers ${lo + 1} to ${hi + 1}, on the bed.`);
+}
 
 // ---- print: send the G-code to the printer ----
 
@@ -2310,6 +2329,8 @@ const search = new SearchOverlay({
     { label: "Open a model…", keys: "Ctrl+O", run: () => $("file").click() },
     { label: "Add models to the plate…", run: () => addModels() },
     { label: "Export G-code…", keys: "Ctrl+E", run: () => exportGcode() },
+    { label: "Test print the top layer", hint: "the layer alone, on the bed", run: () => debugPrint(true) },
+    { label: "Test print the layers shown", hint: "the layers of the slider alone, on the bed", run: () => debugPrint(false) },
     { label: "Save the project…", keys: "Ctrl+S", hint: "all plates in one 3MF file", run: () => saveProject() },
     { label: "Print", hint: "send the G-code to the printer and start", run: () => sendGcode(true) },
     { label: "Arrange the plate", hint: "pack the parts on the bed", run: () => client.call("plate", { action: "arrange" }) },

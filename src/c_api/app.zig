@@ -537,6 +537,24 @@ export fn zs_app_gcode(a: ?*const App, out: ?*?[*]const u8, out_len: ?*usize) c_
     return ok;
 }
 
+/// A debug print: the G-code of the layers lo to hi - 1 of the last slice
+/// alone, lowered so that layer lo prints on the bed ("print this layer":
+/// hi = lo + 1). Each layer keeps its height, lines, and speeds. Free the
+/// bytes with zs_buffer_free.
+export fn zs_app_debug_gcode(a: ?*App, lo: usize, hi: usize, out: ?*?[*]u8, out_len: ?*usize) c_int {
+    const app = a orelse return @intFromEnum(Status.invalid_argument);
+    const o = out orelse return @intFromEnum(Status.invalid_argument);
+    const l = out_len orelse return @intFromEnum(Status.invalid_argument);
+    const bytes = app.debugGcode(gpa, lo, hi) catch |e| return switch (e) {
+        error.NoResult => @intFromEnum(Status.no_result),
+        error.OutOfMemory, error.WriteFailed => @intFromEnum(Status.out_of_memory),
+        else => @intFromEnum(Status.invalid_argument),
+    };
+    o.* = bytes.ptr;
+    l.* = bytes.len;
+    return ok;
+}
+
 export fn zs_app_layer_count(a: ?*const App) usize {
     const app = a orelse return 0;
     return app.layerCount();

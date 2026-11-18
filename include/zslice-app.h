@@ -256,6 +256,12 @@ void zs_app_mark_remove(zs_app *app, size_t i);
 void zs_app_marks_clear(zs_app *app);
 
 int zs_app_write_3mf(zs_app *app, const uint8_t **out, size_t *out_len);
+/* A debug print: the G-code of the layers lo to hi - 1 of the last slice
+ * alone, lowered so that layer lo prints on the bed ("print this layer":
+ * hi = lo + 1; a few layers to check them before a long print). Each layer
+ * keeps its height, lines, and speeds, with the start and end G-code. Free
+ * *out with zs_buffer_free. */
+int zs_app_debug_gcode(zs_app *app, size_t lo, size_t hi, uint8_t **out, size_t *len);
 size_t zs_app_layer_count(const zs_app *app);
 /* The part on the bed: min x, min y, max x, max y, in mm. */
 int zs_app_part_bounds(const zs_app *app, double out[4]);
