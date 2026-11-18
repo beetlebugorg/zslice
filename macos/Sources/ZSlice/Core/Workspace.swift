@@ -764,10 +764,24 @@ final class Workspace {
     /// The pages of the settings browser that show, from its first page.
     var settingsPath: [SettingsRoute] = []
 
-    /// Opens the drawer on all settings of the selected line.
+    /// Opens the drawer on all settings of the selected line. The card
+    /// closes: the pane has the same facts, and the line stays selected.
+    /// The pane shows the page of the selected line.
+    var lineInPane: Bool {
+        guard showSettings, let last = settingsPath.last, case .line = last else { return false }
+        return true
+    }
+
+    /// The × or Esc of the card: with the line in the pane, only the card
+    /// closes; else the selection goes too.
+    func closeCard() {
+        if lineInPane { cardOpen = false } else { clearSelection() }
+    }
+
     func showLineSettings() {
         showSettings = true
         settingsPath = [.line]
+        cardOpen = false
     }
 
     /// The right pane has only the settings. The history is a popover of

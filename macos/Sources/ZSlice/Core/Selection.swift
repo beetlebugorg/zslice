@@ -70,7 +70,9 @@ extension Workspace {
             clearSelection()
         } else {
             cardAt = p
-            select(path: path, seg: seg, openCard: card)
+            // With the line in the pane, the pane shows the new line, and
+            // no card opens.
+            select(path: path, seg: seg, openCard: card && !lineInPane)
         }
     }
 
@@ -235,7 +237,8 @@ extension Workspace {
             case "k": layer(1)
             case "j": layer(-1)
             case "c": setRange(lo: lo, hi: zs_view_path_layer(v, s.path))
-            case "\u{1b}": clearSelection()
+            // Esc: the card first (closeCard keeps a line of the pane), then the selection.
+            case "\u{1b}": if cardOpen { closeCard() } else { clearSelection() }
             default: return false
             }
         }

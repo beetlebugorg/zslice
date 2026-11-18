@@ -90,7 +90,7 @@ struct LineCard: View {
         .position(place)
         .offset(drag)
         .onKeyPress(.escape) {
-            workspace.clearSelection()
+            workspace.closeCard()
             return .handled
         }
         .accessibilityElement(children: .contain)
@@ -102,7 +102,7 @@ struct LineCard: View {
             Text("\(info.title) · layer \(info.layer + 1)").font(.headline)
             Spacer()
             Button {
-                workspace.clearSelection()
+                workspace.closeCard()
             } label: {
                 Image(systemName: "xmark.circle.fill").foregroundStyle(.secondary)
             }
