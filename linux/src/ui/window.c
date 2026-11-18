@@ -22,6 +22,8 @@
 #include "profile-menus.h"
 #include "preview.h"
 #include "history.h"
+#include "farm-page.h"
+#include "project-page.h"
 #include "settings-panel.h"
 #include "setting-editor.h"
 #include "float.h"
@@ -44,6 +46,10 @@ typedef struct {
      * view, or pinned beside it. The body overlay holds it over the view;
      * the paned holds it beside the view. */
     GtkWidget *body, *paned, *panel, *panel_toggle, *pin;
+    /* The other places of the old tabs: the history bar (its popover has
+     * the list of the changes), the Project dialog, and the Printers page
+     * over the view with its button in the header bar. */
+    GtkWidget *timeline, *project_dialog, *farm_view, *printers_button;
     /* The search of settings and actions (/), over the view. */
     GtkWidget *search;
     /* The main settings of the print on the print card. */
@@ -1336,12 +1342,112 @@ static void on_panel_action(GSimpleAction *a, GVariant *v, gpointer data) {
     else set_panel_mode(w, PANEL_HIDDEN);
 }
 
-/* Shows the panel at a page ("settings", "selected", "history",
- * "project"). */
+/* The Printers page over the view. The page reads the printers only
+ * while it shows (farm-page.h). It has the width of the view, so a panel
+ * over the view hides. */
+static void show_farm(Window *w, gboolean show) {
+    gtk_widget_set_visible(w->farm_view, show);
+    if (show && w->panel_mode == PANEL_OVER) set_panel_mode(w, PANEL_HIDDEN);
+    if (gtk_toggle_button_get_active(GTK_TOGGLE_BUTTON(w->printers_button)) != show)
+        gtk_toggle_button_set_active(GTK_TOGGLE_BUTTON(w->printers_button), show);
+    if (show) gtk_widget_grab_focus(w->farm_view);
+    else gtk_widget_grab_focus(w->preview);
+}
+
+static void on_printers_toggled(GtkToggleButton *b, gpointer data) {
+    Window *w = data;
+    gboolean on = gtk_toggle_button_get_active(b);
+    if (on != gtk_widget_get_visible(w->farm_view)) show_farm(w, on);
+}
+
+static void on_farm_back(GtkButton *b, gpointer data) {
+    show_farm(data, FALSE);
+}
+
+/* Esc on the Printers page goes back to the plate. */
+static gboolean on_farm_key(GtkEventControllerKey *c, guint key, guint code, GdkModifierType mods, gpointer data) {
+    if (key != GDK_KEY_Escape) return FALSE;
+    show_farm(data, FALSE);
+    return TRUE;
+}
+
+static GtkWidget *farm_view_new(Window *w) {
+    GtkWidget *view = gtk_box_new(GTK_ORIENTATION_VERTICAL, 0);
+    gtk_widget_add_css_class(view, "zg-farm-view");
+    gtk_widget_set_focusable(view, TRUE);
+    GtkWidget *bar = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 8);
+    gtk_widget_add_css_class(bar, "zg-farm-bar");
+    GtkWidget *back = gtk_button_new();
+    GtkWidget *inner = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 4);
+    gtk_box_append(GTK_BOX(inner), gtk_image_new_from_icon_name("go-previous-symbolic"));
+    gtk_box_append(GTK_BOX(inner), gtk_label_new("Back to the plate"));
+    gtk_button_set_child(GTK_BUTTON(back), inner);
+    gtk_widget_set_tooltip_text(back, "Back to the plate (Esc)");
+    g_signal_connect(back, "clicked", G_CALLBACK(on_farm_back), w);
+    gtk_box_append(GTK_BOX(bar), back);
+    GtkWidget *page = zg_farm_page_new(w->model);
+    gtk_widget_set_vexpand(page, TRUE);
+    gtk_box_append(GTK_BOX(view), bar);
+    gtk_box_append(GTK_BOX(view), gtk_separator_new(GTK_ORIENTATION_HORIZONTAL));
+    gtk_box_append(GTK_BOX(view), page);
+    GtkEventController *keys = gtk_event_controller_key_new();
+    g_signal_connect(keys, "key-pressed", G_CALLBACK(on_farm_key), w);
+    gtk_widget_add_controller(view, keys);
+    gtk_widget_set_visible(view, FALSE);
+    return view;
+}
+
+/* The Project dialog: a printdeck.yml project and its plates. The page
+ * lives as long as the window, so the dialog only hides on close. */
+static gboolean on_dialog_escape(GtkWidget *widget, GVariant *args, gpointer data) {
+    gtk_window_close(GTK_WINDOW(widget));
+    return TRUE;
+}
+
+static GtkWidget *project_dialog_new(Window *w) {
+    GtkWidget *d = gtk_window_new();
+    gtk_window_set_title(GTK_WINDOW(d), "Project");
+    gtk_window_set_titlebar(GTK_WINDOW(d), gtk_header_bar_new());
+    gtk_window_set_transient_for(GTK_WINDOW(d), w->window);
+    gtk_window_set_modal(GTK_WINDOW(d), TRUE);
+    gtk_window_set_hide_on_close(GTK_WINDOW(d), TRUE);
+    gtk_window_set_destroy_with_parent(GTK_WINDOW(d), TRUE);
+    gtk_window_set_default_size(GTK_WINDOW(d), 620, 720);
+    gtk_window_set_child(GTK_WINDOW(d), zg_project_page_new(w->model));
+    GtkEventController *keys = gtk_shortcut_controller_new();
+    gtk_shortcut_controller_add_shortcut(GTK_SHORTCUT_CONTROLLER(keys),
+                                         gtk_shortcut_new(gtk_keyval_trigger_new(GDK_KEY_Escape, 0),
+                                                          gtk_callback_action_new(on_dialog_escape, NULL, NULL)));
+    gtk_widget_add_controller(d, keys);
+    return d;
+}
+
+/* Shows a place: "settings" or "selected" in the panel, "history" (the
+ * popover over the history bar), "project" (the dialog), or "farm" (the
+ * Printers page). */
 static void on_show_page_action(GSimpleAction *a, GVariant *v, gpointer data) {
     Window *w = get(data);
+    const char *name = g_variant_get_string(v, NULL);
+    if (strcmp(name, "history") == 0) {
+        zg_timeline_show_history(w->timeline);
+    } else if (strcmp(name, "project") == 0) {
+        gtk_window_present(GTK_WINDOW(w->project_dialog));
+    } else if (strcmp(name, "farm") == 0) {
+        show_farm(w, TRUE);
+    } else {
+        if (gtk_widget_get_visible(w->farm_view)) show_farm(w, FALSE);
+        show_panel(w);
+        zg_settings_panel_show_page(w->settings_panel, name);
+    }
+}
+
+/* Shows the panel at the setting of the name (for example
+ * "project.infill_density"). */
+static void on_show_setting_action(GSimpleAction *a, GVariant *v, gpointer data) {
+    Window *w = get(data);
+    if (gtk_widget_get_visible(w->farm_view)) show_farm(w, FALSE);
     show_panel(w);
-    zg_settings_panel_show_page(w->settings_panel, g_variant_get_string(v, NULL));
+    zg_settings_panel_show_setting(w->settings_panel, g_variant_get_string(v, NULL));
 }
 
 /* The search (/), with a text (a string), or the search of one part
@@ -1659,6 +1765,7 @@ GtkWindow *zg_window_new(GtkApplication *app, ZgModel *model) {
         {.name = "redo", .activate = on_redo_action},
         {.name = "panel", .activate = on_panel_action},
         {.name = "show-page", .activate = on_show_page_action, .parameter_type = "s"},
+        {.name = "show-setting", .activate = on_show_setting_action, .parameter_type = "s"},
         {.name = "search", .activate = on_search_action, .parameter_type = "s"},
         {.name = "search-part", .activate = on_search_part_action, .parameter_type = "x"},
         {.name = "refocus", .activate = on_refocus_action},
@@ -1688,22 +1795,38 @@ GtkWindow *zg_window_new(GtkApplication *app, ZgModel *model) {
     g_menu_append(menu, "Clear the plate", "win.clear-plate");
     g_menu_append(menu, "Remove this plate", "win.remove-plate");
     g_menu_append(menu, "Compare with Cura\u2026", "win.compare-cura");
-    g_menu_append(menu, "Keyboard shortcuts", "win.shortcuts");
-    g_menu_append(menu, "Preferences", "win.preferences");
-    g_menu_append(menu, "Licenses", "app.licenses");
-    g_menu_append(menu, "About zslice", "app.about");
+    GMenu *places = g_menu_new();
+    g_menu_append(places, "Open a project\u2026", "win.show-page::project");
+    g_menu_append(places, "Printers", "win.show-page::farm");
+    g_menu_append(places, "History", "win.show-page::history");
+    g_menu_append_section(menu, NULL, G_MENU_MODEL(places));
+    g_object_unref(places);
+    GMenu *more = g_menu_new();
+    g_menu_append_section(menu, NULL, G_MENU_MODEL(more));
+    g_menu_append(more, "Keyboard shortcuts", "win.shortcuts");
+    g_menu_append(more, "Preferences", "win.preferences");
+    g_menu_append(more, "Licenses", "app.licenses");
+    g_menu_append(more, "About zslice", "app.about");
+    g_object_unref(more);
     GtkWidget *menu_button = gtk_menu_button_new();
     gtk_menu_button_set_icon_name(GTK_MENU_BUTTON(menu_button), "open-menu-symbolic");
     gtk_menu_button_set_menu_model(GTK_MENU_BUTTON(menu_button), G_MENU_MODEL(menu));
+    /* F10 opens it. */
+    gtk_menu_button_set_primary(GTK_MENU_BUTTON(menu_button), TRUE);
+    gtk_widget_set_tooltip_text(menu_button, "Main menu (F10)");
     g_object_unref(menu);
     gtk_header_bar_pack_end(GTK_HEADER_BAR(header), menu_button);
-    /* The button of the drawer: all settings, the selected line, the
-     * history, and the project. */
+    /* The button of the drawer: all settings. */
     w->panel_toggle = gtk_toggle_button_new();
     gtk_button_set_icon_name(GTK_BUTTON(w->panel_toggle), "sidebar-show-right-symbolic");
-    gtk_widget_set_tooltip_text(w->panel_toggle, "Show or hide the panel (N): all settings, the selected line, the history, and the project");
+    gtk_widget_set_tooltip_text(w->panel_toggle, "Show or hide all settings (N)");
     g_signal_connect(w->panel_toggle, "toggled", G_CALLBACK(on_panel_toggled), w);
     gtk_header_bar_pack_end(GTK_HEADER_BAR(header), w->panel_toggle);
+    /* The Printers page: it covers the view. */
+    w->printers_button = gtk_toggle_button_new_with_label("Printers");
+    gtk_widget_set_tooltip_text(w->printers_button, "Your printers, their jobs, and the plates to print");
+    g_signal_connect(w->printers_button, "toggled", G_CALLBACK(on_printers_toggled), w);
+    gtk_header_bar_pack_end(GTK_HEADER_BAR(header), w->printers_button);
 
     w->title = gtk_label_new("zslice");
     gtk_widget_add_css_class(w->title, "title");
@@ -1809,7 +1932,7 @@ GtkWindow *zg_window_new(GtkApplication *app, ZgModel *model) {
     gtk_box_append(GTK_BOX(panel), settings);
     gtk_widget_add_css_class(panel, "zg-panel");
     w->panel = panel;
-    /* Pin and close, at the right of the tabs of the panel. */
+    /* Pin and close, at the end of the top row of the panel. */
     GtkWidget *panel_end = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 2);
     w->pin = gtk_toggle_button_new();
     gtk_button_set_icon_name(GTK_BUTTON(w->pin), "view-pin-symbolic");
@@ -1833,7 +1956,8 @@ GtkWindow *zg_window_new(GtkApplication *app, ZgModel *model) {
     GtkWidget *left = gtk_box_new(GTK_ORIENTATION_VERTICAL, 0);
     gtk_widget_set_vexpand(w->preview, TRUE);
     gtk_box_append(GTK_BOX(left), w->preview);
-    zg_preview_set_timeline(w->preview, zg_timeline_new(model));
+    w->timeline = zg_timeline_new(model);
+    zg_preview_set_timeline(w->preview, w->timeline);
     /* The print card over the view, at its bottom right. */
     gtk_widget_set_halign(w->sum_box, GTK_ALIGN_END);
     gtk_widget_set_valign(w->sum_box, GTK_ALIGN_END);
@@ -1849,6 +1973,10 @@ GtkWindow *zg_window_new(GtkApplication *app, ZgModel *model) {
      * opens it. */
     w->search = zg_search_new(model);
     gtk_overlay_add_overlay(GTK_OVERLAY(w->preview), w->search);
+    /* The Printers page, over the view and its cards. */
+    w->farm_view = farm_view_new(w);
+    gtk_overlay_add_overlay(GTK_OVERLAY(w->preview), w->farm_view);
+    w->project_dialog = project_dialog_new(w);
     gtk_paned_set_start_child(GTK_PANED(paned), left);
     gtk_paned_set_end_child(GTK_PANED(paned), panel);
     w->paned = paned;

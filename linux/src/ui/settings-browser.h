@@ -11,7 +11,8 @@
  *      lines of the project that it changes. The previews show these lines
  *      clearly and fade the others (zg_model_set_focus).
  * The columns scroll to the side, so a narrow panel shows the last two. A
- * bar over the columns has a Back button and the path to the setting.
+ * bar has a Back button and the path to the setting. The panel puts the
+ * bar in its top row (zg_settings_browser_nav).
  *
  * The edits of this page are the defaults for all prints.
  *
@@ -38,9 +39,12 @@ gboolean zg_settings_browser_opens_first(GtkWidget *browser);
  * the panel. */
 char *zg_settings_browser_get_place(GtkWidget *browser);
 void zg_settings_browser_set_place(GtkWidget *browser, const char *place);
-/* The history of the panel: `nav` after each move in the browser, and
- * `back` for its Back button (in place of the column before). */
-void zg_settings_browser_set_history(GtkWidget *browser, void (*nav)(gpointer), void (*back)(gpointer), gpointer data);
+/* The history of the panel: `nav` after each move in the browser. */
+void zg_settings_browser_set_history(GtkWidget *browser, void (*nav)(gpointer), gpointer data);
+/* The navigation bar: the Back arrow (only where there is a column to go
+ * back to) and the path. The page does not hold it: the panel puts it in
+ * its top row. */
+GtkWidget *zg_settings_browser_nav(GtkWidget *browser);
 /* Sends the focus of the browser to the previews again (after the search
  * ended its own focus). */
 void zg_settings_browser_send_focus(GtkWidget *browser);

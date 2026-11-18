@@ -1,8 +1,9 @@
-/* project-page.h: the Project page of the side panel.
+/* project-page.h: the page of the Project dialog ("Open a project…" in
+ * the main menu).
  *
  * A project is a repository with a printdeck.yml (src/project.zig): the
  * parts to print, with their files, printer, Cura profile, material, and
- * settings. The page is the same as the Project tab of the web app
+ * settings. The page is the same as the Project dialog of the web app
  * (web/app/project.js):
  *
  * - Open a project from GitHub ("owner/repo", or a github.com URL, also

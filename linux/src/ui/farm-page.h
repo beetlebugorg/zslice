@@ -1,5 +1,6 @@
-/* farm-page.h: the Printers page of the side panel, as the Printers page
- * of the web app (web/app/farm.js).
+/* farm-page.h: the Printers page, as the Printers page of the web app
+ * (web/app/farm.js). The window shows it over the view, from the Printers
+ * button of the header bar, with "Back to the plate".
  *
  * - A tile for each printer with a connection (printdeck, OctoPrint,
  *   Moonraker): its state, its job with the progress and the time left,

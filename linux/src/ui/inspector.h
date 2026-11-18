@@ -19,3 +19,6 @@
 /* A new page. `panel_stack` is the page stack of the panel: a click on a
  * line shows this page in it. */
 GtkWidget *zg_inspector_new(ZgModel *model, GtkWidget *panel_stack);
+/* The title of the page for the top row of the panel: "Selected line",
+ * "Selected part", or "Selected gap". */
+const char *zg_inspector_title(GtkWidget *inspector);

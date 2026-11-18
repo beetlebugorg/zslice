@@ -4,8 +4,6 @@
  */
 #include "history.h"
 
-#include "settings-browser.h"
-
 #include <math.h>
 #include <string.h>
 
@@ -19,7 +17,12 @@ static const char *css =
     ".zg-timeline { padding: 2px 6px; border-radius: 14px; }\n"
     ".zg-timeline button.zg-tl-tool { min-width: 26px; min-height: 26px; padding: 0; border-radius: 13px; }\n"
     ".zg-timeline .zg-tl-sep { min-width: 1px; margin: 6px 4px; background: alpha(currentColor, 0.2); }\n"
-    ".zg-timeline .zg-tl-title { font-size: 0.8em; font-weight: bold; opacity: 0.7; margin: 0 4px; }\n"
+    ".zg-timeline button.zg-tl-title { font-size: 0.8em; font-weight: bold; min-height: 22px; padding: 1px 6px; margin: 0 2px;"
+    " border-radius: 11px; }\n"
+    /* The list of the changes: a popover over the history bar. */
+    /* It is a child of the bar (.osd), so it sets its own background. */
+    "popover.zg-history-pop > contents { padding: 4px 0; background-color: @theme_bg_color; }\n"
+    "popover.zg-history-pop > arrow { background-color: @theme_bg_color; }\n"
     ".zg-timeline .zg-tl-count { font-size: 0.8em; font-feature-settings: 'tnum'; opacity: 0.7; margin: 0 6px 0 4px; }\n"
     ".zg-timeline .zg-tl-empty { font-size: 0.8em; opacity: 0.7; margin: 0 6px; }\n"
     ".zg-tl-step { min-width: 0; min-height: 0; padding: 2px; margin: 0; border-radius: 99px;"
@@ -390,7 +393,6 @@ typedef struct {
     ZgModel *model;
     GtkWidget *list;
     GtkWidget *scroller;
-    GtkWidget *stack; /* the page stack of the panel */
 } Page;
 
 /* A double click on a change: go to it, and open its setting where it
@@ -408,6 +410,12 @@ static void edit_target_free(gpointer data) {
 }
 
 static void go_step(ZgModel *model, gint64 i);
+
+/* The setting goes to the panel: the popover closes. */
+static void close_popover(Page *p) {
+    GtkWidget *pop = gtk_widget_get_ancestor(p->list, GTK_TYPE_POPOVER);
+    if (pop) gtk_popover_popdown(GTK_POPOVER(pop));
+}
 
 static void edit_change(EditTarget *e) {
     Page *p = e->p;
@@ -437,7 +445,8 @@ static void edit_change(EditTarget *e) {
         /* The place of the part: the part page. */
         if (key[0] == '(' || !strcmp(key, "position") || !strcmp(key, "rotation") || !strcmp(key, "orientation") || !strcmp(key, "scale")) {
             zg_model_select_part(model, idx);
-            gtk_stack_set_visible_child_name(GTK_STACK(p->stack), "selected");
+            gtk_widget_activate_action(p->list, "win.show-page", "s", "selected");
+            close_popover(p);
             g_strfreev(f);
             return;
         }
@@ -455,11 +464,8 @@ static void edit_change(EditTarget *e) {
         zg_model_set_part_scope(model, -1);
     }
     if (key[0] != '(' && strcmp(key, "quality") != 0) {
-        GtkWidget *page = gtk_stack_get_child_by_name(GTK_STACK(p->stack), "settings");
-        if (page) {
-            gtk_stack_set_visible_child_name(GTK_STACK(p->stack), "settings");
-            zg_settings_browser_show_setting(page, key);
-        }
+        gtk_widget_activate_action(p->list, "win.show-setting", "s", key);
+        close_popover(p);
     }
     g_strfreev(f);
 }
@@ -609,7 +615,7 @@ static gboolean focus_now_row(gpointer data) {
 
 static void on_page_map(GtkWidget *w, gpointer data) {
     page_fill(data);
-    /* After the click on the tab: its button takes the focus on the
+    /* After the click on "History": its button takes the focus on the
      * release. */
     g_timeout_add(150, focus_now_row, data);
 }
@@ -666,11 +672,10 @@ static void page_free(gpointer data) {
     g_free(p);
 }
 
-GtkWidget *zg_history_page_new(ZgModel *model, GtkWidget *stack) {
+GtkWidget *zg_history_page_new(ZgModel *model) {
     ensure_css();
     Page *p = g_new0(Page, 1);
     p->model = g_object_ref(model);
-    p->stack = stack;
     GtkWidget *box = gtk_box_new(GTK_ORIENTATION_VERTICAL, 4);
     GtkWidget *help = gtk_label_new("Each change of the settings or of the plate, the newest first. "
                                     "Click a change to go back to it: the preview slices as it was then. "
@@ -679,6 +684,7 @@ GtkWidget *zg_history_page_new(ZgModel *model, GtkWidget *stack) {
                                     "↶ undoes only one setting and keeps the later changes. "
                                     "Double-click a setting to edit it.");
     gtk_label_set_wrap(GTK_LABEL(help), TRUE);
+    gtk_label_set_max_width_chars(GTK_LABEL(help), 50);
     gtk_label_set_xalign(GTK_LABEL(help), 0);
     gtk_widget_add_css_class(help, "dim-label");
     gtk_widget_set_margin_start(help, 10);
@@ -700,6 +706,11 @@ GtkWidget *zg_history_page_new(ZgModel *model, GtkWidget *stack) {
     p->scroller = gtk_scrolled_window_new();
     gtk_scrolled_window_set_policy(GTK_SCROLLED_WINDOW(p->scroller), GTK_POLICY_NEVER, GTK_POLICY_AUTOMATIC);
     gtk_scrolled_window_set_child(GTK_SCROLLED_WINDOW(p->scroller), p->list);
+    /* The size of a popover: at most 460 points wide and 480 high. */
+    gtk_scrolled_window_set_propagate_natural_height(GTK_SCROLLED_WINDOW(p->scroller), TRUE);
+    gtk_scrolled_window_set_max_content_height(GTK_SCROLLED_WINDOW(p->scroller), 480);
+    gtk_scrolled_window_set_propagate_natural_width(GTK_SCROLLED_WINDOW(p->scroller), TRUE);
+    gtk_scrolled_window_set_max_content_width(GTK_SCROLLED_WINDOW(p->scroller), 460);
     gtk_widget_set_vexpand(p->scroller, TRUE);
     gtk_box_append(GTK_BOX(box), help);
     gtk_box_append(GTK_BOX(box), p->scroller);
@@ -716,6 +727,8 @@ GtkWidget *zg_history_page_new(ZgModel *model, GtkWidget *stack) {
 typedef struct {
     ZgModel *model;
     GtkWidget *steps, *scroller, *undo, *redo, *empty, *count;
+    /* The list of the changes: a popover on the "History" button. */
+    GtkWidget *popover;
 } Timeline;
 
 static void on_step(GtkButton *b, gpointer data) {
@@ -842,8 +855,19 @@ GtkWidget *zg_timeline_new(ZgModel *model) {
     g_signal_connect(t->redo, "clicked", G_CALLBACK(on_redo), t);
     GtkWidget *sep = gtk_separator_new(GTK_ORIENTATION_VERTICAL);
     gtk_widget_add_css_class(sep, "zg-tl-sep");
-    GtkWidget *label = gtk_label_new("History");
+    /* "History" opens the list of the changes over the bar. */
+    GtkWidget *label = gtk_menu_button_new();
+    gtk_menu_button_set_child(GTK_MENU_BUTTON(label), gtk_label_new("History"));
+    gtk_widget_add_css_class(label, "flat");
     gtk_widget_add_css_class(label, "zg-tl-title");
+    gtk_widget_set_valign(label, GTK_ALIGN_CENTER);
+    gtk_widget_set_tooltip_text(label, "Show the list of the changes");
+    t->popover = gtk_popover_new();
+    gtk_widget_add_css_class(t->popover, "zg-history-pop");
+    gtk_popover_set_position(GTK_POPOVER(t->popover), GTK_POS_TOP);
+    GtkWidget *page = zg_history_page_new(model);
+    gtk_popover_set_child(GTK_POPOVER(t->popover), page);
+    gtk_menu_button_set_popover(GTK_MENU_BUTTON(label), t->popover);
     t->steps = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 0);
     gtk_widget_set_valign(t->steps, GTK_ALIGN_CENTER);
     gtk_widget_set_margin_top(t->steps, 2);
@@ -874,4 +898,9 @@ GtkWidget *zg_timeline_new(ZgModel *model) {
     g_signal_connect(model, "undo-changed", G_CALLBACK(on_timeline), t);
     timeline_fill(t);
     return bar;
+}
+
+void zg_timeline_show_history(GtkWidget *timeline) {
+    Timeline *t = g_object_get_data(G_OBJECT(timeline), "zg-timeline");
+    if (t) gtk_popover_popup(GTK_POPOVER(t->popover));
 }

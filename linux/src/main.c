@@ -75,6 +75,11 @@ static const char *ZG_CSS =
     ".zg-hint { color: #fff; background: #8a5a00; border-radius: 6px; padding: 6px 8px; margin-top: 4px; font-size: 0.88em; }"
     ".zg-hint button { color: #fff; min-height: 24px; padding: 2px 8px; }"
     ".zg-drawer { box-shadow: -2px 0 12px alpha(black, 0.30); }"
+    /* The top row of the panel: the path or the title, Pin, and close. */
+    ".zg-panel-top { padding: 6px 6px 4px 0; min-height: 38px; }"
+    /* The Printers page over the view: it paints its whole area. */
+    ".zg-farm-view { background: @theme_bg_color; }"
+    ".zg-farm-bar { padding: 8px 12px; }"
     /* The tool strip at the left of the view: a glyph and its key. */
     ".zg-strip { padding: 4px; }"
     "button.zg-strip-button { min-width: 34px; min-height: 34px; padding: 3px; }"

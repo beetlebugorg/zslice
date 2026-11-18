@@ -1039,6 +1039,12 @@ static void render(Page *p) {
  * went to the printer), "set machine.max_height 300" (a setting), and
  * "end" (the end of project mode). */
 
+/* The page is in the Project dialog: the dialog shows. */
+static void show_dialog(Page *p) {
+    GtkRoot *root = gtk_widget_get_root(p->scroll);
+    if (GTK_IS_WINDOW(root)) gtk_window_present(GTK_WINDOW(root));
+}
+
 static gboolean test_do_step(gpointer data) {
     Page *p = data;
     char **steps = g_object_get_data(G_OBJECT(p->scroll), "zg-test-steps");
@@ -1046,8 +1052,7 @@ static gboolean test_do_step(gpointer data) {
     if (p->dead || !steps || !steps[*i < 0 ? 0 : *i]) return G_SOURCE_REMOVE;
     /* The first steps wait: 3 s after the start. */
     if (*i < 0) {
-        GtkWidget *stack = gtk_widget_get_ancestor(p->scroll, GTK_TYPE_STACK);
-        if (stack) gtk_stack_set_visible_child(GTK_STACK(stack), p->scroll);
+        show_dialog(p);
         (*i)++;
         return G_SOURCE_CONTINUE;
     }
@@ -1101,8 +1106,7 @@ static void test_plate(Page *p) {
 static gboolean test_open(gpointer data) {
     Page *p = data;
     if (!p->dead) {
-        GtkWidget *stack = gtk_widget_get_ancestor(p->scroll, GTK_TYPE_STACK);
-        if (stack) gtk_stack_set_visible_child(GTK_STACK(stack), p->scroll);
+        show_dialog(p);
         const char *what = g_getenv("ZSLICE_PROJECT");
         if (what && what[0]) {
             if (g_file_test(what, G_FILE_TEST_IS_DIR)) {

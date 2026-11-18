@@ -1,7 +1,7 @@
 /* history.h: the history of changes, in two views.
  *
- * The History page (a tab of the settings panel) lists each step, the
- * newest first, with its time and its changes in words. A click on a step
+ * The History list (a popover over the history bar: "History" on the bar,
+ * or History in the main menu) lists each step, the newest first, with its time and its changes in words. A click on a step
  * goes to it, and the preview slices at that step. Each change has an undo
  * button that undoes only that change and keeps the later ones. A double
  * click on a change goes to it and opens its setting, to edit it.
@@ -20,6 +20,11 @@
 
 #include <gtk/gtk.h>
 
-/* stack: the page stack of the panel, to open a setting in "settings". */
-GtkWidget *zg_history_page_new(ZgModel *model, GtkWidget *stack);
+/* The list of the changes. A double click on a setting opens it with the
+ * actions "win.show-setting" and "win.show-page". */
+GtkWidget *zg_history_page_new(ZgModel *model);
+/* The bar under the preview, with the list in a popover on its "History"
+ * button. */
 GtkWidget *zg_timeline_new(ZgModel *model);
+/* Opens the list of the changes over the bar. */
+void zg_timeline_show_history(GtkWidget *timeline);

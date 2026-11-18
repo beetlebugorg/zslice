@@ -50,7 +50,8 @@ static const Action ACTIONS[] = {
     {"Open a project", NULL, "printdeck.yml from GitHub or a folder", "win.show-page", "project"},
     {"History", NULL, "the changes, undo one change", "win.show-page", "history"},
     {"Keyboard shortcuts", "?", NULL, "win.shortcuts", NULL},
-    {"All settings", "N", "the panel of the settings, the selected line, the history, and the project", "win.show-page", "settings"},
+    {"All settings", "N", "the panel of the settings", "win.show-page", "settings"},
+    {"Printers", NULL, "your printers, their jobs, and the plates to print", "win.show-page", "farm"},
 };
 
 /* A result: a setting with its controls, or an action. */

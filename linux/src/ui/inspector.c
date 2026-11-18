@@ -807,3 +807,10 @@ GtkWidget *zg_inspector_new(ZgModel *model, GtkWidget *panel_stack) {
     g_signal_connect(panel_stack, "notify::visible-child", G_CALLBACK(on_panel_page), ins);
     return ins->slots;
 }
+
+const char *zg_inspector_title(GtkWidget *inspector) {
+    Inspector *ins = g_object_get_data(G_OBJECT(inspector), "zg-inspector");
+    if (ins && ins->signature && strcmp(ins->signature, "part") == 0) return "Selected part";
+    if (ins && ins->signature && g_str_has_prefix(ins->signature, "gap")) return "Selected gap";
+    return "Selected line";
+}

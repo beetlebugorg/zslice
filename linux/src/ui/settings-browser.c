@@ -42,8 +42,10 @@ typedef struct {
     guint32 focus;       /* the focus of the previews for the selection */
     gboolean focus_first;
     /* The navigation bar: the column in front (0 sections, 1 settings,
-     * 2 the setting), a Back button, and the path. */
+     * 2 the setting), a Back button, and the path. The top row of the
+     * panel holds the bar (zg_settings_browser_nav). */
     int column;
+    GtkWidget *nav;
     GtkWidget *back;
     GtkWidget *crumbs;
     const char *group;   /* the selected section */
@@ -54,10 +56,9 @@ typedef struct {
     double p_min, p_max;
     gboolean profile_list; /* column 2 lists the changes of the profile */
     GtkWidget *pbar, *pbar_title, *pbar_note, *rename_entry;
-    /* The history of the panel (settings-panel.c): a call after each move,
-     * and the Back button. `restoring`: a move back, with no call. */
+    /* The history of the panel (settings-panel.c): a call after each move.
+     * `restoring`: a move back, with no call. */
     void (*nav_fn)(gpointer);
-    void (*back_fn)(gpointer);
     gpointer nav_data;
     gboolean restoring;
 } Browser;
@@ -98,11 +99,11 @@ static void scroll_to_end(Browser *b) {
     show_column(b, 2);
 }
 
+/* Back: the column before. Alt+Left and the back button of the mouse
+ * use the history of the panel. */
 static void on_back(GtkButton *button, gpointer data) {
     Browser *b = data;
-    /* The history of the panel, else the column before. */
-    if (b->back_fn) b->back_fn(b->nav_data);
-    else show_column(b, b->column - 1);
+    show_column(b, b->column - 1);
 }
 
 static void on_crumb(GtkButton *button, gpointer data) {
@@ -133,20 +134,23 @@ static void update_crumbs(Browser *b) {
     GtkWidget *child;
     while ((child = gtk_widget_get_first_child(b->crumbs))) gtk_box_remove(GTK_BOX(b->crumbs), child);
     add_crumb(b, "Settings", 0);
-    if (b->section) {
+    /* The path names only the columns up to the one in front. */
+    gboolean deeper = b->column >= 1;
+    if (deeper && b->section) {
         char *text = g_strdup_printf("%s · %s", group_title(b->group), b->section[0] ? b->section : "General");
         add_crumb(b, text, 1);
         g_free(text);
-    } else if (b->feature >= 0) {
+    } else if (deeper && b->feature >= 0) {
         char *text = g_strdup_printf("%s lines", feature_titles[b->feature]);
         add_crumb(b, text, 1);
         g_free(text);
-    } else if (gtk_editable_get_text(GTK_EDITABLE(b->search))[0]) {
+    } else if (deeper && gtk_editable_get_text(GTK_EDITABLE(b->search))[0]) {
         add_crumb(b, "Search", 1);
     }
     zs_setting_info info;
-    if (b->key && zg_setting_find(b->key, &info)) add_crumb(b, info.label, 2);
-    gtk_widget_set_sensitive(b->back, b->column > 0 || b->back_fn);
+    if (b->column >= 2 && b->key && zg_setting_find(b->key, &info)) add_crumb(b, info.label, 2);
+    /* The arrow shows only where there is a column to go back to. */
+    gtk_widget_set_visible(b->back, b->column > 0);
     if (b->nav_fn && !b->restoring) b->nav_fn(b->nav_data);
 }
 
@@ -1235,6 +1239,7 @@ static void on_browser_core_event(ZgModel *model, int event, double progress, in
 static void browser_free(gpointer data) {
     Browser *b = data;
     g_signal_handlers_disconnect_by_data(b->model, b);
+    g_clear_object(&b->nav);
     g_free(b);
 }
 
@@ -1367,6 +1372,7 @@ GtkWidget *zg_settings_browser_new(ZgModel *model, GtkWidget *panel_stack) {
     b->back = gtk_button_new_from_icon_name("go-previous-symbolic");
     gtk_widget_add_css_class(b->back, "flat");
     gtk_widget_set_tooltip_text(b->back, "Back to the column before");
+    gtk_widget_set_valign(b->back, GTK_ALIGN_CENTER);
     g_signal_connect(b->back, "clicked", G_CALLBACK(on_back), b);
     b->crumbs = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 2);
     gtk_widget_set_hexpand(b->crumbs, TRUE);
@@ -1376,11 +1382,11 @@ GtkWidget *zg_settings_browser_new(ZgModel *model, GtkWidget *panel_stack) {
     gtk_widget_set_hexpand(crumb_scroll, TRUE);
     GtkWidget *nav = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 4);
     gtk_widget_add_css_class(nav, "zg-nav");
+    gtk_widget_set_hexpand(nav, TRUE);
     gtk_box_append(GTK_BOX(nav), b->back);
     gtk_box_append(GTK_BOX(nav), crumb_scroll);
+    b->nav = g_object_ref_sink(nav);
     GtkWidget *page = gtk_box_new(GTK_ORIENTATION_VERTICAL, 0);
-    gtk_box_append(GTK_BOX(page), nav);
-    gtk_box_append(GTK_BOX(page), gtk_separator_new(GTK_ORIENTATION_HORIZONTAL));
     gtk_box_append(GTK_BOX(page), make_bar(b));
     /* The search stays in view on all columns. */
     gtk_box_append(GTK_BOX(page), scope_bar(b));
@@ -1452,13 +1458,17 @@ void zg_settings_browser_set_place(GtkWidget *browser, const char *place) {
     g_strfreev(f);
 }
 
-void zg_settings_browser_set_history(GtkWidget *browser, void (*nav)(gpointer), void (*back)(gpointer), gpointer data) {
+void zg_settings_browser_set_history(GtkWidget *browser, void (*nav)(gpointer), gpointer data) {
     Browser *b = g_object_get_data(G_OBJECT(browser), "zg-browser");
     if (!b) return;
     b->nav_fn = nav;
-    b->back_fn = back;
     b->nav_data = data;
     update_crumbs(b);
+}
+
+GtkWidget *zg_settings_browser_nav(GtkWidget *browser) {
+    Browser *b = g_object_get_data(G_OBJECT(browser), "zg-browser");
+    return b ? b->nav : NULL;
 }
 
 void zg_settings_browser_up(GtkWidget *browser) {

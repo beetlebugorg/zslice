@@ -301,7 +301,7 @@ GtkWidget *zg_line_card_new(ZgModel *model, GtkWidget *preview) {
     g_signal_connect(c->fade, "toggled", G_CALLBACK(on_fade), c);
     GtkWidget *more = gtk_button_new_with_label("All settings…");
     gtk_widget_add_css_class(more, "flat");
-    gtk_widget_set_tooltip_text(more, "All the settings of this line, and how its values come about (the Selected page)");
+    gtk_widget_set_tooltip_text(more, "All the settings of this line, and how its values come about (the Selected page of the panel)");
     g_signal_connect(more, "clicked", G_CALLBACK(on_more), c);
     gtk_box_append(GTK_BOX(foot), c->fade);
     gtk_box_append(GTK_BOX(foot), more);
