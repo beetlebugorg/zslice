@@ -9,7 +9,8 @@ import CZslice
 import SwiftUI
 
 struct DocumentWindow: View {
-    let document: ModelDocument
+    /// The file of the window, or nil for a window with an empty plate.
+    let document: ModelDocument?
     let name: String
     @State private var workspace = Workspace()
     @State private var loadError: String?
@@ -157,10 +158,16 @@ struct DocumentWindow: View {
         }
         .focusedSceneValue(\.workspace, workspace)
         .task {
+            guard let document else { return }
             do {
                 try workspace.model.load(name: name, data: document.data)
             } catch {
                 loadError = error.localizedDescription
+            }
+        }
+        .overlay {
+            if workspace.model.state == .empty && workspace.model.plates.count <= 1 && workspace.model.project == nil {
+                WelcomeCard(workspace: workspace)
             }
         }
         .alert("The file did not open", isPresented: .constant(loadError != nil)) {
@@ -335,5 +342,31 @@ struct PrintCard: View {
         f.allowedUnits = seconds >= 3600 ? [.hour, .minute] : [.minute, .second]
         f.unitsStyle = .abbreviated
         return f.string(from: seconds) ?? ""
+    }
+}
+
+/// The card of an empty plate: what to do first.
+struct WelcomeCard: View {
+    let workspace: Workspace
+
+    var body: some View {
+        VStack(spacing: 14) {
+            Image(systemName: "square.stack.3d.down.right").font(.system(size: 40)).foregroundStyle(.secondary)
+            Text("Drop an STL or 3MF file here").font(.title2.weight(.semibold))
+            Text("Or open a model, a project folder, or a project on GitHub.").foregroundStyle(.secondary)
+            HStack {
+                Button("Open…") { NSDocumentController.shared.openDocument(nil) }
+                    .buttonStyle(.borderedProminent)
+                Button("Add Models…") { workspace.addModels() }
+                Button("Open Project…") { workspace.openProject() }
+                Button("From GitHub…") { workspace.askGitHub() }
+            }
+            if PrinterStore.shared.printers.isEmpty {
+                Button("Add Your Printer…") { workspace.pickerOpen = true }
+                    .buttonStyle(.link)
+            }
+        }
+        .padding(28)
+        .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 16))
     }
 }

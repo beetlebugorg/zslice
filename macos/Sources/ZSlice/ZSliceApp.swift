@@ -47,6 +47,11 @@ struct ZSliceApp: App {
                 HelpCommands()
             }
         }
+        // A window with an empty plate (File > New Window): for a project,
+        // a printer, or models to add.
+        WindowGroup("Untitled", id: "plate") {
+            DocumentWindow(document: nil, name: "")
+        }
         Settings {
             TabView {
                 PrintersSettings()
@@ -88,8 +93,11 @@ struct UndoCommands: Commands {
 /// File > New Plate and Add Models.
 struct PlateCommands: View {
     @FocusedValue(\.workspace) private var workspace
+    @Environment(\.openWindow) private var openWindow
 
     var body: some View {
+        Button("New Window") { openWindow(id: "plate") }
+            .keyboardShortcut("n", modifiers: .command)
         Divider()
         Button("New Plate") { workspace?.model.addPlate() }
             .keyboardShortcut("n", modifiers: [.command, .option])
