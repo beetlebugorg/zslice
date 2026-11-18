@@ -318,6 +318,11 @@ final class Workspace {
                 DispatchQueue.main.asyncAfter(deadline: .now() + 3) { [weak self] in self?.model.history.undoManager.undo() }
             }
         }
+        // ZSLICE_POPULAR=1 logs the popular printers of the picker.
+        if env["ZSLICE_POPULAR"] != nil {
+            let lib = PrinterLibrary.shared
+            NSLog("zslice popular: %@", lib.popular.compactMap { lib.model($0).map { coreText($0.title) } }.joined(separator: "; "))
+        }
         // ZSLICE_RECORD=path.mov records the demo of Recorder.swift.
         if let path = env["ZSLICE_RECORD"] {
             Task { @MainActor in await Recorder.record(self, to: URL(fileURLWithPath: path)) }

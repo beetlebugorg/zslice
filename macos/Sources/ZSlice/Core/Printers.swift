@@ -48,6 +48,14 @@ final class PrinterLibrary {
         return zs_printers_model_get(lib, i, &m) == 0 ? m : nil
     }
 
+    /// The printers that most people have (zs_printers_popular).
+    var popular: [Int] {
+        guard let lib else { return [] }
+        var out = [UInt32](repeating: 0, count: 64)
+        let n = zs_printers_popular(lib, &out, out.count)
+        return out.prefix(min(n, out.count)).map(Int.init)
+    }
+
     /// The models that match a query, best first (brand -1: all).
     func search(_ query: String, brand: Int = -1, max: Int = 400) -> [Int] {
         guard let lib else { return [] }

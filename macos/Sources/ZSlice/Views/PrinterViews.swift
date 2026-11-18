@@ -3,7 +3,8 @@
 //! toolbar, and the Printers page of the Settings window.
 //!
 //! The picker: a search field (search as you type), the brands at the
-//! left, the models in the middle, and the card of the selected model at
+//! left (Popular first, zs_printers_popular, then All Brands and each brand),
+//! the models in the middle, and the card of the selected model at
 //! the right (its facts, its sources, the nozzle). Below the card: the
 //! name and the connection. "Add Printer" makes it a printer of the user
 //! and the printer of the plate. "My printer is not in the list" adds the
@@ -18,7 +19,8 @@ struct PrinterPicker: View {
     let workspace: Workspace
     @Environment(\.dismiss) private var dismiss
     @State private var query = ""
-    @State private var brand = -1
+    /// -2: the popular printers (at first), -1: all brands.
+    @State private var brand = -2
     @State private var selected: Int?
     @State private var name = ""
     @State private var nozzle = 0.0
@@ -43,6 +45,7 @@ struct PrinterPicker: View {
             Divider()
             HSplitView {
                 List(selection: Binding(get: { brand }, set: { brand = $0 ?? -1 })) {
+                    Text("Popular (\(lib.popular.count))").tag(-2)
                     Text("All Brands").tag(-1)
                     ForEach(Array(lib.brands.enumerated()), id: \.offset) { i, b in
                         Text(b.name).tag(i)
@@ -83,7 +86,8 @@ struct PrinterPicker: View {
                             }
                         }
                     }
-                    ForEach(lib.search(query, brand: brand), id: \.self) { i in
+                    // Popular with no query: those printers; a search covers all.
+                    ForEach(brand == -2 && query.isEmpty ? lib.popular : lib.search(query, brand: max(brand, -1)), id: \.self) { i in
                         if let m = lib.model(i) {
                             VStack(alignment: .leading, spacing: 1) {
                                 Text(coreText(m.title))

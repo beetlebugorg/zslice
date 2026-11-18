@@ -52,7 +52,7 @@ The print card has the main settings of the print as small buttons. A click open
 
 ## Printers
 
-Add a printer with the printer menu at the left of the toolbar. The picker searches the library and lists the printers on your network. Manage your printers in zslice > Settings (Command-,), on the Printers page: the connection, Test the Connection, and Get a Key.
+Add a printer with the printer menu at the left of the toolbar. The picker starts with the popular printers (the brand row Popular), searches the whole library as you type, and lists the printers on your network. Manage your printers in zslice > Settings (Command-,), on the Printers page: the connection, Test the Connection, and Get a Key.
 
 With a connection, the printer menu has Use the Printer's Bed, Nozzle, and Motion, and Use the Filament in the Printer: the settings of the plate take the values that the printer reports.
 
