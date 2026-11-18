@@ -504,6 +504,7 @@ button.destructive { background: #c01c28; color: #fff; }
 .gcode-vars .chip { padding: 1px 6px; border-radius: 10px; background: var(--entry); font-family: monospace; font-size: 0.95em; }
 .gcode-result { max-height: 260px; overflow: auto; background: var(--entry); border-radius: 6px; padding: 6px; font-size: 0.85em; white-space: pre-wrap; }
 .farm-head { display: flex; flex-direction: column; gap: 2px; margin-bottom: 8px; }
+.farm-add { margin-top: 12px; }
 .farm-title { font-weight: 700; }
 .farm-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(180px, 1fr)); gap: 8px; }
 .farm-tile { border: 1px solid var(--border); border-radius: 8px; padding: 8px; display: flex; flex-direction: column; gap: 4px; }

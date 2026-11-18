@@ -2148,6 +2148,8 @@ $("send").onclick = () => sendGcode(true);
 var farm = new FarmPage({
   root: $("page-farm"),
   printers: () => store.printers ?? {},
+  // With no printer of the user: the picker of a new printer.
+  manage: () => (Object.keys(store.printers ?? {}).length ? managePrinters() : showPrinterPicker()),
   canSend: () => app.state === "done",
   plateName: () => app.plates[app.activePlate]?.name || app.modelName || "the plate",
   slicedFor: () => store.printer ?? "",

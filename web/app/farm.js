@@ -18,7 +18,7 @@ export class FarmPage {
   //        plateName() -> text, slicedFor() -> the name of the printer
   //        that the plate is sliced for, toast(text), plates() -> [{ name,
   //        status, parts, bed }], sendPlate(i, printer) -> Promise<{ ok,
-  //        message }> }
+  //        message }>, manage() (the dialog of the printers) }
   constructor(ctx) {
     this.ctx = ctx;
     this.timer = 0;
@@ -57,7 +57,12 @@ export class FarmPage {
     head.append(el("div", "farm-title", "Printers"), el("div", "dim", names.length ? `${names.length} with a connection. The tiles read again every 10 s.` : ""));
     root.append(head);
     if (names.length === 0) {
-      root.append(el("div", "dim", "No printer has a connection. Add one with Manage printers… in the printer menu: printdeck, OctoPrint, or Moonraker (Klipper)."));
+      root.append(el("div", "dim", "No printer has a connection. Add a printdeck, an OctoPrint, or a Moonraker (Klipper) printer."));
+      if (this.ctx.manage) {
+        const add = el("button", "suggested farm-add", Object.keys(printers).length ? "Manage printers…" : "Add a printer…");
+        add.onclick = () => this.ctx.manage();
+        root.append(add);
+      }
       return;
     }
     const grid = el("div", "farm-grid");
