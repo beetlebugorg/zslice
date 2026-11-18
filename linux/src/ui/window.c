@@ -17,6 +17,7 @@
 #include "preferences.h"
 #include "cura-compare.h"
 #include "../net/printer-link.h"
+#include "../net/signing.h"
 #include "../prefs/printers.h"
 #include "printer-picker.h"
 #include "profile-menus.h"
@@ -667,8 +668,11 @@ static void on_export_chosen(GObject *source, GAsyncResult *res, gpointer data) 
     const uint8_t *gcode = NULL;
     size_t len = 0;
     if (file && zs_app_gcode(zg_model_core(w->model), &gcode, &len) == ZS_OK) {
-        /* A copy: the core can replace its G-code while the write runs. */
-        GBytes *bytes = g_bytes_new(gcode, len);
+        /* A copy: the core can replace its G-code while the write runs.
+         * The file has the signature of this install (signing.h). */
+        GBytes *raw = g_bytes_new(gcode, len);
+        GBytes *bytes = zg_sign_gcode(raw);
+        g_bytes_unref(raw);
         g_file_replace_contents_bytes_async(file, bytes, NULL, FALSE, G_FILE_CREATE_REPLACE_DESTINATION,
                                             NULL, on_saved, g_object_ref(window));
         g_bytes_unref(bytes);
@@ -910,7 +914,11 @@ static void batch_take(Window *w) {
     } else {
         GFile *out = g_file_get_child(w->batch.dir, file);
         GError *error = NULL;
-        gboolean ok = g_file_replace_contents(out, (const char *)gcode, len, NULL, FALSE, G_FILE_CREATE_REPLACE_DESTINATION, NULL, NULL, &error);
+        GBytes *signed_gcode = zg_sign_gcode(bytes);
+        gsize slen = 0;
+        const char *sdata = g_bytes_get_data(signed_gcode, &slen);
+        gboolean ok = g_file_replace_contents(out, sdata, slen, NULL, FALSE, G_FILE_CREATE_REPLACE_DESTINATION, NULL, NULL, &error);
+        g_bytes_unref(signed_gcode);
         g_object_unref(out);
         if (!ok) {
             batch_finish(w, error->message);

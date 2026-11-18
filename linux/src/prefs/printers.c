@@ -46,6 +46,7 @@ static void printer_free(gpointer data) {
     g_free(p->url);
     g_free(p->api_key);
     g_free(p->device);
+    g_free(p->tls_pin);
     g_free(p);
 }
 
@@ -56,6 +57,7 @@ static ZgPrinter *printer_new(const char *id, const char *name) {
     p->url = g_strdup("");
     p->api_key = g_strdup("");
     p->device = g_strdup("");
+    p->tls_pin = g_strdup("");
     p->baud = 250000;
     return p;
 }
@@ -93,6 +95,8 @@ void zg_printers_load(void) {
                 if ((v = g_key_file_get_string(kf, groups[i], "url", NULL))) { g_free(p->url); p->url = v; }
                 if ((v = g_key_file_get_string(kf, groups[i], "api_key", NULL))) { g_free(p->api_key); p->api_key = v; }
                 if ((v = g_key_file_get_string(kf, groups[i], "device", NULL))) { g_free(p->device); p->device = v; }
+                if ((v = g_key_file_get_string(kf, groups[i], "tls_pin", NULL))) { g_free(p->tls_pin); p->tls_pin = v; }
+                p->tls_since = g_key_file_get_int64(kf, groups[i], "tls_since", NULL);
                 int baud = g_key_file_get_integer(kf, groups[i], "baud", NULL);
                 if (baud > 0) p->baud = baud;
                 g_ptr_array_add(printers, p);
@@ -160,6 +164,10 @@ void zg_printers_save(void) {
         if (p->url[0]) g_key_file_set_string(kf, group, "url", p->url);
         if (p->api_key[0]) g_key_file_set_string(kf, group, "api_key", p->api_key);
         if (p->device[0]) g_key_file_set_string(kf, group, "device", p->device);
+        if (p->tls_pin[0]) {
+            g_key_file_set_string(kf, group, "tls_pin", p->tls_pin);
+            g_key_file_set_int64(kf, group, "tls_since", p->tls_since);
+        }
         if (p->kind == ZG_LINK_USB) g_key_file_set_integer(kf, group, "baud", p->baud);
         g_free(group);
     }

@@ -10,6 +10,8 @@
  */
 #include "printer-link.h"
 
+#include "signing.h"
+
 #include <errno.h>
 #include <fcntl.h>
 #include <json-glib/json-glib.h>
@@ -235,6 +237,7 @@ static Query *query_new(const ZgPrinter *p, GCancellable *cancel) {
     q->p.url = g_strdup(p->url);
     q->p.api_key = g_strdup(p->api_key);
     q->p.device = g_strdup(p->device);
+    q->p.tls_pin = NULL; /* not used: the pin is in the printer list */
     q->cancel = cancel ? g_object_ref(cancel) : NULL;
     q->info = g_new0(ZgPrinterInfo, 1);
     q->info->time_left = -1;
@@ -279,11 +282,59 @@ void zg_link_query(const ZgPrinter *p, GCancellable *cancel, ZgInfoFn fn, gpoint
     query_next(q);
 }
 
+/* ---- the certificate of an https printer ---- */
+
+/* The SHA-256 hash (hex) of the certificate, and the start of its
+ * validity. NULL with no certificate. */
+static char *cert_pin(SoupMessage *msg, gint64 *since) {
+    GTlsCertificate *cert = msg ? soup_message_get_tls_peer_certificate(msg) : NULL;
+    if (!cert) return NULL;
+    GByteArray *der = NULL;
+    g_object_get(cert, "certificate", &der, NULL);
+    if (!der) return NULL;
+    char *pin = g_compute_checksum_for_data(G_CHECKSUM_SHA256, der->data, der->len);
+    g_byte_array_unref(der);
+    GDateTime *t = g_tls_certificate_get_not_valid_before(cert);
+    *since = t ? g_date_time_to_unix(t) : 0;
+    if (t) g_date_time_unref(t);
+    return pin;
+}
+
+static void set_pin(ZgPrinter *p, const char *pin, gint64 since) {
+    g_free(p->tls_pin);
+    p->tls_pin = g_strdup(pin);
+    p->tls_since = since;
+    zg_printers_save();
+}
+
+/* Checks the certificate of a reply of the printer `id` against its pin.
+ * libsoup has checked the chain and the name already. The first https
+ * reply sets the pin. A certificate for the same name with a later start
+ * (a renewal: the deck gets a new one every 60 days) replaces it. Any
+ * other change returns FALSE and the warning in `message`. */
+static gboolean pin_check(const char *id, SoupMessage *msg, char **message) {
+    ZgPrinter *p = id ? zg_printers_find(id) : NULL;
+    gint64 since = 0;
+    char *pin = p ? cert_pin(msg, &since) : NULL;
+    if (!pin) return TRUE;
+    gboolean ok = TRUE;
+    if (!p->tls_pin || !p->tls_pin[0] || (since > p->tls_since && strcmp(pin, p->tls_pin) != 0)) {
+        set_pin(p, pin, since);
+    } else if (strcmp(pin, p->tls_pin) != 0) {
+        ok = FALSE;
+        *message = g_strdup_printf("The certificate of %s changed to an older or another one. A device on the network can claim to be the printer. "
+                                   "The file did not go out. If you set up the printer again, press Get a key in its settings to trust it again.", p->name);
+    }
+    g_free(pin);
+    return ok;
+}
+
 /* ---- send over the network ---- */
 
 typedef struct {
     ZgDoneFn done;
     gpointer data;
+    char *id; /* the printer, for the pin */
 } Send;
 
 static void on_sent(GObject *source, GAsyncResult *res, gpointer data) {
@@ -291,9 +342,18 @@ static void on_sent(GObject *source, GAsyncResult *res, gpointer data) {
     GError *error = NULL;
     GBytes *body = soup_session_send_and_read_finish(SOUP_SESSION(source), res, &error);
     SoupMessage *msg = soup_session_get_async_result_message(SOUP_SESSION(source), res);
+    char *warning = NULL;
     if (!body) {
         s->done(FALSE, error->message, s->data);
         g_error_free(error);
+    } else if (!pin_check(s->id, msg, &warning)) {
+        /* A new connection with another certificate after the check of
+         * zg_link_send: the file went out. */
+        char *m = g_strdup_printf("%s (The file went to the printer before this check.)", warning);
+        s->done(FALSE, m, s->data);
+        g_free(m);
+        g_free(warning);
+        g_bytes_unref(body);
     } else {
         guint status = soup_message_get_status(msg);
         if (status >= 200 && status < 300) {
@@ -313,6 +373,7 @@ static void on_sent(GObject *source, GAsyncResult *res, gpointer data) {
         }
         g_bytes_unref(body);
     }
+    g_free(s->id);
     g_free(s);
 }
 
@@ -436,6 +497,7 @@ void zg_link_estimate(const ZgPrinter *p, GBytes *gcode, GCancellable *cancel, Z
 
 typedef struct {
     char *base; /* the URL of /plugin/appkeys/request */
+    char *id;   /* the printer, for the pin */
     char *token;
     gint64 t0;
     guint timer;
@@ -451,6 +513,7 @@ enum { KEY_WAIT_S = 125 };
 static void key_free(KeyRequest *k) {
     if (k->timer) g_source_remove(k->timer);
     g_free(k->base);
+    g_free(k->id);
     g_free(k->token);
     g_clear_object(&k->cancel);
     g_free(k);
@@ -508,10 +571,20 @@ static void on_key_poll(GObject *source, GAsyncResult *res, gpointer data) {
         return;
     }
     char *key = json_member(body, "api_key");
+    char *trusted = json_member(body, "trusted_key");
     g_bytes_unref(body);
-    if (key && key[0]) key_end(k, TRUE, key, "The printer gave zslice a key.");
+    /* A pairing trusts the certificate of now. */
+    gint64 since = 0;
+    char *pin = cert_pin(msg, &since);
+    ZgPrinter *p = k->id ? zg_printers_find(k->id) : NULL;
+    if (pin && p) set_pin(p, pin, since);
+    g_free(pin);
+    if (key && key[0] && trusted)
+        key_end(k, TRUE, key, "The printer gave zslice a key, and trusts the prints that zslice signs.");
+    else if (key && key[0]) key_end(k, TRUE, key, "The printer gave zslice a key.");
     else key_end(k, FALSE, NULL, "The printer gave no key.");
     g_free(key);
+    g_free(trusted);
 }
 
 static gboolean key_poll(gpointer data) {
@@ -581,6 +654,7 @@ void zg_link_request_key(const ZgPrinter *p, GCancellable *cancel, ZgWaitFn wait
     }
     KeyRequest *k = g_new0(KeyRequest, 1);
     k->base = join_url(p, "/plugin/appkeys/request");
+    k->id = g_strdup(p->id);
     k->cancel = cancel ? g_object_ref(cancel) : g_cancellable_new();
     k->wait = wait;
     k->done = done;
@@ -590,12 +664,90 @@ void zg_link_request_key(const ZgPrinter *p, GCancellable *cancel, ZgWaitFn wait
         key_end(k, FALSE, NULL, "The address of the printer is not valid.");
         return;
     }
-    static const char body[] = "{\"app\":\"zslice\"}";
-    GBytes *bytes = g_bytes_new_static(body, sizeof body - 1);
+    /* printdeck: the public key of the signatures too. The deck trusts it
+     * after "Allow". */
+    JsonBuilder *jb = json_builder_new();
+    json_builder_begin_object(jb);
+    json_builder_set_member_name(jb, "app");
+    json_builder_add_string_value(jb, "zslice");
+    const char *pub = p->kind == ZG_LINK_PRINTDECK ? zg_signing_public_key() : NULL;
+    if (pub) {
+        json_builder_set_member_name(jb, "public_key");
+        json_builder_add_string_value(jb, pub);
+    }
+    json_builder_end_object(jb);
+    JsonNode *root = json_builder_get_root(jb);
+    char *text = json_to_string(root, FALSE);
+    json_node_unref(root);
+    g_object_unref(jb);
+    GBytes *bytes = g_bytes_new_take(text, strlen(text));
     soup_message_set_request_body_from_bytes(msg, "application/json", bytes);
     g_bytes_unref(bytes);
     soup_session_send_and_read_async(session(), msg, G_PRIORITY_DEFAULT, k->cancel, on_key_token, k);
     g_object_unref(msg);
+}
+
+/* A send that waits for the check of the certificate. */
+typedef struct {
+    ZgPrinter p; /* a copy of the strings that the send uses */
+    char *filename;
+    GBytes *gcode;
+    gboolean print;
+    GCancellable *cancel;
+    ZgDoneFn done;
+    gpointer data;
+} Upload;
+
+static void upload_free(Upload *u) {
+    g_free(u->p.id);
+    g_free(u->p.url);
+    g_free(u->p.api_key);
+    g_free(u->filename);
+    g_bytes_unref(u->gcode);
+    g_clear_object(&u->cancel);
+    g_free(u);
+}
+
+static void upload_now(Upload *u) {
+    const ZgPrinter *p = &u->p;
+    SoupMultipart *mp = soup_multipart_new(SOUP_FORM_MIME_TYPE_MULTIPART);
+    soup_multipart_append_form_file(mp, "file", u->filename, "application/octet-stream", u->gcode);
+    soup_multipart_append_form_string(mp, "print", u->print ? "true" : "false");
+    const char *path = p->kind == ZG_LINK_MOONRAKER ? "/server/files/upload" : "/api/files/local";
+    char *url = join_url(p, path);
+    SoupMessage *msg = soup_message_new_from_multipart(url, mp);
+    g_free(url);
+    soup_multipart_free(mp);
+    if (p->api_key[0]) soup_message_headers_append(soup_message_get_request_headers(msg), "X-Api-Key", p->api_key);
+    Send *s = g_new0(Send, 1);
+    s->done = u->done;
+    s->data = u->data;
+    s->id = g_strdup(p->id);
+    soup_session_send_and_read_async(session(), msg, G_PRIORITY_DEFAULT, u->cancel, on_sent, s);
+    g_object_unref(msg);
+    upload_free(u);
+}
+
+static void on_pin_reply(GObject *source, GAsyncResult *res, gpointer data) {
+    Upload *u = data;
+    GError *error = NULL;
+    GBytes *body = soup_session_send_and_read_finish(SOUP_SESSION(source), res, &error);
+    SoupMessage *msg = soup_session_get_async_result_message(SOUP_SESSION(source), res);
+    char *warning = NULL;
+    if (!body) {
+        u->done(FALSE, error->message, u->data);
+        g_error_free(error);
+        upload_free(u);
+        return;
+    }
+    g_bytes_unref(body);
+    if (!pin_check(u->p.id, msg, &warning)) {
+        u->done(FALSE, warning, u->data);
+        g_free(warning);
+        upload_free(u);
+        return;
+    }
+    upload_now(u);
 }
 
 void zg_link_send(const ZgPrinter *p, const char *filename, GBytes *gcode, gboolean print, GCancellable *cancel,
@@ -608,19 +760,34 @@ void zg_link_send(const ZgPrinter *p, const char *filename, GBytes *gcode, gbool
         send_serial(p, gcode, cancel, progress, done, data);
         return;
     }
-    SoupMultipart *mp = soup_multipart_new(SOUP_FORM_MIME_TYPE_MULTIPART);
-    soup_multipart_append_form_file(mp, "file", filename, "application/octet-stream", gcode);
-    soup_multipart_append_form_string(mp, "print", print ? "true" : "false");
-    const char *path = p->kind == ZG_LINK_MOONRAKER ? "/server/files/upload" : "/api/files/local";
-    char *url = join_url(p, path);
-    SoupMessage *msg = soup_message_new_from_multipart(url, mp);
+    Upload *u = g_new0(Upload, 1);
+    u->p.id = g_strdup(p->id);
+    u->p.kind = p->kind;
+    u->p.url = g_strdup(p->url);
+    u->p.api_key = g_strdup(p->api_key);
+    u->filename = g_strdup(filename);
+    /* Each file that goes out has the signature of this install. */
+    u->gcode = zg_sign_gcode(gcode);
+    u->print = print;
+    u->cancel = cancel ? g_object_ref(cancel) : NULL;
+    u->done = done;
+    u->data = data;
+    char *url = join_url(p, "");
+    gboolean https = g_str_has_prefix(url, "https://");
     g_free(url);
-    soup_multipart_free(mp);
-    if (p->api_key[0]) soup_message_headers_append(soup_message_get_request_headers(msg), "X-Api-Key", p->api_key);
-    Send *s = g_new0(Send, 1);
-    s->done = done;
-    s->data = data;
-    soup_session_send_and_read_async(session(), msg, G_PRIORITY_DEFAULT, cancel, on_sent, s);
+    if (!https) {
+        upload_now(u);
+        return;
+    }
+    /* https: a small request first, for the check of the certificate
+     * before the file goes out. */
+    SoupMessage *msg = request(p, "GET", p->kind == ZG_LINK_MOONRAKER ? "/server/info" : "/api/version");
+    if (!msg) {
+        done(FALSE, "The address of the printer is not valid.", data);
+        upload_free(u);
+        return;
+    }
+    soup_session_send_and_read_async(session(), msg, G_PRIORITY_DEFAULT, u->cancel, on_pin_reply, u);
     g_object_unref(msg);
 }
 

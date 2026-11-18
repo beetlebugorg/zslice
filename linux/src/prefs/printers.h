@@ -37,6 +37,11 @@ typedef struct {
     char *api_key;
     char *device; /* the serial port, for USB */
     int baud;
+    /* The pin of an https printer: the SHA-256 hash of its certificate
+     * (hex), and the start of its validity (Unix seconds). "" and 0
+     * before the first https reply. See printer-link.h. */
+    char *tls_pin;
+    gint64 tls_since;
 } ZgPrinter;
 
 /* The titles of the link kinds, in the order of ZgLinkKind. */

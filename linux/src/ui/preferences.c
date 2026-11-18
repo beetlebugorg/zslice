@@ -33,6 +33,7 @@ typedef struct {
     /* "Get a key": the button, and the request while the printer waits
      * for its user. */
     GtkWidget *get_key;
+    GtkWidget *trust; /* verified or not verified (trust_text) */
     GCancellable *key_cancel;
     GCancellable *cancel;
     ZgPrinterInfo *info;
@@ -60,7 +61,10 @@ static void fill_list(Prefs *p) {
         GtkWidget *name = gtk_label_new(pr->name);
         gtk_label_set_xalign(GTK_LABEL(name), 0);
         gtk_label_set_ellipsize(GTK_LABEL(name), PANGO_ELLIPSIZE_END);
-        GtkWidget *kind = gtk_label_new(zg_link_titles[pr->kind]);
+        gboolean unverified = pr->kind == ZG_LINK_OCTOPRINT || pr->kind == ZG_LINK_MOONRAKER;
+        char *kind_text = g_strdup_printf("%s%s", zg_link_titles[pr->kind], unverified ? " · not verified" : "");
+        GtkWidget *kind = gtk_label_new(kind_text);
+        g_free(kind_text);
         gtk_label_set_xalign(GTK_LABEL(kind), 0);
         gtk_widget_add_css_class(kind, "dim-label");
         gtk_widget_add_css_class(kind, "caption");
@@ -114,8 +118,31 @@ static void on_remove(GtkButton *b, gpointer data) {
 
 /* ---- the form ---- */
 
+/* The line about the trust of a printer: printdeck checks the signatures
+ * of the prints (with "Signed prints only" on the deck), and zslice
+ * checks the certificate of an https deck. OctoPrint and Moonraker check
+ * no signatures. NULL for USB and no connection. */
+static const char *trust_text(const ZgPrinter *pr) {
+    switch (pr->kind) {
+    case ZG_LINK_PRINTDECK:
+        if (g_str_has_prefix(pr->url, "https://"))
+            return "Verified: zslice checks the certificate of the deck, and signs each print. "
+                   "Turn on Settings › Signed prints on the deck to stop prints from other apps.";
+        return "zslice signs each print, and the deck can check it (Settings › Signed prints). "
+               "The address is http, so zslice cannot verify the deck: use its https address (on the System page of the deck).";
+    case ZG_LINK_OCTOPRINT:
+    case ZG_LINK_MOONRAKER:
+        return "Not verified: this printer does not check the signatures of prints. Anyone with its key can send it a file.";
+    default:
+        return NULL;
+    }
+}
+
 static void show_rows(Prefs *p) {
     ZgLinkKind k = p->printer->kind;
+    const char *trust = trust_text(p->printer);
+    gtk_label_set_text(GTK_LABEL(p->trust), trust ? trust : "");
+    gtk_widget_set_visible(p->trust, trust != NULL);
     gboolean net = k == ZG_LINK_PRINTDECK || k == ZG_LINK_OCTOPRINT || k == ZG_LINK_MOONRAKER;
     gboolean key = k == ZG_LINK_PRINTDECK || k == ZG_LINK_OCTOPRINT;
     for (int i = 0; i < 2; i++) gtk_widget_set_visible(p->url_row[i], net);
@@ -467,6 +494,12 @@ static GtkWidget *printers_page(Prefs *p) {
     g_signal_connect(p->kind, "notify::selected", G_CALLBACK(on_kind), p);
     gtk_grid_attach(GTK_GRID(g), form_label("Connection"), 0, row, 1, 1);
     gtk_grid_attach(GTK_GRID(g), p->kind, 1, row++, 2, 1);
+    p->trust = gtk_label_new("");
+    gtk_label_set_xalign(GTK_LABEL(p->trust), 0);
+    gtk_label_set_wrap(GTK_LABEL(p->trust), TRUE);
+    gtk_widget_add_css_class(p->trust, "dim-label");
+    gtk_widget_add_css_class(p->trust, "caption");
+    gtk_grid_attach(GTK_GRID(g), p->trust, 1, row++, 2, 1);
 
     p->url = gtk_entry_new();
     gtk_entry_set_placeholder_text(GTK_ENTRY(p->url), "http://printdeck.local or http://192.168.1.20:5000");
