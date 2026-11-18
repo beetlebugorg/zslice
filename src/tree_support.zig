@@ -298,10 +298,45 @@ pub fn grow(
     tips_below: usize,
     params: Params,
 ) Allocator.Error!Areas {
+    return growCached(gpa, threads, outlines, layers, need, blocked, near, tips_below, params, null, 0);
+}
+
+/// The avoidance areas of a slice, for the next slice with the same
+/// outlines and gaps (see support.Cache). They depend on the part, the Z
+/// gap, the tip radius, and the branch angle, and they go up to the
+/// highest tip.
+pub const AvoidCache = struct {
+    key: u64 = 0,
+    /// The highest layer with an area.
+    top: usize = 0,
+    areas: []Paths = &.{},
+
+    pub fn deinit(c: *AvoidCache, gpa: Allocator) void {
+        for (c.areas) |*x| x.deinit(gpa);
+        gpa.free(c.areas);
+        c.* = .{};
+    }
+};
+
+/// `grow`, with a cache of the avoidance areas (or null). `gaps_key`
+/// identifies `blocked` (0: no cache).
+pub fn growCached(
+    gpa: Allocator,
+    threads: usize,
+    outlines: []const Paths,
+    layers: []const slicer.Layer,
+    need: []const Paths,
+    blocked: []const Paths,
+    near: []const Paths,
+    tips_below: usize,
+    params: Params,
+    cache: ?*AvoidCache,
+    gaps_key: u64,
+) Allocator.Error!Areas {
     var arena_state = std.heap.ArenaAllocator.init(gpa);
     defer arena_state.deinit();
     const arena = arena_state.allocator();
-    var sk = try plan(gpa, arena, threads, outlines, layers, need, blocked, near, tips_below, params);
+    var sk = try planCached(gpa, arena, threads, outlines, layers, need, blocked, near, tips_below, params, if (gaps_key != 0) cache else null, gaps_key);
     defer sk.deinit(gpa);
     return areasOf(gpa, arena, threads, &sk, blocked, params);
 }
@@ -319,8 +354,38 @@ pub fn plan(
     tips_below: usize,
     params: Params,
 ) Allocator.Error!skel_mod.Skeleton {
+    return planCached(gpa, arena, threads, outlines, layers, need, blocked, near, tips_below, params, null, 0);
+}
+
+fn planCached(
+    gpa: Allocator,
+    arena: Allocator,
+    threads: usize,
+    outlines: []const Paths,
+    layers: []const slicer.Layer,
+    need: []const Paths,
+    blocked: []const Paths,
+    near: []const Paths,
+    tips_below: usize,
+    params: Params,
+    cache: ?*AvoidCache,
+    gaps_key: u64,
+) Allocator.Error!skel_mod.Skeleton {
     const n = outlines.len;
-    const avoid = try avoidance(gpa, arena, threads, layers, need, blocked, tips_below, params);
+    const avoid = blk: {
+        const c = cache orelse break :blk try avoidance(gpa, arena, threads, layers, need, blocked, tips_below, params);
+        var h = std.hash.Wyhash.init(gaps_key);
+        h.update(std.mem.asBytes(&[_]f64{ @floatFromInt(params.z_gap), params.tip, params.tan_angle }));
+        const key = h.final() | 1;
+        if (c.key == key and c.areas.len == n and topTip(need, tips_below) <= c.top) break :blk c.areas;
+        const fresh = try avoidance(gpa, arena, threads, layers, need, blocked, tips_below, params);
+        const keep = try gpa.alloc(Paths, n);
+        for (keep) |*x| x.* = .empty;
+        for (keep, fresh) |*k, f| k.* = try f.clone(gpa);
+        c.deinit(gpa);
+        c.* = .{ .key = key, .top = topTip(need, tips_below), .areas = keep };
+        break :blk fresh;
+    };
     // The pad of the edge indexes: a node looks for edges at most this far.
     const pad = 2 * params.max_r + params.spacing;
     var ctx: Ctx = .{
@@ -1608,6 +1673,15 @@ fn pointOf(nd: *const Node) Point {
 fn index(a: Allocator, paths: Paths, pad: f64) Allocator.Error!?geom.EdgeIndex {
     if (paths.isEmpty()) return null;
     return try geom.EdgeIndex.init(a, paths, @intFromFloat(pad));
+}
+
+/// The layer of the highest tip.
+fn topTip(need: []const Paths, tips_below: usize) usize {
+    var top: usize = 0;
+    for (need, 0..) |nd, src| if (!nd.isEmpty() and src >= tips_below) {
+        top = @max(top, src - tips_below);
+    };
+    return top;
 }
 
 /// The avoidance area of each layer (see 2. in the header), up to the

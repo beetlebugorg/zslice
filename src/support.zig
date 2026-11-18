@@ -125,6 +125,107 @@ pub fn compute(
     threads: usize,
     marks: []const Mark,
 ) anyerror![]SupportLayer {
+    return computeCached(gpa, outlines, layers, r, threads, marks, null);
+}
+
+/// The work of the support of a job, for the next job with the same
+/// outlines (see engine.Job): the result, and the parts of the work that
+/// depend only on the outlines and a few settings. So a change of the
+/// infill keeps the support, and an edit of a support area does not make
+/// the overhangs and the gaps around the part again.
+pub const Cache = struct {
+    /// A key of the outlines and the layers, from the caller; 0: no cache.
+    outline_key: u64 = 0,
+    /// The key of `result` (see `resultKey`), and a copy of it.
+    result_key: u64 = 0,
+    result: []SupportLayer = &.{},
+    /// Step 1 of `computeStyle`: its key, the overhangs (before the
+    /// marks), and the part moved out by the two XY gaps.
+    step1_key: u64 = 0,
+    need: []Paths = &.{},
+    blocked: []Paths = &.{},
+    near: []Paths = &.{},
+    /// The avoidance area of tree support (see tree_support.zig).
+    avoid: tree.AvoidCache = .{},
+
+    pub fn deinit(c: *Cache, gpa: Allocator) void {
+        if (c.result.len > 0) deinitAll(gpa, c.result);
+        c.dropStep1(gpa);
+        c.avoid.deinit(gpa);
+        c.* = .{};
+    }
+
+    fn dropStep1(c: *Cache, gpa: Allocator) void {
+        for ([_][]Paths{ c.need, c.blocked, c.near }) |ps| {
+            for (ps) |*x| x.deinit(gpa);
+            gpa.free(ps);
+        }
+        c.need = &.{};
+        c.blocked = &.{};
+        c.near = &.{};
+        c.step1_key = 0;
+    }
+};
+
+/// A hash of the inputs of `compute` besides the outlines: the support
+/// settings, the line width, and the marks. Never 0.
+fn resultKey(outline_key: u64, r: *const settings_mod.Resolved, marks: []const Mark) u64 {
+    var h = std.hash.Wyhash.init(outline_key);
+    const p = r.settings.project;
+    inline for (@typeInfo(settings_mod.Project).@"struct".fields) |f| {
+        if (comptime std.mem.startsWith(u8, f.name, "support")) h.update(std.mem.asBytes(&@field(p, f.name)));
+    }
+    h.update(std.mem.asBytes(&r.line_width));
+    for (marks) |m| {
+        h.update(std.mem.asBytes(&[_]f64{ m.x, m.y, m.z, m.r, m.hw, m.hh, m.z_hi, @floatFromInt(@intFromEnum(m.kind)), @floatFromInt(m.poly.len) }));
+        h.update(std.mem.sliceAsBytes(m.poly));
+    }
+    return h.final() | 1;
+}
+
+fn cloneLayers(gpa: Allocator, src: []const SupportLayer) Allocator.Error![]SupportLayer {
+    const out = try gpa.alloc(SupportLayer, src.len);
+    for (out) |*x| x.* = .{};
+    errdefer deinitAll(gpa, out);
+    for (out, src) |*o, l| o.* = .{ .body = try l.body.clone(gpa), .interface = try l.interface.clone(gpa), .hollow = l.hollow, .filled = try l.filled.clone(gpa) };
+    return out;
+}
+
+/// `compute`, with the work of the job before in `cache` (or null).
+pub fn computeCached(
+    gpa: Allocator,
+    outlines: []const Paths,
+    layers: []const slicer.Layer,
+    r: *const settings_mod.Resolved,
+    threads: usize,
+    marks: []const Mark,
+    cache_in: ?*Cache,
+) anyerror![]SupportLayer {
+    const cache = if (cache_in) |c| (if (c.outline_key != 0) c else null) else null;
+    if (cache) |c| {
+        const key = resultKey(c.outline_key, r, marks);
+        if (key == c.result_key) return cloneLayers(gpa, c.result);
+        const out = try computeAll(gpa, outlines, layers, r, threads, marks, c);
+        errdefer if (out.len > 0) deinitAll(gpa, out);
+        if (c.result.len > 0) deinitAll(gpa, c.result);
+        c.result = &.{};
+        c.result_key = 0;
+        if (out.len > 0) c.result = try cloneLayers(gpa, out);
+        c.result_key = key;
+        return out;
+    }
+    return computeAll(gpa, outlines, layers, r, threads, marks, null);
+}
+
+fn computeAll(
+    gpa: Allocator,
+    outlines: []const Paths,
+    layers: []const slicer.Layer,
+    r: *const settings_mod.Resolved,
+    threads: usize,
+    marks: []const Mark,
+    cache: ?*Cache,
+) anyerror![]SupportLayer {
     const p = r.settings.project;
     var adds = false;
     var on_area = false;
@@ -143,7 +244,7 @@ pub fn compute(
     var rr = r.*;
     const only_on = p.support == .off and on_area;
     if (only_on) rr.settings.project.support = .everywhere;
-    var main = try computeStyle(gpa, outlines, layers, &rr, threads, marks, null);
+    var main = try computeStyle(gpa, outlines, layers, &rr, threads, marks, null, cache);
     errdefer deinitAll(gpa, main);
     if (only_on or (p.support != .off and off_area)) try clipToAreas(gpa, main, marks, only_on);
     for ([_]Mark.Kind{ .grid, .tree, .bridge }) |kind| {
@@ -152,7 +253,7 @@ pub fn compute(
             has = true;
         };
         if (!has) continue;
-        const extra = try computeStyle(gpa, outlines, layers, r, threads, marks, kind);
+        const extra = try computeStyle(gpa, outlines, layers, r, threads, marks, kind, cache);
         defer deinitAll(gpa, extra);
         if (extra.len == 0) continue;
         if (main.len == 0) {
@@ -295,6 +396,7 @@ fn computeStyle(
     threads: usize,
     marks: []const Mark,
     kind: ?Mark.Kind,
+    cache: ?*Cache,
 ) anyerror![]SupportLayer {
     var p = r.settings.project;
     if (kind) |k| {
@@ -315,17 +417,21 @@ fn computeStyle(
     // Step 1: the overhangs, and the model moved out by the XY gap.
     const need = try gpa.alloc(Paths, n);
     for (need) |*x| x.* = .empty;
-    const blocked = try gpa.alloc(Paths, n);
+    var blocked = try gpa.alloc(Paths, n);
     for (blocked) |*x| x.* = .empty;
-    const near = try gpa.alloc(Paths, n);
+    var near = try gpa.alloc(Paths, n);
     for (near) |*x| x.* = .empty;
+    // With a cache, `blocked` and `near` belong to the cache.
+    var own_gaps = true;
     defer {
         for (need) |*x| x.deinit(gpa);
         gpa.free(need);
-        for (blocked) |*x| x.deinit(gpa);
-        gpa.free(blocked);
-        for (near) |*x| x.deinit(gpa);
-        gpa.free(near);
+        if (own_gaps) {
+            for (blocked) |*x| x.deinit(gpa);
+            gpa.free(blocked);
+            for (near) |*x| x.deinit(gpa);
+            gpa.free(near);
+        }
     }
     const Overhangs = struct {
         gpa: Allocator,
@@ -375,8 +481,35 @@ fn computeStyle(
     // gap: the Z gap keeps it off the overhang, and a slope moves out by
     // less than the XY gap in two layers.
     const xy_under = @min(xy, @divTrunc(w, 2));
-    const oc: Overhangs = .{ .gpa = gpa, .outlines = outlines, .layers = layers, .need = need, .blocked = blocked, .near = near, .tan_angle = @tan(angle), .w = w, .xy = xy, .xy_under = xy_under };
-    try parallel.forEach(threads, n, &oc, Overhangs.run);
+    const step1_key = blk: {
+        const c = cache orelse break :blk 0;
+        var h = std.hash.Wyhash.init(c.outline_key);
+        h.update(std.mem.asBytes(&[_]f64{ angle, @floatFromInt(xy), @floatFromInt(xy_under), @floatFromInt(w), @floatFromInt(n) }));
+        break :blk h.final() | 1;
+    };
+    if (cache != null and cache.?.step1_key == step1_key) {
+        const c = cache.?;
+        for (need, c.need) |*x, cn| x.* = try cn.clone(gpa);
+        gpa.free(blocked);
+        gpa.free(near);
+        blocked = c.blocked;
+        near = c.near;
+        own_gaps = false;
+    } else {
+        const oc: Overhangs = .{ .gpa = gpa, .outlines = outlines, .layers = layers, .need = need, .blocked = blocked, .near = near, .tan_angle = @tan(angle), .w = w, .xy = xy, .xy_under = xy_under };
+        try parallel.forEach(threads, n, &oc, Overhangs.run);
+        if (cache) |c| {
+            // The cache takes the gaps, and a copy of the overhangs.
+            c.dropStep1(gpa);
+            c.need = try gpa.alloc(Paths, n);
+            for (c.need) |*x| x.* = .empty;
+            for (c.need, need) |*x, nd| x.* = try nd.clone(gpa);
+            c.blocked = blocked;
+            c.near = near;
+            c.step1_key = step1_key;
+            own_gaps = false;
+        }
+    }
 
     // The marks: a block mark removes the overhang near it (2 mm up and
     // down); a mark of the kind of this pass replaces the overhangs with
@@ -461,7 +594,7 @@ fn computeStyle(
     errdefer deinitAll(gpa, out);
 
     if (p.support_style == .tree) {
-        try treeSupport(gpa, threads, outlines, layers, r_style, need, wide, blocked, near, out);
+        try treeSupport(gpa, threads, outlines, layers, r_style, need, wide, blocked, near, out, if (cache) |c| &c.avoid else null, step1_key);
         return out;
     }
     if (p.support_style == .bridge) {
@@ -594,6 +727,8 @@ fn treeSupport(
     blocked: []const Paths,
     near: []const Paths,
     out: []SupportLayer,
+    avoid_cache: ?*tree.AvoidCache,
+    step1_key: u64,
 ) !void {
     const p = r.settings.project;
     const gap = p.support_z_gap_layers;
@@ -625,7 +760,7 @@ fn treeSupport(
         // A branch is at least 2 mm thick under its tip layers.
         .min_r = @floatFromInt(geom.fromMm(1.0)),
     };
-    const areas = try tree.grow(gpa, threads, outlines, layers, need, blocked, near, 1 + gap + pads, params);
+    const areas = try tree.growCached(gpa, threads, outlines, layers, need, blocked, near, 1 + gap + pads, params, avoid_cache, step1_key);
     defer gpa.free(areas.body);
     defer gpa.free(areas.filled);
     for (out, areas.body, areas.filled) |*o, b, f| {
@@ -1402,4 +1537,48 @@ test "tree support: each layer of a branch stands on the layer under it" {
         worst = @max(worst, hang.areaMm2());
     }
     try testing.expect(worst < 0.5);
+}
+
+test "support cache: the same support as with no cache, after a change of the marks" {
+    const gpa = testing.allocator;
+    var b: mesh_mod.Builder = .init(gpa);
+    try mesh_mod.shapes.addBox(&b, 8, 8, 0, 12, 12, 5);
+    try mesh_mod.shapes.addBox(&b, 0, 0, 5, 20, 20, 7);
+    var m = try b.finish();
+    defer m.deinit(gpa);
+    const sl = try sliceAll(gpa, &m, 7);
+    defer {
+        for (sl.outlines) |*o| o.deinit(gpa);
+        gpa.free(sl.outlines);
+        gpa.free(sl.layers);
+    }
+    var cache: Cache = .{ .outline_key = 1234 };
+    defer cache.deinit(gpa);
+    const poly = [_][2]f64{ .{ -1, -1 }, .{ 10, -1 }, .{ 10, 21 }, .{ -1, 21 } };
+    for ([_]settings_mod.SupportStyle{ .grid, .tree }) |style| {
+        var st: settings_mod.Settings = .{};
+        st.project.support = .everywhere;
+        st.project.support_style = style;
+        const r = try st.resolve();
+        // No marks, a block area, the block area at another height, and
+        // no marks again (the result of the cache).
+        const sets = [_][]const Mark{
+            &.{},
+            &.{.{ .x = 0, .y = 0, .z = 4.9, .z_hi = 5.1, .kind = .block, .poly = &poly }},
+            &.{.{ .x = 0, .y = 0, .z = 6.5, .z_hi = 7, .kind = .block, .poly = &poly }},
+            &.{},
+        };
+        for (sets) |marks| {
+            const want = try compute(gpa, sl.outlines, sl.layers, &r, 2, marks);
+            defer deinitAll(gpa, want);
+            const got = try computeCached(gpa, sl.outlines, sl.layers, &r, 2, marks, &cache);
+            defer deinitAll(gpa, got);
+            try testing.expectEqual(want.len, got.len);
+            for (want, got) |x, y| {
+                try testing.expectApproxEqAbs(x.body.areaMm2(), y.body.areaMm2(), 1e-9);
+                try testing.expectApproxEqAbs(x.interface.areaMm2(), y.interface.areaMm2(), 1e-9);
+                try testing.expectApproxEqAbs(x.filled.areaMm2(), y.filled.areaMm2(), 1e-9);
+            }
+        }
+    }
 }

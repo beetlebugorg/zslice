@@ -263,6 +263,9 @@ pub const Job = struct {
     outlines: []Paths,
     /// The support areas of each layer, or an empty slice.
     support: []support_mod.SupportLayer = &.{},
+    /// The work of the support, for the next job with the same outlines
+    /// (see support.Cache).
+    support_cache: support_mod.Cache = .{},
     /// The shapes that start in the air (see islands.zig).
     islands: []islands_mod.Island = &.{},
     /// A hash of the inputs of the island search besides the outlines (the
@@ -577,8 +580,14 @@ pub const Job = struct {
             for (job.memos) |*mm| mm.* = .init(gpa);
         }
 
-        // The support areas need the outlines of all layers.
-        job.support = support_mod.compute(gpa, job.outlines, job.layers, &r, threads, marks) catch |e| return @as(Error, @errorCast(e));
+        // The support areas need the outlines of all layers. A job with the
+        // same outlines gives its support work.
+        if (old) |o| if (o.support_cache.outline_key == key) {
+            job.support_cache = o.support_cache;
+            o.support_cache = .{};
+        };
+        job.support_cache.outline_key = key;
+        job.support = support_mod.computeCached(gpa, job.outlines, job.layers, &r, threads, marks, &job.support_cache) catch |e| return @as(Error, @errorCast(e));
         const grow = @divTrunc(geom.fromMm(r.line_width), 4);
         job.islands_key = islandsKey(job.support, grow);
         if (old) |o| if (o.outline_key == key and o.islands_key == job.islands_key and o.islands_key != 0) {
@@ -639,6 +648,7 @@ pub const Job = struct {
         self.bands.deinit(self.gpa);
         self.gpa.free(self.bottoms);
         if (self.support.len > 0) support_mod.deinitAll(self.gpa, self.support);
+        self.support_cache.deinit(self.gpa);
         self.gpa.free(self.islands);
         for (self.outlines) |*o| o.deinit(self.gpa);
         self.gpa.free(self.outlines);

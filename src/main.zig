@@ -53,7 +53,8 @@ const usage =
     \\  bench     Slice in the app core: once from the start, then again
     \\            after a change of each kind of setting. Print the times
     \\            and the peak memory. --only KIND times one kind: full,
-    \\            late, walls, top, width, height, xy, or cancel. --runs N sets
+    \\            late, walls, top, width, height, support, area, xy, or
+    \\            cancel. --runs N sets
     \\            the slices of each kind (default 6).
     \\  sweep     For each project and filament setting, slice with values
     \\            across its range (the others at their base values), and
@@ -472,6 +473,10 @@ const bench_changes = [_]struct { key: []const u8, kind: []const u8, name: []con
     .{ .key = "top", .kind = "top thickness", .name = "project.top_thickness", .values = .{ "1.0", "1.2", "1.4", "1.6", "1.8", "2.0" } },
     .{ .key = "width", .kind = "line width", .name = "project.line_width", .values = .{ "0.45", "0.46", "0.47", "0.48", "0.49", "0.5" } },
     .{ .key = "height", .kind = "layer height", .name = "project.layer_height", .values = .{ "0.21", "0.22", "0.23", "0.24", "0.25", "0.26" } },
+    .{ .key = "support", .kind = "support (tree angle)", .name = "project.support_tree_angle", .values = .{ "41", "42", "43", "44", "45", "46" } },
+    // A support area of the editor: each slice moves its top a little, as
+    // a drag of a point does (see benchArea).
+    .{ .key = "area", .kind = "support area", .name = "", .values = .{ "", "", "", "", "", "" } },
     .{ .key = "xy", .kind = "xy offset", .name = "filament.xy_offset", .values = .{ "0.01", "0.02", "0.03", "0.04", "0.05", "0.06" } },
 };
 
@@ -507,6 +512,20 @@ fn bench(backing: std.mem.Allocator, io: Io, err: *Io.Writer, name: []const u8, 
         // Start from the base settings, with a slice that is not timed.
         app.settings = settings;
         _ = try benchSlice(app, io);
+        if (c.name.len == 0) {
+            // A tree area over all of the bed, from z 1 to z 4 (and a
+            // little more on each slice).
+            const pts = [_][3]f64{ .{ -1000, -1000, 1 }, .{ 2000, -1000, 1 }, .{ 2000, 2000, 1 }, .{ -1000, 2000, 1 } };
+            const idx = try app.areas.add(gpa, .tree, &pts, 1, 4);
+            _ = try benchSlice(app, io);
+            for (times, 0..) |*t, k| {
+                try app.areas.set(gpa, idx, &pts, 1, 4 + 0.2 * @as(f64, @floatFromInt(k % 6 + 1)));
+                t.* = try benchSlice(app, io);
+            }
+            try app.areas.remove(gpa, idx);
+            try printTimes(err, c.kind, times);
+            continue;
+        }
         for (times, 0..) |*t, k| {
             // The values repeat after 6 slices. Go back to the base
             // settings between the rounds, so that each slice has a new
