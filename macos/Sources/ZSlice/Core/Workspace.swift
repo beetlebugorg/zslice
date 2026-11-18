@@ -373,6 +373,10 @@ final class Workspace {
                     let list = PrinterStore.shared.printers
                     if f.count == 2, f[1] < list.count { assign(plate: f[0], to: list[f[1]]) }
                 }
+                // ZSLICE_SAVE_AFTER=path saves the project after the assignments.
+                if let path = env["ZSLICE_SAVE_AFTER"], let data = model.projectFileData(name: model.name) {
+                    try? data.write(to: URL(fileURLWithPath: path))
+                }
             }
         }
         // ZSLICE_FLEET=path adds the printers of a fleet file (the farm
@@ -727,9 +731,9 @@ final class Workspace {
     /// The plates sent from the Printers page in this session, by plate id:
     /// "sent to Workhorse at 06:41".
     var sentPlates: [UInt64: String] = [:]
-    /// The printer of each plate (plate id to printer id), from the plate
-    /// bar, the printer menu, or the Printers page.
-    var plateAssign: [UInt64: UUID] = [:]
+    /// Counts the changes of the printers of the plates, which the core
+    /// keeps (zs_set_plate_printer), so the views read them again.
+    private(set) var assignGeneration = 0
     /// The plate that each printer prints (printer id to plate id): the
     /// last plate sent to it in this session.
     var printing: [UUID: UInt64] = [:]
@@ -875,7 +879,7 @@ final class Workspace {
     /// machine settings replace the machine settings of the plate.
     func usePrinter(_ p: Printer) {
         PrinterStore.shared.currentID = p.id
-        if model.plates.indices.contains(model.active) { plateAssign[model.plates[model.active].id] = p.id }
+        setPlatePrinter(model.active, p)
         guard applyMachine(p, to: model.core) else { return }
         model.settingsChanged()
     }
@@ -891,6 +895,14 @@ final class Workspace {
         return rc == 0
     }
 
+    /// The printer of plate i in the core (its key: the id of the printer),
+    /// kept in the project file.
+    private func setPlatePrinter(_ i: Int, _ p: Printer?) {
+        guard model.plates.indices.contains(i) else { return }
+        zs_set_plate_printer(model.set, i, p?.id.uuidString)
+        assignGeneration += 1
+    }
+
     /// Plate i prints on printer p: the plate slices for it (its machine
     /// profile), and the Printers page sends it there.
     func assign(plate i: Int, to p: Printer) {
@@ -899,13 +911,15 @@ final class Workspace {
             usePrinter(p)
             return
         }
-        plateAssign[model.plates[i].id] = p.id
+        setPlatePrinter(i, p)
         if let app = zs_set_app(model.set, i), applyMachine(p, to: app) { zs_set_changed(model.set, i) }
     }
 
     /// The printer that plate i prints on, if the user chose one.
     func assigned(plate i: Int) -> Printer? {
-        guard model.plates.indices.contains(i), let id = plateAssign[model.plates[i].id] else { return nil }
+        _ = assignGeneration
+        guard model.plates.indices.contains(i),
+              let key = coreString({ zs_set_plate_printer_get(model.set, i, $0, $1, $2) }), let id = UUID(uuidString: key) else { return nil }
         return PrinterStore.shared.printers.first { $0.id == id }
     }
 

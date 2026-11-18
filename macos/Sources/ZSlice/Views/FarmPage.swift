@@ -231,7 +231,7 @@ struct FarmPage: View {
             }
             // What it prints (a plate sent from here), and its plates to come.
             let now = workspace.printing[p.id].flatMap { id in model.plates.firstIndex { $0.id == id } }
-            let next = model.plates.indices.filter { k in workspace.plateAssign[model.plates[k].id] == p.id && k != now && workspace.sentPlates[model.plates[k].id] == nil }
+            let next = model.plates.indices.filter { k in workspace.assigned(plate: k)?.id == p.id && k != now && workspace.sentPlates[model.plates[k].id] == nil }
             if now != nil || !next.isEmpty {
                 HStack(spacing: 6) {
                     if let now { PlatePreview(workspace: workspace, plate: now, size: 40).help("Plate \(now + 1), sent here") }
