@@ -958,12 +958,13 @@ pub fn emitAll(gpa: Allocator, src: PlanSource, threads: usize, monitor: Monitor
     defer gpa.free(slots);
     for (slots) |*sl| sl.* = .{ .text = .init(gpa) };
     defer for (slots) |*sl| sl.deinit(gpa);
-    var pipe: Pipeline = .{ .gpa = gpa, .src = src, .slots = slots, .n = src.layers, .monitor = monitor, .record = sink != null };
+    var pipe: Pipeline = .{ .gpa = gpa, .src = src, .slots = slots, .n = src.layers, .monitor = monitor, .record = sink != null, .out = out, .sink = sink, .reporter = &reporter };
 
-    // The other threads plan layers and write their text. This thread
-    // runs the emitter: a dry run of each layer in order (see
-    // gcode.Emitter.dry), and then the text of each layer in order. It
-    // also plans or writes a layer while it waits.
+    // The other threads plan layers, write their text, and send the
+    // texts out in layer order. This thread runs the emitter: a dry run
+    // of each layer in order (see gcode.Emitter.dry). The dry runs are
+    // the one step that no other thread can do, so this thread does
+    // other work only while it waits for a plan.
     var pool: [64]parallel.Thread = undefined;
     var spawned: usize = 0;
     defer if (comptime parallel.can_spawn) {
@@ -979,9 +980,8 @@ pub fn emitAll(gpa: Allocator, src: PlanSource, threads: usize, monitor: Monitor
     }
     var discard: Writer.Discarding = .init(&.{});
     var dried: usize = 0;
-    var written: usize = 0;
     const n = src.layers;
-    while (written < n) {
+    while (pipe.emitted.load(.acquire) < n) {
         if (pipe.failed()) |e| return e;
         if (monitor.canceled()) return error.Canceled;
         const seen = pipe.signal.current();
@@ -1008,23 +1008,10 @@ pub fn emitAll(gpa: Allocator, src: PlanSource, threads: usize, monitor: Monitor
             pipe.signal.notify();
             progress = true;
         }
-        // The text of each layer, in order.
-        while (written < dried and slots[written % window].written.load(.acquire) == written + 1) {
-            const slot = &slots[written % window];
-            const lp = &slot.plan.?;
-            try out.writeAll(slot.text.written());
-            if (sink) |sk| sk.func(sk.ctx, lp, slot.records.items) catch |e| return @as(Error, @errorCast(e));
-            slot.clear();
-            written += 1;
-            // The slot is free for layer written - 1 + window.
-            pipe.emitted.store(written, .release);
-            pipe.signal.notify();
-            reporter.step(1);
-            progress = true;
-        }
-        if (progress or written == n) continue;
-        if (!pipe.writeOne() and !pipe.planOne()) pipe.signal.wait(seen);
+        if (progress) continue;
+        if (!pipe.outSome() and !pipe.writeOne() and !pipe.planOne()) pipe.signal.wait(seen);
     }
+    if (pipe.failed()) |e| return e;
     try em.end();
     // The work memory of the booleans and offsets goes back to the
     // operating system (see scratch.zig).
@@ -1103,8 +1090,14 @@ const Pipeline = struct {
     dried: std.atomic.Value(usize) = .init(0),
     /// The next layer whose text a thread writes.
     next_text: std.atomic.Value(usize) = .init(0),
-    /// The number of layers that the emitter has written out.
+    /// The number of layers that are written out.
     emitted: std.atomic.Value(usize) = .init(0),
+    /// Where the texts go, and who gets each layer after its text.
+    out: *Writer,
+    sink: ?Job.LayerSink,
+    reporter: *Reporter,
+    /// True while a thread sends texts out (see `outSome`).
+    out_busy: std.atomic.Value(bool) = .init(false),
     stop: std.atomic.Value(bool) = .init(false),
     /// The first error, as an error code, or 0.
     err_code: std.atomic.Value(u16) = .init(0),
@@ -1122,8 +1115,8 @@ const Pipeline = struct {
         while (!p.stop.load(.acquire) and p.failed() == null) {
             if (p.next_text.load(.monotonic) >= p.n) return;
             const seen = p.signal.current();
-            // The text first: the emitter waits for it.
-            if (!p.writeOne() and !p.planOne()) p.signal.wait(seen);
+            // The text first: a slot is free only after its text is out.
+            if (!p.writeOne() and !p.outSome() and !p.planOne()) p.signal.wait(seen);
         }
     }
 
@@ -1176,6 +1169,41 @@ const Pipeline = struct {
         slot.written.store(i + 1, .release);
         p.signal.notify();
         return true;
+    }
+
+    /// Sends out the texts that are ready, in layer order, and gives each
+    /// layer to the sink. One thread does this at a time, and any thread
+    /// can: the emitter thread stays free for the dry runs. Returns false
+    /// if there was nothing to do now.
+    fn outSome(p: *Pipeline) bool {
+        var progress = false;
+        while (true) {
+            if (p.out_busy.swap(true, .acquire)) return progress;
+            // Only the thread with `out_busy` changes `emitted`.
+            var w = p.emitted.load(.monotonic);
+            while (w < p.n and p.failed() == null and p.slots[w % p.slots.len].written.load(.acquire) == w + 1) {
+                const slot = &p.slots[w % p.slots.len];
+                p.out.writeAll(slot.text.written()) catch |e| {
+                    p.fail(e);
+                    break;
+                };
+                if (p.sink) |sk| sk.func(sk.ctx, &slot.plan.?, slot.records.items) catch |e| {
+                    p.fail(@errorCast(e));
+                    break;
+                };
+                slot.clear();
+                w += 1;
+                // The slot is free for layer w - 1 + (ring size).
+                p.emitted.store(w, .release);
+                p.signal.notify();
+                p.reporter.step(1);
+                progress = true;
+            }
+            p.out_busy.store(false, .release);
+            // A text that became ready after the loop, while this thread
+            // still was busy: its thread found `out_busy` set and left.
+            if (w >= p.n or p.failed() != null or p.slots[w % p.slots.len].written.load(.acquire) != w + 1) return progress;
+        }
     }
 
     fn text(p: *Pipeline, slot: *Slot) Error!void {
