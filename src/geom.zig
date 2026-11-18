@@ -88,8 +88,9 @@ pub const Point = struct {
         const dx = a.x - b.x;
         const dy = a.y - b.y;
         // A 64-bit sum of squares is exact, so its float is the same as
-        // the float of the 128-bit sum (which is a library call in wasm).
-        if (slow_wide and small4(dx, dy, 0, 0)) return @sqrt(@as(f64, @floatFromInt(dx * dx + dy * dy)));
+        // the float of the 128-bit sum. The float of a 128-bit integer
+        // is a library call on each target.
+        if (small4(dx, dy, 0, 0)) return @sqrt(@as(f64, @floatFromInt(dx * dx + dy * dy)));
         return @sqrt(@as(f64, @floatFromInt(distSq(a, b))));
     }
 };
