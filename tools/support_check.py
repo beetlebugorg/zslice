@@ -6,6 +6,7 @@ Usage:
   python3 -I tools/support_check.py check <model.stl> <part.gcode> [--png out.png]
   python3 -I tools/support_check.py parts <out folder>
   python3 -I tools/support_check.py rotate <in.stl> <out.stl> [x90] [y45] ...
+  python3 -I tools/support_check.py orca-profiles <OrcaSlicer system folder> <out folder>
   python3 -I tools/support_check.py review <out folder> <parts folder>
       [--zslice NAME=BINARY ...] [--cura] [--orca] [--only TEXT]
       [--reuse NAME,...]
@@ -38,6 +39,13 @@ parts: Write the standard test shapes: an overhang test (fins at 45 to 75
 degrees), a long bridge between two posts, a T, a mushroom, a ball, and an
 arch.
 
+orca-profiles: Write the OrcaSlicer profiles of the review to
+<out folder>/orca: the "MyMarlin 0.4 nozzle" machine, the "0.20mm Standard
+@MyMarlin" process, and the "Generic PLA @System" filament, each with its
+"inherits" chain resolved, and changed to the settings of the review (a
+0.5 mm nozzle, 2.85 mm filament, 0.5 mm lines). The system folder is the
+"system" folder in the data folder of OrcaSlicer.
+
 review: Slice each STL file of the parts folder with each slicer (support
 everywhere, grid and tree), check each slice, and write the pictures and
 an index.html with a table of the numbers. Each --zslice gives a zslice
@@ -45,7 +53,7 @@ binary and its name (for example base=../zslice/zig-out/bin/zslice).
 --only TEXT slices only the parts with TEXT in the name. --reuse
 keeps the G-code of the named slicers from an earlier run, and checks it
 again. CuraEngine runs as in compare_cura.py; OrcaSlicer runs with the profiles in
-<out folder>/orca (machine.json, process.json, filament.json).
+<out folder>/orca (see orca-profiles), with no display.
 
 CuraEngine (AGPL-3.0) and OrcaSlicer (AGPL-3.0) are tools that this script
 runs. No code is copied. See REFERENCES.md.
@@ -736,6 +744,46 @@ def orca_slice(stl, out, style, work):
     return dt
 
 
+def orca_profiles(system, out):
+    import glob
+    idx = {}
+    for path in glob.glob(os.path.join(system, "**", "*.json"), recursive=True):
+        try:
+            d = json.load(open(path))
+        except (OSError, ValueError):
+            continue
+        if isinstance(d, dict) and "name" in d:
+            idx[(d.get("type"), d["name"])] = d
+
+    def flat(kind, name):
+        d = idx[(kind, name)]
+        base = flat(kind, d["inherits"]) if d.get("inherits") else {}
+        base.update(d)
+        return base
+    conf = os.path.join(out, "orca")
+    os.makedirs(os.path.join(conf, "data"), exist_ok=True)
+    for kind, name, fn in (("machine", "MyMarlin 0.4 nozzle", "machine"), ("process", "0.20mm Standard @MyMarlin", "process"),
+                           ("filament", "Generic PLA @System", "filament")):
+        d = flat(kind, name)
+        for k in ("inherits", "setting_id", "instantiation"):
+            d.pop(k, None)
+        d["from"] = "User"
+        d["name"] = "support review " + fn
+        if fn == "machine":
+            d.update({"nozzle_diameter": ["0.5"], "printable_area": ["0x0", "300x0", "300x300", "0x300"],
+                      "printable_height": "300", "machine_start_gcode": "G90\nM83\nG92 E0", "machine_end_gcode": "M84"})
+        elif fn == "process":
+            d.update({k: "0.5" for k in ("line_width", "outer_wall_line_width", "inner_wall_line_width",
+                                         "sparse_infill_line_width", "internal_solid_infill_line_width",
+                                         "top_surface_line_width", "initial_layer_line_width", "support_line_width")})
+            d.update({"layer_height": "0.2", "initial_layer_print_height": "0.3", "wall_loops": "2",
+                      "sparse_infill_density": "20%", "sparse_infill_pattern": "grid", "skirt_loops": "1",
+                      "brim_type": "no_brim"})
+        else:
+            d["filament_diameter"] = ["2.85"]
+        json.dump(d, open(os.path.join(conf, fn + ".json"), "w"), indent=1)
+
+
 def review(args):
     out, parts = os.path.abspath(args[0]), os.path.abspath(args[1])
     zs = []
@@ -859,6 +907,8 @@ def main(argv):
             t = rotate(t, r[0], float(r[1:]))
         t[:, :, 2] -= t[:, :, 2].min()
         write_stl(argv[3], t)
+    elif cmd == "orca-profiles":
+        orca_profiles(argv[2], argv[3])
     elif cmd == "review":
         review(argv[2:])
     elif cmd == "index":

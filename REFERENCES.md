@@ -159,6 +159,7 @@ is in zslice.
 | Program | License | Used in | How zslice uses it |
 |---|---|---|---|
 | CuraEngine (Ultimaker Cura 5.x), https://github.com/Ultimaker/CuraEngine, and the Cura definition files `fdmprinter.def.json` and `fdmextruder.def.json` | AGPL-3.0 (CuraEngine), LGPL-3.0 (the definitions) | `tools/compare_cura.py` | A test oracle. The script slices each STL file of the corpus with zslice and with CuraEngine, and compares the layer count, the filament, the time estimate, the speed, and the memory. |
+| CuraEngine (Ultimaker Cura 5.x) and OrcaSlicer 2.5 (the `orca-slicer` command line, with the profiles of its `Custom` vendor), https://github.com/SoftFever/OrcaSlicer | AGPL-3.0 (both); the definitions and profiles are data, no code | `tools/support_check.py` | Test oracles for support. The script slices the same parts with zslice, CuraEngine (normal and tree support), and OrcaSlicer (normal and organic tree support), and compares the unsupported overhang area, the floating support, the support volume, and the time. |
 | librsvg (`rsvg-convert`), https://gitlab.gnome.org/GNOME/librsvg | LGPL-2.1-or-later | `tools/printer_beds.py` | Draws the SVG bed textures as images. |
 | Pillow, https://python-pillow.org | MIT-CMU (HPND) | `tools/printer_beds.py` | Reads, scales, and writes the texture images (PNG with a palette). |
 | NumPy, https://numpy.org | BSD-3-Clause | `tools/printer_beds.py` | The arrays of the meshes, and the vertex clustering. |

@@ -72,3 +72,15 @@ python3 -I tools/compare_cura.py walls zig-out/bin/zslice model.stl <out folder>
 ```
 
 `walls` compares the walls of one model: the wall paths and volume of each slicer, and the line widths of the Arachne walls. The script needs CuraEngine (the Cura AppImage, extracted) and a Cura printer definition; see the header of the script. Use it to find the parts where zslice fails, is slow, uses much memory, or gives a print far from the Cura print.
+
+## Testing support
+
+`tools/support_check.py` checks the support of a sliced part, and compares the support of zslice, CuraEngine, and OrcaSlicer on the same parts.
+
+```sh
+python3 -I tools/support_check.py parts zig-out/scratch/parts
+python3 -I tools/support_check.py check model.stl model.gcode --png model.png
+python3 -I tools/support_check.py review zig-out/support-review zig-out/scratch/parts --zslice new=zig-out/bin/zslice --cura --orca
+```
+
+The check cuts the mesh at each layer and draws the support lines of the G-code into a grid of 0.1 mm cells. An overhang cell is a cell under a face of the mesh that looks down and leans more than 50 degrees from vertical. The check reports the overhang area with no support line within 1.5 mm in the 3 layers under it (unsupported), the support lines with nothing under them (floating), and the support volume. `review` slices each part with grid and tree support, and writes a picture of each slice (front, side, and top view) and an `index.html` with a table. OrcaSlicer needs the profiles `machine.json`, `process.json`, and `filament.json` in `<out folder>/orca`; see the header of the script.
