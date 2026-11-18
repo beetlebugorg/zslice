@@ -46,6 +46,7 @@ final class Workspace {
     @ObservationIgnored var partDrag: PartDrag?
     @ObservationIgnored var tapeDrag: Int?
     @ObservationIgnored let wheelSlice = Throttle(.milliseconds(300))
+    @ObservationIgnored let keySlice = Throttle(.milliseconds(600))
     var tape: [TapePoint] = []
     /// The points of the tape in the view (points), for the readout.
     var tapeScreen: [CGPoint] = []
@@ -164,6 +165,7 @@ final class Workspace {
         // it, and ZSLICE_DRAG="x0,y0;x1,y1" is a Command-drag (points).
         let points = { (key: String) -> [CGPoint] in
             (env[key] ?? "").split(separator: ";").compactMap { pair -> CGPoint? in
+                if pair == "center" { return CGPoint(x: self.canvas.bounds.midX, y: self.canvas.bounds.midY) }
                 let xy = pair.split(separator: ",").compactMap { Double($0) }
                 return xy.count == 2 ? CGPoint(x: xy[0], y: xy[1]) : nil
             }
@@ -487,6 +489,7 @@ extension Workspace: SliceViewDelegate {
     /// preview"), for the case with no selected line.
     func sliceViewKey(_ event: NSEvent) -> Bool {
         if turnKey(event) { return true }
+        if selection == nil, partKey(event) { return true }
         if event.charactersIgnoringModifiers == "\u{1b}", !tape.isEmpty {
             clearTape()
             return true

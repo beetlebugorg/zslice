@@ -294,3 +294,85 @@ extension Workspace {
         }
     }
 }
+
+// MARK: - the part card
+
+extension Workspace {
+    /// The settings that a part has of its own (zs_app_part_setting_get).
+    func partSettings(_ i: Int) -> [(info: SettingInfo, value: String)] {
+        _ = model.settingsGeneration
+        return SettingInfo.all.filter(\.perPart).compactMap { info in
+            coreString { zs_app_part_setting_get(model.core, i, info.name, $0, $1, $2) }.map { (info, $0) }
+        }
+    }
+
+    /// Sets a setting of a part (nil: the value of the plate again).
+    @discardableResult
+    func setPartSetting(_ i: Int, _ name: String, _ value: String?) -> String? {
+        let rc = zs_app_part_setting_set(model.core, i, name, value)
+        guard rc == 0 else { return statusText(rc) }
+        model.settingsChanged()
+        return nil
+    }
+
+    func duplicatePart() {
+        guard let i = selectedPart else { return }
+        let j = zs_app_part_duplicate(model.core, i)
+        if j >= 0 { selectPart(j) }
+        model.settingsChanged()
+    }
+
+    func placePart(_ mode: Int32) {
+        guard let i = selectedPart else { return }
+        if zs_app_part_place(model.core, i, mode, 2) == 0 {
+            selectPart(i)
+            model.settingsChanged()
+        }
+    }
+
+    func resetPart() {
+        guard let i = selectedPart, zs_app_part_reset(model.core, i) == 0 else { return }
+        selectPart(i)
+        model.settingsChanged()
+    }
+
+    func removePart() {
+        guard let i = selectedPart, zs_app_part_remove(model.core, i) == 0 else { return }
+        selectPart(nil)
+        clearSelection()
+        model.settingsChanged()
+    }
+
+    /// The keys of a selected part: the arrows move it 1 mm (Shift: 10 mm),
+    /// Tab and Shift-Tab select the next part and the part before, D
+    /// duplicates it, Delete removes it, and Esc clears the selection. The
+    /// part slices after a pause of 0.6 s in the keys.
+    func partKey(_ event: NSEvent) -> Bool {
+        guard let i = selectedPart, let p = part(i) else { return false }
+        let shift = event.modifierFlags.contains(.shift)
+        let d = shift ? 10.0 : 1.0
+        func move(_ dx: Double, _ dy: Double) {
+            zs_app_part_move(model.core, i, p.x + dx, p.y + dy)
+            selectPart(i)
+            keySlice.run { [weak self] in self?.model.settingsChanged() }
+        }
+        switch event.specialKey {
+        case .leftArrow?: move(-d, 0)
+        case .rightArrow?: move(d, 0)
+        case .upArrow?: move(0, d)
+        case .downArrow?: move(0, -d)
+        case .tab?, .backTab?:
+            let n = zs_app_part_count(model.core)
+            guard n > 0 else { return false }
+            selectPart((i + (shift || event.specialKey == .backTab ? n - 1 : 1)) % n)
+        case .delete?, .deleteForward?: removePart()
+        default:
+            switch event.charactersIgnoringModifiers {
+            case "d" where !shift: duplicatePart()
+            case "\u{1b}": selectPart(nil)
+            default: return false
+            }
+        }
+        return true
+    }
+}

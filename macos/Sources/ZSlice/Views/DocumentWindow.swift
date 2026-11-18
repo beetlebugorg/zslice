@@ -29,6 +29,10 @@ struct DocumentWindow: View {
                         GapCard(workspace: workspace, gap: gap)
                             .position(x: min(workspace.cardAt.x + 180, geo.size.width - 170), y: min(max(workspace.cardAt.y, 160), geo.size.height - 160))
                     }
+                    if let i = workspace.selectedPart {
+                        PartCard(workspace: workspace, index: i, area: geo.size)
+                            .id(i)
+                    }
                     if workspace.cardOpen, let info = workspace.lineInfo {
                         LineCard(workspace: workspace, info: info, area: geo.size)
                     }
