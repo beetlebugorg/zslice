@@ -45,6 +45,8 @@ struct WindowState: Codable {
     var name: String?
     /// The camera (8 floats of zs_view_get_camera), in the view file.
     var camera: [Float]?
+    /// The ids of the projects of the plates in the store of refinements.
+    var refineIDs: [String: String]?
 }
 
 @MainActor
@@ -298,6 +300,7 @@ extension Workspace {
         state.historyOpen = historyOpen
         state.farmOpen = farmOpen
         state.selectedPart = selectedPart
+        state.refineIDs = refineIDs
         if let doc = model.document {
             state.file = doc.fileURL?.path
             state.edited = doc.isDocumentEdited
@@ -368,6 +371,7 @@ extension Workspace {
         farmOpen = state.farmOpen ?? false
         if let lo = state.lo, let hi = state.hi { restoredRange = (lo, hi) }
         restoredPart = state.selectedPart
+        if let ids = state.refineIDs { refineIDs = ids }
         // The last scene of the active plate, at once, and the camera.
         if let v = canvas.view {
             zs_view_set_mode(v, Int32(colorMode))

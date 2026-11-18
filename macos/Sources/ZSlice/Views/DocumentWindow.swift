@@ -533,6 +533,10 @@ struct PrintCard: View {
                     }
                 }
             }
+            if !workspace.refinements.isEmpty {
+                Divider()
+                RefinementList(workspace: workspace)
+            }
             if model.state != .empty {
                 Divider()
                 PrintFacts(workspace: workspace)
@@ -552,6 +556,46 @@ struct PrintCard: View {
         f.allowedUnits = seconds >= 3600 ? [.hour, .minute] : [.minute, .second]
         f.unitsStyle = .abbreviated
         return f.string(from: seconds) ?? ""
+    }
+}
+
+/// The usual refinements of the user (Refinements.swift), in the details
+/// of the print: each with Apply (one undo step) and a button that hides
+/// it for good.
+struct RefinementList: View {
+    let workspace: Workspace
+
+    var body: some View {
+        let list = workspace.refinements
+        VStack(alignment: .leading, spacing: 8) {
+            HStack {
+                Text(list.count == 1 ? "Your usual refinement" : "Your usual refinements: \(list.count)")
+                    .font(.callout.weight(.semibold))
+                Spacer()
+                if list.count > 1 {
+                    Button("Apply All") {
+                        for r in list { workspace.applyRefinement(r, refresh: false) }
+                        workspace.refreshRefinementsSoon()
+                    }
+                    .controlSize(.small)
+                    .help("Apply each refinement (one undo step each)")
+                }
+            }
+            ForEach(list) { r in
+                HStack(alignment: .top, spacing: 6) {
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text("\(r.whereText): \(r.what)").font(.callout).fixedSize(horizontal: false, vertical: true)
+                        Text("You made this change in \(r.count) other prints.").font(.caption).foregroundStyle(.secondary)
+                    }
+                    Spacer(minLength: 4)
+                    Button("Apply") { workspace.applyRefinement(r) }.controlSize(.small)
+                    Button { workspace.hideRefinement(r) } label: { Image(systemName: "xmark") }
+                        .buttonStyle(.borderless)
+                        .controlSize(.small)
+                        .help("Do not offer this again")
+                }
+            }
+        }
     }
 }
 
@@ -654,13 +698,16 @@ struct BottomBar: View {
                     } else {
                         Text("Slicing…").font(.title3.weight(.semibold))
                     }
+                    // The notes, else the usual refinements.
                     let n = workspace.noteCount
-                    if n > 0 {
-                        Text("\(n)")
+                    let tips = workspace.refinements.count
+                    if n > 0 || tips > 0 {
+                        Text("\(n > 0 ? n : tips)")
                             .font(.caption.weight(.bold).monospacedDigit())
                             .foregroundStyle(.white)
                             .frame(minWidth: 18, minHeight: 18)
-                            .background(workspace.noteIsError ? Color.red : Color.orange, in: Capsule())
+                            .background(n == 0 ? Color.accentColor : workspace.noteIsError ? Color.red : Color.orange, in: Capsule())
+                            .help(n > 0 ? "\(n) note\(n == 1 ? "" : "s") on this print" : "\(tips) of your usual refinement\(tips == 1 ? "" : "s")")
                     }
                     Image(systemName: workspace.detailsOpen ? "chevron.down" : "chevron.up")
                         .font(.caption2)

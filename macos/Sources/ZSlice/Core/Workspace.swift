@@ -89,6 +89,13 @@ final class Workspace {
     var tool = Tool.select
     /// The details of the print show above the bottom bar.
     var detailsOpen = false
+    /// The usual refinements of the user for this plate (Refinements.swift).
+    var refinements: [Refinement] = []
+    /// The id of the project of each plate in the store of refinements, by
+    /// the id of the plate (kept with the session).
+    @ObservationIgnored var refineIDs: [String: String] = [:]
+    @ObservationIgnored var refineTask: Task<Void, Never>?
+    @ObservationIgnored var refineApplied = false
     /// The card of the Support tool shows (S again hides it; kept).
     var supportPaneOpen = UserDefaults.standard.object(forKey: "supportPane") as? Bool ?? true {
         didSet { UserDefaults.standard.set(supportPaneOpen, forKey: "supportPane") }
@@ -228,6 +235,7 @@ final class Workspace {
             if i < zs_app_part_count(model.core) { selectPart(i) }
         }
         readSupportAreas()
+        refreshRefinementsSoon()
         SessionStore.shared.changed()
         if ProcessInfo.processInfo.environment["ZSLICE_EDIT"] != nil {
             let n = zs_app_edit_count(model.core)
