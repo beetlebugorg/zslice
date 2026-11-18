@@ -13,10 +13,13 @@ const is_wasm = c.is_wasm;
 const App = zs.app.App;
 
 /// The Vulkan renderer needs libc (it loads the Vulkan loader with
-/// dlopen). It is on Linux now. The wasm build has the web backend (see
-/// src/render/web.zig): the view keeps the frame data, and the JavaScript
-/// side draws it. Other targets get "not supported" from each call.
-const render_on = (builtin.os.tag == .linux and builtin.link_libc and !is_wasm) or is_wasm;
+/// dlopen). It is on Linux now. The wasm build and macOS have the frame
+/// backend (see src/render/web.zig): the view keeps the frame data, and
+/// the shell draws it (WebGL2 in JavaScript, Metal in Swift). Other
+/// targets get "not supported" from each call.
+const is_mac = builtin.os.tag == .macos and builtin.link_libc;
+const frame_backend = is_wasm or is_mac;
+const render_on = (builtin.os.tag == .linux and builtin.link_libc and !is_wasm) or frame_backend;
 const view_mod = if (render_on) @import("../render/view.zig") else struct {
     pub const View = opaque {};
 };
@@ -33,7 +36,7 @@ export fn zs_view_new(surface: ?*const CSurface, width: u32, height: u32, out: ?
     if (!render_on) return @intFromEnum(Status.not_supported);
     const s = surface orelse return @intFromEnum(Status.invalid_argument);
     const o = out orelse return @intFromEnum(Status.invalid_argument);
-    const native: view_mod.Surface = if (is_wasm) switch (s.kind) {
+    const native: view_mod.Surface = if (frame_backend) switch (s.kind) {
         3 => .web,
         else => return @intFromEnum(Status.not_supported),
     } else switch (s.kind) {
@@ -492,10 +495,10 @@ export fn zs_view_scene_read(view: ?*View, data: ?[*]const u8, len: usize) c_int
     return ok;
 }
 
-/// wasm: the frame data of the web backend (zs_web_frame in
+/// wasm and macOS: the frame data of the frame backend (zs_web_frame in
 /// zslice-app.h). NULL on the other targets.
 export fn zs_view_web_frame(view: ?*View) ?*const anyopaque {
-    if (comptime !is_wasm) return null;
+    if (comptime !frame_backend) return null;
     const v = view orelse return null;
     return &v.renderer.out;
 }

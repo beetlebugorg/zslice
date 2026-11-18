@@ -29,9 +29,10 @@
 //! distance zooms. The projection is for Vulkan clip space: y goes down, and depth
 //! goes from 0 to 1.
 //!
-//! This file is the same for all platforms. Only the backend (vk.zig, and
-//! later Metal) talks to the GPU. In a browser (the wasm build), web.zig
-//! keeps the frame data, and the JavaScript side draws it with WebGL2.
+//! This file is the same for all platforms. Only the backend talks to the
+//! GPU. On Linux, vk.zig draws with Vulkan. In a browser (the wasm build)
+//! and on macOS, web.zig keeps the frame data, and the shell draws it:
+//! with WebGL2 in JavaScript, or with Metal in Swift.
 //!
 //! The web shell slices in a Web Worker and draws on the main thread, in
 //! two wasm instances. The view of the worker loads the slice, and
@@ -59,7 +60,9 @@
 const std = @import("std");
 const builtin = @import("builtin");
 const is_web = builtin.cpu.arch.isWasm();
-const vk = if (is_web) @import("web.zig") else @import("vk.zig");
+/// The backend keeps the frame data and the shell draws it (web.zig).
+const frame_backend = is_web or builtin.os.tag == .macos;
+const vk = if (frame_backend) @import("web.zig") else @import("vk.zig");
 const app_mod = @import("../app.zig");
 const Draw = @import("frame.zig").Draw;
 const PlateFrame = @import("frame.zig").PlateFrame;
@@ -533,8 +536,8 @@ pub const View = struct {
         try v.loadMarks(tp, filament, center, sxy, sz);
         if (!v.headless) try v.renderer.setInstances(boxes.items, v.marks.items);
         v.more.clearRetainingCapacity();
-        // The light levels: only the web backend draws them.
-        if (is_web and !v.headless) {
+        // The light levels: only the frame backend draws them.
+        if (frame_backend and !v.headless) {
             try v.lite.build(gpa, boxes.items, v.layer_end.items);
             v.lite_gen = v.nextGen();
         }
@@ -1994,7 +1997,7 @@ pub const View = struct {
     /// only with no selection and no replay (the light beads are not in
     /// the index space of the highlight and the replay).
     fn activeLevel(v: *const View, eye: [3]f32) ?usize {
-        if (!is_web) return null;
+        if (!frame_backend) return null;
         const n = v.layer_end.items.len;
         if (n == 0 or v.lite.layers() != n or v.beads.items.len == 0) return null;
         if (v.time != null or v.highlight[1] > v.highlight[0] or v.seg_bead != null or v.more.items.len > 0) return null;
@@ -2018,7 +2021,7 @@ pub const View = struct {
     /// The bead count of a large plate (see `activeLevel`).
     const large_plate = 500_000;
 
-    /// The plates of a frame (web only): for each other plate in the view,
+    /// The plates of a frame (frame backend only): for each other plate in the view,
     /// its matrices, its buffer, and its draws (the chunks in the view, or
     /// a light level far from the camera).
     fn drawPlates(v: *View, mvp: [16]f32, eye: [3]f32) Error!void {
@@ -2148,7 +2151,7 @@ pub const View = struct {
         // this plate under its top layers (see plates.zig).
         v.plate_frames.clearRetainingCapacity();
         v.plate_draws.clearRetainingCapacity();
-        if (is_web) {
+        if (frame_backend) {
             if (v.activeLevel(eye)) |level| {
                 const n = v.layer_end.items.len;
                 const hi = @min(v.layer, n - 1);
@@ -2256,7 +2259,7 @@ pub const View = struct {
             },
             .box_count = count,
             .box_first = first,
-            .draws = if (is_web) try v.drawList(mvp, eye, first, count) else &.{},
+            .draws = if (frame_backend) try v.drawList(mvp, eye, first, count) else &.{},
             .mark_first = @intCast(v.beads.items.len + mark_skip),
             .mark_count = mark_count,
             // On a bed model the grid is darker, so it shows on the gray bed.

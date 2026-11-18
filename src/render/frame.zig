@@ -1,6 +1,6 @@
 //! The data that the view (view.zig) gives to a backend for each frame:
 //! the bead instances, the push constants, and the frame description. The
-//! backends (vk.zig for Vulkan, web.zig for WebGL in a browser) share these
+//! backends (vk.zig for Vulkan, web.zig for a shell that draws) share these
 //! types, so the view code is the same for all of them.
 
 const std = @import("std");
@@ -44,7 +44,7 @@ pub const Draw = extern struct { first: u32, count: u32, lod: u32 };
 /// One plate of a frame other than the active plate (see plates.zig), or
 /// the light beads of the active plate: its bead buffer, its matrices, and
 /// its draws in Frame.plate_draws. The layout is zs_web_plate in
-/// include/zslice-app.h. Only the web backend draws them.
+/// include/zslice-app.h. Only the frame backend (web.zig) draws them.
 pub const PlateFrame = extern struct {
     /// The matrix of the beads and of the bed model, with the place of the
     /// plate in the row.
@@ -94,11 +94,11 @@ pub const Frame = struct {
     bed: Push = .{ .mvp = @splat(0), .vec = .{ 0, 0, 0, 0 } },
     bed_vertices: u32 = 0,
     /// The beads box_first .. box_count in ranges, with the boxes out of
-    /// the view left out and a coarse mesh far from the camera. The web
+    /// the view left out and a coarse mesh far from the camera. The frame
     /// backend uses it: an empty list there is no bead in the view. The
     /// Vulkan backend draws box_first .. box_count.
     draws: []const Draw = &.{},
-    /// The other plates (see PlateFrame), and their draws. The web
+    /// The other plates (see PlateFrame), and their draws. The frame
     /// backend uses them.
     plates: []const PlateFrame = &.{},
     plate_draws: []const Draw = &.{},

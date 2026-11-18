@@ -668,17 +668,20 @@ size_t zs_app_pick_layer(const zs_app *app, size_t layer, double x, double y);
 
 /* ---- the 3D view ---- */
 
-/* The core draws the 3D view of a slice into a native surface that the
- * shell gives: a Wayland wl_surface or an X11 window on Linux. The core
+/* On Linux, the core draws the 3D view of a slice into a native surface
+ * that the shell gives: a Wayland wl_surface or an X11 window. The core
  * loads Vulkan at run time, so the shell does not link it. Without Vulkan,
- * zs_view_new returns ZS_NOT_SUPPORTED. Call the view functions from the
- * UI thread. */
+ * zs_view_new returns ZS_NOT_SUPPORTED. In wasm and on macOS, the core
+ * does not draw: the view keeps the frame data (zs_view_web_frame), and
+ * the shell draws it with WebGL2 or Metal. Call the view functions from
+ * the UI thread. */
 
 enum zs_surface_kind {
     ZS_SURFACE_WAYLAND = 1, /* display: struct wl_display *, surface: struct wl_surface * */
     ZS_SURFACE_XLIB = 2,    /* display: Display *, window: Window */
-    ZS_SURFACE_WEB = 3      /* wasm only: no surface; the shell reads the
-                               frame data (zs_view_web_frame) and draws it */
+    ZS_SURFACE_WEB = 3,     /* wasm and macOS: no surface; the shell reads
+                               the frame data (zs_view_web_frame) and draws it */
+    ZS_SURFACE_FRAME = 3    /* the same as ZS_SURFACE_WEB, for a native shell */
 };
 
 typedef struct zs_surface {
@@ -933,9 +936,9 @@ int zs_view_segment_at_time(const zs_view *view, double t, size_t *path, size_t 
 int zs_view_scene_write(zs_view *view, uint8_t **out, size_t *out_len);
 int zs_view_scene_read(zs_view *view, const uint8_t *data, size_t len);
 
-/* wasm only: the frame data of a ZS_SURFACE_WEB view, after zs_view_draw.
- * The pointers point into wasm memory and stay valid until the next call
- * into the view. A buffer changes only when its generation changes. The
+/* wasm and macOS: the frame data of a ZS_SURFACE_WEB view, after
+ * zs_view_draw. The pointers point into the memory of the core and stay
+ * valid until the next call into the view. A buffer changes only when its generation changes. The
  * instances are zs_web_instance values; the bead mesh, the shaders, and the
  * draw calls are those of the Vulkan backend (src/render/vk.zig), with the
  * clip space of Vulkan (y down, depth 0 to 1). NULL on other targets. */

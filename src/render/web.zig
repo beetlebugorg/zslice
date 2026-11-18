@@ -1,17 +1,20 @@
-//! The web backend of the renderer, for the wasm build.
+//! The frame backend of the renderer, for the wasm build and for macOS.
 //!
 //! A browser draws with WebGL in JavaScript, and wasm code cannot call the
 //! GPU directly. So this backend does not draw: it keeps the data of the
-//! scene and of the last frame in wasm memory, and the JavaScript side
-//! reads them and draws them with WebGL2 (web/app/gl.js). The scene logic
+//! scene and of the last frame in memory, and the shell reads them and
+//! draws them. The web app draws with WebGL2 (web/app/gl.js). The macOS
+//! app draws with Metal (macos/Sources/ZSlice/Render). The scene logic
 //! (the beads, the camera, the replay) stays in view.zig, the same as for
-//! the native backends.
+//! the Vulkan backend.
 //!
-//! The JavaScript side reads `WebFrame` (see zs_view_web_frame in
+//! The shell reads `WebFrame` (see zs_view_web_frame in
 //! include/zslice-app.h) after each zs_view_draw. A buffer goes to the GPU
 //! again only when its generation number changes.
 
 const std = @import("std");
+const builtin = @import("builtin");
+const is_wasm = builtin.cpu.arch.isWasm();
 const frame_mod = @import("frame.zig");
 
 pub const Instance = frame_mod.Instance;
@@ -24,12 +27,12 @@ const BedImage = @import("../bed.zig").Image;
 
 pub const Error = error{OutOfMemory};
 
-/// A web view has no native surface: the shell draws the frame data.
+/// A frame view has no native surface: the shell draws the frame data.
 pub const Surface = union(enum) { web };
 
 /// The data of the scene and of the last frame, for the JavaScript side.
-/// All fields are 4 bytes wide (wasm32), in this order; the layout is in
-/// include/zslice-app.h (zs_web_frame).
+/// The layout is zs_web_frame in include/zslice-app.h: a usize field is a
+/// pointer there. In wasm32 all fields are 4 bytes wide.
 pub const WebFrame = extern struct {
     /// The push constants of the beads and of the grid.
     box: Push,
@@ -98,7 +101,7 @@ pub const WebFrame = extern struct {
 
 comptime {
     // web/app/view.js reads the plates at this stride.
-    std.debug.assert(@sizeOf(PlateFrame) == 160);
+    if (is_wasm) std.debug.assert(@sizeOf(PlateFrame) == 160);
 }
 
 pub const Renderer = struct {
@@ -110,7 +113,7 @@ pub const Renderer = struct {
     bed_verts: std.ArrayList(BedVertex) = .empty,
     bed_tex: std.ArrayList(u8) = .empty,
 
-    const gpa = (if (@import("../parallel.zig").wasm_pool) @import("../wasm_heap.zig").allocator else std.heap.wasm_allocator);
+    const gpa = if (!is_wasm) std.heap.c_allocator else if (@import("../parallel.zig").wasm_pool) @import("../wasm_heap.zig").allocator else std.heap.wasm_allocator;
 
     pub fn init(surface: Surface, width: u32, height: u32) Error!*Renderer {
         _ = surface;
@@ -186,8 +189,7 @@ pub const Renderer = struct {
         r.out.grid_gen +%= 1;
     }
 
-    /// The bed model: the JavaScript side uploads it once for each
-    /// generation.
+    /// The bed model: the shell uploads it once for each generation.
     pub fn setBed(r: *Renderer, verts: []const BedVertex, image: ?BedImage) Error!void {
         r.bed_verts.clearRetainingCapacity();
         r.bed_verts.appendSlice(gpa, verts) catch return error.OutOfMemory;
@@ -205,7 +207,7 @@ pub const Renderer = struct {
         r.out.bed_gen +%= 1;
     }
 
-    /// Keeps the frame for the JavaScript side. The extras and the head
+    /// Keeps the frame for the shell. The extras and the head
     /// point into buffers of the view that live as long as the view.
     pub fn draw(r: *Renderer, frame: frame_mod.Frame) Error!void {
         const o = &r.out;
