@@ -825,7 +825,8 @@ pub const Emitter = struct {
                 const time = struct {
                     fn at(ms: []motion.Move, fs: []const f64, k: f64, min_speed: f64, l: motion.Limits) f64 {
                         for (ms, fs) |*m, f| m.speed = if (m.e_ratio > 0) slowSpeed(f, k, min_speed) else f;
-                        return motion.plan(ms, l);
+                        // The first plan of the layer set the corner limits.
+                        return motion.planAgain(ms, l);
                     }
                 }.at;
                 const want = s.filament.min_layer_time - fixed;

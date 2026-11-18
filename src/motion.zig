@@ -114,6 +114,10 @@ pub const Move = struct {
     time: f64 = 0,
 
     // The work values of `plan`, in (mm/s)^2.
+    /// The limit of the speed at the start of the move from the corner
+    /// with the move before it and from the change of the extrusion. It
+    /// does not depend on the speeds (see `planAgain`).
+    corner: f64 = 0,
     max_start: f64 = 0,
     max_smooth: f64 = 0,
     start: f64 = 0,
@@ -123,6 +127,19 @@ pub const Move = struct {
 /// Plans the moves, which start and end at rest, and sets the time of each.
 /// Returns the sum of the times.
 pub fn plan(moves: []Move, limits: Limits) f64 {
+    return planWith(false, moves, limits);
+}
+
+/// `plan` for moves that `plan` has planned with the same limits, after a
+/// change of their speeds only. The corner limit of each move is from
+/// that plan: the two square roots and the two divisions of each corner
+/// are not done again. The times are the same as from `plan`, because a
+/// minimum does not depend on the order of its terms.
+pub fn planAgain(moves: []Move, limits: Limits) f64 {
+    return planWith(true, moves, limits);
+}
+
+fn planWith(comptime again: bool, moves: []Move, limits: Limits) f64 {
     const jd_v2 = limits.corner_speed * limits.corner_speed * (std.math.sqrt2 - 1);
     const smooth = 1 - std.math.clamp(limits.min_cruise_ratio, 0, 0.99);
     // Step 1, and the forward pass of step 2 on the limits.
@@ -135,22 +152,26 @@ pub fn plan(moves: []Move, limits: Limits) f64 {
         const p = &moves[i - 1];
         const v2 = m.speed * m.speed;
         const pv2 = p.speed * p.speed;
-        var ms = fmin(fmin(v2, pv2), p.max_start + 2 * p.accel * p.len);
-        const dr = @abs(m.e_ratio - p.e_ratio);
-        if (dr > 0) {
-            const ve = limits.extruder_corner_speed / dr;
-            ms = fmin(ms, ve * ve);
+        if (!again) {
+            var corner = std.math.inf(f64);
+            const dr = @abs(m.e_ratio - p.e_ratio);
+            if (dr > 0) {
+                const ve = limits.extruder_corner_speed / dr;
+                corner = ve * ve;
+            }
+            // The cosine of the angle between the reversed first move and
+            // the second move. 1: a reversal. -1: straight on.
+            const cos = -(m.dir[0] * p.dir[0] + m.dir[1] * p.dir[1] + m.dir_z * p.dir_z);
+            const sin_h = @sqrt(fmax(0.5 * (1 - cos), 0));
+            const cos_h = @sqrt(fmax(0.5 * (1 + cos), 0));
+            if (1 - sin_h > 0 and cos_h > 0) {
+                const r = sin_h / (1 - sin_h);
+                const tan_q = 0.25 * sin_h / cos_h;
+                corner = fmin(fmin(corner, r * jd_v2), fmin(2 * m.accel * m.len * tan_q, 2 * p.accel * p.len * tan_q));
+            }
+            m.corner = corner;
         }
-        // The cosine of the angle between the reversed first move and the
-        // second move. 1: a reversal. -1: straight on.
-        const cos = -(m.dir[0] * p.dir[0] + m.dir[1] * p.dir[1] + m.dir_z * p.dir_z);
-        const sin_h = @sqrt(fmax(0.5 * (1 - cos), 0));
-        const cos_h = @sqrt(fmax(0.5 * (1 + cos), 0));
-        if (1 - sin_h > 0 and cos_h > 0) {
-            const r = sin_h / (1 - sin_h);
-            const tan_q = 0.25 * sin_h / cos_h;
-            ms = fmin(fmin(ms, r * jd_v2), fmin(2 * m.accel * m.len * tan_q, 2 * p.accel * p.len * tan_q));
-        }
+        const ms = fmin(fmin(fmin(v2, pv2), p.max_start + 2 * p.accel * p.len), m.corner);
         m.max_start = ms;
         m.max_smooth = fmin(ms, p.max_smooth + 2 * p.accel * smooth * p.len);
     }
