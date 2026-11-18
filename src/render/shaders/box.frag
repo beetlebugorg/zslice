@@ -41,7 +41,10 @@ void main() {
     // A selection (params.x < params.y): the selected path in a strong
     // yellow. The other beads keep their colors (to fade them, the view
     // isolates the selection: params.z < 0).
-    if (pc.params.y > pc.params.x && vhigh > 0.5) {
+    // A print view (params.w = 4): params.x to params.y are the beads of
+    // the top layer, not a selection.
+    bool lit = pc.params.w > 3.5;
+    if (!lit && pc.params.y > pc.params.x && vhigh > 0.5) {
         base = toLinear(vec3(1.0, 0.78, 0.05));
     }
     // More light from the sky (up) than from the ground.
@@ -50,9 +53,12 @@ void main() {
     vec3 hv = normalize(l + v);
     float spec = pow(max(dot(n, hv), 0.0), 40.0) * 0.18;
     vec3 c = base * (ambient + 0.85 * diffuse) + vec3(spec);
+    // A print view: the top layer is lit, and the layers under it are
+    // darker, so the layer that prints now stands out.
+    if (lit) c = vhigh > 0.5 ? c * 1.12 + base * 0.10 : c * 0.70;
     // The toolhead of a replay (params.w = 3): lit, and see-through, with a
     // brighter rim so its shape shows.
-    if (pc.params.w > 2.5) {
+    if (pc.params.w > 2.5 && pc.params.w < 3.5) {
         float rim = 1.0 - abs(dot(n, v));
         frag = vec4(toSrgb(c + vec3(0.25 * rim * rim)), 0.38 + 0.3 * rim);
         return;

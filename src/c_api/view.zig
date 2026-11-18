@@ -11,6 +11,7 @@ const status = c.status;
 const ok = c.ok;
 const is_wasm = c.is_wasm;
 const App = zs.app.App;
+const GCode = @import("gcode.zig").GCode;
 
 /// The Vulkan renderer needs libc (it loads the Vulkan loader with
 /// dlopen). It is on Linux now. The wasm build and macOS have the frame
@@ -46,6 +47,93 @@ export fn zs_view_new(surface: ?*const CSurface, width: u32, height: u32, out: ?
     };
     o.* = View.create(native, width, height) catch |e| return status(e);
     return ok;
+}
+
+/// The flags of zs_view_offscreen.
+const offscreen_reduced = 1;
+const offscreen_bgra = 2;
+
+/// A view that draws into an image that it owns, with no window: the host
+/// reads each frame with zs_view_read. `mode`: offscreen_reduced for the
+/// reduced view of a printer screen, offscreen_bgra for B, G, R, A bytes.
+export fn zs_view_offscreen(width: u32, height: u32, mode: c_int, out: ?*?*View) c_int {
+    if (!render_on or frame_backend) return @intFromEnum(Status.not_supported);
+    const o = out orelse return @intFromEnum(Status.invalid_argument);
+    if (width == 0 or height == 0 or width > 16384 or height > 16384) return @intFromEnum(Status.invalid_argument);
+    const v = View.create(.{ .offscreen = .{ .bgra = mode & offscreen_bgra != 0 } }, width, height) catch |e| return status(e);
+    v.setReduced(mode & offscreen_reduced != 0) catch |e| {
+        v.destroy();
+        return status(e);
+    };
+    o.* = v;
+    return ok;
+}
+
+/// Copies the last frame of an offscreen view to `out`: `stride` bytes
+/// from one row to the next, rows from the top, 4 bytes for each pixel.
+/// Waits for the frame. ZS_BUSY before the first zs_view_draw.
+export fn zs_view_read(view: ?*View, out: ?[*]u8, len: usize, stride: usize) c_int {
+    if (!render_on or frame_backend) return @intFromEnum(Status.not_supported);
+    const v = view orelse return @intFromEnum(Status.invalid_argument);
+    const o = out orelse return @intFromEnum(Status.invalid_argument);
+    const size = v.renderer.targetSize();
+    if (size[1] > 0 and (stride < @as(usize, size[0]) * 4 or len < stride * (size[1] - 1) + @as(usize, size[0]) * 4)) return @intFromEnum(Status.invalid_argument);
+    v.renderer.read(o[0..len], stride) catch |e| return status(e);
+    return ok;
+}
+
+/// Shows a G-code file (see zs_gcode_open). Keep the zs_gcode while the
+/// view shows it. bed_x, bed_y: the bed size in mm (0: around the part).
+export fn zs_view_load_gcode(view: ?*View, g: ?*const GCode, bed_x: f64, bed_y: f64) c_int {
+    if (!render_on) return @intFromEnum(Status.not_supported);
+    const v = view orelse return @intFromEnum(Status.invalid_argument);
+    const h = g orelse return @intFromEnum(Status.invalid_argument);
+    if (!h.r.finished) return @intFromEnum(Status.invalid_argument);
+    v.loadGcode(&h.r, .{ @floatCast(bed_x), @floatCast(bed_y) }) catch |e| return status(e);
+    return ok;
+}
+
+/// The print at a byte offset of the file (the file position that
+/// Klipper reports): the moves read so far, the layer lit, the nozzle.
+export fn zs_view_set_position(view: ?*View, offset: u64) void {
+    if (!render_on) return;
+    const v = view orelse return;
+    v.setPosition(offset);
+}
+
+/// The colors of a G-code file: by_feature != 0 for one color for each
+/// feature, else the filament color rgb (0xRRGGBB).
+export fn zs_view_gcode_colors(view: ?*View, by_feature: c_int, rgb: u32) c_int {
+    if (!render_on) return @intFromEnum(Status.not_supported);
+    const v = view orelse return @intFromEnum(Status.invalid_argument);
+    v.setGcodeColors(by_feature != 0, .{ @truncate(rgb >> 16), @truncate(rgb >> 8), @truncate(rgb) }) catch |e| return status(e);
+    return ok;
+}
+
+/// The reduced view of a printer screen (on != 0): no tools, gizmos,
+/// selection, marks, or labels.
+export fn zs_view_set_reduced(view: ?*View, on: c_int) void {
+    if (!render_on) return;
+    const v = view orelse return;
+    v.setReduced(on != 0) catch {};
+}
+
+/// A print view: show the nozzle at the position (on != 0, the default),
+/// and light the top layer (lit != 0, the default).
+export fn zs_view_print_look(view: ?*View, nozzle: c_int, lit: c_int) void {
+    if (!render_on) return;
+    const v = view orelse return;
+    v.show_head = nozzle != 0;
+    v.lit = lit != 0;
+}
+
+/// A finger on a touch screen: action 0 down, 1 move, 2 up, 3 cancel; x,
+/// y in pixels. One finger orbits; two pinch to zoom and pan.
+export fn zs_view_touch(view: ?*View, id: i64, action: c_int, x: f32, y: f32) void {
+    if (!render_on) return;
+    const v = view orelse return;
+    if (action < 0 or action > 3) return;
+    v.touch(id, @enumFromInt(action), x, y);
 }
 
 export fn zs_view_free(view: ?*View) void {

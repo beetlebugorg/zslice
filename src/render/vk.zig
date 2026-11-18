@@ -23,6 +23,13 @@
 //!   writes them directly, with no staging copy.
 //! - One frame in flight. The view draws on demand (after a change), not at
 //!   a fixed rate, so the simple form is enough.
+//! - An offscreen renderer (a printer screen with no window system) draws
+//!   into an image that it owns, and copies each frame to a host buffer
+//!   that the host reads. It loads no surface or swapchain extension.
+//! - A print view offscreen keeps the finished layers in a cached image
+//!   (color and depth). A frame adds the new finished beads to it, copies
+//!   it, and draws only the top layer and the nozzle over the copy. A new
+//!   camera or new colors draw the cache again. See `recordCached`.
 //!
 //! The structure follows the Vulkan backend of charttable (same author, MIT
 //! license, see REFERENCES.md): run-time loading, a surface from the shell,
@@ -47,10 +54,14 @@ pub const Error = error{
     FrameBusy,
 };
 
-/// The window surface that the shell gives.
+/// The window surface that the shell gives, or an image that the
+/// renderer owns (`offscreen`): the host reads each frame with `read`.
 pub const Surface = union(enum) {
     wayland: struct { display: *anyopaque, surface: *anyopaque },
     xlib: struct { display: *anyopaque, window: u64 },
+    /// `bgra`: the image has the bytes in B, G, R, A order (the order of
+    /// a 32-bit Linux framebuffer); else R, G, B, A.
+    offscreen: struct { bgra: bool = false },
 };
 
 const frame_mod = @import("frame.zig");
@@ -132,6 +143,8 @@ const Device = struct {
     vkCmdSetScissor: c.PFN_vkCmdSetScissor,
     vkCmdPipelineBarrier: c.PFN_vkCmdPipelineBarrier,
     vkCmdCopyBufferToImage: c.PFN_vkCmdCopyBufferToImage,
+    vkCmdCopyImageToBuffer: c.PFN_vkCmdCopyImageToBuffer,
+    vkCmdCopyImage: c.PFN_vkCmdCopyImage,
     vkCmdBindDescriptorSets: c.PFN_vkCmdBindDescriptorSets,
     vkCreateSampler: c.PFN_vkCreateSampler,
     vkDestroySampler: c.PFN_vkDestroySampler,
@@ -150,11 +163,13 @@ const Device = struct {
 };
 
 /// Fills a function table: each field name is a Vulkan function name.
+/// The functions of the surface and swapchain extensions (a name that
+/// ends in KHR) can be null: an offscreen renderer does not load them.
 fn loadFns(comptime T: type, getter: anytype, handle: anytype) Error!T {
     var out: T = undefined;
     inline for (@typeInfo(T).@"struct".fields) |f| {
         const p = getter(handle, f.name ++ "");
-        if (p == null) return error.NoVulkan;
+        if (p == null and !comptime std.mem.endsWith(u8, f.name, "KHR")) return error.NoVulkan;
         @field(out, f.name) = @ptrCast(p);
     }
     return out;
@@ -213,6 +228,38 @@ const Buffer = struct {
 };
 
 const max_images = 8;
+
+/// The dependencies of the passes of an offscreen renderer: a pass waits
+/// for the copies before it (into or out of its images) and for the
+/// passes before it, and a copy after it waits for the pass (and for the
+/// layout change at its end).
+const cache_deps = [2]c.VkSubpassDependency{ cache_dep, .{
+    .srcSubpass = 0,
+    .dstSubpass = c.VK_SUBPASS_EXTERNAL,
+    .srcStageMask = c.VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT | c.VK_PIPELINE_STAGE_LATE_FRAGMENT_TESTS_BIT,
+    .dstStageMask = c.VK_PIPELINE_STAGE_TRANSFER_BIT,
+    .srcAccessMask = c.VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT | c.VK_ACCESS_DEPTH_STENCIL_ATTACHMENT_WRITE_BIT,
+    .dstAccessMask = c.VK_ACCESS_TRANSFER_READ_BIT | c.VK_ACCESS_TRANSFER_WRITE_BIT,
+} };
+const cache_dep: c.VkSubpassDependency = .{
+    .srcSubpass = c.VK_SUBPASS_EXTERNAL,
+    .dstSubpass = 0,
+    .srcStageMask = c.VK_PIPELINE_STAGE_TRANSFER_BIT | c.VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT | c.VK_PIPELINE_STAGE_LATE_FRAGMENT_TESTS_BIT,
+    .dstStageMask = c.VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT | c.VK_PIPELINE_STAGE_EARLY_FRAGMENT_TESTS_BIT | c.VK_PIPELINE_STAGE_LATE_FRAGMENT_TESTS_BIT,
+    .srcAccessMask = c.VK_ACCESS_TRANSFER_WRITE_BIT | c.VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT | c.VK_ACCESS_DEPTH_STENCIL_ATTACHMENT_WRITE_BIT,
+    .dstAccessMask = c.VK_ACCESS_COLOR_ATTACHMENT_READ_BIT | c.VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT | c.VK_ACCESS_DEPTH_STENCIL_ATTACHMENT_READ_BIT | c.VK_ACCESS_DEPTH_STENCIL_ATTACHMENT_WRITE_BIT,
+};
+
+/// What the cached image of a print view depends on.
+const CacheKey = struct {
+    base: Push,
+    grid: Push,
+    bed: Push,
+    clear: [3]f32,
+    first: u32,
+    grid_vertices: u32,
+    bed_vertices: u32,
+};
 
 pub const Renderer = struct {
     lib: std.DynLib,
@@ -279,6 +326,35 @@ pub const Renderer = struct {
     instances: Buffer = .{},
     grid: Buffer = .{},
 
+    /// The offscreen target (Surface.offscreen): the color image, its
+    /// framebuffer, and a host buffer that each frame copies into.
+    offscreen: bool = false,
+    target_image: c.VkImage = null,
+    target_mem: c.VkDeviceMemory = null,
+    target_view: c.VkImageView = null,
+    target_fb: c.VkFramebuffer = null,
+    readback: Buffer = .{},
+    /// A frame was drawn and its copy is not yet read.
+    drawn: bool = false,
+    /// The cache of a print view (see Frame.cached): images of the
+    /// color and the depth of the finished layers, the passes that clear
+    /// and add to them, and the pass that draws the rest over a copy.
+    cache_color: c.VkImage = null,
+    cache_color_mem: c.VkDeviceMemory = null,
+    cache_color_view: c.VkImageView = null,
+    cache_depth: c.VkImage = null,
+    cache_depth_mem: c.VkDeviceMemory = null,
+    cache_depth_view: c.VkImageView = null,
+    cache_fb: c.VkFramebuffer = null,
+    cache_clear_pass: c.VkRenderPass = null,
+    cache_add_pass: c.VkRenderPass = null,
+    over_pass: c.VkRenderPass = null,
+    /// The beads in the cache (its end), and the frame that drew it: a
+    /// change of the camera or the colors draws it again.
+    cache_end: u32 = 0,
+    cache_valid: bool = false,
+    cache_key: CacheKey = undefined,
+
     pub fn init(surface: Surface, width: u32, height: u32) Error!*Renderer {
         var lib = std.DynLib.open("libvulkan.so.1") catch return error.NoVulkan;
         errdefer lib.close();
@@ -287,9 +363,11 @@ pub const Renderer = struct {
         const g = try loadFns(Global, gipa, @as(c.VkInstance, null));
 
         // The instance, with the surface extension of the window system.
+        const offscreen = surface == .offscreen;
         const surface_ext: [*:0]const u8 = switch (surface) {
             .wayland => "VK_KHR_wayland_surface",
             .xlib => "VK_KHR_xlib_surface",
+            .offscreen => "",
         };
         const exts = [_][*:0]const u8{ "VK_KHR_surface", surface_ext };
         const app_info: c.VkApplicationInfo = .{
@@ -301,7 +379,7 @@ pub const Renderer = struct {
         try check(g.vkCreateInstance.?(&.{
             .sType = c.VK_STRUCTURE_TYPE_INSTANCE_CREATE_INFO,
             .pApplicationInfo = &app_info,
-            .enabledExtensionCount = exts.len,
+            .enabledExtensionCount = if (offscreen) 0 else exts.len,
             .ppEnabledExtensionNames = @ptrCast(&exts),
         }, null, &instance));
         const i = loadFns(Instance_, gipa, instance) catch |e| {
@@ -320,8 +398,9 @@ pub const Renderer = struct {
                 const f: PfnCreateXlibSurface = @ptrCast(gipa(instance, "vkCreateXlibSurfaceKHR") orelse return error.SurfaceFailed);
                 if (f(instance, &.{ .dpy = x.display, .window = @intCast(x.window) }, null, &vk_surface) != c.VK_SUCCESS) return error.SurfaceFailed;
             },
+            .offscreen => {},
         }
-        errdefer i.vkDestroySurfaceKHR.?(instance, vk_surface, null);
+        errdefer if (vk_surface != null) i.vkDestroySurfaceKHR.?(instance, vk_surface, null);
 
         // A device with a queue that draws and presents to this surface:
         // a discrete GPU first (a laptop or a desktop with two GPUs can
@@ -346,9 +425,11 @@ pub const Renderer = struct {
             i.vkGetPhysicalDeviceQueueFamilyProperties.?(pd, &qn, &qs);
             for (qs[0..qn], 0..) |q, qi| {
                 if (q.queueFlags & c.VK_QUEUE_GRAPHICS_BIT == 0) continue;
-                var present: c.VkBool32 = 0;
-                _ = i.vkGetPhysicalDeviceSurfaceSupportKHR.?(pd, @intCast(qi), vk_surface, &present);
-                if (present == 0) continue;
+                if (!offscreen) {
+                    var present: c.VkBool32 = 0;
+                    _ = i.vkGetPhysicalDeviceSurfaceSupportKHR.?(pd, @intCast(qi), vk_surface, &present);
+                    if (present == 0) continue;
+                }
                 phys = pd;
                 family = @intCast(qi);
                 phys_discrete = discrete;
@@ -374,7 +455,7 @@ pub const Renderer = struct {
                 .queueCount = 1,
                 .pQueuePriorities = &priority,
             },
-            .enabledExtensionCount = dev_exts.len,
+            .enabledExtensionCount = if (offscreen) 0 else dev_exts.len,
             .ppEnabledExtensionNames = @ptrCast(&dev_exts),
         }, null, &device));
         const d = loadFns(Device, i.vkGetDeviceProcAddr.?, device) catch |e| return e;
@@ -404,6 +485,11 @@ pub const Renderer = struct {
             .fence = null,
             .want_width = @max(width, 1),
             .want_height = @max(height, 1),
+            .offscreen = offscreen,
+        };
+        if (offscreen) r.format = .{
+            .format = if (surface.offscreen.bgra) c.VK_FORMAT_B8G8R8A8_UNORM else c.VK_FORMAT_R8G8B8A8_UNORM,
+            .colorSpace = c.VK_COLOR_SPACE_SRGB_NONLINEAR_KHR,
         };
         d.vkGetDeviceQueue.?(device, family, 0, &r.queue);
         i.vkGetPhysicalDeviceMemoryProperties.?(phys, &r.mem_props);
@@ -416,13 +502,14 @@ pub const Renderer = struct {
 
     /// The parts that do not depend on the window size.
     fn setup(r: *Renderer) Error!void {
-        r.format = try r.pickFormat();
+        if (!r.offscreen) r.format = try r.pickFormat();
         // 4x multisampling if the device has it for color and depth.
         var props: c.VkPhysicalDeviceProperties = undefined;
         r.i.vkGetPhysicalDeviceProperties.?(r.phys, &props);
         const counts = props.limits.framebufferColorSampleCounts & props.limits.framebufferDepthSampleCounts;
         r.samples = if (counts & c.VK_SAMPLE_COUNT_4_BIT != 0) c.VK_SAMPLE_COUNT_4_BIT else c.VK_SAMPLE_COUNT_1_BIT;
         try r.makeRenderPass();
+        if (r.offscreen) try r.makeCachePasses();
         try r.makePipelines();
         try check(r.d.vkCreateCommandPool.?(r.device, &.{
             .sType = c.VK_STRUCTURE_TYPE_COMMAND_POOL_CREATE_INFO,
@@ -443,8 +530,9 @@ pub const Renderer = struct {
         const d = r.d;
         if (r.device != null) _ = d.vkDeviceWaitIdle.?(r.device);
         r.destroySwapchain();
+        r.destroyTarget();
         if (r.swapchain != null) d.vkDestroySwapchainKHR.?(r.device, r.swapchain, null);
-        for ([_]*Buffer{ &r.box_mesh, &r.box_index, &r.instances, &r.grid, &r.bed }) |b| r.freeBuffer(b);
+        for ([_]*Buffer{ &r.box_mesh, &r.box_index, &r.instances, &r.grid, &r.bed, &r.readback }) |b| r.freeBuffer(b);
         r.freeTexture();
         if (r.sampler != null) d.vkDestroySampler.?(r.device, r.sampler, null);
         if (r.desc_pool != null) d.vkDestroyDescriptorPool.?(r.device, r.desc_pool, null);
@@ -459,8 +547,9 @@ pub const Renderer = struct {
         if (r.grid_pipeline != null) d.vkDestroyPipeline.?(r.device, r.grid_pipeline, null);
         if (r.layout != null) d.vkDestroyPipelineLayout.?(r.device, r.layout, null);
         if (r.render_pass != null) d.vkDestroyRenderPass.?(r.device, r.render_pass, null);
+        for ([_]c.VkRenderPass{ r.cache_clear_pass, r.cache_add_pass, r.over_pass }) |p| if (p != null) d.vkDestroyRenderPass.?(r.device, p, null);
         d.vkDestroyDevice.?(r.device, null);
-        r.i.vkDestroySurfaceKHR.?(r.instance, r.surface, null);
+        if (r.surface != null) r.i.vkDestroySurfaceKHR.?(r.instance, r.surface, null);
         r.i.vkDestroyInstance.?(r.instance, null);
         r.lib.close();
         std.heap.c_allocator.destroy(r);
@@ -527,7 +616,7 @@ pub const Renderer = struct {
                 .stencilLoadOp = c.VK_ATTACHMENT_LOAD_OP_DONT_CARE,
                 .stencilStoreOp = c.VK_ATTACHMENT_STORE_OP_DONT_CARE,
                 .initialLayout = c.VK_IMAGE_LAYOUT_UNDEFINED,
-                .finalLayout = if (msaa) c.VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL else c.VK_IMAGE_LAYOUT_PRESENT_SRC_KHR,
+                .finalLayout = if (msaa) c.VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL else r.outLayout(),
             },
             .{
                 .format = depth_format,
@@ -547,7 +636,7 @@ pub const Renderer = struct {
                 .stencilLoadOp = c.VK_ATTACHMENT_LOAD_OP_DONT_CARE,
                 .stencilStoreOp = c.VK_ATTACHMENT_STORE_OP_DONT_CARE,
                 .initialLayout = c.VK_IMAGE_LAYOUT_UNDEFINED,
-                .finalLayout = c.VK_IMAGE_LAYOUT_PRESENT_SRC_KHR,
+                .finalLayout = r.outLayout(),
             },
         };
         const color_ref: c.VkAttachmentReference = .{ .attachment = 0, .layout = c.VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL };
@@ -576,9 +665,17 @@ pub const Renderer = struct {
             .pAttachments = &attachments,
             .subpassCount = 1,
             .pSubpasses = &subpass,
-            .dependencyCount = 1,
-            .pDependencies = &dep,
+            // An offscreen renderer has the dependencies of the cache
+            // passes: compatible passes need the same dependencies.
+            .dependencyCount = if (r.offscreen) cache_deps.len else 1,
+            .pDependencies = if (r.offscreen) &cache_deps else &dep,
         }, null, &r.render_pass));
+    }
+
+    /// The layout of the drawn image at the end of the pass: ready to
+    /// present, or for an offscreen image ready to copy to the host.
+    fn outLayout(r: *const Renderer) c.VkImageLayout {
+        return if (r.offscreen) c.VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL else c.VK_IMAGE_LAYOUT_PRESENT_SRC_KHR;
     }
 
     fn shader(r: *Renderer, code: []const u32) Error!c.VkShaderModule {
@@ -835,6 +932,7 @@ pub const Renderer = struct {
     /// Replaces the template mesh of a bead: vertices of 4 floats (see
     /// shaders/box.vert) and triangle indices.
     pub fn setMesh(r: *Renderer, verts: []const [4]f32, indices: []const u16) Error!void {
+        r.cache_valid = false;
         _ = r.d.vkDeviceWaitIdle.?(r.device);
         const vb = std.mem.sliceAsBytes(verts);
         try r.makeBuffer(&r.box_mesh, vb.len, c.VK_BUFFER_USAGE_VERTEX_BUFFER_BIT);
@@ -852,6 +950,7 @@ pub const Renderer = struct {
     /// The beads, then the marks (seams, travel, retractions) after
     /// them: Frame.mark_first is beads.len.
     pub fn setInstances(r: *Renderer, items: []const Instance, marks: []const Instance) Error!void {
+        r.cache_valid = false;
         _ = r.d.vkDeviceWaitIdle.?(r.device);
         const bytes = std.mem.sliceAsBytes(items);
         const mark_bytes = std.mem.sliceAsBytes(marks);
@@ -862,8 +961,22 @@ pub const Renderer = struct {
         r.instance_count = @intCast(items.len + marks.len);
     }
 
+    /// The instance buffer for `n` beads, for the caller to fill in place
+    /// (no copy in host memory). The marks are none. Waits for the GPU.
+    /// The slice stays valid until the next call that changes the beads.
+    pub fn instanceBuffer(r: *Renderer, n: usize) Error![]Instance {
+        r.cache_valid = false;
+        _ = r.d.vkDeviceWaitIdle.?(r.device);
+        const need = (n + max_extras) * @sizeOf(Instance);
+        if (need > r.instances.size) try r.makeBuffer(&r.instances, need, c.VK_BUFFER_USAGE_VERTEX_BUFFER_BIT);
+        r.instance_count = @intCast(n);
+        const p: [*]Instance = @ptrCast(@alignCast(r.instances.map.?));
+        return p[0..n];
+    }
+
     /// Replaces the grid lines: pairs of points, x, y, z each.
     pub fn setGrid(r: *Renderer, points: []const f32) Error!void {
+        r.cache_valid = false;
         _ = r.d.vkDeviceWaitIdle.?(r.device);
         const bytes = std.mem.sliceAsBytes(points);
         if (bytes.len > r.grid.size) try r.makeBuffer(&r.grid, bytes.len, c.VK_BUFFER_USAGE_VERTEX_BUFFER_BIT);
@@ -874,6 +987,7 @@ pub const Renderer = struct {
     /// texture or null. The bed is static: this runs once for each
     /// printer, so a wait for the GPU is fine.
     pub fn setBed(r: *Renderer, verts: []const BedVertex, image: ?BedImage) Error!void {
+        r.cache_valid = false;
         _ = r.d.vkDeviceWaitIdle.?(r.device);
         r.bed_count = 0;
         if (verts.len == 0) return;
@@ -1076,10 +1190,31 @@ pub const Renderer = struct {
         // pass, so it can be transient).
         const msaa = r.samples != c.VK_SAMPLE_COUNT_1_BIT;
         if (msaa) {
-            try r.makeImage(extent, r.format.format, c.VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT | c.VK_IMAGE_USAGE_TRANSIENT_ATTACHMENT_BIT, c.VK_IMAGE_ASPECT_COLOR_BIT, &r.msaa_image, &r.msaa_mem, &r.msaa_view);
+            try r.makeImage(extent, r.format.format, r.samples, c.VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT | c.VK_IMAGE_USAGE_TRANSIENT_ATTACHMENT_BIT, c.VK_IMAGE_ASPECT_COLOR_BIT, &r.msaa_image, &r.msaa_mem, &r.msaa_view);
         }
+        try r.makeDepth(extent, 0);
 
-        // The depth buffer.
+        for (0..n) |k| {
+            try check(d.vkCreateImageView.?(r.device, &.{
+                .sType = c.VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO,
+                .image = r.images[k],
+                .viewType = c.VK_IMAGE_VIEW_TYPE_2D,
+                .format = r.format.format,
+                .subresourceRange = .{ .aspectMask = c.VK_IMAGE_ASPECT_COLOR_BIT, .levelCount = 1, .layerCount = 1 },
+            }, null, &r.views[k]));
+            r.framebuffers[k] = try r.makeFramebuffer(r.views[k], extent);
+            // One "rendered" semaphore for each image: the present of an
+            // image can still wait on its semaphore when the next frame
+            // starts.
+            try check(d.vkCreateSemaphore.?(r.device, &.{ .sType = c.VK_STRUCTURE_TYPE_SEMAPHORE_CREATE_INFO }, null, &r.rendered[k]));
+            r.image_count += 1;
+        }
+        r.stale = false;
+    }
+
+    /// The depth buffer (and its view) of the size of the drawing.
+    fn makeDepth(r: *Renderer, extent: c.VkExtent2D, usage: c.VkImageUsageFlags) Error!void {
+        const d = r.d;
         try check(d.vkCreateImage.?(r.device, &.{
             .sType = c.VK_STRUCTURE_TYPE_IMAGE_CREATE_INFO,
             .imageType = c.VK_IMAGE_TYPE_2D,
@@ -1089,7 +1224,7 @@ pub const Renderer = struct {
             .arrayLayers = 1,
             .samples = r.samples,
             .tiling = c.VK_IMAGE_TILING_OPTIMAL,
-            .usage = c.VK_IMAGE_USAGE_DEPTH_STENCIL_ATTACHMENT_BIT,
+            .usage = @as(c.VkImageUsageFlags, c.VK_IMAGE_USAGE_DEPTH_STENCIL_ATTACHMENT_BIT) | usage,
             .sharingMode = c.VK_SHARING_MODE_EXCLUSIVE,
             .initialLayout = c.VK_IMAGE_LAYOUT_UNDEFINED,
         }, null, &r.depth_image));
@@ -1108,36 +1243,120 @@ pub const Renderer = struct {
             .format = depth_format,
             .subresourceRange = .{ .aspectMask = c.VK_IMAGE_ASPECT_DEPTH_BIT, .levelCount = 1, .layerCount = 1 },
         }, null, &r.depth_view));
+    }
 
-        for (0..n) |k| {
-            try check(d.vkCreateImageView.?(r.device, &.{
-                .sType = c.VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO,
-                .image = r.images[k],
-                .viewType = c.VK_IMAGE_VIEW_TYPE_2D,
-                .format = r.format.format,
-                .subresourceRange = .{ .aspectMask = c.VK_IMAGE_ASPECT_COLOR_BIT, .levelCount = 1, .layerCount = 1 },
-            }, null, &r.views[k]));
-            const atts = if (msaa) [_]c.VkImageView{ r.msaa_view, r.depth_view, r.views[k] } else [_]c.VkImageView{ r.views[k], r.depth_view, null };
-            try check(d.vkCreateFramebuffer.?(r.device, &.{
-                .sType = c.VK_STRUCTURE_TYPE_FRAMEBUFFER_CREATE_INFO,
-                .renderPass = r.render_pass,
-                .attachmentCount = if (msaa) 3 else 2,
-                .pAttachments = &atts,
-                .width = extent.width,
-                .height = extent.height,
-                .layers = 1,
-            }, null, &r.framebuffers[k]));
-            // One "rendered" semaphore for each image: the present of an
-            // image can still wait on its semaphore when the next frame
-            // starts.
-            try check(d.vkCreateSemaphore.?(r.device, &.{ .sType = c.VK_STRUCTURE_TYPE_SEMAPHORE_CREATE_INFO }, null, &r.rendered[k]));
-            r.image_count += 1;
+    /// A framebuffer of the render pass that resolves (or draws) into
+    /// `color`.
+    fn makeFramebuffer(r: *Renderer, color: c.VkImageView, extent: c.VkExtent2D) Error!c.VkFramebuffer {
+        const msaa = r.samples != c.VK_SAMPLE_COUNT_1_BIT;
+        const atts = if (msaa) [_]c.VkImageView{ r.msaa_view, r.depth_view, color } else [_]c.VkImageView{ color, r.depth_view, null };
+        var fb: c.VkFramebuffer = null;
+        try check(r.d.vkCreateFramebuffer.?(r.device, &.{
+            .sType = c.VK_STRUCTURE_TYPE_FRAMEBUFFER_CREATE_INFO,
+            .renderPass = r.render_pass,
+            .attachmentCount = if (msaa) 3 else 2,
+            .pAttachments = &atts,
+            .width = extent.width,
+            .height = extent.height,
+            .layers = 1,
+        }, null, &fb));
+        return fb;
+    }
+
+    // ---- the offscreen target ----
+
+    fn destroyTarget(r: *Renderer) void {
+        const d = r.d;
+        if (r.target_fb != null) d.vkDestroyFramebuffer.?(r.device, r.target_fb, null);
+        if (r.target_view != null) d.vkDestroyImageView.?(r.device, r.target_view, null);
+        if (r.target_image != null) d.vkDestroyImage.?(r.device, r.target_image, null);
+        if (r.target_mem != null) d.vkFreeMemory.?(r.device, r.target_mem, null);
+        r.target_fb = null;
+        r.target_view = null;
+        r.target_image = null;
+        r.target_mem = null;
+        if (r.cache_fb != null) d.vkDestroyFramebuffer.?(r.device, r.cache_fb, null);
+        for ([_]c.VkImageView{ r.cache_color_view, r.cache_depth_view }) |v| if (v != null) d.vkDestroyImageView.?(r.device, v, null);
+        for ([_]c.VkImage{ r.cache_color, r.cache_depth }) |im| if (im != null) d.vkDestroyImage.?(r.device, im, null);
+        for ([_]c.VkDeviceMemory{ r.cache_color_mem, r.cache_depth_mem }) |m| if (m != null) d.vkFreeMemory.?(r.device, m, null);
+        r.cache_fb = null;
+        r.cache_color_view = null;
+        r.cache_depth_view = null;
+        r.cache_color = null;
+        r.cache_depth = null;
+        r.cache_color_mem = null;
+        r.cache_depth_mem = null;
+        r.cache_valid = false;
+    }
+
+    /// The offscreen image of the wanted size, the images of the pass, and
+    /// the host buffer for the copy.
+    fn makeTarget(r: *Renderer) Error!void {
+        _ = r.d.vkDeviceWaitIdle.?(r.device);
+        r.destroySwapchain();
+        r.destroyTarget();
+        r.drawn = false;
+        const extent: c.VkExtent2D = .{ .width = r.want_width, .height = r.want_height };
+        // The images take a copy of the cache (see drawCached).
+        const dst = c.VK_IMAGE_USAGE_TRANSFER_DST_BIT;
+        try r.makeImage(extent, r.format.format, c.VK_SAMPLE_COUNT_1_BIT, c.VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT | c.VK_IMAGE_USAGE_TRANSFER_SRC_BIT | dst, c.VK_IMAGE_ASPECT_COLOR_BIT, &r.target_image, &r.target_mem, &r.target_view);
+        if (r.samples != c.VK_SAMPLE_COUNT_1_BIT) {
+            try r.makeImage(extent, r.format.format, r.samples, c.VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT | dst, c.VK_IMAGE_ASPECT_COLOR_BIT, &r.msaa_image, &r.msaa_mem, &r.msaa_view);
         }
+        try r.makeDepth(extent, dst);
+        r.target_fb = try r.makeFramebuffer(r.target_view, extent);
+        const bytes = @as(usize, extent.width) * extent.height * 4;
+        if (r.readback.size < bytes) try r.makeReadback(bytes);
+        r.extent = extent;
         r.stale = false;
     }
 
+    /// A host buffer that the GPU copies into and the CPU reads: cached
+    /// host memory if the device has it (an uncached read is slow).
+    fn makeReadback(r: *Renderer, size: usize) Error!void {
+        const b = &r.readback;
+        r.freeBuffer(b);
+        try check(r.d.vkCreateBuffer.?(r.device, &.{
+            .sType = c.VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO,
+            .size = size,
+            .usage = c.VK_BUFFER_USAGE_TRANSFER_DST_BIT,
+            .sharingMode = c.VK_SHARING_MODE_EXCLUSIVE,
+        }, null, &b.buf));
+        var req: c.VkMemoryRequirements = undefined;
+        r.d.vkGetBufferMemoryRequirements.?(r.device, b.buf, &req);
+        const host = c.VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | c.VK_MEMORY_PROPERTY_HOST_COHERENT_BIT;
+        const t = r.memoryType(req.memoryTypeBits, host | c.VK_MEMORY_PROPERTY_HOST_CACHED_BIT) catch try r.memoryType(req.memoryTypeBits, host);
+        try check(r.d.vkAllocateMemory.?(r.device, &.{
+            .sType = c.VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_INFO,
+            .allocationSize = req.size,
+            .memoryTypeIndex = t,
+        }, null, &b.mem));
+        try check(r.d.vkBindBufferMemory.?(r.device, b.buf, b.mem, 0));
+        var ptr: ?*anyopaque = null;
+        try check(r.d.vkMapMemory.?(r.device, b.mem, 0, size, 0, &ptr));
+        b.map = @ptrCast(ptr);
+        b.size = size;
+    }
+
+    /// Copies the last offscreen frame out, row by row from the top, with
+    /// `stride` bytes from one row to the next. Waits for the frame.
+    /// error.FrameBusy before the first frame, or for a window renderer.
+    pub fn read(r: *Renderer, out: []u8, stride: usize) Error!void {
+        if (!r.offscreen or !r.drawn) return error.FrameBusy;
+        try check(r.d.vkWaitForFences.?(r.device, 1, &r.fence, c.VK_TRUE, std.math.maxInt(u64)));
+        const row = @as(usize, r.extent.width) * 4;
+        if (stride < row or out.len < stride * (r.extent.height - 1) + row) return error.VulkanFailed;
+        const src = r.readback.map.?;
+        for (0..r.extent.height) |y| @memcpy(out[y * stride ..][0..row], src[y * row ..][0..row]);
+    }
+
+    /// The size of the offscreen image (after the first frame).
+    pub fn targetSize(r: *const Renderer) [2]u32 {
+        return .{ r.extent.width, r.extent.height };
+    }
+
     /// A device-local image with one view, for a render target.
-    fn makeImage(r: *Renderer, extent: c.VkExtent2D, format: c.VkFormat, usage: c.VkImageUsageFlags, aspect: c.VkImageAspectFlags, image: *c.VkImage, mem: *c.VkDeviceMemory, view: *c.VkImageView) Error!void {
+    fn makeImage(r: *Renderer, extent: c.VkExtent2D, format: c.VkFormat, samples: c.VkSampleCountFlagBits, usage: c.VkImageUsageFlags, aspect: c.VkImageAspectFlags, image: *c.VkImage, mem: *c.VkDeviceMemory, view: *c.VkImageView) Error!void {
         const d = r.d;
         try check(d.vkCreateImage.?(r.device, &.{
             .sType = c.VK_STRUCTURE_TYPE_IMAGE_CREATE_INFO,
@@ -1146,7 +1365,7 @@ pub const Renderer = struct {
             .extent = .{ .width = extent.width, .height = extent.height, .depth = 1 },
             .mipLevels = 1,
             .arrayLayers = 1,
-            .samples = r.samples,
+            .samples = samples,
             .tiling = c.VK_IMAGE_TILING_OPTIMAL,
             .usage = usage,
             .sharingMode = c.VK_SHARING_MODE_EXCLUSIVE,
@@ -1173,8 +1392,10 @@ pub const Renderer = struct {
 
     pub const Frame = frame_mod.Frame;
 
-    /// Draws one frame and presents it.
+    /// Draws one frame and presents it. An offscreen renderer draws into
+    /// its image and copies it to the host (see `read`).
     pub fn draw(r: *Renderer, frame: Frame) Error!void {
+        if (r.offscreen) return r.drawOffscreen(frame);
         const d = r.d;
         if (r.stale or r.swapchain == null) try r.makeSwapchain();
         if (r.image_count == 0) return;
@@ -1202,6 +1423,34 @@ pub const Renderer = struct {
             .sType = c.VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO,
             .flags = c.VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT,
         }));
+        r.recordPass(cmd, r.render_pass, r.framebuffers[index], frame);
+        try check(d.vkEndCommandBuffer.?(cmd));
+
+        const wait_stage: c.VkPipelineStageFlags = c.VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT;
+        try check(d.vkQueueSubmit.?(r.queue, 1, &.{
+            .sType = c.VK_STRUCTURE_TYPE_SUBMIT_INFO,
+            .waitSemaphoreCount = 1,
+            .pWaitSemaphores = &r.acquired,
+            .pWaitDstStageMask = &wait_stage,
+            .commandBufferCount = 1,
+            .pCommandBuffers = &cmd,
+            .signalSemaphoreCount = 1,
+            .pSignalSemaphores = &r.rendered[index],
+        }, r.fence));
+        const pres = d.vkQueuePresentKHR.?(r.queue, &.{
+            .sType = c.VK_STRUCTURE_TYPE_PRESENT_INFO_KHR,
+            .waitSemaphoreCount = 1,
+            .pWaitSemaphores = &r.rendered[index],
+            .swapchainCount = 1,
+            .pSwapchains = &r.swapchain,
+            .pImageIndices = &index,
+        });
+        if (pres == c.VK_ERROR_OUT_OF_DATE_KHR or pres == c.VK_SUBOPTIMAL_KHR) r.stale = true else try check(pres);
+    }
+
+    /// Records the render pass of a frame into `fb`.
+    fn recordPass(r: *Renderer, cmd: c.VkCommandBuffer, pass: c.VkRenderPass, fb: c.VkFramebuffer, frame: Frame) void {
+        const d = r.d;
         const clears = [_]c.VkClearValue{
             .{ .color = .{ .float32 = .{ frame.clear[0], frame.clear[1], frame.clear[2], 1 } } },
             .{ .depthStencil = .{ .depth = 1, .stencil = 0 } },
@@ -1209,8 +1458,8 @@ pub const Renderer = struct {
         };
         d.vkCmdBeginRenderPass.?(cmd, &.{
             .sType = c.VK_STRUCTURE_TYPE_RENDER_PASS_BEGIN_INFO,
-            .renderPass = r.render_pass,
-            .framebuffer = r.framebuffers[index],
+            .renderPass = pass,
+            .framebuffer = fb,
             .renderArea = .{ .offset = .{ .x = 0, .y = 0 }, .extent = r.extent },
             .clearValueCount = if (r.samples != c.VK_SAMPLE_COUNT_1_BIT) 3 else 2,
             .pClearValues = &clears,
@@ -1299,27 +1548,229 @@ pub const Renderer = struct {
             d.vkCmdDrawIndexed.?(cmd, r.box_index_count, @intCast(head.len), 0, 0, r.instance_count + @as(u32, @intCast(used)));
         }
         d.vkCmdEndRenderPass.?(cmd);
-        try check(d.vkEndCommandBuffer.?(cmd));
+    }
 
-        const wait_stage: c.VkPipelineStageFlags = c.VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT;
+    // ---- the cache of a print view ----
+
+    /// The passes of the cache: one clears the cache and draws into it,
+    /// one adds to it, and one draws over a copy of it into the target.
+    /// Each has one subpass, so the pipelines of the main pass work in
+    /// them (the resolve attachments do not count for compatibility).
+    fn makeCachePasses(r: *Renderer) Error!void {
+        const msaa = r.samples != c.VK_SAMPLE_COUNT_1_BIT;
+        const src = c.VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL;
+        const dst = c.VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL;
+        const att = struct {
+            fn f(format: c.VkFormat, samples: c.VkSampleCountFlagBits, load: c.VkAttachmentLoadOp, store: c.VkAttachmentStoreOp, from: c.VkImageLayout, to: c.VkImageLayout) c.VkAttachmentDescription {
+                return .{
+                    .format = format,
+                    .samples = samples,
+                    .loadOp = load,
+                    .storeOp = store,
+                    .stencilLoadOp = c.VK_ATTACHMENT_LOAD_OP_DONT_CARE,
+                    .stencilStoreOp = c.VK_ATTACHMENT_STORE_OP_DONT_CARE,
+                    .initialLayout = from,
+                    .finalLayout = to,
+                };
+            }
+        }.f;
+        const fmt = r.format.format;
+        const store = c.VK_ATTACHMENT_STORE_OP_STORE;
+        const drop = c.VK_ATTACHMENT_STORE_OP_DONT_CARE;
+        const load = c.VK_ATTACHMENT_LOAD_OP_LOAD;
+        const clear = c.VK_ATTACHMENT_LOAD_OP_CLEAR;
+        const undef = c.VK_IMAGE_LAYOUT_UNDEFINED;
+        const cache_clear = [_]c.VkAttachmentDescription{ att(fmt, r.samples, clear, store, undef, src), att(depth_format, r.samples, clear, store, undef, src) };
+        const cache_add = [_]c.VkAttachmentDescription{ att(fmt, r.samples, load, store, src, src), att(depth_format, r.samples, load, store, src, src) };
+        const over = if (msaa)
+            [_]c.VkAttachmentDescription{ att(fmt, r.samples, load, drop, dst, c.VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL), att(depth_format, r.samples, load, drop, dst, c.VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL), att(fmt, c.VK_SAMPLE_COUNT_1_BIT, c.VK_ATTACHMENT_LOAD_OP_DONT_CARE, store, undef, src) }
+        else
+            [_]c.VkAttachmentDescription{ att(fmt, r.samples, load, store, dst, src), att(depth_format, r.samples, load, drop, dst, c.VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL), undefined };
+        try r.cachePass(&cache_clear, false, &r.cache_clear_pass);
+        try r.cachePass(&cache_add, false, &r.cache_add_pass);
+        try r.cachePass(over[0..if (msaa) 3 else 2], msaa, &r.over_pass);
+    }
+
+    fn cachePass(r: *Renderer, atts: []const c.VkAttachmentDescription, resolve: bool, out: *c.VkRenderPass) Error!void {
+        const color_ref: c.VkAttachmentReference = .{ .attachment = 0, .layout = c.VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL };
+        const depth_ref: c.VkAttachmentReference = .{ .attachment = 1, .layout = c.VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL };
+        const resolve_ref: c.VkAttachmentReference = .{ .attachment = 2, .layout = c.VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL };
+        const subpass: c.VkSubpassDescription = .{
+            .pipelineBindPoint = c.VK_PIPELINE_BIND_POINT_GRAPHICS,
+            .colorAttachmentCount = 1,
+            .pColorAttachments = &color_ref,
+            .pResolveAttachments = if (resolve) &resolve_ref else null,
+            .pDepthStencilAttachment = &depth_ref,
+        };
+        try check(r.d.vkCreateRenderPass.?(r.device, &.{
+            .sType = c.VK_STRUCTURE_TYPE_RENDER_PASS_CREATE_INFO,
+            .attachmentCount = @intCast(atts.len),
+            .pAttachments = atts.ptr,
+            .subpassCount = 1,
+            .pSubpasses = &subpass,
+            .dependencyCount = cache_deps.len,
+            .pDependencies = &cache_deps,
+        }, null, out));
+    }
+
+    /// The images of the cache, of the size of the target.
+    fn makeCache(r: *Renderer) Error!void {
+        const usage = c.VK_IMAGE_USAGE_TRANSFER_SRC_BIT;
+        try r.makeImage(r.extent, r.format.format, r.samples, c.VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT | usage, c.VK_IMAGE_ASPECT_COLOR_BIT, &r.cache_color, &r.cache_color_mem, &r.cache_color_view);
+        try r.makeImage(r.extent, depth_format, r.samples, c.VK_IMAGE_USAGE_DEPTH_STENCIL_ATTACHMENT_BIT | usage, c.VK_IMAGE_ASPECT_DEPTH_BIT, &r.cache_depth, &r.cache_depth_mem, &r.cache_depth_view);
+        const atts = [_]c.VkImageView{ r.cache_color_view, r.cache_depth_view };
+        try check(r.d.vkCreateFramebuffer.?(r.device, &.{
+            .sType = c.VK_STRUCTURE_TYPE_FRAMEBUFFER_CREATE_INFO,
+            .renderPass = r.cache_clear_pass,
+            .attachmentCount = 2,
+            .pAttachments = &atts,
+            .width = r.extent.width,
+            .height = r.extent.height,
+            .layers = 1,
+        }, null, &r.cache_fb));
+        r.cache_valid = false;
+    }
+
+    /// A frame of a print view (Frame.cached):
+    ///
+    /// 1. The cache: with the same camera and colors as the frame that
+    ///    drew it, only the new finished beads draw into it. Else it
+    ///    clears, and the grid, the finished beads, and the bed draw.
+    /// 2. A copy of the cache goes to the images of the frame.
+    /// 3. The beads of the top layer, the extras, and the toolhead draw
+    ///    over the copy (and resolve into the target).
+    ///
+    /// A print that moves on draws only its new beads: the cost of a
+    /// frame does not grow with the beads under the top layer.
+    fn recordCached(r: *Renderer, cmd: c.VkCommandBuffer, frame: Frame) Error!void {
+        const d = r.d;
+        if (r.cache_color == null) try r.makeCache();
+        const base_end = @min(frame.base_end, frame.box_count);
+        const key: CacheKey = .{
+            .base = frame.base,
+            .grid = frame.grid,
+            .bed = frame.bed,
+            .clear = frame.clear,
+            .first = frame.box_first,
+            .grid_vertices = frame.grid_vertices,
+            .bed_vertices = frame.bed_vertices,
+        };
+        const same = r.cache_valid and std.mem.eql(u8, std.mem.asBytes(&key), std.mem.asBytes(&r.cache_key)) and base_end >= r.cache_end;
+        var part = frame;
+        part.extras = &.{};
+        part.head = &.{};
+        part.mark_count = 0;
+        part.box = frame.base;
+        part.box_count = base_end;
+        if (same) {
+            if (base_end > r.cache_end) {
+                part.box_first = r.cache_end;
+                part.grid_vertices = 0;
+                part.bed_vertices = 0;
+                r.recordPass(cmd, r.cache_add_pass, r.cache_fb, part);
+            }
+        } else {
+            r.recordPass(cmd, r.cache_clear_pass, r.cache_fb, part);
+        }
+        r.cache_key = key;
+        r.cache_end = base_end;
+        r.cache_valid = true;
+
+        // The copy. The cache is ready to copy (the final layout of its
+        // passes); the images of the frame take it in place of their old
+        // content.
+        const msaa = r.samples != c.VK_SAMPLE_COUNT_1_BIT;
+        const color = if (msaa) r.msaa_image else r.target_image;
+        const color_range: c.VkImageSubresourceRange = .{ .aspectMask = c.VK_IMAGE_ASPECT_COLOR_BIT, .levelCount = 1, .layerCount = 1 };
+        const depth_range: c.VkImageSubresourceRange = .{ .aspectMask = c.VK_IMAGE_ASPECT_DEPTH_BIT, .levelCount = 1, .layerCount = 1 };
+        const to_dst = [_]c.VkImageMemoryBarrier{
+            .{ .sType = c.VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER, .srcAccessMask = 0, .dstAccessMask = c.VK_ACCESS_TRANSFER_WRITE_BIT, .oldLayout = c.VK_IMAGE_LAYOUT_UNDEFINED, .newLayout = c.VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, .srcQueueFamilyIndex = c.VK_QUEUE_FAMILY_IGNORED, .dstQueueFamilyIndex = c.VK_QUEUE_FAMILY_IGNORED, .image = color, .subresourceRange = color_range },
+            .{ .sType = c.VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER, .srcAccessMask = 0, .dstAccessMask = c.VK_ACCESS_TRANSFER_WRITE_BIT, .oldLayout = c.VK_IMAGE_LAYOUT_UNDEFINED, .newLayout = c.VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, .srcQueueFamilyIndex = c.VK_QUEUE_FAMILY_IGNORED, .dstQueueFamilyIndex = c.VK_QUEUE_FAMILY_IGNORED, .image = r.depth_image, .subresourceRange = depth_range },
+        };
+        // The cache passes wrote the cache; the copy reads it.
+        const mem: c.VkMemoryBarrier = .{
+            .sType = c.VK_STRUCTURE_TYPE_MEMORY_BARRIER,
+            .srcAccessMask = c.VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT | c.VK_ACCESS_DEPTH_STENCIL_ATTACHMENT_WRITE_BIT,
+            .dstAccessMask = c.VK_ACCESS_TRANSFER_READ_BIT,
+        };
+        d.vkCmdPipelineBarrier.?(cmd, c.VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT | c.VK_PIPELINE_STAGE_LATE_FRAGMENT_TESTS_BIT | c.VK_PIPELINE_STAGE_TRANSFER_BIT, c.VK_PIPELINE_STAGE_TRANSFER_BIT, 0, 1, &mem, 0, null, to_dst.len, &to_dst);
+        const full: c.VkExtent3D = .{ .width = r.extent.width, .height = r.extent.height, .depth = 1 };
+        d.vkCmdCopyImage.?(cmd, r.cache_color, c.VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL, color, c.VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, 1, &.{
+            .srcSubresource = .{ .aspectMask = c.VK_IMAGE_ASPECT_COLOR_BIT, .mipLevel = 0, .baseArrayLayer = 0, .layerCount = 1 },
+            .srcOffset = .{ .x = 0, .y = 0, .z = 0 },
+            .dstSubresource = .{ .aspectMask = c.VK_IMAGE_ASPECT_COLOR_BIT, .mipLevel = 0, .baseArrayLayer = 0, .layerCount = 1 },
+            .dstOffset = .{ .x = 0, .y = 0, .z = 0 },
+            .extent = full,
+        });
+        d.vkCmdCopyImage.?(cmd, r.cache_depth, c.VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL, r.depth_image, c.VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, 1, &.{
+            .srcSubresource = .{ .aspectMask = c.VK_IMAGE_ASPECT_DEPTH_BIT, .mipLevel = 0, .baseArrayLayer = 0, .layerCount = 1 },
+            .srcOffset = .{ .x = 0, .y = 0, .z = 0 },
+            .dstSubresource = .{ .aspectMask = c.VK_IMAGE_ASPECT_DEPTH_BIT, .mipLevel = 0, .baseArrayLayer = 0, .layerCount = 1 },
+            .dstOffset = .{ .x = 0, .y = 0, .z = 0 },
+            .extent = full,
+        });
+
+        // The rest of the frame over the copy.
+        var rest = frame;
+        rest.box_first = @max(frame.box_first, base_end);
+        rest.grid_vertices = 0;
+        rest.bed_vertices = 0;
+        r.recordPass(cmd, r.over_pass, r.target_fb, rest);
+    }
+
+    /// Draws one frame into the offscreen image, and copies the image to
+    /// the readback buffer. It waits for the frame before (a host that
+    /// draws at a fixed rate gets one frame in flight).
+    fn drawOffscreen(r: *Renderer, frame: Frame) Error!void {
+        const d = r.d;
+        try check(d.vkWaitForFences.?(r.device, 1, &r.fence, c.VK_TRUE, std.math.maxInt(u64)));
+        if (r.stale or r.target_image == null) try r.makeTarget();
+        try check(d.vkResetFences.?(r.device, 1, &r.fence));
+        const cmd = r.cmd;
+        try check(d.vkResetCommandBuffer.?(cmd, 0));
+        try check(d.vkBeginCommandBuffer.?(cmd, &.{
+            .sType = c.VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO,
+            .flags = c.VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT,
+        }));
+        if (frame.cached) try r.recordCached(cmd, frame) else r.recordPass(cmd, r.render_pass, r.target_fb, frame);
+        // The pass leaves the image ready to copy; the copy waits for the
+        // color writes.
+        const range: c.VkImageSubresourceRange = .{ .aspectMask = c.VK_IMAGE_ASPECT_COLOR_BIT, .levelCount = 1, .layerCount = 1 };
+        d.vkCmdPipelineBarrier.?(cmd, c.VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT, c.VK_PIPELINE_STAGE_TRANSFER_BIT, 0, 0, null, 0, null, 1, &.{
+            .sType = c.VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER,
+            .srcAccessMask = c.VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT,
+            .dstAccessMask = c.VK_ACCESS_TRANSFER_READ_BIT,
+            .oldLayout = c.VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL,
+            .newLayout = c.VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL,
+            .srcQueueFamilyIndex = c.VK_QUEUE_FAMILY_IGNORED,
+            .dstQueueFamilyIndex = c.VK_QUEUE_FAMILY_IGNORED,
+            .image = r.target_image,
+            .subresourceRange = range,
+        });
+        d.vkCmdCopyImageToBuffer.?(cmd, r.target_image, c.VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL, r.readback.buf, 1, &.{
+            .bufferOffset = 0,
+            .bufferRowLength = 0,
+            .bufferImageHeight = 0,
+            .imageSubresource = .{ .aspectMask = c.VK_IMAGE_ASPECT_COLOR_BIT, .mipLevel = 0, .baseArrayLayer = 0, .layerCount = 1 },
+            .imageOffset = .{ .x = 0, .y = 0, .z = 0 },
+            .imageExtent = .{ .width = r.extent.width, .height = r.extent.height, .depth = 1 },
+        });
+        d.vkCmdPipelineBarrier.?(cmd, c.VK_PIPELINE_STAGE_TRANSFER_BIT, c.VK_PIPELINE_STAGE_HOST_BIT, 0, 0, null, 1, &.{
+            .sType = c.VK_STRUCTURE_TYPE_BUFFER_MEMORY_BARRIER,
+            .srcAccessMask = c.VK_ACCESS_TRANSFER_WRITE_BIT,
+            .dstAccessMask = c.VK_ACCESS_HOST_READ_BIT,
+            .srcQueueFamilyIndex = c.VK_QUEUE_FAMILY_IGNORED,
+            .dstQueueFamilyIndex = c.VK_QUEUE_FAMILY_IGNORED,
+            .buffer = r.readback.buf,
+            .offset = 0,
+            .size = c.VK_WHOLE_SIZE,
+        }, 0, null);
+        try check(d.vkEndCommandBuffer.?(cmd));
         try check(d.vkQueueSubmit.?(r.queue, 1, &.{
             .sType = c.VK_STRUCTURE_TYPE_SUBMIT_INFO,
-            .waitSemaphoreCount = 1,
-            .pWaitSemaphores = &r.acquired,
-            .pWaitDstStageMask = &wait_stage,
             .commandBufferCount = 1,
             .pCommandBuffers = &cmd,
-            .signalSemaphoreCount = 1,
-            .pSignalSemaphores = &r.rendered[index],
         }, r.fence));
-        const pres = d.vkQueuePresentKHR.?(r.queue, &.{
-            .sType = c.VK_STRUCTURE_TYPE_PRESENT_INFO_KHR,
-            .waitSemaphoreCount = 1,
-            .pWaitSemaphores = &r.rendered[index],
-            .swapchainCount = 1,
-            .pSwapchains = &r.swapchain,
-            .pImageIndices = &index,
-        });
-        if (pres == c.VK_ERROR_OUT_OF_DATE_KHR or pres == c.VK_SUBOPTIMAL_KHR) r.stale = true else try check(pres);
+        r.drawn = true;
     }
 };

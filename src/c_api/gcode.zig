@@ -105,7 +105,7 @@ pub const Info = extern struct {
     box: [6]f64,
 };
 
-export fn zs_gcode_info(g: ?*const GCode, out: ?*Info) c_int {
+export fn zs_gcode_get_info(g: ?*const GCode, out: ?*Info) c_int {
     const r = finished(g) orelse return bad();
     const o = out orelse return bad();
     var box: [6]f64 = undefined;
@@ -131,7 +131,7 @@ pub const LayerInfo = extern struct {
     end_s: f64,
 };
 
-export fn zs_gcode_layer(g: ?*const GCode, layer: usize, out: ?*LayerInfo) c_int {
+export fn zs_gcode_get_layer(g: ?*const GCode, layer: usize, out: ?*LayerInfo) c_int {
     const r = finished(g) orelse return bad();
     const o = out orelse return bad();
     if (layer >= r.layers.items.len) return @intFromEnum(Status.out_of_range);
@@ -158,7 +158,7 @@ pub const At = extern struct {
     z: f64,
 };
 
-export fn zs_gcode_at(g: ?*const GCode, offset: u64, out: ?*At) c_int {
+export fn zs_gcode_state_at(g: ?*const GCode, offset: u64, out: ?*At) c_int {
     const r = finished(g) orelse return bad();
     const o = out orelse return bad();
     const i = r.segmentAt(offset) orelse return @intFromEnum(Status.no_result);
@@ -199,14 +199,14 @@ test "C API: read G-code in pieces and ask at an offset" {
     try testing.expectEqual(ok, zs_gcode_feed(g, text.ptr, 30));
     // No query before the end.
     var info: Info = undefined;
-    try testing.expect(zs_gcode_info(g, &info) != ok);
+    try testing.expect(zs_gcode_get_info(g, &info) != ok);
     try testing.expectEqual(ok, zs_gcode_feed(g, text.ptr + 30, text.len - 30));
     try testing.expectEqual(ok, zs_gcode_finish(g));
-    try testing.expectEqual(ok, zs_gcode_info(g, &info));
+    try testing.expectEqual(ok, zs_gcode_get_info(g, &info));
     try testing.expectEqual(@as(usize, 2), info.layers);
     try testing.expectEqual(@as(u64, 2), info.beads);
     var l: LayerInfo = undefined;
-    try testing.expectEqual(ok, zs_gcode_layer(g, 1, &l));
+    try testing.expectEqual(ok, zs_gcode_get_layer(g, 1, &l));
     try testing.expectEqual(@as(u64, std.mem.indexOf(u8, text, ";LAYER:1").?), l.start);
     try testing.expectEqual(@as(u64, text.len), l.end);
     try testing.expectApproxEqAbs(@as(f64, 0.4), l.z, 1e-6);
@@ -215,11 +215,11 @@ test "C API: read G-code in pieces and ask at an offset" {
     try testing.expectEqual(@as(usize, 0), zs_gcode_layer_at(g, l.start));
     try testing.expectEqual(@as(usize, 1), zs_gcode_layer_at(g, l.start + 1));
     var at: At = undefined;
-    try testing.expectEqual(@intFromEnum(Status.no_result), zs_gcode_at(g, 0, &at));
-    try testing.expectEqual(ok, zs_gcode_at(g, text.len, &at));
+    try testing.expectEqual(@intFromEnum(Status.no_result), zs_gcode_state_at(g, 0, &at));
+    try testing.expectEqual(ok, zs_gcode_state_at(g, text.len, &at));
     try testing.expectEqual(@as(c_int, 3), at.feature);
     try testing.expectApproxEqAbs(@as(f64, 50), at.speed, 1e-3);
-    try testing.expectEqual(ok, zs_gcode_at(g, l.start, &at));
+    try testing.expectEqual(ok, zs_gcode_state_at(g, l.start, &at));
     try testing.expectEqual(@as(c_int, 0), at.feature);
     try testing.expectEqual(@as(usize, 0), at.layer);
 }

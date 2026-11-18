@@ -56,6 +56,15 @@
 //! A 2D view (one layer from the top) also uses the view: the beads of a
 //! layer, the outline of each layer, a pick in mm, and the steps along the
 //! print for the keys h, j, k, l (see `stepPath`).
+//!
+//! A print view (a printer screen) shows a G-code file of any slicer
+//! (`loadGcode`, with gcode_read.zig): the beads go straight into the GPU
+//! buffer, with no copy in host memory. The printer reports the byte
+//! offset that it has read (`setPosition`), and the view draws the beads up
+//! to it, lights the layer that prints, and shows the nozzle. A scrubber
+//! picks a layer (`setLayer`). One or two fingers turn, zoom, and move the
+//! camera (`touch`). The reduced view leaves out the tools and the marks,
+//! and uses the coarse bead mesh.
 
 const std = @import("std");
 const builtin = @import("builtin");
@@ -68,6 +77,7 @@ const Draw = @import("frame.zig").Draw;
 const PlateFrame = @import("frame.zig").PlateFrame;
 const plates_mod = @import("plates.zig");
 const bed_mod = @import("../bed.zig");
+const gcode_read = @import("../gcode_read.zig");
 
 /// The feature colors, in the order of the Feature enum. The same colors
 /// as the SVG preview and docs/app/README.md.
@@ -245,6 +255,9 @@ pub const View = struct {
     /// The target of `reset`: the center of the part.
     home: [3]f32 = .{ 110, 110, 0 },
     extent: f32 = 100,
+    /// The distance of `reset`, in extents: a print view (a small screen
+    /// with only the part) starts nearer.
+    home_dist: f32 = 2.8,
     /// The camera direction: it turns the camera axes (right = x, up = y,
     /// back = z) into world directions. The eye is at target + dist * back.
     rot: Quat = .{ 0, 0, 0, 1 },
@@ -261,6 +274,27 @@ pub const View = struct {
     bed_textured: bool = false,
     /// A view with no renderer (`loadPlate` uses one to read an app).
     headless: bool = false,
+    /// The G-code file of a print view (see `loadGcode`), or null. The
+    /// view reads it on each frame: the host keeps it.
+    gcode: ?*const gcode_read.Reader = null,
+    /// The byte offset of the print in the file (see `setPosition`), or
+    /// null to show whole layers.
+    position: ?u64 = null,
+    /// The colors of a print view: one color for each feature, or the
+    /// filament color.
+    gcode_features: bool = false,
+    filament_rgb: [3]u8 = .{ 0xd0, 0xd0, 0xcc },
+    /// The beads of the top layer that shows are lit, and the layers
+    /// under it are darker (a print view).
+    lit: bool = true,
+    /// The nozzle shows at the position of the print.
+    show_head: bool = true,
+    /// The reduced view of a printer screen: no tools, gizmos, selection,
+    /// marks, or labels. Only the beads, the bed, and the nozzle draw.
+    reduced: bool = false,
+    /// The fingers on a touch screen (see `touch`): an id (-1: none) and
+    /// the last point of each.
+    touches: [2]Touch = .{ .{}, .{} },
     /// The light levels of the beads (see plates.zig), for a camera far
     /// from the plate. Only the web backend draws them.
     lite: plates_mod.Lite = .{},
@@ -284,6 +318,9 @@ pub const View = struct {
 
     /// The camera: the target, the angles, and the distance.
     pub const Pose = struct { target: [3]f32, rot: Quat, dist: f32 };
+
+    pub const Touch = struct { id: i64 = -1, x: f32 = 0, y: f32 = 0 };
+    pub const TouchAction = enum(c_int) { down = 0, move = 1, up = 2, cancel = 3 };
 
     const gpa = if (is_web) (if (@import("../parallel.zig").wasm_pool) @import("../wasm_heap.zig").allocator else std.heap.wasm_allocator) else std.heap.c_allocator;
 
@@ -371,7 +408,9 @@ pub const View = struct {
         defer verts.deinit(gpa);
         var idx: std.ArrayList(u16) = .empty;
         defer idx.deinit(gpa);
-        try beadMesh(&verts, &idx, 4, 4);
+        // The reduced view (a small screen, a small GPU) uses the coarse
+        // mesh of the levels of detail for all beads.
+        if (v.reduced) try beadMesh(&verts, &idx, 2, 2) else try beadMesh(&verts, &idx, 4, 4);
         try v.renderer.setMesh(verts.items, idx.items);
         // A coarser mesh for beads far from the camera: 36 triangles for
         // 100. Only the web backend has levels of detail. (A third level
@@ -429,6 +468,9 @@ pub const View = struct {
     /// Reads the toolpaths of the last slice of `app`, and the bed size.
     pub fn load(v: *View, app: *const app_mod.App) Error!void {
         const s = app.settings;
+        v.gcode = null;
+        v.position = null;
+        v.home_dist = 2.8;
         // The support marks: a ring at the place and the layer of each.
         v.mark_rings.clearRetainingCapacity();
         for (app.marks.items) |m| {
@@ -613,6 +655,177 @@ pub const View = struct {
         if (first_load) {
             v.reset();
             v.layer = if (v.layer_end.items.len > 0) v.layer_end.items.len - 1 else 0;
+        }
+    }
+
+    /// Shows a G-code file (a finished reader): a bead for each move with
+    /// plastic, with the same bead shape as a slice. The beads go to the
+    /// GPU once, in print order, so a later position or layer only
+    /// changes how many draw. `bed` is the bed size in mm (0: a bed
+    /// around the part). The view keeps a pointer to the reader.
+    pub fn loadGcode(v: *View, r: *const gcode_read.Reader, bed: [2]f32) Error!void {
+        v.clearScene();
+        v.gcode = r;
+        v.position = null;
+        v.time = null;
+        v.layer_lo = 0;
+        v.xf_center = .{ 0, 0 };
+        v.xf_sxy = 1;
+        v.xf_sz = 1;
+        try v.layer_end.ensureTotalCapacity(gpa, r.layers.items.len);
+        var none: [0]vk.Instance = .{};
+        const inst: []vk.Instance = if (v.headless) &none else try v.renderer.instanceBuffer(r.bead_count);
+        var k: usize = 0;
+        // The first move starts where it ends (the reader does not know
+        // the place of the nozzle before it).
+        var prev: [2]f32 = if (r.len > 0) .{ r.at(0).x, r.at(0).y } else .{ 0, 0 };
+        for (r.blocks.items, 0..) |blk, bi| {
+            const n = @min(gcode_read.block_len, r.len - bi * gcode_read.block_len);
+            for (blk[0..n]) |sg| {
+                defer prev = .{ sg.x, sg.y };
+                if (sg.feature == gcode_read.travel) continue;
+                if (k < inst.len) inst[k] = .{
+                    .ax = prev[0],
+                    .ay = prev[1],
+                    .bx = sg.x,
+                    .by = sg.y,
+                    .z = sg.z,
+                    .h = sg.h,
+                    .w = sg.w,
+                    .rgba = .{ 0, 0, 0, sg.feature },
+                };
+                k += 1;
+            }
+        }
+        for (0..r.layers.items.len) |l| v.layer_end.appendAssumeCapacity(r.beadsIn(r.layerSegments(l)[1]));
+        v.paintGcode(inst);
+
+        // The bed, and the camera: around the center of the bed, at half
+        // the height of the part.
+        const b = r.box;
+        const has_box = b[3] >= b[0];
+        var bx = bed[0];
+        var by = bed[1];
+        if (!(bx > 0 and by > 0)) {
+            bx = if (has_box) @ceil((b[3] + 10) / 10) * 10 else 220;
+            by = if (has_box) @ceil((b[4] + 10) / 10) * 10 else 220;
+        }
+        try v.loadGrid(bx, by);
+        const zmax: f32 = if (has_box) b[5] else 0;
+        v.home = .{ bx / 2, by / 2, zmax / 2 };
+        v.target = v.home;
+        var reach: f32 = 10;
+        if (has_box) for ([_]f32{ b[0], b[3] }) |x| for ([_]f32{ b[1], b[4] }) |y| {
+            reach = @max(reach, std.math.hypot(x - bx / 2, y - by / 2));
+        };
+        v.extent = @max(2 * reach, zmax);
+        v.home_dist = 1.6;
+        v.reset();
+        v.layer = if (v.layer_end.items.len > 0) v.layer_end.items.len - 1 else 0;
+    }
+
+    /// Clears the beads and the lists of a slice (for a G-code file).
+    fn clearScene(v: *View) void {
+        inline for (.{ &v.layer_end, &v.path_start, &v.layer_path_end, &v.outline_points, &v.outline_ends, &v.outline_layer_end, &v.pick_runs, &v.layer_boxes, &v.draw_chunks, &v.chunk_width, &v.draws, &v.mark_rings, &v.sup_pts, &v.sup_areas, &v.gap_beads, &v.more, &v.beads, &v.marks, &v.mark_layer_end, &v.bead_end, &v.bead_start, &v.bead_fan }) |l| l.clearRetainingCapacity();
+        v.highlight = .{ 0, 0 };
+        v.seg_bead = null;
+        v.focus_mask = 0;
+        v.gap_layer = null;
+        v.lite.clear();
+        v.lite_gen = v.nextGen();
+    }
+
+    /// Sets the colors of the beads of a G-code file in place: by feature,
+    /// or the filament color.
+    fn paintGcode(v: *View, inst: []vk.Instance) void {
+        for (inst) |*b| {
+            const f = b.rgba[3];
+            const rgb = if (v.gcode_features) feature_rgb[if (f < n_features) f else 0] else v.filament_rgb;
+            b.rgba = .{ rgb[0], rgb[1], rgb[2], f };
+        }
+    }
+
+    /// The reduced view of a printer screen (see `reduced`).
+    pub fn setReduced(v: *View, on: bool) Error!void {
+        if (v.reduced == on) return;
+        v.reduced = on;
+        if (!v.headless) try v.makeMesh();
+    }
+
+    /// The colors of a print view: by feature, or one filament color. The
+    /// beads change in place (no allocation).
+    pub fn setGcodeColors(v: *View, features: bool, rgb: [3]u8) Error!void {
+        v.gcode_features = features;
+        v.filament_rgb = rgb;
+        const r = v.gcode orelse return;
+        if (v.headless) return;
+        v.paintGcode(try v.renderer.instanceBuffer(r.bead_count));
+    }
+
+    /// Shows the print as it is at a byte offset of the file: the moves
+    /// that the printer has read, and the nozzle at the last one. The
+    /// layer of the offset is lit. A G-code file only.
+    pub fn setPosition(v: *View, offset: u64) void {
+        const r = v.gcode orelse return;
+        v.position = offset;
+        v.time = null;
+        v.layer_lo = 0;
+        v.layer = r.layerAt(offset);
+    }
+
+    /// The beads that show, and the first bead of the lit layer, for a
+    /// G-code file.
+    fn gcodeCount(v: *const View) [2]u32 {
+        const n = v.layer_end.items.len;
+        if (n == 0) return .{ 0, 0 };
+        const top = @min(v.layer, n - 1);
+        const lo: u32 = if (top == 0) 0 else v.layer_end.items[top - 1];
+        if (v.position) |off| {
+            const r = v.gcode.?;
+            const count = r.beadsIn(r.doneAt(off));
+            return .{ @min(lo, count), count };
+        }
+        return .{ lo, v.layer_end.items[top] };
+    }
+
+    /// A touch screen: a finger goes down, moves, or goes up (`id` tells
+    /// the fingers apart). One finger orbits; two fingers pinch to zoom
+    /// and move together to pan. A cancel ends all touches.
+    pub fn touch(v: *View, id: i64, action: TouchAction, x: f32, y: f32) void {
+        const slot: ?usize = for (v.touches, 0..) |t, i| {
+            if (t.id == id) break i;
+        } else null;
+        switch (action) {
+            .down => {
+                if (slot != null) return;
+                for (&v.touches) |*t| if (t.id < 0) {
+                    t.* = .{ .id = id, .x = x, .y = y };
+                    return;
+                };
+            },
+            .move => {
+                const i = slot orelse return;
+                const other = &v.touches[1 - i];
+                const me = &v.touches[i];
+                if (other.id < 0) {
+                    v.orbit(x - me.x, y - me.y);
+                } else {
+                    // Two fingers: the middle pans, the spread zooms about
+                    // the middle.
+                    const m0 = [2]f32{ (me.x + other.x) / 2, (me.y + other.y) / 2 };
+                    const d0 = std.math.hypot(me.x - other.x, me.y - other.y);
+                    const m1 = [2]f32{ (x + other.x) / 2, (y + other.y) / 2 };
+                    const d1 = std.math.hypot(x - other.x, y - other.y);
+                    v.pan(m1[0] - m0[0], m1[1] - m0[1]);
+                    if (d0 > 1 and d1 > 1) v.zoomAt(d0 / d1, m1[0], m1[1]);
+                }
+                me.x = x;
+                me.y = y;
+            },
+            .up => if (slot) |i| {
+                v.touches[i] = .{};
+            },
+            .cancel => v.touches = .{ .{}, .{} },
         }
     }
 
@@ -1012,10 +1225,12 @@ pub const View = struct {
         return m;
     }
 
-    /// Shows the layers 0 to `layer`, and stops the replay.
+    /// Shows the layers 0 to `layer`, and stops the replay. In a print
+    /// view it ends the position (the scrubber).
     pub fn setLayer(v: *View, layer: usize) void {
         v.layer = layer;
         v.time = null;
+        v.position = null;
     }
 
     /// Shows the layers `lo` to `hi`, and stops the replay.
@@ -1463,7 +1678,7 @@ pub const View = struct {
         v.goal = null;
         v.target = v.home;
         v.setAngles(-1.9, 0.6);
-        v.dist = v.extent * 2.8;
+        v.dist = v.extent * v.home_dist;
     }
 
     /// The camera position and its unit vectors: forward, right, and up.
@@ -1644,7 +1859,9 @@ pub const View = struct {
         const cam = v.camera();
         const dir = v.pixelRay(cam, px, py);
         const n = v.layer_end.items.len;
-        if (n == 0) return null;
+        // A print view keeps no copy of its beads (they are only on the
+        // GPU): no hit.
+        if (n == 0 or v.beads.items.len < v.layer_end.items[n - 1]) return null;
         const top = @min(v.layer, n - 1);
         const bottom = @min(v.layer_lo, top);
         var best: ?usize = null;
@@ -1895,6 +2112,8 @@ pub const View = struct {
     /// are not paths.
     pub fn pickLayer(v: *const View, layer: usize, x: f32, y: f32) ?[2]usize {
         const r = v.layerBeads(layer);
+        // A print view keeps no copy of its beads.
+        if (r[1] > v.beads.items.len) return null;
         var best: ?usize = null;
         var best_d: f32 = std.math.inf(f32);
         for (v.beads.items[r[0]..r[1]], r[0]..) |b, i| {
@@ -2460,6 +2679,26 @@ pub const View = struct {
         } else if (v.layer_end.items.len > 0) {
             count = v.layer_end.items[@min(v.layer, v.layer_end.items.len - 1)];
         }
+        // A print view: the beads up to the position or the layer, the
+        // top layer lit, and the nozzle at the position.
+        var lit_range = [2]f32{ 0, 0 };
+        var base_end: u32 = 0;
+        var cached = false;
+        if (v.gcode) |r| if (v.time == null) {
+            const g = v.gcodeCount();
+            count = g[1];
+            // An offscreen view keeps the layers under the top layer in a
+            // cached image (see Frame.base_end).
+            if (@hasField(vk.Renderer, "offscreen") and v.renderer.offscreen) {
+                cached = true;
+                base_end = g[0];
+            }
+            if (v.lit) lit_range = .{ @floatFromInt(g[0]), @floatFromInt(g[1]) };
+            if (v.position) |off| if (v.show_head) if (r.segmentAt(off)) |i| {
+                const sg = r.at(i);
+                n_head = toolhead(&v.head_buf, .{ sg.x, sg.y, sg.z }, 0, false);
+            };
+        };
         // The bottom of the layer range: the beads and marks of the layers
         // under it do not show (not in a replay).
         var first: u32 = 0;
@@ -2513,6 +2752,8 @@ pub const View = struct {
         try v.renderer.draw(.{
             .head = v.head_buf[0..n_head],
             .extras = blk: {
+                // The reduced view has no tools and no marks.
+                if (v.reduced) break :blk extras[0..n_extras];
                 // The measure tape: a mark at each point, and a line of
                 // short beads between them (a bead is level, so a slope
                 // is a stair of 24 of them).
@@ -2650,7 +2891,12 @@ pub const View = struct {
                 .mvp = mvp,
                 .vec = .{ 0.35, -0.45, 0.82, 0 },
                 .eye = .{ eye[0], eye[1], eye[2], if (std.math.isInf(v.focus_zmax)) 1e9 else v.focus_zmax },
-                .params = .{ v.highlight[0], v.highlight[1], if (v.isolate and v.highlight[1] > v.highlight[0]) -1 else @as(f32, @floatFromInt(v.focus_mask)), if (v.mode == .print) 0 else 1 },
+                // A print view: params.w = 4 lights the beads params.x to
+                // params.y, and darkens the others (see shaders/box.frag).
+                .params = if (v.gcode != null or v.reduced)
+                    .{ lit_range[0], lit_range[1], 0, if (lit_range[1] > lit_range[0]) 4 else 0 }
+                else
+                    .{ v.highlight[0], v.highlight[1], if (v.isolate and v.highlight[1] > v.highlight[0]) -1 else @as(f32, @floatFromInt(v.focus_mask)), if (v.mode == .print) 0 else 1 },
             },
             .box_count = count,
             .box_first = first,
@@ -2675,6 +2921,15 @@ pub const View = struct {
             .plate_grid = v.plate_grid.items,
             .plate_grid_dim = v.plate_grid_dim,
             .plate_grid_gen = v.plate_grid_gen,
+            .cached = cached,
+            .base_end = base_end,
+            // The cached layers: all darker when the top layer is lit.
+            .base = .{
+                .mvp = mvp,
+                .vec = .{ 0.35, -0.45, 0.82, 0 },
+                .eye = .{ eye[0], eye[1], eye[2], 1e9 },
+                .params = .{ 0, 0, 0, if (lit_range[1] > lit_range[0]) 4 else 0 },
+            },
         });
     }
 };
@@ -3435,4 +3690,77 @@ test "a support area draws its outline, its points, and lines across it" {
     const lift = std.math.clamp(v.dist * 0.003, 0.12, 2);
     const up: f32 = if (v.camera().eye[2] < 10) -lift else lift;
     for (out[0..n]) |b| try std.testing.expectApproxEqAbs(10 + up, b.z - b.h / 2, 1e-4);
+}
+
+test "a print view: the beads of a G-code file, the position, and the scrubber" {
+    const text =
+        \\M83
+        \\;LAYER:0
+        \\G1 Z0.2 F600
+        \\G0 X10 Y10 F6000
+        \\;TYPE:WALL-OUTER
+        \\G1 X20 Y10 E0.5 F1200
+        \\G1 X20 Y20 E0.5
+        \\;LAYER:1
+        \\G1 Z0.4
+        \\;TYPE:FILL
+        \\G1 X10 Y20 E0.5 F3000
+        \\G0 X30 Y30
+        \\G1 X40 Y30 E0.5
+        \\
+    ;
+    var r = try gcode_read.Reader.parse(std.testing.allocator, text);
+    defer r.deinit();
+    var v: View = .{ .renderer = undefined, .width = 100, .height = 100, .headless = true };
+    defer v.deinitData();
+    try v.loadGcode(&r, .{ 200, 200 });
+    try std.testing.expectEqualSlices(u32, &.{ 2, 4 }, v.layer_end.items);
+    try std.testing.expectEqual([2]f32{ 200, 200 }, v.bed);
+    try std.testing.expectEqual(@as(usize, 1), v.layer);
+    // Whole layers: the top layer is lit.
+    try std.testing.expectEqual([2]u32{ 2, 4 }, v.gcodeCount());
+    // At the end of the second line of layer 1: 3 beads, layer 1 lit.
+    const at = std.mem.indexOf(u8, text, "G1 X10 Y20").? + "G1 X10 Y20 E0.5 F3000\n".len;
+    v.setPosition(at);
+    try std.testing.expectEqual(@as(usize, 1), v.layer);
+    try std.testing.expectEqual([2]u32{ 2, 3 }, v.gcodeCount());
+    // In layer 0: its first bead.
+    v.setPosition(std.mem.indexOf(u8, text, "G1 X20 Y20").?);
+    try std.testing.expectEqual(@as(usize, 0), v.layer);
+    try std.testing.expectEqual([2]u32{ 0, 1 }, v.gcodeCount());
+    // The scrubber ends the position.
+    v.setLayer(0);
+    try std.testing.expectEqual(@as(?u64, null), v.position);
+    try std.testing.expectEqual([2]u32{ 0, 2 }, v.gcodeCount());
+    // No pick in a print view (no copy of the beads).
+    try std.testing.expectEqual(@as(?usize, null), v.pick(50, 50));
+}
+
+test "touch: one finger orbits, two fingers pinch and pan" {
+    var v: View = .{ .renderer = undefined, .width = 400, .height = 300, .headless = true };
+    defer v.deinitData();
+    v.reset();
+    const rot0 = v.rot;
+    v.touch(1, .down, 100, 100);
+    v.touch(1, .move, 140, 100);
+    try std.testing.expect(qangle(rot0, v.rot) > 0.1);
+    v.touch(1, .up, 140, 100);
+    // Two fingers spread apart: the camera comes nearer.
+    const d0 = v.dist;
+    v.touch(1, .down, 150, 150);
+    v.touch(2, .down, 250, 150);
+    v.touch(2, .move, 350, 150);
+    try std.testing.expect(v.dist < d0 * 0.8);
+    // Both move up together: a pan moves the target.
+    const t0 = v.target;
+    v.touch(1, .move, 150, 100);
+    v.touch(2, .move, 350, 100);
+    try std.testing.expect(@abs(v.target[2] - t0[2]) > 1e-3);
+    // A third finger does nothing; a cancel ends all.
+    const rot1 = v.rot;
+    v.touch(3, .down, 10, 10);
+    v.touch(3, .move, 90, 10);
+    try std.testing.expectEqual(rot1, v.rot);
+    v.touch(0, .cancel, 0, 0);
+    try std.testing.expectEqual(@as(i64, -1), v.touches[0].id);
 }

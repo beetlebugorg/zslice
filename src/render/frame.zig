@@ -107,4 +107,12 @@ pub const Frame = struct {
     plate_grid: []const f32 = &.{},
     plate_grid_dim: u32 = 0,
     plate_grid_gen: u32 = 0,
+    /// A print view that draws offscreen keeps the finished layers in a
+    /// cached image: the beads box_first .. base_end, drawn with `base`.
+    /// A frame adds the beads after the cached ones, and draws the rest
+    /// (base_end .. box_count, the extras, the toolhead) over a copy of
+    /// the cache. See vk.zig.
+    cached: bool = false,
+    base_end: u32 = 0,
+    base: Push = .{ .mvp = @splat(0), .vec = .{ 0, 0, 0, 0 } },
 };

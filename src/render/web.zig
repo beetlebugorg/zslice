@@ -181,6 +181,16 @@ pub const Renderer = struct {
         r.out.instances_gen +%= 1;
     }
 
+    /// The instance buffer for `n` beads, for the caller to fill in place.
+    /// The marks are none.
+    pub fn instanceBuffer(r: *Renderer, n: usize) Error![]Instance {
+        r.instances.resize(gpa, n) catch return error.OutOfMemory;
+        r.out.instances = @intFromPtr(r.instances.items.ptr);
+        r.out.instance_count = @intCast(n);
+        r.out.instances_gen +%= 1;
+        return r.instances.items;
+    }
+
     pub fn setGrid(r: *Renderer, points: []const f32) Error!void {
         r.grid.clearRetainingCapacity();
         r.grid.appendSlice(gpa, points) catch return error.OutOfMemory;

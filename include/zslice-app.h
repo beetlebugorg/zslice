@@ -1142,6 +1142,115 @@ int zs_view_highlight_more(zs_view *view, const size_t *paths, size_t n);
 /* Draws and presents one frame. Call it after a change. */
 int zs_view_draw(zs_view *view);
 
+/* ---- a print view: G-code files, offscreen, touch ----
+ *
+ * For a printer screen (printdeck): the view of a G-code file of any
+ * slicer, drawn into an image that the view owns, with no window. See
+ * docs/embedding/print-view.md.
+ *
+ *   1. zs_gcode_open (or zs_gcode_new, zs_gcode_feed in pieces,
+ *      zs_gcode_finish) reads the file. Keep it while a view shows it.
+ *   2. zs_view_offscreen makes the view; zs_view_load_gcode shows the file.
+ *   3. On each change: zs_view_set_position with the file position of the
+ *      printer, or zs_view_set_layer from a scrubber; then zs_view_draw
+ *      and zs_view_read for the pixels.
+ *
+ * Threads: one zs_gcode or zs_view on one thread at a time. Different
+ * handles are independent (no global state). zs_view_draw, zs_view_read,
+ * and the set and touch calls do not allocate memory. */
+
+typedef struct zs_gcode zs_gcode;
+
+/* Reads a G-code file in pieces of 1 MB. ZS_NO_RESULT if the file does not
+ * open. ZS_NOT_SUPPORTED in wasm. */
+int zs_gcode_open(const char *path, zs_gcode **out);
+/* The same in steps: feed the bytes in pieces of any size (a piece can end
+ * in the middle of a line), then finish. The queries need a finished
+ * file. ZS_OUT_OF_RANGE for a file over 4 GB. */
+int zs_gcode_new(zs_gcode **out);
+int zs_gcode_feed(zs_gcode *g, const uint8_t *data, size_t len);
+int zs_gcode_finish(zs_gcode *g);
+void zs_gcode_free(zs_gcode *g);
+
+typedef struct zs_gcode_info {
+    uint64_t size;      /* bytes */
+    uint64_t moves;     /* moves in x or y, with or without plastic */
+    uint64_t beads;     /* moves with plastic */
+    size_t layers;
+    double time_s;      /* the print time: from the comments of the
+                           slicer, else an estimate */
+    double filament_mm; /* the filament diameter: from a comment, else
+                           1.75 or 2.85 from the bead widths */
+    double box[6];      /* the beads: min x, y, z, then max x, y, z (mm),
+                           without the purge line of the start code */
+} zs_gcode_info;
+int zs_gcode_get_info(const zs_gcode *g, zs_gcode_info *out);
+
+/* A byte offset counts the bytes read: a printer at offset p has read the
+ * lines that end at or before p (the file position of Klipper). */
+typedef struct zs_gcode_layer {
+    uint64_t start, end;     /* the bytes of the layer: start to end */
+    double z, height;        /* mm */
+    double start_s, end_s;   /* the print time at its start and end */
+} zs_gcode_layer;
+int zs_gcode_get_layer(const zs_gcode *g, size_t layer, zs_gcode_layer *out);
+/* The layer at a byte offset (the layer of the last byte read). */
+size_t zs_gcode_layer_at(const zs_gcode *g, uint64_t offset);
+
+typedef struct zs_gcode_state {
+    size_t layer;
+    uint64_t move;   /* the last move read */
+    int feature;     /* enum zs_feature of the last bead, -1 if none */
+    int travel;      /* 1 if the last move has no plastic */
+    double speed;    /* mm/s of the last move */
+    double x, y, z;  /* its end point, mm */
+} zs_gcode_state;
+/* The state at a byte offset. ZS_NO_RESULT before the first move. */
+int zs_gcode_state_at(const zs_gcode *g, uint64_t offset, zs_gcode_state *out);
+
+enum zs_view_offscreen_mode {
+    ZS_VIEW_REDUCED = 1, /* the reduced view: no tools, gizmos, selection,
+                            marks, or labels */
+    ZS_VIEW_BGRA = 2     /* zs_view_read gives B, G, R, A bytes (the order of
+                            a 32-bit Linux framebuffer); else R, G, B, A */
+};
+/* A view that draws into an image that it owns (no window, no display),
+ * width x height pixels; mode: enum zs_view_offscreen_mode flags.
+ * zs_view_resize changes the size. ZS_NOT_SUPPORTED with no Vulkan. */
+int zs_view_offscreen(uint32_t width, uint32_t height, int mode, zs_view **out);
+/* Copies the last frame (after zs_view_draw) to out: rows from the top,
+ * stride bytes from one row to the next, 4 bytes for each pixel. Waits
+ * for the GPU. ZS_BUSY before the first frame. */
+int zs_view_read(zs_view *view, uint8_t *out, size_t len, size_t stride);
+/* Shows a finished G-code file. The beads go to the GPU once; a position
+ * or a layer only changes how many of them draw. bed_x, bed_y: the bed
+ * size in mm (0: a bed around the part). zs_view_load ends it. */
+int zs_view_load_gcode(zs_view *view, const zs_gcode *g, double bed_x, double bed_y);
+/* Shows the print at a byte offset: the moves read, the nozzle at the
+ * last one, and its layer lit. zs_view_set_layer (the scrubber) shows
+ * whole layers again, up to a layer. */
+void zs_view_set_position(zs_view *view, uint64_t offset);
+/* The colors of a G-code file: by_feature != 0 for one color for each
+ * feature, else the filament color rgb (0xRRGGBB, the default 0xd0d0cc). */
+int zs_view_gcode_colors(zs_view *view, int by_feature, uint32_t rgb);
+/* zs_view_set_dark sets the night look (a dark background). */
+void zs_view_set_reduced(zs_view *view, int on);
+/* A print view: the nozzle at the position (nozzle != 0), and the top
+ * layer lit with the layers under it darker (lit != 0). Both are on at
+ * the start. */
+void zs_view_print_look(zs_view *view, int nozzle, int lit);
+
+enum zs_touch_action {
+    ZS_TOUCH_DOWN = 0,
+    ZS_TOUCH_MOVE = 1,
+    ZS_TOUCH_UP = 2,
+    ZS_TOUCH_CANCEL = 3 /* ends all touches */
+};
+/* A finger on a touch screen: id tells the fingers apart; x, y in pixels.
+ * One finger orbits; two fingers pinch to zoom and move to pan.
+ * zs_view_reset goes back to the start view. */
+void zs_view_touch(zs_view *view, int64_t id, int action, float x, float y);
+
 /* ---- the plates of a set in one view ----
  *
  * A set has one app for each plate. The view shows all plates in a row
