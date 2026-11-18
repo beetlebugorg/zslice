@@ -5,16 +5,20 @@
 //! overhang only at points, so it uses less plastic, comes off more
 //! easily, and leaves fewer marks on the part. The method:
 //!
-//! 1. Tips. Each overhang (from support.zig, step 1) gets points on a
-//!    regular grid, the same grid on all layers, so that tips line up.
-//!    Each overhang island gets at least one point. The top layers under
-//!    an overhang are the interface: a dense pad, as in grid support; the
-//!    tips start under the pad.
+//! 1. Tips. The top layers under an overhang (from support.zig, step 1)
+//!    are the interface: a dense pad, as in grid support. The tips start
+//!    under the pad. A tip goes on each point of a fixed triangle grid in
+//!    the overhang (`support_tree_spacing` apart, the same grid on all
+//!    layers, so that the tips of a slope line up), and on points along the
+//!    edge of the overhang, one spacing apart, so that the edges of the pad
+//!    have support too. An island with no tip gets one. An edge point or an
+//!    island point is skipped if a tip of the same layer or of the layers
+//!    just above is near: on a slope, each layer adds only a thin strip.
 //! 2. Down, one layer at a time. Each branch is a node: a center and a
 //!    radius. In one layer, a node moves at most h * tan(branch angle).
-//!    It moves away from the part if it is too near (the part moved out by
-//!    the XY gap, plus the radius), and toward the nearest other node, if
-//!    one is near; two nodes that touch join into one thicker node.
+//!    It moves toward its nearest node, if the two can meet within a few
+//!    spacings; two nodes that touch join into one thicker node. So the
+//!    branches of an overhang join into a few strong trunks.
 //!    To reach the bed (not rest on the part), a branch also stays out of
 //!    the avoidance area of each layer: the points from which no branch
 //!    can reach the bed. Layer 0 avoids the part. Layer j avoids the part
@@ -25,13 +29,20 @@
 //!    part, and goes down beside it to the bed. (Cura's tree support uses
 //!    an avoidance area in the same way; see REFERENCES.md.)
 //! 3. The radius grows as the branch goes down (stronger near the bed),
-//!    but it gets smaller again where the space is narrow, down to the tip
-//!    radius. So a branch can go down a deep, narrow hole. Where it cannot
+//!    and a join keeps the area of the two branches. The radius gets
+//!    smaller again where the space is narrow, down to the tip radius. So
+//!    a branch can go down a deep, narrow hole. A branch keeps the XY gap
+//!    from the part; its top layers keep only the smaller gap under an
+//!    overhang, so that the tips under a slope stay. Where a branch cannot
 //!    go on, it rests on the part (it stops the Z gap above it), or, with
 //!    bed-only support, it is removed.
 //! 4. The area of each layer is the union of the circles of its nodes.
 //!    support.zig then adds the interface, and the layer plan prints the
 //!    area as it prints grid support.
+//!
+//! The near nodes come from a grid of cells, and the edges of the part
+//! from an edge index (geom.EdgeIndex), so a layer with many branches
+//! stays fast. The unions of the circles run on all threads.
 //!
 //! The idea of tree support is common in FDM slicers (Cura "tree support",
 //! PrusaSlicer "organic" support; see REFERENCES.md). The method and the
@@ -57,7 +68,12 @@ const Node = struct {
     /// area, or one step from its edge). A branch that can does not join or
     /// follow a branch that cannot, so it does not end on the part.
     free: bool = true,
+    /// The layers since the tip.
+    age: u32 = 0,
 };
+
+/// A tip of an earlier layer, for the spacing of new tips.
+const Tip = struct { x: f64, y: f64, layer: usize };
 
 pub const Params = struct {
     /// The radius of a tip, µm.
@@ -74,12 +90,17 @@ pub const Params = struct {
     z_gap: usize,
     /// Branches must reach the bed.
     bed_only: bool,
+    /// The top layers of a branch keep only the XY gap under an overhang
+    /// (`near`); the layers below keep the full XY gap (`blocked`).
+    tip_layers: u32 = 3,
 };
 
 /// The tree areas of each layer. `need[i]` is the overhang of layer i,
-/// `blocked[i]` the outline of layer i moved out by the XY gap, and `top`
-/// the layer index of the tips of the overhang of layer i (i - 1 - gap -
-/// interface layers). The result has one Paths for each layer, in `gpa`.
+/// `blocked[i]` the outline of layer i moved out by the XY gap, `near[i]`
+/// the outline moved out by the smaller XY gap under an overhang, and
+/// `tips_below` the number of layers from an overhang down to its tips
+/// (1 + Z gap + interface layers). The result has one Paths for each
+/// layer, in `gpa`.
 pub fn grow(
     gpa: Allocator,
     threads: usize,
@@ -87,6 +108,7 @@ pub fn grow(
     layers: []const slicer.Layer,
     need: []const Paths,
     blocked: []const Paths,
+    near: []const Paths,
     tips_below: usize,
     params: Params,
 ) Allocator.Error![]Paths {
@@ -101,148 +123,73 @@ pub fn grow(
     defer arena_state.deinit();
     const arena = arena_state.allocator();
 
-    var nodes: std.ArrayList(Node) = .empty;
     // Each layer adds its circles; the union comes at the end.
     const circles = try arena.alloc(Paths, n);
     for (circles) |*c| c.* = .empty;
-    // The avoidance area of each layer (see 2. in the header), up to the
-    // highest tip. The base of a layer (the part, the layers of the Z gap
-    // under it, and the tip radius around them) does not depend on other
-    // layers, so the bases are made on all threads; then each layer adds the
-    // layer under it, moved in by one step. Simplified outlines keep the
-    // offsets fast.
-    var top: usize = 0;
-    var any = false;
-    for (need, 0..) |nd, src| if (!nd.isEmpty() and src >= tips_below) {
-        top = @max(top, src - tips_below);
-        any = true;
-    };
-    const avoid = try arena.alloc(Paths, n);
-    for (avoid) |*x| x.* = .empty;
-    const bases = try gpa.alloc(Paths, n);
-    for (bases) |*x| x.* = .empty;
-    defer {
-        for (bases) |*x| x.deinit(gpa);
-        gpa.free(bases);
-    }
-    if (any) {
-        const Base = struct {
-            gpa: Allocator,
-            blocked: []const Paths,
-            bases: []Paths,
-            z_gap: usize,
-            tip: i64,
-            fn run(c: *const @This(), i: usize) !void {
-                var arena_b = std.heap.ArenaAllocator.init(c.gpa);
-                defer arena_b.deinit();
-                const ab = arena_b.allocator();
-                var base = c.blocked[i];
-                var k: usize = 1;
-                while (k <= c.z_gap + 1 and k <= i) : (k += 1) base = try clip.unite(ab, base, c.blocked[i - k]);
-                var grown = try offset_mod.offset(ab, base, c.tip, .{});
-                @import("support.zig").simplifyAll(&grown, 30);
-                c.bases[i] = try grown.clone(c.gpa);
-            }
-        };
-        // Every `every` layers: a base, and the avoidance of the layer
-        // `every` under it, moved in by `every` steps. A layer between
-        // uses the avoidance of the computed layer under it (larger, so
-        // safe). The chain of offsets is the slow part.
-        const every: usize = 5;
-        const m = top / every + 1;
-        const Sel = struct {
-            base: *const Base,
-            every: usize,
-            fn run(c: *const @This(), k: usize) !void {
-                try Base.run(c.base, k * c.every);
-            }
-        };
-        const bc: Base = .{ .gpa = gpa, .blocked = blocked, .bases = bases, .z_gap = params.z_gap, .tip = @intFromFloat(params.tip) };
-        const sc: Sel = .{ .base = &bc, .every = every };
-        @import("parallel.zig").forEach(threads, m, &sc, Sel.run) catch |e| switch (e) {
-            error.OutOfMemory => return error.OutOfMemory,
-            else => unreachable,
-        };
-        avoid[0] = bases[0];
-        var i: usize = every;
-        while (i <= top) : (i += every) {
-            var drop: f64 = 0;
-            for (i - every + 1..i + 1) |q| drop += @floatFromInt(geom.fromMm(layers[q].height));
-            const shrunk = try offset_mod.offset(arena, avoid[i - every], -@as(i64, @intFromFloat(drop * params.tan_angle)), .{});
-            var u = try clip.unite(arena, bases[i], shrunk);
-            @import("support.zig").simplifyAll(&u, 30);
-            avoid[i] = u;
-        }
-        for (0..top + 1) |q| if (q % every != 0) {
-            avoid[q] = avoid[q - q % every];
-        };
-    }
-    // The branches of each layer, for the bed-only rule: a branch that
-    // does not reach the bed is removed, with its circles above. Each node
-    // keeps the id of its first tip; the circles keep the id too.
+    const avoid = try avoidance(gpa, arena, threads, layers, need, blocked, tips_below, params);
+
+    var nodes: std.ArrayList(Node) = .empty;
+    var recent: std.ArrayList(Tip) = .empty;
+    // The pad of the edge indexes: a node looks for edges at most this far.
+    const pad = 2 * params.max_r + params.spacing;
     var j: usize = n;
     while (j > 0) {
         j -= 1;
-        // New tips: the overhang of layer src has its tips on layer j.
-        const src = j + tips_below;
-        if (src < n and !need[src].isEmpty()) try addTips(arena, &nodes, need[src], params);
-        if (nodes.items.len == 0) continue;
+        var layer_state = std.heap.ArenaAllocator.init(gpa);
+        defer layer_state.deinit();
+        const la = layer_state.allocator();
         const h = geom.fromMm(layers[j].height);
         const step = @as(f64, @floatFromInt(h)) * params.tan_angle;
-        // 1. Join nodes that touch.
-        joinNodes(nodes.items);
-        // 2. Move each node: toward the nearest node, then out of the part.
+        // New tips: the overhang of layer src has its tips on layer j.
+        const src = j + tips_below;
+        if (src < n and !need[src].isEmpty()) try addTips(arena, la, &nodes, &recent, need[src], near[j], j, step, params);
+        if (nodes.items.len == 0) continue;
+        const bidx = try index(la, blocked[j], pad);
+        const nidx = try index(la, near[j], pad);
+        const aidx = try index(la, avoid[j], pad);
+
+        // 1. Toward the nearest node: two branches that are near join on
+        // the way down, into a thicker branch.
+        try attract(la, nodes.items, step, params);
         for (nodes.items) |*nd| {
             if (!nd.alive) continue;
-            if (nearest(nodes.items, nd)) |o| {
-                const dx = o.x - nd.x;
-                const dy = o.y - nd.y;
-                const d = @sqrt(dx * dx + dy * dy);
-                // Only toward a node that the branch can reach in a few
-                // layers: far branches go straight down.
-                if (d > 1e-6 and d < 12 * step + nd.r + o.r) {
-                    const m = @min(step, d);
-                    nd.x += dx / d * m;
-                    nd.y += dy / d * m;
-                }
-            }
-            // Out of the avoidance area, toward the bed, if one step is
+            nd.age +|= 1;
+            // 2. Out of the avoidance area, toward the bed, if one step is
             // enough. Else the branch goes on, and rests on the part.
-            // (`free` is from this check on the layer above: the joins and
-            // the moves above use it.)
             nd.free = true;
-            if (geom.insideAny(avoid[j], .{ .x = @intFromFloat(nd.x), .y = @intFromFloat(nd.y) })) {
-                const e = nearestEdge(avoid[j], nd.x, nd.y);
-                nd.free = e.d <= step * 1.5 + 1;
+            if (aidx) |ai| if (ai.inside(pointOf(nd))) {
+                const e = ai.nearestPoint(nd.x, nd.y, pad);
+                nd.free = e != null and e.?[2] <= step * 1.5 + 1;
                 if (nd.free) {
-                    const dx = e.x - nd.x;
-                    const dy = e.y - nd.y;
+                    const dx = e.?[0] - nd.x;
+                    const dy = e.?[1] - nd.y;
                     const d = @max(@sqrt(dx * dx + dy * dy), 1e-6);
                     // Just past the edge.
-                    nd.x = e.x + dx / d * 20;
-                    nd.y = e.y + dy / d * 20;
+                    nd.x = e.?[0] + dx / d * 20;
+                    nd.y = e.?[1] + dy / d * 20;
                 }
-            }
-            // The radius grows with the drop, but not over the free space.
+            };
+            // 3. The radius grows with the drop, but not over the free
+            // space. Near the tip, the branch keeps the XY gap under an
+            // overhang only, so the tips under a slope stay.
             nd.r = @min(params.max_r, nd.r + params.growth * @as(f64, @floatFromInt(h)));
-            if (!fit(nd, blocked[j], step, params.tip)) {
-                // No room on this layer: the branch rests on the part, or
-                // stops (bed only).
+            const fence = if (nd.age <= params.tip_layers) nidx else bidx;
+            if (!fit(nd, fence, pad, step, params.tip)) {
+                // No room on this layer: the branch is over the part. It
+                // rests there, or stops (bed only).
                 nd.alive = false;
             }
         }
-        // A branch over the part rests on it: the z gap above the part.
-        for (nodes.items) |*nd| {
-            if (!nd.alive) continue;
-            var k: usize = 1;
-            while (k <= params.z_gap + 1 and k <= j) : (k += 1) {
-                if (geom.insideAny(outlines[j - k], .{ .x = @intFromFloat(nd.x), .y = @intFromFloat(nd.y) })) {
-                    nd.alive = false;
-                    break;
-                }
+        // A branch over the part rests on it: the Z gap above the part.
+        var k: usize = 1;
+        while (k <= params.z_gap + 1 and k <= j) : (k += 1) {
+            const oi = (try index(la, outlines[j - k], 0)) orelse continue;
+            for (nodes.items) |*nd| {
+                if (nd.alive and oi.inside(pointOf(nd))) nd.alive = false;
             }
         }
-        // 3. The circles of this layer.
+        try join(la, nodes.items);
+        // 4. The circles of this layer.
         for (nodes.items) |nd| if (nd.alive) try circles[j].append(arena, try circle(arena, nd.x, nd.y, nd.r));
         // Drop the nodes that ended.
         var keep: usize = 0;
@@ -252,13 +199,27 @@ pub fn grow(
         };
         nodes.items.len = keep;
     }
-    // The union of the circles of each layer, minus the part.
-    for (0..n) |i| {
-        if (circles[i].isEmpty()) continue;
-        const u = try clip.unionAll(arena, circles[i], .non_zero);
-        const free = try clip.difference(arena, u, blocked[i]);
-        out[i] = try free.clone(gpa);
-    }
+    // The union of the circles of each layer, minus the part, on all
+    // threads.
+    const Union = struct {
+        gpa: Allocator,
+        circles: []const Paths,
+        blocked: []const Paths,
+        out: []Paths,
+        fn run(c: *const @This(), i: usize) !void {
+            if (c.circles[i].isEmpty()) return;
+            var a = std.heap.ArenaAllocator.init(c.gpa);
+            defer a.deinit();
+            const u = try clip.unionAll(a.allocator(), c.circles[i], .non_zero);
+            const free = try clip.difference(a.allocator(), u, c.blocked[i]);
+            c.out[i] = try free.clone(c.gpa);
+        }
+    };
+    const uc: Union = .{ .gpa = gpa, .circles = circles, .blocked = blocked, .out = out };
+    @import("parallel.zig").forEach(threads, n, &uc, Union.run) catch |e| switch (e) {
+        error.OutOfMemory => return error.OutOfMemory,
+        else => unreachable,
+    };
     if (params.bed_only) {
         // Only the areas over support on the layer below.
         for (1..n) |i| {
@@ -271,24 +232,177 @@ pub fn grow(
     return out;
 }
 
-/// Adds tips on a grid inside an overhang area, and one tip for each island
-/// that the grid misses.
-fn addTips(a: Allocator, nodes: *std.ArrayList(Node), area: Paths, params: Params) Allocator.Error!void {
-    const b = area.bounds();
+fn pointOf(nd: *const Node) Point {
+    return .{ .x = @intFromFloat(nd.x), .y = @intFromFloat(nd.y) };
+}
+
+fn index(a: Allocator, paths: Paths, pad: f64) Allocator.Error!?geom.EdgeIndex {
+    if (paths.isEmpty()) return null;
+    return try geom.EdgeIndex.init(a, paths, @intFromFloat(pad));
+}
+
+/// The avoidance area of each layer (see 2. in the header), up to the
+/// highest tip, in `arena`. The base of a layer (the part, the layers of
+/// the Z gap under it, and the tip radius around them) does not depend on
+/// other layers, so the bases are made on all threads; then each layer
+/// adds the layer under it, moved in by one step. Simplified outlines keep
+/// the offsets fast.
+fn avoidance(
+    gpa: Allocator,
+    arena: Allocator,
+    threads: usize,
+    layers: []const slicer.Layer,
+    need: []const Paths,
+    blocked: []const Paths,
+    tips_below: usize,
+    params: Params,
+) Allocator.Error![]Paths {
+    const n = need.len;
+    var top: usize = 0;
+    var any = false;
+    for (need, 0..) |nd, src| if (!nd.isEmpty() and src >= tips_below) {
+        top = @max(top, src - tips_below);
+        any = true;
+    };
+    const avoid = try arena.alloc(Paths, n);
+    for (avoid) |*x| x.* = .empty;
+    if (!any) return avoid;
+    const bases = try gpa.alloc(Paths, n);
+    for (bases) |*x| x.* = .empty;
+    defer {
+        for (bases) |*x| x.deinit(gpa);
+        gpa.free(bases);
+    }
+    const Base = struct {
+        gpa: Allocator,
+        blocked: []const Paths,
+        bases: []Paths,
+        z_gap: usize,
+        tip: i64,
+        fn run(c: *const @This(), i: usize) !void {
+            var arena_b = std.heap.ArenaAllocator.init(c.gpa);
+            defer arena_b.deinit();
+            const ab = arena_b.allocator();
+            var base = c.blocked[i];
+            var k: usize = 1;
+            while (k <= c.z_gap + 1 and k <= i) : (k += 1) base = try clip.unite(ab, base, c.blocked[i - k]);
+            var grown = try offset_mod.offset(ab, base, c.tip, .{});
+            @import("support.zig").simplifyAll(&grown, 30);
+            c.bases[i] = try grown.clone(c.gpa);
+        }
+    };
+    // Every `every` layers: a base, and the avoidance of the layer `every`
+    // under it, moved in by `every` steps. A layer between uses the
+    // avoidance of the computed layer under it (larger, so safe). The
+    // chain of offsets is the slow part.
+    const every: usize = 5;
+    const m = top / every + 1;
+    const Sel = struct {
+        base: *const Base,
+        every: usize,
+        fn run(c: *const @This(), k: usize) !void {
+            try Base.run(c.base, k * c.every);
+        }
+    };
+    const bc: Base = .{ .gpa = gpa, .blocked = blocked, .bases = bases, .z_gap = params.z_gap, .tip = @intFromFloat(params.tip) };
+    const sc: Sel = .{ .base = &bc, .every = every };
+    @import("parallel.zig").forEach(threads, m, &sc, Sel.run) catch |e| switch (e) {
+        error.OutOfMemory => return error.OutOfMemory,
+        else => unreachable,
+    };
+    avoid[0] = try bases[0].clone(arena);
+    var i: usize = every;
+    while (i <= top) : (i += every) {
+        var drop: f64 = 0;
+        for (i - every + 1..i + 1) |q| drop += @floatFromInt(geom.fromMm(layers[q].height));
+        const shrunk = try offset_mod.offset(arena, avoid[i - every], -@as(i64, @intFromFloat(drop * params.tan_angle)), .{});
+        var u = try clip.unite(arena, bases[i], shrunk);
+        @import("support.zig").simplifyAll(&u, 30);
+        avoid[i] = u;
+    }
+    for (0..top + 1) |q| if (q % every != 0) {
+        avoid[q] = avoid[q - q % every];
+    };
+    return avoid;
+}
+
+/// Adds the tips of the overhang `area` on layer j: the points of a fixed
+/// triangle grid in the area (the same grid on all layers, so that the
+/// tips of a slope line up), points along the edge of the area, and one
+/// point in each island that has no tip. An edge point or an island point
+/// is not added if a tip of this layer or of the layers just above is
+/// nearer than 0.6 spacings: on a slope, each layer adds only a thin
+/// strip.
+fn addTips(
+    a: Allocator,
+    la: Allocator,
+    nodes: *std.ArrayList(Node),
+    recent: *std.ArrayList(Tip),
+    need: Paths,
+    near: Paths,
+    j: usize,
+    step: f64,
+    params: Params,
+) Allocator.Error!void {
+    _ = step;
     const sp = params.spacing;
-    // The grid starts at a multiple of the spacing, so all layers use the
-    // same grid. Odd rows move by half a spacing (a triangle grid).
-    var row: i64 = @intFromFloat(@floor(@as(f64, @floatFromInt(b.min.y)) / sp));
-    const row_end: i64 = @intFromFloat(@ceil(@as(f64, @floatFromInt(b.max.y)) / sp));
+    // The tips of the layers within one spacing of height above.
+    const reach: usize = 16;
+    var keep: usize = 0;
+    for (recent.items) |t| if (t.layer <= j + reach) {
+        recent.items[keep] = t;
+        keep += 1;
+    };
+    recent.items.len = keep;
+    const area = try clip.difference(la, need, near);
+    if (area.isEmpty()) return;
+    const first = nodes.items.len;
+    const b = area.bounds();
+    const ai = try geom.EdgeIndex.init(la, area, 0);
+    // The grid. Odd rows move by half a spacing (a triangle grid); the
+    // rows are sqrt(3) / 2 spacings apart.
+    const row_h = sp * 0.8660254037844386;
+    var row: i64 = @intFromFloat(@floor(@as(f64, @floatFromInt(b.min.y)) / row_h));
+    const row_end: i64 = @intFromFloat(@ceil(@as(f64, @floatFromInt(b.max.y)) / row_h));
     while (row <= row_end) : (row += 1) {
-        const y = @as(f64, @floatFromInt(row)) * sp;
+        const y = @as(f64, @floatFromInt(row)) * row_h;
         const shift = if (@mod(row, 2) == 0) 0 else sp / 2;
         var col: i64 = @intFromFloat(@floor(@as(f64, @floatFromInt(b.min.x)) / sp) - 1);
         const col_end: i64 = @intFromFloat(@ceil(@as(f64, @floatFromInt(b.max.x)) / sp) + 1);
         while (col <= col_end) : (col += 1) {
             const x = @as(f64, @floatFromInt(col)) * sp + shift;
-            if (geom.insideAny(area, .{ .x = @intFromFloat(x), .y = @intFromFloat(y) })) {
+            if (ai.inside(.{ .x = @intFromFloat(x), .y = @intFromFloat(y) })) {
                 try nodes.append(a, .{ .x = x, .y = y, .r = params.tip });
+            }
+        }
+    }
+    // The edge: points along the area moved in by the tip radius.
+    const min_d = 0.6 * sp;
+    const inner = try offset_mod.offset(la, area, -@as(i64, @intFromFloat(params.tip)), .{});
+    for (0..inner.count()) |k| {
+        const poly = inner.get(k);
+        var walked: f64 = sp; // a point at the start of each loop
+        for (poly, 0..) |p, i| {
+            const q = poly[(i + 1) % poly.len];
+            const px: f64 = @floatFromInt(p.x);
+            const py: f64 = @floatFromInt(p.y);
+            const ex = @as(f64, @floatFromInt(q.x)) - px;
+            const ey = @as(f64, @floatFromInt(q.y)) - py;
+            const len = @sqrt(ex * ex + ey * ey);
+            var t: f64 = 0;
+            while (t < len) {
+                const left = sp - walked;
+                if (left > len - t) {
+                    walked += len - t;
+                    break;
+                }
+                t += left;
+                walked = 0;
+                const x = px + ex * t / len;
+                const y = py + ey * t / len;
+                if (!hasTipNear(nodes.items[first..], recent.items, x, y, min_d)) {
+                    try nodes.append(a, .{ .x = x, .y = y, .r = params.tip });
+                }
             }
         }
     }
@@ -297,14 +411,166 @@ fn addTips(a: Allocator, nodes: *std.ArrayList(Node), area: Paths, params: Param
         const poly = area.get(k);
         if (geom.area2(poly) <= 0) continue; // a hole
         var has = false;
-        for (nodes.items) |nd| {
+        for (nodes.items[first..]) |nd| {
             if (insidePoly(poly, nd.x, nd.y)) {
                 has = true;
                 break;
             }
         }
         if (has) continue;
-        if (pointInside(poly)) |p| try nodes.append(a, .{ .x = p[0], .y = p[1], .r = params.tip });
+        const p = pointInside(poly) orelse continue;
+        if (hasTipNear(nodes.items[first..], recent.items, p[0], p[1], min_d)) continue;
+        try nodes.append(a, .{ .x = p[0], .y = p[1], .r = params.tip });
+    }
+    for (nodes.items[first..]) |nd| try recent.append(a, .{ .x = nd.x, .y = nd.y, .layer = j });
+}
+
+fn hasTipNear(new: []const Node, recent: []const Tip, x: f64, y: f64, d: f64) bool {
+    const d2 = d * d;
+    for (new) |nd| {
+        if ((nd.x - x) * (nd.x - x) + (nd.y - y) * (nd.y - y) < d2) return true;
+    }
+    for (recent) |t| {
+        if ((t.x - x) * (t.x - x) + (t.y - y) * (t.y - y) < d2) return true;
+    }
+    return false;
+}
+
+/// The nodes of a layer in cells of a square grid, for the search of the
+/// near nodes.
+const Cells = struct {
+    size: f64,
+    /// The cell key of each entry, sorted, and the node of each entry.
+    keys: []u64,
+    ids: []u32,
+
+    fn key(cx: i64, cy: i64) u64 {
+        const ux: u64 = @bitCast(cx +% (1 << 31));
+        const uy: u64 = @bitCast(cy +% (1 << 31));
+        return (ux << 32) | (uy & 0xffff_ffff);
+    }
+
+    fn cellOf(c: Cells, v: f64) i64 {
+        return @intFromFloat(@floor(v / c.size));
+    }
+
+    fn build(a: Allocator, nodes: []const Node, size: f64) Allocator.Error!Cells {
+        var c: Cells = .{ .size = size, .keys = &.{}, .ids = &.{} };
+        var count: usize = 0;
+        for (nodes) |nd| if (nd.alive) {
+            count += 1;
+        };
+        const pairs = try a.alloc([2]u64, count);
+        var k: usize = 0;
+        for (nodes, 0..) |nd, i| if (nd.alive) {
+            pairs[k] = .{ key(c.cellOf(nd.x), c.cellOf(nd.y)), i };
+            k += 1;
+        };
+        std.mem.sort([2]u64, pairs, {}, struct {
+            fn lt(_: void, x: [2]u64, y: [2]u64) bool {
+                return x[0] < y[0];
+            }
+        }.lt);
+        c.keys = try a.alloc(u64, count);
+        c.ids = try a.alloc(u32, count);
+        for (pairs, 0..) |p, i| {
+            c.keys[i] = p[0];
+            c.ids[i] = @intCast(p[1]);
+        }
+        return c;
+    }
+
+    /// The entries of one cell.
+    fn cell(c: Cells, cx: i64, cy: i64) []const u32 {
+        const kk = key(cx, cy);
+        var lo: usize = 0;
+        var hi: usize = c.keys.len;
+        while (lo < hi) {
+            const mid = (lo + hi) / 2;
+            if (c.keys[mid] < kk) lo = mid + 1 else hi = mid;
+        }
+        var end = lo;
+        while (end < c.keys.len and c.keys[end] == kk) end += 1;
+        return c.ids[lo..end];
+    }
+};
+
+/// Moves each node toward its nearest node (of the same kind, free or
+/// not) by at most one step, if the two can meet within a few spacings.
+/// The targets come from the positions before the moves.
+fn attract(a: Allocator, nodes: []Node, step: f64, params: Params) Allocator.Error!void {
+    const reach = 4 * params.spacing + 2 * params.max_r;
+    const cells = try Cells.build(a, nodes, reach);
+    const moves = try a.alloc([2]f64, nodes.len);
+    for (nodes, 0..) |*nd, i| {
+        moves[i] = .{ 0, 0 };
+        if (!nd.alive) continue;
+        const cx = cells.cellOf(nd.x);
+        const cy = cells.cellOf(nd.y);
+        var best: ?usize = null;
+        var best_d: f64 = std.math.inf(f64);
+        var gx = cx - 1;
+        while (gx <= cx + 1) : (gx += 1) {
+            var gy = cy - 1;
+            while (gy <= cy + 1) : (gy += 1) {
+                for (cells.cell(gx, gy)) |o| {
+                    if (o == i) continue;
+                    const on = nodes[o];
+                    if (on.free != nd.free) continue;
+                    const d = @sqrt((on.x - nd.x) * (on.x - nd.x) + (on.y - nd.y) * (on.y - nd.y));
+                    if (d < best_d) {
+                        best_d = d;
+                        best = o;
+                    }
+                }
+            }
+        }
+        const o = best orelse continue;
+        const on = nodes[o];
+        if (best_d < 1e-6 or best_d > 4 * params.spacing + nd.r + on.r) continue;
+        // Both nodes move, so each goes at most half the way.
+        const m = @min(step, best_d / 2);
+        moves[i] = .{ (on.x - nd.x) / best_d * m, (on.y - nd.y) / best_d * m };
+    }
+    for (nodes, moves) |*nd, mv| {
+        nd.x += mv[0];
+        nd.y += mv[1];
+    }
+}
+
+/// Joins nodes that touch (the center of one is in the other): the new
+/// node is at the middle (weighted by the area of each), with the radius of
+/// the same area.
+fn join(a: Allocator, nodes: []Node) Allocator.Error!void {
+    var big: f64 = 1;
+    for (nodes) |nd| big = @max(big, nd.r);
+    const cells = try Cells.build(a, nodes, 2 * big);
+    for (nodes, 0..) |*nd, i| {
+        if (!nd.alive) continue;
+        const cx = cells.cellOf(nd.x);
+        const cy = cells.cellOf(nd.y);
+        var gx = cx - 1;
+        while (gx <= cx + 1) : (gx += 1) {
+            var gy = cy - 1;
+            while (gy <= cy + 1) : (gy += 1) {
+                for (cells.cell(gx, gy)) |o| {
+                    if (o <= i) continue;
+                    const b = &nodes[o];
+                    if (!b.alive or b.free != nd.free) continue;
+                    const dx = b.x - nd.x;
+                    const dy = b.y - nd.y;
+                    const touch = @max(nd.r, b.r);
+                    if (dx * dx + dy * dy > touch * touch) continue;
+                    const wa = nd.r * nd.r;
+                    const wb = b.r * b.r;
+                    nd.x = (nd.x * wa + b.x * wb) / (wa + wb);
+                    nd.y = (nd.y * wa + b.y * wb) / (wa + wb);
+                    nd.r = @sqrt(wa + wb);
+                    nd.age = @min(nd.age, b.age);
+                    b.alive = false;
+                }
+            }
+        }
     }
 }
 
@@ -354,54 +620,17 @@ fn pointInside(poly: []const Point) ?[2]f64 {
     return best;
 }
 
-/// Joins nodes that touch: the new node is at the middle (weighted by the
-/// area of each), with the radius of the same area.
-fn joinNodes(nodes: []Node) void {
-    for (nodes, 0..) |*a, i| {
-        if (!a.alive) continue;
-        for (nodes[i + 1 ..]) |*b| {
-            if (!b.alive or b.free != a.free) continue;
-            const dx = b.x - a.x;
-            const dy = b.y - a.y;
-            const touch = @max(a.r, b.r) * 0.75;
-            if (dx * dx + dy * dy > touch * touch) continue;
-            const wa = a.r * a.r;
-            const wb = b.r * b.r;
-            a.x = (a.x * wa + b.x * wb) / (wa + wb);
-            a.y = (a.y * wa + b.y * wb) / (wa + wb);
-            a.r = @sqrt(wa + wb);
-            b.alive = false;
-        }
-    }
-}
-
-fn nearest(nodes: []const Node, nd: *const Node) ?*const Node {
-    var best: ?*const Node = null;
-    var best_d: f64 = std.math.inf(f64);
-    for (nodes) |*o| {
-        if (o == nd or !o.alive or o.free != nd.free) continue;
-        const dx = o.x - nd.x;
-        const dy = o.y - nd.y;
-        const d = dx * dx + dy * dy;
-        if (d < best_d) {
-            best_d = d;
-            best = o;
-        }
-    }
-    return best;
-}
-
-/// Moves a node out of the part (the blocked area) by at most `step`, and
-/// makes its radius smaller where the space is narrow, down to `tip`.
+/// Moves a node out of the part (the area of `fence`) by at most `step`,
+/// and makes its radius smaller where the space is narrow, down to `tip`.
 /// Returns false if there is no room.
-fn fit(nd: *Node, blocked: Paths, step: f64, tip: f64) bool {
-    if (blocked.isEmpty()) return true;
+fn fit(nd: *Node, fence: ?geom.EdgeIndex, pad: f64, step: f64, tip: f64) bool {
+    const fi = fence orelse return true;
     var moved: f64 = 0;
     var iter: usize = 0;
     while (iter < 4) : (iter += 1) {
-        const near = nearestEdge(blocked, nd.x, nd.y);
-        const inside = geom.insideAny(blocked, .{ .x = @intFromFloat(nd.x), .y = @intFromFloat(nd.y) });
-        const clearance = if (inside) -near.d else near.d;
+        const inside = fi.inside(pointOf(nd));
+        const near = fi.nearestPoint(nd.x, nd.y, pad) orelse return !inside;
+        const clearance = if (inside) -near[2] else near[2];
         if (clearance >= nd.r) return true;
         // Narrow space: a thinner branch fits without a move.
         if (clearance >= tip) {
@@ -410,8 +639,8 @@ fn fit(nd: *Node, blocked: Paths, step: f64, tip: f64) bool {
         }
         // Move away from the nearest edge point, out of the part.
         if (moved >= step) return false;
-        var dx = nd.x - near.x;
-        var dy = nd.y - near.y;
+        var dx = nd.x - near[0];
+        var dy = nd.y - near[1];
         var d = @sqrt(dx * dx + dy * dy);
         if (d < 1e-6) return false;
         if (inside) {
@@ -420,38 +649,13 @@ fn fit(nd: *Node, blocked: Paths, step: f64, tip: f64) bool {
         }
         dx /= d;
         dy /= d;
-        const want = @min(step - moved, (if (inside) near.d else 0) + tip - (if (inside) 0 else near.d) + 1);
+        const want = @min(step - moved, (if (inside) near[2] else 0) + tip - (if (inside) 0 else near[2]) + 1);
         d = @max(want, 1);
         nd.x += dx * d;
         nd.y += dy * d;
         moved += d;
     }
     return false;
-}
-
-const EdgePoint = struct { x: f64, y: f64, d: f64 };
-
-fn nearestEdge(paths: Paths, x: f64, y: f64) EdgePoint {
-    var best: EdgePoint = .{ .x = x, .y = y, .d = std.math.inf(f64) };
-    for (0..paths.count()) |k| {
-        const poly = paths.get(k);
-        for (poly, 0..) |a, i| {
-            const b = poly[(i + 1) % poly.len];
-            const ax: f64 = @floatFromInt(a.x);
-            const ay: f64 = @floatFromInt(a.y);
-            const bx: f64 = @floatFromInt(b.x);
-            const by: f64 = @floatFromInt(b.y);
-            const ex = bx - ax;
-            const ey = by - ay;
-            const l2 = ex * ex + ey * ey;
-            const t = if (l2 > 0) std.math.clamp(((x - ax) * ex + (y - ay) * ey) / l2, 0, 1) else 0;
-            const px = ax + t * ex;
-            const py = ay + t * ey;
-            const d = @import("geom.zig").hypot(x - px, y - py);
-            if (d < best.d) best = .{ .x = px, .y = py, .d = d };
-        }
-    }
-    return best;
 }
 
 /// A circle as a counterclockwise polygon with 16 points.

@@ -581,6 +581,31 @@ pub const EdgeIndex = struct {
         if (best2 < best * best) best = @sqrt(best2);
         return best;
     }
+
+    /// The nearest point of an edge to (x, y), and its distance (units),
+    /// or null if no edge is within `limit`. `limit` must not be more than
+    /// the pad of the index, and the pad must be more than 0.
+    pub fn nearestPoint(idx: EdgeIndex, x: f64, y: f64, limit: f64) ?[3]f64 {
+        var best2 = limit * limit;
+        var best: ?[3]f64 = null;
+        for (idx.bandEdges(@intFromFloat(y))) |e| {
+            const ax: f64 = @floatFromInt(e[0].x);
+            const ay: f64 = @floatFromInt(e[0].y);
+            const abx = @as(f64, @floatFromInt(e[1].x)) - ax;
+            const aby = @as(f64, @floatFromInt(e[1].y)) - ay;
+            const len2 = abx * abx + aby * aby;
+            const t = if (len2 > 0) fmax(0, fmin(((x - ax) * abx + (y - ay) * aby) / len2, 1)) else 0;
+            const px = ax + t * abx;
+            const py = ay + t * aby;
+            const d2 = (x - px) * (x - px) + (y - py) * (y - py);
+            if (d2 <= best2) {
+                best2 = d2;
+                best = .{ px, py, d2 };
+            }
+        }
+        if (best) |*b| b[2] = @sqrt(b[2]);
+        return best;
+    }
 };
 
 test "EdgeIndex gives the same answers as the tests over all edges" {

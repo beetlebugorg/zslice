@@ -22,7 +22,9 @@
 //!    above the part. The support area of a layer is the column minus the
 //!    part moved out by `support_xy_gap`. The XY gap does not stop the
 //!    column: under a slope, the area next to the part is free again on
-//!    the layers below. Where the part above the Z gap covers the support,
+//!    the layers below. A column starts from the overhang moved out by
+//!    one line width: the strip of a slope is thinner than a line, and a
+//!    thinner area does not print. Where the part above the Z gap covers the support,
 //!    the XY gap is at most half a line width: the Z gap keeps the support
 //!    off the overhang, and the full XY gap would remove the support under
 //!    a slope.
@@ -325,16 +327,41 @@ fn computeStyle(
         }
     }
 
+    // The overhangs moved out by one line width (`wide`). The columns and
+    // the pads start from these areas. Under a slope, the strip of a layer
+    // is thinner than a line, so it would not print; the wider area does,
+    // and the XY gap cuts it back on the side of the part.
+    const wide = try gpa.alloc(Paths, n);
+    for (wide) |*x| x.* = .empty;
+    defer {
+        for (wide) |*x| x.deinit(gpa);
+        gpa.free(wide);
+    }
+    const Widen = struct {
+        gpa: Allocator,
+        need: []const Paths,
+        wide: []Paths,
+        w: i64,
+        fn run(c: *const @This(), i: usize) anyerror!void {
+            if (c.need[i].isEmpty()) return;
+            var x = try offset_mod.offset(c.gpa, c.need[i], c.w, .{});
+            simplifyAll(&x, 20);
+            c.wide[i] = x;
+        }
+    };
+    const wc: Widen = .{ .gpa = gpa, .need = need, .wide = wide, .w = w };
+    try parallel.forEach(threads, n, &wc, Widen.run);
+
     const out = try gpa.alloc(SupportLayer, n);
     for (out) |*x| x.* = .{};
     errdefer deinitAll(gpa, out);
 
     if (p.support_style == .tree) {
-        try treeSupport(gpa, threads, outlines, layers, r_style, need, blocked, near, out);
+        try treeSupport(gpa, threads, outlines, layers, r_style, need, wide, blocked, near, out);
         return out;
     }
     if (p.support_style == .bridge) {
-        try addPads(gpa, need, near, p.support_z_gap_layers, @max(1, p.support_interface_layers), out);
+        try addPads(gpa, wide, near, p.support_z_gap_layers, @max(1, p.support_interface_layers), out);
         return out;
     }
 
@@ -349,9 +376,9 @@ fn computeStyle(
         while (j > 0) {
             j -= 1;
             const src = j + 1 + gap;
-            const has_new = src < n and !need[src].isEmpty();
+            const has_new = src < n and !wide[src].isEmpty();
             if (carry.isEmpty() and !has_new) continue;
-            var area = if (has_new) try clip.unite(gpa, carry, need[src]) else try carry.clone(gpa);
+            var area = if (has_new) try clip.unite(gpa, carry, wide[src]) else try carry.clone(gpa);
             defer area.deinit(gpa);
             // Only the part stops a column. The XY gap comes in step 2b:
             // under a slope, the area next to the part on this layer is
@@ -444,7 +471,7 @@ fn computeStyle(
                 c.out[j].body = try body.clone(c.gpa);
             }
         };
-        const ic: Interface = .{ .gpa = gpa, .need = need, .out = out, .gap = gap, .count = p.support_interface_layers };
+        const ic: Interface = .{ .gpa = gpa, .need = wide, .out = out, .gap = gap, .count = p.support_interface_layers };
         try parallel.forEach(threads, n, &ic, Interface.run);
     }
     return out;
@@ -459,6 +486,7 @@ fn treeSupport(
     layers: []const slicer.Layer,
     r: *const settings_mod.Resolved,
     need: []const Paths,
+    wide: []const Paths,
     blocked: []const Paths,
     near: []const Paths,
     out: []SupportLayer,
@@ -469,17 +497,19 @@ fn treeSupport(
     const tip_mm = if (p.support_tree_tip > 0) p.support_tree_tip else 2 * r.line_width;
     const params: tree.Params = .{
         .tip = @floatFromInt(geom.fromMm(tip_mm / 2)),
-        .max_r = @floatFromInt(geom.fromMm(@max(tip_mm, 4) / 2)),
-        .growth = 0.02,
+        // A trunk is at most 10 mm thick, and a branch gets 0.6 mm thicker
+        // for each 10 mm that it goes down (and more where branches join).
+        .max_r = @floatFromInt(geom.fromMm(@max(tip_mm, 10) / 2)),
+        .growth = 0.06,
         .tan_angle = @tan(std.math.degreesToRadians(p.support_tree_angle)),
         .spacing = @floatFromInt(geom.fromMm(p.support_tree_spacing)),
         .z_gap = gap,
         .bed_only = p.support == .buildplate,
     };
-    const branches = try tree.grow(gpa, threads, outlines, layers, need, blocked, 1 + gap + pads, params);
+    const branches = try tree.grow(gpa, threads, outlines, layers, need, blocked, near, 1 + gap + pads, params);
     defer gpa.free(branches);
     for (out, branches) |*o, b| o.body = b;
-    try addPads(gpa, need, near, gap, pads, out);
+    try addPads(gpa, wide, near, gap, pads, out);
 }
 
 /// The pads: the overhang area, on the `pads` interface layers under each
@@ -585,9 +615,11 @@ test "a mushroom gets support under its cap" {
     // layer, layer 22 (z 4.7) is the top of the support: interface.
     try testing.expect(!sup[22].interface.isEmpty());
     try testing.expect(sup[23].body.isEmpty() and sup[23].interface.isEmpty());
-    // Layer 10 is support body: the cap area minus the post and the gap.
+    // Layer 10 is support body: the cap area (moved out by a line width)
+    // minus the post and the gap.
     const xy = st.project.support_xy_gap;
-    const want = 400.0 - (4 + 2 * xy) * (4 + 2 * xy);
+    const cap = 20 + 2 * r.line_width;
+    const want = cap * cap - (4 + 2 * xy) * (4 + 2 * xy);
     try testing.expectApproxEqRel(want, sup[10].body.areaMm2(), 0.03);
     // No support inside the cap or on the top.
     try testing.expect(sup[30].body.isEmpty());
@@ -617,7 +649,7 @@ test "support marks: a pad with support off, and a block" {
     defer deinitAll(gpa, sup);
     // A pad under the mark (layer 22, under the z gap), and nothing below.
     try testing.expect(!sup[22].interface.isEmpty());
-    try testing.expect(sup[22].interface.areaMm2() < 15);
+    try testing.expect(sup[22].interface.areaMm2() < 22); // the disk of 2 mm, moved out by a line width
     try testing.expect(sup[10].body.isEmpty() and sup[10].interface.isEmpty());
 
     // A mark on a layer under the cap (where the pad prints, not where the
