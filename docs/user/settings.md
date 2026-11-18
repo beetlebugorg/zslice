@@ -76,6 +76,10 @@ The speed of Z moves at each layer change.
 
 The acceleration of Z moves (the layer change and the z hop), in mm/s². Only the time estimate uses it.
 
+**`machine.hour_rate`** (number). Default: `0`
+
+The cost of one hour of this printer, in your currency: the power, the wear, and the time of the machine. A print costs its hours times this, and its filament. 0: only the filament counts.
+
 **`machine.max_accel`** (number). Default: `1500`
 
 The acceleration of the print head in X and Y, in mm/s². The time estimate uses it, and it is the acceleration of each feature that has no acceleration of its own (0 in the project).
@@ -592,9 +596,9 @@ Support under overhangs. `off`: no support. `everywhere`: support can stand on t
 
 **`project.support_style`** (one of: `grid`, `tree`, `bridge`). Default: `grid`
 
-The shape of the support. `grid`: all the space under each overhang, filled with lines. `tree`: branches from points under each overhang down to the bed or the part; they join on the way, get thicker as they go down, and thinner in narrow spaces (so a branch can go down a deep, narrow hole). A tree uses less plastic and comes off more easily. `bridge`: only a sacrificial pad under each overhang (the interface layers, with the Z gap over it), with nothing under the pad. The pad bridges from the part around it, as a bridge does, and breaks off easily. For overhangs over a hole or a short gap, where a column down to the bed would be a waste.
+The shape of the support. `grid`: all the space under each overhang, filled with lines. `tree`: branches from points under each overhang down to the bed or the part; they join on the way, get thicker as they go down, and thinner in narrow spaces (so a branch can go down a deep, narrow hole). Each branch prints as one wall loop, with lines only at its foot and under its tip. A tree uses less plastic and comes off more easily. `bridge`: only a sacrificial pad under each overhang (the interface layers, with the Z gap over it), with nothing under the pad. The pad bridges from the part around it, as a bridge does, and breaks off easily. For overhangs over a hole or a short gap, where a column down to the bed would be a waste.
 
-**`project.support_tree_angle`** (number). Default: `40`
+**`project.support_tree_angle`** (number). Default: `50`
 
 Tree support: the largest angle of a branch from vertical, in degrees. A larger angle lets branches reach farther, with less strength.
 

@@ -43,7 +43,9 @@
 //! one line width further out than the overhang area of grid support, so
 //! that the pad under a slope is wide enough for the interface lines. A
 //! pad stays only where a branch, the part (under the Z gap), or a pad is
-//! under it. The bed layer of a tree prints as interface.
+//! under it. A pad on a pad reaches at most half a line past it. On the
+//! bed layer, a tree prints its wall loop and dense interface lines in it.
+//! A tree layer is hollow (see `SupportLayer.hollow`).
 //!
 //! Step 1 (with the XY offset of the model), the clean-up after step 2,
 //! and step 4 run on all threads. Step 2 and step 3 go one layer at a time,
@@ -89,10 +91,15 @@ pub const Mark = struct {
 pub const SupportLayer = struct {
     body: Paths = .empty,
     interface: Paths = .empty,
+    /// Tree support: the body prints as a wall loop only, with support
+    /// lines only in `filled` (see tree_support.zig).
+    hollow: bool = false,
+    filled: Paths = .empty,
 
     pub fn deinit(self: *SupportLayer, gpa: Allocator) void {
         self.body.deinit(gpa);
         self.interface.deinit(gpa);
+        self.filled.deinit(gpa);
     }
 };
 
@@ -146,6 +153,16 @@ pub fn compute(
             for (main) |*x| x.* = .{};
         }
         for (main, extra) |*a, b| {
+            // A hollow layer joined with a filled one: the filled body
+            // stays filled.
+            if (a.hollow or b.hollow) {
+                const fa = if (a.hollow) a.filled else a.body;
+                const fb = if (b.hollow) b.filled else b.body;
+                const u = try clip.unite(gpa, fa, fb);
+                a.filled.deinit(gpa);
+                a.filled = u;
+                a.hollow = true;
+            }
             if (!b.body.isEmpty()) {
                 const u = try clip.unite(gpa, a.body, b.body);
                 a.body.deinit(gpa);
@@ -513,7 +530,7 @@ fn treeSupport(
         // A trunk is at most 10 mm thick, and a branch gets 0.6 mm thicker
         // for each 10 mm that it goes down (and more where branches join).
         .max_r = @floatFromInt(geom.fromMm(@max(tip_mm, 10) / 2)),
-        .growth = 0.06,
+        .growth = 0.1,
         .tan_angle = @tan(std.math.degreesToRadians(p.support_tree_angle)),
         .spacing = @floatFromInt(geom.fromMm(p.support_tree_spacing)),
         .z_gap = gap,
@@ -521,9 +538,14 @@ fn treeSupport(
         // A branch is at least 5 mm thick on the bed.
         .foot = @floatFromInt(geom.fromMm(2.5)),
     };
-    const branches = try tree.grow(gpa, threads, outlines, layers, need, blocked, near, 1 + gap + pads, params);
-    defer gpa.free(branches);
-    for (out, branches) |*o, b| o.body = b;
+    const areas = try tree.grow(gpa, threads, outlines, layers, need, blocked, near, 1 + gap + pads, params);
+    defer gpa.free(areas.body);
+    defer gpa.free(areas.filled);
+    for (out, areas.body, areas.filled) |*o, b, f| {
+        o.body = b;
+        o.filled = f;
+        o.hollow = true;
+    }
     // The pads reach further out than the pads of grid support. The
     // interface lines miss a pad thinner than about two lines, and under a
     // slope the pad is a thin strip.
@@ -549,34 +571,39 @@ fn treeSupport(
     try parallel.forEach(threads, wide.len, &wc, Widen.run);
     try addPads(gpa, padsrc, near, gap, pads, out);
     // A pad holds only where a branch or the part is under it. The parts
-    // of a pad more than `reach` from the support of the layer below go:
+    // of a pad more than `reach` from the branches of the layer below go:
     // for example the pads of the branches that bed-only support removes.
     // A pad over the part keeps the Z gap, and rests on the part under
     // the gap.
     var arena_state = std.heap.ArenaAllocator.init(gpa);
     defer arena_state.deinit();
     const s = arena_state.allocator();
-    const reach = @min(geom.fromMm(p.support_tree_spacing), geom.fromMm(2.5 * r.line_width));
+    const reach = @min(geom.fromMm(p.support_tree_spacing), geom.fromMm(2 * r.line_width));
     for (1..out.len) |j| {
         if (out[j].interface.isEmpty()) continue;
         var pad = out[j].interface;
         var k: usize = 1;
         while (k <= gap and k <= j) : (k += 1) pad = try clip.difference(s, pad, outlines[j - k]);
-        const below = try clip.unite(s, out[j - 1].body, out[j - 1].interface);
-        var held = try offset_mod.offset(s, below, reach, .{});
+        // A pad on a pad reaches only half a line past it: the lines of
+        // the two pads end at the same place.
+        const on_body = try offset_mod.offset(s, out[j - 1].body, reach, .{});
+        const on_pad = try offset_mod.offset(s, out[j - 1].interface, @divTrunc(geom.fromMm(r.line_width), 2), .{});
+        var held = try clip.unite(s, on_body, on_pad);
         if (j >= gap + 1) held = try clip.unite(s, held, outlines[j - 1 - gap]);
         const kept = try clip.intersect(gpa, pad, held);
         out[j].interface.deinit(gpa);
         out[j].interface = kept;
     }
-    // The bed layer prints as interface: the dense lines hold the foot of
-    // each branch on the bed, and the layer above has lines under it.
+    // The bed layer: the wall loop of each foot, and dense interface lines
+    // in it. The dense lines hold the foot on the bed, and the loop holds
+    // the edge of a small foot, where the lines miss.
     if (out.len > 0 and !out[0].body.isEmpty()) {
-        const u = try clip.unite(gpa, out[0].body, out[0].interface);
+        const inner = try offset_mod.offset(s, out[0].body, -@divTrunc(geom.fromMm(r.line_width), 2), .{});
+        const u = try clip.unite(gpa, inner, out[0].interface);
         out[0].interface.deinit(gpa);
         out[0].interface = u;
-        out[0].body.deinit(gpa);
-        out[0].body = .empty;
+        out[0].filled.deinit(gpa);
+        out[0].filled = .empty;
     }
 }
 
@@ -606,7 +633,7 @@ fn addPads(gpa: Allocator, need: []const Paths, blocked: []const Paths, gap: usi
 
 /// The pads of tree support reach this many quarter line widths further
 /// out than the pads of grid support.
-const pad_widen: i64 = 4;
+const pad_widen: i64 = 3;
 
 /// The width of the slivers that the overhang test removes, in units.
 const sliver: i64 = 10;
@@ -916,7 +943,7 @@ test "tree pads under a slope are wide enough for the interface lines" {
     try testing.expect(in.areaMm2() > 5);
 }
 
-test "tree support: the bed layer prints as interface" {
+test "tree support: the bed layer prints a loop and interface lines" {
     const gpa = testing.allocator;
     // A plate a few layers over the bed, on a post.
     var b: mesh_mod.Builder = .init(gpa);
@@ -936,6 +963,39 @@ test "tree support: the bed layer prints as interface" {
     const r = try st.resolve();
     const sup = try compute(gpa, sl.outlines, sl.layers, &r, 1, &.{});
     defer deinitAll(gpa, sup);
-    try testing.expect(sup[0].body.isEmpty());
+    // Dense lines, and no support lines.
+    try testing.expect(sup[0].hollow and sup[0].filled.isEmpty());
     try testing.expect(sup[0].interface.areaMm2() > 50);
+}
+
+test "tree support is hollow, and filled at the foot and under the tips" {
+    const gpa = testing.allocator;
+    // A post with a cap, 15 mm over the bed.
+    var b: mesh_mod.Builder = .init(gpa);
+    try mesh_mod.shapes.addBox(&b, 8, 8, 0, 12, 12, 15);
+    try mesh_mod.shapes.addBox(&b, 0, 0, 15, 20, 20, 17);
+    var m = try b.finish();
+    defer m.deinit(gpa);
+    const sl = try sliceAll(gpa, &m, 17);
+    defer {
+        for (sl.outlines) |*o| o.deinit(gpa);
+        gpa.free(sl.outlines);
+        gpa.free(sl.layers);
+    }
+    var st: settings_mod.Settings = .{};
+    st.project.support = .everywhere;
+    st.project.support_style = .tree;
+    const r = try st.resolve();
+    const sup = try compute(gpa, sl.outlines, sl.layers, &r, 1, &.{});
+    defer deinitAll(gpa, sup);
+    // Layer 74 (z 15.1) is the first layer of the cap. The tips start 4
+    // layers under it (the Z gap and 2 pads), on layer 70.
+    for (sup[1..74]) |l| try testing.expect(l.hollow);
+    // The foot: filled over the bed layer.
+    try testing.expect(sup[2].filled.areaMm2() > 0.5 * sup[2].body.areaMm2());
+    // Under the tips: filled.
+    try testing.expect(!sup[69].filled.isEmpty());
+    // The middle: a wall loop only.
+    try testing.expect(!sup[40].body.isEmpty());
+    try testing.expect(sup[40].filled.areaMm2() < 0.1 * sup[40].body.areaMm2());
 }

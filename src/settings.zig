@@ -599,8 +599,9 @@ pub const Project = struct {
     /// filled with lines. `tree`: branches from points under each overhang
     /// down to the bed or the part; they join on the way, get thicker as
     /// they go down, and thinner in narrow spaces (so a branch can go down
-    /// a deep, narrow hole). A tree uses less plastic and comes off more
-    /// easily. `bridge`: only a sacrificial pad under each overhang (the
+    /// a deep, narrow hole). Each branch prints as one wall loop, with
+    /// lines only at its foot and under its tip. A tree uses less plastic
+    /// and comes off more easily. `bridge`: only a sacrificial pad under each overhang (the
     /// interface layers, with the Z gap over it), with nothing under the
     /// pad. The pad bridges from the part around it, as a bridge does, and
     /// breaks off easily. For overhangs over a hole or a short gap, where
@@ -609,7 +610,7 @@ pub const Project = struct {
     /// Tree support: the largest angle of a branch from vertical, in
     /// degrees. A larger angle lets branches reach farther, with less
     /// strength.
-    support_tree_angle: f64 = 40,
+    support_tree_angle: f64 = 50,
     /// Tree support: the distance of the tips under an overhang. Tips also
     /// go along the edges of each overhang, at the same distance.
     support_tree_spacing: f64 = 3,

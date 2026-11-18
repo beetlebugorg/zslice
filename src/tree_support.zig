@@ -20,9 +20,13 @@
 //! 2. Down, one layer at a time. Each branch is a node: a center and a
 //!    radius. In one layer, a node moves at most h * tan(branch angle).
 //!    It moves toward its nearest node, if the two can meet within a few
-//!    spacings. Two nodes that touch join into one thicker node, if the
-//!    new circle holds the two old circles; two thick branches first come
-//!    nearer. So the branches of an overhang join into a few strong trunks.
+//!    spacings. While two circles come nearer, they overlap, and their
+//!    union prints as one loop. They join when one circle holds the other
+//!    (up to `join_slack`): the new node is the larger circle. A branch is
+//!    hollow (see 5.), so the wall of a joined circle must be under the
+//!    walls above it. A circle with the area of the two puts the old walls
+//!    over the hollow inside. So the branches of an overhang join
+//!    into a few trunks.
 //!    To reach the bed (not rest on the part), a branch also stays out of
 //!    the avoidance area of each layer: the points from which no branch
 //!    can reach the bed. Layer 0 avoids the part. Layer j avoids the part
@@ -32,18 +36,20 @@
 //!    can in one step. So a branch over the part bends out and around the
 //!    part, and goes down beside it to the bed. (Cura's tree support uses
 //!    an avoidance area in the same way; see REFERENCES.md.)
-//! 3. The radius grows as the branch goes down (stronger near the bed),
-//!    and a join keeps the area of the two branches. The radius gets
-//!    smaller again where the space is narrow, down to the tip radius. So
-//!    a branch can go down a deep, narrow hole. Near the bed, a branch to
-//!    the bed gets wider at 45 degrees, up to the foot radius, so that it
-//!    holds on the bed. (Cura has a wider branch on the bed too; see
-//!    REFERENCES.md.) A branch keeps the XY gap
+//! 3. The radius grows as the branch goes down (stronger near the bed).
+//!    The radius gets smaller again where the space is narrow, down to the
+//!    tip radius. So a branch can go down a deep, narrow hole. Near the
+//!    bed, a branch to the bed gets wider at 45 degrees, up to the foot
+//!    radius, so that it holds on the bed. A short branch gets a smaller
+//!    foot. (Cura has a wider branch on the bed too; see REFERENCES.md.)
+//!    A branch keeps the XY gap
 //!    from the part; its top layers keep only the smaller gap under an
 //!    overhang, so that the tips under a slope stay. A branch beside the
 //!    part with no room for its radius goes on, and the gap cuts its
 //!    circle. A branch in the gap stops: it rests on the part (it stops
-//!    the Z gap above it), or, with bed-only support, it is removed. Each
+//!    the Z gap above it), or, with bed-only support, it is removed. The
+//!    last circle of a branch on the part gets smaller where it reaches
+//!    past the edge of the part, so that it does not hang in the air. Each
 //!    branch keeps the branch that it joins. So the branches above it that
 //!    do not join a branch to the bed go too.
 //! 4. Taper, from the bed up. A circle must be in the circle of its branch
@@ -51,8 +57,14 @@
 //!    gets thin in a narrow space, the branch above it gets thin too, as a
 //!    cone, and no part of a branch hangs in the air.
 //! 5. The area of each layer is the union of the circles of its nodes.
-//!    support.zig then adds the interface, and the layer plan prints the
-//!    area as it prints grid support.
+//!    support.zig then adds the interface. The layer plan prints a tree
+//!    hollow: one wall loop, with its seam at the rear, and no lines. A
+//!    hollow branch uses less plastic and prints faster, and the loop of
+//!    a thin branch has little or no hole. Some circles print filled (the loop
+//!    and the support lines): the `fill_layers` layers over the bed layer,
+//!    so that the foot is stiff, and the `fill_layers` layers under each
+//!    tip, under the pad. (Cura prints a tree with one wall and no lines;
+//!    see REFERENCES.md.)
 //!
 //! The near nodes come from a grid of cells, and the edges of the part
 //! from an edge index (geom.EdgeIndex), so a layer with many branches
@@ -99,7 +111,6 @@ const Branches = struct {
     /// The branch that each branch joins, or `no_branch`.
     into: std.ArrayList(u32) = .empty,
     bed: std.ArrayList(bool) = .empty,
-
     fn reaches(b: *const Branches, id: u32) bool {
         var k = id;
         while (k != no_branch) : (k = b.into.items[k]) {
@@ -132,6 +143,20 @@ pub const Params = struct {
     tip_layers: u32 = 3,
     /// The radius of a branch on the bed, µm (see `grow`).
     foot: f64 = 0,
+    /// A branch prints hollow (a wall loop only), but these layers are
+    /// filled: the layers at its foot over the bed layer, and the layers
+    /// under its tip.
+    fill_layers: u32 = 3,
+    /// Two branches join when one circle holds the other, up to this
+    /// distance, µm.
+    join_slack: f64 = 250,
+};
+
+/// The tree areas of each layer: `body` is the union of the circles, and
+/// `filled` the part of it that prints with lines (see `Params.fill_layers`).
+pub const Areas = struct {
+    body: []Paths,
+    filled: []Paths,
 };
 
 /// The tree areas of each layer. `need[i]` is the overhang of layer i,
@@ -150,13 +175,19 @@ pub fn grow(
     near: []const Paths,
     tips_below: usize,
     params: Params,
-) Allocator.Error![]Paths {
+) Allocator.Error!Areas {
     const n = outlines.len;
     const out = try gpa.alloc(Paths, n);
     for (out) |*o| o.* = .empty;
     errdefer {
         for (out) |*o| o.deinit(gpa);
         gpa.free(out);
+    }
+    const filled = try gpa.alloc(Paths, n);
+    for (filled) |*o| o.* = .empty;
+    errdefer {
+        for (filled) |*o| o.deinit(gpa);
+        gpa.free(filled);
     }
     var arena_state = std.heap.ArenaAllocator.init(gpa);
     defer arena_state.deinit();
@@ -226,10 +257,13 @@ pub fn grow(
             // overhang only, so the tips under a slope stay.
             nd.r = @min(params.max_r, nd.r + params.growth * @as(f64, @floatFromInt(h)));
             // The foot: near the bed, a branch to the bed gets wider at 45
-            // degrees, up to `foot`, so that it holds on the bed.
+            // degrees, up to `foot`, so that it holds on the bed. A short
+            // branch needs a smaller foot: a fifth of its height, but at
+            // least 1 mm, so that the bed layer has lines under it.
             if (nd.free) {
                 const z: f64 = @floatFromInt(geom.fromMm(layers[j].z));
-                nd.r = @max(nd.r, params.foot - z);
+                const top: f64 = @floatFromInt(geom.fromMm(layers[@min(n - 1, j + nd.age)].z));
+                nd.r = @max(nd.r, @min(params.foot, @max(1000, top / 5)) - z);
             }
             const fence = if (nd.age <= params.tip_layers) nidx else bidx;
             if (!fit(nd, fence, pad, step, params.tip)) {
@@ -244,15 +278,26 @@ pub fn grow(
         // A branch over the part rests on it: the Z gap above the part.
         var k: usize = 1;
         while (k <= params.z_gap + 1 and k <= j) : (k += 1) {
-            const oi = (try index(la, outlines[j - k], 0)) orelse continue;
+            const oi = (try index(la, outlines[j - k], pad)) orelse continue;
             for (nodes.items) |*nd| {
-                if (nd.alive and oi.inside(pointOf(nd))) nd.alive = false;
+                if (!nd.alive or !oi.inside(pointOf(nd))) continue;
+                nd.alive = false;
+                // The circle above rests on the part: it gets smaller if it
+                // reaches past the edge, so that no part of it hangs.
+                if (j + 1 < n) for (disks[j + 1].items) |*d| if (d.id == nd.id) {
+                    const e = oi.nearestPoint(d.x, d.y, pad) orelse break;
+                    d.r = @max(params.tip, @min(d.r, e[2] + params.tip / 2));
+                    break;
+                };
             }
         }
-        try join(la, nodes.items, params.max_r, 2 * params.tip, &branches);
-        // 4. The circles of this layer.
+        try join(la, nodes.items, params.join_slack, &branches);
+        // 4. The circles of this layer. The layers at the foot and under
+        // the tip print filled.
+        const foot_layer = j >= 1 and j <= params.fill_layers;
         for (nodes.items) |nd| if (nd.alive) {
-            try disks[j].append(arena, .{ .x = nd.x, .y = nd.y, .r = nd.r, .id = nd.id });
+            const fill = foot_layer or nd.age <= params.fill_layers;
+            try disks[j].append(arena, .{ .x = nd.x, .y = nd.y, .r = nd.r, .id = nd.id, .fill = fill });
             if (j == 0) branches.bed.items[nd.id] = true;
         };
         // Drop the nodes that ended.
@@ -267,11 +312,15 @@ pub fn grow(
     // The circles of each layer. Bed only: the circles of the branches that
     // do not reach the bed go.
     const circles = try arena.alloc(Paths, n);
-    for (circles, disks) |*c, ds| {
+    const fills = try arena.alloc(Paths, n);
+    for (circles, fills, disks) |*c, *f, ds| {
         c.* = .empty;
+        f.* = .empty;
         for (ds.items) |d| {
             if (params.bed_only and !branches.reaches(d.id)) continue;
-            try c.append(arena, try circle(arena, d.x, d.y, d.r));
+            const pts = try circle(arena, d.x, d.y, d.r);
+            try c.append(arena, pts);
+            if (d.fill) try f.append(arena, pts);
         }
     }
     // The union of the circles of each layer, minus the part, on all
@@ -279,8 +328,10 @@ pub fn grow(
     const Union = struct {
         gpa: Allocator,
         circles: []const Paths,
+        fills: []const Paths,
         blocked: []const Paths,
         out: []Paths,
+        filled: []Paths,
         fn run(c: *const @This(), i: usize) !void {
             if (c.circles[i].isEmpty()) return;
             var a = std.heap.ArenaAllocator.init(c.gpa);
@@ -288,18 +339,22 @@ pub fn grow(
             const u = try clip.unionAll(a.allocator(), c.circles[i], .non_zero);
             const free = try clip.difference(a.allocator(), u, c.blocked[i]);
             c.out[i] = try free.clone(c.gpa);
+            if (c.fills[i].isEmpty()) return;
+            const fu = try clip.unionAll(a.allocator(), c.fills[i], .non_zero);
+            const ff = try clip.difference(a.allocator(), fu, c.blocked[i]);
+            c.filled[i] = try ff.clone(c.gpa);
         }
     };
-    const uc: Union = .{ .gpa = gpa, .circles = circles, .blocked = blocked, .out = out };
+    const uc: Union = .{ .gpa = gpa, .circles = circles, .fills = fills, .blocked = blocked, .out = out, .filled = filled };
     @import("parallel.zig").forEach(threads, n, &uc, Union.run) catch |e| switch (e) {
         error.OutOfMemory => return error.OutOfMemory,
         else => unreachable,
     };
-    return out;
+    return .{ .body = out, .filled = filled };
 }
 
 /// A circle of a branch on one layer.
-const Disk = struct { x: f64, y: f64, r: f64, id: u32 };
+const Disk = struct { x: f64, y: f64, r: f64, id: u32, fill: bool = false };
 
 /// Makes the disks of a branch thinner where the disk under them is
 /// thinner, from the bed up: a disk must be in the disk under it moved
@@ -667,12 +722,12 @@ fn attract(a: Allocator, nodes: []Node, step: f64, params: Params, avoid: ?geom.
     }
 }
 
-/// Joins nodes that touch (the center of one is in the other): the new
-/// node is at the middle (weighted by the area of each), with the radius of
-/// the same area, up to `max_r`. Two nodes join only if the new circle
-/// holds each old circle, up to `slack`: else the new layer has support
-/// under only a part of the layer above.
-fn join(a: Allocator, nodes: []Node, max_r: f64, slack: f64, branches: *Branches) Allocator.Error!void {
+/// Joins two nodes when the circle of one holds the other, up to `slack`:
+/// the new node is the larger circle, grown to hold the smaller one. A
+/// branch prints hollow, so the wall of the new circle must be under the
+/// walls of the two circles above it. Before the join, the two circles
+/// overlap more on each layer, and their union prints as one loop.
+fn join(a: Allocator, nodes: []Node, slack: f64, branches: *Branches) Allocator.Error!void {
     var big: f64 = 1;
     for (nodes) |nd| big = @max(big, nd.r);
     const cells = try Cells.build(a, nodes, 2 * big);
@@ -690,20 +745,13 @@ fn join(a: Allocator, nodes: []Node, max_r: f64, slack: f64, branches: *Branches
                     if (!b.alive or b.free != nd.free) continue;
                     const dx = b.x - nd.x;
                     const dy = b.y - nd.y;
-                    const touch = @max(nd.r, b.r);
-                    if (dx * dx + dy * dy > touch * touch) continue;
-                    const wa = nd.r * nd.r;
-                    const wb = b.r * b.r;
-                    const x = (nd.x * wa + b.x * wb) / (wa + wb);
-                    const y = (nd.y * wa + b.y * wb) / (wa + wb);
-                    const r = @min(max_r, @sqrt(wa + wb));
-                    // The new circle must hold the two circles above it,
-                    // up to `slack`. Two thick branches first come nearer.
-                    if (@sqrt((x - nd.x) * (x - nd.x) + (y - nd.y) * (y - nd.y)) + nd.r > r + slack) continue;
-                    if (@sqrt((x - b.x) * (x - b.x) + (y - b.y) * (y - b.y)) + b.r > r + slack) continue;
-                    nd.x = x;
-                    nd.y = y;
-                    nd.r = r;
+                    const d = @sqrt(dx * dx + dy * dy);
+                    const wide = if (b.r > nd.r) b else nd;
+                    const small = @min(nd.r, b.r);
+                    if (d + small > wide.r + slack) continue;
+                    nd.x = wide.x;
+                    nd.y = wide.y;
+                    nd.r = @max(wide.r, d + small);
                     nd.age = @min(nd.age, b.age);
                     branches.into.items[b.id] = nd.id;
                     b.alive = false;
@@ -859,7 +907,7 @@ test "edge tips go along a strip thinner than a tip" {
     for (nodes.items) |nd| try testing.expect(nd.y >= 0 and nd.y <= 200);
 }
 
-test "join keeps two thick branches apart until they are near" {
+test "join waits until one circle holds the other" {
     var arena = std.heap.ArenaAllocator.init(testing.allocator);
     defer arena.deinit();
     const a = arena.allocator();
@@ -868,21 +916,23 @@ test "join keeps two thick branches apart until they are near" {
         try branches.into.append(a, no_branch);
         try branches.bed.append(a, false);
     }
-    // Two nodes at the largest radius, 4 mm apart: one circle of 5 mm
-    // cannot hold both.
+    // Two circles of 2 mm, 1 mm apart: they overlap, but neither holds
+    // the other.
     var nodes = [_]Node{
-        .{ .x = 0, .y = 0, .r = 5000, .id = 0 },
-        .{ .x = 4000, .y = 0, .r = 5000, .id = 1 },
+        .{ .x = 0, .y = 0, .r = 2000, .id = 0 },
+        .{ .x = 1000, .y = 0, .r = 2000, .id = 1 },
     };
-    try join(a, &nodes, 5000, 1000, &branches);
+    try join(a, &nodes, 250, &branches);
     try testing.expect(nodes[0].alive and nodes[1].alive);
-    // Two thin nodes join into one.
+    // A thin circle in a thick one: one node, with the thick circle.
     nodes = .{
-        .{ .x = 0, .y = 0, .r = 500, .id = 0 },
-        .{ .x = 400, .y = 0, .r = 500, .id = 1 },
+        .{ .x = 0, .y = 0, .r = 2000, .id = 0 },
+        .{ .x = 1200, .y = 0, .r = 1000, .id = 1 },
     };
-    try join(a, &nodes, 5000, 1000, &branches);
+    try join(a, &nodes, 250, &branches);
     try testing.expect(nodes[0].alive and !nodes[1].alive);
+    try testing.expectEqual(@as(f64, 0), nodes[0].x);
+    try testing.expectEqual(@as(f64, 2200), nodes[0].r);
     try testing.expectEqual(@as(u32, 0), branches.into.items[1]);
 }
 

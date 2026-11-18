@@ -57,7 +57,8 @@
 //!    one brim around all parts (see `ringPlan` and plate_job.zig).
 //! 8. Support (see support.zig): one boundary loop and lines in a fixed
 //!    direction for the support body, and dense lines across them for the
-//!    interface.
+//!    interface. Tree support is hollow: the loop only, with its seam at
+//!    the rear, and lines only in its filled part (see tree_support.zig).
 //! 9. Order. The plan prints the skirt and the brim first (outermost loop
 //!    first), then the support, then the part, one island after the other.
 //!    An island is an outer boundary of the outline with its holes. The
@@ -1239,6 +1240,7 @@ pub fn plan(gpa: Allocator, ctx: Context, i: usize) Allocator.Error!LayerPlan {
     var sup_walls: Paths = .empty;
     var sup_lines: Paths = .empty;
     var sup_iface: Paths = .empty;
+    var sup_seams: ?[]const u32 = null;
     if (ctx.support.len > 0) {
         const sl = ctx.support[i];
         if (!sl.body.isEmpty()) {
@@ -1246,7 +1248,18 @@ pub fn plan(gpa: Allocator, ctx: Context, i: usize) Allocator.Error!LayerPlan {
             // lines have one direction and one spacing on all layers (the
             // first layer too), so that they stack.
             sup_walls = try offset_mod.offset(s, sl.body, -@divTrunc(w, 2), .{});
-            const inside = try offset_mod.offset(s, sl.body, -w + @divTrunc(w, 5), .{});
+            var inside = try offset_mod.offset(s, sl.body, -w + @divTrunc(w, 5), .{});
+            // Tree support: a wall loop only, and lines in the filled part
+            // (see tree_support.zig).
+            if (sl.hollow) {
+                inside = try clip.intersect(s, inside, sl.filled);
+                // The seam of each loop is at its rear point on each layer:
+                // a hollow branch has no lines to hold a seam that moves,
+                // and a seam in one place keeps the wall even.
+                const seams = try s.alloc(u32, sup_walls.count());
+                for (seams, 0..) |*v, k| v.* = @intCast(rearIndex(sup_walls.get(k)));
+                sup_seams = seams;
+            }
             sup_lines = try infill.lines(s, inside, geom.fromMm(r.line_width / p.support_density), 0, w);
         }
         if (!sl.interface.isEmpty()) {
@@ -1256,7 +1269,7 @@ pub fn plan(gpa: Allocator, ctx: Context, i: usize) Allocator.Error!LayerPlan {
     }
     if (outline.isEmpty()) {
         var pos: Point = .init(0, 0);
-        try addOrdered(s, a, &lp, &pos, sup_walls, true, .support);
+        try addGroup(s, a, &lp, &pos, sup_walls, true, .support, sup_seams, null);
         try addOrdered(s, a, &lp, &pos, sup_lines, false, .support);
         try addOrdered(s, a, &lp, &pos, sup_iface, false, .support_interface);
         return lp;
@@ -1535,7 +1548,7 @@ pub fn plan(gpa: Allocator, ctx: Context, i: usize) Allocator.Error!LayerPlan {
     var below: BelowIndex = .{ .s = s, .outline = if (i > 0) ctx.outlines[i - 1] else .empty };
     const seam: Seam = .{ .mode = p.seam, .layer = i, .below = &below, .memo = memo };
     for (rings.items) |ring| try addOrdered(s, a, &lp, &pos, ring, true, .skirt);
-    try addOrdered(s, a, &lp, &pos, sup_walls, true, .support);
+    try addGroup(s, a, &lp, &pos, sup_walls, true, .support, sup_seams, null);
     try addOrdered(s, a, &lp, &pos, sup_lines, false, .support);
     try addOrdered(s, a, &lp, &pos, sup_iface, false, .support_interface);
     // The paths of the part, one island after the other: all features of
