@@ -12,6 +12,14 @@
 //
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
+// The printers that most people have: a search for each, the first hit.
+// The Popular group of the picker shows them first.
+const POPULAR = [
+  "bambu a1 mini", "bambu a1", "bambu p1s", "bambu p1p", "bambu x1 carbon",
+  "prusa core one", "prusa mk4", "prusa mini", "ender 3 v3", "creality k1",
+  "elegoo neptune 4", "anycubic kobra 3", "voron 2.4", "sovol sv06", "taz workhorse",
+];
+
 const MAX_ROWS = 400;
 
 let lib = 0;          // the zs_printers pointer in the main wasm instance
@@ -325,7 +333,14 @@ export async function openPrinterPicker(wasm, onAdd, hooks = {}) {
   }
   body.textContent = "";
 
-  const st = { brand: -1, current: -1 };
+  // A beginner starts with the printers that most people have
+  // ("Popular"), and not with the whole list in the order of the alphabet.
+  const st = { brand: -2, current: -1 };
+  const popular = [];
+  for (const q of POPULAR) {
+    const r = search(wasm, q, -1);
+    if (r.idx.length > 0 && !popular.includes(r.idx[0])) popular.push(r.idx[0]);
+  }
   const allBrands = brands(wasm);
   const total = wasm.x.zs_printers_model_count(lib);
 
@@ -334,7 +349,7 @@ export async function openPrinterPicker(wasm, onAdd, hooks = {}) {
   const side = el("div", "picker-side");
   side.append(el("div", "picker-section", "On your network"));
   side.append(el("div", "picker-note",
-    "A web page cannot search the network: browsers do not allow the mDNS packets that find printers. Enter the address of your printer in the next step. The zslice app for Linux finds printers by itself."));
+    "A web page cannot search the network: browsers do not allow the mDNS packets that find printers. Enter the address of your printer in the next step. The zslice apps for Linux and macOS find printers by themselves."));
   side.append(Object.assign(el("div", "picker-section", "Brands"), { style: "margin-top:10px" }));
   const brandList = el("div", "picker-list brands");
   const brandRow = (name, count, index) => {
@@ -344,6 +359,7 @@ export async function openPrinterPicker(wasm, onAdd, hooks = {}) {
     b.dataset.brand = index;
     return b;
   };
+  if (popular.length > 0) brandList.append(brandRow("Popular", popular.length, -2));
   brandList.append(brandRow("All brands", total, -1));
   allBrands.forEach((b, i) => brandList.append(brandRow(b.name, b.count, i)));
   side.append(brandList);
@@ -411,7 +427,7 @@ export async function openPrinterPicker(wasm, onAdd, hooks = {}) {
   const fill = () => {
     list.replaceChildren();
     const q = searchBox.value;
-    const { total: n, idx } = search(wasm, q, st.brand);
+    const { total: n, idx } = st.brand === -2 && q === "" ? { total: popular.length, idx: popular } : search(wasm, q, st.brand === -2 ? -1 : st.brand);
     const bySeries = st.brand >= 0 && q === "";
     let group = null;
     for (const i of idx) {
