@@ -164,6 +164,7 @@ function sendResult(i, ms) {
     scene,
     mode,
     marks: c.markCount(),
+    areas: c.supportAreas(),
     parts: c.w.x.zs_app_part_count(c.app),
     // Each part on the bed, with no part on another (zs_app_plate_fits).
     fits: c.w.x.zs_app_plate_fits(c.app) === 1,
@@ -305,6 +306,9 @@ function settingsState() {
 // worker keeps the timer: a step ends 400 ms after the last change.
 
 let histTimer = 0;
+// A drag goes on (an op with hold): its changes are one step, which ends
+// after sliceHeld.
+let histHolding = false;
 
 // Ends the step of the changes so far.
 function historyCommit() {
@@ -352,7 +356,7 @@ function historyList() {
 // The ops that change the settings, and the ops that change the plate:
 // each starts or extends a step.
 const SETTING_OPS = new Set(["set", "reset", "quality", "profile", "setScoped", "resetScoped"]);
-const PLATE_OPS = new Set(["load", "add", "plate", "projectLoad", "partAction", "partCut", "partMove", "partFill", "editAdd", "editDot", "editRemove", "partSettingSet", "partPutDown", "partTurn", "putDown", "place", "partMove", "partRotate", "markAdd", "markRemoveNear", "markSet", "markRemove", "marksClear"]);
+const PLATE_OPS = new Set(["load", "add", "plate", "projectLoad", "partAction", "partCut", "partMove", "partFill", "editAdd", "editDot", "editRemove", "partSettingSet", "partPutDown", "partTurn", "putDown", "place", "partMove", "partRotate", "markAdd", "markRemoveNear", "markSet", "markRemove", "marksClear", "supportAreaAdd", "supportAreaSet", "supportAreaKind", "supportAreaRemove"]);
 
 const ops = {
   async init({ module, saved, mode: m }) {
@@ -642,6 +646,36 @@ const ops = {
     core.w.x.zs_app_marks_clear(core.app);
     wantSlice();
     return {};
+  },
+
+  // ---- the support areas (support.js) ----
+
+  supportAreas() {
+    return { areas: core.supportAreas() };
+  },
+
+  // A new area of kind `kind` with points pts ([[x, y, z], ...]).
+  supportAreaAdd({ kind, pts }) {
+    const index = core.supportAreaAdd(kind, pts);
+    if (index >= 0) wantSlice();
+    return { index, areas: core.supportAreas() };
+  },
+
+  // New points for area `index`. hold: a drag goes on, so the slice waits
+  // for sliceHeld.
+  supportAreaSet({ index, pts, hold }) {
+    if (core.supportAreaSet(index, pts)) sliceOrHold(hold);
+    return {};
+  },
+
+  supportAreaKind({ index, kind }) {
+    if (core.w.x.zs_app_support_area_set_kind(core.app, index, kind) === 0) wantSlice();
+    return { areas: core.supportAreas() };
+  },
+
+  supportAreaRemove({ index }) {
+    if (core.w.x.zs_app_support_area_remove(core.app, index) === 0) wantSlice();
+    return { areas: core.supportAreas() };
   },
 
   // The part of a path: "Put this side on the bed", and its placement.
@@ -1000,11 +1034,21 @@ const ops = {
 self.onmessage = async (e) => {
   const { id, op, ...args } = e.data;
   try {
+    // The first op of a drag ends the step of the changes before it.
+    if (args.hold && !histHolding && histTimer) historyCommit();
     const result = await ops[op](args);
     // The first step of a plate: its state at the start. The core notes
-    // each change; a change starts or extends a step.
+    // each change; a change starts or extends a step. During a drag, the
+    // step waits for its end.
     if (op === "init" || op === "projectSet" || (core && core.historyCount() === 0)) historyCommit();
-    else if (SETTING_OPS.has(op) || PLATE_OPS.has(op)) historySchedule();
+    else if (args.hold) {
+      histHolding = true;
+      clearTimeout(histTimer);
+      histTimer = 0;
+    } else if (SETTING_OPS.has(op) || PLATE_OPS.has(op) || (op === "sliceHeld" && histHolding)) {
+      if (op === "sliceHeld") histHolding = false;
+      historySchedule();
+    }
     if (platesDirty) postPlates();
     const transfer = result?.bytes ? [result.bytes] : [];
     post({ id, result }, transfer);

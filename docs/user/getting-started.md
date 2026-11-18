@@ -279,6 +279,7 @@ The tool strip at the left of the view picks the tool of the mouse. In the GTK a
 | Move (cross) | M | A drag on a part moves it, and the wheel over it turns it by 15°: the same as Ctrl in the other tools. |
 | Turn (arrow in a circle) | R | Click a part: three rings go around it. Drag the red ring to turn the part about X, the green ring about Y, and the blue ring about Z (on the bed), in steps of 15° (Shift: 5°). The part turns at once. In the web app, it slices once, when you let go of the ring; in the GTK app, each step slices at once. Keys: Left and Right turn it about Z, Up and Down about X, Page Up and Page Down about Y. |
 | Measure (ruler) | T | Two clicks measure between two points of the print or the bed, in the 3D or the 2D view. The distance shows on a label over the middle of the tape, with its parts along x, y, and z. A point near the end of a line snaps to it. A click on a circle or an arc (a hole, a boss) shows its diameter and radius, selects the line, and puts the point at its center, so two holes give the distance between their centers. Hold Shift for no snap. Esc clears the measure. |
+| Support (a shelf on posts) | U | Web app: click points on the part to draw a support area. See "Draw support" below. |
 
 The readout floats on the tape: the distance, its parts along X, Y, and Z, and the distance on the bed. A gold line joins the two points, in the 3D and the 2D view.
 
@@ -311,6 +312,30 @@ Right-click a line in the 3D view (or press Shift+F10 with a line selected) for 
 - **Reset the view**.
 
 A right drag turns the view, and a right click with no drag opens the menu.
+
+## Draw support
+
+The Support tool (U, in the web app) draws support areas on the part. Support grows under an area, or an area keeps support out. This works also where the support angle gives no support, and also when support is off in the settings.
+
+1. Press U. A card shows at the top left of the view.
+2. Pick the kind on the card: **Support grid**, **Support tree**, or **Block** (no support).
+3. Turn the view so that you see the surface that needs support. For the bottom of a shelf, look from below.
+4. Click points on the surface around the area. A point snaps to the end of the nearest line, as the measure tape does. Hold Shift for no snap.
+5. Click the first point again, or press Enter, to close the area. The plate slices again.
+
+Support grows under all of the surface in the area that faces down, between the lowest and the highest point that you clicked. A Block area removes the support of that surface.
+
+While the tool is on, the support lines are faint, so the outlines of the areas show through them. Clear **See through the support** on the card to see them solid. A click ignores the support lines, so it finds the part under them.
+
+Edit an area:
+
+- Click its outline to select it. The card shows its kind, its points, and its heights.
+- Drag a point. The outline follows the pointer at once, and the plate slices when you let go.
+- Change the kind on the card, or press Delete (or click **Delete**) to remove the area.
+
+Keys while you draw: Backspace removes the last point, and Esc stops the area. Esc again clears the selection.
+
+The areas are in the project file and the plate 3MF, and Ctrl+Z undoes each change: a drag is one step. The GTK app shows the areas of a project and slices with them; it has no Support tool yet.
 
 ## Scrub through a layer
 

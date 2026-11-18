@@ -47,6 +47,7 @@ The rule of `docs/app/README.md` holds: the app logic is in the core, and the we
 | `context-menu.js` | The entries of the context menu of the preview, in the order of the GTK menu |
 | `settings.js` | The Settings page: the sections, the settings, and the detail page |
 | `layers.js` | The layer slider with two knobs |
+| `support.js` | The Support tool (U): draw a support area on the part, and drag its points |
 | `menus.js` | The popup menus, the context menu, and the popovers |
 | `format.js` | The text of setting values, as the GTK shell shows them |
 | `printers.js` | The printer picker: the printer library of the core (`printers.txt`, loaded when the picker opens), the search, the brands, the drawing of the build volume (with the bed texture on the plate), and the second step. Also the files of the bed model of the current printer (`bedFiles`) |

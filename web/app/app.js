@@ -29,6 +29,7 @@ import { PartCard } from "./partcard.js";
 import { TurnRings } from "./turn.js";
 import { FarmPage } from "./farm.js";
 import { Tools } from "./tools.js";
+import { SupportTool } from "./support.js";
 import { KINDS, send as sendToPrinter, test as testPrinter, requestKey } from "./link.js";
 import { contextItems } from "./context-menu.js";
 import { openMenu, openMenuAt, menuOpen, openPopover, closeMenu } from "./menus.js";
@@ -207,6 +208,7 @@ function drawFrame(now) {
   }
   tools?.placeTape();
   partCard?.place();
+  supportTool?.place();
   placePlateLabels();
   frameTimes[frameCount++ % frameTimes.length] = performance.now() - t0;
   if (more) requestFrame();
@@ -403,7 +405,8 @@ canvas.addEventListener("pointerup", (e) => {
       return;
     }
   }
-  if (d.button === 0 && tools.tool === "measure") tools.measureClick(px, py, e.shiftKey);
+  if (d.button === 0 && tools.tool === "support" && app.page === "3d") supportTool.click(px, py, e.shiftKey);
+  else if (d.button === 0 && tools.tool === "measure") tools.measureClick(px, py, e.shiftKey);
   else if (d.button === 0 && app.page === "3d" && (tools.tool === "move" || tools.tool === "turn" || e.ctrlKey)) tools.pickPart(px, py);
   else if (d.button === 0) pickAt(px, py, true);
   else if (d.button === 2) {
@@ -672,9 +675,18 @@ $("colors").onclick = () => openMenu($("colors"), MODES.map((m, i) => ({
 
 function updateFocus() {
   const settingsVisible = !$("page-settings").hidden;
-  const mask = settingsVisible ? app.focusMask : 0;
+  let mask = settingsVisible ? app.focusMask : 0;
+  // The Support tool: a focus on all features but the support, so the
+  // support lines are faint and the areas show through them.
+  const ghost = !mask && supportTool?.seeThrough();
+  if (ghost) mask = ((1 << 11) - 1) & ~((1 << 6) | (1 << 7));
   const zmax = app.focusFirst && app.layers?.z?.length ? app.layers.z[0] : -1;
   const shows = view.focus(mask, zmax);
+  if (ghost) {
+    app.focus2d = 0;
+    requestFrame();
+    return;
+  }
   // A setting whose lines are not on this plate: the whole print shows,
   // and a note says why (once for each new focus).
   if (!shows && app.state === "done" && mask !== app.noLinesMask) toast("No lines of this setting on this plate: the view shows the whole print.");
@@ -1360,6 +1372,12 @@ function partKey(e) {
 }
 
 function onPreviewKey(e) {
+  // The Support tool: Enter, Backspace, Delete, and Esc for its areas.
+  if (tools.tool === "support" && !e.ctrlKey && !e.metaKey && !e.altKey && !e.target?.closest?.("input, textarea, select, [contenteditable], .panel") && supportTool.key(e)) {
+    e.preventDefault();
+    e.stopPropagation();
+    return;
+  }
   if (partKey(e)) return;
   if (e.ctrlKey || e.metaKey || e.altKey) return;
   if (menuOpen() || !view.loaded || layers.count === 0) return;
@@ -1391,6 +1409,7 @@ function onPreviewKey(e) {
     case "s": case "S": tools.set("select"); e.preventDefault(); return;
     case "m": case "M": tools.set("move"); e.preventDefault(); return;
     case "t": case "T": tools.set("measure"); e.preventDefault(); return;
+    case "u": case "U": tools.set("support"); e.preventDefault(); return;
     case "g": case "G": if (!$("gaps").disabled) $("gaps").click(); e.preventDefault(); return;
     case "c": case "C":
       if (e.key === "C" || e.shiftKey) showAllLayers();
@@ -1572,13 +1591,25 @@ const inspector = new Inspector($("page-selected"), {
 var tools = new Tools({ // var: drawFrame can run before this line
   partSelected: (part) => partCard?.show(part),
   client, view, canvas, view2d,
-  buttons: { select: $("tool-select"), move: $("tool-move"), turn: $("tool-turn"), measure: $("tool-measure") },
+  buttons: { select: $("tool-select"), move: $("tool-move"), turn: $("tool-turn"), measure: $("tool-measure"), support: $("tool-support") },
+  toolChanged: (tool) => supportTool?.setActive(tool === "support"),
   readout: $("measure-readout"),
   page: () => app.page,
   layer: () => layers.hi,
   layerZ: (l) => app.layers?.z[l] ?? 0,
   select: (path, seg, picked) => select(path, seg, picked),
   requestFrame: () => requestFrame(),
+  toast,
+});
+
+// ---- the Support tool (support.js) ----
+
+var supportTool = new SupportTool({ // var: tools can call it before this line
+  client, view, canvas,
+  host: $("preview"),
+  page: () => app.page,
+  frame: () => requestFrame(),
+  focus: () => updateFocus(),
   toast,
 });
 
@@ -1946,6 +1977,7 @@ function onWorkerEvent(m) {
       app.stats = m.stats;
       app.layers = m.layers;
       app.marks = m.marks;
+      supportTool?.setAreas(m.areas);
       app.parts = m.parts;
       app.fits = m.fits !== false;
       // The selection, to find it again in the new slice.
@@ -2610,6 +2642,7 @@ window.zslice = {
   shortcuts,
   partCard,
   turnRings,
+  supportTool,
   app, view, view2d, layers, browser, client, gl, inspector, gaps, history, undoRedo, tools, store, managePrinters, openPrinterSettings, loadProfile, setSetting, pickAt, topLayerPoint, openCheck, frameTimes,
   select, showPage, showTab, hitAt, showContextMenu, step, bench, benchPick,
   get frameCount() { return frameCount; },

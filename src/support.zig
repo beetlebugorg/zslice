@@ -950,7 +950,7 @@ test "support editor: a block area removes the support of an overhang" {
         const box = try clip.unite(gpa, l.body, l.interface);
         defer @constCast(&box).deinit(gpa);
         try testing.expect(geom.toMm(box.bounds().min.x) > 9);
-        // A block area at another height changes nothing.
+        // A block area at another height keeps the support.
         const high = [_]Mark{.{ .x = 0, .y = 0, .z = 6.5, .z_hi = 7, .kind = .block, .poly = &poly }};
         const same = try compute(gpa, sl.outlines, sl.layers, &r, 2, &high);
         defer deinitAll(gpa, same);

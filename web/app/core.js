@@ -730,6 +730,47 @@ export class Core {
     return p < 0 ? -1 : p;
   }
 
+  // ---- support areas (the support editor, support.js) ----
+
+  // The support areas: [{ kind, zLo, zHi, pts: [[x, y, z], ...] }].
+  supportAreas() {
+    const w = this.w;
+    const n = w.x.zs_app_support_area_count(this.app);
+    const out = [];
+    const cap = 256;
+    const buf = w.alloc(cap * 24);
+    try {
+      for (let i = 0; i < n; i++) {
+        const c = w.cell;
+        if (w.x.zs_app_support_area_get(this.app, i, c, buf, cap, c + 8, c + 16, c + 24) !== 0) continue;
+        const k = Math.min(w.u32(c + 8), cap);
+        const pts = [];
+        for (let j = 0; j < k; j++) pts.push([w.f64(buf + 24 * j), w.f64(buf + 24 * j + 8), w.f64(buf + 24 * j + 16)]);
+        out.push({ kind: w.i32(c), zLo: w.f64(c + 16), zHi: w.f64(c + 24), pts });
+      }
+    } finally {
+      w.free(buf, cap * 24);
+    }
+    return out;
+  }
+
+  // Calls fn(ptr, n) with the points [[x, y, z], ...] in wasm memory.
+  withPoints(pts, fn) {
+    const a = new Float64Array(pts.length * 3);
+    pts.forEach((p, i) => a.set(p, i * 3));
+    return this.w.withBytes(new Uint8Array(a.buffer), (p) => fn(p, pts.length));
+  }
+
+  // A new area: its index, or -1. The z range comes from the points.
+  supportAreaAdd(kind, pts) {
+    const i = this.withPoints(pts, (p, n) => this.w.x.zs_app_support_area_add(this.app, kind, p, n, NaN, NaN));
+    return i < 0 ? -1 : i;
+  }
+
+  supportAreaSet(index, pts) {
+    return this.withPoints(pts, (p, n) => this.w.x.zs_app_support_area_set(this.app, index, p, n, NaN, NaN)) === 0;
+  }
+
   // ---- support marks (the context menu) ----
 
   markCount() { return this.w.x.zs_app_mark_count(this.app); }

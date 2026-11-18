@@ -1187,8 +1187,18 @@ pub const View = struct {
     /// (the fill hint). A slope of a line is a stair of level beads.
     fn supportAreaBeads(v: *const View, out: []vk.Instance, n: *usize) void {
         const span = std.math.clamp(v.dist * 0.003, 0.12, 2);
+        const eye = v.camera().eye;
         for (v.sup_areas.items) |a| {
-            const pts = v.sup_pts.items[a.first..][0..a.n];
+            // The area moves a little toward the camera, out of the part:
+            // down for an area on a surface that faces down, seen from
+            // below.
+            var buf: [256][3]f32 = undefined;
+            const src = v.sup_pts.items[a.first..][0..@min(a.n, buf.len)];
+            var zm: f32 = 0;
+            for (src) |p| zm += p[2] / @as(f32, @floatFromInt(src.len));
+            const lift: f32 = if (eye[2] < zm) -span else span;
+            for (src, buf[0..src.len]) |p, *q| q.* = .{ p[0], p[1], p[2] + lift };
+            const pts = buf[0..src.len];
             const block = a.kind == 3;
             const sel = a.flags & SupportArea.selected != 0;
             const closed = a.flags & SupportArea.closed != 0;
@@ -1197,9 +1207,11 @@ pub const View = struct {
             const w = if (sel) span * 2.2 else span * 1.4;
             // The fill hint first, so the outline stays on top where they
             // meet.
-            if (closed and pts.len >= 3) hatch(out, n, pts, span * 0.7, fill, if (sel) 12 else 8);
+            // The lines across are thin, and as tall as the outline, so
+            // that they reach out of the part on both sides of the surface.
+            if (closed and pts.len >= 3) hatch(out, n, pts, span * 0.7, w, fill, if (sel) 12 else 8);
             const edges = if (closed) pts.len else pts.len - 1;
-            for (0..edges) |k| stair(out, n, pts[k], pts[(k + 1) % pts.len], w, line);
+            for (0..edges) |k| stair(out, n, pts[k], pts[(k + 1) % pts.len], w, w, line);
             if (a.flags & SupportArea.points != 0 or sel or !closed) {
                 for (pts, 0..) |p, k| {
                     if (n.* >= out.len) return;
@@ -1218,9 +1230,9 @@ pub const View = struct {
         }
     }
 
-    /// A line from a to b as level beads: one bead if it is level, else a
-    /// stair of up to 16 steps.
-    fn stair(out: []vk.Instance, n: *usize, a: [3]f32, b: [3]f32, w: f32, rgba: [4]u8) void {
+    /// A line from a to b as level beads of width w and height at least
+    /// h: one bead if it is level, else a stair of up to 16 steps.
+    fn stair(out: []vk.Instance, n: *usize, a: [3]f32, b: [3]f32, w: f32, h_min: f32, rgba: [4]u8) void {
         const dz = @abs(b[2] - a[2]);
         const steps: usize = if (dz < w * 0.5) 1 else @min(16, @as(usize, @intFromFloat(@ceil(dz / w))));
         for (0..steps) |k| {
@@ -1232,7 +1244,7 @@ pub const View = struct {
             const x1 = a[0] + (b[0] - a[0]) * f1;
             const y1 = a[1] + (b[1] - a[1]) * f1;
             const z = a[2] + (b[2] - a[2]) * (f0 + f1) / 2;
-            const h = @max(w, dz / @as(f32, @floatFromInt(steps)));
+            const h = @max(h_min, dz / @as(f32, @floatFromInt(steps)));
             out[n.*] = .{ .ax = x0, .ay = y0, .bx = if (x0 == x1 and y0 == y1) x1 + 0.001 else x1, .by = y1, .z = z + h / 2, .h = h, .w = w, .rgba = rgba };
             n.* += 1;
         }
@@ -1240,7 +1252,7 @@ pub const View = struct {
 
     /// Lines across a polygon along X (the fill hint): `count` lines over
     /// its box in Y. The z of a line end comes from the edge that it meets.
-    fn hatch(out: []vk.Instance, n: *usize, pts: []const [3]f32, w: f32, rgba: [4]u8, count: usize) void {
+    fn hatch(out: []vk.Instance, n: *usize, pts: []const [3]f32, w: f32, h: f32, rgba: [4]u8, count: usize) void {
         var y0: f32 = std.math.inf(f32);
         var y1: f32 = -std.math.inf(f32);
         for (pts) |p| {
@@ -1267,7 +1279,7 @@ pub const View = struct {
                 }
             }.lt);
             var j: usize = 0;
-            while (j + 1 < m) : (j += 2) stair(out, n, .{ hits[j][0], y, hits[j][1] }, .{ hits[j + 1][0], y, hits[j + 1][1] }, w, rgba);
+            while (j + 1 < m) : (j += 2) stair(out, n, .{ hits[j][0], y, hits[j][1] }, .{ hits[j + 1][0], y, hits[j + 1][1] }, w, h, rgba);
         }
     }
 
@@ -3395,4 +3407,32 @@ test "the plates of a row: offsets, the active plate, the pick, and the frame" {
         try std.testing.expect(q[0] >= 0 and q[0] <= 800 and q[1] >= 0 and q[1] <= 600);
     }
     try std.testing.expectEqual(@as(?usize, 2), v.plateAt(400, 300));
+}
+
+test "a support area draws its outline, its points, and lines across it" {
+    const gpa = View.gpa;
+    var v: View = .{ .renderer = undefined, .width = 100, .height = 100 };
+    defer {
+        v.sup_pts.deinit(gpa);
+        v.sup_areas.deinit(gpa);
+    }
+    v.dist = 100;
+    const sq = [_][3]f32{ .{ 0, 0, 10 }, .{ 20, 0, 10 }, .{ 20, 20, 10 }, .{ 0, 20, 10 } };
+    var out: [512]vk.Instance = undefined;
+    // An open path: 3 edges and 4 points (2 beads each), no fill.
+    try v.addSupportArea(&sq, 0, 0);
+    var n: usize = 0;
+    v.supportAreaBeads(&out, &n);
+    try std.testing.expectEqual(@as(usize, 3 + 8), n);
+    // Closed: 4 edges and 8 lines across (one bead each, the area is level).
+    v.clearSupportAreas();
+    try v.addSupportArea(&sq, 3, SupportArea.closed);
+    n = 0;
+    v.supportAreaBeads(&out, &n);
+    try std.testing.expectEqual(@as(usize, 8 + 4), n);
+    // Each bead has its middle a little over the surface, toward the
+    // camera.
+    const lift = std.math.clamp(v.dist * 0.003, 0.12, 2);
+    const up: f32 = if (v.camera().eye[2] < 10) -lift else lift;
+    for (out[0..n]) |b| try std.testing.expectApproxEqAbs(10 + up, b.z - b.h / 2, 1e-4);
 }

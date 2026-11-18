@@ -16,6 +16,13 @@ if (!wasmPath || !stlPath) {
   process.exit(2);
 }
 
+// The box of the model on the bed: x0, y0, x1, y1 (mm).
+function view0Bounds(c) {
+  const info = c.modelInfo();
+  const s = info ? info.size : [20, 20, 20];
+  return [100 - s[0] / 2, 100 - s[1] / 2, 100 + s[0] / 2, 100 + s[1] / 2];
+}
+
 function check(ok, what) {
   if (!ok) throw new Error(`failed: ${what}`);
 }
@@ -66,6 +73,24 @@ core.set("project.infill_density", "0.3");
 t0 = performance.now();
 core.slice();
 console.log(`second slice (infill density): ${(performance.now() - t0).toFixed(0)} ms`);
+
+// A support area: the core keeps it, gives it back, and slices with it.
+{
+  const b = view0Bounds(core);
+  const pts = [[b[0], b[1], 1], [b[2], b[1], 1], [b[2], b[3], 3], [b[0], b[3], 3]];
+  const i = core.supportAreaAdd(1, pts);
+  check(i === 0, "a support area");
+  const areas = core.supportAreas();
+  check(areas.length === 1 && areas[0].kind === 1 && areas[0].zLo === 1 && areas[0].zHi === 3, "the support area comes back");
+  check(core.supportAreaSet(0, pts.slice(0, 3)), "the support area moves");
+  check(core.supportAreas()[0].pts.length === 3, "the moved area has 3 points");
+  check(core.supportAreaAdd(0, pts.slice(0, 2)) === -1, "an area needs 3 points");
+  t0 = performance.now();
+  check(core.slice().state === STATE.done, "a slice with a support area");
+  console.log(`slice with a support area: ${(performance.now() - t0).toFixed(0)} ms`);
+  check(core.w.x.zs_app_support_area_remove(core.app, 0) === 0, "the support area goes");
+  core.slice();
+}
 
 const layers = core.layers();
 check(layers.z.length === st.layerCount, "the layer list");

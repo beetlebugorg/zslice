@@ -702,6 +702,20 @@ button.destructive { background: #c01c28; color: #fff; }
 .lc-foot { gap: 6px; justify-content: space-between; }
 
 /* The rings of the Turn tool (turn.js). */
+/* The card of the Support tool (support.js), under the toolbar. */
+.support-card {
+  position: absolute; z-index: 6; top: calc(18px + var(--toolbar-h, 40px)); left: 62px; width: 300px;
+  display: flex; flex-direction: column; gap: 8px; padding: 10px 12px;
+  background: rgba(40, 40, 44, 0.96); color: #ececee;
+  border: 1px solid rgba(255, 255, 255, 0.14); border-radius: 12px;
+  box-shadow: 0 10px 30px rgba(0, 0, 0, 0.45); font-size: 0.9em;
+}
+.sc-title { font-weight: 600; }
+.sc-kinds { display: flex; gap: 4px; }
+.sc-kinds .tool { flex: 1; min-height: 28px; padding: 0 6px; }
+.sc-info { opacity: 0.85; line-height: 1.35; }
+.sc-see { display: flex; align-items: center; gap: 4px; }
+.sc-delete { align-self: flex-start; min-height: 28px; padding: 0 12px; }
 .turn-label { position: absolute; z-index: 7; pointer-events: none; padding: 3px 8px; border-radius: 7px; background: rgba(30, 30, 34, 0.92); color: #ececee; font-size: 0.85em; font-variant-numeric: tabular-nums; }
 /* The plate set: the bar of the plates, and a label over each plate. */
 .plate-bar {

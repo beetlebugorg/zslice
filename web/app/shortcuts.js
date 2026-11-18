@@ -2,8 +2,8 @@
 //
 // SHORTCUTS is the one table of the keys of the web app. The sheet shows
 // it grouped, and an entry at its top filters it. When a key changes in
-// app.js (onPreviewKey, the Ctrl keys), tools.js, history.js, or
-// search.js, change it here too.
+// app.js (onPreviewKey, the Ctrl keys), tools.js, support.js, history.js,
+// or search.js, change it here too.
 //
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
@@ -40,6 +40,11 @@ export const SHORTCUTS = [
       ["S", "Select: a click selects a line"],
       ["M", "Move: a drag moves a part, the wheel turns it 15°"],
       ["T", "Measure: two clicks measure between two points"],
+      ["U", "Support: click points on the part to draw a support area, and drag the points of an area"],
+      ["Enter (Support tool)", "Close the area that you draw (also: click its first point)"],
+      ["Backspace (Support tool)", "Remove the last point of the area that you draw"],
+      ["Delete (Support tool)", "Delete the selected support area"],
+      ["Esc (Support tool)", "Stop the area that you draw, then clear the selected area"],
       ["G", "Gaps: show the gaps of the top layer"],
       ["Ctrl+click, Ctrl+drag, Ctrl+wheel", "Select, move, and turn a part with any tool"],
       ["Tab, Shift+Tab", "Select the next part, or the part before"],
@@ -52,7 +57,7 @@ export const SHORTCUTS = [
       ["Delete (a selected line)", "Take the line out of the print: an edit, kept across slices (Ctrl+Z undoes it)"],
       ["Delete", "Remove the selected part"],
       ["Shift+click", "Add a line to the selection"],
-      ["Shift (measure)", "No snap"],
+      ["Shift (measure, support)", "No snap"],
     ],
   },
   {

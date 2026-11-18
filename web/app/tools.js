@@ -1,6 +1,6 @@
 // tools.js: the tools of the preview (linux/src/ui/preview.c, tool_group;
-// view3d.c): Select (S), Move (M), and Measure (T), as a group at the left
-// of the toolbar.
+// view3d.c): Select (S), Move (M), Turn (R), Measure (T), and Support (U),
+// as a group at the left of the toolbar. support.js has the Support tool.
 //
 // - Select: a click selects a line (app.js does it).
 // - Move: a drag on a part moves it on the bed, and the wheel over the view
@@ -20,13 +20,14 @@
 
 const HINT = "Click a point of the print, or a circle or an arc for its size and center. Shift: no snap.";
 
-export const TOOLS = ["select", "move", "turn", "measure"];
+export const TOOLS = ["select", "move", "turn", "measure", "support"];
 
 export class Tools {
   // ctx: { client, view (View3D), canvas, buttons {select, move, measure},
   //        readout (element), page() ("2d" or "3d"), layer() (the top
   //        layer), layerZ(l), view2d, select(path, seg, picked),
-  //        requestFrame(), toast(text), partSelected(part or null) }
+  //        requestFrame(), toast(text), partSelected(part or null),
+  //        toolChanged(tool) }
   constructor(ctx) {
     this.ctx = ctx;
     this.tool = "select";
@@ -60,7 +61,8 @@ export class Tools {
     if (tool !== "measure") this.clear(true);
     // The part stays selected for the Move and the Turn tool.
     if (tool !== "move" && tool !== "turn") this.selectPart(null);
-    this.ctx.canvas.style.cursor = tool === "measure" ? "crosshair" : "";
+    this.ctx.canvas.style.cursor = tool === "measure" || tool === "support" ? "crosshair" : "";
+    this.ctx.toolChanged?.(tool);
     this.showReadout();
     // The rings of the Turn tool and the tape show after the next frame.
     this.ctx.requestFrame?.();
