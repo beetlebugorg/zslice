@@ -18,6 +18,13 @@ struct DocumentWindow: View {
         ZStack {
             SliceView(canvas: workspace.canvas)
                 .ignoresSafeArea()
+            // The cards float over the view, in the coordinates of the view.
+            GeometryReader { geo in
+                if workspace.cardOpen, let info = workspace.lineInfo {
+                    LineCard(workspace: workspace, info: info, area: geo.size)
+                }
+            }
+            .ignoresSafeArea()
             if workspace.layerCount > 0 {
                 HStack {
                     Spacer()

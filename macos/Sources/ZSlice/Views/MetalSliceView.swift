@@ -47,6 +47,8 @@ protocol SliceViewDelegate: AnyObject {
     func sliceViewKey(_ event: NSEvent) -> Bool
     /// The light or dark look changed: load the scene again.
     func sliceViewAppearanceChanged()
+    /// A click with no drag, at a point of the view (points from the top left).
+    func sliceViewClick(_ p: CGPoint)
 }
 
 final class MetalSliceView: NSView {
@@ -75,6 +77,11 @@ final class MetalSliceView: NSView {
     // (ox + x * scale, oy + y * scale) pixels from the bottom left.
     private var scale2D = 1.0, ox2D = 0.0, oy2D = 0.0
     private var fitted2D = false
+    /// The selected path of the 2D page: its beads, and the segment.
+    var selection2D: (UInt32, UInt32, Int)? {
+        didSet { if page == .twoD { requestFrame() } }
+    }
+    private var pressAt: NSPoint?
     private(set) var view: OpaquePointer?
     private let renderer: FrameRenderer?
     private var link: CADisplayLink?
@@ -269,6 +276,10 @@ final class MetalSliceView: NSView {
         if zs_view_layer_marks(view, layer2D, &a, &b) == 0 { f.marks = (a, b) }
         f.dark = isDark
         f.mask = focus2D
+        if let (a, b, seg) = selection2D, a >= f.beads.0, b <= f.beads.1 {
+            f.selection = (a, b)
+            if seg >= 0 && a + UInt32(seg) < b { f.segment = Int(a) + seg }
+        }
         f.dim = dim2D
         return f
     }
@@ -288,6 +299,13 @@ final class MetalSliceView: NSView {
         oy2D = Double(h) / 2 - (b[1] + b[3]) / 2 * scale2D
         fitted2D = true
         requestFrame()
+    }
+
+    /// The point of the bed (mm) under a point of the 2D page.
+    func millimeters(of p: CGPoint) -> (x: Double, y: Double)? {
+        guard page == .twoD, scale2D > 0 else { return nil }
+        let px = Double(p.x * scale), py = Double(pixelSize.1) - Double(p.y * scale)
+        return ((px - ox2D) / scale2D, (py - oy2D) / scale2D)
     }
 
     /// Zooms the 2D page by `factor` about the pixel (px, py) from the top
@@ -333,6 +351,7 @@ final class MetalSliceView: NSView {
     override func mouseDown(with event: NSEvent) {
         window?.makeFirstResponder(self)
         lastDrag = convert(event.locationInWindow, from: nil)
+        pressAt = lastDrag
     }
 
     override func rightMouseDown(with event: NSEvent) { lastDrag = convert(event.locationInWindow, from: nil) }
@@ -346,7 +365,22 @@ final class MetalSliceView: NSView {
     }
 
     override func mouseUp(with event: NSEvent) {
-        if event.clickCount == 2 && page == .twoD { fit2D() }
+        let p = convert(event.locationInWindow, from: nil)
+        defer { pressAt = nil }
+        // A drag is no click.
+        guard let at = pressAt, hypot(p.x - at.x, p.y - at.y) < 4 else { return }
+        if event.clickCount == 2 {
+            // The 2D page fits the part. The 3D view goes back to its start
+            // (the turn to face a side waits for zs_view_look_at_side).
+            if page == .twoD {
+                fit2D()
+            } else if let view {
+                zs_view_reset_smooth(view)
+                startAnimation()
+            }
+        } else if event.clickCount == 1 {
+            delegate?.sliceViewClick(p)
+        }
     }
 
     override func mouseDragged(with event: NSEvent) {

@@ -1,0 +1,214 @@
+//! The selected line of a window: a path of the slice and one of its
+//! segments, and the facts of the line card (zs_app_inspect,
+//! zs_app_inspect_picks, zs_app_measure).
+//!
+//! A click on a line selects it (zs_view_pick_segment in 3D, and
+//! zs_view_pick_layer in mm on the 2D page). The view shows the path in
+//! yellow and the segment in orange. "Fade the others" shows the other
+//! lines as ghosts (zs_view_isolate).
+//!
+//! A new slice can change the index of each path. The window keeps the
+//! layer, the feature, and the middle point of the selected line, and after
+//! the slice zs_app_pick_feature finds the nearest line of the same feature
+//! there, as the web app and the GTK app do.
+//!
+//! The keys of a selected line (docs/user/getting-started.md, "Keys in the
+//! preview"): Left and Right step along the print (Shift: a whole line), Up
+//! and Down go to the nearest line on the layer above or below, C shows the
+//! layers up to the line, and Esc clears the selection.
+//!
+//! SPDX-License-Identifier: AGPL-3.0-or-later
+
+import AppKit
+import CZslice
+
+/// The facts of a selected line for its card.
+struct LineInfo {
+    var path: Int
+    var title: String
+    var layer: Int
+    var feature: Int32
+    var plannedSpeed: Double
+    var speed: Double
+    var flow: Double
+    var slowReason: Int32
+    var slowText: String
+    var measure: zs_measure?
+    /// The settings that matter most for the line, with the reason of each.
+    var picks: [(name: String, why: String)]
+    /// All settings that change the line, by section ("# Speed" lines start
+    /// a section).
+    var settings: [String]
+}
+
+/// (size_t)-1 of the C API: no path.
+let noPath = -1
+
+extension Workspace {
+    /// The number of settings on the line card.
+    static let cardSettings = 4
+
+    // MARK: - pick and select
+
+    /// A click at a point of the view (in points from its top left).
+    func pick(at p: CGPoint) {
+        guard let v = canvas.view, model.state == .done || layerCount > 0 else { return }
+        var seg = 0
+        let path: Int
+        if page == .twoD {
+            guard let mm = canvas.millimeters(of: p) else { return }
+            path = zs_view_pick_layer(v, hi, mm.x, mm.y, &seg)
+        } else {
+            let s = canvas.window?.backingScaleFactor ?? 2
+            path = zs_view_pick_segment(v, Float(p.x * s), Float(p.y * s), &seg)
+        }
+        if path == noPath {
+            clearSelection()
+        } else {
+            cardAt = p
+            select(path: path, seg: seg, openCard: true)
+        }
+    }
+
+    func select(path: Int, seg: Int, openCard: Bool) {
+        selection = Selection(path: path, seg: seg)
+        if openCard { cardOpen = true }
+        showSelection()
+        inspect()
+    }
+
+    func clearSelection() {
+        selection = nil
+        lineInfo = nil
+        refindKey = nil
+        cardOpen = false
+        cardMoved = nil
+        showSelection()
+    }
+
+    /// The highlight of the view (3D and 2D).
+    func showSelection() {
+        guard let v = canvas.view else { return }
+        if let s = selection {
+            zs_view_highlight(v, s.path)
+            zs_view_highlight_segment(v, s.path, s.seg)
+            zs_view_isolate(v, isolate ? 1 : 0)
+            var a: UInt32 = 0, b: UInt32 = 0
+            canvas.selection2D = zs_view_path_beads(v, s.path, &a, &b) == 0 ? (a, b, s.seg) : nil
+        } else {
+            zs_view_highlight(v, noPath)
+            zs_view_isolate(v, 0)
+            canvas.selection2D = nil
+        }
+        canvas.requestFrame()
+    }
+
+    func toggleIsolate() {
+        isolate.toggle()
+        showSelection()
+    }
+
+    /// Reads the facts of the selected line for its card.
+    private func inspect() {
+        guard let s = selection else { return }
+        var info = zs_inspect()
+        guard zs_app_inspect(model.core, s.path, &info) == 0 else {
+            lineInfo = nil
+            return
+        }
+        var picks = [zs_pick](repeating: zs_pick(), count: Self.cardSettings)
+        var n = 0
+        _ = zs_app_inspect_picks(model.core, s.path, &picks, picks.count, &n)
+        var m = zs_measure()
+        let measured = zs_app_measure(model.core, s.path, s.seg, &m) == 0
+        lineInfo = LineInfo(
+            path: s.path, title: coreText(info.title), layer: info.layer, feature: info.feature,
+            plannedSpeed: info.planned_speed, speed: info.speed, flow: info.flow,
+            slowReason: info.slow_reason, slowText: coreText(info.slow_text),
+            measure: measured ? m : nil,
+            picks: picks.prefix(n).map { (coreText($0.name), coreText($0.why)) }.filter { SettingInfo.byName[$0.0] != nil },
+            settings: coreText(info.settings).split(separator: "\n").map(String.init))
+        refindKey = middle(of: s.path).map { RefindKey(layer: info.layer, feature: info.feature, x: $0.x, y: $0.y) }
+    }
+
+    /// The middle point of a path (mm), from the toolpaths of the slice.
+    private func middle(of path: Int) -> (x: Double, y: Double)? {
+        var tp = zs_toolpaths()
+        guard zs_app_toolpaths(model.core, &tp) == 0, path < tp.path_count, let ends = tp.path_ends, let pts = tp.points else { return nil }
+        let start = path > 0 ? Int(ends[path - 1]) : 0, end = Int(ends[path])
+        guard end > start else { return nil }
+        let k = (start + end) / 2
+        return (Double(pts[2 * k]), Double(pts[2 * k + 1]))
+    }
+
+    /// After a new slice: the same line, or none.
+    func refindSelection() {
+        guard selection != nil, let key = refindKey else {
+            if selection != nil { clearSelection() }
+            return
+        }
+        let path = zs_app_pick_feature(model.core, key.layer, key.feature, key.x, key.y)
+        guard path != noPath, let v = canvas.view else {
+            clearSelection()
+            return
+        }
+        let segs = zs_view_path_segments(v, path)
+        select(path: path, seg: min(selection?.seg ?? 0, max(0, segs - 1)), openCard: false)
+    }
+
+    // MARK: - the keys of a selected line
+
+    /// The keys of a selected line. Returns false for a key it does not use.
+    func selectionKey(_ event: NSEvent) -> Bool {
+        guard let s = selection, let v = canvas.view else { return false }
+        let shift = event.modifierFlags.contains(.shift)
+        let key = event.charactersIgnoringModifiers ?? ""
+        func step(_ dir: Int32) {
+            var path = s.path, seg = s.seg
+            if zs_view_step(v, &path, &seg, dir, shift ? 1 : 0) != 0 { follow(path, max(seg, 0)) }
+        }
+        func layer(_ dl: Int) {
+            let l = zs_view_path_layer(v, s.path) + dl
+            guard l >= 0 && l < layerCount else { return }
+            let path = zs_view_nearest_on_layer(v, s.path, l)
+            if path != noPath { follow(path, 0) }
+        }
+        switch event.specialKey {
+        case .leftArrow?: step(-1)
+        case .rightArrow?: step(1)
+        case .upArrow? where !shift: layer(1)
+        case .downArrow? where !shift: layer(-1)
+        default:
+            switch key {
+            case "h": step(-1)
+            case "l": step(1)
+            case "k": layer(1)
+            case "j": layer(-1)
+            case "c": setRange(lo: lo, hi: zs_view_path_layer(v, s.path))
+            case "\u{1b}": clearSelection()
+            default: return false
+            }
+        }
+        return true
+    }
+
+    /// Selects a line from a key, and the layer slider follows it.
+    private func follow(_ path: Int, _ seg: Int) {
+        guard let v = canvas.view else { return }
+        let l = zs_view_path_layer(v, path)
+        if l > hi || l < lo { setRange(lo: min(lo, l), hi: max(l, lo)) }
+        select(path: path, seg: seg, openCard: false)
+    }
+}
+
+struct Selection: Equatable {
+    var path: Int
+    var seg: Int
+}
+
+struct RefindKey {
+    var layer: Int
+    var feature: Int32
+    var x: Double
+    var y: Double
+}

@@ -29,17 +29,19 @@ enum SettingsRoute: Hashable {
     case section(group: String, section: String)
     case feature(Int)
     case setting(String)
+    /// All settings that change the selected line, by section.
+    case line
 }
 
 struct SettingsInspector: View {
     let workspace: Workspace
-    @State private var path: [SettingsRoute] = []
+    private var path: [SettingsRoute] { workspace.settingsPath }
     @State private var search = ""
 
     private var model: SliceModel { workspace.model }
 
     var body: some View {
-        NavigationStack(path: $path) {
+        NavigationStack(path: Bindable(workspace).settingsPath) {
             Group {
                 if search.trimmingCharacters(in: .whitespaces).isEmpty {
                     sections
@@ -58,6 +60,8 @@ struct SettingsInspector: View {
                                      let e = SettingEffect($0.name).features
                                      return (e >> f) & 1 != 0 && e & Feature.all != Feature.all
                                  })
+                case .line:
+                    LineSettings(workspace: workspace)
                 case let .setting(name):
                     if let info = SettingInfo.byName[name] {
                         SettingDetail(workspace: workspace, info: info)
@@ -67,13 +71,13 @@ struct SettingsInspector: View {
         }
         .searchable(text: $search, placement: .sidebar, prompt: "Search settings")
         .onChange(of: path, initial: true) { sendFocus() }
-        .onChange(of: search) { if !search.isEmpty { path = [] } }
+        .onChange(of: search) { if !search.isEmpty { workspace.settingsPath = [] } }
         .onDisappear { workspace.focus(0, firstLayer: false) }
         .onAppear {
             // For development and screenshots: ZSLICE_SETTING=name opens the
             // page of that setting.
             if let name = ProcessInfo.processInfo.environment["ZSLICE_SETTING"], let info = SettingInfo.byName[name], path.isEmpty {
-                path = [.section(group: info.group, section: info.section), .setting(name)]
+                workspace.settingsPath = [.section(group: info.group, section: info.section), .setting(name)]
             }
         }
     }
@@ -127,9 +131,47 @@ struct SettingsInspector: View {
             workspace.focus(1 << UInt32(f), firstLayer: false)
         case let .section(g, s)?:
             workspace.focus(sectionFocus(g, s), firstLayer: false)
-        case nil:
+        case .line?, nil:
             workspace.focus(0, firstLayer: false)
         }
+    }
+}
+
+/// All settings that change the selected line (zs_inspect.settings): a
+/// line "# Speed" starts a section.
+struct LineSettings: View {
+    let workspace: Workspace
+
+    var body: some View {
+        let info = workspace.lineInfo
+        List {
+            if let info {
+                Text("\(info.title) · layer \(info.layer + 1)").font(.headline)
+                ForEach(sections(info.settings), id: \.title) { sec in
+                    Section(sec.title) {
+                        ForEach(sec.names.compactMap { SettingInfo.byName[$0] }) { s in
+                            SettingRow(workspace: workspace, info: s, withSection: false)
+                        }
+                    }
+                }
+            } else {
+                Text("Click a line in the view to see the settings that change it.").foregroundStyle(.secondary)
+            }
+        }
+        .navigationTitle("Selected Line")
+    }
+
+    private func sections(_ lines: [String]) -> [(title: String, names: [String])] {
+        var out: [(title: String, names: [String])] = []
+        for l in lines {
+            if l.hasPrefix("# ") {
+                out.append((String(l.dropFirst(2)), []))
+            } else {
+                if out.isEmpty { out.append(("Settings", [])) }
+                out[out.count - 1].names.append(l)
+            }
+        }
+        return out.filter { !$0.names.isEmpty }
     }
 }
 

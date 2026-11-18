@@ -25,12 +25,14 @@ open build/zslice.app
 | `Sources/ZSlice/Core/SliceModel.swift` | One plate: one `zs_app` of the core, its state, and its events. |
 | `Sources/ZSlice/Core/Workspace.swift` | The model of a window: the plate, the 3D view, the layer range, the replay, the focus of the drawer, and the keys of the view. |
 | `Sources/ZSlice/Core/History.swift` | The undo list of the core on the `UndoManager` of macOS: the commit timer, the focus of an edit, and the timeline. |
+| `Sources/ZSlice/Core/Selection.swift` | The selected line: the pick, the highlight, the facts of the line card, the line again after a new slice, and the keys of a selected line. |
 | `Sources/ZSlice/Core/Settings.swift` | The setting infos, values, sources, effects, and value texts, from the core. |
 | `Sources/ZSlice/Views/MetalSliceView.swift` | The 3D view: an `NSView` over a `CAMetalLayer`, its display link, and the input. |
 | `Sources/ZSlice/Render/FrameRenderer.swift` | Draws the frame data of the core with Metal. |
 | `Sources/ZSlice/Render/LayerRenderer.swift` | Draws the 2D view of one layer with Metal: the bed, the outline (a stencil fill), and the beads as strokes. |
 | `Sources/ZSlice/Render/Shaders.swift` | The Metal shaders. They port `src/render/shaders/*`, and the 2D shaders of `web/app/gl.js`. |
 | `Sources/ZSlice/Views/DocumentWindow.swift` | The window: the 3D view, the scrub bar, and the print card. |
+| `Sources/ZSlice/Views/LineCard.swift` | The card of a selected line, next to it in the view. |
 | `Sources/ZSlice/Views/LayerSlider.swift` | The slider with two knobs for the layers that show. |
 | `Sources/ZSlice/Views/HistoryPage.swift` | The History page of the drawer: the steps, the newest first, with their changes. |
 | `Sources/ZSlice/Views/SettingsInspector.swift` | The settings drawer: the sections, the settings with their editors, the page of a setting, and the search. |
@@ -70,6 +72,12 @@ The `UndoManager` of the plate mirrors the list: each step before the step now i
 
 The History page of the drawer lists the steps, the newest first, with their changes in words. The arrow button of a change undoes only that change (`zs_app_history_revert`). The menu of a step clears the history after it.
 
+### The selected line and its card
+
+A click on a line selects it: `zs_view_pick_segment` on the 3D page, and `zs_view_pick_layer` in mm on the 2D page. The view shows the path in yellow and the segment in orange. The card of the line opens next to the click. It shows the feature and the layer, the planned speed, the real speed, and the flow, why the line is slow (`zs_inspect.slow_text`), its size (`zs_app_measure`), and the four settings that matter most for it (`zs_app_inspect_picks`), each with its reason and a live editor. "Fade the Others" shows the other lines as ghosts (`zs_view_isolate`), and the app keeps the choice. "All Settings…" opens the drawer on all the settings that change the line. A drag of the head of the card moves it.
+
+After a new slice, the app finds the same line again: it keeps the layer, the feature, and the middle point of the line, and `zs_app_pick_feature` gives the nearest line of the same feature there. With a selected line, Left and Right (or h and l) step along the print (Shift: a whole line, `zs_view_step`), Up and Down (or k and j) go to the nearest line on the layer above or below (`zs_view_nearest_on_layer`), C shows the layers up to the line, and Esc clears the selection. The layer slider follows the selection.
+
 ### Input
 
 The bindings are those of the GTK app, with the keys of a Mac:
@@ -99,6 +107,7 @@ Like the GTK shell, the app reads some environment variables for development and
 - `ZSLICE_TIME=t` shows the replay at t seconds after the first slice.
 - `ZSLICE_VIEW=2d` (or `3d`) opens the window on that page.
 - `ZSLICE_PANEL=1` shows the settings drawer, and `ZSLICE_SETTING=name` opens the page of that setting. `ZSLICE_PAGE=history` opens the History page.
+- `ZSLICE_PICK=x,y` picks the line at that point of the view (in points) after the first slice, as a click does.
 - `ZSLICE_SET="name=value;name=value"` makes each change a step after the first slice, and `ZSLICE_UNDO=n` then undoes n steps.
 
 ## Work that moves to the core
@@ -107,7 +116,8 @@ App logic goes in the core, so that the three shells do not each have a copy. Tw
 
 - The history of undo and redo: done (`src/app/history.zig`).
 - The value text: done (`src/app/setting_text.zig`).
-- The settings that the line card picks for a line (`zs_app_inspect_picks`).
+- The settings that the line card picks for a line: done (`zs_app_inspect_picks`).
+- The turn of the camera to face the side under a double click (proposed: `zs_view_look_at_side`). Until then, a double click on the 3D page resets the view.
 - The plate set: one `zs_app` for each plate, the order of the slices (the active plate first), and the sync of the plates of the 3D view. Until it lands, a Mac window has one plate.
 
 ## Status and plan

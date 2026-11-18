@@ -204,12 +204,8 @@ final class History {
         return (Color(red: Double(rgb >> 16 & 0xff) / 255, green: Double(rgb >> 8 & 0xff) / 255, blue: Double(rgb & 0xff) / 255), label)
     }
 
-    /// A change that can be undone alone (history.c, revertible): not the
-    /// quality, and not a move, turn, or scale of a part.
+    /// A change that can be undone alone (the rule is in the core).
     static func revertible(_ line: String) -> Bool {
-        if line.contains("\tquality\t") { return false }
-        if !line.hasPrefix("part:") { return true }
-        let key = line.split(separator: "\t", omittingEmptySubsequences: false).dropFirst().first.map(String.init) ?? ""
-        return !["(part)", "position", "rotation", "orientation", "scale"].contains { key.hasPrefix($0) }
+        line.withCString { zs_history_revertible($0, strlen($0)) != 0 }
     }
 }

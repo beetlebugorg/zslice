@@ -40,6 +40,20 @@ final class Workspace {
 
     static let speeds: [Double] = [1, 2, 5, 10, 25, 50, 100]
 
+    // The selected line and its card (Selection.swift).
+    var selection: Selection?
+    var lineInfo: LineInfo?
+    @ObservationIgnored var refindKey: RefindKey?
+    var cardOpen = false
+    /// Where the click was (points in the view), and where the user moved
+    /// the card to; the card keeps that place until it closes.
+    var cardAt = CGPoint(x: 120, y: 120)
+    var cardMoved: CGPoint?
+    /// "Fade the others": the app keeps the choice.
+    var isolate = UserDefaults.standard.bool(forKey: "isolate") {
+        didSet { UserDefaults.standard.set(isolate, forKey: "isolate") }
+    }
+
     /// The page of the view: 3D, or one layer from the top. The app keeps
     /// the choice for the next window.
     var page: MetalSliceView.Page = MetalSliceView.Page(rawValue: UserDefaults.standard.string(forKey: "view") ?? "") ?? .threeD {
@@ -77,6 +91,7 @@ final class Workspace {
         lo = min(lo, hi)
         applyRange()
         applyFocus()
+        refindSelection()
         applyTestHooks()
     }
 
@@ -102,6 +117,11 @@ final class Workspace {
                 model.history.commit()
             }
             for _ in 0 ..< (env["ZSLICE_UNDO"].flatMap(Int.init) ?? 0) { model.history.undoManager.undo() }
+        }
+        // ZSLICE_PICK=x,y picks the line at that point of the view (points),
+        // as a click does (as in the GTK app).
+        if let xy = env["ZSLICE_PICK"]?.split(separator: ",").compactMap({ Double($0) }), xy.count == 2 {
+            pick(at: CGPoint(x: xy[0], y: xy[1]))
         }
         if let t = env["ZSLICE_TIME"].flatMap(Double.init), let v = canvas.view {
             time = t
@@ -224,6 +244,16 @@ final class Workspace {
 
     enum DrawerPage: String { case settings, history }
 
+    /// The pages of the settings browser that show, from its first page.
+    var settingsPath: [SettingsRoute] = []
+
+    /// Opens the drawer on all settings of the selected line.
+    func showLineSettings() {
+        showSettings = true
+        drawerPage = .settings
+        settingsPath = [.line]
+    }
+
     /// The page of the drawer.
     var drawerPage = DrawerPage(rawValue: ProcessInfo.processInfo.environment["ZSLICE_PAGE"] ?? "") ?? .settings
 
@@ -281,6 +311,8 @@ final class Workspace {
 }
 
 extension Workspace: SliceViewDelegate {
+    func sliceViewClick(_ p: CGPoint) { pick(at: p) }
+
     func sliceViewTick(_ dt: Double) -> Bool { stepReplay(dt) }
 
     func sliceViewAppearanceChanged() {
@@ -290,6 +322,7 @@ extension Workspace: SliceViewDelegate {
     /// The keys of the preview (docs/user/getting-started.md, "Keys in the
     /// preview"), for the case with no selected line.
     func sliceViewKey(_ event: NSEvent) -> Bool {
+        if selectionKey(event) { return true }
         let shift = event.modifierFlags.contains(.shift)
         switch event.specialKey {
         case .upArrow?: shift ? moveBottom(1) : moveTop(1)
