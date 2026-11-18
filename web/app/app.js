@@ -27,6 +27,7 @@ import { ShortcutSheet } from "./shortcuts.js";
 import { LineCard } from "./linecard.js";
 import { PartCard } from "./partcard.js";
 import { TurnRings } from "./turn.js";
+import { FarmPage } from "./farm.js";
 import { Tools } from "./tools.js";
 import { KINDS, send as sendToPrinter, test as testPrinter, requestKey } from "./link.js";
 import { contextItems } from "./context-menu.js";
@@ -676,7 +677,7 @@ function updateFocus() {
   const shows = view.focus(mask, zmax);
   // A setting whose lines are not on this plate: the whole print shows,
   // and a note says why (once for each new focus).
-  if (!shows && mask !== app.noLinesMask) toast("No lines of this setting on this plate: the view shows the whole print.");
+  if (!shows && app.state === "done" && mask !== app.noLinesMask) toast("No lines of this setting on this plate: the view shows the whole print.");
   app.noLinesMask = shows ? 0 : mask;
   app.focus2d = shows ? mask : 0;
   requestFrame();
@@ -1100,7 +1101,11 @@ function showTab(name) {
   $("tab-selected").classList.toggle("checked", name === "selected");
   $("tab-history").classList.toggle("checked", name === "history");
   $("tab-project").classList.toggle("checked", name === "project");
+  $("tab-farm").classList.toggle("checked", name === "farm");
   $("page-project").hidden = name !== "project";
+  $("page-farm").hidden = name !== "farm";
+  if (name === "farm") farm.start();
+  else farm.stop();
   $("page-settings").hidden = name !== "settings";
   $("page-selected").hidden = name !== "selected";
   $("page-history").hidden = name !== "history";
@@ -1111,6 +1116,7 @@ $("tab-settings").onclick = () => showTab("settings");
 $("tab-selected").onclick = () => showTab("selected");
 $("tab-history").onclick = () => showTab("history");
 $("tab-project").onclick = () => showTab("project");
+$("tab-farm").onclick = () => showTab("farm");
 $("panel-back").onclick = () => browser.back();
 
 // ---- the 2D and the 3D view ----
@@ -1823,6 +1829,25 @@ async function sendGcode(print) {
   }
 }
 $("send").onclick = () => sendGcode(true);
+
+// The Printers page: the printers of the user, and a send of the plate to
+// any of them (farm.js).
+var farm = new FarmPage({
+  root: $("page-farm"),
+  printers: () => store.printers ?? {},
+  canSend: () => app.state === "done",
+  plateName: () => app.plates[app.activePlate]?.name || app.modelName || "the plate",
+  slicedFor: () => store.printer ?? "",
+  toast: (t) => toast(t),
+  send: async (pr, print) => {
+    const r = await client.call("gcode");
+    if (!r.bytes) return { ok: false, message: "No G-code: slice first." };
+    const base = (r.name || "part").replace(/\.(stl|3mf)$/i, "");
+    const res = await sendToPrinter(pr, `${base}.gcode`, new Uint8Array(r.bytes), print);
+    if (res.ok && print) project.sent();
+    return res;
+  },
+});
 $("send-menu").onclick = () => openMenu($("send-menu"), [
   { label: "Upload only", tip: "Upload the G-code to the printer, and do not start it.", action: () => sendGcode(false) },
   { label: "Export G-code…", action: exportGcode },
