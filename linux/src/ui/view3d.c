@@ -1193,6 +1193,8 @@ static void show_menu(View3d *v, double x, double y) {
         g_menu_append_item(general, all);
         g_object_unref(all);
     }
+    g_menu_append(general, "Test print: the top layer…", "preview.debug-print(1)");
+    if (preview && zg_preview_is_cut(preview)) g_menu_append(general, "Test print: the layers shown…", "preview.debug-print(0)");
     g_menu_append(general, "Reset the view", "view3d.reset-view");
     g_menu_append_section(menu, NULL, G_MENU_MODEL(general));
     g_object_unref(general);

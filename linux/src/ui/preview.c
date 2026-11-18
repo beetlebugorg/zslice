@@ -988,6 +988,55 @@ static void on_check_action(GSimpleAction *a, GVariant *v, gpointer data) {
 }
 static void on_all_layers(GSimpleAction *a, GVariant *v, gpointer data) { show_all_layers(data); }
 
+/* ---- a test print (zs_app_debug_gcode) ---- */
+
+typedef struct {
+    GBytes *gcode;
+} DebugSave;
+
+static void on_debug_saved(GObject *source, GAsyncResult *res, gpointer data) {
+    GError *error = NULL;
+    if (!g_file_replace_contents_finish(G_FILE(source), res, NULL, &error)) {
+        g_message("zslice: the test print was not saved: %s", error->message);
+        g_error_free(error);
+    }
+}
+
+static void on_debug_chosen(GObject *source, GAsyncResult *res, gpointer data) {
+    DebugSave *d = data;
+    GFile *file = gtk_file_dialog_save_finish(GTK_FILE_DIALOG(source), res, NULL);
+    if (file) {
+        g_file_replace_contents_bytes_async(file, d->gcode, NULL, FALSE, G_FILE_CREATE_REPLACE_DESTINATION, NULL, on_debug_saved, NULL);
+        g_object_unref(file);
+    }
+    g_bytes_unref(d->gcode);
+    g_free(d);
+}
+
+/* The top layer of the slider (1), or the layers that show (0), alone and
+ * lowered onto the bed, to a G-code file. */
+static void on_debug_print(GSimpleAction *a, GVariant *v, gpointer data) {
+    Preview *p = data;
+    if (p->layer_count == 0) return;
+    ZgLayerRange *r = ZG_LAYER_RANGE(p->slider);
+    size_t hi = (size_t)zg_layer_range_get_hi(r);
+    size_t lo = g_variant_get_int32(v) == 1 ? hi : (size_t)zg_layer_range_get_lo(r);
+    uint8_t *out = NULL;
+    size_t len = 0;
+    if (zs_app_debug_gcode(zg_model_core(p->model), lo, hi + 1, &out, &len) != ZS_OK) return;
+    DebugSave *d = g_new0(DebugSave, 1);
+    d->gcode = g_bytes_new(out, len);
+    zs_buffer_free(out, len);
+    GtkFileDialog *dialog = gtk_file_dialog_new();
+    gtk_file_dialog_set_title(dialog, "Save the test print");
+    char *name = lo == hi ? g_strdup_printf("test-layer-%zu.gcode", hi + 1) : g_strdup_printf("test-layers-%zu-%zu.gcode", lo + 1, hi + 1);
+    gtk_file_dialog_set_initial_name(dialog, name);
+    g_free(name);
+    GtkRoot *root = gtk_widget_get_root(p->slider);
+    gtk_file_dialog_save(dialog, GTK_IS_WINDOW(root) ? GTK_WINDOW(root) : NULL, NULL, on_debug_chosen, d);
+    g_object_unref(dialog);
+}
+
 gboolean zg_preview_is_cut(GtkWidget *preview) {
     Preview *p = g_object_get_data(G_OBJECT(preview), "zg-preview");
     if (!p || p->layer_count == 0) return FALSE;
@@ -1667,6 +1716,7 @@ GtkWidget *zg_preview_new(ZgModel *model) {
     static const GActionEntry actions[] = {
         {.name = "cut-to-layer", .activate = on_cut_to_layer},
         {.name = "all-layers", .activate = on_all_layers},
+        {.name = "debug-print", .activate = on_debug_print, .parameter_type = "i"},
         {.name = "view", .activate = on_view_action, .parameter_type = "s"},
         {.name = "check", .activate = on_check_action},
     };
