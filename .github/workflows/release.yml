@@ -1,0 +1,69 @@
+name: release
+
+# Makes a GitHub release for a version tag (v0.6.0-beta) with the zslice
+# command line tool for Linux (x86_64 and aarch64, static) and macOS
+# (aarch64 and x86_64), each as a .tar.gz with a SHA-256 file. Zig builds
+# all four on one Linux runner. The printdeck Action downloads the Linux
+# tools from these releases to slice with zslice.
+on:
+  push:
+    tags: ["v*"]
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "The tag to release (it must exist)"
+        required: true
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
+
+      - uses: mlugg/setup-zig@d1434d08867e3ee9daa34448df10607b98908d29 # v2
+        with:
+          version: 0.16.0
+
+      - name: Test
+        run: zig build test
+
+      - name: Build
+        run: |
+          set -eu
+          mkdir -p dist
+          for t in x86_64-linux-musl aarch64-linux-musl aarch64-macos x86_64-macos; do
+            zig build -Dtarget="$t" -Doptimize=ReleaseFast --prefix "out/$t"
+            name="zslice-${TAG#v}-$t"
+            mkdir -p "pkg/$name"
+            cp "out/$t/bin/zslice" LICENSE README.md "pkg/$name/"
+            tar -C pkg -czf "dist/$name.tar.gz" "$name"
+          done
+          cd dist && sha256sum *.tar.gz > SHA256SUMS
+        env:
+          TAG: ${{ inputs.tag || github.ref_name }}
+
+      # The x86_64 Linux tool slices a 20 mm cube.
+      - name: Check
+        run: |
+          set -eu
+          tar -xzf dist/zslice-*-x86_64-linux-musl.tar.gz -C /tmp
+          python3 - <<'PY'
+          v = [(x, y, z) for x in (0, 20) for y in (0, 20) for z in (0, 20)]
+          faces = [(0, 2, 3, 1), (4, 5, 7, 6), (0, 1, 5, 4), (2, 6, 7, 3), (0, 4, 6, 2), (1, 3, 7, 5)]
+          out = ["solid cube"]
+          for a, b, c, d in faces:
+              for t in ((a, b, c), (a, c, d)):
+                  out += ["facet normal 0 0 0", "outer loop"] + [f"vertex {v[i][0]} {v[i][1]} {v[i][2]}" for i in t] + ["endloop", "endfacet"]
+          open("/tmp/cube.stl", "w").write("\n".join(out + ["endsolid cube"]) + "\n")
+          PY
+          /tmp/zslice-*-x86_64-linux-musl/zslice slice /tmp/cube.stl -o /tmp/cube.gcode
+          test -s /tmp/cube.gcode
+
+      - name: Release
+        run: gh release create "$TAG" dist/* --title "zslice $TAG" --notes "The zslice command line tool. Check the files with SHA256SUMS." --prerelease
+        env:
+          TAG: ${{ inputs.tag || github.ref_name }}
+          GH_TOKEN: ${{ github.token }}
