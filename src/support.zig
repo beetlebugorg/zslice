@@ -43,7 +43,7 @@
 //! one line width further out than the overhang area of grid support, so
 //! that the pad under a slope is wide enough for the interface lines. A
 //! pad stays only where a branch, the part (under the Z gap), or a pad is
-//! under it. A pad on the bed layer prints as the body.
+//! under it. The bed layer of a tree prints as interface.
 //!
 //! Step 1 (with the XY offset of the model), the clean-up after step 2,
 //! and step 4 run on all threads. Step 2 and step 3 go one layer at a time,
@@ -518,6 +518,8 @@ fn treeSupport(
         .spacing = @floatFromInt(geom.fromMm(p.support_tree_spacing)),
         .z_gap = gap,
         .bed_only = p.support == .buildplate,
+        // A branch is at least 5 mm thick on the bed.
+        .foot = @floatFromInt(geom.fromMm(2.5)),
     };
     const branches = try tree.grow(gpa, threads, outlines, layers, need, blocked, near, 1 + gap + pads, params);
     defer gpa.free(branches);
@@ -567,14 +569,14 @@ fn treeSupport(
         out[j].interface.deinit(gpa);
         out[j].interface = kept;
     }
-    // A pad on the bed layer prints as the body, so that the pad of the
-    // layer above has lines under it.
-    if (out.len > 0 and !out[0].interface.isEmpty()) {
+    // The bed layer prints as interface: the dense lines hold the foot of
+    // each branch on the bed, and the layer above has lines under it.
+    if (out.len > 0 and !out[0].body.isEmpty()) {
         const u = try clip.unite(gpa, out[0].body, out[0].interface);
-        out[0].body.deinit(gpa);
-        out[0].body = u;
         out[0].interface.deinit(gpa);
-        out[0].interface = .empty;
+        out[0].interface = u;
+        out[0].body.deinit(gpa);
+        out[0].body = .empty;
     }
 }
 
@@ -914,7 +916,7 @@ test "tree pads under a slope are wide enough for the interface lines" {
     try testing.expect(in.areaMm2() > 5);
 }
 
-test "tree support: a pad on the bed layer prints as the body" {
+test "tree support: the bed layer prints as interface" {
     const gpa = testing.allocator;
     // A plate a few layers over the bed, on a post.
     var b: mesh_mod.Builder = .init(gpa);
@@ -934,6 +936,6 @@ test "tree support: a pad on the bed layer prints as the body" {
     const r = try st.resolve();
     const sup = try compute(gpa, sl.outlines, sl.layers, &r, 1, &.{});
     defer deinitAll(gpa, sup);
-    try testing.expect(sup[0].interface.isEmpty());
-    try testing.expect(sup[0].body.areaMm2() > 50);
+    try testing.expect(sup[0].body.isEmpty());
+    try testing.expect(sup[0].interface.areaMm2() > 50);
 }

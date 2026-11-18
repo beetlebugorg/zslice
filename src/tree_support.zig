@@ -35,7 +35,9 @@
 //! 3. The radius grows as the branch goes down (stronger near the bed),
 //!    and a join keeps the area of the two branches. The radius gets
 //!    smaller again where the space is narrow, down to the tip radius. So
-//!    a branch can go down a deep, narrow hole. A branch keeps the XY gap
+//!    a branch can go down a deep, narrow hole. Near the bed, a branch to
+//!    the bed gets wider at 45 degrees, up to the foot radius, so that it
+//!    holds on the bed. A branch keeps the XY gap
 //!    from the part; its top layers keep only the smaller gap under an
 //!    overhang, so that the tips under a slope stay. A branch beside the
 //!    part with no room for its radius goes on, and the gap cuts its
@@ -127,6 +129,8 @@ pub const Params = struct {
     /// The top layers of a branch keep only the XY gap under an overhang
     /// (`near`); the layers below keep the full XY gap (`blocked`).
     tip_layers: u32 = 3,
+    /// The radius of a branch on the bed, µm (see `grow`).
+    foot: f64 = 0,
 };
 
 /// The tree areas of each layer. `need[i]` is the overhang of layer i,
@@ -220,6 +224,12 @@ pub fn grow(
             // space. Near the tip, the branch keeps the XY gap under an
             // overhang only, so the tips under a slope stay.
             nd.r = @min(params.max_r, nd.r + params.growth * @as(f64, @floatFromInt(h)));
+            // The foot: near the bed, a branch to the bed gets wider at 45
+            // degrees, up to `foot`, so that it holds on the bed.
+            if (nd.free) {
+                const z: f64 = @floatFromInt(geom.fromMm(layers[j].z));
+                nd.r = @max(nd.r, params.foot - z);
+            }
             const fence = if (nd.age <= params.tip_layers) nidx else bidx;
             if (!fit(nd, fence, pad, step, params.tip)) {
                 // No room for the radius. Beside the part, the branch goes
