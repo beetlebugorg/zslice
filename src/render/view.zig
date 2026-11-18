@@ -3874,6 +3874,8 @@ test "the draw list leaves out the chunks out of the view, and draws far beads c
     if (frame_backend) return error.SkipZigTest;
     // 40 layers of 30 paths of 20 beads: 24000 beads, several chunks.
     var v = try testScene(40, 30, 20);
+    // A backend that draws ribbons (they are off by default).
+    v.ribbons = true;
     defer destroyTest(&v);
     v.height = 800;
     v.width = 800;
