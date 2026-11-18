@@ -22,7 +22,7 @@ open build/zslice.app
 | `Package.swift` | The package: the C module and the app target. |
 | `Sources/CZslice/module.modulemap` | The C API of the core (`include/zslice-app.h`) as the Swift module `CZslice`. |
 | `Sources/ZSlice/ZSliceApp.swift` | The app and its document type. Each window is one STL or 3MF file. |
-| `Sources/ZSlice/Core/SliceModel.swift` | One plate: one `zs_app` of the core, its state, and its events. |
+| `Sources/ZSlice/Core/SliceModel.swift` | The plates of a window (one `zs_set` of the core), the active plate, its state, and the events. |
 | `Sources/ZSlice/Core/Workspace.swift` | The model of a window: the plate, the 3D view, the layer range, the replay, the focus of the drawer, and the keys of the view. |
 | `Sources/ZSlice/Core/History.swift` | The undo list of the core on the `UndoManager` of macOS: the commit timer, the focus of an edit, and the timeline. |
 | `Sources/ZSlice/Core/Selection.swift` | The selected line: the pick, the highlight, the facts of the line card, the line again after a new slice, and the keys of a selected line. |
@@ -38,9 +38,15 @@ open build/zslice.app
 | `Sources/ZSlice/Views/ToolStrip.swift` | The tool strip, and the measure tape with its readout. |
 | `Sources/ZSlice/Views/Legend.swift` | The legend of the colors: the line types to show or fade, or the range of a ramp. |
 | `Sources/ZSlice/Views/PrintFacts.swift` | The main settings of the print on the print card, each with a popover of editors. |
+| `Sources/ZSlice/Views/PlateBar.swift` | The plate bar: the plate before and after, all plates, a new plate, and Remove. |
+| `Sources/ZSlice/Views/PartCard.swift` | The card of a selected part. |
 | `Sources/ZSlice/Views/LayerSlider.swift` | The slider with two knobs for the layers that show. |
 | `Sources/ZSlice/Views/HistoryPage.swift` | The History page of the drawer: the steps, the newest first, with their changes. |
 | `Sources/ZSlice/Views/SettingsInspector.swift` | The settings drawer: the sections, the settings with their editors, the page of a setting, and the search. |
+
+## Plates
+
+A window has a plate set of the core (`zs_set`): one `zs_app` for each plate, with its own settings, parts, undo list, and slice. The active plate is the plate that the window shows and changes. The set slices the other plates in the background, the active plate first, and `zs_set_view_sync` shows all plates in a row in one view. A click on another plate makes it active. The plate bar has the plate before and after (`[` and `]`), All (Home), a new plate (File > New Plate, Option-Command-N), and Remove (it asks first for a plate with parts: the plates are not in the undo list). File > Add Models to the Plate (Shift-Command-I) adds parts to the active plate. A drag or a turn of a part calls `zs_set_changed_held`, and `zs_set_release` at the end, so the part slices once.
 
 ## Threads
 
@@ -130,6 +136,7 @@ Like the GTK shell, the app reads some environment variables for development and
 - `ZSLICE_TOOL=measure` picks a tool, `ZSLICE_CLICKS="x,y;x,y"` clicks with it, and `ZSLICE_DRAG="x0,y0;x1,y1"` is a Command-drag.
 - `ZSLICE_MODE=n` sets the colors (0 filament, 1 line type, 2 speed, 3 flow, 4 layer time, 5 line width).
 - `ZSLICE_RESLICE=n` changes a setting after each slice, n times, to test time and memory. `ZSLICE_TIMING=1` logs the time of each slice.
+- `ZSLICE_ADD_PLATE="path;path"` puts each file on a new plate after the first slice.
 - `ZSLICE_SEARCH=text` opens the search, `ZSLICE_GAPS=1` and `ZSLICE_CHECK=1` turn on Gaps and Check, `ZSLICE_MENU="x,y;Title"` (or `center;Title`) runs an item of the context menu, and `ZSLICE_DARK=1` sets the dark look.
 - `ZSLICE_DOUBLE_CLICK=x,y` is a double click at that point after the first slice.
 - `ZSLICE_PICK=x,y` picks the line at that point of the view (in points) after the first slice, as a click does.
@@ -143,7 +150,7 @@ App logic goes in the core, so that the three shells do not each have a copy. Tw
 - The value text: done (`src/app/setting_text.zig`).
 - The settings that the line card picks for a line: done (`zs_app_inspect_picks`).
 - The turn of the camera to face the side under a double click: done (`zs_view_look_at_side`).
-- The plate set: one `zs_app` for each plate, the order of the slices (the active plate first), and the sync of the plates of the 3D view. It is in the core now (`zs_set`, see architecture.md); the Mac shell does not use it yet, so a Mac window has one plate.
+- The plate set: done (`zs_set`).
 
 ## Status and plan
 
