@@ -49,7 +49,7 @@
 <p class="eyebrow">Internals</p>
 <h1>Architecture</h1>
 <p class="lede">Read <a href="../../internals/how-slicing-works/">How a slicer works</a> first. It explains the stages. This document explains how the code is organized.</p>
-<nav class="onpage"><b>On this page</b><ol><li><a href="#modules">Modules</a></li><li><a href="#data-flow">Data flow</a></li><li><a href="#conventions">Conventions</a></li><li><a href="#data-types">Data types</a></li><li><a href="#memory-model">Memory model</a></li><li><a href="#threads">Threads</a></li><li><a href="#speed-in-webassembly">Speed in WebAssembly</a></li><li><a href="#error-handling">Error handling</a></li><li><a href="#the-c-api-layer">The C API layer</a></li></ol></nav><h2 id="modules">Modules</h2>
+<nav class="onpage"><b>On this page</b><ol><li><a href="#modules">Modules</a></li><li><a href="#data-flow">Data flow</a></li><li><a href="#conventions">Conventions</a></li><li><a href="#data-types">Data types</a></li><li><a href="#memory-model">Memory model</a></li><li><a href="#threads">Threads</a></li><li><a href="#speed-in-webassembly">Speed in WebAssembly</a></li><li><a href="#error-handling">Error handling</a></li><li><a href="#the-c-api-layer">The C API layer</a></li><li><a href="#the-undo-list">The undo list</a></li></ol></nav><h2 id="modules">Modules</h2>
 <pre><code>src/
   root.zig       The public Zig API. It exports the modules and the main types.
   main.zig       The command line tool.
@@ -109,6 +109,9 @@
   app/feature_settings.zig  The settings that change each feature.
   app/setting_effect.zig    What a setting changes in the preview.
   app/setting_info.zig      The description of each setting for a panel.
+  app/history.zig    The undo list of each app (the steps, the amend of
+                 one edit, undo, redo, goto, truncate), and the changes
+                 of a step in words.
   app/licenses.zig          The licenses for a Licenses screen.
   render/view.zig  The 3D view: the scene, the camera, the beads.
   render/plates.zig  The other plates of a set in the view, and the
@@ -154,7 +157,11 @@
 <ul><li>Allocation errors go up to the caller as <code>error.OutOfMemory</code>.</li><li>Bad input (a broken STL file, bad settings) returns an error from <code>Mesh.fromStl</code> or <code>Settings.resolve</code>.</li><li>Bad geometry is not an error. A mesh with holes or overlaps gives the best output that the code can make: open chains are closed or removed, and overlaps are joined by a union.</li></ul>
 <h2 id="the-c-api-layer">The C API layer</h2>
 <p><code>c_api.zig</code> and the files in <code>c_api/</code> are a thin layer:</p>
-<ul><li>Each exported function checks its pointers, calls the Zig API, and changes the Zig error to a status code.</li><li><code>CSettings</code> has <code>Settings</code> and an arena for the string values, because <code>Settings.set</code> does not copy strings.</li><li><code>CallbackWriter</code> is a <code>std.Io.Writer</code> that sends its buffer to the C callback.</li><li>The wasm build compiles the same file for <code>wasm32-freestanding</code>.</li></ul><nav class="pager"><a class="prev" href="../../embedding/javascript/"><span>Previous</span><b>JavaScript</b></a><a class="next" href="../../internals/one-view/"><span>Next</span><b>Plan: one view</b></a></nav>
+<ul><li>Each exported function checks its pointers, calls the Zig API, and changes the Zig error to a status code.</li><li><code>CSettings</code> has <code>Settings</code> and an arena for the string values, because <code>Settings.set</code> does not copy strings.</li><li><code>CallbackWriter</code> is a <code>std.Io.Writer</code> that sends its buffer to the C callback.</li><li>The wasm build compiles the same file for <code>wasm32-freestanding</code>.</li><li>Each function that changes the state of an app notes the change for its undo list (<code>noted</code> in <code>c_api/app.zig</code>): the name of one setting, or "more", and a flag for a change of the plate. The Zig functions of <code>App</code> do not note changes. A Zig shell that calls them directly calls <code>App.undo.note</code> itself.</li></ul>
+<h2 id="the-undo-list">The undo list</h2>
+<p>The undo list is in the core (<code>src/app/history.zig</code>), one list for each app. The GTK shell and the web app had a copy each; now they call <code>zs_app_history_*</code>. A shell keeps only three things:</p>
+<ol><li>The timer. It calls <code>zs_app_history_commit</code> 400 ms after the last change, with the time. The core has no clock, also in wasm.</li><li>The focus. It calls <code>zs_app_history_set_focus</code> with the setting of the editor that has the focus. The edits of one setting are one step while its editor keeps the focus.</li><li>The UI: the history list, the timeline, and the undo and redo keys. After an undo, it updates its editors from the bits of <code>enum zs_history_restored</code>, saves the groups that changed, and slices again.</li></ol>
+<p>A step keeps the texts of the three groups (<code>zs_app_state_write</code>), the quality profile, the plate as a 3MF file (steps with the same plate share one file), and the facts of the state. The text of a step comes from the diff of its facts and the facts of the step before. The web worker keeps one app for each plate, so each plate has its own undo list.</p><nav class="pager"><a class="prev" href="../../embedding/javascript/"><span>Previous</span><b>JavaScript</b></a><a class="next" href="../../internals/one-view/"><span>Next</span><b>Plan: one view</b></a></nav>
 </main>
 </div>
 <footer>zslice is free software (AGPL-3.0-or-later). <a href="../../privacy/">Privacy</a>: no analytics, no cookies, nothing from other sites. <a href="https://github.com/beetlebugorg/zslice/blob/main/docs/build.py">docs/build.py</a> writes this site from <a href="https://github.com/beetlebugorg/zslice/blob/main/docs/internals/architecture.md">docs/internals/architecture.md</a>.</footer>

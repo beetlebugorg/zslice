@@ -64,6 +64,9 @@ src/
   app/feature_settings.zig  The settings that change each feature.
   app/setting_effect.zig    What a setting changes in the preview.
   app/setting_info.zig      The description of each setting for a panel.
+  app/history.zig    The undo list of each app (the steps, the amend of
+                 one edit, undo, redo, goto, truncate), and the changes
+                 of a step in words.
   app/licenses.zig          The licenses for a Licenses screen.
   render/view.zig  The 3D view: the scene, the camera, the beads.
   render/plates.zig  The other plates of a set in the view, and the
@@ -172,3 +175,14 @@ Measure each change in wasm and native, on one thread and on all threads, and ch
 - `CSettings` has `Settings` and an arena for the string values, because `Settings.set` does not copy strings.
 - `CallbackWriter` is a `std.Io.Writer` that sends its buffer to the C callback.
 - The wasm build compiles the same file for `wasm32-freestanding`.
+- Each function that changes the state of an app notes the change for its undo list (`noted` in `c_api/app.zig`): the name of one setting, or "more", and a flag for a change of the plate. The Zig functions of `App` do not note changes. A Zig shell that calls them directly calls `App.undo.note` itself.
+
+## The undo list
+
+The undo list is in the core (`src/app/history.zig`), one list for each app. The GTK shell and the web app had a copy each; now they call `zs_app_history_*`. A shell keeps only three things:
+
+1. The timer. It calls `zs_app_history_commit` 400 ms after the last change, with the time. The core has no clock, also in wasm.
+2. The focus. It calls `zs_app_history_set_focus` with the setting of the editor that has the focus. The edits of one setting are one step while its editor keeps the focus.
+3. The UI: the history list, the timeline, and the undo and redo keys. After an undo, it updates its editors from the bits of `enum zs_history_restored`, saves the groups that changed, and slices again.
+
+A step keeps the texts of the three groups (`zs_app_state_write`), the quality profile, the plate as a 3MF file (steps with the same plate share one file), and the facts of the state. The text of a step comes from the diff of its facts and the facts of the step before. The web worker keeps one app for each plate, so each plate has its own undo list.

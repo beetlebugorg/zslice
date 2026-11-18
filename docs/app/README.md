@@ -33,6 +33,7 @@ Read `include/zslice-app.h` first. The main points:
 - **Slice after each change.** After the user changes a setting or opens a model, call `zs_app_request_slice`. It stops the old slice and starts a new one. A slice of a typical part takes less than a second, so the preview follows the settings.
 - **Settings panel from data.** `zs_setting_count` and `zs_setting_get_info` give each setting with its group, section, label, help text, kind, and choices. Build the panel from these. Do not list settings in the shell.
 - **Preview one layer at a time.** `zs_app_layer_paths` makes the paths of one layer in a few milliseconds. Keep only the layers on the screen.
+- **Undo in the core.** The core keeps the undo list and notes each change. The shell calls `zs_app_history_commit` 400 ms after the last change, tells the core which setting editor has the focus (`zs_app_history_set_focus`), and draws the history. See [the undo list](../internals/architecture.md#the-undo-list).
 - **Licenses.** `zs_license_count` and `zs_license_get` give zslice and the components in the core, with full texts. A shell adds the libraries that only it links (for example GTK), and shows all of them in a Licenses screen.
 
 ## The printer library and the printer search
@@ -137,6 +138,7 @@ These environment variables change the start of the GTK shell, for development, 
 | `ZSLICE_PROJECT=dir` or `owner/repo` | Opens the printdeck.yml project of a folder or of a GitHub repository at the start, and shows the Project page. `ZSLICE_PROJECT_PLATE=n` then opens plate n (from 1), also for the project of the last session. | `ui/project-page.c` |
 | `ZSLICE_PROJECT_DO=steps` | Changes the widgets of the Project page 3 s after the start, one step each second, as a click would. Steps, with `;` between them: `status 1 printed`, `count 2 0`, `check 2 off`, `scroll 600`, `sent`, `set machine.max_height 300`, `end`, `close`. | `ui/project-page.c` |
 | `ZSLICE_ACTION=name` | Runs an action 1.5 s after the first slice, as a click would. The name is a detailed action name, for example `win.search-part(int64 0)` (the search of part 0), `win.show-page('history')`, or `win.shortcuts`. | `ui/window.c` |
+| `ZSLICE_UNDO_TEST=1` | Changes the infill, undoes and redoes, moves part 0 and undoes the move, edits the wall count with the focus on its editor, goes to step 1, and clears the history after it, one step each second. The log gives the values and the steps of the history. | `ui/window.c` |
 | `ZSLICE_PREFS=1` | Opens Preferences 1.5 s after the start. With it, `ZSLICE_GET_KEY=1` presses "Get a key" for the current printer. | `ui/window.c`, `ui/preferences.c` |
 | `ZSLICE_PICKER=1` | Opens the printer picker at the start. With it: `ZSLICE_PICKER_QUERY=text` types a search, `ZSLICE_PICKER_MODEL=id` selects a model, `ZSLICE_PICKER_FOUND=n` selects printer n of the network when the search ends, and `ZSLICE_PICKER_STEP=2` (the second step) or `add` (add the printer at once). | `ui/printer-picker.c` |
 
