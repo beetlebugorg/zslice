@@ -161,7 +161,6 @@ Like the GTK shell, the app reads some environment variables for development and
 - `ZSLICE_SESSION=dir` keeps the session in that folder, also with `ZSLICE_FRESH` (which turns the session off without it). `ZSLICE_QUIT_AFTER=s` quits as Command-Q does, after s seconds. With `ZSLICE_TIMING=1`, the app logs the session reads and writes, and the time of the first frame with beads.
 - `ZSLICE_REFINE=path` keeps the store of refinements in that file, also with `ZSLICE_FRESH`. `ZSLICE_DETAILS=1` opens the details of the print, and `ZSLICE_REFINE_APPLY=1` applies the first suggestion and logs it.
 - `ZSLICE_HOVER_SCAN=1` picks the Support tool, hovers over a grid of the view, logs the picks and their time, and clicks the first overhang.
-- `ZSLICE_ORBIT_TEST=1` zooms close to the part and orbits for 3 s, and logs the mean GPU time and the detail. `ZSLICE_NO_GOVERNOR=1` keeps the detail at 1, `ZSLICE_DISCARD_SHADER=1` draws the plain beads with the shader of a focus (to measure the cost of a discard), and `ZSLICE_DETAIL_LOG=1` logs each frame of the governor.
 - `ZSLICE_RESLICE=name=a,b,c` changes that setting to each value in turn (`ZSLICE_RESLICE=1`: the infill). With `ZSLICE_TIMING=1`, the app logs the time of each slice, of the work after it on the main thread, of the save copy, and of each frame over 8 ms.
 - `ZSLICE_RESLICE=1` changes the infill 3 times, one change after each slice, and logs the longest wait of the main thread. With `ZSLICE_TIMING=1`, it logs the time of each slice too.
 - `ZSLICE_PAGE_FLIP=dir` turns the view, goes to 2D and back, and turns it again. It writes `a.png`, `b.png`, and `c.png` there: `a.png` and `b.png` must be the same.
@@ -262,9 +261,3 @@ The slice is the UI, so the chrome is small. The toolbar has the file button (`F
 ## One click for support
 
 In the Support tool, the view tracks the pointer (`sliceViewHover`). At most once a frame, the window finds the point of the part under the pointer (`zs_view_surface_point`) and the overhang within 4 mm of it (`zs_app_support_pick`), and shows its outline as a selected area of the current kind. A click adds it (`zs_app_support_area_add` with its z range). Option and a click draw an area point by point. A pick takes about 0.14 ms (cover_pegs.stl), so it runs on the main thread, with the other `zs_app` calls.
-
-## The detail governor
-
-`MetalSliceView` keeps the frames fast while the view moves (`zs_view_set_detail`). Each frame records its GPU time (`FrameRenderer.gpuTime`, from the command buffer). While the view moves (a drag, the wheel, a pinch, a camera animation, and 0.3 s after it), two frames over 26 ms raise the detail 1.5 times (at most 16), and 60 frames under 18 ms lower it. The wider beads then draw with the coarse mesh. At rest the detail goes back to 1 and the view draws one frame. The Mac draws no ribbons (`ribbon_ok` 0), as the web does.
-
-The plain beads use `box_fragment`, which has no `discard_fragment`, so the GPU tests the depth before the fragment runs. The focus and the see-through passes use `box_fragment_focus`. Zoomed in on deck_body during an orbit, at detail 1: 14.2 ms of GPU time a frame, against 16.7 ms with a discard.

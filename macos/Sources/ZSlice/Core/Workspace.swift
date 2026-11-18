@@ -467,9 +467,6 @@ final class Workspace {
                 }
             }
         }
-        if env["ZSLICE_ORBIT_TEST"] != nil {
-            DispatchQueue.main.asyncAfter(deadline: .now() + 1) { self.canvas.orbitTest() }
-        }
         // ZSLICE_HOVER_SCAN=1: the Support tool, a hover over a grid of the
         // view (a pick at each place), and a click on the first overhang.
         if env["ZSLICE_HOVER_SCAN"] != nil {
