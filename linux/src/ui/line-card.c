@@ -28,6 +28,7 @@ typedef struct {
     ZgModel *model;
     GtkWidget *preview, *card, *title, *stats, *note, *size, *settings, *fade;
     gboolean want;      /* a click opened it: show the next selection */
+    gboolean in_panel;  /* All settings put the line in the panel */
     char *signature;    /* the title and the settings of the line shown */
     double at_x, at_y;  /* the point of the click */
     gboolean quiet;
@@ -205,6 +206,7 @@ static void on_picked(ZgModel *model, gint64 path, gpointer data) {
         c->at_y = y;
     }
     c->want = TRUE;
+    c->in_panel = FALSE;
     show(c, path);
 }
 
@@ -217,9 +219,12 @@ static void on_selection(ZgModel *model, gint64 path, gpointer data) {
     if (c->want && gtk_widget_get_visible(c->card)) show(c, path);
 }
 
+/* A close of the card: with the line in the panel (All settings), only the
+ * card goes, and the panel keeps the line; else the selection clears. */
 static void on_close(GtkButton *b, gpointer data) {
     LineCard *c = data;
-    zg_model_select(c->model, -1);
+    if (c->in_panel) close_card(c);
+    else zg_model_select(c->model, -1);
 }
 
 /* The edit buttons of the card: kind and value by the button. */
@@ -239,9 +244,13 @@ static void on_fade(GtkToggleButton *b, gpointer data) {
     zg_model_set_isolate(c->model, on);
 }
 
+/* All settings: the long form of the line in the panel takes the place of
+ * the card; the line stays selected. */
 static void on_more(GtkButton *b, gpointer data) {
     LineCard *c = data;
     gtk_widget_activate_action_variant(c->card, "win.show-page", g_variant_new_string("selected"));
+    close_card(c);
+    c->in_panel = TRUE;
 }
 
 static gboolean on_key(GtkEventControllerKey *k, guint key, guint code, GdkModifierType mods, gpointer data) {
