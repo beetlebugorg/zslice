@@ -350,7 +350,7 @@ function historyList() {
 // The ops that change the settings, and the ops that change the plate:
 // each starts or extends a step.
 const SETTING_OPS = new Set(["set", "reset", "quality", "profile", "setScoped", "resetScoped"]);
-const PLATE_OPS = new Set(["load", "add", "plate", "projectLoad", "partAction", "partCut", "partSettingSet", "partPutDown", "partTurn", "putDown", "place", "partMove", "partRotate", "markAdd", "markRemoveNear", "markSet", "markRemove", "marksClear"]);
+const PLATE_OPS = new Set(["load", "add", "plate", "projectLoad", "partAction", "partCut", "partMove", "partFill", "partSettingSet", "partPutDown", "partTurn", "putDown", "place", "partMove", "partRotate", "markAdd", "markRemoveNear", "markSet", "markRemove", "marksClear"]);
 
 const ops = {
   async init({ module, saved, mode: m }) {
