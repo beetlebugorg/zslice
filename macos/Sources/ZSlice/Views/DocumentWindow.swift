@@ -104,7 +104,12 @@ struct DocumentWindow: View {
                 .padding(12)
             }
             .overlay(alignment: .top) {
-                Timeline(history: workspace.model.history).padding(.top, 12)
+                Timeline(history: workspace.model.history) { workspace.historyOpen = true }
+                    .popover(isPresented: Bindable(workspace).historyOpen, arrowEdge: .bottom) {
+                        HistoryPage(history: workspace.model.history, workspace: workspace)
+                            .frame(width: 400, height: 480)
+                    }
+                    .padding(.top, 12)
             }
             .overlay(alignment: .topTrailing) {
                 // Left of the layer slider and its number.
@@ -208,6 +213,38 @@ struct DocumentWindow: View {
             }
         }
         .animation(.easeInOut(duration: 0.2), value: workspace.note)
+        // The Printers page covers the view and the pane.
+        .overlay {
+            if workspace.farmOpen {
+                VStack(spacing: 0) {
+                    HStack {
+                        Button { workspace.farmOpen = false } label: { Label("Back to the Plate", systemImage: "chevron.left") }
+                            .keyboardShortcut(.cancelAction)
+                        Spacer()
+                        Text("Printers").font(.title2.weight(.semibold))
+                        Spacer()
+                        // As wide as the button, so the title is in the middle.
+                        Label("Back to the Plate", systemImage: "chevron.left").hidden()
+                    }
+                    .padding(12)
+                    Divider()
+                    FarmPage(workspace: workspace)
+                }
+                .background(Color(nsColor: .windowBackgroundColor))
+            }
+        }
+        .sheet(isPresented: Bindable(workspace).projectOpen) {
+            VStack(spacing: 0) {
+                ProjectPage(workspace: workspace)
+                Divider()
+                HStack {
+                    Spacer()
+                    Button("Done") { workspace.projectOpen = false }.keyboardShortcut(.defaultAction)
+                }
+                .padding(12)
+            }
+            .frame(minWidth: 560, minHeight: 520)
+        }
         .sheet(isPresented: Bindable(workspace).shortcutsOpen) { ShortcutSheet() }
         .sheet(isPresented: Bindable(workspace).pickerOpen) { PrinterPicker(workspace: workspace) }
         .inspector(isPresented: Bindable(workspace).showSettings) {
@@ -238,6 +275,10 @@ struct DocumentWindow: View {
                 .fixedSize()
                 .help("The colors of the lines: the filament, one color for each line type, or the speed, the flow, the layer time, or the line width")
             }
+            ToolbarItem(placement: .primaryAction) {
+                Button { workspace.farmOpen.toggle() } label: { Label("Printers", systemImage: "printer.dotmatrix.filled.and.paper") }
+                    .help("The printers and their jobs, and the plates to print (⌥⌘P)")
+            }
             ToolbarItem(placement: .principal) {
                 Picker("View", selection: Bindable(workspace).page) {
                     Text("3D").tag(MetalSliceView.Page.threeD)
@@ -266,26 +307,11 @@ struct DocumentWindow: View {
 struct InspectorPanel: View {
     let workspace: Workspace
 
+    /// Only the settings: the history, the project, and the printers have
+    /// places of their own (a popover, a sheet, and a page).
     var body: some View {
-        VStack(spacing: 0) {
-            Picker("Page", selection: Bindable(workspace).drawerPage) {
-                Text("Settings").tag(Workspace.DrawerPage.settings)
-                Text("History").tag(Workspace.DrawerPage.history)
-                if workspace.model.project != nil {
-                    Text("Project").tag(Workspace.DrawerPage.project)
-                }
-                Text("Printers").tag(Workspace.DrawerPage.printers)
-            }
-            .pickerStyle(.segmented)
-            .labelsHidden()
-            .padding(8)
-            switch workspace.drawerPage {
-            case .settings: SettingsInspector(workspace: workspace)
-            case .history: HistoryPage(history: workspace.model.history, workspace: workspace)
-            case .project: ProjectPage(workspace: workspace)
-            case .printers: FarmPage(workspace: workspace)
-            }
-        }
+        SettingsInspector(workspace: workspace)
+            .padding(.top, 8)
     }
 }
 

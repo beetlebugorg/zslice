@@ -140,6 +140,8 @@ struct PlateCommands: View {
         Button("Clear the Plate") { workspace?.plateAction(zs_app_plate_clear) }
             .disabled(workspace == nil)
         Divider()
+        Button("Show Project…") { workspace?.projectOpen = true }
+            .disabled(workspace?.model.project == nil)
         Button("Open Project Folder…") { workspace?.openProject() }
             .keyboardShortcut("o", modifiers: [.command, .shift])
             .disabled(workspace == nil)
@@ -184,6 +186,12 @@ struct ViewCommands: Commands {
                 .keyboardShortcut("k", modifiers: [.command, .shift])
                 .disabled(workspace == nil)
             Divider()
+            Button("History") { workspace?.historyOpen.toggle() }
+                .keyboardShortcut("y", modifiers: .command)
+                .disabled(workspace == nil)
+            Button("Printers") { workspace?.farmOpen.toggle() }
+                .keyboardShortcut("p", modifiers: [.command, .option])
+                .disabled(workspace == nil)
             Button("Search Settings and Actions…") { workspace?.searchOpen = true }
                 .keyboardShortcut("f", modifiers: .command)
                 .disabled(workspace == nil)

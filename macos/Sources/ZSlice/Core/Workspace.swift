@@ -509,8 +509,7 @@ final class Workspace {
                 sendState = nil
                 if counts == nil {
                     framePlate(-1)
-                    showSettings = true
-                    drawerPage = .project
+                    projectOpen = true
                 }
             } catch {
                 sendState = nil
@@ -690,7 +689,6 @@ final class Workspace {
         }
     }
 
-    enum DrawerPage: String { case settings, history, project, printers }
 
     /// The pages of the settings browser that show, from its first page.
     var settingsPath: [SettingsRoute] = []
@@ -698,12 +696,18 @@ final class Workspace {
     /// Opens the drawer on all settings of the selected line.
     func showLineSettings() {
         showSettings = true
-        drawerPage = .settings
         settingsPath = [.line]
     }
 
-    /// The page of the drawer.
-    var drawerPage = DrawerPage(rawValue: ProcessInfo.processInfo.environment["ZSLICE_PAGE"] ?? "") ?? .settings
+    /// The right pane has only the settings. The history is a popover of
+    /// the timeline, the project a sheet, and the printers a page over the
+    /// view. ZSLICE_PAGE=history, project, or printers opens one, for tests.
+    var historyOpen = ProcessInfo.processInfo.environment["ZSLICE_PAGE"] == "history"
+    var projectOpen = ProcessInfo.processInfo.environment["ZSLICE_PAGE"] == "project"
+    var farmOpen = ProcessInfo.processInfo.environment["ZSLICE_PAGE"] == "printers"
+    /// The plates sent from the Printers page in this session, by plate id:
+    /// "sent to Workhorse at 06:41".
+    var sentPlates: [UInt64: String] = [:]
 
     // MARK: - the colors and the line types
 

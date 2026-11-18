@@ -9,7 +9,12 @@
 //! "Plates to Print" lists the plates with parts, each with a printer (the
 //! free ones first, and none whose bed is smaller than the plate) and
 //! Send. Each send asks the user first if the bed of that printer is
-//! clear, and says when the plate is sliced for another printer.
+//! clear, and says when the plate is sliced for another printer. A plate
+//! row has its time and grams (zs_set_plate_totals), a busy printer says
+//! when it is free, and a plate sent in this session says where and when.
+//!
+//! The page covers the view and the pane (DocumentWindow), from the
+//! Printers button of the toolbar (Option-Command-P).
 //!
 //! SPDX-License-Identifier: AGPL-3.0-or-later
 
@@ -124,20 +129,23 @@ struct FarmPage: View {
             Text("No plate has parts.").foregroundStyle(.secondary)
         }
         ForEach(list, id: \.element.id) { i, plate in
-            let fit = printers.filter { fits($0, plate) }.sorted { !busyNow($0) && busyNow($1) }
+            let fit = printers.filter { fits($0, plate) }.sorted { rank($0) < rank($1) }
             HStack {
                 VStack(alignment: .leading) {
                     Text("\(i + 1). \(plate.name.isEmpty ? "Plate \(i + 1)" : plate.name)").lineLimit(1)
-                    Text(plate.status == ZS_PLATE_STATUS_DONE.rawValue ? "\(parts(plate.parts)), sliced" : "\(parts(plate.parts)), not sliced yet")
+                    Text(plateLine(i, plate))
                         .font(.caption)
                         .foregroundStyle(.secondary)
+                    if let sent = workspace.sentPlates[plate.id] {
+                        Text("✓ " + sent).font(.caption).foregroundStyle(.green)
+                    }
                 }
                 Spacer()
                 Picker("Printer", selection: Binding(get: { picks[plate.id] ?? fit.first?.id }, set: { picks[plate.id] = $0 })) {
-                    ForEach(fit) { p in Text(p.name + (busyNow(p) ? " (busy)" : silent.contains(p.id) ? " (no answer)" : "")).tag(Optional(p.id)) }
+                    ForEach(fit) { p in Text(p.name + (busyNow(p) ? " (\(busyText(p)))" : silent.contains(p.id) ? " (no answer)" : "")).tag(Optional(p.id)) }
                 }
                 .labelsHidden()
-                .frame(maxWidth: 150)
+                .frame(maxWidth: 240)
                 Button("Send") {
                     if let id = picks[plate.id] ?? fit.first?.id, let p = printers.first(where: { $0.id == id }) { send(plate: i, to: p) }
                 }
@@ -148,6 +156,30 @@ struct FarmPage: View {
     }
 
     private func parts(_ n: Int) -> String { n == 1 ? "1 part" : "\(n) parts" }
+
+    /// "3 parts · 1h 13m · 30.0 g", or "not sliced yet".
+    private func plateLine(_ i: Int, _ plate: PlateInfo) -> String {
+        guard plate.status == ZS_PLATE_STATUS_DONE.rawValue else { return "\(parts(plate.parts)), not sliced yet" }
+        var t = zs_totals()
+        guard zs_set_plate_totals(model.set, i, &t) == 0, t.time_s > 0 else { return "\(parts(plate.parts)), sliced" }
+        return "\(parts(plate.parts)) · \(duration(t.time_s)) · " + String(format: "%.1f g", t.filament_g)
+    }
+
+    private func duration(_ s: Double) -> String {
+        let m = Int((s / 60).rounded())
+        return m >= 60 ? "\(m / 60) h \(m % 60) min" : "\(max(m, 1)) min"
+    }
+
+    /// The order of the printers for a plate: free, busy, then no answer.
+    private func rank(_ p: Printer) -> Int {
+        status[p.id] == nil ? 2 : busyNow(p) ? 1 : 0
+    }
+
+    /// "busy, free in 1 h 5 min", or "busy".
+    private func busyText(_ p: Printer) -> String {
+        guard let st = status[p.id], st.timeLeft > 0 else { return "busy" }
+        return "busy, free in \(duration(st.timeLeft))"
+    }
 
     /// A printer whose bed is known and smaller than the plate does not fit.
     private func fits(_ p: Printer, _ plate: PlateInfo) -> Bool {
@@ -174,7 +206,7 @@ struct FarmPage: View {
         if let app = zs_set_app(model.set, i), zs_app_plate_fits(app) == 0 {
             info = "A part is off the bed or on another part. The printer can hit its frame or the other part.\n\n" + info
         }
-        if busyNow(p) { info = "\(p.name) looks busy now.\n\n" + info }
+        if busyNow(p) { info = "\(p.name) looks busy now (\(busyText(p))).\n\n" + info }
         if p.kind == .bambu { info += " (Bambu support is untested with a real printer.)" }
         a.informativeText = info
         a.addButton(withTitle: "The Bed Is Clear: Send")
@@ -184,6 +216,11 @@ struct FarmPage: View {
         Task { @MainActor in
             let r = await workspace.transfer(data, title: title, to: p, print: true)
             busy.remove(p.id)
+            if r.ok, model.plates.indices.contains(i) {
+                let f = DateFormatter()
+                f.dateFormat = "HH:mm"
+                workspace.sentPlates[model.plates[i].id] = "\(title) sent to \(p.name) at \(f.string(from: Date()))"
+            }
             workspace.showNote(r.message)
             await refresh()
         }

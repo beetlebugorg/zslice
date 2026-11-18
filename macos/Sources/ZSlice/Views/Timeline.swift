@@ -11,12 +11,14 @@ import SwiftUI
 
 struct Timeline: View {
     let history: History
+    /// Opens the History popover.
+    var showHistory: () -> Void = {}
 
     var body: some View {
         let n = history.count
         let now = history.current
-        if n > 1 {
-            HStack(spacing: 6) {
+        HStack(spacing: 6) {
+            if n > 1 {
                 Button { history.undoManager.undo() } label: { Image(systemName: "arrow.uturn.backward") }
                     .disabled(!history.undoManager.canUndo)
                     .help("Undo (⌘Z)")
@@ -52,11 +54,15 @@ struct Timeline: View {
                     .onChange(of: now) { proxy.scrollTo(now) }
                 }
                 Text("\(now) / \(n - 1)").font(.caption.monospacedDigit()).foregroundStyle(.secondary)
+                Divider().frame(height: 14)
             }
-            .buttonStyle(.borderless)
-            .padding(.horizontal, 12)
-            .padding(.vertical, 6)
-            .background(.regularMaterial, in: Capsule())
+            Button("History", action: showHistory)
+                .font(.caption)
+                .help("All the changes of the plate, the line edits, and undo of one change (⌘Y)")
         }
+        .buttonStyle(.borderless)
+        .padding(.horizontal, 12)
+        .padding(.vertical, 6)
+        .background(.regularMaterial, in: Capsule())
     }
 }

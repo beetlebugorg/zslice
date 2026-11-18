@@ -161,7 +161,6 @@ extension Workspace {
     func editScope(_ scope: SettingScope) {
         model.scope = scope
         showSettings = true
-        drawerPage = .settings
         settingsPath = []
     }
 

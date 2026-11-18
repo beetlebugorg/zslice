@@ -38,7 +38,7 @@ Command and a click selects a part, Command and a drag moves it, and Command and
 
 ## The drawer
 
-The drawer is the inspector at the right of the window. It always sits beside the view, so it has no Pin. Settings and History are its two pages. Its header has a back button (Command-[).
+The drawer is the inspector at the right of the window, and it has only the settings. It always sits beside the view, so it has no Pin. Its header has one back button (Command-[), when there is a page to go back to. The history is a popover: click History in the bar at the top of the view, or View > History (Command-Y). An open project is a sheet: File > Show Project.
 
 The bar at the top of the Settings page picks what the editors change: This Print, Global (your settings for all prints, in `global.toml`), one part (with more than one part on the plate), or a layer profile. With a part or a profile, a change goes only there, the bar is in the accent color, and Done goes back to the print. New Profile from Here Up (or Down) in the context menu of a line makes a layer profile, and Part Settings on the part card opens the settings of the part. The editors of the search and of the print card follow the same bar.
 
@@ -80,7 +80,7 @@ The Filament and Quality menus sit beside the printer menu in the toolbar. They 
 
 ## The Printers page
 
-The Printers page of the drawer has a tile for each printer with a connection: its state, its job with the progress and the time left, or the filament in it. The tiles read again every 10 seconds while the page shows. A printer that does not answer fades and says so. Send the Plate on a tile sends the active plate. Plates to Print lists the plates with parts, each with a printer (the free ones first, and none whose bed is too small) and Send. Each send asks you first if the bed of that printer is clear, and says when the plate is sliced for another printer.
+The Printers page covers the view: the Printers button of the toolbar, or View > Printers (Option-Command-P), and Back to the Plate. It has a tile for each printer with a connection: its state, its job with the progress and the time left, or the filament in it. The tiles read again every 10 seconds while the page shows. A printer that does not answer fades and says so. Send the Plate on a tile sends the active plate. Plates to Print lists the plates with parts, each with a printer (the free ones first, then the busy ones with when they are free, and none whose bed is too small), its time and grams, and Send. A plate that you sent says where and when. Each send asks you first if the bed of that printer is clear, and says when the plate is sliced for another printer.
 
 ## Your settings
 
@@ -96,4 +96,4 @@ To a New Plate on the part card moves a part to a new plate, with the settings o
 
 ## Projects
 
-Open a project with File > Open Project Folder (Shift-Command-O): choose the folder of a repository with a printdeck.yml. The plates of the project show in a row, and each plate slices. The Project page of the drawer lists the plates and the parts; the check box and the count of a part change the plates at once. File > Open Project from GitHub opens a public repository: type `owner/repo`, or its address on github.com (with `/tree/<branch>` for a branch).
+Open a project with File > Open Project Folder (Shift-Command-O): choose the folder of a repository with a printdeck.yml. The plates of the project show in a row, and each plate slices. The project sheet (File > Show Project) lists the plates and the parts; the check box and the count of a part change the plates at once. File > Open Project from GitHub opens a public repository: type `owner/repo`, or its address on github.com (with `/tree/<branch>` for a branch).
