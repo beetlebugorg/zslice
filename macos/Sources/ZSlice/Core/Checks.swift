@@ -139,6 +139,35 @@ extension Workspace {
     /// With support off: the area of the part that hangs in the air (the
     /// overhangs and islands of severity 1 or more, not the bridges), in
     /// mm², when it is 20 mm² or more; else nil.
+    // MARK: - the notes of the print (the badge of the bottom bar)
+
+    /// The notes of the details pane: a part off the bed, parts that look
+    /// too small, an area with no support, a failed slice.
+    var noteCount: Int {
+        var n = 0
+        if model.state == .done, !plateFits { n += 1 }
+        if model.state == .done, !tinyParts.isEmpty { n += 1 }
+        if model.state == .done, unsupportedArea != nil { n += 1 }
+        if case .failed = model.state { n += 1 }
+        return n
+    }
+
+    /// A note that stops the print (red, not orange).
+    var noteIsError: Bool {
+        if case .failed = model.state { return true }
+        return model.state == .done && !plateFits
+    }
+
+    /// What the notes are; a new value opens the details once.
+    var noteKey: String {
+        var k: [String] = []
+        if model.state == .done, !plateFits { k.append("off") }
+        if model.state == .done, !tinyParts.isEmpty { k.append("tiny:" + tinyParts.map(\.name).joined(separator: ",")) }
+        if model.state == .done, let a = unsupportedArea { k.append("air:\(Int(a / 50))") }
+        if case .failed(let why) = model.state { k.append("failed:" + why) }
+        return k.joined(separator: ";")
+    }
+
     var unsupportedArea: Double? {
         guard model.setting("project.support") == "off" else { return nil }
         let sum = issues.filter { ($0.kind == UInt8(ZS_ISSUE_OVERHANG.rawValue) || $0.kind == UInt8(ZS_ISSUE_ISLAND.rawValue)) && $0.severity >= 1 }

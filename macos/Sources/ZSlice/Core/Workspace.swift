@@ -87,6 +87,8 @@ final class Workspace {
 
     // The tools (Tools.swift).
     var tool = Tool.select
+    /// The details of the print show above the bottom bar.
+    var detailsOpen = false
     /// The card of the Support tool shows (S again hides it; kept).
     var supportPaneOpen = UserDefaults.standard.object(forKey: "supportPane") as? Bool ?? true {
         didSet { UserDefaults.standard.set(supportPaneOpen, forKey: "supportPane") }

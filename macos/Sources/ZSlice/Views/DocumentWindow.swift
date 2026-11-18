@@ -145,7 +145,7 @@ struct DocumentWindow: View {
                         ToolStrip(workspace: workspace)
                         CheckButtons(workspace: workspace)
                     }
-                    // The legend is in the Colors popover of the toolbar.
+                    // The legend is in the Colors popover of the tool strip.
                     if workspace.checkOpen {
                         CheckPanel(workspace: workspace)
                     }
@@ -162,32 +162,36 @@ struct DocumentWindow: View {
                 if workspace.layerCount > 0 {
                     LayerSlider(workspace: workspace)
                         .padding(.top, 40)
-                        .padding(.bottom, 24)
+                        .padding(.bottom, 86)
                         .padding(.trailing, 12)
                 }
             }
             .overlay(alignment: .bottom) {
-                // The dock and the print card side by side when they fit;
-                // else the card above the dock. An empty plate has no card.
-                let card = workspace.model.state != .empty
-                ViewThatFits(in: .horizontal) {
-                    HStack(alignment: .bottom, spacing: 12) {
-                        Dock(workspace: workspace).fixedSize()
-                        Spacer(minLength: 0)
-                        if card { PrintCard(workspace: workspace).fixedSize() }
-                    }
-                    VStack(alignment: .trailing, spacing: 10) {
-                        if card { PrintCard(workspace: workspace).fixedSize() }
+                VStack(spacing: 8) {
+                    if workspace.detailsOpen, workspace.model.state != .empty {
                         HStack {
-                            Dock(workspace: workspace).fixedSize()
-                            Spacer(minLength: 0)
+                            Spacer()
+                            PrintCard(workspace: workspace)
+                                .fixedSize()
+                                .overlay(alignment: .topTrailing) {
+                                    // On the corner, clear of the text of the card.
+                                    Button { workspace.detailsOpen = false } label: {
+                                        Image(systemName: "xmark.circle.fill")
+                                            .font(.title3)
+                                            .symbolRenderingMode(.palette)
+                                            .foregroundStyle(.secondary, .bar)
+                                    }
+                                    .buttonStyle(.borderless)
+                                    .offset(x: 8, y: -8)
+                                    .help("Close the details")
+                                }
                         }
+                        .padding(.trailing, 84)
+                        .transition(.move(edge: .bottom).combined(with: .opacity))
                     }
+                    BottomBar(workspace: workspace)
                 }
-                .padding(.leading, 64)
-                // Clear of the layer slider and its number at the right edge.
-                .padding(.trailing, 84)
-                .padding(.bottom, 16)
+                .animation(.easeOut(duration: 0.15), value: workspace.detailsOpen)
             }
             // The cards and the tape float over all the controls, in the coordinates
             // of the view (from the top of the window).
@@ -286,44 +290,40 @@ struct DocumentWindow: View {
             InspectorPanel(workspace: workspace)
                 .inspectorColumnWidth(min: 320, ideal: 400, max: 560)
         }
+        // The slice is the UI: a small toolbar. The file at the left, the
+        // view in the middle, and the printer, the filament, the quality,
+        // and three icons at the right.
         .toolbar {
-            ToolbarItemGroup(placement: .navigation) {
+            ToolbarItem(placement: .navigation) {
+                FileButton(workspace: workspace)
+            }
+            ToolbarItem(placement: .principal) {
+                HStack(spacing: 8) {
+                    Picker("View", selection: Bindable(workspace).page) {
+                        Text("3D").tag(MetalSliceView.Page.threeD)
+                        Text("2D").tag(MetalSliceView.Page.twoD)
+                    }
+                    .pickerStyle(.segmented)
+                    .fixedSize()
+                    .help("3D: the layers up to the slider. 2D: one layer from the top. A drag pans, the wheel zooms, a double click fits the part.")
+                    Button { workspace.searchOpen = true } label: { Label("Search", systemImage: "magnifyingglass") }
+                        .help("Search the settings and the actions (/ or ⌘F)")
+                }
+            }
+            ToolbarItemGroup(placement: .primaryAction) {
                 PrinterMenu(workspace: workspace)
                 FilamentMenu(workspace: workspace)
                 QualityMenu(workspace: workspace)
             }
-            ToolbarItem(placement: .primaryAction) {
-                Button {
-                    workspace.showSettings.toggle()
-                } label: {
-                    Label("Settings", systemImage: "sidebar.right")
-                }
-                .help("Show or hide the settings (N)")
-            }
-            ToolbarItem(placement: .principal) {
-                ColorsButton(workspace: workspace)
-            }
-            ToolbarItem(placement: .primaryAction) {
-                Button { workspace.addModels() } label: { Label("Add Models", systemImage: "plus") }
-                    .help("Add models to the plate (⇧⌘I)")
-            }
-            ToolbarItem(placement: .primaryAction) {
-                Button { workspace.searchOpen = true } label: { Label("Search", systemImage: "magnifyingglass") }
-                    .help("Search the settings and the actions (/ or ⌘F)")
-            }
-            ToolbarItem(placement: .primaryAction) {
+            ToolbarItemGroup(placement: .primaryAction) {
                 Button { workspace.farmOpen.toggle() } label: { Label("Printers", systemImage: "printer.dotmatrix.filled.and.paper") }
                     .help("The printers and their jobs, and the plates to print (⌥⌘P)")
-            }
-            ToolbarItem(placement: .principal) {
-                Picker("View", selection: Bindable(workspace).page) {
-                    Text("3D").tag(MetalSliceView.Page.threeD)
-                    Text("2D").tag(MetalSliceView.Page.twoD)
-                }
-                .pickerStyle(.segmented)
-                .help("3D: the layers up to the slider. 2D: one layer from the top. A drag pans, the wheel zooms, a double click fits the part.")
+                Button { workspace.showSettings.toggle() } label: { Label("Settings", systemImage: "sidebar.right") }
+                    .help("Show or hide the settings (N)")
+                MoreMenu(workspace: workspace)
             }
         }
+        .hiddenToolbarTitle()
         .focusedSceneValue(\.workspace, workspace)
         .task { await open() }
         .overlay {
@@ -375,7 +375,8 @@ struct ScrubBar: View {
             .buttonStyle(.borderless)
             .help(workspace.playing ? "Pause the replay" : "Play the print from the top layer")
             Slider(value: Binding(get: { workspace.scrubFraction }, set: { workspace.scrub(to: $0) }))
-                .frame(minWidth: bare ? 110 : 60, idealWidth: bare ? 110 : nil, maxWidth: bare ? 110 : 320)
+                // In the bottom bar the replay has the width of the bar.
+                .frame(minWidth: bare ? 110 : 60, maxWidth: bare ? .infinity : 320)
                 .help("Moves the nozzle through the top layer")
             Text(bare ? "\(clock(inLayer))/\(clock(t1 - t0))" : "Layer \(workspace.hi + 1) · \(clock(inLayer)) / \(clock(t1 - t0))")
                 .font(.callout.monospacedDigit())
@@ -505,32 +506,7 @@ struct PrintCard: View {
                     }
                 }
                 .opacity(slicing && model.stats != nil ? 0.5 : 1)
-                Spacer(minLength: 12)
-                if let p = PrinterStore.shared.current, p.kind != .none {
-                    Menu {
-                        Button("Upload Only") { workspace.send(print: false) }
-                        Button("Export G-code…") { workspace.exportGcode(from: NSApp.keyWindow) }
-                            .keyboardShortcut("e", modifiers: .command)
-                    } label: {
-                        Text(p.kind == .printdeck ? "Print to Printdeck" : "Print")
-                    } primaryAction: {
-                        workspace.send(print: true)
-                    }
-                    .menuStyle(.button)
-                    .buttonStyle(.borderedProminent)
-                    .fixedSize()
-                    .disabled(model.state != .done)
-                    .help(p.kind == .printdeck
-                        ? "Print on \(p.name) (⌘P), after you confirm that its bed is clear. A deck set to ask waits for a press of Print on it. Its menu: Upload Only, Export G-code."
-                        : "Print on \(p.name) (⌘P), after you confirm that its bed is clear. Its menu: Upload Only, Export G-code.")
-                    .keyboardShortcut("p", modifiers: .command)
-                } else {
-                    Button("Export…") { workspace.exportGcode(from: NSApp.keyWindow) }
-                        .keyboardShortcut("e", modifiers: .command)
-                        .buttonStyle(.borderedProminent)
-                        .disabled(model.state != .done)
-                        .help("Export the G-code (⌘E)")
-                }
+                Spacer(minLength: 0)
             }
             // The progress of a slice, or the time of the last one, in one
             // line of the same height, so the card does not jump.
@@ -569,11 +545,133 @@ struct PrintCard: View {
         .opacity(model.state == .empty ? 0 : 1)
     }
 
-    private func duration(_ seconds: Double) -> String {
+    private func duration(_ seconds: Double) -> String { Self.duration(seconds) }
+
+    static func duration(_ seconds: Double) -> String {
         let f = DateComponentsFormatter()
         f.allowedUnits = seconds >= 3600 ? [.hour, .minute] : [.minute, .second]
         f.unitsStyle = .abbreviated
         return f.string(from: seconds) ?? ""
+    }
+}
+
+/// Export, or Print on the printer of the plate (with Upload Only and
+/// Export in its menu): the button at the right end of the bottom bar.
+struct PrintAction: View {
+    let workspace: Workspace
+    private var model: SliceModel { workspace.model }
+
+    var body: some View {
+        if let p = PrinterStore.shared.current, p.kind != .none {
+            Menu {
+                Button("Upload Only") { workspace.send(print: false) }
+                Button("Export G-code…") { workspace.exportGcode(from: NSApp.keyWindow) }
+                    .keyboardShortcut("e", modifiers: .command)
+            } label: {
+                Text(p.kind == .printdeck ? "Print to Printdeck" : "Print")
+            } primaryAction: {
+                workspace.send(print: true)
+            }
+            .menuStyle(.button)
+            .buttonStyle(.borderedProminent)
+            .fixedSize()
+            .disabled(model.state != .done)
+            .help(p.kind == .printdeck
+                ? "Print on \(p.name) (⌘P), after you confirm that its bed is clear. A deck set to ask waits for a press of Print on it. Its menu: Upload Only, Export G-code."
+                : "Print on \(p.name) (⌘P), after you confirm that its bed is clear. Its menu: Upload Only, Export G-code.")
+            .keyboardShortcut("p", modifiers: .command)
+        } else {
+            Button("Export…") { workspace.exportGcode(from: NSApp.keyWindow) }
+                .keyboardShortcut("e", modifiers: .command)
+                .buttonStyle(.borderedProminent)
+                .disabled(model.state != .done)
+                .help("Export the G-code (⌘E)")
+        }
+
+    }
+}
+
+/// The one bar at the bottom of the window (the slice is the UI, so the
+/// chrome stays small): the plates and the history in the first row, the
+/// replay in the second, and at the right end the time, a badge of the
+/// notes, and Export or Print. A click on the time opens the details above
+/// the bar (PrintCard): the notes, the totals, and the settings.
+struct BottomBar: View {
+    let workspace: Workspace
+    private var model: SliceModel { workspace.model }
+
+    var body: some View {
+        HStack(spacing: 14) {
+            VStack(alignment: .leading, spacing: 4) {
+                HStack(spacing: 10) {
+                    PlateBar(workspace: workspace, bare: true)
+                    Spacer(minLength: 8)
+                    Timeline(history: model.history, bare: true) { workspace.historyOpen = true }
+                        .popover(isPresented: Bindable(workspace).historyOpen, arrowEdge: .top) {
+                            HistoryPage(history: model.history, workspace: workspace)
+                                .frame(width: 400, height: 480)
+                        }
+                        .fixedSize()
+                }
+                ScrubBar(workspace: workspace, bare: true)
+                    .opacity(workspace.layerCount > 0 ? 1 : 0)
+                    .disabled(workspace.layerCount == 0)
+            }
+            if model.state != .empty {
+                Divider().frame(height: 44)
+                summary
+            }
+        }
+        .padding(.horizontal, 14)
+        .frame(height: 70)
+        .frame(maxWidth: .infinity)
+        .background(.bar)
+        .overlay(alignment: .top) { Divider() }
+        .overlay(alignment: .top) {
+            if model.state == .slicing {
+                ProgressView(value: model.progress)
+                    .progressViewStyle(.linear)
+                    .controlSize(.mini)
+                    .offset(y: -3)
+            }
+        }
+        // A new note opens the details once.
+        .onChange(of: workspace.noteKey) { _, key in
+            if !key.isEmpty { workspace.detailsOpen = true }
+        }
+    }
+
+    private var summary: some View {
+        HStack(spacing: 10) {
+            Button {
+                workspace.detailsOpen.toggle()
+            } label: {
+                HStack(spacing: 6) {
+                    if let s = model.stats {
+                        Text(PrintCard.duration(s.print_time_s))
+                            .font(.title3.weight(.semibold).monospacedDigit())
+                            .opacity(model.state == .slicing ? 0.5 : 1)
+                    } else {
+                        Text("Slicing…").font(.title3.weight(.semibold))
+                    }
+                    let n = workspace.noteCount
+                    if n > 0 {
+                        Text("\(n)")
+                            .font(.caption.weight(.bold).monospacedDigit())
+                            .foregroundStyle(.white)
+                            .frame(minWidth: 18, minHeight: 18)
+                            .background(workspace.noteIsError ? Color.red : Color.orange, in: Capsule())
+                    }
+                    Image(systemName: workspace.detailsOpen ? "chevron.down" : "chevron.up")
+                        .font(.caption2)
+                        .foregroundStyle(.secondary)
+                }
+            }
+            .buttonStyle(.plain)
+            .help("The details of the print: the notes, the totals, and the settings")
+            PrintAction(workspace: workspace)
+        }
+        .fixedSize()
     }
 }
 
@@ -603,32 +701,6 @@ struct WelcomeCard: View {
     }
 }
 
-/// The one bar at the bottom of the view: the plates, the replay, and the
-/// history, as three groups. It ends where the print card starts.
-struct Dock: View {
-    let workspace: Workspace
-
-    var body: some View {
-        HStack(spacing: 10) {
-            PlateBar(workspace: workspace, bare: true)
-            if workspace.layerCount > 0 {
-                Divider().frame(height: 18)
-                ScrubBar(workspace: workspace, bare: true)
-            }
-            Divider().frame(height: 18)
-            Timeline(history: workspace.model.history, bare: true) { workspace.historyOpen = true }
-                .popover(isPresented: Bindable(workspace).historyOpen, arrowEdge: .top) {
-                    HistoryPage(history: workspace.model.history, workspace: workspace)
-                        .frame(width: 400, height: 480)
-                }
-                .fixedSize()
-        }
-        .padding(.horizontal, 12)
-        .padding(.vertical, 7)
-        .background(.regularMaterial, in: Capsule())
-    }
-}
-
 /// The colors of the lines, in the toolbar: a button with the mode, and a
 /// popover with the modes and the legend (the line types to show or fade,
 /// or the range of a ramp).
@@ -638,13 +710,15 @@ struct ColorsButton: View {
 
     var body: some View {
         Button { open.toggle() } label: {
-            HStack(spacing: 4) {
-                Text(Workspace.colorModes[workspace.colorMode])
-                Image(systemName: "chevron.down").font(.caption2)
-            }
+            Image(systemName: "paintpalette")
+                .font(.system(size: 15))
+                .frame(width: 34, height: 34)
+                .contentShape(Rectangle())
         }
+        .buttonStyle(.plain)
+        .accessibilityLabel("Colors: \(Workspace.colorModes[workspace.colorMode])")
         .help("The colors of the lines, and the legend: the filament, one color for each line type, or the speed, the flow, the layer time, or the line width")
-        .popover(isPresented: $open, arrowEdge: .bottom) {
+        .popover(isPresented: $open, arrowEdge: .trailing) {
             VStack(alignment: .leading, spacing: 10) {
                 Picker("Colors", selection: Bindable(workspace).colorMode) {
                     ForEach(Workspace.colorModes.indices, id: \.self) { i in
@@ -707,5 +781,77 @@ enum EmptyWindows {
         list.remove(at: i)
         if let frame = old.windowControllers.first?.window?.frame { window.setFrame(frame, display: true) }
         old.close()
+    }
+}
+
+/// The file button of the toolbar: the name of the document (with a dot
+/// for unsaved changes), and a menu of the file: open, add models, save,
+/// export.
+struct FileButton: View {
+    let workspace: Workspace
+
+    var body: some View {
+        // The generation of the history: the name and the dot follow each step.
+        let _ = workspace.model.history.generation
+        let doc = workspace.model.document
+        let name = doc?.displayName ?? "Untitled"
+        Menu {
+            Button("New Window") { NSDocumentController.shared.newDocument(nil) }
+            Button("Open…") { NSDocumentController.shared.openDocument(nil) }
+            Divider()
+            Button("Add Models to the Plate…") { workspace.addModels() }
+            Button("Open Project Folder…") { workspace.openProject() }
+            Button("Open Project from GitHub…") { workspace.askGitHub() }
+            Divider()
+            Button("Save") { NSApp.sendAction(#selector(NSDocument.save(_:)), to: nil, from: nil) }
+            Button("Save As…") { NSApp.sendAction(#selector(NSDocument.saveAs(_:)), to: nil, from: nil) }
+            Button("Rename…") { NSApp.sendAction(#selector(NSDocument.rename(_:)), to: nil, from: nil) }
+            if let url = doc?.fileURL {
+                Button("Show in Finder") { NSWorkspace.shared.activateFileViewerSelecting([url]) }
+            }
+            Divider()
+            Button("Export G-code…") { workspace.exportGcode(from: NSApp.keyWindow) }
+                .disabled(workspace.model.state != .done)
+        } label: {
+            HStack(spacing: 5) {
+                Text(name).fontWeight(.semibold).lineLimit(1)
+                if doc?.isDocumentEdited == true {
+                    Circle().fill(.secondary).frame(width: 6, height: 6).help("Unsaved changes")
+                }
+            }
+        }
+        .menuIndicator(.visible)
+        .fixedSize()
+        .help("The file: open, add models, save, and export")
+    }
+}
+
+/// The menu of the more rare actions, at the right end of the toolbar.
+struct MoreMenu: View {
+    let workspace: Workspace
+
+    var body: some View {
+        Menu {
+            Button("Smart Placement") { workspace.smartPlace() }
+            Button("Arrange the Plate") { workspace.plateAction(zs_app_plate_arrange, fits: true) }
+            Button("Clear the Plate") { workspace.plateAction(zs_app_plate_clear) }
+            Divider()
+            Button("Show Gaps") { workspace.toggleGaps() }
+            Button("Check the Print") { workspace.checkOpen.toggle() }
+            Button("History") { workspace.historyOpen = true }
+            Divider()
+            Button("Keyboard Shortcuts") { workspace.shortcutsOpen = true }
+        } label: {
+            Label("More", systemImage: "ellipsis.circle")
+        }
+        .help("More: placement, checks, the history, and the keys")
+    }
+}
+
+extension View {
+    /// The toolbar shows the file button, not the title of the window
+    /// (macOS 15 and later; the Window menu keeps the title).
+    @ViewBuilder func hiddenToolbarTitle() -> some View {
+        if #available(macOS 15.0, *) { toolbar(removing: .title) } else { self }
     }
 }

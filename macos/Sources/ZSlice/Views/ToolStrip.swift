@@ -34,6 +34,9 @@ struct ToolStrip: View {
                 .accessibilityLabel(t.title)
                 .accessibilityAddTraits(workspace.tool == t ? .isSelected : [])
             }
+            Divider().frame(width: 26)
+            // The colors of the lines and the legend.
+            ColorsButton(workspace: workspace)
         }
         .padding(4)
         .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 10))
