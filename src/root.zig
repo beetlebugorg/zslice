@@ -57,6 +57,9 @@ pub const engine = @import("engine.zig");
 pub const plate_job = @import("plate_job.zig");
 pub const svg = @import("svg.zig");
 pub const support = @import("support.zig");
+/// Tree support, and its skeleton of nodes (see tree_support.zig).
+pub const tree_support = @import("tree_support.zig");
+pub const support_skeleton = @import("support_skeleton.zig");
 /// Expressions: the formulas of the settings (see expr.zig).
 pub const expr = @import("expr.zig");
 pub const gaps = @import("gaps.zig");
