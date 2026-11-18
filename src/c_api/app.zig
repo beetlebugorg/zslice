@@ -1599,6 +1599,17 @@ export fn zs_app_part_settle(a: ?*App, i: usize) f64 {
     return deg;
 }
 
+/// 1 if part i can stand as it is on the bed (its center of mass over the
+/// area it stands on), 0 if it would fall over, whatever the support
+/// setting. With support on, zs_app_part_settle keeps such a part in place:
+/// an app can say that the support holds it.
+export fn zs_app_part_stands(a: ?*App, i: usize) c_int {
+    const app = a orelse return 1;
+    if (i >= app.plate.count()) return 1;
+    const s = zs.physics.settle(app.gpa, &app.plate.parts.items[i].mesh) catch return 1;
+    return @intFromBool(s.rolls == 0);
+}
+
 export fn zs_app_part_turn(a: ?*App, i: usize, axis: c_int, degrees: f64) c_int {
     const app = a orelse return @intFromEnum(Status.invalid_argument);
     if (i >= app.plate.count() or axis < 0 or axis > 1) return @intFromEnum(Status.out_of_range);

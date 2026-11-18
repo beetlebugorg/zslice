@@ -731,7 +731,9 @@ const ops = {
   // rolls until it rests (with support on, it stays). degrees: the fall.
   partSettle({ index }) {
     const deg = core.w.x.zs_app_part_settle(core.app, index);
-    return { part: core.part(index), degrees: deg > 0 ? deg : 0 };
+    // held: support keeps a part in place that would fall over.
+    const held = deg === 0 && core.w.x.zs_app_part_stands(core.app, index) === 0;
+    return { part: core.part(index), degrees: deg > 0 ? deg : 0, held };
   },
 
   // The end of a drag or of the keys of a part: the slice that waited.

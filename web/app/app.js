@@ -652,6 +652,8 @@ async function settleSelected(index = tools.part?.index) {
   if (r.degrees > 0) {
     toast(`The part could not stand like that, and fell over (${Math.round(r.degrees)}°). Turn on support to hold it in place.`);
     requestFrame();
+  } else if (r.held) {
+    toast("This part could not stand like that on its own. Support is on, so the support holds it in place.");
   }
 }
 

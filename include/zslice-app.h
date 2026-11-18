@@ -722,6 +722,9 @@ int zs_app_part_turn(zs_app *app, size_t i, int axis, double degrees);
  * ends (the release of a ring, a turn key). Returns the angle of the fall in
  * degrees (0: it stands; an app can animate the fall), or -status. */
 double zs_app_part_settle(zs_app *app, size_t i);
+/* 1 if part i can stand as it is, 0 if it would fall over, whatever the
+ * support setting (with support on, the support holds it in place). */
+int zs_app_part_stands(zs_app *app, size_t i);
 /* "This side on the bed": the side of the part nearest to the bed point
  * (x, y, z), for example a picked line, goes down. */
 int zs_app_part_put_down_at(zs_app *app, size_t i, double x, double y, double z);
