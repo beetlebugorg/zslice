@@ -52,6 +52,9 @@ struct ZSliceApp: App {
         WindowGroup("Untitled", id: "plate") {
             DocumentWindow(document: nil, name: "")
         }
+        Window("Licenses", id: "licenses") {
+            LicensesView()
+        }
         Settings {
             TabView {
                 PrintersSettings()
@@ -116,8 +119,10 @@ struct PlateCommands: View {
 /// Help > Keyboard Shortcuts.
 struct HelpCommands: View {
     @FocusedValue(\.workspace) private var workspace
+    @Environment(\.openWindow) private var openWindow
 
     var body: some View {
+        Button("Licenses") { openWindow(id: "licenses") }
         Button("Keyboard Shortcuts") { workspace?.shortcutsOpen = true }
             .keyboardShortcut("/", modifiers: .command)
             .disabled(workspace == nil)

@@ -64,6 +64,9 @@ struct DocumentWindow: View {
                 }
                 .padding(12)
             }
+            .overlay(alignment: .top) {
+                Timeline(history: workspace.model.history).padding(.top, 12)
+            }
             .overlay(alignment: .topTrailing) {
                 // Left of the layer slider and its number.
                 GapSummary(workspace: workspace)

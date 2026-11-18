@@ -47,6 +47,8 @@ open build/zslice.app
 | `Sources/ZSlice/Views/PlateBar.swift` | The plate bar: the plate before and after, all plates, a new plate, and Remove. |
 | `Sources/ZSlice/Views/PartCard.swift` | The card of a selected part. |
 | `Sources/ZSlice/Views/ProjectPage.swift` | The Project page of the drawer: the plates and the parts of a project. |
+| `Sources/ZSlice/Views/Timeline.swift` | The timeline of the history at the top of the view. |
+| `Sources/ZSlice/Views/Licenses.swift` | Help > Licenses: the components of the core and the frameworks of macOS. |
 | `Sources/ZSlice/Views/LayerSlider.swift` | The slider with two knobs for the layers that show. |
 | `Sources/ZSlice/Views/HistoryPage.swift` | The History page of the drawer: the steps, the newest first, with their changes. |
 | `Sources/ZSlice/Views/SettingsInspector.swift` | The settings drawer: the sections, the settings with their editors, the page of a setting, and the search. |
@@ -88,7 +90,7 @@ The core keeps the undo list of each plate (`zs_app_history_*`). Each change thr
 
 The `UndoManager` of the plate mirrors the list: each step before the step now is one undo action, and each step after it one redo action. An undo action calls `zs_app_history_undo` and registers the redo action, as AppKit expects. So Edit > Undo and Redo (Command-Z and Shift-Command-Z) have the titles of a Mac app ("Undo Walls"). A text field that edits keeps its own undo. A click on a step of the History page goes to it through the undo and redo actions, so both lists stay right. When the list changes in another way (a step amended or dropped, or the history cleared after a step), the app makes the undo actions again. After an undo, the editors read the values again, and the plate slices again.
 
-The History page of the drawer lists the steps, the newest first, with their changes in words. The arrow button of a change undoes only that change (`zs_app_history_revert`). The menu of a step clears the history after it.
+The timeline at the top of the view has Undo, Redo, a mark for each step in the color of its kind, and the count; a click on a mark goes to that step. The History page of the drawer lists the steps, the newest first, with their changes in words. The arrow button of a change undoes only that change (`zs_app_history_revert`). The menu of a step clears the history after it.
 
 ### The selected line and its card
 
