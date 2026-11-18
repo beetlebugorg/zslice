@@ -45,6 +45,7 @@ out float vhigh;
 out float vfocus;
 out vec4 vsec;
 out vec3 vend;
+out float vh;
 
 const vec3 feature_rgb[14] = vec3[14](
     vec3(0.851, 0.282, 0.059), vec3(0.961, 0.624, 0.000),
@@ -117,6 +118,7 @@ void main() {
             n = normalize(vec3(np * cos(tv.z), sin(tv.z)));
         }
     }
+    vh = h;
     vcolor = color.rgb;
     vnormal = n;
     vpos = pos;
@@ -158,10 +160,20 @@ in float vhigh;
 in float vfocus;
 in vec4 vsec;
 in vec3 vend;
+in float vh;
 out vec4 frag;
 
 vec3 toLinear(vec3 c) { return pow(c, vec3(2.2)); }
 vec3 toSrgb(vec3 c) { return pow(clamp(c, 0.0, 1.0), vec3(1.0 / 2.2)); }
+
+// The light of a point of a bead with normal n (linear color).
+vec3 shade(vec3 n, vec3 l, vec3 v, vec3 base, float gloss) {
+    float ambient = mix(0.18, 0.32, 0.5 + 0.5 * n.z);
+    float diffuse = max(dot(n, l), 0.0);
+    vec3 hv = normalize(l + v);
+    float spec = pow(max(dot(n, hv), 0.0), 40.0) * 0.18 * gloss;
+    return base * (ambient + 0.85 * diffuse) + vec3(spec);
+}
 
 void main() {
     vec3 v = normalize(eye.xyz - vpos);
@@ -208,11 +220,39 @@ void main() {
     if (params.y > params.x && vhigh > 0.5) {
         base = toLinear(vec3(1.0, 0.78, 0.05));
     }
-    float ambient = mix(0.18, 0.32, 0.5 + 0.5 * n.z);
-    float diffuse = max(dot(n, l), 0.0);
-    vec3 hv = normalize(l + v);
-    float spec = pow(max(dot(n, hv), 0.0), 40.0) * 0.18 * (1.0 - flat_k);
-    vec3 c = base * (ambient + 0.85 * diffuse) + vec3(spec);
+    vec3 c = shade(n, l, v, base, 1.0 - flat_k);
+    // The moire: a layer one or two pixels high has a bright top, a dark
+    // bottom, and a thin flat face, and the pixels sample them at a phase
+    // that drifts from row to row, in bands. When a layer is less than 3
+    // pixels high on the screen (vh over the size of a pixel), each
+    // pixel of a bead gets the mean light of its round side: 8 points from
+    // the bottom to the top, each weighted by how much it faces the eye
+    // (its share of the pixels). The mean is the brightness of the print
+    // there, with no bands. The side is the outward direction of the bead
+    // (vsec.xy), or on a flat face, the direction to the eye.
+    // The size of a pixel on the surface (mm), from the change of the
+    // place across it: it works on the flat faces too, where z does not
+    // change.
+    vec3 dpx = dFdx(vpos);
+    vec3 dpy = dFdy(vpos);
+    float mm_px = sqrt(0.5 * (dot(dpx, dpx) + dot(dpy, dpy)));
+    float layer_px = vh / max(mm_px, 1e-6);
+    float t = 1.0 - smoothstep(1.5, 3.0, layer_px);
+    if (t > 0.0 && vsec.w == 0.0) {
+        vec2 hv2 = dot(vsec.xy, vsec.xy) > 0.25 ? normalize(vsec.xy) : normalize(v.xy + vec2(1e-5, 0.0));
+        // The side that faces the eye.
+        vec2 np = dot(hv2, v.xy) < 0.0 ? -hv2 : hv2;
+        vec3 acc = vec3(0.0);
+        float wsum = 0.0;
+        for (int k = 0; k < 8; k++) {
+            float phi = 3.14159265 * ((float(k) + 0.5) / 8.0 - 0.5);
+            vec3 nk = vec3(np * cos(phi), sin(phi));
+            float wk = max(dot(nk, v), 0.0) + 1e-3;
+            acc += wk * shade(nk, l, v, base, 1.0 - flat_k);
+            wsum += wk;
+        }
+        c = mix(c, acc / wsum, t);
+    }
     if (params.w > 2.5) {
         float rim = 1.0 - abs(dot(n, v));
         frag = vec4(toSrgb(c + vec3(0.25 * rim * rim)), 0.38 + 0.3 * rim);
