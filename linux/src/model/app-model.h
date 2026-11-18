@@ -32,6 +32,10 @@ const char *zg_model_name(ZgModel *self);
 
 /* Loads an STL file from memory and starts a slice. */
 gboolean zg_model_load(ZgModel *self, const char *name, const void *data, gsize len, GError **error);
+/* The session of the app (zs_session_write and zs_session_read): the
+ * plates, their scenes, the camera, and the text of the app. */
+GBytes *zg_model_session_bytes(ZgModel *self, const float *camera, const char *app_text);
+gboolean zg_model_session_open(ZgModel *self, const void *data, gsize len, float camera[8], gboolean *has_camera, char **app_text, GError **error);
 
 /* Adds a model to the plate as a new part (or loads it, if the plate is
  * empty), and starts a new slice. */

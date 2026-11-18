@@ -33,6 +33,7 @@
 #include "preview.h"
 
 #include <stdlib.h>
+#include <string.h>
 
 #include <math.h>
 
@@ -46,6 +47,10 @@ typedef struct {
     GtkWidget *area;
     ZgNativeSurface *native;
     zs_view *view;
+    /* A camera of a session, set before the view had its data: the next
+     * load applies it. */
+    float pending_camera[8];
+    gboolean has_pending_camera;
     char *error;
     size_t layer, layer_lo;
     int mode; /* enum zs_view_mode */
@@ -422,6 +427,36 @@ static void on_map(GtkWidget *w, gpointer data) {
     apply_dark(v);
     load_data(v);
     sync_geometry(v);
+    if (v->has_pending_camera) {
+        zs_view_set_camera(v->view, v->pending_camera);
+        v->has_pending_camera = FALSE;
+    }
+}
+
+/* The camera of the view, for a session: 8 floats. FALSE with no view. */
+gboolean zg_view3d_get_camera(GtkWidget *view, float out[8]) {
+    View3d *v = g_object_get_data(G_OBJECT(view), "zg-view3d");
+    if (!v) return FALSE;
+    if (!v->view) {
+        if (!v->has_pending_camera) return FALSE;
+        memcpy(out, v->pending_camera, sizeof v->pending_camera);
+        return TRUE;
+    }
+    zs_view_get_camera(v->view, out);
+    return TRUE;
+}
+
+/* Sets the camera of a session: at once, or when the view starts. */
+void zg_view3d_set_camera(GtkWidget *view, const float in[8]) {
+    View3d *v = g_object_get_data(G_OBJECT(view), "zg-view3d");
+    if (!v) return;
+    memcpy(v->pending_camera, in, sizeof v->pending_camera);
+    v->has_pending_camera = TRUE;
+    if (v->view) {
+        zs_view_set_camera(v->view, in);
+        v->has_pending_camera = FALSE;
+        gtk_widget_queue_draw(v->area);
+    }
 }
 
 static void on_unmap(GtkWidget *w, gpointer data) {

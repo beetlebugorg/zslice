@@ -20,6 +20,10 @@ GtkWidget *zg_view3d_new(ZgModel *model);
  * view draws the active plate of the set only: the Vulkan backend has no
  * draws of the other plates (see zs_view_set_plates). */
 void zg_view3d_reset(GtkWidget *view);
+/* The camera of the view, for a session restore (8 floats, see
+ * zs_view_get_camera). Set: at once, or when the view starts. */
+gboolean zg_view3d_get_camera(GtkWidget *view, float out[8]);
+void zg_view3d_set_camera(GtkWidget *view, const float in[8]);
 
 /* Reads the toolpaths of the last slice from the core again. */
 void zg_view3d_reload(GtkWidget *view);

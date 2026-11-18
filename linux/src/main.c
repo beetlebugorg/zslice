@@ -15,6 +15,9 @@
 #include "ui/preferences.h"
 #include "ui/printer-picker.h"
 #include "ui/window.h"
+#include "ui/view3d.h"
+#include "prefs/printers.h"
+#include <string.h>
 
 #define ZG_APP_ID "org.beetlebug.Zslice"
 
@@ -219,8 +222,117 @@ static void on_startup(GApplication *app, gpointer data) {
     g_object_unref(css);
 }
 
+/* ---- the session: the app comes back as it was after a quit ----
+ *
+ * The session file of the core (zs_session_write) in the state folder:
+ * the plates, the camera, and the window (its size, maximized). It is
+ * written 1.5 s after a slice, at the close of the window, and at quit
+ * (atomically: g_file_set_contents writes a new file, then renames it). */
+
+static char *session_path(void) {
+    char *dir = zg_config_dir();
+    g_mkdir_with_parents(dir, 0700);
+    char *p = g_build_filename(dir, "session.zslice", NULL);
+    g_free(dir);
+    return p;
+}
+
+static void session_save(GtkWindow *w) {
+    if (!model || !w) return;
+    GtkWidget *view = zg_window_view3d(w);
+    float cam[8];
+    gboolean has_cam = view && zg_view3d_get_camera(view, cam);
+    int width = 0, height = 0;
+    gtk_window_get_default_size(w, &width, &height);
+    char *text = g_strdup_printf("{\"width\":%d,\"height\":%d,\"maximized\":%s}", width, height, gtk_window_is_maximized(w) ? "true" : "false");
+    GBytes *b = zg_model_session_bytes(model, has_cam ? cam : NULL, text);
+    g_free(text);
+    if (!b) return;
+    char *path = session_path();
+    gsize len = 0;
+    const char *data = g_bytes_get_data(b, &len);
+    GError *error = NULL;
+    if (!g_file_set_contents(path, data, (gssize)len, &error)) {
+        g_message("zslice: the session did not save: %s", error->message);
+        g_error_free(error);
+    }
+    g_free(path);
+    g_bytes_unref(b);
+}
+
+static guint session_timer;
+
+static gboolean on_session_timer(gpointer data) {
+    session_timer = 0;
+    session_save(GTK_WINDOW(data));
+    return G_SOURCE_REMOVE;
+}
+
+/* After each slice: a save 1.5 s later (one save for many slices). */
+static void on_core_event_session(ZgModel *m, int event, double progress, int status, gpointer data) {
+    if (event != ZS_EVENT_SLICED) return;
+    if (session_timer) g_source_remove(session_timer);
+    session_timer = g_timeout_add(1500, on_session_timer, data);
+}
+
+static gboolean on_close_session(GtkWindow *w, gpointer data) {
+    if (session_timer) {
+        g_source_remove(session_timer);
+        session_timer = 0;
+    }
+    session_save(w);
+    return FALSE;
+}
+
+static gboolean session_restore(GtkWindow *w) {
+    char *path = session_path();
+    gchar *data = NULL;
+    gsize len = 0;
+    gboolean ok = g_file_get_contents(path, &data, &len, NULL);
+    g_free(path);
+    if (!ok) return FALSE;
+    float cam[8];
+    gboolean has_cam = FALSE;
+    char *text = NULL;
+    GError *error = NULL;
+    ok = zg_model_session_open(model, data, len, cam, &has_cam, &text, &error);
+    g_free(data);
+    if (!ok) {
+        g_message("zslice: the session did not open: %s", error->message);
+        g_error_free(error);
+        return FALSE;
+    }
+    if (has_cam && zg_window_view3d(w)) zg_view3d_set_camera(zg_window_view3d(w), cam);
+    if (text) {
+        int width = 0, height = 0;
+        const char *pw = strstr(text, "\"width\":");
+        const char *ph = strstr(text, "\"height\":");
+        if (pw) width = atoi(pw + 8);
+        if (ph) height = atoi(ph + 9);
+        if (width > 200 && height > 200) gtk_window_set_default_size(w, width, height);
+        if (strstr(text, "\"maximized\":true")) gtk_window_maximize(w);
+        g_free(text);
+    }
+    return TRUE;
+}
+
+static void session_hook(GtkWindow *w) {
+    static gboolean hooked;
+    if (hooked) return;
+    hooked = TRUE;
+    g_signal_connect(model, "core-event", G_CALLBACK(on_core_event_session), w);
+    g_signal_connect(w, "close-request", G_CALLBACK(on_close_session), NULL);
+}
+
 static void on_activate(GApplication *app, gpointer data) {
     GtkWindow *w = main_window(GTK_APPLICATION(app));
+    /* The session of the last run, before the first frame. */
+    static gboolean restored_once;
+    if (!restored_once) {
+        restored_once = TRUE;
+        session_restore(w);
+    }
+    session_hook(w);
     gtk_window_present(w);
     /* The first start (no printer set up): the printer picker. */
     static gboolean once;
@@ -230,12 +342,15 @@ static void on_activate(GApplication *app, gpointer data) {
 
 static void on_open(GApplication *app, GFile **files, int n, const char *hint, gpointer data) {
     GtkWindow *w = main_window(GTK_APPLICATION(app));
+    session_hook(w);
     /* Each file is a part of the plate. */
     for (int i = 0; i < n; i++) zg_window_open_file(w, files[i]);
     gtk_window_present(w);
 }
 
 static void on_shutdown(GApplication *app, gpointer data) {
+    GtkWindow *w = gtk_application_get_active_window(GTK_APPLICATION(app));
+    if (w) session_save(w);
     g_clear_object(&model);
 }
 

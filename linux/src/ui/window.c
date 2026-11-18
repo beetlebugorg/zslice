@@ -610,6 +610,11 @@ static void on_loaded(GObject *source, GAsyncResult *res, gpointer data) {
     g_free(job);
 }
 
+GtkWidget *zg_window_view3d(GtkWindow *window) {
+    Window *w = get(window);
+    return w && w->preview ? zg_preview_view3d(w->preview) : NULL;
+}
+
 void zg_window_open_file(GtkWindow *window, GFile *file) {
     LoadJob *job = g_new0(LoadJob, 1);
     job->window = g_object_ref(window);

@@ -1492,6 +1492,38 @@ static void plate_changed(ZgModel *self) {
     if (zs_app_part_count(self->core) > 0) slice_soon(self);
 }
 
+/* The session (zs_session_write): the plates, their scenes, the camera
+ * (or NULL), and the text of the app. NULL on failure. */
+GBytes *zg_model_session_bytes(ZgModel *self, const float *camera, const char *app_text) {
+    uint8_t *out = NULL;
+    size_t len = 0;
+    if (zs_session_write(self->set, camera, app_text, &out, &len) != ZS_OK) return NULL;
+    GBytes *b = g_bytes_new(out, len);
+    zs_buffer_free(out, len);
+    return b;
+}
+
+/* Puts a session back: the plates, the camera (*has_camera), and the text
+ * of the app (free it with g_free). */
+gboolean zg_model_session_open(ZgModel *self, const void *data, gsize len, float camera[8], gboolean *has_camera, char **app_text, GError **error) {
+    char message[512] = "";
+    int has = 0;
+    uint8_t *text = NULL;
+    size_t text_len = 0;
+    plate_leave(self);
+    int rc = zs_session_read(self->set, data, len, camera, &has, &text, &text_len, message, sizeof message);
+    if (rc != ZS_OK) {
+        g_set_error(error, G_IO_ERROR, G_IO_ERROR_FAILED, "%s", message[0] ? message : zs_status_string(rc));
+        return FALSE;
+    }
+    if (has_camera) *has_camera = has != 0;
+    if (app_text) *app_text = g_strndup((const char *)text, text_len);
+    if (text) zs_buffer_free(text, text_len);
+    for (size_t i = 0; i < zs_set_count(self->set); i++) zs_set_changed(self->set, i);
+    plate_switched(self);
+    return TRUE;
+}
+
 gboolean zg_model_load(ZgModel *self, const char *name, const void *data, gsize len, GError **error) {
     /* A project file of zslice: its plates replace the plates. */
     if (zs_project_file_is(data, len)) {

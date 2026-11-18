@@ -16,6 +16,8 @@ GtkWindow *zg_window_new(GtkApplication *app, ZgModel *model);
 
 /* Opens a model file in the window. */
 void zg_window_open_file(GtkWindow *window, GFile *file);
+/* The 3D view of the window (for the camera of a session), or NULL. */
+GtkWidget *zg_window_view3d(GtkWindow *window);
 
 /* The actions of the window, for the app menu and the shortcuts. */
 void zg_window_open_dialog(GtkWindow *window);
