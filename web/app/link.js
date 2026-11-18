@@ -198,7 +198,9 @@ export async function send(printer, filename, bytes, print) {
     return { ok: false, message: `The printer answered ${r.status}${text ? `: ${text}` : ""}.` };
   }
   const where = KINDS[printer.kind] ?? printer.kind;
-  if (printer.kind === "printdeck" && print) return { ok: true, message: `Sent to ${printer.name}. Press Print on its screen to start.` };
+  // A printdeck never starts a print from the network: a person at the
+  // deck presses Print.
+  if (printer.kind === "printdeck") return { ok: true, message: `Sent to ${printer.name}. It waits there: press Print on the deck to start it.` };
   return { ok: true, message: print ? `Sent to ${printer.name} (${where}); the print starts.` : `Uploaded to ${printer.name} (${where}).` };
 }
 

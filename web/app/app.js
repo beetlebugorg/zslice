@@ -1911,8 +1911,10 @@ function updateSummary() {
   $("send-box").hidden = !linked;
   $("export").hidden = linked;
   if (linked) {
-    $("send").textContent = sending ? "Sending…" : `Print to ${KINDS[pr.kind] ?? pr.kind}`;
-    $("send").title = `Upload the G-code to ${pr.name} and start the print`;
+    // A printdeck starts a print only with a press of Print on the deck.
+    const deck = pr.kind === "printdeck";
+    $("send").textContent = sending ? "Sending…" : deck ? "Send to Deck" : `Print to ${KINDS[pr.kind] ?? pr.kind}`;
+    $("send").title = deck ? `Send the G-code to ${pr.name}. It waits there until someone presses Print on the deck.` : `Upload the G-code to ${pr.name} and start the print`;
     $("send").disabled = app.state !== "done" || sending;
     $("send-menu").disabled = app.state !== "done" || sending;
   }

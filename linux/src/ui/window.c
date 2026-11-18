@@ -789,7 +789,12 @@ static void on_send_done(gboolean ok, const char *message, gpointer data) {
     g_clear_object(&w->send_cancel);
     gtk_widget_set_sensitive(w->send_button, TRUE);
     if (ok) {
-        char *text = g_strdup_printf(w->send_print ? "Sent to %s; it prints." : "Sent to %s.", zg_printers_current()->name);
+        /* A printdeck waits for a press of Print on the deck. */
+        ZgPrinter *cur = zg_printers_current();
+        const char *fmt = cur->kind == ZG_LINK_PRINTDECK ? "Sent to %s. It waits there: press Print on the deck to start it."
+                          : w->send_print ? "Sent to %s; it prints."
+                                          : "Sent to %s.";
+        char *text = g_strdup_printf(fmt, cur->name);
         gtk_label_set_text(GTK_LABEL(w->printer_state), text);
         g_free(text);
         /* The plate of a project prints now. */
@@ -1141,12 +1146,17 @@ static void update_printer_ui(Window *w) {
     if (linked) {
         /* The label names the kind of link; the printer is in the menu at
          * the left, and in the tooltip. */
-        const char *label = pr->kind == ZG_LINK_PRINTDECK ? "Print to Printdeck"
+        /* A printdeck starts a print only with a press of Print on the
+         * deck: the button sends. */
+        const char *label = pr->kind == ZG_LINK_PRINTDECK ? "Send to Deck"
                             : pr->kind == ZG_LINK_OCTOPRINT ? "Print to OctoPrint"
                             : pr->kind == ZG_LINK_MOONRAKER ? "Print to Moonraker"
                                                              : "Print";
         gtk_button_set_label(GTK_BUTTON(w->send_button), label);
-        char *tip = g_strdup_printf(pr->kind == ZG_LINK_USB ? "Print on %s over USB" : "Upload the G-code to %s and start the print", pr->name);
+        char *tip = g_strdup_printf(pr->kind == ZG_LINK_USB ? "Print on %s over USB"
+                                    : pr->kind == ZG_LINK_PRINTDECK ? "Send the G-code to %s. It waits there until someone presses Print on the deck."
+                                                                    : "Upload the G-code to %s and start the print",
+                                    pr->name);
         gtk_widget_set_tooltip_text(w->send_button, tip);
         g_free(tip);
     }

@@ -137,7 +137,7 @@ export class FarmPage {
         const pr = this.ctx.printers()[name];
         if (!pr) return;
         const warn = this.free(name) ? "" : `\n\n${name} looks busy now.`;
-        if (!window.confirm(`Send "${p.name || `Plate ${p.i + 1}`}" to ${name}?${warn}\n\nIs the bed of ${name} clear? The print can start when the file is there.`)) return;
+        if (!window.confirm(`Send "${p.name || `Plate ${p.i + 1}`}" to ${name}?${warn}${pr.kind === "printdeck" ? `\n\nIt waits on ${name} until someone presses Print on the deck.` : `\n\nIs the bed of ${name} clear? The print can start when the file is there.`}`)) return;
         go.disabled = true;
         try {
           const r = await this.ctx.sendPlate(p.i, { ...pr, name });
@@ -194,7 +194,7 @@ export class FarmPage {
     // printer can have another bed, nozzle, or temperatures: say so.
     const other = this.ctx.slicedFor();
     const warn = other && other !== p.name ? `\n\nThe plate is sliced for ${other}, not for ${p.name}. Choose ${p.name} in the printer menu to slice it for that printer first.` : "";
-    const clear = window.confirm(`Send "${this.ctx.plateName()}" to ${p.name}?${warn}\n\nIs the bed of ${p.name} clear? The print can start when the file is there.`);
+    const clear = window.confirm(`Send "${this.ctx.plateName()}" to ${p.name}?${warn}${p.kind === "printdeck" ? `\n\nIt waits on ${p.name} until someone presses Print on the deck.` : `\n\nIs the bed of ${p.name} clear? The print can start when the file is there.`}`);
     if (!clear) return;
     button.disabled = true;
     try {
