@@ -1,7 +1,8 @@
 //! The card of a selected part (docs/user/getting-started.md, "The part
 //! card"; web/app/partcard.js). A click on a part with the Move or the Turn
 //! tool, or Command and a click with any tool, selects it, and the card
-//! opens at the top right of the view: its name, its size, and its turn; Duplicate (D), Best
+//! opens at the top right of the view: its name, its size, and its turn; Duplicate (D),
+//! Split, Cut (CutPopover.swift), Best
 //! Orientation, Less Support, Reset, and Remove (Delete); and the settings
 //! that the part has of its own, each with an editor and a button that
 //! gives it the value of the plate again. "Add a Setting" lists the
@@ -48,6 +49,11 @@ struct PartCard: View {
                 HStack {
                     Button("Duplicate") { workspace.duplicatePart() }.help("A copy at a free place (D)")
                     Button("Split") { workspace.splitPart() }.help("Split to parts: each separate body of the part becomes a part of its own")
+                    Button("Cut…") { workspace.cutOpen = true }
+                        .help("Cut the part with a level plane into two parts, with pegs to line them up")
+                        .popover(isPresented: Binding(get: { workspace.cutOpen }, set: { workspace.cutOpen = $0 }), arrowEdge: .bottom) {
+                            CutPopover(workspace: workspace, index: index, open: Binding(get: { workspace.cutOpen }, set: { workspace.cutOpen = $0 }))
+                        }
                     Menu("Orient") {
                         Button("Best Orientation") { workspace.placePart(Int32(ZS_PLACE_SMART.rawValue)) }
                         Button("Less Support") { workspace.placePart(Int32(ZS_PLACE_LESS_SUPPORT.rawValue)) }
@@ -61,6 +67,7 @@ struct PartCard: View {
                     }
                     .help("Remove the part (Delete)")
                 }
+                .controlSize(.small)
                 if !own.isEmpty {
                     Divider()
                     Text("Settings of this part").font(.caption.weight(.semibold)).foregroundStyle(.secondary)

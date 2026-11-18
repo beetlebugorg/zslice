@@ -26,6 +26,8 @@ final class Workspace {
 
     // The layers of the last slice, and the range that shows.
     private(set) var layerCount = 0
+    /// The Cut popover of the part card is open.
+    var cutOpen = false
     private(set) var lo = 0
     private(set) var hi = 0
     @ObservationIgnored private(set) var layerEnd: [Double] = []
@@ -215,6 +217,17 @@ final class Workspace {
         if drag.count == 2, press(drag[0], .command) {
             self.drag(drag[1], .command)
             release(drag[1])
+        }
+        // ZSLICE_CUT=1 opens the Cut popover of a selected part.
+        // ZSLICE_CUT=z cuts it at z mm, with the top over and 2 pegs.
+        if let c = env["ZSLICE_CUT"], let i = selectedPart {
+            if let z = Double(c), z > 1 {
+                let n = zs_app_part_cut(model.core, i, z, 1, 2, 5)
+                NSLog("zslice cut: %ld", n)
+                if n > 0 { model.settingsChanged() }
+            } else {
+                cutOpen = true
+            }
         }
         // ZSLICE_RECORD=path.mov records the demo of Recorder.swift.
         if let path = env["ZSLICE_RECORD"] {
