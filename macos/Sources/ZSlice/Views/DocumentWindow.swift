@@ -325,6 +325,17 @@ struct PrintCard: View {
                 }
             }
             .frame(height: 12, alignment: .leading)
+            if let p = workspace.connectedPrinter, workspace.printerStatus != nil || workspace.printerEstimate != nil {
+                VStack(alignment: .leading, spacing: 2) {
+                    if let e = workspace.printerEstimate {
+                        Text("\(p.name): \(duration(e.total))" + (e.prep > 0 ? " (\(Int((e.prep / 60).rounded())) min start)" : ""))
+                            .font(.callout)
+                    }
+                    if let s = workspace.printerStatus {
+                        Label(s.line, systemImage: "printer").font(.caption).foregroundStyle(.secondary).lineLimit(1)
+                    }
+                }
+            }
             if model.state != .empty {
                 Divider()
                 PrintFacts(workspace: workspace)

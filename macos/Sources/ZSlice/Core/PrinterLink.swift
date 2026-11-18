@@ -20,6 +20,7 @@
 //!
 //! SPDX-License-Identifier: AGPL-3.0-or-later
 
+import CZslice
 import Foundation
 
 struct LinkResult {
@@ -48,8 +49,8 @@ enum PrinterLink {
     }
 
     /// A request of `path` on the printer: each address in turn.
-    @MainActor private static func request(_ p: Printer, _ path: String, method: String = "GET", body: Data? = nil,
-                                contentType: String? = nil, key: Bool = true) async throws -> (Data, HTTPURLResponse) {
+    @MainActor static func request(_ p: Printer, _ path: String, method: String = "GET", body: Data? = nil,
+                                contentType: String? = nil, encoding: String? = nil, key: Bool = true) async throws -> (Data, HTTPURLResponse) {
         let list = addresses(p)
         var last: Error = URLError(.badURL)
         for (k, base) in list.enumerated() {
@@ -61,6 +62,7 @@ enum PrinterLink {
             // A short wait for an address with a next one to try.
             r.timeoutInterval = k < list.count - 1 ? 4 : 120
             if let contentType { r.setValue(contentType, forHTTPHeaderField: "Content-Type") }
+            if let encoding { r.setValue(encoding, forHTTPHeaderField: "Content-Encoding") }
             if key, !p.apiKey.isEmpty { r.setValue(p.apiKey, forHTTPHeaderField: "X-Api-Key") }
             do {
                 let (d, resp) = try await URLSession.shared.data(for: r)
@@ -169,5 +171,88 @@ enum PrinterLink {
               let j = (try? JSONSerialization.jsonObject(with: d)) as? [String: Any],
               let https = j["https"] as? String, !https.isEmpty else { return nil }
         return https
+    }
+}
+
+// MARK: - the status and the estimate
+
+/// The status of a printer, from the core (zs_printer_status).
+struct PrinterStatus: Equatable {
+    var state = ""
+    var job = ""
+    var progress = 0.0
+    var timeLeft = -1.0
+    var layer = 0, layers = 0
+    var material = ""
+    var roll = ""
+    var rollLeft = 0.0
+    var bedX = 0.0, bedY = 0.0, height = 0.0, nozzle = 0.0
+
+    /// One line for the print card: "Operational · Gray, 818 g left", or
+    /// the job and its progress.
+    var line: String {
+        var s = state
+        if !job.isEmpty {
+            s += " · \(job) \(Int((progress * 100).rounded())) %"
+            if timeLeft >= 0 { s += ", \(Int((timeLeft / 60).rounded())) min left" }
+        } else if !roll.isEmpty {
+            s += " · \(roll)" + (rollLeft > 0 ? ", \(Int(rollLeft.rounded())) g left" : "")
+        } else if !material.isEmpty {
+            s += " · \(material)"
+        }
+        return s
+    }
+}
+
+/// The estimate of a printdeck: its own time for the G-code, from its past
+/// prints (the start macro, and how its moves compare with the plan).
+struct PrinterEstimate: Equatable {
+    var total: Double
+    var prep: Double
+}
+
+extension PrinterLink {
+    private static func coreKind(_ k: Printer.Kind) -> Int32 {
+        switch k {
+        case .octoprint: 1
+        case .printdeck: 2
+        case .moonraker: 3
+        case .none: 0
+        }
+    }
+
+    /// The status of a printer: GET each path of zs_printer_status_paths and
+    /// give each reply to the core. nil if the printer does not answer.
+    @MainActor static func status(_ p: Printer) async -> PrinterStatus? {
+        let kind = coreKind(p.kind)
+        guard kind > 0, let s = zs_printer_status_new() else { return nil }
+        defer { zs_printer_status_free(s) }
+        let paths = coreText(zs_printer_status_paths(kind)).split(separator: "\n").map(String.init)
+        for (i, path) in paths.enumerated() {
+            guard let (d, r) = try? await request(p, path), (200 ..< 300).contains(r.statusCode) else {
+                if i == 0 { return nil }
+                continue
+            }
+            _ = d.withUnsafeBytes { zs_printer_status_feed(s, kind, path, $0.bindMemory(to: CChar.self).baseAddress, $0.count) }
+        }
+        var info = zs_printer_info()
+        guard zs_printer_status_get(s, &info) == 0 else { return nil }
+        return PrinterStatus(state: coreText(info.state), job: coreText(info.job), progress: info.progress, timeLeft: info.time_left,
+                             layer: Int(info.layer), layers: Int(info.layers), material: coreText(info.material),
+                             roll: coreText(info.spool.name), rollLeft: info.spool.left,
+                             bedX: info.bed_x, bedY: info.bed_y, height: info.height, nozzle: info.nozzle)
+    }
+
+    /// The estimate of a printdeck for the G-code: POST it with gzip to
+    /// /api/plugin/printdeck/estimate. The printer only reads it: it does
+    /// not keep the file or print it.
+    @MainActor static func estimate(_ p: Printer, gcode: Data) async -> PrinterEstimate? {
+        guard p.kind == .printdeck, let gz = Gzip.compress(gcode),
+              let (d, r) = try? await request(p, "/api/plugin/printdeck/estimate", method: "POST", body: gz,
+                                              contentType: "text/plain", encoding: "gzip"),
+              r.statusCode == 200,
+              let j = (try? JSONSerialization.jsonObject(with: d)) as? [String: Any],
+              let total = (j["total"] as? NSNumber)?.doubleValue, total > 0 else { return nil }
+        return PrinterEstimate(total: total, prep: (j["prep"] as? NSNumber)?.doubleValue ?? 0)
     }
 }

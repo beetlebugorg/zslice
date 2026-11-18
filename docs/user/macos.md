@@ -50,6 +50,8 @@ Add a printer with the printer menu at the left of the toolbar. The picker searc
 
 The API keys of your printers are in the Keychain of macOS (Keychain Access, "zslice printer API key"), never in a file. The list of your printers is in `~/Library/Application Support/zslice/printers.json`.
 
+With a connection and its API key, the print card shows the state of the printer (its job and progress, or the roll in it and the grams left), and a printdeck gives its own estimate of the print time after each slice ("Workhorse: 1h 41m (3 min start)"). zslice sends the G-code to the printdeck for the estimate, compressed; the printer does not keep it or print it.
+
 The first search of the network asks for the permission to find devices on the local network. Allow it to see your printers in the picker.
 
 ## Your settings
@@ -62,4 +64,3 @@ Open a project with File > Open Project Folder (Shift-Command-O): choose the fol
 
 ## Not yet in the macOS app
 
-- The status of a printdeck printer and its estimate of the print time.

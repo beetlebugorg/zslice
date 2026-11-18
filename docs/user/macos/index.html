@@ -68,13 +68,13 @@ open build/zslice.app</code></pre>
 <h2 id="printers">Printers</h2>
 <p>Add a printer with the printer menu at the left of the toolbar. The picker searches the library and lists the printers on your network. Manage your printers in zslice &gt; Settings (Command-,), on the Printers page: the connection, Test the Connection, and Get a Key.</p>
 <p>The API keys of your printers are in the Keychain of macOS (Keychain Access, "zslice printer API key"), never in a file. The list of your printers is in <code>~/Library/Application Support/zslice/printers.json</code>.</p>
+<p>With a connection and its API key, the print card shows the state of the printer (its job and progress, or the roll in it and the grams left), and a printdeck gives its own estimate of the print time after each slice ("Workhorse: 1h 41m (3 min start)"). zslice sends the G-code to the printdeck for the estimate, compressed; the printer does not keep it or print it.</p>
 <p>The first search of the network asks for the permission to find devices on the local network. Allow it to see your printers in the picker.</p>
 <h2 id="your-settings">Your settings</h2>
 <p>The app keeps your settings in <code>~/Library/Application Support/zslice</code>: <code>machine.toml</code>, <code>filament.toml</code>, and <code>project.toml</code>, as in the other apps.</p>
 <h2 id="projects">Projects</h2>
 <p>Open a project with File &gt; Open Project Folder (Shift-Command-O): choose the folder of a repository with a printdeck.yml. The plates of the project show in a row, and each plate slices. The Project page of the drawer lists the plates and the parts; the check box and the count of a part change the plates at once. File &gt; Open Project from GitHub opens a public repository: type <code>owner/repo</code>, or its address on github.com (with <code>/tree/&lt;branch&gt;</code> for a branch).</p>
-<h2 id="not-yet-in-the-macos-app">Not yet in the macOS app</h2>
-<ul><li>The status of a printdeck printer and its estimate of the print time.</li></ul><nav class="pager"><a class="prev" href="../../user/projects/"><span>Previous</span><b>Projects</b></a><a class="next" href="../../user/troubleshooting/"><span>Next</span><b>Troubleshooting</b></a></nav>
+<h2 id="not-yet-in-the-macos-app">Not yet in the macOS app</h2><nav class="pager"><a class="prev" href="../../user/projects/"><span>Previous</span><b>Projects</b></a><a class="next" href="../../user/troubleshooting/"><span>Next</span><b>Troubleshooting</b></a></nav>
 </main>
 </div>
 <footer>zslice is free software (AGPL-3.0-or-later). <a href="../../privacy/">Privacy</a>: no analytics, no cookies, nothing from other sites. <a href="https://github.com/beetlebugorg/zslice/blob/main/docs/build.py">docs/build.py</a> writes this site from <a href="https://github.com/beetlebugorg/zslice/blob/main/docs/user/macos.md">docs/user/macos.md</a>.</footer>

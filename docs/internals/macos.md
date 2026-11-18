@@ -33,6 +33,7 @@ open build/zslice.app
 | `Sources/ZSlice/Core/Discovery.swift` | The printers on the network: the UDP of the mDNS search of the core. |
 | `Sources/ZSlice/Core/Project.swift` | printdeck.yml projects: the files of the plates, and the load of the core. |
 | `Sources/ZSlice/Core/SavedSettings.swift` | The settings after a restart. |
+| `Sources/ZSlice/Core/Gzip.swift` | A gzip file of some bytes, for the estimate of a printdeck. |
 | `Sources/ZSlice/Core/Settings.swift` | The setting infos, values, sources, effects, and value texts, from the core. |
 | `Sources/ZSlice/Views/MetalSliceView.swift` | The 3D view: an `NSView` over a `CAMetalLayer`, its display link, and the input. |
 | `Sources/ZSlice/Render/FrameRenderer.swift` | Draws the frame data of the core with Metal. |
@@ -165,4 +166,4 @@ The work goes in steps. Each step keeps `zig build test`, `zig build web`, and t
 1. The core link and the 3D view: open a file, slice, and show the beads with Metal. Done.
 2. The slicing UI: the print card and Export G-code, the layer slider, the replay, the 2D layer view, the settings drawer, and history and undo (done).
 3. The tools (Select, Move, Turn, Measure, Gaps, Check), the line and part cards, the settings search, the shortcut sheet, the context menu, and a double click that faces a side (done).
-4. Printers (the picker, the library, App Keys, printdeck, OctoPrint, Moonraker, discovery), printdeck.yml projects, the menus, drag and drop, and the user docs (done). Still to do: the status of a printdeck printer.
+4. Printers (the picker, the library, App Keys, printdeck, OctoPrint, Moonraker, discovery), printdeck.yml projects, the menus, drag and drop, and the user docs (done). The status of a printer comes from the core (`zs_printer_status_*`); the estimate of a printdeck is a POST of the gzipped G-code (`Gzip.swift`).

@@ -42,6 +42,12 @@ final class Workspace {
 
     /// The state of the last send to the printer, for the print card.
     var sendState: String?
+    /// The status of the current printer, and its estimate of the plate.
+    var printerStatus: PrinterStatus?
+    var printerEstimate: PrinterEstimate?
+    @ObservationIgnored private var statusTask: Task<Void, Never>?
+    /// A printer of a test (ZSLICE_STATUS_URL), not in the store.
+    @ObservationIgnored var testPrinter: Printer?
     /// The sheet of the printer picker shows.
     var pickerOpen = false
 
@@ -92,6 +98,12 @@ final class Workspace {
 
     init() {
         canvas.delegate = self
+        // For tests: ZSLICE_STATUS_URL=http://… is a printdeck printer with
+        // no key, and ZSLICE_GZIP=path writes the gzip of the G-code there.
+        if let u = ProcessInfo.processInfo.environment["ZSLICE_STATUS_URL"] {
+            testPrinter = Printer(name: "test", kind: .printdeck, url: u)
+        }
+        startStatus()
         if ProcessInfo.processInfo.environment["ZSLICE_PANEL"] != nil { showSettings = true }
         // ZSLICE_SEARCH=text opens the search with that text (the field reads it).
         if ProcessInfo.processInfo.environment["ZSLICE_SEARCH"] != nil { searchOpen = true }
@@ -148,6 +160,7 @@ final class Workspace {
         applyRange()
         applyFocus()
         refindSelection()
+        askEstimate()
         gapCard = nil
         showGaps()
         readIssues()
@@ -645,6 +658,44 @@ final class Workspace {
         model.settingsChanged()
     }
 
+
+    /// The current printer with a connection, or nil.
+    var connectedPrinter: Printer? {
+        if let testPrinter { return testPrinter }
+        guard let p = PrinterStore.shared.current, p.kind != .none else { return nil }
+        return p
+    }
+
+    /// Asks the current printer for its status every 10 s while the window
+    /// is open.
+    func startStatus() {
+        statusTask?.cancel()
+        statusTask = Task { @MainActor [weak self] in
+            while !Task.isCancelled {
+                guard let self else { return }
+                if let p = connectedPrinter {
+                    let s = await PrinterLink.status(p)
+                    if s != printerStatus { printerStatus = s }
+                } else if printerStatus != nil {
+                    printerStatus = nil
+                }
+                try? await Task.sleep(for: .seconds(10))
+            }
+        }
+    }
+
+    /// After a slice: the estimate of a printdeck for the G-code.
+    private func askEstimate() {
+        if let path = ProcessInfo.processInfo.environment["ZSLICE_GZIP"], let g = model.gcode(), let gz = Gzip.compress(g) {
+            try? gz.write(to: URL(fileURLWithPath: path))
+        }
+        printerEstimate = nil
+        guard let p = connectedPrinter, p.kind == .printdeck, let g = model.gcode() else { return }
+        Task { @MainActor [weak self] in
+            let e = await PrinterLink.estimate(p, gcode: g)
+            self?.printerEstimate = e
+        }
+    }
 
     /// Sends the G-code to the current printer; print: start the print.
     func send(print: Bool) {
