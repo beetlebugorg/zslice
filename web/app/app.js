@@ -30,7 +30,8 @@ import { TurnRings } from "./turn.js";
 import { FarmPage } from "./farm.js";
 import { Tools } from "./tools.js";
 import { SupportTool } from "./support.js";
-import { KINDS, send as sendToPrinter, test as testPrinter, requestKey } from "./link.js";
+import { KINDS, send as sendToPrinter, test as testPrinter, requestKey, trustText } from "./link.js";
+import { signGcode, supported as canSign, UNSUPPORTED as NO_SIGNATURES } from "./signing.js";
 import { contextItems } from "./context-menu.js";
 import { openMenu, openMenuAt, menuOpen, openPopover, closeMenu } from "./menus.js";
 import { formatClock, formatTime, useCore } from "./format.js";
@@ -1103,13 +1104,25 @@ function managePrinters() {
           saveStore();
         }
       };
+      // Verified or not verified (link.js trustText).
+      const trust = Object.assign(document.createElement("div"), { className: "dim printers-trust" });
+      const showTrust = () => {
+        trust.textContent = trustText(p);
+      };
+      showTrust();
+      const urlChanged = url.onchange;
+      url.onchange = () => {
+        urlChanged();
+        showTrust();
+      };
       const kindChanged = kind.onchange;
       kind.onchange = () => {
         kindChanged();
         getKey.hidden = kind.value === "moonraker";
+        showTrust();
       };
       line2.append(kind, key, getKey, testB, result);
-      row.append(name, url, now, use, settings, rm, line2);
+      row.append(name, url, now, use, settings, rm, line2, trust);
       list.append(row);
     }
   };
@@ -1992,7 +2005,8 @@ async function exportGcode() {
     toast("No G-code: slice first.");
     return;
   }
-  download(r.bytes, `${gcodeFileName(r)}.gcode`, "text/x-gcode");
+  download(await signGcode(new Uint8Array(r.bytes)), `${gcodeFileName(r)}.gcode`, "text/x-gcode");
+  await warnUnsigned();
 }
 
 // The name of a G-code file (zs_app_gcode_name, from the worker): the
@@ -2035,7 +2049,7 @@ async function debugPrint(topOnly) {
   }
   const base = (r.name || "part").replace(/\.(stl|3mf)$/i, "");
   const what = lo === hi ? `layer-${hi + 1}` : `layers-${lo + 1}-${hi + 1}`;
-  download(new Uint8Array(r.bytes), `${base}-test-${what}.gcode`, "text/x-gcode");
+  download(await signGcode(new Uint8Array(r.bytes)), `${base}-test-${what}.gcode`, "text/x-gcode");
   toast(lo === hi ? `A test print of layer ${hi + 1}, on the bed.` : `A test print of layers ${lo + 1} to ${hi + 1}, on the bed.`);
 }
 
@@ -2046,6 +2060,17 @@ function currentPrinter() {
   const p = store.printers?.[store.printer];
   return p ? { ...p, name: store.printer } : null;
 }
+
+// The key of the signatures: made at the first start (signing.js). A
+// browser with no Ed25519 gets the message once, at the first export or
+// send.
+var signWarned = false;
+async function warnUnsigned() {
+  if (signWarned || (await canSign())) return;
+  signWarned = true;
+  toast(NO_SIGNATURES, 12000);
+}
+canSign();
 
 var sending = false; // var: updateSummary can run before this line
 async function sendGcode(print) {
@@ -2063,6 +2088,7 @@ async function sendGcode(print) {
   try {
     const res = await sendToPrinter(pr, `${base}.gcode`, new Uint8Array(r.bytes), print);
     toast(res.message);
+    await warnUnsigned();
     if (res.ok && print) project.sent();
   } finally {
     sending = false;

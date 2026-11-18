@@ -19,6 +19,7 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
 import { printerStatusPaths, readPrinterStatus } from "./format.js";
+import { publicKey, signGcode } from "./signing.js";
 
 export const KINDS = {
   none: "None (export a file)",
@@ -26,6 +27,25 @@ export const KINDS = {
   octoprint: "OctoPrint",
   moonraker: "Moonraker (Klipper)",
 };
+
+// The trust of a printer, for the printer list: printdeck can check the
+// signature of each print (Settings › Signed prints on the deck).
+// OctoPrint and Moonraker check no signatures. The browser checks the
+// certificate of an https printer; a page has no access to it, so the app
+// cannot pin it (the GTK and macOS apps do).
+export function trustText(printer) {
+  switch (printer?.kind) {
+    case "printdeck":
+      return printer.https || /^https:/i.test(printer.url ?? "")
+        ? "zslice signs each print. Turn on Settings › Signed prints on the deck to refuse prints from other apps."
+        : "zslice signs each print. The address is http, so the browser cannot verify the deck: use its https address.";
+    case "octoprint":
+    case "moonraker":
+      return "Not verified: this printer does not check the signatures of prints.";
+    default:
+      return "";
+  }
+}
 
 function join(base, path) {
   return base.replace(/\/+$/, "") + path;
@@ -151,6 +171,8 @@ function explain(e, printer) {
 // Returns { ok, message }.
 export async function send(printer, filename, bytes, print) {
   if ((!printer?.url && !printer?.https) || !printer.kind || printer.kind === "none") return { ok: false, message: "This printer has no connection." };
+  // Each file that goes out has the signature of this browser (signing.js).
+  bytes = await signGcode(bytes);
   const form = new FormData();
   form.append("file", new Blob([bytes], { type: "application/octet-stream" }), filename);
   form.append("print", print ? "true" : "false");
@@ -166,9 +188,12 @@ export async function send(printer, filename, bytes, print) {
   if (!r.ok) {
     let text = "";
     try {
-      text = (await r.text()).slice(0, 200);
+      text = (await r.text()).slice(0, 300);
+      // The OctoPrint API has the reason in {"error": "..."}: printdeck
+      // says "Rejected: not signed by a trusted slicer" there.
+      text = JSON.parse(text).error ?? text;
     } catch {
-      // No text.
+      // No text, or no JSON.
     }
     return { ok: false, message: `The printer answered ${r.status}${text ? `: ${text}` : ""}.` };
   }
@@ -188,10 +213,13 @@ export async function requestKey(printer, wait = () => {}) {
   const base = "/plugin/appkeys/request";
   let token;
   try {
+    // printdeck: the public key of the signatures too. The deck trusts it
+    // after "Allow".
+    const pub = printer.kind === "printdeck" ? await publicKey() : "";
     const r = await request(printer, base, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ app: "zslice" }),
+      body: JSON.stringify(pub ? { app: "zslice", public_key: pub } : { app: "zslice" }),
     });
     if (r.status === 404) return { ok: false, message: "The printer does not give keys to apps (App Keys is off or missing)." };
     if (!r.ok) return { ok: false, message: `The printer answered ${r.status}.` };
@@ -214,8 +242,10 @@ export async function requestKey(printer, wait = () => {}) {
     if (r.status === 202) continue;
     if (r.status === 404) return { ok: false, message: "The printer did not allow it (Deny), or the request waited too long." };
     if (!r.ok) return { ok: false, message: `The printer answered ${r.status}.` };
-    const key = (await r.json()).api_key;
+    const j = await r.json();
+    const key = j.api_key;
     if (!key) return { ok: false, message: "The printer gave no key." };
+    if (j.trusted_key) return { ok: true, key, message: "The printer gave zslice a key, and trusts the prints that this browser signs." };
     return { ok: true, key, message: "The printer gave zslice a key." };
   }
   return { ok: false, message: "No answer on the printer in 2 minutes." };

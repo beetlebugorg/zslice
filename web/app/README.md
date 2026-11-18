@@ -20,7 +20,10 @@ The browser needs WebGL2, module workers, and `WebAssembly.compileStreaming` (Ch
 ```sh
 zig build web
 node web/app/test-node.mjs zig-out/web/app/zslice.wasm part.stl
+node web/app/test-signing.mjs zig-out/web/app/zslice.wasm
 ```
+
+`test-signing.mjs` signs G-code with WebCrypto, as the page does, and checks it with the core (`zs_verify_gcode`).
 
 The test runs the code of the worker (`core.js`) and the view of the main thread (`view.js`) in Node, with no browser: settings, the saved state, a slice, the scene, frames of the view, the data of the 2D view, a pick, a step along the print, the Selected page of a line, the printer library, and a bed model in a frame.
 
@@ -54,6 +57,8 @@ The rule of `docs/app/README.md` holds: the app logic is in the core, and the we
 | `thread.js` | One thread of the slice, for the module with threads |
 | `serve.py` | The dev server. It sends the headers for cross-origin isolation |
 | `test-node.mjs` | The Node test |
+| `signing.js` | The signing key of this browser (a WebCrypto Ed25519 key in IndexedDB that no script can read), and the signature of each exported or sent G-code file |
+| `test-signing.mjs` | The Node test of the signatures |
 
 ### The bed model
 

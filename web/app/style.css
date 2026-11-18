@@ -556,6 +556,7 @@ button.destructive { background: #c01c28; color: #fff; }
 .printers-row { display: grid; grid-template-columns: 1.2fr 1.5fr auto auto auto auto; gap: 6px; align-items: center; }
 .printers-row input, .printers-row select { background: var(--entry); border: none; border-radius: 6px; padding: 7px 8px; min-width: 0; }
 .printers-row { padding-bottom: 8px; border-bottom: 1px solid rgba(255, 255, 255, 0.08); }
+.printers-trust { grid-column: 1 / -1; font-size: 12px; }
 .printers-row2 { grid-column: 1 / -1; display: grid; grid-template-columns: 1.2fr 1.5fr auto 1fr; gap: 6px; align-items: center; }
 .printers-test { font-size: 0.85em; }
 .printers-test.error { color: #ff7b72; }
