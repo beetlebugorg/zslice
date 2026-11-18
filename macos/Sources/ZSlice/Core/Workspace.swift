@@ -382,6 +382,30 @@ final class Workspace {
         // ZSLICE_FLEET=path adds the printers of a fleet file (the farm
         // simulator writes one).
         if let f = env["ZSLICE_FLEET"] { FarmMonitor.shared.addFleet(URL(fileURLWithPath: f)) }
+        // ZSLICE_QUEUE=1 puts all plates in the queue of the farm, 4 s later
+        // (after the slices).
+        if env["ZSLICE_QUEUE"] != nil {
+            DispatchQueue.main.asyncAfter(deadline: .now() + 4) { [weak self] in
+                guard let self else { return }
+                let n = FarmMonitor.shared.queue(self, plates: Array(model.plates.indices), customer: "test")
+                NSLog("zslice queue: %d jobs, %d proposals", n, FarmMonitor.shared.proposals.count)
+                Task { @MainActor in
+                    await FarmMonitor.shared.refresh()
+                    // ZSLICE_QUEUE_SEND=1 (tests only): sends each proposal
+                    // with no question, as if the user pressed Send.
+                    guard env["ZSLICE_QUEUE_SEND"] != nil else { return }
+                    let m = FarmMonitor.shared
+                    for s in m.proposals {
+                        guard let p = m.printer(at: s.printer), let ref = m.plate(of: s.job),
+                              let i = ref.workspace.model.plates.firstIndex(where: { $0.id == ref.plate }),
+                              let data = ref.workspace.model.gcode(plate: i) else { continue }
+                        let r = await transfer(data, title: model.gcodeName(plate: i), to: p, print: true)
+                        if r.ok { m.sent(job: s.job, to: p) }
+                        NSLog("zslice queue: sent job %u to %@: %@", s.job, p.name, r.message)
+                    }
+                }
+            }
+        }
         // ZSLICE_RECORD=path.mov records the demo of Recorder.swift.
         if let path = env["ZSLICE_RECORD"] {
             Task { @MainActor in await Recorder.record(self, to: URL(fileURLWithPath: path)) }

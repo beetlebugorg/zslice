@@ -288,7 +288,7 @@ class Printer:
 
 # ---- the G-code: its planned time ----
 
-TIME_RE = [re.compile(rb";TIME:(\d+)"), re.compile(rb";\s*estimated printing time[^=]*=\s*([^\r\n]+)", re.I),
+TIME_RE = [re.compile(rb";Estimated time:\s*(\d+)s"), re.compile(rb";TIME:(\d+)"), re.compile(rb";\s*estimated printing time[^=]*=\s*([^\r\n]+)", re.I),
            re.compile(rb";PRINT\.TIME:(\d+)"), re.compile(rb";\s*total estimated time:\s*([^\r\n]+)", re.I)]
 
 

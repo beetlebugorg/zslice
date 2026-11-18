@@ -6,11 +6,14 @@
 //!   Refresh. Under it, a summary: how many print, are ready to collect,
 //!   failed, are free, and do not answer; a click shows only those.
 //! - A tile for each printer (FarmMonitor reads them): a status dot, the
-//!   job with its progress and the time left, "Ready to collect" or
-//!   "Failed" in color, and the plates that it prints and that come next.
-//!   The printers that need a person come first.
+//!   job with its progress and the time left, "Ready to collect" (with
+//!   Collected, Bed Clear) or "Failed" in color, and the plates that it
+//!   prints and that come next. The printers that need a person come first.
+//! - Up Next: the sends that the queue of the farm proposes (FarmMonitor,
+//!   zs_farm_next), each with Send.
 //! - Plates to Print: each plate with a preview, its time and grams, its
-//!   printer (the plate bar assigns it too), and Send.
+//!   state in the queue (or Queue, and Queue All), its printer (the plate
+//!   bar assigns it too), and Send for a send by hand.
 //!
 //! A send asks first. A printdeck never starts a print by itself: the file
 //! waits in its queue until a person at the deck presses Print. OctoPrint
@@ -48,6 +51,7 @@ struct FarmPage: View {
                 ScrollView {
                     VStack(alignment: .leading, spacing: 22) {
                         summary
+                        upNext
                         let shown = printers.filter { filter == nil || look($0) == filter }.sorted { look($0).order < look($1).order }
                         LazyVGrid(columns: [GridItem(.adaptive(minimum: 250, maximum: 340), spacing: 12, alignment: .top)],
                                   alignment: .leading, spacing: 12) {
@@ -194,6 +198,9 @@ struct FarmPage: View {
                         .font(.caption)
                         .foregroundStyle(.secondary)
                         .fixedSize(horizontal: false, vertical: true)
+                    Button("Collected, Bed Clear") { monitor.collected(p) }
+                        .controlSize(.small)
+                        .help("You took the print off the bed: the printer is free for the next job of the queue")
                 }
             case .failed:
                 VStack(alignment: .leading, spacing: 2) {
@@ -245,17 +252,12 @@ struct FarmPage: View {
                 }
             }
             Spacer(minLength: 0)
-            HStack {
-                Spacer()
-                Button(busy.contains(p.id) ? "Sending…" : "Send Plate \(model.active + 1)") { send(plate: model.active, to: p) }
-                    .controlSize(.small)
-                    .disabled(model.state != .done || busy.contains(p.id) || l == .silent)
-                    .help(p.kind == .printdeck ? "Send the active plate to the queue of this printdeck; a person at the deck presses Print"
-                        : "Send the active plate to this printer, and start it after you confirm that its bed is clear")
+            if busy.contains(p.id) {
+                HStack(spacing: 6) { ProgressView().controlSize(.small); Text("Sending…").font(.caption) }
             }
         }
         .padding(12)
-        .frame(maxWidth: .infinity, minHeight: 132, alignment: .topLeading)
+        .frame(maxWidth: .infinity, minHeight: 110, alignment: .topLeading)
         .background(Color(nsColor: .controlBackgroundColor), in: RoundedRectangle(cornerRadius: 10))
         .overlay(RoundedRectangle(cornerRadius: 10).strokeBorder(l == .failed || l == .ready || l == .printing ? l.color.opacity(0.6) : Color(nsColor: .separatorColor),
                                                                  lineWidth: l == .failed || l == .ready ? 2 : 1))
@@ -293,7 +295,15 @@ struct FarmPage: View {
     @ViewBuilder private var queue: some View {
         let list = model.plates.enumerated().filter { $0.element.parts > 0 }
         VStack(alignment: .leading, spacing: 8) {
-            Text("Plates to Print").font(.title3.weight(.semibold))
+            HStack {
+                Text("Plates to Print").font(.title3.weight(.semibold))
+                Spacer()
+                Button("Queue All") {
+                    let n = monitor.queue(workspace, plates: Array(model.plates.indices), customer: model.name)
+                    workspace.showNote(n == 0 ? "No sliced plate to queue." : "\(n) plate\(n == 1 ? "" : "s") in the queue: see Up Next.")
+                }
+                .help("Put each sliced plate in the queue of the farm")
+            }
             if list.isEmpty {
                 Text("No plate has parts.").foregroundStyle(.secondary)
             } else {
@@ -317,13 +327,19 @@ struct FarmPage: View {
             VStack(alignment: .leading, spacing: 2) {
                 Text(plate.name.isEmpty ? "Plate \(i + 1)" : (plate.name as NSString).deletingPathExtension).lineLimit(1)
                 Text(plateLine(i, plate)).font(.caption).foregroundStyle(.secondary)
-                if let sent = workspace.sentPlates[plate.id] {
+                if let j = monitor.job(of: workspace, plate: plate.id) {
+                    jobLabel(j)
+                } else if let sent = workspace.sentPlates[plate.id] {
                     Label(sent, systemImage: "checkmark.circle.fill").font(.caption).foregroundStyle(.green)
                 } else if let a = workspace.assigned(plate: i) {
                     Label("For \(a.name)", systemImage: "printer").font(.caption).foregroundStyle(.secondary)
                 }
             }
             Spacer(minLength: 12)
+            if ready, monitor.job(of: workspace, plate: plate.id).map({ $0.state == ZS_FARM_JOB_FAILED.rawValue }) ?? true {
+                Button("Queue") { monitor.queue(workspace, plates: [i], customer: model.name) }
+                    .help("Put this plate in the queue of the farm: zslice proposes a free printer that fits it")
+            }
             if fit.isEmpty {
                 Text("No printer fits").font(.callout).foregroundStyle(.secondary)
             } else {
@@ -344,6 +360,58 @@ struct FarmPage: View {
         }
         .padding(.horizontal, 12)
         .padding(.vertical, 10)
+    }
+
+    /// The sends that the farm proposes: a waiting job to a free printer
+    /// that fits it. Each waits for a press of Send.
+    @ViewBuilder private var upNext: some View {
+        let list = monitor.proposals.compactMap { s -> (UInt32, Printer, Workspace, Int)? in
+            guard let p = monitor.printer(at: s.printer), let ref = monitor.plate(of: s.job),
+                  let i = ref.workspace.model.plates.firstIndex(where: { $0.id == ref.plate }) else { return nil }
+            return (s.job, p, ref.workspace, i)
+        }
+        if !list.isEmpty {
+            VStack(alignment: .leading, spacing: 8) {
+                Text("Up Next").font(.title3.weight(.semibold))
+                Text("The queue proposes each job to a free printer that fits it. Nothing goes out until you press Send.")
+                    .font(.caption).foregroundStyle(.secondary)
+                VStack(spacing: 0) {
+                    ForEach(Array(list.enumerated()), id: \.element.0) { k, item in
+                        if k > 0 { Divider().padding(.leading, 72) }
+                        HStack(spacing: 12) {
+                            PlatePreview(workspace: item.2, plate: item.3, size: 44)
+                            VStack(alignment: .leading, spacing: 2) {
+                                Text(monitor.jobName(item.0)).lineLimit(1)
+                                Label(item.1.name, systemImage: "arrow.right").font(.caption).foregroundStyle(.secondary)
+                            }
+                            Spacer()
+                            Button(item.1.kind == .printdeck ? "Send to Queue" : "Send") { send(plate: item.3, to: item.1, from: item.2, job: item.0) }
+                                .buttonStyle(.borderedProminent)
+                                .disabled(busy.contains(item.1.id))
+                        }
+                        .padding(.horizontal, 12)
+                        .padding(.vertical, 8)
+                    }
+                }
+                .background(Color(nsColor: .controlBackgroundColor), in: RoundedRectangle(cornerRadius: 10))
+                .overlay(RoundedRectangle(cornerRadius: 10).strokeBorder(Color.accentColor.opacity(0.5)))
+            }
+        }
+    }
+
+    /// The state of a job of the queue, in a few words.
+    private func jobLabel(_ j: zs_farm_job) -> some View {
+        let p = j.printer >= 0 ? monitor.printer(at: Int(j.printer))?.name ?? "a printer" : ""
+        let tries = j.tries > 1 ? " (try \(j.tries))" : ""
+        let (text, icon, color): (String, String, Color) = switch Int(j.state) {
+        case Int(ZS_FARM_JOB_WAITING.rawValue): ("In the queue, waiting for a printer" + tries, "clock", .secondary)
+        case Int(ZS_FARM_JOB_SENT.rawValue): ("Sent to \(p)" + tries, "paperplane", .accentColor)
+        case Int(ZS_FARM_JOB_PRINTING.rawValue): ("Printing on \(p), \(Int((j.progress * 100).rounded())) %", "printer.fill", .accentColor)
+        case Int(ZS_FARM_JOB_DONE.rawValue): ("Ready to collect on \(p)", "checkmark.circle.fill", .green)
+        case Int(ZS_FARM_JOB_COLLECTED.rawValue): ("Done", "checkmark.seal.fill", .green)
+        default: ("Failed 3 times: queue it again", "xmark.octagon.fill", .red)
+        }
+        return Label(text, systemImage: icon).font(.caption).foregroundStyle(color)
     }
 
     private func parts(_ n: Int) -> String { n == 1 ? "1 part" : "\(n) parts" }
@@ -369,7 +437,9 @@ struct FarmPage: View {
 
     // MARK: - the send
 
-    private func send(plate i: Int, to p: Printer) {
+    private func send(plate i: Int, to p: Printer, from ws: Workspace? = nil, job: UInt32? = nil) {
+        let workspace = ws ?? self.workspace
+        let model = workspace.model
         guard let data = model.gcode(plate: i) else {
             workspace.showNote("No G-code: the plate has no slice yet.")
             return
@@ -398,6 +468,7 @@ struct FarmPage: View {
         Task { @MainActor in
             let r = await workspace.transfer(data, title: title, to: p, print: true)
             busy.remove(p.id)
+            if r.ok, let job { monitor.sent(job: job, to: p) }
             if r.ok, model.plates.indices.contains(i) {
                 let time = Date().formatted(date: .omitted, time: .shortened)
                 workspace.sentPlates[model.plates[i].id] = deck ? "In the queue of \(p.name) since \(time)" : "Sent to \(p.name) at \(time)"

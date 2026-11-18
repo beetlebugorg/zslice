@@ -10,12 +10,20 @@
 //! its queue until a person at the deck presses Print. OctoPrint and
 //! Moonraker start a print of a file sent with print=true.
 //!
+//! The farm of the core (zs_farm, src/app/farm.zig) keeps the queue: the
+//! orders and their jobs (one plate each), the state of each printer from
+//! the reads, the sends that it proposes (a waiting job to a free printer
+//! that fits it), and its events (ready, failed, paused, an order done),
+//! which become the notifications. The farm never sends by itself: a send
+//! is a proposal that the user confirms.
+//!
 //! A fleet file (tools/farm_sim/farm_sim.py writes one) adds many printers
 //! at once: File > Add Printers from a Fleet File, or ZSLICE_FLEET=path.
 //!
 //! SPDX-License-Identifier: AGPL-3.0-or-later
 
 import AppKit
+import CZslice
 import Foundation
 import Observation
 @preconcurrency import UserNotifications
@@ -36,6 +44,17 @@ final class FarmMonitor {
 
     @ObservationIgnored private var loop: Task<Void, Never>?
     @ObservationIgnored private var asked = false
+
+    /// The farm of the core, and the plate of each job (its window and the
+    /// id of the plate there).
+    @ObservationIgnored let farm: OpaquePointer = {
+        var f: OpaquePointer?
+        zs_farm_new(&f)
+        return f!
+    }()
+    @ObservationIgnored private var plates: [UInt32: (workspace: Workspace, plate: UInt64)] = [:]
+    /// Counts the changes of the farm, so the views read it again.
+    private(set) var generation = 0
 
     private var printers: [Printer] { PrinterStore.shared.printers.filter { $0.kind != .none } }
 
@@ -62,13 +81,144 @@ final class FarmMonitor {
         let asks = printers.map { p in
             Task { @MainActor in
                 let st = await PrinterLink.status(p)
-                let before = status[p.id]
                 status[p.id] = st
                 if st == nil { silent.insert(p.id) } else { silent.remove(p.id) }
-                if let before, let st { changed(p, from: before, to: st) }
             }
         }
         for ask in asks { await ask.value }
+        feedFarm()
+    }
+
+    // MARK: - the farm
+
+    /// The printers and their states to the farm, then its events.
+    private func feedFarm() {
+        let now = Int64(Date().timeIntervalSince1970)
+        for p in printers {
+            let st = status[p.id]
+            let i = zs_farm_printer_set(farm, p.id.uuidString, st?.bedX ?? 0, st?.bedY ?? 0, st?.nozzle ?? 0, st?.material ?? "", p.kind == .printdeck ? 1 : 0)
+            guard i >= 0 else { continue }
+            let state: Int32 = st.map { Self.farmState($0) } ?? Int32(ZS_FARM_OFFLINE.rawValue)
+            zs_farm_status(farm, Int(i), state, st?.progress ?? 0, nil, now)
+        }
+        readEvents()
+        generation += 1
+    }
+
+    static func farmState(_ st: PrinterStatus) -> Int32 {
+        if failed(st) { return Int32(ZS_FARM_FAILED.rawValue) }
+        if done(st) { return Int32(ZS_FARM_FINISHED.rawValue) }
+        if paused(st) { return Int32(ZS_FARM_PAUSED.rawValue) }
+        return Int32(printing(st) ? ZS_FARM_PRINTING.rawValue : ZS_FARM_IDLE.rawValue)
+    }
+
+    /// The events of the farm as notifications.
+    private func readEvents() {
+        var list = [zs_farm_event](repeating: zs_farm_event(), count: 64)
+        let n = zs_farm_events(farm, &list, list.count)
+        for e in list.prefix(n) {
+            let printer = e.printer >= 0 ? printerName(Int(e.printer)) : ""
+            let job = jobName(e.job)
+            let why = e.text.map { String(decoding: UnsafeRawBufferPointer(start: $0, count: e.text_len), as: UTF8.self) } ?? ""
+            switch Int(e.kind) {
+            case Int(ZS_FARM_READY.rawValue):
+                notify("Ready to collect: \(job)", "\(printer) finished. Take the print off the bed.")
+            case Int(ZS_FARM_FAILED_EVENT.rawValue):
+                notify("Print failed on \(printer)", "\(job) stopped\(why.isEmpty ? "" : ": \(why)"). It waits for another printer.")
+            case Int(ZS_FARM_PAUSED_EVENT.rawValue):
+                notify("Paused on \(printer)", "\(job) waits\(why.isEmpty ? "" : ": \(why)").")
+            case Int(ZS_FARM_ORDER_DONE.rawValue):
+                notify("Order done", "All jobs of the order printed.")
+            case Int(ZS_FARM_ORDER_FAILED.rawValue):
+                notify("Order failed", "A job of the order failed 3 times\(why.isEmpty ? "" : ": \(why)").")
+            default: break
+            }
+        }
+    }
+
+    /// The printer of a farm index, as the store has it.
+    func printer(at i: Int) -> Printer? {
+        var fp = zs_farm_printer()
+        guard zs_farm_printer_get(farm, i, &fp) == 0, let k = fp.key else { return nil }
+        let key = String(decoding: UnsafeRawBufferPointer(start: k, count: fp.key_len), as: UTF8.self)
+        return PrinterStore.shared.printers.first { $0.id.uuidString == key }
+    }
+
+    private func printerName(_ i: Int) -> String { printer(at: i)?.name ?? "a printer" }
+
+    func index(of p: Printer) -> Int? {
+        let i = zs_farm_printer_find(farm, p.id.uuidString)
+        return i >= 0 ? Int(i) : nil
+    }
+
+    /// The jobs of the farm.
+    var jobs: [zs_farm_job] {
+        _ = generation
+        return (0 ..< zs_farm_job_count(farm)).compactMap { i in
+            var j = zs_farm_job()
+            return zs_farm_job_get(farm, i, &j) == 0 ? j : nil
+        }
+    }
+
+    func jobName(_ id: UInt32) -> String {
+        guard let j = jobs.first(where: { $0.id == id }), let n = j.name else { return "a print" }
+        return String(decoding: UnsafeRawBufferPointer(start: n, count: j.name_len), as: UTF8.self)
+    }
+
+    /// The job of a plate of a window, if it is in the queue.
+    func job(of workspace: Workspace, plate id: UInt64) -> zs_farm_job? {
+        guard let jid = plates.first(where: { $0.value.workspace === workspace && $0.value.plate == id })?.key else { return nil }
+        return jobs.first { $0.id == jid }
+    }
+
+    func plate(of job: UInt32) -> (workspace: Workspace, plate: UInt64)? { plates[job] }
+
+    /// Puts plates of a window in the queue: one order, one job for each
+    /// sliced plate that is not in the queue yet. Returns how many.
+    @discardableResult
+    func queue(_ workspace: Workspace, plates indices: [Int], customer: String) -> Int {
+        let model = workspace.model
+        let list = indices.filter { i in
+            model.plates.indices.contains(i) && model.plates[i].status == ZS_PLATE_STATUS_DONE.rawValue
+                && job(of: workspace, plate: model.plates[i].id).map { $0.state == ZS_FARM_JOB_FAILED.rawValue } ?? true
+        }
+        guard !list.isEmpty else { return 0 }
+        let order = zs_farm_order_add(farm, customer, 0)
+        guard order > 0 else { return 0 }
+        for i in list {
+            guard let app = zs_set_app(model.set, i) else { continue }
+            var t = zs_totals()
+            zs_set_plate_totals(model.set, i, &t)
+            let material = coreString { zs_app_setting_get(app, "filament.material", $0, $1, $2) } ?? ""
+            let nozzle = Double(coreString { zs_app_setting_get(app, "machine.nozzle_diameter", $0, $1, $2) } ?? "") ?? 0
+            let p = model.plates[i]
+            let id = zs_farm_job_add(farm, UInt32(order), model.gcodeName(plate: i), material, p.bedX, p.bedY, nozzle, t.time_s)
+            if id > 0 { plates[UInt32(id)] = (workspace, p.id) }
+        }
+        generation += 1
+        return list.count
+    }
+
+    /// The sends that the farm proposes now (it changes nothing).
+    var proposals: [zs_farm_send] {
+        _ = generation
+        var out = [zs_farm_send](repeating: zs_farm_send(), count: 64)
+        let n = zs_farm_next(farm, &out, out.count)
+        return Array(out.prefix(n))
+    }
+
+    /// After a send that the user confirmed.
+    func sent(job: UInt32, to p: Printer) {
+        guard let i = index(of: p) else { return }
+        zs_farm_sent(farm, job, i, Int64(Date().timeIntervalSince1970))
+        generation += 1
+    }
+
+    /// A person took the print off the bed.
+    func collected(_ p: Printer) {
+        guard let i = index(of: p) else { return }
+        zs_farm_collected(farm, i)
+        generation += 1
     }
 
     // MARK: - the states
@@ -90,15 +240,6 @@ final class FarmMonitor {
     }
 
     // MARK: - the notifications
-
-    private func changed(_ p: Printer, from a: PrinterStatus, to b: PrinterStatus) {
-        let job = b.job.isEmpty ? a.job : b.job
-        if Self.done(b), !Self.done(a) {
-            notify("Ready to collect: \(job.isEmpty ? "a print" : job)", "\(p.name) finished. Take the print off the bed.")
-        } else if Self.failed(b), !Self.failed(a) {
-            notify("Print failed on \(p.name)", job.isEmpty ? "Check the printer." : "\(job) stopped. Check the printer, then clear the bed.")
-        }
-    }
 
     private func notify(_ title: String, _ body: String) {
         NSLog("zslice farm: %@: %@", title, body)

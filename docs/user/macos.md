@@ -88,6 +88,8 @@ The Printers page shows a summary of the farm (printing, ready to collect, faile
 
 A printdeck never starts a print by itself: a plate that you send to it waits in its queue until a person at the deck clears the bed and presses Print.
 
+The queue: Queue on a plate row (or Queue All) puts plates in the queue of the farm. Up Next then proposes each one to a free printer that fits it (the bed, the nozzle, the material), and nothing goes out until you press Send. A ready print has Collected, Bed Clear, which frees the printer for the next job. A failed job waits for another printer, 3 tries at most. The plate rows say where each job is.
+
 ## The printer of a plate
 
 The printer menu in the plate bar assigns the plate to a printer: the plate slices for that printer (its bed, nozzle, and limits), the toolbar shows the printer of the plate in view, and the Printers page sends the plate there.
