@@ -1,0 +1,101 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>The print view: G-code on a printer screen · zslice</title>
+<meta name="description" content="The print view: G-code on a printer screen: zslice documentation.">
+<link rel="canonical" href="https://zslice.beetlebug.org/embedding/print-view/">
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='6' fill='%23171717'/%3E%3Crect x='11' y='8' width='10' height='4' rx='1' fill='%23f4f0e6'/%3E%3Crect x='8' y='14' width='16' height='4' rx='1' fill='%23f4f0e6'/%3E%3Crect x='5' y='20' width='22' height='4' rx='1' fill='%23ff5a1f'/%3E%3C/svg%3E">
+<link rel="stylesheet" href="../../site.css">
+</head>
+<body>
+<input type="checkbox" id="menu">
+<header class="top">
+  <a class="brand" href="../../docs.html"><span class="mark">ZSLICE</span><span class="docs">DOCS</span></a>
+  <label class="menu-btn" for="menu">Contents</label>
+  <nav class="top-links"><a href="../../index.html">Open the app</a><a href="../../user/getting-started/">Get started</a><a href="../../roadmap/">Roadmap</a><a href="../../privacy/">Privacy</a><a href="https://github.com/beetlebugorg/zslice">GitHub</a></nav>
+</header>
+<div class="layout">
+<aside class="side"><nav><a href="../../docs.html">Home</a>
+<a href="../../contents/">All documents</a>
+<div class="group">User guide</div>
+<a href="../../user/getting-started/">Getting started</a>
+<a href="../../user/command-line/">The command line</a>
+<a href="../../user/settings/">Settings</a>
+<a href="../../user/profiles/">Profiles</a>
+<a href="../../user/projects/">Projects</a>
+<a href="../../user/macos/">The macOS app</a>
+<a href="../../user/troubleshooting/">Troubleshooting</a>
+<div class="group">Embedding</div>
+<a href="../../embedding/">Overview</a>
+<a href="../../embedding/c/">C</a>
+<a href="../../embedding/zig/">Zig</a>
+<a href="../../embedding/javascript/">JavaScript</a>
+<a href="../../embedding/print-view/" aria-current="page">The print view</a>
+<div class="group">Internals</div>
+<a href="../../internals/architecture/">Architecture</a>
+<a href="../../internals/one-view/">Plan: one view</a>
+<a href="../../internals/how-slicing-works/">How slicing works</a>
+<a href="../../internals/layer-settings/">Settings for some layers</a>
+<a href="../../internals/arachne/">Arachne walls</a>
+<a href="../../internals/cura-compare/">Compared with other slicers</a>
+<a href="../../internals/contributing/">Contributing</a>
+<a href="../../internals/code-quality/">Code quality</a>
+<a href="../../internals/macos/">The macOS app</a>
+<div class="group">Project</div>
+<a href="../../app/">App</a>
+<a href="../../references/">References</a>
+<a href="../../roadmap/">Roadmap</a>
+<a href="../../privacy/">Privacy</a></nav></aside>
+<main>
+<p class="eyebrow">Embedding</p>
+<h1>The print view: G-code on a printer screen</h1>
+
+<nav class="onpage"><b>On this page</b><ol><li><a href="#build">Build</a></li><li><a href="#the-flow">The flow</a></li><li><a href="#byte-offsets">Byte offsets</a></li><li><a href="#example">Example</a></li><li><a href="#go-cgo">Go (cgo)</a></li><li><a href="#speed-and-memory">Speed and memory</a></li><li><a href="#thumbnails">Thumbnails</a></li></ol></nav><p>A printer host (for example printdeck, in Go on a Raspberry Pi 5) can show the print as the zslice 3D view: the same beads, light, and colors as a slice, in a reduced view with no tools. The host gives the file position of the printer, and the view draws the print up to it. The calls are in <code>include/zslice-app.h</code>, in the part "a print view".</p>
+<h2 id="build">Build</h2>
+<pre><code>zig build lib -Doptimize=ReleaseFast -Dtarget=aarch64-linux-gnu   # the Pi
+zig build lib -Doptimize=ReleaseFast -Dtarget=x86_64-linux-gnu    # a simulator on a PC</code></pre>
+<p>Link <code>zig-out/lib/libzslice.a</code> with <code>-lc -lm -lpthread -ldl</code>. The library loads Vulkan (<code>libvulkan.so.1</code>) when it makes a view, so the program does not link it. The Pi 5 has Vulkan in Mesa (v3dv). A PC with no GPU can use Mesa lavapipe.</p>
+<h2 id="the-flow">The flow</h2>
+<ol><li>Read the file: <code>zs_gcode_open(path, &amp;g)</code>. To stream it (an upload), use <code>zs_gcode_new</code>, then <code>zs_gcode_feed</code> for each piece, then <code>zs_gcode_finish</code>. The reader reads G-code of zslice, Cura, PrusaSlicer, OrcaSlicer, and Bambu Studio.</li><li>Make the view: <code>zs_view_offscreen(800, 480, ZS_VIEW_REDUCED | ZS_VIEW_BGRA, &amp;v)</code>. The view needs no window system and no display.</li><li>Show the file: <code>zs_view_load_gcode(v, g, bed_x, bed_y)</code>. Keep <code>g</code> while the view shows it.</li><li>On each change, set the state, then draw and read the pixels:
+<ul><li><code>zs_view_set_position(v, offset)</code>: the file position that Klipper reports (<code>virtual_sdcard.file_position</code>).</li><li><code>zs_view_set_layer(v, layer)</code>: the scrubber. It shows whole layers up to <code>layer</code>. The next <code>zs_view_set_position</code> follows the print again.</li><li><code>zs_view_touch(v, id, action, x, y)</code>: the fingers. <code>zs_view_reset(v)</code> goes back to the start view.</li><li><code>zs_view_gcode_colors(v, by_feature, 0xRRGGBB)</code>, <code>zs_view_set_dark(v, on)</code>, <code>zs_view_print_look(v, nozzle, lit)</code>.</li><li><code>zs_view_draw(v)</code>, then <code>zs_view_read(v, buf, len, stride)</code>.</li></ul></li><li>Free: <code>zs_view_free(v)</code>, then <code>zs_gcode_free(g)</code>.</li></ol>
+<h2 id="byte-offsets">Byte offsets</h2>
+<p>An offset counts the bytes that the printer has read. At offset <code>p</code>, the printer has read each line that ends at or before <code>p</code>. <code>zs_gcode_get_layer</code> gives the bytes of a layer as <code>start</code> to <code>end</code>, and <code>zs_gcode_layer_at(g, p)</code> is the layer of byte <code>p - 1</code>. <code>zs_gcode_state_at(g, p, &amp;s)</code> gives the layer, the feature of the last bead, the speed, and the position of the last move.</p>
+<h2 id="example">Example</h2>
+<pre><code>#include &lt;zslice-app.h&gt;
+
+int show(const char *path, uint64_t file_position, uint8_t *fb, size_t fb_len, size_t stride) {
+    zs_gcode *g = NULL;
+    zs_view *v = NULL;
+    int rc = zs_gcode_open(path, &amp;g);
+    if (rc != ZS_OK) return rc;
+    rc = zs_view_offscreen(800, 480, ZS_VIEW_REDUCED | ZS_VIEW_BGRA, &amp;v);
+    if (rc == ZS_OK) rc = zs_view_load_gcode(v, g, 280, 280);
+    if (rc == ZS_OK) {
+        zs_view_set_position(v, file_position);
+        rc = zs_view_draw(v);
+    }
+    if (rc == ZS_OK) rc = zs_view_read(v, fb, fb_len, stride);
+    zs_view_free(v);
+    zs_gcode_free(g);
+    return rc;
+}</code></pre>
+<p>A host keeps <code>g</code> and <code>v</code> for the whole print, and calls only the set, draw, and read calls on each update.</p>
+<h2 id="go-cgo">Go (cgo)</h2>
+<pre><code>/*
+#cgo CFLAGS: -I${SRCDIR}/zslice/include
+#cgo LDFLAGS: ${SRCDIR}/zslice/lib/libzslice.a -lc -lm -lpthread -ldl
+#include &lt;zslice-app.h&gt;
+*/
+import "C"</code></pre>
+<ul><li>Give the path as a <code>C.CString</code>, and free it after <code>zs_gcode_open</code>.</li><li>Give the pixels as <code>(*C.uint8_t)(unsafe.Pointer(&amp;buf[0]))</code>. The view does not keep the pointer.</li><li>Call each handle from one goroutine at a time (for example a goroutine that owns the view). Use <code>runtime.LockOSThread</code> in that goroutine: the Vulkan driver can keep state on the thread.</li></ul>
+<h2 id="speed-and-memory">Speed and memory</h2>
+<ul><li>The reader needs about 0.4 s for 85 MB of G-code on a desktop CPU (x86-64). The Pi 5 is slower: plan for a few seconds.</li><li>The reader keeps 24 bytes for each move: 70 MB for an 85 MB file with 3 million moves. It never holds the whole file.</li><li>The view puts 32 bytes for each bead in one GPU buffer, once. A position or a layer only changes how many beads draw.</li><li>An offscreen print view keeps the finished layers in a cached image. When the camera and the colors stay the same, a frame draws only the new beads and the top layer. A touch that moves the camera draws all the beads once.</li><li>The reduced view uses the coarse bead mesh (36 triangles for each bead in place of 100).</li><li><code>zs_view_draw</code>, <code>zs_view_read</code>, and the set and touch calls do not allocate memory.</li></ul>
+<h2 id="thumbnails">Thumbnails</h2>
+<p><code>zs_gcode_thumbnail_png(g, w, h, by_feature, rgb, &amp;png, &amp;len)</code> draws the beads on the CPU (no GPU) in the view of the thumbnails of a slice, and gives a PNG with a clear background. Free it with <code>zs_buffer_free</code>.</p><nav class="pager"><a class="prev" href="../../embedding/javascript/"><span>Previous</span><b>JavaScript</b></a><a class="next" href="../../internals/architecture/"><span>Next</span><b>Architecture</b></a></nav>
+</main>
+</div>
+<footer>zslice is free software (AGPL-3.0-or-later). <a href="../../privacy/">Privacy</a>: no analytics, no cookies, nothing from other sites. <a href="https://github.com/beetlebugorg/zslice/blob/main/docs/build.py">docs/build.py</a> writes this site from <a href="https://github.com/beetlebugorg/zslice/blob/main/docs/embedding/print-view.md">docs/embedding/print-view.md</a>.</footer>
+</body>
+</html>

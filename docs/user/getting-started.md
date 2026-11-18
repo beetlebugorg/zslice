@@ -1,349 +1,85 @@
 # Getting started
 
-## Build zslice
+This guide explains the zslice apps: the web app, the Linux app (GTK), and the macOS app. The three apps have the same window and the same tools. The pictures show the web app. [The macOS app](macos.md) lists where the Mac app differs. To slice with no window, see [The command line](command-line.md).
 
-You need Zig 0.16 (https://ziglang.org/download/).
+1. [Your first print](#your-first-print)
+2. [The window](#the-window)
+3. [Look at the print](#look-at-the-print)
+4. [Parts](#parts)
+5. [Settings](#settings)
+6. [Support](#support)
+7. [Measure and check](#measure-and-check)
+8. [Plates and projects](#plates-and-projects)
+9. [Printers](#printers)
+10. [Print farm](#print-farm)
+11. [History and undo](#history-and-undo)
+12. [Keyboard](#keyboard)
+13. [For each platform](#for-each-platform)
 
-```sh
-git clone <zslice repo> zslice
-cd zslice
-zig build -Doptimize=ReleaseFast
-```
+## Your first print
 
-The tool is `zig-out/bin/zslice`. Copy it to a folder in your `PATH`, or use the full path.
+Do these steps for your first print. You need only this section.
 
-## Slice a part
+1. **Open zslice.** Go to [zslice.beetlebug.org](https://zslice.beetlebug.org/) in a web browser. You do not install the web app. To build the Linux or the macOS app, see [For each platform](#for-each-platform).
+2. **Choose your printer.** At the first start, the printer picker opens on the popular printers. Click your printer, then click **Next** and **Add printer**. If your printer is not in the list, type a part of its name in the search, for example "ender 3" or "k1 max".
+3. **Open a model.** Drop an STL or 3MF file on the view, or click **Open…**. zslice slices the model at once.
+4. **Choose the material and the quality.** Use the **Filament** menu (for example "generic PLA") and the **Quality** menu (for example "standard", 0.2 mm layers) in the header.
+5. **Look at the preview.** Drag in the view to turn it, and turn the mouse wheel to zoom. The print card at the bottom right gives the print time and the plastic.
+6. **Export or send.** Click **Export G-code…** on the print card, and copy the file to your printer. With a printer connection, the button is **Print**. It sends the file to the printer.
 
-```sh
-zslice slice part.stl -o part.gcode
-```
+![The printer picker: the Popular list has 15 printers of Bambu Lab, Prusa, Creality, Elegoo, Anycubic, Voron, and Sovol. The Prusa MK4 is selected, and its card draws its build volume and lists its nozzle, its filament, and its motion limits](../img/printer-picker.png)
 
-zslice reads binary and ASCII STL files. It writes G-code for printers with Marlin or Klipper firmware. When it is done, it shows a summary:
+The print card can show a note in a colored box. Read it before you print:
 
-```
-69 layers, 1.88 m filament (5.6 g), about 11 min, sliced in 37 ms
-```
+- "About 890 mm² of the part hangs in the air with no support": click **Turn on support**.
+- "part.stl is only 2.36 mm. Was the file in inches or in meters?": click **Inches (×25.4)** or **Meters (×1000)**.
+- "A part is off the bed or on another part" (red): move, turn, scale, or cut the part.
 
-The time is an estimate with the acceleration and the corner speed of the machine settings. Heat-up and the start G-code are not in it.
+![Three print cards: a note that 890 mm² of a part hangs in the air, with Turn on support; a note that a part is only 2.36 mm, with Inches and Meters; and a red warning for a part off the bed](../img/print-card-hints.png)
 
-Without `-o`, zslice writes the G-code to the standard output.
+## The window
 
-## Change settings
+![The window of the web app, with numbers: 1 the header, 2 the tool strip, 3 the layer slider, 4 the dock, 5 the print card](../img/guide-window.png)
 
-Use `-s group.name=value` for each change:
+The view fills the window. The header is at the top, and four things float over the view:
 
-```sh
-zslice slice part.stl -o part.gcode \
-  -s project.layer_height=0.15 \
-  -s project.wall_count=3 \
-  -s filament.nozzle_temp=220
-```
+1. **The header.** At the left: Open and the name of the file. In the middle: 2D and 3D, **Search** (`/`), the colors of the lines, and **+** (add models to this plate). At the right: the printer, the filament, and the quality menus, **Printers** (the Printers page), the settings panel (N), and the main menu.
+2. **The tool strip** (at the left): Select (S), Move (M), Turn (R), Support (U), Measure (T), then Gaps (G) and Check. The key of each tool is in the corner of its button.
+3. **The layer slider** (at the right): the top knob is the top layer that shows, and the bottom knob cuts away the layers below it.
+4. **The dock** (at the bottom) has three groups. The plates: ‹ › "Plate 1 of 1", All, + Plate, and ×. The replay: ▶, its speed, and the scrub bar. The history: ↶ ↷, **History**, and a mark for each change.
+5. **The print card** (at the bottom right): the print time, the plastic, the cost, the layers, the main settings of the print, and **Export G-code…** or **Print**. It hides on an empty plate.
 
-To see all settings and their default values:
+The settings panel is at the right. It has only the settings. Press N, or click the panel button in the header, to show it or hide it. It slides over the view. Click **Pin** to put it beside the view as a column. Drag the splitter to change its width. The app keeps your choice for the next start.
 
-```sh
-zslice settings
-```
+The history is a popover over the dock. The project is a dialog: **Open a project…** in the main menu. The Printers page covers the view: **Printers** in the header. **‹ Back to the plate** closes it.
 
-The [settings reference](settings.md) explains each one. To keep settings in files (one for your printer, one for each filament), see [Profiles](profiles.md).
+In a narrow window, the dock fills the width, and the print card sits over it. For a phone, see [For each platform](#for-each-platform).
 
-### See which settings matter for a part
+## Look at the print
 
-`zslice sweep` slices the part again and again. For each project and filament setting, it tries values across the usual range, with the other settings at their base values:
+### Move the view
 
-```sh
-zslice sweep part.stl -m my-printer -f my-pla -p my-project -o sweep.tsv
-```
-
-The file has one row for each slice: the setting, the value, the print time, the plastic in grams, the cost, the travel, and the retractions. At the end, the tool lists the settings that change the print time and the cost of this part the most. The cost is the plastic weight times `filament.price_per_kg`. `--points N` sets the number of values for a number setting (default 5), and `--only TEXT` sweeps only the settings with TEXT in their name. A sweep of the Benchy (382 slices) takes about 45 seconds.
-
-### The three groups
-
-The settings have three groups. Each group has a different owner:
-
-| Group | What it describes | When it changes |
-|---|---|---|
-| `machine` | The printer: the bed size, the nozzle, the speed limits, the start and end G-code. | When you change the printer. |
-| `filament` | The material: the diameter, the temperatures, the maximum flow, the cooling. | When you change the filament. |
-| `project` | What you want for this part: the layer height, the walls, the skin, the infill. | For each part. |
-
-The `engine` group has options that do not change the print, for example the number of threads.
-
-### How much plastic
-
-zslice computes the plastic for each line from the shape of a real bead: the nozzle presses it flat on the top and the bottom, and its sides are round. A line 0.44 mm wide and 0.2 mm tall has a cross section of 0.079 mm². If your lines come out too thin or too thick, calibrate `filament.flow_ratio`.
-
-zslice 0.1 used a rectangle (width x height) for this area, as Cura does. That is about 11 % more plastic for this line. If you calibrated `flow_ratio` with zslice 0.1, calibrate it again.
-
-### Speeds
-
-A project does not set speeds in mm/s. It sets a ratio (0 to 1) for each feature, for example `project.outer_wall_speed=0.5`. zslice computes the allowed speed of each line from two limits:
-
-1. The machine limit: `machine.max_speed`.
-2. The flow limit of the filament: `filament.max_flow` divided by the cross section of the line (line width x layer height). A wide, tall line needs more plastic for each millimeter, so it must go slower.
-
-The allowed speed is the lower of the two. The ratio of the feature then scales it. Example, with the defaults: a 0.44 mm x 0.2 mm line can go at 12 / (0.44 x 0.2) = 136 mm/s. The outer wall ratio is 0.5, so the outer wall goes at 68 mm/s.
-
-Thus one project works on a slow printer and on a fast printer, and with PLA and with TPU. Only the machine and filament settings change.
-
-## Look at the layers
-
-`preview` writes an SVG picture of one layer. Open it in a web browser.
-
-```sh
-zslice preview part.stl --layer 20 -o layer20.svg
-```
-
-| Color | Feature |
+| Mouse or touch | Action |
 |---|---|
-| Orange | Outer wall |
-| Yellow | Inner walls |
-| Blue | Skin (solid top and bottom fill) |
-| Green | Sparse infill |
-| Purple | Ironing |
-| Brown | Skirt and brim |
-| Light gray | Support |
-| Dark gray | Support interface |
-| Teal | Slope smoothing (beads in the steps of a sloped top) |
-| Lime | Slope ironing (ironing over the steps of a sloped top) |
-| Gray dashes | Travel moves |
+| Left drag | Orbit: turn and tilt around the part. The bed stays level. |
+| Middle or right drag | Pan: move the view. |
+| Mouse wheel | Zoom toward the pointer. |
+| Two fingers pressed down on a touchpad, and a drag | Pan. |
+| A light two-finger swipe, or a pinch on a touchpad | Zoom toward the pointer. |
+| One finger on a touch screen | Orbit. |
+| Two fingers on a touch screen | Pinch to zoom about the point between them. A move of that point pans. |
+| Double-click on a side of a part | The view turns to face that side, and zooms to it. |
+| Double-click elsewhere | Reset the view. |
 
-The light gray area is the outline of the layer. Each line is drawn at the line width, so you can see gaps and overlaps.
+**2D** in the header shows the top layer from above, as a drawing. **3D** shows the print as beads of the real width and height. Skin lines are pressed flat, and connected lines look connected.
 
-Layer numbers start at 0. If the number is too large, zslice shows the number of layers in the part.
+The colors menu in the header colors the lines by filament, feature, speed, flow, layer time, or line width. With speed, flow, layer time, or line width, a legend gives the range. In the feature colors, the outer wall is orange, the inner walls are yellow, the skin is blue, the infill is green, bridges are sky blue, and support is gray. Seams, travel moves, and retractions show as marks.
 
-## Add your printer
+### The layers
 
-At the first start, zslice opens the printer picker. Later, pick "Add a printer…" at the end of the printer menu in the header bar.
+Drag the top knob of the layer slider to see the print up to a layer. Drag the bottom knob to cut away the layers below, and see inside the part at any height. Orange marks at the right of the slider show the layers with changes of their own.
 
-1. Type a part of the name in the search: "ender 3", "mk4", "k1 max", "voron 2.4". The list narrows as you type. Or pick a brand at the left: its models show in groups by series.
-2. Click a model. The card at the right draws its build volume to scale (the red dot is X0 Y0 of the G-code), with the print sheet of the printer on the plate if the library has one, and lists its nozzle, its filament, its heating, its firmware, and its motion limits.
-3. Click Next (or double-click the model). Check the name, the nozzle, the filament diameter, and the size. Set the connection, and test it.
-4. Click "Add printer". The printer is the current printer, with its machine settings.
-
-The library has more than 1000 printers of more than 180 brands. The data comes from the printer definitions of Cura, PrusaSlicer, and OrcaSlicer ("Data from" on the card). zslice uses the values of the definitions with two choices of its own:
-
-- The print speed (`machine.max_speed`, the base of the speed ratios) follows the acceleration of the printer: 100 mm/s below 1000 mm/s², 150, 200, and 300 mm/s from 10000 mm/s². It stays under the speed limit of the firmware.
-- Some definitions have a start G-code with scripts (`{if ...}`), which zslice cannot run. Such a printer gets the start G-code of zslice, and the card says so. Check the start G-code (Printer settings, G-code) before the first print.
-
-If your printer is not in the list, pick "My printer is not in the list" at the end: the generic printer, with the size that you enter.
-
-### The bed in the 3D view
-
-For most printers of the library (830 of 1080), the 3D view shows the bed of the printer under the plate: the shape of the bed, and the print of the sheet (the logo and the marks) if the source has one. The bed is a soft gray, so the print stands out. The parts of a bed model above the plate (a frame, a back plate) are see-through. The 10 mm grid stays on the bed. A printer with no bed model in the library, and the generic printer, show the grid alone.
-
-The setting `machine.model` (Printer settings) has the id of the model in the library, for example `prusa-mk4s`. The picker sets it. A printer from before this setting gets its bed if its name is the name of a model in the library. Clear `machine.model` to see the grid alone.
-
-### Printers on your network
-
-The picker also searches the local network (mDNS) and lists the printers that it finds under "On your network": OctoPrint, printdeck, Moonraker (Klipper), and PrusaLink. Click one: zslice fills its address and its kind in the second step. If the printer tells its model (PrusaLink) or its bed (Klipper), zslice selects the model; else pick it in the list. An OctoPrint or printdeck printer needs its API key in the second step.
-
-The web app cannot search the network: browsers do not allow the mDNS packets. Enter the address of the printer in the second step.
-
-## Printers
-
-Open Preferences (the menu, or Ctrl+,). The Printers page lists your printers. Each printer has its own machine settings (the bed, the nozzle, the speeds, the start G-code) and a connection:
-
-- None: export a G-code file.
-- printdeck, or OctoPrint: the address of the printer and its API key.
-- Moonraker (Klipper): the address of Moonraker.
-- USB: the serial port and the speed. The app sends the print itself, line by line, so the computer must stay on while it prints.
-- Bambu Lab (LAN mode, in the macOS app for now): the printer shows on the network search with its name and model. Its access code (on the screen of the printer) is the password. zslice uploads the file, and starts the print only after you confirm that the plate is clear. This is not yet tested with a real Bambu printer.
-
-A printdeck with a secure address (`https://….d.printdeck.beetlebug.org`, on its System page) works from the web app on any browser: paste that address. zslice tries the secure address first, and the plain address after it.
-
-"Test the connection" shows what the printer tells: its state, its bed and nozzle (OctoPrint, Moonraker), its motion limits and the filament in it (printdeck). "Use the printer's bed, nozzle, and motion" copies the bed, the nozzle, and the motion limits (acceleration, corner speed, Z speed and acceleration: so the time estimate plans as the printer moves) to the printer settings, and "Use the filament in the printer" copies the filament.
-
-With a printdeck printer, the status bar also shows the printer's own estimate after each slice, for example "LulzBot TAZ Workhorse: 1 h 41 min (3 min start)". printdeck learns it from its past prints: the time of the start macro (homing, heating, probing, priming), and how its real move times compare with the plan. zslice sends the G-code to the printer for this (compressed), and only reads the answer: the printer does not keep the file or print it.
-
-printdeck also tells which roll of filament is in the printer and how many grams are left on it. The status bar shows it ("Operational · Gray, 818 g left"), and the cost of the print uses the price of that roll (else `filament.price_per_kg`). If a print needs more filament than the roll has left, zslice asks before it sends the print.
-
-Each roll keeps its own filament settings ("Keep filament settings for each roll in the printer" in the Preferences, on by default). zslice saves them for the roll in the printer (in `rolls/` in the settings folder), with each change, so the tuning of a roll (its flow, its temperatures) stays with it. When you load another roll, its settings come back. A roll that zslice has not seen starts from the settings before, with its name, diameter, and color; a roll of another material starts from the built-in profile of that material.
-
-Pick the printer in the menu at the left of the header bar. With a connection, the main button ("Print to Printdeck", "Print to OctoPrint", "Print to Moonraker", or "Print" over USB) puts the G-code on the printer and starts the print; its menu has "Upload only" and "Export a G-code file". The status bar shows the state of the printer and the progress of its print.
-
-The API keys are in `~/.config/zslice/app.ini`, which only you can read.
-
-"Manage printers…" in the web app, and the Printers page of Preferences in the GTK app, have the connection, the API key, and **Get a key** for each printer. Get a key asks the printer for a key of its own for zslice: the printer asks "Allow zslice to use the Printdeck?" on its touch screen (printdeck), or in its web page (OctoPrint, with the App Keys plugin). Allow it within 2 minutes, and zslice keeps the key. You can also copy the key: printdeck shows it on its System page (`http://<printer>/system`, "Slicer API key"), and OctoPrint in Settings › API. A printdeck starts a print from zslice only after a press of Print on its screen.
-
-## The Printers page
-
-The **Printers** page shows all your printers with a connection, side by side, for a shop with more than one printer. Open it with **Printers** in the header (or the main menu). It covers the view; **Back to the plate** returns. Each tile has the state of the printer, its job with the progress and the time left, and the filament in it. The tiles read again every 10 seconds while the page shows.
-
-- **Send the plate** on a tile sends the active plate to that printer.
-- **Plates to print** lists each plate with parts, with its time and filament, the printers that fit it (a printer that tells a smaller bed than the plate does not), the free printers first, and **Send**. A busy printer says when it is free ("busy, free in 1 h 5 min"). A plate that you sent has a check mark and "sent to <printer> at <time>".
-
-Each send asks first: "Is the bed clear?". It also warns when the printer looks busy, or when the plate is sliced for another printer (choose that printer in the printer menu to slice the plate for it first).
-
-## Your settings stay
-
-The app saves the machine, filament, and project settings that you change, and loads them at the next start. They are in `~/.config/zslice/machine.toml`, `filament.toml`, and `project.toml`. Each file has only the settings that differ from the defaults, with the help of each one, in the profile format (see docs/user/profiles.md), so you can also edit them. If a file does not load, the app says why in its log and keeps a copy with the extension `.bad`.
-
-## Browse the settings
-
-The Settings page of the app has three columns:
-
-1. The sections of each group (Project, Filament, Machine, Engine). The search field above them finds settings by name or help text.
-2. The settings of the section, with their values.
-3. The selected setting: its value, its default (with a Reset button), what it does, and the lines of your project that it changes, with their share of the print time.
-
-The preview shows the lines that the setting changes in their feature colors, and the other lines become faint ghosts, so lines inside the part (infill) show. A section shows the lines of all its settings. Some settings change no line, and the preview shows marks for them:
-
-- the seam: a red mark at the start of each outer wall loop (the 3D view also shows the small seam blob of a real print)
-- travel moves: blue lines between the paths, lifted by the z hop
-- retractions: pink marks where the filament pulls back
-
-A setting that changes only the G-code (a temperature, for example) shows all lines in their feature colors, and its page says what it changes. Use Right and Left to move between the columns.
-
-## See why a line is what it is
-
-In the app, click a line in the 2D or 3D view. The Selected page shows what the line is (for example the outer wall on layer 12). At the top are its planned speed, its real speed (after the slow-down for cooling), and its plastic flow. Below them are the settings that change the line, in three sections: Speed, Shape, and Material. "How these values come about" explains each number.
-
-Change a setting there, and the app slices again and shows the new values for the same line. The page stays where it is.
-
-Changes on the Selected page are for the loaded part only, never for other prints. "Change for" says where they go: the whole part (all layers), this layer, this layer and up, or this layer and down. A changed setting shows in the accent color, with a button to remove the change. Some settings cannot change for some layers (for example the first layer height and the support angle); they are off in a layer choice. The settings reference marks the settings that can change per layer. A new layer height starts with the selected layer. The printer settings are off on this page; change them in Settings. The Settings page has the defaults for all prints.
-
-Each number has its unit after it. A ratio shows as a percentage: a skin speed of 70 % is 70 % of the speed that the machine and the filament allow.
-
-To change a number:
-
-- Type it. The app uses the value after a short pause, on Enter, or when you leave the field.
-- Press Up or Down to step it by one unit of its last decimal place. Hold Shift for 10 steps, or Ctrl for a tenth of a step.
-- Drag the name of the setting to the left or the right.
-- Drag its slider. The slider covers the usual values. The preview follows as fast as the slicer can go: a change of the infill or the speeds keeps the walls and the skin areas of the last slice, so a new slice of a mid-size part takes less than 0.1 s.
-
-A value out of the usual range shows in the warning color, and its tooltip gives the usual range. A value out of the limits of the setting (for example a 300 mm brim) is an error, and the tooltip gives the limits.
-
-## The panel and the print card
-
-The view has the whole window. The print card floats at the bottom right of the view: the print time, the plastic, the layers, Export or Print, and the main settings of the print (the layer height, the walls, the infill, the support, the brim or the skirt, the temperatures, and the nozzle). Click one of these settings to change it in the search.
-
-The panel has all settings, and the long form of the selected line. Press `N`, or click the panel button at the top right, to show it or hide it. It slides over the view. Click **Pin** to put it beside the view, as a column with a splitter; click **Pin** again to let it slide over. Esc hides it when it slides over the view. A link to a setting shows the panel. The app keeps the choice for the next start. A hidden panel shows the whole print: the lines of the selected setting show only while the panel shows.
-
-A click on a line opens a card next to it: the feature and the layer, the planned speed, the real speed, and the flow, why the line is slow, its size (a circle shows its diameter), and the settings that matter for it. The card picks them from the line: the setting that makes it slow (the minimum layer time of a short layer, or the acceleration for short segments), the first layer settings on the first layer, a setting that you changed, and then the main settings of its feature (for infill: the density, the pattern, and the speed). Each pick says why it is there. Change a setting in the card, and the part slices at once. **Fade the others** shows the line solid and the other lines as faint ghosts. **All settings…** opens the Selected page of the panel. Esc, ×, or a click on no line closes the card.
-
-## The part card
-
-With the Move tool (M) or the Turn tool (R), or Ctrl and a click with any tool, a click on a part selects it, and a card opens next to it:
-
-- its name, its size, and its turn;
-- **Duplicate** (D): a copy at a free place on the bed, with the settings of the part;
-- **Split to parts**: each separate body of the part becomes a part of its own, at its place, with the settings of the part (see "Cut a part" below);
-- **Cut…**: cut the part in two with a level plane (see "Cut a part" below);
-- **Best orientation** and **Less support**: turn the part;
-- **Reset**: the orientation and the scale of the file again;
-- **Remove** (Delete);
-- the settings that the part has of its own, each with an editor and × (the value of the plate again);
-- the keyboard: Tab and Shift+Tab select the next part and the part before; the arrow keys move the selected part 1 mm (with Shift: 10 mm); R with Left or Right turns it 15°; Esc clears the selection. In the web app, the part slices after a pause of 0.6 s in the keys; in the GTK app, each key slices at once;
-- **+ Add a setting for this part**: the search for this part. It shows only the settings that a part can have of its own, and a change goes to the part.
-
-### Cut a part
-
-Cut a part that is too tall or too big for the bed, or a part that prints better in two pieces (for example with less support):
-
-1. Select the part, and click **Cut…** on its card.
-2. Set the height of the cut with the slider or the number. An orange plane shows the cut in the view.
-3. Keep **Turn the top over** on, so the top prints on its flat cut face.
-4. Keep **Pegs to line up the parts** on, and choose the count and the diameter (2 pegs of 5 mm at first).
-5. Click **Cut**.
-
-The part below and the part above each have a closed cut face. With pegs, both cut faces get matching holes, and the pegs print as small parts of their own next to them. After the print, glue the pegs into the holes of one part, and press the other part on: the pegs line the parts up. The holes are 0.15 mm wider than the pegs. A peg goes only where the cut face is wide enough for it and its wall, and where each part has 1 mm of material past the end of its hole. A message says how many pegs fit. Undo (Ctrl+Z) puts the part back.
-
-Drag the top row of a card (the part card or the line card) to move it. It keeps that place until it closes.
-
-The background of the view follows the dark mode of your system (in the GTK app: the theme of the app, which follows the system unless Preferences sets one).
-
-## Keyboard shortcuts
-
-Press `?` to see all keyboard shortcuts of the app, grouped (in the GTK app, also in the main menu). Type in the sheet to filter it. Esc closes it.
-
-## Search settings and actions
-
-Press `/` (or click **Search** in the header) to search the settings and the actions. Type a few letters, for example `infill`, `brim`, or `export`. A word also finds its other names: `speed` finds the motion settings, `perimeters` the walls, `cooling` the fans, and `temp` the temperatures.
-
-- Each setting in the results has its control: a slider and an entry for a number, a list for a choice, and a switch. Change it right there. The part slices again at once, and the view under the search shows the new lines. A drag of a slider slices as you drag.
-- The view does not change while you go through the results. Click the eye of a setting (or press V on it) to show only the lines that it changes, with the other lines as ghosts; click it again, or close the search, for all lines.
-- The tag under each setting says its section and where its value comes from (the printer, the profile, or this print).
-- An action (Export G-code, Print, Arrange the plate, Undo, and others) runs with a click or Enter.
-- The search does not block the view: while it is open, drag in the view to turn it, use the wheel to zoom, and click a line, to see the change from any side. Esc, `/`, or × closes it.
-- It opens at the left of the view. Drag its top bar to move it; it opens at the same place next time. A double click on the top bar puts it back.
-- Keys: Up and Down go through the results. Left and Right change the value of the result (a step, or the next choice). Space or Enter turns a switch or runs an action. Tab goes into the controls. Esc closes the search.
-
-## Tools
-
-The tool strip at the left of the view picks the tool of the mouse. In the GTK app, the strip also has **Gaps** (G) and **Check**. The key of each tool is in the corner of its button:
-
-| Tool | Key | What a click does |
-|---|---|---|
-| Select (arrow) | S | Selects a line. The Selected page shows what it is and its measurements. |
-| Move (cross) | M | A drag on a part moves it, and the wheel over it turns it by 15°: the same as Ctrl in the other tools. |
-| Turn (arrow in a circle) | R | Click a part: three rings go around it. Drag the red ring to turn the part about X, the green ring about Y, and the blue ring about Z (on the bed), in steps of 15° (Shift: 5°). The part turns at once. In the web app, it slices once, when you let go of the ring; in the GTK app, each step slices at once. Keys: Left and Right turn it about Z, Up and Down about X, Page Up and Page Down about Y. |
-| Measure (ruler) | T | Two clicks measure between two points of the print or the bed, in the 3D or the 2D view. The distance shows on a label over the middle of the tape, with its parts along x, y, and z. A point near the end of a line snaps to it. A click on a circle or an arc (a hole, a boss) shows its diameter and radius, selects the line, and puts the point at its center, so two holes give the distance between their centers. Hold Shift for no snap. Esc clears the measure. |
-| Support (a shelf on posts) | U | Click points on the part to draw a support area. See "Draw support" below. |
-
-The readout floats on the tape: the distance, its parts along X, Y, and Z, and the distance on the bed. A gold line joins the two points, in the 3D and the 2D view.
-
-**Measurements of a line.** The Selected page shows them for the selected segment: its length, the length of the straight edge it is a part of, the length and the size of the whole line, and for a circle its radius and diameter, or for a segment in an arc the radius and the angle of the arc. They follow the segment as h and l move it.
-
-## Move the 3D view
-
-| Mouse | Action |
-|---|---|
-| Left drag | Orbit: turn and tilt around the part; the bed stays level, and the tilt stops at 89° over the top and under the bed |
-| Middle or right drag | Pan: move the view |
-| Scroll (mouse wheel) | Zoom toward the pointer |
-| Two fingers pressed down on a touchpad, and a drag | Pan |
-| A light two-finger swipe, or a pinch | Zoom toward the pointer |
-| Double-click on a side of a part | The view turns to face that side, and zooms to it |
-| Double-click elsewhere | Reset the view |
-| Left click | Pick a line (see below) |
-
-## The context menu
-
-Right-click a line in the 3D view (or press Shift+F10 with a line selected) for the menu:
-
-- **Preview to this layer** (C): the layer slider goes to the layer of the line, so the part shows as printed up to there. Click the side of the part at a height, then press C.
-- **Show all layers** (Shift+C), when the slider hides some layers.
-- **New profile from here up** (or **from here down**): a layer profile from the layer of the line. See "Layer profiles" below.
-- **Add support here** › Grid, Tree, or Bridge (a pad): support of that kind under a 3 mm disk at that place, on that layer. It works also when support is off in the settings.
-- **Block support here**: no support from the settings under that place.
-- **Remove the support marks here**, and **Clear all support marks**.
-- **Copy for AI**: copies a report of the line to the clipboard, to paste into an AI chat and ask why it prints as it does. The report has what the line is, its numbers and why, the values of the settings that change it, the printer and the filament, its points, and its place in the G-code: zslice writes the G-code of the slice to `~/.cache/zslice/last-slice.gcode`, and the report gives the line numbers in that file and the lines.
-- **Reset the view**.
-
-A right drag turns the view, and a right click with no drag opens the menu.
-
-## Draw support
-
-The Support tool (U) draws support areas on the part. Support grows under an area, or an area keeps support out. This works also where the support angle gives no support, and also when support is off in the settings.
-
-1. Press U. A card shows at the top left of the view.
-2. Pick the kind on the card: **Support grid**, **Support tree**, or **Block** (no support).
-3. Turn the view so that you see the surface that needs support. For the bottom of a shelf, look from below.
-4. Click points on the surface around the area. A point snaps to the end of the nearest line, as the measure tape does. Hold Shift for no snap.
-5. Click the first point again, or press Enter, to close the area. The plate slices again.
-
-Support grows under all of the surface in the area that faces down, between the lowest and the highest point that you clicked. A Block area removes the support of that surface.
-
-While the tool is on, the support lines are faint, so the outlines of the areas show through them. Clear **See through the support** on the card to see them solid. A click ignores the support lines, so it finds the part under them.
-
-Edit an area:
-
-- Click its outline to select it. The card shows its kind, its points, and its heights.
-- Drag a point. The outline follows the pointer at once, and the plate slices when you let go.
-- Change the kind on the card, or press Delete (or click **Delete**) to remove the area.
-
-Keys while you draw: Backspace removes the last point, and Esc stops the area. Esc again clears the selection.
-
-The areas are in the project file and the plate 3MF, and Ctrl+Z undoes each change: a drag is one step.
-
-## Scrub through a layer
-
-The slider on the bar at the bottom of the preview moves the nozzle through the top layer of the layer slider. At the left end, the layer starts; at the right end, the layer is done. The label gives the time in the layer. Play moves the bar, and a drag of the bar pauses the replay. A nozzle in the 3D view shows where the print is.
-
-## Keys in the preview
-
-Click in the preview first, so that it gets the keys.
+Click in the view first, so that it gets the keys:
 
 | Key | With a selected line | With no selection |
 |---|---|---|
@@ -352,89 +88,204 @@ Click in the preview first, so that it gets the keys.
 | ↑ or k | The nearest line on the layer above | The top layer up one |
 | ↓ or j | The nearest line on the layer below | The top layer down one |
 | Page Up, Page Down | 10 layers up or down | 10 layers up or down |
-| C | Preview to the layer of the line | — |
-| Shift+C | All layers | All layers |
-| Esc | Clears the selection | — |
+| C | Show the layers up to the line | — |
+| Shift+C | Show all layers | Show all layers |
+| Esc | Clear the selection | — |
 
-A click on a line selects the line (yellow) and the segment under the pointer (orange). After the last segment of a line, → goes on to the first segment of the next line. Shift with ↑ or ↓ (or k or j) moves the bottom knob of the layer slider. A line of the same feature (for example an outer wall) wins over a line of another feature that is a little nearer. The layer slider follows the selection.
+Shift with ↑ or ↓ (or k or j) moves the bottom knob of the layer slider.
 
-## Gaps
+### Replay the print
 
-Turn on **Gaps** (G, in the tool strip of the GTK app) to see the gaps of the top layer of the layer slider in red: the areas that should be solid that no line covers (the sparse infill is left out, as it is sparse on purpose). The header gives the number of gaps of the layer and their area.
+Press ▶ on the dock. The 3D view shows the print as it grows, line by line, at the speed in the menu next to it (1× is the real speed). The scrub bar moves the nozzle through the top layer: at the left end the layer starts, and at the right end it is done. The label gives the time in the layer. A drag of the bar pauses the replay. A nozzle in the 3D view shows where the print is.
 
-Click a gap to select it. The Selected page then gives its size, its width, the lines next to it, and the settings that can close it, the best first, with the value to try and why. **Apply** changes the setting for all prints; **This layer** changes it only for the layer of the gap. The part slices again, and the page shows the same gap with the new settings, or says that it is closed.
+### Click a line
 
-`zslice gaps part.stl` lists the gaps of each layer on the command line (`--layer N` for one layer).
+![A click on the chimney of the Benchy selects an outer wall near the top. The line card gives 75 mm/s planned, 11 mm/s real, and the reason: the layer is short, so it prints slower to cool](../img/guide-line-card.png)
 
-**Gap fill** (`project.gap_fill`, on by default) closes most gaps by itself: each narrow area between the walls or in the skin gets one line along its middle, with a width that follows the area. On the 3DBenchy it fills 92 % of the gap area. Turn it off to see the gaps that it fills.
+Click a line in the 2D or 3D view. The line becomes yellow, and the segment under the pointer orange. A card opens next to the line:
 
-**Retractless skin** (`project.skin_link_length`, 15 mm by default) prints the top and bottom skin of each island as few paths as it can. The skin lines split into pieces at holes and corners, and each piece is one zigzag. From the end of a zigzag, the nozzle goes on to the next zigzag along the walls and prints on the way, if that way is at most 15 mm long. A travel comes only where no such way is. At a hole, both sides fill before the skin over the hole. On the 3DBenchy (with gap fill off) the skin travels go from 955 to 330, for 1 % more filament. Set it to 0 to print each piece on its own.
+- the feature and the layer, for example "Outer wall · layer 228";
+- the planned speed, the real speed, and the flow;
+- why the line is slow, in plain words, for example "the layer is short, so it prints slower to cool";
+- its size: the length of the segment and of the loop, and the diameter of a circle;
+- the settings that matter for this line, each with its editor. The card picks them from the line. First the setting that makes it slow, then the first layer settings on the first layer, then a setting that you changed. The main settings of its feature come last. A note under a setting says why it is there.
 
-## Check the print
+Change a setting in the card, and the part slices at once. **Fade the others** shows the line solid and the other lines as faint ghosts. **All settings…** opens the long form of the line in the panel, with one back arrow to the settings. Drag the top row of the card to move it. Esc, ×, or a click on no line closes the card.
 
-**Check** (in the tool strip of the GTK app) lists what can make the print fail or print badly, the worst first:
+The long form has the planned speed, the real speed, and the flow, and then the settings that change the line in three groups: Speed, Shape, and Material. "How these values come about" explains each number. It also gives the measurements of the segment: its length, the length of its straight edge, and the length of the whole line. For a circle or an arc, it gives the radius. They follow the segment as h and l move it.
 
-- an overhang with support off, flatter than `project.support_angle`;
-- a bridge, with its span (a long bridge can still sag);
-- a shape that starts in the air (an island);
-- a line that needs more plastic than the hot end melts (`filament.max_flow`);
-- layers that print in less than `filament.min_layer_time` (one issue for each run of such layers);
-- a layer with many retractions.
+Shift+click adds a line to the selection, or removes it from the selection. With more than one line, a change for "This layer" goes to the layers of all of them.
 
-Each issue says what it is and which setting changes it. Click an issue: the view goes to its layer, and the line of the issue (or the line nearest to it) is selected. `zslice check part.stl` prints the same list.
+### Edit one line
 
-## Bridges
+The line card has three edits for the selected line:
 
-A bottom skin over air that solid plastic holds at its sides is a bridge. zslice prints it across the air, in the direction where the longest line is the shortest, of the directions where the lines start and end on plastic. The lines go 1.5 mm into the plastic around the bridge (the anchors), and join there, so the nozzle does not travel over the air. The parts of the walls over air print as bridges too.
+- **Don't print this line** (or Delete): the line stays out of the print.
+- **−10 % plastic** and **+10 % plastic**: less or more plastic for the line.
 
-Bridges print at `project.bridge_speed` (a ratio of the allowed speed), with `project.bridge_flow` and `project.bridge_fan`. The fan goes back to the fan of the layer after them. In the previews, bridges are sky blue, and the G-code marks them `;TYPE:BRIDGE`. `project.bridges` turns all of this off.
+**Add a drop of plastic here** in the menu of the view puts a dot of 1 mm of plastic at that point, on the top layer. Use it to fill a small gap. Each edit is one step of the history, so Ctrl+Z undoes it. The project file keeps the edits, and the History popover lists them.
 
-## The print card
+### The menu of the view
 
-The print card at the bottom right of the view shows the print time (with a printdeck printer, its time with the heat-up and the start), the plastic in grams and meters, the cost, and the layers. Under it: the state of the slice, the islands warning, and the printer with the roll in it. Its button prints on the printer ("Print to Printdeck", with "Upload only" and "Export a G-code file…" in its menu), or exports the G-code if there is no printer.
+Right-click a line in the 3D view (or press Shift+F10 with a line selected):
 
-## Undo
+- **Preview to this layer** (C): the layer slider goes to the layer of the line.
+- **Show all layers** (Shift+C), when the slider hides some layers.
+- **Add support here** › Grid, Tree, or Bridge (a pad), **Block support here**, **Remove the support marks here**, and **Clear all support marks**. See [Support](#support).
+- **Copy for AI**: copies a report of the line to the clipboard. Paste it into an AI chat, and ask why the line prints as it does. The report has what the line is, its numbers and why, the settings that change it, the printer and the filament, its points, and its place in the G-code.
+- **Add a drop of plastic here**.
+- **New profile from here up** (or **from here down**), in the GTK and macOS apps. See [Settings for some layers](#settings-for-some-layers).
+- **Put this side on the bed**, and **Placement**. See [Parts](#parts).
+- **Test print: the top layer…** saves the G-code of the top layer alone, on the bed. With the slider cut to some layers, **Test print: the layers shown…** saves those layers, lowered to the bed. Compare the test print with the 3D view.
+- **Reset the view**.
 
-Ctrl+Z undoes a change of the settings or of the plate (a move, a turn, a scale, a removed part, the settings of a part), and Ctrl+Shift+Z (or Ctrl+Y) redoes it. A drag of a slider is one step. The main menu has Undo and Redo too. The undo list keeps 100 steps; the plates in it take at most 200 MB, so on a plate of large parts the oldest steps go first.
+## Parts
 
-## History
+![The Turn tool on a board: three rings go around the part, and the part card shows its name, its size, and its actions](../img/guide-part-card.png)
 
-Each change of the settings or of the plate is a change in the history (the steps of undo and redo). Two views show it:
+### Select a part
 
-- **The timeline** under the preview: one badge for each change, the oldest at the left, as the timeline of Fusion. The color and the glyph of a badge show the kind of change: walls (orange squares), infill (green grid), top and bottom (blue lines), speed (purple chevrons), temperature and cooling (red thermometer), support (gray pillars), layers (amber lines), quality (pink star), the printer, and the place of a part (teal: move, turn, scale, add, remove). Point at a badge to see its changes in words ("Infill density 28 % → 45 % · This print"). Click a badge to go back to that change: the preview slices as it was then, at once. The changes after it stay (dimmed) until you edit something. With the focus on the timeline, ← and → go to the change before and after.
-- **The list of the changes**: click **History** on the bar at the bottom of the view (or History in the main menu). It opens over the bar. It has each change with its badge, its time, and its changes, the newest first, and the scope of each change: the printer, the filament, this print, a part, or a layer range ("Layers 86 and up"). Click a change to go back to it, or use ↑ and ↓. Space goes back to the change shown before, so two changes are easy to compare. The ↶ button of one setting in a change undoes only that setting and keeps the later changes: it adds a new change. A double click on a setting goes back to that change and opens the setting where it changed (this print, the part, or the layer profile), so you can edit it there.
+With the Move tool (M) or the Turn tool (R), click a part. With another tool, hold Ctrl and click. A card opens next to the part:
 
-The changes for some layers (layer profiles and changes for one layer or a range) also show as orange marks on the right of the layer slider. Point at a mark to see its changes, and click it to go to its top layer and open its layer profile in the settings.
+- its name and its size;
+- **Duplicate** (D): a copy at a free place on the bed, with the settings of the part;
+- **Split to parts**: each separate body of the part becomes a part of its own;
+- **Cut…**: cut the part in two with a level plane;
+- **Best orientation** and **Less support**: turn the part;
+- **Scale** in %, **Reset** (the orientation and the scale of the file), and **To a new plate**;
+- **Remove** (Delete);
+- **Make [10] in all**: copies of the part, until there are that many;
+- the settings of this part, and **+ Add a setting for this part**.
 
-The core makes the list: `zs_app_history_facts` writes the state of a step, `zs_history_diff` gives the changes from one step to the next, `zs_app_history_describe` writes them in words, and `zs_app_history_revert` undoes one change.
+Tab and Shift+Tab select the next part and the part before. Esc clears the selection. Drag the top row of the card to move it.
 
-## Printer, filament, and quality
+### Move and turn
+
+- **Move.** Drag the part with the Move tool, or hold Ctrl and drag with another tool. The arrow keys move the selected part 1 mm (with Shift, 10 mm).
+- **Turn on the bed.** Turn the mouse wheel over the part with the Move tool, or hold Ctrl and turn the wheel with another tool: 15° for each step. `[` and `]` also turn it 15° (with Shift, 1°).
+- **Turn about any axis.** With the Turn tool, three rings go around the part. Drag the red ring to turn the part about X, the green ring about Y, and the blue ring about Z, in steps of 15° (Shift: 5°). Keys: Left and Right turn it about Z, Up and Down about X, Page Up and Page Down about Y.
+
+In the web app, a turn slices once, when you release the ring, or after a pause of 0.6 s in the keys. In the GTK app, each step slices at once.
+
+### A part falls over
+
+![A board 40 mm wide and 30 mm tall stands on its thin edge. A turn about X tips it, and it falls over onto its wide face. A note says: The part could not stand like that, and fell over](../img/demo-fall.gif)
+
+After a turn, zslice checks if the part can stand. If its center of mass is past its foot, the part rolls over the edge until it rests on a face. It stays at its place on the bed. A note says how far it fell. With support on, the support holds the part, and it stays as you turned it.
+
+### Placement
+
+The menu of the view (right-click a part) has **Placement**:
+
+- **Smart placement**: turn the part for the least support, the most area on the bed, and a low height. Right-click the empty view for **Smart placement** of all parts, and for **Arrange the plate**.
+- **Less support**: the orientation with the least support only.
+- **Strong along** X, Y, or Z of the part: say which way the load goes. A print is weakest across its layers. So the part turns until that axis lies in the layers, and then gets the least support.
+- **Put this side on the bed**: the side of the part at the click goes down.
+
+### Scale
+
+Type the scale in % on the part card. A file from CAD in inches loads 25.4 times too small. When the largest side of a part is under 3 mm, the print card asks if the file was in inches or in meters, with a button for each scale. A part that grows past the bed after a scale goes to a free place.
+
+### Cut a part
+
+Cut a part that is too tall or too big for the bed, or a part that prints better in two pieces:
+
+1. Select the part, and click **Cut…** on its card.
+2. Set the height of the cut with the slider or the number. An orange plane shows the cut in the view.
+3. Keep **Turn the top over** on, so the top prints on its flat cut face.
+4. Keep **Pegs to line up the parts** on, and choose the count and the diameter (2 pegs of 5 mm at first).
+5. Click **Cut**.
+
+Both parts get a closed cut face. With pegs, both cut faces get holes, and the pegs print as small parts of their own. After the print, glue the pegs into the holes of one part, and press the other part on. The holes are 0.15 mm wider than the pegs. A note says how many pegs fit. Ctrl+Z puts the part back.
+
+### More than one part
+
+Open adds each model to the plate (Ctrl+O, **+** in the header, or a drop on the view). A new part goes to a free place. **Clear the plate** in the menu of the view removes all parts.
+
+## Settings
+
+### Search with /
+
+![The search over the view: "infill density" lists Infill density with its slider at 20 %, and other infill settings. The Benchy, cut at layer 71, shows its infill](../img/guide-search.png)
+
+Press `/` (or click **Search** in the header) to search the settings and the actions. Type a few letters, for example `infill`, `brim`, or `export`. A word also finds its other names: `speed` finds the motion settings, `perimeters` the walls, `cooling` the fans, and `temp` the temperatures.
+
+- Each setting in the results has its control: a slider and an entry for a number, a list for a choice, and a switch. Change it in the results. The part slices again at once. A drag of a slider slices as you drag.
+- Click the eye of a setting (or press V) to show only the lines that it changes. The other lines become ghosts.
+- The tag under each setting gives its section and where its value comes from.
+- An action (Export G-code, Print, Arrange the plate, Undo, and others) runs with a click or Enter.
+- The search does not block the view. While it is open, you can turn the view, zoom, and click a line.
+- Drag its top bar to move it. A double click on the top bar puts it back.
+- Keys: Up and Down go through the results. Left and Right change the value. Space or Enter turns a switch or runs an action. Tab goes into the controls. Esc closes the search.
+
+The print card also has the main settings of the print: the layer height, the walls, the infill, the support, the brim or the skirt, the temperatures, and the nozzle. Click one to change it in the search.
+
+### The settings panel
+
+![The settings panel, pinned at the right: Settings › Part › Layers › Top thickness. The page gives its value, its default, what it does, and the lines that it changes. The Benchy shows only its skin lines](../img/settings-focus.png)
+
+The panel has all settings. Its top row has the path in the settings, one back arrow, **Pin**, and ×. Click a section, then a setting. Each row has the field of the setting (a number with its unit, a switch, or a choice), so a quick change needs no other page. The › at the end of a row opens the page of the setting: its value, its default (with **Reset**), and what it does. The page also lists the lines that it changes, with their share of the print time.
+
+While a setting or a section is selected, the preview shows the lines that it changes. The other lines become faint ghosts, so lines inside the part show. A setting that changes no line shows marks: the seam (a red mark at the start of each outer wall loop), travel moves (blue lines), and retractions (pink marks). A hidden panel shows the whole print.
+
+To change a number:
+
+- Type it. The app uses the value after a short pause, on Enter, or when you leave the field.
+- Press Up or Down to step it by one unit of its last decimal place. Hold Shift for 10 steps, or Ctrl for a tenth of a step.
+- Drag the name of the setting to the left or the right.
+- Drag its slider. The slider covers the usual values. The preview follows as fast as the slicer can go.
+
+Each number has its unit. A speed shows as a ratio of the speed that the printer and the filament allow, for example "50 % = 75 mm/s". A value out of the usual range shows in the warning color, and its tooltip gives the usual range. A value out of the limits of the setting is an error.
+
+The [settings reference](settings.md) explains each setting.
+
+### Where a value comes from
 
 Each setting gets its value from a cascade of levels. A higher level replaces the value of a lower one:
 
 1. **Default:** the built-in value.
 2. **Global:** your settings for all prints.
-3. **Printer:** the printer profile (the menu at the left of the header).
+3. **Printer:** the printer profile (the printer menu).
 4. **Filament:** the filament profile, or the roll in the printer (the Filament menu).
 5. **Quality:** the quality profile: fine (0.1 mm layers), standard (0.2 mm), draft (0.3 mm), coarse (0.4 mm), or your own (the Quality menu).
 6. **This print:** your changes for this plate.
-7. **This part:** the changes of one part (see [Settings for one part](#settings-for-one-part)).
+7. **This part:** the changes of one part.
 
-The bar at the top of the Settings page says what a change is for: **This print (all parts)**, **Global (all prints)**, or one part. A global setting is for every print, under the quality profile: for example, the seam at the rear, or your usual skirt. The global settings are in `global.toml` in the settings folder.
+A small tag under the name of a setting gives the level of its value ("fine", "Gray", "This print"). A default has no tag. **Reset** goes back to the value under your change.
 
-In the Settings page, a small tag under the name of a setting says where its value comes from ("fine", "Gray", "This print"); a default has no tag. The detail page says the same, and **Reset** goes back to the value under your change: for a change of this print, the value of the quality profile.
+The bar at the top of the Settings page says what a change is for: **This print (all parts)**, **Global (all prints)**, or one part. A global setting is for every print, for example the seam at the rear, or your usual skirt.
 
-The Filament and Quality menus list the built-in profiles and your own (in `profiles/filament/` and `profiles/project/` in the settings folder, where `zslice slice -f` and `-p` find them too), and have **Save as profile…**. The Quality menu shows the quality profile, with a dot when this print has changes on top of it. A pick of another quality keeps your changes. **Save as profile…** saves the quality with your changes, and the new profile is then the quality.
+The Filament and Quality menus list the built-in profiles and your own, and have **Save as profile…**. The Quality menu shows a dot when this print has changes on top of the quality. A pick of another quality keeps your changes. See [Profiles](profiles.md) for the files.
+
+The app saves the settings that you change, and loads them at the next start. The Linux app keeps them in `~/.config/zslice/` (`machine.toml`, `filament.toml`, `project.toml`, and `global.toml`). Each file has only the settings that differ from the defaults. If a file does not load, the app says why in its log and keeps a copy with the extension `.bad`.
+
+### Settings for one part
+
+With a part selected, **+ Add a setting for this part** on the part card opens the search for this part. It shows only the settings that a part can have of its own, and a change goes to the part. With more than one part on the plate, the bar of the Settings page can also pick one part.
+
+A part can have its own walls, layer height, seam, speeds, infill, skin, and support. Each part slices as its own job, and the G-code joins the layers of all parts by height. Some settings are for the whole plate, and say "Same for all parts": the temperatures, the fan and the cooling, the travel and the retraction, the first layer height, the skirt, and the brim. A part can also have its own **Quality**, for example a jig in draft next to a figure in fine.
+
+### Settings for some layers
+
+A change in the long form of a line can be for the whole part, for this layer, for this layer and up, or for this layer and down. For example: slower outer walls for the 10 layers of a thin tower. A changed layer shows a reset button. Some settings cannot change for some layers (for example the first layer height). The [settings reference](settings.md) marks the settings that can change for each layer.
+
+A layer profile changes settings for a range of layers (in the GTK and macOS apps):
+
+1. Right-click a line at the height where the change starts, and pick **New profile from here up** (or **from here down**).
+2. The Settings page opens with a bar at the top: the name of the profile and its layers. A change goes only to these layers.
+3. Click **Done** to stop.
+
+The **Layer profiles** section at the top of the Settings page lists each profile: its layers and how many changes it has. In the bar, the pen renames the profile, and the trash deletes it. A 3MF file keeps the profiles.
 
 ### Formulas
 
-A setting can follow other settings. In the detail page of a setting (the › of its row), type a formula in **Formula** and press Enter, for example:
+A setting can follow other settings. On the page of a setting, type a formula in **Formula** and press Enter. Some examples:
 
-- `= {line_width} * 2`: twice the line width (for an automatic width, the width that the slicer uses).
+- `= {line_width} * 2`: twice the line width.
 - `= max({layer_height} * 4, 0.8)`: four layers, and at least 0.8 mm.
 - `= {infill_pattern} == "gyroid" ? 3 : 2`: three walls with gyroid infill, else two.
 
-`{name}` is a setting: its short name (`{layer_height}`) or its full name (`{filament.nozzle_temp}`). A formula has `+ - * / %`, `^` (a power), comparisons, `and`, `or`, `not`, `cond ? a : b`, and the functions `min`, `max`, `round` (`round(x)`, or `round(x, step)`), `floor`, `ceil`, `abs`, `sqrt`, `clamp(x, lo, hi)`, and `lerp(a, b, t)`. The value follows each change of the settings that it uses, and its tag shows the formula. A plain value in the field of the setting removes the formula; so does an empty Formula field. A formula that does not work turns the field red, and the value stays. The formulas are in `formulas.txt` in the settings folder.
+`{name}` is a setting: its short name (`{layer_height}`) or its full name (`{filament.nozzle_temp}`). A formula has `+ - * / %`, `^` (a power), comparisons, `and`, `or`, `not`, `cond ? a : b`, and the functions `min`, `max`, `round` (`round(x)` or `round(x, step)`), `floor`, `ceil`, `abs`, `sqrt`, `clamp(x, lo, hi)`, and `lerp(a, b, t)`. The value follows each change of the settings that it uses. A plain value in the field removes the formula. A formula with an error turns the field red, and the value stays.
 
 ### Path rules
 
@@ -446,186 +297,327 @@ flow = {feature} == "bridge" ? 0.9 : 1
 fan = {layer} < 3 ? 0 : {fan}
 ```
 
-The variables of a path: `{feature}` (`"outer_wall"`, `"inner_wall"`, `"skin"`, `"infill"`, `"bridge"`, ...), `{layer}` (from 0), `{z}` (mm), `{part}`, `{speed}` (the planned speed, mm/s), `{width}` and `{height}` (mm), `{length}` (mm), and `{fan}` (0 to 1). `speed` sets the speed in mm/s, `flow` multiplies the flow, and `fan` sets the fan while the path prints. The rules go in order, so a rule sees the speed and the fan of the rules before it. A line that does not work is left out; a line that starts with `#` is a note.
+The variables of a path: `{feature}` (`"outer_wall"`, `"inner_wall"`, `"skin"`, `"infill"`, `"bridge"`, ...), `{layer}` (from 0), `{z}` (mm), `{part}`, `{speed}` (the planned speed, mm/s), `{width}` and `{height}` (mm), `{length}` (mm), and `{fan}` (0 to 1). `speed` sets the speed in mm/s, `flow` multiplies the flow, and `fan` sets the fan while the path prints. The rules go in order. A line with an error has no effect. A line that starts with `#` is a note.
 
-## Settings for one part
+### Some settings in detail
 
-With more than one part on the plate, the Settings page has a bar at the top: **Settings for: This print (all parts)**, or one part. With a part, a change is for that part only, on top of the values of the print, and its tag says "This part". **Reset** gives the part the value of the print again. The part page (Ctrl+click on a part) has **Edit settings for this part**, which opens the same view.
+- **Gap fill** (`project.gap_fill`, on by default) puts one line along the middle of each narrow area between the walls or in the skin. The width of the line follows the area. On the 3DBenchy, it fills 98 % of the gap area.
+- **Retractless skin** (`project.skin_link_length`, 15 mm by default) prints the top and bottom skin of each island in few paths. From the end of a zigzag, the nozzle prints along the walls to the next zigzag, if that way is at most 15 mm long. Set it to 0 to print each piece on its own.
+- **Bridges.** A bottom skin over air, with solid plastic at its sides, is a bridge. zslice prints it across the air, in the direction where the longest line is the shortest. The lines go 1.5 mm into the plastic around the bridge, and join there, so the nozzle does not travel over the air. Bridges print at `project.bridge_speed`, with `project.bridge_flow` and `project.bridge_fan`. `project.bridges` turns this off.
+- **Ironing** (`project.ironing`). After a layer with a top surface, the nozzle goes over the surface again with close lines (0.1 mm apart) and a small flow (10 %). The hot nozzle melts the surface flat. Each top surface gets about 4 times as many lines as its skin.
+- **Slope smoothing** (`project.slope_smoothing`, experimental). A sloped top prints as a stair. After each layer, the nozzle goes back along the edge and lays a small bead in the corner of each step. The bead has its own height at each point, so its G-code has a Z on each move. It adds about 7 % to the time of a Benchy. `machine.nozzle_tip_radius` and `machine.nozzle_cone_angle` describe your nozzle, so that it stays clear of the layer above.
+- **Slope ironing** (`project.slope_ironing`) irons the filled steps with a very small flow, from the top of the step to its edge.
+- **Wipe inside the part** (`project.retract_wipe`). At each retraction, the nozzle moves on a small arc inside the part while the filament pulls back. Use it with stringy filament (PETG, TPU).
+- **Infill anchor** (`project.infill_anchor`). The grid of the sparse infill starts at the center of each part, so each copy of a part gets the same infill. Set it to `bed` for one grid for all parts.
+- **Pictures for the printer screen** (`machine.thumbnails`). Set it to the sizes that your printer wants, for example `300x300,32x32`.
+- **Where the part goes** (`project.placement`). `auto` keeps the X and Y of the file if the part is on the bed there. Else it puts the part at the center of the bed. `file` and `center` always do one or the other. If the G-code origin of your printer is not the front left corner, set `machine.origin_x` and `machine.origin_y`.
 
-A part can have its own value of almost any part or filament setting: the walls, the layer height, the seam, the speeds, the infill, the skin, the support. Each part slices as its own job, and the G-code joins the layers of all parts by height (a part with thicker layers prints at every second height, for example). The settings that are for the whole plate (the temperatures, the fan and the cooling, the travel and the retraction, the first layer height, the skirt and the brim) say "Same for all parts", and cannot change there. The part page also has **Quality**: a quality profile for this part only, for example a jig in draft next to a figure in fine. A 3MF file keeps the settings of each part.
+### Compare with Cura
 
-The view has four floating parts: the tool strip at the left, the layer slider at the right, the print card at the bottom right, and one bar at the bottom. The bar has the plates (‹ › "Plate n of N", + Plate, ×, and in the web app also All), the replay of the print (▶, its speed, and the slider), and the history (↶ ↷, History, and the marks of the changes). The view buttons (2D and 3D, Search, the colors of the lines, and + to add models) are in the middle of the header. The print card hides on an empty plate. In a narrow window, the bar takes the whole width, and the print card goes over it.
+In the GTK app, **Compare with Cura…** (in the search) shows your zslice settings next to the settings of the active printer of Cura. zslice reads the Cura files on this computer, and does not change them. Each row has the zslice setting, its group, the value in zslice, the value of Cura, and the Cura key. **Use** sets the Cura value in zslice, and **Use all** sets each value that differs. Undo removes a change again. The mapping is the same as in `zslice import cura` (see [Profiles](profiles.md)).
 
-The panel at the right has the settings. Its top row has the path in the settings, with one back arrow where there is a level to go back to, then Pin and ×. **More** (in the GTK app: **All settings…**) on the card of a line opens the long form of the line in the panel (the Selected page), with one back arrow to the settings. In the GTK app, Alt+Left and the back button of the mouse go back to where you were before, also from the settings to the Selected page. The history is on the bar at the bottom of the view, the project in the main menu (Open a project…), and the printers on their own page.
+## Support
 
-In the Settings page, each row of a section has the setting's field (a number with its unit, a switch, or a choice), so a quick change needs no other page. The › at the end of a row opens its detail page: what it does, its default, and the lines of the project that it changes, with their time.
+![A shelf on a post, seen from below. The Support tool drew two areas under the shelf: a tree at the left and a grid at the right. The card of the tool picks the kind of the area](../img/support-areas.png)
 
-## Layer profiles
+### Support from the settings
 
-A layer profile changes settings for some layers only, for example a denser infill from layer 48 up.
+Turn on support in the search (`support`), or with **Turn on support** on the print card. **Support style** is grid or tree:
 
-1. Right-click a line in the 3D view at the height where the change starts, and pick **New profile from here up** (or **from here down**).
-2. The Settings page opens with a bar at the top: the name of the profile and its layers. Each setting shows its value for these layers. A change goes only to these layers, and it shows in the accent color.
-3. Click **Done** to stop. Then a change in the Settings page goes to all prints again.
+- **Grid support** prints straight walls under each overhang, with interface layers on the top.
+- **Tree support** grows branches from the bed to each overhang. zslice plans the branches first. A branch gets wider on the way down, and never thinner, so it can stand. A tip 30 mm up gets a branch about 4.4 mm across. A branch prints hollow, as one wall loop, with a few solid layers at the bed and under each tip. Tree support reaches into deep, narrow holes.
 
-The **Layer profiles** section at the top of the Settings page lists each profile: its layers and how many changes it has. Click a profile to see its changes and edit it. In the bar, the pen renames the profile, and the trash deletes it with all its changes. A change for "This layer and up" on the Selected page shows in the list too. A 3MF file keeps the profiles. A setting for the whole print (for example the bed temperature) cannot change for some layers; the page says so.
+`project.support_angle` sets how flat an overhang must be to get support.
 
-## More than one part
+With support off, the web app checks the print after each slice. When overhangs and shapes in the air add up to 20 mm² or more, the print card says how much hangs in the air, with **Turn on support**. Bridges do not count.
 
-Open adds each model to the plate (Ctrl+O, or drop files on the window). The first part keeps the place of its file if it is on the bed there; a new part goes to a free place. "Arrange the plate" in the menu packs all parts in rows.
+### The Support tool
 
-- A click on a line selects the line (its settings are on the Selected page).
-- Shift+click adds a line to the selection (or takes it out). With more than one line, a change for "This layer" goes to the layers of all of them, and "This layer and up" (or down) starts at the lowest (or ends at the highest) of them.
-- Ctrl+click on a part selects the part: a blue frame shows it on the bed, and the Selected page has its place, its turn, its scale, the placement, and "Remove".
-- Ctrl+drag moves the selected part, and Ctrl+wheel turns it by 15°. `[` and `]` turn it by 15° too (with Shift, by 1°), and Delete removes it, after a question.
+The Support tool (U) draws support areas on the part. Support grows under an area, or a Block area keeps support out. An area works also where the support angle gives no support, and also with support off.
 
-"Clear the plate" in the menu removes all parts.
+1. Press U. A card shows at the top left of the view.
+2. Pick the kind on the card: **Support grid**, **Support tree**, or **Block**.
+3. Turn the view so that you see the surface that needs support. For the bottom of a shelf, look from below.
+4. Click points on the surface around the area. A point snaps to the end of the nearest line. Hold Shift for no snap.
+5. Click the first point again, or press Enter, to close the area. The plate slices again.
 
-### Placement
+Support grows under all of the surface in the area that faces down, between the lowest and the highest point that you clicked.
 
-"Smart placement" in the menu turns each part for the least support, the most area on the bed, and a low height, and then arranges the plate. The part page (and the Placement submenu of the context menu) has the other ways:
+While the tool is on, the support lines are faint, so the outlines of the areas show through them. Clear **See through the support** on the card to see them solid.
 
-- **Smart placement** for one part.
-- **Less support**: the orientation with the least support only.
-- **Strong along** X, Y, or Z of the part: say which way the load goes. A print is weakest across its layers, so the part turns until that axis lies in the layers, and then takes the least support.
-- **Turn 90° about X** or **about Y**, and **Scale** (in %).
-- **Put this side on the bed** (context menu of a line): the side of the part at that line goes down.
-- **Reset**: the orientation and the size of the file.
+To edit an area:
 
-## More than one plate
+- Click its outline to select it. The card shows its kind, its points, and its heights.
+- Drag a point. The outline follows the pointer, and the plate slices when you release it.
+- Change the kind on the card, or press Delete (or click **Delete**) to remove the area.
 
-Each plate has its own parts, settings, changes, support marks, and undo history. The bar at the bottom of the view has ‹ and › (the plate before and the next plate), "Plate n of N", **+ Plate** (a new empty plate after the others, with the settings of the active plate), and **×** (remove the active plate). All plates slice: the active plate first, then the others in the background. "Send all plates" in the menu slices each plate with parts and sends it to the current printer, one file for each plate; "Export all plates…" writes the files into a folder (name-plate-1.gcode, and so on).
+Keys while you draw: Backspace removes the last point, and Esc stops the area. The project file and the plate 3MF keep the areas, and Ctrl+Z undoes each change.
 
-To remove a plate, click **×** on the bar at the bottom, right-click the label of a plate (in the GTK app: the name on the bar) and choose "Remove plate n", or choose "Remove this plate" in the menu or in the search. A plate with parts asks first. A removal cannot be undone. The plate on the left of the removed plate becomes active. The last plate stays, with no parts. You can remove a plate of a project: its print status stays in the Project dialog.
+### Support marks
 
-In the web app, all plates are in one view, in a row, and the bar also has **All** (Home). The GTK app shows the active plate only. The keys of the plates:
+Right-click a line for **Add support here** › Grid, Tree, or Bridge (a pad): support of that kind under a 3 mm disk at that place. **Block support here** keeps the support of the settings out of that place.
 
-- `]` makes the next plate active, and shows it.
-- `[` makes the plate before active, and shows it.
-- `F` shows the active plate.
-- `Home` shows all plates (in the GTK app: the start view).
+## Measure and check
 
- Each plate slices: the active plate first, then the others. With your own plates, **Open** puts the file on the active plate, and **+** in the header adds models to it; the other plates stay. In the GTK app, **+** is the open button (Ctrl+O). A printdeck.yml project makes way for an opened file.
+### The measure tape
 
-## Make many of one part
+![The measure tape from one corner of a shelf to the other corner: 53.85 mm, with ΔX 50.00, ΔY 20.00, and ΔZ 0.00](../img/guide-tape.png)
 
-**Make [10] in all** on the part card makes copies of the part until there are that many: on its plate while they fit the bed, then on new plates with the same settings, each full in turn. For example, Make 100 of a small clip fills as many plates as it needs. With two plates or more, the print card shows the sums of all plates: "All 3 plates: 20 h 12 min · 292 g · 7.31". The cost counts the filament (`filament.price_per_kg`) and the time of the printer (`machine.hour_rate`, 0 at first).
+With the Measure tool (T), two clicks measure between two points of the print or the bed, in the 3D or the 2D view. A gold line joins the points. The label gives the distance, its parts along X, Y, and Z, and the distance on the bed.
 
-## Save the project
+- A point near the end of a line snaps to it. Hold Shift for no snap.
+- A click on a circle or an arc (a hole, a boss) gives its diameter and radius, and puts the point at its center. So two holes give the distance between their centers.
+- Esc clears the measure.
 
-**Save project** (Ctrl+S in the web app) writes all plates into one 3MF file: the parts of each plate at their places, their settings, the changes for some layers, and the printer, the filament, and the print settings of each plate. Open the file (Ctrl+O, or drop it on the view) to get all plates back. Another slicer opens the same file as its first plate.
+### Gaps
 
-**To a new plate** on the part card moves the part to a new plate after the others, with the settings of its plate. Use it after a cut, when the parts do not fit on one bed.
+![The Benchy at layer 50 with gap fill off: 16 gaps, 34.39 mm², in red along the walls. The panel gives the selected gap, 12.685 mm² and 0.84 mm wide, and the setting that can close it: Skin overlap 15 % → 30 %](../img/highlight-gaps.png)
 
-## Save the plate
+Turn on **Gaps** (G) to see the gaps of the top layer in red: the areas that should be solid that no line covers. The sparse infill does not count. The header gives the number of gaps and their area.
 
-"Save the plate as 3MF" in the menu (Ctrl+S) writes one 3MF file with all parts at their places, and the changes that you made for the parts and for some layers. The global settings (Settings) do not go in the file. Open the 3MF file to get the plate back. zslice also opens 3MF files from other slicers; parts that touch in the file (for example a sign and its text) stay one part, but a part with its own settings or a volume stays apart (see "Cura projects" below).
+Click a gap. The panel gives its size, its width, the lines next to it, and the settings that can close it, the best first, with the value to try and why. **Apply** changes the setting for the print. **This layer** changes it only for the layer of the gap. The part slices again, and the panel shows the same gap with the new settings, or says that it is closed.
 
-## Cura projects: part settings and modifier volumes
+Gap fill (on by default) closes most gaps. On the Benchy at layer 50, it leaves 4 small gaps of 0.2 mm² in all. Turn it off to see the gaps that it fills.
 
-zslice opens a Cura project (a 3MF file that Cura saved). It reads the settings of each object of the project:
+### Check the print
 
-- **Settings of a part.** Cura keeps the settings that you set for one object in the file ("Per Model Settings"). zslice changes each to its own setting, for example `infill_sparse_density` to `project.infill_density`. If all parts that print have the same settings, the settings apply to the whole plate. If the parts have different settings, each part slices with its own settings: its walls, its layer height, its seam, its infill, its support, and the rest. Only the settings that are the same for all parts of the plate stay the plate settings: the temperatures, the fan and the cooling, the retraction and the travel, the first layer height, the skirt, and the brim. A part setting of that kind gets a note. Your overrides go over the plate settings.
-- **Modifier volumes.** An object that is a Cura "infill mesh" ("Modify settings for infill of other models") does not print. It belongs to the part that it overlaps, and moves with it. Inside it, the part gets the infill of the volume: its pattern, density, angles, speed, and flow. A volume with no walls and no top and bottom layers (0 in Cura) removes the skin of the part inside it too, so only its infill prints there. This is how a speaker grille works: a plate, and a window volume with an open infill. The walls of the part along its outline stay. Where two volumes overlap, the one with the higher `infill_mesh_order` wins. A volume has the settings of your profile and its own, as in Cura, and not the settings of the part.
-- **Other volume types.** Cura cutting meshes, anti overhang meshes, and support meshes do not print. zslice does not support them yet.
+![Check on a shelf with support off: "Layer 150: 890.3 mm² hang out past the layer below". A click on the issue goes to layer 150 and selects a skin line of the shelf](../img/demo-check.gif)
 
-The part page lists the settings of the part and of its volumes, each with the zslice setting that it becomes, or why zslice does not use it (for example a Cura formula, or a setting that zslice does not have). The 3D view draws each volume as thin purple rings. "Save the plate as 3MF" keeps the settings and the volumes. The command line tool slices a Cura project too, and prints a note for each setting that it does not use:
+**Check** (the last button of the tool strip) lists what can make the print fail or print badly, the worst first:
+
+- an overhang with support off, flatter than `project.support_angle`;
+- a bridge, with its span (a long bridge can sag);
+- a shape that starts in the air (an island);
+- a line that needs more plastic than the hot end melts (`filament.max_flow`);
+- layers that print in less than `filament.min_layer_time`;
+- a layer with many retractions.
+
+Each issue says what it is and which setting changes it. Click an issue: the view goes to its layer, and selects the line of the issue.
+
+## Plates and projects
+
+![All plates in a row: a Benchy on plate 1 and a shelf on plate 2, each on its own bed](../img/guide-plates.png)
+
+### Plates
+
+Each plate has its own parts, settings, changes, support areas, and undo history. The dock has the plates:
+
+- ‹ and › go to the plate before and the next plate.
+- **All** (Home) shows all plates, in a row. F shows the active plate.
+- **+ Plate** adds an empty plate after the others, with the settings of the active plate.
+- **×** removes the active plate. A plate with parts asks first. You cannot undo a removal.
+
+`]` and `[` make the next plate or the plate before active. All plates slice: the active plate first, then the others. The GTK app shows the active plate only.
+
+**Make [10] in all** on the part card makes copies of the part until there are that many: on its plate while they fit the bed, then on new plates. With two plates or more, the print card shows the sums of all plates, for example "All 3 plates: 20 h 12 min · 292 g · 7.31". The cost counts the filament (`filament.price_per_kg`) and the time of the printer (`machine.hour_rate`, 0 at first).
+
+**To a new plate** on the part card moves the part to a new plate. Use it after a cut, when the parts do not fit on one bed.
+
+In the GTK app, **Send all plates** sends each plate to the current printer, and **Export all plates…** writes one file for each plate into a folder.
+
+### Save the project
+
+**Save project…** (Ctrl+S, in the main menu) writes all plates into one 3MF file. The file has the parts of each plate at their places, their settings, the changes for some layers, the support areas, and the line edits. It also has the printer, the filament, and the print settings of each plate. Open the file (Ctrl+O, or a drop on the view) to get all plates back. Another slicer opens the same file as its first plate.
+
+zslice also opens 3MF files from other slicers. Parts that touch in the file (for example a sign and its text) stay one part.
+
+### Open a project
+
+**Open a project…** in the main menu opens a project from a folder or from GitHub: a repository with a `printdeck.yml` file. The plates of the project show in a row, and each plate slices. The Project dialog lists the plates and the parts, and the state of each plate. See [Projects](projects.md).
+
+### Cura projects
+
+zslice opens a Cura project (a 3MF file that Cura saved), with the settings of each object:
+
+- **Settings of a part.** zslice changes each Cura setting to its own setting, for example `infill_sparse_density` to `project.infill_density`. If the parts have different settings, each part slices with its own settings.
+- **Modifier volumes.** A Cura "infill mesh" does not print. It changes the infill of the part that it overlaps: its pattern, density, angles, speed, and flow. A volume with no walls and no top and bottom layers also removes the skin there. This is how a speaker grille works.
+- **Other volume types.** zslice does not support Cura cutting meshes, anti overhang meshes, and support meshes yet.
+
+The part card lists the settings of the part and of its volumes, each with the zslice setting that it becomes, or why zslice does not use it. The 3D view draws each volume as thin purple rings. Some infill settings help with a grille: `project.infill_angles` (one angle for each layer in turn), `project.infill_stack` (the lines of each layer lie on the lines below), `project.infill_flow`, and the `trihexagon` pattern.
+
+## Printers
+
+### Add a printer
+
+Pick **Add a printer…** at the end of the printer menu in the header. At the first start, the picker opens by itself.
+
+1. The picker opens on **Popular**: 15 printers that most people have. Type a part of a name in the search: "ender 3", "mk4", "k1 max", "voron 2.4". Or pick a brand at the left.
+2. Click a model. The card at the right draws its build volume to scale. The red dot is X0 Y0 of the G-code. The card also lists the nozzle, the filament, the heating, the firmware, and the motion limits.
+3. Click **Next** (or double-click the model). Check the name, the nozzle, the filament diameter, and the size. Set the connection.
+4. Click **Add printer**. The printer is now the current printer.
+
+The library has more than 1000 printers of more than 180 brands, from the printer definitions of Cura, PrusaSlicer, and OrcaSlicer. The print speed (`machine.max_speed`, the base of the speed ratios) follows the acceleration of the printer: 100 mm/s below 1000 mm/s², then 150, 200, and 300 mm/s from 10000 mm/s². If your printer is not in the list, pick "My printer is not in the list": the generic printer, with the size that you enter.
+
+For most printers of the library, the 3D view shows the bed of the printer under the plate, with the print of its sheet. The setting `machine.model` has the id of the model in the library, for example `prusa-mk4s`. Clear it to see the grid alone.
+
+### Printers on your network
+
+The Linux and macOS apps search the local network, and list the printers that they find under "On your network": OctoPrint, printdeck, Moonraker (Klipper), PrusaLink, and Bambu Lab (macOS). Click one, and zslice fills its address and its kind. The web app cannot search the network, because browsers block the mDNS packets. Enter the address of the printer yourself.
+
+### Connections
+
+Each printer has its own machine settings and a connection:
+
+- **None**: export a G-code file.
+- **printdeck** or **OctoPrint**: the address of the printer and its API key.
+- **Moonraker** (Klipper): the address of Moonraker.
+- **USB** (GTK app): the serial port and the speed. The app sends the print line by line, so the computer must stay on while it prints.
+- **Bambu Lab** (LAN mode, in the macOS app): see [The macOS app](macos.md).
+
+**Test the connection** shows what the printer tells: its state, its bed and nozzle, its motion limits, and the filament in it. **Use the printer's bed, nozzle, and motion** copies these values to the printer settings, and **Use the filament in the printer** copies the filament.
+
+**Get a key** asks the printer for an API key for zslice. The printer asks "Allow zslice to use the Printdeck?" on its touch screen (printdeck), or in its web page (OctoPrint, with the App Keys plugin). While the printer asks, the app shows the id of its own key. Make sure that the deck shows the same id. Allow it within 2 minutes, and zslice keeps the key. You can also copy the key: printdeck shows it on its System page, and OctoPrint in Settings › API.
+
+A printdeck with a secure address (`https://….d.printdeck.beetlebug.org`, on its System page) works from the web app in any browser. zslice tries the secure address first. The Linux and macOS apps trust the certificate of the printer at the first connection. They stop a send if the printer later shows another certificate.
+
+### Signed prints
+
+Each G-code file that zslice exports or sends ends with a signature line. The app makes its own key at the first start. The web app keeps the key in the browser (IndexedDB), the GTK app in `signing.key` in its settings folder, and the macOS app in the Keychain. **Get a key** gives the public key to a printdeck. A printdeck that does not trust the key refuses the print, and the app says why. OctoPrint and Moonraker do not check signatures: the printer list says "not verified".
+
+### Send and print
+
+Pick the printer in the printer menu. With a connection, the button of the print card is **Print**: it puts the G-code on the printer and starts the print. Its menu has **Upload only** and **Export a G-code file…**. Before each print, zslice asks if the bed is clear. A printdeck set to ask (a farm) keeps the file until a person presses Print on the deck, and zslice says so.
+
+If a part is off the bed, the print card shows a red warning, and an export or a send asks first. The printer can hit its frame or the other part.
+
+With a printdeck printer, the print card also shows the estimate of the printer after each slice, for example "LulzBot TAZ Workhorse: 1 h 41 min (3 min start)". printdeck learns it from its past prints. zslice sends the G-code (compressed) for the estimate. The printer does not keep the file or print it. printdeck also tells which roll is in the printer and how many grams are left on it. The cost of the print uses the price of that roll. Each roll keeps its own filament settings ("Keep filament settings for each roll in the printer", on by default).
+
+### The start and end G-code
+
+![The start G-code of a Prusa MK4 in the panel: the text, the variables as buttons ({nozzle_temp}, {bed_temp}, {layer_height}, and more), and Show the result: the start of the G-code of the last slice, with the values](../img/gcode-variables.png)
+
+Open the setting **Start gcode** or **End gcode** (search `start gcode`). The editor spans the panel. Under it, each variable of zslice is a button: a click puts the variable at the cursor. **Show the result** shows the start of the G-code of the last slice with the values (or its end, for the end G-code). Look at the start G-code before the first print on a new printer.
+
+## Print farm
+
+![The Printers page with six printers, each with its state, its job, and its roll. Plates to print lists three plates, each with its time, its plastic, a printer menu, and Send](../img/printers-page.png)
+
+The **Printers** page shows all your printers with a connection, side by side. Open it with **Printers** in the header (or the main menu). It covers the view. **‹ Back to the plate** returns. The tiles read again every 10 seconds while the page shows.
+
+- Each tile has the state of the printer, its job with the progress and the time left, and the filament in it.
+- **Send the plate** on a tile sends the active plate to that printer.
+- **Plates to print** lists each plate with parts, with its time and its plastic. Its menu lists the printers that fit the plate, the free printers first. A busy printer says when it is free ("busy, free in 1 h 5 min"). A printer with a bed smaller than the plate is not in the menu.
+- A plate that you sent has a check mark and "sent to <printer> at <time>".
+
+Each send asks first: "Is the bed clear?". It also warns when the printer looks busy, or when the plate is sliced for another printer. The macOS app adds a queue, a summary of the farm, and notifications (see [The macOS app](macos.md#a-farm)). To try a farm on one computer, run the farm simulator of the source tree (`tools/farm_sim/README.md`).
+
+## History and undo
+
+![The History popover over the dock: each change with its time, its kind, and its values, for example "Wall count 2 walls → 3 walls", the newest first](../img/guide-history.png)
+
+Ctrl+Z undoes a change of the settings or of the plate: a move, a turn, a scale, a removed part, an edit of a line, or a support area. Ctrl+Shift+Z (or Ctrl+Y) redoes it. A drag of a slider is one step. The undo list keeps 100 steps. On a plate of large parts, the oldest steps go first, so that the plates in the list stay under 200 MB.
+
+The dock shows the history:
+
+- ↶ and ↷ undo and redo.
+- One mark for each change, the oldest at the left. The color and the glyph of a mark give the kind of change, for example walls, infill, speed, support, the printer, or the place of a part. Point at a mark to see its changes in words. Click a mark to go back to that change: the preview slices as it was then. The changes after it stay (dimmed) until you edit something.
+- **History** opens the list of the changes over the dock. Each change has its time, its values, and its scope: the printer, the filament, this print, a part, or a layer range ("Layers 86 and up"). The newest change is first. Click a change to go back to it, or use ↑ and ↓. Space goes back to the change before, so you can compare two changes. The ↶ button of one setting in a change undoes only that setting, and keeps the later changes. The list also has the line edits.
+
+## Keyboard
+
+![The sheet of the keyboard shortcuts: General, Plates, Tools, Layers, Lines and the nozzle, Search, History, and Mouse and touchpad](../img/guide-keys.png)
+
+Press `?` to see all keyboard shortcuts of the app (in the GTK app, also in the main menu). Type in the sheet to filter it. Esc closes it. On the Mac, Command replaces Ctrl.
+
+| Keys | Action |
+|---|---|
+| **General** | |
+| `?` | Show the sheet of the keyboard shortcuts |
+| `/` | Search the settings and the actions |
+| N | Show or hide the settings panel |
+| Ctrl+O | Open a model or a project |
+| Ctrl+S | Save the project: all plates in one 3MF file |
+| Ctrl+E | Export the G-code |
+| Ctrl+Z | Undo |
+| Ctrl+Shift+Z, Ctrl+Y | Redo |
+| Esc | Close a menu, the search, or the sheet; then clear the measure, then the selection |
+| Menu key, Shift+F10 | The menu of the view |
+| **Plates** | |
+| `]` | The next plate: make it active, and show it |
+| `[` | The plate before: make it active, and show it |
+| F | Show the active plate |
+| Home | Show all plates |
+| **Tools** | |
+| S | Select: a click selects a line |
+| M | Move: a drag moves a part, the wheel turns it 15° |
+| R | Turn: drag a ring of the selected part to turn it about X, Y, or Z |
+| U | Support: draw a support area, and drag the points of an area |
+| T | Measure: two clicks measure between two points |
+| G | Gaps: show the gaps of the top layer |
+| Enter (Support tool) | Close the area that you draw |
+| Backspace (Support tool) | Remove the last point of the area |
+| Delete (Support tool) | Delete the selected support area |
+| Esc (Support tool) | Stop the area, then clear the selected area |
+| Ctrl+click, Ctrl+drag, Ctrl+wheel | Select, move, and turn a part with any tool |
+| Tab, Shift+Tab | Select the next part, or the part before |
+| Arrow keys (a part) | Move the selected part 1 mm (with Shift: 10 mm) |
+| Left, Right (Turn tool) | Turn the selected part on the bed, 15° (with Shift: 5°) |
+| Up, Down (Turn tool) | Tilt the selected part about X, 15° (with Shift: 5°) |
+| Page Up, Page Down (Turn tool) | Tilt the selected part about Y, 15° (with Shift: 5°) |
+| D | Duplicate the selected part |
+| Delete (a selected line) | Take the line out of the print |
+| Delete | Remove the selected part |
+| Shift+click | Add a line to the selection |
+| Shift (measure, support) | No snap |
+| **Layers** | |
+| Up, K | The top layer one up (with a selected line: the nearest line one layer up) |
+| Down, J | The top layer one down (with a selected line: the nearest line one layer down) |
+| Page Up, Page Down | 10 layers up or down |
+| Shift+Up, Shift+Down | Move the bottom of the layer range |
+| C | Show the layers up to the selected line |
+| Shift+C | Show all layers |
+| **Lines and the nozzle** | |
+| Left, H | The segment before the selected one (no selection: the nozzle back 2 % of the layer) |
+| Right, L | The next segment (no selection: the nozzle on 2 % of the layer) |
+| Shift+Left, Shift+Right | The line before, or the next line |
+| **Search** | |
+| Up, Down | Go through the results |
+| Left, Right | Change the value of the result: a step, or the next choice |
+| Space, Enter | Turn a switch, or run an action |
+| V | Show only the lines of the setting, or all lines again |
+| Tab | Go into the controls of the result |
+| Esc | Leave a control, then close the search |
+| **History** | |
+| Up, Down (History list) | The next change, or the change before |
+| Left, Right (the marks on the dock) | The change before, or the next change |
+
+The mouse and the touchpad are in [Move the view](#move-the-view).
+
+## For each platform
+
+### The web app
+
+[zslice.beetlebug.org](https://zslice.beetlebug.org/) runs the zslice core in WebAssembly, in your browser. It needs WebGL2 (Chrome, Firefox, or Safari of 2023 or later).
+
+- **Your files stay in your browser.** The model slices on your computer, in a Web Worker. No file goes to a server. The page has no analytics and no cookies. See [Privacy](../../PRIVACY.md).
+- **Your work stays after a refresh.** The page keeps the plate, your settings, and your printers in the storage of the browser.
+- **Open a model from a link.** Add `?model=` and the address of an STL file to the page address.
+- **Printers.** The web app cannot search the network. Enter the address of the printer. The printer must allow requests from the page (CORS headers), for example a printdeck at its secure address.
+- **Signed prints.** The key of the web app is in the browser. A browser with no Ed25519 support says so at the first export or send.
+
+![The web app on a phone, 390 px wide: the header with Open and narrow menus, the Benchy in the view, and the print card over the dock](../img/phone.png)
+
+On a phone, the window fits the screen. The header keeps Open and narrows the menus. The printer picker is one column: the search and the list, then the card of the printer. The print card sits over the dock and hides its settings. One finger orbits the view, and two fingers pinch to zoom and pan.
+
+### The Linux app
+
+The Linux app is a GTK 4 app. Build it from the source tree:
 
 ```sh
-zslice slice grille.3mf -o grille.gcode
+cd linux
+meson setup build        # builds the core too (zig build lib)
+ninja -C build
+build/zslice-gtk part.stl
 ```
 
-Some infill settings are made for parts like a grille:
+See [linux/README.md](../../linux/README.md) for the packages. The GTK app differs from the web app in some places:
 
-- `project.infill_angles`: a list of angles, one for each layer in turn ("Infill Line Directions" in Cura). "45,45,45,135,135,135" prints 3 layers at 45 degrees, then 3 at 135 degrees. zslice measures the angle from the X axis, and Cura from the Y axis: zslice changes the angles of a Cura file for you.
-- `project.infill_stack`: the lines and zigzag patterns keep one direction on all layers, so the lines of each layer lie on the lines below and make vertical walls. Honeycomb then prints each cell wall once. Grid, triangles, trihexagon, and honeycomb stack on all layers in each case, also on the first layer.
-- `project.infill_flow`: the flow of the sparse infill ("Infill Flow" in Cura).
-- The `trihexagon` pattern: three line directions that make triangles and hexagons (as in Cura).
+- Alt+Left and the back button of the mouse go back to where you were before, also from the settings to the long form of a line.
+- It shows the active plate only.
+- Preferences (Ctrl+,) has the Printers page: the connection, **Test the connection**, and **Get a key** for each printer. The API keys are in `~/.config/zslice/app.ini`, which only you can read.
+- It has layer profiles, **Compare with Cura…**, USB printers, **Send all plates**, and **Export all plates…**.
+- The background of the view follows the theme of the app. The theme follows the system, unless Preferences sets one.
 
-## Compare with Cura
+### The macOS app
 
-If you also print with Cura, "Compare with Cura…" in the menu shows your zslice settings next to the settings of the printer that is active in Cura. zslice reads the Cura files on this computer, and it does not change them:
-
-- The newest Cura version folder in `~/.config/cura` and `~/.local/share/cura`, for example `5.14`.
-- The printer that `cura.cfg` names as `active_machine`, its extruder, and all layers of their stacks: your changes, the quality changes, the intent, the quality, the material, the variant, the machine changes, and the definition.
-- The files of Cura itself, in `/opt/ultimaker-cura/share/cura/resources` or `/usr/share/cura/resources`. Set `ZSLICE_CURA_RESOURCES` for another folder.
-
-Each row has the zslice setting, its group (Printer, Filament, or This print), the value in zslice, the value of Cura, and the Cura key that gives it. The mapping is the same as in `zslice import cura` (see [profiles](profiles.md)). By default the list has only the settings that differ. Turn on "Show all mapped settings" to see all of them.
-
-- **Use** sets the Cura value in zslice: in the printer, in the filament, or for this print. Undo takes it back.
-- **Use all** sets each value that differs. It does not change the names of the printer and the filament, or the start and end G-code: a printer with Klipper often has its own macros there.
-- A speed shows as a ratio and in mm/s. zslice keeps a speed as a ratio of `machine.max_speed`, and the Cura value is the ratio that gives the mm/s of Cura with your max speed now. The max speed of Cura is the highest print speed of the Cura profile. "Use all" sets the max speed first, so the speeds stay the same as in Cura.
-- A Cura value that is a formula (it starts with "=") shows with "Show all mapped settings", but zslice cannot take it.
-- "Reload" reads the Cura files again, for example after you change a setting in Cura.
-
-## Watch the print
-
-In the app, press the play button on the bar at the bottom of the view. The 3D view shows the print as it grows, line by line, at the speed in the list (1x is the real speed). The layer slider follows. Move the slider to stop.
-
-## Try the demo part
-
-```sh
-zslice demo demo.stl
-zslice preview demo.stl --layer 28 -o layer28.svg
-```
-
-The demo part is a wide box with a smaller box on top, and a tube. Layer 28 is just below the step. It has skin on the step and in the floor of the tube hole, and sparse infill under the upper box.
-
-## Iron the top surfaces
-
-Ironing makes top surfaces smooth. After a layer with a top surface, the nozzle goes over that surface again with close lines (0.1 mm apart) and a small flow (10 % of a normal line). The hot nozzle melts the surface flat, and the small flow fills the gaps between the skin lines.
-
-```sh
-zslice slice part.stl -o part.gcode -s project.ironing=true
-```
-
-Ironing adds time: each top surface gets about 4 times as many lines as its skin. The settings `project.ironing_flow`, `project.ironing_spacing`, `project.ironing_inset`, and `project.ironing_speed` control it (see the [settings reference](settings.md#ironing)).
-
-## Smooth the sloped tops
-
-A sloped top surface prints as a stair of thin layers. Slope smoothing fills the steps. After each layer, the nozzle goes back along the edge of the layer, over the narrow ledge of the layer below, and lays a small bead in the corner of each step. The bead has the volume of the empty triangle there. The nozzle height can change along the bead, between the two layers, so the G-code of these beads has a Z on each move. In the previews, these beads are teal.
-
-```sh
-zslice slice part.stl -o part.gcode -s project.slope_smoothing=true
-```
-
-- Only ledges from `slope_smoothing_min_width` to `slope_smoothing_max_width` line widths get a bead (0.3 to 2 by default). With 0.2 mm layers and 0.5 mm lines, that is a slope from about 11 to 53 degrees. A wider ledge is a flat top: the skin covers it.
-- The nozzle must not touch the layer that it just printed. `machine.nozzle_tip_radius` (the flat face around the hole) and `machine.nozzle_cone_angle` describe your nozzle. Where the nozzle has no room to go down into the corner, it stays at the top of the layer, and the plastic fills the corner under the flat tip. A nozzle with a small tip goes lower.
-- `project.slope_smoothing_flow` scales the plastic, and `project.slope_smoothing_speed` sets the speed.
-- It adds time: about 7 % on a Benchy (a travel, a retraction, and two Z moves for each bead).
-
-## Iron the sloped steps
-
-Slope ironing goes over the same steps after the smoothing beads, with a very small flow (10 % of a normal line). At each point, the nozzle tip is at the height of the filled step, so the hot tip makes the bead tops flat. It makes `project.slope_ironing_passes` passes across each ledge (2 by default). In the previews, these lines are lime.
-
-```sh
-zslice slice part.stl -o part.gcode -s project.slope_smoothing=true -s project.slope_ironing=true
-```
-
-It uses the same ledges and the same nozzle settings as slope smoothing. `project.slope_ironing_flow` and `project.slope_ironing_speed` control it. It adds about 10 % to the time of a Benchy, and both together about 15 %.
-
-## Test print a few layers
-
-To check a layer before a long print, right-click the view: **Test print: the top layer…** saves the G-code of the top layer of the slider alone, on the bed. With the slider cut to some layers, **Test print: the layers shown…** saves those layers, lowered so that the first of them prints on the bed. Each layer keeps its height, its lines, and its speeds. Compare the test print with the 3D view.
-
-## Pictures for the printer screen
-
-Printers with a screen (Prusa, Klipper with Mainsail or Fluidd, and others) show a picture of the print. Set `machine.thumbnails` to the sizes that your printer wants, for example `300x300,32x32`: zslice puts one PNG picture of the parts of each size at the top of the G-code.
-
-## Wipe the nozzle inside the part
-
-With stringy filament (PETG, TPU), turn on `project.retract_wipe`. At each retraction after a line of the part, the nozzle moves on a small arc inside the part while the filament pulls back, so the plastic that oozes stays inside the part. Where no arc fits inside the layer, the retraction stays plain.
-
-## Infill that sits in the middle of each part
-
-The grid of the sparse infill starts at the center of each part (`project.infill_anchor` = part), so a part with two equal sides gets equal infill on both sides, and each copy of a part gets the same infill. Set it to bed for the old grid, the same for all parts.
-
-## Where the part goes on the bed
-
-zslice moves the part so that its bottom is at z = 0. The X and Y come from `project.placement`:
-
-- `auto` (the default): the X and Y of the file, if the part is fully on the bed there. If it is not (for example, a part modeled around the origin), zslice moves the center of the part to the center of the bed (`machine.bed_size_x` / 2, `machine.bed_size_y` / 2).
-- `file`: always the X and Y of the file.
-- `center`: always the center of the bed.
-
-The X and Y of a file are bed coordinates: 0, 0 is the front left corner of the bed. If the G-code origin of your printer is somewhere else (for example the bed center), set `machine.origin_x` and `machine.origin_y` to the G-code position of the front left corner. For a printer with the origin at the bed center, they are minus half the bed size. The Cura import sets them from `machine_center_is_zero`.
+The macOS app is a SwiftUI app with a Metal view. See [The macOS app](macos.md): its keys, its settings pane, Bambu printers, the Keychain, and the farm queue.

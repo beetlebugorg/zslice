@@ -21,6 +21,7 @@
 <a href="../../contents/">All documents</a>
 <div class="group">User guide</div>
 <a href="../../user/getting-started/">Getting started</a>
+<a href="../../user/command-line/">The command line</a>
 <a href="../../user/settings/">Settings</a>
 <a href="../../user/profiles/">Profiles</a>
 <a href="../../user/projects/">Projects</a>
@@ -31,6 +32,7 @@
 <a href="../../embedding/c/">C</a>
 <a href="../../embedding/zig/">Zig</a>
 <a href="../../embedding/javascript/" aria-current="page">JavaScript</a>
+<a href="../../embedding/print-view/">The print view</a>
 <div class="group">Internals</div>
 <a href="../../internals/architecture/">Architecture</a>
 <a href="../../internals/one-view/">Plan: one view</a>
@@ -107,7 +109,7 @@ worker.postMessage({ stl: stlBytes, settings: { "project.wall_count": 3 } }, [st
 <p>The module also exports the app core and the 3D view of <code>include/zslice-app.h</code>. The web app (<code>web/app/</code>, see its <a href="https://github.com/beetlebugorg/zslice/blob/main/web/app/README.md">README</a>) uses them:</p>
 <ul><li><code>zs_app_new_web</code> makes an app whose events go to the import <code>env.zs_web_event(event, progress, status)</code>. A slice runs on the calling thread, so run the app in a Web Worker.</li><li><code>zs_set_new_web</code> makes a plate set (one app for each plate) whose events go to the import <code>env.zs_web_set_event(plate, event, progress, status)</code>. Call <code>zs_set_step</code> from a timer: each call slices the next waiting plate, the active plate first.</li><li><code>zs_view_new</code> with <code>ZS_SURFACE_WEB</code> (3) makes a 3D view with no GPU in the core. After <code>zs_view_draw</code>, <code>zs_view_web_frame</code> gives the frame data in wasm memory, and the page draws it with WebGL2 (see <code>web/app/gl.js</code>).</li><li><code>zs_view_scene_write</code> and <code>zs_view_scene_read</code> move the loaded scene from the view of one wasm instance (the worker) to the view of another (the main thread).</li><li>A set of plates has one app for each plate. <code>zs_view_set_plates</code> puts the plates in a row in one view, and <code>zs_view_plate_scene_read</code> gives the view the beads of a plate that is not the active plate. With a <code>zs_set</code> in the worker, <code>zs_set_sync_write</code> writes all of these changes as bytes, and <code>zs_view_sync_read</code> applies them to the view of the page. <code>zs_app_trim</code> frees the memory of an app that waits (the memos of its last slice), and keeps its result.</li></ul>
 <h2 id="memory">Memory</h2>
-<p>The wasm memory grows while a slice runs, and it does not shrink. To free all memory, drop the module object and load it again.</p><nav class="pager"><a class="prev" href="../../embedding/zig/"><span>Previous</span><b>Zig</b></a><a class="next" href="../../internals/architecture/"><span>Next</span><b>Architecture</b></a></nav>
+<p>The wasm memory grows while a slice runs, and it does not shrink. To free all memory, drop the module object and load it again.</p><nav class="pager"><a class="prev" href="../../embedding/zig/"><span>Previous</span><b>Zig</b></a><a class="next" href="../../embedding/print-view/"><span>Next</span><b>The print view</b></a></nav>
 </main>
 </div>
 <footer>zslice is free software (AGPL-3.0-or-later). <a href="../../privacy/">Privacy</a>: no analytics, no cookies, nothing from other sites. <a href="https://github.com/beetlebugorg/zslice/blob/main/docs/build.py">docs/build.py</a> writes this site from <a href="https://github.com/beetlebugorg/zslice/blob/main/docs/embedding/javascript.md">docs/embedding/javascript.md</a>.</footer>

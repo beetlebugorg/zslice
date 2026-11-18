@@ -2,7 +2,8 @@
 
 ## For people who slice with zslice
 
-- [Getting started](user/getting-started.md): build zslice, slice a part, look at the layers.
+- [Getting started](user/getting-started.md): the user guide of the apps, from your first print to a print farm.
+- [The command line](user/command-line.md): build zslice, slice a part, check it, and measure the speed.
 - [Settings reference](user/settings.md): each setting, its unit, and its default.
 - [Profiles](user/profiles.md): machine, filament, and project files, with inheritance and overrides.
 - [The macOS app](user/macos.md): where the Mac app differs: the keys, the drawer, printers, and the Keychain.

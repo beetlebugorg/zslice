@@ -61,7 +61,7 @@ Check a bottom layer (all skin), a middle layer (walls and sparse infill), a lay
 
 ## Add a setting
 
-1. Add a field with a default value to the correct struct in `src/settings.zig`: `Machine`, `Filament`, `Project`, or `EngineOptions`. Choose the struct by the owner of the value (see the [user guide](../user/getting-started.md#the-three-groups)).
+1. Add a field with a default value to the correct struct in `src/settings.zig`: `Machine`, `Filament`, `Project`, or `EngineOptions`. Choose the struct by the owner of the value (see [The command line](../user/command-line.md#the-three-groups)).
 2. Add a `///` doc comment that says what the setting does and its unit.
 3. If the value has limits, check them in `Settings.resolve`.
 4. If code uses a derived value, compute it once in `resolve` and add it to `Resolved`.
