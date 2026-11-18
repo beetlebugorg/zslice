@@ -52,6 +52,59 @@ function fetchOptions(url, init) {
   return opts;
 }
 
+// The addresses to try for a printer, best first. A printdeck with a
+// certificate has an https address too (printer.https, from its
+// /slicer/printer.json): https://<host>.d.printdeck.beetlebug.org. The app
+// tries it first. An https page never tries an http address of another
+// origin: the browser blocks it (mixed content), except Chrome with Local
+// Network Access, so the http address stays last for Chrome.
+function addresses(printer) {
+  const out = [];
+  const seen = new Set();
+  const add = (u) => {
+    if (u && !seen.has(u)) {
+      seen.add(u);
+      out.push(u);
+    }
+  };
+  const last = worked.get(printer.name);
+  if (last && (last === printer.https || last === printer.url)) add(last);
+  add(printer.https);
+  add(printer.url);
+  return out;
+}
+
+// The address that answered last, for each printer, in this page.
+const worked = new Map();
+
+// A fetch of `path` on the printer: each address in turn. A network
+// failure (no DNS answer when a router blocks the public name of a LAN
+// address, a TLS failure, a timeout) goes on to the next address with no
+// error. An answer of the printer, of any status, ends it. Throws the
+// error of the last address.
+async function request(printer, path, init = {}, timeout = 0) {
+  const list = addresses(printer);
+  let err = new Error("No address.");
+  for (let k = 0; k < list.length; k++) {
+    const base = list[k];
+    // A short wait for an address with a next one to try.
+    const ms = timeout || (k < list.length - 1 ? 4000 : 0);
+    const ctrl = ms ? new AbortController() : null;
+    const timer = ctrl ? setTimeout(() => ctrl.abort(), ms) : 0;
+    try {
+      const r = await fetch(join(base, path), fetchOptions(base, ctrl ? { ...init, signal: ctrl.signal } : init));
+      worked.set(printer.name, base);
+      return r;
+    } catch (e) {
+      err = e;
+      // A form body can be sent again: FormData and strings stay.
+    } finally {
+      if (timer) clearTimeout(timer);
+    }
+  }
+  throw err;
+}
+
 function headers(printer) {
   const h = {};
   if (printer.apiKey) h["X-Api-Key"] = printer.apiKey;
@@ -83,7 +136,8 @@ function explain(e, printer) {
         return "";
       }
     })();
-    return `The browser blocked the request (${e.message}). This page is https and the printer is http, and some browsers (Firefox, Safari) block that. Open zslice from the printer instead${deck ? `: ${deck} (printdeck has it)` : ""}, or give the printer an https address.`;
+    const https = printer.https ? ` The secure address (${printer.https}) did not answer either: a router or a DNS filter (for example Pi-hole) that blocks public names of local addresses (DNS rebinding protection) stops it.` : "";
+    return `The browser blocked the request (${e.message}).${https} This page is https and the printer is http, and some browsers (Firefox, Safari) block that. Open zslice from the printer instead${deck ? `: ${deck} (printdeck has it)` : ""}, or give the printer an https address.`;
   }
   const why = cross
     ? " Check the address, that the printer allows this page (CORS: printdeck allows zslice.beetlebug.org; OctoPrint: Settings › API › Allow Cross Origin Requests; Moonraker: cors_domains), and that the browser may reach the local network."
@@ -94,14 +148,15 @@ function explain(e, printer) {
 // Sends `bytes` (the G-code) as `filename`; print: start the print.
 // Returns { ok, message }.
 export async function send(printer, filename, bytes, print) {
-  if (!printer?.url || !printer.kind || printer.kind === "none") return { ok: false, message: "This printer has no connection." };
+  if ((!printer?.url && !printer?.https) || !printer.kind || printer.kind === "none") return { ok: false, message: "This printer has no connection." };
   const form = new FormData();
   form.append("file", new Blob([bytes], { type: "application/octet-stream" }), filename);
   form.append("print", print ? "true" : "false");
   const path = printer.kind === "moonraker" ? "/server/files/upload" : "/api/files/local";
   let r;
   try {
-    r = await fetch(join(printer.url, path), fetchOptions(printer.url, { method: "POST", headers: headers(printer), body: form }));
+    // No time limit on the last try: a large file takes time.
+    r = await request(printer, path, { method: "POST", headers: headers(printer), body: form });
   } catch (e) {
     return { ok: false, message: explain(e, printer) };
   }
@@ -126,16 +181,16 @@ export async function send(printer, filename, bytes, print) {
 // app gets a key of its own after "Allow". wait(seconds): called while the
 // user decides. Returns { ok, key, message }. Moonraker has no such flow.
 export async function requestKey(printer, wait = () => {}) {
-  if (!printer?.url) return { ok: false, message: "No address." };
+  if (!printer?.url && !printer?.https) return { ok: false, message: "No address." };
   if (printer.kind === "moonraker") return { ok: false, message: "Moonraker gives no API keys this way: it needs none, or the key of its config." };
-  const base = join(printer.url, "/plugin/appkeys/request");
+  const base = "/plugin/appkeys/request";
   let token;
   try {
-    const r = await fetch(base, fetchOptions(printer.url, {
+    const r = await request(printer, base, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ app: "zslice" }),
-    }));
+    });
     if (r.status === 404) return { ok: false, message: "The printer does not give keys to apps (App Keys is off or missing)." };
     if (!r.ok) return { ok: false, message: `The printer answered ${r.status}.` };
     token = (await r.json()).app_token;
@@ -150,7 +205,7 @@ export async function requestKey(printer, wait = () => {}) {
     await new Promise((res) => setTimeout(res, 1000));
     let r;
     try {
-      r = await fetch(`${base}/${encodeURIComponent(token)}`, fetchOptions(printer.url, {}));
+      r = await request(printer, `${base}/${encodeURIComponent(token)}`);
     } catch (e) {
       return { ok: false, message: explain(e, printer) };
     }
@@ -166,10 +221,10 @@ export async function requestKey(printer, wait = () => {}) {
 
 // A test of the connection: the version of the API. Returns { ok, message }.
 export async function test(printer) {
-  if (!printer?.url) return { ok: false, message: "No address." };
+  if (!printer?.url && !printer?.https) return { ok: false, message: "No address." };
   const path = printer.kind === "moonraker" ? "/server/info" : "/api/version";
   try {
-    const r = await fetch(join(printer.url, path), fetchOptions(printer.url, { headers: headers(printer) }));
+    const r = await request(printer, path, { headers: headers(printer) });
     if (r.status === 401 || r.status === 403) return { ok: false, message: "The printer refused the API key." };
     if (!r.ok) return { ok: false, message: `The printer answered ${r.status}.` };
     const j = await r.json();

@@ -62,12 +62,12 @@ function saveStore() {
 // ---- small helpers ----
 
 let toastTimer = 0;
-function toast(text) {
+function toast(text, ms = 5000) {
   const t = $("toast");
   t.textContent = text;
   t.hidden = false;
   clearTimeout(toastTimer);
-  toastTimer = setTimeout(() => { t.hidden = true; }, 5000);
+  toastTimer = setTimeout(() => { t.hidden = true; }, ms);
 }
 
 function download(bytes, name, type) {
@@ -880,7 +880,7 @@ function managePrinters() {
       const row = document.createElement("div");
       row.className = "printers-row";
       const name = Object.assign(document.createElement("input"), { value: n, title: "The name of the printer" });
-      const url = Object.assign(document.createElement("input"), { value: p.url ?? "", placeholder: "http://printer.local", title: "The address of the printer, to send it prints (printdeck, OctoPrint, Moonraker)" });
+      const url = Object.assign(document.createElement("input"), { value: p.url ?? "", placeholder: "http://printer.local", title: "The address of the printer, to send it prints (printdeck, OctoPrint, Moonraker). A printdeck with a secure address shows it on its System page (https://….d.printdeck.beetlebug.org): paste that one, to send from this site in any browser." });
       const now = Object.assign(document.createElement("span"), { className: "dim", textContent: n === store.printer ? "in use" : "" });
       const kind = document.createElement("select");
       kind.title = "How zslice talks to the printer";
@@ -2302,9 +2302,17 @@ async function hostPrinter() {
     url: p.url || location.origin,
     kind: p.kind,
     apiKey: known?.apiKey ?? p.apiKey ?? "",
+    // The https address of a printdeck with a certificate, or "".
+    https: p.https || known?.https || "",
   };
   if (!store.printer) store.printer = p.name;
   saveStore();
+  // On a deck page over http, offer its secure address. The work of this
+  // page stays here: the other address is another site to the browser.
+  if (p.https && location.protocol === "http:" && !location.href.startsWith(p.https)) {
+    const go = new URL(location.pathname + location.search, p.https).href;
+    toast(`This printer has a secure address. Open zslice at ${go} to use it from any page. Your plate here stays here: save it first (Ctrl+S).`, 12000);
+  }
 }
 await hostPrinter();
 
