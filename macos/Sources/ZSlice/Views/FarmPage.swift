@@ -1,21 +1,20 @@
-//! The Printers page (web/app/farm.js): the first step of a
-//! view of a print farm. A tile for each printer with a connection: its
-//! name, its kind, its state (the job, the progress, the time left, or the
-//! filament), and a progress bar while it prints. The tiles read the
-//! status again every 10 s, only while the page shows. A printer that does
-//! not answer fades and says so.
+//! The Printers page (web/app/farm.js): a view of a print farm. It covers
+//! the window (the settings pane hides), from the Printers button of the
+//! toolbar (Option-Command-P).
 //!
-//! "Send the Plate" on a tile sends the active plate. Under the tiles,
-//! "Plates to Print" lists the plates with parts, each with a printer (the
-//! free ones first, and none whose bed is smaller than the plate) and
-//! Send. Each send asks the user first if the bed of that printer is
-//! clear, and says when the plate is sliced for another printer. A plate
-//! row has its time and grams (zs_set_plate_totals), a busy printer says
-//! when it is free, and a plate sent in this session says where and when.
+//! - The header: Plate (back), the count, the time of the last read, and
+//!   Refresh. Under it, a summary: how many print, are ready to collect,
+//!   failed, are free, and do not answer; a click shows only those.
+//! - A tile for each printer (FarmMonitor reads them): a status dot, the
+//!   job with its progress and the time left, "Ready to collect" or
+//!   "Failed" in color, and the plates that it prints and that come next.
+//!   The printers that need a person come first.
+//! - Plates to Print: each plate with a preview, its time and grams, its
+//!   printer (the plate bar assigns it too), and Send.
 //!
-//! The page covers the window (the settings pane hides), from the Printers
-//! button of the toolbar (Option-Command-P), with a header: Plate (back),
-//! the count and the time of the last read, and Refresh.
+//! A send asks first. A printdeck never starts a print by itself: the file
+//! waits in its queue until a person at the deck presses Print. OctoPrint
+//! and Moonraker start the print, so the app asks if the bed is clear.
 //!
 //! SPDX-License-Identifier: AGPL-3.0-or-later
 
@@ -25,15 +24,12 @@ import SwiftUI
 
 struct FarmPage: View {
     let workspace: Workspace
-    @State private var status: [UUID: PrinterStatus] = [:]
-    @State private var silent: Set<UUID> = []
     @State private var busy: Set<UUID> = []
+    @State private var filter: Look?
 
+    private var monitor: FarmMonitor { FarmMonitor.shared }
     private var printers: [Printer] { PrinterStore.shared.printers.filter { $0.kind != .none } }
     private var model: SliceModel { workspace.model }
-
-    @State private var updated: Date?
-    @State private var refreshing = false
 
     var body: some View {
         VStack(spacing: 0) {
@@ -46,33 +42,30 @@ struct FarmPage: View {
                     Text("Add a printer with a connection: printdeck, OctoPrint, Moonraker (Klipper), or Bambu Lab.")
                 } actions: {
                     Button("Add a Printer…") { workspace.pickerOpen = true }
+                    Button("Add Printers from a Fleet File…") { monitor.askFleet() }
                 }
             } else {
                 ScrollView {
                     VStack(alignment: .leading, spacing: 22) {
-                        LazyVGrid(columns: [GridItem(.adaptive(minimum: 240, maximum: 340), spacing: 12, alignment: .top)],
+                        summary
+                        let shown = printers.filter { filter == nil || look($0) == filter }.sorted { look($0).order < look($1).order }
+                        LazyVGrid(columns: [GridItem(.adaptive(minimum: 250, maximum: 340), spacing: 12, alignment: .top)],
                                   alignment: .leading, spacing: 12) {
-                            ForEach(printers) { tile($0) }
+                            ForEach(shown) { tile($0) }
                         }
                         queue
                     }
                     .padding(20)
-                    .frame(maxWidth: 1100, alignment: .leading)
+                    .frame(maxWidth: 1400, alignment: .leading)
                 }
             }
         }
         .background(Color(nsColor: .windowBackgroundColor))
-        // While the page shows: now, then every 10 s, and at once when a
-        // printer comes or goes.
-        .task(id: printers.map(\.id)) {
-            while !Task.isCancelled {
-                await refresh()
-                try? await Task.sleep(for: .seconds(10))
-            }
-        }
+        .onAppear { monitor.watchers += 1 }
+        .onDisappear { monitor.watchers -= 1 }
     }
 
-    // MARK: - the header
+    // MARK: - the header and the summary
 
     private var header: some View {
         HStack {
@@ -87,13 +80,13 @@ struct FarmPage: View {
                 }
             }
             Spacer()
-            Button { Task { await refresh() } } label: {
-                if refreshing { ProgressView().controlSize(.small) } else { Image(systemName: "arrow.clockwise") }
+            Button { Task { await monitor.refresh() } } label: {
+                if monitor.refreshing { ProgressView().controlSize(.small) } else { Image(systemName: "arrow.clockwise") }
             }
             .frame(width: 70, alignment: .trailing)
             .buttonStyle(.borderless)
-            .disabled(refreshing || printers.isEmpty)
-            .help("Read the printers again now (they read every 10 s)")
+            .disabled(monitor.refreshing || printers.isEmpty)
+            .help("Read the printers again now (they read every 10 s while this page shows)")
         }
         .padding(.horizontal, 16)
         .padding(.vertical, 10)
@@ -102,33 +95,75 @@ struct FarmPage: View {
     private var subtitle: String {
         let n = printers.count
         var s = n == 1 ? "1 printer" : "\(n) printers"
-        if let updated { s += " · updated " + updated.formatted(date: .omitted, time: .shortened) }
+        if let u = monitor.updated { s += " · updated " + u.formatted(date: .omitted, time: .shortened) }
         return s
     }
 
-    // MARK: - the tiles
-
-    private enum Look {
-        case unknown, silent, free, printing, paused
-
-        var color: Color {
-            switch self {
-            case .unknown, .silent: .secondary
-            case .free: .green
-            case .printing: .accentColor
-            case .paused: .orange
+    /// One chip for each state with printers; a click shows only those.
+    private var summary: some View {
+        let counts = Dictionary(grouping: printers, by: look).mapValues(\.count)
+        return HStack(spacing: 8) {
+            ForEach(Look.allCases.filter { counts[$0] != nil }, id: \.self) { l in
+                Button {
+                    filter = filter == l ? nil : l
+                } label: {
+                    HStack(spacing: 5) {
+                        Circle().fill(l.color).frame(width: 8, height: 8)
+                        Text("\(counts[l] ?? 0) \(l.title)").monospacedDigit()
+                    }
+                    .padding(.horizontal, 10)
+                    .padding(.vertical, 4)
+                    .background(filter == l ? l.color.opacity(0.25) : Color(nsColor: .controlBackgroundColor), in: Capsule())
+                    .overlay(Capsule().strokeBorder(Color(nsColor: .separatorColor)))
+                }
+                .buttonStyle(.plain)
+                .help(filter == l ? "Show all printers" : "Show only the printers that are \(l.title)")
             }
         }
     }
 
+    // MARK: - the tiles
+
+    enum Look: CaseIterable {
+        case failed, ready, paused, printing, free, unknown, silent
+
+        var color: Color {
+            switch self {
+            case .failed: .red
+            case .ready: .green
+            case .paused: .orange
+            case .printing: .accentColor
+            case .free: .mint
+            case .unknown, .silent: .secondary
+            }
+        }
+
+        var title: String {
+            switch self {
+            case .failed: "failed"
+            case .ready: "ready to collect"
+            case .paused: "paused"
+            case .printing: "printing"
+            case .free: "free"
+            case .unknown: "reading"
+            case .silent: "not answering"
+            }
+        }
+
+        /// The printers that need a person first.
+        var order: Int { Look.allCases.firstIndex(of: self) ?? 0 }
+    }
+
     private func look(_ p: Printer) -> Look {
-        guard let st = status[p.id] else { return silent.contains(p.id) ? .silent : .unknown }
-        if st.state.range(of: "pause", options: .caseInsensitive) != nil { return .paused }
-        return isPrinting(st) ? .printing : .free
+        guard let st = monitor.status[p.id] else { return monitor.silent.contains(p.id) ? .silent : .unknown }
+        if FarmMonitor.failed(st) { return .failed }
+        if FarmMonitor.done(st) { return .ready }
+        if FarmMonitor.paused(st) { return .paused }
+        return FarmMonitor.printing(st) ? .printing : .free
     }
 
     private func tile(_ p: Printer) -> some View {
-        let st = status[p.id]
+        let st = monitor.status[p.id]
         let l = look(p)
         return VStack(alignment: .leading, spacing: 8) {
             HStack(spacing: 8) {
@@ -151,11 +186,29 @@ struct FarmPage: View {
                         .font(.caption)
                         .help("No answer, or the printer refused the key: check its address and its key in Settings > Printers")
                 }
+            case .ready:
+                VStack(alignment: .leading, spacing: 2) {
+                    Label("Ready to collect", systemImage: "checkmark.circle.fill").foregroundStyle(.green).font(.callout.weight(.semibold))
+                    if let st, !st.job.isEmpty { Text(st.job).lineLimit(1) }
+                    Text("Take the print off the bed\(p.kind == .printdeck ? ", then press Print on the deck for the next one" : "").")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+            case .failed:
+                VStack(alignment: .leading, spacing: 2) {
+                    Label("Failed", systemImage: "xmark.octagon.fill").foregroundStyle(.red).font(.callout.weight(.semibold))
+                    if let st, !st.job.isEmpty { Text(st.job).lineLimit(1) }
+                    Text("Check the printer, then clear the bed.").font(.caption).foregroundStyle(.secondary)
+                }
             case .printing, .paused:
                 if let st {
                     VStack(alignment: .leading, spacing: 4) {
-                        Text(st.job.isEmpty ? st.state : st.job).lineLimit(1)
-                        ProgressView(value: min(max(st.progress, 0), 1)).progressViewStyle(.linear)
+                        HStack {
+                            Text(st.job.isEmpty ? st.state : st.job).lineLimit(1)
+                            if l == .paused { Text("Paused").font(.caption.weight(.semibold)).foregroundStyle(.orange) }
+                        }
+                        ProgressView(value: min(max(st.progress, 0), 1)).progressViewStyle(.linear).tint(l.color)
                         HStack {
                             Text("\(Int((st.progress * 100).rounded())) %")
                             Spacer()
@@ -166,15 +219,13 @@ struct FarmPage: View {
                     }
                 }
             case .free:
-                if let st {
-                    VStack(alignment: .leading, spacing: 2) {
-                        Text(st.state.isEmpty ? "Ready" : st.state.capitalized)
-                        if !st.roll.isEmpty || !st.material.isEmpty {
-                            Text(st.roll.isEmpty ? st.material : st.roll + (st.rollLeft > 0 ? " · \(Int(st.rollLeft.rounded())) g left" : ""))
-                                .font(.caption)
-                                .foregroundStyle(.secondary)
-                                .lineLimit(1)
-                        }
+                VStack(alignment: .leading, spacing: 2) {
+                    Text("Free")
+                    if let st, !st.roll.isEmpty || !st.material.isEmpty {
+                        Text(st.roll.isEmpty ? st.material : st.roll + (st.rollLeft > 0 ? " · \(Int(st.rollLeft.rounded())) g left" : ""))
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                            .lineLimit(1)
                     }
                 }
             }
@@ -183,11 +234,11 @@ struct FarmPage: View {
             let next = model.plates.indices.filter { k in workspace.plateAssign[model.plates[k].id] == p.id && k != now && workspace.sentPlates[model.plates[k].id] == nil }
             if now != nil || !next.isEmpty {
                 HStack(spacing: 6) {
-                    if let now { PlatePreview(workspace: workspace, plate: now, size: 44).help("Printing plate \(now + 1)") }
+                    if let now { PlatePreview(workspace: workspace, plate: now, size: 40).help("Plate \(now + 1), sent here") }
                     if !next.isEmpty {
                         Text(now == nil ? "Up next:" : "Next:").font(.caption).foregroundStyle(.secondary)
                         ForEach(next.prefix(4), id: \.self) { k in
-                            PlatePreview(workspace: workspace, plate: k, size: 30).help("Plate \(k + 1), assigned to \(p.name)")
+                            PlatePreview(workspace: workspace, plate: k, size: 28).help("Plate \(k + 1), for \(p.name)")
                         }
                         if next.count > 4 { Text("+\(next.count - 4)").font(.caption).foregroundStyle(.secondary) }
                     }
@@ -199,47 +250,43 @@ struct FarmPage: View {
                 Button(busy.contains(p.id) ? "Sending…" : "Send Plate \(model.active + 1)") { send(plate: model.active, to: p) }
                     .controlSize(.small)
                     .disabled(model.state != .done || busy.contains(p.id) || l == .silent)
-                    .help("Send the active plate to this printer, and start it after you confirm that its bed is clear")
+                    .help(p.kind == .printdeck ? "Send the active plate to the queue of this printdeck; a person at the deck presses Print"
+                        : "Send the active plate to this printer, and start it after you confirm that its bed is clear")
             }
         }
         .padding(12)
-        .frame(maxWidth: .infinity, minHeight: 128, alignment: .topLeading)
+        .frame(maxWidth: .infinity, minHeight: 132, alignment: .topLeading)
         .background(Color(nsColor: .controlBackgroundColor), in: RoundedRectangle(cornerRadius: 10))
-        .overlay(RoundedRectangle(cornerRadius: 10).strokeBorder(l == .printing ? Color.accentColor.opacity(0.5) : Color(nsColor: .separatorColor)))
+        .overlay(RoundedRectangle(cornerRadius: 10).strokeBorder(l == .failed || l == .ready || l == .printing ? l.color.opacity(0.6) : Color(nsColor: .separatorColor),
+                                                                 lineWidth: l == .failed || l == .ready ? 2 : 1))
         .opacity(l == .silent ? 0.7 : 1)
         .accessibilityElement(children: .contain)
     }
 
-    private func isPrinting(_ st: PrinterStatus) -> Bool {
-        (!st.job.isEmpty && st.progress > 0 && st.progress < 1) || st.state.range(of: "print|running|busy", options: [.regularExpression, .caseInsensitive]) != nil
-    }
-
-    private func free(_ p: Printer) -> Bool {
-        guard let st = status[p.id] else { return false }
-        return !isPrinting(st) && st.state.range(of: "pause", options: .caseInsensitive) == nil
-    }
-
-    /// The status of each printer, all at once.
-    private func refresh() async {
-        guard !refreshing else { return }
-        refreshing = true
-        defer {
-            refreshing = false
-            updated = Date()
+    /// Free (or a printdeck, which queues) before busy, busy before not
+    /// answering.
+    private func rank(_ p: Printer) -> Int {
+        switch look(p) {
+        case .free: 0
+        case .ready: p.kind == .printdeck ? 1 : 2
+        case .printing, .paused: p.kind == .printdeck ? 1 : 3
+        case .failed: 4
+        case .unknown, .silent: 5
         }
-        // Each tile changes when its own answer comes.
-        let asks = printers.map { p in
-            Task { @MainActor in
-                let st = await PrinterLink.status(p)
-                status[p.id] = st
-                if st == nil { silent.insert(p.id) } else { silent.remove(p.id) }
-            }
-        }
-        for ask in asks { await ask.value }
     }
 
-    /// Known to be printing or paused.
-    private func busyNow(_ p: Printer) -> Bool { status[p.id] != nil && !free(p) }
+    private func busyNow(_ p: Printer) -> Bool { [.printing, .paused, .ready, .failed].contains(look(p)) }
+
+    /// "busy, free in 1 h 5 min", or "busy".
+    private func busyText(_ p: Printer) -> String {
+        switch look(p) {
+        case .ready: return "print on the bed"
+        case .failed: return "failed"
+        default:
+            guard let st = monitor.status[p.id], st.timeLeft > 0 else { return "busy" }
+            return "busy, free in \(duration(st.timeLeft))"
+        }
+    }
 
     // MARK: - the plates to print
 
@@ -252,7 +299,7 @@ struct FarmPage: View {
             } else {
                 VStack(spacing: 0) {
                     ForEach(Array(list.enumerated()), id: \.element.element.id) { k, item in
-                        if k > 0 { Divider().padding(.leading, 44) }
+                        if k > 0 { Divider().padding(.leading, 72) }
                         plateRow(item.offset, item.element)
                     }
                 }
@@ -270,11 +317,10 @@ struct FarmPage: View {
             VStack(alignment: .leading, spacing: 2) {
                 Text(plate.name.isEmpty ? "Plate \(i + 1)" : (plate.name as NSString).deletingPathExtension).lineLimit(1)
                 Text(plateLine(i, plate)).font(.caption).foregroundStyle(.secondary)
-                if let a = workspace.assigned(plate: i), workspace.sentPlates[plate.id] == nil {
-                    Label("For \(a.name)", systemImage: "printer").font(.caption).foregroundStyle(.secondary)
-                }
                 if let sent = workspace.sentPlates[plate.id] {
                     Label(sent, systemImage: "checkmark.circle.fill").font(.caption).foregroundStyle(.green)
+                } else if let a = workspace.assigned(plate: i) {
+                    Label("For \(a.name)", systemImage: "printer").font(.caption).foregroundStyle(.secondary)
                 }
             }
             Spacer(minLength: 12)
@@ -285,15 +331,15 @@ struct FarmPage: View {
                 // pick assigns the plate to it, so it slices for it.
                 Picker("Printer", selection: Binding(get: { workspace.assigned(plate: i).map(\.id).flatMap { id in fit.contains { $0.id == id } ? id : nil } ?? fit.first?.id },
                                                      set: { id in if let p = printers.first(where: { $0.id == id }) { workspace.assign(plate: i, to: p) } })) {
-                    ForEach(fit) { p in Text(p.name + (busyNow(p) ? " (\(busyText(p)))" : silent.contains(p.id) ? " (not answering)" : "")).tag(Optional(p.id)) }
+                    ForEach(fit) { p in Text(p.name + (busyNow(p) ? " (\(busyText(p)))" : monitor.silent.contains(p.id) ? " (not answering)" : "")).tag(Optional(p.id)) }
                 }
                 .labelsHidden()
-                .frame(width: 230)
+                .frame(width: 240)
                 Button("Send") {
                     if let p = workspace.assigned(plate: i).flatMap({ a in fit.first { $0.id == a.id } }) ?? fit.first { send(plate: i, to: p) }
                 }
                 .disabled(!ready)
-                .help(ready ? "Send this plate to the printer, after you confirm that its bed is clear" : "The plate has no slice yet")
+                .help(ready ? "Send this plate to the printer, after you confirm" : "The plate has no slice yet")
             }
         }
         .padding(.horizontal, 12)
@@ -302,7 +348,7 @@ struct FarmPage: View {
 
     private func parts(_ n: Int) -> String { n == 1 ? "1 part" : "\(n) parts" }
 
-    /// "3 parts · 1h 13m · 30.0 g", or "not sliced yet".
+    /// "3 parts · 1 h 13 min · 30.0 g", or "not sliced yet".
     private func plateLine(_ i: Int, _ plate: PlateInfo) -> String {
         guard plate.status == ZS_PLATE_STATUS_DONE.rawValue else { return "\(parts(plate.parts)), not sliced yet" }
         var t = zs_totals()
@@ -315,20 +361,9 @@ struct FarmPage: View {
         return m >= 60 ? "\(m / 60) h \(m % 60) min" : "\(max(m, 1)) min"
     }
 
-    /// The order of the printers for a plate: free, busy, then no answer.
-    private func rank(_ p: Printer) -> Int {
-        status[p.id] == nil ? 2 : busyNow(p) ? 1 : 0
-    }
-
-    /// "busy, free in 1 h 5 min", or "busy".
-    private func busyText(_ p: Printer) -> String {
-        guard let st = status[p.id], st.timeLeft > 0 else { return "busy" }
-        return "busy, free in \(duration(st.timeLeft))"
-    }
-
     /// A printer whose bed is known and smaller than the plate does not fit.
     private func fits(_ p: Printer, _ plate: PlateInfo) -> Bool {
-        guard let st = status[p.id], st.bedX > 0 else { return true }
+        guard let st = monitor.status[p.id], st.bedX > 0 else { return true }
         return st.bedX + 0.5 >= plate.bedX && st.bedY + 0.5 >= plate.bedY
     }
 
@@ -340,21 +375,23 @@ struct FarmPage: View {
             return
         }
         let title = model.gcodeName(plate: i)
+        let deck = p.kind == .printdeck
         // A fresh confirmation each time. G-code for another printer can
         // have another bed, nozzle, or temperatures: say so.
         let a = NSAlert()
-        a.messageText = "Send \"\(title)\" to \(p.name)?"
-        var info = "Is the bed of \(p.name) clear? The print can start when the file is there."
+        a.messageText = deck ? "Send \"\(title)\" to the queue of \(p.name)?" : "Send \"\(title)\" to \(p.name)?"
+        var info = deck ? "It waits in the queue of the printdeck until a person at the deck clears the bed and presses Print."
+            : "Is the bed of \(p.name) clear? The print starts when the file is there."
         if let current = workspace.assigned(plate: i) ?? PrinterStore.shared.current, current.id != p.id {
-            info = "The plate is sliced for \(current.name), not for \(p.name). Choose \(p.name) in the printer menu to slice it for that printer first.\n\n" + info
+            info = "The plate is sliced for \(current.name), not for \(p.name). Choose \(p.name) for the plate to slice it for that printer first.\n\n" + info
         }
         if let app = zs_set_app(model.set, i), zs_app_plate_fits(app) == 0 {
             info = "A part is off the bed or on another part. The printer can hit its frame or the other part.\n\n" + info
         }
-        if busyNow(p) { info = "\(p.name) looks busy now (\(busyText(p))).\n\n" + info }
+        if busyNow(p), !deck { info = "\(p.name) looks busy now (\(busyText(p))).\n\n" + info }
         if p.kind == .bambu { info += " (Bambu support is untested with a real printer.)" }
         a.informativeText = info
-        a.addButton(withTitle: "The Bed Is Clear: Send")
+        a.addButton(withTitle: deck ? "Send to the Queue" : "The Bed Is Clear: Send")
         a.addButton(withTitle: "Cancel")
         guard a.runModal() == .alertFirstButtonReturn else { return }
         busy.insert(p.id)
@@ -362,19 +399,18 @@ struct FarmPage: View {
             let r = await workspace.transfer(data, title: title, to: p, print: true)
             busy.remove(p.id)
             if r.ok, model.plates.indices.contains(i) {
-                let f = DateFormatter()
-                f.dateFormat = "HH:mm"
-                workspace.sentPlates[model.plates[i].id] = "Sent to \(p.name) at \(f.string(from: Date()))"
+                let time = Date().formatted(date: .omitted, time: .shortened)
+                workspace.sentPlates[model.plates[i].id] = deck ? "In the queue of \(p.name) since \(time)" : "Sent to \(p.name) at \(time)"
                 workspace.printing[p.id] = model.plates[i].id
             }
-            workspace.showNote(r.message)
-            await refresh()
+            workspace.showNote(r.ok && deck ? "In the queue of \(p.name): press Print on the deck when the bed is clear." : r.message)
+            await monitor.refresh()
         }
     }
 }
 
 /// A small picture of a plate, for the Printers page. Until the core draws
-/// plates (a thumbnail call), it is the number of the plate on a bed.
+/// plates (zs_app_thumbnail_png), it is the number of the plate on a bed.
 struct PlatePreview: View {
     let workspace: Workspace
     let plate: Int

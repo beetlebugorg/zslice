@@ -78,6 +78,12 @@ The first search of the network asks for the permission to find devices on the l
 
 The Filament and Quality menus sit beside the printer menu in the toolbar. They list the built-in profiles and your own, and have Save as Profile. The Quality menu shows a dot when this print has changes on top of the quality. Your profiles are in `~/Library/Application Support/zslice/profiles/filament` and `profiles/project`.
 
+## A farm
+
+The Printers page shows a summary of the farm (printing, ready to collect, failed, free, not answering); a click on one shows only those printers, and the printers that need a person come first. macOS notifies you when a print is ready to collect, or fails. File > Add Printers from a Fleet File adds many printers at once. To try it, run the farm simulator of the source tree (`tools/farm_sim/README.md`).
+
+A printdeck never starts a print by itself: a plate that you send to it waits in its queue until a person at the deck clears the bed and presses Print.
+
 ## The printer of a plate
 
 The printer menu in the plate bar assigns the plate to a printer: the plate slices for that printer (its bed, nozzle, and limits), the toolbar shows the printer of the plate in view, and the Printers page sends the plate there.

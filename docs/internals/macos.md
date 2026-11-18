@@ -152,6 +152,7 @@ Like the GTK shell, the app reads some environment variables for development and
 - `ZSLICE_FARM="url;bambu:address:serial:code"` adds printers in a fresh run, for the Printers page (`ZSLICE_PAGE=printers`). `ZSLICE_SNAPSHOT_DELAY=s` waits s more seconds before the snapshot, for pages that wait on the network.
 - `ZSLICE_EDIT=kind` edits the selected line (0: do not print it; 1: 90 % plastic), `ZSLICE_EDIT_UNDO=1` undoes it 3 s later, and each slice logs the edits.
 - `ZSLICE_TOOL=support ZSLICE_CLICKS="x,y;..." ZSLICE_SUPPORT_CLOSE=1` draws a support area with the clicks and closes it.
+- `ZSLICE_FLEET=path` adds the printers of a fleet file (tools/farm_sim writes fleet.json). `ZSLICE_ASSIGN="plate:printer;..."` assigns plates to printers.
 - `ZSLICE_RECORD=path.mov` records a demo video of the window (Recorder.swift): a turn, the colors, the layer slider, the replay, and the 2D view, frame by frame at 30 frames a second.
 - `ZSLICE_ADD_PLATE="path;path"` puts each file on a new plate after the first slice.
 - `ZSLICE_SEARCH=text` opens the search, `ZSLICE_GAPS=1` and `ZSLICE_CHECK=1` turn on Gaps and Check, `ZSLICE_MENU="x,y;Title"` (or `center;Title`) runs an item of the context menu, and `ZSLICE_DARK=1` sets the dark look.

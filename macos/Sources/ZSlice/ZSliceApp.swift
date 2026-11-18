@@ -70,6 +70,9 @@ struct ZSliceApp: App {
     var body: some Scene {
         DocumentGroup(newDocument: { ProjectDocument() }) { file in
             DocumentWindow(document: file.document, name: file.fileURL?.lastPathComponent ?? "", url: file.fileURL)
+                // The printers of the farm: read for the Printers page and
+                // for the notifications, once for the app.
+                .onAppear { FarmMonitor.shared.start() }
         }
         .commands {
             ViewCommands()
@@ -139,6 +142,8 @@ struct PlateCommands: View {
             .disabled(workspace == nil)
         Button("Clear the Plate") { workspace?.plateAction(zs_app_plate_clear) }
             .disabled(workspace == nil)
+        Divider()
+        Button("Add Printers from a Fleet File…") { FarmMonitor.shared.askFleet() }
         Divider()
         Button("Show Project…") { workspace?.projectOpen = true }
             .disabled(workspace?.model.project == nil)

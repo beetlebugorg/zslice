@@ -375,6 +375,9 @@ final class Workspace {
                 }
             }
         }
+        // ZSLICE_FLEET=path adds the printers of a fleet file (the farm
+        // simulator writes one).
+        if let f = env["ZSLICE_FLEET"] { FarmMonitor.shared.addFleet(URL(fileURLWithPath: f)) }
         // ZSLICE_RECORD=path.mov records the demo of Recorder.swift.
         if let path = env["ZSLICE_RECORD"] {
             Task { @MainActor in await Recorder.record(self, to: URL(fileURLWithPath: path)) }
