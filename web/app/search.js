@@ -19,6 +19,7 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
 import { el } from "./settings.js";
+import { searchSettings } from "./format.js";
 import { ALL_FEATURES, GROUP_TITLES, isNumber, isRatio, displayValue, toCore, formatNumber, sourceText } from "./format.js";
 
 const MAX_SETTINGS = 14;
@@ -263,11 +264,17 @@ export class SearchOverlay {
       this.list.append(el("div", "search-note", "Type a setting (infill, walls, brim, speed) or an action (export, arrange, print)."));
       return;
     }
-    const matches = this.ctx.infos
-      .filter((info) => !this.scope || info.perPart)
-      .map((info) => ({ info, s: score(info, words) }))
-      .filter((r) => r.s > 0)
-      .sort((a, b) => b.s - a.s);
+    // The ranking of the core (zs_setting_search), the same in each app;
+    // the rules here only with no core.
+    const byIndex = new Map(this.ctx.infos.map((info) => [info.index, info]));
+    const core = searchSettings(q, !!this.scope, 200);
+    const matches = core
+      ? core.map((h) => ({ info: byIndex.get(h.index), s: h.score })).filter((r) => r.info)
+      : this.ctx.infos
+          .filter((info) => !this.scope || info.perPart)
+          .map((info) => ({ info, s: score(info, words) }))
+          .filter((r) => r.s > 0)
+          .sort((a, b) => b.s - a.s);
     const settings = matches.slice(0, MAX_SETTINGS);
     const actions = (this.scope ? [] : this.ctx.actions())
       .map((a) => ({ a, s: words.every((w) => a.label.toLowerCase().includes(w) || (a.hint ?? "").toLowerCase().includes(w)) ? 1 : 0 }))

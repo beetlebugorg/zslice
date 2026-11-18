@@ -143,6 +143,22 @@ export fn zs_setting_source_text(level: c_int, profile: ?[*:0]const u8, formula:
     return copyOut(aw.written(), buf, cap, out_len);
 }
 
+/// The settings that match a search query, best first, at most max: their
+/// indices (zs_setting_get_info) in out_index, and their scores in
+/// out_score (either can be NULL). part_only != 0: only the settings that
+/// a part can have of its own. Returns the count. The rules and the words
+/// of other slicers are in src/app/setting_search.zig.
+export fn zs_setting_search(query: ?[*:0]const u8, part_only: c_int, out_index: ?[*]u32, out_score: ?[*]f64, max: usize) usize {
+    const q = std.mem.span(query orelse return 0);
+    var buf: [512]zs.app.setting_search.Hit = undefined;
+    const n = zs.app.setting_search.search(q, part_only != 0, buf[0..@min(max, buf.len)]);
+    for (buf[0..n], 0..) |h, i| {
+        if (out_index) |o| o[i] = h.index;
+        if (out_score) |o| o[i] = h.score;
+    }
+    return n;
+}
+
 /// 1 if a change line of a history step (zs_history_step.changes) can be
 /// undone alone (zs_app_history_revert): not the quality, and not a move,
 /// turn, orientation, or scale of a part.

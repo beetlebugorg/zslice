@@ -62,6 +62,26 @@ export function revertible(line) {
   return !/^(\(part\)|position|rotation|orientation|scale)/.test(key);
 }
 
+// The settings that match a search query, best first (zs_setting_search):
+// [{ index, score }], or null with no core (the caller ranks then).
+export function searchSettings(query, partOnly, max) {
+  if (!core) return null;
+  try {
+    const p = core.alloc(12 * max);
+    try {
+      // The scores first: f64 needs 8-byte alignment.
+      const n = core.withString(query, (q) => core.x.zs_setting_search(q, partOnly ? 1 : 0, p + 8 * max, p, max));
+      const out = [];
+      for (let i = 0; i < n; i++) out.push({ index: core.u32(p + 8 * max + 4 * i), score: core.f64(p + 8 * i) });
+      return out;
+    } finally {
+      core.free(p, 12 * max);
+    }
+  } catch {
+    return null;
+  }
+}
+
 function isAuto(info) { return info.name.endsWith("line_width"); }
 export function isRatio(info) { return (info.kind === "number" || info.kind === "integer") && info.unit === "%"; }
 export function isNumber(info) { return info.kind === "number" || info.kind === "integer"; }

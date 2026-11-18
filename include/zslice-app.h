@@ -142,6 +142,15 @@ int zs_setting_source_text(int level, const char *profile, const char *formula, 
  * and not a move, turn, orientation, or scale of a part. */
 int zs_history_revertible(const char *line, size_t len);
 
+/* The settings that match a search query, best first, at most max: their
+ * indices (zs_setting_get_info) in out_index and their scores in out_score
+ * (either can be NULL). Each word of the query must match the label, the
+ * name, the section, or the help text, by itself or by a word that means
+ * the same (other slicers' words: "perimeters" finds the walls).
+ * part_only != 0 keeps the settings that a part can have of its own.
+ * Returns the count. The actions of an app stay in the app. */
+size_t zs_setting_search(const char *query, int part_only, uint32_t *out_index, double *out_score, size_t max);
+
 /* The settings, in the order to show them. */
 size_t zs_setting_count(void);
 int zs_setting_get_info(size_t index, zs_setting_info *out);

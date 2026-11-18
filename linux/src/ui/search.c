@@ -1,10 +1,9 @@
 /* search.c: see search.h.
  *
- * The score of a setting for a query: each word of the query must match
- * the label, the name, the section, or the help of the setting, by itself
- * or by a word of the same meaning (SAME, also the names of other
- * slicers). A match at the start of the label scores most. The settings of
- * the part come first, then the filament, then the printer.
+ * The settings come from the search of the core (zs_setting_search): each
+ * word of the query must match a setting, by itself or by a word of the
+ * same meaning (also the names of other slicers). The actions are the
+ * app's own, matched by their words here.
  *
  * SPDX-License-Identifier: AGPL-3.0-or-later
  */
@@ -23,33 +22,6 @@ enum { MAX_SETTINGS = 14, MAX_ACTIONS = 4, DRAG_MS = 90 };
  * toolbar, right of the tool strip. */
 static const double PLACE_X = 64, PLACE_Y = 62;
 
-/* Words with the same meaning in a search: the names of zslice, and the
- * names of other slicers (Cura, PrusaSlicer). A word of the query also
- * finds the other words of its groups, with a lower score. The same
- * groups as web/app/search.js. */
-static const char *const SAME[][13] = {
-    {"speed", "speeds", "motion", "velocity", "fast", "slow", "mm/s", "feedrate", "accel", "acceleration", "jerk", "max speed", NULL},
-    {"acceleration", "accel", "jerk", "motion", NULL},
-    {"temperature", "temp", "heat", "hot", "nozzle temp", "bed temp", "temperatures", NULL},
-    {"fan", "cooling", "cool", "fans", NULL},
-    {"wall", "walls", "perimeter", "perimeters", "shell", "shells", "outline", NULL},
-    {"infill", "fill", "density", "sparse", NULL},
-    {"skin", "top", "bottom", "solid", "top and bottom", NULL},
-    {"support", "supports", "overhang", "overhangs", "tree", NULL},
-    {"brim", "skirt", "adhesion", "raft", NULL},
-    {"retraction", "retract", "stringing", "z hop", "wipe", NULL},
-    {"travel", "moves", "combing", "avoid", NULL},
-    {"layer", "layers", "height", "layer height", "resolution", NULL},
-    {"first layer", "initial", "first", "bed adhesion", NULL},
-    {"flow", "extrusion", "multiplier", "extrusion multiplier", "volumetric", NULL},
-    {"seam", "z seam", "scarf", NULL},
-    {"bridge", "bridges", "bridging", NULL},
-    {"ironing", "iron", "smooth", NULL},
-    {"shrink", "shrinkage", "compensation", "xy offset", "horizontal expansion", "elephant foot", NULL},
-    {"gcode", "g-code", "start", "end", "macro", NULL},
-    {"bed", "plate", "build plate", "bed size", NULL},
-    {"line width", "extrusion width", "width", NULL},
-};
 
 /* The actions in the results: the label, the keys, a hint, and the
  * action with its target (a string, or NULL). */
@@ -99,70 +71,6 @@ typedef struct {
 
 static Search *get(GtkWidget *w) {
     return g_object_get_data(G_OBJECT(w), "zg-search");
-}
-
-/* ---- the score ---- */
-
-static gboolean starts_word(const char *text, const char *w) {
-    size_t n = strlen(w);
-    for (const char *p = text; *p;) {
-        if (strncmp(p, w, n) == 0) return TRUE;
-        p = strchr(p, ' ');
-        if (!p) break;
-        p++;
-    }
-    return FALSE;
-}
-
-/* The score of one word (or a phrase) in a setting: 0 for no match. The
- * texts are in lower case. */
-static double word_score(const char *label, const char *name, const char *section, const char *doc, const char *w) {
-    if (g_str_has_prefix(label, w)) return 40;
-    if (starts_word(label, w)) return 30;
-    if (strstr(label, w)) return 20;
-    char *under = g_strdelimit(g_strdup(w), " ", '_');
-    gboolean in_name = strstr(name, under) != NULL;
-    g_free(under);
-    if (in_name) return 14;
-    if (strstr(section, w)) return 12;
-    if (strstr(doc, w)) return 3;
-    return 0;
-}
-
-static double score(const zs_setting_info *info, char **words) {
-    char *label = g_utf8_strdown(info->label, -1);
-    char *name = g_utf8_strdown(info->name, -1);
-    char *section = g_utf8_strdown(info->section, -1);
-    char *doc = g_utf8_strdown(info->doc, -1);
-    double total = 0;
-    for (int i = 0; words[i]; i++) {
-        const char *w = words[i];
-        double best = word_score(label, name, section, doc, w);
-        /* The words of its groups: a group counts when one of its words
-         * starts with w. */
-        if (strlen(w) >= 3) {
-            for (size_t g = 0; g < G_N_ELEMENTS(SAME); g++) {
-                gboolean in = FALSE;
-                for (int k = 0; SAME[g][k] && !in; k++) in = g_str_has_prefix(SAME[g][k], w);
-                if (!in) continue;
-                for (int k = 0; SAME[g][k]; k++) best = MAX(best, 0.75 * word_score(label, name, section, doc, SAME[g][k]));
-            }
-        }
-        if (best == 0) {
-            total = 0;
-            break;
-        }
-        total += best;
-    }
-    if (total > 0) {
-        if (strcmp(info->group, "project") == 0) total += 2;
-        if (strcmp(info->group, "engine") == 0) total -= 2;
-    }
-    g_free(label);
-    g_free(name);
-    g_free(section);
-    g_free(doc);
-    return total;
 }
 
 /* ---- the rows ---- */
@@ -430,10 +338,6 @@ typedef struct {
     double score;
 } Match;
 
-static int by_score(gconstpointer a, gconstpointer b) {
-    double d = ((const Match *)b)->score - ((const Match *)a)->score;
-    return d > 0 ? 1 : d < 0 ? -1 : 0;
-}
 
 static gboolean action_matches(const Action *a, char **words) {
     char *label = g_utf8_strdown(a->label, -1);
@@ -467,15 +371,18 @@ static void fill(Search *s) {
         g_free(q);
         return;
     }
+    /* The ranking of the core (zs_setting_search), the same in each app. */
     GArray *matches = g_array_new(FALSE, FALSE, sizeof(Match));
-    for (size_t i = 0; i < zs_setting_count(); i++) {
+    enum { MAX_HITS = 400 };
+    uint32_t idx[MAX_HITS];
+    double sc[MAX_HITS];
+    size_t hits = zs_setting_search(q, s->part >= 0, idx, sc, MAX_HITS);
+    for (size_t i = 0; i < hits; i++) {
         Match m;
-        if (zs_setting_get_info(i, &m.info) != ZS_OK) continue;
-        if (s->part >= 0 && !m.info.per_part) continue;
-        m.score = score(&m.info, words);
-        if (m.score > 0) g_array_append_val(matches, m);
+        if (zs_setting_get_info(idx[i], &m.info) != ZS_OK) continue;
+        m.score = sc[i];
+        g_array_append_val(matches, m);
     }
-    g_array_sort(matches, by_score);
     guint shown = MIN(matches->len, MAX_SETTINGS);
     if (shown > 0) {
         gtk_box_append(GTK_BOX(s->list), note("Settings", "zg-sr-group"));

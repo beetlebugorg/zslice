@@ -77,6 +77,8 @@ pub const settings_info = setting_info.settings_info;
 pub const setting_text = @import("app/setting_text.zig");
 /// The settings that matter most for a selected line (inspect_picks.zig).
 pub const inspect_picks = @import("app/inspect_picks.zig");
+/// The search of the settings (setting_search.zig).
+pub const setting_search = @import("app/setting_search.zig");
 pub const License = @import("app/licenses.zig").License;
 pub const licenses = @import("app/licenses.zig").licenses;
 
