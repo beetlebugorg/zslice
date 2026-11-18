@@ -879,8 +879,18 @@ var lineCard = new LineCard({
   isolate: () => toggleIsolate(),
   isolated: () => app.isolate,
   host: $("preview"),
-  more: () => showTab("selected"),
-  close: () => select(-1, -1, false),
+  // All settings: the long form of the line in the panel takes the place
+  // of the card; the line stays selected.
+  more: () => {
+    lineCard.close();
+    showTab("selected");
+  },
+  // With the panel on the line, a close of the card keeps the selection
+  // (the panel has its data); else it clears it.
+  close: () => {
+    if (panelMode() !== "hidden" && !$("page-selected").hidden) lineCard.close();
+    else select(-1, -1, false);
+  },
   // An edit of the line (zs_app_edit_add): kind 0 delete, 1 flow.
   // info: the line (inspect), with its key and layer.
   edit: async (info, kind, value) => {
@@ -1326,8 +1336,14 @@ function select(path, seg, picked) {
   if (picked && path >= 0) {
     // The card of the line opens at the click; a panel that shows also
     // turns to the Selected page.
-    lineCard.openAt(...(app.pickPoint ?? [120, 120]));
-    if (panelMode() !== "hidden") showTab("selected");
+    // With the panel on the Selected page, the panel shows the new line,
+    // and no card opens (the same data twice). Else the card opens at the
+    // click.
+    if (panelMode() !== "hidden" && !$("page-selected").hidden) showTab("selected");
+    else {
+      lineCard.openAt(...(app.pickPoint ?? [120, 120]));
+      if (panelMode() !== "hidden") showTab("selected");
+    }
   }
   if (path < 0) lineCard.close();
   inspect();
