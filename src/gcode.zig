@@ -786,14 +786,20 @@ pub const Emitter = struct {
         };
         // The first pass: the moves of the layer at full speed, with no
         // text, on a copy of the emitter.
-        var moves: std.ArrayList(motion.Move) = .empty;
-        defer moves.deinit(self.gpa);
+        // A dry run collects the moves in the list that the text run
+        // reads (see Prepared.plan_moves): the list keeps its memory from
+        // layer to layer, and the moves need no copy.
+        var own_moves: std.ArrayList(motion.Move) = .empty;
+        defer own_moves.deinit(self.gpa);
+        const keep_plan: ?*Prepared = if (self.dry) self.prep else null;
+        const moves: *std.ArrayList(motion.Move) = if (keep_plan) |pr| &pr.plan_moves else &own_moves;
+        moves.clearRetainingCapacity();
         var discard: Writer.Discarding = .init(&.{});
         var probe = self.*;
         probe.w = &discard.writer;
         probe.dry = true;
         probe.record = null;
-        probe.collect = &moves;
+        probe.collect = moves;
         probe.keep_ways = self.dry;
         try probe.paths(lp, 1, false);
         const lim = self.limits();
@@ -837,13 +843,11 @@ pub const Emitter = struct {
         }
 
         // The dry run keeps the plan for the text run.
-        if (self.dry) if (self.prep) |pr| {
-            pr.plan_moves.clearRetainingCapacity();
-            try pr.plan_moves.appendSlice(self.gpa, moves.items);
+        if (keep_plan) |pr| {
             pr.plan_slow = slow;
             pr.plan_time = layer_time;
             pr.have_plan = true;
-        };
+        }
         // The second pass: the text, with the planned time of each move.
         self.planned = moves.items;
         self.next_move = 0;
