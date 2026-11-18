@@ -165,6 +165,8 @@ function sendResult(i, ms) {
     mode,
     marks: c.markCount(),
     parts: c.w.x.zs_app_part_count(c.app),
+    // Each part on the bed, with no part on another (zs_app_plate_fits).
+    fits: c.w.x.zs_app_plate_fits(c.app) === 1,
   };
   post(msg, scene ? [scene, layers.z.buffer, layers.height.buffer, layers.endTime.buffer, layers.slowed.buffer] : []);
 }

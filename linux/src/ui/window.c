@@ -315,6 +315,7 @@ static void update(Window *w) {
     if (state == ZS_STATE_SLICING) gtk_widget_add_css_class(w->status, "zg-stale");
     else gtk_widget_remove_css_class(w->status, "zg-stale");
 
+    gtk_widget_remove_css_class(w->status, "error");
     char text[256];
     switch (state) {
     case ZS_STATE_EMPTY:
@@ -370,6 +371,12 @@ static void update(Window *w) {
             g_snprintf(text, sizeof text, "%s", took);
         } else {
             text[0] = 0;
+        }
+        /* A part off the bed, or on another part: the printer can hit its
+         * frame. The status line says so in red. */
+        if (zs_app_plate_fits(core) == 0) {
+            g_snprintf(text, sizeof text, "A part is off the bed or on another part. Move, turn, scale, or cut it before you print.");
+            gtk_widget_add_css_class(w->status, "error");
         }
         break;
     }

@@ -680,6 +680,7 @@ button.destructive { background: #c01c28; color: #fff; }
   border: 1px solid rgba(255, 255, 255, 0.14); border-radius: 12px;
   box-shadow: 0 10px 30px rgba(0, 0, 0, 0.45);
 }
+.sum-warn { color: #fff; background: #b42318; border-radius: 6px; padding: 6px 8px; font-size: 0.88em; margin-top: 4px; }
 .sum-project { font-size: 0.85em; margin-top: 2px; }
 .pc-actions { display: flex; flex-wrap: wrap; gap: 4px; }
 .pc-cut { display: flex; flex-direction: column; gap: 6px; padding: 6px 0; border-top: 1px solid var(--border); }

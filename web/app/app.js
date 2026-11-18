@@ -1748,6 +1748,10 @@ function updateSummary() {
   const cost = c > 0 ? ` · ${c.toFixed(2)}` : "";
   $("sum-detail").textContent = `${st.filamentG.toFixed(1)} g · ${(st.filamentMm / 1000).toFixed(2)} m${cost} · ${st.layerCount} layers`;
   $("sum-took").textContent = app.sliceMs < 1000 ? `Sliced in ${app.sliceMs.toFixed(0)} ms` : `Sliced in ${(app.sliceMs / 1000).toFixed(1)} s`;
+  // A part off the bed, or on another part: the printer can hit its frame.
+  const warn = $("sum-warn");
+  warn.hidden = app.fits !== false;
+  warn.textContent = "A part is off the bed or on another part. Move it, turn it, scale it, or cut it (the part card) before you print.";
   fillFacts();
 }
 
@@ -1787,6 +1791,7 @@ function fillFacts() {
 
 async function exportGcode() {
   if (app.state !== "done") return;
+  if (app.fits === false && !window.confirm("A part is off the bed or on another part. The printer can hit its frame or the other part. Go on?")) return;
   const r = await client.call("gcode");
   if (!r.bytes) {
     toast("No G-code: slice first.");
@@ -1845,6 +1850,7 @@ var sending = false; // var: updateSummary can run before this line
 async function sendGcode(print) {
   const pr = currentPrinter();
   if (!pr || app.state !== "done" || sending) return;
+  if (app.fits === false && !window.confirm("A part is off the bed or on another part. The printer can hit its frame or the other part. Go on?")) return;
   const r = await client.call("gcode");
   if (!r.bytes) {
     toast("No G-code: slice first.");
@@ -1941,6 +1947,7 @@ function onWorkerEvent(m) {
       app.layers = m.layers;
       app.marks = m.marks;
       app.parts = m.parts;
+      app.fits = m.fits !== false;
       // The selection, to find it again in the new slice.
       const key = refindKey();
       const first = !view.loaded;
