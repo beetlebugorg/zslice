@@ -72,6 +72,14 @@ final class PrinterLibrary {
         return coreString { zs_printers_profile(lib, i, nozzle, $0, $1, $2) }
     }
 
+    /// The model that fits a printer on the network: a name hint and its
+    /// bed (0 when not known).
+    func match(hint: String, bedX: Double, bedY: Double, height: Double) -> Int? {
+        guard let lib else { return nil }
+        let i = zs_printers_match(lib, hint, bedX, bedY, height)
+        return i >= 0 ? i : nil
+    }
+
     func find(id: String) -> Int? {
         guard let lib else { return nil }
         let i = zs_printers_find(lib, id)

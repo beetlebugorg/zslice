@@ -13,6 +13,7 @@ struct DocumentWindow: View {
     let name: String
     @State private var workspace = Workspace()
     @State private var loadError: String?
+    @State private var dropping = false
 
     /// The 3D view fills the window, under the toolbar too. Each control
     /// is an overlay on an edge of the content area, so no control can make
@@ -102,6 +103,21 @@ struct DocumentWindow: View {
                 }
             }
         .frame(minWidth: 720, minHeight: 480)
+        // STL and 3MF files dropped on the window go on the active plate.
+        .dropDestination(for: URL.self) { urls, _ in
+            let models = urls.filter { ["stl", "3mf"].contains($0.pathExtension.lowercased()) }
+            for url in models { workspace.addModel(url) }
+            return !models.isEmpty
+        } isTargeted: { dropping = $0 }
+        .overlay {
+            if dropping {
+                RoundedRectangle(cornerRadius: 16)
+                    .strokeBorder(Color.accentColor, style: StrokeStyle(lineWidth: 3, dash: [10, 6]))
+                    .padding(12)
+                    .overlay(Text("Drop to add to the plate").font(.title2).padding(14).background(.regularMaterial, in: Capsule()))
+                    .allowsHitTesting(false)
+            }
+        }
         .sheet(isPresented: Bindable(workspace).shortcutsOpen) { ShortcutSheet() }
         .sheet(isPresented: Bindable(workspace).pickerOpen) { PrinterPicker(workspace: workspace) }
         .inspector(isPresented: Bindable(workspace).showSettings) {

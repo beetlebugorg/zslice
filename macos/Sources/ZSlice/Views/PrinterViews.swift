@@ -25,6 +25,8 @@ struct PrinterPicker: View {
     @State private var kind = Printer.Kind.none
     @State private var url = ""
     @State private var key = ""
+    @State private var discovery = Discovery()
+    @State private var network: FoundPrinter?
 
     private let lib = PrinterLibrary.shared
 
@@ -47,6 +49,38 @@ struct PrinterPicker: View {
                 }
                 .frame(minWidth: 160, maxWidth: 220)
                 List(selection: $selected) {
+                    if query.isEmpty && brand < 0 {
+                        Section {
+                            if discovery.found.isEmpty {
+                                Text(discovery.searching ? "Searching…" : "No printer answered.").foregroundStyle(.secondary)
+                            }
+                            ForEach(discovery.found) { f in
+                                Button { useFound(f) } label: {
+                                    HStack {
+                                        Image(systemName: "wifi").foregroundStyle(.secondary)
+                                        VStack(alignment: .leading, spacing: 1) {
+                                            Text(f.name)
+                                            Text("\(f.kindTitle) · \(f.url)\(f.model.isEmpty ? "" : " · \(f.model)")")
+                                                .font(.caption).foregroundStyle(.secondary)
+                                        }
+                                        Spacer()
+                                        if network == f { Image(systemName: "checkmark").foregroundStyle(Color.accentColor) }
+                                    }
+                                    .contentShape(Rectangle())
+                                }
+                                .buttonStyle(.plain)
+                            }
+                        } header: {
+                            HStack {
+                                Text("On Your Network")
+                                if discovery.searching { ProgressView().controlSize(.mini) }
+                                Spacer()
+                                Button("Search Again") { discovery.start() }
+                                    .buttonStyle(.link)
+                                    .disabled(discovery.searching)
+                            }
+                        }
+                    }
                     ForEach(lib.search(query, brand: brand), id: \.self) { i in
                         if let m = lib.model(i) {
                             VStack(alignment: .leading, spacing: 1) {
@@ -73,6 +107,8 @@ struct PrinterPicker: View {
             .padding()
         }
         .frame(width: 960, height: 620)
+        .onAppear { discovery.start() }
+        .onDisappear { discovery.stop() }
         .onChange(of: selected) {
             if let i = selected, let m = lib.model(i) {
                 name = coreText(m.title)
@@ -111,6 +147,18 @@ struct PrinterPicker: View {
             ContentUnavailableView("Pick a Model", systemImage: "printer",
                                    description: Text("Search, or pick a brand at the left. The library has more than 1000 printers."))
         }
+    }
+
+    /// A printer on the network: its address and kind, and its model if
+    /// the library has one that fits.
+    private func useFound(_ f: FoundPrinter) {
+        network = f
+        kind = f.printerKind
+        url = f.url
+        if let i = lib.match(hint: f.model.isEmpty ? f.name : f.model, bedX: f.bedX, bedY: f.bedY, height: f.height) {
+            selected = i
+        }
+        if !f.name.isEmpty { name = f.name }
     }
 
     private func add() {

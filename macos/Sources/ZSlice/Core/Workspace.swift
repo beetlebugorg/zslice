@@ -95,6 +95,14 @@ final class Workspace {
         if ProcessInfo.processInfo.environment["ZSLICE_PANEL"] != nil { showSettings = true }
         // ZSLICE_SEARCH=text opens the search with that text (the field reads it).
         if ProcessInfo.processInfo.environment["ZSLICE_SEARCH"] != nil { searchOpen = true }
+        // ZSLICE_DISCOVER=1 searches the network and logs the printers.
+        if ProcessInfo.processInfo.environment["ZSLICE_DISCOVER"] != nil {
+            let d = Discovery()
+            d.start()
+            DispatchQueue.main.asyncAfter(deadline: .now() + 8.5) {
+                NSLog("zslice discovery: %d printers: %@", d.found.count, d.found.map { "\($0.name) \($0.kindTitle) \($0.url) \($0.model)" }.joined(separator: "; "))
+            }
+        }
         // ZSLICE_PRINTER=id: the printer of that model of the library.
         if let id = ProcessInfo.processInfo.environment["ZSLICE_PRINTER"], let i = PrinterLibrary.shared.find(id: id),
            let m = PrinterLibrary.shared.model(i), let prof = PrinterLibrary.shared.profile(i) {
@@ -286,6 +294,15 @@ final class Workspace {
             guard a.runModal() == .alertFirstButtonReturn else { return }
         }
         model.removePlate(i)
+    }
+
+    /// Adds a model file to the active plate.
+    func addModel(_ url: URL) {
+        do {
+            try model.add(name: url.lastPathComponent, data: Data(contentsOf: url))
+        } catch {
+            NSAlert(error: error).runModal()
+        }
     }
 
     /// Adds models to the active plate with an open panel.
