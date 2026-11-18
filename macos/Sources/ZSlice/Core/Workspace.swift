@@ -40,6 +40,16 @@ final class Workspace {
 
     static let speeds: [Double] = [1, 2, 5, 10, 25, 50, 100]
 
+    // The tools (Tools.swift).
+    var tool = Tool.select
+    var selectedPart: Int?
+    @ObservationIgnored var partDrag: PartDrag?
+    @ObservationIgnored var tapeDrag: Int?
+    @ObservationIgnored let wheelSlice = Throttle(.milliseconds(300))
+    var tape: [TapePoint] = []
+    /// The points of the tape in the view (points), for the readout.
+    var tapeScreen: [CGPoint] = []
+
     // The selected line and its card (Selection.swift).
     var selection: Selection?
     var lineInfo: LineInfo?
@@ -95,6 +105,14 @@ final class Workspace {
         applyRange()
         applyFocus()
         refindSelection()
+        if let i = selectedPart { selectPart(i < zs_app_part_count(model.core) ? i : nil) }
+        // For tests of memory and time: ZSLICE_RESLICE=n changes the wall
+        // count after each slice, n times, so the plate slices n times more.
+        if reslices > 0 {
+            reslices -= 1
+            model.set("project.wall_count", reslices % 2 == 0 ? "2" : "3")
+            model.history.commit()
+        }
         // After the first frames of the new slice: a pick needs the camera.
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) { [weak self] in self?.applyTestHooks() }
     }
@@ -103,6 +121,7 @@ final class Workspace {
     /// ZSLICE_LAYERS=lo,hi sets the layer range (layer numbers from 1), and
     /// ZSLICE_TIME=t shows the replay at t seconds (as in the GTK app).
     @ObservationIgnored private var hooked = false
+    @ObservationIgnored private var reslices = ProcessInfo.processInfo.environment["ZSLICE_RESLICE"].flatMap(Int.init) ?? 0
 
     private func applyTestHooks() {
         guard !hooked else { return }
@@ -121,6 +140,21 @@ final class Workspace {
                 model.history.commit()
             }
             for _ in 0 ..< (env["ZSLICE_UNDO"].flatMap(Int.init) ?? 0) { model.history.undoManager.undo() }
+        }
+        // ZSLICE_TOOL=name picks a tool, ZSLICE_CLICKS="x,y;x,y" clicks with
+        // it, and ZSLICE_DRAG="x0,y0;x1,y1" is a Command-drag (points).
+        let points = { (key: String) -> [CGPoint] in
+            (env[key] ?? "").split(separator: ";").compactMap { pair -> CGPoint? in
+                let xy = pair.split(separator: ",").compactMap { Double($0) }
+                return xy.count == 2 ? CGPoint(x: xy[0], y: xy[1]) : nil
+            }
+        }
+        if let t = env["ZSLICE_TOOL"].flatMap(Tool.init) { setTool(t) }
+        for p in points("ZSLICE_CLICKS") { sliceViewClick(p) }
+        let drag = points("ZSLICE_DRAG")
+        if drag.count == 2, press(drag[0], .command) {
+            self.drag(drag[1], .command)
+            release(drag[1])
         }
         // ZSLICE_PICK=x,y picks the line at that point of the view (points),
         // as a click does (as in the GTK app).
@@ -370,7 +404,22 @@ final class Workspace {
 }
 
 extension Workspace: SliceViewDelegate {
-    func sliceViewClick(_ p: CGPoint) { pick(at: p) }
+    func sliceViewClick(_ p: CGPoint) {
+        switch tool {
+        case .measure:
+            measureClick(p, snap: !NSEvent.modifierFlags.contains(.shift))
+        case .turn, .move:
+            // A click on a part selects it; a click on a line selects it too.
+            if let i = partAt(p) { selectPart(i) } else { selectPart(nil); pick(at: p) }
+        case .select:
+            pick(at: p)
+        }
+    }
+    func sliceViewPress(_ p: CGPoint, _ flags: NSEvent.ModifierFlags) -> Bool { press(p, flags) }
+    func sliceViewDrag(_ p: CGPoint, _ flags: NSEvent.ModifierFlags) { drag(p, flags) }
+    func sliceViewRelease(_ p: CGPoint) { release(p) }
+    func sliceViewTurnWheel(_ dy: CGFloat) -> Bool { turnWheel(dy) }
+    func sliceViewDidDraw() { if !tape.isEmpty { placeTape() } }
     func sliceViewDoubleClick(_ p: CGPoint) -> Bool { lookAtSide(p) }
 
     func sliceViewTick(_ dt: Double) -> Bool { stepReplay(dt) }
@@ -382,7 +431,18 @@ extension Workspace: SliceViewDelegate {
     /// The keys of the preview (docs/user/getting-started.md, "Keys in the
     /// preview"), for the case with no selected line.
     func sliceViewKey(_ event: NSEvent) -> Bool {
+        if turnKey(event) { return true }
+        if event.charactersIgnoringModifiers == "\u{1b}", !tape.isEmpty {
+            clearTape()
+            return true
+        }
         if selectionKey(event) { return true }
+        // The keys of the tools (with no modifier).
+        if event.modifierFlags.intersection([.command, .control, .option, .shift]).isEmpty,
+           let t = Tool.allCases.first(where: { $0.key == event.charactersIgnoringModifiers }) {
+            setTool(t)
+            return true
+        }
         let shift = event.modifierFlags.contains(.shift)
         switch event.specialKey {
         case .upArrow?: shift ? moveBottom(1) : moveTop(1)

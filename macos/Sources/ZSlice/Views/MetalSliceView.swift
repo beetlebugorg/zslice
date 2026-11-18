@@ -51,6 +51,16 @@ protocol SliceViewDelegate: AnyObject {
     func sliceViewClick(_ p: CGPoint)
     /// A double click on the 3D page. Returns true if the camera moves.
     func sliceViewDoubleClick(_ p: CGPoint) -> Bool
+    /// A press of the left button. Returns true if the window takes the
+    /// drag (a move of a part, an end of the measure tape); then the view
+    /// does not orbit, and the drag and the release go to the window.
+    func sliceViewPress(_ p: CGPoint, _ flags: NSEvent.ModifierFlags) -> Bool
+    func sliceViewDrag(_ p: CGPoint, _ flags: NSEvent.ModifierFlags)
+    func sliceViewRelease(_ p: CGPoint)
+    /// A scroll with Command: turns the selected part. Returns true if it did.
+    func sliceViewTurnWheel(_ dy: CGFloat) -> Bool
+    /// After each frame (the floating labels follow the camera).
+    func sliceViewDidDraw()
 }
 
 final class MetalSliceView: NSView {
@@ -269,6 +279,20 @@ final class MetalSliceView: NSView {
         } else {
             renderer.draw(frame.pointee, in: metalLayer, snapshot: shot)
         }
+        delegate?.sliceViewDidDraw()
+    }
+
+    /// The point of the view (points from the top left) of a point of the
+    /// print (mm), on the page that shows, or nil (behind the camera).
+    func viewPoint(x: Double, y: Double, z: Double) -> CGPoint? {
+        guard let view else { return nil }
+        if page == .twoD {
+            let px = ox2D + x * scale2D, py = Double(pixelSize.1) - (oy2D + y * scale2D)
+            return CGPoint(x: px / scale, y: py / scale)
+        }
+        var px: Float = 0, py: Float = 0
+        guard zs_view_pixel_of(view, x, y, z, &px, &py) != 0 else { return nil }
+        return CGPoint(x: CGFloat(px) / scale, y: CGFloat(py) / scale)
     }
 
     private var pixelSize: (Int, Int) { (Int(metalLayer.drawableSize.width), Int(metalLayer.drawableSize.height)) }
@@ -373,10 +397,14 @@ final class MetalSliceView: NSView {
         if delegate?.sliceViewKey(event) != true { super.keyDown(with: event) }
     }
 
+    /// The window took the drag of this press (sliceViewPress).
+    private var windowDrag = false
+
     override func mouseDown(with event: NSEvent) {
         window?.makeFirstResponder(self)
         lastDrag = convert(event.locationInWindow, from: nil)
         pressAt = lastDrag
+        windowDrag = delegate?.sliceViewPress(lastDrag!, event.modifierFlags) ?? false
     }
 
     override func rightMouseDown(with event: NSEvent) { lastDrag = convert(event.locationInWindow, from: nil) }
@@ -392,6 +420,11 @@ final class MetalSliceView: NSView {
     override func mouseUp(with event: NSEvent) {
         let p = convert(event.locationInWindow, from: nil)
         defer { pressAt = nil }
+        if windowDrag {
+            windowDrag = false
+            delegate?.sliceViewRelease(p)
+            return
+        }
         // A drag is no click.
         guard let at = pressAt, hypot(p.x - at.x, p.y - at.y) < 4 else { return }
         if event.clickCount == 2 {
@@ -409,6 +442,10 @@ final class MetalSliceView: NSView {
     }
 
     override func mouseDragged(with event: NSEvent) {
+        if windowDrag {
+            delegate?.sliceViewDrag(convert(event.locationInWindow, from: nil), event.modifierFlags)
+            return
+        }
         guard let view, let (dx, dy) = dragDelta(event) else { return }
         if page == .twoD {
             pan2D(dx, dy)
@@ -441,6 +478,10 @@ final class MetalSliceView: NSView {
     override func scrollWheel(with event: NSEvent) {
         guard let view else { return }
         let (px, py) = pixel(event)
+        if event.modifierFlags.contains(.command), event.scrollingDeltaY != 0,
+           delegate?.sliceViewTurnWheel(event.scrollingDeltaY) == true {
+            return
+        }
         if page == .twoD {
             let steps = event.hasPreciseScrollingDeltas ? event.scrollingDeltaY / 40 : (event.scrollingDeltaY > 0 ? 1 : -1)
             if event.scrollingDeltaY != 0 { zoom2D(pow(1.2, steps), Double(px), Double(py)) }

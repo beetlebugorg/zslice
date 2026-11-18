@@ -14,47 +14,52 @@ struct DocumentWindow: View {
     @State private var workspace = Workspace()
     @State private var loadError: String?
 
+    /// The 3D view fills the window, under the toolbar too. Each control
+    /// is an overlay on an edge of the content area, so no control can make
+    /// the window wider than it is: a narrow window shrinks the scrub bar.
     var body: some View {
-        ZStack {
-            SliceView(canvas: workspace.canvas)
+        Color.clear
+            .background { SliceView(canvas: workspace.canvas).ignoresSafeArea() }
+            // The cards and the tape float over the view, in the coordinates
+            // of the view (from the top of the window).
+            .overlay {
+                GeometryReader { geo in
+                    TapeOverlay(workspace: workspace, area: geo.size)
+                    if workspace.cardOpen, let info = workspace.lineInfo {
+                        LineCard(workspace: workspace, info: info, area: geo.size)
+                    }
+                }
                 .ignoresSafeArea()
-            // The cards float over the view, in the coordinates of the view.
-            GeometryReader { geo in
-                if workspace.cardOpen, let info = workspace.lineInfo {
-                    LineCard(workspace: workspace, info: info, area: geo.size)
-                }
             }
-            .ignoresSafeArea()
-            VStack {
-                HStack {
+            .overlay(alignment: .topLeading) {
+                HStack(alignment: .top, spacing: 10) {
+                    ToolStrip(workspace: workspace)
                     Legend(workspace: workspace)
-                    Spacer()
                 }
-                Spacer()
+                .padding(12)
             }
-            .padding(12)
-            if workspace.layerCount > 0 {
-                HStack {
-                    Spacer()
+            .overlay(alignment: .trailing) {
+                if workspace.layerCount > 0 {
                     LayerSlider(workspace: workspace)
-                        .padding(.vertical, 40)
+                        .padding(.top, 40)
+                        .padding(.bottom, 24)
                         .padding(.trailing, 12)
                 }
-                .padding(.bottom, 120)
             }
-            VStack {
-                Spacer()
-                HStack(alignment: .bottom) {
-                    Spacer()
-                    if workspace.layerCount > 0 { ScrubBar(workspace: workspace) }
-                    Spacer()
+            .overlay(alignment: .bottom) {
+                HStack(alignment: .bottom, spacing: 12) {
+                    if workspace.layerCount > 0 {
+                        ScrubBar(workspace: workspace)
+                    }
+                    Spacer(minLength: 0)
                     PrintCard(workspace: workspace)
-                        // Clear of the layer slider at the right edge.
-                        .padding(.trailing, 36)
+                        .fixedSize()
                 }
-                .padding(16)
+                .padding(.leading, 64)
+                // Clear of the layer slider at the right edge.
+                .padding(.trailing, 48)
+                .padding(.bottom, 16)
             }
-        }
         .frame(minWidth: 720, minHeight: 480)
         .inspector(isPresented: Bindable(workspace).showSettings) {
             InspectorPanel(workspace: workspace)
@@ -147,7 +152,7 @@ struct ScrubBar: View {
             .buttonStyle(.borderless)
             .help(workspace.playing ? "Pause the replay" : "Play the print from the top layer")
             Slider(value: Binding(get: { workspace.scrubFraction }, set: { workspace.scrub(to: $0) }))
-                .frame(minWidth: 160, maxWidth: 320)
+                .frame(minWidth: 60, maxWidth: 320)
                 .help("Moves the nozzle through the top layer")
             Text("Layer \(workspace.hi + 1) · \(clock(inLayer)) / \(clock(t1 - t0))")
                 .font(.callout.monospacedDigit())

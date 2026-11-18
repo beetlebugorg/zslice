@@ -26,6 +26,8 @@ open build/zslice.app
 | `Sources/ZSlice/Core/Workspace.swift` | The model of a window: the plate, the 3D view, the layer range, the replay, the focus of the drawer, and the keys of the view. |
 | `Sources/ZSlice/Core/History.swift` | The undo list of the core on the `UndoManager` of macOS: the commit timer, the focus of an edit, and the timeline. |
 | `Sources/ZSlice/Core/Selection.swift` | The selected line: the pick, the highlight, the facts of the line card, the line again after a new slice, and the keys of a selected line. |
+| `Sources/ZSlice/Core/Tools.swift` | The tools of the view: Select, Move, Turn, and Measure. |
+| `Sources/ZSlice/Core/Throttle.swift` | Runs an action at most once in an interval during a drag, and once more at the end. |
 | `Sources/ZSlice/Core/Settings.swift` | The setting infos, values, sources, effects, and value texts, from the core. |
 | `Sources/ZSlice/Views/MetalSliceView.swift` | The 3D view: an `NSView` over a `CAMetalLayer`, its display link, and the input. |
 | `Sources/ZSlice/Render/FrameRenderer.swift` | Draws the frame data of the core with Metal. |
@@ -33,6 +35,9 @@ open build/zslice.app
 | `Sources/ZSlice/Render/Shaders.swift` | The Metal shaders. They port `src/render/shaders/*`, and the 2D shaders of `web/app/gl.js`. |
 | `Sources/ZSlice/Views/DocumentWindow.swift` | The window: the 3D view, the scrub bar, and the print card. |
 | `Sources/ZSlice/Views/LineCard.swift` | The card of a selected line, next to it in the view. |
+| `Sources/ZSlice/Views/ToolStrip.swift` | The tool strip, and the measure tape with its readout. |
+| `Sources/ZSlice/Views/Legend.swift` | The legend of the colors: the line types to show or fade, or the range of a ramp. |
+| `Sources/ZSlice/Views/PrintFacts.swift` | The main settings of the print on the print card, each with a popover of editors. |
 | `Sources/ZSlice/Views/LayerSlider.swift` | The slider with two knobs for the layers that show. |
 | `Sources/ZSlice/Views/HistoryPage.swift` | The History page of the drawer: the steps, the newest first, with their changes. |
 | `Sources/ZSlice/Views/SettingsInspector.swift` | The settings drawer: the sections, the settings with their editors, the page of a setting, and the search. |
@@ -78,6 +83,16 @@ A click on a line selects it: `zs_view_pick_segment` on the 3D page, and `zs_vie
 
 After a new slice, the app finds the same line again: it keeps the layer, the feature, and the middle point of the line, and `zs_app_pick_feature` gives the nearest line of the same feature there. With a selected line, Left and Right (or h and l) step along the print (Shift: a whole line, `zs_view_step`), Up and Down (or k and j) go to the nearest line on the layer above or below (`zs_view_nearest_on_layer`), C shows the layers up to the line, and Esc clears the selection. The layer slider follows the selection.
 
+### The tools and the colors
+
+The tool strip at the left picks the tool of the mouse; each tool has a key. Select (S) selects a line. Move (M) moves a part with a drag: the frame of the part follows the pointer at once (`zs_view_part_box`), the core gets the place at most each 60 ms, and the part slices once, at the end of the drag. Command and a drag move a part in any tool, and Command and the wheel turn the selected part by 15°. Turn (R) turns the selected part with the keys: Left and Right about Z, Up and Down about X, Page Up and Page Down about Y (15°, Shift: 5°). Measure (T) puts a tape between two points (`zs_view_surface_point`); a click on a circle or an arc measures from its center (`zs_app_measure`); the core draws the tape in 3D (`zs_view_set_measure`), and a readout floats over its middle.
+
+The toolbar picks the colors of the lines (`zs_view_set_mode`): the filament, one color for each line type, or a ramp of the speed, the flow, the layer time, or the line width. The legend lists the line types; a click shows or fades one (`zs_view_focus`), and Option-click shows only it.
+
+The print card shows the main settings of the print as buttons. Each opens a popover with live editors and a slider. A slider sends its value at most each 90 ms during a drag, so the view follows the drag. The card keeps the last numbers while a new slice runs.
+
+The controls of the window are overlays on the edges of the content area, so a narrow window (with the drawer open) shrinks the scrub bar, and no control goes out of the window.
+
 ### Input
 
 The bindings are those of the GTK app, with the keys of a Mac:
@@ -108,6 +123,9 @@ Like the GTK shell, the app reads some environment variables for development and
 - `ZSLICE_TIME=t` shows the replay at t seconds after the first slice.
 - `ZSLICE_VIEW=2d` (or `3d`) opens the window on that page.
 - `ZSLICE_PANEL=1` shows the settings drawer, and `ZSLICE_SETTING=name` opens the page of that setting. `ZSLICE_PAGE=history` opens the History page.
+- `ZSLICE_TOOL=measure` picks a tool, `ZSLICE_CLICKS="x,y;x,y"` clicks with it, and `ZSLICE_DRAG="x0,y0;x1,y1"` is a Command-drag.
+- `ZSLICE_MODE=n` sets the colors (0 filament, 1 line type, 2 speed, 3 flow, 4 layer time, 5 line width).
+- `ZSLICE_RESLICE=n` changes a setting after each slice, n times, to test time and memory. `ZSLICE_TIMING=1` logs the time of each slice.
 - `ZSLICE_DOUBLE_CLICK=x,y` is a double click at that point after the first slice.
 - `ZSLICE_PICK=x,y` picks the line at that point of the view (in points) after the first slice, as a click does.
 - `ZSLICE_SET="name=value;name=value"` makes each change a step after the first slice, and `ZSLICE_UNDO=n` then undoes n steps.
