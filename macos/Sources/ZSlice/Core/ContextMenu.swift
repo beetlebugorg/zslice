@@ -14,6 +14,8 @@
 //! - Copy for AI: a report of the line (zs_app_line_report) on the
 //!   clipboard, with its place in the G-code of the slice, which the app
 //!   writes to its cache folder;
+//! - Test Print: the top layer, or the layers shown (zs_app_debug_gcode),
+//!   to a .gcode file;
 //! - Reset the View.
 //!
 //! SPDX-License-Identifier: AGPL-3.0-or-later
@@ -103,6 +105,18 @@ extension Workspace {
             menu.addItem(ClosureItem("Copy for AI") { [weak self] in self?.copyForAI() })
         }
         menu.addItem(.separator())
+        if layerCount > 0 {
+            menu.addItem(ClosureItem("Test Print: the Top Layer…") { [weak self] in
+                guard let self else { return }
+                saveTestPrint(lo: hi, hi: hi + 1)
+            })
+            if lo > 0 || hi < layerCount - 1 {
+                menu.addItem(ClosureItem("Test Print: the Layers Shown…") { [weak self] in
+                    guard let self else { return }
+                    saveTestPrint(lo: lo, hi: hi + 1)
+                })
+            }
+        }
         menu.addItem(ClosureItem("Reset the View") { [weak self] in
             guard let self, let v = canvas.view else { return }
             zs_view_reset_smooth(v)

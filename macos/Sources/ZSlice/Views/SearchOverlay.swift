@@ -46,6 +46,8 @@ struct SearchOverlay: View {
     private var actions: [SearchAction] {
         [
             SearchAction(label: "Export G-code…", keys: "⌘E") { workspace.exportGcode(from: NSApp.keyWindow) },
+            SearchAction(label: "Test Print: the Top Layer…", keys: "") { workspace.saveTestPrint(lo: workspace.hi, hi: workspace.hi + 1) },
+            SearchAction(label: "Test Print: the Layers Shown…", keys: "") { workspace.saveTestPrint(lo: workspace.lo, hi: workspace.hi + 1) },
             SearchAction(label: "Undo", keys: "⌘Z") { model.history.undoManager.undo() },
             SearchAction(label: "Redo", keys: "⇧⌘Z") { model.history.undoManager.redo() },
             SearchAction(label: "Show the 3D View", keys: "⌘1") { workspace.page = .threeD },

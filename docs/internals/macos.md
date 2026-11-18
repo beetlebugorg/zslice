@@ -147,6 +147,7 @@ Like the GTK shell, the app reads some environment variables for development and
 - `ZSLICE_RESLICE=n` changes a setting after each slice, n times, to test time and memory. `ZSLICE_TIMING=1` logs the time of each slice.
 - `ZSLICE_CUT=1` opens the Cut popover of a selected part; `ZSLICE_CUT=z` cuts it at z mm. `ZSLICE_MOVE=i` moves part i to a new plate. `ZSLICE_SAVE=path` saves the project file there.
 - `ZSLICE_DOC_SAVE=path` and `ZSLICE_DOC_AUTOSAVE=1` change the wall count of an opened file, then undo and redo, and save or autosave through the NSDocument, with a log line for each step.
+- `ZSLICE_TEST_PRINT=path` writes the test print of layers 10 to 12 (zs_app_debug_gcode).
 - `ZSLICE_RECORD=path.mov` records a demo video of the window (Recorder.swift): a turn, the colors, the layer slider, the replay, and the 2D view, frame by frame at 30 frames a second.
 - `ZSLICE_ADD_PLATE="path;path"` puts each file on a new plate after the first slice.
 - `ZSLICE_SEARCH=text` opens the search, `ZSLICE_GAPS=1` and `ZSLICE_CHECK=1` turn on Gaps and Check, `ZSLICE_MENU="x,y;Title"` (or `center;Title`) runs an item of the context menu, and `ZSLICE_DARK=1` sets the dark look.

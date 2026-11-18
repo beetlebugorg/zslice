@@ -243,6 +243,15 @@ final class Workspace {
         if let path = env["ZSLICE_SAVE"], let data = model.projectFileData(name: model.name) {
             try? data.write(to: URL(fileURLWithPath: path))
         }
+        // ZSLICE_TEST_PRINT=path writes the test print of layers 10 to 12.
+        if let path = env["ZSLICE_TEST_PRINT"] {
+            var out: UnsafeMutablePointer<UInt8>?
+            var len = 0
+            if zs_app_debug_gcode(model.core, 9, 12, &out, &len) == 0, let out {
+                try? Data(bytes: out, count: len).write(to: URL(fileURLWithPath: path))
+                zs_buffer_free(out, len)
+            }
+        }
         // ZSLICE_RECORD=path.mov records the demo of Recorder.swift.
         if let path = env["ZSLICE_RECORD"] {
             Task { @MainActor in await Recorder.record(self, to: URL(fileURLWithPath: path)) }
@@ -808,6 +817,30 @@ final class Workspace {
     // MARK: - the G-code
 
     /// Exports the G-code of the last slice with a save panel.
+    /// A test print: the G-code of layers lo to hi - 1 alone, lowered to
+    /// the bed, with the start and end G-code (zs_app_debug_gcode), to a
+    /// file. It checks a few layers before a long print.
+    func saveTestPrint(lo: Int, hi: Int) {
+        guard hi > lo else { return }
+        var out: UnsafeMutablePointer<UInt8>?
+        var len = 0
+        guard zs_app_debug_gcode(model.core, lo, hi, &out, &len) == 0, let out else {
+            showNote("The test print did not work")
+            return
+        }
+        let data = Data(bytes: out, count: len)
+        zs_buffer_free(out, len)
+        let panel = NSSavePanel()
+        panel.allowedContentTypes = [.gcode]
+        panel.nameFieldStringValue = hi == lo + 1 ? "test-layer-\(lo + 1).gcode" : "test-layers-\(lo + 1)-\(hi).gcode"
+        panel.message = hi == lo + 1 ? "Layer \(lo + 1) alone, on the bed." : "Layers \(lo + 1) to \(hi) alone, lowered to the bed."
+        let write = { (r: NSApplication.ModalResponse) in
+            guard r == .OK, let url = panel.url else { return }
+            do { try data.write(to: url) } catch { NSAlert(error: error).runModal() }
+        }
+        if let w = canvas.window { panel.beginSheetModal(for: w, completionHandler: write) } else { write(panel.runModal()) }
+    }
+
     func exportGcode(from window: NSWindow?) {
         guard let data = model.gcode() else { return }
         let panel = NSSavePanel()
