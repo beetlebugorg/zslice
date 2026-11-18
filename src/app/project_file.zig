@@ -127,22 +127,47 @@ pub fn parse(arena: Allocator, bytes: []const u8, diag: *Diagnostic) Error!Parse
         }
     }.f;
     const text = find(list, index_name) orelse return error.NotProject;
-    const idx = std.json.parseFromSliceLeaky(IndexJson, arena, text, .{ .ignore_unknown_fields = true }) catch {
+    // The untyped reader: the typed one needs 128-bit floats, which the
+    // C library of a GTK link does not have.
+    const root = std.json.parseFromSliceLeaky(std.json.Value, arena, text, .{}) catch {
         diag.message = "The index of the project does not read.";
         return error.BadProject;
     };
-    if (idx.format > format) {
+    if (root != .object) return error.BadProject;
+    const num = struct {
+        fn f(v: ?std.json.Value) usize {
+            const x = v orelse return 0;
+            return switch (x) {
+                .integer => |i| if (i > 0) @intCast(i) else 0,
+                else => 0,
+            };
+        }
+    }.f;
+    const str = struct {
+        fn f(o: std.json.ObjectMap, k: []const u8) []const u8 {
+            const x = o.get(k) orelse return "";
+            return if (x == .string) x.string else "";
+        }
+    }.f;
+    if (num(root.object.get("format")) > format) {
         diag.message = "The project is from a newer zslice.";
         return error.BadProject;
     }
-    const out = try arena.alloc(PlateOut, idx.plates.len);
-    for (idx.plates, out) |p, *o| o.* = .{
-        .name = p.name,
-        .machine = p.machine,
-        .filament = p.filament,
-        .project = p.project,
-        .model = if (p.file.len > 0) find(list, p.file) orelse "" else "",
-    };
+    const list_v = root.object.get("plates") orelse return error.BadProject;
+    if (list_v != .array) return error.BadProject;
+    const out = try arena.alloc(PlateOut, list_v.array.items.len);
+    for (list_v.array.items, out) |pv, *o| {
+        if (pv != .object) return error.BadProject;
+        const file = str(pv.object, "file");
+        o.* = .{
+            .name = str(pv.object, "name"),
+            .machine = str(pv.object, "machine"),
+            .filament = str(pv.object, "filament"),
+            .project = str(pv.object, "project"),
+            .model = if (file.len > 0) find(list, file) orelse "" else "",
+        };
+    }
+    const idx = .{ .name = str(root.object, "name"), .active = num(root.object.get("active")) };
     return .{ .name = idx.name, .active = idx.active, .plates = out };
 }
 
