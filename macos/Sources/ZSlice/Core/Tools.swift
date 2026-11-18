@@ -291,10 +291,15 @@ extension Workspace {
     }
 
     /// A turned part that cannot stand falls over (zs_app_part_settle: its
-    /// center of mass past its foot), unless support holds it. A note says so.
+    /// center of mass past its foot), unless support holds it. A note says
+    /// which (zs_app_part_stands), so a part that stays is no surprise.
     func settle() {
         guard let i = selectedPart else { return }
         let deg = zs_app_part_settle(model.core, i)
+        if deg == 0, zs_app_part_stands(model.core, i) == 0 {
+            showNote("This part could not stand like that on its own. Support is on, so the support holds it in place.", seconds: 7)
+            return
+        }
         guard deg > 0.5 else { return }
         selectPart(i)
         model.changedHeld()

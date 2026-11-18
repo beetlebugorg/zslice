@@ -454,10 +454,14 @@ final class Workspace {
                 NSLog("zslice flip: done")
             }
         }
-        // ZSLICE_TURN=deg turns the selected part about X, then lets it settle.
+        // ZSLICE_TURN=deg turns the selected part about X, then lets it settle
+        // and logs the note; ZSLICE_SUPPORT=1 turns support on first.
         if let t = env["ZSLICE_TURN"].flatMap(Double.init), let i = selectedPart {
+            if env["ZSLICE_SUPPORT"] != nil { zs_app_setting_set(model.core, "project.support", "everywhere") }
             zs_app_part_turn(model.core, i, 0, t)
-            NSLog("zslice settle: %.1f", zs_app_part_settle(model.core, i))
+            NSLog("zslice settle: support %@, stands %d", model.setting("project.support"), zs_app_part_stands(model.core, i))
+            settle()
+            NSLog("zslice settle: %@", note ?? "no note")
             selectPart(i)
             model.settingsChanged()
         }
