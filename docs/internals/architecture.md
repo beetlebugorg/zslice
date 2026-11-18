@@ -25,6 +25,9 @@ src/
   lightning.zig  Lightning infill: branches under the tops, grown from the
                  top layer down.
   gcode.zig      Emitter: layer plans -> G-code, statistics.
+  gcode_vars.zig The variables of the start and end G-code: the names
+                 of zslice, Cura, PrusaSlicer, OrcaSlicer, and Bambu
+                 Studio, and their expression syntax.
   engine.zig     Job: runs all stages with threads, and reuses the work
                  of an older job.
 

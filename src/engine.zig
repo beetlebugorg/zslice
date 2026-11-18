@@ -899,6 +899,33 @@ pub const PlanSource = struct {
     layers: usize,
 };
 
+/// True if a start or end G-code has a variable of the box of the first
+/// layer (PrusaSlicer first_layer_print_min, OrcaSlicer
+/// adaptive_bed_mesh_min).
+fn usesFirstLayerBox(text: []const u8) bool {
+    return std.mem.indexOf(u8, text, "first_layer_print_") != null or std.mem.indexOf(u8, text, "adaptive_bed_mesh_") != null;
+}
+
+/// The box of the paths of the first layer in G-code coordinates (min x,
+/// min y, max x, max y), or null if the layer has no paths. The plan of
+/// layer 0 is made once more for it, before the start G-code.
+fn firstLayerBox(gpa: Allocator, src: PlanSource) Allocator.Error!?[4]f64 {
+    var lp = try src.plan(src.ctx, gpa, 0);
+    defer lp.deinit();
+    const pts = lp.points.points.items;
+    if (pts.len == 0) return null;
+    var lo = pts[0];
+    var hi = pts[0];
+    for (pts[1..]) |q| {
+        lo.x = @min(lo.x, q.x);
+        lo.y = @min(lo.y, q.y);
+        hi.x = @max(hi.x, q.x);
+        hi.y = @max(hi.y, q.y);
+    }
+    const m = src.resolved.settings.machine;
+    return .{ geom.toMm(lo.x) + m.origin_x, geom.toMm(lo.y) + m.origin_y, geom.toMm(hi.x) + m.origin_x, geom.toMm(hi.y) + m.origin_y };
+}
+
 /// Step 5: plans each layer of `src` and writes the G-code. See
 /// `Pipeline`.
 pub fn emitAll(gpa: Allocator, src: PlanSource, threads: usize, monitor: Monitor, out: *Writer, sink: ?Job.LayerSink) Error!Stats {
@@ -906,6 +933,10 @@ pub fn emitAll(gpa: Allocator, src: PlanSource, threads: usize, monitor: Monitor
     var record: std.ArrayList(gcode.PathInfo) = .empty;
     defer record.deinit(gpa);
     if (sink != null) em.record = &record;
+    const m = src.resolved.settings.machine;
+    if (src.layers > 0 and (usesFirstLayerBox(m.start_gcode) or usesFirstLayerBox(m.end_gcode))) {
+        em.first_layer_box = try firstLayerBox(gpa, src);
+    }
     try em.begin(src.layers);
 
     var reporter: Reporter = .{ .monitor = monitor, .base = pass1_share, .span = 1 - pass1_share, .total = src.layers };
@@ -2888,4 +2919,26 @@ test "path rules: the outer walls at their own speed" {
     }
     try testing.expect(outer_moves > 0);
     try testing.expectEqual(@as(usize, 0), other_slow);
+}
+
+test "start G-code: zslice heats if it does not, and the first layer sets the filament temperature" {
+    const gpa = testing.allocator;
+    var s: Settings = .{};
+    s.filament.first_layer_nozzle_temp = 207;
+    s.filament.bed_temp = 58;
+    s.machine.start_gcode = "G28\nG1 X{first_layer_print_min[0]} Y{first_layer_print_min[1]}";
+    const a = try demoGcodeWith(gpa, s, &.{});
+    defer gpa.free(a);
+    // Heating before the start G-code, and the box of the first layer.
+    const heat = std.mem.indexOf(u8, a, "M190 S58 ; zslice").?;
+    try testing.expect(heat < std.mem.indexOf(u8, a, "M109 S207 ; zslice").?);
+    try testing.expect(std.mem.indexOf(u8, a, "M109 S207 ; zslice").? < std.mem.indexOf(u8, a, "G28\n").?);
+    try testing.expect(std.mem.indexOf(u8, a, "G1 X0 Y0") == null);
+    // A probe temperature: the first layer waits for the filament value.
+    s.machine.start_gcode = "M140 S{bed_temp}\nM109 S170\nG28";
+    const b = try demoGcodeWith(gpa, s, &.{});
+    defer gpa.free(b);
+    const layer0 = std.mem.indexOf(u8, b, ";LAYER:0\n").?;
+    try testing.expect(std.mem.startsWith(u8, b[layer0..], ";LAYER:0\nM109 S207\n"));
+    try testing.expect(std.mem.indexOf(u8, b, "; zslice: the start G-code does not heat") == null);
 }

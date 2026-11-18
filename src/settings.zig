@@ -41,7 +41,7 @@ pub const CoolingMode = enum { slow_down, lap };
 /// The shape of the support. See `Project.support_style`.
 pub const SupportStyle = enum { grid, tree, bridge };
 /// The G-code dialect for the acceleration commands. See `Machine.gcode_flavor`.
-pub const GcodeFlavor = enum { marlin, klipper };
+pub const GcodeFlavor = enum { marlin, klipper, reprap, repetier };
 pub const ExtruderKind = enum { direct, bowden };
 
 pub const Machine = struct {
@@ -110,7 +110,8 @@ pub const Machine = struct {
     accel_control: bool = false,
     /// The G-code dialect of the acceleration commands. `marlin`: M204 S and
     /// M205 X Y. `klipper`: SET_VELOCITY_LIMIT ACCEL and
-    /// SQUARE_CORNER_VELOCITY.
+    /// SQUARE_CORNER_VELOCITY. `reprap` (RepRapFirmware): M204 P T and M566
+    /// X Y. `repetier`: M201 X Y and M207 X.
     gcode_flavor: GcodeFlavor = .marlin,
 
     // Extruder
@@ -126,7 +127,10 @@ pub const Machine = struct {
     /// {nozzle_temp}, {first_layer_nozzle_temp}, {bed_temp}, {standby_temp},
     /// {layer_height}, {first_layer_height}, {first_layer_speed} (mm/s),
     /// {nozzle_diameter}, {filament_diameter}, {filament_name},
-    /// {machine_name}, and {job_name}.
+    /// {machine_name}, and {job_name}. The variables and the expressions
+    /// of Cura, PrusaSlicer, OrcaSlicer, and Bambu Studio also work. A line
+    /// with a variable that has no value becomes a comment. If the text
+    /// does not heat the nozzle or the bed, zslice heats them before it.
     start_gcode: []const u8 =
         \\G90 ; absolute positions
         \\M83 ; relative extrusion

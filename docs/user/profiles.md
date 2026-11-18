@@ -90,8 +90,40 @@ For a name (not a path), zslice looks in this order:
 2. `./profiles/<kind>/<name>.toml`
 3. `~/.config/zslice/profiles/<kind>/<name>.toml` (or `$XDG_CONFIG_HOME/zslice/...`)
 4. The built-in profiles.
+5. For a machine: the printer library. `zslice printers` lists the id of each printer, for example `-m creality-ender-3`.
 
 A value with a `/` or a `.toml` ending is a path: `-f ./acme-pla.toml`. A relative path in `extends` is relative to the file that names it.
+
+## Start and end G-code
+
+`machine.start_gcode` and `machine.end_gcode` are texts with variables. zslice puts the value of each variable in its place:
+
+```toml
+start_gcode = """
+M140 S{bed_temp}
+G28
+M190 S{bed_temp}
+M109 S{first_layer_nozzle_temp}
+"""
+```
+
+The variables of zslice are in the [settings reference](settings.md) (`machine.start_gcode`). The variables and the scripts of Cura, PrusaSlicer, OrcaSlicer, and Bambu Studio also work, so a start G-code from these slicers needs no change:
+
+| Slicer | Examples |
+|---|---|
+| Cura | `{material_print_temperature_layer_0}`, `{material_bed_temperature, 0}`, `{machine_width / 2}`, `{if material_bed_temperature > 60}` ... `{else}` ... `{endif}` |
+| PrusaSlicer | `[first_layer_temperature]`, `{first_layer_temperature[0]}`, `{print_bed_max[0]*0.8}`, `{if is_nil(idle_temperature[0])}`, `{local x = 2}` |
+| OrcaSlicer and Bambu Studio | `[nozzle_temperature_initial_layer]`, `[bed_temperature_initial_layer_single]`, `{adaptive_bed_mesh_min[0]}`, `{if filament_type[0] =~ /PET.*/}` |
+
+zslice prints with one extruder: a list variable such as `first_layer_temperature[1]` has the value of that extruder. Some variables have no zslice value, for example a time of day, a pressure advance value, or the plate type of a Bambu Lab printer. A line with such a variable becomes a comment, so the printer does not get a wrong value:
+
+```
+; zslice: no value for pressure_advance: SET_PRESSURE_ADVANCE ADVANCE=[pressure_advance]
+```
+
+A condition with such a variable is false, and a comment tells it. On RepRapFirmware, the expressions of the firmware (`{move.axes[0].min}`) stay in the G-code.
+
+If the start G-code does not heat the nozzle or the bed, zslice heats them before it. A start G-code can set another temperature, for example 170 °C to probe the bed. The first layer then sets the temperature of the filament and waits for it.
 
 ## Import from Cura
 
@@ -114,7 +146,7 @@ What the import does:
 | A percentage (infill, fan) | A ratio |
 | A speed in mm/s | A ratio of `machine.max_speed`. The import sets `max_speed` to the highest print speed of the quality profiles, so the speeds stay the same. A comment keeps the mm/s value. |
 | A per-profile travel speed, retraction, or cooling value | A `[machine]` or `[filament]` table in the project profile |
-| G-code variables, for example `{material_bed_temperature_layer_0}` | The zslice variables, for example `{bed_temp}` (see `machine.start_gcode` in the [settings reference](settings.md)) |
+| G-code variables, for example `{material_bed_temperature_layer_0}` | The same text: zslice reads the Cura variables (see [Start and end G-code](#start-and-end-g-code)) |
 | A value that is an expression (it starts with `=`) | Not imported |
 | The settings of a material for other printers (`<machine>` blocks) | Not imported |
 

@@ -83,6 +83,8 @@ A slope smoothing path has a Z at each point. The nozzle goes down to its first 
 
 **Time.** The slicer plans the speed of each move as the printer firmware does (see `motion.zig`): each move speeds up and slows down with the acceleration, and each corner has a speed limit from its angle. Retractions and Z moves are stops.
 
+**Start and end G-code.** The printer profile has a start and an end G-code with variables (`src/gcode_vars.zig`). The printer library has the G-code of the printer vendors from Cura, PrusaSlicer, and OrcaSlicer, each with the variables and the scripts of its slicer. The emitter fills in the values of the print: the temperatures of the filament, the bed size, the box of the first layer, and the top of the print. A line with a variable that has no zslice value becomes a comment. If the start G-code does not heat, the emitter heats before it. If it leaves another temperature (a probe temperature), the first layer sets the filament temperature and waits.
+
 **Cooling.** Each layer must cool before the next layer goes on it. Before the slicer writes a layer, it plans the time of the layer. If the time is less than the minimum layer time of the filament, the extrusions of that layer go slower, but not below a minimum speed. The slicer finds the speed ratio that gives the layer the minimum layer time, and no slower. A short layer also gets the fan at its maximum.
 
 ## 7. Run it fast, with little memory (`src/engine.zig`, `src/parallel.zig`)

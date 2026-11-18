@@ -88,9 +88,9 @@ The speed at which the head turns a corner with no stop (jerk in Marlin, square 
 
 Write acceleration commands in the G-code: the acceleration of each feature (project `*_accel`), and the corner speed at the start. Off: the printer uses its own values; the time estimate still uses `max_accel` and `corner_speed`.
 
-**`machine.gcode_flavor`** (one of: `marlin`, `klipper`). Default: `marlin`
+**`machine.gcode_flavor`** (one of: `marlin`, `klipper`, `reprap`, `repetier`). Default: `marlin`
 
-The G-code dialect of the acceleration commands. `marlin`: M204 S and M205 X Y. `klipper`: SET_VELOCITY_LIMIT ACCEL and SQUARE_CORNER_VELOCITY.
+The G-code dialect of the acceleration commands. `marlin`: M204 S and M205 X Y. `klipper`: SET_VELOCITY_LIMIT ACCEL and SQUARE_CORNER_VELOCITY. `reprap` (RepRapFirmware): M204 P T and M566 X Y. `repetier`: M201 X Y and M207 X.
 
 ### Extruder
 
@@ -120,7 +120,7 @@ M190 S{bed_temp}
 M109 S{first_layer_nozzle_temp}
 ```
 
-The text before the print. These variables are replaced: {nozzle_temp}, {first_layer_nozzle_temp}, {bed_temp}, {standby_temp}, {layer_height}, {first_layer_height}, {first_layer_speed} (mm/s), {nozzle_diameter}, {filament_diameter}, {filament_name}, {machine_name}, and {job_name}.
+The text before the print. These variables are replaced: {nozzle_temp}, {first_layer_nozzle_temp}, {bed_temp}, {standby_temp}, {layer_height}, {first_layer_height}, {first_layer_speed} (mm/s), {nozzle_diameter}, {filament_diameter}, {filament_name}, {machine_name}, and {job_name}. The variables and the expressions of Cura, PrusaSlicer, OrcaSlicer, and Bambu Studio also work. A line with a variable that has no value becomes a comment. If the text does not heat the nozzle or the bed, zslice heats them before it.
 
 **`machine.end_gcode`** (text). Default: (multi-line text)
 
@@ -409,6 +409,10 @@ A list of infill angles in degrees from the X axis, with commas between them, on
 **`project.infill_stack`** (true or false; per layer). Default: `false`
 
 Keep the infill of all layers on top of each other: the lines, zigzag, and flow patterns do not turn by 90 degrees on each layer. The lines of each layer lie on the lines of the layer below, and make vertical walls, for example the openings of a grille. Grid, triangles, trihexagon, honeycomb, and concentric stack in each case. Honeycomb also prints each cell wall once, so all its walls have one width (else two of the six sides of a cell print twice).
+
+**`project.infill_anchor`** (one of: `part`, `bed`; per layer). Default: `part`
+
+Where the grid of the sparse infill starts. "part": at the center of each part, so a part with two equal sides gets equal infill on both, and the copies of a part get the same infill. "bed": at the origin of the bed, as before.
 
 **`project.infill_flow`** (number; per layer). Default: `1.0`
 

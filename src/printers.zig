@@ -44,8 +44,9 @@
 //!   `max_speed` is a print speed, not the limit of the firmware. It
 //!   follows the acceleration: a printer with a higher acceleration prints
 //!   faster (see `printSpeed`).
-//! - A model with no G-code that zslice can run (the G-code of the source
-//!   has scripts) gets the start and end G-code of zslice.
+//! - A model with no G-code in its sources gets the start and end G-code
+//!   of zslice. The G-code of a source keeps its variables and its
+//!   scripts: gcode_vars.zig fills them in when zslice writes the G-code.
 //! - A retraction of 2.5 mm or more means a bowden extruder.
 //!
 //! The search (`search`) matches each word of the query to the start of a
@@ -64,7 +65,9 @@ const Writer = std.Io.Writer;
 /// web app loads it as a separate file.
 pub const builtin_data: []const u8 = if (builtin.cpu.arch.isWasm()) "" else @embedFile("printers/library.txt");
 
-pub const Flavor = enum { marlin, klipper };
+/// The G-code flavor of a model: the dialect of its acceleration
+/// commands (see `Machine.gcode_flavor` in settings.zig).
+pub const Flavor = enum { marlin, klipper, reprap, repetier };
 
 pub const Source = struct {
     key: u8,
@@ -384,7 +387,7 @@ pub const Library = struct {
         if (m.max_z_speed > 0) try w.print("max_z_speed = {d}\n", .{std.math.clamp(m.max_z_speed, 2, 30)});
         if (m.max_accel > 0) try w.print("max_accel = {d}\n", .{std.math.clamp(m.max_accel, 100, 30000)});
         if (m.corner > 0) try w.print("corner_speed = {d}\n", .{std.math.clamp(m.corner, 1, 30)});
-        if (m.flavor == .klipper) try w.writeAll("gcode_flavor = \"klipper\"\n");
+        if (m.flavor != .marlin) try w.print("gcode_flavor = \"{s}\"\n", .{@tagName(m.flavor)});
         const bowden = m.retract >= 2.5;
         try w.print("extruder = \"{s}\"\n", .{if (bowden) "bowden" else "direct"});
         if (m.retract > 0) try w.print("retract_length = {d}\n", .{std.math.clamp(m.retract, 0, 15)});
@@ -558,8 +561,18 @@ fn parseModel(text: []const u8, brand: u32, n_gcodes: usize, n_beds: usize) Erro
     m.max_accel = f.num();
     m.max_z_speed = f.num();
     m.corner = f.num();
-    m.flavor = if (std.mem.eql(u8, f.next(), "klipper")) .klipper else .marlin;
+    const flavor = f.next();
     m.firmware = f.next();
+    // The library has "marlin" or "klipper". The firmware tells the other
+    // flavors.
+    m.flavor = if (std.mem.eql(u8, flavor, "klipper"))
+        .klipper
+    else if (std.ascii.indexOfIgnoreCase(m.firmware, "reprap") != null)
+        .reprap
+    else if (std.ascii.indexOfIgnoreCase(m.firmware, "repetier") != null)
+        .repetier
+    else
+        std.meta.stringToEnum(Flavor, flavor) orelse .marlin;
     m.kinematics = f.next();
     m.retract = f.num();
     m.retract_speed = f.num();
