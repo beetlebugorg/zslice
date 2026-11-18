@@ -1062,6 +1062,31 @@ pub const View = struct {
         v.setPose(now);
     }
 
+    /// A double click on a side of the print: the camera looks at that side
+    /// from the front of it (lookAtSmooth), from 1.4 times `size` mm (at
+    /// least 20 mm; 0: the size of the print). The normal of the side comes
+    /// from two more points of the surface, 4 pixels to the right and 4
+    /// pixels down, and faces the camera. False if the pixel shows no side
+    /// of the print (the bed, or the space around).
+    pub fn lookAtSide(v: *View, px: f32, py: f32, size: f32) bool {
+        const p = v.surfacePoint(px, py, false) orelse return false;
+        if (p[2] <= 0.05) return false;
+        const a = v.surfacePoint(px + 4, py, false) orelse return false;
+        const b = v.surfacePoint(px, py + 4, false) orelse return false;
+        const u = [3]f32{ a[0] - p[0], a[1] - p[1], a[2] - p[2] };
+        const w = [3]f32{ b[0] - p[0], b[1] - p[1], b[2] - p[2] };
+        var n = [3]f32{ u[1] * w[2] - u[2] * w[1], u[2] * w[0] - u[0] * w[2], u[0] * w[1] - u[1] * w[0] };
+        const l = @sqrt(n[0] * n[0] + n[1] * n[1] + n[2] * n[2]);
+        if (!(l > 1e-9)) return false;
+        n = .{ n[0] / l, n[1] / l, n[2] / l };
+        // Toward the camera.
+        const cam = v.camera();
+        if (dot(n, cam.f) > 0) n = .{ -n[0], -n[1], -n[2] };
+        const s = if (size > 0) size else v.extent;
+        v.lookAtSmooth(.{ p[0], p[1], p[2] }, n, @max(20, 1.4 * s));
+        return true;
+    }
+
     /// The angle of a drag: radians for each pixel.
     const drag_angle = 0.008;
 

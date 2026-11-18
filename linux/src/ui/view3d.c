@@ -1257,28 +1257,17 @@ static void on_segment(ZgModel *model, gint64 seg, gpointer data) {
 }
 
 /* A double click on a side of a part turns the view to face that side,
- * and zooms to it (zs_view_look_at). The normal of the side comes from
- * three points of the surface near the pixel. Elsewhere, the view resets. */
+ * and zooms to it (zs_view_look_at_side). Elsewhere, the view resets. */
 static gboolean look_at_side(View3d *v, double x, double y) {
     if (zs_app_state(zg_model_core(v->model)) == ZS_STATE_EMPTY) return FALSE;
     int s = gtk_widget_get_scale_factor(v->area);
-    float px = (float)(x * s), py = (float)(y * s), d = 4.0f * s;
-    double p[3], a[3], b[3];
-    if (!zs_view_surface_point(v->view, px, py, 0, p) || p[2] <= 0.05) return FALSE;
     gint64 part = part_at(v, x, y, NULL, NULL);
     zs_part info;
-    if (part < 0 || zs_app_part_get(zg_model_core(v->model), (size_t)part, &info) != ZS_OK) return FALSE;
-    if (!zs_view_surface_point(v->view, px + d, py, 0, a) || !zs_view_surface_point(v->view, px, py + d, 0, b)) return FALSE;
-    double u[3] = {a[0] - p[0], a[1] - p[1], a[2] - p[2]};
-    double w[3] = {b[0] - p[0], b[1] - p[1], b[2] - p[2]};
-    /* Screen x right and y down give a normal away from the camera: turn
-     * it to the camera. */
-    double n[3] = {-(u[1] * w[2] - u[2] * w[1]), -(u[2] * w[0] - u[0] * w[2]), -(u[0] * w[1] - u[1] * w[0])};
-    if (sqrt(n[0] * n[0] + n[1] * n[1] + n[2] * n[2]) < 1e-9) return FALSE;
+    double size = 0;
+    if (part >= 0 && zs_app_part_get(zg_model_core(v->model), (size_t)part, &info) == ZS_OK) size = MAX(info.size_x, MAX(info.size_y, info.size_z));
+    if (!zs_view_look_at_side(v->view, (float)(x * s), (float)(y * s), (float)size)) return FALSE;
     /* The first click of the double click picked a line: not wanted. */
     zg_model_select(v->model, -1);
-    double size = MAX(info.size_x, MAX(info.size_y, info.size_z));
-    zs_view_look_at(v->view, (float)p[0], (float)p[1], (float)p[2], (float)n[0], (float)n[1], (float)n[2], (float)MAX(20, size * 1.4));
     start_animation(v);
     return TRUE;
 }

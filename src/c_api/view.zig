@@ -134,6 +134,16 @@ export fn zs_view_look_at(view: ?*View, x: f32, y: f32, z: f32, nx: f32, ny: f32
     v.lookAtSmooth(.{ x, y, z }, .{ nx / l, ny / l, nz / l }, dist);
 }
 
+/// A double click at the pixel (px, py): the camera turns to face the side
+/// of the print there, and zooms to it (from 1.4 times `size` mm, at least
+/// 20; 0: the size of the print). 1 if the camera moves; 0 if the pixel
+/// shows no side of the print (the shell then resets the view).
+export fn zs_view_look_at_side(view: ?*View, px: f32, py: f32, size: f32) c_int {
+    if (!render_on) return 0;
+    const v = view orelse return 0;
+    return @intFromBool(v.lookAtSide(px, py, size));
+}
+
 export fn zs_view_reset_smooth(view: ?*View) void {
     if (!render_on) return;
     const v = view orelse return;

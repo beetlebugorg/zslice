@@ -437,33 +437,15 @@ canvas.addEventListener("dblclick", async (e) => {
   }
   const px = e.offsetX * dpr();
   const py = e.offsetY * dpr();
-  const c = wasm.cell;
-  const at = (x, y) => (view.x.zs_view_surface_point(view.v, x, y, 0, c) ? [wasm.f64(c), wasm.f64(c + 8), wasm.f64(c + 16)] : null);
-  const pt = app.state !== "empty" ? at(px, py) : null;
-  const part = pt && pt[2] > 0.05 ? await tools.partAt(px, py) : null;
-  if (part) {
-    // The normal of the side: from two more points of the surface near
-    // the pixel, toward the camera.
-    const d = 4 * dpr();
-    const a = at(px + d, py);
-    const b = at(px, py + d);
-    let n = null;
-    if (a && b) {
-      const u = [a[0] - pt[0], a[1] - pt[1], a[2] - pt[2]];
-      const v = [b[0] - pt[0], b[1] - pt[1], b[2] - pt[2]];
-      n = [u[1] * v[2] - u[2] * v[1], u[2] * v[0] - u[0] * v[2], u[0] * v[1] - u[1] * v[0]];
-      // Screen x right and y down give a normal away from the camera:
-      // turn it to the camera.
-      n = n.map((k) => -k);
-    }
-    if (n && Math.hypot(...n) > 1e-9) {
-      // The first click of the double click picked a line: not wanted.
-      select(-1, -1, false);
-      const size = Math.max(part.sizeX, part.sizeY, part.sizeZ);
-      view.x.zs_view_look_at(view.v, pt[0], pt[1], pt[2], n[0], n[1], n[2], Math.max(20, size * 1.4));
-      requestFrame();
-      return;
-    }
+  // The side of the print under the pointer (zs_view_look_at_side), from
+  // the size of its part.
+  const part = app.state !== "empty" ? await tools.partAt(px, py) : null;
+  const size = part ? Math.max(part.sizeX, part.sizeY, part.sizeZ) : 0;
+  if (app.state !== "empty" && view.x.zs_view_look_at_side(view.v, px, py, size)) {
+    // The first click of the double click picked a line: not wanted.
+    select(-1, -1, false);
+    requestFrame();
+    return;
   }
   view.resetSmooth();
   requestFrame();

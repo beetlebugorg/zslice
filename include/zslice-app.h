@@ -808,6 +808,13 @@ typedef struct zs_view zs_view;
  * dist mm; the camera moves there in steps (zs_view_animate). For a double
  * click on a side of a part. */
 void zs_view_look_at(zs_view *view, float x, float y, float z, float nx, float ny, float nz, float dist);
+/* A double click at the pixel (px, py): the camera turns to face the side
+ * of the print there, and zooms to it, from 1.4 times `size` mm (at least
+ * 20 mm; 0: the size of the print; give the size of the part when the
+ * shell knows it). The normal comes from the surface around the pixel.
+ * Returns 1 if the camera moves, 0 if the pixel shows no side of the print
+ * (the shell then resets the view). */
+int zs_view_look_at_side(zs_view *view, float px, float py, float size);
 
 /* Makes a view for the surface, width_px x height_px pixels. */
 int zs_view_new(const zs_surface *surface, uint32_t width_px, uint32_t height_px, zs_view **out);
