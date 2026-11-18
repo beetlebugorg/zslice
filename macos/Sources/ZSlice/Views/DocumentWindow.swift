@@ -40,7 +40,7 @@ struct DocumentWindow: View {
         }
         .frame(minWidth: 720, minHeight: 480)
         .inspector(isPresented: Bindable(workspace).showSettings) {
-            SettingsInspector(workspace: workspace)
+            InspectorPanel(workspace: workspace)
                 .inspectorColumnWidth(min: 320, ideal: 400, max: 560)
         }
         .toolbar {
@@ -73,6 +73,27 @@ struct DocumentWindow: View {
             Button("OK") { loadError = nil }
         } message: {
             Text(loadError ?? "")
+        }
+    }
+}
+
+/// The drawer: the settings, or the history of the plate.
+struct InspectorPanel: View {
+    let workspace: Workspace
+
+    var body: some View {
+        VStack(spacing: 0) {
+            Picker("Page", selection: Bindable(workspace).drawerPage) {
+                Text("Settings").tag(Workspace.DrawerPage.settings)
+                Text("History").tag(Workspace.DrawerPage.history)
+            }
+            .pickerStyle(.segmented)
+            .labelsHidden()
+            .padding(8)
+            switch workspace.drawerPage {
+            case .settings: SettingsInspector(workspace: workspace)
+            case .history: HistoryPage(history: workspace.model.history)
+            }
         }
     }
 }

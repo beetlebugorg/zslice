@@ -259,7 +259,12 @@ struct ValueField: View {
                         if !Task.isCancelled { send() }
                     }
                 }
-                .onChange(of: focused) { if !focused { send() } }
+                .onChange(of: focused) {
+                    if !focused { send() }
+                    // An edit of one setting is one step of the history
+                    // while its editor has the focus.
+                    model.history.setFocus(focused ? info.name : nil)
+                }
             if !info.unit.isEmpty {
                 Text(info.unit).foregroundStyle(.secondary).font(.callout)
             }
@@ -309,7 +314,10 @@ struct MultilineEditor: View {
             .frame(minHeight: 140)
             .focused($focused)
             .onAppear { text = entry.value }
-            .onChange(of: focused) { if !focused && text != entry.value { model.set(info.name, text) } }
+            .onChange(of: focused) {
+                if !focused && text != entry.value { model.set(info.name, text) }
+                model.history.setFocus(focused ? info.name : nil)
+            }
             .onChange(of: entry) { if !focused { text = entry.value } }
     }
 }

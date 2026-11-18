@@ -92,6 +92,17 @@ final class Workspace {
         if let r = env["ZSLICE_LAYERS"]?.split(separator: ",").compactMap({ Int($0) }), r.count == 2 {
             setRange(lo: r[0] - 1, hi: r[1] - 1)
         }
+        // ZSLICE_SET="name=value;name=value" makes each change a step, and
+        // ZSLICE_UNDO=n then undoes n steps through the UndoManager.
+        if let sets = env["ZSLICE_SET"] {
+            model.history.commit()
+            for pair in sets.split(separator: ";") {
+                let kv = pair.split(separator: "=", maxSplits: 1).map(String.init)
+                if kv.count == 2 { model.set(kv[0], kv[1]) }
+                model.history.commit()
+            }
+            for _ in 0 ..< (env["ZSLICE_UNDO"].flatMap(Int.init) ?? 0) { model.history.undoManager.undo() }
+        }
         if let t = env["ZSLICE_TIME"].flatMap(Double.init), let v = canvas.view {
             time = t
             zs_view_set_time(v, t)
@@ -210,6 +221,11 @@ final class Workspace {
             if !showSettings { focus(0, firstLayer: false) }
         }
     }
+
+    enum DrawerPage: String { case settings, history }
+
+    /// The page of the drawer.
+    var drawerPage = DrawerPage(rawValue: ProcessInfo.processInfo.environment["ZSLICE_PAGE"] ?? "") ?? .settings
 
     /// The lines that the drawer points at: a bit for each feature and mark
     /// (0: all lines, in their colors). firstLayer: only the lines of the

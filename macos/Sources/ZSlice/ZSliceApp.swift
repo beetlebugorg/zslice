@@ -8,6 +8,7 @@
 //!
 //! SPDX-License-Identifier: AGPL-3.0-or-later
 
+import AppKit
 import SwiftUI
 import UniformTypeIdentifiers
 
@@ -38,7 +39,38 @@ struct ZSliceApp: App {
         DocumentGroup(viewing: ModelDocument.self) { file in
             DocumentWindow(document: file.document, name: file.fileURL?.lastPathComponent ?? "model.stl")
         }
-        .commands { ViewCommands() }
+        .commands {
+            ViewCommands()
+            UndoCommands()
+        }
+    }
+}
+
+/// Edit > Undo and Redo. A text field that edits keeps its own undo (the
+/// field editor of AppKit). Else they undo and redo the steps of the plate
+/// (History, on its UndoManager), with the name of the step in the title.
+struct UndoCommands: Commands {
+    @FocusedValue(\.workspace) private var workspace
+
+    private var history: History? { workspace?.model.history }
+
+    private var editingText: Bool { NSApp.keyWindow?.firstResponder is NSText }
+
+    var body: some Commands {
+        CommandGroup(replacing: .undoRedo) {
+            let u = history?.undoManager
+            let _ = history?.generation
+            Button(u?.undoMenuItemTitle ?? "Undo") {
+                if editingText { NSApp.sendAction(Selector(("undo:")), to: nil, from: nil) } else { u?.undo() }
+            }
+            .keyboardShortcut("z", modifiers: .command)
+            .disabled(!(editingText || u?.canUndo == true))
+            Button(u?.redoMenuItemTitle ?? "Redo") {
+                if editingText { NSApp.sendAction(Selector(("redo:")), to: nil, from: nil) } else { u?.redo() }
+            }
+            .keyboardShortcut("z", modifiers: [.command, .shift])
+            .disabled(!(editingText || u?.canRedo == true))
+        }
     }
 }
 

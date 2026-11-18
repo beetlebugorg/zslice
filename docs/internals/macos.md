@@ -24,6 +24,7 @@ open build/zslice.app
 | `Sources/ZSlice/ZSliceApp.swift` | The app and its document type. Each window is one STL or 3MF file. |
 | `Sources/ZSlice/Core/SliceModel.swift` | One plate: one `zs_app` of the core, its state, and its events. |
 | `Sources/ZSlice/Core/Workspace.swift` | The model of a window: the plate, the 3D view, the layer range, the replay, the focus of the drawer, and the keys of the view. |
+| `Sources/ZSlice/Core/History.swift` | The undo list of the core on the `UndoManager` of macOS: the commit timer, the focus of an edit, and the timeline. |
 | `Sources/ZSlice/Core/Settings.swift` | The setting infos, values, sources, effects, and value texts, from the core. |
 | `Sources/ZSlice/Views/MetalSliceView.swift` | The 3D view: an `NSView` over a `CAMetalLayer`, its display link, and the input. |
 | `Sources/ZSlice/Render/FrameRenderer.swift` | Draws the frame data of the core with Metal. |
@@ -31,6 +32,7 @@ open build/zslice.app
 | `Sources/ZSlice/Render/Shaders.swift` | The Metal shaders. They port `src/render/shaders/*`, and the 2D shaders of `web/app/gl.js`. |
 | `Sources/ZSlice/Views/DocumentWindow.swift` | The window: the 3D view, the scrub bar, and the print card. |
 | `Sources/ZSlice/Views/LayerSlider.swift` | The slider with two knobs for the layers that show. |
+| `Sources/ZSlice/Views/HistoryPage.swift` | The History page of the drawer: the steps, the newest first, with their changes. |
 | `Sources/ZSlice/Views/SettingsInspector.swift` | The settings drawer: the sections, the settings with their editors, the page of a setting, and the search. |
 
 ## Threads
@@ -60,6 +62,14 @@ The drawer of the other apps is a SwiftUI inspector at the right of the window. 
 
 The view shows the lines that the page points at, and fades the others (`zs_view_focus`), on the 3D and the 2D page. A pointer over a row shows the lines of that row. A hidden drawer shows the whole print. A field sends a number after a pause of 450 ms in the typing, on Return, or with the up and down arrow keys; the plate then slices again.
 
+### Undo and the history
+
+The core keeps the undo list of each plate (`zs_app_history_*`). Each change through the C API notes its key. The app commits a step 400 ms after the last change, and it tells the core which setting editor has the focus, so an edit of one setting is one step.
+
+The `UndoManager` of the plate mirrors the list: each step before the step now is one undo action, and each step after it one redo action. An undo action calls `zs_app_history_undo` and registers the redo action, as AppKit expects. So Edit > Undo and Redo (Command-Z and Shift-Command-Z) have the titles of a Mac app ("Undo Walls"). A text field that edits keeps its own undo. A click on a step of the History page goes to it through the undo and redo actions, so both lists stay right. When the list changes in another way (a step amended or dropped, or the history cleared after a step), the app makes the undo actions again. After an undo, the editors read the values again, and the plate slices again.
+
+The History page of the drawer lists the steps, the newest first, with their changes in words. The arrow button of a change undoes only that change (`zs_app_history_revert`). The menu of a step clears the history after it.
+
 ### Input
 
 The bindings are those of the GTK app, with the keys of a Mac:
@@ -88,13 +98,16 @@ Like the GTK shell, the app reads some environment variables for development and
 - `ZSLICE_LAYERS=lo,hi` sets the layer range after the first slice (layer numbers from 1).
 - `ZSLICE_TIME=t` shows the replay at t seconds after the first slice.
 - `ZSLICE_VIEW=2d` (or `3d`) opens the window on that page.
-- `ZSLICE_PANEL=1` shows the settings drawer, and `ZSLICE_SETTING=name` opens the page of that setting.
+- `ZSLICE_PANEL=1` shows the settings drawer, and `ZSLICE_SETTING=name` opens the page of that setting. `ZSLICE_PAGE=history` opens the History page.
+- `ZSLICE_SET="name=value;name=value"` makes each change a step after the first slice, and `ZSLICE_UNDO=n` then undoes n steps.
 
 ## Work that moves to the core
 
 App logic goes in the core, so that the three shells do not each have a copy. Two parts of the app move there:
 
-- The history of undo and redo (the steps, the amend rule of an edit, the memory cap, and the restore). Today `linux/src/model/app-model.c` and `web/app/worker.js` each have it. The Mac app maps the core history onto `UndoManager`.
+- The history of undo and redo: done (`src/app/history.zig`).
+- The value text: done (`src/app/setting_text.zig`).
+- The settings that the line card picks for a line (`zs_app_inspect_picks`).
 - The plate set: one `zs_app` for each plate, the order of the slices (the active plate first), and the sync of the plates of the 3D view. Until it lands, a Mac window has one plate.
 
 ## Status and plan
@@ -102,6 +115,6 @@ App logic goes in the core, so that the three shells do not each have a copy. Tw
 The work goes in steps. Each step keeps `zig build test`, `zig build web`, and the GTK build working.
 
 1. The core link and the 3D view: open a file, slice, and show the beads with Metal. Done.
-2. The slicing UI: the print card and Export G-code, the layer slider, the replay, the 2D layer view, and the settings drawer (done); history and undo (after the core history).
+2. The slicing UI: the print card and Export G-code, the layer slider, the replay, the 2D layer view, the settings drawer, and history and undo (done).
 3. The tools (Select, Move, Turn, Measure, Gaps, Check), the line and part cards, the settings search, the shortcut sheet, and a double click that faces a side.
 4. Printers (the picker, the library, App Keys, printdeck, OctoPrint, Moonraker, discovery) and printdeck.yml projects. The menus, drag and drop, and the user docs.

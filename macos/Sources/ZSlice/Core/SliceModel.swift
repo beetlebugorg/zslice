@@ -54,6 +54,8 @@ final class SliceModel {
     /// Counts the changes of the settings, so a view that shows a value
     /// reads it again.
     private(set) var settingsGeneration = 0
+    /// The undo list of the plate.
+    @ObservationIgnored private(set) lazy var history = History(model: self)
     /// Runs on the main thread after each new slice result.
     @ObservationIgnored var onSliced: (() -> Void)?
 
@@ -81,12 +83,23 @@ final class SliceModel {
         self.name = name
         stats = nil
         state = .ready
+        // Opening a file is a step of the history.
+        history.noteChange()
         requestSlice()
     }
 
     /// After a change of a setting: the views read the values again, and
     /// the plate slices again.
     func settingsChanged() {
+        settingsGeneration += 1
+        history.noteChange()
+        requestSlice()
+    }
+
+    /// After an undo, a redo, or a jump in the history: the core restored
+    /// the settings or the plate. The views read the values again, and the
+    /// plate slices again.
+    func restored() {
         settingsGeneration += 1
         requestSlice()
     }
