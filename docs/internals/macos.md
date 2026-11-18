@@ -93,6 +93,10 @@ The print card shows the main settings of the print as buttons. Each opens a pop
 
 The controls of the window are overlays on the edges of the content area, so a narrow window (with the drawer open) shrinks the scrub bar, and no control goes out of the window.
 
+### The search, the keys, Gaps, Check, and the context menu
+
+`/` (or Command-F) opens the search of the settings and the actions over the view, with a live control for each setting, a slider for a number, and an eye that shows only the lines of a setting. `?` (or Help > Keyboard Shortcuts) opens the sheet of all the keys of the Mac app; the Mac app owns its table. Gaps (G) shows the gaps of the top layer, and a click on a gap opens the settings that can close it. Check lists the issues of the print, and a click goes to an issue. A right click with no drag, or Control and a click, opens the context menu of a line: the layers, the support marks, Copy for AI, and Reset the View.
+
 ### Input
 
 The bindings are those of the GTK app, with the keys of a Mac:
@@ -126,6 +130,7 @@ Like the GTK shell, the app reads some environment variables for development and
 - `ZSLICE_TOOL=measure` picks a tool, `ZSLICE_CLICKS="x,y;x,y"` clicks with it, and `ZSLICE_DRAG="x0,y0;x1,y1"` is a Command-drag.
 - `ZSLICE_MODE=n` sets the colors (0 filament, 1 line type, 2 speed, 3 flow, 4 layer time, 5 line width).
 - `ZSLICE_RESLICE=n` changes a setting after each slice, n times, to test time and memory. `ZSLICE_TIMING=1` logs the time of each slice.
+- `ZSLICE_SEARCH=text` opens the search, `ZSLICE_GAPS=1` and `ZSLICE_CHECK=1` turn on Gaps and Check, `ZSLICE_MENU="x,y;Title"` (or `center;Title`) runs an item of the context menu, and `ZSLICE_DARK=1` sets the dark look.
 - `ZSLICE_DOUBLE_CLICK=x,y` is a double click at that point after the first slice.
 - `ZSLICE_PICK=x,y` picks the line at that point of the view (in points) after the first slice, as a click does.
 - `ZSLICE_SET="name=value;name=value"` makes each change a step after the first slice, and `ZSLICE_UNDO=n` then undoes n steps.

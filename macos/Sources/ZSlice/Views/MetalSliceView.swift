@@ -61,6 +61,8 @@ protocol SliceViewDelegate: AnyObject {
     func sliceViewTurnWheel(_ dy: CGFloat) -> Bool
     /// After each frame (the floating labels follow the camera).
     func sliceViewDidDraw()
+    /// The context menu for a point of the view.
+    func sliceViewMenu(_ p: CGPoint) -> NSMenu?
 }
 
 final class MetalSliceView: NSView {
@@ -402,12 +404,36 @@ final class MetalSliceView: NSView {
 
     override func mouseDown(with event: NSEvent) {
         window?.makeFirstResponder(self)
+        // Control and a click: the context menu, as a right click.
+        if event.modifierFlags.contains(.control) {
+            showMenu(event)
+            return
+        }
         lastDrag = convert(event.locationInWindow, from: nil)
         pressAt = lastDrag
         windowDrag = delegate?.sliceViewPress(lastDrag!, event.modifierFlags) ?? false
     }
 
-    override func rightMouseDown(with event: NSEvent) { lastDrag = convert(event.locationInWindow, from: nil) }
+    override func rightMouseDown(with event: NSEvent) {
+        lastDrag = convert(event.locationInWindow, from: nil)
+        rightPress = lastDrag
+    }
+
+    /// A right click with no drag opens the context menu; a right drag pans.
+    private var rightPress: NSPoint?
+
+    override func rightMouseUp(with event: NSEvent) {
+        let p = convert(event.locationInWindow, from: nil)
+        defer { rightPress = nil }
+        guard let at = rightPress, hypot(p.x - at.x, p.y - at.y) < 4 else { return }
+        showMenu(event)
+    }
+
+    private func showMenu(_ event: NSEvent) {
+        let p = convert(event.locationInWindow, from: nil)
+        guard let menu = delegate?.sliceViewMenu(p) else { return }
+        NSMenu.popUpContextMenu(menu, with: event, for: self)
+    }
     override func otherMouseDown(with event: NSEvent) { lastDrag = convert(event.locationInWindow, from: nil) }
 
     private func dragDelta(_ event: NSEvent) -> (Float, Float)? {

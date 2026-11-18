@@ -175,6 +175,19 @@ final class Workspace {
             self.drag(drag[1], .command)
             release(drag[1])
         }
+        // ZSLICE_MENU="x,y;Title" runs an item of the context menu there.
+        if let spec = env["ZSLICE_MENU"]?.split(separator: ";"), spec.count == 2 {
+            // "center": the middle of the view.
+            let mid = [Double(canvas.bounds.midX), Double(canvas.bounds.midY)]
+            let xy = spec[0] == "center" ? mid : spec[0].split(separator: ",").compactMap { Double($0) }
+            if xy.count == 2 {
+                let menu = contextMenu(at: CGPoint(x: xy[0], y: xy[1]))
+                let all = menu.items + menu.items.flatMap { $0.submenu?.items ?? [] }
+                if let item = all.first(where: { $0.title == spec[1] }) as? ClosureItem {
+                    _ = item.target?.perform(item.action)
+                }
+            }
+        }
         // ZSLICE_PICK=x,y picks the line at that point of the view (points),
         // as a click does (as in the GTK app).
         if let xy = env["ZSLICE_PICK"]?.split(separator: ",").compactMap({ Double($0) }), xy.count == 2 {
@@ -460,6 +473,7 @@ extension Workspace: SliceViewDelegate {
     func sliceViewDrag(_ p: CGPoint, _ flags: NSEvent.ModifierFlags) { drag(p, flags) }
     func sliceViewRelease(_ p: CGPoint) { release(p) }
     func sliceViewTurnWheel(_ dy: CGFloat) -> Bool { turnWheel(dy) }
+    func sliceViewMenu(_ p: CGPoint) -> NSMenu? { contextMenu(at: p) }
     func sliceViewDidDraw() { if !tape.isEmpty { placeTape() } }
     func sliceViewDoubleClick(_ p: CGPoint) -> Bool { lookAtSide(p) }
 
