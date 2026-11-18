@@ -201,7 +201,8 @@ pub const App = struct {
     /// the global settings of the user, as their changes from the
     /// defaults, in `strings`. `settings` has the result, with the changes
     /// of this print on top.
-    quality_name: [:0]const u8 = "",
+    /// The defaults of the settings are the built-in "standard" quality.
+    quality_name: [:0]const u8 = "standard",
     /// The settings whose value comes from a formula (see setFormula).
     formulas: std.ArrayList(Formula) = .empty,
     quality: []const zs.settings.Change = &.{},
