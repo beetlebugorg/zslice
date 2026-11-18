@@ -51,6 +51,9 @@ final class SliceModel {
     private(set) var state = State.empty
     private(set) var progress = 0.0
     private(set) var stats: zs_stats?
+    /// Counts the changes of the settings, so a view that shows a value
+    /// reads it again.
+    private(set) var settingsGeneration = 0
     /// Runs on the main thread after each new slice result.
     @ObservationIgnored var onSliced: (() -> Void)?
 
@@ -78,6 +81,13 @@ final class SliceModel {
         self.name = name
         stats = nil
         state = .ready
+        requestSlice()
+    }
+
+    /// After a change of a setting: the views read the values again, and
+    /// the plate slices again.
+    func settingsChanged() {
+        settingsGeneration += 1
         requestSlice()
     }
 

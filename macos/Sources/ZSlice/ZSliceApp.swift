@@ -58,6 +58,10 @@ struct ViewCommands: Commands {
                 .keyboardShortcut("0", modifiers: .command)
                 .disabled(workspace == nil)
             Divider()
+            Button(workspace?.showSettings == true ? "Hide Settings" : "Show Settings") { workspace?.showSettings.toggle() }
+                .keyboardShortcut("i", modifiers: [.command, .option])
+                .disabled(workspace == nil)
+            Divider()
         }
     }
 }

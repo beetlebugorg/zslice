@@ -39,7 +39,19 @@ struct DocumentWindow: View {
             }
         }
         .frame(minWidth: 720, minHeight: 480)
+        .inspector(isPresented: Bindable(workspace).showSettings) {
+            SettingsInspector(workspace: workspace)
+                .inspectorColumnWidth(min: 320, ideal: 400, max: 560)
+        }
         .toolbar {
+            ToolbarItem(placement: .primaryAction) {
+                Button {
+                    workspace.showSettings.toggle()
+                } label: {
+                    Label("Settings", systemImage: "sidebar.right")
+                }
+                .help("Show or hide the settings (N)")
+            }
             ToolbarItem(placement: .principal) {
                 Picker("View", selection: Bindable(workspace).page) {
                     Text("3D").tag(MetalSliceView.Page.threeD)

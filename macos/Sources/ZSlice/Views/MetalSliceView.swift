@@ -61,6 +61,15 @@ final class MetalSliceView: NSView {
     var layer2D = 0 {
         didSet { if page == .twoD { requestFrame() } }
     }
+    /// The focus of the 2D page: the lines out of it are faint.
+    var focus2D: UInt32 = 0 {
+        didSet { if page == .twoD { requestFrame() } }
+    }
+    /// All lines of the 2D page faint: a focus on the first layer while
+    /// the page shows another layer.
+    var dim2D = false {
+        didSet { if page == .twoD && dim2D != oldValue { requestFrame() } }
+    }
     private var layerRenderer: LayerRenderer?
     // The camera of the 2D page: a point (x, y) mm is at
     // (ox + x * scale, oy + y * scale) pixels from the bottom left.
@@ -259,6 +268,8 @@ final class MetalSliceView: NSView {
         if zs_view_layer_beads(view, layer2D, &a, &b) == 0 { f.beads = (a, b) }
         if zs_view_layer_marks(view, layer2D, &a, &b) == 0 { f.marks = (a, b) }
         f.dark = isDark
+        f.mask = focus2D
+        f.dim = dim2D
         return f
     }
 

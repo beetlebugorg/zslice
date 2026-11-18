@@ -23,13 +23,15 @@ open build/zslice.app
 | `Sources/CZslice/module.modulemap` | The C API of the core (`include/zslice-app.h`) as the Swift module `CZslice`. |
 | `Sources/ZSlice/ZSliceApp.swift` | The app and its document type. Each window is one STL or 3MF file. |
 | `Sources/ZSlice/Core/SliceModel.swift` | One plate: one `zs_app` of the core, its state, and its events. |
-| `Sources/ZSlice/Core/Workspace.swift` | The model of a window: the plate, the 3D view, the layer range, the replay, and the keys of the view. |
+| `Sources/ZSlice/Core/Workspace.swift` | The model of a window: the plate, the 3D view, the layer range, the replay, the focus of the drawer, and the keys of the view. |
+| `Sources/ZSlice/Core/Settings.swift` | The setting infos, values, sources, and effects from the core, and the text of a value (a port of `web/app/format.js`). |
 | `Sources/ZSlice/Views/MetalSliceView.swift` | The 3D view: an `NSView` over a `CAMetalLayer`, its display link, and the input. |
 | `Sources/ZSlice/Render/FrameRenderer.swift` | Draws the frame data of the core with Metal. |
 | `Sources/ZSlice/Render/LayerRenderer.swift` | Draws the 2D view of one layer with Metal: the bed, the outline (a stencil fill), and the beads as strokes. |
 | `Sources/ZSlice/Render/Shaders.swift` | The Metal shaders. They port `src/render/shaders/*`, and the 2D shaders of `web/app/gl.js`. |
 | `Sources/ZSlice/Views/DocumentWindow.swift` | The window: the 3D view, the scrub bar, and the print card. |
 | `Sources/ZSlice/Views/LayerSlider.swift` | The slider with two knobs for the layers that show. |
+| `Sources/ZSlice/Views/SettingsInspector.swift` | The settings drawer: the sections, the settings with their editors, the page of a setting, and the search. |
 
 ## Threads
 
@@ -51,6 +53,12 @@ On macOS the core does not draw. The view is a `zs_view` with no surface (`ZS_SU
 ### The 2D page
 
 The 2D page shows one layer from the top: the top layer of the layer slider. It uses the same bead buffer on the GPU as the 3D page, so a new layer only changes the range of a draw. The outlines of all layers (`zs_view_outlines`) go to the GPU once for each slice, as fans of triangles. The stencil buffer fills them by the nonzero rule. The toolbar of the window switches the page, and so do View > 3D View (Command-1) and View > 2D Layer View (Command-2). The app keeps the choice for the next window. On the 2D page, a drag pans, the wheel and a pinch zoom toward the pointer, and a double click fits the part (View > Fit the Part, Command-0).
+
+### The settings drawer
+
+The drawer of the other apps is a SwiftUI inspector at the right of the window. N in the view, the toolbar button, or View > Show Settings (Option-Command-I) shows it and hides it, and the app keeps the choice. A Mac inspector always sits beside the content, so the drawer has no Pin: it is always pinned. Its pages are those of `web/app/settings.js`: the sections of each group, the settings of a section (each with a switch, a menu, or a field with its unit), and the page of one setting (its slider, its formula, its source with Reset, its help, and the lines that it changes with their share of the print time). The search field finds settings by name or help text.
+
+The view shows the lines that the page points at, and fades the others (`zs_view_focus`), on the 3D and the 2D page. A pointer over a row shows the lines of that row. A hidden drawer shows the whole print. A field sends a number after a pause of 450 ms in the typing, on Return, or with the up and down arrow keys; the plate then slices again.
 
 ### Input
 
@@ -80,12 +88,14 @@ Like the GTK shell, the app reads some environment variables for development and
 - `ZSLICE_LAYERS=lo,hi` sets the layer range after the first slice (layer numbers from 1).
 - `ZSLICE_TIME=t` shows the replay at t seconds after the first slice.
 - `ZSLICE_VIEW=2d` (or `3d`) opens the window on that page.
+- `ZSLICE_PANEL=1` shows the settings drawer, and `ZSLICE_SETTING=name` opens the page of that setting.
 
 ## Work that moves to the core
 
 App logic goes in the core, so that the three shells do not each have a copy. Two parts of the app move there:
 
 - The history of undo and redo (the steps, the amend rule of an edit, the memory cap, and the restore). Today `linux/src/model/app-model.c` and `web/app/worker.js` each have it. The Mac app maps the core history onto `UndoManager`.
+- The text of a setting value (a ratio as a percentage, "auto", the unit), which `setting-editor.c` and `format.js` each have. The Mac app has a port in `Settings.swift` until then.
 - The plate set: one `zs_app` for each plate, the order of the slices (the active plate first), and the sync of the plates of the 3D view. Until it lands, a Mac window has one plate.
 
 ## Status and plan
@@ -93,6 +103,6 @@ App logic goes in the core, so that the three shells do not each have a copy. Tw
 The work goes in steps. Each step keeps `zig build test`, `zig build web`, and the GTK build working.
 
 1. The core link and the 3D view: open a file, slice, and show the beads with Metal. Done.
-2. The slicing UI: the print card and Export G-code, the layer slider, the replay, and the 2D layer view (done); the settings drawer, and history and undo (after the core history).
+2. The slicing UI: the print card and Export G-code, the layer slider, the replay, the 2D layer view, and the settings drawer (done); history and undo (after the core history).
 3. The tools (Select, Move, Turn, Measure, Gaps, Check), the line and part cards, the settings search, the shortcut sheet, and a double click that faces a side.
 4. Printers (the picker, the library, App Keys, printdeck, OctoPrint, Moonraker, discovery) and printdeck.yml projects. The menus, drag and drop, and the user docs.

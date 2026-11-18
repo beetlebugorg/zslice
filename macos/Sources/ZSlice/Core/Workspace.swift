@@ -51,6 +51,7 @@ final class Workspace {
 
     init() {
         canvas.delegate = self
+        if ProcessInfo.processInfo.environment["ZSLICE_PANEL"] != nil { showSettings = true }
         if let p = ProcessInfo.processInfo.environment["ZSLICE_VIEW"].flatMap(MetalSliceView.Page.init) { page = p }
         canvas.page = page
         model.onSliced = { [weak self] in self?.sliced() }
@@ -75,6 +76,7 @@ final class Workspace {
         if wasTop || hi >= n { hi = max(0, n - 1) }
         lo = min(lo, hi)
         applyRange()
+        applyFocus()
         applyTestHooks()
     }
 
@@ -122,6 +124,7 @@ final class Workspace {
         guard let v = canvas.view else { return }
         zs_view_set_layer_range(v, lo, hi)
         canvas.layer2D = hi
+        canvas.dim2D = focusMask != 0 && focusFirst && hi > 0
         canvas.requestFrame()
     }
 
@@ -198,6 +201,41 @@ final class Workspace {
         return true
     }
 
+    // MARK: - the settings drawer
+
+    /// The drawer shows. The app keeps the choice for the next window.
+    var showSettings = UserDefaults.standard.bool(forKey: "panel") {
+        didSet {
+            UserDefaults.standard.set(showSettings, forKey: "panel")
+            if !showSettings { focus(0, firstLayer: false) }
+        }
+    }
+
+    /// The lines that the drawer points at: a bit for each feature and mark
+    /// (0: all lines, in their colors). firstLayer: only the lines of the
+    /// first layer.
+    @ObservationIgnored private var focusMask: UInt32 = 0
+    @ObservationIgnored private var focusFirst = false
+
+    func focus(_ mask: UInt32, firstLayer: Bool) {
+        // A hidden drawer shows the whole print.
+        let m = showSettings ? mask : 0
+        focusMask = m
+        focusFirst = firstLayer
+        applyFocus()
+    }
+
+    private func applyFocus() {
+        guard let v = canvas.view else { return }
+        let zmax = focusFirst && !layerZ.isEmpty ? Double(layerZ[0]) : -1
+        zs_view_focus(v, focusMask, zmax)
+        // In 2D, a focus on the first layer while the view shows another
+        // layer: all lines are faint (web/app/view2d.js, dim).
+        canvas.focus2D = focusMask
+        canvas.dim2D = focusMask != 0 && focusFirst && hi > 0
+        canvas.requestFrame()
+    }
+
     /// Fits the part in the view: the 2D page fits the layer, and the 3D
     /// page moves the camera back to the start view.
     func fit() {
@@ -251,6 +289,7 @@ extension Workspace: SliceViewDelegate {
             case "h": scrubStep(-0.02)
             case "l": scrubStep(0.02)
             case "C" where shift: setRange(lo: 0, hi: layerCount - 1)
+            case "n" where !shift: showSettings.toggle()
             default: return false
             }
         }
