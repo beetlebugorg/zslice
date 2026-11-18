@@ -13,7 +13,7 @@ ZIG=/path/to/zig-0.16/zig ./build-core.sh   # lib/libzslice.a, for arm64 and x86
 open build/zslice.app
 ```
 
-`build-core.sh` runs `zig build lib` for `aarch64-macos` and `x86_64-macos`, and merges the two static libraries with `lipo`. `make-app.sh` builds the Swift package (`swift build`), and makes the app bundle with `Info.plist` and an ad-hoc signature. The project is a Swift package, not an Xcode project, so the build files are plain text.
+`build-core.sh` runs `zig build lib` for `aarch64-macos` and `x86_64-macos`, and merges the two static libraries with `lipo`. The archive of Zig 0.16 does not align its object to 8 bytes, and the Apple tools (`ld`, `lipo`, `libtool`) then skip the object with no error. So the script takes the object out of each archive and makes the archive again with `libtool` before `lipo`. `make-app.sh` builds the Swift package (`swift build`), and makes the app bundle with `Info.plist` and an ad-hoc signature. The project is a Swift package, not an Xcode project, so the build files are plain text.
 
 ## The parts
 
@@ -24,7 +24,7 @@ open build/zslice.app
 | `Sources/ZSlice/ZSliceApp.swift` | The app and its document type. Each window is one STL or 3MF file. |
 | `Sources/ZSlice/Core/SliceModel.swift` | One plate: one `zs_app` of the core, its state, and its events. |
 | `Sources/ZSlice/Core/Workspace.swift` | The model of a window: the plate, the 3D view, the layer range, the replay, the focus of the drawer, and the keys of the view. |
-| `Sources/ZSlice/Core/Settings.swift` | The setting infos, values, sources, and effects from the core, and the text of a value (a port of `web/app/format.js`). |
+| `Sources/ZSlice/Core/Settings.swift` | The setting infos, values, sources, effects, and value texts, from the core. |
 | `Sources/ZSlice/Views/MetalSliceView.swift` | The 3D view: an `NSView` over a `CAMetalLayer`, its display link, and the input. |
 | `Sources/ZSlice/Render/FrameRenderer.swift` | Draws the frame data of the core with Metal. |
 | `Sources/ZSlice/Render/LayerRenderer.swift` | Draws the 2D view of one layer with Metal: the bed, the outline (a stencil fill), and the beads as strokes. |
@@ -95,7 +95,6 @@ Like the GTK shell, the app reads some environment variables for development and
 App logic goes in the core, so that the three shells do not each have a copy. Two parts of the app move there:
 
 - The history of undo and redo (the steps, the amend rule of an edit, the memory cap, and the restore). Today `linux/src/model/app-model.c` and `web/app/worker.js` each have it. The Mac app maps the core history onto `UndoManager`.
-- The text of a setting value (a ratio as a percentage, "auto", the unit), which `setting-editor.c` and `format.js` each have. The Mac app has a port in `Settings.swift` until then.
 - The plate set: one `zs_app` for each plate, the order of the slices (the active plate first), and the sync of the plates of the 3D view. Until it lands, a Mac window has one plate.
 
 ## Status and plan

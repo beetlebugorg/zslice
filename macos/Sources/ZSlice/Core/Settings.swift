@@ -4,10 +4,10 @@
 //! (zs_setting_get_effect). The shell lists no setting: all of it comes
 //! from the core.
 //!
-//! ValueText writes a value as an editor shows it, and reads an edit back,
-//! with the rules of linux/src/ui/setting-editor.c and web/app/format.js:
-//! a ratio ("%") shows as a percentage, a line width of 0 shows as "auto",
-//! and a unit follows the value. These rules may move to the core.
+//! ValueText writes a value as an editor shows it, and reads an edit back.
+//! The rules are in the core (src/app/setting_text.zig): a ratio ("%")
+//! shows as a percentage, a line width of 0 shows as "auto", and a unit
+//! follows the value.
 //!
 //! SPDX-License-Identifier: AGPL-3.0-or-later
 
@@ -52,7 +52,6 @@ struct SettingInfo: Identifiable, Hashable {
     var id: String { name }
     var isNumber: Bool { kind == .number || kind == .integer }
     var isRatio: Bool { isNumber && unit == "%" }
-    var isAuto: Bool { name.hasSuffix("line_width") }
     var hasSlider: Bool { isNumber && sliderMax > sliderMin }
 
     /// All settings, in the order to show them.
@@ -134,57 +133,38 @@ struct SettingEntry: Equatable {
 
     /// The level as a tag: "Global", the name of a profile, "This print".
     var sourceText: String {
-        if let formula { return "= \(formula)" }
-        switch level {
-        case 1: return "Global"
-        case 2: return profile.isEmpty ? "Printer" : profile
-        case 3: return profile.isEmpty ? "Filament" : profile
-        case 4: return profile.isEmpty ? "Quality" : profile
-        case 5: return "This print"
-        case 6: return "This part"
-        default: return ""
-        }
+        coreString { zs_setting_source_text(level, profile, formula, $0, $1, $2) } ?? ""
     }
 }
 
-/// The text of setting values (setting-editor.c, format.js).
+/// The text of setting values, from the core.
 enum ValueText {
     static func parsesAsNumber(_ t: String) -> Bool {
         let s = t.trimmingCharacters(in: .whitespaces)
         return !s.isEmpty && Double(s)?.isFinite == true
     }
 
-    /// A number with no more digits than it needs (%.6g).
+    /// A number with no more digits than it needs (%.6g), for a step of
+    /// the arrow keys in an editor.
     static func number(_ v: Double) -> String {
-        var s = String(format: "%.6g", v)
-        if s == "-0" { s = "0" }
-        return s
+        let s = String(format: "%.6g", v)
+        return s == "-0" ? "0" : s
     }
 
     /// The value as an editor shows it.
     static func display(_ info: SettingInfo, _ value: String) -> String {
-        if info.isAuto, let v = Double(value), v == 0 { return "auto" }
-        if info.isRatio, let v = Double(value) { return number(v * 100) }
-        if info.kind == .text && info.multiline, let nl = value.firstIndex(of: "\n") {
-            return value[..<nl] + " …"
-        }
-        return value
+        coreString { zs_setting_display(info.name, value, 0, $0, $1, $2) } ?? value
     }
 
     /// The value with its unit: "0.8 mm", "1 layer", "auto".
     static func withUnit(_ info: SettingInfo, _ value: String) -> String {
-        let shown = display(info, value)
-        if info.unit.isEmpty || shown == "auto" { return shown }
-        let one = shown == "1" && info.unit.count > 1 && info.unit.hasSuffix("s") && info.kind == .integer
-        return "\(shown) \(one ? String(info.unit.dropLast()) : info.unit)"
+        coreString { zs_setting_display(info.name, value, 1, $0, $1, $2) } ?? value
     }
 
-    /// The core value of the text of an editor.
+    /// The core value of the text of an editor. A number setting with text
+    /// that is not a number keeps the text: the core gives its message on set.
     static func toCore(_ info: SettingInfo, _ text: String) -> String {
-        let t = text.trimmingCharacters(in: .whitespaces)
-        if info.isAuto && t.lowercased() == "auto" { return "0" }
-        guard info.isRatio, let v = Double(t) else { return t }
-        return String(format: "%.10g", v / 100)
+        coreString { zs_setting_parse(info.name, text, $0, $1, $2) } ?? text
     }
 }
 
