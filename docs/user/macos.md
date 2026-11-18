@@ -94,7 +94,7 @@ The Filament and Quality menus sit beside the printer menu in the toolbar. They 
 
 The Printers page shows a summary of the farm (printing, ready to collect, failed, free, not answering); a click on one shows only those printers, and the printers that need a person come first. macOS notifies you when a print is ready to collect, or fails. File > Add Printers from a Fleet File adds many printers at once. To try it, run the farm simulator of the source tree (`tools/farm_sim/README.md`).
 
-A printdeck never starts a print by itself: a plate that you send to it waits in its queue until a person at the deck clears the bed and presses Print.
+Before each print, zslice asks if the bed of the printer is clear. A printdeck starts the print at once when its setting Start prints from the slicer is on (the default, for a printer that you stand by). A deck set to ask (a farm) keeps the file until a person at the deck presses Print, and zslice says so.
 
 The queue: Queue on a plate row (or Queue All) puts plates in the queue of the farm. Up Next then proposes each one to a free printer that fits it (the bed, the nozzle, the material), and nothing goes out until you press Send. A ready print has Collected, Bed Clear, which frees the printer for the next job. A failed job waits for another printer, 3 tries at most. The plate rows say where each job is.
 

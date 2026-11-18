@@ -458,9 +458,7 @@ struct PrintCard: View {
                         Button("Export G-code…") { workspace.exportGcode(from: NSApp.keyWindow) }
                             .keyboardShortcut("e", modifiers: .command)
                     } label: {
-                        // A printdeck never starts by itself: the file waits
-                        // for a press of Print on the deck.
-                        Text(p.kind == .printdeck ? "Send to Deck" : "Print")
+                        Text(p.kind == .printdeck ? "Print to Printdeck" : "Print")
                     } primaryAction: {
                         workspace.send(print: true)
                     }
@@ -469,8 +467,8 @@ struct PrintCard: View {
                     .fixedSize()
                     .disabled(model.state != .done)
                     .help(p.kind == .printdeck
-                        ? "Send to \(p.name) (⌘P): it waits there until you press Print on the deck. Its menu: Upload Only, Export G-code."
-                        : "Print on \(p.name) (⌘P). Its menu: Upload Only, Export G-code.")
+                        ? "Print on \(p.name) (⌘P), after you confirm that its bed is clear. A deck set to ask waits for a press of Print on it. Its menu: Upload Only, Export G-code."
+                        : "Print on \(p.name) (⌘P), after you confirm that its bed is clear. Its menu: Upload Only, Export G-code.")
                     .keyboardShortcut("p", modifiers: .command)
                 } else {
                     Button("Export…") { workspace.exportGcode(from: NSApp.keyWindow) }

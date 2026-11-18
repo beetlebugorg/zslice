@@ -1036,10 +1036,22 @@ final class Workspace {
             sendBambu(p, gcode: data, print: print)
             return
         }
-        let name = model.gcodeName() + ".gcode"
+        // Before each print: is the bed clear? A printdeck starts at once
+        // when it allows a start from the slicer; a deck set to ask waits.
+        if print {
+            let a = NSAlert()
+            a.messageText = "Is the bed of \(p.name) clear?"
+            a.informativeText = "The print starts when the file is there."
+                + (p.kind == .printdeck ? " A deck set to ask waits for a press of Print on it." : "")
+            a.addButton(withTitle: "The Bed Is Clear: Print")
+            a.addButton(withTitle: "Cancel")
+            guard a.runModal() == .alertFirstButtonReturn else { return }
+        }
+        let title = model.gcodeName()
         sendState = print ? "Sending to \(p.name)…" : "Uploading to \(p.name)…"
         Task { @MainActor in
-            let r = await PrinterLink.send(p, filename: name, gcode: data, print: print)
+            // transfer signs the G-code (Signing.swift).
+            let r = await transfer(data, title: title, to: p, print: print)
             sendState = r.message
             if !r.ok {
                 let a = NSAlert()

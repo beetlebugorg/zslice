@@ -389,7 +389,7 @@ struct FarmPage: View {
                                 Label(item.1.name, systemImage: "arrow.right").font(.caption).foregroundStyle(.secondary)
                             }
                             Spacer()
-                            Button(item.1.kind == .printdeck ? "Send to Queue" : "Send") { send(plate: item.3, to: item.1, from: item.2, job: item.0) }
+                            Button("Send") { send(plate: item.3, to: item.1, from: item.2, job: item.0) }
                                 .buttonStyle(.borderedProminent)
                                 .disabled(busy.contains(item.1.id))
                         }
@@ -456,9 +456,9 @@ struct FarmPage: View {
         // A fresh confirmation each time. G-code for another printer can
         // have another bed, nozzle, or temperatures: say so.
         let a = NSAlert()
-        a.messageText = deck ? "Send \"\(title)\" to the queue of \(p.name)?" : "Send \"\(title)\" to \(p.name)?"
-        var info = deck ? "It waits in the queue of the printdeck until a person at the deck clears the bed and presses Print."
-            : "Is the bed of \(p.name) clear? The print starts when the file is there."
+        a.messageText = "Send \"\(title)\" to \(p.name)?"
+        var info = "Is the bed of \(p.name) clear? The print starts when the file is there."
+            + (deck ? " A deck set to ask waits for a press of Print on it." : "")
         if let current = workspace.assigned(plate: i) ?? PrinterStore.shared.current, current.id != p.id {
             info = "The plate is sliced for \(current.name), not for \(p.name). Choose \(p.name) for the plate to slice it for that printer first.\n\n" + info
         }
@@ -468,7 +468,7 @@ struct FarmPage: View {
         if busyNow(p), !deck { info = "\(p.name) looks busy now (\(busyText(p))).\n\n" + info }
         if p.kind == .bambu { info += " (Bambu support is untested with a real printer.)" }
         a.informativeText = info
-        a.addButton(withTitle: deck ? "Send to the Queue" : "The Bed Is Clear: Send")
+        a.addButton(withTitle: "The Bed Is Clear: Send")
         a.addButton(withTitle: "Cancel")
         guard a.runModal() == .alertFirstButtonReturn else { return }
         busy.insert(p.id)
@@ -478,10 +478,10 @@ struct FarmPage: View {
             if r.ok, let job { monitor.sent(job: job, to: p) }
             if r.ok, model.plates.indices.contains(i) {
                 let time = Date().formatted(date: .omitted, time: .shortened)
-                workspace.sentPlates[model.plates[i].id] = deck ? "In the queue of \(p.name) since \(time)" : "Sent to \(p.name) at \(time)"
+                workspace.sentPlates[model.plates[i].id] = "Sent to \(p.name) at \(time)"
                 workspace.printing[p.id] = model.plates[i].id
             }
-            workspace.showNote(r.ok && deck ? "In the queue of \(p.name): press Print on the deck when the bed is clear." : r.message)
+            workspace.showNote(r.message)
             await monitor.refresh()
         }
     }

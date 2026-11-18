@@ -18,11 +18,13 @@
 # layer), and can pause (the filament ran out) until it resumes. The clock
 # runs fast: --speed 60 prints an hour in a minute.
 #
-# A printdeck never starts a print by itself (a firm rule of printdeck): an
-# upload goes into its queue (GET /api/plugin/printdeck/queue, DELETE and
-# move of an item), and a person at the deck presses Print. OctoPrint and
-# Moonraker start a print of an upload with print=true, as the real ones
-# do; the app asks the user first if the bed is clear.
+# A printdeck has the setting "Start prints from the slicer" (on by
+# default, "remote_start" in /api/plugin/printdeck): on, an upload with
+# print=true starts at once, as OctoPrint and Moonraker do; off (--deck-ask,
+# a farm), the upload goes into its queue (GET /api/plugin/printdeck/queue,
+# DELETE and move of an item) until a person at the deck presses Print, and
+# the reply has "effectivePrint": false. The app asks the user first if the
+# bed is clear.
 #
 # The operator (on by default, --no-operator): the people of the farm. 5 to
 # 45 minutes after a print ends or fails, they take it off the bed; 5 to 45
@@ -82,6 +84,7 @@ FAILURES = ["Nozzle clog: no plastic for 30 s", "Spaghetti: the print came off t
             "Layer shift on X", "Thermal runaway on the hotend", "The part came off the bed"]
 
 LOCK = threading.Lock()
+FARM_ARGS = None
 
 
 class Server(ThreadingHTTPServer):
@@ -250,7 +253,7 @@ class Printer:
         return out
 
     def printdeck_plugin(self, clock):
-        out = {"queue": len(self.queue), "material": self.material, "diameter": 0 if self.resin else 1.75,
+        out = {"remote_start": not FARM_ARGS.deck_ask, "queue": len(self.queue), "material": self.material, "diameter": 0 if self.resin else 1.75,
                "limits": {"max_velocity": int(300 * self.pace), "max_accel": int(4000 * self.pace),
                           "square_corner_velocity": 5}}
         if not self.resin:
@@ -481,8 +484,9 @@ def printer_handler(farm, p):
                 name, data, fields = multipart_file(body, self.headers.get("Content-Type"))
                 start = fields.get("print", "false").lower() == "true"
                 with LOCK:
-                    if p.deck:
-                        # printdeck: into the queue; a person at the deck starts it.
+                    if p.deck and (farm.args.deck_ask or not start or p.state != "Operational"):
+                        # printdeck set to ask (or busy): into the queue; a
+                        # person at the deck starts it.
                         plan = planned_seconds(data)
                         p.queue.append({"id": p.next_id, "path": name, "name": os.path.splitext(name or "job")[0],
                                         "seconds": plan, "from": "zslice"})
@@ -612,12 +616,16 @@ def main():
     ap.add_argument("--order-every", type=float, default=1800, help="farm seconds between orders, on average")
     ap.add_argument("--key", default="farm", help="the API key of each printer ('' for none)")
     ap.add_argument("--busy", type=float, default=0.6, help="the share of the printers that print, or wait on the bed, at the start")
+    ap.add_argument("--deck-ask", action="store_true",
+                    help="each printdeck asks on the deck for a print (a farm); by default it starts a print from the slicer")
     ap.add_argument("--seed", type=int, default=7)
     ap.add_argument("--no-operator", dest="operator", action="store_false",
                     help="no people: beds stay full, and printdeck queues wait, until the control API acts")
     ap.add_argument("--fleet", default="fleet.json", help="where to write the list of the printers")
     args = ap.parse_args()
 
+    global FARM_ARGS
+    FARM_ARGS = args
     farm = Farm(args)
     servers = []
     for p in farm.printers:

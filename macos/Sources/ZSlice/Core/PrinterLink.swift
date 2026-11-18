@@ -103,8 +103,12 @@ enum PrinterLink {
         field("print", print ? "true" : "false")
         body.append(Data("--\(boundary)--\r\n".utf8))
         let path = p.kind == .moonraker ? "/server/files/upload" : "/api/files/local"
+        var started = print
         do {
             let (d, r) = try await request(p, path, method: "POST", body: body, contentType: "multipart/form-data; boundary=\(boundary)")
+            // OctoPrint and printdeck say if the print started: a printdeck
+            // set to ask waits for a press of Print on it.
+            if let e = ((try? JSONSerialization.jsonObject(with: d)) as? [String: Any])?["effectivePrint"] as? Bool { started = e }
             if r.statusCode == 401 || r.statusCode == 403 { return LinkResult(ok: false, message: "The printer refused the API key.") }
             if r.statusCode == 422 {
                 let why = ((try? JSONSerialization.jsonObject(with: d)) as? [String: Any])?["error"] as? String
@@ -117,9 +121,9 @@ enum PrinterLink {
         } catch {
             return LinkResult(ok: false, message: explain(error))
         }
-        // A printdeck asks on the deck for each print: it never starts by itself.
         if p.kind == .printdeck {
-            return LinkResult(ok: true, message: "Sent to \(p.name). It waits there: press Print on the deck to start it.")
+            return LinkResult(ok: true, message: started ? "Sent to \(p.name); the print starts."
+                : print ? "Sent to \(p.name). It waits there: press Print on the deck to start it." : "Uploaded to \(p.name).")
         }
         // OctoPrint and Moonraker do not check the signature.
         return LinkResult(ok: true, message: (print ? "Sent to \(p.name) (\(p.kind.title)); the print starts." : "Uploaded to \(p.name) (\(p.kind.title)).") + " Not verified: \(p.kind.title) does not check signatures.")

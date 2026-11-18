@@ -17,10 +17,12 @@ python3 -I tools/farm_sim/farm_sim.py --printers 50 --speed 60
 - **The prints.** A print heats, prints, and then waits on the bed until a
   person clears it. Some fail (`--fail-rate`), and a few pause for a runout.
   At the start, `--busy` of the farm prints or waits on the bed.
-- **printdeck.** A printdeck never starts a print by itself, as the real one:
-  a file sent to it waits in its queue (`/api/plugin/printdeck/queue`) until
-  a person at the deck presses Print. OctoPrint and Moonraker start a print
-  sent with `print=true`.
+- **printdeck.** As the real one, a printdeck starts a print sent with
+  `print=true` ("Start prints from the slicer", on by default). With
+  `--deck-ask` (a farm), a file sent to it waits in its queue
+  (`/api/plugin/printdeck/queue`) until a person at the deck presses Print,
+  and the reply says `"effectivePrint": false`. OctoPrint and Moonraker
+  start a print sent with `print=true`.
 - **The operator.** The people of the farm clear the beds and press Print, 5
   to 45 minutes after it is due. `--no-operator` leaves that to you.
 - **The orders.** Orders come in at random (`--order-every`): a model of
