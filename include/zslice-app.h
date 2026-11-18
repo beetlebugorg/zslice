@@ -1747,6 +1747,104 @@ int zs_discovery_get(const zs_discovery *d, size_t i, zs_found_printer *out);
  * on an error. */
 int zs_discovery_reply(zs_discovery *d, size_t i, int what, const char *body, size_t len);
 
+
+/* ---- the farm ----
+ *
+ * Printers, orders, and the jobs of the orders, for a shop with many
+ * printers (src/app/farm.zig). The app polls each printer
+ * (zs_printer_status) and gives the farm its state with zs_farm_status.
+ * zs_farm_next proposes sends: each waiting job (the order due first) to a
+ * free printer that fits it (bed, turned too; nozzle; material), the
+ * smallest bed first. A proposal changes nothing: the app asks the person
+ * ("Is the bed clear?"), sends the file, and calls zs_farm_sent. A
+ * printdeck starts a print only after a press of Print on its screen; its
+ * job waits as "sent" until the deck prints it. The farm never starts a
+ * print. zs_farm_events gives "ready to collect", "failed" (with why),
+ * "paused", and an order done or failed. A poll can miss a short state:
+ * when a printer is idle again with no job, a job that was at 95 % or more
+ * is done, else it failed. A failed job waits again, 3 tries at most. */
+typedef struct zs_farm zs_farm;
+
+enum zs_farm_printer_state {
+    ZS_FARM_OFFLINE = 0,
+    ZS_FARM_IDLE = 1,
+    ZS_FARM_PRINTING = 2,
+    ZS_FARM_PAUSED = 3,
+    ZS_FARM_FINISHED = 4, /* done, the print is still on the bed */
+    ZS_FARM_FAILED = 5,
+};
+
+enum zs_farm_job_state {
+    ZS_FARM_JOB_WAITING = 0,
+    ZS_FARM_JOB_SENT = 1,
+    ZS_FARM_JOB_PRINTING = 2,
+    ZS_FARM_JOB_DONE = 3,      /* ready to collect */
+    ZS_FARM_JOB_COLLECTED = 4,
+    ZS_FARM_JOB_FAILED = 5,    /* failed on the last try */
+};
+
+enum zs_farm_event_kind {
+    ZS_FARM_READY = 0,
+    ZS_FARM_FAILED_EVENT = 1,
+    ZS_FARM_PAUSED_EVENT = 2,
+    ZS_FARM_ORDER_DONE = 3,
+    ZS_FARM_ORDER_FAILED = 4,
+};
+
+typedef struct zs_farm_send { uint32_t job; size_t printer; } zs_farm_send;
+
+typedef struct zs_farm_event {
+    int kind;          /* enum zs_farm_event_kind */
+    uint32_t job, order;
+    ptrdiff_t printer; /* or -1 */
+    const char *text;  /* why (not 0-terminated), valid until the next zs_farm_events */
+    size_t text_len;
+} zs_farm_event;
+
+typedef struct zs_farm_job {
+    uint32_t id, order;
+    int state;         /* enum zs_farm_job_state */
+    uint32_t tries;
+    ptrdiff_t printer; /* while sent, printing, or done; else -1 */
+    double progress, seconds;
+    const char *name;
+    size_t name_len;
+} zs_farm_job;
+
+typedef struct zs_farm_printer {
+    int state;         /* enum zs_farm_printer_state */
+    double progress;
+    uint32_t job;      /* the job on the printer, or 0 */
+    const char *key;
+    size_t key_len;
+} zs_farm_printer;
+
+int zs_farm_new(zs_farm **out);
+void zs_farm_free(zs_farm *farm);
+/* Adds a printer (its key in the app), or changes its facts: the bed in mm,
+ * the nozzle, the material in it ("" for any), and printdeck (1: a press
+ * on the deck starts each print). Returns its index, or -status. */
+ptrdiff_t zs_farm_printer_set(zs_farm *farm, const char *key, double bed_x, double bed_y, double nozzle, const char *material, int printdeck);
+ptrdiff_t zs_farm_printer_find(zs_farm *farm, const char *key);
+size_t zs_farm_printer_count(zs_farm *farm);
+int zs_farm_printer_get(zs_farm *farm, size_t i, zs_farm_printer *out);
+/* An order of a customer, due at a time (any clock in seconds, 0: none).
+ * Returns its id (> 0), or -status. */
+int64_t zs_farm_order_add(zs_farm *farm, const char *customer, int64_t due);
+/* A job (one plate) of an order: its name, material, the bed it needs, the
+ * nozzle (0: any), and its time in s. Returns its id (> 0), or -status. */
+int64_t zs_farm_job_add(zs_farm *farm, uint32_t order, const char *name, const char *material, double bed_x, double bed_y, double nozzle, double seconds);
+size_t zs_farm_job_count(zs_farm *farm);
+int zs_farm_job_get(zs_farm *farm, size_t i, zs_farm_job *out);
+/* The state of printer i from a poll, the progress of its job (0 to 1), why
+ * it failed (or NULL), and the time. */
+int zs_farm_status(zs_farm *farm, size_t printer, int state, double progress, const char *why, int64_t now);
+size_t zs_farm_next(zs_farm *farm, zs_farm_send *out, size_t cap);
+int zs_farm_sent(zs_farm *farm, uint32_t job, size_t printer, int64_t now);
+/* A person took the print off printer i: the printer is free. */
+int zs_farm_collected(zs_farm *farm, size_t printer);
+size_t zs_farm_events(zs_farm *farm, zs_farm_event *out, size_t cap);
+
 #ifdef __cplusplus
 }
 #endif

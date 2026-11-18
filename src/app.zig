@@ -85,6 +85,8 @@ pub const setting_search = @import("app/setting_search.zig");
 pub const printer_status = @import("app/printer_status.zig");
 /// The edits of the user on the lines of a slice (edits.zig).
 pub const edits_mod = @import("app/edits.zig");
+/// The farm: printers, orders, and jobs (farm.zig).
+pub const farm_mod = @import("app/farm.zig");
 pub const License = @import("app/licenses.zig").License;
 pub const licenses = @import("app/licenses.zig").licenses;
 
@@ -2119,6 +2121,7 @@ test {
     _ = plate_set;
     _ = support_areas;
     _ = @import("app/feature_settings.zig");
+    _ = @import("app/farm.zig");
 }
 
 test "app: support areas slice, go into the 3MF, and undo" {
