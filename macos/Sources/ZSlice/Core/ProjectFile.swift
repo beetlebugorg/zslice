@@ -20,27 +20,63 @@ import UniformTypeIdentifiers
 final class SaveBytes: @unchecked Sendable {
     private let lock = NSLock()
     private var data: Data?
+    /// The change that the bytes show, and the last change.
+    private var gen = 0, changes = 0
+    /// A save wrote bytes older than the last change.
+    private var staleSave = false
 
     var current: Data? { lock.withLock { data } }
-    func set(_ d: Data?) { lock.withLock { data = d } }
+    func set(_ d: Data?) { lock.withLock { data = d; gen = changes } }
+    func changed() { lock.withLock { changes += 1 } }
+
+    /// The bytes for a save (any thread). It notes a save of old bytes.
+    func forSave() -> Data? {
+        lock.withLock {
+            if gen < changes { staleSave = true }
+            return data
+        }
+    }
+
+    /// True once after a save of old bytes.
+    func takeStaleSave() -> Bool {
+        lock.withLock {
+            defer { staleSave = false }
+            return staleSave
+        }
+    }
 }
 
 extension SliceModel {
-    /// After a change: a new copy soon, on the main thread (one for many
-    /// changes). The last copy stays until then, so a save never waits.
+    /// After a change: a new copy when the window is idle. The copy writes
+    /// all meshes, which takes long for a large project, on the main
+    /// thread; so it waits until the changes stop and the slice is done,
+    /// and never slows a slice. The last copy stays until then, so a save
+    /// never waits (see ProjectDocument.snapshot).
     func scheduleSaveBytes() {
-        guard !saveBytesDue else { return }
+        saveBytes.changed()
         saveBytesDue = true
-        DispatchQueue.main.async { [weak self] in
-            guard let self else { return }
-            saveBytesDue = false
-            refreshSaveBytes()
-        }
+        saveBytesTimer?.cancel()
+        let item = DispatchWorkItem { [weak self] in self?.flushSaveBytesIfIdle() }
+        saveBytesTimer = item
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.8, execute: item)
+    }
+
+    /// Makes the copy if one is due and no slice runs (else the end of the
+    /// slice calls this again).
+    func flushSaveBytesIfIdle() {
+        guard saveBytesDue, state != .slicing else { return }
+        refreshSaveBytes()
     }
 
     /// A copy of the plates as a project file, for the next save.
     func refreshSaveBytes() {
+        saveBytesDue = false
         saveBytes.set(document == nil ? nil : projectFileData(name: name))
+        // A save in the moment before wrote the copy before the last
+        // change: the document has changes again.
+        if saveBytes.takeStaleSave(), let document, !document.isDocumentEdited {
+            document.updateChangeCount(.changeDone)
+        }
     }
 
     /// Opens a project file in place of the plates of the window.

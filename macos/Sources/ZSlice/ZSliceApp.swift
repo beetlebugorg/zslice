@@ -55,9 +55,10 @@ final class ProjectDocument: ReferenceFileDocument, @unchecked Sendable {
         }
         // Never wait for the main thread here: during a save the main thread
         // waits for this thread, so a sync to it is a deadlock. The bytes of
-        // the last step are at most a moment old (SaveBytes).
+        // the last change come when the window is idle (SaveBytes); a save
+        // of older bytes marks the document changed again.
         if Thread.isMainThread, let bytes = MainActor.assumeIsolated({ make() }) { return bytes }
-        guard let bytes = model?.saveBytes.current else { throw CocoaError(.fileWriteUnknown) }
+        guard let bytes = model?.saveBytes.forSave() else { throw CocoaError(.fileWriteUnknown) }
         return bytes
     }
 

@@ -409,6 +409,28 @@ final class Workspace {
                 }
             }
         }
+        // ZSLICE_RESLICE=1 changes the infill 3 times, one change after each
+        // slice, and logs the longest wait of the main thread (with
+        // ZSLICE_TIMING, the time of each slice).
+        if env["ZSLICE_RESLICE"] != nil {
+            Task { @MainActor in
+                var worst = 0.0
+                var last = CACurrentMediaTime()
+                let watch = Timer.scheduledTimer(withTimeInterval: 0.005, repeats: true) { _ in
+                    let now = CACurrentMediaTime()
+                    worst = max(worst, now - last)
+                    last = now
+                }
+                for d in ["0.3", "0.15", "0.25"] {
+                    try? await Task.sleep(for: .seconds(1.5))
+                    zs_app_setting_set(model.core, "project.infill_density", d)
+                    model.settingsChanged()
+                }
+                try? await Task.sleep(for: .seconds(3))
+                watch.invalidate()
+                NSLog("zslice reslice: longest main thread wait %.0f ms", worst * 1000)
+            }
+        }
         // ZSLICE_PAGE_FLIP=dir: a turn, then 2D and back to 3D, then a turn;
         // writes a.png (before the flip), b.png (after it), and c.png (after
         // the second turn) there. The camera must not move with the page.

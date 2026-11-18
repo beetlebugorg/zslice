@@ -119,6 +119,7 @@ final class SliceModel {
     /// The project file of the plates for a save (ProjectFile.swift).
     @ObservationIgnored let saveBytes = SaveBytes()
     @ObservationIgnored var saveBytesDue = false
+    @ObservationIgnored var saveBytesTimer: DispatchWorkItem?
 
     /// The undo list of the active plate.
     var history: History {
@@ -313,6 +314,10 @@ final class SliceModel {
             }
             onSliced?()
             onPlates?()
+            // The copy for a save, after the view shows the slice.
+            if saveBytesDue {
+                DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) { [weak self] in self?.flushSaveBytesIfIdle() }
+            }
         case Int(ZS_EVENT_FAILED.rawValue):
             if zs_app_state(core) == Int32(ZS_STATE_FAILED.rawValue) { state = .failed(statusText(status)) }
         default:

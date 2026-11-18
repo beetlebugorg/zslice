@@ -102,7 +102,7 @@ final class History {
     /// After a commit: a new step is one more undo action. Any other
     /// change of the list makes the undo actions again.
     private func listChanged(from before: Int) {
-        model.refreshSaveBytes()
+        model.scheduleSaveBytes()
         let after = current
         guard active else {
             generation += 1
@@ -184,7 +184,7 @@ final class History {
 
     private func applied(_ bits: Int32) {
         generation += 1
-        model.refreshSaveBytes()
+        model.scheduleSaveBytes()
         if bits != 0, ProcessInfo.processInfo.environment["ZSLICE_FRESH"] == nil { SavedSettings.save(from: core) }
         if bits != 0 { model.restored() }
     }
