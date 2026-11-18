@@ -34,11 +34,13 @@ pub fn write(gpa: Allocator, set: *Set, camera: ?[8]f32, app_text: []const u8) (
     const a = arena_state.allocator();
     var entries: std.ArrayList(zip.Entry) = .empty;
     const proj = try set.saveProject(a, "session");
-    try entries.append(a, .{ .name = "project.zslice", .data = proj });
+    // The project file is a zip already, and a scene must load fast:
+    // both go in as they are.
+    try entries.append(a, .{ .name = "project.zslice", .data = proj, .store = true });
     for (0..set.count()) |i| {
         const sc = set.scene(i) orelse continue;
         const name = try std.fmt.allocPrint(a, "scene-{d}.bin", .{i});
-        try entries.append(a, .{ .name = name, .data = try a.dupe(u8, sc) });
+        try entries.append(a, .{ .name = name, .data = try a.dupe(u8, sc), .store = true });
     }
     const json = try std.json.Stringify.valueAlloc(a, Json{ .camera = camera }, .{});
     try entries.append(a, .{ .name = "session.json", .data = json });

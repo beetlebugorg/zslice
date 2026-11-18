@@ -19,6 +19,52 @@ pub const Error = error{ NotZip, Unsupported, Corrupt } || Allocator.Error;
 pub const Entry = struct {
     name: []const u8,
     data: []u8,
+    /// Keep the data as it is (no deflate): for data that is compressed
+    /// already, or that must load fast more than it must be small.
+    store: bool = false,
+};
+
+/// The deflated data of the large entries of the last writes, by a hash of
+/// the data: a project saved again, with its meshes as they were, does not
+/// compress them again (a session write after a camera move, a save copy).
+const Cache = struct {
+    const slots = 32;
+    const min_len = 64 * 1024;
+    /// A spin lock: Zig 0.16 has no thread mutex in std without an Io, and
+    /// the lock is held for a lookup or a copy only.
+    mutex: SpinLock = .{},
+    keys: [slots][2]u64 = @splat(.{ 0, 0 }),
+    data: [slots][]u8 = @splat(&.{}),
+    next: usize = 0,
+
+    fn get(c: *Cache, key: [2]u64) ?[]u8 {
+        for (c.keys, c.data) |k, d| if (k[0] == key[0] and k[1] == key[1] and d.len > 0) return d;
+        return null;
+    }
+
+    fn put(c: *Cache, key: [2]u64, comp: []const u8) void {
+        const copy = cache_alloc.dupe(u8, comp) catch return;
+        const i = c.next;
+        c.next = (c.next + 1) % slots;
+        if (c.data[i].len > 0) cache_alloc.free(c.data[i]);
+        c.data[i] = copy;
+        c.keys[i] = key;
+    }
+};
+var cache: Cache = .{};
+
+/// The allocator of the cache: its data outlives the arenas of the
+/// callers. The same choice as the C API (c_api.zig gpa).
+const cache_alloc = if (@import("parallel.zig").wasm_pool) @import("wasm_heap.zig").allocator else if (@import("builtin").target.cpu.arch.isWasm()) std.heap.wasm_allocator else std.heap.smp_allocator;
+
+const SpinLock = struct {
+    held: std.atomic.Value(u32) = .init(0),
+    fn lock(l: *SpinLock) void {
+        while (l.held.cmpxchgWeak(0, 1, .acquire, .monotonic) != null) std.atomic.spinLoopHint();
+    }
+    fn unlock(l: *SpinLock) void {
+        l.held.store(0, .release);
+    }
 };
 
 /// All entries of a zip file. Free each name and data with `gpa`.
@@ -143,19 +189,34 @@ pub fn write(gpa: Allocator, out: *std.Io.Writer, entries: []const Entry) (Alloc
     defer gpa.free(window);
     for (entries) |e| {
         // The compressor needs a buffer of more than 8 bytes to start.
-        var packed_data = try std.Io.Writer.Allocating.initCapacity(gpa, @max(64, e.data.len / 2));
+        var packed_data = try std.Io.Writer.Allocating.initCapacity(gpa, if (e.store) 0 else @max(64, e.data.len / 2));
         defer packed_data.deinit();
-        var c = try flate.Compress.init(&packed_data.writer, window, .raw, .level_6);
-        try c.writer.writeAll(e.data);
-        try c.finish();
-        const comp = packed_data.written();
+        const key = [2]u64{ std.hash.Wyhash.hash(0, e.data), e.data.len };
+        const cached: ?[]u8 = if (!e.store and e.data.len >= Cache.min_len) blk: {
+            cache.mutex.lock();
+            defer cache.mutex.unlock();
+            break :blk if (cache.get(key)) |d| try gpa.dupe(u8, d) else null;
+        } else null;
+        defer if (cached) |d| gpa.free(d);
+        const comp: []const u8 = if (e.store) e.data else if (cached) |d| d else blk: {
+            var c = try flate.Compress.init(&packed_data.writer, window, .raw, .level_6);
+            try c.writer.writeAll(e.data);
+            try c.finish();
+            if (e.data.len >= Cache.min_len) {
+                cache.mutex.lock();
+                defer cache.mutex.unlock();
+                cache.put(key, packed_data.written());
+            }
+            break :blk packed_data.written();
+        };
+        const method: @FieldType(zip.LocalFileHeader, "compression_method") = if (e.store) .store else .deflate;
         const crc = std.hash.Crc32.hash(e.data);
         const flags: @FieldType(zip.LocalFileHeader, "flags") = @bitCast(@as(u16, 0));
         const local: zip.LocalFileHeader = .{
             .signature = zip.local_file_header_sig,
             .version_needed_to_extract = 20,
             .flags = flags,
-            .compression_method = .deflate,
+            .compression_method = method,
             .last_modification_time = 0,
             .last_modification_date = (1 << 5) | 1, // 1980-01-01
             .crc32 = crc,
@@ -172,7 +233,7 @@ pub fn write(gpa: Allocator, out: *std.Io.Writer, entries: []const Entry) (Alloc
             .version_made_by = 20,
             .version_needed_to_extract = 20,
             .flags = flags,
-            .compression_method = .deflate,
+            .compression_method = method,
             .last_modification_time = 0,
             .last_modification_date = (1 << 5) | 1,
             .crc32 = crc,
@@ -227,4 +288,31 @@ test "zip: write and read back" {
     try std.testing.expectEqualStrings("hello", back[0].data);
     try std.testing.expectEqualSlices(u8, &big, back[1].data);
     try std.testing.expectError(error.NotZip, readAll(gpa, "not a zip file at all"));
+}
+
+test "zip: a large entry written again comes from the cache, with the same bytes" {
+    const gpa = std.testing.allocator;
+    const big = try gpa.alloc(u8, 200 * 1024);
+    defer gpa.free(big);
+    for (big, 0..) |*b, i| b.* = @intCast((i * 7 + i / 300) % 251);
+    const small = try gpa.dupe(u8, "a small entry");
+    defer gpa.free(small);
+    const entries = [_]Entry{ .{ .name = "big.bin", .data = big }, .{ .name = "raw.bin", .data = small, .store = true } };
+    var a: std.Io.Writer.Allocating = .init(gpa);
+    defer a.deinit();
+    try write(gpa, &a.writer, &entries);
+    var b: std.Io.Writer.Allocating = .init(gpa);
+    defer b.deinit();
+    try write(gpa, &b.writer, &entries);
+    try std.testing.expectEqualSlices(u8, a.written(), b.written());
+    const back = try readAll(gpa, b.written());
+    defer {
+        for (back) |e| {
+            gpa.free(e.name);
+            gpa.free(e.data);
+        }
+        gpa.free(back);
+    }
+    try std.testing.expectEqualSlices(u8, big, back[0].data);
+    try std.testing.expectEqualStrings("a small entry", back[1].data);
 }
