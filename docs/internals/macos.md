@@ -28,6 +28,11 @@ open build/zslice.app
 | `Sources/ZSlice/Core/Selection.swift` | The selected line: the pick, the highlight, the facts of the line card, the line again after a new slice, and the keys of a selected line. |
 | `Sources/ZSlice/Core/Tools.swift` | The tools of the view: Select, Move, Turn, and Measure. |
 | `Sources/ZSlice/Core/Throttle.swift` | Runs an action at most once in an interval during a drag, and once more at the end. |
+| `Sources/ZSlice/Core/Printers.swift` | The library of printer models, the bed models, and the printers of the user (API keys in the Keychain). |
+| `Sources/ZSlice/Core/PrinterLink.swift` | Print, upload, test, and Get a Key over HTTP, https first. |
+| `Sources/ZSlice/Core/Discovery.swift` | The printers on the network: the UDP of the mDNS search of the core. |
+| `Sources/ZSlice/Core/Project.swift` | printdeck.yml projects: the files of the plates, and the load of the core. |
+| `Sources/ZSlice/Core/SavedSettings.swift` | The settings after a restart. |
 | `Sources/ZSlice/Core/Settings.swift` | The setting infos, values, sources, effects, and value texts, from the core. |
 | `Sources/ZSlice/Views/MetalSliceView.swift` | The 3D view: an `NSView` over a `CAMetalLayer`, its display link, and the input. |
 | `Sources/ZSlice/Render/FrameRenderer.swift` | Draws the frame data of the core with Metal. |
@@ -159,4 +164,4 @@ The work goes in steps. Each step keeps `zig build test`, `zig build web`, and t
 1. The core link and the 3D view: open a file, slice, and show the beads with Metal. Done.
 2. The slicing UI: the print card and Export G-code, the layer slider, the replay, the 2D layer view, the settings drawer, and history and undo (done).
 3. The tools (Select, Move, Turn, Measure, Gaps, Check), the line and part cards, the settings search, the shortcut sheet, and a double click that faces a side.
-4. Printers (the picker, the library, App Keys, printdeck, OctoPrint, Moonraker, discovery) and printdeck.yml projects. The menus, drag and drop, and the user docs.
+4. Printers (the picker, the library, App Keys, printdeck, OctoPrint, Moonraker, discovery), printdeck.yml projects, the menus, drag and drop, and the user docs (done). Still to do: the Project page (the parts of a project), projects from GitHub, and the status of a printdeck printer.

@@ -43,6 +43,7 @@ SOURCES = [
     ("docs/user/settings.md", "user/settings/", "User guide", "Settings"),
     ("docs/user/profiles.md", "user/profiles/", "User guide", "Profiles"),
     ("docs/user/projects.md", "user/projects/", "User guide", "Projects"),
+    ("docs/user/macos.md", "user/macos/", "User guide", "The macOS app"),
     ("docs/user/troubleshooting.md", "user/troubleshooting/", "User guide", "Troubleshooting"),
     ("docs/embedding/overview.md", "embedding/", "Embedding", "Overview"),
     ("docs/embedding/c.md", "embedding/c/", "Embedding", "C"),

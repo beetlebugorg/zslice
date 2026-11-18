@@ -1,0 +1,82 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>The macOS app · zslice</title>
+<meta name="description" content="The macOS app has the features of the other apps, in the way of a Mac app. This page lists where it differs. The rest of the user guide applies.">
+<link rel="canonical" href="https://zslice.beetlebug.org/user/macos/">
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='6' fill='%23171717'/%3E%3Crect x='11' y='8' width='10' height='4' rx='1' fill='%23f4f0e6'/%3E%3Crect x='8' y='14' width='16' height='4' rx='1' fill='%23f4f0e6'/%3E%3Crect x='5' y='20' width='22' height='4' rx='1' fill='%23ff5a1f'/%3E%3C/svg%3E">
+<link rel="stylesheet" href="../../site.css">
+</head>
+<body>
+<input type="checkbox" id="menu">
+<header class="top">
+  <a class="brand" href="../../docs.html"><span class="mark">ZSLICE</span><span class="docs">DOCS</span></a>
+  <label class="menu-btn" for="menu">Contents</label>
+  <nav class="top-links"><a href="../../index.html">Open the app</a><a href="../../user/getting-started/">Get started</a><a href="../../roadmap/">Roadmap</a><a href="../../privacy/">Privacy</a><a href="https://github.com/beetlebugorg/zslice">GitHub</a></nav>
+</header>
+<div class="layout">
+<aside class="side"><nav><a href="../../docs.html">Home</a>
+<a href="../../contents/">All documents</a>
+<div class="group">User guide</div>
+<a href="../../user/getting-started/">Getting started</a>
+<a href="../../user/settings/">Settings</a>
+<a href="../../user/profiles/">Profiles</a>
+<a href="../../user/projects/">Projects</a>
+<a href="../../user/macos/" aria-current="page">The macOS app</a>
+<a href="../../user/troubleshooting/">Troubleshooting</a>
+<div class="group">Embedding</div>
+<a href="../../embedding/">Overview</a>
+<a href="../../embedding/c/">C</a>
+<a href="../../embedding/zig/">Zig</a>
+<a href="../../embedding/javascript/">JavaScript</a>
+<div class="group">Internals</div>
+<a href="../../internals/architecture/">Architecture</a>
+<a href="../../internals/one-view/">Plan: one view</a>
+<a href="../../internals/how-slicing-works/">How slicing works</a>
+<a href="../../internals/layer-settings/">Settings for some layers</a>
+<a href="../../internals/arachne/">Arachne walls</a>
+<a href="../../internals/cura-compare/">Compared with other slicers</a>
+<a href="../../internals/contributing/">Contributing</a>
+<a href="../../internals/code-quality/">Code quality</a>
+<a href="../../internals/macos/">The macOS app</a>
+<div class="group">Project</div>
+<a href="../../app/">App</a>
+<a href="../../references/">References</a>
+<a href="../../roadmap/">Roadmap</a>
+<a href="../../privacy/">Privacy</a></nav></aside>
+<main>
+<p class="eyebrow">User guide</p>
+<h1>The macOS app</h1>
+<p class="lede">The macOS app has the features of the other apps, in the way of a Mac app. This page lists where it differs. The rest of the user guide applies.</p>
+<nav class="onpage"><b>On this page</b><ol><li><a href="#build-and-open-it">Build and open it</a></li><li><a href="#the-keys">The keys</a></li><li><a href="#the-drawer">The drawer</a></li><li><a href="#the-print-card">The print card</a></li><li><a href="#printers">Printers</a></li><li><a href="#your-settings">Your settings</a></li><li><a href="#projects">Projects</a></li><li><a href="#not-yet-in-the-macos-app">Not yet in the macOS app</a></li></ol></nav><h2 id="build-and-open-it">Build and open it</h2>
+<p>The app needs macOS 14 or later. Build it from the source tree (see <a href="../../internals/macos/">The macOS app</a> in the internals):</p>
+<pre><code>cd macos
+ZIG=/path/to/zig-0.16/zig ./build-core.sh
+./make-app.sh
+open build/zslice.app</code></pre>
+<p>Open an STL or 3MF file with File &gt; Open (Command-O), with Open Recent, or with a drop on the icon of the app. Each file opens in a window, and a window can be a tab of another window (Window &gt; Merge All Windows).</p>
+<h2 id="the-keys">The keys</h2>
+<p>The keys of the other apps work in the 3D view. A key with Ctrl in the other apps uses Command on the Mac:</p>
+<div class="table-wrap"><table><thead><tr><th>Action</th><th>macOS</th></tr></thead><tbody><tr><td>Undo, Redo</td><td>Command-Z, Shift-Command-Z</td></tr><tr><td>Export the G-code</td><td>Command-E</td></tr><tr><td>Print</td><td>Command-P</td></tr><tr><td>Search the settings and the actions</td><td><code>/</code> or Command-F</td></tr><tr><td>The keys</td><td><code>?</code> or Help &gt; Keyboard Shortcuts (Command-/)</td></tr><tr><td>The settings drawer</td><td>N or Option-Command-I</td></tr><tr><td>The 3D view, the 2D layer view</td><td>Command-1, Command-2</td></tr><tr><td>Fit the part</td><td>Command-0</td></tr><tr><td>Gaps, Check</td><td>G or Shift-Command-G, Shift-Command-K</td></tr><tr><td>New plate</td><td>Option-Command-N</td></tr><tr><td>Add models to the plate</td><td>Shift-Command-I</td></tr><tr><td>Open a project folder</td><td>Shift-Command-O</td></tr></tbody></table></div>
+<p>Command and a click selects a part, Command and a drag moves it, and Command and the wheel turns it. Control and a click opens the context menu, as a right click does.</p>
+<h2 id="the-drawer">The drawer</h2>
+<p>The drawer is the inspector at the right of the window. It always sits beside the view, so it has no Pin. Settings and History are its two pages. Its header has a back button (Command-[).</p>
+<h2 id="the-print-card">The print card</h2>
+<p>The print card has the main settings of the print as small buttons. A click opens a popover with the editor and the slider of each setting; a change slices at once.</p>
+<h2 id="printers">Printers</h2>
+<p>Add a printer with the printer menu at the left of the toolbar. The picker searches the library and lists the printers on your network. Manage your printers in zslice &gt; Settings (Command-,), on the Printers page: the connection, Test the Connection, and Get a Key.</p>
+<p>The API keys of your printers are in the Keychain of macOS (Keychain Access, "zslice printer API key"), never in a file. The list of your printers is in <code>~/Library/Application Support/zslice/printers.json</code>.</p>
+<p>The first search of the network asks for the permission to find devices on the local network. Allow it to see your printers in the picker.</p>
+<h2 id="your-settings">Your settings</h2>
+<p>The app keeps your settings in <code>~/Library/Application Support/zslice</code>: <code>machine.toml</code>, <code>filament.toml</code>, and <code>project.toml</code>, as in the other apps.</p>
+<h2 id="projects">Projects</h2>
+<p>Open a project with File &gt; Open Project Folder (Shift-Command-O): choose the folder of a repository with a printdeck.yml. The plates of the project show in a row, and each plate slices.</p>
+<h2 id="not-yet-in-the-macos-app">Not yet in the macOS app</h2>
+<ul><li>The Project page: the check boxes and the counts of the parts. The app opens the plates of the plan as they are.</li><li>A project from GitHub (owner/repo). Clone the repository, and open its folder.</li><li>The status of a printdeck printer and its estimate of the print time.</li></ul><nav class="pager"><a class="prev" href="../../user/projects/"><span>Previous</span><b>Projects</b></a><a class="next" href="../../user/troubleshooting/"><span>Next</span><b>Troubleshooting</b></a></nav>
+</main>
+</div>
+<footer>zslice is free software (AGPL-3.0-or-later). <a href="../../privacy/">Privacy</a>: no analytics, no cookies, nothing from other sites. <a href="https://github.com/beetlebugorg/zslice/blob/main/docs/build.py">docs/build.py</a> writes this site from <a href="https://github.com/beetlebugorg/zslice/blob/main/docs/user/macos.md">docs/user/macos.md</a>.</footer>
+</body>
+</html>
