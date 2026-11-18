@@ -34,9 +34,12 @@ Steps:
 3. Merge the records of one model. The order of the sources is OrcaSlicer,
    PrusaSlicer, Cura for each field. The vendor bundle of a brand comes
    first for its own printers (PrusaSlicer for Prusa, Cura for UltiMaker).
-4. Translate the G-code variables to the names of zslice. A G-code with
-   scripts (`{if ...}`, expressions) that zslice cannot run is not used:
-   the record then has the generic start G-code of zslice.
+4. Translate the simple G-code variables to the names of zslice, and put
+   the values of the printer that zslice does not have (its model, its
+   notes, its machine limits for Z and E) in place of their variables.
+   The core runs the rest: the variables of each slicer and the scripts
+   (`{if ...}`, expressions, see src/gcode_vars.zig). A record with no
+   G-code gets the generic start G-code of zslice.
 5. Write the library: the sources with their licenses, the G-code texts
    once each, the beds once each, and one line for each model, by brand.
 
@@ -341,9 +344,12 @@ INDEX = r"(?:\[(?:\d+|initial_extruder|initial_tool|current_extruder|initial_ext
 
 
 def translate_gcode(text, consts):
-    """The text with the variables of zslice, or None if it has scripts or
-    variables that zslice does not have. `consts` replaces the variables of
-    the bed size with numbers."""
+    """The text with the simple variables in the names of zslice, and the
+    values of `consts` in place of their variables. The core (see
+    src/gcode_vars.zig) fills in the other variables and runs the scripts
+    (`{if ...}`, expressions). `consts` has the values of the printer that
+    zslice does not have (the printer model, the bed size of Cura), as a
+    list of texts or numbers for each name."""
     if isinstance(text, list):
         text = text[0] if text else None
     if not isinstance(text, str) or not text.strip():
@@ -353,8 +359,6 @@ def translate_gcode(text, consts):
     def var(name):
         if name in VARS:
             return "{" + VARS[name] + "}"
-        if name in consts:
-            return fmt(consts[name])
         return None
 
     def brace(m):
@@ -368,16 +372,83 @@ def translate_gcode(text, consts):
     out = re.sub(r"\{([a-z_0-9]+)" + INDEX + r"\}", brace, out)
     out = re.sub(r"\[([a-z_][a-z_0-9]*)" + INDEX + r"\]", brace, out)
     out = re.sub(r"\[([a-z_][a-z_0-9]*?)_0\]", brace, out)
-    # What is left: scripts and other variables.
-    for m in re.finditer(r"\{[^{}\n]*\}", out):
-        inner = m.group(0)[1:-1]
-        if inner not in set(VARS.values()):
-            return None
-    if re.search(r"\[[a-z_][a-z_0-9]*(\[[^\]]*\])?\]", out):
-        return None
-    if "{" in out.replace("{", "", 0) and re.search(r"\{(if|else|endif|elsif)\b", out):
-        return None
+    if consts:
+        out = put_consts(out, consts)
     return out.strip("\n")
+
+
+def put_consts(text, consts):
+    """Puts the values of `consts` in place of their variables: in a
+    [name] or a {name}, as the value; in an expression, as a number or a
+    text in quotes. An index of a number picks the value of a list; other
+    indexes pick the first."""
+    def value(name, index):
+        vs = consts[name]
+        if not isinstance(vs, list):
+            vs = [vs]
+        if not vs:
+            return None
+        i = int(index) if index is not None and index.isdigit() else 0
+        return vs[i] if i < len(vs) else vs[0]
+
+    def plain(v):
+        return fmt(v) if isinstance(v, (int, float)) else str(v)
+
+    def lit(v):
+        if isinstance(v, (int, float)):
+            return fmt(v)
+        try:
+            return fmt(float(v))
+        except ValueError:
+            return '"' + str(v).replace("\\", "\\\\").replace('"', '\\"') + '"'
+
+    names = "|".join(sorted((re.escape(n) for n in consts), key=len, reverse=True))
+    whole = re.compile(r"([\[{])(" + names + r")(?:\[([^\]\[]*)\])?([\]}])")
+
+    def sub_whole(m):
+        if (m.group(1) == "[") != (m.group(4) == "]"):
+            return m.group(0)
+        v = value(m.group(2), m.group(3))
+        return m.group(0) if v is None else plain(v)
+
+    text = whole.sub(sub_whole, text)
+    inner = re.compile(r"(?<![\w.])(" + names + r")(?:\[([^\]\[]*)\])?(?![\w(])")
+
+    def sub_block(m):
+        body = m.group(0)
+        return inner.sub(lambda k: lit(value(k.group(1), k.group(2))) if value(k.group(1), k.group(2)) is not None else k.group(0), body)
+
+    return re.sub(r"\{[^{}]*\}", sub_block, text)
+
+
+# The values of a printer that the core does not have, by the names of
+# PrusaSlicer and OrcaSlicer. A printer checks its model (M862.3 P "MK4").
+PRINTER_CONSTS = [
+    "printer_model", "printer_notes", "printer_variant",
+    "retract_length_toolchange", "parking_pos_retraction", "extra_loading_move",
+    "machine_max_acceleration_retracting", "machine_max_acceleration_z",
+    "machine_max_acceleration_e", "machine_max_speed_e", "machine_max_feedrate_e",
+    "machine_max_jerk_z", "machine_max_jerk_e",
+]
+
+
+def printer_consts(v, ini=False):
+    """The PRINTER_CONSTS of a printer preset `v` (an INI section of
+    PrusaSlicer, or a JSON machine of OrcaSlicer)."""
+    out = {}
+    for k in PRINTER_CONSTS:
+        x = v.get(k)
+        if x is None:
+            continue
+        if ini:
+            x = ini_text(x)
+            vals = [t for t in x.split(",")] if k != "printer_notes" and k != "printer_model" and k != "printer_variant" else [x]
+        else:
+            vals = x if isinstance(x, list) else [x]
+        vals = [num(t) if num(t) is not None else str(t) for t in vals]
+        if vals and vals != [""]:
+            out[k] = vals
+    return out
 
 
 def fmt(v):
@@ -682,9 +753,9 @@ def read_prusa(root):
             h = num(v.get("max_print_height"), 0)
             if not bed or not h:
                 continue
-            consts = {"print_bed_max": None}
-            start = translate_gcode(ini_text(v.get("start_gcode")), {})
-            end = translate_gcode(ini_text(v.get("end_gcode")), {})
+            consts = printer_consts(v, ini=True)
+            start = translate_gcode(ini_text(v.get("start_gcode")), consts)
+            end = translate_gcode(ini_text(v.get("end_gcode")), consts)
             fil = None
             dfp = ini_text(v.get("default_filament_profile", "")) or ""
             if dfp:
@@ -794,6 +865,12 @@ def read_orca(root):
             if d.get("type") != "machine" or str(d.get("instantiation", "")).lower() != "true":
                 continue
             v = resolve(by_name, d["name"])
+            # Newer OrcaSlicer profiles keep a G-code in its own preset:
+            # "<preset name> template machine_start_gcode".
+            for k in ("machine_start_gcode", "machine_end_gcode"):
+                t = by_name.get("%s template %s" % (d["name"], k))
+                if t and t.get(k):
+                    v[k] = t[k]
             pm = v.get("printer_model", "")
             if pm:
                 presets.setdefault(pm, []).append(v)
@@ -812,8 +889,9 @@ def read_orca(root):
             h = num(v.get("printable_height"), 0)
             if not bed or not h:
                 continue
-            start = translate_gcode(v.get("machine_start_gcode"), {})
-            end = translate_gcode(v.get("machine_end_gcode"), {})
+            consts = printer_consts(v)
+            start = translate_gcode(v.get("machine_start_gcode"), consts)
+            end = translate_gcode(v.get("machine_end_gcode"), consts)
             fil = None
             mats = [m.strip() for m in str(model.get("default_materials", "")).split(";") if m.strip()]
             if mats:
