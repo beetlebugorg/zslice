@@ -30,6 +30,8 @@ struct PrinterPicker: View {
     @State private var serial = ""
     @State private var discovery = Discovery()
     @State private var network: FoundPrinter?
+    /// The model that useFound picked from the name of a found printer.
+    @State private var guessed: Int?
 
     private let lib = PrinterLibrary.shared
 
@@ -132,6 +134,14 @@ struct PrinterPicker: View {
         if let i = selected, let m = lib.model(i) {
             Form {
                 Section {
+                    // A model of the network is a guess from the name: many
+                    // printers come with several tool heads and nozzles.
+                    if guessed == i {
+                        Label("zslice guessed this model from the printer's name. Check that the tool head and the nozzle are yours: the slice uses this nozzle, and a wrong one leaves out thin parts or overfills them.", systemImage: "exclamationmark.triangle.fill")
+                            .font(.callout)
+                            .foregroundStyle(.orange)
+                            .fixedSize(horizontal: false, vertical: true)
+                    }
                     LabeledContent("Model", value: coreText(m.title))
                     LabeledContent("Facts", value: lib.facts(i))
                     LabeledContent("Firmware", value: coreText(m.firmware))
@@ -191,6 +201,7 @@ struct PrinterPicker: View {
         serial = f.serial
         if let i = lib.match(hint: f.model.isEmpty ? f.name : f.model, bedX: f.bedX, bedY: f.bedY, height: f.height) {
             selected = i
+            guessed = i
         }
         if !f.name.isEmpty { name = f.name }
     }
