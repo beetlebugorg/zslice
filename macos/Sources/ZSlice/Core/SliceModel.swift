@@ -70,7 +70,7 @@ final class SliceModel {
 
     private(set) var plates: [PlateInfo] = []
     private(set) var active = 0
-    private(set) var name = ""
+    var name = ""
     private(set) var state = State.empty
     private(set) var progress = 0.0
     private(set) var stats: zs_stats?
@@ -161,6 +161,14 @@ final class SliceModel {
     func addPlate() {
         history.commit()
         guard zs_set_add(set) >= 0 else { return }
+        readPlates()
+        readActive()
+        onActivePlate?()
+        onPlates?()
+    }
+
+    /// After a project loads: the new plates, the active plate, and the view.
+    func readPlatesAfterLoad() {
         readPlates()
         readActive()
         onActivePlate?()

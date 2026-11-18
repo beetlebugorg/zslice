@@ -97,6 +97,9 @@ struct PlateCommands: View {
         Button("Add Models to the Plate…") { workspace?.addModels() }
             .keyboardShortcut("i", modifiers: [.command, .shift])
             .disabled(workspace == nil)
+        Button("Open Project Folder…") { workspace?.openProject() }
+            .keyboardShortcut("o", modifiers: [.command, .shift])
+            .disabled(workspace == nil)
     }
 }
 

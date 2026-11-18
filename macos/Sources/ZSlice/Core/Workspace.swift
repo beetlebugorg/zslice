@@ -211,6 +211,8 @@ final class Workspace {
             }
         }
         if env["ZSLICE_ADD_PLATE"] != nil { framePlate(-1) }
+        // ZSLICE_PROJECT=folder opens a project.
+        if let folder = env["ZSLICE_PROJECT"] { openProject(URL(fileURLWithPath: folder)) }
         // ZSLICE_MENU="x,y;Title" runs an item of the context menu there.
         if let spec = env["ZSLICE_MENU"]?.split(separator: ";"), spec.count == 2 {
             // "center": the middle of the view.
@@ -294,6 +296,33 @@ final class Workspace {
             guard a.runModal() == .alertFirstButtonReturn else { return }
         }
         model.removePlate(i)
+    }
+
+    /// Opens the project of a folder (a repository with a printdeck.yml)
+    /// with an open panel.
+    func openProject() {
+        let panel = NSOpenPanel()
+        panel.canChooseDirectories = true
+        panel.canChooseFiles = false
+        panel.message = "Choose the folder of a project: a repository with a printdeck.yml."
+        panel.prompt = "Open Project"
+        let open = { [weak self] (r: NSApplication.ModalResponse) in
+            guard let self, r == .OK, let url = panel.url else { return }
+            openProject(url)
+        }
+        if let w = canvas.window { panel.beginSheetModal(for: w, completionHandler: open) } else { open(panel.runModal()) }
+    }
+
+    func openProject(_ url: URL) {
+        do {
+            try model.openProject(url)
+            framePlate(-1)
+        } catch {
+            let a = NSAlert()
+            a.messageText = "The project did not open"
+            a.informativeText = error.localizedDescription
+            a.runModal()
+        }
     }
 
     /// Adds a model file to the active plate.
