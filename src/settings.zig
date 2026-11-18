@@ -584,7 +584,8 @@ pub const Project = struct {
     /// degrees. A larger angle lets branches reach farther, with less
     /// strength.
     support_tree_angle: f64 = 40,
-    /// Tree support: the distance of the tips under an overhang.
+    /// Tree support: the distance of the tips under an overhang. Tips also
+    /// go along the edges of each overhang, at the same distance.
     support_tree_spacing: f64 = 3,
     /// Tree support: the diameter of a tip. 0 uses the line width times 2.
     support_tree_tip: f64 = 0,
@@ -594,7 +595,9 @@ pub const Project = struct {
     /// The fraction of the support area that the support lines fill, as a
     /// ratio.
     support_density: f64 = 0.15,
-    /// The gap between the support and the sides of the part.
+    /// The gap between the support and the sides of the part. Under an
+    /// overhang, the gap is at most half a line width: the Z gap keeps the
+    /// support off the overhang there.
     support_xy_gap: f64 = 0.6,
     /// The number of empty layers between the support and the part above
     /// it or under it, so that the support comes off.

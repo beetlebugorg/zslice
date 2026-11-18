@@ -596,7 +596,7 @@ Tree support: the largest angle of a branch from vertical, in degrees. A larger 
 
 **`project.support_tree_spacing`** (number). Default: `3`
 
-Tree support: the distance of the tips under an overhang.
+Tree support: the distance of the tips under an overhang. Tips also go along the edges of each overhang, at the same distance.
 
 **`project.support_tree_tip`** (number). Default: `0`
 
@@ -612,7 +612,7 @@ The fraction of the support area that the support lines fill, as a ratio.
 
 **`project.support_xy_gap`** (number). Default: `0.6`
 
-The gap between the support and the sides of the part.
+The gap between the support and the sides of the part. Under an overhang, the gap is at most half a line width: the Z gap keeps the support off the overhang there.
 
 **`project.support_z_gap_layers`** (integer). Default: `1`
 

@@ -348,7 +348,7 @@ M84</code></pre>
 <p><strong><code>project.support_tree_angle</code></strong> (number). Default: <code>40</code></p>
 <p>Tree support: the largest angle of a branch from vertical, in degrees. A larger angle lets branches reach farther, with less strength.</p>
 <p><strong><code>project.support_tree_spacing</code></strong> (number). Default: <code>3</code></p>
-<p>Tree support: the distance of the tips under an overhang.</p>
+<p>Tree support: the distance of the tips under an overhang. Tips also go along the edges of each overhang, at the same distance.</p>
 <p><strong><code>project.support_tree_tip</code></strong> (number). Default: <code>0</code></p>
 <p>Tree support: the diameter of a tip. 0 uses the line width times 2.</p>
 <p><strong><code>project.support_angle</code></strong> (number). Default: <code>50</code></p>
@@ -356,7 +356,7 @@ M84</code></pre>
 <p><strong><code>project.support_density</code></strong> (number; per layer). Default: <code>0.15</code></p>
 <p>The fraction of the support area that the support lines fill, as a ratio.</p>
 <p><strong><code>project.support_xy_gap</code></strong> (number). Default: <code>0.6</code></p>
-<p>The gap between the support and the sides of the part.</p>
+<p>The gap between the support and the sides of the part. Under an overhang, the gap is at most half a line width: the Z gap keeps the support off the overhang there.</p>
 <p><strong><code>project.support_z_gap_layers</code></strong> (integer). Default: <code>1</code></p>
 <p>The number of empty layers between the support and the part above it or under it, so that the support comes off.</p>
 <p><strong><code>project.support_interface_layers</code></strong> (integer). Default: <code>2</code></p>
