@@ -35,7 +35,9 @@
 //!    from the part; its top layers keep only the smaller gap under an
 //!    overhang, so that the tips under a slope stay. Where a branch cannot
 //!    go on, it rests on the part (it stops the Z gap above it), or, with
-//!    bed-only support, it is removed.
+//!    bed-only support, it is removed. Each branch keeps the branch that it
+//!    joins, so the removal also takes the branches above it that do not
+//!    join a branch to the bed.
 //! 4. The area of each layer is the union of the circles of its nodes.
 //!    support.zig then adds the interface, and the layer plan prints the
 //!    area as it prints grid support.
@@ -70,6 +72,29 @@ const Node = struct {
     free: bool = true,
     /// The layers since the tip.
     age: u32 = 0,
+    /// The branch of the node (see `Branches`).
+    id: u32 = no_branch,
+};
+
+const no_branch = std.math.maxInt(u32);
+
+/// The avoidance area is made on every 5th layer (see `avoidance`).
+const avoid_every: usize = 5;
+
+/// The branches, for the bed-only rule: a branch reaches the bed if its
+/// node is on layer 0, or if it joins a branch that reaches the bed.
+const Branches = struct {
+    /// The branch that each branch joins, or `no_branch`.
+    into: std.ArrayList(u32) = .empty,
+    bed: std.ArrayList(bool) = .empty,
+
+    fn reaches(b: *const Branches, id: u32) bool {
+        var k = id;
+        while (k != no_branch) : (k = b.into.items[k]) {
+            if (b.bed.items[k]) return true;
+        }
+        return false;
+    }
 };
 
 /// A tip of an earlier layer, for the spacing of new tips.
@@ -126,6 +151,10 @@ pub fn grow(
     // Each layer adds its circles; the union comes at the end.
     const circles = try arena.alloc(Paths, n);
     for (circles) |*c| c.* = .empty;
+    // The branch of each circle.
+    const circle_ids = try arena.alloc(std.ArrayList(u32), n);
+    for (circle_ids) |*c| c.* = .empty;
+    var branches: Branches = .{};
     const avoid = try avoidance(gpa, arena, threads, layers, need, blocked, tips_below, params);
 
     var nodes: std.ArrayList(Node) = .empty;
@@ -144,13 +173,22 @@ pub fn grow(
         const src = j + tips_below;
         if (src < n and !need[src].isEmpty()) try addTips(arena, la, &nodes, &recent, need[src], near[j], j, step, params);
         if (nodes.items.len == 0) continue;
+        for (nodes.items) |*nd| if (nd.id == no_branch) {
+            nd.id = @intCast(branches.into.items.len);
+            try branches.into.append(arena, no_branch);
+            try branches.bed.append(arena, false);
+        };
         const bidx = try index(la, blocked[j], pad);
         const nidx = try index(la, near[j], pad);
         const aidx = try index(la, avoid[j], pad);
 
         // 1. Toward the nearest node: two branches that are near join on
         // the way down, into a thicker branch.
-        try attract(la, nodes.items, step, params);
+        try attract(la, nodes.items, step, params, aidx);
+        // The avoidance of this layer is the computed avoidance of a layer
+        // under it, moved in by `slack` (see `avoidance`).
+        var slack: f64 = 0;
+        for (j - j % avoid_every + 1..j + 1) |q| slack += @as(f64, @floatFromInt(geom.fromMm(layers[q].height))) * params.tan_angle;
         for (nodes.items) |*nd| {
             if (!nd.alive) continue;
             nd.age +|= 1;
@@ -159,14 +197,17 @@ pub fn grow(
             nd.free = true;
             if (aidx) |ai| if (ai.inside(pointOf(nd))) {
                 const e = ai.nearestPoint(nd.x, nd.y, pad);
-                nd.free = e != null and e.?[2] <= step * 1.5 + 1;
-                if (nd.free) {
-                    const dx = e.?[0] - nd.x;
-                    const dy = e.?[1] - nd.y;
-                    const d = @max(@sqrt(dx * dx + dy * dy), 1e-6);
-                    // Just past the edge.
-                    nd.x = e.?[0] + dx / d * 20;
-                    nd.y = e.?[1] + dy / d * 20;
+                const depth = if (e) |ee| ee[2] - slack else std.math.inf(f64);
+                if (depth > 0) {
+                    nd.free = depth <= step * 1.5 + 1;
+                    if (nd.free) {
+                        const dx = e.?[0] - nd.x;
+                        const dy = e.?[1] - nd.y;
+                        const d = @max(@sqrt(dx * dx + dy * dy), 1e-6);
+                        // Just past the edge.
+                        nd.x += dx / d * (depth + 20);
+                        nd.y += dy / d * (depth + 20);
+                    }
                 }
             };
             // 3. The radius grows with the drop, but not over the free
@@ -188,9 +229,13 @@ pub fn grow(
                 if (nd.alive and oi.inside(pointOf(nd))) nd.alive = false;
             }
         }
-        try join(la, nodes.items, params.max_r);
+        try join(la, nodes.items, params.max_r, &branches);
         // 4. The circles of this layer.
-        for (nodes.items) |nd| if (nd.alive) try circles[j].append(arena, try circle(arena, nd.x, nd.y, nd.r));
+        for (nodes.items) |nd| if (nd.alive) {
+            try circles[j].append(arena, try circle(arena, nd.x, nd.y, nd.r));
+            try circle_ids[j].append(arena, nd.id);
+            if (j == 0) branches.bed.items[nd.id] = true;
+        };
         // Drop the nodes that ended.
         var keep: usize = 0;
         for (nodes.items) |nd| if (nd.alive) {
@@ -198,6 +243,16 @@ pub fn grow(
             keep += 1;
         };
         nodes.items.len = keep;
+    }
+    // Bed only: the circles of the branches that do not reach the bed go.
+    if (params.bed_only) {
+        for (circles, circle_ids) |*c, ids| {
+            var kept: Paths = .empty;
+            for (ids.items, 0..) |id, k| {
+                if (branches.reaches(id)) try kept.append(arena, c.get(k));
+            }
+            c.* = kept;
+        }
     }
     // The union of the circles of each layer, minus the part, on all
     // threads.
@@ -220,15 +275,6 @@ pub fn grow(
         error.OutOfMemory => return error.OutOfMemory,
         else => unreachable,
     };
-    if (params.bed_only) {
-        // Only the areas over support on the layer below.
-        for (1..n) |i| {
-            if (out[i].isEmpty()) continue;
-            const kept = try clip.intersect(gpa, out[i], out[i - 1]);
-            out[i].deinit(gpa);
-            out[i] = kept;
-        }
-    }
     return out;
 }
 
@@ -292,10 +338,12 @@ fn avoidance(
         }
     };
     // Every `every` layers: a base, and the avoidance of the layer `every`
-    // under it, moved in by `every` steps. A layer between uses the
-    // avoidance of the computed layer under it (larger, so safe). The
-    // chain of offsets is the slow part.
-    const every: usize = 5;
+    // under it, moved in by `every` steps. The chain of offsets is the slow
+    // part. A layer between uses the avoidance of the computed layer under
+    // it, and the test of a node moves its edge in by the steps between
+    // (the slack in `grow`): with no slack, the edge would jump by 5 steps
+    // on every 5th layer, too far for a branch to follow.
+    const every = avoid_every;
     const m = top / every + 1;
     const Sel = struct {
         base: *const Base,
@@ -497,8 +545,9 @@ const Cells = struct {
 
 /// Moves each node toward its nearest node (of the same kind, free or
 /// not) by at most one step, if the two can meet within a few spacings.
-/// The targets come from the positions before the moves.
-fn attract(a: Allocator, nodes: []Node, step: f64, params: Params) Allocator.Error!void {
+/// The targets come from the positions before the moves. A free node does
+/// not move into the avoidance area.
+fn attract(a: Allocator, nodes: []Node, step: f64, params: Params, avoid: ?geom.EdgeIndex) Allocator.Error!void {
     const reach = 4 * params.spacing + 2 * params.max_r;
     const cells = try Cells.build(a, nodes, reach);
     const moves = try a.alloc([2]f64, nodes.len);
@@ -533,6 +582,11 @@ fn attract(a: Allocator, nodes: []Node, step: f64, params: Params) Allocator.Err
         moves[i] = .{ (on.x - nd.x) / best_d * m, (on.y - nd.y) / best_d * m };
     }
     for (nodes, moves) |*nd, mv| {
+        if (mv[0] == 0 and mv[1] == 0) continue;
+        const to: Point = .{ .x = @intFromFloat(nd.x + mv[0]), .y = @intFromFloat(nd.y + mv[1]) };
+        // A free branch does not move into the avoidance area: the move
+        // out of it takes the whole step of the layer.
+        if (avoid) |ai| if (nd.free and ai.inside(to) and !ai.inside(pointOf(nd))) continue;
         nd.x += mv[0];
         nd.y += mv[1];
     }
@@ -541,7 +595,7 @@ fn attract(a: Allocator, nodes: []Node, step: f64, params: Params) Allocator.Err
 /// Joins nodes that touch (the center of one is in the other): the new
 /// node is at the middle (weighted by the area of each), with the radius of
 /// the same area, up to `max_r`.
-fn join(a: Allocator, nodes: []Node, max_r: f64) Allocator.Error!void {
+fn join(a: Allocator, nodes: []Node, max_r: f64, branches: *Branches) Allocator.Error!void {
     var big: f64 = 1;
     for (nodes) |nd| big = @max(big, nd.r);
     const cells = try Cells.build(a, nodes, 2 * big);
@@ -567,6 +621,7 @@ fn join(a: Allocator, nodes: []Node, max_r: f64) Allocator.Error!void {
                     nd.y = (nd.y * wa + b.y * wb) / (wa + wb);
                     nd.r = @min(max_r, @sqrt(wa + wb));
                     nd.age = @min(nd.age, b.age);
+                    branches.into.items[b.id] = nd.id;
                     b.alive = false;
                 }
             }

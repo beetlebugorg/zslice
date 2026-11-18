@@ -510,6 +510,25 @@ fn treeSupport(
     defer gpa.free(branches);
     for (out, branches) |*o, b| o.body = b;
     try addPads(gpa, wide, near, gap, pads, out);
+    // A pad holds only where a branch is under it. The parts of a pad more
+    // than one spacing from the support of the layer below go: for
+    // example the pads of the branches that bed-only support removes.
+    var arena_state = std.heap.ArenaAllocator.init(gpa);
+    defer arena_state.deinit();
+    const s = arena_state.allocator();
+    const reach = geom.fromMm(p.support_tree_spacing);
+    for (1..out.len) |j| {
+        if (out[j].interface.isEmpty()) continue;
+        const below = try clip.unite(s, out[j - 1].body, out[j - 1].interface);
+        const held = try offset_mod.offset(s, below, reach, .{});
+        const kept = try clip.intersect(gpa, out[j].interface, held);
+        out[j].interface.deinit(gpa);
+        out[j].interface = kept;
+    }
+    if (out.len > 0) {
+        out[0].interface.deinit(gpa);
+        out[0].interface = .empty;
+    }
 }
 
 /// The pads: the overhang area, on the `pads` interface layers under each
