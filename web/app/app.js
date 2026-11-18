@@ -215,12 +215,7 @@ function drawFrame(now) {
   else lastFrameTime = 0;
 }
 
-// The height of the toolbar of the preview, for the floats under it (it
-// wraps onto a second row in a narrow view).
-{
-  const bar = document.querySelector(".preview .toolbar");
-  new ResizeObserver(() => $("preview").style.setProperty("--toolbar-h", `${bar.offsetHeight}px`)).observe(bar);
-}
+
 
 // ---- the panel: a drawer (docs/internals/one-view.md) ----
 //
@@ -1200,6 +1195,10 @@ function showLicenses() {
   d.showModal();
 }
 
+// The height of the dock, for the print card over it in a narrow view
+// (the dock wraps onto more rows).
+new ResizeObserver(() => $("preview").style.setProperty("--dock-h", `${$("dock").offsetHeight}px`)).observe($("dock"));
+
 // ---- the panel and the pages ----
 
 // The panel has the settings, and the long form of the selected line
@@ -1866,6 +1865,8 @@ $("check").onclick = () => openCheck();
 // ---- the print card ----
 
 function updateSummary() {
+  // An empty plate has no print: no card.
+  $("summary").classList.toggle("is-empty", app.state === "empty");
   const card = $("summary");
   card.classList.toggle("stale", app.slicing);
   $("export").disabled = app.state !== "done";

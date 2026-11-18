@@ -305,21 +305,18 @@ select.choice {
 /* In a narrow view, the bars of the bottom center go to the left, out of
    the way of the print card. */
 .preview { container-type: inline-size; }
-@container (max-width: 1100px) {
-  .preview .scrub, .preview .timeline { left: 12px; transform: none; }
-  .preview .scrub { width: calc(100% - 350px); }
-  .preview .timeline { max-width: calc(100% - 350px); }
+@container (max-width: 900px) {
+  .preview .dock { right: 254px; }
 }
 /* A very narrow view: the print card takes the width of the view, and
    the scrub bar and the timeline go over it. */
 @container (max-width: 700px) {
   /* The plate bar stays at the bottom; the print card goes over it. */
-  .preview .summary.float-card { left: 10px; right: 10px; width: auto; bottom: 52px; }
-  .preview .scrub { width: calc(100% - 24px); bottom: 192px; }
-  .preview .timeline:not([hidden]) ~ .scrub { bottom: 236px; }
-  .preview .timeline { max-width: calc(100% - 24px); bottom: 192px; }
-  .preview .search-button .search-word { display: none; }
-  .preview .layers { bottom: 292px; }
+  .preview .summary.float-card { left: 10px; right: 10px; width: auto; bottom: calc(var(--dock-h, 40px) + 16px); }
+  .preview .dock { right: 10px; flex-wrap: wrap; row-gap: 2px; }
+  .preview .dock > .scrub, .preview .dock > .timeline { border-left: none; padding-left: 0; }
+  .preview .dock .scrub-label { min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .preview .layers { bottom: calc(var(--dock-h, 40px) + 150px); }
   /* The facts of the card are in the Settings: a short card. */
   .preview .sum-facts { display: none; }
 }
@@ -799,3 +796,25 @@ button.destructive { background: #c01c28; color: #fff; }
 #crumb-back:disabled { display: none; }
 .panel-top .crumbs { flex: 1; min-width: 0; }
 .panel-top [hidden] { display: none !important; }
+
+/* The view toolbar sits in the middle of the header. */
+.headerbar .toolbar { position: static; top: auto; left: auto; max-width: none; flex-wrap: nowrap; background: none; box-shadow: none; padding: 0; margin: 0 auto; gap: 4px; display: flex; align-items: center; }
+.headerbar .toolbar .tool { min-height: 32px; }
+.preview { --toolbar-h: 0px; }
+/* The dock: one bar at the bottom with the plates, the replay, and the
+   history. Its parts are no floats of their own. */
+.dock { left: 10px; right: 314px; bottom: 10px; display: flex; align-items: center; gap: 4px; padding: 3px 8px; border-radius: 14px; min-height: 40px; box-sizing: border-box; }
+.preview .dock > .float { position: static; transform: none; box-shadow: none; background: transparent; border: none; padding: 0; width: auto; max-width: none; left: auto; right: auto; bottom: auto; top: auto; border-radius: 0; }
+.preview .dock > [hidden] { display: none; }
+.preview .dock > .scrub { flex: 1 1 200px; min-width: 160px; border-left: 1px solid rgba(255, 255, 255, 0.15); padding-left: 8px; }
+.preview .dock > .timeline { flex: none; border-left: 1px solid rgba(255, 255, 255, 0.15); padding-left: 6px; }
+.dock .scrub .tool { min-height: 28px; }
+.dock .tool { white-space: nowrap; }
+/* A phone: the view toolbar is a second row of the header. */
+@media (max-width: 640px) {
+  .headerbar { flex-wrap: wrap; row-gap: 4px; }
+  .headerbar .toolbar { order: 3; width: 100%; margin: 0; }
+  .headerbar .toolbar .search-word, .headerbar .toolbar kbd { display: none; }
+  .hb-end { margin-left: auto; }
+}
+.summary.float-card.is-empty { display: none; }
