@@ -380,6 +380,22 @@ struct PrintCard: View {
                     .foregroundStyle(.red)
                     .font(.callout)
                     .fixedSize(horizontal: false, vertical: true)
+            } else if model.state == .done, !workspace.tinyParts.isEmpty {
+                let tiny = workspace.tinyParts
+                VStack(alignment: .leading, spacing: 6) {
+                    Label(String(format: "%@ is only %.2f mm. Was the file in inches or in meters?",
+                                 tiny.count == 1 ? tiny[0].name : "\(tiny.count) parts", tiny.map(\.size).max() ?? 0),
+                          systemImage: "ruler")
+                        .fixedSize(horizontal: false, vertical: true)
+                    HStack {
+                        Button("Inches (×25.4)") { workspace.scaleParts(tiny.map(\.index), by: 25.4) }
+                        Button("Meters (×1000)") { workspace.scaleParts(tiny.map(\.index), by: 1000) }
+                    }
+                    .controlSize(.small)
+                }
+                .font(.callout)
+                .padding(8)
+                .background(Color.orange.opacity(0.15), in: RoundedRectangle(cornerRadius: 8))
             } else if model.state == .done, let area = workspace.unsupportedArea {
                 // The red warning of a part off the bed wins over this one.
                 VStack(alignment: .leading, spacing: 6) {

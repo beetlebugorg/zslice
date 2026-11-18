@@ -44,9 +44,13 @@ struct PartCard: View {
                         moved = CGPoint(x: c.x + g.translation.width, y: c.y + g.translation.height)
                         drag = .zero
                     })
-                Text(String(format: "%.1f × %.1f × %.1f mm · turned %.0f°", p.size_x, p.size_y, p.size_z, p.rotation))
-                    .font(.callout.monospacedDigit())
-                    .foregroundStyle(.secondary)
+                HStack {
+                    Text(String(format: "%.1f × %.1f × %.1f mm · turned %.0f°", p.size_x, p.size_y, p.size_z, p.rotation))
+                        .font(.callout.monospacedDigit())
+                        .foregroundStyle(.secondary)
+                    Spacer()
+                    ScaleField(workspace: workspace, index: index, scale: p.scale_x)
+                }
                 HStack {
                     Button("Duplicate") { workspace.duplicatePart() }.help("A copy at a free place (D)")
                     Button("Split") { workspace.splitPart() }.help("Split to parts: each separate body of the part becomes a part of its own")
@@ -175,5 +179,37 @@ private struct PartSettingRow: View {
         }
         .onAppear { text = ValueText.display(info, value) }
         .onChange(of: value) { text = ValueText.display(info, value) }
+    }
+}
+
+/// The scale of a part in %, the same along each axis.
+private struct ScaleField: View {
+    let workspace: Workspace
+    let index: Int
+    let scale: Double
+    @State private var text = ""
+
+    var body: some View {
+        HStack(spacing: 2) {
+            TextField("Scale", text: $text)
+                .frame(width: 52)
+                .multilineTextAlignment(.trailing)
+                .onSubmit {
+                    guard let v = Double(text.replacingOccurrences(of: ",", with: ".")), v > 0, scale > 0 else {
+                        text = format(scale)
+                        return
+                    }
+                    workspace.scaleParts([index], by: v / 100 / scale)
+                }
+            Text("%").foregroundStyle(.secondary)
+        }
+        .help("The scale of the part, the same along each axis")
+        .onAppear { text = format(scale) }
+        .onChange(of: scale) { text = format(scale) }
+    }
+
+    private func format(_ s: Double) -> String {
+        let v = s * 100
+        return v == v.rounded() ? String(Int(v)) : String(format: "%.1f", v)
     }
 }

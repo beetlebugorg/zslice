@@ -360,6 +360,8 @@ final class Workspace {
             let lib = PrinterLibrary.shared
             NSLog("zslice popular: %@", lib.popular.compactMap { lib.model($0).map { coreText($0.title) } }.joined(separator: "; "))
         }
+        // ZSLICE_INCHES=1 presses "Inches (×25.4)" of the print card.
+        if env["ZSLICE_INCHES"] != nil { scaleParts(tinyParts.map(\.index), by: 25.4) }
         // ZSLICE_RECORD=path.mov records the demo of Recorder.swift.
         if let path = env["ZSLICE_RECORD"] {
             Task { @MainActor in await Recorder.record(self, to: URL(fileURLWithPath: path)) }

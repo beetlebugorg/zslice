@@ -414,6 +414,34 @@ extension Workspace {
         }
     }
 
+    /// Scales parts by a factor, the same along each axis (a uniform scale
+    /// of the scale along X now). A part that no longer fits moves to a
+    /// free place (the core); the view fits the plate after the slice.
+    func scaleParts(_ parts: [Int], by factor: Double) {
+        for i in parts {
+            guard let p = part(i) else { continue }
+            let s = p.scale_x * factor
+            zs_app_part_scale(model.core, i, s, s, s)
+        }
+        if let i = selectedPart { selectPart(i) }
+        fitAfterSlice = true
+        model.settingsChanged()
+    }
+
+    /// The parts whose largest side is under 3 mm: a file in inches or in
+    /// meters, most likely.
+    var tinyParts: [(index: Int, name: String, size: Double)] {
+        _ = model.settingsGeneration
+        _ = model.stats
+        return (0 ..< zs_app_part_count(model.core)).compactMap { i in
+            guard let p = part(i) else { return nil }
+            let size = max(p.size_x, p.size_y, p.size_z)
+            guard size > 0, size < 3 else { return nil }
+            let n = coreText(p.name)
+            return (i, n.isEmpty ? "Part \(i + 1)" : n, size)
+        }
+    }
+
     func resetPart() {
         guard let i = selectedPart, zs_app_part_reset(model.core, i) == 0 else { return }
         selectPart(i)
