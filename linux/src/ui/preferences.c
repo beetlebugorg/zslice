@@ -17,6 +17,7 @@
 #include <string.h>
 
 #include "../net/printer-link.h"
+#include "../net/signing.h"
 #include "../prefs/printers.h"
 
 typedef struct {
@@ -331,7 +332,11 @@ static void on_test(GtkButton *b, gpointer data) {
 static void on_key_wait(int seconds, gpointer data) {
     Prefs *p = data;
     if (!p->window) return;
-    char *m = g_strdup_printf("Allow zslice on the printer: on its touch screen (printdeck), or in its web page (OctoPrint). Waiting %d s of 120…", seconds);
+    /* A printdeck shows the key id of the request: the user checks that it
+     * is the key of this app. */
+    const char *id = p->printer && p->printer->kind == ZG_LINK_PRINTDECK ? zg_signing_key_id() : NULL;
+    char *m = id ? g_strdup_printf("Allow zslice on the touch screen of the printer. Check that it shows the key %s. Waiting %d s of 120…", id, seconds)
+                 : g_strdup_printf("Allow zslice on the printer: on its touch screen (printdeck), or in its web page (OctoPrint). Waiting %d s of 120…", seconds);
     gtk_label_set_text(GTK_LABEL(p->result), m);
     g_free(m);
 }

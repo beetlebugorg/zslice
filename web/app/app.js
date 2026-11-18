@@ -31,7 +31,7 @@ import { FarmPage } from "./farm.js";
 import { Tools } from "./tools.js";
 import { SupportTool } from "./support.js";
 import { KINDS, send as sendToPrinter, test as testPrinter, requestKey, trustText } from "./link.js";
-import { signGcode, supported as canSign, UNSUPPORTED as NO_SIGNATURES } from "./signing.js";
+import { signGcode, keyId as signingKeyId, supported as canSign, UNSUPPORTED as NO_SIGNATURES } from "./signing.js";
 import { contextItems } from "./context-menu.js";
 import { openMenu, openMenuAt, menuOpen, openPopover, closeMenu } from "./menus.js";
 import { formatClock, formatTime, useCore } from "./format.js";
@@ -1092,8 +1092,10 @@ function managePrinters() {
       getKey.onclick = async () => {
         getKey.disabled = true;
         result.classList.remove("error");
+        // A printdeck shows the key id of the request: the user checks it.
+        const id = p.kind === "printdeck" ? await signingKeyId() : "";
         const r = await requestKey({ ...p, url: url.value.trim() || p.url, name: n }, (sec) => {
-          result.textContent = `Allow zslice on the printer (${120 - sec} s)…`;
+          result.textContent = id ? `Allow zslice on the printer, and check that it shows the key ${id} (${120 - sec} s)…` : `Allow zslice on the printer (${120 - sec} s)…`;
         });
         getKey.disabled = false;
         result.textContent = r.message;
