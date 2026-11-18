@@ -298,6 +298,30 @@ struct PrintCard: View {
     /// The card keeps the facts of the last slice while a new one runs, so
     /// an editor of the card stays open, and shows the progress under them.
     /// It is small: the time, the plastic, Export, and the main settings.
+    /// The sums of the core (zs_set_totals) for one plate, or for all
+    /// plates with nil.
+    private func totals(_ plate: Int?) -> zs_totals? {
+        _ = model.plates
+        _ = model.stats
+        var t = zs_totals()
+        let rc = plate.map { zs_set_plate_totals(model.set, $0, &t) } ?? zs_set_totals(model.set, &t)
+        return rc == 0 ? t : nil
+    }
+
+    /// "All 2 plates: 1h 13m · 30.0 g · 0.75", with the plates that have
+    /// no slice yet.
+    private func allText(_ t: zs_totals) -> String {
+        var text = "All \(t.plates) plates: \(duration(t.time_s)) · " + String(format: "%.1f g", t.filament_g)
+        if t.cost > 0 { text += String(format: " · %.2f", t.cost) }
+        if t.missing > 0 { text += " (\(t.missing) slicing)" }
+        return text
+    }
+
+    private func costHelp(_ t: zs_totals) -> String {
+        guard t.cost > 0 else { return "Set the price of the filament (filament.price_per_kg) and the hour rate of the printer (machine.hour_rate) to see the cost." }
+        return String(format: "The cost: %.2f of filament and %.2f of printer time.", t.cost_filament, t.cost_machine)
+    }
+
     var body: some View {
         let slicing = model.state == .slicing
         VStack(alignment: .leading, spacing: 8) {
@@ -312,11 +336,21 @@ struct PrintCard: View {
                     if let s = model.stats {
                         Text(duration(s.print_time_s))
                             .font(.title2.weight(.semibold).monospacedDigit())
-                        Text(String(format: "%.1f g · %.2f m · %d layers", s.filament_g, s.filament_mm / 1000, s.layer_count))
+                        let plate = totals(model.active)
+                        Text(String(format: "%.1f g · %.2f m · %d layers", s.filament_g, s.filament_mm / 1000, s.layer_count)
+                            + (plate.map { $0.cost > 0 ? String(format: " · %.2f", $0.cost) : "" } ?? ""))
                             .font(.callout.monospacedDigit())
                             .foregroundStyle(.secondary)
                             .lineLimit(1)
                             .minimumScaleFactor(0.75)
+                            .help(plate.map(costHelp) ?? "")
+                        if let all = totals(nil), all.plates >= 2 {
+                            Text(allText(all))
+                                .font(.callout.monospacedDigit())
+                                .lineLimit(1)
+                                .minimumScaleFactor(0.75)
+                                .help("\(all.parts) parts on \(all.plates) plates. " + costHelp(all))
+                        }
                     } else {
                         Text("Slicing…").font(.title3.weight(.semibold))
                     }
