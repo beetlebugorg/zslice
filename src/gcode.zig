@@ -2,7 +2,9 @@
 //!
 //! - A travel move (G0) goes to the start of each path. A travel longer
 //!   than `retract_min_travel` first pulls the filament back (retraction),
-//!   so that the nozzle does not ooze on the way.
+//!   so that the nozzle does not ooze on the way. A travel from one tree
+//!   support path to the next has no retraction if it crosses no edge of
+//!   the part: the support comes off, and a tree has many small islands.
 //! - An extrusion move (G1 with E) goes along each path. The E value is the
 //!   length of filament to push, in mm. The plastic that comes out of the
 //!   nozzle is a bead with a flat top and bottom and round sides (see
@@ -900,7 +902,7 @@ pub const Emitter = struct {
             const retractions = self.stats.retractions;
             try self.setAccel(lr.accel(null, first));
             self.path_index = i;
-            try self.travel(geom.toMm(pts[0].x), geom.toMm(pts[0].y));
+            try self.travel(geom.toMm(pts[0].x), geom.toMm(pts[0].y), path.feature);
             self.layer_start = false;
             // A path in a modifier volume has the settings of the volume.
             const path_r = lp.pathResolved(path) orelse lr;
@@ -1295,10 +1297,10 @@ pub const Emitter = struct {
         self.stop = true;
     }
 
-    fn travel(self: *Emitter, x: f64, y: f64) Error!void {
+    fn travel(self: *Emitter, x: f64, y: f64, next: Feature) Error!void {
         const d = @import("geom.zig").hypot(x - self.x, y - self.y);
         if (d < 1e-4) return;
-        if (d > self.lr.settings.project.retract_min_travel) {
+        if (d > self.lr.settings.project.retract_min_travel and !self.supportHop(x, y, next)) {
             // Combing: a way inside the part needs no retraction (see
             // `findWay`).
             var way: [max_way][2]f64 = undefined;
@@ -1307,6 +1309,27 @@ pub const Emitter = struct {
             } else try self.retractHop(!self.layer_start and self.hopFor(x, y));
         }
         try self.move(x, y);
+    }
+
+    /// True if a travel to x, y goes from one tree support path to the
+    /// next with no retraction: the straight line crosses no edge of the
+    /// part. The support comes off, so a string there does no harm, and
+    /// a tree layer has many small islands.
+    fn supportHop(self: *const Emitter, x: f64, y: f64, next: Feature) bool {
+        if (self.lr.settings.project.support_style != .tree) return false;
+        if (!isSupport(self.feature) or !isSupport(next)) return false;
+        const outline = self.outline orelse return true;
+        const a: geom.Point = .{ .x = geom.fromMm(self.x), .y = geom.fromMm(self.y) };
+        const b: geom.Point = .{ .x = geom.fromMm(x), .y = geom.fromMm(y) };
+        var hit: usize = 0;
+        // No crossing leaves `hit` at its largest value.
+        _ = self.clearOf(outline.*, self.boxes[0..self.n_boxes], a, b, &hit);
+        return hit == std.math.maxInt(usize);
+    }
+
+    fn isSupport(f: ?Feature) bool {
+        const k = f orelse return false;
+        return k == .support or k == .support_interface;
     }
 
     /// True if a travel to x, y with a retraction lifts the nozzle: always
@@ -2013,4 +2036,37 @@ test "a path with a width for each point extrudes the bead of each segment" {
     const want = 10 * (flow.beadArea(0.5, 0.2) + flow.beadArea(0.6, 0.2)) / r.filament_area * r.settings.filament.flow_ratio;
     // The widths are f32.
     try std.testing.expectApproxEqRel(want, em.stats.filament_mm, 1e-6);
+}
+
+test "a travel between tree support paths retracts only if it crosses the part" {
+    const gpa = std.testing.allocator;
+    const Case = struct { style: settings_mod.SupportStyle, wall: bool, retractions: u32 };
+    const cases = [_]Case{
+        .{ .style = .tree, .wall = false, .retractions = 0 },
+        .{ .style = .grid, .wall = false, .retractions = 1 },
+        .{ .style = .tree, .wall = true, .retractions = 1 },
+    };
+    for (cases) |c| {
+        var st: settings_mod.Settings = .{};
+        st.project.support_style = c.style;
+        const r = try st.resolve();
+        var lp: LayerPlan = .{ .arena = .init(gpa), .index = 3, .z = 0.9, .height = 0.2, .width = 0.5, .resolved = &r };
+        defer lp.deinit();
+        const a = lp.arena.allocator();
+        // A wall of the part between the two support loops, or a part
+        // far away.
+        const x0: i64 = if (c.wall) 9000 else 50000;
+        try lp.outline.append(a, &.{ .{ .x = x0, .y = -50000 }, .{ .x = x0 + 2000, .y = -50000 }, .{ .x = x0 + 2000, .y = 50000 }, .{ .x = x0, .y = 50000 } });
+        for ([_]i64{ 0, 20000 }) |x| {
+            try lp.points.append(a, &.{ .{ .x = x, .y = 0 }, .{ .x = x + 1000, .y = 0 }, .{ .x = x + 1000, .y = 1000 }, .{ .x = x, .y = 1000 } });
+            try lp.paths.append(a, .{ .feature = .support, .closed = true });
+        }
+        var discard: Writer.Discarding = .init(&.{});
+        var em: Emitter = .init(gpa, &discard.writer, &r);
+        em.x = 0;
+        em.y = 0;
+        em.extruded = true;
+        try em.layer(&lp);
+        try std.testing.expectEqual(c.retractions, em.stats.retractions);
+    }
 }
