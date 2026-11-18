@@ -1046,9 +1046,12 @@ const ops = {
     return { bytes, name: core.modelName };
   },
 
-  gcode() {
+  // plates: the count of plates, so a name has the plate of more than one.
+  gcode({ plate, plates } = {}) {
     const bytes = core.gcode();
-    return { bytes: bytes ? bytes.buffer : null, name: core.modelName };
+    const w = core.w;
+    const fileName = w.withString(core.modelName || "part", (m) => w.readText((b, c, l) => w.x.zs_app_gcode_name(core.app, m, plates > 1 ? plate + 1 : 0, b, c, l)));
+    return { bytes: bytes ? bytes.buffer : null, name: core.modelName, fileName: fileName || "part" };
   },
 };
 

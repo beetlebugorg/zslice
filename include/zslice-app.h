@@ -657,6 +657,11 @@ ptrdiff_t zs_app_part_cut(zs_app *app, size_t i, double z, int flip, int pegs, d
  * means the parts do not fit on this bed: say so, and offer to move parts
  * to another plate. */
 int zs_app_plate_fits(const zs_app *app);
+/* A name for the G-code file of the last slice, with no extension: the
+ * model (its extension dropped), the plate (when plate > 0, 1-based), the
+ * layer height, the material, the printer, and the time, for example
+ * "3DBenchy_0.2mm_PLA_MK4_50m". The same name in each app. */
+int zs_app_gcode_name(const zs_app *app, const char *model, size_t plate, char *buf, size_t cap, size_t *out_len);
 
 size_t zs_app_part_count(const zs_app *app);
 int zs_app_part_get(zs_app *app, size_t i, zs_part *out);

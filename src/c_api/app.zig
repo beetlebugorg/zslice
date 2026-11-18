@@ -487,6 +487,76 @@ export fn zs_app_stats(a: ?*const App, out: ?*Stats) c_int {
     return ok;
 }
 
+/// A name for the G-code file of this slice, with no extension: the
+/// model (`model`, its extension dropped), the plate (when `plate` > 0,
+/// 1-based), the layer height, the material, the printer (not "generic"),
+/// and the time, for example "3DBenchy_0.2mm_PLA_MK4_50m". Only letters,
+/// digits, and ". + -" go in each part. The same name in each app.
+export fn zs_app_gcode_name(a: ?*const App, model: ?[*:0]const u8, plate: usize, buf: ?[*]u8, cap: usize, out_len: ?*usize) c_int {
+    const app = a orelse return @intFromEnum(Status.invalid_argument);
+    var text: [256]u8 = undefined;
+    var w: std.Io.Writer = .fixed(&text);
+    var m: []const u8 = if (model) |x| std.mem.span(x) else "";
+    for ([_][]const u8{ ".stl", ".3mf", ".obj", ".step", ".stp" }) |ext| {
+        if (m.len > ext.len and std.ascii.endsWithIgnoreCase(m, ext)) m = m[0 .. m.len - ext.len];
+    }
+    const s = app.settings;
+    if (!safePart(&w, m, 64, false)) w.writeAll("part") catch {};
+    if (plate > 0) w.print("_plate{d}", .{plate}) catch {};
+    if (s.project.layer_height > 0) w.print("_{d}mm", .{@round(s.project.layer_height * 1000) / 1000}) catch {};
+    _ = safePart(&w, s.filament.material, 16, true);
+    if (!std.ascii.eqlIgnoreCase(s.machine.name, "generic")) _ = safePart(&w, s.machine.name, 32, true);
+    if (app.result()) |r| {
+        const t = r.print_time_s;
+        if (t >= 3600) {
+            const h: u64 = @intFromFloat(@floor(t / 3600));
+            const mins: u64 = @intFromFloat(@round(@mod(t, 3600) / 60));
+            w.print("_{d}h{d:0>2}m", .{ h, mins }) catch {};
+        } else if (t > 0) {
+            w.print("_{d}m", .{@max(1, @as(u64, @intFromFloat(@round(t / 60))))}) catch {};
+        }
+    }
+    return copyOut(w.buffered(), buf, cap, out_len);
+}
+
+/// Writes `t` with each run of other characters than letters, digits, and
+/// ". + -" as one "-", no "-" at the ends, at most `max` bytes, after a
+/// "_" when `sep`. Returns false when no character is left.
+fn safePart(w: *std.Io.Writer, t: []const u8, max: usize, sep: bool) bool {
+    var out: [64]u8 = undefined;
+    var n: usize = 0;
+    var dash = false;
+    for (t) |ch| {
+        const good = std.ascii.isAlphanumeric(ch) or ch == '.' or ch == '+' or ch == '-';
+        if (!good or ch == '-') {
+            dash = n > 0;
+            continue;
+        }
+        if (n >= @min(max, out.len)) break;
+        if (dash) {
+            if (n + 1 >= @min(max, out.len)) break;
+            out[n] = '-';
+            n += 1;
+            dash = false;
+        }
+        out[n] = ch;
+        n += 1;
+    }
+    if (n == 0) return false;
+    if (sep) w.writeAll("_") catch return false;
+    w.writeAll(out[0..n]) catch return false;
+    return true;
+}
+
+test "gcode name: the facts of the slice, safe for a file" {
+    var o: [32]u8 = undefined;
+    var w: std.Io.Writer = .fixed(&o);
+    try std.testing.expect(safePart(&w, " Prusa MK4/S ", 32, false));
+    try std.testing.expect(safePart(&w, "Ender 3 V3", 5, true));
+    try std.testing.expect(!safePart(&w, " // ", 32, true));
+    try std.testing.expectEqualStrings("Prusa-MK4-S_Ender", w.buffered());
+}
+
 /// The number of islands of the last slice (see islands.zig).
 export fn zs_app_island_count(a: ?*const App) usize {
     const app = a orelse return 0;
