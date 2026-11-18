@@ -1609,7 +1609,8 @@ enum zs_found_kind {
     ZS_FOUND_OCTOPRINT = 1,
     ZS_FOUND_PRINTDECK = 2,
     ZS_FOUND_MOONRAKER = 3,
-    ZS_FOUND_PRUSALINK = 4
+    ZS_FOUND_PRUSALINK = 4,
+    ZS_FOUND_BAMBU = 5     /* Bambu Lab in LAN mode (SSDP on UDP 2021) */
 };
 
 enum zs_found_reply {
@@ -1629,8 +1630,13 @@ typedef struct zs_found_printer {
     const char *version;    /* "" if not known */
     double bed_x, bed_y, height; /* from Klipper, 0 if not known */
     double origin_x, origin_y;
+    const char *serial;     /* Bambu Lab: the serial number (USN), or "" */
 } zs_found_printer;
 
+/* Bambu Lab printers in LAN mode send SSDP text packets to UDP port 2021:
+ * listen on that port too (SO_REUSEADDR, broadcast), and give those packets
+ * to zs_discovery_feed as well. It tells them from mDNS packets. */
+#define ZS_DISCOVERY_BAMBU_PORT 2021
 int zs_discovery_new(zs_discovery **out);
 void zs_discovery_free(zs_discovery *d);
 /* The query packet. It stays valid until the next call. */

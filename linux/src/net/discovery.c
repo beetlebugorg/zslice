@@ -16,7 +16,8 @@ struct ZgDiscovery {
     gpointer data;
     GSocket *sock;     /* our own port: the unicast answers */
     GSocket *group;    /* port 5353 in the group, or NULL */
-    GSource *sock_src, *group_src;
+    GSocket *bambu;    /* port 2021: the SSDP packets of Bambu Lab, or NULL */
+    GSource *sock_src, *group_src, *bambu_src;
     guint resend[2];
     guint stop;
     guint follow;      /* a query with the next questions, soon */
@@ -61,6 +62,8 @@ static void on_http(GObject *source, GAsyncResult *res, gpointer data) {
 static void ask(ZgDiscovery *d, size_t i) {
     zs_found_printer p;
     if (zs_discovery_get(d->core, i, &p) != ZS_OK) return;
+    /* A Bambu Lab printer has no HTTP API: its packet tells all. */
+    if (p.kind == ZS_FOUND_BAMBU) return;
     const char *path = p.kind == ZS_FOUND_MOONRAKER ? "/printer/objects/query?toolhead" : "/api/version";
     char *url = g_strconcat(p.url, path, NULL);
     SoupMessage *msg = soup_message_new("GET", url);
@@ -155,10 +158,17 @@ static void close_sockets(ZgDiscovery *d) {
         g_source_unref(d->group_src);
         d->group_src = NULL;
     }
+    if (d->bambu_src) {
+        g_source_destroy(d->bambu_src);
+        g_source_unref(d->bambu_src);
+        d->bambu_src = NULL;
+    }
     if (d->sock) g_socket_close(d->sock, NULL);
     if (d->group) g_socket_close(d->group, NULL);
+    if (d->bambu) g_socket_close(d->bambu, NULL);
     g_clear_object(&d->sock);
     g_clear_object(&d->group);
+    g_clear_object(&d->bambu);
 }
 
 static gboolean on_stop(gpointer data) {
@@ -177,6 +187,8 @@ static GSource *watch(ZgDiscovery *d, GSocket *s) {
     return src;
 }
 
+/* port 0: a port of our own. group: port 5353 in the mDNS group. Another
+ * fixed port (the Bambu Lab port): shared, with broadcasts, no group. */
 static GSocket *open_socket(guint16 port, gboolean group) {
     GError *error = NULL;
     GSocket *s = g_socket_new(G_SOCKET_FAMILY_IPV4, G_SOCKET_TYPE_DATAGRAM, G_SOCKET_PROTOCOL_UDP, &error);
@@ -186,8 +198,9 @@ static GSocket *open_socket(guint16 port, gboolean group) {
         return NULL;
     }
     g_socket_set_blocking(s, FALSE);
-    if (group) {
-        /* Share port 5353 with the mDNS service of the system. */
+    if (group || port != 0) {
+        /* Share the port with other programs (the mDNS service of the
+         * system, a Bambu slicer). */
         g_socket_set_option(s, SOL_SOCKET, SO_REUSEADDR, 1, NULL);
 #ifdef SO_REUSEPORT
         g_socket_set_option(s, SOL_SOCKET, SO_REUSEPORT, 1, NULL);
@@ -204,8 +217,9 @@ static GSocket *open_socket(guint16 port, gboolean group) {
     }
     g_object_unref(any);
     if (!ok) {
-        /* Port 5353 is optional: the unicast answers come to our port. */
-        if (!group) g_message("zslice: the printer search could not open a socket: %s", error->message);
+        /* Port 5353 and port 2021 are optional: the unicast answers come
+         * to our port. */
+        if (!group && port == 0) g_message("zslice: the printer search could not open a socket: %s", error->message);
         g_clear_error(&error);
         g_object_unref(s);
         return NULL;
@@ -217,8 +231,10 @@ void zg_discovery_restart(ZgDiscovery *d) {
     close_sockets(d);
     d->sock = open_socket(0, FALSE);
     d->group = open_socket(5353, TRUE);
+    d->bambu = open_socket(ZS_DISCOVERY_BAMBU_PORT, FALSE);
     if (d->sock) d->sock_src = watch(d, d->sock);
     if (d->group) d->group_src = watch(d, d->group);
+    if (d->bambu) d->bambu_src = watch(d, d->bambu);
     d->running = d->sock != NULL;
     if (!d->running) {
         notify(d);

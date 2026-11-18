@@ -287,6 +287,7 @@ const CFound = extern struct {
     height: f64,
     origin_x: f64,
     origin_y: f64,
+    serial: [*:0]const u8,
 };
 
 export fn zs_discovery_get(finder: ?*const Finder, i: usize, out: ?*CFound) c_int {
@@ -312,6 +313,7 @@ export fn zs_discovery_get(finder: ?*const Finder, i: usize, out: ?*CFound) c_in
         .height = p.height,
         .origin_x = p.origin_x,
         .origin_y = p.origin_y,
+        .serial = p.serial.ptr,
     };
     return ok;
 }
@@ -355,7 +357,7 @@ test "the C API of the library" {
     // The sizes of the structs of zslice-app.h on a 64-bit target (gcc).
     if (@sizeOf(usize) == 8) {
         try std.testing.expectEqual(@as(usize, 160), @sizeOf(CModel));
-        try std.testing.expectEqual(@as(usize, 112), @sizeOf(CFound));
+        try std.testing.expectEqual(@as(usize, 120), @sizeOf(CFound));
     }
 }
 

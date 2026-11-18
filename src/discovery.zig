@@ -42,6 +42,15 @@
 //! port (PrusaLink announces `_prusalink` and `_octoprint`). The finder
 //! keeps one entry for each address and port, with the most exact kind.
 //!
+//! Bambu Lab printers in LAN mode do not use mDNS: they send an SSDP
+//! NOTIFY text packet (as HTTP) to UDP port 2021 (`bambu_port`) every few
+//! seconds, with the address (`Location`), the serial (`USN`), the model
+//! code (`DevModel.bambu.com`), and the name (`DevName.bambu.com`). A shell
+//! listens on that port too, and gives those packets to `feed` as well:
+//! `feed` tells the two kinds of packet apart. The printer takes files
+//! over FTPS (port 990) and commands over MQTT (port 8883), with its
+//! access code (on its screen).
+//!
 //! References (see REFERENCES.md): RFC 1035 (DNS messages and name
 //! compression), RFC 6762 (mDNS), RFC 6763 (DNS-SD), the OctoPrint
 //! discovery plugin, the Moonraker zeroconf component, PrusaLink, and the
@@ -55,6 +64,7 @@ pub const Kind = enum(c_int) {
     printdeck = 2,
     moonraker = 3,
     prusalink = 4,
+    bambu = 5,
 
     pub fn title(k: Kind) []const u8 {
         return switch (k) {
@@ -62,6 +72,7 @@ pub const Kind = enum(c_int) {
             .printdeck => "printdeck",
             .moonraker => "Moonraker (Klipper)",
             .prusalink => "PrusaLink",
+            .bambu => "Bambu Lab (LAN)",
         };
     }
 
@@ -72,6 +83,7 @@ pub const Kind = enum(c_int) {
             .moonraker => 1,
             .printdeck => 2,
             .prusalink => 2,
+            .bambu => 2,
         };
     }
 };
@@ -84,6 +96,22 @@ pub const services = [_]struct { name: []const u8, kind: Kind }{
 
 pub const group_address = [4]u8{ 224, 0, 0, 251 };
 pub const port: u16 = 5353;
+/// The UDP port of the SSDP packets of Bambu Lab printers.
+pub const bambu_port: u16 = 2021;
+
+/// The model codes of Bambu Lab printers in their SSDP packets.
+const bambu_models = [_][2][]const u8{
+    .{ "3DPrinter-X1-Carbon", "X1 Carbon" }, .{ "BL-P001", "X1 Carbon" },
+    .{ "3DPrinter-X1", "X1" },                .{ "BL-P002", "X1" },
+    .{ "C13", "X1E" },                         .{ "C11", "P1P" },
+    .{ "C12", "P1S" },                         .{ "N1", "A1 mini" },
+    .{ "N2S", "A1" },                          .{ "O1D", "H2D" },
+};
+
+fn bambuModel(code: []const u8) []const u8 {
+    for (bambu_models) |m| if (std.mem.eql(u8, m[0], code)) return m[1];
+    return code;
+}
 
 /// A printer that the finder found.
 pub const Found = struct {
@@ -103,6 +131,8 @@ pub const Found = struct {
     model: [:0]const u8 = "",
     /// TXT `version`, or the version text of the API.
     version: [:0]const u8 = "",
+    /// The serial number (Bambu Lab: its USN), or "".
+    serial: [:0]const u8 = "",
     /// The bed (Klipper axis limits), 0 when not known.
     bed_x: f64 = 0,
     bed_y: f64 = 0,
@@ -166,6 +196,8 @@ pub const Finder = struct {
     /// the answers gave a new instance or host (then `query` has new
     /// questions). A packet that is not a valid answer changes nothing.
     pub fn feed(self: *Finder, packet: []const u8) Allocator.Error!bool {
+        // A text packet of SSDP: a Bambu Lab printer.
+        if (std.mem.startsWith(u8, packet, "NOTIFY ") or std.mem.startsWith(u8, packet, "HTTP/1.1")) return self.feedSsdp(packet);
         const a = self.arena.allocator();
         var msg = Message.init(packet) catch return false;
         if (!msg.response) return false;
@@ -203,6 +235,52 @@ pub const Finder = struct {
         }
         const changed = try self.rebuild();
         return changed or learned;
+    }
+
+    /// Reads an SSDP packet of a Bambu Lab printer. Returns true if the list
+    /// changed.
+    fn feedSsdp(self: *Finder, packet: []const u8) Allocator.Error!bool {
+        const a = self.arena.allocator();
+        var location: []const u8 = "";
+        var usn: []const u8 = "";
+        var model: []const u8 = "";
+        var name: []const u8 = "";
+        var nt: []const u8 = "";
+        var it = std.mem.splitAny(u8, packet, "\r\n");
+        while (it.next()) |line| {
+            const colon = std.mem.indexOfScalar(u8, line, ':') orelse continue;
+            const key = std.mem.trim(u8, line[0..colon], " ");
+            const val = std.mem.trim(u8, line[colon + 1 ..], " ");
+            if (std.ascii.eqlIgnoreCase(key, "Location")) location = val;
+            if (std.ascii.eqlIgnoreCase(key, "USN")) usn = val;
+            if (std.ascii.eqlIgnoreCase(key, "NT") or std.ascii.eqlIgnoreCase(key, "ST")) nt = val;
+            if (std.ascii.eqlIgnoreCase(key, "DevModel.bambu.com")) model = val;
+            if (std.ascii.eqlIgnoreCase(key, "DevName.bambu.com")) name = val;
+        }
+        if (std.mem.indexOf(u8, nt, "bambulab") == null or location.len == 0 or location.len > 64) return false;
+        // The address: "192.168.1.42", sometimes with a scheme.
+        var addr = location;
+        if (std.mem.indexOf(u8, addr, "://")) |k| addr = addr[k + 3 ..];
+        if (std.mem.indexOfAny(u8, addr, ":/")) |k| addr = addr[0..k];
+        for (self.found.items) |*f| {
+            if (f.kind == .bambu and std.mem.eql(u8, f.serial, usn)) {
+                if (std.mem.eql(u8, f.address, addr)) return false;
+                f.address = try a.dupeZ(u8, addr);
+                f.url = try std.fmt.allocPrintSentinel(a, "ftps://{s}", .{addr}, 0);
+                return true;
+            }
+        }
+        try self.found.append(a, .{
+            .name = try a.dupeZ(u8, if (name.len > 0) name else usn),
+            .kind = .bambu,
+            .host = try a.dupeZ(u8, addr),
+            .address = try a.dupeZ(u8, addr),
+            .port = 990,
+            .url = try std.fmt.allocPrintSentinel(a, "ftps://{s}", .{addr}, 0),
+            .model = try a.dupeZ(u8, bambuModel(model)),
+            .serial = try a.dupeZ(u8, usn),
+        });
+        return true;
     }
 
     /// Makes the list of printers from the records so far. Returns true if
@@ -660,3 +738,22 @@ test "the kind from the version text" {
     try testing.expectEqual(Kind.octoprint, kindFromVersion("OctoPrint 1.10.3").?);
     try testing.expectEqual(@as(?Kind, null), kindFromVersion("nginx"));
 }
+
+test "discovery: a Bambu Lab printer in LAN mode" {
+    var f = Finder.init(std.testing.allocator);
+    defer f.deinit();
+    const pkt = "NOTIFY * HTTP/1.1\r\nHOST: 239.255.255.250:1990\r\nServer: UPnP/1.0\r\nLocation: 192.168.1.42\r\nNT: urn:bambulab-com:device:3dprinter:1\r\nUSN: 01P00A123456789\r\nCache-Control: max-age=1800\r\nDevModel.bambu.com: C12\r\nDevName.bambu.com: Shop P1S 3\r\nDevConnect.bambu.com: lan\r\n\r\n";
+    try std.testing.expect(try f.feed(pkt));
+    try std.testing.expectEqual(@as(usize, 1), f.found.items.len);
+    const p = f.found.items[0];
+    try std.testing.expectEqual(Kind.bambu, p.kind);
+    try std.testing.expectEqualStrings("Shop P1S 3", p.name);
+    try std.testing.expectEqualStrings("192.168.1.42", p.address);
+    try std.testing.expectEqualStrings("P1S", p.model);
+    try std.testing.expectEqualStrings("01P00A123456789", p.serial);
+    // The same packet again: no change.
+    try std.testing.expect(!try f.feed(pkt));
+    // Another device on SSDP: not a printer.
+    try std.testing.expect(!try f.feed("NOTIFY * HTTP/1.1\r\nNT: upnp:rootdevice\r\nLocation: http://192.168.1.1/x\r\n\r\n"));
+}
+
