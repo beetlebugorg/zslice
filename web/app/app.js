@@ -2317,6 +2317,9 @@ function onPlates(m) {
     stopReplay();
     select(-1, -1, false);
     tools.clear?.();
+    // The selected part is of the plate before: its index means another
+    // part here (Delete or a turn key would act on that part).
+    tools.selectPart(null);
     view2d.fitted = false;
   }
   if (app.framePlate === m.active) {
