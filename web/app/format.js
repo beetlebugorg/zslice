@@ -28,12 +28,33 @@ export function formatNumber(v) {
   return String(Number(v.toPrecision(6)));
 }
 
+// The text of a setting value comes from the core (zs_setting_display,
+// zs_setting_parse, zs_setting_source_text: src/app/setting_text.zig), so
+// all apps show the same text. app.js gives the wasm instance of the page;
+// until then, the rules below give the same text.
+let core = null;
+export function useCore(wasm) {
+  core = wasm;
+}
+
+function coreText(fn) {
+  try {
+    return core.readText(fn);
+  } catch {
+    return null;
+  }
+}
+
 function isAuto(info) { return info.name.endsWith("line_width"); }
 export function isRatio(info) { return (info.kind === "number" || info.kind === "integer") && info.unit === "%"; }
 export function isNumber(info) { return info.kind === "number" || info.kind === "integer"; }
 
 // The value as an editor shows it.
 export function displayValue(info, value) {
+  if (core) {
+    const t = coreText((b, c, l) => core.withStrings([info.name, String(value)], (n, v) => core.x.zs_setting_display(n, v, 0, b, c, l)));
+    if (t !== null) return t;
+  }
   if (isAuto(info) && parsesAsNumber(value) && Number(value) === 0) return "auto";
   if (isRatio(info) && parsesAsNumber(value)) return formatNumber(Number(value) * 100);
   if (info.kind === "text" && info.multiline) {
@@ -45,6 +66,10 @@ export function displayValue(info, value) {
 
 // The value with its unit: "0.8 mm", "1 layer", "auto".
 export function valueWithUnit(info, value) {
+  if (core) {
+    const t = coreText((b, c, l) => core.withStrings([info.name, String(value)], (n, v) => core.x.zs_setting_display(n, v, 1, b, c, l)));
+    if (t !== null) return t;
+  }
   const shown = displayValue(info, value);
   const n = info.unit.length;
   const one = shown === "1" && n > 1 && info.unit.endsWith("s") && info.kind === "integer";
@@ -54,6 +79,13 @@ export function valueWithUnit(info, value) {
 
 // The core value of the text of an editor.
 export function toCore(info, text) {
+  if (core) {
+    // A text that is not a number goes to the core as it is: the core
+    // refuses it with its own message.
+    const t = coreText((b, c, l) => core.withStrings([info.name, String(text)], (n, v) => core.x.zs_setting_parse(n, v, b, c, l)));
+    if (t !== null) return t;
+    return text.trim();
+  }
   const t = text.trim();
   if (isAuto(info) && t.toLowerCase() === "auto") return "0";
   if (!isRatio(info) || !parsesAsNumber(t)) return t;

@@ -98,6 +98,44 @@ pub const SettingInfo = extern struct {
     per_part: c_int,
 };
 
+/// The text of a value of setting `name`, as an editor shows it (a ratio as
+/// a percentage, a line width of 0 as "auto", the first line of a G-code);
+/// with_unit != 0 adds the unit ("0.8 mm", "1 layer"). The same buffer
+/// rules as zs_app_setting_get.
+export fn zs_setting_display(name: ?[*:0]const u8, value: ?[*:0]const u8, with_unit: c_int, buf: ?[*]u8, cap: usize, out_len: ?*usize) c_int {
+    const s = app_mod.setting_text.find(std.mem.span(name orelse return @intFromEnum(Status.invalid_argument))) orelse return @intFromEnum(Status.unknown_setting);
+    var aw: Writer.Allocating = .init(gpa);
+    defer aw.deinit();
+    app_mod.setting_text.display(s, std.mem.span(value orelse return @intFromEnum(Status.invalid_argument)), with_unit != 0, &aw.writer) catch return @intFromEnum(Status.out_of_memory);
+    return copyOut(aw.written(), buf, cap, out_len);
+}
+
+/// The core value of the text of an editor of setting `name` ("auto" is
+/// 0, a percentage is a ratio). ZS_INVALID_VALUE: a number setting with a
+/// text that is not a number. The same buffer rules as zs_app_setting_get.
+export fn zs_setting_parse(name: ?[*:0]const u8, text: ?[*:0]const u8, buf: ?[*]u8, cap: usize, out_len: ?*usize) c_int {
+    const s = app_mod.setting_text.find(std.mem.span(name orelse return @intFromEnum(Status.invalid_argument))) orelse return @intFromEnum(Status.unknown_setting);
+    var aw: Writer.Allocating = .init(gpa);
+    defer aw.deinit();
+    app_mod.setting_text.parse(s, std.mem.span(text orelse return @intFromEnum(Status.invalid_argument)), &aw.writer) catch |e| return switch (e) {
+        error.InvalidValue => @intFromEnum(Status.invalid_value),
+        else => @intFromEnum(Status.out_of_memory),
+    };
+    return copyOut(aw.written(), buf, cap, out_len);
+}
+
+/// The source of a value as a short tag: level (enum zs_level), the name
+/// of its profile, and its formula or NULL. "Global", the profile name,
+/// "This print", "This part", or "= formula". The same buffer rules as
+/// zs_app_setting_get.
+export fn zs_setting_source_text(level: c_int, profile: ?[*:0]const u8, formula: ?[*:0]const u8, buf: ?[*]u8, cap: usize, out_len: ?*usize) c_int {
+    var aw: Writer.Allocating = .init(gpa);
+    defer aw.deinit();
+    const f: ?[]const u8 = if (formula) |x| std.mem.span(x) else null;
+    app_mod.setting_text.source(level, if (profile) |p| std.mem.span(p) else "", f, &aw.writer) catch return @intFromEnum(Status.out_of_memory);
+    return copyOut(aw.written(), buf, cap, out_len);
+}
+
 export fn zs_setting_count() usize {
     return app_mod.settings_info.len;
 }

@@ -121,6 +121,21 @@ typedef struct zs_setting_info {
                                       same for all parts */
 } zs_setting_info;
 
+/* The text of a value of setting `name`, as an editor shows it: a ratio as
+ * a percentage (0.2 is "20"), a line width of 0 as "auto", the first line
+ * of a G-code and " …", a number as %.6g. with_unit != 0 adds the unit
+ * ("0.8 mm", "20 %", "1 layer"). The same buffer rules as
+ * zs_app_setting_get. */
+int zs_setting_display(const char *name, const char *value, int with_unit, char *buf, size_t cap, size_t *out_len);
+/* The core value of the text of an editor of setting `name`: "auto" is 0,
+ * a percentage becomes a ratio. ZS_INVALID_VALUE for a number setting with
+ * a text that is not a number. */
+int zs_setting_parse(const char *name, const char *text, char *buf, size_t cap, size_t *out_len);
+/* The source of a value as a short tag: level (enum zs_level), the name of
+ * its profile, and its formula or NULL: "Global", the profile name, "This
+ * print", "This part", or "= formula". */
+int zs_setting_source_text(int level, const char *profile, const char *formula, char *buf, size_t cap, size_t *out_len);
+
 /* The settings, in the order to show them. */
 size_t zs_setting_count(void);
 int zs_setting_get_info(size_t index, zs_setting_info *out);

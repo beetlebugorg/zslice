@@ -31,7 +31,7 @@ import { Tools } from "./tools.js";
 import { KINDS, send as sendToPrinter, test as testPrinter, requestKey } from "./link.js";
 import { contextItems } from "./context-menu.js";
 import { openMenu, openMenuAt, menuOpen, openPopover, closeMenu } from "./menus.js";
-import { formatClock, formatTime } from "./format.js";
+import { formatClock, formatTime, useCore } from "./format.js";
 import { openPrinterPicker, bedFiles } from "./printers.js";
 
 const $ = (id) => document.getElementById(id);
@@ -103,6 +103,8 @@ const module = wantThreads
   ? await compileModule("zslice-mt.wasm").catch(() => compileModule("zslice.wasm"))
   : await compileModule("zslice.wasm");
 const wasm = await Wasm.create(module);
+// The text of setting values comes from the core (format.js).
+useCore(wasm);
 const infos = wasm.settingInfos();
 
 const app = {

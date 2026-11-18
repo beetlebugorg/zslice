@@ -74,40 +74,22 @@ static void format_number(char *buf, size_t cap, double v) {
     g_ascii_formatd(buf, cap, "%.6g", v);
 }
 
-/* A line width of 0 means "from the nozzle": the editors show "auto". */
-static gboolean is_auto(const char *key) {
-    return g_str_has_suffix(key, "line_width");
-}
-
-/* A ratio shows as a percentage: the core value 0.5 shows as 50. */
-static gboolean is_ratio(const zs_setting_info *info) {
-    return (info->kind == ZS_SETTING_NUMBER || info->kind == ZS_SETTING_INTEGER) && strcmp(info->unit, "%") == 0;
+/* The text of a value comes from the core (zs_setting_display,
+ * src/app/setting_text.zig), so all apps show the same text. */
+static char *core_text(const char *name, const char *value, int with_unit) {
+    size_t len = 0;
+    if (zs_setting_display(name, value, with_unit, NULL, 0, &len) != ZS_OK) return g_strdup(value);
+    char *buf = g_malloc(len + 1);
+    zs_setting_display(name, value, with_unit, buf, len + 1, NULL);
+    return buf;
 }
 
 char *zg_setting_display_value(const zs_setting_info *info, const char *value) {
-    if (is_auto(info->name) && zg_parses_as_number(value) && g_ascii_strtod(value, NULL) == 0) return g_strdup("auto");
-    if (is_ratio(info) && zg_parses_as_number(value)) {
-        char buf[G_ASCII_DTOSTR_BUF_SIZE];
-        format_number(buf, sizeof buf, g_ascii_strtod(value, NULL) * 100);
-        return g_strdup(buf);
-    }
-    if (info->kind == ZS_SETTING_TEXT && info->multiline) {
-        /* G-code: the first line only. */
-        const char *nl = strchr(value, '\n');
-        return nl ? g_strdup_printf("%.*s …", (int)(nl - value), value) : g_strdup(value);
-    }
-    return g_strdup(value);
+    return core_text(info->name, value, 0);
 }
 
 char *zg_setting_value_with_unit(const zs_setting_info *info, const char *value) {
-    char *shown = zg_setting_display_value(info, value);
-    /* A count of one: "1 layer", not "1 layers". */
-    size_t n = strlen(info->unit);
-    gboolean one = strcmp(shown, "1") == 0 && n > 1 && info->unit[n - 1] == 's' && info->kind == ZS_SETTING_INTEGER;
-    gboolean no_unit = !info->unit[0] || strcmp(shown, "auto") == 0;
-    char *text = no_unit ? g_strdup(shown) : g_strdup_printf("%s %.*s", shown, (int)(one ? n - 1 : n), info->unit);
-    g_free(shown);
-    return text;
+    return core_text(info->name, value, 1);
 }
 
 gboolean zg_setting_find(const char *name, zs_setting_info *out) {
@@ -120,11 +102,14 @@ gboolean zg_setting_find(const char *name, zs_setting_info *out) {
 
 /* The core value of the text in an editor. Free with g_free. */
 static char *to_core(GtkWidget *editor, const char *text) {
-    if (is_auto(key_of(editor)) && g_ascii_strcasecmp(text, "auto") == 0) return g_strdup("0");
-    if (!is_ratio(info_of(editor)) || !zg_parses_as_number(text)) return g_strdup(text);
-    char buf[G_ASCII_DTOSTR_BUF_SIZE];
-    g_ascii_formatd(buf, sizeof buf, "%.10g", g_ascii_strtod(text, NULL) / 100);
-    return g_strdup(buf);
+    /* The core rules (zs_setting_parse). A text that is not a number goes
+     * as it is: the core refuses it with its own message. */
+    size_t len = 0;
+    const char *key = key_of(editor);
+    if (zs_setting_parse(key, text, NULL, 0, &len) != ZS_OK) return g_strdup(text);
+    char *buf = g_malloc(len + 1);
+    zs_setting_parse(key, text, buf, len + 1, NULL);
+    return buf;
 }
 
 /* A range in the units that the editors show (a ratio as a percentage). */

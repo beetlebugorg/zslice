@@ -33,6 +33,7 @@
 //! - `feature_settings.zig`: the settings that change each feature.
 //! - `setting_effect.zig`: what a setting changes in the preview.
 //! - `setting_info.zig`: the description of each setting for a panel.
+//! - `setting_text.zig`: the text of a setting value in an editor, and back.
 //! - `licenses.zig`: the licenses for a Licenses screen.
 //!
 //! The split of a core and native shells comes from Lookout Marine (see
@@ -69,6 +70,8 @@ pub const mark_retract = setting_effect.mark_retract;
 pub const SettingKind = setting_info.SettingKind;
 pub const SettingInfo = setting_info.SettingInfo;
 pub const settings_info = setting_info.settings_info;
+/// The text of a setting value, as the editors show it (setting_text.zig).
+pub const setting_text = @import("app/setting_text.zig");
 pub const License = @import("app/licenses.zig").License;
 pub const licenses = @import("app/licenses.zig").licenses;
 
