@@ -26,6 +26,8 @@ final class Workspace {
 
     // The layers of the last slice, and the range that shows.
     private(set) var layerCount = 0
+    /// Fit the view to the plate after the next slice (after a fill).
+    @ObservationIgnored var fitAfterSlice = false
     /// The Cut popover of the part card is open.
     var cutOpen = false
     private(set) var lo = 0
@@ -167,6 +169,10 @@ final class Workspace {
         showGaps()
         readIssues()
         if let i = selectedPart { selectPart(i < zs_app_part_count(model.core) ? i : nil) }
+        if fitAfterSlice {
+            fitAfterSlice = false
+            fit()
+        }
         // For tests of memory and time: ZSLICE_RESLICE=n changes the wall
         // count after each slice, n times, so the plate slices n times more.
         if reslices > 0 {
@@ -232,6 +238,8 @@ final class Workspace {
         // ZSLICE_MOVE=i moves part i to a new plate; ZSLICE_SAVE=path saves
         // the project file there.
         if let m = env["ZSLICE_MOVE"], let i = Int(m) { movePartToNewPlate(i) }
+        // ZSLICE_FILL=n: n of the selected part in all.
+        if let f = env["ZSLICE_FILL"], let n = Int(f) { fillPart(n) }
         if let path = env["ZSLICE_SAVE"], let data = model.projectFileData(name: model.name) {
             try? data.write(to: URL(fileURLWithPath: path))
         }

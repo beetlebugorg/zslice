@@ -58,12 +58,39 @@ extension SliceModel {
         guard to >= 0 else { return nil }
         readPlates()
         settingsGeneration += 1
+        history.attach()
         onPlates?()
         return to
     }
 }
 
 extension Workspace {
+    /// Copies of the selected part until there are n in all: on its plate
+    /// while they fit, then on new plates (zs_set_fill). A note says how
+    /// many and on how many plates.
+    func fillPart(_ n: Int) {
+        guard let i = selectedPart, n > 1 else { return }
+        model.history.commit()
+        var plates = 0
+        let made = zs_set_fill(model.set, model.active, i, n, &plates)
+        guard made >= 0 else {
+            showNote("The copies did not work (\(statusText(Int32(made)))).")
+            return
+        }
+        model.readPlates()
+        model.settingsGeneration += 1
+        // The core made the steps of the history: the undo actions follow.
+        model.history.attach()
+        model.onPlates?()
+        fitAfterSlice = true
+        let all = Int(made)
+        if all < n {
+            showNote("\(all) of \(n) fit: the part is too big for more plates", seconds: 6)
+        } else {
+            showNote("\(all) in all, on \(plates) plate\(plates == 1 ? "" : "s")")
+        }
+    }
+
     /// Moves the selected part to a new plate, and shows that plate.
     func movePartToNewPlate(_ part: Int? = nil) {
         guard let i = part ?? selectedPart else { return }

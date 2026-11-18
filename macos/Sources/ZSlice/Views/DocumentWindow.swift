@@ -44,6 +44,8 @@ struct DocumentWindow: View {
             doc.fileURL = nil
             doc.fileType = UTType.threeMF.identifier
             doc.displayName = ((url?.lastPathComponent ?? name) as NSString).deletingPathExtension
+            for c in doc.windowControllers { c.synchronizeWindowTitleWithDocumentName() }
+            w.title = doc.displayName
         }
         doc.updateChangeCount(.changeCleared)
         // For tests: ZSLICE_DOC_SAVE=path saves through the NSDocument, and
@@ -104,20 +106,6 @@ struct DocumentWindow: View {
             .overlay(alignment: .top) {
                 Timeline(history: workspace.model.history).padding(.top, 12)
             }
-            .overlay(alignment: .top) {
-                if let note = workspace.note {
-                    Label(note, systemImage: "info.circle")
-                        .font(.callout)
-                        .padding(.horizontal, 12)
-                        .padding(.vertical, 6)
-                        .background(.regularMaterial, in: Capsule())
-                        .padding(.top, 56)
-                        .transition(.opacity)
-                        .allowsHitTesting(false)
-                        .accessibilityAddTraits(.updatesFrequently)
-                }
-            }
-            .animation(.easeInOut(duration: 0.2), value: workspace.note)
             .overlay(alignment: .topTrailing) {
                 // Left of the layer slider and its number.
                 GapSummary(workspace: workspace)
@@ -202,6 +190,20 @@ struct DocumentWindow: View {
                     .allowsHitTesting(false)
             }
         }
+        .overlay(alignment: .top) {
+            if let note = workspace.note {
+                Label(note, systemImage: "info.circle")
+                    .font(.callout)
+                    .padding(.horizontal, 12)
+                    .padding(.vertical, 6)
+                    .background(.regularMaterial, in: Capsule())
+                    .padding(.top, 46)
+                    .transition(.opacity)
+                    .allowsHitTesting(false)
+                    .accessibilityAddTraits(.updatesFrequently)
+            }
+        }
+        .animation(.easeInOut(duration: 0.2), value: workspace.note)
         .sheet(isPresented: Bindable(workspace).shortcutsOpen) { ShortcutSheet() }
         .sheet(isPresented: Bindable(workspace).pickerOpen) { PrinterPicker(workspace: workspace) }
         .inspector(isPresented: Bindable(workspace).showSettings) {

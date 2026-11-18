@@ -19,6 +19,7 @@ struct PartCard: View {
     let area: CGSize
     @State private var drag: CGSize = .zero
     @State private var moved: CGPoint?
+    @State private var count = 10
 
     var body: some View {
         if let p = workspace.part(index) {
@@ -75,10 +76,23 @@ struct PartCard: View {
                         PartSettingRow(workspace: workspace, index: index, info: s.info, value: s.value)
                     }
                 }
-                HStack {
-                    Button("Edit Settings for This Part…") { workspace.editScope(.part(index)) }
+                HStack(spacing: 6) {
+                    Text("Make")
+                    TextField("Count", value: $count, format: .number)
+                        .frame(width: 48)
+                        .multilineTextAlignment(.trailing)
+                        .onSubmit { workspace.fillPart(count) }
+                    Stepper("", value: $count, in: 2 ... 9999).labelsHidden()
+                    Text("in all")
                     Spacer()
-                    Button("Move to a New Plate") { workspace.movePartToNewPlate() }
+                    Button("Make") { workspace.fillPart(count) }
+                        .controlSize(.small)
+                }
+                .help("Copies of the part until there are this many in all: on this plate while they fit, then on new plates with the settings of this one")
+                HStack {
+                    Button("Part Settings…") { workspace.editScope(.part(index)) }
+                    Spacer()
+                    Button("To a New Plate") { workspace.movePartToNewPlate() }
                         .help("The part goes to a new plate with the settings of this one")
                 }
                 .buttonStyle(.link)
@@ -116,7 +130,7 @@ struct PartCard: View {
     private var place: CGPoint {
         if let moved { return moved }
         let w = 300.0
-        return CGPoint(x: area.width - w / 2 - 92, y: 190)
+        return CGPoint(x: area.width - w / 2 - 92, y: 236)
     }
 }
 
