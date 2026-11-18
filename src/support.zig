@@ -3,19 +3,29 @@
 //! A printer cannot put plastic on air. A part of a layer that is too far
 //! outside the layer below it needs support under it. The method:
 //!
-//! 1. Overhangs. For each layer i, the overhang is the outline of layer i
-//!    minus the outline of layer i - 1 moved out by d = h * tan(angle). A
-//!    wall that leans less than `support_angle` from vertical moves less
-//!    than d in one layer, so it holds itself. Overhangs thinner than one
-//!    line width are removed (an "opening").
+//! 1. Overhangs. For each layer i, the basic overhang is the outline of
+//!    layer i minus the outline of layer i - 1 moved out by d = h *
+//!    tan(angle). A wall that leans less than `support_angle` from vertical
+//!    moves less than d in one layer, so it holds itself. A wall that leans
+//!    a little more gives a thin basic strip on each layer, and the strips
+//!    of two layers do not touch. So the overhang that needs support is the
+//!    full strip: the part of layer i that is not on layer i - 1, within d
+//!    of the basic overhang. The strips of a slope then cover its whole
+//!    area. Only slivers of the arithmetic and specks are removed.
 //! 2. Columns, from the top down. An overhang of layer i needs support from
 //!    layer i - 1 - gap down, where gap is `support_z_gap_layers`: the
 //!    empty layers between the support and the part, so that the support
-//!    comes off. On each layer, the support area is the area from the layer
-//!    above plus the new overhangs, minus the model moved out by
-//!    `support_xy_gap`. Where the model blocks the area, the column stops:
-//!    it rests on the model. A column that rests on the model also keeps
-//!    `support_z_gap_layers` empty layers above the model.
+//!    comes off. On each layer, the column is the column of the layer above
+//!    plus the new overhangs, minus the outline of the part. Where the part
+//!    is under the column, the column stops: it rests on the part. A column
+//!    that rests on the part also keeps `support_z_gap_layers` empty layers
+//!    above the part. The support area of a layer is the column minus the
+//!    part moved out by `support_xy_gap`. The XY gap does not stop the
+//!    column: under a slope, the area next to the part is free again on
+//!    the layers below. Where the part above the Z gap covers the support,
+//!    the XY gap is at most half a line width: the Z gap keeps the support
+//!    off the overhang, and the full XY gap would remove the support under
+//!    a slope.
 //! 3. Bed only (`support = buildplate`). A pass from the bottom up keeps
 //!    only the areas that have support under them, so that each column
 //!    starts on the bed.
@@ -218,11 +228,15 @@ fn computeStyle(
     for (need) |*x| x.* = .empty;
     const blocked = try gpa.alloc(Paths, n);
     for (blocked) |*x| x.* = .empty;
+    const near = try gpa.alloc(Paths, n);
+    for (near) |*x| x.* = .empty;
     defer {
         for (need) |*x| x.deinit(gpa);
         gpa.free(need);
         for (blocked) |*x| x.deinit(gpa);
         gpa.free(blocked);
+        for (near) |*x| x.deinit(gpa);
+        gpa.free(near);
     }
     const Overhangs = struct {
         gpa: Allocator,
@@ -230,27 +244,46 @@ fn computeStyle(
         layers: []const slicer.Layer,
         need: []Paths,
         blocked: []Paths,
+        near: []Paths,
         tan_angle: f64,
         w: i64,
         xy: i64,
+        xy_under: i64,
 
         fn run(c: *const @This(), i: usize) anyerror!void {
             var arena = std.heap.ArenaAllocator.init(c.gpa);
             defer arena.deinit();
             const s = arena.allocator();
             c.blocked[i] = try offset_mod.offset(c.gpa, c.outlines[i], c.xy, .{});
+            c.near[i] = try offset_mod.offset(c.gpa, c.outlines[i], c.xy_under, .{});
             if (i == 0) return;
             const d = geom.fromMm(c.layers[i].height * c.tan_angle);
             const below = try offset_mod.offset(s, c.outlines[i - 1], d, .{});
             const raw = try clip.difference(s, c.outlines[i], below);
-            const clean = try offset_mod.opening(s, raw, @divTrunc(c.w, 2), .{});
-            c.need[i] = try clean.clone(c.gpa);
+            if (raw.isEmpty()) return;
+            // Only slivers of the arithmetic go. A slope that leans a little
+            // more than the angle gives a thin strip on each layer, and it
+            // needs support too.
+            const basic = try offset_mod.opening(s, raw, sliver, .{});
+            if (basic.isEmpty()) return;
+            // The full strip: the part of the layer that is not on the
+            // layer below, next to the basic overhang. The strips of a
+            // slope then cover its area with no gaps from layer to layer.
+            const full = try clip.difference(s, c.outlines[i], c.outlines[i - 1]);
+            const band = try offset_mod.offset(s, basic, d + @divTrunc(c.w, 4), .{});
+            var strip = try clip.intersect(s, full, band);
+            dropSmall(&strip, @divTrunc(c.w, 2));
+            c.need[i] = try strip.clone(c.gpa);
         }
     };
     const angle = std.math.degreesToRadians(p.support_angle);
     const gap = p.support_z_gap_layers;
     const xy = geom.fromMm(p.support_xy_gap);
-    const oc: Overhangs = .{ .gpa = gpa, .outlines = outlines, .layers = layers, .need = need, .blocked = blocked, .tan_angle = @tan(angle), .w = w, .xy = xy };
+    // Under an overhang, the support comes nearer to the part than the XY
+    // gap: the Z gap keeps it off the overhang, and a slope moves out by
+    // less than the XY gap in two layers.
+    const xy_under = @min(xy, @divTrunc(w, 2));
+    const oc: Overhangs = .{ .gpa = gpa, .outlines = outlines, .layers = layers, .need = need, .blocked = blocked, .near = near, .tan_angle = @tan(angle), .w = w, .xy = xy, .xy_under = xy_under };
     try parallel.forEach(threads, n, &oc, Overhangs.run);
 
     // The marks: a block mark removes the overhang near it (2 mm up and
@@ -297,11 +330,11 @@ fn computeStyle(
     errdefer deinitAll(gpa, out);
 
     if (p.support_style == .tree) {
-        try treeSupport(gpa, threads, outlines, layers, r_style, need, blocked, out);
+        try treeSupport(gpa, threads, outlines, layers, r_style, need, blocked, near, out);
         return out;
     }
     if (p.support_style == .bridge) {
-        try addPads(gpa, need, blocked, p.support_z_gap_layers, @max(1, p.support_interface_layers), out);
+        try addPads(gpa, need, near, p.support_z_gap_layers, @max(1, p.support_interface_layers), out);
         return out;
     }
 
@@ -320,7 +353,10 @@ fn computeStyle(
             if (carry.isEmpty() and !has_new) continue;
             var area = if (has_new) try clip.unite(gpa, carry, need[src]) else try carry.clone(gpa);
             defer area.deinit(gpa);
-            var next = try clip.difference(gpa, area, blocked[j]);
+            // Only the part stops a column. The XY gap comes in step 2b:
+            // under a slope, the area next to the part on this layer is
+            // free again on the layers below.
+            var next = try clip.difference(gpa, area, outlines[j]);
             // The carried area gets more points from each layer that it
             // passes. Support needs no micrometer precision, so 20 um of
             // simplification keeps the point count, and the time, low.
@@ -336,6 +372,8 @@ fn computeStyle(
     const Clean = struct {
         gpa: Allocator,
         outlines: []const Paths,
+        blocked: []const Paths,
+        near: []const Paths,
         out: []SupportLayer,
         gap: usize,
         w: i64,
@@ -345,7 +383,15 @@ fn computeStyle(
             var arena = std.heap.ArenaAllocator.init(c.gpa);
             defer arena.deinit();
             const s = arena.allocator();
-            var area = c.out[j].body;
+            // The XY gap: the full gap beside the part, and the smaller gap
+            // where the part above (over the Z gap) covers the support.
+            var area = try clip.difference(s, c.out[j].body, c.near[j]);
+            var over: Paths = .empty;
+            for (j + 1 + c.gap..j + 3 + c.gap) |q| {
+                if (q < c.outlines.len) over = try clip.unite(s, over, c.outlines[q]);
+            }
+            const side = try clip.difference(s, c.blocked[j], over);
+            area = try clip.difference(s, area, side);
             var k: usize = 1;
             while (k <= c.gap and k <= j) : (k += 1) {
                 area = try clip.difference(s, area, c.outlines[j - k]);
@@ -356,7 +402,7 @@ fn computeStyle(
             c.out[j].body = kept;
         }
     };
-    const cc: Clean = .{ .gpa = gpa, .outlines = outlines, .out = out, .gap = gap, .w = w };
+    const cc: Clean = .{ .gpa = gpa, .outlines = outlines, .blocked = blocked, .near = near, .out = out, .gap = gap, .w = w };
     try parallel.forEach(threads, n, &cc, Clean.run);
 
     // Step 3: only columns that start on the bed.
@@ -414,6 +460,7 @@ fn treeSupport(
     r: *const settings_mod.Resolved,
     need: []const Paths,
     blocked: []const Paths,
+    near: []const Paths,
     out: []SupportLayer,
 ) !void {
     const p = r.settings.project;
@@ -432,11 +479,12 @@ fn treeSupport(
     const branches = try tree.grow(gpa, threads, outlines, layers, need, blocked, 1 + gap + pads, params);
     defer gpa.free(branches);
     for (out, branches) |*o, b| o.body = b;
-    try addPads(gpa, need, blocked, gap, pads, out);
+    try addPads(gpa, need, near, gap, pads, out);
 }
 
 /// The pads: the overhang area, on the `pads` interface layers under each
-/// overhang (under the Z gap). Tree support and bridge support use them.
+/// overhang (under the Z gap), minus the part moved out by the XY gap
+/// under an overhang (`near`). Tree support and bridge support use them.
 fn addPads(gpa: Allocator, need: []const Paths, blocked: []const Paths, gap: usize, pads: usize, out: []SupportLayer) !void {
     const n = need.len;
     if (pads == 0) return;
@@ -456,6 +504,29 @@ fn addPads(gpa: Allocator, need: []const Paths, blocked: []const Paths, gap: usi
             out[j].interface = joined;
         }
     }
+}
+
+/// The width of the slivers that the overhang test removes, in units.
+const sliver: i64 = 10;
+
+/// Removes the polygons (and holes) of a set with an area under the area
+/// of a square of side `side` (units), in place.
+fn dropSmall(paths: *Paths, side: i64) void {
+    const min: i128 = 2 * @as(i128, side) * side;
+    var out: usize = 0;
+    var start: usize = 0;
+    var kept: usize = 0;
+    for (paths.ends.items) |end| {
+        const poly = paths.points.items[start..end];
+        start = end;
+        if (@abs(geom.area2(poly)) < min) continue;
+        std.mem.copyForwards(geom.Point, paths.points.items[out .. out + poly.len], poly);
+        out += poly.len;
+        paths.ends.items[kept] = @intCast(out);
+        kept += 1;
+    }
+    paths.points.shrinkRetainingCapacity(out);
+    paths.ends.shrinkRetainingCapacity(kept);
 }
 
 /// Simplifies each polygon of a set in place, and removes polygons with
@@ -664,5 +735,33 @@ test "tree support: branches under a cap, and a branch down a narrow hole" {
         const inside = try clip.intersect(gpa, l.body, sl.outlines[5]);
         defer @constCast(&inside).deinit(gpa);
         try testing.expect(inside.areaMm2() < 0.01);
+    }
+}
+
+test "a slope of 60 degrees gets support (grid and tree)" {
+    const gpa = testing.allocator;
+    // A cone that opens up: radius 5 mm on the bed, and a wall that leans
+    // 60 degrees from vertical. The strip of each layer is thinner than a
+    // line width, and the whole slope needs support.
+    const r1 = 5 + @tan(std.math.degreesToRadians(60.0)) * 10;
+    var m = try mesh_mod.shapes.frustum(gpa, 30, 30, 5, r1, 10, 64);
+    defer m.deinit(gpa);
+    const sl = try sliceAll(gpa, &m, 10);
+    defer {
+        for (sl.outlines) |*o| o.deinit(gpa);
+        gpa.free(sl.outlines);
+        gpa.free(sl.layers);
+    }
+    for ([_]settings_mod.SupportStyle{ .grid, .tree }) |style| {
+        var st: settings_mod.Settings = .{};
+        st.project.support = .everywhere;
+        st.project.support_style = style;
+        const r = try st.resolve();
+        const sup = try compute(gpa, sl.outlines, sl.layers, &r, 2, &.{});
+        defer deinitAll(gpa, sup);
+        // Layer 25 (z 5.1): the cone is 5 + 8.8 mm in radius at the top of
+        // the gap. The ring under the slope has support.
+        const area = sup[25].body.areaMm2() + sup[25].interface.areaMm2();
+        try testing.expect(area > 20);
     }
 }
