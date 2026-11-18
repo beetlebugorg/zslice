@@ -1484,6 +1484,11 @@ int zs_set_plate_info(zs_set *set, size_t i, zs_plate_info *out);
 /* The name of plate i for a list (a file name); NULL or "": the name of
  * its model. */
 int zs_set_name(zs_set *set, size_t i, const char *name);
+/* The printer that plate i is for: a key of the app's list of printers, or
+ * NULL or "" for none. The project file keeps it. */
+int zs_set_plate_printer(zs_set *set, size_t i, const char *key);
+/* The printer of plate i ("" for none), copied to buf with a 0 at the end. */
+int zs_set_plate_printer_get(zs_set *set, size_t i, char *buf, size_t cap, size_t *out_len);
 
 /* Plate i changed: it waits for a slice. In the native mode, a change of
  * the active plate starts its slice at once. A plate with no parts does

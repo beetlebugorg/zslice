@@ -102,6 +102,10 @@ pub const Plate = struct {
     index: std.atomic.Value(usize),
     /// The name for a list; empty: the name of the model of the app.
     name: []u8 = &.{},
+    /// The key of the printer that the plate is for (a key of the app's
+    /// list of printers), or empty: no printer yet. The project file keeps
+    /// it.
+    printer: []u8 = &.{},
     /// Why the plate failed to load, or why its parts do not fit.
     message: [:0]u8 = empty,
     cannot: bool = false,
@@ -121,6 +125,7 @@ pub const Plate = struct {
         p.app.halt();
         p.app.destroy();
         gpa.free(p.name);
+        gpa.free(p.printer);
         freeZ(gpa, p.message);
         gpa.free(p.scene);
         freeZ(gpa, p.info_name);
@@ -543,6 +548,28 @@ pub const Set = struct {
         set.markDirty();
     }
 
+    /// The printer that plate i is for (a key of the app's printers), or
+    /// null or "": none.
+    pub fn setPrinter(set: *Set, i: usize, key: ?[]const u8) Error!void {
+        set.enter();
+        defer set.leave();
+        if (i >= set.plates.items.len) return error.OutOfRange;
+        const p = set.plates.items[i];
+        const copy = try set.gpa.dupe(u8, key orelse "");
+        set.gpa.free(p.printer);
+        p.printer = copy;
+        set.markDirty();
+    }
+
+    /// The printer of plate i (empty: none). It stays valid until the next
+    /// change of the printer of the plate, or of the list.
+    pub fn printerOf(set: *Set, i: usize) ?[]const u8 {
+        set.enter();
+        defer set.leave();
+        if (i >= set.plates.items.len) return null;
+        return set.plates.items[i].printer;
+    }
+
     /// The facts of plate i for a list. The strings stay valid until the
     /// next `info` of the same plate, or a change of the list.
     pub fn info(set: *Set, i: usize) ?Info {
@@ -861,7 +888,7 @@ pub const Set = struct {
         defer set.leave();
         var list: std.ArrayList(project_file.PlateIn) = .empty;
         defer list.deinit(gpa);
-        for (set.plates.items) |p| try list.append(gpa, .{ .app = p.app, .name = p.name });
+        for (set.plates.items) |p| try list.append(gpa, .{ .app = p.app, .name = p.name, .printer = p.printer });
         return project_file.save(gpa, name, list.items, set.active);
     }
 
@@ -882,6 +909,7 @@ pub const Set = struct {
                 return e;
             };
             p.name = try set.gpa.dupe(u8, pl.name);
+            p.printer = try set.gpa.dupe(u8, pl.printer);
             try project_file.loadPlate(p.app, pl, diag);
             p.wanted = p.app.getState() != .empty;
         }

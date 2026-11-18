@@ -152,6 +152,28 @@ export fn zs_set_name(set: ?*Set, i: usize, name: ?[*:0]const u8) c_int {
     return ok;
 }
 
+/// The printer that plate i is for: a key of the app's list of printers,
+/// or null or "" for none. The project file keeps it.
+export fn zs_set_plate_printer(set: ?*Set, i: usize, key: ?[*:0]const u8) c_int {
+    const s = set orelse return @intFromEnum(Status.invalid_argument);
+    s.setPrinter(i, if (key) |k| std.mem.span(k) else null) catch |e| return status(e);
+    return ok;
+}
+
+/// The printer of plate i, copied to buf (with a 0 at the end); "" for
+/// none. out_len gets the length.
+export fn zs_set_plate_printer_get(set: ?*Set, i: usize, buf: ?[*]u8, cap: usize, out_len: ?*usize) c_int {
+    const s = set orelse return @intFromEnum(Status.invalid_argument);
+    const key = s.printerOf(i) orelse return @intFromEnum(Status.out_of_range);
+    if (out_len) |l| l.* = key.len;
+    if (buf) |b| if (cap > 0) {
+        const n = @min(key.len, cap - 1);
+        @memcpy(b[0..n], key[0..n]);
+        b[n] = 0;
+    };
+    return ok;
+}
+
 export fn zs_set_changed(set: ?*Set, i: usize) c_int {
     const s = set orelse return @intFromEnum(Status.invalid_argument);
     s.changed(i, false) catch |e| return status(e);

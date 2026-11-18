@@ -29,10 +29,12 @@ pub const Error = Allocator.Error || error{ NotProject, BadProject };
 pub const Diagnostic = struct { message: []const u8 = "" };
 
 /// A plate to save.
-pub const PlateIn = struct { app: *App, name: []const u8 };
+pub const PlateIn = struct { app: *App, name: []const u8, printer: []const u8 = "" };
 
 const PlateJson = struct {
     name: []const u8 = "",
+    /// The key of the printer that the plate is for, or "".
+    printer: []const u8 = "",
     file: []const u8 = "",
     machine: []const u8 = "",
     filament: []const u8 = "",
@@ -64,6 +66,7 @@ pub fn save(gpa: Allocator, name: []const u8, plates: []const PlateIn, active: u
     for (plates, 0..) |p, n| {
         var pj: PlateJson = .{
             .name = p.name,
+            .printer = p.printer,
             .machine = try stateText(a, p.app, .machine),
             .filament = try stateText(a, p.app, .filament),
             .project = try stateText(a, p.app, .project),
@@ -97,6 +100,7 @@ pub fn save(gpa: Allocator, name: []const u8, plates: []const PlateIn, active: u
 /// A plate to open.
 pub const PlateOut = struct {
     name: []const u8,
+    printer: []const u8 = "",
     machine: []const u8,
     filament: []const u8,
     project: []const u8,
@@ -161,6 +165,7 @@ pub fn parse(arena: Allocator, bytes: []const u8, diag: *Diagnostic) Error!Parse
         const file = str(pv.object, "file");
         o.* = .{
             .name = str(pv.object, "name"),
+            .printer = str(pv.object, "printer"),
             .machine = str(pv.object, "machine"),
             .filament = str(pv.object, "filament"),
             .project = str(pv.object, "project"),
@@ -212,7 +217,7 @@ test "project file: plates, settings, and parts come back" {
     try a1.loadStl("box", stl.written());
     try a1.setSetting("project.infill_density", "0.4");
     try a2.setSetting("machine.bed_size_x", "300");
-    const bytes = try save(gpa, "test", &.{ .{ .app = a1, .name = "Boxes" }, .{ .app = a2, .name = "" } }, 1);
+    const bytes = try save(gpa, "test", &.{ .{ .app = a1, .name = "Boxes", .printer = "Shop MK4" }, .{ .app = a2, .name = "" } }, 1);
     defer gpa.free(bytes);
     try testing.expect(isProject(gpa, bytes));
     var arena_state = std.heap.ArenaAllocator.init(gpa);
@@ -222,6 +227,8 @@ test "project file: plates, settings, and parts come back" {
     try testing.expectEqual(@as(usize, 2), parsed.plates.len);
     try testing.expectEqual(@as(usize, 1), parsed.active);
     try testing.expectEqualStrings("Boxes", parsed.plates[0].name);
+    try testing.expectEqualStrings("Shop MK4", parsed.plates[0].printer);
+    try testing.expectEqualStrings("", parsed.plates[1].printer);
     const b1 = try App.create(gpa, null, null);
     defer b1.destroy();
     const b2 = try App.create(gpa, null, null);
