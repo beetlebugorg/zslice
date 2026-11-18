@@ -54,6 +54,11 @@ final class Workspace {
     var supportDraft: [SIMD3<Double>] = []
     var supportSelected: Int?
     var supportKind = Int32(ZS_MARK_GRID.rawValue)
+    /// The overhang under the pointer in the Support tool: its outline and
+    /// z range (zs_app_support_pick). A click adds it as an area.
+    @ObservationIgnored var supportHover: (points: [Double], n: Int, zLo: Double, zHi: Double)?
+    @ObservationIgnored var hoverAt: CGPoint?
+    @ObservationIgnored var hoverDue = false
     var supportSee = true {
         didSet { applyFocus() }
     }
@@ -442,6 +447,39 @@ final class Workspace {
                         NSLog("zslice queue: sent job %u to %@: %@", s.job, p.name, r.message)
                     }
                 }
+            }
+        }
+        // ZSLICE_HOVER_SCAN=1: the Support tool, a hover over a grid of the
+        // view (a pick at each place), and a click on the first overhang.
+        if env["ZSLICE_HOVER_SCAN"] != nil {
+            setTool(.support)
+            var hits = 0, first: CGPoint?
+            let t = CACurrentMediaTime()
+            var n = 0
+            for gy in stride(from: 0.15, through: 0.85, by: 0.05) {
+                for gx in stride(from: 0.15, through: 0.85, by: 0.05) {
+                    let p = CGPoint(x: canvas.bounds.width * gx, y: canvas.bounds.height * gy)
+                    hoverAt = p
+                    hoverDue = false
+                    supportHover(at: p)
+                    hoverDue = false
+                    hoverAt = p
+                    n += 1
+                    // The pick at once, as the next main loop turn would.
+                    pickOverhangForTest()
+                    if supportHover != nil {
+                        hits += 1
+                        if first == nil { first = p }
+                    }
+                }
+            }
+            NSLog("zslice hover scan: %d places, %d over an overhang, %.2f ms each", n, hits, (CACurrentMediaTime() - t) * 1000 / Double(max(n, 1)))
+            if let p = first {
+                hoverAt = p
+                pickOverhangForTest()
+                let before = zs_app_support_area_count(model.core)
+                supportClick(p, snap: true)
+                NSLog("zslice hover scan: click at %.0f,%.0f, areas %ld -> %ld", p.x, p.y, before, zs_app_support_area_count(model.core))
             }
         }
         // ZSLICE_RESLICE=1 changes the infill 3 times, one change after each
@@ -1351,6 +1389,8 @@ extension Workspace: SliceViewDelegate {
     func sliceViewRelease(_ p: CGPoint) { release(p) }
     func sliceViewTurnWheel(_ dy: CGFloat) -> Bool { turnWheel(dy) }
     func sliceViewMenu(_ p: CGPoint) -> NSMenu? { contextMenu(at: p) }
+    func sliceViewHover(_ p: CGPoint?) { supportHover(at: p) }
+
     func sliceViewDidDraw() {
         if !tape.isEmpty { placeTape() }
         // The camera, the layers, or the page moved: the view file follows.

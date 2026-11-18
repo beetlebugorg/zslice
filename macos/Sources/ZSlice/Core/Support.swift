@@ -93,7 +93,72 @@ extension Workspace {
             add(a.points, a.kind, 1 | (i == supportSelected ? 2 : 0) | (on ? 4 : 0))
         }
         if on { add(supportDraft, supportKind, 4) }
+        // The overhang under the pointer: a click adds it.
+        if on, supportDraft.isEmpty, let h = supportHover {
+            var pts = Array(h.points.prefix(3 * h.n))
+            zs_view_support_add(v, &pts, h.n, supportKind, 1 | 2 | 4)
+        }
         canvas.requestFrame()
+    }
+
+    // MARK: - one click: the overhang under the pointer
+
+    /// The pointer moved in the Support tool: the overhang near the point
+    /// of the part under it, at most once for each frame (the last place
+    /// of the pointer wins).
+    func supportHover(at p: CGPoint?) {
+        guard tool == .support, page == .threeD, supportDraft.isEmpty else {
+            if supportHover != nil {
+                supportHover = nil
+                showSupport()
+            }
+            return
+        }
+        hoverAt = p
+        guard !hoverDue else { return }
+        hoverDue = true
+        DispatchQueue.main.async { [weak self] in
+            guard let self else { return }
+            hoverDue = false
+            pickOverhang()
+        }
+    }
+
+    func pickOverhangForTest() { pickOverhang() }
+
+    private func pickOverhang() {
+        let before = supportHover != nil
+        defer { if before || supportHover != nil { showSupport() } }
+        guard let p = hoverAt, let q = surfacePoint(p, snap: false) else {
+            supportHover = nil
+            return
+        }
+        let t = CACurrentMediaTime()
+        let cap = 2048
+        var pts = [Double](repeating: 0, count: 3 * cap)
+        var n = 0
+        var zLo = 0.0, zHi = 0.0
+        // 4 mm: the overhang can be beside the point, as on the web.
+        let part = zs_app_support_pick(model.core, q.x, q.y, q.z, 4, &pts, cap, &n, &zLo, &zHi)
+        if ProcessInfo.processInfo.environment["ZSLICE_TIMING"] != nil {
+            NSLog("zslice support pick: part %ld, %ld points, %.2f ms", part, n, (CACurrentMediaTime() - t) * 1000)
+        }
+        supportHover = part >= 0 && n >= 3 ? (pts, n, zLo, zHi) : nil
+    }
+
+    /// A click on a highlighted overhang: it becomes an area of support.
+    /// Returns false with nothing under the pointer.
+    private func addHoveredOverhang() -> Bool {
+        guard var h = supportHover else { return false }
+        supportHover = nil
+        let i = zs_app_support_area_add(model.core, supportKind, &h.points, h.n, h.zLo, h.zHi)
+        guard i >= 0 else {
+            showNote("The overhang did not become an area. \(statusText(Int32(-i)))")
+            return true
+        }
+        supportSelected = Int(i)
+        supportEdited()
+        return true
     }
 
     // MARK: - picks
@@ -159,6 +224,9 @@ extension Workspace {
             showSupport()
             return
         }
+        // One click: the overhang under the pointer. Option and a click
+        // draw an area point by point.
+        if supportDraft.isEmpty, !NSEvent.modifierFlags.contains(.option), addHoveredOverhang() { return }
         guard let q = surfacePoint(p, snap: snap) else { return }
         if supportDraft.isEmpty { supportSelected = nil }
         if supportDraft.count >= 256 { return }

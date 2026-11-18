@@ -212,8 +212,10 @@ struct DocumentWindow: View {
                             .position(cardPlace(near: workspace.cardAt, size: CGSize(width: 320, height: 220), in: geo.size))
                     }
                     if workspace.tool == .support, workspace.supportPaneOpen, workspace.page == .threeD {
+                        // Beside the tool strip, clear of the details at the right.
                         SupportCard(workspace: workspace)
-                            .position(x: geo.size.width - 145 - 92, y: 200)
+                            .fixedSize()
+                            .position(x: 80 + 160, y: 150)
                     }
                     if let i = workspace.selectedPart {
                         PartCard(workspace: workspace, index: i, area: geo.size)

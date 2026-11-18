@@ -63,6 +63,8 @@ protocol SliceViewDelegate: AnyObject {
     func sliceViewDidDraw()
     /// The context menu for a point of the view.
     func sliceViewMenu(_ p: CGPoint) -> NSMenu?
+    /// The pointer moved over the view with no button down (nil: it left).
+    func sliceViewHover(_ p: CGPoint?)
 }
 
 final class MetalSliceView: NSView {
@@ -142,6 +144,21 @@ final class MetalSliceView: NSView {
     override var isFlipped: Bool { true }
     override var acceptsFirstResponder: Bool { true }
     override func acceptsFirstMouse(for event: NSEvent?) -> Bool { true }
+
+    // The pointer over the view, for the hover of the Support tool.
+    override func updateTrackingAreas() {
+        super.updateTrackingAreas()
+        for t in trackingAreas { removeTrackingArea(t) }
+        addTrackingArea(NSTrackingArea(rect: .zero, options: [.mouseMoved, .mouseEnteredAndExited, .activeInKeyWindow, .inVisibleRect], owner: self))
+    }
+
+    override func mouseMoved(with event: NSEvent) {
+        delegate?.sliceViewHover(convert(event.locationInWindow, from: nil))
+    }
+
+    override func mouseExited(with event: NSEvent) {
+        delegate?.sliceViewHover(nil)
+    }
 
     private var scale: CGFloat { window?.backingScaleFactor ?? 2 }
 
