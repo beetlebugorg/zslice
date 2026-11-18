@@ -16,6 +16,7 @@ const usage =
     \\  zslice check <model.stl> [options]
     \\  zslice orient <model.stl> [options]
     \\  zslice profiles
+    \\  zslice printers
     \\  zslice profile <machine|filament|project> [options]
     \\  zslice import cura <stack folder> -o <profiles folder>
     \\  zslice settings
@@ -35,6 +36,9 @@ const usage =
     \\            that should be solid and that no bead covers, with their
     \\            size and the features around them.
     \\  profiles  List the built-in profiles and where profile files go.
+    \\  printers  List the printers of the printer library: the id, the
+    \\            firmware, the bed ("heated", "round"), and the name.
+    \\            -m ID loads the machine profile of a printer.
     \\  profile   Write the settings of one group as a profile file, with
     \\            the options applied. Start a new profile from this output.
     \\  import    Convert a Cura profile stack (a folder with cura.json, as in
@@ -125,7 +129,22 @@ pub fn main(init: std.process.Init) !void {
         try w.writeAll("\nProfile files (name.toml) are found in, in this order:\n");
         try w.writeAll("  ./profiles/<group>/\n");
         if (resolver_state.config_dir) |d| try w.print("  {s}/profiles/<group>/\n", .{d});
-        try w.writeAll("  the built-in profiles\n\nA path with a / or a .toml name also works: -f ./my-pla.toml\n");
+        try w.writeAll("  the built-in profiles\n  the printer library (machine: an id of `zslice printers`)\n\nA path with a / or a .toml name also works: -f ./my-pla.toml\n");
+        try w.flush();
+        return;
+    }
+
+    if (std.mem.eql(u8, cmd, "printers")) {
+        var buf: [4096]u8 = undefined;
+        var out_w: Io.File.Writer = .init(.stdout(), io, &buf);
+        const w = &out_w.interface;
+        const lib = try zslice.printers.Library.parse(gpa, zslice.printers.builtin_data);
+        defer lib.deinit();
+        for (lib.models) |m| {
+            const flags = [_][]const u8{ if (m.heated_bed) "heated " else "", if (m.round) "round " else "" };
+            const f = try std.mem.concat(arena, u8, &flags);
+            try w.print("{s}\t{s}\t{s}\t{s}\n", .{ m.id, m.firmware, std.mem.trimEnd(u8, f, " "), m.title });
+        }
         try w.flush();
         return;
     }
@@ -744,7 +763,21 @@ const FileResolver = struct {
             const p = std.fmt.allocPrint(arena, "{s}/profiles/{s}/{s}.toml", .{ d, g, name }) catch return null;
             if (self.read(arena, p)) |t| return t;
         }
+        if (group == .machine) return libraryProfile(arena, name);
         return null;
+    }
+
+    /// The machine profile of the printer with the id `name` in the
+    /// printer library, or null. A built-in profile of that name comes
+    /// first.
+    fn libraryProfile(arena: std.mem.Allocator, name: []const u8) ?[]const u8 {
+        for (profile.builtins) |b| if (b.group == .machine and std.mem.eql(u8, b.name, name)) return null;
+        const lib = zslice.printers.Library.parse(arena, zslice.printers.builtin_data) catch return null;
+        defer lib.deinit();
+        const i = lib.find(name) orelse return null;
+        var out: std.Io.Writer.Allocating = .init(arena);
+        lib.profileText(i, 0, &out.writer) catch return null;
+        return out.written();
     }
 };
 
