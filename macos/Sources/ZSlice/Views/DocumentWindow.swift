@@ -37,6 +37,13 @@ struct DocumentWindow: View {
         }
         guard let w = workspace.canvas.window, let doc = NSDocumentController.shared.document(for: w) else { return }
         workspace.model.document = doc
+        // A file opens in place of the empty window of the start (or of
+        // File > New), at its place: no second window.
+        if document.data.isEmpty {
+            EmptyWindows.note(doc, workspace)
+        } else {
+            EmptyWindows.replace(with: w, keeping: doc)
+        }
         // A model file: the window imports it, as an untitled project
         // with the name of the model, so a save asks where to save and
         // never writes over the model.
@@ -607,5 +614,37 @@ struct ColorsButton: View {
             .padding(14)
             .frame(minWidth: 220)
         }
+    }
+}
+
+/// The windows that opened empty and have nothing yet: a file that opens
+/// next takes the place of one, so the start window does not stay behind.
+@MainActor
+enum EmptyWindows {
+    private struct Entry {
+        weak var document: NSDocument?
+        weak var workspace: Workspace?
+    }
+
+    private static var list: [Entry] = []
+
+    static func note(_ doc: NSDocument, _ ws: Workspace) {
+        list.append(Entry(document: doc, workspace: ws))
+    }
+
+    /// Closes an empty, unchanged, untitled window, and puts the new
+    /// window where it was.
+    static func replace(with window: NSWindow, keeping keep: NSDocument) {
+        list.removeAll { $0.document == nil || $0.workspace == nil }
+        let empty = list.indices.filter { i in
+            guard let d = list[i].document, let ws = list[i].workspace, d !== keep else { return false }
+            return d.fileURL == nil && !d.isDocumentEdited && ws.model.plates.allSatisfy { $0.parts == 0 } && ws.model.project == nil
+        }
+        // The window that the user looks at first.
+        let front = empty.first { list[$0].document?.windowControllers.first?.window?.isMainWindow == true }
+        guard let i = front ?? empty.last, let old = list[i].document else { return }
+        list.remove(at: i)
+        if let frame = old.windowControllers.first?.window?.frame { window.setFrame(frame, display: true) }
+        old.close()
     }
 }

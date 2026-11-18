@@ -73,7 +73,7 @@ final class History {
 
     /// A change went to the core: the step comes 400 ms after the last one.
     func noteChange() {
-        model.saveBytes.set(nil)
+        model.scheduleSaveBytes()
         timer?.cancel()
         timer = Task { @MainActor [weak self] in
             try? await Task.sleep(for: .milliseconds(400))

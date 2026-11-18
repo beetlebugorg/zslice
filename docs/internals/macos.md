@@ -157,6 +157,7 @@ Like the GTK shell, the app reads some environment variables for development and
 - `ZSLICE_SIGN_TEST=1` signs the G-code of the plate, checks it (zs_verify_gcode), and checks a copy with one byte changed. In a fresh run (`ZSLICE_FRESH`) the signing key stays in memory, not in the Keychain.
 - `ZSLICE_DECK_JSON=path` logs the printers that a printer.json of a printdeck with more than one printer gives.
 - `ZSLICE_PICKER=1` opens the printer picker.
+- `ZSLICE_OPEN_AFTER=path` opens a file 3 s after the start, as File > Open does, and logs the windows (the empty window must give its place to the file).
 - `ZSLICE_RECORD=path.mov` records a demo video of the window (Recorder.swift): a turn, the colors, the layer slider, the replay, and the 2D view, frame by frame at 30 frames a second.
 - `ZSLICE_ADD_PLATE="path;path"` puts each file on a new plate after the first slice.
 - `ZSLICE_SEARCH=text` opens the search, `ZSLICE_GAPS=1` and `ZSLICE_CHECK=1` turn on Gaps and Check, `ZSLICE_MENU="x,y;Title"` (or `center;Title`) runs an item of the context menu, and `ZSLICE_DARK=1` sets the dark look.
@@ -187,7 +188,7 @@ The work goes in steps. Each step keeps `zig build test`, `zig build web`, and t
 
 `ProjectDocument` (ZSliceApp.swift) is a `ReferenceFileDocument` of a `DocumentGroup`, so the window has the Save, Save As, Revert, Versions, and autosave of macOS. The core history stays the source of truth: `History` drives the UndoManager of the NSDocument, as it drove its own one before, and tells the document when the step now is or is not the step of the last save (the dot of the close button). Only the history of the active plate uses the UndoManager, and a switch of the plate makes its actions again.
 
-SwiftUI calls `snapshot` on another thread. So the model keeps the bytes of the project file (`zs_set_project_save`), made on the main thread at each step of the history, and `snapshot` returns them. A change in the 400 ms before its step clears them, and `snapshot` then makes them on the main thread.
+SwiftUI calls `snapshot` on another thread, while the main thread waits for the save. So the model keeps the bytes of the project file (`zs_set_project_save`), made on the main thread soon after each change, and `snapshot` returns the last copy. It never waits for the main thread: that was a deadlock.
 
 A model file (an STL, or a 3MF that `zs_project_file_is` does not know) becomes an untitled document after the load (`fileURL = nil`, the type 3MF, the name of the model), so a save never writes over the model.
 

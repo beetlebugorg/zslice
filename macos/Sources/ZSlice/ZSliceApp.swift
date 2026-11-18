@@ -44,19 +44,20 @@ final class ProjectDocument: ReferenceFileDocument, @unchecked Sendable {
     /// A zslice project file (all plates), not a model.
     var isProject: Bool { data.withUnsafeBytes { zs_project_file_is($0.bindMemory(to: UInt8.self).baseAddress, $0.count) } == 1 }
 
-    /// The bytes of the plates, made on the main thread at each step of the
-    /// history (SliceModel.refreshSaveBytes). SwiftUI calls snapshot on
-    /// another thread; a copy that is not current (a change in the 400 ms
-    /// before its step) is made again on the main thread.
+    /// The bytes of the plates, made on the main thread after each change
+    /// (SliceModel.scheduleSaveBytes). SwiftUI calls snapshot on another
+    /// thread, and takes the last copy.
     func snapshot(contentType: UTType) throws -> Data {
         let make: @MainActor () -> Data? = { [weak self] in
             guard let model = self?.model else { return nil }
             model.refreshSaveBytes()
             return model.saveBytes.current
         }
-        if let bytes = model?.saveBytes.current { return bytes }
-        let bytes: Data? = Thread.isMainThread ? MainActor.assumeIsolated { make() } : DispatchQueue.main.sync { MainActor.assumeIsolated { make() } }
-        guard let bytes else { throw CocoaError(.fileWriteUnknown) }
+        // Never wait for the main thread here: during a save the main thread
+        // waits for this thread, so a sync to it is a deadlock. The bytes of
+        // the last step are at most a moment old (SaveBytes).
+        if Thread.isMainThread, let bytes = MainActor.assumeIsolated({ make() }) { return bytes }
+        guard let bytes = model?.saveBytes.current else { throw CocoaError(.fileWriteUnknown) }
         return bytes
     }
 
@@ -71,7 +72,20 @@ struct ZSliceApp: App {
         // At launch with no file, a new window with an empty plate (the
         // whole app, with "Drop an STL or 3MF file here"), not the Open
         // panel that a document app shows by default.
-        UserDefaults.standard.register(defaults: ["NSShowAppCentricOpenPanelInsteadOfUntitledFile": false])
+        // No restore of the windows of the last session: they came back as
+        // empty windows (an untitled import has no file to read again).
+        UserDefaults.standard.register(defaults: ["NSShowAppCentricOpenPanelInsteadOfUntitledFile": false,
+                                                  "NSQuitAlwaysKeepsWindows": false])
+        // ZSLICE_OPEN_AFTER=path opens a file 3 s after the start, as File >
+        // Open does, and logs the windows 3 s later (for tests).
+        if let path = ProcessInfo.processInfo.environment["ZSLICE_OPEN_AFTER"] {
+            DispatchQueue.main.asyncAfter(deadline: .now() + 3) {
+                NSDocumentController.shared.openDocument(withContentsOf: URL(fileURLWithPath: path), display: true) { _, _, _ in }
+                DispatchQueue.main.asyncAfter(deadline: .now() + 3) {
+                    NSLog("zslice windows: %@", NSApp.windows.filter(\.isVisible).map(\.title).joined(separator: ", "))
+                }
+            }
+        }
     }
 
     var body: some Scene {

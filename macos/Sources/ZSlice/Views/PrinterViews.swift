@@ -112,7 +112,8 @@ struct PrinterPicker: View {
                 Button("Cancel") { dismiss() }.keyboardShortcut(.cancelAction)
                 Button("Add Printer") { add() }
                     .keyboardShortcut(.defaultAction)
-                    .disabled(selected == nil || name.isEmpty)
+                    .disabled((selected == nil && network == nil) || name.isEmpty)
+                    .help(selected == nil && network != nil ? "Add the printer of the network with generic settings; pick its model at the left for its bed and start G-code" : "")
             }
             .padding()
         }
@@ -153,9 +154,31 @@ struct PrinterPicker: View {
                 ConnectionSection(kind: $kind, url: $url, key: $key, serial: $serial)
             }
             .formStyle(.grouped)
+        } else if let f = network {
+            // A printer of the network with no model of the library: it can
+            // be added as it is.
+            Form {
+                Section("On Your Network") {
+                    LabeledContent("Found", value: f.name)
+                    LabeledContent("Kind", value: f.kindTitle)
+                    LabeledContent("Address", value: f.url)
+                    Text("zslice has no model in its library for this printer's name. Pick its model at the left for its bed, nozzle, and start G-code, or add it as it is: it gets generic settings, and Use the Printer's Bed, Nozzle, and Motion in the printer menu reads them from the printer.")
+                        .font(.callout)
+                        .foregroundStyle(.secondary)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+                Section("This printer") {
+                    TextField("Name", text: $name)
+                }
+                ConnectionSection(kind: $kind, url: $url, key: $key, serial: $serial)
+            }
+            .formStyle(.grouped)
         } else {
-            ContentUnavailableView("Pick a Model", systemImage: "printer",
-                                   description: Text("Search, or pick a brand at the left. The library has more than 1000 printers."))
+            ContentUnavailableView {
+                Label("Choose Your Printer", systemImage: "printer")
+            } description: {
+                Text("Click a printer on your network, or pick your printer's model in the list: its bed, nozzle, and start G-code come from the library of more than 1000 printers.")
+            }
         }
     }
 
@@ -173,6 +196,14 @@ struct PrinterPicker: View {
     }
 
     private func add() {
+        // A printer of the network with no model: generic settings.
+        if selected == nil, network != nil {
+            var p = Printer(name: name, kind: kind, url: url)
+            p.serial = serial
+            if !key.isEmpty { p.apiKey = key }
+            finish(p)
+            return
+        }
         guard let i = selected, let m = lib.model(i), let profile = lib.profile(i, nozzle: nozzle) else { return }
         var p = Printer(name: name, model: coreText(m.id), machine: profile, kind: kind, url: url)
         p.serial = serial

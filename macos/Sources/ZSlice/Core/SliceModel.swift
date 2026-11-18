@@ -130,6 +130,7 @@ final class SliceModel {
     }
     /// The project file of the plates for a save (ProjectFile.swift).
     @ObservationIgnored let saveBytes = SaveBytes()
+    @ObservationIgnored var saveBytesDue = false
 
     /// The undo list of the active plate.
     var history: History {
@@ -143,7 +144,7 @@ final class SliceModel {
     // MARK: - the plates
 
     func readPlates() {
-        saveBytes.set(nil)
+        scheduleSaveBytes()
         active = zs_set_active(set)
         plates = (0 ..< zs_set_count(set)).compactMap { i in
             var p = zs_plate_info()

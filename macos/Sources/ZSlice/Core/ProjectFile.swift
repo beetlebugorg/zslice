@@ -26,6 +26,18 @@ final class SaveBytes: @unchecked Sendable {
 }
 
 extension SliceModel {
+    /// After a change: a new copy soon, on the main thread (one for many
+    /// changes). The last copy stays until then, so a save never waits.
+    func scheduleSaveBytes() {
+        guard !saveBytesDue else { return }
+        saveBytesDue = true
+        DispatchQueue.main.async { [weak self] in
+            guard let self else { return }
+            saveBytesDue = false
+            refreshSaveBytes()
+        }
+    }
+
     /// A copy of the plates as a project file, for the next save.
     func refreshSaveBytes() {
         saveBytes.set(document == nil ? nil : projectFileData(name: name))
