@@ -36,6 +36,7 @@ pub const plate = @import("plate.zig");
 pub const zipfile = @import("zipfile.zig");
 pub const threemf = @import("threemf.zig");
 pub const orient = @import("orient.zig");
+pub const physics = @import("physics.zig");
 pub const slicer = @import("slicer.zig");
 pub const settings = @import("settings.zig");
 pub const infill = @import("infill.zig");
