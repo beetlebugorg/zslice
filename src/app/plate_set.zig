@@ -737,6 +737,59 @@ pub const Set = struct {
         return target;
     }
 
+    pub const Totals = struct {
+        plates: usize = 0,
+        /// The plates with parts and a slice; the others are not in the
+        /// sums (they slice now, or failed).
+        sliced: usize = 0,
+        missing: usize = 0,
+        parts: usize = 0,
+        time_s: f64 = 0,
+        filament_g: f64 = 0,
+        filament_mm: f64 = 0,
+        /// The filament (its weight times filament.price_per_kg of each
+        /// plate) and the machine time (machine.hour_rate).
+        cost_filament: f64 = 0,
+        cost_machine: f64 = 0,
+
+        fn addApp(t: *Totals, app: *App) void {
+            const parts = app.plate.count();
+            if (parts == 0) return;
+            t.plates += 1;
+            t.parts += parts;
+            const r = app.result() orelse {
+                t.missing += 1;
+                return;
+            };
+            t.sliced += 1;
+            t.time_s += r.print_time_s;
+            t.filament_g += r.filament_g;
+            t.filament_mm += r.filament_mm;
+            t.cost_filament += r.filament_g / 1000 * app.settings.filament.price_per_kg;
+            t.cost_machine += r.print_time_s / 3600 * app.settings.machine.hour_rate;
+        }
+    };
+
+    /// The sums over the plates with parts: time, filament, and cost. A
+    /// plate with no slice yet counts in `missing`.
+    pub fn totals(set: *Set) Totals {
+        set.enter();
+        defer set.leave();
+        var t: Totals = .{};
+        for (set.plates.items) |p| t.addApp(p.app);
+        return t;
+    }
+
+    /// The same for plate i alone.
+    pub fn plateTotals(set: *Set, i: usize) ?Totals {
+        set.enter();
+        defer set.leave();
+        if (i >= set.plates.items.len) return null;
+        var t: Totals = .{};
+        t.addApp(set.plates.items[i].app);
+        return t;
+    }
+
     // ---- the project file ----
 
     /// The plates as one file (see project_file.zig), in gpa.

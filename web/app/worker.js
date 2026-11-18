@@ -825,6 +825,23 @@ const ops = {
     return { bytes };
   },
 
+  // The sums of the plates (zs_set_totals).
+  totals() {
+    const w = wasm;
+    const p = w.alloc(80);
+    try {
+      if (w.x.zs_set_totals(set, p) !== 0) return null;
+      // zs_totals on wasm32: 4 sizes of 4 bytes, then 6 doubles at 16.
+      return {
+        plates: w.u32(p), sliced: w.u32(p + 4), missing: w.u32(p + 8), parts: w.u32(p + 12),
+        timeS: w.f64(p + 16), filamentG: w.f64(p + 24), filamentMm: w.f64(p + 32),
+        costFilament: w.f64(p + 40), costMachine: w.f64(p + 48), cost: w.f64(p + 56),
+      };
+    } finally {
+      w.free(p, 80);
+    }
+  },
+
   // True if the bytes are a project file of zslice.
   projectFileIs({ bytes }) {
     return wasm.withBytes(new Uint8Array(bytes), (p, n) => wasm.x.zs_project_file_is(p, n)) === 1;

@@ -1718,7 +1718,9 @@ function updateSummary() {
   const st = app.stats;
   $("sum-time").textContent = formatTime(st.printTimeS);
   const perG = Number(value("filament.price_per_kg")) / 1000;
-  const cost = perG > 0 ? ` · ${(st.filamentG * perG).toFixed(2)}` : "";
+  const perH = Number(value("machine.hour_rate")) || 0;
+  const c = st.filamentG * perG + (st.printTimeS / 3600) * perH;
+  const cost = c > 0 ? ` · ${c.toFixed(2)}` : "";
   $("sum-detail").textContent = `${st.filamentG.toFixed(1)} g · ${(st.filamentMm / 1000).toFixed(2)} m${cost} · ${st.layerCount} layers`;
   $("sum-took").textContent = app.sliceMs < 1000 ? `Sliced in ${app.sliceMs.toFixed(0)} ms` : `Sliced in ${(app.sliceMs / 1000).toFixed(1)} s`;
   fillFacts();
@@ -1927,6 +1929,7 @@ function onPlates(m) {
   const before = app.activePlate;
   app.plates = m.plates;
   app.activePlate = m.active;
+  showProjectTotals();
   if (app.wantPlate === m.active) app.wantPlate = -1;
   if (m.sync) {
     try {
@@ -2149,6 +2152,33 @@ async function saveProject() {
     toast(app.plates.length > 1 ? `Saved ${app.plates.length} plates in ${name}.3mf.` : `Saved ${name}.3mf.`);
   } catch (e) {
     toast(e.message);
+  }
+}
+
+// The sums of all plates on the print card (zs_set_totals), with two
+// plates or more: the time, the filament, and the cost of the project.
+let totalsBusy = false;
+async function showProjectTotals() {
+  const box = $("sum-project");
+  if (app.plates.length < 2) {
+    box.hidden = true;
+    return;
+  }
+  if (totalsBusy) return;
+  totalsBusy = true;
+  try {
+    const t = await client.call("totals");
+    if (!t || t.plates < 2) {
+      box.hidden = true;
+      return;
+    }
+    const cost = t.cost > 0 ? ` · ${t.cost.toFixed(2)}` : "";
+    const wait = t.missing > 0 ? ` (${t.missing} ${t.missing === 1 ? "plate slices" : "plates slice"})` : "";
+    box.textContent = `All ${t.plates} plates: ${formatTime(t.timeS)} · ${t.filamentG.toFixed(1)} g${cost}${wait}`;
+    box.title = `${t.parts} parts on ${t.plates} plates. The cost: the filament ${t.costFilament.toFixed(2)}, the printer time ${t.costMachine.toFixed(2)} (machine.hour_rate).`;
+    box.hidden = false;
+  } finally {
+    totalsBusy = false;
   }
 }
 

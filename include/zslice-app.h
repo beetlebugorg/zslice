@@ -1440,6 +1440,18 @@ int zs_set_project_open(zs_set *set, const uint8_t *bytes, size_t len, char *mes
  * history step on each plate; both slice again. Returns the index of the
  * target plate, or -status. */
 ptrdiff_t zs_set_part_move(zs_set *set, size_t from, size_t part, ptrdiff_t to);
+/* The sums of the project: the plates with parts, how many have a slice
+ * (a plate that slices now or failed counts in missing, not in the sums),
+ * the parts, the print time, the filament, and the cost: the filament at
+ * filament.price_per_kg and the time at machine.hour_rate of each plate. */
+typedef struct zs_totals {
+    size_t plates, sliced, missing, parts;
+    double time_s, filament_g, filament_mm;
+    double cost_filament, cost_machine, cost;
+} zs_totals;
+int zs_set_totals(zs_set *set, zs_totals *out);
+/* The same sums for plate i alone. */
+int zs_set_plate_totals(zs_set *set, size_t i, zs_totals *out);
 
 /* ---- the plates of a set in a view ----
  *

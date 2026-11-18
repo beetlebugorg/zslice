@@ -270,6 +270,42 @@ export fn zs_set_project_open(set: ?*Set, bytes: ?[*]const u8, len: usize, messa
     return ok;
 }
 
+pub const Totals = extern struct {
+    plates: usize,
+    sliced: usize,
+    missing: usize,
+    parts: usize,
+    time_s: f64,
+    filament_g: f64,
+    filament_mm: f64,
+    cost_filament: f64,
+    cost_machine: f64,
+    cost: f64,
+};
+
+fn totalsOut(t: plate_set.Set.Totals) Totals {
+    return .{ .plates = t.plates, .sliced = t.sliced, .missing = t.missing, .parts = t.parts, .time_s = t.time_s, .filament_g = t.filament_g, .filament_mm = t.filament_mm, .cost_filament = t.cost_filament, .cost_machine = t.cost_machine, .cost = t.cost_filament + t.cost_machine };
+}
+
+/// The sums of the project: the plates with parts, how many have a slice,
+/// the parts, the print time, the filament, and the cost (the filament at
+/// filament.price_per_kg, and the time at machine.hour_rate, of each
+/// plate). A plate with no slice yet counts in `missing`, not in the sums.
+export fn zs_set_totals(set: ?*Set, out: ?*Totals) c_int {
+    const s = set orelse return @intFromEnum(Status.invalid_argument);
+    const o = out orelse return @intFromEnum(Status.invalid_argument);
+    o.* = totalsOut(s.totals());
+    return ok;
+}
+
+/// The same sums for plate i alone.
+export fn zs_set_plate_totals(set: ?*Set, i: usize, out: ?*Totals) c_int {
+    const s = set orelse return @intFromEnum(Status.invalid_argument);
+    const o = out orelse return @intFromEnum(Status.invalid_argument);
+    o.* = totalsOut(s.plateTotals(i) orelse return @intFromEnum(Status.out_of_range));
+    return ok;
+}
+
 /// Moves part `part` of plate `from` to plate `to`, or to a new plate after
 /// the others (to < 0, with the settings of plate `from`). The part keeps
 /// its mesh, pose, scale, settings, and volumes, and goes to a free place.
