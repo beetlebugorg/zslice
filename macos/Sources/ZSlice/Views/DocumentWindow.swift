@@ -162,7 +162,7 @@ struct DocumentWindow: View {
                     }
                     if let gap = workspace.gapCard {
                         GapCard(workspace: workspace, gap: gap)
-                            .position(x: min(workspace.cardAt.x + 180, geo.size.width - 170), y: min(max(workspace.cardAt.y, 160), geo.size.height - 160))
+                            .position(cardPlace(near: workspace.cardAt, size: CGSize(width: 320, height: 220), in: geo.size))
                     }
                     if workspace.tool == .support, workspace.page == .threeD {
                         SupportCard(workspace: workspace)

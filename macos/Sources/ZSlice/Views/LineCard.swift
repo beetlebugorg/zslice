@@ -144,16 +144,29 @@ struct LineCard: View {
         return s + String(format: "segment %.2f mm · %@ %.1f mm", m.segment_length, m.closed != 0 ? "loop" : "path", m.path_length)
     }
 
-    /// The center of the card: next to the click, inside the view (a card
-    /// that the user moved stays there).
+    /// The center of the card: beside the click, clear of it (a card that
+    /// the user moved stays there).
     private var place: CGPoint {
-        let w = cardSize.width, h = cardSize.height
         if let m = workspace.cardMoved { return m }
-        let at = workspace.cardAt
-        var x = at.x + 18
-        if x + w > area.width - 60 { x = at.x - w - 18 }
-        x = max(8, min(area.width - w - 8, x))
-        let y = max(60, min(area.height - h - 8, at.y - 24))
-        return CGPoint(x: x + w / 2, y: y + h / 2)
+        return cardPlace(near: workspace.cardAt, size: cardSize, in: area)
     }
+}
+
+/// The center of a card for a click at `at`: to the side, with a gap of
+/// 120 points, so the card does not cover the click and the lines around
+/// it. The side with room wins (the right first); with room on neither,
+/// the side farther from the click. Inside the view, under the toolbar.
+func cardPlace(near at: CGPoint, size: CGSize, in area: CGSize) -> CGPoint {
+    let w = size.width, h = size.height, gap: CGFloat = 120
+    var x: CGFloat
+    if at.x + gap + w <= area.width - 8 {
+        x = at.x + gap
+    } else if at.x - gap - w >= 8 {
+        x = at.x - gap - w
+    } else {
+        x = at.x < area.width / 2 ? area.width - w - 8 : 8
+    }
+    x = max(8, min(area.width - w - 8, x))
+    let y = max(60, min(area.height - h - 8, at.y - h / 2))
+    return CGPoint(x: x + w / 2, y: y + h / 2)
 }
