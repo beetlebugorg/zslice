@@ -66,6 +66,12 @@ typedef struct {
     /* The summary at the bottom of the side panel: the time, the
      * filament and the cost, and a button to print (or export). */
     GtkWidget *sum_box, *sum_time, *sum_detail, *sum_deck;
+    /* The hint under the status line: its text and its buttons. */
+    GtkWidget *hint, *hint_label, *hint_support, *hint_inches, *hint_meters;
+    /* The area in mm² that hangs in the air with no support, from the
+     * check after the last slice of the plate of overhang_core. */
+    double overhang;
+    zs_app *overhang_core;
     GtkWidget *send_menu;
     GtkWidget *send_box; /* the print button and its menu */
     GtkWidget *printer_state;
@@ -169,6 +175,97 @@ static void on_islands_clicked(GtkButton *b, gpointer data) {
     if (zs_app_island_get(core, w->island_next % n, &layer, NULL, NULL, NULL) != ZS_OK) return;
     zg_preview_show_layer(w->preview, layer);
     w->island_next = (w->island_next + 1) % n;
+}
+
+/* ---- the hints of the print card ---- */
+
+/* The area that hangs in the air (mm²) over which the print card says to
+ * turn on support. The check of the print measures it (overhangs and
+ * islands, as warnings or problems; a bridge does not count), so a Benchy
+ * has none. The web app uses the same limit. */
+#define OVERHANG_HINT_MM2 20.0
+/* A part with its largest side under this size (mm) comes from a file in
+ * inches or in meters. */
+#define TINY_PART_MM 3.0
+
+/* With support off: the check of the print after each slice, for the
+ * hint. It runs on the UI thread when the slice ends (5 to 60 ms). */
+static void check_overhang(Window *w) {
+    zs_app *core = zg_model_core(w->model);
+    w->overhang = 0;
+    w->overhang_core = core;
+    if (zs_app_state(core) != ZS_STATE_DONE) return;
+    char *support = zg_model_get(w->model, "project.support");
+    gboolean off = !support[0] || strcmp(support, "off") == 0;
+    g_free(support);
+    if (!off) return;
+    const zs_issue *issues = NULL;
+    size_t n = 0;
+    const char *text = NULL;
+    if (zs_app_checks(core, &issues, &n, &text) != ZS_OK) return;
+    for (size_t i = 0; i < n; i++) {
+        if ((issues[i].kind == ZS_ISSUE_OVERHANG || issues[i].kind == ZS_ISSUE_ISLAND) && issues[i].severity >= 1) w->overhang += issues[i].value;
+    }
+}
+
+static double part_size(const zs_part *p) {
+    return MAX(p->size_x, MAX(p->size_y, p->size_z));
+}
+
+/* Scales each part with its largest side under TINY_PART_MM by k: a file
+ * in inches (25.4) or in meters (1000). */
+static void scale_tiny(Window *w, double k) {
+    zs_app *core = zg_model_core(w->model);
+    size_t n = zs_app_part_count(core);
+    for (size_t i = 0; i < n; i++) {
+        zs_part p;
+        if (zs_app_part_get(core, i, &p) != ZS_OK || part_size(&p) >= TINY_PART_MM) continue;
+        zg_model_part_scale(w->model, i, p.scale_x * k);
+    }
+}
+
+/* The actions of the buttons of the hint: win.scale-tiny(25.4) and
+ * win.support-on. ZSLICE_ACTION can run them for a test. */
+static void on_scale_tiny_action(GSimpleAction *a, GVariant *v, gpointer data) {
+    scale_tiny(get(data), g_variant_get_double(v));
+}
+
+static void on_support_on_action(GSimpleAction *a, GVariant *v, gpointer data) {
+    zg_model_set(get(data)->model, "project.support", "everywhere", NULL);
+}
+
+/* One hint at a time, after the red warning of the status line (a part
+ * off the bed): a part from a file in inches or in meters, else a large
+ * area in the air with support off. */
+static void show_hint(Window *w, int state, gboolean fits) {
+    if (!w->hint) return;
+    zs_app *core = zg_model_core(w->model);
+    gboolean inches = FALSE, support = FALSE;
+    char *text = NULL;
+    if (state == ZS_STATE_DONE && fits) {
+        size_t n = zs_app_part_count(core);
+        for (size_t i = 0; i < n && !text; i++) {
+            zs_part p;
+            if (zs_app_part_get(core, i, &p) != ZS_OK || part_size(&p) >= TINY_PART_MM) continue;
+            text = g_strdup_printf("%s is only %.2f mm. Was the file in inches or in meters?", p.name && p.name[0] ? p.name : "The part",
+                                   part_size(&p));
+            inches = TRUE;
+        }
+        if (!text && w->overhang_core == core && w->overhang >= OVERHANG_HINT_MM2) {
+            char *v = zg_model_get(w->model, "project.support");
+            if (!v[0] || strcmp(v, "off") == 0) {
+                text = g_strdup_printf("About %.0f mm\u00b2 of the part hangs in the air with no support. It can droop or fail.", w->overhang);
+                support = TRUE;
+            }
+            g_free(v);
+        }
+    }
+    gtk_widget_set_visible(w->hint, text != NULL);
+    gtk_widget_set_visible(w->hint_inches, inches);
+    gtk_widget_set_visible(w->hint_meters, inches);
+    gtk_widget_set_visible(w->hint_support, support);
+    if (text) gtk_label_set_text(GTK_LABEL(w->hint_label), text);
+    g_free(text);
 }
 
 /* The summary card: the numbers of the last result, faded while a new
@@ -316,6 +413,7 @@ static void update(Window *w) {
     else gtk_widget_remove_css_class(w->status, "zg-stale");
 
     gtk_widget_remove_css_class(w->status, "error");
+    gboolean fits = state != ZS_STATE_DONE || zs_app_plate_fits(core) != 0;
     char text[256];
     switch (state) {
     case ZS_STATE_EMPTY:
@@ -374,7 +472,7 @@ static void update(Window *w) {
         }
         /* A part off the bed, or on another part: the printer can hit its
          * frame. The status line says so in red. */
-        if (zs_app_plate_fits(core) == 0) {
+        if (!fits) {
             g_snprintf(text, sizeof text, "A part is off the bed or on another part. Move, turn, scale, or cut it before you print.");
             gtk_widget_add_css_class(w->status, "error");
         }
@@ -388,6 +486,7 @@ static void update(Window *w) {
     }
     gtk_label_set_text(GTK_LABEL(w->status), text);
     update_summary(w, state);
+    show_hint(w, state, fits);
     zg_preview_refresh(w->preview);
     show_islands(w, state);
 }
@@ -442,6 +541,7 @@ static void on_core_event(ZgModel *model, int event, double progress, int status
         g_free(w->last_error);
         w->last_error = g_strdup(zg_status_text(status));
     }
+    if (event == ZS_EVENT_SLICED) check_overhang(w);
     update(w);
     if (w->send_pending && zs_app_state(zg_model_core(model)) != ZS_STATE_SLICING) {
         w->send_pending = FALSE;
@@ -1560,6 +1660,8 @@ GtkWindow *zg_window_new(GtkApplication *app, ZgModel *model) {
         {.name = "search-part", .activate = on_search_part_action, .parameter_type = "x"},
         {.name = "refocus", .activate = on_refocus_action},
         {.name = "shortcuts", .activate = on_shortcuts_action},
+        {.name = "scale-tiny", .activate = on_scale_tiny_action, .parameter_type = "d"},
+        {.name = "support-on", .activate = on_support_on_action},
     };
     g_action_map_add_action_entries(G_ACTION_MAP(w->window), win_actions, G_N_ELEMENTS(win_actions), w->window);
     g_signal_connect(model, "undo-changed", G_CALLBACK(on_undo_changed), w);
@@ -1651,6 +1753,26 @@ GtkWindow *zg_window_new(GtkApplication *app, ZgModel *model) {
     gtk_widget_add_css_class(w->status, "dim-label");
     gtk_widget_add_css_class(w->status, "caption");
     gtk_widget_add_css_class(w->status, "numeric");
+    /* The hint: a wrapped text and its buttons. */
+    w->hint = gtk_box_new(GTK_ORIENTATION_VERTICAL, 4);
+    gtk_widget_add_css_class(w->hint, "zg-hint");
+    w->hint_label = gtk_label_new("");
+    gtk_label_set_xalign(GTK_LABEL(w->hint_label), 0);
+    gtk_label_set_wrap(GTK_LABEL(w->hint_label), TRUE);
+    gtk_label_set_wrap_mode(GTK_LABEL(w->hint_label), PANGO_WRAP_WORD_CHAR);
+    GtkWidget *hint_buttons = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 4);
+    w->hint_inches = gtk_button_new_with_label("Inches (\u00d725.4)");
+    w->hint_meters = gtk_button_new_with_label("Meters (\u00d71000)");
+    w->hint_support = gtk_button_new_with_label("Turn on support");
+    gtk_actionable_set_detailed_action_name(GTK_ACTIONABLE(w->hint_inches), "win.scale-tiny(25.4)");
+    gtk_actionable_set_detailed_action_name(GTK_ACTIONABLE(w->hint_meters), "win.scale-tiny(1000.0)");
+    gtk_actionable_set_action_name(GTK_ACTIONABLE(w->hint_support), "win.support-on");
+    gtk_box_append(GTK_BOX(hint_buttons), w->hint_inches);
+    gtk_box_append(GTK_BOX(hint_buttons), w->hint_meters);
+    gtk_box_append(GTK_BOX(hint_buttons), w->hint_support);
+    gtk_box_append(GTK_BOX(w->hint), w->hint_label);
+    gtk_box_append(GTK_BOX(w->hint), hint_buttons);
+    gtk_widget_set_visible(w->hint, FALSE);
     /* Islands: a warning that goes to each island in turn. */
     w->islands = gtk_button_new();
     gtk_widget_add_css_class(w->islands, "flat");
@@ -1675,6 +1797,7 @@ GtkWindow *zg_window_new(GtkApplication *app, ZgModel *model) {
     gtk_box_append(GTK_BOX(w->sum_box), w->sum_deck);
     gtk_box_append(GTK_BOX(w->sum_box), w->facts);
     gtk_box_append(GTK_BOX(w->sum_box), w->status);
+    gtk_box_append(GTK_BOX(w->sum_box), w->hint);
     gtk_box_append(GTK_BOX(w->sum_box), w->islands);
     gtk_box_append(GTK_BOX(w->sum_box), w->progress);
     gtk_box_append(GTK_BOX(w->sum_box), w->printer_state);

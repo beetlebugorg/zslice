@@ -70,6 +70,10 @@ static const char *ZG_CSS =
     ".zg-card-moving { opacity: 0.92; }"
     "button.zg-card-close { min-height: 22px; min-width: 22px; padding: 0; }"
     ".zg-print-card { padding: 12px 14px 14px; }"
+    /* A hint of the print card: a file in inches, or no support under
+     * a large overhang. The web app uses the same amber. */
+    ".zg-hint { color: #fff; background: #8a5a00; border-radius: 6px; padding: 6px 8px; margin-top: 4px; font-size: 0.88em; }"
+    ".zg-hint button { color: #fff; min-height: 24px; padding: 2px 8px; }"
     ".zg-drawer { box-shadow: -2px 0 12px alpha(black, 0.30); }"
     /* The tool strip at the left of the view: a glyph and its key. */
     ".zg-strip { padding: 4px; }"
