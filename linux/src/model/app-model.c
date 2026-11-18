@@ -63,6 +63,10 @@ struct _ZgModel {
     Bridge *bridge;
     char *name;
     gint64 selected;
+    /* The key and the layer of the selected line, for an edit while a new
+     * slice runs (zs_app_path_key). */
+    uint64_t selected_key;
+    size_t selected_layer;
     /* With a selected line: the other lines fade (see zg_model_set_isolate). */
     gboolean isolate;
     /* The gaps view (see zg_model_set_gaps), and the selected gap: its
@@ -488,6 +492,9 @@ void zg_model_select(ZgModel *self, gint64 path) {
     self->selected = path;
     self->segment = -1;
     self->anchored = FALSE;
+    self->selected_key = path >= 0 ? zs_app_path_key(self->core, (size_t)path) : 0;
+    ptrdiff_t sl = path >= 0 ? zs_app_path_layer(self->core, (size_t)path) : -1;
+    self->selected_layer = sl > 0 ? (size_t)sl : 0;
     zs_toolpaths tp;
     if (path >= 0 && zs_app_toolpaths(self->core, &tp) == ZS_OK && (size_t)path < tp.path_count) {
         uint32_t start = path == 0 ? 0 : tp.path_ends[path - 1];
@@ -1573,7 +1580,11 @@ void zg_model_edits_changed(ZgModel *self) {
 }
 
 gboolean zg_model_edit_line(ZgModel *self, gint64 path, int kind, double value) {
-    if (path < 0 || zs_app_edit_add(self->core, (size_t)path, kind, value) != ZS_OK) return FALSE;
+    if (path < 0) return FALSE;
+    /* The key of the selected line works while a new slice runs. */
+    int rc = path == self->selected && self->selected_key ? zs_app_edit_add_key(self->core, self->selected_key, self->selected_layer, kind, value)
+                                                           : zs_app_edit_add(self->core, (size_t)path, kind, value);
+    if (rc != ZS_OK) return FALSE;
     zg_model_select(self, -1);
     plate_changed(self);
     return TRUE;

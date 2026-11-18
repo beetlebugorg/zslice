@@ -122,6 +122,7 @@ export class LineCard {
   // The data of the inspector for the selected line (zs_app_inspect), or
   // null.
   show(info) {
+    this.info = info;
     if (!info) {
       this.close();
       return;
@@ -196,13 +197,13 @@ export class LineCard {
       const edits = el("div", "lc-foot lc-edits");
       const del = el("button", "flat", "Don't print this line");
       del.title = "Take this line out of the print (Delete). The edit stays, and applies again to a new slice that makes the same line.";
-      del.onclick = () => this.ctx.edit(info.path, 0, 1);
+      del.onclick = () => this.ctx.edit(info, 0, 1);
       const less = el("button", "flat", "−10 % plastic");
       less.title = "This line with 10 % less plastic";
-      less.onclick = () => this.ctx.edit(info.path, 1, 0.9);
+      less.onclick = () => this.ctx.edit(info, 1, 0.9);
       const moreP = el("button", "flat", "+10 % plastic");
       moreP.title = "This line with 10 % more plastic, for a gap";
-      moreP.onclick = () => this.ctx.edit(info.path, 1, 1.1);
+      moreP.onclick = () => this.ctx.edit(info, 1, 1.1);
       edits.append(del, less, moreP);
       card.append(edits);
     }

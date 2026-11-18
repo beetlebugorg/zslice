@@ -627,6 +627,43 @@ export fn zs_app_edit_add_dot(a: ?*App, layer: usize, x: f64, y: f64, d: f64) c_
     return ok;
 }
 
+/// The key of line `path` of the last slice for an edit (0 if there is no
+/// slice). A shell reads it when the user selects the line, and adds the
+/// edit with zs_app_edit_add_key, also while a new slice runs.
+export fn zs_app_path_key(a: ?*const App, path: usize) u64 {
+    const app = a orelse return 0;
+    const t = app.allToolpaths() orelse return 0;
+    if (path >= t.path_key.items.len) return 0;
+    return t.path_key.items[path];
+}
+
+/// zs_app_edit_add with the key of the line (zs_app_path_key) and its
+/// layer: it works while a slice runs.
+export fn zs_app_edit_add_key(a: ?*App, key: u64, layer: usize, kind: c_int, value: f64) c_int {
+    const app = a orelse return @intFromEnum(Status.invalid_argument);
+    if (key == 0) return @intFromEnum(Status.invalid_argument);
+    const k: zs.app.edits_mod.Kind = switch (kind) {
+        0 => .delete,
+        1 => .flow,
+        else => return @intFromEnum(Status.invalid_argument),
+    };
+    app.edits.put(app.gpa, .{ .key = key, .kind = k, .value = @floatCast(value), .layer = @intCast(layer) }) catch return @intFromEnum(Status.out_of_memory);
+    noted(app, null, true);
+    return ok;
+}
+
+/// zs_app_edit_add_dot with the z of the layer (mm): it works while a
+/// slice runs. The shell reads the z when it shows the layer.
+export fn zs_app_edit_add_dot_z(a: ?*App, layer: usize, z: f64, x: f64, y: f64, d: f64) c_int {
+    const app = a orelse return @intFromEnum(Status.invalid_argument);
+    const zf: f32 = @floatCast(z);
+    const xf: f32 = @floatCast(x);
+    const yf: f32 = @floatCast(y);
+    app.edits.put(app.gpa, .{ .key = zs.app.edits_mod.Edits.dotKey(zf, xf, yf), .kind = .dot, .value = @floatCast(@max(d, 0.2)), .layer = @intCast(layer), .x = xf, .y = yf, .z = zf }) catch return @intFromEnum(Status.out_of_memory);
+    noted(app, null, true);
+    return ok;
+}
+
 /// The layer of path `path` of the last slice, or -1.
 export fn zs_app_path_layer(a: ?*const App, path: usize) isize {
     const app = a orelse return -1;

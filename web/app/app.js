@@ -775,8 +775,9 @@ var lineCard = new LineCard({
   more: () => showTab("selected"),
   close: () => select(-1, -1, false),
   // An edit of the line (zs_app_edit_add): kind 0 delete, 1 flow.
-  edit: async (path, kind, value) => {
-    const r = await client.call("editAdd", { path, kind, value });
+  // info: the line (inspect), with its key and layer.
+  edit: async (info, kind, value) => {
+    const r = await client.call("editAdd", { path: info.path, key: info.key, layer: info.layer, kind, value });
     if (!r.ok) {
       toast("The line did not change.");
       return;
@@ -1808,7 +1809,7 @@ async function dropHere() {
   }
   const x = wasm.f64(c);
   const y = wasm.f64(c + 8);
-  const res = await client.call("editDot", { layer: layers.hi, x, y, d: 1.0 });
+  const res = await client.call("editDot", { layer: layers.hi, z: app.layers?.z?.[layers.hi], x, y, d: 1.0 });
   toast(res.ok ? `A drop of plastic at ${x.toFixed(1)}, ${y.toFixed(1)} on layer ${layers.hi + 1}. Undo with Ctrl+Z.` : "No drop: slice first.");
 }
 
@@ -2432,7 +2433,7 @@ document.addEventListener("keydown", (e) => {
   // A selected line: Delete takes it out of the print (an edit).
   if (e.key === "Delete" && app.sel >= 0 && !partCard.open && !e.target.closest?.("input, textarea, select, [contenteditable]")) {
     e.preventDefault();
-    lineCard.ctx.edit(app.sel, 0, 1);
+    if (lineCard.info) lineCard.ctx.edit(lineCard.info, 0, 1);
     return;
   }
   if (!["/", "?", "n", "N", "d", "D"].includes(e.key) || e.ctrlKey || e.metaKey || e.altKey) return;

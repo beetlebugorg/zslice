@@ -902,8 +902,12 @@ const ops = {
   },
 
   // An edit of the user on line `path` (zs_app_edit_add), then a slice.
-  editAdd({ path, kind, value }) {
-    const rc = core.w.x.zs_app_edit_add(core.app, path, kind, value);
+  // With a key (read when the line was selected), it works while a slice
+  // runs.
+  editAdd({ path, key, layer, kind, value }) {
+    const rc = key && key !== "0"
+      ? core.w.x.zs_app_edit_add_key(core.app, BigInt(key), layer ?? 0, kind, value)
+      : core.w.x.zs_app_edit_add(core.app, path, kind, value);
     if (rc !== 0) return { ok: false, rc };
     wantSlice();
     return { ok: true, count: core.w.x.zs_app_edit_count(core.app) };
@@ -911,8 +915,10 @@ const ops = {
 
   // A drop of plastic on layer `layer` at (x, y), d mm wide
   // (zs_app_edit_add_dot), then a slice.
-  editDot({ layer, x, y, d }) {
-    const rc = core.w.x.zs_app_edit_add_dot(core.app, layer, x, y, d);
+  editDot({ layer, z, x, y, d }) {
+    const rc = z != null
+      ? core.w.x.zs_app_edit_add_dot_z(core.app, layer, z, x, y, d)
+      : core.w.x.zs_app_edit_add_dot(core.app, layer, x, y, d);
     if (rc !== 0) return { ok: false };
     wantSlice();
     return { ok: true };

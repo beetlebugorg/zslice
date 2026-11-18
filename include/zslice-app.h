@@ -288,6 +288,12 @@ int zs_app_edit_add(zs_app *app, size_t path, int kind, double value);
  * a small gap: a short closed loop at the end of the layer (edit kind 2). */
 int zs_app_edit_add_dot(zs_app *app, size_t layer, double x, double y, double d);
 size_t zs_app_edit_count(const zs_app *app);
+/* The key of a line for an edit, read when the user selects it (0: no
+ * slice), and the add by key: these work while a new slice runs. */
+uint64_t zs_app_path_key(const zs_app *app, size_t path);
+int zs_app_edit_add_key(zs_app *app, uint64_t key, size_t layer, int kind, double value);
+/* A drop with the z of its layer (read when the layer shows). */
+int zs_app_edit_add_dot_z(zs_app *app, size_t layer, double z, double x, double y, double d);
 /* The layer of path `path` of the last slice, or -1. */
 ptrdiff_t zs_app_path_layer(const zs_app *app, size_t path);
 /* applied: 1 if the last slice found the line of the edit, 0 if the line

@@ -452,6 +452,9 @@ export class Core {
       }
       info.mark = this.markOfPath(path, seg, info);
       info.slowText = s(124);
+      // The key of the line for an edit (zs_app_path_key), read now: the
+      // edit then works while a new slice runs.
+      info.key = String(w.x.zs_app_path_key(this.app, path));
       info.picks = this.picks(path, 8);
       info.measure = this.measure(path, seg < 0 ? 0 : seg);
       return info;
