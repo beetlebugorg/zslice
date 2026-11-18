@@ -2388,6 +2388,10 @@ pub const View = struct {
         var t: View = .{ .renderer = undefined, .headless = true, .width = 1, .height = 1, .mode = mode };
         defer t.deinitData();
         try t.load(app);
+        // A headless load makes no light levels. The scene needs them: the
+        // view of the page draws the active plate far from the camera with
+        // them, and a plate scene without them builds them on the UI thread.
+        if (frame_backend) try t.lite.build(gpa, t.beads.items, t.layer_end.items);
         return t.writeScene(alloc);
     }
 
