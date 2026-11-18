@@ -75,8 +75,10 @@ pub const Job = struct {
     /// The printer of the job, while it is sent, printing, or done.
     printer: ?usize = null,
     tries: u32 = 0,
-    /// The progress at the last poll, for a print that a poll missed.
+    /// The progress at the last poll, and the time of that poll, for a
+    /// print that a poll missed.
     progress: f64 = 0,
+    progress_at: i64 = 0,
     sent_at: i64 = 0,
     done_at: i64 = 0,
 };
@@ -337,6 +339,7 @@ pub const Farm = struct {
             .printing => {
                 j.state = .printing;
                 j.progress = progress;
+                j.progress_at = now;
             },
             .paused => {
                 if (before != .paused) try f.event(.paused, j, @intCast(printer), why);
@@ -346,7 +349,7 @@ pub const Farm = struct {
             .idle => switch (j.state) {
                 // A poll missed the end of the print: done near its end,
                 // else it stopped.
-                .printing => if (j.progress >= f.near_end) {
+                .printing => if (j.progress >= f.near_end or f.hadTime(j, now)) {
                     try f.jobDone(j, printer, now);
                     // Idle: the bed was cleared at the printer.
                     f.collected(printer);
@@ -358,6 +361,16 @@ pub const Farm = struct {
             },
             .offline => {},
         }
+    }
+
+    /// True if the time since the last poll that saw the job print is
+    /// enough for the rest of it (90 % of the rest of its time): a short
+    /// print can end and be cleared between two polls.
+    fn hadTime(f: *const Farm, j: *const Job, now: i64) bool {
+        _ = f;
+        if (j.seconds <= 0) return false;
+        const rest = j.seconds * (1 - std.math.clamp(j.progress, 0, 1));
+        return @as(f64, @floatFromInt(now - j.progress_at)) >= 0.9 * rest;
     }
 
     /// Takes the events since the last call. The texts stay valid until
@@ -455,4 +468,25 @@ test "farm: a failed job waits again, and its order fails after the last try" {
     try testing.expectEqual(JobState.failed, f.jobs.items[0].state);
     try f.takeEvents(&ev);
     try testing.expectEqual(EventKind.order_failed, ev.items[ev.items.len - 1].kind);
+}
+
+test "farm: a short print that ends between two polls is done" {
+    var f = Farm.init(testing.allocator);
+    defer f.deinit();
+    const deck = try f.setPrinter("deck", 220, 220, 0.4, "", true);
+    try f.status(deck, .idle, 0, "", 0);
+    const o = try f.addOrder("Eve", 0);
+    // A 10 minute print.
+    const j = try f.addJob(o, "clip", "", 50, 50, 0, 600);
+    try f.sent(j, deck, 0);
+    try f.status(deck, .printing, 0.1, "", 100);
+    // 15 minutes later the deck is idle: the print had the time to end.
+    try f.status(deck, .idle, 0, "", 1000);
+    try testing.expectEqual(JobState.collected, f.jobs.items[0].state);
+    // A second print that stops after one minute of ten is a failure.
+    const k = try f.addJob(o, "box", "", 50, 50, 0, 600);
+    try f.sent(k, deck, 1000);
+    try f.status(deck, .printing, 0.1, "", 1010);
+    try f.status(deck, .idle, 0, "", 1070);
+    try testing.expectEqual(JobState.waiting, f.jobs.items[1].state);
 }
