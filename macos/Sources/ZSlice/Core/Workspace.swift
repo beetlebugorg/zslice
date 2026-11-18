@@ -438,6 +438,8 @@ final class Workspace {
             let list = Discovery.deckPrinters(f, json: d) ?? [f]
             NSLog("zslice deck: %@", list.map { "\($0.name) \($0.url) \($0.color)" }.joined(separator: "; "))
         }
+        // ZSLICE_PICKER=1 opens the printer picker.
+        if env["ZSLICE_PICKER"] != nil { pickerOpen = true }
         // ZSLICE_RECORD=path.mov records the demo of Recorder.swift.
         if let path = env["ZSLICE_RECORD"] {
             Task { @MainActor in await Recorder.record(self, to: URL(fileURLWithPath: path)) }

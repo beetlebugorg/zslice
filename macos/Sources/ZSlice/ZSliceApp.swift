@@ -67,6 +67,13 @@ final class ProjectDocument: ReferenceFileDocument, @unchecked Sendable {
 
 @main
 struct ZSliceApp: App {
+    init() {
+        // At launch with no file, a new window with an empty plate (the
+        // whole app, with "Drop an STL or 3MF file here"), not the Open
+        // panel that a document app shows by default.
+        UserDefaults.standard.register(defaults: ["NSShowAppCentricOpenPanelInsteadOfUntitledFile": false])
+    }
+
     var body: some Scene {
         DocumentGroup(newDocument: { ProjectDocument() }) { file in
             DocumentWindow(document: file.document, name: file.fileURL?.lastPathComponent ?? "", url: file.fileURL)
