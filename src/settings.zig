@@ -638,6 +638,13 @@ pub const Project = struct {
     /// An overhang that leans more than this angle (degrees) from vertical
     /// gets support. A larger angle gives less support.
     support_angle: f64 = 50,
+    /// No support under a small ledge: a strip of overhang that is within
+    /// this distance (mm) of the layer below at each point, with no new
+    /// overhang on the layer above next to it (for example the underside of
+    /// an embossed letter on a wall). The nozzle prints it as a short
+    /// cantilever. A slope keeps its support: each layer of it adds a new
+    /// strip. 0: 1.5 line widths. A tiny value (0.01) turns the rule off.
+    support_min_ledge: f64 = 0,
     /// The fraction of the support area that the support lines fill, as a
     /// ratio.
     support_density: f64 = 0.15,
@@ -1150,6 +1157,7 @@ pub const limits = [_]struct { []const u8, f64, f64 }{
     .{ "project.support_tree_spacing", 0.5, 50 },
     .{ "project.support_tree_tip", 0, 10 },
     .{ "project.support_angle", 0, 90 },
+    .{ "project.support_min_ledge", 0, 20 },
     .{ "project.support_density", 0.01, 1 },
     .{ "project.support_xy_gap", 0, 10 },
     .{ "project.support_z_gap_layers", 0, 10 },

@@ -149,6 +149,7 @@ pub const all = [_]Meta{
     .{ .name = "project.support_tree_spacing", .section = "Support", .doc = "Tree support: the distance of the tips under an overhang. Tips also go along the edges of each overhang, at the same distance." },
     .{ .name = "project.support_tree_tip", .section = "Support", .doc = "Tree support: the diameter of a tip. 0 uses the line width times 2." },
     .{ .name = "project.support_angle", .section = "Support", .doc = "An overhang that leans more than this angle (degrees) from vertical gets support. A larger angle gives less support." },
+    .{ .name = "project.support_min_ledge", .section = "Support", .doc = "No support under a small ledge: a strip of overhang within this distance (mm) of the layer below at each point, with no new overhang on the layer above next to it, for example the underside of an embossed letter on a wall. The nozzle prints it as a short cantilever. A slope keeps its support. 0: 1.5 line widths. 0.01: off." },
     .{ .name = "project.support_density", .section = "Support", .doc = "The fraction of the support area that the support lines fill, as a ratio." },
     .{ .name = "project.support_xy_gap", .section = "Support", .doc = "The gap between the support and the sides of the part. Under an overhang, the gap is at most half a line width: the Z gap keeps the support off the overhang there." },
     .{ .name = "project.support_z_gap_layers", .section = "Support", .doc = "The number of empty layers between the support and the part above it or under it, so that the support comes off." },

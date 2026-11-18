@@ -446,6 +446,8 @@ fn computeStyle(
         w: i64,
         xy: i64,
         xy_under: i64,
+        /// The small-ledge limit (project.support_min_ledge), or 0: off.
+        ledge: i64,
 
         fn run(c: *const @This(), i: usize) anyerror!void {
             var arena = std.heap.ArenaAllocator.init(c.gpa);
@@ -473,7 +475,38 @@ fn computeStyle(
             const band = try offset_mod.offset(s, basic, d + @divTrunc(c.w, 4), .{});
             var strip = try clip.intersect(s, full, band);
             dropSmall(&strip, @divTrunc(c.w, 2));
+            if (c.ledge > 0 and !strip.isEmpty()) strip = try c.dropLedges(s, i, strip, d);
             c.need[i] = try strip.clone(c.gpa);
+        }
+
+        /// Takes out the small ledges of layer i: each piece of the strip
+        /// that is within `ledge` of the layer below at each point, with no
+        /// new overhang of the layer above near it.
+        fn dropLedges(c: *const @This(), s: Allocator, i: usize, strip: Paths, d: i64) !Paths {
+            const reach = try offset_mod.offset(s, c.outlines[i - 1], c.ledge, .{});
+            const far = try clip.difference(s, strip, reach);
+            // The new overhang of the layer above (a slope goes on).
+            var above: Paths = .empty;
+            if (i + 1 < c.outlines.len) {
+                // The same margin as the overhang of layer i (see run).
+                const under = try offset_mod.offset(s, c.outlines[i], d - 3 * sliver, .{});
+                above = try offset_mod.opening(s, try clip.difference(s, c.outlines[i + 1], under), sliver, .{});
+            }
+            var out: Paths = .empty;
+            for (0..strip.count()) |k| {
+                const poly = strip.get(k);
+                var one: Paths = .empty;
+                try one.append(s, poly);
+                const small = blk: {
+                    if (geom.area2(poly) < 0) break :blk false; // a hole stays with its piece
+                    if (!(try clip.intersect(s, one, far)).isEmpty()) break :blk false;
+                    if (above.isEmpty()) break :blk true;
+                    const near_piece = try offset_mod.offset(s, one, c.ledge + d, .{});
+                    break :blk (try clip.intersect(s, near_piece, above)).isEmpty();
+                };
+                if (!small) try out.append(s, poly);
+            }
+            return out;
         }
     };
     const angle = std.math.degreesToRadians(p.support_angle);
@@ -483,10 +516,12 @@ fn computeStyle(
     // gap: the Z gap keeps it off the overhang, and a slope moves out by
     // less than the XY gap in two layers.
     const xy_under = @min(xy, @divTrunc(w, 2));
+    // The small-ledge limit: 0 is 1.5 line widths; under 0.05 mm, off.
+    const ledge: i64 = if (p.support_min_ledge == 0) @divTrunc(3 * w, 2) else if (p.support_min_ledge < 0.05) 0 else geom.fromMm(p.support_min_ledge);
     const step1_key = blk: {
         const c = cache orelse break :blk 0;
         var h = std.hash.Wyhash.init(c.outline_key);
-        h.update(std.mem.asBytes(&[_]f64{ angle, @floatFromInt(xy), @floatFromInt(xy_under), @floatFromInt(w), @floatFromInt(n) }));
+        h.update(std.mem.asBytes(&[_]f64{ angle, @floatFromInt(xy), @floatFromInt(xy_under), @floatFromInt(w), @floatFromInt(n), @floatFromInt(ledge) }));
         break :blk h.final() | 1;
     };
     if (cache != null and cache.?.step1_key == step1_key) {
@@ -498,7 +533,7 @@ fn computeStyle(
         near = c.near;
         own_gaps = false;
     } else {
-        const oc: Overhangs = .{ .gpa = gpa, .outlines = outlines, .layers = layers, .need = need, .blocked = blocked, .near = near, .tan_angle = @tan(angle), .w = w, .xy = xy, .xy_under = xy_under };
+        const oc: Overhangs = .{ .gpa = gpa, .outlines = outlines, .layers = layers, .need = need, .blocked = blocked, .near = near, .tan_angle = @tan(angle), .w = w, .xy = xy, .xy_under = xy_under, .ledge = ledge };
         try parallel.forEach(threads, n, &oc, Overhangs.run);
         if (cache) |c| {
             // The cache takes the gaps, and a copy of the overhangs.
@@ -1644,4 +1679,54 @@ test "tree pads touch the cap, cover it, and stand on the branches" {
         const hang = try clip.difference(a, sup[i].interface, held);
         try testing.expect(hang.areaMm2() < 0.1);
     }
+}
+
+test "small ledges: an embossed letter gets no support, a shelf and a slope keep it" {
+    const gpa = testing.allocator;
+    const Case = struct { boxes: []const [6]f64, height: f64, want_support: bool };
+    const cases = [_]Case{
+        // A wall with a letter 0.6 mm out of its face, from z 10 to 15.
+        .{ .boxes = &.{ .{ 0, 0, 0, 40, 4, 30 }, .{ 10, 4, 10, 20, 4.6, 15 } }, .height = 30, .want_support = false },
+        // A shelf 6 mm out of the face: it needs support.
+        .{ .boxes = &.{ .{ 0, 0, 0, 40, 4, 30 }, .{ 10, 4, 10, 20, 10, 15 } }, .height = 30, .want_support = true },
+    };
+    for (cases) |cs| {
+        var b: mesh_mod.Builder = .init(gpa);
+        for (cs.boxes) |x| try mesh_mod.shapes.addBox(&b, x[0], x[1], x[2], x[3], x[4], x[5]);
+        var m = try b.finish();
+        defer m.deinit(gpa);
+        const sl = try sliceAll(gpa, &m, cs.height);
+        defer {
+            for (sl.outlines) |*o| o.deinit(gpa);
+            gpa.free(sl.outlines);
+            gpa.free(sl.layers);
+        }
+        var st: settings_mod.Settings = .{};
+        st.project.support = .everywhere;
+        const r = try st.resolve();
+        const sup = try compute(gpa, sl.outlines, sl.layers, &r, 1, &.{});
+        defer deinitAll(gpa, sup);
+        var area: f64 = 0;
+        for (sup) |l| area += l.body.areaMm2() + l.interface.areaMm2();
+        try testing.expectEqual(cs.want_support, area > 1);
+    }
+    // A slope that leans 70 degrees from vertical (a cone that opens up):
+    // each layer adds a thin strip, and it keeps its support.
+    const r1 = 5 + @tan(std.math.degreesToRadians(70.0)) * 6;
+    var cone = try mesh_mod.shapes.frustum(gpa, 30, 30, 5, r1, 6, 64);
+    defer cone.deinit(gpa);
+    const sl = try sliceAll(gpa, &cone, 6);
+    defer {
+        for (sl.outlines) |*o| o.deinit(gpa);
+        gpa.free(sl.outlines);
+        gpa.free(sl.layers);
+    }
+    var st: settings_mod.Settings = .{};
+    st.project.support = .everywhere;
+    const r = try st.resolve();
+    const sup = try compute(gpa, sl.outlines, sl.layers, &r, 1, &.{});
+    defer deinitAll(gpa, sup);
+    var area: f64 = 0;
+    for (sup) |l| area += l.body.areaMm2();
+    try testing.expect(area > 10);
 }
