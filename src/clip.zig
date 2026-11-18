@@ -289,7 +289,9 @@ fn addEdges(arena: Allocator, edges: *std.ArrayList(InEdge), paths: Paths, opera
 // ---------------------------------------------------------------------------
 // Step 2
 
-const Split = struct { edge: u32, p: Point };
+/// A split point of an edge. `exact`: the point is on the edge. A crossing
+/// point is rounded to the grid, and most rounded points are off the edge.
+const Split = struct { edge: u32, p: Point, exact: bool };
 
 /// Finds the split points with a uniform grid. Each edge goes into each
 /// grid cell that it passes through (a walk along the edge, cell by cell,
@@ -642,10 +644,10 @@ fn intersectPair(comptime narrow: bool, arena: Allocator, splits: *std.ArrayList
     // Each end point that is on the other edge (but not at its ends) splits
     // the other edge. This covers "T" junctions and edges that overlap on
     // one line.
-    if (d1 == 0 and strictlyBetween(narrow, q1, q2, p1)) try splits.append(arena, .{ .edge = fi, .p = p1 });
-    if (d2 == 0 and strictlyBetween(narrow, q1, q2, p2)) try splits.append(arena, .{ .edge = fi, .p = p2 });
-    if (d3 == 0 and strictlyBetween(narrow, p1, p2, q1)) try splits.append(arena, .{ .edge = ei, .p = q1 });
-    if (d4 == 0 and strictlyBetween(narrow, p1, p2, q2)) try splits.append(arena, .{ .edge = ei, .p = q2 });
+    if (d1 == 0 and strictlyBetween(narrow, q1, q2, p1)) try splits.append(arena, .{ .edge = fi, .p = p1, .exact = true });
+    if (d2 == 0 and strictlyBetween(narrow, q1, q2, p2)) try splits.append(arena, .{ .edge = fi, .p = p2, .exact = true });
+    if (d3 == 0 and strictlyBetween(narrow, p1, p2, q1)) try splits.append(arena, .{ .edge = ei, .p = q1, .exact = true });
+    if (d4 == 0 and strictlyBetween(narrow, p1, p2, q2)) try splits.append(arena, .{ .edge = ei, .p = q2, .exact = true });
 
     // A proper crossing: the ends of each edge are on opposite sides of the
     // other edge.
@@ -657,8 +659,8 @@ fn intersectPair(comptime narrow: bool, arena: Allocator, splits: *std.ArrayList
             .x = p1.x + mulDivRound(narrow, p2.x - p1.x, d1, d2),
             .y = p1.y + mulDivRound(narrow, p2.y - p1.y, d1, d2),
         };
-        if (!ip.eql(p1) and !ip.eql(p2)) try splits.append(arena, .{ .edge = ei, .p = ip });
-        if (!ip.eql(q1) and !ip.eql(q2)) try splits.append(arena, .{ .edge = fi, .p = ip });
+        if (!ip.eql(p1) and !ip.eql(p2)) try splits.append(arena, .{ .edge = ei, .p = ip, .exact = A.cross(p1, p2, ip) == 0 });
+        if (!ip.eql(q1) and !ip.eql(q2)) try splits.append(arena, .{ .edge = fi, .p = ip, .exact = A.cross(q1, q2, ip) == 0 });
     }
 }
 
@@ -736,15 +738,21 @@ noinline fn splitAndMerge(comptime narrow: bool, arena: Allocator, edges: []cons
         }
         // Without a sorted input, all pieces go in one list.
         const list = if (sorted_input) new_buf else subs[old_n..];
+        // A piece between two points on the edge is a part of the edge:
+        // it did not move, so it is not fresh (see InEdge.fresh). A piece
+        // with a rounded end point is off the edge, and can cross an edge
+        // that the edge did not cross.
         var prev = e.a;
+        var prev_exact = true;
         while (k < splits.len and splits[k].edge == i) : (k += 1) {
-            if (subPiece(prev, splits[k].p, e.d, true)) |m| {
+            if (subPiece(prev, splits[k].p, e.d, !prev_exact or !splits[k].exact)) |m| {
                 list[new_n] = m;
                 new_n += 1;
             }
             prev = splits[k].p;
+            prev_exact = splits[k].exact;
         }
-        if (subPiece(prev, e.b, e.d, true)) |m| {
+        if (subPiece(prev, e.b, e.d, !prev_exact)) |m| {
             list[new_n] = m;
             new_n += 1;
         }
