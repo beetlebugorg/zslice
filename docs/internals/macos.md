@@ -85,6 +85,7 @@ The bindings are those of the GTK app, with the keys of a Mac:
 - A left drag orbits.
 - A right or middle drag pans. A two-finger press and drag on a trackpad is a right drag, so it pans too.
 - A two-finger scroll on a trackpad zooms toward the pointer. So do the mouse wheel and a pinch.
+- A double click on a side of the print turns the camera to face it (`zs_view_look_at_side`), at a distance for the size of the part there. A double click on no side resets the view.
 - A right click with no drag opens the context menu, and so does Control-click.
 - Command-click, Command-drag, and Command-scroll select, move, and turn a part (Ctrl on Linux).
 
@@ -102,11 +103,12 @@ The app uses the system parts of macOS where it can:
 
 Like the GTK shell, the app reads some environment variables for development and screenshots:
 
-- `ZSLICE_SNAPSHOT=path.png` writes the window to that PNG file, a moment after the first frame of a slice. The 3D view comes from Metal and the controls from AppKit (`cacheDisplay`), so it needs no permission to record the screen.
+- `ZSLICE_SNAPSHOT=path.png` writes the window to that PNG file, 1.5 s after the first load of a slice, so the camera and the other hooks are done. The 3D view comes from Metal and the controls from AppKit (`cacheDisplay`), so it needs no permission to record the screen.
 - `ZSLICE_LAYERS=lo,hi` sets the layer range after the first slice (layer numbers from 1).
 - `ZSLICE_TIME=t` shows the replay at t seconds after the first slice.
 - `ZSLICE_VIEW=2d` (or `3d`) opens the window on that page.
 - `ZSLICE_PANEL=1` shows the settings drawer, and `ZSLICE_SETTING=name` opens the page of that setting. `ZSLICE_PAGE=history` opens the History page.
+- `ZSLICE_DOUBLE_CLICK=x,y` is a double click at that point after the first slice.
 - `ZSLICE_PICK=x,y` picks the line at that point of the view (in points) after the first slice, as a click does.
 - `ZSLICE_SET="name=value;name=value"` makes each change a step after the first slice, and `ZSLICE_UNDO=n` then undoes n steps.
 
@@ -117,7 +119,7 @@ App logic goes in the core, so that the three shells do not each have a copy. Tw
 - The history of undo and redo: done (`src/app/history.zig`).
 - The value text: done (`src/app/setting_text.zig`).
 - The settings that the line card picks for a line: done (`zs_app_inspect_picks`).
-- The turn of the camera to face the side under a double click (proposed: `zs_view_look_at_side`). Until then, a double click on the 3D page resets the view.
+- The turn of the camera to face the side under a double click: done (`zs_view_look_at_side`).
 - The plate set: one `zs_app` for each plate, the order of the slices (the active plate first), and the sync of the plates of the 3D view. Until it lands, a Mac window has one plate.
 
 ## Status and plan

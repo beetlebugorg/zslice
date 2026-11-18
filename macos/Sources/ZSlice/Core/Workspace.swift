@@ -92,7 +92,8 @@ final class Workspace {
         applyRange()
         applyFocus()
         refindSelection()
-        applyTestHooks()
+        // After the first frames of the new slice: a pick needs the camera.
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) { [weak self] in self?.applyTestHooks() }
     }
 
     /// For development and screenshots, once after the first slice:
@@ -122,6 +123,11 @@ final class Workspace {
         // as a click does (as in the GTK app).
         if let xy = env["ZSLICE_PICK"]?.split(separator: ",").compactMap({ Double($0) }), xy.count == 2 {
             pick(at: CGPoint(x: xy[0], y: xy[1]))
+        }
+        // ZSLICE_DOUBLE_CLICK=x,y: a double click there (as in the GTK app).
+        if let xy = env["ZSLICE_DOUBLE_CLICK"]?.split(separator: ",").compactMap({ Double($0) }), xy.count == 2, let v = canvas.view {
+            if !lookAtSide(CGPoint(x: xy[0], y: xy[1])) { zs_view_reset_smooth(v) }
+            canvas.startAnimation()
         }
         if let t = env["ZSLICE_TIME"].flatMap(Double.init), let v = canvas.view {
             time = t
@@ -312,6 +318,7 @@ final class Workspace {
 
 extension Workspace: SliceViewDelegate {
     func sliceViewClick(_ p: CGPoint) { pick(at: p) }
+    func sliceViewDoubleClick(_ p: CGPoint) -> Bool { lookAtSide(p) }
 
     func sliceViewTick(_ dt: Double) -> Bool { stepReplay(dt) }
 

@@ -156,6 +156,34 @@ extension Workspace {
         select(path: path, seg: min(selection?.seg ?? 0, max(0, segs - 1)), openCard: false)
     }
 
+    /// A double click on the 3D page: the camera turns to face the side of
+    /// the print under the point (zs_view_look_at_side), at a distance for
+    /// the size of the part there. The first click of the double click
+    /// picked a line: that selection goes.
+    func lookAtSide(_ p: CGPoint) -> Bool {
+        guard let v = canvas.view, model.state == .done else { return false }
+        let s = canvas.window?.backingScaleFactor ?? 2
+        let px = Float(p.x * s), py = Float(p.y * s)
+        guard zs_view_look_at_side(v, px, py, Float(partSize(at: px, py))) != 0 else { return false }
+        clearSelection()
+        return true
+    }
+
+    /// The largest size of the part under a pixel (the part of the path
+    /// there, or the part on the bed there), or 0 for the whole print.
+    private func partSize(at px: Float, _ py: Float) -> Double {
+        guard let v = canvas.view else { return 0 }
+        var part = -1
+        var seg = 0
+        let path = zs_view_pick_segment(v, px, py, &seg)
+        if path != noPath { part = zs_app_part_of_path(model.core, path) }
+        var x = 0.0, y = 0.0
+        if part < 0, zs_view_bed_point(v, px, py, &x, &y) != 0 { part = zs_app_part_at(model.core, x, y) }
+        var info = zs_part()
+        guard part >= 0, zs_app_part_get(model.core, part, &info) == 0 else { return 0 }
+        return max(info.size_x, info.size_y, info.size_z)
+    }
+
     // MARK: - the keys of a selected line
 
     /// The keys of a selected line. Returns false for a key it does not use.

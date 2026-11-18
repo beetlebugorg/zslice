@@ -49,6 +49,8 @@ protocol SliceViewDelegate: AnyObject {
     func sliceViewAppearanceChanged()
     /// A click with no drag, at a point of the view (points from the top left).
     func sliceViewClick(_ p: CGPoint)
+    /// A double click on the 3D page. Returns true if the camera moves.
+    func sliceViewDoubleClick(_ p: CGPoint) -> Bool
 }
 
 final class MetalSliceView: NSView {
@@ -185,6 +187,10 @@ final class MetalSliceView: NSView {
         let rc = zs_view_load(view, core)
         if rc != 0 { NSLog("zslice: the 3D view did not load the toolpaths: \(statusText(rc))") }
         loaded = rc == 0
+        if loaded, snapshot != nil, snapshotDue == nil {
+            snapshotDue = CACurrentMediaTime() + 1.5
+            DispatchQueue.main.asyncAfter(deadline: .now() + 1.6) { self.requestFrame() }
+        }
         layerRenderer?.setOutlines(from: view)
         fitted2D = false
         requestFrame()
@@ -232,10 +238,12 @@ final class MetalSliceView: NSView {
     }
 
     /// For development and screenshots: ZSLICE_SNAPSHOT=path.png writes the
-    /// window to that file, after the first frame of a slice. The 3D view
+    /// window to that file, 1.5 s after the first load of a slice (so a
+    /// camera animation and the hooks of the window are done). The 3D view
     /// comes from Metal, and the controls over it from AppKit
     /// (cacheDisplay draws them, but not the Metal layer). So it needs no
     /// permission to record the screen.
+    private var snapshotDue: CFTimeInterval?
     private var snapshot = ProcessInfo.processInfo.environment["ZSLICE_SNAPSHOT"].map { URL(fileURLWithPath: $0) }
 
     private func drawFrame() {
@@ -246,11 +254,10 @@ final class MetalSliceView: NSView {
             return
         }
         var shot: (@Sendable (CGImage) -> Void)?
-        if loaded, let url = snapshot {
+        if loaded, let url = snapshot, let due = snapshotDue, CACurrentMediaTime() >= due {
             snapshot = nil
             shot = { image in
-                // A moment later, so the controls show the new slice.
-                DispatchQueue.main.asyncAfter(deadline: .now() + 1) {
+                DispatchQueue.main.async {
                     MainActor.assumeIsolated { self.writeSnapshot(image, to: url) }
                 }
             }
@@ -370,12 +377,12 @@ final class MetalSliceView: NSView {
         // A drag is no click.
         guard let at = pressAt, hypot(p.x - at.x, p.y - at.y) < 4 else { return }
         if event.clickCount == 2 {
-            // The 2D page fits the part. The 3D view goes back to its start
-            // (the turn to face a side waits for zs_view_look_at_side).
+            // The 2D page fits the part. On the 3D page, the camera turns
+            // to face the side under the pointer, or goes back to its start.
             if page == .twoD {
                 fit2D()
             } else if let view {
-                zs_view_reset_smooth(view)
+                if delegate?.sliceViewDoubleClick(p) != true { zs_view_reset_smooth(view) }
                 startAnimation()
             }
         } else if event.clickCount == 1 {
