@@ -112,6 +112,9 @@ final class MetalSliceView: NSView {
         renderer = FrameRenderer()
         super.init(frame: frame)
         if let renderer { layerRenderer = LayerRenderer(renderer) }
+        setAccessibilityElement(true)
+        setAccessibilityRole(.image)
+        setAccessibilityLabel("The print, in 3D. Drag to turn it, scroll to zoom, and click a line to see it.")
         wantsLayer = true
         layerContentsRedrawPolicy = .never
         var surface = zs_surface(kind: Int32(ZS_SURFACE_FRAME.rawValue), display: nil, surface: nil, window: 0)

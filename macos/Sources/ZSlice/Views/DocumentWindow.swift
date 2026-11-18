@@ -16,6 +16,15 @@ struct DocumentWindow: View {
     @State private var loadError: String?
     @State private var dropping = false
 
+    /// Under the title: the project, and the plate of the view.
+    private var subtitle: String {
+        let m = workspace.model
+        var parts: [String] = []
+        if m.project != nil, !m.name.isEmpty { parts.append(m.name) }
+        if m.plates.count > 1 { parts.append("Plate \(m.active + 1) of \(m.plates.count)") }
+        return parts.joined(separator: " · ")
+    }
+
     /// The 3D view fills the window, under the toolbar too. Each control
     /// is an overlay on an edge of the content area, so no control can make
     /// the window wider than it is: a narrow window shrinks the scrub bar.
@@ -107,6 +116,7 @@ struct DocumentWindow: View {
                 }
             }
         .frame(minWidth: 720, minHeight: 480)
+        .navigationSubtitle(subtitle)
         // STL and 3MF files dropped on the window go on the active plate.
         .dropDestination(for: URL.self) { urls, _ in
             let models = urls.filter { ["stl", "3mf"].contains($0.pathExtension.lowercased()) }
