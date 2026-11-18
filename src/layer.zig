@@ -1243,14 +1243,15 @@ pub fn plan(gpa: Allocator, ctx: Context, i: usize) Allocator.Error!LayerPlan {
         const sl = ctx.support[i];
         if (!sl.body.isEmpty()) {
             // One boundary loop holds the ends of the lines together. The
-            // lines have one direction on all layers, so that they stack.
+            // lines have one direction and one spacing on all layers (the
+            // first layer too), so that they stack.
             sup_walls = try offset_mod.offset(s, sl.body, -@divTrunc(w, 2), .{});
             const inside = try offset_mod.offset(s, sl.body, -w + @divTrunc(w, 5), .{});
-            sup_lines = try infill.lines(s, inside, geom.fromMm(width_mm / p.support_density), 0, w);
+            sup_lines = try infill.lines(s, inside, geom.fromMm(r.line_width / p.support_density), 0, w);
         }
         if (!sl.interface.isEmpty()) {
             const region = try offset_mod.offset(s, sl.interface, -@divTrunc(w, 2), .{});
-            sup_iface = try infill.lines(s, region, geom.fromMm(width_mm / p.support_interface_density), 90, w);
+            sup_iface = try infill.lines(s, region, geom.fromMm(r.line_width / p.support_interface_density), 90, w);
         }
     }
     if (outline.isEmpty()) {
