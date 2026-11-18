@@ -14,6 +14,8 @@ On macOS, the linker, `lipo`, and `libtool` skip an archive member that is not a
 
 For another target, add `-Dtarget`. Example: `zig build lib -Doptimize=ReleaseFast -Dtarget=aarch64-linux-gnu` for a Raspberry Pi.
 
+A printer screen can show a G-code file in the 3D view of zslice, drawn offscreen at the position of the printer. See [the print view](print-view.md).
+
 ## Example
 
 ```c
