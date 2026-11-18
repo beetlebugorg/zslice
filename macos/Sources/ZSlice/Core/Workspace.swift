@@ -256,7 +256,7 @@ final class Workspace {
         // the plate: the upload, the start, and the status, with logs.
         if let b = env["ZSLICE_BAMBU"], let data = model.gcode() {
             let f = b.split(separator: ":").map(String.init)
-            var p = Printer(name: "bambu-test", kind: .bambu, url: f[0])
+            var p = Printer(name: "bambu-test", model: f.count > 3 ? f[3] : "", kind: .bambu, url: f[0])
             p.id = UUID(uuidString: "00000000-0000-0000-0000-0000000000bb")!
             p.serial = f[1]
             p.apiKey = f[2]
@@ -270,7 +270,7 @@ final class Workspace {
                 do {
                     try await BambuLink.upload(p, name: "test.gcode.3mf", data: bytes, pinned: &pinned)
                     NSLog("zslice bambu: uploaded %d bytes, pinned %@", bytes.count, pinned ?? "no")
-                    try await BambuLink.start(p, file: "test.gcode.3mf", title: "test", flags: 1, pinned: &pinned)
+                    try await BambuLink.start(p, file: "test.gcode.3mf", title: "test", gcode: data, pinned: &pinned)
                     NSLog("zslice bambu: started")
                 } catch {
                     NSLog("zslice bambu: error %@", error.localizedDescription)
@@ -881,7 +881,7 @@ final class Workspace {
                 try await BambuLink.upload(p, name: file, data: bytes, pinned: &pinned)
                 if print {
                     sendState = "Starting the print on \(p.name)…"
-                    try await BambuLink.start(p, file: file, title: title, flags: 1, pinned: &pinned)
+                    try await BambuLink.start(p, file: file, title: title, gcode: gcode, pinned: &pinned)
                     sendState = "Printing on \(p.name)"
                 } else {
                     sendState = "Uploaded to \(p.name)"

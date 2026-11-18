@@ -347,12 +347,24 @@ enum BambuLink {
         try await s.send(packet(0x30, mqttString("device/\(p.serial)/request") + message))
     }
 
-    /// Starts the print of a file on the printer. Call it only after the
-    /// user said that the plate is clear.
-    static func start(_ p: Printer, file: String, title: String, flags: Int32, pinned: inout String?) async throws {
+    /// The P1 and A1 printers take the file as "ftp://<file>" (flag 8);
+    /// the X1 printers as a path on the SD card.
+    static func ftpURL(_ p: Printer) -> Bool {
+        let m = p.model.lowercased()
+        return m.hasPrefix("bambu-lab-p1") || m.hasPrefix("bambu-lab-a1")
+    }
+
+    /// Starts the print of a file on the printer, with the MD5 of its
+    /// G-code and bed leveling. Call it only after the user said that the
+    /// plate is clear.
+    static func start(_ p: Printer, file: String, title: String, gcode: Data, pinned: inout String?) async throws {
+        var md5 = [CChar](repeating: 0, count: 33)
+        _ = gcode.withUnsafeBytes { zs_bambu_md5($0.bindMemory(to: UInt8.self).baseAddress, $0.count, &md5) }
+        let flags: Int32 = 1 | (ftpURL(p) ? 8 : 0)
         var out: UnsafeMutablePointer<UInt8>?
         var len = 0
-        guard zs_bambu_start_message(file, title, flags, &out, &len) == 0, let out else { throw BambuError(message: "The start message did not build.") }
+        let rc = md5.withUnsafeBufferPointer { zs_bambu_start_message(file, title, $0.baseAddress, flags, &out, &len) }
+        guard rc == 0, let out else { throw BambuError(message: "The start message did not build.") }
         let message = Data(bytes: out, count: len)
         zs_buffer_free(out, len)
         let s = try await mqtt(p, pinned: &pinned)
