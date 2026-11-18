@@ -978,10 +978,17 @@ const ops = {
   },
 
   // A new area of kind `kind` with points pts ([[x, y, z], ...]).
-  supportAreaAdd({ kind, pts }) {
-    const index = core.supportAreaAdd(kind, pts);
+  supportAreaAdd({ kind, pts, zLo, zHi }) {
+    const index = core.supportAreaAdd(kind, pts, zLo ?? NaN, zHi ?? NaN);
     if (index >= 0) wantSlice();
     return { index, areas: core.supportAreas() };
+  },
+
+  // The overhang under the pointer of the support tool: { part, pts, zLo,
+  // zHi }, or null.
+  supportPick({ x, y, z }) {
+    if (!core?.app) return { hot: null };
+    return { hot: core.supportPick(x, y, z, 4) };
   },
 
   // New points for area `index`. hold: a drag goes on, so the slice waits

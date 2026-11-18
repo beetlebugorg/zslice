@@ -148,7 +148,7 @@ export function attachViewInput(canvas, ctx) {
         return;
       }
     }
-    if (d.button === 0 && tools.tool === "support" && app.page === "3d") supportTool.click(px, py, e.shiftKey);
+    if (d.button === 0 && tools.tool === "support" && app.page === "3d") supportTool.click(px, py, e.shiftKey, e.altKey);
     else if (d.button === 0 && tools.tool === "measure") tools.measureClick(px, py, e.shiftKey);
     else if (d.button === 0 && app.page === "3d" && (tools.tool === "move" || tools.tool === "turn" || e.ctrlKey)) tools.pickPart(px, py);
     else if (d.button === 0) pickAt(px, py, true);

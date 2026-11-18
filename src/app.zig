@@ -2305,6 +2305,32 @@ test "app: support areas slice, go into the 3MF, and undo" {
     try testing.expect(try has_support(app));
 }
 
+test "app: a pick of the overhang under a point, as an area, gives support" {
+    const gpa = testing.allocator;
+    var b: zs.mesh.Builder = .init(gpa);
+    try zs.mesh.shapes.addBox(&b, 8, 8, 0, 12, 12, 5);
+    try zs.mesh.shapes.addBox(&b, 0, 0, 5, 20, 20, 7);
+    var mesh = try b.finish();
+    var bytes: std.Io.Writer.Allocating = .init(gpa);
+    defer bytes.deinit();
+    try mesh.writeStl(&bytes.writer);
+    mesh.deinit(gpa);
+    const app = try App.create(gpa, null, null);
+    defer app.destroy();
+    try app.loadStl("mushroom.stl", bytes.written());
+    const p = &app.plate.parts.items[0];
+    // A point on the top of the cap, near its edge.
+    var pr = try zs.support_pick.Prep.init(gpa, &p.mesh);
+    defer pr.deinit(gpa);
+    var r = (try zs.support_pick.pick(gpa, &p.mesh, &pr, p.transform(), .{ p.x + 9, p.y + 9, 7 }, 4, zs.support_pick.downFor(50))).?;
+    defer r.deinit(gpa);
+    try testing.expectApproxEqAbs(@as(f64, 5), r.z_lo, 1e-3);
+    _ = try app.areas.add(gpa, .grid, r.points, r.z_lo, r.z_hi);
+    try app.startSlice();
+    app.stopWorkerForTest();
+    try testing.expect(std.mem.indexOf(u8, app.gcode().?, ";TYPE:SUPPORT") != null);
+}
+
 test "app: Arachne walls carry a bead area for each point, at the z of the layer" {
     const gpa = testing.allocator;
     var mesh = try zs.mesh.shapes.wedge(gpa, 20, 20, 1, 6);

@@ -743,6 +743,64 @@ export fn zs_app_support_area_add(a: ?*App, kind: c_int, points: ?[*]const f64, 
     return @intCast(i);
 }
 
+/// The overhang of a part nearest to the bed point (x, y, z) mm, for the
+/// support tool: the faces that face down and connect to the face nearest
+/// to the point, within max_dist mm (see src/support_pick.zig). Writes its
+/// outline (x, y, z each, at most cap points) to `points`, the count to
+/// *n, and the z range. Returns the part, or -1 with no overhang there,
+/// or -status. Give the outline to zs_app_support_area_add.
+/// The pick data of the last meshes (support_pick.Prep), so a hover does
+/// not make it again for each move of the pointer. A new mesh (a load, a
+/// turn onto a side, a scale) has a new key and gets new data.
+var pick_preps: [8]?zs.support_pick.Prep = @splat(null);
+var pick_next: usize = 0;
+
+fn pickPrep(mesh: *const zs.Mesh) std.mem.Allocator.Error!*const zs.support_pick.Prep {
+    const key = zs.support_pick.Prep.keyOf(mesh);
+    for (&pick_preps) |*e| if (e.*) |*pr| if (std.mem.eql(usize, &pr.key, &key)) return pr;
+    const i = pick_next;
+    pick_next = (pick_next + 1) % pick_preps.len;
+    if (pick_preps[i]) |*old| old.deinit(gpa);
+    pick_preps[i] = null;
+    pick_preps[i] = try zs.support_pick.Prep.init(gpa, mesh);
+    return &pick_preps[i].?;
+}
+
+export fn zs_app_support_pick(a: ?*App, x: f64, y: f64, z: f64, max_dist: f64, points: ?[*]f64, cap: usize, n: ?*usize, z_lo: ?*f64, z_hi: ?*f64) isize {
+    const app = a orelse return -@as(isize, @intFromEnum(Status.invalid_argument));
+    const down = zs.support_pick.downFor(app.settings.project.support_angle);
+    var best: ?zs.support_pick.Region = null;
+    var best_part: isize = -1;
+    var best_d = std.math.inf(f64);
+    defer if (best) |*r| r.deinit(gpa);
+    for (app.plate.parts.items, 0..) |*p, i| {
+        const fp = p.footprint();
+        if (x < fp[0] - max_dist or x > fp[2] + max_dist or y < fp[1] - max_dist or y > fp[3] + max_dist) continue;
+        const pr = pickPrep(&p.mesh) catch return -@as(isize, @intFromEnum(Status.out_of_memory));
+        var r = (zs.support_pick.pick(gpa, &p.mesh, pr, p.transform(), .{ x, y, z }, max_dist, down) catch return -@as(isize, @intFromEnum(Status.out_of_memory))) orelse continue;
+        // The part with the region nearest to the point, by the middle of
+        // its z range.
+        const d = @abs((r.z_lo + r.z_hi) / 2 - z);
+        if (d < best_d) {
+            if (best) |*o| o.deinit(gpa);
+            best = r;
+            best_d = d;
+            best_part = @intCast(i);
+        } else r.deinit(gpa);
+    }
+    const r = best orelse return -1;
+    const m = @min(r.points.len, cap);
+    if (points) |out| for (r.points[0..m], 0..) |q, k| {
+        out[3 * k] = q[0];
+        out[3 * k + 1] = q[1];
+        out[3 * k + 2] = q[2];
+    };
+    if (n) |o| o.* = m;
+    if (z_lo) |o| o.* = r.z_lo;
+    if (z_hi) |o| o.* = r.z_hi;
+    return best_part;
+}
+
 /// Gives area i new points and a z range (as zs_app_support_area_add): a
 /// drag of a point. For a drag, hold the slice of the plate (zs_set_changed_held)
 /// and release it at the end.

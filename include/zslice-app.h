@@ -287,6 +287,13 @@ void zs_app_marks_clear(zs_app *app);
  * change is one history step; slice again after it. zs_app_support_area_add
  * returns the index of the new area, or -status. */
 ptrdiff_t zs_app_support_area_add(zs_app *app, int kind, const double *points, size_t n, double z_lo, double z_hi);
+/* The overhang of a part nearest to the bed point (x, y, z) mm, within
+ * max_dist mm, for the support tool: the faces that face down and connect
+ * to the face under the point. Writes its outline (x, y, z each, at most
+ * cap points) to points, the count to *n, and the z range. Returns the
+ * part, or -1 with no overhang there, or -status. Give the outline to
+ * zs_app_support_area_add. */
+ptrdiff_t zs_app_support_pick(zs_app *app, double x, double y, double z, double max_dist, double *points, size_t cap, size_t *n, double *z_lo, double *z_hi);
 /* New points and z range for area i: a drag of a point. Hold the slice of
  * the plate during a drag (zs_set_changed_held), and release it at the
  * end (zs_set_release). */

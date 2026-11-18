@@ -1,5 +1,9 @@
-// support.js: the Support tool (U), the support editor of the 3D view.
+// support.js: the Support tool (S), the support editor of the 3D view.
 //
+// - Hover: the overhang under the pointer lights up (zs_app_support_pick,
+//   in the worker): the faces that face down and connect to the face under
+//   the pointer. A click puts support under it: a new area of its outline.
+//   Alt and a click draw a point there.
 // - Draw: click points on the part. A point snaps to the end of the
 //   nearest line, as the measure tape does (Shift: no snap). Click the
 //   first point again, or press Enter, to close the area. Backspace removes
@@ -55,6 +59,11 @@ export class SupportTool {
     this.see = true; // the support lines are faint while the tool is on
     this.drag = null;
     this.on = false;
+    // The overhang under the pointer: { part, pts, zLo, zHi }, or null. One
+    // pick goes to the worker at a time; the last pointer place waits.
+    this.hot = null;
+    this.picking = false;
+    this.pickNext = null;
     // The pane of the tool: open at the start; the user closes it when
     // they know the tool, and S or a click on the tool opens it again.
     this.paneOpen = loadPaneOpen();
@@ -84,6 +93,7 @@ export class SupportTool {
     if (!on) {
       this.draft = [];
       this.sel = -1;
+      this.hot = null;
     }
     this.show();
     this.ctx.focus?.();
@@ -120,6 +130,7 @@ export class SupportTool {
     };
     this.areas.forEach((a, i) => add(a.pts, a.kind, 1 | (i === this.sel ? 2 : 0) | (this.on ? 4 : 0)));
     if (this.on) add(this.draft, this.kind, 4);
+    if (this.on && this.hot && this.draft.length === 0) add(this.hot.pts, this.kind, 1 | 2 | 4);
     this.showCard();
     this.ctx.frame();
   }
@@ -188,7 +199,7 @@ export class SupportTool {
     } else {
       const n = this.draft.length;
       const hint = n === 0
-        ? "Click points on the part to draw an area. The points snap to the lines; Shift: no snap. Click an outline to select its area."
+        ? "Point at an overhang: it lights up, and a click puts support under it. Alt and a click draw an area point by point (Shift: no snap). Click an outline to select its area."
         : n < 3
           ? `${n} point${n === 1 ? "" : "s"}. Click more points (at least 3). Backspace removes the last one; Esc stops.`
           : `${n} points. Click the first point, or press Enter, to close the area.`;
@@ -273,14 +284,55 @@ export class SupportTool {
   hover(e) {
     if (!this.on || this.drag || this.ctx.page() !== "3d") return;
     const [px, py] = this.at(e);
-    this.ctx.host.style.cursor = this.pointAt(px, py) ? "grab" : "crosshair";
+    const onPoint = this.pointAt(px, py);
+    this.ctx.host.style.cursor = onPoint ? "grab" : "crosshair";
+    // The overhang under the pointer, while no area is drawn and the
+    // pointer is not on a point or an outline.
+    if (this.draft.length > 0 || onPoint || e.buttons !== 0 || this.outlineAt(px, py) >= 0) {
+      this.setHot(null);
+      return;
+    }
+    this.pickAt(px, py);
+  }
+
+  setHot(hot) {
+    const was = this.hot;
+    this.hot = hot;
+    if (!!was !== !!hot || (hot && was && (hot.part !== was.part || hot.zLo !== was.zLo || hot.pts.length !== was.pts.length))) this.show();
+  }
+
+  async pickAt(px, py) {
+    if (this.picking) {
+      this.pickNext = [px, py];
+      return;
+    }
+    const p = this.surfacePoint(px, py, false);
+    if (!p) {
+      this.setHot(null);
+      return;
+    }
+    this.picking = true;
+    try {
+      const r = await this.ctx.client.call("supportPick", { x: p[0], y: p[1], z: p[2] });
+      if (this.on && this.draft.length === 0) this.setHot(r.hot);
+    } finally {
+      this.picking = false;
+    }
+    const next = this.pickNext;
+    this.pickNext = null;
+    if (next) this.pickAt(next[0], next[1]);
   }
 
   // ---- draw ----
 
   // A click in the view (app.js, on a release with no drag).
-  click(px, py, shift) {
+  click(px, py, shift, alt = false) {
     if (!this.on || this.ctx.page() !== "3d") return;
+    // The overhang under the pointer: support under it, in one click.
+    if (this.draft.length === 0 && this.hot && !alt && this.outlineAt(px, py) < 0) {
+      this.addHot();
+      return;
+    }
     // The first point of the draft closes it.
     if (this.draft.length >= 3) {
       const q = this.pixelOf(this.draft[0]);
@@ -306,6 +358,14 @@ export class SupportTool {
     }
     this.draft.push(p);
     this.show();
+  }
+
+  async addHot() {
+    const h = this.hot;
+    this.hot = null;
+    const r = await this.ctx.client.call("supportAreaAdd", { kind: this.kind, pts: h.pts, zLo: h.zLo, zHi: h.zHi });
+    if (r.index >= 0) this.sel = r.index;
+    this.setAreas(r.areas);
   }
 
   async close() {

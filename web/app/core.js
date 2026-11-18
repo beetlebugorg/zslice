@@ -762,9 +762,27 @@ export class Core {
   }
 
   // A new area: its index, or -1. The z range comes from the points.
-  supportAreaAdd(kind, pts) {
-    const i = this.withPoints(pts, (p, n) => this.w.x.zs_app_support_area_add(this.app, kind, p, n, NaN, NaN));
+  supportAreaAdd(kind, pts, zLo = NaN, zHi = NaN) {
+    const i = this.withPoints(pts, (p, n) => this.w.x.zs_app_support_area_add(this.app, kind, p, n, zLo, zHi));
     return i < 0 ? -1 : i;
+  }
+
+  // The overhang nearest to the bed point (x, y, z), within maxDist mm
+  // (zs_app_support_pick): { part, pts, zLo, zHi }, or null.
+  supportPick(x, y, z, maxDist) {
+    const w = this.w;
+    const cap = 256;
+    const buf = w.alloc(cap * 24 + 24);
+    try {
+      const part = Number(w.x.zs_app_support_pick(this.app, x, y, z, maxDist, buf, cap, buf + cap * 24, buf + cap * 24 + 8, buf + cap * 24 + 16));
+      if (part < 0) return null;
+      const n = w.u32(buf + cap * 24);
+      const pts = [];
+      for (let i = 0; i < n; i++) pts.push([w.f64(buf + i * 24), w.f64(buf + i * 24 + 8), w.f64(buf + i * 24 + 16)]);
+      return { part, pts, zLo: w.f64(buf + cap * 24 + 8), zHi: w.f64(buf + cap * 24 + 16) };
+    } finally {
+      w.free(buf, cap * 24 + 24);
+    }
   }
 
   supportAreaSet(index, pts) {
