@@ -17,7 +17,7 @@ import { View3D, MODES } from "./view.js";
 import { GlRenderer } from "./gl.js";
 import { View2D } from "./view2d.js";
 import { LayerRange } from "./layers.js";
-import { SettingsBrowser } from "./settings.js";
+import { SettingsBrowser, el } from "./settings.js";
 import { Inspector } from "./inspector.js";
 import { Gaps } from "./gaps.js";
 import { HistoryPage } from "./history.js";
@@ -693,6 +693,28 @@ function updateFocus() {
   app.noLinesMask = shows ? 0 : mask;
   app.focus2d = shows ? mask : 0;
   requestFrame();
+}
+
+// The area that hangs in the air (mm²) over which the print card says to
+// turn on support. The check of the print measures it (overhangs and
+// islands, as warnings or problems; a bridge does not count), so a Benchy
+// has none.
+const OVERHANG_HINT_MM2 = 20;
+
+// With support off: the check of the print after each slice, for the hint
+// on the print card. It runs after the slice, so the slice stays fast.
+async function checkOverhang() {
+  if ((value("project.support") || "off") !== "off") return;
+  const plate = app.activePlate;
+  try {
+    const r = await client.call("checks", {});
+    if (app.activePlate !== plate || app.state !== "done") return;
+    // Kinds of checks.zig: 2 overhang, 3 island.
+    app.overhang = (r.issues ?? []).filter((i) => (i.kind === 2 || i.kind === 3) && i.severity >= 1).reduce((s, i) => s + (i.value || 0), 0);
+    updateSummary();
+  } catch {
+    // No hint.
+  }
 }
 
 async function setSetting(name, value) {
@@ -1781,8 +1803,21 @@ function updateSummary() {
   $("sum-took").textContent = app.sliceMs < 1000 ? `Sliced in ${app.sliceMs.toFixed(0)} ms` : `Sliced in ${(app.sliceMs / 1000).toFixed(1)} s`;
   // A part off the bed, or on another part: the printer can hit its frame.
   const warn = $("sum-warn");
-  warn.hidden = app.fits !== false;
-  warn.textContent = "A part is off the bed or on another part. Move it, turn it, scale it, or cut it (the part card) before you print.";
+  warn.replaceChildren();
+  warn.classList.remove("sum-hint");
+  warn.hidden = true;
+  if (app.fits === false) {
+    warn.hidden = false;
+    warn.textContent = "A part is off the bed or on another part. Move it, turn it, scale it, or cut it (the part card) before you print.";
+  } else if (app.overhang >= OVERHANG_HINT_MM2 && (value("project.support") || "off") === "off") {
+    // Support is off, and a large area faces down in the air: the print
+    // can fail there. One click turns support on.
+    warn.hidden = false;
+    warn.classList.add("sum-hint");
+    const on = el("button", "", "Turn on support");
+    on.onclick = () => setSetting("project.support", "everywhere");
+    warn.append(`About ${Math.round(app.overhang)} mm² of the part hangs in the air with no support. It can droop or fail. `, on);
+  }
   fillFacts();
 }
 
@@ -1980,6 +2015,8 @@ function onWorkerEvent(m) {
       supportTool?.setAreas(m.areas);
       app.parts = m.parts;
       app.fits = m.fits !== false;
+      app.overhang = 0;
+      checkOverhang();
       // The selection, to find it again in the new slice.
       const key = refindKey();
       const first = !view.loaded;

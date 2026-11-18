@@ -681,6 +681,8 @@ button.destructive { background: #c01c28; color: #fff; }
   box-shadow: 0 10px 30px rgba(0, 0, 0, 0.45);
 }
 .sum-warn { color: #fff; background: #b42318; border-radius: 6px; padding: 6px 8px; font-size: 0.88em; margin-top: 4px; }
+.sum-warn.sum-hint { background: #8a5a00; }
+.sum-warn button { margin-left: 4px; padding: 2px 8px; }
 .sum-project { font-size: 0.85em; margin-top: 2px; }
 .pc-actions { display: flex; flex-wrap: wrap; gap: 4px; }
 .pc-cut { display: flex; flex-direction: column; gap: 6px; padding: 6px 0; border-top: 1px solid var(--border); }
