@@ -1210,6 +1210,67 @@ test "limits: each number has one, and each default is in it" {
 }
 
 /// A change of one setting, by its dotted name ("project.infill_density").
+/// The settings that change no path of a layer plan, and no travel of
+/// the G-code: the speeds, the accelerations of the lines, the flow, the
+/// fan, the cooling times, and the temperatures. The emitter reads them
+/// when it runs a layer from its move stream (see stream.zig), so a
+/// change of one of them needs no new plan.
+///
+/// Not in the list: each setting that the plans or the travels read. The
+/// travel speed, the travel acceleration, and the retraction change the
+/// combing ways. `cooling_mode` moves the nozzle.
+pub const patch_settings = [_][]const u8{
+    "filament.nozzle_temp",      "filament.first_layer_nozzle_temp", "filament.bed_temp",
+    "filament.fan_speed",        "filament.fan_off_layers",          "filament.fan_max_speed",
+    "filament.fan_boost_time",   "filament.min_layer_time",          "filament.min_speed",
+    "filament.flow_ratio",       "filament.max_flow",                "filament.density",
+    "filament.price_per_kg",     "project.bridge_speed",             "project.bridge_flow",
+    "project.bridge_fan",        "project.infill_flow",              "project.ironing_flow",
+    "project.ironing_speed",     "project.outer_wall_speed",         "project.inner_wall_speed",
+    "project.skin_speed",        "project.infill_speed",             "project.first_layer_speed",
+    "project.slow_layers",       "project.outer_wall_accel",         "project.inner_wall_accel",
+    "project.skin_accel",        "project.infill_accel",             "project.first_layer_accel",
+    "project.path_rules",
+};
+
+pub fn isPatchSetting(name: []const u8) bool {
+    for (patch_settings) |n| if (std.mem.eql(u8, n, name)) return true;
+    return false;
+}
+
+/// Adds each setting to `h`, but no patch setting (see `patch_settings`).
+pub fn hashPlanInputs(s: *const Settings, h: *std.hash.Wyhash) void {
+    @setEvalBranchQuota(200000);
+    inline for (@typeInfo(Settings).@"struct".fields) |g| {
+        inline for (@typeInfo(g.type).@"struct".fields) |f| {
+            if (comptime !isPatchSetting(g.name ++ "." ++ f.name)) hashValue(h, @field(@field(s, g.name), f.name));
+        }
+    }
+}
+
+/// Adds a value to `h`: a number, an enum, a text, or a list or a struct
+/// of them. A text adds its bytes and its length.
+pub fn hashValue(h: *std.hash.Wyhash, v: anytype) void {
+    const T = @TypeOf(v);
+    switch (@typeInfo(T)) {
+        .bool => h.update(&.{@intFromBool(v)}),
+        .int, .float => h.update(std.mem.asBytes(&v)),
+        .@"enum" => hashValue(h, @intFromEnum(v)),
+        .optional => if (v) |x| {
+            h.update(&.{1});
+            hashValue(h, x);
+        } else h.update(&.{0}),
+        .array => for (v) |x| hashValue(h, x),
+        .pointer => |ptr| {
+            if (ptr.size != .slice) @compileError("hashValue: " ++ @typeName(T));
+            hashValue(h, v.len);
+            if (ptr.child == u8) h.update(v) else for (v) |x| hashValue(h, x);
+        },
+        .@"struct" => |st| inline for (st.fields) |f| hashValue(h, @field(v, f.name)),
+        else => @compileError("hashValue: " ++ @typeName(T)),
+    }
+}
+
 pub const Change = struct {
     name: []const u8,
     value: []const u8,

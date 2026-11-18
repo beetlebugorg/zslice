@@ -2010,14 +2010,20 @@ pub const App = struct {
             }
         }
         const prev: ?*zs.PlateJob = if (app.prev_job) |*j| j else null;
-        const job_or = zs.PlateJob.init(app.gpa, part, app.slice_parts, .{ .overrides = layer_overrides.items, .monitor = monitor, .old = prev });
+        // The job keeps the move streams of the print. The edits of the
+        // lines change the plans, and the job does not see them in `init`.
+        var edits_hash = std.hash.Wyhash.init(0);
+        for (app.edits.list.items) |e| zs.settings.hashValue(&edits_hash, .{ e.key, e.kind, e.value, e.layer, e.x, e.y, e.z });
+        const job_or = zs.PlateJob.init(app.gpa, part, app.slice_parts, .{ .overrides = layer_overrides.items, .monitor = monitor, .old = prev, .streams = edits_hash.final() });
         // The new job took what it could use. A job that failed (for
         // example, a cancel) can leave the old job without outlines, so the
         // old job goes in each case.
         app.dropPrevJob();
         var job = job_or catch |e| return app.finishFailed(e);
-        // The edits of the user apply to each layer plan.
-        app.edits.resetApplied();
+        // The edits of the user apply to each layer plan. A level with a
+        // move stream gets no plan: its edits stay as the slice before
+        // found them.
+        if (!job.hasStreams()) app.edits.resetApplied();
         job.edits = &app.edits;
         var out: std.Io.Writer.Allocating = .initOwnedSlice(app.gpa, app.spare_gcode);
         app.spare_gcode = &.{};
@@ -2612,6 +2618,91 @@ test "app: a change for the top layer gives the same G-code with the cache and w
         fresh.stopWorkerForTest();
         try testing.expectEqualStrings(fresh.gcode().?, app.gcode().?);
     }
+}
+
+/// A new value for each patch setting (see settings.patch_settings), for
+/// the tests and the bench.
+pub const patch_values = [_][2][]const u8{
+    .{ "filament.nozzle_temp", "215" },       .{ "filament.first_layer_nozzle_temp", "222" },
+    .{ "filament.bed_temp", "63" },           .{ "filament.fan_speed", "0.7" },
+    .{ "filament.fan_off_layers", "3" },      .{ "filament.fan_max_speed", "0.9" },
+    .{ "filament.fan_boost_time", "12" },     .{ "filament.min_layer_time", "9" },
+    .{ "filament.min_speed", "12" },          .{ "filament.flow_ratio", "0.97" },
+    .{ "filament.max_flow", "9" },            .{ "filament.density", "1.3" },
+    .{ "filament.price_per_kg", "31" },       .{ "project.bridge_speed", "0.3" },
+    .{ "project.bridge_flow", "0.9" },        .{ "project.bridge_fan", "0.8" },
+    .{ "project.infill_flow", "1.05" },       .{ "project.ironing_flow", "0.2" },
+    .{ "project.ironing_speed", "0.2" },      .{ "project.outer_wall_speed", "0.4" },
+    .{ "project.inner_wall_speed", "0.6" },   .{ "project.skin_speed", "0.45" },
+    .{ "project.infill_speed", "0.8" },       .{ "project.first_layer_speed", "0.25" },
+    .{ "project.slow_layers", "3" },          .{ "project.outer_wall_accel", "700" },
+    .{ "project.inner_wall_accel", "900" },   .{ "project.skin_accel", "800" },
+    .{ "project.infill_accel", "1100" },      .{ "project.first_layer_accel", "400" },
+    .{ "project.path_rules", "speed = {speed} * 0.9" },
+};
+
+/// Slices `stl` with `base`, then changes the patch settings in groups of
+/// `step`. After each group: the slice makes no plan, and its G-code is
+/// the G-code of a new app with the same settings.
+fn checkPatches(gpa: Allocator, stl: []const u8, base: []const [2][]const u8, step: usize) !void {
+    try testing.expectEqual(zs.settings.patch_settings.len, patch_values.len);
+    const app = try App.create(gpa, null, null);
+    defer app.destroy();
+    try app.loadStl("part.stl", stl);
+    for (base) |b| try app.setSetting(b[0], b[1]);
+    try app.startSlice();
+    app.stopWorkerForTest();
+    try testing.expectEqual(State.done, app.getState());
+    var done: usize = 0;
+    while (done < patch_values.len) {
+        const end = @min(done + step, patch_values.len);
+        for (patch_values[done..end]) |v| {
+            try testing.expect(zs.settings.isPatchSetting(v[0]));
+            try app.setSetting(v[0], v[1]);
+        }
+        done = end;
+        const plans = zs.plate_job.plans_made.load(.monotonic);
+        try app.requestSlice();
+        app.stopWorkerForTest();
+        try testing.expectEqual(State.done, app.getState());
+        try testing.expectEqual(plans, zs.plate_job.plans_made.load(.monotonic));
+        const fresh = try App.create(gpa, null, null);
+        defer fresh.destroy();
+        try fresh.loadStl("part.stl", stl);
+        for (base) |b| try fresh.setSetting(b[0], b[1]);
+        for (patch_values[0..done]) |v| try fresh.setSetting(v[0], v[1]);
+        try fresh.startSlice();
+        fresh.stopWorkerForTest();
+        if (!std.mem.eql(u8, fresh.gcode().?, app.gcode().?)) {
+            std.debug.print("the G-code differs after {s}\n", .{patch_values[done - 1][0]});
+            return error.TestExpectedEqual;
+        }
+        // The view gets the same paths with the same times.
+        const a = app.allToolpaths().?;
+        const b = fresh.allToolpaths().?;
+        try testing.expectEqualSlices(f32, b.path_end_time.items, a.path_end_time.items);
+        try testing.expectEqualSlices(f32, b.points.items, a.points.items);
+        try testing.expectEqualSlices(u8, b.path_fan.items, a.path_fan.items);
+    }
+}
+
+const patch_bases = [_][]const [2][]const u8{
+    &.{},
+    &.{
+        .{ "project.support", "everywhere" },     .{ "project.support_style", "tree" },
+        .{ "project.retract_wipe", "true" },      .{ "project.z_hop", "0.4" },
+        .{ "project.z_hop_only_crossing", "true" },
+    },
+};
+
+test "app: a change of a patch setting makes no plan, and gives the G-code of a new slice" {
+    const gpa = testing.allocator;
+    var mesh = try zs.mesh.shapes.demo(gpa);
+    var bytes: std.Io.Writer.Allocating = .init(gpa);
+    defer bytes.deinit();
+    try mesh.writeStl(&bytes.writer);
+    mesh.deinit(gpa);
+    for (patch_bases) |base| try checkPatches(gpa, bytes.written(), base, 11);
 }
 
 test "app: a trim keeps the result, and the next slice gives the same G-code" {

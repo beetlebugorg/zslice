@@ -40,6 +40,7 @@ const slicer = @import("slicer.zig");
 const settings_mod = @import("settings.zig");
 const layer_mod = @import("layer.zig");
 const gcode = @import("gcode.zig");
+const stream_mod = @import("stream.zig");
 const parallel = @import("parallel.zig");
 const support_mod = @import("support.zig");
 const lightning_mod = @import("lightning.zig");
@@ -907,6 +908,12 @@ pub const PlanSource = struct {
     /// and the settings of the layers with no settings of their own.
     resolved: *const settings_mod.Resolved,
     layers: usize,
+    /// The stored stream of each layer (see stream.zig), or null. A layer
+    /// with a valid stream gets its plan from the stream, with no call of
+    /// `plan`. The pipeline stores the stream of each layer that it
+    /// plans. Needs `bind`.
+    streams: ?[]stream_mod.Stream = null,
+    bind: ?stream_mod.BindFn = null,
 };
 
 /// True if a start or end G-code has a variable of the box of the first
@@ -1008,18 +1015,28 @@ pub fn emitAll(gpa: Allocator, src: PlanSource, threads: usize, monitor: Monitor
                 progress = true;
                 continue;
             }
+            // A layer from a stream has no outline. If the dry run needs
+            // it, the layer gets a plan, and the dry run starts again.
+            const before = em;
             const out_w = em.w;
-            em.w = &discard.writer;
-            em.dry = true;
-            em.record = null;
-            em.prep = &slot.prep;
-            defer {
+            while (true) {
+                em.w = &discard.writer;
+                em.dry = true;
+                em.record = null;
+                em.prep = &slot.prep;
+                const res = em.layer(&slot.plan.?);
+                const again = em.need_plan;
+                if (again) em = before;
                 em.w = out_w;
                 em.dry = false;
                 em.prep = null;
                 if (sink != null) em.record = &record;
+                try res;
+                if (!again) break;
+                slot.start = em;
+                slot.start.?.w = undefined;
+                try pipe.planSlot(slot, dried);
             }
-            try em.layer(&slot.plan.?);
             dried += 1;
             pipe.dried.store(dried, .release);
             pipe.signal.notify();
@@ -1177,25 +1194,19 @@ const Pipeline = struct {
             return true;
         }
         const slot = &p.slots[i % p.slots.len];
-        slot.plan = p.src.plan(p.src.ctx, p.gpa, i) catch |e| {
-            p.fail(e);
-            return true;
-        };
-        if (p.monitor.canceled()) {
-            // The plan can be one that stopped early.
-            slot.plan.?.deinit();
-            slot.plan = null;
-            p.fail(error.Canceled);
-            return true;
+        const stored: ?*const stream_mod.Stream = if (p.src.streams) |st| (if (st[i].valid) &st[i] else null) else null;
+        if (stored) |st| {
+            // The plan and the travel answers from the stream.
+            slot.plan = st.decode(p.gpa, &slot.prep, p.src.bind.?, p.src.ctx, i) catch |e| {
+                p.fail(e);
+                return true;
+            };
+        } else {
+            p.planSlot(slot, i) catch |e| {
+                p.fail(e);
+                return true;
+            };
         }
-        // The work of the emitter that the layers before do not change,
-        // here on a planning thread, and not in the dry run on the emitter
-        // thread.
-        gcode.prepare(p.gpa, p.src.resolved, &slot.plan.?, &slot.prep) catch |e| {
-            p.fail(e);
-            return true;
-        };
-        if (p.src.done) |done| done(p.src.ctx, p.gpa, i);
         const g = &p.guesses[i];
         if (slot.prep.end) |e| {
             g.entry = .{ .x = e[0], .y = e[1], .z = slot.plan.?.z, .feature = slot.prep.end_feature, .extruded = true };
@@ -1204,6 +1215,22 @@ const Pipeline = struct {
         slot.ready.store(i + 1, .release);
         p.signal.notify();
         return true;
+    }
+
+    /// Plans layer i into its slot, with the work of the emitter that the
+    /// layers before do not change (see gcode.prepare).
+    fn planSlot(p: *Pipeline, slot: *Slot, i: usize) Error!void {
+        if (slot.plan) |*old| old.deinit();
+        slot.plan = null;
+        slot.plan = try p.src.plan(p.src.ctx, p.gpa, i);
+        if (p.monitor.canceled()) {
+            // The plan can be one that stopped early.
+            slot.plan.?.deinit();
+            slot.plan = null;
+            return error.Canceled;
+        }
+        try gcode.prepare(p.gpa, p.src.resolved, &slot.plan.?, &slot.prep);
+        if (p.src.done) |done| done(p.src.ctx, p.gpa, i);
     }
 
     /// Runs the next planned layer early, from the guess of the layer
@@ -1219,18 +1246,19 @@ const Pipeline = struct {
         slot.assumed = null;
         if (state == 1) {
             const entry = if (i == 0) p.base.entry() else p.guesses[i - 1].entry;
-            p.run(slot, entry) catch |e| {
+            const good = p.run(slot, entry) catch |e| {
                 p.fail(e);
                 return true;
             };
-            slot.assumed = entry;
+            if (good) slot.assumed = entry;
         }
         slot.compiled.store(i + 1, .release);
         p.signal.notify();
         return true;
     }
 
-    fn run(p: *Pipeline, slot: *Slot, entry: gcode.Entry) Error!void {
+    /// False: the run needed the outline of a layer from a stream.
+    fn run(p: *Pipeline, slot: *Slot, entry: gcode.Entry) Error!bool {
         var discard: Writer.Discarding = .init(&.{});
         var em = p.base.*;
         em.w = &discard.writer;
@@ -1240,6 +1268,7 @@ const Pipeline = struct {
         em.setEntry(entry);
         try em.layer(&slot.plan.?);
         slot.exit = em.exit();
+        return !em.need_plan;
     }
 
     /// Writes the text of the next layer after its dry run. Returns false
@@ -1252,6 +1281,14 @@ const Pipeline = struct {
         p.text(slot) catch |e| {
             p.fail(e);
             return true;
+        };
+        // The stream of a planned layer, for the next slice.
+        if (p.src.streams) |st| if (!slot.prep.replay) {
+            st[i].deinit(p.gpa);
+            st[i] = stream_mod.Stream.encode(p.gpa, &slot.plan.?, &slot.prep, p.src.bind.?, p.src.ctx, i) catch |e| {
+                p.fail(e);
+                return true;
+            };
         };
         slot.written.store(i + 1, .release);
         p.signal.notify();
@@ -1303,6 +1340,8 @@ const Pipeline = struct {
             em.record = &slot.records;
         }
         try em.layer(&slot.plan.?);
+        // The run before this one had all answers from the same state.
+        if (em.need_plan) return error.WriteFailed;
     }
 
     fn fail(p: *Pipeline, e: Error) void {

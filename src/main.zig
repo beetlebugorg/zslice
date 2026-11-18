@@ -53,8 +53,10 @@ const usage =
     \\  bench     Slice in the app core: once from the start, then again
     \\            after a change of each kind of setting. Print the times
     \\            and the peak memory. --only KIND times one kind: full,
-    \\            late, walls, top, width, height, support, area, xy, or
-    \\            cancel. --runs N sets
+    \\            late, walls, top, width, height, support, area, xy,
+    \\            speed, accel, flow, fan, temp, cool, or cancel. --only
+    \\            patch changes each setting that needs no new plan, and
+    \\            compares the G-code with a new slice. --runs N sets
     \\            the slices of each kind (default 6).
     \\  sweep     For each project and filament setting, slice with values
     \\            across its range (the others at their base values), and
@@ -478,6 +480,14 @@ const bench_changes = [_]struct { key: []const u8, kind: []const u8, name: []con
     // a drag of a point does (see benchArea).
     .{ .key = "area", .kind = "support area", .name = "", .values = .{ "", "", "", "", "", "" } },
     .{ .key = "xy", .kind = "xy offset", .name = "filament.xy_offset", .values = .{ "0.01", "0.02", "0.03", "0.04", "0.05", "0.06" } },
+    // Settings that change no path: the slice runs from the move streams
+    // (see settings.patch_settings).
+    .{ .key = "speed", .kind = "wall speed", .name = "project.outer_wall_speed", .values = .{ "0.41", "0.42", "0.43", "0.44", "0.45", "0.46" } },
+    .{ .key = "accel", .kind = "wall accel", .name = "project.outer_wall_accel", .values = .{ "810", "820", "830", "840", "850", "860" } },
+    .{ .key = "flow", .kind = "flow ratio", .name = "filament.flow_ratio", .values = .{ "0.95", "0.96", "0.97", "0.98", "0.99", "1.01" } },
+    .{ .key = "fan", .kind = "fan speed", .name = "filament.fan_speed", .values = .{ "0.81", "0.82", "0.83", "0.84", "0.85", "0.86" } },
+    .{ .key = "temp", .kind = "nozzle temp", .name = "filament.nozzle_temp", .values = .{ "211", "212", "213", "214", "215", "216" } },
+    .{ .key = "cool", .kind = "layer time", .name = "filament.min_layer_time", .values = .{ "7", "8", "9", "10", "11", "12" } },
 };
 
 /// The most slices of one kind in a bench.
@@ -539,8 +549,34 @@ fn bench(backing: std.mem.Allocator, io: Io, err: *Io.Writer, name: []const u8, 
         }
         try printTimes(err, c.kind, times);
     }
+    if (only != null and std.mem.eql(u8, only.?, "patch")) try benchPatch(gpa, app, io, err, name, bytes, settings);
     if (only == null or std.mem.eql(u8, only.?, "cancel")) try benchCancel(app, io, err, settings);
     try err.print("peak memory: {d} MB resident (VmHWM), {d} MB allocated\n", .{ peakMb(io), counter.peak.load(.monotonic) >> 20 });
+}
+
+/// Each patch setting alone (see settings.patch_settings): the time of the
+/// slice after its change, the plans that the slice made, and a
+/// comparison of the G-code with the G-code of a new app.
+fn benchPatch(gpa: std.mem.Allocator, app: *zslice.app.App, io: Io, err: *Io.Writer, name: []const u8, bytes: []const u8, settings: zslice.Settings) !void {
+    var differ: usize = 0;
+    for (zslice.app.patch_values) |v| {
+        app.settings = settings;
+        _ = try benchSlice(app, io);
+        try app.setSetting(v[0], v[1]);
+        const plans = zslice.plate_job.plans_made.load(.monotonic);
+        const t = try benchSlice(app, io);
+        const made = zslice.plate_job.plans_made.load(.monotonic) - plans;
+        const fresh = try zslice.app.App.create(gpa, null, null);
+        defer fresh.destroy();
+        fresh.settings = app.settings;
+        try fresh.loadStl(std.fs.path.basename(name), bytes);
+        _ = try benchSlice(fresh, io);
+        const same = std.mem.eql(u8, app.gcode().?, fresh.gcode().?);
+        if (!same) differ += 1;
+        try err.print("{s:<34} {d:>7.1} ms   plans {d:>4}   {s}\n", .{ v[0], t.wall, made, if (same) "same G-code" else "OTHER G-CODE" });
+        try err.flush();
+    }
+    try err.print("patch settings with other G-code: {d}\n", .{differ});
 }
 
 /// The time from a cancel to the end of the slice. A slice of new

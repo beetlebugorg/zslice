@@ -49,6 +49,7 @@ const mesh_mod = @import("mesh.zig");
 const settings_mod = @import("settings.zig");
 const engine = @import("engine.zig");
 const layer_mod = @import("layer.zig");
+const stream_mod = @import("stream.zig");
 const support_mod = @import("support.zig");
 const islands_mod = @import("islands.zig");
 const parallel = @import("parallel.zig");
@@ -97,6 +98,10 @@ pub const Instance = struct {
     center: [2]f64,
 };
 
+/// The count of the level plans that the G-code writers made, for the
+/// tests of the move streams.
+pub var plans_made: std.atomic.Value(usize) = .init(0);
+
 /// A group of copies: one job.
 pub const Group = struct {
     job: Job,
@@ -130,6 +135,12 @@ pub const Options = struct {
     old: ?*PlateJob = null,
     /// See Job.keep_memos.
     keep_memos: bool = true,
+    /// Not null: the job keeps a move stream of each level (see
+    /// `PlateJob.streams`), and gets the streams of the old job if the
+    /// inputs of the plans are the same. The value is a hash of the
+    /// inputs that the job does not get in `init`: the edits of the
+    /// lines.
+    streams: ?u64 = null,
 };
 
 pub const PlateJob = struct {
@@ -156,6 +167,13 @@ pub const PlateJob = struct {
     /// The shapes that start in the air (see islands.zig), of all parts,
     /// at their places, with the index of their level.
     islands: []islands_mod.Island = &.{},
+    /// The move stream of each level (see stream.zig): the stored form of
+    /// the print. `writeGcode` fills them. A level with a valid stream
+    /// needs no plan: the G-code comes from the stream and the settings
+    /// of this job. Empty without Options.streams.
+    streams: []stream_mod.Stream = &.{},
+    /// A hash of all inputs of the layer plans (see `planStamp`).
+    stamp: u64 = 0,
 
     /// Slices each group of parts (steps 1 to 4 of the engine for each
     /// job), and finds the levels.
@@ -253,6 +271,18 @@ pub const PlateJob = struct {
         try pj.makeLevels(settings, opts.overrides);
         try pj.makeOutline0();
         try pj.makeIslands();
+        if (opts.streams) |extra| {
+            pj.stamp = planStamp(settings, parts, opts.overrides, keys, boxes, extra);
+            const old_streams: ?*PlateJob = if (opts.old) |o| (if (o.stamp == pj.stamp and o.streams.len == pj.levels.len) o else null) else null;
+            if (old_streams) |o| {
+                // The same inputs of the plans: the streams are still right.
+                pj.streams = o.streams;
+                o.streams = &.{};
+            } else {
+                pj.streams = try gpa.alloc(stream_mod.Stream, pj.levels.len);
+                @memset(pj.streams, .{});
+            }
+        }
         return pj;
     }
 
@@ -275,7 +305,15 @@ pub const PlateJob = struct {
         gpa.free(self.level_resolved);
         self.outline0.deinit(gpa);
         gpa.free(self.islands);
+        for (self.streams) |*s| s.deinit(gpa);
+        gpa.free(self.streams);
         self.* = undefined;
+    }
+
+    /// True if a level has a move stream from the job before.
+    pub fn hasStreams(self: *const PlateJob) bool {
+        for (self.streams) |s| if (s.valid) return true;
+        return false;
     }
 
     /// True if the plate prints as the one job of one part: then a level
@@ -579,6 +617,7 @@ pub const PlateJob = struct {
             drop: f64,
             fn plan(ctx: *const anyopaque, g: Allocator, i: usize) Allocator.Error!LayerPlan {
                 const c: *const @This() = @ptrCast(@alignCast(ctx));
+                _ = plans_made.fetchAdd(1, .monotonic);
                 var lp = try c.pj.planLevel(g, c.ctxs, c.lo + i);
                 if (c.pj.edits) |e| try e.apply(&lp);
                 if (c.lo > 0) {
@@ -586,6 +625,16 @@ pub const PlateJob = struct {
                     lp.index = @intCast(i);
                 }
                 return lp;
+            }
+            /// The settings of a plan from a stream (see stream.BindFn).
+            fn bind(ctx: *const anyopaque, i: usize, lp: *LayerPlan, regions: []*const Resolved) void {
+                const c: *const @This() = @ptrCast(@alignCast(ctx));
+                const pj = c.pj;
+                lp.resolved = pj.levelResolved(i);
+                for (regions, lp.region_modifier, 0..) |*r, m, k| {
+                    const part = if (k < lp.region_part.len) lp.region_part[k] else lp.part;
+                    r.* = pj.pathResolved(part, i, if (m == LayerPlan.no_modifier) 0 else @as(usize, m) + 1);
+                }
             }
             fn done(ctx: *const anyopaque, g: Allocator, i: usize) void {
                 const c: *const @This() = @ptrCast(@alignCast(ctx));
@@ -602,6 +651,9 @@ pub const PlateJob = struct {
             .done = if (keep) null else Ctx.done,
             .resolved = if (self.single()) &self.groups[0].job.resolved else &self.resolved,
             .layers = hi - lo,
+            // The streams are of the whole print.
+            .streams = if (lo == 0 and hi == self.levels.len and self.streams.len == hi) self.streams else null,
+            .bind = Ctx.bind,
         };
         return engine.emitAll(gpa, src, self.threads, self.monitor, out, sink);
     }
@@ -620,6 +672,52 @@ const Scaled = struct {
         f(s.inner.ctx, s.base * engine.pass1_share + fraction * s.span);
     }
 };
+
+/// A hash of the inputs of the layer plans and of the travels: all that a
+/// move stream depends on (see stream.zig). The values of the patch
+/// settings are not in it (see settings.patch_settings), so a job after
+/// a change of one of them has the same stamp. A mesh adds its shape key
+/// and its box: the caller of `PlateJob.init` gives an old job only if
+/// each part has the same mesh.
+fn planStamp(settings: Settings, parts: []const PartInput, overrides: []const settings_mod.Override, keys: []const u64, boxes: []const mesh_mod.Bounds3, extra: u64) u64 {
+    var h = std.hash.Wyhash.init(0x57a3);
+    const hv = settings_mod.hashValue;
+    hv(&h, extra);
+    settings_mod.hashPlanInputs(&settings, &h);
+    const changes = struct {
+        fn f(hh: *std.hash.Wyhash, list: []const settings_mod.Change) void {
+            hv(hh, list.len);
+            for (list) |c| {
+                hv(hh, c.name);
+                if (!settings_mod.isPatchSetting(c.name)) hv(hh, c.value);
+            }
+        }
+    }.f;
+    hv(&h, overrides.len);
+    for (overrides) |o| {
+        hv(&h, [2]f64{ o.z_min, o.z_max });
+        hv(&h, o.name);
+        if (!settings_mod.isPatchSetting(o.name)) hv(&h, o.value);
+    }
+    for (parts, keys, boxes) |p, k, b| {
+        hv(&h, p.part);
+        hv(&h, k);
+        hv(&h, b.min);
+        hv(&h, b.max);
+        changes(&h, p.changes);
+        hv(&h, p.modifiers.len);
+        for (p.modifiers) |m| {
+            const mb = m.mesh.bounds();
+            hv(&h, shapeKey(m.mesh));
+            hv(&h, mb.min);
+            hv(&h, mb.max);
+            hv(&h, m.order);
+            changes(&h, m.changes);
+        }
+        hv(&h, p.marks);
+    }
+    return h.final();
+}
 
 /// A hash of the faces and the vertex count of a mesh: copies have the
 /// same key.

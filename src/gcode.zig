@@ -109,6 +109,12 @@ const max_walks = 8;
 ///
 /// The emitter uses a way or a length only if the nozzle is at the start
 /// point that it was found from, so the G-code stays the same.
+///
+/// A dry run also keeps each answer that a travel gets from the outline
+/// of the layer: the wipe arc, the z hop, and the travel between tree
+/// supports. With the ways, these are all that the emitter reads from the
+/// outline. So a later run of the same layer needs no outline (see
+/// `replay` and stream.zig).
 pub const Prepared = struct {
     /// One entry for each path of the layer.
     paths: std.ArrayList(PathPrep) = .empty,
@@ -129,6 +135,10 @@ pub const Prepared = struct {
     plan_slow: f64 = 1,
     plan_time: f64 = 0,
     have_plan: bool = false,
+    /// The layer comes from a stored stream (see stream.zig): it has no
+    /// outline. The emitter then uses only the kept ways and answers. A
+    /// question with no kept answer sets `Emitter.need_plan`.
+    replay: bool = false,
     /// The nozzle position after the last path, and the feature of that
     /// path, or null for a layer with no path. The run of the next layer
     /// starts from them (see `Entry`).
@@ -145,10 +155,23 @@ pub const Prepared = struct {
         n: i32 = unknown,
         /// The length of the move that closes the path, or 0.
         close: f64 = 0,
+        /// The center of the wipe arc of the retraction before the travel:
+        /// way_points[wipe], `retract` if no arc fits, or `unknown`.
+        wipe: i32 = unknown,
+        /// The travel with a retraction lifts the nozzle (see
+        /// `Emitter.hopFor`).
+        hop: Fact = .unknown,
+        /// The travel crosses no edge of the part (see
+        /// `Emitter.supportHop`).
+        support_hop: Fact = .unknown,
 
         pub const retract: i32 = -1;
         pub const unknown: i32 = -2;
     };
+
+    /// An answer from the outline of the layer, kept for a run with no
+    /// outline (see `replay`).
+    pub const Fact = enum(u8) { unknown, no, yes };
 
     pub fn clear(t: *Prepared) void {
         t.paths.clearRetainingCapacity();
@@ -158,6 +181,7 @@ pub const Prepared = struct {
         if (t.arena) |*a| _ = a.reset(.retain_capacity);
         t.plan_moves.clearRetainingCapacity();
         t.have_plan = false;
+        t.replay = false;
         t.end = null;
         t.end_feature = null;
     }
@@ -454,6 +478,10 @@ pub const Emitter = struct {
     /// The first pass of `layer`: each move goes into this list, and its
     /// time comes later from the planner.
     collect: ?*std.ArrayList(motion.Move) = null,
+    /// A run of a layer from a stream needed the outline (see
+    /// Prepared.replay). The result of the run is not valid: the caller
+    /// plans the layer and runs it again.
+    need_plan: bool = false,
     /// If set, the run keeps the terms of its sums here (see `Terms`).
     terms: ?*Terms = null,
     /// The second pass: the planned moves of the layer, and the next one.
@@ -1029,6 +1057,7 @@ pub const Emitter = struct {
         probe.collect = moves;
         probe.keep_ways = self.dry;
         try probe.paths(lp, 1, false);
+        if (probe.need_plan) self.need_plan = true;
         const lim = self.limits();
         const fixed = probe.stats.print_time_s - self.stats.print_time_s;
         const full_time = motion.plan(moves.items, lim);
@@ -1456,7 +1485,54 @@ pub const Emitter = struct {
 
     /// The arc of a wipe (see `Project.retract_wipe`): its center, inside
     /// the layer, or null if no arc fits.
-    fn wipeCenter(self: *const Emitter, r: f64, margin: f64) ?[2]f64 {
+    fn wipeCenter(self: *Emitter, r: f64, margin: f64) Error!?[2]f64 {
+        if (self.outline == null) return null;
+        const no_arc = Prepared.PathPrep.retract;
+        if (self.known()) |t| if (t.wipe != Prepared.PathPrep.unknown) {
+            return if (t.wipe == no_arc) null else self.prep.?.way_points.items[@intCast(t.wipe)];
+        };
+        if (self.needsOutline()) return null;
+        const c = self.findWipeCenter(r, margin);
+        if (self.answers()) |t| {
+            if (c) |q| {
+                const pr = self.prep.?;
+                t.wipe = @intCast(pr.way_points.items.len);
+                try pr.way_points.append(self.gpa, q);
+            } else t.wipe = no_arc;
+        }
+        return c;
+    }
+
+    /// The kept answers for the travel to the path that `layer` writes,
+    /// or null if they are not from the nozzle position.
+    fn known(self: *const Emitter) ?*Prepared.PathPrep {
+        const pr = self.prep orelse return null;
+        if (self.path_index >= pr.paths.items.len) return null;
+        const t = &pr.paths.items[self.path_index];
+        return if (t.from[0] == self.x and t.from[1] == self.y) t else null;
+    }
+
+    /// Where a dry run keeps the answers for the travel to the path, or
+    /// null (see `keep_ways`). Answers from another nozzle position go.
+    fn answers(self: *const Emitter) ?*Prepared.PathPrep {
+        if (!self.dry or !self.keep_ways) return null;
+        const pr = self.prep orelse return null;
+        if (self.path_index >= pr.paths.items.len) return null;
+        const t = &pr.paths.items[self.path_index];
+        if (t.from[0] != self.x or t.from[1] != self.y) t.* = .{ .from = .{ self.x, self.y }, .close = t.close };
+        return t;
+    }
+
+    /// True if the layer has no outline (see Prepared.replay). Then the
+    /// run is not valid from here on.
+    fn needsOutline(self: *Emitter) bool {
+        const pr = self.prep orelse return false;
+        if (!pr.replay) return false;
+        self.need_plan = true;
+        return true;
+    }
+
+    fn findWipeCenter(self: *const Emitter, r: f64, margin: f64) ?[2]f64 {
         const outline = self.outline orelse return null;
         // Each direction from the nozzle, until the whole arc and a margin
         // around it are inside.
@@ -1486,7 +1562,7 @@ pub const Emitter = struct {
         const f = self.feature orelse return false;
         if (f == .support or f == .support_interface or f == .skirt) return false;
         const r = 0.4;
-        const c = self.wipeCenter(r, self.width_mm() / 2) orelse return false;
+        const c = try self.wipeCenter(r, self.width_mm() / 2) orelse return false;
         const steps = 9;
         const sweep = 1.5 * std.math.pi;
         const arc = r * sweep;
@@ -1578,7 +1654,7 @@ pub const Emitter = struct {
             // Combing: a way inside the part needs no retraction (see
             // `findWay`).
             var way: [max_way][2]f64 = undefined;
-            if (self.wayOf(x, y, d, &way)) |w| {
+            if (try self.wayOf(x, y, d, &way)) |w| {
                 for (w) |q| try self.move(q[0], q[1]);
             } else try self.retractHop(!self.layer_start and self.hopFor(x, y));
         }
@@ -1589,16 +1665,20 @@ pub const Emitter = struct {
     /// next with no retraction: the straight line crosses no edge of the
     /// part. The support comes off, so a string there does no harm, and
     /// a tree layer has many small islands.
-    fn supportHop(self: *const Emitter, x: f64, y: f64, next: Feature) bool {
+    fn supportHop(self: *Emitter, x: f64, y: f64, next: Feature) bool {
         if (self.lr.settings.project.support_style != .tree) return false;
         if (!isSupport(self.feature) or !isSupport(next)) return false;
         const outline = self.outline orelse return true;
+        if (self.known()) |t| if (t.support_hop != .unknown) return t.support_hop == .yes;
+        if (self.needsOutline()) return false;
         const a: geom.Point = .{ .x = geom.fromMm(self.x), .y = geom.fromMm(self.y) };
         const b: geom.Point = .{ .x = geom.fromMm(x), .y = geom.fromMm(y) };
         var hit: usize = 0;
         // No crossing leaves `hit` at its largest value.
         _ = self.clearOf(outline.*, self.boxes[0..self.n_boxes], a, b, &hit);
-        return hit == std.math.maxInt(usize);
+        const free = hit == std.math.maxInt(usize);
+        if (self.answers()) |t| t.support_hop = if (free) .yes else .no;
+        return free;
     }
 
     fn isSupport(f: ?Feature) bool {
@@ -1610,46 +1690,39 @@ pub const Emitter = struct {
     /// without `z_hop_only_crossing`, else only if the straight line
     /// crosses an edge of the layer outline. The z hop is the one of the
     /// layer (see `lr`).
-    fn hopFor(self: *const Emitter, x: f64, y: f64) bool {
+    fn hopFor(self: *Emitter, x: f64, y: f64) bool {
         const p = self.lr.settings.project;
         if (!p.z_hop_only_crossing or p.z_hop <= 0) return true;
         const outline = self.outline orelse return true;
+        if (self.known()) |t| if (t.hop != .unknown) return t.hop == .yes;
+        if (self.needsOutline()) return true;
         const a: geom.Point = .{ .x = geom.fromMm(self.x), .y = geom.fromMm(self.y) };
         const b: geom.Point = .{ .x = geom.fromMm(x), .y = geom.fromMm(y) };
         var hit: usize = 0;
-        return !self.clearOf(outline.*, self.boxes[0..self.n_boxes], a, b, &hit);
+        const hop = !self.clearOf(outline.*, self.boxes[0..self.n_boxes], a, b, &hit);
+        if (self.answers()) |t| t.hop = if (hop) .yes else .no;
+        return hop;
     }
 
     /// The combing way to x, y (see `comb`): from `prep` if it has the
     /// way from the nozzle position, else found now. In a dry run, a way
     /// that is found now goes into `prep`.
-    fn wayOf(self: *Emitter, x: f64, y: f64, d: f64, buf: *[max_way][2]f64) ?[]const [2]f64 {
-        const pr = self.prep orelse {
-            const n = self.findWay(x, y, d, buf) orelse return null;
-            return buf[0..n];
-        };
-        const i = self.path_index;
+    fn wayOf(self: *Emitter, x: f64, y: f64, d: f64, buf: *[max_way][2]f64) Error!?[]const [2]f64 {
         const unknown = Prepared.PathPrep.unknown;
         const no_way = Prepared.PathPrep.retract;
-        if (i < pr.paths.items.len) {
-            const t = pr.paths.items[i];
-            if (t.n != unknown and t.from[0] == self.x and t.from[1] == self.y) {
-                if (t.n == no_way) return null;
-                return pr.way_points.items[t.start..][0..@intCast(t.n)];
-            }
-        }
+        if (self.known()) |t| if (t.n != unknown) {
+            if (t.n == no_way) return null;
+            return self.prep.?.way_points.items[t.start..][0..@intCast(t.n)];
+        };
+        if (self.needsOutline()) return null;
         const found = self.findWay(x, y, d, buf);
-        if (self.dry and self.keep_ways and i < pr.paths.items.len) {
-            // Keep the way for the text of the layer. The list of
-            // waypoints has room for one way (see `prepare`).
-            const t = &pr.paths.items[i];
-            t.from = .{ self.x, self.y };
+        if (self.answers()) |t| {
+            // Keep the way for the text of the layer.
             if (found) |n| {
-                if (pr.way_points.unusedCapacitySlice().len >= n) {
-                    t.start = @intCast(pr.way_points.items.len);
-                    t.n = @intCast(n);
-                    pr.way_points.appendSliceAssumeCapacity(buf[0..n]);
-                } else t.n = unknown;
+                const pr = self.prep.?;
+                t.start = @intCast(pr.way_points.items.len);
+                t.n = @intCast(n);
+                try pr.way_points.appendSlice(self.gpa, buf[0..n]);
             } else t.n = no_way;
         }
         const n = found orelse return null;
