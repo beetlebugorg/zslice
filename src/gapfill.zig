@@ -150,13 +150,19 @@ pub fn skinGaps(a: Allocator, skin: Paths, lines: Paths, widths: []const f32, an
     var near_area: Paths = .empty;
     var foot: Paths = .empty;
     var boxes: Paths = .empty;
+    // A long line is near many boxes. Its footprint goes in one time: a
+    // second copy adds no area, and each copy of an edge is one more edge
+    // for each crossing in the boolean.
+    var added = try std.DynamicBitSetUnmanaged.initEmpty(a, segs.count());
     for (try boxesAround(a, far, w)) |box| {
         // The lines near the box, and their footprints.
         const near = grown(box, w);
         for (0..segs.count()) |k| {
+            if (added.isSet(k)) continue;
             const sg = segs.get(k);
             if (@max(sg[0].x, sg[1].x) < near.min.x or @min(sg[0].x, sg[1].x) > near.max.x or
                 @max(sg[0].y, sg[1].y) < near.min.y or @min(sg[0].y, sg[1].y) > near.max.y) continue;
+            added.set(k);
             try addSegment(a, &foot, sg[0], sg[1], @as(f64, seg_w.items[k]) * geom.units_per_mm, pad);
         }
         try near_area.appendAll(a, try cutToBox(a, area, near));
