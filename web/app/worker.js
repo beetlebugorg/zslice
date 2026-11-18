@@ -827,7 +827,7 @@ const ops = {
     return { error, value: core.partSetting(index, name), list: core.partSettings(index) };
   },
 
-  // ---- printdeck.yml projects (project.js) ----  // ---- printdeck.yml projects (project.js) ----
+  // ---- printdeck.yml projects (project.js) ----
 
   projectPlan({ text, counts }) {
     return core.projectPlan(text, counts ?? []);

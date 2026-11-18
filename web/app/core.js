@@ -179,12 +179,12 @@ export class Core {
     }
   }
 
-  // The parts of a 3MF file keep their places in the file.  // The parts of a 3MF file keep their places in the file.
+  // The parts of a 3MF file keep their places in the file.
   setKeepPlaces(on) {
     this.w.x.zs_app_set_keep_places(this.app, on ? 1 : 0);
   }
 
-  // The value of a setting with no change of this print: what a reset  // The value of a setting with no change of this print: what a reset
+  // The value of a setting with no change of this print: what a reset
   // gives.
   base(name) {
     const w = this.w;
@@ -909,7 +909,7 @@ export class Core {
     return `The value is not valid (${statusText(rc)}).`;
   }
 
-  // The plate as a 3MF file (zs_app_write_3mf), as bytes, or null.  // The plate as a 3MF file (zs_app_write_3mf), as bytes, or null.
+  // The plate as a 3MF file (zs_app_write_3mf), as bytes, or null.
   plate3mf() {
     const w = this.w;
     if (w.x.zs_app_part_count(this.app) === 0) return null;
