@@ -2,7 +2,9 @@ name: release
 
 # Makes a GitHub release for a version tag (v0.6.0-beta) with the zslice
 # command line tool for Linux (x86_64 and aarch64, static) and macOS
-# (aarch64 and x86_64), each as a .tar.gz with a SHA-256 file. Zig builds
+# (aarch64 and x86_64), and the C library (libzslice.a and the headers) for
+# Linux (aarch64 and x86_64, glibc 2.36), each as a .tar.gz with a SHA-256
+# file. Zig builds
 # all four on one Linux runner. The printdeck Action downloads the Linux
 # tools from these releases to slice with zslice.
 on:
@@ -41,6 +43,19 @@ jobs:
             cp "out/$t/bin/zslice" LICENSE README.md "pkg/$name/"
             tar -C pkg -czf "dist/$name.tar.gz" "$name"
           done
+          # The C library for printer hosts (printdeck links it with cgo):
+          # libzslice.a and the headers, static only. The glibc of aarch64
+          # is 2.36, so it links on older systems too.
+          for t in aarch64-linux-gnu.2.36 x86_64-linux-gnu.2.36; do
+            zig build lib -Dtarget="$t" -Doptimize=ReleaseFast --prefix "out/lib-$t"
+            arch="${t%%.*}"
+            name="zslice-${TAG#v}-lib-$arch"
+            mkdir -p "pkg/$name/lib" "pkg/$name/include"
+            cp "out/lib-$t/lib/libzslice.a" "pkg/$name/lib/"
+            cp include/zslice.h include/zslice-app.h "pkg/$name/include/"
+            cp LICENSE "pkg/$name/"
+            tar -C pkg -czf "dist/$name.tar.gz" "$name"
+          done
           cd dist && sha256sum *.tar.gz > SHA256SUMS
         env:
           TAG: ${{ inputs.tag || github.ref_name }}
@@ -63,7 +78,7 @@ jobs:
           test -s /tmp/cube.gcode
 
       - name: Release
-        run: gh release create "$TAG" dist/* --title "zslice $TAG" --notes "The zslice command line tool. Check the files with SHA256SUMS." --prerelease
+        run: gh release create "$TAG" dist/* --title "zslice $TAG" --notes "The zslice command line tool, and the C library for printer hosts (lib). Check the files with SHA256SUMS." --prerelease
         env:
           TAG: ${{ inputs.tag || github.ref_name }}
           GH_TOKEN: ${{ github.token }}
