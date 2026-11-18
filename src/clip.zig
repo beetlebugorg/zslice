@@ -367,7 +367,87 @@ noinline fn findIntersections(comptime narrow: bool, arena: Allocator, edges: []
     // cell.
     try radixSortByCell(arena, entries.items, grid.rows * grid.cols);
 
-    try testCells(narrow, arena, edges, entries.items, splits);
+    if (narrow and box_lanes > 1) {
+        try testCellsWide(arena, edges, entries.items, grid.origin, splits);
+    } else {
+        try testCells(narrow, arena, edges, entries.items, splits);
+    }
+}
+
+/// The number of boxes that `testCellsWide` compares in one step, or 1 if
+/// the CPU has no vector registers (then `testCells` does the work).
+const box_lanes: comptime_int = if (std.simd.suggestVectorLength(i32)) |n| @min(n, 8) else 1;
+
+/// `testCells` for narrow coordinates, with the same pairs in the same
+/// order. The box of each entry goes into four arrays of 32-bit numbers,
+/// in the order of the entries. The pair loop then compares one edge with
+/// the boxes of `box_lanes` entries in one step, and it reads memory in
+/// order. `testCells` reads one edge of 48 bytes for each pair.
+///
+/// A coordinate less the grid origin is less than 2^31, because both are
+/// within `narrow_limit`.
+noinline fn testCellsWide(arena: Allocator, edges: []const InEdge, items: []const CellEntry, origin: Point, splits: *std.ArrayList(Split)) !void {
+    const lanes = box_lanes;
+    const V = @Vector(lanes, i32);
+    const Bits = std.meta.Int(.unsigned, lanes);
+    const n = items.len;
+    // Room for one full step after the last entry.
+    const boxes = try arena.alloc(i32, 4 * (n + lanes));
+    const x0 = boxes[0 .. n + lanes];
+    const x1 = boxes[n + lanes ..][0 .. n + lanes];
+    const y0 = boxes[2 * (n + lanes) ..][0 .. n + lanes];
+    const y1 = boxes[3 * (n + lanes) ..][0 .. n + lanes];
+    for ([_][]i32{ x0, x1, y0, y1 }) |b| @memset(b[n..], 0);
+    for (items, 0..) |it, k| {
+        const e = &edges[it.edge];
+        x0[k] = @intCast(@min(e.a.x, e.b.x) - origin.x);
+        x1[k] = @intCast(@max(e.a.x, e.b.x) - origin.x);
+        y0[k] = @intCast(@min(e.a.y, e.b.y) - origin.y);
+        y1[k] = @intCast(@max(e.a.y, e.b.y) - origin.y);
+    }
+    var i: usize = 0;
+    while (i < n) {
+        var j = i + 1;
+        while (j < n and items[j].cell == items[i].cell) : (j += 1) {}
+        var x = i;
+        while (x < j) : (x += 1) {
+            if (x > i and items[x].edge == items[x - 1].edge) continue;
+            const ei = items[x].edge;
+            const e = &edges[ei];
+            // The rest are old edges, and two old edges do not cross.
+            if (!e.fresh) break;
+            const e_x0: V = @splat(x0[x]);
+            const e_x1: V = @splat(x1[x]);
+            const e_y0: V = @splat(y0[x]);
+            const e_y1: V = @splat(y1[x]);
+            var y = x + 1;
+            while (y < j) : (y += lanes) {
+                const f_x0: V = x0[y..][0..lanes].*;
+                const f_x1: V = x1[y..][0..lanes].*;
+                const f_y0: V = y0[y..][0..lanes].*;
+                const f_y1: V = y1[y..][0..lanes].*;
+                var bits: Bits = @as(Bits, @bitCast(f_x1 >= e_x0)) & @as(Bits, @bitCast(f_x0 <= e_x1)) &
+                    @as(Bits, @bitCast(f_y1 >= e_y0)) & @as(Bits, @bitCast(f_y0 <= e_y1));
+                // The entries from j on are in the next cell.
+                if (j - y < lanes) bits &= (@as(Bits, 1) << @intCast(j - y)) - 1;
+                while (bits != 0) {
+                    const at = y + @ctz(bits);
+                    bits &= bits - 1;
+                    if (items[at].edge == items[at - 1].edge) continue;
+                    const fi = items[at].edge;
+                    const f = &edges[fi];
+                    // The crossing point is rounded along the first edge,
+                    // so the edge with the lower index always goes first.
+                    if (ei < fi) {
+                        try intersectPair(true, arena, splits, ei, e, fi, f);
+                    } else {
+                        try intersectPair(true, arena, splits, fi, f, ei, e);
+                    }
+                }
+            }
+        }
+        i = j;
+    }
 }
 
 /// Tests the pairs of edges in each cell. `items` is in cell order.
