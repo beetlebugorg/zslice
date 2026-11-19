@@ -1894,7 +1894,7 @@ static GtkWidget *tool_strip(Preview *p) {
     gtk_box_append(GTK_BOX(box), p->gaps);
     /* The printability check: things that can make the print fail. */
     p->check = strip_button(gtk_menu_button_new(), 5, NULL,
-                            "Check the print: overhangs with no support, bridges, shapes in the air, lines over the flow of the hot end, layers that cool too little");
+                            "Check the print: overhangs with no support, bridges, shapes in the air, lines over the flow of the hot end, layers that cool too little, parts that can tip over");
     gtk_menu_button_set_direction(GTK_MENU_BUTTON(p->check), GTK_ARROW_RIGHT);
     gtk_box_append(GTK_BOX(box), p->check);
     gtk_widget_set_halign(box, GTK_ALIGN_START);

@@ -1757,7 +1757,15 @@ pub const App = struct {
         if (app.checks_result) |*r| return r;
         const j = &(app.job orelse return error.NoResult);
         const t = app.allToolpaths() orelse return error.NoResult;
-        app.checks_result = try checks_mod.run(app.gpa, j, t, app.settings);
+        // The bond of each part on the bed, with support off.
+        var stands: std.ArrayList(checks_mod.Stand) = .empty;
+        defer stands.deinit(app.gpa);
+        for (app.plate.parts.items, 0..) |p, i| {
+            if (p.trees != null or app.settings.project.support != .off) continue;
+            const m = try app.bondOf(i);
+            try stands.append(app.gpa, .{ .name = p.name, .x = p.x, .y = p.y, .result = m.result, .weak = m.stand == .weak });
+        }
+        app.checks_result = try checks_mod.run(app.gpa, j, t, app.settings, stands.items);
         return &app.checks_result.?;
     }
 

@@ -2049,7 +2049,7 @@ async function openCheck() {
   openPopover(button, list);
 }
 $("check").disabled = false;
-$("check").title = "Check the print: overhangs with no support, bridges, shapes in the air, lines over the flow of the hot end, layers that cool too little";
+$("check").title = "Check the print: overhangs with no support, bridges, shapes in the air, lines over the flow of the hot end, layers that cool too little, parts that can tip over";
 $("check").onclick = () => openCheck();
 
 // ---- the print card ----

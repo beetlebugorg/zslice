@@ -16,6 +16,9 @@
 //! - island: a shape that starts in the air (islands.zig).
 //! - retractions: a layer with very many retractions: they grind the
 //!   filament at one place of the feeder.
+//! - stand: with support off, a part that the bond of its first layer to
+//!   the bed holds with little margin, or only with its brim, or not at
+//!   all (bond.zig). The app gives the bond test of each part.
 //!
 //! Each issue has its kind, its layer, a place, the line it is about (or
 //! none), a number for its size, and a text that says what and why. The
@@ -30,7 +33,7 @@ const Allocator = std.mem.Allocator;
 const Toolpaths = @import("toolpaths.zig").Toolpaths;
 const geom = zs.geom;
 
-pub const Kind = enum(u8) { flow, cooling, overhang, island, retractions, bridge };
+pub const Kind = enum(u8) { flow, cooling, overhang, island, retractions, bridge, stand };
 
 pub const Issue = extern struct {
     kind: Kind,
@@ -42,7 +45,7 @@ pub const Issue = extern struct {
     x: f64,
     y: f64,
     /// The size: flow in % of max_flow, layer time in s, overhang area in
-    /// mm², island area in mm², retractions.
+    /// mm², island area in mm², retractions, the margin of the bond.
     value: f64,
     /// The text, in Result.text[text_start..][0..text_len].
     text_start: u32,
@@ -84,8 +87,8 @@ const max_per_kind = 50;
 
 /// The checks of the slice. `job` gives the outlines (for the overhangs)
 /// and the islands; `t` the lines and their times; `s` the settings of the
-/// print.
-pub fn run(gpa: Allocator, job: *const zs.PlateJob, t: *const Toolpaths, s: zs.Settings) Allocator.Error!Result {
+/// print; `stands` the bond test of each part with support off.
+pub fn run(gpa: Allocator, job: *const zs.PlateJob, t: *const Toolpaths, s: zs.Settings, stands: []const Stand) Allocator.Error!Result {
     var b: Builder = .{ .gpa = gpa };
     errdefer {
         b.issues.deinit(gpa);
@@ -96,6 +99,7 @@ pub fn run(gpa: Allocator, job: *const zs.PlateJob, t: *const Toolpaths, s: zs.S
     try overhangIssues(&b, job, s);
     try islandIssues(&b, job);
     try retractionIssues(&b, t);
+    try standIssues(&b, stands);
     // The worst first: problems, then warnings, then by layer.
     std.mem.sort(Issue, b.issues.items, {}, struct {
         fn lt(_: void, x: Issue, y: Issue) bool {
@@ -104,6 +108,39 @@ pub fn run(gpa: Allocator, job: *const zs.PlateJob, t: *const Toolpaths, s: zs.S
         }
     }.lt);
     return .{ .issues = try b.issues.toOwnedSlice(gpa), .text = try b.text.toOwnedSlice(gpa) };
+}
+
+/// The bond test of a part, from the app (see bond.zig).
+pub const Stand = struct {
+    name: []const u8,
+    /// The center of the part on the bed.
+    x: f64,
+    y: f64,
+    result: zs.bond.Result,
+    /// No side that the part can fall onto stands either: it stays as
+    /// it is, and it can come off the bed.
+    weak: bool = false,
+};
+
+/// A bond that holds less than this many times the load gets a warning.
+/// The bond on a real bed varies by more than this (bond.zig).
+pub const stand_margin = 2.0;
+
+fn standIssues(b: *Builder, stands: []const Stand) Allocator.Error!void {
+    for (stands) |st| {
+        const r = st.result;
+        var is: Issue = .{ .kind = .stand, .severity = 0, .layer = 0, .path = Issue.no_path, .x = st.x, .y = st.y, .value = r.margin, .text_start = 0, .text_len = 0 };
+        if (st.weak or !r.stands) {
+            is.severity = 2;
+            try b.add(is, "{s}: the push of the nozzle and its weight can tip this part over. The bond of the first layer holds {d:.1} N mm, and the load is {d:.1} N mm. Add a brim or support.", .{ st.name, r.hold, r.load });
+        } else if (!r.stands_bare) {
+            is.severity = if (r.margin < stand_margin) 1 else 0;
+            try b.add(is, "{s}: the brim holds this part. Without the brim, the push of the nozzle or its weight tips it over.", .{st.name});
+        } else if (r.margin < stand_margin) {
+            is.severity = 1;
+            try b.add(is, "{s}: the bond of the first layer holds this part with little margin ({d:.1} times the load). A brim holds it better.", .{ st.name, r.margin });
+        }
+    }
 }
 
 fn midpoint(t: *const Toolpaths, path: usize) [2]f64 {
@@ -136,8 +173,7 @@ fn flowIssues(b: *Builder, job: *const zs.PlateJob, t: *const Toolpaths) Allocat
     }.lt);
     for (hits.items[0..@min(hits.items.len, max_per_kind)]) |h| {
         const c = midpoint(t, h.path);
-        try b.add(.{ .kind = .flow, .severity = if (h.ratio > 1.0) 2 else 1, .layer = h.layer, .path = h.path, .x = c[0], .y = c[1], .value = h.ratio * 100, .text_start = 0, .text_len = 0 },
-            "Layer {d}: a line needs {d:.1} mm³/s, {d:.0} % of what the hot end melts ({d:.1} mm³/s, filament.max_flow). It can come out thin. Lower its speed, or raise max_flow if the hot end can do more.", .{ h.layer + 1, h.flow, h.ratio * 100, h.limit });
+        try b.add(.{ .kind = .flow, .severity = if (h.ratio > 1.0) 2 else 1, .layer = h.layer, .path = h.path, .x = c[0], .y = c[1], .value = h.ratio * 100, .text_start = 0, .text_len = 0 }, "Layer {d}: a line needs {d:.1} mm³/s, {d:.0} % of what the hot end melts ({d:.1} mm³/s, filament.max_flow). It can come out thin. Lower its speed, or raise max_flow if the hot end can do more.", .{ h.layer + 1, h.flow, h.ratio * 100, h.limit });
     }
 }
 
@@ -319,23 +355,19 @@ fn overhangIssues(b: *Builder, pj: *const zs.PlateJob, s: zs.Settings) Allocator
             // A bridge of less than 2 mm prints well in any case.
             if (hh.span < 2) continue;
             if (s.project.bridges) {
-                try b.add(.{ .kind = .bridge, .severity = if (hh.span > 15) 1 else 0, .layer = hh.layer, .path = Issue.no_path, .x = hh.x, .y = hh.y, .value = hh.span, .text_start = 0, .text_len = 0 },
-                    "Layer {d}: a bridge of about {d:.1} mm over air ({d:.1} mm²). It prints as a bridge (project.bridges): straight lines across, anchored at both ends, slow, with the fan on.{s}", .{ hh.layer + 1, hh.span, hh.area, if (hh.span > 15) " A bridge this long can still sag: add support under it, or turn the part." else "" });
+                try b.add(.{ .kind = .bridge, .severity = if (hh.span > 15) 1 else 0, .layer = hh.layer, .path = Issue.no_path, .x = hh.x, .y = hh.y, .value = hh.span, .text_start = 0, .text_len = 0 }, "Layer {d}: a bridge of about {d:.1} mm over air ({d:.1} mm²). It prints as a bridge (project.bridges): straight lines across, anchored at both ends, slow, with the fan on.{s}", .{ hh.layer + 1, hh.span, hh.area, if (hh.span > 15) " A bridge this long can still sag: add support under it, or turn the part." else "" });
             } else {
-                try b.add(.{ .kind = .bridge, .severity = if (hh.span > 15) 2 else 1, .layer = hh.layer, .path = Issue.no_path, .x = hh.x, .y = hh.y, .value = hh.span, .text_start = 0, .text_len = 0 },
-                    "Layer {d}: a bridge of about {d:.1} mm over air ({d:.1} mm²), printed as normal skin. Turn on project.bridges: it prints the bridge across the air, slow, with the fan on.", .{ hh.layer + 1, hh.span, hh.area });
+                try b.add(.{ .kind = .bridge, .severity = if (hh.span > 15) 2 else 1, .layer = hh.layer, .path = Issue.no_path, .x = hh.x, .y = hh.y, .value = hh.span, .text_start = 0, .text_len = 0 }, "Layer {d}: a bridge of about {d:.1} mm over air ({d:.1} mm²), printed as normal skin. Turn on project.bridges: it prints the bridge across the air, slow, with the fan on.", .{ hh.layer + 1, hh.span, hh.area });
             }
         } else {
-            try b.add(.{ .kind = .overhang, .severity = if (hh.area > 10) 2 else 1, .layer = hh.layer, .path = Issue.no_path, .x = hh.x, .y = hh.y, .value = hh.area, .text_start = 0, .text_len = 0 },
-                "Layer {d}: {d:.1} mm² hang out past the layer below, flatter than {d:.0}° (project.support_angle), with support off. It can sag or curl. Turn on support, or add support there (right click).", .{ hh.layer + 1, hh.area, s.project.support_angle });
+            try b.add(.{ .kind = .overhang, .severity = if (hh.area > 10) 2 else 1, .layer = hh.layer, .path = Issue.no_path, .x = hh.x, .y = hh.y, .value = hh.area, .text_start = 0, .text_len = 0 }, "Layer {d}: {d:.1} mm² hang out past the layer below, flatter than {d:.0}° (project.support_angle), with support off. It can sag or curl. Turn on support, or add support there (right click).", .{ hh.layer + 1, hh.area, s.project.support_angle });
         }
     }
 }
 
 fn islandIssues(b: *Builder, job: *const zs.PlateJob) Allocator.Error!void {
     for (job.islands[0..@min(job.islands.len, max_per_kind)]) |isl| {
-        try b.add(.{ .kind = .island, .severity = 2, .layer = @intCast(isl.layer), .path = Issue.no_path, .x = isl.x, .y = isl.y, .value = isl.area, .text_start = 0, .text_len = 0 },
-            "Layer {d}: a shape of {d:.1} mm² starts in the air, with nothing under it. Add support there, or turn the part.", .{ isl.layer + 1, isl.area });
+        try b.add(.{ .kind = .island, .severity = 2, .layer = @intCast(isl.layer), .path = Issue.no_path, .x = isl.x, .y = isl.y, .value = isl.area, .text_start = 0, .text_len = 0 }, "Layer {d}: a shape of {d:.1} mm² starts in the air, with nothing under it. Add support there, or turn the part.", .{ isl.layer + 1, isl.area });
     }
 }
 
@@ -350,8 +382,7 @@ fn retractionIssues(b: *Builder, t: *const Toolpaths) Allocator.Error!void {
         n += 1;
         if (n > max_per_kind) break;
         const c = midpoint(t, first);
-        try b.add(.{ .kind = .retractions, .severity = 0, .layer = @intCast(l), .path = Issue.no_path, .x = c[0], .y = c[1], .value = @floatFromInt(count), .text_start = 0, .text_len = 0 },
-            "Layer {d} has {d} retractions. Many retractions grind the filament at one place of the feeder. Combing (project.combing) keeps more travels inside the part.", .{ l + 1, count });
+        try b.add(.{ .kind = .retractions, .severity = 0, .layer = @intCast(l), .path = Issue.no_path, .x = c[0], .y = c[1], .value = @floatFromInt(count), .text_start = 0, .text_len = 0 }, "Layer {d} has {d} retractions. Many retractions grind the filament at one place of the feeder. Combing (project.combing) keeps more travels inside the part.", .{ l + 1, count });
     }
 }
 
@@ -388,4 +419,36 @@ test "checks: a bridge between two posts, and a shelf on one post" {
     };
     try std.testing.expect(bridges >= 1);
     try std.testing.expect(overhangs >= 1);
+}
+
+test "checks: the brim holds a thin pin, and a box has no note" {
+    const gpa = std.testing.allocator;
+    // A pin of 4 x 4 x 40 mm with an 8 mm brim, and a box of 20 mm.
+    for ([_]struct { box: [6]f64, notes: usize }{
+        .{ .box = .{ 0, 0, 0, 4, 4, 40 }, .notes = 1 },
+        .{ .box = .{ 0, 0, 0, 20, 20, 20 }, .notes = 0 },
+    }) |c| {
+        var b: zs.mesh.Builder = .init(gpa);
+        const x = c.box;
+        try zs.mesh.shapes.addBox(&b, x[0], x[1], x[2], x[3], x[4], x[5]);
+        var mesh = try b.finish();
+        defer mesh.deinit(gpa);
+        var stl: std.Io.Writer.Allocating = .init(gpa);
+        defer stl.deinit();
+        try mesh.writeStl(&stl.writer);
+        const app = try zs.app.App.create(gpa, null, null);
+        defer app.destroy();
+        try app.setSetting("project.brim_width", "8");
+        try app.loadStl("part.stl", stl.written());
+        try app.startSlice();
+        app.stopWorkerForTest();
+        const r = try app.checks();
+        var notes: usize = 0;
+        for (r.issues) |i| if (i.kind == .stand) {
+            notes += 1;
+            try std.testing.expectEqual(@as(u8, 0), i.severity);
+            try std.testing.expect(std.mem.indexOf(u8, r.textOf(i), "the brim holds this part") != null);
+        };
+        try std.testing.expectEqual(c.notes, notes);
+    }
 }

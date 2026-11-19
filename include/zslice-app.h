@@ -609,10 +609,11 @@ int zs_app_measure(const zs_app *app, size_t path, size_t seg, zs_measure *out);
 /* The printability check of the last slice (src/app/checks.zig): each
  * issue has its kind, its severity (0 note, 1 warning, 2 problem), its
  * layer, the path it is about (ZS_NO_PATH: none), a place in mm, a size
- * (flow in %, layer time in s, area in mm², or a count), and its text,
+ * (flow in %, layer time in s, area in mm², a count, or the margin of
+ * the bond of a part to the bed), and its text,
  * text[text_start .. text_start + text_len) of the text of the call. The
  * worst first. Valid until the next slice. */
-enum zs_issue_kind { ZS_ISSUE_FLOW = 0, ZS_ISSUE_COOLING = 1, ZS_ISSUE_OVERHANG = 2, ZS_ISSUE_ISLAND = 3, ZS_ISSUE_RETRACTIONS = 4, ZS_ISSUE_BRIDGE = 5 };
+enum zs_issue_kind { ZS_ISSUE_FLOW = 0, ZS_ISSUE_COOLING = 1, ZS_ISSUE_OVERHANG = 2, ZS_ISSUE_ISLAND = 3, ZS_ISSUE_RETRACTIONS = 4, ZS_ISSUE_BRIDGE = 5, ZS_ISSUE_STAND = 6 };
 #define ZS_NO_PATH 0xffffffffu
 typedef struct {
     uint8_t kind;
