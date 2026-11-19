@@ -258,6 +258,19 @@ int zs_mqtt_reader_next(zs_mqtt_reader *r, zs_mqtt_packet *out);
  * password). Start a print only after a fresh confirmation of the user
  * that the plate is clear. */
 int zs_bambu_file(const uint8_t *gcode, size_t len, const char *title, uint8_t **out, size_t *out_len);
+/* The same file with the facts of the plate in Metadata/slice_info.config,
+ * as Bambu Studio writes them: the time (s), the grams, the meters, the
+ * material ("PLA"), and the color ("#RRGGBB") of its filament, and the
+ * nozzle (0 or NULL: not known). A printdeck reads them to list the file
+ * and to give the filament the tray of the AMS with the same material and
+ * the nearest color. */
+typedef struct zs_bambu_plate {
+    const char *title;
+    double seconds, grams, meters;
+    const char *material, *color;
+    double nozzle;
+} zs_bambu_plate;
+int zs_bambu_file_plate(const uint8_t *gcode, size_t len, const zs_bambu_plate *plate, uint8_t **out, size_t *out_len);
 /* flags: 1 bed leveling, 2 the AMS, 4 a time lapse, 8 the url form
  * "ftp://<file>" (P1 and A1, reported) in place of "file:///sdcard/<file>"
  * (X1). md5: zs_bambu_md5 of the G-code, or NULL. */

@@ -514,6 +514,42 @@ export fn zs_bambu_file(gcode: ?[*]const u8, len: usize, title: ?[*:0]const u8, 
     return ok;
 }
 
+pub const BambuPlate = extern struct {
+    title: ?[*:0]const u8,
+    seconds: f64,
+    grams: f64,
+    meters: f64,
+    material: ?[*:0]const u8,
+    color: ?[*:0]const u8,
+    nozzle: f64,
+};
+
+/// zs_bambu_file with the facts of the plate in
+/// Metadata/slice_info.config (its time, grams, and filament), as a
+/// printdeck reads them. Free the bytes with zs_buffer_free.
+export fn zs_bambu_file_plate(gcode: ?[*]const u8, len: usize, plate: ?*const BambuPlate, out: ?*?[*]u8, out_len: ?*usize) c_int {
+    const g = gcode orelse return @intFromEnum(Status.invalid_argument);
+    const p = plate orelse return @intFromEnum(Status.invalid_argument);
+    const o = out orelse return @intFromEnum(Status.invalid_argument);
+    const l = out_len orelse return @intFromEnum(Status.invalid_argument);
+    const span = struct {
+        fn f(s: ?[*:0]const u8) []const u8 {
+            return if (s) |x| std.mem.span(x) else "";
+        }
+    }.f;
+    const bytes = zs.bambu.gcode3mfPlate(gpa, g[0..len], if (p.title) |t| std.mem.span(t) else "zslice", .{
+        .seconds = p.seconds,
+        .grams = p.grams,
+        .meters = p.meters,
+        .material = span(p.material),
+        .color = span(p.color),
+        .nozzle = p.nozzle,
+    }) catch return @intFromEnum(Status.out_of_memory);
+    o.* = bytes.ptr;
+    l.* = bytes.len;
+    return ok;
+}
+
 /// The MQTT message (JSON) that starts the print of `file` (the name of the
 /// uploaded .gcode.3mf) on a Bambu Lab printer. Publish it to
 /// "device/<serial>/request" only after a fresh confirmation of the user

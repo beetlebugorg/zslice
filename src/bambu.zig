@@ -28,8 +28,71 @@ const std = @import("std");
 const Allocator = std.mem.Allocator;
 const zipfile = @import("zipfile.zig");
 
+/// The facts of the plate for Metadata/slice_info.config, as Bambu Studio
+/// writes them: a printdeck reads them to list the file (its time and
+/// grams) and to give each filament the tray of the AMS with the same
+/// material and the nearest color. 0 or "": not known.
+pub const PlateInfo = struct {
+    /// The print time that the slicer predicts, s.
+    seconds: f64 = 0,
+    grams: f64 = 0,
+    meters: f64 = 0,
+    /// "PLA".
+    material: []const u8 = "",
+    /// "#RRGGBB".
+    color: []const u8 = "",
+    nozzle: f64 = 0,
+};
+
+/// `text` with the 5 special characters of XML escaped.
+fn xmlText(a: Allocator, text: []const u8) Allocator.Error![]u8 {
+    var out: std.ArrayList(u8) = .empty;
+    for (text) |c| switch (c) {
+        '&' => try out.appendSlice(a, "&amp;"),
+        '<' => try out.appendSlice(a, "&lt;"),
+        '>' => try out.appendSlice(a, "&gt;"),
+        '"' => try out.appendSlice(a, "&quot;"),
+        '\'' => try out.appendSlice(a, "&apos;"),
+        else => try out.append(a, c),
+    };
+    return out.toOwnedSlice(a);
+}
+
+/// Metadata/slice_info.config: plate 1, its time and grams, and its one
+/// filament.
+fn sliceInfo(a: Allocator, info: PlateInfo) Allocator.Error![]u8 {
+    var w: std.Io.Writer.Allocating = .init(a);
+    const ww = &w.writer;
+    ww.writeAll(
+        \\<?xml version="1.0" encoding="UTF-8"?>
+        \\<config>
+        \\  <header>
+        \\    <header_item key="X-BBL-Client-Type" value="slicer"/>
+        \\    <header_item key="X-BBL-Client-Version" value="zslice"/>
+        \\  </header>
+        \\  <plate>
+        \\    <metadata key="index" value="1"/>
+        \\
+    ) catch return error.OutOfMemory;
+    ww.print("    <metadata key=\"prediction\" value=\"{d}\"/>\n", .{@as(i64, @intFromFloat(@round(@max(0, info.seconds))))}) catch return error.OutOfMemory;
+    ww.print("    <metadata key=\"weight\" value=\"{d:.2}\"/>\n", .{@max(0, info.grams)}) catch return error.OutOfMemory;
+    if (info.nozzle > 0) ww.print("    <metadata key=\"nozzle_diameters\" value=\"{d}\"/>\n", .{info.nozzle}) catch return error.OutOfMemory;
+    if (info.material.len > 0) {
+        const color = if (info.color.len == 7 and info.color[0] == '#') info.color else "#FFFFFF";
+        ww.print("    <filament id=\"1\" type=\"{s}\" color=\"{s}\" used_m=\"{d:.2}\" used_g=\"{d:.2}\"/>\n", .{ try xmlText(a, info.material), try xmlText(a, color), @max(0, info.meters), @max(0, info.grams) }) catch return error.OutOfMemory;
+    }
+    ww.writeAll("  </plate>\n</config>\n") catch return error.OutOfMemory;
+    return w.toOwnedSlice() catch error.OutOfMemory;
+}
+
 /// A .gcode.3mf file with the G-code as plate 1, in gpa.
 pub fn gcode3mf(gpa: Allocator, gcode: []const u8, title: []const u8) (Allocator.Error || std.Io.Writer.Error)![]u8 {
+    return gcode3mfPlate(gpa, gcode, title, .{});
+}
+
+/// A .gcode.3mf file with the G-code as plate 1 and the facts of the
+/// plate (Metadata/slice_info.config), in gpa.
+pub fn gcode3mfPlate(gpa: Allocator, gcode: []const u8, title: []const u8, info: PlateInfo) (Allocator.Error || std.Io.Writer.Error)![]u8 {
     var arena_state = std.heap.ArenaAllocator.init(gpa);
     defer arena_state.deinit();
     const a = arena_state.allocator();
@@ -53,7 +116,7 @@ pub fn gcode3mf(gpa: Allocator, gcode: []const u8, title: []const u8) (Allocator
         \\ <build/>
         \\</model>
         \\
-    , .{title});
+    , .{try xmlText(a, title)});
     const settings =
         \\<?xml version="1.0" encoding="UTF-8"?>
         \\<config>
@@ -71,6 +134,7 @@ pub fn gcode3mf(gpa: Allocator, gcode: []const u8, title: []const u8) (Allocator
         .{ .name = "Metadata/model_settings.config", .data = @constCast(settings) },
         .{ .name = "Metadata/plate_1.gcode", .data = @constCast(gcode) },
         .{ .name = "Metadata/plate_1.gcode.md5", .data = md5 },
+        .{ .name = "Metadata/slice_info.config", .data = try sliceInfo(a, info) },
     };
     var out: std.Io.Writer.Allocating = .init(gpa);
     errdefer out.deinit();
@@ -303,4 +367,35 @@ test "bambu: the start message" {
     defer gpa.free(m2);
     try testing.expect(std.mem.indexOf(u8, m2, "\"url\":\"ftp://a.gcode.3mf\"") != null);
     try testing.expect(std.mem.indexOf(u8, m2, &md5) != null);
+}
+
+test "bambu: the slice info of a plate, for a printdeck" {
+    const gpa = testing.allocator;
+    const bytes = try gcode3mfPlate(gpa, "G28\n", "A & B <1>", .{ .seconds = 3725.4, .grams = 12.345, .meters = 4.1, .material = "PETG", .color = "#1A2B3C", .nozzle = 0.4 });
+    defer gpa.free(bytes);
+    const list = try zipfile.readAll(gpa, bytes);
+    defer zipfile.freeAll(gpa, list);
+    var info: ?[]const u8 = null;
+    var model: ?[]const u8 = null;
+    for (list) |e| {
+        if (std.mem.eql(u8, e.name, "Metadata/slice_info.config")) info = e.data;
+        if (std.mem.eql(u8, e.name, "3D/3dmodel.model")) model = e.data;
+    }
+    const t = info.?;
+    try testing.expect(std.mem.indexOf(u8, t, "<metadata key=\"index\" value=\"1\"/>") != null);
+    try testing.expect(std.mem.indexOf(u8, t, "<metadata key=\"prediction\" value=\"3725\"/>") != null);
+    try testing.expect(std.mem.indexOf(u8, t, "<metadata key=\"weight\" value=\"12.35\"/>") != null);
+    try testing.expect(std.mem.indexOf(u8, t, "type=\"PETG\" color=\"#1A2B3C\" used_m=\"4.10\" used_g=\"12.35\"") != null);
+    // The title is escaped in the XML of the model.
+    try testing.expect(std.mem.indexOf(u8, model.?, "A &amp; B &lt;1&gt;") != null);
+    // A file with no facts still has plate 1, so a deck lists it.
+    const plain = try gcode3mf(gpa, "G28\n", "x");
+    defer gpa.free(plain);
+    const list2 = try zipfile.readAll(gpa, plain);
+    defer zipfile.freeAll(gpa, list2);
+    var found = false;
+    for (list2) |e| if (std.mem.eql(u8, e.name, "Metadata/slice_info.config")) {
+        found = std.mem.indexOf(u8, e.data, "key=\"index\" value=\"1\"") != null and std.mem.indexOf(u8, e.data, "<filament") == null;
+    };
+    try testing.expect(found);
 }
