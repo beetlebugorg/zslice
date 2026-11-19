@@ -16,6 +16,7 @@
 #include "float.h"
 #include "preview.h"
 #include "setting-editor.h"
+#include "view3d.h"
 
 enum { MAX_PICKS = 4 };
 
@@ -146,14 +147,24 @@ static void fill_settings(LineCard *c, const zs_inspect *info) {
 /* Next to the click, inside the view (a card that the user moved stays). */
 static void place(LineCard *c) {
     if (zg_float_user_moved(c->card)) return;
-    int W = gtk_widget_get_width(c->preview), H = gtk_widget_get_height(c->preview);
     int w = 0, h = 0;
     gtk_widget_measure(c->card, GTK_ORIENTATION_HORIZONTAL, -1, NULL, &w, NULL, NULL);
     gtk_widget_measure(c->card, GTK_ORIENTATION_VERTICAL, w, NULL, &h, NULL, NULL);
-    double x = c->at_x + 18, y = c->at_y - 24;
-    if (x + w > W - 60) x = c->at_x - w - 18;
-    x = CLAMP(x, 62, MAX(62, W - w - 8));
-    y = CLAMP(y, 60, MAX(60, H - h - 8));
+    /* The box of the whole line that the user clicked, and the click: the
+     * card covers no part of it. */
+    double box[4] = {c->at_x, c->at_y, c->at_x, c->at_y}, r[4], area[4], x, y;
+    if (zg_view3d_path_rect(zg_preview_view3d(c->preview), zg_model_selected(c->model), r)) {
+        box[0] = MIN(box[0], r[0]);
+        box[1] = MIN(box[1], r[1]);
+        box[2] = MAX(box[2], r[2]);
+        box[3] = MAX(box[3], r[3]);
+    }
+    box[0] -= 12;
+    box[1] -= 12;
+    box[2] += 12;
+    box[3] += 12;
+    zg_free_area(c->preview, area);
+    zg_place_beside(box, area, w, h, &x, &y);
     zg_float_place(c->card, x, y);
 }
 

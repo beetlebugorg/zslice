@@ -43,17 +43,30 @@ static void place(gpointer data) {
     if (!gtk_widget_get_visible(c->card) || zg_float_user_moved(c->card)) return;
     zs_part p;
     if (c->part < 0 || zs_app_part_get(zg_model_core(c->model), (size_t)c->part, &p) != ZS_OK) return;
-    int W = gtk_widget_get_width(c->preview), H = gtk_widget_get_height(c->preview);
     int w = gtk_widget_get_width(c->card), h = gtk_widget_get_height(c->card);
     if (w <= 0) w = 300;
     if (h <= 0) h = 200;
+    /* The box of the part on the screen, with the rings of the Turn tool
+     * (radius 0.62 of the largest size, and 4 mm): the card covers no part
+     * of them. */
     double ring = 0.62 * MAX(p.size_x, MAX(p.size_y, p.size_z)) + 4;
-    double qx, qy;
-    gboolean at = zg_view3d_pixel_of(zg_preview_view3d(c->preview), p.x + MAX(p.size_x / 2, ring) + 6, p.y, p.size_z / 2, &qx, &qy);
-    double x = at ? qx + 24 : W - w - 70, y = at ? qy - h / 2.0 : 80;
-    if (x + w > W - 60) x = (at ? qx : W) - w - 24;
-    x = CLAMP(x, 62, MAX(62, W - w - 8));
-    y = CLAMP(y, 60, MAX(60, H - h - 140));
+    double hx = MAX(p.size_x / 2, ring), hy = MAX(p.size_y / 2, ring), top = MAX(p.size_z, p.size_z / 2 + ring);
+    double box[4] = {INFINITY, INFINITY, -INFINITY, -INFINITY}, area[4], x, y;
+    for (int k = 0; k < 8; k++) {
+        double qx, qy;
+        if (!zg_view3d_pixel_of(zg_preview_view3d(c->preview), p.x + (k & 1 ? hx : -hx), p.y + (k & 2 ? hy : -hy), k & 4 ? top : 0, &qx, &qy))
+            continue;
+        box[0] = MIN(box[0], qx);
+        box[1] = MIN(box[1], qy);
+        box[2] = MAX(box[2], qx);
+        box[3] = MAX(box[3], qy);
+    }
+    zg_free_area(c->preview, area);
+    if (box[0] <= box[2]) zg_place_beside(box, area, w, h, &x, &y);
+    else {
+        x = area[2] - w;
+        y = area[1] + 52;
+    }
     double ox, oy;
     if (zg_float_get(c->card, &ox, &oy) && fabs(ox - x) < 0.5 && fabs(oy - y) < 0.5) return;
     zg_float_place(c->card, x, y);

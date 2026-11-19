@@ -583,6 +583,15 @@ void zg_view3d_set_cut(GtkWidget *view, double x0, double y0, double x1, double 
     queue_frame(v);
 }
 
+gboolean zg_view3d_path_rect(GtkWidget *view, gint64 path, double out[4]) {
+    View3d *v = g_object_get_data(G_OBJECT(view), "zg-view3d");
+    float r[4];
+    if (!v || !v->view || v->hidden || path < 0 || !zs_view_path_rect(v->view, (size_t)path, r)) return FALSE;
+    int s = gtk_widget_get_scale_factor(v->area);
+    for (int k = 0; k < 4; k++) out[k] = r[k] / s;
+    return TRUE;
+}
+
 gboolean zg_view3d_pixel_of(GtkWidget *view, double x, double y, double z, double *px, double *py) {
     View3d *v = g_object_get_data(G_OBJECT(view), "zg-view3d");
     float qx, qy;

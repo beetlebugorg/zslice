@@ -40,6 +40,16 @@ void zg_float_movable(GtkWidget *card, GtkWidget *handle, ZgFloatMoved moved, gp
 gboolean zg_float_user_moved(GtkWidget *card);
 void zg_float_forget(GtkWidget *card);
 
+/* Where a card goes next to the thing that it is about: it never covers
+ * that thing. box: the thing on the screen (x0, y0, x1, y1); area: the free
+ * part of the view; w, h: the size of the card. The first side with room
+ * for the whole card (right, left, below, above), else the side with the
+ * most room. */
+void zg_place_beside(const double box[4], const double area[4], double w, double h, double *x, double *y);
+/* The free area of the view `host`: the tool strip, the bottom bar, and
+ * the layer slider left out. */
+void zg_free_area(GtkWidget *host, double area[4]);
+
 /* The head of a card: a bold title at the left (the label is the result,
  * for its text later), the extra widget (can be NULL), and a close button
  * at the right. `head` gets the head box, for zg_float_movable. */

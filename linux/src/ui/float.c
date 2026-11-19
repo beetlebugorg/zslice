@@ -189,3 +189,33 @@ GtkWidget *zg_card_head(GtkWidget *card, GtkWidget **head_out, GtkWidget *extra,
     if (head_out) *head_out = head;
     return title;
 }
+
+/* The gap between a card and the thing that it is about. */
+#define PLACE_GAP 16
+
+void zg_place_beside(const double box[4], const double area[4], double w, double h, double *x, double *y) {
+    double mid_y = (box[1] + box[3]) / 2 - h / 2, mid_x = (box[0] + box[2]) / 2 - w / 2;
+    double cx = CLAMP(mid_x, area[0], MAX(area[0], area[2] - w)), cy = CLAMP(mid_y, area[1], MAX(area[1], area[3] - h));
+    const double room[4] = {area[2] - (box[2] + PLACE_GAP), box[0] - PLACE_GAP - area[0], area[3] - (box[3] + PLACE_GAP),
+                            box[1] - PLACE_GAP - area[1]};
+    const double need[4] = {w, w, h, h};
+    const double at[4][2] = {{box[2] + PLACE_GAP, cy}, {box[0] - PLACE_GAP - w, cy}, {cx, box[3] + PLACE_GAP}, {cx, box[1] - PLACE_GAP - h}};
+    int side = -1;
+    for (int k = 0; k < 4 && side < 0; k++)
+        if (room[k] >= need[k]) side = k;
+    if (side < 0) {
+        /* No side has the room: the side with the most, in the area. */
+        side = 0;
+        for (int k = 1; k < 4; k++)
+            if (room[k] / need[k] > room[side] / need[side]) side = k;
+    }
+    *x = CLAMP(at[side][0], area[0], MAX(area[0], area[2] - w));
+    *y = CLAMP(at[side][1], area[1], MAX(area[1], area[3] - h));
+}
+
+void zg_free_area(GtkWidget *host, double area[4]) {
+    area[0] = 62;
+    area[1] = 8;
+    area[2] = gtk_widget_get_width(host) - 60;
+    area[3] = gtk_widget_get_height(host) - 82;
+}
