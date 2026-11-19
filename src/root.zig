@@ -37,6 +37,7 @@ pub const zipfile = @import("zipfile.zig");
 pub const threemf = @import("threemf.zig");
 pub const orient = @import("orient.zig");
 pub const physics = @import("physics.zig");
+pub const bond = @import("bond.zig");
 pub const support_pick = @import("support_pick.zig");
 pub const rigid = @import("rigid.zig");
 pub const print_sim = @import("print_sim.zig");

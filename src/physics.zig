@@ -13,6 +13,9 @@
 //!   same way, toward its center of mass.
 //! - The roll ends on a face (or a set of points) that holds the part. The
 //!   result is the rotation of the whole roll.
+//! - A push from the side (the nozzle, see bond.zig) can knock a part over
+//!   that stands on its weight: `knock` turns it about the edge of its
+//!   foot on the side of the push, and then it rolls as above.
 //! - Supports hold a part too: the tops of the supports under it add to
 //!   its foot (`holdMargin`). A part whose center of mass is past the
 //!   foot and the supports cannot stand.
@@ -212,52 +215,93 @@ fn rotation(k: V, t: f64) M3 {
 pub fn settle(a: Allocator, mesh: *const Mesh) Allocator.Error!Settle {
     const vs = mesh.vertices.items;
     if (vs.len == 0) return .{ .rot = identity, .rolls = 0, .degrees = 0 };
-    // The points of the convex hull are enough, but all points work; a
-    // large mesh uses each n-th point for the search of the next contact
-    // and all points for the foot.
-    const pts = try a.alloc(V, vs.len);
+    const pts = try pointsOf(a, mesh);
     defer a.free(pts);
-    for (vs, pts) |v, *p| p.* = .{ v.x, v.y, v.z };
+    var s: Settle = .{ .rot = identity, .rolls = 0, .degrees = 0 };
     var c = massOf(mesh).center;
-    var rot = identity;
-    var rolls: u32 = 0;
-    var degrees: f64 = 0;
-    const eps = 0.05;
-    while (rolls < 24) {
+    try rollOn(a, pts, &c, &s);
+    return s;
+}
+
+/// Knocks the part over toward `dir` (a unit vector on the bed), as the
+/// push of the nozzle does: it turns about the edge of its foot on that
+/// side until another point reaches the bed, and then rolls until it
+/// rests (as `settle`).
+pub fn knock(a: Allocator, mesh: *const Mesh, dir: [2]f64) Allocator.Error!Settle {
+    var s: Settle = .{ .rot = identity, .rolls = 0, .degrees = 0 };
+    if (mesh.vertices.items.len == 0) return s;
+    const pts = try pointsOf(a, mesh);
+    defer a.free(pts);
+    var c = massOf(mesh).center;
+    // The pivot: the point of the foot farthest toward dir.
+    var zmin: f64 = std.math.inf(f64);
+    for (pts) |p| zmin = @min(zmin, p[2]);
+    var o: V = pts[0];
+    var far: f64 = -std.math.inf(f64);
+    for (pts) |p| if (p[2] < zmin + settle_eps and p[0] * dir[0] + p[1] * dir[1] > far) {
+        far = p[0] * dir[0] + p[1] * dir[1];
+        o = .{ p[0], p[1], zmin };
+    };
+    // The axis: the side of dir is on its right (see `rollAbout`).
+    if (!rollAbout(pts, &c, o, .{ -dir[1], dir[0], 0 }, &s)) return s;
+    try rollOn(a, pts, &c, &s);
+    return s;
+}
+
+/// A point of the mesh within this height (mm) of its lowest point is on
+/// the bed.
+const settle_eps = 0.05;
+
+fn pointsOf(a: Allocator, mesh: *const Mesh) Allocator.Error![]V {
+    // The points of the convex hull are enough, but all points work.
+    const vs = mesh.vertices.items;
+    const pts = try a.alloc(V, vs.len);
+    for (vs, pts) |v, *p| p.* = .{ v.x, v.y, v.z };
+    return pts;
+}
+
+/// Rolls the points `pts` (center of mass `c`) until they rest, and adds
+/// each roll to `s`.
+fn rollOn(a: Allocator, pts: []V, c: *V, s: *Settle) Allocator.Error!void {
+    while (s.rolls < 24) {
         var edge: [2]V = undefined;
-        const m = try footMargin(a, pts, c, eps, &edge);
+        const m = try footMargin(a, pts, c.*, settle_eps, &edge);
         if (m >= -1e-3) break;
-        // Turn about the edge so that the center of mass goes down: the
-        // axis direction k is set so that the side of the center (right
-        // of the edge) turns down. The angle is the least turn that brings
-        // another point to the bed.
-        const o = edge[0];
-        const k = edge[1];
-        var best: f64 = std.math.pi;
-        for (pts) |p| {
-            const r = sub(p, o);
-            // The part of r at right angles to the axis: across (in the
-            // bed, away from the foot) and up.
-            const along = dot(r, k);
-            const q = V{ r[0] - along * k[0], r[1] - along * k[1], r[2] };
-            const out = cross(k, V{ 0, 0, 1 });
-            const u = dot(q, out);
-            const w = q[2];
-            if (u < 1e-6 or w < eps) continue;
-            best = @min(best, std.math.atan2(w, u));
-        }
-        if (best >= std.math.pi - 1e-9) break;
-        // The sign: turning by +t about k must lower the side of `out`.
-        var r = rotation(k, best);
-        const test_p = mulV(r, cross(k, V{ 0, 0, 1 }));
-        if (test_p[2] > 0) r = rotation(k, -best);
-        for (pts) |*p| p.* = add3(mulV(r, sub(p.*, o)), o);
-        c = add3(mulV(r, sub(c, o)), o);
-        rot = mulM(r, rot);
-        rolls += 1;
-        degrees += std.math.radiansToDegrees(best);
+        if (!rollAbout(pts, c, edge[0], edge[1], s)) break;
     }
-    return .{ .rot = rot, .rolls = rolls, .degrees = degrees };
+}
+
+/// Turns the points about the axis through `o` with direction `k` so that
+/// the side to the right of the axis (cross(k, z)) goes down, by the least
+/// angle that brings another point to the bed. False: no point comes
+/// down (the turn does not end).
+fn rollAbout(pts: []V, c: *V, o: V, k: V, s: *Settle) bool {
+    const eps = settle_eps;
+    const out = cross(k, V{ 0, 0, 1 });
+    var best: f64 = std.math.pi;
+    for (pts) |p| {
+        const r = sub(p, o);
+        // The part of r at right angles to the axis: across (in the
+        // bed, away from the foot) and up.
+        const along = dot(r, k);
+        const q = V{ r[0] - along * k[0], r[1] - along * k[1], r[2] };
+        const u = dot(q, out);
+        const w = q[2];
+        // A point behind the axis (u < 0) needs more than 90 degrees.
+        if (w < eps) continue;
+        best = @min(best, std.math.atan2(w, u));
+    }
+    if (best >= std.math.pi - 1e-9) return false;
+    // The sign: turning by +t about k must lower the side of `out`.
+    var r = rotation(k, best);
+    const test_p = mulV(r, out);
+    if (test_p[2] > 0) r = rotation(k, -best);
+    for (pts) |*p| p.* = add3(mulV(r, sub(p.*, o)), o);
+    c.* = add3(mulV(r, sub(c.*, o)), o);
+    s.rot = mulM(r, s.rot);
+    s.rolls += 1;
+    s.degrees += std.math.radiansToDegrees(best);
+    return true;
 }
 
 fn add3(a: V, b: V) V {
@@ -362,4 +406,25 @@ test "a part on a post stands on a prop under its far end, and not on a prop on 
     try testing.expect(try holdMargin(gpa, &m, &.{.{ 14, 1 }}) > 0);
     // A prop on the other side does not.
     try testing.expect(try holdMargin(gpa, &m, &.{.{ -3, 1 }}) < 0);
+}
+
+test "physics: a pin knocked over toward +x lies on its side there" {
+    const gpa = testing.allocator;
+    var m = try boxMesh(gpa, 0, 0, 0, 4, 4, 40);
+    defer m.deinit(gpa);
+    try testing.expectEqual(@as(u32, 0), (try settle(gpa, &m)).rolls);
+    const s = try knock(gpa, &m, .{ 1, 0 });
+    try testing.expectApproxEqAbs(@as(f64, 90), s.degrees, 0.5);
+    // At rest it is 4 mm high, and it lies toward +x.
+    var zmax: f64 = -1e9;
+    var zmin: f64 = 1e9;
+    var xmax: f64 = -1e9;
+    for (m.vertices.items) |v| {
+        const q = mulV(s.rot, .{ v.x, v.y, v.z });
+        zmax = @max(zmax, q[2]);
+        zmin = @min(zmin, q[2]);
+        xmax = @max(xmax, q[0]);
+    }
+    try testing.expectApproxEqAbs(@as(f64, 4), zmax - zmin, 0.01);
+    try testing.expect(xmax > 30);
 }
