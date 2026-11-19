@@ -199,6 +199,29 @@ fn overLean(c: *const Ctx, sk: *const Skeleton, i: u32, k: u32) f64 {
     return @max(0, dist(p.x, p.y, q.x, q.y) - c.reach(lo, hi));
 }
 
+/// The least clearance of the segment from node k to its down node, on
+/// the layers between the two (the nodes keep their own rule). Ctx.pad
+/// with no segment or no layer between.
+fn segmentClear(c: *Ctx, sk: *const Skeleton, k: u32) Allocator.Error!f64 {
+    const a = sk.nodes.items[k];
+    if (a.down == none) return Ctx.pad;
+    const b = sk.nodes.items[a.down];
+    const lo = @min(a.layer, b.layer);
+    const hi = @max(a.layer, b.layer);
+    const top = if (a.layer >= b.layer) a else b;
+    const bot = if (a.layer >= b.layer) b else a;
+    const rise = c.z[hi] - c.z[lo];
+    var best: f64 = Ctx.pad;
+    var j = lo + 1;
+    while (j < hi) : (j += 1) {
+        const t = if (rise > 0) (c.z[j] - c.z[lo]) / rise else 0;
+        const x = bot.x + (top.x - bot.x) * t;
+        const y = bot.y + (top.y - bot.y) * t;
+        best = @min(best, try c.clearance(x, y, j, false));
+    }
+    return best;
+}
+
 /// The clearance that node i needs: a tip radius.
 fn tipClear(c: *const Ctx) f64 {
     return c.params.tip;
@@ -254,6 +277,8 @@ const State = struct {
     /// The segments of the branch and the segments to the other nodes.
     links: [][2]u32,
     lean0: []f64,
+    /// The least clearance of each link (segmentClear) before the edit.
+    seg0: []f64,
 
     fn init(c: *Ctx, sk: *const Skeleton, br: []const u32) Allocator.Error!State {
         const items = sk.nodes.items;
@@ -274,7 +299,9 @@ const State = struct {
         }
         const lean0 = try c.a.alloc(f64, links.items.len);
         for (links.items, lean0) |l, *v| v.* = overLean(c, sk, l[0], l[1]);
-        return .{ .br = br, .x0 = x0, .clear0 = clear0, .links = links.items, .lean0 = lean0 };
+        const seg0 = try c.a.alloc(f64, links.items.len);
+        for (links.items, seg0) |l, *v| v.* = @min(tipClear(c), try segmentClear(c, sk, l[0]));
+        return .{ .br = br, .x0 = x0, .clear0 = clear0, .links = links.items, .lean0 = lean0, .seg0 = seg0 };
     }
 
     /// The rules that the branch breaks now (worse than before).
@@ -288,6 +315,13 @@ const State = struct {
             if (nd.x == p[0] and nd.y == p[1]) continue;
             if (try c.clearance(nd.x, nd.y, nd.layer, nd.tip) < @min(tipClear(c), cl) - 1) bad |= Clamp.part;
         }
+        // A segment stays out of the part on the layers between its nodes.
+        if (bad & Clamp.part == 0) for (st.links, st.seg0) |l, v| {
+            if (try segmentClear(c, sk, l[0]) < v - 1) {
+                bad |= Clamp.part;
+                break;
+            }
+        };
         return bad;
     }
 
@@ -394,8 +428,15 @@ pub fn moveBranch(c: *Ctx, sk: *Skeleton, i: u32, dx: f64, dy: f64) Error!u32 {
         const nd = sk.nodes.items[k];
         v.* = @min(tipClear(c), try c.clearance(nd.x, nd.y, nd.layer, nd.tip));
     }
+    // The segments that move: in the branch, and to the rest of the tree.
+    var segs: std.ArrayList(u32) = .empty;
+    for (sk.nodes.items, 0..) |nd, k| {
+        if (nd.down != none and (in_br[k] or in_br[nd.down])) try segs.append(c.a, @intCast(k));
+    }
+    const seg0 = try c.a.alloc(f64, segs.items.len);
+    for (segs.items, seg0) |k, *v| v.* = @min(tipClear(c), try segmentClear(c, sk, k));
     const Test = struct {
-        fn at(cc: *Ctx, s: *Skeleton, b: []const u32, xs: []const [2]f64, ls: []const [2]u32, l0: []const f64, c0: []const f64, ddx: f64, ddy: f64, t: f64) Allocator.Error!u32 {
+        fn at(cc: *Ctx, s: *Skeleton, b: []const u32, xs: []const [2]f64, ls: []const [2]u32, l0: []const f64, c0: []const f64, sg: []const u32, s0: []const f64, ddx: f64, ddy: f64, t: f64) Allocator.Error!u32 {
             for (b, xs) |k, p| {
                 s.nodes.items[k].x = p[0] + ddx * t;
                 s.nodes.items[k].y = p[1] + ddy * t;
@@ -408,19 +449,25 @@ pub fn moveBranch(c: *Ctx, sk: *Skeleton, i: u32, dx: f64, dy: f64) Error!u32 {
                 const nd = s.nodes.items[k];
                 if (try cc.clearance(nd.x, nd.y, nd.layer, nd.tip) < v - 1) bad |= Clamp.part;
             }
+            if (bad & Clamp.part == 0) for (sg, s0) |k, v| {
+                if (try segmentClear(cc, s, k) < v - 1) {
+                    bad |= Clamp.part;
+                    break;
+                }
+            };
             return bad;
         }
     };
-    const full = try Test.at(c, sk, br, x0, links.items, lean0, clear0, dx, dy, 1);
+    const full = try Test.at(c, sk, br, x0, links.items, lean0, clear0, segs.items, seg0, dx, dy, 1);
     if (full == 0) return 0;
     // The largest part of the move that keeps the rules.
     var lo: f64 = 0;
     var hi: f64 = 1;
     for (0..12) |_| {
         const mid = (lo + hi) / 2;
-        if (try Test.at(c, sk, br, x0, links.items, lean0, clear0, dx, dy, mid) == 0) lo = mid else hi = mid;
+        if (try Test.at(c, sk, br, x0, links.items, lean0, clear0, segs.items, seg0, dx, dy, mid) == 0) lo = mid else hi = mid;
     }
-    _ = try Test.at(c, sk, br, x0, links.items, lean0, clear0, dx, dy, lo);
+    _ = try Test.at(c, sk, br, x0, links.items, lean0, clear0, segs.items, seg0, dx, dy, lo);
     return full;
 }
 
@@ -676,4 +723,42 @@ test "move a branch: as far as the rules allow" {
     try testing.expectEqual(@as(f64, 10_100), sk.nodes.items[3].x);
     // The trunk goes with the branches over it.
     try testing.expectEqual(@as(usize, 5), try deleteBranch(testing.allocator, &sk, 3));
+}
+
+test "a moved node keeps its segment out of a wall on the layers between" {
+    var t: TestPart = undefined;
+    try t.init();
+    defer t.deinit();
+    const c = &t.ctx;
+    const a = t.arena.allocator();
+    // A wall of 1 mm at x 10..11 mm, y 0..20 mm, on layers 10 to 30 only,
+    // and a wide branch angle, so that the angle clamps nothing.
+    const outl = try a.alloc(Paths, c.outlines.len);
+    for (outl, 0..) |*o, j| {
+        o.* = .empty;
+        if (j >= 10 and j <= 30) try o.append(a, &.{ .init(10_000, 0), .init(11_000, 0), .init(11_000, 20_000), .init(10_000, 20_000) });
+    }
+    c.outlines = outl;
+    c.params.tan_angle = @tan(std.math.degreesToRadians(80.0));
+    var sk: Skeleton = .{};
+    defer sk.deinit(testing.allocator);
+    // A node on layer 40 over the left of the wall, and its foot on the
+    // bed, also on the left.
+    try sk.nodes.appendSlice(testing.allocator, &.{
+        .{ .x = 5_000, .y = 10_000, .layer = 40, .r = 1000, .down = 1 },
+        .{ .x = 5_000, .y = 10_000, .layer = 0, .r = 2500 },
+    });
+    try testing.expect(try segmentClear(c, &sk, 0) >= c.params.tip);
+    // The node to the right of the wall: the node itself is out of the
+    // part (no wall on layer 40), but its segment to the foot crosses
+    // the wall. The move stops where the segment keeps out of it.
+    const bits = try moveNode(c, &sk, 0, 16_000, 10_000);
+    try testing.expect(bits & Clamp.part != 0);
+    try testing.expect(try segmentClear(c, &sk, 0) >= c.params.tip - 2);
+    try testing.expect(sk.nodes.items[0].x > 5_000 and sk.nodes.items[0].x < 16_000);
+    // The same for a move of the whole branch: the foot and the node go
+    // together; a straight segment in the wall (x 10.5 mm) stops short.
+    sk.nodes.items[0].x = 5_000;
+    try testing.expect(try moveBranch(c, &sk, 0, 5_500, 0) & Clamp.part != 0);
+    try testing.expect(try segmentClear(c, &sk, 0) >= c.params.tip - 2);
 }
