@@ -6,6 +6,7 @@
 //!
 //! SPDX-License-Identifier: AGPL-3.0-or-later
 
+import CZslice
 import SwiftUI
 
 struct SupportCard: View {
@@ -94,6 +95,13 @@ struct SupportCard: View {
 struct PickedSupportCard: View {
     let workspace: Workspace
 
+    /// The kinds of "Make it", with their tips.
+    static let kinds: [(label: String, kind: zs_mark_kind, tip: String)] = [
+        ("Grid", ZS_MARK_GRID, "Grid support: lines under all of the overhang"),
+        ("Tree", ZS_MARK_TREE, "Tree support: branches to points under the overhang"),
+        ("Pad", ZS_MARK_BRIDGE, "A bridge pad: one layer of support under the overhang"),
+    ]
+
     var body: some View {
         let tree = workspace.supportPick?.tree == true
         VStack(alignment: .leading, spacing: 10) {
@@ -119,6 +127,14 @@ struct PickedSupportCard: View {
             } else if workspace.supportPick?.overhang != nil {
                 Button("Remove This Support", role: .destructive) { workspace.removePickedSupport() }
                     .help("No support under this overhang (Delete)")
+            }
+            HStack(spacing: 6) {
+                Text("Make it:").font(.callout).foregroundStyle(.secondary)
+                ForEach(Self.kinds, id: \.label) { k in
+                    Button(k.label) { workspace.kindPickedSupport(k.kind) }
+                        .help(k.tip)
+                        .disabled(workspace.supportPick?.overhang == nil || (tree ? 1 : 0) == k.kind.rawValue)
+                }
             }
         }
         .controlSize(.small)

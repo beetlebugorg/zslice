@@ -60,7 +60,7 @@ When you turn a part (the rings of the Turn tool, or its keys) so that it cannot
 
 Shift and a click select several parts: each gets a frame on the bed. The card of several parts has Duplicate, Arrange the Plate, To a New Plate, and Remove. Drag one of them with the Move tool (or Command and a drag), or press the arrow keys, to move them all. D and Delete act on all of them.
 
-A click on a support line selects that support. With tree support, the dots of that tree show: drag a dot, a ring, or a segment to pull it, and right-click a dot for Delete Branch. With grid support, the overhang over the line shows in blue, and Delete (or Remove This Support on the card) takes the support away there. Esc ends it.
+A click on a support line selects that support. With tree support, the dots of that tree show: drag a dot, a ring, or a segment to pull it, and right-click a dot for Delete Branch. With grid support, the overhang over the line shows in blue, and Delete (or Remove This Support on the card) takes the support away there. Make it: Grid, Tree, or Pad on the card changes the support there to that kind. zslice puts an area of that kind over the overhang, and the area takes the place of the support of your settings. Esc ends it.
 
 A drag that starts on a line lights the layers from that line to the layer under the pointer. When you let go, a card opens beside them with settings that can change for some layers: infill, walls, top thickness, speeds, fan, and nozzle temperature. A change there is for those layers only. Esc, a click elsewhere, or × closes it.
 

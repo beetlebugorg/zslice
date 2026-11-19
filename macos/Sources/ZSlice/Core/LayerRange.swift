@@ -212,6 +212,15 @@ extension Workspace {
                 let used = removePickedSupport()
                 NSLog("zslice select test: Delete %d, support areas %ld -> %ld, picked %d", used ? 1 : 0, areas, zs_app_support_area_count(model.core), supportPick == nil ? 0 : 1)
             }
+            if ok, let k = ProcessInfo.processInfo.environment["ZSLICE_SELECT_KIND"], let kind = UInt32(k) {
+                let areas = zs_app_support_area_count(model.core)
+                kindPickedSupport(zs_mark_kind(rawValue: kind))
+                NSLog("zslice select test: Make it %u, support areas %ld -> %ld, picked %d", kind, areas, zs_app_support_area_count(model.core), supportPick == nil ? 0 : 1)
+                try? await Task.sleep(for: .seconds(4))
+                var st = zs_stats()
+                _ = zs_app_stats(model.core, &st)
+                NSLog("zslice select test: filament %.2f g", st.filament_g)
+            }
         default:
             NSLog("zslice select test: unknown %@", f.joined(separator: " "))
         }

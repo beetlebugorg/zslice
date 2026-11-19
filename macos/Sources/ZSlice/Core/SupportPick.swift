@@ -11,6 +11,9 @@
 //! - Grid support: the overhang over the line shows (zs_app_support_pick,
 //!   up from the line in steps of 0.5 mm), and Delete puts a Block area
 //!   on it, with the support marks near the line.
+//! - Make it: Grid, Tree, or Pad puts an area of that kind over the
+//!   overhang, as the Support tool makes. The core keeps the support of
+//!   the settings out of that area, so the area replaces it.
 //!
 //! Esc, a click on no support, or another tool ends the pick.
 //!
@@ -165,6 +168,25 @@ extension Workspace {
         if changed { supportEdited() } else { showNote("zslice found no overhang over this support.") }
         showSupport()
         return true
+    }
+
+    /// Make it: the picked support becomes another kind (ZS_MARK_GRID,
+    /// ZS_MARK_TREE, or ZS_MARK_BRIDGE), an area of that kind over its
+    /// overhang. The marks near the line go. The pick ends, as the next
+    /// slice has new lines.
+    func kindPickedSupport(_ kind: zs_mark_kind) {
+        guard tool != .support, let pick = supportPick else { return }
+        clearSupportPick()
+        guard var o = pick.overhang else {
+            showNote("zslice found no overhang over this support.")
+            return
+        }
+        zs_app_mark_remove_near(model.core, pick.point.x, pick.point.y, pick.point.z, 3)
+        guard zs_app_support_area_add(model.core, Int32(kind.rawValue), &o.points, o.n, o.lo, o.hi) >= 0 else {
+            showNote("The support did not change.")
+            return
+        }
+        supportEdited()
     }
 
     /// Delete and Esc for a picked support. True if it used the key.

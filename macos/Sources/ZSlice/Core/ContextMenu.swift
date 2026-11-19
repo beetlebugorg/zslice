@@ -208,6 +208,9 @@ extension Workspace {
             showNote("zslice found no overhang over this support.")
             return
         }
+        // The pick of the Select tool goes with the support: its handles
+        // and its overhang.
+        clearSupportPick()
         clearSelection()
         supportEdited()
     }
