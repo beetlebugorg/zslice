@@ -53,7 +53,7 @@ const usage =
     \\  bench     Slice in the app core: once from the start, then again
     \\            after a change of each kind of setting. Print the times
     \\            and the peak memory. --only KIND times one kind: full,
-    \\            late, walls, top, width, height, support, area, xy,
+    \\            late, walls, top, width, height, support, area, tree, xy,
     \\            speed, accel, flow, fan, temp, cool, cancel, or sim
     \\            (the simulated print of the plastic; sim-side and
     \\            sim-flip turn the part on its side or upside down
@@ -482,6 +482,8 @@ const bench_changes = [_]struct { key: []const u8, kind: []const u8, name: []con
     // A support area of the editor: each slice moves its top a little, as
     // a drag of a point does (see benchArea).
     .{ .key = "area", .kind = "support area", .name = "", .values = .{ "", "", "", "", "", "" } },
+    // A drag of a node of the support trees of the user (see benchTree).
+    .{ .key = "tree", .kind = "tree node", .name = "", .values = .{ "", "", "", "", "", "" } },
     .{ .key = "xy", .kind = "xy offset", .name = "filament.xy_offset", .values = .{ "0.01", "0.02", "0.03", "0.04", "0.05", "0.06" } },
     // Settings that change no path: the slice runs from the move streams
     // (see settings.patch_settings).
@@ -537,6 +539,10 @@ fn bench(backing: std.mem.Allocator, io: Io, err: *Io.Writer, name: []const u8, 
         // Start from the base settings, with a slice that is not timed.
         app.settings = settings;
         _ = try benchSlice(app, io);
+        if (std.mem.eql(u8, c.key, "tree")) {
+            try benchTree(app, io, err, times);
+            continue;
+        }
         if (c.name.len == 0) {
             // A tree area over all of the bed, from z 1 to z 4 (and a
             // little more on each slice).
@@ -567,6 +573,40 @@ fn bench(backing: std.mem.Allocator, io: Io, err: *Io.Writer, name: []const u8, 
     if (only != null and std.mem.eql(u8, only.?, "patch")) try benchPatch(gpa, app, io, err, name, bytes, settings);
     if (only == null or std.mem.eql(u8, only.?, "cancel")) try benchCancel(app, io, err, settings);
     try err.print("peak memory: {d} MB resident (VmHWM), {d} MB allocated\n", .{ peakMb(io), counter.peak.load(.monotonic) >> 20 });
+}
+
+/// The edits of the support trees of the user: a node of the first part
+/// (with a segment of 20 layers or more under it) moves by 0.3 mm on each
+/// run, as in a drag. Prints the time of the
+/// edit (the view shows it at once) and of the slice after it. The trees
+/// go after the runs. Needs tree support in the settings.
+fn benchTree(app: *zslice.app.App, io: Io, err: *Io.Writer, times: []Sample) !void {
+    const st = zslice.app.support_trees;
+    const v = st.view(app, 0) orelse return error.SliceFailed;
+    var node: ?u32 = null;
+    for (v.sk.nodes.items, 0..) |nd, k| if (!nd.tip and nd.down != zslice.support_skeleton.none and nd.layer >= v.sk.nodes.items[nd.down].layer + 20) {
+        node = @intCast(k);
+        break;
+    };
+    const k = node orelse {
+        try err.print("tree node: no trees\n", .{});
+        return;
+    };
+    const x0 = (v.dx + v.sk.nodes.items[k].x) / 1000;
+    const y0 = (v.dy + v.sk.nodes.items[k].y) / 1000;
+    var edits: [max_runs]Sample = undefined;
+    for (times, 0..) |*t, i| {
+        const dx: f64 = if (i % 2 == 0) 0.3 else 0;
+        const t0 = Io.Clock.awake.now(io);
+        _ = try st.moveNode(app, 0, k, x0 + dx, y0);
+        const ms = @as(f64, @floatFromInt(t0.untilNow(io, .awake).toNanoseconds())) / 1e6;
+        edits[i] = .{ .wall = ms, .cpu = ms, .faults = 0 };
+        t.* = try benchSlice(app, io);
+    }
+    if (app.job) |*pj| try err.print("tree layers made again: {d} of {d}\n", .{ pj.groups[0].job.support_cache.tree_layers.made, pj.groups[0].job.layers.len });
+    try printTimes(err, "tree edit", edits[0..times.len]);
+    try printTimes(err, "tree slice", times);
+    _ = st.reset(app, 0);
 }
 
 /// Each patch setting alone (see settings.patch_settings): the time of the

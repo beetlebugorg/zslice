@@ -305,7 +305,7 @@ pub fn grow(
     tips_below: usize,
     params: Params,
 ) Allocator.Error!Areas {
-    return growCached(gpa, threads, outlines, layers, need, blocked, near, tips_below, params, null, 0, null, null);
+    return growCached(gpa, threads, outlines, layers, need, blocked, near, tips_below, params, null, 0, null, null, null);
 }
 
 /// The avoidance areas of a slice, for the next slice with the same
@@ -328,7 +328,8 @@ pub const AvoidCache = struct {
 /// `grow`, with a cache of the avoidance areas (or null). `gaps_key`
 /// identifies `blocked` (0: no cache). `user`: the trees of the user (the
 /// support editor), in place of the plan, or null. `plan_out`: gets the
-/// planned trees added to it, or null.
+/// planned trees added to it, or null. `layer_cache`: the areas of the
+/// trees of the user of the slice before (see `LayerCache`), or null.
 pub fn growCached(
     gpa: Allocator,
     threads: usize,
@@ -343,11 +344,13 @@ pub fn growCached(
     gaps_key: u64,
     user: ?*const skel_mod.Skeleton,
     plan_out: ?*skel_mod.Skeleton,
+    layer_cache: ?*LayerCache,
 ) Allocator.Error!Areas {
     var arena_state = std.heap.ArenaAllocator.init(gpa);
     defer arena_state.deinit();
     const arena = arena_state.allocator();
-    if (user) |u| return areasOf(gpa, arena, threads, u, blocked, params);
+    if (user) |u| return areasOfCached(gpa, arena, threads, u, blocked, params, layer_cache, if (gaps_key != 0) paramsKey(gaps_key, params) else 0);
+    if (layer_cache) |c| c.deinit(gpa);
     var sk = try planCached(gpa, arena, threads, outlines, layers, need, blocked, near, tips_below, params, if (gaps_key != 0) cache else null, gaps_key);
     defer sk.deinit(gpa);
     if (plan_out) |o| try o.appendMoved(gpa, &sk, 0, 0);
@@ -1484,10 +1487,56 @@ fn skeletonOf(gpa: Allocator, a: Allocator, disks: []const std.ArrayList(Disk), 
     return sk;
 }
 
+/// The areas of the trees of the user on each layer, for the next slice
+/// after an edit: a layer whose circles are the same keeps its areas. An
+/// edit of one branch changes only the layers of that branch.
+pub const LayerCache = struct {
+    /// A key of `blocked` and of the parameters; 0: empty.
+    key: u64 = 0,
+    /// A hash of the circles of each layer, and the areas of the layer.
+    hash: []u64 = &.{},
+    body: []Paths = &.{},
+    filled: []Paths = &.{},
+    /// The layers that the last call made again (for the tests and the
+    /// bench).
+    made: usize = 0,
+
+    pub fn deinit(c: *LayerCache, gpa: Allocator) void {
+        for (c.body) |*x| x.deinit(gpa);
+        for (c.filled) |*x| x.deinit(gpa);
+        gpa.free(c.body);
+        gpa.free(c.filled);
+        gpa.free(c.hash);
+        c.* = .{};
+    }
+};
+
+/// A key of `seed` and of each value of `p`. Never 0.
+fn paramsKey(seed: u64, p: Params) u64 {
+    var h = std.hash.Wyhash.init(seed);
+    inline for (@typeInfo(Params).@"struct".fields) |f| {
+        const v = @field(p, f.name);
+        const x: f64 = switch (@typeInfo(f.type)) {
+            .float => v,
+            .bool => @floatFromInt(@intFromBool(v)),
+            else => @floatFromInt(v),
+        };
+        h.update(std.mem.asBytes(&x));
+    }
+    return h.final() | 1;
+}
+
 /// The areas of each layer from a skeleton: the union of the circles,
 /// minus the part, on all threads. Bed only: the trees that do not reach
 /// the bed go.
 pub fn areasOf(gpa: Allocator, a: Allocator, threads: usize, sk: *const skel_mod.Skeleton, blocked: []const Paths, params: Params) Allocator.Error!Areas {
+    return areasOfCached(gpa, a, threads, sk, blocked, params, null, 0);
+}
+
+/// `areasOf`, with the areas of the slice before in `cache` (or null) for
+/// the layers with the same circles. `key` identifies `blocked` and
+/// `params` (0: no cache).
+pub fn areasOfCached(gpa: Allocator, a: Allocator, threads: usize, sk: *const skel_mod.Skeleton, blocked: []const Paths, params: Params, cache_in: ?*LayerCache, key: u64) Allocator.Error!Areas {
     const n = blocked.len;
     const out = try gpa.alloc(Paths, n);
     for (out) |*o| o.* = .empty;
@@ -1508,11 +1557,25 @@ pub fn areasOf(gpa: Allocator, a: Allocator, threads: usize, sk: *const skel_mod
         keep = k;
     }
     const ds = try sk.disksHead(a, n, params.fill_layers, keep, params.head_layers, params.head_grow);
+    const cache = if (key != 0) cache_in else null;
+    const hashes = try a.alloc(u64, n);
+    for (hashes, ds) |*h, list| {
+        var w = std.hash.Wyhash.init(0xd15c);
+        for (list.items) |d| w.update(std.mem.asBytes(&[4]f64{ d.x, d.y, d.r, @floatFromInt(@intFromBool(d.fill)) }));
+        h.* = w.final();
+    }
+    // The layers that keep the areas of the slice before.
+    const same = try a.alloc(bool, n);
+    @memset(same, false);
+    if (cache) |c| if (c.key == key and c.hash.len == n) {
+        for (same, hashes, c.hash) |*x, h, ch| x.* = h == ch;
+    };
     const circles = try a.alloc(Paths, n);
     const fills = try a.alloc(Paths, n);
-    for (circles, fills, ds) |*cc, *f, list| {
+    for (circles, fills, ds, same) |*cc, *f, list, keep_old| {
         cc.* = .empty;
         f.* = .empty;
+        if (keep_old) continue;
         for (list.items) |d| {
             const pts = try circle(a, d.x, d.y, d.r);
             try cc.append(a, pts);
@@ -1526,7 +1589,14 @@ pub fn areasOf(gpa: Allocator, a: Allocator, threads: usize, sk: *const skel_mod
         blocked: []const Paths,
         out: []Paths,
         filled: []Paths,
+        same: []const bool,
+        cache: ?*const LayerCache,
         fn run(cx: *const @This(), i: usize) !void {
+            if (cx.same[i]) {
+                cx.out[i] = try cx.cache.?.body[i].clone(cx.gpa);
+                cx.filled[i] = try cx.cache.?.filled[i].clone(cx.gpa);
+                return;
+            }
             if (cx.circles[i].isEmpty()) return;
             var ar = std.heap.ArenaAllocator.init(cx.gpa);
             defer ar.deinit();
@@ -1539,11 +1609,31 @@ pub fn areasOf(gpa: Allocator, a: Allocator, threads: usize, sk: *const skel_mod
             cx.filled[i] = try ff.clone(cx.gpa);
         }
     };
-    const uc: Union = .{ .gpa = gpa, .circles = circles, .fills = fills, .blocked = blocked, .out = out, .filled = filled };
+    const uc: Union = .{ .gpa = gpa, .circles = circles, .fills = fills, .blocked = blocked, .out = out, .filled = filled, .same = same, .cache = cache };
     @import("parallel.zig").forEach(threads, n, &uc, Union.run) catch |e| switch (e) {
         error.OutOfMemory => return error.OutOfMemory,
         else => unreachable,
     };
+    if (cache) |c| {
+        // The areas of this slice, for the next one.
+        var made: usize = 0;
+        for (same) |x| made += @intFromBool(!x);
+        var next: LayerCache = .{ .key = key, .made = made };
+        errdefer next.deinit(gpa);
+        next.hash = try gpa.dupe(u64, hashes);
+        next.body = try gpa.alloc(Paths, n);
+        next.filled = try gpa.alloc(Paths, n);
+        for (next.body, next.filled) |*b, *f| {
+            b.* = .empty;
+            f.* = .empty;
+        }
+        for (next.body, next.filled, out, filled) |*b, *f, o, fl| {
+            b.* = try o.clone(gpa);
+            f.* = try fl.clone(gpa);
+        }
+        c.deinit(gpa);
+        c.* = next;
+    }
     return .{ .body = out, .filled = filled };
 }
 
@@ -1943,4 +2033,48 @@ test "a branch never gets thinner on the way down" {
     try taper(a, disks, &branches, 1000, 500);
     const want = [_]f64{ 5000, 5000, 5000, 2000, 1000 };
     for (disks, want) |d, w| try testing.expectEqual(w, d.items[0].r);
+}
+
+test "areas of the trees of the user: an edit makes only its layers again" {
+    const gpa = testing.allocator;
+    var arena = std.heap.ArenaAllocator.init(gpa);
+    defer arena.deinit();
+    const a = arena.allocator();
+    const n = 40;
+    const blocked = try a.alloc(Paths, n);
+    for (blocked) |*b| b.* = try squarePaths(a, 0, 0, 5000, 5000);
+    var sk: skel_mod.Skeleton = .{};
+    defer sk.deinit(gpa);
+    try sk.nodes.appendSlice(gpa, &.{
+        .{ .x = 10_000, .y = 0, .layer = 30, .r = 500, .down = 1, .tip = true },
+        .{ .x = 10_000, .y = 0, .layer = 20, .r = 1000, .down = 2 },
+        .{ .x = 10_000, .y = 0, .layer = 0, .r = 3000 },
+        .{ .x = 20_000, .y = 0, .layer = 10, .r = 500, .down = 4, .tip = true },
+        .{ .x = 20_000, .y = 0, .layer = 0, .r = 2000 },
+    });
+    const params: Params = .{ .tip = 500, .max_r = 5000, .growth = 0.1, .tan_angle = 1, .spacing = 3000, .z_gap = 1, .bed_only = false, .head_layers = 3, .head_grow = 100 };
+    var cache: LayerCache = .{};
+    defer cache.deinit(gpa);
+    const free = struct {
+        fn f(g: Allocator, x: Areas) void {
+            for (x.body) |*p| p.deinit(g);
+            for (x.filled) |*p| p.deinit(g);
+            g.free(x.body);
+            g.free(x.filled);
+        }
+    }.f;
+    free(gpa, try areasOfCached(gpa, a, 2, &sk, blocked, params, &cache, 7));
+    try testing.expectEqual(@as(usize, n), cache.made);
+    // A move of node 1 changes the layers of its two segments: 1 to 29.
+    // The bed layer and the other tree stay.
+    sk.nodes.items[1].x += 400;
+    const got = try areasOfCached(gpa, a, 2, &sk, blocked, params, &cache, 7);
+    defer free(gpa, got);
+    try testing.expectEqual(@as(usize, 29), cache.made);
+    const want = try areasOf(gpa, a, 2, &sk, blocked, params);
+    defer free(gpa, want);
+    for (got.body, want.body, got.filled, want.filled) |p, q, f, g| {
+        try testing.expectEqualSlices(geom.Point, q.points.items, p.points.items);
+        try testing.expectEqualSlices(geom.Point, g.points.items, f.points.items);
+    }
 }

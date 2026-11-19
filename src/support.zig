@@ -164,10 +164,14 @@ pub const Cache = struct {
     avoid: tree.AvoidCache = .{},
     /// The trees of `result` (see Trees.out).
     trees: skel.Skeleton = .{},
+    /// The areas of the trees of the user of each layer (see
+    /// tree_support.LayerCache).
+    tree_layers: tree.LayerCache = .{},
 
     pub fn deinit(c: *Cache, gpa: Allocator) void {
         if (c.result.len > 0) deinitAll(gpa, c.result);
         c.trees.deinit(gpa);
+        c.tree_layers.deinit(gpa);
         c.dropStep1(gpa);
         c.avoid.deinit(gpa);
         c.* = .{};
@@ -687,7 +691,7 @@ fn computeStyle(
     errdefer deinitAll(gpa, out);
 
     if (p.support_style == .tree) {
-        try treeSupport(gpa, threads, outlines, layers, r_style, need, wide, blocked, near, out, if (cache) |c| &c.avoid else null, step1_key, trees);
+        try treeSupport(gpa, threads, outlines, layers, r_style, need, wide, blocked, near, out, cache, step1_key, trees);
         return out;
     }
     if (p.support_style == .bridge) {
@@ -871,7 +875,7 @@ fn treeSupport(
     blocked: []const Paths,
     near: []const Paths,
     out: []SupportLayer,
-    avoid_cache: ?*tree.AvoidCache,
+    cache: ?*Cache,
     step1_key: u64,
     trees: Trees,
 ) !void {
@@ -879,7 +883,7 @@ fn treeSupport(
     const gap = p.support_z_gap_layers;
     const pads = p.support_interface_layers;
     const params = treeParams(r);
-    const areas = try tree.growCached(gpa, threads, outlines, layers, need, blocked, near, 1 + gap + pads, params, avoid_cache, step1_key, trees.user, if (trees.user == null) trees.out else null);
+    const areas = try tree.growCached(gpa, threads, outlines, layers, need, blocked, near, 1 + gap + pads, params, if (cache) |c| &c.avoid else null, step1_key, trees.user, if (trees.user == null) trees.out else null, if (cache) |c| &c.tree_layers else null);
     defer gpa.free(areas.body);
     defer gpa.free(areas.filled);
     for (out, areas.body, areas.filled) |*o, b, f| {
