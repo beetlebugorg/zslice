@@ -159,6 +159,8 @@ Like the GTK shell, the app reads some environment variables for development and
 - `ZSLICE_PICKER=1` opens the printer picker.
 - `ZSLICE_TURN_KEYS=n` presses the Up arrow n times in the Turn tool on the selected part, and logs its height and the note 1.2 s later. `ZSLICE_DESELECT=1` picks the Select tool at once, as a click elsewhere does: the part must still fall.
 - `ZSLICE_FALL_LOG=1` logs the height of a part when its fall comes to rest, and `ZSLICE_FALL_FRAMES=dir` writes a frame of the fall each 0.15 s.
+- `ZSLICE_RING=axis,deg` presses a ring of the Turn tool on the selected part, drags around the part until the turn is deg, and releases, as a user does; the part falls with `ZSLICE_FALL_LOG=1` logging the start, the support, and the rest.
+- `ZSLICE_PRINTER_LABEL=text` sets the label of the printer menu, and `ZSLICE_WIDTH=points` the width of the window (0: its narrowest), for tests of the toolbar.
 - `ZSLICE_TURN=deg` turns the selected part about X, lets it settle, and logs the note. `ZSLICE_SUPPORT=1` turns support on first. Select the part with `ZSLICE_TOOL=move ZSLICE_CLICKS=center`.
 - `ZSLICE_SESSION=dir` keeps the session in that folder, also with `ZSLICE_FRESH` (which turns the session off without it). `ZSLICE_QUIT_AFTER=s` quits as Command-Q does, after s seconds. With `ZSLICE_TIMING=1`, the app logs the session reads and writes, and the time of the first frame with beads.
 - `ZSLICE_REFINE=path` keeps the store of refinements in that file, also with `ZSLICE_FRESH`. `ZSLICE_DETAILS=1` opens the details of the print, and `ZSLICE_REFINE_APPLY=1` applies the first suggestion and logs it.
@@ -255,7 +257,7 @@ To test, build the app, then run `qlmanage -x -t file` for a thumbnail, and `qlm
 
 ## The bars and the refinements
 
-The slice is the UI, so the chrome is small. The toolbar has the file button (`FileButton`: the name of the document, a dot for unsaved changes, and a menu of the file), 3D and 2D and Search in the middle, the printer, the filament, and the quality as one group, and Printers, Settings, and `MoreMenu` at the right. The window title is hidden from the toolbar on macOS 15 and later. The colours of the lines are an icon on the tool strip (`ColorsButton`).
+The slice is the UI, so the chrome is small. The toolbar has the file button (`FileButton`: the name of the document, a dot for unsaved changes, and a menu of the file), then 3D and 2D and Search, at the left with it, and at the right the printer, the filament, and the quality as one group, and Printers, Settings, and `MoreMenu` at the right. The window title is hidden from the toolbar on macOS 15 and later. No item is in the center: AppKit keeps a center item in the center, and a long printer name drew over it. The labels of the menus keep their full size: at a narrow width, AppKit moves whole items to the » menu, and no label is cut with "…". The colours of the lines are an icon on the tool strip (`ColorsButton`).
 
 `BottomBar` is one bar, the width of the window and 70 points high: the plates and the history in the first row, the replay in the second, and at the right end the time, a badge, and `PrintAction` (Export, or Print with Upload Only and Export in its menu). A click on the time opens `PrintCard` above the bar as the details: the notes, the totals, the usual refinements, and the settings. The badge counts the notes (`noteCount`, red for a part off the bed or a failed slice, else orange), or else the refinements (blue). A new set of notes (`noteKey`) opens the details once.
 

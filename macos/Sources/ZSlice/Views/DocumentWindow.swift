@@ -69,6 +69,13 @@ struct DocumentWindow: View {
         }
         guard let w = workspace.canvas.window, let doc = NSDocumentController.shared.document(for: w) else { return }
         if timing { NSLog("zslice session: window at %.0f ms", (CACurrentMediaTime() - SessionStore.launch) * 1000) }
+        // ZSLICE_WIDTH=points: the width of the window (0: its narrowest),
+        // for tests of the toolbar.
+        if let wd = ProcessInfo.processInfo.environment["ZSLICE_WIDTH"].flatMap(Double.init) {
+            var f = w.frame
+            f.size.width = max(wd, w.minSize.width, 1)
+            w.setFrame(f, display: true)
+        }
         workspace.model.document = doc
         let ws = workspace
         NotificationCenter.default.addObserver(forName: NSWindow.willCloseNotification, object: w, queue: .main) { _ in
@@ -292,14 +299,17 @@ struct DocumentWindow: View {
             InspectorPanel(workspace: workspace)
                 .inspectorColumnWidth(min: 320, ideal: 400, max: 560)
         }
-        // The slice is the UI: a small toolbar. The file at the left, the
-        // view in the middle, and the printer, the filament, the quality,
-        // and three icons at the right.
+        // The slice is the UI: a small toolbar. The file and the view at the
+        // left, and the printer, the filament, the quality, and three icons
+        // at the right. No item is in the center: a center item of AppKit
+        // stays in the center, and a wide printer name drew over it. At a
+        // narrow width, AppKit moves whole items to the » menu; no label is
+        // cut with "…".
         .toolbar {
             ToolbarItem(placement: .navigation) {
                 FileButton(workspace: workspace)
             }
-            ToolbarItem(placement: .principal) {
+            ToolbarItem(placement: .navigation) {
                 HStack(spacing: 8) {
                     Picker("View", selection: Bindable(workspace).page) {
                         Text("3D").tag(MetalSliceView.Page.threeD)

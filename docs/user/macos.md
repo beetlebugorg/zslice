@@ -140,7 +140,7 @@ zslice keeps your session. After Command-Q, or a crash, it opens each window as 
 
 ## The bars
 
-The toolbar is small, so the slice has the room. At the left is the file button with the name of the document: its menu opens files, adds models, saves, renames, and exports. In the middle are 3D and 2D and Search. At the right are the printer, the filament, and the quality, then Printers, Settings, and a menu of the rest (placement, checks, the history, and the keys). The colours of the lines are the palette icon on the tool strip.
+The toolbar is small, so the slice has the room. At the left is the file button with the name of the document: its menu opens files, adds models, saves, renames, and exports. Next to it are 3D and 2D and Search. At the right are the printer, the filament, and the quality, then Printers, Settings, and a menu of the rest (placement, checks, the history, and the keys). The colours of the lines are the palette icon on the tool strip.
 
 The bar at the bottom has the plates and the history, the replay under them, and at the right end the time of the print, a badge, and Export (or Print). Click the time to see the details: the notes, the totals, your usual refinements, and the settings. A red or orange badge counts the notes; a new note opens the details once. A blue badge counts your usual refinements.
 

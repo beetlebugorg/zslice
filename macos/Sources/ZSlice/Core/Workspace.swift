@@ -583,6 +583,46 @@ final class Workspace {
                 NSLog("zslice turn keys: support %@, size z %.1f, note %@", self.model.setting("project.support"), p.size_z, self.note ?? "none")
             }
         }
+        // ZSLICE_RING=axis,deg: the Turn tool, a press on that ring of the
+        // selected part, a drag around the part until the turn is deg, and
+        // a release (as a user does); the part 3 s later.
+        if let spec = env["ZSLICE_RING"]?.split(separator: ",").compactMap({ Double($0) }), spec.count == 2, let i = selectedPart, let v = canvas.view {
+            setTool(.turn)
+            selectPart(i)
+            canvas.requestFrame()
+            Task { @MainActor in
+                try? await Task.sleep(for: .milliseconds(300))
+                let s = self.canvas.window?.backingScaleFactor ?? 2
+                var start: CGPoint?
+                outer: for gy in stride(from: 0.05, through: 0.95, by: 0.01) {
+                    for gx in stride(from: 0.05, through: 0.95, by: 0.01) {
+                        let p = CGPoint(x: self.canvas.bounds.width * gx, y: self.canvas.bounds.height * gy)
+                        if zs_view_ring_at(v, Float(p.x * s), Float(p.y * s), Float(4 * s)) == Int32(spec[0]) { start = p; break outer }
+                    }
+                }
+                var info = zs_part()
+                _ = zs_app_part_get(self.model.core, i, &info)
+                guard let p0 = start, self.press(p0, []),
+                      let c = self.canvas.viewPoint(x: info.x, y: info.y, z: info.size_z / 2) else {
+                    NSLog("zslice ring: no ring %.0f found", spec[0])
+                    return
+                }
+                // Around the center on the screen, in small steps.
+                let r = hypot(p0.x - c.x, p0.y - c.y), a0 = atan2(p0.y - c.y, p0.x - c.x)
+                var p = p0
+                for k in 1 ... 360 {
+                    let a = a0 + Double(k) * .pi / 180 * (spec[1] >= 0 ? 1 : -1)
+                    p = CGPoint(x: c.x + r * cos(a), y: c.y + r * sin(a))
+                    self.drag(p, [])
+                    if let rd = self.ringDrag, abs(rd.sent) >= abs(spec[1]) { break }
+                }
+                NSLog("zslice ring: axis %.0f, turned %.0f°", spec[0], self.ringDrag?.sent ?? 0)
+                self.release(p)
+                try? await Task.sleep(for: .seconds(3))
+                _ = zs_app_part_get(self.model.core, i, &info)
+                NSLog("zslice ring: after, size z %.1f, note %@", info.size_z, self.note ?? "none")
+            }
+        }
         // ZSLICE_TURN=deg turns the selected part about X, then lets it settle
         // and logs the note; ZSLICE_SUPPORT=1 turns support on first.
         if let t = env["ZSLICE_TURN"].flatMap(Double.init), let i = selectedPart {

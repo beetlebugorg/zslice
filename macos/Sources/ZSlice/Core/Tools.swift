@@ -317,7 +317,11 @@ extension Workspace {
             return
         }
         if falling != nil { zs_app_fall_cancel(model.core) }
-        guard zs_app_fall_start(model.core, i) == 1 else {
+        let started = zs_app_fall_start(model.core, i)
+        if ProcessInfo.processInfo.environment["ZSLICE_FALL_LOG"] != nil {
+            NSLog("zslice fall: start %d, support %@, stands %d", started, model.setting("project.support"), zs_app_part_stands(model.core, i))
+        }
+        guard started == 1 else {
             falling = nil
             if zs_app_part_stands(model.core, i) == 0 {
                 showNote("This part could not stand like that on its own. Support is on, so the support holds it in place.", seconds: 7)

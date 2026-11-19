@@ -362,8 +362,10 @@ struct PrinterMenu: View {
             Button("Add a Printer…") { workspace.pickerOpen = true }
             SettingsLink { Text("Manage Printers…") }
         } label: {
-            Label(store.current?.name ?? "No Printer", systemImage: "printer")
+            // ZSLICE_PRINTER_LABEL=text: the label, for tests of the toolbar.
+            Label(ProcessInfo.processInfo.environment["ZSLICE_PRINTER_LABEL"] ?? store.current?.name ?? "No Printer", systemImage: "printer")
                 .labelStyle(.titleAndIcon)
+                .fixedSize()
         }
         .help("The printer of this plate")
     }
@@ -454,6 +456,7 @@ struct FilamentMenu: View {
         } label: {
             Label(now.isEmpty ? "Filament" : now, systemImage: "circle.dashed")
                 .labelStyle(.titleAndIcon)
+                .fixedSize()
         }
         .help("The filament of the plate: its material, or a filament profile of yours")
     }
@@ -491,6 +494,7 @@ struct QualityMenu: View {
         } label: {
             Label((q.isEmpty ? "Quality" : q) + (changed ? " •" : ""), systemImage: "dial.medium")
                 .labelStyle(.titleAndIcon)
+                .fixedSize()
         }
         .help("The quality of the plate. A dot: this print has changes on top of it. A pick of another quality keeps your changes.")
     }
