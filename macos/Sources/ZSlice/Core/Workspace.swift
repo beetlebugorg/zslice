@@ -16,6 +16,7 @@
 
 import AppKit
 import ImageIO
+import UniformTypeIdentifiers
 import CZslice
 import Observation
 
@@ -540,11 +541,39 @@ final class Workspace {
             PrinterStore.shared.remove(p.id)
             NSLog("zslice key remove: key before %d, after %d", before ? 1 : 0, Keychain.read(account: p.id.uuidString) == nil ? 0 : 1)
         }
+        // ZSLICE_FILAMENT_TEST=lo:hi: a second filament (red PETG) for the
+        // layers lo to hi (the card of the range opens), then the grams of
+        // each filament and the changes after the slice.
+        if let spec = env["ZSLICE_FILAMENT_TEST"] {
+            let f = spec.split(separator: ":").compactMap { Int($0) }
+            DispatchQueue.main.asyncAfter(deadline: .now() + 3) { [weak self] in
+                // The card first: a new filament slices again, and a card
+                // opens only on a slice.
+                guard let self, f.count == 2 else { return }
+                openRangeCard(f[0], f[1])
+                guard rangeCard != nil, let i = model.addFilament() else {
+                    NSLog("zslice filament test: no card")
+                    return
+                }
+                model.setFilament(i, "filament.color", "#e03030")
+                model.setFilament(i, "filament.material", "PETG")
+                let err = model.set("project.filament", String(i + 1))
+                NSLog("zslice filament test: added %ld, set %@", i, err ?? "ok")
+                DispatchQueue.main.asyncAfter(deadline: .now() + 4) { [weak self] in
+                    guard let self, let st = model.filamentStats else { return }
+                    closeRangeCard()
+                    NSLog("zslice filament test: %ld filaments, grams %@, changes %ld, flush %.2f g", model.filaments.count,
+                          st.grams.map { String(format: "%.2f", $0) }.joined(separator: ","), st.changes, st.flushG)
+                }
+            }
+        }
         // ZSLICE_SEND_TO=k[:print] (tests only) sends the active plate to
         // printer k of the store (or "all": each one in turn) 4 s after the
         // start, with no question, and logs each result.
         if let spec = env["ZSLICE_SEND_TO"] {
-            DispatchQueue.main.asyncAfter(deadline: .now() + 4) { [weak self] in
+            // ZSLICE_SEND_DELAY=s waits longer, after other hooks.
+            let delay = env["ZSLICE_SEND_DELAY"].flatMap(Double.init) ?? 4
+            DispatchQueue.main.asyncAfter(deadline: .now() + delay) { [weak self] in
                 guard let self, let data = model.gcode(plate: model.active) else { return }
                 let all = PrinterStore.shared.printers
                 let first = spec.split(separator: ":").first.map(String.init) ?? ""
@@ -1648,27 +1677,15 @@ final class Workspace {
         }
     }
 
-    /// The .gcode.3mf of a Bambu Lab printer, with the facts of the plate
-    /// (zs_bambu_file_plate): its time, its grams, and its filament, which
-    /// a printdeck reads to list it and to pick the tray of the AMS.
+    /// The .gcode.3mf of a Bambu Lab printer around the signed G-code, with
+    /// the filaments of the last slice of the plate in its slice info
+    /// (zs_app_bambu_file_gcode): a printdeck reads them to list it and to
+    /// pick the trays of the AMS.
     func bambuFile(_ gcode: Data, title: String, plate i: Int) -> Data? {
-        var t = zs_totals()
-        if model.plates.indices.contains(i) { zs_set_plate_totals(model.set, i, &t) }
-        let app = model.plates.indices.contains(i) ? zs_set_app(model.set, i) : model.core
-        func setting(_ name: String) -> String { app.flatMap { a in coreString { zs_app_setting_get(a, name, $0, $1, $2) } } ?? "" }
-        let material = setting("filament.material"), color = setting("filament.color")
-        let nozzle = Double(setting("machine.nozzle_diameter")) ?? 0
+        guard let app = model.plates.indices.contains(i) ? zs_set_app(model.set, i) : model.core else { return nil }
         var out: UnsafeMutablePointer<UInt8>?
         var len = 0
-        let rc = title.withCString { tp in
-            material.withCString { mp in
-                color.withCString { cp in
-                    var plate = zs_bambu_plate(title: tp, seconds: t.time_s, grams: t.filament_g, meters: t.filament_mm / 1000,
-                                               material: mp, color: cp, nozzle: nozzle)
-                    return gcode.withUnsafeBytes { zs_bambu_file_plate($0.bindMemory(to: UInt8.self).baseAddress, $0.count, &plate, &out, &len) }
-                }
-            }
-        }
+        let rc = gcode.withUnsafeBytes { zs_app_bambu_file_gcode(app, $0.bindMemory(to: UInt8.self).baseAddress, $0.count, title, &out, &len) }
         guard rc == 0, let out else { return nil }
         defer { zs_buffer_free(out, len) }
         return Data(bytes: out, count: len)
@@ -1759,10 +1776,17 @@ final class Workspace {
     /// Exports the G-code of the last slice with a save panel.
     func exportGcode(from window: NSWindow?) {
         guard let unsigned = model.gcode(), goOnOffBed() else { return }
-        let data = Signer.sign(unsigned)
+        var data = Signer.sign(unsigned)
         let panel = NSSavePanel()
         panel.allowedContentTypes = [.gcode]
         panel.nameFieldStringValue = model.gcodeName() + ".gcode"
+        // A Bambu Lab printer prints a .gcode.3mf (the G-code, its MD5, and
+        // the filaments of the print in Metadata/slice_info.config).
+        if model.setting("machine.model").hasPrefix("bambu-lab"), let file = bambuFile(data, title: model.gcodeName(), plate: model.active) {
+            data = file
+            panel.allowedContentTypes = [UTType(filenameExtension: "3mf") ?? .data]
+            panel.nameFieldStringValue = model.gcodeName() + ".gcode.3mf"
+        }
         let write = { (r: NSApplication.ModalResponse) in
             guard r == .OK, let url = panel.url else { return }
             do { try data.write(to: url) } catch { NSAlert(error: error).runModal() }

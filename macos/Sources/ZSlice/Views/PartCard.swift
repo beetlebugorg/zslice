@@ -59,6 +59,17 @@ struct PartCard: View {
                     Spacer()
                     ScaleField(workspace: workspace, index: index, scale: p.scale_x)
                 }
+                // The filament of the part: a chip for each filament.
+                if SettingInfo.byName["project.filament"] != nil {
+                    HStack {
+                        Text("Filament").font(.callout)
+                        Spacer()
+                        FilamentChips(model: workspace.model,
+                                      value: own.first { $0.info.name == "project.filament" }?.value ?? workspace.model.entry("project.filament").value) { v in
+                            for i in workspace.selectedParts { workspace.setPartSetting(i, "project.filament", v) }
+                        }
+                    }
+                }
                 HStack {
                     Button("Duplicate") { workspace.duplicatePart() }.help("A copy at a free place (D)")
                     Button("Split") { workspace.splitPart() }.help("Split to parts: each separate body of the part becomes a part of its own")
@@ -81,10 +92,11 @@ struct PartCard: View {
                     .help("Remove the part (Delete)")
                 }
                 .controlSize(.small)
-                if !own.isEmpty {
+                let rest = own.filter { $0.info.name != "project.filament" }
+                if !rest.isEmpty {
                     Divider()
                     Text("Settings of this part").font(.caption.weight(.semibold)).foregroundStyle(.secondary)
-                    ForEach(own, id: \.info.name) { s in
+                    ForEach(rest, id: \.info.name) { s in
                         PartSettingRow(workspace: workspace, index: index, info: s.info, value: s.value)
                     }
                 }

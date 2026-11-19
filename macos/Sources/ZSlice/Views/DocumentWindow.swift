@@ -598,6 +598,8 @@ struct PrintCard: View {
             if model.state != .empty {
                 Divider()
                 PrintFacts(workspace: workspace)
+                Divider()
+                FilamentList(model: model)
             }
         }
         .frame(width: 250)

@@ -48,6 +48,12 @@ struct Issue: Identifiable {
         case Int32(ZS_ISSUE_RETRACTIONS.rawValue): "arrow.uturn.backward"
         // A part that its brim holds up, or that can tip over.
         case Int32(ZS_ISSUE_STAND.rawValue): "figure.fall"
+        // A painted region narrower than a line.
+        case Int32(ZS_ISSUE_COLOR.rawValue): "paintpalette"
+        // The filament changes and their time.
+        case Int32(ZS_ISSUE_CHANGES.rawValue): "arrow.triangle.2.circlepath"
+        // A prime tower off the bed or on a part.
+        case Int32(ZS_ISSUE_TOWER.rawValue): "square.stack.3d.up"
         default: "rectangle.split.3x1"
         }
     }

@@ -17,6 +17,9 @@ struct RangeCard: View {
     /// The settings of the card, in order, when the setting can change for
     /// some layers (RANGE_SETTINGS of web/app/rangecard.js).
     static let settings = [
+        // The filament of the layers: a change at the first layer, and back
+        // after the last.
+        "project.filament",
         "project.infill_density", "project.infill_pattern", "project.wall_count", "project.top_thickness",
         "project.outer_wall_speed", "project.infill_speed", "filament.fan_speed", "filament.nozzle_temp",
     ]
