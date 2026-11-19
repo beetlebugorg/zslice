@@ -75,6 +75,12 @@ const Part = struct {
 
     /// A part sliced with these settings changed (name, value).
     fn initWith(gpa: Allocator, b: *mesh_mod.Builder, settings: []const [2][]const u8) !Part {
+        return initOn(gpa, b, null, settings);
+    }
+
+    /// A part sliced on a printer of the library (its id), with these
+    /// settings changed.
+    fn initOn(gpa: Allocator, b: *mesh_mod.Builder, printer: ?[]const u8, settings: []const [2][]const u8) !Part {
         var mesh = try b.finish();
         defer mesh.deinit(gpa);
         const bounds = mesh.bounds();
@@ -84,6 +90,15 @@ const Part = struct {
         const app = try App.create(gpa, null, null);
         errdefer app.destroy();
         try app.loadStl("calib.stl", stl.written());
+        if (printer) |id| {
+            const lib = try zs.printers.Library.parse(gpa, zs.printers.builtin_data);
+            defer lib.deinit();
+            var text: std.Io.Writer.Allocating = .init(gpa);
+            defer text.deinit();
+            try lib.profileText(lib.find(id) orelse return error.NoPrinter, 0, &text.writer);
+            var diag: zs.profile.Diagnostic = .{};
+            try app.applyProfile(.machine, id, text.written(), &diag);
+        }
         for (settings) |kv| try app.setSetting(kv[0], kv[1]);
         try app.startSlice();
         app.stopWorkerForTest();
@@ -205,7 +220,33 @@ fn calibHeight() f64 {
     return calib_tip + calib_reach / @tan(std.math.degreesToRadians(@as(f64, 30))) + 0.5;
 }
 
+/// The PLA 0.20 Standard profile of the user's TAZ (its Cura stack, as
+/// `zslice import cura` reads it; see tools/calib/README.md).
+const taz_pla_020 = [_][2][]const u8{
+    .{ "project.layer_height", "0.2" },
+    .{ "project.first_layer_height", "0.25" },
+    .{ "project.wall_count", "3" },
+    .{ "project.top_thickness", "1" },
+    .{ "project.bottom_thickness", "1" },
+    .{ "project.infill_density", "0.2" },
+    .{ "project.infill_pattern", "gyroid" },
+    .{ "project.outer_wall_speed", "0.417" },
+    .{ "project.inner_wall_speed", "0.667" },
+    .{ "project.skin_speed", "0.583" },
+    .{ "project.infill_speed", "0.917" },
+    .{ "project.first_layer_speed", "0.3" },
+    .{ "project.slow_layers", "2" },
+    .{ "filament.diameter", "2.85" },
+    .{ "filament.nozzle_temp", "210" },
+    .{ "filament.fan_speed", "1" },
+    .{ "filament.min_layer_time", "10" },
+};
+
 fn tazOverhangs(gpa: Allocator) !Part {
+    return calibFins(gpa, null, &.{.{ "machine.nozzle_diameter", "0.5" }});
+}
+
+fn calibFins(gpa: Allocator, printer: ?[]const u8, settings: []const [2][]const u8) !Part {
     var b: mesh_mod.Builder = .init(gpa);
     errdefer b.deinit();
     const h = calibHeight();
@@ -217,7 +258,22 @@ fn tazOverhangs(gpa: Allocator) !Part {
         // The back wall between the fins.
         if (k + 1 < taz_angles.len) try mesh_mod.shapes.addBox(&b, x + fin_width, -calib_back, 0, x + calib_pitch, 0, h);
     }
-    return Part.initWith(gpa, &b, &.{.{ "machine.nozzle_diameter", "0.5" }});
+    return Part.initOn(gpa, &b, printer, settings);
+}
+
+test "sim calibration: on the TAZ of the user with its PLA profile, 75 degree fins fall in strands" {
+    const gpa = testing.allocator;
+    var p = try calibFins(gpa, "lulzbot-taz-workhorse-se-0-5-mm", &taz_pla_020);
+    defer p.deinit();
+    var out: [taz_angles.len]Outcome = undefined;
+    for (&out, 0..) |*o, k| {
+        const x: f64 = @as(f64, @floatFromInt(k)) * calib_pitch;
+        o.* = p.outcome(.{ .x0 = x, .x1 = x + fin_width, .y0 = 0.2, .y1 = calib_reach, .z0 = 0, .z1 = calibHeight() - calib_tip + 0.6 });
+    }
+    for (out[0..2]) |o| try testing.expectEqual(@as(usize, 0), o.failed);
+    try testing.expectEqual(@as(usize, 0), out[2].failed);
+    try testing.expect(out[3].failed > 0);
+    try testing.expect(out[4].failed > 0);
 }
 
 test "sim calibration: the overhang fins of the user's print: smooth to 65 degrees, a little rough at 70, strands from 75" {
