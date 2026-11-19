@@ -3064,11 +3064,23 @@ pub const View = struct {
         const pts = run.items;
         if (pts.len == 0) return;
         var keep_all = pts.len <= 32;
-        var ext: [8][4]f32 = @splat(pts[0]);
+        // The extremes come from the ends with the most common top and
+        // bottom of the layer (a majority vote): then their z bounds are
+        // those of most ends, and most inner ends go.
+        var vote = pts[0];
+        var votes: usize = 0;
+        for (pts) |q| {
+            if (votes == 0) vote = q;
+            if (q[2] == vote[2] and q[3] == vote[3]) votes += 1 else votes -= 1;
+        }
+        var first: usize = 0;
+        while (first < pts.len and !(pts[first][2] == vote[2] and pts[first][3] == vote[3])) first += 1;
+        var ext: [8][4]f32 = @splat(pts[first]);
         var top_lo: f32 = 0;
         var bot_hi: f32 = 0;
         if (!keep_all) {
             for (pts) |q| {
+                if (q[2] != vote[2] or q[3] != vote[3]) continue;
                 if (q[1] < ext[0][1]) ext[0] = q;
                 if (q[0] - q[1] > ext[1][0] - ext[1][1]) ext[1] = q;
                 if (q[0] > ext[2][0]) ext[2] = q;
