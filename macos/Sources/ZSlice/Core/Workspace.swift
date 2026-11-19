@@ -132,6 +132,8 @@ final class Workspace {
     /// (LayerRange.swift).
     @ObservationIgnored var rangeDrag: RangeDrag?
     var rangeCard: (lo: Int, hi: Int)?
+    /// The Paint tool (PaintTool.swift), while it is on.
+    var paint: PaintSession?
     /// The range of Shift+K and Shift+J: the first layer, and the layer
     /// that moves.
     @ObservationIgnored var keyRange: (a: Int, b: Int)?
@@ -540,6 +542,44 @@ final class Workspace {
             let before = Keychain.read(account: p.id.uuidString) != nil
             PrinterStore.shared.remove(p.id)
             NSLog("zslice key remove: key before %d, after %d", before ? 1 : 0, Keychain.read(account: p.id.uuidString) == nil ? 0 : 1)
+        }
+        // ZSLICE_PAINT_TEST=smart|brush: a red second filament, the Paint
+        // tool, and a click (or a stroke) at the middle of the view; it logs
+        // the region, the paint, and the grams of each filament after the
+        // slice. The tool stays open for a screenshot.
+        if let mode = env["ZSLICE_PAINT_TEST"] {
+            DispatchQueue.main.asyncAfter(deadline: .now() + 3) { [weak self] in
+                guard let self, let i = model.addFilament() else { return }
+                model.setFilament(i, "filament.color", "#e03030")
+                setTool(.paint)
+                guard let p = paint else {
+                    NSLog("zslice paint test: no tool")
+                    return
+                }
+                p.filament = i + 1
+                paintColors()
+                let mid = CGPoint(x: canvas.bounds.midX, y: canvas.bounds.midY)
+                let hit = paintHit(mid)
+                paintHover(mid)
+                NSLog("zslice paint test: %ld triangles, hit %d, hover %ld triangles", p.triangles, hit == nil ? 0 : 1, p.hover?.tris.count ?? 0)
+                if mode == "brush" {
+                    p.mode = .brush
+                    p.size = 4
+                    _ = paintPress(mid, [])
+                    for k in 1 ... 10 { paintDrag(CGPoint(x: mid.x + CGFloat(k * 6), y: mid.y)) }
+                    paintRelease()
+                } else {
+                    _ = paintPress(mid, [])
+                }
+                var text: UnsafePointer<CChar>?
+                var len = 0
+                zs_paint_text(p.session, &text, &len)
+                NSLog("zslice paint test: %@ painted, paint text %ld bytes", mode, len)
+                DispatchQueue.main.asyncAfter(deadline: .now() + 5) { [weak self] in
+                    guard let self, let st = model.filamentStats else { return }
+                    NSLog("zslice paint test: grams %@, changes %ld", st.grams.map { String(format: "%.2f", $0) }.joined(separator: ","), st.changes)
+                }
+            }
         }
         // ZSLICE_FILAMENT_TEST=lo:hi: a second filament (red PETG) for the
         // layers lo to hi (the card of the range opens), then the grams of
@@ -1809,6 +1849,8 @@ extension Workspace: SliceViewDelegate {
         }
         if gapsOn && pickGap(at: p) { return }
         switch tool {
+        // The press of the Paint tool painted already.
+        case .paint: break
         case .measure:
             measureClick(p, snap: !NSEvent.modifierFlags.contains(.shift))
         case .support:
@@ -1845,6 +1887,10 @@ extension Workspace: SliceViewDelegate {
             if let p { drag(p, NSEvent.modifierFlags) }
             return
         }
+        if tool == .paint {
+            paintHover(p)
+            return
+        }
         supportHover(at: p)
     }
 
@@ -1871,6 +1917,11 @@ extension Workspace: SliceViewDelegate {
         // Esc lets go of the part in the hand.
         if grabbing, event.charactersIgnoringModifiers == "\u{1b}" {
             letGo()
+            return true
+        }
+        // Esc closes the Paint tool.
+        if tool == .paint, event.charactersIgnoringModifiers == "\u{1b}" {
+            setTool(.select)
             return true
         }
         if supportKey(event) || supportPickKey(event) { return true }

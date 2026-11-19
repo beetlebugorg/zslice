@@ -44,6 +44,10 @@ final class FrameRenderer {
     private let boxFocus: MTLRenderPipelineState
     private let boxBlend: MTLRenderPipelineState
     private let grid: MTLRenderPipelineState
+    private let paintPipe: MTLRenderPipelineState
+    /// The mesh of the Paint tool: drawn in place of the beads while the
+    /// tool is on (nil: off).
+    var paint: PaintMesh?
     private let bed: MTLRenderPipelineState
     /// The bed model, depth only: the first of its two passes.
     private let bedDepth: MTLRenderPipelineState
@@ -118,6 +122,7 @@ final class FrameRenderer {
             boxFocus = try pipeline("box_vertex", "box_fragment_focus", blend: false)
             boxBlend = try pipeline("box_vertex", "box_fragment_focus", blend: true)
             grid = try pipeline("grid_vertex", "grid_fragment", blend: false)
+            paintPipe = try pipeline("paint_vertex", "paint_fragment", blend: false)
             bed = try pipeline("bed_vertex", "bed_fragment", blend: true)
             bedDepth = try pipeline("bed_vertex", "bed_fragment", blend: false, color: false)
         } catch {
@@ -296,6 +301,12 @@ final class FrameRenderer {
 
         mutating func run() {
             drawGrids()
+            // The Paint tool: the mesh of the part, and no beads.
+            if let p = r.paint {
+                drawPaint(p)
+                drawBed(mvp: f.bed.mvp)
+                return
+            }
             if r.meshVerts == nil || r.meshIndex == nil || r.instances == nil {
                 drawBed(mvp: f.bed.mvp)
                 return
@@ -339,6 +350,22 @@ final class FrameRenderer {
             // The bed model at each other plate of the same printer.
             for p in r.plates(f) where p.flags & 1 != 0 { drawBed(mvp: p.bed_mvp) }
             drawExtras()
+        }
+
+        func drawPaint(_ p: PaintMesh) {
+            enc.setRenderPipelineState(r.paintPipe)
+            var mvp = f.grid.mvp
+            enc.setVertexBytes(&mvp, length: MemoryLayout.size(ofValue: mvp), index: 1)
+            var colors = p.colors
+            enc.setFragmentBytes(&colors, length: MemoryLayout<SIMD4<Float>>.stride * colors.count, index: 0)
+            enc.setVertexBuffer(p.posnorm, offset: 0, index: 0)
+            enc.setVertexBuffer(p.states, offset: 0, index: 2)
+            enc.drawPrimitives(type: .triangle, vertexStart: 0, vertexCount: p.count)
+            if p.leafCount > 0, let lp = p.leaves, let ls = p.leafStates {
+                enc.setVertexBuffer(lp, offset: 0, index: 0)
+                enc.setVertexBuffer(ls, offset: 0, index: 2)
+                enc.drawPrimitives(type: .triangle, vertexStart: 0, vertexCount: p.leafCount)
+            }
         }
 
         func setPush(_ push: zs_web_push) {
@@ -500,3 +527,50 @@ final class GPUTime: @unchecked Sendable {
     var ms: Double { lock.withLock { value } }
     func set(_ v: Double) { lock.withLock { value = v } }
 }
+
+/// The mesh of the Paint tool on the GPU (Core/PaintTool.swift): the
+/// position and the normal of each vertex (3 for each triangle), the
+/// state of each vertex, the pieces of the split triangles, and the
+/// palette (0: the filament of the part, k: filament k).
+@MainActor
+final class PaintMesh {
+    let device: MTLDevice
+    let posnorm: MTLBuffer
+    private(set) var states: MTLBuffer
+    let count: Int
+    private(set) var leaves: MTLBuffer?
+    private(set) var leafStates: MTLBuffer?
+    private(set) var leafCount = 0
+    var colors = [SIMD4<Float>](repeating: SIMD4(0.82, 0.82, 0.8, 1), count: 18)
+
+    /// posnorm: 6 floats for each vertex (the position, then the normal).
+    init?(device: MTLDevice, posnorm data: [Float]) {
+        let n = data.count / 6
+        guard n > 0, let b = device.makeBuffer(bytes: data, length: data.count * 4, options: .storageModeShared),
+              let s = device.makeBuffer(length: n * 4, options: .storageModeShared) else { return nil }
+        self.device = device
+        posnorm = b
+        states = s
+        count = n
+    }
+
+    /// The state of each vertex.
+    func setStates(_ v: [Float]) {
+        guard v.count == count else { return }
+        v.withUnsafeBytes { states.contents().copyMemory(from: $0.baseAddress!, byteCount: $0.count) }
+    }
+
+    /// The pieces: 6 floats of position and normal, and one state, for
+    /// each vertex.
+    func setLeaves(posnorm: [Float], states s: [Float]) {
+        leafCount = s.count
+        guard leafCount > 0 else {
+            leaves = nil
+            leafStates = nil
+            return
+        }
+        leaves = device.makeBuffer(bytes: posnorm, length: posnorm.count * 4, options: .storageModeShared)
+        leafStates = device.makeBuffer(bytes: s, length: s.count * 4, options: .storageModeShared)
+    }
+}
+

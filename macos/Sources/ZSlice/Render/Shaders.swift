@@ -352,4 +352,39 @@ vertex float4 flat_vertex(uint vid [[vertex_id]],
 fragment float4 flat_fragment(constant Flat2D &u [[buffer(0)]]) {
     return u.color;
 }
+
+// The Paint tool (Core/PaintTool.swift, web/app/gl.js paintVert and
+// paintFrag): the mesh of a part, each triangle in the color of its
+// filament. posnorm: the position and the normal of each vertex. state: 0
+// the filament of the part, k color k of the palette, + 128 for the region
+// under the pointer, 255 a triangle with pieces (they draw from their own
+// buffer).
+struct PaintOut {
+    float4 position [[position]];
+    float3 normal;
+    uint state [[flat]];
+};
+
+vertex PaintOut paint_vertex(uint vid [[vertex_id]],
+                             const device packed_float3 *posnorm [[buffer(0)]],
+                             constant float4x4 &mvp [[buffer(1)]],
+                             const device float *states [[buffer(2)]]) {
+    PaintOut o;
+    o.position = toMetal(mvp * float4(float3(posnorm[2 * vid]), 1.0));
+    o.normal = float3(posnorm[2 * vid + 1]);
+    o.state = uint(states[vid] + 0.5);
+    return o;
+}
+
+fragment float4 paint_fragment(PaintOut in [[stage_in]],
+                               constant float4 *colors [[buffer(0)]]) {
+    if (in.state == 255) discard_fragment();
+    uint k = in.state & 127;
+    float3 c = colors[min(k, 17u)].rgb;
+    float3 n = normalize(in.normal);
+    float lit = 0.45 + 0.55 * max(dot(n, normalize(float3(-0.4, -0.6, 0.7))), 0.0) + 0.15 * abs(n.z);
+    float3 col = c * min(lit, 1.0);
+    if (in.state >= 128) col = mix(col, float3(0.2, 0.55, 1.0), 0.45);
+    return float4(col, 1.0);
+}
 """
