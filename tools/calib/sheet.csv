@@ -1,26 +1,26 @@
 part,feature,measure,unit,how,"predicted (sim, PLA of Colon Quintana 2021)",measured,notes
 overhang,30 deg,tip thickness,mm,"calipers on the fin tip, at the end",2.31,,
-overhang,30 deg,underside,0-3,"0 smooth, 1 a little rough, 2 rough or drooped, 3 loose strands",2,,
+overhang,30 deg,underside,0-3,"0 smooth, 1 a little rough, 2 rough or drooped, 3 loose strands",2,0,"user photos 2026-11-19 (TAZ Workhorse SE, PLA); slicer and temps to confirm"
 overhang,35 deg,tip thickness,mm,"calipers on the fin tip, at the end",2.31,,
-overhang,35 deg,underside,0-3,"0 smooth, 1 a little rough, 2 rough or drooped, 3 loose strands",2,,
+overhang,35 deg,underside,0-3,"0 smooth, 1 a little rough, 2 rough or drooped, 3 loose strands",2,0,"user photos 2026-11-19 (TAZ Workhorse SE, PLA); slicer and temps to confirm"
 overhang,40 deg,tip thickness,mm,"calipers on the fin tip, at the end",2.00,,
-overhang,40 deg,underside,0-3,"0 smooth, 1 a little rough, 2 rough or drooped, 3 loose strands",0,,
+overhang,40 deg,underside,0-3,"0 smooth, 1 a little rough, 2 rough or drooped, 3 loose strands",0,0,"user photos 2026-11-19 (TAZ Workhorse SE, PLA); slicer and temps to confirm"
 overhang,45 deg,tip thickness,mm,"calipers on the fin tip, at the end",2.00,,
-overhang,45 deg,underside,0-3,"0 smooth, 1 a little rough, 2 rough or drooped, 3 loose strands",0,,
+overhang,45 deg,underside,0-3,"0 smooth, 1 a little rough, 2 rough or drooped, 3 loose strands",0,0,"user photos 2026-11-19 (TAZ Workhorse SE, PLA); slicer and temps to confirm"
 overhang,50 deg,tip thickness,mm,"calipers on the fin tip, at the end",2.00,,
-overhang,50 deg,underside,0-3,"0 smooth, 1 a little rough, 2 rough or drooped, 3 loose strands",0,,
+overhang,50 deg,underside,0-3,"0 smooth, 1 a little rough, 2 rough or drooped, 3 loose strands",0,0,"user photos 2026-11-19 (TAZ Workhorse SE, PLA); slicer and temps to confirm"
 overhang,55 deg,tip thickness,mm,"calipers on the fin tip, at the end",2.00,,
-overhang,55 deg,underside,0-3,"0 smooth, 1 a little rough, 2 rough or drooped, 3 loose strands",0,,
+overhang,55 deg,underside,0-3,"0 smooth, 1 a little rough, 2 rough or drooped, 3 loose strands",0,0,"user photos 2026-11-19 (TAZ Workhorse SE, PLA); slicer and temps to confirm"
 overhang,60 deg,tip thickness,mm,"calipers on the fin tip, at the end",2.00,,
-overhang,60 deg,underside,0-3,"0 smooth, 1 a little rough, 2 rough or drooped, 3 loose strands",1,,
+overhang,60 deg,underside,0-3,"0 smooth, 1 a little rough, 2 rough or drooped, 3 loose strands",1,0,"user photos 2026-11-19 (TAZ Workhorse SE, PLA); slicer and temps to confirm"
 overhang,65 deg,tip thickness,mm,"calipers on the fin tip, at the end",2.11,,
-overhang,65 deg,underside,0-3,"0 smooth, 1 a little rough, 2 rough or drooped, 3 loose strands",2,,
+overhang,65 deg,underside,0-3,"0 smooth, 1 a little rough, 2 rough or drooped, 3 loose strands",2,0,"user photos 2026-11-19 (TAZ Workhorse SE, PLA); slicer and temps to confirm"
 overhang,70 deg,tip thickness,mm,"calipers on the fin tip, at the end",2.14,,
-overhang,70 deg,underside,0-3,"0 smooth, 1 a little rough, 2 rough or drooped, 3 loose strands",1,,
+overhang,70 deg,underside,0-3,"0 smooth, 1 a little rough, 2 rough or drooped, 3 loose strands",1,1,"user photos 2026-11-19 (TAZ Workhorse SE, PLA); slicer and temps to confirm"
 overhang,75 deg,tip thickness,mm,"calipers on the fin tip, at the end",2.68,,
-overhang,75 deg,underside,0-3,"0 smooth, 1 a little rough, 2 rough or drooped, 3 loose strands",3,,
-overhang,80 deg,tip thickness,mm,"calipers on the fin tip, at the end",strands,,
-overhang,80 deg,underside,0-3,"0 smooth, 1 a little rough, 2 rough or drooped, 3 loose strands",3,,
+overhang,75 deg,underside,0-3,"0 smooth, 1 a little rough, 2 rough or drooped, 3 loose strands",3,3,"user photos 2026-11-19 (TAZ Workhorse SE, PLA); slicer and temps to confirm"
+overhang,80 deg,tip thickness,mm,"calipers on the fin tip, at the end",strands,strands,
+overhang,80 deg,underside,0-3,"0 smooth, 1 a little rough, 2 rough or drooped, 3 loose strands",3,3,"user photos 2026-11-19 (TAZ Workhorse SE, PLA); slicer and temps to confirm"
 bridge,10 mm,deck thickness at the middle,mm,calipers across the deck at the middle of the span,1.90,,
 bridge,10 mm,loose strands under the deck,yes/no,look under the deck,no,,
 bridge,20 mm,deck thickness at the middle,mm,calipers across the deck at the middle of the span,2.10,,
