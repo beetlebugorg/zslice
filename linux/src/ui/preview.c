@@ -54,7 +54,10 @@ typedef struct {
     GtkWidget *gaps, *gap_count;
     GtkWidget *check, *check_list; /* the printability check */
     /* The plates: a button for each, and "+". */
-    GtkWidget *plates, *plate_prev, *plate_name, *plate_next;
+    GtkWidget *plates, *plate_prev, *plate_name, *plate_next, *plate_all;
+    /* The labels of the plates of a row, at the top of the view (one for
+     * each plate with two plates or more). */
+    GPtrArray *plate_labels;
     /* The scrub bar: the nozzle through the top layer (0 its start, 1 the
      * layer done), and its time label. */
     GtkWidget *scrub, *scrub_label, *scrub_box;
@@ -368,8 +371,11 @@ static void place_measure(Preview *p) {
     zg_float_place(p->measure_label, px, py);
 }
 
+static void place_plate_labels(Preview *p);
+
 static void on_view_frame(gpointer data) {
     place_measure(data);
+    place_plate_labels(data);
 }
 
 /* The measure tape in the 2D view (the 3D view draws it in the core): a
@@ -765,17 +771,112 @@ static void make_plate_bar(Preview *p) {
     GtkWidget *remove = gtk_button_new_from_icon_name("window-close-symbolic");
     gtk_widget_set_tooltip_text(remove, "Remove this plate");
     gtk_actionable_set_action_name(GTK_ACTIONABLE(remove), "win.remove-plate");
+    p->plate_all = gtk_button_new_with_label("All");
+    gtk_widget_set_tooltip_text(p->plate_all, "Show all plates (Home). F shows the active plate.");
+    g_signal_connect_swapped(p->plate_all, "clicked", G_CALLBACK(zg_view3d_frame_all), p->view3d);
     GtkWidget *add = gtk_button_new_with_label("+ Plate");
     gtk_widget_set_tooltip_text(add, "A new plate with the settings of this plate: a print job of its own (send or export all plates from the menu)");
     g_signal_connect(add, "clicked", G_CALLBACK(on_plate_add), p);
     gtk_box_append(GTK_BOX(p->plates), p->plate_prev);
     gtk_box_append(GTK_BOX(p->plates), p->plate_name);
     gtk_box_append(GTK_BOX(p->plates), p->plate_next);
+    gtk_box_append(GTK_BOX(p->plates), p->plate_all);
     gtk_box_append(GTK_BOX(p->plates), add);
     gtk_box_append(GTK_BOX(p->plates), remove);
     /* Flat buttons in the dock, as on the web. */
     for (GtkWidget *c = gtk_widget_get_first_child(p->plates); c; c = gtk_widget_get_next_sibling(c))
         if (GTK_IS_BUTTON(c)) gtk_widget_add_css_class(c, "flat");
+}
+
+/* ---- the labels of the plates ----
+ *
+ * With two plates or more, a label for each plate in a row at the top of
+ * the view, over the middle of its plate, as on the web: they never cover
+ * a part. A label that covers one at its left moves right, and all stay
+ * in the view. A click makes its plate active. */
+
+static void on_plate_label(GtkButton *b, gpointer data) {
+    Preview *p = data;
+    zg_model_plate_select(p->model, (size_t)GPOINTER_TO_SIZE(g_object_get_data(G_OBJECT(b), "zg-plate")));
+}
+
+static void fill_plate_labels(Preview *p) {
+    if (!p->plate_labels || !p->root) return;
+    zs_set *set = zg_model_plate_set(p->model);
+    size_t n = zs_set_count(set), a = zs_set_active(set);
+    size_t want = n > 1 ? n : 0;
+    while (p->plate_labels->len > want) {
+        GtkWidget *l = g_ptr_array_steal_index(p->plate_labels, p->plate_labels->len - 1);
+        gtk_overlay_remove_overlay(GTK_OVERLAY(p->root), l);
+    }
+    while (p->plate_labels->len < want) {
+        GtkWidget *l = gtk_button_new_with_label("");
+        gtk_widget_add_css_class(l, "zg-plate-label");
+        gtk_widget_set_focus_on_click(l, FALSE);
+        gtk_widget_set_halign(l, GTK_ALIGN_START);
+        gtk_widget_set_valign(l, GTK_ALIGN_START);
+        g_object_set_data(G_OBJECT(l), "zg-plate", GSIZE_TO_POINTER(p->plate_labels->len));
+        g_signal_connect(l, "clicked", G_CALLBACK(on_plate_label), p);
+        gtk_overlay_add_overlay(GTK_OVERLAY(p->root), l);
+        g_ptr_array_add(p->plate_labels, l);
+    }
+    for (size_t i = 0; i < want; i++) {
+        GtkWidget *l = g_ptr_array_index(p->plate_labels, i);
+        zs_plate_info info;
+        if (zs_set_plate_info(set, i, &info) != ZS_OK) continue;
+        const char *status = info.status >= 0 && info.status <= ZS_PLATE_STATUS_CANNOT ? plate_status_text[info.status] : "";
+        char *text = g_strdup_printf("%zu. %s%s%s", i + 1, info.name[0] ? info.name : "Empty plate", status[0] ? " \u00b7 " : "", status);
+        gtk_button_set_label(GTK_BUTTON(l), text);
+        g_free(text);
+        if (i == a) gtk_widget_add_css_class(l, "active");
+        else gtk_widget_remove_css_class(l, "active");
+    }
+    place_plate_labels(p);
+}
+
+static int cmp_label_x(const void *a, const void *b) {
+    double x = ((const double *)a)[0], y = ((const double *)b)[0];
+    return x < y ? -1 : x > y;
+}
+
+static void place_plate_labels(Preview *p) {
+    if (!p->plate_labels || p->plate_labels->len == 0) return;
+    gboolean shown = strcmp(gtk_stack_get_visible_child_name(GTK_STACK(p->stack)), "3d") == 0;
+    zs_set *set = zg_model_plate_set(p->model);
+    int W = gtk_widget_get_width(p->root);
+    guint n = p->plate_labels->len;
+    /* x (the left edge), the width, and the label, for each label that
+     * shows. */
+    typedef double Row[3];
+    Row *row = g_new(Row, n);
+    guint k = 0;
+    for (guint i = 0; i < n; i++) {
+        GtkWidget *l = g_ptr_array_index(p->plate_labels, i);
+        zs_plate_info info;
+        double ox, oy, px, py;
+        gboolean at = shown && zs_set_plate_info(set, i, &info) == ZS_OK && zg_view3d_plate_origin(p->view3d, i, &ox, &oy) &&
+                      zg_view3d_pixel_of(p->view3d, ox + (info.bed_x > 0 ? info.bed_x : 220) / 2, oy + (info.bed_y > 0 ? info.bed_y : 220) / 2, 0, &px, &py) &&
+                      px > -40 && px < W + 40;
+        gtk_widget_set_visible(l, at);
+        if (!at) continue;
+        int w = 0;
+        gtk_widget_measure(l, GTK_ORIENTATION_HORIZONTAL, -1, NULL, &w, NULL, NULL);
+        row[k][0] = px - w / 2.0;
+        row[k][1] = w;
+        row[k][2] = i;
+        k++;
+    }
+    qsort(row, k, sizeof row[0], cmp_label_x);
+    double edge = 70; /* right of the tool strip */
+    for (guint j = 0; j < k; j++) {
+        double x = MAX(row[j][0], edge);
+        x = MIN(x, W - row[j][1] - 8);
+        GtkWidget *l = g_ptr_array_index(p->plate_labels, (guint)row[j][2]);
+        double ox, oy;
+        if (!zg_float_get(l, &ox, &oy) || fabs(ox - x) > 0.5 || fabs(oy - 8) > 0.5) zg_float_place(l, x, 8);
+        edge = x + row[j][1] + 6;
+    }
+    g_free(row);
 }
 
 /* The text of the bar, and a tooltip with the name and the status of
@@ -788,6 +889,7 @@ static void fill_plates(Preview *p) {
     gtk_label_set_text(GTK_LABEL(p->plate_name), text);
     gtk_widget_set_sensitive(p->plate_prev, a > 0);
     gtk_widget_set_sensitive(p->plate_next, a + 1 < n);
+    gtk_widget_set_visible(p->plate_all, n > 1);
     GString *tip = g_string_new(NULL);
     for (size_t i = 0; i < n; i++) {
         zs_plate_info info;
@@ -798,6 +900,7 @@ static void fill_plates(Preview *p) {
     }
     gtk_widget_set_tooltip_text(p->plate_name, tip->str);
     g_string_free(tip, TRUE);
+    fill_plate_labels(p);
 }
 
 static void on_plates_changed(ZgModel *model, gpointer data) {
@@ -956,6 +1059,7 @@ static void preview_free(gpointer data) {
     /* The 3D view can be gone already (its tick callback with it). */
     if (p->tick && GTK_IS_WIDGET(p->view3d)) gtk_widget_remove_tick_callback(p->view3d, p->tick);
     if (p->keys_timer) g_source_remove(p->keys_timer);
+    if (p->plate_labels) g_ptr_array_free(p->plate_labels, TRUE);
     if (p->note_timer) g_source_remove(p->note_timer);
     /* The view bar is in the header bar, and can live on: its signals
      * stop here. The preview keeps a reference to it. */
@@ -1333,8 +1437,12 @@ static gboolean on_preview_key(GtkEventControllerKey *c, guint key, guint code, 
         plate_step(p, key == GDK_KEY_bracketleft ? -1 : 1);
         return TRUE;
     }
-    /* F shows the active plate, and Home the start view: the view
-     * draws the active plate only, so both reset the camera. */
+    /* Home shows all plates (with a row of plates, as the web does), and
+     * F the active plate. */
+    if (key == GDK_KEY_Home && zs_set_count(zg_model_plate_set(p->model)) > 1) {
+        zg_view3d_frame_all(p->view3d);
+        return TRUE;
+    }
     if (key == GDK_KEY_Home || ((key == GDK_KEY_f || key == GDK_KEY_F) && !(mods & GDK_SHIFT_MASK))) {
         zg_view3d_reset(p->view3d);
         return TRUE;
@@ -1973,6 +2081,8 @@ GtkWidget *zg_preview_new(ZgModel *model) {
     /* The layer slider keeps over the dock (on_bottom_position). */
     g_signal_connect(box, "get-child-position", G_CALLBACK(on_bottom_position), p);
     p->root = box;
+    p->plate_labels = g_ptr_array_new();
+    g_signal_connect_swapped(stack, "notify::visible-child", G_CALLBACK(place_plate_labels), p);
     gtk_overlay_add_overlay(GTK_OVERLAY(box), strip);
     gtk_overlay_add_overlay(GTK_OVERLAY(box), p->slider_box);
 

@@ -20,10 +20,13 @@ GtkWidget *zg_view3d_new(ZgModel *model);
  * ZSLICE_BENCH. */
 extern gint64 zg_start_us;
 
-/* Moves the camera smoothly back to the start view (the Home key). The
- * view draws the active plate of the set only: the Vulkan backend has no
- * draws of the other plates (see zs_view_set_plates). */
+/* Moves the camera smoothly back to the start view (the Home key). */
 void zg_view3d_reset(GtkWidget *view);
+/* The origin of the bed of plate i in the world of the view (mm), for a
+ * label over the plate. */
+gboolean zg_view3d_plate_origin(GtkWidget *view, size_t i, double *x, double *y);
+/* Moves the camera smoothly to show all plates of the row (All). */
+void zg_view3d_frame_all(GtkWidget *view);
 /* TRUE while the view moves on its own: the camera animates, a part
  * falls, or the hand holds a part. */
 gboolean zg_view3d_moving(GtkWidget *view);

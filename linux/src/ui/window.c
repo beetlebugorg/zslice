@@ -791,7 +791,11 @@ static void on_core_event(ZgModel *model, int event, double progress, int status
     Window *w = data;
     if (event == ZS_EVENT_PROGRESS) {
         gtk_progress_bar_set_fraction(GTK_PROGRESS_BAR(w->progress), progress);
-        if (zs_app_state(zg_model_core(model)) == ZS_STATE_SLICING) return;
+        /* A progress event changes the state only at the start of a slice
+         * (the print card goes stale once). Late progress events of a slice
+         * that ended update nothing: a load of many plates queued about a
+         * hundred of them. */
+        if (zs_app_state(zg_model_core(model)) != ZS_STATE_SLICING || gtk_widget_has_css_class(w->sum_box, "zg-stale")) return;
     }
     if (event == ZS_EVENT_FAILED) {
         g_free(w->last_error);
@@ -1882,6 +1886,33 @@ static void on_undo_changed(ZgModel *model, gpointer data) {
     if (r) g_simple_action_set_enabled(G_SIMPLE_ACTION(r), zg_model_can_redo(model));
 }
 
+/* For tests: ZSLICE_PLATES=file;file;... adds a plate for each file and
+ * loads the file on it, one each 1.5 s, then goes back to plate 1. */
+static gboolean plates_step(gpointer data) {
+    Window *w = data;
+    static guint k = 0;
+    char **files = g_strsplit(g_getenv("ZSLICE_PLATES"), ";", -1);
+    guint n = g_strv_length(files);
+    if (k < n) {
+        char *bytes = NULL;
+        gsize len = 0;
+        if (g_file_get_contents(files[k], &bytes, &len, NULL)) {
+            char *name = g_path_get_basename(files[k]);
+            zg_model_plate_add(w->model);
+            zg_model_load(w->model, name, bytes, len, NULL);
+            g_free(name);
+        }
+        g_free(bytes);
+        k++;
+        g_strfreev(files);
+        return G_SOURCE_CONTINUE;
+    }
+    g_strfreev(files);
+    zg_model_plate_select(w->model, 0);
+    g_message("plates: %zu plates", zs_set_count(zg_model_plate_set(w->model)));
+    return G_SOURCE_REMOVE;
+}
+
 /* For development: ZSLICE_PLATE_TEST=file adds a plate, puts the model
  * file on it, adds an empty plate and removes it, goes to the plate before
  * and back with the keys of the plate bar, and removes the plate with the
@@ -2111,6 +2142,7 @@ GtkWindow *zg_window_new(GtkApplication *app, ZgModel *model) {
     on_undo_changed(model, w);
     if (g_getenv("ZSLICE_UNDO_TEST")) g_timeout_add(1000, undo_test_step, w);
     if (g_getenv("ZSLICE_PLATE_TEST")) g_timeout_add(1000, plate_test_step, w);
+    if (g_getenv("ZSLICE_PLATES")) g_timeout_add(1500, plates_step, w);
     if (g_getenv("ZSLICE_CURA_COMPARE")) g_timeout_add(1500, open_cura_compare_test, w);
     if (g_getenv("ZSLICE_PREFS")) g_timeout_add(1500, open_prefs_test, w);
 

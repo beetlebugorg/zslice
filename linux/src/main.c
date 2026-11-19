@@ -54,6 +54,10 @@ static const char *ZG_CSS =
     /* The controls that float over the preview. */
     ".zg-measure-readout { padding: 4px 12px; border-radius: 8px; }\n"
     ".zg-note-view { padding: 6px 14px; border-radius: 8px; }"
+    /* The labels of the plates of a row, at the top of the view. */
+    ".zg-plate-label { padding: 2px 10px; min-height: 0; border-radius: 999px; font-size: 0.85em;"
+    "  background: alpha(@theme_bg_color, 0.85); }"
+    ".zg-plate-label.active { background: @theme_selected_bg_color; color: @theme_selected_fg_color; }"
     ".zg-float { background: alpha(@theme_bg_color, 0.88); border-radius: 10px; padding: 4px;"
     "  box-shadow: 0 1px 4px alpha(black, 0.25); }"
     /* The layer slider on the 3D view: a thin track, white knobs with a

@@ -155,7 +155,11 @@ static gboolean draw_now(gpointer data) {
         int rc = zs_view_draw(v->view);
         if (v->bench == 2 && v->bench_frames < (int)G_N_ELEMENTS(v->bench_draw))
             v->bench_draw[v->bench_frames] = (g_get_monotonic_time() - t0) / 1000.0;
-        if (v->bench == 1 && rc == ZS_OK && zs_app_state(zg_model_core(v->model)) == ZS_STATE_DONE) bench_start(v);
+        /* ZSLICE_BENCH_WAIT=ms: the orbit starts that long after the start
+         * (for example after ZSLICE_PLATES and Home). */
+        const char *wait = g_getenv("ZSLICE_BENCH_WAIT");
+        gboolean waited = !wait || g_get_monotonic_time() - zg_start_us > g_ascii_strtoll(wait, NULL, 10) * 1000;
+        if (v->bench == 1 && rc == ZS_OK && waited && zs_app_state(zg_model_core(v->model)) == ZS_STATE_DONE) bench_start(v);
         /* No free image now (the compositor holds them, for example while a
          * popup covers the window): draw again a moment later. */
         if (rc == ZS_BUSY) {
@@ -360,6 +364,8 @@ static void load_data(View3d *v) {
         return;
     }
     zg_bed_model_update(v->view, zg_model_core(v->model));
+    /* The other plates of the set, in a row beside the active plate. */
+    zs_set_view_sync(zg_model_plate_set(v->model), v->view);
     zs_view_set_layer_range(v->view, v->layer_lo, v->layer);
     gint64 sel = zg_model_selected(v->model);
     zs_view_highlight(v->view, sel < 0 ? (size_t)-1 : (size_t)sel);
@@ -1089,6 +1095,15 @@ static void on_part_selected(ZgModel *model, gint64 part, gpointer data) {
     show_part_box(data);
 }
 
+/* A change of the plates of the set (ZS_EVENT_PLATES: a plate added, gone,
+ * or sliced in the background): the row of the other plates again. */
+static void on_plates_sync(ZgModel *model, gpointer data) {
+    View3d *v = data;
+    if (!v->view) return;
+    zs_set_view_sync(zg_model_plate_set(model), v->view);
+    queue_frame(v);
+}
+
 static void on_plate_changed(ZgModel *model, gpointer data) {
     show_part_box(data);
 }
@@ -1554,6 +1569,18 @@ static void on_reset_view(GSimpleAction *a, GVariant *p, gpointer data) {
     start_animation(v);
 }
 
+gboolean zg_view3d_plate_origin(GtkWidget *view, size_t i, double *x, double *y) {
+    View3d *v = g_object_get_data(G_OBJECT(view), "zg-view3d");
+    return v && v->view && zs_view_plate_origin(v->view, i, x, y) == ZS_OK;
+}
+
+void zg_view3d_frame_all(GtkWidget *view) {
+    View3d *v = g_object_get_data(G_OBJECT(view), "zg-view3d");
+    if (!v || !v->view) return;
+    zs_view_frame_plate(v->view, (size_t)-1);
+    start_animation(v);
+}
+
 void zg_view3d_reset(GtkWidget *view) {
     on_reset_view(NULL, NULL, g_object_get_data(G_OBJECT(view), "zg-view3d"));
 }
@@ -1895,6 +1922,7 @@ GtkWidget *zg_view3d_new(ZgModel *model) {
     g_signal_connect(model, "measure-changed", G_CALLBACK(on_measure_changed), v);
     g_signal_connect(model, "segment-changed", G_CALLBACK(on_segment), v);
     g_signal_connect(model, "plate-changed", G_CALLBACK(on_plate_changed), v);
+    g_signal_connect(model, "plates-changed", G_CALLBACK(on_plates_sync), v);
     g_signal_connect(model, "focus-changed", G_CALLBACK(on_focus_changed), v);
     g_signal_connect(model, "fall", G_CALLBACK(on_fall), v);
     return v->area;

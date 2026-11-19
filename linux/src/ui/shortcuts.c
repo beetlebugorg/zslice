@@ -37,7 +37,7 @@ static const Group SHORTCUTS[] = {
         {"]", "The next plate: make it active"},
         {"[", "The plate before: make it active"},
         {"F", "Show the active plate"},
-        {"Home", "The start view (the view shows the active plate only)"},
+        {"Home", "All plates (with one plate: the start view)"},
         {NULL, NULL}}},
     {"Tools", {
         {"V", "Select: a click selects a line"},
