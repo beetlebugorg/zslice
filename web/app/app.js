@@ -1163,10 +1163,15 @@ $("quality-menu").onclick = () => {
   openMenu($("quality-menu"), items);
 };
 
-// "Close the project", in a menu when a project is open.
-function closeProjectItem() {
+// The project items of a menu: the page of the open project and "Close
+// the project", or "Open a project…".
+function projectItems() {
   const name = project.openName();
-  return name ? [{ label: `Close the project ${name}`, action: () => closeProject() }] : [];
+  if (!name) return [{ label: "Open a project…", action: () => showTab("project") }];
+  return [
+    { label: `The project ${name}…`, action: () => showTab("project") },
+    { label: `Close the project ${name}`, action: () => closeProject() },
+  ];
 }
 
 // Closes the project: its plates stay on the view as the user's plates.
@@ -1183,8 +1188,7 @@ $("main-menu").onclick = () => openMenu($("main-menu"), [
   { label: "Export G-code…", disabled: app.state !== "done", action: exportGcode },
   { label: "Remove this plate", action: () => removePlate(app.activePlate) },
   { sep: true },
-  { label: "Open a project…", action: () => showTab("project") },
-  ...closeProjectItem(),
+  ...projectItems(),
   { label: "Printers", action: () => showFarm(true) },
   { label: "History", action: () => toggleHistory(true) },
   { sep: true },
@@ -2387,6 +2391,7 @@ function onWorkerEvent(m) {
       // session keeps the set (onPlates).
       if (app.plates.length <= 1) {
         clearTimeout(keepTimer);
+        keepTimer = 0;
         clearPlate();
       }
       if (m.scene) {
@@ -2626,13 +2631,21 @@ $("plate-remove").onclick = () => removePlate(app.activePlate);
 // state of the page itself (the page, the panel, the scroll, the focus)
 // is in localStorage (captureUi), written when it changes and when the
 // page closes.
+// The first change starts the timer, and later changes do not restart
+// it: the plates of a project slice one after the other, and each slice
+// is a change. So the session is at most 1.5 s old.
 let keepTimer = 0;
 function keepSoon() {
-  clearTimeout(keepTimer);
+  if (keepTimer) return;
   keepTimer = setTimeout(async () => {
+    keepTimer = 0;
     try {
+      // The tag and the map of the plates at the time of the write (the
+      // write waits for a slice, and a plate can go meanwhile).
+      const tag = project.sessionTag();
+      const map = project.setMap ? [...project.setMap] : null;
       const r = await client.call("sessionWrite", { camera: cameraNow() });
-      if (r.bytes) await saveSession(r.bytes, project.sessionTag());
+      if (r.bytes) await saveSession(r.bytes, tag, map);
     } catch {
       // The next change tries again.
     }
@@ -2944,8 +2957,7 @@ function addModels() {
 $("open").onclick = () => openMenu($("open"), [
   { label: "Open a model…", action: () => $("file").click() },
   { label: "Add models to this plate…", disabled: app.state === "empty", action: () => addModels() },
-  { label: "Open a project…", action: () => showTab("project") },
-  ...closeProjectItem(),
+  ...projectItems(),
   { label: "Save project…", disabled: app.state === "empty", action: () => saveProject() },
 ]);
 // + adds models to the active plate; Open replaces the active plate.
@@ -2998,7 +3010,7 @@ const search = new SearchOverlay({
     { label: "2D layer view", run: () => showPage("2d") },
     { label: "3D view", run: () => showPage("3d") },
     { label: "Manage printers…", run: () => managePrinters() },
-    { label: "Open a project", hint: "printdeck.yml from GitHub or a folder", run: () => showTab("project") },
+    { label: project.openName() ? "The project" : "Open a project", hint: project.openName() ?? "printdeck.yml from GitHub or a folder", run: () => showTab("project") },
     ...(project.openName() ? [{ label: "Close the project", hint: `${project.openName()}: its plates stay`, run: () => closeProject() }] : []),
     { label: "History", hint: "the changes, undo one change", run: () => showTab("history") },
     { label: "Keyboard shortcuts", keys: "?", run: () => shortcuts.show() },
@@ -3101,7 +3113,17 @@ if (!modelUrl) {
       $("empty").hidden = true;
       app.state = "ready";
       restored = true;
-      if (project.willRestore()) project.adopt();
+      if (project.willRestore()) {
+        // A plate removed after the last write of the session: the map
+        // of the project has it no more (project.js keeps it at once).
+        const want = project.state?.setMap;
+        if (Array.isArray(want) && Array.isArray(s.map)) {
+          for (let k = s.map.length - 1; k >= 0; k--) {
+            if (!want.includes(s.map[k])) applySettings(await client.call("plateRemove", { index: k }));
+          }
+        }
+        project.adopt();
+      }
       const name = app.plates[r.index]?.name || app.plates[0]?.name || "";
       if (name) {
         app.modelName = name;

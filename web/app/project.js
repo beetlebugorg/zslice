@@ -271,7 +271,16 @@ export class ProjectPage {
     await this.planned;
     if (!this.plan || this.plan.error || this.plan.plates.length === 0) return;
     const i = Math.max(0, this.plan.plates.findIndex((p) => plateKey(this.plan, p) === this.state.active));
+    // The plates that the user removed stay away (the map is kept at
+    // once; the session can be older).
+    const keep = Array.isArray(this.state.setMap) ? [...this.state.setMap] : null;
     await this.openPlate(i);
+    if (!keep || !this.setMap) return;
+    for (let k = this.setMap.length - 1; k >= 0; k--) {
+      if (keep.includes(this.setMap[k])) continue;
+      this.ctx.applySettings(await this.ctx.client.call("plateRemove", { index: k }));
+      this.removed(k);
+    }
   }
 
   async use(src) {

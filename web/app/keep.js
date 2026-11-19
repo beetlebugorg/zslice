@@ -64,9 +64,10 @@ export async function clearPlate() {
 // scenes, and the camera, as one file. A browser that refuses storage
 // keeps nothing.
 // `tag`: the project of the plates (project.js sessionTag), or null.
-export async function saveSession(bytes, tag = null) {
+// `map`: the plan plate of each plate of the session (project.js setMap).
+export async function saveSession(bytes, tag = null, map = null) {
   try {
-    await run("readwrite", (s) => s.put({ bytes, time: Date.now(), tag }, "session"));
+    await run("readwrite", (s) => s.put({ bytes, time: Date.now(), tag, map }, "session"));
   } catch {
     // A private window: no session.
   }
