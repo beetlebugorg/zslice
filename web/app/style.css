@@ -940,3 +940,7 @@ button.destructive { background: #c01c28; color: #fff; }
   .headerbar .hb-start { min-width: 0; }
   .headerbar .hb-end { justify-self: end; margin-left: 0; }
 }
+
+/* The line card: two short lines of numbers over the settings. */
+.line-card .lc-stats { display: block; }
+.line-card .lc-line { font-size: 0.86em; line-height: 1.5; overflow-wrap: anywhere; }

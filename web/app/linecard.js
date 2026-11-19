@@ -33,7 +33,7 @@ const SLOW = [
   "Slow: the layer is short, so it prints slower to cool.",
   "Slow: the segments are short, so the head does not reach full speed.",
 ];
-const MAX_SETTINGS = 3;
+const MAX_SETTINGS = 5;
 // The space around the clicked line that the card keeps clear, CSS px.
 const CLEAR = 24;
 // The kinds of the check (checks.zig) that the card shows as a warning:
@@ -167,9 +167,11 @@ export class LineCard {
       return;
     }
     if (!this.want) return;
-    // A new card for new settings rows: another feature, other settings,
-    // or other picks (with their reasons).
-    const sig = `${info.title}\n${info.settings}\n${(info.picks ?? []).map((p) => `${p.name}:${p.why}`).join("\n")}\n${info.slowReason}`;
+    // A new card for new settings rows: another feature, or other
+    // settings. The reasons of the rows change in place: a new card after
+    // each slice took the focus from the editor that the user types in
+    // (the arrow keys then stopped).
+    const sig = `${info.title}\n${info.settings}\n${this.pickNames(info).join("\n")}`;
     if (this.node && sig === this.signature) {
       this.update(info);
       this.place();
@@ -206,7 +208,8 @@ export class LineCard {
 
     // The settings that matter for this line, with the reason of each.
     // The picks of the core (zs_app_inspect_picks), else the rules here.
-    const picks = info.picks?.length ? info.picks.filter((p) => this.ctx.browser.byName.has(p.name)).slice(0, MAX_SETTINGS) : contextSettings(info, this.ctx.browser.byName);
+    const picks = this.picks(info);
+    this.whys = new Map();
     if (picks.length > 0) {
       const box = el("div", "lc-settings");
       for (const { name, why } of picks) {
@@ -214,7 +217,10 @@ export class LineCard {
         const row = el("div", "lc-row");
         const label = el("button", "flat lc-label");
         label.append(el("span", "lc-name", s.label));
-        if (why) label.append(el("span", "lc-why", why));
+        const whyNode = el("span", "lc-why", why ?? "");
+        whyNode.hidden = !why;
+        label.append(whyNode);
+        this.whys.set(name, whyNode);
         label.title = `${s.doc}\n\nClick to show this setting in the panel.`;
         label.onclick = () => this.ctx.openSetting?.(name);
         const ed = this.ctx.browser.makeEditor(s, "card");
@@ -265,25 +271,40 @@ export class LineCard {
     this.place();
   }
 
+  // The settings rows of a line: the picks of the core, else the rules
+  // here.
+  picks(info) {
+    return info.picks?.length ? info.picks.filter((p) => this.ctx.browser.byName.has(p.name)).slice(0, MAX_SETTINGS) : contextSettings(info, this.ctx.browser.byName);
+  }
+
+  pickNames(info) {
+    return this.picks(info).map((p) => p.name);
+  }
+
   update(info) {
     this.title.textContent = info.title;
+    for (const { name, why } of this.picks(info)) {
+      const n = this.whys?.get(name);
+      if (!n) continue;
+      n.textContent = why ?? "";
+      n.hidden = !why;
+    }
     this.where.textContent = `Layer ${info.layer + 1} · z ${info.z.toFixed(2)} mm`;
     const slow = info.slowReason !== 0;
     const flowUse = info.maxFlow > 0 ? Math.round((info.flow / info.maxFlow) * 100) : 0;
-    // [name, value, a note after the value, a warning].
-    const stats = [
-      ["Speed", `${info.speed.toFixed(0)} mm/s`, slow ? `of ${info.plannedSpeed.toFixed(0)} planned` : "", slow],
-      ["Flow", `${info.flow.toFixed(1)} mm³/s`, info.maxFlow > 0 ? `${flowUse} % of max` : "", flowUse >= 95],
-      ["Line", `${info.lineWidth.toFixed(2)} × ${info.height.toFixed(2)} mm`, "wide × high", false],
-      ["Layer", layerTimeText(info.layerTime), `fan ${Math.round((info.fan ?? 0) * 100)} %`, info.slowReason === 1],
-    ];
-    this.stats.replaceChildren(
-      ...stats.flatMap(([name, v, c, warn]) => {
-        const d = el("div", "lc-v" + (warn ? " warning" : ""), v);
-        if (c) d.append(el("span", "lc-c", ` ${c}`));
-        return [el("div", "lc-k", name), d];
-      }),
-    );
+    // Two short lines: the speed and the flow, then the line and its
+    // layer. The room goes to the settings. [text, a warning].
+    const part = (text, warn) => el("span", "lc-v" + (warn ? " warning" : ""), text);
+    const dot = () => el("span", "lc-c", " · ");
+    const speed = slow ? `${info.speed.toFixed(0)} of ${info.plannedSpeed.toFixed(0)} mm/s` : `${info.speed.toFixed(0)} mm/s`;
+    const flow = `${info.flow.toFixed(1)} mm³/s` + (info.maxFlow > 0 ? ` (${flowUse} %)` : "");
+    const line1 = el("div", "lc-line");
+    line1.append(part(speed, slow), dot(), part(flow, flowUse >= 95));
+    line1.title = "The speed of the line (and the planned speed when it is slower), and its flow (and its share of the most that the hot end melts)";
+    const line2 = el("div", "lc-line");
+    line2.append(part(`${info.lineWidth.toFixed(2)} × ${info.height.toFixed(2)} mm`, false), dot(), part(`layer ${layerTimeText(info.layerTime)}`, info.slowReason === 1), dot(), part(`fan ${Math.round((info.fan ?? 0) * 100)} %`, false));
+    line2.title = "The width and the height of the line, the time of its layer, and the fan";
+    this.stats.replaceChildren(line1, line2);
     const notes = lineNotes(info).map((t) => el("div", "lc-note", t));
     // What a support line holds up.
     if (info.holds) {
