@@ -1398,7 +1398,13 @@ $("filament-menu").onclick = () => {
 async function useLoadedFilaments(pr) {
   const r = await loadedFilaments(pr);
   if (!r.ok) return r;
-  const want = r.list.slice(0, 16);
+  // zslice prints with one nozzle (next_hotend is 0 in the change
+  // G-code). A spool that feeds the second nozzle of a printer with two
+  // (the external spool of an X2D: "nozzle": "aux") stays out, or the
+  // change would ask for it in the main nozzle.
+  const aux = r.list.filter((f) => f.nozzle === "aux");
+  const want = r.list.filter((f) => f.nozzle !== "aux").slice(0, 16);
+  if (want.length === 0) return { ok: false, message: `The spools of ${pr.name} feed its second nozzle only. zslice prints with the main nozzle: load a spool in the AMS.` };
   let have = filaments().length;
   while (have < want.length) {
     const a = await client.call("filamentAdd", {});
@@ -1423,7 +1429,8 @@ async function useLoadedFilaments(pr) {
     }
   }
   const words = want.map((f) => `${f.slot || "roll"} ${f.material}`).join(", ");
-  return { ok: true, message: `${want.length} ${want.length === 1 ? "filament" : "filaments"} from ${pr.name}: ${words}.` };
+  const skipped = aux.length ? ` Not used: ${aux.map((f) => `${f.slot || "spool"} ${f.material}`).join(", ")} (the second nozzle; zslice prints with the main nozzle).` : "";
+  return { ok: true, message: `${want.length} ${want.length === 1 ? "filament" : "filaments"} from ${pr.name}: ${words}.${skipped}` };
 }
 
 // The filament button: a dot in the color of each filament of the plate,
