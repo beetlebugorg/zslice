@@ -1711,6 +1711,14 @@ export fn zs_app_grab_move(a: ?*App, x: f64, y: f64, z: f64) void {
     app.grabMove(.{ x, y, z });
 }
 
+/// Turns the part in the hand by `degrees` about the axis (ax, ay, az) of
+/// the bed (the hand holds its orientation). Shift in a shell snaps the
+/// steps.
+export fn zs_app_grab_turn(a: ?*App, ax: f64, ay: f64, az: f64, degrees: f64) void {
+    const app = a orelse return;
+    app.grabTurn(.{ ax, ay, az }, degrees);
+}
+
 /// The hand lets go: the part keeps its speed, falls, and rests; the steps
 /// of zs_app_fall_step end it on the plate.
 export fn zs_app_grab_end(a: ?*App) void {

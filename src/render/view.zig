@@ -2973,6 +2973,10 @@ pub const View = struct {
             mark_count = v.mark_layer_end.items[@min(top, v.mark_layer_end.items.len - 1)];
         }
         mark_count -|= mark_skip;
+        // A part that moves in the view only (a turn, a fall, the hand):
+        // its marks stay at the old place, so no mark shows until the new
+        // slice.
+        if (v.preview != null) mark_count = 0;
         // The other plates, and far from the camera the light beads of
         // this plate under its top layers (see plates.zig).
         v.plate_frames.clearRetainingCapacity();

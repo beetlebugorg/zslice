@@ -759,7 +759,13 @@ ptrdiff_t zs_app_fall_pending(zs_app *app);
  * start, as for a fall. */
 int zs_app_grab_start(zs_app *app, size_t part, double x, double y, double z);
 void zs_app_grab_move(zs_app *app, double x, double y, double z);
+void zs_app_grab_turn(zs_app *app, double ax, double ay, double az, double degrees);
 void zs_app_grab_end(zs_app *app);
+/* The hand holds the orientation of the part it took: zs_app_grab_turn
+ * turns it about an axis of the bed. On release with support off, the part
+ * falls and rests; with support on, it keeps the orientation that the
+ * hand gave it, goes down on the bed, and support holds it. A part thrown
+ * past the edge of the bed stops at the edge. */
 int zs_app_part_stands(zs_app *app, size_t i);
 /* "This side on the bed": the side of the part nearest to the bed point
  * (x, y, z), for example a picked line, goes down. */

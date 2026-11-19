@@ -681,8 +681,34 @@ async function grabStart(px, py) {
   return true;
 }
 
+// The wheel while the hand holds a part: up or down (mm for each pixel of
+// the wheel), from the bed to 200 mm.
+function grabLift(deltaY) {
+  if (!hand.on) return;
+  hand.h = Math.max(1, Math.min(200, hand.h - deltaY * 0.1));
+  if (hand.px !== undefined) grabMove(hand.px, hand.py);
+}
+
+// A turn of the part in the hand (Alt and a drag): `yaw` degrees about the
+// vertical, and `tilt` degrees about the horizontal axis of the screen.
+function grabTurn(yaw, tilt) {
+  if (!hand.on) return;
+  if (yaw) client.call("grabTurn", { axis: [0, 0, 1], degrees: yaw });
+  if (tilt && hand.px !== undefined) {
+    // The horizontal axis of the screen, on the bed.
+    const c = view.w.cell;
+    if (!view.x.zs_view_plane_point(view.v, hand.px, hand.py, hand.h, c, c + 8)) return;
+    const a = [view.w.f64(c), view.w.f64(c + 8)];
+    if (!view.x.zs_view_plane_point(view.v, hand.px + 50, hand.py, hand.h, c, c + 8)) return;
+    const b = [view.w.f64(c), view.w.f64(c + 8)];
+    client.call("grabTurn", { axis: [b[0] - a[0], b[1] - a[1], 0], degrees: tilt });
+  }
+}
+
 function grabMove(px, py) {
   if (!hand.on) return;
+  hand.px = px;
+  hand.py = py;
   const c = view.w.cell;
   if (!view.x.zs_view_plane_point(view.v, px, py, hand.h, c, c + 8)) return;
   client.call("grabMove", { x: view.w.f64(c), y: view.w.f64(c + 8), z: hand.h });
@@ -1479,10 +1505,9 @@ function onPreviewKey(e) {
   let layerDir = 0;
   let jump = 1;
   switch (e.key) {
-    case "ArrowLeft": case "h": dir = -1; break;
-    case "ArrowRight": case "l": dir = 1; break;
-    case "H": dir = -1; break;
-    case "L": dir = 1; break;
+    // The arrows step along the line (H is the Grab tool).
+    case "ArrowLeft": dir = -1; break;
+    case "ArrowRight": dir = 1; break;
     case "ArrowUp": case "k": case "K": layerDir = 1; break;
     case "ArrowDown": case "j": case "J": layerDir = -1; break;
     case "PageUp": layerDir = 1; jump = 10; break;
@@ -1811,7 +1836,7 @@ var supportTool = new SupportTool({ // var: tools can call it before this line
 
 // ---- the mouse, the touch screen, and the wheel over the view ----
 
-attachViewInput(canvas, { app, view, view2d, tools, supportTool, requestFrame, pickAt, hitAt, select, showContextMenu, activatePlate, grab: { start: grabStart, move: grabMove, end: grabEnd } });
+attachViewInput(canvas, { app, view, view2d, tools, supportTool, requestFrame, pickAt, hitAt, select, showContextMenu, activatePlate, grab: { start: grabStart, move: grabMove, end: grabEnd, lift: grabLift, turn: grabTurn, holding: () => hand.on } });
 
 // ---- gaps ----
 
@@ -3170,7 +3195,7 @@ window.zslice = {
   turnRings,
   supportTool,
   app, view, view2d, layers, browser, client, gl, inspector, gaps, history, undoRedo, tools, store, managePrinters, openPrinterSettings, loadProfile, setSetting, pickAt, topLayerPoint, openCheck, frameTimes,
-  select, showPage, showTab, hitAt, showContextMenu, step, bench, benchPick, settleSelected, grabStart, grabMove, grabEnd,
+  select, showPage, showTab, hitAt, showContextMenu, step, bench, benchPick, settleSelected, grabStart, grabMove, grabEnd, grabTurn, grabLift,
   get frameCount() { return frameCount; },
   get pickMs() { return pickMs; },
   requestFrame,

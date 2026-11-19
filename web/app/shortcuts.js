@@ -39,7 +39,7 @@ export const SHORTCUTS = [
     keys: [
       ["V", "Select: a click selects a line"],
       ["M", "Move: a drag moves a part, the wheel turns it 15°"],
-      ["H", "Grab: take a part at a point and move it as a real object; let go, and it falls and rests on the plate"],
+      ["H", "Grab: take a part and move it as a real object; the wheel lifts it, Alt and a drag turn it (Shift: 15° steps); let go, and it rests on the plate"],
       ["T", "Measure: two clicks measure between two points"],
       ["S", "Support (S again opens or closes its pane): click points on the part to draw a support area, and drag the points of an area"],
       ["Enter (Support tool)", "Close the area that you draw (also: click its first point)"],

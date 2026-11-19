@@ -223,6 +223,9 @@ fn directions(a: Allocator) Allocator.Error![]V {
 pub const Grab = struct {
     local: V,
     target: V,
+    /// The orientation that the hand holds: a part in the hand does not
+    /// swing, and turns when the hand turns (turnHand).
+    rot: Q = .{ 1, 0, 0, 0 },
     /// The spring: its frequency (Hz) and damping ratio.
     hz: f64 = 15,
     damping: f64 = 0.9,
@@ -310,7 +313,19 @@ pub const Body = struct {
     /// `target`.
     pub fn grabAt(b: *Body, at: V, target: V) void {
         const r = quatMat(b.rot);
-        b.grab = .{ .local = mulMV(transpose(r), sub(at, b.pos)), .target = target };
+        b.grab = .{ .local = mulMV(transpose(r), sub(at, b.pos)), .target = target, .rot = b.rot };
+        b.wake();
+    }
+
+    /// Turns the orientation that the hand holds by `deg` degrees about
+    /// the axis (in the bed frame).
+    pub fn turnHand(b: *Body, axis: V, deg: f64) void {
+        const g = &(b.grab orelse return);
+        const l = len(axis);
+        if (!(l > 0)) return;
+        const h = std.math.degreesToRadians(deg) / 2;
+        const k = @sin(h) / l;
+        g.rot = quatNorm(quatMul(.{ @cos(h), axis[0] * k, axis[1] * k, axis[2] * k }, g.rot));
         b.wake();
     }
 
@@ -374,7 +389,16 @@ pub const Body = struct {
             // The warm start: the impulses of the last step at this point.
             b.applyImpulse(iw, arm, .{ acc[1], acc[2], acc[0] });
         }
+        // The hand holds the orientation: in each pass the turn speed is the
+        // one that closes the turn to the held orientation in 1/30 s.
+        var hold_ang: ?V = null;
+        if (b.grab) |g| {
+            var e = quatMul(g.rot, .{ b.rot[0], -b.rot[1], -b.rot[2], -b.rot[3] });
+            if (e[0] < 0) e = .{ -e[0], -e[1], -e[2], -e[3] };
+            hold_ang = .{ 2 * e[1] * 30, 2 * e[2] * 30, 2 * e[3] * 30 };
+        }
         for (0..iterations) |_| {
+            if (hold_ang) |w| b.ang = w;
             if (b.grab != null) {
                 const cdot = add(b.vel, cross(b.ang, g_arm));
                 var imp = mulMV(g_mass, scale(add(add(cdot, g_bias), scale(g_acc, g_gamma)), -1));
@@ -415,12 +439,8 @@ pub const Body = struct {
                 }
             }
         }
-        // A hand damps the swing of a part that it holds.
-        if (b.grab != null) {
-            const k = @exp(-4 * dt);
-            b.ang = scale(b.ang, k);
-            b.vel = scale(b.vel, k);
-        }
+        // The hand damps the motion of a part that it holds.
+        if (b.grab != null) b.vel = scale(b.vel, @exp(-4 * dt));
         // The motion.
         b.pos = add(b.pos, scale(b.vel, dt));
         const w = b.ang;
@@ -586,11 +606,16 @@ test "rigid: a grab lifts a box to the hand, and on release it falls and rests" 
     while (t < 2) : (t += step_dt) b.step(step_dt);
     const r = quatMat(b.rot);
     const held = add(b.pos, mulMV(r, b.grab.?.local));
-    // A spring of 15 Hz stretches g / omega² = 1.1 mm under the weight.
-    try testing.expect(dist3(held, .{ 60, 20, 40 }) < 1.5);
-    // It hangs from a corner: the center of mass is under the hand.
-    try testing.expect(b.pos[2] < 40);
-    try testing.expect(@abs(b.pos[0] - 60) < 2 and @abs(b.pos[1] - 20) < 2);
+    // The spring stretches under the weight (g / omega² = 1.1 mm), and
+    // the hand holds the box level by its corner.
+    try testing.expect(dist3(held, .{ 60, 20, 40 }) < 3);
+    try testing.expect(b.down()[2] < -0.98);
+    // The hand turns it 90 degrees about z: it follows.
+    b.turnHand(.{ 0, 0, 1 }, 90);
+    t = 0;
+    while (t < 1) : (t += step_dt) b.step(step_dt);
+    const ax = mulMV(quatMat(b.rot), .{ 1, 0, 0 });
+    try testing.expect(ax[1] > 0.97);
     // Let go: it falls, and rests on a face.
     b.grab = null;
     _ = settle(&b, 6);

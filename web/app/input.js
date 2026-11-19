@@ -131,10 +131,25 @@ export function attachViewInput(canvas, ctx) {
       return;
     }
     if (drag.hand) {
-      if (drag.hand === "on") {
-        const r = canvas.getBoundingClientRect();
-        grab.move((e.clientX - r.left) * dpr(), (e.clientY - r.top) * dpr());
+      if (drag.hand !== "on") return;
+      // Alt and a drag: turn the part in the hand (0.5 degree a pixel).
+      // Shift snaps the turn to steps of 15 degrees.
+      if (e.altKey) {
+        const t = (drag.turn ??= { yaw: 0, tilt: 0, sentYaw: 0, sentTilt: 0 });
+        t.yaw += dx * 0.5;
+        t.tilt += dy * 0.5;
+        const snap = (v) => (e.shiftKey ? Math.round(v / 15) * 15 : v);
+        const yaw = snap(t.yaw) - t.sentYaw;
+        const tilt = snap(t.tilt) - t.sentTilt;
+        if (yaw || tilt) {
+          grab.turn(yaw, tilt);
+          t.sentYaw += yaw;
+          t.sentTilt += tilt;
+        }
+        return;
       }
+      const r = canvas.getBoundingClientRect();
+      grab.move((e.clientX - r.left) * dpr(), (e.clientY - r.top) * dpr());
       return;
     }
     if (drag.part === "pending") return;
@@ -238,6 +253,11 @@ export function attachViewInput(canvas, ctx) {
   canvas.addEventListener("wheel", (e) => {
     e.preventDefault();
     const r = canvas.getBoundingClientRect();
+    // The hand holds a part: the wheel lifts it or lowers it.
+    if (grab?.holding()) {
+      grab.lift(e.deltaMode === 1 ? e.deltaY * 33 : e.deltaY);
+      return;
+    }
     // The move tool and a mouse wheel: turn the selected part 15° a step.
     if (tools.tool === "move" && tools.part && !e.ctrlKey && !fromTrackpad(e)) {
       tools.turn(e.deltaY);

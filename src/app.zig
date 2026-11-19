@@ -814,6 +814,16 @@ pub const App = struct {
         const f = &(app.fall orelse return);
         f.body.grab = null;
         f.body.wake();
+        // With support on, the part keeps the orientation of the hand: it
+        // goes down on the bed at once, and support holds it.
+        if (app.settings.project.support != .off) f.body.asleep = true;
+    }
+
+    /// Turns the part in the hand by `deg` degrees about the axis (x, y,
+    /// z) of the bed: the hand holds its orientation, and turns it.
+    pub fn grabTurn(app: *App, axis: [3]f64, deg: f64) void {
+        const f = &(app.fall orelse return);
+        f.body.turnHand(axis, deg);
     }
 
     /// The body of part i as it is on the bed, as the fall.
@@ -864,23 +874,22 @@ pub const App = struct {
         app.fall = null;
     }
 
-    /// The part rests: it goes down flush on the face that the body rests
-    /// on, at the place where it came to rest.
+    /// The part rests: its new orientation is the turn of the body, with
+    /// support off flush on the face that holds it (the geometric settle
+    /// of the last bit), at the place where it came to rest, on the bed.
+    /// With support on, it keeps the orientation that the hand gave it,
+    /// and support holds it.
     fn fallFinish(app: *App) Allocator.Error!void {
         const f = app.fall.?;
         defer app.fallCancel();
         const i = f.part;
         if (i >= app.plate.count()) return;
+        try app.plate.applyTurn(app.gpa, i, zs.rigid.quatMat(f.body.rot));
         const part = &app.plate.parts.items[i];
-        // The down side in the frame of the bed at the start, then in the
-        // frame of the mesh (the bed turned back by the turn about z).
-        const d = f.body.down();
-        const a = -std.math.degreesToRadians(part.rot);
-        const dm = [3]f64{ @cos(a) * d[0] - @sin(a) * d[1], @sin(a) * d[0] + @cos(a) * d[1], d[2] };
-        try app.plate.putDown(app.gpa, i, dm);
-        // Flush on the exact face: the geometric settle of the last bit.
-        const st = try zs.physics.settle(app.gpa, &part.mesh);
-        if (st.rolls > 0) try app.plate.putDown(app.gpa, i, zs.physics.downOf(st));
+        if (app.settings.project.support == .off) {
+            const st = try zs.physics.settle(app.gpa, &part.mesh);
+            if (st.rolls > 0) try app.plate.putDown(app.gpa, i, zs.physics.downOf(st));
+        }
         // The center of mass where the body came to rest.
         const c = zs.rigid.massOf(&part.mesh).center;
         const t = part.transform();
@@ -888,6 +897,7 @@ pub const App = struct {
         const cy = c[0] * t[1] + c[1] * t[4] + c[2] * t[7] + t[10];
         part.x += f.body.pos[0] - cx;
         part.y += f.body.pos[1] - cy;
+        app.plate.clampOnBed(i, app.bedSize(), app.partGap());
         app.plate.keepOnBed(i, app.bedSize(), app.partGap());
         try app.plateChanged();
     }
@@ -3663,6 +3673,9 @@ test "app: the hand carries a part, lets go, and it rests on the plate" {
     }
     try testing.expect(app.fall == null);
     try testing.expect(frames < 60 * 9);
+    // It rests near the hand: the hand moved the corner 40 mm to -x.
+    const q = app.plate.parts.items[0];
+    try testing.expect(q.x < p.x - 10);
     const st = try zs.physics.settle(gpa, &app.plate.parts.items[0].mesh);
     try testing.expectEqual(@as(usize, 0), st.rolls);
 }

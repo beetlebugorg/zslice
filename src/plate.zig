@@ -531,6 +531,35 @@ pub const Plate = struct {
         try self.repose(gpa, i);
     }
 
+    /// Turns part i by the rotation r (rows) in the frame of the bed: the
+    /// turn of a body of the physics. The turn about z of the part (`rot`)
+    /// stays; r goes into the pose, seen from the mesh.
+    pub fn applyTurn(self: *Plate, gpa: Allocator, i: usize, r: M3) Allocator.Error!void {
+        if (i >= self.parts.items.len) return;
+        const p = &self.parts.items[i];
+        const a = std.math.degreesToRadians(p.rot);
+        const c = @cos(a);
+        const s = @sin(a);
+        const rz: M3 = .{ .{ c, -s, 0 }, .{ s, c, 0 }, .{ 0, 0, 1 } };
+        const rzt: M3 = .{ .{ c, s, 0 }, .{ -s, c, 0 }, .{ 0, 0, 1 } };
+        p.pose = mulM(mulM(mulM(rzt, r), rz), p.pose);
+        try self.repose(gpa, i);
+    }
+
+    /// Moves part i the least way that puts its footprint on the bed, with
+    /// `gap` to the edge: a part thrown past the edge stops at the edge.
+    pub fn clampOnBed(self: *Plate, i: usize, bed: [2]f64, gap: f64) void {
+        if (i >= self.parts.items.len) return;
+        const p = &self.parts.items[i];
+        const m = @min(gap, 2);
+        for (0..2) |k| {
+            const lo = p.half[k] + m;
+            const hi = bed[k] - p.half[k] - m;
+            const v = if (k == 0) &p.x else &p.y;
+            v.* = if (lo > hi) bed[k] / 2 else std.math.clamp(v.*, lo, hi);
+        }
+    }
+
     /// Puts the side of part i whose outward normal is `n` (in the
     /// coordinates of its mesh now) on the bed.
     pub fn putDown(self: *Plate, gpa: Allocator, i: usize, n: [3]f64) Allocator.Error!void {

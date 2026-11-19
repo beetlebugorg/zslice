@@ -806,6 +806,11 @@ const ops = {
     return {};
   },
 
+  grabTurn({ axis, degrees }) {
+    core.w.x.zs_app_grab_turn(core.app, axis[0], axis[1], axis[2], degrees);
+    return {};
+  },
+
   grabEnd() {
     core.w.x.zs_app_grab_end(core.app);
     return {};
