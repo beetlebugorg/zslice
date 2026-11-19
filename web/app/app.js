@@ -2016,7 +2016,6 @@ document.addEventListener("keydown", (e) => {
   if (e.key === "Escape" && !$("sum-pop").hidden) showSumPop(false);
 });
 
-let lastWarn = "";
 function updateBadge() {
   const badge = $("sum-badge");
   const warn = !$("sum-warn").hidden;
@@ -2024,10 +2023,8 @@ function updateBadge() {
   badge.classList.toggle("warn", warn);
   badge.hidden = !warn && tips === 0;
   badge.textContent = warn ? "Check" : tips === 1 ? "1 refinement" : `${tips} refinements`;
-  // A new warning opens the details once, so it is seen.
-  const text = warn ? $("sum-warn").textContent : "";
-  if (text && text !== lastWarn) showSumPop(true);
-  lastWarn = text;
+  // A warning does not open the details: they cover the part. The badge
+  // in the warning color is the sign, and a click opens them.
 }
 
 function updateSummary() {
