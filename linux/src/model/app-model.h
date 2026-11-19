@@ -142,6 +142,9 @@ void zg_model_marks_clear(ZgModel *self);
  * point, zg_model_hold), the step ends at the release. add returns the
  * index of the new area, or -1. */
 gint64 zg_model_support_add(ZgModel *self, int kind, const double *pts, size_t n, double z_lo, double z_hi);
+/* After an edit of the support trees (zs_app_support_tree_*): a slice
+ * (held during a drag), a step of the history, and the fall check. */
+void zg_model_support_trees_changed(ZgModel *self);
 gboolean zg_model_support_set(ZgModel *self, size_t i, const double *pts, size_t n);
 gboolean zg_model_support_set_kind(ZgModel *self, size_t i, int kind);
 gboolean zg_model_support_remove(ZgModel *self, size_t i);

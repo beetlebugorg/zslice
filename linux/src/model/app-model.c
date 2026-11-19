@@ -1055,6 +1055,14 @@ static void support_changed(ZgModel *self) {
     if (!self->held) undo_commit(self);
 }
 
+/* An edit of the support trees in the core: a slice (held during a
+ * drag), one step of the history, and a part that lost what held it
+ * falls. */
+void zg_model_support_trees_changed(ZgModel *self) {
+    support_changed(self);
+    fall_check(self);
+}
+
 gint64 zg_model_support_add(ZgModel *self, int kind, const double *pts, size_t n, double z_lo, double z_hi) {
     ptrdiff_t i = zs_app_support_area_add(self->core, kind, pts, n, z_lo, z_hi);
     if (i < 0) return -1;
