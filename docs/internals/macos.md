@@ -172,7 +172,8 @@ Like the GTK shell, the app reads some environment variables for development and
 - `ZSLICE_PRINTER_LABEL=text` sets the label of the printer menu, and `ZSLICE_WIDTH=points` the width of the window (0: its narrowest), for tests of the toolbar.
 - `ZSLICE_SUPPORT_OFF_AFTER=s` turns support off s seconds after the start, and logs the part 2.5 s later: a part that support held must fall.
 - `ZSLICE_LAYER_LOG=1` logs the layer count and the times and path ends of the top three layers after each slice.
-- `ZSLICE_KEYS=chars` types each key in the view and logs the tool after it.
+- `ZSLICE_KEYS=chars` types each key in the view and logs the tool, the layers shown, the range card, and the selected line after it. An upper case letter has Shift, and `^x` is Control-x.
+- `ZSLICE_SEARCH_ENTER=name=value` (with `ZSLICE_SEARCH=text`) presses Return on the first result, types the value in its field, and presses Return again. It logs where the focus is after each step, and the value of the setting.
 - `ZSLICE_GRAB=1` takes the part at the center with the Grab tool, drags it 200 points to the right, lets go, and logs its place 3 s later. `ZSLICE_CARD_LOG=1` logs the screen box of a clicked line.
 - `ZSLICE_TURN=deg` turns the selected part about X, lets it settle, and logs the note. `ZSLICE_SUPPORT=1` turns support on first. Select the part with `ZSLICE_TOOL=move ZSLICE_CLICKS=center`.
 - `ZSLICE_SESSION=dir` keeps the session in that folder, also with `ZSLICE_FRESH` (which turns the session off without it). `ZSLICE_QUIT_AFTER=s` quits as Command-Q does, after s seconds. With `ZSLICE_TIMING=1`, the app logs the session reads and writes, and the time of the first frame with beads.

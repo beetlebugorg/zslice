@@ -250,12 +250,7 @@ extension Workspace {
             var path = s.path, seg = s.seg
             if zs_view_step(v, &path, &seg, dir, shift ? 1 : 0) != 0 { follow(path, max(seg, 0)) }
         }
-        func layer(_ dl: Int) {
-            let l = zs_view_path_layer(v, s.path) + dl
-            guard l >= 0 && l < layerCount else { return }
-            let path = zs_view_nearest_on_layer(v, s.path, l)
-            if path != noPath { follow(path, 0) }
-        }
+        func layer(_ dl: Int) { lineLayer(dl) }
         switch event.specialKey {
         case .leftArrow?: step(-1)
         case .rightArrow?: step(1)
@@ -265,6 +260,10 @@ extension Workspace {
             switch key {
             case "k": layer(1)
             case "j": layer(-1)
+            // Shift+H and Shift+L: the line before or after (as Shift with
+            // the arrows). H alone is the Grab tool.
+            case "H" where shift: step(-1)
+            case "L" where shift: step(1)
             case "c": setRange(lo: lo, hi: zs_view_path_layer(v, s.path))
             // Esc: the card first (closeCard keeps a line of the pane), then the selection.
             case "\u{1b}": if cardOpen { closeCard() } else { clearSelection() }
@@ -272,6 +271,16 @@ extension Workspace {
             }
         }
         return true
+    }
+
+    /// The selected line goes to the nearest line `dl` layers up (down for
+    /// less than 0), within the print.
+    func lineLayer(_ dl: Int) {
+        guard let s = selection, let v = canvas.view else { return }
+        let l = min(max(zs_view_path_layer(v, s.path) + dl, 0), layerCount - 1)
+        guard l != zs_view_path_layer(v, s.path) else { return }
+        let path = zs_view_nearest_on_layer(v, s.path, l)
+        if path != noPath { follow(path, 0) }
     }
 
     /// Selects a line from a key, and the layer slider follows it.

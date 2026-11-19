@@ -372,6 +372,10 @@ struct SettingEditor: View {
     let info: SettingInfo
     let entry: SettingEntry
     var compact = false
+    /// The search: the name of the setting whose field takes the focus
+    /// (Enter on its row), and the return of the focus after Enter or Esc.
+    var focusRequest: Binding<String?>?
+    var onDone: (() -> Void)?
 
     var body: some View {
         switch info.kind {
@@ -394,7 +398,7 @@ struct SettingEditor: View {
         case .text where info.multiline:
             MultilineEditor(model: model, info: info, entry: entry)
         default:
-            ValueField(model: model, info: info, entry: entry)
+            ValueField(model: model, info: info, entry: entry, focusRequest: focusRequest, onDone: onDone)
         }
     }
 }
@@ -404,6 +408,8 @@ struct ValueField: View {
     let model: SliceModel
     let info: SettingInfo
     let entry: SettingEntry
+    var focusRequest: Binding<String?>?
+    var onDone: (() -> Void)?
     @State private var text = ""
     @State private var error: String?
     @State private var typing: Task<Void, Never>?
@@ -419,12 +425,16 @@ struct ValueField: View {
                 .focused($focused)
                 .foregroundStyle(error != nil ? Color.red : (unusual ? Color.orange : Color.primary))
                 .help(error ?? (unusual ? "\(info.doc)\n\nThe value is out of the usual range." : info.doc))
-                .onSubmit { send() }
+                .onSubmit {
+                    send()
+                    onDone?()
+                }
                 .onKeyPress(.upArrow) { stepBy(1) }
                 .onKeyPress(.downArrow) { stepBy(-1) }
                 .onKeyPress(.escape) {
                     text = ValueText.display(info, entry.value)
                     focused = false
+                    onDone?()
                     return .handled
                 }
                 .onChange(of: text) {
@@ -447,6 +457,13 @@ struct ValueField: View {
             }
         }
         .onAppear { text = ValueText.display(info, entry.value) }
+        // The search asks for the focus: the field selects its text, so a
+        // number typed replaces it.
+        .onChange(of: focusRequest?.wrappedValue) {
+            guard focusRequest?.wrappedValue == info.name else { return }
+            focused = true
+            focusRequest?.wrappedValue = nil
+        }
         .onChange(of: entry) {
             if !focused {
                 text = ValueText.display(info, entry.value)

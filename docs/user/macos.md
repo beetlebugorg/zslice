@@ -33,6 +33,11 @@ The keys of the other apps work in the 3D view. A key with Ctrl in the other app
 | New plate | Option-Command-N |
 | Add models to the plate | Shift-Command-I |
 | Open a project folder | Shift-Command-O |
+| A page of layers up or down (5 % of the print), as in vi | Control-F, Control-B (Command-F is the search) |
+| Select layers: the range grows up or down, and its card opens | Shift-K, Shift-J |
+| The line before or after | Shift-H, Shift-L |
+
+In the search, Return on a number or a text goes into its field with the value selected: type a new one, or step it with Up and Down. Return sends it and goes back to the search, for the next Up or Down. Esc goes back with no change.
 
 A left or right drag (a two-finger press and drag on a trackpad) orbits the view, as in Cura. A middle drag, or Shift and a drag, pans. Command and a click selects a part, Shift and a click adds a part to the selection or takes it out, Command and a drag moves it, and Command and the wheel turns it. Control and a click opens the context menu, as a right click does.
 

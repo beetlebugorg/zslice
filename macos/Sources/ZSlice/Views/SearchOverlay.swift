@@ -14,7 +14,10 @@
 //! The search does not block the view: a drag in the view turns it, the
 //! wheel zooms, and a click picks a line, while the search stays open.
 //! Up and Down go through the results, Return runs an action or turns a
-//! switch, and Esc closes. A drag of the top bar moves the box; it opens at
+//! switch, and Esc closes. Return on a number or a text goes into its
+//! field with the text selected: a typed number replaces it, and Up and
+//! Down step it. Return there sends the value and goes back to the
+//! search, for the next Up or Down; Esc goes back with no change. A drag of the top bar moves the box; it opens at
 //! the same place next time, and a double click on the bar puts it back.
 //!
 //! SPDX-License-Identifier: AGPL-3.0-or-later
@@ -40,6 +43,8 @@ struct SearchOverlay: View {
     @AppStorage("search.dy", store: prefs) private var placeY = 0.0
     static let width: CGFloat = 400
     @FocusState private var fieldFocus: Bool
+    /// The setting whose field takes the focus next (Return on its row).
+    @State private var editing: String?
 
     private static let maxSettings = 14
     private static let maxActions = 4
@@ -120,7 +125,9 @@ struct SearchOverlay: View {
                             .buttonStyle(.plain)
                         }
                         ForEach(Array(found.enumerated()), id: \.element.id) { i, info in
-                            SearchRow(workspace: workspace, info: info, selected: acts.count + i == index)
+                            SearchRow(workspace: workspace, info: info, selected: acts.count + i == index, editing: $editing) {
+                                fieldFocus = true
+                            }
                         }
                         if found.isEmpty && acts.isEmpty {
                             Text("No setting or action matches.")
@@ -186,6 +193,8 @@ struct SearchOverlay: View {
             let info = found[index - acts.count]
             if info.kind == .boolean {
                 model.set(info.name, model.entry(info.name).value == "true" ? "false" : "true")
+            } else if info.kind != .choice, !info.multiline {
+                editing = info.name
             }
         }
     }
@@ -202,6 +211,9 @@ private struct SearchRow: View {
     let workspace: Workspace
     let info: SettingInfo
     let selected: Bool
+    @Binding var editing: String?
+    /// The focus goes back to the search field.
+    let back: () -> Void
 
     var body: some View {
         let model = workspace.model
@@ -216,6 +228,8 @@ private struct SearchRow: View {
                         .foregroundStyle(eye ? Color.accentColor : .secondary)
                 }
                 .buttonStyle(.borderless)
+                // Tab goes to the value, not to the eye.
+                .focusable(false)
                 .help("Show only the lines that this setting changes")
                 VStack(alignment: .leading, spacing: 1) {
                     Text(info.label)
@@ -226,7 +240,7 @@ private struct SearchRow: View {
                 }
                 .help(info.doc)
                 Spacer(minLength: 8)
-                SettingEditor(model: model, info: info, entry: entry, compact: true)
+                SettingEditor(model: model, info: info, entry: entry, compact: true, focusRequest: $editing, onDone: back)
             }
             if info.hasSlider {
                 QuickSlider(model: model, info: info, entry: entry)

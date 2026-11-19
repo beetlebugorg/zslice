@@ -1,7 +1,8 @@
 //! A range of layers (web/app/rangecard.js, linux/src/ui/range-card.c): a
 //! left drag of the Select tool that starts on a line lights the layers
 //! from the layer of that line to the layer under the pointer
-//! (zs_view_light_layers), and the other beads are ghosts. The release
+//! (zs_view_light_layers) in the color of a selection, and the other
+//! layers show as they are. The release
 //! opens the card of the range (RangeCard.swift): settings that can change
 //! for some layers, with editors in the scope of those layers (overrides
 //! from the top of the first layer to the top of the last).
@@ -11,6 +12,10 @@
 //! shown, up through the point of the press, so two projections for each
 //! move. In a view from above (a short line) it picks the line under the
 //! pointer.
+//!
+//! Shift+K and Shift+J (as in vi) make a range from the keys: it starts at
+//! the layer of the selected line (or the top layer), grows a layer up or
+//! down each press, and its card opens.
 //!
 //! A press with no move is a click. Esc, a click elsewhere, another tool,
 //! or the close button ends the range.
@@ -120,7 +125,30 @@ extension Workspace {
         canvas.requestFrame()
     }
 
+    /// Shift+K and Shift+J: the range of the keys grows a layer up or
+    /// down, and its card opens. True if it used the key.
+    func rangeKey(_ event: NSEvent) -> Bool {
+        guard event.modifierFlags.intersection([.command, .control, .option]).isEmpty, event.modifierFlags.contains(.shift),
+              page == .threeD, layerCount > 0, let v = canvas.view else { return false }
+        let up: Int
+        switch event.charactersIgnoringModifiers {
+        case "K": up = 1
+        case "J": up = -1
+        default: return false
+        }
+        if rangeCard == nil || keyRange == nil {
+            let base = selection.map { Int(zs_view_path_layer(v, $0.path)) } ?? hi
+            keyRange = (base, base)
+        }
+        guard var r = keyRange else { return false }
+        r.b = min(layerCount - 1, max(0, r.b + up))
+        keyRange = r
+        openRangeCard(min(r.a, r.b), max(r.a, r.b))
+        return true
+    }
+
     func closeRangeCard() {
+        keyRange = nil
         guard rangeCard != nil else { return }
         rangeCard = nil
         if case .layers = model.scope { model.scope = .print }

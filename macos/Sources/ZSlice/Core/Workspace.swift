@@ -131,6 +131,9 @@ final class Workspace {
     /// (LayerRange.swift).
     @ObservationIgnored var rangeDrag: RangeDrag?
     var rangeCard: (lo: Int, hi: Int)?
+    /// The range of Shift+K and Shift+J: the first layer, and the layer
+    /// that moves.
+    @ObservationIgnored var keyRange: (a: Int, b: Int)?
     @ObservationIgnored var partDrag: PartDrag?
     @ObservationIgnored var tapeDrag: Int?
     /// A drag of a ring of the Turn tool: its axis, and the degrees sent.
@@ -220,6 +223,13 @@ final class Workspace {
         if ProcessInfo.processInfo.environment["ZSLICE_PANEL"] != nil { showSettings = true }
         // ZSLICE_SEARCH=text opens the search with that text (the field reads it).
         if ProcessInfo.processInfo.environment["ZSLICE_SEARCH"] != nil { searchOpen = true }
+        // ZSLICE_SEARCH_ENTER=name=value: Return on the first result, the
+        // value typed in its field, and Return again; it logs where the
+        // focus is after each step, and the value of the setting.
+        if let spec = ProcessInfo.processInfo.environment["ZSLICE_SEARCH_ENTER"], let eq = spec.firstIndex(of: "=") {
+            let name = String(spec[..<eq]), value = String(spec[spec.index(after: eq)...])
+            DispatchQueue.main.asyncAfter(deadline: .now() + 4) { [weak self] in self?.runSearchEnterTest(name, value) }
+        }
         // ZSLICE_DISCOVER=1 searches the network and logs the printers.
         if ProcessInfo.processInfo.environment["ZSLICE_DISCOVER"] != nil {
             let d = Discovery()
@@ -723,17 +733,29 @@ final class Workspace {
         // and logs the note; ZSLICE_SUPPORT=1 turns support on first.
         // ZSLICE_KEYS=chars: each key in turn, as typed in the view, and the
         // tool after it (the tool keys must win over the keys of a line).
+        // An upper case letter has Shift, and ^x is Control-x. The log has
+        // the layers shown and the range card after each key.
         if let keys = env["ZSLICE_KEYS"] {
             var log: [String] = []
+            var control = false
             for ch in keys {
+                if ch == "^" {
+                    control = true
+                    continue
+                }
                 let s = String(ch)
-                if let e = NSEvent.keyEvent(with: .keyDown, location: .zero, modifierFlags: [], timestamp: 0, windowNumber: 0, context: nil,
+                var flags: NSEvent.ModifierFlags = []
+                if control { flags.insert(.control) }
+                if ch.isUppercase { flags.insert(.shift) }
+                control = false
+                if let e = NSEvent.keyEvent(with: .keyDown, location: .zero, modifierFlags: flags, timestamp: 0, windowNumber: 0, context: nil,
                                             characters: s, charactersIgnoringModifiers: s, isARepeat: false, keyCode: 0) {
                     _ = sliceViewKey(e)
                 }
-                log.append("\(s)→\(tool.rawValue)")
+                let range = rangeCard.map { " range \($0.lo)-\($0.hi)" } ?? ""
+                log.append("\(flags.contains(.control) ? "^" : "")\(s)→\(tool.rawValue) \(lo)-\(hi)\(range) line \(selection.map { String($0.path) } ?? "-")")
             }
-            NSLog("zslice keys: selection %d, %@", selection == nil ? 0 : 1, log.joined(separator: " "))
+            NSLog("zslice keys: selection %d, %@", selection == nil ? 0 : 1, log.joined(separator: " | "))
         }
         // ZSLICE_GRAB=1: the Grab tool, a press on the part at the center,
         // a drag of 200 points to the right in 0.5 s, and a release; the
@@ -1783,6 +1805,15 @@ extension Workspace: SliceViewDelegate {
             clearTape()
             return true
         }
+        // Ctrl+F and Ctrl+B (as in vi): a page of layers up or down, 5 % of
+        // the layers of the print (at least 2). A selected line goes too.
+        if event.modifierFlags.intersection([.command, .control, .option, .shift]) == .control,
+           let c = event.charactersIgnoringModifiers, c == "f" || c == "b" {
+            let n = max(2, Int((Double(layerCount) * 0.05).rounded())) * (c == "f" ? 1 : -1)
+            if selection != nil { lineLayer(n) } else { moveTop(n) }
+            return true
+        }
+        if rangeKey(event) { return true }
         if selectionKey(event) { return true }
         // The keys of the tools (with no modifier).
         if event.modifierFlags.intersection([.command, .control, .option, .shift]).isEmpty,
@@ -1801,8 +1832,11 @@ extension Workspace: SliceViewDelegate {
         case .rightArrow?: scrubStep(0.02)
         default:
             switch event.charactersIgnoringModifiers {
-            case "k": shift ? moveBottom(1) : moveTop(1)
-            case "j": shift ? moveBottom(-1) : moveTop(-1)
+            case "k": moveTop(1)
+            case "j": moveTop(-1)
+            // Shift+H and Shift+L with no line: the nozzle back or on.
+            case "H" where shift: scrubStep(-0.02)
+            case "L" where shift: scrubStep(0.02)
             case "C" where shift: setRange(lo: 0, hi: layerCount - 1)
             case "n" where !shift: showSettings.toggle()
             // Esc with nothing else to close: the settings pane.
@@ -1821,3 +1855,32 @@ extension Workspace: SliceViewDelegate {
 
     private func scrubStep(_ df: Double) { scrub(to: min(1, max(0, scrubFraction + df))) }
 }
+
+extension Workspace {
+    /// ZSLICE_SEARCH_ENTER (see the hook).
+    func runSearchEnterTest(_ name: String, _ value: String) {
+        guard let w = canvas.window else { return }
+        func returnKey() {
+            if let e = NSEvent.keyEvent(with: .keyDown, location: .zero, modifierFlags: [], timestamp: 0, windowNumber: w.windowNumber, context: nil,
+                                        characters: "\r", charactersIgnoringModifiers: "\r", isARepeat: false, keyCode: 36) {
+                w.sendEvent(e)
+            }
+        }
+        func focus() -> String {
+            guard let t = w.firstResponder as? NSTextView else { return "none" }
+            return "\"\(t.string)\" selected \(t.selectedRange().length)"
+        }
+        NSLog("zslice search enter: start, focus %@", focus())
+        returnKey()
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
+            NSLog("zslice search enter: after Return, focus %@", focus())
+            (w.firstResponder as? NSTextView)?.insertText(value, replacementRange: (w.firstResponder as? NSTextView)?.selectedRange() ?? NSRange())
+            returnKey()
+            DispatchQueue.main.asyncAfter(deadline: .now() + 1) { [weak self] in
+                guard let self else { return }
+                NSLog("zslice search enter: after the value, focus %@, %@ = %@", focus(), name, self.model.entry(name).value)
+            }
+        }
+    }
+}
+
