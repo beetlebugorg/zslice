@@ -74,6 +74,8 @@ final class Workspace {
     var treeFoot: SIMD2<Double>?
     @ObservationIgnored var treeDrag: TreeDrag?
     @ObservationIgnored var treeTimer: Task<Void, Never>?
+    /// The thinned dots of the trees, for a key (SupportTrees.swift).
+    @ObservationIgnored var treeDots: (key: TreeDotsKey, pts: [Double])?
     /// The Cut popover of the part card is open.
     var cutOpen = false
     private(set) var lo = 0

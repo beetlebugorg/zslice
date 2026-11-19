@@ -27,6 +27,14 @@ struct SupportTree {
     var edited: Bool
 }
 
+/// What the thinned dots of the trees depend on, besides the trees.
+struct TreeDotsKey: Equatable {
+    var camera: [Float]
+    var size: CGSize
+    var part: Int
+    var branch: Int
+}
+
 /// A drag of a tree element: a dot, the ring of the selected node, or a
 /// segment (the branch).
 struct TreeDrag {
@@ -94,6 +102,7 @@ extension Workspace {
         let n = zs_app_support_tree_nodes(core, part, nil, 0)
         if n < 0 { return }
         if n == 0 {
+            if supportTrees[part] != nil { treeDots = nil }
             supportTrees[part] = nil
             return
         }
@@ -102,6 +111,7 @@ extension Workspace {
         if got < 0 { return }
         nodes.removeLast(max(0, n - got))
         supportTrees[part] = SupportTree(nodes: nodes, edited: zs_app_support_tree_edited(core, part) == 1)
+        treeDots = nil
     }
 
     /// The trees of each part, after a slice or an undo. Only while the
@@ -177,18 +187,28 @@ extension Workspace {
             var r = ring(s.node, 24)
             zs_view_support_add(v, &r, 24, kind, Self.bare | Self.closed | Self.selected)
         }
-        var seen = Set<Int64>()
-        var pts: [Double] = []
-        for (part, t) in supportTrees {
-            for (k, nd) in t.nodes.enumerated() {
-                if part == treeSelected?.part, inBranch.contains(UInt32(k)) { continue }
-                guard let q = canvas.viewPoint(x: nd.x, y: nd.y, z: nd.z) else { continue }
-                let key = Int64(floor(q.x / Self.dotCell)) * 65536 + Int64(floor(q.y / Self.dotCell))
-                guard seen.insert(key).inserted else { continue }
-                pts += [nd.x, nd.y, nd.z]
+        // The dots of the other branches stay the same while a branch moves:
+        // they are found again only for new trees, a new selection, or a
+        // new camera (4560 nodes on deck_body).
+        var cam = [Float](repeating: 0, count: 8)
+        zs_view_get_camera(v, &cam)
+        let key = TreeDotsKey(camera: cam, size: canvas.bounds.size, part: treeSelected?.part ?? -1,
+                              branch: treeSelection.map { Int($0.node.branch) } ?? -1)
+        if treeDots?.key != key {
+            var seen = Set<Int64>()
+            var pts: [Double] = []
+            for (part, t) in supportTrees {
+                for (k, nd) in t.nodes.enumerated() {
+                    if part == treeSelected?.part, inBranch.contains(UInt32(k)) { continue }
+                    guard let q = canvas.viewPoint(x: nd.x, y: nd.y, z: nd.z) else { continue }
+                    let cell = Int64(floor(q.x / Self.dotCell)) * 65536 + Int64(floor(q.y / Self.dotCell))
+                    guard seen.insert(cell).inserted else { continue }
+                    pts += [nd.x, nd.y, nd.z]
+                }
             }
+            treeDots = (key, pts)
         }
-        dots(pts, Self.treeKind, 0)
+        dots(treeDots?.pts ?? [], Self.treeKind, 0)
         if treeAdding, let f = treeFoot {
             var p = [f.x, f.y, 0]
             zs_view_support_add(v, &p, 1, Self.treeKind, Self.bare | Self.points | Self.selected)
