@@ -507,7 +507,7 @@ export class SupportTool {
     } else if (!this.adding && !(this.tsel && this.nodeOk(this.tsel))) {
       const n = this.draft.length;
       const hint = n === 0
-        ? "Point at an overhang: it lights up, and a click puts support under it. Alt and a click draw an area point by point (Shift: no snap). Click an outline to select its area."
+        ? "Click a lit overhang to support it. Alt+click: draw an area."
         : n < 3
           ? `${n} point${n === 1 ? "" : "s"}. Click more points (at least 3). Backspace removes the last one; Esc stops.`
           : `${n} points. Click the first point, or press Enter, to close the area.`;
@@ -542,8 +542,8 @@ export class SupportTool {
     } else if (s) {
       const nd = this.node(s.part, s.node);
       const n = this.branchOf(s.part, s.node).length;
-      text = `Branch: ${n} node${n === 1 ? "" : "s"}. This node: ${(2 * nd.r).toFixed(1)} mm wide (at least ${(2 * nd.rMin).toFixed(1)} mm), z ${nd.z.toFixed(2)} mm. Drag a dot to move it, the ring to make it wider or narrower, a segment to move the branch. Delete removes the branch.`;
-    } else text = "Click a dot or a segment of a tree to select its branch.";
+      text = `${(2 * nd.r).toFixed(1)} mm wide (at least ${(2 * nd.rMin).toFixed(1)}), z ${nd.z.toFixed(1)} mm. Drag the dot, the ring, or the branch; Delete removes it.`;
+    } else text = "Click a tree to edit it.";
     if (this.tclamp) {
       const why = CLAMP_TEXT.filter(([b]) => this.tclamp & b).map(([, t]) => t);
       text += ` Limited: ${why.join("; ")}.`;
