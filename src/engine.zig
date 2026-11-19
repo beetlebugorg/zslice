@@ -101,6 +101,16 @@ const Reporter = struct {
 /// The part of the progress of a slice that pass 1 reports.
 pub const pass1_share = 0.3;
 
+/// True if a part (or the parts of a plate) with these bounds can stand
+/// on the bed: its size in X and in Y, with the shrinkage of the filament,
+/// is at most the size of the bed. The CLI refuses a wider part, as the
+/// engine refuses a part higher than the printer (error.PartTooLarge).
+pub fn fitsBed(min: [3]f64, max: [3]f64, s: Settings) bool {
+    const k = s.filament.shrinkage_xy;
+    const eps = 1e-6;
+    return (max[0] - min[0]) * k <= s.machine.bed_size_x + eps and (max[1] - min[1]) * k <= s.machine.bed_size_y + eps;
+}
+
 pub const Error = error{
     Canceled,
     InvalidSettings,
@@ -1501,6 +1511,17 @@ fn compensate(gpa: Allocator, outline: Paths, xy: i64, hole: i64) Allocator.Erro
         try result.appendAll(a, part);
     }
     return clip.unionAll(gpa, result, .non_zero);
+}
+
+test "a part wider than the bed does not fit on it" {
+    const s: Settings = .{};
+    const bx = s.machine.bed_size_x;
+    try std.testing.expect(fitsBed(.{ 0, 0, 0 }, .{ bx, 20, 5 }, s));
+    try std.testing.expect(!fitsBed(.{ 0, 0, 0 }, .{ bx + 0.5, 20, 5 }, s));
+    try std.testing.expect(!fitsBed(.{ -10, -200, 0 }, .{ 10, s.machine.bed_size_y - 199, 5 }, s));
+    var shrink = s;
+    shrink.filament.shrinkage_xy = 1.1;
+    try std.testing.expect(!fitsBed(.{ 0, 0, 0 }, .{ bx - 1, 20, 5 }, shrink));
 }
 
 test "a hole offset does not remove an island in the hole" {

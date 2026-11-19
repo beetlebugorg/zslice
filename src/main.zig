@@ -327,6 +327,15 @@ pub fn main(init: std.process.Init) !void {
         return;
     }
 
+    // A part wider or deeper than the bed cannot print: the G-code would
+    // move off the bed. Refuse it, as a part higher than the printer.
+    {
+        const b = m.bounds();
+        if (!zslice.engine.fitsBed(b.min, b.max, settings)) fail(err, "slice failed: PartTooLarge (the part is {d:.1} x {d:.1} mm; the bed is {d:.0} x {d:.0} mm)\n", .{
+            b.max[0] - b.min[0], b.max[1] - b.min[1], settings.machine.bed_size_x, settings.machine.bed_size_y,
+        });
+    }
+
     const t0 = Io.Clock.awake.now(io);
     // One slice: the memos need not stay (see Job.keep_memos).
     var job = zslice.PlateJob.init(gpa, settings, part_inputs.items, .{ .keep_memos = false }) catch |e| fail(err, "slice failed: {s}\n", .{@errorName(e)});
