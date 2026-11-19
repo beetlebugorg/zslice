@@ -556,6 +556,28 @@ final class Workspace {
                 NSLog("zslice flip: done")
             }
         }
+        // ZSLICE_TURN_KEYS=n: the Turn tool, n presses of the Up arrow on the
+        // selected part (15° each about X), then the part 1 s later.
+        if let n = env["ZSLICE_TURN_KEYS"].flatMap(Int.init), let i = selectedPart {
+            setTool(.turn)
+            selectPart(i)
+            for _ in 0 ..< n {
+                if let e = NSEvent.keyEvent(with: .keyDown, location: .zero, modifierFlags: [], timestamp: 0, windowNumber: 0, context: nil,
+                                            characters: String(UnicodeScalar(NSUpArrowFunctionKey)!), charactersIgnoringModifiers: String(UnicodeScalar(NSUpArrowFunctionKey)!),
+                                            isARepeat: false, keyCode: 126) {
+                    _ = sliceViewKey(e)
+                }
+            }
+            // ZSLICE_DESELECT=1: a click elsewhere at once (the settle must
+            // still come).
+            if env["ZSLICE_DESELECT"] != nil { setTool(.select) }
+            Task { @MainActor in
+                try? await Task.sleep(for: .seconds(1.2))
+                var p = zs_part()
+                _ = zs_app_part_get(self.model.core, i, &p)
+                NSLog("zslice turn keys: support %@, size z %.1f, note %@", self.model.setting("project.support"), p.size_z, self.note ?? "none")
+            }
+        }
         // ZSLICE_TURN=deg turns the selected part about X, then lets it settle
         // and logs the note; ZSLICE_SUPPORT=1 turns support on first.
         if let t = env["ZSLICE_TURN"].flatMap(Double.init), let i = selectedPart {

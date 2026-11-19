@@ -157,6 +157,7 @@ Like the GTK shell, the app reads some environment variables for development and
 - `ZSLICE_SIGN_TEST=1` signs the G-code of the plate, checks it (zs_verify_gcode), and checks a copy with one byte changed. In a fresh run (`ZSLICE_FRESH`) the signing key stays in memory, not in the Keychain.
 - `ZSLICE_DECK_JSON=path` logs the printers that a printer.json of a printdeck with more than one printer gives.
 - `ZSLICE_PICKER=1` opens the printer picker.
+- `ZSLICE_TURN_KEYS=n` presses the Up arrow n times in the Turn tool on the selected part, and logs its height and the note 1.2 s later. `ZSLICE_DESELECT=1` picks the Select tool at once, as a click elsewhere does: the part must still fall.
 - `ZSLICE_TURN=deg` turns the selected part about X, lets it settle, and logs the note. `ZSLICE_SUPPORT=1` turns support on first. Select the part with `ZSLICE_TOOL=move ZSLICE_CLICKS=center`.
 - `ZSLICE_SESSION=dir` keeps the session in that folder, also with `ZSLICE_FRESH` (which turns the session off without it). `ZSLICE_QUIT_AFTER=s` quits as Command-Q does, after s seconds. With `ZSLICE_TIMING=1`, the app logs the session reads and writes, and the time of the first frame with beads.
 - `ZSLICE_REFINE=path` keeps the store of refinements in that file, also with `ZSLICE_FRESH`. `ZSLICE_DETAILS=1` opens the details of the print, and `ZSLICE_REFINE_APPLY=1` applies the first suggestion and logs it.
