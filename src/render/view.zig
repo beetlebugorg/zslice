@@ -2073,16 +2073,18 @@ pub const View = struct {
         const cam = v.camera();
         const dir = v.pixelRay(cam, px, py);
         const hit = v.rayHit(px, py, 1.6);
-        const along = if (hit) |h| h.t else old / dot(dir, cam.f);
+        // No bead under the pixel: the bed under it (z = 0, in front of
+        // the eye), else the plane through the target. A limit from the
+        // size of the scene stopped the zoom far from the part on a row
+        // of plates; now each point has the same stop as a bead.
+        var along = if (hit) |h| h.t else old / dot(dir, cam.f);
+        if (hit == null and dir[2] < -1e-4 and cam.eye[2] > 0) along = -cam.eye[2] / dir[2];
         const p = [3]f32{ cam.eye[0] + dir[0] * along, cam.eye[1] + dir[1] * along, cam.eye[2] + dir[2] * along };
         // The eye moves toward p by `f`, so p stays on the same ray. It
-        // stops 2 mm in front of a surface: it never goes into the part.
-        var f = factor;
-        if (hit != null) f = @max(f, @min(1, 2 / @max(along, 1e-3)));
-        if (hit == null) {
-            v.zoom(factor);
-            f = v.dist / old;
-        } else v.dist = old * f;
+        // stops 2 mm in front of the point: it never goes into the part
+        // or the bed.
+        const f = @max(factor, @min(1, 2 / @max(along, 1e-3)));
+        v.dist = old * f;
         for (0..3) |k| v.target[k] = p[k] + (v.target[k] - p[k]) * f;
         // The orbit center stays as the zoom moves it (it does not jump to
         // the surface): the user turns the view around the same center.
@@ -4269,16 +4271,19 @@ test "zoom at a pixel keeps the point under it" {
     v.extent = 10;
     v.setAngles(-1.9, 0.6);
     v.dist = 50;
-    // The point on the target plane under pixel (150, 30), before and after.
+    // The point under pixel (150, 30), before and after: on the bed (the
+    // ray goes down to z = 0), else on the target plane.
+    const Under = struct {
+        fn at(cam: anytype, d: [3]f32, plane: f32) [3]f32 {
+            const t = if (d[2] < -1e-4 and cam.eye[2] > 0) -cam.eye[2] / d[2] else plane / dot(d, cam.f);
+            return .{ cam.eye[0] + d[0] * t, cam.eye[1] + d[1] * t, cam.eye[2] + d[2] * t };
+        }
+    };
     const before = v.camera();
-    const d0 = v.pixelRay(before, 150, 30);
-    const a0 = 50 / dot(d0, before.f);
-    const p0 = [3]f32{ before.eye[0] + d0[0] * a0, before.eye[1] + d0[1] * a0, before.eye[2] + d0[2] * a0 };
+    const p0 = Under.at(before, v.pixelRay(before, 150, 30), 50);
     v.zoomAt(0.5, 150, 30);
     const after = v.camera();
-    const d1 = v.pixelRay(after, 150, 30);
-    const a1 = v.dist / dot(d1, after.f);
-    const p1 = [3]f32{ after.eye[0] + d1[0] * a1, after.eye[1] + d1[1] * a1, after.eye[2] + d1[2] * a1 };
+    const p1 = Under.at(after, v.pixelRay(after, 150, 30), v.dist);
     for (0..3) |k| try std.testing.expectApproxEqAbs(p0[k], p1[k], 1e-3);
     try std.testing.expectApproxEqAbs(@as(f32, 25), v.dist, 1e-4);
     // A pan of one view height moves the target by the view height at the
@@ -4287,6 +4292,20 @@ test "zoom at a pixel keeps the point under it" {
     v.pan(0, 100);
     const moved = @sqrt((v.target[0] - t0[0]) * (v.target[0] - t0[0]) + (v.target[1] - t0[1]) * (v.target[1] - t0[1]) + (v.target[2] - t0[2]) * (v.target[2] - t0[2]));
     try std.testing.expectApproxEqAbs(2 * v.dist * @tan(@as(f32, fov) / 2), moved, 1e-3);
+}
+
+test "zoom over the bed goes close to the bed, with no limit from the scene" {
+    var v: View = .{ .renderer = undefined, .width = 200, .height = 100 };
+    v.target = .{ 0, 0, 0 };
+    // A large scene (a row of plates): the old limit was 0.05 of it.
+    v.extent = 2000;
+    v.setAngles(-1.9, 0.6);
+    v.dist = 300;
+    for (0..80) |_| v.zoomAt(0.8, 100, 70);
+    // The eye ends about 2 mm over the bed point under the pixel, far
+    // under the old limit of 101 mm.
+    try std.testing.expect(v.dist < 20);
+    try std.testing.expect(v.camera().eye[2] > 0);
 }
 
 test "the camera can go under the part and over the top" {
