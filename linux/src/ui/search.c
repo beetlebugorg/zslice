@@ -32,6 +32,7 @@ typedef struct {
 static const Action ACTIONS[] = {
     {"Open a model…", "Ctrl+O", "add models to the plate", "app.open", NULL},
     {"Export G-code…", "Ctrl+E", NULL, "win.export", NULL},
+    {"The print as it forms", NULL, "simulated plastic: it sags and droops where nothing holds it", "preview.simulate", NULL},
     {"Print", NULL, "send the G-code to the printer and start", "win.send-print", NULL},
     {"Upload to the printer", NULL, "send the G-code, and do not start", "win.send-only", NULL},
     {"Arrange the plate", NULL, "pack the parts on the bed", "win.arrange", NULL},

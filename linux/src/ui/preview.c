@@ -73,6 +73,12 @@ typedef struct {
     GtkWidget *colors;
     /* The colors button of the tool strip, and its choices (by mode). */
     GtkWidget *colors_button, *color_choices[6];
+    /* The print as it forms (zs_app_simulate_print): on, the view shows the
+     * simulated plastic until the next slice. The check of the colors
+     * menu, and a note over the view. */
+    gboolean simulated;
+    GtkWidget *sim_check, *note;
+    guint note_timer;
     GtkWidget *legend;
     GtkWidget *play;
     GtkWidget *speed;
@@ -950,6 +956,7 @@ static void preview_free(gpointer data) {
     /* The 3D view can be gone already (its tick callback with it). */
     if (p->tick && GTK_IS_WIDGET(p->view3d)) gtk_widget_remove_tick_callback(p->view3d, p->tick);
     if (p->keys_timer) g_source_remove(p->keys_timer);
+    if (p->note_timer) g_source_remove(p->note_timer);
     /* The view bar is in the header bar, and can live on: its signals
      * stop here. The preview keeps a reference to it. */
     g_signal_handlers_disconnect_by_data(p->colors, p);
@@ -1044,6 +1051,81 @@ static void on_tool_action(GSimpleAction *a, GVariant *v, gpointer data) {
 }
 
 /* "preview.check": the list of the printability check. */
+/* A short note at the top of the view, for a few seconds. */
+static gboolean on_note_timer(gpointer data) {
+    Preview *p = data;
+    p->note_timer = 0;
+    gtk_widget_set_visible(p->note, FALSE);
+    return G_SOURCE_REMOVE;
+}
+
+static void show_note(Preview *p, const char *text, guint ms) {
+    gtk_label_set_text(GTK_LABEL(p->note), text);
+    gtk_widget_set_visible(p->note, TRUE);
+    if (p->note_timer) g_source_remove(p->note_timer);
+    p->note_timer = g_timeout_add(ms, on_note_timer, p);
+}
+
+static void set_sim_check(Preview *p) {
+    if (!p->sim_check) return;
+    g_signal_handlers_block_matched(p->sim_check, G_SIGNAL_MATCH_DATA, 0, 0, NULL, NULL, p);
+    gtk_check_button_set_active(GTK_CHECK_BUTTON(p->sim_check), p->simulated);
+    g_signal_handlers_unblock_matched(p->sim_check, G_SIGNAL_MATCH_DATA, 0, 0, NULL, NULL, p);
+}
+
+/* The simulation runs on this thread (about 1.5 s for a 3DBenchy), after
+ * the note "Simulating..." shows. */
+static gboolean run_simulation(gpointer data) {
+    Preview *p = data;
+    zs_app *core = zg_model_core(p->model);
+    zs_print_sim_stats st;
+    if (zs_app_simulate_print(core, &st) != ZS_OK) {
+        show_note(p, "Slice first: the simulation needs a slice.", 5000);
+        p->simulated = FALSE;
+        set_sim_check(p);
+        return G_SOURCE_REMOVE;
+    }
+    zs_app_show_simulated(core, 1);
+    zg_view3d_reload(p->view3d);
+    char *t = st.moved > 0 ? g_strdup_printf("The plastic of %zu lines does not stay where it prints: up to %.1f mm off. Turn on support, or change the turn of the part.",
+                                             st.moved_paths, st.max_move)
+                           : g_strdup("All the plastic stays where it prints.");
+    show_note(p, t, 8000);
+    g_free(t);
+    return G_SOURCE_REMOVE;
+}
+
+/* "preview.simulate": the print as it forms, on or off. It shows the
+ * simulated plastic of the slice (it falls where nothing holds it, sags,
+ * cools, and sets) in place of the planned lines; a new slice shows the
+ * plan again. */
+static void on_simulate_action(GSimpleAction *a, GVariant *v, gpointer data) {
+    Preview *p = data;
+    zs_app *core = zg_model_core(p->model);
+    if (zs_app_state(core) != ZS_STATE_DONE) {
+        show_note(p, "Slice first: the simulation needs a slice.", 5000);
+        p->simulated = FALSE;
+        set_sim_check(p);
+        return;
+    }
+    p->simulated = !p->simulated;
+    set_sim_check(p);
+    gtk_stack_set_visible_child_name(GTK_STACK(p->stack), "3d");
+    if (!p->simulated) {
+        zs_app_show_simulated(core, 0);
+        zg_view3d_reload(p->view3d);
+        return;
+    }
+    show_note(p, "Simulating the plastic of the print…", 30000);
+    g_timeout_add(60, run_simulation, p);
+}
+
+static void on_sim_toggled(GtkCheckButton *b, gpointer data) {
+    Preview *p = data;
+    gtk_menu_button_popdown(GTK_MENU_BUTTON(p->colors_button));
+    gtk_widget_activate_action(p->root, "preview.simulate", NULL);
+}
+
 static void on_check_action(GSimpleAction *a, GVariant *v, gpointer data) {
     Preview *p = data;
     gtk_menu_button_popup(GTK_MENU_BUTTON(p->check));
@@ -1642,6 +1724,11 @@ static GtkWidget *colors_button(Preview *p) {
         gtk_box_append(GTK_BOX(box), c);
     }
     gtk_box_append(GTK_BOX(box), note);
+    gtk_box_append(GTK_BOX(box), gtk_separator_new(GTK_ORIENTATION_HORIZONTAL));
+    p->sim_check = gtk_check_button_new_with_label("The print as it forms (simulated plastic)");
+    gtk_widget_set_tooltip_text(p->sim_check, "The plastic of the slice as it would form: it sags and droops where nothing holds it. A new slice shows the plan again.");
+    g_signal_connect(p->sim_check, "toggled", G_CALLBACK(on_sim_toggled), p);
+    gtk_box_append(GTK_BOX(box), p->sim_check);
     GtkWidget *pop = gtk_popover_new();
     gtk_popover_set_child(GTK_POPOVER(pop), box);
     gtk_menu_button_set_popover(GTK_MENU_BUTTON(p->colors_button), pop);
@@ -1934,6 +2021,18 @@ GtkWidget *zg_preview_new(ZgModel *model) {
     gtk_widget_set_can_target(p->measure_label, FALSE);
     gtk_widget_set_visible(p->measure_label, FALSE);
     gtk_overlay_add_overlay(GTK_OVERLAY(box), p->measure_label);
+    /* A short note at the top of the view (the simulation). */
+    p->note = gtk_label_new("");
+    gtk_widget_add_css_class(p->note, "osd");
+    gtk_widget_add_css_class(p->note, "zg-note-view");
+    gtk_label_set_wrap(GTK_LABEL(p->note), TRUE);
+    gtk_label_set_max_width_chars(GTK_LABEL(p->note), 60);
+    gtk_widget_set_halign(p->note, GTK_ALIGN_CENTER);
+    gtk_widget_set_valign(p->note, GTK_ALIGN_START);
+    gtk_widget_set_margin_top(p->note, 10);
+    gtk_widget_set_can_target(p->note, FALSE);
+    gtk_widget_set_visible(p->note, FALSE);
+    gtk_overlay_add_overlay(GTK_OVERLAY(box), p->note);
     /* An empty plate: a card in the middle of the view that opens a model
      * (the replay and the layer slider have nothing to show then). */
     p->empty = zg_card_new();
@@ -1967,6 +2066,7 @@ GtkWidget *zg_preview_new(ZgModel *model) {
         {.name = "view", .activate = on_view_action, .parameter_type = "s"},
         {.name = "tool", .activate = on_tool_action, .parameter_type = "s"},
         {.name = "check", .activate = on_check_action},
+        {.name = "simulate", .activate = on_simulate_action},
     };
     GSimpleActionGroup *group = g_simple_action_group_new();
     g_action_map_add_action_entries(G_ACTION_MAP(group), actions, G_N_ELEMENTS(actions), p);
@@ -2124,6 +2224,11 @@ void zg_preview_refresh(GtkWidget *preview) {
     zs_app *core = zg_model_core(p->model);
     int state = zs_app_state(core);
     gboolean empty = state == ZS_STATE_EMPTY;
+    /* A new slice shows the plan again. */
+    if (state != ZS_STATE_DONE && p->simulated) {
+        p->simulated = FALSE;
+        set_sim_check(p);
+    }
     gtk_widget_set_visible(p->empty, empty);
     gtk_widget_set_visible(p->scrub_box, !empty);
     gtk_widget_set_visible(p->slider_box, !empty);
