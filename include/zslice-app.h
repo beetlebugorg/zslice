@@ -1474,9 +1474,7 @@ void zs_view_touch(zs_view *view, int64_t id, int action, float x, float y);
  * at (0, 0). zs_view_plate_origin gives the place of another plate in it.
  * A change of the active plate moves the camera with the world, so the
  * picture stays still. Call zs_view_frame_plate after it to move to the
- * new plate. Only the frame backend (wasm and macOS) draws the other
- * plates for now; the Vulkan backend draws the active plate only. A plate
- * set (zs_set_view_sync, below) makes these calls. */
+ * new plate. A plate set (zs_set_view_sync, below) makes these calls. */
 
 enum zs_plate_flag {
     ZS_PLATE_STALE = 1,     /* the slice is old: the beads fade a little */

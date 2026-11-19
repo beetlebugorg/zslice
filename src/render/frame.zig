@@ -45,7 +45,8 @@ pub const Draw = extern struct { first: u32, count: u32, lod: u32 };
 /// One plate of a frame other than the active plate (see plates.zig), or
 /// the light beads of the active plate: its bead buffer, its matrices, and
 /// its draws in Frame.plate_draws. The layout is zs_web_plate in
-/// include/zslice-app.h. Only the frame backend (web.zig) draws them.
+/// include/zslice-app.h. The Vulkan backend draws the other plates only
+/// (it draws the active plate with its full beads).
 pub const PlateFrame = extern struct {
     /// The matrix of the beads and of the bed model, with the place of the
     /// plate in the row.
@@ -110,8 +111,7 @@ pub const Frame = struct {
     /// the light in the frame of the beads). `draws` leaves them out.
     part: Push = .{ .mvp = @splat(0), .vec = .{ 0, 0, 0, 0 } },
     part_draws: []const Draw = &.{},
-    /// The other plates (see PlateFrame), and their draws. The frame
-    /// backend uses them.
+    /// The other plates (see PlateFrame), and their draws.
     plates: []const PlateFrame = &.{},
     plate_draws: []const Draw = &.{},
     /// The grid lines of the other plates (x, y, z points): the plates up

@@ -3395,7 +3395,7 @@ pub const View = struct {
     /// The bead count of a large plate (see `activeLevel`).
     const large_plate = 500_000;
 
-    /// The plates of a frame (frame backend only): for each other plate in the view,
+    /// The plates of a frame: for each other plate in the view,
     /// its matrices, its buffer, and its draws (the chunks in the view, or
     /// a light level far from the camera).
     fn drawPlates(v: *View, mvp: [16]f32, eye: [3]f32) Error!void {
@@ -3571,7 +3571,7 @@ pub const View = struct {
         // this plate under its top layers (see plates.zig).
         v.plate_frames.clearRetainingCapacity();
         v.plate_draws.clearRetainingCapacity();
-        if (frame_backend) {
+        {
             // A moving part that is the whole plate: its light beads draw
             // with the matrix and the push data of the part (flag_part).
             const moving = v.preview != null and v.gcode == null;

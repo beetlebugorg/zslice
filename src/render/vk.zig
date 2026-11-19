@@ -69,6 +69,16 @@ pub const Instance = frame_mod.Instance;
 pub const max_extras = frame_mod.max_extras;
 pub const Push = frame_mod.Push;
 pub const Draw = frame_mod.Draw;
+pub const PlateFrame = frame_mod.PlateFrame;
+
+/// The bead buffer of another plate of the row (see Frame.plates), by its
+/// slot: uploaded again when the generation of the plate changes.
+const PlateSlot = struct {
+    buf: Buffer = .{},
+    gen: u32 = 0,
+    used: bool = false,
+};
+const max_plate_slots = 64;
 
 // ---------------------------------------------------------------------------
 // Function tables
@@ -335,6 +345,11 @@ pub const Renderer = struct {
     msaa_view: c.VkImageView = null,
     instances: Buffer = .{},
     grid: Buffer = .{},
+    /// The other plates of the row: their bead buffers, and the grid
+    /// lines of their beds (Frame.plate_grid) with its generation.
+    plate_slots: [max_plate_slots]PlateSlot = [_]PlateSlot{.{}} ** max_plate_slots,
+    plate_grid: Buffer = .{},
+    plate_grid_gen: u32 = 0,
 
     /// The offscreen target (Surface.offscreen): the color image, its
     /// framebuffer, and a host buffer that each frame copies into.
@@ -542,7 +557,8 @@ pub const Renderer = struct {
         r.destroySwapchain();
         r.destroyTarget();
         if (r.swapchain != null) d.vkDestroySwapchainKHR.?(r.device, r.swapchain, null);
-        for ([_]*Buffer{ &r.box_mesh, &r.box_index, &r.instances, &r.grid, &r.bed, &r.readback }) |b| r.freeBuffer(b);
+        for ([_]*Buffer{ &r.box_mesh, &r.box_index, &r.instances, &r.grid, &r.bed, &r.readback, &r.plate_grid }) |b| r.freeBuffer(b);
+        for (&r.plate_slots) |*sl| r.freeBuffer(&sl.buf);
         r.freeTexture();
         if (r.sampler != null) d.vkDestroySampler.?(r.device, r.sampler, null);
         if (r.desc_pool != null) d.vkDestroyDescriptorPool.?(r.device, r.desc_pool, null);
@@ -844,7 +860,11 @@ pub const Renderer = struct {
         const raster: c.VkPipelineRasterizationStateCreateInfo = .{
             .sType = c.VK_STRUCTURE_TYPE_PIPELINE_RASTERIZATION_STATE_CREATE_INFO,
             .polygonMode = c.VK_POLYGON_MODE_FILL,
-            .cullMode = c.VK_CULL_MODE_NONE,
+            // The solid beads: a bead is a closed mesh, wound the same way,
+            // so its back faces never show (as the web does, 23901eb). The
+            // picture is the same; the GPU shades fewer pixels. The ghosts
+            // show their back faces through their front.
+            .cullMode = if (!ghost and !bed and topology == c.VK_PRIMITIVE_TOPOLOGY_TRIANGLE_LIST) c.VK_CULL_MODE_BACK_BIT else c.VK_CULL_MODE_NONE,
             .frontFace = c.VK_FRONT_FACE_COUNTER_CLOCKWISE,
             .depthBiasEnable = if (bed) c.VK_TRUE else c.VK_FALSE,
             .depthBiasConstantFactor = if (bed) 4 else 0,
@@ -991,6 +1011,72 @@ pub const Renderer = struct {
     /// Draws the beads of a frame: its draw list (the chunks in the view,
     /// each with its mesh level), or all beads box_first .. box_count
     /// with the full mesh for a frame with no list (a print view).
+    /// True for a plate frame of another plate: the light beads of the
+    /// active plate (flag_active, flag_part) are for the frame backend.
+    fn otherPlate(pf: PlateFrame) bool {
+        return pf.flags & (PlateFrame.flag_active | PlateFrame.flag_part) == 0 and pf.slot < max_plate_slots;
+    }
+
+    /// Uploads the bead buffer of each other plate whose generation
+    /// changed, and the grid lines of their beds. Call it when the GPU is
+    /// done with the frame before.
+    fn syncPlates(r: *Renderer, frame: Frame) Error!void {
+        for (frame.plates) |pf| {
+            if (!otherPlate(pf)) continue;
+            const sl = &r.plate_slots[pf.slot];
+            if (sl.used and sl.gen == pf.gen) continue;
+            const n = @as(usize, pf.instance_count) * @sizeOf(Instance);
+            if (n > sl.buf.size or sl.buf.buf == null) try r.makeBuffer(&sl.buf, n, c.VK_BUFFER_USAGE_VERTEX_BUFFER_BIT);
+            if (n > 0) {
+                const src: [*]const u8 = @ptrFromInt(pf.instances);
+                @memcpy(sl.buf.map.?[0..n], src[0..n]);
+            }
+            sl.gen = pf.gen;
+            sl.used = true;
+        }
+        if (frame.plate_grid_gen != r.plate_grid_gen) {
+            const bytes = std.mem.sliceAsBytes(frame.plate_grid);
+            if (bytes.len > r.plate_grid.size or r.plate_grid.buf == null) try r.makeBuffer(&r.plate_grid, bytes.len, c.VK_BUFFER_USAGE_VERTEX_BUFFER_BIT);
+            if (bytes.len > 0) @memcpy(r.plate_grid.map.?[0..bytes.len], bytes);
+            r.plate_grid_gen = frame.plate_grid_gen;
+        }
+    }
+
+    /// The beads of the other plates: each with its matrix and its fade
+    /// (light.w), no highlight and no focus, and its draws. The box
+    /// pipeline and the index buffer are bound; the instance buffer of the
+    /// active plate is bound again after.
+    fn drawOtherPlates(r: *Renderer, cmd: c.VkCommandBuffer, frame: Frame) void {
+        const d = r.d;
+        const stages = c.VK_SHADER_STAGE_VERTEX_BIT | c.VK_SHADER_STAGE_FRAGMENT_BIT;
+        var drew = false;
+        for (frame.plates) |pf| {
+            if (!otherPlate(pf) or pf.draws_count == 0) continue;
+            const sl = &r.plate_slots[pf.slot];
+            if (!sl.used or sl.buf.buf == null or pf.draws_first + pf.draws_count > frame.plate_draws.len) continue;
+            var push = frame.box;
+            push.mvp = pf.mvp;
+            push.vec[3] = pf.fade;
+            push.params[0] = 0;
+            push.params[1] = 0;
+            push.params[2] = 0;
+            d.vkCmdPushConstants.?(cmd, r.layout, stages, 0, @sizeOf(Push), &push);
+            const bufs = [_]c.VkBuffer{ r.box_mesh.buf, sl.buf.buf };
+            const offs = [_]c.VkDeviceSize{ 0, 0 };
+            d.vkCmdBindVertexBuffers.?(cmd, 0, 2, &bufs, &offs);
+            r.drawList(cmd, frame.plate_draws[pf.draws_first .. pf.draws_first + pf.draws_count]);
+            drew = true;
+        }
+        if (drew) {
+            d.vkCmdPushConstants.?(cmd, r.layout, stages, 0, @sizeOf(Push), &frame.box);
+            if (r.instances.buf != null) {
+                const bufs = [_]c.VkBuffer{ r.box_mesh.buf, r.instances.buf };
+                const offs = [_]c.VkDeviceSize{ 0, 0 };
+                d.vkCmdBindVertexBuffers.?(cmd, 0, 2, &bufs, &offs);
+            }
+        }
+    }
+
     fn drawBeads(r: *Renderer, cmd: c.VkCommandBuffer, frame: Frame) void {
         const d = r.d;
         if (!frame.culled) {
@@ -1498,6 +1584,9 @@ pub const Renderer = struct {
             return;
         }
         if (acq != c.VK_SUCCESS and acq != c.VK_SUBOPTIMAL_KHR) return error.VulkanFailed;
+        // The frame before is done (the fence): the buffers of the plates
+        // can change.
+        try r.syncPlates(frame);
         try check(d.vkResetFences.?(r.device, 1, &r.fence));
 
         const cmd = r.cmd;
@@ -1565,6 +1654,28 @@ pub const Renderer = struct {
             d.vkCmdBindVertexBuffers.?(cmd, 0, 1, &r.grid.buf, &zero);
             d.vkCmdDraw.?(cmd, frame.grid_vertices, 1, 0, 0);
         }
+        // The grids of the other plates: the plates that cannot slice in a
+        // lighter color.
+        const plate_grid_n: u32 = @intCast(frame.plate_grid.len / 3);
+        if (plate_grid_n > 0 and r.plate_grid.buf != null) {
+            d.vkCmdBindPipeline.?(cmd, c.VK_PIPELINE_BIND_POINT_GRAPHICS, r.grid_pipeline);
+            d.vkCmdPushConstants.?(cmd, r.layout, stages, 0, @sizeOf(Push), &frame.grid);
+            d.vkCmdBindVertexBuffers.?(cmd, 0, 1, &r.plate_grid.buf, &zero);
+            const dim = @min(frame.plate_grid_dim, plate_grid_n);
+            if (dim > 0) d.vkCmdDraw.?(cmd, dim, 1, 0, 0);
+            if (plate_grid_n > dim) {
+                var light = frame.grid;
+                light.vec = .{ 0.88, 0.89, 0.91, 1 };
+                d.vkCmdPushConstants.?(cmd, r.layout, stages, 0, @sizeOf(Push), &light);
+                d.vkCmdDraw.?(cmd, plate_grid_n - dim, 1, dim, 0);
+            }
+        }
+        // The other plates, with no beads of the active plate too.
+        if (frame.box_count == 0 and r.box_index_count > 0 and frame.plates.len > 0) {
+            d.vkCmdBindPipeline.?(cmd, c.VK_PIPELINE_BIND_POINT_GRAPHICS, r.box_pipeline);
+            d.vkCmdBindIndexBuffer.?(cmd, r.box_index.buf, 0, c.VK_INDEX_TYPE_UINT16);
+            r.drawOtherPlates(cmd, frame);
+        }
         if (frame.box_count > 0 and r.instances.buf != null and r.box_index_count > 0) {
             d.vkCmdBindPipeline.?(cmd, c.VK_PIPELINE_BIND_POINT_GRAPHICS, r.box_pipeline);
             d.vkCmdPushConstants.?(cmd, r.layout, stages, 0, @sizeOf(Push), &frame.box);
@@ -1574,6 +1685,7 @@ pub const Renderer = struct {
             d.vkCmdBindIndexBuffer.?(cmd, r.box_index.buf, 0, c.VK_INDEX_TYPE_UINT16);
             r.drawBeads(cmd, frame);
             if (frame.mark_count > 0) d.vkCmdDrawIndexed.?(cmd, r.box_index_count, frame.mark_count, 0, 0, frame.mark_first);
+            r.drawOtherPlates(cmd, frame);
             // A part that turns in the view only: its own push data.
             if (frame.part_draws.len > 0) {
                 d.vkCmdPushConstants.?(cmd, r.layout, stages, 0, @sizeOf(Push), &frame.part);
@@ -1617,6 +1729,14 @@ pub const Renderer = struct {
             d.vkCmdPushConstants.?(cmd, r.bed_layout, stages, 0, @sizeOf(Push), &frame.bed);
             d.vkCmdBindVertexBuffers.?(cmd, 0, 1, &r.bed.buf, &zero);
             d.vkCmdDraw.?(cmd, @min(frame.bed_vertices, r.bed_count), 1, 0, 0);
+            // The bed model at each other plate of the same printer.
+            for (frame.plates) |pf| {
+                if (!otherPlate(pf) or pf.flags & PlateFrame.flag_bed == 0) continue;
+                var push = frame.bed;
+                push.mvp = pf.bed_mvp;
+                d.vkCmdPushConstants.?(cmd, r.bed_layout, stages, 0, @sizeOf(Push), &push);
+                d.vkCmdDraw.?(cmd, @min(frame.bed_vertices, r.bed_count), 1, 0, 0);
+            }
         }
         if (frame.head.len > 0 and r.instances.buf != null and r.box_index_count > 0) {
             const used = @min(frame.extras.len, max_extras);
@@ -1814,6 +1934,7 @@ pub const Renderer = struct {
         const d = r.d;
         try check(d.vkWaitForFences.?(r.device, 1, &r.fence, c.VK_TRUE, std.math.maxInt(u64)));
         if (r.stale or r.target_image == null) try r.makeTarget();
+        try r.syncPlates(frame);
         try check(d.vkResetFences.?(r.device, 1, &r.fence));
         const cmd = r.cmd;
         try check(d.vkResetCommandBuffer.?(cmd, 0));

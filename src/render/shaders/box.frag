@@ -96,5 +96,8 @@ void main() {
         frag = vec4(toSrgb(c + vec3(0.25 * rim * rim)), 0.38 + 0.3 * rim);
         return;
     }
-    frag = vec4(toSrgb(c), 1.0);
+    // A plate whose slice is old, or that cannot slice (the Vulkan
+    // backend; light.w): the colors fade to the background, as the web
+    // does.
+    frag = vec4(mix(toSrgb(c), vec3(0.965, 0.969, 0.973), pc.light.w), 1.0);
 }
