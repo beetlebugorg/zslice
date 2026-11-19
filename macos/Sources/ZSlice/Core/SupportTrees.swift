@@ -115,10 +115,11 @@ extension Workspace {
     }
 
     /// The trees of each part, after a slice or an undo. Only while the
-    /// tool is on: the trees cost a little to read.
+    /// tool is on, or the Select tool picked a tree (SupportPick.swift): the
+    /// trees cost a little to read.
     func readSupportTrees() {
         guard treeDrag == nil else { return }
-        guard tool == .support else {
+        guard treesLive else {
             if !supportTrees.isEmpty { supportTrees = [:] }
             treeSelected = nil
             treeAdding = false
@@ -132,6 +133,7 @@ extension Workspace {
             treeNote = buf.withUnsafeBufferPointer { coreText($0.baseAddress) }
         }
         if treeSelection == nil { treeSelected = nil }
+        refreshSupportPick()
     }
 
     /// The nodes of the branch of node i.
@@ -155,7 +157,7 @@ extension Workspace {
     /// branch and into it, the ring of the selected node, and the foot of a
     /// new branch. showSupport calls it after the areas.
     func showSupportTrees(_ v: OpaquePointer) {
-        guard tool == .support else { return }
+        guard treesLive else { return }
         let kind = treeClamp != 0 ? Self.red : Self.treeKind
         func dots(_ pts: [Double], _ kind: Int32, _ flags: Int32) {
             // At most 256 to a call of the view.
@@ -200,6 +202,7 @@ extension Workspace {
             for (part, t) in supportTrees {
                 for (k, nd) in t.nodes.enumerated() {
                     if part == treeSelected?.part, inBranch.contains(UInt32(k)) { continue }
+                    if !treeNodeShown(part, k) { continue }
                     guard let q = canvas.viewPoint(x: nd.x, y: nd.y, z: nd.z) else { continue }
                     let cell = Int64(floor(q.x / Self.dotCell)) * 65536 + Int64(floor(q.y / Self.dotCell))
                     guard seen.insert(cell).inserted else { continue }
@@ -228,7 +231,7 @@ extension Workspace {
 
     /// The tree element under p: the ring of the selected node first, then
     /// the dots, then the segments (node to its down node).
-    private func treeElement(at p: CGPoint) -> (TreeDrag.Kind, Int, UInt32)? {
+    func treeElement(at p: CGPoint) -> (TreeDrag.Kind, Int, UInt32)? {
         guard !supportTrees.isEmpty else { return nil }
         // The ring of a thin node is near its dot: the dot wins near its
         // center.
@@ -244,7 +247,7 @@ extension Workspace {
         var best: (TreeDrag.Kind, Int, UInt32)?
         var bestD = Self.near
         for (part, t) in supportTrees {
-            for (k, nd) in t.nodes.enumerated() {
+            for (k, nd) in t.nodes.enumerated() where treeNodeShown(part, k) {
                 guard let q = pixel(nd) else { continue }
                 let d = hypot(q.x - p.x, q.y - p.y)
                 if d < bestD {
@@ -256,7 +259,7 @@ extension Workspace {
         if best != nil { return best }
         bestD = Self.near * 0.7
         for (part, t) in supportTrees {
-            for (k, nd) in t.nodes.enumerated() {
+            for (k, nd) in t.nodes.enumerated() where treeNodeShown(part, k) {
                 guard nd.down >= 0, Int(nd.down) < t.nodes.count,
                       let a = pixel(nd), let b = pixel(t.nodes[Int(nd.down)]) else { continue }
                 let d = segmentDistance(p, a, b)

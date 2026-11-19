@@ -255,11 +255,12 @@ func cardPlace(near at: CGPoint, size: CGSize, in area: CGSize) -> CGPoint {
 /// card fits whole, in the order right, left, below, above, with a gap of
 /// 12 points; under the toolbar (60) and in the view. With no side where
 /// it fits, the side with the most room. With no box, `cardPlace(near:)`.
-func cardPlace(avoiding box: CGRect?, near at: CGPoint, size: CGSize, in area: CGSize) -> CGPoint {
+/// bottom: the room to keep at the bottom (the bottom bar).
+func cardPlace(avoiding box: CGRect?, near at: CGPoint, size: CGSize, in area: CGSize, bottom: CGFloat = 8) -> CGPoint {
     guard let b = box, b.width > 0 || b.height > 0 else { return cardPlace(near: at, size: size, in: area) }
     // The tool strip is at the left (64 points) and the layer slider at
     // the right (84): a card keeps out of them too.
-    let w = size.width, h = size.height, gap: CGFloat = 12, top: CGFloat = 60, edge: CGFloat = 8
+    let w = size.width, h = size.height, gap: CGFloat = 12, top: CGFloat = 60, edge = max(8, bottom)
     let left: CGFloat = 64, right = area.width - 84
     func clampY(_ y: CGFloat) -> CGFloat { max(top, min(area.height - h - edge, y)) }
     func clampX(_ x: CGFloat) -> CGFloat { max(left, min(right - w, x)) }

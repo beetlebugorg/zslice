@@ -56,7 +56,9 @@ protocol SliceViewDelegate: AnyObject {
     /// does not orbit, and the drag and the release go to the window.
     func sliceViewPress(_ p: CGPoint, _ flags: NSEvent.ModifierFlags) -> Bool
     func sliceViewDrag(_ p: CGPoint, _ flags: NSEvent.ModifierFlags)
-    func sliceViewRelease(_ p: CGPoint)
+    /// The end of a drag that sliceViewPress took. False: it was a click
+    /// after all (a press with no drag), so the view handles the click.
+    func sliceViewRelease(_ p: CGPoint) -> Bool
     /// A scroll while the Grab tool holds a part: the hand goes up or down.
     /// Returns true if it did.
     func sliceViewHandWheel(_ dy: CGFloat) -> Bool
@@ -567,8 +569,7 @@ final class MetalSliceView: NSView {
         defer { pressAt = nil }
         if windowDrag {
             windowDrag = false
-            delegate?.sliceViewRelease(p)
-            return
+            if delegate?.sliceViewRelease(p) != false { return }
         }
         // A drag is no click.
         guard let at = pressAt, hypot(p.x - at.x, p.y - at.y) < 4 else { return }

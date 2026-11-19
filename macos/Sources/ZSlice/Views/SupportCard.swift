@@ -87,3 +87,45 @@ struct SupportCard: View {
         }
     }
 }
+
+/// The card of a support that the Select tool picked (SupportPick.swift):
+/// what it is, and Delete Branch for a tree, or Remove This Support for a
+/// grid support.
+struct PickedSupportCard: View {
+    let workspace: Workspace
+
+    var body: some View {
+        let tree = workspace.supportPick?.tree == true
+        VStack(alignment: .leading, spacing: 10) {
+            HStack {
+                Text(tree ? "Support Tree" : "Support").font(.headline)
+                Spacer()
+                Button { workspace.clearSupportPick() } label: {
+                    Image(systemName: "xmark.circle.fill").foregroundStyle(.secondary)
+                }
+                .buttonStyle(.borderless)
+                .help("Close (Esc)")
+            }
+            Text(workspace.supportPickInfo)
+                .font(.callout)
+                .foregroundStyle(.secondary)
+                .fixedSize(horizontal: false, vertical: true)
+            if let limit = workspace.treeLimit {
+                Text(limit).font(.callout).foregroundStyle(.red).fixedSize(horizontal: false, vertical: true)
+            }
+            if tree, workspace.treeSelection != nil {
+                Button("Delete Branch", role: .destructive) { workspace.removePickedSupport() }
+                    .help("Delete this branch and the branches over it (Delete)")
+            } else if workspace.supportPick?.overhang != nil {
+                Button("Remove This Support", role: .destructive) { workspace.removePickedSupport() }
+                    .help("No support under this overhang (Delete)")
+            }
+        }
+        .controlSize(.small)
+        .padding(14)
+        .frame(width: 290)
+        .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 12))
+        .overlay(RoundedRectangle(cornerRadius: 12).strokeBorder(.separator))
+        .shadow(color: .black.opacity(0.15), radius: 12, y: 4)
+    }
+}

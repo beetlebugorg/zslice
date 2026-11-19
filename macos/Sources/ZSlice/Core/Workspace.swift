@@ -120,6 +120,15 @@ final class Workspace {
         didSet { prefs.set(supportPaneOpen, forKey: "supportPane") }
     }
     var selectedPart: Int?
+    /// The other selected parts (Shift and a click), the first added first.
+    var moreParts: [Int] = []
+    /// The support that the Select tool picked (SupportPick.swift).
+    var supportPick: SupportPick?
+    @ObservationIgnored var supportPicking = false
+    /// A drag over layers of the Select tool, and the open range card
+    /// (LayerRange.swift).
+    @ObservationIgnored var rangeDrag: RangeDrag?
+    var rangeCard: (lo: Int, hi: Int)?
     @ObservationIgnored var partDrag: PartDrag?
     @ObservationIgnored var tapeDrag: Int?
     /// A drag of a ring of the Turn tool: its axis, and the degrees sent.
@@ -869,6 +878,16 @@ final class Workspace {
                 NSLog("zslice remove support: layer %ld path %ld, areas %ld -> %ld, note %@", l, path, areas,
                       zs_app_support_area_count(model.core), note ?? "none")
             }
+        }
+        // ZSLICE_SELECT_TEST runs the Select tool, as in the GTK app:
+        // "parts" (a copy of part 0, the plate arranged, and both parts
+        // selected with Shift), "range lo hi" (a drag over layers lo to hi),
+        // or "support x y [style]" (a click of the Select tool at x, y
+        // points, or at the first support line for x "auto"; with a style,
+        // the support goes on first). ZSLICE_SELECT_DEL=1 then presses
+        // Delete. The log says what the Select tool did.
+        if let spec = env["ZSLICE_SELECT_TEST"]?.split(separator: " ").map(String.init) {
+            Task { @MainActor in await runSelectTest(spec) }
         }
         // ZSLICE_PICK=x,y picks the line at that point of the view (points),
         // as a click does (as in the GTK app).
@@ -1658,6 +1677,8 @@ final class Workspace {
 
 extension Workspace: SliceViewDelegate {
     func sliceViewClick(_ p: CGPoint) {
+        // A click elsewhere ends a range of layers.
+        closeRangeCard()
         if model.plates.count > 1, page == .threeD, let v = canvas.view {
             let s = canvas.window?.backingScaleFactor ?? 2
             let i = zs_view_plate_at(v, Float(p.x * s), Float(p.y * s))
@@ -1673,15 +1694,17 @@ extension Workspace: SliceViewDelegate {
         case .support:
             supportClick(p, snap: !NSEvent.modifierFlags.contains(.shift))
         case .turn, .move:
-            // A click on a part selects it; a click on a line selects it too.
-            if let i = partAt(p) { selectPart(i) } else { selectPart(nil); pick(at: p) }
+            // A click on a part selects it (Shift: adds it, or takes it
+            // out); a click on a line selects it too.
+            if NSEvent.modifierFlags.contains(.shift), let i = partAt(p) { togglePart(i) } else if let i = partAt(p) { selectOnlyPart(i) } else { selectPart(nil); pick(at: p) }
         case .select:
-            // Shift and a click: the part under the pointer, as Command
-            // and a click (web/app/input.js).
+            // Shift and a click: the part under the pointer goes into the
+            // selection of parts, or out of it (web/app/input.js).
             if NSEvent.modifierFlags.contains(.shift), let i = partAt(p) {
                 clearSelection()
-                selectPart(i)
-            } else {
+                togglePart(i)
+            } else if !selectSupport(at: p) {
+                clearSupportPick()
                 pick(at: p)
             }
         case .grab:
@@ -1692,7 +1715,7 @@ extension Workspace: SliceViewDelegate {
     }
     func sliceViewPress(_ p: CGPoint, _ flags: NSEvent.ModifierFlags) -> Bool { press(p, flags) }
     func sliceViewDrag(_ p: CGPoint, _ flags: NSEvent.ModifierFlags) { drag(p, flags) }
-    func sliceViewRelease(_ p: CGPoint) { release(p) }
+    func sliceViewRelease(_ p: CGPoint) -> Bool { release(p) }
     func sliceViewTurnWheel(_ dy: CGFloat) -> Bool { turnWheel(dy) }
     func sliceViewHandWheel(_ dy: CGFloat) -> Bool { handWheel(dy) }
     func sliceViewMenu(_ p: CGPoint) -> NSMenu? { contextMenu(at: p) }
@@ -1730,7 +1753,11 @@ extension Workspace: SliceViewDelegate {
             letGo()
             return true
         }
-        if supportKey(event) { return true }
+        if supportKey(event) || supportPickKey(event) { return true }
+        if rangeCard != nil, event.charactersIgnoringModifiers == "\u{1b}" {
+            closeRangeCard()
+            return true
+        }
         if turnKey(event) { return true }
         if selection == nil, partKey(event) { return true }
         // Delete on a selected line (with no part card): the line does not print.

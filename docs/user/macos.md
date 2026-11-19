@@ -34,7 +34,7 @@ The keys of the other apps work in the 3D view. A key with Ctrl in the other app
 | Add models to the plate | Shift-Command-I |
 | Open a project folder | Shift-Command-O |
 
-A left or right drag (a two-finger press and drag on a trackpad) orbits the view, as in Cura. A middle drag, or Shift and a drag, pans. Command or Shift and a click selects a part, Command and a drag moves it, and Command and the wheel turns it. Control and a click opens the context menu, as a right click does.
+A left or right drag (a two-finger press and drag on a trackpad) orbits the view, as in Cura. A middle drag, or Shift and a drag, pans. Command and a click selects a part, Shift and a click adds a part to the selection or takes it out, Command and a drag moves it, and Command and the wheel turns it. Control and a click opens the context menu, as a right click does.
 
 The context menu fits what is under the pointer. On a support line it has Remove This Support: zslice finds the overhang that the line holds up and puts a Block area on it, and your support marks near the line go too. On a line of a part it has the support marks, a drop of plastic, the layer profiles, and the placement of the part. On the bed it has the plate items, with Remove This Plate when there are two plates or more. Show All Layers, the test prints, and Reset the View are in each menu.
 
@@ -55,6 +55,14 @@ The bar at the top of the Settings page picks what the editors change: This Prin
 ## A part falls over
 
 When you turn a part (the rings of the Turn tool, or its keys) so that it cannot stand, it falls over in the view onto a side that holds it, and a note says so. With support on, it stays where you put it: the support holds it, and the note says that instead.
+
+## The Select tool
+
+Shift and a click select several parts: each gets a frame on the bed. The card of several parts has Duplicate, Arrange the Plate, To a New Plate, and Remove. Drag one of them with the Move tool (or Command and a drag), or press the arrow keys, to move them all. D and Delete act on all of them.
+
+A click on a support line selects that support. With tree support, the dots of that tree show: drag a dot, a ring, or a segment to pull it, and right-click a dot for Delete Branch. With grid support, the overhang over the line shows in blue, and Delete (or Remove This Support on the card) takes the support away there. Esc ends it.
+
+A drag that starts on a line lights the layers from that line to the layer under the pointer. When you let go, a card opens beside them with settings that can change for some layers: infill, walls, top thickness, speeds, fan, and nozzle temperature. A change there is for those layers only. Esc, a click elsewhere, or × closes it.
 
 ## The card of a line
 

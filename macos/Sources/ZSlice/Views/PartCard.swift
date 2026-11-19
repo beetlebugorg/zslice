@@ -8,6 +8,12 @@
 //! gives it the value of the plate again. "Add a Setting" lists the
 //! settings that a part can have of its own.
 //!
+//! With several parts selected (Shift and a click), the card shows how
+//! many, and the actions for all of them: Duplicate, Arrange the Plate, To
+//! a New Plate, and Remove (web/app/partcard.js, linux/src/ui/part-card.c).
+//! A drag of one of them with the Move tool (or Command), or the arrow
+//! keys, moves them all.
+//!
 //! SPDX-License-Identifier: AGPL-3.0-or-later
 
 import CZslice
@@ -22,7 +28,9 @@ struct PartCard: View {
     @State private var count = 10
 
     var body: some View {
-        if let p = workspace.part(index) {
+        if !workspace.moreParts.isEmpty {
+            many
+        } else if let p = workspace.part(index) {
             let own = workspace.partSettings(index)
             VStack(alignment: .leading, spacing: 10) {
                 HStack {
@@ -125,6 +133,52 @@ struct PartCard: View {
         }
     }
 
+    /// The card of several parts (Shift and a click): how many, their
+    /// extent on the bed, and the actions for all of them.
+    private var many: some View {
+        let list = workspace.selectedParts
+        let parts = list.compactMap { workspace.part($0) }
+        let x0 = parts.map { $0.x - $0.size_x / 2 }.min() ?? 0, x1 = parts.map { $0.x + $0.size_x / 2 }.max() ?? 0
+        let y0 = parts.map { $0.y - $0.size_y / 2 }.min() ?? 0, y1 = parts.map { $0.y + $0.size_y / 2 }.max() ?? 0
+        return VStack(alignment: .leading, spacing: 10) {
+            HStack {
+                Text("\(list.count) parts").font(.headline)
+                Spacer()
+                Button { workspace.selectPart(nil) } label: {
+                    Image(systemName: "xmark.circle.fill").foregroundStyle(.secondary)
+                }
+                .buttonStyle(.borderless)
+                .help("Close (Esc)")
+            }
+            Text(String(format: "%.1f × %.1f mm on the bed", x1 - x0, y1 - y0))
+                .font(.callout.monospacedDigit())
+                .foregroundStyle(.secondary)
+            HStack {
+                Button("Duplicate") { workspace.duplicatePart() }.help("A copy of each part at a free place on the bed (D)")
+                Button("Arrange the Plate") { workspace.plateAction(zs_app_plate_arrange, fits: true) }
+                    .help("Put all parts of the plate in rows, apart from each other")
+            }
+            HStack {
+                Button("To a New Plate") { workspace.movePartsToNewPlate() }
+                    .help("Move these parts to one new plate, with the settings of this plate")
+                Button("Remove", role: .destructive) { workspace.removePart() }
+                    .help("Remove these parts from the plate (Delete). Command-Z brings them back.")
+            }
+            Text("To move them all: drag one of them with the Move tool (or Command and a drag), or press the arrow keys.")
+                .font(.caption)
+                .foregroundStyle(.secondary)
+                .fixedSize(horizontal: false, vertical: true)
+        }
+        .padding(14)
+        .frame(width: 300)
+        .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 12))
+        .overlay(RoundedRectangle(cornerRadius: 12).strokeBorder(.separator))
+        .shadow(color: .black.opacity(0.15), radius: 12, y: 4)
+        .onGeometryChange(for: CGSize.self) { $0.size } action: { cardSize = $0 }
+        .position(place)
+        .offset(drag)
+    }
+
     private var sections: [String] {
         var seen = Set<String>()
         return SettingInfo.all.filter(\.perPart).compactMap { seen.insert($0.section).inserted ? $0.section : nil }
@@ -137,7 +191,9 @@ struct PartCard: View {
     private var place: CGPoint {
         if let moved { return moved }
         let at = CGPoint(x: area.width - 92 - cardSize.width / 2, y: 236)
-        return cardPlace(avoiding: workspace.partRect(index), near: at, size: cardSize, in: area)
+        // Clear of all selected parts.
+        let box = workspace.selectedParts.compactMap { workspace.partRect($0) }.reduce(nil as CGRect?) { acc, r in acc.map { $0.union(r) } ?? r }
+        return cardPlace(avoiding: box, near: at, size: cardSize, in: area, bottom: workspace.dockHeight + 12)
     }
 }
 

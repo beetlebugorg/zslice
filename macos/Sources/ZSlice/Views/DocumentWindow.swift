@@ -230,10 +230,21 @@ struct DocumentWindow: View {
                             .padding(.top, 50)
                             .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
                     }
+                    if workspace.tool != .support, workspace.supportPick != nil, workspace.page == .threeD {
+                        // Where the card of the Support tool goes.
+                        PickedSupportCard(workspace: workspace)
+                            .fixedSize()
+                            .padding(.leading, 95)
+                            .padding(.top, 50)
+                            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+                    }
                     // The Turn and Grab tools work on the part itself: no card.
                     if let i = workspace.selectedPart, workspace.tool != .turn, workspace.tool != .grab {
                         PartCard(workspace: workspace, index: i, area: geo.size)
                             .id(i)
+                    }
+                    if let r = workspace.rangeCard, workspace.page == .threeD {
+                        RangeCard(workspace: workspace, lo: r.lo, hi: r.hi, area: geo.size)
                     }
                     if workspace.cardOpen, let info = workspace.lineInfo {
                         LineCard(workspace: workspace, info: info, area: geo.size)

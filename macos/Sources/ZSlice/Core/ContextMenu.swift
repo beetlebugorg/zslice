@@ -63,8 +63,16 @@ extension Workspace {
     /// support items on a support line, the part items on a line of a part,
     /// and the plate items on the bed. The view items show each time.
     func contextMenu(at p: CGPoint) -> NSMenu {
-        pick(at: p, card: false)
         let menu = NSMenu()
+        // On a dot of a support tree that the Select tool picked: its own
+        // menu.
+        if tool != .support, supportPick?.tree == true, let (_, part, i) = treeElement(at: p) {
+            treeSelected = (part, i)
+            showSupport()
+            menu.addItem(ClosureItem("Delete Branch") { [weak self] in self?.removePickedSupport() })
+            return menu
+        }
+        pick(at: p, card: false)
         var on = MenuTarget.empty
         if let s = selection {
             var info = zs_inspect()
@@ -208,14 +216,20 @@ extension Workspace {
     /// at the z of its layer.
     func markPlace() -> (x: Double, y: Double, z: Double)? {
         guard let s = selection else { return nil }
+        return pathPoint(s.path, seg: s.seg)
+    }
+
+    /// The middle of segment `seg` of path `path` (-1: the middle of the
+    /// path), at the z of its layer.
+    func pathPoint(_ path: Int, seg: Int) -> (x: Double, y: Double, z: Double)? {
         var tp = zs_toolpaths()
-        guard zs_app_toolpaths(model.core, &tp) == 0, s.path < tp.path_count, let ends = tp.path_ends, let pts = tp.points else { return nil }
-        let a = s.path == 0 ? 0 : Int(ends[s.path - 1]), b = Int(ends[s.path])
+        guard zs_app_toolpaths(model.core, &tp) == 0, path < tp.path_count, let ends = tp.path_ends, let pts = tp.points else { return nil }
+        let a = path == 0 ? 0 : Int(ends[path - 1]), b = Int(ends[path])
         guard b > a else { return nil }
-        let i = s.seg >= 0 && a + s.seg + 1 < b ? a + s.seg : a + (b - a) / 2 - (b - a > 1 ? 1 : 0)
+        let i = seg >= 0 && a + seg + 1 < b ? a + seg : a + (b - a) / 2 - (b - a > 1 ? 1 : 0)
         let j = i + 1 < b ? i + 1 : i
         var layer = 0
-        while layer < tp.layer_count && Int(tp.layer_ends[layer]) <= s.path { layer += 1 }
+        while layer < tp.layer_count && Int(tp.layer_ends[layer]) <= path { layer += 1 }
         let z = layer < tp.layer_count ? Double(tp.layer_z[layer]) : 0
         return ((Double(pts[2 * i]) + Double(pts[2 * j])) / 2, (Double(pts[2 * i + 1]) + Double(pts[2 * j + 1])) / 2, z)
     }

@@ -16,23 +16,16 @@
 //!   third click starts again, a drag of an end moves it, and Esc clears.
 //!   The core draws the tape in the 3D view (zs_view_set_measure).
 //!
-//! For the Mac session (the web and GTK apps have these; this file does
-//! not yet):
+//! The Select tool, as in the web and GTK apps:
 //!
 //! - Shift and a click add a part to the selection of parts, or take it
-//!   out (web/app/tools.js togglePart, the GTK zg_model_toggle_part). A
-//!   frame for each with zs_view_part_boxes. The part card of several
-//!   parts: Duplicate, Arrange the plate, To a new plate, Remove, each one
-//!   step of the history. A drag of one of them, or the arrow keys, move
-//!   them all.
-//! - Select: a click on a support line (zs_view_path_feature 6 or 7)
-//!   selects that support, with the Support tool code in a mode of its
-//!   own (web/app/support.js selectAt, the GTK zg_support_select_at).
-//! - Select: a left drag that starts on a line lights the layers from
-//!   that layer to the layer under the pointer (zs_view_light_layers; the
-//!   layer comes from two projections, see layerUnder in web/app/app.js).
-//!   The release opens a card of overrides for those layers
-//!   (web/app/rangecard.js, linux/src/ui/range-card.c).
+//!   out (togglePart). Each selected part has a frame
+//!   (zs_view_part_boxes). The part card of several parts has Duplicate,
+//!   Arrange the Plate, To a New Plate, and Remove, each one step of the
+//!   history. A drag of one of them, or the arrow keys, move them all.
+//! - A click on a support line selects that support (SupportPick.swift).
+//! - A left drag that starts on a line lights a range of layers, and its
+//!   release opens the card of the range (LayerRange.swift).
 //!
 //! SPDX-License-Identifier: AGPL-3.0-or-later
 
@@ -107,6 +100,15 @@ struct PartDrag {
     var bx0: Double, by0: Double
     var x: Double, y: Double
     var sent = Date.distantPast
+    /// The parts of a selection of several parts, with their places at the
+    /// start: they move by the same amount.
+    var group: [(index: Int, x0: Double, y0: Double)] = []
+
+    /// The place of each part that moves.
+    var places: [Int: (x: Double, y: Double)] {
+        guard !group.isEmpty else { return [index: (x, y)] }
+        return Dictionary(uniqueKeysWithValues: group.map { ($0.index, ($0.x0 + x - x0, $0.y0 + y - y0)) })
+    }
 }
 
 extension Workspace {
@@ -122,6 +124,8 @@ extension Workspace {
         if (was == .support) != (t == .support) { supportToolChanged(on: t == .support) }
         if t != .measure { clearTape() }
         if t == .select { selectPart(nil) }
+        if t != .select { closeRangeCard() }
+        if t != .support, supportPick != nil { clearSupportPick() }
         showRings()
         canvas.window?.invalidateCursorRects(for: canvas)
     }
@@ -153,10 +157,62 @@ extension Workspace {
 
     /// Selects a part (nil: none). The view draws its frame on the bed,
     /// and in the Turn tool the rings around it.
+    /// Another part, or none, ends a selection of several parts; the same
+    /// part again keeps it (the frames show again).
     func selectPart(_ i: Int?) {
+        if i == nil || i != selectedPart { moreParts = [] }
         selectedPart = i
-        showPartBox(i.flatMap { part($0) }.map { ($0.x, $0.y, $0.size_x, $0.size_y) })
+        let n = zs_app_part_count(model.core)
+        moreParts.removeAll { $0 >= n || $0 == i }
+        showPartBoxes()
         showRings()
+    }
+
+    /// One part only: a click on a part with no Shift.
+    func selectOnlyPart(_ i: Int?) {
+        moreParts = []
+        selectPart(i)
+    }
+
+    /// Shift and a click: the part goes into the selection of parts, or
+    /// out of it (web/app/tools.js togglePart). The last one added is
+    /// `selectedPart`, the part of the card and of the Turn tool.
+    func togglePart(_ i: Int) {
+        guard let cur = selectedPart else {
+            selectPart(i)
+            return
+        }
+        if i == cur {
+            // The last of the others takes its place.
+            let next = moreParts.popLast()
+            let rest = moreParts
+            selectPart(next)
+            moreParts = rest
+        } else if let k = moreParts.firstIndex(of: i) {
+            moreParts.remove(at: k)
+        } else {
+            moreParts.append(cur)
+            selectedPart = i
+        }
+        showPartBoxes()
+        showRings()
+    }
+
+    /// All selected parts; the last is `selectedPart`.
+    var selectedParts: [Int] { moreParts + (selectedPart.map { [$0] } ?? []) }
+
+    /// A frame on the bed around each selected part (zs_view_part_boxes).
+    /// places: the places of parts in a drag, which the core has not yet.
+    func showPartBoxes(_ places: [Int: (x: Double, y: Double)] = [:]) {
+        guard let v = canvas.view else { return }
+        var boxes: [Double] = []
+        for i in selectedParts {
+            guard let p = part(i) else { continue }
+            let c = places[i] ?? (p.x, p.y)
+            boxes += [c.x - p.size_x / 2, c.y - p.size_y / 2, c.x + p.size_x / 2, c.y + p.size_y / 2]
+        }
+        zs_view_part_boxes(v, boxes, boxes.count / 4)
+        canvas.requestFrame()
     }
 
     /// The rings of the Turn tool around the selected part (the core draws
@@ -171,22 +227,19 @@ extension Workspace {
         canvas.requestFrame()
     }
 
-    private func showPartBox(_ b: (x: Double, y: Double, w: Double, h: Double)?) {
-        guard let v = canvas.view else { return }
-        if let b {
-            zs_view_part_box(v, b.x - b.w / 2, b.y - b.h / 2, b.x + b.w / 2, b.y + b.h / 2)
-        } else {
-            zs_view_part_box(v, 0, 0, -1, -1)
-        }
-        canvas.requestFrame()
-    }
-
     // MARK: - the mouse
 
     /// A press: the Move tool or Command on a part starts a move, and the
     /// Measure tool on an end of the tape starts a drag of that end.
     func press(_ p: CGPoint, _ flags: NSEvent.ModifierFlags) -> Bool {
         if supportPress(p) { return true }
+        // The Select tool: a press on a dot of a picked support tree drags it.
+        if tool == .select, page == .threeD, supportPick?.tree == true, flags.isDisjoint(with: [.shift, .command, .option]), treePress(p) {
+            return true
+        }
+        // The Select tool: a press on a printed line starts a drag over
+        // layers.
+        if flags.isDisjoint(with: [.shift, .command, .option, .control]), rangeStart(p) { return true }
         if tool == .measure, let i = tapeEnd(near: p) {
             tapeDrag = i
             return true
@@ -228,8 +281,14 @@ extension Workspace {
         var bx = 0.0, by = 0.0
         guard zs_view_bed_point(v, Float(p.x * pixelScale), Float(p.y * pixelScale), &bx, &by) != 0 else { return false }
         clearSelection()
-        selectPart(i)
-        partDrag = PartDrag(index: i, x0: info.x, y0: info.y, bx0: bx, by0: by, x: info.x, y: info.y)
+        var d = PartDrag(index: i, x0: info.x, y0: info.y, bx0: bx, by0: by, x: info.x, y: info.y)
+        // A part of a selection of several parts: they all move.
+        if selectedParts.count > 1, selectedParts.contains(i) {
+            d.group = selectedParts.compactMap { k in part(k).map { (k, $0.x, $0.y) } }
+        } else {
+            selectOnlyPart(i)
+        }
+        partDrag = d
         return true
     }
 
@@ -258,6 +317,10 @@ extension Workspace {
             if ProcessInfo.processInfo.environment["ZSLICE_FALL_LOG"] != nil {
                 NSLog("zslice grab: move %d to %.1f, %.1f at z %.1f, falling %d", ok ? 1 : 0, x, y, grabZ, falling == nil ? 0 : 1)
             }
+            return
+        }
+        if rangeDrag != nil {
+            rangeMoved(p)
             return
         }
         if supportDrag != nil {
@@ -292,30 +355,35 @@ extension Workspace {
         guard var d = partDrag, let v = canvas.view, let info = part(d.index) else { return }
         var bx = 0.0, by = 0.0
         guard zs_view_bed_point(v, Float(p.x * pixelScale), Float(p.y * pixelScale), &bx, &by) != 0 else { return }
+        _ = info
         d.x = d.x0 + bx - d.bx0
         d.y = d.y0 + by - d.by0
-        // The frame follows at once; the core gets the place at most each
+        // The frames follow at once; the core gets the places at most each
         // 60 ms, and the slice waits for the end of the drag.
-        showPartBox((d.x, d.y, info.size_x, info.size_y))
+        showPartBoxes(d.places)
         if Date().timeIntervalSince(d.sent) > 0.06 {
             d.sent = Date()
-            zs_app_part_move(model.core, d.index, d.x, d.y)
+            for (k, c) in d.places { zs_app_part_move(model.core, k, c.x, c.y) }
             model.changedHeld()
         }
         partDrag = d
     }
 
-    func release(_ p: CGPoint) {
+    /// The end of a drag. False: a press with no drag on a line of the
+    /// Select tool, which is a click.
+    @discardableResult
+    func release(_ p: CGPoint) -> Bool {
+        if rangeDrag != nil { return rangeReleased() }
         // The hand keeps the part after the click: the pointer carries it,
         // and the next click (or Esc) lets go.
-        if grabbing { return }
+        if grabbing { return true }
         if supportDrag != nil {
             supportReleased()
-            return
+            return true
         }
         if treeDrag != nil {
             treeReleased()
-            return
+            return true
         }
         if let r = ringDrag, let v = canvas.view {
             zs_view_ring_release(v)
@@ -327,18 +395,19 @@ extension Workspace {
                 settle(part: selectedPart) { [weak self] in self?.model.release() }
             }
             canvas.requestFrame()
-            return
+            return true
         }
         if tapeDrag != nil {
             tapeDrag = nil
-            return
+            return true
         }
-        guard let d = partDrag else { return }
+        guard let d = partDrag else { return true }
         partDrag = nil
-        zs_app_part_move(model.core, d.index, d.x, d.y)
+        for (k, c) in d.places { zs_app_part_move(model.core, k, c.x, c.y) }
         // The move slices once, at the end of the drag.
         model.changedHeld()
         model.release()
+        return true
     }
 
     /// Command and the wheel: the selected part turns 15° a step.
@@ -634,10 +703,17 @@ extension Workspace {
         return nil
     }
 
+    /// A copy of each selected part at a free place; the copies are the
+    /// new selection. One step of the history.
     func duplicatePart() {
-        guard let i = selectedPart else { return }
-        let j = zs_app_part_duplicate(model.core, i)
-        if j >= 0 { selectPart(j) }
+        let list = selectedParts
+        guard !list.isEmpty else { return }
+        model.history.commit()
+        let copies = list.map { zs_app_part_duplicate(model.core, $0) }.filter { $0 >= 0 }
+        if let first = copies.first {
+            selectOnlyPart(first)
+            for c in copies.dropFirst() { togglePart(c) }
+        }
         model.settingsChanged()
     }
 
@@ -698,8 +774,13 @@ extension Workspace {
         model.settingsChanged()
     }
 
+    /// Removes each selected part (the highest index first: a remove moves
+    /// the parts after it). One step of the history.
     func removePart() {
-        guard let i = selectedPart, zs_app_part_remove(model.core, i) == 0 else { return }
+        let list = selectedParts.sorted(by: >)
+        guard !list.isEmpty else { return }
+        model.history.commit()
+        guard list.map({ zs_app_part_remove(model.core, $0) == 0 }).contains(true) else { return }
         selectPart(nil)
         clearSelection()
         model.settingsChanged()
@@ -707,14 +788,18 @@ extension Workspace {
 
     /// The keys of a selected part: the arrows move it 1 mm (Shift: 10 mm),
     /// Tab and Shift-Tab select the next part and the part before, D
-    /// duplicates it, Delete removes it, and Esc clears the selection. The
+    /// duplicates it, Delete removes it, and Esc clears the selection. With
+    /// several parts selected, the arrows, D, and Delete act on all. The
     /// part slices after a pause of 0.6 s in the keys.
     func partKey(_ event: NSEvent) -> Bool {
-        guard let i = selectedPart, let p = part(i) else { return false }
+        guard let i = selectedPart, part(i) != nil else { return false }
         let shift = event.modifierFlags.contains(.shift)
         let d = shift ? 10.0 : 1.0
+        // The arrows move all selected parts.
         func move(_ dx: Double, _ dy: Double) {
-            zs_app_part_move(model.core, i, p.x + dx, p.y + dy)
+            for k in selectedParts {
+                if let q = part(k) { zs_app_part_move(model.core, k, q.x + dx, q.y + dy) }
+            }
             selectPart(i)
             model.changedHeld()
             keySlice.run { [weak self] in self?.model.release() }
@@ -727,7 +812,7 @@ extension Workspace {
         case .tab?, .backTab?:
             let n = zs_app_part_count(model.core)
             guard n > 0 else { return false }
-            selectPart((i + (shift || event.specialKey == .backTab ? n - 1 : 1)) % n)
+            selectOnlyPart((i + (shift || event.specialKey == .backTab ? n - 1 : 1)) % n)
         case .delete?, .deleteForward?: removePart()
         default:
             switch event.charactersIgnoringModifiers {

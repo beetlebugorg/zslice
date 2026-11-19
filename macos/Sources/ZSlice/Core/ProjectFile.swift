@@ -190,6 +190,20 @@ extension Workspace {
         }
     }
 
+    /// Moves all selected parts to one new plate (the highest index first:
+    /// a move takes the part out of this plate), and shows that plate.
+    func movePartsToNewPlate() {
+        let list = selectedParts.sorted(by: >)
+        guard !list.isEmpty else { return }
+        selectPart(nil)
+        var to: Int?
+        for i in list {
+            guard let t = model.movePart(i, to: to) else { break }
+            to = t
+        }
+        if let to { selectPlate(to) }
+    }
+
     /// Moves the selected part to a new plate, and shows that plate.
     func movePartToNewPlate(_ part: Int? = nil) {
         guard let i = part ?? selectedPart else { return }

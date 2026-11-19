@@ -17,7 +17,9 @@ struct ShortcutSheet: View {
         ("View", [
             ("Drag, right-drag, two-finger press-drag", "Orbit the view"),
             ("Middle-drag, Shift-drag", "Pan the view"),
-            ("Shift-click", "Select the part under the pointer"),
+            ("Shift-click", "Add a part to the selection, or take it out"),
+            ("Drag from a line (Select)", "Select a range of layers, and edit their settings"),
+            ("Click a support line (Select)", "Select that support: drag a tree, or Delete"),
             ("Two-finger scroll, wheel, pinch", "Zoom toward the pointer"),
             ("Double-click a side", "Face that side (on no side: the start view)"),
             ("⌘1, ⌘2", "The 3D view, the 2D layer view"),

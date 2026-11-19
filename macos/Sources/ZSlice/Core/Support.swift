@@ -55,6 +55,7 @@ extension Workspace {
     /// The tool goes on or off.
     func supportToolChanged(on: Bool) {
         if let v = canvas.view { zs_view_pick_skip_support(v, on ? 1 : 0) }
+        supportPick = nil
         if !on {
             supportDraft = []
             supportSelected = nil
@@ -99,6 +100,11 @@ extension Workspace {
         if on, supportDraft.isEmpty, let h = supportHover {
             var pts = Array(h.points.prefix(3 * h.n))
             zs_view_support_add(v, &pts, h.n, supportKind, 1 | 2 | 4)
+        }
+        // The overhang of a grid support that the Select tool picked.
+        if !on, let o = supportPick?.overhang, supportPick?.tree == false {
+            var pts = o.points
+            zs_view_support_add(v, &pts, o.n, Int32(ZS_MARK_GRID.rawValue), 1 | 2)
         }
         showSupportTrees(v)
         canvas.requestFrame()
