@@ -122,6 +122,24 @@ pub fn parse(arena: Allocator, text: []const u8, diag: *Diagnostic) Error!Projec
     return out;
 }
 
+/// The most copies of one part. A count of four billion would hang the
+/// arrange of the plate.
+pub const max_count = 1000;
+
+/// A path of printdeck.yml must stay in the repository: a relative path
+/// with no "..", no "\", and no NUL. A printdeck.yml from outside can
+/// otherwise name a file of the computer (../../.ssh/id_rsa) when the
+/// project is a folder on disk.
+fn checkPath(arena: Allocator, path: []const u8, part: []const u8, diag: *Diagnostic) Error!void {
+    const ok = path.len > 0 and path[0] != '/' and
+        std.mem.indexOfAny(u8, path, "\\\x00") == null and
+        !std.mem.eql(u8, path, "..") and
+        !std.mem.startsWith(u8, path, "../") and
+        !std.mem.endsWith(u8, path, "/..") and
+        std.mem.indexOf(u8, path, "/../") == null;
+    if (!ok) return fail(diag, 0, try std.fmt.allocPrint(arena, "the path {s} of {s} must be a path in the repository", .{ path, part }));
+}
+
 /// A part, or a variant of `base`.
 fn readPart(arena: Allocator, v: *const yaml.Value, base: ?*const Part, diag: *Diagnostic, index: usize) Error!Part {
     var p: Part = if (base) |b| b.* else .{ .name = "", .base_name = "" };
@@ -144,14 +162,29 @@ fn readPart(arena: Allocator, v: *const yaml.Value, base: ?*const Part, diag: *D
     if (v.get("files")) |f| {
         const items = try f.items(arena);
         const files = try arena.alloc([]const u8, items.len);
-        for (items, files) |it, *out| out.* = it.str() orelse return fail(diag, 0, try std.fmt.allocPrint(arena, "a file of {s} is not a text", .{p.name}));
+        for (items, files) |it, *out| {
+            out.* = it.str() orelse return fail(diag, 0, try std.fmt.allocPrint(arena, "a file of {s} is not a text", .{p.name}));
+            try checkPath(arena, out.*, p.name, diag);
+        }
         p.files = files;
     }
-    if (text(v, "count")) |c| p.count = std.fmt.parseInt(u32, c, 10) catch return fail(diag, 0, try std.fmt.allocPrint(arena, "the count of {s} is not a number", .{p.name}));
+    if (text(v, "count")) |c| {
+        p.count = std.fmt.parseInt(u32, c, 10) catch return fail(diag, 0, try std.fmt.allocPrint(arena, "the count of {s} is not a number", .{p.name}));
+        if (p.count > max_count) return fail(diag, 0, try std.fmt.allocPrint(arena, "the count of {s} is more than {d}", .{ p.name, max_count }));
+    }
     if (text(v, "printer")) |x| p.printer = x;
-    if (text(v, "profile")) |x| p.profile = x;
-    if (text(v, "material")) |x| p.material = x;
-    if (text(v, "prebuilt")) |x| p.prebuilt = x;
+    if (text(v, "profile")) |x| {
+        try checkPath(arena, x, p.name, diag);
+        p.profile = x;
+    }
+    if (text(v, "material")) |x| {
+        try checkPath(arena, x, p.name, diag);
+        p.material = x;
+    }
+    if (text(v, "prebuilt")) |x| {
+        try checkPath(arena, x, p.name, diag);
+        p.prebuilt = x;
+    }
     if (text(v, "alone")) |x| p.alone = std.ascii.eqlIgnoreCase(x, "true") or std.ascii.eqlIgnoreCase(x, "yes");
     if (v.get("settings")) |s| {
         if (s.* == .map) {
@@ -522,6 +555,26 @@ test "project: parts and variants" {
     try testing.expectEqualStrings("10", p.parts[4].settings[0].value);
     try testing.expect(p.parts[4].alone);
     try testing.expectEqualStrings("phenom/case.cbddlp", p.parts[5].prebuilt);
+}
+
+test "project: paths stay in the repository, and counts stay small" {
+    var arena_state = std.heap.ArenaAllocator.init(testing.allocator);
+    defer arena_state.deinit();
+    const a = arena_state.allocator();
+    var diag: Diagnostic = .{};
+    const bad = [_][]const u8{
+        "parts:\n  - name: A\n    files: [../../.ssh/id_rsa]\n",
+        "parts:\n  - name: A\n    files: [models/../../../etc/passwd]\n",
+        "parts:\n  - name: A\n    files: [/etc/passwd]\n",
+        "parts:\n  - name: A\n    files: ['models\\..\\..\\x.stl']\n",
+        "parts:\n  - name: A\n    files: [a.stl]\n    profile: ../taz/pla\n",
+        "parts:\n  - name: A\n    files: [a.stl]\n    prebuilt: x/..\n",
+        "parts:\n  - name: A\n    files: [a.stl]\n    count: 4000000000\n",
+    };
+    for (bad) |t| try testing.expectError(error.BadProject, parse(a, t, &diag));
+    // Dots in names are fine.
+    const ok = try parse(a, "parts:\n  - name: A\n    files: [models/a..b.stl, ..hidden/x.stl]\n    count: 1000\n", &diag);
+    try testing.expectEqual(@as(u32, 1000), ok.parts[0].count);
 }
 
 test "project: the plates of a plan" {

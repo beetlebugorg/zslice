@@ -108,6 +108,7 @@ pub const Packet = struct {
 
 pub const Error = error{BadPacket} || Allocator.Error;
 
+
 /// Collects the bytes of the stream and gives back each whole packet. The
 /// slices of a packet stay valid until the next `feed` or `next`.
 pub const Reader = struct {
@@ -147,6 +148,8 @@ pub const Reader = struct {
             mult *= 128;
             if (b[i] & 128 == 0) break;
         }
+        // A packet larger than any report: with no limit, the reader keeps
+        // all of its bytes (up to 256 MB) before it gives the packet.
         if (len > max_packet) return error.BadPacket;
         const start = i + 1;
         if (b.len < start + len) return null;
@@ -245,4 +248,17 @@ test "mqtt: publish, and the bound of a packet that comes" {
     defer bad.deinit(gpa);
     try bad.feed(gpa, &.{ 0x30, 3, 0xFF, 0xFF, 'a' });
     try testing.expectError(error.BadPacket, bad.next());
+}
+
+test "mqtt: a packet larger than the limit is an error at once" {
+    const gpa = testing.allocator;
+    var r: Reader = .{};
+    defer r.deinit(gpa);
+    // A PUBLISH that says it has 200 MB: the reader must not wait for it.
+    var head: std.ArrayList(u8) = .empty;
+    defer head.deinit(gpa);
+    try head.append(gpa, 0x30);
+    try putLen(&head, gpa, 200 << 20);
+    try r.feed(gpa, head.items);
+    try testing.expectError(error.BadPacket, r.next());
 }
