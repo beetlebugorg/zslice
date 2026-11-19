@@ -412,6 +412,22 @@ pub fn prepare(gpa: std.mem.Allocator, r: *const Resolved, lp: *const LayerPlan,
 
 pub const Error = Writer.Error || std.mem.Allocator.Error;
 
+/// The prime tower of a print with tool changes (Project.prime_tower): a
+/// square of `size` mm at (x, y) on the bed. Each change purges into it
+/// in rows of lines; each layer up to `last_layer` that has no change
+/// prints a light layer of it (its loop and a diagonal), so the tower
+/// grows with the print and the purge of a later layer has a base.
+pub const Tower = struct {
+    x: f64,
+    y: f64,
+    size: f64,
+    last_layer: usize,
+};
+
+/// The prime volume (mm³) of a change into the tower when the change
+/// G-code of the machine flushes into a chute (Bambu Lab).
+pub const tower_prime_mm3 = 15;
+
 /// The slot of the filament of the last path of a layer plan, with the
 /// settings `r` of the print and the filaments `slots` of the plate.
 pub fn endTool(lp: *const LayerPlan, r: *const Resolved, slots: []const settings_mod.Filament) u32 {
@@ -611,6 +627,14 @@ pub const Emitter = struct {
     tool: u32 = 0,
     /// The layer that `layer` writes, for the change G-code.
     layer_index: usize = 0,
+    /// The prime tower (see `Tower`), or null.
+    tower: ?Tower = null,
+    /// The layer whose tower rows `tower_rows` counts.
+    tower_layer: usize = std.math.maxInt(usize),
+    tower_rows: u32 = 0,
+    /// The height and the line width of the layer that `paths` writes.
+    layer_h: f64 = 0.2,
+    layer_w: f64 = 0.4,
 
     const max_rules = 16;
     const Rule = struct { target: enum { speed, flow, fan }, node: *const expr.Node };
@@ -1248,8 +1272,13 @@ pub const Emitter = struct {
         try self.addTime(m.change_time);
         self.stop = true;
         self.stats.flush_mm += flush_mm;
-        self.stats.filament_mm += flush_mm;
-        self.stats.slot_mm[next] += flush_mm;
+        // With a tower and no change G-code, the flush goes into the tower
+        // (its lines count the filament); else into the chute.
+        const into_tower = self.tower != null and m.filament_change == .tool and m.change_gcode.len == 0;
+        if (!into_tower) {
+            self.stats.filament_mm += flush_mm;
+            self.stats.slot_mm[next] += flush_mm;
+        }
         self.tool = next;
         self.nozzle_temp = new_temp;
         // The change loads the new filament to the nozzle tip.
@@ -1259,6 +1288,80 @@ pub const Emitter = struct {
         self.feature = null;
         self.accel = Exit.unset;
         self.fan = -1;
+        if (self.tower != null and m.filament_change == .tool) {
+            try self.towerPurge(if (into_tower) flush_mm3 else tower_prime_mm3, first);
+        }
+    }
+
+    /// A plain retraction before a move to the tower (no wipe, no z hop:
+    /// the tower is away from the part).
+    fn towerRetract(self: *Emitter) Error!void {
+        const len = self.lr.retract_length;
+        if (self.retracted or !self.extruded or len <= 0) return;
+        try self.w.writeAll("G1 E-");
+        try writeNum(self.w, len, 4);
+        try self.w.writeAll(" F");
+        try writeNum(self.w, self.r.settings.machine.retract_speed * 60, 0);
+        try self.w.writeAll("\n");
+        self.retracted = true;
+        self.retract_len = len;
+        self.feed = -1;
+        self.stats.retractions += 1;
+        try self.addTime(self.retractTime(len));
+        self.stop = true;
+    }
+
+    /// Lines of the tower at height of the layer: a travel to (x0, y0),
+    /// then extrusions through `pts`.
+    fn towerLines(self: *Emitter, pts: []const [2]f64, first: bool) Error!void {
+        if (pts.len < 2) return;
+        if (!self.dry) try self.w.writeAll(";TYPE:PRIME-TOWER\n");
+        self.feature = null;
+        try self.towerRetract();
+        try self.move(pts[0][0], pts[0][1]);
+        try self.unretract();
+        const e = flow.beadArea(self.layer_w, self.layer_h) / self.r.filament_area;
+        const speed = self.lr.speed(.skirt, self.layer_w, self.layer_h, first);
+        for (pts[1..]) |q| try self.extrude(q[0], q[1], e, speed);
+        self.extruded = true;
+    }
+
+    /// Purges `volume` mm³ into the tower: rows of lines across it, from
+    /// the row after the last one of this layer.
+    fn towerPurge(self: *Emitter, volume: f64, first: bool) Error!void {
+        const t = self.tower.?;
+        if (self.tower_layer != self.layer_index) {
+            self.tower_layer = self.layer_index;
+            self.tower_rows = 0;
+        }
+        const w = self.layer_w;
+        const x0 = t.x - t.size / 2;
+        const x1 = t.x + t.size / 2;
+        const y0 = t.y - t.size / 2;
+        const rows_max: u32 = @max(1, @as(u32, @intFromFloat(t.size / w)));
+        var len = volume / flow.beadArea(w, self.layer_h);
+        var pts: [2 * 64 + 2][2]f64 = undefined;
+        var n: usize = 0;
+        while (len > 0 and n + 2 <= pts.len) {
+            const row = self.tower_rows % rows_max;
+            const y = y0 + (@as(f64, @floatFromInt(row)) + 0.5) * w;
+            const ltr = row % 2 == 0;
+            pts[n] = .{ if (ltr) x0 else x1, y };
+            pts[n + 1] = .{ if (ltr) x1 else x0, y };
+            n += 2;
+            len -= t.size;
+            self.tower_rows += 1;
+        }
+        try self.towerLines(pts[0..n], first);
+    }
+
+    /// A light layer of the tower on a layer with no change: its loop and
+    /// a diagonal.
+    fn towerSparse(self: *Emitter, first: bool) Error!void {
+        const t = self.tower.?;
+        const h = t.size / 2;
+        const pts = [_][2]f64{ .{ t.x - h, t.y - h }, .{ t.x + h, t.y - h }, .{ t.x + h, t.y + h }, .{ t.x - h, t.y + h }, .{ t.x - h, t.y - h }, .{ t.x + h, t.y + h } };
+        try self.towerLines(&pts, first);
     }
 
     /// Writes the change G-code of the machine with the facts of the
@@ -1344,6 +1447,8 @@ pub const Emitter = struct {
         self.feed = -1;
         self.stats.layer_count += 1;
 
+        self.layer_h = lp.height;
+        self.layer_w = lp.width;
         // The filament length for 1 mm of line.
         const e_per_mm = flow.beadArea(lp.width, lp.height) / self.r.filament_area * s.filament.flow_ratio;
 
@@ -1453,6 +1558,13 @@ pub const Emitter = struct {
             if (self.record) |rec| rec.appendAssumeCapacity(.{ .start_time = start_time, .end_time = self.stats.print_time_s, .area = e * self.r.filament_area, .retracted = retracted, .slowed = slow < 1 or lapped, .fan = fanByte(self.fan), .tool = @intCast(self.tool) });
             try self.wallWipe(path, pts, path_r.settings.project.outer_wall_wipe, speed);
         }
+        // The tower grows on each layer up to the last change: a light
+        // layer where this layer had no change.
+        if (self.tower) |t| if (lp.index <= t.last_layer and self.tower_layer != lp.index) {
+            self.tower_layer = lp.index;
+            self.tower_rows = 0;
+            try self.towerSparse(first);
+        };
     }
 
     /// After a closed outer wall: the nozzle moves on along the start of

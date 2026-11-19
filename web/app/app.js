@@ -2567,6 +2567,15 @@ async function exportGcode() {
     toast("No G-code: slice first.");
     return;
   }
+  // A Bambu Lab printer prints a .gcode.3mf file (the G-code, its MD5,
+  // and the filaments of the print).
+  if (String(value("machine.model") || "").startsWith("bambu-lab")) {
+    const b = await client.call("bambuFile", { title: gcodeFileName(r) });
+    if (b.bytes) {
+      download(new Uint8Array(b.bytes), `${gcodeFileName(r)}.gcode.3mf`, "model/3mf");
+      return;
+    }
+  }
   download(await signGcode(new Uint8Array(r.bytes)), `${gcodeFileName(r)}.gcode`, "text/x-gcode");
   await warnUnsigned();
 }

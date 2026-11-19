@@ -1594,6 +1594,20 @@ const ops = {
   },
 
   // plates: the count of plates, so a name has the plate of more than one.
+  // The .gcode.3mf file of a Bambu Lab printer (zs_app_bambu_file): the
+  // G-code and the filaments it uses. Only a file; nothing is sent.
+  bambuFile({ title }) {
+    const w = core.w;
+    const c = w.cell;
+    const rc = w.withString(title || "zslice", (t) => w.x.zs_app_bambu_file(core.app, t, c, c + 4));
+    if (rc !== 0) return { bytes: null };
+    const p = w.u32(c);
+    const n = w.u32(c + 4);
+    const bytes = w.x.memory.buffer.slice(p, p + n);
+    w.x.zs_buffer_free(p, n);
+    return { bytes };
+  },
+
   gcode({ plate, plates } = {}) {
     const bytes = core.gcode();
     const w = core.w;

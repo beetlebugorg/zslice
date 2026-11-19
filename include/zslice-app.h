@@ -271,6 +271,10 @@ typedef struct zs_bambu_plate {
     double nozzle;
 } zs_bambu_plate;
 int zs_bambu_file_plate(const uint8_t *gcode, size_t len, const zs_bambu_plate *plate, uint8_t **out, size_t *out_len);
+/* The .gcode.3mf file of the last slice of the app, with the filaments
+ * that the print uses (their slots, types, colors, and weights) in
+ * Metadata/slice_info.config. Free the bytes with zs_buffer_free. */
+int zs_app_bambu_file(const zs_app *app, const char *title, uint8_t **out, size_t *out_len);
 /* flags: 1 bed leveling, 2 the AMS, 4 a time lapse, 8 the url form
  * "ftp://<file>" (P1 and A1, reported) in place of "file:///sdcard/<file>"
  * (X1). md5: zs_bambu_md5 of the G-code, or NULL. */
@@ -719,7 +723,7 @@ int zs_app_measure(const zs_app *app, size_t path, size_t seg, zs_measure *out);
  * the bond of a part to the bed), and its text,
  * text[text_start .. text_start + text_len) of the text of the call. The
  * worst first. Valid until the next slice. */
-enum zs_issue_kind { ZS_ISSUE_FLOW = 0, ZS_ISSUE_COOLING = 1, ZS_ISSUE_OVERHANG = 2, ZS_ISSUE_ISLAND = 3, ZS_ISSUE_RETRACTIONS = 4, ZS_ISSUE_BRIDGE = 5, ZS_ISSUE_STAND = 6 };
+enum zs_issue_kind { ZS_ISSUE_FLOW = 0, ZS_ISSUE_COOLING = 1, ZS_ISSUE_OVERHANG = 2, ZS_ISSUE_ISLAND = 3, ZS_ISSUE_RETRACTIONS = 4, ZS_ISSUE_BRIDGE = 5, ZS_ISSUE_STAND = 6, ZS_ISSUE_COLOR = 7, ZS_ISSUE_CHANGES = 8, ZS_ISSUE_TOWER = 9 };
 #define ZS_NO_PATH 0xffffffffu
 typedef struct {
     uint8_t kind;

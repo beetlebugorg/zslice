@@ -42,6 +42,20 @@ pub const PlateInfo = struct {
     /// "#RRGGBB".
     color: []const u8 = "",
     nozzle: f64 = 0,
+    /// The filaments of a print with more than one: each with its slot of
+    /// the AMS. When it has any, they replace material and color.
+    filaments: []const FilamentUse = &.{},
+};
+
+/// A filament of the print, for the slice info of a .gcode.3mf file.
+pub const FilamentUse = struct {
+    /// The filament (from 1): the slot of the AMS that the print uses.
+    id: u32,
+    /// The type ("PLA") and the color ("#rrggbb").
+    kind: []const u8,
+    color: []const u8,
+    meters: f64,
+    grams: f64,
 };
 
 /// `text` with the 5 special characters of XML escaped.
@@ -77,7 +91,11 @@ fn sliceInfo(a: Allocator, info: PlateInfo) Allocator.Error![]u8 {
     ww.print("    <metadata key=\"prediction\" value=\"{d}\"/>\n", .{@as(i64, @intFromFloat(@round(@max(0, info.seconds))))}) catch return error.OutOfMemory;
     ww.print("    <metadata key=\"weight\" value=\"{d:.2}\"/>\n", .{@max(0, info.grams)}) catch return error.OutOfMemory;
     if (info.nozzle > 0) ww.print("    <metadata key=\"nozzle_diameters\" value=\"{d}\"/>\n", .{info.nozzle}) catch return error.OutOfMemory;
-    if (info.material.len > 0) {
+    for (info.filaments) |f| {
+        const color = if (f.color.len == 7 and f.color[0] == '#') f.color else "#FFFFFF";
+        ww.print("    <filament id=\"{d}\" type=\"{s}\" color=\"{s}\" used_m=\"{d:.2}\" used_g=\"{d:.2}\"/>\n", .{ f.id, try xmlText(a, f.kind), try xmlText(a, color), @max(0, f.meters), @max(0, f.grams) }) catch return error.OutOfMemory;
+    }
+    if (info.filaments.len == 0 and info.material.len > 0) {
         const color = if (info.color.len == 7 and info.color[0] == '#') info.color else "#FFFFFF";
         ww.print("    <filament id=\"1\" type=\"{s}\" color=\"{s}\" used_m=\"{d:.2}\" used_g=\"{d:.2}\"/>\n", .{ try xmlText(a, info.material), try xmlText(a, color), @max(0, info.meters), @max(0, info.grams) }) catch return error.OutOfMemory;
     }
@@ -88,6 +106,18 @@ fn sliceInfo(a: Allocator, info: PlateInfo) Allocator.Error![]u8 {
 /// A .gcode.3mf file with the G-code as plate 1, in gpa.
 pub fn gcode3mf(gpa: Allocator, gcode: []const u8, title: []const u8) (Allocator.Error || std.Io.Writer.Error)![]u8 {
     return gcode3mfPlate(gpa, gcode, title, .{});
+}
+
+/// `gcode3mfPlate` with the filaments that the print uses (a print of
+/// more than one filament): the screen of the printer shows them, and the
+/// AMS mapping of a start message (see `Start`) maps them to its slots.
+pub fn gcode3mfWith(gpa: Allocator, gcode: []const u8, title: []const u8, filaments: []const FilamentUse) (Allocator.Error || std.Io.Writer.Error)![]u8 {
+    var info: PlateInfo = .{ .filaments = filaments };
+    for (filaments) |f| {
+        info.grams += f.grams;
+        info.meters += f.meters;
+    }
+    return gcode3mfPlate(gpa, gcode, title, info);
 }
 
 /// A .gcode.3mf file with the G-code as plate 1 and the facts of the
@@ -353,6 +383,23 @@ test "bambu: the file has the G-code and its MD5" {
         }
     }
     try testing.expect(found_gcode and found_md5);
+}
+
+test "bambu: the file lists the filaments of the print" {
+    const gpa = std.testing.allocator;
+    const fils = [_]FilamentUse{
+        .{ .id = 1, .kind = "PLA", .color = "#FFFFFF", .meters = 3.2, .grams = 9.5 },
+        .{ .id = 2, .kind = "PLA", .color = "#D93A3A", .meters = 0.4, .grams = 1.2 },
+    };
+    const bytes = try gcode3mfWith(gpa, "G28\n", "plaque", &fils);
+    defer gpa.free(bytes);
+    const entries = try zipfile.readAll(gpa, bytes);
+    defer zipfile.freeAll(gpa, entries);
+    var info: ?[]const u8 = null;
+    for (entries) |e| if (std.mem.eql(u8, e.name, "Metadata/slice_info.config")) {
+        info = e.data;
+    };
+    try std.testing.expect(std.mem.indexOf(u8, info.?, "<filament id=\"2\" type=\"PLA\" color=\"#D93A3A\" used_m=\"0.40\" used_g=\"1.20\"/>") != null);
 }
 
 test "bambu: the start message" {

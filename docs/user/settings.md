@@ -738,6 +738,22 @@ Where the part goes on the bed. auto: at the X and Y of the file if the part is 
 
 The filament that prints this part, or these layers: 1 is the first filament of the plate, 2 the second, and so on. A change at a layer is a filament change in the G-code.
 
+**`project.prime_tower`** (true or false). Default: `true`
+
+A prime tower for a printer that changes the filament with a tool change (`machine.filament_change = tool`): after each change, the nozzle flushes the old color into a small tower next to the parts, and each layer up to the last change prints a light layer of it, so the tower grows with the print. A Bambu Lab printer flushes into its chute (its change G-code); its tower then gets a small prime.
+
+**`project.prime_tower_width`** (number). Default: `20`
+
+The width of the square prime tower.
+
+**`project.prime_tower_x`** (number). Default: `-1`
+
+The x of the center of the prime tower on the bed. -1: near the right side.
+
+**`project.prime_tower_y`** (number). Default: `-1`
+
+The y of the center of the prime tower. -1: near the back.
+
 **`project.flush_multiplier`** (number). Default: `1`
 
 A multiplier for the flush volume of each filament change (see `machine.flush_volume`). Lower wastes less plastic. Too low mixes the old color into the new one.

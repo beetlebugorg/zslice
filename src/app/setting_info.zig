@@ -352,6 +352,9 @@ const units = [_][2][]const u8{
     .{ "project.first_layer_xy_offset", "mm" },
     .{ "project.filament", "slot" },
     .{ "project.flush_multiplier", "%" },
+    .{ "project.prime_tower_width", "mm" },
+    .{ "project.prime_tower_x", "mm" },
+    .{ "project.prime_tower_y", "mm" },
     // engine
     .{ "engine.resolution", "mm" },
     .{ "engine.gap_closing", "mm" },

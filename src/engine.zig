@@ -1056,6 +1056,8 @@ pub const PlanSource = struct {
     bind: ?stream_mod.BindFn = null,
     /// The filaments of the plate (see gcode.Emitter.slots).
     slots: []const settings_mod.Filament = &.{},
+    /// The prime tower (see gcode.Tower), or null.
+    tower: ?gcode.Tower = null,
 };
 
 /// True if a start or end G-code has a variable of the box of the first
@@ -1090,6 +1092,7 @@ fn firstLayerBox(gpa: Allocator, src: PlanSource) Allocator.Error!?[4]f64 {
 pub fn emitAll(gpa: Allocator, src: PlanSource, threads: usize, monitor: Monitor, out: *Writer, sink: ?Job.LayerSink) Error!Stats {
     var em: gcode.Emitter = .init(gpa, out, src.resolved);
     em.slots = src.slots;
+    em.tower = src.tower;
     var record: std.ArrayList(gcode.PathInfo) = .empty;
     defer record.deinit(gpa);
     if (sink != null) em.record = &record;

@@ -1858,6 +1858,24 @@ fn testRender(text: []const u8, ctx_in: Context) ![]u8 {
     return out.toOwnedSlice();
 }
 
+test "gcode vars: the change G-code of the Bambu Lab X2D" {
+    const r = try testResolved();
+    var red = r.settings.filament;
+    red.color = "#ff0000";
+    red.nozzle_temp = 220;
+    const slots = [_]settings_mod.Filament{ r.settings.filament, red };
+    const text = @import("printers.zig").changeGcode("bambu-lab-x2d").?;
+    const out = try testRender(text, .{ .r = &r, .layer_count = 100, .max_layer_z = 4.2, .layer_z = 4.2, .slots = &slots, .tool = 0, .layer_index = 20, .change = .{ .next = 1, .flush_mm = 50, .count = 3, .old_temp = 203, .new_temp = 220, .after = .{ 100, 120, 4.2 } } });
+    defer testing.allocator.free(out);
+    // The AMS takes the new filament (M620 S1), the tool changes, and the
+    // AMS ends the change (M621 S1).
+    try testing.expect(std.mem.indexOf(u8, out, "M620 S1A") != null);
+    try testing.expect(std.mem.indexOf(u8, out, "\nT1 H0") != null);
+    try testing.expect(std.mem.indexOf(u8, out, "M621 S1A") != null);
+    try testing.expect(std.mem.indexOf(u8, out, "L50 ") != null);
+    try testing.expect(std.mem.indexOf(u8, out, "G1 Z7.2 F1200") != null);
+}
+
 fn testResolved() !Resolved {
     var s: settings_mod.Settings = .{};
     s.filament.first_layer_nozzle_temp = 207;

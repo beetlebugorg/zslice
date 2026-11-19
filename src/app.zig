@@ -1814,7 +1814,7 @@ pub const App = struct {
             const m = try app.bondOf(i);
             try stands.append(app.gpa, .{ .name = p.name, .x = p.x, .y = p.y, .result = m.result, .weak = m.stand == .weak });
         }
-        app.checks_result = try checks_mod.run(app.gpa, j, t, app.settings, stands.items);
+        app.checks_result = try checks_mod.run(app.gpa, j, t, app.settings, stands.items, app.stats);
         return &app.checks_result.?;
     }
 

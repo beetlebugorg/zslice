@@ -747,6 +747,20 @@ pub const Project = struct {
     /// filament of the plate, 2 the second, and so on. A change at a layer
     /// is a filament change in the G-code.
     filament: u32 = 1,
+    /// A prime tower for a printer that changes the filament with a tool
+    /// change (`machine.filament_change = tool`): after each change, the
+    /// nozzle flushes the old color into a small tower next to the parts,
+    /// and each layer up to the last change prints a light layer of it,
+    /// so the tower grows with the print. A Bambu Lab printer flushes into
+    /// its chute (its change G-code); its tower then gets a small prime.
+    prime_tower: bool = true,
+    /// The width of the square prime tower.
+    prime_tower_width: f64 = 20,
+    /// The x of the center of the prime tower on the bed. -1: near the
+    /// right side.
+    prime_tower_x: f64 = -1,
+    /// The y of the center of the prime tower. -1: near the back.
+    prime_tower_y: f64 = -1,
     /// A multiplier for the flush volume of each filament change (see
     /// `machine.flush_volume`). Lower wastes less plastic. Too low mixes
     /// the old color into the new one.
@@ -1233,6 +1247,9 @@ pub const limits = [_]struct { []const u8, f64, f64 }{
     .{ "project.skirt_loops", 0, 50 },
     .{ "project.filament", 1, 16 },
     .{ "project.flush_multiplier", 0, 3 },
+    .{ "project.prime_tower_width", 5, 100 },
+    .{ "project.prime_tower_x", -1, 2000 },
+    .{ "project.prime_tower_y", -1, 2000 },
     .{ "machine.change_time", 0, 3600 },
     .{ "machine.flush_volume", 0, 5000 },
     .{ "project.skirt_distance", 0, 50 },
@@ -1400,6 +1417,8 @@ pub const plate_settings = [_][]const u8{
     "project.retract_layer_change",   "project.travel_accel",       "project.skirt_loops",
     "project.skirt_distance",         "project.skirt_layers",       "project.brim_width",
     "project.brim_location",          "project.placement",          "project.flush_multiplier",
+    "project.prime_tower",            "project.prime_tower_width",  "project.prime_tower_x",
+    "project.prime_tower_y",
 };
 
 /// True for a setting that is the same for all the parts of a plate (see

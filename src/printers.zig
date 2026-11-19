@@ -428,8 +428,24 @@ pub const Library = struct {
             try writeMultiline(w, g);
             try w.writeByte('\n');
         }
+        // A printer with a unit that feeds many filaments: a tool change,
+        // with the change G-code of the maker.
+        if (changeGcode(m.id)) |g| {
+            try w.writeAll("filament_change = \"tool\"\nchange_gcode = ");
+            try writeMultiline(w, g);
+            try w.writeByte('\n');
+        }
     }
 };
+
+/// The filament change G-code of a model (see Machine.change_gcode), or
+/// null. The text of the Bambu Lab X2D comes from its machine preset in
+/// the BBL profiles of OrcaSlicer (see REFERENCES.md); gcode_vars.zig
+/// fills in its variables.
+pub fn changeGcode(id: []const u8) ?[]const u8 {
+    if (std.mem.eql(u8, id, "bambu-lab-x2d")) return @embedFile("printers/change/bambu-lab-x2d.gcode");
+    return null;
+}
 
 /// The cooling of a printer family, for the simulated print: the air
 /// around the print with PLA (`machine.chamber_temp`, °C), and the air

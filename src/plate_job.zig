@@ -510,6 +510,37 @@ pub const PlateJob = struct {
         self.level_resolved = try list.toOwnedSlice(gpa);
     }
 
+    /// The level of the last filament change of the print, or null: the
+    /// filament of each entry in print order (see `toolAt`).
+    pub fn lastChange(self: *const PlateJob) ?usize {
+        if (self.slots.len < 2) return null;
+        var last: ?usize = null;
+        var tool: ?u32 = null;
+        for (self.levels, 0..) |lv, i| for (self.entries[lv.first..lv.end]) |e| {
+            const t = self.toolAt(self.instances[e.instance].group, e.layer);
+            if (tool != null and tool.? != t) last = i;
+            tool = t;
+        };
+        return last;
+    }
+
+    /// The prime tower of the print (see gcode.Tower), or null: a tool
+    /// change printer with the tower on, and a filament change in the
+    /// print.
+    pub fn tower(self: *const PlateJob) ?@import("gcode.zig").Tower {
+        const s = self.resolved.settings;
+        if (s.machine.filament_change != .tool or !s.project.prime_tower) return null;
+        const last = self.lastChange() orelse return null;
+        const size = s.project.prime_tower_width;
+        const margin = 10;
+        return .{
+            .x = if (s.project.prime_tower_x >= 0) s.project.prime_tower_x else s.machine.bed_size_x - size / 2 - margin,
+            .y = if (s.project.prime_tower_y >= 0) s.project.prime_tower_y else s.machine.bed_size_y - size / 2 - margin,
+            .size = size,
+            .last_layer = last,
+        };
+    }
+
     /// The inputs of the parts, with one input for each filament of a
     /// painted part (see paint_split.zig). The filament of the part is the
     /// first; the input of each other filament has the change
@@ -852,6 +883,7 @@ pub const PlateJob = struct {
             .streams = if (lo == 0 and hi == self.levels.len and self.streams.len == hi) self.streams else null,
             .bind = Ctx.bind,
             .slots = self.slots,
+            .tower = if (lo == 0) self.tower() else null,
         };
         return engine.emitAll(gpa, src, self.threads, self.monitor, out, sink);
     }
@@ -1001,6 +1033,8 @@ test "plate job: two filaments, a tool change for each change of the filament" {
     try testing.expect(std.mem.indexOf(u8, g, "\nT1\n") != null);
     try testing.expect(std.mem.indexOf(u8, g, "\nT0\n") != null);
     try testing.expect(std.mem.indexOf(u8, g, "M109 S215") != null);
+    // The prime tower: the flush of each change goes into it.
+    try testing.expect(std.mem.indexOf(u8, g, ";TYPE:PRIME-TOWER") != null);
     // Each filament has its grams, with the flushes of the changes to it.
     try testing.expect(st.slot_g[0] > 0 and st.slot_g[1] > 0);
     try testing.expectApproxEqRel(st.filament_g, st.slot_g[0] + st.slot_g[1], 1e-9);

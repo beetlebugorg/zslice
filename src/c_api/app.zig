@@ -550,6 +550,32 @@ export fn zs_bambu_file_plate(gcode: ?[*]const u8, len: usize, plate: ?*const Ba
     return ok;
 }
 
+/// A .gcode.3mf file of the last slice of the app for a Bambu Lab printer
+/// (see zs_bambu_file), with the filaments that the print uses in
+/// Metadata/slice_info.config: their slots, types, colors, and weights.
+/// Free the bytes with zs_buffer_free. The core only makes the file; it
+/// never sends it.
+export fn zs_app_bambu_file(a: ?*const App, title: ?[*:0]const u8, out: ?*?[*]u8, out_len: ?*usize) c_int {
+    const app = a orelse return @intFromEnum(Status.invalid_argument);
+    const o = out orelse return @intFromEnum(Status.invalid_argument);
+    const l = out_len orelse return @intFromEnum(Status.invalid_argument);
+    const g = app.gcode() orelse return @intFromEnum(Status.no_result);
+    const st = app.result() orelse return @intFromEnum(Status.no_result);
+    var list: [zs.filaments.max_slots]zs.bambu.FilamentUse = undefined;
+    var n: usize = 0;
+    for (0..app_mod.filament_slots.count(app)) |k| {
+        if (k >= list.len) break;
+        const f = app_mod.filament_slots.get(app, k) orelse continue;
+        if (st.slot_g[k] <= 0) continue;
+        list[n] = .{ .id = @intCast(k + 1), .kind = f.material, .color = f.color, .meters = st.slot_mm[k] / 1000, .grams = st.slot_g[k] };
+        n += 1;
+    }
+    const bytes = zs.bambu.gcode3mfWith(gpa, g, if (title) |t| std.mem.span(t) else "zslice", list[0..n]) catch return @intFromEnum(Status.out_of_memory);
+    o.* = bytes.ptr;
+    l.* = bytes.len;
+    return ok;
+}
+
 /// The MQTT message (JSON) that starts the print of `file` (the name of the
 /// uploaded .gcode.3mf) on a Bambu Lab printer. Publish it to
 /// "device/<serial>/request" only after a fresh confirmation of the user

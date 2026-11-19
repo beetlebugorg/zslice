@@ -20,6 +20,14 @@
 //!   the bed holds with little margin, or only with its brim, or not at
 //!   all (bond.zig). The app gives the bond test of each part.
 //!
+//! - color: a region of one filament of a painted part that is too small
+//!   to print (less than a line width across): it prints as a blob, or
+//!   not at all.
+//! - changes: the filament changes of the print, and their time. Many
+//!   changes make a long print; with a pause for each change, each one
+//!   waits for you.
+//! - tower: the prime tower is off the bed, or on a part.
+//!
 //! Each issue has its kind, its layer, a place, the line it is about (or
 //! none), a number for its size, and a text that says what and why. The
 //! check runs on demand, and the app keeps the result until the next
@@ -33,7 +41,7 @@ const Allocator = std.mem.Allocator;
 const Toolpaths = @import("toolpaths.zig").Toolpaths;
 const geom = zs.geom;
 
-pub const Kind = enum(u8) { flow, cooling, overhang, island, retractions, bridge, stand };
+pub const Kind = enum(u8) { flow, cooling, overhang, island, retractions, bridge, stand, color, changes, tower };
 
 pub const Issue = extern struct {
     kind: Kind,
@@ -88,7 +96,7 @@ const max_per_kind = 50;
 /// The checks of the slice. `job` gives the outlines (for the overhangs)
 /// and the islands; `t` the lines and their times; `s` the settings of the
 /// print; `stands` the bond test of each part with support off.
-pub fn run(gpa: Allocator, job: *const zs.PlateJob, t: *const Toolpaths, s: zs.Settings, stands: []const Stand) Allocator.Error!Result {
+pub fn run(gpa: Allocator, job: *const zs.PlateJob, t: *const Toolpaths, s: zs.Settings, stands: []const Stand, stats: zs.Stats) Allocator.Error!Result {
     var b: Builder = .{ .gpa = gpa };
     errdefer {
         b.issues.deinit(gpa);
@@ -100,6 +108,8 @@ pub fn run(gpa: Allocator, job: *const zs.PlateJob, t: *const Toolpaths, s: zs.S
     try islandIssues(&b, job);
     try retractionIssues(&b, t);
     try standIssues(&b, stands);
+    try colorIssues(&b, job);
+    try changeIssues(&b, job, s, stats);
     // The worst first: problems, then warnings, then by layer.
     std.mem.sort(Issue, b.issues.items, {}, struct {
         fn lt(_: void, x: Issue, y: Issue) bool {
@@ -369,6 +379,73 @@ fn islandIssues(b: *Builder, job: *const zs.PlateJob) Allocator.Error!void {
     for (job.islands[0..@min(job.islands.len, max_per_kind)]) |isl| {
         try b.add(.{ .kind = .island, .severity = 2, .layer = @intCast(isl.layer), .path = Issue.no_path, .x = isl.x, .y = isl.y, .value = isl.area, .text_start = 0, .text_len = 0 }, "Layer {d}: a shape of {d:.1} mm² starts in the air, with nothing under it. Add support there, or turn the part.", .{ isl.layer + 1, isl.area });
     }
+}
+
+/// The regions of a filament of a painted part narrower than a line (see
+/// `Kind.color`): the smallest first, one for each layer at most.
+fn colorIssues(b: *Builder, job: *const zs.PlateJob) Allocator.Error!void {
+    const Tiny = struct { layer: u32, x: f64, y: f64, area: f64, filament: u32 };
+    var list: std.ArrayList(Tiny) = .empty;
+    defer list.deinit(b.gpa);
+    for (job.groups) |*g| {
+        if (!g.painted) continue;
+        const r = g.job.resolved;
+        const w = geom.fromMm(r.line_width);
+        const filament = r.settings.project.filament;
+        for (g.job.outlines, 0..) |o, l| {
+            if (o.isEmpty()) continue;
+            // Less than a line across: an opening by half a line leaves
+            // nothing of it.
+            for (0..o.count()) |k| {
+                const poly = o.get(k);
+                const area = geom.areaMm2(poly);
+                if (!(area > 0) or area > 4 * r.line_width * r.line_width * 4) continue;
+                var one: geom.Paths = .empty;
+                defer one.deinit(b.gpa);
+                try one.append(b.gpa, poly);
+                var open = try zs.offset.opening(b.gpa, one, @divTrunc(w, 2), .{});
+                defer open.deinit(b.gpa);
+                if (!open.isEmpty()) continue;
+                const p = poly[0];
+                try list.append(b.gpa, .{ .layer = g.layer_level[l], .x = geom.toMm(p.x), .y = geom.toMm(p.y), .area = area, .filament = filament });
+                break;
+            }
+        }
+    }
+    std.mem.sort(Tiny, list.items, {}, struct {
+        fn lt(_: void, x: Tiny, y: Tiny) bool {
+            return x.area < y.area;
+        }
+    }.lt);
+    for (list.items[0..@min(list.items.len, 20)]) |ti| {
+        try b.add(.{ .kind = .color, .severity = 1, .layer = ti.layer, .path = Issue.no_path, .x = ti.x, .y = ti.y, .value = ti.area, .text_start = 0, .text_len = 0 }, "Layer {d}: a region of filament {d} of {d:.2} mm² is narrower than a line. It prints as a blob, or not at all. Paint a larger area, or paint less near the edge.", .{ ti.layer + 1, ti.filament, ti.area });
+    }
+}
+
+/// The filament changes of the print (see `Kind.changes`), and the place
+/// of the prime tower (`Kind.tower`).
+fn changeIssues(b: *Builder, job: *const zs.PlateJob, s: zs.Settings, stats: zs.Stats) Allocator.Error!void {
+    const m = s.machine;
+    if (stats.changes > 0) {
+        const time = @as(f64, @floatFromInt(stats.changes)) * m.change_time;
+        const share = if (stats.print_time_s > 0) time / stats.print_time_s else 0;
+        if (m.filament_change == .pause) {
+            try b.add(.{ .kind = .changes, .severity = if (stats.changes > 10) 2 else 1, .layer = 0, .path = Issue.no_path, .x = 0, .y = 0, .value = @floatFromInt(stats.changes), .text_start = 0, .text_len = 0 }, "The print pauses {d} times for a filament change, and each pause waits for you. A printer with a unit that feeds many filaments changes them by itself: set machine.filament_change to tool.", .{stats.changes});
+        } else if (share > 0.3 or stats.changes > 200) {
+            try b.add(.{ .kind = .changes, .severity = 1, .layer = 0, .path = Issue.no_path, .x = 0, .y = 0, .value = @floatFromInt(stats.changes), .text_start = 0, .text_len = 0 }, "The print has {d} filament changes: about {d:.0} min, {d:.0} % of the print time. Fewer colors on the layers of many changes, or paint by layers, makes it shorter.", .{ stats.changes, time / 60, share * 100 });
+        } else {
+            try b.add(.{ .kind = .changes, .severity = 0, .layer = 0, .path = Issue.no_path, .x = 0, .y = 0, .value = @floatFromInt(stats.changes), .text_start = 0, .text_len = 0 }, "The print has {d} filament changes (about {d:.0} min).", .{ stats.changes, time / 60 });
+        }
+    }
+    const t = job.tower() orelse return;
+    const h = t.size / 2;
+    var bad = t.x - h < 0 or t.y - h < 0 or t.x + h > m.bed_size_x or t.y + h > m.bed_size_y;
+    if (job.bounds()) |pb| {
+        // The parts are in bed coordinates: their box and the tower must
+        // not touch.
+        if (!(t.x + h < pb[0] or t.x - h > pb[2] or t.y + h < pb[1] or t.y - h > pb[3])) bad = true;
+    }
+    if (bad) try b.add(.{ .kind = .tower, .severity = 2, .layer = 0, .path = Issue.no_path, .x = t.x, .y = t.y, .value = t.size, .text_start = 0, .text_len = 0 }, "The prime tower at {d:.0}, {d:.0} mm is off the bed or on a part. Move the parts, or set project.prime_tower_x and project.prime_tower_y.", .{ t.x, t.y });
 }
 
 fn retractionIssues(b: *Builder, t: *const Toolpaths) Allocator.Error!void {
