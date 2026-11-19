@@ -37,6 +37,8 @@
 //! - `licenses.zig`: the licenses for a Licenses screen.
 //! - `history.zig`: the undo list of an app.
 //! - `plate_set.zig`: the plates of a set, each with its own app.
+//! - `sim_print.zig`: the print as it forms (the physical simulation of
+//!   the plastic), as toolpaths.
 //!
 //! The split of a core and native shells comes from Lookout Marine (see
 //! REFERENCES.md).
@@ -61,6 +63,8 @@ pub const plate_set = @import("app/plate_set.zig");
 pub const measure = @import("app/measure.zig");
 /// The printability check (see app/checks.zig).
 pub const checks_mod = @import("app/checks.zig");
+/// The print as it forms (see app/sim_print.zig).
+pub const sim_print = @import("app/sim_print.zig");
 
 pub const Toolpaths = toolpaths_mod.Toolpaths;
 pub const LayerPaths = toolpaths_mod.LayerPaths;
@@ -182,6 +186,10 @@ pub const App = struct {
     stats: zs.Stats = .{},
     part_box: [4]f64 = .{ 0, 0, 0, 0 },
     toolpaths: Toolpaths = .{},
+    /// The toolpaths of the last slice as the plastic set (see
+    /// `simulatePrint`), and if `allToolpaths` gives them.
+    sim_paths: ?Toolpaths = null,
+    show_sim: bool = false,
     /// The strings of the last inspection (for the C API).
     inspect_arena: ?std.heap.ArenaAllocator = null,
     failure: anyerror = error.Unexpected,
@@ -2133,6 +2141,7 @@ pub const App = struct {
     }
 
     fn clearResults(app: *App) void {
+        app.dropSimulation();
         app.toolpaths.deinit(app.gpa);
         if (app.job) |*j| j.deinit();
         app.job = null;
@@ -2296,10 +2305,43 @@ pub const App = struct {
         return app.part_box;
     }
 
-    /// The paths of all layers, for a 3D view.
+    /// The paths of all layers, for a 3D view: the paths of the slice, or
+    /// the paths as the plastic set while the simulation shows (see
+    /// `showSimulated`).
     pub fn allToolpaths(app: *const App) ?*const Toolpaths {
         if (app.getState() != .done) return null;
+        if (app.show_sim) if (app.sim_paths) |*s| return s;
         return &app.toolpaths;
+    }
+
+    /// Simulates the plastic of the last slice: it comes out of the
+    /// nozzle, hangs, falls, cools, and sets (see print_sim.zig). Then
+    /// shows the result: `allToolpaths` gives the paths as the plastic
+    /// set, until `showSimulated(false)` or the next slice. A view shows
+    /// them after its next load. The time of a part is about a second
+    /// for each 100 000 masses (a mass for each half bead width).
+    pub fn simulatePrint(app: *App) !zs.print_sim.Stats {
+        if (app.getState() != .done) return error.NoResult;
+        app.dropSimulation();
+        const r = try sim_print.simulate(app.gpa, &app.toolpaths, .{
+            .nozzle_t = @floatCast(app.slice_settings.filament.nozzle_temp),
+        });
+        app.sim_paths = r.paths;
+        app.show_sim = true;
+        return r.stats;
+    }
+
+    /// Shows the simulated print (on), or the slice (off). error.NoResult
+    /// if there is no simulation of the last slice.
+    pub fn showSimulated(app: *App, on: bool) error{NoResult}!void {
+        if (on and app.sim_paths == null) return error.NoResult;
+        app.show_sim = on;
+    }
+
+    fn dropSimulation(app: *App) void {
+        if (app.sim_paths) |*s| s.deinit(app.gpa);
+        app.sim_paths = null;
+        app.show_sim = false;
     }
 
     /// The time, length, and plastic of each feature in the last slice.
@@ -2406,6 +2448,7 @@ test {
     _ = refine;
     _ = inspect_mod;
     _ = toolpaths_mod;
+    _ = sim_print;
     _ = setting_effect;
     _ = setting_info;
     _ = sweep;
@@ -3678,4 +3721,43 @@ test "app: the hand carries a part, lets go, and it rests on the plate" {
     try testing.expect(q.x < p.x - 10);
     const st = try zs.physics.settle(gpa, &app.plate.parts.items[0].mesh);
     try testing.expectEqual(@as(usize, 0), st.rolls);
+}
+
+test "app: the simulated print of a shelf with no support shows the plastic that fell" {
+    const gpa = testing.allocator;
+    // A post with a wide slab on it: 10 mm of each end of the slab is over
+    // air.
+    var b: zs.mesh.Builder = .init(gpa);
+    errdefer b.deinit();
+    try zs.mesh.shapes.addBox(&b, 10, 0, 0, 16, 6, 4);
+    try zs.mesh.shapes.addBox(&b, 0, 0, 4, 26, 6, 5.2);
+    var mesh = try b.finish();
+    defer mesh.deinit(gpa);
+    var stl: std.Io.Writer.Allocating = .init(gpa);
+    defer stl.deinit();
+    try mesh.writeStl(&stl.writer);
+    const app = try App.create(gpa, null, null);
+    defer app.destroy();
+    try app.loadStl("shelf.stl", stl.written());
+    try testing.expectError(error.NoResult, app.simulatePrint());
+    try app.startSlice();
+    app.stopWorkerForTest();
+    try testing.expectEqual(State.done, app.getState());
+    const planned = app.allToolpaths().?;
+    const st = try app.simulatePrint();
+    try testing.expect(st.moved_paths > 0);
+    try testing.expect(st.max_move > 1);
+    const shown = app.allToolpaths().?;
+    try testing.expect(shown != planned);
+    try testing.expectEqual(planned.pathCount(), shown.pathCount());
+    try testing.expectEqual(planned.layerCount(), shown.layerCount());
+    try app.showSimulated(false);
+    try testing.expectEqual(planned, app.allToolpaths().?);
+    try app.showSimulated(true);
+    try testing.expectEqual(shown, app.allToolpaths().?);
+    // A new slice drops the simulation.
+    try app.setSetting("project.wall_count", "3");
+    try app.startSlice();
+    app.stopWorkerForTest();
+    try testing.expectError(error.NoResult, app.showSimulated(true));
 }
