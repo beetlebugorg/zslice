@@ -124,6 +124,9 @@ pub const Event = enum(c_int) {
     failed = 3,
     /// The slice was canceled.
     canceled = 4,
+    /// The simulated print of the slice is ready (see `auto_simulate`):
+    /// `adoptSimulation` shows it.
+    simulated = 6,
 };
 
 /// The shell callback. It runs on the worker thread.
@@ -192,6 +195,15 @@ pub const App = struct {
     /// `simulatePrint`), and if `allToolpaths` gives them.
     sim: ?sim_print.Result = null,
     show_sim: bool = false,
+    /// Simulate the print after each slice, on the thread of the slice
+    /// (see `auto_simulate`). A change stops it.
+    auto_simulate: bool = false,
+    /// The simulation of the thread of the slice, when it is done, and if
+    /// it waits for `adoptSimulation`.
+    sim_pending: ?sim_print.Result = null,
+    sim_ready: std.atomic.Value(bool) = .init(false),
+    /// A simulation that runs in pieces (`beginSimulation`).
+    sim_job: ?*sim_print.Job = null,
     /// The strings of the last inspection (for the C API).
     inspect_arena: ?std.heap.ArenaAllocator = null,
     failure: anyerror = error.Unexpected,
@@ -2310,7 +2322,35 @@ pub const App = struct {
         _ = app.done_count.fetchAdd(1, .release);
         app.state.store(.done, .release);
         app.emit(.sliced, 1, 0);
+        if (app.auto_simulate) app.simulateOnWorker();
     }
+
+    /// The simulated print of the slice, on the thread of the slice, in
+    /// pieces with a check of the cancel flag between them: a change stops
+    /// it at once. The result waits in `sim_pending` for the thread of the
+    /// shell (`adoptSimulation`), and the `simulated` event tells it.
+    fn simulateOnWorker(app: *App) void {
+        const job = sim_print.Job.create(app.gpa, &app.toolpaths, sim_print.paramsOf(app.slice_settings)) catch return;
+        defer job.destroy();
+        while (true) {
+            if (app.cancel_flag.load(.acquire)) return;
+            const done = job.advance(sim_piece) catch return;
+            if (done) break;
+        }
+        const r = job.finish() catch return;
+        if (app.cancel_flag.load(.acquire)) {
+            var x = r;
+            x.deinit(app.gpa);
+            return;
+        }
+        app.sim_pending = r;
+        app.sim_ready.store(true, .release);
+        app.emit(.simulated, 1, 0);
+    }
+
+    /// The paths of a piece of a simulation that runs in pieces: about a
+    /// few ms of work, so a cancel or a message waits little.
+    pub const sim_piece = 64;
 
     /// The thumbnails of `sizes` ("300x300,32x32") of the parts, in the
     /// color of the filament ("#rrggbb"), at the top of the G-code.
@@ -2391,6 +2431,8 @@ pub const App = struct {
     /// about 1.5 s.
     pub fn simulatePrint(app: *App) !zs.print_sim.Stats {
         if (app.getState() != .done) return error.NoResult;
+        // A simulation that runs on the thread of the slice stops.
+        app.stopWorker();
         app.dropSimulation();
         const r = try sim_print.simulate(app.gpa, &app.toolpaths, sim_print.paramsOf(app.slice_settings));
         app.sim = r;
@@ -2401,8 +2443,53 @@ pub const App = struct {
     /// Shows the simulated print (on), or the slice (off). error.NoResult
     /// if there is no simulation of the last slice.
     pub fn showSimulated(app: *App, on: bool) error{NoResult}!void {
+        _ = app.adoptSimulation();
         if (on and app.sim == null) return error.NoResult;
         app.show_sim = on;
+    }
+
+    /// Takes the simulation of the thread of the slice (after the
+    /// `simulated` event), and shows it. False if none waits. On the
+    /// thread of the shell.
+    pub fn adoptSimulation(app: *App) bool {
+        if (!app.sim_ready.load(.acquire)) return false;
+        app.sim_ready.store(false, .release);
+        if (app.sim) |*s| s.deinit(app.gpa);
+        app.sim = app.sim_pending;
+        app.sim_pending = null;
+        app.show_sim = true;
+        return true;
+    }
+
+    /// Starts a simulation of the last slice that runs in pieces
+    /// (`advanceSimulation`), for a shell with no threads: it runs it
+    /// between its other work. A new slice drops it.
+    pub fn beginSimulation(app: *App) !void {
+        if (app.getState() != .done) return error.NoResult;
+        app.stopWorker();
+        app.dropSimulation();
+        app.sim_job = try sim_print.Job.create(app.gpa, &app.toolpaths, sim_print.paramsOf(app.slice_settings));
+    }
+
+    /// Runs a piece of the simulation of `beginSimulation`: up to `count`
+    /// paths. True when it is done: then `allToolpaths` gives the plastic
+    /// as it set. error.NoResult if no simulation runs.
+    pub fn advanceSimulation(app: *App, count: usize) !bool {
+        const job = app.sim_job orelse return error.NoResult;
+        errdefer app.dropSimulation();
+        if (!try job.advance(count)) return false;
+        const r = try job.finish();
+        job.destroy();
+        app.sim_job = null;
+        app.sim = r;
+        app.show_sim = true;
+        return true;
+    }
+
+    /// The share of the simulation of `beginSimulation` that ran, 0 to 1.
+    pub fn simulationProgress(app: *const App) f64 {
+        const job = app.sim_job orelse return 1;
+        return job.progress();
     }
 
     /// The outcome of each layer in the last simulated print, or null if
@@ -2424,6 +2511,14 @@ pub const App = struct {
         if (app.sim) |*s| s.deinit(app.gpa);
         app.sim = null;
         app.show_sim = false;
+        if (app.sim_job) |j| j.destroy();
+        app.sim_job = null;
+        // The thread of the slice is not running here: a simulation of it
+        // that waits goes too.
+        if (app.sim_ready.swap(false, .acq_rel)) {
+            if (app.sim_pending) |*p| p.deinit(app.gpa);
+        }
+        app.sim_pending = null;
     }
 
     /// The time, length, and plastic of each feature in the last slice.
@@ -3890,6 +3985,72 @@ test "app: the simulated print of a shelf with no support shows the plastic that
     try app.startSlice();
     app.stopWorkerForTest();
     try testing.expectError(error.NoResult, app.showSimulated(true));
+}
+
+fn slabStl(gpa: Allocator) !std.Io.Writer.Allocating {
+    // A post with a slab 10 mm out over air on each side.
+    var b: zs.mesh.Builder = .init(gpa);
+    errdefer b.deinit();
+    try zs.mesh.shapes.addBox(&b, 10, 0, 0, 16, 6, 4);
+    try zs.mesh.shapes.addBox(&b, 0, 0, 4, 26, 6, 5.2);
+    var mesh = try b.finish();
+    defer mesh.deinit(gpa);
+    var stl: std.Io.Writer.Allocating = .init(gpa);
+    try mesh.writeStl(&stl.writer);
+    return stl;
+}
+
+test "app: the simulation runs after the slice on its thread, and in pieces, with the same result" {
+    const gpa = testing.allocator;
+    var stl = try slabStl(gpa);
+    defer stl.deinit();
+    const app = try App.create(gpa, null, null);
+    defer app.destroy();
+    try app.loadStl("slab.stl", stl.written());
+    // On the thread of the slice, after it.
+    app.auto_simulate = true;
+    try app.startSlice();
+    app.stopWorkerForTest();
+    try testing.expectEqual(State.done, app.getState());
+    try testing.expect(app.adoptSimulation());
+    try testing.expect(!app.adoptSimulation());
+    const auto = app.sim.?.stats;
+    try testing.expect(auto.failed > 0);
+    try testing.expect(app.allToolpaths().? == &app.sim.?.paths);
+    // In pieces: the same numbers.
+    try app.beginSimulation();
+    try testing.expect(app.sim == null);
+    var pieces: usize = 0;
+    while (!try app.advanceSimulation(8)) pieces += 1;
+    try testing.expect(pieces > 2);
+    try testing.expectEqual(auto, app.sim.?.stats);
+    // A change drops a simulation that runs in pieces.
+    try app.beginSimulation();
+    try testing.expect(!try app.advanceSimulation(1));
+    try app.setSetting("project.wall_count", "3");
+    try app.requestSlice();
+    app.stopWorkerForTest();
+    try testing.expectError(error.NoResult, app.advanceSimulation(1));
+    // The new slice simulates again on its thread.
+    try testing.expect(app.adoptSimulation());
+}
+
+test "app: a change stops the simulation on the thread of the slice" {
+    const gpa = testing.allocator;
+    var stl = try slabStl(gpa);
+    defer stl.deinit();
+    const app = try App.create(gpa, null, null);
+    defer app.destroy();
+    try app.loadStl("slab.stl", stl.written());
+    app.auto_simulate = true;
+    try app.startSlice();
+    // A change at once: the slice or its simulation stops, and the new
+    // slice simulates.
+    try app.setSetting("project.wall_count", "3");
+    try app.requestSlice();
+    app.stopWorkerForTest();
+    try testing.expectEqual(State.done, app.getState());
+    try testing.expect(app.adoptSimulation());
 }
 
 test "app: a part thrown past the edge of the bed stops at the edge" {

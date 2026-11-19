@@ -128,11 +128,58 @@ pub fn toPaths(arena: Allocator, tp: *const Toolpaths) Allocator.Error![]sim.Pat
 /// Simulates the print of `tp`, and returns its toolpaths as the plastic
 /// set.
 pub fn simulate(gpa: Allocator, tp: *const Toolpaths, params: sim.Params) Allocator.Error!Result {
-    var arena: std.heap.ArenaAllocator = .init(gpa);
-    defer arena.deinit();
-    const paths = try toPaths(arena.allocator(), tp);
-    var r = try sim.run(gpa, paths, params);
-    defer r.deinit(gpa);
+    const job = try Job.create(gpa, tp, params);
+    defer job.destroy();
+    while (!try job.advance(std.math.maxInt(usize))) {}
+    return job.finish();
+}
+
+/// A simulation of the toolpaths of a slice that runs in pieces (see
+/// print_sim.Runner): a shell runs it after a slice, between its other
+/// work, and drops it at a change. `tp` must stay as it is while the job
+/// lives.
+pub const Job = struct {
+    gpa: Allocator,
+    arena: std.heap.ArenaAllocator,
+    tp: *const Toolpaths,
+    paths: []sim.Path,
+    runner: sim.Runner,
+
+    pub fn create(gpa: Allocator, tp: *const Toolpaths, params: sim.Params) Allocator.Error!*Job {
+        const job = try gpa.create(Job);
+        errdefer gpa.destroy(job);
+        job.* = .{ .gpa = gpa, .arena = .init(gpa), .tp = tp, .paths = &.{}, .runner = undefined };
+        errdefer job.arena.deinit();
+        job.paths = try toPaths(job.arena.allocator(), tp);
+        job.runner = try sim.Runner.init(gpa, job.paths, params);
+        return job;
+    }
+
+    pub fn destroy(job: *Job) void {
+        job.runner.deinit();
+        job.arena.deinit();
+        job.gpa.destroy(job);
+    }
+
+    /// Prints up to `count` more paths, and true when the simulation is
+    /// done.
+    pub fn advance(job: *Job, count: usize) Allocator.Error!bool {
+        return job.runner.advance(count);
+    }
+
+    pub fn progress(job: *const Job) f64 {
+        return job.runner.progress();
+    }
+
+    /// The toolpaths as the plastic set, after `advance` gave true.
+    pub fn finish(job: *Job) Allocator.Error!Result {
+        var r = try job.runner.result();
+        defer r.deinit(job.gpa);
+        return output(job.gpa, job.tp, job.paths, &r);
+    }
+};
+
+fn output(gpa: Allocator, tp: *const Toolpaths, paths: []const sim.Path, r: *sim.Result) Allocator.Error!Result {
     // The masses of the paths that moved, for an analysis.
     const masses = try gpa.alloc(Mass, r.pos.len);
     errdefer gpa.free(masses);

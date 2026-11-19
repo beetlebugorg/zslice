@@ -270,7 +270,23 @@ static void show_hint(Window *w, int state, gboolean fits) {
                                    part_size(&p));
             inches = TRUE;
         }
-        if (!text && w->overhang_core == core && w->overhang >= OVERHANG_HINT_MM2) {
+        /* The simulated print, when it ran: where it fails, or how far it
+         * droops, in place of the area that hangs in the air. */
+        zs_print_sim_stats st;
+        gboolean simulated = !text && zs_app_sim_stats(core, &st) == ZS_OK;
+        if (simulated) {
+            char *v = zg_model_get(w->model, "project.support");
+            gboolean off = !v[0] || strcmp(v, "off") == 0;
+            g_free(v);
+            const char *as = st.material_exact ? "" : " (simulated as the nearest plastic with data)";
+            if (st.failed > 0 && st.first_failed_layer >= 0)
+                text = g_strdup_printf("The print fails at layer %td: the plastic over air falls%s. %s", st.first_failed_layer + 1, as,
+                                       off ? "Turn on support or turn the part." : "Turn the part, or add support there.");
+            else if (st.max_drop > 0.5)
+                text = g_strdup_printf("The plastic droops up to %.1f mm where nothing holds it%s.", st.max_drop, as);
+            support = text != NULL && off;
+        }
+        if (!text && !simulated && w->overhang_core == core && w->overhang >= OVERHANG_HINT_MM2) {
             char *v = zg_model_get(w->model, "project.support");
             if (!v[0] || strcmp(v, "off") == 0) {
                 text = g_strdup_printf("About %.0f mm\u00b2 of the part hangs in the air with no support. It can droop or fail.", w->overhang);
@@ -802,6 +818,8 @@ static void on_core_event(ZgModel *model, int event, double progress, int status
         w->last_error = g_strdup(zg_status_text(status));
     }
     if (event == ZS_EVENT_SLICED) check_overhang(w);
+    /* The simulated print of the slice: the view and the hint show it. */
+    if (event == ZS_EVENT_SIMULATED && zs_app_sim_adopt(zg_model_core(model))) zg_preview_simulated(w->preview);
     update(w);
     if (w->send_pending && zs_app_state(zg_model_core(model)) != ZS_STATE_SLICING) {
         w->send_pending = FALSE;

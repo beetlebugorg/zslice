@@ -218,6 +218,42 @@ function sliceOrHold(hold) {
   else wantSlice();
 }
 
+// The view of the active plate after a change of the simulated print: a
+// "sliced" event with no slice time, so the page keeps its state.
+function postSimScene(c, on) {
+  const scene = c.scene(mode);
+  const layers = c.layers();
+  post({ event: "sliced", plate: activeIndex(), ms: 0, stats: c.stats(), featureStats: c.featureStats(), layers, scene, mode, marks: c.markCount(), areas: c.supportAreas(), parts: c.w.x.zs_app_part_count(c.app), fits: c.w.x.zs_app_plate_fits(c.app) === 1, tiny: [], simulated: on, sim: c.simStats() }, scene ? [scene] : []);
+}
+
+// The simulated print after each slice of the active plate
+// (zs_app_sim_begin): it runs in pieces of about 8 ms between the
+// messages, so it holds up no call. A change slices again, and the new
+// slice drops it; the simulation of the new slice starts after it.
+let simTimer = 0;
+
+function startSim(i) {
+  clearTimeout(simTimer);
+  if (wasm.x.zs_app_sim_begin(coreAt(i).app) !== 0) return;
+  simTimer = setTimeout(() => simPiece(i), 0);
+}
+
+function simPiece(i) {
+  // A slice waits: it goes first, and drops this simulation.
+  if (i !== activeIndex() || wasm.x.zs_set_next(set) >= 0) return;
+  const c = coreAt(i);
+  const w = wasm;
+  const t0 = performance.now();
+  do {
+    if (w.x.zs_app_sim_advance(c.app, 16, w.cell) !== 0) return;
+    if (w.i32(w.cell) === 1) {
+      postSimScene(c, true);
+      return;
+    }
+  } while (performance.now() - t0 < 8);
+  simTimer = setTimeout(() => simPiece(i), 0);
+}
+
 function schedule() {
   clearTimeout(sliceTimer);
   // A timer, so that the messages that wait now come first.
@@ -250,6 +286,7 @@ function runSlice() {
   slicing = -1;
   sendResult(i, ms, turn);
   postPlates();
+  if (i === activeIndex() && c.state() === STATE.done) startSim(i);
   if (wasm.x.zs_set_next(set) >= 0) schedule();
 }
 
@@ -816,13 +853,16 @@ const ops = {
   simulate({ on }) {
     let stats = null;
     if (on) {
-      stats = core.simulatePrint();
-      if (!stats) return { error: "Slice first: the simulation needs a slice." };
-      core.showSimulated(true);
+      // The simulation after the slice, if it is done; else a new one.
+      if (core.showSimulated(true)) stats = core.simStats();
+      else {
+        clearTimeout(simTimer);
+        stats = core.simulatePrint();
+        if (!stats) return { error: "Slice first: the simulation needs a slice." };
+        core.showSimulated(true);
+      }
     } else core.showSimulated(false);
-    const scene = core.scene(mode);
-    const layers = core.layers();
-    post({ event: "sliced", plate: activeIndex(), ms: 0, stats: core.stats(), featureStats: core.featureStats(), layers, scene, mode, marks: core.markCount(), areas: core.supportAreas(), parts: core.w.x.zs_app_part_count(core.app), fits: core.w.x.zs_app_plate_fits(core.app) === 1, tiny: [], simulated: on, sim: core.simStats() }, scene ? [scene] : []);
+    postSimScene(core, on);
     return { stats };
   },
 

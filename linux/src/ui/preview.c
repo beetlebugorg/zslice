@@ -1170,11 +1170,21 @@ static void show_note(Preview *p, const char *text, guint ms) {
     p->note_timer = g_timeout_add(ms, on_note_timer, p);
 }
 
+/* The item of the colors menu: "Show the plan" while the simulated
+ * plastic shows, so the plan is one click away. */
 static void set_sim_check(Preview *p) {
     if (!p->sim_check) return;
     g_signal_handlers_block_matched(p->sim_check, G_SIGNAL_MATCH_DATA, 0, 0, NULL, NULL, p);
-    gtk_check_button_set_active(GTK_CHECK_BUTTON(p->sim_check), p->simulated);
+    gtk_check_button_set_active(GTK_CHECK_BUTTON(p->sim_check), FALSE);
+    gtk_check_button_set_label(GTK_CHECK_BUTTON(p->sim_check), p->simulated ? "Show the plan" : "Show the print as it forms");
     g_signal_handlers_unblock_matched(p->sim_check, G_SIGNAL_MATCH_DATA, 0, 0, NULL, NULL, p);
+}
+
+void zg_preview_simulated(GtkWidget *preview) {
+    Preview *p = g_object_get_data(G_OBJECT(preview), "zg-preview");
+    p->simulated = TRUE;
+    set_sim_check(p);
+    zg_view3d_reload(p->view3d);
 }
 
 /* The simulation runs on this thread (about 1.5 s for a 3DBenchy), after
@@ -1217,6 +1227,11 @@ static void on_simulate_action(GSimpleAction *a, GVariant *v, gpointer data) {
     gtk_stack_set_visible_child_name(GTK_STACK(p->stack), "3d");
     if (!p->simulated) {
         zs_app_show_simulated(core, 0);
+        zg_view3d_reload(p->view3d);
+        return;
+    }
+    /* The simulation after the slice, if it is done; else a new one. */
+    if (zs_app_show_simulated(core, 1) == ZS_OK) {
         zg_view3d_reload(p->view3d);
         return;
     }
@@ -1833,8 +1848,8 @@ static GtkWidget *colors_button(Preview *p) {
     }
     gtk_box_append(GTK_BOX(box), note);
     gtk_box_append(GTK_BOX(box), gtk_separator_new(GTK_ORIENTATION_HORIZONTAL));
-    p->sim_check = gtk_check_button_new_with_label("The print as it forms (simulated plastic)");
-    gtk_widget_set_tooltip_text(p->sim_check, "The plastic of the slice as it would form: it sags and droops where nothing holds it. A new slice shows the plan again.");
+    p->sim_check = gtk_check_button_new_with_label("Show the print as it forms");
+    gtk_widget_set_tooltip_text(p->sim_check, "The plastic of the slice as it would form: it sags and droops where nothing holds it. It shows after each slice; this item switches between it and the plan.");
     g_signal_connect(p->sim_check, "toggled", G_CALLBACK(on_sim_toggled), p);
     gtk_box_append(GTK_BOX(box), p->sim_check);
     GtkWidget *pop = gtk_popover_new();

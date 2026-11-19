@@ -25,6 +25,9 @@ GtkWidget *zg_preview_view_bar(GtkWidget *preview);
 
 /* Reads the result from the core again. Call it when the state changes. */
 void zg_preview_refresh(GtkWidget *preview);
+/* The simulated print of the slice is ready (ZS_EVENT_SIMULATED, after
+ * zs_app_sim_adopt): the 3D view shows it. */
+void zg_preview_simulated(GtkWidget *preview);
 
 /* Shows layer `layer` on top (the top knob of the layer slider goes
  * there), for example to show an island. */

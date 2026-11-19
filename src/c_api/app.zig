@@ -1297,6 +1297,48 @@ export fn zs_app_simulate_print(a: ?*App, out: ?*PrintSimStats) c_int {
     return ok;
 }
 
+/// Simulate the print after each slice (on = 1), on the thread of the
+/// slice: ZS_EVENT_SIMULATED tells when it is ready, and
+/// zs_app_show_simulated(app, 1) or zs_app_sim_adopt shows it. A change
+/// stops it.
+export fn zs_app_set_auto_simulate(a: ?*App, on: c_int) c_int {
+    const app = a orelse return @intFromEnum(Status.invalid_argument);
+    app.auto_simulate = on != 0;
+    return ok;
+}
+
+/// Shows the simulated print of the thread of the slice that waits.
+/// Returns 1 if one waited, else 0.
+export fn zs_app_sim_adopt(a: ?*App) c_int {
+    const app = a orelse return 0;
+    return @intFromBool(app.adoptSimulation());
+}
+
+/// Starts a simulation of the last slice that runs in pieces
+/// (zs_app_sim_advance), for a shell with no threads. ZS_NO_RESULT with no
+/// slice.
+export fn zs_app_sim_begin(a: ?*App) c_int {
+    const app = a orelse return @intFromEnum(Status.invalid_argument);
+    app.beginSimulation() catch |e| return status(e);
+    return ok;
+}
+
+/// Runs a piece of the simulation of zs_app_sim_begin: up to `paths`
+/// paths. *done is 1 when it is done: then zs_app_toolpaths gives the
+/// plastic as it set. ZS_NO_RESULT if no simulation runs.
+export fn zs_app_sim_advance(a: ?*App, paths: usize, done: ?*c_int) c_int {
+    const app = a orelse return @intFromEnum(Status.invalid_argument);
+    const d = app.advanceSimulation(paths) catch |e| return status(e);
+    if (done) |p| p.* = @intFromBool(d);
+    return ok;
+}
+
+/// The share of the simulation of zs_app_sim_begin that ran, 0 to 1.
+export fn zs_app_sim_progress(a: ?*const App) f64 {
+    const app = a orelse return 0;
+    return app.simulationProgress();
+}
+
 /// The numbers of the last simulated print, with no new simulation.
 /// ZS_NO_RESULT if there is no simulation of the last slice.
 export fn zs_app_sim_stats(a: ?*const App, out: ?*PrintSimStats) c_int {

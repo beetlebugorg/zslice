@@ -305,7 +305,9 @@ pub const Set = struct {
         const p: *Plate = @ptrCast(@alignCast(user.?));
         const set = p.set;
         set.emit(p.index.load(.acquire), event, progress, status);
-        if (event == 1 or !set.auto) return;
+        // The progress and the simulated print of a slice that ended
+        // change no status.
+        if (event == 1 or event == 6 or !set.auto) return;
         // A plate that waits keeps its result, and not the memory for a
         // faster next slice.
         if (p.index.load(.acquire) != @atomicLoad(usize, &set.active, .acquire)) p.app.trim();

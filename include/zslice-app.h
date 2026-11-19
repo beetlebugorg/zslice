@@ -48,7 +48,9 @@ enum zs_event {
     ZS_EVENT_SLICED = 2,
     ZS_EVENT_FAILED = 3,   /* status has the error code */
     ZS_EVENT_CANCELED = 4,
-    ZS_EVENT_PLATES = 5    /* a plate set: the list or a status changed */
+    ZS_EVENT_PLATES = 5,   /* a plate set: the list or a status changed */
+    ZS_EVENT_SIMULATED = 6 /* the simulated print of the slice is ready
+                              (zs_app_set_auto_simulate) */
 };
 
 /* Runs on the worker thread. */
@@ -516,6 +518,22 @@ typedef struct zs_print_sim_stats {
                            or "PETG" */
 } zs_print_sim_stats;
 int zs_app_simulate_print(zs_app *app, zs_print_sim_stats *out);
+/* Simulates the print after each slice (on = 1), on the thread of the
+ * slice: ZS_EVENT_SIMULATED tells when it is ready (on the thread of the
+ * slice), and zs_app_show_simulated(app, 1) or zs_app_sim_adopt on the UI
+ * thread shows it. A change stops it. */
+int zs_app_set_auto_simulate(zs_app *app, int on);
+/* Shows the simulated print of the thread of the slice that waits.
+ * Returns 1 if one waited, else 0. */
+int zs_app_sim_adopt(zs_app *app);
+/* A simulation of the last slice that runs in pieces, for a shell with no
+ * threads: zs_app_sim_begin, then zs_app_sim_advance until *done is 1;
+ * then zs_app_toolpaths gives the plastic as it set. Each piece prints up
+ * to `paths` paths. A new slice drops it. ZS_NO_RESULT with no slice, or
+ * from zs_app_sim_advance with no simulation that runs. */
+int zs_app_sim_begin(zs_app *app);
+int zs_app_sim_advance(zs_app *app, size_t paths, int *done);
+double zs_app_sim_progress(const zs_app *app);
 /* The numbers of the last simulated print, with no new simulation.
  * ZS_NO_RESULT if there is no simulation of the last slice. */
 int zs_app_sim_stats(const zs_app *app, zs_print_sim_stats *out);

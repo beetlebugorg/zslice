@@ -131,6 +131,9 @@ static const char *group_files[] = {"machine", "filament", "project"};
 /* The active plate changed: `core` is its app. */
 static void sync_core(ZgModel *self) {
     self->core = zs_set_app(self->set, zs_set_active(self->set));
+    /* The print as it forms after each slice, on the thread of the slice
+     * (ZS_EVENT_SIMULATED). */
+    zs_app_set_auto_simulate(self->core, 1);
 }
 
 /* The active plate changed: the set starts its slice. Notes the time for

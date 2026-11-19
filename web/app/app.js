@@ -536,8 +536,9 @@ $("colors").onclick = () => openMenu($("colors"), [...MODES.map((m, i) => ({
     client.call("mode", { value: i });
   },
 })), { sep: true }, {
-  label: "The print as it forms (simulated plastic)",
-  checked: !!app.simulated,
+  // The simulated plastic shows after each slice: the plan is one click
+  // away.
+  label: app.simulated ? "Show the plan" : "Show the print as it forms",
   action: () => toggleSimulation(),
 }]);
 
@@ -546,7 +547,7 @@ $("colors").onclick = () => openMenu($("colors"), [...MODES.map((m, i) => ({
 // it in place of the planned lines. A new slice shows the plan again.
 async function toggleSimulation() {
   const on = !app.simulated;
-  if (on) toast("Simulating the plastic of the print…", 30000);
+  if (on && !app.simResult) toast("Simulating the plastic of the print…", 30000);
   const r = await client.call("simulate", { on });
   if (r.error) {
     toast(r.error);
@@ -554,9 +555,10 @@ async function toggleSimulation() {
   }
   if (on && r.stats) {
     const s = r.stats;
+    const fresh = !app.simResult;
     app.simResult = s;
     updateSummary();
-    toast(s.moved > 0 ? `The plastic of ${s.movedPaths} lines does not stay where it prints: up to ${s.maxMove.toFixed(1)} mm off. Turn on support, or change the turn of the part.` : "All the plastic stays where it prints.", 8000);
+    if (fresh) toast(s.moved > 0 ? `The plastic of ${s.movedPaths} lines does not stay where it prints: up to ${s.maxMove.toFixed(1)} mm off. Turn on support, or change the turn of the part.` : "All the plastic stays where it prints.", 8000);
   }
 }
 

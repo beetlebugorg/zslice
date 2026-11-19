@@ -1222,71 +1222,115 @@ fn beadArea(w: f32, h: f32) f32 {
 
 /// Simulates the paths in their order of print.
 pub fn run(gpa: Allocator, paths: []const Path, params: Params) Allocator.Error!Result {
-    // The field covers the paths and a margin for the strands that fall
-    // past them. Out of it is the bed.
-    var lo: [2]f32 = .{ std.math.inf(f32), std.math.inf(f32) };
-    var hi: [2]f32 = .{ -std.math.inf(f32), -std.math.inf(f32) };
-    for (paths) |path| for (path.xy) |q| {
-        lo = .{ @min(lo[0], q[0]), @min(lo[1], q[1]) };
-        hi = .{ @max(hi[0], q[0]), @max(hi[1], q[1]) };
-    };
-    if (!(lo[0] <= hi[0])) {
-        lo = .{ 0, 0 };
-        hi = .{ 1, 1 };
-    }
-    const margin = 10;
-    const ranges = try gpa.alloc([2]u32, paths.len);
-    @memset(ranges, .{ 0, 0 });
-    const drop = gpa.alloc(f32, paths.len) catch |e| {
-        gpa.free(ranges);
-        return e;
-    };
-    @memset(drop, 0);
-    const failed = gpa.alloc(u32, paths.len) catch |e| {
-        gpa.free(ranges);
-        gpa.free(drop);
-        return e;
-    };
-    @memset(failed, 0);
-    var s: Sim = .{
-        .gpa = gpa,
-        .p = params,
-        .paths = paths,
-        .field = undefined,
-        .set_t = setTemperature(params),
-        .rho_g = params.material.density * params.gravity,
-        .ranges = ranges,
-        .drop = drop,
-        .failed = failed,
-    };
-    s.field = Field.init(gpa, .{ lo[0] - margin, lo[1] - margin }, .{ hi[0] + margin, hi[1] + margin }, params.cell) catch |e| {
-        gpa.free(ranges);
-        gpa.free(drop);
-        gpa.free(failed);
-        return e;
-    };
-    defer s.deinit();
-    for (paths, 0..) |path, pi| try s.print(@intCast(pi), path);
-    s.endStrand();
-    // The last soft masses set: they cool below the set point in seconds.
-    try s.runTo(s.time + 3600);
-    for (s.chains.items) |*c| c.head = false;
-    try s.finishChains();
-    const pos = try s.pos.toOwnedSlice(gpa);
-    errdefer gpa.free(pos);
-    const want = try s.want.toOwnedSlice(gpa);
-    errdefer gpa.free(want);
-    const set_time = try s.set_time.toOwnedSlice(gpa);
-    errdefer gpa.free(set_time);
-    const mass = try s.mass.toOwnedSlice(gpa);
-    const out_ranges = s.ranges;
-    s.ranges = &.{};
-    const out_drop = s.drop;
-    s.drop = &.{};
-    const out_failed = s.failed;
-    s.failed = &.{};
-    return .{ .ranges = out_ranges, .pos = pos, .want = want, .set_time = set_time, .mass = mass, .drop = out_drop, .failed = out_failed, .stats = s.stats };
+    var r = try Runner.init(gpa, paths, params);
+    defer r.deinit();
+    while (!try r.advance(paths.len)) {}
+    return r.result();
 }
+
+/// A simulation that runs in pieces: `advance` prints some paths, so a
+/// shell can run it between other work, and stop it at any piece.
+pub const Runner = struct {
+    s: Sim,
+    /// The next path to print.
+    next: usize = 0,
+    done: bool = false,
+
+    pub fn init(gpa: Allocator, paths: []const Path, params: Params) Allocator.Error!Runner {
+        // The field covers the paths and a margin for the strands that fall
+        // past them. Out of it is the bed.
+        var lo: [2]f32 = .{ std.math.inf(f32), std.math.inf(f32) };
+        var hi: [2]f32 = .{ -std.math.inf(f32), -std.math.inf(f32) };
+        for (paths) |path| for (path.xy) |q| {
+            lo = .{ @min(lo[0], q[0]), @min(lo[1], q[1]) };
+            hi = .{ @max(hi[0], q[0]), @max(hi[1], q[1]) };
+        };
+        if (!(lo[0] <= hi[0])) {
+            lo = .{ 0, 0 };
+            hi = .{ 1, 1 };
+        }
+        const margin = 10;
+        const ranges = try gpa.alloc([2]u32, paths.len);
+        @memset(ranges, .{ 0, 0 });
+        const drop = gpa.alloc(f32, paths.len) catch |e| {
+            gpa.free(ranges);
+            return e;
+        };
+        @memset(drop, 0);
+        const failed = gpa.alloc(u32, paths.len) catch |e| {
+            gpa.free(ranges);
+            gpa.free(drop);
+            return e;
+        };
+        @memset(failed, 0);
+        var s: Sim = .{
+            .gpa = gpa,
+            .p = params,
+            .paths = paths,
+            .field = undefined,
+            .set_t = setTemperature(params),
+            .rho_g = params.material.density * params.gravity,
+            .ranges = ranges,
+            .drop = drop,
+            .failed = failed,
+        };
+        s.field = Field.init(gpa, .{ lo[0] - margin, lo[1] - margin }, .{ hi[0] + margin, hi[1] + margin }, params.cell) catch |e| {
+            gpa.free(ranges);
+            gpa.free(drop);
+            gpa.free(failed);
+            return e;
+        };
+        return .{ .s = s };
+    }
+
+    pub fn deinit(r: *Runner) void {
+        r.s.deinit();
+    }
+
+    /// Prints up to `count` more paths, and true when all the plastic has
+    /// set.
+    pub fn advance(r: *Runner, count: usize) Allocator.Error!bool {
+        if (r.done) return true;
+        const s = &r.s;
+        const end = @min(r.next + count, s.paths.len);
+        while (r.next < end) : (r.next += 1) try s.print(@intCast(r.next), s.paths[r.next]);
+        if (r.next < s.paths.len) return false;
+        s.endStrand();
+        // The last soft masses set: they cool below the set point in seconds.
+        try s.runTo(s.time + 3600);
+        for (s.chains.items) |*c| c.head = false;
+        try s.finishChains();
+        r.done = true;
+        return true;
+    }
+
+    /// The share of the paths printed, 0 to 1.
+    pub fn progress(r: *const Runner) f64 {
+        if (r.s.paths.len == 0) return 1;
+        return @as(f64, @floatFromInt(r.next)) / @as(f64, @floatFromInt(r.s.paths.len));
+    }
+
+    /// The result, after `advance` gave true. The runner keeps none of it.
+    pub fn result(r: *Runner) Allocator.Error!Result {
+        std.debug.assert(r.done);
+        const s = &r.s;
+        const gpa = s.gpa;
+        const pos = try s.pos.toOwnedSlice(gpa);
+        errdefer gpa.free(pos);
+        const want = try s.want.toOwnedSlice(gpa);
+        errdefer gpa.free(want);
+        const set_time = try s.set_time.toOwnedSlice(gpa);
+        errdefer gpa.free(set_time);
+        const mass = try s.mass.toOwnedSlice(gpa);
+        const out_ranges = s.ranges;
+        s.ranges = &.{};
+        const out_drop = s.drop;
+        s.drop = &.{};
+        const out_failed = s.failed;
+        s.failed = &.{};
+        return .{ .ranges = out_ranges, .pos = pos, .want = want, .set_time = set_time, .mass = mass, .drop = out_drop, .failed = out_failed, .stats = s.stats };
+    }
+};
 
 const testing = std.testing;
 
