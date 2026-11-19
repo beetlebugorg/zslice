@@ -315,6 +315,8 @@ pub const App = struct {
     }
 
     fn dropPlate(app: *App) void {
+        // A fall or a hand on a part that goes: it ends.
+        app.fallCancel();
         app.stopWorker();
         app.clearResults();
         // The overrides were for the old parts.
@@ -755,6 +757,7 @@ pub const App = struct {
     }
 
     pub fn removePart(app: *App, i: usize) Allocator.Error!void {
+        app.fallCancel();
         app.stopWorker();
         app.plate.remove(app.gpa, i);
         try app.plateChanged();
@@ -1012,6 +1015,7 @@ pub const App = struct {
     }
 
     pub fn clearPlate(app: *App) Allocator.Error!void {
+        app.fallCancel();
         app.stopWorker();
         app.overrides.clearRetainingCapacity();
         app.profiles.clearRetainingCapacity();
@@ -3850,4 +3854,32 @@ test "app: a part thrown past the edge of the bed stops at the edge" {
     // At the edge: well right of the start, and on the bed.
     try testing.expect(q.x > p0.x + 40);
     try testing.expect(q.footprint()[2] <= app.bedSize()[0]);
+}
+
+test "app: an undo or a removal while the hand holds a part ends the hold" {
+    const gpa = testing.allocator;
+    var b: zs.mesh.Builder = .init(gpa);
+    try zs.mesh.shapes.addBox(&b, 0, 0, 0, 20, 20, 10);
+    var mesh = try b.finish();
+    var bytes: std.Io.Writer.Allocating = .init(gpa);
+    defer bytes.deinit();
+    try mesh.writeStl(&bytes.writer);
+    mesh.deinit(gpa);
+    const app = try App.create(gpa, null, null);
+    defer app.destroy();
+    try app.loadStl("box.stl", bytes.written());
+    _ = app.undo.commit(app, 0);
+    try app.movePart(0, 60, 60);
+    app.undo.note(gpa, null, true);
+    _ = app.undo.commit(app, 1000);
+    const fp = app.plate.parts.items[0].footprint();
+    try testing.expect(try app.grabStart(0, .{ fp[2], fp[3], 10 }));
+    _ = try app.fallStep(1.0 / 60.0);
+    _ = app.undo.undo(app, 2000);
+    try testing.expect(app.fall == null);
+    try testing.expect((try app.fallStep(1.0 / 60.0)) == null);
+    // A removal of the part in the hand.
+    try testing.expect(try app.grabStart(0, .{ fp[2], fp[3], 10 }));
+    try app.removePart(0);
+    try testing.expect(app.fall == null);
 }

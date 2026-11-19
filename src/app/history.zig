@@ -643,6 +643,9 @@ pub const History = struct {
     /// plate if it differs, then the quality profile, then each group of
     /// settings that differs. Returns the `restored_*` bits.
     fn restore(h: *History, app: *App, to: *const Step, from: *const Step) u32 {
+        // A fall or a hand on a part: the part goes back to a step, so the
+        // fall ends (it would finish on a part that changed).
+        app.fallCancel();
         h.restoring = true;
         defer {
             h.restoring = false;
