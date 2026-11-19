@@ -66,8 +66,9 @@ Press `?` in the app to see all keys. Type in the sheet to filter it. On the Mac
 
 | Mouse or touch | What it does |
 |---|---|
+| Right drag (hold the right button) | Orbit. On a touchpad: press down two fingers and drag. |
 | Left drag | Orbit |
-| Middle or right drag | Pan. On a touchpad: press down two fingers and drag. |
+| Middle drag, or Shift and a drag | Pan |
 | Wheel, light two-finger swipe, pinch | Zoom toward the pointer |
 | Double-click a side of a part | Face that side, and zoom to it |
 | Double-click elsewhere | Reset the view |

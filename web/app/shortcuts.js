@@ -101,8 +101,9 @@ export const SHORTCUTS = [
   {
     group: "Mouse and touchpad",
     keys: [
+      ["Right drag (hold the right button)", "Orbit (on a touchpad: two fingers pressed down and a drag)"],
       ["Left drag", "Orbit"],
-      ["Middle or right drag", "Pan (on a touchpad: two fingers pressed down and a drag)"],
+      ["Middle drag, or Shift and a drag", "Pan"],
       ["Wheel, light two-finger swipe, pinch", "Zoom toward the pointer"],
       ["Double-click on a side of a part", "Turn the view to face that side, and zoom to it"],
       ["Double-click elsewhere", "Reset the view"],
