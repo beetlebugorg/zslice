@@ -46,6 +46,8 @@ struct Issue: Identifiable {
         case Int32(ZS_ISSUE_OVERHANG.rawValue): "arrow.down.to.line"
         case Int32(ZS_ISSUE_ISLAND.rawValue): "circle.dotted"
         case Int32(ZS_ISSUE_RETRACTIONS.rawValue): "arrow.uturn.backward"
+        // A part that its brim holds up, or that can tip over.
+        case Int32(ZS_ISSUE_STAND.rawValue): "figure.fall"
         default: "rectangle.split.3x1"
         }
     }

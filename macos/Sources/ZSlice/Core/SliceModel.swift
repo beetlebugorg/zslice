@@ -83,6 +83,13 @@ final class SliceModel {
     @ObservationIgnored private var histories: [UInt64: History] = [:]
     /// Runs on the main thread after each new slice of the active plate.
     @ObservationIgnored var onSliced: (() -> Void)?
+    /// The simulated print of the last slice of the active plate is in the
+    /// toolpaths (zs_app_sim_adopt).
+    @ObservationIgnored var onSimulated: (() -> Void)?
+    /// True while a drag, a hold, or a fall slices live: a simulation then
+    /// waits, so the view does not switch between the plan and the plastic
+    /// under the pointer. The slice at the end brings its own.
+    @ObservationIgnored var holdSimulation: (() -> Bool)?
     /// Runs on the main thread after a change of the plates, or a new slice
     /// of another plate (the view shows the row again).
     @ObservationIgnored var onPlates: (() -> Void)?
@@ -104,6 +111,15 @@ final class SliceModel {
         // The settings of the last session (SavedSettings.swift); a test
         // run (ZSLICE_FRESH=1) starts from the defaults.
         if ProcessInfo.processInfo.environment["ZSLICE_FRESH"] == nil { SavedSettings.load(into: core) }
+        autoSimulate()
+    }
+
+    /// The print as it forms after each slice of the active plate, on the
+    /// thread of the slice (docs/internals/print-sim.md). A change stops it,
+    /// and ZS_EVENT_SIMULATED tells when it is ready.
+    private func autoSimulate() {
+        // ZSLICE_NO_SIM=1: the plan only, to compare.
+        zs_app_set_auto_simulate(core, ProcessInfo.processInfo.environment["ZSLICE_NO_SIM"] == nil ? 1 : 0)
     }
 
     isolated deinit {
@@ -152,6 +168,7 @@ final class SliceModel {
     /// The state of the active plate from its app, after it became active.
     private func readActive() {
         scope = .print
+        autoSimulate()
         switch Int(zs_app_state(core)) {
         case Int(ZS_STATE_EMPTY.rawValue): state = .empty
         case Int(ZS_STATE_SLICING.rawValue): state = .slicing
@@ -288,24 +305,6 @@ final class SliceModel {
         if rc != 0 { state = .failed(statusText(rc)) }
     }
 
-    // TODO(Mac port of the simulated print after each slice; the Linux app
-    // and the web app have it, see docs/internals/print-sim.md):
-    // - After each new core (the active plate), call
-    //   zs_app_set_auto_simulate(core, 1): the slice thread then simulates
-    //   the print after the slice, and a change stops it.
-    // - On ZS_EVENT_SIMULATED (6) for the active plate, on the main thread:
-    //   if zs_app_sim_adopt(core) == 1, load the 3D view again (as after
-    //   ZS_EVENT_SLICED) and update the print card.
-    // - The print card: zs_app_sim_stats(core, &st) == 0 gives the hint in
-    //   place of the area that hangs in the air. st.failed > 0: "The print
-    //   fails at layer \(st.first_failed_layer + 1): the plastic over air
-    //   falls. Turn on support or turn the part."; else st.max_drop > 0.5:
-    //   "The plastic droops up to ... mm where nothing holds it." (see
-    //   show_hint in linux/src/ui/window.c).
-    // - The colors menu item: "Show the plan" while the simulated plastic
-    //   shows (zs_app_show_simulated(core, 0)), and "Show the print as it
-    //   forms" while the plan shows (zs_app_show_simulated(core, 1), which
-    //   uses the simulation that is there; else zs_app_simulate_print).
     fileprivate func handle(plate: Int, event: Int32, progress: Double, status: Int32) {
         if event == Int32(ZS_EVENT_PLATES.rawValue) {
             readPlates()
@@ -349,6 +348,11 @@ final class SliceModel {
             if saveBytesDue {
                 DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) { [weak self] in self?.flushSaveBytesIfIdle() }
             }
+        case Int(ZS_EVENT_SIMULATED.rawValue):
+            // The simulation of the slice that shows, on the slice thread:
+            // the toolpaths take it on this thread.
+            guard zs_app_state(core) == Int32(ZS_STATE_DONE.rawValue), holdSimulation?() != true, zs_app_sim_adopt(core) == 1 else { return }
+            onSimulated?()
         case Int(ZS_EVENT_FAILED.rawValue):
             if zs_app_state(core) == Int32(ZS_STATE_FAILED.rawValue) { state = .failed(statusText(status)) }
         default:

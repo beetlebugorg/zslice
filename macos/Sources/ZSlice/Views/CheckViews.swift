@@ -17,7 +17,7 @@ struct CheckButtons: View {
                 workspace.toggleGaps()
             }
             toggle(workspace.issues.isEmpty ? "checkmark.seal" : "exclamationmark.triangle", "", on: workspace.checkOpen,
-                   help: "Check the print (⇧⌘K): what can make it fail, the worst first.") {
+                   help: "Check the print (⇧⌘K): what can make it fail, the worst first: overhangs with no support, bridges, shapes in the air, lines over the flow of the hot end, layers that cool too little, and parts that can tip over.") {
                 workspace.checkOpen.toggle()
             }
             .overlay(alignment: .topTrailing) {

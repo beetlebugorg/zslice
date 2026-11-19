@@ -538,7 +538,7 @@ final class MetalSliceView: NSView {
         rightPress = lastDrag
     }
 
-    /// A right click with no drag opens the context menu; a right drag pans.
+    /// A right click with no drag opens the context menu; a right drag orbits.
     private var rightPress: NSPoint?
 
     override func rightMouseUp(with event: NSEvent) {
@@ -591,6 +591,17 @@ final class MetalSliceView: NSView {
             delegate?.sliceViewDrag(convert(event.locationInWindow, from: nil), event.modifierFlags)
             return
         }
+        // Shift and a drag pans, as in Cura.
+        if event.modifierFlags.contains(.shift) {
+            pan(event)
+            return
+        }
+        orbit(event)
+    }
+
+    /// A left or a right drag orbits on the 3D page (as in Cura), and pans
+    /// on the 2D page.
+    private func orbit(_ event: NSEvent) {
         guard let view, let (dx, dy) = dragDelta(event) else { return }
         if page == .twoD {
             pan2D(dx, dy)
@@ -606,7 +617,9 @@ final class MetalSliceView: NSView {
         requestFrame()
     }
 
-    override func rightMouseDragged(with event: NSEvent) { pan(event) }
+    // A right drag orbits (a two-finger press and drag on a trackpad), and
+    // a middle drag pans, as in Cura.
+    override func rightMouseDragged(with event: NSEvent) { orbit(event) }
     override func otherMouseDragged(with event: NSEvent) { pan(event) }
 
     private func pan(_ event: NSEvent) {

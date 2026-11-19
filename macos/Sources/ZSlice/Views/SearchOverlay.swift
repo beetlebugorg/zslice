@@ -34,8 +34,11 @@ struct SearchOverlay: View {
     @State private var query = ""
     @State private var index = 0
     @State private var drag: CGSize = .zero
-    @AppStorage("search.x", store: prefs) private var placeX = 0.0
-    @AppStorage("search.y", store: prefs) private var placeY = 0.0
+    /// A drag of the head moves the search from its place under the Search
+    /// button, and it keeps that offset.
+    @AppStorage("search.dx", store: prefs) private var placeX = 0.0
+    @AppStorage("search.dy", store: prefs) private var placeY = 0.0
+    static let width: CGFloat = 400
     @FocusState private var fieldFocus: Bool
 
     private static let maxSettings = 14
@@ -57,7 +60,7 @@ struct SearchOverlay: View {
             SearchAction(label: "Measure", keys: "T") { workspace.setTool(.measure) },
             SearchAction(label: "Move a Part", keys: "M") { workspace.setTool(.move) },
             SearchAction(label: "Turn a Part", keys: "R") { workspace.setTool(.turn) },
-            SearchAction(label: "The Print as It Forms (Simulated Plastic)", keys: "") { workspace.toggleSimulation() },
+            SearchAction(label: workspace.simulated ? "Show the Plan" : "Show the Print as It Forms (Simulated Plastic)", keys: "") { workspace.toggleSimulation() },
         ] + (workspace.model.project == nil ? [] : [SearchAction(label: "Close the Project", keys: "") { workspace.closeProject() }])
     }
 
@@ -129,7 +132,7 @@ struct SearchOverlay: View {
                 .frame(maxHeight: 420)
             }
         }
-        .frame(width: 400)
+        .frame(width: Self.width)
         .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 12))
         .overlay(RoundedRectangle(cornerRadius: 12).strokeBorder(.separator))
         .shadow(color: .black.opacity(0.2), radius: 16, y: 6)

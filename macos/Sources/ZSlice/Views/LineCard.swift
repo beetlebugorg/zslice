@@ -169,8 +169,9 @@ struct LineCard: View {
             out.append(("Holds up: no part line over it on the next layers.", "arrow.up.to.line", false))
         }
         // Flow, cooling, overhang, island, and bridge: two kinds at most.
+        let kinds: Set<UInt8> = [ZS_ISSUE_FLOW, ZS_ISSUE_COOLING, ZS_ISSUE_OVERHANG, ZS_ISSUE_ISLAND, ZS_ISSUE_BRIDGE].map { UInt8($0.rawValue) }.reduce(into: []) { $0.insert($1) }
         var seen = Set<UInt8>()
-        for i in info.issues where i.severity >= 1 && i.kind != UInt8(ZS_ISSUE_RETRACTIONS.rawValue) && !seen.contains(i.kind) && seen.count < 2 {
+        for i in info.issues where i.severity >= 1 && kinds.contains(i.kind) && !seen.contains(i.kind) && seen.count < 2 {
             seen.insert(i.kind)
             out.append((i.text, "exclamationmark.triangle", true))
         }

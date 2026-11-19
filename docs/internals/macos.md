@@ -42,7 +42,7 @@ open build/zslice.app
 | `Sources/ZSlice/Views/DocumentWindow.swift` | The window: the 3D view, the scrub bar, and the print card. |
 | `Sources/ZSlice/Views/LineCard.swift` | The card of a selected line, in a corner of the view clear of the line. |
 | `Sources/ZSlice/Views/PlateLabels.swift` | The labels of the plates, in a row at the top of the view. |
-| `Sources/ZSlice/Core/Simulation.swift` | The print as it forms: the simulated plastic of the slice, and its hint in the details. |
+| `Sources/ZSlice/Core/Simulation.swift` | The print as it forms: the simulation after each slice (on the slice thread), the switch to the plan, and its hint in the details. |
 | `Sources/ZSlice/Views/ToolStrip.swift` | The tool strip, and the measure tape with its readout. |
 | `Sources/ZSlice/Views/Legend.swift` | The legend of the colors: the line types to show or fade, or the range of a ramp. |
 | `Sources/ZSlice/Views/PrintFacts.swift` | The main settings of the print on the print card, each with a popover of editors. |
@@ -118,8 +118,9 @@ The controls of the window are overlays on the edges of the content area, so a n
 
 The bindings are those of the GTK app, with the keys of a Mac:
 
-- A left drag orbits.
-- A right or middle drag pans. A two-finger press and drag on a trackpad is a right drag, so it pans too.
+- A left or right drag orbits, as in Cura. A two-finger press and drag on a trackpad is a right drag, so it orbits too.
+- A middle drag, or Shift and a drag, pans.
+- Shift-click in the Select tool selects the part under the pointer, as Command-click does.
 - A two-finger scroll on a trackpad zooms toward the pointer. So do the mouse wheel and a pinch.
 - A double click on a side of the print turns the camera to face it (`zs_view_look_at_side`), at a distance for the size of the part there. A double click on no side resets the view.
 - A right click with no drag opens the context menu, and so does Control-click.
@@ -183,7 +184,7 @@ Like the GTK shell, the app reads some environment variables for development and
 - `ZSLICE_RECORD=path.mov` records a demo video of the window (Recorder.swift): a turn, the colors, the layer slider, the replay, and the 2D view, frame by frame at 30 frames a second.
 - `ZSLICE_ADD_PLATE="path;path"` puts each file on a new plate after the first slice.
 - `ZSLICE_REMOVE_SUPPORT=1` selects the longest support line of the layer at a third of the height, 3 s after the start, and runs Remove This Support; it logs the count of the areas before and after. `ZSLICE_REMOVE_SUPPORT=card` opens the card of that line and logs what it holds up.
-- `ZSLICE_SIM=1` turns on The Print as It Forms 2 s after the start, and logs the numbers of the simulation.
+- `ZSLICE_SIM=1` logs the numbers of each simulated print, and its time after the slice. `ZSLICE_NO_SIM=1` turns off the simulation after each slice, to compare.
 - `ZSLICE_NO_CULL=1` draws the beads with no back face culling, to compare the picture and the GPU time (`ZSLICE_ORBIT_TEST`).
 - `ZSLICE_SEARCH=text` opens the search, `ZSLICE_GAPS=1` and `ZSLICE_CHECK=1` turn on Gaps and Check, `ZSLICE_MENU="x,y;Title"` (or `center;Title`) runs an item of the context menu, and `ZSLICE_DARK=1` sets the dark look.
 - `ZSLICE_DOUBLE_CLICK=x,y` is a double click at that point after the first slice.

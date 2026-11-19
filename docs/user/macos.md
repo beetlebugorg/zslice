@@ -34,7 +34,7 @@ The keys of the other apps work in the 3D view. A key with Ctrl in the other app
 | Add models to the plate | Shift-Command-I |
 | Open a project folder | Shift-Command-O |
 
-Command and a click selects a part, Command and a drag moves it, and Command and the wheel turns it. Control and a click opens the context menu, as a right click does.
+A left or right drag (a two-finger press and drag on a trackpad) orbits the view, as in Cura. A middle drag, or Shift and a drag, pans. Command or Shift and a click selects a part, Command and a drag moves it, and Command and the wheel turns it. Control and a click opens the context menu, as a right click does.
 
 The context menu fits what is under the pointer. On a support line it has Remove This Support: zslice finds the overhang that the line holds up and puts a Block area on it, and your support marks near the line go too. On a line of a part it has the support marks, a drop of plastic, the layer profiles, and the placement of the part. On the bed it has the plate items, with Remove This Plate when there are two plates or more. Show All Layers, the test prints, and Reset the View are in each menu.
 
@@ -44,7 +44,7 @@ Four things float over the 3D view: the tools at the left, the layer slider at t
 
 With two plates or more, each plate has a label in a row at the top of the view, over the middle of its plate, so the labels never cover a part. Click a label to show its plate; a right click removes the plate. A change of the list of plates goes into the session at once. File > Close the Project (also in the search) closes an open project: its plates stay in the window as your plates.
 
-The colors popover has The Print as It Forms: zslice simulates the plastic of the slice (it falls where nothing holds it, sags, cools, and sets), and the view shows it in place of the planned lines. In a replay the toolhead follows the plan while the plastic falls. The details then say at which layer the print fails, or how far the plastic droops. A new slice shows the plan again.
+After each slice, zslice simulates the plastic of the print in the background (it falls where nothing holds it, sags, cools, and sets), and the view shows it in place of the planned lines when it is ready. In a replay the toolhead follows the plan while the plastic falls. The details then say at which layer the print fails, or how far the plastic droops. Show the Plan in the colors popover (or the search) shows the planned lines, and Show the Print as It Forms goes back. The Check also names a part that its brim holds up, or that can tip over.
 
 ## The drawer
 

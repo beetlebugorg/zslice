@@ -3,13 +3,16 @@
 //! plastic falls where nothing holds it, sags, cools, and sets, and the
 //! view shows it in place of the planned lines. In a replay the toolhead
 //! follows the plan while the plastic falls. A new slice shows the plan
-//! again.
+//! again until its simulation is ready.
 //!
-//! The simulation runs on the main thread (about 1.5 s for a 3DBenchy), as
-//! smart placement does: the window shows a note first. The details then
-//! say where the print fails, or how far the plastic droops
-//! (zs_app_sim_stats), in place of the estimate from the area that hangs
-//! in the air.
+//! The core simulates the print after each slice of the active plate, on
+//! the thread of the slice (zs_app_set_auto_simulate), and a change stops
+//! it. On ZS_EVENT_SIMULATED the toolpaths take the result
+//! (zs_app_sim_adopt), and the view loads it. The details then say where
+//! the print fails, or how far the plastic droops (zs_app_sim_stats), in
+//! place of the estimate from the area that hangs in the air. The colors
+//! popover has Show the Plan while the simulated plastic shows, and Show
+//! the Print as It Forms while the plan shows.
 //!
 //! SPDX-License-Identifier: AGPL-3.0-or-later
 
@@ -49,7 +52,26 @@ struct SimResult {
 }
 
 extension Workspace {
-    /// Shows the print as it forms, or the plan again.
+    /// The simulation of the slice is ready (the slice thread ran it): the
+    /// view shows the plastic as it set, and the details give the hint.
+    func simulatedReady() {
+        simulated = true
+        readSimResult()
+        reloadToolpaths()
+    }
+
+    private func readSimResult() {
+        var s = zs_print_sim_stats()
+        simResult = zs_app_sim_stats(model.core, &s) == 0 ? SimResult(s) : nil
+        if ProcessInfo.processInfo.environment["ZSLICE_SIM"] != nil, let r = simResult {
+            NSLog("zslice sim: moved %ld in %ld paths, max %.1f mm, failed %ld from layer %ld, drop %.1f mm, %@: %@, %.0f ms after the slice",
+                  r.moved, r.movedPaths, r.maxMove, r.failed, r.firstFailedLayer, r.maxDrop, r.material, r.checkText ?? "no hint",
+                  (CACurrentMediaTime() - slicedAt) * 1000)
+        }
+    }
+
+    /// Shows the plan, or the print as it forms again: the simulation that
+    /// is there, else a new one on this thread.
     func toggleSimulation() {
         guard !busy else { return }
         if simulated {
@@ -62,33 +84,23 @@ extension Workspace {
             showNote("Slice first: the simulation needs a slice.")
             return
         }
+        if zs_app_show_simulated(model.core, 1) == 0 {
+            simulatedReady()
+            return
+        }
         busy = true
         showNote("Simulating the plastic of the print…", seconds: 60)
         Task { @MainActor in
             // Two frames, so the note draws before the wait.
             try? await Task.sleep(for: .milliseconds(80))
             defer { busy = false }
-            let t = CACurrentMediaTime()
-            var s = zs_print_sim_stats()
-            let rc = zs_app_simulate_print(model.core, &s)
-            if ProcessInfo.processInfo.environment["ZSLICE_TIMING"] != nil {
-                NSLog("zslice timing: simulated print %.0f ms", (CACurrentMediaTime() - t) * 1000)
-            }
+            let rc = zs_app_simulate_print(model.core, nil)
             guard rc == 0, zs_app_show_simulated(model.core, 1) == 0 else {
                 showNote("The simulation did not run. \(statusText(rc))")
                 return
             }
-            let r = SimResult(s)
-            simulated = true
-            simResult = r
-            if ProcessInfo.processInfo.environment["ZSLICE_SIM"] != nil {
-                NSLog("zslice sim: moved %ld in %ld paths, max %.1f mm, failed %ld from layer %ld, drop %.1f mm, %@: %@",
-                      r.moved, r.movedPaths, r.maxMove, r.failed, r.firstFailedLayer, r.maxDrop, r.material, r.checkText ?? "no hint")
-            }
-            reloadToolpaths()
-            showNote(r.moved > 0
-                ? String(format: "The plastic of %d lines does not stay where it prints: up to %.1f mm off. Turn on support, or change the turn of the part.", r.movedPaths, r.maxMove)
-                : "All the plastic stays where it prints.", seconds: 8)
+            showNote("The print as it forms.", seconds: 2)
+            simulatedReady()
         }
     }
 

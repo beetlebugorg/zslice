@@ -244,9 +244,13 @@ struct DocumentWindow: View {
             // The search last, over the other controls.
             .overlay(alignment: .topLeading) {
                 if workspace.searchOpen {
-                    SearchOverlay(workspace: workspace)
-                        .padding(.leading, 64)
-                        .padding(.top, 12)
+                    // Centered under the Search button of the toolbar, in the
+                    // window (web/app/search.js).
+                    GeometryReader { geo in
+                        SearchOverlay(workspace: workspace)
+                            .padding(.leading, max(8, min(geo.size.width - SearchOverlay.width - 8, workspace.searchButtonX - SearchOverlay.width / 2)))
+                            .padding(.top, 6)
+                    }
                 }
             }
         .frame(minWidth: 720, minHeight: 480)
@@ -327,6 +331,8 @@ struct DocumentWindow: View {
                     .help("3D: the layers up to the slider. 2D: one layer from the top. A drag pans, the wheel zooms, a double click fits the part.")
                     Button { workspace.searchOpen = true } label: { Label("Search", systemImage: "magnifyingglass") }
                         .help("Search the settings and the actions (/ or ⌘F)")
+                        // The search opens centered under this button.
+                        .onGeometryChange(for: CGFloat.self) { $0.frame(in: .global).midX } action: { workspace.searchButtonX = $0 }
                 }
             }
             ToolbarItemGroup(placement: .primaryAction) {
@@ -828,11 +834,11 @@ struct ColorsButton: View {
                 .pickerStyle(.radioGroup)
                 .labelsHidden()
                 Divider()
-                Toggle("The Print as It Forms", isOn: Binding(get: { workspace.simulated }, set: { _ in
+                Button(workspace.simulated ? "Show the Plan" : "Show the Print as It Forms") {
                     open = false
                     workspace.toggleSimulation()
-                }))
-                .help("Simulated plastic: it sags and droops where nothing holds it")
+                }
+                .help("The plastic of the slice as it would form: it sags and droops where nothing holds it. It shows after each slice; this switches between it and the plan.")
                 .disabled(workspace.model.state != .done)
                 if workspace.layerCount > 0 {
                     Divider()

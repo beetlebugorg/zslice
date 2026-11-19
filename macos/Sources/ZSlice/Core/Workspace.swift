@@ -155,6 +155,8 @@ final class Workspace {
     /// numbers of the last simulation of this slice.
     var simulated = false
     var simResult: SimResult?
+    /// When the last slice showed, for the log of ZSLICE_SIM.
+    @ObservationIgnored var slicedAt = 0.0
     /// The ids of the plates and the active plate, as the session has them.
     @ObservationIgnored var plateIDs: [UInt64] = []
 
@@ -179,6 +181,8 @@ final class Workspace {
     @ObservationIgnored var cardCorner: Int?
     /// The height of the bottom bar, for the cards to keep clear of it.
     var dockHeight: CGFloat = 70
+    /// The middle of the Search button of the toolbar, in the window.
+    var searchButtonX: CGFloat = 260
     /// "Fade the others": the app keeps the choice.
     var isolate = prefs.bool(forKey: "isolate") {
         didSet { prefs.set(isolate, forKey: "isolate") }
@@ -229,6 +233,11 @@ final class Workspace {
         if let p = ProcessInfo.processInfo.environment["ZSLICE_VIEW"].flatMap(MetalSliceView.Page.init) { page = p }
         canvas.page = page
         model.onSliced = { [weak self] in self?.sliced() }
+        model.onSimulated = { [weak self] in self?.simulatedReady() }
+        model.holdSimulation = { [weak self] in
+            guard let self else { return false }
+            return treeDrag != nil || supportDrag != nil || partDrag != nil || ringDrag != nil || grabbing || falling != nil
+        }
         model.onPlates = { [weak self] in self?.syncPlates() }
         model.onActivePlate = { [weak self] in
             self?.activePlateChanged()
@@ -257,9 +266,10 @@ final class Workspace {
             }
         }
         stopReplay()
-        // A new slice shows the plan.
+        // A new slice shows the plan until its simulation is ready.
         simulated = false
         simResult = nil
+        slicedAt = CACurrentMediaTime()
         if let v = canvas.view { zs_view_set_mode(v, Int32(colorMode)) }
         let tl = CACurrentMediaTime()
         canvas.load(model.core)
@@ -858,14 +868,6 @@ final class Workspace {
                 removeSupportHere()
                 NSLog("zslice remove support: layer %ld path %ld, areas %ld -> %ld, note %@", l, path, areas,
                       zs_app_support_area_count(model.core), note ?? "none")
-            }
-        }
-        // ZSLICE_SIM=1 shows the print as it forms (after the slice of a
-        // ZSLICE_SET, 2 s).
-        if env["ZSLICE_SIM"] != nil {
-            Task { @MainActor in
-                try? await Task.sleep(for: .seconds(2))
-                toggleSimulation()
             }
         }
         // ZSLICE_PICK=x,y picks the line at that point of the view (points),
@@ -1674,7 +1676,14 @@ extension Workspace: SliceViewDelegate {
             // A click on a part selects it; a click on a line selects it too.
             if let i = partAt(p) { selectPart(i) } else { selectPart(nil); pick(at: p) }
         case .select:
-            pick(at: p)
+            // Shift and a click: the part under the pointer, as Command
+            // and a click (web/app/input.js).
+            if NSEvent.modifierFlags.contains(.shift), let i = partAt(p) {
+                clearSelection()
+                selectPart(i)
+            } else {
+                pick(at: p)
+            }
         case .grab:
             // A press on a part takes it (press); a click off the parts
             // does nothing.
