@@ -135,8 +135,9 @@ pub const SupportArea = struct {
     pub const selected: u8 = 2;
     /// Draw the points.
     pub const points: u8 = 4;
-    /// A path in the air (the nodes of the support trees): no lift, no
-    /// fill hint, and its points as one small bead each.
+    /// A path in the air (the nodes of the support trees): no lift and no
+    /// fill hint. With `points`, only its points, as one small bead each
+    /// (a set of dots).
     pub const bare: u8 = 8;
 };
 
@@ -1470,9 +1471,11 @@ pub const View = struct {
             // that they reach out of the part on both sides of the surface.
             if (closed and !bare and pts.len >= 3) hatch(out, n, pts, span * 0.7, w, fill, if (sel) 12 else 8);
             const edges = if (closed) pts.len else pts.len - 1;
-            for (0..edges) |k| stair(out, n, pts[k], pts[(k + 1) % pts.len], w, w, line);
+            // A bare path with points is a set of dots, with no lines.
+            const dots = bare and a.flags & SupportArea.points != 0;
+            if (!dots) for (0..edges) |k| stair(out, n, pts[k], pts[(k + 1) % pts.len], w, w, line);
             if (bare) {
-                if (a.flags & SupportArea.points == 0) continue;
+                if (!dots) continue;
                 for (pts) |p| {
                     if (n.* >= out.len) return;
                     const s = span * (if (sel) @as(f32, 5) else 3);

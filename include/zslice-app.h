@@ -1206,8 +1206,8 @@ void zs_view_set_cut(zs_view *view, double x0, double y0, double x1, double y1, 
  * flags: 1 closed (an area, with lines across it; else the path that the
  * user draws now, with a large first point), 2 selected (a thicker line
  * and its points), 4 its points, 8 bare (a path in the air, as the nodes
- * of the support trees: no lines across it, and with 4 a small bead at
- * each point). */
+ * of the support trees: no lines across it; with 4, only a small bead at
+ * each point, and no lines). */
 void zs_view_support_clear(zs_view *view);
 int zs_view_support_add(zs_view *view, const double *pts, size_t n, int kind, int flags);
 /* on != 0: zs_view_surface_point and the picks skip the support lines, so

@@ -1117,8 +1117,11 @@ const ops = {
     return treeEdit(part, false, () => core.w.x.zs_app_support_tree_delete_branch(core.app, part, node), true);
   },
 
+  // part -1: the part under the tip.
   treeAdd({ part, fx, fy, tx, ty, tz }) {
-    return treeEdit(part, false, (c) => core.w.x.zs_app_support_tree_add_branch(core.app, part, fx, fy, tx, ty, tz, c), true);
+    const i = part >= 0 ? part : Number(core.w.x.zs_app_part_at(core.app, tx, ty));
+    if (i < 0) return { rc: -2, clamp: 0, tree: null };
+    return treeEdit(i, false, (c) => core.w.x.zs_app_support_tree_add_branch(core.app, i, fx, fy, tx, ty, tz, c), true);
   },
 
   treeReset({ part }) {

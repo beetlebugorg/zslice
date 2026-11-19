@@ -311,27 +311,29 @@ export class SupportTool {
         const q = this.node(s.part, d);
         add([[p.x, p.y, p.z], [q.x, q.y, q.z]], kind, BARE | (inb.has(k) ? SELECTED : 0));
       }
-      for (const k of branch) {
-        const p = this.node(s.part, k);
-        add([[p.x, p.y, p.z]], kind, BARE | POINTS | (k === s.node ? SELECTED : 0));
-      }
+      dots(add, branch.filter((k) => k !== s.node).map((k) => this.node(s.part, k)).map((p) => [p.x, p.y, p.z]), kind, 0);
+      const sn = this.node(s.part, s.node);
+      add([[sn.x, sn.y, sn.z]], kind, BARE | POINTS | SELECTED);
       const nd = this.node(s.part, s.node);
       add(this.ringPoints(nd), kind, BARE | CLOSED | SELECTED);
     }
+    const skip = new Set(s ? branch : []);
+    const pts = [];
     for (const [part, t] of this.trees) {
       const n = t.nodes.length / TREE_STRIDE;
       for (let i = 0; i < n; i++) {
-        if (s && part === s.part && branch.includes(i)) continue;
+        if (s && part === s.part && skip.has(i)) continue;
         const o = i * TREE_STRIDE;
         const p = [t.nodes[o], t.nodes[o + 1], t.nodes[o + 2]];
         const q = this.pixelOf(p);
         if (!q) continue;
-        const key = `${Math.floor(q[0] / cell)},${Math.floor(q[1] / cell)}`;
+        const key = Math.floor(q[0] / cell) * 65536 + Math.floor(q[1] / cell);
         if (seen.has(key)) continue;
         seen.add(key);
-        add([p], TREE_KIND, BARE | POINTS);
+        pts.push(p);
       }
     }
+    dots(add, pts, TREE_KIND, 0);
     if (this.adding?.foot) add([[...this.adding.foot, 0]], TREE_KIND, BARE | POINTS | SELECTED);
   }
 
@@ -502,7 +504,7 @@ export class SupportTool {
       del.title = "Delete this area (Delete)";
       del.onclick = () => this.removeSelected();
       card.append(info, del);
-    } else {
+    } else if (!this.adding && !(this.tsel && this.nodeOk(this.tsel))) {
       const n = this.draft.length;
       const hint = n === 0
         ? "Point at an overhang: it lights up, and a click puts support under it. Alt and a click draw an area point by point (Shift: no snap). Click an outline to select its area."
@@ -937,6 +939,7 @@ export class SupportTool {
   // The local preview of a drag to the plane point p: the nodes follow at
   // once; the core clamps them when its answer comes.
   dragTo(d, p) {
+    d.last = p;
     const a = this.trees.get(d.part).nodes;
     if (d.kind === "ring") {
       const nd = this.node(d.part, d.node);
@@ -962,19 +965,20 @@ export class SupportTool {
     return ["treeMoveBranch", { part: d.part, node: d.node, dx: w.dx - d.applied[0], dy: w.dy - d.applied[1], hold }];
   }
 
-  // The answer of the core during a drag: its clamp, and for a branch the
-  // move that it applied. The local preview stays while the pointer moves.
+  // The answer of the core during a drag: its clamp, the nodes that it
+  // moved (the rope of a node), and for a branch the move that it
+  // applied. With a newer move of the pointer, the dragged nodes stay
+  // under the pointer until the next answer.
   answerTree(d, r) {
     this.tclamp = r.clamp ?? 0;
-    if (d.kind === "seg" && r.tree) {
+    if (!r.tree) return;
+    if (d.kind === "seg") {
       const o = d.branch[0] * TREE_STRIDE;
       d.applied = [r.tree.nodes[o] - d.orig[0][0], r.tree.nodes[o + 1] - d.orig[0][1]];
     }
-    if (!d.dirty && r.tree) {
-      // No newer move: show the clamped edit.
-      this.trees.set(r.tree.part, r.tree);
-      this.show();
-    }
+    this.trees.set(r.tree.part, r.tree);
+    if (d.dirty && d.last) this.dragTo(d, d.last);
+    this.show();
   }
 
   async sendTree(hold) {
@@ -1035,6 +1039,12 @@ export class SupportTool {
     this.released = performance.now();
     await this.ctx.client.call("sliceHeld");
   }
+}
+
+// Dots at the points pts ([[x, y, z], ...]) to the view: a bare path
+// with points has no lines, so a call takes up to 256 of them.
+function dots(add, pts, kind, flags) {
+  for (let i = 0; i < pts.length; i += 256) add(pts.slice(i, i + 256), kind, BARE | POINTS | flags);
 }
 
 // The distance from (px, py) to the segment a-b, pixels.

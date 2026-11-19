@@ -336,8 +336,8 @@ export fn zs_view_support_clear(view: ?*View) void {
 /// kind (enum zs_mark_kind: block is red, the others blue), and flags: 1
 /// closed (an area with a fill hint; else a path that the user draws now),
 /// 2 selected (a thicker line and its points), 4 its points, 8 bare (a
-/// path in the air, as the nodes of the support trees: no fill hint, and
-/// with 4 a small bead at each point).
+/// path in the air, as the nodes of the support trees: no fill hint; with
+/// 4, only a small bead at each point, and no lines).
 export fn zs_view_support_add(view: ?*View, pts: ?[*]const f64, n: usize, kind: c_int, flags: c_int) c_int {
     if (!render_on) return 0;
     const v = view orelse return 0;
