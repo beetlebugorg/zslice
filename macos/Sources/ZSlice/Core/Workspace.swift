@@ -640,6 +640,20 @@ final class Workspace {
         }
         // ZSLICE_TURN=deg turns the selected part about X, then lets it settle
         // and logs the note; ZSLICE_SUPPORT=1 turns support on first.
+        // ZSLICE_KEYS=chars: each key in turn, as typed in the view, and the
+        // tool after it (the tool keys must win over the keys of a line).
+        if let keys = env["ZSLICE_KEYS"] {
+            var log: [String] = []
+            for ch in keys {
+                let s = String(ch)
+                if let e = NSEvent.keyEvent(with: .keyDown, location: .zero, modifierFlags: [], timestamp: 0, windowNumber: 0, context: nil,
+                                            characters: s, charactersIgnoringModifiers: s, isARepeat: false, keyCode: 0) {
+                    _ = sliceViewKey(e)
+                }
+                log.append("\(s)→\(tool.rawValue)")
+            }
+            NSLog("zslice keys: selection %d, %@", selection == nil ? 0 : 1, log.joined(separator: " "))
+        }
         // ZSLICE_GRAB=1: the Grab tool, a press on the part at the center,
         // a drag of 200 points to the right in 0.5 s, and a release; the
         // part 3 s later.
@@ -1613,8 +1627,6 @@ extension Workspace: SliceViewDelegate {
             switch event.charactersIgnoringModifiers {
             case "k": shift ? moveBottom(1) : moveTop(1)
             case "j": shift ? moveBottom(-1) : moveTop(-1)
-            case "h": scrubStep(-0.02)
-            case "l": scrubStep(0.02)
             case "C" where shift: setRange(lo: 0, hi: layerCount - 1)
             case "n" where !shift: showSettings.toggle()
             // Esc with nothing else to close: the settings pane.

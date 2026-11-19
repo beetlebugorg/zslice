@@ -37,11 +37,11 @@ struct ShortcutSheet: View {
             ("↑ ↓ or k j", "The top layer up or down"),
             ("Shift ↑ ↓", "The bottom layer up or down"),
             ("Page Up, Page Down", "10 layers up or down"),
-            ("← → or h l", "The nozzle back or on in the top layer"),
+            ("← →", "The nozzle back or on in the top layer"),
             ("Shift-C", "All layers"),
         ]),
         ("Selected line", [
-            ("← → or h l", "The segment before or after (Shift: the line)"),
+            ("← →", "The segment before or after (Shift: the line)"),
             ("↑ ↓ or k j", "The nearest line on the layer above or below"),
             ("C", "The layers up to the line"),
             ("Esc", "Clear the selection"),

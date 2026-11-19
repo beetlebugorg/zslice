@@ -232,8 +232,6 @@ extension Workspace {
         case .downArrow? where !shift: layer(-1)
         default:
             switch key {
-            case "h": step(-1)
-            case "l": step(1)
             case "k": layer(1)
             case "j": layer(-1)
             case "c": setRange(lo: lo, hi: zs_view_path_layer(v, s.path))
