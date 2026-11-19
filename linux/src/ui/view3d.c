@@ -351,7 +351,9 @@ static void load_data(View3d *v) {
         if (zs_app_part_get(zg_model_core(v->model), 0, &part) == ZS_OK) zg_model_part_move(v->model, 0, part.x + 5, part.y);
     }
     zs_view_set_mode(v->view, v->mode);
+    gint64 t_load = g_get_monotonic_time();
     int rc = zs_view_load(v->view, zg_model_core(v->model));
+    if (g_getenv("ZSLICE_BENCH_LOAD")) g_message("bench: zs_view_load %.1f ms", (g_get_monotonic_time() - t_load) / 1000.0);
     if (rc != ZS_OK) {
         g_warning("zslice: the 3D view did not load the toolpaths: %s", zg_status_text(rc));
         return;

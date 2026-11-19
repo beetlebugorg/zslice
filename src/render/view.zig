@@ -235,6 +235,18 @@ pub const View = struct {
     bead_start: std.ArrayList(f32) = .empty,
     /// The fan of each bead, from 0 to 255 (for the toolhead).
     bead_fan: std.ArrayList(u8) = .empty,
+    /// For the times of a bead after a load that keeps its layer (see
+    /// `layer_key`): the length of its path up to its end, and the length
+    /// of its path.
+    bead_run: std.ArrayList(f32) = .empty,
+    bead_len: std.ArrayList(f32) = .empty,
+    /// A hash of the input of each layer of the last `load` (its paths, and
+    /// the values of the view; not the times): the next load keeps the
+    /// beads, the marks, and the pick runs of a layer with the same hash.
+    /// A support edit changes few layers.
+    layer_key: std.ArrayList(u64) = .empty,
+    /// The widest bead of each pick run.
+    run_width: std.ArrayList(f32) = .empty,
     /// The beads of the toolhead of a replay (see `toolhead`).
     head_buf: [128]vk.Instance = undefined,
     /// The replay time (s), or null to show whole layers.
@@ -412,6 +424,10 @@ pub const View = struct {
         v.bead_end.deinit(gpa);
         v.bead_start.deinit(gpa);
         v.bead_fan.deinit(gpa);
+        v.bead_run.deinit(gpa);
+        v.bead_len.deinit(gpa);
+        v.layer_key.deinit(gpa);
+        v.run_width.deinit(gpa);
         v.marks.deinit(gpa);
         v.mark_layer_end.deinit(gpa);
     }
@@ -571,10 +587,11 @@ pub const View = struct {
             v.outline_ends.clearRetainingCapacity();
             v.outline_layer_end.clearRetainingCapacity();
             v.path_part.clearRetainingCapacity();
+            v.layer_key.clearRetainingCapacity();
             v.clearPreview();
             v.lite.clear();
             v.lite_gen = v.nextGen();
-            try v.buildPickIndex();
+            try v.buildPickIndex(null);
             return;
         };
         const first_load = v.layer_end.items.len == 0;
@@ -590,23 +607,53 @@ pub const View = struct {
         v.xf_sxy = sxy;
         v.xf_sz = sz;
 
+        // The lists of the last load: a layer with the same input keeps
+        // its beads, its marks, and its pick runs (see `layer_key`).
+        var old: Reuse = .{
+            .keys = v.layer_key,
+            .beads = v.beads,
+            .fan = v.bead_fan,
+            .run = v.bead_run,
+            .len = v.bead_len,
+            .path_start = v.path_start,
+            .layer_end = v.layer_end,
+            .layer_path_end = v.layer_path_end,
+            .marks = v.marks,
+            .mark_layer_end = v.mark_layer_end,
+            .pick_runs = v.pick_runs,
+            .layer_boxes = v.layer_boxes,
+            .run_width = v.run_width,
+        };
+        defer old.deinit();
+        inline for (.{ &v.layer_key, &v.beads, &v.bead_fan, &v.bead_run, &v.bead_len, &v.path_start, &v.layer_end, &v.layer_path_end, &v.marks, &v.mark_layer_end, &v.pick_runs, &v.layer_boxes, &v.run_width }) |l| l.* = .empty;
         var boxes = v.beads;
-        boxes.clearRetainingCapacity();
         defer v.beads = boxes;
         v.bead_end.clearRetainingCapacity();
         v.bead_start.clearRetainingCapacity();
-        v.bead_fan.clearRetainingCapacity();
-        v.layer_end.clearRetainingCapacity();
-        v.path_start.clearRetainingCapacity();
         var zmax: f32 = 0;
         const pts = tp.points.items;
         // A value mode: the value of each path, and the range of the ramp.
         const values = try v.pathValues(tp);
         defer if (values.len > 0) gpa.free(values);
+        const n_layers = tp.layer_ends.items.len;
+        const same = gpa.alloc(bool, n_layers) catch return error.OutOfMemory;
+        defer gpa.free(same);
+        v.layer_key.ensureTotalCapacity(gpa, n_layers) catch return error.OutOfMemory;
+        const seed = viewSeed(v, filament, center, sxy, sz, tp.z_hop);
+        for (0..n_layers) |l| {
+            const key = layerKey(tp, l, values, seed);
+            v.layer_key.appendAssumeCapacity(key);
+            same[l] = l < old.keys.items.len and old.keys.items[l] == key and l < old.layer_end.items.len and old.run.items.len == old.beads.items.len;
+        }
         for (tp.layer_ends.items, 0..) |layer_end, l| {
             const p0: u32 = if (l == 0) 0 else tp.layer_ends.items[l - 1];
             const z = tp.layer_z.items[l] * sz;
             zmax = @max(zmax, z);
+            if (same[l]) {
+                try v.keepLayer(&old, &boxes, tp, l);
+                v.layer_end.append(gpa, @intCast(boxes.items.len)) catch return error.OutOfMemory;
+                continue;
+            }
             for (p0..layer_end) |pi| {
                 v.path_start.append(gpa, @intCast(boxes.items.len)) catch return error.OutOfMemory;
                 const start: u32 = if (pi == 0) 0 else tp.path_ends.items[pi - 1];
@@ -649,6 +696,8 @@ pub const View = struct {
                     v.bead_start.append(gpa, if (k == 0) t0 else v.bead_end.items[v.bead_end.items.len - 1]) catch return error.OutOfMemory;
                     v.bead_fan.append(gpa, if (pi < tp.path_fan.items.len) tp.path_fan.items[pi] else 255) catch return error.OutOfMemory;
                     v.bead_end.append(gpa, if (path_len > 0) t0 + (t1 - t0) * run / path_len else t1) catch return error.OutOfMemory;
+                    v.bead_run.append(gpa, run) catch return error.OutOfMemory;
+                    v.bead_len.append(gpa, path_len) catch return error.OutOfMemory;
                     var bz = z;
                     var bh = h;
                     var bw = w;
@@ -690,7 +739,7 @@ pub const View = struct {
         v.path_part.appendSlice(gpa, tp.path_part.items) catch return error.OutOfMemory;
         v.clearPreview();
         try v.loadOutlines(app, tp.layer_ends.items.len);
-        try v.loadMarks(tp, filament, center, sxy, sz);
+        try v.loadMarks(tp, filament, center, sxy, sz, same, &old);
         if (!v.headless) try v.renderer.setInstances(boxes.items, v.marks.items);
         v.more.clearRetainingCapacity();
         // The light levels: only the frame backend draws them.
@@ -700,7 +749,7 @@ pub const View = struct {
         }
         // `boxes` goes back to v.beads at the end of this function.
         v.beads = boxes;
-        try v.buildPickIndex();
+        try v.buildPickIndex(.{ .same = same, .old = &old });
 
         if (app.partBounds()) |b| {
             // The camera turns around the center of the bed (as in other
@@ -719,6 +768,115 @@ pub const View = struct {
         if (first_load) {
             v.reset();
             v.layer = if (v.layer_end.items.len > 0) v.layer_end.items.len - 1 else 0;
+        }
+    }
+
+    /// The lists of the last `load`, for the layers that a new load keeps.
+    const Reuse = struct {
+        keys: std.ArrayList(u64),
+        beads: std.ArrayList(vk.Instance),
+        fan: std.ArrayList(u8),
+        run: std.ArrayList(f32),
+        len: std.ArrayList(f32),
+        path_start: std.ArrayList(u32),
+        layer_end: std.ArrayList(u32),
+        layer_path_end: std.ArrayList(u32),
+        marks: std.ArrayList(vk.Instance),
+        mark_layer_end: std.ArrayList(u32),
+        pick_runs: std.ArrayList(PickBox),
+        layer_boxes: std.ArrayList(PickBox),
+        run_width: std.ArrayList(f32),
+
+        fn deinit(r: *Reuse) void {
+            inline for (.{ &r.keys, &r.beads, &r.fan, &r.run, &r.len, &r.path_start, &r.layer_end, &r.layer_path_end, &r.marks, &r.mark_layer_end, &r.pick_runs, &r.layer_boxes, &r.run_width }) |l| l.deinit(gpa);
+        }
+
+        /// The beads first .. end of layer l in the old lists.
+        fn beadRange(r: *const Reuse, l: usize) [2]u32 {
+            return .{ if (l == 0) 0 else r.layer_end.items[l - 1], r.layer_end.items[l] };
+        }
+    };
+
+    /// The seed of the keys of the layers: the values of the view that
+    /// each bead and each mark depend on.
+    fn viewSeed(v: *const View, filament: [3]u8, center: [2]f32, sxy: f32, sz: f32, z_hop: f32) u64 {
+        var h = std.hash.Wyhash.init(0x5eed);
+        const mode: u32 = @intCast(@intFromEnum(v.mode));
+        h.update(std.mem.asBytes(&mode));
+        h.update(&filament);
+        h.update(std.mem.asBytes(&center));
+        h.update(std.mem.asBytes(&sxy));
+        h.update(std.mem.asBytes(&sz));
+        h.update(std.mem.asBytes(&z_hop));
+        h.update(std.mem.asBytes(&v.legend));
+        return h.final();
+    }
+
+    /// The key of layer l of `tp`: a hash of all that its beads and its
+    /// marks come from, but the times (they move with each change of a
+    /// layer under it). The places of its points and paths are relative to
+    /// the layer, so a layer that moves in the lists keeps its key.
+    fn layerKey(tp: *const app_mod.Toolpaths, l: usize, values: []const f32, seed: u64) u64 {
+        var h = std.hash.Wyhash.init(seed);
+        const p0: u32 = if (l == 0) 0 else tp.layer_ends.items[l - 1];
+        const p1 = tp.layer_ends.items[l];
+        const q0: u32 = if (p0 == 0) 0 else tp.path_ends.items[p0 - 1];
+        const q1: u32 = if (p1 == 0) 0 else tp.path_ends.items[p1 - 1];
+        h.update(std.mem.asBytes(&tp.layer_z.items[l]));
+        h.update(std.mem.asBytes(&tp.layer_height.items[l]));
+        h.update(std.mem.sliceAsBytes(tp.points.items[2 * q0 .. 2 * q1]));
+        h.update(tp.path_features.items[p0..p1]);
+        h.update(tp.path_closed.items[p0..p1]);
+        h.update(std.mem.sliceAsBytes(tp.path_area.items[p0..p1]));
+        if (tp.path_height.items.len >= p1) h.update(std.mem.sliceAsBytes(tp.path_height.items[p0..p1]));
+        if (tp.path_fan.items.len >= p1) h.update(tp.path_fan.items[p0..p1]);
+        if (tp.path_retract.items.len >= p1) h.update(tp.path_retract.items[p0..p1]);
+        if (values.len >= p1) h.update(std.mem.sliceAsBytes(values[p0..p1]));
+        for (p0..p1) |pi| {
+            const start: u32 = if (pi == 0) 0 else tp.path_ends.items[pi - 1];
+            const end = tp.path_ends.items[pi];
+            const rel = end - q0;
+            h.update(std.mem.asBytes(&rel));
+            const z_start = if (pi < tp.path_z_start.items.len) tp.path_z_start.items[pi] else app_mod.Toolpaths.no_z;
+            if (z_start != app_mod.Toolpaths.no_z) {
+                h.update(std.mem.sliceAsBytes(tp.point_z.items[z_start .. z_start + (end - start)]));
+                h.update(std.mem.sliceAsBytes(tp.point_area.items[z_start .. z_start + (end - start)]));
+            } else h.update("-");
+        }
+        return h.final();
+    }
+
+    /// Layer l of a load with the same key as in the last load: its beads,
+    /// fans, and path starts from there, and its times again (they move
+    /// with the layers under it), the same way as `load` makes them.
+    fn keepLayer(v: *View, old: *const Reuse, boxes: *std.ArrayList(vk.Instance), tp: *const app_mod.Toolpaths, l: usize) Error!void {
+        const r = old.beadRange(l);
+        const base: u32 = @intCast(boxes.items.len);
+        const p0: u32 = if (l == 0) 0 else tp.layer_ends.items[l - 1];
+        const p1 = tp.layer_ends.items[l];
+        const op0: u32 = if (l == 0) 0 else old.layer_path_end.items[l - 1];
+        for (p0..p1) |pi| {
+            const ops = old.path_start.items[op0 + (pi - p0)];
+            v.path_start.append(gpa, base + (ops - r[0])) catch return error.OutOfMemory;
+        }
+        boxes.appendSlice(gpa, old.beads.items[r[0]..r[1]]) catch return error.OutOfMemory;
+        v.bead_fan.appendSlice(gpa, old.fan.items[r[0]..r[1]]) catch return error.OutOfMemory;
+        v.bead_run.appendSlice(gpa, old.run.items[r[0]..r[1]]) catch return error.OutOfMemory;
+        v.bead_len.appendSlice(gpa, old.len.items[r[0]..r[1]]) catch return error.OutOfMemory;
+        v.bead_start.ensureUnusedCapacity(gpa, r[1] - r[0]) catch return error.OutOfMemory;
+        v.bead_end.ensureUnusedCapacity(gpa, r[1] - r[0]) catch return error.OutOfMemory;
+        const top: u32 = @intCast(boxes.items.len);
+        for (p0..p1) |pi| {
+            const first = v.path_start.items[pi];
+            const end = if (pi + 1 < p1) v.path_start.items[pi + 1] else top;
+            const t0 = tp.path_start_time.items[pi];
+            const t1 = tp.path_end_time.items[pi];
+            for (first..end) |j| {
+                const run = v.bead_run.items[j];
+                const path_len = v.bead_len.items[j];
+                v.bead_start.appendAssumeCapacity(if (j == first) t0 else v.bead_end.items[j - 1]);
+                v.bead_end.appendAssumeCapacity(if (path_len > 0) t0 + (t1 - t0) * run / path_len else t1);
+            }
         }
     }
 
@@ -768,7 +926,8 @@ pub const View = struct {
 
     /// Clears the beads and the lists of a slice (for a G-code file).
     fn clearScene(v: *View) void {
-        inline for (.{ &v.layer_end, &v.path_start, &v.layer_path_end, &v.outline_points, &v.outline_ends, &v.outline_layer_end, &v.pick_runs, &v.layer_boxes, &v.draw_chunks, &v.chunk_width, &v.draws, &v.mark_rings, &v.sup_pts, &v.sup_areas, &v.gap_beads, &v.more, &v.beads, &v.marks, &v.mark_layer_end, &v.bead_end, &v.bead_start, &v.bead_fan, &v.path_part }) |l| l.clearRetainingCapacity();
+        inline for (.{ &v.layer_end, &v.path_start, &v.layer_path_end, &v.outline_points, &v.outline_ends, &v.outline_layer_end, &v.pick_runs, &v.layer_boxes, &v.draw_chunks, &v.chunk_width, &v.draws, &v.mark_rings, &v.sup_pts, &v.sup_areas, &v.gap_beads, &v.more, &v.beads, &v.marks, &v.mark_layer_end, &v.bead_end, &v.bead_start, &v.bead_fan, &v.path_part, &v.bead_run, &v.bead_len, &v.run_width }) |l| l.clearRetainingCapacity();
+        v.layer_key.clearRetainingCapacity();
         v.clearPreview();
         v.highlight = .{ 0, 0 };
         v.seg_bead = null;
@@ -1011,6 +1170,10 @@ pub const View = struct {
             @memcpy(std.mem.sliceAsBytes(list.items), bytes[at .. at + len]);
             at += std.mem.alignForward(usize, len, 8);
         }
+        // A scene has no keys of its layers: the next load makes all.
+        v.layer_key.clearRetainingCapacity();
+        v.bead_run.clearRetainingCapacity();
+        v.bead_len.clearRetainingCapacity();
         v.mode = std.enums.fromInt(Mode, head.mode) orelse .print;
         v.legend = head.legend;
         v.xf_center = head.xf_center;
@@ -1024,7 +1187,7 @@ pub const View = struct {
         try v.renderer.setInstances(v.beads.items, v.marks.items);
         v.more.clearRetainingCapacity();
         v.clearPreview();
-        try v.buildPickIndex();
+        try v.buildPickIndex(null);
         if (v.layer_end.items.len == 0) return;
         if (first_load) {
             v.reset();
@@ -1112,13 +1275,20 @@ pub const View = struct {
     /// The seam blobs, the travel moves, and the retractions of each
     /// layer, from the same toolpaths and in the same cooled shape as the
     /// beads.
-    fn loadMarks(v: *View, tp: *const app_mod.Toolpaths, filament: [3]u8, center: [2]f32, sxy: f32, sz: f32) Error!void {
+    /// A layer of `same` gets its marks of the last load from `old`.
+    fn loadMarks(v: *View, tp: *const app_mod.Toolpaths, filament: [3]u8, center: [2]f32, sxy: f32, sz: f32, same: []const bool, old: *const Reuse) Error!void {
         v.marks.clearRetainingCapacity();
         v.mark_layer_end.clearRetainingCapacity();
         const pts = tp.points.items;
         const flow = @import("../flow.zig");
         const seam_rgb = if (v.mode == .print) filament else feature_rgb[code_seam];
         for (tp.layer_ends.items, 0..) |layer_end, l| {
+            if (same[l] and l < old.mark_layer_end.items.len) {
+                const m0: u32 = if (l == 0) 0 else old.mark_layer_end.items[l - 1];
+                v.marks.appendSlice(gpa, old.marks.items[m0..old.mark_layer_end.items[l]]) catch return error.OutOfMemory;
+                v.mark_layer_end.append(gpa, @intCast(v.marks.items.len)) catch return error.OutOfMemory;
+                continue;
+            }
             const p0: u32 = if (l == 0) 0 else tp.layer_ends.items[l - 1];
             const z = tp.layer_z.items[l] * sz;
             const h = tp.layer_height.items[l] * sz;
@@ -2027,26 +2197,54 @@ pub const View = struct {
     /// run stays in one layer), and a box for each layer. A pick tests a
     /// bead only if the ray goes through the box of its layer and of its
     /// run, so a pick on a plate of many parts stays fast.
-    fn buildPickIndex(v: *View) Error!void {
+    /// The layers that a load kept, and the lists of the last load: a kept
+    /// layer gets its runs from there, moved to its place in the beads.
+    const PickReuse = struct { same: []const bool, old: *const Reuse };
+
+    fn buildPickIndex(v: *View, reuse: ?PickReuse) Error!void {
         v.pick_runs.clearRetainingCapacity();
         v.layer_boxes.clearRetainingCapacity();
+        v.run_width.clearRetainingCapacity();
         v.pick_runs.ensureTotalCapacity(gpa, v.beads.items.len / pick_run + v.layer_end.items.len) catch return error.OutOfMemory;
+        v.run_width.ensureTotalCapacity(gpa, v.beads.items.len / pick_run + v.layer_end.items.len) catch return error.OutOfMemory;
         v.layer_boxes.ensureTotalCapacity(gpa, v.layer_end.items.len) catch return error.OutOfMemory;
         var first: u32 = 0;
-        for (v.layer_end.items) |end| {
+        for (v.layer_end.items, 0..) |end, li| {
+            if (reuse) |ru| if (li < ru.same.len and ru.same[li] and li < ru.old.layer_boxes.items.len and ru.old.run_width.items.len == ru.old.pick_runs.items.len) {
+                // The same beads as in the last load, at another place.
+                const ob = ru.old.layer_boxes.items[li];
+                const r0: u32 = if (li == 0) 0 else ru.old.layer_boxes.items[li - 1].end;
+                const run_base: u32 = @intCast(v.pick_runs.items.len);
+                for (ru.old.pick_runs.items[r0..ob.end], ru.old.run_width.items[r0..ob.end]) |orun, w| {
+                    var run = orun;
+                    run.first = run.first - ob.first + first;
+                    run.end = run.end - ob.first + first;
+                    v.pick_runs.appendAssumeCapacity(run);
+                    v.run_width.appendAssumeCapacity(w);
+                }
+                var layer = ob;
+                layer.first = first;
+                layer.end = run_base + (ob.end - r0);
+                v.layer_boxes.appendAssumeCapacity(layer);
+                first = end;
+                continue;
+            };
             var layer = emptyBox(first, 0);
             var i = first;
             while (i < end) {
                 const j = @min(i + pick_run, end);
                 var run = emptyBox(i, j);
+                var width: f32 = 0;
                 for (v.beads.items[i..j]) |b| {
                     const r = b.w / 2 * pick_grow;
                     const zr = b.h / 2 * pick_grow;
                     const zc = b.z - b.h / 2;
                     growBox(&run, .{ @min(b.ax, b.bx) - r, @min(b.ay, b.by) - r, zc - zr }, .{ @max(b.ax, b.bx) + r, @max(b.ay, b.by) + r, zc + zr });
+                    width = @max(width, b.w);
                 }
                 growBox(&layer, run.lo, run.hi);
                 v.pick_runs.appendAssumeCapacity(run);
+                v.run_width.appendAssumeCapacity(width);
                 i = j;
             }
             layer.end = @intCast(v.pick_runs.items.len);
@@ -2058,11 +2256,11 @@ pub const View = struct {
         v.chunk_width.clearRetainingCapacity();
         var chunk = emptyBox(0, 0);
         var width: f32 = 0;
-        for (v.pick_runs.items, 0..) |run, k| {
+        for (v.pick_runs.items, v.run_width.items, 0..) |run, rw, k| {
             if (chunk.end == 0) chunk = emptyBox(run.first, run.end);
             growBox(&chunk, run.lo, run.hi);
             chunk.end = run.end;
-            for (v.beads.items[run.first..run.end]) |b| width = @max(width, b.w);
+            width = @max(width, rw);
             if (chunk.end - chunk.first >= draw_chunk or k + 1 == v.pick_runs.items.len) {
                 v.draw_chunks.append(gpa, chunk) catch return error.OutOfMemory;
                 v.chunk_width.append(gpa, width) catch return error.OutOfMemory;
@@ -2091,7 +2289,6 @@ pub const View = struct {
         if (px >= ribbon_pixels or !v.ribbons) return 1;
         return 2;
     }
-
 
     /// The mesh level of the light beads: they are less than a few
     /// pixels wide.
@@ -3941,7 +4138,7 @@ fn testScene(layers: usize, per_layer: usize, segs: usize) Error!View {
         v.layer_path_end.append(View.gpa, @intCast(v.path_start.items.len)) catch return error.OutOfMemory;
     }
     v.path_start.append(View.gpa, @intCast(v.beads.items.len)) catch return error.OutOfMemory;
-    try v.buildPickIndex();
+    try v.buildPickIndex(null);
     v.layer = layers - 1;
     return v;
 }
@@ -4330,4 +4527,54 @@ test "the lowest point of a turned preview from the hull is the lowest bead corn
     }
     // The hull keeps few of the 480 bead ends.
     try std.testing.expect(v.preview_hull.items.len < 300);
+}
+
+test "a load after a support edit keeps the other layers, the same as a full load" {
+    const g = std.testing.allocator;
+    const st = app_mod.support_trees;
+    const mesh_mod = @import("../mesh.zig");
+    // A mushroom: a stem, and a cap over the air, held by trees.
+    var b: mesh_mod.Builder = .init(g);
+    try mesh_mod.shapes.addBox(&b, 8, 8, 0, 12, 12, 5);
+    try mesh_mod.shapes.addBox(&b, 0, 0, 5, 20, 20, 7);
+    var mesh = try b.finish();
+    defer mesh.deinit(g);
+    var bytes: std.Io.Writer.Allocating = .init(g);
+    defer bytes.deinit();
+    try mesh.writeStl(&bytes.writer);
+    const app = try app_mod.App.create(g, null, null);
+    defer app.destroy();
+    try app.loadStl("mushroom.stl", bytes.written());
+    try app.setSetting("project.support", "everywhere");
+    try app.setSetting("project.support_style", "tree");
+    try app.startSlice();
+    app.stopWorkerForTest();
+    var v: View = .{ .renderer = undefined, .headless = true, .width = 1, .height = 1 };
+    defer v.deinitData();
+    try v.load(app);
+    const keys0 = try g.dupe(u64, v.layer_key.items);
+    defer g.free(keys0);
+    // Move a node of the trees that is not a tip: the support of some
+    // layers changes.
+    const tv = st.view(app, 0).?;
+    const node: u32 = for (tv.sk.nodes.items, 0..) |nd, k| {
+        if (!nd.tip and nd.down != @import("../support_skeleton.zig").none) break @intCast(k);
+    } else unreachable;
+    const nd = tv.sk.nodes.items[node];
+    _ = try st.moveNode(app, 0, node, (tv.dx + nd.x) / 1000 + 0.6, (tv.dy + nd.y) / 1000);
+    try app.startSlice();
+    app.stopWorkerForTest();
+    try v.load(app);
+    // Some layers kept, some made again.
+    var kept: usize = 0;
+    for (v.layer_key.items, 0..) |k, l| {
+        if (l < keys0.len and keys0[l] == k) kept += 1;
+    }
+    try std.testing.expect(kept > 0 and kept < v.layer_key.items.len);
+    var full: View = .{ .renderer = undefined, .headless = true, .width = 1, .height = 1 };
+    defer full.deinitData();
+    try full.load(app);
+    inline for (.{ "beads", "bead_start", "bead_end", "bead_fan", "bead_run", "bead_len", "path_start", "layer_end", "layer_path_end", "marks", "mark_layer_end", "pick_runs", "layer_boxes", "draw_chunks", "chunk_width", "run_width", "layer_key", "outline_points", "outline_ends" }) |name| {
+        try std.testing.expectEqualSlices(u8, std.mem.sliceAsBytes(@field(full, name).items), std.mem.sliceAsBytes(@field(v, name).items));
+    }
 }
