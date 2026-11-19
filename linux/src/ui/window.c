@@ -2026,9 +2026,9 @@ GtkWindow *zg_window_new(GtkApplication *app, ZgModel *model) {
 
     /* Header bar. */
     GtkWidget *header = gtk_header_bar_new();
-    /* + adds models: it goes in the middle, with the view buttons. */
-    GtkWidget *open = gtk_button_new_from_icon_name("list-add-symbolic");
-    gtk_widget_set_tooltip_text(open, "Add models to the plate (Ctrl+O). Ctrl+click a part to select it; Ctrl+drag moves it, and Ctrl+wheel turns it. Shift+click adds a line to the selection.");
+    /* The file button: it opens models, at the start, before the name. */
+    GtkWidget *open = gtk_button_new_from_icon_name("document-open-symbolic");
+    gtk_widget_set_tooltip_text(open, "Open a model, or add models to this plate (Ctrl+O opens)");
     gtk_widget_set_focus_on_click(open, FALSE);
     g_signal_connect(open, "clicked", G_CALLBACK(on_open_clicked), w->window);
 
@@ -2040,8 +2040,8 @@ GtkWindow *zg_window_new(GtkApplication *app, ZgModel *model) {
     /* The printer, and the send button with its menu. */
     w->printer_names = gtk_string_list_new(NULL);
     w->printer_dd = gtk_drop_down_new(G_LIST_MODEL(w->printer_names), NULL);
-    /* The name on the button shortens with "…" in a narrow window. The
-     * list shows the whole names. */
+    /* The name on the button wraps in a narrow window. The list shows the
+     * whole names. */
     GtkListItemFactory *short_names = gtk_signal_list_item_factory_new();
     g_signal_connect(short_names, "setup", G_CALLBACK(on_name_setup), GINT_TO_POINTER(1));
     g_signal_connect(short_names, "bind", G_CALLBACK(on_name_bind), NULL);
@@ -2054,10 +2054,13 @@ GtkWindow *zg_window_new(GtkApplication *app, ZgModel *model) {
     g_object_unref(names);
     gtk_widget_set_tooltip_text(w->printer_dd, "The printer: its machine settings, and where Send goes. From this list: the settings and the start and end G-code of the printer, or add a printer. Edit the connections in Preferences.");
     g_signal_connect(w->printer_dd, "notify::selected", G_CALLBACK(on_printer_dd), w);
-    gtk_header_bar_pack_start(GTK_HEADER_BAR(header), w->printer_dd);
-    /* The three profiles of the settings: printer, filament, part. */
-    gtk_header_bar_pack_start(GTK_HEADER_BAR(header), zg_profile_menu_new(model, ZS_GROUP_FILAMENT));
-    gtk_header_bar_pack_start(GTK_HEADER_BAR(header), zg_profile_menu_new(model, ZS_GROUP_PROJECT));
+    /* The setup of the print, as one group at the end: the printer, the
+     * filament, and the quality. */
+    GtkWidget *setup = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 0);
+    gtk_widget_add_css_class(setup, "linked");
+    gtk_box_append(GTK_BOX(setup), w->printer_dd);
+    gtk_box_append(GTK_BOX(setup), zg_profile_menu_new(model, ZS_GROUP_FILAMENT));
+    gtk_box_append(GTK_BOX(setup), zg_profile_menu_new(model, ZS_GROUP_PROJECT));
     w->send_button = gtk_button_new_with_label("Print");
     gtk_widget_add_css_class(w->send_button, "suggested-action");
     g_signal_connect(w->send_button, "clicked", G_CALLBACK(on_send_clicked), w->window);
@@ -2149,12 +2152,15 @@ GtkWindow *zg_window_new(GtkApplication *app, ZgModel *model) {
     g_signal_connect(w->panel_toggle, "toggled", G_CALLBACK(on_panel_toggled), w);
     gtk_header_bar_pack_end(GTK_HEADER_BAR(header), w->panel_toggle);
     /* The Printers page: it covers the view. */
-    w->printers_button = gtk_toggle_button_new_with_label("Printers");
-    gtk_widget_set_tooltip_text(w->printers_button, "Your printers, their jobs, and the plates to print");
+    w->printers_button = gtk_toggle_button_new();
+    gtk_button_set_icon_name(GTK_BUTTON(w->printers_button), "printer-symbolic");
+    gtk_widget_set_tooltip_text(w->printers_button, "Printers: your printers, their jobs, and the plates to print");
     g_signal_connect(w->printers_button, "toggled", G_CALLBACK(on_printers_toggled), w);
     gtk_header_bar_pack_end(GTK_HEADER_BAR(header), w->printers_button);
+    gtk_header_bar_pack_end(GTK_HEADER_BAR(header), setup);
+    gtk_header_bar_pack_start(GTK_HEADER_BAR(header), open);
 
-    /* The name of the file, after the menus of the profiles. */
+    /* The name of the file, after the file button. */
     w->title = gtk_label_new("zslice");
     gtk_widget_add_css_class(w->title, "title");
     gtk_label_set_wrap(GTK_LABEL(w->title), TRUE);
@@ -2166,7 +2172,7 @@ GtkWindow *zg_window_new(GtkApplication *app, ZgModel *model) {
     /* Body: settings | preview. */
     w->preview = zg_preview_new(model);
     /* The middle of the header bar: the view buttons of the preview (2D
-     * and 3D, the colors), Search, and + to add models. */
+     * and 3D, the legend of the colors), and Search. */
     GtkWidget *view_bar = zg_preview_view_bar(w->preview);
     GtkWidget *search = gtk_button_new();
     GtkWidget *search_box = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 6);
@@ -2180,11 +2186,9 @@ GtkWindow *zg_window_new(GtkApplication *app, ZgModel *model) {
     gtk_actionable_set_detailed_action_name(GTK_ACTIONABLE(search), "win.search('')");
     gtk_widget_set_focus_on_click(search, FALSE);
     gtk_box_insert_child_after(GTK_BOX(view_bar), search, gtk_widget_get_first_child(view_bar));
-    /* + at the end, after the legend of the colors and the gap count. */
-    gtk_box_append(GTK_BOX(view_bar), open);
     gtk_header_bar_set_title_widget(GTK_HEADER_BAR(header), view_bar);
-    /* In a narrow window, the menus at the start keep their names, and
-     * the view bar moves off the middle first. */
+    /* In a narrow window, the menus at the end keep their names, and the
+     * view bar moves off the middle first. */
     for (GtkWidget *c = gtk_widget_get_parent(view_bar); c && c != header; c = gtk_widget_get_parent(c)) {
         if (GTK_IS_CENTER_BOX(c)) gtk_center_box_set_shrink_center_last(GTK_CENTER_BOX(c), FALSE);
     }
