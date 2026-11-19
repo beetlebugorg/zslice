@@ -530,6 +530,16 @@ final class Workspace {
                 }
             }
         }
+        // ZSLICE_KEY_REMOVE=1: a printer with a key, then its removal; it
+        // logs the key before and after (the key must go with the printer).
+        if env["ZSLICE_KEY_REMOVE"] != nil {
+            let p = Printer(name: "Key Test", kind: .octoprint, url: "http://127.0.0.1:9")
+            p.apiKey = "TESTKEY"
+            PrinterStore.shared.add(p)
+            let before = Keychain.read(account: p.id.uuidString) != nil
+            PrinterStore.shared.remove(p.id)
+            NSLog("zslice key remove: key before %d, after %d", before ? 1 : 0, Keychain.read(account: p.id.uuidString) == nil ? 0 : 1)
+        }
         // ZSLICE_SEND_TO=k[:print] (tests only) sends the active plate to
         // printer k of the store 4 s after the start, with no question,
         // and logs the result.
@@ -1906,6 +1916,9 @@ extension Workspace {
     /// ZSLICE_SEARCH_ENTER (see the hook).
     func runSearchEnterTest(_ name: String, _ value: String) {
         guard let w = canvas.window else { return }
+        // The window must be the key window for its first responder.
+        NSApp.activate()
+        w.makeKeyAndOrderFront(nil)
         func returnKey() {
             if let e = NSEvent.keyEvent(with: .keyDown, location: .zero, modifierFlags: [], timestamp: 0, windowNumber: w.windowNumber, context: nil,
                                         characters: "\r", charactersIgnoringModifiers: "\r", isARepeat: false, keyCode: 36) {

@@ -18,6 +18,13 @@
 //! printdeck, in the web page of OctoPrint), and the app gets a key of its
 //! own after "Allow". The printer keeps a request for 2 minutes.
 //!
+//! A redirect keeps the headers of a request in URLSession, so a printer
+//! (or a device that answers at its address) could send the API key to
+//! any host. Each request with the key goes through a session whose
+//! delegate drops X-Api-Key on a redirect to another origin (the scheme,
+//! the host, and the port): KeyRedirect. The GTK app does the same
+//! (linux/src/net/key-header.c), and the web app refuses redirects.
+//!
 //! The camera: GET each path of zs_printer_camera_paths with the key, and
 //! the core reads the MJPEG stream and the snapshot from the replies
 //! (zs_printer_status_camera). Their addresses can be relative to the
@@ -28,6 +35,36 @@
 
 import CZslice
 import Foundation
+
+/// The API key never follows a redirect to another origin.
+final class KeyRedirect: NSObject, URLSessionTaskDelegate, @unchecked Sendable {
+    static let shared = KeyRedirect()
+    /// A session for the requests with a key, over http or https with the
+    /// trust of the system.
+    static let session = URLSession(configuration: .ephemeral, delegate: shared, delegateQueue: nil)
+
+    /// "http://host:80": the scheme, the host, and the port of a url.
+    static func origin(_ u: URL?) -> String? {
+        guard let u, let s = u.scheme?.lowercased(), let h = u.host?.lowercased() else { return nil }
+        let port = u.port ?? (s == "https" ? 443 : s == "http" ? 80 : -1)
+        return "\(s)://\(h):\(port)"
+    }
+
+    /// The request of a redirect: with no key when it goes to another
+    /// origin than the first request of the task.
+    static func redirect(_ next: URLRequest, of task: URLSessionTask) -> URLRequest {
+        guard next.value(forHTTPHeaderField: "X-Api-Key") != nil,
+              origin(next.url) != origin(task.originalRequest?.url) || origin(next.url) == nil else { return next }
+        var r = next
+        r.setValue(nil, forHTTPHeaderField: "X-Api-Key")
+        return r
+    }
+
+    func urlSession(_ session: URLSession, task: URLSessionTask, willPerformHTTPRedirection response: HTTPURLResponse,
+                    newRequest request: URLRequest) async -> URLRequest? {
+        Self.redirect(request, of: task)
+    }
+}
 
 struct LinkResult {
     var ok: Bool
@@ -79,7 +116,7 @@ enum PrinterLink {
             let host = u.host ?? ""
             if https { CertPins.refused.remove(host) }
             do {
-                let (d, resp) = try await (https ? PinningDelegate.session : URLSession.shared).data(for: r)
+                let (d, resp) = try await (https ? PinningDelegate.session : KeyRedirect.session).data(for: r)
                 if let h = resp as? HTTPURLResponse {
                     worked[p.id] = base
                     return (d, h)

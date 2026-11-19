@@ -211,8 +211,14 @@ struct Printer: Codable, Identifiable, Equatable {
 /// The API keys of the printers in the Keychain of macOS.
 enum Keychain {
     static let service = "org.beetlebug.zslice.printer"
+    /// A test run (ZSLICE_FRESH) keeps its keys in memory: its printers
+    /// go at its end, so their keys must not stay in the Keychain.
+    private static let fresh = ProcessInfo.processInfo.environment["ZSLICE_FRESH"] != nil
+    nonisolated(unsafe) private static var memory: [String: String] = [:]
+    private static let lock = NSLock()
 
     static func read(account: String) -> String? {
+        if fresh { return lock.withLock { memory[account] } }
         let q: [String: Any] = [kSecClass as String: kSecClassGenericPassword, kSecAttrService as String: service,
                                 kSecAttrAccount as String: account, kSecReturnData as String: true]
         var out: CFTypeRef?
@@ -221,6 +227,10 @@ enum Keychain {
     }
 
     static func write(_ value: String, account: String, label: String = "zslice printer API key") {
+        if fresh {
+            lock.withLock { memory[account] = value.isEmpty ? nil : value }
+            return
+        }
         let q: [String: Any] = [kSecClass as String: kSecClassGenericPassword, kSecAttrService as String: service,
                                 kSecAttrAccount as String: account]
         SecItemDelete(q as CFDictionary)

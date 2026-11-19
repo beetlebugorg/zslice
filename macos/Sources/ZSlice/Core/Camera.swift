@@ -21,7 +21,8 @@
 //!   decoder still decodes each frame. A model that the library does not
 //!   know tries RTSP, then port 6000.
 //!
-//! The API key goes in the X-Api-Key header. A feed plays only while its
+//! The API key goes in the X-Api-Key header, and never follows a redirect
+//! to another origin (KeyRedirect, PrinterLink.swift). A feed plays only while its
 //! view shows (start and stop), and the decode of a frame runs off the
 //! main thread, with one frame on its way at a time. No bytes in 12 s, or
 //! an error: the feed says why and tries again after 20 s.
@@ -198,7 +199,7 @@ final class CameraFeed {
             var r = request(c?.url ?? url)
             r.timeoutInterval = Self.firstWait
             do {
-                let (d, resp) = try await URLSession.shared.data(for: r)
+                let (d, resp) = try await KeyRedirect.session.data(for: r)
                 let code = (resp as? HTTPURLResponse)?.statusCode ?? 0
                 if code == 401 || code == 403 { return "The printer refused the API key for its camera." }
                 guard (200 ..< 300).contains(code), !d.isEmpty else { return "The camera gave no picture. It can be off, or have no picture now." }
@@ -353,6 +354,11 @@ final class StreamReader: NSObject, URLSessionDataDelegate, @unchecked Sendable 
         if !part.isEmpty { onFrame(part) }
         part = Data()
         return .allow
+    }
+
+    func urlSession(_ session: URLSession, task: URLSessionTask, willPerformHTTPRedirection response: HTTPURLResponse,
+                    newRequest request: URLRequest) async -> URLRequest? {
+        KeyRedirect.redirect(request, of: task)
     }
 
     func urlSession(_ session: URLSession, dataTask: URLSessionDataTask, didReceive data: Data) {

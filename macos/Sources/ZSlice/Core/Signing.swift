@@ -131,7 +131,7 @@ enum CertPins {
 
 /// The URLSession of the https printers: the trust of the system first,
 /// then the pin.
-final class PinningDelegate: NSObject, URLSessionDelegate, @unchecked Sendable {
+final class PinningDelegate: NSObject, URLSessionTaskDelegate, @unchecked Sendable {
     static let shared = PinningDelegate()
     static let session = URLSession(configuration: .ephemeral, delegate: shared, delegateQueue: nil)
 
@@ -153,6 +153,12 @@ final class PinningDelegate: NSObject, URLSessionDelegate, @unchecked Sendable {
         let host = challenge.protectionSpace.host
         let ok = await MainActor.run { CertPins.check(host: host, sha: sha, notBefore: notBefore) }
         return ok ? (.useCredential, URLCredential(trust: trust)) : (.cancelAuthenticationChallenge, nil)
+    }
+
+    /// The API key never follows a redirect to another origin (KeyRedirect).
+    func urlSession(_ session: URLSession, task: URLSessionTask, willPerformHTTPRedirection response: HTTPURLResponse,
+                    newRequest request: URLRequest) async -> URLRequest? {
+        KeyRedirect.redirect(request, of: task)
     }
 }
 
