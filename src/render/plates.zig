@@ -59,16 +59,21 @@ pub const Lite = struct {
     /// The end of each layer in `beads`, for each level. A layer that a
     /// level leaves out has no beads.
     layer_end: [n_levels]std.ArrayList(u32) = .{ .empty, .empty, .empty },
+    /// A hash of the full beads of each layer of the last build: the next
+    /// build copies the light beads of a layer with the same hash.
+    layer_hash: std.ArrayList(u64) = .empty,
 
     pub fn deinit(l: *Lite, gpa: std.mem.Allocator) void {
         l.beads.deinit(gpa);
         for (&l.layer_end) |*e| e.deinit(gpa);
+        l.layer_hash.deinit(gpa);
         l.* = .{};
     }
 
     pub fn clear(l: *Lite) void {
         l.beads.clearRetainingCapacity();
         for (&l.layer_end) |*e| e.clearRetainingCapacity();
+        l.layer_hash.clearRetainingCapacity();
         l.level_start = @splat(0);
     }
 
@@ -87,13 +92,29 @@ pub const Lite = struct {
     }
 
     /// Makes the levels from the beads of a slice and the end of each of
-    /// its layers.
+    /// its layers. A layer with the same beads as in the last build (and
+    /// the same layer count) gets a copy of its light beads: a support
+    /// edit changes few layers, and a full build of a large part took
+    /// about 30 ms.
     pub fn build(l: *Lite, gpa: std.mem.Allocator, beads: []const Instance, layer_end: []const u32) error{OutOfMemory}!void {
-        l.clear();
+        var old = l.*;
+        l.* = .{};
+        defer old.deinit(gpa);
+        errdefer l.deinit(gpa);
+        try l.layer_hash.ensureTotalCapacity(gpa, layer_end.len);
+        const same = try gpa.alloc(bool, layer_end.len);
+        defer gpa.free(same);
+        var first: u32 = 0;
+        for (layer_end, 0..) |end, li| {
+            const h = std.hash.Wyhash.hash(0, std.mem.sliceAsBytes(beads[first..end]));
+            l.layer_hash.appendAssumeCapacity(h);
+            same[li] = old.layer_hash.items.len == layer_end.len and old.layer_hash.items[li] == h;
+            first = end;
+        }
         // The layers with a top or a bottom surface: their inner walls show.
         const skin = try gpa.alloc(bool, layer_end.len);
         defer gpa.free(skin);
-        var first: u32 = 0;
+        first = 0;
         for (layer_end, 0..) |end, li| {
             skin[li] = false;
             for (beads[first..end]) |b| {
@@ -112,7 +133,10 @@ pub const Lite = struct {
             first = 0;
             for (layer_end, 0..) |end, li| {
                 const keep = (li + 1) % step == 0 or li + 1 == layer_end.len;
-                if (keep) try l.addLayer(gpa, beads[first..end], skin[li], @floatFromInt(step), level_tol[level]);
+                if (keep and same[li]) {
+                    const r = old.range(level, li, li);
+                    try l.beads.appendSlice(gpa, old.beads.items[r[0]..r[1]]);
+                } else if (keep) try l.addLayer(gpa, beads[first..end], skin[li], @floatFromInt(step), level_tol[level]);
                 l.layer_end[level].appendAssumeCapacity(@intCast(l.beads.items.len));
                 first = end;
             }
@@ -357,4 +381,37 @@ test "a path that turns does not join past the corner" {
     try std.testing.expectEqual(@as(u32, 2), l.level_start[1]);
     try std.testing.expectEqual(@as(f32, 2), l.beads.items[0].bx);
     try std.testing.expectEqual(@as(f32, 2), l.beads.items[1].by);
+}
+
+test "a build after a change of one layer is the same as a full build" {
+    const gpa = std.testing.allocator;
+    var beads: std.ArrayList(Instance) = .empty;
+    defer beads.deinit(gpa);
+    var ends: std.ArrayList(u32) = .empty;
+    defer ends.deinit(gpa);
+    var prng = std.Random.DefaultPrng.init(3);
+    const rnd = prng.random();
+    for (0..9) |li| {
+        const z = 0.2 * @as(f32, @floatFromInt(li + 1));
+        var x: f32 = 0;
+        for (0..30) |k| {
+            const nx = x + 0.5 + rnd.float(f32);
+            const f: u8 = @intCast(k % 4);
+            try beads.append(gpa, .{ .ax = x, .ay = rnd.float(f32) * 0.05, .bx = nx, .by = rnd.float(f32) * 0.05, .z = z, .h = 0.2, .w = 0.45, .rgba = .{ 1, 2, 3, f } });
+            x = nx;
+        }
+        try ends.append(gpa, @intCast(beads.items.len));
+    }
+    var inc: Lite = .{};
+    defer inc.deinit(gpa);
+    try inc.build(gpa, beads.items, ends.items);
+    // Layer 4 changes; the build keeps the light beads of the others.
+    for (beads.items[ends.items[3]..ends.items[4]]) |*b| b.w = 0.6;
+    try inc.build(gpa, beads.items, ends.items);
+    var full: Lite = .{};
+    defer full.deinit(gpa);
+    try full.build(gpa, beads.items, ends.items);
+    try std.testing.expectEqualSlices(u8, std.mem.sliceAsBytes(full.beads.items), std.mem.sliceAsBytes(inc.beads.items));
+    try std.testing.expectEqual(full.level_start, inc.level_start);
+    for (0..n_levels) |k| try std.testing.expectEqualSlices(u32, full.layer_end[k].items, inc.layer_end[k].items);
 }
