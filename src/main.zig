@@ -57,7 +57,8 @@ const usage =
     \\            speed, accel, flow, fan, temp, cool, cancel, or sim
     \\            (the simulated print of the plastic; sim-side and
     \\            sim-flip turn the part on its side or upside down
-    \\            first, for steep overhangs). --only
+    \\            first, for steep overhangs; -o FILE writes the
+    \\            masses that moved as CSV). --only
     \\            patch changes each setting that needs no new plan, and
     \\            compares the G-code with a new slice. --runs N sets
     \\            the slices of each kind (default 6).
@@ -273,7 +274,7 @@ pub fn main(init: std.process.Init) !void {
     }
     if (is_bench) {
         defer gpa.free(bytes);
-        try bench(gpa, io, err, in_path, bytes, settings, opts.only, opts.runs, opts.copies);
+        try bench(gpa, io, err, in_path, bytes, settings, opts.only, opts.runs, opts.copies, opts.output);
         return;
     }
     // A 3MF file: each part that prints is a part of the plate job, with
@@ -511,7 +512,7 @@ const max_runs = 64;
 
 /// Slices in the app core, as the app does after each change of a setting,
 /// and prints the time of each slice and the peak memory (VmHWM).
-fn bench(backing: std.mem.Allocator, io: Io, err: *Io.Writer, name: []const u8, bytes: []const u8, settings: zslice.Settings, only: ?[]const u8, runs: usize, copies: usize) !void {
+fn bench(backing: std.mem.Allocator, io: Io, err: *Io.Writer, name: []const u8, bytes: []const u8, settings: zslice.Settings, only: ?[]const u8, runs: usize, copies: usize, out: ?[]const u8) !void {
     const App = zslice.app.App;
     var counter: CountingAllocator = .{ .backing = backing };
     const gpa = counter.allocator();
@@ -527,8 +528,10 @@ fn bench(backing: std.mem.Allocator, io: Io, err: *Io.Writer, name: []const u8, 
         // upside down.
         if (std.mem.eql(u8, only.?, "sim-side")) try app.turnPart(0, 0, 90);
         if (std.mem.eql(u8, only.?, "sim-flip")) try app.turnPart(0, 0, 180);
-        _ = try benchSlice(app, io);
+        const sl = try benchSlice(app, io);
+        try err.print("slice: {d:.1} ms wall, {d:.1} ms cpu\n", .{ sl.wall, sl.cpu });
         try benchSim(app, io, err, &counter, times);
+        if (out) |path| try writeSimMasses(app, io, path);
         try err.print("peak memory: {d} MB resident (VmHWM), {d} MB allocated\n", .{ peakMb(io), counter.peak.load(.monotonic) >> 20 });
         return;
     }
@@ -810,6 +813,27 @@ fn benchSim(app: *zslice.app.App, io: Io, err: *Io.Writer, counter: *CountingAll
     }
     try printTimes(err, "simulate", times);
     try err.print("simulate: {d} masses, {d} soft, peak {d} soft, {d} moved in {d} paths, max move {d:.2} mm, {d:.2} g, {d} steps, {d:.1} MB more at the peak\n", .{ st.masses, st.soft_masses, st.peak_soft, st.moved, st.moved_paths, st.max_move, st.mass, st.steps, @as(f64, @floatFromInt(extra)) / (1 << 20) });
+}
+
+/// Writes the masses of the simulated print that moved as CSV: the part
+/// box on the bed, then a row for each mass with its layer, its feature,
+/// the place where the slicer meant it to be, and the place where it set.
+fn writeSimMasses(app: *zslice.app.App, io: Io, path: []const u8) !void {
+    const r = app.sim orelse return error.NoResult;
+    const tp = &app.toolpaths;
+    var aw: Io.Writer.Allocating = .init(app.gpa);
+    defer aw.deinit();
+    const w = &aw.writer;
+    const b = app.partBounds() orelse return error.NoResult;
+    try w.print("# part box {d:.3} {d:.3} {d:.3} {d:.3}\n", .{ b[0], b[1], b[2], b[3] });
+    try w.print("layer,feature,wx,wy,wz,x,y,z\n", .{});
+    var layer: usize = 0;
+    for (r.masses) |m| {
+        while (tp.layer_ends.items[layer] <= m.path) layer += 1;
+        const f: zslice.settings.Feature = @enumFromInt(tp.path_features.items[m.path]);
+        try w.print("{d},{s},{d:.3},{d:.3},{d:.3},{d:.3},{d:.3},{d:.3}\n", .{ layer, @tagName(f), m.want[0], m.want[1], m.want[2], m.pos[0], m.pos[1], m.pos[2] });
+    }
+    try Io.Dir.cwd().writeFile(io, .{ .sub_path = path, .data = aw.written() });
 }
 
 fn addCopies(app: *zslice.app.App, name: []const u8, bytes: []const u8, copies: usize) !void {

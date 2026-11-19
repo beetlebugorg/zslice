@@ -163,3 +163,5 @@ These times are for a 3DBenchy on a desktop CPU from 2015 with 4 cores (8 thread
 simulate       wall median  1460.5 ms
 simulate: 585778 masses, 21851 soft, peak 89 soft, 12272 moved in 481 paths, max move 7.77 mm, 11.69 g, 243723 steps, 7.0 MB more at the peak
 ```
+
+With `-o masses.csv`, it also writes the masses that moved: the box of the part on the bed, then a row for each mass with its layer, its feature, the place where the slicer meant it to be (`wx`, `wy`, `wz`), and the place where it set (`x`, `y`, `z`). `tools/calib/predict.py` reads this file for the calibration prints (see `tools/calib/README.md`).

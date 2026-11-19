@@ -190,7 +190,7 @@ pub const App = struct {
     toolpaths: Toolpaths = .{},
     /// The toolpaths of the last slice as the plastic set (see
     /// `simulatePrint`), and if `allToolpaths` gives them.
-    sim_paths: ?Toolpaths = null,
+    sim: ?sim_print.Result = null,
     show_sim: bool = false,
     /// The strings of the last inspection (for the C API).
     inspect_arena: ?std.heap.ArenaAllocator = null,
@@ -2378,7 +2378,7 @@ pub const App = struct {
     /// `showSimulated`).
     pub fn allToolpaths(app: *const App) ?*const Toolpaths {
         if (app.getState() != .done) return null;
-        if (app.show_sim) if (app.sim_paths) |*s| return s;
+        if (app.show_sim) if (app.sim) |*s| return &s.paths;
         return &app.toolpaths;
     }
 
@@ -2395,7 +2395,7 @@ pub const App = struct {
         const r = try sim_print.simulate(app.gpa, &app.toolpaths, .{
             .nozzle_t = @floatCast(app.slice_settings.filament.nozzle_temp),
         });
-        app.sim_paths = r.paths;
+        app.sim = r;
         app.show_sim = true;
         return r.stats;
     }
@@ -2403,13 +2403,20 @@ pub const App = struct {
     /// Shows the simulated print (on), or the slice (off). error.NoResult
     /// if there is no simulation of the last slice.
     pub fn showSimulated(app: *App, on: bool) error{NoResult}!void {
-        if (on and app.sim_paths == null) return error.NoResult;
+        if (on and app.sim == null) return error.NoResult;
         app.show_sim = on;
     }
 
+    /// The outcome of each layer in the last simulated print, or null if
+    /// there is none.
+    pub fn simulatedLayers(app: *const App) ?[]const sim_print.Layer {
+        const s = app.sim orelse return null;
+        return s.layers;
+    }
+
     fn dropSimulation(app: *App) void {
-        if (app.sim_paths) |*s| s.deinit(app.gpa);
-        app.sim_paths = null;
+        if (app.sim) |*s| s.deinit(app.gpa);
+        app.sim = null;
         app.show_sim = false;
     }
 

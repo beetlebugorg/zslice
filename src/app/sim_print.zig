@@ -26,10 +26,36 @@ const zs = @import("../root.zig");
 const sim = zs.print_sim;
 const Toolpaths = @import("toolpaths.zig").Toolpaths;
 
+/// The outcome of one layer: the largest drop of its plastic under its
+/// place (mm), and its failed masses (see `print_sim.Params.fail_drop`).
+pub const Layer = struct {
+    max_drop: f32 = 0,
+    failed: u32 = 0,
+};
+
 pub const Result = struct {
     paths: Toolpaths,
     stats: sim.Stats,
+    /// For each layer of the slice.
+    layers: []Layer,
+    /// For each path: the largest drop (mm), and the failed masses.
+    drop: []f32,
+    failed: []u32,
+    /// The masses of the paths that moved: the path, the place where the
+    /// slicer meant it to be, and the place where it set (the center of
+    /// the bead).
+    masses: []Mass,
+
+    pub fn deinit(r: *Result, gpa: Allocator) void {
+        r.paths.deinit(gpa);
+        gpa.free(r.layers);
+        gpa.free(r.drop);
+        gpa.free(r.failed);
+        gpa.free(r.masses);
+    }
 };
+
+pub const Mass = struct { path: u32, want: sim.V, pos: sim.V };
 
 /// The paths of the simulation for the toolpaths `tp`. The points and the
 /// z values are in `arena`, or in `tp`.
@@ -91,6 +117,17 @@ pub fn simulate(gpa: Allocator, tp: *const Toolpaths, params: sim.Params) Alloca
     const paths = try toPaths(arena.allocator(), tp);
     var r = try sim.run(gpa, paths, params);
     defer r.deinit(gpa);
+    // The masses of the paths that moved, for an analysis.
+    const masses = try gpa.alloc(Mass, r.pos.len);
+    errdefer gpa.free(masses);
+    var at: usize = 0;
+    for (0..paths.len) |pi| {
+        const g = r.ranges[pi];
+        for (g[0]..g[0] + g[1]) |i| {
+            masses[at] = .{ .path = @intCast(pi), .want = r.want[i], .pos = r.pos[i] };
+            at += 1;
+        }
+    }
     var out: Toolpaths = .{};
     errdefer out.deinit(gpa);
     // The values of the paths and the layers stay.
@@ -145,7 +182,21 @@ pub fn simulate(gpa: Allocator, tp: *const Toolpaths, params: sim.Params) Alloca
             out.path_ends.appendAssumeCapacity(@intCast(out.points.items.len / 2));
         }
     }
-    return .{ .paths = out, .stats = r.stats };
+    const layers = try gpa.alloc(Layer, tp.layerCount());
+    errdefer gpa.free(layers);
+    for (layers, 0..) |*ly, l| {
+        ly.* = .{};
+        const p0: usize = if (l == 0) 0 else tp.layer_ends.items[l - 1];
+        for (p0..tp.layer_ends.items[l]) |pi| {
+            ly.max_drop = @max(ly.max_drop, r.drop[pi]);
+            ly.failed += r.failed[pi];
+        }
+    }
+    const drop = r.drop;
+    const failed = r.failed;
+    r.drop = &.{};
+    r.failed = &.{};
+    return .{ .paths = out, .stats = r.stats, .layers = layers, .drop = drop, .failed = failed, .masses = masses };
 }
 
 const testing = std.testing;
@@ -193,7 +244,7 @@ test "sim print: the posts keep their points, and the bridge gets its sag" {
     var tp = try bridgeToolpaths(gpa);
     defer tp.deinit(gpa);
     var r = try simulate(gpa, &tp, .{});
-    defer r.paths.deinit(gpa);
+    defer r.deinit(gpa);
     const out = &r.paths;
     try testing.expectEqual(tp.pathCount(), out.pathCount());
     try testing.expectEqual(tp.layerCount(), out.layerCount());

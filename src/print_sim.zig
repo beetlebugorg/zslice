@@ -166,6 +166,11 @@ pub const Params = struct {
     /// A path whose masses all set within this distance (mm) of their
     /// place did not move.
     move_eps: f32 = 0.01,
+    /// A mass that sets more than this (mm) under its place failed: the
+    /// next layers print on air there. Yang et al. (2021) measured about
+    /// 1 to 1.5 mm of sag in the deck of a 35 mm PLA bridge at the limit
+    /// of a good print; longer bridges hung in loose strands.
+    fail_drop: f32 = 1.5,
     /// Keep the masses of all paths in the result, also of the paths that
     /// did not move (for tests).
     keep_all: bool = false,
@@ -227,6 +232,12 @@ pub const Stats = struct {
     /// The most soft masses at one time, and the steps of the solver.
     peak_soft: usize = 0,
     steps: usize = 0,
+    /// The masses that failed (see `Params.fail_drop`), and the first
+    /// layer with a failed mass (`none` if no mass failed).
+    failed: usize = 0,
+    first_failed_layer: u32 = none,
+    /// The largest drop of a mass under its place (mm).
+    max_drop: f32 = 0,
 };
 
 pub const Result = struct {
@@ -236,8 +247,14 @@ pub const Result = struct {
     ranges: [][2]u32,
     /// The places where the masses set: the centers of their beads.
     pos: []V,
+    /// The places where the slicer meant each entry of `pos` to be.
+    want: []V,
     /// The mass of each entry of `pos` (g), with `keep_all` only.
     mass: []f32,
+    /// For each path: the largest drop of a mass under its place (mm),
+    /// and its failed masses.
+    drop: []f32,
+    failed: []u32,
     stats: Stats,
 
     pub fn nodes(r: *const Result, path: usize) []const V {
@@ -248,11 +265,14 @@ pub const Result = struct {
     pub fn deinit(r: *Result, gpa: Allocator) void {
         gpa.free(r.ranges);
         gpa.free(r.pos);
+        gpa.free(r.want);
         gpa.free(r.mass);
+        gpa.free(r.drop);
+        gpa.free(r.failed);
     }
 };
 
-const none = std.math.maxInt(u32);
+pub const none = std.math.maxInt(u32);
 
 /// The height field of the solid plastic: the top z of each cell, the
 /// layer that put it there, the top of the layers before that layer, and
@@ -430,7 +450,10 @@ const Sim = struct {
     set_t: f32,
     rho_g: f32,
     ranges: [][2]u32,
+    drop: []f32,
+    failed: []u32,
     pos: std.ArrayList(V) = .empty,
+    want: std.ArrayList(V) = .empty,
     mass: std.ArrayList(f32) = .empty,
     stats: Stats = .{},
 
@@ -444,8 +467,11 @@ const Sim = struct {
         s.route.deinit(s.gpa);
         s.field.deinit(s.gpa);
         s.pos.deinit(s.gpa);
+        s.want.deinit(s.gpa);
         s.mass.deinit(s.gpa);
         s.gpa.free(s.ranges);
+        s.gpa.free(s.drop);
+        s.gpa.free(s.failed);
     }
 
     /// The top of the plastic under (x, y) that a mass with its center at
@@ -610,18 +636,28 @@ const Sim = struct {
             const nodes = all[a..b];
             const half_h = 0.5 * s.paths[nodes[0].path].height;
             var moved = false;
+            const pi = nodes[0].path;
             for (nodes) |n| {
                 const d = len3(sub(n.pos, n.want));
                 s.stats.max_move = @max(s.stats.max_move, d);
                 if (d > half_h) s.stats.moved += 1;
                 if (d > s.p.move_eps) moved = true;
                 s.stats.mass += n.mass;
+                const drop = n.want[2] - n.pos[2];
+                s.drop[pi] = @max(s.drop[pi], drop);
+                if (drop > s.p.fail_drop) {
+                    s.failed[pi] += 1;
+                    s.stats.failed += 1;
+                    s.stats.first_failed_layer = @min(s.stats.first_failed_layer, s.paths[pi].layer);
+                }
             }
+            s.stats.max_drop = @max(s.stats.max_drop, s.drop[pi]);
             if (moved) s.stats.moved_paths += 1;
             if (moved or s.p.keep_all) {
                 s.ranges[nodes[0].path] = .{ @intCast(s.pos.items.len), @intCast(nodes.len) };
                 for (nodes) |n| {
                     try s.pos.append(s.gpa, n.pos);
+                    try s.want.append(s.gpa, n.want);
                     if (s.p.keep_all) try s.mass.append(s.gpa, n.mass);
                 }
             }
@@ -977,6 +1013,17 @@ pub fn run(gpa: Allocator, paths: []const Path, params: Params) Allocator.Error!
     const margin = 10;
     const ranges = try gpa.alloc([2]u32, paths.len);
     @memset(ranges, .{ 0, 0 });
+    const drop = gpa.alloc(f32, paths.len) catch |e| {
+        gpa.free(ranges);
+        return e;
+    };
+    @memset(drop, 0);
+    const failed = gpa.alloc(u32, paths.len) catch |e| {
+        gpa.free(ranges);
+        gpa.free(drop);
+        return e;
+    };
+    @memset(failed, 0);
     var s: Sim = .{
         .gpa = gpa,
         .p = params,
@@ -985,9 +1032,13 @@ pub fn run(gpa: Allocator, paths: []const Path, params: Params) Allocator.Error!
         .set_t = setTemperature(params),
         .rho_g = params.density * params.gravity,
         .ranges = ranges,
+        .drop = drop,
+        .failed = failed,
     };
     s.field = Field.init(gpa, .{ lo[0] - margin, lo[1] - margin }, .{ hi[0] + margin, hi[1] + margin }, params.cell) catch |e| {
         gpa.free(ranges);
+        gpa.free(drop);
+        gpa.free(failed);
         return e;
     };
     defer s.deinit();
@@ -999,10 +1050,16 @@ pub fn run(gpa: Allocator, paths: []const Path, params: Params) Allocator.Error!
     try s.finishChains();
     const pos = try s.pos.toOwnedSlice(gpa);
     errdefer gpa.free(pos);
+    const want = try s.want.toOwnedSlice(gpa);
+    errdefer gpa.free(want);
     const mass = try s.mass.toOwnedSlice(gpa);
     const out_ranges = s.ranges;
     s.ranges = &.{};
-    return .{ .ranges = out_ranges, .pos = pos, .mass = mass, .stats = s.stats };
+    const out_drop = s.drop;
+    s.drop = &.{};
+    const out_failed = s.failed;
+    s.failed = &.{};
+    return .{ .ranges = out_ranges, .pos = pos, .want = want, .mass = mass, .drop = out_drop, .failed = out_failed, .stats = s.stats };
 }
 
 const testing = std.testing;
