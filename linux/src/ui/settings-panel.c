@@ -153,7 +153,8 @@ GtkWidget *zg_settings_panel_new(ZgModel *model) {
     p->title = gtk_label_new("Selected line");
     gtk_widget_add_css_class(p->title, "heading");
     gtk_label_set_xalign(GTK_LABEL(p->title), 0);
-    gtk_label_set_ellipsize(GTK_LABEL(p->title), PANGO_ELLIPSIZE_END);
+    gtk_label_set_wrap(GTK_LABEL(p->title), TRUE);
+    gtk_label_set_wrap_mode(GTK_LABEL(p->title), PANGO_WRAP_WORD);
     gtk_widget_set_hexpand(p->title, TRUE);
     p->selected_top = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 4);
     gtk_widget_add_css_class(p->selected_top, "zg-nav");

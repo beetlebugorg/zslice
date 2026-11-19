@@ -1601,7 +1601,10 @@ static gboolean on_window_key(GtkEventControllerKey *c, guint key, guint code, G
 static void on_name_setup(GtkSignalListItemFactory *f, GtkListItem *item, gpointer data) {
     GtkWidget *label = gtk_label_new(NULL);
     gtk_label_set_xalign(GTK_LABEL(label), 0);
-    if (data) gtk_label_set_ellipsize(GTK_LABEL(label), PANGO_ELLIPSIZE_END);
+    if (data) {
+        gtk_label_set_wrap(GTK_LABEL(label), TRUE);
+        gtk_label_set_wrap_mode(GTK_LABEL(label), PANGO_WRAP_WORD);
+    }
     gtk_list_item_set_child(item, label);
 }
 
@@ -1908,7 +1911,8 @@ GtkWindow *zg_window_new(GtkApplication *app, ZgModel *model) {
     /* The name of the file, after the menus of the profiles. */
     w->title = gtk_label_new("zslice");
     gtk_widget_add_css_class(w->title, "title");
-    gtk_label_set_ellipsize(GTK_LABEL(w->title), PANGO_ELLIPSIZE_END);
+    gtk_label_set_wrap(GTK_LABEL(w->title), TRUE);
+    gtk_label_set_wrap_mode(GTK_LABEL(w->title), PANGO_WRAP_WORD);
     gtk_label_set_max_width_chars(GTK_LABEL(w->title), 28);
     gtk_widget_set_margin_start(w->title, 6);
     gtk_header_bar_pack_start(GTK_HEADER_BAR(header), w->title);
@@ -1953,7 +1957,8 @@ GtkWindow *zg_window_new(GtkApplication *app, ZgModel *model) {
     w->sum_detail = gtk_label_new("");
     gtk_widget_add_css_class(w->sum_detail, "dim-label");
     gtk_label_set_xalign(GTK_LABEL(w->sum_detail), 0);
-    gtk_label_set_ellipsize(GTK_LABEL(w->sum_detail), PANGO_ELLIPSIZE_END);
+    gtk_label_set_wrap(GTK_LABEL(w->sum_detail), TRUE);
+    gtk_label_set_wrap_mode(GTK_LABEL(w->sum_detail), PANGO_WRAP_WORD);
     w->sum_deck = gtk_label_new("");
     gtk_widget_add_css_class(w->sum_deck, "dim-label");
     gtk_widget_add_css_class(w->sum_deck, "caption");
@@ -2019,7 +2024,8 @@ GtkWindow *zg_window_new(GtkApplication *app, ZgModel *model) {
     gtk_widget_add_css_class(w->printer_state, "dim-label");
     gtk_widget_add_css_class(w->printer_state, "caption");
     gtk_label_set_xalign(GTK_LABEL(w->printer_state), 0);
-    gtk_label_set_ellipsize(GTK_LABEL(w->printer_state), PANGO_ELLIPSIZE_END);
+    gtk_label_set_wrap(GTK_LABEL(w->printer_state), TRUE);
+    gtk_label_set_wrap_mode(GTK_LABEL(w->printer_state), PANGO_WRAP_WORD);
     gtk_widget_set_margin_top(w->printer_state, 6);
     gtk_widget_set_visible(w->printer_state, FALSE); /* until a printer answers */
     gtk_box_append(GTK_BOX(w->sum_box), w->sum_time);

@@ -240,11 +240,13 @@ static GtkWidget *setting_row(Search *s, const zs_setting_info *info) {
     gtk_widget_set_hexpand(labels, TRUE);
     GtkWidget *label = gtk_label_new(info->label);
     gtk_label_set_xalign(GTK_LABEL(label), 0);
-    gtk_label_set_ellipsize(GTK_LABEL(label), PANGO_ELLIPSIZE_END);
+    gtk_label_set_wrap(GTK_LABEL(label), TRUE);
+    gtk_label_set_wrap_mode(GTK_LABEL(label), PANGO_WRAP_WORD);
     gtk_widget_set_tooltip_text(label, info->doc);
     r->tag = gtk_label_new("");
     gtk_label_set_xalign(GTK_LABEL(r->tag), 0);
-    gtk_label_set_ellipsize(GTK_LABEL(r->tag), PANGO_ELLIPSIZE_END);
+    gtk_label_set_wrap(GTK_LABEL(r->tag), TRUE);
+    gtk_label_set_wrap_mode(GTK_LABEL(r->tag), PANGO_WRAP_WORD);
     gtk_widget_add_css_class(r->tag, "zg-sr-tag");
     gtk_box_append(GTK_BOX(labels), label);
     gtk_box_append(GTK_BOX(labels), r->tag);
@@ -311,7 +313,8 @@ static GtkWidget *action_row(Search *s, const Action *a) {
     if (a->hint) {
         GtkWidget *hint = gtk_label_new(a->hint);
         gtk_label_set_xalign(GTK_LABEL(hint), 0);
-        gtk_label_set_ellipsize(GTK_LABEL(hint), PANGO_ELLIPSIZE_END);
+        gtk_label_set_wrap(GTK_LABEL(hint), TRUE);
+        gtk_label_set_wrap_mode(GTK_LABEL(hint), PANGO_WRAP_WORD);
         gtk_widget_add_css_class(hint, "zg-sr-tag");
         gtk_box_append(GTK_BOX(labels), hint);
     }

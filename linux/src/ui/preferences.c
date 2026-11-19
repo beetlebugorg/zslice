@@ -61,7 +61,8 @@ static void fill_list(Prefs *p) {
         gtk_widget_set_hexpand(names, TRUE);
         GtkWidget *name = gtk_label_new(pr->name);
         gtk_label_set_xalign(GTK_LABEL(name), 0);
-        gtk_label_set_ellipsize(GTK_LABEL(name), PANGO_ELLIPSIZE_END);
+        gtk_label_set_wrap(GTK_LABEL(name), TRUE);
+        gtk_label_set_wrap_mode(GTK_LABEL(name), PANGO_WRAP_WORD);
         gboolean unverified = pr->kind == ZG_LINK_OCTOPRINT || pr->kind == ZG_LINK_MOONRAKER;
         char *kind_text = g_strdup_printf("%s%s", zg_link_titles[pr->kind], unverified ? " · not verified" : "");
         GtkWidget *kind = gtk_label_new(kind_text);
@@ -655,7 +656,8 @@ static GtkWidget *general_page(Prefs *p) {
     g_free(dir);
     gtk_label_set_xalign(GTK_LABEL(folder), 0);
     gtk_label_set_selectable(GTK_LABEL(folder), TRUE);
-    gtk_label_set_ellipsize(GTK_LABEL(folder), PANGO_ELLIPSIZE_MIDDLE);
+    gtk_label_set_wrap(GTK_LABEL(folder), TRUE);
+    gtk_label_set_wrap_mode(GTK_LABEL(folder), PANGO_WRAP_WORD);
     GtkWidget *open = gtk_button_new_with_label("Open");
     g_signal_connect(open, "clicked", G_CALLBACK(on_open_folder), p);
     GtkWidget *fbox = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 8);

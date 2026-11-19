@@ -121,7 +121,10 @@ static void add_crumb(Browser *b, const char *text, int column) {
     gtk_widget_add_css_class(crumb, "flat");
     gtk_widget_add_css_class(crumb, "zg-crumb");
     GtkWidget *label = gtk_button_get_child(GTK_BUTTON(crumb));
-    if (GTK_IS_LABEL(label)) gtk_label_set_ellipsize(GTK_LABEL(label), PANGO_ELLIPSIZE_END);
+    if (GTK_IS_LABEL(label)) {
+        gtk_label_set_wrap(GTK_LABEL(label), TRUE);
+        gtk_label_set_wrap_mode(GTK_LABEL(label), PANGO_WRAP_WORD);
+    }
     g_object_set_data(G_OBJECT(crumb), "zg-column", GINT_TO_POINTER(column));
     if (column == b->column) gtk_widget_add_css_class(crumb, "zg-crumb-here");
     g_signal_connect(crumb, "clicked", G_CALLBACK(on_crumb), b);
@@ -591,12 +594,14 @@ static GtkWidget *setting_row(Browser *b, const zs_setting_info *src, gboolean w
     gtk_widget_set_valign(names, GTK_ALIGN_CENTER);
     GtkWidget *name = gtk_label_new(info->label);
     gtk_label_set_xalign(GTK_LABEL(name), 0);
-    gtk_label_set_ellipsize(GTK_LABEL(name), PANGO_ELLIPSIZE_END);
+    gtk_label_set_wrap(GTK_LABEL(name), TRUE);
+    gtk_label_set_wrap_mode(GTK_LABEL(name), PANGO_WRAP_WORD);
     gtk_box_append(GTK_BOX(names), name);
     /* Where the value comes from (not for a default). */
     GtkWidget *tag = gtk_label_new("");
     gtk_label_set_xalign(GTK_LABEL(tag), 0);
-    gtk_label_set_ellipsize(GTK_LABEL(tag), PANGO_ELLIPSIZE_END);
+    gtk_label_set_wrap(GTK_LABEL(tag), TRUE);
+    gtk_label_set_wrap_mode(GTK_LABEL(tag), PANGO_WRAP_WORD);
     gtk_widget_add_css_class(tag, "caption");
     gtk_widget_add_css_class(tag, "zg-source");
     gtk_box_append(GTK_BOX(names), tag);
@@ -605,7 +610,8 @@ static GtkWidget *setting_row(Browser *b, const zs_setting_info *src, gboolean w
         GtkWidget *w = gtk_label_new(where);
         g_free(where);
         gtk_label_set_xalign(GTK_LABEL(w), 0);
-        gtk_label_set_ellipsize(GTK_LABEL(w), PANGO_ELLIPSIZE_END);
+        gtk_label_set_wrap(GTK_LABEL(w), TRUE);
+        gtk_label_set_wrap_mode(GTK_LABEL(w), PANGO_WRAP_WORD);
         gtk_widget_add_css_class(w, "dim-label");
         gtk_widget_add_css_class(w, "caption");
         gtk_box_append(GTK_BOX(names), w);
@@ -622,7 +628,8 @@ static GtkWidget *setting_row(Browser *b, const zs_setting_info *src, gboolean w
     if (b->in_profile && !info->per_layer) gtk_widget_add_css_class(names, "dim-label");
     g_free(text);
     g_free(value);
-    gtk_label_set_ellipsize(GTK_LABEL(v), PANGO_ELLIPSIZE_END);
+    gtk_label_set_wrap(GTK_LABEL(v), TRUE);
+    gtk_label_set_wrap_mode(GTK_LABEL(v), PANGO_WRAP_WORD);
     gtk_label_set_max_width_chars(GTK_LABEL(v), 16);
     gtk_widget_add_css_class(v, "numeric");
     gtk_widget_add_css_class(v, "zg-browser-value");
@@ -655,7 +662,8 @@ static GtkWidget *setting_row(Browser *b, const zs_setting_info *src, gboolean w
             gtk_label_set_xalign(GTK_LABEL(unit), 0);
             gtk_label_set_width_chars(GTK_LABEL(unit), 6);
             gtk_label_set_max_width_chars(GTK_LABEL(unit), 13);
-            gtk_label_set_ellipsize(GTK_LABEL(unit), PANGO_ELLIPSIZE_END);
+            gtk_label_set_wrap(GTK_LABEL(unit), TRUE);
+            gtk_label_set_wrap_mode(GTK_LABEL(unit), PANGO_WRAP_WORD);
             zg_setting_editor_show_speed(editor, unit);
             gtk_box_append(GTK_BOX(box), unit);
         }
@@ -922,7 +930,8 @@ static GtkWidget *make_bar(Browser *b) {
     b->pbar_title = gtk_label_new("");
     gtk_widget_add_css_class(b->pbar_title, "heading");
     gtk_label_set_xalign(GTK_LABEL(b->pbar_title), 0);
-    gtk_label_set_ellipsize(GTK_LABEL(b->pbar_title), PANGO_ELLIPSIZE_END);
+    gtk_label_set_wrap(GTK_LABEL(b->pbar_title), TRUE);
+    gtk_label_set_wrap_mode(GTK_LABEL(b->pbar_title), PANGO_WRAP_WORD);
     b->pbar_note = zg_wrapped_label_new("");
     gtk_widget_add_css_class(b->pbar_note, "caption");
     gtk_box_append(GTK_BOX(text), b->pbar_title);
@@ -1030,7 +1039,8 @@ static void fill_profiles(Browser *b) {
         gtk_widget_set_hexpand(texts, TRUE);
         GtkWidget *t = gtk_label_new(name);
         gtk_label_set_xalign(GTK_LABEL(t), 0);
-        gtk_label_set_ellipsize(GTK_LABEL(t), PANGO_ELLIPSIZE_END);
+        gtk_label_set_wrap(GTK_LABEL(t), TRUE);
+        gtk_label_set_wrap_mode(GTK_LABEL(t), PANGO_WRAP_WORD);
         GtkWidget *s = gtk_label_new(sub);
         gtk_label_set_xalign(GTK_LABEL(s), 0);
         gtk_widget_add_css_class(s, "dim-label");
@@ -1172,7 +1182,8 @@ static void add_sections(Browser *b) {
             last_section = info.section;
             GtkWidget *label = gtk_label_new(info.section[0] ? info.section : "General");
             gtk_label_set_xalign(GTK_LABEL(label), 0);
-            gtk_label_set_ellipsize(GTK_LABEL(label), PANGO_ELLIPSIZE_END);
+            gtk_label_set_wrap(GTK_LABEL(label), TRUE);
+            gtk_label_set_wrap_mode(GTK_LABEL(label), PANGO_WRAP_WORD);
             gtk_widget_set_margin_start(label, 18);
             gtk_widget_set_margin_top(label, 5);
             gtk_widget_set_margin_bottom(label, 5);

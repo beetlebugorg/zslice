@@ -878,7 +878,8 @@ static GtkWidget *parts_list(Page *p) {
         gtk_widget_set_hexpand(info, TRUE);
         GtkWidget *name = label(str_member(part, "name"), NULL);
         gtk_label_set_wrap(GTK_LABEL(name), FALSE);
-        gtk_label_set_ellipsize(GTK_LABEL(name), PANGO_ELLIPSIZE_END);
+        gtk_label_set_wrap(GTK_LABEL(name), TRUE);
+        gtk_label_set_wrap_mode(GTK_LABEL(name), PANGO_WRAP_WORD);
         char *f = facts(part);
         GtkWidget *fl = label(f, "dim-label zg-proj-small");
         g_free(f);

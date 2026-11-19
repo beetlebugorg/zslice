@@ -192,7 +192,8 @@ static GtkWidget *make_stats(Inspector *ins) {
         gtk_widget_add_css_class(ins->stat_value[i], "zg-stat-value");
         GtkWidget *caption = gtk_label_new(stat_names[i]);
         gtk_widget_add_css_class(caption, "zg-stat-caption");
-        gtk_label_set_ellipsize(GTK_LABEL(caption), PANGO_ELLIPSIZE_END);
+        gtk_label_set_wrap(GTK_LABEL(caption), TRUE);
+        gtk_label_set_wrap_mode(GTK_LABEL(caption), PANGO_WRAP_WORD);
         gtk_box_append(GTK_BOX(box), ins->stat_value[i]);
         gtk_box_append(GTK_BOX(box), caption);
         /* A click: why the number is what it is, and how to change it. */

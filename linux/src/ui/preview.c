@@ -1881,7 +1881,8 @@ GtkWidget *zg_preview_new(ZgModel *model) {
     gtk_widget_add_css_class(p->scrub_label, "zg-scrub-label");
     gtk_label_set_xalign(GTK_LABEL(p->scrub_label), 0);
     gtk_label_set_width_chars(GTK_LABEL(p->scrub_label), 22);
-    gtk_label_set_ellipsize(GTK_LABEL(p->scrub_label), PANGO_ELLIPSIZE_END);
+    gtk_label_set_wrap(GTK_LABEL(p->scrub_label), TRUE);
+    gtk_label_set_wrap_mode(GTK_LABEL(p->scrub_label), PANGO_WRAP_WORD);
     p->scrub_box = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 4);
     gtk_widget_set_hexpand(p->scrub_box, TRUE);
     gtk_box_append(GTK_BOX(p->scrub_box), p->play);

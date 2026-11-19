@@ -458,7 +458,8 @@ static GtkWidget *model_row(Picker *p, size_t i, gboolean with_brand) {
     gtk_widget_set_hexpand(texts, TRUE);
     GtkWidget *name = gtk_label_new(m.name);
     gtk_label_set_xalign(GTK_LABEL(name), 0);
-    gtk_label_set_ellipsize(GTK_LABEL(name), PANGO_ELLIPSIZE_END);
+    gtk_label_set_wrap(GTK_LABEL(name), TRUE);
+    gtk_label_set_wrap_mode(GTK_LABEL(name), PANGO_WRAP_WORD);
     gtk_widget_add_css_class(name, "zg-pick-name");
     gtk_box_append(GTK_BOX(texts), name);
     char *sub = with_brand ? g_strdup_printf("%s · %s", m.brand, m.firmware[0] ? m.firmware : "Marlin")
@@ -585,7 +586,8 @@ static GtkWidget *brand_row(const char *name, size_t count, int index) {
     gtk_widget_add_css_class(box, "zg-brand-row");
     GtkWidget *l = gtk_label_new(name);
     gtk_label_set_xalign(GTK_LABEL(l), 0);
-    gtk_label_set_ellipsize(GTK_LABEL(l), PANGO_ELLIPSIZE_END);
+    gtk_label_set_wrap(GTK_LABEL(l), TRUE);
+    gtk_label_set_wrap_mode(GTK_LABEL(l), PANGO_WRAP_WORD);
     gtk_widget_set_hexpand(l, TRUE);
     char n[32];
     g_snprintf(n, sizeof n, "%zu", count);
@@ -697,7 +699,8 @@ static void on_found_changed(ZgDiscovery *d, gpointer data) {
         GtkWidget *texts = gtk_box_new(GTK_ORIENTATION_VERTICAL, 0);
         GtkWidget *name = gtk_label_new(f.name);
         gtk_label_set_xalign(GTK_LABEL(name), 0);
-        gtk_label_set_ellipsize(GTK_LABEL(name), PANGO_ELLIPSIZE_END);
+        gtk_label_set_wrap(GTK_LABEL(name), TRUE);
+        gtk_label_set_wrap_mode(GTK_LABEL(name), PANGO_WRAP_WORD);
         gtk_widget_add_css_class(name, "zg-pick-name");
         char *sub = g_strdup_printf("%s · %s", f.kind_title, f.address);
         GtkWidget *sl = gtk_label_new(sub);

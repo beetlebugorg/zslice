@@ -175,7 +175,8 @@ ZgSettingRow *zg_setting_row_add(GtkWidget *grid, int *row, ZgModel *model, cons
     gtk_widget_set_hexpand(label, TRUE);
     gtk_label_set_xalign(GTK_LABEL(label), 0);
     if (compact) {
-        gtk_label_set_ellipsize(GTK_LABEL(label), PANGO_ELLIPSIZE_END);
+        gtk_label_set_wrap(GTK_LABEL(label), TRUE);
+        gtk_label_set_wrap_mode(GTK_LABEL(label), PANGO_WRAP_WORD);
         char *tip = g_strdup_printf("%s (%s setting)\n\n%s", info->label, info->group, info->doc);
         gtk_widget_set_tooltip_text(label, tip);
         g_free(tip);
@@ -227,7 +228,8 @@ ZgSettingRow *zg_setting_row_add(GtkWidget *grid, int *row, ZgModel *model, cons
          * is its own grid), so the fields line up down the page. */
         gtk_label_set_width_chars(GTK_LABEL(unit), 13);
         gtk_label_set_max_width_chars(GTK_LABEL(unit), 13);
-        gtk_label_set_ellipsize(GTK_LABEL(unit), PANGO_ELLIPSIZE_END);
+        gtk_label_set_wrap(GTK_LABEL(unit), TRUE);
+        gtk_label_set_wrap_mode(GTK_LABEL(unit), PANGO_WRAP_WORD);
         gtk_grid_attach(GTK_GRID(grid), unit, 2, (*row)++, 1, 1);
         r->widgets[2] = unit;
         zg_setting_editor_show_speed(editor, unit);

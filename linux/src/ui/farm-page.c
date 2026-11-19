@@ -218,7 +218,8 @@ static void render_queue(Page *p) {
         g_free(label);
         gtk_label_set_xalign(GTK_LABEL(l), 0);
         gtk_widget_set_hexpand(l, TRUE);
-        gtk_label_set_ellipsize(GTK_LABEL(l), PANGO_ELLIPSIZE_END);
+        gtk_label_set_wrap(GTK_LABEL(l), TRUE);
+        gtk_label_set_wrap_mode(GTK_LABEL(l), PANGO_WRAP_WORD);
         gtk_box_append(GTK_BOX(row), l);
         GtkStringList *names = gtk_string_list_new(NULL);
         GtkStringList *ids = gtk_string_list_new(NULL);

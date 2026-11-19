@@ -170,7 +170,8 @@ GtkWidget *zg_card_head(GtkWidget *card, GtkWidget **head_out, GtkWidget *extra,
     GtkWidget *title = gtk_label_new("");
     gtk_widget_add_css_class(title, "zg-card-title");
     gtk_label_set_xalign(GTK_LABEL(title), 0);
-    gtk_label_set_ellipsize(GTK_LABEL(title), PANGO_ELLIPSIZE_END);
+    gtk_label_set_wrap(GTK_LABEL(title), TRUE);
+    gtk_label_set_wrap_mode(GTK_LABEL(title), PANGO_WRAP_WORD);
     gtk_widget_set_hexpand(title, TRUE);
     gtk_box_append(GTK_BOX(head), title);
     if (extra) gtk_box_append(GTK_BOX(head), extra);

@@ -118,7 +118,8 @@ static void fill_settings(LineCard *c, const zs_inspect *info) {
         gtk_widget_set_hexpand(labels, TRUE);
         GtkWidget *name = gtk_label_new(s.label);
         gtk_label_set_xalign(GTK_LABEL(name), 0);
-        gtk_label_set_ellipsize(GTK_LABEL(name), PANGO_ELLIPSIZE_END);
+        gtk_label_set_wrap(GTK_LABEL(name), TRUE);
+        gtk_label_set_wrap_mode(GTK_LABEL(name), PANGO_WRAP_WORD);
         gtk_widget_set_tooltip_text(name, s.doc);
         gtk_box_append(GTK_BOX(labels), name);
         if (p->why[0]) {

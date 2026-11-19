@@ -98,7 +98,8 @@ static void fill_settings(PartCard *c) {
         const zs_setting_info *info = g_ptr_array_index(infos, i);
         GtkWidget *label = gtk_label_new(info->label);
         gtk_label_set_xalign(GTK_LABEL(label), 0);
-        gtk_label_set_ellipsize(GTK_LABEL(label), PANGO_ELLIPSIZE_END);
+        gtk_label_set_wrap(GTK_LABEL(label), TRUE);
+        gtk_label_set_wrap_mode(GTK_LABEL(label), PANGO_WRAP_WORD);
         gtk_widget_set_hexpand(label, TRUE);
         gtk_widget_set_tooltip_text(label, info->doc);
         GtkWidget *editor = zg_setting_editor_new_for_part(c->model, info, (size_t)c->part);

@@ -59,7 +59,10 @@ static gboolean edits(Menu *m) {
 static void ellipsize_labels(GtkWidget *w) {
     for (GtkWidget *c = gtk_widget_get_first_child(w); c; c = gtk_widget_get_next_sibling(c)) {
         if (GTK_IS_POPOVER(c)) continue;
-        if (GTK_IS_LABEL(c)) gtk_label_set_ellipsize(GTK_LABEL(c), PANGO_ELLIPSIZE_END);
+        if (GTK_IS_LABEL(c)) {
+            gtk_label_set_wrap(GTK_LABEL(c), TRUE);
+            gtk_label_set_wrap_mode(GTK_LABEL(c), PANGO_WRAP_WORD);
+        }
         else ellipsize_labels(c);
     }
 }

@@ -74,7 +74,8 @@ static char *display_value(Compare *c, const zs_setting_info *info, const char *
 static GtkWidget *cell_label(const char *text, gboolean dim) {
     GtkWidget *l = gtk_label_new(text);
     gtk_label_set_xalign(GTK_LABEL(l), 0);
-    gtk_label_set_ellipsize(GTK_LABEL(l), PANGO_ELLIPSIZE_END);
+    gtk_label_set_wrap(GTK_LABEL(l), TRUE);
+    gtk_label_set_wrap_mode(GTK_LABEL(l), PANGO_WRAP_WORD);
     gtk_label_set_max_width_chars(GTK_LABEL(l), 34);
     if (dim) {
         gtk_widget_add_css_class(l, "dim-label");
