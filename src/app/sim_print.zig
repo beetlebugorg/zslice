@@ -16,7 +16,9 @@
 //!   each point (`point_z`, the top of the bead) and a bead area
 //!   (`point_area`). A view draws such a bead down to the top of the layer
 //!   under the path, so the area gives the bead its width at the height
-//!   that the view draws.
+//!   that the view draws. Plastic that fell under that layer is a whole
+//!   bead: the view draws each link with the bead height plus the z
+//!   between its two ends, so a strand that hangs is one bead.
 //!
 //! SPDX-License-Identifier: AGPL-3.0-or-later
 
@@ -157,6 +159,10 @@ pub fn simulate(gpa: Allocator, tp: *const Toolpaths, params: sim.Params) Alloca
                     out.path_z_start.appendAssumeCapacity(@intCast(out.point_z.items.len));
                     try out.point_z.appendSlice(gpa, tp.point_z.items[z0..][0 .. end - start]);
                     try out.point_area.appendSlice(gpa, tp.point_area.items[z0..][0 .. end - start]);
+                    for (start..end, tp.point_z.items[z0..][0 .. end - start]) |k, z| {
+                        try out.point_from.append(gpa, .{ tp.points.items[2 * k], tp.points.items[2 * k + 1], z });
+                        try out.point_set_time.append(gpa, 0);
+                    }
                 }
             } else {
                 const h = paths[pi].height;
@@ -165,17 +171,32 @@ pub fn simulate(gpa: Allocator, tp: *const Toolpaths, params: sim.Params) Alloca
                 out.path_z_start.appendAssumeCapacity(@intCast(out.point_z.items.len));
                 // A joined path starts at the last mass of the path before.
                 var first: [1]sim.V = undefined;
+                var first_want: [1]sim.V = undefined;
+                var first_set: [1]f32 = .{0};
                 if (paths[pi].joined) {
-                    const before = r.nodes(pi - 1);
+                    const g = r.ranges[pi - 1];
                     const e = paths[pi - 1].xy[paths[pi - 1].xy.len - 1];
-                    first[0] = if (before.len > 0) before[before.len - 1] else .{ e[0], e[1], tp.layer_z.items[l] - 0.5 * paths[pi - 1].height };
+                    const planned: sim.V = .{ e[0], e[1], tp.layer_z.items[l] - 0.5 * paths[pi - 1].height };
+                    first[0] = if (g[1] > 0) r.pos[g[0] + g[1] - 1] else planned;
+                    first_want[0] = if (g[1] > 0) r.want[g[0] + g[1] - 1] else planned;
+                    if (g[1] > 0) first_set[0] = r.set_time[g[0] + g[1] - 1];
                 }
-                const lead: []const sim.V = if (paths[pi].joined) &first else &.{};
-                for ([2][]const sim.V{ lead, nodes }) |part| for (part) |q| {
+                const n_lead: usize = @intFromBool(paths[pi].joined);
+                const g = r.ranges[pi];
+                // The places where the plastic set, and where the nozzle
+                // laid it.
+                const parts = [2][2][]const sim.V{ .{ first[0..n_lead], first_want[0..n_lead] }, .{ nodes, r.want[g[0]..][0..g[1]] } };
+                const sets = [2][]const f32{ first_set[0..n_lead], r.set_time[g[0]..][0..g[1]] };
+                for (parts, sets) |part, set| for (part[0], part[1], set) |q, want, t_set| {
                     try out.points.appendSlice(gpa, &.{ q[0], q[1] });
                     const top = q[2] + 0.5 * h;
+                    try out.point_from.append(gpa, .{ want[0], want[1], want[2] + 0.5 * h });
+                    try out.point_set_time.append(gpa, t_set);
                     try out.point_z.append(gpa, top);
-                    const drawn = @max(top - z_low, 0.01);
+                    // The height that a view draws (see view.zig): down
+                    // to the top of the layer under the path, or the bead
+                    // height for plastic that fell under it.
+                    const drawn = if (top - z_low < 0.25 * h) h else top - z_low;
                     try out.point_area.append(gpa, @floatCast(zs.flow.beadArea(w, drawn)));
                 };
             }
@@ -264,6 +285,6 @@ test "sim print: the posts keep their points, and the bridge gets its sag" {
     try testing.expect(zs_[n / 2] > 4.2 - 1);
     // The view draws the bead with the path width.
     const a = out.point_area.items[out.path_z_start.items[b] + n / 2];
-    const drawn = @max(zs_[n / 2] - 4.0, 0.01);
+    const drawn = if (zs_[n / 2] - 4.0 < 0.25 * 0.2) 0.2 else zs_[n / 2] - 4.0;
     try testing.expectApproxEqAbs(@as(f64, 0.45), zs.flow.beadWidth(a, drawn), 1e-3);
 }

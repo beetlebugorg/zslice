@@ -261,6 +261,9 @@ pub const Result = struct {
     pos: []V,
     /// The places where the slicer meant each entry of `pos` to be.
     want: []V,
+    /// The print time (s) when each entry of `pos` set: when it came out
+    /// of the nozzle, for a mass that was solid at once.
+    set_time: []f32,
     /// The mass of each entry of `pos` (g), with `keep_all` only.
     mass: []f32,
     /// For each path: the largest drop of a mass under its place (mm),
@@ -278,6 +281,7 @@ pub const Result = struct {
         gpa.free(r.ranges);
         gpa.free(r.pos);
         gpa.free(r.want);
+        gpa.free(r.set_time);
         gpa.free(r.mass);
         gpa.free(r.drop);
         gpa.free(r.failed);
@@ -373,6 +377,8 @@ const Node = struct {
     mass: f32,
     /// Its path.
     path: u32,
+    /// The print time when it set, or came out of the nozzle.
+    set_at: f32,
     soft: bool,
     /// It swung or fell: a run with such a mass does not hang as a
     /// catenary.
@@ -482,6 +488,7 @@ const Sim = struct {
     failed: []u32,
     pos: std.ArrayList(V) = .empty,
     want: std.ArrayList(V) = .empty,
+    set_time: std.ArrayList(f32) = .empty,
     mass: std.ArrayList(f32) = .empty,
     stats: Stats = .{},
 
@@ -496,6 +503,7 @@ const Sim = struct {
         s.field.deinit(s.gpa);
         s.pos.deinit(s.gpa);
         s.want.deinit(s.gpa);
+        s.set_time.deinit(s.gpa);
         s.mass.deinit(s.gpa);
         s.gpa.free(s.ranges);
         s.gpa.free(s.drop);
@@ -581,6 +589,7 @@ const Sim = struct {
         const n = &c.nodes.items[k];
         n.soft = false;
         n.prev = n.pos;
+        n.set_at = @floatCast(s.time);
         c.soft -= 1;
         s.soft -= 1;
         try s.deposit(c.layer, s.bead(n.path), n.pos, Field.hung);
@@ -603,7 +612,7 @@ const Sim = struct {
             c.nodes.items[k - 1].mass += 0.5 * rest * mass_per_mm;
             s.head_soft = false;
         }
-        try c.nodes.append(s.gpa, .{ .pos = p, .prev = p, .want = p, .temp = s.p.nozzle_t, .rest = rest, .mass = 0.5 * rest * mass_per_mm, .path = pi, .soft = true });
+        try c.nodes.append(s.gpa, .{ .pos = p, .prev = p, .want = p, .temp = s.p.nozzle_t, .rest = rest, .mass = 0.5 * rest * mass_per_mm, .path = pi, .set_at = @floatCast(s.time), .soft = true });
         const reach = s.supported(c.layer, b, p, dir);
         if (reach != Field.hung) {
             c.nodes.items[k].soft = false;
@@ -693,6 +702,7 @@ const Sim = struct {
                 for (nodes) |n| {
                     try s.pos.append(s.gpa, n.pos);
                     try s.want.append(s.gpa, n.want);
+                    try s.set_time.append(s.gpa, n.set_at);
                     if (s.p.keep_all) try s.mass.append(s.gpa, n.mass);
                 }
             }
@@ -1092,6 +1102,8 @@ pub fn run(gpa: Allocator, paths: []const Path, params: Params) Allocator.Error!
     errdefer gpa.free(pos);
     const want = try s.want.toOwnedSlice(gpa);
     errdefer gpa.free(want);
+    const set_time = try s.set_time.toOwnedSlice(gpa);
+    errdefer gpa.free(set_time);
     const mass = try s.mass.toOwnedSlice(gpa);
     const out_ranges = s.ranges;
     s.ranges = &.{};
@@ -1099,7 +1111,7 @@ pub fn run(gpa: Allocator, paths: []const Path, params: Params) Allocator.Error!
     s.drop = &.{};
     const out_failed = s.failed;
     s.failed = &.{};
-    return .{ .ranges = out_ranges, .pos = pos, .want = want, .mass = mass, .drop = out_drop, .failed = out_failed, .stats = s.stats };
+    return .{ .ranges = out_ranges, .pos = pos, .want = want, .set_time = set_time, .mass = mass, .drop = out_drop, .failed = out_failed, .stats = s.stats };
 }
 
 const testing = std.testing;

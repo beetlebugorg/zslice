@@ -62,6 +62,13 @@ pub const Toolpaths = struct {
     point_z: std.ArrayList(f32) = .empty,
     /// The deposited bead area (mm²), with the flow ratio.
     point_area: std.ArrayList(f32) = .empty,
+    /// The simulated print only (see sim_print.zig), for each entry of
+    /// `point_z`: the place where the nozzle laid the plastic (x, y, and
+    /// the nozzle z), and the print time (s) when it set there. The
+    /// plastic moves from the first place to its point while it is soft.
+    /// Empty for a slice.
+    point_from: std.ArrayList([3]f32) = .empty,
+    point_set_time: std.ArrayList(f32) = .empty,
     gpa: ?Allocator = null,
 
     pub const no_z = std.math.maxInt(u32);
@@ -88,6 +95,8 @@ pub const Toolpaths = struct {
         t.path_z_start.deinit(gpa);
         t.point_z.deinit(gpa);
         t.point_area.deinit(gpa);
+        t.point_from.deinit(gpa);
+        t.point_set_time.deinit(gpa);
         t.* = .{};
     }
 

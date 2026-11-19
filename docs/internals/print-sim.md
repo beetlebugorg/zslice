@@ -10,7 +10,9 @@ To see it in the app, read [The print as it forms](../user/print-as-it-forms.md)
 - C: `zs_app_simulate_print(app, &stats)`, then `zs_view_load(view, app)` to draw it. `zs_app_show_simulated(app, 0)` shows the slice again, and `zs_app_show_simulated(app, 1)` the simulation.
 - `zslice bench part.stl --only sim --runs 1` measures it (see [The command line](../user/command-line.md)).
 
-A path whose plastic set where it printed keeps its points. A path with plastic that moved gets a point for each mass, with a nozzle z (`point_z`) and a bead area (`point_area`) for each point. A view draws such a bead down to the top of the layer under the path. So a bead that fell more than a layer is a thin ribbon at its place in the view. To draw it as a full bead, a view must use the bead height of the path for these points.
+A path whose plastic set where it printed keeps its points. A path with plastic that moved gets a point for each mass, with a nozzle z (`point_z`) and a bead area (`point_area`) for each point. A view draws such a bead down to the top of the layer under the path. Plastic that fell under that layer keeps the bead height of its path, and each link spans the z of its two ends, so a strand that hangs or falls is one continuous bead (`src/render/view.zig`).
+
+The toolpaths of the simulation also keep, for each such point, the place where the nozzle laid the plastic (`point_from`) and the print time when it set (`point_set_time`). A replay draws the toolhead on the planned path. The plastic leaves the nozzle there, and falls to the place where it set as from rest: the share of the way grows as the square of the share of the time.
 
 ## The model
 
@@ -58,5 +60,5 @@ A 3DBenchy (585 778 masses), on one core: about 1.5 s, with 7 MB of memory more 
 - A strand has no bending stiffness. A hot strand that hangs from one end hangs straight down. A set strand does not hold the hot strand after it to its direction, so the sag of a long bridge adds up along it: a 20 mm bridge sags more than on a real print.
 - Soft masses do not touch each other. They touch only the bed and the solid plastic.
 - The height field has one top for each cell. A strand that falls under an overhang rests on top of it.
-- A mass that sets does not move again. A set strand does not bend later under the weight of the layers on it.
+- A mass that sets does not move again. A set strand does not bend later under the weight of the layers on it. A strand that the nozzle draws off an edge into air and that sets there is a rigid rod: later layers lie on it.
 - The material is PLA. Other materials need their own viscosity, glass point, and density in `print_sim.Params`.

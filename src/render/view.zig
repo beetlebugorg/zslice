@@ -243,6 +243,12 @@ pub const View = struct {
     /// of its path.
     bead_run: std.ArrayList(f32) = .empty,
     bead_len: std.ArrayList(f32) = .empty,
+    /// The simulated print (see app/sim_print.zig): the beads whose
+    /// plastic moves after the nozzle laid it, in bead order, and for each
+    /// bead the time when it and all beads before it have set. A replay
+    /// draws the moving plastic at its place at the replay time.
+    sim_beads: std.ArrayList(SimBead) = .empty,
+    bead_settle: std.ArrayList(f32) = .empty,
     /// A hash of the input of each layer of the last `load` (its paths, and
     /// the values of the view; not the times): the next load keeps the
     /// beads, the marks, and the pick runs of a layer with the same hash.
@@ -433,6 +439,8 @@ pub const View = struct {
         v.bead_fan.deinit(gpa);
         v.bead_run.deinit(gpa);
         v.bead_len.deinit(gpa);
+        v.sim_beads.deinit(gpa);
+        v.bead_settle.deinit(gpa);
         v.layer_key.deinit(gpa);
         v.run_width.deinit(gpa);
         v.marks.deinit(gpa);
@@ -712,11 +720,20 @@ pub const View = struct {
                     if (z_start != app_mod.Toolpaths.no_z) {
                         const ia = z_start + (a - start);
                         const ib = z_start + (b - start);
-                        bz = (tp.point_z.items[ia] + tp.point_z.items[ib]) / 2 * sz;
-                        // A bead under the top of the layer below (plastic
-                        // that fell in the simulated print) keeps the
-                        // height of its path: it is a whole strand.
-                        bh = if (bz - z_low < 0.25 * h) h else bz - z_low;
+                        const za = tp.point_z.items[ia] * sz;
+                        const zb = tp.point_z.items[ib] * sz;
+                        bz = (za + zb) / 2;
+                        bh = bz - z_low;
+                        if (bh < 0.25 * h) {
+                            // A bead under the top of the layer below
+                            // (plastic that fell in the simulated print)
+                            // keeps the height of its path: it is a whole
+                            // strand. It spans the z of both of its ends,
+                            // so a strand that hangs down is one bead with
+                            // no gaps.
+                            bz = @max(za, zb);
+                            bh = h + @abs(za - zb);
+                        }
                         const area = (tp.point_area.items[ia] + tp.point_area.items[ib]) / 2;
                         const bead: f32 = @floatCast(@import("../flow.zig").beadWidth(area, bh / sz));
                         bw = bead * sxy;
@@ -740,6 +757,7 @@ pub const View = struct {
             v.layer_end.append(gpa, @intCast(boxes.items.len)) catch return error.OutOfMemory;
         }
         v.path_start.append(gpa, @intCast(boxes.items.len)) catch return error.OutOfMemory;
+        try v.loadSimMotion(tp, center, sxy, sz);
         v.layer_path_end.clearRetainingCapacity();
         v.layer_path_end.appendSlice(gpa, tp.layer_ends.items) catch return error.OutOfMemory;
         v.path_part.clearRetainingCapacity();
@@ -933,7 +951,7 @@ pub const View = struct {
 
     /// Clears the beads and the lists of a slice (for a G-code file).
     fn clearScene(v: *View) void {
-        inline for (.{ &v.layer_end, &v.path_start, &v.layer_path_end, &v.outline_points, &v.outline_ends, &v.outline_layer_end, &v.pick_runs, &v.layer_boxes, &v.draw_chunks, &v.chunk_width, &v.draws, &v.mark_rings, &v.sup_pts, &v.sup_areas, &v.gap_beads, &v.more, &v.beads, &v.marks, &v.mark_layer_end, &v.bead_end, &v.bead_start, &v.bead_fan, &v.path_part, &v.bead_run, &v.bead_len, &v.run_width }) |l| l.clearRetainingCapacity();
+        inline for (.{ &v.layer_end, &v.path_start, &v.layer_path_end, &v.outline_points, &v.outline_ends, &v.outline_layer_end, &v.pick_runs, &v.layer_boxes, &v.draw_chunks, &v.chunk_width, &v.draws, &v.mark_rings, &v.sup_pts, &v.sup_areas, &v.gap_beads, &v.more, &v.beads, &v.marks, &v.mark_layer_end, &v.bead_end, &v.bead_start, &v.bead_fan, &v.path_part, &v.bead_run, &v.bead_len, &v.run_width, &v.sim_beads, &v.bead_settle }) |l| l.clearRetainingCapacity();
         v.layer_key.clearRetainingCapacity();
         v.clearPreview();
         v.highlight = .{ 0, 0 };
@@ -1495,6 +1513,108 @@ pub const View = struct {
     }
 
     /// The number of beads that are done at time t.
+    /// A bead of the simulated print whose plastic moves after the nozzle
+    /// laid it: its index, the places of its two ends where the nozzle
+    /// laid them (x, y, and the top z, view units), the top z of its two
+    /// ends where they set, its bead height, and the time when each end
+    /// set.
+    pub const SimBead = struct {
+        index: u32,
+        from: [2][3]f32,
+        to_z: [2]f32,
+        h: f32,
+        t_set: [2]f32,
+    };
+
+    /// The motion of the plastic of a simulated print (Toolpaths.point_from
+    /// and point_set_time): the beads that move, and the settle times.
+    fn loadSimMotion(v: *View, tp: *const app_mod.Toolpaths, center: [2]f32, sxy: f32, sz: f32) Error!void {
+        v.sim_beads.clearRetainingCapacity();
+        v.bead_settle.clearRetainingCapacity();
+        if (tp.point_from.items.len == 0 or tp.point_from.items.len != tp.point_z.items.len) return;
+        const no_z = app_mod.Toolpaths.no_z;
+        for (0..tp.path_ends.items.len) |pi| {
+            const z0 = if (pi < tp.path_z_start.items.len) tp.path_z_start.items[pi] else no_z;
+            if (z0 == no_z or tp.path_closed.items[pi] != 0) continue;
+            const start = tp.pathStart(pi);
+            const end: usize = tp.path_ends.items[pi];
+            if (end - start < 2 or pi >= v.path_start.items.len) continue;
+            const b0 = v.path_start.items[pi];
+            const l = tp.layerOfPath(pi) orelse continue;
+            const h = tp.pathHeight(pi, l) * sz;
+            for (0..end - start - 1) |k| {
+                const bead = b0 + k;
+                if (bead >= v.bead_end.items.len) break;
+                const ia = z0 + k;
+                const ib = ia + 1;
+                const t_set = [2]f32{ tp.point_set_time.items[ia], tp.point_set_time.items[ib] };
+                if (@max(t_set[0], t_set[1]) <= v.bead_end.items[bead]) continue;
+                var from: [2][3]f32 = undefined;
+                for ([2]usize{ ia, ib }, 0..) |i, e| {
+                    const q = tp.point_from.items[i];
+                    from[e] = .{ center[0] + (q[0] - center[0]) * sxy, center[1] + (q[1] - center[1]) * sxy, q[2] * sz };
+                }
+                v.sim_beads.append(gpa, .{
+                    .index = @intCast(bead),
+                    .from = from,
+                    .to_z = .{ tp.point_z.items[ia] * sz, tp.point_z.items[ib] * sz },
+                    .h = h,
+                    .t_set = t_set,
+                }) catch return error.OutOfMemory;
+            }
+        }
+        if (v.sim_beads.items.len == 0) return;
+        v.bead_settle.ensureTotalCapacity(gpa, v.bead_end.items.len) catch return error.OutOfMemory;
+        var latest: f32 = 0;
+        var j: usize = 0;
+        for (v.bead_end.items, 0..) |t_end, i| {
+            var t = t_end;
+            if (j < v.sim_beads.items.len and v.sim_beads.items[j].index == i) {
+                t = @max(t, @max(v.sim_beads.items[j].t_set[0], v.sim_beads.items[j].t_set[1]));
+                j += 1;
+            }
+            latest = @max(latest, t);
+            v.bead_settle.appendAssumeCapacity(latest);
+        }
+    }
+
+    /// The moving bead of the simulated print with this index, or null.
+    fn simBead(v: *const View, index: usize) ?*const SimBead {
+        const items = v.sim_beads.items;
+        var lo: usize = 0;
+        var hi: usize = items.len;
+        while (lo < hi) {
+            const mid = (lo + hi) / 2;
+            if (items[mid].index < index) lo = mid + 1 else hi = mid;
+        }
+        return if (lo < items.len and items[lo].index == index) &items[lo] else null;
+    }
+
+    /// Bead i of a simulated print at the replay time t: its plastic
+    /// leaves the nozzle at the end of the bead and falls to the place
+    /// where it set. It falls as from rest under gravity: the share of the
+    /// way grows as the square of the share of the time.
+    fn simBeadAt(v: *const View, i: usize, t: f32) vk.Instance {
+        var b = v.beads.items[i];
+        const sb = v.simBead(i) orelse return b;
+        const t0 = v.bead_end.items[i];
+        var p: [2][3]f32 = undefined;
+        const to = [2][3]f32{ .{ b.ax, b.ay, sb.to_z[0] }, .{ b.bx, b.by, sb.to_z[1] } };
+        for (0..2) |e| {
+            const span = sb.t_set[e] - t0;
+            const u = if (span > 0) std.math.clamp((t - t0) / span, 0, 1) else 1;
+            for (0..3) |c| p[e][c] = sb.from[e][c] + (to[e][c] - sb.from[e][c]) * u * u;
+        }
+        b.ax = p[0][0];
+        b.ay = p[0][1];
+        b.bx = p[1][0];
+        b.by = p[1][1];
+        b.z = @max(p[0][2], p[1][2]);
+        b.h = sb.h + @abs(p[0][2] - p[1][2]);
+        if (b.ax == b.bx and b.ay == b.by) b.bx += 0.001;
+        return b;
+    }
+
     fn beadsDoneAt(v: *const View, t: f32) usize {
         var lo: usize = 0;
         var hi: usize = v.bead_end.items.len;
@@ -3362,7 +3482,9 @@ pub const View = struct {
                     tip = .{ a.bx + (b.ax - a.bx) * f, a.by + (b.ay - a.by) * f, a.z + (b.z - a.z) * f };
                 }
                 if (t > t_start and t_end > t_start) {
-                    var b = v.beads.items[done];
+                    // A bead of the simulated print prints where the
+                    // nozzle lays it: the toolhead follows the slice.
+                    var b = if (v.simBead(done) != null) v.simBeadAt(done, v.bead_end.items[done]) else v.beads.items[done];
                     const f = @min(1, (t - t_start) / (t_end - t_start));
                     b.bx = b.ax + (b.bx - b.ax) * f;
                     b.by = b.ay + (b.by - b.ay) * f;
@@ -3374,6 +3496,26 @@ pub const View = struct {
             if (tip == null and done > 0 and done <= v.beads.items.len) {
                 const b = v.beads.items[done - 1];
                 tip = .{ b.bx, b.by, b.z };
+                if (v.simBead(done - 1)) |sb| tip = sb.from[1];
+            }
+            // The simulated print: the plastic that has not set yet is at
+            // its place at the time t, as extras. The beads before it have
+            // all set (bead_settle).
+            if (v.bead_settle.items.len == v.beads.items.len and count > 0) {
+                var lo: usize = 0;
+                var hi: usize = count;
+                while (lo < hi) {
+                    const mid = (lo + hi) / 2;
+                    if (v.bead_settle.items[mid] <= t) lo = mid + 1 else hi = mid;
+                }
+                const budget = extras.len / 2 -| n_extras;
+                if (lo < count and count - lo <= budget) {
+                    for (lo..count) |i| {
+                        extras[n_extras] = v.simBeadAt(i, t);
+                        n_extras += 1;
+                    }
+                    count = @intCast(lo);
+                }
             }
             // The impeller turns with the print time, at the fan of the
             // bead that prints: at full fan, half a turn each second of
@@ -4041,6 +4183,24 @@ test "the replay shows the beads that are done" {
     try std.testing.expectEqual(@as(usize, 2), v.beadsDoneAt(2.5));
     try std.testing.expectEqual(@as(usize, 4), v.beadsDoneAt(9));
     try std.testing.expectEqual(@as(f32, 4), v.duration());
+}
+
+test "the replay of a simulated print: the plastic leaves the nozzle, then falls to where it set" {
+    const gpa = View.gpa;
+    var v: View = .{ .renderer = undefined, .width = 100, .height = 100 };
+    defer v.beads.deinit(gpa);
+    defer v.bead_end.deinit(gpa);
+    defer v.sim_beads.deinit(gpa);
+    // A bead that set 0.5 mm under the place where the nozzle laid it, 1 s
+    // after it printed.
+    try v.beads.append(gpa, .{ .ax = 0, .ay = 0, .bx = 1, .by = 0, .z = 0.5, .h = 0.2, .w = 0.4, .rgba = .{ 0, 0, 0, 0 } });
+    try v.bead_end.append(gpa, 1);
+    try v.sim_beads.append(gpa, .{ .index = 0, .from = .{ .{ 0, 0, 1 }, .{ 1, 0, 1 } }, .to_z = .{ 0.5, 0.5 }, .h = 0.2, .t_set = .{ 2, 2 } });
+    try std.testing.expectApproxEqAbs(@as(f32, 1), v.simBeadAt(0, 1).z, 1e-6);
+    // Half the time: a quarter of the way, as a fall from rest.
+    try std.testing.expectApproxEqAbs(@as(f32, 0.875), v.simBeadAt(0, 1.5).z, 1e-6);
+    try std.testing.expectApproxEqAbs(@as(f32, 0.5), v.simBeadAt(0, 3).z, 1e-6);
+    try std.testing.expectApproxEqAbs(@as(f32, 0.2), v.simBeadAt(0, 3).h, 1e-6);
 }
 
 test "zoom at a pixel keeps the point under it" {
