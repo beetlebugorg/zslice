@@ -347,6 +347,106 @@ export fn zs_bambu_camera_auth(code: ?[*:0]const u8, out: ?*[80]u8) c_int {
     return ok;
 }
 
+/// The bytes of the stream of a Bambu Lab printer camera (port 6000), in,
+/// and the whole JPEG frames, out.
+const JpegReader = zs.bambu.JpegReader;
+
+export fn zs_bambu_jpeg_reader_new() ?*JpegReader {
+    const r = gpa.create(JpegReader) catch return null;
+    r.* = .{};
+    return r;
+}
+
+export fn zs_bambu_jpeg_reader_free(r: ?*JpegReader) void {
+    const x = r orelse return;
+    x.deinit(gpa);
+    gpa.destroy(x);
+}
+
+export fn zs_bambu_jpeg_reader_feed(r: ?*JpegReader, bytes: ?[*]const u8, len: usize) c_int {
+    const x = r orelse return @intFromEnum(Status.invalid_argument);
+    const b = bytes orelse return @intFromEnum(Status.invalid_argument);
+    x.feed(gpa, b[0..len]) catch return @intFromEnum(Status.out_of_memory);
+    return ok;
+}
+
+/// 1 and a frame (valid until the next call), 0 when more bytes must come,
+/// or a negative error for a stream that is not of frames.
+export fn zs_bambu_jpeg_reader_next(r: ?*JpegReader, jpeg: ?*?[*]const u8, len: ?*usize) c_int {
+    const x = r orelse return @intFromEnum(Status.invalid_argument);
+    const f = (x.next() catch return @intFromEnum(Status.invalid_argument)) orelse return 0;
+    if (jpeg) |p| p.* = f.ptr;
+    if (len) |p| p.* = f.len;
+    return 1;
+}
+
+/// MQTT 3.1.1 for the status of a Bambu Lab printer (src/mqtt.zig): the
+/// packets to write, and a reader of the packets that come. There is no
+/// PUBLISH: the link only reads.
+export fn zs_mqtt_connect_packet(client_id: ?[*:0]const u8, user: ?[*:0]const u8, password: ?[*:0]const u8, keepalive_s: c_int, out: ?*?[*]u8, out_len: ?*usize) c_int {
+    const o = out orelse return @intFromEnum(Status.invalid_argument);
+    const n = out_len orelse return @intFromEnum(Status.invalid_argument);
+    const span = struct {
+        fn f(s: ?[*:0]const u8) []const u8 {
+            return if (s) |x| std.mem.span(x) else "";
+        }
+    }.f;
+    const p = zs.mqtt.connectPacket(gpa, span(client_id), span(user), span(password), @intCast(std.math.clamp(keepalive_s, 0, 65535))) catch return @intFromEnum(Status.out_of_memory);
+    o.* = p.ptr;
+    n.* = p.len;
+    return ok;
+}
+
+export fn zs_mqtt_subscribe_packet(topic: ?[*:0]const u8, packet_id: c_int, out: ?*?[*]u8, out_len: ?*usize) c_int {
+    const o = out orelse return @intFromEnum(Status.invalid_argument);
+    const n = out_len orelse return @intFromEnum(Status.invalid_argument);
+    const t = topic orelse return @intFromEnum(Status.invalid_argument);
+    const p = zs.mqtt.subscribePacket(gpa, @intCast(std.math.clamp(packet_id, 1, 65535)), std.mem.span(t)) catch return @intFromEnum(Status.out_of_memory);
+    o.* = p.ptr;
+    n.* = p.len;
+    return ok;
+}
+
+pub const MqttPacket = extern struct {
+    kind: c_int,
+    return_code: c_int,
+    topic: ?[*]const u8,
+    topic_len: usize,
+    payload: ?[*]const u8,
+    payload_len: usize,
+};
+
+const MqttReader = zs.mqtt.Reader;
+
+export fn zs_mqtt_reader_new() ?*MqttReader {
+    const r = gpa.create(MqttReader) catch return null;
+    r.* = .{};
+    return r;
+}
+
+export fn zs_mqtt_reader_free(r: ?*MqttReader) void {
+    const x = r orelse return;
+    x.deinit(gpa);
+    gpa.destroy(x);
+}
+
+export fn zs_mqtt_reader_feed(r: ?*MqttReader, bytes: ?[*]const u8, len: usize) c_int {
+    const x = r orelse return @intFromEnum(Status.invalid_argument);
+    const b = bytes orelse return @intFromEnum(Status.invalid_argument);
+    x.feed(gpa, b[0..len]) catch return @intFromEnum(Status.out_of_memory);
+    return ok;
+}
+
+/// 1 and a packet (its slices valid until the next call), 0 when more bytes
+/// must come, or a negative error for a stream that is not MQTT.
+export fn zs_mqtt_reader_next(r: ?*MqttReader, out: ?*MqttPacket) c_int {
+    const x = r orelse return @intFromEnum(Status.invalid_argument);
+    const o = out orelse return @intFromEnum(Status.invalid_argument);
+    const p = (x.next() catch return @intFromEnum(Status.invalid_argument)) orelse return 0;
+    o.* = .{ .kind = p.kind, .return_code = p.return_code, .topic = p.topic.ptr, .topic_len = p.topic.len, .payload = p.payload.ptr, .payload_len = p.payload.len };
+    return 1;
+}
+
 /// Applies the status of a printer to the settings of the app. what: 1
 /// the machine (the bed, the height, the nozzle, and the motion limits
 /// that the printer gives, each only when known), 2 the filament (the

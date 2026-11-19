@@ -189,6 +189,64 @@ pub fn jpegAuth(code: []const u8) [80]u8 {
     return out;
 }
 
+/// Collects the bytes of the JPEG stream of port 6000 and gives back each
+/// whole frame: a 16-byte header (the size as a little endian u32 first),
+/// then the JPEG. The slice of a frame stays valid until the next call.
+pub const JpegReader = struct {
+    buf: std.ArrayList(u8) = .empty,
+    used: usize = 0,
+
+    pub fn deinit(r: *JpegReader, gpa: Allocator) void {
+        r.buf.deinit(gpa);
+    }
+
+    fn drop(r: *JpegReader) void {
+        if (r.used == 0) return;
+        const rest = r.buf.items.len - r.used;
+        std.mem.copyForwards(u8, r.buf.items[0..rest], r.buf.items[r.used..]);
+        r.buf.items.len = rest;
+        r.used = 0;
+    }
+
+    pub fn feed(r: *JpegReader, gpa: Allocator, bytes: []const u8) Allocator.Error!void {
+        r.drop();
+        try r.buf.appendSlice(gpa, bytes);
+    }
+
+    /// The next whole JPEG, or null when more bytes must come.
+    /// error.BadFrame: a size of 0 or over 16 MiB, or no JPEG start.
+    pub fn next(r: *JpegReader) error{BadFrame}!?[]const u8 {
+        r.drop();
+        const b = r.buf.items;
+        if (b.len < 16) return null;
+        const n = std.mem.readInt(u32, b[0..4], .little);
+        if (n < 4 or n > 16 * 1024 * 1024) return error.BadFrame;
+        if (b.len < 16 + n) return null;
+        const jpeg = b[16 .. 16 + n];
+        if (jpeg[0] != 0xFF or jpeg[1] != 0xD8) return error.BadFrame;
+        r.used = 16 + n;
+        return jpeg;
+    }
+};
+
+test "bambu: the frames of the JPEG stream" {
+    const gpa = std.testing.allocator;
+    var r: JpegReader = .{};
+    defer r.deinit(gpa);
+    const jpeg = [_]u8{ 0xFF, 0xD8, 1, 2, 3, 0xFF, 0xD9 };
+    var head = [_]u8{0} ** 16;
+    std.mem.writeInt(u32, head[0..4], jpeg.len, .little);
+    try r.feed(gpa, &head);
+    try std.testing.expect((try r.next()) == null);
+    try r.feed(gpa, jpeg[0..3]);
+    try std.testing.expect((try r.next()) == null);
+    try r.feed(gpa, jpeg[3..]);
+    try std.testing.expectEqualSlices(u8, &jpeg, (try r.next()).?);
+    try std.testing.expect((try r.next()) == null);
+    try r.feed(gpa, &([_]u8{0} ** 16));
+    try std.testing.expectError(error.BadFrame, r.next());
+}
+
 test "bambu: the camera of each model" {
     try std.testing.expectEqual(CameraKind.rtsps, cameraOf("bambu-lab-x2d"));
     try std.testing.expectEqual(CameraKind.jpeg, cameraOf("bambu-lab-p1s"));

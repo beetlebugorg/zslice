@@ -219,6 +219,37 @@ int zs_printer_status_camera(const zs_printer_status *s, zs_printer_camera *out)
  * self-signed certificate of the printer. */
 int zs_bambu_camera_kind(const char *model_id);
 int zs_bambu_camera_auth(const char *code, uint8_t out[80]);
+/* The frames of port 6000: feed the bytes that come; next gives 1 and a
+ * whole JPEG (valid until the next call), 0 when more bytes must come, or
+ * a negative error for a stream that is not of frames. */
+typedef struct zs_bambu_jpeg_reader zs_bambu_jpeg_reader;
+zs_bambu_jpeg_reader *zs_bambu_jpeg_reader_new(void);
+void zs_bambu_jpeg_reader_free(zs_bambu_jpeg_reader *r);
+int zs_bambu_jpeg_reader_feed(zs_bambu_jpeg_reader *r, const uint8_t *bytes, size_t len);
+int zs_bambu_jpeg_reader_next(zs_bambu_jpeg_reader *r, const uint8_t **jpeg, size_t *len);
+/* MQTT 3.1.1 for the status of a Bambu Lab printer (src/mqtt.zig). The
+ * shell writes these packets to its TLS socket, and feeds each byte that
+ * it reads to a reader. Free a packet with zs_buffer_free. The API makes
+ * no PUBLISH: the link only reads. After the CONNECT, read a CONNACK
+ * (return_code 0: accepted; 4 or 5: a wrong access code), then send the
+ * SUBSCRIBE to device/<serial>/report. Each PUBLISH (kind 3) has a report
+ * for zs_printer_status_feed. Send a PINGREQ (0xC0 0x00) within the
+ * keepalive. */
+int zs_mqtt_connect_packet(const char *client_id, const char *user, const char *password, int keepalive_s, uint8_t **out, size_t *out_len);
+int zs_mqtt_subscribe_packet(const char *topic, int packet_id, uint8_t **out, size_t *out_len);
+typedef struct zs_mqtt_packet {
+    int kind;        /* 2 CONNACK, 3 PUBLISH, 9 SUBACK, 13 PINGRESP, ... */
+    int return_code; /* CONNACK only, else 255 */
+    const uint8_t *topic;
+    size_t topic_len;
+    const uint8_t *payload;
+    size_t payload_len;
+} zs_mqtt_packet;
+typedef struct zs_mqtt_reader zs_mqtt_reader;
+zs_mqtt_reader *zs_mqtt_reader_new(void);
+void zs_mqtt_reader_free(zs_mqtt_reader *r);
+int zs_mqtt_reader_feed(zs_mqtt_reader *r, const uint8_t *bytes, size_t len);
+int zs_mqtt_reader_next(zs_mqtt_reader *r, zs_mqtt_packet *out);
 /* Bambu Lab printers (kind 4 of zs_printer_status): no paths; give each
  * MQTT report (topic device/<serial>/report) to zs_printer_status_feed
  * with the path "report". The shell does the network: an upload of
