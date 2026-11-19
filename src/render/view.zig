@@ -603,6 +603,10 @@ pub const View = struct {
             v.outline_layer_end.clearRetainingCapacity();
             v.path_part.clearRetainingCapacity();
             v.layer_key.clearRetainingCapacity();
+            // The travel and retraction marks of the last slice: they are
+            // of another plate now (an empty plate that became active).
+            v.marks.clearRetainingCapacity();
+            v.mark_layer_end.clearRetainingCapacity();
             v.clearPreview();
             v.lite.clear();
             v.lite_gen = v.nextGen();
