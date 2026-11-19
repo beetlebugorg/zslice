@@ -72,7 +72,7 @@ import { attachViewInput } from "./input.js";
 import { FarmPage } from "./farm.js";
 import { Tools } from "./tools.js";
 import { SupportTool } from "./support.js";
-import { KINDS, send as sendToPrinter, test as testPrinter, requestKey, trustText, status as printerStatus, camera as printerCamera, detectKind, deckPrinters } from "./link.js";
+import { KINDS, send as sendToPrinter, test as testPrinter, requestKey, trustText, status as printerStatus, camera as printerCamera, detectKind, deckPrinters, deckAddress, plainName } from "./link.js";
 import { CameraView } from "./camera.js";
 import { signGcode, keyId as signingKeyId, supported as canSign, UNSUPPORTED as NO_SIGNATURES } from "./signing.js";
 import { contextItems } from "./context-menu.js";
@@ -1045,11 +1045,13 @@ function pairPrinter(name) {
       cancel.textContent = "Close";
       if (p.kind === "printdeck") {
         const dp = await deckPrinters({ ...p, name });
-        const others = dp.ok ? dp.printers.filter((q) => q?.url && q.name && q.kind !== "resin") : [];
+        const base = (p.url || "").replace(/\/$/, "");
+        const httpsBase = (p.https || dp.https || "").replace(/\/$/, "");
+        // The deck names the printers and their paths: a path must stay on
+        // the deck (the key goes there), and a name must be a plain key.
+        const others = dp.ok ? dp.printers.filter((q) => q?.url && plainName(q.name) && q.kind !== "resin" && deckAddress(base, q.url)) : [];
         if (others.length) {
           text.textContent = `Connected to ${name}. The deck drives more printers: pick the ones to add.`;
-          const base = (p.url || "").replace(/\/$/, "");
-          const httpsBase = (p.https || dp.https || "").replace(/\/$/, "");
           const boxes = others.map((q) => {
             const label = q.label && q.label !== q.name ? `${q.name} (${q.label})` : q.name;
             const row = Object.assign(document.createElement("label"), { className: "pair-row" });
@@ -1066,8 +1068,8 @@ function pairPrinter(name) {
               if (!cb.checked) continue;
               const had = store.printers[label];
               store.printers[label] = {
-                profile: had?.profile ?? p.profile ?? "", url: base + q.url, kind: "printdeck", apiKey: r.key,
-                https: httpsBase ? httpsBase + q.url : "", color: q.color || "", label: q.label || "",
+                profile: had?.profile ?? p.profile ?? "", url: deckAddress(base, q.url), kind: "printdeck", apiKey: r.key,
+                https: deckAddress(httpsBase, q.url), color: q.color || "", label: q.label || "",
               };
             }
             saveStore();
@@ -3398,7 +3400,7 @@ async function hostPrinter() {
   } catch {
     return;
   }
-  if (!p?.name || !KINDS[p.kind]) return;
+  if (!plainName(p?.name) || !Object.hasOwn(KINDS, p.kind)) return;
   store.printers = store.printers ?? {};
   const known = store.printers[p.name];
   store.printers[p.name] = {
@@ -3417,7 +3419,7 @@ async function hostPrinter() {
     const base = (p.url || location.origin).replace(/\/$/, "");
     const httpsBase = (p.https || "").replace(/\/$/, "");
     for (const q of p.printers) {
-      if (!q?.name || q.kind === "resin") continue;
+      if (!plainName(q?.name) || q.kind === "resin") continue;
       const sub = typeof q.url === "string" ? q.url : "";
       // The first printer is at the base: the deck's own entry.
       if (sub === "") {

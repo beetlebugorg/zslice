@@ -25,6 +25,23 @@ node web/app/test-signing.mjs zig-out/web/app/zslice.wasm
 
 `test-signing.mjs` signs G-code with WebCrypto, as the page does, and checks it with the core (`zs_verify_gcode`).
 
+`node web/app/test-link.mjs` tests the printer link with two local servers: a request with the API key follows no redirect, so the key never goes to another host. It also tests the checks of the addresses that a deck gives.
+
+### Security headers
+
+The host of the app sends these headers. `serve.py --csp` sends them too, to test the app against them.
+
+| Header | Value |
+|---|---|
+| `Content-Security-Policy` | `default-src 'self'; script-src 'self' 'wasm-unsafe-eval'; worker-src 'self'; style-src 'self'; img-src 'self' data: blob: http: https:; media-src 'self' blob:; connect-src 'self' http: https:; font-src 'self'; object-src 'none'; base-uri 'none'; form-action 'none'; frame-ancestors 'none'` |
+| `X-Content-Type-Options` | `nosniff` |
+| `Referrer-Policy` | `no-referrer` |
+| `Permissions-Policy` | `camera=(), microphone=(), geolocation=(), payment=(), usb=()` |
+| `Cross-Origin-Opener-Policy` | `same-origin` |
+| `Cross-Origin-Embedder-Policy` | `credentialless` |
+
+The page loads only its own scripts, styles, and wasm. `connect-src` and `img-src` allow any http and https address: the printers are on the local network at any address, and their cameras are pictures. `frame-ancestors 'none'` stops other sites from showing the page in a frame. Do not add `upgrade-insecure-requests`: it breaks the printers at http addresses.
+
 The test runs the code of the worker (`core.js`) and the view of the main thread (`view.js`) in Node, with no browser: settings, the saved state, a slice, the scene, frames of the view, the data of the 2D view, a pick, a step along the print, the Selected page of a line, the printer library, and a bed model in a frame.
 
 The picker opens at the first visit (no printer set up). `?printers` opens it at the start, with `&q=text` (a search), `&pick=id` (a model), and `&step=2` (the second step) or `&step=add` (add the printer at once).
@@ -59,6 +76,7 @@ The rule of `docs/app/README.md` holds: the app logic is in the core, and the we
 | `test-node.mjs` | The Node test |
 | `signing.js` | The signing key of this browser (a WebCrypto Ed25519 key in IndexedDB that no script can read), and the signature of each exported or sent G-code file |
 | `test-signing.mjs` | The Node test of the signatures |
+| `test-link.mjs` | The Node test of the printer link: redirects and addresses from outside |
 
 ### The bed model
 

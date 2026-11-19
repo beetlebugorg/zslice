@@ -38,7 +38,38 @@ class Handler(http.server.SimpleHTTPRequestHandler):
         if not self.server.no_isolation:
             self.send_header("Cross-Origin-Opener-Policy", "same-origin")
             self.send_header("Cross-Origin-Embedder-Policy", self.server.coep)
+        # --csp: the security headers that the host of the app sends (see
+        # README.md), to test the app against them.
+        if self.server.csp:
+            for k, v in SECURITY_HEADERS.items():
+                self.send_header(k, v)
         super().end_headers()
+
+
+# The security headers of the hosted app. The policy lets the page load
+# its own files and wasm (wasm-unsafe-eval), and reach printers on any
+# http or https address (fetch and camera pictures). No other site can
+# frame the page, and no address goes out in a Referer.
+CSP = "; ".join([
+    "default-src 'self'",
+    "script-src 'self' 'wasm-unsafe-eval'",
+    "worker-src 'self'",
+    "style-src 'self'",
+    "img-src 'self' data: blob: http: https:",
+    "media-src 'self' blob:",
+    "connect-src 'self' http: https:",
+    "font-src 'self'",
+    "object-src 'none'",
+    "base-uri 'none'",
+    "form-action 'none'",
+    "frame-ancestors 'none'",
+])
+SECURITY_HEADERS = {
+    "Content-Security-Policy": CSP,
+    "X-Content-Type-Options": "nosniff",
+    "Referrer-Policy": "no-referrer",
+    "Permissions-Policy": "camera=(), microphone=(), geolocation=(), payment=(), usb=()",
+}
 
 
 def main():
@@ -50,6 +81,7 @@ def main():
     p.add_argument("--cache", action="store_true", help="let the browser keep the files for a day (and its optimized wasm code)")
     p.add_argument("--coep", default="credentialless", choices=["credentialless", "require-corp"],
                    help="the Cross-Origin-Embedder-Policy (credentialless lets the cameras of printers load)")
+    p.add_argument("--csp", action="store_true", help="send the security headers of the host (Content-Security-Policy and others)")
     a = p.parse_args()
     folder = os.path.abspath(a.folder)
     handler = functools.partial(Handler, directory=folder)
@@ -57,6 +89,7 @@ def main():
         httpd.no_isolation = a.no_isolation
         httpd.cache = a.cache
         httpd.coep = a.coep
+        httpd.csp = a.csp
         print(f"zslice: serving {folder} at http://{a.bind}:{a.port}/", flush=True)
         httpd.serve_forever()
 

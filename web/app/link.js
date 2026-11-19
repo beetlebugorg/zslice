@@ -51,6 +51,37 @@ function join(base, path) {
   return base.replace(/\/+$/, "") + path;
 }
 
+// An http or https address from outside (a printer or a deck), or "". A
+// javascript: or data: address must not open or load.
+export function webAddress(u) {
+  try {
+    const p = new URL(u).protocol;
+    return p === "http:" || p === "https:" ? u : "";
+  } catch {
+    return "";
+  }
+}
+
+// A printer name from outside that can be a key of the printer store: a
+// text that is not a name of Object.prototype ("__proto__" would change
+// the prototype of the store).
+export function plainName(name) {
+  return typeof name === "string" && name.length > 0 && !(name in Object.prototype);
+}
+
+// The address of a printer under a deck: the base of the deck and the
+// path that the deck gives ("/printers/<id>"), or "" for a path that could
+// leave the deck ("@other.host/", "//other.host/", a full address).
+export function deckAddress(base, path) {
+  if (!base || typeof path !== "string" || path.startsWith("//") || (path !== "" && !/^\/[A-Za-z0-9._~/-]*$/.test(path))) return "";
+  const url = base.replace(/\/+$/, "") + path;
+  try {
+    return new URL(url).origin === new URL(base).origin ? url : "";
+  } catch {
+    return "";
+  }
+}
+
 // The options of a fetch to the printer at `url`. An https page that
 // calls an http printer must name the address space of the printer
 // (Chrome's Local Network Access), and the name must match the real one:
@@ -60,8 +91,13 @@ function join(base, path) {
 // The fetch sends cookies only to the origin of the page (credentials
 // "same-origin"). A printdeck that serves the app takes its login cookie
 // in place of an API key. A printer on another origin gets no cookies.
-function fetchOptions(url, init) {
-  const opts = { ...init, mode: "cors", credentials: "same-origin", cache: "no-store" };
+//
+// A request with the API key follows no redirect (redirect "error"): a
+// fetch keeps X-Api-Key on a redirect, so a printer (or a device at its
+// address) could send the key to another host.
+export function fetchOptions(url, init) {
+  const keyed = Object.keys(init?.headers ?? {}).some((h) => h.toLowerCase() === "x-api-key");
+  const opts = { ...init, mode: "cors", credentials: "same-origin", cache: "no-store", redirect: keyed ? "error" : "follow" };
   try {
     const u = new URL(url, location.href);
     if (u.origin !== location.origin && location.protocol === "https:" && u.protocol === "http:") {
@@ -359,7 +395,9 @@ export async function deckPrinters(printer) {
     if (r.status === 401 || r.status === 403) return { ok: false, message: "The deck refused the key." };
     if (!r.ok) return { ok: false, message: `The deck answered ${r.status}.` };
     const j = await r.json();
-    return { ok: true, name: j.name ?? "", https: j.https ?? "", printers: Array.isArray(j.printers) ? j.printers : [] };
+    // The https address must be https: the key goes there.
+    const https = typeof j.https === "string" && /^https:\/\//i.test(j.https) ? webAddress(j.https) : "";
+    return { ok: true, name: j.name ?? "", https, printers: Array.isArray(j.printers) ? j.printers : [] };
   } catch (e) {
     return { ok: false, message: explain(e, printer) };
   }

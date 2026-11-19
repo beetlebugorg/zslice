@@ -11,7 +11,7 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
 import { el } from "./settings.js";
-import { KINDS, camera as readCamera, status as readStatus } from "./link.js";
+import { KINDS, camera as readCamera, status as readStatus, webAddress } from "./link.js";
 import { CameraView, closeCameras } from "./camera.js";
 import { openMenu } from "./menus.js";
 
@@ -160,7 +160,7 @@ export class FarmPage {
     menu.onclick = () => openMenu(menu, [
       { label: "Upload the plate only", tip: "Upload the G-code, and do not start it", disabled: !this.ctx.canSend(), action: () => this.sendTo(p, send, false) },
       { label: "Show the camera large", disabled: !this.cams.get(name), action: () => this.openLarge(name) },
-      { label: "Open the page of the printer", tip: p.https || p.url, action: () => window.open(p.https || p.url, "_blank", "noopener") },
+      { label: "Open the page of the printer", tip: p.https || p.url, disabled: !webAddress(p.https || p.url), action: () => window.open(webAddress(p.https || p.url), "_blank", "noopener") },
       { label: "Edit this printer…", tip: "Its name, address, kind, and key", action: () => this.ctx.manage(name) },
     ]);
     actions.append(send, menu);
