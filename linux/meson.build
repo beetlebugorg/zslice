@@ -31,6 +31,13 @@ m_dep = cc.find_library('m', required: false)
 # libraries with GTK; other shells use the HTTP of their platform.
 soup_dep = dependency('libsoup-3.0')
 json_dep = dependency('json-glib-1.0')
+# The RTSP camera of Bambu Lab printers: GStreamer (LGPL-2.1-or-later, a
+# shared library). GTK uses it for its media too. With no GStreamer, the
+# app still reads the JPEG camera of the P1 and A1 printers.
+gst_deps = [dependency('gstreamer-1.0', required: false),
+            dependency('gstreamer-app-1.0', required: false),
+            dependency('gstreamer-video-1.0', required: false)]
+have_gst = gst_deps[0].found() and gst_deps[1].found() and gst_deps[2].found()
 
 find_program('zig', required: true)
 build_core = find_program('build-core.sh', native: true)
@@ -71,6 +78,8 @@ executable('zslice-gtk',
   'src/ui/history.c',
   'src/ui/project-page.c',
   'src/ui/farm-page.c',
+  'src/ui/camera-view.c',
+  'src/ui/pair-dialog.c',
   'src/ui/licenses.c',
   'src/ui/preferences.c',
   'src/ui/printer-picker.c',
@@ -82,14 +91,16 @@ executable('zslice-gtk',
   'src/prefs/printers.c',
   'src/prefs/cura-stack.c',
   'src/net/printer-link.c',
+  'src/net/bambu-link.c',
   'src/net/signing.c',
   'src/net/discovery.c',
   'src/net/project-source.c',
   core[1], core[2],
   link_with: core[0],
   c_args: ['-DZG_VERSION="' + meson.project_version() + '"',
-           '-DZG_BEDS_SRC_DIR="' + meson.current_source_dir() / '..' / 'src' / 'printers' / 'beds' + '"'],
-  dependencies: [gtk_dep, wayland_dep, thread_dep, m_dep, soup_dep, json_dep],
+           '-DZG_BEDS_SRC_DIR="' + meson.current_source_dir() / '..' / 'src' / 'printers' / 'beds' + '"']
+          + (have_gst ? ['-DZG_HAVE_GST'] : []),
+  dependencies: [gtk_dep, wayland_dep, thread_dep, m_dep, soup_dep, json_dep] + (have_gst ? gst_deps : []),
   install: true,
 )
 

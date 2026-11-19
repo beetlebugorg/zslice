@@ -26,6 +26,8 @@ typedef enum {
     ZG_LINK_OCTOPRINT,
     ZG_LINK_MOONRAKER,/* Klipper with Moonraker */
     ZG_LINK_USB,      /* a serial port: the app sends the G-code itself */
+    ZG_LINK_BAMBU,    /* a Bambu Lab printer in LAN mode: the status and
+                       * the camera, read only (bambu-link.h) */
     ZG_N_LINKS
 } ZgLinkKind;
 
@@ -33,9 +35,12 @@ typedef struct {
     char *id;   /* a short name for the files, for example "printer-1" */
     char *name; /* for the user */
     ZgLinkKind kind;
-    char *url;  /* http://host:port for the network kinds */
-    char *api_key;
+    char *url;  /* http://host:port for the network kinds; the IP address
+                 * for Bambu Lab */
+    char *api_key; /* the access code, for Bambu Lab (in its own file:
+                    * zg_printer_code_path) */
     char *device; /* the serial port, for USB */
+    char *serial; /* the serial number of a Bambu Lab printer */
     int baud;
     /* The pin of an https printer: the SHA-256 hash of its certificate
      * (hex), and the start of its validity (Unix seconds). "" and 0
@@ -75,6 +80,11 @@ void zg_printers_set_first_start(gboolean on);
 
 /* The machine profile file of a printer. Free with g_free. */
 char *zg_printer_profile_path(const ZgPrinter *p);
+
+/* The file of the access code of a Bambu Lab printer:
+ * <config>/bambu/<serial>.code (mode 0600), or NULL with no serial. The
+ * code goes there, and not in app.ini. Free with g_free. */
+char *zg_printer_code_path(const ZgPrinter *p);
 
 /* The global app settings in [general]. */
 char *zg_pref_get(const char *key, const char *fallback);

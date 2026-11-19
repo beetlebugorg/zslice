@@ -58,6 +58,24 @@ typedef void (*ZgProgressFn)(double fraction, gpointer data);
  * owns it (free it with zg_printer_info_free). */
 void zg_link_query(const ZgPrinter *p, GCancellable *cancel, ZgInfoFn fn, gpointer data);
 
+/* The camera of a printdeck, OctoPrint, or Moonraker printer
+ * (zs_printer_camera_paths): the absolute addresses of its MJPEG stream
+ * and its snapshot, each NULL when it has none, or an error. The strings
+ * are valid during the call. */
+typedef void (*ZgCameraFn)(const char *stream, const char *snapshot, const char *error, gpointer data);
+void zg_link_camera(const ZgPrinter *p, GCancellable *cancel, ZgCameraFn fn, gpointer data);
+
+/* The printers of a printdeck (GET /slicer/printer.json with the key). A
+ * deck that drives more than one printer lists them: each has the path of
+ * its API under the deck ("" for the first printer, "/printers/<id>" for
+ * another). `printers` is NULL on an error; it has ZgDeckPrinter items,
+ * empty for a deck with one printer. */
+typedef struct {
+    char *id, *name, *label, *color, *kind, *path;
+} ZgDeckPrinter;
+typedef void (*ZgDeckFn)(GPtrArray *printers, const char *error, gpointer data);
+void zg_link_deck_printers(const ZgPrinter *p, GCancellable *cancel, ZgDeckFn fn, gpointer data);
+
 /* Sends a G-code file, and starts the print if `print`. For USB, the call
  * sends the whole print over the port: `progress` follows, and `done` comes
  * at the end. */

@@ -97,6 +97,7 @@ typedef struct {
     ZgPrinter p; /* a copy of the strings */
     GCancellable *cancel;
     ZgInfoFn fn;
+    ZgCameraFn cam_fn; /* a read of the camera, in place of fn */
     gpointer data;
     ZgPrinterInfo *info;
     /* The requests (from the core), NULL at the end, and the status that
@@ -113,6 +114,7 @@ static void query_free(Query *q) {
     g_free(q->p.url);
     g_free(q->p.api_key);
     g_free(q->p.device);
+    g_free(q->p.serial);
     if (q->cancel) g_object_unref(q->cancel);
     g_strfreev(q->paths);
     zs_printer_status_free(q->status);
@@ -171,6 +173,12 @@ static void fill_info(ZgPrinterInfo *in, const zs_printer_status *st) {
     in->layers = i.layers;
 }
 
+/* The end of a query: the info, the camera, or an error. */
+static void query_fail(Query *q, const char *error) {
+    if (q->cam_fn) q->cam_fn(NULL, NULL, error, q->data);
+    else q->fn(NULL, error, q->data);
+}
+
 static void on_query_reply(GObject *source, GAsyncResult *res, gpointer data) {
     Query *q = data;
     GError *error = NULL;
@@ -178,14 +186,14 @@ static void on_query_reply(GObject *source, GAsyncResult *res, gpointer data) {
     SoupMessage *msg = soup_session_get_async_result_message(SOUP_SESSION(source), res);
     const char *path = q->paths[q->step];
     if (!body) {
-        q->fn(NULL, error->message, q->data);
+        query_fail(q, error->message);
         g_error_free(error);
         query_free(q);
         return;
     }
     guint status = soup_message_get_status(msg);
     if (status == 401 || status == 403) {
-        q->fn(NULL, "The printer did not accept the API key.", q->data);
+        query_fail(q, "The printer did not accept the API key.");
         g_bytes_unref(body);
         query_free(q);
         return;
@@ -196,7 +204,7 @@ static void on_query_reply(GObject *source, GAsyncResult *res, gpointer data) {
         zs_printer_status_feed(q->status, q->kind, path, text, len);
     } else if (q->step == 0) {
         char *m = g_strdup_printf("The printer answered %u %s.", status, soup_message_get_reason_phrase(msg));
-        q->fn(NULL, m, q->data);
+        query_fail(q, m);
         g_free(m);
         g_bytes_unref(body);
         query_free(q);
@@ -207,7 +215,36 @@ static void on_query_reply(GObject *source, GAsyncResult *res, gpointer data) {
     query_next(q);
 }
 
+/* An address of the camera, absolute: a relative one is on the printer. */
+static char *camera_url(const ZgPrinter *p, const char *u) {
+    if (!u || !u[0]) return NULL;
+    if (strstr(u, "://")) return g_strdup(u);
+    char *base = join_url(p, "/");
+    GUri *b = g_uri_parse(base, G_URI_FLAGS_ENCODED, NULL);
+    g_free(base);
+    if (!b) return NULL;
+    GUri *r = g_uri_parse_relative(b, u, G_URI_FLAGS_ENCODED, NULL);
+    g_uri_unref(b);
+    if (!r) return NULL;
+    char *out = g_uri_to_string(r);
+    g_uri_unref(r);
+    return out;
+}
+
 static void query_next(Query *q) {
+    if (!q->paths[q->step] && q->cam_fn) {
+        zs_printer_camera cam = {0};
+        char *stream = NULL, *snapshot = NULL;
+        if (zs_printer_status_camera(q->status, &cam) == ZS_OK) {
+            stream = camera_url(&q->p, cam.stream);
+            snapshot = camera_url(&q->p, cam.snapshot);
+        }
+        q->cam_fn(stream, snapshot, NULL, q->data);
+        g_free(stream);
+        g_free(snapshot);
+        query_free(q);
+        return;
+    }
     if (!q->paths[q->step]) {
         fill_info(q->info, q->status);
         /* The info keeps the status of the core. */
@@ -221,7 +258,7 @@ static void query_next(Query *q) {
     }
     SoupMessage *msg = request(&q->p, "GET", q->paths[q->step]);
     if (!msg) {
-        q->fn(NULL, "The address is not valid.", q->data);
+        query_fail(q, "The address is not valid.");
         query_free(q);
         return;
     }
@@ -237,6 +274,7 @@ static Query *query_new(const ZgPrinter *p, GCancellable *cancel) {
     q->p.url = g_strdup(p->url);
     q->p.api_key = g_strdup(p->api_key);
     q->p.device = g_strdup(p->device);
+    q->p.serial = g_strdup(p->serial);
     q->p.tls_pin = NULL; /* not used: the pin is in the printer list */
     q->cancel = cancel ? g_object_ref(cancel) : NULL;
     q->info = g_new0(ZgPrinterInfo, 1);
@@ -248,6 +286,10 @@ void zg_link_query(const ZgPrinter *p, GCancellable *cancel, ZgInfoFn fn, gpoint
     switch (p->kind) {
     case ZG_LINK_NONE:
         fn(NULL, "This printer has no connection.", data);
+        return;
+    case ZG_LINK_BAMBU:
+        /* A Bambu Lab printer reports over MQTT (bambu-link.h). */
+        fn(NULL, "A Bambu Lab printer gives its status on the Printers page.", data);
         return;
     case ZG_LINK_USB: {
         /* A serial port has no API: only check that it opens. */
@@ -278,6 +320,21 @@ void zg_link_query(const ZgPrinter *p, GCancellable *cancel, ZgInfoFn fn, gpoint
     /* The kinds of the core: 1 OctoPrint, 2 printdeck, 3 Moonraker. */
     q->kind = p->kind == ZG_LINK_MOONRAKER ? 3 : p->kind == ZG_LINK_PRINTDECK ? 2 : 1;
     q->paths = g_strsplit(zs_printer_status_paths(q->kind), "\n", -1);
+    q->status = zs_printer_status_new();
+    query_next(q);
+}
+
+void zg_link_camera(const ZgPrinter *p, GCancellable *cancel, ZgCameraFn fn, gpointer data) {
+    int kind = p->kind == ZG_LINK_MOONRAKER ? 3 : p->kind == ZG_LINK_PRINTDECK ? 2 : p->kind == ZG_LINK_OCTOPRINT ? 1 : 0;
+    if (!kind || !p->url[0]) {
+        fn(NULL, NULL, "This printer gives no camera over HTTP.", data);
+        return;
+    }
+    Query *q = query_new(p, cancel);
+    q->cam_fn = fn;
+    q->data = data;
+    q->kind = kind;
+    q->paths = g_strsplit(zs_printer_camera_paths(kind), "\n", -1);
     q->status = zs_printer_status_new();
     query_next(q);
 }
@@ -760,6 +817,11 @@ void zg_link_send(const ZgPrinter *p, const char *filename, GBytes *gcode, gbool
         send_serial(p, gcode, cancel, progress, done, data);
         return;
     }
+    if (p->kind == ZG_LINK_BAMBU) {
+        /* The Linux app reads a Bambu Lab printer, and sends it nothing. */
+        done(FALSE, "The Linux app cannot send prints to a Bambu Lab printer yet. Export the G-code, or use Bambu Studio or the macOS app.", data);
+        return;
+    }
     Upload *u = g_new0(Upload, 1);
     u->p.id = g_strdup(p->id);
     u->p.kind = p->kind;
@@ -978,3 +1040,82 @@ char **zg_link_serial_ports(void) {
     g_ptr_array_add(out, NULL);
     return (char **)g_ptr_array_free(out, FALSE);
 }
+
+/* ---- the printers of a deck ---- */
+
+typedef struct {
+    ZgDeckFn fn;
+    gpointer data;
+} DeckQuery;
+
+static void deck_printer_free(gpointer data) {
+    ZgDeckPrinter *d = data;
+    g_free(d->id);
+    g_free(d->name);
+    g_free(d->label);
+    g_free(d->color);
+    g_free(d->kind);
+    g_free(d->path);
+    g_free(d);
+}
+
+static void on_deck_reply(GObject *source, GAsyncResult *res, gpointer data) {
+    DeckQuery *q = data;
+    GError *error = NULL;
+    GBytes *body = soup_session_send_and_read_finish(SOUP_SESSION(source), res, &error);
+    SoupMessage *msg = soup_session_get_async_result_message(SOUP_SESSION(source), res);
+    guint status = body ? soup_message_get_status(msg) : 0;
+    if (!body) {
+        q->fn(NULL, error->message, q->data);
+    } else if (status == 401 || status == 403) {
+        q->fn(NULL, "The deck refused the key.", q->data);
+    } else if (status < 200 || status >= 300) {
+        char *m = g_strdup_printf("The deck answered %u.", status);
+        q->fn(NULL, m, q->data);
+        g_free(m);
+    } else {
+        GPtrArray *out = g_ptr_array_new_with_free_func(deck_printer_free);
+        JsonParser *parser = json_parser_new();
+        gsize len = 0;
+        const char *text = g_bytes_get_data(body, &len);
+        if (json_parser_load_from_data(parser, text, (gssize)len, NULL)) {
+            JsonNode *list = path_get(json_parser_get_root(parser), "printers");
+            if (list && JSON_NODE_HOLDS_ARRAY(list)) {
+                JsonArray *a = json_node_get_array(list);
+                for (guint i = 0; i < json_array_get_length(a); i++) {
+                    JsonNode *e = json_array_get_element(a, i);
+                    ZgDeckPrinter *d = g_new0(ZgDeckPrinter, 1);
+                    d->id = str(e, "id");
+                    d->name = str(e, "name");
+                    d->label = str(e, "label");
+                    d->color = str(e, "color");
+                    d->kind = str(e, "kind");
+                    d->path = str(e, "url");
+                    if (!d->path) d->path = g_strdup("");
+                    if (d->name) g_ptr_array_add(out, d);
+                    else deck_printer_free(d);
+                }
+            }
+        }
+        g_object_unref(parser);
+        q->fn(out, NULL, q->data);
+        g_ptr_array_unref(out);
+    }
+    if (body) g_bytes_unref(body);
+    g_clear_error(&error);
+    g_free(q);
+}
+
+void zg_link_deck_printers(const ZgPrinter *p, GCancellable *cancel, ZgDeckFn fn, gpointer data) {
+    SoupMessage *msg = p->url[0] ? request(p, "GET", "/slicer/printer.json") : NULL;
+    if (!msg) {
+        fn(NULL, "The address is not valid.", data);
+        return;
+    }
+    DeckQuery *q = g_new0(DeckQuery, 1);
+    q->fn = fn;
+    q->data = data;
+    soup_session_send_and_read_async(session(), msg, G_PRIORITY_DEFAULT, cancel, on_deck_reply, q);
+    g_object_unref(msg);
+}
+

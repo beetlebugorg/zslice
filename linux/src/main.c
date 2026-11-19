@@ -89,6 +89,27 @@ static const char *ZG_CSS =
     /* The Printers page over the view: it paints its whole area. */
     ".zg-farm-view { background: @theme_bg_color; }"
     ".zg-farm-bar { padding: 8px 12px; }"
+    /* The cards of the Printers page (farm-page.c), and the cameras
+     * (camera-view.c). */
+    ".zg-farm-card { background: alpha(@theme_fg_color, 0.05); border: 1px solid alpha(@theme_fg_color, 0.1); border-radius: 10px; }"
+    ".zg-farm-card.failed { border-color: alpha(@error_color, 0.6); }"
+    ".zg-farm-card.done { border-color: alpha(@success_color, 0.5); }"
+    ".zg-farm-card.offline .zg-farm-who { opacity: 0.6; }"
+    ".zg-farm-badge { font-size: 0.8em; font-weight: bold; padding: 2px 8px; border-radius: 999px; background: alpha(@theme_fg_color, 0.1); }"
+    ".zg-farm-badge.printing { color: @accent_color; background: alpha(@accent_color, 0.18); }"
+    ".zg-farm-badge.paused { color: @warning_color; background: alpha(@warning_color, 0.18); }"
+    ".zg-farm-badge.done { color: @success_color; background: alpha(@success_color, 0.16); }"
+    ".zg-farm-badge.failed { color: @error_color; background: alpha(@error_color, 0.18); }"
+    ".zg-farm-badge.offline { opacity: 0.7; }"
+    ".zg-farm-count { font-size: 0.85em; padding: 2px 8px; border-radius: 999px; background: alpha(@theme_fg_color, 0.08); }"
+    ".zg-farm-why { font-size: 0.9em; color: @error_color; }"
+    ".zg-farm-why.paused { color: @warning_color; }"
+    ".zg-farm-why.offline { color: alpha(@theme_fg_color, 0.6); }"
+    ".zg-farm-small { font-size: 0.9em; }"
+    ".zg-farm-queue { background: alpha(@theme_fg_color, 0.05); border-radius: 10px; }"
+    ".camera { background: #111; border-radius: 10px 10px 0 0; }"
+    ".camera-large { border-radius: 0; }"
+    ".camera-msg { color: alpha(white, 0.75); font-size: 0.9em; }"
     /* The tool strip at the left of the view: a glyph and its key. */
     ".zg-strip { padding: 4px; }"
     "button.zg-strip-button { min-width: 34px; min-height: 34px; padding: 3px; }"

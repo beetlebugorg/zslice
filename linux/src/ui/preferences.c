@@ -16,6 +16,7 @@
 #include <math.h>
 #include <string.h>
 
+#include "../net/bambu-link.h"
 #include "../net/printer-link.h"
 #include "../net/signing.h"
 #include "../prefs/printers.h"
@@ -30,6 +31,9 @@ typedef struct {
     gboolean filling;
     GtkWidget *name, *kind, *url, *api_key, *device, *baud;
     GtkWidget *url_row[2], *key_row[2], *usb_row[4];
+    /* Bambu Lab: the serial number, and its read from the printer. */
+    GtkWidget *serial, *serial_row[2], *find_serial;
+    ZgBambuWatch *bambu_test;
     GtkWidget *use, *test, *result, *use_machine, *use_filament;
     /* "Get a key": the button, and the request while the printer waits
      * for its user. */
@@ -135,6 +139,10 @@ static const char *trust_text(const ZgPrinter *pr) {
     case ZG_LINK_OCTOPRINT:
     case ZG_LINK_MOONRAKER:
         return "Not verified: this printer does not check the signatures of prints. Anyone with its key can send it a file.";
+    case ZG_LINK_BAMBU:
+        return "Read only: zslice reads the status and the camera of the printer, and sends it nothing. Turn on LAN Only Mode on the printer "
+               "(and LAN Only Liveview for the camera). The access code is on its screen; zslice keeps it in the folder bambu of its "
+               "settings, readable only by you.";
     default:
         return NULL;
     }
@@ -145,10 +153,16 @@ static void show_rows(Prefs *p) {
     const char *trust = trust_text(p->printer);
     gtk_label_set_text(GTK_LABEL(p->trust), trust ? trust : "");
     gtk_widget_set_visible(p->trust, trust != NULL);
-    gboolean net = k == ZG_LINK_PRINTDECK || k == ZG_LINK_OCTOPRINT || k == ZG_LINK_MOONRAKER;
-    gboolean key = k == ZG_LINK_PRINTDECK || k == ZG_LINK_OCTOPRINT;
+    gboolean bambu = k == ZG_LINK_BAMBU;
+    gboolean net = k == ZG_LINK_PRINTDECK || k == ZG_LINK_OCTOPRINT || k == ZG_LINK_MOONRAKER || bambu;
+    gboolean key = k == ZG_LINK_PRINTDECK || k == ZG_LINK_OCTOPRINT || bambu;
     for (int i = 0; i < 2; i++) gtk_widget_set_visible(p->url_row[i], net);
     for (int i = 0; i < 2; i++) gtk_widget_set_visible(p->key_row[i], key);
+    for (int i = 0; i < 2; i++) gtk_widget_set_visible(p->serial_row[i], bambu);
+    gtk_widget_set_visible(p->get_key, !bambu);
+    gtk_label_set_text(GTK_LABEL(p->key_row[0]), bambu ? "Access code" : "API key");
+    gtk_entry_set_placeholder_text(GTK_ENTRY(p->url), bambu ? "The IP address of the printer, for example 192.168.1.50"
+                                                            : "http://printdeck.local or http://192.168.1.20:5000");
     for (int i = 0; i < 4; i++) gtk_widget_set_visible(p->usb_row[i], k == ZG_LINK_USB);
     gtk_widget_set_sensitive(p->test, k != ZG_LINK_NONE);
     gtk_widget_set_visible(p->use, p->printer != zg_printers_current());
@@ -179,6 +193,7 @@ static void fill_form(Prefs *p) {
     gtk_editable_set_text(GTK_EDITABLE(p->url), p->printer->url);
     gtk_editable_set_text(GTK_EDITABLE(p->api_key), p->printer->api_key);
     gtk_editable_set_text(GTK_EDITABLE(p->device), p->printer->device);
+    gtk_editable_set_text(GTK_EDITABLE(p->serial), p->printer->serial);
     guint b = 0;
     for (guint i = 0; i < G_N_ELEMENTS(bauds); i++) if (bauds[i] == p->printer->baud) b = i;
     gtk_drop_down_set_selected(GTK_DROP_DOWN(p->baud), b);
@@ -210,9 +225,11 @@ static void on_name(GtkEditable *e, gpointer data) {
 static void on_text(GtkEditable *e, gpointer data) {
     Prefs *p = data;
     if (p->filling || !p->printer) return;
-    char **field = g_object_get_data(G_OBJECT(e), "zg-field") == (gpointer)1 ? &p->printer->url
-                 : g_object_get_data(G_OBJECT(e), "zg-field") == (gpointer)2 ? &p->printer->api_key
-                                                                              : &p->printer->device;
+    gpointer f = g_object_get_data(G_OBJECT(e), "zg-field");
+    char **field = f == (gpointer)1 ? &p->printer->url
+                 : f == (gpointer)2 ? &p->printer->api_key
+                 : f == (gpointer)4 ? &p->printer->serial
+                                    : &p->printer->device;
     g_free(*field);
     *field = g_strdup(gtk_editable_get_text(e));
     clear_info(p);
@@ -317,6 +334,25 @@ static void on_info(ZgPrinterInfo *info, const char *error, gpointer data) {
     gtk_widget_set_visible(p->use_filament, current && (info->material || info->diameter > 0));
 }
 
+/* The test of a Bambu Lab printer: the first report over MQTT, then the
+ * link closes. */
+static void on_bambu_test(const zs_printer_status *st, const char *error, gpointer data) {
+    Prefs *p = data;
+    zg_bambu_watch_stop(p->bambu_test);
+    p->bambu_test = NULL;
+    if (!p->window) return;
+    gtk_widget_set_sensitive(p->test, TRUE);
+    zs_printer_info in;
+    if (!st || zs_printer_status_get(st, &in) != ZS_OK) {
+        gtk_label_set_text(GTK_LABEL(p->result), error ? error : "No answer.");
+        gtk_widget_add_css_class(p->result, "error");
+        return;
+    }
+    char *m = g_strdup_printf("Connected. The printer reports%s%s%s%s.", in.state[0] ? ": " : "", in.state, in.job[0] ? ", " : "", in.job);
+    gtk_label_set_text(GTK_LABEL(p->result), m);
+    g_free(m);
+}
+
 static void on_test(GtkButton *b, gpointer data) {
     Prefs *p = data;
     if (!p->printer) return;
@@ -325,7 +361,41 @@ static void on_test(GtkButton *b, gpointer data) {
     gtk_label_set_text(GTK_LABEL(p->result), "Connecting…");
     gtk_widget_remove_css_class(p->result, "error");
     gtk_widget_set_sensitive(p->test, FALSE);
+    if (p->printer->kind == ZG_LINK_BAMBU) {
+        zg_bambu_watch_stop(p->bambu_test);
+        p->bambu_test = zg_bambu_watch(p->printer, on_bambu_test, p);
+        return;
+    }
     zg_link_query(p->printer, p->cancel, on_info, p);
+}
+
+/* "Read": the serial number from the certificate of the printer. */
+static void on_serial_read(GObject *source, GAsyncResult *res, gpointer data) {
+    Prefs *p = data;
+    GError *e = NULL;
+    char *serial = zg_bambu_read_serial_finish(res, &e);
+    if (p->window) {
+        gtk_widget_set_sensitive(p->find_serial, TRUE);
+        if (serial) gtk_editable_set_text(GTK_EDITABLE(p->serial), serial);
+        else {
+            char *m = g_strdup_printf("The serial number did not read (%s).", e ? e->message : "no reason");
+            gtk_label_set_text(GTK_LABEL(p->result), m);
+            gtk_widget_add_css_class(p->result, "error");
+            g_free(m);
+        }
+    }
+    g_free(serial);
+    g_clear_error(&e);
+}
+
+static void on_find_serial(GtkButton *b, gpointer data) {
+    Prefs *p = data;
+    if (!p->printer || !p->printer->url[0]) {
+        gtk_label_set_text(GTK_LABEL(p->result), "Set the IP address of the printer first.");
+        return;
+    }
+    gtk_widget_set_sensitive(p->find_serial, FALSE);
+    zg_bambu_read_serial(p->printer->url, NULL, on_serial_read, p);
 }
 
 /* ---- "Get a key": the App Keys flow (zg_link_request_key) ---- */
@@ -528,8 +598,25 @@ static GtkWidget *printers_page(Prefs *p) {
     gtk_box_append(GTK_BOX(key_box), p->api_key);
     gtk_box_append(GTK_BOX(key_box), p->get_key);
     p->key_row[0] = form_label("API key");
+    /* A Bambu Lab printer: the serial number (the common name of its
+     * certificate), for the MQTT topic. */
+    p->serial = gtk_entry_new();
+    gtk_entry_set_placeholder_text(GTK_ENTRY(p->serial), "On the screen of the printer, or Read");
+    gtk_widget_set_hexpand(p->serial, TRUE);
+    g_object_set_data(G_OBJECT(p->serial), "zg-field", (gpointer)4);
+    g_signal_connect(p->serial, "changed", G_CALLBACK(on_text), p);
+    p->find_serial = gtk_button_new_with_label("Read");
+    gtk_widget_set_tooltip_text(p->find_serial, "Read the serial number from the printer at the address (from its certificate, with no login).");
+    g_signal_connect(p->find_serial, "clicked", G_CALLBACK(on_find_serial), p);
+    GtkWidget *serial_box = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 6);
+    gtk_box_append(GTK_BOX(serial_box), p->serial);
+    gtk_box_append(GTK_BOX(serial_box), p->find_serial);
+    p->serial_row[0] = form_label("Serial number");
+    p->serial_row[1] = serial_box;
     p->key_row[1] = key_box;
     gtk_widget_set_tooltip_text(p->api_key, "The API key of the printer (in OctoPrint: Settings › API, or an application key; printdeck: its System page). It is kept in app.ini, readable only by you.");
+    gtk_grid_attach(GTK_GRID(g), p->serial_row[0], 0, row, 1, 1);
+    gtk_grid_attach(GTK_GRID(g), serial_box, 1, row++, 2, 1);
     gtk_grid_attach(GTK_GRID(g), p->key_row[0], 0, row, 1, 1);
     gtk_grid_attach(GTK_GRID(g), key_box, 1, row++, 2, 1);
 
@@ -678,6 +765,8 @@ static void on_destroy(GtkWidget *w, gpointer data) {
     Prefs *p = data;
     p->window = NULL;
     stop_key(p);
+    zg_bambu_watch_stop(p->bambu_test);
+    p->bambu_test = NULL;
     clear_info(p);
     g_object_set_data(G_OBJECT(p->model), "zg-preferences", NULL);
     g_object_unref(p->model);

@@ -34,6 +34,10 @@ static const struct {
      "json-glib is free software under the GNU Lesser General Public License, version 2.1 or later.\n\n"
      "zslice links json-glib as a shared library from your system, for the printer APIs. Your system "
      "has the full license text, usually in /usr/share/licenses/ or /usr/share/doc/."},
+    {"GStreamer", "LGPL-2.1-or-later",
+     "GStreamer is free software under the GNU Lesser General Public License, version 2.1 or later.\n\n"
+     "zslice links GStreamer as a shared library from your system, for the RTSP camera of Bambu Lab printers. "
+     "Your system has the full license text, usually in /usr/share/licenses/ or /usr/share/doc/."},
 };
 
 typedef struct {

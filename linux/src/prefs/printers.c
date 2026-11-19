@@ -9,9 +9,10 @@
 
 const char *const zg_link_titles[ZG_N_LINKS] = {
     "None (export a file)", "printdeck", "OctoPrint", "Moonraker (Klipper)", "USB (serial port)",
+    "Bambu Lab (LAN mode)",
 };
 
-static const char *const link_keys[ZG_N_LINKS] = {"none", "printdeck", "octoprint", "moonraker", "usb"};
+static const char *const link_keys[ZG_N_LINKS] = {"none", "printdeck", "octoprint", "moonraker", "usb", "bambu"};
 
 static GPtrArray *printers;
 static GKeyFile *general;
@@ -46,6 +47,7 @@ static void printer_free(gpointer data) {
     g_free(p->url);
     g_free(p->api_key);
     g_free(p->device);
+    g_free(p->serial);
     g_free(p->tls_pin);
     g_free(p);
 }
@@ -57,9 +59,57 @@ static ZgPrinter *printer_new(const char *id, const char *name) {
     p->url = g_strdup("");
     p->api_key = g_strdup("");
     p->device = g_strdup("");
+    p->serial = g_strdup("");
     p->tls_pin = g_strdup("");
     p->baud = 250000;
     return p;
+}
+
+/* The file of the access code of a Bambu Lab printer:
+ * <config>/bambu/<serial>.code, readable only by the user. The code is
+ * not in app.ini. */
+static char *code_path(const char *serial) {
+    if (!serial || !serial[0] || strchr(serial, '/') || serial[0] == '.') return NULL;
+    char *dir = zg_config_dir();
+    char *file = g_strconcat(serial, ".code", NULL);
+    char *path = g_build_filename(dir, "bambu", file, NULL);
+    g_free(file);
+    g_free(dir);
+    return path;
+}
+
+static void read_code(ZgPrinter *p) {
+    char *path = code_path(p->serial);
+    char *text = NULL;
+    if (path && g_file_get_contents(path, &text, NULL, NULL)) {
+        g_free(p->api_key);
+        p->api_key = g_strstrip(text);
+    }
+    g_free(path);
+}
+
+static void write_code(const ZgPrinter *p) {
+    char *path = code_path(p->serial);
+    if (!path || !p->api_key[0]) {
+        g_free(path);
+        return;
+    }
+    char *old = NULL;
+    gboolean same = g_file_get_contents(path, &old, NULL, NULL) && strcmp(g_strstrip(old), p->api_key) == 0;
+    g_free(old);
+    if (!same) {
+        char *dir = g_path_get_dirname(path);
+        g_mkdir_with_parents(dir, 0700);
+        g_free(dir);
+        char *text = g_strconcat(p->api_key, "\n", NULL);
+        if (g_file_set_contents_full(path, text, -1, G_FILE_SET_CONTENTS_CONSISTENT, 0600, NULL)) g_chmod(path, 0600);
+        g_free(text);
+    }
+    g_free(path);
+}
+
+char *zg_printer_code_path(const ZgPrinter *p) {
+    return code_path(p->serial);
 }
 
 static char *new_id(void) {
@@ -95,10 +145,12 @@ void zg_printers_load(void) {
                 if ((v = g_key_file_get_string(kf, groups[i], "url", NULL))) { g_free(p->url); p->url = v; }
                 if ((v = g_key_file_get_string(kf, groups[i], "api_key", NULL))) { g_free(p->api_key); p->api_key = v; }
                 if ((v = g_key_file_get_string(kf, groups[i], "device", NULL))) { g_free(p->device); p->device = v; }
+                if ((v = g_key_file_get_string(kf, groups[i], "serial", NULL))) { g_free(p->serial); p->serial = v; }
                 if ((v = g_key_file_get_string(kf, groups[i], "tls_pin", NULL))) { g_free(p->tls_pin); p->tls_pin = v; }
                 p->tls_since = g_key_file_get_int64(kf, groups[i], "tls_since", NULL);
                 int baud = g_key_file_get_integer(kf, groups[i], "baud", NULL);
                 if (baud > 0) p->baud = baud;
+                if (p->kind == ZG_LINK_BAMBU) read_code(p);
                 g_ptr_array_add(printers, p);
             } else if (strcmp(groups[i], "general") == 0) {
                 gsize nk = 0;
@@ -162,8 +214,10 @@ void zg_printers_save(void) {
         g_key_file_set_string(kf, group, "name", p->name);
         g_key_file_set_string(kf, group, "connection", link_keys[p->kind]);
         if (p->url[0]) g_key_file_set_string(kf, group, "url", p->url);
-        if (p->api_key[0]) g_key_file_set_string(kf, group, "api_key", p->api_key);
+        if (p->kind == ZG_LINK_BAMBU) write_code(p);
+        else if (p->api_key[0]) g_key_file_set_string(kf, group, "api_key", p->api_key);
         if (p->device[0]) g_key_file_set_string(kf, group, "device", p->device);
+        if (p->serial[0]) g_key_file_set_string(kf, group, "serial", p->serial);
         if (p->tls_pin[0]) {
             g_key_file_set_string(kf, group, "tls_pin", p->tls_pin);
             g_key_file_set_int64(kf, group, "tls_since", p->tls_since);

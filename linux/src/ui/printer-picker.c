@@ -9,6 +9,7 @@
 #include <string.h>
 
 #include "../net/discovery.h"
+#include "pair-dialog.h"
 #include "../net/printer-link.h"
 #include "../prefs/printers.h"
 #include "bed-model.h"
@@ -929,7 +930,15 @@ static void finish(Picker *p) {
     set_num(p->model, "filament.diameter", gtk_drop_down_get_selected(GTK_DROP_DOWN(p->filament)) == 1 ? 2.85 : 1.75);
     zg_printers_set_first_start(FALSE);
     zg_model_printers_edited(p->model);
+    /* A printdeck or an OctoPrint printer with no key: get one at once
+     * (Allow on the printer), and the printers of a deck. */
+    GtkWindow *parent = gtk_window_get_transient_for(p->window);
+    gboolean pair = (pr->kind == ZG_LINK_PRINTDECK || pr->kind == ZG_LINK_OCTOPRINT) && pr->url[0] && !pr->api_key[0];
+    char *id = g_strdup(pr->id);
+    ZgModel *model = p->model;
     gtk_window_destroy(p->window);
+    if (pair) zg_pair_dialog_show(parent, model, id, NULL, NULL);
+    g_free(id);
 }
 
 static void on_next(GtkButton *b, gpointer data) {
