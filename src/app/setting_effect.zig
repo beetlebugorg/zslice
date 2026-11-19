@@ -107,6 +107,8 @@ const preview_notes = [_]struct { []const u8, [:0]const u8 }{
     .{ "filament.nozzle_temp", "A G-code temperature. It changes no line." },
     .{ "filament.first_layer_nozzle_temp", "A G-code temperature for the first layer. It changes no line." },
     .{ "filament.bed_temp", "A G-code temperature. It changes no line." },
+    .{ "machine.chamber_temp", "The air around the print, for the simulated print. It changes no line." },
+    .{ "machine.part_fan_air", "The air of the fans, for the simulated print. It changes no line." },
     .{ "filament.standby_temp", "A G-code temperature. It changes no line." },
     .{ "filament.fan_speed", "The part cooling fan in the G-code. It changes no line." },
     .{ "filament.fan_off_layers", "The fan in the G-code on the first layers. It changes no line." },

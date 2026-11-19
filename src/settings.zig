@@ -86,6 +86,18 @@ pub const Machine = struct {
     /// in degrees. Slope smoothing uses it with `nozzle_tip_radius`.
     nozzle_cone_angle: f64 = 45,
 
+    // Cooling
+    /// The temperature of the air around the print, in °C: the room for an
+    /// open printer, about 35 to 45 in a closed box with no heater, or the
+    /// set point of a heated chamber. The simulated print cools the plastic
+    /// toward it.
+    chamber_temp: f64 = 25,
+    /// The speed of the air of the part cooling fans at full speed where the
+    /// plastic leaves the nozzle, in m/s, of all the fans together. The
+    /// simulated print cools the plastic with it. About 5 to 10 for a
+    /// radial blower and a duct.
+    part_fan_air: f64 = 6,
+
     // Motion
     /// The maximum speed of the print head in X and Y.
     max_speed: f64 = 150,
@@ -1075,6 +1087,8 @@ pub const limits = [_]struct { []const u8, f64, f64 }{
     .{ "machine.nozzle_diameter", 0.1, 2 },
     .{ "machine.nozzle_tip_radius", 0, 5 },
     .{ "machine.nozzle_cone_angle", 0, 85 },
+    .{ "machine.chamber_temp", 0, 120 },
+    .{ "machine.part_fan_air", 0, 40 },
     .{ "machine.max_speed", 1, 2000 },
     .{ "machine.travel_speed", 1, 2000 },
     .{ "machine.max_z_speed", 0.1, 200 },
@@ -1241,7 +1255,7 @@ pub const patch_settings = [_][]const u8{
     "filament.nozzle_temp",      "filament.first_layer_nozzle_temp", "filament.bed_temp",
     "filament.fan_speed",        "filament.fan_off_layers",          "filament.fan_max_speed",
     "filament.fan_boost_time",   "filament.min_layer_time",          "filament.min_speed",
-    "filament.fan_ramp_layers",
+    "filament.fan_ramp_layers",  "machine.chamber_temp",             "machine.part_fan_air",
     "filament.flow_ratio",       "filament.max_flow",                "filament.density",
     "filament.price_per_kg",     "project.bridge_speed",             "project.bridge_flow",
     "project.bridge_fan",        "project.infill_flow",              "project.ironing_flow",

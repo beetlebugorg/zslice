@@ -58,6 +58,16 @@ The radius of the flat face at the tip of the nozzle, around the hole. A common 
 
 The angle between the axis of the nozzle and the side of its cone, in degrees. Slope smoothing uses it with `nozzle_tip_radius`.
 
+### Cooling
+
+**`machine.chamber_temp`** (number). Default: `25`
+
+The temperature of the air around the print, in °C: the room for an open printer, about 35 to 45 in a closed box with no heater, or the set point of a heated chamber. The simulated print cools the plastic toward it.
+
+**`machine.part_fan_air`** (number). Default: `6`
+
+The speed of the air of the part cooling fans at full speed where the plastic leaves the nozzle, in m/s, of all the fans together. The simulated print cools the plastic with it. About 5 to 10 for a radial blower and a duct.
+
 ### Motion
 
 **`machine.max_speed`** (number). Default: `150`
@@ -88,6 +98,22 @@ The acceleration of the print head in X and Y, in mm/s². The time estimate uses
 
 The speed at which the head turns a corner with no stop (jerk in Marlin, square corner velocity in Klipper), in mm/s. The time estimate uses it.
 
+**`machine.kinematics`** (one of: `cartesian`, `corexy`). Default: `cartesian`
+
+How the motors move the head, for the time estimate. `cartesian`: a motor for X and one for Y (also a bed slinger, which moves the bed on Y). `corexy`: two motors, A = X + Y and B = X - Y, both on the frame. With per-axis limits (`max_accel_x` and the others) and Marlin, the limits of a CoreXY apply to its motors: a diagonal move turns one motor at 1.41 times the speed of the head.
+
+**`machine.max_accel_x`** (number). Default: `0`
+
+The acceleration limits of the X and Y axes (of the motors A and B on a CoreXY with Marlin), in mm/s², as the firmware has them (M201 X Y). A bed slinger has a lower Y. 0: `max_accel`. Klipper has one limit for all directions: leave them at 0.
+
+**`machine.max_accel_y`** (number). Default: `0`
+
+**`machine.max_speed_x`** (number). Default: `0`
+
+The speed limits of the X and Y axes (M203 X Y), in mm/s. 0: `max_speed`.
+
+**`machine.max_speed_y`** (number). Default: `0`
+
 **`machine.accel_control`** (true or false). Default: `false`
 
 Write acceleration commands in the G-code: the acceleration of each feature (project `*_accel`), and the corner speed at the start. Off: the printer uses its own values; the time estimate still uses `max_accel` and `corner_speed`.
@@ -111,6 +137,10 @@ The retraction length of this extruder. A bowden extruder needs more.
 The speed of the filament during a retraction.
 
 ### G-code
+
+**`machine.thumbnails`** (text). Default: `""`
+
+The pictures of the print at the top of the G-code, for the screen of the printer: sizes in pixels, as "300x300,32x32" (PNG, the form of PrusaSlicer and Klipper). Empty: none.
 
 **`machine.start_gcode`** (text). Default: (multi-line text)
 
@@ -203,6 +233,10 @@ The part cooling fan speed, as a ratio.
 **`filament.fan_off_layers`** (integer). Default: `1`
 
 The fan is off for this number of layers at the start.
+
+**`filament.fan_ramp_layers`** (integer). Default: `0`
+
+After the layers with the fan off, the fan speed goes up in steps over this number of layers: layer k of the ramp (from 1) gets k / (ramp + 1) of the fan speed. 0: full speed at once.
 
 **`filament.fan_max_speed`** (number; per layer). Default: `1.0`
 
@@ -580,6 +614,14 @@ A travel inside the part that is longer than this retracts all the same (a long 
 
 Lift the nozzle by this distance during a travel move with a retraction. 0 turns it off.
 
+**`project.retract_wipe`** (true or false; per layer). Default: `false`
+
+A retraction after a line of the part moves the nozzle on a small arc inside the part while the filament pulls back, as a hand wipes a drip off: the plastic that oozes goes inside, and not onto the surface. The arc stays inside the layer, or the retraction stays plain.
+
+**`project.outer_wall_wipe`** (number; per layer). Default: `0`
+
+After a closed outer wall, the nozzle moves on along the start of the wall for this distance (mm), with no plastic, before the retraction. The end of the wall then joins its start with no gap, and the seam shows less. 0 turns it off.
+
 **`project.z_hop_only_crossing`** (true or false). Default: `true`
 
 Lift the nozzle (`z_hop`) only for a travel that crosses an edge of the layer: it leaves the part, or it goes over a hole. A travel in a straight line inside the part (it retracts because it is longer than `combing_max_distance`) does not lift. Off: each travel with a retraction lifts.
@@ -613,6 +655,10 @@ Tree support: the diameter of a tip. 0 uses the line width times 2.
 **`project.support_angle`** (number). Default: `50`
 
 An overhang that leans more than this angle (degrees) from vertical gets support. A larger angle gives less support.
+
+**`project.support_min_ledge`** (number). Default: `0`
+
+No support under a small ledge: a strip of overhang that is within this distance (mm) of the layer below at each point, with no new overhang on the layer above next to it (for example the underside of an embossed letter on a wall). The nozzle prints it as a short cantilever. A slope keeps its support: each layer of it adds a new strip. 0: 1.5 line widths. A tiny value (0.01) turns the rule off.
 
 **`project.support_density`** (number; per layer). Default: `0.15`
 
@@ -651,6 +697,10 @@ The number of layers with a skirt.
 **`project.brim_width`** (number). Default: `0`
 
 The width of the brim. A brim is loops on the first layer around the outside of the part, joined to it. It holds the part on the bed, and helps against warping. 0 turns it off.
+
+**`project.brim_location`** (one of: `outside`, `inside`, `everywhere`). Default: `outside`
+
+Where the brim goes. `outside`: around the outside of the part. `inside`: in the holes of the part, along their edges. `everywhere`: both.
 
 ### First layer
 

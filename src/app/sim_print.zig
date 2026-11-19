@@ -59,6 +59,17 @@ pub const Result = struct {
 
 pub const Mass = struct { path: u32, want: sim.V, pos: sim.V };
 
+/// The parameters of the simulation from the settings of a slice: the
+/// nozzle, the air around the print, the fans, and the bed.
+pub fn paramsOf(s: zs.Settings) sim.Params {
+    return .{
+        .nozzle_t = @floatCast(s.filament.nozzle_temp),
+        .room_t = @floatCast(s.machine.chamber_temp),
+        .fan_air = @floatCast(s.machine.part_fan_air),
+        .bed_t = @floatCast(@max(s.filament.bed_temp, s.machine.chamber_temp)),
+    };
+}
+
 /// The paths of the simulation for the toolpaths `tp`. The points and the
 /// z values are in `arena`, or in `tp`.
 pub fn toPaths(arena: Allocator, tp: *const Toolpaths) Allocator.Error![]sim.Path {

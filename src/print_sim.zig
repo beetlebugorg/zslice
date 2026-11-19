@@ -133,7 +133,15 @@ const Bead = struct {
 
 pub const Params = struct {
     nozzle_t: f32 = 210,
+    /// The air around the print (°C): the room, or a heated chamber.
     room_t: f32 = 25,
+    /// The bed (°C), and the thickness of the warm air over it (mm). Over a
+    /// hot plate the air is warm in a layer of about L Ra^(-1/4) (laminar
+    /// natural convection): about 3 mm over 100 mm of a bed at 60 °C. The
+    /// air at the height z over the bed is room_t + (bed_t - room_t)
+    /// exp(-z / bed_layer).
+    bed_t: f32 = 25,
+    bed_layer: f32 = 3,
     /// The glass point of PLA.
     glass_t: f32 = 60,
     /// The density (g/mm³) and the heat capacity (J/(kg K)) of PLA.
@@ -595,6 +603,15 @@ const Sim = struct {
         try s.deposit(c.layer, s.bead(n.path), n.pos, Field.hung);
     }
 
+    /// The temperature of the air at the height z (°C): the room, and
+    /// warmer near a hot bed. Never at the set point: plastic that cannot
+    /// set is out of the model.
+    fn airAt(s: *const Sim, z: f32) f32 {
+        const p = s.p;
+        const air = p.room_t + (p.bed_t - p.room_t) * @exp(-@max(z, 0) / p.bed_layer);
+        return @min(air, s.set_t - 10);
+    }
+
     fn current(s: *Sim) *Chain {
         return &s.chains.items[s.chains.items.len - 1];
     }
@@ -722,7 +739,8 @@ const Sim = struct {
                 const b = s.bead(decay_path);
                 decay = @exp(-dt * heatTransfer(p, s.fan, b.diam) / b.heat);
             }
-            nodes[k].temp = p.room_t + (nodes[k].temp - p.room_t) * decay;
+            const air = s.airAt(nodes[k].pos[2]);
+            nodes[k].temp = air + (nodes[k].temp - air) * decay;
         };
         var k = c.lo;
         while (k < c.hi) {
@@ -1142,6 +1160,8 @@ const Bridge = struct {
     fan: f32 = 1,
     nozzle_t: f32 = 210,
     speed: f32 = 15,
+    room_t: f32 = 25,
+    fan_air: f32 = 6,
 };
 
 /// Two posts `span` mm apart, 20 layers high (4 mm), then a bridge over
@@ -1161,7 +1181,7 @@ fn bridgeSag(gpa: Allocator, b: Bridge) !f32 {
     // The bridge, a bit past each post so its ends rest on them.
     paths[n] = line(.{ -0.2, 1.5 }, .{ b.span + 0.2, 1.5 }, 4.2, 20, 81, b.speed, b.fan, &pts[n]);
     n += 1;
-    var r = try run(gpa, paths[0..n], .{ .nozzle_t = b.nozzle_t, .keep_all = true });
+    var r = try run(gpa, paths[0..n], .{ .nozzle_t = b.nozzle_t, .room_t = b.room_t, .fan_air = b.fan_air, .keep_all = true });
     defer r.deinit(gpa);
     var sag: f32 = 0;
     for (r.nodes(n - 1)) |q| sag = @max(sag, (4.2 - 0.1) - q[2]);
@@ -1181,6 +1201,13 @@ test "print sim: a bridge sags, more with no fan, a hotter nozzle, or a longer s
     try testing.expect(short < 0.5 * full);
     // A bridge does not fall to the bed: it hangs from the posts.
     try testing.expect(off < 3.5);
+}
+
+test "print sim: a warm chamber or a weak fan makes a bridge sag more" {
+    const gpa = testing.allocator;
+    const base = try bridgeSag(gpa, .{});
+    try testing.expect(try bridgeSag(gpa, .{ .room_t = 60 }) > base);
+    try testing.expect(try bridgeSag(gpa, .{ .fan_air = 2 }) > base);
 }
 
 test "print sim: a line over air with no plastic under it falls to the bed" {

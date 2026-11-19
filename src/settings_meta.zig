@@ -19,6 +19,8 @@ pub const all = [_]Meta{
     .{ .name = "machine.max_height", .section = "Bed", .doc = "The highest part that the printer can make." },
     .{ .name = "machine.nozzle_diameter", .section = "Nozzle", .doc = "The diameter of the nozzle hole. The default line width comes from it." },
     .{ .name = "machine.nozzle_tip_radius", .section = "Nozzle", .doc = "The radius of the flat face at the tip of the nozzle, around the hole. A common brass nozzle has a face about 1 mm across. Slope smoothing uses it to keep the nozzle off the layer that it just printed." },
+    .{ .name = "machine.chamber_temp", .section = "Cooling", .doc = "The temperature of the air around the print, in °C: the room for an open printer, about 35 to 45 in a closed box with no heater, or the set point of a heated chamber. The simulated print cools the plastic toward it." },
+    .{ .name = "machine.part_fan_air", .section = "Cooling", .doc = "The speed of the air of the part cooling fans at full speed where the plastic leaves the nozzle, in m/s, of all the fans together. The simulated print cools the plastic with it. About 5 to 10 for a radial blower and a duct." },
     .{ .name = "machine.nozzle_cone_angle", .section = "Nozzle", .doc = "The angle between the axis of the nozzle and the side of its cone, in degrees. Slope smoothing uses it with `nozzle_tip_radius`." },
     .{ .name = "machine.max_speed", .section = "Motion", .doc = "The maximum speed of the print head in X and Y." },
     .{ .name = "machine.travel_speed", .section = "Motion", .doc = "The speed of travel moves (moves with no extrusion)." },
