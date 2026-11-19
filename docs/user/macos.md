@@ -121,6 +121,8 @@ The first search of the network asks for the permission to find devices on the l
 
 ## Filament and quality
 
+A plate can print with more than one filament. The print card lists the filaments of the plate: the color, the material, and the grams of each in the last slice, and the number of filament changes. Add a Filament adds one, and × removes one (its parts and layers print with filament 1). The part card and the card of a range of layers have a row of color chips: a click prints the part or the layers with that filament. A Bambu Lab printer gets a .gcode.3mf on Export, with the filaments of the print in it.
+
 The Filament and Quality menus sit beside the printer menu in the toolbar. They list the built-in profiles and your own, and have Save as Profile. The Quality menu shows a dot when this print has changes on top of the quality. Your profiles are in `~/Library/Application Support/zslice/profiles/filament` and `profiles/project`.
 
 ## A farm

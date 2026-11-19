@@ -378,6 +378,15 @@ struct SettingEditor: View {
     var onDone: (() -> Void)?
 
     var body: some View {
+        // The filament of a part or of layers: a chip for each filament.
+        if info.name == "project.filament" {
+            FilamentChips(model: model, value: entry.value) { model.set(info.name, $0) }
+        } else {
+            editor
+        }
+    }
+
+    @ViewBuilder private var editor: some View {
         switch info.kind {
         case .boolean:
             Toggle(info.label, isOn: Binding(get: { entry.value == "true" }, set: { model.set(info.name, $0 ? "true" : "false") }))
