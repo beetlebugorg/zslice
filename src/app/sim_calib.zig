@@ -70,6 +70,11 @@ const Part = struct {
     size: [3]f64,
 
     fn init(gpa: Allocator, b: *mesh_mod.Builder) !Part {
+        return initWith(gpa, b, &.{});
+    }
+
+    /// A part sliced with these settings changed (name, value).
+    fn initWith(gpa: Allocator, b: *mesh_mod.Builder, settings: []const [2][]const u8) !Part {
         var mesh = try b.finish();
         defer mesh.deinit(gpa);
         const bounds = mesh.bounds();
@@ -79,6 +84,7 @@ const Part = struct {
         const app = try App.create(gpa, null, null);
         errdefer app.destroy();
         try app.loadStl("calib.stl", stl.written());
+        for (settings) |kv| try app.setSetting(kv[0], kv[1]);
         try app.startSlice();
         app.stopWorkerForTest();
         if (app.getState() != .done) return error.SliceFailed;
@@ -181,6 +187,63 @@ test "sim calibration: an overhang of 45 degrees prints clean, and a steeper one
     // than two beads. It droops much more than 60.
     try testing.expect(drops[3] > 0.5);
     try testing.expect(drops[3] > 2 * drops[2]);
+}
+
+/// Fins of the calibration print of the user, on a printer like the
+/// LulzBot TAZ Workhorse SE (a 0.5 mm nozzle).
+const taz_angles = [_]f64{ 60, 65, 70, 75, 80 };
+
+/// The fins of tools/calib/gen.py: 8 mm out from a back wall of 4 mm, a
+/// tip of 2 mm, 6 mm wide with gaps of 2 mm, all tops at the height of
+/// the 30 degree fin.
+const calib_reach = 8;
+const calib_tip = 2;
+const calib_back = 4;
+const calib_pitch = 8;
+
+fn calibHeight() f64 {
+    return calib_tip + calib_reach / @tan(std.math.degreesToRadians(@as(f64, 30))) + 0.5;
+}
+
+fn tazOverhangs(gpa: Allocator) !Part {
+    var b: mesh_mod.Builder = .init(gpa);
+    errdefer b.deinit();
+    const h = calibHeight();
+    for (taz_angles, 0..) |a, k| {
+        const x: f64 = @as(f64, @floatFromInt(k)) * calib_pitch;
+        const zb = h - calib_tip - calib_reach / @tan(std.math.degreesToRadians(a));
+        const poly = [_][2]f64{ .{ -calib_back, h }, .{ -calib_back, 0 }, .{ 0, 0 }, .{ 0, zb }, .{ calib_reach, h - calib_tip }, .{ calib_reach, h } };
+        try prismX(&b, &poly, x, x + fin_width);
+        // The back wall between the fins.
+        if (k + 1 < taz_angles.len) try mesh_mod.shapes.addBox(&b, x + fin_width, -calib_back, 0, x + calib_pitch, 0, h);
+    }
+    return Part.initWith(gpa, &b, &.{.{ "machine.nozzle_diameter", "0.5" }});
+}
+
+test "sim calibration: the overhang fins of the user's print: smooth to 65 degrees, a little rough at 70, strands from 75" {
+    const gpa = testing.allocator;
+    var p = try tazOverhangs(gpa);
+    defer p.deinit();
+    var out: [taz_angles.len]Outcome = undefined;
+    for (&out, 0..) |*o, k| {
+        // The plastic of the fin under its top skin.
+        const x: f64 = @as(f64, @floatFromInt(k)) * calib_pitch;
+        o.* = p.outcome(.{ .x0 = x, .x1 = x + fin_width, .y0 = 0.2, .y1 = calib_reach, .z0 = 0, .z1 = calibHeight() - calib_tip + 0.6 });
+    }
+    // The user printed tools/calib/parts/overhang.stl on a TAZ Workhorse
+    // SE with PLA: smooth from 30 to 65 degrees, a little rough at the root
+    // at 70, loose strands at 75 and 80.
+    for (out[0..2]) |o| {
+        try testing.expectEqual(@as(usize, 0), o.failed);
+        try testing.expect(o.drop < 0.2);
+    }
+    try testing.expectEqual(@as(usize, 0), out[2].failed);
+    try testing.expect(out[2].drop < 1.5);
+    // 75 degrees droops; with these settings (the profile of the printer
+    // is not the one of the user) it stays under fail_drop. With the
+    // profile of the user (tools/calib/sheet.csv) it falls in strands.
+    try testing.expect(out[3].drop > 0.5);
+    try testing.expect(out[4].failed > 0);
 }
 
 const spans = [_]f64{ 5, 20, 35, 60 };

@@ -14,8 +14,10 @@ for the measured value.
 The predictions:
 
 - overhang: the thickness of the fin tip (2 mm in the model) plus the
-  largest drop of a mass in the last 2 mm of the fin; and a grade of the
-  underside from the largest drop in the fin.
+  largest drop of a bead of the underside in the last 2 mm of the fin;
+  and a grade of the underside (see grade). The underside is the beads
+  within UNDER mm over the slope: the top skin of the fin is not part of
+  it.
 - bridge: the thickness of the deck in the middle third of the span
   (1.6 mm in the model) plus the largest drop there; and if loose
   strands hang under the deck (a drop of more than 1.5 mm).
@@ -41,6 +43,12 @@ DECK = 1.6
 # A mass that sets more than this under its place is a loose strand (the
 # fail_drop of print_sim.zig).
 FAIL_DROP = 1.5
+# The depth of the underside of a fin (mm): the beads that a look at the
+# underside sees.
+UNDER = 0.6
+# The share of the beads of an underside that droop before an eye sees it
+# rough (see grade).
+ROUGH = 0.02
 
 
 def stl_bounds(path):
@@ -78,14 +86,20 @@ def thickness(nominal, drop):
     return f"{nominal + max(drop, 0):.2f}"
 
 
-def grade(drop):
-    if drop < 0.1:
+def grade(drop, share):
+    """The grade that a look at the underside gives: 3 for loose strands
+    (a bead fell more than FAIL_DROP), else by the share of its beads that
+    droop more than 0.1 mm: 0 under ROUGH (a few beads at the corners of
+    the fin, which the eye does not see), 1 under 10 %, else 2. ROUGH comes
+    from the print of the user: smooth at 65 degrees (1.5 % of the beads in
+    the simulation), a little rough at 70 (2.7 %)."""
+    if drop > FAIL_DROP:
+        return 3
+    if share < ROUGH:
         return 0
-    if drop < 0.3:
+    if share < 0.10:
         return 1
-    if drop < FAIL_DROP:
-        return 2
-    return 3
+    return 2
 
 
 def main():
@@ -123,10 +137,20 @@ def main():
         size = f["size"]
         x0, x1, y0, y1, z0, z1 = (float(f[k]) for k in ("x0", "x1", "y0", "y1", "z0", "z1"))
         if kind == "overhang":
-            tip = max(drops(f["file"], x0, x1, y1 - 2, y1, z0, z1), default=0.0)
-            all_ = max(drops(f["file"], x0, x1, y0, y1, z0, z1), default=0.0)
+            # The plastic of the underside: the beads within UNDER mm over
+            # the slope, from z0 at the back wall to z1 - FIN_TIP at the tip.
+            # The top skin of the fin is not the underside.
+            def under(m):
+                if not (x0 <= m[0] <= x1 and y0 <= m[1] <= y1):
+                    return False
+                zs = z0 + (z1 - FIN_TIP - z0) * (m[1] - y0) / (y1 - y0)
+                return zs - 0.05 <= m[2] <= zs + UNDER
+            tip = max((m[3] for m in parts[f["file"]] if under(m) and m[1] >= y1 - 2), default=0.0)
+            beads = [m[3] for m in parts[f["file"]] if under(m)]
+            all_ = max(beads, default=0.0)
+            share = sum(1 for d in beads if d > 0.1) / max(len(beads), 1)
             out.append(("overhang", size + " deg", "tip thickness", "mm", "calipers on the fin tip, at the end", thickness(FIN_TIP, tip)))
-            out.append(("overhang", size + " deg", "underside", "0-3", "0 smooth, 1 a little rough, 2 rough or drooped, 3 loose strands", str(grade(all_))))
+            out.append(("overhang", size + " deg", "underside", "0-3", "0 smooth, 1 a little rough, 2 rough or drooped, 3 loose strands", str(grade(all_, share))))
         elif kind == "bridge":
             third = (x1 - x0) / 3
             mid = max(drops(f["file"], x0 + third, x1 - third, y0, y1, z0, z1), default=0.0)

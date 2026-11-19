@@ -288,6 +288,24 @@ final class SliceModel {
         if rc != 0 { state = .failed(statusText(rc)) }
     }
 
+    // TODO(Mac port of the simulated print after each slice; the Linux app
+    // and the web app have it, see docs/internals/print-sim.md):
+    // - After each new core (the active plate), call
+    //   zs_app_set_auto_simulate(core, 1): the slice thread then simulates
+    //   the print after the slice, and a change stops it.
+    // - On ZS_EVENT_SIMULATED (6) for the active plate, on the main thread:
+    //   if zs_app_sim_adopt(core) == 1, load the 3D view again (as after
+    //   ZS_EVENT_SLICED) and update the print card.
+    // - The print card: zs_app_sim_stats(core, &st) == 0 gives the hint in
+    //   place of the area that hangs in the air. st.failed > 0: "The print
+    //   fails at layer \(st.first_failed_layer + 1): the plastic over air
+    //   falls. Turn on support or turn the part."; else st.max_drop > 0.5:
+    //   "The plastic droops up to ... mm where nothing holds it." (see
+    //   show_hint in linux/src/ui/window.c).
+    // - The colors menu item: "Show the plan" while the simulated plastic
+    //   shows (zs_app_show_simulated(core, 0)), and "Show the print as it
+    //   forms" while the plan shows (zs_app_show_simulated(core, 1), which
+    //   uses the simulation that is there; else zs_app_simulate_print).
     fileprivate func handle(plate: Int, event: Int32, progress: Double, status: Int32) {
         if event == Int32(ZS_EVENT_PLATES.rawValue) {
             readPlates()
