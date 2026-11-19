@@ -249,6 +249,10 @@ final class Workspace {
             let end = Int(tp.layer_ends[l])
             return end > 0 && tp.path_end_time != nil ? Double(tp.path_end_time[end - 1]) : 0
         }
+        if ProcessInfo.processInfo.environment["ZSLICE_LAYER_LOG"] != nil {
+            NSLog("zslice layers: %d, times %@, last ends %@, path_end_time %d", n, layerEnd.suffix(3).map { String(format: "%.1f", $0) }.joined(separator: " "),
+                  (0 ..< min(3, n)).map { String(tp.layer_ends[n - 1 - $0]) }.joined(separator: " "), tp.path_end_time == nil ? 0 : 1)
+        }
         let wasTop = hi >= layerCount - 1
         layerCount = n
         if wasTop || hi >= n { hi = max(0, n - 1) }

@@ -391,7 +391,9 @@ struct ScrubBar: View {
                 // In the bottom bar the replay has the width of the bar.
                 .frame(minWidth: bare ? 110 : 60, maxWidth: bare ? .infinity : 320)
                 .help("Moves the nozzle through the top layer")
-            Text(bare ? "\(clock(inLayer))/\(clock(t1 - t0))" : "Layer \(workspace.hi + 1) · \(clock(inLayer)) / \(clock(t1 - t0))")
+            // A layer with no lines has no time to show.
+            let times = t1 > t0 ? "\(clock(inLayer))/\(clock(t1 - t0))" : "no lines"
+            Text(bare ? times : "Layer \(workspace.hi + 1) · \(times)")
                 .font(.callout.monospacedDigit())
                 .foregroundStyle(.secondary)
                 .fixedSize()
@@ -440,7 +442,8 @@ struct PrintCard: View {
     /// no slice yet.
     private func allText(_ t: zs_totals) -> String {
         var text = "All \(t.plates) plates: \(duration(t.time_s)) · " + String(format: "%.1f g", t.filament_g)
-        if t.cost > 0 { text += String(format: " · %.2f", t.cost) }
+        // The cost is in the money of the filament price: no sign, a word.
+        if t.cost > 0 { text += String(format: " · cost %.2f", t.cost) }
         if t.missing > 0 { text += " (\(t.missing) slicing)" }
         return text
     }
@@ -501,7 +504,7 @@ struct PrintCard: View {
                             .font(.title2.weight(.semibold).monospacedDigit())
                         let plate = totals(model.active)
                         Text(String(format: "%.1f g · %.2f m · %d layers", s.filament_g, s.filament_mm / 1000, s.layer_count)
-                            + (plate.map { $0.cost > 0 ? String(format: " · %.2f", $0.cost) : "" } ?? ""))
+                            + (plate.map { $0.cost > 0 ? String(format: " · cost %.2f", $0.cost) : "" } ?? ""))
                             .font(.callout.monospacedDigit())
                             .foregroundStyle(.secondary)
                             .lineLimit(1)
