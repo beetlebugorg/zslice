@@ -308,6 +308,13 @@ static void on_core_event_session(ZgModel *m, int event, double progress, int st
     /* Again each 1.5 s, until a pause. */
 }
 
+/* A change of the list of plates (a plate added or gone): the same save,
+ * also with no slice after it (an empty plate). */
+static void on_plates_session(ZgModel *m, gpointer data) {
+    if (session_timer) g_source_remove(session_timer);
+    session_timer = g_timeout_add(1500, on_session_timer, data);
+}
+
 static gboolean on_close_session(GtkWindow *w, gpointer data) {
     if (session_timer) {
         g_source_remove(session_timer);
@@ -362,6 +369,7 @@ static void session_hook(GtkWindow *w) {
     if (hooked) return;
     hooked = TRUE;
     g_signal_connect(model, "core-event", G_CALLBACK(on_core_event_session), w);
+    g_signal_connect(model, "plates-changed", G_CALLBACK(on_plates_session), w);
     g_signal_connect(w, "close-request", G_CALLBACK(on_close_session), NULL);
     GtkEventController *input = gtk_event_controller_legacy_new();
     gtk_event_controller_set_propagation_phase(input, GTK_PHASE_CAPTURE);
