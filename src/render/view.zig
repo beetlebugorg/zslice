@@ -360,6 +360,9 @@ pub const View = struct {
     /// preview under a turn (see `previewHull`): x, y, top z, bottom z,
     /// half the width.
     preview_hull: std.ArrayList([5]f32) = .empty,
+    /// The points that went to the sort of the last `previewHull` (a test
+    /// checks that the filter leaves out most of them).
+    hull_sorted: usize = 0,
     /// The draws of the frame: the part of the preview, and the beads of
     /// the draw list without it.
     preview_draws: std.ArrayList(Draw) = .empty,
@@ -3019,6 +3022,7 @@ pub const View = struct {
     /// millimeter high.
     fn previewHull(v: *View) Error!void {
         v.preview_hull.clearRetainingCapacity();
+        v.hull_sorted = 0;
         var run: std.ArrayList([2]f32) = .empty;
         defer run.deinit(gpa);
         var key = [2]f32{ std.math.nan(f32), std.math.nan(f32) };
@@ -3042,6 +3046,11 @@ pub const View = struct {
 
     /// Adds the corners of the convex hull of the points of `run` (one z
     /// and height in `key`) to `preview_hull`, and empties `run`.
+    /// The distance (mm) from a side of the filter polygon of `flushHull`
+    /// that counts as on it. The kept ends get it on their half width, so
+    /// the part still never goes into the bed.
+    const hull_eps: f32 = 1e-3;
+
     fn flushHull(v: *View, run: *std.ArrayList([2]f32), key: [2]f32, r2: f32) Error!void {
         defer run.clearRetainingCapacity();
         var pts = run.items;
@@ -3071,7 +3080,10 @@ pub const View = struct {
                     const b = ext[(e + 1) % 8];
                     if (a[0] == b[0] and a[1] == b[1]) continue;
                     edges += 1;
-                    if ((b[0] - a[0]) * (q[1] - a[1]) - (b[1] - a[1]) * (q[0] - a[0]) < 0) {
+                    // Within hull_eps of a side counts as on it: the walls
+                    // of a box are on the sides only up to float noise.
+                    const side = @sqrt((b[0] - a[0]) * (b[0] - a[0]) + (b[1] - a[1]) * (b[1] - a[1]));
+                    if ((b[0] - a[0]) * (q[1] - a[1]) - (b[1] - a[1]) * (q[0] - a[0]) < -hull_eps * side) {
                         inside = false;
                         break;
                     }
@@ -3088,6 +3100,7 @@ pub const View = struct {
             run.appendSlice(gpa, &ext) catch return error.OutOfMemory;
             pts = run.items;
         }
+        v.hull_sorted += pts.len;
         std.mem.sortUnstable([2]f32, pts, {}, struct {
             fn lt(_: void, a: [2]f32, b: [2]f32) bool {
                 return a[0] < b[0] or (a[0] == b[0] and a[1] < b[1]);
@@ -3108,7 +3121,7 @@ pub const View = struct {
                     if (side_of > 0) break;
                     _ = hull.pop();
                 }
-                hull.append(gpa, .{ p[0], p[1], key[0], key[0] - key[1], r2 }) catch return error.OutOfMemory;
+                hull.append(gpa, .{ p[0], p[1], key[0], key[0] - key[1], r2 + hull_eps }) catch return error.OutOfMemory;
             }
         }
         // Both chains have the two end points: the copies are harmless,
@@ -4533,7 +4546,11 @@ test "the lowest point of a turned preview from the hull is the lowest bead corn
             const zz = rot[6] * (e[0] - pivot[0]) + rot[7] * (e[1] - pivot[1]) + rot[8] * (bz - pivot[2]);
             zmin = @min(zmin, zz - b.w / 2 * @sqrt(rot[6] * rot[6] + rot[7] * rot[7]));
         };
-        try std.testing.expectApproxEqAbs(-(zmin + pivot[2]), v.preview.?.move[2], 1e-4);
+        // Never lower than the lowest corner, and at most the filter
+        // tolerance higher.
+        const want = -(zmin + pivot[2]);
+        try std.testing.expect(v.preview.?.move[2] >= want - 1e-4);
+        try std.testing.expect(v.preview.?.move[2] <= want + 2 * View.hull_eps);
     }
     // The hull keeps few of the 480 bead ends.
     try std.testing.expect(v.preview_hull.items.len < 300);
@@ -4587,4 +4604,36 @@ test "a load after a support edit keeps the other layers, the same as a full loa
     inline for (.{ "beads", "bead_start", "bead_end", "bead_fan", "bead_run", "bead_len", "path_start", "layer_end", "layer_path_end", "marks", "mark_layer_end", "pick_runs", "layer_boxes", "draw_chunks", "chunk_width", "run_width", "layer_key", "outline_points", "outline_ends" }) |name| {
         try std.testing.expectEqualSlices(u8, std.mem.sliceAsBytes(@field(full, name).items), std.mem.sliceAsBytes(@field(v, name).items));
     }
+}
+
+test "the hull of a box wall keeps few of its bead ends" {
+    // One layer: a square loop of 400 beads along the sides of a 100 mm
+    // box, with float noise across the sides.
+    var v = try testScene(1, 1, 400);
+    defer destroyTest(&v);
+    var prng = std.Random.DefaultPrng.init(5);
+    const rnd = prng.random();
+    for (v.beads.items, 0..) |*b, k| {
+        const at = struct {
+            fn f(t: usize, r: std.Random) [2]f32 {
+                const u: f32 = @floatFromInt(t % 100);
+                const n = (r.float(f32) - 0.5) * 2e-5;
+                return switch (t / 100 % 4) {
+                    0 => .{ u, n },
+                    1 => .{ 100 + n, u },
+                    2 => .{ 100 - u, 100 + n },
+                    else => .{ n, 100 - u },
+                };
+            }
+        }.f;
+        const a = at(k, rnd);
+        const e = at(k + 1, rnd);
+        b.ax = a[0];
+        b.ay = a[1];
+        b.bx = e[0];
+        b.by = e[1];
+    }
+    for (0..v.path_start.items.len - 1) |_| try v.path_part.append(View.gpa, 0);
+    try v.setPartPreview(0, .{ 0, 0, 0, 1 }, .{ 0, 0, 0 }, .{ 0, 0, 0 }, true);
+    try std.testing.expect(v.hull_sorted < 40);
 }
