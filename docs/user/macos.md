@@ -147,3 +147,7 @@ The bar at the bottom has the plates and the history, the replay under them, and
 ## Your usual refinements
 
 zslice notes how you refine each print after its first slice. When you made the same change in two or more other prints with the same material and nozzle, the details of the print offer it: click Apply (one undo step), Apply All, or × to never see it again. The records stay on your Mac, in `Application Support/zslice/refine.txt`.
+
+## Grab a part
+
+The Grab tool (H, the hand) picks a part up where you press and carries it as a real object: it swings and turns about the point you hold. Let go, and it keeps its speed, falls, and comes to rest flat on the plate; then the plate slices.

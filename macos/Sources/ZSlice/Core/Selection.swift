@@ -254,6 +254,35 @@ extension Workspace {
     }
 }
 
+extension Workspace {
+    /// The screen box of a whole path (points from the top left), for a
+    /// card that keeps out of it (zs_view_path_rect).
+    func lineRect(_ path: Int) -> CGRect? {
+        guard let v = canvas.view, page == .threeD else { return nil }
+        var r = [Float](repeating: 0, count: 4)
+        let rc = zs_view_path_rect(v, path, &r)
+        if ProcessInfo.processInfo.environment["ZSLICE_CARD_LOG"] != nil { NSLog("zslice card: path %ld rect rc %d %.0f %.0f %.0f %.0f", path, rc, r[0], r[1], r[2], r[3]) }
+        guard rc != 0 else { return nil }
+        let s = CGFloat(canvas.window?.backingScaleFactor ?? 2)
+        return CGRect(x: CGFloat(r[0]) / s, y: CGFloat(r[1]) / s, width: CGFloat(r[2] - r[0]) / s, height: CGFloat(r[3] - r[1]) / s)
+    }
+
+    /// The screen box of a part with its turn rings (radius 0.62 times its
+    /// largest size, and 4 mm), for its card.
+    func partRect(_ i: Int) -> CGRect? {
+        var p = zs_part()
+        guard page == .threeD, zs_app_part_get(model.core, i, &p) == 0 else { return nil }
+        let r = 0.62 * max(p.size_x, p.size_y, p.size_z) + 4
+        let cz = p.size_z / 2
+        var pts: [CGPoint] = []
+        for dx in [-1.0, 1.0] { for dy in [-1.0, 1.0] { for dz in [-1.0, 1.0] {
+            if let q = canvas.viewPoint(x: p.x + dx * r, y: p.y + dy * r, z: max(0, cz + dz * r)) { pts.append(q) }
+        } } }
+        guard let x0 = pts.map(\.x).min(), let x1 = pts.map(\.x).max(), let y0 = pts.map(\.y).min(), let y1 = pts.map(\.y).max() else { return nil }
+        return CGRect(x: x0, y: y0, width: x1 - x0, height: y1 - y0)
+    }
+}
+
 struct Selection: Equatable {
     var path: Int
     var seg: Int

@@ -22,13 +22,14 @@ import AppKit
 import CZslice
 
 enum Tool: String, CaseIterable {
-    case select, move, turn, measure, support
+    case select, move, turn, grab, measure, support
 
     var key: String {
         switch self {
         case .select: "v"
         case .move: "m"
         case .turn: "r"
+        case .grab: "h"
         case .measure: "t"
         case .support: "s"
         }
@@ -44,6 +45,7 @@ enum Tool: String, CaseIterable {
         case .select: "Select"
         case .move: "Move"
         case .turn: "Turn"
+        case .grab: "Grab"
         case .measure: "Measure"
         case .support: "Support"
         }
@@ -54,6 +56,7 @@ enum Tool: String, CaseIterable {
         case .select: "cursorarrow"
         case .move: "arrow.up.and.down.and.arrow.left.and.right"
         case .turn: "arrow.trianglehead.2.clockwise.rotate.90"
+        case .grab: "hand.raised"
         case .measure: "ruler"
         case .support: "pencil.and.outline"
         }
@@ -64,6 +67,7 @@ enum Tool: String, CaseIterable {
         case .select: "Select (V): click a line to see what it is and the settings that change it."
         case .move: "Move (M): drag a part to move it on the bed. Command-scroll turns it by 15°. Command-drag moves a part in any tool."
         case .turn: "Turn (R): click a part, then drag its red, green, or blue ring to turn it about X, Y, or Z (15°; Shift: 5°). Keys: Left and Right about Z, Up and Down about X, Page Up and Page Down about Y."
+        case .grab: "Grab (H): take a part where you press, and carry it as a real object: it swings, turns about the point you hold, and when you let go, it keeps its speed, falls, and rests flat on the plate."
         case .measure: "Measure (T): click two points of the print or the bed. A click on a circle or an arc measures from its center. Shift: no snap. Esc clears."
         case .support: "Support (S): click points on the part to draw an area of support, or of no support. Click the first point or press Return to close it. Click an outline to select an area, and drag its points."
         }
@@ -169,6 +173,21 @@ extension Workspace {
             tapeDrag = i
             return true
         }
+        if tool == .grab, page == .threeD, falling == nil, let i = partAt(p), let v = canvas.view {
+            let px = Float(p.x * pixelScale), py = Float(p.y * pixelScale)
+            var q = [Double](repeating: 0, count: 3)
+            guard zs_view_surface_point(v, px, py, 0, &q) != 0,
+                  zs_app_grab_start(model.core, i, q[0], q[1], q[2]) == 1 else { return false }
+            clearSelection()
+            // The hand moves on the level plane 15 mm over the point held.
+            grabZ = q[2] + 15
+            grabbing = true
+            fallIsGrab = true
+            zs_app_grab_move(model.core, q[0], q[1], grabZ)
+            falling = (i, { [weak self] in self?.model.settingsChanged() })
+            canvas.startTicking()
+            return true
+        }
         if tool == .turn, selectedPart != nil, let v = canvas.view {
             let px = Float(p.x * pixelScale), py = Float(p.y * pixelScale)
             let axis = zs_view_ring_at(v, px, py, Float(8 * pixelScale))
@@ -190,6 +209,15 @@ extension Workspace {
     }
 
     func drag(_ p: CGPoint, _ flags: NSEvent.ModifierFlags) {
+        if grabbing, let v = canvas.view {
+            var x = 0.0, y = 0.0
+            let ok = zs_view_plane_point(v, Float(p.x * pixelScale), Float(p.y * pixelScale), grabZ, &x, &y) != 0
+            if ok { zs_app_grab_move(model.core, x, y, grabZ) }
+            if ProcessInfo.processInfo.environment["ZSLICE_FALL_LOG"] != nil {
+                NSLog("zslice grab: move %d to %.1f, %.1f at z %.1f, falling %d", ok ? 1 : 0, x, y, grabZ, falling == nil ? 0 : 1)
+            }
+            return
+        }
         if supportDrag != nil {
             supportDragged(p, snap: !flags.contains(.shift))
             return
@@ -232,6 +260,12 @@ extension Workspace {
     }
 
     func release(_ p: CGPoint) {
+        // Let go: the part keeps its speed, falls, and rests (fallTick).
+        if grabbing {
+            grabbing = false
+            zs_app_grab_end(model.core)
+            return
+        }
         if supportDrag != nil {
             supportReleased()
             return
@@ -362,6 +396,12 @@ extension Workspace {
         guard let f = falling else { return false }
         var out = [Double](repeating: 0, count: 10)
         let rc = zs_app_fall_step(model.core, dt, &out)
+        if ProcessInfo.processInfo.environment["ZSLICE_FALL_LOG"] != nil {
+            fallSteps += 1
+            if fallSteps % 10 == 0 || rc != 1 {
+                NSLog("zslice fall: step %d, dt %.3f, rc %d, move %.1f %.1f %.1f", fallSteps, dt, rc, out[7], out[8], out[9])
+            }
+        }
         if rc < 0 {
             falling = nil
             if let v = canvas.view { zs_view_part_preview(v, -1, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0, 0) }
@@ -398,11 +438,15 @@ extension Workspace {
         falling = nil
         if selectedPart == f.part { selectPart(f.part) }
         model.changedHeld()
-        showNote("The part could not stand like that, and fell over. Turn on support to hold it in place.", seconds: 7)
+        if fallIsGrab {
+            fallIsGrab = false
+        } else {
+            showNote("The part could not stand like that, and fell over. Turn on support to hold it in place.", seconds: 7)
+        }
         if ProcessInfo.processInfo.environment["ZSLICE_FALL_LOG"] != nil {
             var p = zs_part()
             _ = zs_app_part_get(model.core, f.part, &p)
-            NSLog("zslice fall: at rest, size z %.1f", p.size_z)
+            NSLog("zslice fall: at rest, size z %.1f, x %.1f, y %.1f", p.size_z, p.x, p.y)
         }
         f.then?()
         return false

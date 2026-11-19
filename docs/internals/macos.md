@@ -162,6 +162,7 @@ Like the GTK shell, the app reads some environment variables for development and
 - `ZSLICE_RING=axis,deg` presses a ring of the Turn tool on the selected part, drags around the part until the turn is deg, and releases, as a user does; the part falls with `ZSLICE_FALL_LOG=1` logging the start, the support, and the rest.
 - `ZSLICE_PRINTER_LABEL=text` sets the label of the printer menu, and `ZSLICE_WIDTH=points` the width of the window (0: its narrowest), for tests of the toolbar.
 - `ZSLICE_SUPPORT_OFF_AFTER=s` turns support off s seconds after the start, and logs the part 2.5 s later: a part that support held must fall.
+- `ZSLICE_GRAB=1` takes the part at the center with the Grab tool, drags it 200 points to the right, lets go, and logs its place 3 s later. `ZSLICE_CARD_LOG=1` logs the screen box of a clicked line.
 - `ZSLICE_TURN=deg` turns the selected part about X, lets it settle, and logs the note. `ZSLICE_SUPPORT=1` turns support on first. Select the part with `ZSLICE_TOOL=move ZSLICE_CLICKS=center`.
 - `ZSLICE_SESSION=dir` keeps the session in that folder, also with `ZSLICE_FRESH` (which turns the session off without it). `ZSLICE_QUIT_AFTER=s` quits as Command-Q does, after s seconds. With `ZSLICE_TIMING=1`, the app logs the session reads and writes, and the time of the first frame with beads.
 - `ZSLICE_REFINE=path` keeps the store of refinements in that file, also with `ZSLICE_FRESH`. `ZSLICE_DETAILS=1` opens the details of the print, and `ZSLICE_REFINE_APPLY=1` applies the first suggestion and logs it.
@@ -275,3 +276,9 @@ The view draws each bead exactly as it will print: no coarser meshes while it mo
 ## The fall of a part
 
 After the Turn tool (the release of a ring, or 0.6 s after the last turn key), `settle(part:then:)` starts the fall of the part that turned (`zs_app_fall_start`, the rigid body of src/rigid.zig). Each frame of the display link runs `zs_app_fall_step` with the frame time, and gives its turn, pivot, and move to `zs_view_part_preview`; the renderer draws the beads of that part with its own push constants (`part_draws`). At rest the core puts the part flush on its face (one history step), and `then` slices the plate; the new beads end the preview. A part that stands, or that support holds, does not fall, and a note says which. After each change of a setting or of the plates (support turned off, an area removed or made Block, a plate or a project opened), `checkPendingFall` asks the core for a part that cannot stand now (`zs_app_fall_pending`) and lets it fall, except during a turn, which runs its own fall.
+
+## The Grab tool and the cards
+
+The Grab tool (H) takes a part where the user presses (`zs_view_surface_point`, `zs_app_grab_start`), moves the hand on the level plane 15 mm over the point held (`zs_view_plane_point`, `zs_app_grab_move`), and lets go on release (`zs_app_grab_end`). From the press on, each frame runs `zs_app_fall_step`, as a fall does (`fallTick`); at rest the plate slices. A throw shows no fall note.
+
+A card never covers the thing that was clicked (`cardPlace(avoiding:)`): it goes to the first side of its screen box where it fits whole, in the order right, left, below, above, and keeps out of the tool strip and the layer slider. The box of a line is the whole clicked path (`zs_view_path_rect`); the box of a part has its turn rings (0.62 times its largest size, and 4 mm). The Turn and Grab tools show no part card.

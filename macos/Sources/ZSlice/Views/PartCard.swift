@@ -119,6 +119,7 @@ struct PartCard: View {
             .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 12))
             .overlay(RoundedRectangle(cornerRadius: 12).strokeBorder(.separator))
             .shadow(color: .black.opacity(0.15), radius: 12, y: 4)
+            .onGeometryChange(for: CGSize.self) { $0.size } action: { cardSize = $0 }
             .position(place)
             .offset(drag)
         }
@@ -129,12 +130,14 @@ struct PartCard: View {
         return SettingInfo.all.filter(\.perPart).compactMap { seen.insert($0.section).inserted ? $0.section : nil }
     }
 
-    /// At the top right of the view, left of the layer slider, so it does
-    /// not cover the part and its rings; a card that the user moved stays.
+    /// Beside the part and its turn rings, never over them (cardPlace); a
+    /// card that the user moved stays.
+    @State private var cardSize = CGSize(width: 300, height: 220)
+
     private var place: CGPoint {
         if let moved { return moved }
-        let w = 300.0
-        return CGPoint(x: area.width - w / 2 - 92, y: 236)
+        let at = CGPoint(x: area.width - 92 - cardSize.width / 2, y: 236)
+        return cardPlace(avoiding: workspace.partRect(index), near: at, size: cardSize, in: area)
     }
 }
 

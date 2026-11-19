@@ -148,7 +148,9 @@ struct LineCard: View {
     /// the user moved stays there).
     private var place: CGPoint {
         if let m = workspace.cardMoved { return m }
-        return cardPlace(near: workspace.cardAt, size: cardSize, in: area)
+        // Beside the whole clicked path, never over it.
+        let box = workspace.selection.flatMap { workspace.lineRect($0.path) }
+        return cardPlace(avoiding: box, near: workspace.cardAt, size: cardSize, in: area)
     }
 }
 
@@ -169,4 +171,28 @@ func cardPlace(near at: CGPoint, size: CGSize, in area: CGSize) -> CGPoint {
     x = max(8, min(area.width - w - 8, x))
     let y = max(60, min(area.height - h - 8, at.y - h / 2))
     return CGPoint(x: x + w / 2, y: y + h / 2)
+}
+
+/// The center of a card that must never cover `box` (the screen box of the
+/// thing that was clicked, in points): the first side of the box where the
+/// card fits whole, in the order right, left, below, above, with a gap of
+/// 12 points; under the toolbar (60) and in the view. With no side where
+/// it fits, the side with the most room. With no box, `cardPlace(near:)`.
+func cardPlace(avoiding box: CGRect?, near at: CGPoint, size: CGSize, in area: CGSize) -> CGPoint {
+    guard let b = box, b.width > 0 || b.height > 0 else { return cardPlace(near: at, size: size, in: area) }
+    // The tool strip is at the left (64 points) and the layer slider at
+    // the right (84): a card keeps out of them too.
+    let w = size.width, h = size.height, gap: CGFloat = 12, top: CGFloat = 60, edge: CGFloat = 8
+    let left: CGFloat = 64, right = area.width - 84
+    func clampY(_ y: CGFloat) -> CGFloat { max(top, min(area.height - h - edge, y)) }
+    func clampX(_ x: CGFloat) -> CGFloat { max(left, min(right - w, x)) }
+    let sides: [(fits: Bool, origin: CGPoint, room: CGFloat)] = [
+        (b.maxX + gap + w <= right, CGPoint(x: b.maxX + gap, y: clampY(b.midY - h / 2)), right - b.maxX),
+        (b.minX - gap - w >= left, CGPoint(x: b.minX - gap - w, y: clampY(b.midY - h / 2)), b.minX - left),
+        (b.maxY + gap + h <= area.height - edge, CGPoint(x: clampX(b.midX - w / 2), y: b.maxY + gap), area.height - b.maxY),
+        (b.minY - gap - h >= top, CGPoint(x: clampX(b.midX - w / 2), y: b.minY - gap - h), b.minY - top),
+    ]
+    let pick = sides.first(where: \.fits) ?? sides.max { $0.room < $1.room }!
+    let o = CGPoint(x: clampX(pick.origin.x), y: clampY(pick.origin.y))
+    return CGPoint(x: o.x + w / 2, y: o.y + h / 2)
 }

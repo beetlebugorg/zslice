@@ -116,6 +116,12 @@ final class Workspace {
     @ObservationIgnored var falling: (part: Int, then: (() -> Void)?)?
     @ObservationIgnored var fallClock = 0.0
     @ObservationIgnored var fallCheckDue = false
+    /// The Grab tool holds a part (it moves with zs_app_grab_move), at the
+    /// height of the hand.
+    @ObservationIgnored var grabbing = false
+    @ObservationIgnored var grabZ = 0.0
+    @ObservationIgnored var fallIsGrab = false
+    @ObservationIgnored var fallSteps = 0
     @ObservationIgnored var fallFrame = 0
     /// The label of a ring drag ("+30° about Z") and its place.
     var ringLabel: (text: String, at: CGPoint)?
@@ -630,6 +636,31 @@ final class Workspace {
         }
         // ZSLICE_TURN=deg turns the selected part about X, then lets it settle
         // and logs the note; ZSLICE_SUPPORT=1 turns support on first.
+        // ZSLICE_GRAB=1: the Grab tool, a press on the part at the center,
+        // a drag of 200 points to the right in 0.5 s, and a release; the
+        // part 3 s later.
+        if env["ZSLICE_GRAB"] != nil {
+            Task { @MainActor in
+                try? await Task.sleep(for: .milliseconds(300))
+                self.setTool(.grab)
+                let c = CGPoint(x: self.canvas.bounds.midX, y: self.canvas.bounds.midY)
+                var before = zs_part()
+                _ = zs_app_part_get(self.model.core, 0, &before)
+                let took = self.press(c, [])
+                NSLog("zslice grab: took %d", took ? 1 : 0)
+                var p = c
+                for k in 1 ... 30 {
+                    p = CGPoint(x: c.x + Double(k) * 200 / 30, y: c.y)
+                    self.drag(p, [])
+                    try? await Task.sleep(for: .milliseconds(16))
+                }
+                self.release(p)
+                try? await Task.sleep(for: .seconds(3))
+                var after = zs_part()
+                _ = zs_app_part_get(self.model.core, 0, &after)
+                NSLog("zslice grab: x %.1f -> %.1f, y %.1f -> %.1f, size z %.1f -> %.1f, falling %d", before.x, after.x, before.y, after.y, before.size_z, after.size_z, self.falling == nil ? 0 : 1)
+            }
+        }
         // ZSLICE_SUPPORT_OFF_AFTER=s turns support off s seconds later, as
         // the settings do (a part that support held must fall then).
         if let s = env["ZSLICE_SUPPORT_OFF_AFTER"].flatMap(Double.init) {
@@ -1496,6 +1527,10 @@ extension Workspace: SliceViewDelegate {
             if let i = partAt(p) { selectPart(i) } else { selectPart(nil); pick(at: p) }
         case .select:
             pick(at: p)
+        case .grab:
+            // A press on a part takes it (press); a click off the parts
+            // does nothing.
+            break
         }
     }
     func sliceViewPress(_ p: CGPoint, _ flags: NSEvent.ModifierFlags) -> Bool { press(p, flags) }

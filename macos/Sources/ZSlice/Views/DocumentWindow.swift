@@ -224,7 +224,8 @@ struct DocumentWindow: View {
                             .fixedSize()
                             .position(x: 80 + 160, y: 150)
                     }
-                    if let i = workspace.selectedPart {
+                    // The Turn and Grab tools work on the part itself: no card.
+                    if let i = workspace.selectedPart, workspace.tool != .turn, workspace.tool != .grab {
                         PartCard(workspace: workspace, index: i, area: geo.size)
                             .id(i)
                     }
