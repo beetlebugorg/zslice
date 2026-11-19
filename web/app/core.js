@@ -345,6 +345,31 @@ export class Core {
     };
   }
 
+  // The print as it forms: simulates the plastic of the last slice, and
+  // shows it in the toolpaths (zs_app_simulate_print). A new scene draws
+  // it. Returns its numbers, or null.
+  simulatePrint() {
+    const w = this.w;
+    const c = w.cell;
+    if (w.x.zs_app_simulate_print(this.app, c) !== 0) return null;
+    return {
+      masses: w.u32(c),
+      softMasses: w.u32(c + 4),
+      moved: w.u32(c + 8),
+      movedPaths: w.u32(c + 12),
+      maxMove: w.dv.getFloat32(c + 16, true),
+      massG: w.f64(c + 24),
+      peakSoft: w.u32(c + 32),
+      steps: w.u32(c + 36),
+    };
+  }
+
+  // Shows the simulated print (true) or the slice (false). False if there
+  // is no simulation of the last slice.
+  showSimulated(on) {
+    return this.w.x.zs_app_show_simulated(this.app, on ? 1 : 0) === 0;
+  }
+
   // The time, length, volume, and path count of each feature.
   featureStats() {
     const w = this.w;

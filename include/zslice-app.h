@@ -415,6 +415,35 @@ typedef struct zs_toolpaths {
 
 int zs_app_toolpaths(const zs_app *app, zs_toolpaths *out);
 
+/* The print as it forms: a physical simulation of the plastic of the last
+ * slice. The plastic comes out of the nozzle at the time of each point,
+ * rests where the bed or an earlier layer holds it, and hangs (a bridge
+ * sags) or falls (a strand with no support) where no plastic holds it. It
+ * cools with the fan, and sets. The next layers print on the shape that
+ * formed. zs_app_simulate_print runs it on the calling thread (about a
+ * second for a 3DBenchy) and shows the result: zs_app_toolpaths then gives
+ * the paths as the plastic set, until zs_app_show_simulated(app, 0) or the
+ * next slice. A path that moved has a point for each mass of the
+ * simulation, with point_z and point_area. Call zs_view_load to draw it.
+ * ZS_NO_RESULT if there is no slice. out can be NULL. */
+typedef struct zs_print_sim_stats {
+    size_t masses;      /* the masses of the plastic (one for each half
+                           bead width of the paths) */
+    size_t soft_masses; /* the masses that hung or fell */
+    size_t moved;       /* the masses that set more than half a bead height
+                           from their place */
+    size_t moved_paths; /* the paths with plastic that moved */
+    float max_move;     /* the largest move of a mass, mm */
+    double mass;        /* the plastic, g */
+    size_t peak_soft;   /* the most soft masses at one time */
+    size_t steps;       /* the steps of the solver */
+} zs_print_sim_stats;
+int zs_app_simulate_print(zs_app *app, zs_print_sim_stats *out);
+/* Shows the simulated print (on = 1) or the slice (on = 0) in
+ * zs_app_toolpaths. ZS_NO_RESULT for on = 1 with no simulation of the last
+ * slice. */
+int zs_app_show_simulated(zs_app *app, int on);
+
 /* Makes the paths of one layer. It takes a few milliseconds. */
 int zs_app_layer_paths(const zs_app *app, size_t layer, zs_layer_paths *out);
 void zs_layer_paths_free(zs_layer_paths *paths);

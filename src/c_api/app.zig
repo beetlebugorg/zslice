@@ -1116,6 +1116,44 @@ export fn zs_app_toolpaths(a: ?*const App, out: ?*Toolpaths) c_int {
     return ok;
 }
 
+/// The numbers of a simulated print (see zs_print_sim_stats).
+pub const PrintSimStats = extern struct {
+    masses: usize,
+    soft_masses: usize,
+    moved: usize,
+    moved_paths: usize,
+    max_move: f32,
+    mass: f64,
+    peak_soft: usize,
+    steps: usize,
+};
+
+/// Simulates the plastic of the last slice, and shows the result in
+/// zs_app_toolpaths (see App.simulatePrint).
+export fn zs_app_simulate_print(a: ?*App, out: ?*PrintSimStats) c_int {
+    const app = a orelse return @intFromEnum(Status.invalid_argument);
+    const st = app.simulatePrint() catch |e| return status(e);
+    if (out) |o| o.* = .{
+        .masses = st.masses,
+        .soft_masses = st.soft_masses,
+        .moved = st.moved,
+        .moved_paths = st.moved_paths,
+        .max_move = st.max_move,
+        .mass = st.mass,
+        .peak_soft = st.peak_soft,
+        .steps = st.steps,
+    };
+    return ok;
+}
+
+/// Shows the simulated print (on = 1) or the slice (on = 0) in
+/// zs_app_toolpaths.
+export fn zs_app_show_simulated(a: ?*App, on: c_int) c_int {
+    const app = a orelse return @intFromEnum(Status.invalid_argument);
+    app.showSimulated(on != 0) catch |e| return status(e);
+    return ok;
+}
+
 pub const Inspect = extern struct {
     feature: c_int,
     layer: usize,

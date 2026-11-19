@@ -127,6 +127,15 @@ f = view.frame();
 check(f.headCount > 0, "the toolhead of a replay");
 console.log(`frame: ${f.boxCount} beads, ${f.markCount} marks, ${f.headCount} toolhead beads`);
 
+// The print as it forms: the simulation of the plastic, in a new scene.
+check(!core.showSimulated(true), "no simulation before one runs");
+t0 = performance.now();
+const sim = core.simulatePrint();
+check(sim !== null && sim.masses > 1000 && sim.massG > 0, "the simulated print");
+console.log(`simulated print: ${(performance.now() - t0).toFixed(0)} ms, ${sim.masses} masses, ${sim.moved} moved in ${sim.movedPaths} paths, max move ${sim.maxMove.toFixed(2)} mm, ${sim.massG.toFixed(2)} g`);
+check(core.scene(1).byteLength > 0, "a scene of the simulated print");
+check(core.showSimulated(false), "the slice shows again");
+
 // The 2D view and the selection: the beads of a layer, a pick in mm, the
 // outlines, and the steps along the print, from the view alone.
 view.setLayerRange(0, layers.z.length - 1);
