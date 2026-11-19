@@ -98,4 +98,7 @@ pub const version = "0.1.0";
 
 test {
     @import("std").testing.refAllDecls(@This());
+    // The fuzz tests run once, in the tests of the module (the C API tests
+    // link libc and also reach this block).
+    if (comptime !@import("builtin").link_libc) _ = @import("fuzz.zig");
 }
