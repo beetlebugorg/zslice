@@ -40,5 +40,5 @@ ledge,10 mm,tip thickness,mm,"calipers on the slab, 1 mm from its end",strands,,
 ledge,10 mm,height of the tip bottom,mm,calipers depth rod from the bed to the bottom of the tip,on the bed,,
 ledge,10 mm,falls in strands,yes/no,look at the slab,yes,no,"user photo 2026-11-19: the slab forms, flat on top; its first layers sag into strands, loops hang under the slab"
 ledge,20 mm,tip thickness,mm,"calipers on the slab, 1 mm from its end",strands,,
-ledge,20 mm,height of the tip bottom,mm,calipers depth rod from the bed to the bottom of the tip,on the bed,,
+ledge,20 mm,height of the tip bottom,mm,calipers depth rod from the bed to the bottom of the tip,on the bed,about 2 (loops),"user 2026-11-19: the lowest loops under the tip hang down to about 2 mm above the bed; the top of the slab at the tip is 9.36 mm above the bed (model 9.6), so the slab itself stays nearly level"
 ledge,20 mm,falls in strands,yes/no,look at the slab,yes,no,"user photo 2026-11-19: the slab forms, flat on top; its first layers sag into strands, long loops hang several mm under the slab"
