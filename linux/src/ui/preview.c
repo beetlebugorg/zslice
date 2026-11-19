@@ -1004,6 +1004,7 @@ static void on_tool_action(GSimpleAction *a, GVariant *v, gpointer data) {
     Preview *p = data;
     static const struct { const char *name; ZgTool tool; } names[] = {
         {"select", ZG_TOOL_SELECT}, {"move", ZG_TOOL_MOVE}, {"turn", ZG_TOOL_TURN}, {"measure", ZG_TOOL_MEASURE}, {"support", ZG_TOOL_SUPPORT},
+        {"grab", ZG_TOOL_GRAB},
     };
     const char *name = g_variant_get_string(v, NULL);
     for (size_t i = 0; i < G_N_ELEMENTS(names); i++)
@@ -1158,12 +1159,13 @@ static gboolean on_preview_key(GtkEventControllerKey *c, guint key, guint code, 
     /* The Support tool first: Enter, Backspace, Delete, and Esc for its
      * areas, in the 3D view. */
     if (zg_model_tool(p->model) == ZG_TOOL_SUPPORT && zg_view3d_support_key(p->view3d, key)) return TRUE;
-    /* The tools: V select, M move, T measure (a tape), S support (U is
-     * its old key). Esc clears a measure. */
+    /* The tools: V select, M move, H grab, T measure (a tape), S support
+     * (U is its old key). Esc clears a measure. */
     if (part_key(p, key, mods)) return TRUE;
     switch (key) {
     case GDK_KEY_v: case GDK_KEY_V: zg_model_set_tool(p->model, ZG_TOOL_SELECT); return TRUE;
     case GDK_KEY_m: case GDK_KEY_M: zg_model_set_tool(p->model, ZG_TOOL_MOVE); return TRUE;
+    case GDK_KEY_h: case GDK_KEY_H: zg_model_set_tool(p->model, ZG_TOOL_GRAB); return TRUE;
     case GDK_KEY_t: case GDK_KEY_T: zg_model_set_tool(p->model, ZG_TOOL_MEASURE); return TRUE;
     case GDK_KEY_s: case GDK_KEY_S: case GDK_KEY_u: case GDK_KEY_U: zg_model_set_tool(p->model, ZG_TOOL_SUPPORT); return TRUE;
     case GDK_KEY_g: case GDK_KEY_G: zg_model_set_gaps(p->model, !zg_model_gaps(p->model)); return TRUE;
@@ -1210,8 +1212,9 @@ static gboolean on_preview_key(GtkEventControllerKey *c, guint key, guint code, 
     int layer_dir = 0; /* -1 down, +1 up */
     int jump = 1;
     switch (key) {
-    case GDK_KEY_Left: case GDK_KEY_h: dir = -1; break;
-    case GDK_KEY_Right: case GDK_KEY_l: dir = 1; break;
+    /* The arrows step along the line (H is the Grab tool). */
+    case GDK_KEY_Left: dir = -1; break;
+    case GDK_KEY_Right: dir = 1; break;
     case GDK_KEY_Up: case GDK_KEY_k: case GDK_KEY_K: layer_dir = 1; break;
     case GDK_KEY_Down: case GDK_KEY_j: case GDK_KEY_J: layer_dir = -1; break;
     case GDK_KEY_Page_Up: layer_dir = 1; jump = 10; break;
@@ -1334,7 +1337,7 @@ static void on_mark_activated(ZgLayerRange *range, guint index, gpointer data);
 
 /* The glyph of a tool, in the color of the text: 0 an arrow (select), 1 a
  * cross of arrows (move), 2 a ruler (measure), 3 an arc (turn), 4 gaps,
- * 5 a check mark, 6 a shelf on posts (support). */
+ * 5 a check mark, 6 a shelf on posts (support), 7 a hand (grab). */
 static void draw_tool(GtkDrawingArea *a, cairo_t *cr, int w, int h, gpointer data) {
     int kind = GPOINTER_TO_INT(data);
     GdkRGBA c;
@@ -1402,6 +1405,24 @@ static void draw_tool(GtkDrawingArea *a, cairo_t *cr, int w, int h, gpointer dat
         }
         cairo_move_to(cr, 3.5, 15.5);
         cairo_line_to(cr, 14.5, 15.5);
+        cairo_stroke(cr);
+    } else if (kind == 7) {
+        /* Grab: a hand, three fingers and the thumb. */
+        cairo_set_line_width(cr, 1.4);
+        cairo_move_to(cr, 6, 9);
+        cairo_arc(cr, 7.2, 4.2, 1.2, G_PI, 2 * G_PI);
+        cairo_line_to(cr, 8.4, 8);
+        cairo_move_to(cr, 8.4, 7.5);
+        cairo_arc(cr, 9.6, 3.2, 1.2, G_PI, 2 * G_PI);
+        cairo_line_to(cr, 10.8, 8);
+        cairo_move_to(cr, 10.8, 7.6);
+        cairo_arc(cr, 12, 4.2, 1.2, G_PI, 2 * G_PI);
+        cairo_line_to(cr, 13.2, 10.5);
+        cairo_curve_to(cr, 13.2, 13.5, 11.2, 15.5, 8.4, 15.5);
+        cairo_curve_to(cr, 6.4, 15.5, 5.4, 14.6, 4.2, 12.9);
+        cairo_line_to(cr, 2.6, 10);
+        cairo_arc(cr, 3.6, 9.35, 1.2, 2.567, 5.707);
+        cairo_line_to(cr, 6, 10.4);
         cairo_stroke(cr);
     } else if (kind == 5) {
         /* Check: a check mark in a circle. */
@@ -1515,7 +1536,7 @@ static GtkWidget *strip_button(GtkWidget *b, int glyph_kind, const char *key, co
 }
 
 /* The tool strip at the left of the view: the tools of the mouse (Select,
- * Move, Turn, Support, Measure), then the line tools (Gaps, Check). Each button
+ * Move, Turn, Support, Grab, Measure), then the line tools (Gaps, Check). Each button
  * shows its key. */
 static GtkWidget *tool_strip(Preview *p) {
     static const struct { ZgTool tool; int glyph; const char *key, *tip; } tools[] = {
@@ -1523,6 +1544,7 @@ static GtkWidget *tool_strip(Preview *p) {
         {ZG_TOOL_MOVE, 1, "M", "Move (M): drag a part to move it, and scroll over it to turn it. The same as Ctrl in the other tools. Tab: the next part."},
         {ZG_TOOL_TURN, 3, "R", "Turn (R): click a part, then drag a ring to turn it about X, Y, or Z, in 15° steps (Shift: 5°). Keys: Left and Right (Z), Up and Down (X), Page Up and Page Down (Y)."},
         {ZG_TOOL_SUPPORT, 6, "S", "Support (S): click points on the part to draw an area, and click the first point (or press Enter) to close it. Support grows under the area, or Block keeps support out. Click an outline to select it, and drag its points. Shift: no snap."},
+        {ZG_TOOL_GRAB, 7, "H", "Grab (H): press on a part and move it as a real object. The wheel lifts it; Alt and a drag turn it (Shift: steps of 15°). Let go: with support off it falls and rests flat; with support on it keeps its turn, and support holds it."},
         {ZG_TOOL_MEASURE, 2, "T", "Measure (T): click two points of the print. The ends of the lines snap; Shift turns the snap off. Esc clears."},
     };
     GtkWidget *box = gtk_box_new(GTK_ORIENTATION_VERTICAL, 2);

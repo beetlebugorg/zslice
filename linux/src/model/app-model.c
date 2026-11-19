@@ -51,6 +51,8 @@ struct _ZgModel {
     /* A drag or a turn holds the slices: each change marks the plate, and
      * one slice starts at the release (zg_model_hold). */
     gboolean held;
+    /* A part falls, or the hand holds it (zs_app_fall_step runs). */
+    gboolean falling;
     /* The tool of the preview (ZgTool), and the points of the measure tape
      * (x, y, z each). */
     int tool;
@@ -138,6 +140,7 @@ static int request_slice(ZgModel *self) {
 }
 
 static void undo_commit(ZgModel *self);
+static void fall_check(ZgModel *self);
 
 void zg_model_hold(ZgModel *self, gboolean hold) {
     if (self->held == hold) return;
@@ -147,6 +150,8 @@ void zg_model_hold(ZgModel *self, gboolean hold) {
         zs_set_release(self->set);
         /* The changes of the drag are one step. */
         if (zs_app_history_pending(self->core)) undo_commit(self);
+        /* A turned part that cannot stand falls. */
+        fall_check(self);
     }
 }
 
@@ -259,7 +264,7 @@ static void load_group(ZgModel *self, int g) {
 
 G_DEFINE_FINAL_TYPE(ZgModel, zg_model, G_TYPE_OBJECT)
 
-enum { SIGNAL_PLATES_CHANGED, SIGNAL_PROJECT_CHANGED, SIGNAL_PROJECT_SENT, SIGNAL_CORE_EVENT, SIGNAL_SELECTION_CHANGED, SIGNAL_PICKED, SIGNAL_SETTING_CHANGED, SIGNAL_FOCUS_CHANGED, SIGNAL_SCOPE_CHANGED, SIGNAL_PRINTER_CHANGED, SIGNAL_PRINTERS_EDITED, SIGNAL_PART_SELECTED, SIGNAL_PLATE_CHANGED, SIGNAL_SEGMENT_CHANGED, SIGNAL_PROFILES_CHANGED, SIGNAL_OPEN_PROFILE, SIGNAL_GAPS_CHANGED, SIGNAL_UNDO_CHANGED, SIGNAL_PART_SCOPE_CHANGED, SIGNAL_TOOL_CHANGED, SIGNAL_MEASURE_CHANGED, N_SIGNALS };
+enum { SIGNAL_PLATES_CHANGED, SIGNAL_PROJECT_CHANGED, SIGNAL_PROJECT_SENT, SIGNAL_CORE_EVENT, SIGNAL_SELECTION_CHANGED, SIGNAL_PICKED, SIGNAL_SETTING_CHANGED, SIGNAL_FOCUS_CHANGED, SIGNAL_SCOPE_CHANGED, SIGNAL_PRINTER_CHANGED, SIGNAL_PRINTERS_EDITED, SIGNAL_PART_SELECTED, SIGNAL_PLATE_CHANGED, SIGNAL_SEGMENT_CHANGED, SIGNAL_PROFILES_CHANGED, SIGNAL_OPEN_PROFILE, SIGNAL_GAPS_CHANGED, SIGNAL_UNDO_CHANGED, SIGNAL_PART_SCOPE_CHANGED, SIGNAL_TOOL_CHANGED, SIGNAL_MEASURE_CHANGED, SIGNAL_FALL, N_SIGNALS };
 static guint signals[N_SIGNALS];
 
 typedef struct {
@@ -488,6 +493,11 @@ static void zg_model_class_init(ZgModelClass *klass) {
      * so that each editor of the setting shows the new value. */
     signals[SIGNAL_SETTING_CHANGED] = g_signal_new("setting-changed", G_TYPE_FROM_CLASS(klass),
         G_SIGNAL_RUN_LAST, 0, NULL, NULL, NULL, G_TYPE_NONE, 1, G_TYPE_STRING);
+    /* fall(gint64 part): the part cannot stand as it is now, and nothing
+     * holds it (for example, support went off under a turned part). The
+     * view shows its fall (zg_model_fall_start). */
+    signals[SIGNAL_FALL] = g_signal_new("fall", G_TYPE_FROM_CLASS(klass),
+        G_SIGNAL_RUN_LAST, 0, NULL, NULL, NULL, G_TYPE_NONE, 1, G_TYPE_INT64);
 }
 
 void zg_model_select(ZgModel *self, gint64 path) {
@@ -578,10 +588,26 @@ static gboolean fail(GError **error, int rc);
 static void plate_leave(ZgModel *self);
 static void plate_switched(ZgModel *self);
 
-static void slice_soon(ZgModel *self) {
+/* A part that cannot stand, with nothing to hold it, falls. Not during
+ * a drag or a fall: those end with this check. */
+static void fall_check(ZgModel *self) {
+    if (self->held || self->falling) return;
+    ptrdiff_t k = zs_app_fall_pending(self->core);
+    if (k >= 0) g_signal_emit(self, signals[SIGNAL_FALL], 0, (gint64)k);
+}
+
+/* A slice after a change of the plate. */
+static void slice_plate_soon(ZgModel *self) {
     int state = zs_app_state(self->core);
     if (state == ZS_STATE_SLICING) self->slice_pending = TRUE;
     else if (state != ZS_STATE_EMPTY) request_slice(self);
+}
+
+/* A slice after a change of a setting: it can take away what held a
+ * part. */
+static void slice_soon(ZgModel *self) {
+    fall_check(self);
+    slice_plate_soon(self);
 }
 
 gboolean zg_model_set_for(ZgModel *self, const char *key, const char *value, gboolean scoped, GError **error) {
@@ -1042,12 +1068,14 @@ gboolean zg_model_support_set(ZgModel *self, size_t i, const double *pts, size_t
 gboolean zg_model_support_set_kind(ZgModel *self, size_t i, int kind) {
     if (zs_app_support_area_set_kind(self->core, i, kind) != ZS_OK) return FALSE;
     support_changed(self);
+    fall_check(self);
     return TRUE;
 }
 
 gboolean zg_model_support_remove(ZgModel *self, size_t i) {
     if (zs_app_support_area_remove(self->core, i) != ZS_OK) return FALSE;
     support_changed(self);
+    fall_check(self);
     return TRUE;
 }
 
@@ -1489,7 +1517,7 @@ static void plate_changed(ZgModel *self) {
     }
     if ((size_t)self->part >= zs_app_part_count(self->core)) zg_model_select_part(self, -1);
     g_signal_emit(self, signals[SIGNAL_PLATE_CHANGED], 0);
-    if (zs_app_part_count(self->core) > 0) slice_soon(self);
+    if (zs_app_part_count(self->core) > 0) slice_plate_soon(self);
 }
 
 /* The session (zs_session_write): the plates, their scenes, the camera
@@ -1576,12 +1604,50 @@ void zg_model_part_move(ZgModel *self, size_t i, double x, double y) {
     if (zs_app_part_move(self->core, i, x, y) == ZS_OK) plate_changed(self);
 }
 
-/* Physics after a turn: the part falls over if it cannot stand (unless
- * support holds it). Returns the angle of the fall, 0 if it stands. */
-double zg_model_part_settle(ZgModel *self, size_t i) {
-    double deg = zs_app_part_settle(self->core, i);
-    if (deg > 0) plate_changed(self);
-    return deg > 0 ? deg : 0;
+gboolean zg_model_fall_start(ZgModel *self, size_t i) {
+    if (self->falling || zs_app_fall_start(self->core, i) != 1) return FALSE;
+    self->falling = TRUE;
+    return TRUE;
+}
+
+int zg_model_fall_step(ZgModel *self, double dt, double out[10]) {
+    int rc = zs_app_fall_step(self->core, dt, out);
+    if (rc == 1) return 1;
+    self->falling = FALSE;
+    if (rc == 0) {
+        /* At rest: the part is at its new place, one step of the history. */
+        plate_changed(self);
+        undo_commit(self);
+    }
+    return rc;
+}
+
+void zg_model_fall_cancel(ZgModel *self) {
+    if (!self->falling) return;
+    zs_app_fall_cancel(self->core);
+    self->falling = FALSE;
+}
+
+gboolean zg_model_falling(ZgModel *self) {
+    return self->falling;
+}
+
+gboolean zg_model_grab_start(ZgModel *self, size_t i, double x, double y, double z) {
+    if (self->falling || zs_app_grab_start(self->core, i, x, y, z) != 1) return FALSE;
+    self->falling = TRUE;
+    return TRUE;
+}
+
+void zg_model_grab_move(ZgModel *self, double x, double y, double z) {
+    zs_app_grab_move(self->core, x, y, z);
+}
+
+void zg_model_grab_turn(ZgModel *self, double ax, double ay, double az, double degrees) {
+    zs_app_grab_turn(self->core, ax, ay, az, degrees);
+}
+
+void zg_model_grab_end(ZgModel *self) {
+    zs_app_grab_end(self->core);
 }
 
 void zg_model_part_scale(ZgModel *self, size_t i, double s) {
@@ -1623,10 +1689,12 @@ static void plate_switched(ZgModel *self) {
     /* The view: the slice of the plate, or no slice yet. */
     int state = zs_app_state(self->core);
     g_signal_emit(self, signals[SIGNAL_CORE_EVENT], 0, state == ZS_STATE_DONE ? ZS_EVENT_SLICED : ZS_EVENT_CANCELED, 0.0, 0);
+    fall_check(self);
 }
 
 /* Ends the step of the changes of the active plate before a switch. */
 static void plate_leave(ZgModel *self) {
+    zg_model_fall_cancel(self);
     if (self->undo_timer) undo_commit(self);
     zg_model_select_part(self, -1);
     zg_model_select(self, -1);
@@ -1728,6 +1796,8 @@ gint64 zg_model_part_scope(ZgModel *self) {
 gboolean zg_model_part_setting_set(ZgModel *self, size_t i, const char *name, const char *value) {
     if (zs_app_part_setting_set(self->core, i, name, value) != ZS_OK) return FALSE;
     plate_changed(self);
+    /* Support off for this part: it can fall. */
+    fall_check(self);
     return TRUE;
 }
 

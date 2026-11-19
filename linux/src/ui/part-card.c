@@ -129,6 +129,13 @@ static void refresh(PartCard *c) {
     place(c);
 }
 
+/* The Turn and the Grab tool have no card: the rings and the hand are
+ * the controls there. */
+static gboolean card_wanted(PartCard *c) {
+    ZgTool t = zg_model_tool(c->model);
+    return c->part >= 0 && t != ZG_TOOL_TURN && t != ZG_TOOL_GRAB;
+}
+
 static void on_part_selected(ZgModel *model, gint64 part, gpointer data) {
     PartCard *c = data;
     if (part != c->part) {
@@ -137,8 +144,12 @@ static void on_part_selected(ZgModel *model, gint64 part, gpointer data) {
         g_clear_pointer(&c->names, g_free);
     }
     c->part = part;
-    gtk_widget_set_visible(c->card, part >= 0);
-    if (part >= 0) refresh(c);
+    gtk_widget_set_visible(c->card, card_wanted(c));
+    if (card_wanted(c)) refresh(c);
+}
+
+static void on_tool_changed(ZgModel *model, gpointer data) {
+    on_part_selected(model, ((PartCard *)data)->part, data);
 }
 
 static void on_plate_changed(ZgModel *model, gpointer data) {
@@ -402,6 +413,7 @@ GtkWidget *zg_part_card_new(ZgModel *model, GtkWidget *preview) {
     gtk_widget_set_visible(c->card, FALSE);
     g_object_set_data_full(G_OBJECT(c->card), "zg-part-card", c, card_free);
     g_signal_connect(model, "part-selected", G_CALLBACK(on_part_selected), c);
+    g_signal_connect(model, "tool-changed", G_CALLBACK(on_tool_changed), c);
     g_signal_connect(model, "plate-changed", G_CALLBACK(on_plate_changed), c);
     zg_view3d_on_frame(zg_preview_view3d(preview), c->card, place, c);
     return c->card;

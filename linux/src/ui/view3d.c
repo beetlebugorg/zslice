@@ -82,7 +82,7 @@ typedef struct {
     double menu_x, menu_y;
     double pointer_x, pointer_y;
     gboolean gaps_hook, gap_hook; /* the test hooks ran */
-    gboolean dbl_hook, ring_hook;
+    gboolean dbl_hook, ring_hook, grab_hook;
     /* The calls after each frame (zg_view3d_on_frame). */
     GArray *hooks;
     /* The rings of the Turn tool are on (the core view draws them). */
@@ -96,6 +96,16 @@ typedef struct {
     /* The Support tool, and the cursor that it set last. */
     ZgSupport *support;
     const char *cursor;
+    /* The fall of a part, or the hand that holds it: a tick on each frame
+     * runs the rigid body (zg_model_fall_step). */
+    guint fall_tick;
+    gint64 fall_part, fall_last;
+    /* The hand (the Grab tool): its height over the bed (mm), its last
+     * pointer, and the turn of an Alt drag (degrees: the sum, and the part
+     * sent). */
+    gboolean hand;
+    double hand_h, hand_px, hand_py;
+    double yaw, tilt, yaw_sent, tilt_sent;
 } View3d;
 
 typedef struct {
@@ -107,6 +117,7 @@ typedef struct {
 
 static void queue_frame(View3d *v);
 static void compute_rings(View3d *v);
+static void fall_finish(View3d *v);
 
 static gboolean retry_frame(gpointer data) {
     View3d *v = data;
@@ -242,6 +253,7 @@ static void on_gaps_changed(ZgModel *model, gpointer data) {
 
 static gboolean look_at_side(View3d *v, double x, double y);
 static void ring_drag_hook(gpointer data);
+static void grab_hook(gpointer data);
 
 /* For tests: ZSLICE_DOUBLE_CLICK=x,y is a double click at that pixel. */
 static void dbl_hook_fire(gpointer data) {
@@ -306,6 +318,10 @@ static void load_data(View3d *v) {
         zg_model_selected_part(v->model) >= 0) {
         v->ring_hook = TRUE;
         g_timeout_add_once(1000, ring_drag_hook, v);
+    }
+    if (g_getenv("ZSLICE_GRAB") && !v->grab_hook && zs_app_state(zg_model_core(v->model)) == ZS_STATE_DONE) {
+        v->grab_hook = TRUE;
+        g_timeout_add_once(1000, grab_hook, v);
     }
     if (g_getenv("ZSLICE_DOUBLE_CLICK") && !v->dbl_hook && zs_app_state(zg_model_core(v->model)) == ZS_STATE_DONE) {
         v->dbl_hook = TRUE;
@@ -472,6 +488,8 @@ static void on_unmap(GtkWidget *w, gpointer data) {
         v->idle = 0;
     }
     if (v->native) zg_native_surface_hide(v->native);
+    /* No frames: a fall ends at once. */
+    if (v->fall_tick) fall_finish(v);
 }
 
 static void on_resize(GtkDrawingArea *area, int width, int height, gpointer data) {
@@ -667,9 +685,8 @@ static void ring_release(View3d *v) {
     if (v->turn_axis < 0) return;
     v->turn_axis = -1;
     if (v->view) zs_view_ring_release(v->view);
-    /* Physics: a part that cannot stand as turned falls over. */
-    gint64 part = zg_model_selected_part(v->model);
-    if (part >= 0) zg_model_part_settle(v->model, (size_t)part);
+    /* The release slices; a part that cannot stand as turned falls
+     * (the model's "fall"). */
     zg_model_hold(v->model, FALSE);
     queue_frame(v);
     gtk_widget_queue_draw(v->area);
@@ -741,6 +758,160 @@ static void ring_drag_hook(gpointer data) {
  * right or a middle drag), and a light two-finger swipe or a pinch zooms. */
 enum { DRAG_ORBIT, DRAG_PAN, DRAG_RIGHT };
 
+/* ---- the fall of a part, and the hand ---- */
+
+static gboolean on_fall_tick(GtkWidget *w, GdkFrameClock *clock, gpointer data) {
+    View3d *v = data;
+    gint64 now = gdk_frame_clock_get_frame_time(clock);
+    double dt = v->fall_last ? (now - v->fall_last) / 1e6 : 1.0 / 60;
+    v->fall_last = now;
+    double f[10];
+    int rc = zg_model_fall_step(v->model, MIN(dt, 0.05), f);
+    /* The frame at rest sets no preview: the slice of the new place ends
+     * the preview, and a preview after it moves the new beads again. */
+    if (rc == 1 && v->view)
+        zs_view_part_preview(v->view, (int)v->fall_part, (float)f[0], (float)f[1], (float)f[2], (float)f[3], (float)f[4], (float)f[5],
+                             (float)f[6], (float)f[7], (float)f[8], (float)f[9], 0);
+    queue_frame(v);
+    if (rc == 1) return G_SOURCE_CONTINUE;
+    if (rc < 0 && v->view) zs_view_part_preview(v->view, -1, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0, 0);
+    v->fall_tick = 0;
+    v->hand = FALSE;
+    return G_SOURCE_REMOVE;
+}
+
+static void fall_run(View3d *v, gint64 part) {
+    v->fall_part = part;
+    v->fall_last = 0;
+    if (!v->fall_tick) v->fall_tick = gtk_widget_add_tick_callback(v->area, on_fall_tick, v, NULL);
+}
+
+/* With no frames (the view is hidden), the fall runs to its end at once. */
+static void fall_finish(View3d *v) {
+    if (v->fall_tick) gtk_widget_remove_tick_callback(v->area, v->fall_tick);
+    v->fall_tick = 0;
+    if (v->hand) zg_model_grab_end(v->model);
+    v->hand = FALSE;
+    double f[10];
+    for (int k = 0; k < 6000 && zg_model_fall_step(v->model, 1.0 / 60, f) == 1; k++) {}
+    if (zg_model_falling(v->model)) zg_model_fall_cancel(v->model);
+}
+
+/* A part that lost what held it (the model's "fall"). */
+static void on_fall(ZgModel *model, gint64 part, gpointer data) {
+    View3d *v = data;
+    if (!zg_model_fall_start(model, (size_t)part)) return;
+    if (v->view && !v->hidden) fall_run(v, part);
+    else fall_finish(v);
+}
+
+/* The hand moves to the pixel x, y: on the level plane at its height. */
+static void hand_move(View3d *v, double x, double y) {
+    v->hand_px = x;
+    v->hand_py = y;
+    int s = gtk_widget_get_scale_factor(v->area);
+    double bx, by;
+    if (zs_view_plane_point(v->view, (float)(x * s), (float)(y * s), v->hand_h, &bx, &by)) zg_model_grab_move(v->model, bx, by, v->hand_h);
+}
+
+static gint64 part_at(View3d *v, double x, double y, double *bx, double *by);
+
+/* A press of the Grab tool: the hand takes the part at the point under
+ * the pointer, and holds it 15 mm over that point. */
+static gboolean hand_start(View3d *v, double x, double y) {
+    if (zg_model_falling(v->model)) return FALSE;
+    gint64 part = part_at(v, x, y, NULL, NULL);
+    int s = gtk_widget_get_scale_factor(v->area);
+    double p[3];
+    if (part < 0 || !zs_view_surface_point(v->view, (float)(x * s), (float)(y * s), 0, p)) return FALSE;
+    if (!zg_model_grab_start(v->model, (size_t)part, p[0], p[1], p[2])) return FALSE;
+    v->hand = TRUE;
+    v->hand_h = p[2] + 15;
+    v->yaw = v->tilt = v->yaw_sent = v->tilt_sent = 0;
+    hand_move(v, x, y);
+    fall_run(v, part);
+    return TRUE;
+}
+
+/* Alt and a drag turn the part in the hand: half a degree for each pixel,
+ * about the vertical (x) and about the level axis of the screen (y).
+ * Shift: steps of 15 degrees. */
+static void hand_turn(View3d *v, double dx, double dy, gboolean snap) {
+    v->yaw += dx * 0.5;
+    v->tilt += dy * 0.5;
+    double yaw = (snap ? round(v->yaw / 15) * 15 : v->yaw) - v->yaw_sent;
+    double tilt = (snap ? round(v->tilt / 15) * 15 : v->tilt) - v->tilt_sent;
+    if (yaw != 0) zg_model_grab_turn(v->model, 0, 0, 1, yaw);
+    if (tilt != 0) {
+        int s = gtk_widget_get_scale_factor(v->area);
+        double ax, ay, bx, by;
+        float px = (float)(v->hand_px * s), py = (float)(v->hand_py * s);
+        if (zs_view_plane_point(v->view, px, py, v->hand_h, &ax, &ay) && zs_view_plane_point(v->view, px + 50, py, v->hand_h, &bx, &by))
+            zg_model_grab_turn(v->model, bx - ax, by - ay, 0, tilt);
+    }
+    v->yaw_sent += yaw;
+    v->tilt_sent += tilt;
+}
+
+/* The wheel lifts the part in the hand (mm), from the bed to 200 mm. */
+static void hand_lift(View3d *v, double mm) {
+    v->hand_h = CLAMP(v->hand_h + mm, 1, 200);
+    hand_move(v, v->hand_px, v->hand_py);
+}
+
+/* For tests: ZSLICE_GRAB=x0,y0,x1,y1[,turn] takes the part at the pixel
+ * x0, y0 with the Grab tool, carries it to x1, y1 in 12 steps (one each
+ * 50 ms), turns it `turn` degrees about Z on the way, and lets go. The log
+ * gives the place of each part 3 s later. */
+typedef struct {
+    View3d *v;
+    double f[5];
+    int step;
+} GrabDrag;
+
+static void grab_log(gpointer data) {
+    View3d *v = data;
+    zs_part p;
+    for (size_t i = 0; zs_app_part_get(zg_model_core(v->model), i, &p) == ZS_OK; i++)
+        g_message("grab: part %zu at %.1f, %.1f, size %.1f x %.1f x %.1f, %s", i, p.x, p.y, p.size_x, p.size_y, p.size_z,
+                  zg_model_falling(v->model) ? "falling" : "at rest");
+}
+
+static gboolean grab_step(gpointer data) {
+    GrabDrag *d = data;
+    View3d *v = d->v;
+    if (d->step == 0) {
+        zg_model_set_tool(v->model, ZG_TOOL_GRAB);
+        if (!hand_start(v, d->f[0], d->f[1])) {
+            g_message("grab: no part at %.0f, %.0f", d->f[0], d->f[1]);
+            g_free(d);
+            return G_SOURCE_REMOVE;
+        }
+    }
+    d->step++;
+    double t = d->step / 12.0;
+    if (d->f[4] != 0) hand_turn(v, d->f[4] / 12 * 2, 0, FALSE);
+    hand_move(v, d->f[0] + (d->f[2] - d->f[0]) * t, d->f[1] + (d->f[3] - d->f[1]) * t);
+    if (d->step < 12) return G_SOURCE_CONTINUE;
+    zg_model_grab_end(v->model);
+    v->hand = FALSE;
+    g_timeout_add_once(3000, grab_log, v);
+    g_free(d);
+    return G_SOURCE_REMOVE;
+}
+
+static void grab_hook(gpointer data) {
+    char **f = g_strsplit(g_getenv("ZSLICE_GRAB"), ",", 5);
+    guint n = g_strv_length(f);
+    if (n >= 4) {
+        GrabDrag *d = g_new0(GrabDrag, 1);
+        d->v = data;
+        for (guint i = 0; i < n; i++) d->f[i] = g_ascii_strtod(f[i], NULL);
+        g_timeout_add(50, grab_step, d);
+    }
+    g_strfreev(f);
+}
+
 /* The part under a pixel: the part of the path there, or the part whose
  * footprint holds the bed point there. */
 static gint64 part_at(View3d *v, double x, double y, double *bx, double *by) {
@@ -789,7 +960,7 @@ static void set_cursor(View3d *v, const char *name) {
 
 static void tool_cursor(View3d *v) {
     ZgTool t = zg_model_tool(v->model);
-    set_cursor(v, t == ZG_TOOL_MEASURE || t == ZG_TOOL_SUPPORT ? "crosshair" : NULL);
+    set_cursor(v, t == ZG_TOOL_MEASURE || t == ZG_TOOL_SUPPORT ? "crosshair" : t == ZG_TOOL_GRAB ? "grab" : NULL);
 }
 
 static void on_tool_changed(ZgModel *model, gpointer data) {
@@ -843,6 +1014,11 @@ static void on_drag_begin(GtkGestureDrag *g, double x, double y, gpointer data) 
             return;
         }
     }
+    /* The Grab tool: a press on a part takes it in the hand. */
+    if (v->view && mode0 == DRAG_ORBIT && zg_model_tool(v->model) == ZG_TOOL_GRAB && hand_start(v, x, y)) {
+        set_cursor(v, "grabbing");
+        return;
+    }
     /* The Support tool: a press on a point of an area drags it. */
     if (v->view && mode0 == DRAG_ORBIT && zg_model_tool(v->model) == ZG_TOOL_SUPPORT && zg_support_press(v->support, x, y)) {
         set_cursor(v, "grabbing");
@@ -875,6 +1051,9 @@ static void on_drag_end(GtkGestureDrag *g, double dx, double dy, gpointer data) 
     View3d *v = data;
     v->moving = -1;
     v->tape_end = -1;
+    /* The hand lets go: the part keeps its speed, falls, and rests. */
+    if (v->hand) zg_model_grab_end(v->model);
+    v->hand = FALSE;
     ring_release(v);
     zg_support_release(v->support);
     tool_cursor(v);
@@ -896,6 +1075,18 @@ static void on_drag_update(GtkGestureDrag *g, double dx, double dy, gpointer dat
         gtk_gesture_drag_get_start_point(g, &sx, &sy);
         GdkModifierType mods = gtk_event_controller_get_current_event_state(GTK_EVENT_CONTROLLER(g));
         ring_move(v, sx + dx, sy + dy, (mods & GDK_SHIFT_MASK) != 0);
+        v->drag_x = dx;
+        v->drag_y = dy;
+        return;
+    }
+    if (v->hand) {
+        GdkModifierType mods = gtk_event_controller_get_current_event_state(GTK_EVENT_CONTROLLER(g));
+        if (mods & GDK_ALT_MASK) hand_turn(v, ddx, ddy, (mods & GDK_SHIFT_MASK) != 0);
+        else {
+            double sx, sy;
+            gtk_gesture_drag_get_start_point(g, &sx, &sy);
+            hand_move(v, sx + dx, sy + dy);
+        }
         v->drag_x = dx;
         v->drag_y = dy;
         return;
@@ -974,6 +1165,13 @@ static gboolean on_scroll(GtkEventControllerScroll *c, double dx, double dy, gpo
     int scale = gtk_widget_get_scale_factor(v->area);
     /* Ctrl and the wheel: turn the selected part by 15 degrees a step. */
     GdkModifierType mods = gtk_event_controller_get_current_event_state(GTK_EVENT_CONTROLLER(c));
+    /* The hand: the wheel lifts the part (10 mm a step, 0.1 mm a pixel of
+     * a touchpad). */
+    if (v->hand) {
+        gboolean px = gtk_event_controller_scroll_get_unit(c) == GDK_SCROLL_UNIT_SURFACE;
+        hand_lift(v, -dy * (px ? 0.1 : 10));
+        return TRUE;
+    }
     gint64 part = zg_model_selected_part(v->model);
     if (((mods & GDK_CONTROL_MASK) || zg_model_tool(v->model) == ZG_TOOL_MOVE) && part >= 0) {
         zs_part p;
@@ -1486,5 +1684,6 @@ GtkWidget *zg_view3d_new(ZgModel *model) {
     g_signal_connect(model, "segment-changed", G_CALLBACK(on_segment), v);
     g_signal_connect(model, "plate-changed", G_CALLBACK(on_plate_changed), v);
     g_signal_connect(model, "focus-changed", G_CALLBACK(on_focus_changed), v);
+    g_signal_connect(model, "fall", G_CALLBACK(on_fall), v);
     return v->area;
 }

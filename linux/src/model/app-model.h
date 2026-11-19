@@ -264,8 +264,8 @@ gboolean zg_model_can_undo(ZgModel *self);
  * follows a change. */
 /* Turn: rings around the selected part turn it about X, Y, or Z.
  * Support: draw support areas on the part (ui/support-tool.h). */
-typedef enum { ZG_TOOL_SELECT = 0, ZG_TOOL_MOVE = 1, ZG_TOOL_MEASURE = 2, ZG_TOOL_TURN = 3, ZG_TOOL_SUPPORT = 4 } ZgTool;
-#define ZG_TOOL_COUNT 5
+typedef enum { ZG_TOOL_SELECT = 0, ZG_TOOL_MOVE = 1, ZG_TOOL_MEASURE = 2, ZG_TOOL_TURN = 3, ZG_TOOL_SUPPORT = 4, ZG_TOOL_GRAB = 5 } ZgTool;
+#define ZG_TOOL_COUNT 6
 ZgTool zg_model_tool(ZgModel *self);
 void zg_model_set_tool(ZgModel *self, ZgTool tool);
 /* The measure tape: up to two points (x, y, z in mm). A third point starts
@@ -354,8 +354,17 @@ const char *zg_status_text(int status);
  * hold goes back to FALSE. The changes of the hold are one history step. */
 void zg_model_hold(ZgModel *self, gboolean hold);
 
-/* Physics after a turn: part i falls over if it cannot stand (unless
- * support holds it). Returns the angle of the fall, 0 if it stands. */
-double zg_model_part_settle(ZgModel *self, size_t i);
+/* The fall of a part, and the hand (zs_app_fall_*, zs_app_grab_*): the
+ * view runs zg_model_fall_step each frame until it returns 0 (at rest: the
+ * plate slices) or -1. The model checks for a part that cannot stand after
+ * each change, and emits "fall". */
+gboolean zg_model_fall_start(ZgModel *self, size_t i);
+int zg_model_fall_step(ZgModel *self, double dt, double out[10]);
+void zg_model_fall_cancel(ZgModel *self);
+gboolean zg_model_falling(ZgModel *self);
+gboolean zg_model_grab_start(ZgModel *self, size_t i, double x, double y, double z);
+void zg_model_grab_move(ZgModel *self, double x, double y, double z);
+void zg_model_grab_turn(ZgModel *self, double ax, double ay, double az, double degrees);
+void zg_model_grab_end(ZgModel *self);
 
 G_END_DECLS
