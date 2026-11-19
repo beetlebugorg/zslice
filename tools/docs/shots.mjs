@@ -203,7 +203,7 @@ const SCENES = {
     const p = await start(srv, "3DBenchy.stl");
     await colors(p, "Feature");
     await camera(p, { fill: 0.5 });
-    await badges(p, [[560, 23, 1], [80, 240, 2], [1330, 300, 3], [330, 810, 4], [1000, 810, 5]]);
+    await badges(p, [[560, 23, "A"], [80, 240, "B"], [1330, 300, "C"], [330, 810, "D"], [1000, 810, "E"]]);
     await save(p, "start-window");
     await p.close();
   },

@@ -2,7 +2,9 @@
 
 Open a model, slice it, and print it. You need only this page.
 
-![The printer picker of the first start: the search found the Prusa MK4S, and its card draws its build volume](../img/start-picker.webp "1. At the first start, pick your printer.")
+## The steps
+
+![The printer picker of the first start: the search found the Prusa MK4S, and its card draws its build volume](../img/start-picker.webp "At the first start, pick your printer.")
 
 1. **Open zslice.** Go to [zslice.beetlebug.org](https://zslice.beetlebug.org/). The web app needs no install. For the Linux and the Mac app, see [Web, Linux, and Mac](apps.md).
 2. **Pick your printer.** The picker opens at the first start. Type a part of the name, for example "ender 3" or "mk4". Click the printer, then **Next**, then **Add printer**.
@@ -11,15 +13,19 @@ Open a model, slice it, and print it. You need only this page.
 5. **Look at the print.** Drag to turn the view. Turn the wheel to zoom. The print card at the bottom right gives the time and the plastic.
 6. **Print.** Click **Export G-code…** and copy the file to your printer. With a printer connection, the button is **Print**.
 
-![The window with numbers: 1 the header, 2 the tools, 3 the layer slider, 4 the dock, 5 the print card](../img/start-window.webp "2. The window of zslice.")
+## The window
+
+The letters in the picture name the parts of the window.
+
+![The window with letters: A the header, B the tools, C the layer slider, D the dock, E the print card](../img/start-window.webp "The window of zslice, with its parts A to E.")
 
 | | Part | What it does |
 |---|---|---|
-| 1 | The header | Open, 2D or 3D, **Search** (`/`), the printer, the filament, the quality, Printers, the settings panel (N), and the main menu. |
-| 2 | The tools | Select (V), Move (M), Turn (R), Support (S), Grab (H), Measure (T), then the colors, Gaps (G), and Check. |
-| 3 | The layer slider | The top knob is the top layer that shows. The bottom knob cuts away the layers below it. |
-| 4 | The dock | The plates, the history, and the replay of the print. |
-| 5 | The print card | The time, the plastic, and the cost. Click the time for the details. Then **Export G-code…** or **Print**. |
+| A | The header | Open, 2D or 3D, **Search** (`/`), the printer, the filament, the quality, Printers, the settings panel (N), and the main menu. |
+| B | The tools | Select (V), Move (M), Turn (R), Support (S), Grab (H), Measure (T), then the colors, Gaps (G), and Check. |
+| C | The layer slider | The top knob is the top layer that shows. The bottom knob cuts away the layers below it. |
+| D | The dock | The plates, the history, and the replay of the print. |
+| E | The print card | The time, the plastic, and the cost. Click the time for the details. Then **Export G-code…** or **Print**. |
 
 ## Read the notes
 
