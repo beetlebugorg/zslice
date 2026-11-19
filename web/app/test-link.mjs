@@ -8,7 +8,7 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
 import { createServer } from "node:http";
-import { deckAddress, fetchOptions, plainName, test, webAddress } from "./link.js";
+import { checkDeckTarget, deckAddress, fetchOptions, plainName, test, webAddress } from "./link.js";
 
 function check(ok, what) {
   if (!ok) throw new Error(`failed: ${what}`);
@@ -53,6 +53,30 @@ check(deckAddress("http://deck.local", "//evil.example/") === "", "no other host
 check(deckAddress("http://deck.local", ".evil.example/") === "", "no other name");
 check(deckAddress("http://deck.local", "/a/../../b") === "http://deck.local/a/../../b", "dots stay on the deck");
 check(!plainName("__proto__") && !plainName("constructor") && plainName("TAZ 6") && !plainName(""), "plain names");
+
+// A deck with two printers: the TAZ at its address, the X2D at
+// /printers/x2d. A send must reach the printer that the user picked.
+const deck = await listen((req, res) => {
+  res.writeHead(200, { "Content-Type": "application/json", "Access-Control-Allow-Origin": "*" });
+  res.end(JSON.stringify({ name: "Deck", kind: "printdeck", printers: [{ id: "taz", name: "TAZ", url: "" }, { id: "x2d", name: "X2D", url: "/printers/x2d" }] }));
+});
+const deckUrl = `http://127.0.0.1:${deck.address().port}`;
+// The user's X2D with the address of the deck itself (the first printer).
+let v = await checkDeckTarget({ name: "X2D", kind: "printdeck", url: deckUrl, apiKey: "k" });
+check(!v.ok, "an X2D with the address of the deck is refused");
+// The X2D at its own path.
+v = await checkDeckTarget({ name: "X2D", kind: "printdeck", url: `${deckUrl}/printers/x2d`, apiKey: "k", deckName: "X2D" });
+check(v.ok, "the X2D at /printers/x2d is fine");
+// The TAZ at the address of the deck.
+v = await checkDeckTarget({ name: "TAZ", kind: "printdeck", url: deckUrl, apiKey: "k", deckName: "TAZ" });
+check(v.ok, "the TAZ at the deck address is fine");
+// A saved deck name that the path no longer leads to.
+v = await checkDeckTarget({ name: "Mine", kind: "printdeck", url: `${deckUrl}/printers/x2d`, apiKey: "k", deckName: "TAZ" });
+check(!v.ok, "a path that leads to another deck printer is refused");
+// A path that the deck does not have.
+v = await checkDeckTarget({ name: "Mine", kind: "printdeck", url: `${deckUrl}/printers/gone`, apiKey: "k" });
+check(!v.ok, "a path that the deck does not have is refused");
+deck.close();
 
 printer.close();
 other.close();

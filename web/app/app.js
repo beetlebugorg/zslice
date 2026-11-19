@@ -1108,6 +1108,8 @@ function pairPrinter(name) {
               store.printers[label] = {
                 profile: had?.profile ?? p.profile ?? "", url: deckAddress(base, q.url), kind: "printdeck", apiKey: r.key,
                 https: deckAddress(httpsBase, q.url), color: q.color || "", label: q.label || "",
+                // The name of the printer on the deck: a send checks it.
+                deckName: q.name,
               };
             }
             saveStore();
@@ -3481,7 +3483,7 @@ async function hostPrinter() {
       const sub = typeof q.url === "string" ? q.url : "";
       // The first printer is at the base: the deck's own entry.
       if (sub === "") {
-        Object.assign(store.printers[p.name], { color: q.color || "", label: q.label || "" });
+        Object.assign(store.printers[p.name], { color: q.color || "", label: q.label || "", deckName: q.name });
         continue;
       }
       const name = q.label && q.label !== q.name ? `${q.name} (${q.label})` : q.name;
@@ -3494,6 +3496,7 @@ async function hostPrinter() {
         https: httpsBase ? httpsBase + sub : "",
         color: q.color || had?.color || "",
         label: q.label || "",
+        deckName: q.name,
       };
     }
   }

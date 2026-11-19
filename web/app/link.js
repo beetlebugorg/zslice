@@ -207,6 +207,13 @@ function explain(e, printer) {
 // Returns { ok, message }.
 export async function send(printer, filename, bytes, print) {
   if ((!printer?.url && !printer?.https) || !printer.kind || printer.kind === "none") return { ok: false, message: "This printer has no connection." };
+  // A deck that drives more printers: the address must lead to the
+  // printer that the user picked. A print once went to the first printer
+  // of a deck (the address of the deck itself) in place of another one.
+  if (printer.kind === "printdeck") {
+    const v = await checkDeckTarget(printer);
+    if (!v.ok) return v;
+  }
   // Each file that goes out has the signature of this browser (signing.js).
   bytes = await signGcode(bytes);
   const form = new FormData();
@@ -382,6 +389,38 @@ export async function detectKind(url) {
     return { ok: false, message: explain(e, p) };
   }
   return { ok: false, message: "The printer at this address is not a printdeck, an OctoPrint, or a Moonraker printer." };
+}
+
+// The deck printer that `printer` leads to: its root (the address with no
+// /printers/<id>), then the entry of /slicer/printer.json at that path.
+// Not ok when the deck drives more printers and the address leads to
+// another printer than this one: a path that the deck does not have, a
+// name of the deck that differs, or the name of the user's printer that
+// is the name of another printer of the deck. When the deck does not
+// answer the list (an older deck, or one with no CORS for this page), the
+// check passes: there is nothing to check against.
+export async function checkDeckTarget(printer) {
+  const split = (u) => {
+    const m = /^(.*?)(\/printers\/[A-Za-z0-9._~-]+)?\/?$/.exec(u || "");
+    return m ? [m[1], m[2] || ""] : [u || "", ""];
+  };
+  const [root, path] = split(printer.url || printer.https);
+  const [hroot] = split(printer.https || "");
+  const dp = await deckPrinters({ ...printer, url: root, https: hroot });
+  if (!dp.ok || dp.printers.length < 2) return { ok: true };
+  const norm = (s) => String(s ?? "").trim().toLowerCase();
+  const at = dp.printers.find((q) => (q?.url || "") === path);
+  if (!at) return { ok: false, message: `The deck has no printer at ${path || "its own address"}. Add the printer again from the deck (Printers, Add printer).` };
+  const atName = norm(at.name);
+  if (printer.deckName && norm(printer.deckName) !== atName) {
+    return { ok: false, message: `This address leads to ${at.name} on the deck, not to ${printer.deckName}. Nothing was sent. Add the printer again from the deck.` };
+  }
+  const mine = norm(printer.name);
+  const other = dp.printers.find((q) => q !== at && (norm(q?.name) === mine || norm(q?.label) === mine || mine.startsWith(norm(q?.name) + " (")));
+  if (other && atName !== mine) {
+    return { ok: false, message: `${printer.name} is at ${other.url} on the deck, but this printer's address leads to ${at.name}. Nothing was sent. Add ${printer.name} again from the deck (Printers, Add printer).` };
+  }
+  return { ok: true, model: at.model ?? "" };
 }
 
 // The printers of a printdeck (GET /slicer/printer.json with the key): a
