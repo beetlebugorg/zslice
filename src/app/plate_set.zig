@@ -212,7 +212,9 @@ pub const Set = struct {
     plates: std.ArrayList(*Plate) = .empty,
     active: usize = 0,
     next_id: u64 = 1,
-    /// The id of the plate with a held change, or 0.
+    /// The id of the plate with a held change, or 0. Only the shell thread
+    /// reads and writes it (a slice thread kicks with `worker`, which does
+    /// not read it), so a held change sets it with no lock.
     held: u64 = 0,
     /// The id of the plate that `step` slices now, or 0.
     stepping: u64 = 0,
@@ -623,6 +625,17 @@ pub const Set = struct {
     /// active plate starts its slice at once. With `hold` (a drag goes
     /// on), the slice waits until `releaseHeld`.
     pub fn changed(set: *Set, i: usize, hold: bool) error{OutOfRange}!void {
+        // A held change (each step of a drag) only marks the plate: no
+        // wait for the lock, which a slice thread can hold while a live
+        // slice of the drag starts (the Mac saw 8 ms waits for each edit).
+        // Only the calls of the shell (one thread) change the list of the
+        // plates, so this call reads it with no lock (as `appOf`).
+        if (hold) {
+            if (i >= set.plates.items.len) return error.OutOfRange;
+            const p = set.plates.items[i];
+            if (!p.cannot) set.held = p.id;
+            return;
+        }
         set.enter();
         defer set.leave();
         if (i >= set.plates.items.len) return error.OutOfRange;
@@ -654,8 +667,8 @@ pub const Set = struct {
     pub fn releaseHeld(set: *Set) void {
         set.enter();
         defer set.leave();
-        if (set.held == 0) return;
         const id = set.held;
+        if (id == 0) return;
         set.held = 0;
         for (set.plates.items) |p| {
             if (p.id == id) return set.changedLocked(p, false);
