@@ -360,8 +360,8 @@ pub const View = struct {
     /// preview under a turn (see `previewHull`): x, y, top z, bottom z,
     /// half the width.
     preview_hull: std.ArrayList([5]f32) = .empty,
-    /// The points that went to the sort of the last `previewHull` (a test
-    /// checks that the filter leaves out most of them).
+    /// The ends that the last `previewHull` kept (a test checks that the
+    /// filter leaves out most of them).
     hull_sorted: usize = 0,
     /// The draws of the frame: the part of the preview, and the beads of
     /// the draw list without it.
@@ -3012,55 +3012,62 @@ pub const View = struct {
         v.preview = .{ .part = pi, .m = m, .rot = rot, .pivot = pivot, .move = mv, .lo = lo, .hi = hi };
     }
 
-    /// Fills `preview_hull` from the beads of `preview_ranges`. The lowest
-    /// point of the turned part is the least of a linear function of the
-    /// bead corners. At one z, that least value is at a corner of the
-    /// convex hull of the bead ends at that z, so each run of beads with
-    /// the same z and height keeps only the corners of its hull. Each
-    /// kept end gets the largest half width of its run: the part never
-    /// goes into the bed, and it is at most a few hundredths of a
-    /// millimeter high.
+    /// Fills `preview_hull` from the beads of `preview_ranges`: the bead
+    /// ends that can be the lowest point of the part under a turn. The
+    /// lowest point is the least value of a linear function of the bead
+    /// corners. Each layer leaves out the ends strictly inside the
+    /// polygon of its extreme ends in 8 directions (Akl and Toussaint)
+    /// whose top and bottom are between those of the extreme ends: such
+    /// an end is never lower than one of them. (In a layer of one z and
+    /// height, that is all ends inside the polygon. A slope-smoothed bead
+    /// or a taller bead of combined infill keeps its ends.) The kept ends
+    /// get the largest half width of their layer, and `hull_eps`: the
+    /// part never goes into the bed, and it is at most a few hundredths
+    /// of a millimeter high.
     fn previewHull(v: *View) Error!void {
         v.preview_hull.clearRetainingCapacity();
         v.hull_sorted = 0;
-        var run: std.ArrayList([2]f32) = .empty;
+        var run: std.ArrayList([4]f32) = .empty;
         defer run.deinit(gpa);
-        var key = [2]f32{ std.math.nan(f32), std.math.nan(f32) };
+        const ends = v.layer_end.items;
+        var layer: usize = 0;
         var r2max: f32 = 0;
-        for (v.preview_ranges.items) |r| for (v.beads.items[r[0]..r[1]]) |b| {
-            if (b.z != key[0] or b.h != key[1]) {
-                try v.flushHull(&run, key, r2max);
-                key = .{ b.z, b.h };
+        for (v.preview_ranges.items) |r| for (r[0]..r[1]) |bi| {
+            const b = v.beads.items[bi];
+            if (layer < ends.len and bi >= ends[layer]) {
+                try v.flushHull(&run, r2max);
                 r2max = 0;
+                while (layer < ends.len and bi >= ends[layer]) layer += 1;
             }
             r2max = @max(r2max, b.w / 2);
             // A bead of a path starts at the end of the bead before it:
             // that point is in the run already.
             const items = run.items;
-            const joined = items.len > 0 and items[items.len - 1][0] == b.ax and items[items.len - 1][1] == b.ay;
-            if (!joined) run.append(gpa, .{ b.ax, b.ay }) catch return error.OutOfMemory;
-            run.append(gpa, .{ b.bx, b.by }) catch return error.OutOfMemory;
+            const bot = b.z - b.h;
+            const joined = items.len > 0 and items[items.len - 1][0] == b.ax and items[items.len - 1][1] == b.ay and items[items.len - 1][2] == b.z and items[items.len - 1][3] == bot;
+            if (!joined) run.append(gpa, .{ b.ax, b.ay, b.z, bot }) catch return error.OutOfMemory;
+            run.append(gpa, .{ b.bx, b.by, b.z, bot }) catch return error.OutOfMemory;
         };
-        try v.flushHull(&run, key, r2max);
+        try v.flushHull(&run, r2max);
     }
 
-    /// Adds the corners of the convex hull of the points of `run` (one z
-    /// and height in `key`) to `preview_hull`, and empties `run`.
     /// The distance (mm) from a side of the filter polygon of `flushHull`
     /// that counts as on it. The kept ends get it on their half width, so
     /// the part still never goes into the bed.
     const hull_eps: f32 = 1e-3;
 
-    fn flushHull(v: *View, run: *std.ArrayList([2]f32), key: [2]f32, r2: f32) Error!void {
+    /// Adds the ends of `run` (one layer: x, y, top z, bottom z) that can
+    /// be the lowest point to `preview_hull` (see `previewHull`), and
+    /// empties `run`.
+    fn flushHull(v: *View, run: *std.ArrayList([4]f32), r2: f32) Error!void {
         defer run.clearRetainingCapacity();
-        var pts = run.items;
+        const pts = run.items;
         if (pts.len == 0) return;
-        // First leave out the points strictly inside the polygon of the
-        // extreme points in 8 directions (Akl and Toussaint): they are not
-        // corners of the hull, and the sort of all points of a layer was a
-        // 60 ms stall at the pickup of a large part.
-        if (pts.len > 32) {
-            var ext: [8][2]f32 = @splat(pts[0]);
+        var keep_all = pts.len <= 32;
+        var ext: [8][4]f32 = @splat(pts[0]);
+        var top_lo: f32 = 0;
+        var bot_hi: f32 = 0;
+        if (!keep_all) {
             for (pts) |q| {
                 if (q[1] < ext[0][1]) ext[0] = q;
                 if (q[0] - q[1] > ext[1][0] - ext[1][1]) ext[1] = q;
@@ -3071,15 +3078,25 @@ pub const View = struct {
                 if (q[0] < ext[6][0]) ext[6] = q;
                 if (q[0] + q[1] < ext[7][0] + ext[7][1]) ext[7] = q;
             }
-            var kept: usize = 0;
-            for (pts) |q| {
+            top_lo = ext[0][2];
+            bot_hi = ext[0][3];
+            var edges: usize = 0;
+            for (0..8) |e| {
+                top_lo = @min(top_lo, ext[e][2]);
+                bot_hi = @max(bot_hi, ext[e][3]);
+                const a = ext[e];
+                const b = ext[(e + 1) % 8];
+                if (a[0] != b[0] or a[1] != b[1]) edges += 1;
+            }
+            if (edges < 3) keep_all = true;
+        }
+        for (pts) |q| {
+            if (!keep_all and q[2] <= top_lo and q[3] >= bot_hi) {
                 var inside = true;
-                var edges: usize = 0;
                 for (0..8) |e| {
                     const a = ext[e];
                     const b = ext[(e + 1) % 8];
                     if (a[0] == b[0] and a[1] == b[1]) continue;
-                    edges += 1;
                     // Within hull_eps of a side counts as on it: the walls
                     // of a box are on the sides only up to float noise.
                     const side = @sqrt((b[0] - a[0]) * (b[0] - a[0]) + (b[1] - a[1]) * (b[1] - a[1]));
@@ -3088,44 +3105,19 @@ pub const View = struct {
                         break;
                     }
                 }
-                if (inside and edges >= 3) continue;
-                pts[kept] = q;
-                kept += 1;
+                // The points on the polygon go too (the straight walls of
+                // a box-like part lie on it, and the least value of a
+                // linear function on a side is at one of its ends): the 8
+                // extreme points go in below.
+                if (inside) continue;
             }
-            // The points on the polygon went too (the straight walls of a
-            // box-like part lie on it, and the least value of a linear
-            // function on a side is at one of its ends): the 8 extreme
-            // points come back.
-            run.items.len = kept;
-            run.appendSlice(gpa, &ext) catch return error.OutOfMemory;
-            pts = run.items;
+            v.hull_sorted += 1;
+            v.preview_hull.append(gpa, .{ q[0], q[1], q[2], q[3], r2 + hull_eps }) catch return error.OutOfMemory;
         }
-        v.hull_sorted += pts.len;
-        std.mem.sortUnstable([2]f32, pts, {}, struct {
-            fn lt(_: void, a: [2]f32, b: [2]f32) bool {
-                return a[0] < b[0] or (a[0] == b[0] and a[1] < b[1]);
-            }
-        }.lt);
-        // Andrew's monotone chain: the lower and the upper chain, in the
-        // sorted points, with the collinear points left out.
-        var hull = &v.preview_hull;
-        for (0..2) |pass| {
-            const base = hull.items.len;
-            var k: usize = 0;
-            while (k < pts.len) : (k += 1) {
-                const p = if (pass == 0) pts[k] else pts[pts.len - 1 - k];
-                while (hull.items.len >= base + 2) {
-                    const a = hull.items[hull.items.len - 2];
-                    const b = hull.items[hull.items.len - 1];
-                    const side_of = (b[0] - a[0]) * (p[1] - a[1]) - (b[1] - a[1]) * (p[0] - a[0]);
-                    if (side_of > 0) break;
-                    _ = hull.pop();
-                }
-                hull.append(gpa, .{ p[0], p[1], key[0], key[0] - key[1], r2 + hull_eps }) catch return error.OutOfMemory;
-            }
-        }
-        // Both chains have the two end points: the copies are harmless,
-        // and a run of one point keeps it.
+        if (!keep_all) for (ext) |q| {
+            v.hull_sorted += 1;
+            v.preview_hull.append(gpa, .{ q[0], q[1], q[2], q[3], r2 + hull_eps }) catch return error.OutOfMemory;
+        };
     }
 
     /// A point of the world in the frame of the beads of the preview: the
@@ -4531,6 +4523,12 @@ test "the lowest point of a turned preview from the hull is the lowest bead corn
         b.ay = rnd.float(f32) * 40 - 20;
         b.bx = rnd.float(f32) * 40 - 20;
         b.by = rnd.float(f32) * 40 - 20;
+        // Some beads of a layer have their own z and height (slope
+        // smoothing, combined infill).
+        if (rnd.float(f32) < 0.3) {
+            b.z -= rnd.float(f32) * 0.15;
+            b.h = 0.1 + rnd.float(f32) * 0.5;
+        }
     }
     for (0..v.path_start.items.len - 1) |_| try v.path_part.append(View.gpa, 0);
     const pivot = [3]f32{ 1, 2, 3 };
@@ -4552,6 +4550,18 @@ test "the lowest point of a turned preview from the hull is the lowest bead corn
         try std.testing.expect(v.preview.?.move[2] >= want - 1e-4);
         try std.testing.expect(v.preview.?.move[2] <= want + 2 * View.hull_eps);
     }
+    // An inner bead of a layer that goes far under it (a fallen strand)
+    // is the lowest point of the part with no turn.
+    v.clearPreview();
+    const low = &v.beads.items[5];
+    low.ax = 0;
+    low.ay = 0;
+    low.bx = 0.5;
+    low.by = 0;
+    low.z = -1;
+    low.h = 0.2;
+    try v.setPartPreview(0, .{ 0, 0, 0, 1 }, pivot, .{ 0, 0, 0 }, true);
+    try std.testing.expectApproxEqAbs(@as(f32, 1.2), v.preview.?.move[2], 1e-3);
     // The hull keeps few of the 480 bead ends.
     try std.testing.expect(v.preview_hull.items.len < 300);
 }
