@@ -1838,6 +1838,9 @@ async function runMenu(act, arg) {
     case "addSupport": await client.call("markAdd", { path, seg, kind: arg }); break;
     case "removeMarks": await client.call("markRemoveNear", { path, seg }); break;
     case "removeSupport": {
+      // The support that the Select tool picked goes with it: its
+      // handles and its overhang.
+      supportTool?.clearLite();
       const r = await client.call("supportRemoveAt", { path, seg });
       if (r.error) toast(r.error);
       else supportTool?.setAreas(r.areas);

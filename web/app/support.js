@@ -619,8 +619,29 @@ export class SupportTool {
     del.title = l.tree ? "Delete this branch and the branches over it (Delete)" : "No support under this overhang (Delete)";
     del.disabled = l.tree ? !s : !l.hot;
     del.onclick = () => this.removeLite();
-    card.append(del);
+    // Another kind of support for this overhang.
+    const kinds = el("div", "sc-kinds");
+    kinds.append(el("span", "sc-info", "Make it:"));
+    for (const [kind, label, tip] of [[0, "Grid", "Grid support: lines under all of the overhang"], [1, "Tree", "Tree support: branches to points under the overhang"], [2, "Pad", "A bridge pad: one layer of support under the overhang"]]) {
+      const b = el("button", "tool sc-kind" + ((l.tree ? 1 : 0) === kind ? " checked" : ""), label);
+      b.title = tip;
+      b.disabled = !l.hot && !l.tree;
+      b.onclick = () => this.kindLite(kind);
+      kinds.append(b);
+    }
+    card.append(del, kinds);
     this.placeCard();
+  }
+
+  // The support of the Select tool becomes another kind (an area of that
+  // kind over its overhang). The pick ends: the next slice has new lines.
+  async kindLite(kind) {
+    const l = this.lite;
+    if (!l) return;
+    this.clearLite();
+    const r = await this.ctx.client.call("supportKindAt", { path: l.path, seg: l.seg, kind });
+    if (r.error) this.ctx.toast?.(r.error);
+    else this.setAreas(r.areas);
   }
 
   // The part of the card for the trees: the selected branch, "Add a

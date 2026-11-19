@@ -452,7 +452,7 @@ function tinyParts(c) {
   return out;
 }
 
-const PLATE_OPS = new Set(["fallStep", "load", "add", "plate", "projectLoad", "partAction", "partsAction", "partsMove", "partsSettingSet", "partsToPlate", "partCut", "partMove", "partFill", "partToPlate", "editAdd", "editDot", "editRemove", "partSettingSet", "partPutDown", "partTurn", "putDown", "place", "partMove", "partRotate", "partScale", "partSettle", "markAdd", "supportRemoveAt", "markRemoveNear", "markSet", "markRemove", "marksClear", "supportAreaAdd", "supportAreaSet", "supportAreaKind", "supportAreaRemove", "treeMoveNode", "treeRadius", "treeMoveBranch", "treeDelete", "treeAdd", "treeReset"]);
+const PLATE_OPS = new Set(["fallStep", "load", "add", "plate", "projectLoad", "partAction", "partsAction", "partsMove", "partsSettingSet", "partsToPlate", "partCut", "partMove", "partFill", "partToPlate", "editAdd", "editDot", "editRemove", "partSettingSet", "partPutDown", "partTurn", "putDown", "place", "partMove", "partRotate", "partScale", "partSettle", "markAdd", "supportRemoveAt", "supportKindAt", "markRemoveNear", "markSet", "markRemove", "marksClear", "supportAreaAdd", "supportAreaSet", "supportAreaKind", "supportAreaRemove", "treeMoveNode", "treeRadius", "treeMoveBranch", "treeDelete", "treeAdd", "treeReset"]);
 
 // The values of settings at z (core.valueAt): { name: entry }.
 function valuesAt({ z, names }) {
@@ -1212,6 +1212,22 @@ const ops = {
       if (core.supportAreaAdd(3, hot.pts, hot.zLo, hot.zHi) >= 0) changed = true;
     }
     if (!changed) return { error: "zslice found no overhang over this support." };
+    wantSlice();
+    return { areas: core.supportAreas() };
+  },
+
+  // Another kind of support for the overhang over a support line: an area
+  // of that kind (0 grid, 1 tree, 2 bridge pad) over the overhang, as
+  // the Support tool makes. The marks of the user near the line go.
+  supportKindAt({ path, seg, kind }) {
+    const pt = core.pathPoint(path, seg);
+    const info = core.inspect(path);
+    if (!pt || !info) return { error: "No line there." };
+    if (info.feature !== 6 && info.feature !== 7) return { error: "That line is not support." };
+    const hot = overhangOver(pt);
+    if (!hot || hot.pts.length < 3) return { error: "zslice found no overhang over this support." };
+    core.w.x.zs_app_mark_remove_near(core.app, pt[0], pt[1], pt[2], 3);
+    if (core.supportAreaAdd(kind, hot.pts, hot.zLo, hot.zHi) < 0) return { error: "The support did not change." };
     wantSlice();
     return { areas: core.supportAreas() };
   },

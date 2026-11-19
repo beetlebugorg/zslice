@@ -647,6 +647,22 @@ fn computeStyle(
                     need[i] = rest;
                 }
             };
+            // An area of a kind (grid, tree, or a pad) replaces the support
+            // of the settings in it: the pass of its kind makes the support
+            // there, and the support of the settings stays out.
+            for (marks) |m| switch (m.kind) {
+                .grid, .tree, .bridge => if (m.poly.len > 0) {
+                    const area = try polygon(am, m.poly);
+                    const range = areaLayers(layers, m);
+                    for (range[0]..range[1]) |i| {
+                        if (need[i].isEmpty()) continue;
+                        const rest = try clip.difference(gpa, need[i], area);
+                        need[i].deinit(gpa);
+                        need[i] = rest;
+                    }
+                },
+                else => {},
+            };
         }
         // A block area wins over the other marks and areas.
         for (marks) |m| if (m.kind == .block and m.poly.len > 0) {
