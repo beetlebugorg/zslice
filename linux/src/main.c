@@ -245,6 +245,7 @@ static char *session_path(void) {
 
 static void session_save(GtkWindow *w) {
     if (!model || !w) return;
+    gint64 t0 = g_get_monotonic_time();
     GtkWidget *view = zg_window_view3d(w);
     float cam[8];
     gboolean has_cam = view && zg_view3d_get_camera(view, cam);
@@ -269,14 +270,27 @@ static void session_save(GtkWindow *w) {
     }
     g_free(path);
     g_bytes_unref(b);
+    if (g_getenv("ZSLICE_BENCH")) g_message("bench: the session save, %.0f ms", (g_get_monotonic_time() - t0) / 1000.0);
 }
 
 static guint session_timer;
+/* The time of the last input to the window (g_get_monotonic_time). */
+static gint64 last_input;
 
+/* The save takes a moment of the UI thread (a 3DBenchy: about 200 ms):
+ * it waits for a pause of 2 s in the input and in the moves of the
+ * view, so no drag or orbit stops for it. */
 static gboolean on_session_timer(gpointer data) {
+    GtkWidget *view = zg_window_view3d(GTK_WINDOW(data));
+    if (g_get_monotonic_time() - last_input < 2 * G_USEC_PER_SEC || (view && zg_view3d_moving(view))) return G_SOURCE_CONTINUE;
     session_timer = 0;
     session_save(GTK_WINDOW(data));
     return G_SOURCE_REMOVE;
+}
+
+static gboolean on_any_input(GtkEventControllerLegacy *c, GdkEvent *e, gpointer data) {
+    last_input = g_get_monotonic_time();
+    return FALSE;
 }
 
 /* After each slice: a save 1.5 s later (one save for many slices). */
@@ -284,6 +298,7 @@ static void on_core_event_session(ZgModel *m, int event, double progress, int st
     if (event != ZS_EVENT_SLICED) return;
     if (session_timer) g_source_remove(session_timer);
     session_timer = g_timeout_add(1500, on_session_timer, data);
+    /* Again each 1.5 s, until a pause. */
 }
 
 static gboolean on_close_session(GtkWindow *w, gpointer data) {
@@ -341,10 +356,16 @@ static void session_hook(GtkWindow *w) {
     hooked = TRUE;
     g_signal_connect(model, "core-event", G_CALLBACK(on_core_event_session), w);
     g_signal_connect(w, "close-request", G_CALLBACK(on_close_session), NULL);
+    GtkEventController *input = gtk_event_controller_legacy_new();
+    gtk_event_controller_set_propagation_phase(input, GTK_PHASE_CAPTURE);
+    g_signal_connect(input, "event", G_CALLBACK(on_any_input), NULL);
+    gtk_widget_add_controller(GTK_WIDGET(w), input);
 }
 
 static void on_activate(GApplication *app, gpointer data) {
+    if (g_getenv("ZSLICE_BENCH")) g_message("bench: activate, %.0f ms after the start", (g_get_monotonic_time() - zg_start_us) / 1000.0);
     GtkWindow *w = main_window(GTK_APPLICATION(app));
+    if (g_getenv("ZSLICE_BENCH")) g_message("bench: the window built, %.0f ms after the start", (g_get_monotonic_time() - zg_start_us) / 1000.0);
     /* The session of the last run, before the first frame. */
     static gboolean restored_once;
     if (!restored_once) {
@@ -434,6 +455,7 @@ static gboolean test_hang(gpointer data) {
 
 int main(int argc, char **argv) {
     heartbeat = g_get_monotonic_time();
+    zg_start_us = heartbeat;
     g_timeout_add(250, on_heartbeat, NULL);
 #ifdef PR_SET_PTRACER
     /* With Yama ptrace protection, a child cannot read its parent: let the

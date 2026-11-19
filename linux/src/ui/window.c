@@ -32,6 +32,7 @@
 #include "part-card.h"
 #include "line-card.h"
 #include "shortcuts.h"
+#include "view3d.h"
 
 typedef struct {
     ZgModel *model;
@@ -506,7 +507,9 @@ static void refine_refresh(Window *w) {
 static gboolean on_refine_timer(gpointer data) {
     Window *w = data;
     w->refine_timer = 0;
+    gint64 t0 = g_get_monotonic_time();
     refine_refresh(w);
+    if (g_getenv("ZSLICE_BENCH")) g_message("bench: the refinements, %.0f ms", (g_get_monotonic_time() - t0) / 1000.0);
     return G_SOURCE_REMOVE;
 }
 
@@ -683,6 +686,7 @@ static void update(Window *w) {
         double ms = zg_model_slice_ms(w->model);
         char took[48] = "";
         if (ms > 0) {
+            if (g_getenv("ZSLICE_BENCH")) g_message("bench: a slice of %.0f ms, %.0f ms after the start", ms, (g_get_monotonic_time() - zg_start_us) / 1000.0);
             if (ms < 1000) g_snprintf(took, sizeof took, "   sliced in %.0f ms", ms);
             else g_snprintf(took, sizeof took, "   sliced in %.1f s", ms / 1000);
         }

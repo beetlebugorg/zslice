@@ -16,10 +16,17 @@
 
 GtkWidget *zg_view3d_new(ZgModel *model);
 
+/* The time of the start of the process (g_get_monotonic_time), for
+ * ZSLICE_BENCH. */
+extern gint64 zg_start_us;
+
 /* Moves the camera smoothly back to the start view (the Home key). The
  * view draws the active plate of the set only: the Vulkan backend has no
  * draws of the other plates (see zs_view_set_plates). */
 void zg_view3d_reset(GtkWidget *view);
+/* TRUE while the view moves on its own: the camera animates, a part
+ * falls, or the hand holds a part. */
+gboolean zg_view3d_moving(GtkWidget *view);
 /* The camera of the view, for a session restore (8 floats, see
  * zs_view_get_camera). Set: at once, or when the view starts. */
 gboolean zg_view3d_get_camera(GtkWidget *view, float out[8]);

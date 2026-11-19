@@ -83,6 +83,16 @@ typedef struct {
     double pointer_x, pointer_y;
     gboolean gaps_hook, gap_hook; /* the test hooks ran */
     gboolean dbl_hook, ring_hook, grab_hook;
+    /* ZSLICE_BENCH: the step (0 off, 1 wait for the first frame, 2 orbit,
+     * 3 wait for the slice of an edit, 4 done), the frames of the orbit,
+     * their draw times (ms), the time of the last tick, and the time of
+     * the edit. */
+    int bench;
+    int bench_frames, bench_busy;
+    double bench_gap_max;
+    gint64 bench_tick;
+    double bench_draw[240];
+    gint64 bench_last, bench_edit;
     /* The calls after each frame (zg_view3d_on_frame). */
     GArray *hooks;
     /* The rings of the Turn tool are on (the core view draws them). */
@@ -118,6 +128,7 @@ typedef struct {
 
 
 static void queue_frame(View3d *v);
+static void bench_start(View3d *v);
 static void compute_rings(View3d *v);
 static void fall_finish(View3d *v);
 static void set_cursor(View3d *v, const char *name);
@@ -140,10 +151,15 @@ static gboolean draw_now(gpointer data) {
         v->timed = TRUE;
     }
     if (v->view) {
+        gint64 t0 = g_get_monotonic_time();
         int rc = zs_view_draw(v->view);
+        if (v->bench == 2 && v->bench_frames < (int)G_N_ELEMENTS(v->bench_draw))
+            v->bench_draw[v->bench_frames] = (g_get_monotonic_time() - t0) / 1000.0;
+        if (v->bench == 1 && rc == ZS_OK && zs_app_state(zg_model_core(v->model)) == ZS_STATE_DONE) bench_start(v);
         /* No free image now (the compositor holds them, for example while a
          * popup covers the window): draw again a moment later. */
         if (rc == ZS_BUSY) {
+            if (v->bench == 2) v->bench_busy++;
             if (!v->retry) v->retry = g_timeout_add(16, retry_frame, v);
         } else if (rc != ZS_OK) g_warning("zslice: the 3D view did not draw: %s", zg_status_text(rc));
         /* The rings and the cards follow the camera. */
@@ -160,6 +176,62 @@ static gboolean draw_now(gpointer data) {
 
 static void queue_frame(View3d *v) {
     if (!v->idle && v->view && !v->hidden) v->idle = g_idle_add(draw_now, v);
+}
+
+/* ---- ZSLICE_BENCH=1: the times of the app ----
+ *
+ * The log gives the time from the start of the process to the first frame
+ * of the slice, the draw time of 240 frames of an orbit (2 degrees each
+ * frame) and their rate, and the time from an edit (the wall count) to the
+ * first frame of its slice. */
+
+gint64 zg_start_us;
+
+static int cmp_double(const void *a, const void *b) {
+    double x = *(const double *)a, y = *(const double *)b;
+    return x < y ? -1 : x > y;
+}
+
+static gboolean on_bench_tick(GtkWidget *w, GdkFrameClock *clock, gpointer data) {
+    View3d *v = data;
+    if (!v->view || v->bench != 2) return G_SOURCE_REMOVE;
+    if (v->bench_frames >= (int)G_N_ELEMENTS(v->bench_draw)) {
+        gint64 now = g_get_monotonic_time();
+        int n = v->bench_frames;
+        double sorted[G_N_ELEMENTS(v->bench_draw)], sum = 0;
+        memcpy(sorted, v->bench_draw, sizeof sorted);
+        qsort(sorted, (size_t)n, sizeof(double), cmp_double);
+        for (int i = 0; i < n; i++) sum += sorted[i];
+        g_message("bench: orbit of %d frames: %.1f frames a second (the longest frame %.1f ms, %d busy), draw %.2f ms on average, %.2f ms at "
+                  "the 95th percentile, %.2f ms at most",
+                  n, n / ((now - v->bench_last) / 1e6), v->bench_gap_max, v->bench_busy, sum / n, sorted[n * 95 / 100], sorted[n - 1]);
+        v->bench = 3;
+        v->bench_edit = g_get_monotonic_time();
+        zg_model_set(v->model, "project.wall_count", "3", NULL);
+        return G_SOURCE_REMOVE;
+    }
+    gint64 tick = g_get_monotonic_time();
+    if (v->bench_frames == 0) {
+        v->bench_last = tick;
+        v->bench_busy = 0;
+        v->bench_gap_max = 0;
+    } else {
+        double gap = (tick - v->bench_tick) / 1000.0;
+        if (gap > 40) g_message("bench: frame %d took %.0f ms, %.0f ms after the start", v->bench_frames, gap, (tick - zg_start_us) / 1000.0);
+        v->bench_gap_max = MAX(v->bench_gap_max, gap);
+    }
+    v->bench_tick = tick;
+    zs_view_orbit(v->view, 2, 0);
+    v->bench_frames++;
+    queue_frame(v);
+    return G_SOURCE_CONTINUE;
+}
+
+static void bench_start(View3d *v) {
+    g_message("bench: the first frame of the slice, %.0f ms after the start", (g_get_monotonic_time() - zg_start_us) / 1000.0);
+    v->bench = 2;
+    v->bench_frames = 0;
+    gtk_widget_add_tick_callback(v->area, on_bench_tick, v, NULL);
 }
 
 /* The camera animation (smooth zoom and reset): one step on each frame of
@@ -271,6 +343,10 @@ static void dbl_hook_fire(gpointer data) {
 
 static void load_data(View3d *v) {
     if (!v->view) return;
+    if (v->bench == 3 && zs_app_state(zg_model_core(v->model)) == ZS_STATE_DONE) {
+        g_message("bench: an edit to the load of its slice: %.0f ms", (g_get_monotonic_time() - v->bench_edit) / 1000.0);
+        v->bench = 4;
+    }
     zs_view_set_mode(v->view, v->mode);
     int rc = zs_view_load(v->view, zg_model_core(v->model));
     if (rc != ZS_OK) {
@@ -432,7 +508,11 @@ static void on_map(GtkWidget *w, gpointer data) {
         return;
     }
     int width = MAX(1, gtk_widget_get_width(w) * scale), height = MAX(1, gtk_widget_get_height(w) * scale);
+    gint64 t0 = g_get_monotonic_time();
     int rc = zs_view_new(zg_native_surface_handle(v->native), (uint32_t)width, (uint32_t)height, &v->view);
+    if (g_getenv("ZSLICE_BENCH"))
+        g_message("bench: the 3D view started %.0f ms after the start (Vulkan: %.0f ms)", (g_get_monotonic_time() - zg_start_us) / 1000.0,
+                  (g_get_monotonic_time() - t0) / 1000.0);
     if (rc != ZS_OK) {
         g_free(v->error);
         v->error = g_strdup_printf("the 3D view did not start: %s", zg_status_text(rc));
@@ -443,6 +523,7 @@ static void on_map(GtkWidget *w, gpointer data) {
         return;
     }
     zg_support_set_view(v->support, v->view);
+    if (g_getenv("ZSLICE_BENCH")) v->bench = 1;
     apply_dark(v);
     load_data(v);
     sync_geometry(v);
@@ -584,6 +665,11 @@ void zg_view3d_set_cut(GtkWidget *view, double x0, double y0, double x1, double 
     if (!v || !v->view) return;
     zs_view_set_cut(v->view, x0, y0, x1, y1, z);
     queue_frame(v);
+}
+
+gboolean zg_view3d_moving(GtkWidget *view) {
+    View3d *v = g_object_get_data(G_OBJECT(view), "zg-view3d");
+    return v && (v->anim || v->fall_tick || v->hand || v->bench == 2);
 }
 
 gboolean zg_view3d_path_rect(GtkWidget *view, gint64 path, double out[4]) {
