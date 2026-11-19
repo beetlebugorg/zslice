@@ -143,6 +143,63 @@ pub fn startMessage(gpa: Allocator, s: Start) Allocator.Error![]u8 {
 /// The MQTT message that asks the printer for its full status.
 pub const push_all_message = "{\"pushing\":{\"sequence_id\":\"0\",\"command\":\"pushall\"}}";
 
+/// The camera of a Bambu Lab printer in LAN mode. Both kinds use TLS with
+/// the self-signed certificate of the printer, the user "bblp", and the
+/// access code.
+pub const CameraKind = enum(u8) {
+    /// The model is not known: try `rtsps`, then `jpeg`.
+    unknown = 0,
+    /// RTSP over TLS on port 322, H.264 video, at
+    /// rtsps://bblp:<code>@<address>:322/streaming/live/1. The X1 series,
+    /// the H2 series, the P2S, and the X2D. The printer must have "LAN
+    /// Only Liveview" on.
+    rtsps = 1,
+    /// JPEG frames over TLS on port 6000 (`jpegAuth`): the P1 and A1
+    /// series.
+    jpeg = 2,
+};
+
+/// The camera kind of a printer of the library (its id, for example
+/// "bambu-lab-x2d"), from the open source LAN tools (see REFERENCES.md).
+pub fn cameraOf(model_id: []const u8) CameraKind {
+    const jpeg = [_][]const u8{ "bambu-lab-a1", "bambu-lab-a1-mini", "bambu-lab-p1p", "bambu-lab-p1s" };
+    for (jpeg) |m| if (std.mem.eql(u8, model_id, m)) return .jpeg;
+    const rtsps = [_][]const u8{ "bambu-lab-x1", "bambu-lab-x1-carbon", "bambu-lab-x1e", "bambu-lab-x2d", "bambu-lab-p2s", "bambu-lab-h2d", "bambu-lab-h2d-pro", "bambu-lab-h2s", "bambu-lab-h2c" };
+    for (rtsps) |m| if (std.mem.eql(u8, model_id, m)) return .rtsps;
+    return .unknown;
+}
+
+/// The port and the path of the camera.
+pub const rtsps_port = 322;
+pub const rtsps_path = "/streaming/live/1";
+pub const jpeg_port = 6000;
+
+/// The 80 bytes that open the JPEG stream of port 6000: four little endian
+/// u32 (0x40, 0x3000, 0, 0), then the user and the access code, each in 32
+/// bytes with zeros after it. After them, the printer sends each frame as a
+/// 16-byte header (the JPEG size as a little endian u32 first) and the
+/// JPEG.
+pub fn jpegAuth(code: []const u8) [80]u8 {
+    var out = [_]u8{0} ** 80;
+    std.mem.writeInt(u32, out[0..4], 0x40, .little);
+    std.mem.writeInt(u32, out[4..8], 0x3000, .little);
+    @memcpy(out[16..20], "bblp");
+    const n = @min(code.len, 32);
+    @memcpy(out[48..][0..n], code[0..n]);
+    return out;
+}
+
+test "bambu: the camera of each model" {
+    try std.testing.expectEqual(CameraKind.rtsps, cameraOf("bambu-lab-x2d"));
+    try std.testing.expectEqual(CameraKind.jpeg, cameraOf("bambu-lab-p1s"));
+    try std.testing.expectEqual(CameraKind.unknown, cameraOf("prusa-mk4"));
+    const a = jpegAuth("12345678");
+    try std.testing.expectEqual(@as(u32, 0x3000), std.mem.readInt(u32, a[4..8], .little));
+    try std.testing.expectEqualStrings("bblp", a[16..20]);
+    try std.testing.expectEqualStrings("12345678", a[48..56]);
+    try std.testing.expectEqual(@as(u8, 0), a[56]);
+}
+
 /// The MQTT topics of a printer.
 pub fn reportTopic(gpa: Allocator, serial: []const u8) Allocator.Error![]u8 {
     return std.fmt.allocPrint(gpa, "device/{s}/report", .{serial});

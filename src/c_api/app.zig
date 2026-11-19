@@ -290,6 +290,63 @@ export fn zs_printer_status_roll(s: ?*const PStatus, i: usize, out: ?*PrinterRol
     return ok;
 }
 
+pub const PrinterHeat = extern struct {
+    nozzle: f64,
+    nozzle_target: f64,
+    bed: f64,
+    bed_target: f64,
+    chamber: f64,
+};
+
+/// The temperatures in °C; NaN when not known.
+export fn zs_printer_status_heat(s: ?*const PStatus, out: ?*PrinterHeat) c_int {
+    const st = s orelse return @intFromEnum(Status.invalid_argument);
+    const o = out orelse return @intFromEnum(Status.invalid_argument);
+    const h = st.heat;
+    o.* = .{ .nozzle = h.nozzle, .nozzle_target = h.nozzle_target, .bed = h.bed, .bed_target = h.bed_target, .chamber = h.chamber };
+    return ok;
+}
+
+/// The paths of the camera of a printer of `kind`, one on each line, to
+/// GET once. Static. Feed the replies to zs_printer_status_feed.
+export fn zs_printer_camera_paths(kind: c_int) [*:0]const u8 {
+    const k = kindOf(kind) orelse return "";
+    return zs.app.printer_status.cameraPaths(k).ptr;
+}
+
+pub const PrinterCamera = extern struct {
+    stream: [*:0]const u8,
+    snapshot: [*:0]const u8,
+    flip_h: c_int,
+    flip_v: c_int,
+    rotation: c_int,
+};
+
+/// The camera of the printer. The strings stay valid until the next feed
+/// or the free.
+export fn zs_printer_status_camera(s: ?*const PStatus, out: ?*PrinterCamera) c_int {
+    const st = s orelse return @intFromEnum(Status.invalid_argument);
+    const o = out orelse return @intFromEnum(Status.invalid_argument);
+    const cam = st.camera;
+    o.* = .{ .stream = cam.stream.ptr, .snapshot = cam.snapshot.ptr, .flip_h = @intFromBool(cam.flip_h), .flip_v = @intFromBool(cam.flip_v), .rotation = cam.rotation };
+    return ok;
+}
+
+/// The camera kind of a Bambu Lab model of the library ("bambu-lab-x2d"):
+/// 0 not known, 1 RTSPS on port 322, 2 JPEG frames on port 6000.
+export fn zs_bambu_camera_kind(model_id: ?[*:0]const u8) c_int {
+    const m = model_id orelse return 0;
+    return @intFromEnum(zs.bambu.cameraOf(std.mem.span(m)));
+}
+
+/// The 80 bytes that open the JPEG camera stream of port 6000, for the
+/// access code `code`.
+export fn zs_bambu_camera_auth(code: ?[*:0]const u8, out: ?*[80]u8) c_int {
+    const o = out orelse return @intFromEnum(Status.invalid_argument);
+    o.* = zs.bambu.jpegAuth(std.mem.span(code orelse return @intFromEnum(Status.invalid_argument)));
+    return ok;
+}
+
 /// Applies the status of a printer to the settings of the app. what: 1
 /// the machine (the bed, the height, the nozzle, and the motion limits
 /// that the printer gives, each only when known), 2 the filament (the

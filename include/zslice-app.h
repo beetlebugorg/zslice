@@ -192,6 +192,33 @@ const char *zs_printer_status_message(const zs_printer_status *s);
 /* The state of the printer for the farm (enum zs_farm_printer_state, 0 to
  * 5), from its state text, the same for each kind of printer. */
 int zs_printer_status_farm_state(const zs_printer_status *s);
+/* The temperatures in °C, from the same replies; NaN when not known. */
+typedef struct zs_printer_heat {
+    double nozzle, nozzle_target, bed, bed_target, chamber;
+} zs_printer_heat;
+int zs_printer_status_heat(const zs_printer_status *s, zs_printer_heat *out);
+/* The camera of a printer. GET each path of zs_printer_camera_paths(kind)
+ * once (with the API key), and give each reply to zs_printer_status_feed.
+ * stream: an MJPEG stream (multipart/x-mixed-replace), or "" when the
+ * printer gives only snapshots. snapshot: one JPEG, or "". Both can be
+ * relative to the address of the printer. rotation: degrees clockwise (0,
+ * 90, 180, 270). The strings stay valid until the next feed or free. */
+typedef struct zs_printer_camera {
+    const char *stream, *snapshot;
+    int flip_h, flip_v, rotation;
+} zs_printer_camera;
+const char *zs_printer_camera_paths(int kind);
+int zs_printer_status_camera(const zs_printer_status *s, zs_printer_camera *out);
+/* The camera of a Bambu Lab printer in LAN mode, by the library id of its
+ * model ("bambu-lab-x2d"): 0 not known (try 1, then 2), 1 RTSP over TLS
+ * (rtsps://bblp:<code>@<address>:322/streaming/live/1, H.264; the X1, H2,
+ * P2S, and X2D, with "LAN Only Liveview" on), 2 JPEG frames over TLS on
+ * port 6000 (P1 and A1). Port 6000: send the 80 bytes of
+ * zs_bambu_camera_auth, then read frames: a 16-byte header (the JPEG size
+ * as a little endian uint32 first), then the JPEG. Both use the
+ * self-signed certificate of the printer. */
+int zs_bambu_camera_kind(const char *model_id);
+int zs_bambu_camera_auth(const char *code, uint8_t out[80]);
 /* Bambu Lab printers (kind 4 of zs_printer_status): no paths; give each
  * MQTT report (topic device/<serial>/report) to zs_printer_status_feed
  * with the path "report". The shell does the network: an upload of
