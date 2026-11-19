@@ -23,6 +23,8 @@ ninja -C build
 
 meson runs `build-core.sh`, which runs `zig build lib` and puts `libzslice.a`, `zslice.h`, and `zslice-app.h` in the build folder. The core is `ReleaseFast` by default. Use `meson configure build -Dcore-optimize=Debug` to debug the core.
 
+`meson test -C build` runs the tests of the network code (`tests/`). They use servers on 127.0.0.1 only: a redirect to another host gets no API key, and a Bambu Lab printer with another certificate gets no access code. The second test needs `openssl` to make its certificates, and is skipped without it.
+
 ## Use
 
 - Open a model with the Open button, Ctrl+O, or drag and drop an STL file on the window.

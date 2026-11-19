@@ -13,6 +13,7 @@
 #include "camera-view.h"
 
 #include "../net/bambu-link.h"
+#include "../net/key-header.h"
 
 #include <libsoup/soup.h>
 #include <string.h>
@@ -23,6 +24,10 @@
 #endif
 
 enum { SNAP_TILE_S = 5, SNAP_LARGE_S = 1, RETRY_S = 20, FIRST_S = 12 };
+
+/* The largest picture of an MJPEG stream (as the JPEG frames of a Bambu
+ * Lab printer, src/bambu.zig). */
+#define ZG_CAMERA_MAX_FRAME (16u << 20)
 
 typedef enum { SRC_NONE, SRC_HTTP, SRC_BAMBU } SourceKind;
 
@@ -36,8 +41,9 @@ typedef struct {
     /* HTTP. */
     char *stream, *snapshot, *api_key;
     gboolean printdeck;
-    /* Bambu Lab. */
-    char *address, *code;
+    /* Bambu Lab: the printer, its address, its access code, and the hash
+     * of its certificate ("" before the first connection). */
+    char *id, *address, *code, *pin;
     int bambu_kind; /* zs_bambu_camera_kind: 0 not known, 1 RTSPS, 2 JPEG */
     int trying;     /* the kind of this start, 1 or 2 */
     GCancellable *cancel;
@@ -63,8 +69,10 @@ static void cam_unref(Cam *c) {
     g_free(c->stream);
     g_free(c->snapshot);
     g_free(c->api_key);
+    g_free(c->id);
     g_free(c->address);
     g_free(c->code);
+    g_free(c->pin);
     g_free(c);
 }
 
@@ -211,7 +219,7 @@ static gboolean req_stale(Req *r) {
 
 static SoupMessage *get(Cam *c, const char *url) {
     SoupMessage *msg = soup_message_new("GET", url);
-    if (msg && c->api_key && c->api_key[0]) soup_message_headers_append(soup_message_get_request_headers(msg), "X-Api-Key", c->api_key);
+    zg_soup_add_key(msg, c->api_key);
     return msg;
 }
 
@@ -234,6 +242,14 @@ static void on_part_read(GObject *source, GAsyncResult *res, gpointer data) {
         return;
     }
     gsize n = g_bytes_get_size(b);
+    if (n > 0 && r->c->part->len + n > ZG_CAMERA_MAX_FRAME) {
+        /* A part with no end: a camera (or a device at its address) that
+         * sends without end would fill the memory. */
+        g_bytes_unref(b);
+        failed(r->c, "The camera sent a picture larger than 16 MB.");
+        req_free(r);
+        return;
+    }
     if (n > 0) {
         g_byte_array_append(r->c->part, g_bytes_get_data(b, NULL), (guint)n);
         g_bytes_unref(b);
@@ -430,7 +446,7 @@ static void post_frame(Cam *c, guint gen, GdkTexture *t, const char *error) {
 typedef struct {
     Cam *c;
     guint gen;
-    char *address, *code;
+    char *id, *address, *code, *pin;
     GCancellable *cancel;
     int fps_ms;
 } JpegRun;
@@ -438,7 +454,10 @@ typedef struct {
 static gpointer jpeg_thread(gpointer data) {
     JpegRun *j = data;
     GError *e = NULL;
-    GIOStream *io = zg_bambu_connect(j->address, zg_bambu_port("JPEG", 6000), j->cancel, &e);
+    char *seen = NULL;
+    GIOStream *io = zg_bambu_connect(j->address, zg_bambu_port("JPEG", 6000), j->pin, &seen, j->cancel, &e);
+    if (io && !j->pin[0]) zg_bambu_trust_first(j->id, seen);
+    g_free(seen);
     guint8 auth[80];
     if (io && zs_bambu_camera_auth(j->code, auth) == ZS_OK &&
         g_output_stream_write_all(g_io_stream_get_output_stream(io), auth, sizeof auth, NULL, j->cancel, &e)) {
@@ -485,8 +504,10 @@ static gpointer jpeg_thread(gpointer data) {
     g_clear_error(&e);
     g_clear_object(&io);
     g_object_unref(j->cancel);
+    g_free(j->id);
     g_free(j->address);
     g_free(j->code);
+    g_free(j->pin);
     cam_unref(j->c);
     g_free(j);
     return NULL;
@@ -496,8 +517,10 @@ static void start_jpeg(Cam *c) {
     JpegRun *j = g_new0(JpegRun, 1);
     j->c = cam_ref(c);
     j->gen = c->gen;
+    j->id = g_strdup(c->id);
     j->address = g_strdup(c->address);
     j->code = g_strdup(c->code);
+    j->pin = g_strdup(c->pin);
     j->cancel = g_object_ref(c->cancel);
     j->fps_ms = c->large ? 0 : 250;
     g_thread_unref(g_thread_new("zslice-bambu-cam", jpeg_thread, j));
@@ -558,6 +581,30 @@ static gboolean on_bus(GstBus *bus, GstMessage *m, gpointer data) {
     return G_SOURCE_CONTINUE;
 }
 
+typedef struct {
+    char *id, *pin;
+} RtspPin;
+
+static void rtsp_pin_free(gpointer data, GClosure *closure) {
+    RtspPin *rp = data;
+    g_free(rp->id);
+    g_free(rp->pin);
+    g_free(rp);
+}
+
+/* The self-signed certificate of the printer fails the checks of GIO, so
+ * rtspsrc asks here, before it sends the access code. The pin decides, as
+ * in zg_bambu_connect. A streaming thread. */
+static gboolean on_rtsp_cert(GstElement *src, GTlsConnection *conn, GTlsCertificate *cert, GTlsCertificateFlags errors,
+                             gpointer data) {
+    RtspPin *rp = data;
+    char *seen = zg_cert_hash(cert);
+    gboolean ok = seen && (!rp->pin[0] || g_ascii_strcasecmp(seen, rp->pin) == 0);
+    if (ok && !rp->pin[0]) zg_bambu_trust_first(rp->id, seen);
+    g_free(seen);
+    return ok;
+}
+
 static void start_rtsps(Cam *c) {
     static gboolean inited;
     if (!inited) {
@@ -565,9 +612,10 @@ static void start_rtsps(Cam *c) {
         inited = TRUE;
     }
     /* The video of a tile: 640 wide at 5 frames a second; the large view:
-     * all frames. */
+     * all frames. rtspsrc checks the certificate (tls-validation-flags of
+     * its default) and asks on_rtsp_cert. */
     char *pipe = g_strdup_printf(
-        "rtspsrc name=src protocols=tcp latency=300 tls-validation-flags=0 ! decodebin ! videoconvert ! videoscale ! "
+        "rtspsrc name=src protocols=tcp latency=300 ! decodebin ! videoconvert ! videoscale ! "
         "%s video/x-raw,format=RGBA%s ! appsink name=sink max-buffers=1 drop=true sync=false",
         c->large ? "" : "videorate drop-only=true max-rate=5 !", c->large ? "" : ",width=640,pixel-aspect-ratio=1/1");
     GError *e = NULL;
@@ -585,6 +633,10 @@ static void start_rtsps(Cam *c) {
     char *url = g_strdup_printf("rtsps://%s:%d/streaming/live/1", c->address, zg_bambu_port("RTSPS", 322));
     g_object_set(src, "location", url, "user-id", "bblp", "user-pw", c->code, NULL);
     g_free(url);
+    RtspPin *rp = g_new0(RtspPin, 1);
+    rp->id = g_strdup(c->id);
+    rp->pin = g_strdup(c->pin ? c->pin : "");
+    g_signal_connect_data(src, "accept-certificate", G_CALLBACK(on_rtsp_cert), rp, rtsp_pin_free, 0);
     gst_object_unref(src);
     GstElement *sink = gst_bin_get_by_name(GST_BIN(p), "sink");
     Sink *s = g_new0(Sink, 1);
@@ -743,12 +795,16 @@ void zg_camera_view_set_http(GtkWidget *view, const char *stream, const char *sn
 void zg_camera_view_set_bambu(GtkWidget *view, const ZgPrinter *p, const char *model_id) {
     Cam *c = cam_of(view);
     reset(c);
+    g_free(c->id);
     g_free(c->address);
     g_free(c->code);
+    g_free(c->pin);
     const char *a = p->url;
     if (strstr(a, "://")) a = strstr(a, "://") + 3;
+    c->id = g_strdup(p->id);
     c->address = g_strndup(a, strcspn(a, "/:"));
     c->code = g_strstrip(g_strdup(p->api_key));
+    c->pin = g_strdup(p->tls_pin ? p->tls_pin : "");
     c->bambu_kind = model_id ? zs_bambu_camera_kind(model_id) : 0;
     c->kind = c->address[0] && c->code[0] ? SRC_BAMBU : SRC_NONE;
     show_msg(c, c->kind == SRC_NONE ? "Set the address and the access code to see the camera." : "Connecting…");

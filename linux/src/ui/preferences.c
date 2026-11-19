@@ -373,11 +373,19 @@ static void on_test(GtkButton *b, gpointer data) {
 static void on_serial_read(GObject *source, GAsyncResult *res, gpointer data) {
     Prefs *p = data;
     GError *e = NULL;
-    char *serial = zg_bambu_read_serial_finish(res, &e);
+    char *pin = NULL;
+    char *serial = zg_bambu_read_serial_finish(res, &pin, &e);
     if (p->window) {
         gtk_widget_set_sensitive(p->find_serial, TRUE);
-        if (serial) gtk_editable_set_text(GTK_EDITABLE(p->serial), serial);
-        else {
+        if (serial) {
+            gtk_editable_set_text(GTK_EDITABLE(p->serial), serial);
+            /* The user trusts the certificate of this printer now. */
+            if (p->printer && p->printer->kind == ZG_LINK_BAMBU && pin) {
+                g_free(p->printer->tls_pin);
+                p->printer->tls_pin = g_strdup(pin);
+                zg_printers_save();
+            }
+        } else {
             char *m = g_strdup_printf("The serial number did not read (%s).", e ? e->message : "no reason");
             gtk_label_set_text(GTK_LABEL(p->result), m);
             gtk_widget_add_css_class(p->result, "error");
@@ -385,6 +393,7 @@ static void on_serial_read(GObject *source, GAsyncResult *res, gpointer data) {
         }
     }
     g_free(serial);
+    g_free(pin);
     g_clear_error(&e);
 }
 

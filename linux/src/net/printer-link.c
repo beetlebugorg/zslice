@@ -10,6 +10,7 @@
  */
 #include "printer-link.h"
 
+#include "key-header.h"
 #include "signing.h"
 
 #include <errno.h>
@@ -62,7 +63,7 @@ static SoupMessage *request(const ZgPrinter *p, const char *method, const char *
     char *url = join_url(p, path);
     SoupMessage *msg = soup_message_new(method, url);
     g_free(url);
-    if (msg && p->api_key[0]) soup_message_headers_append(soup_message_get_request_headers(msg), "X-Api-Key", p->api_key);
+    zg_soup_add_key(msg, p->api_key);
     return msg;
 }
 
@@ -775,7 +776,7 @@ static void upload_now(Upload *u) {
     SoupMessage *msg = soup_message_new_from_multipart(url, mp);
     g_free(url);
     soup_multipart_free(mp);
-    if (p->api_key[0]) soup_message_headers_append(soup_message_get_request_headers(msg), "X-Api-Key", p->api_key);
+    zg_soup_add_key(msg, p->api_key);
     Send *s = g_new0(Send, 1);
     s->done = u->done;
     s->data = u->data;

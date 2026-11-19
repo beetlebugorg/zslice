@@ -8,7 +8,12 @@
  * report has only the fields that the printer sends by itself. A printer
  * that sends only changes fills the status as they come.
  *
- * The printer has a self-signed certificate: the link accepts it, and
+ * The printer has a self-signed certificate. The link pins it: the
+ * SHA-256 hash of the certificate (ZgPrinter.tls_pin) is set at the first
+ * connection (trust on first use), or when the user reads the serial
+ * number. A later connection with another certificate stops in the TLS
+ * handshake, before the access code goes out: a device on the network
+ * that claims the address of the printer does not get the code. The link
  * reads only. See src/bambu.zig and REFERENCES.md.
  *
  * For tests, ZSLICE_BAMBU_MQTT_PORT, ZSLICE_BAMBU_JPEG_PORT, and
@@ -43,13 +48,27 @@ void zg_bambu_watch_stop(ZgBambuWatch *w);
  * ZSLICE_BAMBU_<name>_PORT. */
 int zg_bambu_port(const char *name, int port);
 
-/* A TLS connection to address:port that accepts the self-signed
- * certificate of the printer. Blocking: call it in a thread. */
-GIOStream *zg_bambu_connect(const char *address, int port, GCancellable *cancel, GError **error);
+/* A TLS connection to address:port with the self-signed certificate of
+ * the printer. `pin` (the SHA-256 hash in hex, or NULL or "" for none
+ * yet) must match the certificate, or the connection fails with
+ * G_IO_ERROR_PERMISSION_DENIED and a message for the user. `seen` (if not
+ * NULL) gets the hash of the certificate (free it), also on a failure.
+ * Blocking: call it in a thread. */
+GIOStream *zg_bambu_connect(const char *address, int port, const char *pin, char **seen, GCancellable *cancel,
+                            GError **error);
+
+/* The SHA-256 hash of a certificate (its DER bytes) in hex. */
+char *zg_cert_hash(GTlsCertificate *cert);
+
+/* The first connection to the printer `id` saw the certificate with the
+ * hash `pin`: the printer keeps it, unless it has a pin already. Any
+ * thread. */
+void zg_bambu_trust_first(const char *id, const char *pin);
 
 /* Reads the serial number of the printer from its TLS certificate on the
- * MQTT port (its common name), with no login. */
+ * MQTT port (its common name), with no login. *pin gets the hash of the
+ * certificate: the user reads the serial number to trust the printer. */
 void zg_bambu_read_serial(const char *address, GCancellable *cancel, GAsyncReadyCallback done, gpointer data);
-char *zg_bambu_read_serial_finish(GAsyncResult *res, GError **error);
+char *zg_bambu_read_serial_finish(GAsyncResult *res, char **pin, GError **error);
 
 G_END_DECLS

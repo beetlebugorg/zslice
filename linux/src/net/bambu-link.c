@@ -19,6 +19,9 @@ struct ZgBambuWatch {
     gint refs;
     GCancellable *cancel;
     char *address, *serial, *code;
+    /* The printer (for a new pin), and its pin: "" until the first
+     * connection. The thread only, after the start. */
+    char *id, *pin;
     ZgBambuFn fn;
     gpointer data;
     gboolean stopped;
@@ -35,6 +38,8 @@ static void watch_unref(ZgBambuWatch *w) {
     g_free(w->address);
     g_free(w->serial);
     g_free(w->code);
+    g_free(w->id);
+    g_free(w->pin);
     zs_printer_status_free(w->status);
     g_free(w->error);
     g_free(w);
@@ -48,22 +53,56 @@ int zg_bambu_port(const char *name, int port) {
     return n > 0 && n < 65536 ? n : port;
 }
 
-static gboolean accept_any(GTlsConnection *conn, GTlsCertificate *cert, GTlsCertificateFlags errors, gpointer data) {
-    return TRUE;
+char *zg_cert_hash(GTlsCertificate *cert) {
+    GByteArray *der = NULL;
+    if (cert) g_object_get(cert, "certificate", &der, NULL);
+    if (!der) return NULL;
+    char *hash = g_compute_checksum_for_data(G_CHECKSUM_SHA256, der->data, der->len);
+    g_byte_array_unref(der);
+    return hash;
+}
+
+/* The pin of one connection, and the hash that the printer showed. */
+typedef struct {
+    const char *pin;
+    char *seen;
+} PinCheck;
+
+/* The certificate of the printer is self-signed, so the checks of GIO
+ * fail, and GIO asks here. The pin decides. */
+static gboolean accept_pinned(GTlsConnection *conn, GTlsCertificate *cert, GTlsCertificateFlags errors, gpointer data) {
+    PinCheck *pc = data;
+    g_free(pc->seen);
+    pc->seen = zg_cert_hash(cert);
+    if (!pc->seen) return FALSE;
+    return !pc->pin || !pc->pin[0] || g_ascii_strcasecmp(pc->pin, pc->seen) == 0;
 }
 
 static void on_event(GSocketClient *client, GSocketClientEvent event, GSocketConnectable *to, GIOStream *conn, gpointer data) {
     if (event == G_SOCKET_CLIENT_TLS_HANDSHAKING && G_IS_TLS_CLIENT_CONNECTION(conn))
-        g_signal_connect(conn, "accept-certificate", G_CALLBACK(accept_any), NULL);
+        g_signal_connect(conn, "accept-certificate", G_CALLBACK(accept_pinned), data);
 }
 
-GIOStream *zg_bambu_connect(const char *address, int port, GCancellable *cancel, GError **error) {
+GIOStream *zg_bambu_connect(const char *address, int port, const char *pin, char **seen, GCancellable *cancel,
+                            GError **error) {
+    PinCheck pc = {.pin = pin, .seen = NULL};
     GSocketClient *c = g_socket_client_new();
     g_socket_client_set_tls(c, TRUE);
     g_socket_client_set_timeout(c, 10);
-    g_signal_connect(c, "event", G_CALLBACK(on_event), NULL);
-    GSocketConnection *conn = g_socket_client_connect_to_host(c, address, (guint16)port, cancel, error);
+    g_signal_connect(c, "event", G_CALLBACK(on_event), &pc);
+    GError *e = NULL;
+    GSocketConnection *conn = g_socket_client_connect_to_host(c, address, (guint16)port, cancel, &e);
     g_object_unref(c);
+    if (!conn && pc.seen && pin && pin[0] && g_ascii_strcasecmp(pin, pc.seen) != 0) {
+        g_clear_error(&e);
+        g_set_error_literal(&e, G_IO_ERROR, G_IO_ERROR_PERMISSION_DENIED,
+                            "The certificate of the printer is not the one that zslice trusts. A device on the network "
+                            "can claim to be the printer, so zslice sent no access code. If the printer was reset, "
+                            "read its serial number again in Settings to trust it.");
+    }
+    if (e) g_propagate_error(error, e);
+    if (seen) *seen = pc.seen;
+    else g_free(pc.seen);
     return conn ? G_IO_STREAM(conn) : NULL;
 }
 
@@ -153,6 +192,34 @@ static void post(ZgBambuWatch *w, GBytes *payload, const char *error) {
     g_idle_add(on_post, p);
 }
 
+typedef struct {
+    char *id, *pin;
+} PinPost;
+
+/* The first connection to a printer with no pin: the printer keeps the
+ * hash of its certificate (trust on first use). */
+static gboolean on_pin(gpointer data) {
+    PinPost *pp = data;
+    ZgPrinter *p = zg_printers_find(pp->id);
+    if (p && p->kind == ZG_LINK_BAMBU && !p->tls_pin[0]) {
+        g_free(p->tls_pin);
+        p->tls_pin = g_strdup(pp->pin);
+        zg_printers_save();
+    }
+    g_free(pp->id);
+    g_free(pp->pin);
+    g_free(pp);
+    return G_SOURCE_REMOVE;
+}
+
+void zg_bambu_trust_first(const char *id, const char *pin) {
+    if (!id || !pin || !pin[0]) return;
+    PinPost *pp = g_new0(PinPost, 1);
+    pp->id = g_strdup(id);
+    pp->pin = g_strdup(pin);
+    g_idle_add(on_pin, pp);
+}
+
 /* ---- the thread ---- */
 
 static const char *connack_text(guint8 rc) {
@@ -175,7 +242,15 @@ static gpointer run(gpointer data) {
         g_clear_error(&error);
         g_clear_pointer(&r, zs_mqtt_reader_free);
         r = zs_mqtt_reader_new();
-        io = zg_bambu_connect(w->address, port, w->cancel, &error);
+        char *seen = NULL;
+        io = zg_bambu_connect(w->address, port, w->pin, &seen, w->cancel, &error);
+        if (io && seen && !w->pin[0]) {
+            /* The first connection: the next ones need this certificate. */
+            g_free(w->pin);
+            w->pin = g_strdup(seen);
+            zg_bambu_trust_first(w->id, seen);
+        }
+        g_free(seen);
         if (!io) goto retry;
         GSocket *sock = g_socket_connection_get_socket(G_SOCKET_CONNECTION(io));
         g_socket_set_timeout(sock, READ_TIMEOUT_S);
@@ -271,6 +346,8 @@ ZgBambuWatch *zg_bambu_watch(const ZgPrinter *p, ZgBambuFn fn, gpointer data) {
     w->address = g_strndup(a, strcspn(a, "/:"));
     w->serial = g_strstrip(g_strdup(p->serial));
     w->code = g_strstrip(g_strdup(p->api_key));
+    w->id = g_strdup(p->id);
+    w->pin = g_strdup(p->tls_pin ? p->tls_pin : "");
     w->fn = fn;
     w->data = data;
     w->status = zs_printer_status_new();
@@ -293,8 +370,11 @@ void zg_bambu_watch_stop(ZgBambuWatch *w) {
 static void serial_thread(GTask *task, gpointer source, gpointer data, GCancellable *cancel) {
     const char *address = data;
     GError *e = NULL;
-    GIOStream *io = zg_bambu_connect(address, zg_bambu_port("MQTT", 8883), cancel, &e);
+    char *pin = NULL;
+    /* No pin: the user reads the serial number to trust this printer. */
+    GIOStream *io = zg_bambu_connect(address, zg_bambu_port("MQTT", 8883), NULL, &pin, cancel, &e);
     if (!io) {
+        g_free(pin);
         g_task_return_error(task, e);
         return;
     }
@@ -309,9 +389,18 @@ static void serial_thread(GTask *task, gpointer source, gpointer data, GCancella
     }
     g_io_stream_close(io, NULL, NULL);
     g_object_unref(io);
-    if (serial && serial[0]) g_task_return_pointer(task, serial, g_free);
-    else {
+    /* The serial number goes in an MQTT topic and a file name: letters and
+     * digits only. */
+    gboolean ok = serial && serial[0] && pin;
+    for (const char *s = serial; ok && *s; s++) ok = g_ascii_isalnum(*s);
+    if (ok) {
+        char **pair = g_new0(char *, 3);
+        pair[0] = serial;
+        pair[1] = pin;
+        g_task_return_pointer(task, pair, (GDestroyNotify)g_strfreev);
+    } else {
         g_free(serial);
+        g_free(pin);
         g_task_return_new_error(task, G_IO_ERROR, G_IO_ERROR_FAILED, "The certificate of the printer has no serial number.");
     }
 }
@@ -325,7 +414,16 @@ void zg_bambu_read_serial(const char *address, GCancellable *cancel, GAsyncReady
     g_object_unref(t);
 }
 
-char *zg_bambu_read_serial_finish(GAsyncResult *res, GError **error) {
-    return g_task_propagate_pointer(G_TASK(res), error);
+char *zg_bambu_read_serial_finish(GAsyncResult *res, char **pin, GError **error) {
+    char **pair = g_task_propagate_pointer(G_TASK(res), error);
+    if (!pair) {
+        if (pin) *pin = NULL;
+        return NULL;
+    }
+    char *serial = pair[0];
+    if (pin) *pin = pair[1];
+    else g_free(pair[1]);
+    g_free(pair);
+    return serial;
 }
 

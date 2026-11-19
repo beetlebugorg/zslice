@@ -37,6 +37,8 @@ A printdeck that drives more than one printer lists them after you allow zslice.
 3. Enter its IP address. Click **Read** to get the serial number from the printer, or type it from the screen of the printer.
 4. Enter the access code from the screen of the printer. zslice keeps it in `~/.config/zslice/bambu/<serial>.code`, readable only by you.
 
+The printer has a certificate of its own. zslice trusts the certificate that it sees at the first connection, or when you click **Read**. Later, zslice sends the access code only to a printer with the same certificate: a device on the network that claims the address of the printer gets no code. After a reset of the printer, its certificate can change: click **Read** again to trust the new one.
+
 zslice only reads a Bambu Lab printer: its status over MQTT, and its camera. It sends no command. The X1, H2, P2S, and X2D printers send their camera over RTSP, which needs GStreamer; the P1 and A1 printers send JPEG frames.
 
 ## The Printers page
