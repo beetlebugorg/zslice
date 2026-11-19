@@ -15,6 +15,57 @@ import { openMenuAt } from "./menus.js";
 import { revertible } from "./format.js";
 
 // The look of each kind of step (history.c, looks).
+// The glyph of a kind, in white, in a box of 20 around the center (the
+// same drawing as draw_glyph in linux/src/ui/history.c).
+const NS = "http://www.w3.org/2000/svg";
+function arrowHead(x, y, ang, s) {
+  const a = (t) => `${(x + s * Math.cos(t)).toFixed(2)} ${(y + s * Math.sin(t)).toFixed(2)}`;
+  return `M${a(ang + 2.5)}L${x} ${y}L${a(ang - 2.5)}`;
+}
+function glyphMarkup(k) {
+  const line = (d) => `<path d="${d}" fill="none" stroke="#fff" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/>`;
+  const fill = (d) => `<path d="${d}" fill="#fff"/>`;
+  switch (k) {
+    case "walls": return line("M-5.5 -5.5h11v11h-11zM-2.5 -2.5h5v5h-5z");
+    case "infill": {
+      let d = "";
+      for (const o of [-4.5, 0, 4.5]) d += `M${-6 + o} -6L${6 + o} 6M${6 + o} -6L${-6 + o} 6`;
+      return `<clipPath id="ic-clip"><circle r="5.8"/></clipPath><path d="${d}" stroke="#fff" stroke-width="1.3" stroke-linecap="round" clip-path="url(#ic-clip)"/>`;
+    }
+    case "surface": return line([-1, 0, 1].map((o) => `M${-6 + o * 4} 4L${1 + o * 4} -4`).join(""));
+    case "speed": return line("M-5 -4.5L-0.5 0L-5 4.5M0 -4.5L4.5 0L0 4.5");
+    case "heat": return line("M0 -6V2M2.5 -4H4M2.5 -1H4") + `<circle cy="3.5" r="2.6" fill="#fff"/>`;
+    case "support": return line("M-6 -4.5H6M-4 -4.5V5.5M0 -4.5V5.5M4 -4.5V5.5");
+    case "layers": return line("M-5.5 -3.8H5.5M-5.5 0H5.5M-5.5 3.8H5.5");
+    case "move": return line("M-6 0H6M0 -6V6" + arrowHead(6, 0, 0, 2.4) + arrowHead(-6, 0, Math.PI, 2.4) + arrowHead(0, 6, Math.PI / 2, 2.4) + arrowHead(0, -6, -Math.PI / 2, 2.4));
+    case "rotate": return line("M0 -5A5 5 0 1 1 -5 0" + arrowHead(-5, 0, Math.PI / 2, 2.6));
+    case "scale": return line("M-5 5L5 -5M1 -5H5V-1M-5 1V5H-1");
+    case "add": return line("M-5 0H5M0 -5V5");
+    case "remove": return line("M-5 0H5");
+    case "quality": {
+      let d = "";
+      for (let i = 0; i < 10; i++) {
+        const a = -Math.PI / 2 + (i * Math.PI) / 5, r = i % 2 ? 2.6 : 6;
+        d += `${i ? "L" : "M"}${(r * Math.cos(a)).toFixed(2)} ${(r * Math.sin(a)).toFixed(2)}`;
+      }
+      return fill(d + "Z");
+    }
+    case "printer": return line("M-6 -2h12v6h-12zM-3.5 -6h7v4h-7zM-2 5.5H2");
+    case "start": return line("M-3 6V-6L5 -3.5L-3 -1");
+    default: return `<circle r="2" fill="#fff"/>`;
+  }
+}
+// An <svg> with the glyph of kind `k`, `size` pixels wide.
+export function glyph(k, size) {
+  const s = document.createElementNS(NS, "svg");
+  s.setAttribute("viewBox", "-10 -10 20 20");
+  s.setAttribute("width", size);
+  s.setAttribute("height", size);
+  s.setAttribute("aria-hidden", "true");
+  s.innerHTML = glyphMarkup(k);
+  return s;
+}
+
 const LOOKS = {
   walls: ["#d9480f", "Walls"],
   infill: ["#2b8a3e", "Infill"],
@@ -97,6 +148,7 @@ export class HistoryPage {
         const [color, label] = LOOKS[s.kind] ?? LOOKS.other;
         const m = el("button", "tl-mark" + (i === now ? " now" : i > now ? " later" : ""));
         m.style.setProperty("--kind", color);
+        m.append(glyph(i === 0 ? "start" : (LOOKS[s.kind] ? s.kind : "other"), 12));
         const words = s.text.split("\n").filter(Boolean).map((w) => w.replace("\t", ": ")).join("\n");
         m.title = `${i === 0 ? "Start" : `Change ${i}`} · ${label}${words ? "\n" + words : ""}`;
         m.onclick = () => this.go(i);
