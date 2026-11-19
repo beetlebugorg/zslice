@@ -34,8 +34,8 @@ struct SearchOverlay: View {
     @State private var query = ""
     @State private var index = 0
     @State private var drag: CGSize = .zero
-    @AppStorage("search.x") private var placeX = 0.0
-    @AppStorage("search.y") private var placeY = 0.0
+    @AppStorage("search.x", store: prefs) private var placeX = 0.0
+    @AppStorage("search.y", store: prefs) private var placeY = 0.0
     @FocusState private var fieldFocus: Bool
 
     private static let maxSettings = 14

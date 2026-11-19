@@ -114,8 +114,8 @@ final class Workspace {
     @ObservationIgnored var refineApplied = false
     @ObservationIgnored var issuesTask: Task<Void, Never>?
     /// The card of the Support tool shows (S again hides it; kept).
-    var supportPaneOpen = UserDefaults.standard.object(forKey: "supportPane") as? Bool ?? true {
-        didSet { UserDefaults.standard.set(supportPaneOpen, forKey: "supportPane") }
+    var supportPaneOpen = prefs.object(forKey: "supportPane") as? Bool ?? true {
+        didSet { prefs.set(supportPaneOpen, forKey: "supportPane") }
     }
     var selectedPart: Int?
     @ObservationIgnored var partDrag: PartDrag?
@@ -165,16 +165,16 @@ final class Workspace {
     var cardAt = CGPoint(x: 120, y: 120)
     var cardMoved: CGPoint?
     /// "Fade the others": the app keeps the choice.
-    var isolate = UserDefaults.standard.bool(forKey: "isolate") {
-        didSet { UserDefaults.standard.set(isolate, forKey: "isolate") }
+    var isolate = prefs.bool(forKey: "isolate") {
+        didSet { prefs.set(isolate, forKey: "isolate") }
     }
 
     /// The page of the view: 3D, or one layer from the top. The app keeps
     /// the choice for the next window.
-    var page: MetalSliceView.Page = MetalSliceView.Page(rawValue: UserDefaults.standard.string(forKey: "view") ?? "") ?? .threeD {
+    var page: MetalSliceView.Page = MetalSliceView.Page(rawValue: prefs.string(forKey: "view") ?? "") ?? .threeD {
         didSet {
             canvas.page = page
-            UserDefaults.standard.set(page.rawValue, forKey: "view")
+            prefs.set(page.rawValue, forKey: "view")
             SessionStore.shared.changedView()
         }
     }
@@ -569,6 +569,20 @@ final class Workspace {
                 try? await Task.sleep(for: .seconds(3))
                 watch.invalidate()
                 NSLog("zslice reslice: longest main thread wait %.0f ms", worst * 1000)
+            }
+        }
+        // ZSLICE_BED_BELOW=path.png: the view from under the bed (the bed
+        // model draws see-through from there), 2 s after the start.
+        if let path = env["ZSLICE_BED_BELOW"], let v = canvas.view {
+            Task { @MainActor in
+                try? await Task.sleep(for: .seconds(2))
+                zs_view_orbit(v, 30, -160)
+                try? await Task.sleep(for: .milliseconds(300))
+                guard let img = await canvas.captureWindow(),
+                      let d = CGImageDestinationCreateWithURL(URL(fileURLWithPath: path) as CFURL, "public.png" as CFString, 1, nil) else { return }
+                CGImageDestinationAddImage(d, img, nil)
+                CGImageDestinationFinalize(d)
+                NSLog("zslice bed below: done")
             }
         }
         // ZSLICE_PAGE_FLIP=dir: a turn, then 2D and back to 3D, then a turn;
@@ -1073,9 +1087,9 @@ final class Workspace {
     // MARK: - the settings drawer
 
     /// The drawer shows. The app keeps the choice for the next window.
-    var showSettings = UserDefaults.standard.bool(forKey: "panel") {
+    var showSettings = prefs.bool(forKey: "panel") {
         didSet {
-            UserDefaults.standard.set(showSettings, forKey: "panel")
+            prefs.set(showSettings, forKey: "panel")
             if !showSettings { focus(0, firstLayer: false) }
         }
     }
@@ -1127,9 +1141,9 @@ final class Workspace {
     static let colorModes = ["Filament", "Line Type", "Speed", "Flow", "Layer Time", "Line Width"]
     static let legendUnits = ["", "", "mm/s", "mm³/s", "s", "mm"]
 
-    var colorMode = UserDefaults.standard.integer(forKey: "mode") {
+    var colorMode = prefs.integer(forKey: "mode") {
         didSet {
-            UserDefaults.standard.set(colorMode, forKey: "mode")
+            prefs.set(colorMode, forKey: "mode")
             applyMode()
         }
     }

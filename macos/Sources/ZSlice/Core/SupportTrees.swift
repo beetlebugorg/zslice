@@ -486,12 +486,10 @@ extension Workspace {
             text += treeFoot == nil ? "Click a spot on the bed for the foot of the branch. Esc stops."
                 : "Now click the place on the part that needs support. Esc stops."
         } else if let s = treeSelection {
-            let n = branch(s.part, s.index).count
-            text += String(format: "Branch: %d node%@. This node: %.1f mm wide (at least %.1f mm), z %.2f mm. ", n, n == 1 ? "" : "s",
-                           2 * s.node.r, 2 * s.node.r_min, s.node.z)
-            text += "Drag a dot to move it, the ring to make it wider or narrower, a segment to move the branch. Delete removes the branch."
+            text += String(format: "%.1f mm wide (at least %.1f), z %.1f mm. ", 2 * s.node.r, 2 * s.node.r_min, s.node.z)
+            text += "Drag the dot, the ring, or the branch; Delete removes it."
         } else {
-            text += "Click a dot or a segment of a tree to select its branch."
+            text += "Click a tree to edit it."
         }
         return text
     }

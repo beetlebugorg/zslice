@@ -45,8 +45,13 @@ final class FrameRenderer {
     private let boxBlend: MTLRenderPipelineState
     private let grid: MTLRenderPipelineState
     private let bed: MTLRenderPipelineState
+    /// The bed model, depth only: the first of its two passes.
+    private let bedDepth: MTLRenderPipelineState
     private let depthWrite: MTLDepthStencilState
     private let depthRead: MTLDepthStencilState
+    /// Only where the depth is the same, with no write: the color pass of
+    /// the bed model.
+    private let depthEqual: MTLDepthStencilState
     private let sampler: MTLSamplerState
     static let sampleCount = 4
     static let colorFormat = MTLPixelFormat.bgra8Unorm
@@ -88,13 +93,14 @@ final class FrameRenderer {
             }
             Self.shared = lib
             library = lib
-            func pipeline(_ vertex: String, _ fragment: String, blend: Bool) throws -> MTLRenderPipelineState {
+            func pipeline(_ vertex: String, _ fragment: String, blend: Bool, color: Bool = true) throws -> MTLRenderPipelineState {
                 let d = MTLRenderPipelineDescriptor()
                 d.vertexFunction = lib.makeFunction(name: vertex)
                 d.fragmentFunction = lib.makeFunction(name: fragment)
                 d.rasterSampleCount = Self.sampleCount
                 d.colorAttachments[0].pixelFormat = Self.colorFormat
                 d.depthAttachmentPixelFormat = .depth32Float
+                if !color { d.colorAttachments[0].writeMask = [] }
                 if blend {
                     let c = d.colorAttachments[0]!
                     c.isBlendingEnabled = true
@@ -113,6 +119,7 @@ final class FrameRenderer {
             boxBlend = try pipeline("box_vertex", "box_fragment_focus", blend: true)
             grid = try pipeline("grid_vertex", "grid_fragment", blend: false)
             bed = try pipeline("bed_vertex", "bed_fragment", blend: true)
+            bedDepth = try pipeline("bed_vertex", "bed_fragment", blend: false, color: false)
         } catch {
             NSLog("zslice: the Metal shaders did not compile: \(error)")
             return nil
@@ -123,6 +130,8 @@ final class FrameRenderer {
         depthWrite = device.makeDepthStencilState(descriptor: ds)!
         ds.isDepthWriteEnabled = false
         depthRead = device.makeDepthStencilState(descriptor: ds)!
+        ds.depthCompareFunction = .equal
+        depthEqual = device.makeDepthStencilState(descriptor: ds)!
         let sd = MTLSamplerDescriptor()
         sd.minFilter = .linear
         sd.magFilter = .linear
@@ -412,10 +421,14 @@ final class FrameRenderer {
         }
 
         /// The bed model, after the beads: blended, with a depth offset so
-        /// the grid lines stay in front.
+        /// the grid lines stay in front. Two passes, so each pixel blends
+        /// once, with the nearest face of the bed model (web/app/gl.js):
+        /// first the depth only, then the color where the depth is that
+        /// depth. In one pass, the see-through faces (alpha 0.3) over each
+        /// other added up in the order of the triangles, and the triangles
+        /// of the mesh showed.
         func drawBed(mvp: (Float, Float, Float, Float, Float, Float, Float, Float, Float, Float, Float, Float, Float, Float, Float, Float)) {
             guard f.bed_vertices > 0, r.bedVertexCount > 0, let verts = r.bedVerts else { return }
-            enc.setRenderPipelineState(r.bed)
             var m = mvp
             enc.setVertexBuffer(verts, offset: 0, index: 0)
             enc.setVertexBytes(&m, length: 64, index: 1)
@@ -424,7 +437,13 @@ final class FrameRenderer {
             enc.setFragmentTexture(r.bedTexture, index: 0)
             enc.setFragmentSamplerState(r.sampler, index: 0)
             enc.setDepthBias(4, slopeScale: 2, clamp: 0)
-            enc.drawPrimitives(type: .triangle, vertexStart: 0, vertexCount: min(Int(f.bed_vertices), r.bedVertexCount))
+            let count = min(Int(f.bed_vertices), r.bedVertexCount)
+            enc.setRenderPipelineState(r.bedDepth)
+            enc.drawPrimitives(type: .triangle, vertexStart: 0, vertexCount: count)
+            enc.setRenderPipelineState(r.bed)
+            enc.setDepthStencilState(r.depthEqual)
+            enc.drawPrimitives(type: .triangle, vertexStart: 0, vertexCount: count)
+            enc.setDepthStencilState(r.depthWrite)
             enc.setDepthBias(0, slopeScale: 0, clamp: 0)
         }
 

@@ -77,3 +77,14 @@ enum SavedSettings {
         }
     }
 }
+
+/// The defaults of the window state (the page, the color mode, the panes).
+/// A test run (ZSLICE_FRESH) has its own domain, empty at each start, so it
+/// never changes the state of the app of the user.
+// UserDefaults is thread safe.
+nonisolated(unsafe) let prefs: UserDefaults = {
+    guard ProcessInfo.processInfo.environment["ZSLICE_FRESH"] != nil else { return .standard }
+    let name = "org.beetlebug.zslice.test"
+    UserDefaults.standard.removePersistentDomain(forName: name)
+    return UserDefaults(suiteName: name) ?? .standard
+}()

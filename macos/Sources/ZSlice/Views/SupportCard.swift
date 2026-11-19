@@ -24,10 +24,13 @@ struct SupportCard: View {
             .help("Grid or Tree: support under all of the part in the area that faces down, also where the support angle gives none. Block: no support there.")
             Toggle("See through the support", isOn: Bindable(workspace).supportSee)
                 .help("The support lines are faint, so the outlines of the areas show through them")
-            Text(info(area))
-                .font(.callout)
-                .foregroundStyle(.secondary)
-                .fixedSize(horizontal: false, vertical: true)
+            // The help of the trees replaces it while a tree is in use.
+            if area != nil || !(workspace.treeAdding || workspace.treeSelection != nil) {
+                Text(info(area))
+                    .font(.callout)
+                    .foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
             if area != nil {
                 Button("Delete Area", role: .destructive) { workspace.removeSupportArea() }
                     .help("Delete this area (Delete)")
@@ -78,7 +81,7 @@ struct SupportCard: View {
         }
         let n = workspace.supportDraft.count
         switch n {
-        case 0: return "Click points on the part to draw an area. The points snap to the lines; Shift: no snap. Click an outline to select its area."
+        case 0: return "Click a lit overhang to support it. Option-click: draw an area."
         case 1, 2: return "\(n) point\(n == 1 ? "" : "s"). Click more points (at least 3). Delete removes the last one; Esc stops."
         default: return "\(n) points. Click the first point, or press Return, to close the area."
         }
