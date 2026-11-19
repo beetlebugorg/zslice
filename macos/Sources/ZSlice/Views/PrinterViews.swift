@@ -255,6 +255,32 @@ struct PrinterPicker: View {
     }
 }
 
+// To port from the Linux app (linux/src/ui/pair-dialog.c, farm-page.c):
+// the key in one step, and the printers of a deck.
+//
+// 1. After the picker adds a printdeck or an OctoPrint printer with an
+//    address and no key, start PrinterLink.requestKey at once. Show one
+//    step: "Tap Allow on the screen of the printdeck" (with the key id of
+//    the signatures), a countdown of 120 s, and Cancel. On Deny or the
+//    timeout, show the reason and Try again.
+// 2. After Allow, store the key where the app keeps keys today. For a
+//    printdeck, GET /slicer/printer.json with X-Api-Key. A deck with two
+//    or more printers lists them in "printers": { id, name, label, color,
+//    kind ("fdm" or "resin"), url ("" for the first printer,
+//    "/printers/<id>" for another) }. Show a list with a check box for
+//    each printer with a url (skip resin), and add each picked one as a
+//    printdeck printer at <address><url>, with the same key.
+// 3. On the Printers page, a printdeck or OctoPrint card whose status
+//    answers 401 or 403, or that has no key, shows "Get a key" in place of
+//    Print, and runs step 1.
+// 4. The decks announce _octoprint._tcp on mDNS (the printdeck.dnssd file
+//    of the deck), so NWBrowser finds them with the types that Info.plist
+//    lists. The core tells a printdeck from OctoPrint by the text of
+//    /api/version, which needs no key.
+// 5. The camera: zs_printer_camera_paths and zs_printer_status_camera give
+//    the MJPEG stream and the snapshot; zs_bambu_camera_kind, the
+//    zs_bambu_jpeg_reader, and the zs_mqtt_* codec are the parts of the
+//    Bambu Lab camera and status that the core has.
 /// The connection of a printer: its kind, its address, and its API key,
 /// with Test and Get a Key.
 struct ConnectionSection: View {

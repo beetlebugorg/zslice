@@ -19,14 +19,31 @@ The library comes from the printer definitions of Cura, PrusaSlicer, and OrcaSli
 | Connection | What you need |
 |---|---|
 | None | Export a G-code file, and copy it to the printer. |
-| printdeck, OctoPrint | The address of the printer and an API key. |
+| printdeck, OctoPrint | The address of the printer. zslice gets its API key: tap Allow on the printer. |
 | Moonraker (Klipper) | The address of Moonraker. |
 | USB (Linux app) | The serial port and the speed. The computer must stay on while it prints. |
-| Bambu Lab (Mac app, LAN mode) | See [The macOS app](macos.md). |
+| Bambu Lab (LAN mode) | The IP address, the serial number, and the access code. The Linux app reads the status and the camera; the Mac app also sends prints (see [The macOS app](macos.md)). |
 
-**Get a key** asks the printer for a key. The printer asks you to allow zslice: on its screen (printdeck), or in its web page (OctoPrint, with the App Keys plugin). Allow it within 2 minutes. Check that the printer shows the same key id as zslice.
+When you add a printdeck or an OctoPrint printer, zslice asks it for a key at once. A printer whose key stops working shows **Get a key** on its card on the Printers page. **Get a key** asks the printer for a key. The printer asks you to allow zslice: on its screen (printdeck), or in its web page (OctoPrint, with the App Keys plugin). Allow it within 2 minutes. Check that the printer shows the same key id as zslice.
 
 The Linux and Mac apps find printers on your network. The web app cannot: enter the address. A printdeck with a secure address (`https://….d.printdeck.beetlebug.org`, on its System page) works from the web app in any browser.
+
+A printdeck that drives more than one printer lists them after you allow zslice. Pick the ones to add. Each one uses the key of the deck.
+
+### A Bambu Lab printer (Linux app)
+
+1. On the printer, turn on **LAN Only Mode**, and **LAN Only Liveview** for the camera.
+2. In **Preferences › Printers**, add a printer, and choose **Bambu Lab (LAN mode)**.
+3. Enter its IP address. Click **Read** to get the serial number from the printer, or type it from the screen of the printer.
+4. Enter the access code from the screen of the printer. zslice keeps it in `~/.config/zslice/bambu/<serial>.code`, readable only by you.
+
+zslice only reads a Bambu Lab printer: its status over MQTT, and its camera. It sends no command. The X1, H2, P2S, and X2D printers send their camera over RTSP, which needs GStreamer; the P1 and A1 printers send JPEG frames.
+
+## The Printers page
+
+Each printer has a card: its camera, its state, the job with its progress and the time left, the temperatures, and its roll. Click the camera to see it large. **Print the plate** sends the active plate after you confirm that the bed is clear. The menu of the card has **Upload the plate only** and the page of the printer. The plates of the project are at the top, each with a printer to send it to.
+
+A camera plays only while its card is on the screen. The picture goes from the printer straight to zslice. In the web app, a camera on http does not play on the https page of zslice: open zslice from the printer, or give the printer an https address. While the printer of the plate prints, the details of the print (click the time) show its camera.
 
 ## Print
 
