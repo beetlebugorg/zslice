@@ -24,12 +24,13 @@
 //!   and perimeter P (lumped heat). The heat transfer h is the still air
 //!   value plus the forced value of the fan, from the Hilpert correlation
 //!   for a cylinder in cross flow (diameter 4 A / P).
-//! - **Viscosity.** Hot PLA flows. Its viscosity grows as it cools: an
-//!   Arrhenius law in the melt (86 kJ/mol, from the data of Yoo, Jeong,
-//!   and Choi 2021, and about 1450 Pa s at 210 °C for a filament, from
-//!   the data of Patti et al. 2022), and the WLF law near the glass point
-//!   (Williams, Landel, and Ferry 1955), whichever is larger. A soft mass
-//!   sets (it is solid where it is) when its viscosity passes `set_visc`.
+//! - **Viscosity.** Hot plastic flows. Its viscosity grows as it cools:
+//!   the law of the melt of the material (`Material`: for PLA an
+//!   Arrhenius law, 3546 Pa s at 200 °C and 80.6 kJ/mol, from the
+//!   measurements of Colón Quintana 2021), and the WLF law near the glass
+//!   point (Williams, Landel, and Ferry 1955), whichever is larger. A soft
+//!   mass sets (it is solid where it is) when its viscosity passes
+//!   `set_visc`.
 //! - **Contact.** A soft mass that comes down onto the bed or solid plastic
 //!   sets there. It rests on the highest plastic under its bead, so it
 //!   does not fall through a gap narrower than itself.
@@ -124,12 +125,97 @@ const Bead = struct {
         return .{
             .half_h = 0.5 * path.height,
             .width = path.width,
-            .heat = p.density * 1e6 * p.heat_capacity * (area / perim) * 1e-3,
+            .heat = p.material.density * 1e6 * p.material.heat_capacity * (area / perim) * 1e-3,
             .diam = 4 * area / perim,
             .reach = @max(@sqrt(4 * area / std.math.pi) - path.height, 0),
         };
     }
 };
+
+/// A plastic: the viscosity of its melt and its law of temperature, its
+/// glass point, and its heat. The sources are in REFERENCES.md.
+pub const Material = struct {
+    name: []const u8,
+    /// The zero-shear viscosity of the melt (Pa s) at `visc_ref_t` (°C).
+    visc_ref: f32,
+    visc_ref_t: f32,
+    /// The law of temperature of the melt: the Arrhenius law with this
+    /// activation energy (J/mol), or with 0 the WLF law with the
+    /// constants `visc_wlf` (C1, and C2 in K): log10 a = -C1 (T - Tref) /
+    /// (C2 + T - Tref).
+    visc_ea: f32 = 0,
+    visc_wlf: [2]f32 = .{ 0, 0 },
+    /// The glass point (°C).
+    glass_t: f32,
+    /// The density (g/mm³), the heat capacity (J/(kg K)), and the heat
+    /// conductivity (W/(m K)) of the solid.
+    density: f32,
+    heat_capacity: f32,
+    conductivity: f32,
+    /// The values that come from no measurement of this plastic, in words.
+    estimates: []const u8 = "",
+};
+
+/// PLA (MatterHackers PLA), as Colón Quintana (2021) measured it: 3546 Pa
+/// s at 200 °C, Arrhenius with 80.6 kJ/mol, the glass point at 58.9 °C,
+/// and the density, heat capacity, and conductivity of the sources of
+/// that work.
+pub const pla: Material = .{
+    .name = "PLA",
+    .visc_ref = 3546,
+    .visc_ref_t = 200,
+    .visc_ea = 80574.4,
+    .glass_t = 58.9,
+    .density = 1.25e-3,
+    .heat_capacity = 1800,
+    .conductivity = 0.163,
+};
+
+/// ABS (MG94), as Colón Quintana (2021) measured it: 13 250 Pa s at 200
+/// °C, the WLF law with C1 = 3.938 and C2 = 128.6 K, the glass point at
+/// 104.5 °C.
+pub const abs: Material = .{
+    .name = "ABS",
+    .visc_ref = 13250,
+    .visc_ref_t = 200,
+    .visc_wlf = .{ 3.93791, 128.563 },
+    .glass_t = 104.5,
+    .density = 1.06e-3,
+    .heat_capacity = 1381,
+    .conductivity = 0.17,
+};
+
+/// PETG: a melt viscosity of 2880 to 4810 Pa s at 1 rad/s and 220 °C (US
+/// patent 9,962,913; the middle is 3844 Pa s), the glass point at 80 °C
+/// and the density of a filament data sheet (3D Universe). No open
+/// measurement gives its law of temperature, its heat capacity, or its
+/// conductivity: these are the values of PLA.
+pub const petg: Material = .{
+    .name = "PETG",
+    .visc_ref = 3844,
+    .visc_ref_t = 220,
+    .visc_ea = 80574.4,
+    .glass_t = 80,
+    .density = 1.29e-3,
+    .heat_capacity = 1800,
+    .conductivity = 0.163,
+    .estimates = "the law of temperature, the heat capacity, and the conductivity are those of PLA",
+};
+
+pub const materials = [_]Material{ pla, abs, petg };
+
+/// The material of the simulation for a filament type ("PLA", "ABS",
+/// "PETG"), and if it is the same plastic. A type with no data of its own
+/// gets the nearest plastic: ASA and HIPS (styrene plastics) get ABS, PET
+/// and PCTG (polyesters) get PETG, and any other type gets PLA.
+pub fn materialFor(kind: []const u8) struct { material: Material, exact: bool } {
+    for (materials) |m| if (std.ascii.eqlIgnoreCase(kind, m.name)) return .{ .material = m, .exact = true };
+    const near = [_]struct { []const u8, Material }{
+        .{ "ASA", abs }, .{ "HIPS", abs }, .{ "PET", petg }, .{ "PCTG", petg },
+    };
+    for (near) |n| if (std.ascii.startsWithIgnoreCase(kind, n[0])) return .{ .material = n[1], .exact = false };
+    return .{ .material = pla, .exact = false };
+}
 
 pub const Params = struct {
     nozzle_t: f32 = 210,
@@ -142,18 +228,8 @@ pub const Params = struct {
     /// exp(-z / bed_layer).
     bed_t: f32 = 25,
     bed_layer: f32 = 3,
-    /// The glass point of PLA.
-    glass_t: f32 = 60,
-    /// The density (g/mm³) and the heat capacity (J/(kg K)) of PLA.
-    density: f32 = 1.24e-3,
-    heat_capacity: f32 = 1800,
-    /// The viscosity of the melt at `visc_ref_t` (Pa s), and the flow
-    /// activation energy (J/mol) of the Arrhenius law. Patti et al. (2022)
-    /// measured a zero-shear viscosity of about 1e4 Pa s at 170 °C for two
-    /// PLA filaments. The Arrhenius law takes it to 1450 Pa s at 210 °C.
-    visc_ref: f32 = 1450,
-    visc_ref_t: f32 = 210,
-    visc_ea: f32 = 86e3,
+    /// The plastic: its flow, its glass point, and its heat.
+    material: Material = pla,
     /// The viscosity at the glass point (Pa s), for the WLF law.
     visc_glass: f32 = 1e12,
     /// A soft mass sets when its viscosity is more than this (Pa s): then
@@ -199,13 +275,22 @@ pub const Params = struct {
 /// The viscosity of PLA at t °C (Pa s): Arrhenius in the melt, WLF near
 /// the glass point, whichever is larger. Infinite at the glass point.
 pub fn viscosity(p: Params, t: f32) f32 {
-    if (t <= p.glass_t) return std.math.inf(f32);
-    const r = 8.314;
-    const arr = p.visc_ref * @exp(p.visc_ea / r * (1 / (t + 273.15) - 1 / (p.visc_ref_t + 273.15)));
-    // WLF with the universal constants C1 = 17.44, C2 = 51.6 K.
-    const d = t - p.glass_t;
+    const m = p.material;
+    if (t <= m.glass_t) return std.math.inf(f32);
+    // The law of the melt: Arrhenius, or WLF with the constants of the
+    // material (below the pole of the law, it does not hold).
+    const melt = if (m.visc_ea > 0)
+        m.visc_ref * @exp(m.visc_ea / 8.314 * (1 / (t + 273.15) - 1 / (m.visc_ref_t + 273.15)))
+    else blk: {
+        const x = t - m.visc_ref_t;
+        if (m.visc_wlf[1] + x <= 1) break :blk std.math.inf(f32);
+        break :blk m.visc_ref * @exp(-m.visc_wlf[0] * x / (m.visc_wlf[1] + x) * std.math.ln10);
+    };
+    // WLF with the universal constants C1 = 17.44, C2 = 51.6 K near the
+    // glass point.
+    const d = t - m.glass_t;
     const wlf = p.visc_glass * @exp(-17.44 * d / (51.6 + d) * std.math.ln10);
-    return @max(arr, wlf);
+    return @max(melt, wlf);
 }
 
 /// The heat transfer (W/(m² K)) of a bead of hydraulic diameter d mm at
@@ -227,8 +312,8 @@ pub fn heatTransfer(p: Params, fan: f32, d_mm: f32) f32 {
 
 /// The temperature where the viscosity reaches `set_visc`.
 fn setTemperature(p: Params) f32 {
-    var lo = p.glass_t;
-    var hi = @max(p.nozzle_t, p.glass_t + 1);
+    var lo = p.material.glass_t;
+    var hi = @max(p.nozzle_t, p.material.glass_t + 1);
     if (viscosity(p, hi) >= p.set_visc) return hi;
     for (0..40) |_| {
         const mid = (lo + hi) / 2;
@@ -972,7 +1057,7 @@ const Sim = struct {
         const count: usize = @max(1, @as(usize, @intFromFloat(@ceil(total / spacing))));
         const step_len = total / @as(f32, @floatFromInt(count));
         const area = if (path.area > 0) path.area else beadArea(path.width, path.height);
-        const mass_per_mm = s.p.density * area;
+        const mass_per_mm = s.p.material.density * area;
         const bead_of = Bead.of(path, s.p);
         // A joined path goes on with the strand before it, if the nozzle
         // still holds it. Its first point is the end of that strand.
@@ -1098,7 +1183,7 @@ pub fn run(gpa: Allocator, paths: []const Path, params: Params) Allocator.Error!
         .paths = paths,
         .field = undefined,
         .set_t = setTemperature(params),
-        .rho_g = params.density * params.gravity,
+        .rho_g = params.material.density * params.gravity,
         .ranges = ranges,
         .drop = drop,
         .failed = failed,
@@ -1300,7 +1385,7 @@ fn shelf(gpa: Allocator, params: Params) !struct { Result, f64, usize, usize } {
         t += 2;
     }
     const r = try run(gpa, &paths, params);
-    return .{ r, volume * params.density, post_layers, count };
+    return .{ r, volume * params.material.density, post_layers, count };
 }
 
 test "print sim: a slab with no support falls in strands, and later layers print on them" {
@@ -1360,13 +1445,28 @@ test "print sim: the same input gives the same output" {
 
 test "print sim: the viscosity grows as PLA cools, and sets above the glass point" {
     const p: Params = .{};
-    try testing.expectApproxEqRel(@as(f32, 1450), viscosity(p, 210), 1e-4);
+    try testing.expectApproxEqRel(@as(f32, 3546), viscosity(p, 200), 1e-4);
     try testing.expect(viscosity(p, 180) > 2.5 * viscosity(p, 210));
     try testing.expect(viscosity(p, 61) > 1e10);
     const ts = setTemperature(p);
-    try testing.expect(ts > p.glass_t and ts < 140);
+    try testing.expect(ts > p.material.glass_t and ts < 140);
     // The fan cools a bead many times faster than still air.
     try testing.expect(heatTransfer(p, 1, 0.28) > 4 * heatTransfer(p, 0, 0.28));
+}
+
+test "print sim: each material has its viscosity, and a type with no data gets the nearest" {
+    // ABS: the WLF law of Colón Quintana: about 1540 Pa s at 240 °C.
+    const a: Params = .{ .material = abs };
+    try testing.expectApproxEqRel(@as(f32, 13250), viscosity(a, 200), 1e-4);
+    try testing.expectApproxEqRel(@as(f32, 1540), viscosity(a, 240), 0.01);
+    // ABS sets far above PLA: its glass point is 104.5 °C.
+    try testing.expect(setTemperature(a) > setTemperature(.{}) + 30);
+    try testing.expectEqualStrings("ABS", materialFor("abs").material.name);
+    try testing.expect(materialFor("PETG").exact);
+    const asa = materialFor("ASA");
+    try testing.expect(!asa.exact);
+    try testing.expectEqualStrings("ABS", asa.material.name);
+    try testing.expectEqualStrings("PLA", materialFor("TPU").material.name);
 }
 
 test "print sim: the catenary parameter solves sinh(u) / u = r" {

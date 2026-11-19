@@ -60,9 +60,12 @@ pub const Result = struct {
 pub const Mass = struct { path: u32, want: sim.V, pos: sim.V };
 
 /// The parameters of the simulation from the settings of a slice: the
-/// nozzle, the air around the print, the fans, and the bed.
+/// plastic (`filament.material`, or the nearest plastic with data; see
+/// print_sim.materialFor), the nozzle, the air around the print, the fans,
+/// and the bed.
 pub fn paramsOf(s: zs.Settings) sim.Params {
     return .{
+        .material = sim.materialFor(s.filament.material).material,
         .nozzle_t = @floatCast(s.filament.nozzle_temp),
         .room_t = @floatCast(s.machine.chamber_temp),
         .fan_air = @floatCast(s.machine.part_fan_air),

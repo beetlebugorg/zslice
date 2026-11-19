@@ -20,7 +20,7 @@ The toolpaths of the simulation also keep, for each such point, the place where 
 2. **Support.** A height field keeps the top of the solid plastic in cells of 0.1 mm. The field has tiles of 32 x 32 cells, and only the tiles with plastic use memory. A new mass is solid at once if the bed or an earlier layer is under its bead (within the reach of the strand: out of the nozzle the plastic is a round strand of the bead area, so it reaches past the bottom of the bead by its diameter less the bead height, about 0.13 mm for a bead of 0.45 x 0.2 mm). A mass beside a bead of its own layer, at its height, is also solid, up to 2 beads out from plastic that an earlier layer holds. So the end of a bridge line welds to the wall, but a skin over air does not grow from line to line. Else the mass is soft.
 3. **Strands.** A path that starts at the end of the path before it, with no retraction, is the same strand. The slicer splits a wall into pieces over air and on plastic, and the nozzle prints them as one line.
 4. **Heat.** A soft mass cools by Newton's law with the time of a lumped bead: tau = rho c (A / P) / h. The heat transfer h is about 80 W/(m² K) in still air. The fan adds the forced convection of a thin cylinder (Hilpert). At full fan a bead of 0.45 x 0.2 mm cools with tau of about 0.3 s, and in still air with tau of about 2 s. The plastic cools toward the air around it: `machine.chamber_temp` (the room, or a heated chamber), and warmer near a hot bed (`filament.bed_temp`), in a layer of about 3 mm (the scale L Ra^(-1/4) of natural convection over a hot plate). The air speed of the fans at the bead is `machine.part_fan_air`.
-5. **Viscosity.** The viscosity of a PLA filament is about 1450 Pa s at 210 °C (Patti et al. 2022 measured 1e4 Pa s at 170 °C). It grows as the plastic cools: Arrhenius with 86 kJ/mol in the melt, and WLF near the glass point (60 °C). A soft mass sets where it is when its viscosity passes 1e6 Pa s (at about 97 °C).
+5. **Viscosity.** Each plastic has the law of its melt (`print_sim.Material`, from `filament.material`): PLA 3546 Pa s at 200 °C with Arrhenius 80.6 kJ/mol, and ABS 13 250 Pa s at 200 °C with WLF (both measured by Colón Quintana 2021); PETG 3844 Pa s at 220 °C (a patent), with the temperature law of PLA as an estimate. A type with no data gets the nearest plastic: ASA and HIPS get ABS, PET and PCTG get PETG, and others get PLA. Near the glass point the WLF law with the universal constants holds. A soft mass sets where it is when its viscosity passes 1e6 Pa s (PLA at about 98 °C, ABS at about 158 °C).
 6. **Runs held at both ends.** The soft masses between two held masses (a solid mass, or the newest mass, which the nozzle holds) hang as a catenary of their arc length. The catenary follows the route in plan where the nozzle laid them. The route must be about straight (within half a bead of the line between the ends): nothing holds a turn, so a run with a turn swings and falls (7). The tension of a catenary is a times the weight for each mm, so the stress is rho g a. The hot plastic creeps under it at the rate stress / (3 viscosity). Near the taut limit the slack follows a closed form, so the step can be large. As the plastic cools, the creep stops.
 7. **Runs held at one end, or none.** They swing and fall with position based dynamics. A run held at one end keeps its links by "follow the leader" from the held end, in one pass. A run that fell and is then held at both ends uses Gauss-Seidel passes and long-range attachments.
 8. **Contact.** A soft mass that comes down onto the bed or solid plastic sets there. It rests on the highest plastic under its bead, so it does not fall through a gap between two beads.
@@ -49,9 +49,9 @@ A 3DBenchy (585 778 masses), on one core: about 1.5 s, with 7 MB of memory more 
 | Overhang 45° | prints clean (the 45° rule) | 0.01 mm |
 | Overhang 60° | keeps its shape to 65° | 0.42 mm |
 | Overhang 80° | droops much more | fails |
-| Bridge 5 mm | no visible sag | 0.15 mm |
-| Bridge 20 mm | almost no visible sag (below 33 mm) | 0.80 mm |
-| Bridge 35 mm | about 1 mm | 1.29 mm |
+| Bridge 5 mm | no visible sag | 0.13 mm |
+| Bridge 20 mm | almost no visible sag (below 33 mm) | 0.73 mm |
+| Bridge 35 mm | about 1 mm | 1.25 mm |
 | Bridge 60 mm | loose strands (past 37 mm) | fails |
 | Slab 25 mm over air | falls in strands | fails from its first layer |
 
@@ -61,4 +61,4 @@ A 3DBenchy (585 778 masses), on one core: about 1.5 s, with 7 MB of memory more 
 - Soft masses do not touch each other. They touch only the bed and the solid plastic.
 - The height field has one top for each cell. A strand that falls under an overhang rests on top of it.
 - A mass that sets does not move again. A set strand does not bend later under the weight of the layers on it. A strand that the nozzle draws off an edge into air and that sets there is a rigid rod: later layers lie on it.
-- The material is PLA. Other materials need their own viscosity, glass point, and density in `print_sim.Params`.
+- The materials with data are PLA, ABS, and PETG. The heat capacity, the conductivity, and the temperature law of PETG are the values of PLA.

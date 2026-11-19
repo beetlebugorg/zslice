@@ -220,7 +220,7 @@ test "sim calibration: a bridge sags little up to 33 mm, about 1 mm at 35 mm, an
     const long = p.outcome(midDeck(3));
     try testing.expect(short.drop < 0.2);
     // Yang et al. saw almost no sag below 33 mm. The model gives about
-    // 0.8 mm at 20 mm: a strand has no bending stiffness in the model
+    // 0.7 mm at 20 mm: a strand has no bending stiffness in the model
     // (see the limits in print_sim.zig). The calibration prints measure
     // this span.
     try testing.expect(mid.drop < 1 and mid.drop < limit.drop);

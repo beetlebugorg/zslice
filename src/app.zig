@@ -2412,6 +2412,14 @@ pub const App = struct {
         return s.layers;
     }
 
+    /// The plastic that the simulation uses for the filament of the last
+    /// slice: its name, and false if the filament type has no data and
+    /// the simulation uses the nearest plastic (see print_sim.materialFor).
+    pub fn simulatedMaterial(app: *const App) struct { name: []const u8, exact: bool } {
+        const m = zs.print_sim.materialFor(app.slice_settings.filament.material);
+        return .{ .name = m.material.name, .exact = m.exact };
+    }
+
     fn dropSimulation(app: *App) void {
         if (app.sim) |*s| s.deinit(app.gpa);
         app.sim = null;
