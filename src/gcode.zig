@@ -760,13 +760,7 @@ pub const Emitter = struct {
         self.width = x.width;
         self.layer_start = x.layer_start;
         // The fan of the layer, as `coolingFan` sets it.
-        const ratio = if (lp.index < self.r.settings.filament.fan_off_layers)
-            0
-        else if (layer_time < f.fan_boost_time)
-            f.fan_max_speed
-        else
-            f.fan_speed;
-        self.layer_fan = @intFromFloat(@round(255 * ratio));
+        self.layer_fan = @intFromFloat(@round(255 * layerFan(self.r.settings.filament, f, lp.index, layer_time)));
         self.fan = self.layer_fan;
         return true;
     }
@@ -1141,17 +1135,27 @@ pub const Emitter = struct {
 
     /// The fan of a layer: off on the first layers, the boost speed on a
     /// layer that prints in less than `fan_boost_time`, else the fan speed.
+    /// On the layers of the ramp (`fan_ramp_layers`), a part of it.
     fn coolingFan(self: *Emitter, lp: *const LayerPlan, layer_time: f64) Error!void {
         const g = self.r.settings;
         const s = self.lr.settings;
-        const ratio = if (lp.index < g.filament.fan_off_layers)
-            0
-        else if (layer_time < s.filament.fan_boost_time)
-            s.filament.fan_max_speed
-        else
-            s.filament.fan_speed;
-        self.layer_fan = @intFromFloat(@round(255 * ratio));
+        self.layer_fan = @intFromFloat(@round(255 * layerFan(g.filament, s.filament, lp.index, layer_time)));
         try self.setFan(self.layer_fan);
+    }
+
+    /// The fan of layer `index` (0 to 1): `plate` gives the layers with the
+    /// fan off and the ramp, `here` the speeds of the layer.
+    fn layerFan(plate: settings_mod.Filament, here: settings_mod.Filament, index: usize, layer_time: f64) f64 {
+        if (index < plate.fan_off_layers) return 0;
+        const full = if (layer_time < here.fan_boost_time) here.fan_max_speed else here.fan_speed;
+        return full * fanRamp(@intCast(index - plate.fan_off_layers), plate.fan_ramp_layers);
+    }
+
+    /// The part of the fan speed on layer `k` after the layers with the fan
+    /// off: (k + 1) / (ramp + 1) on the ramp, then 1.
+    fn fanRamp(k: u32, ramp: u32) f64 {
+        if (k >= ramp) return 1;
+        return @as(f64, @floatFromInt(k + 1)) / @as(f64, @floatFromInt(ramp + 1));
     }
 
     /// The speed of an extrusion with the full speed `full` on a layer that
@@ -1279,6 +1283,7 @@ pub const Emitter = struct {
                 }
                 const mean_area = if (len_sum > 0) area_len / len_sum else flow.beadArea(widths[0], h);
                 if (self.record) |rec| rec.appendAssumeCapacity(.{ .start_time = start_time, .end_time = self.stats.print_time_s, .area = mean_area * fr, .retracted = retracted, .slowed = slow < 1 or lapped, .fan = fanByte(self.fan) });
+                try self.wallWipe(path, pts, path_r.settings.project.outer_wall_wipe, speed);
                 continue;
             }
             if (self.prep != null and self.x == x0 and self.y == y0) {
@@ -1293,7 +1298,47 @@ pub const Emitter = struct {
                 if (path.closed and pts.len > 2) try self.extrude(x0, y0, e, speed);
             }
             if (self.record) |rec| rec.appendAssumeCapacity(.{ .start_time = start_time, .end_time = self.stats.print_time_s, .area = e * self.r.filament_area, .retracted = retracted, .slowed = slow < 1 or lapped, .fan = fanByte(self.fan) });
+            try self.wallWipe(path, pts, path_r.settings.project.outer_wall_wipe, speed);
         }
+    }
+
+    /// After a closed outer wall: the nozzle moves on along the start of
+    /// the wall for `wipe_len` mm with no plastic (Project.outer_wall_wipe),
+    /// at the speed of the wall.
+    fn wallWipe(self: *Emitter, path: layer_mod.Path, pts: []const geom.Point, wipe_len: f64, speed: f64) Error!void {
+        if (!(wipe_len > 0) or path.feature != .outer_wall or !path.closed or pts.len < 3) return;
+        var left = wipe_len;
+        for (pts[1..]) |q| {
+            const x = geom.toMm(q.x);
+            const y = geom.toMm(q.y);
+            const d = @import("geom.zig").hypot(x - self.x, y - self.y);
+            if (d < 1e-4) continue;
+            if (d >= left) {
+                const t = left / d;
+                try self.wipeMove(self.x + (x - self.x) * t, self.y + (y - self.y) * t, speed);
+                return;
+            }
+            try self.wipeMove(x, y, speed);
+            left -= d;
+        }
+    }
+
+    /// A move with no plastic at `speed`, on the line of a path.
+    fn wipeMove(self: *Emitter, x: f64, y: f64, speed: f64) Error!void {
+        const d = @import("geom.zig").hypot(x - self.x, y - self.y);
+        if (d < 1e-4) return;
+        var line: Line = .{ .skip = self.dry };
+        line.add("G1 X");
+        line.num(x + self.r.settings.machine.origin_x, 3);
+        line.add(" Y");
+        line.num(y + self.r.settings.machine.origin_y, 3);
+        self.addFeed(&line, speed);
+        line.add("\n");
+        try line.put(self.w);
+        try self.addMove(x - self.x, y - self.y, d, speed, 0);
+        self.x = x;
+        self.y = y;
+        try self.addTravel(d);
     }
 
     /// A path with a z and a bead area at each point (slope smoothing):

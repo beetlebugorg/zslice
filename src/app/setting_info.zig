@@ -129,6 +129,7 @@ const units = [_][2][]const u8{
     .{ "filament.flow_ratio", "%" },
     .{ "filament.fan_speed", "%" },
     .{ "filament.fan_off_layers", "layers" },
+    .{ "filament.fan_ramp_layers", "layers" },
     .{ "filament.fan_max_speed", "%" },
     .{ "filament.fan_boost_time", "s" },
     .{ "filament.min_layer_time", "s" },
@@ -213,6 +214,7 @@ const units = [_][2][]const u8{
     .{ "project.skirt_distance", "mm" },
     .{ "project.skirt_layers", "layers" },
     .{ "project.brim_width", "mm" },
+    .{ "project.outer_wall_wipe", "mm" },
     .{ "project.first_layer_xy_offset", "mm" },
     // engine
     .{ "engine.resolution", "mm" },
@@ -249,6 +251,7 @@ const sliders = [_]struct { []const u8, f64, f64, f64 }{
     .{ "filament.flow_ratio", 0.8, 1.2, 0.01 },
     .{ "filament.fan_speed", 0, 1, 0.05 },
     .{ "filament.fan_off_layers", 0, 5, 1 },
+    .{ "filament.fan_ramp_layers", 0, 10, 1 },
     .{ "filament.fan_max_speed", 0, 1, 0.05 },
     .{ "filament.fan_boost_time", 0, 30, 1 },
     .{ "filament.min_layer_time", 0, 30, 1 },
@@ -333,6 +336,7 @@ const sliders = [_]struct { []const u8, f64, f64, f64 }{
     .{ "project.skirt_distance", 0, 20, 0.5 },
     .{ "project.skirt_layers", 0, 5, 1 },
     .{ "project.brim_width", 0, 20, 0.5 },
+    .{ "project.outer_wall_wipe", 0, 2, 0.05 },
     .{ "project.first_layer_xy_offset", -0.5, 0.5, 0.01 },
     // engine
     .{ "engine.gap_closing", 0, 3, 0.1 },

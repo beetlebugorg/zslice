@@ -35,6 +35,9 @@ pub const WallGenerator = enum { classic, arachne };
 pub const SkinPattern = enum { lines, monotonic, concentric };
 /// Where the part goes on the bed. See `Project.placement`.
 pub const Placement = enum { auto, file, center };
+
+/// Where the brim goes. See `Project.brim_location`.
+pub const BrimLocation = enum { outside, inside, everywhere };
 pub const SupportMode = enum { off, everywhere, buildplate };
 /// How a short layer gets its cooling time. See `Filament.cooling_mode`.
 pub const CoolingMode = enum { slow_down, lap };
@@ -214,6 +217,10 @@ pub const Filament = struct {
     fan_speed: f64 = 1.0,
     /// The fan is off for this number of layers at the start.
     fan_off_layers: u32 = 1,
+    /// After the layers with the fan off, the fan speed goes up in steps
+    /// over this number of layers: layer k of the ramp (from 1) gets
+    /// k / (ramp + 1) of the fan speed. 0: full speed at once.
+    fan_ramp_layers: u32 = 0,
     /// The fan speed on short layers, as a ratio. See `fan_boost_time`.
     fan_max_speed: f64 = 1.0,
     /// A layer that takes less time than this (s) gets the fan at
@@ -598,6 +605,11 @@ pub const Project = struct {
     /// plastic that oozes goes inside, and not onto the surface. The arc
     /// stays inside the layer, or the retraction stays plain.
     retract_wipe: bool = false,
+    /// After a closed outer wall, the nozzle moves on along the start of
+    /// the wall for this distance (mm), with no plastic, before the
+    /// retraction. The end of the wall then joins its start with no gap,
+    /// and the seam shows less. 0 turns it off.
+    outer_wall_wipe: f64 = 0,
     /// Lift the nozzle (`z_hop`) only for a travel that crosses an edge of
     /// the layer: it leaves the part, or it goes over a hole. A travel in
     /// a straight line inside the part (it retracts because it is longer
@@ -674,6 +686,10 @@ pub const Project = struct {
     /// outside of the part, joined to it. It holds the part on the bed, and
     /// helps against warping. 0 turns it off.
     brim_width: f64 = 0,
+    /// Where the brim goes. `outside`: around the outside of the part.
+    /// `inside`: in the holes of the part, along their edges.
+    /// `everywhere`: both.
+    brim_location: BrimLocation = .outside,
 
     // First layer
     /// Moves the outline of the first layer by this distance. A negative
@@ -1083,6 +1099,7 @@ pub const limits = [_]struct { []const u8, f64, f64 }{
     .{ "filament.flow_ratio", 0.5, 2 },
     .{ "filament.fan_speed", 0, 1 },
     .{ "filament.fan_off_layers", 0, 100 },
+    .{ "filament.fan_ramp_layers", 0, 100 },
     .{ "filament.fan_max_speed", 0, 1 },
     .{ "filament.fan_boost_time", 0, 120 },
     .{ "filament.min_layer_time", 0, 120 },
@@ -1167,6 +1184,7 @@ pub const limits = [_]struct { []const u8, f64, f64 }{
     .{ "project.skirt_distance", 0, 50 },
     .{ "project.skirt_layers", 0, 50 },
     .{ "project.brim_width", 0, 50 },
+    .{ "project.outer_wall_wipe", 0, 10 },
     .{ "project.first_layer_xy_offset", -2, 2 },
     // engine
     .{ "engine.resolution", 0.0005, 0.5 },
@@ -1223,6 +1241,7 @@ pub const patch_settings = [_][]const u8{
     "filament.nozzle_temp",      "filament.first_layer_nozzle_temp", "filament.bed_temp",
     "filament.fan_speed",        "filament.fan_off_layers",          "filament.fan_max_speed",
     "filament.fan_boost_time",   "filament.min_layer_time",          "filament.min_speed",
+    "filament.fan_ramp_layers",
     "filament.flow_ratio",       "filament.max_flow",                "filament.density",
     "filament.price_per_kg",     "project.bridge_speed",             "project.bridge_flow",
     "project.bridge_fan",        "project.infill_flow",              "project.ironing_flow",
@@ -1318,6 +1337,7 @@ pub const plate_settings = [_][]const u8{
     "filament.diameter",              "filament.density",           "filament.price_per_kg",
     "filament.nozzle_temp",           "filament.first_layer_nozzle_temp", "filament.bed_temp",
     "filament.standby_temp",          "filament.fan_speed",         "filament.fan_off_layers",
+    "filament.fan_ramp_layers",
     "filament.fan_max_speed",         "filament.fan_boost_time",    "filament.min_layer_time",
     "filament.min_speed",             "filament.cooling_mode",      "filament.retract_ratio",
     "project.first_layer_height",     "project.retract_min_travel", "project.combing",
@@ -1325,7 +1345,7 @@ pub const plate_settings = [_][]const u8{
     "project.retract_wipe",
     "project.retract_layer_change",   "project.travel_accel",       "project.skirt_loops",
     "project.skirt_distance",         "project.skirt_layers",       "project.brim_width",
-    "project.placement",
+    "project.brim_location",          "project.placement",
 };
 
 /// True for a setting that is the same for all the parts of a plate (see
@@ -1416,6 +1436,7 @@ pub const layer_settings = [_][]const u8{
     "project.combing_max_distance",
     "project.z_hop",
     "project.retract_wipe",
+    "project.outer_wall_wipe",
     // The layer planner reads these from the settings of each layer.
     "project.line_width",
     "project.wall_thickness",

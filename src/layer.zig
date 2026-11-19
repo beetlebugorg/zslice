@@ -1689,7 +1689,8 @@ pub fn ringLoops(s: Allocator, r: *const Resolved, outline0: Paths, i: usize, ri
         }
     }
     // The brim, outermost loop first, so that it ends at the part.
-    if (first) {
+    const outside = p.brim_location != .inside;
+    if (first and outside) {
         var k: usize = brim_n;
         while (k > 0) {
             k -= 1;
@@ -1697,6 +1698,34 @@ pub fn ringLoops(s: Allocator, r: *const Resolved, outline0: Paths, i: usize, ri
             try rings.append(s, try offset_mod.offset(s, base, d, .{ .join = .round }));
         }
     }
+    // The brim in the holes: the loop farthest from the edge first, so
+    // that it also ends at the part. A hole with no room for a loop has
+    // none.
+    if (first and p.brim_location != .outside and brim_n > 0) {
+        const holes = try holesAsAreas(s, outline0);
+        if (holes.count() == 0) return;
+        var k: usize = brim_n;
+        while (k > 0) {
+            k -= 1;
+            const d = @divTrunc(w0, 2) + @as(i64, @intCast(k)) * w0;
+            const loop = try offset_mod.offset(s, holes, -d, .{ .join = .round });
+            if (loop.count() > 0) try rings.append(s, loop);
+        }
+    }
+}
+
+/// The holes of `paths` (its loops with a negative area), turned so that
+/// each is an area of its own.
+fn holesAsAreas(s: Allocator, paths: Paths) Allocator.Error!Paths {
+    var out: Paths = .empty;
+    for (0..paths.count()) |j| {
+        const poly = paths.get(j);
+        if (geom.area2(poly) >= 0) continue;
+        const turned = try s.alloc(geom.Point, poly.len);
+        for (poly, 0..) |q, k| turned[poly.len - 1 - k] = q;
+        try out.append(s, turned);
+    }
+    return out;
 }
 
 /// The area that the skirt and the brim of layer i cover, with half a line
@@ -3876,5 +3905,43 @@ test "gap fill: a box gets none" {
         defer lp.deinit();
         try testing.expect(lp.count() > 0);
         try testing.expectEqual(@as(usize, 0), gapFillCount(lp));
+    }
+}
+
+test "a brim in the holes, outside, or both" {
+    const gpa = testing.allocator;
+    var arena_state = std.heap.ArenaAllocator.init(gpa);
+    defer arena_state.deinit();
+    const a = arena_state.allocator();
+    // A 40 mm square with a 10 mm square hole in its middle.
+    var outline: Paths = .empty;
+    try outline.append(a, &.{ .init(0, 0), .init(40_000, 0), .init(40_000, 40_000), .init(0, 40_000) });
+    try outline.append(a, &.{ .init(15_000, 15_000), .init(15_000, 25_000), .init(25_000, 25_000), .init(25_000, 15_000) });
+    var st: settings_mod.Settings = .{};
+    st.project.brim_width = 2;
+    st.project.skirt_loops = 0;
+    const counts = [_]struct { loc: settings_mod.BrimLocation, outside: usize, inside: usize }{
+        .{ .loc = .outside, .outside = 4, .inside = 0 },
+        .{ .loc = .inside, .outside = 0, .inside = 4 },
+        .{ .loc = .everywhere, .outside = 4, .inside = 4 },
+    };
+    for (counts) |c| {
+        st.project.brim_location = c.loc;
+        const r = try st.resolve();
+        var rings: std.ArrayList(Paths) = .empty;
+        try ringLoops(a, &r, outline, 0, &rings);
+        var n_out: usize = 0;
+        var n_in: usize = 0;
+        for (rings.items) |ring| {
+            var box = geom.Box.empty;
+            for (0..ring.count()) |j| for (ring.get(j)) |q| box.extend(q);
+            if (geom.toMm(box.min.x) < 0) n_out += 1 else {
+                // In the hole, and clear of its edge.
+                try testing.expect(geom.toMm(box.min.x) > 15 and geom.toMm(box.max.x) < 25);
+                n_in += 1;
+            }
+        }
+        try testing.expectEqual(c.outside, n_out);
+        try testing.expectEqual(c.inside, n_in);
     }
 }

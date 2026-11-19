@@ -166,6 +166,7 @@ const project_map = [_]Map{
     .{ .cura = "retraction_min_travel", .group = "project", .key = "retract_min_travel" },
     .{ .cura = "retraction_combing_max_distance", .group = "project", .key = "combing_max_distance" },
     .{ .cura = "retraction_hop", .group = "project", .key = "z_hop" },
+    .{ .cura = "wall_0_wipe_dist", .group = "project", .key = "outer_wall_wipe" },
     .{ .cura = "speed_wall_0", .group = "project", .key = "outer_wall_speed", .conv = .speed },
     .{ .cura = "speed_wall_x", .group = "project", .key = "inner_wall_speed", .conv = .speed },
     .{ .cura = "speed_topbottom", .group = "project", .key = "skin_speed", .conv = .speed },
@@ -1299,6 +1300,37 @@ fn mapSettings(arena: Allocator, meta: anytype, base: *const @import("settings.z
         } else if (std.mem.eql(u8, key, "gradual_infill_steps")) {
             if (num != null and num.? == 0) continue; // the zslice default
             try skip(arena, &ignored, key, v, "zslice has no gradual infill");
+        } else if (std.mem.eql(u8, key, "travel_avoid_other_parts")) {
+            // zslice combs inside a part and goes straight between parts:
+            // the travel of Cura with this off.
+            if (curaBool(v)) |b| if (!b) continue;
+            try skip(arena, &ignored, key, v, "zslice does not go around the other parts on a travel yet");
+        } else if (std.mem.eql(u8, key, "cool_fan_full_layer")) {
+            // Cura: the fan goes up in a line from cool_fan_speed_0 (0) on
+            // the first layer to full on layer n (from 1).
+            const n = num orelse {
+                try skip(arena, &ignored, key, v, "not a number");
+                continue;
+            };
+            if (!whole) {
+                try skip(arena, &ignored, key, v, "zslice keeps this setting for the whole plate");
+                continue;
+            }
+            const full: u32 = @intFromFloat(@max(1, @round(n)));
+            try put(arena, &sets, "filament.fan_off_layers", if (full <= 1) "0" else "1");
+            try put(arena, &sets, "filament.fan_ramp_layers", try std.fmt.allocPrint(arena, "{d}", .{if (full <= 2) 0 else full - 2}));
+        } else if (std.mem.eql(u8, key, "brim_location")) {
+            if (!whole) {
+                try skip(arena, &ignored, key, v, "zslice keeps this setting for the whole plate");
+                continue;
+            }
+            const loc = for ([_][]const u8{ "outside", "inside", "everywhere" }) |name| {
+                if (std.mem.eql(u8, v, name)) break name;
+            } else {
+                try skip(arena, &ignored, key, v, "not a brim location of Cura");
+                continue;
+            };
+            try put(arena, &sets, "project.brim_location", loc);
         } else if (std.mem.eql(u8, key, "infill_wipe_dist")) {
             if (num != null and num.? == 0) continue; // the zslice default
             try skip(arena, &ignored, key, v, "zslice has no infill wipe");
@@ -1582,6 +1614,34 @@ test "plate settings: the keys of a printdeck.yml" {
     const lw = if (base.project.line_width > 0) base.project.line_width else 1.1 * base.machine.nozzle_diameter;
     try testing.expectApproxEqAbs(10 * lw, s.project.brim_width, 1e-9);
     try testing.expectApproxEqAbs(0.15, s.project.infill_density, 1e-9);
+
+    // The keys of the plates of a printdeck.yml that once stopped them.
+    const more = [_]Pair{
+        .{ .key = "adhesion_type", .value = "brim" },
+        .{ .key = "brim_location", .value = "everywhere" },
+        .{ .key = "wall_0_wipe_dist", .value = "0.3" },
+        .{ .key = "travel_avoid_other_parts", .value = "false" },
+        .{ .key = "cool_fan_full_layer", .value = "4" },
+    };
+    const pm = try plateSettings(a, &more, &base);
+    try testing.expectEqual(@as(usize, 0), pm.ignored.len);
+    var sm = base;
+    try testing.expect(applyPart(&sm, pm) == null);
+    try testing.expectEqual(.everywhere, sm.project.brim_location);
+    try testing.expectApproxEqAbs(0.3, sm.project.outer_wall_wipe, 1e-9);
+    // Cura: full fan on layer 4, from 0 on layer 1: off on 1, a ramp on 2
+    // and 3.
+    try testing.expectEqual(@as(u32, 1), sm.filament.fan_off_layers);
+    try testing.expectEqual(@as(u32, 2), sm.filament.fan_ramp_layers);
+    // Full fan from the first layer.
+    const first = [_]Pair{.{ .key = "cool_fan_full_layer", .value = "1" }};
+    var sf = base;
+    try testing.expect(applyPart(&sf, try plateSettings(a, &first, &base)) == null);
+    try testing.expectEqual(@as(u32, 0), sf.filament.fan_off_layers);
+    try testing.expectEqual(@as(u32, 0), sf.filament.fan_ramp_layers);
+    // A travel around the other parts: zslice cannot do it yet.
+    const avoid = [_]Pair{.{ .key = "travel_avoid_other_parts", .value = "true" }};
+    try testing.expectEqual(@as(usize, 1), (try plateSettings(a, &avoid, &base)).ignored.len);
 
     // A key that zslice cannot use is in the list, with the reason.
     const unmapped = [_]Pair{

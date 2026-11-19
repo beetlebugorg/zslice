@@ -2910,6 +2910,7 @@ pub const patch_values = [_][2][]const u8{
     .{ "filament.nozzle_temp", "215" },       .{ "filament.first_layer_nozzle_temp", "222" },
     .{ "filament.bed_temp", "63" },           .{ "filament.fan_speed", "0.7" },
     .{ "filament.fan_off_layers", "3" },      .{ "filament.fan_max_speed", "0.9" },
+    .{ "filament.fan_ramp_layers", "2" },
     .{ "filament.fan_boost_time", "12" },     .{ "filament.min_layer_time", "9" },
     .{ "filament.min_speed", "12" },          .{ "filament.flow_ratio", "0.97" },
     .{ "filament.max_flow", "9" },            .{ "filament.density", "1.3" },

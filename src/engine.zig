@@ -3326,3 +3326,100 @@ test "gcode: a wipe retraction stays inside the part" {
     try testing.expect(std.mem.indexOf(u8, out2.written(), ";WIPE") == null);
 }
 
+
+test "gcode: an outer wall wipe moves on along the wall with no plastic" {
+    const gpa = testing.allocator;
+    var b: mesh_mod.Builder = .init(gpa);
+    try mesh_mod.shapes.addBox(&b, 0, 0, 0, 20, 20, 1);
+    var mesh = try b.finish();
+    defer mesh.deinit(gpa);
+    var s: Settings = .{};
+    s.engine.threads = 1;
+    s.project.outer_wall_wipe = 0.4;
+    var job = try Job.init(gpa, &mesh, s);
+    defer job.deinit();
+    var out: std.Io.Writer.Allocating = .init(gpa);
+    defer out.deinit();
+    _ = try job.writeGcode(&out.writer);
+    // After each outer wall: G1 moves with X and Y and no E, 0.4 mm in all,
+    // on the edge of the box.
+    const ox = s.machine.origin_x + job.dx;
+    const oy = s.machine.origin_y + job.dy;
+    var it = std.mem.splitScalar(u8, out.written(), '\n');
+    var wipes: usize = 0;
+    var x0: f64 = 0;
+    var y0: f64 = 0;
+    var run: f64 = 0;
+    var in_run = false;
+    while (it.next()) |line| {
+        var x: ?f64 = null;
+        var y: ?f64 = null;
+        var has_e = false;
+        var words = std.mem.tokenizeScalar(u8, line, ' ');
+        while (words.next()) |w| {
+            if (w[0] == 'X') x = try std.fmt.parseFloat(f64, w[1..]) - ox;
+            if (w[0] == 'Y') y = try std.fmt.parseFloat(f64, w[1..]) - oy;
+            if (w[0] == 'E') has_e = true;
+        }
+        const wipe = std.mem.startsWith(u8, line, "G1 X") and !has_e;
+        if (wipe) {
+            const px = x.?;
+            const py = y.?;
+            // On the outer wall: half a line in from an edge of the box.
+            const edge = @min(@min(@abs(px), @abs(px - 20)), @min(@abs(py), @abs(py - 20)));
+            try testing.expect(edge < 0.5);
+            run += @import("geom.zig").hypot(px - x0, py - y0);
+            in_run = true;
+        } else if (in_run) {
+            try testing.expectApproxEqAbs(@as(f64, 0.4), run, 1e-3);
+            wipes += 1;
+            run = 0;
+            in_run = false;
+        }
+        if (x) |v| x0 = v;
+        if (y) |v| y0 = v;
+    }
+    try testing.expect(wipes >= 3);
+
+    // With no wipe: no move with no plastic on the wall.
+    s.project.outer_wall_wipe = 0;
+    var plain = try Job.init(gpa, &mesh, s);
+    defer plain.deinit();
+    var out2: std.Io.Writer.Allocating = .init(gpa);
+    defer out2.deinit();
+    _ = try plain.writeGcode(&out2.writer);
+    var it2 = std.mem.splitScalar(u8, out2.written(), '\n');
+    while (it2.next()) |line| {
+        if (std.mem.startsWith(u8, line, "G1 X")) try testing.expect(std.mem.indexOf(u8, line, " E") != null);
+    }
+}
+
+test "gcode: the fan goes up in steps over the ramp layers" {
+    const gpa = testing.allocator;
+    var b: mesh_mod.Builder = .init(gpa);
+    try mesh_mod.shapes.addBox(&b, 0, 0, 0, 20, 20, 2);
+    var mesh = try b.finish();
+    defer mesh.deinit(gpa);
+    var s: Settings = .{};
+    s.engine.threads = 1;
+    s.filament.fan_speed = 1;
+    s.filament.fan_max_speed = 1;
+    s.filament.fan_off_layers = 2;
+    s.filament.fan_ramp_layers = 2;
+    var job = try Job.init(gpa, &mesh, s);
+    defer job.deinit();
+    var out: std.Io.Writer.Allocating = .init(gpa);
+    defer out.deinit();
+    _ = try job.writeGcode(&out.writer);
+    const text = out.written();
+    // The first fan command of each layer.
+    const want = [_][]const u8{ "M106 S85", "M106 S170", "M106 S255" };
+    for (want, 2..) |w, li| {
+        var key_buf: [32]u8 = undefined;
+        const key = try std.fmt.bufPrint(&key_buf, ";LAYER:{d}\n", .{li});
+        const at = std.mem.indexOf(u8, text, key).?;
+        const fan = std.mem.indexOf(u8, text[at..], "M106 S").?;
+        const end = std.mem.indexOfScalar(u8, text[at + fan ..], '\n').?;
+        try testing.expectEqualStrings(w, text[at + fan ..][0..end]);
+    }
+}
