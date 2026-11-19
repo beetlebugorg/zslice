@@ -1284,6 +1284,8 @@ static void undo_restored(ZgModel *self, int bits) {
 
 gboolean zg_model_undo(ZgModel *self) {
     undo_stop_timer(self);
+    /* A fall or the hand ends first: its part can change or go. */
+    zg_model_fall_cancel(self);
     int bits = zs_app_history_undo(self->core, now_ms());
     undo_restored(self, bits);
     return bits != 0;
@@ -1291,6 +1293,8 @@ gboolean zg_model_undo(ZgModel *self) {
 
 gboolean zg_model_redo(ZgModel *self) {
     undo_stop_timer(self);
+    /* A fall or the hand ends first: its part can change or go. */
+    zg_model_fall_cancel(self);
     int bits = zs_app_history_redo(self->core, now_ms());
     undo_restored(self, bits);
     return bits != 0;
@@ -1328,6 +1332,8 @@ char *zg_model_history_describe(ZgModel *self, const char *changes) {
 
 gboolean zg_model_history_goto(ZgModel *self, guint i) {
     undo_stop_timer(self);
+    /* A fall or the hand ends first: its part can change or go. */
+    zg_model_fall_cancel(self);
     int bits = zs_app_history_goto(self->core, i, now_ms());
     undo_restored(self, bits);
     return bits != 0;
@@ -1903,6 +1909,7 @@ gint64 zg_model_part_split(ZgModel *self, size_t i) {
 }
 
 void zg_model_part_remove(ZgModel *self, size_t i) {
+    zg_model_fall_cancel(self);
     if (zs_app_part_remove(self->core, i) != ZS_OK) return;
     zg_model_select_part(self, -1);
     zg_model_select(self, -1);

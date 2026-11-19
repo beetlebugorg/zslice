@@ -213,7 +213,7 @@ static void render_queue(Page *p) {
         if (zs_set_plate_info(set, i, &info) != ZS_OK || info.part_count == 0) continue;
         any = TRUE;
         GtkWidget *row = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 6);
-        char *label = g_strdup_printf("%zu. %s · %zu parts%s", i + 1, info.name[0] ? info.name : "Plate", info.part_count, info.status == ZS_PLATE_STATUS_DONE ? "" : " (not sliced)");
+        char *label = g_strdup_printf("%zu. %s · %zu part%s%s", i + 1, info.name[0] ? info.name : "Plate", info.part_count, info.part_count == 1 ? "" : "s", info.status == ZS_PLATE_STATUS_DONE ? "" : " (not sliced)");
         GtkWidget *l = gtk_label_new(label);
         g_free(label);
         gtk_label_set_xalign(GTK_LABEL(l), 0);

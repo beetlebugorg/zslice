@@ -1633,6 +1633,7 @@ static void show_menu(View3d *v, double x, double y) {
     g_menu_append(plate, "Arrange the plate", "win.arrange");
     g_menu_append(plate, "Add models\u2026", "app.open");
     g_menu_append(plate, "Clear the plate", "win.clear-plate");
+    g_menu_append(plate, "Remove this plate", "win.remove-plate");
     g_menu_append_section(menu, NULL, G_MENU_MODEL(plate));
     g_object_unref(plate);
     GMenu *general = g_menu_new();
