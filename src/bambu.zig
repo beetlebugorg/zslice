@@ -112,7 +112,13 @@ pub fn gcode3mf(gpa: Allocator, gcode: []const u8, title: []const u8) (Allocator
 /// more than one filament): the screen of the printer shows them, and the
 /// AMS mapping of a start message (see `Start`) maps them to its slots.
 pub fn gcode3mfWith(gpa: Allocator, gcode: []const u8, title: []const u8, filaments: []const FilamentUse) (Allocator.Error || std.Io.Writer.Error)![]u8 {
-    var info: PlateInfo = .{ .filaments = filaments };
+    return gcode3mfWithTime(gpa, gcode, title, filaments, 0);
+}
+
+/// `gcode3mfWith` and the print time that the slicer predicts (s), which
+/// a printdeck lists with the file.
+pub fn gcode3mfWithTime(gpa: Allocator, gcode: []const u8, title: []const u8, filaments: []const FilamentUse, seconds: f64) (Allocator.Error || std.Io.Writer.Error)![]u8 {
+    var info: PlateInfo = .{ .filaments = filaments, .seconds = seconds };
     for (filaments) |f| {
         info.grams += f.grams;
         info.meters += f.meters;
@@ -400,6 +406,14 @@ test "bambu: the file lists the filaments of the print" {
         info = e.data;
     };
     try std.testing.expect(std.mem.indexOf(u8, info.?, "<filament id=\"2\" type=\"PLA\" color=\"#D93A3A\" used_m=\"0.40\" used_g=\"1.20\"/>") != null);
+    // The time of the slice goes with the filaments.
+    const timed = try gcode3mfWithTime(gpa, "G28\n", "plaque", &fils, 754.6);
+    defer gpa.free(timed);
+    const entries2 = try zipfile.readAll(gpa, timed);
+    defer zipfile.freeAll(gpa, entries2);
+    for (entries2) |e| if (std.mem.eql(u8, e.name, "Metadata/slice_info.config")) {
+        try std.testing.expect(std.mem.indexOf(u8, e.data, "key=\"prediction\" value=\"755\"") != null);
+    };
 }
 
 test "bambu: the start message" {
