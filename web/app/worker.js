@@ -872,6 +872,15 @@ const ops = {
   },
 
   // The end of a drag or of the keys of a part: the slice that waited.
+  // A slice during a drag (the support follows a tree edit live): the held
+  // change slices now, and the step of the history stays open until
+  // sliceHeld.
+  sliceNow() {
+    wasm.x.zs_set_release(set);
+    schedule();
+    return {};
+  },
+
   sliceHeld() {
     wasm.x.zs_set_release(set);
     // The end of a live turn: the full slice of the part.

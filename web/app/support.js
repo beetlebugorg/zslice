@@ -997,6 +997,12 @@ export class SupportTool {
     const r = await this.ctx.client.call(op, args);
     d.busy = false;
     if (this.tdrag === d) this.answerTree(d, r);
+    // The support follows the drag: a slice at most each 150 ms, with the
+    // step of the history still open (sliceNow).
+    if (this.tdrag === d && performance.now() - (d.liveAt ?? 0) > 150) {
+      d.liveAt = performance.now();
+      this.ctx.client.call("sliceNow");
+    }
     if (this.tdrag === d && d.dirty) this.sendTree(true);
   }
 
