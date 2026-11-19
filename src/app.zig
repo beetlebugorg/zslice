@@ -2525,6 +2525,7 @@ test {
     _ = inspect_mod;
     _ = toolpaths_mod;
     _ = sim_print;
+    _ = @import("app/sim_calib.zig");
     _ = setting_effect;
     _ = setting_info;
     _ = sweep;

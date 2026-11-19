@@ -12,8 +12,8 @@
 //!   `Params.cell` mm, in tiles that exist only where plastic is) keeps the
 //!   top z of the plastic, and the layer that put it there. A new mass with
 //!   the bed, or the top of an earlier layer, under its bead (within
-//!   `support_tol` of a bead height) is solid at once at its place. So is
-//!   a mass beside a bead of the same layer at its height, up to
+//!   the reach of the round strand that leaves the nozzle) is solid at
+//!   once at its place. So is a mass beside a bead of the same layer at its height, up to
 //!   `side_reach` beads out from plastic that an earlier layer holds: the
 //!   end of a bridge line welds to the wall, and an overhang wall leans on
 //!   the wall inside it. A bead that hung does not hold the mass beside it,
@@ -25,21 +25,27 @@
 //!   value plus the forced value of the fan, from the Hilpert correlation
 //!   for a cylinder in cross flow (diameter 4 A / P).
 //! - **Viscosity.** Hot PLA flows. Its viscosity grows as it cools: an
-//!   Arrhenius law in the melt (733 Pa s at 210 °C, 86 kJ/mol, from the
-//!   data of Yoo, Jeong, and Choi 2021), and the WLF law near the glass
-//!   point (Williams, Landel, and Ferry 1955), whichever is larger. A soft
-//!   mass sets (it is solid where it is) when its viscosity passes
-//!   `set_visc`.
+//!   Arrhenius law in the melt (86 kJ/mol, from the data of Yoo, Jeong,
+//!   and Choi 2021, and about 1450 Pa s at 210 °C for a filament, from
+//!   the data of Patti et al. 2022), and the WLF law near the glass point
+//!   (Williams, Landel, and Ferry 1955), whichever is larger. A soft mass
+//!   sets (it is solid where it is) when its viscosity passes `set_visc`.
 //! - **Contact.** A soft mass that comes down onto the bed or solid plastic
-//!   sets there.
+//!   sets there. It rests on the highest plastic under its bead, so it
+//!   does not fall through a gap narrower than itself.
+//! - **Failure.** A mass that sets more than `fail_drop` under its place
+//!   failed. The next layers have no plastic under them there, so they
+//!   fall onto it and fail too, until a layer can bridge to solid plastic.
 //! - **Runs.** The soft masses of a chain make runs between masses that
 //!   something holds: a solid mass, or the newest mass, which the nozzle
 //!   holds while the path prints.
 //!   - A run held at both ends (a bridge, or a strand from an edge to the
 //!     nozzle) hangs in its exact static shape: a catenary of the arc
 //!     length of the run between its two ends. The catenary is in the
-//!     vertical surface over the route where the nozzle laid the run, so
-//!     a run with a turn (a zigzag of infill) keeps its plan.
+//!     vertical surface over the route where the nozzle laid the run. The
+//!     route must be about straight: nothing holds a turn, so the tension
+//!     pulls a run with a turn (a slab edge over air, a zigzag) off its
+//!     plan, and the run swings and falls (below).
 //!     The hot plastic creeps under its tension: each link stretches at
 //!     the rate sigma / (3 eta) (the Trouton ratio of a Newtonian fluid).
 //!     The tension of a catenary is H = a w (w the weight for each mm), so
@@ -104,6 +110,12 @@ const Bead = struct {
     width: f32,
     heat: f32,
     diam: f32,
+    /// The gap under the bead that the plastic fills with no fall (mm).
+    /// Out of the nozzle, the plastic is a round strand of the bead area
+    /// (its diameter is sqrt(4 A / pi)). The nozzle presses it flat to the
+    /// bead height on what is under it. So the strand reaches down past
+    /// the bottom of the bead by the diameter less the bead height.
+    reach: f32,
 
     fn of(path: Path, p: Params) Bead {
         const area = if (path.area > 0) path.area else beadArea(path.width, path.height);
@@ -114,6 +126,7 @@ const Bead = struct {
             .width = path.width,
             .heat = p.density * 1e6 * p.heat_capacity * (area / perim) * 1e-3,
             .diam = 4 * area / perim,
+            .reach = @max(@sqrt(4 * area / std.math.pi) - path.height, 0),
         };
     }
 };
@@ -127,8 +140,10 @@ pub const Params = struct {
     density: f32 = 1.24e-3,
     heat_capacity: f32 = 1800,
     /// The viscosity of the melt at `visc_ref_t` (Pa s), and the flow
-    /// activation energy (J/mol) of the Arrhenius law.
-    visc_ref: f32 = 733,
+    /// activation energy (J/mol) of the Arrhenius law. Patti et al. (2022)
+    /// measured a zero-shear viscosity of about 1e4 Pa s at 170 °C for two
+    /// PLA filaments. The Arrhenius law takes it to 1450 Pa s at 210 °C.
+    visc_ref: f32 = 1450,
     visc_ref_t: f32 = 210,
     visc_ea: f32 = 86e3,
     /// The viscosity at the glass point (Pa s), for the WLF law.
@@ -156,9 +171,6 @@ pub const Params = struct {
     spacing: f32 = 0,
     /// The cell of the height field (mm).
     cell: f32 = 0.1,
-    /// A gap under a new mass up to this share of a bead height still
-    /// holds it (the nozzle presses it down).
-    support_tol: f32 = 0.5,
     /// A new mass welds to a bead of its layer beside it, if that bead is
     /// fewer than this many beads from plastic that an earlier layer
     /// holds. A bead over air then holds the next, up to this count.
@@ -432,6 +444,22 @@ fn catenaryU(r: f64) f64 {
 /// route.
 const RoutePoint = struct { xy: [2]f32, d: f64 };
 
+/// If no point of the route is farther than `tol` (mm) from the straight
+/// line between its two ends, in plan.
+fn straightRoute(route: []const RoutePoint, tol: f32) bool {
+    const a = route[0].xy;
+    const b = route[route.len - 1].xy;
+    const ux = b[0] - a[0];
+    const uy = b[1] - a[1];
+    const l = std.math.hypot(ux, uy);
+    if (!(l > 1e-6)) return false;
+    for (route[1 .. route.len - 1]) |r| {
+        const off = @abs((r.xy[0] - a[0]) * uy - (r.xy[1] - a[1]) * ux) / l;
+        if (off > tol) return false;
+    }
+    return true;
+}
+
 const Sim = struct {
     gpa: Allocator,
     p: Params,
@@ -474,11 +502,19 @@ const Sim = struct {
         s.gpa.free(s.failed);
     }
 
-    /// The top of the plastic under (x, y) that a mass with its center at
-    /// `zc` can rest on: a top above the center is beside it or above it.
-    fn floorAt(s: *const Sim, x: f32, y: f32, zc: f32) f32 {
-        const c = s.field.at(x, y);
-        return if (c.top <= zc) c.top else 0;
+    /// The top of the plastic under a bead of width `w` at (x, y) that a
+    /// mass with its center at `zc` can rest on: the highest top under the
+    /// bead, at its center and at four points around it. A top above the
+    /// center is beside it or above it. So a bead does not fall through a
+    /// gap between two beads under it that is narrower than itself.
+    fn floorAt(s: *const Sim, x: f32, y: f32, zc: f32, w: f32) f32 {
+        const r = 0.35 * w;
+        var floor: f32 = 0;
+        for ([_][2]f32{ .{ 0, 0 }, .{ r, 0 }, .{ -r, 0 }, .{ 0, r }, .{ 0, -r } }) |o| {
+            const top = s.field.at(x + o[0], y + o[1]).top;
+            if (top <= zc) floor = @max(floor, top);
+        }
+        return floor;
     }
 
     /// What holds a new mass at p: the reach of its plastic (see Field),
@@ -488,9 +524,8 @@ const Sim = struct {
     /// welds to the wall). So a skin over air grows only a few lines from
     /// the plastic that an earlier layer holds.
     fn supported(s: *const Sim, layer: u32, b: Bead, p: V, dir: [2]f32) u8 {
-        const h = 2 * b.half_h;
         const bottom = p[2] - b.half_h;
-        const tol = s.p.support_tol * h;
+        const tol = b.reach;
         if (bottom <= tol) return 0;
         const top = p[2] + b.half_h;
         const r = 0.5 * b.width;
@@ -699,7 +734,7 @@ const Sim = struct {
             if (c.pinned(m)) continue;
             const n = &nodes[m];
             const half_h = 0.5 * s.paths[n.path].height;
-            const top = s.floorAt(n.pos[0], n.pos[1], @max(n.pos[2], n.prev[2]));
+            const top = s.floorAt(n.pos[0], n.pos[1], @max(n.pos[2], n.prev[2]), s.paths[n.path].width);
             if (n.pos[2] - half_h <= top + 1e-3) {
                 n.pos[2] = @max(n.pos[2], top + half_h);
                 try s.setSolid(c, m);
@@ -756,6 +791,11 @@ const Sim = struct {
         const dz: f64 = b[2] - a[2];
         const dh = route[route.len - 1].d;
         if (dh < 0.05 * arc or arc * arc <= dz * dz + 1e-12) return false;
+        // Nothing holds a turn of the route: the tension pulls the strand
+        // to the straight line between its ends, and gravity pulls it
+        // down. A run whose route leaves that line by more than half a
+        // bead swings and falls.
+        if (!straightRoute(route, 0.5 * s.bead(nodes[k].path).width)) return false;
         var lp = @sqrt(arc * arc - dz * dz);
         var slack = @max(lp - dh, 0);
         if (phi > 0) {
@@ -872,7 +912,7 @@ const Sim = struct {
             }
             for (nodes[k .. j + 1]) |*n| {
                 const half_h = 0.5 * s.paths[n.path].height;
-                const top = s.floorAt(n.pos[0], n.pos[1], @max(n.pos[2], n.prev[2]));
+                const top = s.floorAt(n.pos[0], n.pos[1], @max(n.pos[2], n.prev[2]), s.paths[n.path].width);
                 if (n.pos[2] - half_h < top) n.pos[2] = top + half_h;
             }
         }
@@ -1279,7 +1319,7 @@ test "print sim: the same input gives the same output" {
 
 test "print sim: the viscosity grows as PLA cools, and sets above the glass point" {
     const p: Params = .{};
-    try testing.expectApproxEqRel(@as(f32, 733), viscosity(p, 210), 1e-4);
+    try testing.expectApproxEqRel(@as(f32, 1450), viscosity(p, 210), 1e-4);
     try testing.expect(viscosity(p, 180) > 2.5 * viscosity(p, 210));
     try testing.expect(viscosity(p, 61) > 1e10);
     const ts = setTemperature(p);
