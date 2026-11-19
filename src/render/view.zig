@@ -1463,8 +1463,9 @@ pub const View = struct {
     }
 
     /// Lights the layers lo to hi (a drag of the Select tool over the
-    /// print), or none (null). The frame shows them as a selection: it
-    /// uses the highlight of a path, with the bead range of the layers.
+    /// print), or none (null). The frame shows them in the color of a
+    /// selection, and the other layers as they are: it uses the highlight
+    /// of a path, with the bead range of the layers.
     /// So the light costs no new beads and no work for each bead.
     pub fn setLightLayers(v: *View, range: ?[2]usize) void {
         const r = range orelse {
@@ -3827,9 +3828,10 @@ pub const View = struct {
                     .{ lit_range[0], lit_range[1], 0, if (lit_range[1] > lit_range[0]) 4 else 0 }
                 else
                     (if (v.lightBeads()) |lb|
-                        // The lit layers: a selection, and the other
-                        // beads are ghosts.
-                        [4]f32{ lb[0], lb[1], -1, if (v.mode == .print) 0 else 1 }
+                        // The lit layers: the color of a selection. The
+                        // other beads show as they are (no ghosts), so
+                        // the print stays in sight around the layers.
+                        [4]f32{ lb[0], lb[1], 0, if (v.mode == .print) 0 else 1 }
                     else
                         [4]f32{ v.highlight[0], v.highlight[1], if (v.isolate and v.highlight[1] > v.highlight[0]) -1 else @as(f32, @floatFromInt(v.focus_mask)), if (v.mode == .print) 0 else 1 }),
             },
