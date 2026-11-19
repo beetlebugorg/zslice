@@ -341,6 +341,13 @@ pub const View = struct {
     preview: ?PartPreview = null,
     /// The bead ranges of the part of the preview, in print order.
     preview_ranges: std.ArrayList([2]u32) = .empty,
+    /// The box of the beads of the part of the preview, made with
+    /// `preview_ranges`.
+    preview_box: [2][3]f32 = .{ .{ 0, 0, 0 }, .{ 0, 0, 0 } },
+    /// The bead ends that can be the lowest point of the part of the
+    /// preview under a turn (see `previewHull`): x, y, top z, bottom z,
+    /// half the width.
+    preview_hull: std.ArrayList([5]f32) = .empty,
     /// The draws of the frame: the part of the preview, and the beads of
     /// the draw list without it.
     preview_draws: std.ArrayList(Draw) = .empty,
@@ -381,6 +388,7 @@ pub const View = struct {
         v.plate_draws.deinit(gpa);
         v.path_part.deinit(gpa);
         v.preview_ranges.deinit(gpa);
+        v.preview_hull.deinit(gpa);
         v.preview_draws.deinit(gpa);
         v.rest_draws.deinit(gpa);
         v.layer_end.deinit(gpa);
@@ -2724,6 +2732,7 @@ pub const View = struct {
     pub fn clearPreview(v: *View) void {
         v.preview = null;
         v.preview_ranges.clearRetainingCapacity();
+        v.preview_hull.clearRetainingCapacity();
     }
 
     /// Shows part `part` of the plate (Toolpaths.path_part) turned by the
@@ -2750,14 +2759,21 @@ pub const View = struct {
                     items[items.len - 1][1] = b;
                 } else v.preview_ranges.append(gpa, .{ a, b }) catch return error.OutOfMemory;
             }
+            // The box and the hull do not change while the part moves: a
+            // hold or a fall calls this each frame, and a scan of all
+            // beads of a large part each frame was 25 ms.
+            var lo = [3]f32{ std.math.inf(f32), std.math.inf(f32), std.math.inf(f32) };
+            var hi = [3]f32{ -std.math.inf(f32), -std.math.inf(f32), -std.math.inf(f32) };
+            for (v.preview_ranges.items) |r| for (v.beads.items[r[0]..r[1]]) |b| {
+                const r2 = b.w / 2;
+                lo = .{ @min(lo[0], @min(b.ax, b.bx) - r2), @min(lo[1], @min(b.ay, b.by) - r2), @min(lo[2], b.z - b.h) };
+                hi = .{ @max(hi[0], @max(b.ax, b.bx) + r2), @max(hi[1], @max(b.ay, b.by) + r2), @max(hi[2], b.z) };
+            };
+            v.preview_box = .{ lo, hi };
+            try v.previewHull();
         }
-        var lo = [3]f32{ std.math.inf(f32), std.math.inf(f32), std.math.inf(f32) };
-        var hi = [3]f32{ -std.math.inf(f32), -std.math.inf(f32), -std.math.inf(f32) };
-        for (v.preview_ranges.items) |r| for (v.beads.items[r[0]..r[1]]) |b| {
-            const r2 = b.w / 2;
-            lo = .{ @min(lo[0], @min(b.ax, b.bx) - r2), @min(lo[1], @min(b.ay, b.by) - r2), @min(lo[2], b.z - b.h) };
-            hi = .{ @max(hi[0], @max(b.ax, b.bx) + r2), @max(hi[1], @max(b.ay, b.by) + r2), @max(hi[2], b.z) };
-        };
+        const lo = v.preview_box[0];
+        const hi = v.preview_box[1];
         if (!(lo[0] <= hi[0])) {
             v.preview = null;
             return;
@@ -2778,15 +2794,13 @@ pub const View = struct {
             // The lowest point of the turned part: the corners of the
             // beads (a bead is no wider than its box).
             var zmin = std.math.inf(f32);
-            for (v.preview_ranges.items) |r| for (v.beads.items[r[0]..r[1]]) |b| {
-                const r2 = b.w / 2;
-                for ([_][2]f32{ .{ b.ax, b.ay }, .{ b.bx, b.by } }) |e| for ([_]f32{ b.z, b.z - b.h }) |bz| {
-                    // The x and y of the corner do not matter much: use
-                    // the end point, and the width as a margin.
-                    const d = [3]f32{ e[0] - pivot[0], e[1] - pivot[1], bz - pivot[2] };
-                    const zz = rot[6] * d[0] + rot[7] * d[1] + rot[8] * d[2];
-                    zmin = @min(zmin, zz - r2 * @sqrt(rot[6] * rot[6] + rot[7] * rot[7]));
-                };
+            const side = @sqrt(rot[6] * rot[6] + rot[7] * rot[7]);
+            for (v.preview_hull.items) |e| for ([_]f32{ e[2], e[3] }) |bz| {
+                // The x and y of the corner do not matter much: use the
+                // end point, and the width as a margin.
+                const d = [3]f32{ e[0] - pivot[0], e[1] - pivot[1], bz - pivot[2] };
+                const zz = rot[6] * d[0] + rot[7] * d[1] + rot[8] * d[2];
+                zmin = @min(zmin, zz - e[4] * side);
             };
             mv[2] = -(zmin + pivot[2]);
         }
@@ -2796,6 +2810,66 @@ pub const View = struct {
             m[12 + row] = pivot[row] + mv[row] - (rot[row * 3] * pivot[0] + rot[row * 3 + 1] * pivot[1] + rot[row * 3 + 2] * pivot[2]);
         }
         v.preview = .{ .part = pi, .m = m, .rot = rot, .pivot = pivot, .move = mv, .lo = lo, .hi = hi };
+    }
+
+    /// Fills `preview_hull` from the beads of `preview_ranges`. The lowest
+    /// point of the turned part is the least of a linear function of the
+    /// bead corners. At one z, that least value is at a corner of the
+    /// convex hull of the bead ends at that z, so each run of beads with
+    /// the same z and height keeps only the corners of its hull. Each
+    /// kept end gets the largest half width of its run: the part never
+    /// goes into the bed, and it is at most a few hundredths of a
+    /// millimeter high.
+    fn previewHull(v: *View) Error!void {
+        v.preview_hull.clearRetainingCapacity();
+        var run: std.ArrayList([2]f32) = .empty;
+        defer run.deinit(gpa);
+        var key = [2]f32{ std.math.nan(f32), std.math.nan(f32) };
+        var r2max: f32 = 0;
+        for (v.preview_ranges.items) |r| for (v.beads.items[r[0]..r[1]]) |b| {
+            if (b.z != key[0] or b.h != key[1]) {
+                try v.flushHull(&run, key, r2max);
+                key = .{ b.z, b.h };
+                r2max = 0;
+            }
+            r2max = @max(r2max, b.w / 2);
+            run.append(gpa, .{ b.ax, b.ay }) catch return error.OutOfMemory;
+            run.append(gpa, .{ b.bx, b.by }) catch return error.OutOfMemory;
+        };
+        try v.flushHull(&run, key, r2max);
+    }
+
+    /// Adds the corners of the convex hull of the points of `run` (one z
+    /// and height in `key`) to `preview_hull`, and empties `run`.
+    fn flushHull(v: *View, run: *std.ArrayList([2]f32), key: [2]f32, r2: f32) Error!void {
+        defer run.clearRetainingCapacity();
+        const pts = run.items;
+        if (pts.len == 0) return;
+        std.mem.sort([2]f32, pts, {}, struct {
+            fn lt(_: void, a: [2]f32, b: [2]f32) bool {
+                return a[0] < b[0] or (a[0] == b[0] and a[1] < b[1]);
+            }
+        }.lt);
+        // Andrew's monotone chain: the lower and the upper chain, in the
+        // sorted points, with the collinear points left out.
+        var hull = &v.preview_hull;
+        for (0..2) |pass| {
+            const base = hull.items.len;
+            var k: usize = 0;
+            while (k < pts.len) : (k += 1) {
+                const p = if (pass == 0) pts[k] else pts[pts.len - 1 - k];
+                while (hull.items.len >= base + 2) {
+                    const a = hull.items[hull.items.len - 2];
+                    const b = hull.items[hull.items.len - 1];
+                    const side_of = (b[0] - a[0]) * (p[1] - a[1]) - (b[1] - a[1]) * (p[0] - a[0]);
+                    if (side_of > 0) break;
+                    _ = hull.pop();
+                }
+                hull.append(gpa, .{ p[0], p[1], key[0], key[0] - key[1], r2 }) catch return error.OutOfMemory;
+            }
+        }
+        // Both chains have the two end points: the copies are harmless,
+        // and a run of one point keeps it.
     }
 
     /// A point of the world in the frame of the beads of the preview: the
@@ -3808,6 +3882,7 @@ fn destroyTest(v: *View) void {
     v.draws.deinit(g);
     v.path_part.deinit(g);
     v.preview_ranges.deinit(g);
+    v.preview_hull.deinit(g);
     v.preview_draws.deinit(g);
     v.rest_draws.deinit(g);
 }
@@ -4146,4 +4221,35 @@ test "touch: one finger orbits, two fingers pinch and pan" {
     try std.testing.expectEqual(rot1, v.rot);
     v.touch(0, .cancel, 0, 0);
     try std.testing.expectEqual(@as(i64, -1), v.touches[0].id);
+}
+
+test "the lowest point of a turned preview from the hull is the lowest bead corner" {
+    var v = try testScene(6, 4, 5);
+    defer destroyTest(&v);
+    var prng = std.Random.DefaultPrng.init(7);
+    const rnd = prng.random();
+    for (v.beads.items) |*b| {
+        b.ax = rnd.float(f32) * 40 - 20;
+        b.ay = rnd.float(f32) * 40 - 20;
+        b.bx = rnd.float(f32) * 40 - 20;
+        b.by = rnd.float(f32) * 40 - 20;
+    }
+    for (0..v.path_start.items.len - 1) |_| try v.path_part.append(View.gpa, 0);
+    const pivot = [3]f32{ 1, 2, 3 };
+    for (0..200) |_| {
+        var q = [4]f32{ rnd.float(f32) - 0.5, rnd.float(f32) - 0.5, rnd.float(f32) - 0.5, rnd.float(f32) - 0.5 };
+        const len = @sqrt(q[0] * q[0] + q[1] * q[1] + q[2] * q[2] + q[3] * q[3]);
+        for (&q) |*c| c.* /= len;
+        try v.setPartPreview(0, q, pivot, .{ 0, 0, 0 }, true);
+        const rot = v.preview.?.rot;
+        // All corners of all beads.
+        var zmin = std.math.inf(f32);
+        for (v.beads.items) |b| for ([_][2]f32{ .{ b.ax, b.ay }, .{ b.bx, b.by } }) |e| for ([_]f32{ b.z, b.z - b.h }) |bz| {
+            const zz = rot[6] * (e[0] - pivot[0]) + rot[7] * (e[1] - pivot[1]) + rot[8] * (bz - pivot[2]);
+            zmin = @min(zmin, zz - b.w / 2 * @sqrt(rot[6] * rot[6] + rot[7] * rot[7]));
+        };
+        try std.testing.expectApproxEqAbs(-(zmin + pivot[2]), v.preview.?.move[2], 1e-4);
+    }
+    // The hull keeps few of the 480 bead ends.
+    try std.testing.expect(v.preview_hull.items.len < 300);
 }
