@@ -18,9 +18,9 @@
 
 enum { MAX_SETTINGS = 14, MAX_ACTIONS = 4, DRAG_MS = 90 };
 
-/* The first place of the box: at the top left of the view, right of the
- * tool strip. */
-static const double PLACE_X = 64, PLACE_Y = 12;
+/* The first place of the box: at the top of the view, in the middle,
+ * under the Search button of the top bar. */
+static const double PLACE_Y = 12;
 
 
 /* The actions in the results: the label, the keys, a hint, and the
@@ -492,18 +492,29 @@ static void on_moved(GtkWidget *card, double x, double y, gpointer data) {
     zg_pref_set("search_place", buf);
 }
 
+/* The first place: the middle of the view, at the top. */
+static double first_x(Search *s) {
+    GtkWidget *host = gtk_widget_get_parent(s->card);
+    /* Its width: as allocated, else the least width (a wrapped hint has a
+     * natural width of its whole text). */
+    int w = gtk_widget_get_width(s->card);
+    if (w <= 0) gtk_widget_measure(s->card, GTK_ORIENTATION_HORIZONTAL, -1, &w, NULL, NULL, NULL);
+    int W = host ? gtk_widget_get_width(host) : 0;
+    return W > 0 ? MAX(64, (W - w) / 2.0) : 64;
+}
+
 /* A double click on the head: back to the first place. */
 static void on_head_click(GtkGestureClick *g, int n, double x, double y, gpointer data) {
     Search *s = data;
     if (n != 2) return;
     zg_pref_set("search_place", "");
-    zg_float_place(s->card, PLACE_X, PLACE_Y);
+    zg_float_place(s->card, first_x(s), PLACE_Y);
     zg_float_forget(s->card);
 }
 
 static void place_saved(Search *s) {
     char *saved = zg_pref_get("search_place", "");
-    double x = PLACE_X, y = PLACE_Y;
+    double x = first_x(s), y = PLACE_Y;
     char **xy = g_strsplit(saved, ",", 2);
     if (xy[0] && xy[1]) {
         x = g_ascii_strtod(xy[0], NULL);
@@ -584,7 +595,7 @@ void zg_search_show(GtkWidget *search, const char *text, gint64 part) {
     Search *s = get(search);
     if (!s) return;
     gboolean open = gtk_widget_get_visible(s->card);
-    if (!open) place_saved(s);
+    gboolean was_open = open;
     s->part = part;
     if (part >= 0) {
         zs_part info;
@@ -603,6 +614,8 @@ void zg_search_show(GtkWidget *search, const char *text, gint64 part) {
     s->filling = FALSE;
     fill(s);
     gtk_widget_set_visible(s->card, TRUE);
+    /* After the show: the card has its width for the middle. */
+    if (!was_open) place_saved(s);
     gtk_widget_grab_focus(s->entry);
     gtk_editable_select_region(GTK_EDITABLE(s->entry), 0, -1);
 }

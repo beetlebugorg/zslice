@@ -677,12 +677,13 @@ GtkWidget *zg_history_page_new(ZgModel *model) {
     Page *p = g_new0(Page, 1);
     p->model = g_object_ref(model);
     GtkWidget *box = gtk_box_new(GTK_ORIENTATION_VERTICAL, 4);
-    GtkWidget *help = gtk_label_new("Each change of the settings or of the plate, the newest first. "
-                                    "Click a change to go back to it: the preview slices as it was then. "
-                                    "↑ and ↓ go to the next change, and Space goes back to the one shown before, "
-                                    "to compare two. A new edit there drops the later changes. "
-                                    "↶ undoes only one setting and keeps the later changes. "
-                                    "Double-click a setting to edit it.");
+    /* One line; the rest is in its tooltip. */
+    GtkWidget *help = gtk_label_new("Click a change to see the print as it was then.");
+    gtk_widget_set_tooltip_text(help, "The changes of the settings and of the plate, the newest first. "
+                                      "↑ and ↓ go to the next change, and Space goes back to the one shown before, "
+                                      "to compare two. A new edit there drops the later changes. "
+                                      "↶ undoes only one setting and keeps the later changes. "
+                                      "Double-click a setting to edit it.");
     gtk_label_set_wrap(GTK_LABEL(help), TRUE);
     gtk_label_set_max_width_chars(GTK_LABEL(help), 50);
     gtk_label_set_xalign(GTK_LABEL(help), 0);
