@@ -585,6 +585,13 @@ pub const Renderer = struct {
         var modes: [16]c.VkPresentModeKHR = undefined;
         n = @min(n, modes.len);
         if (get(r.phys, r.surface, &n, &modes) != c.VK_SUCCESS) return c.VK_PRESENT_MODE_FIFO_KHR;
+        // ZSLICE_PRESENT=fifo or immediate picks the mode, to find the cause
+        // of a view that does not show on a compositor (a test aid).
+        if (std.c.getenv("ZSLICE_PRESENT")) |e| {
+            const want: c.VkPresentModeKHR = if (std.mem.eql(u8, std.mem.span(e), "immediate")) c.VK_PRESENT_MODE_IMMEDIATE_KHR else c.VK_PRESENT_MODE_FIFO_KHR;
+            for (modes[0..n]) |m| if (m == want) return m;
+            return c.VK_PRESENT_MODE_FIFO_KHR;
+        }
         for (modes[0..n]) |m| if (m == c.VK_PRESENT_MODE_MAILBOX_KHR) return m;
         return c.VK_PRESENT_MODE_FIFO_KHR;
     }
