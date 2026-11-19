@@ -192,7 +192,7 @@ struct LineCard: View {
         if let m = workspace.cardMoved { return m }
         let box = workspace.selection.flatMap { workspace.lineRect($0.path) }
         let (c, corner) = cardCorner(avoiding: box, near: workspace.cardAt, size: cardSize, in: area,
-                                     bottom: workspace.dockHeight, keep: workspace.cardCorner)
+                                     bottom: workspace.dockHeight, keep: workspace.cardCorner, panels: workspace.panels)
         workspace.cardCorner = corner
         return c
     }
@@ -206,6 +206,36 @@ func layerTimeText(_ s: Double) -> String {
     return String(format: "%d min %02d s", r / 60, r % 60)
 }
 
+/// The frames of the panels over the view (the print card, the check
+/// panel, the cards of the tools): a card never covers one (web/app/
+/// place.js, freeArea). Each panel marks itself with `.panel()`.
+struct PanelFramesKey: PreferenceKey {
+    static let defaultValue: [CGRect] = []
+    static func reduce(value: inout [CGRect], nextValue: () -> [CGRect]) { value += nextValue() }
+}
+
+extension View {
+    /// A panel that the cards keep out of.
+    func panel() -> some View {
+        background(GeometryReader { g in Color.clear.preference(key: PanelFramesKey.self, value: [g.frame(in: .global)]) })
+    }
+}
+
+/// The overlap of a card at `r` with the box (and its margin) and the
+/// panels, in square points: 0 when it is clear of all of them.
+private func coverage(_ r: CGRect, box: CGRect?, margin: CGFloat, panels: [CGRect]) -> CGFloat {
+    var sum: CGFloat = 0
+    if let b = box?.insetBy(dx: -margin, dy: -margin) {
+        let i = r.intersection(b)
+        if !i.isNull { sum += i.width * i.height }
+    }
+    for p in panels {
+        let i = r.intersection(p.insetBy(dx: -8, dy: -8))
+        if !i.isNull { sum += i.width * i.height }
+    }
+    return sum
+}
+
 /// The center of a card in a corner of the view, away from the box of the
 /// clicked line and the click (web/app/place.js, placeCorner). The card
 /// keeps its corner `keep` while that corner stays clear, so it does not
@@ -214,7 +244,8 @@ func layerTimeText(_ s: Double) -> String {
 /// left, 3 bottom right. The area leaves out the tool strip (64 points),
 /// the toolbar (60), the layer slider with its label (124), and the bottom
 /// bar.
-func cardCorner(avoiding box: CGRect?, near at: CGPoint, size: CGSize, in area: CGSize, bottom: CGFloat, keep: Int?) -> (CGPoint, Int) {
+func cardCorner(avoiding box: CGRect?, near at: CGPoint, size: CGSize, in area: CGSize, bottom: CGFloat, keep: Int?,
+                panels: [CGRect] = []) -> (CGPoint, Int) {
     let clear: CGFloat = 24, gap: CGFloat = 16
     let b = (box ?? CGRect(origin: at, size: .zero)).union(CGRect(origin: at, size: .zero)).insetBy(dx: -clear, dy: -clear)
     let x0: CGFloat = 72, y0: CGFloat = 60, x1 = area.width - 124, y1 = area.height - bottom - 12
@@ -222,9 +253,9 @@ func cardCorner(avoiding box: CGRect?, near at: CGPoint, size: CGSize, in area: 
     func origin(_ c: Int) -> CGPoint {
         CGPoint(x: c % 2 == 0 ? x0 : max(x0, x1 - w), y: c < 2 ? y0 : max(y0, y1 - h))
     }
+    // The box of the line and the panels over the view.
     func overlap(_ c: Int) -> CGFloat {
-        let r = CGRect(origin: origin(c), size: size).intersection(b.insetBy(dx: -gap, dy: -gap))
-        return r.isNull ? 0 : r.width * r.height
+        coverage(CGRect(origin: origin(c), size: size), box: b, margin: gap, panels: panels)
     }
     let order = keep.map { k in [k] + [0, 1, 2, 3].filter { $0 != k } } ?? [0, 1, 2, 3]
     let best = order.first { overlap($0) == 0 } ?? order.min { overlap($0) < overlap($1) }!
@@ -256,8 +287,12 @@ func cardPlace(near at: CGPoint, size: CGSize, in area: CGSize) -> CGPoint {
 /// 12 points; under the toolbar (60) and in the view. With no side where
 /// it fits, the side with the most room. With no box, `cardPlace(near:)`.
 /// bottom: the room to keep at the bottom (the bottom bar).
-func cardPlace(avoiding box: CGRect?, near at: CGPoint, size: CGSize, in area: CGSize, bottom: CGFloat = 8) -> CGPoint {
-    guard let b = box, b.width > 0 || b.height > 0 else { return cardPlace(near: at, size: size, in: area) }
+func cardPlace(avoiding box: CGRect?, near at: CGPoint, size: CGSize, in area: CGSize, bottom: CGFloat = 8,
+               panels: [CGRect] = []) -> CGPoint {
+    guard let b = box, b.width > 0 || b.height > 0 else {
+        let c = cardPlace(near: at, size: size, in: area)
+        return clearOfPanels(c, size: size, in: area, bottom: bottom, panels: panels)
+    }
     // The tool strip is at the left (64 points) and the layer slider at
     // the right (84): a card keeps out of them too.
     let w = size.width, h = size.height, gap: CGFloat = 12, top: CGFloat = 60, edge = max(8, bottom)
@@ -270,7 +305,29 @@ func cardPlace(avoiding box: CGRect?, near at: CGPoint, size: CGSize, in area: C
         (b.maxY + gap + h <= area.height - edge, CGPoint(x: clampX(b.midX - w / 2), y: b.maxY + gap), area.height - b.maxY),
         (b.minY - gap - h >= top, CGPoint(x: clampX(b.midX - w / 2), y: b.minY - gap - h), b.minY - top),
     ]
-    let pick = sides.first(where: \.fits) ?? sides.max { $0.room < $1.room }!
-    let o = CGPoint(x: clampX(pick.origin.x), y: clampY(pick.origin.y))
+    // A side where the card fits whole, clear of the panels; else a corner
+    // of the free area that is clear of the box and the panels; else the
+    // side with the most room.
+    func clear(_ o: CGPoint) -> Bool { coverage(CGRect(origin: o, size: size), box: b, margin: gap, panels: panels) == 0 }
+    let fit = sides.map { (s: $0, o: CGPoint(x: clampX($0.origin.x), y: clampY($0.origin.y))) }
+    if let s = fit.first(where: { $0.s.fits && clear($0.o) }) { return CGPoint(x: s.o.x + w / 2, y: s.o.y + h / 2) }
+    let corners = [CGPoint(x: left, y: top), CGPoint(x: right - w, y: top), CGPoint(x: left, y: area.height - h - edge), CGPoint(x: right - w, y: area.height - h - edge)]
+        .map { CGPoint(x: clampX($0.x), y: clampY($0.y)) }
+    if let c = corners.first(where: clear) { return CGPoint(x: c.x + w / 2, y: c.y + h / 2) }
+    let all = fit.map(\.o) + corners
+    let o = all.min { coverage(CGRect(origin: $0, size: size), box: b, margin: gap, panels: panels) < coverage(CGRect(origin: $1, size: size), box: b, margin: gap, panels: panels) }!
+    return CGPoint(x: o.x + w / 2, y: o.y + h / 2)
+}
+
+/// A card at `center` that covers a panel moves to the first corner of the
+/// free area that is clear of the panels.
+private func clearOfPanels(_ center: CGPoint, size: CGSize, in area: CGSize, bottom: CGFloat, panels: [CGRect]) -> CGPoint {
+    let w = size.width, h = size.height
+    let here = CGRect(x: center.x - w / 2, y: center.y - h / 2, width: w, height: h)
+    guard coverage(here, box: nil, margin: 0, panels: panels) > 0 else { return center }
+    let top: CGFloat = 60, edge = max(8, bottom), left: CGFloat = 64, right = area.width - 84
+    let corners = [CGPoint(x: left, y: top), CGPoint(x: right - w, y: top), CGPoint(x: left, y: area.height - h - edge), CGPoint(x: right - w, y: area.height - h - edge)]
+    let o = corners.first { coverage(CGRect(origin: $0, size: size), box: nil, margin: 0, panels: panels) == 0 }
+        ?? corners.min { coverage(CGRect(origin: $0, size: size), box: nil, margin: 0, panels: panels) < coverage(CGRect(origin: $1, size: size), box: nil, margin: 0, panels: panels) }!
     return CGPoint(x: o.x + w / 2, y: o.y + h / 2)
 }

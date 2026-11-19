@@ -134,6 +134,12 @@ final class Workspace {
     var rangeCard: (lo: Int, hi: Int)?
     /// The Paint tool (PaintTool.swift), while it is on.
     var paint: PaintSession?
+    /// The panels over the view (global frames), and the global origin of
+    /// the layer of the cards: a card keeps out of each panel.
+    var panelFrames: [CGRect] = []
+    var cardsOrigin: CGPoint = .zero
+    /// The panels in the coordinates of the cards.
+    var panels: [CGRect] { panelFrames.map { $0.offsetBy(dx: -cardsOrigin.x, dy: -cardsOrigin.y) } }
     /// The range of Shift+K and Shift+J: the first layer, and the layer
     /// that moves.
     @ObservationIgnored var keyRange: (a: Int, b: Int)?
@@ -543,6 +549,16 @@ final class Workspace {
             PrinterStore.shared.remove(p.id)
             NSLog("zslice key remove: key before %d, after %d", before ? 1 : 0, Keychain.read(account: p.id.uuidString) == nil ? 0 : 1)
         }
+        // ZSLICE_FILAMENT_LOG=1 logs the filaments of the plate and their
+        // grams, 5 s after the start (a painted file that opens).
+        if env["ZSLICE_FILAMENT_LOG"] != nil {
+            DispatchQueue.main.asyncAfter(deadline: .now() + 5) { [weak self] in
+                guard let self else { return }
+                let st = model.filamentStats
+                NSLog("zslice filaments: %@; grams %@, changes %ld", model.filaments.map { "\($0.index + 1) \($0.material) \($0.color)" }.joined(separator: ", "),
+                      st?.grams.map { String(format: "%.2f", $0) }.joined(separator: ",") ?? "-", st?.changes ?? 0)
+            }
+        }
         // ZSLICE_PAINT_TEST=smart|brush: a red second filament, the Paint
         // tool, and a click (or a stroke) at the middle of the view; it logs
         // the region, the paint, and the grams of each filament after the
@@ -578,6 +594,12 @@ final class Workspace {
                 DispatchQueue.main.asyncAfter(deadline: .now() + 5) { [weak self] in
                     guard let self, let st = model.filamentStats else { return }
                     NSLog("zslice paint test: grams %@, changes %ld", st.grams.map { String(format: "%.2f", $0) }.joined(separator: ","), st.changes)
+                    // ZSLICE_PAINT_SAVE=path: the project with its paint, for
+                    // the tests of painted files.
+                    if let path = env["ZSLICE_PAINT_SAVE"], let data = model.projectFileData(name: "plaque") {
+                        try? data.write(to: URL(fileURLWithPath: path))
+                        NSLog("zslice paint test: saved %ld bytes", data.count)
+                    }
                 }
             }
         }

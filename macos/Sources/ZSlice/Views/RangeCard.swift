@@ -64,7 +64,8 @@ struct RangeCard: View {
         .shadow(color: .black.opacity(0.15), radius: 12, y: 4)
         .onGeometryChange(for: CGSize.self) { $0.size } action: { cardSize = $0 }
         // Beside the lit layers.
-        .position(cardPlace(avoiding: workspace.rangeRect(), near: CGPoint(x: area.width / 2, y: area.height / 2), size: cardSize, in: area, bottom: workspace.dockHeight + 12))
+        .position(cardPlace(avoiding: workspace.rangeRect(), near: CGPoint(x: area.width / 2, y: area.height / 2), size: cardSize, in: area, bottom: workspace.dockHeight + 12,
+                                panels: workspace.panels))
         .onKeyPress(.escape) {
             workspace.closeRangeCard()
             return .handled
