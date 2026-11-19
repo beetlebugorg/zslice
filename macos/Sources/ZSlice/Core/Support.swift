@@ -256,6 +256,8 @@ extension Workspace {
         model.settingsGeneration += 1
         model.requestSlice()
         readSupportAreas()
+        // An area removed or made Block: a part can lose what held it.
+        checkPendingFall()
     }
 
     func setSupportKind(_ kind: Int32) {

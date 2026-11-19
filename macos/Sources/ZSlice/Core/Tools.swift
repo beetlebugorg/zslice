@@ -293,6 +293,7 @@ extension Workspace {
         settleTask = Task { @MainActor [weak self] in
             try? await Task.sleep(for: .milliseconds(600))
             guard let self, !Task.isCancelled else { return }
+            settleTask = nil
             settle(part: i) { [weak self] in
                 self?.model.settingsChanged()
                 self?.model.release()
@@ -331,6 +332,29 @@ extension Workspace {
         }
         falling = (i, then)
         canvas.startTicking()
+    }
+
+    /// After a change of a setting or of the plates (support turned off
+    /// under a turned part, an area removed, a plate or a project opened):
+    /// the first part that cannot stand now falls (zs_app_fall_pending).
+    /// Not during a turn: the turn runs its own fall at its end. One check
+    /// for the changes of one turn of the main loop.
+    func checkPendingFall() {
+        guard !fallCheckDue else { return }
+        fallCheckDue = true
+        DispatchQueue.main.async { [weak self] in
+            guard let self else { return }
+            fallCheckDue = false
+            guard falling == nil, ringDrag == nil, settleTask == nil else { return }
+            let i = zs_app_fall_pending(model.core)
+            guard i >= 0 else { return }
+            // The slice after the rest only if the part did fall: a part
+            // that does not fall must not start the check again.
+            settle(part: Int(i))
+            if let f = falling, f.part == Int(i) {
+                falling = (f.part, { [weak self] in self?.model.settingsChanged() })
+            }
+        }
     }
 
     /// One frame of a fall. Returns true while the part falls.

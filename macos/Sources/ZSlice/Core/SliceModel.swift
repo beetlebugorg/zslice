@@ -88,6 +88,9 @@ final class SliceModel {
     @ObservationIgnored var onPlates: (() -> Void)?
     /// Runs on the main thread after another plate became active.
     @ObservationIgnored var onActivePlate: (() -> Void)?
+    /// After a change of a setting or of the plates: the window checks
+    /// for a part that cannot stand now (zs_app_fall_pending).
+    @ObservationIgnored var onChanged: (() -> Void)?
 
     init() {
         let b = EventBridge()
@@ -192,6 +195,7 @@ final class SliceModel {
         readActive()
         onActivePlate?()
         onPlates?()
+        onChanged?()
     }
 
     /// Removes plate i (no undo). The plate on its left becomes active.
@@ -243,6 +247,7 @@ final class SliceModel {
         settingsGeneration += 1
         history.noteChange()
         requestSlice()
+        onChanged?()
     }
 
     /// After an undo, a redo, or a jump in the history: the core restored

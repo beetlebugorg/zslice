@@ -115,6 +115,7 @@ final class Workspace {
     /// at its rest.
     @ObservationIgnored var falling: (part: Int, then: (() -> Void)?)?
     @ObservationIgnored var fallClock = 0.0
+    @ObservationIgnored var fallCheckDue = false
     @ObservationIgnored var fallFrame = 0
     /// The label of a ring drag ("+30° about Z") and its place.
     var ringLabel: (text: String, at: CGPoint)?
@@ -193,7 +194,11 @@ final class Workspace {
         canvas.page = page
         model.onSliced = { [weak self] in self?.sliced() }
         model.onPlates = { [weak self] in self?.syncPlates() }
-        model.onActivePlate = { [weak self] in self?.activePlateChanged() }
+        model.onActivePlate = { [weak self] in
+            self?.activePlateChanged()
+            self?.checkPendingFall()
+        }
+        model.onChanged = { [weak self] in self?.checkPendingFall() }
         SessionStore.shared.register(self)
         if ProcessInfo.processInfo.environment["ZSLICE_TIMING"] != nil {
             NSLog("zslice timing: window model ready %.0f ms after the start", (CACurrentMediaTime() - SessionStore.launch) * 1000)
@@ -625,6 +630,19 @@ final class Workspace {
         }
         // ZSLICE_TURN=deg turns the selected part about X, then lets it settle
         // and logs the note; ZSLICE_SUPPORT=1 turns support on first.
+        // ZSLICE_SUPPORT_OFF_AFTER=s turns support off s seconds later, as
+        // the settings do (a part that support held must fall then).
+        if let s = env["ZSLICE_SUPPORT_OFF_AFTER"].flatMap(Double.init) {
+            Task { @MainActor in
+                try? await Task.sleep(for: .seconds(s))
+                self.model.set("project.support", "off")
+                NSLog("zslice support off: set")
+                try? await Task.sleep(for: .seconds(2.5))
+                var p = zs_part()
+                _ = zs_app_part_get(self.model.core, 0, &p)
+                NSLog("zslice support off: size z %.1f, note %@", p.size_z, self.note ?? "none")
+            }
+        }
         if let t = env["ZSLICE_TURN"].flatMap(Double.init), let i = selectedPart {
             if env["ZSLICE_SUPPORT"] != nil { zs_app_setting_set(model.core, "project.support", "everywhere") }
             zs_app_part_turn(model.core, i, 0, t)
