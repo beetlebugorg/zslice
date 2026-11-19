@@ -74,6 +74,7 @@
 		8D0F28D1C4834CD0459891CC /* MetalSliceView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6008A43F2E1376546305C36E /* MetalSliceView.swift */; };
 		8DF75722C4D414DFBACB74A8 /* ShortcutSheet.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6C8BAD9BAC3249500D0252E2 /* ShortcutSheet.swift */; };
 		952741CD4EB88A0F7F17CDFC /* SupportPick.swift in Sources */ = {isa = PBXBuildFile; fileRef = D89D5124BF5EF12463338970 /* SupportPick.swift */; };
+		980E073565E6B29EE516A97B /* H264Decoder.swift in Sources */ = {isa = PBXBuildFile; fileRef = A23D8AA5A9E798E97F32F150 /* H264Decoder.swift */; };
 		9909C6BC7D0CD35341B5AEDD /* PlateLabels.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8D50EE436AA361BF3EBA3AC4 /* PlateLabels.swift */; };
 		9C4F65F3652E8C57A977D151 /* Render.swift in Sources */ = {isa = PBXBuildFile; fileRef = C6B3D7F7FABAA30471ADBA1D /* Render.swift */; };
 		9E14F638F9BE41B05668D207 /* QuickLookUI.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 4393D6CE28BFDB5A017CB700 /* QuickLookUI.framework */; };
@@ -205,6 +206,7 @@
 		9BA9E210F201AD299746FC07 /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist; path = Info.plist; sourceTree = "<group>"; };
 		9C4F54AC7440AD75B07ABC6D /* DocumentWindow.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DocumentWindow.swift; sourceTree = "<group>"; };
 		A02DA63545320A3F49007D73 /* PrintFacts.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PrintFacts.swift; sourceTree = "<group>"; };
+		A23D8AA5A9E798E97F32F150 /* H264Decoder.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = H264Decoder.swift; sourceTree = "<group>"; };
 		A3D6CFF6D8ACB26A0EBD66C8 /* FarmMonitor.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FarmMonitor.swift; sourceTree = "<group>"; };
 		A48F3E5FE16B90372BF2A40C /* Licenses.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Licenses.swift; sourceTree = "<group>"; };
 		A58556DEDADD796FCD211AEC /* SliceModel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SliceModel.swift; sourceTree = "<group>"; };
@@ -228,7 +230,7 @@
 		F817BC998AF3DF2ED3A00C81 /* Discovery.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Discovery.swift; sourceTree = "<group>"; };
 		FA1563DC7A7E6004C5F6CF3E /* SupportTrees.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SupportTrees.swift; sourceTree = "<group>"; };
 		FEB19535AAD2F45E9ADECD3E /* Shaders.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Shaders.swift; sourceTree = "<group>"; };
-		"TEMP_F9E8F8C2-A106-4F4B-A2BF-B00D7ACDBAEE" /* Signing.xcconfig */ = {isa = PBXFileReference; lastKnownFileType = text.xcconfig; path = Signing.xcconfig; sourceTree = "<group>"; };
+		"TEMP_FDF39E98-78D6-49E4-957F-E5612B4377AF" /* Signing.xcconfig */ = {isa = PBXFileReference; lastKnownFileType = text.xcconfig; path = Signing.xcconfig; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -395,6 +397,7 @@
 				F817BC998AF3DF2ED3A00C81 /* Discovery.swift */,
 				A3D6CFF6D8ACB26A0EBD66C8 /* FarmMonitor.swift */,
 				682988FB4AAED7CC864A3FFD /* Gzip.swift */,
+				A23D8AA5A9E798E97F32F150 /* H264Decoder.swift */,
 				83D64EAFB6216F86FAA95810 /* History.swift */,
 				A6D838E156394C6F8A401B5E /* LayerRange.swift */,
 				6208D0AEED978B77B7B878E6 /* PrinterLink.swift */,
@@ -421,10 +424,10 @@
 			path = Core;
 			sourceTree = "<group>";
 		};
-		"TEMP_A583F28F-464C-4E9C-BDDB-38F691A22957" /* macos */ = {
+		"TEMP_DA3F37B1-87F0-4945-8124-915CF19AF106" /* macos */ = {
 			isa = PBXGroup;
 			children = (
-				"TEMP_F9E8F8C2-A106-4F4B-A2BF-B00D7ACDBAEE" /* Signing.xcconfig */,
+				"TEMP_FDF39E98-78D6-49E4-957F-E5612B4377AF" /* Signing.xcconfig */,
 			);
 			path = macos;
 			sourceTree = "<group>";
@@ -625,6 +628,7 @@
 				58667ADEB619020C300A1610 /* FrameRenderer.swift in Sources */,
 				798BD5F88C4920BD7BCBC5ED /* GcodeEditor.swift in Sources */,
 				FACB41B6D3F563088A006CA0 /* Gzip.swift in Sources */,
+				980E073565E6B29EE516A97B /* H264Decoder.swift in Sources */,
 				41B1B2FA972EE5677E665102 /* History.swift in Sources */,
 				003D6D3ABB6D09C5F59C1A44 /* HistoryPage.swift in Sources */,
 				2E61517FD695932A423EAD9B /* LayerRange.swift in Sources */,
@@ -733,7 +737,7 @@
 		};
 		1BF4A7F21A34A94F2F8BE4A1 /* Release */ = {
 			isa = XCBuildConfiguration;
-			baseConfigurationReference = "TEMP_F9E8F8C2-A106-4F4B-A2BF-B00D7ACDBAEE" /* Signing.xcconfig */;
+			baseConfigurationReference = "TEMP_FDF39E98-78D6-49E4-957F-E5612B4377AF" /* Signing.xcconfig */;
 			buildSettings = {
 				ALWAYS_SEARCH_USER_PATHS = NO;
 				CLANG_ANALYZER_NONNULL = YES;
@@ -870,7 +874,7 @@
 		};
 		BB3F32C66D957B876F949001 /* Debug */ = {
 			isa = XCBuildConfiguration;
-			baseConfigurationReference = "TEMP_F9E8F8C2-A106-4F4B-A2BF-B00D7ACDBAEE" /* Signing.xcconfig */;
+			baseConfigurationReference = "TEMP_FDF39E98-78D6-49E4-957F-E5612B4377AF" /* Signing.xcconfig */;
 			buildSettings = {
 				ALWAYS_SEARCH_USER_PATHS = NO;
 				CLANG_ANALYZER_NONNULL = YES;

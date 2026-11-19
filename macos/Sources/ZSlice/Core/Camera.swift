@@ -11,11 +11,15 @@
 //!   a small picture at a low rate.
 //! - Snapshots only (a WebRTC camera of Moonraker): the feed loads the
 //!   snapshot again every few seconds.
-//! - A Bambu Lab printer: the JPEG frames of port 6000 over TLS (P1 and
-//!   A1). The feed sends the 80 bytes of zs_bambu_camera_auth, and the
-//!   core cuts the frames (zs_bambu_jpeg_reader). The X1, H2, P2S, and X2D
-//!   stream H.264 over RTSPS on port 322, which the Mac app cannot play
-//!   yet: the feed says so.
+//! - A Bambu Lab P1 or A1: the JPEG frames of port 6000 over TLS. The
+//!   feed sends the 80 bytes of zs_bambu_camera_auth, and the core cuts
+//!   the frames (zs_bambu_jpeg_reader).
+//! - A Bambu Lab X1, H2, P2S, or X2D: H.264 over RTSP over TLS on port
+//!   322. The core runs the session and gives Annex B frames (zs_rtsp_*,
+//!   src/rtsp.zig); this file moves the bytes, and H264Decoder decodes
+//!   them with VideoToolbox. A card takes at most 4 pictures a second; the
+//!   decoder still decodes each frame. A model that the library does not
+//!   know tries RTSP, then port 6000.
 //!
 //! The API key goes in the X-Api-Key header. A feed plays only while its
 //! view shows (start and stop), and the decode of a frame runs off the
@@ -98,6 +102,7 @@ final class CameraFeed {
     }
 
     func stop() {
+        if playing { NSLog("zslice camera: stopped after %ld pictures", frames) }
         playing = false
         task?.cancel()
         task = nil
@@ -116,10 +121,15 @@ final class CameraFeed {
     /// One try of the source. Returns why it ended, or nil.
     private func playOnce() async -> String? {
         if source.bambu {
-            if source.bambuKind == 1 {
-                return "This printer streams its camera over RTSP, which the Mac app cannot play yet."
+            switch source.bambuKind {
+            case 1: return await playRTSP()
+            case 2: return await playBambu()
+            default:
+                // Not known: RTSP first, then the JPEG frames.
+                let why = await playRTSP()
+                guard playing, !Task.isCancelled, frames == 0 else { return why }
+                return await playBambu()
             }
-            return await playBambu()
         }
         if let s = source.stream { return await playStream(s) }
         if let s = source.snapshot { return await playSnapshots(s) }
@@ -200,6 +210,74 @@ final class CameraFeed {
             try? await Task.sleep(for: .seconds(large ? Self.snapLarge : Self.snapTile))
         }
         return nil
+    }
+
+    // MARK: - Bambu Lab, RTSP on port 322
+
+    /// 322; tests set ZSLICE_BAMBU_RTSP_PORT.
+    static var rtspPort: UInt16 { ProcessInfo.processInfo.environment["ZSLICE_BAMBU_RTSP_PORT"].flatMap(UInt16.init) ?? 322 }
+
+    /// A picture of the decoder: on the main thread, and at most 4 a
+    /// second for a card.
+    nonisolated private func show(_ img: CGImage) {
+        Task { @MainActor in
+            guard self.playing else { return }
+            self.image = img
+            self.message = ""
+            self.frames += 1
+        }
+    }
+
+    private func playRTSP() async -> String? {
+        guard !source.bambuHost.isEmpty, !source.bambuCode.isEmpty else { return "The printer has no address or access code." }
+        let pin = BambuPins.pin(for: source.bambuHost)
+        let s = TLSStream(host: source.bambuHost, port: Self.rtspPort, pin: pin,
+                          serverName: source.bambuSerial.isEmpty ? nil : source.bambuSerial)
+        defer { s.close() }
+        let url = "rtsps://\(source.bambuHost):\(Self.rtspPort)/streaming/live/1"
+        guard let r = zs_rtsp_new(url, "bblp", source.bambuCode) else { return "No memory." }
+        defer { zs_rtsp_free(r) }
+        let decoder = H264Decoder()
+        let large = self.large
+        let gate = Gate(every: large ? 0 : 0.25)
+        decoder.want = { gate.open() }
+        decoder.onImage = { [weak self] img in self?.show(img) }
+        /// Writes what the session has to send.
+        func flush() async throws {
+            var p: UnsafePointer<UInt8>?
+            var n = 0
+            zs_rtsp_output(r, &p, &n)
+            if n > 0, let p { try await s.send(Data(bytes: p, count: n)) }
+        }
+        do {
+            try await s.ready()
+            if pin == nil, let fp = s.seen { BambuPins.set(fp, for: source.bambuHost) }
+            try await flush()
+            var alive = Date()
+            while playing, !Task.isCancelled {
+                let d = try await s.some(timeout: Self.firstWait)
+                if d.isEmpty { return "The camera stream ended." }
+                _ = d.withUnsafeBytes { zs_rtsp_feed(r, $0.bindMemory(to: UInt8.self).baseAddress, $0.count) }
+                if zs_rtsp_state(r) < 0 { return coreText(zs_rtsp_message(r)) }
+                if zs_rtsp_state(r) == 1, Date().timeIntervalSince(alive) > 30 {
+                    zs_rtsp_keepalive(r)
+                    alive = Date()
+                }
+                try await flush()
+                var p: UnsafePointer<UInt8>?
+                var n = 0
+                var key: Int32 = 0
+                while zs_rtsp_next_frame(r, &p, &n, &key) == 1, let p {
+                    decoder.decode(Data(bytes: p, count: n))
+                }
+            }
+            zs_rtsp_teardown(r)
+            try? await flush()
+            return nil
+        } catch {
+            if Task.isCancelled { return nil }
+            return "The camera did not answer: \(error.localizedDescription)"
+        }
     }
 
     // MARK: - Bambu Lab, port 6000
@@ -294,5 +372,23 @@ final class StreamReader: NSObject, URLSessionDataDelegate, @unchecked Sendable 
         } else {
             finish("The camera stream ended.")
         }
+    }
+}
+
+/// Lets a picture through at most once in `every` seconds (0: each one).
+final class Gate: @unchecked Sendable {
+    private let every: Double
+    private var last = Date.distantPast
+    private let lock = NSLock()
+
+    init(every: Double) { self.every = every }
+
+    func open() -> Bool {
+        lock.lock()
+        defer { lock.unlock() }
+        let now = Date()
+        guard now.timeIntervalSince(last) >= every else { return false }
+        last = now
+        return true
     }
 }

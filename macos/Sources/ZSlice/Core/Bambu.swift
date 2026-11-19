@@ -14,7 +14,9 @@
 //!    the 150 reply, and then waits for the TLS.
 //! 2. MQTT 3.1.1 over TLS on port 8883, with the same user and password:
 //!    CONNECT, SUBSCRIBE device/<serial>/report, PUBLISH to
-//!    device/<serial>/request. The status asks for a full report and reads
+//!    device/<serial>/request. The core makes the packets and reads the
+//!    ones that come (zs_mqtt_*, zs_bambu_push_all_packet,
+//!    zs_bambu_start_packet). The status asks for a full report and reads
 //!    the reports for a few seconds.
 //!
 //! A Bambu printer has a certificate of its own, which no authority signs.
@@ -308,53 +310,38 @@ enum BambuLink {
 
     // MARK: - MQTT
 
-    private static func mqttString(_ s: String) -> Data {
-        let b = Data(s.utf8)
-        return Data([UInt8(b.count >> 8), UInt8(b.count & 0xFF)]) + b
+    /// The bytes of a packet that the core makes (freed here), or nil.
+    private static func packet(_ make: (UnsafeMutablePointer<UnsafeMutablePointer<UInt8>?>, UnsafeMutablePointer<Int>) -> Int32) -> Data? {
+        var out: UnsafeMutablePointer<UInt8>?
+        var len = 0
+        guard make(&out, &len) == 0, let out else { return nil }
+        defer { zs_buffer_free(out, len) }
+        return Data(bytes: out, count: len)
     }
 
-    private static func packet(_ type: UInt8, _ body: Data) -> Data {
-        var out = Data([type])
-        var n = body.count
-        repeat {
-            var byte = UInt8(n % 128)
-            n /= 128
-            if n > 0 { byte |= 0x80 }
-            out.append(byte)
-        } while n > 0
-        return out + body
-    }
-
-    /// One packet: its first byte and its body.
-    private static func readPacket(_ s: TLSStream, timeout: Double) async throws -> (UInt8, Data) {
-        let head = try await s.read(1, timeout: timeout)[0]
-        var n = 0, mult = 1
-        while true {
-            let b = try await s.read(1, timeout: timeout)[0]
-            n += Int(b & 0x7F) * mult
-            mult *= 128
-            if b & 0x80 == 0 { break }
-        }
-        return (head, n > 0 ? try await s.read(n, timeout: timeout) : Data())
-    }
-
-    /// A session: CONNECT and SUBSCRIBE to the reports.
-    private static func mqtt(_ p: Printer, pinned: inout String?) async throws -> TLSStream {
+    /// A session: CONNECT, its CONNACK, and SUBSCRIBE to the reports.
+    private static func mqtt(_ p: Printer, pinned: inout String?) async throws -> MQTTSession {
         guard !p.serial.isEmpty else { throw BambuError(message: "The printer has no serial number. Find it on the printer, or add the printer from the search of the network.") }
         let s = try await open(p, port: 8883, pinned: &pinned)
-        var body = mqttString("MQTT") + Data([4, 0xC2, 0, 60])
-        body += mqttString("zslice-\(UUID().uuidString.prefix(8))") + mqttString(user) + mqttString(p.apiKey)
-        try await s.send(packet(0x10, body))
-        let (type, ack) = try await readPacket(s, timeout: 8)
-        guard type & 0xF0 == 0x20, ack.count == 2 else { throw BambuError(message: "The printer did not answer as an MQTT broker.") }
-        if ack[1] == 4 || ack[1] == 5 { throw BambuError(message: "The printer refused the access code.") }
-        guard ack[1] == 0 else { throw BambuError(message: "The printer refused the connection (\(ack[1])).") }
-        try await s.send(packet(0x82, Data([0, 1]) + mqttString("device/\(p.serial)/report") + Data([0])))
-        return s
-    }
-
-    private static func publish(_ s: TLSStream, _ p: Printer, _ message: Data) async throws {
-        try await s.send(packet(0x30, mqttString("device/\(p.serial)/request") + message))
+        let m = MQTTSession(s)
+        let id = "zslice-\(UUID().uuidString.prefix(8))"
+        guard let connect = packet({ zs_mqtt_connect_packet(id, user, p.apiKey, 60, $0, $1) }),
+              let subscribe = packet({ zs_mqtt_subscribe_packet("device/\(p.serial)/report", 1, $0, $1) }) else {
+            m.close()
+            throw BambuError(message: "The MQTT packets did not build.")
+        }
+        do {
+            try await m.stream.send(connect)
+            let ack = try await m.next(timeout: 8)
+            guard ack.kind == 2 else { throw BambuError(message: "The printer did not answer as an MQTT broker.") }
+            if ack.code == 4 || ack.code == 5 { throw BambuError(message: "The printer refused the access code.") }
+            guard ack.code == 0 else { throw BambuError(message: "The printer refused the connection (\(ack.code)).") }
+            try await m.stream.send(subscribe)
+        } catch {
+            m.close()
+            throw error
+        }
+        return m
     }
 
     /// The P1 and A1 printers take the file as "ftp://<file>" (flag 8);
@@ -371,16 +358,12 @@ enum BambuLink {
         var md5 = [CChar](repeating: 0, count: 33)
         _ = gcode.withUnsafeBytes { zs_bambu_md5($0.bindMemory(to: UInt8.self).baseAddress, $0.count, &md5) }
         let flags: Int32 = 1 | (ftpURL(p) ? 8 : 0)
-        var out: UnsafeMutablePointer<UInt8>?
-        var len = 0
-        let rc = md5.withUnsafeBufferPointer { zs_bambu_start_message(file, title, $0.baseAddress, flags, &out, &len) }
-        guard rc == 0, let out else { throw BambuError(message: "The start message did not build.") }
-        let message = Data(bytes: out, count: len)
-        zs_buffer_free(out, len)
+        let serial = p.serial
+        let start = md5.withUnsafeBufferPointer { m in packet({ zs_bambu_start_packet(serial, file, title, m.baseAddress, flags, $0, $1) }) }
+        guard let start else { throw BambuError(message: "The start message did not build.") }
         let s = try await mqtt(p, pinned: &pinned)
         defer { s.close() }
-        try await publish(s, p, message)
-        try? await s.send(packet(0xE0, Data()))
+        try await s.stream.send(start)
     }
 
     /// The status: a full report, read for up to 3 seconds, into a status
@@ -389,24 +372,19 @@ enum BambuLink {
         var pinned: String?
         guard let s = try? await mqtt(p, pinned: &pinned), let st = zs_printer_status_new() else { return nil }
         defer { s.close() }
-        let push = Data(coreText(zs_bambu_push_all_message()).utf8)
-        try? await publish(s, p, push)
+        let serial = p.serial
+        if let push = packet({ zs_bambu_push_all_packet(serial, $0, $1) }) { try? await s.stream.send(push) }
         let end = Date().addingTimeInterval(3)
         var reports = 0
         while Date() < end {
-            guard let (type, body) = try? await readPacket(s, timeout: max(0.2, end.timeIntervalSinceNow)) else { break }
-            guard type & 0xF0 == 0x30, body.count >= 2 else { continue }
-            let topicLen = Int(body[0]) << 8 | Int(body[1])
-            var at = 2 + topicLen
-            if (type >> 1) & 3 > 0 { at += 2 }
-            guard at <= body.count else { continue }
-            let payload = body.subdata(in: at ..< body.count)
+            guard let pk = try? await s.next(timeout: max(0.2, end.timeIntervalSinceNow)) else { break }
+            guard pk.kind == 3 else { continue }
+            let payload = pk.payload
             _ = payload.withUnsafeBytes { zs_printer_status_feed(st, 4, "report", $0.bindMemory(to: CChar.self).baseAddress, $0.count) }
             reports += 1
             // The full report has the state; one is enough.
             if payload.range(of: Data("gcode_state".utf8)) != nil { break }
         }
-        try? await s.send(packet(0xE0, Data()))
         if reports == 0 {
             zs_printer_status_free(st)
             return nil
@@ -420,13 +398,52 @@ enum BambuLink {
         var pinned: String?
         do {
             let s = try await mqtt(p, pinned: &pinned)
-            try? await s.send(packet(0xE0, Data()))
             s.close()
             var m = "Connected. (Bambu support is untested with a real printer.)"
             if let pinned { m += " zslice trusts the certificate of this printer from now on: SHA-256 \(pinned.prefix(23))…" }
             return LinkResult(ok: true, message: m)
         } catch {
             return LinkResult(ok: false, message: error.localizedDescription)
+        }
+    }
+}
+
+/// An MQTT session over a TLS stream, with the reader of the core
+/// (zs_mqtt_reader): the packets that come, whole.
+final class MQTTSession: @unchecked Sendable {
+    let stream: TLSStream
+    private let reader: OpaquePointer?
+
+    init(_ stream: TLSStream) {
+        self.stream = stream
+        reader = zs_mqtt_reader_new()
+    }
+
+    deinit { zs_mqtt_reader_free(reader) }
+
+    /// The next packet: its kind (2 CONNACK, 3 PUBLISH, ...), the return
+    /// code of a CONNACK, and the payload of a PUBLISH.
+    func next(timeout: Double) async throws -> (kind: Int32, code: Int32, payload: Data) {
+        while true {
+            var pk = zs_mqtt_packet()
+            let rc = zs_mqtt_reader_next(reader, &pk)
+            if rc < 0 { throw BambuError(message: "The printer did not answer as an MQTT broker.") }
+            if rc == 1 {
+                let payload = pk.payload.map { Data(bytes: $0, count: pk.payload_len) } ?? Data()
+                return (pk.kind, pk.return_code, payload)
+            }
+            let d = try await stream.some(timeout: timeout)
+            if d.isEmpty { throw BambuError(message: "The connection closed.") }
+            _ = d.withUnsafeBytes { zs_mqtt_reader_feed(reader, $0.bindMemory(to: UInt8.self).baseAddress, $0.count) }
+        }
+    }
+
+    /// DISCONNECT, then the close of the stream.
+    func close() {
+        let s = stream
+        Task {
+            try? await s.send(Data([0xE0, 0]))
+            s.close()
         }
     }
 }

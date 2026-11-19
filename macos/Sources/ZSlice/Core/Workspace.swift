@@ -474,13 +474,13 @@ final class Workspace {
                 p.apiKey = ""
             }
         }
-        // ZSLICE_FARM="url;bambu:address:serial:code" adds printers (in a
-        // fresh run only), for the Printers page.
+        // ZSLICE_FARM="url;bambu:address:serial:code[:model]" adds printers
+        // (in a fresh run only), for the Printers page.
         if let farm = env["ZSLICE_FARM"], env["ZSLICE_FRESH"] != nil, PrinterStore.shared.printers.isEmpty {
             for (i, item) in farm.split(separator: ";").map(String.init).enumerated() {
-                let f = item.split(separator: ":", maxSplits: 3).map(String.init)
-                if f.first == "bambu", f.count == 4 {
-                    var p = Printer(name: "Bambu \(i + 1)", model: "bambu-lab-p1s", kind: .bambu, url: f[1])
+                let f = item.split(separator: ":", maxSplits: 4).map(String.init)
+                if f.first == "bambu", f.count >= 4 {
+                    var p = Printer(name: "Bambu \(i + 1)", model: f.count > 4 ? f[4] : "bambu-lab-p1s", kind: .bambu, url: f[1])
                     p.serial = f[2]
                     p.apiKey = f[3]
                     PrinterStore.shared.add(p)
