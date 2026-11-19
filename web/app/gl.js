@@ -21,10 +21,12 @@
 const MAX_EXTRAS = 4096; // max_extras in src/render/frame.zig
 const STRIDE = 32; // the size of one instance (zs_web_instance)
 // The depth pass costs a second run of the vertex shader. It pays off
-// with many large beads on the screen, where the hidden pixels are most
-// of the work: on an Intel HD 530, 86 000 full beads go from 133 ms to
-// 50 ms, and 25 000 get slower.
-const DEPTH_PASS_BEADS = 30000;
+// with many full beads on the screen, where the hidden pixels are most
+// of the work. GPU times of the same frames on an Intel HD 530 (1400 x
+// 900, near beads first, culling on): 83 000 full beads 121 ms with no
+// depth pass, 62 ms with it; 66 000: 46 and 50 ms; 48 000 and fewer:
+// the same.
+const DEPTH_PASS_BEADS = 70000;
 
 const boxVert = `#version 300 es
 // A port of src/render/shaders/box.vert. One bead of plastic for each

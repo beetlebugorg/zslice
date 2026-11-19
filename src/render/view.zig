@@ -172,6 +172,9 @@ pub const View = struct {
     chunk_width: std.ArrayList(f32) = .empty,
     /// The draw list of the last frame.
     draws: std.ArrayList(Draw) = .empty,
+    /// The distance (squared) from the eye to each draw of `draws`, for
+    /// the order of the draws (see `drawList`).
+    draw_dist: std.ArrayList(f32) = .empty,
     highlight: [2]f32 = .{ 0, 0 },
     /// The dark look (the dark mode of the system): a dark background, and
     /// a grid and a bed for it.
@@ -406,6 +409,7 @@ pub const View = struct {
         v.preview_hull.deinit(gpa);
         v.preview_draws.deinit(gpa);
         v.rest_draws.deinit(gpa);
+        v.draw_dist.deinit(gpa);
         v.layer_end.deinit(gpa);
         v.mark_rings.deinit(gpa);
         v.sup_pts.deinit(gpa);
@@ -2306,6 +2310,7 @@ pub const View = struct {
     /// out of the view.
     fn drawList(v: *View, mvp: [16]f32, eye: [3]f32, first: u32, end: u32) Error![]const Draw {
         v.draws.clearRetainingCapacity();
+        v.draw_dist.clearRetainingCapacity();
         if (end <= first) return v.draws.items;
         // A G-code file has no chunks: one draw of its beads.
         if (v.draw_chunks.items.len == 0) {
@@ -2330,12 +2335,36 @@ pub const View = struct {
                 const last = &v.draws.items[v.draws.items.len - 1];
                 if (last.lod == lod and last.first + last.count == a) {
                     last.count += b - a;
+                    const ld = &v.draw_dist.items[v.draw_dist.items.len - 1];
+                    ld.* = @min(ld.*, d2);
                     continue;
                 }
             }
             v.draws.append(gpa, .{ .first = a, .count = b - a, .lod = lod }) catch return error.OutOfMemory;
+            v.draw_dist.append(gpa, d2) catch return error.OutOfMemory;
         }
         return v.draws.items;
+    }
+
+    /// Puts the draws of `drawList` in the order far to near (the list is
+    /// in print order before, as `splitPreview` needs it). The backends draw the
+    /// list from its end, so the near beads draw first, and the depth
+    /// test drops the hidden pixels of the far ones before the fragment
+    /// shader: zoomed in, those pixels are most of the frame time. Only
+    /// the order changes, so the picture is the same.
+    fn sortDraws(v: *View) void {
+        const Ctx = struct {
+            draws: []Draw,
+            dist: []f32,
+            pub fn lessThan(c: @This(), i: usize, j: usize) bool {
+                return c.dist[i] > c.dist[j];
+            }
+            pub fn swap(c: @This(), i: usize, j: usize) void {
+                std.mem.swap(Draw, &c.draws[i], &c.draws[j]);
+                std.mem.swap(f32, &c.dist[i], &c.dist[j]);
+            }
+        };
+        std.sort.pdqContext(0, v.draws.items.len, Ctx{ .draws = v.draws.items, .dist = v.draw_dist.items });
     }
 
     fn emptyBox(first: u32, end: u32) PickBox {
@@ -3437,6 +3466,7 @@ pub const View = struct {
         }
         // The draw list, and the part of a preview with its own matrix.
         var draws: []const Draw = if (frame_backend or v.gcode == null) try v.drawList(mvp, eye, first, count) else &.{};
+        if (v.preview == null and draws.len > 1 and draws.ptr == v.draws.items.ptr) v.sortDraws();
         var part_draws: []const Draw = &.{};
         var part_push: Push = .{ .mvp = @splat(0), .vec = .{ 0, 0, 0, 0 } };
         if (v.preview) |pv| if (v.gcode == null) {
