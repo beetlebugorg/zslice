@@ -67,7 +67,7 @@ enum Tool: String, CaseIterable {
         case .select: "Select (V): click a line to see what it is and the settings that change it."
         case .move: "Move (M): drag a part to move it on the bed. Command-scroll turns it by 15°. Command-drag moves a part in any tool."
         case .turn: "Turn (R): click a part, then drag its red, green, or blue ring to turn it about X, Y, or Z (15°; Shift: 5°). Keys: Left and Right about Z, Up and Down about X, Page Up and Page Down about Y."
-        case .grab: "Grab (H): take a part where you press, and carry it as a real object: it swings, turns about the point you hold, and when you let go, it keeps its speed, falls, and rests flat on the plate."
+        case .grab: "Grab (H): click a part to pick it up, and move the pointer to carry it as a real object. Option and a move turn it (Shift: 15° steps), and the wheel lifts it. Click again, or press Esc, to let go: it keeps its speed, falls, and rests flat on the plate."
         case .measure: "Measure (T): click two points of the print or the bed. A click on a circle or an arc measures from its center. Shift: no snap. Esc clears."
         case .support: "Support (S): click points on the part to draw an area of support, or of no support. Click the first point or press Return to close it. Click an outline to select an area, and drag its points."
         }
@@ -173,6 +173,11 @@ extension Workspace {
             tapeDrag = i
             return true
         }
+        // The hand holds a part: this click lets go.
+        if grabbing {
+            letGo()
+            return true
+        }
         if tool == .grab, page == .threeD, falling == nil, let i = partAt(p), let v = canvas.view {
             let px = Float(p.x * pixelScale), py = Float(p.y * pixelScale)
             var q = [Double](repeating: 0, count: 3)
@@ -183,6 +188,8 @@ extension Workspace {
             grabZ = q[2] + 15
             grabbing = true
             fallIsGrab = true
+            handAt = p
+            handTurn = (0, 0, 0, 0)
             zs_app_grab_move(model.core, q[0], q[1], grabZ)
             falling = (i, { [weak self] in self?.model.settingsChanged() })
             canvas.startTicking()
@@ -210,6 +217,23 @@ extension Workspace {
 
     func drag(_ p: CGPoint, _ flags: NSEvent.ModifierFlags) {
         if grabbing, let v = canvas.view {
+            // Option and a drag: turn the part in the hand (0.5° a point):
+            // left and right about the vertical, up and down about the
+            // horizontal axis of the screen. Shift snaps to 15°.
+            if flags.contains(.option), let last = handAt {
+                handTurn.yaw += (p.x - last.x) * 0.5
+                handTurn.tilt += (p.y - last.y) * 0.5
+                let snap = { (v: Double) in flags.contains(.shift) ? (v / 15).rounded() * 15 : v }
+                let yaw = snap(handTurn.yaw) - handTurn.sentYaw, tilt = snap(handTurn.tilt) - handTurn.sentTilt
+                if yaw != 0 { zs_app_grab_turn(model.core, 0, 0, 1, yaw) }
+                if tilt != 0, let a = handPlanePoint(last), let b = handPlanePoint(CGPoint(x: last.x + 50, y: last.y)) {
+                    zs_app_grab_turn(model.core, b.x - a.x, b.y - a.y, 0, tilt)
+                }
+                handTurn.sentYaw += yaw
+                handTurn.sentTilt += tilt
+                return
+            }
+            handAt = p
             var x = 0.0, y = 0.0
             let ok = zs_view_plane_point(v, Float(p.x * pixelScale), Float(p.y * pixelScale), grabZ, &x, &y) != 0
             if ok { zs_app_grab_move(model.core, x, y, grabZ) }
@@ -260,12 +284,9 @@ extension Workspace {
     }
 
     func release(_ p: CGPoint) {
-        // Let go: the part keeps its speed, falls, and rests (fallTick).
-        if grabbing {
-            grabbing = false
-            zs_app_grab_end(model.core)
-            return
-        }
+        // The hand keeps the part after the click: the pointer carries it,
+        // and the next click (or Esc) lets go.
+        if grabbing { return }
         if supportDrag != nil {
             supportReleased()
             return
@@ -389,6 +410,33 @@ extension Workspace {
                 falling = (f.part, { [weak self] in self?.model.settingsChanged() })
             }
         }
+    }
+
+    /// Let go of the part in the hand: it keeps its speed, falls, and rests
+    /// (fallTick), and the plate slices.
+    func letGo() {
+        guard grabbing else { return }
+        grabbing = false
+        handAt = nil
+        zs_app_grab_end(model.core)
+    }
+
+    /// The point on the level plane of the hand under a point of the view.
+    private func handPlanePoint(_ p: CGPoint) -> (x: Double, y: Double)? {
+        guard let v = canvas.view else { return nil }
+        var x = 0.0, y = 0.0
+        guard zs_view_plane_point(v, Float(p.x * pixelScale), Float(p.y * pixelScale), grabZ, &x, &y) != 0 else { return nil }
+        return (x, y)
+    }
+
+    /// The wheel while the hand holds a part: the hand goes up or down
+    /// (0.1 mm a point of the wheel), from the bed to 200 mm. Returns false
+    /// with no part in the hand.
+    func handWheel(_ dy: CGFloat) -> Bool {
+        guard grabbing, let p = handAt else { return false }
+        grabZ = max(1, min(200, grabZ + dy * 0.1))
+        if let q = handPlanePoint(p) { zs_app_grab_move(model.core, q.x, q.y, grabZ) }
+        return true
     }
 
     /// One frame of a fall. Returns true while the part falls.

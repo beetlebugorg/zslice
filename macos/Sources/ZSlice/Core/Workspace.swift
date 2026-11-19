@@ -120,6 +120,10 @@ final class Workspace {
     /// height of the hand.
     @ObservationIgnored var grabbing = false
     @ObservationIgnored var grabZ = 0.0
+    /// The last place of the pointer of the hand, and the turn of the
+    /// hand (Option and a drag) so far, and the part of it sent.
+    @ObservationIgnored var handAt: CGPoint?
+    @ObservationIgnored var handTurn: (yaw: Double, tilt: Double, sentYaw: Double, sentTilt: Double) = (0, 0, 0, 0)
     @ObservationIgnored var fallIsGrab = false
     @ObservationIgnored var fallSteps = 0
     @ObservationIgnored var fallFrame = 0
@@ -646,15 +650,20 @@ final class Workspace {
                 let c = CGPoint(x: self.canvas.bounds.midX, y: self.canvas.bounds.midY)
                 var before = zs_part()
                 _ = zs_app_part_get(self.model.core, 0, &before)
+                // A click takes the part; the pointer carries it with no
+                // button; a second click lets go.
                 let took = self.press(c, [])
-                NSLog("zslice grab: took %d", took ? 1 : 0)
+                self.release(c)
+                NSLog("zslice grab: took %d, holding %d after the click", took ? 1 : 0, self.grabbing ? 1 : 0)
                 var p = c
                 for k in 1 ... 30 {
                     p = CGPoint(x: c.x + Double(k) * 200 / 30, y: c.y)
-                    self.drag(p, [])
+                    self.sliceViewHover(p)
                     try? await Task.sleep(for: .milliseconds(16))
                 }
+                _ = self.press(p, [])
                 self.release(p)
+                NSLog("zslice grab: let go, holding %d", self.grabbing ? 1 : 0)
                 try? await Task.sleep(for: .seconds(3))
                 var after = zs_part()
                 _ = zs_app_part_get(self.model.core, 0, &after)
@@ -1537,8 +1546,16 @@ extension Workspace: SliceViewDelegate {
     func sliceViewDrag(_ p: CGPoint, _ flags: NSEvent.ModifierFlags) { drag(p, flags) }
     func sliceViewRelease(_ p: CGPoint) { release(p) }
     func sliceViewTurnWheel(_ dy: CGFloat) -> Bool { turnWheel(dy) }
+    func sliceViewHandWheel(_ dy: CGFloat) -> Bool { handWheel(dy) }
     func sliceViewMenu(_ p: CGPoint) -> NSMenu? { contextMenu(at: p) }
-    func sliceViewHover(_ p: CGPoint?) { supportHover(at: p) }
+    func sliceViewHover(_ p: CGPoint?) {
+        // The hand carries its part with the pointer, with no button down.
+        if grabbing {
+            if let p { drag(p, NSEvent.modifierFlags) }
+            return
+        }
+        supportHover(at: p)
+    }
 
     func sliceViewDidDraw() {
         if !tape.isEmpty { placeTape() }
@@ -1559,6 +1576,11 @@ extension Workspace: SliceViewDelegate {
     /// The keys of the preview (docs/user/getting-started.md, "Keys in the
     /// preview"), for the case with no selected line.
     func sliceViewKey(_ event: NSEvent) -> Bool {
+        // Esc lets go of the part in the hand.
+        if grabbing, event.charactersIgnoringModifiers == "\u{1b}" {
+            letGo()
+            return true
+        }
         if supportKey(event) { return true }
         if turnKey(event) { return true }
         if selection == nil, partKey(event) { return true }

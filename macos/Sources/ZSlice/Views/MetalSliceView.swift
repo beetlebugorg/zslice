@@ -57,6 +57,9 @@ protocol SliceViewDelegate: AnyObject {
     func sliceViewPress(_ p: CGPoint, _ flags: NSEvent.ModifierFlags) -> Bool
     func sliceViewDrag(_ p: CGPoint, _ flags: NSEvent.ModifierFlags)
     func sliceViewRelease(_ p: CGPoint)
+    /// A scroll while the Grab tool holds a part: the hand goes up or down.
+    /// Returns true if it did.
+    func sliceViewHandWheel(_ dy: CGFloat) -> Bool
     /// A scroll with Command: turns the selected part. Returns true if it did.
     func sliceViewTurnWheel(_ dy: CGFloat) -> Bool
     /// After each frame (the floating labels follow the camera).
@@ -609,6 +612,7 @@ final class MetalSliceView: NSView {
     override func scrollWheel(with event: NSEvent) {
         guard let view else { return }
         let (px, py) = pixel(event)
+        if event.scrollingDeltaY != 0, delegate?.sliceViewHandWheel(event.scrollingDeltaY) == true { return }
         if event.modifierFlags.contains(.command), event.scrollingDeltaY != 0,
            delegate?.sliceViewTurnWheel(event.scrollingDeltaY) == true {
             return

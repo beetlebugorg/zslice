@@ -150,4 +150,4 @@ zslice notes how you refine each print after its first slice. When you made the 
 
 ## Grab a part
 
-The Grab tool (H, the hand) picks a part up where you press and carries it as a real object: it swings and turns about the point you hold. Let go, and it keeps its speed, falls, and comes to rest flat on the plate; then the plate slices.
+The Grab tool (H, the hand) picks a part up with a click: it stays in the hand with no button held. Move the pointer to carry it as a real object: it swings and turns about the point you hold. Hold Option while you move to turn it (Shift: steps of 15°), and use the wheel to lift it or put it lower. Click again, or press Esc, to let go: it keeps its speed, falls, and comes to rest flat on the plate; then the plate slices. With support on, it keeps the turn that you gave it, and support holds it.

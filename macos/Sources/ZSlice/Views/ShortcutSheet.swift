@@ -27,6 +27,7 @@ struct ShortcutSheet: View {
             ("M", "Move: drag a part"),
             ("R", "Turn: ← → about Z, ↑ ↓ about X, Page Up and Page Down about Y (Shift: 5°)"),
             ("T", "Measure: click two points (Shift: no snap)"),
+            ("H", "Grab: click a part to pick it up, move to carry it (⌥: turn, ⇧: 15°, wheel: lift), click or Esc to let go"),
             ("S or U", "Support: draw an area of support (S again: show or hide its card)"),
             ("⌘-drag", "Move a part in any tool"),
             ("⌘-scroll", "Turn the selected part by 15°"),

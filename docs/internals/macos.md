@@ -281,6 +281,6 @@ After the Turn tool (the release of a ring, or 0.6 s after the last turn key), `
 
 ## The Grab tool and the cards
 
-The Grab tool (H) takes a part where the user presses (`zs_view_surface_point`, `zs_app_grab_start`), moves the hand on the level plane 15 mm over the point held (`zs_view_plane_point`, `zs_app_grab_move`), and lets go on release (`zs_app_grab_end`). From the press on, each frame runs `zs_app_fall_step`, as a fall does (`fallTick`); at rest the plate slices. A throw shows no fall note.
+The Grab tool (H) takes a part with a click (`zs_view_surface_point`, `zs_app_grab_start`) and keeps it with no button held: the pointer moves the hand on the level plane 15 mm over the point held (`zs_view_plane_point`, `zs_app_grab_move`, from `sliceViewHover`). Option and a move turn the part (`zs_app_grab_turn`, 0.5° a point; Shift: 15° steps), and the wheel lifts the hand (1 to 200 mm). The next click, or Esc, lets go (`zs_app_grab_end`). From the press on, each frame runs `zs_app_fall_step`, as a fall does (`fallTick`); at rest the plate slices. A throw shows no fall note.
 
 A card never covers the thing that was clicked (`cardPlace(avoiding:)`): it goes to the first side of its screen box where it fits whole, in the order right, left, below, above, and keeps out of the tool strip and the layer slider. The box of a line is the whole clicked path (`zs_view_path_rect`); the box of a part has its turn rings (0.62 times its largest size, and 4 mm). The Turn and Grab tools show no part card.
