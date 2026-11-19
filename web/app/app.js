@@ -1186,16 +1186,18 @@ function closeProject() {
   if (name) toast(`The project ${name} is closed. Its plates stay.`);
 }
 
+// The items that people use most come first.
 $("main-menu").onclick = () => openMenu($("main-menu"), [
   { label: "Open…", action: () => $("file").click() },
+  { label: "Export G-code…", disabled: app.state !== "done", action: exportGcode },
   { label: "Add models to this plate…", disabled: app.state === "empty", action: () => addModels() },
   { label: "Save project…", action: () => saveProject() },
-  { label: "Export G-code…", disabled: app.state !== "done", action: exportGcode },
-  { label: "Remove this plate", action: () => removePlate(app.activePlate) },
   { sep: true },
-  ...projectItems(),
   { label: "Printers", action: () => showFarm(true) },
   { label: "History", action: () => toggleHistory(true) },
+  ...projectItems(),
+  { sep: true },
+  { label: "Remove this plate", action: () => removePlate(app.activePlate) },
   { sep: true },
   { label: "Licenses", action: showLicenses },
   { label: "About zslice", action: () => toast(`zslice ${wasm.cstr(wasm.x.zs_version())}: a slicer in Zig, in WebAssembly. AGPL-3.0-or-later.`) },
@@ -2976,8 +2978,8 @@ function addModels() {
 $("open").onclick = () => openMenu($("open"), [
   { label: "Open a model…", action: () => $("file").click() },
   { label: "Add models to this plate…", disabled: app.state === "empty", action: () => addModels() },
-  ...projectItems(),
   { label: "Save project…", disabled: app.state === "empty", action: () => saveProject() },
+  ...projectItems(),
 ]);
 // + adds models to the active plate; Open replaces the active plate.
 $("empty-open").onclick = () => $("file").click();

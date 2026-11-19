@@ -75,8 +75,8 @@ export const SHORTCUTS = [
   {
     group: "Lines and the nozzle",
     keys: [
-      ["Left, H", "The segment before the selected one (no selection: the nozzle back 2 % of the layer)"],
-      ["Right, L", "The next segment (no selection: the nozzle on 2 % of the layer)"],
+      ["Left", "The segment before the selected one (no selection: the nozzle back 2 % of the layer)"],
+      ["Right", "The next segment (no selection: the nozzle on 2 % of the layer)"],
       ["Shift+Left, Shift+Right", "The line before, or the next line"],
     ],
   },
