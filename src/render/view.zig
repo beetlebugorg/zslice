@@ -260,9 +260,13 @@ pub const View = struct {
     head_buf: [128]vk.Instance = undefined,
     /// The replay time (s), or null to show whole layers.
     time: ?f32 = null,
-    /// The footprint of the selected part (x0, y0, x1, y1), or null: a
-    /// frame on the bed around it.
-    part_box: ?[4]f32 = null,
+    /// The footprints of the selected parts (x0, y0, x1, y1): a frame on
+    /// the bed around each.
+    part_boxes: std.ArrayList([4]f32) = .empty,
+    /// The layers that a drag of the Select tool lights (lo, hi), or null.
+    /// The beads of these layers show as a selection, and the other beads
+    /// are ghosts. See `setLightLayers`.
+    light_layers: ?[2]usize = null,
     /// The rings of the Turn tool around the selected part (see
     /// `setRings`): the center and the radius, mm.
     rings: ?struct { c: [3]f32, r: f32 } = null,
@@ -417,6 +421,7 @@ pub const View = struct {
         v.rest_draws.deinit(gpa);
         v.draw_dist.deinit(gpa);
         v.layer_end.deinit(gpa);
+        v.part_boxes.deinit(gpa);
         v.mark_rings.deinit(gpa);
         v.sup_pts.deinit(gpa);
         v.sup_areas.deinit(gpa);
@@ -1446,7 +1451,40 @@ pub const View = struct {
     /// Shows a frame on the bed around the footprint of a selected part, or
     /// none (null).
     pub fn setPartBox(v: *View, box: ?[4]f32) void {
-        v.part_box = box;
+        v.part_boxes.clearRetainingCapacity();
+        if (box) |b| v.part_boxes.append(gpa, b) catch {};
+    }
+
+    /// Shows a frame on the bed around the footprint of each selected
+    /// part. An empty list shows no frame.
+    pub fn setPartBoxes(v: *View, boxes: []const [4]f32) Error!void {
+        v.part_boxes.clearRetainingCapacity();
+        try v.part_boxes.appendSlice(gpa, boxes);
+    }
+
+    /// Lights the layers lo to hi (a drag of the Select tool over the
+    /// print), or none (null). The frame shows them as a selection: it
+    /// uses the highlight of a path, with the bead range of the layers.
+    /// So the light costs no new beads and no work for each bead.
+    pub fn setLightLayers(v: *View, range: ?[2]usize) void {
+        const r = range orelse {
+            v.light_layers = null;
+            return;
+        };
+        v.light_layers = .{ @min(r[0], r[1]), @max(r[0], r[1]) };
+    }
+
+    /// The bead range of the lit layers, or null. A slice with fewer
+    /// layers cuts the range to its layers.
+    fn lightBeads(v: *const View) ?[2]f32 {
+        const r = v.light_layers orelse return null;
+        const n = v.layer_end.items.len;
+        if (n == 0 or r[0] >= n) return null;
+        const hi = @min(r[1], n - 1);
+        const first: u32 = if (r[0] == 0) 0 else v.layer_end.items[r[0] - 1];
+        const end = v.layer_end.items[hi];
+        if (end <= first) return null;
+        return .{ @floatFromInt(first), @floatFromInt(end) };
     }
 
     /// Shows the beads of some features clearly and fades the others: a
@@ -2597,6 +2635,15 @@ pub const View = struct {
     }
 
     /// The layer of a path.
+    /// The feature of path `path` (the alpha byte of its first bead, see
+    /// app.Feature), or null for no path or a path with no bead.
+    pub fn featureOfPath(v: *const View, path: usize) ?u8 {
+        if (path + 1 >= v.path_start.items.len) return null;
+        const b = v.path_start.items[path];
+        if (b >= v.path_start.items[path + 1] or b >= v.beads.items.len) return null;
+        return v.beads.items[b].rgba[3];
+    }
+
     pub fn layerOfPath(v: *const View, path: usize) usize {
         var lo: usize = 0;
         var hi: usize = v.layer_path_end.items.len;
@@ -3369,7 +3416,7 @@ pub const View = struct {
         if (!frame_backend) return null;
         const n = v.layer_end.items.len;
         if (n == 0 or v.lite.layers() != n or v.beads.items.len == 0) return null;
-        if (v.time != null or v.highlight[1] > v.highlight[0] or v.seg_bead != null or v.more.items.len > 0) return null;
+        if (v.time != null or v.highlight[1] > v.highlight[0] or v.seg_bead != null or v.more.items.len > 0 or v.light_layers != null) return null;
         // A moving part uses the light levels only when it is the whole
         // plate: the light beads have no part.
         if (v.preview != null and !v.previewIsPlate()) return null;
@@ -3731,8 +3778,10 @@ pub const View = struct {
                 // The support areas of the support editor.
                 // Some room stays for the beads after them.
                 v.supportAreaBeads(extras[0 .. extras.len - 16], &n_extras);
-                // The frame of the selected part: four thin beads on the bed.
-                if (v.part_box) |pb| {
+                // The frame of each selected part: four thin beads on the
+                // bed. Some room stays for the beads after them.
+                for (v.part_boxes.items) |pb| {
+                    if (n_extras + 4 + 16 > extras.len) break;
                     const corners = [_][2]f32{ .{ pb[0], pb[1] }, .{ pb[2], pb[1] }, .{ pb[2], pb[3] }, .{ pb[0], pb[3] } };
                     for (0..4) |k| {
                         const a = corners[k];
@@ -3777,7 +3826,12 @@ pub const View = struct {
                 .params = if (v.gcode != null or v.reduced)
                     .{ lit_range[0], lit_range[1], 0, if (lit_range[1] > lit_range[0]) 4 else 0 }
                 else
-                    .{ v.highlight[0], v.highlight[1], if (v.isolate and v.highlight[1] > v.highlight[0]) -1 else @as(f32, @floatFromInt(v.focus_mask)), if (v.mode == .print) 0 else 1 },
+                    (if (v.lightBeads()) |lb|
+                        // The lit layers: a selection, and the other
+                        // beads are ghosts.
+                        [4]f32{ lb[0], lb[1], -1, if (v.mode == .print) 0 else 1 }
+                    else
+                        [4]f32{ v.highlight[0], v.highlight[1], if (v.isolate and v.highlight[1] > v.highlight[0]) -1 else @as(f32, @floatFromInt(v.focus_mask)), if (v.mode == .print) 0 else 1 }),
             },
             .box_count = count,
             .box_first = first,
@@ -4465,12 +4519,29 @@ test "the 2D calls: the beads of a layer, a pick in mm, and the layer of a path"
     try std.testing.expectEqual(@as(usize, 12), v.pathCount());
     try std.testing.expectEqual(@as(usize, 1), v.layerOfPath(5));
     try std.testing.expectEqual(@as(usize, 2), v.layerOfPath(8));
+    try std.testing.expectEqual(v.beads.items[25].rgba[3], v.featureOfPath(5).?);
+    try std.testing.expectEqual(@as(?u8, null), v.featureOfPath(99));
     // Layer 1, near the bead from x 2 to 3 of the path at y 2 (path 6).
     try std.testing.expectEqual(@as(?[2]usize, .{ 6, 2 }), v.pickLayer(1, 2.5, 2.1));
     // Far from all beads: nothing.
     try std.testing.expectEqual(@as(?[2]usize, null), v.pickLayer(1, 2.5, 9));
     const b = v.bounds().?;
     try std.testing.expect(b[0] < 0 and b[2] > 5 and b[1] < 0 and b[3] > 3);
+}
+
+test "the lit layers are the bead range of the layers, cut to the slice" {
+    var v = try testScene(3, 4, 5);
+    defer destroyTest(&v);
+    try std.testing.expectEqual(@as(?[2]f32, null), v.lightBeads());
+    v.setLightLayers(.{ 2, 1 });
+    try std.testing.expectEqual(@as(?[2]f32, .{ 20, 60 }), v.lightBeads());
+    // A range past the top layer ends at the top layer.
+    v.setLightLayers(.{ 1, 9 });
+    try std.testing.expectEqual(@as(?[2]f32, .{ 20, 60 }), v.lightBeads());
+    v.setLightLayers(.{ 5, 9 });
+    try std.testing.expectEqual(@as(?[2]f32, null), v.lightBeads());
+    v.setLightLayers(null);
+    try std.testing.expectEqual(@as(?[2]f32, null), v.lightBeads());
 }
 
 test "the steps along the print go on to the next path, and pass paths with no segment" {

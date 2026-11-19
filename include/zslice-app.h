@@ -1224,6 +1224,14 @@ int zs_view_animate(zs_view *view, double dt);
 void zs_view_pan(zs_view *view, float dx, float dy);
 /* A frame on the bed around a selected part; none if x1 < x0. */
 void zs_view_part_box(zs_view *view, double x0, double y0, double x1, double y1);
+/* A frame on the bed around each of n boxes (x0, y0, x1, y1 each, 4n
+ * doubles), for a selection of several parts. n = 0: no frame. It
+ * replaces the frame of zs_view_part_box. */
+int zs_view_part_boxes(zs_view *view, const double *boxes, size_t n);
+/* Lights the layers lo to hi (a drag of the Select tool): their beads
+ * show as a selection, and the other beads are ghosts. hi < lo: no light.
+ * A new slice keeps it, cut to the layers that the slice has. */
+void zs_view_light_layers(zs_view *view, size_t lo, size_t hi);
 /* The point of the bed under the pixel (px, py) of a 3D view. 0 if none. */
 /* The box of path `path` on the screen, in pixels (x0, y0, x1, y1): a card
  * next to a line keeps out of it. 0 if it is not in front of the camera. */
@@ -1569,6 +1577,9 @@ int zs_view_layer_marks(const zs_view *view, size_t layer, uint32_t *first, uint
 /* The layer of a path, and its number of segments. */
 size_t zs_view_path_layer(const zs_view *view, size_t path);
 size_t zs_view_path_segments(const zs_view *view, size_t path);
+/* The feature of a path, from its beads (enum zs_feature: 6 support, 7
+ * support interface), or -1 for no path. No call to the app. */
+int zs_view_path_feature(const zs_view *view, size_t path);
 /* The outline of each layer: the material of the layer, to fill by the
  * nonzero rule (outer rings go counterclockwise, holes clockwise). Ring i
  * has the points ring_ends[i - 1] to ring_ends[i] (x, y pairs in points);

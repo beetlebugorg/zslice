@@ -270,6 +270,33 @@ export fn zs_view_part_box(view: ?*View, x0: f64, y0: f64, x1: f64, y1: f64) voi
     v.setPartBox(if (x1 < x0) null else .{ @floatCast(x0), @floatCast(y0), @floatCast(x1), @floatCast(y1) });
 }
 
+/// A frame on the bed around each of n boxes (x0, y0, x1, y1 each), for
+/// the selected parts. n = 0: no frame.
+export fn zs_view_part_boxes(view: ?*View, boxes: ?[*]const f64, n: usize) c_int {
+    if (!render_on) return @intFromEnum(Status.not_supported);
+    const v = view orelse return @intFromEnum(Status.invalid_argument);
+    if (n > 0 and boxes == null) return @intFromEnum(Status.invalid_argument);
+    const list = c.gpa.alloc([4]f32, n) catch return @intFromEnum(Status.out_of_memory);
+    defer c.gpa.free(list);
+    var k: usize = 0;
+    for (0..n) |i| {
+        const b = boxes.?[i * 4 ..][0..4];
+        if (b[2] < b[0]) continue;
+        list[k] = .{ @floatCast(b[0]), @floatCast(b[1]), @floatCast(b[2]), @floatCast(b[3]) };
+        k += 1;
+    }
+    v.setPartBoxes(list[0..k]) catch |e| return status(e);
+    return ok;
+}
+
+/// Lights the layers lo to hi as a selection, and shows the other beads as
+/// ghosts. hi < lo: no light.
+export fn zs_view_light_layers(view: ?*View, lo: usize, hi: usize) void {
+    if (!render_on) return;
+    const v = view orelse return;
+    v.setLightLayers(if (hi < lo) null else .{ lo, hi });
+}
+
 /// The point of the bed (z = 0) under the pixel (px, py). Returns 0 if the
 /// ray does not meet the bed.
 export fn zs_view_bed_point(view: ?*const View, px: f32, py: f32, x: ?*f64, y: ?*f64) c_int {
@@ -670,6 +697,15 @@ export fn zs_view_path_layer(view: ?*const View, path: usize) usize {
     if (!render_on) return 0;
     const v = view orelse return 0;
     return v.layerOfPath(path);
+}
+
+/// The feature of a path (0 outer wall ... 6 support, 7 support
+/// interface), or -1.
+export fn zs_view_path_feature(view: ?*const View, path: usize) c_int {
+    if (!render_on) return -1;
+    const v = view orelse return -1;
+    const f = v.featureOfPath(path) orelse return -1;
+    return f;
 }
 
 export fn zs_view_path_segments(view: ?*const View, path: usize) usize {
