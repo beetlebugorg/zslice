@@ -390,15 +390,22 @@ final class FrameRenderer {
         }
 
         /// The beads of the other plates, and the light beads of the active
-        /// plate (flag 2), each with its matrix, its fade, and its draws.
-        /// With `ghost`: only the light beads of the active plate.
+        /// plate (flag 2, or flag 4 while its part moves), each with its
+        /// matrix, its fade, and its draws. With `ghost`: only the light
+        /// beads of the active plate.
         mutating func drawPlates(ghost: zs_web_push?) {
             let all = r.draws(f.plate_draws, f.plate_draws_count)
             for p in r.plates(f) where p.draws_count > 0 {
                 guard let slot = r.slots[p.slot], let buf = slot.buffer else { continue }
                 let active = p.flags & 2 != 0
+                let moving = p.flags & 4 != 0
                 if ghost != nil && !active { continue }
-                if active {
+                if moving {
+                    // The light beads of a part that moves in the view
+                    // only: the push data of the part (its matrix and its
+                    // turned light).
+                    setPush(f.part)
+                } else if active {
                     setPush(ghost ?? f.box)
                 } else {
                     // The push data of the frame, with the matrix of the
