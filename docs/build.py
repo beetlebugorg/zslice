@@ -56,6 +56,7 @@ SOURCES = [
     ("docs/internals/how-slicing-works.md", "internals/how-slicing-works/", "Internals", "How slicing works"),
     ("docs/internals/layer-settings.md", "internals/layer-settings/", "Internals", "Settings for some layers"),
     ("docs/internals/arachne.md", "internals/arachne/", "Internals", "Arachne walls"),
+    ("docs/internals/print-sim.md", "internals/print-sim/", "Internals", "The print as it forms"),
     ("docs/internals/cura-compare.md", "internals/cura-compare/", "Internals", "Compared with other slicers"),
     ("docs/internals/contributing.md", "internals/contributing/", "Internals", "Contributing"),
     ("docs/internals/code-quality.md", "internals/code-quality/", "Internals", "Code quality"),

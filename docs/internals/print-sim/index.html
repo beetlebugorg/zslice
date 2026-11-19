@@ -1,0 +1,73 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>The print as it forms · zslice</title>
+<meta name="description" content="The print as it forms: zslice documentation.">
+<link rel="canonical" href="https://zslice.beetlebug.org/internals/print-sim/">
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='6' fill='%23171717'/%3E%3Crect x='11' y='8' width='10' height='4' rx='1' fill='%23f4f0e6'/%3E%3Crect x='8' y='14' width='16' height='4' rx='1' fill='%23f4f0e6'/%3E%3Crect x='5' y='20' width='22' height='4' rx='1' fill='%23ff5a1f'/%3E%3C/svg%3E">
+<link rel="stylesheet" href="../../site.css">
+</head>
+<body>
+<input type="checkbox" id="menu">
+<header class="top">
+  <a class="brand" href="../../docs.html"><span class="mark">ZSLICE</span><span class="docs">DOCS</span></a>
+  <label class="menu-btn" for="menu">Contents</label>
+  <nav class="top-links"><a href="../../index.html">Open the app</a><a href="../../user/getting-started/">Get started</a><a href="../../roadmap/">Roadmap</a><a href="../../privacy/">Privacy</a><a href="https://github.com/beetlebugorg/zslice">GitHub</a></nav>
+</header>
+<div class="layout">
+<aside class="side"><nav><a href="../../docs.html">Home</a>
+<a href="../../contents/">All documents</a>
+<div class="group">User guide</div>
+<a href="../../user/getting-started/">Getting started</a>
+<a href="../../user/command-line/">The command line</a>
+<a href="../../user/settings/">Settings</a>
+<a href="../../user/profiles/">Profiles</a>
+<a href="../../user/projects/">Projects</a>
+<a href="../../user/macos/">The macOS app</a>
+<a href="../../user/troubleshooting/">Troubleshooting</a>
+<div class="group">Embedding</div>
+<a href="../../embedding/">Overview</a>
+<a href="../../embedding/c/">C</a>
+<a href="../../embedding/zig/">Zig</a>
+<a href="../../embedding/javascript/">JavaScript</a>
+<a href="../../embedding/print-view/">The print view</a>
+<div class="group">Internals</div>
+<a href="../../internals/architecture/">Architecture</a>
+<a href="../../internals/one-view/">Plan: one view</a>
+<a href="../../internals/how-slicing-works/">How slicing works</a>
+<a href="../../internals/layer-settings/">Settings for some layers</a>
+<a href="../../internals/arachne/">Arachne walls</a>
+<a href="../../internals/print-sim/" aria-current="page">The print as it forms</a>
+<a href="../../internals/cura-compare/">Compared with other slicers</a>
+<a href="../../internals/contributing/">Contributing</a>
+<a href="../../internals/code-quality/">Code quality</a>
+<a href="../../internals/macos/">The macOS app</a>
+<div class="group">Project</div>
+<a href="../../app/">App</a>
+<a href="../../references/">References</a>
+<a href="../../roadmap/">Roadmap</a>
+<a href="../../privacy/">Privacy</a></nav></aside>
+<main>
+<p class="eyebrow">Internals</p>
+<h1>The print as it forms</h1>
+
+<nav class="onpage"><b>On this page</b><ol><li><a href="#use-it">Use it</a></li><li><a href="#the-model">The model</a></li><li><a href="#numbers">Numbers</a></li><li><a href="#limits">Limits</a></li></ol></nav><p>zslice can simulate the plastic of a slice: it comes out of the nozzle, rests where the bed or an earlier layer holds it, and hangs or falls where no plastic holds it. It cools with the fan and sets. The next layers print on the shape that formed. So a bridge sags, an overhang droops, and a slab with no support falls in strands, and the layers after it print on the strands.</p>
+<p>The code is in <code>src/print_sim.zig</code> (the model) and <code>src/app/sim_print.zig</code> (the toolpaths in and out). The sources are in <a href="../../references/">REFERENCES.md</a>.</p>
+<h2 id="use-it">Use it</h2>
+<ul><li>Zig: <code>App.simulatePrint()</code> runs it on the last slice and returns its numbers. Then <code>App.allToolpaths()</code> gives the paths as the plastic set, until <code>App.showSimulated(false)</code> or the next slice.</li><li>C: <code>zs_app_simulate_print(app, &amp;stats)</code>, then <code>zs_view_load(view, app)</code> to draw it. <code>zs_app_show_simulated(app, 0)</code> shows the slice again, and <code>zs_app_show_simulated(app, 1)</code> the simulation.</li><li><code>zslice bench part.stl --only sim --runs 1</code> measures it (see <a href="../../user/command-line/">The command line</a>).</li></ul>
+<p>A path whose plastic set where it printed keeps its points. A path with plastic that moved gets a point for each mass, with a nozzle z (<code>point_z</code>) and a bead area (<code>point_area</code>) for each point. A view draws such a bead down to the top of the layer under the path. So a bead that fell more than a layer is a thin ribbon at its place in the view. To draw it as a full bead, a view must use the bead height of the path for these points.</p>
+<h2 id="the-model">The model</h2>
+<ol><li><strong>Masses.</strong> Each path is a chain of masses at equal spacing, about half a bead width. A mass comes out at the time that the nozzle passes its point. Its mass is the density times the bead area times its share of the path. The total is the plastic of the slice.</li><li><strong>Support.</strong> A height field keeps the top of the solid plastic in cells of 0.1 mm. The field has tiles of 32 x 32 cells, and only the tiles with plastic use memory. A new mass is solid at once if the bed or an earlier layer is under its bead (within half a bead height). A mass beside a bead of its own layer, at its height, is also solid, up to 2 beads out from plastic that an earlier layer holds. So the end of a bridge line welds to the wall, but a skin over air does not grow from line to line. Else the mass is soft.</li><li><strong>Strands.</strong> A path that starts at the end of the path before it, with no retraction, is the same strand. The slicer splits a wall into pieces over air and on plastic, and the nozzle prints them as one line.</li><li><strong>Heat.</strong> A soft mass cools by Newton's law with the time of a lumped bead: tau = rho c (A / P) / h. The heat transfer h is about 80 W/(m² K) in still air. The fan adds the forced convection of a thin cylinder (Hilpert). At full fan a bead of 0.45 x 0.2 mm cools with tau of about 0.3 s, and in still air with tau of about 2 s.</li><li><strong>Viscosity.</strong> The viscosity of PLA is 733 Pa s at 210 °C. It grows as the plastic cools: Arrhenius with 86 kJ/mol in the melt, and WLF near the glass point (60 °C). A soft mass sets where it is when its viscosity passes 1e6 Pa s (at about 97 °C).</li><li><strong>Runs held at both ends.</strong> The soft masses between two held masses (a solid mass, or the newest mass, which the nozzle holds) hang as a catenary of their arc length. The catenary follows the route in plan where the nozzle laid them. The tension of a catenary is a times the weight for each mm, so the stress is rho g a. The hot plastic creeps under it at the rate stress / (3 viscosity). Near the taut limit the slack follows a closed form, so the step can be large. As the plastic cools, the creep stops.</li><li><strong>Runs held at one end, or none.</strong> They swing and fall with position based dynamics. A run held at one end keeps its links by "follow the leader" from the held end, in one pass. A run that fell and is then held at both ends uses Gauss-Seidel passes and long-range attachments.</li><li><strong>Contact.</strong> A soft mass that comes down onto the bed or solid plastic sets there.</li><li><strong>Time.</strong> The time jumps over the times with no free soft mass. Most of a print has none.</li></ol>
+<h2 id="numbers">Numbers</h2>
+<p>A bridge of 20 mm between two posts, PLA at 210 °C, 15 mm/s:</p>
+<div class="table-wrap"><table><thead><tr><th>Case</th><th>Sag</th></tr></thead><tbody><tr><td>Full fan</td><td>0.66 mm</td></tr><tr><td>No fan</td><td>2.09 mm</td></tr><tr><td>Full fan, 230 °C</td><td>0.93 mm</td></tr><tr><td>Full fan, 5 mm span</td><td>0.16 mm</td></tr></tbody></table></div>
+<p>A 3DBenchy (585 778 masses), on one core: about 1.5 s, with 7 MB of memory more than the slice. On its side with no support: 2.2 s and 10 MB. Upside down with no support: 2.9 s and 8 MB.</p>
+<h2 id="limits">Limits</h2>
+<ul><li>A strand has no bending stiffness. A hot strand that hangs from one end hangs straight down.</li><li>Soft masses do not touch each other. They touch only the bed and the solid plastic.</li><li>The height field has one top for each cell. A strand that falls under an overhang rests on top of it.</li><li>A mass that sets does not move again. A set strand does not bend later under the weight of the layers on it.</li><li>The material is PLA. Other materials need their own viscosity, glass point, and density in <code>print_sim.Params</code>.</li></ul><nav class="pager"><a class="prev" href="../../internals/arachne/"><span>Previous</span><b>Arachne walls</b></a><a class="next" href="../../internals/cura-compare/"><span>Next</span><b>Compared with other slicers</b></a></nav>
+</main>
+</div>
+<footer>zslice is free software (AGPL-3.0-or-later). <a href="../../privacy/">Privacy</a>: no analytics, no cookies, nothing from other sites. <a href="https://github.com/beetlebugorg/zslice/blob/main/docs/build.py">docs/build.py</a> writes this site from <a href="https://github.com/beetlebugorg/zslice/blob/main/docs/internals/print-sim.md">docs/internals/print-sim.md</a>.</footer>
+</body>
+</html>

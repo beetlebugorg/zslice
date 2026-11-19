@@ -156,3 +156,10 @@ wall count     wall median   310.0 ms
 ```
 
 These times are for a 3DBenchy on a desktop CPU from 2015 with 4 cores (8 threads).
+
+`zslice bench part.stl --only sim --runs 1` slices the part once, then times the simulated print of the plastic (see [The print as it forms](../internals/print-sim.md)). `--only sim-side` turns the part on its side first, and `--only sim-flip` turns it upside down, for steep overhangs with no support. For a 3DBenchy:
+
+```
+simulate       wall median  1460.5 ms
+simulate: 585778 masses, 21851 soft, peak 89 soft, 12272 moved in 481 paths, max move 7.77 mm, 11.69 g, 243723 steps, 7.0 MB more at the peak
+```

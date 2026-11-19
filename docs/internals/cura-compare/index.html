@@ -39,6 +39,7 @@
 <a href="../../internals/how-slicing-works/">How slicing works</a>
 <a href="../../internals/layer-settings/">Settings for some layers</a>
 <a href="../../internals/arachne/">Arachne walls</a>
+<a href="../../internals/print-sim/">The print as it forms</a>
 <a href="../../internals/cura-compare/" aria-current="page">Compared with other slicers</a>
 <a href="../../internals/contributing/">Contributing</a>
 <a href="../../internals/code-quality/">Code quality</a>
@@ -74,7 +75,7 @@ python3 -I tools/compare_cura.py walls zig-out/bin/zslice model.stl &lt;out fold
 <pre><code>python3 -I tools/support_check.py parts zig-out/scratch/parts
 python3 -I tools/support_check.py check model.stl model.gcode --png model.png
 python3 -I tools/support_check.py review zig-out/support-review zig-out/scratch/parts --zslice new=zig-out/bin/zslice --cura --orca</code></pre>
-<p>The check cuts the mesh at each layer and draws the support lines of the G-code into a grid of 0.1 mm cells. An overhang cell is a cell under a face of the mesh that looks down and leans more than 50 degrees from vertical. The check reports the overhang area with no support line within 1.5 mm in the 3 layers under it (unsupported), the support lines with nothing under them (floating), and the support volume. <code>review</code> slices each part with grid and tree support, and writes a picture of each slice (front, side, and top view) and an <code>index.html</code> with a table. OrcaSlicer needs the profiles <code>machine.json</code>, <code>process.json</code>, and <code>filament.json</code> in <code>&lt;out folder&gt;/orca</code>; see the header of the script.</p><nav class="pager"><a class="prev" href="../../internals/arachne/"><span>Previous</span><b>Arachne walls</b></a><a class="next" href="../../internals/contributing/"><span>Next</span><b>Contributing</b></a></nav>
+<p>The check cuts the mesh at each layer and draws the support lines of the G-code into a grid of 0.1 mm cells. An overhang cell is a cell under a face of the mesh that looks down and leans more than 50 degrees from vertical. The check reports the overhang area with no support line within 1.5 mm in the 3 layers under it (unsupported), the support lines with nothing under them (floating), and the support volume. <code>review</code> slices each part with grid and tree support, and writes a picture of each slice (front, side, and top view) and an <code>index.html</code> with a table. OrcaSlicer needs the profiles <code>machine.json</code>, <code>process.json</code>, and <code>filament.json</code> in <code>&lt;out folder&gt;/orca</code>; see the header of the script.</p><nav class="pager"><a class="prev" href="../../internals/print-sim/"><span>Previous</span><b>The print as it forms</b></a><a class="next" href="../../internals/contributing/"><span>Next</span><b>Contributing</b></a></nav>
 </main>
 </div>
 <footer>zslice is free software (AGPL-3.0-or-later). <a href="../../privacy/">Privacy</a>: no analytics, no cookies, nothing from other sites. <a href="https://github.com/beetlebugorg/zslice/blob/main/docs/build.py">docs/build.py</a> writes this site from <a href="https://github.com/beetlebugorg/zslice/blob/main/docs/internals/cura-compare.md">docs/internals/cura-compare.md</a>.</footer>

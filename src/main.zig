@@ -54,7 +54,10 @@ const usage =
     \\            after a change of each kind of setting. Print the times
     \\            and the peak memory. --only KIND times one kind: full,
     \\            late, walls, top, width, height, support, area, xy,
-    \\            speed, accel, flow, fan, temp, cool, or cancel. --only
+    \\            speed, accel, flow, fan, temp, cool, cancel, or sim
+    \\            (the simulated print of the plastic; sim-side and
+    \\            sim-flip turn the part on its side or upside down
+    \\            first, for steep overhangs). --only
     \\            patch changes each setting that needs no new plan, and
     \\            compares the G-code with a new slice. --runs N sets
     \\            the slices of each kind (default 6).
@@ -504,6 +507,18 @@ fn bench(backing: std.mem.Allocator, io: Io, err: *Io.Writer, name: []const u8, 
     app.settings = settings;
     var times_buf: [max_runs]Sample = undefined;
     const times = times_buf[0..runs];
+    if (only != null and std.mem.startsWith(u8, only.?, "sim")) {
+        try app.loadStl(std.fs.path.basename(name), bytes);
+        try addCopies(app, name, bytes, copies);
+        // sim-side: the part on its side, for steep overhangs. sim-flip:
+        // upside down.
+        if (std.mem.eql(u8, only.?, "sim-side")) try app.turnPart(0, 0, 90);
+        if (std.mem.eql(u8, only.?, "sim-flip")) try app.turnPart(0, 0, 180);
+        _ = try benchSlice(app, io);
+        try benchSim(app, io, err, &counter, times);
+        try err.print("peak memory: {d} MB resident (VmHWM), {d} MB allocated\n", .{ peakMb(io), counter.peak.load(.monotonic) >> 20 });
+        return;
+    }
     if (only == null or std.mem.eql(u8, only.?, "full")) {
         // The first slice has no cache. Each one starts new.
         for (times) |*t| {
@@ -663,6 +678,26 @@ fn cpuNow() [2]f64 {
     const ms = @as(f64, @floatFromInt(u.utime.sec + u.stime.sec)) * 1e3 +
         @as(f64, @floatFromInt(u.utime.usec + u.stime.usec)) / 1e3;
     return .{ ms, @floatFromInt(u.minflt) };
+}
+
+/// The simulated print of the last slice (App.simulatePrint): its time,
+/// the memory it adds at its peak, and its numbers.
+fn benchSim(app: *zslice.app.App, io: Io, err: *Io.Writer, counter: *CountingAllocator, times: []Sample) !void {
+    var st: zslice.print_sim.Stats = .{};
+    var extra: usize = 0;
+    for (times) |*t| {
+        try app.showSimulated(false);
+        const live = counter.live.load(.monotonic);
+        counter.peak.store(live, .monotonic);
+        const t0 = Io.Clock.awake.now(io);
+        const c0 = cpuNow();
+        st = try app.simulatePrint();
+        const c1 = cpuNow();
+        t.* = .{ .wall = @as(f64, @floatFromInt(t0.untilNow(io, .awake).toNanoseconds())) / 1e6, .cpu = c1[0] - c0[0], .faults = c1[1] - c0[1] };
+        extra = @max(extra, counter.peak.load(.monotonic) - live);
+    }
+    try printTimes(err, "simulate", times);
+    try err.print("simulate: {d} masses, {d} soft, peak {d} soft, {d} moved in {d} paths, max move {d:.2} mm, {d:.2} g, {d} steps, {d:.1} MB more at the peak\n", .{ st.masses, st.soft_masses, st.peak_soft, st.moved, st.moved_paths, st.max_move, st.mass, st.steps, @as(f64, @floatFromInt(extra)) / (1 << 20) });
 }
 
 fn addCopies(app: *zslice.app.App, name: []const u8, bytes: []const u8, copies: usize) !void {
