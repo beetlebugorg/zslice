@@ -816,8 +816,9 @@ fn benchSim(app: *zslice.app.App, io: Io, err: *Io.Writer, counter: *CountingAll
 }
 
 /// Writes the masses of the simulated print that moved as CSV: the part
-/// box on the bed, then a row for each mass with its layer, its feature,
-/// the place where the slicer meant it to be, and the place where it set.
+/// box on the bed, then a row for each mass with its layer, its path, its
+/// feature, the place where the slicer meant it to be, and the place where
+/// it set.
 fn writeSimMasses(app: *zslice.app.App, io: Io, path: []const u8) !void {
     const r = app.sim orelse return error.NoResult;
     const tp = &app.toolpaths;
@@ -826,12 +827,12 @@ fn writeSimMasses(app: *zslice.app.App, io: Io, path: []const u8) !void {
     const w = &aw.writer;
     const b = app.partBounds() orelse return error.NoResult;
     try w.print("# part box {d:.3} {d:.3} {d:.3} {d:.3}\n", .{ b[0], b[1], b[2], b[3] });
-    try w.print("layer,feature,wx,wy,wz,x,y,z\n", .{});
+    try w.print("layer,path,feature,wx,wy,wz,x,y,z\n", .{});
     var layer: usize = 0;
     for (r.masses) |m| {
         while (tp.layer_ends.items[layer] <= m.path) layer += 1;
         const f: zslice.settings.Feature = @enumFromInt(tp.path_features.items[m.path]);
-        try w.print("{d},{s},{d:.3},{d:.3},{d:.3},{d:.3},{d:.3},{d:.3}\n", .{ layer, @tagName(f), m.want[0], m.want[1], m.want[2], m.pos[0], m.pos[1], m.pos[2] });
+        try w.print("{d},{d},{s},{d:.3},{d:.3},{d:.3},{d:.3},{d:.3},{d:.3}\n", .{ layer, m.path, @tagName(f), m.want[0], m.want[1], m.want[2], m.pos[0], m.pos[1], m.pos[2] });
     }
     try Io.Dir.cwd().writeFile(io, .{ .sub_path = path, .data = aw.written() });
 }

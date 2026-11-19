@@ -247,8 +247,12 @@ pub const Params = struct {
     dt: f32 = 0.002,
     dt_free: f32 = 0.001,
     /// The step (s) while no soft mass swings or falls: the runs only hang
-    /// in their closed form, which is stable at any step.
-    dt_hang: f32 = 0.002,
+    /// in their closed form, which is stable at any step. A step of 10 ms
+    /// changes the result less than a change of `dt` from 2 to 1 ms.
+    dt_hang: f32 = 0.01,
+    /// A hanging run whose creep moves it less than this in a step (mm)
+    /// sleeps (see `Sim.asleep`).
+    sleep_sag: f32 = 0.0005,
     /// The Gauss-Seidel passes of a run that fell.
     iterations: u32 = 8,
     /// The share of the follow-the-leader correction that goes back into
@@ -479,6 +483,12 @@ const Node = struct {
     /// It swung or fell: a run with such a mass does not hang as a
     /// catenary.
     fell: bool = false,
+    /// For the first mass of a hanging run: the end of the run, its arc
+    /// length, and the length of its route in plan, when its shape was
+    /// last solved (see `Sim.hang`).
+    run_end: u32 = none,
+    run_arc: f64 = 0,
+    run_dh: f64 = 0,
 };
 
 /// The masses of one strand (a path, or paths joined with no break),
@@ -898,6 +908,7 @@ const Sim = struct {
         const nodes = c.nodes.items;
         const a = nodes[k - 1].pos;
         const b = nodes[j + 1].pos;
+        if (s.asleep(nodes, k, j, dt)) return true;
         // The arc length, and the creep weights rest / (3 eta) of the
         // links (the link before node m has the temperature of the soft
         // mass at its end).
@@ -950,6 +961,12 @@ const Sim = struct {
                 slack = new_slack;
             }
         }
+        // The shape that this step solves, for `asleep`.
+        var sum: f64 = 0;
+        for (k..j + 2) |m| sum += nodes[m].rest;
+        nodes[k].run_end = @intCast(j);
+        nodes[k].run_arc = sum;
+        nodes[k].run_dh = dh;
         const r = lp / dh;
         const taut = r - 1 < 1e-9;
         const u = if (taut) 0 else catenaryU(r);
@@ -982,6 +999,35 @@ const Sim = struct {
                 @floatCast(a[2] + z),
             };
         }
+        return true;
+    }
+
+    /// If the hanging run k..j sleeps this step: it hangs between two
+    /// solid masses (the nozzle does not hold it), its shape is the one of
+    /// the last step that solved it, and its creep moves it less than
+    /// `sleep_sag` in this step, at the creep of its hottest mass. Then its
+    /// masses stay where they are, as a body at rest in a rigid body
+    /// engine sleeps. A change of the run (a mass sets, a link stretches)
+    /// wakes it.
+    fn asleep(s: *const Sim, nodes: []Node, k: usize, j: usize, dt: f32) bool {
+        if (nodes[j + 1].soft or nodes[k].run_end != j) return false;
+        var arc: f64 = 0;
+        for (k..j + 2) |m| arc += nodes[m].rest;
+        if (arc != nodes[k].run_arc) return false;
+        var hot: f32 = -std.math.inf(f32);
+        for (k..j + 1) |m| hot = @max(hot, nodes[m].temp);
+        const dh = nodes[k].run_dh;
+        const dz: f64 = nodes[j + 1].pos[2] - nodes[k - 1].pos[2];
+        const lp = @sqrt(arc * arc - dz * dz);
+        const slack = @max(lp - dh, 0);
+        const phi = arc / (3 * @as(f64, viscosity(s.p, hot)));
+        const kk = @as(f64, s.rho_g) * phi * (arc / lp) * @sqrt(dh * dh * dh / 24);
+        const cb = std.math.cbrt(slack * @sqrt(slack) + 1.5 * kk * dt);
+        // The sag of a shallow catenary: sqrt(3 dh slack / 8).
+        const sag_now = @sqrt(3 * dh * slack / 8);
+        const sag_next = @sqrt(3 * dh * cb * cb / 8);
+        if (sag_next - sag_now >= s.p.sleep_sag) return false;
+        for (nodes[k .. j + 1]) |*n| n.prev = n.pos;
         return true;
     }
 
