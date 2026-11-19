@@ -1,0 +1,93 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>The print as it forms · zslice</title>
+<meta name="description" content="See the plastic as the printer lays it. A bridge sags. A slab over the air falls in strands, and the next layers print on them.">
+<link rel="canonical" href="https://zslice.beetlebug.org/user/print-as-it-forms/">
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='6' fill='%23171717'/%3E%3Crect x='11' y='8' width='10' height='4' rx='1' fill='%23f4f0e6'/%3E%3Crect x='8' y='14' width='16' height='4' rx='1' fill='%23f4f0e6'/%3E%3Crect x='5' y='20' width='22' height='4' rx='1' fill='%23ff5a1f'/%3E%3C/svg%3E">
+<link rel="stylesheet" href="../../site.css">
+</head>
+<body>
+<input type="checkbox" id="menu">
+<header class="top">
+  <a class="brand" href="../../docs.html"><span class="mark">ZSLICE</span><span class="docs">DOCS</span></a>
+  <label class="menu-btn" for="menu">Contents</label>
+  <nav class="top-links"><a href="../../index.html">Open the app</a><a href="../../user/getting-started/">Get started</a><a href="../../roadmap/">Roadmap</a><a href="../../privacy/">Privacy</a><a href="https://github.com/beetlebugorg/zslice">GitHub</a></nav>
+</header>
+<div class="layout">
+<aside class="side"><nav><a href="../../docs.html">Home</a>
+<a href="../../contents/">All documents</a>
+<div class="group">Start</div>
+<a href="../../user/getting-started/"><span class="n">1</span>Your first print</a>
+<div class="group">Everyday tasks</div>
+<a href="../../user/look/"><span class="n">2</span>Look at the print</a>
+<a href="../../user/lines/"><span class="n">3</span>Click a line</a>
+<a href="../../user/change-settings/"><span class="n">4</span>Change a setting</a>
+<a href="../../user/parts/"><span class="n">5</span>Place the parts</a>
+<a href="../../user/support/"><span class="n">6</span>Add support</a>
+<a href="../../user/check/"><span class="n">7</span>Check the print</a>
+<a href="../../user/plates/"><span class="n">8</span>Plates and files</a>
+<a href="../../user/printers/"><span class="n">9</span>Send to a printer</a>
+<a href="../../user/history/"><span class="n">10</span>Undo and history</a>
+<div class="group">Features</div>
+<a href="../../user/features/"><span class="n">11</span>The best features</a>
+<a href="../../user/print-as-it-forms/" aria-current="page"><span class="n">12</span>The print as it forms</a>
+<a href="../../user/projects/"><span class="n">13</span>printdeck projects</a>
+<a href="../../user/farm/"><span class="n">14</span>A print farm</a>
+<div class="group">Reference</div>
+<a href="../../user/keys/">Keys and mouse</a>
+<a href="../../user/settings/">Settings</a>
+<a href="../../user/expert/">Formulas and rules</a>
+<a href="../../user/profiles/">Profiles</a>
+<a href="../../user/command-line/">The command line</a>
+<a href="../../user/apps/">Web, Linux, and Mac</a>
+<a href="../../user/macos/">The macOS app</a>
+<a href="../../user/troubleshooting/">Problems and errors</a>
+<div class="group">Embedding</div>
+<a href="../../embedding/">Overview</a>
+<a href="../../embedding/c/">C</a>
+<a href="../../embedding/zig/">Zig</a>
+<a href="../../embedding/javascript/">JavaScript</a>
+<a href="../../embedding/print-view/">The print view</a>
+<div class="group">Internals</div>
+<a href="../../internals/architecture/">Architecture</a>
+<a href="../../internals/one-view/">Plan: one view</a>
+<a href="../../internals/how-slicing-works/">How slicing works</a>
+<a href="../../internals/layer-settings/">Settings for some layers</a>
+<a href="../../internals/arachne/">Arachne walls</a>
+<a href="../../internals/print-sim/">The print simulation</a>
+<a href="../../internals/cura-compare/">Compared with other slicers</a>
+<a href="../../internals/contributing/">Contributing</a>
+<a href="../../internals/code-quality/">Code quality</a>
+<a href="../../internals/macos/">The macOS app</a>
+<div class="group">Project</div>
+<a href="../../app/">App</a>
+<a href="../../references/">References</a>
+<a href="../../roadmap/">Roadmap</a>
+<a href="../../privacy/">Privacy</a></nav></aside>
+<main>
+<p class="eyebrow">Features</p>
+<h1><span class="num">12</span>The print as it forms</h1>
+<p class="lede">See the plastic as the printer lays it. A bridge sags. A slab over the air falls in strands, and the next layers print on them.</p>
+<nav class="onpage"><b>On this page</b><ol><li><a href="#turn-it-on">Turn it on</a></li><li><a href="#a-bridge-sags">A bridge sags</a></li><li><a href="#a-slab-in-the-air-falls">A slab in the air falls</a></li><li><a href="#what-it-knows">What it knows</a></li><li><a href="#where-to-go-next">Where to go next</a></li></ol></nav><figure class="shot"><img src="../../img/sim-forms.webp" alt="A bridge 80 mm long prints and sags. Then a slab prints over the air on each side of a post, and its plastic falls in strands" loading="lazy"><figcaption>The replay of two prints with support off, with the simulation on.</figcaption></figure>
+<h2 id="turn-it-on">Turn it on</h2>
+<ol><li>Slice the part.</li><li>Open the colors menu in the tool strip, and click its last item: <strong>The print as it forms (simulated plastic)</strong>.</li><li>A note says how much of the plastic does not stay where it prints, and how far it moves.</li><li>Press ▶ on the dock to replay the print, or drag the layer slider.</li></ol>
+<p>A new slice shows the plan again. Turn the simulation on again after a change.</p>
+<h2 id="a-bridge-sags">A bridge sags</h2>
+<figure class="shot"><img src="../../img/sim-bridge.webp" alt="The bridge at the end of the print: the deck hangs down in the middle, between the two piers" loading="lazy"><figcaption>An 80 mm bridge with support off: the first lines of the deck sag between the piers.</figcaption></figure>
+<ul><li>The plastic between two held ends hangs as a chain. It creeps down while it is hot, and stops as it cools.</li><li>More fan cools it faster, so it sags less. A hotter nozzle or a longer span sags more.</li></ul>
+<h2 id="a-slab-in-the-air-falls">A slab in the air falls</h2>
+<figure class="shot"><img src="../../img/sim-slab.webp" alt="The slab at the end of the print: strands of plastic hang and fall from both sides of the post" loading="lazy"><figcaption>A slab 20 mm out into the air on each side of a post: the plastic falls in strands.</figcaption></figure>
+<ul><li>Plastic with no hold under it swings and falls, until it touches the bed or solid plastic.</li><li>The next layers print on the strands, where they set.</li><li>Turn on support, or turn the part, and slice again.</li></ul>
+<h2 id="what-it-knows">What it knows</h2>
+<div class="table-wrap"><table><thead><tr><th>It knows</th><th>It does not know yet</th></tr></thead><tbody><tr><td>The time at which each bit of plastic leaves the nozzle</td><td>Strands that bend: a hot strand that hangs from one end hangs straight down</td></tr><tr><td>How the plastic cools, in still air and with the fan</td><td>Strands that touch each other</td></tr><tr><td>How thick PLA gets as it cools, until it sets</td><td>Other materials than PLA</td></tr><tr><td>Where the bed and earlier layers hold the plastic</td><td>A set strand that bends later under the layers on it</td></tr></tbody></table></div>
+<p>A 3DBenchy simulates in about 1.5 s on one core. The physics, with the numbers, is in <a href="../../internals/print-sim/">The print simulation</a>.</p>
+<h2 id="where-to-go-next">Where to go next</h2>
+<nav class="goto"><a class="go" href="../../user/support/"><span class="num">6</span><b>Add support</b><span>hold up what falls.</span></a><a class="go" href="../../user/check/"><span class="num">7</span><b>Check the print</b><span>the list of overhangs and bridges.</span></a><a class="go" href="../../user/features/"><span class="num">11</span><b>The best features</b><span>parts with real physics, and more.</span></a></nav><nav class="pager"><a class="prev" href="../../user/features/"><span>Back to 11</span><b>The best features</b></a><a class="next" href="../../user/projects/"><span>Go to 13</span><b>printdeck projects</b></a></nav>
+</main>
+</div>
+<footer>zslice is free software (AGPL-3.0-or-later). <a href="../../privacy/">Privacy</a>: no analytics, no cookies, nothing from other sites. <a href="https://github.com/beetlebugorg/zslice/blob/main/docs/build.py">docs/build.py</a> writes this site from <a href="https://github.com/beetlebugorg/zslice/blob/main/docs/user/print-as-it-forms.md">docs/user/print-as-it-forms.md</a>.</footer>
+</body>
+</html>

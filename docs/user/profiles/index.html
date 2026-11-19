@@ -19,14 +19,32 @@
 <div class="layout">
 <aside class="side"><nav><a href="../../docs.html">Home</a>
 <a href="../../contents/">All documents</a>
-<div class="group">User guide</div>
-<a href="../../user/getting-started/">Getting started</a>
-<a href="../../user/command-line/">The command line</a>
+<div class="group">Start</div>
+<a href="../../user/getting-started/"><span class="n">1</span>Your first print</a>
+<div class="group">Everyday tasks</div>
+<a href="../../user/look/"><span class="n">2</span>Look at the print</a>
+<a href="../../user/lines/"><span class="n">3</span>Click a line</a>
+<a href="../../user/change-settings/"><span class="n">4</span>Change a setting</a>
+<a href="../../user/parts/"><span class="n">5</span>Place the parts</a>
+<a href="../../user/support/"><span class="n">6</span>Add support</a>
+<a href="../../user/check/"><span class="n">7</span>Check the print</a>
+<a href="../../user/plates/"><span class="n">8</span>Plates and files</a>
+<a href="../../user/printers/"><span class="n">9</span>Send to a printer</a>
+<a href="../../user/history/"><span class="n">10</span>Undo and history</a>
+<div class="group">Features</div>
+<a href="../../user/features/"><span class="n">11</span>The best features</a>
+<a href="../../user/print-as-it-forms/"><span class="n">12</span>The print as it forms</a>
+<a href="../../user/projects/"><span class="n">13</span>printdeck projects</a>
+<a href="../../user/farm/"><span class="n">14</span>A print farm</a>
+<div class="group">Reference</div>
+<a href="../../user/keys/">Keys and mouse</a>
 <a href="../../user/settings/">Settings</a>
+<a href="../../user/expert/">Formulas and rules</a>
 <a href="../../user/profiles/" aria-current="page">Profiles</a>
-<a href="../../user/projects/">Projects</a>
+<a href="../../user/command-line/">The command line</a>
+<a href="../../user/apps/">Web, Linux, and Mac</a>
 <a href="../../user/macos/">The macOS app</a>
-<a href="../../user/troubleshooting/">Troubleshooting</a>
+<a href="../../user/troubleshooting/">Problems and errors</a>
 <div class="group">Embedding</div>
 <a href="../../embedding/">Overview</a>
 <a href="../../embedding/c/">C</a>
@@ -39,7 +57,7 @@
 <a href="../../internals/how-slicing-works/">How slicing works</a>
 <a href="../../internals/layer-settings/">Settings for some layers</a>
 <a href="../../internals/arachne/">Arachne walls</a>
-<a href="../../internals/print-sim/">The print as it forms</a>
+<a href="../../internals/print-sim/">The print simulation</a>
 <a href="../../internals/cura-compare/">Compared with other slicers</a>
 <a href="../../internals/contributing/">Contributing</a>
 <a href="../../internals/code-quality/">Code quality</a>
@@ -50,7 +68,7 @@
 <a href="../../roadmap/">Roadmap</a>
 <a href="../../privacy/">Privacy</a></nav></aside>
 <main>
-<p class="eyebrow">User guide</p>
+<p class="eyebrow">Reference</p>
 <h1>Profiles</h1>
 <p class="lede">A profile is a text file with settings. zslice has three kinds of profile, one for each owner of the settings:</p>
 <nav class="onpage"><b>On this page</b><ol><li><a href="#use-profiles">Use profiles</a></li><li><a href="#write-a-profile">Write a profile</a></li><li><a href="#inheritance-extends">Inheritance: extends</a></li><li><a href="#override-another-group">Override another group</a></li><li><a href="#where-zslice-finds-profiles">Where zslice finds profiles</a></li><li><a href="#start-and-end-g-code">Start and end G-code</a></li><li><a href="#import-from-cura">Import from Cura</a></li><li><a href="#errors">Errors</a></li></ol></nav><div class="table-wrap"><table><thead><tr><th>Kind</th><th>What it describes</th><th>Example</th></tr></thead><tbody><tr><td>machine</td><td>Your printer</td><td><code>my-printer.toml</code></td></tr><tr><td>filament</td><td>A filament</td><td><code>acme-pla.toml</code></td></tr><tr><td>project</td><td>What you want for a part</td><td><code>fine.toml</code></td></tr></tbody></table></div>
@@ -116,7 +134,7 @@ M109 S{first_layer_nozzle_temp}
 <h2 id="errors">Errors</h2>
 <p>zslice names the profile and the line:</p>
 <pre><code>filament profile "acme-pla.toml", line 4: unknown setting (UnknownSetting)</code></pre>
-<div class="table-wrap"><table><thead><tr><th>Message</th><th>Cause</th></tr></thead><tbody><tr><td>unknown setting</td><td>The key is not a setting of the group. Check the spelling in the <a href="../../user/settings/">settings reference</a>.</td></tr><tr><td>the value has the wrong type</td><td>A number has quotes, or a choice is not one of the choices.</td></tr><tr><td>no profile with this name</td><td>The <code>extends</code> name, or the <code>-m</code>, <code>-f</code>, or <code>-p</code> name, is not in a search location.</td></tr><tr><td>the extends chain loops back</td><td>Two profiles extend each other.</td></tr><tr><td>a text value needs quotes</td><td>Put text in quotes: <code>name = &quot;Acme&quot;</code>.</td></tr></tbody></table></div><nav class="pager"><a class="prev" href="../../user/settings/"><span>Previous</span><b>Settings</b></a><a class="next" href="../../user/projects/"><span>Next</span><b>Projects</b></a></nav>
+<div class="table-wrap"><table><thead><tr><th>Message</th><th>Cause</th></tr></thead><tbody><tr><td>unknown setting</td><td>The key is not a setting of the group. Check the spelling in the <a href="../../user/settings/">settings reference</a>.</td></tr><tr><td>the value has the wrong type</td><td>A number has quotes, or a choice is not one of the choices.</td></tr><tr><td>no profile with this name</td><td>The <code>extends</code> name, or the <code>-m</code>, <code>-f</code>, or <code>-p</code> name, is not in a search location.</td></tr><tr><td>the extends chain loops back</td><td>Two profiles extend each other.</td></tr><tr><td>a text value needs quotes</td><td>Put text in quotes: <code>name = &quot;Acme&quot;</code>.</td></tr></tbody></table></div><nav class="pager"><a class="prev" href="../../user/expert/"><span>Previous</span><b>Formulas and rules</b></a><a class="next" href="../../user/command-line/"><span>Next</span><b>The command line</b></a></nav>
 </main>
 </div>
 <footer>zslice is free software (AGPL-3.0-or-later). <a href="../../privacy/">Privacy</a>: no analytics, no cookies, nothing from other sites. <a href="https://github.com/beetlebugorg/zslice/blob/main/docs/build.py">docs/build.py</a> writes this site from <a href="https://github.com/beetlebugorg/zslice/blob/main/docs/user/profiles.md">docs/user/profiles.md</a>.</footer>

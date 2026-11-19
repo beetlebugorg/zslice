@@ -1,0 +1,93 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Click a line · zslice</title>
+<meta name="description" content="Click any line of the print. A card says what the line is, how fast it really prints, and why.">
+<link rel="canonical" href="https://zslice.beetlebug.org/user/lines/">
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='6' fill='%23171717'/%3E%3Crect x='11' y='8' width='10' height='4' rx='1' fill='%23f4f0e6'/%3E%3Crect x='8' y='14' width='16' height='4' rx='1' fill='%23f4f0e6'/%3E%3Crect x='5' y='20' width='22' height='4' rx='1' fill='%23ff5a1f'/%3E%3C/svg%3E">
+<link rel="stylesheet" href="../../site.css">
+</head>
+<body>
+<input type="checkbox" id="menu">
+<header class="top">
+  <a class="brand" href="../../docs.html"><span class="mark">ZSLICE</span><span class="docs">DOCS</span></a>
+  <label class="menu-btn" for="menu">Contents</label>
+  <nav class="top-links"><a href="../../index.html">Open the app</a><a href="../../user/getting-started/">Get started</a><a href="../../roadmap/">Roadmap</a><a href="../../privacy/">Privacy</a><a href="https://github.com/beetlebugorg/zslice">GitHub</a></nav>
+</header>
+<div class="layout">
+<aside class="side"><nav><a href="../../docs.html">Home</a>
+<a href="../../contents/">All documents</a>
+<div class="group">Start</div>
+<a href="../../user/getting-started/"><span class="n">1</span>Your first print</a>
+<div class="group">Everyday tasks</div>
+<a href="../../user/look/"><span class="n">2</span>Look at the print</a>
+<a href="../../user/lines/" aria-current="page"><span class="n">3</span>Click a line</a>
+<a href="../../user/change-settings/"><span class="n">4</span>Change a setting</a>
+<a href="../../user/parts/"><span class="n">5</span>Place the parts</a>
+<a href="../../user/support/"><span class="n">6</span>Add support</a>
+<a href="../../user/check/"><span class="n">7</span>Check the print</a>
+<a href="../../user/plates/"><span class="n">8</span>Plates and files</a>
+<a href="../../user/printers/"><span class="n">9</span>Send to a printer</a>
+<a href="../../user/history/"><span class="n">10</span>Undo and history</a>
+<div class="group">Features</div>
+<a href="../../user/features/"><span class="n">11</span>The best features</a>
+<a href="../../user/print-as-it-forms/"><span class="n">12</span>The print as it forms</a>
+<a href="../../user/projects/"><span class="n">13</span>printdeck projects</a>
+<a href="../../user/farm/"><span class="n">14</span>A print farm</a>
+<div class="group">Reference</div>
+<a href="../../user/keys/">Keys and mouse</a>
+<a href="../../user/settings/">Settings</a>
+<a href="../../user/expert/">Formulas and rules</a>
+<a href="../../user/profiles/">Profiles</a>
+<a href="../../user/command-line/">The command line</a>
+<a href="../../user/apps/">Web, Linux, and Mac</a>
+<a href="../../user/macos/">The macOS app</a>
+<a href="../../user/troubleshooting/">Problems and errors</a>
+<div class="group">Embedding</div>
+<a href="../../embedding/">Overview</a>
+<a href="../../embedding/c/">C</a>
+<a href="../../embedding/zig/">Zig</a>
+<a href="../../embedding/javascript/">JavaScript</a>
+<a href="../../embedding/print-view/">The print view</a>
+<div class="group">Internals</div>
+<a href="../../internals/architecture/">Architecture</a>
+<a href="../../internals/one-view/">Plan: one view</a>
+<a href="../../internals/how-slicing-works/">How slicing works</a>
+<a href="../../internals/layer-settings/">Settings for some layers</a>
+<a href="../../internals/arachne/">Arachne walls</a>
+<a href="../../internals/print-sim/">The print simulation</a>
+<a href="../../internals/cura-compare/">Compared with other slicers</a>
+<a href="../../internals/contributing/">Contributing</a>
+<a href="../../internals/code-quality/">Code quality</a>
+<a href="../../internals/macos/">The macOS app</a>
+<div class="group">Project</div>
+<a href="../../app/">App</a>
+<a href="../../references/">References</a>
+<a href="../../roadmap/">Roadmap</a>
+<a href="../../privacy/">Privacy</a></nav></aside>
+<main>
+<p class="eyebrow">Everyday tasks</p>
+<h1><span class="num">3</span>Click a line</h1>
+<p class="lede">Click any line of the print. A card says what the line is, how fast it really prints, and why.</p>
+<nav class="onpage"><b>On this page</b><ol><li><a href="#the-card-of-a-line">The card of a line</a></li><li><a href="#go-along-the-print">Go along the print</a></li><li><a href="#the-menu-of-the-view">The menu of the view</a></li><li><a href="#where-to-go-next">Where to go next</a></li></ol></nav><figure class="shot"><img src="../../img/line-card.webp" alt="A click on the edge of the cabin roof: the card says Outer wall, layer 201, 76 mm/s planned, 17 mm/s real, and why: the layer is short, so it prints slower to cool" loading="lazy"><figcaption>The card of a line: the speeds, the reason, and the settings that change the line.</figcaption></figure>
+<h2 id="the-card-of-a-line">The card of a line</h2>
+<p>Use the Select tool (V), and click a line in the 2D or the 3D view. The line turns yellow. The card shows:</p>
+<ul><li>the feature and the layer, for example "Outer wall · layer 201";</li><li>the planned speed, the real speed, and the flow;</li><li>why the line is slow, in plain words;</li><li>the size: the segment, the loop, and the radius of an arc;</li><li>the settings that matter for this line, each with its field. Change one, and the part slices at once.</li></ul>
+<div class="table-wrap"><table><thead><tr><th>Button</th><th>What it does</th></tr></thead><tbody><tr><td><strong>Fade the others</strong></td><td>Shows the line solid and the other lines as faint ghosts.</td></tr><tr><td><strong>All settings…</strong></td><td>Opens the long form of the line in the panel: each number, and how it comes about.</td></tr><tr><td><strong>Don't print this line</strong></td><td>Takes the line out of the print. Delete does the same.</td></tr><tr><td><strong>−10 % plastic</strong>, <strong>+10 % plastic</strong></td><td>Gives the line less or more plastic.</td></tr></tbody></table></div>
+<p>Esc, ×, or a click on no line closes the card. Drag the top row of the card to move it.</p>
+<h2 id="go-along-the-print">Go along the print</h2>
+<p>With a line selected:</p>
+<ul><li>← and → go to the segment before or after it, in print order. Shift goes one line.</li><li>↑ and ↓ (or K and J) go to the nearest line on the layer above or below.</li><li>C shows the layers up to the line. Shift+C shows all layers.</li><li>Shift+click adds a line to the selection.</li></ul>
+<h2 id="the-menu-of-the-view">The menu of the view</h2>
+<p>Right-click a line (or press Shift+F10):</p>
+<ul><li><strong>Preview to this layer</strong>, and <strong>Show all layers</strong>;</li><li><strong>Add support here</strong> and <strong>Block support here</strong>. See <a href="../../user/support/">Add support</a>;</li><li><strong>Copy for AI</strong>: a report of the line, its settings, and its G-code, for a chat with an AI model;</li><li><strong>Add a drop of plastic here</strong>: a dot of plastic on the top layer, to fill a small gap;</li><li><strong>Test print: the top layer…</strong>: the G-code of this layer alone, to print as a test;</li><li><strong>Put this side on the bed</strong>, and <strong>Placement</strong>. See <a href="../../user/parts/">Place the parts</a>.</li></ul>
+<p>Each edit of a line is one step of the history. Ctrl+Z undoes it. The project file keeps it.</p>
+<h2 id="where-to-go-next">Where to go next</h2>
+<nav class="goto"><a class="go" href="../../user/change-settings/"><span class="num">4</span><b>Change a setting</b><span>search, the panel, and settings for some layers.</span></a><a class="go" href="../../user/check/"><span class="num">7</span><b>Check the print</b><span>gaps, the check list, and the measure tape.</span></a></nav><nav class="pager"><a class="prev" href="../../user/look/"><span>Back to 2</span><b>Look at the print</b></a><a class="next" href="../../user/change-settings/"><span>Go to 4</span><b>Change a setting</b></a></nav>
+</main>
+</div>
+<footer>zslice is free software (AGPL-3.0-or-later). <a href="../../privacy/">Privacy</a>: no analytics, no cookies, nothing from other sites. <a href="https://github.com/beetlebugorg/zslice/blob/main/docs/build.py">docs/build.py</a> writes this site from <a href="https://github.com/beetlebugorg/zslice/blob/main/docs/user/lines.md">docs/user/lines.md</a>.</footer>
+</body>
+</html>

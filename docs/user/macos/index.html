@@ -19,14 +19,32 @@
 <div class="layout">
 <aside class="side"><nav><a href="../../docs.html">Home</a>
 <a href="../../contents/">All documents</a>
-<div class="group">User guide</div>
-<a href="../../user/getting-started/">Getting started</a>
-<a href="../../user/command-line/">The command line</a>
+<div class="group">Start</div>
+<a href="../../user/getting-started/"><span class="n">1</span>Your first print</a>
+<div class="group">Everyday tasks</div>
+<a href="../../user/look/"><span class="n">2</span>Look at the print</a>
+<a href="../../user/lines/"><span class="n">3</span>Click a line</a>
+<a href="../../user/change-settings/"><span class="n">4</span>Change a setting</a>
+<a href="../../user/parts/"><span class="n">5</span>Place the parts</a>
+<a href="../../user/support/"><span class="n">6</span>Add support</a>
+<a href="../../user/check/"><span class="n">7</span>Check the print</a>
+<a href="../../user/plates/"><span class="n">8</span>Plates and files</a>
+<a href="../../user/printers/"><span class="n">9</span>Send to a printer</a>
+<a href="../../user/history/"><span class="n">10</span>Undo and history</a>
+<div class="group">Features</div>
+<a href="../../user/features/"><span class="n">11</span>The best features</a>
+<a href="../../user/print-as-it-forms/"><span class="n">12</span>The print as it forms</a>
+<a href="../../user/projects/"><span class="n">13</span>printdeck projects</a>
+<a href="../../user/farm/"><span class="n">14</span>A print farm</a>
+<div class="group">Reference</div>
+<a href="../../user/keys/">Keys and mouse</a>
 <a href="../../user/settings/">Settings</a>
+<a href="../../user/expert/">Formulas and rules</a>
 <a href="../../user/profiles/">Profiles</a>
-<a href="../../user/projects/">Projects</a>
+<a href="../../user/command-line/">The command line</a>
+<a href="../../user/apps/">Web, Linux, and Mac</a>
 <a href="../../user/macos/" aria-current="page">The macOS app</a>
-<a href="../../user/troubleshooting/">Troubleshooting</a>
+<a href="../../user/troubleshooting/">Problems and errors</a>
 <div class="group">Embedding</div>
 <a href="../../embedding/">Overview</a>
 <a href="../../embedding/c/">C</a>
@@ -39,7 +57,7 @@
 <a href="../../internals/how-slicing-works/">How slicing works</a>
 <a href="../../internals/layer-settings/">Settings for some layers</a>
 <a href="../../internals/arachne/">Arachne walls</a>
-<a href="../../internals/print-sim/">The print as it forms</a>
+<a href="../../internals/print-sim/">The print simulation</a>
 <a href="../../internals/cura-compare/">Compared with other slicers</a>
 <a href="../../internals/contributing/">Contributing</a>
 <a href="../../internals/code-quality/">Code quality</a>
@@ -50,7 +68,7 @@
 <a href="../../roadmap/">Roadmap</a>
 <a href="../../privacy/">Privacy</a></nav></aside>
 <main>
-<p class="eyebrow">User guide</p>
+<p class="eyebrow">Reference</p>
 <h1>The macOS app</h1>
 <p class="lede">The macOS app has the features of the other apps, in the way of a Mac app. This page lists where it differs. The rest of the user guide applies.</p>
 <nav class="onpage"><b>On this page</b><ol><li><a href="#build-and-open-it">Build and open it</a></li><li><a href="#the-keys">The keys</a></li><li><a href="#the-view">The view</a></li><li><a href="#the-drawer">The drawer</a></li><li><a href="#a-part-falls-over">A part falls over</a></li><li><a href="#edit-one-line">Edit one line</a></li><li><a href="#draw-support">Draw support</a></li><li><a href="#the-print-card">The print card</a></li><li><a href="#printers">Printers</a></li><li><a href="#filament-and-quality">Filament and quality</a></li><li><a href="#a-farm">A farm</a></li><li><a href="#the-printer-of-a-plate">The printer of a plate</a></li><li><a href="#the-printers-page">The Printers page</a></li><li><a href="#your-settings">Your settings</a></li><li><a href="#save-a-project">Save a project</a></li><li><a href="#projects">Projects</a></li><li><a href="#quick-look">Quick Look</a></li><li><a href="#quit-and-come-back">Quit and come back</a></li><li><a href="#the-bars">The bars</a></li><li><a href="#your-usual-refinements">Your usual refinements</a></li><li><a href="#grab-a-part">Grab a part</a></li></ol></nav><h2 id="build-and-open-it">Build and open it</h2>
@@ -75,6 +93,7 @@ open build/zslice.app</code></pre>
 <p>The card of a selected line has Don't Print This Line (or press Delete with the line selected), and −10 % and +10 % plastic. The plate slices again with the edit. Each edit is a step of the history, so Command-Z takes it back, and a project file keeps it. Add a Drop of Plastic Here in the context menu of a line puts a dot of 1 mm of plastic at that point, on the layer of the line, to fill a small gap. An edit holds to its line: after a change that moves the line, the edit waits. The History page lists the edits under Line Edits, marks the ones that wait, and × removes one.</p>
 <h2 id="draw-support">Draw support</h2>
 <p>The Support tool (S, or U) puts support on an overhang in one click: move the pointer over the part, the overhang near it lights up, and a click adds it as an area. Option and a click draw an area point by point: click points on the part (they snap to the lines; Shift: no snap), then click the first point or press Return to close the area. Delete removes the last point, and Esc stops. Grid or Tree grows support under all of the part in the area that faces down, also where the support angle gives none; Block puts no support there. Click an outline to select its area, drag a point to move it, and press Delete (or Delete Area on the card) to remove it. While the tool is on, the support lines are faint (See through the support), so the outlines show. Each change is one step of the history. Press S again, or click the tool, to show or hide its card; zslice keeps that choice.</p>
+<p>With tree support, the Support tool shows the trees of each part as dots. Click a dot or a segment to select its branch. Drag a dot to move the node, drag the ring of the selected node to make it wider or narrower, and drag a segment to move the whole branch. The support slices again while you drag, so you can nudge a branch until it looks right. One drag is one undo step. Delete (or Delete Branch on the card) removes the branch and the branches over it. Add Branch plans a new one: click the bed for its foot, then the place on the part that needs support. Reset plans the trees of the part again, with no edits. Each edit keeps the rules of the planner: an edit that a rule limited shows red, and the card says which rule.</p>
 <h2 id="the-print-card">The print card</h2>
 <p>When a part is under 3 mm (a file in inches or in meters), the print card asks so, with Inches (×25.4) and Meters (×1000). The part card has the scale of the part in %.</p>
 <p>With support off, when about 20 mm² or more of the part hangs in the air (overhangs and islands, not bridges), the print card says so in an amber box, with Turn On Support. A part off the bed shows its red warning instead.</p>
@@ -121,7 +140,7 @@ open build/zslice.app</code></pre>
 <h2 id="your-usual-refinements">Your usual refinements</h2>
 <p>zslice notes how you refine each print after its first slice. When you made the same change in two or more other prints with the same material and nozzle, the details of the print offer it: click Apply (one undo step), Apply All, or × to never see it again. The records stay on your Mac, in <code>Application Support/zslice/refine.txt</code>.</p>
 <h2 id="grab-a-part">Grab a part</h2>
-<p>The Grab tool (H, the hand) picks a part up with a click: it stays in the hand with no button held. Move the pointer to carry it as a real object: it swings and turns about the point you hold. Hold Option while you move to turn it (Shift: steps of 15°), and use the wheel to lift it or put it lower. Click again, or press Esc, to let go: it keeps its speed, falls, and comes to rest flat on the plate; then the plate slices. With support on, it keeps the turn that you gave it, and support holds it.</p><nav class="pager"><a class="prev" href="../../user/projects/"><span>Previous</span><b>Projects</b></a><a class="next" href="../../user/troubleshooting/"><span>Next</span><b>Troubleshooting</b></a></nav>
+<p>The Grab tool (H, the hand) picks a part up with a click: it stays in the hand with no button held. Move the pointer to carry it as a real object: it swings and turns about the point you hold. Hold Option while you move to turn it (Shift: steps of 15°), and use the wheel to lift it or put it lower. Click again, or press Esc, to let go: it keeps its speed, falls, and comes to rest flat on the plate; then the plate slices. With support on, it keeps the turn that you gave it, and support holds it.</p><nav class="pager"><a class="prev" href="../../user/apps/"><span>Previous</span><b>Web, Linux, and Mac</b></a><a class="next" href="../../user/troubleshooting/"><span>Next</span><b>Problems and errors</b></a></nav>
 </main>
 </div>
 <footer>zslice is free software (AGPL-3.0-or-later). <a href="../../privacy/">Privacy</a>: no analytics, no cookies, nothing from other sites. <a href="https://github.com/beetlebugorg/zslice/blob/main/docs/build.py">docs/build.py</a> writes this site from <a href="https://github.com/beetlebugorg/zslice/blob/main/docs/user/macos.md">docs/user/macos.md</a>.</footer>

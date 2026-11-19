@@ -1,8 +1,8 @@
-# The print as it forms
+# The print simulation
 
 zslice can simulate the plastic of a slice: it comes out of the nozzle, rests where the bed or an earlier layer holds it, and hangs or falls where no plastic holds it. It cools with the fan and sets. The next layers print on the shape that formed. So a bridge sags, an overhang droops, and a slab with no support falls in strands, and the layers after it print on the strands.
 
-The code is in `src/print_sim.zig` (the model) and `src/app/sim_print.zig` (the toolpaths in and out). The sources are in [REFERENCES.md](../../REFERENCES.md).
+To see it in the app, read [The print as it forms](../user/print-as-it-forms.md). The code is in `src/print_sim.zig` (the model) and `src/app/sim_print.zig` (the toolpaths in and out). The sources are in [REFERENCES.md](../../REFERENCES.md).
 
 ## Use it
 

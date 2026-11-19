@@ -1,0 +1,101 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Place the parts · zslice</title>
+<meta name="description" content="Move, turn, scale, and cut the parts on the bed. A part obeys physics: if it cannot stand, it falls over.">
+<link rel="canonical" href="https://zslice.beetlebug.org/user/parts/">
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='6' fill='%23171717'/%3E%3Crect x='11' y='8' width='10' height='4' rx='1' fill='%23f4f0e6'/%3E%3Crect x='8' y='14' width='16' height='4' rx='1' fill='%23f4f0e6'/%3E%3Crect x='5' y='20' width='22' height='4' rx='1' fill='%23ff5a1f'/%3E%3C/svg%3E">
+<link rel="stylesheet" href="../../site.css">
+</head>
+<body>
+<input type="checkbox" id="menu">
+<header class="top">
+  <a class="brand" href="../../docs.html"><span class="mark">ZSLICE</span><span class="docs">DOCS</span></a>
+  <label class="menu-btn" for="menu">Contents</label>
+  <nav class="top-links"><a href="../../index.html">Open the app</a><a href="../../user/getting-started/">Get started</a><a href="../../roadmap/">Roadmap</a><a href="../../privacy/">Privacy</a><a href="https://github.com/beetlebugorg/zslice">GitHub</a></nav>
+</header>
+<div class="layout">
+<aside class="side"><nav><a href="../../docs.html">Home</a>
+<a href="../../contents/">All documents</a>
+<div class="group">Start</div>
+<a href="../../user/getting-started/"><span class="n">1</span>Your first print</a>
+<div class="group">Everyday tasks</div>
+<a href="../../user/look/"><span class="n">2</span>Look at the print</a>
+<a href="../../user/lines/"><span class="n">3</span>Click a line</a>
+<a href="../../user/change-settings/"><span class="n">4</span>Change a setting</a>
+<a href="../../user/parts/" aria-current="page"><span class="n">5</span>Place the parts</a>
+<a href="../../user/support/"><span class="n">6</span>Add support</a>
+<a href="../../user/check/"><span class="n">7</span>Check the print</a>
+<a href="../../user/plates/"><span class="n">8</span>Plates and files</a>
+<a href="../../user/printers/"><span class="n">9</span>Send to a printer</a>
+<a href="../../user/history/"><span class="n">10</span>Undo and history</a>
+<div class="group">Features</div>
+<a href="../../user/features/"><span class="n">11</span>The best features</a>
+<a href="../../user/print-as-it-forms/"><span class="n">12</span>The print as it forms</a>
+<a href="../../user/projects/"><span class="n">13</span>printdeck projects</a>
+<a href="../../user/farm/"><span class="n">14</span>A print farm</a>
+<div class="group">Reference</div>
+<a href="../../user/keys/">Keys and mouse</a>
+<a href="../../user/settings/">Settings</a>
+<a href="../../user/expert/">Formulas and rules</a>
+<a href="../../user/profiles/">Profiles</a>
+<a href="../../user/command-line/">The command line</a>
+<a href="../../user/apps/">Web, Linux, and Mac</a>
+<a href="../../user/macos/">The macOS app</a>
+<a href="../../user/troubleshooting/">Problems and errors</a>
+<div class="group">Embedding</div>
+<a href="../../embedding/">Overview</a>
+<a href="../../embedding/c/">C</a>
+<a href="../../embedding/zig/">Zig</a>
+<a href="../../embedding/javascript/">JavaScript</a>
+<a href="../../embedding/print-view/">The print view</a>
+<div class="group">Internals</div>
+<a href="../../internals/architecture/">Architecture</a>
+<a href="../../internals/one-view/">Plan: one view</a>
+<a href="../../internals/how-slicing-works/">How slicing works</a>
+<a href="../../internals/layer-settings/">Settings for some layers</a>
+<a href="../../internals/arachne/">Arachne walls</a>
+<a href="../../internals/print-sim/">The print simulation</a>
+<a href="../../internals/cura-compare/">Compared with other slicers</a>
+<a href="../../internals/contributing/">Contributing</a>
+<a href="../../internals/code-quality/">Code quality</a>
+<a href="../../internals/macos/">The macOS app</a>
+<div class="group">Project</div>
+<a href="../../app/">App</a>
+<a href="../../references/">References</a>
+<a href="../../roadmap/">Roadmap</a>
+<a href="../../privacy/">Privacy</a></nav></aside>
+<main>
+<p class="eyebrow">Everyday tasks</p>
+<h1><span class="num">5</span>Place the parts</h1>
+<p class="lede">Move, turn, scale, and cut the parts on the bed. A part obeys physics: if it cannot stand, it falls over.</p>
+<nav class="onpage"><b>On this page</b><ol><li><a href="#select-a-part">Select a part</a></li><li><a href="#move-and-turn">Move and turn</a></li><li><a href="#a-part-falls-over">A part falls over</a></li><li><a href="#grab-a-part">Grab a part</a></li><li><a href="#placement">Placement</a></li><li><a href="#cut-a-part">Cut a part</a></li><li><a href="#where-to-go-next">Where to go next</a></li></ol></nav><figure class="shot"><img src="../../img/part-card.webp" alt="The Move tool on the Benchy: a blue box around the part, and the card of the part with its size and its actions" loading="lazy"><figcaption>Click a part with the Move tool: its card opens next to it.</figcaption></figure>
+<h2 id="select-a-part">Select a part</h2>
+<p>Click a part with the Move tool (M). With another tool, hold Ctrl and click. The card of the part opens:</p>
+<div class="table-wrap"><table><thead><tr><th>Button</th><th>What it does</th></tr></thead><tbody><tr><td><strong>Duplicate</strong> (D)</td><td>A copy at a free place, with the settings of the part.</td></tr><tr><td><strong>Split to parts</strong></td><td>Each separate body becomes a part.</td></tr><tr><td><strong>Cut…</strong></td><td>Cuts the part in two with a level plane.</td></tr><tr><td><strong>Best orientation</strong>, <strong>Less support</strong></td><td>Turns the part.</td></tr><tr><td><strong>Scale</strong>, <strong>Reset</strong></td><td>The scale in %, or the turn and the scale of the file.</td></tr><tr><td><strong>To a new plate</strong></td><td>Moves the part to a new plate.</td></tr><tr><td><strong>Remove</strong> (Delete)</td><td>Removes the part.</td></tr><tr><td><strong>Make [10] in all</strong></td><td>Copies, until there are that many.</td></tr><tr><td><strong>+ Add a setting for this part</strong></td><td>A setting for this part only.</td></tr></tbody></table></div>
+<p>Tab and Shift+Tab select the next part. Esc clears the selection.</p>
+<h2 id="move-and-turn">Move and turn</h2>
+<ul><li><strong>Move.</strong> Drag the part with the Move tool. The arrow keys move it 1 mm (Shift: 10 mm).</li><li><strong>Turn on the bed.</strong> Turn the wheel over the part with the Move tool: 15° for each step.</li><li><strong>Turn about any axis.</strong> Press R. Drag a ring: red turns about X, green about Y, blue about Z.</li></ul>
+<figure class="shot"><img src="../../img/turn-rings.webp" alt="The Turn tool on the Benchy: a red, a green, and a blue ring around the part" loading="lazy"><figcaption>The Turn tool: drag a ring to turn the part, in steps of 15°.</figcaption></figure>
+<h2 id="a-part-falls-over">A part falls over</h2>
+<figure class="shot"><img src="../../img/fall.webp" alt="A board stands on its thin edge. A turn tips it, and it falls over onto its wide face" loading="lazy"><figcaption>A part that cannot stand falls over onto a face.</figcaption></figure>
+<p>After a turn, zslice checks if the part can stand. If its center of mass is past its foot, the part falls onto a face, as on a real bed. A note says so. With support on, the support holds the part, and it stays as you turned it.</p>
+<h2 id="grab-a-part">Grab a part</h2>
+<p>Press H for the Grab tool. Then:</p>
+<ol><li>Click a part to pick it up.</li><li>Move the pointer to carry it. The wheel lifts it. Alt and a move turn it (Shift: steps of 15°).</li><li>Click again, or press Esc, to let go. With support off, the part falls and rests flat. With support on, it keeps its turn.</li></ol>
+<h2 id="placement">Placement</h2>
+<p>Right-click a part, then <strong>Placement</strong>:</p>
+<ul><li><strong>Smart placement</strong>: the least support, the most area on the bed, and a low height.</li><li><strong>Less support</strong>: the least support only.</li><li><strong>Strong along X, Y, or Z of the part</strong>: a print is weakest across its layers. So the part turns until that axis lies in the layers.</li><li><strong>Put this side on the bed</strong>: the side at the click goes down.</li></ul>
+<p>Right-click the empty view for <strong>Arrange the plate</strong>.</p>
+<h2 id="cut-a-part">Cut a part</h2>
+<ol><li>Select the part, and click <strong>Cut…</strong>.</li><li>Set the height of the cut. An orange plane shows it.</li><li>Keep <strong>Turn the top over</strong> on: the top prints on its flat cut face.</li><li>Keep <strong>Pegs to line up the parts</strong> on, and pick the count and the size.</li><li>Click <strong>Cut</strong>.</li></ol>
+<p>After the print, glue the pegs into the holes of one part, and press the other part on.</p>
+<h2 id="where-to-go-next">Where to go next</h2>
+<nav class="goto"><a class="go" href="../../user/support/"><span class="num">6</span><b>Add support</b><span>support from the settings, or where you click.</span></a><a class="go" href="../../user/plates/"><span class="num">8</span><b>Plates and files</b><span>more plates, and the project file.</span></a></nav><nav class="pager"><a class="prev" href="../../user/change-settings/"><span>Back to 4</span><b>Change a setting</b></a><a class="next" href="../../user/support/"><span>Go to 6</span><b>Add support</b></a></nav>
+</main>
+</div>
+<footer>zslice is free software (AGPL-3.0-or-later). <a href="../../privacy/">Privacy</a>: no analytics, no cookies, nothing from other sites. <a href="https://github.com/beetlebugorg/zslice/blob/main/docs/build.py">docs/build.py</a> writes this site from <a href="https://github.com/beetlebugorg/zslice/blob/main/docs/user/parts.md">docs/user/parts.md</a>.</footer>
+</body>
+</html>

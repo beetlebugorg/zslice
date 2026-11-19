@@ -1,6 +1,6 @@
 # The command line
 
-The `zslice` tool slices a part with no window. Use it in scripts, on a server, or to check a slice. The [user guide](getting-started.md) explains the apps.
+The `zslice` tool slices a part with no window. Use it in scripts, on a server, or to check a slice. [Your first print](getting-started.md) explains the apps.
 
 ## Build zslice
 

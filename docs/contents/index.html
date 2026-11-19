@@ -19,14 +19,32 @@
 <div class="layout">
 <aside class="side"><nav><a href="../docs.html">Home</a>
 <a href="../contents/" aria-current="page">All documents</a>
-<div class="group">User guide</div>
-<a href="../user/getting-started/">Getting started</a>
-<a href="../user/command-line/">The command line</a>
+<div class="group">Start</div>
+<a href="../user/getting-started/"><span class="n">1</span>Your first print</a>
+<div class="group">Everyday tasks</div>
+<a href="../user/look/"><span class="n">2</span>Look at the print</a>
+<a href="../user/lines/"><span class="n">3</span>Click a line</a>
+<a href="../user/change-settings/"><span class="n">4</span>Change a setting</a>
+<a href="../user/parts/"><span class="n">5</span>Place the parts</a>
+<a href="../user/support/"><span class="n">6</span>Add support</a>
+<a href="../user/check/"><span class="n">7</span>Check the print</a>
+<a href="../user/plates/"><span class="n">8</span>Plates and files</a>
+<a href="../user/printers/"><span class="n">9</span>Send to a printer</a>
+<a href="../user/history/"><span class="n">10</span>Undo and history</a>
+<div class="group">Features</div>
+<a href="../user/features/"><span class="n">11</span>The best features</a>
+<a href="../user/print-as-it-forms/"><span class="n">12</span>The print as it forms</a>
+<a href="../user/projects/"><span class="n">13</span>printdeck projects</a>
+<a href="../user/farm/"><span class="n">14</span>A print farm</a>
+<div class="group">Reference</div>
+<a href="../user/keys/">Keys and mouse</a>
 <a href="../user/settings/">Settings</a>
+<a href="../user/expert/">Formulas and rules</a>
 <a href="../user/profiles/">Profiles</a>
-<a href="../user/projects/">Projects</a>
+<a href="../user/command-line/">The command line</a>
+<a href="../user/apps/">Web, Linux, and Mac</a>
 <a href="../user/macos/">The macOS app</a>
-<a href="../user/troubleshooting/">Troubleshooting</a>
+<a href="../user/troubleshooting/">Problems and errors</a>
 <div class="group">Embedding</div>
 <a href="../embedding/">Overview</a>
 <a href="../embedding/c/">C</a>
@@ -39,7 +57,7 @@
 <a href="../internals/how-slicing-works/">How slicing works</a>
 <a href="../internals/layer-settings/">Settings for some layers</a>
 <a href="../internals/arachne/">Arachne walls</a>
-<a href="../internals/print-sim/">The print as it forms</a>
+<a href="../internals/print-sim/">The print simulation</a>
 <a href="../internals/cura-compare/">Compared with other slicers</a>
 <a href="../internals/contributing/">Contributing</a>
 <a href="../internals/code-quality/">Code quality</a>
@@ -53,19 +71,25 @@
 <p class="eyebrow">Documentation</p>
 <h1>zslice documentation</h1>
 
-<nav class="onpage"><b>On this page</b><ol><li><a href="#for-people-who-slice-with-zslice">For people who slice with zslice</a></li><li><a href="#for-developers-who-use-the-library">For developers who use the library</a></li><li><a href="#the-app">The app</a></li><li><a href="#for-developers-who-change-or-extend-zslice">For developers who change or extend zslice</a></li><li><a href="#documentation">Documentation</a></li></ol></nav><h2 id="for-people-who-slice-with-zslice">For people who slice with zslice</h2>
-<ul><li><a href="../user/getting-started/">Getting started</a>: the user guide of the apps, from your first print to a print farm.</li><li><a href="../user/command-line/">The command line</a>: build zslice, slice a part, check it, and measure the speed.</li><li><a href="../user/settings/">Settings reference</a>: each setting, its unit, and its default.</li><li><a href="../user/profiles/">Profiles</a>: machine, filament, and project files, with inheritance and overrides.</li><li><a href="../user/macos/">The macOS app</a>: where the Mac app differs: the keys, the drawer, printers, and the Keychain.</li><li><a href="../user/troubleshooting/">Problems and errors</a>: what each error means and what to do.</li></ul>
+<nav class="onpage"><b>On this page</b><ol><li><a href="#start">Start</a></li><li><a href="#everyday-tasks">Everyday tasks</a></li><li><a href="#features">Features</a></li><li><a href="#reference">Reference</a></li><li><a href="#for-developers-who-use-the-library">For developers who use the library</a></li><li><a href="#the-app">The app</a></li><li><a href="#for-developers-who-change-or-extend-zslice">For developers who change or extend zslice</a></li><li><a href="#documentation">Documentation</a></li></ol></nav><h2 id="start">Start</h2>
+<ul><li><a href="../user/getting-started/">Your first print</a>: open a model, slice it, and print it.</li></ul>
+<h2 id="everyday-tasks">Everyday tasks</h2>
+<ul><li><a href="../user/look/">Look at the print</a>: the view, the layers, the colors, and the replay.</li><li><a href="../user/lines/">Click a line</a>: what a line is, and why it prints as it does.</li><li><a href="../user/change-settings/">Change a setting</a>: the search, the panel, and where a value comes from.</li><li><a href="../user/parts/">Place the parts</a>: move, turn, grab, scale, and cut.</li><li><a href="../user/support/">Add support</a>: support from the settings, support where you click, and the tree editor.</li><li><a href="../user/check/">Check the print</a>: the check list, the gaps, and the measure tape.</li><li><a href="../user/plates/">Plates and files</a>: plates, the project file, and Cura projects.</li><li><a href="../user/printers/">Send to a printer</a>: add a printer, connect it, and print.</li><li><a href="../user/history/">Undo and history</a>: go back to any change.</li></ul>
+<h2 id="features">Features</h2>
+<ul><li><a href="../user/features/">The best features</a>: what zslice does that other slicers do not.</li><li><a href="../user/print-as-it-forms/">The print as it forms</a>: the plastic sags and falls, layer by layer.</li><li><a href="../user/projects/">printdeck projects</a>: a repository of parts to print.</li><li><a href="../user/farm/">A print farm</a>: all your printers on one page.</li></ul>
+<h2 id="reference">Reference</h2>
+<ul><li><a href="../user/keys/">Keys and mouse</a></li><li><a href="../user/settings/">Settings</a>: each setting, its unit, and its default.</li><li><a href="../user/expert/">Formulas and rules</a>: settings for some layers, formulas, and path rules.</li><li><a href="../user/profiles/">Profiles</a>: machine, filament, and project files, with inheritance.</li><li><a href="../user/command-line/">The command line</a>: slice with no window, check a slice, and measure the speed.</li><li><a href="../user/apps/">Web, Linux, and Mac</a>: where the apps differ.</li><li><a href="../user/macos/">The macOS app</a>: the keys, the drawer, printers, and the Keychain.</li><li><a href="../user/troubleshooting/">Problems and errors</a>: what each error means and what to do.</li></ul>
 <h2 id="for-developers-who-use-the-library">For developers who use the library</h2>
 <ul><li><a href="../embedding/">Overview</a>: the objects, the memory, the threads, and the errors.</li><li><a href="../embedding/zig/">Zig API</a></li><li><a href="../embedding/c/">C API</a></li><li><a href="../embedding/javascript/">JavaScript and WebAssembly</a></li></ul>
 <h2 id="the-app">The app</h2>
 <ul><li><a href="../app/">The app</a>: the core and the native shells, and the contract between them.</li><li><a href="https://github.com/beetlebugorg/zslice/blob/main/linux/README.md">Linux (GTK4)</a></li><li><a href="https://github.com/beetlebugorg/zslice/blob/main/web/app/README.md">Web</a></li></ul>
 <h2 id="for-developers-who-change-or-extend-zslice">For developers who change or extend zslice</h2>
-<ul><li><a href="../internals/how-slicing-works/">How a slicer works</a>: the stages from mesh to G-code.</li><li><a href="../internals/architecture/">Architecture</a>: the modules, the data types, the memory model, and the threads.</li><li><a href="../internals/layer-settings/">Settings for some layers</a>: which settings can change per layer, and which code reads them.</li><li><a href="../internals/arachne/">Arachne walls</a>: walls with a variable line width, ported from CuraEngine.</li><li><a href="../internals/print-sim/">The print as it forms</a>: the simulation of the plastic: bridges that sag, and strands that fall with no support.</li><li><a href="../internals/contributing/">Contributing</a>: the rules, the tests, and step-by-step guides to add a setting, a feature, or an infill pattern.</li><li><a href="../internals/code-quality/">Code quality</a>: the plan to make the code clearer, ranked by value.</li><li><a href="../internals/macos/">The macOS app</a>: the SwiftUI shell, its build, and the Metal renderer of the 3D view.</li></ul>
+<ul><li><a href="../internals/how-slicing-works/">How a slicer works</a>: the stages from mesh to G-code.</li><li><a href="../internals/architecture/">Architecture</a>: the modules, the data types, the memory model, and the threads.</li><li><a href="../internals/layer-settings/">Settings for some layers</a>: which settings can change per layer, and which code reads them.</li><li><a href="../internals/arachne/">Arachne walls</a>: walls with a variable line width, ported from CuraEngine.</li><li><a href="../internals/print-sim/">The print simulation</a>: the physics of the plastic: bridges that sag, and strands that fall with no support.</li><li><a href="../internals/contributing/">Contributing</a>: the rules, the tests, and step-by-step guides to add a setting, a feature, or an infill pattern.</li><li><a href="../internals/code-quality/">Code quality</a>: the plan to make the code clearer, ranked by value.</li><li><a href="../internals/macos/">The macOS app</a>: the SwiftUI shell, its build, and the Metal renderer of the 3D view.</li></ul>
 <h2 id="documentation">Documentation</h2>
 <p>The site at <a href="https://zslice.beetlebug.org/docs.html">https://zslice.beetlebug.org/docs.html</a> comes from these Markdown files. <code>docs/build.py</code> writes the pages into <code>docs/</code>, with one folder for each page. It needs only Python 3.</p>
 <pre><code>python3 docs/build.py</code></pre>
 <p>Run it after a change to a Markdown file, and commit the pages with the change. At the end, the script checks each link of the site. It stops with an error for a link to a file or an anchor that does not exist. A push to <code>master</code> that changes <code>docs/</code> publishes the site (<code>.github/workflows/pages.yml</code>).</p>
-<p>To add a page, add its Markdown file to <code>SOURCES</code> in <code>docs/build.py</code>. The script stops with an error for a Markdown file in <code>docs/</code> that has no page.</p><nav class="pager"><a class="prev" href="../docs.html"><span>Previous</span><b>Home</b></a><a class="next" href="../user/getting-started/"><span>Next</span><b>Getting started</b></a></nav>
+<p>To add a page, add its Markdown file to <code>SOURCES</code> in <code>docs/build.py</code>. The script stops with an error for a Markdown file in <code>docs/</code> that has no page.</p><nav class="pager"><a class="prev" href="../docs.html"><span>Previous</span><b>Home</b></a><a class="next" href="../user/getting-started/"><span>Go to 1</span><b>Your first print</b></a></nav>
 </main>
 </div>
 <footer>zslice is free software (AGPL-3.0-or-later). <a href="../privacy/">Privacy</a>: no analytics, no cookies, nothing from other sites. <a href="https://github.com/beetlebugorg/zslice/blob/main/docs/build.py">docs/build.py</a> writes this site from <a href="https://github.com/beetlebugorg/zslice/blob/main/docs/README.md">docs/README.md</a>.</footer>

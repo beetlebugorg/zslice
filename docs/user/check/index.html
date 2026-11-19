@@ -1,0 +1,93 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Check the print · zslice</title>
+<meta name="description" content="Find the problems before you print: overhangs with no support, gaps in the solid layers, and wrong sizes.">
+<link rel="canonical" href="https://zslice.beetlebug.org/user/check/">
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='6' fill='%23171717'/%3E%3Crect x='11' y='8' width='10' height='4' rx='1' fill='%23f4f0e6'/%3E%3Crect x='8' y='14' width='16' height='4' rx='1' fill='%23f4f0e6'/%3E%3Crect x='5' y='20' width='22' height='4' rx='1' fill='%23ff5a1f'/%3E%3C/svg%3E">
+<link rel="stylesheet" href="../../site.css">
+</head>
+<body>
+<input type="checkbox" id="menu">
+<header class="top">
+  <a class="brand" href="../../docs.html"><span class="mark">ZSLICE</span><span class="docs">DOCS</span></a>
+  <label class="menu-btn" for="menu">Contents</label>
+  <nav class="top-links"><a href="../../index.html">Open the app</a><a href="../../user/getting-started/">Get started</a><a href="../../roadmap/">Roadmap</a><a href="../../privacy/">Privacy</a><a href="https://github.com/beetlebugorg/zslice">GitHub</a></nav>
+</header>
+<div class="layout">
+<aside class="side"><nav><a href="../../docs.html">Home</a>
+<a href="../../contents/">All documents</a>
+<div class="group">Start</div>
+<a href="../../user/getting-started/"><span class="n">1</span>Your first print</a>
+<div class="group">Everyday tasks</div>
+<a href="../../user/look/"><span class="n">2</span>Look at the print</a>
+<a href="../../user/lines/"><span class="n">3</span>Click a line</a>
+<a href="../../user/change-settings/"><span class="n">4</span>Change a setting</a>
+<a href="../../user/parts/"><span class="n">5</span>Place the parts</a>
+<a href="../../user/support/"><span class="n">6</span>Add support</a>
+<a href="../../user/check/" aria-current="page"><span class="n">7</span>Check the print</a>
+<a href="../../user/plates/"><span class="n">8</span>Plates and files</a>
+<a href="../../user/printers/"><span class="n">9</span>Send to a printer</a>
+<a href="../../user/history/"><span class="n">10</span>Undo and history</a>
+<div class="group">Features</div>
+<a href="../../user/features/"><span class="n">11</span>The best features</a>
+<a href="../../user/print-as-it-forms/"><span class="n">12</span>The print as it forms</a>
+<a href="../../user/projects/"><span class="n">13</span>printdeck projects</a>
+<a href="../../user/farm/"><span class="n">14</span>A print farm</a>
+<div class="group">Reference</div>
+<a href="../../user/keys/">Keys and mouse</a>
+<a href="../../user/settings/">Settings</a>
+<a href="../../user/expert/">Formulas and rules</a>
+<a href="../../user/profiles/">Profiles</a>
+<a href="../../user/command-line/">The command line</a>
+<a href="../../user/apps/">Web, Linux, and Mac</a>
+<a href="../../user/macos/">The macOS app</a>
+<a href="../../user/troubleshooting/">Problems and errors</a>
+<div class="group">Embedding</div>
+<a href="../../embedding/">Overview</a>
+<a href="../../embedding/c/">C</a>
+<a href="../../embedding/zig/">Zig</a>
+<a href="../../embedding/javascript/">JavaScript</a>
+<a href="../../embedding/print-view/">The print view</a>
+<div class="group">Internals</div>
+<a href="../../internals/architecture/">Architecture</a>
+<a href="../../internals/one-view/">Plan: one view</a>
+<a href="../../internals/how-slicing-works/">How slicing works</a>
+<a href="../../internals/layer-settings/">Settings for some layers</a>
+<a href="../../internals/arachne/">Arachne walls</a>
+<a href="../../internals/print-sim/">The print simulation</a>
+<a href="../../internals/cura-compare/">Compared with other slicers</a>
+<a href="../../internals/contributing/">Contributing</a>
+<a href="../../internals/code-quality/">Code quality</a>
+<a href="../../internals/macos/">The macOS app</a>
+<div class="group">Project</div>
+<a href="../../app/">App</a>
+<a href="../../references/">References</a>
+<a href="../../roadmap/">Roadmap</a>
+<a href="../../privacy/">Privacy</a></nav></aside>
+<main>
+<p class="eyebrow">Everyday tasks</p>
+<h1><span class="num">7</span>Check the print</h1>
+<p class="lede">Find the problems before you print: overhangs with no support, gaps in the solid layers, and wrong sizes.</p>
+<nav class="onpage"><b>On this page</b><ol><li><a href="#check">Check</a></li><li><a href="#gaps">Gaps</a></li><li><a href="#measure">Measure</a></li><li><a href="#where-to-go-next">Where to go next</a></li></ol></nav><figure class="shot"><img src="../../img/check.webp" alt="Check on a shelf with support off: a red note says that 1244.3 mm² of layer 200 hang out past the layer below" loading="lazy"><figcaption>Check lists what can make the print fail, the worst first.</figcaption></figure>
+<h2 id="check">Check</h2>
+<p>Click <strong>Check</strong>, the last button of the tool strip. The list gives, the worst first:</p>
+<ul><li>an overhang with support off;</li><li>a bridge, with its span (a long bridge can sag);</li><li>a shape that starts in the air;</li><li>a line that needs more plastic than the hot end melts (<code>filament.max_flow</code>);</li><li>layers that print faster than <code>filament.min_layer_time</code>;</li><li>a layer with many retractions.</li></ul>
+<p>Each issue says what it is, and which setting changes it. Click an issue: the view goes to its layer, and selects its line.</p>
+<h2 id="gaps">Gaps</h2>
+<figure class="shot"><img src="../../img/gaps.webp" alt="The 2D view of layer 50 of the Benchy with gap fill off: a gap in red between the walls. The header says 16 gaps, 34.39 mm²" loading="lazy"><figcaption>Gaps show in red: areas that should be solid, with no line on them.</figcaption></figure>
+<ol><li>Press G. The gaps of the top layer show in red. The header gives their count and their area.</li><li>Click a gap. The panel gives its size and the settings that can close it, the best first.</li><li>Click <strong>Apply</strong> for the whole print, or <strong>This layer</strong> for the layer of the gap.</li></ol>
+<p>Gap fill (on by default) closes most gaps.</p>
+<h2 id="measure">Measure</h2>
+<figure class="shot"><img src="../../img/measure.webp" alt="The measure tape on the shelf: 139.21 mm, with its parts along X, Y, and Z, and its length on the bed" loading="lazy"><figcaption>The measure tape: two clicks, and the distance between them.</figcaption></figure>
+<p>Press T. Click two points of the print or the bed.</p>
+<ul><li>The label gives the distance, and its parts along X, Y, and Z.</li><li>A point near the end of a line snaps to it. Hold Shift for no snap.</li><li>A click on a circle or an arc gives its diameter, and puts the point at its center.</li><li>Esc clears the tape.</li></ul>
+<h2 id="where-to-go-next">Where to go next</h2>
+<nav class="goto"><a class="go" href="../../user/support/"><span class="num">6</span><b>Add support</b><span>fix the overhangs.</span></a><a class="go" href="../../user/print-as-it-forms/"><span class="num">12</span><b>The print as it forms</b><span>see a bridge sag before you print it.</span></a><a class="go" href="../../user/printers/"><span class="num">9</span><b>Send to a printer</b><span>print it.</span></a></nav><nav class="pager"><a class="prev" href="../../user/support/"><span>Back to 6</span><b>Add support</b></a><a class="next" href="../../user/plates/"><span>Go to 8</span><b>Plates and files</b></a></nav>
+</main>
+</div>
+<footer>zslice is free software (AGPL-3.0-or-later). <a href="../../privacy/">Privacy</a>: no analytics, no cookies, nothing from other sites. <a href="https://github.com/beetlebugorg/zslice/blob/main/docs/build.py">docs/build.py</a> writes this site from <a href="https://github.com/beetlebugorg/zslice/blob/main/docs/user/check.md">docs/user/check.md</a>.</footer>
+</body>
+</html>

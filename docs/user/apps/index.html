@@ -1,0 +1,94 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Web, Linux, and Mac · zslice</title>
+<meta name="description" content="The three apps have the same window and the same tools. The pictures of this guide show the web app.">
+<link rel="canonical" href="https://zslice.beetlebug.org/user/apps/">
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='6' fill='%23171717'/%3E%3Crect x='11' y='8' width='10' height='4' rx='1' fill='%23f4f0e6'/%3E%3Crect x='8' y='14' width='16' height='4' rx='1' fill='%23f4f0e6'/%3E%3Crect x='5' y='20' width='22' height='4' rx='1' fill='%23ff5a1f'/%3E%3C/svg%3E">
+<link rel="stylesheet" href="../../site.css">
+</head>
+<body>
+<input type="checkbox" id="menu">
+<header class="top">
+  <a class="brand" href="../../docs.html"><span class="mark">ZSLICE</span><span class="docs">DOCS</span></a>
+  <label class="menu-btn" for="menu">Contents</label>
+  <nav class="top-links"><a href="../../index.html">Open the app</a><a href="../../user/getting-started/">Get started</a><a href="../../roadmap/">Roadmap</a><a href="../../privacy/">Privacy</a><a href="https://github.com/beetlebugorg/zslice">GitHub</a></nav>
+</header>
+<div class="layout">
+<aside class="side"><nav><a href="../../docs.html">Home</a>
+<a href="../../contents/">All documents</a>
+<div class="group">Start</div>
+<a href="../../user/getting-started/"><span class="n">1</span>Your first print</a>
+<div class="group">Everyday tasks</div>
+<a href="../../user/look/"><span class="n">2</span>Look at the print</a>
+<a href="../../user/lines/"><span class="n">3</span>Click a line</a>
+<a href="../../user/change-settings/"><span class="n">4</span>Change a setting</a>
+<a href="../../user/parts/"><span class="n">5</span>Place the parts</a>
+<a href="../../user/support/"><span class="n">6</span>Add support</a>
+<a href="../../user/check/"><span class="n">7</span>Check the print</a>
+<a href="../../user/plates/"><span class="n">8</span>Plates and files</a>
+<a href="../../user/printers/"><span class="n">9</span>Send to a printer</a>
+<a href="../../user/history/"><span class="n">10</span>Undo and history</a>
+<div class="group">Features</div>
+<a href="../../user/features/"><span class="n">11</span>The best features</a>
+<a href="../../user/print-as-it-forms/"><span class="n">12</span>The print as it forms</a>
+<a href="../../user/projects/"><span class="n">13</span>printdeck projects</a>
+<a href="../../user/farm/"><span class="n">14</span>A print farm</a>
+<div class="group">Reference</div>
+<a href="../../user/keys/">Keys and mouse</a>
+<a href="../../user/settings/">Settings</a>
+<a href="../../user/expert/">Formulas and rules</a>
+<a href="../../user/profiles/">Profiles</a>
+<a href="../../user/command-line/">The command line</a>
+<a href="../../user/apps/" aria-current="page">Web, Linux, and Mac</a>
+<a href="../../user/macos/">The macOS app</a>
+<a href="../../user/troubleshooting/">Problems and errors</a>
+<div class="group">Embedding</div>
+<a href="../../embedding/">Overview</a>
+<a href="../../embedding/c/">C</a>
+<a href="../../embedding/zig/">Zig</a>
+<a href="../../embedding/javascript/">JavaScript</a>
+<a href="../../embedding/print-view/">The print view</a>
+<div class="group">Internals</div>
+<a href="../../internals/architecture/">Architecture</a>
+<a href="../../internals/one-view/">Plan: one view</a>
+<a href="../../internals/how-slicing-works/">How slicing works</a>
+<a href="../../internals/layer-settings/">Settings for some layers</a>
+<a href="../../internals/arachne/">Arachne walls</a>
+<a href="../../internals/print-sim/">The print simulation</a>
+<a href="../../internals/cura-compare/">Compared with other slicers</a>
+<a href="../../internals/contributing/">Contributing</a>
+<a href="../../internals/code-quality/">Code quality</a>
+<a href="../../internals/macos/">The macOS app</a>
+<div class="group">Project</div>
+<a href="../../app/">App</a>
+<a href="../../references/">References</a>
+<a href="../../roadmap/">Roadmap</a>
+<a href="../../privacy/">Privacy</a></nav></aside>
+<main>
+<p class="eyebrow">Reference</p>
+<h1>Web, Linux, and Mac</h1>
+<p class="lede">The three apps have the same window and the same tools. The pictures of this guide show the web app.</p>
+<nav class="onpage"><b>On this page</b><ol><li><a href="#the-web-app">The web app</a></li><li><a href="#the-linux-app">The Linux app</a></li><li><a href="#the-macos-app">The macOS app</a></li><li><a href="#the-command-line">The command line</a></li></ol></nav><figure class="shot"><img src="../../img/phone.webp" alt="The web app on a phone: the header, the Benchy, and the print card" loading="lazy"><figcaption>The web app on a phone: one finger orbits, two fingers zoom.</figcaption></figure>
+<h2 id="the-web-app">The web app</h2>
+<p><a href="https://zslice.beetlebug.org/">zslice.beetlebug.org</a> runs the zslice core in WebAssembly. It needs WebGL2: Chrome, Firefox, or Safari of 2023 or later.</p>
+<ul><li><strong>Your files stay in your browser.</strong> The model slices on your computer. No file goes to a server. The page has no analytics and no cookies. See <a href="../../privacy/">Privacy</a>.</li><li><strong>Your work stays after a reload.</strong> The browser keeps the plates, your settings, and your printers.</li><li><strong>Open a model from a link.</strong> Add <code>?model=</code> and the address of an STL file to the page address.</li><li><strong>Printers.</strong> The web app cannot search the network. Enter the address of the printer. The printer must allow requests from the page, for example a printdeck at its secure address.</li><li><strong>On a phone</strong>, the window fits the screen. One finger orbits, and two fingers pinch to zoom and pan.</li></ul>
+<h2 id="the-linux-app">The Linux app</h2>
+<p>A GTK 4 app. Build it from the source tree:</p>
+<pre><code>cd linux
+meson setup build        # builds the core too (zig build lib)
+ninja -C build
+build/zslice-gtk part.stl</code></pre>
+<p>See <a href="https://github.com/beetlebugorg/zslice/blob/main/linux/README.md">linux/README.md</a> for the packages. Where it differs from the web app:</p>
+<ul><li>Alt+Left and the back button of the mouse go back to where you were before.</li><li>It shows the active plate only.</li><li>Preferences (Ctrl+,) has the printers, <strong>Test the connection</strong>, and <strong>Get a key</strong>. The API keys are in <code>~/.config/zslice/app.ini</code>.</li><li>It has layer profiles, <strong>Compare with Cura…</strong>, USB printers, <strong>Send all plates</strong>, and <strong>Export all plates…</strong>.</li></ul>
+<h2 id="the-macos-app">The macOS app</h2>
+<p>A SwiftUI app with a Metal view. See <a href="../../user/macos/">The macOS app</a>: its keys, its settings pane, Bambu printers, the Keychain, and the farm queue.</p>
+<h2 id="the-command-line">The command line</h2>
+<p>To slice with no window, see <a href="../../user/command-line/">The command line</a>.</p><nav class="pager"><a class="prev" href="../../user/command-line/"><span>Previous</span><b>The command line</b></a><a class="next" href="../../user/macos/"><span>Next</span><b>The macOS app</b></a></nav>
+</main>
+</div>
+<footer>zslice is free software (AGPL-3.0-or-later). <a href="../../privacy/">Privacy</a>: no analytics, no cookies, nothing from other sites. <a href="https://github.com/beetlebugorg/zslice/blob/main/docs/build.py">docs/build.py</a> writes this site from <a href="https://github.com/beetlebugorg/zslice/blob/main/docs/user/apps.md">docs/user/apps.md</a>.</footer>
+</body>
+</html>

@@ -1,0 +1,50 @@
+# Send to a printer
+
+Add your printer once. Then **Print** sends each plate to it, signed.
+
+![The printer picker: the search for mk4s found the Prusa MK4S. Its card draws its build volume and lists its nozzle, its filament, and its motion limits](../img/start-picker.webp "The printer picker: more than 1000 printers of more than 180 brands.")
+
+## Add a printer
+
+1. Pick **Add a printer…** at the end of the printer menu.
+2. Type a part of a name: "ender 3", "mk4", "voron 2.4". Or pick a brand at the left.
+3. Click a model. Its card draws its build volume to scale. The red dot is X0 Y0 of the G-code.
+4. Click **Next**. Check the name, the nozzle, the filament, and the size. Set the connection.
+5. Click **Add printer**.
+
+The library comes from the printer definitions of Cura, PrusaSlicer, and OrcaSlicer. Not in the list? Pick **My printer is not in the list**, and enter its size.
+
+## Connections
+
+| Connection | What you need |
+|---|---|
+| None | Export a G-code file, and copy it to the printer. |
+| printdeck, OctoPrint | The address of the printer and an API key. |
+| Moonraker (Klipper) | The address of Moonraker. |
+| USB (Linux app) | The serial port and the speed. The computer must stay on while it prints. |
+| Bambu Lab (Mac app, LAN mode) | See [The macOS app](macos.md). |
+
+**Get a key** asks the printer for a key. The printer asks you to allow zslice: on its screen (printdeck), or in its web page (OctoPrint, with the App Keys plugin). Allow it within 2 minutes. Check that the printer shows the same key id as zslice.
+
+The Linux and Mac apps find printers on your network. The web app cannot: enter the address. A printdeck with a secure address (`https://….d.printdeck.beetlebug.org`, on its System page) works from the web app in any browser.
+
+## Print
+
+1. Pick the printer in the printer menu.
+2. Click **Print** on the print card. Its menu also has **Upload only** and **Export G-code…**.
+3. zslice asks if the bed is clear. Then the printer prints.
+
+With a printdeck printer, the print card also gives the time that the printer predicts, from its past prints. The cost uses the price of the roll in the printer.
+
+## Signed prints
+
+Each G-code file that zslice exports or sends ends with a signature line. A printdeck prints a file only from an app that it trusts. **Get a key** gives the public key of the app to the printdeck. OctoPrint and Moonraker do not check signatures.
+
+## The start and end G-code
+
+Search `start gcode`. The editor spans the panel. Under it, each variable is a button: a click puts it at the cursor. **Show the result** shows the G-code of the last slice, with the values. Look at it before the first print on a new printer.
+
+## Where to go next
+
+- → [A print farm](farm.md): all your printers on one page.
+- → [Undo and history](history.md): go back to any change.

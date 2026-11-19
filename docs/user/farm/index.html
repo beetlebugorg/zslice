@@ -1,0 +1,88 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>A print farm · zslice</title>
+<meta name="description" content="All your printers on one page: their state, their jobs, and the plates still to print.">
+<link rel="canonical" href="https://zslice.beetlebug.org/user/farm/">
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='6' fill='%23171717'/%3E%3Crect x='11' y='8' width='10' height='4' rx='1' fill='%23f4f0e6'/%3E%3Crect x='8' y='14' width='16' height='4' rx='1' fill='%23f4f0e6'/%3E%3Crect x='5' y='20' width='22' height='4' rx='1' fill='%23ff5a1f'/%3E%3C/svg%3E">
+<link rel="stylesheet" href="../../site.css">
+</head>
+<body>
+<input type="checkbox" id="menu">
+<header class="top">
+  <a class="brand" href="../../docs.html"><span class="mark">ZSLICE</span><span class="docs">DOCS</span></a>
+  <label class="menu-btn" for="menu">Contents</label>
+  <nav class="top-links"><a href="../../index.html">Open the app</a><a href="../../user/getting-started/">Get started</a><a href="../../roadmap/">Roadmap</a><a href="../../privacy/">Privacy</a><a href="https://github.com/beetlebugorg/zslice">GitHub</a></nav>
+</header>
+<div class="layout">
+<aside class="side"><nav><a href="../../docs.html">Home</a>
+<a href="../../contents/">All documents</a>
+<div class="group">Start</div>
+<a href="../../user/getting-started/"><span class="n">1</span>Your first print</a>
+<div class="group">Everyday tasks</div>
+<a href="../../user/look/"><span class="n">2</span>Look at the print</a>
+<a href="../../user/lines/"><span class="n">3</span>Click a line</a>
+<a href="../../user/change-settings/"><span class="n">4</span>Change a setting</a>
+<a href="../../user/parts/"><span class="n">5</span>Place the parts</a>
+<a href="../../user/support/"><span class="n">6</span>Add support</a>
+<a href="../../user/check/"><span class="n">7</span>Check the print</a>
+<a href="../../user/plates/"><span class="n">8</span>Plates and files</a>
+<a href="../../user/printers/"><span class="n">9</span>Send to a printer</a>
+<a href="../../user/history/"><span class="n">10</span>Undo and history</a>
+<div class="group">Features</div>
+<a href="../../user/features/"><span class="n">11</span>The best features</a>
+<a href="../../user/print-as-it-forms/"><span class="n">12</span>The print as it forms</a>
+<a href="../../user/projects/"><span class="n">13</span>printdeck projects</a>
+<a href="../../user/farm/" aria-current="page"><span class="n">14</span>A print farm</a>
+<div class="group">Reference</div>
+<a href="../../user/keys/">Keys and mouse</a>
+<a href="../../user/settings/">Settings</a>
+<a href="../../user/expert/">Formulas and rules</a>
+<a href="../../user/profiles/">Profiles</a>
+<a href="../../user/command-line/">The command line</a>
+<a href="../../user/apps/">Web, Linux, and Mac</a>
+<a href="../../user/macos/">The macOS app</a>
+<a href="../../user/troubleshooting/">Problems and errors</a>
+<div class="group">Embedding</div>
+<a href="../../embedding/">Overview</a>
+<a href="../../embedding/c/">C</a>
+<a href="../../embedding/zig/">Zig</a>
+<a href="../../embedding/javascript/">JavaScript</a>
+<a href="../../embedding/print-view/">The print view</a>
+<div class="group">Internals</div>
+<a href="../../internals/architecture/">Architecture</a>
+<a href="../../internals/one-view/">Plan: one view</a>
+<a href="../../internals/how-slicing-works/">How slicing works</a>
+<a href="../../internals/layer-settings/">Settings for some layers</a>
+<a href="../../internals/arachne/">Arachne walls</a>
+<a href="../../internals/print-sim/">The print simulation</a>
+<a href="../../internals/cura-compare/">Compared with other slicers</a>
+<a href="../../internals/contributing/">Contributing</a>
+<a href="../../internals/code-quality/">Code quality</a>
+<a href="../../internals/macos/">The macOS app</a>
+<div class="group">Project</div>
+<a href="../../app/">App</a>
+<a href="../../references/">References</a>
+<a href="../../roadmap/">Roadmap</a>
+<a href="../../privacy/">Privacy</a></nav></aside>
+<main>
+<p class="eyebrow">Features</p>
+<h1><span class="num">14</span>A print farm</h1>
+<p class="lede">All your printers on one page: their state, their jobs, and the plates still to print.</p>
+<nav class="onpage"><b>On this page</b><ol><li><a href="#the-tiles">The tiles</a></li><li><a href="#plates-to-print">Plates to print</a></li><li><a href="#where-to-go-next">Where to go next</a></li></ol></nav><p><strong>Printers</strong> in the header (or in the main menu) opens the page over the view. <strong>‹ Back to the plate</strong> closes it. The tiles read the printers again every 10 seconds.</p>
+<h2 id="the-tiles">The tiles</h2>
+<ul><li>Each printer with a connection has a tile: its state, its job with the time left, and the filament in it.</li><li><strong>Send the plate</strong> on a tile sends the active plate to that printer.</li></ul>
+<h2 id="plates-to-print">Plates to print</h2>
+<ul><li>The list has each plate with parts, with its time and its plastic.</li><li>Its menu lists the printers that fit the plate, the free printers first. A busy printer says when it is free: "busy, free in 1 h 5 min".</li><li>A printer with a bed smaller than the plate is not in the menu.</li><li>A plate that you sent has a check mark, and the printer and the time.</li></ul>
+<p>Each send asks first: "Is the bed clear?". It also warns when the printer looks busy, or when the plate is sliced for another printer.</p>
+<p class="note"><strong>Tip:</strong> To try a farm on one computer, run the farm simulator of the source tree: <a href="https://github.com/beetlebugorg/zslice/blob/main/tools/farm_sim/README.md">tools/farm_sim</a>.</p>
+<p>The macOS app adds a queue, a summary of the farm, and notifications. See <a href="../../user/macos/#a-farm">The macOS app</a>.</p>
+<h2 id="where-to-go-next">Where to go next</h2>
+<nav class="goto"><a class="go" href="../../user/printers/"><span class="num">9</span><b>Send to a printer</b><span>add a printer and its connection.</span></a><a class="go" href="../../user/projects/"><span class="num">13</span><b>printdeck projects</b><span>a repository of parts to print.</span></a></nav><nav class="pager"><a class="prev" href="../../user/projects/"><span>Back to 13</span><b>printdeck projects</b></a><a class="next" href="../../user/keys/"><span>Next</span><b>Keys and mouse</b></a></nav>
+</main>
+</div>
+<footer>zslice is free software (AGPL-3.0-or-later). <a href="../../privacy/">Privacy</a>: no analytics, no cookies, nothing from other sites. <a href="https://github.com/beetlebugorg/zslice/blob/main/docs/build.py">docs/build.py</a> writes this site from <a href="https://github.com/beetlebugorg/zslice/blob/main/docs/user/farm.md">docs/user/farm.md</a>.</footer>
+</body>
+</html>

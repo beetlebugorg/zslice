@@ -3,8 +3,8 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Projects · zslice</title>
-<meta name="description" content="A project is a repository with a printdeck.yml file at its root. The file lists the parts to print. Each part has its model files, a count, a printer, a Cura profile, a material, and Cura settings. printdeck uses the same file for its builds from GitHub.">
+<title>printdeck projects · zslice</title>
+<meta name="description" content="Open a repository of parts from GitHub. zslice puts the parts on plates, each with its printer, profile, and material.">
 <link rel="canonical" href="https://zslice.beetlebug.org/user/projects/">
 <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='6' fill='%23171717'/%3E%3Crect x='11' y='8' width='10' height='4' rx='1' fill='%23f4f0e6'/%3E%3Crect x='8' y='14' width='16' height='4' rx='1' fill='%23f4f0e6'/%3E%3Crect x='5' y='20' width='22' height='4' rx='1' fill='%23ff5a1f'/%3E%3C/svg%3E">
 <link rel="stylesheet" href="../../site.css">
@@ -19,14 +19,32 @@
 <div class="layout">
 <aside class="side"><nav><a href="../../docs.html">Home</a>
 <a href="../../contents/">All documents</a>
-<div class="group">User guide</div>
-<a href="../../user/getting-started/">Getting started</a>
-<a href="../../user/command-line/">The command line</a>
+<div class="group">Start</div>
+<a href="../../user/getting-started/"><span class="n">1</span>Your first print</a>
+<div class="group">Everyday tasks</div>
+<a href="../../user/look/"><span class="n">2</span>Look at the print</a>
+<a href="../../user/lines/"><span class="n">3</span>Click a line</a>
+<a href="../../user/change-settings/"><span class="n">4</span>Change a setting</a>
+<a href="../../user/parts/"><span class="n">5</span>Place the parts</a>
+<a href="../../user/support/"><span class="n">6</span>Add support</a>
+<a href="../../user/check/"><span class="n">7</span>Check the print</a>
+<a href="../../user/plates/"><span class="n">8</span>Plates and files</a>
+<a href="../../user/printers/"><span class="n">9</span>Send to a printer</a>
+<a href="../../user/history/"><span class="n">10</span>Undo and history</a>
+<div class="group">Features</div>
+<a href="../../user/features/"><span class="n">11</span>The best features</a>
+<a href="../../user/print-as-it-forms/"><span class="n">12</span>The print as it forms</a>
+<a href="../../user/projects/" aria-current="page"><span class="n">13</span>printdeck projects</a>
+<a href="../../user/farm/"><span class="n">14</span>A print farm</a>
+<div class="group">Reference</div>
+<a href="../../user/keys/">Keys and mouse</a>
 <a href="../../user/settings/">Settings</a>
+<a href="../../user/expert/">Formulas and rules</a>
 <a href="../../user/profiles/">Profiles</a>
-<a href="../../user/projects/" aria-current="page">Projects</a>
+<a href="../../user/command-line/">The command line</a>
+<a href="../../user/apps/">Web, Linux, and Mac</a>
 <a href="../../user/macos/">The macOS app</a>
-<a href="../../user/troubleshooting/">Troubleshooting</a>
+<a href="../../user/troubleshooting/">Problems and errors</a>
 <div class="group">Embedding</div>
 <a href="../../embedding/">Overview</a>
 <a href="../../embedding/c/">C</a>
@@ -39,7 +57,7 @@
 <a href="../../internals/how-slicing-works/">How slicing works</a>
 <a href="../../internals/layer-settings/">Settings for some layers</a>
 <a href="../../internals/arachne/">Arachne walls</a>
-<a href="../../internals/print-sim/">The print as it forms</a>
+<a href="../../internals/print-sim/">The print simulation</a>
 <a href="../../internals/cura-compare/">Compared with other slicers</a>
 <a href="../../internals/contributing/">Contributing</a>
 <a href="../../internals/code-quality/">Code quality</a>
@@ -50,28 +68,20 @@
 <a href="../../roadmap/">Roadmap</a>
 <a href="../../privacy/">Privacy</a></nav></aside>
 <main>
-<p class="eyebrow">User guide</p>
-<h1>Projects</h1>
-<p class="lede">A project is a repository with a <code>printdeck.yml</code> file at its root. The file lists the parts to print. Each part has its model files, a count, a printer, a Cura profile, a material, and Cura settings. printdeck uses the same file for its builds from GitHub.</p>
-<nav class="onpage"><b>On this page</b><ol><li><a href="#open-a-project">Open a project</a></li><li><a href="#the-parts">The parts</a></li><li><a href="#the-plates">The plates</a></li><li><a href="#the-status-of-a-plate">The status of a plate</a></li><li><a href="#printdeckyml">printdeck.yml</a></li><li><a href="#privacy">Privacy</a></li></ol></nav><h2 id="open-a-project">Open a project</h2>
-<p>The web app and the desktop app both open projects. Open the <strong>Project</strong> tab in the panel, then do one of these:</p>
-<ul><li>Type <code>owner/repo</code>, or the address of a repository on github.com, and click <strong>Open</strong>. An address with <code>/tree/&lt;branch&gt;</code> opens that branch. The repository must be public.</li><li>Click <strong>Open a folder…</strong>, and choose the folder of the repository on your computer.</li></ul>
-<p>The tab shows the plates of the project, and its parts. The app reads only the files that a plate needs, when you open the plate: the model files of its parts, and the files of <code>profiles/&lt;folder&gt;/</code>.</p>
-<h2 id="the-parts">The parts</h2>
-<p>Each part has a check box and a count. The count is the number of copies of each file of the part. Clear the check box to leave the part out. The plates change at once.</p>
-<h2 id="the-plates">The plates</h2>
-<p>zslice puts the chosen parts on plates:</p>
-<ul><li>The parts with the same printer, profile, material, and plate settings share a plate. A plate setting is a setting that zslice keeps for the whole plate, for example the support or the brim. The infill, the walls, and the seam can differ from part to part on one plate.</li><li>A part with <code>alone: true</code> gets a plate of its own.</li><li>A part with variants (for example a fine and a fast quality) is one part for each variant.</li></ul>
-<p>Click <strong>Open</strong> on a plate. zslice then does these steps:</p>
-<ol><li>It reads the Cura profile stack of the plate from <code>profiles/&lt;folder&gt;/</code> (its <code>cura.json</code>), with the profile and the material of the parts.</li><li>It sets the plate settings of the parts.</li><li>It puts the copies of the files on the bed, each part with its own settings, and arranges them.</li><li>It slices the plate.</li></ol>
-<p>Then export the G-code, or send it to your printer. If you have a printer with the name of the printer of the plate (for example <code>taz</code>), zslice chooses it for the print. The case of the letters does not matter.</p>
-<p>The machine settings of the plate come from the Cura stack of the project. They do not change your printer: while the plate is on the view, zslice does not save a change of a machine setting in the profile of your printer. Choose a printer, or open a model file, to go back to the settings of your printer.</p>
-<p>A plate that has no Cura stack is a resin plate. zslice does not slice resin plates yet.</p>
-<h2 id="the-status-of-a-plate">The status of a plate</h2>
-<p>Each plate has a status: <strong>To print</strong>, <strong>Printing</strong>, <strong>Printed</strong>, or <strong>Failed</strong>. Set it with the list on the plate. A print that you send to the printer from the plate sets <strong>Printing</strong>. The tab counts the printed plates.</p>
-<p>The project, the counts, the status, and the open plate stay after a reload or a restart:</p>
-<ul><li>The web app keeps them in your browser. A GitHub project gets its files again from GitHub. A folder must be opened again, because the browser forgets the files of a folder.</li><li>The desktop app keeps them in <code>~/.config/zslice/project.json</code>. A GitHub project gets its list of files again from GitHub, at the same commit. The app opens a folder again from its path.</li></ul>
-<p><strong>Close</strong> removes the project and the status of its plates.</p>
+<p class="eyebrow">Features</p>
+<h1><span class="num">13</span>printdeck projects</h1>
+<p class="lede">Open a repository of parts from GitHub. zslice puts the parts on plates, each with its printer, profile, and material.</p>
+<nav class="onpage"><b>On this page</b><ol><li><a href="#open-a-project">Open a project</a></li><li><a href="#pick-the-parts">Pick the parts</a></li><li><a href="#print-a-plate">Print a plate</a></li><li><a href="#printdeckyml">printdeck.yml</a></li><li><a href="#privacy">Privacy</a></li><li><a href="#where-to-go-next">Where to go next</a></li></ol></nav><figure class="shot"><img src="../../img/project.webp" alt="The Project dialog: a field for owner/repo or a GitHub address, Open, and Open a folder" loading="lazy"><figcaption>Open a project from GitHub or from a folder.</figcaption></figure>
+<p>A project is a repository with a <code>printdeck.yml</code> file at its root. The file lists the parts to print. printdeck uses the same file for its builds from GitHub.</p>
+<h2 id="open-a-project">Open a project</h2>
+<ol><li>In the web app, pick <strong>Open a project…</strong> in the main menu.</li><li>Type <code>owner/repo</code>, or the address of a repository on github.com, and click <strong>Open</strong>. An address with <code>/tree/&lt;branch&gt;</code> opens that branch. The repository must be public.</li><li>Or click <strong>Open a folder…</strong>, and pick the folder of the repository on your computer.</li></ol>
+<p>The dialog shows the parts and the plates of the project. The app reads only the files that a plate needs, when you open the plate.</p>
+<h2 id="pick-the-parts">Pick the parts</h2>
+<ul><li>Each part has a check box and a count. Clear the box to leave the part out.</li><li>The parts with the same printer, profile, material, and plate settings share a plate.</li><li>A part with <code>alone: true</code> gets a plate of its own.</li><li>A part with variants (for example fine and fast) is one part for each variant.</li></ul>
+<h2 id="print-a-plate">Print a plate</h2>
+<ol><li>Click <strong>Open</strong> on a plate. zslice reads its Cura profile stack, sets its settings, puts the parts on the bed, and slices.</li><li>Export the G-code, or send it. If one of your printers has the name of the printer of the plate (for example <code>taz</code>), zslice picks it.</li><li>Set the status of the plate: <strong>To print</strong>, <strong>Printing</strong>, <strong>Printed</strong>, or <strong>Failed</strong>. A send from the plate sets <strong>Printing</strong>.</li></ol>
+<p>The machine settings of the plate come from the project. They do not change the profile of your printer. A plate with no Cura stack is a resin plate: zslice does not slice resin yet.</p>
+<p>The project and the status of its plates stay after a reload. The web app keeps them in your browser. Open a folder again after a reload. <strong>Close</strong> removes the project.</p>
 <h2 id="printdeckyml">printdeck.yml</h2>
 <pre><code>project: robot
 parts:
@@ -94,9 +104,11 @@ parts:
         profile: taz-workhorse-se/pla-0.10-fine
       - name: fast
         settings: {infill_sparse_density: 10}</code></pre>
-<p>The settings use the names of Cura. zslice converts them with the map of its Cura import. A setting that zslice cannot use stops the load of the plate, with the reason.</p>
+<p>The settings use the names of Cura. A setting that zslice cannot use stops the load of the plate, with the reason.</p>
 <h2 id="privacy">Privacy</h2>
-<p>To open a GitHub project, the app reads the repository from <code>api.github.com</code> and <code>raw.githubusercontent.com</code> (and <code>media.githubusercontent.com</code> for a file in Git LFS). It sends no login and no data of yours. The web app and the desktop app make the same requests. See <a href="https://github.com/beetlebugorg/zslice/blob/main/privacy">Privacy</a>.</p><nav class="pager"><a class="prev" href="../../user/profiles/"><span>Previous</span><b>Profiles</b></a><a class="next" href="../../user/macos/"><span>Next</span><b>The macOS app</b></a></nav>
+<p>To open a GitHub project, the app reads the repository from <code>api.github.com</code> and <code>raw.githubusercontent.com</code> (and <code>media.githubusercontent.com</code> for a file in Git LFS). It sends no login and no data of yours. See <a href="../../privacy/">Privacy</a>.</p>
+<h2 id="where-to-go-next">Where to go next</h2>
+<nav class="goto"><a class="go" href="../../user/farm/"><span class="num">14</span><b>A print farm</b><span>send the plates to your printers.</span></a><a class="go" href="../../user/plates/"><span class="num">8</span><b>Plates and files</b><span>the plates on the dock.</span></a></nav><nav class="pager"><a class="prev" href="../../user/print-as-it-forms/"><span>Back to 12</span><b>The print as it forms</b></a><a class="next" href="../../user/farm/"><span>Go to 14</span><b>A print farm</b></a></nav>
 </main>
 </div>
 <footer>zslice is free software (AGPL-3.0-or-later). <a href="../../privacy/">Privacy</a>: no analytics, no cookies, nothing from other sites. <a href="https://github.com/beetlebugorg/zslice/blob/main/docs/build.py">docs/build.py</a> writes this site from <a href="https://github.com/beetlebugorg/zslice/blob/main/docs/user/projects.md">docs/user/projects.md</a>.</footer>

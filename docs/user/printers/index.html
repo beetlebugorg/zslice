@@ -1,0 +1,95 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Send to a printer · zslice</title>
+<meta name="description" content="Add your printer once. Then Print sends each plate to it, signed.">
+<link rel="canonical" href="https://zslice.beetlebug.org/user/printers/">
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='6' fill='%23171717'/%3E%3Crect x='11' y='8' width='10' height='4' rx='1' fill='%23f4f0e6'/%3E%3Crect x='8' y='14' width='16' height='4' rx='1' fill='%23f4f0e6'/%3E%3Crect x='5' y='20' width='22' height='4' rx='1' fill='%23ff5a1f'/%3E%3C/svg%3E">
+<link rel="stylesheet" href="../../site.css">
+</head>
+<body>
+<input type="checkbox" id="menu">
+<header class="top">
+  <a class="brand" href="../../docs.html"><span class="mark">ZSLICE</span><span class="docs">DOCS</span></a>
+  <label class="menu-btn" for="menu">Contents</label>
+  <nav class="top-links"><a href="../../index.html">Open the app</a><a href="../../user/getting-started/">Get started</a><a href="../../roadmap/">Roadmap</a><a href="../../privacy/">Privacy</a><a href="https://github.com/beetlebugorg/zslice">GitHub</a></nav>
+</header>
+<div class="layout">
+<aside class="side"><nav><a href="../../docs.html">Home</a>
+<a href="../../contents/">All documents</a>
+<div class="group">Start</div>
+<a href="../../user/getting-started/"><span class="n">1</span>Your first print</a>
+<div class="group">Everyday tasks</div>
+<a href="../../user/look/"><span class="n">2</span>Look at the print</a>
+<a href="../../user/lines/"><span class="n">3</span>Click a line</a>
+<a href="../../user/change-settings/"><span class="n">4</span>Change a setting</a>
+<a href="../../user/parts/"><span class="n">5</span>Place the parts</a>
+<a href="../../user/support/"><span class="n">6</span>Add support</a>
+<a href="../../user/check/"><span class="n">7</span>Check the print</a>
+<a href="../../user/plates/"><span class="n">8</span>Plates and files</a>
+<a href="../../user/printers/" aria-current="page"><span class="n">9</span>Send to a printer</a>
+<a href="../../user/history/"><span class="n">10</span>Undo and history</a>
+<div class="group">Features</div>
+<a href="../../user/features/"><span class="n">11</span>The best features</a>
+<a href="../../user/print-as-it-forms/"><span class="n">12</span>The print as it forms</a>
+<a href="../../user/projects/"><span class="n">13</span>printdeck projects</a>
+<a href="../../user/farm/"><span class="n">14</span>A print farm</a>
+<div class="group">Reference</div>
+<a href="../../user/keys/">Keys and mouse</a>
+<a href="../../user/settings/">Settings</a>
+<a href="../../user/expert/">Formulas and rules</a>
+<a href="../../user/profiles/">Profiles</a>
+<a href="../../user/command-line/">The command line</a>
+<a href="../../user/apps/">Web, Linux, and Mac</a>
+<a href="../../user/macos/">The macOS app</a>
+<a href="../../user/troubleshooting/">Problems and errors</a>
+<div class="group">Embedding</div>
+<a href="../../embedding/">Overview</a>
+<a href="../../embedding/c/">C</a>
+<a href="../../embedding/zig/">Zig</a>
+<a href="../../embedding/javascript/">JavaScript</a>
+<a href="../../embedding/print-view/">The print view</a>
+<div class="group">Internals</div>
+<a href="../../internals/architecture/">Architecture</a>
+<a href="../../internals/one-view/">Plan: one view</a>
+<a href="../../internals/how-slicing-works/">How slicing works</a>
+<a href="../../internals/layer-settings/">Settings for some layers</a>
+<a href="../../internals/arachne/">Arachne walls</a>
+<a href="../../internals/print-sim/">The print simulation</a>
+<a href="../../internals/cura-compare/">Compared with other slicers</a>
+<a href="../../internals/contributing/">Contributing</a>
+<a href="../../internals/code-quality/">Code quality</a>
+<a href="../../internals/macos/">The macOS app</a>
+<div class="group">Project</div>
+<a href="../../app/">App</a>
+<a href="../../references/">References</a>
+<a href="../../roadmap/">Roadmap</a>
+<a href="../../privacy/">Privacy</a></nav></aside>
+<main>
+<p class="eyebrow">Everyday tasks</p>
+<h1><span class="num">9</span>Send to a printer</h1>
+<p class="lede">Add your printer once. Then <strong>Print</strong> sends each plate to it, signed.</p>
+<nav class="onpage"><b>On this page</b><ol><li><a href="#add-a-printer">Add a printer</a></li><li><a href="#connections">Connections</a></li><li><a href="#print">Print</a></li><li><a href="#signed-prints">Signed prints</a></li><li><a href="#the-start-and-end-g-code">The start and end G-code</a></li><li><a href="#where-to-go-next">Where to go next</a></li></ol></nav><figure class="shot"><img src="../../img/start-picker.webp" alt="The printer picker: the search for mk4s found the Prusa MK4S. Its card draws its build volume and lists its nozzle, its filament, and its motion limits" loading="lazy"><figcaption>The printer picker: more than 1000 printers of more than 180 brands.</figcaption></figure>
+<h2 id="add-a-printer">Add a printer</h2>
+<ol><li>Pick <strong>Add a printer…</strong> at the end of the printer menu.</li><li>Type a part of a name: "ender 3", "mk4", "voron 2.4". Or pick a brand at the left.</li><li>Click a model. Its card draws its build volume to scale. The red dot is X0 Y0 of the G-code.</li><li>Click <strong>Next</strong>. Check the name, the nozzle, the filament, and the size. Set the connection.</li><li>Click <strong>Add printer</strong>.</li></ol>
+<p>The library comes from the printer definitions of Cura, PrusaSlicer, and OrcaSlicer. Not in the list? Pick <strong>My printer is not in the list</strong>, and enter its size.</p>
+<h2 id="connections">Connections</h2>
+<div class="table-wrap"><table><thead><tr><th>Connection</th><th>What you need</th></tr></thead><tbody><tr><td>None</td><td>Export a G-code file, and copy it to the printer.</td></tr><tr><td>printdeck, OctoPrint</td><td>The address of the printer and an API key.</td></tr><tr><td>Moonraker (Klipper)</td><td>The address of Moonraker.</td></tr><tr><td>USB (Linux app)</td><td>The serial port and the speed. The computer must stay on while it prints.</td></tr><tr><td>Bambu Lab (Mac app, LAN mode)</td><td>See <a href="../../user/macos/">The macOS app</a>.</td></tr></tbody></table></div>
+<p><strong>Get a key</strong> asks the printer for a key. The printer asks you to allow zslice: on its screen (printdeck), or in its web page (OctoPrint, with the App Keys plugin). Allow it within 2 minutes. Check that the printer shows the same key id as zslice.</p>
+<p>The Linux and Mac apps find printers on your network. The web app cannot: enter the address. A printdeck with a secure address (<code>https://….d.printdeck.beetlebug.org</code>, on its System page) works from the web app in any browser.</p>
+<h2 id="print">Print</h2>
+<ol><li>Pick the printer in the printer menu.</li><li>Click <strong>Print</strong> on the print card. Its menu also has <strong>Upload only</strong> and <strong>Export G-code…</strong>.</li><li>zslice asks if the bed is clear. Then the printer prints.</li></ol>
+<p>With a printdeck printer, the print card also gives the time that the printer predicts, from its past prints. The cost uses the price of the roll in the printer.</p>
+<h2 id="signed-prints">Signed prints</h2>
+<p>Each G-code file that zslice exports or sends ends with a signature line. A printdeck prints a file only from an app that it trusts. <strong>Get a key</strong> gives the public key of the app to the printdeck. OctoPrint and Moonraker do not check signatures.</p>
+<h2 id="the-start-and-end-g-code">The start and end G-code</h2>
+<p>Search <code>start gcode</code>. The editor spans the panel. Under it, each variable is a button: a click puts it at the cursor. <strong>Show the result</strong> shows the G-code of the last slice, with the values. Look at it before the first print on a new printer.</p>
+<h2 id="where-to-go-next">Where to go next</h2>
+<nav class="goto"><a class="go" href="../../user/farm/"><span class="num">14</span><b>A print farm</b><span>all your printers on one page.</span></a><a class="go" href="../../user/history/"><span class="num">10</span><b>Undo and history</b><span>go back to any change.</span></a></nav><nav class="pager"><a class="prev" href="../../user/plates/"><span>Back to 8</span><b>Plates and files</b></a><a class="next" href="../../user/history/"><span>Go to 10</span><b>Undo and history</b></a></nav>
+</main>
+</div>
+<footer>zslice is free software (AGPL-3.0-or-later). <a href="../../privacy/">Privacy</a>: no analytics, no cookies, nothing from other sites. <a href="https://github.com/beetlebugorg/zslice/blob/main/docs/build.py">docs/build.py</a> writes this site from <a href="https://github.com/beetlebugorg/zslice/blob/main/docs/user/printers.md">docs/user/printers.md</a>.</footer>
+</body>
+</html>

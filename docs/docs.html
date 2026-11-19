@@ -19,14 +19,32 @@
 <div class="layout">
 <aside class="side"><nav><a href="docs.html" aria-current="page">Home</a>
 <a href="contents/">All documents</a>
-<div class="group">User guide</div>
-<a href="user/getting-started/">Getting started</a>
-<a href="user/command-line/">The command line</a>
+<div class="group">Start</div>
+<a href="user/getting-started/"><span class="n">1</span>Your first print</a>
+<div class="group">Everyday tasks</div>
+<a href="user/look/"><span class="n">2</span>Look at the print</a>
+<a href="user/lines/"><span class="n">3</span>Click a line</a>
+<a href="user/change-settings/"><span class="n">4</span>Change a setting</a>
+<a href="user/parts/"><span class="n">5</span>Place the parts</a>
+<a href="user/support/"><span class="n">6</span>Add support</a>
+<a href="user/check/"><span class="n">7</span>Check the print</a>
+<a href="user/plates/"><span class="n">8</span>Plates and files</a>
+<a href="user/printers/"><span class="n">9</span>Send to a printer</a>
+<a href="user/history/"><span class="n">10</span>Undo and history</a>
+<div class="group">Features</div>
+<a href="user/features/"><span class="n">11</span>The best features</a>
+<a href="user/print-as-it-forms/"><span class="n">12</span>The print as it forms</a>
+<a href="user/projects/"><span class="n">13</span>printdeck projects</a>
+<a href="user/farm/"><span class="n">14</span>A print farm</a>
+<div class="group">Reference</div>
+<a href="user/keys/">Keys and mouse</a>
 <a href="user/settings/">Settings</a>
+<a href="user/expert/">Formulas and rules</a>
 <a href="user/profiles/">Profiles</a>
-<a href="user/projects/">Projects</a>
+<a href="user/command-line/">The command line</a>
+<a href="user/apps/">Web, Linux, and Mac</a>
 <a href="user/macos/">The macOS app</a>
-<a href="user/troubleshooting/">Troubleshooting</a>
+<a href="user/troubleshooting/">Problems and errors</a>
 <div class="group">Embedding</div>
 <a href="embedding/">Overview</a>
 <a href="embedding/c/">C</a>
@@ -39,7 +57,7 @@
 <a href="internals/how-slicing-works/">How slicing works</a>
 <a href="internals/layer-settings/">Settings for some layers</a>
 <a href="internals/arachne/">Arachne walls</a>
-<a href="internals/print-sim/">The print as it forms</a>
+<a href="internals/print-sim/">The print simulation</a>
 <a href="internals/cura-compare/">Compared with other slicers</a>
 <a href="internals/contributing/">Contributing</a>
 <a href="internals/code-quality/">Code quality</a>
@@ -52,96 +70,42 @@
 <main>
 <p class="eyebrow">Documentation</p>
 <h1>zslice</h1>
-<p class="lede">A slicer for FDM 3D printers, written from scratch in Zig. Click any line of the preview to see what it is and why it prints the way it does. It slices fast enough to slice again while you drag a slider. And it runs in your browser: <strong><a href="https://zslice.beetlebug.org/">try it at zslice.beetlebug.org</a></strong>, with no install.</p>
+<p class="lede">zslice is a slicer for FDM 3D printers, written from scratch in Zig. It shows the print as the plastic forms it, before you print. It runs in your browser: <strong><a href="https://zslice.beetlebug.org/">open zslice.beetlebug.org</a></strong>. No install is necessary, and your files stay on your computer.</p>
 
 <p>
-  <a class="btn primary" href="user/getting-started/">Get started</a>
-  <a class="btn" href="user/settings/">Settings</a>
+  <a class="btn primary" href="index.html">Open the app</a>
+  <a class="btn" href="user/getting-started/">Your first print</a>
+  <a class="btn" href="user/features/">The best features</a>
   <a class="btn" href="embedding/">Embed the library</a>
-  <a class="btn" href="internals/how-slicing-works/">How a slicer works</a>
   <a class="btn" href="https://github.com/beetlebugorg/zslice">Source on GitHub</a>
 </p>
-<figure class="hero"><img src="img/benchy.png" alt="A boat test model, sliced by zslice" onerror="this.hidden=true"></figure>
+<figure class="shot"><img src="img/hero.webp" alt="The zslice web app: a 3DBenchy, sliced, in the colors of its features"></figure>
+<h2 id="the-best-of-it">The best of it</h2>
+<h3 id="the-print-as-it-forms">The print as it forms</h3>
+<figure class="shot"><img src="img/sim-forms.webp" alt="A bridge 80 mm long prints and sags. Then a slab prints over the air on each side of a post, and its plastic falls in strands" loading="lazy"></figure>
+<p>zslice simulates the plastic as it leaves the nozzle. It cools with the fan, and it sags or falls where no plastic holds it. A bridge sags. A slab over the air falls in strands, and the next layers print on them.</p>
+<h3 id="parts-with-real-physics">Parts with real physics</h3>
+<figure class="shot"><img src="img/fall.webp" alt="A board stands on its thin edge. A turn tips it, and it falls over onto its wide face" loading="lazy"></figure>
+<p>A part that cannot stand falls over onto a face, as on a real bed. With the Grab tool, pick a part up and move it. Let go, and it rests flat.</p>
+<h3 id="a-support-editor">A support editor</h3>
+<figure class="shot"><img src="img/support-tree.webp" alt="Tree support under a shelf, with the nodes of the trees as dots to drag" loading="lazy"></figure>
+<p>Click an overhang to put support under it. Drag the dots of tree support to move the branches. zslice keeps each branch within the rules.</p>
+<p>All features: <a href="user/features/">The best features</a>.</p>
 
-<div class="chips"><span class="chip">Zig 0.16</span><span class="chip">C API</span><span class="chip">WebAssembly</span><span class="chip">GTK4 app</span><span class="chip">AGPL-3.0-or-later</span></div>
-
-<h2 id="docs">The documentation</h2>
-<div class="map">
-  <a class="card" href="user/getting-started/"><b>User guide</b><span>Build zslice, slice a part, and look at the layers.</span></a>
-  <a class="card" href="user/settings/"><b>Settings</b><span>Each setting, its unit, and its default.</span></a>
-  <a class="card" href="user/profiles/"><b>Profiles</b><span>Machine, filament, and project files, with inheritance.</span></a>
-  <a class="card" href="embedding/"><b>Embedding</b><span>The library from Zig, from C, and from JavaScript.</span></a>
-  <a class="card" href="internals/how-slicing-works/"><b>Internals</b><span>The stages from mesh to G-code, and the modules of the code.</span></a>
-  <a class="card" href="app/"><b>The app</b><span>The app core and the native shells.</span></a>
-  <a class="card" href="references/"><b>References</b><span>The sources that zslice uses, and their licenses.</span></a>
-  <a class="card" href="roadmap/"><b>Roadmap</b><span>What works now, and what comes next.</span></a>
-</div>
-<h2 id="features">Features</h2>
-<h3 id="fast">Fast</h3>
-<ul><li>A 3DBenchy (239 layers) slices in about 350 ms, and the 3D view shows it at once.</li><li>A change of a setting slices only what the change needs. On the Benchy, a new infill density slices in about 60 ms, and a new wall count in about 310 ms (<code>zslice bench</code>).</li><li>The slicer uses all CPU cores but one. It keeps its work memory in arenas, so a slice uses little memory.</li><li>A watchdog writes the stacks of all threads to a file if the window stops for 3 s. So we can find and fix a rare hang.</li></ul>
-<h3 id="click-a-line-see-why">Click a line, see why</h3>
-<ul><li>Click a line in the 2D or 3D preview. The line card shows what the line is (for example "Outer wall · layer 97"), its planned and real speed, its flow, and the settings that matter for it. <strong>All settings…</strong> opens the long form in the panel, with only the settings that change the line.</li><li>Focus a field in the long form, and the panel explains what that setting does to the selected line, with its numbers: "50 % of 150 mm/s = 75 mm/s planned. It prints at 67 mm/s: the layer is short, and it slows to cool."</li><li>The view shows all lines that the setting changes, and the selected line stays yellow.</li><li>Use the arrow keys or h, j, k, l to go from segment to segment in print order, or to the nearest line on the layer above or below.</li></ul>
-<h3 id="settings-for-one-layer-or-for-a-range-of-layers">Settings for one layer, or for a range of layers</h3>
-<ul><li>Each change in the long form of a line is for the whole part, for this layer, for this layer and up, or for this layer and down.</li><li>For example: slower outer walls for the 10 layers of a thin tower, or a new skin direction for one layer.</li><li>A changed layer shows a reset button. The changes go into the 3MF file of the plate.</li></ul>
-<h3 id="a-settings-panel-that-shows-what-each-setting-does">A settings panel that shows what each setting does</h3>
-<p><img src="img/settings-focus.png" alt="The settings panel, pinned at the right: Settings › Part › Layers › Top thickness. The preview shows only the skin lines, and the other lines fade" loading="lazy"></p>
-<ul><li>The panel at the right has only the settings: sections, then settings, then the page of one setting, with one back arrow. Pin it beside the view, or let it slide over the view.</li><li>Press <code>/</code> to search the settings and the actions. Each result has its slider or its switch, so you change a setting in the results.</li><li>Select a setting, and the preview shows the lines that it changes. The other lines fade.</li><li>Each feature in the help ("Outer wall", "Skin") is a link to all settings of those lines.</li><li>Sliders with sensible ranges, units on all values, and speeds as a ratio of what the printer and the filament allow. A ratio shows the speed that it gives: "50 % = 75 mm/s".</li></ul>
-<h3 id="a-preview-that-looks-like-the-print">A preview that looks like the print</h3>
-<p><img src="img/demo-replay.gif" alt="The top knob of the layer slider goes down through the Benchy and back up. Then the replay prints the first layers at 30x and 100x" loading="lazy"></p>
-<ul><li>The 3D view draws each line as a bead of the real width and height. Skin lines are pressed flat, and connected lines look connected.</li><li>Color by filament, feature, speed, flow, layer time, or line width.</li><li>A two-knob layer slider: the top knob is the top layer, and the bottom knob cuts away the layers below, so you can see inside a part at any height.</li><li>Replay the print, or drag the scrub bar to move the nozzle through a layer.</li><li>Seams, travel moves, and retractions show as marks.</li></ul>
-<h3 id="slicing">Slicing</h3>
-<ul><li>Walls: classic, or Arachne (walls that change their width to fill the space between them). A hidden seam goes into a corner that stays in place from layer to layer, or to the back where it is hard to see. Gap fill closes the narrow areas between walls and in the skin.</li><li>Skin: lines, monotonic (each line lies against the line before it, for an even top surface), or concentric. Skin expand distance and skin removal width remove gaps and thin strips.</li><li>Infill: lines, grid, triangles, trihexagon, cubic, gyroid, honeycomb, concentric, zigzag, flow, and lightning (branches only under the tops). A list of angles for each layer, infill that stacks the same on each layer (for a grille), and combined infill (one tall bead every N layers).</li><li>Bridges: straight lines across the air, anchored at both ends, slow, with the fan on.</li><li>Ironing.</li><li>Support: grid or tree, with interface layers, and support areas that you draw. Tree support plans its branches, keeps them thick enough to stand, and reaches into deep, narrow holes.</li><li>Combing: a travel inside the part goes around holes and does not retract.</li><li>Cooling: a minimum layer time, by a slower print or by a cooling lap (the nozzle moves away while the fan blows on the part).</li></ul>
-<h3 id="plate-files-and-printers">Plate, files, and printers</h3>
-<ul><li>More than one plate, and more than one part on each plate: Ctrl+click selects a part, Ctrl+drag moves it, and Ctrl+wheel turns it. "Smart placement" turns each part for less support and packs the plate; a part can also be placed for less support only, or to be strong along an axis, and turned, scaled, or put down on a picked side.</li><li>Shift+click adds lines to the selection: a change for "This layer" goes to the layers of all of them.</li><li>STL and 3MF files. A 3MF save keeps the parts, their places, and their changes.</li><li>Printers: OctoPrint, Moonraker (Klipper), Printdeck, USB serial (GTK app), and Bambu Lab in LAN mode (macOS app). Send a file, or send it and print. The Printdeck link reads the filaments of the printer. Each print has a signature line. Moonraker, USB, and Bambu Lab are not tested on real printers yet.</li><li>Profiles for the machine, the filament, and the project, in TOML, with inheritance. A Cura profile can be imported.</li></ul>
-<h3 id="a-library-first">A library first</h3>
-<ul><li>One core in Zig, with a C API (<code>include/zslice.h</code>, <code>include/zslice-app.h</code>) and a WebAssembly build for the browser.</li><li>The GTK4 app for Linux is a thin shell over the core. So are the macOS app (SwiftUI and Metal) and the web app: try it at &lt;<a href="https://zslice.beetlebug.org/&gt;">https://zslice.beetlebug.org/&gt;</a>, with no install.</li><li>Each module explains its algorithm in its header comment. The code is also a book about how a slicer works.</li></ul>
-<h2 id="build">Build</h2>
-<p>zslice needs Zig 0.16. The Linux app also needs GTK 4, libsoup 3, json-glib, Meson, and a Vulkan driver.</p>
-<pre><code>zig build test                      # run the tests
-zig build -Doptimize=ReleaseFast    # the command line tool: zig-out/bin/zslice
-zig build lib -Doptimize=ReleaseFast  # libzslice.a, libzslice.so, zslice.h
-zig build wasm                      # zig-out/web/zslice.wasm and zslice.mjs</code></pre>
-<p>The Linux app:</p>
-<pre><code>cd linux
-meson setup build        # builds the core too (zig build lib)
-ninja -C build
-build/zslice-gtk part.stl</code></pre>
-<p>See <a href="https://github.com/beetlebugorg/zslice/blob/main/linux/README.md">linux/README.md</a> for the packages.</p>
-<h2 id="command-line">Command line</h2>
-<pre><code>zslice slice part.stl -m generic -f generic-petg -p fine -o part.gcode
-zslice slice part.stl -o part.gcode -s project.wall_count=3 -s filament.nozzle_temp=220
-zslice preview part.stl --layer 20 -o layer20.svg
-zslice settings                     # all settings and their defaults
-zslice profiles                     # the built-in profiles
-zslice demo demo.stl                # write a test part</code></pre>
-<h2 id="settings">Settings</h2>
-<p>The settings have three groups, with different owners:</p>
-<ul><li><code>machine.*</code>: facts about the printer. Examples: the bed size, the nozzle, and the speed limits.</li><li><code>filament.*</code>: facts about the material. Examples: the temperatures, and the maximum flow that the hot end can melt.</li><li><code>project.*</code>: what you want for this part. Examples: the layer height, the walls, and the infill.</li></ul>
-<p>Each group can come from a profile file (TOML), with inheritance (<code>extends</code>) and overrides. See <a href="user/profiles/">Profiles</a>.</p>
-<p>A project does not set speeds in mm/s. It sets a ratio of the speed that the machine and the filament allow. One project then works on different printers and with different filaments.</p>
-<h2 id="embedding">Embedding</h2>
-<p>Zig:</p>
-<pre><code>const zslice = @import("zslice");
-
-var mesh = try zslice.Mesh.fromStl(gpa, stl_bytes);
-defer mesh.deinit(gpa);
-var settings: zslice.Settings = .{};
-try settings.set("project.wall_count", "3");
-const stats = try zslice.slice(gpa, &amp;mesh, settings, writer);</code></pre>
-<p>C (<code>include/zslice.h</code>):</p>
-<pre><code>zs_mesh *mesh;
-zs_mesh_load_stl(bytes, len, &amp;mesh);
-zs_settings *settings;
-zs_settings_new(&amp;settings);
-zs_settings_set(settings, "project.wall_count", "3");
-zs_slice(mesh, settings, write_callback, user_data, &amp;stats);</code></pre>
-<p>JavaScript (<code>web/zslice.mjs</code>):</p>
-<pre><code>import { load } from "./zslice.mjs";
-const zslice = await load(wasmBytes);
-const { gcode, stats } = zslice.sliceStl(stlBytes, { "project.wall_count": 3 });</code></pre>
+<h2 id="docs">The guide</h2>
+<div class="map"><div class="card"><b>Start</b><ul><li><a href="user/getting-started/"><span class=n>1</span>Your first print</a></li></ul></div><div class="card"><b>Everyday tasks</b><ul><li><a href="user/look/"><span class=n>2</span>Look at the print</a></li><li><a href="user/lines/"><span class=n>3</span>Click a line</a></li><li><a href="user/change-settings/"><span class=n>4</span>Change a setting</a></li><li><a href="user/parts/"><span class=n>5</span>Place the parts</a></li><li><a href="user/support/"><span class=n>6</span>Add support</a></li><li><a href="user/check/"><span class=n>7</span>Check the print</a></li><li><a href="user/plates/"><span class=n>8</span>Plates and files</a></li><li><a href="user/printers/"><span class=n>9</span>Send to a printer</a></li><li><a href="user/history/"><span class=n>10</span>Undo and history</a></li></ul></div><div class="card"><b>Features</b><ul><li><a href="user/features/"><span class=n>11</span>The best features</a></li><li><a href="user/print-as-it-forms/"><span class=n>12</span>The print as it forms</a></li><li><a href="user/projects/"><span class=n>13</span>printdeck projects</a></li><li><a href="user/farm/"><span class=n>14</span>A print farm</a></li></ul></div><div class="card"><b>Reference</b><ul><li><a href="user/keys/">Keys and mouse</a></li><li><a href="user/settings/">Settings</a></li><li><a href="user/expert/">Formulas and rules</a></li><li><a href="user/profiles/">Profiles</a></li><li><a href="user/command-line/">The command line</a></li><li><a href="user/apps/">Web, Linux, and Mac</a></li><li><a href="user/macos/">The macOS app</a></li><li><a href="user/troubleshooting/">Problems and errors</a></li></ul></div></div>
+<h2 id="start">Start</h2>
+<ul><li><strong>In your browser:</strong> open <a href="https://zslice.beetlebug.org/">zslice.beetlebug.org</a>, and read <a href="user/getting-started/">Your first print</a>.</li><li><strong>From the source:</strong> zslice needs Zig 0.16.</li></ul>
+<pre><code>zig build test                          # run the tests
+zig build -Doptimize=ReleaseFast        # the command line tool: zig-out/bin/zslice
+zig build web                           # the web app: zig-out/web/app
+zslice slice part.stl -o part.gcode     # slice a part</code></pre>
+<p>The Linux app (GTK 4) and the macOS app (SwiftUI and Metal) are in <code>linux/</code> and <code>macos/</code>. See <a href="user/apps/">Web, Linux, and Mac</a>.</p>
+<h2 id="links">Links</h2>
+<ul><li><a href="https://zslice.beetlebug.org/docs.html">The documentation</a>: the guide, the settings, and the internals.</li><li><a href="embedding/">Embedding</a>: the library from Zig, C, and JavaScript.</li><li><a href="internals/how-slicing-works/">How a slicer works</a>, <a href="internals/architecture/">Architecture</a>, and <a href="internals/contributing/">Contributing</a>.</li><li><a href="roadmap/">The roadmap</a>, and <a href="privacy/">Privacy</a>: no analytics, no cookies.</li></ul>
 <h2 id="license">License</h2>
 <p>AGPL-3.0-or-later. See <code>LICENSE</code>. The sources that zslice uses, and the licenses of the code in its binaries, are in <code>REFERENCES.md</code>.</p>
-<p>The screenshots show a slice of <a href="https://www.3dbenchy.com/">3DBenchy</a> by Creative Tools, licensed under CC BY-ND 4.0. The model is not in this repository.</p>
+<p>The pictures show a slice of <a href="https://www.3dbenchy.com/">3DBenchy</a> by Creative Tools, licensed under CC BY-ND 4.0. The model is not in this repository.</p>
 <nav class="pager"><a class="next" href="contents/"><span>Next</span><b>All documents</b></a></nav>
 </main>
 </div>

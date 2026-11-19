@@ -39,13 +39,28 @@ esc = html.escape
 SOURCES = [
     ("README.md", "docs.html", None, "Home"),
     ("docs/README.md", "contents/", None, "All documents"),
-    ("docs/user/getting-started.md", "user/getting-started/", "User guide", "Getting started"),
-    ("docs/user/command-line.md", "user/command-line/", "User guide", "The command line"),
-    ("docs/user/settings.md", "user/settings/", "User guide", "Settings"),
-    ("docs/user/profiles.md", "user/profiles/", "User guide", "Profiles"),
-    ("docs/user/projects.md", "user/projects/", "User guide", "Projects"),
-    ("docs/user/macos.md", "user/macos/", "User guide", "The macOS app"),
-    ("docs/user/troubleshooting.md", "user/troubleshooting/", "User guide", "Troubleshooting"),
+    ("docs/user/getting-started.md", "user/getting-started/", "Start", "Your first print"),
+    ("docs/user/look.md", "user/look/", "Everyday tasks", "Look at the print"),
+    ("docs/user/lines.md", "user/lines/", "Everyday tasks", "Click a line"),
+    ("docs/user/change-settings.md", "user/change-settings/", "Everyday tasks", "Change a setting"),
+    ("docs/user/parts.md", "user/parts/", "Everyday tasks", "Place the parts"),
+    ("docs/user/support.md", "user/support/", "Everyday tasks", "Add support"),
+    ("docs/user/check.md", "user/check/", "Everyday tasks", "Check the print"),
+    ("docs/user/plates.md", "user/plates/", "Everyday tasks", "Plates and files"),
+    ("docs/user/printers.md", "user/printers/", "Everyday tasks", "Send to a printer"),
+    ("docs/user/history.md", "user/history/", "Everyday tasks", "Undo and history"),
+    ("docs/user/features.md", "user/features/", "Features", "The best features"),
+    ("docs/user/print-as-it-forms.md", "user/print-as-it-forms/", "Features", "The print as it forms"),
+    ("docs/user/projects.md", "user/projects/", "Features", "printdeck projects"),
+    ("docs/user/farm.md", "user/farm/", "Features", "A print farm"),
+    ("docs/user/keys.md", "user/keys/", "Reference", "Keys and mouse"),
+    ("docs/user/settings.md", "user/settings/", "Reference", "Settings"),
+    ("docs/user/expert.md", "user/expert/", "Reference", "Formulas and rules"),
+    ("docs/user/profiles.md", "user/profiles/", "Reference", "Profiles"),
+    ("docs/user/command-line.md", "user/command-line/", "Reference", "The command line"),
+    ("docs/user/apps.md", "user/apps/", "Reference", "Web, Linux, and Mac"),
+    ("docs/user/macos.md", "user/macos/", "Reference", "The macOS app"),
+    ("docs/user/troubleshooting.md", "user/troubleshooting/", "Reference", "Problems and errors"),
     ("docs/embedding/overview.md", "embedding/", "Embedding", "Overview"),
     ("docs/embedding/c.md", "embedding/c/", "Embedding", "C"),
     ("docs/embedding/zig.md", "embedding/zig/", "Embedding", "Zig"),
@@ -56,7 +71,7 @@ SOURCES = [
     ("docs/internals/how-slicing-works.md", "internals/how-slicing-works/", "Internals", "How slicing works"),
     ("docs/internals/layer-settings.md", "internals/layer-settings/", "Internals", "Settings for some layers"),
     ("docs/internals/arachne.md", "internals/arachne/", "Internals", "Arachne walls"),
-    ("docs/internals/print-sim.md", "internals/print-sim/", "Internals", "The print as it forms"),
+    ("docs/internals/print-sim.md", "internals/print-sim/", "Internals", "The print simulation"),
     ("docs/internals/cura-compare.md", "internals/cura-compare/", "Internals", "Compared with other slicers"),
     ("docs/internals/contributing.md", "internals/contributing/", "Internals", "Contributing"),
     ("docs/internals/code-quality.md", "internals/code-quality/", "Internals", "Code quality"),
@@ -68,9 +83,17 @@ SOURCES = [
 ]
 PAGE_OF = {src: path for src, path, _, _ in SOURCES}
 
+# The guide: the pages of these groups have a number, as the pages of a
+# gamebook. The links at the end of a page say "Go to 4".
+GUIDE = ("Start", "Everyday tasks", "Features")
+NUMBER = {}
+for _src, _path, _group, _ in SOURCES:
+    if _group in GUIDE:
+        NUMBER[_path] = len(NUMBER) + 1
+
 # Files that the site links to, but that can be missing. The check prints a note for each.
 # The site root is the web app: the Pages workflow puts it there.
-OPTIONAL = {"img/benchy.png", "index.html"}
+OPTIONAL = {"index.html"}
 
 
 def read(path):
@@ -122,8 +145,10 @@ def inline(text, src_dir, root):
     t = re.sub(r"\*\*(.+?)\*\*", r"<strong>\1</strong>", t)
     t = re.sub(r"(?<![\w*])\*(?![\s*])(.+?)(?<![\s*])\*(?![\w*])", r"<em>\1</em>", t)
     # Images: ![alt](path), before the links.
-    t = re.sub(r"!\[([^\]]*)\]\(([^)\s]+)\)",
-               lambda m: f'<img src="{esc(image_link(html.unescape(m.group(2)), src_dir, root))}" alt="{m.group(1)}" loading="lazy">', t)
+    # A title in quotes is the caption of a figure (see Markdown.paragraph).
+    t = re.sub(r'!\[([^\]]*)\]\(([^)\s]+)(?: +"([^"]*?)")?\)',
+               lambda m: f'<img src="{esc(image_link(html.unescape(m.group(2)), src_dir, root))}" alt="{m.group(1)}" loading="lazy"'
+                         + (f' title="{m.group(3)}"' if m.group(3) else "") + ">", t)
     t = re.sub(r"\[([^\]]+)\]\(([^)\s]+)\)",
                lambda m: f'<a href="{esc(fix_link(html.unescape(m.group(2)), src_dir, root))}">{m.group(1)}</a>', t)
     t = re.sub(r'(?<!["\'>=])(https?://[^\s<)]+?)([.,;:]?)(?=[\s<)]|$)', r'<a href="\1">\1</a>\2', t)
@@ -200,9 +225,20 @@ class Markdown:
                 j = i + 1
                 while j < n and lines[j].strip() and not BLOCK_START.match(lines[j]):
                     j += 1
-                out.append("<p>" + self.inline(" ".join(s.strip() for s in lines[i:j])) + "</p>")
+                out.append(self.paragraph(" ".join(s.strip() for s in lines[i:j])))
                 i = j
         return "\n".join(out)
+
+    def paragraph(self, text):
+        """A paragraph. A paragraph of one picture is a figure, with the title of the picture as
+        its caption. A paragraph that starts with **Tip:** or **Note:** is a note in a box."""
+        h = self.inline(text)
+        if (m := re.fullmatch(r'<img ([^>]*?)(?: title="([^"]*)")?>', h)):
+            cap = f"<figcaption>{m.group(2)}</figcaption>" if m.group(2) else ""
+            return f'<figure class="shot"><img {m.group(1)}>{cap}</figure>'
+        if re.match(r"<strong>(Tip|Note):</strong>", h):
+            return f'<p class="note">{h}</p>'
+        return f"<p>{h}</p>"
 
     def list_end(self, lines, i):
         """The index of the first line after the list that starts at line i."""
@@ -228,6 +264,35 @@ class Markdown:
         return j
 
     def list(self, lines):
+        items = [m.group(3) for m in map(LIST_ITEM.match, lines) if m]
+        if len(items) == len(lines) and all(t.startswith("→ [") for t in items):
+            return self.goto(items)
+        if len(items) == len(lines) and all(t.startswith("![") for t in items):
+            return self.tiles(items)
+        return self.plain_list(lines)
+
+    def goto(self, items):
+        """A list of "→ [Title](link): text" items: the links to the next pages, as cards."""
+        out = []
+        for t in items:
+            m = re.match(r"→ \[([^\]]+)\]\(([^)\s]+)\):? *(.*)$", t)
+            url = fix_link(m.group(2), self.src_dir, self.root)
+            num = NUMBER.get(url[len(self.root):].partition("#")[0]) if url.startswith(self.root) else None
+            badge = f'<span class="num">{num if num else "→"}</span>'
+            out.append(f'<a class="go" href="{esc(url)}">{badge}<b>{self.inline(m.group(1))}</b>'
+                       f'<span>{self.inline(m.group(3))}</span></a>')
+        return '<nav class="goto">' + "".join(out) + "</nav>"
+
+    def tiles(self, items):
+        """A list of "![picture](file) **Title.** text" items: a grid of tiles."""
+        out = []
+        for t in items:
+            h = self.inline(t)
+            m = re.match(r"(<img [^>]*>)\s*(.*)$", h, re.S)
+            out.append(f'<div class="tile">{m.group(1)}<div>{m.group(2)}</div></div>')
+        return '<div class="tiles">' + "".join(out) + "</div>"
+
+    def plain_list(self, lines):
         first = LIST_ITEM.match(lines[0])
         indent = len(first.group(1))
         ordered = first.group(2)[0].isdigit()
@@ -286,22 +351,6 @@ def parse(src, root):
     if (p := re.match(r"^<p>(.*?)</p>\n?", body, re.S)) and len(re.sub("<[^>]+>", "", p.group(1))) < 320:
         lede, body = p.group(1), body[p.end():]
     return title, lede, body
-
-
-def sections(src):
-    """The level 2 sections of a Markdown file: a dict of title -> text, with "" for the text
-    before the first level 2 heading. A line in fenced code does not start a section."""
-    out, title, buf, fence = {}, "", [], False
-    for line in read(src).split("\n"):
-        if line.lstrip().startswith("```"):
-            fence = not fence
-        if not fence and line.startswith("## "):
-            out[title] = "\n".join(buf)
-            title, buf = line[3:].strip(), []
-        else:
-            buf.append(line)
-    out[title] = "\n".join(buf)
-    return out
 
 
 # ---------------------------------------------------------------------------------------------
@@ -411,6 +460,40 @@ footer a { color: inherit; }
 .map a.card:hover { background: var(--plate); }
 .map .card b { display: block; font-family: var(--mono); font-size: 15px; margin-bottom: 4px; }
 .map .card span { color: var(--dim); }
+.map div.card { border: 3px solid var(--ink); border-radius: 10px; background: var(--plate2); padding: 12px 16px; font-size: 14px; }
+.map div.card b { display: block; font: 700 12px var(--mono); text-transform: uppercase; letter-spacing: .12em; color: var(--dim); margin-bottom: 6px; }
+.map div.card ul { list-style: none; margin: 0; padding: 0; }
+.map div.card a { color: var(--ink); text-decoration: none; }
+.map div.card a:hover { text-decoration: underline; }
+.map div.card .n { display: inline-block; min-width: 24px; font: 700 11px var(--mono); color: var(--orange); }
+
+/* The guide, as a gamebook: a number for each page, a big picture, short steps, and cards
+   that say where to go next. */
+.side a .n { display: inline-block; min-width: 24px; font: 700 11px var(--mono); color: var(--orange); }
+h1 .num { display: inline-block; background: var(--ink); color: var(--paper); border-radius: 6px; padding: 0 10px 2px;
+  margin-right: 14px; box-shadow: inset 0 -4px 0 var(--orange); }
+figure.shot { margin: 18px 0 28px; max-width: 980px; }
+figure.shot img { display: block; width: 100%; border: 4px solid var(--ink); border-radius: 12px; box-shadow: 6px 6px 0 var(--edge);
+  background: var(--plate); }
+figure.shot figcaption { margin-top: 12px; font: 600 13px/1.4 var(--mono); color: var(--dim); max-width: 76ch; }
+p.note { border-left: 6px solid var(--orange); padding: 8px 12px; background: var(--plate); border-radius: 0 8px 8px 0; }
+main > ol { list-style: none; padding-left: 0; counter-reset: step; }
+main > ol > li { counter-increment: step; position: relative; padding-left: 36px; margin-bottom: 8px; }
+main > ol > li::before { content: counter(step); position: absolute; left: 0; top: 0; display: flex; align-items: center; justify-content: center; width: 24px; height: 24px;
+  border-radius: 4px; background: var(--orange); color: #fff; font: 700 14px var(--mono); }
+.goto { display: grid; grid-template-columns: repeat(auto-fill, minmax(230px, 1fr)); gap: 12px; margin: 16px 0 8px; }
+.goto a.go { display: grid; grid-template-columns: 40px 1fr; column-gap: 10px; align-items: start; padding: 12px 14px;
+  border: 3px solid var(--ink); border-radius: 10px; background: var(--plate2); color: var(--ink); text-decoration: none; font-size: 14px; }
+.goto a.go:hover { background: var(--plate); box-shadow: 4px 4px 0 var(--edge); }
+.goto .num { grid-row: span 2; display: flex; align-items: center; justify-content: center; width: 36px; height: 36px;
+  border-radius: 50%; background: var(--orange); color: #fff; border: 3px solid var(--ink); font: 700 15px var(--mono); }
+.goto b { font-family: var(--mono); font-size: 15px; }
+.goto span:not(.num) { color: var(--dim); }
+.tiles { display: grid; grid-template-columns: repeat(auto-fill, minmax(300px, 1fr)); gap: 20px; margin: 16px 0 24px; }
+.tile { border: 3px solid var(--ink); border-radius: 12px; overflow: hidden; background: var(--plate2); box-shadow: 5px 5px 0 var(--edge); }
+.tile img { display: block; width: 100%; aspect-ratio: 16 / 10; object-fit: cover; border-bottom: 3px solid var(--ink); background: var(--plate); }
+.tile > div { padding: 10px 14px 14px; font-size: 15px; }
+.tile > div > strong:first-child { display: block; font-family: var(--mono); font-size: 16px; margin-bottom: 4px; }
 
 @media (max-width: 899px) {
   .layout { grid-template-columns: 1fr; gap: 0; }
@@ -442,7 +525,8 @@ def nav_html(current, root):
             group = g
             out.append(f'<div class="group">{esc(g)}</div>')
         cur = ' aria-current="page"' if path == current else ""
-        out.append(f'<a href="{root}{path}"{cur}>{esc(title)}</a>')
+        num = f'<span class="n">{NUMBER[path]}</span>' if path in NUMBER else ""
+        out.append(f'<a href="{root}{path}"{cur}>{num}{esc(title)}</a>')
     return "\n".join(out)
 
 
@@ -455,6 +539,13 @@ def onpage(body):
     return f'<nav class="onpage"><b>On this page</b><ol>{items}</ol></nav>'
 
 
+def go_label(path, verb):
+    """The label of a link of the pager: "Go to 4" for a page of the guide."""
+    if path in NUMBER:
+        return f"{verb} {NUMBER[path]}"
+    return "Previous" if verb == "Back to" else "Next"
+
+
 def pager(path, root):
     """The links to the previous and the next page, in the order of the sidebar."""
     paths = [p for _, p, _, _ in SOURCES]
@@ -462,10 +553,10 @@ def pager(path, root):
     out = []
     if i > 0:
         _, p, _, t = SOURCES[i - 1]
-        out.append(f'<a class="prev" href="{root}{p}"><span>Previous</span><b>{esc(t)}</b></a>')
+        out.append(f'<a class="prev" href="{root}{p}"><span>{go_label(p, "Back to")}</span><b>{esc(t)}</b></a>')
     if i + 1 < len(SOURCES):
         _, p, _, t = SOURCES[i + 1]
-        out.append(f'<a class="next" href="{root}{p}"><span>Next</span><b>{esc(t)}</b></a>')
+        out.append(f'<a class="next" href="{root}{p}"><span>{go_label(p, "Go to")}</span><b>{esc(t)}</b></a>')
     return '<nav class="pager">' + "".join(out) + "</nav>"
 
 
@@ -495,7 +586,7 @@ def page(path, section, title, lede, body, src, description=None, toc=True):
 <aside class="side"><nav>{nav_html(path, root)}</nav></aside>
 <main>
 <p class="eyebrow">{esc(section)}</p>
-<h1>{esc(title)}</h1>
+<h1>{f'<span class="num">{NUMBER[path]}</span>' if path in NUMBER else ''}{esc(title)}</h1>
 {f'<p class="lede">{lede}</p>' if lede else ''}
 {body_html}
 </main>
@@ -507,47 +598,39 @@ def page(path, section, title, lede, body, src, description=None, toc=True):
 
 
 def landing():
-    """The home page, from README.md. The Documentation section of the README becomes a map of
-    the site."""
+    """The home page, from README.md: its text under the title, with the buttons of the site in
+    place of the README picture, and a map of the guide at the end."""
     root, src = "", "README.md"
-    sec = sections(src)
-    intro = Markdown("", root).convert(re.sub(r"^# .*\n", "", sec[""]))
-    paras = re.findall(r"<p>(.*?)</p>", intro, re.S)
-    # The README picture under the title: the site has its own hero image.
-    paras = [p for p in paras if not re.fullmatch(r"\s*<img [^>]*>\s*", p)]
-    lede, rest = paras[0], "\n".join(f"<p>{p}</p>" for p in paras[1:])
+    text = re.sub(r"^# .*\n", "", read(src))
+    # The README picture under the title: the page shows it as the hero.
+    text = re.sub(r"^\s*!\[[^\]]*\]\([^)]*\)\s*\n", "", text, count=1)
     conv = Markdown("", root)
-    conv.ids.update({"docs", "documentation"})
-    parts = []
-    for title in ("Features", "Build", "Command line", "Settings", "Embedding", "License"):
-        if title not in sec:
-            sys.exit(f"{src}: no section {title!r}")
-        parts.append(f'<h2 id="{conv.heading_id(title)}">{esc(title)}</h2>')
-        parts.append(conv.convert(sec[title]))
+    conv.ids.update({"docs"})
+    html_body = conv.convert(text)
+    paras = re.match(r"<p>(.*?)</p>\n?", html_body, re.S)
+    lede, rest = paras.group(1), html_body[paras.end():]
+    # The map of the guide goes after the best features, before the start and the links.
+    cut = rest.find('<h2 id="start">')
+    best, after = (rest[:cut], rest[cut:]) if cut >= 0 else (rest, "")
+    cards = []
+    for group in GUIDE + ("Reference",):
+        pages = [(p, t) for _, p, g, t in SOURCES if g == group]
+        links = "".join(f'<li><a href="{p}">{f"<span class=n>{NUMBER[p]}</span>" if p in NUMBER else ""}{esc(t)}</a></li>'
+                        for p, t in pages)
+        cards.append(f'<div class="card"><b>{esc(group)}</b><ul>{links}</ul></div>')
     body = f"""
 <p>
-  <a class="btn primary" href="user/getting-started/">Get started</a>
-  <a class="btn" href="user/settings/">Settings</a>
+  <a class="btn primary" href="index.html">Open the app</a>
+  <a class="btn" href="user/getting-started/">Your first print</a>
+  <a class="btn" href="user/features/">The best features</a>
   <a class="btn" href="embedding/">Embed the library</a>
-  <a class="btn" href="internals/how-slicing-works/">How a slicer works</a>
   <a class="btn" href="{REPO}">Source on GitHub</a>
 </p>
-<figure class="hero"><img src="img/benchy.png" alt="A boat test model, sliced by zslice" onerror="this.hidden=true"></figure>
-{rest}
-<div class="chips"><span class="chip">Zig 0.16</span><span class="chip">C API</span><span class="chip">WebAssembly</span><span class="chip">GTK4 app</span><span class="chip">AGPL-3.0-or-later</span></div>
-
-<h2 id="docs">The documentation</h2>
-<div class="map">
-  <a class="card" href="user/getting-started/"><b>User guide</b><span>Build zslice, slice a part, and look at the layers.</span></a>
-  <a class="card" href="user/settings/"><b>Settings</b><span>Each setting, its unit, and its default.</span></a>
-  <a class="card" href="user/profiles/"><b>Profiles</b><span>Machine, filament, and project files, with inheritance.</span></a>
-  <a class="card" href="embedding/"><b>Embedding</b><span>The library from Zig, from C, and from JavaScript.</span></a>
-  <a class="card" href="internals/how-slicing-works/"><b>Internals</b><span>The stages from mesh to G-code, and the modules of the code.</span></a>
-  <a class="card" href="app/"><b>The app</b><span>The app core and the native shells.</span></a>
-  <a class="card" href="references/"><b>References</b><span>The sources that zslice uses, and their licenses.</span></a>
-  <a class="card" href="roadmap/"><b>Roadmap</b><span>What works now, and what comes next.</span></a>
-</div>
-{chr(10).join(parts)}
+<figure class="shot"><img src="img/hero.webp" alt="The zslice web app: a 3DBenchy, sliced, in the colors of its features"></figure>
+{best}
+<h2 id="docs">The guide</h2>
+<div class="map">{"".join(cards)}</div>
+{after}
 """
     page("docs.html", "Documentation", "zslice", lede, body, src, toc=False,
          description="The documentation of zslice, a slicer for FDM 3D printers, written from scratch in Zig.")

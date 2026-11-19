@@ -1,0 +1,101 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Formulas and rules · zslice</title>
+<meta name="description" content="Settings for one part, settings for some layers, formulas, and path rules.">
+<link rel="canonical" href="https://zslice.beetlebug.org/user/expert/">
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='6' fill='%23171717'/%3E%3Crect x='11' y='8' width='10' height='4' rx='1' fill='%23f4f0e6'/%3E%3Crect x='8' y='14' width='16' height='4' rx='1' fill='%23f4f0e6'/%3E%3Crect x='5' y='20' width='22' height='4' rx='1' fill='%23ff5a1f'/%3E%3C/svg%3E">
+<link rel="stylesheet" href="../../site.css">
+</head>
+<body>
+<input type="checkbox" id="menu">
+<header class="top">
+  <a class="brand" href="../../docs.html"><span class="mark">ZSLICE</span><span class="docs">DOCS</span></a>
+  <label class="menu-btn" for="menu">Contents</label>
+  <nav class="top-links"><a href="../../index.html">Open the app</a><a href="../../user/getting-started/">Get started</a><a href="../../roadmap/">Roadmap</a><a href="../../privacy/">Privacy</a><a href="https://github.com/beetlebugorg/zslice">GitHub</a></nav>
+</header>
+<div class="layout">
+<aside class="side"><nav><a href="../../docs.html">Home</a>
+<a href="../../contents/">All documents</a>
+<div class="group">Start</div>
+<a href="../../user/getting-started/"><span class="n">1</span>Your first print</a>
+<div class="group">Everyday tasks</div>
+<a href="../../user/look/"><span class="n">2</span>Look at the print</a>
+<a href="../../user/lines/"><span class="n">3</span>Click a line</a>
+<a href="../../user/change-settings/"><span class="n">4</span>Change a setting</a>
+<a href="../../user/parts/"><span class="n">5</span>Place the parts</a>
+<a href="../../user/support/"><span class="n">6</span>Add support</a>
+<a href="../../user/check/"><span class="n">7</span>Check the print</a>
+<a href="../../user/plates/"><span class="n">8</span>Plates and files</a>
+<a href="../../user/printers/"><span class="n">9</span>Send to a printer</a>
+<a href="../../user/history/"><span class="n">10</span>Undo and history</a>
+<div class="group">Features</div>
+<a href="../../user/features/"><span class="n">11</span>The best features</a>
+<a href="../../user/print-as-it-forms/"><span class="n">12</span>The print as it forms</a>
+<a href="../../user/projects/"><span class="n">13</span>printdeck projects</a>
+<a href="../../user/farm/"><span class="n">14</span>A print farm</a>
+<div class="group">Reference</div>
+<a href="../../user/keys/">Keys and mouse</a>
+<a href="../../user/settings/">Settings</a>
+<a href="../../user/expert/" aria-current="page">Formulas and rules</a>
+<a href="../../user/profiles/">Profiles</a>
+<a href="../../user/command-line/">The command line</a>
+<a href="../../user/apps/">Web, Linux, and Mac</a>
+<a href="../../user/macos/">The macOS app</a>
+<a href="../../user/troubleshooting/">Problems and errors</a>
+<div class="group">Embedding</div>
+<a href="../../embedding/">Overview</a>
+<a href="../../embedding/c/">C</a>
+<a href="../../embedding/zig/">Zig</a>
+<a href="../../embedding/javascript/">JavaScript</a>
+<a href="../../embedding/print-view/">The print view</a>
+<div class="group">Internals</div>
+<a href="../../internals/architecture/">Architecture</a>
+<a href="../../internals/one-view/">Plan: one view</a>
+<a href="../../internals/how-slicing-works/">How slicing works</a>
+<a href="../../internals/layer-settings/">Settings for some layers</a>
+<a href="../../internals/arachne/">Arachne walls</a>
+<a href="../../internals/print-sim/">The print simulation</a>
+<a href="../../internals/cura-compare/">Compared with other slicers</a>
+<a href="../../internals/contributing/">Contributing</a>
+<a href="../../internals/code-quality/">Code quality</a>
+<a href="../../internals/macos/">The macOS app</a>
+<div class="group">Project</div>
+<a href="../../app/">App</a>
+<a href="../../references/">References</a>
+<a href="../../roadmap/">Roadmap</a>
+<a href="../../privacy/">Privacy</a></nav></aside>
+<main>
+<p class="eyebrow">Reference</p>
+<h1>Formulas and rules</h1>
+<p class="lede">Settings for one part, settings for some layers, formulas, and path rules.</p>
+<nav class="onpage"><b>On this page</b><ol><li><a href="#settings-for-one-part">Settings for one part</a></li><li><a href="#settings-for-some-layers">Settings for some layers</a></li><li><a href="#formulas">Formulas</a></li><li><a href="#path-rules">Path rules</a></li><li><a href="#some-settings-in-detail">Some settings in detail</a></li><li><a href="#compare-with-cura">Compare with Cura</a></li><li><a href="#where-the-settings-stay">Where the settings stay</a></li></ol></nav><h2 id="settings-for-one-part">Settings for one part</h2>
+<ol><li>Select the part.</li><li>Click <strong>+ Add a setting for this part</strong> on its card. The search shows only the settings that a part can have.</li><li>Change a setting. The change is for this part only.</li></ol>
+<p>A part can have its own walls, layer height, seam, speeds, infill, skin, support, and <strong>Quality</strong>. Some settings are for the whole plate, and say "Same for all parts": the temperatures, the fan, the travel, the retraction, the first layer height, the skirt, and the brim.</p>
+<h2 id="settings-for-some-layers">Settings for some layers</h2>
+<p>A change in the long form of a line can be for the whole part, for this layer, for this layer and up, or for this layer and down. For example: slower outer walls for the 10 layers of a thin tower. A changed layer shows a reset button. The <a href="../../user/settings/">settings reference</a> marks the settings that can change for each layer.</p>
+<p>A layer profile changes settings for a range of layers (in the Linux and Mac apps):</p>
+<ol><li>Right-click a line at the height where the change starts.</li><li>Pick <strong>New profile from here up</strong> (or <strong>from here down</strong>).</li><li>Change settings. A change goes only to these layers.</li><li>Click <strong>Done</strong>.</li></ol>
+<h2 id="formulas">Formulas</h2>
+<p>A setting can follow other settings. On the page of a setting, type a formula in <strong>Formula</strong>, and press Enter.</p>
+<div class="table-wrap"><table><thead><tr><th>Formula</th><th>Value</th></tr></thead><tbody><tr><td><code>= {line_width} * 2</code></td><td>Twice the line width</td></tr><tr><td><code>= max({layer_height} * 4, 0.8)</code></td><td>Four layers, and at least 0.8 mm</td></tr><tr><td><code>= {infill_pattern} == &quot;gyroid&quot; ? 3 : 2</code></td><td>Three with gyroid infill, else two</td></tr></tbody></table></div>
+<ul><li><code>{name}</code> is a setting: its short name (<code>{layer_height}</code>) or its full name (<code>{filament.nozzle_temp}</code>).</li><li>Operators: <code>+ - * / %</code>, <code>^</code>, comparisons, <code>and</code>, <code>or</code>, <code>not</code>, and <code>cond ? a : b</code>.</li><li>Functions: <code>min</code>, <code>max</code>, <code>round(x)</code> or <code>round(x, step)</code>, <code>floor</code>, <code>ceil</code>, <code>abs</code>, <code>sqrt</code>, <code>clamp(x, lo, hi)</code>, and <code>lerp(a, b, t)</code>.</li><li>A plain value removes the formula. A formula with an error turns the field red, and the value stays.</li></ul>
+<h2 id="path-rules">Path rules</h2>
+<p><code>project.path_rules</code> changes the speed, the flow, or the fan of the paths that match a formula. Write one rule on each line:</p>
+<pre><code>speed = {feature} == "outer_wall" and {z} &lt; 5 ? 20 : {speed}
+flow = {feature} == "bridge" ? 0.9 : 1
+fan = {layer} &lt; 3 ? 0 : {fan}</code></pre>
+<ul><li>The variables: <code>{feature}</code> (<code>&quot;outer_wall&quot;</code>, <code>&quot;inner_wall&quot;</code>, <code>&quot;skin&quot;</code>, <code>&quot;infill&quot;</code>, <code>&quot;bridge&quot;</code>, ...), <code>{layer}</code> (from 0), <code>{z}</code>, <code>{part}</code>, <code>{speed}</code>, <code>{width}</code>, <code>{height}</code>, <code>{length}</code>, and <code>{fan}</code> (0 to 1).</li><li><code>speed</code> sets the speed in mm/s. <code>flow</code> multiplies the flow. <code>fan</code> sets the fan.</li><li>The rules go in order. A line with an error has no effect. A line that starts with <code>#</code> is a note.</li></ul>
+<h2 id="some-settings-in-detail">Some settings in detail</h2>
+<div class="table-wrap"><table><thead><tr><th>Setting</th><th>What it does</th></tr></thead><tbody><tr><td><strong>Gap fill</strong> (<code>project.gap_fill</code>)</td><td>One line along the middle of each narrow area. On by default.</td></tr><tr><td><strong>Retractless skin</strong> (<code>project.skin_link_length</code>)</td><td>Prints the skin of each island in few paths: the nozzle goes along the walls to the next zigzag, up to 15 mm. 0 turns it off.</td></tr><tr><td><strong>Bridges</strong> (<code>project.bridges</code>)</td><td>Prints a skin over air across the air, in the direction of the shortest longest line, anchored 1.5 mm into the plastic around it. Slow, with the fan on.</td></tr><tr><td><strong>Ironing</strong> (<code>project.ironing</code>)</td><td>Goes over each top surface again with close lines and a small flow.</td></tr><tr><td><strong>Slope smoothing</strong> (<code>project.slope_smoothing</code>, experimental)</td><td>Lays a small bead in each step of a sloped top. Each point of the bead has its own Z.</td></tr><tr><td><strong>Slope ironing</strong> (<code>project.slope_ironing</code>)</td><td>Irons the filled steps.</td></tr><tr><td><strong>Wipe inside the part</strong> (<code>project.retract_wipe</code>)</td><td>Moves on a small arc inside the part at each retraction. For stringy filament.</td></tr><tr><td><strong>Infill anchor</strong> (<code>project.infill_anchor</code>)</td><td>The infill grid starts at the center of each part. <code>bed</code>: one grid for all parts.</td></tr><tr><td><strong>Thumbnails</strong> (<code>machine.thumbnails</code>)</td><td>The sizes of the pictures for the printer screen, for example <code>300x300,32x32</code>.</td></tr><tr><td><strong>Placement</strong> (<code>project.placement</code>)</td><td><code>auto</code> keeps the X and Y of the file if the part is on the bed there. <code>file</code> and <code>center</code> always do one of the two.</td></tr></tbody></table></div>
+<h2 id="compare-with-cura">Compare with Cura</h2>
+<p>In the Linux app, <strong>Compare with Cura…</strong> (in the search) shows your zslice settings next to the settings of the printer of Cura. <strong>Use</strong> sets one Cura value in zslice, and <strong>Use all</strong> sets each value that differs. See <a href="../../user/profiles/">Profiles</a> for <code>zslice import cura</code>.</p>
+<h2 id="where-the-settings-stay">Where the settings stay</h2>
+<p>The app loads your changes at the next start. The Linux app keeps them in <code>~/.config/zslice/</code> (<code>machine.toml</code>, <code>filament.toml</code>, <code>project.toml</code>, and <code>global.toml</code>). Each file has only the settings that differ from the defaults. The web app keeps them in your browser.</p><nav class="pager"><a class="prev" href="../../user/settings/"><span>Previous</span><b>Settings</b></a><a class="next" href="../../user/profiles/"><span>Next</span><b>Profiles</b></a></nav>
+</main>
+</div>
+<footer>zslice is free software (AGPL-3.0-or-later). <a href="../../privacy/">Privacy</a>: no analytics, no cookies, nothing from other sites. <a href="https://github.com/beetlebugorg/zslice/blob/main/docs/build.py">docs/build.py</a> writes this site from <a href="https://github.com/beetlebugorg/zslice/blob/main/docs/user/expert.md">docs/user/expert.md</a>.</footer>
+</body>
+</html>
