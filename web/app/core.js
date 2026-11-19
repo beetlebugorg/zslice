@@ -20,6 +20,9 @@ function openError(rc, w) {
   return `The file did not open. ${text}`;
 }
 
+// The values of a node of the support trees in core.supportTrees.
+export const TREE_STRIDE = 9;
+
 export class Core {
   // wasm: a Wasm (wasm.js) whose onEvent goes to this.onEvent. infos: the
   // setting infos of another Core of the same Wasm, to share. app: an app
@@ -812,6 +815,74 @@ export class Core {
 
   supportAreaSet(index, pts) {
     return this.withPoints(pts, (p, n) => this.w.x.zs_app_support_area_set(this.app, index, p, n, NaN, NaN)) === 0;
+  }
+
+  // ---- support trees (the support editor of tree support, support.js) ----
+
+  // The nodes of the trees of part `part` (zs_app_support_tree_nodes): a
+  // Float64Array of TREE_STRIDE values a node (x, y, z, r, rMin, down,
+  // layer, branch, flags), and edited (the trees of the user); null with
+  // no slice result.
+  supportTrees(part) {
+    const w = this.w;
+    const n = Number(w.x.zs_app_support_tree_nodes(this.app, part, 0, 0));
+    if (n < 0) return null;
+    const out = new Float64Array(n * TREE_STRIDE);
+    if (n > 0) {
+      const size = n * 56;
+      const buf = w.alloc(size);
+      try {
+        const got = Number(w.x.zs_app_support_tree_nodes(this.app, part, buf, n));
+        if (got < 0) return null;
+        const dv = w.dv;
+        for (let i = 0; i < Math.min(n, got); i++) {
+          const b = buf + 56 * i;
+          const o = i * TREE_STRIDE;
+          for (let k = 0; k < 5; k++) out[o + k] = dv.getFloat64(b + 8 * k, true);
+          out[o + 5] = dv.getInt32(b + 40, true);
+          out[o + 6] = dv.getUint32(b + 44, true);
+          out[o + 7] = dv.getUint32(b + 48, true);
+          out[o + 8] = dv.getUint32(b + 52, true);
+        }
+      } finally {
+        w.free(buf, size);
+      }
+    }
+    return { part, edited: w.x.zs_app_support_tree_edited(this.app, part) === 1, nodes: out };
+  }
+
+  // The trees of each part (supportTrees), and the note of a drop of the
+  // trees of the user (zs_app_support_tree_note), or "".
+  supportTreesAll() {
+    const parts = [];
+    const n = this.w.x.zs_app_part_count(this.app);
+    for (let i = 0; i < n; i++) {
+      const t = this.supportTrees(i);
+      if (t) parts.push(t);
+    }
+    return { parts, note: this.supportTreeNote() };
+  }
+
+  supportTreeNote() {
+    const w = this.w;
+    const cap = 512;
+    const buf = w.alloc(cap);
+    try {
+      const n = w.x.zs_app_support_tree_note(this.app, buf, cap);
+      return n > 0 ? w.text(buf, Math.min(n, cap - 1)) : "";
+    } finally {
+      w.free(buf, cap);
+    }
+  }
+
+  // An edit of the trees: fn(clampPtr) returns a status (0: done) or a
+  // count; returns { rc, clamp }.
+  treeEdit(fn) {
+    const w = this.w;
+    const c = w.cell + 32;
+    w.dv.setUint32(c, 0, true);
+    const rc = Number(fn(c));
+    return { rc, clamp: w.u32(c) };
   }
 
   // ---- support marks (the context menu) ----

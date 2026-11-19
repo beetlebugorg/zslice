@@ -165,6 +165,8 @@ function sendResult(i, ms, turn) {
     mode,
     marks: c.markCount(),
     areas: c.supportAreas(),
+    // The note of support trees that the slice planned again.
+    treeNote: c.supportTreeNote(),
     parts: c.w.x.zs_app_part_count(c.app),
     // Each part on the bed, with no part on another (zs_app_plate_fits).
     fits: c.w.x.zs_app_plate_fits(c.app) === 1,
@@ -380,7 +382,8 @@ function historyList() {
 // The ops that change the settings, and the ops that change the plate:
 // each starts or extends a step.
 // The ops after which a part can lose what held it (see the fall check).
-const FALL_CHECK_OPS = new Set(["partSettingSet", "supportAreaKind", "supportAreaRemove", "projectLoad", "plateActivate"]);
+// An op with hold (a drag) checks at its end.
+const FALL_CHECK_OPS = new Set(["partSettingSet", "supportAreaKind", "supportAreaRemove", "projectLoad", "plateActivate", "treeMoveNode", "treeMoveBranch", "treeDelete", "treeReset"]);
 const SETTING_OPS = new Set(["refineApply", "set", "reset", "quality", "profile", "setScoped", "resetScoped"]);
 // The parts whose largest side is under 3 mm: a file in inches or in
 // meters loads that small. The print card offers a scale.
@@ -394,7 +397,16 @@ function tinyParts(c) {
   return out;
 }
 
-const PLATE_OPS = new Set(["fallStep", "load", "add", "plate", "projectLoad", "partAction", "partCut", "partMove", "partFill", "partToPlate", "editAdd", "editDot", "editRemove", "partSettingSet", "partPutDown", "partTurn", "putDown", "place", "partMove", "partRotate", "partScale", "partSettle", "markAdd", "markRemoveNear", "markSet", "markRemove", "marksClear", "supportAreaAdd", "supportAreaSet", "supportAreaKind", "supportAreaRemove"]);
+const PLATE_OPS = new Set(["fallStep", "load", "add", "plate", "projectLoad", "partAction", "partCut", "partMove", "partFill", "partToPlate", "editAdd", "editDot", "editRemove", "partSettingSet", "partPutDown", "partTurn", "putDown", "place", "partMove", "partRotate", "partScale", "partSettle", "markAdd", "markRemoveNear", "markSet", "markRemove", "marksClear", "supportAreaAdd", "supportAreaSet", "supportAreaKind", "supportAreaRemove", "treeMoveNode", "treeRadius", "treeMoveBranch", "treeDelete", "treeAdd", "treeReset"]);
+
+// An edit of the support trees of part `part` (support.js): fn(clampPtr)
+// calls the core. count: the result is a count or a node (else a status).
+function treeEdit(part, hold, fn, count = false) {
+  const r = core.treeEdit(fn);
+  const done = count ? r.rc >= 0 : r.rc === 0;
+  if (done) sliceOrHold(hold);
+  return { rc: count ? r.rc : -r.rc, clamp: r.clamp, tree: core.supportTrees(part) };
+}
 
 const ops = {
   // ---- the model and the plate: open, add, and arrange ----
@@ -1076,6 +1088,45 @@ const ops = {
     return { areas: core.supportAreas() };
   },
 
+  // ---- the support trees (support.js) ----
+  //
+  // Each edit returns { rc, clamp, tree }: rc 0 (or a count, or the tip
+  // of a new branch) when it is done, else -status; clamp: the rules that
+  // limited it (enum zs_tree_clamp); tree: the trees of the part again.
+  // hold: a drag goes on, so the slice waits for its end.
+
+  supportTrees() {
+    if (!core?.app) return { parts: [], note: "" };
+    const t = core.supportTreesAll();
+    return { ...t, transfer: t.parts.map((p) => p.nodes.buffer) };
+  },
+
+  treeMoveNode({ part, node, x, y, hold }) {
+    return treeEdit(part, hold, (c) => core.w.x.zs_app_support_tree_move_node(core.app, part, node, x, y, c));
+  },
+
+  treeRadius({ part, node, r, hold }) {
+    return treeEdit(part, hold, (c) => core.w.x.zs_app_support_tree_set_radius(core.app, part, node, r, c));
+  },
+
+  treeMoveBranch({ part, node, dx, dy, hold }) {
+    return treeEdit(part, hold, (c) => core.w.x.zs_app_support_tree_move_branch(core.app, part, node, dx, dy, c));
+  },
+
+  treeDelete({ part, node }) {
+    return treeEdit(part, false, () => core.w.x.zs_app_support_tree_delete_branch(core.app, part, node), true);
+  },
+
+  treeAdd({ part, fx, fy, tx, ty, tz }) {
+    return treeEdit(part, false, (c) => core.w.x.zs_app_support_tree_add_branch(core.app, part, fx, fy, tx, ty, tz, c), true);
+  },
+
+  treeReset({ part }) {
+    const done = core.w.x.zs_app_support_tree_reset(core.app, part) === 1;
+    if (done) wantSlice();
+    return { rc: done ? 0 : -1, clamp: 0, tree: core.supportTrees(part) };
+  },
+
   // ---- printdeck.yml projects (project.js), and the project file ----
 
   projectPlan({ text, counts }) {
@@ -1311,12 +1362,16 @@ self.onmessage = async (e) => {
     }
     // A change that takes away what held a part (support turned off): the
     // page starts its fall. The turns run their own fall at the end.
-    if ((SETTING_OPS.has(op) || FALL_CHECK_OPS.has(op)) && op !== "refineApply" && core?.app) {
+    if ((SETTING_OPS.has(op) || FALL_CHECK_OPS.has(op)) && op !== "refineApply" && !args.hold && core?.app) {
       const k = Number(core.w.x.zs_app_fall_pending(core.app));
       if (k >= 0) post({ event: "fall", index: k });
     }
     if (platesDirty) postPlates();
-    const transfer = result?.bytes ? [result.bytes] : [];
+    let transfer = result?.bytes ? [result.bytes] : [];
+    if (result?.transfer) {
+      transfer = result.transfer;
+      delete result.transfer;
+    }
     post({ id, result }, transfer);
   } catch (err) {
     post({ id, error: String(err?.message ?? err) });

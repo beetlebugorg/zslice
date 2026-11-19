@@ -9,6 +9,7 @@
 const SLICE_OPS = new Set(["set", "reset", "quality", "profile", "setScoped", "resetScoped", "load", "add", "plate", "projectLoad", "partAction", "partSettingSet", "partPutDown", "partTurn",
   "putDown", "place", "partMove", "partToPlate", "partRotate", "markAdd", "markRemoveNear", "markSet", "markRemove", "marksClear",
   "supportAreaAdd", "supportAreaSet", "supportAreaKind", "supportAreaRemove",
+  "treeMoveNode", "treeRadius", "treeMoveBranch", "treeDelete", "treeAdd", "treeReset",
   "undo", "redo", "historyGoto", "historyRevert", "historyTruncate",
   // The worker cannot take a call of the plate set while a plate slices in
   // the background: it slices again later.

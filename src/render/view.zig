@@ -135,6 +135,9 @@ pub const SupportArea = struct {
     pub const selected: u8 = 2;
     /// Draw the points.
     pub const points: u8 = 4;
+    /// A path in the air (the nodes of the support trees): no lift, no
+    /// fill hint, and its points as one small bead each.
+    pub const bare: u8 = 8;
 };
 
 pub const View = struct {
@@ -1451,7 +1454,8 @@ pub const View = struct {
             const src = v.sup_pts.items[a.first..][0..@min(a.n, buf.len)];
             var zm: f32 = 0;
             for (src) |p| zm += p[2] / @as(f32, @floatFromInt(src.len));
-            const lift: f32 = if (eye[2] < zm) -span else span;
+            const bare = a.flags & SupportArea.bare != 0;
+            const lift: f32 = if (bare) 0 else if (eye[2] < zm) -span else span;
             for (src, buf[0..src.len]) |p, *q| q.* = .{ p[0], p[1], p[2] + lift };
             const pts = buf[0..src.len];
             const block = a.kind == 3;
@@ -1464,9 +1468,19 @@ pub const View = struct {
             // meet.
             // The lines across are thin, and as tall as the outline, so
             // that they reach out of the part on both sides of the surface.
-            if (closed and pts.len >= 3) hatch(out, n, pts, span * 0.7, w, fill, if (sel) 12 else 8);
+            if (closed and !bare and pts.len >= 3) hatch(out, n, pts, span * 0.7, w, fill, if (sel) 12 else 8);
             const edges = if (closed) pts.len else pts.len - 1;
             for (0..edges) |k| stair(out, n, pts[k], pts[(k + 1) % pts.len], w, w, line);
+            if (bare) {
+                if (a.flags & SupportArea.points == 0) continue;
+                for (pts) |p| {
+                    if (n.* >= out.len) return;
+                    const s = span * (if (sel) @as(f32, 5) else 3);
+                    out[n.*] = .{ .ax = p[0], .ay = p[1], .bx = p[0] + 0.001, .by = p[1], .z = p[2] + s / 2, .h = s, .w = s, .rgba = if (sel) .{ 0xff, 0xff, 0xff, code_overlay } else line };
+                    n.* += 1;
+                }
+                continue;
+            }
             if (a.flags & SupportArea.points != 0 or sel or !closed) {
                 for (pts, 0..) |p, k| {
                     if (n.* >= out.len) return;

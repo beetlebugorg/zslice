@@ -2321,6 +2321,9 @@ function onWorkerEvent(m) {
       app.layers = m.layers;
       app.marks = m.marks;
       supportTool?.setAreas(m.areas);
+      supportTool?.reloadTrees();
+      // Support trees of the user that no longer fit their part.
+      if (m.treeNote) toast(m.treeNote);
       app.parts = m.parts;
       app.fits = m.fits !== false;
       app.overhang = 0;

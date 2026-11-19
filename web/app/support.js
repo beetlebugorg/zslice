@@ -16,16 +16,33 @@
 //   outline follows the pointer at once; the slice waits for the end of
 //   the drag (the hold of the plate set, as in the Turn tool).
 //
+// - Trees (tree support): the nodes of the trees show as dots. Click a
+//   dot or a segment to select its branch. Drag a dot to move the node,
+//   drag the ring of the selected node to make the branch wider or
+//   narrower there, and drag a segment to move the whole branch. Delete
+//   removes the branch (and the branches over it). "Add a branch": tap a
+//   spot on the bed, then the place on the part that needs support, and
+//   the core plans a branch from that foot to that tip. "Reset support"
+//   plans the trees of the part again. The core keeps each edit within
+//   the rules (out of the part, at most the tree angle, at least the
+//   radius that the rules need); an edit that a rule limited shows red.
+//   The dots and the ring follow the pointer at once; the core gets the
+//   edit at most each 60 ms, and the slice waits for the end of the drag.
+//
 // The core keeps the areas (zs_app_support_area_*, in the worker), slices
 // with them, and keeps them in the 3MF and the history. The core view
 // draws them (zs_view_support_add). While the tool is on, a pick skips the
 // support lines (zs_view_pick_skip_support), so a click finds the part
 // under them, and the support lines are faint (a focus on the other
 // features), so the outlines show through them. The card turns that off.
+// The trees are the same (zs_app_support_tree_*); the view draws their
+// nodes as bare paths.
 //
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
 import { el } from "./settings.js";
+import { TREE_STRIDE } from "./core.js";
+import { placeBeside, freeArea } from "./place.js";
 
 // The kinds of an area (enum zs_mark_kind).
 export const KINDS = [
@@ -36,6 +53,27 @@ export const KINDS = [
 const BLOCK = 3;
 // The distance from a point or an outline that still hits it, CSS pixels.
 const NEAR = 10;
+// The kinds of the view for the trees: blue, and red for a limited edit.
+const TREE_KIND = 1;
+const RED = 3;
+// The flags of zs_view_support_add.
+const CLOSED = 1;
+const SELECTED = 2;
+const POINTS = 4;
+const BARE = 8;
+// The node flags (enum zs_tree_node_flag).
+const TREE_TIP = 1;
+// The smallest distance on the screen between two dots that the view
+// draws (CSS pixels): more dots add no help, and the view has a budget.
+const DOT_CELL = 7;
+// The clamp bits (enum zs_tree_clamp), in words.
+const CLAMP_TEXT = [
+  [1, "it stays out of the part"],
+  [2, "a segment leans at most the tree angle"],
+  [4, "the rules need this width"],
+  [8, "this is the largest width"],
+  [16, "the foot moved nearer, so the branch can reach the tip"],
+];
 
 function loadPaneOpen() {
   try {
@@ -64,6 +102,15 @@ export class SupportTool {
     this.hot = null;
     this.picking = false;
     this.pickNext = null;
+    // The support trees: part -> { edited, nodes (Float64Array, see
+    // core.supportTrees) }; the selected node { part, node }; the clamp
+    // bits of the last edit; "Add a branch" ({ foot: [x, y] or null });
+    // and the drag of a node, a ring, or a branch.
+    this.trees = new Map();
+    this.tsel = null;
+    this.tclamp = 0;
+    this.adding = null;
+    this.tdrag = null;
     // The pane of the tool: open at the start; the user closes it when
     // they know the tool, and S or a click on the tool opens it again.
     this.paneOpen = loadPaneOpen();
@@ -94,7 +141,9 @@ export class SupportTool {
       this.draft = [];
       this.sel = -1;
       this.hot = null;
-    }
+      this.adding = null;
+      this.tsel = null;
+    } else this.reloadTrees();
     this.show();
     this.ctx.focus?.();
   }
@@ -117,6 +166,231 @@ export class SupportTool {
     this.setAreas(r.areas);
   }
 
+  // ---- the support trees ----
+
+  // The trees of the core, after a slice or an undo (only while the tool
+  // is on: the trees cost a little to read).
+  async reloadTrees() {
+    if (!this.on) return;
+    const r = await this.ctx.client.call("supportTrees");
+    if (r.note) this.ctx.toast?.(r.note);
+    if (this.tdrag) return;
+    this.trees = new Map(r.parts.map((t) => [t.part, t]));
+    if (this.tsel && !this.nodeOk(this.tsel)) this.tsel = null;
+    this.show();
+  }
+
+  nodeOk(s) {
+    const t = this.trees.get(s.part);
+    return !!t && s.node >= 0 && s.node * TREE_STRIDE < t.nodes.length;
+  }
+
+  // Node i of part `part`: { x, y, z, r, rMin, down, layer, branch, flags }.
+  node(part, i) {
+    const a = this.trees.get(part).nodes;
+    const o = i * TREE_STRIDE;
+    return { x: a[o], y: a[o + 1], z: a[o + 2], r: a[o + 3], rMin: a[o + 4], down: a[o + 5], layer: a[o + 6], branch: a[o + 7], flags: a[o + 8] };
+  }
+
+  count(part) {
+    return (this.trees.get(part)?.nodes.length ?? 0) / TREE_STRIDE;
+  }
+
+  // The nodes of the branch of node i, and the nodes next to it (the
+  // segments into the branch and out of it): { branch: [...], ends: [...] }.
+  branchOf(part, i) {
+    const n = this.count(part);
+    const b = this.node(part, i).branch;
+    const a = this.trees.get(part).nodes;
+    const branch = [];
+    for (let k = 0; k < n; k++) if (a[k * TREE_STRIDE + 7] === b) branch.push(k);
+    return branch;
+  }
+
+  // The tree element under a pixel: { kind: "ring" | "node" | "seg", part,
+  // node }, or null. The ring of the selected node first, then the dots,
+  // then the segments (a segment is node -> its down node).
+  treeAt(px, py) {
+    if (this.trees.size === 0) return null;
+    const tol = NEAR * this.dpr();
+    const s = this.tsel;
+    if (s && this.nodeOk(s)) {
+      const nd = this.node(s.part, s.node);
+      const ring = this.ringPixels(nd);
+      for (let k = 0; k < ring.length; k++) {
+        const a = ring[k];
+        const b = ring[(k + 1) % ring.length];
+        if (a && b && segDist(px, py, a, b) < tol * 0.7) return { kind: "ring", part: s.part, node: s.node };
+      }
+    }
+    let best = null;
+    let bestD = tol;
+    const pix = [];
+    for (const [part, t] of this.trees) {
+      const n = t.nodes.length / TREE_STRIDE;
+      const q = new Array(n);
+      for (let i = 0; i < n; i++) {
+        const o = i * TREE_STRIDE;
+        q[i] = this.pixelOf([t.nodes[o], t.nodes[o + 1], t.nodes[o + 2]]);
+        if (q[i]) {
+          const d = Math.hypot(q[i][0] - px, q[i][1] - py);
+          if (d < bestD) {
+            bestD = d;
+            best = { kind: "node", part, node: i };
+          }
+        }
+      }
+      pix.push([part, t, q]);
+    }
+    if (best) return best;
+    bestD = tol * 0.7;
+    for (const [part, t, q] of pix) {
+      const n = t.nodes.length / TREE_STRIDE;
+      for (let i = 0; i < n; i++) {
+        const d = t.nodes[i * TREE_STRIDE + 5];
+        if (d < 0 || !q[i] || !q[d]) continue;
+        const dd = segDist(px, py, q[i], q[d]);
+        if (dd < bestD) {
+          bestD = dd;
+          best = { kind: "seg", part, node: i };
+        }
+      }
+    }
+    return best;
+  }
+
+  // The ring of a node: points on its circle at its z.
+  ringPoints(nd, count = 24) {
+    const pts = [];
+    for (let k = 0; k < count; k++) {
+      const t = (2 * Math.PI * k) / count;
+      pts.push([nd.x + nd.r * Math.cos(t), nd.y + nd.r * Math.sin(t), nd.z]);
+    }
+    return pts;
+  }
+
+  ringPixels(nd) {
+    return this.ringPoints(nd, 16).map((p) => this.pixelOf(p));
+  }
+
+  // The point of the plane at height z under a pixel, or null.
+  planePoint(px, py, z) {
+    const { view } = this.ctx;
+    const c = view.w.cell;
+    if (!view.x.zs_view_plane_point(view.v, px, py, z, c, c + 8)) return null;
+    return [view.w.f64(c), view.w.f64(c + 8)];
+  }
+
+  bedPoint(px, py) {
+    const { view } = this.ctx;
+    const c = view.w.cell;
+    if (!view.x.zs_view_bed_point(view.v, px, py, c, c + 8)) return null;
+    return [view.w.f64(c), view.w.f64(c + 8)];
+  }
+
+  // The trees to the core view: a dot for each node (one dot for nodes
+  // closer than DOT_CELL on the screen), the segments of the selected
+  // branch, the ring of the selected node, and the foot of a new branch.
+  showTrees(add) {
+    if (!this.on || this.trees.size === 0) return;
+    const s = this.tsel && this.nodeOk(this.tsel) ? this.tsel : null;
+    const kind = this.tclamp ? RED : TREE_KIND;
+    const cell = DOT_CELL * this.dpr();
+    const seen = new Set();
+    let branch = [];
+    if (s) {
+      branch = this.branchOf(s.part, s.node);
+      // The segments of the branch, and the segments into it and out of it.
+      const inb = new Set(branch);
+      const a = this.trees.get(s.part).nodes;
+      const n = this.count(s.part);
+      for (let k = 0; k < n; k++) {
+        const d = a[k * TREE_STRIDE + 5];
+        if (d < 0 || !(inb.has(k) || inb.has(d))) continue;
+        const p = this.node(s.part, k);
+        const q = this.node(s.part, d);
+        add([[p.x, p.y, p.z], [q.x, q.y, q.z]], kind, BARE | (inb.has(k) ? SELECTED : 0));
+      }
+      for (const k of branch) {
+        const p = this.node(s.part, k);
+        add([[p.x, p.y, p.z]], kind, BARE | POINTS | (k === s.node ? SELECTED : 0));
+      }
+      const nd = this.node(s.part, s.node);
+      add(this.ringPoints(nd), kind, BARE | CLOSED | SELECTED);
+    }
+    for (const [part, t] of this.trees) {
+      const n = t.nodes.length / TREE_STRIDE;
+      for (let i = 0; i < n; i++) {
+        if (s && part === s.part && branch.includes(i)) continue;
+        const o = i * TREE_STRIDE;
+        const p = [t.nodes[o], t.nodes[o + 1], t.nodes[o + 2]];
+        const q = this.pixelOf(p);
+        if (!q) continue;
+        const key = `${Math.floor(q[0] / cell)},${Math.floor(q[1] / cell)}`;
+        if (seen.has(key)) continue;
+        seen.add(key);
+        add([p], TREE_KIND, BARE | POINTS);
+      }
+    }
+    if (this.adding?.foot) add([[...this.adding.foot, 0]], TREE_KIND, BARE | POINTS | SELECTED);
+  }
+
+  // The result of an edit of the core: the trees of the part, and the
+  // clamp bits.
+  takeTree(r) {
+    if (!r) return;
+    if (r.tree) this.trees.set(r.tree.part, r.tree);
+    this.tclamp = r.clamp ?? 0;
+    if (r.rc < 0) this.ctx.toast?.(r.rc === -11 ? "Slice first: the edits of the trees need a slice." : "The trees cannot change like that.");
+  }
+
+  async deleteBranch() {
+    const s = this.tsel;
+    if (!s) return false;
+    this.tsel = null;
+    const r = await this.ctx.client.call("treeDelete", { part: s.part, node: s.node });
+    this.takeTree(r);
+    this.tclamp = 0;
+    this.show();
+    return true;
+  }
+
+  async resetTrees(part) {
+    this.tsel = null;
+    const r = await this.ctx.client.call("treeReset", { part });
+    this.takeTree(r);
+    this.show();
+  }
+
+  // "Add a branch": a tap on the bed (the foot), then a tap on the part.
+  startAdd() {
+    this.adding = this.adding ? null : { foot: null };
+    this.tsel = null;
+    this.show();
+  }
+
+  async addClick(px, py) {
+    if (!this.adding.foot) {
+      const p = this.bedPoint(px, py);
+      if (!p) return;
+      this.adding.foot = p;
+      this.show();
+      return;
+    }
+    const t = this.surfacePoint(px, py, false);
+    if (!t) {
+      this.ctx.toast?.("Tap the place on the part that needs support.");
+      return;
+    }
+    const f = this.adding.foot;
+    this.adding = null;
+    const r = await this.ctx.client.call("treeAdd", { part: -1, fx: f[0], fy: f[1], tx: t[0], ty: t[1], tz: t[2] });
+    this.takeTree(r);
+    if (r.rc >= 0 && r.tree) this.tsel = { part: r.tree.part, node: r.rc };
+    else if (r.rc < 0) this.ctx.toast?.("No room for a branch there: tap under an overhang, higher than the bed.");
+    this.show();
+  }
+
   // The areas and the draft to the core view, and the card.
   show() {
     const { view } = this.ctx;
@@ -131,6 +405,7 @@ export class SupportTool {
     this.areas.forEach((a, i) => add(a.pts, a.kind, 1 | (i === this.sel ? 2 : 0) | (this.on ? 4 : 0)));
     if (this.on) add(this.draft, this.kind, 4);
     if (this.on && this.hot && this.draft.length === 0) add(this.hot.pts, this.kind, 1 | 2 | 4);
+    this.showTrees(add);
     this.showCard();
     this.ctx.frame();
   }
@@ -141,6 +416,36 @@ export class SupportTool {
   place() {
     const want = this.on && this.paneOpen && this.ctx.page() === "3d";
     if (want === this.card.hidden) this.showCard();
+    else if (want) this.placeCard();
+  }
+
+  // The card stays clear of the selected branch: beside its box on the
+  // screen. With no branch, at its place by the tool strip.
+  placeCard() {
+    const card = this.card;
+    const s = this.tsel && this.nodeOk(this.tsel) ? this.tsel : null;
+    if (!s || this.card.hidden) {
+      card.style.left = "";
+      card.style.top = "";
+      return;
+    }
+    const d = this.dpr();
+    const box = [Infinity, Infinity, -Infinity, -Infinity];
+    for (const k of this.branchOf(s.part, s.node)) {
+      const nd = this.node(s.part, k);
+      for (const p of [[nd.x - nd.r, nd.y, nd.z], [nd.x + nd.r, nd.y, nd.z], [nd.x, nd.y - nd.r, nd.z], [nd.x, nd.y + nd.r, nd.z]]) {
+        const q = this.pixelOf(p);
+        if (!q) continue;
+        box[0] = Math.min(box[0], q[0] / d);
+        box[1] = Math.min(box[1], q[1] / d);
+        box[2] = Math.max(box[2], q[0] / d);
+        box[3] = Math.max(box[3], q[1] / d);
+      }
+    }
+    if (!(box[2] >= box[0])) return;
+    const [x, y] = placeBeside(box, freeArea(this.ctx.host), card.offsetWidth, card.offsetHeight);
+    card.style.left = `${x}px`;
+    card.style.top = `${y}px`;
   }
 
   // Opens or closes the pane (S again, or a click on the tool).
@@ -190,6 +495,7 @@ export class SupportTool {
     };
     see.append(box, document.createTextNode(" See through the support"));
     card.append(see);
+    this.treeCard(card);
     if (a) {
       const info = el("div", "sc-info", `${a.pts.length} points, z ${a.zLo.toFixed(2)} to ${a.zHi.toFixed(2)} mm. Drag a point to move it.`);
       const del = el("button", "tool sc-delete", "Delete");
@@ -204,6 +510,48 @@ export class SupportTool {
           ? `${n} point${n === 1 ? "" : "s"}. Click more points (at least 3). Backspace removes the last one; Esc stops.`
           : `${n} points. Click the first point, or press Enter, to close the area.`;
       card.append(el("div", "sc-info", hint));
+    }
+    this.placeCard();
+  }
+
+  // The part of the card for the trees: the selected branch, "Add a
+  // branch", and "Reset support".
+  treeCard(card) {
+    if (this.trees.size === 0 && !this.adding) return;
+    const row = el("div", "sc-kinds");
+    const add = el("button", "tool sc-kind" + (this.adding ? " checked" : ""), "Add a branch");
+    add.title = "Tap a spot on the bed, then the place on the part that needs support";
+    add.onclick = () => this.startAdd();
+    row.append(add);
+    // Reset: the part of the selection, else the one part with edits.
+    const s = this.tsel && this.nodeOk(this.tsel) ? this.tsel : null;
+    const edited = [...this.trees.values()].filter((t) => t.edited).map((t) => t.part);
+    const part = s ? s.part : edited.length === 1 ? edited[0] : -1;
+    if (part >= 0 && this.trees.get(part)?.edited) {
+      const reset = el("button", "tool sc-kind", "Reset support");
+      reset.title = "Plan the support trees of this part again";
+      reset.onclick = () => this.resetTrees(part);
+      row.append(reset);
+    }
+    card.append(row);
+    let text;
+    if (this.adding) {
+      text = this.adding.foot ? "Now tap the place on the part that needs support. Esc stops." : "Tap a spot on the bed for the foot of the branch. Esc stops.";
+    } else if (s) {
+      const nd = this.node(s.part, s.node);
+      const n = this.branchOf(s.part, s.node).length;
+      text = `Branch: ${n} node${n === 1 ? "" : "s"}. This node: ${(2 * nd.r).toFixed(1)} mm wide (at least ${(2 * nd.rMin).toFixed(1)} mm), z ${nd.z.toFixed(2)} mm. Drag a dot to move it, the ring to make it wider or narrower, a segment to move the branch. Delete removes the branch.`;
+    } else text = "Click a dot or a segment of a tree to select its branch.";
+    if (this.tclamp) {
+      const why = CLAMP_TEXT.filter(([b]) => this.tclamp & b).map(([, t]) => t);
+      text += ` Limited: ${why.join("; ")}.`;
+    }
+    card.append(el("div", "sc-info" + (this.tclamp ? " sc-limit" : ""), text));
+    if (s) {
+      const del = el("button", "tool sc-delete", "Delete branch");
+      del.title = "Delete this branch and the branches over it (Delete)";
+      del.onclick = () => this.deleteBranch();
+      card.append(del);
     }
   }
 
@@ -285,7 +633,12 @@ export class SupportTool {
     if (!this.on || this.drag || this.ctx.page() !== "3d") return;
     const [px, py] = this.at(e);
     const onPoint = this.pointAt(px, py);
-    this.ctx.host.style.cursor = onPoint ? "grab" : "crosshair";
+    const onTree = onPoint || this.adding ? null : this.treeAt(px, py);
+    this.ctx.host.style.cursor = onPoint || onTree ? (onTree?.kind === "ring" ? "ew-resize" : "grab") : "crosshair";
+    if (onTree || this.adding) {
+      this.setHot(null);
+      return;
+    }
     // The overhang under the pointer, while no area is drawn and the
     // pointer is not on a point or an outline.
     if (this.draft.length > 0 || onPoint || e.buttons !== 0 || this.outlineAt(px, py) >= 0) {
@@ -328,6 +681,25 @@ export class SupportTool {
   // A click in the view (app.js, on a release with no drag).
   click(px, py, shift, alt = false) {
     if (!this.on || this.ctx.page() !== "3d") return;
+    if (this.adding) {
+      this.addClick(px, py);
+      return;
+    }
+    // A dot or a segment of a tree: select its branch.
+    if (this.draft.length === 0) {
+      const t = this.treeAt(px, py);
+      if (t) {
+        this.tsel = { part: t.part, node: t.node };
+        this.tclamp = 0;
+        this.sel = -1;
+        this.show();
+        return;
+      }
+      if (this.tsel) {
+        this.tsel = null;
+        this.show();
+      }
+    }
     // The overhang under the pointer: support under it, in one click.
     if (this.draft.length === 0 && this.hot && !alt && this.outlineAt(px, py) < 0) {
       this.addHot();
@@ -396,14 +768,33 @@ export class SupportTool {
           this.removeSelected();
           return true;
         }
+        if (this.tsel) {
+          this.deleteBranch();
+          return true;
+        }
         return false;
       case "Delete":
         if (this.sel >= 0) {
           this.removeSelected();
           return true;
         }
+        if (this.tsel) {
+          this.deleteBranch();
+          return true;
+        }
         return false;
       case "Escape":
+        if (this.adding) {
+          this.adding = null;
+          this.show();
+          return true;
+        }
+        if (this.tsel) {
+          this.tsel = null;
+          this.tclamp = 0;
+          this.show();
+          return true;
+        }
         if (this.draft.length > 0) {
           this.draft = [];
           this.show();
@@ -423,10 +814,14 @@ export class SupportTool {
   // ---- drag a point ----
 
   press(e) {
-    if (e.button !== 0 || !this.on || this.ctx.page() !== "3d" || this.draft.length > 0) return;
+    if (e.button !== 0 || !this.on || this.ctx.page() !== "3d" || this.draft.length > 0 || this.adding) return;
     const [px, py] = this.at(e);
     const hit = this.pointAt(px, py);
-    if (!hit) return;
+    if (!hit) {
+      const t = this.treeAt(px, py);
+      if (t) this.pressTree(e, t, px, py);
+      return;
+    }
     e.preventDefault();
     e.stopPropagation();
     this.sel = hit.area;
@@ -475,6 +870,142 @@ export class SupportTool {
     target.addEventListener("pointermove", move, true);
     target.addEventListener("pointerup", up, true);
     target.addEventListener("pointercancel", up, true);
+    this.show();
+  }
+
+  // ---- drag a node, a ring, or a branch ----
+
+  pressTree(e, t, px, py) {
+    e.preventDefault();
+    e.stopPropagation();
+    const nd = this.node(t.part, t.node);
+    // A segment: the branch moves with the point of the plane at the
+    // height of the middle of the segment.
+    let z = nd.z;
+    if (t.kind === "seg" && nd.down >= 0) z = (nd.z + this.node(t.part, nd.down).z) / 2;
+    const start = this.planePoint(px, py, z);
+    if (!start) return;
+    const branch = t.kind === "seg" ? this.branchOf(t.part, t.node) : [t.node];
+    const orig = branch.map((k) => {
+      const q = this.node(t.part, k);
+      return [q.x, q.y];
+    });
+    const d = { ...t, z, start, branch, orig, moved: false, sent: 0, busy: false, dirty: false, applied: [0, 0], want: null, t0: performance.now(), frames: 0, work: 0 };
+    this.tdrag = d;
+    // The drag selects the branch of the node.
+    this.tsel = { part: t.part, node: t.node };
+    this.sel = -1;
+    this.ctx.host.style.cursor = "grabbing";
+    const target = e.target;
+    try {
+      target.setPointerCapture(e.pointerId);
+    } catch {
+      // A pointer with no capture (a test): the events still come here.
+    }
+    const move = (ev) => {
+      if (this.tdrag !== d) return;
+      ev.stopPropagation();
+      const t0 = performance.now();
+      const [mx, my] = this.at(ev);
+      const p = this.planePoint(mx, my, d.z);
+      if (!p) return;
+      d.moved = true;
+      d.frames++;
+      this.dragTo(d, p);
+      this.show();
+      d.dirty = true;
+      this.sendTree(true);
+      d.work += performance.now() - t0;
+    };
+    const up = (ev) => {
+      ev.stopPropagation();
+      target.removeEventListener("pointermove", move, true);
+      target.removeEventListener("pointerup", up, true);
+      target.removeEventListener("pointercancel", up, true);
+      this.ctx.host.style.cursor = "";
+      if (d.moved) this.dragDone = { ms: performance.now() - d.t0, moves: d.frames, workMs: d.work };
+      if (d.moved) this.finishTree(d);
+      else this.tdrag = null;
+      this.show();
+    };
+    target.addEventListener("pointermove", move, true);
+    target.addEventListener("pointerup", up, true);
+    target.addEventListener("pointercancel", up, true);
+    this.show();
+  }
+
+  // The local preview of a drag to the plane point p: the nodes follow at
+  // once; the core clamps them when its answer comes.
+  dragTo(d, p) {
+    const a = this.trees.get(d.part).nodes;
+    if (d.kind === "ring") {
+      const nd = this.node(d.part, d.node);
+      d.want = { r: Math.max(0.05, Math.hypot(p[0] - nd.x, p[1] - nd.y)) };
+      a[d.node * TREE_STRIDE + 3] = d.want.r;
+      return;
+    }
+    const dx = p[0] - d.start[0];
+    const dy = p[1] - d.start[1];
+    d.want = { dx, dy };
+    d.branch.forEach((k, i) => {
+      a[k * TREE_STRIDE] = d.orig[i][0] + dx;
+      a[k * TREE_STRIDE + 1] = d.orig[i][1] + dy;
+    });
+  }
+
+  // The op of the drag now, for the core.
+  treeOp(d, hold) {
+    const w = d.want;
+    if (d.kind === "ring") return ["treeRadius", { part: d.part, node: d.node, r: w.r, hold }];
+    if (d.kind === "node") return ["treeMoveNode", { part: d.part, node: d.node, x: d.orig[0][0] + w.dx, y: d.orig[0][1] + w.dy, hold }];
+    // A branch: the core moves it from where it is now.
+    return ["treeMoveBranch", { part: d.part, node: d.node, dx: w.dx - d.applied[0], dy: w.dy - d.applied[1], hold }];
+  }
+
+  // The answer of the core during a drag: its clamp, and for a branch the
+  // move that it applied. The local preview stays while the pointer moves.
+  answerTree(d, r) {
+    this.tclamp = r.clamp ?? 0;
+    if (d.kind === "seg" && r.tree) {
+      const o = d.branch[0] * TREE_STRIDE;
+      d.applied = [r.tree.nodes[o] - d.orig[0][0], r.tree.nodes[o + 1] - d.orig[0][1]];
+    }
+    if (!d.dirty && r.tree) {
+      // No newer move: show the clamped edit.
+      this.trees.set(r.tree.part, r.tree);
+      this.show();
+    }
+  }
+
+  async sendTree(hold) {
+    const d = this.tdrag;
+    if (!d || d.busy || !d.dirty || !d.want) return;
+    const now = performance.now();
+    if (now - d.sent < 60) {
+      clearTimeout(d.timer);
+      d.timer = setTimeout(() => this.sendTree(true), 60);
+      return;
+    }
+    d.busy = true;
+    d.dirty = false;
+    d.sent = now;
+    const [op, args] = this.treeOp(d, hold);
+    const r = await this.ctx.client.call(op, args);
+    d.busy = false;
+    if (this.tdrag === d) this.answerTree(d, r);
+    if (this.tdrag === d && d.dirty) this.sendTree(true);
+  }
+
+  // The end of a drag: the last edit with no hold, so the slice that
+  // waited starts, the step of the history ends, and the fall check runs.
+  async finishTree(d) {
+    clearTimeout(d.timer);
+    while (d.busy) await new Promise((res) => setTimeout(res, 5));
+    const [op, args] = this.treeOp(d, false);
+    const r = await this.ctx.client.call(op, args);
+    this.released = performance.now();
+    if (this.tdrag === d) this.tdrag = null;
+    this.takeTree(r);
     this.show();
   }
 

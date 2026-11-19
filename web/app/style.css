@@ -731,6 +731,7 @@ button.destructive { background: #c01c28; color: #fff; }
 .sc-info { opacity: 0.85; line-height: 1.35; }
 .sc-see { display: flex; align-items: center; gap: 4px; }
 .sc-delete { align-self: flex-start; min-height: 28px; padding: 0 12px; }
+.sc-limit { color: #ffb4a8; }
 .turn-label { position: absolute; z-index: 7; pointer-events: none; padding: 3px 8px; border-radius: 7px; background: rgba(30, 30, 34, 0.92); color: #ececee; font-size: 0.85em; font-variant-numeric: tabular-nums; }
 /* The plate set: the bar of the plates, and a label over each plate. */
 .plate-bar {
