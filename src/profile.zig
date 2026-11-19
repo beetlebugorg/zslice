@@ -258,16 +258,24 @@ fn writeValue(w: *std.Io.Writer, v: anytype) std.Io.Writer.Error!void {
         .bool => try w.writeAll(if (v) "true" else "false"),
         .@"enum" => try w.print("\"{s}\"", .{@tagName(v)}),
         .pointer => {
-            if (std.mem.indexOfScalar(u8, v, '\n') != null) {
-                // A multi-line literal string has no escapes. The newline
-                // after the opening quotes is not part of the value.
+            // A multi-line literal string has no escapes. The newline after
+            // the opening quotes is not part of the value. A value with '''
+            // in it (or a ' at its end) would end the string there, and the
+            // rest would be keys of the file: such a value is a basic string
+            // with escapes.
+            const literal = std.mem.indexOfScalar(u8, v, '\n') != null and std.mem.indexOf(u8, v, "'''") == null and v[v.len - 1] != '\'';
+            if (literal) {
                 try w.print("'''\n{s}'''", .{v});
             } else {
+                // No raw line end: the G-code has these lines as comments
+                // (gcode.zig), and a firmware ends a line at '\r' too.
                 try w.writeByte('"');
                 for (v) |c| switch (c) {
                     '"' => try w.writeAll("\\\""),
                     '\\' => try w.writeAll("\\\\"),
                     '\t' => try w.writeAll("\\t"),
+                    '\n' => try w.writeAll("\\n"),
+                    '\r' => try w.writeAll("\\r"),
                     else => try w.writeByte(c),
                 };
                 try w.writeByte('"');
@@ -398,4 +406,26 @@ test "writeChanged: only the changes, and they load again" {
     try testing.expectEqual(@as(f64, 280), back.machine.bed_size_x);
     try testing.expectEqualStrings("TAZ \"SE\"", back.machine.name);
     try testing.expectEqualStrings("G28\nG1 Z5\n", back.machine.start_gcode);
+}
+
+test "writeChanged: a text from outside cannot add keys or lines" {
+    var arena_state = std.heap.ArenaAllocator.init(testing.allocator);
+    defer arena_state.deinit();
+    const arena = arena_state.allocator();
+    // A name from an imported profile: with ''' it ends a literal string,
+    // and the next line sets the start G-code. With '\r', a firmware sees
+    // a new line in the settings comments of the G-code.
+    const names = [_][]const u8{ "x\n'''\nstart_gcode = '''M104 S300", "x\rM104 S300", "a\nb'", "a\r\nb" };
+    for (names) |name| {
+        var s: Settings = .{};
+        try s.set("machine.name", name);
+        var out: std.Io.Writer.Allocating = .init(arena);
+        try writeChanged(s, .machine, &out.writer);
+        var back: Settings = .{};
+        var diag: Diagnostic = .{};
+        try apply(arena, &back, .machine, "state", out.written(), null, &diag);
+        try testing.expectEqualStrings(name, back.machine.name);
+        try testing.expectEqualStrings((Settings{}).machine.start_gcode, back.machine.start_gcode);
+        if (std.mem.indexOfScalar(u8, name, '\n') == null) try testing.expect(std.mem.indexOfScalar(u8, out.written(), '\r') == null);
+    }
 }

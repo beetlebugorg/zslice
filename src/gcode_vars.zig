@@ -672,12 +672,24 @@ const Renderer = struct {
         try self.line.appendSlice(self.arena, text);
     }
 
+    /// A text value on the line, with a space for each line end. A text
+    /// comes from outside (a part, a file, or a filament name of an
+    /// imported profile): "PLA\nM104 S350" must not become a command of
+    /// its own. A firmware also ends a line at '\r'.
+    fn putOneLine(self: *Renderer, text: []const u8) Error!void {
+        const start = self.line.items.len;
+        try self.put(text);
+        for (self.line.items[start..]) |*c| {
+            if (c.* == '\n' or c.* == '\r') c.* = ' ';
+        }
+    }
+
     fn putValue(self: *Renderer, v: Value) Error!void {
         switch (v) {
             .nil => return error.NoValue,
             .boolean => |b| try self.put(if (b) "1" else "0"),
             .num => |n| try self.put(try numText(self.arena, n)),
-            .text => |t| try self.put(t),
+            .text => |t| try self.putOneLine(t),
             .list => |items| for (items, 0..) |x, i| {
                 if (i > 0) try self.put(",");
                 try self.putValue(x);
@@ -1088,10 +1100,21 @@ fn bracketEnd(text: []const u8, open: usize) ?usize {
 
 // ---- The expression language ----
 
+/// The most parentheses, signs, and `?` parts inside each other in one
+/// expression. An imported start G-code can nest without end: it stops
+/// with a syntax error before the stack runs out.
+const max_depth = 64;
+
 const Parser = struct {
     r: *Renderer,
     src: []const u8,
     pos: usize = 0,
+    depth: usize = 0,
+
+    fn enter(p: *Parser) Error!void {
+        p.depth += 1;
+        if (p.depth > max_depth) return error.Syntax;
+    }
 
     fn skipSpace(p: *Parser) void {
         while (p.pos < p.src.len and std.ascii.isWhitespace(p.src[p.pos])) p.pos += 1;
@@ -1239,6 +1262,8 @@ const Parser = struct {
     /// An expression. With `run` false, the parser only reads it (a
     /// branch that is not taken), and its value is nil.
     fn expression(p: *Parser, run: bool) Error!Value {
+        try p.enter();
+        defer p.depth -= 1;
         const c = try p.orExpr(run);
         if (p.peek() == '?') {
             p.pos += 1;
@@ -1272,6 +1297,8 @@ const Parser = struct {
     }
 
     fn notExpr(p: *Parser, run: bool) Error!Value {
+        try p.enter();
+        defer p.depth -= 1;
         if (p.eatWord("not") or (p.peek() == '!' and !std.mem.startsWith(u8, p.src[p.pos..], "!=") and !std.mem.startsWith(u8, p.src[p.pos..], "!~"))) {
             if (p.src[p.pos] == '!') p.pos += 1;
             const v = try p.notExpr(run);
@@ -1353,6 +1380,8 @@ const Parser = struct {
     }
 
     fn unary(p: *Parser, run: bool) Error!Value {
+        try p.enter();
+        defer p.depth -= 1;
         const c = p.peek();
         if (c == '-' or c == '+') {
             p.pos += 1;
@@ -1880,6 +1909,40 @@ test "each name of the map has a value" {
             else => {},
         }
     }
+}
+
+test "a text value cannot add a line to the G-code" {
+    var s: settings_mod.Settings = .{};
+    s.filament.name = "PLA\nM104 S350";
+    s.machine.name = "TAZ\rG28 X";
+    s.engine.job_name = "part\r\nM140 S150.stl";
+    const r = try s.resolve();
+    const got = try testRender("M117 {filament_name}\nM117 [printer_model] {machine_name}\nM117 {job_name}", .{ .r = &r });
+    defer testing.allocator.free(got);
+    try testing.expect(std.mem.indexOfScalar(u8, got, '\r') == null);
+    var lines = std.mem.splitScalar(u8, got, '\n');
+    var n: usize = 0;
+    while (lines.next()) |line| : (n += 1) {
+        // Each line is an M117 (or a comment of a line with no value).
+        try testing.expect(std.mem.startsWith(u8, line, "M117 ") or std.mem.startsWith(u8, line, "; zslice: "));
+    }
+    try testing.expect(n >= 3);
+}
+
+test "an expression that nests too deep becomes a comment" {
+    const n = 100_000;
+    const text = try testing.allocator.alloc(u8, 2 * n + 9);
+    defer testing.allocator.free(text);
+    @memcpy(text[0..6], "G1 Z{(");
+    @memset(text[6 .. n + 6], '(');
+    text[n + 6] = '1';
+    @memset(text[n + 7 .. 2 * n + 7], ')');
+    @memcpy(text[2 * n + 7 ..], ")}");
+    const r = try testResolved();
+    const got = try testRender(text, .{ .r = &r });
+    defer testing.allocator.free(got);
+    try testing.expect(std.mem.startsWith(u8, got, "; zslice: "));
+    try expectRender("G1 Z5", "G1 Z{-(-(1 + 2) - 2)}");
 }
 
 test "numbers" {

@@ -778,7 +778,7 @@ pub const Emitter = struct {
             .reprap => "RepRap",
             .repetier => "Repetier",
         }});
-        try self.w.print(";MACHINE:{s}\n;FILAMENT:{s}\n", .{ s.machine.name, s.filament.name });
+        try self.w.print(";MACHINE:{f}\n;FILAMENT:{f}\n", .{ oneLine(s.machine.name), oneLine(s.filament.name) });
         try self.w.print(";LAYER_COUNT:{d}\n", .{layer_count});
         // The start G-code goes into a buffer first: zslice heats before
         // it if it does not heat.
@@ -2174,6 +2174,19 @@ pub const Emitter = struct {
     }
 };
 
+/// A text for a comment line, with a space for each line end. A name of
+/// an imported profile with a line end would start a command of its own.
+const OneLine = struct {
+    text: []const u8,
+    pub fn format(o: OneLine, w: *Writer) Writer.Error!void {
+        for (o.text) |c| try w.writeByte(if (c == '\n' or c == '\r') ' ' else c);
+    }
+};
+
+fn oneLine(text: []const u8) OneLine {
+    return .{ .text = text };
+}
+
 /// The fan value of the emitter (-1: not set yet) as a byte.
 fn fanByte(fan: i32) u8 {
     return @intCast(std.math.clamp(fan, 0, 255));
@@ -2309,6 +2322,27 @@ const Line = struct {
         l.addDigits(buf[int_end..][0..digit_room], frac_end - int_end);
     }
 };
+
+test "a name with a line end stays in its comment line" {
+    const gpa = std.testing.allocator;
+    var m = try @import("mesh.zig").shapes.box(gpa, 5, 5, 1);
+    defer m.deinit(gpa);
+    var out: std.Io.Writer.Allocating = .init(gpa);
+    defer out.deinit();
+    var s: @import("settings.zig").Settings = .{};
+    s.engine.threads = 1;
+    s.machine.name = "TAZ\nM104 S350";
+    s.filament.name = "PLA\rG28 X";
+    _ = try @import("engine.zig").slice(gpa, &m, s, &out.writer);
+    const text = out.written();
+    try std.testing.expect(std.mem.indexOfScalar(u8, text, '\r') == null);
+    var lines = std.mem.splitScalar(u8, text, '\n');
+    while (lines.next()) |line| {
+        try std.testing.expect(!std.mem.startsWith(u8, line, "M104 S350"));
+        try std.testing.expect(!std.mem.startsWith(u8, line, "G28 X"));
+    }
+    try std.testing.expect(std.mem.indexOf(u8, text, ";MACHINE:TAZ M104 S350\n") != null);
+}
 
 test "writeNum" {
     var buf: [64]u8 = undefined;
