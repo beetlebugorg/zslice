@@ -1230,7 +1230,16 @@ pub const Renderer = struct {
         var image_count = caps.minImageCount + 1;
         if (caps.maxImageCount > 0) image_count = @min(image_count, caps.maxImageCount);
         image_count = @min(image_count, max_images);
-        const alpha: c.VkCompositeAlphaFlagBitsKHR = if (caps.supportedCompositeAlpha & c.VK_COMPOSITE_ALPHA_OPAQUE_BIT_KHR != 0)
+        // Pre-multiplied alpha first, though each pixel of a frame has an
+        // alpha of 1. With an opaque format (XRGB), Hyprland 0.56 counts the
+        // view (a subsurface under the window, out to its right and bottom
+        // edges) as the whole window, marks the window opaque, and draws
+        // the window with no blending: its transparent hole then covers
+        // the view. The shell sets the opaque region of the surface.
+        const supported = caps.supportedCompositeAlpha;
+        const alpha: c.VkCompositeAlphaFlagBitsKHR = if (supported & c.VK_COMPOSITE_ALPHA_PRE_MULTIPLIED_BIT_KHR != 0)
+            c.VK_COMPOSITE_ALPHA_PRE_MULTIPLIED_BIT_KHR
+        else if (supported & c.VK_COMPOSITE_ALPHA_OPAQUE_BIT_KHR != 0)
             c.VK_COMPOSITE_ALPHA_OPAQUE_BIT_KHR
         else
             c.VK_COMPOSITE_ALPHA_INHERIT_BIT_KHR;

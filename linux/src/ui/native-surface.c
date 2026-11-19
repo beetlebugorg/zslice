@@ -77,6 +77,12 @@ ZgNativeSurface *zg_native_surface_new(GdkSurface *parent, int x, int y, int sca
     struct wl_region *empty = wl_compositor_create_region(compositor);
     wl_surface_set_input_region(self->wl_surface, empty);
     wl_region_destroy(empty);
+    /* Each frame is opaque, but its format has alpha (see makeSwapchain in
+     * src/render/vk.zig): the opaque region tells the compositor. */
+    struct wl_region *all = wl_compositor_create_region(compositor);
+    wl_region_add(all, 0, 0, INT32_MAX, INT32_MAX);
+    wl_surface_set_opaque_region(self->wl_surface, all);
+    wl_region_destroy(all);
     wl_subsurface_set_position(self->wl_subsurface, x, y);
     /* Desync: a frame shows when Vulkan presents it, not when GTK commits
      * the window. */
