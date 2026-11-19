@@ -743,7 +743,7 @@ button.destructive { background: #c01c28; color: #fff; }
 .pb-name { padding: 0 6px; font-variant-numeric: tabular-nums; white-space: nowrap; }
 .plate-labels { position: absolute; inset: 0; pointer-events: none; overflow: hidden; }
 .plate-label {
-  position: absolute; transform: translate(-50%, -100%);
+  position: absolute; top: 8px; transform: translate(-50%, 0);
   pointer-events: auto; cursor: pointer; white-space: nowrap;
   background: rgba(45, 45, 45, 0.82); color: #fff; border-radius: 8px; padding: 2px 8px; font-size: 0.78em;
 }

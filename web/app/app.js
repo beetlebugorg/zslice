@@ -2585,32 +2585,34 @@ function placePlateLabels() {
   }
   root.hidden = false;
   const k = dpr();
+  const width = root.clientWidth;
+  // The labels stay in a row at the top of the view, over the middle of
+  // their plates: they never cover a part.
   app.plates.forEach((p, i) => {
     const el = root.children[i];
     if (!el) return;
     const o = view.plateOrigin(i);
-    const q = view.pixelOf(o[0] + (p.bed[0] || 220) / 2, o[1] + (p.bed[1] || 220), 0);
-    if (!q) {
+    const q = view.pixelOf(o[0] + (p.bed[0] || 220) / 2, o[1] + (p.bed[1] || 220) / 2, 0);
+    const x = q ? q[0] / k : NaN;
+    if (!(x > -40 && x < width + 40)) {
       el.style.display = "none";
       return;
     }
     el.style.display = "";
-    el.style.left = `${q[0] / k}px`;
-    el.style.top = `${q[1] / k}px`;
+    el.style.left = `${x}px`;
+    el.style.top = "";
   });
-  // A label that covers one at its left goes up over it.
+  // A label that covers one at its left moves right; all stay in the view.
   const shown = [...root.children].filter((e) => e.style.display !== "none").map((e) => ({ e, r: e.getBoundingClientRect() }));
   shown.sort((a, b) => a.r.left - b.r.left);
-  for (let i = 1; i < shown.length; i++) {
-    for (let j = 0; j < i; j++) {
-      const a = shown[j].r;
-      const b = shown[i].r;
-      if (b.left < a.right + 4 && b.right > a.left - 4 && b.top < a.bottom + 2 && b.bottom > a.top - 2) {
-        const up = b.bottom - a.top + 4;
-        shown[i].e.style.top = `${parseFloat(shown[i].e.style.top) - up}px`;
-        shown[i].r = shown[i].e.getBoundingClientRect();
-      }
-    }
+  const left0 = root.getBoundingClientRect().left;
+  let edge = left0 + 70; // right of the tool column
+  for (const s of shown) {
+    const w = s.r.width;
+    let x = Math.max(s.r.left, edge);
+    x = Math.min(x, left0 + width - w - 8);
+    s.e.style.left = `${x - left0 + w / 2}px`;
+    edge = x + w + 6;
   }
 }
 
