@@ -220,6 +220,26 @@ pub fn reset(app: *App, part: usize) bool {
     return true;
 }
 
+/// True if the trees of the user of part i hold it up: its center of mass
+/// is over the foot of the part and the tips of the trees that stand on
+/// the bed (physics.holdMargin). True with no trees of the user.
+pub fn holds(app: *App, part: usize) Allocator.Error!bool {
+    if (part >= app.plate.count()) return true;
+    const p = &app.plate.parts.items[part];
+    const t = &(p.trees orelse return true);
+    var props: std.ArrayList([2]f64) = .empty;
+    defer props.deinit(app.gpa);
+    for (t.sk.nodes.items, 0..) |nd, k| {
+        if (!nd.tip) continue;
+        if (t.sk.nodes.items[t.sk.root(@intCast(k))].layer != 0) continue;
+        try props.append(app.gpa, .{ p.x + nd.x / 1000, p.y + nd.y / 1000 });
+    }
+    // The mesh at its place on the plate, as the props are.
+    var m = try app.plate.partMesh(app.gpa, part);
+    defer m.deinit(app.gpa);
+    return try zs.physics.holdMargin(app.gpa, &m, props.items) >= -1e-3;
+}
+
 /// The lines of the trees of the user in the overrides text of a 3MF file:
 /// "support_tree <tab> part <tab> ..." (see support_skeleton.Edit.write).
 pub fn write3mfLines(app: *const App, w: *std.Io.Writer) std.Io.Writer.Error!void {
@@ -446,4 +466,35 @@ test "support trees: a branch from the bed holds the overhang over it" {
     // Reset: the planned trees again.
     try testing.expect(reset(app, 0));
     try testing.expect(view(app, 0).?.edited == false);
+}
+
+test "support trees: a part falls when the branch that holds it goes" {
+    const gpa = testing.allocator;
+    // A slab of 20 x 4 mm on a post of 2 x 2 mm at one end: it stands only
+    // on its support.
+    var b: zs.mesh.Builder = .init(gpa);
+    try zs.mesh.shapes.addBox(&b, 0, 0, 0, 2, 2, 5);
+    try zs.mesh.shapes.addBox(&b, -4, -1, 5, 16, 3, 9);
+    var mesh = try b.finish();
+    defer mesh.deinit(gpa);
+    var bytes: std.Io.Writer.Allocating = .init(gpa);
+    defer bytes.deinit();
+    try mesh.writeStl(&bytes.writer);
+    const app = try App.create(gpa, null, null);
+    defer app.destroy();
+    // Support first: with support off, the slab falls over on the load.
+    try app.setSetting("project.support", "everywhere");
+    try app.setSetting("project.support_style", "tree");
+    try app.loadStl("slab.stl", bytes.written());
+    try slice(app);
+    try testing.expect(try app.unstablePart() == null);
+    // No branches: it falls.
+    while (view(app, 0).?.sk.nodes.items.len > 0) _ = try deleteBranch(app, 0, 0);
+    try testing.expectEqual(@as(?usize, 0), try app.unstablePart());
+    // A branch under the far end of the slab: it stands again.
+    const box = app.plate.parts.items[0].footprint();
+    const x = box[2] - 2;
+    const y = (box[1] + box[3]) / 2;
+    _ = try addBranch(app, 0, x, y, x, y, 5);
+    try testing.expect(try app.unstablePart() == null);
 }

@@ -789,25 +789,32 @@ pub const App = struct {
     /// place is on the plate (slice again).
     pub const FallFrame = struct { q: [4]f64, pivot: [3]f64, move: [3]f64, done: bool };
 
-    /// The first part that cannot stand as it is while support is off, or
+    /// The first part that cannot stand as it is (see `standsUp`), or
     /// null: after a change that takes away what held it (support turned
-    /// off), a shell starts its fall.
+    /// off, or a branch of its support trees deleted), a shell starts its
+    /// fall.
     pub fn unstablePart(app: *App) Allocator.Error!?usize {
-        if (app.fall != null or app.settings.project.support != .off) return null;
-        for (app.plate.parts.items, 0..) |*p, i| {
-            const st = try zs.physics.settle(app.gpa, &p.mesh);
-            if (st.rolls > 0) return i;
-        }
+        if (app.fall != null) return null;
+        for (0..app.plate.count()) |i| if (!try app.standsUp(i)) return i;
         return null;
     }
 
-    /// Starts the fall of part i if it cannot stand as it is (support off).
-    /// False: it stands, or support holds it, or a fall runs.
+    /// True if part i stands as it is: on its own with support off, on
+    /// the support trees of the user if it has them (see
+    /// support_trees.holds), and always with planned support.
+    fn standsUp(app: *App, i: usize) Allocator.Error!bool {
+        const p = &app.plate.parts.items[i];
+        if (p.trees != null) return support_trees.holds(app, i);
+        if (app.settings.project.support != .off) return true;
+        const st = try zs.physics.settle(app.gpa, &p.mesh);
+        return st.rolls == 0;
+    }
+
+    /// Starts the fall of part i if it cannot stand as it is (see
+    /// `standsUp`). False: it stands, or support holds it, or a fall runs.
     pub fn fallStart(app: *App, i: usize) Allocator.Error!bool {
-        if (app.fall != null or i >= app.plate.count() or app.settings.project.support != .off) return false;
-        const part = &app.plate.parts.items[i];
-        const st = try zs.physics.settle(app.gpa, &part.mesh);
-        if (st.rolls == 0) return false;
+        if (app.fall != null or i >= app.plate.count()) return false;
+        if (try app.standsUp(i)) return false;
         try app.bodyOf(i);
         return true;
     }
@@ -929,7 +936,7 @@ pub const App = struct {
     /// caller does it). True if it fell. The Turn tool of a shell turns in
     /// steps and calls settlePart after the last step.
     fn settleNew(app: *App, i: usize) Allocator.Error!bool {
-        if (i >= app.plate.count() or app.settings.project.support != .off) return false;
+        if (i >= app.plate.count() or try app.standsUp(i)) return false;
         const st = try zs.physics.settle(app.gpa, &app.plate.parts.items[i].mesh);
         if (st.rolls == 0) return false;
         try app.plate.putDown(app.gpa, i, zs.physics.downOf(st));

@@ -13,6 +13,9 @@
 //!   same way, toward its center of mass.
 //! - The roll ends on a face (or a set of points) that holds the part. The
 //!   result is the rotation of the whole roll.
+//! - Supports hold a part too: the tops of the supports under it add to
+//!   its foot (`holdMargin`). A part whose center of mass is past the
+//!   foot and the supports cannot stand.
 //!
 //! This is the model of one rigid part on a flat bed. A full game physics
 //! engine (collisions between parts, bounces) is more than a slicer needs,
@@ -173,6 +176,26 @@ fn footMargin(a: Allocator, pts: []const V, c: V, eps: f64, edge: *[2]V) Allocat
     return worst;
 }
 
+/// How far the center of mass of the part is inside the area that holds
+/// it (mm; less than 0: outside): the convex hull of the points of the
+/// mesh at its lowest z, and of `props` (the tops of the supports under
+/// the part, x and y on the bed). A part on supports stands if its center
+/// of mass is over that area.
+pub fn holdMargin(a: Allocator, mesh: *const Mesh, props: []const [2]f64) Allocator.Error!f64 {
+    const vs = mesh.vertices.items;
+    if (vs.len == 0) return 0;
+    const pts = try a.alloc(V, vs.len + props.len);
+    defer a.free(pts);
+    var zmin: f64 = std.math.inf(f64);
+    for (vs, pts[0..vs.len]) |v, *p| {
+        p.* = .{ v.x, v.y, v.z };
+        zmin = @min(zmin, v.z);
+    }
+    for (props, pts[vs.len..]) |q, *p| p.* = .{ q[0], q[1], zmin };
+    var edge: [2]V = undefined;
+    return footMargin(a, pts, massOf(mesh).center, 0.05, &edge);
+}
+
 /// A rotation about a unit axis by `t` radians (Rodrigues).
 fn rotation(k: V, t: f64) M3 {
     const c = @cos(t);
@@ -323,4 +346,20 @@ test "physics: a tall board tipped 30 degrees falls flat, the way it leans" {
         zmin = @min(zmin, q[2]);
     }
     try testing.expectApproxEqAbs(@as(f64, 4), zmax - zmin, 0.01);
+}
+
+test "a part on a post stands on a prop under its far end, and not on a prop on the other side" {
+    const gpa = testing.allocator;
+    // A post of 2 x 2 mm, 5 mm high, under a slab of 20 x 4 mm that hangs
+    // out 14 mm to the right: the center of mass is past the post.
+    var b: mesh_mod.Builder = .init(gpa);
+    try mesh_mod.shapes.addBox(&b, 0, 0, 0, 2, 2, 5);
+    try mesh_mod.shapes.addBox(&b, -4, -1, 5, 16, 3, 9);
+    var m = try b.finish();
+    defer m.deinit(gpa);
+    try testing.expect(try holdMargin(gpa, &m, &.{}) < 0);
+    // A prop under the far end holds it.
+    try testing.expect(try holdMargin(gpa, &m, &.{.{ 14, 1 }}) > 0);
+    // A prop on the other side does not.
+    try testing.expect(try holdMargin(gpa, &m, &.{.{ -3, 1 }}) < 0);
 }
