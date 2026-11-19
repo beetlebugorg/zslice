@@ -442,7 +442,9 @@ fn cut(a: mesh_mod.Vec3, b: mesh_mod.Vec3, z: f64) Point {
 /// Joins open chains into loops. At the end of a chain, the code takes the
 /// nearest of: the start of the same chain (this closes the loop), or the
 /// start of another chain (this joins the two). A chain that has nothing
-/// within `gap` is removed.
+/// within `gap` closes on itself if its gap is shorter than the rest of it
+/// (a hole in the mesh: a face gone, and the cut across the hole is the
+/// best guess); else it is removed (a stray wall).
 ///
 /// The search is linear, so the cost is O(n^2) for n open chains. A mesh
 /// with a few holes gives a few open chains in each layer.
@@ -475,10 +477,20 @@ fn closeChains(arena: Allocator, open: Paths, loops: *Paths, gap: i64) !void {
                 try pts.appendSlice(arena, open.get(j));
                 continue;
             }
-            if (self_d <= gap2 and pts.items.len > 2) try loops.append(arena, pts.items);
+            if (pts.items.len > 2 and (self_d <= gap2 or closesOnItself(pts.items, self_d))) try loops.append(arena, pts.items);
             break;
         }
     }
+}
+
+/// True if an open chain closes on itself: its gap (squared: gap2) is
+/// shorter than the length of the chain without the gap.
+fn closesOnItself(pts: []const Point, gap2: i128) bool {
+    var len: f64 = 0;
+    for (pts[0 .. pts.len - 1], pts[1..]) |a, b| len += @sqrt(@as(f64, @floatFromInt(a.distSq(b))));
+    const gap = @sqrt(@as(f64, @floatFromInt(gap2)));
+    // A straight chain (a wall alone) has its gap as long as itself.
+    return gap > 0 and gap < 0.99 * len;
 }
 
 const testing = std.testing;
@@ -552,6 +564,52 @@ test "a mesh with a seam that does not weld" {
     defer out.deinit(gpa);
     try testing.expectEqual(@as(usize, 1), out.count());
     try testing.expectApproxEqAbs(@as(f64, 100.0), out.areaMm2(), 0.01);
+}
+
+test "a box with a side gone slices to its square" {
+    const gpa = testing.allocator;
+    var b: mesh_mod.Builder = .init(gpa);
+    const v = struct {
+        fn f(x: f32, y: f32, z: f32) mesh_mod.Vec3 {
+            return .{ .x = x, .y = y, .z = z };
+        }
+    }.f;
+    // A 10 mm box with no face at x = 10: each layer cuts a U, open by
+    // 10 mm. The U closes on itself (its gap is shorter than the rest).
+    try b.addQuad(v(0, 0, 0), v(0, 10, 0), v(10, 10, 0), v(10, 0, 0));
+    try b.addQuad(v(0, 0, 10), v(10, 0, 10), v(10, 10, 10), v(0, 10, 10));
+    try b.addQuad(v(0, 0, 0), v(10, 0, 0), v(10, 0, 10), v(0, 0, 10));
+    try b.addQuad(v(0, 10, 0), v(0, 10, 10), v(10, 10, 10), v(10, 10, 0));
+    try b.addQuad(v(0, 0, 0), v(0, 0, 10), v(0, 10, 10), v(0, 10, 0));
+    var m = try b.finish();
+    defer m.deinit(gpa);
+    const faces = try gpa.alloc(u32, m.faces.items.len);
+    defer gpa.free(faces);
+    for (faces, 0..) |*f, i| f.* = @intCast(i);
+    var out = try sliceAt(gpa, &m, faces, 5, 1, 1000);
+    defer out.deinit(gpa);
+    try testing.expectEqual(@as(usize, 1), out.count());
+    try testing.expectApproxEqAbs(@as(f64, 100.0), out.areaMm2(), 0.01);
+}
+
+test "a stray open line of a slice goes" {
+    const gpa = testing.allocator;
+    var b: mesh_mod.Builder = .init(gpa);
+    const v = struct {
+        fn f(x: f32, y: f32, z: f32) mesh_mod.Vec3 {
+            return .{ .x = x, .y = y, .z = z };
+        }
+    }.f;
+    // One wall alone: its cut is a straight line, with no area to close.
+    try b.addQuad(v(0, 0, 0), v(10, 0, 0), v(10, 0, 10), v(0, 0, 10));
+    var m = try b.finish();
+    defer m.deinit(gpa);
+    const faces = try gpa.alloc(u32, m.faces.items.len);
+    defer gpa.free(faces);
+    for (faces, 0..) |*f, i| f.* = @intCast(i);
+    var out = try sliceAt(gpa, &m, faces, 5, 1, 1000);
+    defer out.deinit(gpa);
+    try testing.expectEqual(@as(usize, 0), out.count());
 }
 
 test "the face index is the same on 1 thread and on 4 threads" {
