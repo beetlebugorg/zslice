@@ -59,6 +59,8 @@ pub const history = @import("app/history.zig");
 pub const refine = @import("app/refine.zig");
 /// The support areas of the user (see app/support_areas.zig).
 pub const support_areas = @import("app/support_areas.zig");
+/// The support trees that the user edits (see app/support_trees.zig).
+pub const support_trees = @import("app/support_trees.zig");
 pub const plate_set = @import("app/plate_set.zig");
 pub const measure = @import("app/measure.zig");
 /// The printability check (see app/checks.zig).
@@ -219,6 +221,10 @@ pub const App = struct {
     /// their polygons in `area_arena`.
     areas: support_areas.Areas = .{},
     area_arena: ?std.heap.ArenaAllocator = null,
+    /// The note of the last drop of the support trees of the user (see
+    /// app/support_trees.zig), and the copy that the shell reads.
+    trees_note: std.ArrayList(u8) = .empty,
+    trees_note_out: std.ArrayList(u8) = .empty,
     /// The cascade of the settings (see `Level`): the quality profile and
     /// the global settings of the user, as their changes from the
     /// defaults, in `strings`. `settings` has the result, with the changes
@@ -271,6 +277,8 @@ pub const App = struct {
         app.gpa.free(app.slice_marks);
         app.areas.deinit(app.gpa);
         if (app.area_arena) |*a| a.deinit();
+        app.trees_note.deinit(app.gpa);
+        app.trees_note_out.deinit(app.gpa);
         app.dropSlicePlan();
         for (app.plates.items) |*slot| slot.deinit(app.gpa);
         app.plates.deinit(app.gpa);
@@ -344,6 +352,8 @@ pub const App = struct {
     /// The parts of a 3MF file stay at their places in the file (if they
     /// fit), and its overrides apply.
     fn addLoaded(app: *App, loaded: *zs.threemf.Loaded) LoadError!void {
+        // The index of the first part of the file on the plate.
+        const first = app.plate.count();
         try zs.threemf.joinOverlapping(app.gpa, loaded);
         // The parts that print first, then the volumes (modifiers and the
         // other Cura volume types): each goes to the part that it overlaps
@@ -395,6 +405,8 @@ pub const App = struct {
         while (lines.next()) |line| {
             // A support area of the user (app/support_areas.zig).
             if (try app.areas.read3mfLine(app.gpa, line)) continue;
+            // The support trees of a part (app/support_trees.zig).
+            if (try support_trees.read3mfLine(app, first, line)) continue;
             // "edit <tab> key <tab> kind <tab> value <tab> layer": an edit of
             // the user on a line (app/edits.zig).
             if (std.mem.startsWith(u8, line, "edit\t")) {
@@ -445,6 +457,7 @@ pub const App = struct {
         defer text.deinit();
         for (app.profiles.items) |p| try text.writer.print("profile\t{d}\t{d}\t{s}\n", .{ p.z_min, p.z_max, p.name });
         try app.areas.write3mfLines(&text.writer);
+        try support_trees.write3mfLines(app, &text.writer);
         for (app.edits.list.items) |e| try text.writer.print("edit\t{x}\t{d}\t{d}\t{d}\t{d}\t{d}\t{d}\n", .{ e.key, @intFromEnum(e.kind), e.value, e.layer, e.x, e.y, e.z });
         for (app.overrides.items) |o| try text.writer.print("{d}\t{d}\t{s}\t{s}\n", .{ o.z_min, o.z_max, o.name, o.value });
         var out: std.Io.Writer.Allocating = .init(gpa);
@@ -1233,6 +1246,7 @@ pub const App = struct {
             }
         }
         try app.areas.writeFacts(w);
+        try support_trees.writeFacts(app, w);
         for (app.plate.parts.items) |p| {
             const name: []const u8 = p.name;
             try w.print("part:{s}\t(part)\tyes\n", .{name});
@@ -2061,6 +2075,7 @@ pub const App = struct {
     /// part on the bed, its settings and its modifier volumes (see
     /// part_settings.zig), and the support marks of the user over it.
     fn makeSlicePlan(app: *App) Allocator.Error!void {
+        support_trees.check(app);
         app.dropSlicePlan();
         app.slice_arena = .init(app.gpa);
         const a = app.slice_arena.?.allocator();
@@ -2103,12 +2118,25 @@ pub const App = struct {
             if (app.coarse_part != null and part_of[pp.input] != null and part_of[pp.input].? == app.coarse_part.?) {
                 changes = try app.coarseChanges(a, pp.changes);
             }
+            // The support trees of the user, on the plate.
+            var trees: ?*const zs.support_skeleton.Skeleton = null;
+            var trees_layers: u64 = 0;
+            if (part_of[pp.input]) |pi| if (app.plate.parts.items[pi].trees) |*t| {
+                const pt = &app.plate.parts.items[pi];
+                const sk = try a.create(zs.support_skeleton.Skeleton);
+                sk.* = .{};
+                try sk.appendMoved(a, &t.sk, pt.x * 1000, pt.y * 1000);
+                trees = sk;
+                trees_layers = t.layers;
+            };
             out.* = .{
                 .mesh = mesh,
                 .changes = changes,
                 .modifiers = pp.modifiers,
                 .marks = marks.items,
                 .part = part_of[pp.input] orelse 0,
+                .trees = trees,
+                .trees_layers = trees_layers,
             };
         }
         app.slice_parts = parts;
@@ -2457,6 +2485,7 @@ test {
     _ = checks_mod;
     _ = plate_set;
     _ = support_areas;
+    _ = support_trees;
     _ = @import("app/feature_settings.zig");
     _ = @import("app/farm.zig");
     _ = @import("app/session.zig");

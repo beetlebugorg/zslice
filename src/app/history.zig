@@ -217,6 +217,10 @@ pub fn writeChange(w: *std.Io.Writer, c: Change) std.Io.Writer.Error!void {
     if (is_part and std.mem.eql(u8, c.key, "rotation")) return w.print("Turned to {s}°", .{if (c.new.len > 0) c.new else "0"});
     if (is_part and std.mem.eql(u8, c.key, "orientation")) return w.writeAll(if (c.new.len > 0) "Put on another side" else "Back on its first side");
     if (is_part and std.mem.eql(u8, c.key, "scale")) return w.print("Scaled to {s}", .{if (c.new.len > 0) c.new else "1, 1, 1"});
+    if (is_part and std.mem.eql(u8, c.key, "(support trees)")) {
+        if (c.new.len == 0) return w.writeAll("Support trees planned again");
+        return w.print("Support trees {s}", .{c.new});
+    }
     if (is_layers and std.mem.eql(u8, c.key, "(name)")) {
         if (c.new.len == 0) return w.print("Layer profile \"{s}\" removed", .{c.old});
         if (c.old.len == 0) return w.print("Layer profile \"{s}\"", .{c.new});
@@ -335,8 +339,8 @@ pub fn stepKind(gpa: Allocator, changes: []const u8) Allocator.Error!Kind {
 /// Writes the changes of a diff in words, one on each line: "scope in
 /// words\tchange in words".
 /// True if a change line of a step (a line of the diff) can be undone
-/// alone: not the quality, and not a move, turn, orientation, or scale of
-/// a part (those come only with the whole step).
+/// alone: not the quality, and not a move, turn, orientation, scale, or
+/// support trees of a part (those come only with the whole step).
 pub fn revertible(line: []const u8) bool {
     if (std.mem.indexOf(u8, line, "\tquality\t") != null) return false;
     // The edits of lines come back with the whole step.
@@ -346,7 +350,7 @@ pub fn revertible(line: []const u8) bool {
     if (!std.mem.startsWith(u8, line, "part:")) return true;
     const tab = std.mem.indexOfScalar(u8, line, '\t') orelse return false;
     const key = line[tab + 1 ..];
-    for ([_][]const u8{ "(part)", "position", "rotation", "orientation", "scale" }) |k| {
+    for ([_][]const u8{ "(part)", "position", "rotation", "orientation", "scale", "(support trees)" }) |k| {
         if (std.mem.startsWith(u8, key, k)) return false;
     }
     return true;
@@ -357,6 +361,7 @@ test "history: the changes that can be undone alone" {
     try std.testing.expect(!revertible("print\tquality\tfine\tdraft"));
     try std.testing.expect(!revertible("part:0\tposition\t1,2\t3,4"));
     try std.testing.expect(revertible("part:0\tproject.wall_count\t2\t3"));
+    try std.testing.expect(!revertible("part:0\t(support trees)\t\tedited, 3 branches"));
 }
 
 pub fn describe(gpa: Allocator, changes: []const u8, part_z: f64, layer_z: []const f32, w: *std.Io.Writer) (Allocator.Error || std.Io.Writer.Error)!void {

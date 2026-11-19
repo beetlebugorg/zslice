@@ -18,6 +18,12 @@
 //! to a part: it has the pose, the scale, the turn, and the place of its
 //! part, so it moves with it.
 //!
+//! A part can also have the support trees of the user (the support
+//! editor, support_skeleton.Edit). They are relative to the center of the
+//! footprint, so they move with the part. They also keep the shape of the
+//! part (`Part.shape`): a turn or a scale changes the shape, and then the
+//! app drops the trees.
+//!
 //! References (see REFERENCES.md): the closest point on a triangle
 //! (Ericson, "Real-Time Collision Detection"), for the side of a part
 //! nearest to a picked point.
@@ -29,6 +35,7 @@ const Mesh = mesh_mod.Mesh;
 const orient = @import("orient.zig");
 const threemf = @import("threemf.zig");
 const Meta = threemf.Meta;
+const skel = @import("support_skeleton.zig");
 
 /// A modifier volume of a part (see the file comment).
 pub const Volume = struct {
@@ -103,8 +110,11 @@ pub const Part = struct {
     meta: []Meta = &.{},
     /// The modifier volumes of the part.
     volumes: std.ArrayList(Volume) = .empty,
+    /// The support trees of the user, or null: the slice plans the trees.
+    trees: ?skel.Edit = null,
 
     fn deinit(p: *Part, gpa: Allocator) void {
+        if (p.trees) |*t| t.deinit(gpa);
         p.mesh.deinit(gpa);
         if (p.source) |*m| m.deinit(gpa);
         gpa.free(p.name);
@@ -193,7 +203,45 @@ pub const Part = struct {
     pub fn footprint(p: *const Part) [4]f64 {
         return .{ p.x - p.half[0], p.y - p.half[1], p.x + p.half[0], p.y + p.half[1] };
     }
+
+    /// The shape of the part on the bed, for the trees of the user: the
+    /// half width and the half depth of the footprint, the height, the
+    /// mean place of the vertices (x and y from the center of the
+    /// footprint, z from the bed), and the mean of x times y (mm). A move
+    /// keeps it; a turn, a scale, or another side on the bed changes it.
+    pub fn shape(p: *const Part) [7]f64 {
+        const c = p.turnCenter();
+        const b = p.mesh.bounds();
+        const a = std.math.degreesToRadians(p.rot);
+        const ca = @cos(a);
+        const sa = @sin(a);
+        var m = [4]f64{ 0, 0, 0, 0 };
+        const vs = p.mesh.vertices.items;
+        for (vs) |v| {
+            const dx = v.x - c[0];
+            const dy = v.y - c[1];
+            const rx = dx * ca - dy * sa - p.shift[0];
+            const ry = dx * sa + dy * ca - p.shift[1];
+            m[0] += rx;
+            m[1] += ry;
+            m[2] += v.z - b.min[2];
+            m[3] += rx * ry;
+        }
+        const k: f64 = @floatFromInt(@max(vs.len, 1));
+        return .{ p.half[0], p.half[1], p.height, m[0] / k, m[1] / k, m[2] / k, m[3] / k };
+    }
 };
+
+/// True if two shapes of `Part.shape` are the same, up to the rounding of
+/// a file: 0.01 mm (and 0.01 mm times the size for the mean of x y).
+pub fn sameShape(a: [7]f64, b: [7]f64) bool {
+    const size = @max(1, @max(a[0], a[1]));
+    for (a, b, 0..) |x, y, k| {
+        const tol: f64 = if (k == 6) 0.01 * size else 0.01;
+        if (!(@abs(x - y) <= tol)) return false;
+    }
+    return true;
+}
 
 pub const Plate = struct {
     parts: std.ArrayList(Part) = .empty,
@@ -253,6 +301,9 @@ pub const Plate = struct {
         errdefer if (p.source) |*m| m.deinit(gpa);
         p.meta = try threemf.cloneMeta(gpa, src.meta);
         errdefer threemf.freeMeta(gpa, p.meta);
+        p.trees = null;
+        if (src.trees) |*t| p.trees = try t.clone(gpa);
+        errdefer if (p.trees) |*t| t.deinit(gpa);
         p.volumes = .empty;
         errdefer {
             for (p.volumes.items) |*v| v.deinit(gpa);

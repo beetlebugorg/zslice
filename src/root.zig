@@ -64,6 +64,8 @@ pub const support = @import("support.zig");
 /// Tree support, and its skeleton of nodes (see tree_support.zig).
 pub const tree_support = @import("tree_support.zig");
 pub const support_skeleton = @import("support_skeleton.zig");
+/// The edits of tree support by hand (see support_edit.zig).
+pub const support_edit = @import("support_edit.zig");
 /// Expressions: the formulas of the settings (see expr.zig).
 pub const expr = @import("expr.zig");
 pub const gaps = @import("gaps.zig");

@@ -9,11 +9,11 @@
 //!    the fan and the cooling, the travel and the retraction, the first
 //!    layer height, the skirt, and the brim.
 //! 2. Groups. Parts with the same mesh (the same faces, and the same
-//!    vertices after a move in X and Y), the same changes, and no volumes
-//!    and no marks are copies. A group of copies slices once: one engine
-//!    job (see engine.Job), for the first part of the group. The paths of
-//!    each other copy are the paths of that job, moved by the distance
-//!    between the parts.
+//!    vertices after a move in X and Y), the same changes, no volumes, no
+//!    marks, and no trees of the user are copies. A group of copies
+//!    slices once: one engine job (see engine.Job), for the first part of
+//!    the group. The paths of each other copy are the paths of that job,
+//!    moved by the distance between the parts.
 //! 3. Placement. All parts move by one offset, from the box of all parts
 //!    and the placement setting, so they keep their places on the plate.
 //! 4. Levels. The top z of each layer of each job, sorted, makes the
@@ -81,6 +81,11 @@ pub const PartInput = struct {
     modifiers: []const Job.ModifierInput = &.{},
     /// The support marks of the part (see support.Mark).
     marks: []const support_mod.Mark = &.{},
+    /// The trees of the user for the part, in the coordinates of the plate,
+    /// and the key of the layers they were made for (see
+    /// engine.Job.Options.trees), or null.
+    trees: ?*const @import("support_skeleton.zig").Skeleton = null,
+    trees_layers: u64 = 0,
     /// The id of the part for the toolpaths (for example, its index on
     /// the plate).
     part: u32,
@@ -257,6 +262,8 @@ pub const PlateJob = struct {
                 .old = old_job,
                 .offset = offset,
                 .rings = parts.len == 1,
+                .trees = p.trees,
+                .trees_layers = p.trees_layers,
             });
             errdefer job.deinit();
             // The scaled monitor lives only in this call.
@@ -715,6 +722,8 @@ fn planStamp(settings: Settings, parts: []const PartInput, overrides: []const se
             changes(&h, m.changes);
         }
         hv(&h, p.marks);
+        hv(&h, if (p.trees) |t| t.hash() else 0);
+        hv(&h, p.trees_layers);
     }
     return h.final();
 }
@@ -734,6 +743,7 @@ fn shapeKey(m: *const Mesh) u64 {
 fn copies(p: PartInput, q: PartInput, kp: u64, kq: u64, bp: mesh_mod.Bounds3, bq: mesh_mod.Bounds3) bool {
     if (kp != kq) return false;
     if (p.modifiers.len > 0 or q.modifiers.len > 0 or p.marks.len > 0 or q.marks.len > 0) return false;
+    if (p.trees != null or q.trees != null) return false;
     if (p.changes.len != q.changes.len) return false;
     for (p.changes, q.changes) |x, y| {
         if (!std.mem.eql(u8, x.name, y.name) or !std.mem.eql(u8, x.value, y.value)) return false;

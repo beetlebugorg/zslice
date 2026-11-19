@@ -68,6 +68,7 @@ const settings_mod = @import("settings.zig");
 const slicer = @import("slicer.zig");
 const Paths = geom.Paths;
 const tree = @import("tree_support.zig");
+const skel = @import("support_skeleton.zig");
 
 /// A support mark of the user, from a click on a line: support of a
 /// kind under a disk at a place, or no support there. Coordinates on the
@@ -130,6 +131,18 @@ pub fn compute(
     return computeCached(gpa, outlines, layers, r, threads, marks, null);
 }
 
+/// The trees of tree support (see tree_support.zig and the support
+/// editor, support_edit.zig).
+pub const Trees = struct {
+    /// The trees of the user, in place of the plan, or null. Each pass of
+    /// tree support uses all of them, and they print also with another
+    /// style or with support off.
+    user: ?*const skel.Skeleton = null,
+    /// Gets the trees of the slice: the trees of the user, or the trees
+    /// of the plan of each pass. Null: no copy.
+    out: ?*skel.Skeleton = null,
+};
+
 /// The work of the support of a job, for the next job with the same
 /// outlines (see engine.Job): the result, and the parts of the work that
 /// depend only on the outlines and a few settings. So a change of the
@@ -149,9 +162,12 @@ pub const Cache = struct {
     near: []Paths = &.{},
     /// The avoidance area of tree support (see tree_support.zig).
     avoid: tree.AvoidCache = .{},
+    /// The trees of `result` (see Trees.out).
+    trees: skel.Skeleton = .{},
 
     pub fn deinit(c: *Cache, gpa: Allocator) void {
         if (c.result.len > 0) deinitAll(gpa, c.result);
+        c.trees.deinit(gpa);
         c.dropStep1(gpa);
         c.avoid.deinit(gpa);
         c.* = .{};
@@ -203,20 +219,49 @@ pub fn computeCached(
     marks: []const Mark,
     cache_in: ?*Cache,
 ) anyerror![]SupportLayer {
+    return computeTrees(gpa, outlines, layers, r, threads, marks, cache_in, .{});
+}
+
+/// `computeCached`, with the trees of the user and a copy of the trees
+/// of the slice (see Trees). Trees of the user that do not fit the layers
+/// (see Skeleton.valid) do not count.
+pub fn computeTrees(
+    gpa: Allocator,
+    outlines: []const Paths,
+    layers: []const slicer.Layer,
+    r: *const settings_mod.Resolved,
+    threads: usize,
+    marks: []const Mark,
+    cache_in: ?*Cache,
+    trees_in: Trees,
+) anyerror![]SupportLayer {
+    var trees = trees_in;
+    if (trees.user) |u| if (!u.valid(outlines.len)) {
+        trees.user = null;
+    };
+    if (trees.out) |o| o.nodes.clearRetainingCapacity();
     const cache = if (cache_in) |c| (if (c.outline_key != 0) c else null) else null;
     if (cache) |c| {
-        const key = resultKey(c.outline_key, r, marks);
-        if (key == c.result_key) return cloneLayers(gpa, c.result);
-        const out = try computeAll(gpa, outlines, layers, r, threads, marks, c);
+        var key = resultKey(c.outline_key, r, marks);
+        if (trees.user) |u| key = std.hash.Wyhash.hash(key, std.mem.asBytes(&u.hash())) | 1;
+        if (key == c.result_key) {
+            if (trees.out) |o| try o.appendMoved(gpa, &c.trees, 0, 0);
+            return cloneLayers(gpa, c.result);
+        }
+        var got: skel.Skeleton = .{};
+        defer got.deinit(gpa);
+        const out = try computeAll(gpa, outlines, layers, r, threads, marks, c, .{ .user = trees.user, .out = &got });
         errdefer if (out.len > 0) deinitAll(gpa, out);
         if (c.result.len > 0) deinitAll(gpa, c.result);
         c.result = &.{};
         c.result_key = 0;
         if (out.len > 0) c.result = try cloneLayers(gpa, out);
+        std.mem.swap(skel.Skeleton, &c.trees, &got);
         c.result_key = key;
+        if (trees.out) |o| try o.appendMoved(gpa, &c.trees, 0, 0);
         return out;
     }
-    return computeAll(gpa, outlines, layers, r, threads, marks, null);
+    return computeAll(gpa, outlines, layers, r, threads, marks, null, trees);
 }
 
 fn computeAll(
@@ -227,9 +272,10 @@ fn computeAll(
     threads: usize,
     marks: []const Mark,
     cache: ?*Cache,
+    trees: Trees,
 ) anyerror![]SupportLayer {
     const p = r.settings.project;
-    var adds = false;
+    var adds = trees.user != null;
     var on_area = false;
     var off_area = false;
     for (marks) |m| switch (m.kind) {
@@ -246,16 +292,19 @@ fn computeAll(
     var rr = r.*;
     const only_on = p.support == .off and on_area;
     if (only_on) rr.settings.project.support = .everywhere;
-    var main = try computeStyle(gpa, outlines, layers, &rr, threads, marks, null, cache);
+    var main = try computeStyle(gpa, outlines, layers, &rr, threads, marks, null, cache, trees);
     errdefer deinitAll(gpa, main);
     if (only_on or (p.support != .off and off_area)) try clipToAreas(gpa, main, marks, only_on);
+    // The trees of the user print with each style: a pass of tree support
+    // for them if no pass has one.
+    const user_pass = trees.user != null and !(rr.settings.project.support != .off and rr.settings.project.support_style == .tree);
     for ([_]Mark.Kind{ .grid, .tree, .bridge }) |kind| {
-        var has = false;
+        var has = kind == .tree and user_pass;
         for (marks) |m| if (m.kind == kind) {
             has = true;
         };
         if (!has) continue;
-        const extra = try computeStyle(gpa, outlines, layers, r, threads, marks, kind, cache);
+        const extra = try computeStyle(gpa, outlines, layers, r, threads, marks, kind, cache, trees);
         defer deinitAll(gpa, extra);
         if (extra.len == 0) continue;
         if (main.len == 0) {
@@ -285,6 +334,10 @@ fn computeAll(
             }
         }
     }
+    if (trees.user) |u| if (trees.out) |o| {
+        o.nodes.clearRetainingCapacity();
+        try o.appendMoved(gpa, u, 0, 0);
+    };
     return main;
 }
 
@@ -399,6 +452,7 @@ fn computeStyle(
     marks: []const Mark,
     kind: ?Mark.Kind,
     cache: ?*Cache,
+    trees: Trees,
 ) anyerror![]SupportLayer {
     var p = r.settings.project;
     if (kind) |k| {
@@ -633,7 +687,7 @@ fn computeStyle(
     errdefer deinitAll(gpa, out);
 
     if (p.support_style == .tree) {
-        try treeSupport(gpa, threads, outlines, layers, r_style, need, wide, blocked, near, out, if (cache) |c| &c.avoid else null, step1_key);
+        try treeSupport(gpa, threads, outlines, layers, r_style, need, wide, blocked, near, out, if (cache) |c| &c.avoid else null, step1_key, trees);
         return out;
     }
     if (p.support_style == .bridge) {
@@ -753,27 +807,26 @@ fn computeStyle(
     return out;
 }
 
-/// Tree support (see tree_support.zig): the pads of interface layers under
-/// each overhang, and the branches under the pads.
-fn treeSupport(
-    gpa: Allocator,
-    threads: usize,
-    outlines: []const Paths,
-    layers: []const slicer.Layer,
-    r: *const settings_mod.Resolved,
-    need: []const Paths,
-    wide: []const Paths,
-    blocked: []const Paths,
-    near: []const Paths,
-    out: []SupportLayer,
-    avoid_cache: ?*tree.AvoidCache,
-    step1_key: u64,
-) !void {
+/// The XY gap of support and the smaller XY gap under an overhang (units
+/// of geom; see step 2 in the header).
+pub fn xyGaps(r: *const settings_mod.Resolved) [2]i64 {
+    const xy = geom.fromMm(r.settings.project.support_xy_gap);
+    return .{ xy, @min(xy, @divTrunc(geom.fromMm(r.line_width), 2)) };
+}
+
+/// The layers from an overhang down to the tips of tree support: the
+/// layer of the overhang, the Z gap, and the interface layers.
+pub fn tipsBelow(r: *const settings_mod.Resolved) u32 {
     const p = r.settings.project;
-    const gap = p.support_z_gap_layers;
-    const pads = p.support_interface_layers;
+    return @intCast(1 + p.support_z_gap_layers + p.support_interface_layers);
+}
+
+/// The parameters of the tree planner from the settings (see
+/// tree_support.Params).
+pub fn treeParams(r: *const settings_mod.Resolved) tree.Params {
+    const p = r.settings.project;
     const tip_mm = if (p.support_tree_tip > 0) p.support_tree_tip else 2 * r.line_width;
-    const params: tree.Params = .{
+    return .{
         .tip = @floatFromInt(geom.fromMm(tip_mm / 2)),
         // A trunk is at most 10 mm thick, and a branch gets 0.6 mm thicker
         // for each 10 mm that it goes down (and more where branches join).
@@ -781,7 +834,7 @@ fn treeSupport(
         .growth = 0.1,
         .tan_angle = @tan(std.math.degreesToRadians(p.support_tree_angle)),
         .spacing = @floatFromInt(geom.fromMm(p.support_tree_spacing)),
-        .z_gap = gap,
+        .z_gap = p.support_z_gap_layers,
         .bed_only = p.support == .buildplate,
         // A branch is at least 5 mm thick on the bed.
         .foot = @floatFromInt(geom.fromMm(2.5)),
@@ -803,7 +856,30 @@ fn treeSupport(
         .head_layers = 3,
         .head_grow = 0.8 * @as(f64, @floatFromInt(geom.fromMm(p.layer_height))) * @tan(std.math.degreesToRadians(p.support_tree_angle)),
     };
-    const areas = try tree.growCached(gpa, threads, outlines, layers, need, blocked, near, 1 + gap + pads, params, avoid_cache, step1_key);
+}
+
+/// Tree support (see tree_support.zig): the pads of interface layers under
+/// each overhang, and the branches under the pads.
+fn treeSupport(
+    gpa: Allocator,
+    threads: usize,
+    outlines: []const Paths,
+    layers: []const slicer.Layer,
+    r: *const settings_mod.Resolved,
+    need: []const Paths,
+    wide: []const Paths,
+    blocked: []const Paths,
+    near: []const Paths,
+    out: []SupportLayer,
+    avoid_cache: ?*tree.AvoidCache,
+    step1_key: u64,
+    trees: Trees,
+) !void {
+    const p = r.settings.project;
+    const gap = p.support_z_gap_layers;
+    const pads = p.support_interface_layers;
+    const params = treeParams(r);
+    const areas = try tree.growCached(gpa, threads, outlines, layers, need, blocked, near, 1 + gap + pads, params, avoid_cache, step1_key, trees.user, if (trees.user == null) trees.out else null);
     defer gpa.free(areas.body);
     defer gpa.free(areas.filled);
     for (out, areas.body, areas.filled) |*o, b, f| {

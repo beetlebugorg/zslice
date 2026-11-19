@@ -43,6 +43,7 @@ const gcode = @import("gcode.zig");
 const stream_mod = @import("stream.zig");
 const parallel = @import("parallel.zig");
 const support_mod = @import("support.zig");
+const skel_mod = @import("support_skeleton.zig");
 const lightning_mod = @import("lightning.zig");
 const islands_mod = @import("islands.zig");
 const clip = @import("clip.zig");
@@ -267,6 +268,14 @@ pub const Job = struct {
     /// The work of the support, for the next job with the same outlines
     /// (see support.Cache).
     support_cache: support_mod.Cache = .{},
+    /// The trees of the tree support of the job: the trees of the user
+    /// (Options.trees), or the trees of the plan. Empty with no trees.
+    trees: skel_mod.Skeleton = .{},
+    /// The key of the layers of the job (see `layersKey`).
+    layers_key: u64 = 0,
+    /// The job did not use the trees of the user: they were made for other
+    /// layers (Options.trees_layers is not `layers_key`).
+    trees_dropped: bool = false,
     /// The shapes that start in the air (see islands.zig).
     islands: []islands_mod.Island = &.{},
     /// A hash of the inputs of the island search besides the outlines (the
@@ -337,6 +346,13 @@ pub const Job = struct {
         offset: ?[2]f64 = null,
         /// See `rings`.
         rings: bool = true,
+        /// The trees of the user (the support editor), in the frame of the
+        /// job, in place of the plan of tree support, or null. They count
+        /// only if `trees_layers` is the key of the layers of the job (see
+        /// `layersKey`); else the job plans the trees, and sets
+        /// `trees_dropped`.
+        trees: ?*const skel_mod.Skeleton = null,
+        trees_layers: u64 = 0,
     };
 
     /// Steps 1 to 4.
@@ -376,7 +392,7 @@ pub const Job = struct {
         var outline_overrides: std.ArrayList(settings_mod.Override) = .empty;
         defer outline_overrides.deinit(gpa);
         for (overrides) |o| if (isOutlineSetting(o.name)) try outline_overrides.append(gpa, o);
-        var job = try initBase(gpa, mesh, settings, outline_overrides.items, opts.marks, opts.monitor, opts.old, opts.offset);
+        var job = try initBase(gpa, mesh, settings, outline_overrides.items, opts.marks, opts.monitor, opts.old, opts.offset, opts.trees, opts.trees_layers);
         errdefer job.deinit();
         job.rings = opts.rings;
         if (overrides.len > 0) try job.resolveLayers(settings, overrides);
@@ -491,7 +507,7 @@ pub const Job = struct {
         self.layer_resolved = try list.toOwnedSlice(gpa);
     }
 
-    fn initBase(gpa: Allocator, mesh: *const Mesh, settings: Settings, outline_overrides: []const settings_mod.Override, marks: []const support_mod.Mark, monitor: Monitor, old: ?*Job, offset: ?[2]f64) Error!Job {
+    fn initBase(gpa: Allocator, mesh: *const Mesh, settings: Settings, outline_overrides: []const settings_mod.Override, marks: []const support_mod.Mark, monitor: Monitor, old: ?*Job, offset: ?[2]f64, trees: ?*const skel_mod.Skeleton, trees_layers: u64) Error!Job {
         // Step 1.
         const r = settings.resolve() catch return error.InvalidSettings;
         const threads = parallel.threadCount(settings.engine.threads);
@@ -588,7 +604,13 @@ pub const Job = struct {
             o.support_cache = .{};
         };
         job.support_cache.outline_key = key;
-        job.support = support_mod.computeCached(gpa, job.outlines, job.layers, &r, threads, marks, &job.support_cache) catch |e| return @as(Error, @errorCast(e));
+        job.layers_key = layersKey(job.layers);
+        var user = trees;
+        if (user != null and trees_layers != job.layers_key) {
+            user = null;
+            job.trees_dropped = true;
+        }
+        job.support = support_mod.computeTrees(gpa, job.outlines, job.layers, &r, threads, marks, &job.support_cache, .{ .user = user, .out = &job.trees }) catch |e| return @as(Error, @errorCast(e));
         const grow = @divTrunc(geom.fromMm(r.line_width), 4);
         job.islands_key = islandsKey(job.support, grow);
         if (old) |o| if (o.outline_key == key and o.islands_key == job.islands_key and o.islands_key != 0) {
@@ -598,6 +620,16 @@ pub const Job = struct {
         };
         job.islands = islands_mod.find(gpa, job.outlines, job.support, grow, 0.5, threads) catch |e| return @as(Error, @errorCast(e));
         return job;
+    }
+
+    /// A key of the layers: the top z and the height of each layer. The
+    /// trees of the user (Options.trees) fit only the layers with the
+    /// key that they were made for. Never 0.
+    pub fn layersKey(layers: []const slicer.Layer) u64 {
+        var h = std.hash.Wyhash.init(0x1a7e);
+        h.update(std.mem.asBytes(&layers.len));
+        for (layers) |l| h.update(std.mem.asBytes(&[2]f64{ l.z, l.height }));
+        return h.final() | 1;
     }
 
     /// The key of the island search besides the outlines: a hash of the
@@ -650,6 +682,7 @@ pub const Job = struct {
         self.gpa.free(self.bottoms);
         if (self.support.len > 0) support_mod.deinitAll(self.gpa, self.support);
         self.support_cache.deinit(self.gpa);
+        self.trees.deinit(self.gpa);
         self.gpa.free(self.islands);
         for (self.outlines) |*o| o.deinit(self.gpa);
         self.gpa.free(self.outlines);

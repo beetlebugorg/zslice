@@ -305,7 +305,7 @@ pub fn grow(
     tips_below: usize,
     params: Params,
 ) Allocator.Error!Areas {
-    return growCached(gpa, threads, outlines, layers, need, blocked, near, tips_below, params, null, 0);
+    return growCached(gpa, threads, outlines, layers, need, blocked, near, tips_below, params, null, 0, null, null);
 }
 
 /// The avoidance areas of a slice, for the next slice with the same
@@ -326,7 +326,9 @@ pub const AvoidCache = struct {
 };
 
 /// `grow`, with a cache of the avoidance areas (or null). `gaps_key`
-/// identifies `blocked` (0: no cache).
+/// identifies `blocked` (0: no cache). `user`: the trees of the user (the
+/// support editor), in place of the plan, or null. `plan_out`: gets the
+/// planned trees added to it, or null.
 pub fn growCached(
     gpa: Allocator,
     threads: usize,
@@ -339,12 +341,16 @@ pub fn growCached(
     params: Params,
     cache: ?*AvoidCache,
     gaps_key: u64,
+    user: ?*const skel_mod.Skeleton,
+    plan_out: ?*skel_mod.Skeleton,
 ) Allocator.Error!Areas {
     var arena_state = std.heap.ArenaAllocator.init(gpa);
     defer arena_state.deinit();
     const arena = arena_state.allocator();
+    if (user) |u| return areasOf(gpa, arena, threads, u, blocked, params);
     var sk = try planCached(gpa, arena, threads, outlines, layers, need, blocked, near, tips_below, params, if (gaps_key != 0) cache else null, gaps_key);
     defer sk.deinit(gpa);
+    if (plan_out) |o| try o.appendMoved(gpa, &sk, 0, 0);
     return areasOf(gpa, arena, threads, &sk, blocked, params);
 }
 
