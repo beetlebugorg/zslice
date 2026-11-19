@@ -2886,17 +2886,46 @@ pub const View = struct {
     /// The draws of the part of the preview in beads first .. end, and
     /// the draw list `list` without them (in v.rest_draws). The part gets
     /// the mesh level of its distance from the eye.
-    fn splitPreview(v: *View, list: []const Draw, eye_local: [3]f32, first: u32, end: u32) Error![]const Draw {
+    fn splitPreview(v: *View, list: []const Draw, part_mvp: ?[16]f32, eye_local: [3]f32, first: u32, end: u32) Error![]const Draw {
         const p = v.preview.?;
         v.preview_draws.clearRetainingCapacity();
         v.rest_draws.clearRetainingCapacity();
         const px_per_mm = @as(f32, @floatFromInt(v.height)) / (2 * @tan(@as(f32, fov) / 2));
-        const w = if (v.beads.items.len > 0) v.beads.items[v.beads.items.len / 2].w else 0.4;
-        const lod = v.lodFor(w * px_per_mm / @max(boxDistance(eye_local, p.lo, p.hi), 1e-3));
-        for (v.preview_ranges.items) |r| {
-            const a = @max(r[0], first);
-            const b = @min(r[1], end);
-            if (b > a) v.preview_draws.append(gpa, .{ .first = a, .count = b - a, .lod = lod }) catch return error.OutOfMemory;
+        if (v.draw_chunks.items.len == 0) {
+            const w = if (v.beads.items.len > 0) v.beads.items[v.beads.items.len / 2].w else 0.4;
+            const lod = v.lodFor(w * px_per_mm / @max(boxDistance(eye_local, p.lo, p.hi), 1e-3));
+            for (v.preview_ranges.items) |r| {
+                const a = @max(r[0], first);
+                const b = @min(r[1], end);
+                if (b > a) v.preview_draws.append(gpa, .{ .first = a, .count = b - a, .lod = lod }) catch return error.OutOfMemory;
+            }
+        } else {
+            // The same choice as `drawList`, in the frame of the beads: a
+            // chunk out of the view has no draw, and each chunk gets the
+            // mesh level of its own distance from the eye. One level for
+            // the whole part (its nearest point) drew all of a large part
+            // at the fine level, and the GPU missed each frame.
+            const chunks = v.draw_chunks.items;
+            var c: usize = 0;
+            for (v.preview_ranges.items) |r| {
+                const ra = @max(r[0], first);
+                const rb = @min(r[1], end);
+                if (rb <= ra) continue;
+                while (c < chunks.len and chunks[c].end <= ra) c += 1;
+                var k = c;
+                while (k < chunks.len and chunks[k].first < rb) : (k += 1) {
+                    const ch = chunks[k];
+                    const a = @max(ch.first, ra);
+                    const b = @min(ch.end, rb);
+                    if (b <= a) continue;
+                    if (part_mvp) |m| if (!boxInView(m, ch)) continue;
+                    const lod = v.lodFor(v.chunk_width.items[k] * px_per_mm / @max(boxDistance(eye_local, ch.lo, ch.hi), 1e-3));
+                    const items = v.preview_draws.items;
+                    if (items.len > 0 and items[items.len - 1].lod == lod and items[items.len - 1].first + items[items.len - 1].count == a) {
+                        items[items.len - 1].count += b - a;
+                    } else v.preview_draws.append(gpa, .{ .first = a, .count = b - a, .lod = lod }) catch return error.OutOfMemory;
+                }
+            }
         }
         // The ranges of the list minus the ranges of the part (both in
         // print order).
@@ -3139,7 +3168,7 @@ pub const View = struct {
         var part_push: Push = .{ .mvp = @splat(0), .vec = .{ 0, 0, 0, 0 } };
         if (v.preview) |pv| if (v.gcode == null) {
             const le = previewLocal(pv, eye);
-            draws = try v.splitPreview(draws, le, first, count);
+            draws = try v.splitPreview(draws, mul(mvp, pv.m), le, first, count);
             part_draws = v.preview_draws.items;
             const l = [3]f32{ 0.35, -0.45, 0.82 };
             const r = pv.rot;
@@ -3910,7 +3939,7 @@ test "a part preview draws the beads of the part apart, turned" {
     try std.testing.expectApproxEqAbs(@as(f32, 2), le[1], 1e-5);
     // The draws of the part and the rest cover each bead once.
     const n: u32 = @intCast(v.beads.items.len);
-    const rest = try v.splitPreview(&.{.{ .first = 0, .count = n, .lod = 0 }}, le, 0, n);
+    const rest = try v.splitPreview(&.{.{ .first = 0, .count = n, .lod = 0 }}, null, le, 0, n);
     var seen = try std.testing.allocator.alloc(u8, n);
     defer std.testing.allocator.free(seen);
     @memset(seen, 0);
