@@ -868,10 +868,11 @@ static void ring_drag_hook(gpointer data) {
     g_strfreev(f);
 }
 
-/* The mouse: a left drag orbits (turn and tilt, the bed stays level), a
- * middle or a right drag pans, and the scroll wheel zooms toward the
- * pointer. On a touchpad: two fingers pressed down and dragged pan (a
- * right or a middle drag), and a light two-finger swipe or a pinch zooms. */
+/* The mouse, as in Cura: a right drag orbits (turn and tilt, the bed
+ * stays level), as a left drag does; a middle drag, or Shift and a drag,
+ * pans; and the scroll wheel zooms toward the pointer. On a touchpad: two
+ * fingers pressed down and dragged orbit (a right drag), and a light
+ * two-finger swipe or a pinch zooms. */
 enum { DRAG_ORBIT, DRAG_PAN, DRAG_RIGHT };
 
 /* ---- the fall of a part, and the hand ---- */
@@ -1282,11 +1283,9 @@ static void on_drag_update(GtkGestureDrag *g, double dx, double dy, gpointer dat
         return;
     }
     if (v->view) {
-        switch (mode) {
-        case DRAG_PAN:
-        case DRAG_RIGHT: zs_view_pan(v->view, ddx * scale, ddy * scale); break;
-        default: zs_view_orbit(v->view, ddx, ddy); break;
-        }
+        GdkModifierType mods = gtk_event_controller_get_current_event_state(GTK_EVENT_CONTROLLER(g));
+        if (mode == DRAG_PAN || (mods & GDK_SHIFT_MASK)) zs_view_pan(v->view, ddx * scale, ddy * scale);
+        else zs_view_orbit(v->view, ddx, ddy);
     }
     v->drag_x = dx;
     v->drag_y = dy;

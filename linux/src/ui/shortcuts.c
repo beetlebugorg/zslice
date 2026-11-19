@@ -98,7 +98,8 @@ static const Group SHORTCUTS[] = {
         {NULL, NULL}}},
     {"Mouse and touchpad", {
         {"Left drag", "Orbit"},
-        {"Middle or right drag", "Pan (on a touchpad: two fingers pressed down and a drag)"},
+        {"Right drag (hold the right button)", "Orbit (on a touchpad: two fingers pressed down and a drag)"},
+        {"Middle drag, or Shift and a drag", "Pan"},
         {"Wheel, light two-finger swipe, pinch", "Zoom toward the pointer"},
         {"Double-click on a side of a part", "Turn the view to face that side"},
         {"Double-click elsewhere", "Reset the view"},

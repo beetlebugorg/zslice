@@ -1978,7 +1978,7 @@ GtkWidget *zg_preview_new(ZgModel *model) {
     gtk_widget_add_css_class(switcher, "linked");
     gtk_box_append(GTK_BOX(switcher), b2d);
     gtk_box_append(GTK_BOX(switcher), b3d);
-    gtk_widget_set_tooltip_text(switcher, "2D: one layer. 3D: the layers up to the slider. In 3D: a left drag orbits, a middle or right drag pans (two fingers pressed down on a touchpad), scroll or pinch to zoom, double-click to reset.");
+    gtk_widget_set_tooltip_text(switcher, "2D: one layer. 3D: the layers up to the slider. In 3D: a right or a left drag orbits (two fingers pressed down on a touchpad), a middle drag or Shift and a drag pans, scroll or pinch to zoom, double-click to reset.");
 
     /* The view buttons go in the middle of the header bar
      * (zg_preview_view_bar), so the view has more room. */
