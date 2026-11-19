@@ -2361,9 +2361,12 @@ function onWorkerEvent(m) {
       settleSelected(m.index);
       break;
     case "cleared":
-      // An empty plate: nothing to keep.
-      clearTimeout(keepTimer);
-      if (app.plates.length <= 1) clearPlate();
+      // An empty plate alone: nothing to keep. With other plates, the
+      // session keeps the set (onPlates).
+      if (app.plates.length <= 1) {
+        clearTimeout(keepTimer);
+        clearPlate();
+      }
       if (m.scene) {
         view.readScene(m.scene);
         gl.setOutlines(view.outlines());
@@ -2407,6 +2410,10 @@ const STATUS_TEXT = { empty: "empty", stale: "to slice", slicing: "slicing", don
 // of the other plates; see zs_set_view_sync).
 function onPlates(m) {
   const before = app.activePlate;
+  // A plate added or removed: the session keeps the new list. A slice
+  // keeps it too, but an empty plate has no slice.
+  const ids = (p) => p.map((q) => q?.id).join(",");
+  const listChanged = ids(app.plates ?? []) !== ids(m.plates);
   app.plates = m.plates;
   app.activePlate = m.active;
   showProjectTotals();
@@ -2439,6 +2446,7 @@ function onPlates(m) {
   project.showActive(m.active);
   updatePlateBar();
   requestFrame();
+  if (listChanged || m.active !== before) keepSoon();
 }
 
 // Makes plate i the active plate; with `frame`, the camera goes to it.
@@ -2961,6 +2969,7 @@ const search = new SearchOverlay({
     { label: "Smart placement", hint: "turn and arrange the parts", run: () => client.call("plate", { action: "smart" }) },
     { label: "Remove this plate", hint: "the plate and its parts", run: () => removePlate(app.activePlate) },
     { label: "Check the print", hint: "problems and advice", run: () => openCheck() },
+    { label: "The print as it forms", hint: "simulated plastic: it sags and droops where nothing holds it", run: () => toggleSimulation() },
     { label: "Undo", keys: "Ctrl+Z", run: () => undoRedo("undo") },
     { label: "Redo", keys: "Ctrl+Shift+Z", run: () => undoRedo("redo") },
     { label: "2D layer view", run: () => showPage("2d") },
