@@ -99,10 +99,13 @@ pub fn build(b: *std.Build) void {
     }).step);
 
     // Tests.
-    const mod_tests = b.addTest(.{ .root_module = mod });
+    // -Dtest-filter=TEXT runs only the tests with TEXT in their name.
+    const filter = b.option([]const u8, "test-filter", "Run only the tests with this text in their name");
+    const filters: []const []const u8 = if (filter) |f| b.allocator.dupe([]const u8, &.{f}) catch @panic("OOM") else &.{};
+    const mod_tests = b.addTest(.{ .root_module = mod, .filters = filters });
     // The C API tests link libc. The self-hosted Debug linker does not
     // handle a relocation in the glibc start files, so these use LLVM.
-    const c_tests = b.addTest(.{ .root_module = c_mod, .use_llvm = true });
+    const c_tests = b.addTest(.{ .root_module = c_mod, .use_llvm = true, .filters = filters });
     const test_step = b.step("test", "Run the unit tests");
     test_step.dependOn(&b.addRunArtifact(mod_tests).step);
     test_step.dependOn(&b.addRunArtifact(c_tests).step);
