@@ -1050,3 +1050,14 @@ button.destructive { background: #c01c28; color: #fff; }
 .hist-card { width: 300px; max-height: 60vh; z-index: 40; }
 .hist-card-dot { flex: none; width: 24px; height: 24px; border-radius: 50%; display: grid; place-items: center; margin-top: 1px; }
 .hist-card-lines { display: flex; flex-direction: column; gap: 2px; }
+
+/* The filament button of the header, and its popover. */
+.fil-dots { display: inline-flex; margin-right: 6px; vertical-align: -1px; }
+.fil-dot { width: 10px; height: 10px; border-radius: 50%; border: 1px solid rgba(255, 255, 255, 0.55); margin-left: -3px; }
+.fil-dot:first-child { margin-left: 0; }
+.fil-pop { width: 300px; display: flex; flex-direction: column; gap: 8px; padding: 4px 2px; }
+.fil-pop-note { font-size: 0.82em; line-height: 1.35; }
+.fil-pop-mats { border-top: 1px solid rgba(127, 127, 127, 0.25); padding-top: 8px; display: flex; flex-direction: column; gap: 6px; }
+.fil-pop-matrow { display: flex; flex-wrap: wrap; gap: 4px; }
+.fil-pop-matrow button { width: auto; flex: none; padding: 3px 10px; min-height: 26px; border-radius: 13px; border: 1px solid rgba(127, 127, 127, 0.35); }
+.fil-pop-matrow button.checked { background: var(--accent-bg); color: #fff; border-color: transparent; }

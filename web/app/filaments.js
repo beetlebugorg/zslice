@@ -52,6 +52,11 @@ function follow(node, fn) {
   return v;
 }
 
+// Calls `fn` after each change of the list (for a node that always shows).
+export function followFilaments(fn) {
+  state.views.add(fn);
+}
+
 // Black or white text on a color.
 export function inkOn(color) {
   const m = /^#([0-9a-f]{2})([0-9a-f]{2})([0-9a-f]{2})$/i.exec(color || "");

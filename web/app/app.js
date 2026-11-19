@@ -67,7 +67,7 @@ import { ShortcutSheet } from "./shortcuts.js";
 import { LineCard } from "./linecard.js";
 import { PartCard } from "./partcard.js";
 import { RangeCard } from "./rangecard.js";
-import { FilamentList, setFilaments, filamentStats } from "./filaments.js";
+import { FilamentList, setFilaments, filamentStats, filaments, followFilaments } from "./filaments.js";
 import { PaintTool } from "./paint.js";
 import { TurnRings } from "./turn.js";
 import { attachViewInput } from "./input.js";
@@ -996,8 +996,7 @@ function value(name) {
 
 function updateMenus() {
   $("printer-menu").textContent = store.printer || "generic";
-  const fname = value("filament.name");
-  $("filament-menu").textContent = fname || store.filament || "Filament";
+  drawFilamentButton();
   const q = app.snapshot?.quality || "custom";
   $("quality-menu").textContent = `${q}${stateHasChanges(store.saved?.project) ? " •" : ""}`;
   $("quality-menu").title = `Quality settings: ${q}. Pick a profile.`;
@@ -1332,18 +1331,69 @@ $("printer-menu").onclick = () => {
 };
 
 $("filament-menu").onclick = () => {
-  // The type of plastic: the built-in profile of the material. The
-  // diameter stays (a property of the printer).
+  // The filaments of the plate: a printer that changes the filament by
+  // itself (machine.filament_change = tool, an AMS) prints with each of
+  // them. Each one has a color and a material; "+ Add a filament" adds
+  // one. Then the built-in material profiles of filament 1 (the diameter
+  // stays: a property of the printer).
+  const box = document.createElement("div");
+  box.className = "fil-pop";
+  const tool = value("machine.filament_change") === "tool";
+  const list = new FilamentList({ client, applySettings: (r) => applySettings(r), toast: (t) => toast(t) });
+  const note = document.createElement("div");
+  note.className = "dim fil-pop-note";
+  note.textContent = tool
+    ? `${store.printer || "This printer"} changes the filament by itself. Add the filaments it has, then give a part or layers a filament (right click, or the card of a part).`
+    : "Add a filament to print in more colors: the print pauses at each change.";
+  box.append(list.node, note);
   const now = value("filament.material").toLowerCase();
-  const items = [{ title: "Material" }];
+  const mats = document.createElement("div");
+  mats.className = "fil-pop-mats";
+  const head = document.createElement("div");
+  head.className = "fil-head";
+  head.textContent = "Profile of filament 1";
+  mats.append(head);
+  const row = document.createElement("div");
+  row.className = "fil-pop-matrow";
   for (const n of wasm.builtinProfiles(1)) {
     if (!n.startsWith("generic-")) continue;
     const mat = n.slice(8).toUpperCase();
     const dia = value("filament.diameter") || "1.75";
-    items.push({ label: mat, checked: now === mat.toLowerCase(), action: () => loadProfile(1, n, `extends = "${n}"\ndiameter = ${dia}\n`) });
+    const b = document.createElement("button");
+    b.className = "flat chip" + (now === mat.toLowerCase() ? " checked" : "");
+    b.textContent = mat;
+    b.title = `Load the built-in ${mat} profile for filament 1`;
+    b.onclick = () => {
+      closeMenu();
+      loadProfile(1, n, `extends = "${n}"\ndiameter = ${dia}\n`);
+    };
+    row.append(b);
   }
-  openMenu($("filament-menu"), items);
+  mats.append(row);
+  box.append(mats);
+  openPopover($("filament-menu"), box);
 };
+
+// The filament button: a dot in the color of each filament of the plate,
+// and the name of the filament, or the count of filaments.
+function drawFilamentButton() {
+  const b = $("filament-menu");
+  const list = filaments();
+  const name = value("filament.name") || store.filament || "Filament";
+  const dots = document.createElement("span");
+  dots.className = "fil-dots";
+  for (const f of list.slice(0, 8)) {
+    const d = document.createElement("span");
+    d.className = "fil-dot";
+    d.style.background = /^#[0-9a-f]{6}$/i.test(f.color) ? f.color : "#d0d0cc";
+    dots.append(d);
+  }
+  const text = document.createElement("span");
+  text.textContent = list.length > 1 ? `${list.length} filaments` : name;
+  b.replaceChildren(dots, text);
+  b.title = list.length > 1 ? `The ${list.length} filaments of the plate: click to change them` : "The filament: click to change it, or to add filaments";
+}
+followFilaments(drawFilamentButton);
 
 $("quality-menu").onclick = () => {
   const q = app.snapshot?.quality || "";
