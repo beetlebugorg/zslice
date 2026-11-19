@@ -1766,6 +1766,7 @@ async function runMenu(act, arg) {
     case "place": await client.call("place", { path, code: arg }); break;
     case "plate": await client.call("plate", { action: arg }); break;
     case "addModels": addModels(); break;
+    case "removePlate": await removePlate(app.activePlate); break;
     case "clearMarks": await client.call("marksClear"); break;
     case "allLayers": showAllLayers(); break;
     case "debugPrint": await debugPrint(arg === 1); break;
@@ -2067,7 +2068,7 @@ function updateSummaryCard() {
   const perG = Number(value("filament.price_per_kg")) / 1000;
   const perH = Number(value("machine.hour_rate")) || 0;
   const c = st.filamentG * perG + (st.printTimeS / 3600) * perH;
-  const cost = c > 0 ? ` · ${c.toFixed(2)}` : "";
+  const cost = c > 0 ? ` · cost ${c.toFixed(2)}` : "";
   $("sum-detail").textContent = `${st.filamentG.toFixed(1)} g · ${(st.filamentMm / 1000).toFixed(2)} m${cost} · ${st.layerCount} layers`;
   $("sum-took").textContent = app.sliceMs < 1000 ? `Sliced in ${app.sliceMs.toFixed(0)} ms` : `Sliced in ${(app.sliceMs / 1000).toFixed(1)} s`;
   // A part off the bed, or on another part: the printer can hit its frame.

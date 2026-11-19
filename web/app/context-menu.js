@@ -60,6 +60,7 @@ export const CONTEXT_MENU = [
       { label: "Arrange the plate", gtk: "win.arrange", act: "plate", arg: "arrange" },
       { label: "Add models…", gtk: "app.open", act: "addModels" },
       { label: "Clear the plate", gtk: "win.clear-plate", act: "plate", arg: "clear" },
+      { label: "Remove this plate", gtk: "win.remove-plate", act: "removePlate" },
     ],
   },
   {

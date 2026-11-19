@@ -75,6 +75,59 @@ export function attachViewInput(canvas, ctx) {
   canvas.addEventListener("pointerup", touchUp, { capture: true });
   canvas.addEventListener("pointercancel", touchUp, { capture: true });
 
+  // The hand of the Grab tool is sticky (the user's design): a click on a
+  // part picks it up, and the hand keeps it with no button held. A move of
+  // the pointer carries it; Alt and a move turn it (Shift snaps to 15°);
+  // the wheel lifts it. The next click, or Esc, lets it go.
+  let handTurn = null;
+  canvas.addEventListener("pointerdown", (e) => {
+    if (pinch || !grab || tools.tool !== "grab" || app.page !== "3d" || e.button !== 0) return;
+    e.stopImmediatePropagation();
+    e.preventDefault();
+    if (grab.holding()) {
+      grab.end();
+      return;
+    }
+    if (!view.loaded) return;
+    const r = canvas.getBoundingClientRect();
+    handTurn = null;
+    grab.start((e.clientX - r.left) * dpr(), (e.clientY - r.top) * dpr());
+  }, { capture: true });
+  canvas.addEventListener("pointermove", (e) => {
+    if (!grab?.holding()) return;
+    const r = canvas.getBoundingClientRect();
+    const px = (e.clientX - r.left) * dpr();
+    const py = (e.clientY - r.top) * dpr();
+    if (e.altKey) {
+      // Turn by 0.5° a pixel of the move; Shift snaps the sum to 15°.
+      const t = (handTurn ??= { yaw: 0, tilt: 0, sentYaw: 0, sentTilt: 0, x: e.clientX, y: e.clientY });
+      t.yaw += (e.clientX - t.x) * 0.5;
+      t.tilt += (e.clientY - t.y) * 0.5;
+      t.x = e.clientX;
+      t.y = e.clientY;
+      const snap = (v) => (e.shiftKey ? Math.round(v / 15) * 15 : v);
+      const yaw = snap(t.yaw) - t.sentYaw;
+      const tilt = snap(t.tilt) - t.sentTilt;
+      if (yaw || tilt) {
+        grab.turn(yaw, tilt);
+        t.sentYaw += yaw;
+        t.sentTilt += tilt;
+      }
+      return;
+    }
+    if (handTurn) {
+      // After a turn, the hand moves on from here: no jump.
+      handTurn = null;
+    }
+    grab.move(px, py);
+  });
+  window.addEventListener("keydown", (e) => {
+    if (e.key === "Escape" && grab?.holding()) {
+      grab.end();
+      e.preventDefault();
+    }
+  });
+
   canvas.addEventListener("pointerdown", (e) => {
     if (pinch) return;
     canvas.setPointerCapture(e.pointerId);
@@ -90,17 +143,6 @@ export function attachViewInput(canvas, ctx) {
         canvas.style.cursor = "grabbing";
         return;
       }
-    }
-    // The Grab tool in 3D: a press on a part takes it in the hand.
-    if (e.button === 0 && app.page === "3d" && view.loaded && tools.tool === "grab" && grab) {
-      const d = drag;
-      d.hand = "pending";
-      const r = canvas.getBoundingClientRect();
-      grab.start((e.clientX - r.left) * dpr(), (e.clientY - r.top) * dpr()).then((ok) => {
-        if (drag === d) d.hand = ok ? "on" : null;
-        else if (ok) grab.end();
-      });
-      return;
     }
     // The move tool, or Ctrl, in 3D: a left drag on a part moves it.
     if (e.button === 0 && app.page === "3d" && view.loaded && (tools.tool === "move" || e.ctrlKey)) {
@@ -130,28 +172,7 @@ export function attachViewInput(canvas, ctx) {
       tools.moveTo((e.clientX - r.left) * dpr(), (e.clientY - r.top) * dpr());
       return;
     }
-    if (drag.hand) {
-      if (drag.hand !== "on") return;
-      // Alt and a drag: turn the part in the hand (0.5 degree a pixel).
-      // Shift snaps the turn to steps of 15 degrees.
-      if (e.altKey) {
-        const t = (drag.turn ??= { yaw: 0, tilt: 0, sentYaw: 0, sentTilt: 0 });
-        t.yaw += dx * 0.5;
-        t.tilt += dy * 0.5;
-        const snap = (v) => (e.shiftKey ? Math.round(v / 15) * 15 : v);
-        const yaw = snap(t.yaw) - t.sentYaw;
-        const tilt = snap(t.tilt) - t.sentTilt;
-        if (yaw || tilt) {
-          grab.turn(yaw, tilt);
-          t.sentYaw += yaw;
-          t.sentTilt += tilt;
-        }
-        return;
-      }
-      const r = canvas.getBoundingClientRect();
-      grab.move((e.clientX - r.left) * dpr(), (e.clientY - r.top) * dpr());
-      return;
-    }
+
     if (drag.part === "pending") return;
     // A left drag orbits. A right drag (two fingers pressed down on a
     // touchpad) and a middle drag pan, as Shift with a left drag does.
@@ -163,10 +184,6 @@ export function attachViewInput(canvas, ctx) {
   canvas.addEventListener("pointerup", (e) => {
     const d = drag;
     endDrag();
-    if (d?.hand) {
-      grab.end();
-      return;
-    }
     if (d?.part === "moving") {
       tools.moveEnd();
       return;
