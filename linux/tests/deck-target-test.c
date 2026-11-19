@@ -16,6 +16,7 @@
 
 static char *base;
 static int root_uploads, x2d_uploads;
+static gboolean saw_wrapped; /* an upload of x.gcode.3mf with the wrapped bytes */
 
 static void handle(SoupServer *server, SoupServerMessage *msg, const char *path, GHashTable *query, gpointer data) {
     (void)server;
@@ -30,7 +31,15 @@ static void handle(SoupServer *server, SoupServerMessage *msg, const char *path,
         return;
     }
     if (strcmp(path, "/api/files/local") == 0) root_uploads++;
-    if (strcmp(path, "/printers/x2d/api/files/local") == 0) x2d_uploads++;
+    if (strcmp(path, "/printers/x2d/api/files/local") == 0) {
+        x2d_uploads++;
+        SoupMessageBody *b = soup_server_message_get_request_body(msg);
+        GBytes *all = soup_message_body_flatten(b);
+        gsize n = 0;
+        const char *d = g_bytes_get_data(all, &n);
+        if (g_strstr_len(d, (gssize)n, "x.gcode.3mf") && g_strstr_len(d, (gssize)n, "WRAPPED-G-CODE")) saw_wrapped = TRUE;
+        g_bytes_unref(all);
+    }
     soup_server_message_set_status(msg, 201, NULL);
     soup_server_message_set_response(msg, "application/json", SOUP_MEMORY_STATIC, "{}", 2);
 }
@@ -44,6 +53,15 @@ static void on_done(gboolean ok, const char *message, gpointer data) {
     (void)message;
     r->ok = ok;
     r->done = TRUE;
+}
+
+static GBytes *wrap(GBytes *signed_gcode, gpointer data) {
+    (void)data;
+    /* The signed G-code must arrive here: it starts with the G-code. */
+    gsize n = 0;
+    const char *g = g_bytes_get_data(signed_gcode, &n);
+    if (n < 4 || memcmp(g, "G28\n", 4) != 0) return NULL;
+    return g_bytes_new_static("WRAPPED-G-CODE", 14);
 }
 
 static gboolean send_to(const char *name, const char *url) {
@@ -82,6 +100,21 @@ int main(void) {
     /* A path that the deck does not have. */
     char *gone = g_strconcat(base, "/printers/gone", NULL);
     if (send_to("Mine", gone)) g_error("a path that the deck does not have must fail");
+    /* A wrapped send: the file goes out as the wrap made it. */
+    {
+        ZgPrinter p = {0};
+        p.id = (char *)"t";
+        p.name = (char *)"X2D";
+        p.kind = ZG_LINK_PRINTDECK;
+        p.url = x2d;
+        p.api_key = (char *)"k";
+        Result r = {0};
+        GBytes *g = g_bytes_new_static("G28\n", 4);
+        zg_link_send_wrapped(&p, "x.gcode.3mf", g, wrap, NULL, FALSE, NULL, NULL, on_done, &r);
+        while (!r.done) g_main_context_iteration(NULL, TRUE);
+        g_bytes_unref(g);
+        if (!r.ok || !saw_wrapped) g_error("a wrapped send must upload the wrapped file");
+    }
     g_print("ok\n");
     g_free(x2d);
     g_free(gone);

@@ -906,8 +906,8 @@ static void deck_check(Upload *u) {
     g_free(root.url);
 }
 
-void zg_link_send(const ZgPrinter *p, const char *filename, GBytes *gcode, gboolean print, GCancellable *cancel,
-                  ZgProgressFn progress, ZgDoneFn done, gpointer data) {
+void zg_link_send_wrapped(const ZgPrinter *p, const char *filename, GBytes *gcode, ZgWrapFn wrap, gpointer wrap_data,
+                          gboolean print, GCancellable *cancel, ZgProgressFn progress, ZgDoneFn done, gpointer data) {
     if (p->kind == ZG_LINK_NONE) {
         done(FALSE, "This printer has no connection.", data);
         return;
@@ -929,6 +929,16 @@ void zg_link_send(const ZgPrinter *p, const char *filename, GBytes *gcode, gbool
     u->filename = g_strdup(filename);
     /* Each file that goes out has the signature of this install. */
     u->gcode = zg_sign_gcode(gcode);
+    if (wrap) {
+        GBytes *w = wrap(u->gcode, wrap_data);
+        if (!w) {
+            done(FALSE, "zslice could not make the .gcode.3mf file of the plate.", data);
+            upload_free(u);
+            return;
+        }
+        g_bytes_unref(u->gcode);
+        u->gcode = w;
+    }
     u->print = print;
     u->cancel = cancel ? g_object_ref(cancel) : NULL;
     u->done = done;
@@ -941,6 +951,11 @@ void zg_link_send(const ZgPrinter *p, const char *filename, GBytes *gcode, gbool
         return;
     }
     send_start(u);
+}
+
+void zg_link_send(const ZgPrinter *p, const char *filename, GBytes *gcode, gboolean print, GCancellable *cancel,
+                  ZgProgressFn progress, ZgDoneFn done, gpointer data) {
+    zg_link_send_wrapped(p, filename, gcode, NULL, NULL, print, cancel, progress, done, data);
 }
 
 /* ---- USB: a serial port ---- */
@@ -1209,3 +1224,21 @@ void zg_link_deck_printers(const ZgPrinter *p, GCancellable *cancel, ZgDeckFn fn
     g_object_unref(msg);
 }
 
+
+gboolean zg_link_wants_3mf(const zs_app *app, const ZgPrinter *p) {
+    if (!app || !p || p->kind != ZG_LINK_PRINTDECK) return FALSE;
+    char model[128] = "";
+    if (zs_app_setting_get(app, "machine.model", model, sizeof model, NULL) != ZS_OK) return FALSE;
+    return g_str_has_prefix(model, "bambu-lab");
+}
+
+GBytes *zg_link_bambu_wrap(GBytes *signed_gcode, gpointer data) {
+    gsize len = 0;
+    const uint8_t *g = g_bytes_get_data(signed_gcode, &len);
+    uint8_t *out = NULL;
+    size_t out_len = 0;
+    if (zs_app_bambu_file_gcode(data, g, len, NULL, &out, &out_len) != ZS_OK || !out) return NULL;
+    GBytes *b = g_bytes_new(out, out_len);
+    zs_buffer_free(out, out_len);
+    return b;
+}

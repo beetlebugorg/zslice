@@ -76,6 +76,21 @@ typedef struct {
 typedef void (*ZgDeckFn)(GPtrArray *printers, const char *error, gpointer data);
 void zg_link_deck_printers(const ZgPrinter *p, GCancellable *cancel, ZgDeckFn fn, gpointer data);
 
+/* Wraps signed G-code in another file (a .gcode.3mf of a Bambu Lab
+ * printer), or returns NULL on an error. */
+typedef GBytes *(*ZgWrapFn)(GBytes *signed_gcode, gpointer data);
+/* TRUE when a send to `p` must be a .gcode.3mf: a printdeck printer of a
+ * Bambu Lab machine (machine.model of `app` starts with "bambu-lab"). */
+gboolean zg_link_wants_3mf(const zs_app *app, const ZgPrinter *p);
+/* A ZgWrapFn: the .gcode.3mf of the zs_app in `data` around the signed
+ * G-code (zs_app_bambu_file_gcode). */
+GBytes *zg_link_bambu_wrap(GBytes *signed_gcode, gpointer data);
+
+/* zg_link_send, with `wrap` (and its data) called on the G-code after its
+ * signature; the file goes out as `filename`. */
+void zg_link_send_wrapped(const ZgPrinter *p, const char *filename, GBytes *gcode, ZgWrapFn wrap, gpointer wrap_data,
+                          gboolean print, GCancellable *cancel, ZgProgressFn progress, ZgDoneFn done, gpointer data);
+
 /* Sends a G-code file, and starts the print if `print`. For USB, the call
  * sends the whole print over the port: `progress` follows, and `done` comes
  * at the end. */

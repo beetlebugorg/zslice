@@ -1092,7 +1092,15 @@ static void send_now(Window *w) {
     char *text = g_strdup_printf("Sending to %s…", pr->name);
     gtk_label_set_text(GTK_LABEL(w->printer_state), text);
     g_free(text);
-    zg_link_send(pr, file, bytes, w->send_print, w->send_cancel, on_send_progress, on_send_done, w);
+    /* A Bambu Lab printer behind a deck prints a .gcode.3mf. */
+    zs_app *core = zg_model_core(w->model);
+    if (zg_link_wants_3mf(core, pr)) {
+        char *file3 = g_strconcat(file, ".3mf", NULL);
+        zg_link_send_wrapped(pr, file3, bytes, zg_link_bambu_wrap, core, w->send_print, w->send_cancel, on_send_progress, on_send_done, w);
+        g_free(file3);
+    } else {
+        zg_link_send(pr, file, bytes, w->send_print, w->send_cancel, on_send_progress, on_send_done, w);
+    }
     g_bytes_unref(bytes);
     g_free(file);
 }

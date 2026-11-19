@@ -393,8 +393,10 @@ static void do_send(Send *s) {
     char base[256] = "";
     if (zs_app_gcode_name(app, model, zs_set_count(set) > 1 ? index + 1 : 0, base, sizeof base, NULL) != ZS_OK || !base[0])
         g_snprintf(base, sizeof base, "plate-%zu", index + 1);
-    char *file = g_strconcat(base, ".gcode", NULL);
-    zg_link_send(pr, file, bytes, s->print, s->page->cancel, on_progress, on_sent, s->page);
+    /* A Bambu Lab printer behind a deck prints a .gcode.3mf. */
+    gboolean three = zg_link_wants_3mf(app, pr);
+    char *file = g_strconcat(base, three ? ".gcode.3mf" : ".gcode", NULL);
+    zg_link_send_wrapped(pr, file, bytes, three ? zg_link_bambu_wrap : NULL, (gpointer)app, s->print, s->page->cancel, on_progress, on_sent, s->page);
     g_free(file);
     g_bytes_unref(bytes);
 }
