@@ -155,6 +155,7 @@ struct DocumentWindow: View {
                     // The legend is in the Colors popover of the tool strip.
                     if workspace.checkOpen {
                         CheckPanel(workspace: workspace)
+                            .panel()
                     }
                 }
                 .padding(12)
@@ -162,6 +163,7 @@ struct DocumentWindow: View {
             .overlay(alignment: .topTrailing) {
                 // Left of the layer slider and its number.
                 GapSummary(workspace: workspace)
+                    .panel()
                     .padding(.top, 12)
                     .padding(.trailing, 92)
             }
@@ -180,6 +182,7 @@ struct DocumentWindow: View {
                             Spacer()
                             PrintCard(workspace: workspace)
                                 .fixedSize()
+                                .panel()
                                 .overlay(alignment: .topTrailing) {
                                     // On the corner, clear of the text of the card.
                                     Button { workspace.detailsOpen = false } label: {
@@ -226,6 +229,7 @@ struct DocumentWindow: View {
                         // card grows down with the trees.
                         SupportCard(workspace: workspace)
                             .fixedSize()
+                            .panel()
                             .padding(.leading, 95)
                             .padding(.top, 50)
                             .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
@@ -234,6 +238,7 @@ struct DocumentWindow: View {
                         // Where the card of the Support tool goes.
                         PickedSupportCard(workspace: workspace)
                             .fixedSize()
+                            .panel()
                             .padding(.leading, 95)
                             .padding(.top, 50)
                             .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
@@ -242,6 +247,7 @@ struct DocumentWindow: View {
                         // At the left, next to the tools, so it never covers the part.
                         PaintCard(workspace: workspace, paint: p)
                             .fixedSize()
+                            .panel()
                             .padding(.leading, 95)
                             .padding(.top, 50)
                             .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
@@ -259,6 +265,13 @@ struct DocumentWindow: View {
                     }
                 }
                 .ignoresSafeArea()
+                .onGeometryChange(for: CGPoint.self) { $0.frame(in: .global).origin } action: { o in
+                    if workspace.cardsOrigin != o { workspace.cardsOrigin = o }
+                }
+            }
+            // The panels that the cards keep out of.
+            .onPreferenceChange(PanelFramesKey.self) { frames in
+                if workspace.panelFrames != frames { workspace.panelFrames = frames }
             }
             // The search last, over the other controls.
             .overlay(alignment: .topLeading) {
