@@ -420,8 +420,8 @@ int zs_app_toolpaths(const zs_app *app, zs_toolpaths *out);
  * rests where the bed or an earlier layer holds it, and hangs (a bridge
  * sags) or falls (a strand with no support) where no plastic holds it. It
  * cools with the fan, and sets. The next layers print on the shape that
- * formed. zs_app_simulate_print runs it on the calling thread (about a
- * second for a 3DBenchy) and shows the result: zs_app_toolpaths then gives
+ * formed. zs_app_simulate_print runs it on the calling thread (about
+ * 1.5 s for a 3DBenchy) and shows the result: zs_app_toolpaths then gives
  * the paths as the plastic set, until zs_app_show_simulated(app, 0) or the
  * next slice. A path that moved has a point for each mass of the
  * simulation, with point_z and point_area. Call zs_view_load to draw it.

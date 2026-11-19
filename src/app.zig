@@ -2318,8 +2318,9 @@ pub const App = struct {
     /// nozzle, hangs, falls, cools, and sets (see print_sim.zig). Then
     /// shows the result: `allToolpaths` gives the paths as the plastic
     /// set, until `showSimulated(false)` or the next slice. A view shows
-    /// them after its next load. The time of a part is about a second
-    /// for each 100 000 masses (a mass for each half bead width).
+    /// them after its next load. It runs on the calling thread: a
+    /// 3DBenchy (585 000 masses, one for each half bead width) runs for
+    /// about 1.5 s.
     pub fn simulatePrint(app: *App) !zs.print_sim.Stats {
         if (app.getState() != .done) return error.NoResult;
         app.dropSimulation();
