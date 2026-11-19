@@ -311,12 +311,19 @@ final class MetalSliceView: NSView {
 
     private static var firstFrame = true
 
+    /// Frames drawn, for the orbit test.
+    private var framesDrawn = 0
+
     private func drawFrame() {
         guard let view, let renderer else { return }
+        framesDrawn += 1
         let tf = CACurrentMediaTime()
+        var tcore = 0.0
         defer {
             let ms = (CACurrentMediaTime() - tf) * 1000
-            if ms > 8, ProcessInfo.processInfo.environment["ZSLICE_TIMING"] != nil { NSLog("zslice timing: a frame took %.1f ms", ms) }
+            if ms > 8, ProcessInfo.processInfo.environment["ZSLICE_TIMING"] != nil {
+                NSLog("zslice timing: a frame took %.1f ms (zs_view_draw %.1f ms)", ms, tcore)
+            }
         }
         if Self.firstFrame, loaded {
             Self.firstFrame = false
@@ -324,7 +331,9 @@ final class MetalSliceView: NSView {
                 NSLog("zslice timing: first frame with beads %.0f ms after the start", (CACurrentMediaTime() - launchTime) * 1000)
             }
         }
+        let tc = CACurrentMediaTime()
         let rc = zs_view_draw(view)
+        tcore = (CACurrentMediaTime() - tc) * 1000
         guard rc == 0, let frame = zs_view_web_frame(view) else {
             if rc != 0 { NSLog("zslice: the 3D view did not draw: \(statusName(rc))") }
             return
@@ -350,10 +359,11 @@ final class MetalSliceView: NSView {
 
     /// For tests (ZSLICE_ORBIT_TEST): close to the part, then an orbit
     /// for 3 s at 120 steps a second; logs the mean GPU time.
-    func orbitTest() {
+    func orbitTest(zoomSteps: Int = 14) {
         guard let view else { return }
-        for _ in 0 ..< 14 { zs_view_zoom(view, 0.8) }
+        for _ in 0 ..< zoomSteps { zs_view_zoom(view, 0.8) }
         let start = CACurrentMediaTime()
+        let frames0 = framesDrawn
         Task { @MainActor [weak self] in
             var gpu: [Double] = []
             while let self, let view = self.view, let renderer = self.renderer, CACurrentMediaTime() - start < 3 {
@@ -363,7 +373,8 @@ final class MetalSliceView: NSView {
                 try? await Task.sleep(for: .milliseconds(8))
             }
             let tail = gpu.suffix(200)
-            NSLog("zslice orbit test: mean GPU %.1f ms over the last %d steps", tail.reduce(0, +) / Double(max(tail.count, 1)), tail.count)
+            let fps = Double((self?.framesDrawn ?? frames0) - frames0) / (CACurrentMediaTime() - start)
+            NSLog("zslice orbit test: mean GPU %.1f ms over the last %d steps, %.0f frames a second", tail.reduce(0, +) / Double(max(tail.count, 1)), tail.count, fps)
         }
     }
 
