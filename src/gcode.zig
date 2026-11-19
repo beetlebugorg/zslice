@@ -21,6 +21,12 @@
 //!   plate: see LayerPlan.region_resolved). Its speed, its acceleration,
 //!   and its flow come from them. The travel, the retraction, the cooling,
 //!   and the fan come from the settings of the layer.
+//! - A plate can have many filaments (see filaments.zig). Each path
+//!   prints with the filament of its settings (`project.filament`). Before
+//!   a path of another filament, the emitter changes the filament: the
+//!   change G-code of the machine, or M600 (PAUSE on Klipper), or a tool
+//!   change Tn. The change takes `change_time`, and a tool change flushes
+//!   the old color out (the flush counts in the filament of the new slot).
 //! - Comments mark each layer (";LAYER:n") and each feature
 //!   (";TYPE:WALL-OUTER"). These follow the CuraEngine convention (see
 //!   REFERENCES.md), which G-code viewers and printdeck read.
@@ -57,6 +63,7 @@ const layer_mod = @import("layer.zig");
 const settings_mod = @import("settings.zig");
 const expr = @import("expr.zig");
 const gcode_vars = @import("gcode_vars.zig");
+const filaments = @import("filaments.zig");
 const Feature = settings_mod.Feature;
 const Resolved = settings_mod.Resolved;
 const LayerPlan = layer_mod.LayerPlan;
@@ -72,6 +79,15 @@ pub const Stats = struct {
     print_time_s: f64 = 0,
     travel_mm: f64 = 0,
     retractions: u32 = 0,
+    /// The filament changes (see filaments.zig).
+    changes: u32 = 0,
+    /// The filament length (mm) of each slot of the plate, with the flush
+    /// of the changes to it.
+    slot_mm: [filaments.max_slots]f64 = @splat(0),
+    /// The weight (g) of each slot (see `Emitter.end`).
+    slot_g: [filaments.max_slots]f64 = @splat(0),
+    /// The filament length (mm) that the changes flushed, of all slots.
+    flush_mm: f64 = 0,
 };
 
 /// What the emitter records for each path of a layer, if `record` is set.
@@ -91,6 +107,8 @@ pub const PathInfo = struct {
     slowed: bool = false,
     /// The fan while the path prints, from 0 (off) to 255.
     fan: u8 = 0,
+    /// The slot of the filament of the path, from 0.
+    tool: u8 = 0,
 };
 
 /// The most waypoints of a combing travel.
@@ -394,6 +412,20 @@ pub fn prepare(gpa: std.mem.Allocator, r: *const Resolved, lp: *const LayerPlan,
 
 pub const Error = Writer.Error || std.mem.Allocator.Error;
 
+/// The slot of the filament of the last path of a layer plan, with the
+/// settings `r` of the print and the filaments `slots` of the plate.
+pub fn endTool(lp: *const LayerPlan, r: *const Resolved, slots: []const settings_mod.Filament) u32 {
+    if (slots.len < 2) return 0;
+    var i = lp.paths.items.len;
+    while (i > 0) {
+        i -= 1;
+        if (lp.points.get(i).len == 0) continue;
+        const pr = lp.pathResolved(lp.paths.items[i]) orelse lp.resolved orelse r;
+        return filaments.slotOf(pr.settings.project.filament, slots.len);
+    }
+    return 0;
+}
+
 /// The emitter state that a layer run reads from the layer before it.
 /// A planning thread runs a layer early from a guess of this state (see
 /// engine.zig). The link pass then compares the guess with the real state.
@@ -403,6 +435,8 @@ pub const Entry = struct {
     z: f64 = 0,
     feature: ?Feature = null,
     extruded: bool = false,
+    /// The slot of the filament in the nozzle (see `Emitter.tool`).
+    tool: u32 = 0,
 };
 
 /// The emitter state after an early run of a layer, for the layer after
@@ -428,6 +462,7 @@ pub const Exit = struct {
     layer_start: bool = false,
     lr: ?*const Resolved = null,
     retractions: u32 = 0,
+    tool: u32 = 0,
 
     pub const unset: f64 = -1;
 };
@@ -567,6 +602,15 @@ pub const Emitter = struct {
     /// variables of the start G-code (first_layer_print_min), or null.
     first_layer_box: ?[4]f64 = null,
     layer_count: usize = 0,
+    /// The filaments of the plate: slot k is `slots[k]`, and slot 0 is the
+    /// filament of the settings. Empty or one: the print has one
+    /// filament, and the emitter makes no change.
+    slots: []const settings_mod.Filament = &.{},
+    /// The slot of the filament in the nozzle, from 0. The start G-code
+    /// loads slot 0.
+    tool: u32 = 0,
+    /// The layer that `layer` writes, for the change G-code.
+    layer_index: usize = 0,
 
     const max_rules = 16;
     const Rule = struct { target: enum { speed, flow, fan }, node: *const expr.Node };
@@ -656,14 +700,14 @@ pub const Emitter = struct {
 
     /// The state that the run of the next layer reads (see `Entry`).
     pub fn entry(self: *const Emitter) Entry {
-        return .{ .x = self.x, .y = self.y, .z = self.z, .feature = self.feature, .extruded = self.extruded };
+        return .{ .x = self.x, .y = self.y, .z = self.z, .feature = self.feature, .extruded = self.extruded, .tool = self.tool };
     }
 
     /// True if the emitter is in the state `e`, with the filament not
     /// retracted and the nozzle at the z of the layer.
     pub fn at(self: *const Emitter, e: Entry) bool {
         return self.x == e.x and self.y == e.y and self.z == e.z and self.feature == e.feature and
-            self.extruded == e.extruded and !self.retracted and !self.hopped and self.nozzle_z == null;
+            self.extruded == e.extruded and self.tool == e.tool and !self.retracted and !self.hopped and self.nozzle_z == null;
     }
 
     /// Puts the emitter in the state `e` for an early run of a layer. The
@@ -674,6 +718,7 @@ pub const Emitter = struct {
         self.z = e.z;
         self.feature = e.feature;
         self.extruded = e.extruded;
+        self.tool = e.tool;
         self.retracted = false;
         self.hopped = false;
         self.nozzle_z = null;
@@ -704,6 +749,7 @@ pub const Emitter = struct {
             .layer_start = self.layer_start,
             .lr = self.lr,
             .retractions = self.stats.retractions,
+            .tool = self.tool,
         };
     }
 
@@ -717,6 +763,9 @@ pub const Emitter = struct {
     /// runs `layer`.
     pub fn link(self: *Emitter, lp: *const LayerPlan, x: *const Exit, g: *const Terms, pr: *Prepared) bool {
         if (g.rules) return false;
+        // The terms have no slot of each filament length: a print of many
+        // filaments runs each layer.
+        if (self.slots.len > 1) return false;
         const lr = lp.resolved orelse self.r;
         const f = lr.settings.filament;
         // The time of the retractions and the Z moves is a difference of
@@ -937,6 +986,7 @@ pub const Emitter = struct {
     /// a layer keeps no term: its sums are not the sums of the print.
     fn addFilament(self: *Emitter, e: f64) Error!void {
         self.stats.filament_mm += e;
+        self.stats.slot_mm[self.tool] += e;
         if (self.terms) |g| if (self.collect == null) try g.filament.append(self.gpa, e);
     }
 
@@ -952,6 +1002,16 @@ pub const Emitter = struct {
         const r = self.r.settings.filament.diameter / 2;
         const volume_cm3 = st.filament_mm * std.math.pi * r * r / 1000.0;
         st.filament_g = volume_cm3 * self.r.settings.filament.density;
+        if (self.slots.len > 1) {
+            // Each slot has its own density.
+            st.filament_g = 0;
+            for (self.slots, 0..) |f, k| {
+                if (k >= filaments.max_slots) break;
+                const rk = f.diameter / 2;
+                st.slot_g[k] = st.slot_mm[k] * std.math.pi * rk * rk / 1000.0 * f.density;
+                st.filament_g += st.slot_g[k];
+            }
+        } else st.slot_g[0] = st.filament_g;
         _ = try self.writeTemplate(self.w, self.r.settings.machine.end_gcode, .end);
         try self.w.writeAll("\n");
         try self.w.writeAll(";Filament used: ");
@@ -999,9 +1059,10 @@ pub const Emitter = struct {
         const g = self.r.settings;
         const s = self.lr.settings;
         if (!self.dry) try self.w.print(";LAYER:{d}\n", .{lp.index});
+        self.layer_index = lp.index;
         // The temperatures: the start G-code sets the values of the first
         // layer. A layer with other values sets them, with no wait.
-        const nozzle = if (lp.index == 0) g.filament.first_layer_nozzle_temp else s.filament.nozzle_temp;
+        const nozzle = self.toolTemp(lp.index == 0, s);
         // On the first layer, a value other than the one of the start
         // G-code waits (M109, M190): the print starts at its temperature.
         if (nozzle != (self.nozzle_temp orelse g.filament.first_layer_nozzle_temp)) {
@@ -1133,6 +1194,95 @@ pub const Emitter = struct {
         }
     }
 
+    /// The nozzle temperature of the filament in the nozzle: of the layer
+    /// settings `s` for slot 0, else of its slot.
+    fn toolTemp(self: *const Emitter, first: bool, s: settings_mod.Settings) f64 {
+        if (self.tool == 0 or self.tool >= self.slots.len) {
+            return if (first) self.r.settings.filament.first_layer_nozzle_temp else s.filament.nozzle_temp;
+        }
+        const f = self.slots[self.tool];
+        return if (first) f.first_layer_nozzle_temp else f.nozzle_temp;
+    }
+
+    /// The slot of the filament of a path with the settings `r`.
+    pub fn toolOf(self: *const Emitter, r: *const Resolved) u32 {
+        if (self.slots.len < 2) return 0;
+        return filaments.slotOf(r.settings.project.filament, self.slots.len);
+    }
+
+    /// A filament change to slot `next` before a path that starts at
+    /// (x, y) mm. The text is the change G-code of the machine, or the
+    /// command of the flavor (see filaments.zig). The change takes
+    /// `change_time`, and a tool change flushes the old color out.
+    fn changeTool(self: *Emitter, next: u32, x: f64, y: f64, first: bool) Error!void {
+        const g = self.r.settings;
+        const m = g.machine;
+        const from = self.slots[self.tool];
+        const to = self.slots[next];
+        try self.retractHop(false);
+        self.stats.changes += 1;
+        const flush_mm3 = if (m.filament_change == .tool) filaments.flushVolume(from.color, to.color, m.flush_volume, g.project.flush_multiplier) else 0;
+        const flush_mm = flush_mm3 / self.r.filament_area;
+        const old_temp = self.nozzle_temp orelse from.nozzle_temp;
+        const new_temp = if (first) to.first_layer_nozzle_temp else to.nozzle_temp;
+        if (!self.dry) {
+            try self.w.print("; filament change {d}: filament {d} to filament {d}\n", .{ self.stats.changes, self.tool + 1, next + 1 });
+            if (m.change_gcode.len > 0) {
+                try self.writeChange(m.change_gcode, next, flush_mm, old_temp, new_temp, x, y);
+            } else {
+                switch (m.filament_change) {
+                    .pause => try self.w.writeAll(if (m.gcode_flavor == .klipper) "PAUSE ; change the filament, then resume\n" else "M600 ; change the filament\n"),
+                    .tool => try self.w.print("T{d}\n", .{next}),
+                }
+                if (new_temp != old_temp) {
+                    try self.w.writeAll("M109 S");
+                    try writeNum(self.w, new_temp, 0);
+                    try self.w.writeAll("\n");
+                }
+            }
+            // The change can move the nozzle up: back to the layer.
+            try self.w.writeAll("G0 Z");
+            try writeNum(self.w, self.z, 3);
+            try self.w.writeAll("\n");
+        }
+        try self.addTime(m.change_time);
+        self.stop = true;
+        self.stats.flush_mm += flush_mm;
+        self.stats.filament_mm += flush_mm;
+        self.stats.slot_mm[next] += flush_mm;
+        self.tool = next;
+        self.nozzle_temp = new_temp;
+        // The change loads the new filament to the nozzle tip.
+        self.retracted = false;
+        self.hopped = false;
+        self.feed = -1;
+        self.feature = null;
+        self.accel = Exit.unset;
+        self.fan = -1;
+    }
+
+    /// Writes the change G-code of the machine with the facts of the
+    /// change (see gcode_vars.Context.change).
+    fn writeChange(self: *Emitter, text: []const u8, next: u32, flush_mm: f64, old_temp: f64, new_temp: f64, x: f64, y: f64) Writer.Error!void {
+        const m = self.r.settings.machine;
+        const ctx: gcode_vars.Context = .{
+            .r = self.r,
+            .layer_count = self.layer_count,
+            .max_layer_z = self.z,
+            .layer_z = self.z,
+            .object_model = m.gcode_flavor == .reprap,
+            .slots = self.slots,
+            .tool = self.tool,
+            .layer_index = self.layer_index,
+            .change = .{ .next = next, .flush_mm = flush_mm, .count = self.stats.changes, .old_temp = old_temp, .new_temp = new_temp, .after = .{ x + m.origin_x, y + m.origin_y, self.z } },
+        };
+        _ = gcode_vars.render(self.gpa, self.w, text, &ctx) catch |err| switch (err) {
+            error.OutOfMemory => return error.WriteFailed,
+            error.WriteFailed => return error.WriteFailed,
+        };
+        try self.w.writeAll("\n");
+    }
+
     /// The fan of a layer: off on the first layers, the boost speed on a
     /// layer that prints in less than `fan_boost_time`, else the fan speed.
     /// On the layers of the ramp (`fan_ramp_layers`), a part of it.
@@ -1204,6 +1354,9 @@ pub const Emitter = struct {
                 continue;
             }
             const retractions = self.stats.retractions;
+            // A path of another filament: a filament change first.
+            const next_tool = self.toolOf(lp.pathResolved(path) orelse lr);
+            if (next_tool != self.tool) try self.changeTool(next_tool, geom.toMm(pts[0].x), geom.toMm(pts[0].y), first);
             try self.setAccel(lr.accel(null, first));
             self.path_index = i;
             try self.travel(geom.toMm(pts[0].x), geom.toMm(pts[0].y), path.feature);
@@ -1261,7 +1414,7 @@ pub const Emitter = struct {
             const y0 = geom.toMm(pts[0].y);
             if (path.z_start != layer_mod.Path.planar) {
                 const area = try self.nonPlanar(lp, path, pts, speed, fr);
-                if (self.record) |rec| rec.appendAssumeCapacity(.{ .start_time = start_time, .end_time = self.stats.print_time_s, .area = area, .retracted = retracted, .slowed = slow < 1 or lapped, .fan = fanByte(self.fan) });
+                if (self.record) |rec| rec.appendAssumeCapacity(.{ .start_time = start_time, .end_time = self.stats.print_time_s, .area = area, .retracted = retracted, .slowed = slow < 1 or lapped, .fan = fanByte(self.fan), .tool = @intCast(self.tool) });
                 continue;
             }
             if (widths.len > 0) {
@@ -1282,7 +1435,7 @@ pub const Emitter = struct {
                     try self.extrudeLen(x, y, d, area * e_scale, speed);
                 }
                 const mean_area = if (len_sum > 0) area_len / len_sum else flow.beadArea(widths[0], h);
-                if (self.record) |rec| rec.appendAssumeCapacity(.{ .start_time = start_time, .end_time = self.stats.print_time_s, .area = mean_area * fr, .retracted = retracted, .slowed = slow < 1 or lapped, .fan = fanByte(self.fan) });
+                if (self.record) |rec| rec.appendAssumeCapacity(.{ .start_time = start_time, .end_time = self.stats.print_time_s, .area = mean_area * fr, .retracted = retracted, .slowed = slow < 1 or lapped, .fan = fanByte(self.fan), .tool = @intCast(self.tool) });
                 try self.wallWipe(path, pts, path_r.settings.project.outer_wall_wipe, speed);
                 continue;
             }
@@ -1297,7 +1450,7 @@ pub const Emitter = struct {
                 for (pts[1..]) |q| try self.extrude(geom.toMm(q.x), geom.toMm(q.y), e, speed);
                 if (path.closed and pts.len > 2) try self.extrude(x0, y0, e, speed);
             }
-            if (self.record) |rec| rec.appendAssumeCapacity(.{ .start_time = start_time, .end_time = self.stats.print_time_s, .area = e * self.r.filament_area, .retracted = retracted, .slowed = slow < 1 or lapped, .fan = fanByte(self.fan) });
+            if (self.record) |rec| rec.appendAssumeCapacity(.{ .start_time = start_time, .end_time = self.stats.print_time_s, .area = e * self.r.filament_area, .retracted = retracted, .slowed = slow < 1 or lapped, .fan = fanByte(self.fan), .tool = @intCast(self.tool) });
             try self.wallWipe(path, pts, path_r.settings.project.outer_wall_wipe, speed);
         }
     }

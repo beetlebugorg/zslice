@@ -24,7 +24,11 @@
 //! The map (`names`) gives each variable name of the four slicers a key,
 //! and `Renderer.value` gives each key a zslice value. A list variable of
 //! the other slicers has one value for each extruder. zslice prints with
-//! one extruder, so each index gives the value of that one extruder.
+//! one nozzle, and each filament of the plate is a tool of it (see
+//! filaments.zig): a filament variable with an index (`filament_type[1]`)
+//! has the value of that filament. The change G-code of a machine has the
+//! facts of the change (`Context.change`): the new tool, the flush
+//! length, and the old and new temperatures.
 //!
 //! Some variables have no zslice value (a time of day, a pressure advance
 //! value, a temperature of a heated chamber). zslice never writes a
@@ -92,6 +96,38 @@ pub const Context = struct {
     filament_mm: f64 = 0,
     filament_g: f64 = 0,
     print_time_s: f64 = 0,
+    /// The filaments of the plate: slot k + 1 is `slots[k]`. Empty: the
+    /// filament of the settings is the only one. A list variable of the
+    /// filaments (`filament_type[1]`) reads the slot of its index.
+    slots: []const settings_mod.Filament = &.{},
+    /// The tool now (a slot, from 0). In a filament change, the old tool.
+    tool: u32 = 0,
+    /// The layer now, or null (the start and the end G-code).
+    layer_index: ?usize = null,
+    /// The facts of a filament change, in the change G-code
+    /// (`Machine.change_gcode`), or null.
+    change: ?Change = null,
+
+    pub const Change = struct {
+        /// The new tool (a slot, from 0).
+        next: u32,
+        /// The filament length (mm) that the nozzle flushes.
+        flush_mm: f64 = 0,
+        /// The number of this change in the print, from 1.
+        count: u32 = 1,
+        old_temp: f64 = 0,
+        new_temp: f64 = 0,
+        /// Where the nozzle goes after the change: the start of the next
+        /// path, in G-code coordinates, and the z of the layer.
+        after: [3]f64 = .{ 0, 0, 0 },
+    };
+
+    /// The filament of slot `i` (from 0), or of the tool now.
+    fn slot(c: *const Context, i: ?f64) settings_mod.Filament {
+        const k: usize = if (i) |v| (if (v >= 0 and v < 64) @intFromFloat(v) else 0) else c.tool;
+        if (k < c.slots.len) return c.slots[k];
+        return c.r.settings.filament;
+    }
 };
 
 /// What `render` found in the text.
@@ -142,6 +178,15 @@ pub const Key = enum {
     // Layers.
     max_layer_z,
     layer_z,
+    // A filament change.
+    next_tool,
+    flush_length,
+    old_filament_temp,
+    new_filament_temp,
+    toolchange_count,
+    after_x,
+    after_y,
+    after_z,
     layer_num,
     layer_count,
     // Speeds (mm/s) and accelerations (mm/s²).
@@ -378,7 +423,7 @@ pub const names = std.StaticStringMap(Entry).initComptime(.{
     .{ "deretract_speed", each(.retract_speed) },
     .{ "retract_restart_extra", each(.zero) },
     .{ "retract_restart_extra_toolchange", each(.zero) },
-    .{ "retract_length_toolchange", each(.no_value) },
+    .{ "retract_length_toolchange", each(.retract_length) },
     .{ "switch_extruder_retraction_amount", just(.no_value) },
     .{ "retraction_hop", just(.z_hop) },
     .{ "retract_lift", each(.z_hop) },
@@ -484,6 +529,19 @@ pub const names = std.StaticStringMap(Entry).initComptime(.{
     .{ "initial_filament_id", just(.tool) },
     .{ "initial_no_support_filament_id", just(.tool) },
     .{ "current_filament_id", just(.tool) },
+    // b: a filament change (change_filament_gcode).
+    .{ "next_filament_id", just(.next_tool) },
+    .{ "flush_length", just(.flush_length) },
+    .{ "old_filament_temp", just(.old_filament_temp) },
+    .{ "new_filament_temp", just(.new_filament_temp) },
+    .{ "toolchange_count", just(.toolchange_count) },
+    .{ "x_after_toolchange", just(.after_x) },
+    .{ "y_after_toolchange", just(.after_y) },
+    .{ "z_after_toolchange", just(.after_z) },
+    .{ "next_hotend", just(.zero) },
+    .{ "current_hotend", just(.zero) },
+    .{ "next_nozzle_id", just(.zero) },
+    .{ "current_nozzle_id", just(.zero) },
     .{ "initial_nozzle_id", just(.tool) },
     .{ "initial_no_support_hotend", just(.tool) },
     .{ "first_non_support_filaments", each(.first_filament) },
@@ -516,7 +574,8 @@ pub const names = std.StaticStringMap(Entry).initComptime(.{
     .{ "timestamp", just(.no_value) },
     .{ "random", just(.no_value) },
 
-    // Extruders: zslice prints with one extruder, tool 0.
+    // Extruders: zslice prints with one nozzle. Each filament of the
+    // plate is a tool (T0, T1, ...) of a unit that feeds the filaments.
     .{ "initial_tool", just(.tool) },
     .{ "initial_extruder", just(.tool) },
     .{ "initial_extruder_nr", just(.tool) },
@@ -524,7 +583,7 @@ pub const names = std.StaticStringMap(Entry).initComptime(.{
     .{ "initial_no_support_extruder", just(.tool) },
     .{ "initial_no_support_tool", just(.tool) },
     .{ "extruder_nr", just(.tool) },
-    .{ "next_extruder", just(.tool) },
+    .{ "next_extruder", just(.next_tool) },
     .{ "previous_extruder", just(.tool) },
     .{ "num_extruders", just(.one) },
     .{ "extruders_count", just(.one) },
@@ -880,7 +939,9 @@ const Renderer = struct {
         const r = c.r;
         const s = r.settings;
         const m = s.machine;
-        const f = s.filament;
+        // The filament keys read the slot of the index (a list variable)
+        // or of the tool now.
+        const f = c.slot(index);
         const p = s.project;
         const end = c.phase == .end;
         return switch (key) {
@@ -924,7 +985,15 @@ const Renderer = struct {
             },
             .max_layer_z => num(round3(c.max_layer_z)),
             .layer_z => num(round3(c.layer_z)),
-            .layer_num => num(if (end and c.layer_count > 0) @floatFromInt(c.layer_count - 1) else 0),
+            .layer_num => num(if (c.layer_index) |i| @floatFromInt(i) else if (end and c.layer_count > 0) @floatFromInt(c.layer_count - 1) else 0),
+            .next_tool => num(@floatFromInt(if (c.change) |ch| ch.next else c.tool)),
+            .flush_length => if (c.change) |ch| num(round3(ch.flush_mm)) else num(0),
+            .old_filament_temp => num(@round(if (c.change) |ch| ch.old_temp else f.nozzle_temp)),
+            .new_filament_temp => num(@round(if (c.change) |ch| ch.new_temp else f.nozzle_temp)),
+            .toolchange_count => num(@floatFromInt(if (c.change) |ch| ch.count else 0)),
+            .after_x => if (c.change) |ch| num(round3(ch.after[0])) else .nil,
+            .after_y => if (c.change) |ch| num(round3(ch.after[1])) else .nil,
+            .after_z => if (c.change) |ch| num(round3(ch.after[2])) else .nil,
             .layer_count => num(@floatFromInt(c.layer_count)),
             .travel_speed => num(m.travel_speed),
             .first_layer_speed => num(@round(r.speed(.inner_wall, r.first_layer_line_width, p.first_layer_height, true))),
@@ -962,9 +1031,9 @@ const Renderer = struct {
             .wall_thickness => num(round3(@as(f64, @floatFromInt(p.wall_count)) * r.line_width)),
             .top_thickness => num(p.top_thickness),
             .bottom_thickness => num(p.bottom_thickness),
-            .tool => num(0),
+            .tool => num(@floatFromInt(c.tool)),
             .one => num(1),
-            .extruder_used => .{ .boolean = (index orelse 0) == 0 },
+            .extruder_used => .{ .boolean = (index orelse 0) < @as(f64, @floatFromInt(@max(c.slots.len, 1))) },
             .first_filament => num(if ((index orelse 0) == 0) 0 else -1),
             .material_tpu => .{ .boolean = std.ascii.eqlIgnoreCase(f.material, "TPU") },
             .off => .{ .boolean = false },

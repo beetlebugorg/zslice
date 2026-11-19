@@ -62,6 +62,8 @@ pub const support_areas = @import("app/support_areas.zig");
 /// The support trees that the user edits (see app/support_trees.zig).
 pub const support_trees = @import("app/support_trees.zig");
 pub const plate_set = @import("app/plate_set.zig");
+/// The filaments of the plate (see app/filament_slots.zig).
+pub const filament_slots = @import("app/filament_slots.zig");
 pub const measure = @import("app/measure.zig");
 /// The printability check (see app/checks.zig).
 pub const checks_mod = @import("app/checks.zig");
@@ -264,6 +266,11 @@ pub const App = struct {
     bond_memo: std.ArrayList(BondMemo) = .empty,
     /// The edits of the user on the lines of the slice (app/edits.zig).
     edits: edits_mod.Edits = .{},
+    /// The filaments of the plate after the first: slot 2, 3, and on
+    /// (see app/filament_slots.zig). Their strings are in `strings`.
+    filaments: std.ArrayList(zs.settings.Filament) = .empty,
+    /// The copy of `filaments` that the slice uses.
+    slice_filaments: []zs.settings.Filament = &.{},
 
     pub fn create(gpa: Allocator, event_fn: ?EventFn, user: ?*anyopaque) Allocator.Error!*App {
         const app = try gpa.create(App);
@@ -285,6 +292,8 @@ pub const App = struct {
         app.profiles.deinit(app.gpa);
         app.clearGaps();
         app.gpa.free(app.slice_overrides);
+        app.filaments.deinit(app.gpa);
+        app.gpa.free(app.slice_filaments);
         app.gpa.free(app.file_bytes);
         app.undo.deinit(app.gpa);
         app.edits.deinit(app.gpa);
@@ -422,6 +431,8 @@ pub const App = struct {
         while (lines.next()) |line| {
             // A support area of the user (app/support_areas.zig).
             if (try app.areas.read3mfLine(app.gpa, line)) continue;
+            // A filament of the plate (app/filament_slots.zig).
+            if (try filament_slots.read3mfLine(app, line)) continue;
             // The support trees of a part (app/support_trees.zig).
             if (try support_trees.read3mfLine(app, first, line)) continue;
             // "edit <tab> key <tab> kind <tab> value <tab> layer": an edit of
@@ -485,6 +496,8 @@ pub const App = struct {
         var loaded = try zs.threemf.readSnapshot(app.gpa, bytes);
         defer loaded.deinit(app.gpa);
         app.dropPlate();
+        // The filaments of the step come back with its lines.
+        app.filaments.clearRetainingCapacity();
         try app.addLoaded(&loaded);
         app.state.store(.ready, .release);
     }
@@ -495,6 +508,7 @@ pub const App = struct {
         defer text.deinit();
         for (app.profiles.items) |p| try text.writer.print("profile\t{d}\t{d}\t{s}\n", .{ p.z_min, p.z_max, p.name });
         try app.areas.write3mfLines(&text.writer);
+        try filament_slots.write3mfLines(app, &text.writer);
         try support_trees.write3mfLines(app, &text.writer);
         for (app.edits.list.items) |e| try text.writer.print("edit\t{x}\t{d}\t{d}\t{d}\t{d}\t{d}\t{d}\n", .{ e.key, @intFromEnum(e.kind), e.value, e.layer, e.x, e.y, e.z });
         for (app.overrides.items) |o| try text.writer.print("{d}\t{d}\t{s}\t{s}\n", .{ o.z_min, o.z_max, o.name, o.value });
@@ -1411,6 +1425,7 @@ pub const App = struct {
             }
         }
         try app.areas.writeFacts(w);
+        try filament_slots.writeFacts(app, w);
         try support_trees.writeFacts(app, w);
         for (app.plate.parts.items) |p| {
             const name: []const u8 = p.name;
@@ -2098,6 +2113,8 @@ pub const App = struct {
         app.slice_settings = app.settings;
         app.gpa.free(app.slice_overrides);
         app.slice_overrides = app.gpa.dupe(zs.settings.Override, app.overrides.items) catch &.{};
+        app.gpa.free(app.slice_filaments);
+        app.slice_filaments = app.gpa.dupe(zs.settings.Filament, app.filaments.items) catch &.{};
         app.gpa.free(app.slice_marks);
         app.slice_marks = app.sliceMarks() catch &.{};
         try app.makeSlicePlan();
@@ -2407,7 +2424,10 @@ pub const App = struct {
         // lines change the plans, and the job does not see them in `init`.
         var edits_hash = std.hash.Wyhash.init(0);
         for (app.edits.list.items) |e| zs.settings.hashValue(&edits_hash, .{ e.key, e.kind, e.value, e.layer, e.x, e.y, e.z });
-        const job_or = zs.PlateJob.init(app.gpa, part, app.slice_parts, .{ .overrides = layer_overrides.items, .monitor = monitor, .old = prev, .streams = edits_hash.final() });
+        // The order of the parts on a level depends on the number of
+        // filaments (see plate_job.zig).
+        zs.settings.hashValue(&edits_hash, app.slice_filaments.len);
+        const job_or = zs.PlateJob.init(app.gpa, part, app.slice_parts, .{ .overrides = layer_overrides.items, .monitor = monitor, .old = prev, .streams = edits_hash.final(), .filaments = app.slice_filaments });
         // The new job took what it could use. A job that failed (for
         // example, a cancel) can leave the old job without outlines, so the
         // old job goes in each case.
@@ -2761,6 +2781,7 @@ test {
     _ = checks_mod;
     _ = plate_set;
     _ = support_areas;
+    _ = filament_slots;
     _ = support_trees;
     _ = @import("app/feature_settings.zig");
     _ = @import("app/farm.zig");

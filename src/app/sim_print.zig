@@ -194,7 +194,7 @@ fn output(gpa: Allocator, tp: *const Toolpaths, paths: []const sim.Path, r: *sim
     var out: Toolpaths = .{};
     errdefer out.deinit(gpa);
     // The values of the paths and the layers stay.
-    inline for (.{ "path_features", "path_area", "path_height", "path_start_time", "path_end_time", "path_retract", "path_fan", "path_modifier", "path_part", "path_key", "layer_slowed", "layer_ends", "layer_z", "layer_height", "layer_width" }) |name| {
+    inline for (.{ "path_features", "path_area", "path_height", "path_start_time", "path_end_time", "path_retract", "path_fan", "path_tool", "path_modifier", "path_part", "path_key", "layer_slowed", "layer_ends", "layer_z", "layer_height", "layer_width" }) |name| {
         try @field(out, name).appendSlice(gpa, @field(tp, name).items);
     }
     out.z_hop = tp.z_hop;
@@ -306,6 +306,7 @@ fn bridgeToolpaths(gpa: Allocator) !Toolpaths {
             try t.path_end_time.append(gpa, time);
             try t.path_retract.append(gpa, 0);
             try t.path_fan.append(gpa, 255);
+            try t.path_tool.append(gpa, 0);
             try t.path_modifier.append(gpa, 0);
             try t.path_part.append(gpa, 0);
             try t.path_key.append(gpa, t.path_key.items.len);

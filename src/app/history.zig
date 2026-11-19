@@ -14,6 +14,8 @@
 //!   bed), and "scale".
 //! - "layers:<z_min>:<z_max>": a change for some layers (an override), and
 //!   "(name)", the name of a layer profile.
+//! - "filament <n>": filament n of the plate (from 2, see
+//!   app/filament_slots.zig): "(slot)" (the plate has it), and its values.
 //!
 //! `diff` gives the changes from one facts text to another, as lines of
 //! "scope\tkey\told\tnew" (an empty old or new value: no value). `describe`
@@ -156,6 +158,7 @@ pub fn writeScope(w: *std.Io.Writer, scope: []const u8, part_z: f64, layer_z: []
     if (std.mem.eql(u8, scope, "filament")) return w.writeAll("Filament");
     if (std.mem.eql(u8, scope, "print")) return w.writeAll("This print");
     if (partName(scope)) |n| return w.print("Part {s}", .{n});
+    if (std.mem.startsWith(u8, scope, "filament ")) return w.print("Filament {s}", .{scope["filament ".len..]});
     if (layerRange(scope)) |r| {
         const down = r[0] <= -part_z;
         const up = r[1] >= part_z;
@@ -222,6 +225,7 @@ pub fn writeChange(w: *std.Io.Writer, c: Change) std.Io.Writer.Error!void {
         if (c.new.len == 0) return w.writeAll("Support trees planned again");
         return w.print("Support trees {s}", .{c.new});
     }
+    if (std.mem.eql(u8, c.key, "(slot)")) return w.writeAll(if (c.new.len > 0) "Added to the plate" else "Removed from the plate");
     if (is_layers and std.mem.eql(u8, c.key, "(name)")) {
         if (c.new.len == 0) return w.print("Layer profile \"{s}\" removed", .{c.old});
         if (c.old.len == 0) return w.print("Layer profile \"{s}\"", .{c.new});

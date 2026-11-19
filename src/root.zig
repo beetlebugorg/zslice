@@ -55,6 +55,7 @@ pub const slope = @import("slope.zig");
 pub const gcode = @import("gcode.zig");
 pub const stream = @import("stream.zig");
 pub const gcode_vars = @import("gcode_vars.zig");
+pub const filaments = @import("filaments.zig");
 pub const motion = @import("motion.zig");
 pub const parallel = @import("parallel.zig");
 pub const scratch = @import("scratch.zig");

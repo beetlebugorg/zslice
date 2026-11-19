@@ -964,6 +964,31 @@ int zs_app_set_keep_places(zs_app *app, int on);
  * has the value of the plate. */
 int zs_app_part_setting_set(zs_app *app, size_t i, const char *name, const char *value);
 int zs_app_part_setting_get(const zs_app *app, size_t i, const char *name, char *buf, size_t cap, size_t *out_len);
+
+/* ---- the filaments of the plate ----
+ *
+ * A plate has a list of filaments. Filament 0 is the filament of the
+ * settings (the filament group); the others each have a full filament of
+ * their own (material, color, temperatures). A part or a range of layers
+ * prints with filament k when its setting "project.filament" is k + 1
+ * (zs_app_part_setting_set, zs_app_override_set). The G-code changes the
+ * filament there: a pause (M600) or a tool change, as
+ * "machine.filament_change" says. A 3MF save keeps the list. */
+size_t zs_app_filament_count(const zs_app *app);
+/* Adds a filament: a copy of filament 0 with a new color. */
+int zs_app_filament_add(zs_app *app, size_t *out_index);
+/* Removes filament i (i >= 1). The parts and the layers of the filaments
+ * after it move down by one; the ones of filament i go to filament 0. */
+int zs_app_filament_remove(zs_app *app, size_t i);
+/* A value of filament i: `name` is a filament setting ("filament.color"). */
+int zs_app_filament_set(zs_app *app, size_t i, const char *name, const char *value);
+int zs_app_filament_get(const zs_app *app, size_t i, const char *name, char *buf, size_t cap, size_t *out_len);
+/* Applies the text of a filament profile to filament i (i >= 1). */
+int zs_app_filament_profile(zs_app *app, size_t i, const char *name, const char *text);
+/* The last slice: the grams of up to `cap` filaments (with the flush of
+ * the changes to each), the number of filament changes, and the grams of
+ * all flushes. Each pointer can be NULL. */
+int zs_app_filament_stats(const zs_app *app, double *grams, size_t cap, uint32_t *changes, double *flush_g);
 /* Moves a part (the center of its footprint) to (x, y) on the bed. */
 int zs_app_part_move(zs_app *app, size_t i, double x, double y);
 /* Sets the turn of a part, in degrees, around the center of its footprint. */

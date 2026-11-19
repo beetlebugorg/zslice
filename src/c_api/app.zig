@@ -2108,6 +2108,110 @@ export fn zs_app_part_get(a: ?*App, i: usize, out: ?*Part) c_int {
     return ok;
 }
 
+/// The number of filaments of the plate, at least 1 (see
+/// app/filament_slots.zig).
+export fn zs_app_filament_count(a: ?*const App) usize {
+    const app = a orelse return 0;
+    return app_mod.filament_slots.count(app);
+}
+
+/// Adds a filament to the plate: a copy of filament 1 with a new color.
+/// `out_index` gets its index (from 0).
+export fn zs_app_filament_add(a: ?*App, out_index: ?*usize) c_int {
+    const app = a orelse return @intFromEnum(Status.invalid_argument);
+    const i = app_mod.filament_slots.add(app) catch |e| return switch (e) {
+        error.TooMany => @intFromEnum(Status.out_of_range),
+        else => @intFromEnum(Status.out_of_memory),
+    };
+    if (out_index) |o| o.* = i;
+    noted(app, null, true);
+    return ok;
+}
+
+/// Removes filament i (from 1; filament 0 is the filament of the
+/// settings). The parts and the layers of the filaments after it move
+/// down by one.
+export fn zs_app_filament_remove(a: ?*App, i: usize) c_int {
+    const app = a orelse return @intFromEnum(Status.invalid_argument);
+    app_mod.filament_slots.remove(app, i) catch |e| return switch (e) {
+        error.NoSlot => @intFromEnum(Status.out_of_range),
+        else => @intFromEnum(Status.out_of_memory),
+    };
+    noted(app, null, true);
+    return ok;
+}
+
+/// Sets a value of filament i: `name` is a filament setting
+/// ("filament.color"). Filament 0 is the filament of the settings.
+export fn zs_app_filament_set(a: ?*App, i: usize, name: ?[*:0]const u8, value: ?[*:0]const u8) c_int {
+    const app = a orelse return @intFromEnum(Status.invalid_argument);
+    const n = std.mem.span(name orelse return @intFromEnum(Status.invalid_argument));
+    const v = std.mem.span(value orelse return @intFromEnum(Status.invalid_argument));
+    app_mod.filament_slots.set(app, i, n, v) catch |e| return switch (e) {
+        error.NoSlot => @intFromEnum(Status.out_of_range),
+        error.UnknownSetting => @intFromEnum(Status.unknown_setting),
+        error.OutOfMemory => @intFromEnum(Status.out_of_memory),
+        else => @intFromEnum(Status.invalid_value),
+    };
+    noted(app, if (i == 0) n else null, i != 0);
+    return ok;
+}
+
+/// A value of filament i, as zs_app_setting_get gives it.
+export fn zs_app_filament_get(a: ?*const App, i: usize, name: ?[*:0]const u8, buf: ?[*]u8, cap: usize, out_len: ?*usize) c_int {
+    const app = a orelse return @intFromEnum(Status.invalid_argument);
+    const n = std.mem.span(name orelse return @intFromEnum(Status.invalid_argument));
+    if (!std.mem.startsWith(u8, n, "filament.")) return @intFromEnum(Status.unknown_setting);
+    var s: zs.Settings = .{};
+    s.filament = app_mod.filament_slots.get(app, i) orelse return @intFromEnum(Status.out_of_range);
+    var aw: Writer.Allocating = .init(gpa);
+    defer aw.deinit();
+    App.writeSettingOf(s, n, &aw.writer) catch |e| return switch (e) {
+        error.WriteFailed => @intFromEnum(Status.out_of_memory),
+        else => @intFromEnum(Status.unknown_setting),
+    };
+    const text = aw.written();
+    if (out_len) |l| l.* = text.len;
+    if (buf) |b| {
+        if (cap == 0) return ok;
+        const k = @min(text.len, cap - 1);
+        @memcpy(b[0..k], text[0..k]);
+        b[k] = 0;
+    }
+    return ok;
+}
+
+/// Applies a filament profile (its text) to filament i (from 1).
+/// Filament 0 takes a profile with zs_app_apply_profile.
+export fn zs_app_filament_profile(a: ?*App, i: usize, name: ?[*:0]const u8, text: ?[*:0]const u8) c_int {
+    const app = a orelse return @intFromEnum(Status.invalid_argument);
+    const n = std.mem.span(name orelse return @intFromEnum(Status.invalid_argument));
+    const t = std.mem.span(text orelse return @intFromEnum(Status.invalid_argument));
+    var diag: zs.profile.Diagnostic = .{};
+    app_mod.filament_slots.applyProfile(app, i, n, t, &diag) catch |e| return switch (e) {
+        error.NoSlot => @intFromEnum(Status.out_of_range),
+        error.OutOfMemory => @intFromEnum(Status.out_of_memory),
+        else => @intFromEnum(Status.invalid_value),
+    };
+    noted(app, null, true);
+    return ok;
+}
+
+/// The filament of each slot in the last slice: `grams` gets the weight
+/// of up to `cap` filaments (with the flush of the changes to each), and
+/// `changes` the number of filament changes. `flush_g` gets the weight of
+/// all flushes.
+export fn zs_app_filament_stats(a: ?*const App, grams: ?[*]f64, cap: usize, changes: ?*u32, flush_g: ?*f64) c_int {
+    const app = a orelse return @intFromEnum(Status.invalid_argument);
+    const st = app.result() orelse return @intFromEnum(Status.no_result);
+    if (grams) |g| for (0..@min(cap, st.slot_g.len)) |k| {
+        g[k] = st.slot_g[k];
+    };
+    if (changes) |ch| ch.* = st.changes;
+    if (flush_g) |f| f.* = if (st.filament_mm > 0) st.flush_mm / st.filament_mm * st.filament_g else 0;
+    return ok;
+}
+
 /// The settings of part i and of its modifier volumes, as text (see
 /// App.partSettingsText). The same buffer rules as zs_app_setting_get.
 /// Sets a zslice setting of part i (value NULL: the part has the value of

@@ -221,7 +221,16 @@ export class PartCard {
     const add = el("button", "flat pc-add", "+ Add a setting for this part");
     add.title = "Search the settings that a part can have of its own";
     add.onclick = () => this.ctx.search("", this.scope());
-    card.append(head, this.facts, actions, make, this.cutBox, this.settingsBox, add);
+    // The filament of the part (or of the selected parts): a chip for
+    // each filament of the plate (filaments.js).
+    const filRow = el("div", "lc-row pc-filament");
+    const filLabel = el("div", "lc-label");
+    filLabel.append(el("div", "lc-name", "Filament"));
+    const filInfo = this.ctx.browser.byName.get("project.filament");
+    this.filEd = filInfo ? this.ctx.browser.makeEditor(filInfo, "part", (n, v) => this.scope().set(n, v)) : null;
+    filLabel.title = filInfo?.doc ?? "";
+    if (this.filEd) filRow.append(filLabel, this.filEd.node);
+    card.append(head, this.facts, filRow, actions, make, this.cutBox, this.settingsBox, add);
     card.addEventListener("keydown", (e) => {
       if (e.key === "Escape" && !e.target.closest("input, select, textarea")) {
         e.preventDefault();
@@ -398,7 +407,10 @@ export class PartCard {
     if (!this.node) return;
     const box = this.settingsBox;
     const byName = this.ctx.browser.byName;
-    const rows = list.filter(([name]) => byName.has(name));
+    // The filament has its own row of chips at the top of the card.
+    const fil = list.find(([name]) => name === "project.filament");
+    this.filEd?.update({ value: fil ? fil[1] : this.ctx.browser.values?.["project.filament"]?.value ?? "1" });
+    const rows = list.filter(([name]) => byName.has(name) && name !== "project.filament");
     box.replaceChildren();
     box.hidden = rows.length === 0;
     if (rows.length === 0) return;

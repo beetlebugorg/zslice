@@ -67,6 +67,7 @@ import { ShortcutSheet } from "./shortcuts.js";
 import { LineCard } from "./linecard.js";
 import { PartCard } from "./partcard.js";
 import { RangeCard } from "./rangecard.js";
+import { FilamentList, setFilaments, filamentStats } from "./filaments.js";
 import { TurnRings } from "./turn.js";
 import { attachViewInput } from "./input.js";
 import { FarmPage } from "./farm.js";
@@ -652,6 +653,13 @@ var browser = new SettingsBrowser({ // var: setPanelMode runs before this line
   effect: (name) => wasm.settingEffect(name),
   set: setSetting,
   reset: async (name) => applySettings(await client.call("reset", { name })),
+  // A new filament of the plate, for the chips of project.filament
+  // (filaments.js): its index, or -1.
+  addFilament: async () => {
+    const r = await client.call("filamentAdd", {});
+    setFilaments(r.list);
+    return r.index;
+  },
   // The focus of a section or a setting of the panel: only while the
   // panel shows. A hidden panel shows the whole print.
   focus: (mask, first) => {
@@ -830,6 +838,10 @@ function sliceAfterKeys(turned = -1) {
 }
 
 // The card of a selected part, next to it in the view (partcard.js).
+// The filaments of the plate on the print card (filaments.js).
+var filamentList = new FilamentList({ client, applySettings: (r) => applySettings(r), toast: (t) => toast(t) });
+$("sum-pop").insertBefore(filamentList.node, $("sum-took"));
+
 var partCard = new PartCard({
   client,
   browser,
@@ -2433,7 +2445,9 @@ function updateSummaryCard() {
   const perH = Number(value("machine.hour_rate")) || 0;
   const c = st.filamentG * perG + (st.printTimeS / 3600) * perH;
   const cost = c > 0 ? ` · cost ${c.toFixed(2)}` : "";
-  $("sum-detail").textContent = `${st.filamentG.toFixed(1)} g · ${(st.filamentMm / 1000).toFixed(2)} m${cost} · ${st.layerCount} layers`;
+  const fs = filamentStats();
+  const changes = fs?.changes > 0 ? ` · ${fs.changes} ${fs.changes === 1 ? "change" : "changes"}` : "";
+  $("sum-detail").textContent = `${st.filamentG.toFixed(1)} g · ${(st.filamentMm / 1000).toFixed(2)} m${cost} · ${st.layerCount} layers${changes}`;
   $("sum-took").textContent = app.sliceMs < 1000 ? `Sliced in ${app.sliceMs.toFixed(0)} ms` : `Sliced in ${(app.sliceMs / 1000).toFixed(1)} s`;
   // A part off the bed, or on another part: the printer can hit its frame.
   const warn = $("sum-warn");
@@ -2696,6 +2710,8 @@ function onWorkerEvent(m) {
       app.state = "done";
       if (m.ms > 0) app.sliceMs = m.ms;
       app.stats = m.stats;
+      // A "sliced" event of the simulated print has no filaments.
+      if (m.filaments) setFilaments(m.filaments, m.filamentStats ?? null);
       app.layers = m.layers;
       app.marks = m.marks;
       supportTool?.setAreas(m.areas);

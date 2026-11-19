@@ -250,6 +250,8 @@ const units = [_][2][]const u8{
     .{ "machine.max_speed_y", "mm/s" },
     .{ "machine.retract_length", "mm" },
     .{ "machine.retract_speed", "mm/s" },
+    .{ "machine.change_time", "s" },
+    .{ "machine.flush_volume", "mm\u{b3}" },
     // filament
     .{ "filament.diameter", "mm" },
     .{ "filament.density", "g/cm\u{b3}" },
@@ -348,6 +350,8 @@ const units = [_][2][]const u8{
     .{ "project.brim_width", "mm" },
     .{ "project.outer_wall_wipe", "mm" },
     .{ "project.first_layer_xy_offset", "mm" },
+    .{ "project.filament", "slot" },
+    .{ "project.flush_multiplier", "%" },
     // engine
     .{ "engine.resolution", "mm" },
     .{ "engine.gap_closing", "mm" },

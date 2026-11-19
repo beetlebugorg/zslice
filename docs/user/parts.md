@@ -79,6 +79,22 @@ Right-click the empty view for **Arrange the plate**.
 
 After the print, glue the pegs into the holes of one part, and press the other part on.
 
+## Print with more than one filament
+
+A plate can have more than one filament. Each filament has its own material and color, and the view shows each line in the color of its filament.
+
+1. Click the print time at the bottom right. The card lists the filaments of the plate.
+2. Click **+ Add a filament**. Click its color to pick another color, and pick its material.
+3. Give a part a filament: select the part, and click a color chip on the **Filament** row of its card.
+4. Give some layers a filament: drag over the layers with the Select tool, and click a color chip on the **Filament** row of the card of the layers.
+
+The G-code changes the filament where it changes. Set how the printer does this in the printer settings (**Filament change**):
+
+- **pause**: the printer has one filament path. The print pauses (M600, or PAUSE on Klipper), and you change the filament.
+- **tool**: a unit feeds many filaments (a Bambu Lab AMS, a Prusa MMU). The G-code has a tool change (T0, T1, …), and the nozzle flushes the old color out.
+
+The card shows the grams of each filament and the number of changes. A level with parts of many filaments prints the filament in the nozzle first, so it changes the filament at most once for each filament on it.
+
 ## Where to go next
 
 - → [Add support](support.md): support from the settings, or where you click.

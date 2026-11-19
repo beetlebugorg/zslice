@@ -116,6 +116,12 @@ const preview_notes = [_]struct { []const u8, [:0]const u8 }{
     .{ "filament.fan_max_speed", "The fan in the G-code on short layers. It changes no line." },
     .{ "filament.fan_boost_time", "The fan in the G-code on short layers. It changes no line." },
     .{ "filament.cooling_mode", "How a short layer cools: slower lines, or a lap of the nozzle over the layer with the fan at full. The layer time and the speed color modes show the effect." },
+    .{ "machine.filament_change", "How the printer changes the filament: a pause or a tool change in the G-code. The lines do not move." },
+    .{ "machine.change_gcode", "The G-code of a filament change." },
+    .{ "machine.change_time", "The time of a filament change. It changes the print time." },
+    .{ "machine.flush_volume", "The plastic that a change flushes. It changes the filament weight." },
+    .{ "project.flush_multiplier", "The plastic that a change flushes. It changes the filament weight." },
+    .{ "project.filament", "The filament of the part or of the layers: the color of its lines, and the filament changes in the G-code." },
     .{ "engine.threads", "The number of threads of the slicer. The result is the same." },
     .{ "engine.job_name", "The name of the print, for the start G-code." },
 };

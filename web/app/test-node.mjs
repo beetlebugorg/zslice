@@ -74,6 +74,25 @@ t0 = performance.now();
 core.slice();
 console.log(`second slice (infill density): ${(performance.now() - t0).toFixed(0)} ms`);
 
+// A second filament for some layers: a filament change, and the grams of
+// each filament.
+{
+  check(core.filaments().length === 1, "one filament at first");
+  const i = core.filamentAdd();
+  check(i === 1, "a second filament");
+  check(core.filamentSet(1, "filament.color", "#ff0000") === "", "the color of the second filament");
+  check(core.filaments()[1].color === "#ff0000", "the color reads back");
+  check(core.setScoped("project.filament", "2", 2, 4, true) === "", "the filament of some layers");
+  check(core.slice().state === STATE.done, "the slice with two filaments");
+  const fs = core.filamentStats();
+  check(fs && fs.changes === 2 && fs.grams[0] > 0 && fs.grams[1] > 0, `the filament stats (${JSON.stringify(fs)})`);
+  console.log(`two filaments: ${fs.changes} changes, ${fs.grams[0].toFixed(1)} g and ${fs.grams[1].toFixed(1)} g`);
+  core.resetScoped("project.filament", 2, 4, 3);
+  check(core.filamentRemove(1), "remove the second filament");
+  check(core.filaments().length === 1, "one filament again");
+  core.slice();
+}
+
 // A support area: the core keeps it, gives it back, and slices with it.
 {
   const b = view0Bounds(core);

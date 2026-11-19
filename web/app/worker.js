@@ -159,6 +159,8 @@ function sendResult(i, ms, turn) {
     plate: i,
     ms,
     stats: c.stats(),
+    filaments: c.filaments(),
+    filamentStats: c.filamentStats(),
     featureStats: c.featureStats(),
     layers,
     scene,
@@ -452,7 +454,7 @@ function tinyParts(c) {
   return out;
 }
 
-const PLATE_OPS = new Set(["fallStep", "load", "add", "plate", "projectLoad", "partAction", "partsAction", "partsMove", "partsSettingSet", "partsToPlate", "partCut", "partMove", "partFill", "partToPlate", "editAdd", "editDot", "editRemove", "partSettingSet", "partPutDown", "partTurn", "putDown", "place", "partMove", "partRotate", "partScale", "partSettle", "markAdd", "supportRemoveAt", "supportKindAt", "markRemoveNear", "markSet", "markRemove", "marksClear", "supportAreaAdd", "supportAreaSet", "supportAreaKind", "supportAreaRemove", "treeMoveNode", "treeRadius", "treeMoveBranch", "treeDelete", "treeAdd", "treeReset"]);
+const PLATE_OPS = new Set(["fallStep", "load", "add", "plate", "projectLoad", "partAction", "partsAction", "partsMove", "partsSettingSet", "partsToPlate", "partCut", "partMove", "partFill", "partToPlate", "editAdd", "editDot", "editRemove", "partSettingSet", "filamentAdd", "filamentRemove", "filamentSet", "partPutDown", "partTurn", "putDown", "place", "partMove", "partRotate", "partScale", "partSettle", "markAdd", "supportRemoveAt", "supportKindAt", "markRemoveNear", "markSet", "markRemove", "marksClear", "supportAreaAdd", "supportAreaSet", "supportAreaKind", "supportAreaRemove", "treeMoveNode", "treeRadius", "treeMoveBranch", "treeDelete", "treeAdd", "treeReset"]);
 
 // The values of settings at z (core.valueAt): { name: entry }.
 function valuesAt({ z, names }) {
@@ -1101,6 +1103,31 @@ const ops = {
     if (n === 0) return { part: null };
     const j = index < 0 ? (dir > 0 ? 0 : n - 1) : (((index + dir) % n) + n) % n;
     return { part: core.part(j) };
+  },
+
+  // ---- the filaments of the plate ----
+
+  filaments() {
+    return { list: core.filaments(), stats: core.filamentStats() };
+  },
+
+  filamentAdd() {
+    const index = core.filamentAdd();
+    if (index >= 0) wantSlice();
+    return { index, list: core.filaments() };
+  },
+
+  filamentRemove({ index }) {
+    if (core.filamentRemove(index)) wantSlice();
+    return { list: core.filaments() };
+  },
+
+  // A value of filament `index` ("filament.color"). Filament 0 is the
+  // filament of the settings: the settings change too.
+  filamentSet({ index, name, value }) {
+    const error = core.filamentSet(index, name, value);
+    if (!error) wantSlice();
+    return { error, list: core.filaments(), ...(index === 0 ? settingsState() : {}) };
   },
 
   partSettings({ index }) {

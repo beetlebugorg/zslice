@@ -5,7 +5,10 @@
 // shows "Layers A–B" and the settings that can change for some layers
 // (settings.zig, layer_settings): a few that matter most, and "+ Add a
 // setting for these layers" for the others. An edit is an override of
-// the range (setScoped with zmin and zmax), and slices at once.
+// the range (setScoped with zmin and zmax), and slices at once. The first
+// row is the filament of the layers: a chip for each filament of the
+// plate (filaments.js). A filament of its own makes a filament change at
+// the first layer and back after the last.
 //
 // One call to the worker opens the card (setScoped with no change
 // returns the values too), and one call makes each edit. The card does no
@@ -24,6 +27,7 @@ import { placeBeside, freeArea } from "./place.js";
 // The settings that the card shows first, in order, when the setting can
 // change for some layers.
 export const RANGE_SETTINGS = [
+  "project.filament",
   "project.infill_density",
   "project.infill_pattern",
   "project.wall_count",

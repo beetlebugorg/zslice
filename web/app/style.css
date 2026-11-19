@@ -1020,3 +1020,17 @@ button.destructive { background: #c01c28; color: #fff; }
 /* The line card: two short lines of numbers over the settings. */
 .line-card .lc-stats { display: block; }
 .line-card .lc-line { font-size: 0.86em; line-height: 1.5; overflow-wrap: anywhere; }
+
+/* The filaments of the plate (filaments.js): the chips of the filament
+   of a part or of layers, and the list on the print card. */
+.fil-editor { display: flex; flex-wrap: wrap; gap: 4px; }
+.fil-chip { min-width: 26px; min-height: 26px; padding: 0 6px; border-radius: 999px; border: 2px solid rgba(255, 255, 255, 0.25); font-weight: 700; font-size: 0.85em; }
+.fil-chip.on { border-color: var(--accent, #3584e4); box-shadow: 0 0 0 2px var(--accent, #3584e4); }
+.fil-chip.fil-add { background: rgba(255, 255, 255, 0.08); color: inherit; }
+.fil-list { margin: 8px 0 4px; display: flex; flex-direction: column; gap: 4px; }
+.fil-head { font-weight: 600; font-size: 0.9em; }
+.fil-row { display: grid; grid-template-columns: 30px 18px 1fr auto 26px; align-items: center; gap: 6px; }
+.fil-swatch { width: 28px; height: 24px; padding: 0; border: 1px solid rgba(255, 255, 255, 0.25); border-radius: 6px; background: none; }
+.fil-num { font-weight: 700; text-align: center; }
+.fil-g { font-variant-numeric: tabular-nums; font-size: 0.9em; }
+.fil-add-row { align-self: start; }

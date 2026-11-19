@@ -136,6 +136,24 @@ The retraction length of this extruder. A bowden extruder needs more.
 
 The speed of the filament during a retraction.
 
+### Filament change
+
+**`machine.filament_change`** (one of: `pause`, `tool`). Default: `pause`
+
+How the printer changes to another filament of the plate. `pause`: one filament path; the print pauses (M600) and you change the filament by hand. `tool`: a unit that feeds many filaments (a Bambu Lab AMS, a Prusa MMU) changes it with a tool change (T0, T1, and on).
+
+**`machine.change_gcode`** (text). Default: `""`
+
+The text of a filament change. Empty: zslice writes the command of the G-code flavor (M600 for a pause, Tn for a tool change). The variables of Bambu Studio and PrusaSlicer work here: {next_extruder}, {previous_extruder}, [next_filament_id], [flush_length], [new_filament_temp], [old_filament_temp], {layer_z}, {max_layer_z}, and {toolchange_count}.
+
+**`machine.change_time`** (number). Default: `40`
+
+The time of one filament change, in seconds, for the time estimate: the cut, the unload, the load, and the flush. A pause counts this time too, but the real time depends on you.
+
+**`machine.flush_volume`** (number). Default: `140`
+
+The plastic (mm³) that the nozzle flushes after a change to a filament of the same color. A change from a dark color to a light color flushes up to 5 times more (see `project.flush_multiplier`). A pause flushes nothing: you push the new filament through by hand.
+
 ### G-code
 
 **`machine.thumbnails`** (text). Default: `""`
@@ -713,6 +731,16 @@ Moves the outline of the first layer by this distance. A negative value compensa
 **`project.placement`** (one of: `auto`, `file`, `center`). Default: `auto`
 
 Where the part goes on the bed. auto: at the X and Y of the file if the part is fully on the bed there, else at the center of the bed. file: always at the X and Y of the file. center: always at the center of the bed. The bottom of the part always goes to z = 0.
+
+### Filaments
+
+**`project.filament`** (integer; per layer). Default: `1`
+
+The filament that prints this part, or these layers: 1 is the first filament of the plate, 2 the second, and so on. A change at a layer is a filament change in the G-code.
+
+**`project.flush_multiplier`** (number). Default: `1`
+
+A multiplier for the flush volume of each filament change (see `machine.flush_volume`). Lower wastes less plastic. Too low mixes the old color into the new one.
 
 ## engine
 

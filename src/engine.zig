@@ -993,6 +993,8 @@ pub const PlanSource = struct {
     /// plans. Needs `bind`.
     streams: ?[]stream_mod.Stream = null,
     bind: ?stream_mod.BindFn = null,
+    /// The filaments of the plate (see gcode.Emitter.slots).
+    slots: []const settings_mod.Filament = &.{},
 };
 
 /// True if a start or end G-code has a variable of the box of the first
@@ -1026,6 +1028,7 @@ fn firstLayerBox(gpa: Allocator, src: PlanSource) Allocator.Error!?[4]f64 {
 /// `Pipeline`.
 pub fn emitAll(gpa: Allocator, src: PlanSource, threads: usize, monitor: Monitor, out: *Writer, sink: ?Job.LayerSink) Error!Stats {
     var em: gcode.Emitter = .init(gpa, out, src.resolved);
+    em.slots = src.slots;
     var record: std.ArrayList(gcode.PathInfo) = .empty;
     defer record.deinit(gpa);
     if (sink != null) em.record = &record;
@@ -1288,7 +1291,7 @@ const Pipeline = struct {
         }
         const g = &p.guesses[i];
         if (slot.prep.end) |e| {
-            g.entry = .{ .x = e[0], .y = e[1], .z = slot.plan.?.z, .feature = slot.prep.end_feature, .extruded = true };
+            g.entry = .{ .x = e[0], .y = e[1], .z = slot.plan.?.z, .feature = slot.prep.end_feature, .extruded = true, .tool = gcode.endTool(&slot.plan.?, p.src.resolved, p.src.slots) };
             g.state.store(1, .release);
         } else g.state.store(2, .release);
         slot.ready.store(i + 1, .release);

@@ -10,6 +10,7 @@ import {
   ALL_FEATURES, FEATURE_COLORS, FEATURE_COUNT, FEATURE_TITLES, GROUP_TITLES,
   displayValue, formatNumber, isNumber, isRatio, parsesAsNumber, sourceText, toCore, valueWithUnit,
 } from "./format.js";
+import { filamentEditor } from "./filaments.js";
 
 const GROUP_ORDER = ["project", "filament", "machine", "engine"];
 const LIVE_DELAY_MS = 450;
@@ -279,6 +280,9 @@ export class SettingsBrowser {
       }
       return error;
     };
+    // The filament of a part or of layers: a chip for each filament of
+    // the plate (filaments.js).
+    if (info.name === "project.filament") return filamentEditor(info, (v) => commit(v), this.ctx.addFilament ?? null);
     if (info.kind === "boolean") {
       const sw = el("button", "switch");
       sw.setAttribute("role", "switch");

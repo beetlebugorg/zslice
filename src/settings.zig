@@ -46,6 +46,8 @@ pub const SupportStyle = enum { grid, tree, bridge };
 /// The G-code dialect for the acceleration commands. See `Machine.gcode_flavor`.
 pub const GcodeFlavor = enum { marlin, klipper, reprap, repetier };
 pub const ExtruderKind = enum { direct, bowden };
+/// How the printer changes to another filament. See `Machine.filament_change`.
+pub const FilamentChange = enum { pause, tool };
 /// How the motors move the head. See `Machine.kinematics`.
 pub const Kinematics = enum { cartesian, corexy };
 
@@ -155,6 +157,30 @@ pub const Machine = struct {
     retract_length: f64 = 0.8,
     /// The speed of the filament during a retraction.
     retract_speed: f64 = 40,
+
+    // Filament change
+    /// How the printer changes to another filament of the plate.
+    /// `pause`: one filament path; the print pauses (M600) and you change
+    /// the filament by hand. `tool`: a unit that feeds many filaments (a
+    /// Bambu Lab AMS, a Prusa MMU) changes it with a tool change (T0, T1,
+    /// and on).
+    filament_change: FilamentChange = .pause,
+    /// The text of a filament change. Empty: zslice writes the command of
+    /// the G-code flavor (M600 for a pause, Tn for a tool change). The
+    /// variables of Bambu Studio and PrusaSlicer work here:
+    /// {next_extruder}, {previous_extruder}, [next_filament_id],
+    /// [flush_length], [new_filament_temp], [old_filament_temp],
+    /// {layer_z}, {max_layer_z}, and {toolchange_count}.
+    change_gcode: []const u8 = "",
+    /// The time of one filament change, in seconds, for the time estimate:
+    /// the cut, the unload, the load, and the flush. A pause counts this
+    /// time too, but the real time depends on you.
+    change_time: f64 = 40,
+    /// The plastic (mm³) that the nozzle flushes after a change to a
+    /// filament of the same color. A change from a dark color to a light
+    /// color flushes up to 5 times more (see `project.flush_multiplier`).
+    /// A pause flushes nothing: you push the new filament through by hand.
+    flush_volume: f64 = 140,
 
     // G-code
     /// The pictures of the print at the top of the G-code, for the screen
@@ -715,6 +741,16 @@ pub const Project = struct {
     /// file: always at the X and Y of the file. center: always at the
     /// center of the bed. The bottom of the part always goes to z = 0.
     placement: Placement = .auto,
+
+    // Filaments
+    /// The filament that prints this part, or these layers: 1 is the first
+    /// filament of the plate, 2 the second, and so on. A change at a layer
+    /// is a filament change in the G-code.
+    filament: u32 = 1,
+    /// A multiplier for the flush volume of each filament change (see
+    /// `machine.flush_volume`). Lower wastes less plastic. Too low mixes
+    /// the old color into the new one.
+    flush_multiplier: f64 = 1,
 };
 
 /// Options for the engine. They do not change the print.
@@ -1195,6 +1231,10 @@ pub const limits = [_]struct { []const u8, f64, f64 }{
     .{ "project.support_interface_layers", 0, 20 },
     .{ "project.support_interface_density", 0.01, 1 },
     .{ "project.skirt_loops", 0, 50 },
+    .{ "project.filament", 1, 16 },
+    .{ "project.flush_multiplier", 0, 3 },
+    .{ "machine.change_time", 0, 3600 },
+    .{ "machine.flush_volume", 0, 5000 },
     .{ "project.skirt_distance", 0, 50 },
     .{ "project.skirt_layers", 0, 50 },
     .{ "project.brim_width", 0, 50 },
@@ -1359,7 +1399,7 @@ pub const plate_settings = [_][]const u8{
     "project.retract_wipe",
     "project.retract_layer_change",   "project.travel_accel",       "project.skirt_loops",
     "project.skirt_distance",         "project.skirt_layers",       "project.brim_width",
-    "project.brim_location",          "project.placement",
+    "project.brim_location",          "project.placement",          "project.flush_multiplier",
 };
 
 /// True for a setting that is the same for all the parts of a plate (see
@@ -1393,6 +1433,7 @@ pub fn isPartSetting(name: []const u8) bool {
 /// docs/internals/layer-settings.md has the list, with the reason for each
 /// setting that is not here.
 pub const layer_settings = [_][]const u8{
+    "project.filament",
     "project.wall_count",
     "project.seam",
     "project.top_thickness",

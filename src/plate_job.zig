@@ -53,6 +53,7 @@ const stream_mod = @import("stream.zig");
 const support_mod = @import("support.zig");
 const islands_mod = @import("islands.zig");
 const parallel = @import("parallel.zig");
+const filaments_mod = @import("filaments.zig");
 const Mesh = mesh_mod.Mesh;
 const Settings = settings_mod.Settings;
 const Resolved = settings_mod.Resolved;
@@ -149,6 +150,10 @@ pub const Options = struct {
     /// inputs that the job does not get in `init`: the edits of the
     /// lines.
     streams: ?u64 = null,
+    /// The filaments of the plate after the first: slot 2, 3, and on (see
+    /// filaments.zig). The first is the filament of the settings. The
+    /// strings must live as long as the job.
+    filaments: []const settings_mod.Filament = &.{},
 };
 
 pub const PlateJob = struct {
@@ -187,6 +192,9 @@ pub const PlateJob = struct {
     stream_support: []u64 = &.{},
     /// A hash of all inputs of the layer plans (see `planStamp`).
     stamp: u64 = 0,
+    /// The filaments of the plate: slot 0 is the filament of the
+    /// settings, then `Options.filaments`. One: no filament change.
+    slots: []settings_mod.Filament = &.{},
 
     /// Slices each group of parts (steps 1 to 4 of the engine for each
     /// job), and finds the levels.
@@ -200,6 +208,9 @@ pub const PlateJob = struct {
             .threads = parallel.threadCount(settings.engine.threads),
         };
         errdefer pj.deinit();
+        pj.slots = try gpa.alloc(settings_mod.Filament, 1 + @min(opts.filaments.len, filaments_mod.max_slots - 1));
+        pj.slots[0] = settings.filament;
+        for (pj.slots[1..], opts.filaments[0 .. pj.slots.len - 1]) |*d, f| d.* = f;
 
         // Step 3: one offset for all parts. One part places itself, as a
         // job of one mesh does.
@@ -332,6 +343,7 @@ pub const PlateJob = struct {
         for (self.streams) |*s| s.deinit(gpa);
         gpa.free(self.streams);
         gpa.free(self.stream_support);
+        gpa.free(self.slots);
         self.* = undefined;
     }
 
@@ -398,6 +410,7 @@ pub const PlateJob = struct {
         const done = try gpa.alloc(bool, self.instances.len);
         defer gpa.free(done);
         var last: [2]f64 = self.instances[0].center;
+        var tool: u32 = 0;
         var k: usize = 0;
         while (k < tops.items.len) {
             const z = tops.items[k].z;
@@ -410,23 +423,30 @@ pub const PlateJob = struct {
                 self.groups[t.group].layer_level[t.layer] = level;
                 height = @max(height, self.groups[t.group].job.layers[t.layer].height);
             }
-            // The parts of the level, the nearest first.
+            // The parts of the level, the nearest first. With many
+            // filaments, the parts of the filament in the nozzle come
+            // first, so a level changes the filament at most once for
+            // each filament on it.
             const first: u32 = @intCast(entries.items.len);
             for (self.instances, done) |inst, *d| d.* = at[inst.group] == null;
             while (true) {
                 var best: ?usize = null;
                 var best_d: f64 = std.math.inf(f64);
+                var best_same = false;
                 for (self.instances, 0..) |inst, ii| {
                     if (done[ii]) continue;
                     const d = @import("geom.zig").hypot(inst.center[0] - last[0], inst.center[1] - last[1]);
-                    if (d < best_d) {
+                    const same = self.toolAt(inst.group, at[inst.group].?) == tool;
+                    if ((same and !best_same) or (same == best_same and d < best_d)) {
                         best_d = d;
                         best = ii;
+                        best_same = same;
                     }
                 }
                 const ii = best orelse break;
                 done[ii] = true;
                 last = self.instances[ii].center;
+                tool = self.toolAt(self.instances[ii].group, at[self.instances[ii].group].?);
                 try entries.append(gpa, .{ .instance = @intCast(ii), .layer = at[self.instances[ii].group].? });
             }
             try levels.append(gpa, .{ .z = z, .height = height, .first = first, .end = @intCast(entries.items.len) });
@@ -458,6 +478,13 @@ pub const PlateJob = struct {
             self.level_set[i] = @intCast(list.items.len);
         }
         self.level_resolved = try list.toOwnedSlice(gpa);
+    }
+
+    /// The slot of the filament of layer `layer` of the job of group `g`
+    /// (see filaments.zig).
+    pub fn toolAt(self: *const PlateJob, g: usize, layer: usize) u32 {
+        if (self.slots.len < 2) return 0;
+        return filaments_mod.slotOf(self.groups[g].job.resolvedAt(layer).settings.project.filament, self.slots.len);
     }
 
     /// The first layers of all parts at their places (see `outline0`).
@@ -733,6 +760,7 @@ pub const PlateJob = struct {
             // The streams are of the whole print.
             .streams = if (lo == 0 and hi == self.levels.len and self.streams.len == hi) self.streams else null,
             .bind = Ctx.bind,
+            .slots = self.slots,
         };
         return engine.emitAll(gpa, src, self.threads, self.monitor, out, sink);
     }
@@ -848,6 +876,62 @@ fn gcodeOf(pj: *const PlateJob) ![]u8 {
     errdefer out.deinit();
     _ = try pj.writeGcode(&out.writer);
     return out.toOwnedSlice();
+}
+
+test "plate job: two filaments, a tool change for each change of the filament" {
+    const gpa = testing.allocator;
+    var m1 = try testBox(0, 0, 20, 20, 3);
+    defer m1.deinit(gpa);
+    var m2 = try testBox(40, 0, 60, 20, 3);
+    defer m2.deinit(gpa);
+    var s: Settings = .{};
+    s.engine.threads = 2;
+    s.machine.filament_change = .tool;
+    var red = s.filament;
+    red.color = "#ff0000";
+    red.nozzle_temp = 215;
+    const parts = [_]PartInput{
+        .{ .mesh = &m1, .part = 0 },
+        .{ .mesh = &m2, .part = 1, .changes = &.{.{ .name = "project.filament", .value = "2" }} },
+    };
+    var pj = try PlateJob.init(gpa, s, &parts, .{ .filaments = &.{red} });
+    defer pj.deinit();
+    var out: Writer.Allocating = .init(gpa);
+    defer out.deinit();
+    const st = try pj.writeGcode(&out.writer);
+    const g = out.written();
+    // Each level prints the filament in the nozzle first: one change on
+    // each level, and none on the first part of the next level.
+    const levels = pj.levels.len;
+    try testing.expectEqual(@as(u32, @intCast(levels)), st.changes);
+    try testing.expect(std.mem.indexOf(u8, g, "\nT1\n") != null);
+    try testing.expect(std.mem.indexOf(u8, g, "\nT0\n") != null);
+    try testing.expect(std.mem.indexOf(u8, g, "M109 S215") != null);
+    // Each filament has its grams, with the flushes of the changes to it.
+    try testing.expect(st.slot_g[0] > 0 and st.slot_g[1] > 0);
+    try testing.expectApproxEqRel(st.filament_g, st.slot_g[0] + st.slot_g[1], 1e-9);
+    try testing.expect(st.flush_mm > 0);
+
+    // A pause: M600, and no flush.
+    s.machine.filament_change = .pause;
+    var pj2 = try PlateJob.init(gpa, s, &parts, .{ .filaments = &.{red} });
+    defer pj2.deinit();
+    var out2: Writer.Allocating = .init(gpa);
+    defer out2.deinit();
+    const st2 = try pj2.writeGcode(&out2.writer);
+    try testing.expect(std.mem.indexOf(u8, out2.written(), "M600") != null);
+    try testing.expectEqual(@as(f64, 0), st2.flush_mm);
+
+    // One filament for a z range: one change at the start of the range,
+    // and one back after it.
+    const one = [_]PartInput{.{ .mesh = &m1, .part = 0 }};
+    const ov = [_]settings_mod.Override{.{ .z_min = 1, .z_max = 2, .name = "project.filament", .value = "2" }};
+    var pj3 = try PlateJob.init(gpa, s, &one, .{ .filaments = &.{red}, .overrides = &ov });
+    defer pj3.deinit();
+    var out3: Writer.Allocating = .init(gpa);
+    defer out3.deinit();
+    const st3 = try pj3.writeGcode(&out3.writer);
+    try testing.expectEqual(@as(u32, 2), st3.changes);
 }
 
 test "plate job: one part gives the G-code of one job" {

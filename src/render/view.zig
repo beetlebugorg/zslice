@@ -73,6 +73,7 @@ const is_web = builtin.cpu.arch.isWasm();
 const frame_backend = is_web or builtin.os.tag == .macos;
 const vk = if (frame_backend) @import("web.zig") else @import("vk.zig");
 const app_mod = @import("../app.zig");
+const zs_filaments = @import("../filaments.zig");
 const Draw = @import("frame.zig").Draw;
 const PlateFrame = @import("frame.zig").PlateFrame;
 const Push = @import("frame.zig").Push;
@@ -620,6 +621,14 @@ pub const View = struct {
         };
         const first_load = v.layer_end.items.len == 0;
         const filament = parseColor(s.filament.color) orelse .{ 0xd0, 0xd0, 0xcc };
+        // The color of each filament of the plate: each path has the color
+        // of its filament (Toolpaths.path_tool).
+        var slot_rgb: [zs_filaments.max_slots][3]u8 = @splat(filament);
+        for (1..app_mod.filament_slots.count(app)) |k| {
+            if (k >= slot_rgb.len) break;
+            const f = app_mod.filament_slots.get(app, k) orelse continue;
+            slot_rgb[k] = parseColor(f.color) orelse filament;
+        }
 
         // The cooled shape: the slice is larger by the shrinkage, about the
         // center of the part.
@@ -663,7 +672,8 @@ pub const View = struct {
         const same = gpa.alloc(bool, n_layers) catch return error.OutOfMemory;
         defer gpa.free(same);
         v.layer_key.ensureTotalCapacity(gpa, n_layers) catch return error.OutOfMemory;
-        const seed = viewSeed(v, filament, center, sxy, sz, tp.z_hop);
+        var seed = viewSeed(v, filament, center, sxy, sz, tp.z_hop);
+        seed ^= std.hash.Wyhash.hash(seed, std.mem.sliceAsBytes(&slot_rgb));
         for (0..n_layers) |l| {
             const key = layerKey(tp, l, values, seed);
             v.layer_key.appendAssumeCapacity(key);
@@ -685,7 +695,7 @@ pub const View = struct {
                 if (end - start < 2) continue;
                 const f = tp.path_features.items[pi];
                 const rgb = switch (v.mode) {
-                    .print => filament,
+                    .print => if (pi < tp.path_tool.items.len) slot_rgb[tp.path_tool.items[pi] % slot_rgb.len] else filament,
                     .features => feature_rgb[if (f < feature_rgb.len) f else 0],
                     else => ramp(v.legend, values[pi], v.mode == .layer_time),
                 };
@@ -864,6 +874,7 @@ pub const View = struct {
         h.update(std.mem.sliceAsBytes(tp.path_area.items[p0..p1]));
         if (tp.path_height.items.len >= p1) h.update(std.mem.sliceAsBytes(tp.path_height.items[p0..p1]));
         if (tp.path_fan.items.len >= p1) h.update(tp.path_fan.items[p0..p1]);
+        if (tp.path_tool.items.len >= p1) h.update(tp.path_tool.items[p0..p1]);
         if (tp.path_retract.items.len >= p1) h.update(tp.path_retract.items[p0..p1]);
         if (values.len >= p1) h.update(std.mem.sliceAsBytes(values[p0..p1]));
         for (p0..p1) |pi| {

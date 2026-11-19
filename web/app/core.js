@@ -1084,6 +1084,67 @@ export class Core {
     return out;
   }
 
+  // ---- the filaments of the plate (zs_app_filament_*) ----
+
+  // The filaments: [{ index, name, material, color, nozzleTemp }].
+  // Filament 0 is the filament of the settings.
+  filaments() {
+    const w = this.w;
+    const n = w.x.zs_app_filament_count(this.app);
+    const get = (i, name) => w.withString(name, (s) => w.readText((b, c, l) => w.x.zs_app_filament_get(this.app, i, s, b, c, l))) ?? "";
+    const out = [];
+    for (let i = 0; i < n; i++) {
+      out.push({
+        index: i,
+        name: get(i, "filament.name"),
+        material: get(i, "filament.material"),
+        color: get(i, "filament.color"),
+        nozzleTemp: Number(get(i, "filament.nozzle_temp")),
+      });
+    }
+    return out;
+  }
+
+  // Adds a filament. Returns its index, or -1.
+  filamentAdd() {
+    const w = this.w;
+    return w.x.zs_app_filament_add(this.app, w.cell) === 0 ? w.u32(w.cell) : -1;
+  }
+
+  filamentRemove(i) {
+    return this.w.x.zs_app_filament_remove(this.app, i) === 0;
+  }
+
+  // Sets a value of filament i ("filament.color"). Returns "" or the
+  // reason.
+  filamentSet(i, name, value) {
+    const w = this.w;
+    const rc = w.withStrings([name, String(value)], (n, v) => w.x.zs_app_filament_set(this.app, i, n, v));
+    if (rc === 0) return "";
+    return `The value is not valid (${statusText(rc)}).`;
+  }
+
+  // Applies a filament profile text to filament i (i >= 1). "" or the
+  // reason.
+  filamentProfile(i, name, text) {
+    const w = this.w;
+    const rc = w.withStrings([name, text], (n, t) => w.x.zs_app_filament_profile(this.app, i, n, t));
+    return rc === 0 ? "" : `The profile did not apply (${statusText(rc)}).`;
+  }
+
+  // The filament of the last slice: { grams: [g of each filament],
+  // changes, flushG }, or null.
+  filamentStats() {
+    const w = this.w;
+    const n = w.x.zs_app_filament_count(this.app);
+    // The scratch cell has room for 16 values and the two counts.
+    const c = w.cell;
+    if (w.x.zs_app_filament_stats(this.app, c, 16, c + 128, c + 136) !== 0) return null;
+    const grams = [];
+    for (let i = 0; i < Math.min(n, 16); i++) grams.push(w.f64(c + 8 * i));
+    return { grams, changes: w.u32(c + 128), flushG: w.f64(c + 136) };
+  }
+
   // The value of a setting of part i, or null (the value of the plate).
   partSetting(i, name) {
     const w = this.w;
