@@ -218,7 +218,7 @@ export async function send(printer, filename, bytes, print) {
 // the touch screen of a printdeck, in the web page of OctoPrint), and the
 // app gets a key of its own after "Allow". wait(seconds): called while the
 // user decides. Returns { ok, key, message }. Moonraker has no such flow.
-export async function requestKey(printer, wait = () => {}) {
+export async function requestKey(printer, wait = () => {}, signal = null) {
   if (!printer?.url && !printer?.https) return { ok: false, message: "No address." };
   if (printer.kind === "moonraker") return { ok: false, message: "Moonraker gives no API keys this way: it needs none, or the key of its config." };
   const base = "/plugin/appkeys/request";
@@ -242,8 +242,10 @@ export async function requestKey(printer, wait = () => {}) {
   // The printer keeps a request for 2 minutes.
   const t0 = performance.now();
   while (performance.now() - t0 < 125000) {
+    if (signal?.aborted) return { ok: false, cancelled: true, message: "Cancelled." };
     wait(Math.round((performance.now() - t0) / 1000));
     await new Promise((res) => setTimeout(res, 1000));
+    if (signal?.aborted) return { ok: false, cancelled: true, message: "Cancelled." };
     let r;
     try {
       r = await request(printer, `${base}/${encodeURIComponent(token)}`);
@@ -320,6 +322,47 @@ export async function camera(printer) {
   };
   const out = c ? { ...c, stream: abs(c.stream), snapshot: abs(c.snapshot) } : null;
   return { ok: true, camera: out && (out.stream || out.snapshot) ? out : null, message: "" };
+}
+
+// The kind of the printer at an address, from the paths that answer with
+// no key: /api/version of printdeck ("... (Printdeck ...)" in its text)
+// and OctoPrint, and /server/info of Moonraker. Returns { ok, kind,
+// message }.
+export async function detectKind(url) {
+  const p = { url, name: url };
+  try {
+    const r = await request(p, "/api/version", {}, 5000);
+    if (r.ok) {
+      const j = await r.json().catch(() => ({}));
+      return { ok: true, kind: /printdeck/i.test(j.text ?? "") ? "printdeck" : "octoprint" };
+    }
+  } catch {
+    // Not OctoPrint or printdeck, or out of reach: Moonraker next.
+  }
+  try {
+    const r = await request(p, "/server/info", {}, 5000);
+    if (r.ok) return { ok: true, kind: "moonraker" };
+  } catch (e) {
+    return { ok: false, message: explain(e, p) };
+  }
+  return { ok: false, message: "The printer at this address is not a printdeck, an OctoPrint, or a Moonraker printer." };
+}
+
+// The printers of a printdeck (GET /slicer/printer.json with the key): a
+// deck with more than one printer lists them, each with the path of its
+// API under the deck ("" for the first, "/printers/<id>" for another).
+// Returns { ok, name, https, printers: [{ id, name, label, color, kind,
+// url }], message }.
+export async function deckPrinters(printer) {
+  try {
+    const r = await request(printer, "/slicer/printer.json", { headers: headers(printer) });
+    if (r.status === 401 || r.status === 403) return { ok: false, message: "The deck refused the key." };
+    if (!r.ok) return { ok: false, message: `The deck answered ${r.status}.` };
+    const j = await r.json();
+    return { ok: true, name: j.name ?? "", https: j.https ?? "", printers: Array.isArray(j.printers) ? j.printers : [] };
+  } catch (e) {
+    return { ok: false, message: explain(e, printer) };
+  }
 }
 
 // The status in words: "Printing Slate frame, 50 %, 1 h 5 min left".

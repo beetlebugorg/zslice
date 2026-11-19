@@ -153,7 +153,7 @@ export class FarmPage {
     const actions = el("div", "farm-actions");
     const send = el("button", "suggested farm-send", "Print the plate");
     send.disabled = true;
-    send.onclick = () => this.sendTo(p, send, true);
+    send.onclick = () => (send.dataset.pair ? this.pair(name) : this.sendTo(p, send, true));
     const menu = el("button", "flat icon farm-menu", "⋯");
     menu.title = "More";
     menu.setAttribute("aria-label", `More actions for ${name}`);
@@ -222,6 +222,18 @@ export class FarmPage {
     c.badge.className = `farm-badge farm-${s.key}`;
     c.badge.textContent = s.text;
     c.badge.title = st?.state ? `The printer says "${st.state}"` : "";
+    // No key, or a key that the printer refuses: one step to get a key.
+    const needsKey = (p) => (p.kind === "printdeck" || p.kind === "octoprint") && (!p.apiKey || /refused the API key/.test(r.message ?? ""));
+    const pr = this.ctx.printers()[name];
+    if (!st && pr && this.ctx.pair && needsKey(pr)) {
+      c.send.dataset.pair = "1";
+      c.send.disabled = false;
+      c.send.textContent = "Get a key";
+      c.send.title = pr.kind === "printdeck" ? "Connect zslice: tap Allow on the screen of the printdeck" : "Connect zslice: allow it in the web page of OctoPrint";
+    } else if (c.send.dataset.pair) {
+      delete c.send.dataset.pair;
+      c.send.textContent = "Print the plate";
+    }
     if (!st) {
       c.job.hidden = true;
       c.heat.hidden = true;
@@ -236,8 +248,10 @@ export class FarmPage {
       c.why.onclick = () => {
         c.why.textContent = c.why.title || c.why.textContent;
       };
-      c.send.disabled = true;
-      c.send.title = "The printer does not answer.";
+      if (!c.send.dataset.pair) {
+        c.send.disabled = true;
+        c.send.title = "The printer does not answer.";
+      }
       c.view?.setEnabled(false);
       return;
     }
@@ -373,6 +387,12 @@ export class FarmPage {
     } finally {
       this.busy = false;
     }
+  }
+
+  // Gets a key for a printer (ctx.pair), then reads all printers again: a
+  // deck can add printers.
+  async pair(name) {
+    if (await this.ctx.pair?.(name)) this.start();
   }
 
   // ---- the large camera ----

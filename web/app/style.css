@@ -613,6 +613,15 @@ button.destructive { background: #c01c28; color: #fff; }
 /* Manage printers. */
 .printers-dialog { background: #303030; color: inherit; border: none; border-radius: 12px; padding: 16px; width: min(760px, 94vw); }
 .printers-dialog h3 { margin: 0 0 10px; }
+/* The App Keys step (pairPrinter): one clear step, a countdown, Cancel. */
+.pair-dialog { width: min(460px, calc(100vw - 32px)); }
+.pair-text { margin: 0 0 6px; font-size: 1.05em; overflow-wrap: anywhere; }
+.pair-text.error { color: var(--error); }
+.pair-count { margin: 0 0 10px; }
+.pair-list { display: flex; flex-direction: column; gap: 6px; margin-bottom: 12px; }
+.pair-row { display: flex; align-items: center; gap: 8px; overflow-wrap: anywhere; }
+.pair-actions { display: flex; justify-content: flex-end; gap: 8px; }
+.pair-actions .suggested { width: auto; }
 .printers-list { display: flex; flex-direction: column; gap: 8px; margin-bottom: 14px; }
 .printers-row { display: grid; grid-template-columns: 1.2fr 1.5fr auto auto auto auto; gap: 6px; align-items: center; }
 .printers-row input, .printers-row select { background: var(--entry); border: none; border-radius: 6px; padding: 7px 8px; min-width: 0; }

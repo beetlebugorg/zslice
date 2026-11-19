@@ -72,7 +72,7 @@ import { attachViewInput } from "./input.js";
 import { FarmPage } from "./farm.js";
 import { Tools } from "./tools.js";
 import { SupportTool } from "./support.js";
-import { KINDS, send as sendToPrinter, test as testPrinter, requestKey, trustText, status as printerStatus, camera as printerCamera } from "./link.js";
+import { KINDS, send as sendToPrinter, test as testPrinter, requestKey, trustText, status as printerStatus, camera as printerCamera, detectKind, deckPrinters } from "./link.js";
 import { CameraView } from "./camera.js";
 import { signGcode, keyId as signingKeyId, supported as canSign, UNSUPPORTED as NO_SIGNATURES } from "./signing.js";
 import { contextItems } from "./context-menu.js";
@@ -982,9 +982,122 @@ async function loadProfile(group, name, text) {
 
 // A printer of the picker: its machine profile, then the changes of the
 // second step. The printers of the user stay in the store (store.printers).
+// Connects zslice to a printdeck or an OctoPrint printer that has no key
+// (the App Keys flow, link.js requestKey): the printer asks "Allow
+// zslice?" on its screen, and after Allow its key goes to the store. A
+// printdeck that drives more than one printer lists them
+// (/slicer/printer.json), and the user picks the ones to add: each one has
+// the key of the deck and the path of its API under the deck.
+function pairPrinter(name) {
+  const p = store.printers?.[name];
+  if (!p || (p.kind !== "printdeck" && p.kind !== "octoprint")) return Promise.resolve(false);
+  return new Promise((done) => {
+    const d = document.createElement("dialog");
+    d.className = "printers-dialog pair-dialog";
+    const title = Object.assign(document.createElement("h3"), { textContent: `Connect to ${name}` });
+    const text = Object.assign(document.createElement("p"), { className: "pair-text" });
+    const count = Object.assign(document.createElement("p"), { className: "dim pair-count" });
+    const list = Object.assign(document.createElement("div"), { className: "pair-list" });
+    const bar = Object.assign(document.createElement("div"), { className: "pair-actions" });
+    const cancel = Object.assign(document.createElement("button"), { textContent: "Cancel" });
+    const again = Object.assign(document.createElement("button"), { textContent: "Try again", hidden: true });
+    const add = Object.assign(document.createElement("button"), { className: "suggested", textContent: "Add", hidden: true });
+    bar.append(again, cancel, add);
+    d.append(title, text, count, list, bar);
+    document.body.append(d);
+    let ctrl = null;
+    let ok = false;
+    const close = () => {
+      ctrl?.abort();
+      d.close();
+      d.remove();
+      done(ok);
+    };
+    cancel.onclick = close;
+    d.oncancel = (e) => {
+      e.preventDefault();
+      close();
+    };
+    const run = async () => {
+      again.hidden = true;
+      cancel.textContent = "Cancel";
+      text.classList.remove("error");
+      const id = p.kind === "printdeck" ? await signingKeyId() : "";
+      text.textContent = p.kind === "printdeck"
+        ? `Tap Allow on the screen of the printdeck${id ? `, and check that it shows the key ${id}` : ""}.`
+        : "Allow zslice in the web page of OctoPrint: it shows a request for zslice.";
+      ctrl = new AbortController();
+      const r = await requestKey({ ...p, name }, (sec) => {
+        count.textContent = `Waiting for Allow: ${Math.max(0, 120 - sec)} s left.`;
+      }, ctrl.signal);
+      if (r.cancelled) return;
+      count.textContent = "";
+      if (!r.ok) {
+        text.textContent = r.message;
+        text.classList.add("error");
+        again.hidden = false;
+        return;
+      }
+      ok = true;
+      p.apiKey = r.key;
+      saveStore();
+      text.textContent = `Connected to ${name}.`;
+      cancel.textContent = "Close";
+      if (p.kind === "printdeck") {
+        const dp = await deckPrinters({ ...p, name });
+        const others = dp.ok ? dp.printers.filter((q) => q?.url && q.name && q.kind !== "resin") : [];
+        if (others.length) {
+          text.textContent = `Connected to ${name}. The deck drives more printers: pick the ones to add.`;
+          const base = (p.url || "").replace(/\/$/, "");
+          const httpsBase = (p.https || dp.https || "").replace(/\/$/, "");
+          const boxes = others.map((q) => {
+            const label = q.label && q.label !== q.name ? `${q.name} (${q.label})` : q.name;
+            const row = Object.assign(document.createElement("label"), { className: "pair-row" });
+            const cb = Object.assign(document.createElement("input"), { type: "checkbox", checked: !store.printers[label] });
+            const dot = Object.assign(document.createElement("span"), { className: "menu-dot" });
+            if (/^#[0-9a-f]{6}$/i.test(q.color ?? "")) dot.style.background = q.color;
+            row.append(cb, dot, label);
+            list.append(row);
+            return { cb, q, label };
+          });
+          add.hidden = false;
+          add.onclick = () => {
+            for (const { cb, q, label } of boxes) {
+              if (!cb.checked) continue;
+              const had = store.printers[label];
+              store.printers[label] = {
+                profile: had?.profile ?? p.profile ?? "", url: base + q.url, kind: "printdeck", apiKey: r.key,
+                https: httpsBase ? httpsBase + q.url : "", color: q.color || "", label: q.label || "",
+              };
+            }
+            saveStore();
+            updateMenus();
+            close();
+          };
+        }
+      }
+      if (!$("farm-view").hidden) farm.start();
+    };
+    again.onclick = run;
+    d.showModal();
+    run();
+  });
+}
+
 async function addPrinter(p) {
   store.printers = store.printers ?? {};
   store.printers[p.name] = { profile: p.profile, url: p.url };
+  // An address: the kind of the printer, and its key at once.
+  if (p.url) {
+    const k = await detectKind(p.url);
+    if (k.ok) {
+      store.printers[p.name].kind = k.kind;
+      saveStore();
+      if (k.kind !== "moonraker") pairPrinter(p.name);
+    } else {
+      toast(`${p.name}: ${k.message} Set its connection in Manage printers.`);
+    }
+  }
   await loadProfile(0, p.name, p.profile);
   await setSetting("machine.name", p.name);
   if (p.nozzle > 0) await setSetting("machine.nozzle_diameter", String(p.nozzle));
@@ -2465,6 +2578,8 @@ var farm = new FarmPage({
   printers: () => store.printers ?? {},
   // With no printer of the user: the picker of a new printer.
   manage: () => (Object.keys(store.printers ?? {}).length ? managePrinters() : showPrinterPicker()),
+  // A printer with no key, or a key that it refuses: the App Keys flow.
+  pair: (name) => pairPrinter(name),
   canSend: () => app.state === "done",
   plateName: () => app.plates[app.activePlate]?.name || app.modelName || "the plate",
   slicedFor: () => store.printer ?? "",
