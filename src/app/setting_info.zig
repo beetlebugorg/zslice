@@ -48,7 +48,13 @@ pub const SettingInfo = struct {
     multiline: bool,
 };
 
-pub const settings_info: []const SettingInfo = blk: {
+/// The settings in the order of the settings panel: the sections and the
+/// settings that most people change come first (see `section_order` and
+/// `first_settings`). The groups keep the order of `Settings`.
+pub const settings_info: []const SettingInfo = byUse(struct_order);
+
+/// The settings in the order of the fields of `Settings`.
+const struct_order: []const SettingInfo = blk: {
     // The text of the float defaults takes many comptime steps.
     @setEvalBranchQuota(2_000_000);
     var list: []const SettingInfo = &.{};
@@ -92,6 +98,129 @@ pub const settings_info: []const SettingInfo = blk: {
     }
     break :blk list;
 };
+
+/// The order of the sections in each group: the sections that most people
+/// change first. The basic modes of Cura and PrusaSlicer show about the
+/// same set: the layer height, the walls, the infill, the support, the
+/// adhesion, the speed, the temperatures, and the fan. A section that is
+/// not in the list goes after these, in the order of `Settings`.
+pub const section_order = [_][]const u8{
+    // project
+    "Layers",       "Walls",         "Top and bottom skin", "Infill",
+    "Support",      "Skirt and brim", "Speed ratios",       "First layer",
+    "Lines",        "Travel",        "Ironing",             "Acceleration",
+    "Slope smoothing", "Placement",
+    // filament
+    "Temperatures", "Cooling",       "Filament",            "Flow",
+    "Retraction",   "Size compensation",
+    // machine
+    "Printer",      "Nozzle",        "Bed",                 "Extruder",
+    "Motion",       "G-code",
+};
+
+/// The settings that most people change, first in their section, in this
+/// order. The other settings of a section follow in the order of
+/// `Settings`.
+pub const first_settings = [_][]const u8{
+    // Walls
+    "project.wall_count",         "project.wall_thickness",
+    "project.seam",               "project.thin_walls",
+    // Top and bottom skin
+    "project.top_thickness",      "project.bottom_thickness",
+    "project.skin_pattern",       "project.bridges",
+    "project.bridge_speed",       "project.bridge_flow",
+    "project.bridge_fan",         "project.gap_fill",
+    // Infill
+    "project.infill_density",     "project.infill_pattern",
+    // Support
+    "project.support",            "project.support_style",
+    "project.support_angle",      "project.support_density",
+    "project.support_z_gap_layers", "project.support_xy_gap",
+    "project.support_interface_layers", "project.support_interface_density",
+    // Skirt and brim
+    "project.brim_width",         "project.brim_location",
+    // Speed ratios
+    "project.outer_wall_speed",   "project.inner_wall_speed",
+    "project.infill_speed",       "project.skin_speed",
+    "project.first_layer_speed",
+    // Travel
+    "project.z_hop",              "project.combing",
+    // Cooling
+    "filament.fan_speed",         "filament.min_layer_time",
+    "filament.fan_off_layers",    "filament.min_speed",
+    // Flow
+    "filament.flow_ratio",
+    // Motion
+    "machine.max_speed",          "machine.travel_speed",
+    "machine.max_accel",          "machine.gcode_flavor",
+};
+
+fn indexIn(comptime list: []const []const u8, comptime name: []const u8) usize {
+    for (list, 0..) |n, i| if (std.mem.eql(u8, n, name)) return i;
+    return list.len;
+}
+
+fn groupIndex(comptime group: []const u8) usize {
+    for (@typeInfo(Settings).@"struct".fields, 0..) |g, i| if (std.mem.eql(u8, g.name, group)) return i;
+    return 0;
+}
+
+/// The settings of `list`, sorted by group (the order of `Settings`), by
+/// section (`section_order`), and then by `first_settings`. A stable sort:
+/// equal keys keep the order of `list`.
+fn byUse(comptime list: []const SettingInfo) []const SettingInfo {
+    @setEvalBranchQuota(4_000_000);
+    const Key = struct { group: usize, section: usize, setting: usize };
+    var keys: [list.len]Key = undefined;
+    var out: [list.len]SettingInfo = undefined;
+    for (list, 0..) |s, i| {
+        keys[i] = .{ .group = groupIndex(s.group), .section = indexIn(&section_order, s.section), .setting = indexIn(&first_settings, s.name) };
+        out[i] = s;
+    }
+    // An insertion sort: a few hundred settings, at compile time.
+    for (1..list.len) |i| {
+        var j = i;
+        while (j > 0) : (j -= 1) {
+            const a = keys[j - 1];
+            const b = keys[j];
+            const after = a.group > b.group or (a.group == b.group and (a.section > b.section or (a.section == b.section and a.setting > b.setting)));
+            if (!after) break;
+            std.mem.swap(Key, &keys[j - 1], &keys[j]);
+            std.mem.swap(SettingInfo, &out[j - 1], &out[j]);
+        }
+    }
+    const final = out;
+    return &final;
+}
+
+test "the settings panel order: each setting once, the common ones first" {
+    try testing.expectEqual(struct_order.len, settings_info.len);
+    for (struct_order) |s| {
+        var n: usize = 0;
+        for (settings_info) |t| {
+            if (std.mem.eql(u8, s.name, t.name)) n += 1;
+        }
+        try testing.expectEqual(@as(usize, 1), n);
+    }
+    // Each name in the lists exists.
+    for (first_settings) |name| try testing.expect(for (settings_info) |s| {
+        if (std.mem.eql(u8, s.name, name)) break true;
+    } else false);
+    for (section_order) |section| try testing.expect(for (settings_info) |s| {
+        if (std.mem.eql(u8, s.section, section)) break true;
+    } else false);
+    // The first section of the part is the layer height, then the walls.
+    var first_project: ?usize = null;
+    for (settings_info, 0..) |s, i| if (first_project == null and std.mem.eql(u8, s.group, "project")) {
+        first_project = i;
+    };
+    const i = first_project.?;
+    try testing.expectEqualStrings("project.layer_height", settings_info[i].name);
+    try testing.expectEqualStrings("project.first_layer_height", settings_info[i + 1].name);
+    try testing.expectEqualStrings("project.wall_count", settings_info[i + 2].name);
+    // The group order stays: the printer name is the first setting.
+    try testing.expectEqualStrings("machine.name", settings_info[0].name);
+}
 
 /// The unit of each number setting. A test checks that each number has
 /// one, so a new setting needs a line here.
