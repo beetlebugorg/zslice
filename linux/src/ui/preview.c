@@ -1640,7 +1640,7 @@ static GtkWidget *tool_strip(Preview *p) {
         {ZG_TOOL_SELECT, 0, "V", "Select (V): click a line to see what it is, its measurements, and the settings that change it."},
         {ZG_TOOL_MOVE, 1, "M", "Move (M): drag a part to move it, and scroll over it to turn it. The same as Ctrl in the other tools. Tab: the next part."},
         {ZG_TOOL_TURN, 3, "R", "Turn (R): click a part, then drag a ring to turn it about X, Y, or Z, in 15° steps (Shift: 5°). Keys: Left and Right (Z), Up and Down (X), Page Up and Page Down (Y)."},
-        {ZG_TOOL_SUPPORT, 6, "S", "Support (S): click points on the part to draw an area, and click the first point (or press Enter) to close it. Support grows under the area, or Block keeps support out. Click an outline to select it, and drag its points. Shift: no snap."},
+        {ZG_TOOL_SUPPORT, 6, "S", "Support (S): point at an overhang, and click to put support under it. Alt and a click draw an area point by point; click the first point (or press Enter) to close it. Support grows under the area, or Block keeps support out. Click an outline to select it, and drag its points. Shift: no snap."},
         {ZG_TOOL_GRAB, 7, "H", "Grab (H): click a part to pick it up; move the pointer to carry it. The wheel lifts it; Alt and a move turn it (Shift: steps of 15°). Click again, or press Esc, to let go: with support off it falls and rests flat; with support on it keeps its turn, and support holds it."},
         {ZG_TOOL_MEASURE, 2, "T", "Measure (T): click two points of the print. The ends of the lines snap; Shift turns the snap off. Esc clears."},
     };

@@ -56,6 +56,11 @@ struct ZgSupport {
     /* The drag of a point: the area (-1: none) and the point. */
     int drag_area, drag_point;
     gboolean drag_moved;
+    /* The overhang under the pointer (zs_app_support_pick): its outline
+     * and z range. A click puts support under it. */
+    gboolean hot;
+    size_t hot_n;
+    double hot_pts[3 * MAX_POINTS], hot_lo, hot_hi;
     /* The app of the plate of the areas: a new plate drops the draft. */
     zs_app *core;
     /* The card. */
@@ -105,6 +110,7 @@ static void show(ZgSupport *s) {
             zs_view_support_add(s->view, a->pts, a->n, a->kind, flags);
         }
         if (s->on && s->draft_n > 0) zs_view_support_add(s->view, s->draft, s->draft_n, s->kind, 4);
+        if (s->on && s->hot && s->draft_n == 0) zs_view_support_add(s->view, s->hot_pts, s->hot_n, s->kind, 1 | 2 | 4);
     }
     update_card(s);
     s->host.frame(s->host.data);
@@ -305,16 +311,28 @@ static int outline_at(ZgSupport *s, double x, double y) {
 
 static void close_draft(ZgSupport *s) {
     if (s->draft_n < 3) return;
-    gint64 i = zg_model_support_add(s->model, s->kind, s->draft, s->draft_n);
+    gint64 i = zg_model_support_add(s->model, s->kind, s->draft, s->draft_n, NAN, NAN);
     s->draft_n = 0;
     s->note = i < 0 ? "The area needs 3 points or more, at most 256." : NULL;
     s->sel = (int)i;
     reload(s);
 }
 
-void zg_support_click(ZgSupport *s, double x, double y, gboolean shift) {
+void zg_support_click(ZgSupport *s, double x, double y, gboolean shift, gboolean alt) {
     if (!s->on || !s->view) return;
     s->note = NULL;
+    /* The overhang under the pointer: support under it, in one click. Alt
+     * and a click draw a point. */
+    if (s->draft_n == 0 && !alt && outline_at(s, x, y) < 0) {
+        zg_support_hover(s, x, y);
+        if (s->hot) {
+            s->hot = FALSE;
+            gint64 i = zg_model_support_add(s->model, s->kind, s->hot_pts, s->hot_n, s->hot_lo, s->hot_hi);
+            s->sel = (int)i;
+            reload(s);
+            return;
+        }
+    }
     /* The first point of the draft closes it. */
     if (s->draft_n >= 3) {
         double qx, qy;
@@ -427,6 +445,31 @@ gboolean zg_support_dragging(ZgSupport *s) {
     return s->drag_area >= 0;
 }
 
+/* The overhang under the pointer lights up: the faces that face down and
+ * connect to the face under the pointer. Not while an area is drawn, or
+ * over a point or an outline. */
+void zg_support_hover(ZgSupport *s, double x, double y) {
+    gboolean was = s->hot;
+    size_t was_n = s->hot_n;
+    double was_lo = s->hot_lo;
+    int area, point;
+    double p[3];
+    s->hot = FALSE;
+    if (s->on && s->view && s->core && s->draft_n == 0 && s->drag_area < 0 && !point_at(s, x, y, &area, &point) &&
+        outline_at(s, x, y) < 0 && surface_point(s, x, y, FALSE, p)) {
+        size_t n = 0;
+        double lo = 0, hi = 0;
+        ptrdiff_t part = zs_app_support_pick(s->core, p[0], p[1], p[2], 4, s->hot_pts, MAX_POINTS, &n, &lo, &hi);
+        if (part >= 0 && n >= 3) {
+            s->hot = TRUE;
+            s->hot_n = n;
+            s->hot_lo = lo;
+            s->hot_hi = hi;
+        }
+    }
+    if (was != s->hot || (s->hot && (was_n != s->hot_n || was_lo != s->hot_lo))) show(s);
+}
+
 const char *zg_support_cursor(ZgSupport *s, double x, double y) {
     if (s->drag_area >= 0) return "grabbing";
     int area, point;
@@ -502,7 +545,13 @@ static gboolean test_step(gpointer data) {
         zs_view_orbit(s->view, (float)a, (float)b);
         s->host.frame(s->host.data);
     } else if (n == 3 && (strcmp(f[0], "click") == 0 || strcmp(f[0], "shift") == 0)) {
-        zg_support_click(s, a, b, f[0][0] == 's');
+        zg_support_click(s, a, b, f[0][0] == 's', FALSE);
+    } else if (n == 3 && (strcmp(f[0], "alt") == 0)) {
+        zg_support_click(s, a, b, FALSE, TRUE);
+    } else if (n == 3 && strcmp(f[0], "hover") == 0) {
+        zg_support_hover(s, a, b);
+        g_message("support test: hover %s, %zu points, z %.2f to %.2f", s->hot ? "on an overhang" : "on none", s->hot ? s->hot_n : 0,
+                  s->hot_lo, s->hot_hi);
     } else if (n == 2 && strcmp(f[0], "key") == 0) {
         if (!zg_support_key(s, gdk_keyval_from_name(f[1]))) g_message("support test: the tool did not use the key %s", f[1]);
     } else if (n == 5 && strcmp(f[0], "drag") == 0) {

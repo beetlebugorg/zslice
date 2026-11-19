@@ -141,7 +141,7 @@ void zg_model_marks_clear(ZgModel *self);
  * A change is one history step; while the slices are held (a drag of a
  * point, zg_model_hold), the step ends at the release. add returns the
  * index of the new area, or -1. */
-gint64 zg_model_support_add(ZgModel *self, int kind, const double *pts, size_t n);
+gint64 zg_model_support_add(ZgModel *self, int kind, const double *pts, size_t n, double z_lo, double z_hi);
 gboolean zg_model_support_set(ZgModel *self, size_t i, const double *pts, size_t n);
 gboolean zg_model_support_set_kind(ZgModel *self, size_t i, int kind);
 gboolean zg_model_support_remove(ZgModel *self, size_t i);

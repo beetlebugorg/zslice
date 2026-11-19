@@ -1191,7 +1191,10 @@ static void on_motion(GtkEventControllerMotion *c, double x, double y, gpointer 
     /* The Support tool: a hand over a point of an area. */
     GdkModifierType mods = gtk_event_controller_get_current_event_state(GTK_EVENT_CONTROLLER(c));
     gboolean pressed = (mods & (GDK_BUTTON1_MASK | GDK_BUTTON2_MASK | GDK_BUTTON3_MASK)) != 0;
-    if (zg_model_tool(v->model) == ZG_TOOL_SUPPORT && v->view && !pressed) set_cursor(v, zg_support_cursor(v->support, x, y));
+    if (zg_model_tool(v->model) == ZG_TOOL_SUPPORT && v->view && !pressed) {
+        set_cursor(v, zg_support_cursor(v->support, x, y));
+        zg_support_hover(v->support, x, y);
+    }
 }
 
 /* A pinch on a touchpad: zoom toward the pointer, by the change of the
@@ -1280,7 +1283,7 @@ static void on_release(GtkGestureClick *g, int n, double x, double y, gpointer d
     }
     /* The Support tool: a point of an area, or a click on an outline. */
     if (zg_model_tool(v->model) == ZG_TOOL_SUPPORT && !(mods & GDK_CONTROL_MASK)) {
-        zg_support_click(v->support, x, y, (mods & GDK_SHIFT_MASK) != 0);
+        zg_support_click(v->support, x, y, (mods & GDK_SHIFT_MASK) != 0, (mods & GDK_ALT_MASK) != 0);
         return;
     }
     if ((mods & GDK_CONTROL_MASK) || zg_model_tool(v->model) == ZG_TOOL_MOVE || zg_model_tool(v->model) == ZG_TOOL_TURN) {

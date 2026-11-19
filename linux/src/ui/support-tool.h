@@ -55,8 +55,13 @@ gboolean zg_support_see_through(ZgSupport *s);
 /* The view loaded the plate again (zs_view_load fills the areas). */
 void zg_support_loaded(ZgSupport *s);
 
-/* A click at x, y with the tool on. */
-void zg_support_click(ZgSupport *s, double x, double y, gboolean shift);
+/* A click at x, y with the tool on: on the overhang under the pointer,
+ * support under it; with alt (or while an area is drawn), a point of an
+ * area. */
+void zg_support_click(ZgSupport *s, double x, double y, gboolean shift, gboolean alt);
+/* The pointer is at x, y (no button down): the overhang under it lights
+ * up. */
+void zg_support_hover(ZgSupport *s, double x, double y);
 /* A press at x, y: TRUE if it starts the drag of a point. */
 gboolean zg_support_press(ZgSupport *s, double x, double y);
 /* The pointer of the drag is at x, y. */

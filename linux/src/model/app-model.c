@@ -1055,8 +1055,8 @@ static void support_changed(ZgModel *self) {
     if (!self->held) undo_commit(self);
 }
 
-gint64 zg_model_support_add(ZgModel *self, int kind, const double *pts, size_t n) {
-    ptrdiff_t i = zs_app_support_area_add(self->core, kind, pts, n, NAN, NAN);
+gint64 zg_model_support_add(ZgModel *self, int kind, const double *pts, size_t n, double z_lo, double z_hi) {
+    ptrdiff_t i = zs_app_support_area_add(self->core, kind, pts, n, z_lo, z_hi);
     if (i < 0) return -1;
     support_changed(self);
     return i;
