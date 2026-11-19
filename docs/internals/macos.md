@@ -36,11 +36,13 @@ open build/zslice.app
 | `Sources/ZSlice/Core/Gzip.swift` | A gzip file of some bytes, for the estimate of a printdeck. |
 | `Sources/ZSlice/Core/Settings.swift` | The setting infos, values, sources, effects, and value texts, from the core. |
 | `Sources/ZSlice/Views/MetalSliceView.swift` | The 3D view: an `NSView` over a `CAMetalLayer`, its display link, and the input. |
-| `Sources/ZSlice/Render/FrameRenderer.swift` | Draws the frame data of the core with Metal. |
+| `Sources/ZSlice/Render/FrameRenderer.swift` | Draws the frame data of the core with Metal. The opaque beads draw with back face culling. |
 | `Sources/ZSlice/Render/LayerRenderer.swift` | Draws the 2D view of one layer with Metal: the bed, the outline (a stencil fill), and the beads as strokes. |
 | `Sources/ZSlice/Render/Shaders.swift` | The Metal shaders. They port `src/render/shaders/*`, and the 2D shaders of `web/app/gl.js`. |
 | `Sources/ZSlice/Views/DocumentWindow.swift` | The window: the 3D view, the scrub bar, and the print card. |
-| `Sources/ZSlice/Views/LineCard.swift` | The card of a selected line, next to it in the view. |
+| `Sources/ZSlice/Views/LineCard.swift` | The card of a selected line, in a corner of the view clear of the line. |
+| `Sources/ZSlice/Views/PlateLabels.swift` | The labels of the plates, in a row at the top of the view. |
+| `Sources/ZSlice/Core/Simulation.swift` | The print as it forms: the simulated plastic of the slice, and its hint in the details. |
 | `Sources/ZSlice/Views/ToolStrip.swift` | The tool strip, and the measure tape with its readout. |
 | `Sources/ZSlice/Views/Legend.swift` | The legend of the colors: the line types to show or fade, or the range of a ramp. |
 | `Sources/ZSlice/Views/PrintFacts.swift` | The main settings of the print on the print card, each with a popover of editors. |
@@ -110,7 +112,7 @@ The controls of the window are overlays on the edges of the content area, so a n
 
 ### The search, the keys, Gaps, Check, and the context menu
 
-`/` (or Command-F) opens the search of the settings and the actions over the view, with a live control for each setting, a slider for a number, and an eye that shows only the lines of a setting. `?` (or Help > Keyboard Shortcuts) opens the sheet of all the keys of the Mac app; the Mac app owns its table. Gaps (G) shows the gaps of the top layer, and a click on a gap opens the settings that can close it. Check lists the issues of the print, and a click goes to an issue. A right click with no drag, or Control and a click, opens the context menu of a line: the layers, the support marks, Copy for AI, and Reset the View.
+`/` (or Command-F) opens the search of the settings and the actions over the view, with a live control for each setting, a slider for a number, and an eye that shows only the lines of a setting. `?` (or Help > Keyboard Shortcuts) opens the sheet of all the keys of the Mac app; the Mac app owns its table. Gaps (G) shows the gaps of the top layer, and a click on a gap opens the settings that can close it. Check lists the issues of the print, and a click goes to an issue. A right click with no drag, or Control and a click, opens the context menu. It fits what is under the pointer, as `web/app/context-menu.js` does: the support items on a support line (Remove This Support: `zs_app_support_pick` up from the line in steps of 0.5 mm, a Block area of that overhang, and `zs_app_mark_remove_near`), the part items on a line of a part, the plate items on the bed, and the view items each time.
 
 ### Input
 
@@ -180,6 +182,9 @@ Like the GTK shell, the app reads some environment variables for development and
 - `ZSLICE_OPEN_AFTER=path` opens a file 3 s after the start, as File > Open does, and logs the windows (the empty window must give its place to the file).
 - `ZSLICE_RECORD=path.mov` records a demo video of the window (Recorder.swift): a turn, the colors, the layer slider, the replay, and the 2D view, frame by frame at 30 frames a second.
 - `ZSLICE_ADD_PLATE="path;path"` puts each file on a new plate after the first slice.
+- `ZSLICE_REMOVE_SUPPORT=1` selects the longest support line of the layer at a third of the height, 3 s after the start, and runs Remove This Support; it logs the count of the areas before and after. `ZSLICE_REMOVE_SUPPORT=card` opens the card of that line and logs what it holds up.
+- `ZSLICE_SIM=1` turns on The Print as It Forms 2 s after the start, and logs the numbers of the simulation.
+- `ZSLICE_NO_CULL=1` draws the beads with no back face culling, to compare the picture and the GPU time (`ZSLICE_ORBIT_TEST`).
 - `ZSLICE_SEARCH=text` opens the search, `ZSLICE_GAPS=1` and `ZSLICE_CHECK=1` turn on Gaps and Check, `ZSLICE_MENU="x,y;Title"` (or `center;Title`) runs an item of the context menu, and `ZSLICE_DARK=1` sets the dark look.
 - `ZSLICE_DOUBLE_CLICK=x,y` is a double click at that point after the first slice.
 - `ZSLICE_PICK=x,y` picks the line at that point of the view (in points) after the first slice, as a click does.
@@ -269,7 +274,7 @@ To test, build the app, then run `qlmanage -x -t file` for a thumbnail, and `qlm
 
 The slice is the UI, so the chrome is small. The toolbar has the file button (`FileButton`: the name of the document, a dot for unsaved changes, and a menu of the file), then 3D and 2D and Search, at the left with it, and at the right the printer, the filament, and the quality as one group, and Printers, Settings, and `MoreMenu` at the right. The window title is hidden from the toolbar on macOS 15 and later. No item is in the center: AppKit keeps a center item in the center, and a long printer name drew over it. The labels of the menus keep their full size: at a narrow width, AppKit moves whole items to the » menu, and no label is cut with "…". The colours of the lines are an icon on the tool strip (`ColorsButton`).
 
-`BottomBar` is one bar, the width of the window and 70 points high: the plates and the history in the first row, the replay in the second, and at the right end the time, a badge, and `PrintAction` (Export, or Print with Upload Only and Export in its menu). A click on the time opens `PrintCard` above the bar as the details: the notes, the totals, the usual refinements, and the settings. The badge counts the notes (`noteCount`, red for a part off the bed or a failed slice, else orange), or else the refinements (blue). A new set of notes (`noteKey`) opens the details once.
+`BottomBar` is one bar, the width of the window and 70 points high: the plates and the history in the first row, the replay in the second, and at the right end the time (with the plastic, the cost, and the layers under it), a badge, and `PrintAction` (Export, or Print with Upload Only and Export in its menu). A click on the time opens `PrintCard` above the bar as the details: the notes, the totals, the usual refinements, and the settings. The badge says Check when there are notes (`noteCount`, red for a part off the bed or a failed slice, else orange), or else counts the refinements (blue). A note does not open the details: they would cover the part (as on the web and in the GTK app).
 
 `Core/Refinements.swift` keeps the store of refinements in `Application Support/zslice/refine.txt` and the hidden suggestions in `refine-hidden.json`. After each slice (0.8 s after the last one), the window merges the records of the plate (`zs_app_refine_records`, `zs_refine_merge`) under the id of the plate's project, which the session keeps, and asks for suggestions (`zs_app_refine_suggest`). The words of a suggestion come from `zs_app_history_describe`. Apply is one history step (`zs_app_refine_apply`).
 

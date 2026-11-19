@@ -36,9 +36,15 @@ The keys of the other apps work in the 3D view. A key with Ctrl in the other app
 
 Command and a click selects a part, Command and a drag moves it, and Command and the wheel turns it. Control and a click opens the context menu, as a right click does.
 
+The context menu fits what is under the pointer. On a support line it has Remove This Support: zslice finds the overhang that the line holds up and puts a Block area on it, and your support marks near the line go too. On a line of a part it has the support marks, a drop of plastic, the layer profiles, and the placement of the part. On the bed it has the plate items, with Remove This Plate when there are two plates or more. Show All Layers, the test prints, and Reset the View are in each menu.
+
 ## The view
 
 Four things float over the 3D view: the tools at the left, the layer slider at the right, the print card, and the dock at the bottom. The dock has the plates (the plate menu also shows all plates, adds one, and removes one; the printer of the plate; a new plate), the replay (play, the time in the top layer, the speed), and the history (undo, redo, and History). When the window is narrow, the print card sits above the dock. The toolbar has the colors of the lines with the legend (a click on a line type shows or fades it), 3D and 2D, the settings pane, Add Models, Search, and Printers. The print card hides on an empty plate.
+
+With two plates or more, each plate has a label in a row at the top of the view, over the middle of its plate, so the labels never cover a part. Click a label to show its plate; a right click removes the plate. A change of the list of plates goes into the session at once. File > Close the Project (also in the search) closes an open project: its plates stay in the window as your plates.
+
+The colors popover has The Print as It Forms: zslice simulates the plastic of the slice (it falls where nothing holds it, sags, cools, and sets), and the view shows it in place of the planned lines. In a replay the toolhead follows the plan while the plastic falls. The details then say at which layer the print fails, or how far the plastic droops. A new slice shows the plan again.
 
 ## The drawer
 
@@ -49,6 +55,10 @@ The bar at the top of the Settings page picks what the editors change: This Prin
 ## A part falls over
 
 When you turn a part (the rings of the Turn tool, or its keys) so that it cannot stand, it falls over in the view onto a side that holds it, and a note says so. With support on, it stays where you put it: the support holds it, and the note says that instead.
+
+## The card of a line
+
+A click on a line opens its card in a corner of the view, clear of the line. It keeps that corner from click to click while the corner stays clear. Two short lines give the speed and the flow, then the size of the line, the time of its layer, and the fan. Notes say why the line is slow, when the flow limit sets its speed, what a support line holds up ("Holds up: outer wall on layer 64, 7 layers up."), and the warnings of the check at the line. Up to 5 settings follow, each with the reason it matters for this line and a live editor. A change slices at once, and the editor keeps the focus, so the arrow keys keep stepping.
 
 ## Edit one line
 
@@ -144,7 +154,7 @@ zslice keeps your session. After Command-Q, or a crash, it opens each window as 
 
 The toolbar is small, so the slice has the room. At the left is the file button with the name of the document: its menu opens files, adds models, saves, renames, and exports. Next to it are 3D and 2D and Search. At the right are the printer, the filament, and the quality, then Printers, Settings, and a menu of the rest (placement, checks, the history, and the keys). The colours of the lines are the palette icon on the tool strip.
 
-The bar at the bottom has the plates and the history, the replay under them, and at the right end the time of the print, a badge, and Export (or Print). Click the time to see the details: the notes, the totals, your usual refinements, and the settings. A red or orange badge counts the notes; a new note opens the details once. A blue badge counts your usual refinements.
+The bar at the bottom has the plates and the history, the replay under them, and at the right end the time of the print with the plastic, the cost, and the layers under it, a badge, and Export (or Print). Click the time to see the details: the notes, the totals, your usual refinements, and the settings. A red or orange badge that says Check means a note on the print; the details stay shut until you click, so they do not cover the part. A blue badge counts your usual refinements.
 
 ## Your usual refinements
 

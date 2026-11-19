@@ -33,6 +33,8 @@ struct Issue: Identifiable {
     var severity: UInt8
     var layer: Int
     var path: Int?
+    /// Its place, mm.
+    var x = 0.0, y = 0.0
     /// Its size: an area in mm² for an overhang or an island.
     var value: Double
     var text: String
@@ -132,8 +134,10 @@ extension Workspace {
             let it = list[i]
             let t = String(decoding: UnsafeRawBufferPointer(start: text + Int(it.text_start), count: Int(it.text_len)), as: UTF8.self)
             return Issue(id: i, kind: it.kind, severity: it.severity, layer: Int(it.layer),
-                         path: it.path == ZS_NO_PATH ? nil : Int(it.path), value: it.value, text: t)
+                         path: it.path == ZS_NO_PATH ? nil : Int(it.path), x: it.x, y: it.y, value: it.value, text: t)
         }
+        // The card of a line opened before the check ran: its warnings now.
+        if let l = lineInfo { lineInfo?.issues = lineIssues(ofPath: l.path, layer: l.layer) }
     }
 
     /// With support off: the area of the part that hangs in the air (the
@@ -147,7 +151,7 @@ extension Workspace {
         var n = 0
         if model.state == .done, !plateFits { n += 1 }
         if model.state == .done, !tinyParts.isEmpty { n += 1 }
-        if model.state == .done, unsupportedArea != nil { n += 1 }
+        if model.state == .done, unsupportedArea != nil || simResult?.checkText != nil { n += 1 }
         if case .failed = model.state { n += 1 }
         return n
     }
@@ -156,16 +160,6 @@ extension Workspace {
     var noteIsError: Bool {
         if case .failed = model.state { return true }
         return model.state == .done && !plateFits
-    }
-
-    /// What the notes are; a new value opens the details once.
-    var noteKey: String {
-        var k: [String] = []
-        if model.state == .done, !plateFits { k.append("off") }
-        if model.state == .done, !tinyParts.isEmpty { k.append("tiny:" + tinyParts.map(\.name).joined(separator: ",")) }
-        if model.state == .done, let a = unsupportedArea { k.append("air:\(Int(a / 50))") }
-        if case .failed(let why) = model.state { k.append("failed:" + why) }
-        return k.joined(separator: ";")
     }
 
     var unsupportedArea: Double? {

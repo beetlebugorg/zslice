@@ -251,6 +251,11 @@ final class FrameRenderer {
         cmd.commit()
     }
 
+    /// Back face culling of the beads (ZSLICE_NO_CULL=1 turns it off, to
+    /// compare), and the winding of a front face in the frame of Metal.
+    let cull = ProcessInfo.processInfo.environment["ZSLICE_NO_CULL"] == nil
+    static let front: MTLWinding = ProcessInfo.processInfo.environment["ZSLICE_CULL_CW"] != nil ? .clockwise : .counterClockwise
+
     /// The GPU time of the last frame that is done (ms), for the tests of
     /// the frame time (ZSLICE_ORBIT_TEST).
     let gpuTime = GPUTime()
@@ -297,6 +302,13 @@ final class FrameRenderer {
             }
             // The plain pipeline with no focus: the early depth test stays on.
             enc.setRenderPipelineState(f.box.params.2 != 0 ? r.boxFocus : r.boxOpaque)
+            // A bead is a closed mesh, wound the same way: its back faces are
+            // always behind its front faces. Culling them gives the same
+            // picture with half the triangles (web/app/gl.js).
+            if r.cull {
+                enc.setFrontFacing(FrameRenderer.front)
+                enc.setCullMode(.back)
+            }
             setPush(f.box)
             drawList(first: min(f.box_first, f.box_count))
             // A part that turns in the view only (zs_view_part_preview: a
@@ -310,6 +322,7 @@ final class FrameRenderer {
             }
             drawBeads(first: Int(f.mark_first), count: Int(f.mark_count))
             drawPlates(ghost: nil)
+            enc.setCullMode(.none)
             // With a focus: the beads out of it, as ghosts (params.w = 2).
             if f.box.params.2 != 0 {
                 var ghost = f.box

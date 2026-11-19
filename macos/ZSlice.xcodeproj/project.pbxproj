@@ -69,9 +69,11 @@
 		8A7B14F39984FB043AC6D25B /* CutPopover.swift in Sources */ = {isa = PBXBuildFile; fileRef = 52D896CB34B2A7845B4CF791 /* CutPopover.swift */; };
 		8D0F28D1C4834CD0459891CC /* MetalSliceView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6008A43F2E1376546305C36E /* MetalSliceView.swift */; };
 		8DF75722C4D414DFBACB74A8 /* ShortcutSheet.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6C8BAD9BAC3249500D0252E2 /* ShortcutSheet.swift */; };
+		9909C6BC7D0CD35341B5AEDD /* PlateLabels.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8D50EE436AA361BF3EBA3AC4 /* PlateLabels.swift */; };
 		9C4F65F3652E8C57A977D151 /* Render.swift in Sources */ = {isa = PBXBuildFile; fileRef = C6B3D7F7FABAA30471ADBA1D /* Render.swift */; };
 		9E14F638F9BE41B05668D207 /* QuickLookUI.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 4393D6CE28BFDB5A017CB700 /* QuickLookUI.framework */; };
 		A083B1AACE606050A35CF324 /* CheckViews.swift in Sources */ = {isa = PBXBuildFile; fileRef = EA10293385EE3CF16A69AAA6 /* CheckViews.swift */; };
+		A1C45F693C09BB5FA81CBAFA /* Simulation.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5CD77BE217D23B7E5CF8CA21 /* Simulation.swift */; };
 		A232DEF1DE08CA157BCA0ECB /* FarmPage.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3EE89FCA7B50D3523A0EBF53 /* FarmPage.swift */; };
 		A4316BBC88D6913A03BAEE01 /* ZSlicePreview.appex in Embed Foundation Extensions */ = {isa = PBXBuildFile; fileRef = 019FFE5B6CC546E1040F04A2 /* ZSlicePreview.appex */; settings = {ATTRIBUTES = (RemoveHeadersOnCopy, ); }; };
 		A56898D4939F681C721A6F2C /* SearchOverlay.swift in Sources */ = {isa = PBXBuildFile; fileRef = D3E684A1BED11C7820264F2F /* SearchOverlay.swift */; };
@@ -171,6 +173,7 @@
 		4F5759424481B80649C5B0EF /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist; path = Info.plist; sourceTree = "<group>"; };
 		527BBE990EFDB75191555B48 /* Workspace.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Workspace.swift; sourceTree = "<group>"; };
 		52D896CB34B2A7845B4CF791 /* CutPopover.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CutPopover.swift; sourceTree = "<group>"; };
+		5CD77BE217D23B7E5CF8CA21 /* Simulation.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Simulation.swift; sourceTree = "<group>"; };
 		5D38B8CA2B2D9D78DCFA28D6 /* ContextMenu.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ContextMenu.swift; sourceTree = "<group>"; };
 		6008A43F2E1376546305C36E /* MetalSliceView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MetalSliceView.swift; sourceTree = "<group>"; };
 		6208D0AEED978B77B7B878E6 /* PrinterLink.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PrinterLink.swift; sourceTree = "<group>"; };
@@ -185,6 +188,7 @@
 		7A1C08E49F76C24FC015BFDC /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist; path = Info.plist; sourceTree = "<group>"; };
 		7AC965EBFF22673C1B1C1293 /* FrameRenderer.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FrameRenderer.swift; sourceTree = "<group>"; };
 		83D64EAFB6216F86FAA95810 /* History.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = History.swift; sourceTree = "<group>"; };
+		8D50EE436AA361BF3EBA3AC4 /* PlateLabels.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PlateLabels.swift; sourceTree = "<group>"; };
 		92DBFADF03C8246886406520 /* Profiles.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Profiles.swift; sourceTree = "<group>"; };
 		972403D6017A5CCC5EEF59E9 /* LineCard.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LineCard.swift; sourceTree = "<group>"; };
 		99406A375AB1A36A1D70DE54 /* ProjectPage.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ProjectPage.swift; sourceTree = "<group>"; };
@@ -212,7 +216,7 @@
 		F817BC998AF3DF2ED3A00C81 /* Discovery.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Discovery.swift; sourceTree = "<group>"; };
 		FA1563DC7A7E6004C5F6CF3E /* SupportTrees.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SupportTrees.swift; sourceTree = "<group>"; };
 		FEB19535AAD2F45E9ADECD3E /* Shaders.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Shaders.swift; sourceTree = "<group>"; };
-		"TEMP_C91544C2-9C33-4DA2-8CB7-39FA4888B1C8" /* Signing.xcconfig */ = {isa = PBXFileReference; lastKnownFileType = text.xcconfig; path = Signing.xcconfig; sourceTree = "<group>"; };
+		"TEMP_61A2AF0B-2650-4263-AF13-5662229ACD94" /* Signing.xcconfig */ = {isa = PBXFileReference; lastKnownFileType = text.xcconfig; path = Signing.xcconfig; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -341,6 +345,7 @@
 				6008A43F2E1376546305C36E /* MetalSliceView.swift */,
 				4CC3EA03D05E3CF0AC57E80D /* PartCard.swift */,
 				ACD1E15ADE1FD083F4133982 /* PlateBar.swift */,
+				8D50EE436AA361BF3EBA3AC4 /* PlateLabels.swift */,
 				625AA610B3C5A3FC604D50EA /* PrinterViews.swift */,
 				A02DA63545320A3F49007D73 /* PrintFacts.swift */,
 				99406A375AB1A36A1D70DE54 /* ProjectPage.swift */,
@@ -387,6 +392,7 @@
 				772880BFB01BD8D0F2940178 /* Session.swift */,
 				CD2359DB967F007D4AB7A5F7 /* Settings.swift */,
 				1925E382ACF90BB484A53E04 /* Signing.swift */,
+				5CD77BE217D23B7E5CF8CA21 /* Simulation.swift */,
 				A58556DEDADD796FCD211AEC /* SliceModel.swift */,
 				194870F164B038CADEF34D76 /* Support.swift */,
 				FA1563DC7A7E6004C5F6CF3E /* SupportTrees.swift */,
@@ -397,10 +403,10 @@
 			path = Core;
 			sourceTree = "<group>";
 		};
-		"TEMP_35D7ADAB-E76A-4655-AC27-218D9375B1CD" /* macos */ = {
+		"TEMP_0B09B240-976C-434B-9C00-D6479278BB05" /* macos */ = {
 			isa = PBXGroup;
 			children = (
-				"TEMP_C91544C2-9C33-4DA2-8CB7-39FA4888B1C8" /* Signing.xcconfig */,
+				"TEMP_61A2AF0B-2650-4263-AF13-5662229ACD94" /* Signing.xcconfig */,
 			);
 			path = macos;
 			sourceTree = "<group>";
@@ -609,6 +615,7 @@
 				8D0F28D1C4834CD0459891CC /* MetalSliceView.swift in Sources */,
 				681B23EC402F125D8E8D93E2 /* PartCard.swift in Sources */,
 				880DF04439C35817BB795F0A /* PlateBar.swift in Sources */,
+				9909C6BC7D0CD35341B5AEDD /* PlateLabels.swift in Sources */,
 				725DE7A69253FA54ADC0A3E8 /* PrintFacts.swift in Sources */,
 				0ABFFAB452D3AEA721EF48D9 /* PrinterLink.swift in Sources */,
 				B28805AA6F096829135ABA34 /* PrinterViews.swift in Sources */,
@@ -628,6 +635,7 @@
 				75C49E64D1BFF497AFAD04E1 /* Shaders.swift in Sources */,
 				8DF75722C4D414DFBACB74A8 /* ShortcutSheet.swift in Sources */,
 				1522BD16D5F68C44685C6181 /* Signing.swift in Sources */,
+				A1C45F693C09BB5FA81CBAFA /* Simulation.swift in Sources */,
 				7549F4079543B7116DD9BB03 /* SliceModel.swift in Sources */,
 				5A7E4690C3269BE1877647E9 /* Support.swift in Sources */,
 				4346EC626787E98FEA864106 /* SupportCard.swift in Sources */,
@@ -701,7 +709,7 @@
 		};
 		1BF4A7F21A34A94F2F8BE4A1 /* Release */ = {
 			isa = XCBuildConfiguration;
-			baseConfigurationReference = "TEMP_C91544C2-9C33-4DA2-8CB7-39FA4888B1C8" /* Signing.xcconfig */;
+			baseConfigurationReference = "TEMP_61A2AF0B-2650-4263-AF13-5662229ACD94" /* Signing.xcconfig */;
 			buildSettings = {
 				ALWAYS_SEARCH_USER_PATHS = NO;
 				CLANG_ANALYZER_NONNULL = YES;
@@ -838,7 +846,7 @@
 		};
 		BB3F32C66D957B876F949001 /* Debug */ = {
 			isa = XCBuildConfiguration;
-			baseConfigurationReference = "TEMP_C91544C2-9C33-4DA2-8CB7-39FA4888B1C8" /* Signing.xcconfig */;
+			baseConfigurationReference = "TEMP_61A2AF0B-2650-4263-AF13-5662229ACD94" /* Signing.xcconfig */;
 			buildSettings = {
 				ALWAYS_SEARCH_USER_PATHS = NO;
 				CLANG_ANALYZER_NONNULL = YES;

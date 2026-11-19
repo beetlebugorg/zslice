@@ -254,7 +254,7 @@ extension Workspace {
 
     /// After a change of the areas in the core: a step of the history, the
     /// areas again, and a slice.
-    private func supportEdited() {
+    func supportEdited() {
         model.history.commit()
         model.history.attach()
         model.settingsGeneration += 1

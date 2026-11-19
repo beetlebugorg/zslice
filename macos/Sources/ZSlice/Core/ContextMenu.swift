@@ -2,6 +2,19 @@
 //! context menu"; linux/src/ui/view3d.c). A right click with no drag, or
 //! Control and a click, on a line selects it and opens the menu:
 //!
+//! The menu fits what is under the pointer (web/app/context-menu.js):
+//!
+//! - on a support line: Remove This Support (a block area over the
+//!   overhang that the line holds up), and Remove the Support Marks Here;
+//! - on any line: Preview to This Layer (C), and Copy for AI;
+//! - on a line of a part: the support marks, the drop, the layer profiles,
+//!   and the placement of the part;
+//! - on the bed: the plate items;
+//! - each time: Clear All Support Marks, Show All Layers (Shift-C), the
+//!   test prints, and Reset the View.
+//!
+//! The items:
+//!
 //! - Preview to This Layer (C), and Show All Layers (Shift-C);
 //! - Add Support Here (grid, tree, or a bridge pad), Block Support Here,
 //!   Remove the Support Marks Here, and Clear All Support Marks
@@ -41,41 +54,62 @@ final class ClosureItem: NSMenuItem {
 }
 
 extension Workspace {
+    /// What is under the pointer, for the menu: a support line, a line of a
+    /// part, or none (the bed or the air).
+    enum MenuTarget { case support, part, empty }
+
     /// The menu for a point of the view: it selects the line there first.
+    /// It fits what is under the pointer (web/app/context-menu.js): the
+    /// support items on a support line, the part items on a line of a part,
+    /// and the plate items on the bed. The view items show each time.
     func contextMenu(at p: CGPoint) -> NSMenu {
         pick(at: p, card: false)
         let menu = NSMenu()
+        var on = MenuTarget.empty
+        if let s = selection {
+            var info = zs_inspect()
+            let f = zs_app_inspect(model.core, s.path, &info) == 0 ? info.feature : -1
+            on = f == Int32(ZS_FEATURE_SUPPORT.rawValue) || f == Int32(ZS_FEATURE_SUPPORT_INTERFACE.rawValue) ? .support : .part
+        }
+        let marks = zs_app_mark_count(model.core) > 0
+        // Each section starts after a separator.
+        func section(_ items: [NSMenuItem]) {
+            guard !items.isEmpty else { return }
+            if !menu.items.isEmpty { menu.addItem(.separator()) }
+            items.forEach(menu.addItem)
+        }
+        if on == .support {
+            var items = [ClosureItem("Remove This Support") { [weak self] in self?.removeSupportHere() }]
+            if marks { items.append(ClosureItem("Remove the Support Marks Here") { [weak self] in self?.removeMarks() }) }
+            section(items)
+        }
         if let s = selection, let v = canvas.view {
             let layer = zs_view_path_layer(v, s.path)
-            menu.addItem(ClosureItem("Preview to This Layer") { [weak self] in
-                guard let self else { return }
-                setRange(lo: lo, hi: layer)
-            })
+            section([
+                ClosureItem("Preview to This Layer") { [weak self] in
+                    guard let self else { return }
+                    setRange(lo: lo, hi: layer)
+                },
+                ClosureItem("Copy for AI") { [weak self] in self?.copyForAI() },
+            ])
         }
-        if hi < layerCount - 1 || lo > 0 {
-            menu.addItem(ClosureItem("Show All Layers") { [weak self] in
-                guard let self else { return }
-                setRange(lo: 0, hi: layerCount - 1)
-            })
-        }
-        if selection != nil {
-            menu.addItem(.separator())
+        if on == .part {
             let support = NSMenuItem(title: "Add Support Here", action: nil, keyEquivalent: "")
             let sub = NSMenu()
             for (title, kind) in [("Grid", ZS_MARK_GRID), ("Tree", ZS_MARK_TREE), ("Bridge (a Pad)", ZS_MARK_BRIDGE)] {
                 sub.addItem(ClosureItem(title) { [weak self] in self?.addMark(Int32(kind.rawValue)) })
             }
             support.submenu = sub
-            menu.addItem(support)
-            menu.addItem(ClosureItem("Block Support Here") { [weak self] in self?.addMark(Int32(ZS_MARK_BLOCK.rawValue)) })
-            menu.addItem(ClosureItem("Remove the Support Marks Here") { [weak self] in self?.removeMarks() })
-            menu.addItem(.separator())
-            menu.addItem(ClosureItem("New Profile from Here Up") { [weak self] in self?.newLayerProfile(up: true) })
-            menu.addItem(ClosureItem("New Profile from Here Down") { [weak self] in self?.newLayerProfile(up: false) })
+            var items: [NSMenuItem] = [support, ClosureItem("Block Support Here") { [weak self] in self?.addMark(Int32(ZS_MARK_BLOCK.rawValue)) }]
+            if marks { items.append(ClosureItem("Remove the Support Marks Here") { [weak self] in self?.removeMarks() }) }
+            items.append(ClosureItem("Add a Drop of Plastic Here") { [weak self] in self?.addDrop() })
+            section(items)
+            section([
+                ClosureItem("New Profile from Here Up") { [weak self] in self?.newLayerProfile(up: true) },
+                ClosureItem("New Profile from Here Down") { [weak self] in self?.newLayerProfile(up: false) },
+            ])
         }
-        if let s = selection, zs_app_part_of_path(model.core, s.path) >= 0 {
-            menu.addItem(.separator())
-            menu.addItem(ClosureItem("Put This Side on the Bed") { [weak self] in self?.putDown() })
+        if on == .part, let s = selection, zs_app_part_of_path(model.core, s.path) >= 0 {
             let place = NSMenuItem(title: "Placement", action: nil, keyEquivalent: "")
             let sub = NSMenu()
             let modes: [(String, Int32, Int32)] = [
@@ -88,44 +122,86 @@ extension Workspace {
                 sub.addItem(ClosureItem(title) { [weak self] in self?.placeLinePart(mode, axis) })
             }
             place.submenu = sub
-            menu.addItem(place)
+            section([ClosureItem("Put This Side on the Bed") { [weak self] in self?.putDown() }, place])
         }
-        menu.addItem(.separator())
-        menu.addItem(ClosureItem("Smart Placement") { [weak self] in self?.smartPlace() })
-        menu.addItem(ClosureItem("Arrange the Plate") { [weak self] in self?.plateAction(zs_app_plate_arrange, fits: true) })
-        menu.addItem(ClosureItem("Add Models…") { [weak self] in self?.addModels() })
-        menu.addItem(ClosureItem("Clear the Plate") { [weak self] in self?.plateAction(zs_app_plate_clear) })
-        if zs_app_mark_count(model.core) > 0 {
-            menu.addItem(ClosureItem("Clear All Support Marks") { [weak self] in
+        if on == .empty {
+            var items: [NSMenuItem] = [
+                ClosureItem("Smart Placement") { [weak self] in self?.smartPlace() },
+                ClosureItem("Arrange the Plate") { [weak self] in self?.plateAction(zs_app_plate_arrange, fits: true) },
+                ClosureItem("Add Models…") { [weak self] in self?.addModels() },
+                ClosureItem("Clear the Plate") { [weak self] in self?.plateAction(zs_app_plate_clear) },
+            ]
+            if model.plates.count > 1 {
+                let i = model.active
+                items.append(ClosureItem("Remove This Plate") { [weak self] in self?.removePlate(i) })
+            }
+            section(items)
+        }
+        var view: [NSMenuItem] = []
+        if marks {
+            view.append(ClosureItem("Clear All Support Marks") { [weak self] in
                 guard let self else { return }
                 zs_app_marks_clear(model.core)
                 model.settingsChanged()
             })
         }
-        if selection != nil {
-            menu.addItem(.separator())
-            menu.addItem(ClosureItem("Copy for AI") { [weak self] in self?.copyForAI() })
-            menu.addItem(ClosureItem("Add a Drop of Plastic Here") { [weak self] in self?.addDrop() })
+        if hi < layerCount - 1 || lo > 0 {
+            view.append(ClosureItem("Show All Layers") { [weak self] in
+                guard let self else { return }
+                setRange(lo: 0, hi: layerCount - 1)
+            })
         }
-        menu.addItem(.separator())
         if layerCount > 0 {
-            menu.addItem(ClosureItem("Test Print: the Top Layer…") { [weak self] in
+            view.append(ClosureItem("Test Print: the Top Layer…") { [weak self] in
                 guard let self else { return }
                 saveTestPrint(lo: hi, hi: hi + 1)
             })
             if lo > 0 || hi < layerCount - 1 {
-                menu.addItem(ClosureItem("Test Print: the Layers Shown…") { [weak self] in
+                view.append(ClosureItem("Test Print: the Layers Shown…") { [weak self] in
                     guard let self else { return }
                     saveTestPrint(lo: lo, hi: hi + 1)
                 })
             }
         }
-        menu.addItem(ClosureItem("Reset the View") { [weak self] in
+        view.append(ClosureItem("Reset the View") { [weak self] in
             guard let self, let v = canvas.view else { return }
             zs_view_reset_smooth(v)
             canvas.startAnimation()
         })
+        section(view)
         return menu
+    }
+
+    /// "Remove This Support": the support line holds up an overhang, and a
+    /// block area over that overhang takes the support away, as the Support
+    /// tool does. The overhang is the first surface that faces down, up from
+    /// the line in steps of 0.5 mm (zs_app_support_pick). The support marks
+    /// of the user near the line go too.
+    func removeSupportHere() {
+        guard let m = markPlace() else {
+            showNote("The plate is slicing. Remove the support again in a moment.")
+            return
+        }
+        var changed = zs_app_mark_remove_near(model.core, m.x, m.y, m.z, 3) > 0
+        var tp = zs_toolpaths()
+        let top = zs_app_toolpaths(model.core, &tp) == 0 && tp.layer_count > 0 ? Double(tp.layer_z[tp.layer_count - 1]) : m.z
+        let cap = 2048
+        var pts = [Double](repeating: 0, count: 3 * cap)
+        var n = 0
+        var zLo = 0.0, zHi = 0.0
+        var z = m.z
+        while z <= top + 0.5 {
+            if zs_app_support_pick(model.core, m.x, m.y, z, 2, &pts, cap, &n, &zLo, &zHi) >= 0, n >= 3 { break }
+            n = 0
+            z += 0.5
+        }
+        if n >= 3, zs_app_support_area_add(model.core, Int32(ZS_MARK_BLOCK.rawValue), &pts, n, zLo, zHi) >= 0 { changed = true }
+        guard changed else {
+            showNote("zslice found no overhang over this support.")
+            return
+        }
+        clearSelection()
+        supportEdited()
     }
 
     /// The place of a support mark: the middle of the selected segment,

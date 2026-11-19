@@ -57,7 +57,8 @@ struct SearchOverlay: View {
             SearchAction(label: "Measure", keys: "T") { workspace.setTool(.measure) },
             SearchAction(label: "Move a Part", keys: "M") { workspace.setTool(.move) },
             SearchAction(label: "Turn a Part", keys: "R") { workspace.setTool(.turn) },
-        ]
+            SearchAction(label: "The Print as It Forms (Simulated Plastic)", keys: "") { workspace.toggleSimulation() },
+        ] + (workspace.model.project == nil ? [] : [SearchAction(label: "Close the Project", keys: "") { workspace.closeProject() }])
     }
 
     private var words: [String] {

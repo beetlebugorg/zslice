@@ -197,6 +197,7 @@ struct DocumentWindow: View {
                         .transition(.move(edge: .bottom).combined(with: .opacity))
                     }
                     BottomBar(workspace: workspace)
+                        .onGeometryChange(for: CGFloat.self) { $0.size.height } action: { workspace.dockHeight = $0 }
                 }
                 .animation(.easeOut(duration: 0.15), value: workspace.detailsOpen)
             }
@@ -205,6 +206,7 @@ struct DocumentWindow: View {
             .overlay {
                 GeometryReader { geo in
                     TapeOverlay(workspace: workspace, area: geo.size)
+                    PlateLabels(workspace: workspace)
                     if let l = workspace.ringLabel {
                         Text(l.text)
                             .font(.callout.weight(.semibold).monospacedDigit())
@@ -481,6 +483,22 @@ struct PrintCard: View {
                 .font(.callout)
                 .padding(8)
                 .background(Color.orange.opacity(0.15), in: RoundedRectangle(cornerRadius: 8))
+            } else if model.state == .done, let text = workspace.simResult?.checkText {
+                // The simulated print ran: it replaces the estimate from the
+                // area that hangs in the air.
+                let off = model.setting("project.support") == "off"
+                VStack(alignment: .leading, spacing: 6) {
+                    Label(text + (off ? "Turn on support or turn the part." : "Turn the part, or add support there."),
+                          systemImage: "exclamationmark.triangle.fill")
+                        .fixedSize(horizontal: false, vertical: true)
+                    if off {
+                        Button("Turn On Support") { model.set("project.support", "everywhere") }
+                            .controlSize(.small)
+                    }
+                }
+                .font(.callout)
+                .padding(8)
+                .background(Color.orange.opacity(0.15), in: RoundedRectangle(cornerRadius: 8))
             } else if model.state == .done, let area = workspace.unsupportedArea {
                 // The red warning of a part off the bed wins over this one.
                 VStack(alignment: .leading, spacing: 6) {
@@ -699,10 +717,16 @@ struct BottomBar: View {
                     .offset(y: -3)
             }
         }
-        // A new note opens the details once.
-        .onChange(of: workspace.noteKey) { _, key in
-            if !key.isEmpty { workspace.detailsOpen = true }
-        }
+        // A note does not open the details: they cover the part. The badge
+        // in the warning color is the sign, and a click opens them.
+    }
+
+    /// "34.9 g · cost 0.87 · 169 layers": the cost of the active plate
+    /// counts the hour rate of the printer.
+    private func detail(_ s: zs_stats) -> String {
+        var t = zs_totals()
+        let cost = zs_set_plate_totals(model.set, model.active, &t) == 0 && t.cost > 0 ? String(format: " · cost %.2f", t.cost) : ""
+        return String(format: "%.1f g", s.filament_g) + cost + " · \(s.layer_count) layers"
     }
 
     private var summary: some View {
@@ -712,9 +736,17 @@ struct BottomBar: View {
             } label: {
                 HStack(spacing: 6) {
                     if let s = model.stats {
-                        Text(PrintCard.duration(s.print_time_s))
-                            .font(.title3.weight(.semibold).monospacedDigit())
-                            .opacity(model.state == .slicing ? 0.5 : 1)
+                        // The time, and under it the plastic, the cost, and
+                        // the layers (the web dock).
+                        VStack(alignment: .leading, spacing: 0) {
+                            Text(PrintCard.duration(s.print_time_s))
+                                .font(.title3.weight(.semibold).monospacedDigit())
+                            Text(detail(s))
+                                .font(.caption.monospacedDigit())
+                                .foregroundStyle(.secondary)
+                                .lineLimit(1)
+                        }
+                        .opacity(model.state == .slicing ? 0.5 : 1)
                     } else {
                         Text("Slicing…").font(.title3.weight(.semibold))
                     }
@@ -722,9 +754,10 @@ struct BottomBar: View {
                     let n = workspace.noteCount
                     let tips = workspace.refinements.count
                     if n > 0 || tips > 0 {
-                        Text("\(n > 0 ? n : tips)")
+                        Text(n > 0 ? "Check" : "\(tips)")
                             .font(.caption.weight(.bold).monospacedDigit())
                             .foregroundStyle(.white)
+                            .padding(.horizontal, n > 0 ? 6 : 0)
                             .frame(minWidth: 18, minHeight: 18)
                             .background(n == 0 ? Color.accentColor : workspace.noteIsError ? Color.red : Color.orange, in: Capsule())
                             .help(n > 0 ? "\(n) note\(n == 1 ? "" : "s") on this print" : "\(tips) of your usual refinement\(tips == 1 ? "" : "s")")
@@ -794,6 +827,13 @@ struct ColorsButton: View {
                 }
                 .pickerStyle(.radioGroup)
                 .labelsHidden()
+                Divider()
+                Toggle("The Print as It Forms", isOn: Binding(get: { workspace.simulated }, set: { _ in
+                    open = false
+                    workspace.toggleSimulation()
+                }))
+                .help("Simulated plastic: it sags and droops where nothing holds it")
+                .disabled(workspace.model.state != .done)
                 if workspace.layerCount > 0 {
                     Divider()
                     Legend(workspace: workspace, bare: true)

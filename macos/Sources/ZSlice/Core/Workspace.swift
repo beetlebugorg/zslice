@@ -149,6 +149,14 @@ final class Workspace {
     var tape: [TapePoint] = []
     /// The points of the tape in the view (points), for the readout.
     var tapeScreen: [CGPoint] = []
+    /// The labels of the plates over the view (PlateLabels.swift).
+    var plateLabels: [PlateLabel] = []
+    /// The view shows the print as it forms (Simulation.swift), and the
+    /// numbers of the last simulation of this slice.
+    var simulated = false
+    var simResult: SimResult?
+    /// The ids of the plates and the active plate, as the session has them.
+    @ObservationIgnored var plateIDs: [UInt64] = []
 
     // Gaps and Check (Checks.swift).
     var gapsOn = false
@@ -166,6 +174,11 @@ final class Workspace {
     /// the card to; the card keeps that place until it closes.
     var cardAt = CGPoint(x: 120, y: 120)
     var cardMoved: CGPoint?
+    /// The corner of the line card (0 top left, 1 top right, 2 bottom left,
+    /// 3 bottom right): it keeps it from click to click.
+    @ObservationIgnored var cardCorner: Int?
+    /// The height of the bottom bar, for the cards to keep clear of it.
+    var dockHeight: CGFloat = 70
     /// "Fade the others": the app keeps the choice.
     var isolate = prefs.bool(forKey: "isolate") {
         didSet { prefs.set(isolate, forKey: "isolate") }
@@ -244,6 +257,9 @@ final class Workspace {
             }
         }
         stopReplay()
+        // A new slice shows the plan.
+        simulated = false
+        simResult = nil
         if let v = canvas.view { zs_view_set_mode(v, Int32(colorMode)) }
         let tl = CACurrentMediaTime()
         canvas.load(model.core)
@@ -807,9 +823,49 @@ final class Workspace {
             if xy.count == 2 {
                 let menu = contextMenu(at: CGPoint(x: xy[0], y: xy[1]))
                 let all = menu.items + menu.items.flatMap { $0.submenu?.items ?? [] }
+                NSLog("zslice menu: %@", menu.items.map { $0.isSeparatorItem ? "|" : $0.title }.joined(separator: ", "))
                 if let item = all.first(where: { $0.title == spec[1] }) as? ClosureItem {
                     _ = item.target?.perform(item.action)
                 }
+            }
+        }
+        // ZSLICE_REMOVE_SUPPORT=1 selects the longest support line of the
+        // middle layer, and runs Remove This Support of its menu ("card":
+        // opens its card).
+        // It waits 3 s for the slice of a ZSLICE_SET.
+        if env["ZSLICE_REMOVE_SUPPORT"] != nil {
+            Task { @MainActor in
+                try? await Task.sleep(for: .seconds(3))
+                var tp = zs_toolpaths()
+                guard zs_app_toolpaths(model.core, &tp) == 0, tp.layer_count > 2, let ends = tp.path_ends else { return }
+                let l = tp.layer_count / 3
+                let a = Int(tp.layer_ends[l - 1]), b = Int(tp.layer_ends[l])
+                let len = { (i: Int) in ends[i] - (i > 0 ? ends[i - 1] : 0) }
+                let support = (a ..< b).filter { tp.path_features[$0] == UInt8(ZS_FEATURE_SUPPORT.rawValue) }
+                guard let path = support.max(by: { len($0) < len($1) }) else {
+                    NSLog("zslice remove support: no support line on layer %ld", l)
+                    return
+                }
+                // "card": the card of the line only.
+                if env["ZSLICE_REMOVE_SUPPORT"] == "card" {
+                    cardAt = CGPoint(x: 450, y: 300)
+                    select(path: path, seg: 0, openCard: true)
+                    NSLog("zslice support card: %@", lineInfo.map { "\($0.title), holds \($0.holds.map { "layer \($0.layer) feature \($0.feature)" } ?? "none")" } ?? "none")
+                    return
+                }
+                select(path: path, seg: 0, openCard: false)
+                let areas = zs_app_support_area_count(model.core)
+                removeSupportHere()
+                NSLog("zslice remove support: layer %ld path %ld, areas %ld -> %ld, note %@", l, path, areas,
+                      zs_app_support_area_count(model.core), note ?? "none")
+            }
+        }
+        // ZSLICE_SIM=1 shows the print as it forms (after the slice of a
+        // ZSLICE_SET, 2 s).
+        if env["ZSLICE_SIM"] != nil {
+            Task { @MainActor in
+                try? await Task.sleep(for: .seconds(2))
+                toggleSimulation()
             }
         }
         // ZSLICE_PICK=x,y picks the line at that point of the view (points),
@@ -840,6 +896,13 @@ final class Workspace {
     func syncPlates() {
         guard let v = canvas.view else { return }
         zs_set_view_sync(model.set, v)
+        // A plate added or removed: the session keeps the new list. A slice
+        // keeps it too, but an empty plate has no slice.
+        let ids = model.plates.map(\.id) + [UInt64(model.active)]
+        if ids != plateIDs {
+            if !plateIDs.isEmpty { SessionStore.shared.changed() }
+            plateIDs = ids
+        }
         // A plate with no parts (Clear the Plate): no layers, and the
         // controls of the layers go.
         if model.state == .empty, layerCount > 0 {
@@ -904,6 +967,16 @@ final class Workspace {
 
     /// Opens the project of a folder (a repository with a printdeck.yml)
     /// with an open panel.
+    /// Closes the project: its plates stay in the window as plates of the
+    /// user, and the session keeps them.
+    func closeProject() {
+        guard model.project != nil else { return }
+        model.project = nil
+        projectOpen = false
+        SessionStore.shared.changed()
+        showNote("The project \(model.name) is closed. Its plates stay.")
+    }
+
     func openProject() {
         let panel = NSOpenPanel()
         panel.canChooseDirectories = true
@@ -1021,7 +1094,7 @@ final class Workspace {
     /// Moves the bottom knob by `step` layers (the top knob follows up).
     func moveBottom(_ step: Int) { setRange(lo: lo + step, hi: max(hi, lo + step)) }
 
-    private func applyRange() {
+    func applyRange() {
         guard let v = canvas.view else { return }
         zs_view_set_layer_range(v, lo, hi)
         if gapsOn { showGaps() }
@@ -1197,7 +1270,7 @@ final class Workspace {
         readLegend()
     }
 
-    private func readLegend() {
+    func readLegend() {
         var lo = 0.0, hi = 0.0
         if let v = canvas.view, colorMode >= 2, zs_view_legend(v, &lo, &hi) != 0 { legend = (lo, hi) } else { legend = nil }
     }
@@ -1625,6 +1698,7 @@ extension Workspace: SliceViewDelegate {
 
     func sliceViewDidDraw() {
         if !tape.isEmpty { placeTape() }
+        placePlateLabels()
         // The camera, the layers, or the page moved: the view file follows.
         SessionStore.shared.changedView()
     }

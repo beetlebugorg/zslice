@@ -205,6 +205,8 @@ struct PlateCommands: View {
         Divider()
         Button("Show Project…") { workspace?.projectOpen = true }
             .disabled(workspace?.model.project == nil)
+        Button("Close the Project") { workspace?.closeProject() }
+            .disabled(workspace?.model.project == nil)
         Button("Open Project Folder…") { workspace?.openProject() }
             .keyboardShortcut("o", modifiers: [.command, .shift])
             .disabled(workspace == nil)

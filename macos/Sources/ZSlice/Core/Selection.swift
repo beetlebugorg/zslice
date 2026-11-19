@@ -42,6 +42,17 @@ struct LineInfo {
     /// Why the planned speed, the real speed, and the flow are what they
     /// are, in words; a setting is a mark {{name}}.
     var whyPlanned = "", whyReal = "", whyFlow = ""
+    /// The z of the line and its height and width, mm.
+    var z = 0.0, height = 0.0, lineWidth = 0.0
+    /// The part fan (0 to 1), the time of the layer (s), and the flow limit
+    /// (mm³/s; 0: none), with a flag when the flow limit sets the speed.
+    var fan = 0.0, layerTime = 0.0, maxFlow = 0.0
+    var flowLimited = false
+    /// For a support line: the layer and the feature of the part line that
+    /// it holds up.
+    var holds: (layer: Int, feature: Int)?
+    /// The warnings of the check at the line (a bridge, an overhang).
+    var issues: [Issue] = []
 }
 
 /// (size_t)-1 of the C API: no path.
@@ -49,7 +60,7 @@ let noPath = -1
 
 extension Workspace {
     /// The number of settings on the line card.
-    static let cardSettings = 4
+    static let cardSettings = 5
 
     // MARK: - pick and select
 
@@ -151,8 +162,28 @@ extension Workspace {
             measure: measured ? m : nil,
             picks: picks.prefix(n).map { (coreText($0.name), coreText($0.why)) }.filter { SettingInfo.byName[$0.0] != nil },
             settings: coreText(info.settings).split(separator: "\n").map(String.init),
-            whyPlanned: coreText(info.why_planned), whyReal: coreText(info.why_real), whyFlow: coreText(info.why_flow))
+            whyPlanned: coreText(info.why_planned), whyReal: coreText(info.why_real), whyFlow: coreText(info.why_flow),
+            z: info.z, height: info.height, lineWidth: info.line_width,
+            fan: info.fan, layerTime: info.layer_time, maxFlow: info.max_flow, flowLimited: info.flow_limited != 0,
+            holds: info.holds_layer == ZS_NO_PATH ? nil : (Int(info.holds_layer), Int(info.holds_feature)),
+            issues: lineIssues(ofPath: s.path, layer: Int(info.layer)))
         refindKey = middle(of: s.path).map { RefindKey(layer: info.layer, feature: info.feature, x: $0.x, y: $0.y) }
+    }
+
+    /// The warnings of the check at a line, the worst first: its own, and
+    /// the ones within `near` mm of it on its layer. Only a check that has
+    /// run (zs_app_checks_ready): the check of a whole slice can take a
+    /// second, too long for a click. readIssues adds them later.
+    func lineIssues(ofPath path: Int, layer: Int, near: Double = 3) -> [Issue] {
+        guard zs_app_checks_ready(model.core) != 0, !issues.isEmpty else { return [] }
+        var tp = zs_toolpaths()
+        guard zs_app_toolpaths(model.core, &tp) == 0, path < tp.path_count, let ends = tp.path_ends, let pts = tp.points else { return [] }
+        let a = path > 0 ? Int(ends[path - 1]) : 0, b = Int(ends[path])
+        return issues.filter { i in
+            guard i.layer == layer else { return false }
+            if i.path == path { return true }
+            return (a ..< b).contains { k in hypot(Double(pts[2 * k]) - i.x, Double(pts[2 * k + 1]) - i.y) <= near }
+        }
     }
 
     /// The middle point of a path (mm), from the toolpaths of the slice.
