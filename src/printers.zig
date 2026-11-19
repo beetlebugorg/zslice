@@ -48,6 +48,8 @@
 //!   of zslice. The G-code of a source keeps its variables and its
 //!   scripts: gcode_vars.zig fills them in when zslice writes the G-code.
 //! - A retraction of 2.5 mm or more means a bowden extruder.
+//! - A model of a family in `cooling_families` gets the air around the
+//!   print and the air speed of its fans, for the simulated print.
 //!
 //! The search (`search`) matches each word of the query to the start of a
 //! word of the brand, the series, or the model. A match at the start of the
@@ -412,6 +414,10 @@ pub const Library = struct {
         try w.print("extruder = \"{s}\"\n", .{if (bowden) "bowden" else "direct"});
         if (m.retract > 0) try w.print("retract_length = {d}\n", .{std.math.clamp(m.retract, 0, 15)});
         if (m.retract_speed > 0) try w.print("retract_speed = {d}\n", .{std.math.clamp(m.retract_speed, 5, 150)});
+        if (coolingOf(m.id)) |c| {
+            try w.print("# Cooling: {s}. The air speed is an estimate from the size of the fans.\n", .{c.what});
+            try w.print("chamber_temp = {d}\npart_fan_air = {d}\n", .{ c.chamber_temp, c.part_fan_air });
+        }
         if (self.gcode(m.start)) |g| {
             try w.writeAll("start_gcode = ");
             try writeMultiline(w, g);
@@ -424,6 +430,57 @@ pub const Library = struct {
         }
     }
 };
+
+/// The cooling of a printer family, for the simulated print: the air
+/// around the print with PLA (`machine.chamber_temp`, °C), and the air
+/// speed of the part cooling fans at the bead (`machine.part_fan_air`,
+/// m/s). The fans and the enclosures come from the makers and their parts
+/// stores (see REFERENCES.md). The air speeds are estimates from the size
+/// of the fans: a 5015 radial blower through a duct about 6 m/s, a 4010
+/// blower about 4 m/s, two 3510 blowers about 5 m/s, and a 5015 with a
+/// large side fan (Bambu Lab, Creality K1, QIDI) about 10 m/s. A closed
+/// printer with PLA keeps its air at about 35 °C, an estimate: the bed
+/// warms it. A heated chamber is off for PLA.
+pub const Cooling = struct {
+    /// The start of the ids of the models of the family.
+    prefix: []const u8,
+    chamber_temp: f64,
+    part_fan_air: f64,
+    /// The fans and the enclosure, in words.
+    what: []const u8,
+};
+
+pub const cooling_families = [_]Cooling{
+    .{ .prefix = "bambu-lab-x1", .chamber_temp = 35, .part_fan_air = 10, .what = "closed; a part fan and a 12 W auxiliary side fan" },
+    .{ .prefix = "bambu-lab-p1s", .chamber_temp = 35, .part_fan_air = 10, .what = "closed; a part fan and a 12 W auxiliary side fan" },
+    .{ .prefix = "creality-k1", .chamber_temp = 35, .part_fan_air = 10, .what = "closed; a part fan and a 12032 radial side fan" },
+    .{ .prefix = "creality-ender-3", .chamber_temp = 25, .part_fan_air = 4, .what = "open frame; one 4010 blower" },
+    .{ .prefix = "creality-cr-10", .chamber_temp = 25, .part_fan_air = 4, .what = "open frame; one 4010 blower" },
+    .{ .prefix = "prusa-core-one", .chamber_temp = 35, .part_fan_air = 6, .what = "closed, with chamber fans; one 5015 blower" },
+    .{ .prefix = "prusa-mk4", .chamber_temp = 25, .part_fan_air = 6, .what = "open frame; one 5015 blower" },
+    .{ .prefix = "prusa-mk3", .chamber_temp = 25, .part_fan_air = 6, .what = "open frame; one 5015 blower" },
+    .{ .prefix = "prusa-i3-mk3", .chamber_temp = 25, .part_fan_air = 6, .what = "open frame; one 5015 blower" },
+    .{ .prefix = "prusa-mini", .chamber_temp = 25, .part_fan_air = 6, .what = "open frame; one 5015 blower" },
+    .{ .prefix = "prusa-xl", .chamber_temp = 25, .part_fan_air = 6, .what = "open frame; one 5015 blower on each tool" },
+    .{ .prefix = "voron", .chamber_temp = 35, .part_fan_air = 6, .what = "closed; one 5015 blower (Stealthburner)" },
+    .{ .prefix = "qidi-x-max-3", .chamber_temp = 35, .part_fan_air = 10, .what = "closed, with a heated chamber to 65 °C (off for PLA); a part fan and an auxiliary fan" },
+    .{ .prefix = "qidi-x-plus-3", .chamber_temp = 35, .part_fan_air = 10, .what = "closed, with a heated chamber (off for PLA); a part fan and an auxiliary fan" },
+    .{ .prefix = "ultimaker-s", .chamber_temp = 25, .part_fan_air = 5, .what = "two 3510 radial blowers, one on each side of the head" },
+    .{ .prefix = "lulzbot-taz-workhorse", .chamber_temp = 25, .part_fan_air = 6, .what = "open frame; a 24 V radial blower on the tool head" },
+    .{ .prefix = "lulzbot-taz-pro", .chamber_temp = 25, .part_fan_air = 6, .what = "open frame; a 24 V radial blower on the tool head" },
+    .{ .prefix = "lulzbot-mini-2", .chamber_temp = 25, .part_fan_air = 6, .what = "open frame; a 24 V radial blower on the tool head" },
+};
+
+/// The cooling of the family of a model (the longest prefix of its id),
+/// or null if the library has none for it.
+pub fn coolingOf(id: []const u8) ?Cooling {
+    var best: ?Cooling = null;
+    for (cooling_families) |c| {
+        if (!std.mem.startsWith(u8, id, c.prefix)) continue;
+        if (best == null or c.prefix.len > best.?.prefix.len) best = c;
+    }
+    return best;
+}
 
 /// The print and travel speeds of zslice for a model, in mm/s. A project
 /// gives each feature a ratio of the print speed. The speed follows the
@@ -787,12 +844,17 @@ test "a profile of a model loads as a machine profile" {
     try testing.expectEqual(@as(f64, 300), s.machine.max_speed);
     try testing.expectEqual(@import("settings.zig").GcodeFlavor.klipper, s.machine.gcode_flavor);
     try testing.expectEqualStrings("M104 S0\nPRINT_END", s.machine.end_gcode);
+    // The cooling of the K1 family: closed, and a large side fan.
+    try testing.expectEqual(@as(f64, 35), s.machine.chamber_temp);
+    try testing.expectEqual(@as(f64, 10), s.machine.part_fan_air);
 
     aw.clearRetainingCapacity();
     try lib.profileText(2, 0, &aw.writer);
     s = .{};
     try profile.apply(arena.allocator(), &s, .machine, "q5", aw.written(), null, &diag);
     try testing.expectEqual(@as(f64, -100), s.machine.origin_y);
+    // No cooling data for the family: the defaults.
+    try testing.expectEqual(@as(f64, 25), s.machine.chamber_temp);
     try testing.expectEqual(@as(f64, 150), s.machine.max_speed);
 
     aw.clearRetainingCapacity();
@@ -801,6 +863,7 @@ test "a profile of a model loads as a machine profile" {
     try profile.apply(arena.allocator(), &s, .machine, "e3", aw.written(), null, &diag);
     try testing.expectEqual(@as(f64, 100), s.machine.max_speed);
     try testing.expectEqual(@import("settings.zig").ExtruderKind.bowden, s.machine.extruder);
+    try testing.expectEqual(@as(f64, 4), s.machine.part_fan_air);
     try testing.expectEqualStrings("G28\nM109 S{first_layer_nozzle_temp}", s.machine.start_gcode);
 }
 
