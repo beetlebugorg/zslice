@@ -15,54 +15,39 @@ import { openMenuAt } from "./menus.js";
 import { revertible } from "./format.js";
 
 // The look of each kind of step (history.c, looks).
-// The glyph of a kind, in white, in a box of 20 around the center (the
-// same drawing as draw_glyph in linux/src/ui/history.c).
 const NS = "http://www.w3.org/2000/svg";
-function arrowHead(x, y, ang, s) {
-  const a = (t) => `${(x + s * Math.cos(t)).toFixed(2)} ${(y + s * Math.sin(t)).toFixed(2)}`;
-  return `M${a(ang + 2.5)}L${x} ${y}L${a(ang - 2.5)}`;
-}
-function glyphMarkup(k) {
-  const line = (d) => `<path d="${d}" fill="none" stroke="#fff" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/>`;
-  const fill = (d) => `<path d="${d}" fill="#fff"/>`;
-  switch (k) {
-    case "walls": return line("M-5.5 -5.5h11v11h-11zM-2.5 -2.5h5v5h-5z");
-    case "infill": {
-      let d = "";
-      for (const o of [-4.5, 0, 4.5]) d += `M${-6 + o} -6L${6 + o} 6M${6 + o} -6L${-6 + o} 6`;
-      return `<clipPath id="ic-clip"><circle r="5.8"/></clipPath><path d="${d}" stroke="#fff" stroke-width="1.3" stroke-linecap="round" clip-path="url(#ic-clip)"/>`;
-    }
-    case "surface": return line([-1, 0, 1].map((o) => `M${-6 + o * 4} 4L${1 + o * 4} -4`).join(""));
-    case "speed": return line("M-5 -4.5L-0.5 0L-5 4.5M0 -4.5L4.5 0L0 4.5");
-    case "heat": return line("M0 -6V2M2.5 -4H4M2.5 -1H4") + `<circle cy="3.5" r="2.6" fill="#fff"/>`;
-    case "support": return line("M-6 -4.5H6M-4 -4.5V5.5M0 -4.5V5.5M4 -4.5V5.5");
-    case "layers": return line("M-5.5 -3.8H5.5M-5.5 0H5.5M-5.5 3.8H5.5");
-    case "move": return line("M-6 0H6M0 -6V6" + arrowHead(6, 0, 0, 2.4) + arrowHead(-6, 0, Math.PI, 2.4) + arrowHead(0, 6, Math.PI / 2, 2.4) + arrowHead(0, -6, -Math.PI / 2, 2.4));
-    case "rotate": return line("M0 -5A5 5 0 1 1 -5 0" + arrowHead(-5, 0, Math.PI / 2, 2.6));
-    case "scale": return line("M-5 5L5 -5M1 -5H5V-1M-5 1V5H-1");
-    case "add": return line("M-5 0H5M0 -5V5");
-    case "remove": return line("M-5 0H5");
-    case "quality": {
-      let d = "";
-      for (let i = 0; i < 10; i++) {
-        const a = -Math.PI / 2 + (i * Math.PI) / 5, r = i % 2 ? 2.6 : 6;
-        d += `${i ? "L" : "M"}${(r * Math.cos(a)).toFixed(2)} ${(r * Math.sin(a)).toFixed(2)}`;
-      }
-      return fill(d + "Z");
-    }
-    case "printer": return line("M-6 -2h12v6h-12zM-3.5 -6h7v4h-7zM-2 5.5H2");
-    case "start": return line("M-3 6V-6L5 -3.5L-3 -1");
-    default: return `<circle r="2" fill="#fff"/>`;
-  }
-}
+// The paths of the glyph of a kind on the 18 x 18 grid of the icons of
+// the app, in its style: outlines with round ends. Move, Turn, and Support
+// are the icons of the tool strip (index.html); Printer is the icon of
+// the printer button.
+const GLYPHS = {
+  walls: '<rect x="2.5" y="2.5" width="13" height="13" rx="3"/><rect x="6" y="6" width="6" height="6" rx="1"/>',
+  infill: '<rect x="2.5" y="2.5" width="13" height="13" rx="1"/><path d="M2.5 9 9 2.5M2.5 15.5 15.5 2.5M9 15.5 15.5 9M2.5 9 9 15.5M2.5 2.5l13 13M9 2.5 15.5 9"/>',
+  surface: '<path d="M2.5 3.5h13M2.5 14.5h13"/><path d="M2.5 6h13M2.5 12h13" stroke-dasharray="1.6 1.9"/>',
+  speed: '<path d="M3 13.5a6.5 6.5 0 1 1 12 0"/><path d="M9 11 12.5 6.5"/><circle cx="9" cy="11" r="1"/>',
+  heat: '<path d="M7 10.6V4a2 2 0 0 1 4 0v6.6a3.6 3.6 0 1 1-4 0z"/><path d="M9 12.5V7"/>',
+  support: '<path d="M2 4.5h14l-2 3H4z"/><path d="M5 7.5v8M9 7.5v8M13 7.5v8M3.5 15.5h11"/>',
+  layers: '<path d="M9 2.5 16 6l-7 3.5L2 6z"/><path d="M2 9.5 9 13l7-3.5M2 12.5 9 16l7-3.5"/>',
+  move: '<path d="M2 9h14M9 2v14M13.7 6.8 16 9l-2.3 2.2M4.3 6.8 2 9l2.3 2.2M6.8 4.3 9 2l2.2 2.3M6.8 13.7 9 16l2.2-2.3"/>',
+  rotate: '<path d="M14.5 9a5.5 5.5 0 1 1-1.6-3.9"/><path d="M13.6 2.2v3.3h-3.3"/>',
+  scale: '<path d="M3 15 15 3M10 3h5v5M3 10v5h5"/>',
+  add: '<path d="M3.5 9h11M9 3.5v11"/>',
+  remove: '<path d="M3.5 9h11"/>',
+  quality: '<path d="M9 2.2l2 4.3 4.7.6-3.4 3.2.9 4.6L9 12.6l-4.2 2.3.9-4.6-3.4-3.2 4.7-.6z"/>',
+  printer: '<path d="M5 6.5V2.5h8v4M5 13H2.5V6.5h13V13H13M5 10.5h8v5H5z"/>',
+  start: '<path d="M4.5 16V2.5"/><path d="M4.5 3h9l-2 3.25 2 3.25h-9"/>',
+  other: '<circle cx="4" cy="9" r=".6"/><circle cx="9" cy="9" r=".6"/><circle cx="14" cy="9" r=".6"/>',
+};
+
 // An <svg> with the glyph of kind `k`, `size` pixels wide.
 export function glyph(k, size) {
   const s = document.createElementNS(NS, "svg");
-  s.setAttribute("viewBox", "-10 -10 20 20");
+  s.setAttribute("viewBox", "0 0 18 18");
+  for (const [a, v] of [["fill", "none"], ["stroke", "#fff"], ["stroke-width", "1.6"], ["stroke-linecap", "round"], ["stroke-linejoin", "round"]]) s.setAttribute(a, v);
   s.setAttribute("width", size);
   s.setAttribute("height", size);
   s.setAttribute("aria-hidden", "true");
-  s.innerHTML = glyphMarkup(k);
+  s.innerHTML = GLYPHS[k] ?? GLYPHS.other;
   return s;
 }
 
