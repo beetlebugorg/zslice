@@ -1218,7 +1218,10 @@ static void undo_stop_timer(ZgModel *self) {
 /* Ends the step of the changes so far. */
 static void undo_commit(ZgModel *self) {
     undo_stop_timer(self);
-    if (zs_app_history_commit(self->core, now_ms())) g_signal_emit(self, signals[SIGNAL_UNDO_CHANGED], 0);
+    gint64 t0 = g_get_monotonic_time();
+    gboolean done = zs_app_history_commit(self->core, now_ms());
+    if (g_getenv("ZSLICE_BENCH")) g_message("bench: a history commit, %.0f ms", (g_get_monotonic_time() - t0) / 1000.0);
+    if (done) g_signal_emit(self, signals[SIGNAL_UNDO_CHANGED], 0);
 }
 
 static gboolean on_undo_timer(gpointer data) {
