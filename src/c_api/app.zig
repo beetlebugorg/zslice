@@ -380,9 +380,9 @@ export fn zs_bambu_jpeg_reader_next(r: ?*JpegReader, jpeg: ?*?[*]const u8, len: 
     return 1;
 }
 
-/// MQTT 3.1.1 for the status of a Bambu Lab printer (src/mqtt.zig): the
-/// packets to write, and a reader of the packets that come. There is no
-/// PUBLISH: the link only reads.
+/// MQTT 3.1.1 for a Bambu Lab printer (src/mqtt.zig): the packets to
+/// write, and a reader of the packets that come. A link that only reads
+/// makes no PUBLISH.
 export fn zs_mqtt_connect_packet(client_id: ?[*:0]const u8, user: ?[*:0]const u8, password: ?[*:0]const u8, keepalive_s: c_int, out: ?*?[*]u8, out_len: ?*usize) c_int {
     const o = out orelse return @intFromEnum(Status.invalid_argument);
     const n = out_len orelse return @intFromEnum(Status.invalid_argument);
@@ -553,6 +553,128 @@ export fn zs_bambu_md5(gcode: ?[*]const u8, len: usize, out: ?*[33]u8) c_int {
 /// The MQTT message that asks a Bambu Lab printer for its full status.
 export fn zs_bambu_push_all_message() [*:0]const u8 {
     return zs.bambu.push_all_message;
+}
+
+/// A PUBLISH at QoS 0 of `payload` to `topic`. Free it with zs_buffer_free.
+export fn zs_mqtt_publish_packet(topic: ?[*:0]const u8, payload: ?[*]const u8, len: usize, out: ?*?[*]u8, out_len: ?*usize) c_int {
+    const t = topic orelse return @intFromEnum(Status.invalid_argument);
+    const o = out orelse return @intFromEnum(Status.invalid_argument);
+    const l = out_len orelse return @intFromEnum(Status.invalid_argument);
+    const body: []const u8 = if (payload) |p| p[0..len] else "";
+    const pk = zs.mqtt.publishPacket(gpa, std.mem.span(t), body) catch |e| return switch (e) {
+        error.TooBig => @intFromEnum(Status.invalid_argument),
+        error.OutOfMemory => @intFromEnum(Status.out_of_memory),
+    };
+    o.* = pk.ptr;
+    l.* = pk.len;
+    return ok;
+}
+
+/// A PUBLISH of `message` to device/<serial>/request.
+fn bambuRequest(serial: []const u8, message: []const u8, out: ?*?[*]u8, out_len: ?*usize) c_int {
+    const o = out orelse return @intFromEnum(Status.invalid_argument);
+    const l = out_len orelse return @intFromEnum(Status.invalid_argument);
+    if (serial.len == 0) return @intFromEnum(Status.invalid_argument);
+    const topic = zs.bambu.requestTopic(gpa, serial) catch return @intFromEnum(Status.out_of_memory);
+    defer gpa.free(topic);
+    const pk = zs.mqtt.publishPacket(gpa, topic, message) catch |e| return switch (e) {
+        error.TooBig => @intFromEnum(Status.invalid_argument),
+        error.OutOfMemory => @intFromEnum(Status.out_of_memory),
+    };
+    o.* = pk.ptr;
+    l.* = pk.len;
+    return ok;
+}
+
+/// The PUBLISH that asks the printer `serial` for its full status.
+export fn zs_bambu_push_all_packet(serial: ?[*:0]const u8, out: ?*?[*]u8, out_len: ?*usize) c_int {
+    return bambuRequest(std.mem.span(serial orelse return @intFromEnum(Status.invalid_argument)), zs.bambu.push_all_message, out, out_len);
+}
+
+/// The PUBLISH that starts the print of `file` on the printer `serial`
+/// (the message of zs_bambu_start_message, with its flags and md5). Send
+/// it only after a fresh yes of the user that the plate is clear.
+export fn zs_bambu_start_packet(serial: ?[*:0]const u8, file: ?[*:0]const u8, title: ?[*:0]const u8, md5: ?[*:0]const u8, flags: c_int, out: ?*?[*]u8, out_len: ?*usize) c_int {
+    const sn = serial orelse return @intFromEnum(Status.invalid_argument);
+    var msg: ?[*]u8 = null;
+    var n: usize = 0;
+    const rc = zs_bambu_start_message(file, title, md5, flags, &msg, &n);
+    if (rc != ok) return rc;
+    defer gpa.free(msg.?[0..n]);
+    return bambuRequest(std.mem.span(sn), msg.?[0..n], out, out_len);
+}
+
+/// The RTSP session of a Bambu Lab printer camera (src/rtsp.zig): the
+/// shell writes the bytes of zs_rtsp_output to its TLS socket, and feeds
+/// each byte that it reads. The frames come out in Annex B.
+const Rtsp = zs.rtsp.Session;
+
+export fn zs_rtsp_new(url: ?[*:0]const u8, user: ?[*:0]const u8, password: ?[*:0]const u8) ?*Rtsp {
+    const u = url orelse return null;
+    const r = gpa.create(Rtsp) catch return null;
+    r.* = Rtsp.init(gpa, std.mem.span(u), if (user) |x| std.mem.span(x) else "", if (password) |x| std.mem.span(x) else "") catch {
+        gpa.destroy(r);
+        return null;
+    };
+    return r;
+}
+
+export fn zs_rtsp_free(r: ?*Rtsp) void {
+    const x = r orelse return;
+    x.deinit();
+    gpa.destroy(x);
+}
+
+/// The bytes to write now (len 0: none), valid until the next call.
+export fn zs_rtsp_output(r: ?*Rtsp, bytes: ?*?[*]const u8, len: ?*usize) c_int {
+    const x = r orelse return @intFromEnum(Status.invalid_argument);
+    const o = x.output();
+    if (bytes) |p| p.* = o.ptr;
+    if (len) |p| p.* = o.len;
+    return ok;
+}
+
+export fn zs_rtsp_feed(r: ?*Rtsp, bytes: ?[*]const u8, len: usize) c_int {
+    const x = r orelse return @intFromEnum(Status.invalid_argument);
+    const b = bytes orelse return @intFromEnum(Status.invalid_argument);
+    x.feed(b[0..len]) catch return @intFromEnum(Status.out_of_memory);
+    return ok;
+}
+
+/// 1 and a frame (valid until the next call), or 0.
+export fn zs_rtsp_next_frame(r: ?*Rtsp, data: ?*?[*]const u8, len: ?*usize, key: ?*c_int) c_int {
+    const x = r orelse return @intFromEnum(Status.invalid_argument);
+    const f = x.nextFrame() orelse return 0;
+    if (data) |p| p.* = f.data.ptr;
+    if (len) |p| p.* = f.data.len;
+    if (key) |p| p.* = @intFromBool(f.key);
+    return 1;
+}
+
+/// 0 connecting, 1 playing, -1 failed (zs_rtsp_message says why).
+export fn zs_rtsp_state(r: ?*const Rtsp) c_int {
+    const x = r orelse return -1;
+    return @intFromEnum(x.state);
+}
+
+/// Why the session failed, for a person, or "".
+export fn zs_rtsp_message(r: ?*const Rtsp) [*:0]const u8 {
+    const x = r orelse return "";
+    return zs.rtsp.failureText(x.failure).ptr;
+}
+
+/// A keep-alive request (send one each 30 s while playing).
+export fn zs_rtsp_keepalive(r: ?*Rtsp) c_int {
+    const x = r orelse return @intFromEnum(Status.invalid_argument);
+    x.keepAlive() catch return @intFromEnum(Status.out_of_memory);
+    return ok;
+}
+
+/// A TEARDOWN request, to write before the socket closes.
+export fn zs_rtsp_teardown(r: ?*Rtsp) c_int {
+    const x = r orelse return @intFromEnum(Status.invalid_argument);
+    x.teardown() catch return @intFromEnum(Status.out_of_memory);
+    return ok;
 }
 
 /// 1 if a change line of a history step (zs_history_step.changes) can be

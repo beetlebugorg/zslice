@@ -9,9 +9,12 @@
 //! bytes), and the body. Strings are a big endian u16 length and the
 //! bytes.
 //!
-//! The client makes CONNECT, SUBSCRIBE, PINGREQ, and DISCONNECT. It makes
-//! no PUBLISH: the read-only link of an app never sends a command to a
-//! printer. The packets follow MQTT Version 3.1.1 (OASIS Standard), see
+//! The client makes CONNECT, SUBSCRIBE, PINGREQ, DISCONNECT, and PUBLISH
+//! at QoS 0. A PUBLISH carries a command of bambu.zig: the request for a
+//! full report (pushall), or the start of a print, which an app sends
+//! only after a fresh yes of the user that the plate is clear. A link
+//! that only reads makes no PUBLISH. A packet that comes is at most 4 MiB.
+//! The packets follow MQTT Version 3.1.1 (OASIS Standard), see
 //! REFERENCES.md.
 //!
 //! SPDX-License-Identifier: AGPL-3.0-or-later
@@ -24,6 +27,9 @@ pub const connack = 2;
 pub const publish = 3;
 pub const suback = 9;
 pub const pingresp = 13;
+
+/// The largest packet that a Reader takes, or that publishPacket makes.
+pub const max_packet = 4 * 1024 * 1024;
 
 pub const ping_packet = [_]u8{ 0xC0, 0 };
 pub const disconnect_packet = [_]u8{ 0xE0, 0 };
@@ -75,6 +81,16 @@ pub fn subscribePacket(gpa: Allocator, packet_id: u16, topic: []const u8) Alloca
     try putStr(&body, gpa, topic);
     try body.append(gpa, 0);
     return packet(gpa, 0x82, body.items);
+}
+
+/// PUBLISH at QoS 0 (no packet id): the topic and the payload.
+pub fn publishPacket(gpa: Allocator, topic: []const u8, payload: []const u8) error{ TooBig, OutOfMemory }![]u8 {
+    if (topic.len == 0 or topic.len > 65535 or payload.len > max_packet - topic.len - 2) return error.TooBig;
+    var body: std.ArrayList(u8) = .empty;
+    defer body.deinit(gpa);
+    try putStr(&body, gpa, topic);
+    try body.appendSlice(gpa, payload);
+    return packet(gpa, 0x30, body.items);
 }
 
 pub const Packet = struct {
@@ -131,6 +147,7 @@ pub const Reader = struct {
             mult *= 128;
             if (b[i] & 128 == 0) break;
         }
+        if (len > max_packet) return error.BadPacket;
         const start = i + 1;
         if (b.len < start + len) return null;
         r.used = start + len;
@@ -195,4 +212,37 @@ test "mqtt: connect, subscribe, and a report in two pieces" {
     try testing.expectEqualStrings(topic, p.topic);
     try testing.expectEqual(@as(usize, 200 - 2 - topic.len), p.payload.len);
     try testing.expect((try r.next()) == null);
+}
+
+test "mqtt: publish, and the bound of a packet that comes" {
+    const gpa = testing.allocator;
+    const topic = "device/01P00A123456789/request";
+    const msg = "{\"pushing\":{\"command\":\"pushall\"}}";
+    const p = try publishPacket(gpa, topic, msg);
+    defer gpa.free(p);
+    // Read it back: the reader gives the topic and the payload.
+    var r: Reader = .{};
+    defer r.deinit(gpa);
+    try r.feed(gpa, p);
+    const got = (try r.next()).?;
+    try testing.expectEqual(@as(u8, publish), got.kind);
+    try testing.expectEqual(@as(u8, 0), got.flags);
+    try testing.expectEqualStrings(topic, got.topic);
+    try testing.expectEqualStrings(msg, got.payload);
+    try testing.expectError(error.TooBig, publishPacket(gpa, "", msg));
+    // A remaining length of 200 MiB: refused before any of it comes.
+    var big: Reader = .{};
+    defer big.deinit(gpa);
+    try big.feed(gpa, &.{ 0x30, 0x80, 0x80, 0x80, 0x64 });
+    try testing.expectError(error.BadPacket, big.next());
+    // Five bytes of length: refused.
+    var five: Reader = .{};
+    defer five.deinit(gpa);
+    try five.feed(gpa, &.{ 0x30, 0x80, 0x80, 0x80, 0x80, 0x01 });
+    try testing.expectError(error.BadPacket, five.next());
+    // A topic length past the body.
+    var bad: Reader = .{};
+    defer bad.deinit(gpa);
+    try bad.feed(gpa, &.{ 0x30, 3, 0xFF, 0xFF, 'a' });
+    try testing.expectError(error.BadPacket, bad.next());
 }

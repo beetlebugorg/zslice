@@ -227,10 +227,10 @@ zs_bambu_jpeg_reader *zs_bambu_jpeg_reader_new(void);
 void zs_bambu_jpeg_reader_free(zs_bambu_jpeg_reader *r);
 int zs_bambu_jpeg_reader_feed(zs_bambu_jpeg_reader *r, const uint8_t *bytes, size_t len);
 int zs_bambu_jpeg_reader_next(zs_bambu_jpeg_reader *r, const uint8_t **jpeg, size_t *len);
-/* MQTT 3.1.1 for the status of a Bambu Lab printer (src/mqtt.zig). The
- * shell writes these packets to its TLS socket, and feeds each byte that
- * it reads to a reader. Free a packet with zs_buffer_free. The API makes
- * no PUBLISH: the link only reads. After the CONNECT, read a CONNACK
+/* MQTT 3.1.1 for a Bambu Lab printer (src/mqtt.zig). The shell writes
+ * these packets to its TLS socket, and feeds each byte that it reads to a
+ * reader. Free a packet with zs_buffer_free. A link that only reads makes
+ * no PUBLISH. A packet that comes is at most 4 MiB. After the CONNECT, read a CONNACK
  * (return_code 0: accepted; 4 or 5: a wrong access code), then send the
  * SUBSCRIBE to device/<serial>/report. Each PUBLISH (kind 3) has a report
  * for zs_printer_status_feed. Send a PINGREQ (0xC0 0x00) within the
@@ -265,6 +265,41 @@ int zs_bambu_start_message(const char *file, const char *title, const char *md5,
 /* The MD5 of the G-code: 32 upper case hex digits and a 0 in out. */
 int zs_bambu_md5(const uint8_t *gcode, size_t len, char out[33]);
 const char *zs_bambu_push_all_message(void);
+/* A PUBLISH at QoS 0 (a payload of at most 4 MiB). The Bambu packets
+ * publish to device/<serial>/request: the request for a full report, and
+ * the start of a print of an uploaded file (as zs_bambu_start_message).
+ * Send the start only after a fresh yes of the user that the plate is
+ * clear, never from a timer or a retry. Free each with zs_buffer_free. */
+int zs_mqtt_publish_packet(const char *topic, const uint8_t *payload, size_t len, uint8_t **out, size_t *out_len);
+int zs_bambu_push_all_packet(const char *serial, uint8_t **out, size_t *out_len);
+int zs_bambu_start_packet(const char *serial, const char *file, const char *title, const char *md5, int flags, uint8_t **out,
+                          size_t *out_len);
+/* RTSP for the camera of a Bambu Lab X1, H2, P2S, or X2D (src/rtsp.zig):
+ * rtsps://<address>:322/streaming/live/1, the user "bblp", the access code
+ * as the password, over TLS that the shell opens (the certificate of the
+ * printer is self-signed). The session sends DESCRIBE, SETUP (RTP over
+ * the same TCP connection), and PLAY, with a Digest or Basic login.
+ *
+ * The loop of the shell: write the bytes of zs_rtsp_output; read; feed
+ * them; write the output again; take each frame of zs_rtsp_next_frame.
+ * A frame is an H.264 access unit in Annex B (each NAL unit after 00 00
+ * 00 01). A key frame has its SPS and PPS in front, so a decoder can start
+ * there. The first frame is a key frame, and a lost packet drops frames
+ * up to the next key frame. Send zs_rtsp_keepalive each 30 s, and
+ * zs_rtsp_teardown before the close. zs_rtsp_state: 0 connecting, 1
+ * playing, -1 failed, with zs_rtsp_message for a person. The password
+ * never goes into a request in clear text with Digest, and never into a
+ * message. */
+typedef struct zs_rtsp zs_rtsp;
+zs_rtsp *zs_rtsp_new(const char *url, const char *user, const char *password);
+void zs_rtsp_free(zs_rtsp *r);
+int zs_rtsp_output(zs_rtsp *r, const uint8_t **bytes, size_t *len);
+int zs_rtsp_feed(zs_rtsp *r, const uint8_t *bytes, size_t len);
+int zs_rtsp_next_frame(zs_rtsp *r, const uint8_t **data, size_t *len, int *key);
+int zs_rtsp_state(const zs_rtsp *r);
+const char *zs_rtsp_message(const zs_rtsp *r);
+int zs_rtsp_keepalive(zs_rtsp *r);
+int zs_rtsp_teardown(zs_rtsp *r);
 /* Applies the status of a printer to the settings. what: 1 the machine (the
  * bed, the height, the nozzle, and the motion limits, each only when the
  * printer gives it), 2 the filament (the built-in profile of its material,

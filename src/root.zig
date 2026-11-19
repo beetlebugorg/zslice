@@ -32,6 +32,7 @@ pub const mesh = @import("mesh.zig");
 pub const cut = @import("cut.zig");
 pub const bambu = @import("bambu.zig");
 pub const mqtt = @import("mqtt.zig");
+pub const rtsp = @import("rtsp.zig");
 pub const cpu_render = @import("render/cpu.zig");
 pub const plate = @import("plate.zig");
 pub const zipfile = @import("zipfile.zig");
