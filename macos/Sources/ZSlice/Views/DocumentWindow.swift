@@ -220,9 +220,13 @@ struct DocumentWindow: View {
                     }
                     if workspace.tool == .support, workspace.supportPaneOpen, workspace.page == .threeD {
                         // Beside the tool strip, clear of the details at the right.
+                        // Its top is at the top of the tool strip, under the toolbar: the
+                        // card grows down with the trees.
                         SupportCard(workspace: workspace)
                             .fixedSize()
-                            .position(x: 80 + 160, y: 150)
+                            .padding(.leading, 95)
+                            .padding(.top, 50)
+                            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
                     }
                     // The Turn and Grab tools work on the part itself: no card.
                     if let i = workspace.selectedPart, workspace.tool != .turn, workspace.tool != .grab {

@@ -246,6 +246,10 @@ extension Workspace {
             supportDragged(p, snap: !flags.contains(.shift))
             return
         }
+        if treeDrag != nil {
+            treeDragged(p)
+            return
+        }
         if let r = ringDrag, let i = selectedPart, let v = canvas.view, let info = part(i) {
             let total = zs_view_ring_drag(v, Float(p.x * pixelScale), Float(p.y * pixelScale), flags.contains(.shift) ? 5 : 15)
             let step = total - r.sent
@@ -289,6 +293,10 @@ extension Workspace {
         if grabbing { return }
         if supportDrag != nil {
             supportReleased()
+            return
+        }
+        if treeDrag != nil {
+            treeReleased()
             return
         }
         if let r = ringDrag, let v = canvas.view {

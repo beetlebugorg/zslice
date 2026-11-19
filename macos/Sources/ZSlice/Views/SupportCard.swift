@@ -1,6 +1,8 @@
 //! The card of the Support tool (Support.swift): the kind of the selected
 //! area, or of the next one (Grid, Tree, Block), "See through the support",
-//! what to do next, and Delete for a selected area.
+//! what to do next, and Delete for a selected area. With tree support:
+//! Add a Branch, Reset Support, Delete Branch, and what to do with the
+//! trees (SupportTrees.swift).
 //!
 //! SPDX-License-Identifier: AGPL-3.0-or-later
 
@@ -30,12 +32,44 @@ struct SupportCard: View {
                 Button("Delete Area", role: .destructive) { workspace.removeSupportArea() }
                     .help("Delete this area (Delete)")
             }
+            if !workspace.supportTrees.isEmpty || workspace.treeAdding {
+                Divider()
+                trees
+            }
         }
         .padding(14)
         .frame(width: 290)
         .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 12))
         .overlay(RoundedRectangle(cornerRadius: 12).strokeBorder(.separator))
         .shadow(color: .black.opacity(0.15), radius: 12, y: 4)
+    }
+
+    /// The trees: the buttons and the text.
+    @ViewBuilder private var trees: some View {
+        HStack(spacing: 6) {
+            Toggle("Add Branch", isOn: Binding(get: { workspace.treeAdding }, set: { workspace.setTreeAdding($0) }))
+                .toggleStyle(.button)
+                .help("Click the bed for the foot of a new branch, then the part where it needs support")
+            if workspace.treeResetPart != nil {
+                Button("Reset") { workspace.resetTrees() }
+                    .help("Plan the trees of this part again, with no edits")
+            }
+            if workspace.treeSelection != nil {
+                Button("Delete Branch", role: .destructive) { workspace.deleteTreeBranch() }
+                    .help("Delete this branch and the branches over it (Delete)")
+            }
+        }
+        .controlSize(.small)
+        Text(workspace.treeInfo)
+            .font(.callout)
+            .foregroundStyle(.secondary)
+            .fixedSize(horizontal: false, vertical: true)
+        if let limit = workspace.treeLimit {
+            Text(limit)
+                .font(.callout)
+                .foregroundStyle(.red)
+                .fixedSize(horizontal: false, vertical: true)
+        }
     }
 
     private func info(_ area: SupportArea?) -> String {

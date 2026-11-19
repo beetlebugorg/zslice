@@ -271,6 +271,13 @@ final class SliceModel {
         zs_set_release(set)
     }
 
+    /// A slice during a drag, so the result follows it: the held change
+    /// slices now, and the step of the history stays open until release().
+    func sliceHeldNow() {
+        sliceStart = Date()
+        zs_set_release(set)
+    }
+
     @ObservationIgnored private var sliceStart = Date()
     /// The time of the last slice, from the request to the result.
     private(set) var sliceSeconds: Double?

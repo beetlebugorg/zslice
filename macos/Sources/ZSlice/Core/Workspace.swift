@@ -63,6 +63,17 @@ final class Workspace {
         didSet { applyFocus() }
     }
     @ObservationIgnored var supportDrag: SupportDrag?
+    /// The support trees (SupportTrees.swift): the nodes of each part, the
+    /// selected node, the rules that limited the last edit, the note of a
+    /// drop of the trees, "Add a Branch" and its foot, and the drag.
+    var supportTrees: [Int: SupportTree] = [:]
+    var treeSelected: (part: Int, node: UInt32)?
+    var treeClamp: UInt32 = 0
+    var treeNote: String?
+    var treeAdding = false
+    var treeFoot: SIMD2<Double>?
+    @ObservationIgnored var treeDrag: TreeDrag?
+    @ObservationIgnored var treeTimer: Task<Void, Never>?
     /// The Cut popover of the part card is open.
     var cutOpen = false
     private(set) var lo = 0
@@ -281,6 +292,7 @@ final class Workspace {
             restoredPart = nil
             if i < zs_app_part_count(model.core) { selectPart(i) }
         }
+        readSupportTrees()
         readSupportAreas()
         refreshRefinementsSoon()
         SessionStore.shared.changed()
@@ -663,6 +675,7 @@ final class Workspace {
         // ZSLICE_GRAB=1: the Grab tool, a press on the part at the center,
         // a drag of 200 points to the right in 0.5 s, and a release; the
         // part 3 s later.
+        if env["ZSLICE_TREE_TEST"] != nil { runTreeTest() }
         if env["ZSLICE_GRAB"] != nil {
             Task { @MainActor in
                 try? await Task.sleep(for: .milliseconds(300))

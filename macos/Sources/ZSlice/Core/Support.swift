@@ -59,13 +59,15 @@ extension Workspace {
             supportDraft = []
             supportSelected = nil
         }
+        treeClamp = 0
+        readSupportTrees()
         readSupportAreas()
         applyFocus()
     }
 
     /// The areas of the core (after a slice, an undo, or a change).
     func readSupportAreas() {
-        guard supportDrag == nil else { return }
+        guard supportDrag == nil, treeDrag == nil else { return }
         let core = model.core
         supportAreas = (0 ..< zs_app_support_area_count(core)).compactMap { i in
             var kind: Int32 = 0, n = 0, lo = 0.0, hi = 0.0
@@ -98,6 +100,7 @@ extension Workspace {
             var pts = Array(h.points.prefix(3 * h.n))
             zs_view_support_add(v, &pts, h.n, supportKind, 1 | 2 | 4)
         }
+        showSupportTrees(v)
         canvas.requestFrame()
     }
 
@@ -107,7 +110,7 @@ extension Workspace {
     /// of the part under it, at most once for each frame (the last place
     /// of the pointer wins).
     func supportHover(at p: CGPoint?) {
-        guard tool == .support, page == .threeD, supportDraft.isEmpty else {
+        guard tool == .support, page == .threeD, supportDraft.isEmpty, !treeAdding, treeDrag == nil else {
             if supportHover != nil {
                 supportHover = nil
                 showSupport()
@@ -213,6 +216,7 @@ extension Workspace {
     /// A click of the Support tool.
     func supportClick(_ p: CGPoint, snap: Bool) {
         guard page == .threeD else { return }
+        if treeAddClick(p) { return }
         // The first point of the draft closes it.
         if supportDraft.count >= 3, let s = pixel(supportDraft[0]), hypot(s.x - p.x, s.y - p.y) < 10 {
             closeSupportArea()
@@ -291,9 +295,9 @@ extension Workspace {
                 showSupport()
                 return true
             }
-            return removeSupportArea()
+            return removeSupportArea() || deleteTreeBranch()
         case .deleteForward?:
-            return removeSupportArea()
+            return removeSupportArea() || deleteTreeBranch()
         default:
             guard event.charactersIgnoringModifiers == "\u{1b}" else { return false }
             if !supportDraft.isEmpty {
@@ -306,6 +310,16 @@ extension Workspace {
                 showSupport()
                 return true
             }
+            if treeAdding {
+                setTreeAdding(false)
+                return true
+            }
+            if treeSelected != nil {
+                treeSelected = nil
+                treeClamp = 0
+                showSupport()
+                return true
+            }
             return false
         }
     }
@@ -314,7 +328,9 @@ extension Workspace {
 
     /// A press on a point of an area starts a drag of it.
     func supportPress(_ p: CGPoint) -> Bool {
-        guard tool == .support, page == .threeD, supportDraft.isEmpty, let hit = supportPoint(near: p) else { return false }
+        guard tool == .support, page == .threeD, supportDraft.isEmpty else { return false }
+        guard let hit = supportPoint(near: p) else { return treePress(p) }
+        treeSelected = nil
         supportSelected = hit.area
         supportDrag = SupportDrag(area: hit.area, point: hit.point)
         showSupport()
