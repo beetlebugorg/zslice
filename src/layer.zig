@@ -352,6 +352,10 @@ pub const Context = struct {
     /// False: the plan has no skirt and no brim (step 7). The plate job
     /// makes them around all parts of the plate.
     rings: bool = true,
+    /// With no rings of its own: the band of the skirt and the brim of the
+    /// plate on this layer (see `ringBand`), in the frame of the plan, or
+    /// null. The support keeps out of it.
+    ring_band: ?Paths = null,
 
     pub fn canceled(ctx: Context) bool {
         const c = ctx.cancel orelse return false;
@@ -1246,8 +1250,9 @@ pub fn plan(gpa: Allocator, ctx: Context, i: usize) Allocator.Error!LayerPlan {
         // On the layers of the skirt and the brim, the support keeps out of
         // the band that their loops cover (with half a line more): the
         // loops and the support printed over each other.
-        if (ctx.rings and (!sl.body.isEmpty() or !sl.interface.isEmpty())) {
-            if (try ringBand(s, r, ctx.outlines[0], i)) |band| {
+        if (!sl.body.isEmpty() or !sl.interface.isEmpty()) {
+            const ring_band = if (ctx.rings) try ringBand(s, r, ctx.outlines[0], i) else ctx.ring_band;
+            if (ring_band) |band| {
                 sl.body = try clip.difference(s, sl.body, band);
                 sl.interface = try clip.difference(s, sl.interface, band);
                 if (sl.hollow) sl.filled = try clip.difference(s, sl.filled, band);

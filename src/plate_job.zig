@@ -575,15 +575,30 @@ pub const PlateJob = struct {
         lp.z = lv.z;
         lp.height = lv.height;
         if (lp.paths.items.len == 0) lp.width = 0;
+        // The band of the skirt and the brim of the plate: the support of
+        // each part keeps out of it (see layer.ringBand).
+        var arena: std.heap.ArenaAllocator = .init(gpa);
+        defer arena.deinit();
+        const band = try layer_mod.ringBand(arena.allocator(), r, self.outline0, i);
         // The plan of each group on this level, made once for all its
-        // copies.
+        // copies. With support under the band, each copy has a plan of its
+        // own: the band is at another place in the frame of each.
         const plans = try gpa.alloc(?LayerPlan, self.groups.len);
         defer gpa.free(plans);
         @memset(plans, null);
         defer for (plans) |*p| if (p.*) |*q| q.deinit();
         for (self.entries[lv.first..lv.end]) |e| {
             const inst = self.instances[e.instance];
-            if (plans[inst.group] == null) plans[inst.group] = try layer_mod.plan(gpa, ctxs[inst.group], e.layer);
+            const ctx = ctxs[inst.group];
+            if (band != null and hasSupport(ctx, e.layer)) {
+                var own = ctx;
+                own.ring_band = try moved(arena.allocator(), band.?, -inst.dx, -inst.dy);
+                var p = try layer_mod.plan(gpa, own, e.layer);
+                defer p.deinit();
+                try lp.append(&p, inst.dx, inst.dy, inst.part, e.layer);
+                continue;
+            }
+            if (plans[inst.group] == null) plans[inst.group] = try layer_mod.plan(gpa, ctx, e.layer);
             try lp.append(&plans[inst.group].?, inst.dx, inst.dy, inst.part, e.layer);
         }
         return lp;
@@ -1046,3 +1061,84 @@ test "plate job: a debug print of a few layers starts on the bed" {
     try std.testing.expect(lowest < 0.5);
 }
 
+
+/// True if a plan context has support on layer i.
+fn hasSupport(ctx: layer_mod.Context, i: usize) bool {
+    if (i >= ctx.support.len) return false;
+    const sl = ctx.support[i];
+    return !sl.body.isEmpty() or !sl.interface.isEmpty();
+}
+
+/// Paths moved by (dx, dy) in the units of geom.
+fn moved(a: Allocator, p: Paths, dx: i64, dy: i64) Allocator.Error!Paths {
+    var out: Paths = .empty;
+    for (0..p.count()) |k| {
+        const src = p.get(k);
+        const pts = try a.alloc(geom.Point, src.len);
+        for (src, pts) |q, *d| d.* = .init(q.x + dx, q.y + dy);
+        try out.append(a, pts);
+    }
+    return out;
+}
+
+/// The least distance (mm) between the points of the paths of feature `a`
+/// and the segments of the paths of feature `b` in a plan.
+fn leastGap(lp: *const LayerPlan, a: settings_mod.Feature, b: settings_mod.Feature) f64 {
+    var best: f64 = std.math.inf(f64);
+    for (lp.paths.items, 0..) |pa, i| {
+        if (pa.feature != a) continue;
+        for (lp.points.get(i)) |p| {
+            for (lp.paths.items, 0..) |pb, j| {
+                if (pb.feature != b) continue;
+                const q = lp.points.get(j);
+                for (q[0 .. q.len - 1], q[1..]) |u, v| {
+                    const ux = geom.toMm(u.x);
+                    const uy = geom.toMm(u.y);
+                    const dx = geom.toMm(v.x) - ux;
+                    const dy = geom.toMm(v.y) - uy;
+                    const px = geom.toMm(p.x) - ux;
+                    const py = geom.toMm(p.y) - uy;
+                    const l2 = dx * dx + dy * dy;
+                    const t = if (l2 > 0) std.math.clamp((px * dx + py * dy) / l2, 0, 1) else 0;
+                    best = @min(best, @sqrt((px - t * dx) * (px - t * dx) + (py - t * dy) * (py - t * dy)));
+                }
+            }
+        }
+    }
+    return best;
+}
+
+test "plate job: support keeps out of the brim of the plate" {
+    const gpa = testing.allocator;
+    // Two parts, each a box with a slab 10 mm out to +x at 2..4 mm: support
+    // under the slab reaches the bed in the band of the brim.
+    var meshes: [2]Mesh = undefined;
+    for (&meshes, 0..) |*m, k| {
+        const x0 = 30 + @as(f64, @floatFromInt(k)) * 60;
+        var b: mesh_mod.Builder = .init(gpa);
+        try mesh_mod.shapes.addBox(&b, x0, 50, 0, x0 + 10, 60, 6);
+        try mesh_mod.shapes.addBox(&b, x0 + 10, 50, 2, x0 + 20, 60, 4);
+        m.* = try b.finish();
+    }
+    defer for (&meshes) |*m| m.deinit(gpa);
+    var s: Settings = .{};
+    s.engine.threads = 1;
+    s.project.placement = .file;
+    s.project.support = .everywhere;
+    s.project.brim_width = 5;
+    var parts: [2]PartInput = undefined;
+    for (&parts, 0..) |*p, k| p.* = .{ .mesh = &meshes[k], .part = @intCast(k) };
+    var pj = try PlateJob.init(gpa, s, &parts, .{});
+    defer pj.deinit();
+    var lp = try pj.planLayer(0);
+    defer lp.deinit();
+    var support: usize = 0;
+    var brim: usize = 0;
+    for (lp.paths.items) |p| {
+        if (p.feature == .support) support += 1;
+        if (p.feature == .skirt) brim += 1;
+    }
+    try testing.expect(support > 0 and brim > 0);
+    const r = try s.resolve();
+    try testing.expect(leastGap(&lp, .support, .skirt) >= r.first_layer_line_width * 0.99);
+}
