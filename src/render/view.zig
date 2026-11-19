@@ -3030,7 +3030,11 @@ pub const View = struct {
                 r2max = 0;
             }
             r2max = @max(r2max, b.w / 2);
-            run.append(gpa, .{ b.ax, b.ay }) catch return error.OutOfMemory;
+            // A bead of a path starts at the end of the bead before it:
+            // that point is in the run already.
+            const items = run.items;
+            const joined = items.len > 0 and items[items.len - 1][0] == b.ax and items[items.len - 1][1] == b.ay;
+            if (!joined) run.append(gpa, .{ b.ax, b.ay }) catch return error.OutOfMemory;
             run.append(gpa, .{ b.bx, b.by }) catch return error.OutOfMemory;
         };
         try v.flushHull(&run, key, r2max);
@@ -3078,7 +3082,7 @@ pub const View = struct {
             }
             pts = pts[0..kept];
         }
-        std.mem.sort([2]f32, pts, {}, struct {
+        std.mem.sortUnstable([2]f32, pts, {}, struct {
             fn lt(_: void, a: [2]f32, b: [2]f32) bool {
                 return a[0] < b[0] or (a[0] == b[0] and a[1] < b[1]);
             }
