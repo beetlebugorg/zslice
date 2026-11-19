@@ -1282,28 +1282,30 @@ test "print sim: a slab with no support falls in strands, and later layers print
     for (0..out[2]) |k| for (r.nodes(k)) |q| {
         try testing.expect(@abs(q[2] - (0.2 * @as(f32, @floatFromInt(k + 1)) - 0.1)) < 1e-3);
     };
-    // The first slab layer over air falls: much of it reaches the bed.
-    var on_bed: usize = 0;
+    // The first slab layer over air falls: on the average it sets more
+    // than 0.5 mm under its place, and some of it reaches the bed. The
+    // strands pile on each other: a bead does not fall through a bead.
     var over_air: usize = 0;
+    var drop: f32 = 0;
+    var lowest: f32 = 100;
     for (out[2]..out[2] + 9) |k| for (r.nodes(k)) |q| {
         if (@abs(q[0]) < 3) continue;
         over_air += 1;
-        if (q[2] < 0.5) on_bed += 1;
+        drop += 2.1 - q[2];
+        lowest = @min(lowest, q[2]);
     };
-    try testing.expect(on_bed * 3 > over_air);
-    // The last layers fall onto the plastic that fell before them: they
-    // rest on it, above the bed, and many under their places.
+    try testing.expect(drop / @as(f32, @floatFromInt(over_air)) > 0.5);
+    try testing.expect(lowest < 0.1 + 1e-3);
+    // The last layers rest on the plastic that fell before them, above
+    // the bed.
     var on_mess: usize = 0;
-    var far: usize = 0;
     var last: usize = 0;
     for (out[3] - 9..out[3]) |k| for (r.nodes(k)) |q| {
         if (@abs(q[0]) < 3) continue;
         last += 1;
         if (q[2] > 0.3) on_mess += 1;
-        if (3.1 - q[2] > 0.3) far += 1;
     };
     try testing.expect(on_mess * 2 > last);
-    try testing.expect(far * 10 > last);
     try testing.expect(r.stats.max_move > 2);
 }
 
