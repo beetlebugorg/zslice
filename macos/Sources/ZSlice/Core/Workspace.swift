@@ -690,6 +690,18 @@ final class Workspace {
         // a drag of 200 points to the right in 0.5 s, and a release; the
         // part 3 s later.
         if env["ZSLICE_TREE_TEST"] != nil { runTreeTest() }
+        // ZSLICE_STALLS=1 logs each wait of the main thread over 20 ms (a
+        // timer each 5 ms, in all run loop modes), with the time from the
+        // start, to match with the other logs.
+        if env["ZSLICE_STALLS"] != nil {
+            var last = CACurrentMediaTime()
+            let watch = Timer(timeInterval: 0.005, repeats: true) { _ in
+                let now = CACurrentMediaTime()
+                if now - last > 0.02 { NSLog("zslice stall: %.0f ms, ending at %.0f ms", (now - last) * 1000, (now - launchTime) * 1000) }
+                last = now
+            }
+            RunLoop.main.add(watch, forMode: .common)
+        }
         if env["ZSLICE_GRAB"] != nil {
             Task { @MainActor in
                 try? await Task.sleep(for: .milliseconds(300))
