@@ -324,6 +324,16 @@ static void load_layer(Preview *p, size_t layer) {
 /* The readout of the measure tape floats on the tape: over the middle of
  * the tape, or next to its first point. With no point, the hint stays
  * at the top of the view. */
+/* The pixel of a point of the world in the view that shows. */
+static gboolean world_pixel(Preview *p, const double *w, double *x, double *y) {
+    if (strcmp(gtk_stack_get_visible_child_name(GTK_STACK(p->stack)), "3d") == 0) return zg_view3d_pixel_of(p->view3d, w[0], w[1], w[2], x, y);
+    int h = gtk_widget_get_height(p->area);
+    *x = p->ox + w[0] * p->scale;
+    *y = h - (p->oy + w[1] * p->scale);
+    return TRUE;
+}
+
+/* The readout goes beside the tape, and covers no part of it. */
 static void place_measure(Preview *p) {
     if (!p->measure_label || !gtk_widget_get_visible(p->measure_label)) return;
     const double *m = NULL;
@@ -332,19 +342,22 @@ static void place_measure(Preview *p) {
         if (zg_float_get(p->measure_label, NULL, NULL)) zg_float_unplace(p->measure_label);
         return;
     }
-    double wx = n == 2 ? (m[0] + m[3]) / 2 : m[0], wy = n == 2 ? (m[1] + m[4]) / 2 : m[1], wz = n == 2 ? (m[2] + m[5]) / 2 : m[2];
-    double x, y;
-    if (strcmp(gtk_stack_get_visible_child_name(GTK_STACK(p->stack)), "3d") == 0) {
-        if (!zg_view3d_pixel_of(p->view3d, wx, wy, wz, &x, &y)) return;
-    } else {
-        int h = gtk_widget_get_height(p->area);
-        x = p->ox + wx * p->scale;
-        y = h - (p->oy + wy * p->scale);
+    double box[4] = {INFINITY, INFINITY, -INFINITY, -INFINITY};
+    for (int i = 0; i < n; i++) {
+        double x, y;
+        if (!world_pixel(p, &m[3 * i], &x, &y)) continue;
+        box[0] = MIN(box[0], x - 12);
+        box[1] = MIN(box[1], y - 12);
+        box[2] = MAX(box[2], x + 12);
+        box[3] = MAX(box[3], y + 12);
     }
+    if (box[0] > box[2]) return;
     int lw = 0, lh = 0;
     gtk_widget_measure(p->measure_label, GTK_ORIENTATION_HORIZONTAL, -1, NULL, &lw, NULL, NULL);
     gtk_widget_measure(p->measure_label, GTK_ORIENTATION_VERTICAL, lw, NULL, &lh, NULL, NULL);
-    double px = n == 2 ? x - lw / 2.0 : x + 14, py = n == 2 ? y - lh - 12 : y - lh / 2.0;
+    double area[4], px, py;
+    zg_free_area(gtk_widget_get_parent(p->measure_label), area);
+    zg_place_beside(box, area, lw, lh, &px, &py);
     double ox, oy;
     if (zg_float_get(p->measure_label, &ox, &oy) && fabs(ox - px) < 0.5 && fabs(oy - py) < 0.5) return;
     zg_float_place(p->measure_label, px, py);

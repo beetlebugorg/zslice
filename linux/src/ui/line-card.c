@@ -206,7 +206,9 @@ static void show(LineCard *c, gint64 path) {
  * click. */
 static void on_picked(ZgModel *model, gint64 path, gpointer data) {
     LineCard *c = data;
-    if (path < 0) return;
+    /* The Measure tool selects the circle that it measures: the readout
+     * says what it is, and no card covers it. */
+    if (path < 0 || zg_model_tool(model) == ZG_TOOL_MEASURE) return;
     double x, y;
     zg_preview_pick_point(c->preview, &x, &y);
     /* A new click: the card goes next to it. The keys (h, j, k, l) move
