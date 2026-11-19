@@ -2975,8 +2975,8 @@ test "C API: the undo list keeps at most max_steps steps and max_plate_bytes of 
     }
     try t.expectEqual(@as(usize, 3), zs_app_history_current(app));
     try t.expectEqual(@as(usize, 4), zs_app_history_count(app));
-    // Steps with the same plate share its file: the cap counts it once.
-    const file = try app.write3mfAlloc(gpa);
+    // Steps with the same plate share its snapshot: the cap counts it once.
+    const file = try app.writeSnapshotAlloc(gpa);
     const size = file.len;
     gpa.free(file);
     app.undo.max_steps = 100;

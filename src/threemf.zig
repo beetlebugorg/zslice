@@ -615,6 +615,171 @@ pub fn write(gpa: Allocator, out: *std.Io.Writer, plate: *const plate_mod.Plate,
     try zipfile.write(gpa, out, &entries);
 }
 
+// ---- the snapshot of the history ----
+//
+// A history step keeps the plate as a snapshot: a zip with the mesh of
+// each object in raw binary in its own entry ("mesh-<k>.bin": the vertex
+// count, the face count, then x, y, z as f32 and the faces as u32), one
+// binary entry with the objects ("objects.bin": the name, the metadata,
+// the transform of the build item, and the index of the mesh, with each
+// length first), and the overrides text. A move or a turn changes only the
+// transforms: the mesh entries keep their bytes, so the zip writer finds
+// them in its cache and does not deflate them again. A 3MF file spends
+// most of its time on the text of the vertices and on the deflate (300
+// ms for a 3DBenchy). The snapshot loads to the same `Loaded` as `read`.
+
+fn putU32(w: *std.Io.Writer, v: usize) std.Io.Writer.Error!void {
+    try w.writeAll(std.mem.asBytes(&@as(u32, @intCast(v))));
+}
+
+fn putBytes(w: *std.Io.Writer, b: []const u8) std.Io.Writer.Error!void {
+    try putU32(w, b.len);
+    try w.writeAll(b);
+}
+
+fn meshBytes(gpa: Allocator, mesh: *const Mesh) Allocator.Error![]u8 {
+    const nv = mesh.vertices.items.len;
+    const nf = mesh.faces.items.len;
+    const out = try gpa.alloc(u8, 8 + 12 * nv + 12 * nf);
+    std.mem.writeInt(u32, out[0..4], @intCast(nv), .little);
+    std.mem.writeInt(u32, out[4..8], @intCast(nf), .little);
+    var o: usize = 8;
+    for (mesh.vertices.items) |v| {
+        for ([_]f32{ v.x, v.y, v.z }) |x| {
+            std.mem.writeInt(u32, out[o..][0..4], @bitCast(x), .little);
+            o += 4;
+        }
+    }
+    for (mesh.faces.items) |f| {
+        for (f) |x| {
+            std.mem.writeInt(u32, out[o..][0..4], x, .little);
+            o += 4;
+        }
+    }
+    return out;
+}
+
+/// Writes the snapshot of the plate (see above).
+pub fn writeSnapshot(gpa: Allocator, out: *std.Io.Writer, plate: *const plate_mod.Plate, overrides: []const u8) (Allocator.Error || std.Io.Writer.Error)!void {
+    var arena_state = std.heap.ArenaAllocator.init(gpa);
+    defer arena_state.deinit();
+    const a = arena_state.allocator();
+    var entries: std.ArrayList(zipfile.Entry) = .empty;
+    var objects: std.Io.Writer.Allocating = .init(a);
+    const ow = &objects.writer;
+    var k: usize = 0;
+    for (plate.parts.items) |*p| {
+        const t = p.transform();
+        for (0..1 + p.volumes.items.len) |j| {
+            const name = if (j == 0) p.name else p.volumes.items[j - 1].name;
+            const meta = if (j == 0) p.meta else p.volumes.items[j - 1].meta;
+            const mesh = if (j == 0) &p.mesh else &p.volumes.items[j - 1].mesh;
+            try putBytes(ow, name);
+            try putU32(ow, meta.len);
+            for (meta) |m| {
+                try putBytes(ow, m.key);
+                try putBytes(ow, m.value);
+            }
+            try ow.writeAll(std.mem.sliceAsBytes(&t));
+            try putU32(ow, k);
+            try entries.append(a, .{ .name = try std.fmt.allocPrint(a, "mesh-{d}.bin", .{k}), .data = try meshBytes(a, mesh) });
+            k += 1;
+        }
+    }
+    try entries.append(a, .{ .name = "objects.bin", .data = objects.written() });
+    try entries.append(a, .{ .name = "Metadata/zslice_overrides.txt", .data = @constCast(overrides) });
+    try zipfile.write(gpa, out, entries.items);
+}
+
+/// True for the bytes of a snapshot (see writeSnapshot).
+pub fn isSnapshot(bytes: []const u8) bool {
+    return std.mem.indexOf(u8, bytes[0..@min(bytes.len, 4096)], "mesh-0.bin") != null;
+}
+
+const Reader = struct {
+    b: []const u8,
+    o: usize = 0,
+    fn u32_(r: *Reader) Error!u32 {
+        if (r.o + 4 > r.b.len) return error.Corrupt;
+        defer r.o += 4;
+        return std.mem.readInt(u32, r.b[r.o..][0..4], .little);
+    }
+    fn bytes(r: *Reader) Error![]const u8 {
+        const n = try r.u32_();
+        if (r.o + n > r.b.len) return error.Corrupt;
+        defer r.o += n;
+        return r.b[r.o..][0..n];
+    }
+};
+
+/// Reads a snapshot to the parts of a 3MF file, each mesh at its place.
+pub fn readSnapshot(gpa: Allocator, bytes: []const u8) Error!Loaded {
+    const entries = zipfile.readAll(gpa, bytes) catch |e| return switch (e) {
+        error.OutOfMemory => error.OutOfMemory,
+        else => error.Corrupt,
+    };
+    defer zipfile.freeAll(gpa, entries);
+    var objects: ?[]const u8 = null;
+    var overrides: []const u8 = "";
+    for (entries) |e| {
+        if (std.mem.eql(u8, e.name, "objects.bin")) objects = e.data;
+        if (std.mem.eql(u8, e.name, "Metadata/zslice_overrides.txt")) overrides = e.data;
+    }
+    var parts: std.ArrayList(LoadedPart) = .empty;
+    errdefer {
+        for (parts.items) |*p| p.deinit(gpa);
+        parts.deinit(gpa);
+    }
+    var r: Reader = .{ .b = objects orelse return error.Corrupt };
+    while (r.o < r.b.len) {
+        var part: LoadedPart = .{ .name = try gpa.dupe(u8, try r.bytes()), .mesh = .empty };
+        errdefer part.deinit(gpa);
+        const nm = try r.u32_();
+        part.meta = try gpa.alloc(Meta, nm);
+        for (part.meta) |*m| m.* = .{ .key = &.{}, .value = &.{} };
+        for (part.meta) |*m| m.* = .{ .key = try gpa.dupe(u8, try r.bytes()), .value = try gpa.dupe(u8, try r.bytes()) };
+        if (r.o + 96 > r.b.len) return error.Corrupt;
+        var t: Transform = undefined;
+        @memcpy(std.mem.sliceAsBytes(&t), r.b[r.o..][0..96]);
+        r.o += 96;
+        const k = try r.u32_();
+        var name_buf: [32]u8 = undefined;
+        const mname = std.fmt.bufPrint(&name_buf, "mesh-{d}.bin", .{k}) catch return error.Corrupt;
+        var data: ?[]const u8 = null;
+        for (entries) |e| if (std.mem.eql(u8, e.name, mname)) {
+            data = e.data;
+        };
+        const d = data orelse return error.Corrupt;
+        if (d.len < 8) return error.Corrupt;
+        const nv = std.mem.readInt(u32, d[0..4], .little);
+        const nf = std.mem.readInt(u32, d[4..8], .little);
+        if (d.len != 8 + 12 * @as(usize, nv) + 12 * @as(usize, nf)) return error.Corrupt;
+        try part.mesh.vertices.ensureTotalCapacity(gpa, nv);
+        try part.mesh.faces.ensureTotalCapacity(gpa, nf);
+        var o: usize = 8;
+        for (0..nv) |_| {
+            var v: [3]f64 = undefined;
+            for (&v) |*x| {
+                x.* = @as(f32, @bitCast(std.mem.readInt(u32, d[o..][0..4], .little)));
+                o += 4;
+            }
+            const q = apply(t, v);
+            part.mesh.vertices.appendAssumeCapacity(.{ .x = @floatCast(q[0]), .y = @floatCast(q[1]), .z = @floatCast(q[2]) });
+        }
+        for (0..nf) |_| {
+            var f: [3]u32 = undefined;
+            for (&f) |*x| {
+                x.* = std.mem.readInt(u32, d[o..][0..4], .little);
+                if (x.* >= nv) return error.Corrupt;
+                o += 4;
+            }
+            part.mesh.faces.appendAssumeCapacity(f);
+        }
+        try parts.append(gpa, part);
+    }
+    return .{ .parts = try parts.toOwnedSlice(gpa), .overrides = try gpa.dupe(u8, overrides) };
+}
+
 const testing = std.testing;
 
 test "3mf: a plate goes out and comes back at the same places" {
@@ -746,4 +911,37 @@ test "3mf: object metadata, and a group with settings splits into parts" {
     // Parts with metadata do not join, also where they overlap.
     try joinOverlapping(gpa, &back);
     try testing.expectEqual(@as(usize, 3), back.parts.len);
+}
+
+test "3mf: a snapshot of the plate comes back with the same meshes at the same places" {
+    const gpa = testing.allocator;
+    var plate: plate_mod.Plate = .{};
+    defer plate.deinit(gpa);
+    var b: @import("mesh.zig").Builder = .init(gpa);
+    try @import("mesh.zig").shapes.addBox(&b, 0, 0, 0, 10, 20, 5);
+    _ = try plate.add(gpa, "box", try b.finish(), .{ 200, 200 }, 3, true);
+    plate.rotate(0, 30);
+    var out: std.Io.Writer.Allocating = .init(gpa);
+    defer out.deinit();
+    try writeSnapshot(gpa, &out.writer, &plate, "edit\t1");
+    try testing.expect(isSnapshot(out.written()));
+    var snap = try readSnapshot(gpa, out.written());
+    defer snap.deinit(gpa);
+    // The same as a 3MF file of the plate gives.
+    var full: std.Io.Writer.Allocating = .init(gpa);
+    defer full.deinit();
+    try write(gpa, &full.writer, &plate, "edit\t1");
+    var ref = try read(gpa, full.written());
+    defer ref.deinit(gpa);
+    try testing.expectEqual(ref.parts.len, snap.parts.len);
+    try testing.expectEqualStrings(ref.overrides, snap.overrides);
+    for (ref.parts, snap.parts) |x, y| {
+        try testing.expectEqualStrings(x.name, y.name);
+        try testing.expectEqual(x.mesh.vertices.items.len, y.mesh.vertices.items.len);
+        for (x.mesh.vertices.items, y.mesh.vertices.items) |u, v| {
+            try testing.expectApproxEqAbs(u.x, v.x, 1e-4);
+            try testing.expectApproxEqAbs(u.y, v.y, 1e-4);
+            try testing.expectApproxEqAbs(u.z, v.z, 1e-4);
+        }
+    }
 }

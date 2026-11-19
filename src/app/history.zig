@@ -26,7 +26,8 @@
 //! `History` is the undo list of one app: a list of steps, the oldest
 //! first, and the step now. A step has the state of the app: the texts of
 //! the three groups of settings (`App.writeState`), the quality profile,
-//! the plate as a 3MF file, the facts, and the time.
+//! the plate as a snapshot (threemf.writeSnapshot: each mesh in its own
+//! entry, so a move writes no mesh again), the facts, and the time.
 //!
 //! The steps come from changes. Each change of the C API notes its key
 //! (`note`): the name of one setting, or "*" for a change of the plate or
@@ -42,12 +43,12 @@
 //! the step goes.
 //!
 //! An undo, a redo, or a jump to a step (`goto`) restores the state of
-//! that step: it loads the 3MF file if the plate differs, then it applies
+//! that step: it loads the snapshot if the plate differs, then it applies
 //! each group of settings that differs. These changes are not noted.
 //!
 //! Limits: at most `max_steps` steps before the step now, and at most
-//! `max_plate_bytes` of 3MF files in them. The oldest steps go first.
-//! Steps with the same plate share one copy of its 3MF file.
+//! `max_plate_bytes` of snapshots in them. The oldest steps go first.
+//! Steps with the same plate share one copy of its snapshot.
 //!
 //! The undo lists of the GTK shell and the web app were the model for this
 //! code (linux/src/model/app-model.c and web/app/worker.js before the
@@ -388,7 +389,7 @@ pub const restored_quality: u32 = 32;
 /// `truncate` dropped the later steps.
 pub const restored_dropped: u32 = 64;
 
-/// A 3MF file of the plate, shared by the steps with the same plate.
+/// A snapshot of the plate, shared by the steps with the same plate.
 const Plate3mf = struct {
     refs: usize,
     bytes: []u8,
@@ -471,7 +472,7 @@ pub const History = struct {
     /// The setting whose editor has the focus.
     focus_key: ?[]u8 = null,
     /// The plate changed since the last commit: the next snapshot writes
-    /// a new 3MF file.
+    /// a new snapshot.
     plate_dirty: bool = true,
     /// A restore runs: its changes are not noted.
     restoring: bool = false,
@@ -524,7 +525,7 @@ pub const History = struct {
         if (!h.plate_dirty and h.steps.items.len > 0) {
             if (h.steps.items[h.current].plate) |p| s.plate = p.ref();
         } else if (app.plate.count() > 0) {
-            const bytes = app.write3mfAlloc(gpa) catch |e| switch (e) {
+            const bytes = app.writeSnapshotAlloc(gpa) catch |e| switch (e) {
                 error.OutOfMemory => return error.OutOfMemory,
                 else => null,
             };
@@ -652,7 +653,7 @@ pub const History = struct {
             if (to.plate) |p| {
                 // A file of the history loaded before: an error here is
                 // only a lack of memory, and the plate stays as it is.
-                app.loadStl("plate.3mf", p.bytes) catch {};
+                app.loadSnapshot(p.bytes) catch {};
             } else {
                 app.clearPlate() catch {};
             }

@@ -452,6 +452,27 @@ pub const App = struct {
     /// A 3MF file of the plate and its overrides, in memory of `gpa` that
     /// the caller owns.
     pub fn write3mfAlloc(app: *const App, gpa: Allocator) (Allocator.Error || error{WriteFailed} || error{NoModel})![]u8 {
+        return app.writePlateAlloc(gpa, false);
+    }
+
+    /// The plate as a snapshot of the history (threemf.writeSnapshot): no
+    /// text of the vertices, and each mesh in its own entry, so a move
+    /// writes no mesh again.
+    pub fn writeSnapshotAlloc(app: *const App, gpa: Allocator) (Allocator.Error || error{WriteFailed} || error{NoModel})![]u8 {
+        return app.writePlateAlloc(gpa, true);
+    }
+
+    /// Puts the plate of a snapshot of the history back, as it was: the
+    /// parts stay as they are (no settle), with their overrides.
+    pub fn loadSnapshot(app: *App, bytes: []const u8) LoadError!void {
+        var loaded = try zs.threemf.readSnapshot(app.gpa, bytes);
+        defer loaded.deinit(app.gpa);
+        app.dropPlate();
+        try app.addLoaded(&loaded);
+        app.state.store(.ready, .release);
+    }
+
+    fn writePlateAlloc(app: *const App, gpa: Allocator, snapshot: bool) (Allocator.Error || error{WriteFailed} || error{NoModel})![]u8 {
         if (app.plate.count() == 0) return error.NoModel;
         var text: std.Io.Writer.Allocating = .init(gpa);
         defer text.deinit();
@@ -462,7 +483,7 @@ pub const App = struct {
         for (app.overrides.items) |o| try text.writer.print("{d}\t{d}\t{s}\t{s}\n", .{ o.z_min, o.z_max, o.name, o.value });
         var out: std.Io.Writer.Allocating = .init(gpa);
         errdefer out.deinit();
-        try zs.threemf.write(gpa, &out.writer, &app.plate, text.written());
+        if (snapshot) try zs.threemf.writeSnapshot(gpa, &out.writer, &app.plate, text.written()) else try zs.threemf.write(gpa, &out.writer, &app.plate, text.written());
         return out.toOwnedSlice();
     }
 

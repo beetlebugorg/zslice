@@ -484,6 +484,7 @@ const bench_changes = [_]struct { key: []const u8, kind: []const u8, name: []con
     .{ .key = "area", .kind = "support area", .name = "", .values = .{ "", "", "", "", "", "" } },
     // A drag of a node of the support trees of the user (see benchTree).
     .{ .key = "tree", .kind = "tree node", .name = "", .values = .{ "", "", "", "", "", "" } },
+    .{ .key = "3mf", .kind = "3mf write", .name = "", .values = .{ "", "", "", "", "", "" } },
     .{ .key = "xy", .kind = "xy offset", .name = "filament.xy_offset", .values = .{ "0.01", "0.02", "0.03", "0.04", "0.05", "0.06" } },
     // Settings that change no path: the slice runs from the move streams
     // (see settings.patch_settings).
@@ -541,6 +542,28 @@ fn bench(backing: std.mem.Allocator, io: Io, err: *Io.Writer, name: []const u8, 
         _ = try benchSlice(app, io);
         if (std.mem.eql(u8, c.key, "tree")) {
             try benchTree(app, io, err, times);
+            continue;
+        }
+        if (std.mem.eql(u8, c.key, "3mf")) {
+            // The 3MF of the plate, as a history step writes it after a move.
+            for (times, 0..) |*t, k| {
+                app.plate.parts.items[0].x += 0.1 * @as(f64, @floatFromInt(k + 1));
+                const t0 = Io.Clock.awake.now(io);
+                const f = try app.write3mfAlloc(gpa);
+                gpa.free(f);
+                const ms = @as(f64, @floatFromInt(t0.untilNow(io, .awake).toNanoseconds())) / 1e6;
+                t.* = .{ .wall = ms, .cpu = ms, .faults = 0 };
+            }
+            try printTimes(err, "3mf write", times);
+            for (times, 0..) |*t, k| {
+                app.plate.parts.items[0].x += 0.1 * @as(f64, @floatFromInt(k + 1));
+                const t0 = Io.Clock.awake.now(io);
+                const f = try app.writeSnapshotAlloc(gpa);
+                gpa.free(f);
+                const ms = @as(f64, @floatFromInt(t0.untilNow(io, .awake).toNanoseconds())) / 1e6;
+                t.* = .{ .wall = ms, .cpu = ms, .faults = 0 };
+            }
+            try printTimes(err, "snapshot write", times);
             continue;
         }
         if (c.name.len == 0) {
