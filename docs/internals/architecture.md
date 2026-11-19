@@ -54,6 +54,11 @@ src/
   orient.zig     The orientation of a part with the least support.
   islands.zig    Shapes that start in the air.
   threemf.zig    3MF load and save. zipfile.zig: the zip container.
+  filaments.zig  The filaments of a plate, and the flush of a change.
+  paint.zig      The paint of a part (a filament for each triangle), the
+                 brush, and the regions of the smart select.
+  paint_split.zig  The split of the layers of a painted part into the
+                 regions of its filaments.
   profile.zig    Profiles in TOML files. toml.zig: the parser.
   import_cura.zig  Import of Cura profile stacks.
   cura_compare.zig  The zslice settings next to the settings of a Cura

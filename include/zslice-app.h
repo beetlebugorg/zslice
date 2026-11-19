@@ -965,6 +965,47 @@ int zs_app_set_keep_places(zs_app *app, int on);
 int zs_app_part_setting_set(zs_app *app, size_t i, const char *name, const char *value);
 int zs_app_part_setting_get(const zs_app *app, size_t i, const char *name, char *buf, size_t cap, size_t *out_len);
 
+/* ---- the paint of a part ----
+ *
+ * A part can have paint: a filament for each triangle of its mesh, or for
+ * the pieces of a triangle (the paint of PrusaSlicer and Bambu Studio; a
+ * 3MF file keeps it). A slice splits each layer of a painted part into
+ * the regions of its filaments, each with its own walls and infill.
+ *
+ * The paint tool of a shell: get the mesh of the part at its place
+ * (zs_app_part_mesh) and its paint (zs_app_part_paint_get, text), make a
+ * paint session (zs_paint_new) on the thread of the view, and give the
+ * paint back at the end of each stroke (zs_app_part_paint_set). A state
+ * is 0 (the filament of the part) or k + 1 for filament k. */
+int zs_app_part_mesh(zs_app *app, size_t i, const float **verts, size_t *nv, const uint32_t **faces, size_t *nf);
+int zs_app_part_paint_get(const zs_app *app, size_t i, char *buf, size_t cap, size_t *out_len);
+int zs_app_part_paint_set(zs_app *app, size_t i, const char *text, size_t len);
+
+typedef struct zs_paint zs_paint;
+/* A session of a mesh (mm). It keeps the regions of the smart select: the
+ * part of the mesh that stands out of its surface (a raised letter: its
+ * top and its sides), else the flat or smooth face. */
+int zs_paint_new(const float *verts, size_t nv, const uint32_t *faces, size_t nf, zs_paint **out);
+void zs_paint_free(zs_paint *p);
+int zs_paint_set_text(zs_paint *p, const char *text, size_t len);
+int zs_paint_text(zs_paint *p, const char **out, size_t *out_len);
+/* The first triangle on a ray (zs_view_ray): 1 for a hit, 0 for none. */
+int zs_paint_hit(const zs_paint *p, const float ray[6], uint32_t *tri, float *t);
+/* The triangles of the smart select of triangle `tri`, and the id of the
+ * region. The list stays valid while the session lives. */
+int zs_paint_region(zs_paint *p, uint32_t tri, const uint32_t **out, size_t *n, uint32_t *id);
+/* Paints whole triangles. Returns the count that changed. */
+int zs_paint_fill(zs_paint *p, const uint32_t *tris, size_t n, uint8_t state);
+/* Paints the surface in a sphere; the triangles on its edge split to
+ * pieces of `fine` mm. Returns the count of triangles that changed. */
+int zs_paint_brush(zs_paint *p, float x, float y, float z, float r, uint8_t state, float fine);
+/* The state of each triangle (255: split into pieces, see
+ * zs_paint_leaves). Returns the triangle count. */
+size_t zs_paint_states(zs_paint *p, const uint8_t **out);
+/* The pieces of the split triangles: 10 floats each (three points, then
+ * the state). Returns their count. */
+size_t zs_paint_leaves(zs_paint *p, const float **out);
+
 /* ---- the filaments of the plate ----
  *
  * A plate has a list of filaments. Filament 0 is the filament of the
@@ -1415,6 +1456,9 @@ int zs_view_ring_press(zs_view *view, int axis, float px, float py);
 double zs_view_ring_drag(const zs_view *view, float px, float py, float step_deg);
 /* The end of a turn. */
 void zs_view_ring_release(zs_view *view);
+/* The ray of the camera through a pixel: the eye and the direction (a
+ * unit vector), for zs_paint_hit. 0 with no view. */
+int zs_view_ray(const zs_view *view, float px, float py, float out[6]);
 /* The pixel of a point of the world (mm), or 0 if it is behind the camera
  * (to grab an end of the measure tape). */
 int zs_view_pixel_of(const zs_view *view, double x, double y, double z, float *px, float *py);

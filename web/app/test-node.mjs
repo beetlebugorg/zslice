@@ -88,6 +88,23 @@ console.log(`second slice (infill density): ${(performance.now() - t0).toFixed(0
   check(fs && fs.changes === 2 && fs.grams[0] > 0 && fs.grams[1] > 0, `the filament stats (${JSON.stringify(fs)})`);
   console.log(`two filaments: ${fs.changes} changes, ${fs.grams[0].toFixed(1)} g and ${fs.grams[1].toFixed(1)} g`);
   core.resetScoped("project.filament", 2, 4, 3);
+  // Paint: the triangles over z 40 (the chimney) with filament 2.
+  const m = core.partMesh(0);
+  check(m && m.faces.length > 0, "the mesh of the part");
+  let text = "";
+  for (let t = 0; t < m.faces.length / 3; t++) {
+    let top = true;
+    for (let k = 0; k < 3; k++) if (m.verts[3 * m.faces[3 * t + k] + 2] < 40) top = false;
+    if (top) text += `${t} 8\n`;
+  }
+  check(core.setPartPaint(0, text), "set the paint");
+  check(core.partPaint(0).length === text.length, "the paint reads back");
+  t0 = performance.now();
+  check(core.slice().state === STATE.done, "the slice of a painted part");
+  const ps = core.filamentStats();
+  check(ps.grams[1] > 0, `the painted filament prints (${JSON.stringify(ps)})`);
+  console.log(`paint: ${(performance.now() - t0).toFixed(0)} ms, ${ps.grams[1].toFixed(2)} g of filament 2, ${ps.changes} changes`);
+  check(core.setPartPaint(0, ""), "clear the paint");
   check(core.filamentRemove(1), "remove the second filament");
   check(core.filaments().length === 1, "one filament again");
   core.slice();

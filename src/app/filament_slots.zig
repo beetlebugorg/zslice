@@ -177,6 +177,21 @@ pub fn read3mfLine(app: *App, line: []const u8) Allocator.Error!bool {
     return true;
 }
 
+/// The filaments of a project of another slicer: the color and the
+/// material of each (see threemf.Loaded.colors). Filament 1 is the
+/// filament of the settings. The list gets more slots if it has fewer.
+pub fn fromProject(app: *App, colors: []const []const u8, materials: []const []const u8) Allocator.Error!void {
+    for (colors, 0..) |c, i| {
+        if (i >= max_slots) break;
+        while (count(app) <= i) _ = add(app) catch |e| switch (e) {
+            error.OutOfMemory => return error.OutOfMemory,
+            else => return,
+        };
+        if (zs.filaments.parseColor(c) != null) set(app, i, "filament.color", c) catch |e| if (e == error.OutOfMemory) return error.OutOfMemory;
+        if (i < materials.len and materials[i].len > 0) set(app, i, "filament.material", materials[i]) catch |e| if (e == error.OutOfMemory) return error.OutOfMemory;
+    }
+}
+
 /// The history facts of the slots: one line for each value that differs
 /// from the defaults.
 pub fn writeFacts(app: *const App, w: *std.Io.Writer) std.Io.Writer.Error!void {

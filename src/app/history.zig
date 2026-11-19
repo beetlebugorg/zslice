@@ -11,7 +11,7 @@
 //! - "part:<name>": a setting of one part ("project.wall_count"), and its
 //!   place: "(part)" (the part is on the plate), "position", "rotation"
 //!   (the turn around the vertical axis), "orientation" (the side on the
-//!   bed), and "scale".
+//!   bed), "scale", and "(paint)" (a hash of the paint of the part).
 //! - "layers:<z_min>:<z_max>": a change for some layers (an override), and
 //!   "(name)", the name of a layer profile.
 //! - "filament <n>": filament n of the plate (from 2, see
@@ -226,6 +226,7 @@ pub fn writeChange(w: *std.Io.Writer, c: Change) std.Io.Writer.Error!void {
         return w.print("Support trees {s}", .{c.new});
     }
     if (std.mem.eql(u8, c.key, "(slot)")) return w.writeAll(if (c.new.len > 0) "Added to the plate" else "Removed from the plate");
+    if (is_part and std.mem.eql(u8, c.key, "(paint)")) return w.writeAll(if (c.new.len > 0) "Painted" else "Paint removed");
     if (is_layers and std.mem.eql(u8, c.key, "(name)")) {
         if (c.new.len == 0) return w.print("Layer profile \"{s}\" removed", .{c.old});
         if (c.old.len == 0) return w.print("Layer profile \"{s}\"", .{c.new});

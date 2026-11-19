@@ -54,6 +54,8 @@ const support_mod = @import("support.zig");
 const islands_mod = @import("islands.zig");
 const parallel = @import("parallel.zig");
 const filaments_mod = @import("filaments.zig");
+const paint_mod = @import("paint.zig");
+const paint_split = @import("paint_split.zig");
 const Mesh = mesh_mod.Mesh;
 const Settings = settings_mod.Settings;
 const Resolved = settings_mod.Resolved;
@@ -90,6 +92,14 @@ pub const PartInput = struct {
     /// The id of the part for the toolpaths (for example, its index on
     /// the plate).
     part: u32,
+    /// The paint of the triangles of `mesh` (see paint.zig), or null. A
+    /// painted part slices as one job for each filament of its paint (see
+    /// paint_split.zig). It must live as long as the job.
+    paint: ?*const paint_mod.Paint = null,
+    /// The split of a painted part, and the index of the filament of this
+    /// input in it (set by `PlateJob.init`).
+    paint_split: ?*paint_split.Split = null,
+    paint_index: usize = 0,
 };
 
 /// A part on the plate: the group whose job slices it, and its move from
@@ -113,6 +123,8 @@ pub const Group = struct {
     job: Job,
     /// The part whose mesh the job slices.
     part: u32,
+    /// The job slices one filament of a painted part.
+    painted: bool = false,
     /// The level of each layer of the job.
     layer_level: []u32,
 };
@@ -195,11 +207,15 @@ pub const PlateJob = struct {
     /// The filaments of the plate: slot 0 is the filament of the
     /// settings, then `Options.filaments`. One: no filament change.
     slots: []settings_mod.Filament = &.{},
+    /// The paint splits of the painted parts, and the memory of the
+    /// changes of their jobs.
+    splits: []*paint_split.Split = &.{},
+    arena: ?std.heap.ArenaAllocator = null,
 
     /// Slices each group of parts (steps 1 to 4 of the engine for each
     /// job), and finds the levels.
-    pub fn init(gpa: Allocator, settings: Settings, parts: []const PartInput, opts: Options) Error!PlateJob {
-        if (parts.len == 0) return error.EmptyMesh;
+    pub fn init(gpa: Allocator, settings: Settings, parts_in: []const PartInput, opts: Options) Error!PlateJob {
+        if (parts_in.len == 0) return error.EmptyMesh;
         const r = settings.resolve() catch return error.InvalidSettings;
         var pj: PlateJob = .{
             .gpa = gpa,
@@ -208,9 +224,14 @@ pub const PlateJob = struct {
             .threads = parallel.threadCount(settings.engine.threads),
         };
         errdefer pj.deinit();
+        // A painted part: one input for each filament of its paint.
+        var expanded: std.ArrayList(PartInput) = .empty;
+        defer expanded.deinit(gpa);
         pj.slots = try gpa.alloc(settings_mod.Filament, 1 + @min(opts.filaments.len, filaments_mod.max_slots - 1));
         pj.slots[0] = settings.filament;
         for (pj.slots[1..], opts.filaments[0 .. pj.slots.len - 1]) |*d, f| d.* = f;
+        try pj.expandPaint(settings, parts_in, &expanded);
+        const parts = expanded.items;
 
         // Step 3: one offset for all parts. One part places itself, as a
         // job of one mesh does.
@@ -268,7 +289,9 @@ pub const PlateJob = struct {
                 s.set(c.name, c.value) catch return error.InvalidSettings;
             }
             var old_job: ?*Job = null;
-            if (opts.old) |o| for (o.groups) |*og| if (og.part == p.part) {
+            // A painted part slices again: its outlines are the regions of
+            // its filaments.
+            if (p.paint_split == null) if (opts.old) |o| for (o.groups) |*og| if (og.part == p.part and !og.painted) {
                 old_job = &og.job;
                 break;
             };
@@ -284,6 +307,7 @@ pub const PlateJob = struct {
                 .trees = p.trees,
                 .trees_layers = p.trees_layers,
                 .islands = opts.islands,
+                .paint = if (p.paint_split) |sp| .{ .split = sp, .index = p.paint_index } else null,
             });
             errdefer job.deinit();
             // The scaled monitor lives only in this call.
@@ -291,7 +315,7 @@ pub const PlateJob = struct {
             job.keep_memos = opts.keep_memos;
             if (p.modifiers.len > 0) try job.setModifiers(p.modifiers);
             const layer_level = try gpa.alloc(u32, job.layers.len);
-            groups.appendAssumeCapacity(.{ .job = job, .part = p.part, .layer_level = layer_level });
+            groups.appendAssumeCapacity(.{ .job = job, .part = p.part, .layer_level = layer_level, .painted = p.paint_split != null });
         }
         pj.groups = try groups.toOwnedSlice(gpa);
 
@@ -344,6 +368,12 @@ pub const PlateJob = struct {
         gpa.free(self.streams);
         gpa.free(self.stream_support);
         gpa.free(self.slots);
+        for (self.splits) |s| {
+            s.deinit();
+            gpa.destroy(s);
+        }
+        gpa.free(self.splits);
+        if (self.arena) |*a| a.deinit();
         self.* = undefined;
     }
 
@@ -478,6 +508,67 @@ pub const PlateJob = struct {
             self.level_set[i] = @intCast(list.items.len);
         }
         self.level_resolved = try list.toOwnedSlice(gpa);
+    }
+
+    /// The inputs of the parts, with one input for each filament of a
+    /// painted part (see paint_split.zig). The filament of the part is the
+    /// first; the input of each other filament has the change
+    /// project.filament of its filament.
+    fn expandPaint(self: *PlateJob, settings: Settings, parts: []const PartInput, out: *std.ArrayList(PartInput)) Error!void {
+        const gpa = self.gpa;
+        var splits: std.ArrayList(*paint_split.Split) = .empty;
+        defer splits.deinit(gpa);
+        errdefer for (splits.items) |s| {
+            s.deinit();
+            gpa.destroy(s);
+        };
+        for (parts) |p| {
+            const paint = p.paint orelse {
+                try out.append(gpa, p);
+                continue;
+            };
+            if (paint.isEmpty() or self.slots.len < 2) {
+                try out.append(gpa, p);
+                continue;
+            }
+            // The filament of the part.
+            var base: u32 = settings.project.filament;
+            for (p.changes) |c| if (std.mem.eql(u8, c.name, "project.filament")) {
+                base = std.fmt.parseInt(u32, std.mem.trim(u8, c.value, " "), 10) catch base;
+            };
+            const split = try gpa.create(paint_split.Split);
+            split.* = paint_split.Split.init(gpa, p.mesh, paint, @intCast(@min(base, 255))) catch |e| {
+                gpa.destroy(split);
+                return e;
+            };
+            if (split.states.len < 2) {
+                split.deinit();
+                gpa.destroy(split);
+                try out.append(gpa, p);
+                continue;
+            }
+            try splits.append(gpa, split);
+            if (self.arena == null) self.arena = .init(gpa);
+            const a = self.arena.?.allocator();
+            for (split.states, 0..) |st, k| {
+                var q = p;
+                q.paint_split = split;
+                q.paint_index = k;
+                if (k > 0) {
+                    const ch = try a.alloc(settings_mod.Change, p.changes.len + 1);
+                    @memcpy(ch[0..p.changes.len], p.changes);
+                    ch[p.changes.len] = .{ .name = "project.filament", .value = try std.fmt.allocPrint(a, "{d}", .{st}) };
+                    q.changes = ch;
+                    // The marks and the trees of the user are of the part:
+                    // the job of its own filament has them.
+                    q.marks = &.{};
+                    q.trees = null;
+                    q.modifiers = &.{};
+                }
+                try out.append(gpa, q);
+            }
+        }
+        self.splits = try splits.toOwnedSlice(gpa);
     }
 
     /// The slot of the filament of layer `layer` of the job of group `g`
@@ -809,6 +900,8 @@ fn planStamp(settings: Settings, parts: []const PartInput, overrides: []const se
     for (parts, keys, boxes) |p, k, b| {
         hv(&h, p.part);
         hv(&h, k);
+        hv(&h, if (p.paint) |pp| pp.hash() else 0);
+        hv(&h, p.paint_index);
         hv(&h, b.min);
         hv(&h, b.max);
         changes(&h, p.changes);
@@ -842,6 +935,7 @@ fn shapeKey(m: *const Mesh) u64 {
 /// box of q.
 fn copies(p: PartInput, q: PartInput, kp: u64, kq: u64, bp: mesh_mod.Bounds3, bq: mesh_mod.Bounds3) bool {
     if (kp != kq) return false;
+    if (p.paint_split != null or q.paint_split != null) return false;
     if (p.modifiers.len > 0 or q.modifiers.len > 0 or p.marks.len > 0 or q.marks.len > 0) return false;
     if (p.trees != null or q.trees != null) return false;
     if (p.changes.len != q.changes.len) return false;
@@ -932,6 +1026,50 @@ test "plate job: two filaments, a tool change for each change of the filament" {
     defer out3.deinit();
     const st3 = try pj3.writeGcode(&out3.writer);
     try testing.expectEqual(@as(u32, 2), st3.changes);
+}
+
+test "plate job: a painted letter prints with its own filament" {
+    const gpa = testing.allocator;
+    // A base 30 x 20 x 3 and a block "letter" 6 x 6 x 2 on it, with all
+    // the faces of the letter painted with filament 2.
+    var b: mesh_mod.Builder = .init(gpa);
+    defer b.deinit();
+    try mesh_mod.shapes.addBox(&b, 0, 0, 0, 30, 20, 3);
+    const base_faces = 12;
+    try mesh_mod.shapes.addBox(&b, 12, 7, 3, 18, 13, 5);
+    var m = try b.finish();
+    defer m.deinit(gpa);
+    var paint: paint_mod.Paint = .{};
+    defer paint.deinit(gpa);
+    for (base_faces..m.faces.items.len) |i| try paint.setTriangle(gpa, i, 2);
+    var s: Settings = .{};
+    s.engine.threads = 2;
+    s.machine.filament_change = .tool;
+    var red = s.filament;
+    red.color = "#ff0000";
+    const parts = [_]PartInput{.{ .mesh = &m, .part = 0, .paint = &paint }};
+    var pj = try PlateJob.init(gpa, s, &parts, .{ .filaments = &.{red} });
+    defer pj.deinit();
+    // Two jobs: the base filament and the letter filament.
+    try testing.expectEqual(@as(usize, 2), pj.groups.len);
+    const letter = &pj.groups[1].job;
+    // The letter job prints only the letter: no outline on the base
+    // layers, and on the letter layers the 6 x 6 mm square.
+    var with_outline: usize = 0;
+    for (letter.outlines, letter.layers) |o, l| {
+        if (o.isEmpty()) continue;
+        with_outline += 1;
+        var area: f64 = 0;
+        for (0..o.count()) |k| area += geom.areaMm2(o.get(k));
+        if (l.z > 3.5) try testing.expectApproxEqAbs(@as(f64, 36), area, 1.5);
+    }
+    try testing.expect(with_outline >= 8 and with_outline <= 12);
+    var out: Writer.Allocating = .init(gpa);
+    defer out.deinit();
+    const st = try pj.writeGcode(&out.writer);
+    // The base layers print with filament 1, the letter layers with 2.
+    try testing.expectEqual(@as(u32, 1), st.changes);
+    try testing.expect(st.slot_g[1] > 0);
 }
 
 test "plate job: one part gives the G-code of one job" {

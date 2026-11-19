@@ -271,6 +271,8 @@ pub const App = struct {
     filaments: std.ArrayList(zs.settings.Filament) = .empty,
     /// The copy of `filaments` that the slice uses.
     slice_filaments: []zs.settings.Filament = &.{},
+    /// The last mesh of zs_app_part_mesh.
+    mesh_out: ?zs.Mesh = null,
 
     pub fn create(gpa: Allocator, event_fn: ?EventFn, user: ?*anyopaque) Allocator.Error!*App {
         const app = try gpa.create(App);
@@ -294,6 +296,7 @@ pub const App = struct {
         app.gpa.free(app.slice_overrides);
         app.filaments.deinit(app.gpa);
         app.gpa.free(app.slice_filaments);
+        if (app.mesh_out) |*m| m.deinit(app.gpa);
         app.gpa.free(app.file_bytes);
         app.undo.deinit(app.gpa);
         app.edits.deinit(app.gpa);
@@ -397,6 +400,14 @@ pub const App = struct {
             const gap = if (app.keep_places) -std.math.inf(f64) else app.partGap();
             const i = try app.plate.add(app.gpa, p.name, m, app.bedSize(), gap, true);
             idx.* = i;
+            // The paint of the file, and the filament of the part.
+            app.plate.parts.items[i].paint = p.paint;
+            p.paint = .{};
+            if (p.filament > 1) {
+                var buf: [8]u8 = undefined;
+                const v = std.fmt.bufPrint(&buf, "{d}", .{p.filament}) catch unreachable;
+                app.setPartSetting(i, "project.filament", v) catch |e| if (e == error.OutOfMemory) return error.OutOfMemory;
+            }
             // With no part that prints, a volume prints as a part.
             if (zs.part_settings.prints(p.meta)) {
                 app.plate.setMeta(app.gpa, i, p.meta);
@@ -427,6 +438,9 @@ pub const App = struct {
             try app.plate.addVolume(app.gpa, host, p.name, m, meta);
         }
         try app.plateChanged();
+        // The filaments of a project of Bambu Studio or PrusaSlicer: their
+        // colors and materials.
+        if (loaded.colors.len > 1) try filament_slots.fromProject(app, loaded.colors, loaded.materials);
         var lines = std.mem.tokenizeAny(u8, loaded.overrides, "\r\n");
         while (lines.next()) |line| {
             // A support area of the user (app/support_areas.zig).
@@ -689,6 +703,15 @@ pub const App = struct {
     /// The part then slices as its own job with it (see part_settings.zig
     /// and plate_job.zig). A setting of the plate (settings.isPlateSetting)
     /// gets a note, and the part keeps the plate value.
+    /// Sets the paint of part i from its text (see paint.Paint.readLines).
+    /// The next slice splits the part by the filaments of its paint.
+    pub fn setPartPaint(app: *App, i: usize, text: []const u8) Allocator.Error!void {
+        if (i >= app.plate.parts.items.len) return;
+        app.stopWorker();
+        const p = &app.plate.parts.items[i];
+        try p.paint.readLines(app.gpa, text, p.mesh.faces.items.len);
+    }
+
     pub fn setPartSetting(app: *App, i: usize, name: []const u8, value: ?[]const u8) (Allocator.Error || Settings.SetError || error{NoPart})!void {
         if (i >= app.plate.parts.items.len) return error.NoPart;
         if (value) |v| {
@@ -1445,6 +1468,8 @@ pub const App = struct {
                 try w.writeByte('\n');
             }
             if (p.scale[0] != 1 or p.scale[1] != 1 or p.scale[2] != 1) try w.print("part:{s}\tscale\t{d:.3}, {d:.3}, {d:.3}\n", .{ name, p.scale[0], p.scale[1], p.scale[2] });
+            // The paint: a hash, so a change of the paint is a step.
+            if (!p.paint.isEmpty()) try w.print("part:{s}\t(paint)\t{x}\n", .{ name, p.paint.hash() });
             for (p.meta) |m| {
                 if (!std.mem.startsWith(u8, m.key, "zslice:")) continue;
                 try w.print("part:{s}\t{s}\t", .{ name, m.key["zslice:".len..] });
@@ -2325,6 +2350,14 @@ pub const App = struct {
                 trees = sk;
                 trees_layers = t.layers;
             };
+            // The paint of the part: a copy, as the user can paint while the
+            // slice runs.
+            var paint: ?*const zs.paint.Paint = null;
+            if (part_of[pp.input]) |pi| if (!app.plate.parts.items[pi].paint.isEmpty()) {
+                const pc = try a.create(zs.paint.Paint);
+                pc.* = try app.plate.parts.items[pi].paint.clone(a);
+                paint = pc;
+            };
             out.* = .{
                 .mesh = mesh,
                 .changes = changes,
@@ -2333,6 +2366,7 @@ pub const App = struct {
                 .part = part_of[pp.input] orelse 0,
                 .trees = trees,
                 .trees_layers = trees_layers,
+                .paint = paint,
             };
         }
         app.slice_parts = parts;
@@ -2856,6 +2890,60 @@ test "app: support areas slice, go into the 3MF, and undo" {
     _ = app.undo.redo(app, 3000);
     try testing.expectEqual(@as(usize, 1), app.areas.count());
     try testing.expect(try has_support(app));
+}
+
+test "app: paint goes into the 3MF and comes back with undo, and the slice has two filaments" {
+    const gpa = testing.allocator;
+    // A base and a letter on it.
+    var b: zs.mesh.Builder = .init(gpa);
+    try zs.mesh.shapes.addBox(&b, 0, 0, 0, 30, 20, 3);
+    try zs.mesh.shapes.addBox(&b, 12, 7, 3, 18, 13, 5);
+    var mesh = try b.finish();
+    var bytes: std.Io.Writer.Allocating = .init(gpa);
+    defer bytes.deinit();
+    try mesh.writeStl(&bytes.writer);
+    const nf = mesh.faces.items.len;
+    mesh.deinit(gpa);
+    const app = try App.create(gpa, null, null);
+    defer app.destroy();
+    try app.loadStl("plaque.stl", bytes.written());
+    _ = app.undo.commit(app, 0);
+    _ = try filament_slots.add(app);
+    // The letter (the last 12 triangles) with filament 2, one of them in
+    // pieces.
+    var text: std.Io.Writer.Allocating = .init(gpa);
+    defer text.deinit();
+    for (nf - 12..nf - 1) |t| try text.writer.print("{d} 8\n", .{t});
+    try text.writer.print("{d} 40843\n", .{nf - 1});
+    try app.setPartPaint(0, text.written());
+    app.undo.note(gpa, null, true);
+    _ = app.undo.commit(app, 1000);
+    try testing.expect(!app.plate.parts.items[0].paint.isEmpty());
+    try app.startSlice();
+    app.stopWorkerForTest();
+    const st = app.result().?;
+    try testing.expect(st.slot_g[1] > 0);
+    try testing.expect(st.changes >= 1);
+
+    // The 3MF keeps the paint in the attributes of PrusaSlicer and Bambu
+    // Studio, and the filaments.
+    const file = try app.write3mfAlloc(gpa);
+    defer gpa.free(file);
+    const other = try App.create(gpa, null, null);
+    defer other.destroy();
+    other.keep_places = true;
+    try other.loadStl("plate.3mf", file);
+    try testing.expectEqual(@as(usize, 2), filament_slots.count(other));
+    const p = &other.plate.parts.items[0].paint;
+    try testing.expectEqual(@as(u8, 2), p.stateOf(nf - 12));
+    try testing.expectEqual(zs.paint.split, p.stateOf(nf - 1));
+    try testing.expectEqual(app.plate.parts.items[0].paint.hash(), p.hash());
+
+    // Undo: no paint; redo: the paint again.
+    _ = app.undo.undo(app, 2000);
+    try testing.expect(app.plate.parts.items[0].paint.isEmpty());
+    _ = app.undo.redo(app, 3000);
+    try testing.expectEqual(zs.paint.split, app.plate.parts.items[0].paint.stateOf(nf - 1));
 }
 
 test "app: a pick of the overhang under a point, as an area, gives support" {

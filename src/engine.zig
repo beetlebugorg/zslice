@@ -49,6 +49,7 @@ const islands_mod = @import("islands.zig");
 const clip = @import("clip.zig");
 const offset_mod = @import("offset.zig");
 const flow = @import("flow.zig");
+const paint_split = @import("paint_split.zig");
 const Mesh = mesh_mod.Mesh;
 const Paths = geom.Paths;
 const Settings = settings_mod.Settings;
@@ -371,6 +372,16 @@ pub const Job = struct {
         /// False: no search for the islands (`islands` stays empty). The
         /// G-code does not use them.
         islands: bool = true,
+        /// One filament of a painted part (see paint_split.zig), or null:
+        /// the outline of each layer is the region of that filament.
+        paint: ?PaintClip = null,
+    };
+
+    pub const PaintClip = struct {
+        split: *paint_split.Split,
+        /// The index of the filament in `split.states`; 0 is the filament
+        /// of the part, and its job has the support and the islands.
+        index: usize,
     };
 
     /// Steps 1 to 4.
@@ -419,6 +430,7 @@ pub const Job = struct {
         // height must fit the line width of its layer.
         for (job.layers[1..], 1..) |l, i| if (l.height > job.resolvedAt(i).line_width + 1e-9) return error.InvalidSettings;
         if (job.tops.len == 0) try job.makeSurfaces();
+        if (opts.paint) |pc| try job.clipToPaint(pc);
         job.bands.extend(gpa, job.outlines, layer_mod.bandLevels(job.planContext()), job.threads, job.monitor.cancel) catch |e| return @as(Error, @errorCast(e));
         try job.makeLightning();
         job.groups = try layer_mod.groups(gpa, job.planContext());
@@ -426,6 +438,55 @@ pub const Job = struct {
         // scratch.zig).
         scratch.trim();
         return job;
+    }
+
+    /// Makes the outlines, the tops, and the bottoms of each layer the
+    /// region of one filament of a painted part (see paint_split.zig). The
+    /// first job of the part finds the regions of all filaments from its
+    /// full outlines; the other jobs of the part use them. The surfaces
+    /// come from the full outlines, so a region gets top skin only where
+    /// the part has a top.
+    fn clipToPaint(self: *Job, pc: PaintClip) Error!void {
+        const gpa = self.gpa;
+        const n = self.layers.len;
+        const s = self.resolved.settings;
+        if (!pc.split.done) {
+            const cut = try gpa.alloc(f64, n);
+            defer gpa.free(cut);
+            for (self.layers, cut) |l, *z| z.* = l.sliceZ();
+            const frame: paint_split.Frame = .{ .z_base = self.z_base, .z_scale = s.filament.shrinkage_z, .dx = self.dx, .dy = self.dy, .xy_scale = s.filament.shrinkage_xy, .center = self.center };
+            pc.split.compute(self.outlines, cut, frame, self.resolved.line_width, s.project.top_thickness, s.project.bottom_thickness, self.threads) catch |e| return @as(Error, @errorCast(e));
+        }
+        if (pc.split.layers != n) return error.InvalidSettings;
+        for (0..n) |i| {
+            const region = pc.split.region(i, pc.index);
+            const o = try region.clone(gpa);
+            self.outlines[i].deinit(gpa);
+            self.outlines[i] = o;
+            if (i < self.tops.len and !self.tops[i].isEmpty()) {
+                const t = try clip.intersect(gpa, self.tops[i], region.*);
+                self.tops[i].deinit(gpa);
+                self.tops[i] = t;
+            }
+            if (i < self.bottoms.len and !self.bottoms[i].isEmpty()) {
+                const b = try clip.intersect(gpa, self.bottoms[i], region.*);
+                self.bottoms[i].deinit(gpa);
+                self.bottoms[i] = b;
+            }
+        }
+        if (pc.index != 0) {
+            // The support and the islands are of the whole part: the job
+            // of its own filament prints them.
+            for (self.support) |*l| {
+                l.deinit(gpa);
+                l.* = .{};
+            }
+            gpa.free(self.islands);
+            self.islands = &.{};
+        }
+        // The outlines are not the outlines of the mesh: no later job
+        // takes them (see `initReuse`).
+        self.outline_key ^= 0x9a1e7 +% pc.index;
     }
 
     /// The top and bottom surfaces of all layers, on all threads. Layer pair

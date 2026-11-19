@@ -22,6 +22,16 @@
 //! for the part and for some layers in Metadata/zslice_overrides.txt (one
 //! line each: z_min, z_max, name, value, with tabs between them).
 //!
+//! The paint of a triangle (see paint.zig) is its attribute
+//! slic3rpe:mmu_segmentation (PrusaSlicer) or paint_color (Bambu Studio).
+//! zslice writes both. The reader also takes the filament ("extruder") of
+//! each object and part from the config files of Bambu Studio and
+//! PrusaSlicer, and the colors of the filaments of the project. A part of
+//! one filament gets it as its filament; a group of parts of several
+//! filaments that the reader joins gets them as paint. The sizes and the
+//! indices of these files are checked: a paint text has a limit of size
+//! and depth, and a range of triangles is cut to the mesh.
+//!
 //! Format: 3MF Core Specification 1.3 and the Production Extension, 3MF
 //! Consortium, and the Cura project metadata (see REFERENCES.md). The XML reader handles the elements and
 //! attributes of these files; it is not a general XML parser.
@@ -31,6 +41,7 @@ const Allocator = std.mem.Allocator;
 const mesh_mod = @import("mesh.zig");
 const zipfile = @import("zipfile.zig");
 const plate_mod = @import("plate.zig");
+const paint_mod = @import("paint.zig");
 const Mesh = mesh_mod.Mesh;
 
 pub const Error = error{ NotThreeMf, EmptyMesh, Corrupt, Unsupported } || Allocator.Error;
@@ -69,12 +80,28 @@ pub const LoadedPart = struct {
     mesh: Mesh,
     /// The metadata of the object, in file order. Empty if it has none.
     meta: []Meta = &.{},
+    /// The paint of the triangles of `mesh` (see paint.zig), or empty.
+    paint: paint_mod.Paint = .{},
+    /// The filament of the part in the file (from 1), or 0: none.
+    filament: u8 = 0,
 
     pub fn deinit(p: *LoadedPart, gpa: Allocator) void {
         gpa.free(p.name);
         p.mesh.deinit(gpa);
         freeMeta(gpa, p.meta);
         p.meta = &.{};
+        p.paint.deinit(gpa);
+    }
+
+    /// A paint of one filament for all triangles becomes the filament of
+    /// the part.
+    fn settle(p: *LoadedPart, gpa: Allocator) void {
+        if (p.paint.trees.count() > 0 or p.paint.states.items.len < p.mesh.faces.items.len) return;
+        const items = p.paint.states.items;
+        if (items.len == 0) return;
+        for (items) |s| if (s != items[0]) return;
+        if (items[0] != 0) p.filament = items[0];
+        p.paint.deinit(gpa);
     }
 };
 
@@ -82,11 +109,19 @@ pub const Loaded = struct {
     parts: []LoadedPart,
     /// The text of Metadata/zslice_overrides.txt, or empty.
     overrides: []u8,
+    /// The colors ("#rrggbb") and the materials of the filaments of the
+    /// project of another slicer (Bambu Studio, PrusaSlicer), or empty.
+    colors: [][]u8 = &.{},
+    materials: [][]u8 = &.{},
 
     pub fn deinit(self: *Loaded, gpa: Allocator) void {
         for (self.parts) |*p| p.deinit(gpa);
         gpa.free(self.parts);
         gpa.free(self.overrides);
+        for (self.colors) |c| gpa.free(c);
+        gpa.free(self.colors);
+        for (self.materials) |c| gpa.free(c);
+        gpa.free(self.materials);
     }
 };
 
@@ -172,9 +207,12 @@ const Tags = struct {
     }
 };
 
+/// A number of the file. A value that is not finite is 0 (the caller
+/// checks the size of each point after its transform).
 fn parseNum(s: ?[]const u8) f64 {
     const t = std.mem.trim(u8, s orelse return 0, " \t\r\n");
-    return std.fmt.parseFloat(f64, t) catch 0;
+    const v = std.fmt.parseFloat(f64, t) catch return 0;
+    return if (std.math.isFinite(v)) v else 0;
 }
 
 fn parseTransform(s: ?[]const u8) Transform {
@@ -185,6 +223,9 @@ fn parseTransform(s: ?[]const u8) Transform {
     while (it.next()) |tok| : (i += 1) {
         if (i >= 12) break;
         t[i] = std.fmt.parseFloat(f64, tok) catch return identity;
+        // A transform with a value that is not finite or is huge is no
+        // transform.
+        if (!(@abs(t[i]) <= 1e6)) return identity;
     }
     return if (i == 12) t else identity;
 }
@@ -224,6 +265,19 @@ const Object = struct {
     verts: std.ArrayList([3]f64) = .empty,
     tris: std.ArrayList([3]u32) = .empty,
     comps: std.ArrayList(Component) = .empty,
+    /// The paint text of each painted triangle (see paint.zig).
+    paint: std.ArrayList(struct { tri: u32, text: []const u8 }) = .empty,
+};
+
+/// The filaments of the objects and the parts of a project of another
+/// slicer: Bambu Studio (Metadata/model_settings.config: an "extruder"
+/// for each <object> and each <part>) and PrusaSlicer
+/// (Metadata/Slic3r_PE_model.config: an "extruder" for each <object> and
+/// for each <volume>, a range of triangles).
+const Filaments = struct {
+    objects: std.StringHashMapUnmanaged(u8) = .empty,
+    parts: std.StringHashMapUnmanaged(u8) = .empty,
+    volumes: std.ArrayList(struct { object: []const u8, first: u32, last: u32, filament: u8 }) = .empty,
 };
 
 const ModelFile = struct {
@@ -274,6 +328,10 @@ fn parseModel(a: Allocator, text: []const u8, here: []const u8) Error!ModelFile 
             const v1 = std.fmt.parseInt(u32, tag.attr("v1") orelse continue, 10) catch continue;
             const v2 = std.fmt.parseInt(u32, tag.attr("v2") orelse continue, 10) catch continue;
             const v3 = std.fmt.parseInt(u32, tag.attr("v3") orelse continue, 10) catch continue;
+            // The paint of the triangle: PrusaSlicer and Bambu Studio.
+            if (tag.attr("slic3rpe:mmu_segmentation") orelse tag.attr("paint_color")) |ptext| {
+                if (ptext.len > 0) try o.paint.append(a, .{ .tri = @intCast(o.tris.items.len), .text = ptext });
+            }
             try o.tris.append(a, .{ v1, v2, v3 });
         } else if (std.mem.eql(u8, tag.name, "component")) {
             const o = cur orelse continue;
@@ -287,10 +345,24 @@ fn parseModel(a: Allocator, text: []const u8, here: []const u8) Error!ModelFile 
     return m;
 }
 
+/// The limits of a read: the visits of objects through components, and
+/// the triangles of all parts. A file of a few kB with components of
+/// components could ask for 10^16 visits; past a limit it is corrupt.
+const max_visits = 100_000;
+const max_triangles = 50_000_000;
+
 const Files = struct {
     a: Allocator,
     entries: []zipfile.Entry,
+    fils: ?*const Filaments = null,
+    visits: usize = 0,
     parsed: std.StringHashMapUnmanaged(ModelFile) = .empty,
+    triangles: usize = 0,
+
+    fn visit(f: *Files) Error!void {
+        f.visits += 1;
+        if (f.visits > max_visits) return error.Corrupt;
+    }
 
     fn model(f: *Files, path_in: []const u8) Error!*ModelFile {
         const path = std.mem.trimStart(u8, path_in, "/");
@@ -307,15 +379,40 @@ const Files = struct {
 /// Adds the triangles of object `id` of model file `path`, with the
 /// transform `t`, to `out`. `depth` stops a loop of components.
 fn addObject(files: *Files, gpa: Allocator, out: *Mesh, path: []const u8, id: []const u8, t: Transform, depth: usize) Error!void {
+    return addPainted(files, gpa, out, null, 0, path, id, t, depth);
+}
+
+/// `addObject`, with the paint of the triangles in `paint`: the paint of
+/// the file, else the filament `fil` of the object or of its part.
+fn addPainted(files: *Files, gpa: Allocator, out: *Mesh, paint: ?*paint_mod.Paint, fil: u8, path: []const u8, id: []const u8, t: Transform, depth: usize) Error!void {
     if (depth > 16) return error.Corrupt;
+    try files.visit();
     const mf = try files.model(path);
     const o = mf.objects.getPtr(id) orelse return error.Corrupt;
     const s = mf.scale;
+    // The budget of the triangles of the whole read, and the room of the
+    // u32 indices of the mesh.
+    files.triangles += o.tris.items.len;
+    if (files.triangles > max_triangles) return error.Corrupt;
+    if (out.vertices.items.len + o.verts.items.len > std.math.maxInt(u32)) return error.Corrupt;
+    if (paint) |p| if (o.tris.items.len > 0) {
+        const face_base = out.faces.items.len;
+        if (fil != 0) {
+            try p.ensure(gpa, face_base + o.tris.items.len);
+            @memset(p.states.items[face_base..][0..o.tris.items.len], fil);
+        }
+        for (o.paint.items) |pt| p.setText(gpa, face_base + pt.tri, pt.text) catch |e| switch (e) {
+            error.OutOfMemory => return error.OutOfMemory,
+            // A text that this reader does not know: no paint there.
+            error.BadPaint => {},
+        };
+    };
     if (o.tris.items.len > 0) {
         const base: u32 = @intCast(out.vertices.items.len);
         try out.vertices.ensureUnusedCapacity(gpa, o.verts.items.len);
         for (o.verts.items) |v| {
             const p = apply(t, .{ v[0] * s, v[1] * s, v[2] * s });
+            for (p) |x| if (!(@abs(x) <= mesh_mod.max_coordinate)) return error.Corrupt;
             out.vertices.appendAssumeCapacity(.{ .x = @floatCast(p[0]), .y = @floatCast(p[1]), .z = @floatCast(p[2]) });
         }
         try out.faces.ensureUnusedCapacity(gpa, o.tris.items.len);
@@ -328,13 +425,15 @@ fn addObject(files: *Files, gpa: Allocator, out: *Mesh, path: []const u8, id: []
         // The translation of a component is in the units of its file.
         var ct = c.t;
         for (9..12) |k| ct[k] *= s;
-        try addObject(files, gpa, out, c.path, c.id, compose(ct, t), depth + 1);
+        const part_fil = if (files.fils) |f| f.parts.get(c.id) orelse fil else fil;
+        try addPainted(files, gpa, out, paint, part_fil, c.path, c.id, compose(ct, t), depth + 1);
     }
 }
 
 /// True if a component (at any depth) of object `id` has its own metadata.
 fn componentMeta(files: *Files, path: []const u8, id: []const u8, depth: usize) Error!bool {
     if (depth > 16) return error.Corrupt;
+    try files.visit();
     const mf = try files.model(path);
     const o = mf.objects.getPtr(id) orelse return error.Corrupt;
     for (o.comps.items) |c| {
@@ -380,6 +479,7 @@ fn ownMeta(gpa: Allocator, outer: []const ArenaMeta, own: []const ArenaMeta) All
 /// above it (`outer`) and its own.
 fn splitObject(files: *Files, gpa: Allocator, parts: *std.ArrayList(LoadedPart), path: []const u8, id: []const u8, t: Transform, outer: []const ArenaMeta, depth: usize) Error!void {
     if (depth > 16) return error.Corrupt;
+    try files.visit();
     const mf = try files.model(path);
     const o = mf.objects.getPtr(id) orelse return error.Corrupt;
     // Copies: a put into the maps below can move the object.
@@ -398,11 +498,15 @@ fn splitObject(files: *Files, gpa: Allocator, parts: *std.ArrayList(LoadedPart),
         bare.comps = .empty;
         const key = try std.fmt.allocPrint(files.a, "{s}#bare", .{id});
         try mf.objects.put(files.a, key, bare);
-        try addObject(files, gpa, &m, path, key, t, depth);
+        var paint: paint_mod.Paint = .{};
+        errdefer paint.deinit(gpa);
+        const fil = if (files.fils) |f| f.parts.get(id) orelse f.objects.get(id) orelse 0 else 0;
+        try addPainted(files, gpa, &m, &paint, fil, path, key, t, depth);
         const name = try gpa.dupe(u8, if (name_src.len > 0) name_src else "part");
         errdefer gpa.free(name);
         const meta = try ownMeta(gpa, &.{}, merged.items);
-        try parts.append(gpa, .{ .name = name, .mesh = m, .meta = meta });
+        try parts.append(gpa, .{ .name = name, .mesh = m, .meta = meta, .paint = paint });
+        parts.items[parts.items.len - 1].settle(gpa);
     }
     for (comps) |c| {
         var ct = c.t;
@@ -435,6 +539,9 @@ pub fn read(gpa: Allocator, bytes: []const u8) Error!Loaded {
             if (std.mem.endsWith(u8, ty, "3dmodel")) root = std.mem.trimStart(u8, tag.attr("Target") orelse root, "/");
         }
     };
+    var fils: Filaments = .{};
+    try readFilaments(a, entries, &fils);
+    files.fils = &fils;
     const mf = files.model(root) catch return error.EmptyMesh;
 
     var parts: std.ArrayList(LoadedPart) = .empty;
@@ -453,10 +560,24 @@ pub fn read(gpa: Allocator, bytes: []const u8) Error!Loaded {
         }
         var m: Mesh = .empty;
         errdefer m.deinit(gpa);
-        try addObject(&files, gpa, &m, item.path, item.id, t, 0);
+        var paint: paint_mod.Paint = .{};
+        errdefer paint.deinit(gpa);
+        const fil = fils.objects.get(item.id) orelse 0;
+        try addPainted(&files, gpa, &m, &paint, fil, item.path, item.id, t, 0);
         if (m.faces.items.len == 0) {
             m.deinit(gpa);
+            paint.deinit(gpa);
             continue;
+        }
+        // The volumes of PrusaSlicer: ranges of triangles of the object.
+        for (fils.volumes.items) |v| {
+            if (!std.mem.eql(u8, v.object, item.id) or v.filament == 0) continue;
+            const last = @min(@as(usize, v.last) + 1, m.faces.items.len);
+            if (v.first >= last) continue;
+            try paint.ensure(gpa, last);
+            for (v.first..last) |f| if (paint.states.items[f] == 0 or paint.states.items[f] == fil) {
+                paint.states.items[f] = v.filament;
+            };
         }
         const obj = (try files.model(item.path)).objects.getPtr(item.id);
         const name = if (obj != null and obj.?.name.len > 0)
@@ -465,7 +586,8 @@ pub fn read(gpa: Allocator, bytes: []const u8) Error!Loaded {
             try std.fmt.allocPrint(gpa, "part {d}", .{k + 1});
         errdefer gpa.free(name);
         const meta = try ownMeta(gpa, &.{}, if (obj) |o| o.meta.items else &.{});
-        try parts.append(gpa, .{ .name = name, .mesh = m, .meta = meta });
+        try parts.append(gpa, .{ .name = name, .mesh = m, .meta = meta, .paint = paint });
+        parts.items[parts.items.len - 1].settle(gpa);
     }
     if (parts.items.len == 0) return error.EmptyMesh;
     var overrides: []u8 = try gpa.dupe(u8, "");
@@ -473,7 +595,124 @@ pub fn read(gpa: Allocator, bytes: []const u8) Error!Loaded {
         gpa.free(overrides);
         overrides = try gpa.dupe(u8, e.data);
     };
-    return .{ .parts = try parts.toOwnedSlice(gpa), .overrides = overrides };
+    var loaded: Loaded = .{ .parts = try parts.toOwnedSlice(gpa), .overrides = overrides };
+    errdefer loaded.deinit(gpa);
+    try readColors(gpa, entries, &loaded);
+    return loaded;
+}
+
+/// The value of a key of a Bambu Studio <metadata key=".." value=".."/>.
+fn metaValue(tag: Tag, key: []const u8) ?[]const u8 {
+    const k = tag.attr("key") orelse return null;
+    if (!std.mem.eql(u8, k, key)) return null;
+    return tag.attr("value");
+}
+
+/// The filaments of the objects and parts of a project of Bambu Studio or
+/// PrusaSlicer (see `Filaments`).
+fn readFilaments(a: Allocator, entries: []const zipfile.Entry, out: *Filaments) Allocator.Error!void {
+    for (entries) |e| {
+        const bambu = std.mem.eql(u8, e.name, "Metadata/model_settings.config");
+        const prusa = std.mem.eql(u8, e.name, "Metadata/Slic3r_PE_model.config");
+        if (!bambu and !prusa) continue;
+        var it: Tags = .{ .text = e.data };
+        var object: ?[]const u8 = null;
+        var part: ?[]const u8 = null;
+        var volume: ?[2]u32 = null;
+        while (it.next()) |tag| {
+            if (std.mem.eql(u8, tag.name, "object")) {
+                object = if (tag.closing or tag.empty) null else tag.attr("id");
+            } else if (std.mem.eql(u8, tag.name, "part")) {
+                part = if (tag.closing or tag.empty) null else tag.attr("id");
+            } else if (std.mem.eql(u8, tag.name, "volume")) {
+                volume = null;
+                if (tag.closing or tag.empty) continue;
+                const first = std.fmt.parseInt(u32, tag.attr("firstid") orelse continue, 10) catch continue;
+                const last = std.fmt.parseInt(u32, tag.attr("lastid") orelse continue, 10) catch continue;
+                volume = .{ first, last };
+            } else if (std.mem.eql(u8, tag.name, "metadata")) {
+                const v = metaValue(tag, "extruder") orelse continue;
+                const f = std.fmt.parseInt(u8, std.mem.trim(u8, v, " "), 10) catch continue;
+                const obj = object orelse continue;
+                if (volume) |r| {
+                    try out.volumes.append(a, .{ .object = obj, .first = r[0], .last = r[1], .filament = f });
+                } else if (part) |p| {
+                    try out.parts.put(a, p, f);
+                } else {
+                    try out.objects.put(a, obj, f);
+                }
+            }
+        }
+    }
+}
+
+/// The colors and the materials of the filaments of a project of Bambu
+/// Studio (Metadata/project_settings.config, JSON: "filament_colour" and
+/// "filament_type") or PrusaSlicer (Metadata/Slic3r_PE.config, lines
+/// "; extruder_colour = ..." or "; filament_colour = ..." and
+/// "; filament_type = ...", with ";" between the values).
+fn readColors(gpa: Allocator, entries: []const zipfile.Entry, out: *Loaded) Allocator.Error!void {
+    for (entries) |e| {
+        if (std.mem.eql(u8, e.name, "Metadata/project_settings.config")) {
+            out.colors = try jsonList(gpa, e.data, "\"filament_colour\"");
+            out.materials = try jsonList(gpa, e.data, "\"filament_type\"");
+            return;
+        }
+        if (std.mem.eql(u8, e.name, "Metadata/Slic3r_PE.config")) {
+            var colors = try iniList(gpa, e.data, "; extruder_colour = ");
+            // An empty extruder color: the filament color.
+            var any = false;
+            for (colors) |c| any = any or c.len > 0;
+            if (!any) {
+                for (colors) |c| gpa.free(c);
+                gpa.free(colors);
+                colors = try iniList(gpa, e.data, "; filament_colour = ");
+            }
+            out.colors = colors;
+            out.materials = try iniList(gpa, e.data, "; filament_type = ");
+            return;
+        }
+    }
+}
+
+/// The texts of a JSON list of texts after `key`, or empty.
+fn jsonList(gpa: Allocator, text: []const u8, key: []const u8) Allocator.Error![][]u8 {
+    var list: std.ArrayList([]u8) = .empty;
+    errdefer {
+        for (list.items) |x| gpa.free(x);
+        list.deinit(gpa);
+    }
+    const at = std.mem.indexOf(u8, text, key) orelse return list.toOwnedSlice(gpa);
+    const open = std.mem.indexOfScalarPos(u8, text, at + key.len, '[') orelse return list.toOwnedSlice(gpa);
+    const close = std.mem.indexOfScalarPos(u8, text, open, ']') orelse return list.toOwnedSlice(gpa);
+    var i = open + 1;
+    while (i < close) {
+        const q0 = std.mem.indexOfScalarPos(u8, text, i, '"') orelse break;
+        if (q0 >= close) break;
+        const q1 = std.mem.indexOfScalarPos(u8, text, q0 + 1, '"') orelse break;
+        // A file has at most a few filaments: a limit for a crafted file.
+        if (list.items.len >= 64) break;
+        try list.append(gpa, try gpa.dupe(u8, text[q0 + 1 .. q1]));
+        i = q1 + 1;
+    }
+    return list.toOwnedSlice(gpa);
+}
+
+/// The values of a line "key value;value;..." of an INI text, or empty.
+fn iniList(gpa: Allocator, text: []const u8, key: []const u8) Allocator.Error![][]u8 {
+    var list: std.ArrayList([]u8) = .empty;
+    errdefer {
+        for (list.items) |x| gpa.free(x);
+        list.deinit(gpa);
+    }
+    const at = std.mem.indexOf(u8, text, key) orelse return list.toOwnedSlice(gpa);
+    const end = std.mem.indexOfScalarPos(u8, text, at, '\n') orelse text.len;
+    var it = std.mem.splitScalar(u8, std.mem.trim(u8, text[at + key.len .. end], " \r"), ';');
+    while (it.next()) |v| {
+        if (list.items.len >= 64) break;
+        try list.append(gpa, try gpa.dupe(u8, std.mem.trim(u8, v, " \"")));
+    }
+    return list.toOwnedSlice(gpa);
 }
 
 /// Joins the parts whose boxes overlap into one part: in a 3MF file they
@@ -515,14 +754,47 @@ pub fn joinOverlapping(gpa: Allocator, loaded: *Loaded) Allocator.Error!void {
         loaded.parts[i].mesh = .empty;
         loaded.parts[i].name = &.{};
         loaded.parts[i].meta = &.{};
+        loaded.parts[i].paint = .{};
+        // A group of parts with other filaments or paint: the filament of
+        // each part becomes the paint of its triangles.
+        var mixed = !part.paint.isEmpty();
+        for (i + 1..n) |j| {
+            if (find(group, j) != i) continue;
+            if (loaded.parts[j].filament != part.filament or !loaded.parts[j].paint.isEmpty()) mixed = true;
+        }
+        if (mixed and part.filament != 0) {
+            try part.paint.ensure(gpa, part.mesh.faces.items.len);
+            for (part.paint.states.items[0..part.mesh.faces.items.len]) |*s| if (s.* == 0) {
+                s.* = part.filament;
+            };
+            part.filament = 0;
+        }
         for (i + 1..n) |j| {
             if (find(group, j) != i) continue;
             const m = &loaded.parts[j].mesh;
             const base: u32 = @intCast(part.mesh.vertices.items.len);
+            const face_base = part.mesh.faces.items.len;
             try part.mesh.vertices.appendSlice(gpa, m.vertices.items);
             try part.mesh.faces.ensureUnusedCapacity(gpa, m.faces.items.len);
             for (m.faces.items) |f| part.mesh.faces.appendAssumeCapacity(.{ f[0] + base, f[1] + base, f[2] + base });
+            if (mixed) {
+                const q = &loaded.parts[j];
+                try part.paint.ensure(gpa, part.mesh.faces.items.len);
+                for (0..m.faces.items.len) |f| {
+                    const st = q.paint.stateOf(f);
+                    if (st == paint_mod.split) {
+                        var w: std.Io.Writer.Allocating = .init(gpa);
+                        defer w.deinit();
+                        q.paint.writeText(f, &w.writer) catch return error.OutOfMemory;
+                        part.paint.setText(gpa, face_base + f, w.written()) catch |e| switch (e) {
+                            error.OutOfMemory => return error.OutOfMemory,
+                            error.BadPaint => {},
+                        };
+                    } else part.paint.states.items[face_base + f] = if (st != 0) st else q.filament;
+                }
+            }
         }
+        part.settle(gpa);
         try out.append(gpa, part);
     }
     for (loaded.parts) |*p| p.deinit(gpa);
@@ -543,7 +815,7 @@ fn writeEscaped(w: *std.Io.Writer, s: []const u8) std.Io.Writer.Error!void {
     };
 }
 
-fn writeObject(w: *std.Io.Writer, id: usize, name: []const u8, meta: []const Meta, mesh: *const Mesh) std.Io.Writer.Error!void {
+fn writeObject(w: *std.Io.Writer, id: usize, name: []const u8, meta: []const Meta, mesh: *const Mesh, paint: ?*const paint_mod.Paint) std.Io.Writer.Error!void {
     try w.print("  <object id=\"{d}\" type=\"model\" name=\"", .{id});
     try writeEscaped(w, name);
     try w.writeAll("\">\n");
@@ -561,7 +833,17 @@ fn writeObject(w: *std.Io.Writer, id: usize, name: []const u8, meta: []const Met
     try w.writeAll("   <mesh>\n    <vertices>\n");
     for (mesh.vertices.items) |v| try w.print("     <vertex x=\"{d}\" y=\"{d}\" z=\"{d}\"/>\n", .{ v.x, v.y, v.z });
     try w.writeAll("    </vertices>\n    <triangles>\n");
-    for (mesh.faces.items) |f| try w.print("     <triangle v1=\"{d}\" v2=\"{d}\" v3=\"{d}\"/>\n", .{ f[0], f[1], f[2] });
+    for (mesh.faces.items, 0..) |f, i| {
+        try w.print("     <triangle v1=\"{d}\" v2=\"{d}\" v3=\"{d}\"", .{ f[0], f[1], f[2] });
+        // The paint, in the attributes of PrusaSlicer and Bambu Studio.
+        if (paint) |p| if (p.stateOf(i) != 0) {
+            var buf: [4096]u8 = undefined;
+            var fw: std.Io.Writer = .fixed(&buf);
+            p.writeText(i, &fw) catch {};
+            try w.print(" slic3rpe:mmu_segmentation=\"{s}\" paint_color=\"{s}\"", .{ fw.buffered(), fw.buffered() });
+        };
+        try w.writeAll("/>\n");
+    }
     try w.writeAll("    </triangles>\n   </mesh>\n  </object>\n");
 }
 
@@ -570,17 +852,17 @@ pub fn write(gpa: Allocator, out: *std.Io.Writer, plate: *const plate_mod.Plate,
     var model: std.Io.Writer.Allocating = .init(gpa);
     defer model.deinit();
     const w = &model.writer;
-    try w.writeAll("<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n<model unit=\"millimeter\" xml:lang=\"en-US\" xmlns=\"http://schemas.microsoft.com/3dmanufacturing/core/2015/02\" xmlns:cura=\"http://software.ultimaker.com/xml/cura/3mf/2015/10\">\n");
+    try w.writeAll("<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n<model unit=\"millimeter\" xml:lang=\"en-US\" xmlns=\"http://schemas.microsoft.com/3dmanufacturing/core/2015/02\" xmlns:cura=\"http://software.ultimaker.com/xml/cura/3mf/2015/10\" xmlns:slic3rpe=\"http://schemas.slic3r.org/3mf/2017/06\">\n");
     try w.writeAll(" <metadata name=\"Application\">zslice</metadata>\n <resources>\n");
     // One object for each part and for each of its volumes, with the
     // metadata. A volume has the transform of its part.
     var id: usize = 0;
     for (plate.parts.items) |*p| {
         id += 1;
-        try writeObject(w, id, p.name, p.meta, &p.mesh);
+        try writeObject(w, id, p.name, p.meta, &p.mesh, &p.paint);
         for (p.volumes.items) |*v| {
             id += 1;
-            try writeObject(w, id, v.name, v.meta, &v.mesh);
+            try writeObject(w, id, v.name, v.meta, &v.mesh, null);
         }
     }
     try w.writeAll(" </resources>\n <build>\n");
@@ -686,6 +968,17 @@ pub fn writeSnapshot(gpa: Allocator, out: *std.Io.Writer, plate: *const plate_mo
             // first step after a load does not wait for a deflate of the
             // mesh (220 ms for a 3DBenchy).
             try entries.append(a, .{ .name = try std.fmt.allocPrint(a, "mesh-{d}.bin", .{k}), .data = try meshBytes(a, mesh), .store = true });
+            // The paint of a part: a line "triangle text" for each painted
+            // triangle.
+            if (j == 0 and !p.paint.isEmpty()) {
+                var pw: std.Io.Writer.Allocating = .init(a);
+                for (0..p.mesh.faces.items.len) |f| if (p.paint.stateOf(f) != 0) {
+                    try pw.writer.print("{d} ", .{f});
+                    try p.paint.writeText(f, &pw.writer);
+                    try pw.writer.writeByte('\n');
+                };
+                try entries.append(a, .{ .name = try std.fmt.allocPrint(a, "paint-{d}.txt", .{k}), .data = pw.written(), .store = true });
+            }
             k += 1;
         }
     }
@@ -709,7 +1002,8 @@ const Reader = struct {
     }
     fn bytes(r: *Reader) Error![]const u8 {
         const n = try r.u32_();
-        if (r.o + n > r.b.len) return error.Corrupt;
+        // In u64: a sum in usize can wrap on wasm32.
+        if (@as(u64, r.o) + n > r.b.len) return error.Corrupt;
         defer r.o += n;
         return r.b[r.o..][0..n];
     }
@@ -738,6 +1032,8 @@ pub fn readSnapshot(gpa: Allocator, bytes: []const u8) Error!Loaded {
         var part: LoadedPart = .{ .name = try gpa.dupe(u8, try r.bytes()), .mesh = .empty };
         errdefer part.deinit(gpa);
         const nm = try r.u32_();
+        // Each entry has at least two lengths (8 bytes) in the file.
+        if (@as(u64, nm) * 8 > r.b.len - r.o) return error.Corrupt;
         part.meta = try gpa.alloc(Meta, nm);
         for (part.meta) |*m| m.* = .{ .key = &.{}, .value = &.{} };
         for (part.meta) |*m| m.* = .{ .key = try gpa.dupe(u8, try r.bytes()), .value = try gpa.dupe(u8, try r.bytes()) };
@@ -756,7 +1052,7 @@ pub fn readSnapshot(gpa: Allocator, bytes: []const u8) Error!Loaded {
         if (d.len < 8) return error.Corrupt;
         const nv = std.mem.readInt(u32, d[0..4], .little);
         const nf = std.mem.readInt(u32, d[4..8], .little);
-        if (d.len != 8 + 12 * @as(usize, nv) + 12 * @as(usize, nf)) return error.Corrupt;
+        if (@as(u64, d.len) != 8 + 12 * @as(u64, nv) + 12 * @as(u64, nf)) return error.Corrupt;
         try part.mesh.vertices.ensureTotalCapacity(gpa, nv);
         try part.mesh.faces.ensureTotalCapacity(gpa, nf);
         var o: usize = 8;
@@ -778,6 +1074,20 @@ pub fn readSnapshot(gpa: Allocator, bytes: []const u8) Error!Loaded {
             }
             part.mesh.faces.appendAssumeCapacity(f);
         }
+        // The paint (see writeSnapshot).
+        const pname = std.fmt.bufPrint(&name_buf, "paint-{d}.txt", .{k}) catch return error.Corrupt;
+        for (entries) |e| if (std.mem.eql(u8, e.name, pname)) {
+            var lines = std.mem.tokenizeScalar(u8, e.data, '\n');
+            while (lines.next()) |line| {
+                const sp = std.mem.indexOfScalar(u8, line, ' ') orelse continue;
+                const tri = std.fmt.parseInt(u32, line[0..sp], 10) catch continue;
+                if (tri >= nf) continue;
+                part.paint.setText(gpa, tri, line[sp + 1 ..]) catch |err| switch (err) {
+                    error.OutOfMemory => return error.OutOfMemory,
+                    error.BadPaint => {},
+                };
+            }
+        };
         try parts.append(gpa, part);
     }
     return .{ .parts = try parts.toOwnedSlice(gpa), .overrides = try gpa.dupe(u8, overrides) };
@@ -875,6 +1185,145 @@ test "3mf: components and units" {
     try testing.expectApproxEqAbs(@as(f64, 50), bb.min[0], 1e-4);
     try testing.expectApproxEqAbs(@as(f64, 80), bb.max[0], 1e-4);
     try testing.expectApproxEqAbs(@as(f64, 10), bb.max[2], 1e-4);
+}
+
+test "3mf: a fan-out of components is corrupt" {
+    const gpa = testing.allocator;
+    // Each object has 10 components of the next: 10^12 visits of the mesh.
+    var model: std.Io.Writer.Allocating = .init(gpa);
+    defer model.deinit();
+    const w = &model.writer;
+    try w.writeAll("<?xml version=\"1.0\"?>\n<model unit=\"millimeter\" xmlns=\"http://schemas.microsoft.com/3dmanufacturing/core/2015/02\"><resources>\n");
+    try w.writeAll("<object id=\"0\" type=\"model\"><mesh><vertices><vertex x=\"0\" y=\"0\" z=\"0\"/><vertex x=\"1\" y=\"0\" z=\"0\"/><vertex x=\"0\" y=\"1\" z=\"0\"/></vertices><triangles><triangle v1=\"0\" v2=\"1\" v3=\"2\"/></triangles></mesh></object>\n");
+    for (1..13) |k| {
+        try w.print("<object id=\"{d}\" type=\"model\"><components>", .{k});
+        for (0..10) |_| try w.print("<component objectid=\"{d}\"/>", .{k - 1});
+        try w.writeAll("</components></object>\n");
+    }
+    try w.writeAll("</resources><build><item objectid=\"12\"/></build></model>\n");
+    const entries = [_]zipfile.Entry{.{ .name = "3D/3dmodel.model", .data = model.written() }};
+    var out: std.Io.Writer.Allocating = .init(gpa);
+    defer out.deinit();
+    try zipfile.write(gpa, &out.writer, &entries);
+    try testing.expectError(error.Corrupt, read(gpa, out.written()));
+}
+
+test "3mf: points that are not finite or too far are corrupt" {
+    const gpa = testing.allocator;
+    for ([_][]const u8{ "1e300", "200000" }) |x| {
+        var model: std.Io.Writer.Allocating = .init(gpa);
+        defer model.deinit();
+        try model.writer.print("<?xml version=\"1.0\"?>\n<model unit=\"millimeter\" xmlns=\"http://schemas.microsoft.com/3dmanufacturing/core/2015/02\"><resources><object id=\"1\" type=\"model\"><mesh><vertices><vertex x=\"0\" y=\"0\" z=\"0\"/><vertex x=\"{s}\" y=\"0\" z=\"0\"/><vertex x=\"0\" y=\"1\" z=\"1\"/></vertices><triangles><triangle v1=\"0\" v2=\"1\" v3=\"2\"/></triangles></mesh></object></resources><build><item objectid=\"1\" transform=\"1 0 0 0 1 0 0 0 1 0 0 inf\"/></build></model>\n", .{x});
+        const entries = [_]zipfile.Entry{.{ .name = "3D/3dmodel.model", .data = model.written() }};
+        var out: std.Io.Writer.Allocating = .init(gpa);
+        defer out.deinit();
+        try zipfile.write(gpa, &out.writer, &entries);
+        // 1e300 is not finite as f32: it reads as 0, so the part is
+        // flat; 200000 mm is past the limit of a point.
+        if (std.mem.eql(u8, x, "200000")) {
+            try testing.expectError(error.Corrupt, read(gpa, out.written()));
+        } else {
+            var back = read(gpa, out.written()) catch |e| {
+                try testing.expect(e == error.Corrupt or e == error.EmptyMesh);
+                continue;
+            };
+            defer back.deinit(gpa);
+            for (back.parts[0].mesh.vertices.items) |v| try testing.expect(std.math.isFinite(v.x) and std.math.isFinite(v.z));
+        }
+    }
+}
+
+test "3mf: a snapshot with lengths past its end is corrupt" {
+    const gpa = testing.allocator;
+    // objects.bin: a name of 3 bytes, then a meta count of 2^30.
+    var obj: [11]u8 = undefined;
+    std.mem.writeInt(u32, obj[0..4], 3, .little);
+    @memcpy(obj[4..7], "abc");
+    std.mem.writeInt(u32, obj[7..11], 1 << 30, .little);
+    const entries = [_]zipfile.Entry{
+        .{ .name = "mesh-0.bin", .data = @constCast("") },
+        .{ .name = "objects.bin", .data = &obj },
+    };
+    var out: std.Io.Writer.Allocating = .init(gpa);
+    defer out.deinit();
+    try zipfile.write(gpa, &out.writer, &entries);
+    try testing.expectError(error.Corrupt, readSnapshot(gpa, out.written()));
+    // A name length of 2^32 - 1.
+    std.mem.writeInt(u32, obj[0..4], 0xffff_ffff, .little);
+    var out2: std.Io.Writer.Allocating = .init(gpa);
+    defer out2.deinit();
+    try zipfile.write(gpa, &out2.writer, &entries);
+    try testing.expectError(error.Corrupt, readSnapshot(gpa, out2.written()));
+}
+
+test "3mf: a Bambu Studio project with paint and parts of two filaments" {
+    const gpa = testing.allocator;
+    // A root model with one object of two parts in another file, as Bambu
+    // Studio writes it. Part 2 has paint on one triangle; part 3 has
+    // filament 2 in model_settings.config.
+    const root =
+        \\<?xml version="1.0"?>
+        \\<model unit="millimeter" xmlns="http://schemas.microsoft.com/3dmanufacturing/core/2015/02" xmlns:p="http://schemas.microsoft.com/3dmanufacturing/production/2015/06">
+        \\ <resources>
+        \\  <object id="1" type="model"><components>
+        \\   <component p:path="/3D/Objects/object_1.model" objectid="2"/>
+        \\   <component p:path="/3D/Objects/object_1.model" objectid="3" transform="1 0 0 0 1 0 0 0 1 0 0 1"/>
+        \\  </components></object>
+        \\ </resources>
+        \\ <build><item objectid="1" transform="1 0 0 0 1 0 0 0 1 50 50 0"/></build>
+        \\</model>
+    ;
+    const parts =
+        \\<?xml version="1.0"?>
+        \\<model unit="millimeter" xmlns="http://schemas.microsoft.com/3dmanufacturing/core/2015/02">
+        \\ <resources>
+        \\  <object id="2" type="model"><mesh><vertices>
+        \\   <vertex x="0" y="0" z="0"/><vertex x="1" y="0" z="0"/><vertex x="0" y="1" z="0"/><vertex x="0" y="0" z="1"/>
+        \\  </vertices><triangles>
+        \\   <triangle v1="0" v2="2" v3="1"/><triangle v1="0" v2="1" v3="3" paint_color="8"/><triangle v1="1" v2="2" v3="3"/><triangle v1="0" v2="3" v3="2"/>
+        \\  </triangles></mesh></object>
+        \\  <object id="3" type="model"><mesh><vertices>
+        \\   <vertex x="0" y="0" z="0"/><vertex x="1" y="0" z="0"/><vertex x="0" y="1" z="0"/><vertex x="0" y="0" z="1"/>
+        \\  </vertices><triangles>
+        \\   <triangle v1="0" v2="2" v3="1"/><triangle v1="0" v2="1" v3="3"/><triangle v1="1" v2="2" v3="3"/><triangle v1="0" v2="3" v3="2" paint_color="ZZ"/>
+        \\  </triangles></mesh></object>
+        \\ </resources>
+        \\</model>
+    ;
+    const settings =
+        \\<?xml version="1.0" encoding="UTF-8"?>
+        \\<config>
+        \\  <object id="1">
+        \\    <metadata key="extruder" value="1"/>
+        \\    <part id="2" subtype="normal_part"><metadata key="name" value="base"/></part>
+        \\    <part id="3" subtype="normal_part"><metadata key="extruder" value="2"/></part>
+        \\  </object>
+        \\</config>
+    ;
+    const project =
+        \\{ "filament_colour": ["#FFFFFF", "#D93A3A"], "filament_type": ["PLA", "PETG"] }
+    ;
+    const entries = [_]zipfile.Entry{
+        .{ .name = "3D/3dmodel.model", .data = @constCast(root) },
+        .{ .name = "3D/Objects/object_1.model", .data = @constCast(parts) },
+        .{ .name = "Metadata/model_settings.config", .data = @constCast(settings) },
+        .{ .name = "Metadata/project_settings.config", .data = @constCast(project) },
+    };
+    var out: std.Io.Writer.Allocating = .init(gpa);
+    defer out.deinit();
+    try zipfile.write(gpa, &out.writer, &entries);
+    var back = try read(gpa, out.written());
+    defer back.deinit(gpa);
+    try testing.expectEqual(@as(usize, 1), back.parts.len);
+    const p = &back.parts[0].paint;
+    // Part 2: filament 1, and filament 2 on its painted triangle; part 3:
+    // filament 2 (a bad paint text is no paint).
+    try testing.expectEqual(@as(u8, 1), p.stateOf(0));
+    try testing.expectEqual(@as(u8, 2), p.stateOf(1));
+    for (4..8) |t| try testing.expectEqual(@as(u8, 2), p.stateOf(t));
+    try testing.expectEqual(@as(usize, 2), back.colors.len);
+    try testing.expectEqualStrings("#D93A3A", back.colors[1]);
+    try testing.expectEqualStrings("PETG", back.materials[1]);
 }
 
 test "3mf: object metadata, and a group with settings splits into parts" {

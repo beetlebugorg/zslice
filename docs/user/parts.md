@@ -93,6 +93,21 @@ The G-code changes the filament where it changes. Set how the printer does this 
 - **pause**: the printer has one filament path. The print pauses (M600, or PAUSE on Klipper), and you change the filament.
 - **tool**: a unit feeds many filaments (a Bambu Lab AMS, a Prusa MMU). The G-code has a tool change (T0, T1, …), and the nozzle flushes the old color out.
 
+### Paint a part
+
+The Paint tool (**P**) paints filaments on the surface of a part. The view shows the part itself, in the colors of its paint.
+
+1. Select the part, and press **P**. With no part selected, the tool paints the first part.
+2. Click a filament chip on the card.
+3. Paint:
+   - **Smart select**: move the pointer over the part. The region under it lights up. Click to paint it. A raised letter or a logo is one region: its top and its sides. A flat face or a smooth surface is one region too. Shift and a click add more regions; a click on another chip then paints all of them.
+   - **Brush**: drag over the surface. The size sets the radius of the brush. The edge of the brush splits the triangles under it, so the border is clean.
+4. Right drag turns the view, and a middle drag pans. Press **P** or **Esc** to close the tool.
+
+Each click or stroke slices again. Each region of a layer prints with its own walls and infill in its filament. A painted top face prints its color in its top layers.
+
+A 3MF file keeps the paint. Painted models from MakerWorld (Bambu Studio) and Printables (PrusaSlicer) open with their colors and filaments.
+
 The card shows the grams of each filament and the number of changes. A level with parts of many filaments prints the filament in the nozzle first, so it changes the filament at most once for each filament on it.
 
 ## Where to go next

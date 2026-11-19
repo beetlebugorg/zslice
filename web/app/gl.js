@@ -331,6 +331,44 @@ void main() {
     frag = vec4(col, a);
 }`;
 
+// The paint tool (paint.js): the mesh of a part, each triangle in the
+// color of its filament. state: 0 the filament of the part, k the color
+// k of the palette, + 128 for the region under the pointer, 255 a
+// triangle with pieces (they draw in their own buffer).
+const paintVert = `#version 300 es
+precision highp float;
+layout(location = 0) in vec3 pos;
+layout(location = 1) in vec3 normal;
+layout(location = 2) in float state;
+uniform mat4 mvp;
+out vec3 vnormal;
+flat out int vstate;
+void main() {
+    gl_Position = mvp * vec4(pos, 1.0);
+    gl_Position.y = -gl_Position.y;
+    gl_Position.z = 2.0 * gl_Position.z - gl_Position.w;
+    vnormal = normal;
+    vstate = int(state + 0.5);
+}`;
+
+const paintFrag = `#version 300 es
+precision highp float;
+uniform vec3 colors[18];
+uniform vec3 light;
+in vec3 vnormal;
+flat in int vstate;
+out vec4 frag;
+void main() {
+    if (vstate == 255) discard;
+    int k = vstate & 127;
+    vec3 c = colors[min(k, 17)];
+    vec3 n = normalize(vnormal);
+    float lit = 0.45 + 0.55 * max(dot(n, normalize(light)), 0.0) + 0.15 * abs(n.z);
+    vec3 col = c * min(lit, 1.0);
+    if (vstate >= 128) col = mix(col, vec3(0.2, 0.55, 1.0), 0.45);
+    frag = vec4(col, 1.0);
+}`;
+
 // The 2D view: a stroke with round ends for each bead (instanced). The
 // quad of a bead goes from a - r to b + r along it, and r to each side;
 // the fragment shader cuts the round ends. kind 0: the feature colors,
@@ -480,6 +518,9 @@ export class GlRenderer {
     this.cull = gl.BACK;
     this.grid = compile(gl, gridVert, gridFrag);
     this.bedProg = compile(gl, bedVert, bedFrag);
+    this.paintProg = compile(gl, paintVert, paintFrag);
+    // The paint mesh (setPaintMesh): null when the paint tool is off.
+    this.paint = null;
     this.bedVbo = gl.createBuffer();
     this.bedVao = gl.createVertexArray();
     this.bedTex = gl.createTexture();
@@ -779,6 +820,104 @@ export class GlRenderer {
     gl.disable(gl.POLYGON_OFFSET_FILL);
   }
 
+  // ---- the paint tool (paint.js) ----
+
+  // The mesh of a part for the paint tool: pos (9 floats for each
+  // triangle) and normals (3 floats for each triangle). null ends it.
+  setPaintMesh(pos, normals) {
+    const gl = this.gl;
+    if (this.paint) {
+      for (const b of [this.paint.vbo, this.paint.sbo, this.paint.lvbo]) gl.deleteBuffer(b);
+      for (const v of [this.paint.vao, this.paint.lvao]) gl.deleteVertexArray(v);
+    }
+    this.paint = null;
+    if (!pos) return;
+    const n = pos.length / 9;
+    const data = new Float32Array(n * 18);
+    for (let t = 0; t < n; t++) {
+      for (let k = 0; k < 3; k++) {
+        const o = (3 * t + k) * 6;
+        data[o] = pos[9 * t + 3 * k];
+        data[o + 1] = pos[9 * t + 3 * k + 1];
+        data[o + 2] = pos[9 * t + 3 * k + 2];
+        data[o + 3] = normals[3 * t];
+        data[o + 4] = normals[3 * t + 1];
+        data[o + 5] = normals[3 * t + 2];
+      }
+    }
+    const p = { count: 3 * n, leaves: 0 };
+    p.vao = gl.createVertexArray();
+    gl.bindVertexArray(p.vao);
+    p.vbo = gl.createBuffer();
+    gl.bindBuffer(gl.ARRAY_BUFFER, p.vbo);
+    gl.bufferData(gl.ARRAY_BUFFER, data, gl.STATIC_DRAW);
+    gl.enableVertexAttribArray(0);
+    gl.vertexAttribPointer(0, 3, gl.FLOAT, false, 24, 0);
+    gl.enableVertexAttribArray(1);
+    gl.vertexAttribPointer(1, 3, gl.FLOAT, false, 24, 12);
+    p.sbo = gl.createBuffer();
+    gl.bindBuffer(gl.ARRAY_BUFFER, p.sbo);
+    gl.bufferData(gl.ARRAY_BUFFER, 3 * n, gl.DYNAMIC_DRAW);
+    gl.enableVertexAttribArray(2);
+    gl.vertexAttribPointer(2, 1, gl.UNSIGNED_BYTE, false, 1, 0);
+    // The pieces of the split triangles: pos, normal, and state.
+    p.lvao = gl.createVertexArray();
+    gl.bindVertexArray(p.lvao);
+    p.lvbo = gl.createBuffer();
+    gl.bindBuffer(gl.ARRAY_BUFFER, p.lvbo);
+    gl.enableVertexAttribArray(0);
+    gl.vertexAttribPointer(0, 3, gl.FLOAT, false, 28, 0);
+    gl.enableVertexAttribArray(1);
+    gl.vertexAttribPointer(1, 3, gl.FLOAT, false, 28, 12);
+    gl.enableVertexAttribArray(2);
+    gl.vertexAttribPointer(2, 1, gl.FLOAT, false, 28, 24);
+    gl.bindVertexArray(null);
+    this.paint = p;
+    this.paintColors = new Float32Array(54);
+  }
+
+  // The state of each vertex (3 for each triangle, see paintFrag).
+  setPaintStates(states) {
+    if (!this.paint) return;
+    const gl = this.gl;
+    gl.bindBuffer(gl.ARRAY_BUFFER, this.paint.sbo);
+    gl.bufferSubData(gl.ARRAY_BUFFER, 0, states);
+  }
+
+  // The pieces: 7 floats for each vertex (pos, normal, state).
+  setPaintLeaves(data) {
+    if (!this.paint) return;
+    const gl = this.gl;
+    gl.bindBuffer(gl.ARRAY_BUFFER, this.paint.lvbo);
+    gl.bufferData(gl.ARRAY_BUFFER, data, gl.DYNAMIC_DRAW);
+    this.paint.leaves = data.length / 7;
+  }
+
+  // The colors: 18 of [r, g, b] in 0..1 (0: the filament of the part).
+  setPaintColors(list) {
+    if (!this.paint) return;
+    for (let i = 0; i < 18; i++) {
+      const c = list[i] ?? list[0];
+      this.paintColors.set(c, 3 * i);
+    }
+  }
+
+  drawPaint(f) {
+    const gl = this.gl;
+    const p = this.paint;
+    gl.useProgram(this.paintProg.prog);
+    gl.uniformMatrix4fv(this.paintProg.u.mvp, false, f.grid, 0, 16);
+    gl.uniform3fv(this.paintProg.u["colors[0]"], this.paintColors);
+    gl.uniform3f(this.paintProg.u.light, -0.4, -0.6, 0.7);
+    gl.bindVertexArray(p.vao);
+    gl.drawArrays(gl.TRIANGLES, 0, p.count);
+    if (p.leaves > 0) {
+      gl.bindVertexArray(p.lvao);
+      gl.drawArrays(gl.TRIANGLES, 0, p.leaves);
+    }
+    gl.bindVertexArray(null);
+  }
+
   // Draws one frame of view.js (View3D.frame).
   draw(f) {
     const gl = this.gl;
@@ -815,6 +954,13 @@ export class GlRenderer {
       }
     }
 
+    // The paint tool shows the mesh of the part, and no beads.
+    if (this.paint) {
+      this.drawPaint(f);
+      this.drawBed(f);
+      gl.bindVertexArray(null);
+      return;
+    }
     if (this.indexCount === 0 || this.instCapacity === 0) {
       this.drawBed(f);
       gl.bindVertexArray(null);

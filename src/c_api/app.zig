@@ -2108,6 +2108,54 @@ export fn zs_app_part_get(a: ?*App, i: usize, out: ?*Part) c_int {
     return ok;
 }
 
+/// The mesh of part i at its place on the bed (mm): `nv` vertices (x, y,
+/// z) and `nf` triangles, in the order of the paint of the part. Valid
+/// until the next call or until the app goes.
+export fn zs_app_part_mesh(a: ?*App, i: usize, verts: ?*[*]const f32, nv: ?*usize, faces: ?*[*]const u32, nf: ?*usize) c_int {
+    const app = a orelse return @intFromEnum(Status.invalid_argument);
+    if (i >= app.plate.count()) return @intFromEnum(Status.out_of_range);
+    const m = app.plate.partMesh(app.gpa, i) catch return @intFromEnum(Status.out_of_memory);
+    if (app.mesh_out) |*old| old.deinit(app.gpa);
+    app.mesh_out = m;
+    const mo = &app.mesh_out.?;
+    if (verts) |o| o.* = @ptrCast(mo.vertices.items.ptr);
+    if (nv) |o| o.* = mo.vertices.items.len;
+    if (faces) |o| o.* = @ptrCast(mo.faces.items.ptr);
+    if (nf) |o| o.* = mo.faces.items.len;
+    return ok;
+}
+
+/// The paint of part i as text: a line "triangle text" for each painted
+/// triangle (the text of the 3MF form, see paint.zig). The same buffer
+/// rules as zs_app_setting_get.
+export fn zs_app_part_paint_get(a: ?*const App, i: usize, buf: ?[*]u8, cap: usize, out_len: ?*usize) c_int {
+    const app = a orelse return @intFromEnum(Status.invalid_argument);
+    if (i >= app.plate.count()) return @intFromEnum(Status.out_of_range);
+    const p = &app.plate.parts.items[i];
+    var aw: Writer.Allocating = .init(gpa);
+    defer aw.deinit();
+    p.paint.writeLines(p.mesh.faces.items.len, &aw.writer) catch return @intFromEnum(Status.out_of_memory);
+    const text = aw.written();
+    if (out_len) |l| l.* = text.len;
+    if (buf) |b| {
+        if (cap == 0) return ok;
+        const k = @min(text.len, cap - 1);
+        @memcpy(b[0..k], text[0..k]);
+        b[k] = 0;
+    }
+    return ok;
+}
+
+/// Sets the paint of part i from its text (zs_app_part_paint_get). An
+/// empty text clears it.
+export fn zs_app_part_paint_set(a: ?*App, i: usize, text: ?[*]const u8, len: usize) c_int {
+    const app = a orelse return @intFromEnum(Status.invalid_argument);
+    if (i >= app.plate.count()) return @intFromEnum(Status.out_of_range);
+    app.setPartPaint(i, if (text) |t| t[0..len] else "") catch return @intFromEnum(Status.out_of_memory);
+    noted(app, null, true);
+    return ok;
+}
+
 /// The number of filaments of the plate, at least 1 (see
 /// app/filament_slots.zig).
 export fn zs_app_filament_count(a: ?*const App) usize {

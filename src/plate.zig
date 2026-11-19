@@ -18,6 +18,9 @@
 //! to a part: it has the pose, the scale, the turn, and the place of its
 //! part, so it moves with it.
 //!
+//! A part can have paint: a filament for each triangle of its mesh (see
+//! paint.zig). A split or a cut of the part drops its paint.
+//!
 //! A part can also have the support trees of the user (the support
 //! editor, support_skeleton.Edit). They are relative to the center of the
 //! footprint, so they move with the part. They also keep the shape of the
@@ -36,6 +39,7 @@ const orient = @import("orient.zig");
 const threemf = @import("threemf.zig");
 const Meta = threemf.Meta;
 const skel = @import("support_skeleton.zig");
+const paint_mod = @import("paint.zig");
 
 /// A modifier volume of a part (see the file comment).
 pub const Volume = struct {
@@ -112,9 +116,14 @@ pub const Part = struct {
     volumes: std.ArrayList(Volume) = .empty,
     /// The support trees of the user, or null: the slice plans the trees.
     trees: ?skel.Edit = null,
+    /// The paint of the triangles of `mesh` (the same triangles as the
+    /// file): a filament for each triangle, or for its pieces (see
+    /// paint.zig). Empty: no paint.
+    paint: paint_mod.Paint = .{},
 
     fn deinit(p: *Part, gpa: Allocator) void {
         if (p.trees) |*t| t.deinit(gpa);
+        p.paint.deinit(gpa);
         p.mesh.deinit(gpa);
         if (p.source) |*m| m.deinit(gpa);
         gpa.free(p.name);
@@ -304,6 +313,8 @@ pub const Plate = struct {
         p.trees = null;
         if (src.trees) |*t| p.trees = try t.clone(gpa);
         errdefer if (p.trees) |*t| t.deinit(gpa);
+        p.paint = try src.paint.clone(gpa);
+        errdefer p.paint.deinit(gpa);
         p.volumes = .empty;
         errdefer {
             for (p.volumes.items) |*v| v.deinit(gpa);

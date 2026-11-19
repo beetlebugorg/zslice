@@ -68,6 +68,8 @@ The rule of `docs/app/README.md` holds: the app logic is in the core, and the we
 | `settings.js` | The Settings page: the sections, the settings, and the detail page |
 | `layers.js` | The layer slider with two knobs |
 | `support.js` | The Support tool (U): draw a support area on the part, and drag its points |
+| `paint.js` | The Paint tool (P): the mesh of a part in the colors of its paint, the smart select, and the brush (a paint session of the view, zs_paint_*) |
+| `filaments.js` | The filaments of the plate: the chips of `project.filament`, and the list on the print card |
 | `menus.js` | The popup menus, the context menu, and the popovers |
 | `format.js` | The text of setting values, as the GTK shell shows them |
 | `printers.js` | The printer picker: the printer library of the core (`printers.txt`, loaded when the picker opens), the search, the brands, the drawing of the build volume (with the bed texture on the plate), and the second step. Also the files of the bed model of the current printer (`bedFiles`) |

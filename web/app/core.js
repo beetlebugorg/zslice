@@ -1084,6 +1084,34 @@ export class Core {
     return out;
   }
 
+  // ---- the paint of a part (zs_app_part_mesh, zs_app_part_paint_*) ----
+
+  // The mesh of part i at its place: { verts: Float32Array (x, y, z),
+  // faces: Uint32Array }, copies out of wasm memory, or null.
+  partMesh(i) {
+    const w = this.w;
+    const c = w.cell;
+    if (w.x.zs_app_part_mesh(this.app, i, c, c + 4, c + 8, c + 12) !== 0) return null;
+    const vp = w.u32(c);
+    const nv = w.u32(c + 4);
+    const fp = w.u32(c + 8);
+    const nf = w.u32(c + 12);
+    const buf = w.x.memory.buffer;
+    return { verts: new Float32Array(buf.slice(vp, vp + 12 * nv)), faces: new Uint32Array(buf.slice(fp, fp + 12 * nf)) };
+  }
+
+  // The paint of part i as text (see zs_app_part_paint_get).
+  partPaint(i) {
+    const w = this.w;
+    return w.readText((b, cap, l) => w.x.zs_app_part_paint_get(this.app, i, b, cap, l)) ?? "";
+  }
+
+  setPartPaint(i, text) {
+    const w = this.w;
+    const bytes = new TextEncoder().encode(text);
+    return w.withBytes(bytes, (p, n) => w.x.zs_app_part_paint_set(this.app, i, p, n)) === 0;
+  }
+
   // ---- the filaments of the plate (zs_app_filament_*) ----
 
   // The filaments: [{ index, name, material, color, nozzleTemp }].

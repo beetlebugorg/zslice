@@ -454,7 +454,7 @@ function tinyParts(c) {
   return out;
 }
 
-const PLATE_OPS = new Set(["fallStep", "load", "add", "plate", "projectLoad", "partAction", "partsAction", "partsMove", "partsSettingSet", "partsToPlate", "partCut", "partMove", "partFill", "partToPlate", "editAdd", "editDot", "editRemove", "partSettingSet", "filamentAdd", "filamentRemove", "filamentSet", "partPutDown", "partTurn", "putDown", "place", "partMove", "partRotate", "partScale", "partSettle", "markAdd", "supportRemoveAt", "supportKindAt", "markRemoveNear", "markSet", "markRemove", "marksClear", "supportAreaAdd", "supportAreaSet", "supportAreaKind", "supportAreaRemove", "treeMoveNode", "treeRadius", "treeMoveBranch", "treeDelete", "treeAdd", "treeReset"]);
+const PLATE_OPS = new Set(["fallStep", "load", "add", "plate", "projectLoad", "partAction", "partsAction", "partsMove", "partsSettingSet", "partsToPlate", "partCut", "partMove", "partFill", "partToPlate", "editAdd", "editDot", "editRemove", "partSettingSet", "paintSet", "filamentAdd", "filamentRemove", "filamentSet", "partPutDown", "partTurn", "putDown", "place", "partMove", "partRotate", "partScale", "partSettle", "markAdd", "supportRemoveAt", "supportKindAt", "markRemoveNear", "markSet", "markRemove", "marksClear", "supportAreaAdd", "supportAreaSet", "supportAreaKind", "supportAreaRemove", "treeMoveNode", "treeRadius", "treeMoveBranch", "treeDelete", "treeAdd", "treeReset"]);
 
 // The values of settings at z (core.valueAt): { name: entry }.
 function valuesAt({ z, names }) {
@@ -1103,6 +1103,22 @@ const ops = {
     if (n === 0) return { part: null };
     const j = index < 0 ? (dir > 0 ? 0 : n - 1) : (((index + dir) % n) + n) % n;
     return { part: core.part(j) };
+  },
+
+  // ---- the paint of a part (paint.js) ----
+
+  // The mesh of part `index` at its place, and its paint as text.
+  paintOpen({ index }) {
+    const m = core.partMesh(index);
+    if (!m) return { error: "No part." };
+    return { verts: m.verts, faces: m.faces, text: core.partPaint(index) };
+  },
+
+  // The paint of part `index` from the paint tool: slices again.
+  paintSet({ index, text }) {
+    if (!core.setPartPaint(index, text)) return { error: "No part." };
+    wantSlice();
+    return {};
   },
 
   // ---- the filaments of the plate ----

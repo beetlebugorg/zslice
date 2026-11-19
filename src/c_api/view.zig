@@ -330,6 +330,16 @@ export fn zs_view_surface_point(view: ?*const View, px: f32, py: f32, snap: c_in
     return 1;
 }
 
+/// The ray of the camera through a pixel: out gets the eye (x, y, z) and
+/// the direction (a unit vector), for zs_paint_hit. 0 with no view.
+export fn zs_view_ray(view: ?*const View, px: f32, py: f32, out: ?*[6]f32) c_int {
+    if (!render_on) return 0;
+    const v = view orelse return 0;
+    const o = out orelse return 0;
+    o.* = v.ray(px, py);
+    return 1;
+}
+
 /// The pixel of a point of the world (mm), or 0 if it is behind the
 /// camera: for a grab of an end of the measure tape.
 export fn zs_view_pixel_of(view: ?*const View, x: f64, y: f64, z: f64, px: ?*f32, py: ?*f32) c_int {

@@ -2283,6 +2283,14 @@ pub const View = struct {
     }
 
     /// The unit direction of the ray from the camera through pixel (px, py).
+    /// The ray of the camera through the pixel (px, py): the eye and the
+    /// direction (a unit vector), for a pick of a mesh (the paint tool).
+    pub fn ray(v: *const View, px: f32, py: f32) [6]f32 {
+        const cam = v.camera();
+        const d = v.pixelRay(cam, px, py);
+        return .{ cam.eye[0], cam.eye[1], cam.eye[2], d[0], d[1], d[2] };
+    }
+
     fn pixelRay(v: *const View, cam: anytype, px: f32, py: f32) [3]f32 {
         const aspect = @as(f32, @floatFromInt(v.width)) / @as(f32, @floatFromInt(v.height));
         const tan_half = @tan(@as(f32, fov) / 2);

@@ -68,6 +68,7 @@ import { LineCard } from "./linecard.js";
 import { PartCard } from "./partcard.js";
 import { RangeCard } from "./rangecard.js";
 import { FilamentList, setFilaments, filamentStats } from "./filaments.js";
+import { PaintTool } from "./paint.js";
 import { TurnRings } from "./turn.js";
 import { attachViewInput } from "./input.js";
 import { FarmPage } from "./farm.js";
@@ -840,6 +841,31 @@ function sliceAfterKeys(turned = -1) {
 // The card of a selected part, next to it in the view (partcard.js).
 // The filaments of the plate on the print card (filaments.js).
 var filamentList = new FilamentList({ client, applySettings: (r) => applySettings(r), toast: (t) => toast(t) });
+
+// The Paint tool (P): filaments on the surface of a part (paint.js).
+var paintTool = new PaintTool({
+  client,
+  view,
+  gl,
+  canvas,
+  host: $("preview"),
+  button: $("tool-paint"),
+  // The selected part, else the first part.
+  part: () => (tools.part ? tools.part.index : app.parts > 0 ? 0 : -1),
+  partFilament: async (i) => {
+    const r = await client.call("partSettings", { index: i });
+    const own = r.list?.find(([n]) => n === "project.filament");
+    return Number(own ? own[1] : browser.values?.["project.filament"]?.value ?? 1) || 1;
+  },
+  requestFrame: () => requestFrame(),
+  toast: (t) => toast(t),
+  addFilament: async () => {
+    const r = await client.call("filamentAdd", {});
+    setFilaments(r.list);
+    return r.index;
+  },
+});
+$("tool-paint").onclick = () => paintTool.toggle();
 $("sum-pop").insertBefore(filamentList.node, $("sum-took"));
 
 var partCard = new PartCard({
@@ -1785,6 +1811,7 @@ function onPreviewKey(e) {
       e.preventDefault();
       return;
     case "m": case "M": tools.set("move"); e.preventDefault(); return;
+    case "p": case "P": paintTool.toggle(); e.preventDefault(); return;
     // Shift+H and Shift+L: the line before or after (as Shift with the
     // arrows). H alone is the Grab tool.
     case "H": if (e.shiftKey) { dir = -1; break; } tools.set("grab"); e.preventDefault(); return;
@@ -1799,6 +1826,11 @@ function onPreviewKey(e) {
       e.preventDefault();
       return;
     case "Escape":
+      if (paintTool.on) {
+        paintTool.close();
+        e.preventDefault();
+        return;
+      }
       if (rangeCard.open) {
         rangeCard.close();
         e.preventDefault();
@@ -2712,6 +2744,7 @@ function onWorkerEvent(m) {
       app.stats = m.stats;
       // A "sliced" event of the simulated print has no filaments.
       if (m.filaments) setFilaments(m.filaments, m.filamentStats ?? null);
+      paintTool?.refresh();
       app.layers = m.layers;
       app.marks = m.marks;
       supportTool?.setAreas(m.areas);
@@ -3654,6 +3687,7 @@ window.zslice = {
   search,
   shortcuts,
   partCard,
+  paintTool,
   turnRings,
   supportTool,
   app, view, view2d, layers, browser, client, gl, inspector, gaps, history, undoRedo, tools, store, managePrinters, openPrinterSettings, loadProfile, setSetting, pickAt, topLayerPoint, openCheck, frameTimes,

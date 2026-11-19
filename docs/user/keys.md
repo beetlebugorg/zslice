@@ -29,6 +29,7 @@ Press `?` in the app to see all keys. Type in the sheet to filter it. On the Mac
 | S | Support: click an overhang, or draw an area. S again opens or closes the card of the tool. |
 | H | Grab: pick up a part, carry it, and let go |
 | T | Measure: two clicks |
+| P | Paint: paint filaments on a part (Smart select or Brush) |
 | G | Gaps of the top layer |
 | Ctrl+click, Ctrl+drag, Ctrl+wheel | Select, move, and turn a part with any tool |
 | Shift+click | Add a part to the selection, or take it out |

@@ -1034,3 +1034,11 @@ button.destructive { background: #c01c28; color: #fff; }
 .fil-num { font-weight: 700; text-align: center; }
 .fil-g { font-variant-numeric: tabular-nums; font-size: 0.9em; }
 .fil-add-row { align-self: start; }
+
+/* The card of the Paint tool (paint.js): at the left, next to the tools,
+   so it never covers the part. */
+.paint-card { left: 72px; top: 12px; width: 260px; }
+.paint-modes .pc-action.on { background: var(--accent-bg, #3584e4); color: #fff; }
+.paint-size input { flex: 1; }
+.paint-chips { margin: 4px 0 6px; }
+#tool-paint.on { background: var(--accent-bg, #3584e4); color: #fff; }
