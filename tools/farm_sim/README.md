@@ -27,6 +27,19 @@ python3 -I tools/farm_sim/farm_sim.py --printers 50 --speed 60
   to 45 minutes after it is due. `--no-operator` leaves that to you.
 - **The orders.** Orders come in at random (`--order-every`): a model of
   `../printdeck` and a count.
+- **The cameras.** Most printers have a webcam with a test pattern of
+  ffmpeg (no ffmpeg, no cameras; `--no-cameras` turns them off). printdeck
+  has `/webcam/stream` and `/webcam/snapshot` with the API key in the
+  query. OctoPrint has the paths of mjpg-streamer (`/webcam/?action=stream`).
+  Both name the camera in `/api/settings`. Moonraker lists its camera in
+  `/server/webcams/list`: an MJPEG camera, or a WebRTC camera that gives
+  only snapshots. Each ninth printer has a camera that answers 503.
+- **The temperatures.** The nozzle and the bed, with their targets, in
+  `/api/printer` and in the `extruder` and `heater_bed` objects of
+  Moonraker.
+- **Web pages.** A page on this computer (an origin of 127.0.0.1 or
+  localhost, at any port) can read the printers: they send the CORS
+  headers for it. `--allow-origin ORIGIN` adds another origin.
 
 ## Use it with the macOS app
 

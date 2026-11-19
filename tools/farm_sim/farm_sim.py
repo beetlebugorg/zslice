@@ -44,6 +44,22 @@
 # Orders come in at random (--order-every seconds of the farm clock): a
 # model from ../printdeck and a count, for the apps to plan.
 #
+# The cameras: most printers have a webcam, as the real ones give it.
+# printdeck: /webcam/stream (MJPEG, multipart/x-mixed-replace) and
+# /webcam/snapshot, with the API key in the query, named in /api/settings.
+# OctoPrint: the paths of mjpg-streamer (/webcam/?action=stream and
+# ?action=snapshot), named in /api/settings. Moonraker: /server/webcams/list,
+# with an "mjpegstreamer" camera or a "webrtc-camerastreamer" camera (the app
+# polls its snapshot). A few cameras answer 503, for the error message of
+# the apps. The frames are a test pattern of ffmpeg, made once at the start;
+# with no ffmpeg, the printers have no camera.
+#
+# CORS: a web page on this computer (an Origin of 127.0.0.1 or localhost,
+# any port; --allow-origin adds others) can read the printers, as a printer
+# that allows the page does (printdeck WEB_ORIGINS, OctoPrint "Allow Cross
+# Origin Requests", Moonraker cors_domains). The control API stays closed
+# to web pages.
+#
 # Usage: python3 -I tools/farm_sim/farm_sim.py --printers 50 --speed 60
 #
 # See REFERENCES.md: the OctoPrint, Moonraker, and printdeck APIs.
@@ -55,7 +71,9 @@ import json
 import os
 import random
 import re
+import shutil
 import socketserver
+import subprocess
 import sys
 import threading
 import time
@@ -85,6 +103,32 @@ FAILURES = ["Nozzle clog: no plastic for 30 s", "Spaghetti: the print came off t
 
 LOCK = threading.Lock()
 FARM_ARGS = None
+# The JPEG frames of the cameras (make_frames), shared by all printers.
+FRAMES = []
+LOCAL_ORIGIN = re.compile(r"^https?://(127\.0\.0\.1|localhost|\[::1\])(:\d+)?$")
+
+
+def make_frames(n=48, size="480x270"):
+    """A moving test pattern as JPEG frames, from ffmpeg. [] with no
+    ffmpeg."""
+    ff = shutil.which("ffmpeg")
+    if not ff:
+        return []
+    try:
+        out = subprocess.run([ff, "-v", "error", "-f", "lavfi", "-i", f"testsrc2=size={size}:rate=12", "-frames:v", str(n),
+                              "-q:v", "6", "-f", "image2pipe", "-c:v", "mjpeg", "-"], capture_output=True, timeout=30).stdout
+    except (OSError, subprocess.SubprocessError):
+        return []
+    frames = []
+    i = 0
+    while True:
+        a = out.find(b"\xff\xd8", i)
+        b = out.find(b"\xff\xd9", a + 2)
+        if a < 0 or b < 0:
+            break
+        frames.append(out[a:b + 2])
+        i = b + 2
+    return frames
 
 
 class Server(ThreadingHTTPServer):
@@ -139,6 +183,18 @@ class Printer:
         self.next_id = 1
         # The farm time when the operator acts on this printer next.
         self.operator_at = None
+        # The camera: "mjpeg" (a stream and snapshots), "snapshot" (only
+        # snapshots: a WebRTC camera of Moonraker), "broken" (503), or None.
+        # The camera follows the number of the printer, so the farm of each
+        # seed stays as it was.
+        if self.resin and i % 2:
+            self.camera = None
+        elif kind == "moonraker" and i % 3 == 2:
+            self.camera = "snapshot"
+        elif i % 9 == 4:
+            self.camera = "broken"
+        else:
+            self.camera = "mjpeg"
 
     @property
     def deck(self):
@@ -269,11 +325,46 @@ class Printer:
             del j
         return out
 
+    def heat(self):
+        """The temperatures: (nozzle, nozzle target, bed, bed target)."""
+        if self.resin:
+            return (0, 0, 0, 0)
+        hot = self.state in ("Heating", "Printing", "Paused")
+        tn = {"PLA": 215, "PETG": 240, "ASA": 255, "TPU": 225}.get(self.material, 215) if hot else 0
+        tb = {"PLA": 60, "PETG": 80, "ASA": 100, "TPU": 50}.get(self.material, 60) if hot else 0
+        if self.state == "Heating":
+            return (round(tn * 0.7, 1), tn, round(tb * 0.8, 1), tb)
+        return (round(tn + 0.4, 1) if hot else 26.0, tn, round(tb - 0.2, 1) if hot else 25.0, tb)
+
+    def octo_webcam(self, key):
+        """The webcam of /api/settings: printdeck has the key in the
+        address; OctoPrint has the paths of mjpg-streamer."""
+        if not self.camera or not FRAMES:
+            return {"webcamEnabled": False, "streamUrl": "", "snapshotUrl": ""}
+        if self.deck:
+            q = f"?apikey={key}" if key else ""
+            return {"webcamEnabled": True, "streamUrl": f"/webcam/stream{q}", "snapshotUrl": f"/webcam/snapshot{q}",
+                    "flipH": False, "flipV": False, "rotate90": False}
+        return {"webcamEnabled": True, "streamUrl": "/webcam/?action=stream", "snapshotUrl": "/webcam/?action=snapshot",
+                "flipH": False, "flipV": False, "rotate90": False}
+
+    def moonraker_webcams(self):
+        if not self.camera or not FRAMES:
+            return {"result": {"webcams": []}}
+        service = "webrtc-camerastreamer" if self.camera == "snapshot" else "mjpegstreamer"
+        stream = "/webcam/webrtc" if self.camera == "snapshot" else "/webcam/?action=stream"
+        return {"result": {"webcams": [{"name": "cam", "location": "printer", "service": service, "enabled": True,
+                                        "target_fps": 15, "stream_url": stream, "snapshot_url": "/webcam/?action=snapshot",
+                                        "flip_horizontal": False, "flip_vertical": False, "rotation": 0}]}}
+
     def moonraker_query(self, clock):
         state = {"Operational": "standby", "Heating": "printing", "Printing": "printing", "Paused": "paused",
                  "Finished": "complete", "Error": "error"}[self.state]
         p = self.progress(clock)
+        n, nt, b, bt = self.heat()
         return {"result": {"status": {
+            "extruder": {"temperature": n, "target": nt},
+            "heater_bed": {"temperature": b, "target": bt},
             "print_stats": {"state": state, "filename": self.job_title(), "message": self.reason,
                             "print_duration": 0, "info": {"current_layer": int(p * 200), "total_layer": 200}},
             "virtual_sdcard": {"progress": p},
@@ -422,13 +513,64 @@ def printer_handler(farm, p):
         def log_message(self, *a):
             pass
 
+        def cors(self):
+            """The CORS headers for a page on this computer, or for an
+            origin of --allow-origin. Other pages get none, and the browser
+            blocks them."""
+            o = self.headers.get("Origin")
+            if o and (LOCAL_ORIGIN.match(o) or o in (farm.args.allow_origin or [])):
+                self.send_header("Access-Control-Allow-Origin", o)
+                self.send_header("Vary", "Origin")
+
         def send(self, code, obj=None, ctype="application/json"):
             body = b"" if obj is None else (obj if isinstance(obj, bytes) else json.dumps(obj).encode())
             self.send_response(code)
             self.send_header("Content-Type", ctype)
             self.send_header("Content-Length", str(len(body)))
+            self.cors()
             self.end_headers()
             self.wfile.write(body)
+
+        def do_OPTIONS(self):
+            if p.offline:
+                self.close_connection = True
+                return
+            self.send_response(204)
+            self.cors()
+            self.send_header("Access-Control-Allow-Methods", "GET, POST, DELETE, OPTIONS")
+            self.send_header("Access-Control-Allow-Headers", "X-Api-Key, Content-Type")
+            self.send_header("Access-Control-Max-Age", "600")
+            self.send_header("Content-Length", "0")
+            self.end_headers()
+
+        def webcam(self, stream):
+            """A snapshot, or an MJPEG stream at fps (5 by default) until the
+            client goes."""
+            if not p.camera or not FRAMES:
+                return self.send(404, {"error": "No camera"})
+            if p.camera == "broken":
+                return self.send(503, {"error": "The camera is off"})
+            if stream and p.camera == "snapshot":
+                return self.send(404, {"error": "Not found"})
+            if not stream:
+                return self.send(200, FRAMES[int(time.time() * 12) % len(FRAMES)], "image/jpeg")
+            m = re.search(r"[?&]fps=([\d.]+)", self.path)
+            wait = 1 / min(max(float(m.group(1)) if m else 5.0, 0.1), 15)
+            self.send_response(200)
+            self.send_header("Content-Type", "multipart/x-mixed-replace; boundary=frame")
+            self.send_header("Cache-Control", "no-store")
+            self.cors()
+            self.end_headers()
+            k = p.id
+            try:
+                while True:
+                    f = FRAMES[k % len(FRAMES)]
+                    k += 1
+                    self.wfile.write(b"--frame\r\nContent-Type: image/jpeg\r\nContent-Length: %d\r\n\r\n" % len(f) + f + b"\r\n")
+                    self.wfile.flush()
+                    time.sleep(wait)
+            except (BrokenPipeError, ConnectionResetError, OSError):
+                self.close_connection = True
 
         def authed(self):
             key = self.headers.get("X-Api-Key") or ""
@@ -448,14 +590,24 @@ def printer_handler(farm, p):
                 return self.send(200, {"api": "0.1", "server": "1.9.0", "text": f"printdeck sim ({p.brand} {p.model})"})
             if path == "/server/info" and p.kind == "moonraker":
                 return self.send(200, {"result": {"klippy_state": "ready", "moonraker_version": "v0.9-sim"}})
+            # mjpg-streamer of OctoPrint and Moonraker: no API key.
+            if path == "/webcam/" and not p.deck:
+                return self.webcam("action=stream" in self.path)
+            if path in ("/webcam/stream", "/webcam/snapshot") and p.deck:
+                return self.authed() and self.webcam(path.endswith("stream"))
             if not self.authed():
                 return
             with LOCK:
                 c = farm.clock
                 if path == "/api/printer":
+                    n, nt, b, bt = p.heat()
                     return self.send(200, {"state": {"text": p.state, "error": p.reason},
-                                           "temperature": {"tool0": {"actual": 215 if p.state in ("Printing", "Heating") else 26},
-                                                           "bed": {"actual": 60 if p.state == "Printing" else 25}}})
+                                           "temperature": {"tool0": {"actual": n, "target": nt},
+                                                           "bed": {"actual": b, "target": bt}}})
+                if path == "/api/settings" and p.kind != "moonraker":
+                    return self.send(200, {"api": {"allowCrossOrigin": True}, "webcam": p.octo_webcam(farm.args.key)})
+                if path == "/server/webcams/list" and p.kind == "moonraker":
+                    return self.send(200, p.moonraker_webcams())
                 if path == "/api/printerprofiles":
                     return self.send(200, {"profiles": {"_default": {"current": True, "name": p.model,
                                                                      "volume": {"width": p.bed[0], "depth": p.bed[1], "height": p.bed[2]},
@@ -622,10 +774,15 @@ def main():
     ap.add_argument("--no-operator", dest="operator", action="store_false",
                     help="no people: beds stay full, and printdeck queues wait, until the control API acts")
     ap.add_argument("--fleet", default="fleet.json", help="where to write the list of the printers")
+    ap.add_argument("--allow-origin", action="append", metavar="ORIGIN",
+                    help="a web page origin that may read the printers (CORS); pages on 127.0.0.1 and localhost always may")
+    ap.add_argument("--no-cameras", dest="cameras", action="store_false", help="no webcams (no ffmpeg run at the start)")
     args = ap.parse_args()
 
     global FARM_ARGS
     FARM_ARGS = args
+    if args.cameras:
+        FRAMES.extend(make_frames())
     farm = Farm(args)
     servers = []
     for p in farm.printers:
@@ -640,7 +797,7 @@ def main():
         kinds[p.kind] = kinds.get(p.kind, 0) + 1
     print(f"farm: {len(farm.printers)} printers on 127.0.0.1:{args.port}-{args.port + len(farm.printers) - 1} "
           f"({', '.join(f'{n} {k}' for k, n in sorted(kinds.items()))}), "
-          f"{sum(p.offline for p in farm.printers)} offline; control on :{args.control}; "
+          f"{sum(p.offline for p in farm.printers)} offline; {sum(bool(p.camera) for p in farm.printers) if FRAMES else 0} cameras; control on :{args.control}; "
           f"clock ×{args.speed:g}; key '{args.key}'; fleet in {args.fleet}; {len(farm.models)} models for orders", flush=True)
     try:
         while True:
