@@ -520,7 +520,7 @@ function showLegend() {
 }
 
 $("colors").title = `The colors of the lines: ${MODES[app.mode]}`;
-$("colors").onclick = () => openMenu($("colors"), MODES.map((m, i) => ({
+$("colors").onclick = () => openMenu($("colors"), [...MODES.map((m, i) => ({
   label: m,
   checked: i === app.mode,
   action: () => {
@@ -532,7 +532,28 @@ $("colors").onclick = () => openMenu($("colors"), MODES.map((m, i) => ({
     showPage("3d");
     client.call("mode", { value: i });
   },
-})));
+})), { sep: true }, {
+  label: "The print as it forms (simulated plastic)",
+  checked: !!app.simulated,
+  action: () => toggleSimulation(),
+}]);
+
+// The print as it forms: the core simulates the plastic of the slice (it
+// falls where nothing holds it, sags, cools, and sets), and the view shows
+// it in place of the planned lines. A new slice shows the plan again.
+async function toggleSimulation() {
+  const on = !app.simulated;
+  if (on) toast("Simulating the plastic of the print…", 30000);
+  const r = await client.call("simulate", { on });
+  if (r.error) {
+    toast(r.error);
+    return;
+  }
+  if (on && r.stats) {
+    const s = r.stats;
+    toast(s.moved > 0 ? `The plastic of ${s.movedPaths} lines does not stay where it prints: up to ${s.maxMove.toFixed(1)} mm off. Turn on support, or change the turn of the part.` : "All the plastic stays where it prints.", 8000);
+  }
+}
 
 // ---- the settings ----
 
@@ -2288,6 +2309,7 @@ function onWorkerEvent(m) {
       break;
     case "sliced": {
       app.slicing = false;
+      app.simulated = !!m.simulated;
       // A plate with a slice is not empty (also a plate that became active).
       $("empty").hidden = true;
       inspector.setStale(false);

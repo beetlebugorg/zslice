@@ -640,7 +640,10 @@ pub const View = struct {
                         const ia = z_start + (a - start);
                         const ib = z_start + (b - start);
                         bz = (tp.point_z.items[ia] + tp.point_z.items[ib]) / 2 * sz;
-                        bh = @max(bz - z_low, 0.01);
+                        // A bead under the top of the layer below (plastic
+                        // that fell in the simulated print) keeps the
+                        // height of its path: it is a whole strand.
+                        bh = if (bz - z_low < 0.25 * h) h else bz - z_low;
                         const area = (tp.point_area.items[ia] + tp.point_area.items[ib]) / 2;
                         const bead: f32 = @floatCast(@import("../flow.zig").beadWidth(area, bh / sz));
                         bw = bead * sxy;

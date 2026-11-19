@@ -795,6 +795,22 @@ const ops = {
     return { started: rc === 1, held };
   },
 
+  // The print as it forms (zs_app_simulate_print): on, the plastic of the
+  // last slice is simulated, and the view gets a scene of it; off, the
+  // view gets the slice again. Returns the numbers of the simulation.
+  simulate({ on }) {
+    let stats = null;
+    if (on) {
+      stats = core.simulatePrint();
+      if (!stats) return { error: "Slice first: the simulation needs a slice." };
+      core.showSimulated(true);
+    } else core.showSimulated(false);
+    const scene = core.scene(mode);
+    const layers = core.layers();
+    post({ event: "sliced", plate: activeIndex(), ms: 0, stats: core.stats(), featureStats: core.featureStats(), layers, scene, mode, marks: core.markCount(), areas: core.supportAreas(), parts: core.w.x.zs_app_part_count(core.app), fits: core.w.x.zs_app_plate_fits(core.app) === 1, tiny: [], simulated: on }, scene ? [scene] : []);
+    return { stats };
+  },
+
   // The hand (zs_app_grab_*): take part `index` at the bed point (x, y, z),
   // move the hand, and let go. The frames are those of the fall.
   grabStart({ index, x, y, z }) {
