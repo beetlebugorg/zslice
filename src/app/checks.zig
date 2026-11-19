@@ -242,13 +242,17 @@ const Hang = struct { layer: u32, area: f64, x: f64, y: f64, anchors: u32, held:
 /// The pieces of layer i (i >= 1) that hang out past layer i - 1 farther
 /// than height × tan(support_angle), wider than a line. A piece whose edge
 /// meets two or more separate solid areas of layer i - 1 is a bridge.
-fn hangsOf(gpa: Allocator, job: *const zs.engine.Job, i: usize, angle: f64, out: *std.ArrayList(Hang)) !void {
+// `under`: the plastic under layer `i`, or null for the layer below in the
+// job. A painted part prints as one job for each filament: the layer of the
+// other filaments under a region holds it up too.
+fn hangsOf(gpa: Allocator, job: *const zs.engine.Job, i: usize, under: ?geom.Paths, angle: f64, out: *std.ArrayList(Hang)) !void {
     var arena_state = std.heap.ArenaAllocator.init(gpa);
     defer arena_state.deinit();
     const arena = arena_state.allocator();
+    const lower = under orelse job.outlines[i - 1];
     const h = job.layers[i].height;
     const reach = geom.fromMm(h * @tan(angle));
-    const below = try zs.offset.offset(arena, job.outlines[i - 1], reach, .{});
+    const below = try zs.offset.offset(arena, lower, reach, .{});
     const hang = try zs.clip.difference(arena, job.outlines[i], below);
     if (hang.isEmpty()) return;
     // Only parts wider than a line: a shrink and a grow by half a line
@@ -257,7 +261,7 @@ fn hangsOf(gpa: Allocator, job: *const zs.engine.Job, i: usize, angle: f64, out:
     const wide = try zs.offset.opening(arena, hang, @divTrunc(w, 2), .{});
     if (wide.isEmpty()) return;
     // The solid areas under the layer, in the outline of the layer.
-    const solid = try zs.clip.intersect(arena, job.outlines[i - 1], job.outlines[i]);
+    const solid = try zs.clip.intersect(arena, lower, job.outlines[i]);
     const pieces = try zs.infill.islandsOf(arena, wide);
     for (pieces) |piece| {
         const area = piece.areaMm2();
@@ -323,9 +327,26 @@ fn overhangIssues(b: *Builder, pj: *const zs.PlateJob, s: zs.Settings) Allocator
         lists: []std.ArrayList(Hang),
         gpa: Allocator,
         fn run(c: *const @This(), k: usize) anyerror!void {
-            const job = &c.pj.groups[c.items[k].group].job;
+            const g = &c.pj.groups[c.items[k].group];
+            const job = &g.job;
+            const i = c.items[k].layer;
             const angle = std.math.degreesToRadians(job.resolved.settings.project.support_angle);
-            try hangsOf(c.gpa, job, c.items[k].layer, angle, &c.lists[k]);
+            if (!g.painted) return hangsOf(c.gpa, job, i, null, angle, &c.lists[k]);
+            // A painted part: the layer below of all jobs of the part, at
+            // the level of the layer below of this job.
+            var arena_state = std.heap.ArenaAllocator.init(c.gpa);
+            defer arena_state.deinit();
+            const arena = arena_state.allocator();
+            const level = g.layer_level[i - 1];
+            var under: geom.Paths = try job.outlines[i - 1].clone(arena);
+            for (c.pj.groups) |*o| {
+                if (o == g or o.part != g.part or !o.painted) continue;
+                for (o.layer_level, 0..) |lv, j| if (lv == level) {
+                    under = try zs.clip.unite(arena, under, o.job.outlines[j]);
+                    break;
+                };
+            }
+            try hangsOf(c.gpa, job, i, under, angle, &c.lists[k]);
         }
     };
     const c: Pass = .{ .pj = pj, .items = items.items, .lists = lists, .gpa = b.gpa };
@@ -528,4 +549,31 @@ test "checks: the brim holds a thin pin, and a box has no note" {
         };
         try std.testing.expectEqual(c.notes, notes);
     }
+}
+
+test "checks: a painted letter rests on the base of the other filament" {
+    const gpa = std.testing.allocator;
+    // A base and a letter on it; the letter has filament 2. Each filament
+    // is its own job, but the base holds the letter up: no overhang.
+    var b: zs.mesh.Builder = .init(gpa);
+    try zs.mesh.shapes.addBox(&b, 0, 0, 0, 30, 20, 3);
+    try zs.mesh.shapes.addBox(&b, 12, 7, 3, 18, 13, 5);
+    var mesh = try b.finish();
+    var stl: std.Io.Writer.Allocating = .init(gpa);
+    defer stl.deinit();
+    try mesh.writeStl(&stl.writer);
+    const nf = mesh.faces.items.len;
+    mesh.deinit(gpa);
+    const app = try zs.app.App.create(gpa, null, null);
+    defer app.destroy();
+    try app.loadStl("plaque.stl", stl.written());
+    _ = try @import("filament_slots.zig").add(app);
+    var text: std.Io.Writer.Allocating = .init(gpa);
+    defer text.deinit();
+    for (nf - 12..nf) |t| try text.writer.print("{d} 8\n", .{t});
+    try app.setPartPaint(0, text.written());
+    try app.startSlice();
+    app.stopWorkerForTest();
+    const r = try app.checks();
+    for (r.issues) |i| try std.testing.expect(i.kind != .overhang and i.kind != .bridge);
 }
