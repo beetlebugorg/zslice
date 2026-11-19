@@ -530,6 +530,19 @@ final class Workspace {
                 }
             }
         }
+        // ZSLICE_SEND_TO=k[:print] (tests only) sends the active plate to
+        // printer k of the store 4 s after the start, with no question,
+        // and logs the result.
+        if let spec = env["ZSLICE_SEND_TO"], let k = Int(spec.split(separator: ":").first ?? "") {
+            DispatchQueue.main.asyncAfter(deadline: .now() + 4) { [weak self] in
+                guard let self, PrinterStore.shared.printers.indices.contains(k), let data = model.gcode(plate: model.active) else { return }
+                let p = PrinterStore.shared.printers[k]
+                Task { @MainActor in
+                    let r = await self.transfer(data, title: self.model.gcodeName(plate: self.model.active), to: p, print: spec.hasSuffix(":print"))
+                    NSLog("zslice send to %@ (deck bambu %d): %d %@", p.name, p.bambuDeck ? 1 : 0, r.ok ? 1 : 0, r.message)
+                }
+            }
+        }
         // ZSLICE_PAGE_CLOSE=s closes the Printers page after s seconds (a
         // test that its cameras stop).
         if let t = env["ZSLICE_PAGE_CLOSE"].flatMap(Double.init) {
@@ -555,7 +568,7 @@ final class Workspace {
                         guard let p = m.printer(at: s.printer), let ref = m.plate(of: s.job),
                               let i = ref.workspace.model.plates.firstIndex(where: { $0.id == ref.plate }),
                               let data = ref.workspace.model.gcode(plate: i) else { continue }
-                        let r = await transfer(data, title: model.gcodeName(plate: i), to: p, print: true)
+                        let r = await transfer(data, title: model.gcodeName(plate: i), to: p, print: true, plate: i)
                         if r.ok { m.sent(job: s.job, to: p) }
                         NSLog("zslice queue: sent job %u to %@: %@", s.job, p.name, r.message)
                     }
@@ -1589,20 +1602,27 @@ final class Workspace {
 
     /// Sends G-code to a printer of any kind, and starts it with `print`.
     /// The caller asked the user that the plate is clear.
-    func transfer(_ unsigned: Data, title: String, to p: Printer, print: Bool) async -> LinkResult {
+    func transfer(_ unsigned: Data, title: String, to p: Printer, print: Bool, plate: Int? = nil) async -> LinkResult {
         // Each print that leaves the app is signed (Signing.swift).
         let gcode = Signer.sign(unsigned)
+        // A Bambu Lab printer behind a printdeck: the .gcode.3mf with the
+        // facts of the plate, to the store of the deck (its API, as for
+        // G-code). The deck sends it to the printer, and asks on its screen
+        // before the start.
+        if p.bambuDeck {
+            guard let bytes = bambuFile(gcode, title: title, plate: plate ?? model.active) else {
+                return LinkResult(ok: false, message: "The file for the printer did not build.")
+            }
+            let file = title.replacingOccurrences(of: " ", with: "_") + ".gcode.3mf"
+            return await PrinterLink.send(p, filename: file, gcode: bytes, print: print, file: true)
+        }
         guard p.kind == .bambu else {
             return await PrinterLink.send(p, filename: title + ".gcode", gcode: gcode, print: print)
         }
         let file = title.replacingOccurrences(of: " ", with: "_") + ".gcode.3mf"
-        var out: UnsafeMutablePointer<UInt8>?
-        var len = 0
-        guard gcode.withUnsafeBytes({ zs_bambu_file($0.bindMemory(to: UInt8.self).baseAddress, $0.count, title, &out, &len) }) == 0, let out else {
+        guard let bytes = bambuFile(gcode, title: title, plate: plate ?? model.active) else {
             return LinkResult(ok: false, message: "The file for the printer did not build.")
         }
-        let bytes = Data(bytes: out, count: len)
-        zs_buffer_free(out, len)
         var pinned: String?
         do {
             try await BambuLink.upload(p, name: file, data: bytes, pinned: &pinned)
@@ -1612,6 +1632,32 @@ final class Workspace {
         } catch {
             return LinkResult(ok: false, message: error.localizedDescription)
         }
+    }
+
+    /// The .gcode.3mf of a Bambu Lab printer, with the facts of the plate
+    /// (zs_bambu_file_plate): its time, its grams, and its filament, which
+    /// a printdeck reads to list it and to pick the tray of the AMS.
+    func bambuFile(_ gcode: Data, title: String, plate i: Int) -> Data? {
+        var t = zs_totals()
+        if model.plates.indices.contains(i) { zs_set_plate_totals(model.set, i, &t) }
+        let app = model.plates.indices.contains(i) ? zs_set_app(model.set, i) : model.core
+        func setting(_ name: String) -> String { app.flatMap { a in coreString { zs_app_setting_get(a, name, $0, $1, $2) } } ?? "" }
+        let material = setting("filament.material"), color = setting("filament.color")
+        let nozzle = Double(setting("machine.nozzle_diameter")) ?? 0
+        var out: UnsafeMutablePointer<UInt8>?
+        var len = 0
+        let rc = title.withCString { tp in
+            material.withCString { mp in
+                color.withCString { cp in
+                    var plate = zs_bambu_plate(title: tp, seconds: t.time_s, grams: t.filament_g, meters: t.filament_mm / 1000,
+                                               material: mp, color: cp, nozzle: nozzle)
+                    return gcode.withUnsafeBytes { zs_bambu_file_plate($0.bindMemory(to: UInt8.self).baseAddress, $0.count, &plate, &out, &len) }
+                }
+            }
+        }
+        guard rc == 0, let out else { return nil }
+        defer { zs_buffer_free(out, len) }
+        return Data(bytes: out, count: len)
     }
 
     // MARK: - the G-code

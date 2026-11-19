@@ -292,7 +292,9 @@ final class FarmMonitor {
         defer { store.currentID = current }
         for f in list {
             guard let u = f["url"] as? String, !have.contains(u), let k = Printer.Kind(rawValue: f["kind"] as? String ?? "") else { continue }
-            let p = Printer(name: f["name"] as? String ?? "Printer", kind: k, url: u)
+            var p = Printer(name: f["name"] as? String ?? "Printer", kind: k, url: u)
+            // The id of the model in the library, if the file gives one.
+            if let m = f["model"] as? String, PrinterLibrary.shared.find(id: m) != nil { p.model = m }
             if let key = f["key"] as? String, !key.isEmpty { p.apiKey = key }
             store.add(p)
             n += 1

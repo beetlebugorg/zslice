@@ -546,7 +546,7 @@ struct FarmPage: View {
         guard a.runModal() == .alertFirstButtonReturn else { return }
         busy.insert(p.id)
         Task { @MainActor in
-            let r = await workspace.transfer(data, title: title, to: p, print: print)
+            let r = await workspace.transfer(data, title: title, to: p, print: print, plate: i)
             busy.remove(p.id)
             if r.ok, let job { monitor.sent(job: job, to: p) }
             if r.ok, print, model.plates.indices.contains(i) {

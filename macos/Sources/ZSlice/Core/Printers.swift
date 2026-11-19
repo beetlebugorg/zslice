@@ -174,6 +174,11 @@ struct Printer: Codable, Identifiable, Equatable {
     /// Bambu Lab: the serial number (for the MQTT topics), else "".
     var serial = ""
 
+    /// A Bambu Lab printer behind a printdeck: a printdeck printer of a
+    /// Bambu Lab model. The deck takes a .gcode.3mf in place of G-code, and
+    /// sends it to the printer itself.
+    var bambuDeck: Bool { kind == .printdeck && model.hasPrefix("bambu-lab-") }
+
     init(name: String, model: String = "", machine: String = "", kind: Kind = .none, url: String = "") {
         self.name = name
         self.model = model
