@@ -58,6 +58,8 @@ typedef struct {
     /* The scrub bar: the nozzle through the top layer (0 its start, 1 the
      * layer done), and its time label. */
     GtkWidget *scrub, *scrub_label, *scrub_box;
+    /* The card of an empty plate: open a model. */
+    GtkWidget *empty;
     /* The dock: one bar at the bottom of the preview with three groups
      * (the plates, the replay, the history), and the lines between them. */
     GtkWidget *dock, *dock_seps[2];
@@ -407,7 +409,7 @@ static void draw(GtkDrawingArea *area, cairo_t *cr, int w, int h, gpointer data)
     cairo_paint(cr);
 
     if (state == ZS_STATE_EMPTY) {
-        draw_message(cr, w, h, "Open an STL file, or drop it here");
+        draw_message(cr, w, h, "Drop an STL or 3MF file here, or click Open.");
         return;
     }
     if (!p->fitted) fit(p);
@@ -1992,6 +1994,27 @@ GtkWidget *zg_preview_new(ZgModel *model) {
     gtk_widget_set_can_target(p->measure_label, FALSE);
     gtk_widget_set_visible(p->measure_label, FALSE);
     gtk_overlay_add_overlay(GTK_OVERLAY(box), p->measure_label);
+    /* An empty plate: a card in the middle of the view that opens a model
+     * (the replay and the layer slider have nothing to show then). */
+    p->empty = zg_card_new();
+    gtk_widget_add_css_class(p->empty, "zg-empty");
+    gtk_widget_set_halign(p->empty, GTK_ALIGN_CENTER);
+    gtk_widget_set_valign(p->empty, GTK_ALIGN_CENTER);
+    GtkWidget *empty_title = gtk_label_new("Open a model");
+    gtk_widget_add_css_class(empty_title, "title-2");
+    GtkWidget *empty_text = gtk_label_new("Drop an STL or 3MF file here, or click Open.");
+    gtk_widget_add_css_class(empty_text, "dim-label");
+    GtkWidget *empty_open = gtk_button_new_with_label("Open…");
+    gtk_widget_add_css_class(empty_open, "suggested-action");
+    gtk_widget_add_css_class(empty_open, "pill");
+    gtk_widget_set_halign(empty_open, GTK_ALIGN_CENTER);
+    gtk_widget_set_margin_top(empty_open, 8);
+    gtk_actionable_set_action_name(GTK_ACTIONABLE(empty_open), "app.open");
+    gtk_box_append(GTK_BOX(p->empty), empty_title);
+    gtk_box_append(GTK_BOX(p->empty), empty_text);
+    gtk_box_append(GTK_BOX(p->empty), empty_open);
+    gtk_widget_set_visible(p->empty, FALSE);
+    gtk_overlay_add_overlay(GTK_OVERLAY(box), p->empty);
     /* The card of the Support tool, at the top left of the 3D view. */
     gtk_overlay_add_overlay(GTK_OVERLAY(box), zg_view3d_support_card(p->view3d));
     gtk_widget_set_size_request(stack, 200, -1);
@@ -2160,6 +2183,11 @@ void zg_preview_refresh(GtkWidget *preview) {
     Preview *p = g_object_get_data(G_OBJECT(preview), "zg-preview");
     zs_app *core = zg_model_core(p->model);
     int state = zs_app_state(core);
+    gboolean empty = state == ZS_STATE_EMPTY;
+    gtk_widget_set_visible(p->empty, empty);
+    gtk_widget_set_visible(p->scrub_box, !empty);
+    gtk_widget_set_visible(p->dock_seps[0], !empty);
+    gtk_widget_set_visible(p->slider_box, !empty);
     if (state == ZS_STATE_EMPTY) {
         p->fitted = FALSE;
         p->layer_count = 0;
