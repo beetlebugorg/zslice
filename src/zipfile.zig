@@ -67,8 +67,18 @@ const SpinLock = struct {
     }
 };
 
+/// The most bytes that the entries of one zip file can have together. A
+/// large 3MF file has a few hundred MB of XML. A zip bomb (a small file
+/// that inflates to many GB) stops at this limit with error.Corrupt.
+pub const max_total = 1 << 30;
+
 /// All entries of a zip file. Free each name and data with `gpa`.
 pub fn readAll(gpa: Allocator, bytes: []const u8) Error![]Entry {
+    return readAllLimited(gpa, bytes, max_total);
+}
+
+/// All entries of a zip file, with at most `limit` bytes together.
+pub fn readAllLimited(gpa: Allocator, bytes: []const u8, limit: u64) Error![]Entry {
     const end_size = @sizeOf(zip.EndRecord);
     if (bytes.len < end_size) return error.NotZip;
     // The end record is in the last 64 kB (a comment can follow it).
@@ -98,7 +108,7 @@ pub fn readAll(gpa: Allocator, bytes: []const u8) Error![]Entry {
         const loc = std.mem.bytesToValue(zip.EndLocator64, bytes[pos - ls ..][0..ls]);
         if (!std.mem.eql(u8, &loc.signature, &zip.end_locator64_sig)) return error.Corrupt;
         const es = @sizeOf(zip.EndRecord64);
-        if (loc.record_file_offset + es > bytes.len) return error.Corrupt;
+        if (bytes.len < es or loc.record_file_offset > bytes.len - es) return error.Corrupt;
         const e64 = std.mem.bytesToValue(zip.EndRecord64, bytes[@intCast(loc.record_file_offset)..][0..es]);
         if (!std.mem.eql(u8, &e64.signature, &zip.end_record64_sig)) return error.Corrupt;
         if (e64.central_directory_offset > bytes.len) return error.Corrupt;
@@ -106,6 +116,11 @@ pub fn readAll(gpa: Allocator, bytes: []const u8) Error![]Entry {
         count = e64.record_count_total;
     }
     if (count > bytes.len) return error.Corrupt;
+    // The sizes of all entries so far. The compressed data of the entries
+    // must fit in the file: records that point to the same data again
+    // (a zip bomb with overlapping entries) do not.
+    var total: u64 = 0;
+    var total_packed: u64 = 0;
     for (0..@as(usize, @intCast(count))) |_| {
         const hs = @sizeOf(zip.CentralDirectoryFileHeader);
         if (cd + hs > bytes.len) return error.Corrupt;
@@ -115,7 +130,8 @@ pub fn readAll(gpa: Allocator, bytes: []const u8) Error![]Entry {
         const name = bytes[cd + hs ..][0..h.filename_len];
         if (cd + hs + h.filename_len + h.extra_len > bytes.len) return error.Corrupt;
         const extra = bytes[cd + hs + h.filename_len ..][0..h.extra_len];
-        cd += hs + h.filename_len + h.extra_len + h.comment_len;
+        // The sum in usize: three u16 lengths overflow a u16.
+        cd += hs + @as(usize, h.filename_len) + h.extra_len + h.comment_len;
         var size: u64 = h.uncompressed_size;
         var csize: u64 = h.compressed_size;
         var offset: u64 = h.local_file_header_offset;
@@ -140,7 +156,11 @@ pub fn readAll(gpa: Allocator, bytes: []const u8) Error![]Entry {
         if (name.len > 0 and name[name.len - 1] == '/') continue; // a folder
         // The data starts after the local header, its name, and its extra.
         const ls = @sizeOf(zip.LocalFileHeader);
-        if (offset > bytes.len or csize > bytes.len or size > 1 << 32) return error.Corrupt;
+        if (offset > bytes.len or csize > bytes.len) return error.Corrupt;
+        const kept = if (h.compression_method == .store) csize else size;
+        if (kept > limit - total or csize > bytes.len - total_packed) return error.Corrupt;
+        total += kept;
+        total_packed += csize;
         const lo: usize = @intCast(offset);
         if (lo + ls > bytes.len) return error.Corrupt;
         const l = std.mem.bytesToValue(zip.LocalFileHeader, bytes[lo..][0..ls]);
@@ -168,15 +188,65 @@ pub fn freeAll(gpa: Allocator, entries: []Entry) void {
     gpa.free(entries);
 }
 
+/// The input of the decompressor: the deflate bytes, then zeros with no
+/// end. The deflate reader of Zig 0.16 (std.compress.flate.Decompress) has
+/// a bug at the end of its input: a stream that is cut in a code can move
+/// the reader past the end of its buffer (an assert in a Debug build, a
+/// read out of bounds in a release build). With zeros after the data, the
+/// decompressor never reaches the end of its input. A stream that reads
+/// into the zeros is cut or broken: it gives error.Corrupt.
+const ZeroTail = struct {
+    data: []const u8,
+    /// The bytes given to the buffer: data, then zeros.
+    given: u64 = 0,
+    reader: std.Io.Reader,
+
+    fn init(data: []const u8, buffer: []u8) ZeroTail {
+        return .{ .data = data, .reader = .{ .vtable = &.{ .stream = stream }, .buffer = buffer, .seek = 0, .end = 0 } };
+    }
+
+    /// Fills the buffer, and writes nothing to `w`.
+    fn stream(r: *std.Io.Reader, w: *std.Io.Writer, limit: std.Io.Limit) std.Io.Reader.StreamError!usize {
+        _ = w;
+        _ = limit;
+        const t: *ZeroTail = @alignCast(@fieldParentPtr("reader", r));
+        const keep = r.end - r.seek;
+        std.mem.copyForwards(u8, r.buffer[0..keep], r.buffer[r.seek..r.end]);
+        r.seek = 0;
+        r.end = keep;
+        const room = r.buffer[keep..];
+        const at: usize = @intCast(@min(t.given, t.data.len));
+        const n = @min(room.len, t.data.len - at);
+        @memcpy(room[0..n], t.data[at..][0..n]);
+        @memset(room[n..], 0);
+        t.given += room.len;
+        r.end = r.buffer.len;
+        return 0;
+    }
+
+    /// The bytes that the decompressor took.
+    fn used(t: *const ZeroTail) u64 {
+        return t.given - (t.reader.end - t.reader.seek);
+    }
+};
+
 fn inflate(gpa: Allocator, raw: []const u8, size: usize) Error![]u8 {
-    var in: std.Io.Reader = .fixed(raw);
+    var buf: [4096]u8 = undefined;
+    var in: ZeroTail = .init(raw, &buf);
     const window = try gpa.alloc(u8, flate.max_window_len);
     defer gpa.free(window);
-    var d: flate.Decompress = .init(&in, .raw, window);
-    return d.reader.allocRemaining(gpa, .limited(size + 1)) catch |e| switch (e) {
+    var d: flate.Decompress = .init(&in.reader, .raw, window);
+    const out = d.reader.allocRemaining(gpa, .limited(size + 1)) catch |e| return switch (e) {
         error.OutOfMemory => error.OutOfMemory,
         else => error.Corrupt,
     };
+    // The last byte can hold bits of the end only, so the decompressor can
+    // stop in it with the byte not taken yet.
+    if (in.used() > raw.len) {
+        gpa.free(out);
+        return error.Corrupt;
+    }
+    return out;
 }
 
 /// Writes a zip file with the entries, deflated.
@@ -315,4 +385,131 @@ test "zip: a large entry written again comes from the cache, with the same bytes
     }
     try std.testing.expectEqualSlices(u8, big, back[0].data);
     try std.testing.expectEqualStrings("a small entry", back[1].data);
+}
+
+/// The raw deflate bytes of `data`.
+fn deflated(gpa: Allocator, data: []const u8) ![]u8 {
+    var out = try std.Io.Writer.Allocating.initCapacity(gpa, 64);
+    errdefer out.deinit();
+    const window = try gpa.alloc(u8, flate.max_window_len);
+    defer gpa.free(window);
+    var c = try flate.Compress.init(&out.writer, window, .raw, .level_6);
+    try c.writer.writeAll(data);
+    try c.finish();
+    return out.toOwnedSlice();
+}
+
+test "zip: a deflate stream that is cut or broken is an error" {
+    const gpa = std.testing.allocator;
+    var text: [4000]u8 = undefined;
+    for (&text, 0..) |*b, i| b.* = "<vertex x=\"1.5\" y=\"2\"/>\n"[i % 25] +% @as(u8, @intCast(i / 1000));
+    const raw = try deflated(gpa, &text);
+    defer gpa.free(raw);
+    const whole = try inflate(gpa, raw, text.len);
+    defer gpa.free(whole);
+    try std.testing.expectEqualSlices(u8, &text, whole);
+    // Each cut, and each change of one byte, gives the data or an error.
+    var prng: std.Random.DefaultPrng = .init(1);
+    const copy = try gpa.dupe(u8, raw);
+    defer gpa.free(copy);
+    for (0..raw.len) |cut| {
+        if (inflate(gpa, raw[0..cut], text.len)) |d| gpa.free(d) else |_| {}
+        for (0..8) |_| {
+            @memcpy(copy, raw);
+            copy[cut] = prng.random().int(u8);
+            if (inflate(gpa, copy, text.len)) |d| gpa.free(d) else |_| {}
+        }
+    }
+}
+
+/// A zip file with `n` central records that all point to the same deflated
+/// entry of `data`.
+fn overlapping(gpa: Allocator, n: usize, data: []const u8) ![]u8 {
+    const comp = try deflated(gpa, data);
+    defer gpa.free(comp);
+    var out: std.ArrayList(u8) = .empty;
+    errdefer out.deinit(gpa);
+    const flags: @FieldType(zip.LocalFileHeader, "flags") = @bitCast(@as(u16, 0));
+    const local: zip.LocalFileHeader = .{
+        .signature = zip.local_file_header_sig, .version_needed_to_extract = 20, .flags = flags,
+        .compression_method = .deflate, .last_modification_time = 0, .last_modification_date = 33,
+        .crc32 = 0, .compressed_size = @intCast(comp.len), .uncompressed_size = @intCast(data.len), .filename_len = 1, .extra_len = 0,
+    };
+    try out.appendSlice(gpa, std.mem.asBytes(&local));
+    try out.append(gpa, 'a');
+    try out.appendSlice(gpa, comp);
+    const cd = out.items.len;
+    for (0..n) |_| {
+        const h: zip.CentralDirectoryFileHeader = .{
+            .signature = zip.central_file_header_sig, .version_made_by = 20, .version_needed_to_extract = 20, .flags = flags,
+            .compression_method = .deflate, .last_modification_time = 0, .last_modification_date = 33, .crc32 = 0,
+            .compressed_size = @intCast(comp.len), .uncompressed_size = @intCast(data.len), .filename_len = 1, .extra_len = 0,
+            .comment_len = 0, .disk_number = 0, .internal_file_attributes = 0, .external_file_attributes = 0,
+            .local_file_header_offset = 0,
+        };
+        try out.appendSlice(gpa, std.mem.asBytes(&h));
+        try out.append(gpa, 'a');
+    }
+    const end: zip.EndRecord = .{
+        .signature = zip.end_record_sig, .disk_number = 0, .central_directory_disk_number = 0,
+        .record_count_disk = @intCast(n), .record_count_total = @intCast(n),
+        .central_directory_size = @intCast(out.items.len - cd), .central_directory_offset = @intCast(cd), .comment_len = 0,
+    };
+    try out.appendSlice(gpa, std.mem.asBytes(&end));
+    return out.toOwnedSlice(gpa);
+}
+
+test "zip: a zip bomb is an error" {
+    const gpa = std.testing.allocator;
+    // 4 MB of zeros deflate to a few kB. 50 records of the same data ask
+    // for 200 MB from a file of 10 kB.
+    const zeros = try gpa.alloc(u8, 4 << 20);
+    defer gpa.free(zeros);
+    @memset(zeros, 0);
+    const bomb = try overlapping(gpa, 50, zeros);
+    defer gpa.free(bomb);
+    try std.testing.expectError(error.Corrupt, readAll(gpa, bomb));
+    // One record of the same data reads, unless it is over the limit.
+    const one = try overlapping(gpa, 1, zeros);
+    defer gpa.free(one);
+    const list = try readAll(gpa, one);
+    freeAll(gpa, list);
+    try std.testing.expectError(error.Corrupt, readAllLimited(gpa, one, 1 << 20));
+}
+
+test "zip: a long name with a comment reads" {
+    const gpa = std.testing.allocator;
+    const name = try gpa.alloc(u8, 65000);
+    defer gpa.free(name);
+    @memset(name, 'a');
+    var a: std.Io.Writer.Allocating = .init(gpa);
+    defer a.deinit();
+    try write(gpa, &a.writer, &.{.{ .name = name, .data = @constCast("data"), .store = true }});
+    // A comment of 1000 bytes after the central record: the name, the
+    // extra, and the comment are more than a u16 together.
+    var b: std.ArrayList(u8) = .empty;
+    defer b.deinit(gpa);
+    try b.appendSlice(gpa, a.written());
+    const end_at = b.items.len - @sizeOf(zip.EndRecord);
+    const cd = std.mem.readInt(u32, b.items[end_at + 16 ..][0..4], .little);
+    std.mem.writeInt(u16, b.items[cd + 32 ..][0..2], 1000, .little);
+    try b.insertSlice(gpa, end_at, &([_]u8{' '} ** 1000));
+    const list = try readAll(gpa, b.items);
+    defer freeAll(gpa, list);
+    try std.testing.expectEqualStrings("data", list[0].data);
+}
+
+test "zip: a zip64 offset near the top of u64 is an error" {
+    const gpa = std.testing.allocator;
+    var b: std.ArrayList(u8) = .empty;
+    defer b.deinit(gpa);
+    const loc: zip.EndLocator64 = .{ .signature = zip.end_locator64_sig, .zip64_disk_count = 0, .record_file_offset = std.math.maxInt(u64) - 8, .total_disk_count = 1 };
+    try b.appendSlice(gpa, std.mem.asBytes(&loc));
+    const end: zip.EndRecord = .{
+        .signature = zip.end_record_sig, .disk_number = 0, .central_directory_disk_number = 0,
+        .record_count_disk = 0xffff, .record_count_total = 0xffff,
+        .central_directory_size = 0, .central_directory_offset = 0xffffffff, .comment_len = 0,
+    };
+    try b.appendSlice(gpa, std.mem.asBytes(&end));
+    try std.testing.expectError(error.Corrupt, readAll(gpa, b.items));
 }
