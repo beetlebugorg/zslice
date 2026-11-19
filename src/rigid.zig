@@ -220,6 +220,18 @@ fn directions(a: Allocator) Allocator.Error![]V {
     return pts.items;
 }
 
+pub const Grab = struct {
+    local: V,
+    target: V,
+    /// The spring: its frequency (Hz) and damping ratio.
+    hz: f64 = 15,
+    damping: f64 = 0.9,
+};
+
+fn skew(v: V) M3 {
+    return .{ .{ 0, -v[2], v[1] }, .{ v[2], 0, -v[0] }, .{ -v[1], v[0], 0 } };
+}
+
 /// A rigid body on the bed.
 pub const Body = struct {
     /// The points of the hull, in the body frame (from the center of
@@ -239,6 +251,11 @@ pub const Body = struct {
     /// step starts from them (warm start), so the contacts of a body at
     /// rest do not fight each other, and it comes to rest.
     acc: [][3]f64,
+    /// A grab of the user: a point of the body (in its frame, from the
+    /// center of mass) that a soft spring pulls toward `target`, as a hand
+    /// holds a part (the mouse joint of Box2D, in 3D). The body swings and
+    /// turns about the point, and keeps its speed when the hand lets go.
+    grab: ?Grab = null,
 
     /// A body from a mesh in the bed frame (its pose and place applied):
     /// the turn starts at none, so `rot` is the turn from the mesh.
@@ -289,11 +306,52 @@ pub const Body = struct {
     }
 
     /// One step of the fall on the bed (z = 0).
+    /// Holds point `at` of the body (in the bed frame now) and pulls it to
+    /// `target`.
+    pub fn grabAt(b: *Body, at: V, target: V) void {
+        const r = quatMat(b.rot);
+        b.grab = .{ .local = mulMV(transpose(r), sub(at, b.pos)), .target = target };
+        b.wake();
+    }
+
+    pub fn wake(b: *Body) void {
+        b.asleep = false;
+        b.still = 0;
+    }
+
     pub fn step(b: *Body, dt: f64) void {
         if (b.asleep) return;
         b.vel[2] -= gravity * dt;
         const r = quatMat(b.rot);
         const iw = b.invInertiaWorld();
+        // The grab: the soft constraint of the hand (Box2D, b2MouseJoint):
+        // gamma softens it, beta pulls the point to the target, and the
+        // force is at most 50 times the weight.
+        var g_arm: V = .{ 0, 0, 0 };
+        var g_mass: M3 = undefined;
+        var g_bias: V = .{ 0, 0, 0 };
+        var g_gamma: f64 = 0;
+        var g_acc: V = .{ 0, 0, 0 };
+        const g_max = 50 * gravity / b.inv_mass * dt;
+        if (b.grab) |g| {
+            const m = 1 / b.inv_mass;
+            const omega = 2 * std.math.pi * g.hz;
+            const k = m * omega * omega;
+            const c = 2 * m * g.damping * omega;
+            g_gamma = 1 / (dt * (c + dt * k));
+            const beta = dt * k * g_gamma;
+            g_arm = mulMV(r, g.local);
+            const err = sub(add(b.pos, g_arm), g.target);
+            g_bias = scale(err, beta);
+            // K = 1/m I - [r] Iw [r] + gamma I.
+            const sk = skew(g_arm);
+            const kr = mulMM(mulMM(sk, iw), sk);
+            var km: M3 = undefined;
+            for (0..3) |i| for (0..3) |j| {
+                km[i][j] = -kr[i][j] + (if (i == j) b.inv_mass + g_gamma else 0);
+            };
+            g_mass = inverse(km) orelse .{ .{ 0, 0, 0 }, .{ 0, 0, 0 }, .{ 0, 0, 0 } };
+        }
         // The contacts: the hull points at or under the bed.
         var arms: [64]V = undefined;
         var depth: [64]f64 = undefined;
@@ -317,6 +375,16 @@ pub const Body = struct {
             b.applyImpulse(iw, arm, .{ acc[1], acc[2], acc[0] });
         }
         for (0..iterations) |_| {
+            if (b.grab != null) {
+                const cdot = add(b.vel, cross(b.ang, g_arm));
+                var imp = mulMV(g_mass, scale(add(add(cdot, g_bias), scale(g_acc, g_gamma)), -1));
+                const old = g_acc;
+                g_acc = add(g_acc, imp);
+                const l = len(g_acc);
+                if (l > g_max) g_acc = scale(g_acc, g_max / l);
+                imp = sub(g_acc, old);
+                b.applyImpulse(iw, g_arm, imp);
+            }
             for (0..n) |k| {
                 const arm = arms[k];
                 // The normal.
@@ -347,13 +415,19 @@ pub const Body = struct {
                 }
             }
         }
+        // A hand damps the swing of a part that it holds.
+        if (b.grab != null) {
+            const k = @exp(-4 * dt);
+            b.ang = scale(b.ang, k);
+            b.vel = scale(b.vel, k);
+        }
         // The motion.
         b.pos = add(b.pos, scale(b.vel, dt));
         const w = b.ang;
         const dq = quatMul(.{ 0, w[0], w[1], w[2] }, b.rot);
         b.rot = quatNorm(.{ b.rot[0] + 0.5 * dt * dq[0], b.rot[1] + 0.5 * dt * dq[1], b.rot[2] + 0.5 * dt * dq[2], b.rot[3] + 0.5 * dt * dq[3] });
-        // Sleep.
-        if (n > 0 and len(b.vel) < sleep_v and len(b.ang) < sleep_w) {
+        // Sleep, never while the hand holds it.
+        if (b.grab == null and n > 0 and len(b.vel) < sleep_v and len(b.ang) < sleep_w) {
             b.still += dt;
             if (b.still >= sleep_time) {
                 b.asleep = true;
@@ -498,4 +572,35 @@ test "rigid: the same run gives the same result" {
     _ = settle(&b2, 5);
     try testing.expectEqualSlices(f64, &b1.rot, &b2.rot);
     try testing.expectEqualSlices(f64, &b1.pos, &b2.pos);
+}
+
+test "rigid: a grab lifts a box to the hand, and on release it falls and rests" {
+    const gpa = testing.allocator;
+    var m = try box(gpa, 0, 0, 0, 20, 20, 10);
+    defer m.deinit(gpa);
+    var b = try Body.init(gpa, &m);
+    defer b.deinit(gpa);
+    // Hold a top corner and lift it 30 mm, and move it 40 mm in x.
+    b.grabAt(.{ 20, 20, 10 }, .{ 60, 20, 40 });
+    var t: f64 = 0;
+    while (t < 2) : (t += step_dt) b.step(step_dt);
+    const r = quatMat(b.rot);
+    const held = add(b.pos, mulMV(r, b.grab.?.local));
+    // A spring of 15 Hz stretches g / omega² = 1.1 mm under the weight.
+    try testing.expect(dist3(held, .{ 60, 20, 40 }) < 1.5);
+    // It hangs from a corner: the center of mass is under the hand.
+    try testing.expect(b.pos[2] < 40);
+    try testing.expect(@abs(b.pos[0] - 60) < 2 and @abs(b.pos[1] - 20) < 2);
+    // Let go: it falls, and rests on a face.
+    b.grab = null;
+    _ = settle(&b, 6);
+    try testing.expect(b.asleep);
+    try testing.expectApproxEqAbs(@as(f64, 0), b.lowest(), 0.02);
+    const d = b.down();
+    const best = @max(@abs(d[0]), @max(@abs(d[1]), @abs(d[2])));
+    try testing.expect(best > 0.999);
+}
+
+fn dist3(a: V, b: V) f64 {
+    return len(sub(a, b));
 }

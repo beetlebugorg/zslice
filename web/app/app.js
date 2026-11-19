@@ -648,8 +648,18 @@ var turnRings = new TurnRings({
 // (zs_app_fall_step) and turns the beads of the part to its place
 // (zs_view_part_preview). At rest, the core puts the part flush on its new
 // face, and the plate slices; the new beads end the preview.
+let falling = false;
 async function settleSelected(index = tools.part?.index) {
-  if (index === undefined || index < 0) return;
+  if (index === undefined || index < 0 || falling) return;
+  falling = true;
+  try {
+    await fall(index);
+  } finally {
+    falling = false;
+  }
+}
+
+async function fall(index) {
   const r = await client.call("fallStart", { index });
   if (!r.started) {
     if (r.held) toast("This part could not stand like that on its own. Support is on, so the support holds it in place.");
@@ -661,7 +671,10 @@ async function settleSelected(index = tools.part?.index) {
     const f = await client.call("fallStep", { dt: (now - last) / 1000 });
     last = now;
     if (f.none) break;
-    view.x.zs_view_part_preview(view.v, index, f.q[0], f.q[1], f.q[2], f.q[3], f.pivot[0], f.pivot[1], f.pivot[2], f.move[0], f.move[1], f.move[2], 0);
+    // The frame at rest sets no preview: the slice of the new place can
+    // load first, and a preview after it would move the new beads by the
+    // fall (into the bed).
+    if (!f.done) view.x.zs_view_part_preview(view.v, index, f.q[0], f.q[1], f.q[2], f.q[3], f.pivot[0], f.pivot[1], f.pivot[2], f.move[0], f.move[1], f.move[2], 0);
     requestFrame();
     if (f.done) {
       toast("The part could not stand like that, and fell over. Turn on support to hold it in place.");
@@ -2228,6 +2241,10 @@ function onWorkerEvent(m) {
     }
     case "history":
       history.refresh();
+      break;
+    case "fall":
+      // A part lost what held it: it falls in the view.
+      settleSelected(m.index);
       break;
     case "cleared":
       // An empty plate: nothing to keep.

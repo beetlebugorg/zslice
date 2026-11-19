@@ -379,6 +379,8 @@ function historyList() {
 
 // The ops that change the settings, and the ops that change the plate:
 // each starts or extends a step.
+// The ops after which a part can lose what held it (see the fall check).
+const FALL_CHECK_OPS = new Set(["partSettingSet", "supportAreaKind", "supportAreaRemove", "projectLoad", "plateActivate"]);
 const SETTING_OPS = new Set(["refineApply", "set", "reset", "quality", "profile", "setScoped", "resetScoped"]);
 // The parts whose largest side is under 3 mm: a file in inches or in
 // meters loads that small. The print card offers a scale.
@@ -1269,6 +1271,12 @@ self.onmessage = async (e) => {
     } else if (SETTING_OPS.has(op) || PLATE_OPS.has(op)) {
       historyCommit();
       histHolding = false;
+    }
+    // A change that takes away what held a part (support turned off): the
+    // page starts its fall. The turns run their own fall at the end.
+    if ((SETTING_OPS.has(op) || FALL_CHECK_OPS.has(op)) && op !== "refineApply" && core?.app) {
+      const k = Number(core.w.x.zs_app_fall_pending(core.app));
+      if (k >= 0) post({ event: "fall", index: k });
     }
     if (platesDirty) postPlates();
     const transfer = result?.bytes ? [result.bytes] : [];

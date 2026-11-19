@@ -747,6 +747,10 @@ double zs_app_part_settle(zs_app *app, size_t i);
 int zs_app_fall_start(zs_app *app, size_t part);
 int zs_app_fall_step(zs_app *app, double dt, double *out);
 void zs_app_fall_cancel(zs_app *app);
+/* The first part that cannot stand as it is while support is off, or -1.
+ * Call it after a change of a setting or of the plate (support turned off
+ * under a turned part), and start its fall. */
+ptrdiff_t zs_app_fall_pending(zs_app *app);
 int zs_app_part_stands(zs_app *app, size_t i);
 /* "This side on the bed": the side of the part nearest to the bed point
  * (x, y, z), for example a picked line, goes down. */

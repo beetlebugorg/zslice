@@ -768,6 +768,18 @@ pub const App = struct {
     /// place is on the plate (slice again).
     pub const FallFrame = struct { q: [4]f64, pivot: [3]f64, move: [3]f64, done: bool };
 
+    /// The first part that cannot stand as it is while support is off, or
+    /// null: after a change that takes away what held it (support turned
+    /// off), a shell starts its fall.
+    pub fn unstablePart(app: *App) Allocator.Error!?usize {
+        if (app.fall != null or app.settings.project.support != .off) return null;
+        for (app.plate.parts.items, 0..) |*p, i| {
+            const st = try zs.physics.settle(app.gpa, &p.mesh);
+            if (st.rolls > 0) return i;
+        }
+        return null;
+    }
+
     /// Starts the fall of part i if it cannot stand as it is (support off).
     /// False: it stands, or support holds it, or a fall runs.
     pub fn fallStart(app: *App, i: usize) Allocator.Error!bool {
@@ -3568,4 +3580,23 @@ test "app: a fall step by step ends with the part flat, where it rests" {
     try testing.expectEqual(@as(usize, 0), st.rolls);
     // A part that stands does not start a fall.
     try testing.expect(!try app.fallStart(0));
+}
+
+test "app: support turned off under a part that cannot stand: it is the unstable part" {
+    const gpa = testing.allocator;
+    var b: zs.mesh.Builder = .init(gpa);
+    try zs.mesh.shapes.addBox(&b, 0, 0, 0, 40, 10, 4);
+    var mesh = try b.finish();
+    var bytes: std.Io.Writer.Allocating = .init(gpa);
+    defer bytes.deinit();
+    try mesh.writeStl(&bytes.writer);
+    mesh.deinit(gpa);
+    const app = try App.create(gpa, null, null);
+    defer app.destroy();
+    try app.loadStl("board.stl", bytes.written());
+    try app.setSetting("project.support", "everywhere");
+    try app.turnPart(0, 0, 40);
+    try testing.expect(try app.unstablePart() == null);
+    try app.setSetting("project.support", "off");
+    try testing.expectEqual(@as(?usize, 0), try app.unstablePart());
 }

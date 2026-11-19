@@ -1686,6 +1686,15 @@ export fn zs_app_fall_step(a: ?*App, dt: f64, out: ?[*]f64) c_int {
     return 1;
 }
 
+/// The first part that cannot stand as it is while support is off (after
+/// support turned off, say), or -1. Start its fall with
+/// zs_app_fall_start.
+export fn zs_app_fall_pending(a: ?*App) isize {
+    const app = a orelse return -1;
+    const i = (app.unstablePart() catch return -1) orelse return -1;
+    return @intCast(i);
+}
+
 /// Ends a fall with no change of the plate.
 export fn zs_app_fall_cancel(a: ?*App) void {
     const app = a orelse return;
