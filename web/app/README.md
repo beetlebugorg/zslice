@@ -83,10 +83,10 @@ A page that is cross-origin isolated loads `zslice-mt.wasm`. The server must sen
 
 ```
 Cross-Origin-Opener-Policy: same-origin
-Cross-Origin-Embedder-Policy: require-corp
+Cross-Origin-Embedder-Policy: credentialless
 ```
 
-`serve.py` sends them (`--no-isolation` leaves them out). With `?threads=0`, or in a browser that does not isolate the page, the page loads `zslice.wasm`, and a slice uses one thread.
+`serve.py` sends them (`--no-isolation` leaves them out). With `require-corp` in place of `credentialless` (`--coep require-corp`), the page is isolated too, but the browser blocks the camera of a printer on another origin: printdeck, OctoPrint, and mjpg-streamer send no `Cross-Origin-Resource-Policy` header for their webcams. With `credentialless`, the camera loads with no cookies. Chrome and Firefox (119 and later) support `credentialless`. The sources found in November 2026 say that Safari does not (not tested here): a browser with no support does not isolate the page, and its slice uses one thread. With `?threads=0`, or in a browser that does not isolate the page, the page loads `zslice.wasm`, and a slice uses one thread.
 
 zslice.beetlebug.org is in S3 behind CloudFront, which sends the two headers (the zslice-ops repository). GitHub Pages cannot send them.
 

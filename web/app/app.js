@@ -72,7 +72,8 @@ import { attachViewInput } from "./input.js";
 import { FarmPage } from "./farm.js";
 import { Tools } from "./tools.js";
 import { SupportTool } from "./support.js";
-import { KINDS, send as sendToPrinter, test as testPrinter, requestKey, trustText } from "./link.js";
+import { KINDS, send as sendToPrinter, test as testPrinter, requestKey, trustText, status as printerStatus, camera as printerCamera } from "./link.js";
+import { CameraView } from "./camera.js";
 import { signGcode, keyId as signingKeyId, supported as canSign, UNSUPPORTED as NO_SIGNATURES } from "./signing.js";
 import { contextItems } from "./context-menu.js";
 import { openMenu, openMenuAt, menuOpen, openPopover, closeMenu } from "./menus.js";
@@ -2187,6 +2188,32 @@ function showSumPop(open) {
   const pop = $("sum-pop");
   pop.hidden = !open;
   $("sum-more").setAttribute("aria-expanded", String(open));
+  showSumCamera(open);
+}
+
+// The camera of the printer at the top of the details, while the printer
+// of the plate prints (camera.js). It plays only while the details show,
+// so the 3D view keeps its frames.
+let sumCam = null;
+async function showSumCamera(open) {
+  const box = $("sum-cam");
+  sumCam?.close();
+  sumCam = null;
+  box.hidden = true;
+  box.replaceChildren();
+  const pr = currentPrinter();
+  if (!open || !pr || !pr.kind || pr.kind === "none" || !(pr.url || pr.https)) return;
+  const st = await printerStatus(pr);
+  if ($("sum-pop").hidden || sumCam || !st.ok || (st.status.farm !== 2 && st.status.farm !== 3)) return;
+  const cam = await printerCamera(pr);
+  if ($("sum-pop").hidden || sumCam || !cam.ok || !cam.camera) return;
+  sumCam = new CameraView(cam.camera, { label: pr.name, printdeck: pr.kind === "printdeck" });
+  const s = st.status;
+  const line = document.createElement("div");
+  line.className = "dim sum-cam-line";
+  line.textContent = `${pr.name}: ${s.job ? `${s.job}, ` : ""}${Math.round(s.progress * 100)} %${s.timeLeft > 0 ? `, ${formatTime(s.timeLeft)} left` : ""}`;
+  box.append(sumCam.el, line);
+  box.hidden = false;
 }
 $("sum-more").onclick = () => showSumPop($("sum-pop").hidden);
 document.addEventListener("pointerdown", (e) => {

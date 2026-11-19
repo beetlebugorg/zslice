@@ -503,20 +503,78 @@ button.destructive { background: #c01c28; color: #fff; }
 .gcode-vars { display: flex; flex-wrap: wrap; gap: 4px; align-items: center; margin-top: 4px; font-size: 0.85em; }
 .gcode-vars .chip { padding: 1px 6px; border-radius: 10px; background: var(--entry); font-family: monospace; font-size: 0.95em; }
 .gcode-result { max-height: 260px; overflow: auto; background: var(--entry); border-radius: 6px; padding: 6px; font-size: 0.85em; white-space: pre-wrap; }
-.farm-head { display: flex; flex-direction: column; gap: 2px; margin-bottom: 8px; }
-.farm-add { margin-top: 12px; }
-.farm-title { font-weight: 700; }
-.farm-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(180px, 1fr)); gap: 8px; }
-.farm-tile { border: 1px solid var(--border); border-radius: 8px; padding: 8px; display: flex; flex-direction: column; gap: 4px; }
-.farm-tile.farm-off { opacity: 0.6; }
-.farm-tile.farm-busy { border-color: var(--accent); }
-.farm-qtitle { margin-top: 14px; margin-bottom: 4px; }
-.farm-queue { display: flex; flex-direction: column; gap: 6px; }
-.farm-qrow { display: grid; grid-template-columns: 1fr auto; gap: 2px 8px; align-items: center; padding: 6px 0; border-top: 1px solid var(--border); }
-.farm-qname { font-weight: 600; }
-.farm-name { font-weight: 600; }
+/* The Printers page (farm.js): a head with the counts, the plates to
+   print, and a card for each printer. */
+.farm-head { display: flex; align-items: center; flex-wrap: wrap; gap: 6px 10px; margin-bottom: 12px; }
+.farm-title { font-size: 1.25em; font-weight: 700; margin: 0; }
+.farm-counts { display: flex; flex-wrap: wrap; gap: 6px; flex: 1; min-width: 0; }
+.farm-count { font-size: 0.82em; padding: 2px 8px; border-radius: 999px; background: var(--card); }
+.farm-more { margin-left: auto; font-size: 1.2em; line-height: 1; }
+.farm-empty { display: flex; flex-direction: column; align-items: flex-start; gap: 8px; margin-top: 8px; }
+.farm-empty .suggested { width: auto; }
+.farm-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(260px, 1fr)); gap: 12px; align-items: start; }
+.farm-card { background: var(--card); border: 1px solid var(--border); border-radius: 10px; overflow: hidden; display: flex; flex-direction: column; gap: 8px; padding-bottom: 10px; min-width: 0; }
+.farm-card > :not(.farm-cam) { margin: 0 12px; }
+.farm-card > .farm-top { margin-top: 10px; }
+.farm-cam:not([hidden]) + .farm-top { margin-top: 0; }
+.farm-card[data-state="offline"] .farm-who, .farm-card[data-state="offline"] .farm-heat { opacity: 0.6; }
+.farm-card[data-state="failed"] { border-color: rgba(255, 123, 99, 0.6); }
+.farm-card[data-state="done"] { border-color: rgba(87, 227, 137, 0.45); }
+.farm-top { display: flex; align-items: flex-start; gap: 8px; }
+.farm-who { flex: 1; min-width: 0; }
+.farm-name { font-weight: 700; overflow-wrap: anywhere; }
 .farm-kind { font-size: 0.8em; }
-.farm-state { font-size: 0.88em; }
+.farm-badge { flex: none; font-size: 0.78em; font-weight: 600; padding: 2px 8px; border-radius: 999px; background: rgba(255, 255, 255, 0.08); color: var(--dim); max-width: 60%; text-align: center; }
+.farm-badge.farm-printing { background: rgba(120, 174, 237, 0.18); color: var(--accent); }
+.farm-badge.farm-paused { background: rgba(229, 165, 10, 0.18); color: var(--warning); }
+.farm-badge.farm-done { background: rgba(87, 227, 137, 0.16); color: #57e389; }
+.farm-badge.farm-failed { background: rgba(255, 123, 99, 0.18); color: var(--error); }
+.farm-badge.farm-idle { background: rgba(255, 255, 255, 0.1); color: var(--fg); }
+.farm-job { display: flex; flex-direction: column; gap: 4px; }
+.farm-jobname { font-weight: 600; overflow-wrap: anywhere; }
+.farm-bar { margin: 0; height: 5px; border-radius: 3px; }
+.farm-card[data-state="done"] .farm-bar > div { background: #2ea043; }
+.farm-card[data-state="paused"] .farm-bar > div { background: var(--warning); }
+.farm-facts { font-size: 0.85em; color: var(--dim); }
+.farm-why { font-size: 0.85em; color: var(--error); overflow-wrap: anywhere; }
+.farm-card[data-state="paused"] .farm-why { color: var(--warning); }
+.farm-why.farm-offline-why { color: var(--dim); }
+.farm-heat { display: flex; flex-wrap: wrap; gap: 2px 14px; font-size: 0.88em; font-variant-numeric: tabular-nums; }
+.farm-roll { font-size: 0.85em; overflow-wrap: anywhere; }
+.farm-actions { display: flex; gap: 6px; margin-top: 2px; }
+.farm-actions .farm-send { flex: 1; width: auto; }
+.farm-actions .farm-send:disabled { background: var(--button); color: var(--dim); opacity: 1; }
+.farm-menu { flex: none; font-size: 1.2em; line-height: 1; }
+/* The plates to print. */
+.farm-queue-box { margin-bottom: 16px; }
+.farm-qhead { display: flex; align-items: center; gap: 8px; margin-bottom: 6px; }
+.farm-qtitle { font-size: 1em; font-weight: 700; margin: 0; }
+.farm-qn { font-size: 0.8em; padding: 1px 8px; border-radius: 999px; background: var(--card); }
+.farm-qempty { font-size: 0.9em; }
+.farm-queue { display: flex; flex-direction: column; border: 1px solid var(--border); border-radius: 10px; overflow: hidden; }
+.farm-qrow { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 12px; padding: 8px 12px; background: var(--card); }
+.farm-qrow + .farm-qrow { border-top: 1px solid var(--border); }
+.farm-qwhat { flex: 1 1 220px; min-width: 0; }
+.farm-qname { font-weight: 600; overflow-wrap: anywhere; }
+.farm-qfacts { font-size: 0.85em; }
+.farm-qsent { font-size: 0.85em; color: #57e389; }
+.farm-qto { display: flex; gap: 6px; flex: 1 1 260px; justify-content: flex-end; min-width: 0; }
+.farm-qto select { flex: 1; min-width: 0; max-width: 340px; background: var(--entry); border: 1px solid var(--border); border-radius: var(--radius); padding: 4px 6px; min-height: 32px; }
+/* A camera (camera.js): 16:9, the picture fills it. */
+.cam { position: relative; aspect-ratio: 16 / 9; background: #111; overflow: hidden; }
+.cam img { width: 100%; height: 100%; object-fit: contain; display: block; }
+.cam:not(.cam-live) img { visibility: hidden; }
+.cam-msg { position: absolute; inset: 0; display: flex; align-items: center; justify-content: center; text-align: center; padding: 8px 14px; font-size: 0.85em; color: var(--dim); }
+.cam.cam-error .cam-msg { color: var(--fg); }
+.cam-click { cursor: zoom-in; }
+.cam-click:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; }
+.cam-dialog { width: min(1100px, calc(100vw - 24px)); max-height: calc(100vh - 24px); padding: 0; border: none; border-radius: 12px; background: var(--bg); color: inherit; overflow: hidden; }
+.cam-dialog::backdrop { background: rgba(0, 0, 0, 0.6); }
+.cam-dialog .page-bar { align-items: flex-start; }
+.cam-head { flex: 1; min-width: 0; }
+.cam-title { font-weight: 700; }
+.cam-line { font-size: 0.85em; overflow-wrap: anywhere; }
+.cam-dialog .cam { max-height: calc(100vh - 110px); aspect-ratio: auto; height: min(calc((100vw - 24px) * 9 / 16), calc(100vh - 110px)); }
 .proj-group { font-size: 0.8em; font-weight: 700; opacity: 0.7; margin-top: 6px; }
 .proj-part { display: flex; align-items: center; gap: 8px; }
 .proj-part > div { flex: 1; min-width: 0; }
@@ -785,7 +843,6 @@ button.destructive { background: #c01c28; color: #fff; }
 }
 
 /* A plate of the queue that went to a printer in this session. */
-.farm-qrow.farm-sent .farm-qname { opacity: 0.6; }
 .farm-qrow.farm-sent .farm-qname::before { content: "✓ "; color: #2ea043; }
 
 /* The panel: a title, Pin, and close. */
@@ -804,8 +861,14 @@ button.destructive { background: #c01c28; color: #fff; }
 .farm-view[hidden] { display: none; }
 /* The top row of the Printers page and of the Project dialog. */
 .page-bar { display: flex; align-items: center; gap: 8px; padding: 10px 14px; border-bottom: 1px solid var(--border); }
-.farm-view .page { padding: 14px 18px; max-width: 1200px; width: 100%; box-sizing: border-box; }
-.farm-view .farm-grid { grid-template-columns: repeat(auto-fill, minmax(240px, 1fr)); }
+.farm-view .page { padding: 14px 18px 24px; max-width: 1400px; width: 100%; box-sizing: border-box; }
+@media (max-width: 520px) {
+  .farm-view .page { padding: 12px 12px 20px; }
+  .farm-view .page-bar { padding: 8px 12px; }
+  .farm-grid { grid-template-columns: 1fr; }
+  .farm-qto { flex-basis: 100%; }
+  .farm-qto select { max-width: none; }
+}
 #printers-page[aria-pressed="true"] { background: var(--button-active); }
 /* The project: a dialog. */
 .project-dialog { width: min(620px, calc(100vw - 32px)); max-height: calc(100vh - 64px); padding: 0; border: none; border-radius: 12px; background: var(--bg); color: inherit; }
@@ -905,6 +968,10 @@ button.destructive { background: #c01c28; color: #fff; }
 }
 .sum-pop[hidden] { display: none; }
 .sum-pop .sum-took { margin-bottom: 0; }
+/* The camera of the printer while it prints, at the top of the details. */
+.sum-cam { margin: 0 0 10px; display: flex; flex-direction: column; gap: 4px; }
+.sum-cam .cam { border-radius: 8px; }
+.sum-cam-line { font-size: 0.85em; overflow-wrap: anywhere; }
 .sum-pop .refine-tips:first-child, .sum-pop .sum-warn { margin-top: 6px; }
 .preview .layers { bottom: calc(var(--dock-h, 70px) + 24px); }
 .history-pop { bottom: calc(var(--dock-h, 70px) + 10px); }

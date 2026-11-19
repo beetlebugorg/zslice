@@ -18,7 +18,7 @@
 //
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
-import { printerStatusPaths, readPrinterStatus } from "./format.js";
+import { printerCameraPaths, printerStatusPaths, readPrinterStatus } from "./format.js";
 import { publicKey, signGcode } from "./signing.js";
 
 export const KINDS = {
@@ -284,6 +284,42 @@ export async function status(printer) {
   }
   const st = readPrinterStatus(printer.kind, replies);
   return st ? { ok: true, status: st, message: statusText(st) } : { ok: false, message: "The status did not read." };
+}
+
+// The camera of the printer, read once (zs_printer_camera_paths): { ok,
+// camera: { stream, snapshot, flipH, flipV, rotation } with absolute
+// addresses, or null for no camera, message }. The addresses of OctoPrint
+// and printdeck are relative to the printer; printdeck puts the API key of
+// the request in them, because an <img> sends no header.
+export async function camera(printer) {
+  if (!printer?.url && !printer?.https) return { ok: false, message: "No address." };
+  const paths = printerCameraPaths(printer.kind);
+  if (paths.length === 0) return { ok: false, message: "This kind of printer gives no camera to a web page." };
+  const replies = [];
+  let base = "";
+  try {
+    for (const path of paths) {
+      const r = await request(printer, path, { headers: headers(printer) });
+      if (r.status === 401 || r.status === 403) return { ok: false, message: "The printer refused the API key." };
+      if (!r.ok) continue;
+      base = worked.get(printer.name) ?? printer.url;
+      replies.push([path, await r.text()]);
+    }
+  } catch (e) {
+    return { ok: false, message: explain(e, printer) };
+  }
+  const st = readPrinterStatus(printer.kind, replies);
+  const c = st?.camera;
+  const abs = (u) => {
+    if (!u) return "";
+    try {
+      return new URL(u, base.replace(/\/*$/, "/")).href;
+    } catch {
+      return "";
+    }
+  };
+  const out = c ? { ...c, stream: abs(c.stream), snapshot: abs(c.snapshot) } : null;
+  return { ok: true, camera: out && (out.stream || out.snapshot) ? out : null, message: "" };
 }
 
 // The status in words: "Printing Slate frame, 50 %, 1 h 5 min left".

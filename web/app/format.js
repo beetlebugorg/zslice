@@ -93,10 +93,49 @@ export function printerStatusPaths(kind) {
   return core.cstr(core.x.zs_printer_status_paths(k)).split("\n").filter(Boolean);
 }
 
+// The paths of the camera of a printer kind (zs_printer_camera_paths).
+export function printerCameraPaths(kind) {
+  const k = STATUS_KIND[kind];
+  if (!core || !k) return [];
+  return core.cstr(core.x.zs_printer_camera_paths(k)).split("\n").filter(Boolean);
+}
+
+// The temperatures (zs_printer_heat, 5 doubles): null for not known.
+function readHeat(x, st) {
+  const p = core.alloc(40);
+  try {
+    if (x.zs_printer_status_heat(st, p) !== 0) return {};
+    const f = (o) => {
+      const v = core.f64(p + o);
+      return Number.isNaN(v) ? null : v;
+    };
+    return { nozzle: f(0), nozzleTarget: f(8), bed: f(16), bedTarget: f(24), chamber: f(32) };
+  } finally {
+    core.free(p, 40);
+  }
+}
+
+// The camera (zs_printer_camera on wasm32: two pointers, three ints).
+function readCamera(x, st) {
+  const p = core.alloc(20);
+  try {
+    if (x.zs_printer_status_camera(st, p) !== 0) return null;
+    return {
+      stream: core.cstr(core.u32(p)), snapshot: core.cstr(core.u32(p + 4)),
+      flipH: core.i32(p + 8) !== 0, flipV: core.i32(p + 12) !== 0, rotation: core.i32(p + 16),
+    };
+  } finally {
+    core.free(p, 20);
+  }
+}
+
 // The status of a printer from the replies of its API ([[path, text]]),
 // read by the core (zs_printer_status): { state, bedX, bedY, height,
 // nozzle, material, diameter, spool, rolls, job, progress, timeLeft,
-// layer, layers, limits }, or null with no core.
+// layer, layers, limits, heat, camera }, or null with no core. heat:
+// { nozzle, nozzleTarget, bed, bedTarget, chamber } in °C, null when not
+// known. camera: { stream, snapshot, flipH, flipV, rotation } from the
+// camera paths, when the replies have them.
 export function readPrinterStatus(kind, replies) {
   const k = STATUS_KIND[kind];
   if (!core || !k) return null;
@@ -126,6 +165,9 @@ export function readPrinterStatus(kind, replies) {
         material: s(40), diameter: f(48), spool: roll(56), spoolPrice: f(80), spoolFull: f(88), rolls,
         limits: { velocity: f(104), accel: f(112), corner: f(120), zVelocity: f(128), zAccel: f(136) },
         job: s(144), progress: f(152), timeLeft: f(160), layer: core.i32(p + 168), layers: core.i32(p + 172),
+        heat: readHeat(x, st), camera: readCamera(x, st),
+        // 0 offline, 1 idle, 2 printing, 3 paused, 4 finished, 5 failed.
+        farm: x.zs_printer_status_farm_state(st), message: core.cstr(x.zs_printer_status_message(st)),
       };
     } finally {
       core.free(p, size + 24);

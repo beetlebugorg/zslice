@@ -31,10 +31,13 @@ class Handler(http.server.SimpleHTTPRequestHandler):
     def end_headers(self):
         self.send_header("Cache-Control", "public, max-age=86400" if self.server.cache else "no-store")
         # Cross-origin isolation: the page can share wasm memory with its
-        # workers, so the slice has threads (zslice-mt.wasm).
+        # workers, so the slice has threads (zslice-mt.wasm). With
+        # "credentialless", the camera of a printer on another origin (an
+        # <img> with no CORS) loads with no cookies; "require-corp" blocks
+        # it unless the printer sends Cross-Origin-Resource-Policy.
         if not self.server.no_isolation:
             self.send_header("Cross-Origin-Opener-Policy", "same-origin")
-            self.send_header("Cross-Origin-Embedder-Policy", "require-corp")
+            self.send_header("Cross-Origin-Embedder-Policy", self.server.coep)
         super().end_headers()
 
 
@@ -45,12 +48,15 @@ def main():
     p.add_argument("--bind", default="127.0.0.1")
     p.add_argument("--no-isolation", action="store_true", help="send no COOP and COEP headers: the slice has no threads")
     p.add_argument("--cache", action="store_true", help="let the browser keep the files for a day (and its optimized wasm code)")
+    p.add_argument("--coep", default="credentialless", choices=["credentialless", "require-corp"],
+                   help="the Cross-Origin-Embedder-Policy (credentialless lets the cameras of printers load)")
     a = p.parse_args()
     folder = os.path.abspath(a.folder)
     handler = functools.partial(Handler, directory=folder)
     with http.server.ThreadingHTTPServer((a.bind, a.port), handler) as httpd:
         httpd.no_isolation = a.no_isolation
         httpd.cache = a.cache
+        httpd.coep = a.coep
         print(f"zslice: serving {folder} at http://{a.bind}:{a.port}/", flush=True)
         httpd.serve_forever()
 
