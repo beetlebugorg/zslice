@@ -326,6 +326,12 @@ export class SearchOverlay {
       e.stopPropagation();
       if (inControl) this.select(this.index);
       else this.close();
+    } else if (e.key === "Enter" && inControl && !e.target.closest("textarea")) {
+      // The editor sends the value on Enter (its own key handler runs
+      // first); then the focus goes back to the row, for the next
+      // Up or Down.
+      e.preventDefault();
+      setTimeout(() => this.select(this.index), 0);
     } else if ((e.key === "ArrowDown" || e.key === "ArrowUp") && !inControl) {
       e.preventDefault();
       this.select(this.index + (e.key === "ArrowDown" ? 1 : -1));
@@ -432,7 +438,9 @@ export class SearchOverlay {
     // not change by itself while the user goes through the results.
     const eye = el("button", "flat icon search-eye");
     eye.innerHTML = '<svg viewBox="0 0 18 18" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.5" aria-hidden="true"><path d="M1.5 9s2.8-5 7.5-5 7.5 5 7.5 5-2.8 5-7.5 5-7.5-5-7.5-5z"/><circle cx="9" cy="9" r="2.3"/></svg>';
-    eye.title = "Show only the lines that this setting changes (the others as ghosts)";
+    eye.title = "Show only the lines that this setting changes (the others as ghosts). Key: V";
+    // Tab goes to the value, not to the eye: the eye has its key (V).
+    eye.tabIndex = -1;
     eye.setAttribute("aria-label", `${info.label}: show only its lines`);
     eye.setAttribute("aria-pressed", String(this.eyeOn === info.name));
     eye.classList.toggle("on", this.eyeOn === info.name);
@@ -463,9 +471,14 @@ export class SearchOverlay {
         set(info.name, on ? "false" : "true");
       }
     };
+    // Enter: into the value, with its text selected, so that a number
+    // typed replaces it, and Up and Down step it. Enter or Esc there goes
+    // back to the row (see key).
     const activate = () => {
-      if (info.kind === "boolean") nudge(1);
-      else editor.node.querySelector("input, select, textarea")?.focus();
+      if (info.kind === "boolean") return nudge(1);
+      const c = editor.node.querySelector("input.num, input.text, select, textarea");
+      c?.focus();
+      c?.select?.();
     };
     const entryRow = { node: row, nudge, activate, name: info.name, eye };
     this.rows.push(entryRow);
