@@ -433,9 +433,17 @@ pub const Set = struct {
         return @atomicLoad(usize, &set.active, .acquire);
     }
 
+    /// The App of plate i. Only the calls of the shell (one thread) change
+    /// the list of the plates, so this call reads it with no wait: while a
+    /// slice thread holds the lock (a slice starts), it does not wait for
+    /// it. With the lock free, it takes it, so the work that a slice thread
+    /// asked for runs (see `leave`).
     pub fn appOf(set: *Set, i: usize) ?*App {
-        set.enter();
-        defer set.leave();
+        if (set.lock.tryLock()) {
+            defer set.leave();
+            if (i >= set.plates.items.len) return null;
+            return set.plates.items[i].app;
+        }
         if (i >= set.plates.items.len) return null;
         return set.plates.items[i].app;
     }

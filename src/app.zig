@@ -290,6 +290,7 @@ pub const App = struct {
             app.dropPlate();
             _ = try app.addMesh(name, m);
         }
+        try app.settleFrom(0);
         // The old result is gone: there is a model, and no slice of it.
         app.state.store(.ready, .release);
     }
@@ -316,10 +317,13 @@ pub const App = struct {
             defer loaded.deinit(app.gpa);
             const first = app.plate.count();
             try app.addLoaded(&loaded);
+            try app.settleFrom(first);
             return first;
         }
         const m = try zs.Mesh.fromStl(app.gpa, bytes);
-        return app.addMesh(name, m);
+        const i = try app.addMesh(name, m);
+        try app.settleFrom(i);
+        return i;
     }
 
     fn isZip(bytes: []const u8) bool {
@@ -750,6 +754,26 @@ pub const App = struct {
         return s.degrees;
     }
 
+    /// Physics for each change of the app that gives a part a new
+    /// orientation (a load, a placement, a reset): a part that cannot stand
+    /// falls over and rests, as settlePart, with no plateChanged (the
+    /// caller does it). True if it fell. The Turn tool of a shell turns in
+    /// steps and calls settlePart after the last step.
+    fn settleNew(app: *App, i: usize) Allocator.Error!bool {
+        if (i >= app.plate.count() or app.settings.project.support != .off) return false;
+        const st = try zs.physics.settle(app.gpa, &app.plate.parts.items[i].mesh);
+        if (st.rolls == 0) return false;
+        try app.plate.putDown(app.gpa, i, zs.physics.downOf(st));
+        app.plate.keepOnBed(i, app.bedSize(), app.partGap());
+        return true;
+    }
+
+    fn settleFrom(app: *App, first: usize) Allocator.Error!void {
+        var fell = false;
+        for (first..app.plate.count()) |i| fell = (try app.settleNew(i)) or fell;
+        if (fell) try app.plateChanged();
+    }
+
     /// Puts the side of part i nearest to the bed point (x, y, z) on the
     /// bed ("this side on the bed", from a picked line).
     pub fn putPartDownAt(app: *App, i: usize, x: f64, y: f64, z: f64) Allocator.Error!void {
@@ -760,11 +784,13 @@ pub const App = struct {
 
     pub fn placePart(app: *App, i: usize, mode: zs.plate.PlaceMode, axis: u2) Allocator.Error!void {
         try app.plate.place(app.gpa, i, mode, axis, app.settings.project.support_angle);
+        _ = try app.settleNew(i);
         try app.plateChanged();
     }
 
     pub fn resetPart(app: *App, i: usize) Allocator.Error!void {
         try app.plate.resetPose(app.gpa, i);
+        _ = try app.settleNew(i);
         try app.plateChanged();
     }
 
@@ -772,7 +798,10 @@ pub const App = struct {
     /// orientation (less support, more on the bed, low), then the plate is
     /// arranged. Returns false if the parts do not all fit.
     pub fn smartPlacePlate(app: *App) Allocator.Error!bool {
-        for (0..app.plate.count()) |i| try app.plate.place(app.gpa, i, .smart, 0, app.settings.project.support_angle);
+        for (0..app.plate.count()) |i| {
+            try app.plate.place(app.gpa, i, .smart, 0, app.settings.project.support_angle);
+            _ = try app.settleNew(i);
+        }
         return app.arrangePlate();
     }
 
@@ -3386,4 +3415,33 @@ test "app: the facts of a state, a change in the history, and its revert" {
     try std.testing.expect(std.mem.startsWith(u8, third, "layers:2.0000:5.0000\tproject.infill_density"));
     try app.revertChange(third);
     try std.testing.expectEqual(@as(usize, 0), app.overrides.items.len);
+}
+
+test "app: a part that loads on an edge falls over and rests" {
+    const gpa = testing.allocator;
+    // A board 40 x 10 x 4 mm, turned 45 degrees about X: it stands on an
+    // edge.
+    var b: zs.mesh.Builder = .init(gpa);
+    try zs.mesh.shapes.addBox(&b, 0, 0, 0, 40, 10, 4);
+    var mesh = try b.finish();
+    const c = @cos(std.math.pi / 4.0);
+    const sn = @sin(std.math.pi / 4.0);
+    for (mesh.vertices.items) |*v| {
+        const y = v.y;
+        const z = v.z;
+        v.y = @floatCast(c * y - sn * z);
+        v.z = @floatCast(sn * y + c * z);
+    }
+    var bytes: std.Io.Writer.Allocating = .init(gpa);
+    defer bytes.deinit();
+    try mesh.writeStl(&bytes.writer);
+    mesh.deinit(gpa);
+    const app = try App.create(gpa, null, null);
+    defer app.destroy();
+    try app.loadStl("board.stl", bytes.written());
+    const st = try zs.physics.settle(gpa, &app.plate.parts.items[0].mesh);
+    try testing.expectEqual(@as(usize, 0), st.rolls);
+    // It lies on a large face: 4 mm tall or 10 mm tall, no more.
+    const bb = app.plate.parts.items[0].mesh.bounds();
+    try testing.expect(bb.max[2] - bb.min[2] < 10.5);
 }
