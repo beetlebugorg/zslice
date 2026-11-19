@@ -2282,6 +2282,9 @@ const history = new HistoryPage($("page-history"), {
   timeline: $("timeline"),
   undoRedo: (op) => undoRedo(op),
   toggle: () => toggleHistory(),
+  get browser() {
+    return browser;
+  },
 });
 
 // ---- printdeck.yml projects ----

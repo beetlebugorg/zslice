@@ -1045,3 +1045,8 @@ button.destructive { background: #c01c28; color: #fff; }
 .paint-size input { flex: 1; }
 .paint-chips { margin: 4px 0 6px; }
 #tool-paint.on { background: var(--accent-bg, #3584e4); color: #fff; }
+
+/* The card of a history bubble: the style of the line card. */
+.hist-card { width: 300px; max-height: 60vh; z-index: 40; }
+.hist-card-dot { flex: none; width: 24px; height: 24px; border-radius: 50%; display: grid; place-items: center; margin-top: 1px; }
+.hist-card-lines { display: flex; flex-direction: column; gap: 2px; }

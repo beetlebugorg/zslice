@@ -35,7 +35,7 @@ const GLYPHS = {
   remove: '<path d="M3.5 9h11"/>',
   quality: '<path d="M9 2.2l2 4.3 4.7.6-3.4 3.2.9 4.6L9 12.6l-4.2 2.3.9-4.6-3.4-3.2 4.7-.6z"/>',
   printer: '<path d="M5 6.5V2.5h8v4M5 13H2.5V6.5h13V13H13M5 10.5h8v5H5z"/>',
-  start: '<path d="M4.5 16V2.5"/><path d="M4.5 3h9l-2 3.25 2 3.25h-9"/>',
+  start: '<circle cx="9" cy="9" r="5.5"/><circle cx="9" cy="9" r="1.5" fill="#fff"/>',
   other: '<circle cx="4" cy="9" r=".6"/><circle cx="9" cy="9" r=".6"/><circle cx="14" cy="9" r=".6"/>',
 };
 
@@ -135,7 +135,11 @@ export class HistoryPage {
         m.style.setProperty("--kind", color);
         m.append(glyph(i === 0 ? "start" : (LOOKS[s.kind] ? s.kind : "other"), 12));
         const words = s.text.split("\n").filter(Boolean).map((w) => w.replace("\t", ": ")).join("\n");
-        m.title = `${i === 0 ? "Start" : `Change ${i}`} · ${label}${words ? "\n" + words : ""}`;
+        // A card (the style of the line card) with the changes, and an
+        // editor for each setting that changed: hover, then change it there.
+        m.setAttribute("aria-label", `${i === 0 ? "Start" : `Change ${i}`} · ${label}${words ? ". " + words : ""}`);
+        m.onmouseenter = () => this.hoverMark(m, i);
+        m.onmouseleave = () => this.leaveCard();
         m.onclick = () => this.go(i);
         m.oncontextmenu = (e) => this.menu(e, i);
         marks.append(m);
@@ -155,6 +159,106 @@ export class HistoryPage {
       else return;
       e.preventDefault();
     };
+  }
+
+  // The card of step i over its bubble `m`, after a short hover.
+  hoverMark(m, i) {
+    clearTimeout(this.cardHide);
+    clearTimeout(this.cardWait);
+    if (this.card && this.cardStep === i) return;
+    this.cardWait = setTimeout(() => this.showCard(m, i), this.card ? 0 : 350);
+  }
+
+  leaveCard() {
+    clearTimeout(this.cardWait);
+    clearTimeout(this.cardHide);
+    // Time to move the pointer from the bubble into the card. A card with
+    // the focus in an editor stays.
+    this.cardHide = setTimeout(() => {
+      if (this.card?.contains(document.activeElement)) return;
+      this.closeCard();
+    }, 400);
+  }
+
+  closeCard() {
+    const b = this.ctx.browser;
+    if (b) for (const [name, list] of b.editors) b.editors.set(name, list.filter((e) => e.where !== "history"));
+    this.card?.remove();
+    this.card = null;
+    this.cardStep = -1;
+  }
+
+  showCard(m, i) {
+    this.closeCard();
+    const s = this.list?.steps[i];
+    if (!s) return;
+    const kind = i === 0 ? "start" : (LOOKS[s.kind] ? s.kind : "other");
+    const [color, label] = LOOKS[kind];
+    const card = el("div", "line-card hist-card");
+    card.onmouseenter = () => clearTimeout(this.cardHide);
+    card.onmouseleave = () => this.leaveCard();
+    card.addEventListener("focusout", () => setTimeout(() => {
+      if (this.card === card && !card.contains(document.activeElement) && !card.matches(":hover")) this.closeCard();
+    }, 0));
+    const head = el("div", "lc-head");
+    const dot = el("span", "hist-card-dot");
+    dot.style.background = color;
+    dot.append(glyph(kind, 14));
+    const titles = el("div", "lc-titles");
+    titles.append(el("div", "lc-title", i === 0 ? "Start" : `Change ${i}`), el("div", "lc-where", `${label} · ${clock(s.time)}${i === (this.list?.current ?? -1) ? " · now" : ""}`));
+    head.append(dot, titles);
+    card.append(head);
+    if (i === 0) {
+      card.append(el("div", "lc-info", "The settings and the plate when the history started."));
+    } else {
+      const cl = (s.changes ?? "").split("\n");
+      const wl = (s.text ?? "").split("\n");
+      const lines = el("div", "lc-stats hist-card-lines");
+      const box = el("div", "lc-settings");
+      const done = new Set();
+      for (let k = 0; k < wl.length; k++) {
+        const tab = wl[k].indexOf("\t");
+        if (tab < 0) continue;
+        lines.append(el("div", "lc-line", `${wl[k].slice(0, tab)}: ${wl[k].slice(tab + 1)}`));
+        // An editor for a setting of the whole plate: its value now.
+        const [scope, key] = (cl[k] ?? "").split("\t");
+        const info = this.ctx.browser?.byName.get(key);
+        if (!info || done.has(key) || (scope && scope.includes(":"))) continue;
+        done.add(key);
+        const row = el("div", "lc-row");
+        const lb = el("button", "flat lc-label");
+        lb.append(el("span", "lc-name", info.label));
+        lb.title = `${info.doc}\n\nClick to show this setting in the panel.`;
+        lb.onclick = () => this.ctx.openSetting(key);
+        const ed = this.ctx.browser.makeEditor(info, "history");
+        row.append(lb, ed.node);
+        this.ctx.browser.track(key, { where: "history", update: (entry) => ed.update(entry) });
+        box.append(row);
+      }
+      card.append(lines);
+      if (box.childElementCount) {
+        box.prepend(el("div", "lc-c", "The value now:"));
+        card.append(box);
+      }
+    }
+    const foot = el("div", "lc-foot");
+    const go = el("button", "flat", i === this.list?.current ? "This is the step now" : "Go to this step");
+    go.disabled = i === this.list?.current;
+    go.onclick = () => {
+      this.closeCard();
+      this.go(i);
+    };
+    foot.append(go);
+    card.append(foot);
+    document.body.append(card);
+    // Over the bubble, and inside the window.
+    const r = m.getBoundingClientRect();
+    const w = card.offsetWidth;
+    card.style.position = "fixed";
+    card.style.left = `${Math.max(8, Math.min(window.innerWidth - w - 8, r.left + r.width / 2 - w / 2))}px`;
+    card.style.bottom = `${window.innerHeight - r.top + 10}px`;
+    this.card = card;
+    this.cardStep = i;
   }
 
   // The right-click menu of step i: go to it, or clear the history after
