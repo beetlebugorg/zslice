@@ -114,7 +114,8 @@ pub const section_order = [_][]const u8{
     "Temperatures", "Cooling",       "Filament",            "Flow",
     "Retraction",   "Size compensation",
     // machine
-    "Printer",      "Nozzle",        "Bed",                 "Extruder",
+    "Printer",      "Nozzle",        "Bed",                 "Chamber and fans",
+    "Extruder",
     "Motion",       "G-code",
 };
 

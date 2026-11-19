@@ -58,7 +58,7 @@ The radius of the flat face at the tip of the nozzle, around the hole. A common 
 
 The angle between the axis of the nozzle and the side of its cone, in degrees. Slope smoothing uses it with `nozzle_tip_radius`.
 
-### Cooling
+### Chamber and fans
 
 **`machine.chamber_temp`** (number). Default: `25`
 

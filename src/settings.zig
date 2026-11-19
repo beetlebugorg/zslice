@@ -86,7 +86,7 @@ pub const Machine = struct {
     /// in degrees. Slope smoothing uses it with `nozzle_tip_radius`.
     nozzle_cone_angle: f64 = 45,
 
-    // Cooling
+    // Chamber and fans
     /// The temperature of the air around the print, in °C: the room for an
     /// open printer, about 35 to 45 in a closed box with no heater, or the
     /// set point of a heated chamber. The simulated print cools the plastic
