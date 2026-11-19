@@ -75,11 +75,9 @@ typedef struct {
      * filament and the cost, and a button to print (or export). */
     GtkWidget *sum_box, *sum_time, *sum_detail, *sum_deck;
     /* The head of the print card (a click opens the details), its badge
-     * (the count of the warnings or of the refinements), the details pane,
-     * and the refinements in it. last_warn: the warning that opened the
-     * details last (a new warning opens them once). */
+     * ("Check" for a warning, or the count of the refinements), the
+     * details pane, and the refinements in it. */
     GtkWidget *sum_more, *sum_badge, *sum_pop, *refine_box;
-    char *last_warn;
     guint refine_timer;
     /* The hint under the status line: its text and its buttons. */
     GtkWidget *hint, *hint_label, *hint_support, *hint_inches, *hint_meters;
@@ -317,10 +315,8 @@ static void update_badge(Window *w) {
     else if (tips == 1) g_snprintf(text, sizeof text, "1 refinement");
     else g_snprintf(text, sizeof text, "%d refinements", tips);
     gtk_label_set_text(GTK_LABEL(w->sum_badge), text);
-    /* A new warning opens the details once, so it is seen. */
-    if (warn && g_strcmp0(warn, w->last_warn) != 0 && gtk_widget_get_mapped(w->sum_more)) gtk_popover_popup(GTK_POPOVER(w->sum_pop));
-    g_free(w->last_warn);
-    w->last_warn = g_strdup(warn);
+    /* A warning does not open the details: they cover the part. The badge
+     * in the warning color is the sign, and a click opens them. */
 }
 
 /* The store of the refinements on this device: the records of the past
@@ -1992,7 +1988,6 @@ static void window_free(gpointer data) {
     g_object_unref(w->model);
     g_free(w->last_error);
     g_free(w->last_stats);
-    g_free(w->last_warn);
     g_free(w->spool);
     g_free(w->spool_material);
     g_free(w->printer_roll);
