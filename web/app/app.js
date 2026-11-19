@@ -1689,6 +1689,10 @@ function partKey(e) {
   return true;
 }
 
+// The layer range of Shift+J and Shift+K: { a: the first layer, b: the
+// layer that moves }, or null.
+let keyRange = null;
+
 function onPreviewKey(e) {
   // The Support tool: Enter, Backspace, Delete, and Esc for its areas.
   if ((tools.tool === "support" || supportTool?.lite) && !e.ctrlKey && !e.metaKey && !e.altKey && !e.target?.closest?.("input, textarea, select, [contenteditable], .panel") && supportTool.key(e)) {
@@ -1697,14 +1701,41 @@ function onPreviewKey(e) {
     return;
   }
   if (partKey(e)) return;
-  if (e.ctrlKey || e.metaKey || e.altKey) return;
+  // Ctrl+F and Ctrl+B (as in vi): a page of layers up or down, 5 % of the
+  // layers of the print (at least 2).
+  const page = (e.ctrlKey || e.metaKey) && !e.altKey && !e.shiftKey && (e.key === "f" || e.key === "b");
+  if ((e.ctrlKey || e.metaKey || e.altKey) && !page) return;
   if (menuOpen() || !view.loaded || layers.count === 0) return;
   const t = e.target;
   if (t && (t.closest?.("input, textarea, select, [contenteditable]") || t.closest?.(".panel"))) return;
   let dir = 0;
   let layerDir = 0;
   let jump = 1;
-  switch (e.key) {
+  if (page) {
+    layerDir = e.key === "f" ? 1 : -1;
+    jump = Math.max(2, Math.round(layers.count * 0.05));
+  }
+  // Shift+K and Shift+J: a range of layers that grows from the layer of
+  // the selected line (or the top layer), as a drag of the Select tool
+  // makes; the card of the range opens on it.
+  if (!page && e.shiftKey && (e.key === "K" || e.key === "J")) {
+    if (!rangeCard.open || !keyRange) {
+      const base = app.sel >= 0 ? view.pathLayer(app.sel) : layers.hi;
+      keyRange = { a: base, b: base };
+    }
+    keyRange.b = Math.min(layers.count - 1, Math.max(0, keyRange.b + (e.key === "K" ? 1 : -1)));
+    const lo = Math.min(keyRange.a, keyRange.b);
+    const hi = Math.max(keyRange.a, keyRange.b);
+    view.lightLayers(lo, hi);
+    rangeCard.show(lo, hi);
+    requestFrame();
+    e.preventDefault();
+    e.stopPropagation();
+    return;
+  }
+  if (page) {
+    // The layer move below.
+  } else switch (e.key) {
     // The arrows step along the line (H is the Grab tool).
     case "ArrowLeft": dir = -1; break;
     case "ArrowRight": dir = 1; break;
@@ -1732,7 +1763,11 @@ function onPreviewKey(e) {
       e.preventDefault();
       return;
     case "m": case "M": tools.set("move"); e.preventDefault(); return;
-    case "h": case "H": tools.set("grab"); e.preventDefault(); return;
+    // Shift+H and Shift+L: the line before or after (as Shift with the
+    // arrows). H alone is the Grab tool.
+    case "H": if (e.shiftKey) { dir = -1; break; } tools.set("grab"); e.preventDefault(); return;
+    case "L": if (e.shiftKey) { dir = 1; break; } return;
+    case "h": tools.set("grab"); e.preventDefault(); return;
     case "t": case "T": tools.set("measure"); e.preventDefault(); return;
     case "g": case "G": if (!$("gaps").disabled) $("gaps").click(); e.preventDefault(); return;
     case "c": case "C":

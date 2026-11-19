@@ -48,6 +48,9 @@ Press `?` in the app to see all keys. Type in the sheet to filter it. On the Mac
 |---|---|
 | ↑ or K, ↓ or J | One layer up or down. With a selected line: the nearest line one layer up or down. |
 | Page Up, Page Down | 10 layers up or down |
+| Ctrl+F, Ctrl+B | A page of layers up or down (5 % of the print) |
+| Shift+K, Shift+J | Select layers: the range grows up or down, and its card opens |
+| Shift+H, Shift+L | The line before or after |
 | Shift+↑, Shift+↓ | Move the bottom of the layer range |
 | ←, → | The segment before or after the selected one. No selection: the nozzle back or on 2 % of the layer. |
 | Shift+←, Shift+→ | The line before, or the next line |
