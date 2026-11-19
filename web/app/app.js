@@ -406,6 +406,9 @@ const layers = new LayerRange($("layers"), (lo, hi) => {
   stopReplay();
   stopStep();
   app.time = 0;
+  // The next play starts at this top layer, not where the last play
+  // stopped.
+  replay.t = 0;
   view.setLayerRange(lo, hi);
   showScrub(hi, null);
   updateFocus();
