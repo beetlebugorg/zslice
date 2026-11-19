@@ -929,7 +929,9 @@ button.destructive { background: #c01c28; color: #fff; }
 }
 /* Three columns: the middle group stays in the center of the window. */
 @media (min-width: 641px) {
-  .headerbar { display: grid; grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr); }
+  /* The end group never gets narrower than its content: in a narrow
+     window it pushes the middle group to the left, and never covers it. */
+  .headerbar { display: grid; grid-template-columns: minmax(0, 1fr) auto minmax(max-content, 1fr); }
   .headerbar .hb-start { min-width: 0; }
   .headerbar .hb-end { justify-self: end; margin-left: 0; }
 }
