@@ -187,8 +187,15 @@ export class SearchOverlay {
       box.style.transform = "none";
       return { x: cx, y: cy };
     };
+    // The first place: centered under the Search button of the header,
+    // at the top of the view.
+    const first = () => {
+      const b = document.getElementById("search-open")?.getBoundingClientRect();
+      if (!b || b.width === 0) return;
+      place(b.left + b.width / 2 - box.offsetWidth / 2, b.bottom + 6);
+    };
     const saved = loadPlace();
-    if (saved) requestAnimationFrame(() => place(saved.x, saved.y));
+    requestAnimationFrame(() => (saved ? place(saved.x, saved.y) : first()));
     head.addEventListener("pointerdown", (e) => {
       // The entry and the × keep their own clicks: a capture here sends
       // the click to the head.
@@ -217,9 +224,7 @@ export class SearchOverlay {
     });
     head.addEventListener("dblclick", (e) => {
       if (e.target.closest("input")) return;
-      box.style.left = "";
-      box.style.top = "";
-      box.style.transform = "";
+      first();
       try {
         localStorage.removeItem(PLACE_KEY);
       } catch {

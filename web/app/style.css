@@ -574,9 +574,9 @@ button.destructive { background: #c01c28; color: #fff; }
 .search-box { pointer-events: auto; }
 .search-close { min-height: 26px; min-width: 26px; padding: 0; font-size: 16px; opacity: 0.75; }
 .search-box {
-  /* At the left of the view, next to the tool strip, so the part in the
-     middle stays in sight while a setting changes. */
-  position: absolute; left: 72px; top: 104px;
+  /* Under the Search button of the header, centered on it (search.js
+     places it there; this is the place before the first frame). */
+  position: absolute; left: calc(50% - min(280px, 50vw - 44px)); top: 56px;
   width: min(560px, calc(100vw - 88px)); max-height: min(62vh, 560px);
   display: flex; flex-direction: column;
   background: rgba(38, 38, 42, 0.96); color: #ececee;
