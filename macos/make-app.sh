@@ -5,6 +5,15 @@
 # SPDX-License-Identifier: AGPL-3.0-or-later
 set -eu
 cd "$(dirname "$0")"
+# The Xcode project lists each Swift file (XcodeGen writes the list): a new
+# file must be in it too, or Xcode does not build. Run "xcodegen generate".
+missing=$(find Sources/ZSlice QuickLook -name '*.swift' -exec basename {} \; | while read -r f; do
+    grep -q "$f" ZSlice.xcodeproj/project.pbxproj || echo "$f"
+done)
+if [ -n "$missing" ]; then
+    echo "make-app.sh: not in ZSlice.xcodeproj: $missing. Run xcodegen generate." >&2
+    exit 1
+fi
 CONFIG=${CONFIG:-release}
 swift build -c "$CONFIG" --arch arm64 --arch x86_64 2>/dev/null || swift build -c "$CONFIG"
 bin=$(swift build -c "$CONFIG" --show-bin-path)

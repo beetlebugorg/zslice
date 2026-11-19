@@ -318,7 +318,7 @@ final class MetalSliceView: NSView {
         if Self.firstFrame, loaded {
             Self.firstFrame = false
             if ProcessInfo.processInfo.environment["ZSLICE_TIMING"] != nil {
-                NSLog("zslice timing: first frame with beads %.0f ms after the start", (CACurrentMediaTime() - SessionStore.launch) * 1000)
+                NSLog("zslice timing: first frame with beads %.0f ms after the start", (CACurrentMediaTime() - launchTime) * 1000)
             }
         }
         let rc = zs_view_draw(view)

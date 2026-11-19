@@ -208,6 +208,8 @@ A model file (an STL, or a 3MF that `zs_project_file_is` does not know) becomes 
 
 ## The Xcode project and signing
 
+After a new Swift file, run `xcodegen generate` in `macos/`: the project lists each file. `make-app.sh` stops with the names of the files that are not in it.
+
 `macos/ZSlice.xcodeproj` builds the same app as the Swift package, as a real app target that Xcode can sign, archive, and notarize. XcodeGen (https://github.com/yonaskolb/XcodeGen) makes it from `macos/project.yml`; after a change of that file, run `xcodegen generate` in `macos/`, and commit both. The project:
 
 - builds the core first (a script phase runs `build-core.sh`; it finds Zig 0.16 in `ZIG`, on the path, or in Homebrew, and keeps `lib/libzslice.a` as it is when the core did not change, so Xcode does not link again);

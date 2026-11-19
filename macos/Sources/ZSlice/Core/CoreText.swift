@@ -5,6 +5,11 @@
 
 import CZslice
 import Foundation
+import QuartzCore
+
+/// The time of the start of the app (or of the Quick Look extension), for
+/// the logs of the time of the first frame.
+let launchTime = CACurrentMediaTime()
 
 /// The text of a C string of the core ("" for NULL).
 func coreText(_ p: UnsafePointer<CChar>?) -> String {

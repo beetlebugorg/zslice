@@ -54,7 +54,7 @@ final class SessionStore {
     static let shared = SessionStore()
 
     /// The time of the start of the app, for the time of the first frame.
-    static let launch = CACurrentMediaTime()
+    static var launch: CFTimeInterval { launchTime }
 
     private struct Entry {
         weak var workspace: Workspace?
