@@ -281,11 +281,16 @@ final class Workspace {
         askEstimate()
         gapCard = nil
         showGaps()
-        // The checks (about 10 ms on a large part) come after the frame of
-        // the new slice, so the slice shows at once.
+        // The checks (about 20 ms on a large part) come after the frame of
+        // the new slice, so the slice shows at once. During a drag, a hold,
+        // or a fall they wait for its end: the live slices of a drag come
+        // each 150 ms, and the checks would stall each of them.
         issuesTask?.cancel()
         issuesTask = Task { @MainActor [weak self] in
             try? await Task.sleep(for: .milliseconds(120))
+            while let self, !Task.isCancelled, treeDrag != nil || supportDrag != nil || partDrag != nil || ringDrag != nil || grabbing || falling != nil {
+                try? await Task.sleep(for: .milliseconds(100))
+            }
             guard !Task.isCancelled, let self, model.state == .done else { return }
             readIssues()
         }
