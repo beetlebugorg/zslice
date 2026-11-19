@@ -21,17 +21,17 @@ overhang,75 deg,tip thickness,mm,"calipers on the fin tip, at the end",2.68,,
 overhang,75 deg,underside,0-3,"0 smooth, 1 a little rough, 2 rough or drooped, 3 loose strands",3,3,"user photos 2026-11-19 (TAZ Workhorse SE, PLA); slicer and temps to confirm"
 overhang,80 deg,tip thickness,mm,"calipers on the fin tip, at the end",strands,strands,
 overhang,80 deg,underside,0-3,"0 smooth, 1 a little rough, 2 rough or drooped, 3 loose strands",3,3,"user photos 2026-11-19 (TAZ Workhorse SE, PLA); slicer and temps to confirm"
-bridge,10 mm,deck thickness at the middle,mm,calipers across the deck at the middle of the span,1.89,,
+bridge,10 mm,deck thickness at the middle,mm,calipers across the deck at the middle of the span,1.89,1.89,"user calipers 2026-11-19, top to the lowest point under the deck"
 bridge,10 mm,loose strands under the deck,yes/no,look under the deck,no,no,"user photos 2026-11-19: clean lines pier to pier, decks look flat"
-bridge,20 mm,deck thickness at the middle,mm,calipers across the deck at the middle of the span,2.09,,
+bridge,20 mm,deck thickness at the middle,mm,calipers across the deck at the middle of the span,2.09,2.12,"user calipers 2026-11-19, top to the lowest point under the deck"
 bridge,20 mm,loose strands under the deck,yes/no,look under the deck,no,no,"user photos 2026-11-19: clean lines pier to pier, decks look flat"
-bridge,30 mm,deck thickness at the middle,mm,calipers across the deck at the middle of the span,2.20,,
+bridge,30 mm,deck thickness at the middle,mm,calipers across the deck at the middle of the span,2.20,2.08,"user calipers 2026-11-19, top to the lowest point under the deck"
 bridge,30 mm,loose strands under the deck,yes/no,look under the deck,no,no,"user photos 2026-11-19: clean lines pier to pier, decks look flat"
-bridge,40 mm,deck thickness at the middle,mm,calipers across the deck at the middle of the span,2.28,,
+bridge,40 mm,deck thickness at the middle,mm,calipers across the deck at the middle of the span,2.28,2.17,"user calipers 2026-11-19, top to the lowest point under the deck"
 bridge,40 mm,loose strands under the deck,yes/no,look under the deck,no,no,"user photos 2026-11-19: clean lines pier to pier, decks look flat"
-bridge,60 mm,deck thickness at the middle,mm,calipers across the deck at the middle of the span,2.40,,
+bridge,60 mm,deck thickness at the middle,mm,calipers across the deck at the middle of the span,2.40,3.14,"user calipers 2026-11-19, top to the lowest point under the deck"
 bridge,60 mm,loose strands under the deck,yes/no,look under the deck,no,no,"user photos 2026-11-19: clean lines pier to pier, decks look flat"
-bridge,80 mm,deck thickness at the middle,mm,calipers across the deck at the middle of the span,2.50,,
+bridge,80 mm,deck thickness at the middle,mm,calipers across the deck at the middle of the span,2.50,3.18,"user calipers 2026-11-19, top to the lowest point under the deck"
 bridge,80 mm,loose strands under the deck,yes/no,look under the deck,no,no,"user photos 2026-11-19: clean lines pier to pier, decks look flat"
 ledge,5 mm,tip thickness,mm,"calipers on the slab, 1 mm from its end",strands,,
 ledge,5 mm,height of the tip bottom,mm,calipers depth rod from the bed to the bottom of the tip,on the bed,,
