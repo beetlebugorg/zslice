@@ -736,6 +736,17 @@ int zs_app_set_coarse_part(zs_app *app, int part);
 double zs_app_part_settle(zs_app *app, size_t i);
 /* 1 if part i can stand as it is, 0 if it would fall over, whatever the
  * support setting (with support on, the support holds it in place). */
+/* The fall of a part, for a shell that shows it (src/rigid.zig: a rigid
+ * body on the bed, with friction). zs_app_fall_start: 1 if part i falls,
+ * 0 if it stands or support holds it. zs_app_fall_step runs dt seconds and
+ * writes 10 values to out: the turn qx, qy, qz, qw about the pivot px, py,
+ * pz, then the move mx, my, mz; give them to zs_view_part_preview (flags
+ * 0). It returns 1 while the part falls, 0 when it rests (the part is at
+ * its new place, flush on a face: one history step; slice again), or -1
+ * with no fall. zs_app_fall_cancel ends it with no change. */
+int zs_app_fall_start(zs_app *app, size_t part);
+int zs_app_fall_step(zs_app *app, double dt, double *out);
+void zs_app_fall_cancel(zs_app *app);
 int zs_app_part_stands(zs_app *app, size_t i);
 /* "This side on the bed": the side of the part nearest to the bed point
  * (x, y, z), for example a picked line, goes down. */

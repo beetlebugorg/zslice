@@ -392,7 +392,7 @@ function tinyParts(c) {
   return out;
 }
 
-const PLATE_OPS = new Set(["load", "add", "plate", "projectLoad", "partAction", "partCut", "partMove", "partFill", "partToPlate", "editAdd", "editDot", "editRemove", "partSettingSet", "partPutDown", "partTurn", "putDown", "place", "partMove", "partRotate", "partScale", "partSettle", "markAdd", "markRemoveNear", "markSet", "markRemove", "marksClear", "supportAreaAdd", "supportAreaSet", "supportAreaKind", "supportAreaRemove"]);
+const PLATE_OPS = new Set(["fallStep", "load", "add", "plate", "projectLoad", "partAction", "partCut", "partMove", "partFill", "partToPlate", "editAdd", "editDot", "editRemove", "partSettingSet", "partPutDown", "partTurn", "putDown", "place", "partMove", "partRotate", "partScale", "partSettle", "markAdd", "markRemoveNear", "markSet", "markRemove", "marksClear", "supportAreaAdd", "supportAreaSet", "supportAreaKind", "supportAreaRemove"]);
 
 const ops = {
   // ---- the model and the plate: open, add, and arrange ----
@@ -784,6 +784,35 @@ const ops = {
 
   // Physics after a turn: the part falls over if it cannot stand, and
   // rolls until it rests (with support on, it stays). degrees: the fall.
+  // The fall of a part, step by step (zs_app_fall_*): started, or held
+  // (it cannot stand, and support holds it).
+  fallStart({ index }) {
+    const x = core.w.x;
+    const rc = x.zs_app_fall_start(core.app, index);
+    const held = rc === 0 && x.zs_app_part_stands(core.app, index) === 0;
+    return { started: rc === 1, held };
+  },
+
+  // One frame of the fall: the turn, the pivot, and the move for the view,
+  // and done when the part rests (then a slice of its new place).
+  fallStep({ dt }) {
+    const w = wasm;
+    const buf = w.alloc(80);
+    try {
+      const rc = w.x.zs_app_fall_step(core.app, dt, buf);
+      if (rc < 0) return { none: true };
+      const v = [];
+      for (let i = 0; i < 10; i++) v.push(w.f64(buf + 8 * i));
+      if (rc === 0) {
+        platesDirty = true;
+        wantSlice();
+      }
+      return { done: rc === 0, q: v.slice(0, 4), pivot: v.slice(4, 7), move: v.slice(7, 10) };
+    } finally {
+      w.free(buf, 80);
+    }
+  },
+
   partSettle({ index }) {
     const deg = core.w.x.zs_app_part_settle(core.app, index);
     // held: support keeps a part in place that would fall over.

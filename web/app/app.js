@@ -644,16 +644,29 @@ var turnRings = new TurnRings({
 // Physics after a turn: a part that cannot stand falls onto a face, unless
 // support holds it. The toast says so.
 // index: the part that turned (the selected part if none).
+// The fall shows in the view: each frame runs the rigid body in the core
+// (zs_app_fall_step) and turns the beads of the part to its place
+// (zs_view_part_preview). At rest, the core puts the part flush on its new
+// face, and the plate slices; the new beads end the preview.
 async function settleSelected(index = tools.part?.index) {
   if (index === undefined || index < 0) return;
-  const r = await client.call("partSettle", { index });
-  // A part that is no longer selected stays so.
-  if (r.part && tools.part?.index === index) tools.selectPart(r.part);
-  if (r.degrees > 0) {
-    toast(`The part could not stand like that, and fell over (${Math.round(r.degrees)}°). Turn on support to hold it in place.`);
+  const r = await client.call("fallStart", { index });
+  if (!r.started) {
+    if (r.held) toast("This part could not stand like that on its own. Support is on, so the support holds it in place.");
+    return;
+  }
+  let last = performance.now();
+  for (;;) {
+    const now = await new Promise((res) => requestAnimationFrame(res));
+    const f = await client.call("fallStep", { dt: (now - last) / 1000 });
+    last = now;
+    if (f.none) break;
+    view.x.zs_view_part_preview(view.v, index, f.q[0], f.q[1], f.q[2], f.q[3], f.pivot[0], f.pivot[1], f.pivot[2], f.move[0], f.move[1], f.move[2], 0);
     requestFrame();
-  } else if (r.held) {
-    toast("This part could not stand like that on its own. Support is on, so the support holds it in place.");
+    if (f.done) {
+      toast("The part could not stand like that, and fell over. Turn on support to hold it in place.");
+      break;
+    }
   }
 }
 
@@ -3074,7 +3087,7 @@ window.zslice = {
   turnRings,
   supportTool,
   app, view, view2d, layers, browser, client, gl, inspector, gaps, history, undoRedo, tools, store, managePrinters, openPrinterSettings, loadProfile, setSetting, pickAt, topLayerPoint, openCheck, frameTimes,
-  select, showPage, showTab, hitAt, showContextMenu, step, bench, benchPick,
+  select, showPage, showTab, hitAt, showContextMenu, step, bench, benchPick, settleSelected,
   get frameCount() { return frameCount; },
   get pickMs() { return pickMs; },
   requestFrame,

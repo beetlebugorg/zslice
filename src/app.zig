@@ -232,6 +232,8 @@ pub const App = struct {
     file_bytes: []u8 = &.{},
     /// The undo list (see app/history.zig). The C API notes each change.
     undo: history.History = .{},
+    /// The fall of a part that runs now, step by step (see fallStart).
+    fall: ?Fall = null,
     /// The edits of the user on the lines of the slice (app/edits.zig).
     edits: edits_mod.Edits = .{},
 
@@ -242,6 +244,7 @@ pub const App = struct {
     }
 
     pub fn destroy(app: *App) void {
+        app.fallCancel();
         if (app.inspect_arena) |*a| a.deinit();
         app.stopWorker();
         app.clearResults();
@@ -752,6 +755,97 @@ pub const App = struct {
         app.plate.keepOnBed(i, app.bedSize(), app.partGap());
         try app.plateChanged();
         return s.degrees;
+    }
+
+    /// The fall of a part on the bed, step by step, for a shell that shows
+    /// it (see rigid.zig). The body is the part as it is on the bed now;
+    /// the view turns its beads by `rot` about `start` and moves them by
+    /// pos - start.
+    pub const Fall = struct { part: usize, body: zs.rigid.Body, start: [3]f64, time: f64 = 0 };
+
+    /// One frame of a fall: the turn (x, y, z, w) about the pivot, and the
+    /// move, for zs_view_part_preview. done: the part rests, and its new
+    /// place is on the plate (slice again).
+    pub const FallFrame = struct { q: [4]f64, pivot: [3]f64, move: [3]f64, done: bool };
+
+    /// Starts the fall of part i if it cannot stand as it is (support off).
+    /// False: it stands, or support holds it, or a fall runs.
+    pub fn fallStart(app: *App, i: usize) Allocator.Error!bool {
+        if (app.fall != null or i >= app.plate.count() or app.settings.project.support != .off) return false;
+        const part = &app.plate.parts.items[i];
+        const st = try zs.physics.settle(app.gpa, &part.mesh);
+        if (st.rolls == 0) return false;
+        // The mesh in the frame of the bed.
+        var m = try part.mesh.clone(app.gpa);
+        defer m.deinit(app.gpa);
+        const t = part.transform();
+        for (m.vertices.items) |*v| {
+            const x: f64 = v.x;
+            const y: f64 = v.y;
+            const z: f64 = v.z;
+            v.* = .{
+                .x = @floatCast(x * t[0] + y * t[3] + z * t[6] + t[9]),
+                .y = @floatCast(x * t[1] + y * t[4] + z * t[7] + t[10]),
+                .z = @floatCast(x * t[2] + y * t[5] + z * t[8] + t[11]),
+            };
+        }
+        const body = try zs.rigid.Body.init(app.gpa, &m);
+        app.fall = .{ .part = i, .body = body, .start = body.pos };
+        return true;
+    }
+
+    /// Runs the fall for dt seconds (fixed steps, at most 1/8 s). Null: no
+    /// fall runs.
+    pub fn fallStep(app: *App, dt: f64) Allocator.Error!?FallFrame {
+        const f = &(app.fall orelse return null);
+        const steps: usize = @intFromFloat(@ceil(std.math.clamp(dt, 0, 0.125) / zs.rigid.step_dt));
+        for (0..@max(steps, 1)) |_| {
+            f.body.step(zs.rigid.step_dt);
+            f.time += zs.rigid.step_dt;
+        }
+        const b = f.body;
+        const frame: FallFrame = .{
+            .q = .{ b.rot[1], b.rot[2], b.rot[3], b.rot[0] },
+            .pivot = f.start,
+            .move = .{ b.pos[0] - f.start[0], b.pos[1] - f.start[1], b.pos[2] - f.start[2] },
+            .done = b.asleep or f.time > 8,
+        };
+        if (frame.done) try app.fallFinish();
+        return frame;
+    }
+
+    /// Ends a fall with no change of the plate.
+    pub fn fallCancel(app: *App) void {
+        if (app.fall) |*f| f.body.deinit(app.gpa);
+        app.fall = null;
+    }
+
+    /// The part rests: it goes down flush on the face that the body rests
+    /// on, at the place where it came to rest.
+    fn fallFinish(app: *App) Allocator.Error!void {
+        const f = app.fall.?;
+        defer app.fallCancel();
+        const i = f.part;
+        if (i >= app.plate.count()) return;
+        const part = &app.plate.parts.items[i];
+        // The down side in the frame of the bed at the start, then in the
+        // frame of the mesh (the bed turned back by the turn about z).
+        const d = f.body.down();
+        const a = -std.math.degreesToRadians(part.rot);
+        const dm = [3]f64{ @cos(a) * d[0] - @sin(a) * d[1], @sin(a) * d[0] + @cos(a) * d[1], d[2] };
+        try app.plate.putDown(app.gpa, i, dm);
+        // Flush on the exact face: the geometric settle of the last bit.
+        const st = try zs.physics.settle(app.gpa, &part.mesh);
+        if (st.rolls > 0) try app.plate.putDown(app.gpa, i, zs.physics.downOf(st));
+        // The center of mass where the body came to rest.
+        const c = zs.rigid.massOf(&part.mesh).center;
+        const t = part.transform();
+        const cx = c[0] * t[0] + c[1] * t[3] + c[2] * t[6] + t[9];
+        const cy = c[0] * t[1] + c[1] * t[4] + c[2] * t[7] + t[10];
+        part.x += f.body.pos[0] - cx;
+        part.y += f.body.pos[1] - cy;
+        app.plate.keepOnBed(i, app.bedSize(), app.partGap());
+        try app.plateChanged();
     }
 
     /// Physics for each change of the app that gives a part a new
@@ -3444,4 +3538,34 @@ test "app: a part that loads on an edge falls over and rests" {
     // It lies on a large face: 4 mm tall or 10 mm tall, no more.
     const bb = app.plate.parts.items[0].mesh.bounds();
     try testing.expect(bb.max[2] - bb.min[2] < 10.5);
+}
+
+test "app: a fall step by step ends with the part flat, where it rests" {
+    const gpa = testing.allocator;
+    var b: zs.mesh.Builder = .init(gpa);
+    try zs.mesh.shapes.addBox(&b, 0, 0, 0, 40, 10, 4);
+    var mesh = try b.finish();
+    var bytes: std.Io.Writer.Allocating = .init(gpa);
+    defer bytes.deinit();
+    try mesh.writeStl(&bytes.writer);
+    mesh.deinit(gpa);
+    const app = try App.create(gpa, null, null);
+    defer app.destroy();
+    try app.loadStl("board.stl", bytes.written());
+    try app.turnPart(0, 0, 40);
+    try testing.expect(try app.fallStart(0));
+    var frames: usize = 0;
+    while (try app.fallStep(1.0 / 60.0)) |fr| {
+        frames += 1;
+        if (fr.done) break;
+        try testing.expect(frames < 60 * 8);
+    }
+    try testing.expect(app.fall == null);
+    // Flat: 4 mm or 10 mm tall, on a face.
+    const bb = app.plate.parts.items[0].mesh.bounds();
+    try testing.expect(bb.max[2] - bb.min[2] < 10.01);
+    const st = try zs.physics.settle(gpa, &app.plate.parts.items[0].mesh);
+    try testing.expectEqual(@as(usize, 0), st.rolls);
+    // A part that stands does not start a fall.
+    try testing.expect(!try app.fallStart(0));
 }

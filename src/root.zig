@@ -38,6 +38,7 @@ pub const threemf = @import("threemf.zig");
 pub const orient = @import("orient.zig");
 pub const physics = @import("physics.zig");
 pub const support_pick = @import("support_pick.zig");
+pub const rigid = @import("rigid.zig");
 pub const gcode_sign = @import("gcode_sign.zig");
 /// The reader of G-code files, for a view of a print that runs.
 pub const gcode_read = @import("gcode_read.zig");

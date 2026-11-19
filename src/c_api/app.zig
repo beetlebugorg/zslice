@@ -1657,6 +1657,41 @@ export fn zs_app_part_settle(a: ?*App, i: usize) f64 {
     return deg;
 }
 
+/// Starts the fall of part i, for a shell that shows it (see
+/// src/rigid.zig): 1 if it falls, 0 if it stands (or support holds it, or
+/// a fall runs), or -status.
+export fn zs_app_fall_start(a: ?*App, i: usize) c_int {
+    const app = a orelse return -@as(c_int, @intFromEnum(Status.invalid_argument));
+    const started = app.fallStart(i) catch |e| return -@as(c_int, status(e));
+    return @intFromBool(started);
+}
+
+/// Runs the fall for dt seconds and writes the frame to out (10 values):
+/// the turn qx, qy, qz, qw about the pivot px, py, pz, then the move mx,
+/// my, mz, for zs_view_part_preview (flags 0). Returns 1 while it falls,
+/// 0 when the part rests (its new place is on the plate: one history
+/// step; slice again), -1 with no fall, or -status.
+export fn zs_app_fall_step(a: ?*App, dt: f64, out: ?[*]f64) c_int {
+    const app = a orelse return -@as(c_int, @intFromEnum(Status.invalid_argument));
+    const f = (app.fallStep(dt) catch |e| return -@as(c_int, status(e))) orelse return -1;
+    if (out) |o| {
+        for (f.q, 0..) |x, k| o[k] = x;
+        for (f.pivot, 0..) |x, k| o[4 + k] = x;
+        for (f.move, 0..) |x, k| o[7 + k] = x;
+    }
+    if (f.done) {
+        noted(app, null, true);
+        return 0;
+    }
+    return 1;
+}
+
+/// Ends a fall with no change of the plate.
+export fn zs_app_fall_cancel(a: ?*App) void {
+    const app = a orelse return;
+    app.fallCancel();
+}
+
 /// 1 if part i can stand as it is on the bed (its center of mass over the
 /// area it stands on), 0 if it would fall over, whatever the support
 /// setting. With support on, zs_app_part_settle keeps such a part in place:
