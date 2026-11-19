@@ -7,7 +7,7 @@ To see it in the app, read [The print as it forms](../user/print-as-it-forms.md)
 ## Use it
 
 - Zig: `App.simulatePrint()` runs it on the last slice and returns its numbers. Then `App.allToolpaths()` gives the paths as the plastic set, until `App.showSimulated(false)` or the next slice.
-- C: `zs_app_simulate_print(app, &stats)`, then `zs_view_load(view, app)` to draw it. `zs_app_show_simulated(app, 0)` shows the slice again, and `zs_app_show_simulated(app, 1)` the simulation.
+- C: `zs_app_simulate_print(app, &stats)`, then `zs_view_load(view, app)` to draw it. The stats give the failed masses, the first failed layer, the largest drop, and the plastic that the simulation used. `zs_app_sim_stats` gives them again with no new simulation, and `zs_app_sim_layer` gives the largest drop and the failed masses of each layer. `zs_app_show_simulated(app, 0)` shows the slice again, and `zs_app_show_simulated(app, 1)` the simulation.
 - `zslice bench part.stl --only sim --runs 1` measures it (see [The command line](../user/command-line.md)).
 
 A path whose plastic set where it printed keeps its points. A path with plastic that moved gets a point for each mass, with a nozzle z (`point_z`) and a bead area (`point_area`) for each point. A view draws such a bead down to the top of the layer under the path. Plastic that fell under that layer keeps the bead height of its path, and each link spans the z of its two ends, so a strand that hangs or falls is one continuous bead (`src/render/view.zig`).
@@ -25,7 +25,8 @@ The toolpaths of the simulation also keep, for each such point, the place where 
 7. **Runs held at one end, or none.** They swing and fall with position based dynamics. A run held at one end keeps its links by "follow the leader" from the held end, in one pass. A run that fell and is then held at both ends uses Gauss-Seidel passes and long-range attachments.
 8. **Contact.** A soft mass that comes down onto the bed or solid plastic sets there. It rests on the highest plastic under its bead, so it does not fall through a gap between two beads.
 9. **Failure.** A mass that sets more than 1.5 mm under its place failed (Yang et al. 2021 measured 1 to 1.5 mm of sag in the deck of a 35 mm bridge at the limit of a good print). The layers on it have nothing under them, so they fall onto it and fail too.
-10. **Time.** The time jumps over the times with no free soft mass. Most of a print has none.
+10. **Sleep.** A hanging run between two solid masses sleeps while its creep moves it less than 0.5 µm in a step, at the creep of its hottest mass: its masses stay where they are, as a body at rest in a rigid body engine. A change of the run wakes it. The step is 10 ms while no strand swings or falls (the hanging shape has a closed form), and 2 ms with substeps of 1 ms for the strands that fall.
+11. **Time.** The time jumps over the times with no free soft mass. Most of a print has none.
 
 ## Numbers
 

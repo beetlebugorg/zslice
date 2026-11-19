@@ -353,8 +353,20 @@ export class Core {
   // it. Returns its numbers, or null.
   simulatePrint() {
     const w = this.w;
-    const c = w.cell;
-    if (w.x.zs_app_simulate_print(this.app, c) !== 0) return null;
+    if (w.x.zs_app_simulate_print(this.app, w.cell) !== 0) return null;
+    return this.readSimStats(w.cell);
+  }
+
+  // The numbers of the last simulated print (zs_app_sim_stats), or null.
+  simStats() {
+    const w = this.w;
+    if (w.x.zs_app_sim_stats(this.app, w.cell) !== 0) return null;
+    return this.readSimStats(w.cell);
+  }
+
+  // A zs_print_sim_stats at c (wasm32: size_t and ptrdiff_t are 4 bytes).
+  readSimStats(c) {
+    const w = this.w;
     return {
       masses: w.u32(c),
       softMasses: w.u32(c + 4),
@@ -364,7 +376,27 @@ export class Core {
       massG: w.f64(c + 24),
       peakSoft: w.u32(c + 32),
       steps: w.u32(c + 36),
+      failed: w.u32(c + 40),
+      firstFailedLayer: w.dv.getInt32(c + 44, true),
+      maxDrop: w.dv.getFloat32(c + 48, true),
+      materialExact: w.dv.getInt32(c + 52, true) === 1,
+      material: w.cstr(c + 56),
     };
+  }
+
+  // The largest drop (mm) and the failed masses of each layer of the last
+  // simulated print (zs_app_sim_layer), or null.
+  simLayers(count) {
+    const w = this.w;
+    const c = w.cell;
+    const drop = new Float32Array(count);
+    const failed = new Uint32Array(count);
+    for (let l = 0; l < count; l++) {
+      if (w.x.zs_app_sim_layer(this.app, l, c, c + 4) !== 0) return null;
+      drop[l] = w.dv.getFloat32(c, true);
+      failed[l] = w.u32(c + 4);
+    }
+    return { drop, failed };
   }
 
   // Shows the simulated print (true) or the slice (false). False if there

@@ -822,7 +822,7 @@ const ops = {
     } else core.showSimulated(false);
     const scene = core.scene(mode);
     const layers = core.layers();
-    post({ event: "sliced", plate: activeIndex(), ms: 0, stats: core.stats(), featureStats: core.featureStats(), layers, scene, mode, marks: core.markCount(), areas: core.supportAreas(), parts: core.w.x.zs_app_part_count(core.app), fits: core.w.x.zs_app_plate_fits(core.app) === 1, tiny: [], simulated: on }, scene ? [scene] : []);
+    post({ event: "sliced", plate: activeIndex(), ms: 0, stats: core.stats(), featureStats: core.featureStats(), layers, scene, mode, marks: core.markCount(), areas: core.supportAreas(), parts: core.w.x.zs_app_part_count(core.app), fits: core.w.x.zs_app_plate_fits(core.app) === 1, tiny: [], simulated: on, sim: core.simStats() }, scene ? [scene] : []);
     return { stats };
   },
 

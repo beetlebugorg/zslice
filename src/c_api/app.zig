@@ -1253,14 +1253,25 @@ pub const PrintSimStats = extern struct {
     mass: f64,
     peak_soft: usize,
     steps: usize,
+    /// The masses that failed: they set more than 1.5 mm under their
+    /// place, so the layers above them have nothing under them there.
+    failed: usize,
+    /// The first layer (from 0) with a failed mass, or -1.
+    first_failed_layer: isize,
+    /// The largest drop of a mass under its place, mm.
+    max_drop: f32,
+    /// 1 if the simulation has data for the plastic of the filament, 0 if
+    /// it uses the nearest plastic with data (`material`).
+    material_exact: c_int,
+    /// The plastic of the simulation ("PLA", "ABS", "PETG"), with a 0.
+    material: [16]u8,
 };
 
-/// Simulates the plastic of the last slice, and shows the result in
-/// zs_app_toolpaths (see App.simulatePrint).
-export fn zs_app_simulate_print(a: ?*App, out: ?*PrintSimStats) c_int {
-    const app = a orelse return @intFromEnum(Status.invalid_argument);
-    const st = app.simulatePrint() catch |e| return status(e);
-    if (out) |o| o.* = .{
+fn simStats(app: *const App, st: zs.print_sim.Stats) PrintSimStats {
+    const m = app.simulatedMaterial();
+    var name = [_]u8{0} ** 16;
+    @memcpy(name[0..@min(m.name.len, 15)], m.name[0..@min(m.name.len, 15)]);
+    return .{
         .masses = st.masses,
         .soft_masses = st.soft_masses,
         .moved = st.moved,
@@ -1269,7 +1280,42 @@ export fn zs_app_simulate_print(a: ?*App, out: ?*PrintSimStats) c_int {
         .mass = st.mass,
         .peak_soft = st.peak_soft,
         .steps = st.steps,
+        .failed = st.failed,
+        .first_failed_layer = if (st.first_failed_layer == zs.print_sim.none) -1 else @intCast(st.first_failed_layer),
+        .max_drop = st.max_drop,
+        .material_exact = @intFromBool(m.exact),
+        .material = name,
     };
+}
+
+/// Simulates the plastic of the last slice, and shows the result in
+/// zs_app_toolpaths (see App.simulatePrint).
+export fn zs_app_simulate_print(a: ?*App, out: ?*PrintSimStats) c_int {
+    const app = a orelse return @intFromEnum(Status.invalid_argument);
+    const st = app.simulatePrint() catch |e| return status(e);
+    if (out) |o| o.* = simStats(app, st);
+    return ok;
+}
+
+/// The numbers of the last simulated print, with no new simulation.
+/// ZS_NO_RESULT if there is no simulation of the last slice.
+export fn zs_app_sim_stats(a: ?*const App, out: ?*PrintSimStats) c_int {
+    const app = a orelse return @intFromEnum(Status.invalid_argument);
+    const r = app.sim orelse return @intFromEnum(Status.no_result);
+    if (out) |o| o.* = simStats(app, r.stats);
+    return ok;
+}
+
+/// The outcome of one layer of the last simulated print: the largest
+/// drop of its plastic under its place (mm), and its failed masses.
+/// ZS_NO_RESULT with no simulation, ZS_INVALID_ARGUMENT for a layer out
+/// of range.
+export fn zs_app_sim_layer(a: ?*const App, layer: usize, max_drop: ?*f32, failed: ?*u32) c_int {
+    const app = a orelse return @intFromEnum(Status.invalid_argument);
+    const layers = app.simulatedLayers() orelse return @intFromEnum(Status.no_result);
+    if (layer >= layers.len) return @intFromEnum(Status.invalid_argument);
+    if (max_drop) |p| p.* = layers[layer].max_drop;
+    if (failed) |p| p.* = layers[layer].failed;
     return ok;
 }
 
@@ -2505,6 +2551,46 @@ test "C API: the app" {
     var lic: License = undefined;
     try std.testing.expectEqual(ok, zs_license_get(0, &lic));
     try std.testing.expect(std.mem.indexOf(u8, std.mem.span(lic.text), "AFFERO") != null);
+}
+
+test "C API: the simulated print of a slab over air: the first failed layer and each layer" {
+    const t = std.testing;
+    const alloc = t.allocator;
+    var a: ?*App = null;
+    try t.expectEqual(ok, zs_app_new(null, null, &a));
+    defer zs_app_free(a);
+    // A post with a slab 25 mm out over air on each side.
+    var b: zs.mesh.Builder = .init(alloc);
+    errdefer b.deinit();
+    try zs.mesh.shapes.addBox(&b, 25, 0, 0, 31, 6, 4);
+    try zs.mesh.shapes.addBox(&b, 0, 0, 4, 56, 6, 5);
+    var mesh = try b.finish();
+    defer mesh.deinit(alloc);
+    var stl: Writer.Allocating = .init(alloc);
+    defer stl.deinit();
+    try mesh.writeStl(&stl.writer);
+    try t.expectEqual(ok, zs_app_load_stl(a, "slab.stl", stl.written().ptr, stl.written().len));
+    try t.expectEqual(ok, zs_app_slice(a));
+    a.?.stopWorkerForTest();
+    var st: PrintSimStats = undefined;
+    try t.expectEqual(@intFromEnum(Status.no_result), zs_app_sim_stats(a, &st));
+    try t.expectEqual(ok, zs_app_simulate_print(a, &st));
+    try t.expect(st.failed > 0);
+    try t.expect(st.first_failed_layer > 0);
+    try t.expect(st.max_drop > 1.5);
+    try t.expectEqualStrings("PLA", std.mem.sliceTo(&st.material, 0));
+    try t.expectEqual(@as(c_int, 1), st.material_exact);
+    var again: PrintSimStats = undefined;
+    try t.expectEqual(ok, zs_app_sim_stats(a, &again));
+    try t.expectEqual(st.first_failed_layer, again.first_failed_layer);
+    // The first failed layer has failed masses, and the post under it none.
+    var drop: f32 = 0;
+    var failed: u32 = 0;
+    try t.expectEqual(ok, zs_app_sim_layer(a, @intCast(st.first_failed_layer), &drop, &failed));
+    try t.expect(failed > 0 and drop > 1.5);
+    try t.expectEqual(ok, zs_app_sim_layer(a, 2, &drop, &failed));
+    try t.expectEqual(@as(u32, 0), failed);
+    try t.expectEqual(@intFromEnum(Status.invalid_argument), zs_app_sim_layer(a, 100000, &drop, &failed));
 }
 
 test "C API: apply the status of a printer" {

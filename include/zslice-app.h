@@ -503,8 +503,27 @@ typedef struct zs_print_sim_stats {
     double mass;        /* the plastic, g */
     size_t peak_soft;   /* the most soft masses at one time */
     size_t steps;       /* the steps of the solver */
+    size_t failed;      /* the masses that failed: they set more than
+                           1.5 mm under their place, so the layers above
+                           them have nothing under them there */
+    ptrdiff_t first_failed_layer; /* the first layer (from 0) with a
+                                     failed mass, or -1 */
+    float max_drop;     /* the largest drop of a mass under its place, mm */
+    int material_exact; /* 1 if the simulation has data for the plastic
+                           of the filament, 0 if it uses the nearest
+                           plastic with data */
+    char material[16];  /* the plastic of the simulation: "PLA", "ABS",
+                           or "PETG" */
 } zs_print_sim_stats;
 int zs_app_simulate_print(zs_app *app, zs_print_sim_stats *out);
+/* The numbers of the last simulated print, with no new simulation.
+ * ZS_NO_RESULT if there is no simulation of the last slice. */
+int zs_app_sim_stats(const zs_app *app, zs_print_sim_stats *out);
+/* The outcome of layer `layer` of the last simulated print: the largest
+ * drop of its plastic under its place (mm) and its failed masses. Either
+ * pointer can be NULL. ZS_NO_RESULT with no simulation,
+ * ZS_INVALID_ARGUMENT for a layer out of range. */
+int zs_app_sim_layer(const zs_app *app, size_t layer, float *max_drop, uint32_t *failed);
 /* Shows the simulated print (on = 1) or the slice (on = 0) in
  * zs_app_toolpaths. ZS_NO_RESULT for on = 1 with no simulation of the last
  * slice. */

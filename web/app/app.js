@@ -554,8 +554,19 @@ async function toggleSimulation() {
   }
   if (on && r.stats) {
     const s = r.stats;
+    app.simResult = s;
+    updateSummary();
     toast(s.moved > 0 ? `The plastic of ${s.movedPaths} lines does not stay where it prints: up to ${s.maxMove.toFixed(1)} mm off. Turn on support, or change the turn of the part.` : "All the plastic stays where it prints.", 8000);
   }
+}
+
+// The words of the Check for the simulated print: where it fails, or how
+// far it droops. Null if the plastic stays where it prints.
+function simCheckText(s) {
+  const as = s.materialExact ? "" : ` (simulated as ${s.material}: the simulation has no data for this plastic)`;
+  if (s.failed > 0 && s.firstFailedLayer >= 0) return `The print fails at layer ${s.firstFailedLayer + 1}: the plastic over air falls${as}. `;
+  if (s.maxDrop > 0.5) return `The plastic droops up to ${s.maxDrop.toFixed(1)} mm where nothing holds it${as}. `;
+  return null;
 }
 
 // ---- the settings ----
@@ -2134,7 +2145,18 @@ function updateSummaryCard() {
       return b;
     };
     warn.append(`${t.name || "The part"} is only ${t.size.toFixed(2)} mm. Was the file in inches or in meters? `, by(25.4, "Inches (×25.4)"), by(1000, "Meters (×1000)"));
-  } else if (app.overhang >= OVERHANG_HINT_MM2 && (value("project.support") || "off") === "off" && !(supportTool?.areas?.length > 0)) {
+  } else if (app.simResult && simCheckText(app.simResult)) {
+    // The simulated print ran: it replaces the estimate from the area that
+    // hangs in the air.
+    warn.hidden = false;
+    warn.classList.add("sum-hint");
+    const text = simCheckText(app.simResult);
+    if ((value("project.support") || "off") === "off") {
+      const on = el("button", "", "Turn on support");
+      on.onclick = () => setSetting("project.support", "everywhere");
+      warn.append(text + "Turn on support or turn the part. ", on);
+    } else warn.append(text + "Turn the part, or add support there.");
+  } else if (!app.simResult && app.overhang >= OVERHANG_HINT_MM2 && (value("project.support") || "off") === "off" && !(supportTool?.areas?.length > 0)) {
     // Support is off, and a large area faces down in the air: the print
     // can fail there. One click turns support on.
     warn.hidden = false;
@@ -2370,6 +2392,10 @@ function onWorkerEvent(m) {
       app.parts = m.parts;
       app.fits = m.fits !== false;
       app.overhang = 0;
+      // A new slice: the simulated print was of the slice before. The
+      // simulation sends its numbers for the Check.
+      if (m.ms > 0) app.simResult = null;
+      else if (m.sim) app.simResult = m.sim;
       app.tiny = m.tiny ?? [];
       checkOverhang();
       // The selection, to find it again in the new slice.
