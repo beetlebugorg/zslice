@@ -82,7 +82,7 @@ typedef struct {
     double menu_x, menu_y;
     double pointer_x, pointer_y;
     gboolean gaps_hook, gap_hook; /* the test hooks ran */
-    gboolean dbl_hook, ring_hook, grab_hook;
+    gboolean dbl_hook, ring_hook, grab_hook, menu_hook;
     /* ZSLICE_BENCH: the step (0 off, 1 wait for the first frame, 2 orbit,
      * 3 wait for the slice of an edit, 4 done), the frames of the orbit,
      * their draw times (ms), the time of the last tick, and the time of
@@ -329,6 +329,7 @@ static void on_gaps_changed(ZgModel *model, gpointer data) {
 static gboolean look_at_side(View3d *v, double x, double y);
 static void ring_drag_hook(gpointer data);
 static void grab_hook(gpointer data);
+static void menu_hook(gpointer data);
 
 /* For tests: ZSLICE_DOUBLE_CLICK=x,y is a double click at that pixel. */
 static void dbl_hook_fire(gpointer data) {
@@ -433,6 +434,12 @@ static void load_data(View3d *v) {
     }
     /* For development and screenshots: ZSLICE_PICK=x,y picks the path at
      * that pixel (logical points) after the first load. */
+    /* For tests: ZSLICE_MENU=x,y opens the context menu at that pixel of
+     * the 3D view, 1 s after the first slice. */
+    if (g_getenv("ZSLICE_MENU") && !v->menu_hook && zs_app_state(zg_model_core(v->model)) == ZS_STATE_DONE) {
+        v->menu_hook = TRUE;
+        g_timeout_add_once(1000, menu_hook, v);
+    }
     const char *pick = g_getenv("ZSLICE_PICK");
     if (pick && !v->picked && zs_app_layer_count(zg_model_core(v->model)) > 0) {
         char **xy = g_strsplit(pick, ",", 2);
@@ -1439,6 +1446,31 @@ static void on_remove_marks(GSimpleAction *a, GVariant *p, gpointer data) {
     if (mark_place(v, &x, &y, &z)) zg_model_mark_remove_near(v->model, x, y, z, 3);
 }
 
+/* "Remove this support": the support line under the menu holds up an
+ * overhang; a block area over that overhang takes the support away, as the
+ * Support tool does. The support marks of the user near the line go too. */
+static void on_remove_support(GSimpleAction *a, GVariant *p, gpointer data) {
+    View3d *v = data;
+    zs_app *core = zg_model_core(v->model);
+    double x, y, z;
+    if (!mark_place(v, &x, &y, &z)) return;
+    gboolean changed = zg_model_mark_remove_near(v->model, x, y, z, 3) > 0;
+    /* The overhang over the line: up from it, half a millimeter a step,
+     * to the first surface that faces down. */
+    zs_toolpaths tp;
+    double top = zs_app_toolpaths(core, &tp) == ZS_OK && tp.layer_count > 0 ? tp.layer_z[tp.layer_count - 1] : z;
+    enum { MAX_PTS = 256 };
+    double pts[3 * MAX_PTS], lo = 0, hi = 0;
+    size_t n = 0;
+    for (double zz = z; zz <= top + 0.5; zz += 0.5) {
+        if (zs_app_support_pick(core, x, y, zz, 2, pts, MAX_PTS, &n, &lo, &hi) >= 0 && n >= 3) {
+            if (zg_model_support_add(v->model, 3, pts, n, lo, hi) >= 0) changed = TRUE;
+            break;
+        }
+    }
+    if (!changed) g_message("zslice: found no overhang over this support");
+}
+
 /* The part of the selected line, or -1. */
 static gint64 menu_part(View3d *v) {
     gint64 path = zg_model_selected(v->model);
@@ -1561,8 +1593,17 @@ static void menu_at(View3d *v, double x, double y) {
     int scale = gtk_widget_get_scale_factor(v->area);
     size_t seg = 0;
     size_t path = zs_view_pick_segment(v->view, (float)(x * scale), (float)(y * scale), &seg);
+    /* The menu is for what is under the pointer: no line there (the bed)
+     * clears the selection. */
     if (path != (size_t)-1) zg_model_select_segment(v->model, (gint64)path, (gint64)seg);
+    else zg_model_select(v->model, -1);
     show_menu(v, x, y);
+}
+
+static void menu_hook(gpointer data) {
+    char **xy = g_strsplit(g_getenv("ZSLICE_MENU"), ",", 2);
+    if (xy[0] && xy[1]) menu_at(data, g_ascii_strtod(xy[0], NULL), g_ascii_strtod(xy[1], NULL));
+    g_strfreev(xy);
 }
 
 /* The menu from the keyboard (the Menu key, or Shift+F10): for the line
@@ -1591,9 +1632,36 @@ static void on_add_drop(GSimpleAction *a, GVariant *p, gpointer data) {
 static void show_menu(View3d *v, double x, double y) {
     v->menu_x = x;
     v->menu_y = y;
-    gboolean on_line = zg_model_selected(v->model) >= 0;
+    /* The menu fits what is under the pointer (as on the web: the list of
+     * web/app/context-menu.js): a support line, a line of a part, or no
+     * line (the bed). The items of the view show each time. */
+    zs_app *core = zg_model_core(v->model);
+    gint64 path = zg_model_selected(v->model);
+    gboolean on_support = FALSE;
+    zs_toolpaths tp;
+    if (path >= 0 && zs_app_toolpaths(core, &tp) == ZS_OK && (size_t)path < tp.path_count)
+        on_support = tp.path_features[path] == ZS_FEATURE_SUPPORT || tp.path_features[path] == ZS_FEATURE_SUPPORT_INTERFACE;
+    gboolean on_part = path >= 0 && !on_support;
+    gboolean marks = zs_app_mark_count(core) > 0;
     GMenu *menu = g_menu_new();
-    if (on_line) {
+    if (on_support) {
+        GMenu *sup = g_menu_new();
+        g_menu_append(sup, "Remove this support", "view3d.remove-support");
+        if (marks) g_menu_append(sup, "Remove the support marks here", "view3d.remove-marks");
+        g_menu_append_section(menu, NULL, G_MENU_MODEL(sup));
+        g_object_unref(sup);
+    }
+    if (path >= 0) {
+        GMenu *line = g_menu_new();
+        GMenuItem *cut = g_menu_item_new("Preview to this layer", "preview.cut-to-layer");
+        g_menu_item_set_attribute(cut, "accel", "s", "c");
+        g_menu_append_item(line, cut);
+        g_object_unref(cut);
+        g_menu_append(line, "Copy for AI", "view3d.copy-for-ai");
+        g_menu_append_section(menu, NULL, G_MENU_MODEL(line));
+        g_object_unref(line);
+    }
+    if (on_part) {
         GMenu *kinds = g_menu_new();
         g_menu_append(kinds, "Grid", "view3d.add-support(0)");
         g_menu_append(kinds, "Tree", "view3d.add-support(1)");
@@ -1601,13 +1669,8 @@ static void show_menu(View3d *v, double x, double y) {
         GMenu *here = g_menu_new();
         g_menu_append_submenu(here, "Add support here", G_MENU_MODEL(kinds));
         g_menu_append(here, "Block support here", "view3d.add-support(3)");
-        g_menu_append(here, "Remove the support marks here", "view3d.remove-marks");
-        g_menu_append(here, "Copy for AI", "view3d.copy-for-ai");
+        if (marks) g_menu_append(here, "Remove the support marks here", "view3d.remove-marks");
         g_menu_append(here, "Add a drop of plastic here", "view3d.add-drop");
-        GMenuItem *cut = g_menu_item_new("Preview to this layer", "preview.cut-to-layer");
-        g_menu_item_set_attribute(cut, "accel", "s", "c");
-        g_menu_prepend_item(here, cut);
-        g_object_unref(cut);
         g_menu_append_section(menu, NULL, G_MENU_MODEL(here));
         GMenu *prof = g_menu_new();
         g_menu_append(prof, "New profile from here up", "view3d.new-profile(1)");
@@ -1630,16 +1693,18 @@ static void show_menu(View3d *v, double x, double y) {
         g_object_unref(modes);
         g_object_unref(part);
     }
-    GMenu *plate = g_menu_new();
-    g_menu_append(plate, "Smart placement", "win.smart-place");
-    g_menu_append(plate, "Arrange the plate", "win.arrange");
-    g_menu_append(plate, "Add models\u2026", "app.open");
-    g_menu_append(plate, "Clear the plate", "win.clear-plate");
-    g_menu_append(plate, "Remove this plate", "win.remove-plate");
-    g_menu_append_section(menu, NULL, G_MENU_MODEL(plate));
-    g_object_unref(plate);
+    if (path < 0) {
+        GMenu *plate = g_menu_new();
+        g_menu_append(plate, "Smart placement", "win.smart-place");
+        g_menu_append(plate, "Arrange the plate", "win.arrange");
+        g_menu_append(plate, "Add models\u2026", "app.open");
+        g_menu_append(plate, "Clear the plate", "win.clear-plate");
+        g_menu_append(plate, "Remove this plate", "win.remove-plate");
+        g_menu_append_section(menu, NULL, G_MENU_MODEL(plate));
+        g_object_unref(plate);
+    }
     GMenu *general = g_menu_new();
-    if (zs_app_mark_count(zg_model_core(v->model)) > 0) g_menu_append(general, "Clear all support marks", "view3d.clear-marks");
+    if (marks) g_menu_append(general, "Clear all support marks", "view3d.clear-marks");
     GtkWidget *preview = v->area;
     while (preview && !g_object_get_data(G_OBJECT(preview), "zg-preview")) preview = gtk_widget_get_parent(preview);
     if (preview && zg_preview_is_cut(preview)) {
@@ -1804,6 +1869,7 @@ GtkWidget *zg_view3d_new(ZgModel *model) {
     static const GActionEntry menu_actions[] = {
         {.name = "add-support", .activate = on_add_support, .parameter_type = "i"},
         {.name = "remove-marks", .activate = on_remove_marks},
+        {.name = "remove-support", .activate = on_remove_support},
         {.name = "clear-marks", .activate = on_clear_marks},
         {.name = "put-down", .activate = on_put_down},
         {.name = "copy-for-ai", .activate = on_copy_for_ai},
