@@ -717,12 +717,22 @@ fn readFile(arena: Allocator, src: Source, path: []const u8, diag: *Diagnostic) 
 /// fdmprinter and fdmextruder: those hold the Cura defaults, and zslice has
 /// its own. Returns the "name" of the definition.
 fn loadDefinition(arena: Allocator, src: Source, id: []const u8, values: *Values, diag: *Diagnostic) Error![]const u8 {
+    return loadDefinitionAt(arena, src, id, values, diag, 0);
+}
+
+/// The most definitions in one `inherits` chain. A chain with a loop (a
+/// definition that inherits itself) stops here.
+const max_inherits = 32;
+
+fn loadDefinitionAt(arena: Allocator, src: Source, id: []const u8, values: *Values, diag: *Diagnostic, depth: usize) Error![]const u8 {
     if (std.mem.eql(u8, id, "fdmprinter") or std.mem.eql(u8, id, "fdmextruder")) return id;
     const path = try std.fmt.allocPrint(arena, "definitions/{s}.def.json", .{id});
+    if (depth >= max_inherits) return bad(diag, path, "the inherits chain is too long, or has a loop");
     const text = try readFile(arena, src, path, diag);
     const def = std.json.parseFromSliceLeaky(std.json.Value, arena, text, .{}) catch return bad(diag, path, "not valid JSON");
+    if (def != .object) return bad(diag, path, "not a JSON object");
     // The base first, so that this file replaces its values.
-    if (str(def, "inherits")) |base| _ = try loadDefinition(arena, src, base, values, diag);
+    if (str(def, "inherits")) |base| _ = try loadDefinitionAt(arena, src, base, values, diag, depth + 1);
     if (def.object.get("overrides")) |ov| if (ov == .object) {
         var it = ov.object.iterator();
         while (it.next()) |e| {
@@ -1509,6 +1519,27 @@ test "import a small Cura stack and load the result" {
     } else unreachable;
     try testing.expect(std.mem.indexOf(u8, proj, "#   retraction_combing = noskin") != null);
     try testing.expect(std.mem.indexOf(u8, proj, "#   wall_line_count = =3") != null);
+}
+
+test "a definition from outside: a loop of inherits, or no object" {
+    var arena = std.heap.ArenaAllocator.init(testing.allocator);
+    defer arena.deinit();
+    const a = arena.allocator();
+    var diag: Diagnostic = .{};
+    // A definition that inherits itself: the stack runs out with no limit.
+    var loop: TestSource = .{ .files = &.{
+        .{ "cura.json", "{\"machine\": \"a\"}" },
+        .{ "definitions/a.def.json", "{\"name\": \"A\", \"inherits\": \"a\"}" },
+    } };
+    try testing.expectError(error.BadFile, resolveStack(a, .{ .ctx = &loop, .read = TestSource.read }, &diag));
+    try testing.expectEqualStrings("the inherits chain is too long, or has a loop", diag.message);
+    // A definition that is JSON but no object.
+    var list: TestSource = .{ .files = &.{
+        .{ "cura.json", "{\"machine\": \"a\"}" },
+        .{ "definitions/a.def.json", "[1, 2]" },
+    } };
+    try testing.expectError(error.BadFile, resolveStack(a, .{ .ctx = &list, .read = TestSource.read }, &diag));
+    try testing.expectEqualStrings("not a JSON object", diag.message);
 }
 
 test "Cura object settings: a grille window" {

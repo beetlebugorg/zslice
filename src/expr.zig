@@ -97,11 +97,29 @@ fn collect(arena: Allocator, node: *const Node, out: *std.ArrayList([]const u8))
 
 // ---- the parser: a recursive descent, from the lowest precedence ----
 
+/// The most parentheses, signs, and `?` parts inside each other.
+const max_depth = 64;
+/// The most values and operators in one formula. `eval` and `variables`
+/// walk the tree with recursion, so the tree must stay small.
+const max_steps = 2000;
+
 const Parser = struct {
     arena: Allocator,
     text: []const u8,
     pos: usize = 0,
     diag: *Diagnostic,
+    depth: usize = 0,
+    steps: usize = 0,
+
+    /// A step into a nested part. A formula from outside (a project, an
+    /// imported profile) can nest without end: it stops here before the
+    /// stack runs out.
+    fn enter(p: *Parser) Error!void {
+        p.depth += 1;
+        p.steps += 1;
+        if (p.depth > max_depth) return p.fail("parts nested too deep");
+        if (p.steps > max_steps) return p.fail("a formula this long");
+    }
 
     fn fail(p: *Parser, message: []const u8) Error {
         p.diag.* = .{ .pos = p.pos, .message = message };
@@ -133,6 +151,8 @@ const Parser = struct {
     }
 
     fn choice(p: *Parser) Error!*const Node {
+        try p.enter();
+        defer p.depth -= 1;
         const cond = try p.orExpr();
         if (!p.eat("?")) return cond;
         const a = try p.choice();
@@ -154,6 +174,8 @@ const Parser = struct {
     }
 
     fn notExpr(p: *Parser) Error!*const Node {
+        try p.enter();
+        defer p.depth -= 1;
         if (p.eat("not")) return p.node(.{ .unary = .{ .op = .not, .a = try p.notExpr() } });
         return p.compare();
     }
@@ -193,6 +215,8 @@ const Parser = struct {
     }
 
     fn unary(p: *Parser) Error!*const Node {
+        try p.enter();
+        defer p.depth -= 1;
         if (p.eat("-")) return p.node(.{ .unary = .{ .op = .neg, .a = try p.unary() } });
         if (p.eat("+")) return p.unary();
         return p.power();
@@ -455,4 +479,33 @@ test "expr: errors have a place" {
     try testing.expectError(error.UnknownFunction, eval(f, .{ .lookup = testEnv }));
     const vars = try variables(arena_state.allocator(), try parse(arena_state.allocator(), "{a} + {b} * {a}", &diag));
     try testing.expectEqual(@as(usize, 2), vars.len);
+}
+
+test "expr: a formula from outside cannot nest deep or grow without end" {
+    var arena_state = std.heap.ArenaAllocator.init(testing.allocator);
+    defer arena_state.deinit();
+    const a = arena_state.allocator();
+    var diag: Diagnostic = .{};
+    // Each of these runs out of stack with no limit.
+    const n = 100_000;
+    const parens = try a.alloc(u8, 2 * n + 1);
+    @memset(parens[0..n], '(');
+    parens[n] = '1';
+    @memset(parens[n + 1 ..], ')');
+    try testing.expectError(error.Syntax, parse(a, parens, &diag));
+    const signs = try a.alloc(u8, n + 1);
+    @memset(signs[0..n], '-');
+    signs[n] = '1';
+    try testing.expectError(error.Syntax, parse(a, signs, &diag));
+    var nots: std.ArrayList(u8) = .empty;
+    for (0..n) |_| try nots.appendSlice(a, "not ");
+    try nots.append(a, '1');
+    try testing.expectError(error.Syntax, parse(a, nots.items, &diag));
+    // A long sum makes a deep tree for eval.
+    var sum: std.ArrayList(u8) = .empty;
+    try sum.append(a, '1');
+    for (0..n) |_| try sum.appendSlice(a, "+1");
+    try testing.expectError(error.Syntax, parse(a, sum.items, &diag));
+    // A formula of the usual size still works.
+    try testing.expectEqual(@as(f64, 7), (try eval(try parse(a, "-(1 + 2) * -2 + (not 0)", &diag), .{ .lookup = testEnv })).num);
 }

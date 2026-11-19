@@ -148,6 +148,11 @@ fn stripComment(text: []const u8) []const u8 {
     return text;
 }
 
+/// The most nodes inside each other. A printdeck.yml has 5 or 6.
+const max_depth = 64;
+/// The most entries that all merge keys of a file copy together.
+const max_merged = 100_000;
+
 const Parser = struct {
     arena: Allocator,
     lines: []Line,
@@ -155,6 +160,24 @@ const Parser = struct {
     diag: *Diagnostic,
     pos: usize = 0,
     anchors: std.StringHashMapUnmanaged(*const Value) = .empty,
+    /// The nodes open now, block and flow. A deep file stops at
+    /// `max_depth` with an error, before the stack of the reader runs out.
+    depth: usize = 0,
+    /// The entries that merge keys copied. Each level of merges can copy
+    /// all entries of the level before it more than once, so a short file
+    /// can ask for billions: it stops at `max_merged`.
+    merged: usize = 0,
+
+    fn enter(p: *Parser, number: usize) Error!void {
+        p.depth += 1;
+        if (p.depth > max_depth) return fail(p.diag, number, "the nodes nest too deep");
+    }
+
+    fn merge(p: *Parser, out: *std.ArrayList(Value.Entry), src: []const Value.Entry, number: usize) Error!void {
+        p.merged += src.len;
+        if (p.merged > max_merged) return fail(p.diag, number, "the merge keys copy too many entries");
+        try out.appendSlice(p.arena, src);
+    }
 
     fn make(p: *Parser, v: Value) Error!*const Value {
         const out = try p.arena.create(Value);
@@ -174,6 +197,8 @@ const Parser = struct {
     fn node(p: *Parser, indent: usize) Error!*const Value {
         p.skipEmpty();
         if (p.pos >= p.lines.len) return p.make(.null);
+        try p.enter(p.lines[p.pos].number);
+        defer p.depth -= 1;
         const l = p.lines[p.pos];
         if (isItem(l.text)) return p.list(indent);
         if (keySplit(l.text) != null) return p.map(indent);
@@ -256,7 +281,7 @@ const Parser = struct {
                 const sources = try value.items(p.arena);
                 for (sources) |src| {
                     if (src.* != .map) return fail(p.diag, l.number, "the merge key needs a map");
-                    try out.appendSlice(p.arena, src.map);
+                    try p.merge(&out, src.map, l.number);
                 }
                 continue;
             }
@@ -468,6 +493,8 @@ const Flow = struct {
     }
 
     fn value(f: *Flow) Error!*const Value {
+        try f.p.enter(f.number);
+        defer f.p.depth -= 1;
         f.space();
         if (f.i >= f.text.len) return f.bad("a flow node with no end");
         const c = f.text[f.i];
@@ -508,7 +535,7 @@ const Flow = struct {
                     // The merge key, as in a block map.
                     for (try v.items(f.p.arena)) |src| {
                         if (src.* != .map) return f.bad("the merge key needs a map");
-                        try out.appendSlice(f.p.arena, src.map);
+                        try f.p.merge(&out, src.map, f.number);
                     }
                 } else try out.append(f.p.arena, .{ .key = key, .value = v });
                 f.space();
@@ -649,4 +676,26 @@ test "yaml: errors name the line" {
     try testing.expectError(error.BadYaml, parse(a, "a: 1\n  b: 2\n", &diag));
     try testing.expectEqual(@as(usize, 2), diag.line);
     try testing.expectError(error.BadYaml, parse(a, "a: *nope\n", &diag));
+}
+
+test "yaml: a file from outside cannot nest deep or merge without end" {
+    var arena_state = std.heap.ArenaAllocator.init(testing.allocator);
+    defer arena_state.deinit();
+    const a = arena_state.allocator();
+    var diag: Diagnostic = .{};
+    // 100000 open lists: the stack of the reader runs out without a limit.
+    const deep = try a.alloc(u8, 200_001);
+    @memset(deep[0..100_000], '[');
+    deep[100_000] = '1';
+    @memset(deep[100_001..], ']');
+    try testing.expectError(error.BadYaml, parse(a, deep, &diag));
+    try testing.expectEqualStrings("the nodes nest too deep", diag.message);
+    // Each map merges the one before it 4 times: 4^20 entries at the end.
+    var text: std.ArrayList(u8) = .empty;
+    try text.appendSlice(a, "m0: &m0 {a: 1}\n");
+    for (1..21) |i| try text.print(a, "m{d}: &m{d} {{<<: *m{d}, <<: *m{d}, <<: *m{d}, <<: *m{d}}}\n", .{ i, i, i - 1, i - 1, i - 1, i - 1 });
+    try testing.expectError(error.BadYaml, parse(a, text.items, &diag));
+    try testing.expectEqualStrings("the merge keys copy too many entries", diag.message);
+    // A file of the usual depth still reads.
+    _ = try testParse(a, "a: {b: [1, {c: [2, 3]}]}\nd:\n  - e:\n      f: [4]\n");
 }
