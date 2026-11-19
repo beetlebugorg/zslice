@@ -557,9 +557,22 @@ export fn zs_bambu_file_plate(gcode: ?[*]const u8, len: usize, plate: ?*const Ba
 /// never sends it.
 export fn zs_app_bambu_file(a: ?*const App, title: ?[*:0]const u8, out: ?*?[*]u8, out_len: ?*usize) c_int {
     const app = a orelse return @intFromEnum(Status.invalid_argument);
+    const g = app.gcode() orelse return @intFromEnum(Status.no_result);
+    return bambuFileOf(app, g, title, out, out_len);
+}
+
+/// zs_app_bambu_file with the G-code of the shell in place of the G-code
+/// of the last slice (the same G-code with the signature of the app), and
+/// the filaments of the last slice.
+export fn zs_app_bambu_file_gcode(a: ?*const App, gcode: ?[*]const u8, len: usize, title: ?[*:0]const u8, out: ?*?[*]u8, out_len: ?*usize) c_int {
+    const app = a orelse return @intFromEnum(Status.invalid_argument);
+    const g = gcode orelse return @intFromEnum(Status.invalid_argument);
+    return bambuFileOf(app, g[0..len], title, out, out_len);
+}
+
+fn bambuFileOf(app: *const App, g: []const u8, title: ?[*:0]const u8, out: ?*?[*]u8, out_len: ?*usize) c_int {
     const o = out orelse return @intFromEnum(Status.invalid_argument);
     const l = out_len orelse return @intFromEnum(Status.invalid_argument);
-    const g = app.gcode() orelse return @intFromEnum(Status.no_result);
     const st = app.result() orelse return @intFromEnum(Status.no_result);
     var list: [zs.filaments.max_slots]zs.bambu.FilamentUse = undefined;
     var n: usize = 0;
@@ -570,7 +583,7 @@ export fn zs_app_bambu_file(a: ?*const App, title: ?[*:0]const u8, out: ?*?[*]u8
         list[n] = .{ .id = @intCast(k + 1), .kind = f.material, .color = f.color, .meters = st.slot_mm[k] / 1000, .grams = st.slot_g[k] };
         n += 1;
     }
-    const bytes = zs.bambu.gcode3mfWith(gpa, g, if (title) |t| std.mem.span(t) else "zslice", list[0..n]) catch return @intFromEnum(Status.out_of_memory);
+    const bytes = zs.bambu.gcode3mfWithTime(gpa, g, if (title) |t| std.mem.span(t) else "zslice", list[0..n], st.print_time_s) catch return @intFromEnum(Status.out_of_memory);
     o.* = bytes.ptr;
     l.* = bytes.len;
     return ok;

@@ -275,6 +275,10 @@ int zs_bambu_file_plate(const uint8_t *gcode, size_t len, const zs_bambu_plate *
  * that the print uses (their slots, types, colors, and weights) in
  * Metadata/slice_info.config. Free the bytes with zs_buffer_free. */
 int zs_app_bambu_file(const zs_app *app, const char *title, uint8_t **out, size_t *out_len);
+/* The same file around the G-code of the shell (the G-code of the last
+ * slice with the signature of the app), with the filaments of the last
+ * slice. */
+int zs_app_bambu_file_gcode(const zs_app *app, const uint8_t *gcode, size_t len, const char *title, uint8_t **out, size_t *out_len);
 /* flags: 1 bed leveling, 2 the AMS, 4 a time lapse, 8 the url form
  * "ftp://<file>" (P1 and A1, reported) in place of "file:///sdcard/<file>"
  * (X1). md5: zs_bambu_md5 of the G-code, or NULL. */
