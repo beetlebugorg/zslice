@@ -397,7 +397,7 @@ function tinyParts(c) {
   return out;
 }
 
-const PLATE_OPS = new Set(["fallStep", "load", "add", "plate", "projectLoad", "partAction", "partCut", "partMove", "partFill", "partToPlate", "editAdd", "editDot", "editRemove", "partSettingSet", "partPutDown", "partTurn", "putDown", "place", "partMove", "partRotate", "partScale", "partSettle", "markAdd", "markRemoveNear", "markSet", "markRemove", "marksClear", "supportAreaAdd", "supportAreaSet", "supportAreaKind", "supportAreaRemove", "treeMoveNode", "treeRadius", "treeMoveBranch", "treeDelete", "treeAdd", "treeReset"]);
+const PLATE_OPS = new Set(["fallStep", "load", "add", "plate", "projectLoad", "partAction", "partCut", "partMove", "partFill", "partToPlate", "editAdd", "editDot", "editRemove", "partSettingSet", "partPutDown", "partTurn", "putDown", "place", "partMove", "partRotate", "partScale", "partSettle", "markAdd", "supportRemoveAt", "markRemoveNear", "markSet", "markRemove", "marksClear", "supportAreaAdd", "supportAreaSet", "supportAreaKind", "supportAreaRemove", "treeMoveNode", "treeRadius", "treeMoveBranch", "treeDelete", "treeAdd", "treeReset"]);
 
 // An edit of the support trees of part `part` (support.js): fn(clampPtr)
 // calls the core. count: the result is a count or a node (else a status).
@@ -1033,6 +1033,35 @@ const ops = {
     core.w.x.zs_app_mark_add(core.app, pt[0], pt[1], pt[2], 3, kind);
     wantSlice();
     return {};
+  },
+
+  // "Remove this support": the support line at the segment holds up an
+  // overhang; a block area over that overhang takes the support away.
+  // The support marks of the user near the line go too.
+  // The feature of line `path` (0 outer wall … 6 support, 7 support
+  // interface; see gaps.js), or -1.
+  lineFeature({ path }) {
+    const info = core.inspect(path);
+    return { feature: info ? info.feature : -1 };
+  },
+
+  supportRemoveAt({ path, seg }) {
+    const pt = core.pathPoint(path, seg);
+    const info = core.inspect(path);
+    if (!pt || !info) return { error: "No line there." };
+    if (info.feature !== 6 && info.feature !== 7) return { error: "That line is not support." };
+    let changed = core.w.x.zs_app_mark_remove_near(core.app, pt[0], pt[1], pt[2], 3) > 0;
+    // The overhang is over the support: up from the line, a half
+    // millimeter a step, to the first surface that faces down.
+    const top = core.layers()?.z?.at(-1) ?? pt[2];
+    let hot = null;
+    for (let z = pt[2]; z <= top + 0.5 && !hot; z += 0.5) hot = core.supportPick(pt[0], pt[1], z, 2);
+    if (hot && hot.pts.length >= 3) {
+      if (core.supportAreaAdd(3, hot.pts, hot.zLo, hot.zHi) >= 0) changed = true;
+    }
+    if (!changed) return { error: "zslice found no overhang over this support." };
+    wantSlice();
+    return { areas: core.supportAreas() };
   },
 
   markRemoveNear({ path, seg }) {

@@ -8,12 +8,27 @@
 //
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
-// Sections, in order. `on`: "line" shows only with a selected line.
+// Sections, in order. `on`: what is under the pointer. "line": any line;
+// "part": a line of a part; "support": a support line; "empty": no line
+// (the bed or the air); "always": each time.
 export const CONTEXT_MENU = [
+  {
+    on: "support",
+    items: [
+      { label: "Remove this support", act: "removeSupport" },
+      { label: "Remove the support marks here", gtk: "view3d.remove-marks", act: "removeMarks", when: "marks" },
+    ],
+  },
   {
     on: "line",
     items: [
       { label: "Preview to this layer", accel: "C", gtk: "preview.cut-to-layer", act: "cutToLayer" },
+      { label: "Copy for AI", gtk: "view3d.copy-for-ai", act: "copyForAi" },
+    ],
+  },
+  {
+    on: "part",
+    items: [
       {
         label: "Add support here",
         gtk: "view3d.add-support",
@@ -24,20 +39,19 @@ export const CONTEXT_MENU = [
         ],
       },
       { label: "Block support here", gtk: "view3d.add-support(3)", act: "addSupport", arg: 3 },
-      { label: "Remove the support marks here", gtk: "view3d.remove-marks", act: "removeMarks" },
-      { label: "Copy for AI", gtk: "view3d.copy-for-ai", act: "copyForAi" },
+      { label: "Remove the support marks here", gtk: "view3d.remove-marks", act: "removeMarks", when: "marks" },
       { label: "Add a drop of plastic here", gtk: "view3d.add-drop", act: "drop" },
     ],
   },
   {
-    on: "line",
+    on: "part",
     items: [
       { label: "New profile from here up", gtk: "view3d.new-profile(1)", missing: "The web app has no layer profiles yet." },
       { label: "New profile from here down", gtk: "view3d.new-profile(-1)", missing: "The web app has no layer profiles yet." },
     ],
   },
   {
-    on: "line",
+    on: "part",
     items: [
       { label: "Put this side on the bed", gtk: "view3d.put-down", act: "putDown" },
       {
@@ -54,7 +68,7 @@ export const CONTEXT_MENU = [
     ],
   },
   {
-    on: "always",
+    on: "empty",
     items: [
       { label: "Smart placement", gtk: "win.smart-place", act: "plate", arg: "smart" },
       { label: "Arrange the plate", gtk: "win.arrange", act: "plate", arg: "arrange" },
@@ -75,7 +89,8 @@ export const CONTEXT_MENU = [
   },
 ];
 
-// The items for menus.js. ctx: { onLine, marks, cut, run(act, arg) }.
+// The items for menus.js. ctx: { on ("part", "support", or "empty"),
+// marks, cut, run(act, arg) }.
 export function contextItems(ctx) {
   const out = [];
   const make = (e) => {
@@ -86,7 +101,8 @@ export function contextItems(ctx) {
     return { label: e.label, accel: e.accel, action: () => ctx.run(e.act, e.arg) };
   };
   for (const section of CONTEXT_MENU) {
-    if (section.on === "line" && !ctx.onLine) continue;
+    const fits = section.on === "always" || section.on === ctx.on || (section.on === "line" && ctx.on !== "empty");
+    if (!fits) continue;
     const items = section.items.map(make).filter(Boolean);
     if (items.length === 0) continue;
     if (out.length > 0) out.push({ sep: true });

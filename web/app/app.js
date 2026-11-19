@@ -1763,11 +1763,17 @@ document.addEventListener("keydown", (e) => {
 
 // ---- the context menu (context-menu.js has its entries) ----
 
-function showContextMenu(x, y) {
+async function showContextMenu(x, y) {
   // The place of the click, for "Add a drop of plastic here".
   app.menuAt = [x, y];
+  // What is under the pointer: a support line, a line of a part, or none.
+  let on = "empty";
+  if (app.sel >= 0) {
+    const k = await client.call("lineFeature", { path: app.sel });
+    on = k.feature === 6 || k.feature === 7 ? "support" : "part";
+  }
   const items = contextItems({
-    onLine: app.sel >= 0,
+    on,
     marks: app.marks > 0,
     cut: isCut(),
     run: runMenu,
@@ -1782,6 +1788,12 @@ async function runMenu(act, arg) {
     case "cutToLayer": cutToSelection(); break;
     case "addSupport": await client.call("markAdd", { path, seg, kind: arg }); break;
     case "removeMarks": await client.call("markRemoveNear", { path, seg }); break;
+    case "removeSupport": {
+      const r = await client.call("supportRemoveAt", { path, seg });
+      if (r.error) toast(r.error);
+      else supportTool?.setAreas(r.areas);
+      break;
+    }
     case "copyForAi": await copyForAi(); break;
     case "putDown": await client.call("putDown", { path, seg }); break;
     case "place": await client.call("place", { path, code: arg }); break;
