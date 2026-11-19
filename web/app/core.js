@@ -451,7 +451,7 @@ export class Core {
   // seg: the selected segment (-1: none), for the support mark there.
   inspect(path, seg = -1) {
     const w = this.w;
-    const size = 128; // zs_inspect on wasm32
+    const size = 168; // zs_inspect on wasm32
     const p = w.alloc(size);
     try {
       if (w.x.zs_app_inspect(this.app, path, p) !== 0) return null;
@@ -487,6 +487,12 @@ export class Core {
       }
       info.mark = this.markOfPath(path, seg, info);
       info.slowText = s(124);
+      info.fan = w.f64(p + 128);
+      info.layerTime = w.f64(p + 136);
+      info.maxFlow = w.f64(p + 144);
+      info.flowLimited = w.i32(p + 152) !== 0;
+      const held = w.u32(p + 156);
+      info.holds = held === 0xffffffff ? null : { layer: held, feature: w.i32(p + 160) };
       // The key of the line for an edit (zs_app_path_key), read now: the
       // edit then works while a new slice runs.
       info.key = String(w.x.zs_app_path_key(this.app, path));
@@ -644,6 +650,47 @@ export class Core {
       return issues;
     } finally {
       w.free(p, 12);
+    }
+  }
+
+  // The issues of the check on the layer of path `path` that are about
+  // it: its own issues, and the issues within `near` mm of it (a bridge or
+  // an overhang next to the line). Reads the cached check of the slice
+  // (zs_app_checks, after zs_app_checks_ready): a loop over the issues,
+  // with no pick. [{ kind, severity, value, text }], the worst first.
+  issuesOfPath(path, layer, near = 3) {
+    const w = this.w;
+    const p = w.alloc(12);
+    const t = w.alloc(96);
+    try {
+      // Only a check that has run: the check of a whole slice can take a
+      // second, too long for a click.
+      if (!w.x.zs_app_checks_ready(this.app)) return [];
+      if (w.x.zs_app_checks(this.app, p, p + 4, p + 8) !== 0) return [];
+      if (w.x.zs_app_toolpaths(this.app, t) !== 0) return [];
+      const ip = w.u32(p);
+      const n = w.u32(p + 4);
+      const tp = w.u32(p + 8);
+      const ends = w.u32(t + 4);
+      const a = path === 0 ? 0 : w.u32(ends + 4 * (path - 1));
+      const b = w.u32(ends + 4 * path);
+      const f = new Float32Array(w.x.memory.buffer, w.u32(t), 2 * b);
+      const out = [];
+      for (let i = 0; i < n; i++) {
+        const q = ip + i * 48; // zs_issue on wasm32
+        if (w.u32(q + 4) !== layer) continue;
+        let hit = w.u32(q + 8) === path;
+        if (!hit) {
+          const x = w.f64(q + 16);
+          const y = w.f64(q + 24);
+          for (let k = a; k < b && !hit; k++) hit = Math.hypot(f[2 * k] - x, f[2 * k + 1] - y) <= near;
+        }
+        if (hit) out.push({ kind: w.u8[q], severity: w.u8[q + 1], value: w.f64(q + 32), text: w.text(tp + w.u32(q + 40), w.u32(q + 44)) });
+      }
+      return out;
+    } finally {
+      w.free(p, 12);
+      w.free(t, 96);
     }
   }
 

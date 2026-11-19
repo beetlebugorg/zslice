@@ -836,6 +836,11 @@ var lineCard = new LineCard({
   isolate: () => toggleIsolate(),
   isolated: () => app.isolate,
   host: $("preview"),
+  // The jump from a setting of the card to the setting in the panel.
+  openSetting: (name) => {
+    showTab("settings");
+    browser.openSetting(name);
+  },
   // All settings: the long form of the line in the panel takes the place
   // of the card; the line stays selected.
   more: () => {

@@ -1,12 +1,20 @@
-// linecard.js: the card of a selected line, next to it in the view
-// (docs/internals/one-view.md). A click on a line opens it at the click.
-// It shows what the line is (the feature and the layer), its three
-// numbers (the planned speed, the real speed, the flow), why it is slow,
-// its size, and the settings that matter for it (why it is slow, the first
-// layer, a setting the user changed, the settings of its feature), with
-// live editors. A
-// change slices at once. "More" opens the Selected page of the panel,
-// with all the settings and the reasons.
+// linecard.js: the card of a selected line (docs/internals/one-view.md).
+// A click on a line opens it in a corner of the view, away from the line,
+// so it never covers the line or the part around it. It keeps its corner
+// from click to click while that corner stays clear of the line.
+//
+// It shows what helps to decide what to change: what the line is (the
+// feature, the layer, and the z), its speed and flow and what slows it
+// (the cooling, the flow limit, or short segments), its width and height,
+// the time of its layer, the fan, a warning of the check at the line, and
+// for support the part line that it holds up. Then the settings that
+// matter most for the line, each with a live editor and a jump to the
+// setting in the panel. A change slices at once. "All settings" opens the
+// Selected page of the panel, with all the settings and the reasons.
+//
+// All the data comes from one call to the worker for each click (inspect:
+// zs_app_inspect, its picks, and the cached check). The card does no work
+// for each frame.
 //
 // The card follows the line after a new slice (the inspector finds the
 // line again), and closes with Esc, with a click on no line, or with ×.
@@ -17,19 +25,25 @@
 
 import { el } from "./settings.js";
 import { movable } from "./drag.js";
-import { placeBeside, freeArea } from "./place.js";
+import { placeCorner, freeArea, GAP as PLACE_GAP } from "./place.js";
+import { FEATURE_TITLES } from "./format.js";
 
 const SLOW = [
   "",
   "Slow: the layer is short, so it prints slower to cool.",
   "Slow: the segments are short, so the head does not reach full speed.",
 ];
-const MAX_SETTINGS = 4;
+const MAX_SETTINGS = 3;
+// The space around the clicked line that the card keeps clear, CSS px.
+const CLEAR = 24;
+// The kinds of the check (checks.zig) that the card shows as a warning:
+// flow, cooling, overhang, island, bridge.
+const WARN_KINDS = new Set([0, 1, 2, 3, 5]);
 
 // The settings that matter most for each feature (FEATURE_TITLES in
 // format.js), in order.
 const BY_FEATURE = [
-  ["project.outer_wall_speed", "project.seam", "project.wall_count", "project.outer_wall_accel"],
+  ["project.outer_wall_speed", "project.wall_count", "project.outer_wall_accel", "project.seam"],
   ["project.wall_count", "project.inner_wall_speed", "project.wall_thickness", "project.infill_overlap"],
   ["project.top_thickness", "project.bottom_thickness", "project.skin_pattern", "project.skin_speed"],
   ["project.infill_density", "project.infill_pattern", "project.infill_speed", "project.infill_angle"],
@@ -50,7 +64,8 @@ const ACCEL = ["project.outer_wall_accel", "project.inner_wall_accel", "project.
 // [{ name, why }]. First the reasons of this line (slow, the first layer,
 // a change of the user for these layers), then the settings of its
 // feature, then the list of the inspector. Each name must be a setting
-// that changes the line (in info.settings) or one of the rules here.
+// that changes the line (in info.settings) or one of the rules here. The
+// core gives the same list (zs_app_inspect_picks); this is the fallback.
 export function contextSettings(info, byName, max = MAX_SETTINGS) {
   const changes = new Set(info.settings.split("\n").filter((l) => l && !l.startsWith("# ")));
   const out = [];
@@ -79,22 +94,45 @@ export function contextSettings(info, byName, max = MAX_SETTINGS) {
   return out;
 }
 
+// "6.2 s", "1 min 05 s".
+export function layerTimeText(s) {
+  if (!(s > 0)) return "–";
+  if (s < 60) return `${s.toFixed(1)} s`;
+  const r = Math.round(s);
+  return `${Math.floor(r / 60)} min ${String(r % 60).padStart(2, "0")} s`;
+}
+
+// The notes of a line: why it is slow, and the flow limit. [text].
+export function lineNotes(info) {
+  const out = [];
+  const slow = info.slowText || SLOW[info.slowReason] || "";
+  if (slow) out.push(slow);
+  if (info.flowLimited && info.maxFlow > 0) {
+    out.push(`The flow limit (${info.maxFlow.toFixed(0)} mm³/s) sets the speed of this line, not the printer.`);
+  }
+  return out;
+}
+
 export class LineCard {
   // ctx: { browser (SettingsBrowser), host (the element of the view),
-  //        more() (open the Selected page), close() (clear the selection) }
+  //        more() (open the Selected page), close() (clear the selection),
+  //        openSetting(name) (show the setting in the panel),
+  //        lineBox() (the box of the line on the screen), ... }
   constructor(ctx) {
     this.ctx = ctx;
     this.node = null;
     this.at = [0, 0];
     this.signature = "";
+    // The corner of the card: it stays from click to click.
+    this.corner = null;
   }
 
   get open() {
     return !!this.node;
   }
 
-  // Opens the card at a point (CSS pixels in the view) for the next
-  // `show`.
+  // Opens the card for the next `show`. (x, y): the click, CSS pixels in
+  // the view: the card keeps clear of it.
   openAt(x, y) {
     this.at = [x, y];
     this.want = true;
@@ -129,9 +167,12 @@ export class LineCard {
       return;
     }
     if (!this.want) return;
-    const sig = `${info.title}\n${info.settings}`;
+    // A new card for new settings rows: another feature, other settings,
+    // or other picks (with their reasons).
+    const sig = `${info.title}\n${info.settings}\n${(info.picks ?? []).map((p) => `${p.name}:${p.why}`).join("\n")}\n${info.slowReason}`;
     if (this.node && sig === this.signature) {
       this.update(info);
+      this.place();
       return;
     }
     this.signature = sig;
@@ -147,19 +188,21 @@ export class LineCard {
     card.tabIndex = -1;
     const head = el("div", "lc-head");
     this.title = el("div", "lc-title");
+    this.where = el("div", "lc-where");
+    const titles = el("div", "lc-titles");
+    titles.append(this.title, this.where);
     const close = el("button", "flat icon lc-close", "×");
     close.setAttribute("aria-label", "Close");
     close.title = "Close (Esc)";
     close.onclick = () => this.ctx.close();
-    head.append(this.title, close);
+    head.append(titles, close);
     head.title = "Drag to move the card";
     movable(card, head, this.ctx.host, (x, y) => {
       this.userAt = [x, y];
     });
     this.stats = el("div", "lc-stats");
-    this.note = el("div", "lc-note");
-    this.size = el("div", "lc-size");
-    card.append(head, this.stats, this.note, this.size);
+    this.notes = el("div", "lc-notes");
+    card.append(head, this.stats, this.notes);
 
     // The settings that matter for this line, with the reason of each.
     // The picks of the core (zs_app_inspect_picks), else the rules here.
@@ -169,10 +212,11 @@ export class LineCard {
       for (const { name, why } of picks) {
         const s = this.ctx.browser.byName.get(name);
         const row = el("div", "lc-row");
-        const label = el("div", "lc-label");
-        label.append(el("div", "lc-name", s.label));
-        if (why) label.append(el("div", "lc-why", why));
-        label.title = s.doc;
+        const label = el("button", "flat lc-label");
+        label.append(el("span", "lc-name", s.label));
+        if (why) label.append(el("span", "lc-why", why));
+        label.title = `${s.doc}\n\nClick to show this setting in the panel.`;
+        label.onclick = () => this.ctx.openSetting?.(name);
         const ed = this.ctx.browser.makeEditor(s, "card");
         row.append(label, ed.node);
         this.ctx.browser.track(name, { where: "card", update: (entry) => ed.update(entry) });
@@ -196,7 +240,7 @@ export class LineCard {
     // The segment editor: an edit of this line alone, kept across slices.
     if (this.ctx.edit && info.path != null) {
       const edits = el("div", "lc-foot lc-edits");
-      const del = el("button", "flat", "Don't print this line");
+      const del = el("button", "flat", "Don't print");
       del.title = "Take this line out of the print (Delete). The edit stays, and applies again to a new slice that makes the same line.";
       del.onclick = () => this.ctx.edit(info, 0, 1);
       const less = el("button", "flat", "−10 % plastic");
@@ -222,46 +266,73 @@ export class LineCard {
   }
 
   update(info) {
-    this.title.textContent = `${info.title} · layer ${info.layer + 1}`;
+    this.title.textContent = info.title;
+    this.where.textContent = `Layer ${info.layer + 1} · z ${info.z.toFixed(2)} mm`;
+    const slow = info.slowReason !== 0;
+    const flowUse = info.maxFlow > 0 ? Math.round((info.flow / info.maxFlow) * 100) : 0;
+    // [name, value, a note after the value, a warning].
+    const stats = [
+      ["Speed", `${info.speed.toFixed(0)} mm/s`, slow ? `of ${info.plannedSpeed.toFixed(0)} planned` : "", slow],
+      ["Flow", `${info.flow.toFixed(1)} mm³/s`, info.maxFlow > 0 ? `${flowUse} % of max` : "", flowUse >= 95],
+      ["Line", `${info.lineWidth.toFixed(2)} × ${info.height.toFixed(2)} mm`, "wide × high", false],
+      ["Layer", layerTimeText(info.layerTime), `fan ${Math.round((info.fan ?? 0) * 100)} %`, info.slowReason === 1],
+    ];
     this.stats.replaceChildren(
-      ...[
-        [`${info.plannedSpeed.toFixed(0)} mm/s`, "planned"],
-        [`${info.speed.toFixed(0)} mm/s`, "real"],
-        [`${info.flow.toFixed(1)} mm³/s`, "flow"],
-      ].map(([v, c], i) => {
-        const d = el("div", "lc-stat" + (i === 1 && info.slowReason !== 0 ? " warning" : ""));
-        d.append(el("div", "lc-v", v), el("div", "lc-c", c));
-        return d;
+      ...stats.flatMap(([name, v, c, warn]) => {
+        const d = el("div", "lc-v" + (warn ? " warning" : ""), v);
+        if (c) d.append(el("span", "lc-c", ` ${c}`));
+        return [el("div", "lc-k", name), d];
       }),
     );
-    this.note.textContent = info.slowText ?? SLOW[info.slowReason] ?? "";
-    this.note.hidden = !this.note.textContent;
-    const m = info.measure;
-    let size = "";
-    if (m) {
-      if (m.shape === 1) size = `Circle ⌀ ${(2 * m.radius).toFixed(2)} mm · `;
-      else if (m.shape === 2) size = `Arc r ${m.radius.toFixed(2)} mm · `;
-      size += `segment ${m.segment.toFixed(2)} mm · ${m.closed ? "loop" : "path"} ${m.path.toFixed(1)} mm`;
+    const notes = lineNotes(info).map((t) => el("div", "lc-note", t));
+    // What a support line holds up.
+    if (info.holds) {
+      const f = FEATURE_TITLES[info.holds.feature] ?? "Part";
+      const up = info.holds.layer - info.layer;
+      notes.push(el("div", "lc-info", `Holds up: ${f.toLowerCase()} on layer ${info.holds.layer + 1}, ${up} ${up === 1 ? "layer" : "layers"} up.`));
+    } else if (info.feature === 6 || info.feature === 7) {
+      notes.push(el("div", "lc-info", "Holds up: no part line over it on the next layers."));
     }
-    this.size.textContent = size;
-    this.size.hidden = !size;
+    // The warnings of the check at this line (a bridge, an overhang).
+    const seen = new Set();
+    for (const is of info.issues ?? []) {
+      if (is.severity < 1 || !WARN_KINDS.has(is.kind) || seen.has(is.kind) || seen.size >= 2) continue;
+      seen.add(is.kind);
+      notes.push(el("div", "lc-note lc-check", `⚠ ${is.text}`));
+    }
+    this.notes.replaceChildren(...notes);
+    this.notes.hidden = notes.length === 0;
   }
 
-  // Next to the click, inside the view (a card that the user moved stays).
+  // In a corner of the view, clear of the line (a card that the user
+  // moved stays).
   place() {
     const card = this.node;
+    if (!card) return;
     if (this.userAt) {
       [card.style.left, card.style.top] = this.userAt.map((v) => `${v}px`);
       return;
     }
-    // The box of the whole line that the user clicked (and the click): the
-    // card covers no part of it.
+    // The box of the whole line that the user clicked, the click, and some
+    // room around them: the card covers no part of it.
     const box = this.ctx.lineBox?.() ?? [this.at[0], this.at[1], this.at[0], this.at[1]];
-    box[0] = Math.min(box[0], this.at[0] - 12);
-    box[1] = Math.min(box[1], this.at[1] - 12);
-    box[2] = Math.max(box[2], this.at[0] + 12);
-    box[3] = Math.max(box[3], this.at[1] + 12);
-    const [x, y] = placeBeside(box, freeArea(this.ctx.host), card.offsetWidth, card.offsetHeight);
+    box[0] = Math.min(box[0], this.at[0]) - CLEAR;
+    box[1] = Math.min(box[1], this.at[1]) - CLEAR;
+    box[2] = Math.max(box[2], this.at[0]) + CLEAR;
+    box[3] = Math.max(box[3], this.at[1]) + CLEAR;
+    const area = freeArea(this.ctx.host);
+    card.style.maxHeight = "";
+    let [x, y, corner, over] = placeCorner(box, area, card.offsetWidth, card.offsetHeight, this.corner);
+    if (over > 0) {
+      // A narrow or short view: no corner is clear of the line. The card
+      // gets shorter, and scrolls, to fit above or below the line.
+      const room = Math.max(box[1] - area[1], area[3] - box[3]) - PLACE_GAP - 1;
+      if (room >= 120) {
+        card.style.maxHeight = `${room}px`;
+        [x, y, corner] = placeCorner(box, area, card.offsetWidth, card.offsetHeight, this.corner);
+      }
+    }
+    this.corner = corner;
     card.style.left = `${x}px`;
     card.style.top = `${y}px`;
   }

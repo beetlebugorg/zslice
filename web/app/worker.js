@@ -594,7 +594,10 @@ const ops = {
     if (core.state() !== STATE.done) return { info: null };
     let p = path;
     if (refind) p = core.refind(refind.layer, refind.feature, refind.x, refind.y);
-    return { info: p >= 0 ? core.inspect(p, seg ?? -1) : null };
+    const info = p >= 0 ? core.inspect(p, seg ?? -1) : null;
+    // The warnings of the check at this line, for the line card.
+    if (info) info.issues = core.issuesOfPath(p, info.layer);
+    return { info };
   },
 
   report({ path }) {
