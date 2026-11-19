@@ -3071,7 +3071,7 @@ pub const View = struct {
                     const b = ext[(e + 1) % 8];
                     if (a[0] == b[0] and a[1] == b[1]) continue;
                     edges += 1;
-                    if ((b[0] - a[0]) * (q[1] - a[1]) - (b[1] - a[1]) * (q[0] - a[0]) <= 0) {
+                    if ((b[0] - a[0]) * (q[1] - a[1]) - (b[1] - a[1]) * (q[0] - a[0]) < 0) {
                         inside = false;
                         break;
                     }
@@ -3080,7 +3080,13 @@ pub const View = struct {
                 pts[kept] = q;
                 kept += 1;
             }
-            pts = pts[0..kept];
+            // The points on the polygon went too (the straight walls of a
+            // box-like part lie on it, and the least value of a linear
+            // function on a side is at one of its ends): the 8 extreme
+            // points come back.
+            run.items.len = kept;
+            run.appendSlice(gpa, &ext) catch return error.OutOfMemory;
+            pts = run.items;
         }
         std.mem.sortUnstable([2]f32, pts, {}, struct {
             fn lt(_: void, a: [2]f32, b: [2]f32) bool {
