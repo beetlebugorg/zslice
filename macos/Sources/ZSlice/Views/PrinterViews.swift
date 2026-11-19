@@ -432,39 +432,100 @@ private struct PrinterEditor: View {
     }
 }
 
-/// The Filament menu of the toolbar: the built-in materials and the
-/// filaments of the user, and Save as Profile.
+/// The Filament button of the toolbar (web/app/app.js, the filament
+/// popover): a dot in the color of each filament of the plate (up to 8),
+/// and the name of the filament, or "N filaments". A click opens a popover
+/// with the filaments of the plate (FilamentList), a note on how this
+/// printer changes the filament, "Use the Filaments of <printer>" for a
+/// printdeck printer, the built-in material profiles of filament 1 as
+/// chips, the filament profiles of the user, and Save as Profile.
 struct FilamentMenu: View {
     let workspace: Workspace
+    /// ZSLICE_FILAMENT_POPOVER=1 opens the popover (for a screenshot).
+    @State private var open = ProcessInfo.processInfo.environment["ZSLICE_FILAMENT_POPOVER"] != nil
+    @State private var reading = false
 
     var body: some View {
         let model = workspace.model
+        let list = model.filaments
         let now = model.materialName
-        Menu {
-            Section("Material") {
-                ForEach(Profiles.builtin(Profiles.filament).filter { $0.hasPrefix("generic-") }, id: \.self) { n in
-                    let mat = String(n.dropFirst(8)).uppercased()
-                    Toggle(mat, isOn: Binding(get: { now == mat }, set: { _ in model.useFilament(name: n) }))
-                }
-            }
-            let mine = Profiles.mine(Profiles.filament)
-            if !mine.isEmpty {
-                Section("My Filaments") {
-                    ForEach(mine, id: \.self) { n in
-                        Button(n) { model.useFilament(name: n, text: Profiles.text(of: n, group: Profiles.filament)) }
+        Button { open.toggle() } label: {
+            HStack(spacing: 6) {
+                HStack(spacing: -4) {
+                    ForEach(list.prefix(8)) { f in
+                        Circle().fill(Color(hex: f.color) ?? Color(white: 0.82))
+                            .frame(width: 11, height: 11)
+                            .overlay(Circle().strokeBorder(Color(nsColor: .windowBackgroundColor), lineWidth: 1))
                     }
                 }
+                Text(list.count > 1 ? "\(list.count) filaments" : (now.isEmpty ? "Filament" : now))
+                Image(systemName: "chevron.down").font(.system(size: 9, weight: .semibold)).foregroundStyle(.secondary)
+            }
+            .fixedSize()
+        }
+        .help(list.count > 1 ? "The \(list.count) filaments of the plate: click to change them" : "The filament: click to change it, or to add filaments")
+        .popover(isPresented: $open, arrowEdge: .bottom) { popover.padding(14).frame(width: 330) }
+    }
+
+    @ViewBuilder private var popover: some View {
+        let model = workspace.model
+        let printer = workspace.platePrinter
+        let tool = model.setting("machine.filament_change") == "tool"
+        VStack(alignment: .leading, spacing: 12) {
+            FilamentList(model: model)
+            Text(tool ? "\(printer?.name ?? "This printer") changes the filament by itself. Add the filaments it has, then give a part or layers a filament (the card of a part, or of a range of layers)."
+                : "Add a filament to print in more colors: the print pauses at each change.")
+                .font(.caption)
+                .foregroundStyle(.secondary)
+                .fixedSize(horizontal: false, vertical: true)
+            if let p = printer, p.kind == .printdeck {
+                Button(reading ? "Reading the Printer…" : "Use the Filaments of \(p.name)") {
+                    reading = true
+                    Task { @MainActor in
+                        let words = await workspace.useLoadedFilaments(p)
+                        reading = false
+                        workspace.showNote(words)
+                    }
+                }
+                .disabled(reading)
+                .help("Read the spools that the printer has loaded (the trays of its AMS and its external spool), and make the filaments of the plate the same: count, material, and color")
             }
             Divider()
-            Button("Save as Profile…") {
+            Text("Profile of filament 1").font(.caption.weight(.semibold)).foregroundStyle(.secondary)
+            FlowLayout(spacing: 4) {
+                ForEach(Profiles.builtin(Profiles.filament).filter { $0.hasPrefix("generic-") }, id: \.self) { n in
+                    let mat = String(n.dropFirst(8)).uppercased()
+                    Button(mat) {
+                        model.useFilament(name: n)
+                        open = false
+                    }
+                    .buttonStyle(.bordered)
+                    .tint(model.materialName == mat ? .accentColor : nil)
+                    .help("Load the built-in \(mat) profile for filament 1")
+                }
+            }
+            .controlSize(.small)
+            let mine = Profiles.mine(Profiles.filament)
+            if !mine.isEmpty {
+                Text("My filaments").font(.caption.weight(.semibold)).foregroundStyle(.secondary)
+                FlowLayout(spacing: 4) {
+                    ForEach(mine, id: \.self) { n in
+                        Button(n) {
+                            model.useFilament(name: n, text: Profiles.text(of: n, group: Profiles.filament))
+                            open = false
+                        }
+                        .buttonStyle(.bordered)
+                    }
+                }
+                .controlSize(.small)
+            }
+            Button("Save Filament 1 as a Profile…") {
+                open = false
                 if let name = askProfileName("Save the Filament as a Profile") { try? model.saveProfile(group: Profiles.filament, name: name) }
             }
-        } label: {
-            Label(now.isEmpty ? "Filament" : now, systemImage: "circle.dashed")
-                .labelStyle(.titleAndIcon)
-                .fixedSize()
+            .buttonStyle(.link)
+            .font(.callout)
         }
-        .help("The filament of the plate: its material, or a filament profile of yours")
     }
 }
 

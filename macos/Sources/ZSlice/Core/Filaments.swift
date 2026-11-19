@@ -31,6 +31,35 @@ struct FilamentStats: Equatable {
     var flushG: Double
 }
 
+extension Workspace {
+    /// The printer of the active plate: its own, or the printer of the
+    /// toolbar.
+    var platePrinter: Printer? { assigned(plate: model.active) ?? PrinterStore.shared.current }
+
+    /// Makes the filaments of the plate the spools that printer `p` has
+    /// loaded: the same count (filaments added or removed at the end),
+    /// then the material (upper case) and the color of each, in the order
+    /// of the printer. Filament k prints from its spool k: the deck maps
+    /// them at the start of the print. Returns the words for a note.
+    func useLoadedFilaments(_ p: Printer) async -> String {
+        let r = await PrinterLink.loadedFilaments(p)
+        guard let all = r.list else { return r.why }
+        let want = Array(all.prefix(16))
+        var have = model.filaments.count
+        while have < want.count, model.addFilament() != nil { have += 1 }
+        while have > want.count {
+            model.removeFilament(have - 1)
+            have -= 1
+        }
+        for (k, f) in want.prefix(have).enumerated() {
+            model.setFilament(k, "filament.material", f.material.uppercased())
+            if f.color.range(of: "^#[0-9a-fA-F]{6}$", options: .regularExpression) != nil { model.setFilament(k, "filament.color", f.color) }
+        }
+        let words = want.map { "\($0.slot.isEmpty ? "roll" : $0.slot) \($0.material)" }.joined(separator: ", ")
+        return "\(want.count) \(want.count == 1 ? "filament" : "filaments") from \(p.name): \(words)."
+    }
+}
+
 extension SliceModel {
     /// The materials that the list offers.
     static let filamentKinds = ["PLA", "PETG", "ABS", "ASA", "TPU", "PA", "PC", "PVA"]

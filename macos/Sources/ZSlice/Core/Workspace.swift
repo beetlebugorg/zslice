@@ -564,6 +564,20 @@ final class Workspace {
                 NSLog("zslice history card: step %ld of %ld, keys %@, changes %@", i, model.history.count, historyCardKeys(i).joined(separator: ","), model.history.step(i)?.changes.joined(separator: " / ") ?? "-")
             }
         }
+        // ZSLICE_USE_FILAMENTS=1 runs Use the Filaments of the printer of
+        // the plate 4 s after the start, and logs its note and the list.
+        if env["ZSLICE_USE_FILAMENTS"] != nil {
+            DispatchQueue.main.asyncAfter(deadline: .now() + 4) { [weak self] in
+                guard let self, let p = platePrinter else {
+                    NSLog("zslice use filaments: no printer")
+                    return
+                }
+                Task { @MainActor in
+                    let words = await self.useLoadedFilaments(p)
+                    NSLog("zslice use filaments: %@ list %@", words, self.model.filaments.map { "\($0.index + 1) \($0.material) \($0.color)" }.joined(separator: ", "))
+                }
+            }
+        }
         // ZSLICE_FILAMENT_LOG=1 logs the filaments of the plate and their
         // grams, 5 s after the start (a painted file that opens).
         if env["ZSLICE_FILAMENT_LOG"] != nil {

@@ -133,7 +133,7 @@ enum PrinterLink {
         throw last
     }
 
-    private static func explain(_ e: Error) -> String {
+    static func explain(_ e: Error) -> String {
         if let pin = e as? PinError { return pin.localizedDescription }
         return "The printer did not answer (\(e.localizedDescription)). Check the address, and that the printer is on."
     }
@@ -307,6 +307,35 @@ enum PrinterLink {
             return "\(p.name) is at \(other["url"] as? String ?? "") on the deck, but this printer's address leads to \(shown). Nothing was sent. Add \(p.name) again from the deck."
         }
         return nil
+    }
+
+    /// A spool that a deck printer has loaded (GET /api/plugin/printdeck,
+    /// "filaments"), in the order of the printer.
+    struct LoadedFilament {
+        var slot: String
+        var material: String
+        var color: String
+    }
+
+    /// The spools that a printdeck printer has loaded: the trays of its
+    /// AMS and its external spool, with no empty tray. nil and why when
+    /// there is none to read.
+    @MainActor static func loadedFilaments(_ p: Printer) async -> (list: [LoadedFilament]?, why: String) {
+        guard p.kind == .printdeck else { return (nil, "Only a printdeck printer tells its filaments.") }
+        do {
+            let (d, r) = try await request(p, "/api/plugin/printdeck")
+            if r.statusCode == 401 || r.statusCode == 403 { return (nil, "The deck refused the key.") }
+            guard (200 ..< 300).contains(r.statusCode) else { return (nil, "The deck answered \(r.statusCode).") }
+            let j = (try? JSONSerialization.jsonObject(with: d)) as? [String: Any]
+            let list = (j?["filaments"] as? [[String: Any]] ?? []).compactMap { f -> LoadedFilament? in
+                guard let m = f["material"] as? String, !m.isEmpty else { return nil }
+                return LoadedFilament(slot: f["slot"] as? String ?? "", material: m, color: f["color"] as? String ?? "")
+            }
+            if list.isEmpty { return (nil, "The printer tells no loaded filaments. Update the deck, or load a spool.") }
+            return (list, "")
+        } catch {
+            return (nil, explain(error))
+        }
     }
 
     /// The camera of a printer, read once: GET each path of
