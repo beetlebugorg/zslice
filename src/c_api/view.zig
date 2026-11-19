@@ -653,6 +653,17 @@ export fn zs_view_path_beads(view: ?*const View, path: usize, first: ?*u32, end:
     return ok;
 }
 
+/// The box of path `path` on the screen, in pixels (x0, y0, x1, y1), for a
+/// card that must keep out of it. 0 if no part of it is in front of the
+/// camera.
+export fn zs_view_path_rect(view: ?*const View, path: usize, out: ?*[4]f32) c_int {
+    if (!render_on) return 0;
+    const v = view orelse return 0;
+    const r = v.pathRect(path) orelse return 0;
+    if (out) |o| o.* = r;
+    return 1;
+}
+
 export fn zs_view_path_layer(view: ?*const View, path: usize) usize {
     if (!render_on) return 0;
     const v = view orelse return 0;

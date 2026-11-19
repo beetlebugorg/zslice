@@ -2154,6 +2154,28 @@ pub const View = struct {
         return .{ v.path_start.items[path], v.path_start.items[path + 1] };
     }
 
+    /// The box of path `path` on the screen (pixels: x0, y0, x1, y1), from
+    /// the ends of its beads, or null if none is in front of the camera:
+    /// a card next to a line keeps out of it.
+    pub fn pathRect(v: *const View, path: usize) ?[4]f32 {
+        const r = v.pathBeads(path);
+        var box = [4]f32{ std.math.inf(f32), std.math.inf(f32), -std.math.inf(f32), -std.math.inf(f32) };
+        var any = false;
+        // A long path: at most 4096 beads, evenly.
+        const n = r[1] -| r[0];
+        const step = @max(1, n / 4096);
+        var k = r[0];
+        while (k < r[1]) : (k += step) {
+            const b = v.beads.items[k];
+            for ([_][2]f32{ .{ b.ax, b.ay }, .{ b.bx, b.by } }) |q| {
+                const p = v.pixelOf(.{ q[0], q[1], b.z }) orelse continue;
+                any = true;
+                box = .{ @min(box[0], p[0]), @min(box[1], p[1]), @max(box[2], p[0]), @max(box[3], p[1]) };
+            }
+        }
+        return if (any) box else null;
+    }
+
     /// The number of paths.
     pub fn pathCount(v: *const View) usize {
         return if (v.path_start.items.len > 0) v.path_start.items.len - 1 else 0;

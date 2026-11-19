@@ -17,6 +17,7 @@
 
 import { el } from "./settings.js";
 import { movable } from "./drag.js";
+import { placeBeside, freeArea } from "./place.js";
 
 const SLOW = [
   "",
@@ -253,16 +254,14 @@ export class LineCard {
       [card.style.left, card.style.top] = this.userAt.map((v) => `${v}px`);
       return;
     }
-    const host = this.ctx.host.getBoundingClientRect();
-    const w = card.offsetWidth;
-    const h = card.offsetHeight;
-    let x = this.at[0] + 18;
-    let y = this.at[1] - 24;
-    if (x + w > host.width - 60) x = this.at[0] - w - 18;
-    x = Math.max(8, Math.min(host.width - w - 8, x));
-    // Above the dock at the bottom of the view (--dock-h of app.js).
-    const dock = parseFloat(getComputedStyle(this.ctx.host).getPropertyValue("--dock-h")) || 40;
-    y = Math.max(60, Math.min(host.height - h - dock - 20, y));
+    // The box of the whole line that the user clicked (and the click): the
+    // card covers no part of it.
+    const box = this.ctx.lineBox?.() ?? [this.at[0], this.at[1], this.at[0], this.at[1]];
+    box[0] = Math.min(box[0], this.at[0] - 12);
+    box[1] = Math.min(box[1], this.at[1] - 12);
+    box[2] = Math.max(box[2], this.at[0] + 12);
+    box[3] = Math.max(box[3], this.at[1] + 12);
+    const [x, y] = placeBeside(box, freeArea(this.ctx.host), card.offsetWidth, card.offsetHeight);
     card.style.left = `${x}px`;
     card.style.top = `${y}px`;
   }

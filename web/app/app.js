@@ -774,6 +774,15 @@ var partCard = new PartCard({
 // The card of a selected line, next to it in the view (linecard.js).
 var lineCard = new LineCard({
   browser,
+  // The box of the selected line on the screen, in CSS pixels.
+  lineBox: () => {
+    if (app.page !== "3d" || app.sel < 0) return null;
+    const c = view.w.cell;
+    if (!view.x.zs_view_path_rect(view.v, app.sel, c)) return null;
+    const k = window.devicePixelRatio || 1;
+    const f = new Float32Array(view.w.u8.buffer, c, 4);
+    return [f[0] / k, f[1] / k, f[2] / k, f[3] / k];
+  },
   isolate: () => toggleIsolate(),
   isolated: () => app.isolate,
   host: $("preview"),
@@ -1769,11 +1778,17 @@ const inspector = new Inspector($("page-selected"), {
 // ---- the tools: select, move, measure ----
 
 var tools = new Tools({ // var: drawFrame can run before this line
-  partSelected: (part) => partCard?.show(part),
+  // The Turn and Grab tools have no card: the rings and the hand are the
+  // tool, and the card would cover them.
+  partSelected: (part) => (tools?.tool === "turn" || tools?.tool === "grab" ? partCard?.show(null) : partCard?.show(part)),
   client, view, canvas, view2d,
   buttons: { select: $("tool-select"), move: $("tool-move"), turn: $("tool-turn"), grab: $("tool-grab"), measure: $("tool-measure"), support: $("tool-support") },
   again: (t) => { if (t === "support") supportTool?.togglePane(); },
-  toolChanged: (tool) => supportTool?.setActive(tool === "support"),
+  toolChanged: (tool) => {
+    supportTool?.setActive(tool === "support");
+    // The Turn and Grab tools have no part card (see partSelected).
+    if (tool === "turn" || tool === "grab") partCard?.show(null);
+  },
   readout: $("measure-readout"),
   page: () => app.page,
   layer: () => layers.hi,

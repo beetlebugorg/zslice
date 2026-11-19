@@ -1072,6 +1072,9 @@ void zs_view_pan(zs_view *view, float dx, float dy);
 /* A frame on the bed around a selected part; none if x1 < x0. */
 void zs_view_part_box(zs_view *view, double x0, double y0, double x1, double y1);
 /* The point of the bed under the pixel (px, py) of a 3D view. 0 if none. */
+/* The box of path `path` on the screen, in pixels (x0, y0, x1, y1): a card
+ * next to a line keeps out of it. 0 if it is not in front of the camera. */
+int zs_view_path_rect(const zs_view *view, size_t path, float out[4]);
 int zs_view_bed_point(const zs_view *view, float px, float py, double *x, double *y);
 /* The point under the pixel on the level plane at height z (mm), for the
  * hand that carries a part (zs_app_grab_move). 0 if not under the pixel. */

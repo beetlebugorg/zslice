@@ -19,6 +19,7 @@
 
 import { el } from "./settings.js";
 import { movable } from "./drag.js";
+import { placeBeside, freeArea } from "./place.js";
 
 export class PartCard {
   // ctx: { client, browser (SettingsBrowser), host (the element of the
@@ -319,18 +320,24 @@ export class PartCard {
       return;
     }
     const dpr = window.devicePixelRatio || 1;
-    // Past the rings of the Turn tool (turn.js: radius 0.62 of the
-    // largest size, and 4 mm), so the card covers none of them.
+    // The box of the part on the screen, with the rings of the Turn tool
+    // (turn.js: radius 0.62 of the largest size, and 4 mm): the card
+    // covers no part of them.
     const ring = 0.62 * Math.max(p.sizeX, p.sizeY, p.sizeZ) + 4;
-    const q = this.ctx.pixelOf({ x: p.x + Math.max(p.sizeX / 2, ring) + 6, y: p.y, z: p.sizeZ / 2 });
-    const host = this.ctx.host.getBoundingClientRect();
-    const w = card.offsetWidth;
-    const h = card.offsetHeight;
-    let x = q ? q[0] / dpr + 24 : host.width - w - 70;
-    let y = q ? q[1] / dpr - h / 2 : 80;
-    if (x + w > host.width - 60) x = (q ? q[0] / dpr : host.width) - w - 24;
-    x = Math.max(62, Math.min(host.width - w - 8, x));
-    y = Math.max(60, Math.min(host.height - h - 140, y));
+    const hx = Math.max(p.sizeX / 2, ring);
+    const hy = Math.max(p.sizeY / 2, ring);
+    const zTop = Math.max(p.sizeZ, p.sizeZ / 2 + ring);
+    const box = [Infinity, Infinity, -Infinity, -Infinity];
+    for (const sx of [-1, 1]) for (const sy of [-1, 1]) for (const z of [0, zTop]) {
+      const q = this.ctx.pixelOf({ x: p.x + sx * hx, y: p.y + sy * hy, z });
+      if (!q) continue;
+      box[0] = Math.min(box[0], q[0] / dpr);
+      box[1] = Math.min(box[1], q[1] / dpr);
+      box[2] = Math.max(box[2], q[0] / dpr);
+      box[3] = Math.max(box[3], q[1] / dpr);
+    }
+    const area = freeArea(this.ctx.host);
+    const [x, y] = box[0] <= box[2] ? placeBeside(box, area, card.offsetWidth, card.offsetHeight) : [area[2] - card.offsetWidth, area[1] + 52];
     card.style.left = `${x}px`;
     card.style.top = `${y}px`;
   }
