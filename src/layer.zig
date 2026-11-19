@@ -1242,7 +1242,17 @@ pub fn plan(gpa: Allocator, ctx: Context, i: usize) Allocator.Error!LayerPlan {
     var sup_iface: Paths = .empty;
     var sup_seams: ?[]const u32 = null;
     if (ctx.support.len > 0) {
-        const sl = ctx.support[i];
+        var sl = ctx.support[i];
+        // On the layers of the skirt and the brim, the support keeps out of
+        // the band that their loops cover (with half a line more): the
+        // loops and the support printed over each other.
+        if (ctx.rings and (!sl.body.isEmpty() or !sl.interface.isEmpty())) {
+            if (try ringBand(s, r, ctx.outlines[0], i)) |band| {
+                sl.body = try clip.difference(s, sl.body, band);
+                sl.interface = try clip.difference(s, sl.interface, band);
+                if (sl.hollow) sl.filled = try clip.difference(s, sl.filled, band);
+            }
+        }
         if (!sl.body.isEmpty()) {
             // One boundary loop holds the ends of the lines together. The
             // lines have one direction and one spacing on all layers (the
@@ -1682,6 +1692,27 @@ pub fn ringLoops(s: Allocator, r: *const Resolved, outline0: Paths, i: usize, ri
             try rings.append(s, try offset_mod.offset(s, base, d, .{ .join = .round }));
         }
     }
+}
+
+/// The area that the skirt and the brim of layer i cover, with half a line
+/// and more on each side of each loop (see `ringLoops`), or null if the
+/// layer has none.
+pub fn ringBand(s: Allocator, r: *const Resolved, outline0: Paths, i: usize) Allocator.Error!?Paths {
+    var rings: std.ArrayList(Paths) = .empty;
+    try ringLoops(s, r, outline0, i, &rings);
+    if (rings.items.len == 0) return null;
+    const w = geom.fromMm(if (i == 0) r.first_layer_line_width else r.line_width);
+    // Each loop as a stroke of three half lines on each side: the loop
+    // grown by a line, less the loop shrunk by a line. A loop is a closed
+    // path, and a grown loop alone would fill its inside (all support in
+    // the skirt).
+    var all: Paths = .empty;
+    for (rings.items) |ring| {
+        const out = try offset_mod.offset(s, ring, w, .{ .join = .round });
+        const in = try offset_mod.offset(s, ring, -w, .{ .join = .round });
+        try all.appendAll(s, try clip.difference(s, out, in));
+    }
+    return try clip.unionAll(s, all, .non_zero);
 }
 
 /// The plan of layer i of a plate with only its skirt and brim (see
