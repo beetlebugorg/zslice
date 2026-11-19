@@ -45,6 +45,22 @@ gboolean zg_model_add(ZgModel *self, const char *name, const void *data, gsize l
  * follows each change. */
 void zg_model_select_part(ZgModel *self, gint64 part);
 gint64 zg_model_selected_part(ZgModel *self);
+/* Shift and a click: adds the part to the selection of parts, or takes it
+ * out. zg_model_selected_part is the last selected part.
+ * zg_model_select_part selects one part again. */
+void zg_model_toggle_part(ZgModel *self, gint64 part);
+/* All selected parts (n of them, the last is zg_model_selected_part),
+ * valid until the next call. */
+const gint64 *zg_model_parts(ZgModel *self, guint *n);
+/* The actions of the card of several parts. The changes of one call are
+ * one step of the history. */
+void zg_model_parts_remove(ZgModel *self);
+/* The copies are the new selection. */
+void zg_model_parts_duplicate(ZgModel *self);
+/* All selected parts to one new plate: the new plate, or -1. */
+gint64 zg_model_parts_to_new_plate(ZgModel *self);
+/* A setting of each selected part (value NULL: the value of the plate). */
+gboolean zg_model_parts_setting_set(ZgModel *self, const char *name, const char *value);
 /* The plate: each call changes the core, emits "plate-changed", and
  * starts a new slice. */
 void zg_model_part_move(ZgModel *self, size_t i, double x, double y);

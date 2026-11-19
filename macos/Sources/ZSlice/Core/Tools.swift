@@ -16,6 +16,24 @@
 //!   third click starts again, a drag of an end moves it, and Esc clears.
 //!   The core draws the tape in the 3D view (zs_view_set_measure).
 //!
+//! For the Mac session (the web and GTK apps have these; this file does
+//! not yet):
+//!
+//! - Shift and a click add a part to the selection of parts, or take it
+//!   out (web/app/tools.js togglePart, the GTK zg_model_toggle_part). A
+//!   frame for each with zs_view_part_boxes. The part card of several
+//!   parts: Duplicate, Arrange the plate, To a new plate, Remove, each one
+//!   step of the history. A drag of one of them, or the arrow keys, move
+//!   them all.
+//! - Select: a click on a support line (zs_view_path_feature 6 or 7)
+//!   selects that support, with the Support tool code in a mode of its
+//!   own (web/app/support.js selectAt, the GTK zg_support_select_at).
+//! - Select: a left drag that starts on a line lights the layers from
+//!   that layer to the layer under the pointer (zs_view_light_layers; the
+//!   layer comes from two projections, see layerUnder in web/app/app.js).
+//!   The release opens a card of overrides for those layers
+//!   (web/app/rangecard.js, linux/src/ui/range-card.c).
+//!
 //! SPDX-License-Identifier: AGPL-3.0-or-later
 
 import AppKit

@@ -5,6 +5,11 @@
  * (zg_model_part_setting). The list is made again only when its names
  * change; the editors follow the values themselves.
  *
+ * With several parts selected (Shift and a click), the card shows how
+ * many, and the actions for all of them: Duplicate, Arrange the plate,
+ * To a new plate, and Remove (as web/app/partcard.js). A drag of one of
+ * them with the Move tool (or Ctrl), or the arrow keys, moves them all.
+ *
  * SPDX-License-Identifier: AGPL-3.0-or-later
  */
 #include "part-card.h"
@@ -23,6 +28,8 @@ typedef struct {
     /* The popover of the cut: the height, the flip, and the pegs. */
     GtkWidget *cut_pop, *cut_z, *cut_flip, *cut_pegs, *cut_n, *cut_d;
     GtkWidget *make_n;
+    /* The widgets of one part, and of several parts. */
+    GtkWidget *single, *many;
     gint64 part;
     char *names; /* the names of the listed settings, one a line */
 } PartCard;
@@ -36,30 +43,38 @@ static void update_facts(PartCard *c, const zs_part *p) {
     g_free(text);
 }
 
-/* Next to the part, at the right of its top, inside the view; past the
- * rings of the Turn tool, so that the card covers none of them. */
-static void place(gpointer data) {
-    PartCard *c = data;
-    if (!gtk_widget_get_visible(c->card) || zg_float_user_moved(c->card)) return;
-    zs_part p;
-    if (c->part < 0 || zs_app_part_get(zg_model_core(c->model), (size_t)c->part, &p) != ZS_OK) return;
-    int w = gtk_widget_get_width(c->card), h = gtk_widget_get_height(c->card);
-    if (w <= 0) w = 300;
-    if (h <= 0) h = 200;
-    /* The box of the part on the screen, with the rings of the Turn tool
-     * (radius 0.62 of the largest size, and 4 mm): the card covers no part
-     * of them. */
-    double ring = 0.62 * MAX(p.size_x, MAX(p.size_y, p.size_z)) + 4;
-    double hx = MAX(p.size_x / 2, ring), hy = MAX(p.size_y / 2, ring), top = MAX(p.size_z, p.size_z / 2 + ring);
-    double box[4] = {INFINITY, INFINITY, -INFINITY, -INFINITY}, area[4], x, y;
+/* Grows box by the box of part p on the screen, with the rings of the
+ * Turn tool (radius 0.62 of the largest size, and 4 mm): the card covers
+ * no part of them. */
+static void add_box(PartCard *c, const zs_part *p, double box[4]) {
+    double ring = 0.62 * MAX(p->size_x, MAX(p->size_y, p->size_z)) + 4;
+    double hx = MAX(p->size_x / 2, ring), hy = MAX(p->size_y / 2, ring), top = MAX(p->size_z, p->size_z / 2 + ring);
     for (int k = 0; k < 8; k++) {
         double qx, qy;
-        if (!zg_view3d_pixel_of(zg_preview_view3d(c->preview), p.x + (k & 1 ? hx : -hx), p.y + (k & 2 ? hy : -hy), k & 4 ? top : 0, &qx, &qy))
+        if (!zg_view3d_pixel_of(zg_preview_view3d(c->preview), p->x + (k & 1 ? hx : -hx), p->y + (k & 2 ? hy : -hy), k & 4 ? top : 0, &qx, &qy))
             continue;
         box[0] = MIN(box[0], qx);
         box[1] = MIN(box[1], qy);
         box[2] = MAX(box[2], qx);
         box[3] = MAX(box[3], qy);
+    }
+}
+
+/* Next to the part (or the parts), at the right of its top, inside the
+ * view; past the rings of the Turn tool, so that the card covers none of
+ * them. */
+static void place(gpointer data) {
+    PartCard *c = data;
+    if (!gtk_widget_get_visible(c->card) || zg_float_user_moved(c->card)) return;
+    int w = gtk_widget_get_width(c->card), h = gtk_widget_get_height(c->card);
+    if (w <= 0) w = 300;
+    if (h <= 0) h = 200;
+    double box[4] = {INFINITY, INFINITY, -INFINITY, -INFINITY}, area[4], x, y;
+    guint n = 0;
+    const gint64 *list = zg_model_parts(c->model, &n);
+    for (guint i = 0; i < n; i++) {
+        zs_part p;
+        if (zs_app_part_get(zg_model_core(c->model), (size_t)list[i], &p) == ZS_OK) add_box(c, &p, box);
     }
     zg_free_area(c->preview, area);
     if (box[0] <= box[2]) zg_place_beside(box, area, w, h, &x, &y);
@@ -132,14 +147,40 @@ static void fill_settings(PartCard *c) {
     g_ptr_array_free(infos, TRUE);
 }
 
+/* The facts of several parts: how many, and their extent on the bed. */
+static void update_many(PartCard *c, const gint64 *list, guint n) {
+    double box[4] = {INFINITY, INFINITY, -INFINITY, -INFINITY};
+    for (guint i = 0; i < n; i++) {
+        zs_part p;
+        if (zs_app_part_get(zg_model_core(c->model), (size_t)list[i], &p) != ZS_OK) continue;
+        box[0] = MIN(box[0], p.x - p.size_x / 2);
+        box[1] = MIN(box[1], p.y - p.size_y / 2);
+        box[2] = MAX(box[2], p.x + p.size_x / 2);
+        box[3] = MAX(box[3], p.y + p.size_y / 2);
+    }
+    char *title = g_strdup_printf("%u parts", n);
+    gtk_label_set_text(GTK_LABEL(c->title), title);
+    g_free(title);
+    char *text = g_strdup_printf("%.1f × %.1f mm on the bed", box[2] - box[0], box[3] - box[1]);
+    gtk_label_set_text(GTK_LABEL(c->facts), text);
+    g_free(text);
+}
+
 static void refresh(PartCard *c) {
     zs_part p;
     if (c->part < 0 || zs_app_part_get(zg_model_core(c->model), (size_t)c->part, &p) != ZS_OK) {
         gtk_widget_set_visible(c->card, FALSE);
         return;
     }
-    update_facts(c, &p);
-    fill_settings(c);
+    guint n = 0;
+    const gint64 *list = zg_model_parts(c->model, &n);
+    gtk_widget_set_visible(c->single, n <= 1);
+    gtk_widget_set_visible(c->many, n > 1);
+    if (n > 1) update_many(c, list, n);
+    else {
+        update_facts(c, &p);
+        fill_settings(c);
+    }
     place(c);
 }
 
@@ -317,6 +358,16 @@ static void on_action(GSimpleAction *a, GVariant *v, gpointer data) {
     }
 }
 
+/* The actions of several parts ("partsmany.*"). */
+static void on_many(GSimpleAction *a, GVariant *v, gpointer data) {
+    PartCard *c = data;
+    const char *name = g_action_get_name(G_ACTION(a));
+    if (strcmp(name, "duplicate") == 0) zg_model_parts_duplicate(c->model);
+    else if (strcmp(name, "arrange") == 0) zg_model_plate_arrange(c->model);
+    else if (strcmp(name, "new-plate") == 0) zg_model_parts_to_new_plate(c->model);
+    else if (strcmp(name, "remove") == 0) zg_model_parts_remove(c->model);
+}
+
 static void on_close(GtkButton *b, gpointer data) {
     PartCard *c = data;
     zg_model_select_part(c->model, -1);
@@ -357,6 +408,49 @@ GtkWidget *zg_part_card_new(ZgModel *model, GtkWidget *preview) {
     gtk_widget_add_css_class(c->facts, "dim-label");
     gtk_widget_add_css_class(c->facts, "numeric");
     gtk_box_append(GTK_BOX(c->card), c->facts);
+    /* The card of several parts. */
+    c->many = gtk_box_new(GTK_ORIENTATION_VERTICAL, 6);
+    static const GActionEntry many_actions[] = {
+        {.name = "duplicate", .activate = on_many},
+        {.name = "arrange", .activate = on_many},
+        {.name = "new-plate", .activate = on_many},
+        {.name = "remove", .activate = on_many},
+    };
+    GSimpleActionGroup *many_group = g_simple_action_group_new();
+    g_action_map_add_action_entries(G_ACTION_MAP(many_group), many_actions, G_N_ELEMENTS(many_actions), c);
+    gtk_widget_insert_action_group(c->card, "partsmany", G_ACTION_GROUP(many_group));
+    g_object_unref(many_group);
+    static const struct { const char *label, *action, *tip; } many_buttons[] = {
+        {"Duplicate", "partsmany.duplicate", "A copy of each part at a free place on the bed (D)"},
+        {"Arrange the plate", "partsmany.arrange", "Put all parts of the plate in rows, apart from each other"},
+        {"To a new plate", "partsmany.new-plate", "Move these parts to one new plate, with the settings of this plate"},
+        {"Remove", "partsmany.remove", "Remove these parts from the plate (Delete). Ctrl+Z brings them back."},
+    };
+    GtkWidget *many_flow = gtk_flow_box_new();
+    gtk_flow_box_set_selection_mode(GTK_FLOW_BOX(many_flow), GTK_SELECTION_NONE);
+    gtk_flow_box_set_max_children_per_line(GTK_FLOW_BOX(many_flow), 3);
+    gtk_flow_box_set_row_spacing(GTK_FLOW_BOX(many_flow), 4);
+    gtk_flow_box_set_column_spacing(GTK_FLOW_BOX(many_flow), 4);
+    for (size_t i = 0; i < G_N_ELEMENTS(many_buttons); i++) {
+        GtkWidget *b = gtk_button_new_with_label(many_buttons[i].label);
+        gtk_actionable_set_action_name(GTK_ACTIONABLE(b), many_buttons[i].action);
+        gtk_widget_set_tooltip_text(b, many_buttons[i].tip);
+        gtk_widget_add_css_class(b, "zg-card-action");
+        if (strcmp(many_buttons[i].label, "Remove") == 0) gtk_widget_add_css_class(b, "destructive-action");
+        gtk_flow_box_append(GTK_FLOW_BOX(many_flow), b);
+    }
+    gtk_box_append(GTK_BOX(c->many), many_flow);
+    GtkWidget *hint = gtk_label_new("To move them all: drag one of them with the Move tool (or Ctrl and a drag), or press the arrow keys.");
+    gtk_label_set_wrap(GTK_LABEL(hint), TRUE);
+    gtk_label_set_max_width_chars(GTK_LABEL(hint), 40);
+    gtk_label_set_xalign(GTK_LABEL(hint), 0);
+    gtk_widget_add_css_class(hint, "dim-label");
+    gtk_box_append(GTK_BOX(c->many), hint);
+    gtk_widget_set_visible(c->many, FALSE);
+    gtk_box_append(GTK_BOX(c->card), c->many);
+    /* The card of one part. */
+    c->single = gtk_box_new(GTK_ORIENTATION_VERTICAL, 6);
+    gtk_box_append(GTK_BOX(c->card), c->single);
     static const GActionEntry actions[] = {
         {.name = "duplicate", .activate = on_action},
         {.name = "split", .activate = on_action},
@@ -394,7 +488,7 @@ GtkWidget *zg_part_card_new(ZgModel *model, GtkWidget *preview) {
         gtk_flow_box_append(GTK_FLOW_BOX(flow), b);
         if (strcmp(buttons[i].label, "Split to parts") == 0) gtk_flow_box_append(GTK_FLOW_BOX(flow), cut_button(c));
     }
-    gtk_box_append(GTK_BOX(c->card), flow);
+    gtk_box_append(GTK_BOX(c->single), flow);
     GtkWidget *make = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 6);
     gtk_box_append(GTK_BOX(make), gtk_label_new("Make"));
     c->make_n = gtk_spin_button_new_with_range(2, 10000, 1);
@@ -408,19 +502,19 @@ GtkWidget *zg_part_card_new(ZgModel *model, GtkWidget *preview) {
     gtk_widget_add_css_class(make_b, "zg-card-action");
     g_signal_connect(make_b, "clicked", G_CALLBACK(on_make), c);
     gtk_box_append(GTK_BOX(make), make_b);
-    gtk_box_append(GTK_BOX(c->card), make);
+    gtk_box_append(GTK_BOX(c->single), make);
     c->settings = gtk_grid_new();
     gtk_grid_set_row_spacing(GTK_GRID(c->settings), 4);
     gtk_grid_set_column_spacing(GTK_GRID(c->settings), 6);
     gtk_widget_set_margin_top(c->settings, 4);
     gtk_widget_set_visible(c->settings, FALSE);
-    gtk_box_append(GTK_BOX(c->card), c->settings);
+    gtk_box_append(GTK_BOX(c->single), c->settings);
     GtkWidget *add = gtk_button_new_with_label("+ Add a setting for this part");
     gtk_widget_add_css_class(add, "flat");
     gtk_widget_set_halign(add, GTK_ALIGN_START);
     gtk_widget_set_tooltip_text(add, "Search the settings that a part can have of its own");
     gtk_actionable_set_action_name(GTK_ACTIONABLE(add), "partcard.add-setting");
-    gtk_box_append(GTK_BOX(c->card), add);
+    gtk_box_append(GTK_BOX(c->single), add);
     GtkEventController *keys = gtk_event_controller_key_new();
     g_signal_connect(keys, "key-pressed", G_CALLBACK(on_key), c);
     gtk_widget_add_controller(c->card, keys);

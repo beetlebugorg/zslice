@@ -94,6 +94,7 @@ The GTK app has the layout of the web app for one plate. The files are in `linux
 - `shortcuts.c`: the sheet of the keys (`?`), one table.
 - The tool strip at the left of the view (`preview.c`): Select, Move, Turn, Measure, Gaps, and Check, each with its key.
 - `line-card.c` and `part-card.c`: the cards of a line and of a part. The part card follows the part after each frame of the view (`zg_view3d_on_frame`, `zg_view3d_pixel_of`).
+- `range-card.c`: the card of a range of layers (a drag of the Select tool from a line, in `view3d.c`). Its editors are scoped: the scope of the model is the z range of the layers while it is open.
 - The Turn tool (`view3d.c`): the view widget draws the rings with cairo over the Vulkan subsurface.
 - A double click on a side of a part turns the view to that side (`zs_view_look_at`).
 - The measure readout floats on the tape, and the 2D view draws the tape and takes the clicks of the Measure tool.

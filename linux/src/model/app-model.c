@@ -97,8 +97,12 @@ struct _ZgModel {
     /* The scope of the inspector edits (see zg_model_set_scope). */
     gboolean scope_on;
     double scope_min, scope_max, scope_show;
-    /* The selected part of the plate (Ctrl+click), or -1. */
+    /* The selected part of the plate (Ctrl+click), or -1. Shift and a
+     * click add parts: the other selected parts are in `parts_more`, and
+     * `part` is the last one. `parts_all` is the list that zg_model_parts
+     * returns. */
     gint64 part;
+    GArray *parts_more, *parts_all;
     /* The roll of filament in the printer (see zg_model_set_roll): its
      * key, or NULL. The filament settings are saved for it too. */
     char *roll;
@@ -407,6 +411,9 @@ static void zg_model_dispose(GObject *object) {
     if (self->more) g_array_free(self->more, TRUE);
     if (self->more_anchor) g_array_free(self->more_anchor, TRUE);
     self->more = self->more_anchor = NULL;
+    if (self->parts_more) g_array_free(self->parts_more, TRUE);
+    if (self->parts_all) g_array_free(self->parts_all, TRUE);
+    self->parts_more = self->parts_all = NULL;
     if (self->save_timer) {
         g_source_remove(self->save_timer);
         self->save_timer = 0;
@@ -1460,6 +1467,8 @@ static void zg_model_init(ZgModel *self) {
     self->segment = -1;
     self->gap_layer = self->gap_index = -1;
     self->part = -1;
+    self->parts_more = g_array_new(FALSE, FALSE, sizeof(gint64));
+    self->parts_all = g_array_new(FALSE, FALSE, sizeof(gint64));
     self->part_scope = -1;
     self->bridge = g_atomic_rc_box_new0(Bridge);
     g_weak_ref_init(&self->bridge->model, self);
@@ -1566,6 +1575,9 @@ static void plate_changed(ZgModel *self) {
         g_signal_emit(self, signals[SIGNAL_PART_SCOPE_CHANGED], 0);
     }
     if ((size_t)self->part >= zs_app_part_count(self->core)) zg_model_select_part(self, -1);
+    /* The other selected parts that went. */
+    for (guint k = self->parts_more->len; k-- > 0;)
+        if ((size_t)g_array_index(self->parts_more, gint64, k) >= zs_app_part_count(self->core)) g_array_remove_index(self->parts_more, k);
     g_signal_emit(self, signals[SIGNAL_PLATE_CHANGED], 0);
     if (zs_app_part_count(self->core) > 0) slice_plate_soon(self);
 }
@@ -1638,7 +1650,9 @@ gboolean zg_model_add(ZgModel *self, const char *name, const void *data, gsize l
 }
 
 void zg_model_select_part(ZgModel *self, gint64 part) {
-    if (self->part == part) return;
+    gboolean had_more = self->parts_more->len > 0;
+    g_array_set_size(self->parts_more, 0);
+    if (self->part == part && !had_more) return;
     /* A part, or a line: not both. The line goes first, so the part page
      * comes after it. */
     if (part >= 0 && self->selected >= 0) zg_model_select(self, -1);
@@ -1648,6 +1662,119 @@ void zg_model_select_part(ZgModel *self, gint64 part) {
 
 gint64 zg_model_selected_part(ZgModel *self) {
     return self->part;
+}
+
+void zg_model_toggle_part(ZgModel *self, gint64 part) {
+    if (part < 0) return;
+    if (self->part < 0) {
+        zg_model_select_part(self, part);
+        return;
+    }
+    if (part == self->part) {
+        /* The last part of the others takes its place. */
+        gint64 next = -1;
+        if (self->parts_more->len > 0) {
+            next = g_array_index(self->parts_more, gint64, self->parts_more->len - 1);
+            g_array_set_size(self->parts_more, self->parts_more->len - 1);
+        }
+        self->part = next;
+        g_signal_emit(self, signals[SIGNAL_PART_SELECTED], 0, next);
+        return;
+    }
+    for (guint k = 0; k < self->parts_more->len; k++) {
+        if (g_array_index(self->parts_more, gint64, k) == part) {
+            g_array_remove_index(self->parts_more, k);
+            g_signal_emit(self, signals[SIGNAL_PART_SELECTED], 0, self->part);
+            return;
+        }
+    }
+    g_array_append_val(self->parts_more, self->part);
+    self->part = part;
+    g_signal_emit(self, signals[SIGNAL_PART_SELECTED], 0, part);
+}
+
+const gint64 *zg_model_parts(ZgModel *self, guint *n) {
+    g_array_set_size(self->parts_all, 0);
+    g_array_append_vals(self->parts_all, self->parts_more->data, self->parts_more->len);
+    if (self->part >= 0) g_array_append_val(self->parts_all, self->part);
+    *n = self->parts_all->len;
+    return (const gint64 *)self->parts_all->data;
+}
+
+static int cmp_desc(gconstpointer a, gconstpointer b) {
+    gint64 x = *(const gint64 *)a, y = *(const gint64 *)b;
+    return x < y ? 1 : x > y ? -1 : 0;
+}
+
+/* The selected parts, the highest index first (a remove moves the parts
+ * after it). Free with g_array_free. */
+static GArray *parts_desc(ZgModel *self) {
+    guint n = 0;
+    const gint64 *list = zg_model_parts(self, &n);
+    GArray *a = g_array_new(FALSE, FALSE, sizeof(gint64));
+    g_array_append_vals(a, list, n);
+    g_array_sort(a, cmp_desc);
+    return a;
+}
+
+void zg_model_parts_remove(ZgModel *self) {
+    zg_model_fall_cancel(self);
+    GArray *a = parts_desc(self);
+    gboolean done = FALSE;
+    for (guint k = 0; k < a->len; k++)
+        if (zs_app_part_remove(self->core, (size_t)g_array_index(a, gint64, k)) == ZS_OK) done = TRUE;
+    g_array_free(a, TRUE);
+    if (!done) return;
+    zg_model_select_part(self, -1);
+    zg_model_select(self, -1);
+    plate_changed(self);
+}
+
+void zg_model_parts_duplicate(ZgModel *self) {
+    guint n = 0;
+    const gint64 *list = zg_model_parts(self, &n);
+    GArray *src = g_array_new(FALSE, FALSE, sizeof(gint64));
+    g_array_append_vals(src, list, n);
+    GArray *copies = g_array_new(FALSE, FALSE, sizeof(gint64));
+    for (guint k = 0; k < src->len; k++) {
+        ptrdiff_t c = zs_app_part_duplicate(self->core, (size_t)g_array_index(src, gint64, k));
+        if (c >= 0) {
+            gint64 c64 = c;
+            g_array_append_val(copies, c64);
+        }
+    }
+    g_array_free(src, TRUE);
+    if (copies->len > 0) {
+        plate_changed(self);
+        /* The copies are the new selection. */
+        zg_model_select_part(self, g_array_index(copies, gint64, 0));
+        for (guint k = 1; k < copies->len; k++) zg_model_toggle_part(self, g_array_index(copies, gint64, k));
+    }
+    g_array_free(copies, TRUE);
+}
+
+gint64 zg_model_parts_to_new_plate(ZgModel *self) {
+    GArray *a = parts_desc(self);
+    ptrdiff_t to = -1;
+    for (guint k = 0; k < a->len; k++) {
+        ptrdiff_t r = zs_set_part_move(self->set, zs_set_active(self->set), (size_t)g_array_index(a, gint64, k), to);
+        if (r < 0) break;
+        to = r;
+    }
+    g_array_free(a, TRUE);
+    if (to < 0) return -1;
+    zg_model_select_part(self, -1);
+    plate_changed(self);
+    return to;
+}
+
+gboolean zg_model_parts_setting_set(ZgModel *self, const char *name, const char *value) {
+    guint n = 0;
+    const gint64 *list = zg_model_parts(self, &n);
+    gboolean ok = TRUE;
+    for (guint k = 0; k < n; k++)
+        if (!zg_model_part_setting_set(self, (size_t)list[k], name, value)) ok = FALSE;
+    return ok;
 }
 
 void zg_model_part_move(ZgModel *self, size_t i, double x, double y) {

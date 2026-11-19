@@ -135,7 +135,20 @@ struct ZgSupport {
     char *tree_note;
     gboolean filling;
     gboolean test_started;
+    /* The support that the Select tool picked, with the tool off (see
+     * zg_support_select_at): lite_tree for a tree (tsel is its node), and
+     * the overhang over the line for a grid (lite_n points). */
+    gboolean lite, lite_tree;
+    double lite_pt[3], lite_pts[3 * MAX_POINTS], lite_lo, lite_hi;
+    size_t lite_n;
+    GtkWidget *kinds_row;
 };
+
+/* TRUE while the trees show: the tool is on, or the Select tool picked a
+ * support. */
+static gboolean live(ZgSupport *s) {
+    return s->on || s->lite;
+}
 
 static int scale_of(ZgSupport *s) {
     return gtk_widget_get_scale_factor(s->area);
@@ -221,9 +234,9 @@ static void read_tree(ZgSupport *s, size_t part) {
 static void read_trees(ZgSupport *s) {
     zs_app *core = zg_model_core(s->model);
     if (s->td) return;
-    if (!s->on || !core || core != s->trees_core) g_ptr_array_set_size(s->trees, 0);
+    if (!live(s) || !core || core != s->trees_core) g_ptr_array_set_size(s->trees, 0);
     s->trees_core = core;
-    if (!s->on || !core) return;
+    if (!live(s) || !core) return;
     size_t parts = zs_app_part_count(core);
     for (guint i = s->trees->len; i-- > 0;)
         if (((Tree *)g_ptr_array_index(s->trees, i))->part >= parts) g_ptr_array_remove_index(s->trees, i);
@@ -234,6 +247,45 @@ static void read_trees(ZgSupport *s) {
         s->tree_note = g_strdup(note);
     }
     if (!tsel_ok(s)) s->tsel_part = -1;
+    /* The picked tree went (an undo): the pick ends. */
+    if (!s->on && s->lite && s->lite_tree && s->tsel_part < 0) s->lite = FALSE;
+}
+
+/* With the tool off (the Select tool): a mask of the nodes of the tree of
+ * the selected node, by node index (a tree is all nodes with the same
+ * root, the node at the bottom of the chain of `down` links). NULL with
+ * the tool on: all nodes count. Free with g_free. */
+static guint8 *lite_mask(ZgSupport *s, size_t *part) {
+    if (s->on || !s->lite || !s->lite_tree || !tsel_ok(s)) return NULL;
+    Tree *t = tree_of(s, (size_t)s->tsel_part);
+    guint n = t->nodes->len;
+    gint32 *root = g_new(gint32, n);
+    for (guint k = 0; k < n; k++) root[k] = -1;
+    for (guint k = 0; k < n; k++) {
+        guint32 r = k;
+        for (guint steps = 0; steps <= n; steps++) {
+            if (root[r] >= 0) {
+                r = (guint32)root[r];
+                break;
+            }
+            gint32 d = g_array_index(t->nodes, zs_tree_node, r).down;
+            if (d < 0 || (guint)d >= n) break;
+            r = (guint32)d;
+        }
+        /* The chain from k gets the root. */
+        for (guint32 c = k; root[c] < 0;) {
+            root[c] = (gint32)r;
+            gint32 d = g_array_index(t->nodes, zs_tree_node, c).down;
+            if (d < 0 || (guint)d >= n) break;
+            c = (guint32)d;
+        }
+    }
+    guint8 *mask = g_new0(guint8, n);
+    gint32 want = root[s->tsel_node];
+    for (guint k = 0; k < n; k++) mask[k] = root[k] == want;
+    g_free(root);
+    *part = (size_t)s->tsel_part;
+    return mask;
 }
 
 /* The nodes of the branch of node i. */
@@ -289,9 +341,13 @@ static int tree_at(ZgSupport *s, double x, double y, size_t *part, guint32 *node
     }
     int kind = TD_NONE;
     double best = NEAR;
+    size_t only = 0;
+    guint8 *mask = lite_mask(s, &only);
     for (guint i = 0; i < s->trees->len; i++) {
         Tree *t = g_ptr_array_index(s->trees, i);
+        if (mask && t->part != only) continue;
         for (guint k = 0; k < t->nodes->len; k++) {
+            if (mask && !mask[k]) continue;
             zs_tree_node *nd = &g_array_index(t->nodes, zs_tree_node, k);
             double qx, qy;
             if (!pixel_of(s, &nd->x, &qx, &qy)) continue;
@@ -304,11 +360,16 @@ static int tree_at(ZgSupport *s, double x, double y, size_t *part, guint32 *node
             }
         }
     }
-    if (kind) return kind;
+    if (kind) {
+        g_free(mask);
+        return kind;
+    }
     best = NEAR * 0.7;
     for (guint i = 0; i < s->trees->len; i++) {
         Tree *t = g_ptr_array_index(s->trees, i);
+        if (mask && t->part != only) continue;
         for (guint k = 0; k < t->nodes->len; k++) {
+            if (mask && !mask[k]) continue;
             zs_tree_node *nd = &g_array_index(t->nodes, zs_tree_node, k);
             if (nd->down < 0 || (guint)nd->down >= t->nodes->len) continue;
             zs_tree_node *dn = &g_array_index(t->nodes, zs_tree_node, nd->down);
@@ -323,6 +384,7 @@ static int tree_at(ZgSupport *s, double x, double y, size_t *part, guint32 *node
             }
         }
     }
+    g_free(mask);
     return kind;
 }
 
@@ -337,7 +399,7 @@ static void add_dots(ZgSupport *s, GArray *pts, int kind, int flags) {
  * branch and into it, the ring of the selected node, and the foot of a
  * new branch. */
 static void show_trees(ZgSupport *s) {
-    if (!s->on || !s->view) return;
+    if (!live(s) || !s->view) return;
     int kind = s->tclamp ? KIND_RED : KIND_TREE;
     GArray *branch = NULL;
     if (tsel_ok(s)) {
@@ -369,9 +431,13 @@ static void show_trees(ZgSupport *s) {
     }
     GHashTable *seen = g_hash_table_new_full(g_int64_hash, g_int64_equal, g_free, NULL);
     GArray *dots = g_array_new(FALSE, FALSE, sizeof(double));
+    size_t only = 0;
+    guint8 *mask = lite_mask(s, &only);
     for (guint i = 0; i < s->trees->len; i++) {
         Tree *t = g_ptr_array_index(s->trees, i);
+        if (mask && t->part != only) continue;
         for (guint k = 0; k < t->nodes->len; k++) {
+            if (mask && !mask[k]) continue;
             if (branch && (gint64)t->part == s->tsel_part && in_branch(branch, k)) continue;
             zs_tree_node *nd = &g_array_index(t->nodes, zs_tree_node, k);
             double qx, qy;
@@ -384,6 +450,7 @@ static void show_trees(ZgSupport *s) {
     }
     add_dots(s, dots, KIND_TREE, 0);
     g_array_free(dots, TRUE);
+    g_free(mask);
     g_hash_table_destroy(seen);
     if (branch) g_array_free(branch, TRUE);
     if (s->adding && s->has_foot) {
@@ -403,6 +470,8 @@ static void show(ZgSupport *s) {
         }
         if (s->on && s->draft_n > 0) zs_view_support_add(s->view, s->draft, s->draft_n, s->kind, 4);
         if (s->on && s->hot && s->draft_n == 0) zs_view_support_add(s->view, s->hot_pts, s->hot_n, s->kind, 1 | 2 | 4);
+        /* The overhang of a grid support that the Select tool picked. */
+        if (!s->on && s->lite && !s->lite_tree && s->lite_n >= 3) zs_view_support_add(s->view, s->lite_pts, s->lite_n, KIND_GRID, CLOSED | SELECTED);
         show_trees(s);
     }
     update_card(s);
@@ -424,9 +493,44 @@ static void reload(ZgSupport *s) {
 
 static void update_tree_card(ZgSupport *s);
 
+/* The card of a support that the Select tool picked: what it is, and
+ * Delete. */
+static void update_lite_card(ZgSupport *s) {
+    gtk_widget_set_visible(s->kinds_row, FALSE);
+    gtk_widget_set_visible(s->see_box, FALSE);
+    gtk_widget_set_visible(s->tree_row, FALSE);
+    gtk_widget_set_visible(s->tree_info, FALSE);
+    gtk_label_set_text(GTK_LABEL(s->title), s->lite_tree ? "Support tree" : "Support");
+    char *info;
+    if (s->lite_tree && tsel_ok(s)) {
+        zs_tree_node *nd = node_of(s, (size_t)s->tsel_part, s->tsel_node);
+        info = g_strdup_printf("A branch, %.1f mm wide, z %.1f mm. Drag a dot, a ring, or a segment to pull it. Right click a dot for Delete.", 2 * nd->r, nd->z);
+    } else if (s->lite_n >= 3) {
+        info = g_strdup_printf("It holds up the overhang in blue, z %.1f to %.1f mm.", s->lite_lo, s->lite_hi);
+    } else {
+        info = g_strdup("zslice found no overhang over this support.");
+    }
+    gtk_label_set_text(GTK_LABEL(s->info), info);
+    gtk_widget_set_visible(s->info, TRUE);
+    g_free(info);
+    gtk_widget_set_visible(s->tree_del, s->lite_tree && tsel_ok(s));
+    gtk_button_set_label(GTK_BUTTON(s->del), "Remove this support");
+    gtk_widget_set_tooltip_text(s->del, "No support under this overhang (Delete)");
+    gtk_widget_set_visible(s->del, !s->lite_tree && s->lite_n >= 3);
+}
+
 static void update_card(ZgSupport *s) {
+    if (!s->on && s->lite) {
+        gtk_widget_set_visible(s->card, s->shown);
+        update_lite_card(s);
+        return;
+    }
     gtk_widget_set_visible(s->card, s->on && s->shown);
     if (!s->on) return;
+    gtk_widget_set_visible(s->kinds_row, TRUE);
+    gtk_widget_set_visible(s->see_box, TRUE);
+    gtk_button_set_label(GTK_BUTTON(s->del), "Delete");
+    gtk_widget_set_tooltip_text(s->del, "Delete this area (Delete)");
     Area *a = area_at(s, s->sel);
     s->filling = TRUE;
     char *title = a ? g_strdup_printf("Support area %d", s->sel + 1) : g_strdup("Draw support");
@@ -492,8 +596,12 @@ static void on_see_toggled(GtkCheckButton *b, gpointer data) {
     s->host.focus(s->host.data);
 }
 
+static gboolean remove_lite(ZgSupport *s);
+
 static void on_delete(GtkButton *b, gpointer data) {
-    remove_selected(data);
+    ZgSupport *s = data;
+    if (!s->on && s->lite) remove_lite(s);
+    else remove_selected(s);
 }
 
 static void on_tree_add(GtkToggleButton *b, gpointer data);
@@ -527,6 +635,7 @@ static void build_card(ZgSupport *s) {
         s->kinds[k] = b;
         gtk_box_append(GTK_BOX(row), b);
     }
+    s->kinds_row = row;
     gtk_box_append(GTK_BOX(s->card), row);
     s->see_box = gtk_check_button_new_with_label("See through the support");
     gtk_widget_set_tooltip_text(s->see_box, "Show the support lines faint while the tool is on, so the outlines of the areas show through them");
@@ -655,6 +764,7 @@ static gboolean delete_branch(ZgSupport *s) {
     ptrdiff_t n = zs_app_support_tree_delete_branch(zg_model_core(s->model), part, s->tsel_node);
     s->tsel_part = -1;
     tree_done(s, part, n >= 0, (int)n, 0);
+    if (!s->on) s->lite = FALSE;
     show(s);
     return TRUE;
 }
@@ -1035,7 +1145,15 @@ void zg_support_click(ZgSupport *s, double x, double y, gboolean shift, gboolean
 }
 
 gboolean zg_support_key(ZgSupport *s, guint key) {
-    if (!s->on) return FALSE;
+    if (!s->on) {
+        if (!s->lite) return FALSE;
+        if (key == GDK_KEY_Delete || key == GDK_KEY_KP_Delete || key == GDK_KEY_BackSpace) return remove_lite(s);
+        if (key == GDK_KEY_Escape) {
+            zg_support_clear_pick(s);
+            return TRUE;
+        }
+        return FALSE;
+    }
     switch (key) {
     case GDK_KEY_Return:
     case GDK_KEY_KP_Enter:
@@ -1083,6 +1201,7 @@ gboolean zg_support_key(ZgSupport *s, guint key) {
 /* ---- drag a point ---- */
 
 gboolean zg_support_press(ZgSupport *s, double x, double y) {
+    if (!s->on && s->lite && s->lite_tree && s->view) return tree_press(s, x, y);
     if (!s->on || !s->view || s->draft_n > 0 || s->adding) return FALSE;
     int area, point;
     if (!point_at(s, x, y, &area, &point)) return tree_press(s, x, y);
@@ -1161,6 +1280,12 @@ void zg_support_hover(ZgSupport *s, double x, double y) {
 
 const char *zg_support_cursor(ZgSupport *s, double x, double y) {
     if (s->drag_area >= 0 || s->td) return "grabbing";
+    if (!s->on) {
+        size_t tp;
+        guint32 tn;
+        int kind = s->lite && s->lite_tree ? tree_at(s, x, y, &tp, &tn) : TD_NONE;
+        return kind == TD_RING ? "ew-resize" : kind ? "grab" : NULL;
+    }
     int area, point;
     size_t tp;
     guint32 tn;
@@ -1356,8 +1481,9 @@ static void test_start(ZgSupport *s) {
 static void on_tool_changed(ZgModel *model, gpointer data) {
     ZgSupport *s = data;
     gboolean on = zg_model_tool(model) == ZG_TOOL_SUPPORT;
-    if (on == s->on) return;
+    if (on == s->on && !s->lite) return;
     s->on = on;
+    s->lite = FALSE;
     if (s->view) zs_view_pick_skip_support(s->view, on ? 1 : 0);
     if (!on) {
         zg_support_release(s);
@@ -1443,6 +1569,102 @@ void zg_support_loaded(ZgSupport *s) {
     /* zs_view_load drew the areas of the core as plain outlines. During a
      * drag the copy here leads. */
     if (s->drag_area < 0) read_areas(s);
-    if (s->on || s->drag_area >= 0) show(s);
+    if (live(s) || s->drag_area >= 0) show(s);
     test_start(s);
+}
+
+/* ---- the support of the Select tool ---- */
+
+gboolean zg_support_select_at(ZgSupport *s, double x, double y, double z) {
+    if (s->on) return FALSE;
+    zs_app *core = zg_model_core(s->model);
+    if (!core) return FALSE;
+    s->lite = TRUE;
+    s->lite_pt[0] = x;
+    s->lite_pt[1] = y;
+    s->lite_pt[2] = z;
+    s->tsel_part = -1;
+    s->tclamp = 0;
+    s->note = NULL;
+    char *style = zg_model_get(s->model, "project.support_style");
+    s->lite_tree = g_strcmp0(style, "tree") == 0;
+    g_free(style);
+    /* The overhang over the line: up from it, half a millimeter a step, to
+     * the first surface that faces down (as "Remove this support"). */
+    s->lite_n = 0;
+    zs_toolpaths tp;
+    double top = zs_app_toolpaths(core, &tp) == ZS_OK && tp.layer_count > 0 ? tp.layer_z[tp.layer_count - 1] : z;
+    for (double zz = z; zz <= top + 0.5; zz += 0.5) {
+        size_t n = 0;
+        if (zs_app_support_pick(core, x, y, zz, 2, s->lite_pts, MAX_POINTS, &n, &s->lite_lo, &s->lite_hi) >= 0 && n >= 3) {
+            s->lite_n = n;
+            break;
+        }
+    }
+    if (s->lite_tree) {
+        /* No check of the pick in read_trees: no node is selected yet. */
+        s->lite_tree = FALSE;
+        read_trees(s);
+        s->lite_tree = TRUE;
+        /* The node nearest to the point: a node over it counts more than
+         * a node beside it. */
+        double best = INFINITY;
+        for (guint i = 0; i < s->trees->len; i++) {
+            Tree *t = g_ptr_array_index(s->trees, i);
+            for (guint k = 0; k < t->nodes->len; k++) {
+                zs_tree_node *nd = &g_array_index(t->nodes, zs_tree_node, k);
+                double d = hypot(nd->x - x, nd->y - y) + 0.25 * fabs(nd->z - z);
+                if (d < best) {
+                    best = d;
+                    s->tsel_part = (gint64)t->part;
+                    s->tsel_node = k;
+                }
+            }
+        }
+        /* No tree there: the overhang, as for a grid. */
+        if (s->tsel_part < 0) s->lite_tree = FALSE;
+    }
+    show(s);
+    return TRUE;
+}
+
+gboolean zg_support_picked(ZgSupport *s) {
+    return !s->on && s->lite;
+}
+
+void zg_support_clear_pick(ZgSupport *s) {
+    if (s->on || !s->lite) return;
+    s->lite = FALSE;
+    s->tsel_part = -1;
+    s->tclamp = 0;
+    g_ptr_array_set_size(s->trees, 0);
+    show(s);
+}
+
+/* Delete: the branch of a tree, or a block area over the overhang of a
+ * grid support, and the marks near the line. */
+static gboolean remove_lite(ZgSupport *s) {
+    if (s->on || !s->lite) return FALSE;
+    if (s->lite_tree) return delete_branch(s);
+    gboolean changed = zg_model_mark_remove_near(s->model, s->lite_pt[0], s->lite_pt[1], s->lite_pt[2], 3) > 0;
+    if (s->lite_n >= 3 && zg_model_support_add(s->model, KIND_BLOCK, s->lite_pts, s->lite_n, s->lite_lo, s->lite_hi) >= 0) changed = TRUE;
+    if (!changed) g_message("zslice: found no overhang over this support");
+    s->lite = FALSE;
+    reload(s);
+    return TRUE;
+}
+
+gboolean zg_support_menu_at(ZgSupport *s, double x, double y) {
+    if (s->on || !s->lite || !s->lite_tree) return FALSE;
+    size_t part;
+    guint32 node;
+    if (!tree_at(s, x, y, &part, &node)) return FALSE;
+    s->tsel_part = (gint64)part;
+    s->tsel_node = node;
+    show(s);
+    return TRUE;
+}
+
+gboolean zg_support_delete_branch(ZgSupport *s) {
+    return delete_branch(s);
 }

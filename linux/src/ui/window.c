@@ -30,6 +30,7 @@
 #include "float.h"
 #include "search.h"
 #include "part-card.h"
+#include "range-card.h"
 #include "line-card.h"
 #include "shortcuts.h"
 #include "view3d.h"
@@ -2408,6 +2409,7 @@ GtkWindow *zg_window_new(GtkApplication *app, ZgModel *model) {
     gtk_overlay_add_overlay(GTK_OVERLAY(w->preview), zg_line_card_new(model, w->preview));
     /* The card of a selected part, next to it. */
     gtk_overlay_add_overlay(GTK_OVERLAY(w->preview), zg_part_card_new(model, w->preview));
+    gtk_overlay_add_overlay(GTK_OVERLAY(w->preview), zg_range_card_new(model, w->preview));
     /* The search, over the view and the cards: hidden until / or a fact
      * opens it. */
     w->search = zg_search_new(model);

@@ -20,6 +20,7 @@
 #include "layer-draw.h"
 #include "layer-range.h"
 #include "toolpath-nav.h"
+#include "range-card.h"
 #include "view3d.h"
 #include "widgets.h"
 #include "float.h"
@@ -1360,6 +1361,34 @@ static gboolean part_key(Preview *p, guint key, GdkModifierType mods) {
     }
     zs_part part;
     if (i < 0 || zs_app_part_get(core, (size_t)i, &part) != ZS_OK) return FALSE;
+    /* Several selected parts: D, Delete, and the arrows (out of the Turn
+     * tool) are for all of them. */
+    guint many = 0;
+    const gint64 *list = zg_model_parts(p->model, &many);
+    if (many > 1) {
+        if (key == GDK_KEY_d || key == GDK_KEY_D) {
+            zg_model_parts_duplicate(p->model);
+            return TRUE;
+        }
+        if (key == GDK_KEY_Delete || key == GDK_KEY_KP_Delete) {
+            zg_model_parts_remove(p->model);
+            return TRUE;
+        }
+        int mx = key == GDK_KEY_Left ? -1 : key == GDK_KEY_Right ? 1 : 0;
+        int my = key == GDK_KEY_Down ? -1 : key == GDK_KEY_Up ? 1 : 0;
+        if ((mx || my) && zg_model_tool(p->model) != ZG_TOOL_TURN) {
+            hold_for_keys(p);
+            double step = shift ? 10 : 1;
+            /* A copy: each move changes the plate and the list. */
+            gint64 *copy = g_memdup2(list, many * sizeof *list);
+            for (guint k = 0; k < many; k++) {
+                zs_part q;
+                if (zs_app_part_get(core, (size_t)copy[k], &q) == ZS_OK) zg_model_part_move(p->model, (size_t)copy[k], q.x + mx * step, q.y + my * step);
+            }
+            g_free(copy);
+            return TRUE;
+        }
+    }
     if (key == GDK_KEY_d || key == GDK_KEY_D) {
         gint64 copy = zg_model_part_duplicate(p->model, (size_t)i);
         if (copy >= 0) zg_model_select_part(p->model, copy);
@@ -1411,6 +1440,13 @@ static gboolean on_preview_key(GtkEventControllerKey *c, guint key, guint code, 
     /* The Support tool first: Enter, Backspace, Delete, and Esc for its
      * areas, in the 3D view. */
     if (zg_model_tool(p->model) == ZG_TOOL_SUPPORT && zg_view3d_support_key(p->view3d, key)) return TRUE;
+    /* The Select tool: Delete and Esc for a support that it picked, and
+     * Esc for a range of layers. */
+    if (zg_model_tool(p->model) == ZG_TOOL_SELECT && zg_view3d_support_key(p->view3d, key)) return TRUE;
+    if (key == GDK_KEY_Escape && zg_range_card_open(zg_range_card_of(p->view3d))) {
+        zg_range_card_close(zg_range_card_of(p->view3d));
+        return TRUE;
+    }
     /* The tools: V select, M move, H grab, T measure (a tape), S support
      * (U is its old key). Esc clears a measure. */
     if (part_key(p, key, mods)) return TRUE;

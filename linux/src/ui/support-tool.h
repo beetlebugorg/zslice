@@ -71,5 +71,22 @@ void zg_support_release(ZgSupport *s);
 gboolean zg_support_dragging(ZgSupport *s);
 /* A key with the tool on: TRUE if the tool used it. */
 gboolean zg_support_key(ZgSupport *s, guint key);
-/* The cursor name for the pointer at x, y. */
+/* The cursor name for the pointer at x, y (NULL: the cursor of the
+ * tool). */
 const char *zg_support_cursor(ZgSupport *s, double x, double y);
+
+/* The Select tool uses the tool too, with the tool off (as
+ * web/app/support.js, selectAt): a click on a support line at x, y, z
+ * (mm) selects that support. For tree support, the nodes of that tree
+ * show, a drag pulls them (zg_support_press, zg_support_drag), and a
+ * right click on a dot offers Delete branch (zg_support_menu_at). For
+ * grid support, the overhang over the line shows, and Delete (the key or
+ * the card) blocks the support there. zg_support_key takes Delete and
+ * Esc. */
+gboolean zg_support_select_at(ZgSupport *s, double x, double y, double z);
+gboolean zg_support_picked(ZgSupport *s);
+void zg_support_clear_pick(ZgSupport *s);
+/* A right click at x, y: TRUE on a dot or a segment of the picked tree
+ * (it selects that node; the view opens a menu with Delete branch). */
+gboolean zg_support_menu_at(ZgSupport *s, double x, double y);
+gboolean zg_support_delete_branch(ZgSupport *s);

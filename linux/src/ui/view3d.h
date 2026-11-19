@@ -35,6 +35,12 @@ gboolean zg_view3d_moving(GtkWidget *view);
 gboolean zg_view3d_get_camera(GtkWidget *view, float out[8]);
 void zg_view3d_set_camera(GtkWidget *view, const float in[8]);
 
+/* Lights layers lo to hi as a selection (hi < lo: no light). See
+ * zs_view_light_layers. */
+void zg_view3d_light_layers(GtkWidget *view, size_t lo, size_t hi);
+/* The box of the beads on the bed (x0, y0, x1, y1 mm). FALSE if none. */
+gboolean zg_view3d_bounds(GtkWidget *view, double out[4]);
+
 /* Reads the toolpaths of the last slice from the core again. */
 void zg_view3d_reload(GtkWidget *view);
 

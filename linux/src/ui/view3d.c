@@ -39,6 +39,7 @@
 
 #include "bed-model.h"
 #include "native-surface.h"
+#include "range-card.h"
 #include "support-tool.h"
 #include "widgets.h"
 
@@ -63,6 +64,16 @@ typedef struct {
     /* A Ctrl+drag that moves a part: the part, its place at the start,
      * and the bed point under the pointer at the start. */
     gint64 moving;
+    /* A drag of a part of a selection of several parts moves them all:
+     * their indexes and their places at the start (x, y pairs). */
+    GArray *group, *group_xy;
+    /* A left drag of the Select tool that started on a line: the layers
+     * from range_layer to range_cur light up (range_lit after the first
+     * move), and range_pt is the point of the press (mm), the anchor of
+     * the layer under the pointer (range_layer_at). */
+    gboolean range_on, range_lit;
+    size_t range_layer, range_cur;
+    double range_pt[2];
     /* A timeout that draws again after a skipped frame, or 0. */
     guint retry;
     gboolean menu_open;
@@ -82,7 +93,7 @@ typedef struct {
     double menu_x, menu_y;
     double pointer_x, pointer_y;
     gboolean gaps_hook, gap_hook; /* the test hooks ran */
-    gboolean dbl_hook, ring_hook, grab_hook, menu_hook;
+    gboolean dbl_hook, ring_hook, grab_hook, menu_hook, select_hook;
     /* ZSLICE_BENCH: the step (0 off, 1 wait for the first frame, 2 orbit,
      * 3 wait for the slice of an edit, 4 done), the frames of the orbit,
      * their draw times (ms), the time of the last tick, and the time of
@@ -334,6 +345,7 @@ static gboolean look_at_side(View3d *v, double x, double y);
 static void ring_drag_hook(gpointer data);
 static void grab_hook(gpointer data);
 static void menu_hook(gpointer data);
+static void select_hook(gpointer data);
 
 /* For tests: ZSLICE_DOUBLE_CLICK=x,y is a double click at that pixel. */
 static void dbl_hook_fire(gpointer data) {
@@ -442,6 +454,12 @@ static void load_data(View3d *v) {
      * that pixel (logical points) after the first load. */
     /* For tests: ZSLICE_MENU=x,y opens the context menu at that pixel of
      * the 3D view, 1 s after the first slice. */
+    /* For tests: ZSLICE_SELECT_TEST runs the Select tool 1 s after the
+     * first slice (see select_hook). */
+    if (g_getenv("ZSLICE_SELECT_TEST") && !v->select_hook && zs_app_state(zg_model_core(v->model)) == ZS_STATE_DONE) {
+        v->select_hook = TRUE;
+        g_timeout_add_once(1000, select_hook, v);
+    }
     if (g_getenv("ZSLICE_MENU") && !v->menu_hook && zs_app_state(zg_model_core(v->model)) == ZS_STATE_DONE) {
         v->menu_hook = TRUE;
         g_timeout_add_once(1000, menu_hook, v);
@@ -1079,16 +1097,24 @@ static gint64 part_at(View3d *v, double x, double y, double *bx, double *by) {
     return on_bed ? zs_app_part_at(core, px, py) : -1;
 }
 
-/* The frame of the selected part on the bed. */
+/* The frame of each selected part on the bed. */
 static void show_part_box(View3d *v) {
     if (!v->view) return;
-    gint64 i = zg_model_selected_part(v->model);
-    zs_part p;
-    if (i >= 0 && zs_app_part_get(zg_model_core(v->model), (size_t)i, &p) == ZS_OK) {
-        zs_view_part_box(v->view, p.x - p.size_x / 2, p.y - p.size_y / 2, p.x + p.size_x / 2, p.y + p.size_y / 2);
-    } else {
-        zs_view_part_box(v->view, 1, 1, 0, 0);
+    guint n = 0;
+    const gint64 *list = zg_model_parts(v->model, &n);
+    double *boxes = g_new(double, 4 * (n > 0 ? n : 1));
+    size_t k = 0;
+    for (guint i = 0; i < n; i++) {
+        zs_part p;
+        if (zs_app_part_get(zg_model_core(v->model), (size_t)list[i], &p) != ZS_OK) continue;
+        double *b = boxes + 4 * k++;
+        b[0] = p.x - p.size_x / 2;
+        b[1] = p.y - p.size_y / 2;
+        b[2] = p.x + p.size_x / 2;
+        b[3] = p.y + p.size_y / 2;
     }
+    zs_view_part_boxes(v->view, boxes, k);
+    g_free(boxes);
     queue_frame(v);
 }
 
@@ -1141,6 +1167,85 @@ static void on_measure_changed(ZgModel *model, gpointer data) {
     queue_frame(v);
 }
 
+/* ---- a range of layers: a drag of the Select tool (range-card.h) ---- */
+
+/* The layer under the pointer at x, y in a drag over layers: the pointer
+ * goes to the nearest point of the line on the screen from the bed to the
+ * top layer shown, up through the point of the press. Two projections for
+ * each move, and no pick. A view from above (a short line) picks the line
+ * under the pointer. */
+static gboolean range_layer_at(View3d *v, double x, double y, size_t *out) {
+    zs_toolpaths tp;
+    if (zs_app_toolpaths(zg_model_core(v->model), &tp) != ZS_OK || tp.layer_count == 0) return FALSE;
+    int s = gtk_widget_get_scale_factor(v->area);
+    size_t lo = MIN(v->layer_lo, tp.layer_count - 1), hi = MIN(v->layer, tp.layer_count - 1);
+    float ax, ay, bx, by;
+    gboolean ok = zs_view_pixel_of(v->view, v->range_pt[0], v->range_pt[1], 0, &ax, &ay) &&
+                  zs_view_pixel_of(v->view, v->range_pt[0], v->range_pt[1], tp.layer_z[hi], &bx, &by);
+    double len2 = ok ? (bx - ax) * (bx - ax) + (by - ay) * (by - ay) : 0;
+    double px = x * s, py = y * s;
+    if (len2 < 24.0 * s * 24.0 * s) {
+        size_t path = zs_view_pick(v->view, (float)px, (float)py);
+        if (path == (size_t)-1) return FALSE;
+        *out = zs_view_path_layer(v->view, path);
+        return TRUE;
+    }
+    double t = ((px - ax) * (bx - ax) + (py - ay) * (by - ay)) / len2;
+    double want = CLAMP(t, 0, 1) * tp.layer_z[hi];
+    /* The first layer with its top at or over the height. */
+    size_t l = lo, h = hi;
+    while (l < h) {
+        size_t m = (l + h) / 2;
+        if (tp.layer_z[m] < want) l = m + 1;
+        else h = m;
+    }
+    *out = l;
+    return TRUE;
+}
+
+/* A press of the Select tool: on a printed line, the start of a drag over
+ * layers. */
+static gboolean range_start(View3d *v, double x, double y) {
+    int s = gtk_widget_get_scale_factor(v->area);
+    size_t path = zs_view_pick(v->view, (float)(x * s), (float)(y * s));
+    double p[3];
+    if (path == (size_t)-1 || !zs_view_surface_point(v->view, (float)(x * s), (float)(y * s), 0, p)) return FALSE;
+    v->range_on = TRUE;
+    v->range_lit = FALSE;
+    v->range_layer = v->range_cur = zs_view_path_layer(v->view, path);
+    v->range_pt[0] = p[0];
+    v->range_pt[1] = p[1];
+    return TRUE;
+}
+
+static void range_move(View3d *v, double x, double y) {
+    size_t l;
+    if (!range_layer_at(v, x, y, &l) || (v->range_lit && l == v->range_cur)) return;
+    if (!v->range_lit) {
+        /* The drag is for the layers: no line, no support, and no card of
+         * an old range. */
+        zg_model_select(v->model, -1);
+        zg_support_clear_pick(v->support);
+        zg_range_card_close(zg_range_card_of(v->area));
+    }
+    v->range_lit = TRUE;
+    v->range_cur = l;
+    zs_view_light_layers(v->view, MIN(v->range_layer, l), MAX(v->range_layer, l));
+    queue_frame(v);
+}
+
+void zg_view3d_light_layers(GtkWidget *view, size_t lo, size_t hi) {
+    View3d *v = g_object_get_data(G_OBJECT(view), "zg-view3d");
+    if (!v || !v->view) return;
+    zs_view_light_layers(v->view, lo, hi);
+    queue_frame(v);
+}
+
+gboolean zg_view3d_bounds(GtkWidget *view, double out[4]) {
+    View3d *v = g_object_get_data(G_OBJECT(view), "zg-view3d");
+    return v && v->view && zs_view_bounds(v->view, out) == ZS_OK;
+}
+
 static void on_drag_begin(GtkGestureDrag *g, double x, double y, gpointer data) {
     View3d *v = data;
     v->drag_x = 0;
@@ -1148,6 +1253,7 @@ static void on_drag_begin(GtkGestureDrag *g, double x, double y, gpointer data) 
     v->moving = -1;
     v->tape_end = -1;
     v->turn_axis = -1;
+    v->range_on = FALSE;
     /* The measure tape: a left drag on an end of it moves that end. */
     int mode0 = GPOINTER_TO_INT(g_object_get_data(G_OBJECT(g), "zg-drag"));
     /* The Turn tool: a drag along a ring turns the part. */
@@ -1193,15 +1299,48 @@ static void on_drag_begin(GtkGestureDrag *g, double x, double y, gpointer data) 
         set_cursor(v, "grabbing");
         return;
     }
-    /* Ctrl and the left button on a part: move the part. */
     GdkModifierType mods = gtk_event_controller_get_current_event_state(GTK_EVENT_CONTROLLER(g));
+    /* The Select tool: a press on a dot of a picked support tree drags
+     * it; a press on a printed line starts a drag over layers. */
+    if (v->view && mode0 == DRAG_ORBIT && zg_model_tool(v->model) == ZG_TOOL_SELECT && !(mods & (GDK_SHIFT_MASK | GDK_CONTROL_MASK | GDK_ALT_MASK))) {
+        if (zg_support_picked(v->support) && zg_support_press(v->support, x, y)) {
+            set_cursor(v, "grabbing");
+            return;
+        }
+        if (range_start(v, x, y)) {
+            set_cursor(v, "ns-resize");
+            return;
+        }
+    }
+    /* Ctrl and the left button on a part: move the part. */
     int mode = GPOINTER_TO_INT(g_object_get_data(G_OBJECT(g), "zg-drag"));
     if (v->view && mode == DRAG_ORBIT && ((mods & GDK_CONTROL_MASK) || zg_model_tool(v->model) == ZG_TOOL_MOVE)) {
         double bx, by;
         gint64 part = part_at(v, x, y, &bx, &by);
         zs_part p;
         if (part >= 0 && zs_app_part_get(zg_model_core(v->model), (size_t)part, &p) == ZS_OK) {
-            zg_model_select_part(v->model, part);
+            /* A part of a selection of several parts: they all move. */
+            guint n = 0;
+            const gint64 *list = zg_model_parts(v->model, &n);
+            gboolean in = FALSE;
+            for (guint i = 0; i < n; i++) in = in || list[i] == part;
+            if (!v->group) {
+                v->group = g_array_new(FALSE, FALSE, sizeof(gint64));
+                v->group_xy = g_array_new(FALSE, FALSE, sizeof(double));
+            }
+            g_array_set_size(v->group, 0);
+            g_array_set_size(v->group_xy, 0);
+            if (in && n > 1) {
+                for (guint i = 0; i < n; i++) {
+                    zs_part q;
+                    if (zs_app_part_get(zg_model_core(v->model), (size_t)list[i], &q) != ZS_OK) continue;
+                    g_array_append_val(v->group, list[i]);
+                    g_array_append_val(v->group_xy, q.x);
+                    g_array_append_val(v->group_xy, q.y);
+                }
+            } else {
+                zg_model_select_part(v->model, part);
+            }
             v->moving = part;
             v->move_x0 = p.x;
             v->move_y0 = p.y;
@@ -1215,6 +1354,8 @@ static void on_drag_begin(GtkGestureDrag *g, double x, double y, gpointer data) 
 }
 
 static void menu_at(View3d *v, double x, double y);
+static gboolean path_point(View3d *v, gint64 path, gint64 seg, double *x, double *y, double *z);
+static void popup_menu(View3d *v, GMenu *menu, double x, double y);
 
 static void on_drag_end(GtkGestureDrag *g, double dx, double dy, gpointer data) {
     View3d *v = data;
@@ -1228,10 +1369,25 @@ static void on_drag_end(GtkGestureDrag *g, double dx, double dy, gpointer data) 
     ring_release(v);
     zg_support_release(v->support);
     tool_cursor(v);
+    /* The end of a drag over layers: the card of the range. */
+    if (v->range_on) {
+        v->range_on = FALSE;
+        GtkWidget *card = zg_range_card_of(v->area);
+        if (v->range_lit && card) zg_range_card_show(card, MIN(v->range_layer, v->range_cur), MAX(v->range_layer, v->range_cur));
+        return;
+    }
     int mode = GPOINTER_TO_INT(g_object_get_data(G_OBJECT(g), "zg-drag"));
     if (mode == DRAG_RIGHT && fabs(dx) < 4 && fabs(dy) < 4) {
         double sx, sy;
         gtk_gesture_drag_get_start_point(g, &sx, &sy);
+        /* On a dot of a picked support tree: its own menu. */
+        if (zg_support_menu_at(v->support, sx, sy)) {
+            GMenu *menu = g_menu_new();
+            g_menu_append(menu, "Delete branch", "view3d.delete-branch");
+            popup_menu(v, menu, sx, sy);
+            g_object_unref(menu);
+            return;
+        }
         menu_at(v, sx, sy);
     }
 }
@@ -1252,6 +1408,14 @@ static void on_drag_update(GtkGestureDrag *g, double dx, double dy, gpointer dat
     }
     /* The click of the hand: the pointer moves carry the part. */
     if (v->hand_click) return;
+    if (v->range_on) {
+        double sx, sy;
+        gtk_gesture_drag_get_start_point(g, &sx, &sy);
+        if (v->range_lit || fabs(dx) > 4 || fabs(dy) > 4) range_move(v, sx + dx, sy + dy);
+        v->drag_x = dx;
+        v->drag_y = dy;
+        return;
+    }
     if (zg_support_dragging(v->support)) {
         double sx, sy;
         gtk_gesture_drag_get_start_point(g, &sx, &sy);
@@ -1276,7 +1440,16 @@ static void on_drag_update(GtkGestureDrag *g, double dx, double dy, gpointer dat
         double sx, sy, bx, by;
         gtk_gesture_drag_get_start_point(g, &sx, &sy);
         if (zs_view_bed_point(v->view, (float)((sx + dx) * scale), (float)((sy + dy) * scale), &bx, &by)) {
-            zg_model_part_move(v->model, (size_t)v->moving, v->move_x0 + bx - v->bed_x0, v->move_y0 + by - v->bed_y0);
+            if (v->group && v->group->len > 1) {
+                /* The parts move by the same amount; the copy of the list
+                 * stays, since each move changes the plate. */
+                for (guint i = 0; i < v->group->len; i++) {
+                    double *xy = &g_array_index(v->group_xy, double, 2 * i);
+                    zg_model_part_move(v->model, (size_t)g_array_index(v->group, gint64, i), xy[0] + bx - v->bed_x0, xy[1] + by - v->bed_y0);
+                }
+            } else {
+                zg_model_part_move(v->model, (size_t)v->moving, v->move_x0 + bx - v->bed_x0, v->move_y0 + by - v->bed_y0);
+            }
         }
         v->drag_x = dx;
         v->drag_y = dy;
@@ -1306,6 +1479,8 @@ static void on_motion(GtkEventControllerMotion *c, double x, double y, gpointer 
     if (zg_model_tool(v->model) == ZG_TOOL_SUPPORT && v->view && !pressed) {
         set_cursor(v, zg_support_cursor(v->support, x, y));
         zg_support_hover(v->support, x, y);
+    } else if (zg_model_tool(v->model) == ZG_TOOL_SELECT && v->view && !pressed && zg_support_picked(v->support)) {
+        set_cursor(v, zg_support_cursor(v->support, x, y));
     }
 }
 
@@ -1385,8 +1560,12 @@ static void on_release(GtkGestureClick *g, int n, double x, double y, gpointer d
     if (n != 1 || !v->view || fabs(x - v->press_x) > 4 || fabs(y - v->press_y) > 4) return;
     int scale = gtk_widget_get_scale_factor(v->area);
     /* Ctrl+click: select a part (to move, turn, or remove it). A click: a
-     * line. Shift+click: add a line to the selection, or take it out. */
+     * line. Shift+click: add the part under the pointer to the selection
+     * of parts, or take it out; with no part there, add the line to the
+     * selection of lines, or take it out. */
     GdkModifierType mods = gtk_event_controller_get_current_event_state(GTK_EVENT_CONTROLLER(g));
+    /* A click elsewhere ends a range of layers. */
+    zg_range_card_close(zg_range_card_of(v->area));
     /* The measure tape: a point of the print (the end of a line near the
      * pointer), or of the bed. */
     if (zg_model_tool(v->model) == ZG_TOOL_MEASURE) {
@@ -1397,6 +1576,13 @@ static void on_release(GtkGestureClick *g, int n, double x, double y, gpointer d
     if (zg_model_tool(v->model) == ZG_TOOL_SUPPORT && !(mods & GDK_CONTROL_MASK)) {
         zg_support_click(v->support, x, y, (mods & GDK_SHIFT_MASK) != 0, (mods & GDK_ALT_MASK) != 0);
         return;
+    }
+    if ((mods & GDK_SHIFT_MASK) && zg_model_tool(v->model) != ZG_TOOL_GRAB) {
+        gint64 part = part_at(v, x, y, NULL, NULL);
+        if (part >= 0) {
+            zg_model_toggle_part(v->model, part);
+            return;
+        }
     }
     if ((mods & GDK_CONTROL_MASK) || zg_model_tool(v->model) == ZG_TOOL_MOVE || zg_model_tool(v->model) == ZG_TOOL_TURN) {
         zg_model_select_part(v->model, part_at(v, x, y, NULL, NULL));
@@ -1420,6 +1606,17 @@ static void on_release(GtkGestureClick *g, int n, double x, double y, gpointer d
         if (path != (size_t)-1) zg_model_toggle_more(v->model, (gint64)path);
         return;
     }
+    /* The Select tool: a click on a support line selects that support
+     * (support-tool.h, zg_support_select_at), and not the line. */
+    double sp[3];
+    int feature = path != (size_t)-1 ? zs_view_path_feature(v->view, path) : -1;
+    if (zg_model_tool(v->model) == ZG_TOOL_SELECT && (feature == ZS_FEATURE_SUPPORT || feature == ZS_FEATURE_SUPPORT_INTERFACE) &&
+        path_point(v, (gint64)path, (gint64)seg, &sp[0], &sp[1], &sp[2])) {
+        zg_model_select(v->model, -1);
+        zg_support_select_at(v->support, sp[0], sp[1], sp[2]);
+        return;
+    }
+    zg_support_clear_pick(v->support);
     if (path == (size_t)-1) zg_model_select(v->model, -1);
     else zg_model_select_segment(v->model, (gint64)path, (gint64)seg);
 }
@@ -1430,14 +1627,13 @@ static void on_release(GtkGestureClick *g, int n, double x, double y, gpointer d
  * at the middle of that segment, on its layer: support of a kind there, no
  * support there, or no marks there. */
 
-/* The place of the menu: x, y, z in mm, from the selected segment. */
-static gboolean mark_place(View3d *v, double *x, double *y, double *z) {
-    gint64 path = zg_model_selected(v->model);
+/* The middle of segment `seg` of path `path` (-1: the middle of the
+ * path), on its layer: x, y, z in mm. */
+static gboolean path_point(View3d *v, gint64 path, gint64 seg, double *x, double *y, double *z) {
     zs_toolpaths tp;
     if (path < 0 || zs_app_toolpaths(zg_model_core(v->model), &tp) != ZS_OK || (size_t)path >= tp.path_count) return FALSE;
     uint32_t a = path == 0 ? 0 : tp.path_ends[path - 1], b = tp.path_ends[path];
     if (b <= a) return FALSE;
-    gint64 seg = zg_model_segment(v->model);
     uint32_t i = seg >= 0 && a + (uint32_t)seg + 1 < b ? a + (uint32_t)seg : a + (b - a) / 2 - ((b - a) > 1 ? 1 : 0);
     uint32_t j = i + 1 < b ? i + 1 : i;
     *x = (tp.points[2 * i] + tp.points[2 * j]) / 2;
@@ -1446,6 +1642,11 @@ static gboolean mark_place(View3d *v, double *x, double *y, double *z) {
     while (layer < tp.layer_count && tp.layer_ends[layer] <= (uint32_t)path) layer++;
     *z = layer < tp.layer_count ? tp.layer_z[layer] : 0;
     return TRUE;
+}
+
+/* The place of the menu: x, y, z in mm, from the selected segment. */
+static gboolean mark_place(View3d *v, double *x, double *y, double *z) {
+    return path_point(v, zg_model_selected(v->model), zg_model_segment(v->model), x, y, z);
 }
 
 static void on_add_support(GSimpleAction *a, GVariant *p, gpointer data) {
@@ -1561,6 +1762,13 @@ static void on_clear_marks(GSimpleAction *a, GVariant *p, gpointer data) {
     zg_model_marks_clear(((View3d *)data)->model);
 }
 
+/* Delete branch: the menu of a dot of a support tree that the Select tool
+ * picked. */
+static void on_delete_branch(GSimpleAction *a, GVariant *p, gpointer data) {
+    View3d *v = data;
+    zg_support_delete_branch(v->support);
+}
+
 static void on_reset_view(GSimpleAction *a, GVariant *p, gpointer data) {
     View3d *v = data;
     if (!v->view) return;
@@ -1624,6 +1832,72 @@ static void menu_at(View3d *v, double x, double y) {
     if (path != (size_t)-1) zg_model_select_segment(v->model, (gint64)path, (gint64)seg);
     else zg_model_select(v->model, -1);
     show_menu(v, x, y);
+}
+
+/* ZSLICE_SELECT_TEST: "parts" (a copy of part 0, the plate arranged, and
+ * both parts selected with Shift), "range lo hi" (a drag over layers lo to
+ * hi), or "support x y [style]" (a click of the Select tool at x, y,
+ * points, or at the first support line for x "auto"; with a style, the
+ * support goes on first). The log says what the Select tool did. */
+static void select_hook(gpointer data) {
+    View3d *v = data;
+    char **f = g_strsplit(g_getenv("ZSLICE_SELECT_TEST"), " ", 4);
+    if (g_strcmp0(f[0], "parts") == 0) {
+        zg_model_part_duplicate(v->model, 0);
+        zg_model_plate_arrange(v->model);
+        zg_model_select_part(v->model, 0);
+        zg_model_toggle_part(v->model, 1);
+        guint n = 0;
+        zg_model_parts(v->model, &n);
+        g_message("select test: %u parts selected", n);
+    } else if (g_strcmp0(f[0], "range") == 0 && f[1] && f[2]) {
+        size_t lo = (size_t)atoi(f[1]), hi = (size_t)atoi(f[2]);
+        zs_view_light_layers(v->view, lo, hi);
+        GtkWidget *card = zg_range_card_of(v->area);
+        if (card) zg_range_card_show(card, lo, hi);
+        queue_frame(v);
+        g_message("select test: layers %zu to %zu, card %d", lo, hi, card && zg_range_card_open(card));
+    } else if (g_strcmp0(f[0], "support") == 0 && f[1] && f[2]) {
+        /* A style ("tree" or "grid"): support on in that style first; the
+         * hook runs again after that slice. */
+        static gboolean styled;
+        if (f[3] && !styled) {
+            styled = TRUE;
+            zg_model_set(v->model, "project.support_style", f[3], NULL);
+            zg_model_set(v->model, "project.support", "everywhere", NULL);
+            v->select_hook = FALSE;
+            g_strfreev(f);
+            return;
+        }
+        int scale = gtk_widget_get_scale_factor(v->area);
+        double x = g_ascii_strtod(f[1], NULL), y = g_ascii_strtod(f[2], NULL), p[3];
+        size_t seg = 0, path = (size_t)-1;
+        int feature = -1;
+        /* "auto": the first support line from the bottom of the view up. */
+        if (g_strcmp0(f[1], "auto") == 0) {
+            int w = gtk_widget_get_width(v->area), h = gtk_widget_get_height(v->area);
+            for (int yy = h - 1; yy > 0 && feature != ZS_FEATURE_SUPPORT; yy -= 3)
+                for (int xx = 0; xx < w && feature != ZS_FEATURE_SUPPORT; xx += 3) {
+                    path = zs_view_pick_segment(v->view, (float)(xx * scale), (float)(yy * scale), &seg);
+                    feature = path != (size_t)-1 ? zs_view_path_feature(v->view, path) : -1;
+                    x = xx;
+                    y = yy;
+                }
+        } else {
+            path = zs_view_pick_segment(v->view, (float)(x * scale), (float)(y * scale), &seg);
+            feature = path != (size_t)-1 ? zs_view_path_feature(v->view, path) : -1;
+        }
+        g_message("select test: the support line at %.0f, %.0f", x, y);
+        gboolean ok = (feature == ZS_FEATURE_SUPPORT || feature == ZS_FEATURE_SUPPORT_INTERFACE) && path_point(v, (gint64)path, (gint64)seg, &p[0], &p[1], &p[2]) &&
+                      zg_support_select_at(v->support, p[0], p[1], p[2]);
+        g_message("select test: feature %d, support picked %d", feature, ok && zg_support_picked(v->support));
+        /* ZSLICE_SELECT_DEL=1: Delete, as the key does. */
+        if (ok && g_getenv("ZSLICE_SELECT_DEL")) {
+            gboolean used = zg_support_key(v->support, GDK_KEY_Delete);
+            g_message("select test: Delete %d, %zu support areas, picked %d", used, zs_app_support_area_count(zg_model_core(v->model)), zg_support_picked(v->support));
+        }
+    }
+    g_strfreev(f);
 }
 
 static void menu_hook(gpointer data) {
@@ -1744,8 +2018,13 @@ static void show_menu(View3d *v, double x, double y) {
     g_menu_append(general, "Reset the view", "view3d.reset-view");
     g_menu_append_section(menu, NULL, G_MENU_MODEL(general));
     g_object_unref(general);
-    GtkWidget *pop = gtk_popover_menu_new_from_model(G_MENU_MODEL(menu));
+    popup_menu(v, menu, x, y);
     g_object_unref(menu);
+}
+
+/* Opens `menu` at x, y of the view. */
+static void popup_menu(View3d *v, GMenu *menu, double x, double y) {
+    GtkWidget *pop = gtk_popover_menu_new_from_model(G_MENU_MODEL(menu));
     gtk_widget_set_parent(pop, v->area);
     gtk_popover_set_has_arrow(GTK_POPOVER(pop), FALSE);
     GdkRectangle at = {(int)x, (int)y, 1, 1};
@@ -1840,6 +2119,8 @@ static void view_free(gpointer data) {
     for (guint i = 0; v->hooks && i < v->hooks->len; i++)
         g_signal_handlers_disconnect_by_data(g_array_index(v->hooks, FrameHook, i).owner, v);
     if (v->hooks) g_array_free(v->hooks, TRUE);
+    if (v->group) g_array_free(v->group, TRUE);
+    if (v->group_xy) g_array_free(v->group_xy, TRUE);
     zg_support_free(v->support);
     if (v->view) zs_view_free(v->view);
     zg_native_surface_free(v->native);
@@ -1903,6 +2184,7 @@ GtkWidget *zg_view3d_new(ZgModel *model) {
         {.name = "new-profile", .activate = on_new_profile, .parameter_type = "i"},
         {.name = "place", .activate = on_place, .parameter_type = "i"},
         {.name = "reset-view", .activate = on_reset_view},
+        {.name = "delete-branch", .activate = on_delete_branch},
     };
     GSimpleActionGroup *group = g_simple_action_group_new();
     g_action_map_add_action_entries(G_ACTION_MAP(group), menu_actions, G_N_ELEMENTS(menu_actions), v);
