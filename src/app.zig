@@ -1624,6 +1624,12 @@ pub const App = struct {
 
     /// The printability check of the last slice (app/checks.zig), the
     /// worst issues first. Valid until the next slice.
+    /// True if the check of the last slice has run, so `checks` returns
+    /// at once. A card that shows the issues of a line asks this first.
+    pub fn checksReady(app: *const App) bool {
+        return app.checks_result != null;
+    }
+
     pub fn checks(app: *App) (Allocator.Error || error{NoResult})!*const checks_mod.Result {
         if (app.getState() != .done) return error.NoResult;
         if (app.checks_result) |*r| return r;
@@ -3221,6 +3227,10 @@ test "app: the inspector gives the fan, the layer time, and what support holds u
     try testing.expect(held.layer > s.layer);
     try testing.expect(t.layer_z.items[held.layer] > 5);
     try testing.expect(held.feature != .support and held.feature != .support_interface);
+    // The check runs only on demand, and then it is ready.
+    try testing.expect(!app.checksReady());
+    _ = try app.checks();
+    try testing.expect(app.checksReady());
 }
 
 test "app: a 3MF file keeps the parts, the places, and the changes" {

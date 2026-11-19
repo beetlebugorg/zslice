@@ -1318,6 +1318,13 @@ pub const Inspect = extern struct {
     holds_feature: c_int,
 };
 
+/// 1 if the check of the last slice has run, so zs_app_checks returns at
+/// once; else 0.
+export fn zs_app_checks_ready(a: ?*const App) c_int {
+    const app = a orelse return 0;
+    return @intFromBool(app.checksReady());
+}
+
 /// The printability check of the last slice: the issues, the worst
 /// first, and the text that they point into. Valid until the next slice.
 export fn zs_app_checks(a: ?*App, issues: ?*?[*]const zs.app.checks_mod.Issue, n: ?*usize, text: ?*?[*]const u8) c_int {

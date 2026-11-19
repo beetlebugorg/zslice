@@ -587,6 +587,9 @@ typedef struct {
     uint32_t text_start, text_len;
 } zs_issue;
 int zs_app_checks(zs_app *app, const zs_issue **issues, size_t *n, const char **text);
+/* 1 if the check of the last slice has run, so zs_app_checks returns at
+ * once; else 0. */
+int zs_app_checks_ready(const zs_app *app);
 
 /* The built-in profiles of a group (enum zs_group): their number and
  * their names. Apply one with the text `extends = "name"`
