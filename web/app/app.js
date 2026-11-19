@@ -1119,7 +1119,9 @@ function openPrinterSettings() {
 
 // The printers of the user (store.printers): rename, the address for
 // prints, or remove. The settings of the printer now are in the panel.
-function managePrinters() {
+// The printers of the user: edit, test, use, or remove each. `focus`: the
+// name of a printer whose row gets the focus (from its card).
+function managePrinters(focus) {
   const d = document.createElement("dialog");
   d.className = "printers-dialog";
   const title = Object.assign(document.createElement("h3"), { textContent: "Your printers" });
@@ -1254,6 +1256,12 @@ function managePrinters() {
   d.onclose = () => d.remove();
   document.body.append(d);
   d.showModal();
+  // From a card: the focus on the name of that printer.
+  if (focus) {
+    const input = [...list.querySelectorAll(".printers-row input")].find((x) => x.value === focus);
+    input?.focus();
+    input?.scrollIntoView({ block: "nearest" });
+  }
 }
 
 function showPrinterPicker(hooks) {
@@ -2612,7 +2620,7 @@ var farm = new FarmPage({
   root: $("page-farm"),
   printers: () => store.printers ?? {},
   // With no printer of the user: the picker of a new printer.
-  manage: () => (Object.keys(store.printers ?? {}).length ? managePrinters() : showPrinterPicker()),
+  manage: (name) => (Object.keys(store.printers ?? {}).length ? managePrinters(name) : showPrinterPicker()),
   // A printer with no key, or a key that it refuses: the App Keys flow.
   pair: (name) => pairPrinter(name),
   canSend: () => app.state === "done",

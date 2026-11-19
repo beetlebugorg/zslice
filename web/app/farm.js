@@ -161,6 +161,7 @@ export class FarmPage {
       { label: "Upload the plate only", tip: "Upload the G-code, and do not start it", disabled: !this.ctx.canSend(), action: () => this.sendTo(p, send, false) },
       { label: "Show the camera large", disabled: !this.cams.get(name), action: () => this.openLarge(name) },
       { label: "Open the page of the printer", tip: p.https || p.url, action: () => window.open(p.https || p.url, "_blank", "noopener") },
+      { label: "Edit this printer…", tip: "Its name, address, kind, and key", action: () => this.ctx.manage(name) },
     ]);
     actions.append(send, menu);
     root.append(cam, top, job, why, heat, roll, actions);
