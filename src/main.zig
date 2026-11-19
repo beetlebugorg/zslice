@@ -619,6 +619,24 @@ fn benchTree(app: *zslice.app.App, io: Io, err: *Io.Writer, times: []Sample) !vo
         _ = try benchSlice(fresh, io);
         const same = std.mem.eql(u8, app.gcode().?, fresh.gcode().?);
         try err.print("tree G-code against a new slice: {s}\n", .{if (same) "same" else "OTHER"});
+        // The islands (found again only over the support that changed).
+        const a = app.job.?.groups[0].job.islands;
+        const b = fresh.job.?.groups[0].job.islands;
+        var same_islands = a.len == b.len;
+        if (same_islands) for (a, b) |x, y| {
+            if (x.layer != y.layer or x.x != y.x or x.y != y.y or x.area != y.area) same_islands = false;
+        };
+        try err.print("tree islands against a new slice: {s} ({d})\n", .{ if (same_islands) "same" else "OTHER", a.len });
+        // The same app sliced again with no job before (no streams): the
+        // G-code of the streams against the G-code of new plans.
+        const kept = try gpa.dupe(u8, app.gcode().?);
+        defer gpa.free(kept);
+        if (app.job) |*pj| for (pj.streams) |*one| {
+            one.deinit(gpa);
+            one.* = .{};
+        };
+        _ = try benchSlice(app, io);
+        try err.print("tree G-code against new plans in the same app: {s}\n", .{if (std.mem.eql(u8, kept, app.gcode().?)) "same" else "OTHER"});
     }
     try printTimes(err, "tree edit", edits[0..times.len]);
     try printTimes(err, "tree slice", times);

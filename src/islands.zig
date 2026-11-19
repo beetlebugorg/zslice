@@ -45,6 +45,23 @@ pub fn find(
     min_area: f64,
     threads: usize,
 ) anyerror![]Island {
+    return findSome(gpa, outlines, support, grow, min_area, threads, null, &.{});
+}
+
+/// As `find`, for the layers with `redo[i]` only; the islands of the other
+/// layers come from `old` (the islands of the same outlines, with the same
+/// support under those layers: a support edit finds again only the layers
+/// over the support that changed).
+pub fn findSome(
+    gpa: Allocator,
+    outlines: []const Paths,
+    support: []const support_mod.SupportLayer,
+    grow: i64,
+    min_area: f64,
+    threads: usize,
+    redo: ?[]const bool,
+    old: []const Island,
+) anyerror![]Island {
     const n = outlines.len;
     if (n < 2) return &.{};
     const per = try gpa.alloc(std.ArrayList(Island), n);
@@ -60,8 +77,10 @@ pub fn find(
         per: []std.ArrayList(Island),
         grow: i64,
         min_area: f64,
+        redo: ?[]const bool,
         fn run(c: *const @This(), k: usize) anyerror!void {
             const i = k + 1;
+            if (c.redo) |r| if (!r[i]) return;
             if (c.outlines[i].isEmpty()) return;
             var arena = std.heap.ArenaAllocator.init(c.gpa);
             defer arena.deinit();
@@ -94,8 +113,11 @@ pub fn find(
             }
         }
     };
-    const ctx: Ctx = .{ .gpa = gpa, .outlines = outlines, .support = support, .per = per, .grow = grow, .min_area = min_area };
+    const ctx: Ctx = .{ .gpa = gpa, .outlines = outlines, .support = support, .per = per, .grow = grow, .min_area = min_area, .redo = redo };
     try parallel.forEach(threads, n - 1, &ctx, Ctx.run);
+    if (redo) |r| for (old) |isl| {
+        if (isl.layer < n and !r[isl.layer]) try per[isl.layer].append(gpa, isl);
+    };
     var out: std.ArrayList(Island) = .empty;
     errdefer out.deinit(gpa);
     for (per) |p| try out.appendSlice(gpa, p.items);

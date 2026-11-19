@@ -283,6 +283,11 @@ pub const Job = struct {
     /// job with the same outlines and the same key takes the islands of
     /// the old job: a change of the infill does not search again.
     islands_key: u64 = 0,
+    /// The grow of the islands of this job (see islands.find).
+    islands_grow: i64 = -1,
+    /// A hash of the support of each layer (body and interface), for the
+    /// islands of the next job (see islands.findSome).
+    support_keys: []u64 = &.{},
     /// The intersections of runs of outlines, for the bands under the tops
     /// (see layer.BandTable). A job with the same outlines keeps it.
     bands: layer_mod.BandTable = .{},
@@ -616,9 +621,26 @@ pub const Job = struct {
         if (old) |o| if (o.outline_key == key and o.islands_key == job.islands_key and o.islands_key != 0) {
             job.islands = o.islands;
             o.islands = &.{};
+            job.support_keys = o.support_keys;
+            o.support_keys = &.{};
+            job.islands_grow = o.islands_grow;
+            return job;
+        };
+        job.support_keys = gpa.alloc(u64, job.support.len) catch return error.OutOfMemory;
+        for (job.support, job.support_keys) |l, *k| k.* = layerSupportKey(l);
+        // The same outlines and the same grow: only the layers over a
+        // layer whose support changed find their islands again.
+        if (old) |o| if (o.outline_key == key and o.islands_grow == grow and o.support_keys.len == job.support_keys.len and job.outlines.len == job.support_keys.len) {
+            const redo = gpa.alloc(bool, job.outlines.len) catch return error.OutOfMemory;
+            defer gpa.free(redo);
+            redo[0] = false;
+            for (1..redo.len) |i| redo[i] = o.support_keys[i - 1] != job.support_keys[i - 1];
+            job.islands = islands_mod.findSome(gpa, job.outlines, job.support, grow, 0.5, threads, redo, o.islands) catch |e| return @as(Error, @errorCast(e));
+            job.islands_grow = grow;
             return job;
         };
         job.islands = islands_mod.find(gpa, job.outlines, job.support, grow, 0.5, threads) catch |e| return @as(Error, @errorCast(e));
+        job.islands_grow = grow;
         return job;
     }
 
@@ -634,6 +656,15 @@ pub const Job = struct {
 
     /// The key of the island search besides the outlines: a hash of the
     /// support areas and of the grow distance. Never 0.
+    fn layerSupportKey(l: support_mod.SupportLayer) u64 {
+        var h = std.hash.Wyhash.init(0x5e9);
+        for ([_]geom.Paths{ l.body, l.interface }) |p| {
+            h.update(std.mem.sliceAsBytes(p.points.items));
+            h.update(std.mem.sliceAsBytes(p.ends.items));
+        }
+        return h.final();
+    }
+
     fn islandsKey(support: []const support_mod.SupportLayer, grow: i64) u64 {
         var h = std.hash.Wyhash.init(0x15_1a_4d);
         h.update(std.mem.asBytes(&grow));
@@ -684,6 +715,7 @@ pub const Job = struct {
         self.support_cache.deinit(self.gpa);
         self.trees.deinit(self.gpa);
         self.gpa.free(self.islands);
+        self.gpa.free(self.support_keys);
         for (self.outlines) |*o| o.deinit(self.gpa);
         self.gpa.free(self.outlines);
         self.gpa.free(self.layers);
