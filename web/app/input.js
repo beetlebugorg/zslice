@@ -3,22 +3,27 @@
 //
 // The mouse, as in Cura. In 3D: a right drag orbits, a middle drag (or
 // Shift and a drag) pans, and the wheel zooms toward the pointer. A left
-// drag orbits too, for now: a left drag that starts on a line is for the
-// layers that it selects. On a trackpad: two fingers pressed down and
+// drag orbits too, but in the Select tool a left drag that starts on a
+// printed line lights the layers from that layer to the layer under the
+// pointer (app.js, rangeStart), and the release opens the card of these
+// layers (rangecard.js). On a trackpad: two fingers pressed down and
 // dragged orbit (a right drag), with Shift they pan, and a light
 // two-finger swipe or a pinch zooms.
 // In 2D: a drag pans, and the wheel zooms (preview.c). In both: a click (a
 // release within 4 pixels of the press) selects the line under the
-// pointer, and a right click opens the context menu there.
+// pointer, and a right click opens the context menu there. In 3D, Shift
+// and a click add the part under the pointer to the selection of parts
+// (or take it out), and Ctrl and a click select that part alone.
 //
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
 // ctx: { app, view (View3D), view2d, tools (tools.js), supportTool
 //        (support.js), requestFrame(), pickAt(px, py, picked), hitAt(px,
 //        py), select(path, seg, picked), showContextMenu(x, y),
-//        activatePlate(i, frame) }
+//        activatePlate(i, frame), range: { start(px, py) -> drag state
+//        or null, move(state, px, py), end(state), clear() } }
 export function attachViewInput(canvas, ctx) {
-  const { app, view, view2d, tools, supportTool, requestFrame, pickAt, hitAt, select, showContextMenu, activatePlate, grab } = ctx;
+  const { app, view, view2d, tools, supportTool, requestFrame, pickAt, hitAt, select, showContextMenu, activatePlate, grab, range } = ctx;
   let drag = null;
   const dpr = () => window.devicePixelRatio || 1;
 
@@ -146,6 +151,13 @@ export function attachViewInput(canvas, ctx) {
         return;
       }
     }
+    // The Select tool in 3D: a left drag that starts on a printed line is
+    // for a range of layers.
+    if (e.button === 0 && app.page === "3d" && view.loaded && tools.tool === "select" && !e.ctrlKey && !e.shiftKey && !e.altKey && range) {
+      const r = canvas.getBoundingClientRect();
+      drag.range = range.start((e.clientX - r.left) * dpr(), (e.clientY - r.top) * dpr());
+      if (drag.range) canvas.style.cursor = "ns-resize";
+    }
     // The move tool, or Ctrl, in 3D: a left drag on a part moves it.
     if (e.button === 0 && app.page === "3d" && view.loaded && (tools.tool === "move" || e.ctrlKey)) {
       const d = drag;
@@ -176,6 +188,13 @@ export function attachViewInput(canvas, ctx) {
     }
 
     if (drag.part === "pending") return;
+    if (drag.range) {
+      if (drag.moved) {
+        const r = canvas.getBoundingClientRect();
+        range.move(drag.range, (e.clientX - r.left) * dpr(), (e.clientY - r.top) * dpr());
+      }
+      return;
+    }
     // A right drag (two fingers pressed down on a touchpad) orbits, as a
     // left drag does. A middle drag pans, as Shift with a drag does.
     if (app.page === "2d") view2d.pan(dx * dpr(), dy * dpr());
@@ -192,10 +211,17 @@ export function attachViewInput(canvas, ctx) {
     }
     // A press on an end of the tape: a drag moved it; a click leaves it.
     if (d?.tape !== undefined) return;
+    // The end of a drag over layers: the card of the range.
+    if (d?.range && d.moved) {
+      range.end(d.range);
+      return;
+    }
     if (!d || d.moved || !view.loaded) return;
     const r = canvas.getBoundingClientRect();
     const px = (e.clientX - r.left) * dpr();
     const py = (e.clientY - r.top) * dpr();
+    // A click elsewhere ends a range of layers.
+    if (d.button === 0) range?.clear();
     // A click on another plate (its bed or its beads) makes it active.
     if (d.button === 0 && app.page === "3d" && app.plates.length > 1) {
       const i = view.plateAt(px, py);
@@ -206,11 +232,15 @@ export function attachViewInput(canvas, ctx) {
     }
     if (d.button === 0 && tools.tool === "support" && app.page === "3d") supportTool.click(px, py, e.shiftKey, e.altKey);
     else if (d.button === 0 && tools.tool === "measure") tools.measureClick(px, py, e.shiftKey);
-    // Shift or Ctrl with a click selects the part under the pointer (in
-    // the Select tool too).
-    else if (d.button === 0 && app.page === "3d" && (tools.tool === "move" || tools.tool === "turn" || e.ctrlKey || e.shiftKey)) tools.pickPart(px, py);
+    // Shift with a click adds the part under the pointer to the
+    // selection, or takes it out (in the Select tool too). Ctrl with a
+    // click selects that part alone.
+    else if (d.button === 0 && app.page === "3d" && e.shiftKey && tools.tool !== "grab") tools.addPart(px, py);
+    else if (d.button === 0 && app.page === "3d" && (tools.tool === "move" || tools.tool === "turn" || e.ctrlKey)) tools.pickPart(px, py);
     else if (d.button === 0) pickAt(px, py, true);
     else if (d.button === 2) {
+      // A right click on a handle of a picked support tree: its menu.
+      if (app.page === "3d" && supportTool?.menuAt(px, py, e.clientX, e.clientY)) return;
       // A right click: the line there, then the menu.
       if (hitAt(px, py)) select(view.hit[0], view.hit[1], false);
       showContextMenu(e.clientX, e.clientY);

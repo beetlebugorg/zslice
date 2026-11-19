@@ -57,6 +57,8 @@ Each plate is one `App` (`zs_app`), with its own settings, profiles, parts, slic
 | Left of the view | The tool strip. Part tools: Select, Move, Turn (all axes), Scale, Lay flat, Cut, Duplicate, Draw supports. Then the line tools: Measure, Gaps, Check, Edit lines. Each tool shows its key on hover. |
 | Next to a selected part | The part card: name, size, Lay flat, Duplicate, Cut, and the settings of the part ("+ Add a setting for this part" opens the search for the part). |
 | In a corner of the view, away from a selected line | The line card: the feature, the layer and z, the speed and the flow and what slows them, the width and height, the layer time, the fan, a warning of the check there, what a support line holds up, and the settings that control the line, with a jump to each. |
+| Beside the lit layers of a drag of the Select tool | The range card: "Layers A–B" and the settings that can change for some layers, as overrides of that z range. The view lights the layers with the highlight of a path and the bead range of the layers (`zs_view_light_layers`). |
+| Beside a support that the Select tool picked | The support card: a tree branch (drag its dots; Delete) or the overhang of a grid support (Remove this support). |
 | On the tape | The measure readout. |
 | Right edge of the view | The layer slider of the active plate. |
 | Over each plate | Its label: name, printer and material, status (To print, Printing, Printed, Failed, or "Resin: not yet"). |
@@ -73,6 +75,8 @@ Each plate is one `App` (`zs_app`), with its own settings, profiles, parts, slic
 - The line card in a corner of the view, away from the selected line, with the numbers of the line and live editors of its first settings (linecard.js).
 - The tool strip at the left of the view (Select, Move, Measure), with the key of each tool.
 - The part card (partcard.js): duplicate (core: `zs_app_part_duplicate`), best orientation, less support, reset, remove, and the settings of the part, with a search for the part.
+- The range card (rangecard.js): a drag of the Select tool from a line lights layers, and the card edits overrides for them (setScoped with zmin and zmax).
+- A selection of several parts (Shift and a click): a frame for each (`zs_view_part_boxes`), and the part card with the actions for all of them, each one call to the worker and one step of the history.
 - The cards move with a drag of their head (drag.js).
 - The measure on the tape, and the tape in the 2D view.
 - The Turn tool (turn.js): rings for X, Y, and Z around the selected part, and keys for each axis.

@@ -129,7 +129,8 @@ export class SearchOverlay {
   // scope: null for the settings of the print, or the settings of one
   // part: { label, set(name, value) -> Promise<error>, value(name) ->
   // Promise<text or null> }. A part shows only the settings that a part
-  // can have of its own.
+  // can have of its own. A scope with only(info) shows only the settings
+  // that pass it (the layers of rangecard.js).
   show(text = "", scope = null) {
     if (this.root && scope !== this.scope) this.close();
     this.scope = scope;
@@ -277,14 +278,17 @@ export class SearchOverlay {
     // The ranking of the core (zs_setting_search), the same in each app;
     // the rules here only with no core.
     const byIndex = new Map(this.ctx.infos.map((info) => [info.index, info]));
-    const core = searchSettings(q, !!this.scope, 200);
-    const matches = core
+    // A scope with `only` (the layers of rangecard.js) keeps the settings
+    // that pass it; any other scope is a part.
+    const only = this.scope?.only;
+    const core = searchSettings(q, !!this.scope && !only, only ? 2000 : 200);
+    const matches = (core
       ? core.map((h) => ({ info: byIndex.get(h.index), s: h.score })).filter((r) => r.info)
       : this.ctx.infos
-          .filter((info) => !this.scope || info.perPart)
+          .filter((info) => !this.scope || only || info.perPart)
           .map((info) => ({ info, s: score(info, words) }))
           .filter((r) => r.s > 0)
-          .sort((a, b) => b.s - a.s);
+          .sort((a, b) => b.s - a.s)).filter((r) => !only || only(r.info));
     const settings = matches.slice(0, MAX_SETTINGS);
     const actions = (this.scope ? [] : this.ctx.actions())
       .map((a) => ({ a, s: words.every((w) => a.label.toLowerCase().includes(w) || (a.hint ?? "").toLowerCase().includes(w)) ? 1 : 0 }))

@@ -66,6 +66,7 @@ import { SearchOverlay } from "./search.js";
 import { ShortcutSheet } from "./shortcuts.js";
 import { LineCard } from "./linecard.js";
 import { PartCard } from "./partcard.js";
+import { RangeCard } from "./rangecard.js";
 import { TurnRings } from "./turn.js";
 import { attachViewInput } from "./input.js";
 import { FarmPage } from "./farm.js";
@@ -251,6 +252,7 @@ function drawFrame(now) {
   tools?.placeTape();
   partCard?.place();
   supportTool?.place();
+  if (rangeCard?.open) rangeCard.place();
   placePlateLabels();
   frameTimes[frameCount++ % frameTimes.length] = performance.now() - t0;
   if (more) requestFrame();
@@ -383,7 +385,20 @@ async function pickAt(px, py, picked) {
   }
   gaps.forget();
   app.pickPoint = [px / dpr(), py / dpr()];
-  if (hitAt(px, py)) select(view.hit[0], view.hit[1], picked);
+  const hit = hitAt(px, py);
+  // The Select tool in 3D: a click on a support line selects that
+  // support (support.js, selectAt), and not the line.
+  if (hit && picked && app.page === "3d" && tools.tool === "select") {
+    const f = view.x.zs_view_path_feature(view.v, view.hit[0]);
+    if (f === 6 || f === 7) {
+      const [path, seg] = view.hit;
+      select(-1, -1, false);
+      supportTool.selectAt(path, seg);
+      return;
+    }
+  }
+  supportTool?.clearLite();
+  if (hit) select(view.hit[0], view.hit[1], picked);
   else select(-1, -1, false);
 }
 
@@ -820,6 +835,7 @@ var partCard = new PartCard({
   host: $("preview"),
   pixelOf: (p) => tools.pixelOf(p),
   select: (part) => tools.selectPart(part),
+  selectMany: (list) => tools.setParts(list ?? []),
   search: (text, scope) => search.show(text, scope),
   toast: (t) => toast(t),
   // Moves the part to another plate (-1: a new plate).
@@ -1543,6 +1559,14 @@ function partKey(e) {
     return true;
   }
   const step = e.shiftKey ? 10 : 1;
+  // A selection of several parts: all of them move, in one call.
+  if (tools.parts.length > 1) {
+    const moved = tools.parts.map((p) => ({ ...p, x: p.x + d[0] * step, y: p.y + d[1] * step }));
+    tools.updateParts(moved);
+    client.call("partsMove", { moves: moved.map((p) => ({ index: p.index, x: p.x, y: p.y })), hold: true }).then((r) => r.parts && tools.updateParts(r.parts));
+    sliceAfterKeys();
+    return true;
+  }
   const x = part.x + d[0] * step;
   const y = part.y + d[1] * step;
   tools.selectPart({ ...part, x, y });
@@ -1553,7 +1577,7 @@ function partKey(e) {
 
 function onPreviewKey(e) {
   // The Support tool: Enter, Backspace, Delete, and Esc for its areas.
-  if (tools.tool === "support" && !e.ctrlKey && !e.metaKey && !e.altKey && !e.target?.closest?.("input, textarea, select, [contenteditable], .panel") && supportTool.key(e)) {
+  if ((tools.tool === "support" || supportTool?.lite) && !e.ctrlKey && !e.metaKey && !e.altKey && !e.target?.closest?.("input, textarea, select, [contenteditable], .panel") && supportTool.key(e)) {
     e.preventDefault();
     e.stopPropagation();
     return;
@@ -1604,6 +1628,11 @@ function onPreviewKey(e) {
       e.preventDefault();
       return;
     case "Escape":
+      if (rangeCard.open) {
+        rangeCard.close();
+        e.preventDefault();
+        return;
+      }
       if (tools.part) {
         tools.selectPart(null);
         e.preventDefault();
@@ -1880,12 +1909,14 @@ const inspector = new Inspector($("page-selected"), {
 var tools = new Tools({ // var: drawFrame can run before this line
   // The Turn and Grab tools have no card: the rings and the hand are the
   // tool, and the card would cover them.
-  partSelected: (part) => (tools?.tool === "turn" || tools?.tool === "grab" ? partCard?.show(null) : partCard?.show(part)),
+  partSelected: (part, parts) => (tools?.tool === "turn" || tools?.tool === "grab" ? partCard?.show(null) : partCard?.show(part, parts)),
   client, view, canvas, view2d,
   buttons: { select: $("tool-select"), move: $("tool-move"), turn: $("tool-turn"), grab: $("tool-grab"), measure: $("tool-measure"), support: $("tool-support") },
   again: (t) => { if (t === "support") supportTool?.togglePane(); },
   toolChanged: (tool) => {
     supportTool?.setActive(tool === "support");
+    supportTool?.clearLite();
+    rangeCard?.close();
     // The Turn and Grab tools have no part card (see partSelected).
     if (tool === "turn" || tool === "grab") partCard?.show(null);
   },
@@ -1907,11 +1938,101 @@ var supportTool = new SupportTool({ // var: tools can call it before this line
   frame: () => requestFrame(),
   focus: () => updateFocus(),
   toast,
+  menu: (x, y, items) => openMenuAt(x, y, items, () => canvas.focus({ preventScroll: true })),
 });
+
+// ---- a range of layers: a drag of the Select tool (rangecard.js) ----
+
+// The top of layer l, and its bottom, mm.
+const layerTop = (l) => app.layers?.z[l] ?? 0;
+const layerBottom = (l) => (l > 0 ? layerTop(l - 1) : layerTop(0) - (app.layers?.height?.[0] ?? 0));
+
+var rangeCard = new RangeCard({ // var: drawFrame can run before this line
+  browser,
+  host: $("preview"),
+  pixelOf: (p) => view.pixelOf(p[0], p[1], p[2]),
+  bounds: () => view.bounds(),
+  layerZ: layerTop,
+  layerBottom,
+  edit: async (name, value, zmin, zmax, names) => {
+    const r = await client.call("setScoped", { name, value, zmin, zmax, perLayer: true, at: { z: zmin, names } });
+    applySettings(r);
+    return r;
+  },
+  reset: async (name, zmin, zmax, names) => {
+    const r = await client.call("resetScoped", { name, zmin, zmax, z: zmin, at: { z: zmin, names } });
+    applySettings(r);
+    return r;
+  },
+  values: async (z, names) => (await client.call("valuesAt", { z, names })).at,
+  search: (text, scope) => search.show(text, scope),
+  close: () => {
+    view.lightLayers(-1);
+    requestFrame();
+  },
+});
+
+// The layer under the pointer in a drag over layers: the pointer goes to
+// the nearest point of the line on the screen from the bed to the top
+// layer, up through the point of the press. Two projections for each
+// move, and no pick. A view from above (a short line) picks the line
+// under the pointer.
+function layerUnder(d, px, py) {
+  const z = app.layers?.z;
+  if (!z || z.length === 0) return null;
+  const lo = layers.lo;
+  const hi = Math.min(layers.hi, z.length - 1);
+  const a = view.pixelOf(d.pt[0], d.pt[1], 0);
+  const b = view.pixelOf(d.pt[0], d.pt[1], z[hi]);
+  const len2 = a && b ? (b[0] - a[0]) ** 2 + (b[1] - a[1]) ** 2 : 0;
+  if (len2 < (24 * dpr()) ** 2) return hitAt(px, py) ? view.pathLayer(view.hit[0]) : null;
+  const t = Math.max(0, Math.min(1, ((px - a[0]) * (b[0] - a[0]) + (py - a[1]) * (b[1] - a[1])) / len2));
+  const want = t * z[hi];
+  // The first layer with its top at or over the height.
+  let l = lo;
+  let h = hi;
+  while (l < h) {
+    const m = (l + h) >> 1;
+    if (z[m] < want) l = m + 1;
+    else h = m;
+  }
+  return l;
+}
+
+const rangeDrag = {
+  // A press: on a printed line, the start of a drag over layers.
+  start(px, py) {
+    if (!app.layers || !hitAt(px, py)) return null;
+    const layer = view.pathLayer(view.hit[0]);
+    const c = view.w.cell;
+    if (!view.x.zs_view_surface_point(view.v, px, py, 0, c)) return null;
+    return { layer, cur: layer, pt: [view.w.f64(c), view.w.f64(c + 8)], lit: false };
+  },
+  move(d, px, py) {
+    const l = layerUnder(d, px, py);
+    if (l === null || (d.lit && l === d.cur)) return;
+    if (!d.lit) {
+      // The drag is for the layers: no line, and no card of an old range.
+      select(-1, -1, false);
+      supportTool?.clearLite();
+      if (rangeCard.open) rangeCard.close();
+    }
+    d.lit = true;
+    d.cur = l;
+    view.lightLayers(d.layer, l);
+    requestFrame();
+  },
+  end(d) {
+    if (d.lit) rangeCard.show(d.layer, d.cur);
+  },
+  clear() {
+    if (rangeCard.open) rangeCard.close();
+  },
+};
 
 // ---- the mouse, the touch screen, and the wheel over the view ----
 
-attachViewInput(canvas, { app, view, view2d, tools, supportTool, requestFrame, pickAt, hitAt, select, showContextMenu, activatePlate, grab: { start: grabStart, move: grabMove, end: grabEnd, lift: grabLift, turn: grabTurn, holding: () => hand.on } });
+attachViewInput(canvas, { app, view, view2d, tools, supportTool, requestFrame, pickAt, hitAt, select, showContextMenu, activatePlate, range: rangeDrag, grab: { start: grabStart, move: grabMove, end: grabEnd, lift: grabLift, turn: grabTurn, holding: () => hand.on } });
 
 // ---- gaps ----
 
@@ -2388,6 +2509,8 @@ function onWorkerEvent(m) {
       app.layers = m.layers;
       app.marks = m.marks;
       supportTool?.setAreas(m.areas);
+      // A picked grid support names a line of the last slice: it ends.
+      if (m.ms > 0 && supportTool?.lite && !supportTool.lite.tree) supportTool.clearLite();
       supportTool?.reloadTrees();
       // Support trees of the user that no longer fit their part.
       if (m.treeNote) toast(m.treeNote);
@@ -3321,6 +3444,7 @@ function benchPick(step = 40) {
 // For tests: the state of the page.
 window.zslice = {
   project,
+  rangeCard,
   search,
   shortcuts,
   partCard,

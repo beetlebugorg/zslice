@@ -172,6 +172,20 @@ export class View3D {
     this.x.zs_view_isolate(this.v, isolate && path >= 0 ? 1 : 0);
   }
 
+  // Lights the layers lo to hi as a selection (a drag of the Select tool),
+  // or none (lo < 0). The other beads are ghosts.
+  lightLayers(lo, hi) {
+    if (lo < 0) this.x.zs_view_light_layers(this.v, 1, 0);
+    else this.x.zs_view_light_layers(this.v, Math.min(lo, hi), Math.max(lo, hi));
+  }
+
+  // A frame on the bed around each box ([x0, y0, x1, y1] in mm).
+  partBoxes(boxes) {
+    const a = new Float64Array(Math.max(1, boxes.length) * 4);
+    boxes.forEach((b, i) => a.set(b, i * 4));
+    this.w.withBytes(new Uint8Array(a.buffer), (p) => this.x.zs_view_part_boxes(this.v, p, boxes.length));
+  }
+
   // Ranges of instances [first, end) into `out` (a 2-item typed array).
   range(fn, i, out) {
     const c = this.w.cell;

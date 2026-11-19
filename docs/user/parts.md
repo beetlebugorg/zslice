@@ -22,6 +22,20 @@ Click a part with the Move tool (M). With another tool, hold Ctrl and click. The
 
 Tab and Shift+Tab select the next part. Esc clears the selection.
 
+## Select several parts
+
+Hold Shift and click a part to add it to the selection. Shift and a click on a selected part takes it out. Each selected part has a blue box on the bed. The card shows how many parts there are, and the actions for all of them:
+
+| Button | What it does |
+|---|---|
+| **Duplicate** (D) | A copy of each part. The copies are the new selection. |
+| **Arrange the plate** | Puts all the parts of the plate in rows. |
+| **To a new plate** | Moves the parts to one new plate. |
+| **Remove** (Delete) | Removes the parts. |
+| **+ Add a setting for these parts** | A setting for each of the parts. |
+
+To move them all, drag one of them with the Move tool (or Ctrl and a drag), or press the arrow keys. Each action is one step of the history: Ctrl+Z undoes it.
+
 ## Move and turn
 
 - **Move.** Drag the part with the Move tool. The arrow keys move it 1 mm (Shift: 10 mm).

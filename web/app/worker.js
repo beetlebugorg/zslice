@@ -452,7 +452,23 @@ function tinyParts(c) {
   return out;
 }
 
-const PLATE_OPS = new Set(["fallStep", "load", "add", "plate", "projectLoad", "partAction", "partCut", "partMove", "partFill", "partToPlate", "editAdd", "editDot", "editRemove", "partSettingSet", "partPutDown", "partTurn", "putDown", "place", "partMove", "partRotate", "partScale", "partSettle", "markAdd", "supportRemoveAt", "markRemoveNear", "markSet", "markRemove", "marksClear", "supportAreaAdd", "supportAreaSet", "supportAreaKind", "supportAreaRemove", "treeMoveNode", "treeRadius", "treeMoveBranch", "treeDelete", "treeAdd", "treeReset"]);
+const PLATE_OPS = new Set(["fallStep", "load", "add", "plate", "projectLoad", "partAction", "partsAction", "partsMove", "partsSettingSet", "partsToPlate", "partCut", "partMove", "partFill", "partToPlate", "editAdd", "editDot", "editRemove", "partSettingSet", "partPutDown", "partTurn", "putDown", "place", "partMove", "partRotate", "partScale", "partSettle", "markAdd", "supportRemoveAt", "markRemoveNear", "markSet", "markRemove", "marksClear", "supportAreaAdd", "supportAreaSet", "supportAreaKind", "supportAreaRemove", "treeMoveNode", "treeRadius", "treeMoveBranch", "treeDelete", "treeAdd", "treeReset"]);
+
+// The values of settings at z (core.valueAt): { name: entry }.
+function valuesAt({ z, names }) {
+  const out = {};
+  for (const n of names) out[n] = core.valueAt(z, n);
+  return out;
+}
+
+// The overhang over a point of a support line: up from the point, a half
+// millimeter a step, to the first surface that faces down. Or null.
+function overhangOver(pt) {
+  const top = core.layers()?.z?.at(-1) ?? pt[2];
+  let hot = null;
+  for (let z = pt[2]; z <= top + 0.5 && !hot; z += 0.5) hot = core.supportPick(pt[0], pt[1], z, 2);
+  return hot;
+}
 
 // An edit of the support trees of part `part` (support.js): fn(clampPtr)
 // calls the core. count: the result is a count or a node (else a status).
@@ -557,16 +573,23 @@ const ops = {
     return {};
   },
 
-  setScoped({ name, value, zmin, zmax, perLayer }) {
+  // at: { z, names } for the values of these settings at z after the
+  // change too (the card of a layer range, rangecard.js).
+  setScoped({ name, value, zmin, zmax, perLayer, at }) {
     const error = core.setScoped(name, value, zmin, zmax, perLayer);
     if (!error) wantSlice();
-    return { error, ...settingsState() };
+    return { error, ...settingsState(), at: at ? valuesAt(at) : undefined };
   },
 
-  resetScoped({ name, zmin, zmax, z }) {
+  resetScoped({ name, zmin, zmax, z, at }) {
     const error = core.resetScoped(name, zmin, zmax, z);
     if (!error) wantSlice();
-    return { error, ...settingsState() };
+    return { error, ...settingsState(), at: at ? valuesAt(at) : undefined };
+  },
+
+  // The values of some settings at z: { at: { name: entry } }.
+  valuesAt({ z, names }) {
+    return { at: core?.app ? valuesAt({ z, names }) : {} };
   },
 
   slice() {
@@ -989,6 +1012,78 @@ const ops = {
     return { ok: r >= 0, count: action === "split" ? r : 0, part: action === "remove" || at >= n ? null : core.part(at) };
   },
 
+  // An action on several parts in one step of the history (the card of a
+  // selection of parts): "remove", "duplicate", "arrange" (the plate),
+  // and the actions of partAction for each part. Returns { ok, parts }:
+  // the selection after it (the copies, for "duplicate").
+  partsAction({ indices, action }) {
+    const x = core.w.x;
+    const list = [...new Set(indices)].filter((i) => i >= 0 && i < x.zs_app_part_count(core.app));
+    let ok = false;
+    let keep = list;
+    if (action === "arrange") {
+      ok = x.zs_app_plate_arrange(core.app) !== 0;
+    } else if (action === "remove") {
+      // The highest index first: a remove moves the parts after it.
+      for (const i of [...list].sort((a, b) => b - a)) if (core.partAction(i, "remove") >= 0) ok = true;
+      keep = [];
+    } else if (action === "duplicate") {
+      keep = [];
+      for (const i of list) {
+        const r = core.partAction(i, "duplicate");
+        if (r >= 0) {
+          ok = true;
+          keep.push(r);
+        }
+      }
+    } else {
+      for (const i of list) if (core.partAction(i, action) >= 0) ok = true;
+    }
+    if (ok && !clearIfEmpty()) wantSlice();
+    const n = x.zs_app_part_count(core.app);
+    return { ok, parts: keep.filter((i) => i < n).map((i) => core.part(i)) };
+  },
+
+  // Moves several parts at once (a drag of a selection): moves is
+  // [{ index, x, y }]. hold: as in partMove.
+  partsMove({ moves, hold }) {
+    let ok = false;
+    for (const m of moves) {
+      if (!Number.isFinite(m.x) || !Number.isFinite(m.y)) continue;
+      if (core.w.x.zs_app_part_move(core.app, m.index, m.x, m.y) === 0) ok = true;
+    }
+    if (ok) sliceOrHold(hold);
+    return { parts: moves.map((m) => core.part(m.index)) };
+  },
+
+  // A setting for each of several parts (null: the value of the plate).
+  partsSettingSet({ indices, name, value }) {
+    let error = "";
+    for (const i of indices) {
+      const e = core.setPartSetting(i, name, value);
+      if (e) error = e;
+    }
+    if (!error) wantSlice();
+    return { error, value: indices.length > 0 ? core.partSetting(indices[0], name) : null };
+  },
+
+  // Moves several parts to one new plate. Returns { ok, to }.
+  partsToPlate({ indices }) {
+    commitPending();
+    let to = -1;
+    for (const i of [...new Set(indices)].sort((a, b) => b - a)) {
+      const r = wasm.x.zs_set_part_move(set, activeIndex(), i, to);
+      if (r < 0) break;
+      to = r;
+    }
+    if (to < 0) return { ok: false };
+    syncCore();
+    postPlates();
+    if (clearIfEmpty()) schedule();
+    else wantSlice();
+    return { ok: true, to };
+  },
+
   // Cuts part `index` at height z (mm above the bed): two parts, at index
   // and index + 1 (zs_app_part_cut). flip: the top goes onto its cut face.
   // pegs: the most pegs (0: none), pegD: their diameter (mm).
@@ -1112,17 +1207,24 @@ const ops = {
     if (!pt || !info) return { error: "No line there." };
     if (info.feature !== 6 && info.feature !== 7) return { error: "That line is not support." };
     let changed = core.w.x.zs_app_mark_remove_near(core.app, pt[0], pt[1], pt[2], 3) > 0;
-    // The overhang is over the support: up from the line, a half
-    // millimeter a step, to the first surface that faces down.
-    const top = core.layers()?.z?.at(-1) ?? pt[2];
-    let hot = null;
-    for (let z = pt[2]; z <= top + 0.5 && !hot; z += 0.5) hot = core.supportPick(pt[0], pt[1], z, 2);
+    const hot = overhangOver(pt);
     if (hot && hot.pts.length >= 3) {
       if (core.supportAreaAdd(3, hot.pts, hot.zLo, hot.zHi) >= 0) changed = true;
     }
     if (!changed) return { error: "zslice found no overhang over this support." };
     wantSlice();
     return { areas: core.supportAreas() };
+  },
+
+  // The support of a support line (a click of the Select tool): the
+  // point of the line, the overhang over it (the area that "Remove this
+  // support" blocks), and tree: true for tree support. Or { error }.
+  supportAt({ path, seg }) {
+    const pt = core.pathPoint(path, seg);
+    const info = core.inspect(path);
+    if (!pt || !info) return { error: "No line there." };
+    if (info.feature !== 6 && info.feature !== 7) return { error: "That line is not support." };
+    return { pt, tree: core.get("project.support_style") === "tree", hot: overhangOver(pt) };
   },
 
   markRemoveNear({ path, seg }) {

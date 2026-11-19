@@ -2,7 +2,10 @@
 // view3d.c): Select (V), Move (M), Turn (R), Measure (T), and Support (S),
 // as a group at the left of the toolbar. support.js has the Support tool.
 //
-// - Select: a click selects a line (app.js does it).
+// - Select: a click selects a line (app.js does it), or a support
+//   (support.js, selectAt). A drag from a line selects layers (app.js,
+//   rangeDrag; rangecard.js). Shift and a click add a part to the
+//   selection of parts, or take it out (addPart), in each tool.
 // - Move: a drag on a part moves it on the bed, and the wheel over the view
 //   turns the selected part by 15° a step. Ctrl does the same in the other
 //   tools.
@@ -33,7 +36,8 @@ export class Tools {
     this.tool = "select";
     this.pts = []; // { x, y, z, r, shape }
     this.part = null; // the selected part (zs_part of the worker)
-    this.moving = null; // a drag of a part: { index, x0, y0, bx0, by0 }
+    this.parts = []; // all selected parts; `part` is the last of them
+    this.moving = null; // a drag of parts: { list: [{ index, x0, y0, x, y }], bx0, by0 }
     this.moveSent = 0;
     // A click on the button of the tool that is on: the tool's own action
     // (the Support tool opens or closes its pane).
@@ -291,42 +295,81 @@ export class Tools {
     return r.part;
   }
 
+  // Selects one part, or none (null). The selection of several parts
+  // ends.
   selectPart(part) {
-    this.part = part;
-    this.ctx.partSelected?.(part);
+    this.setParts(part ? [part] : []);
+  }
+
+  // The selected parts: a list of zs_part. `part` is the last one (the
+  // card and the tools of one part use it).
+  setParts(list) {
+    this.parts = list;
+    this.part = list.length > 0 ? list[list.length - 1] : null;
+    this.ctx.partSelected?.(this.part, this.parts);
     const { view } = this.ctx;
-    if (part) view.x.zs_view_part_box(view.v, part.x - part.sizeX / 2, part.y - part.sizeY / 2, part.x + part.sizeX / 2, part.y + part.sizeY / 2);
-    else view.x.zs_view_part_box(view.v, 0, 0, 0, 0);
+    view.partBoxes(list.map((p) => [p.x - p.sizeX / 2, p.y - p.sizeY / 2, p.x + p.sizeX / 2, p.y + p.sizeY / 2]));
     this.ctx.requestFrame();
   }
 
+  // Shift and a click: the part goes into the selection, or out of it if
+  // it is in it. A click on no part keeps the selection.
+  togglePart(part) {
+    if (!part) return;
+    const i = this.parts.findIndex((p) => p.index === part.index);
+    if (i >= 0) this.setParts(this.parts.filter((_, k) => k !== i));
+    else this.setParts([...this.parts, part]);
+  }
+
+  // New facts of selected parts (after a move): the same selection.
+  updateParts(list) {
+    const by = new Map(list.filter(Boolean).map((p) => [p.index, p]));
+    this.setParts(this.parts.map((p) => by.get(p.index) ?? p));
+  }
+
   // A press of a drag that can move a part: true if a part is there (the
-  // drag then moves it).
+  // drag then moves it). A press on a part of a selection of several
+  // parts moves them all.
   async moveStart(px, py) {
     const part = await this.partAt(px, py);
     const bed = this.bedPoint(px, py);
     if (!part || !bed) return false;
-    this.selectPart(part);
-    this.moving = { index: part.index, x0: part.x, y0: part.y, bx0: bed[0], by0: bed[1], x: part.x, y: part.y };
+    const group = this.parts.length > 1 && this.parts.some((p) => p.index === part.index);
+    if (!group) this.selectPart(part);
+    const list = group ? this.parts : [part];
+    this.moving = { list: list.map((p) => ({ index: p.index, x0: p.x, y0: p.y, x: p.x, y: p.y })), bx0: bed[0], by0: bed[1] };
     this.ctx.canvas.style.cursor = "move";
     return true;
   }
 
-  // The part follows the bed point under the pointer. The box shows at
+  // The parts follow the bed point under the pointer. The boxes show at
   // once; the worker gets at most one move each 60 ms.
   moveTo(px, py) {
     const m = this.moving;
     const bed = m && this.bedPoint(px, py);
     if (!bed) return;
-    m.x = m.x0 + bed[0] - m.bx0;
-    m.y = m.y0 + bed[1] - m.by0;
-    if (this.part) this.selectPart({ ...this.part, x: m.x, y: m.y });
+    const dx = bed[0] - m.bx0;
+    const dy = bed[1] - m.by0;
+    for (const q of m.list) {
+      q.x = q.x0 + dx;
+      q.y = q.y0 + dy;
+    }
+    const at = new Map(m.list.map((q) => [q.index, q]));
+    this.setParts(this.parts.map((p) => (at.has(p.index) ? { ...p, x: at.get(p.index).x, y: at.get(p.index).y } : p)));
     const now = performance.now();
     if (now - this.moveSent > 60) {
       this.moveSent = now;
       // The slice waits for the end of the drag (moveEnd).
-      this.ctx.client.call("partMove", { index: m.index, x: m.x, y: m.y, hold: true });
+      this.sendMove(m, true);
     }
+  }
+
+  sendMove(m, hold) {
+    if (m.list.length === 1) {
+      const q = m.list[0];
+      return this.ctx.client.call("partMove", { index: q.index, x: q.x, y: q.y, hold }).then((r) => ({ parts: [r.part] }));
+    }
+    return this.ctx.client.call("partsMove", { moves: m.list.map((q) => ({ index: q.index, x: q.x, y: q.y })), hold });
   }
 
   async moveEnd() {
@@ -334,13 +377,19 @@ export class Tools {
     this.moving = null;
     this.ctx.canvas.style.cursor = this.tool === "measure" ? "crosshair" : "";
     if (!m) return;
-    const r = await this.ctx.client.call("partMove", { index: m.index, x: m.x, y: m.y });
-    if (r.part) this.selectPart(r.part);
+    const r = await this.sendMove(m, false);
+    if (r.parts) this.updateParts(r.parts);
   }
 
   // A click with the move tool (or Ctrl): select the part there, or none.
   async pickPart(px, py) {
     this.selectPart(await this.partAt(px, py));
+  }
+
+  // Shift and a click: add the part there to the selection, or take it
+  // out.
+  async addPart(px, py) {
+    this.togglePart(await this.partAt(px, py));
   }
 
   // The wheel with the move tool (or Ctrl): turn the selected part 15° a

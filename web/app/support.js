@@ -29,6 +29,13 @@
 //   The dots and the ring follow the pointer at once; the core gets the
 //   edit at most each 60 ms, and the slice waits for the end of the drag.
 //
+// - The Select tool (V) uses this code too, with the tool off: a click on
+//   a support line selects that support (selectAt). For tree support, the
+//   nodes of that tree show, and a drag of a dot, a ring, or a segment
+//   pulls it, as above; a right click on a dot or a segment offers
+//   Delete. For grid support, the area of the overhang over the line
+//   shows; Delete blocks the support there ("Remove this support").
+//
 // The core keeps the areas (zs_app_support_area_*, in the worker), slices
 // with them, and keeps them in the 3MF and the history. The core view
 // draws them (zs_view_support_add). While the tool is on, a pick skips the
@@ -87,7 +94,8 @@ export class SupportTool {
   // ctx: { client, view (view.js: x, v, w), canvas, host (the element of
   //        the view), active() (the tool is on), page() ("2d" or "3d"),
   //        frame() (request a frame), toast(text), focus() (the focus
-  //        of the view changed: see seeThrough) }
+  //        of the view changed: see seeThrough), menu(x, y, items)
+  //        (a context menu at client pixels) }
   constructor(ctx) {
     this.ctx = ctx;
     this.areas = []; // { kind, zLo, zHi, pts: [[x, y, z], ...] }
@@ -111,6 +119,9 @@ export class SupportTool {
     this.tclamp = 0;
     this.adding = null;
     this.tdrag = null;
+    // The support that the Select tool picked, with the tool off:
+    // { path, seg, tree, pt, hot }, or null. See selectAt.
+    this.lite = null;
     // The pane of the tool: open at the start; the user closes it when
     // they know the tool, and S or a click on the tool opens it again.
     this.paneOpen = loadPaneOpen();
@@ -131,10 +142,17 @@ export class SupportTool {
     return [(e.clientX - r.left) * this.dpr(), (e.clientY - r.top) * this.dpr()];
   }
 
+  // True while the trees show: the tool is on, or the Select tool has a
+  // support.
+  get live() {
+    return this.on || !!this.lite;
+  }
+
   // The tool goes on or off.
   setActive(on) {
     if (this.on === on) return;
     this.on = on;
+    if (on) this.lite = null;
     const { view } = this.ctx;
     view.x.zs_view_pick_skip_support(view.v, on ? 1 : 0);
     if (!on) {
@@ -171,12 +189,13 @@ export class SupportTool {
   // The trees of the core, after a slice or an undo (only while the tool
   // is on: the trees cost a little to read).
   async reloadTrees() {
-    if (!this.on) return;
+    if (!this.live) return;
     const r = await this.ctx.client.call("supportTrees");
     if (r.note) this.ctx.toast?.(r.note);
     if (this.tdrag) return;
     this.trees = new Map(r.parts.map((t) => [t.part, t]));
     if (this.tsel && !this.nodeOk(this.tsel)) this.tsel = null;
+    if (this.lite?.tree && !this.tsel) this.lite = null;
     this.show();
   }
 
@@ -226,10 +245,13 @@ export class SupportTool {
     let best = null;
     let bestD = tol;
     const pix = [];
+    const only = this.liteNodes();
     for (const [part, t] of this.trees) {
+      if (only && part !== only.part) continue;
       const n = t.nodes.length / TREE_STRIDE;
       const q = new Array(n);
       for (let i = 0; i < n; i++) {
+        if (only && !only.nodes.has(i)) continue;
         const o = i * TREE_STRIDE;
         q[i] = this.pixelOf([t.nodes[o], t.nodes[o + 1], t.nodes[o + 2]]);
         if (q[i]) {
@@ -257,6 +279,36 @@ export class SupportTool {
       }
     }
     return best;
+  }
+
+  // With the tool off (the Select tool): the nodes of the tree of the
+  // selected node, { part, nodes (a Set) }. With the tool on: null (all
+  // nodes). A tree is all nodes with the same root (the node at the
+  // bottom of the chain of `down` links).
+  liteNodes() {
+    if (this.on || !this.lite?.tree) return null;
+    const s = this.tsel;
+    if (!s || !this.nodeOk(s)) return { part: -1, nodes: new Set() };
+    const a = this.trees.get(s.part).nodes;
+    const n = a.length / TREE_STRIDE;
+    const root = new Int32Array(n).fill(-1);
+    const rootOf = (i) => {
+      const chain = [];
+      let k = i;
+      while (root[k] < 0) {
+        chain.push(k);
+        const d = a[k * TREE_STRIDE + 5];
+        if (d < 0 || d >= n || chain.length > n) break;
+        k = d;
+      }
+      const r = root[k] >= 0 ? root[k] : k;
+      for (const c of chain) root[c] = r;
+      return r;
+    };
+    const want = rootOf(s.node);
+    const nodes = new Set();
+    for (let i = 0; i < n; i++) if (rootOf(i) === want) nodes.add(i);
+    return { part: s.part, nodes };
   }
 
   // The ring of a node: points on its circle at its z.
@@ -292,7 +344,7 @@ export class SupportTool {
   // closer than DOT_CELL on the screen), the segments of the selected
   // branch, the ring of the selected node, and the foot of a new branch.
   showTrees(add) {
-    if (!this.on || this.trees.size === 0) return;
+    if (!this.live || this.trees.size === 0) return;
     const s = this.tsel && this.nodeOk(this.tsel) ? this.tsel : null;
     const kind = this.tclamp ? RED : TREE_KIND;
     const cell = DOT_CELL * this.dpr();
@@ -319,10 +371,13 @@ export class SupportTool {
     }
     const skip = new Set(s ? branch : []);
     const pts = [];
+    const only = this.liteNodes();
     for (const [part, t] of this.trees) {
+      if (only && part !== only.part) continue;
       const n = t.nodes.length / TREE_STRIDE;
       for (let i = 0; i < n; i++) {
         if (s && part === s.part && skip.has(i)) continue;
+        if (only && !only.nodes.has(i)) continue;
         const o = i * TREE_STRIDE;
         const p = [t.nodes[o], t.nodes[o + 1], t.nodes[o + 2]];
         const q = this.pixelOf(p);
@@ -353,6 +408,7 @@ export class SupportTool {
     const r = await this.ctx.client.call("treeDelete", { part: s.part, node: s.node });
     this.takeTree(r);
     this.tclamp = 0;
+    if (!this.on) this.lite = null;
     this.show();
     return true;
   }
@@ -407,6 +463,8 @@ export class SupportTool {
     this.areas.forEach((a, i) => add(a.pts, a.kind, 1 | (i === this.sel ? 2 : 0) | (this.on ? 4 : 0)));
     if (this.on) add(this.draft, this.kind, 4);
     if (this.on && this.hot && this.draft.length === 0) add(this.hot.pts, this.kind, 1 | 2 | 4);
+    // The area of a grid support that the Select tool picked.
+    if (!this.on && this.lite?.hot && !this.lite.tree) add(this.lite.hot.pts, 0, CLOSED | SELECTED);
     this.showTrees(add);
     this.showCard();
     this.ctx.frame();
@@ -416,7 +474,7 @@ export class SupportTool {
 
   // Before each frame: the card shows only in the 3D view.
   place() {
-    const want = this.on && this.paneOpen && this.ctx.page() === "3d";
+    const want = ((this.on && this.paneOpen) || !!this.lite) && this.ctx.page() === "3d";
     if (want === this.card.hidden) this.showCard();
     else if (want) this.placeCard();
   }
@@ -426,17 +484,30 @@ export class SupportTool {
   placeCard() {
     const card = this.card;
     const s = this.tsel && this.nodeOk(this.tsel) ? this.tsel : null;
-    if (!s || this.card.hidden) {
+    const area = !this.on && !this.lite?.tree ? this.lite?.hot?.pts : null;
+    if ((!s && !area) || this.card.hidden) {
       card.style.left = "";
       card.style.top = "";
       return;
     }
     const d = this.dpr();
     const box = [Infinity, Infinity, -Infinity, -Infinity];
-    for (const k of this.branchOf(s.part, s.node)) {
+    for (const k of s ? this.branchOf(s.part, s.node) : []) {
       const nd = this.node(s.part, k);
       for (const p of [[nd.x - nd.r, nd.y, nd.z], [nd.x + nd.r, nd.y, nd.z], [nd.x, nd.y - nd.r, nd.z], [nd.x, nd.y + nd.r, nd.z]]) {
         const q = this.pixelOf(p);
+        if (!q) continue;
+        box[0] = Math.min(box[0], q[0] / d);
+        box[1] = Math.min(box[1], q[1] / d);
+        box[2] = Math.max(box[2], q[0] / d);
+        box[3] = Math.max(box[3], q[1] / d);
+      }
+    }
+    // The area of a picked grid support, down to the bed under it: the
+    // support stands there.
+    for (const p of area ?? []) {
+      for (const z of [p[2], 0]) {
+        const q = this.pixelOf([p[0], p[1], z]);
         if (!q) continue;
         box[0] = Math.min(box[0], q[0] / d);
         box[1] = Math.min(box[1], q[1] / d);
@@ -463,6 +534,10 @@ export class SupportTool {
 
   showCard() {
     const card = this.card;
+    if (!this.on && this.lite && this.ctx.page() === "3d") {
+      this.liteCard();
+      return;
+    }
     if (!this.on || this.ctx.page() !== "3d" || !this.paneOpen) {
       card.hidden = true;
       return;
@@ -513,6 +588,38 @@ export class SupportTool {
           : `${n} points. Click the first point, or press Enter, to close the area.`;
       card.append(el("div", "sc-info", hint));
     }
+    this.placeCard();
+  }
+
+  // The card of a support that the Select tool picked: what it is, and
+  // Delete.
+  liteCard() {
+    const card = this.card;
+    const l = this.lite;
+    const s = this.tsel && this.nodeOk(this.tsel) ? this.tsel : null;
+    card.hidden = false;
+    card.replaceChildren();
+    const head = el("div", "sc-head");
+    const close = el("button", "tool icon sc-close", "×");
+    close.title = "Close (Esc)";
+    close.setAttribute("aria-label", "Close");
+    close.onclick = () => this.clearLite();
+    head.append(el("div", "sc-title", l.tree ? "Support tree" : "Support"), close);
+    card.append(head);
+    let text;
+    if (l.tree && s) {
+      const nd = this.node(s.part, s.node);
+      text = `A branch, ${(2 * nd.r).toFixed(1)} mm wide, z ${nd.z.toFixed(1)} mm. Drag a dot, a ring, or a segment to pull it. Right click a dot for Delete.`;
+      if (this.tclamp) text += ` Limited: ${CLAMP_TEXT.filter(([b]) => this.tclamp & b).map(([, t]) => t).join("; ")}.`;
+    } else if (l.hot) {
+      text = `It holds up the overhang in blue, z ${l.hot.zLo.toFixed(1)} to ${l.hot.zHi.toFixed(1)} mm.`;
+    } else text = "zslice found no overhang over this support.";
+    card.append(el("div", "sc-info" + (this.tclamp ? " sc-limit" : ""), text));
+    const del = el("button", "tool sc-delete", l.tree ? "Delete branch" : "Remove this support");
+    del.title = l.tree ? "Delete this branch and the branches over it (Delete)" : "No support under this overhang (Delete)";
+    del.disabled = l.tree ? !s : !l.hot;
+    del.onclick = () => this.removeLite();
+    card.append(del);
     this.placeCard();
   }
 
@@ -632,6 +739,12 @@ export class SupportTool {
   }
 
   hover(e) {
+    if (!this.on && this.lite?.tree && !this.tdrag && e.buttons === 0 && this.ctx.page() === "3d") {
+      const [px, py] = this.at(e);
+      const t = this.treeAt(px, py);
+      this.ctx.host.style.cursor = t ? (t.kind === "ring" ? "ew-resize" : "grab") : "";
+      return;
+    }
     if (!this.on || this.drag || this.ctx.page() !== "3d") return;
     const [px, py] = this.at(e);
     const onPoint = this.pointAt(px, py);
@@ -754,7 +867,7 @@ export class SupportTool {
 
   // A key of the view while the tool is on. True if it used the key.
   key(e) {
-    if (!this.on) return false;
+    if (!this.on) return this.liteKey(e);
     switch (e.key) {
       case "Enter":
         if (this.draft.length < 3) return false;
@@ -813,9 +926,112 @@ export class SupportTool {
     }
   }
 
+  // ---- the support of the Select tool ----
+
+  // A click of the Select tool on a support line (path, seg; feature 6
+  // or 7): select that support. One call to the worker (two for the
+  // first tree: the trees load once). For tree support, the branch
+  // nearest to the point of the line.
+  async selectAt(path, seg) {
+    if (this.on) return false;
+    const r = await this.ctx.client.call("supportAt", { path, seg });
+    if (r.error) {
+      this.clearLite();
+      return false;
+    }
+    this.lite = { path, seg, tree: r.tree, pt: r.pt, hot: r.hot };
+    this.tsel = null;
+    this.tclamp = 0;
+    if (r.tree) {
+      if (this.trees.size === 0) {
+        const t = await this.ctx.client.call("supportTrees");
+        this.trees = new Map(t.parts.map((p) => [p.part, p]));
+      }
+      this.tsel = this.nearestNode(r.pt);
+      // No tree there: show the area of the overhang, as for a grid.
+      if (!this.tsel) this.lite.tree = false;
+    }
+    this.show();
+    return true;
+  }
+
+  // The node nearest to a point (mm), { part, node }, or null.
+  nearestNode(pt) {
+    let best = null;
+    let bestD = Infinity;
+    for (const [part, t] of this.trees) {
+      const a = t.nodes;
+      for (let i = 0; i * TREE_STRIDE < a.length; i++) {
+        const o = i * TREE_STRIDE;
+        // A node over the point counts more than a node beside it: the
+        // line is a part of the branch under the node.
+        const d = Math.hypot(a[o] - pt[0], a[o + 1] - pt[1]) + 0.25 * Math.abs(a[o + 2] - pt[2]);
+        if (d < bestD) {
+          bestD = d;
+          best = { part, node: i };
+        }
+      }
+    }
+    return best;
+  }
+
+  // Ends the support of the Select tool.
+  clearLite() {
+    if (!this.lite) return false;
+    this.lite = null;
+    if (!this.on) {
+      this.tsel = null;
+      this.tclamp = 0;
+    }
+    this.show();
+    return true;
+  }
+
+  // Delete: the branch of a tree, or the support under the overhang.
+  async removeLite() {
+    const l = this.lite;
+    if (!l) return false;
+    if (l.tree) return this.deleteBranch();
+    this.clearLite();
+    const r = await this.ctx.client.call("supportRemoveAt", { path: l.path, seg: l.seg });
+    if (r.error) this.ctx.toast?.(r.error);
+    else this.setAreas(r.areas);
+    return true;
+  }
+
+  // The keys of the support of the Select tool. True if it used the key.
+  liteKey(e) {
+    if (!this.lite) return false;
+    if (e.key === "Delete" || e.key === "Backspace") {
+      this.removeLite();
+      return true;
+    }
+    if (e.key === "Escape") return this.clearLite();
+    return false;
+  }
+
+  // A right click of the Select tool at a device pixel (px, py), and at
+  // the client pixel (x, y) for the menu: on a dot or a segment of the
+  // picked tree, a menu with Delete. True if it opened the menu.
+  menuAt(px, py, x, y) {
+    if (this.on || !this.lite?.tree || !this.ctx.menu) return false;
+    const t = this.treeAt(px, py);
+    if (!t) return false;
+    this.tsel = { part: t.part, node: t.node };
+    this.show();
+    this.ctx.menu(x, y, [{ label: "Delete branch", accel: "Delete", action: () => this.deleteBranch() }]);
+    return true;
+  }
+
   // ---- drag a point ----
 
   press(e) {
+    if (e.button === 0 && !this.on && this.lite?.tree && this.ctx.page() === "3d") {
+      const [px, py] = this.at(e);
+      const t = this.treeAt(px, py);
+      if (t) this.pressTree(e, t, px, py);
+      return;
+    }
     if (e.button !== 0 || !this.on || this.ctx.page() !== "3d" || this.draft.length > 0 || this.adding) return;
     const [px, py] = this.at(e);
     const hit = this.pointAt(px, py);

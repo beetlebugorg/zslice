@@ -11,6 +11,12 @@
 //   plate again. "+ Add a setting for this part" opens the search for the
 //   part: only the settings that a part can have, and the edits go to it.
 //
+// With several parts selected (Shift and a click), the card shows how
+// many, and the actions that work for all of them: Duplicate, Arrange the
+// plate, To a new plate, Remove, and a setting for all of them. A drag of
+// one of them with the Move tool (or Ctrl), or the arrow keys, moves them
+// all. Each action is one call to the worker, and one step of the history.
+//
 // A change slices at once. The card follows the part when the camera
 // moves (app.js calls `place` after each frame), until a drag of its head
 // moves it.
@@ -29,18 +35,27 @@ export class PartCard {
     this.ctx = ctx;
     this.node = null;
     this.part = null;
+    this.parts = [];
+    this.many = false; // the card is for several parts
   }
 
   get open() {
     return !!this.node;
   }
 
-  // The selected part (zs_part of the worker), or null.
-  async show(part) {
+  // The selected part (zs_part of the worker), or null, and all the
+  // selected parts (part is the last of them).
+  async show(part, parts = part ? [part] : []) {
     if (!part) {
       this.close();
       return;
     }
+    if (parts.length > 1) {
+      this.showMany(parts);
+      return;
+    }
+    if (this.many) this.close();
+    this.parts = [part];
     // The same part again (a drag moves it): only its facts and place.
     const same = this.part && this.part.index === part.index && this.node;
     this.part = part;
@@ -56,6 +71,88 @@ export class PartCard {
     this.node?.remove();
     this.node = null;
     this.part = null;
+    this.parts = [];
+    this.many = false;
+  }
+
+  // ---- several parts ----
+
+  showMany(parts) {
+    const sameSet = this.many && this.node && this.parts.length === parts.length && this.parts.every((p, i) => p.index === parts[i].index);
+    this.parts = parts;
+    this.part = parts[parts.length - 1];
+    if (!sameSet) this.buildMany();
+    this.updateMany();
+    this.place();
+  }
+
+  buildMany() {
+    this.endCut();
+    this.node?.remove();
+    this.many = true;
+    const card = el("div", "part-card");
+    card.setAttribute("role", "dialog");
+    card.setAttribute("aria-label", "The selected parts");
+    const head = el("div", "lc-head");
+    this.title = el("div", "lc-title");
+    const close = el("button", "flat icon lc-close", "×");
+    close.setAttribute("aria-label", "Close");
+    close.title = "Close (Esc)";
+    close.onclick = () => this.ctx.select(null);
+    head.append(this.title, close);
+    head.title = "Drag to move the card";
+    movable(card, head, this.ctx.host, (x, y) => {
+      this.userAt = [x, y];
+    });
+    this.facts = el("div", "lc-size");
+    const actions = el("div", "pc-actions");
+    const action = (label, key, title, name) => {
+      const b = el("button", "pc-action", label);
+      b.title = key ? `${title} (${key})` : title;
+      b.onclick = () => this.act(name);
+      actions.append(b);
+    };
+    action("Duplicate", "D", "A copy of each part at a free place on the bed", "duplicate");
+    action("Arrange the plate", "", "Put all parts of the plate in rows, apart from each other", "arrange");
+    const moveB = el("button", "pc-action", "To a new plate");
+    moveB.title = "Move these parts to one new plate, with the settings of this plate";
+    moveB.onclick = () => this.moveToNewPlate();
+    actions.append(moveB);
+    action("Remove", "Delete", "Remove these parts from the plate", "remove");
+    const hint = el("div", "dim caption", "To move them all: drag one of them with the Move tool (or Ctrl and a drag), or press the arrow keys.");
+    const add = el("button", "flat pc-add", "+ Add a setting for these parts");
+    add.title = "Search the settings that a part can have of its own: the edit goes to each of these parts";
+    add.onclick = () => this.ctx.search("", this.scope());
+    this.settingsBox = el("div", "lc-settings");
+    this.settingsBox.hidden = true;
+    this.cutBox = null;
+    card.append(head, this.facts, actions, hint, add);
+    card.addEventListener("keydown", (e) => {
+      if (e.key === "Escape" && !e.target.closest("input, select, textarea")) {
+        e.preventDefault();
+        e.stopPropagation();
+        this.ctx.select(null);
+      }
+    });
+    this.ctx.host.append(card);
+    this.node = card;
+  }
+
+  updateMany() {
+    const ps = this.parts;
+    this.title.textContent = `${ps.length} parts`;
+    const x0 = Math.min(...ps.map((p) => p.x - p.sizeX / 2));
+    const x1 = Math.max(...ps.map((p) => p.x + p.sizeX / 2));
+    const y0 = Math.min(...ps.map((p) => p.y - p.sizeY / 2));
+    const y1 = Math.max(...ps.map((p) => p.y + p.sizeY / 2));
+    // The names, each once, with a count: "2 × 3DBenchy.stl".
+    const count = new Map();
+    for (const p of ps) {
+      const name = p.name || `Part ${p.index + 1}`;
+      count.set(name, (count.get(name) ?? 0) + 1);
+    }
+    const names = [...count].map(([name, n]) => (n > 1 ? `${n} × ${name}` : name));
+    this.facts.textContent = `${names.join(", ")} · ${(x1 - x0).toFixed(1)} × ${(y1 - y0).toFixed(1)} mm on the bed`;
   }
 
   build() {
@@ -219,6 +316,16 @@ export class PartCard {
 
   async moveToNewPlate() {
     if (!this.part) return;
+    if (this.many) {
+      const r = await this.ctx.client.call("partsToPlate", { indices: this.parts.map((p) => p.index) });
+      if (!r?.ok) {
+        this.ctx.toast("The parts did not move.");
+        return;
+      }
+      this.ctx.toast(`Moved ${this.parts.length} parts to plate ${r.to + 1}.`);
+      this.ctx.select(null);
+      return;
+    }
     const r = await this.ctx.movePart?.(this.part.index, -1);
     if (!r?.ok) {
       this.ctx.toast("The part did not move.");
@@ -244,8 +351,23 @@ export class PartCard {
     this.facts.textContent = `${p.sizeX.toFixed(1)} × ${p.sizeY.toFixed(1)} × ${p.sizeZ.toFixed(1)} mm${turn ? ` · turned ${turn}°` : ""}`;
   }
 
-  // The search scope of this part.
+  // The search scope of this part, or of all the selected parts.
   scope() {
+    if (this.many) {
+      const indices = this.parts.map((p) => p.index);
+      return {
+        label: `${indices.length} parts`,
+        set: async (name, value) => {
+          const r = await this.ctx.client.call("partsSettingSet", { indices, name, value });
+          if (r.error) this.ctx.toast(r.error);
+          return r.error;
+        },
+        value: async (name) => {
+          const r = await this.ctx.client.call("partSettings", { index: indices[0] });
+          return r.list.find(([n]) => n === name)?.[1] ?? null;
+        },
+      };
+    }
     const index = this.part.index;
     return {
       label: `Part: ${this.part.name || index + 1}`,
@@ -301,6 +423,17 @@ export class PartCard {
 
   async act(action) {
     if (!this.part) return;
+    if (this.many) {
+      const r = await this.ctx.client.call("partsAction", { indices: this.parts.map((p) => p.index), action });
+      if (!r.ok) {
+        this.ctx.toast("The parts did not change.");
+        return;
+      }
+      // The copies are the new selection; after Remove, none.
+      if (action === "arrange") this.ctx.select(null);
+      else this.ctx.selectMany?.(r.parts);
+      return;
+    }
     const r = await this.ctx.client.call("partAction", { index: this.part.index, action });
     if (!r.ok) {
       this.ctx.toast(r.message ?? "The part did not change.");
@@ -310,16 +443,26 @@ export class PartCard {
     this.ctx.select(r.part);
   }
 
-  // Next to the part, over the right of its top, inside the view.
+  // Next to the part (or the parts), over the right of its top, inside
+  // the view.
   place() {
     const card = this.node;
-    const p = this.part;
-    if (!card || !p) return;
+    if (!card || !this.part) return;
     if (this.userAt) {
       [card.style.left, card.style.top] = this.userAt.map((v) => `${v}px`);
       return;
     }
     const dpr = window.devicePixelRatio || 1;
+    const box = [Infinity, Infinity, -Infinity, -Infinity];
+    for (const p of this.parts.length > 0 ? this.parts : [this.part]) this.addBox(p, box, dpr);
+    const area = freeArea(this.ctx.host);
+    const [x, y] = box[0] <= box[2] ? placeBeside(box, area, card.offsetWidth, card.offsetHeight) : [area[2] - card.offsetWidth, area[1] + 52];
+    card.style.left = `${x}px`;
+    card.style.top = `${y}px`;
+  }
+
+  // Grows box (CSS pixels) by the box of part p on the screen.
+  addBox(p, box, dpr) {
     // The box of the part on the screen, with the rings of the Turn tool
     // (turn.js: radius 0.62 of the largest size, and 4 mm): the card
     // covers no part of them.
@@ -327,7 +470,6 @@ export class PartCard {
     const hx = Math.max(p.sizeX / 2, ring);
     const hy = Math.max(p.sizeY / 2, ring);
     const zTop = Math.max(p.sizeZ, p.sizeZ / 2 + ring);
-    const box = [Infinity, Infinity, -Infinity, -Infinity];
     for (const sx of [-1, 1]) for (const sy of [-1, 1]) for (const z of [0, zTop]) {
       const q = this.ctx.pixelOf({ x: p.x + sx * hx, y: p.y + sy * hy, z });
       if (!q) continue;
@@ -336,9 +478,5 @@ export class PartCard {
       box[2] = Math.max(box[2], q[0] / dpr);
       box[3] = Math.max(box[3], q[1] / dpr);
     }
-    const area = freeArea(this.ctx.host);
-    const [x, y] = box[0] <= box[2] ? placeBeside(box, area, card.offsetWidth, card.offsetHeight) : [area[2] - card.offsetWidth, area[1] + 52];
-    card.style.left = `${x}px`;
-    card.style.top = `${y}px`;
   }
 }

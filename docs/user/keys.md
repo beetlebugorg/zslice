@@ -23,7 +23,7 @@ Press `?` in the app to see all keys. Type in the sheet to filter it. On the Mac
 
 | Keys | What they do |
 |---|---|
-| V | Select: a click selects a line |
+| V | Select: a click selects a line or a support. A drag from a line selects layers. |
 | M | Move: a drag moves a part, the wheel turns it 15° |
 | R | Turn: drag a ring of the selected part |
 | S | Support: click an overhang, or draw an area. S again opens or closes the card of the tool. |
@@ -31,13 +31,14 @@ Press `?` in the app to see all keys. Type in the sheet to filter it. On the Mac
 | T | Measure: two clicks |
 | G | Gaps of the top layer |
 | Ctrl+click, Ctrl+drag, Ctrl+wheel | Select, move, and turn a part with any tool |
+| Shift+click | Add a part to the selection, or take it out |
 | Tab, Shift+Tab | The next part, or the part before |
-| Arrow keys (a selected part) | Move the part 1 mm (Shift: 10 mm) |
+| Arrow keys (selected parts) | Move the parts 1 mm (Shift: 10 mm) |
 | ←, → (Turn tool) | Turn the part on the bed, 15° (Shift: 5°) |
 | ↑, ↓ (Turn tool) | Tilt the part about X |
 | Page Up, Page Down (Turn tool) | Tilt the part about Y |
-| D | Duplicate the selected part |
-| Delete | Remove the selected part, or take the selected line out of the print |
+| D | Duplicate the selected parts |
+| Delete | Remove the selected parts or the selected support, or take the selected line out of the print |
 | Shift (Measure, Support) | No snap |
 | Enter, Backspace, Esc (Support tool) | Close the area, remove its last point, stop it |
 
@@ -52,7 +53,6 @@ Press `?` in the app to see all keys. Type in the sheet to filter it. On the Mac
 | Shift+←, Shift+→ | The line before, or the next line |
 | C | Show the layers up to the selected line |
 | Shift+C | Show all layers |
-| Shift+click | Add a line to the selection |
 
 ## Plates
 
@@ -67,7 +67,7 @@ Press `?` in the app to see all keys. Type in the sheet to filter it. On the Mac
 | Mouse or touch | What it does |
 |---|---|
 | Right drag (hold the right button) | Orbit. On a touchpad: press down two fingers and drag. |
-| Left drag | Orbit |
+| Left drag | Orbit. In the Select tool, a drag that starts on a line selects the layers from that layer to the layer under the pointer. |
 | Middle drag, or Shift and a drag | Pan |
 | Wheel, light two-finger swipe, pinch | Zoom toward the pointer |
 | Double-click a side of a part | Face that side, and zoom to it |

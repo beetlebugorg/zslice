@@ -33,7 +33,19 @@ With a line selected:
 - ← and → go to the segment before or after it, in print order. Shift goes one line.
 - ↑ and ↓ (or K and J) go to the nearest line on the layer above or below.
 - C shows the layers up to the line. Shift+C shows all layers.
-- Shift+click adds a line to the selection.
+
+## Select layers
+
+Use the Select tool (V). Press on a line, and drag up or down. The layers from that line to the layer under the pointer turn yellow, and the other lines fade. Release the button: a card opens beside the layers, and it covers no part of them. It shows "Layers A–B" and the settings that can change for some layers: the infill density and pattern, the walls, the speeds, the fan, and the temperature. "+ Add a setting for these layers" finds the others. A change is for these layers only, and the part slices at once. Esc, ×, or a click elsewhere ends the selection.
+
+A drag that starts on the bed or in the air turns the view.
+
+## Select a support
+
+Use the Select tool (V), and click a support line:
+
+- Tree support: the dots of that tree show. Drag a dot, its ring, or a segment to pull it, as in the Support tool. Right-click a dot for **Delete branch**.
+- Grid support: the overhang that the support holds up shows in blue. Delete, or **Remove this support** on the card, takes the support away there.
 
 ## The menu of the view
 
