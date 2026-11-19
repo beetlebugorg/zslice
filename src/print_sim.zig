@@ -12,8 +12,13 @@
 //!   `Params.cell` mm, in tiles that exist only where plastic is) keeps the
 //!   top z of the plastic, and the layer that put it there. A new mass with
 //!   the bed, or the top of an earlier layer, under its bead (within
-//!   `support_tol` of a bead height) is solid at once at its place. Plastic
-//!   of the same layer beside it does not hold it. Else the mass is soft.
+//!   `support_tol` of a bead height) is solid at once at its place. So is
+//!   a mass beside a bead of the same layer at its height, up to
+//!   `side_reach` beads out from plastic that an earlier layer holds: the
+//!   end of a bridge line welds to the wall, and an overhang wall leans on
+//!   the wall inside it. A bead that hung does not hold the mass beside it,
+//!   so a skin over air does not grow from line to line. Else the mass is
+//!   soft.
 //! - **Heat.** A soft mass cools toward the room by Newton's law: dT/dt =
 //!   -(T - T_room) / tau, with tau = rho c (A / P) / h for a bead of area A
 //!   and perimeter P (lumped heat). The heat transfer h is the still air
@@ -32,7 +37,9 @@
 //!   holds while the path prints.
 //!   - A run held at both ends (a bridge, or a strand from an edge to the
 //!     nozzle) hangs in its exact static shape: a catenary of the arc
-//!     length of the run between its two ends, in their vertical plane.
+//!     length of the run between its two ends. The catenary is in the
+//!     vertical surface over the route where the nozzle laid the run, so
+//!     a run with a turn (a zigzag of infill) keeps its plan.
 //!     The hot plastic creeps under its tension: each link stretches at
 //!     the rate sigma / (3 eta) (the Trouton ratio of a Newtonian fluid).
 //!     The tension of a catenary is H = a w (w the weight for each mm), so
@@ -83,6 +90,32 @@ pub const Path = struct {
     /// The layer, in print order. Plastic of the same layer does not hold
     /// a new mass.
     layer: u32,
+    /// The path goes on from the end of the path before it with no break
+    /// of the strand (no travel): one strand of plastic. A wall that the
+    /// slicer splits into pieces over air and on plastic is one strand.
+    joined: bool = false,
+};
+
+/// The bead of a path: half its height, its width, rho c A / P in SI
+/// units (the cooling time is heat / h), and the hydraulic diameter 4 A /
+/// P (mm).
+const Bead = struct {
+    half_h: f32,
+    width: f32,
+    heat: f32,
+    diam: f32,
+
+    fn of(path: Path, p: Params) Bead {
+        const area = if (path.area > 0) path.area else beadArea(path.width, path.height);
+        // The bead perimeter: a stadium of the bead width and height.
+        const perim = if (path.width > path.height) 2 * (path.width - path.height) + std.math.pi * path.height else std.math.pi * path.width;
+        return .{
+            .half_h = 0.5 * path.height,
+            .width = path.width,
+            .heat = p.density * 1e6 * p.heat_capacity * (area / perim) * 1e-3,
+            .diam = 4 * area / perim,
+        };
+    }
 };
 
 pub const Params = struct {
@@ -126,6 +159,10 @@ pub const Params = struct {
     /// A gap under a new mass up to this share of a bead height still
     /// holds it (the nozzle presses it down).
     support_tol: f32 = 0.5,
+    /// A new mass welds to a bead of its layer beside it, if that bead is
+    /// fewer than this many beads from plastic that an earlier layer
+    /// holds. A bead over air then holds the next, up to this count.
+    side_reach: u8 = 2,
     /// A path whose masses all set within this distance (mm) of their
     /// place did not move.
     move_eps: f32 = 0.01,
@@ -218,12 +255,16 @@ pub const Result = struct {
 const none = std.math.maxInt(u32);
 
 /// The height field of the solid plastic: the top z of each cell, the
-/// layer that put it there, and the top of the layers before that layer.
-/// A cell with no plastic is the bed (top 0).
+/// layer that put it there, the top of the layers before that layer, and
+/// the reach of the plastic of the cell: 0 if an earlier layer (or the
+/// bed) holds it, k if it is k beads beside such plastic in its layer,
+/// and `hung` if it hung or fell before it set. A cell with no plastic is
+/// the bed (top 0).
 const Field = struct {
     const n = 32;
-    const Tile = struct { top: [n * n]f32, under: [n * n]f32, layer: [n * n]u32 };
-    const Cell = struct { top: f32, under: f32, layer: u32 };
+    const hung = std.math.maxInt(u8);
+    const Tile = struct { top: [n * n]f32, under: [n * n]f32, layer: [n * n]u32, reach: [n * n]u8 };
+    const Cell = struct { top: f32, under: f32, layer: u32, reach: u8 };
 
     cell: f32,
     x0: f32,
@@ -260,26 +301,30 @@ const Field = struct {
     }
 
     fn at(f: *const Field, x: f32, y: f32) Cell {
-        const bed: Cell = .{ .top = 0, .under = 0, .layer = none };
+        const bed: Cell = .{ .top = 0, .under = 0, .layer = none, .reach = 0 };
         const l = f.locate(x, y) orelse return bed;
         const t = f.tiles[l[0]] orelse return bed;
-        return .{ .top = t.top[l[1]], .under = t.under[l[1]], .layer = t.layer[l[1]] };
+        const i = l[1];
+        return .{ .top = t.top[i], .under = t.under[i], .layer = t.layer[i], .reach = t.reach[i] };
     }
 
-    fn raise(f: *Field, x: f32, y: f32, top: f32, layer: u32) Allocator.Error!void {
+    fn raise(f: *Field, x: f32, y: f32, top: f32, layer: u32, reach: u8) Allocator.Error!void {
         const l = f.locate(x, y) orelse return;
         const t = f.tiles[l[0]] orelse blk: {
             const t = try f.arena.allocator().create(Tile);
             @memset(&t.top, 0);
             @memset(&t.under, 0);
             @memset(&t.layer, none);
+            @memset(&t.reach, 0);
             f.tiles[l[0]] = t;
             break :blk t;
         };
         const i = l[1];
         if (top < t.top[i]) return;
         // A new layer: the top so far is the top of the layers before it.
-        if (t.layer[i] != layer) t.under[i] = t.top[i];
+        const same = t.layer[i] == layer;
+        if (!same) t.under[i] = t.top[i];
+        t.reach[i] = if (same) @min(reach, t.reach[i]) else reach;
         t.top[i] = top;
         t.layer[i] = layer;
     }
@@ -294,15 +339,17 @@ const Node = struct {
     /// The rest length of the link to the mass before it.
     rest: f32,
     mass: f32,
+    /// Its path.
+    path: u32,
     soft: bool,
     /// It swung or fell: a run with such a mass does not hang as a
     /// catenary.
     fell: bool = false,
 };
 
-/// The masses of one path, while the path prints or has soft masses.
+/// The masses of one strand (a path, or paths joined with no break),
+/// while it prints or has soft masses.
 const Chain = struct {
-    path: u32,
     layer: u32,
     nodes: std.ArrayList(Node),
     /// The soft masses are in [lo, hi).
@@ -311,12 +358,6 @@ const Chain = struct {
     soft: usize = 0,
     /// The nozzle holds the newest mass.
     head: bool = true,
-    half_h: f32,
-    width: f32,
-    /// rho c A / P in SI units: tau = heat / h.
-    heat: f32,
-    /// The hydraulic diameter 4 A / P (mm).
-    diam: f32,
 
     fn pinned(c: *const Chain, k: usize) bool {
         return !c.nodes.items[k].soft or (c.head and k + 1 == c.nodes.items.len);
@@ -367,6 +408,10 @@ fn catenaryU(r: f64) f64 {
     return u;
 }
 
+/// A point of the plan route of a hanging run, and its distance along the
+/// route.
+const RoutePoint = struct { xy: [2]f32, d: f64 };
+
 const Sim = struct {
     gpa: Allocator,
     p: Params,
@@ -376,6 +421,7 @@ const Sim = struct {
     spare: std.ArrayList(std.ArrayList(Node)) = .empty,
     scratch: std.ArrayList(V) = .empty,
     weights: std.ArrayList(f64) = .empty,
+    route: std.ArrayList(RoutePoint) = .empty,
     time: f64 = 0,
     fan: f32 = 0,
     /// The soft masses, and if the newest one is soft (the nozzle holds it).
@@ -395,6 +441,7 @@ const Sim = struct {
         s.spare.deinit(s.gpa);
         s.scratch.deinit(s.gpa);
         s.weights.deinit(s.gpa);
+        s.route.deinit(s.gpa);
         s.field.deinit(s.gpa);
         s.pos.deinit(s.gpa);
         s.mass.deinit(s.gpa);
@@ -408,14 +455,19 @@ const Sim = struct {
         return if (c.top <= zc) c.top else 0;
     }
 
-    /// True if the bed or an earlier layer holds a new mass at p.
-    fn supported(s: *const Sim, c: *const Chain, p: V) bool {
-        const h = 2 * c.half_h;
-        const bottom = p[2] - c.half_h;
+    /// What holds a new mass at p: the reach of its plastic (see Field),
+    /// or `Field.hung` if it is soft. The bed or an earlier layer under its
+    /// bead gives 0. A bead of the same layer beside it at its height, of
+    /// reach k, gives k + 1 up to `side_reach` (the end of a bridge line
+    /// welds to the wall). So a skin over air grows only a few lines from
+    /// the plastic that an earlier layer holds.
+    fn supported(s: *const Sim, layer: u32, b: Bead, p: V, dir: [2]f32) u8 {
+        const h = 2 * b.half_h;
+        const bottom = p[2] - b.half_h;
         const tol = s.p.support_tol * h;
-        if (bottom <= tol) return true;
-        const top = p[2] + c.half_h;
-        const r = 0.5 * c.width;
+        if (bottom <= tol) return 0;
+        const top = p[2] + b.half_h;
+        const r = 0.5 * b.width;
         const cell = s.field.cell;
         const k: i32 = @intFromFloat(@ceil(r / cell));
         var dy = -k;
@@ -429,19 +481,29 @@ const Sim = struct {
                 if (q.layer == none) continue;
                 // Plastic of an earlier layer under the bead, or a heap
                 // above the nozzle that the nozzle plows into.
-                const base = if (q.layer == c.layer) q.under else q.top;
-                if (base >= bottom - tol or q.top > top + tol) return true;
+                const base = if (q.layer == layer) q.under else q.top;
+                if (base >= bottom - tol or q.top > top + tol) return 0;
             }
         }
-        return false;
+        // A bead beside it: on each side, across the path. The strand
+        // before it in the path is behind it, and holds it only by its
+        // links.
+        var side: u8 = Field.hung;
+        for ([_]f32{ -1, 1 }) |sign| for ([_]f32{ 0.35, 0.5, 0.65 }) |f| {
+            const o = sign * f * b.width;
+            const q = s.field.at(p[0] - dir[1] * o, p[1] + dir[0] * o);
+            if (q.layer == layer and q.reach < s.p.side_reach and @abs(q.top - top) <= tol) side = @min(side, q.reach + 1);
+        };
+        return side;
     }
 
-    /// Writes the bead of a solid mass into the height field.
-    fn deposit(s: *Sim, c: *const Chain, p: V) Allocator.Error!void {
-        const r = 0.45 * c.width;
+    /// Writes the bead of a solid mass into the height field, with its
+    /// reach (see Field).
+    fn deposit(s: *Sim, layer: u32, b: Bead, p: V, reach: u8) Allocator.Error!void {
+        const r = 0.45 * b.width;
         const cell = s.field.cell;
         const k: i32 = @intFromFloat(@ceil(r / cell));
-        const top = p[2] + c.half_h;
+        const top = p[2] + b.half_h;
         var dy = -k;
         while (dy <= k) : (dy += 1) {
             var dx = -k;
@@ -449,7 +511,7 @@ const Sim = struct {
                 const ox = @as(f32, @floatFromInt(dx)) * cell;
                 const oy = @as(f32, @floatFromInt(dy)) * cell;
                 if (ox * ox + oy * oy > r * r) continue;
-                try s.field.raise(p[0] + ox, p[1] + oy, top, c.layer);
+                try s.field.raise(p[0] + ox, p[1] + oy, top, layer, reach);
             }
         }
     }
@@ -460,15 +522,19 @@ const Sim = struct {
         n.prev = n.pos;
         c.soft -= 1;
         s.soft -= 1;
-        try s.deposit(c, n.pos);
+        try s.deposit(c.layer, s.bead(n.path), n.pos, Field.hung);
     }
 
     fn current(s: *Sim) *Chain {
         return &s.chains.items[s.chains.items.len - 1];
     }
 
-    /// Emits the next mass of the current path at p.
-    fn emit(s: *Sim, p: V, rest: f32, mass_per_mm: f32) Allocator.Error!void {
+    fn bead(s: *const Sim, path: u32) Bead {
+        return Bead.of(s.paths[path], s.p);
+    }
+
+    /// Emits the next mass of path `pi` (the current strand) at p.
+    fn emit(s: *Sim, pi: u32, b: Bead, p: V, dir: [2]f32, rest: f32, mass_per_mm: f32) Allocator.Error!void {
         const c = s.current();
         const k = c.nodes.items.len;
         // The newest mass before this one is no longer at the nozzle.
@@ -476,10 +542,11 @@ const Sim = struct {
             c.nodes.items[k - 1].mass += 0.5 * rest * mass_per_mm;
             s.head_soft = false;
         }
-        try c.nodes.append(s.gpa, .{ .pos = p, .prev = p, .want = p, .temp = s.p.nozzle_t, .rest = rest, .mass = 0.5 * rest * mass_per_mm, .soft = true });
-        if (s.supported(c, p)) {
+        try c.nodes.append(s.gpa, .{ .pos = p, .prev = p, .want = p, .temp = s.p.nozzle_t, .rest = rest, .mass = 0.5 * rest * mass_per_mm, .path = pi, .soft = true });
+        const reach = s.supported(c.layer, b, p, dir);
+        if (reach != Field.hung) {
             c.nodes.items[k].soft = false;
-            try s.deposit(c, p);
+            try s.deposit(c.layer, b, p, reach);
             return;
         }
         if (c.soft == 0) c.lo = k;
@@ -532,31 +599,48 @@ const Sim = struct {
         }
     }
 
+    /// Writes the masses of each path of a strand to the result.
     fn finish(s: *Sim, c: *const Chain) Allocator.Error!void {
-        var moved = false;
-        for (c.nodes.items) |n| {
-            const d = len3(sub(n.pos, n.want));
-            s.stats.max_move = @max(s.stats.max_move, d);
-            if (d > c.half_h) s.stats.moved += 1;
-            if (d > s.p.move_eps) moved = true;
-            s.stats.mass += n.mass;
-        }
-        s.stats.masses += c.nodes.items.len;
-        if (moved) s.stats.moved_paths += 1;
-        if (!moved and !s.p.keep_all) return;
-        s.ranges[c.path] = .{ @intCast(s.pos.items.len), @intCast(c.nodes.items.len) };
-        for (c.nodes.items) |n| {
-            try s.pos.append(s.gpa, n.pos);
-            if (s.p.keep_all) try s.mass.append(s.gpa, n.mass);
+        const all = c.nodes.items;
+        s.stats.masses += all.len;
+        var a: usize = 0;
+        while (a < all.len) {
+            var b = a + 1;
+            while (b < all.len and all[b].path == all[a].path) b += 1;
+            const nodes = all[a..b];
+            const half_h = 0.5 * s.paths[nodes[0].path].height;
+            var moved = false;
+            for (nodes) |n| {
+                const d = len3(sub(n.pos, n.want));
+                s.stats.max_move = @max(s.stats.max_move, d);
+                if (d > half_h) s.stats.moved += 1;
+                if (d > s.p.move_eps) moved = true;
+                s.stats.mass += n.mass;
+            }
+            if (moved) s.stats.moved_paths += 1;
+            if (moved or s.p.keep_all) {
+                s.ranges[nodes[0].path] = .{ @intCast(s.pos.items.len), @intCast(nodes.len) };
+                for (nodes) |n| {
+                    try s.pos.append(s.gpa, n.pos);
+                    if (s.p.keep_all) try s.mass.append(s.gpa, n.mass);
+                }
+            }
+            a = b;
         }
     }
 
     fn stepChain(s: *Sim, c: *Chain, dt: f32) Allocator.Error!void {
         const p = s.p;
         const nodes = c.nodes.items;
-        const tau = c.heat / heatTransfer(p, s.fan, c.diam);
-        const decay = @exp(-dt / tau);
+        // The cooling of each path of the strand.
+        var decay_path: u32 = none;
+        var decay: f32 = 1;
         for (c.lo..c.hi) |k| if (!c.pinned(k)) {
+            if (nodes[k].path != decay_path) {
+                decay_path = nodes[k].path;
+                const b = s.bead(decay_path);
+                decay = @exp(-dt * heatTransfer(p, s.fan, b.diam) / b.heat);
+            }
             nodes[k].temp = p.room_t + (nodes[k].temp - p.room_t) * decay;
         };
         var k = c.lo;
@@ -578,9 +662,10 @@ const Sim = struct {
         for (c.lo..c.hi) |m| {
             if (c.pinned(m)) continue;
             const n = &nodes[m];
+            const half_h = 0.5 * s.paths[n.path].height;
             const top = s.floorAt(n.pos[0], n.pos[1], @max(n.pos[2], n.prev[2]));
-            if (n.pos[2] - c.half_h <= top + 1e-3) {
-                n.pos[2] = @max(n.pos[2], top + c.half_h);
+            if (n.pos[2] - half_h <= top + 1e-3) {
+                n.pos[2] = @max(n.pos[2], top + half_h);
                 try s.setSolid(c, m);
             } else if (n.temp < s.set_t) try s.setSolid(c, m);
         }
@@ -620,10 +705,20 @@ const Sim = struct {
             s.weights.items[m - k] = e;
             phi += e;
         }
-        const ex: f64 = b[0] - a[0];
-        const ey: f64 = b[1] - a[1];
+        // The route in plan: from the held end, along the places where the
+        // nozzle laid the masses, to the other held end. The strand hangs
+        // along it, so a run with a turn (a zigzag of infill) keeps its
+        // plan.
+        try s.route.resize(s.gpa, j + 3 - k);
+        const route = s.route.items;
+        route[0] = .{ .xy = .{ a[0], a[1] }, .d = 0 };
+        for (k..j + 2) |m| {
+            const q = if (m == j + 1) b else nodes[m].want;
+            const prev = route[m - k].xy;
+            route[m + 1 - k] = .{ .xy = .{ q[0], q[1] }, .d = route[m - k].d + std.math.hypot(@as(f64, q[0] - prev[0]), @as(f64, q[1] - prev[1])) };
+        }
         const dz: f64 = b[2] - a[2];
-        const dh = @sqrt(ex * ex + ey * ey);
+        const dh = route[route.len - 1].d;
         if (dh < 0.05 * arc or arc * arc <= dz * dz + 1e-12) return false;
         var lp = @sqrt(arc * arc - dz * dz);
         var slack = @max(lp - dh, 0);
@@ -644,30 +739,37 @@ const Sim = struct {
                 slack = new_slack;
             }
         }
-        const ux = ex / dh;
-        const uy = ey / dh;
         const r = lp / dh;
-        var along: f64 = 0;
-        if (r - 1 < 1e-9) {
-            for (k..j + 1) |m| {
-                along += nodes[m].rest;
-                const t = along / arc;
-                nodes[m].prev = nodes[m].pos;
-                nodes[m].pos = .{ @floatCast(a[0] + ex * t), @floatCast(a[1] + ey * t), @floatCast(a[2] + dz * t) };
-            }
-            return true;
-        }
-        const u = catenaryU(r);
-        const ca = dh / (2 * u);
-        const q = u - atanh(dz / arc);
+        const taut = r - 1 < 1e-9;
+        const u = if (taut) 0 else catenaryU(r);
+        const ca = if (taut) 0 else dh / (2 * u);
+        const q = if (taut) 0 else u - atanh(dz / arc);
         const sq = sinh(q);
+        var along: f64 = 0;
+        var seg: usize = 0;
         for (k..j + 1) |m| {
             along += nodes[m].rest;
-            const xi = asinh(along / ca - sq);
-            const x = ca * (xi + q);
-            const z = 2 * ca * sinh((xi + q) / 2) * sinh((xi - q) / 2);
+            // The place along the route (x), and the height (z).
+            var x: f64 = undefined;
+            var z: f64 = undefined;
+            if (taut) {
+                x = dh * along / arc;
+                z = dz * along / arc;
+            } else {
+                const xi = asinh(along / ca - sq);
+                x = ca * (xi + q);
+                z = 2 * ca * sinh((xi + q) / 2) * sinh((xi - q) / 2);
+            }
+            while (seg + 2 < route.len and route[seg + 1].d < x) seg += 1;
+            const r0 = route[seg];
+            const r1 = route[seg + 1];
+            const f = if (r1.d > r0.d) std.math.clamp((x - r0.d) / (r1.d - r0.d), 0, 1) else 0;
             nodes[m].prev = nodes[m].pos;
-            nodes[m].pos = .{ @floatCast(a[0] + ux * x), @floatCast(a[1] + uy * x), @floatCast(a[2] + z) };
+            nodes[m].pos = .{
+                @floatCast(r0.xy[0] + (r1.xy[0] - r0.xy[0]) * f),
+                @floatCast(r0.xy[1] + (r1.xy[1] - r0.xy[1]) * f),
+                @floatCast(a[2] + z),
+            };
         }
         return true;
     }
@@ -733,8 +835,9 @@ const Sim = struct {
                 if (left and right) attach(c, k, j);
             }
             for (nodes[k .. j + 1]) |*n| {
+                const half_h = 0.5 * s.paths[n.path].height;
                 const top = s.floorAt(n.pos[0], n.pos[1], @max(n.pos[2], n.prev[2]));
-                if (n.pos[2] - c.half_h < top) n.pos[2] = top + c.half_h;
+                if (n.pos[2] - half_h < top) n.pos[2] = top + half_h;
             }
         }
         if (left != right) {
@@ -766,19 +869,19 @@ const Sim = struct {
         const step_len = total / @as(f32, @floatFromInt(count));
         const area = if (path.area > 0) path.area else beadArea(path.width, path.height);
         const mass_per_mm = s.p.density * area;
-        // The bead perimeter: a stadium of the bead width and height.
-        const perim = if (path.width > path.height) 2 * (path.width - path.height) + std.math.pi * path.height else std.math.pi * path.width;
-        const rho_si = s.p.density * 1e6;
-        const nodes = if (s.spare.pop()) |l| l else std.ArrayList(Node).empty;
-        try s.chains.append(s.gpa, .{
-            .path = pi,
-            .layer = path.layer,
-            .nodes = nodes,
-            .half_h = 0.5 * path.height,
-            .width = path.width,
-            .heat = rho_si * s.p.heat_capacity * (area / perim) * 1e-3,
-            .diam = 4 * area / perim,
-        });
+        const bead_of = Bead.of(path, s.p);
+        // A joined path goes on with the strand before it, if the nozzle
+        // still holds it. Its first point is the end of that strand.
+        const cont = path.joined and s.chains.items.len > 0 and s.current().head and s.current().layer == path.layer;
+        if (cont) {
+            s.current().head = true;
+        } else {
+            s.endStrand();
+            const nodes = if (s.spare.pop()) |l| l else std.ArrayList(Node).empty;
+            try s.chains.append(s.gpa, .{ .layer = path.layer, .nodes = nodes });
+        }
+        var last_want: V = undefined;
+        if (cont) last_want = s.current().nodes.items[s.current().nodes.items.len - 1].want;
         var seg: usize = 0;
         var seg_start: f32 = 0;
         for (0..count + 1) |i| {
@@ -796,13 +899,19 @@ const Sim = struct {
             const zb = if (path.zs.len == xy.len) path.zs[seg + 1] else path.z;
             const p: V = .{ a[0] + (b[0] - a[0]) * u, a[1] + (b[1] - a[1]) * u, za + (zb - za) * u - 0.5 * path.height };
             const t = path.t0 + (path.t1 - path.t0) * @as(f32, @floatFromInt(i)) / @as(f32, @floatFromInt(count));
+            if (cont and i == 0) continue;
+            const rest = if (i == 0) 0 else if (cont and i == 1) len3(sub(p, last_want)) else step_len;
             try s.runTo(t);
-            try s.emit(p, if (i == 0) 0 else step_len, mass_per_mm);
+            const sl = @max(seg_len, 1e-9);
+            try s.emit(pi, bead_of, p, .{ (b[0] - a[0]) / sl, (b[1] - a[1]) / sl }, rest, mass_per_mm);
         }
-        // The nozzle leaves the path: its end hangs free.
+    }
+
+    /// The nozzle leaves the strand that prints: its end hangs free.
+    fn endStrand(s: *Sim) void {
+        if (s.chains.items.len == 0) return;
         s.current().head = false;
         s.head_soft = false;
-        try s.finishChains();
     }
 };
 
@@ -883,6 +992,7 @@ pub fn run(gpa: Allocator, paths: []const Path, params: Params) Allocator.Error!
     };
     defer s.deinit();
     for (paths, 0..) |path, pi| try s.print(@intCast(pi), path);
+    s.endStrand();
     // The last soft masses set: they cool below the set point in seconds.
     try s.runTo(s.time + 3600);
     for (s.chains.items) |*c| c.head = false;
@@ -976,30 +1086,88 @@ test "print sim: a line over air with no plastic under it falls to the bed" {
     try testing.expect(lowest < 0.2);
 }
 
-/// A post of 4 x 4 mm, 10 layers high, then 6 layers of a loop of 20 x 4
-/// mm over it: 8 mm of each end of the loop is over air.
-fn shelf(gpa: Allocator, params: Params) !struct { Result, f64, usize, usize } {
-    const post_layers = 10;
-    const shelf_layers = 6;
-    var pts: [post_layers + shelf_layers][6][2]f32 = undefined;
-    var paths: [post_layers + shelf_layers]Path = undefined;
-    var t: f32 = 0;
-    var volume: f64 = 0;
-    for (0..post_layers + shelf_layers) |k| {
+/// Two posts with a gap of 2 mm, 10 layers high, then a wall over them
+/// in three pieces, as a slicer splits a wall over air: the middle piece
+/// is all over air.
+fn splitWall(gpa: Allocator, joined: bool) !f32 {
+    var pts: [23][2][2]f32 = undefined;
+    var paths: [23]Path = undefined;
+    var n: usize = 0;
+    for (0..10) |k| {
         const z = 0.2 * @as(f32, @floatFromInt(k + 1));
-        const hx: f32 = if (k < post_layers) 2 else 10;
-        // Start and end at the middle of an edge over the post.
-        pts[k] = .{ .{ 0, -2 }, .{ hx, -2 }, .{ hx, 2 }, .{ -hx, 2 }, .{ -hx, -2 }, .{ 0, -2 } };
-        const l = 4 * hx + 8;
-        paths[k] = .{ .xy = &pts[k], .z = z, .height = 0.2, .width = 0.45, .t0 = t, .t1 = t + l / 30, .fan = 1, .layer = @intCast(k) };
-        volume += l * beadArea(0.45, 0.2);
-        t += l / 30 + 2;
+        const t = 4 * @as(f32, @floatFromInt(k));
+        paths[n] = line(.{ 0, 0 }, .{ 3, 0 }, z, @intCast(k), t, 40, 1, &pts[n]);
+        n += 1;
+        paths[n] = line(.{ 5, 0 }, .{ 8, 0 }, z, @intCast(k), t + 1, 40, 1, &pts[n]);
+        n += 1;
     }
-    const r = try run(gpa, &paths, params);
-    return .{ r, volume * params.density, post_layers, post_layers + shelf_layers };
+    const xs = [_]f32{ 0, 3.6, 4.4, 8 };
+    var t: f32 = 41;
+    for (0..3) |i| {
+        paths[n] = line(.{ xs[i], 0 }, .{ xs[i + 1], 0 }, 2.2, 10, t, 30, 1, &pts[n]);
+        paths[n].joined = joined and i > 0;
+        t = paths[n].t1;
+        n += 1;
+    }
+    var r = try run(gpa, paths[0..n], .{ .keep_all = true });
+    defer r.deinit(gpa);
+    var low: f32 = 100;
+    for (r.nodes(n - 2)) |q| low = @min(low, q[2]);
+    return low;
 }
 
-test "print sim: a shelf with no support droops and falls, and later layers print on it" {
+test "print sim: the pieces of one strand hold each other" {
+    const gpa = testing.allocator;
+    // One strand: the middle piece is a short bridge.
+    try testing.expect(try splitWall(gpa, true) > 2.1 - 0.2);
+    // Separate strands: the middle piece has no hold, and falls.
+    try testing.expect(try splitWall(gpa, false) < 0.5);
+}
+
+/// A post of 4 x 4 mm, 10 layers high, then 6 layers of a slab of 20 x 4
+/// mm on it: a loop, and skin lines along x. 8 mm of each end of the slab
+/// is over air. Returns the result, the plastic (g), and the first and
+/// the end path of the slab.
+fn shelf(gpa: Allocator, params: Params) !struct { Result, f64, usize, usize } {
+    const post_layers = 10;
+    const slab_layers = 6;
+    const lines = 8;
+    const count = post_layers + slab_layers * (1 + lines);
+    var pts: [count][6][2]f32 = undefined;
+    var paths: [count]Path = undefined;
+    var t: f32 = 0;
+    var volume: f64 = 0;
+    var n: usize = 0;
+    for (0..post_layers + slab_layers) |k| {
+        const z = 0.2 * @as(f32, @floatFromInt(k + 1));
+        const hx: f32 = if (k < post_layers) 2 else 10;
+        // A loop that starts and ends at the middle of an edge over the
+        // post.
+        pts[n] = .{ .{ 0, -2 }, .{ hx, -2 }, .{ hx, 2 }, .{ -hx, 2 }, .{ -hx, -2 }, .{ 0, -2 } };
+        var shape: []const [2]f32 = &pts[n];
+        for (0..(if (k < post_layers) 1 else 1 + lines)) |i| {
+            if (i > 0) {
+                // The skin lines, each a path of its own, back and forth.
+                const y = -1.55 + 0.45 * @as(f32, @floatFromInt(i - 1));
+                const x: f32 = if (i % 2 == 0) -9.6 else 9.6;
+                pts[n][0] = .{ -x, y };
+                pts[n][1] = .{ x, y };
+                shape = pts[n][0..2];
+            }
+            var l: f32 = 0;
+            for (shape[1..], shape[0 .. shape.len - 1]) |b, a| l += std.math.hypot(b[0] - a[0], b[1] - a[1]);
+            paths[n] = .{ .xy = shape, .z = z, .height = 0.2, .width = 0.45, .t0 = t, .t1 = t + l / 30, .fan = 1, .layer = @intCast(k) };
+            volume += l * beadArea(0.45, 0.2);
+            t += l / 30 + 0.2;
+            n += 1;
+        }
+        t += 2;
+    }
+    const r = try run(gpa, &paths, params);
+    return .{ r, volume * params.density, post_layers, count };
+}
+
+test "print sim: a slab with no support falls in strands, and later layers print on them" {
     const gpa = testing.allocator;
     const params: Params = .{ .keep_all = true };
     var out = try shelf(gpa, params);
@@ -1017,22 +1185,28 @@ test "print sim: a shelf with no support droops and falls, and later layers prin
     for (0..out[2]) |k| for (r.nodes(k)) |q| {
         try testing.expect(@abs(q[2] - (0.2 * @as(f32, @floatFromInt(k + 1)) - 0.1)) < 1e-3);
     };
-    // The first shelf layer falls far: some of it reaches the bed.
-    var low: f32 = 100;
-    for (r.nodes(out[2])) |q| low = @min(low, q[2]);
-    // Later layers fall onto what formed: masses of the last layer far
-    // over air rest above the bed, on the plastic that fell, and well
-    // under their place.
+    // The first slab layer over air falls: much of it reaches the bed.
+    var on_bed: usize = 0;
+    var over_air: usize = 0;
+    for (out[2]..out[2] + 9) |k| for (r.nodes(k)) |q| {
+        if (@abs(q[0]) < 3) continue;
+        over_air += 1;
+        if (q[2] < 0.5) on_bed += 1;
+    };
+    try testing.expect(on_bed * 3 > over_air);
+    // The last layers fall onto the plastic that fell before them: they
+    // rest on it, above the bed, and many under their places.
     var on_mess: usize = 0;
     var far: usize = 0;
-    for (r.nodes(out[3] - 1)) |q| {
+    var last: usize = 0;
+    for (out[3] - 9..out[3]) |k| for (r.nodes(k)) |q| {
         if (@abs(q[0]) < 3) continue;
-        if (q[2] > 0.15 and q[2] < 2.0) on_mess += 1;
-        if (3.1 - q[2] > 1) far += 1;
-    }
-    try testing.expect(low < 0.5);
-    try testing.expect(on_mess > 10);
-    try testing.expect(far > 20);
+        last += 1;
+        if (q[2] > 0.3) on_mess += 1;
+        if (3.1 - q[2] > 0.3) far += 1;
+    };
+    try testing.expect(on_mess * 2 > last);
+    try testing.expect(far * 10 > last);
     try testing.expect(r.stats.max_move > 2);
 }
 

@@ -6,7 +6,10 @@
 //! - Each path of the slice is a path of the simulation, with its bead
 //!   height, its width (from its area), its times, its fan, and its layer.
 //!   A closed path gets its closing point. A path with a z for each point
-//!   (slope smoothing) keeps them.
+//!   (slope smoothing) keeps them. A path that starts at the end of the
+//!   path before it in its layer, with no retraction, is the same strand
+//!   (`joined`): the slicer splits a wall into pieces over air and on
+//!   plastic, and the nozzle prints them as one line.
 //! - A path whose plastic set where it printed keeps its points.
 //! - A path with plastic that moved (a sagged bridge, a fallen strand)
 //!   gets the masses of the simulation as its points, with a nozzle z for
@@ -55,17 +58,25 @@ pub fn toPaths(arena: Allocator, tp: *const Toolpaths) Allocator.Error![]sim.Pat
             }
             const h = tp.pathHeight(pi, l);
             const area = tp.path_area.items[pi];
+            const width: f32 = @floatCast(zs.flow.beadWidth(area, h));
+            var joined = false;
+            if (pi > p0 and tp.path_retract.items[pi] == 0) {
+                const prev = out[pi - 1].xy;
+                const e = prev[prev.len - 1];
+                joined = std.math.hypot(e[0] - xy[0][0], e[1] - xy[0][1]) < 0.5 * width;
+            }
             out[pi] = .{
                 .xy = xy,
                 .zs = zs_,
                 .z = tp.layer_z.items[l],
                 .height = h,
-                .width = @floatCast(zs.flow.beadWidth(area, h)),
+                .width = width,
                 .area = area,
                 .t0 = tp.path_start_time.items[pi],
                 .t1 = tp.path_end_time.items[pi],
                 .fan = if (pi < tp.path_fan.items.len) @as(f32, @floatFromInt(tp.path_fan.items[pi])) / 255 else 1,
                 .layer = @intCast(l),
+                .joined = joined,
             };
         }
     }
@@ -115,13 +126,21 @@ pub fn simulate(gpa: Allocator, tp: *const Toolpaths, params: sim.Params) Alloca
                 const w: f64 = paths[pi].width;
                 out.path_closed.appendAssumeCapacity(0);
                 out.path_z_start.appendAssumeCapacity(@intCast(out.point_z.items.len));
-                for (nodes) |q| {
+                // A joined path starts at the last mass of the path before.
+                var first: [1]sim.V = undefined;
+                if (paths[pi].joined) {
+                    const before = r.nodes(pi - 1);
+                    const e = paths[pi - 1].xy[paths[pi - 1].xy.len - 1];
+                    first[0] = if (before.len > 0) before[before.len - 1] else .{ e[0], e[1], tp.layer_z.items[l] - 0.5 * paths[pi - 1].height };
+                }
+                const lead: []const sim.V = if (paths[pi].joined) &first else &.{};
+                for ([2][]const sim.V{ lead, nodes }) |part| for (part) |q| {
                     try out.points.appendSlice(gpa, &.{ q[0], q[1] });
                     const top = q[2] + 0.5 * h;
                     try out.point_z.append(gpa, top);
                     const drawn = @max(top - z_low, 0.01);
                     try out.point_area.append(gpa, @floatCast(zs.flow.beadArea(w, drawn)));
-                }
+                };
             }
             out.path_ends.appendAssumeCapacity(@intCast(out.points.items.len / 2));
         }
