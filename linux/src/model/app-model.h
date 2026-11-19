@@ -367,4 +367,12 @@ void zg_model_grab_move(ZgModel *self, double x, double y, double z);
 void zg_model_grab_turn(ZgModel *self, double ax, double ay, double az, double degrees);
 void zg_model_grab_end(ZgModel *self);
 
+/* The id of the active plate in the store of the refinements (made on
+ * first use), and all ids as one line (by plate, with commas) for the
+ * session. */
+const char *zg_model_refine_id(ZgModel *self);
+gboolean zg_model_refine_apply(ZgModel *self, const char *line);
+char *zg_model_refine_ids(ZgModel *self);
+void zg_model_set_refine_ids(ZgModel *self, const char *text);
+
 G_END_DECLS

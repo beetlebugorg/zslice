@@ -73,6 +73,13 @@ typedef struct {
     /* The summary at the bottom of the side panel: the time, the
      * filament and the cost, and a button to print (or export). */
     GtkWidget *sum_box, *sum_time, *sum_detail, *sum_deck;
+    /* The head of the print card (a click opens the details), its badge
+     * (the count of the warnings or of the refinements), the details pane,
+     * and the refinements in it. last_warn: the warning that opened the
+     * details last (a new warning opens them once). */
+    GtkWidget *sum_more, *sum_badge, *sum_pop, *refine_box;
+    char *last_warn;
+    guint refine_timer;
     /* The hint under the status line: its text and its buttons. */
     GtkWidget *hint, *hint_label, *hint_support, *hint_inches, *hint_meters;
     /* The area in mm² that hangs in the air with no support, from the
@@ -237,6 +244,12 @@ static void on_scale_tiny_action(GSimpleAction *a, GVariant *v, gpointer data) {
     scale_tiny(get(data), g_variant_get_double(v));
 }
 
+/* "win.print-details": the details of the print card. */
+static void on_print_details_action(GSimpleAction *a, GVariant *v, gpointer data) {
+    Window *w = get(data);
+    if (w->sum_pop && gtk_widget_get_mapped(w->sum_more)) gtk_popover_popup(GTK_POPOVER(w->sum_pop));
+}
+
 static void on_support_on_action(GSimpleAction *a, GVariant *v, gpointer data) {
     zg_model_set(get(data)->model, "project.support", "everywhere", NULL);
 }
@@ -273,6 +286,233 @@ static void show_hint(Window *w, int state, gboolean fits) {
     gtk_widget_set_visible(w->hint_support, support);
     if (text) gtk_label_set_text(GTK_LABEL(w->hint_label), text);
     g_free(text);
+}
+
+/* ---- the badge of the print card, and the refinements ----
+ *
+ * A click on the head of the print card opens its details: the main
+ * settings, the warnings, and the usual refinements. The badge on the head
+ * counts the warnings and the refinements. */
+
+/* The text of the warning in the details, or NULL. */
+static const char *warning_text(Window *w) {
+    if (gtk_widget_has_css_class(w->status, "error")) return gtk_label_get_text(GTK_LABEL(w->status));
+    if (gtk_widget_get_visible(w->hint)) return gtk_label_get_text(GTK_LABEL(w->hint_label));
+    if (gtk_widget_get_visible(w->islands)) return "islands";
+    return NULL;
+}
+
+static void update_badge(Window *w) {
+    if (!w->sum_badge) return;
+    const char *warn = warning_text(w);
+    int tips = 0;
+    for (GtkWidget *c = gtk_widget_get_first_child(w->refine_box); c; c = gtk_widget_get_next_sibling(c))
+        if (g_object_get_data(G_OBJECT(c), "zg-line")) tips++;
+    if (warn) gtk_widget_add_css_class(w->sum_badge, "warn");
+    else gtk_widget_remove_css_class(w->sum_badge, "warn");
+    gtk_widget_set_visible(w->sum_badge, warn || tips > 0);
+    char text[32];
+    if (warn) g_snprintf(text, sizeof text, "Check");
+    else if (tips == 1) g_snprintf(text, sizeof text, "1 refinement");
+    else g_snprintf(text, sizeof text, "%d refinements", tips);
+    gtk_label_set_text(GTK_LABEL(w->sum_badge), text);
+    /* A new warning opens the details once, so it is seen. */
+    if (warn && g_strcmp0(warn, w->last_warn) != 0 && gtk_widget_get_mapped(w->sum_more)) gtk_popover_popup(GTK_POPOVER(w->sum_pop));
+    g_free(w->last_warn);
+    w->last_warn = g_strdup(warn);
+}
+
+/* The store of the refinements on this device: the records of the past
+ * projects (zs_refine_merge), and the refinements that the user hid. */
+static char *refine_file(const char *name) {
+    char *dir = zg_config_dir();
+    char *p = g_build_filename(dir, name, NULL);
+    g_free(dir);
+    return p;
+}
+
+static char *read_file(const char *name) {
+    char *p = refine_file(name), *text = NULL;
+    if (!g_file_get_contents(p, &text, NULL, NULL)) text = g_strdup("");
+    g_free(p);
+    return text;
+}
+
+static void write_file(const char *name, const char *text) {
+    char *dir = zg_config_dir();
+    g_mkdir_with_parents(dir, 0700);
+    g_free(dir);
+    char *p = refine_file(name);
+    g_file_set_contents(p, text, -1, NULL);
+    g_free(p);
+}
+
+/* A line of "x" hidden: one line of the hidden file. */
+static gboolean refine_hidden(const char *hidden, const char *line) {
+    char **lines = g_strsplit(hidden, "\n", -1);
+    gboolean found = g_strv_contains((const char *const *)lines, line);
+    g_strfreev(lines);
+    return found;
+}
+
+static void refine_soon(Window *w);
+
+static void on_refine_apply(GtkButton *b, gpointer data) {
+    Window *w = data;
+    const char *line = g_object_get_data(G_OBJECT(b), "zg-line");
+    if (zg_model_refine_apply(w->model, line)) refine_soon(w);
+}
+
+static void on_refine_all(GtkButton *b, gpointer data) {
+    Window *w = data;
+    GPtrArray *lines = g_ptr_array_new_with_free_func(g_free);
+    for (GtkWidget *c = gtk_widget_get_first_child(w->refine_box); c; c = gtk_widget_get_next_sibling(c)) {
+        const char *line = g_object_get_data(G_OBJECT(c), "zg-line");
+        if (line) g_ptr_array_add(lines, g_strdup(line));
+    }
+    for (guint i = 0; i < lines->len; i++) zg_model_refine_apply(w->model, g_ptr_array_index(lines, i));
+    g_ptr_array_free(lines, TRUE);
+    refine_soon(w);
+}
+
+static void on_refine_hide(GtkButton *b, gpointer data) {
+    Window *w = data;
+    const char *line = g_object_get_data(G_OBJECT(b), "zg-line");
+    char *hidden = read_file("refine-hidden.txt");
+    char *more = g_strdup_printf("%s%s\n", hidden, line);
+    write_file("refine-hidden.txt", more);
+    g_free(more);
+    g_free(hidden);
+    gtk_box_remove(GTK_BOX(w->refine_box), gtk_widget_get_parent(GTK_WIDGET(b)));
+    if (!gtk_widget_get_first_child(w->refine_box) || !g_object_get_data(G_OBJECT(gtk_widget_get_last_child(w->refine_box)), "zg-line"))
+        gtk_widget_set_visible(w->refine_box, FALSE);
+    update_badge(w);
+}
+
+/* The text of a call that writes into a buffer: its size first. */
+#define READ_TEXT(call_null, call_buf, out)                                   \
+    do {                                                                      \
+        size_t len_ = 0;                                                      \
+        char *buf_ = NULL;                                                    \
+        if ((call_null) == ZS_OK) {                                           \
+            size_t cap_ = len_ + 1;                                           \
+            buf_ = g_malloc0(cap_);                                           \
+            if ((call_buf) != ZS_OK) g_clear_pointer(&buf_, g_free);          \
+        }                                                                     \
+        out = buf_;                                                           \
+    } while (0)
+
+/* The refinements of the plate (its changes from the first slice) go in
+ * the store, in place of its last records. The core finds the changes that
+ * the user made in two or more other projects with the same material and
+ * nozzle, and the details offer them. */
+static void refine_refresh(Window *w) {
+    zs_app *core = zg_model_core(w->model);
+    if (zs_app_state(core) != ZS_STATE_DONE) return;
+    const char *project = zg_model_refine_id(w->model);
+    char *store = read_file("refine-store.txt"), *records, *merged, *text;
+    READ_TEXT(zs_app_refine_records(core, NULL, 0, &len_), zs_app_refine_records(core, buf_, cap_, &len_), records);
+    if (!records) records = g_strdup("");
+    READ_TEXT(zs_refine_merge(store, strlen(store), project, records, strlen(records), NULL, 0, &len_),
+              zs_refine_merge(store, strlen(store), project, records, strlen(records), buf_, cap_, &len_), merged);
+    if (merged && strcmp(merged, store) != 0) write_file("refine-store.txt", merged);
+    if (!merged) merged = g_strdup(store);
+    READ_TEXT(zs_app_refine_suggest(core, merged, strlen(merged), project, NULL, 0, &len_),
+              zs_app_refine_suggest(core, merged, strlen(merged), project, buf_, cap_, &len_), text);
+    char *hidden = read_file("refine-hidden.txt");
+    GtkWidget *c;
+    while ((c = gtk_widget_get_first_child(w->refine_box))) gtk_box_remove(GTK_BOX(w->refine_box), c);
+    GPtrArray *rows = g_ptr_array_new();
+    char **lines = g_strsplit(text ? text : "", "\n", -1);
+    for (char **l = lines; *l; l++) {
+        char **f = g_strsplit(*l, "\t", -1);
+        if (g_strv_length(f) >= 7 && !refine_hidden(hidden, *l)) {
+            /* The words of the change, as the history writes them. */
+            char *scope = strcmp(f[0], "layers") == 0 ? g_strdup_printf("layers:%s:%s", f[5], f[6])
+                                                      : g_strdup(strcmp(f[0], "part") == 0 ? "part:each part" : "print");
+            char *change = g_strdup_printf("%s\t%s\t\t%s\n", scope, f[2], f[3]), *words;
+            READ_TEXT(zs_app_history_describe(core, change, strlen(change), NULL, 0, &len_),
+                      zs_app_history_describe(core, change, strlen(change), buf_, cap_, &len_), words);
+            char **ww = g_strsplit(g_strstrip(words ? words : g_strdup("")), "\t", 2);
+            GtkWidget *row = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 6);
+            g_object_set_data_full(G_OBJECT(row), "zg-line", g_strdup(*l), g_free);
+            GtkWidget *texts = gtk_box_new(GTK_ORIENTATION_VERTICAL, 0);
+            gtk_widget_set_hexpand(texts, TRUE);
+            char *what = g_strdup_printf("%s: %s", ww[0] ? ww[0] : "", ww[0] && ww[1] ? ww[1] : f[2]);
+            GtkWidget *label = gtk_label_new(what);
+            gtk_label_set_xalign(GTK_LABEL(label), 0);
+            gtk_label_set_wrap(GTK_LABEL(label), TRUE);
+            gtk_label_set_wrap_mode(GTK_LABEL(label), PANGO_WRAP_WORD);
+            char *n = g_strdup_printf("You made this change in %s other prints.", f[4]);
+            GtkWidget *count = gtk_label_new(n);
+            gtk_label_set_xalign(GTK_LABEL(count), 0);
+            gtk_label_set_wrap(GTK_LABEL(count), TRUE);
+            gtk_widget_add_css_class(count, "dim-label");
+            gtk_widget_add_css_class(count, "caption");
+            gtk_box_append(GTK_BOX(texts), label);
+            gtk_box_append(GTK_BOX(texts), count);
+            GtkWidget *apply = gtk_button_new_with_label("Apply");
+            gtk_widget_set_valign(apply, GTK_ALIGN_CENTER);
+            g_object_set_data_full(G_OBJECT(apply), "zg-line", g_strdup(*l), g_free);
+            g_signal_connect(apply, "clicked", G_CALLBACK(on_refine_apply), w);
+            GtkWidget *hide = gtk_button_new_from_icon_name("window-close-symbolic");
+            gtk_widget_add_css_class(hide, "flat");
+            gtk_widget_set_valign(hide, GTK_ALIGN_CENTER);
+            gtk_widget_set_tooltip_text(hide, "Do not offer this again");
+            g_object_set_data_full(G_OBJECT(hide), "zg-line", g_strdup(*l), g_free);
+            g_signal_connect(hide, "clicked", G_CALLBACK(on_refine_hide), w);
+            gtk_box_append(GTK_BOX(row), texts);
+            gtk_box_append(GTK_BOX(row), apply);
+            gtk_box_append(GTK_BOX(row), hide);
+            g_ptr_array_add(rows, row);
+            g_free(n);
+            g_free(what);
+            g_strfreev(ww);
+            g_free(words);
+            g_free(change);
+            g_free(scope);
+        }
+        g_strfreev(f);
+    }
+    if (rows->len > 0) {
+        GtkWidget *head = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 6);
+        char *t = rows->len == 1 ? g_strdup("Your usual refinement") : g_strdup_printf("Your usual refinements: %u", rows->len);
+        GtkWidget *title = gtk_label_new(t);
+        g_free(t);
+        gtk_widget_add_css_class(title, "heading");
+        gtk_label_set_xalign(GTK_LABEL(title), 0);
+        gtk_widget_set_hexpand(title, TRUE);
+        gtk_box_append(GTK_BOX(head), title);
+        if (rows->len > 1) {
+            GtkWidget *all = gtk_button_new_with_label("Apply all");
+            gtk_widget_set_tooltip_text(all, "Apply each refinement (one undo step each)");
+            g_signal_connect(all, "clicked", G_CALLBACK(on_refine_all), w);
+            gtk_box_append(GTK_BOX(head), all);
+        }
+        gtk_box_append(GTK_BOX(w->refine_box), head);
+        for (guint i = 0; i < rows->len; i++) gtk_box_append(GTK_BOX(w->refine_box), g_ptr_array_index(rows, i));
+    }
+    gtk_widget_set_visible(w->refine_box, rows->len > 0);
+    g_ptr_array_free(rows, TRUE);
+    g_strfreev(lines);
+    g_free(hidden);
+    g_free(text);
+    g_free(merged);
+    g_free(records);
+    g_free(store);
+    update_badge(w);
+}
+
+static gboolean on_refine_timer(gpointer data) {
+    Window *w = data;
+    w->refine_timer = 0;
+    refine_refresh(w);
+    return G_SOURCE_REMOVE;
+}
+
+static void refine_soon(Window *w) {
+    if (w->refine_timer) g_source_remove(w->refine_timer);
+    w->refine_timer = g_timeout_add(800, on_refine_timer, w);
 }
 
 /* The summary card: the numbers of the last result, faded while a new
@@ -498,6 +738,8 @@ static void update(Window *w) {
     show_hint(w, state, fits);
     zg_preview_refresh(w->preview);
     show_islands(w, state);
+    update_badge(w);
+    if (state == ZS_STATE_DONE) refine_soon(w);
 }
 
 static void batch_take(Window *w);
@@ -1737,6 +1979,8 @@ static void window_free(gpointer data) {
     if (w->poll_cancel) g_cancellable_cancel(w->poll_cancel);
     if (w->send_cancel) g_cancellable_cancel(w->send_cancel);
     if (w->deck_timer) g_source_remove(w->deck_timer);
+    if (w->refine_timer) g_source_remove(w->refine_timer);
+    if (w->sum_pop) gtk_widget_unparent(w->sum_pop);
     if (w->deck_cancel) g_cancellable_cancel(w->deck_cancel);
     g_clear_object(&w->deck_cancel);
     g_clear_object(&w->poll_cancel);
@@ -1744,6 +1988,7 @@ static void window_free(gpointer data) {
     g_object_unref(w->model);
     g_free(w->last_error);
     g_free(w->last_stats);
+    g_free(w->last_warn);
     g_free(w->spool);
     g_free(w->spool_material);
     g_free(w->printer_roll);
@@ -1852,6 +2097,7 @@ GtkWindow *zg_window_new(GtkApplication *app, ZgModel *model) {
         {.name = "shortcuts", .activate = on_shortcuts_action},
         {.name = "scale-tiny", .activate = on_scale_tiny_action, .parameter_type = "d"},
         {.name = "support-on", .activate = on_support_on_action},
+        {.name = "print-details", .activate = on_print_details_action},
     };
     g_action_map_add_action_entries(G_ACTION_MAP(w->window), win_actions, G_N_ELEMENTS(win_actions), w->window);
     g_signal_connect(model, "undo-changed", G_CALLBACK(on_undo_changed), w);
@@ -1971,7 +2217,7 @@ GtkWindow *zg_window_new(GtkApplication *app, ZgModel *model) {
     gtk_flow_box_set_row_spacing(GTK_FLOW_BOX(w->facts), 3);
     gtk_flow_box_set_column_spacing(GTK_FLOW_BOX(w->facts), 3);
     gtk_widget_add_css_class(w->facts, "zg-facts");
-    gtk_widget_set_margin_top(w->facts, 6);
+    gtk_widget_set_margin_bottom(w->facts, 4);
     /* The buttons: print (with its menu: upload only, export), or export
      * with no printer. They fill the width of the card. */
     GtkWidget *actions = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 0);
@@ -2028,15 +2274,45 @@ GtkWindow *zg_window_new(GtkApplication *app, ZgModel *model) {
     gtk_label_set_wrap_mode(GTK_LABEL(w->printer_state), PANGO_WRAP_WORD);
     gtk_widget_set_margin_top(w->printer_state, 6);
     gtk_widget_set_visible(w->printer_state, FALSE); /* until a printer answers */
-    gtk_box_append(GTK_BOX(w->sum_box), w->sum_time);
-    gtk_box_append(GTK_BOX(w->sum_box), w->sum_detail);
-    gtk_box_append(GTK_BOX(w->sum_box), w->sum_deck);
-    gtk_box_append(GTK_BOX(w->sum_box), w->facts);
-    gtk_box_append(GTK_BOX(w->sum_box), w->status);
-    gtk_box_append(GTK_BOX(w->sum_box), w->hint);
-    gtk_box_append(GTK_BOX(w->sum_box), w->islands);
+    /* The head: the time, the plastic, and the badge. A click opens the
+     * details: the main settings, the warnings, and the usual
+     * refinements. */
+    w->sum_more = gtk_button_new();
+    gtk_widget_add_css_class(w->sum_more, "flat");
+    gtk_widget_add_css_class(w->sum_more, "zg-sum-head");
+    gtk_widget_set_tooltip_text(w->sum_more, "The details of the print");
+    GtkWidget *head = gtk_grid_new();
+    gtk_grid_set_column_spacing(GTK_GRID(head), 8);
+    w->sum_badge = gtk_label_new("");
+    gtk_widget_add_css_class(w->sum_badge, "zg-sum-badge");
+    gtk_widget_set_halign(w->sum_badge, GTK_ALIGN_END);
+    gtk_widget_set_valign(w->sum_badge, GTK_ALIGN_CENTER);
+    gtk_widget_set_hexpand(w->sum_badge, TRUE);
+    gtk_widget_set_visible(w->sum_badge, FALSE);
+    gtk_grid_attach(GTK_GRID(head), w->sum_time, 0, 0, 1, 1);
+    gtk_grid_attach(GTK_GRID(head), w->sum_badge, 1, 0, 1, 1);
+    gtk_grid_attach(GTK_GRID(head), w->sum_detail, 0, 1, 2, 1);
+    gtk_button_set_child(GTK_BUTTON(w->sum_more), head);
+    w->refine_box = gtk_box_new(GTK_ORIENTATION_VERTICAL, 6);
+    gtk_widget_add_css_class(w->refine_box, "zg-refine");
+    gtk_widget_set_margin_top(w->refine_box, 8);
+    gtk_widget_set_visible(w->refine_box, FALSE);
+    GtkWidget *details = gtk_box_new(GTK_ORIENTATION_VERTICAL, 2);
+    gtk_widget_set_size_request(details, 320, -1);
+    gtk_box_append(GTK_BOX(details), w->facts);
+    gtk_box_append(GTK_BOX(details), w->status);
+    gtk_box_append(GTK_BOX(details), w->sum_deck);
+    gtk_box_append(GTK_BOX(details), w->hint);
+    gtk_box_append(GTK_BOX(details), w->islands);
+    gtk_box_append(GTK_BOX(details), w->printer_state);
+    gtk_box_append(GTK_BOX(details), w->refine_box);
+    w->sum_pop = gtk_popover_new();
+    gtk_popover_set_child(GTK_POPOVER(w->sum_pop), details);
+    gtk_popover_set_position(GTK_POPOVER(w->sum_pop), GTK_POS_TOP);
+    gtk_widget_set_parent(w->sum_pop, w->sum_more);
+    g_signal_connect_swapped(w->sum_more, "clicked", G_CALLBACK(gtk_popover_popup), w->sum_pop);
+    gtk_box_append(GTK_BOX(w->sum_box), w->sum_more);
     gtk_box_append(GTK_BOX(w->sum_box), w->progress);
-    gtk_box_append(GTK_BOX(w->sum_box), w->printer_state);
     gtk_box_append(GTK_BOX(w->sum_box), actions);
     GtkWidget *panel = gtk_box_new(GTK_ORIENTATION_VERTICAL, 0);
     gtk_box_append(GTK_BOX(panel), settings);
@@ -2068,7 +2344,7 @@ GtkWindow *zg_window_new(GtkApplication *app, ZgModel *model) {
     w->timeline = zg_timeline_new(model);
     zg_preview_set_timeline(w->preview, w->timeline);
     /* The print card over the view, at its bottom right. */
-    gtk_widget_set_size_request(w->sum_box, 300, -1);
+    gtk_widget_set_size_request(w->sum_box, 260, -1);
     zg_preview_set_card(w->preview, w->sum_box);
     /* The card of a selected line, next to the click. */
     gtk_overlay_add_overlay(GTK_OVERLAY(w->preview), zg_line_card_new(model, w->preview));

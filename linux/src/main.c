@@ -109,6 +109,12 @@ static const char *ZG_CSS =
     ".zg-keycap { font-size: 0.8em; padding: 1px 6px; border-radius: 5px; border: 1px solid alpha(@theme_fg_color, 0.25);"
     "  background: alpha(@theme_fg_color, 0.06); font-feature-settings: 'tnum'; }"
     ".zg-summary-time { font-size: 1.6em; font-weight: 700; font-feature-settings: 'tnum'; }"
+    /* The head of the print card, and its badge: the warnings (amber) or
+     * the refinements. */
+    ".zg-sum-head { padding: 2px 4px; }"
+    ".zg-sum-badge { padding: 1px 8px; border-radius: 999px; font-size: 0.85em; font-weight: 600;"
+    "  background: alpha(@accent_color, 0.18); }"
+    ".zg-sum-badge.warn { background: alpha(@warning_color, 0.25); }"
     ".zg-summary.zg-stale { opacity: 0.55; }"
     /* The source of a value in the settings (see zg_model_source_text):
      * dim, and the accent color for a change of this print or a part. */
@@ -244,7 +250,12 @@ static void session_save(GtkWindow *w) {
     gboolean has_cam = view && zg_view3d_get_camera(view, cam);
     int width = 0, height = 0;
     gtk_window_get_default_size(w, &width, &height);
-    char *text = g_strdup_printf("{\"width\":%d,\"height\":%d,\"maximized\":%s}", width, height, gtk_window_is_maximized(w) ? "true" : "false");
+    /* The ids of the plates in the store of the refinements: letters,
+     * digits, '-' and ','. */
+    char *refine = zg_model_refine_ids(model);
+    char *text = g_strdup_printf("{\"width\":%d,\"height\":%d,\"maximized\":%s,\"refine\":\"%s\"}", width, height,
+                                 gtk_window_is_maximized(w) ? "true" : "false", refine);
+    g_free(refine);
     GBytes *b = zg_model_session_bytes(model, has_cam ? cam : NULL, text);
     g_free(text);
     if (!b) return;
@@ -311,6 +322,14 @@ static gboolean session_restore(GtkWindow *w) {
         if (ph) height = atoi(ph + 9);
         if (width > 200 && height > 200) gtk_window_set_default_size(w, width, height);
         if (strstr(text, "\"maximized\":true")) gtk_window_maximize(w);
+        const char *pr = strstr(text, "\"refine\":\"");
+        if (pr) {
+            pr += 10;
+            const char *end = strchr(pr, '"');
+            char *ids = g_strndup(pr, end ? (gsize)(end - pr) : strlen(pr));
+            zg_model_set_refine_ids(model, ids);
+            g_free(ids);
+        }
         g_free(text);
     }
     return TRUE;

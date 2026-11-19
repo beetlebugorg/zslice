@@ -53,6 +53,8 @@ struct _ZgModel {
     gboolean held;
     /* A part falls, or the hand holds it (zs_app_fall_step runs). */
     gboolean falling;
+    /* The id of each plate in the store of the refinements (by plate). */
+    GPtrArray *refine_ids;
     /* The tool of the preview (ZgTool), and the points of the measure tape
      * (x, y, z each). */
     int tool;
@@ -415,6 +417,7 @@ static void zg_model_dispose(GObject *object) {
     g_clear_pointer(&self->name, g_free);
     g_clear_pointer(&self->project_title, g_free);
     g_clear_pointer(&self->roll, g_free);
+    g_clear_pointer(&self->refine_ids, g_ptr_array_unref);
     G_OBJECT_CLASS(zg_model_parent_class)->dispose(object);
 }
 
@@ -1319,6 +1322,24 @@ gboolean zg_model_history_truncate(ZgModel *self, guint i) {
 
 static void save_soon(ZgModel *self, const char *key);
 
+/* Applies one refinement (zs_app_refine_apply): one step of the history,
+ * then a slice. */
+gboolean zg_model_refine_apply(ZgModel *self, const char *line) {
+    if (zs_app_refine_apply(self->core, line, strlen(line)) != ZS_OK) return FALSE;
+    undo_commit(self);
+    char **f = g_strsplit(line, "\t", 4);
+    if (f[0] && f[1] && f[2]) {
+        if (strcmp(f[0], "print") == 0) save_soon(self, f[2]);
+        g_signal_emit(self, signals[SIGNAL_SETTING_CHANGED], 0, f[2]);
+    }
+    g_strfreev(f);
+    g_signal_emit(self, signals[SIGNAL_PROFILES_CHANGED], 0);
+    g_signal_emit(self, signals[SIGNAL_UNDO_CHANGED], 0);
+    plate_changed(self);
+    slice_soon(self);
+    return TRUE;
+}
+
 gboolean zg_model_history_revert(ZgModel *self, const char *line) {
     if (zs_app_history_revert(self->core, line, strlen(line)) != ZS_OK) return FALSE;
     char **f = g_strsplit(line, "\t", 3);
@@ -1757,7 +1778,38 @@ void zg_model_plate_add(ZgModel *self) {
 void zg_model_plate_remove(ZgModel *self, size_t i) {
     plate_leave(self);
     if (zs_set_remove(self->set, i) != ZS_OK) return;
+    if (self->refine_ids && i < self->refine_ids->len) g_ptr_array_remove_index(self->refine_ids, (guint)i);
     plate_switched(self);
+}
+
+/* ---- the ids of the plates in the store of the refinements ---- */
+
+const char *zg_model_refine_id(ZgModel *self) {
+    if (!self->refine_ids) self->refine_ids = g_ptr_array_new_with_free_func(g_free);
+    guint i = (guint)zs_set_active(self->set);
+    while (self->refine_ids->len <= i) g_ptr_array_add(self->refine_ids, NULL);
+    if (!g_ptr_array_index(self->refine_ids, i)) {
+        char *id = g_strdup_printf("%" G_GINT64_MODIFIER "x-%08x", g_get_real_time() / 1000, g_random_int());
+        g_ptr_array_index(self->refine_ids, i) = id;
+    }
+    return g_ptr_array_index(self->refine_ids, i);
+}
+
+char *zg_model_refine_ids(ZgModel *self) {
+    GString *s = g_string_new(NULL);
+    for (guint i = 0; self->refine_ids && i < self->refine_ids->len; i++) {
+        const char *id = g_ptr_array_index(self->refine_ids, i);
+        g_string_append_printf(s, "%s%s", i ? "," : "", id ? id : "");
+    }
+    return g_string_free(s, FALSE);
+}
+
+void zg_model_set_refine_ids(ZgModel *self, const char *text) {
+    g_clear_pointer(&self->refine_ids, g_ptr_array_unref);
+    self->refine_ids = g_ptr_array_new_with_free_func(g_free);
+    char **f = g_strsplit(text ? text : "", ",", -1);
+    for (char **k = f; *k; k++) g_ptr_array_add(self->refine_ids, **k ? g_strdup(*k) : NULL);
+    g_strfreev(f);
 }
 
 gboolean zg_model_plate_smart_place(ZgModel *self) {
