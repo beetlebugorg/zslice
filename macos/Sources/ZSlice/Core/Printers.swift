@@ -174,6 +174,11 @@ struct Printer: Codable, Identifiable, Equatable {
     /// Bambu Lab: the serial number (for the MQTT topics), else "".
     var serial = ""
 
+    /// A printer added from the list of a deck: its name in that list
+    /// (/slicer/printer.json), so a send can check that the address still
+    /// leads to it. "" for other printers.
+    var deckName = ""
+
     /// A Bambu Lab printer behind a printdeck: a printdeck printer of a
     /// Bambu Lab model. The deck takes a .gcode.3mf in place of G-code, and
     /// sends it to the printer itself.
@@ -199,6 +204,7 @@ struct Printer: Codable, Identifiable, Equatable {
         url = try c.decodeIfPresent(String.self, forKey: .url) ?? ""
         https = try c.decodeIfPresent(String.self, forKey: .https) ?? ""
         serial = try c.decodeIfPresent(String.self, forKey: .serial) ?? ""
+        deckName = try c.decodeIfPresent(String.self, forKey: .deckName) ?? ""
     }
 
     /// The API key, in the Keychain (for a Bambu printer: its access code).

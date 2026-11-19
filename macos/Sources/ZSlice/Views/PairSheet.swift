@@ -131,6 +131,8 @@ struct PairSheet: View {
                 p.https = h + item.path
             }
             p.apiKey = d.apiKey
+            // Its name on the deck: each send checks it (PrinterLink.checkDeckTarget).
+            p.deckName = item.name
             store.add(p)
             NSLog("zslice pair: added %@ at %@, key %d", p.name, p.url, p.apiKey == d.apiKey && !p.apiKey.isEmpty ? 1 : 0)
         }

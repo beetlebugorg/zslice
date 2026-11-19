@@ -113,6 +113,8 @@ A Bambu printer has a certificate of its own that no authority signs. zslice tru
 
 A Bambu Lab printer behind a printdeck: add it as a printdeck printer, and pick its Bambu Lab model. zslice then sends the deck a .gcode.3mf with the time, the grams, and the filament of the plate, and the deck sends it to the printer. The deck asks on its screen before the print starts, and picks the tray of the AMS with the same material and the nearest color.
 
+Before each send to a printdeck that drives more than one printer, zslice reads the list of the deck and checks that the address leads to the printer that you picked. It stops the send, and says why, when the deck has no printer at that address, when the printer there is another one than the one you added from the deck, or when the name of your printer names another printer of the deck. Add the printer again from the deck to fix its address.
+
 A printdeck that drives more than one printer shows a row for each of its printers in the picker, with its color; each one is a printer of its own, with its own address (`<deck>/printers/<id>`) and its own key.
 
 The first search of the network asks for the permission to find devices on the local network. Allow it to see your printers in the picker.

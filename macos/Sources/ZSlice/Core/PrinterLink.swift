@@ -96,7 +96,8 @@ enum PrinterLink {
 
     /// A request of `path` on the printer: each address in turn.
     @MainActor static func request(_ p: Printer, _ path: String, method: String = "GET", body: Data? = nil,
-                                contentType: String? = nil, encoding: String? = nil, key: Bool = true) async throws -> (Data, HTTPURLResponse) {
+                                contentType: String? = nil, encoding: String? = nil, key: Bool = true,
+                                apiKey: String? = nil) async throws -> (Data, HTTPURLResponse) {
         let list = addresses(p)
         var last: Error = URLError(.badURL)
         for (k, base) in list.enumerated() {
@@ -109,7 +110,9 @@ enum PrinterLink {
             r.timeoutInterval = k < list.count - 1 ? 4 : 120
             if let contentType { r.setValue(contentType, forHTTPHeaderField: "Content-Type") }
             if let encoding { r.setValue(encoding, forHTTPHeaderField: "Content-Encoding") }
-            if key, !p.apiKey.isEmpty { r.setValue(p.apiKey, forHTTPHeaderField: "X-Api-Key") }
+            // apiKey: the key of another printer (the root of a deck).
+            let k = apiKey ?? p.apiKey
+            if key, !k.isEmpty { r.setValue(k, forHTTPHeaderField: "X-Api-Key") }
             // An https printer: the trust of the system, and the pin of its
             // certificate (Signing.swift).
             let https = u.scheme == "https"
@@ -142,6 +145,9 @@ enum PrinterLink {
         // (file: true, a .gcode.3mf with signed G-code in it) goes as it is.
         let gcode = file ? unsigned : Signer.sign(unsigned)
         guard p.kind != .none, !(p.url.isEmpty && p.https.isEmpty) else { return LinkResult(ok: false, message: "This printer has no connection.") }
+        // A deck with more printers: the address must lead to the printer
+        // that the user picked.
+        if p.kind == .printdeck, let why = await checkDeckTarget(p) { return LinkResult(ok: false, message: why) }
         let boundary = "zslice-\(UUID().uuidString)"
         var body = Data()
         func field(_ name: String, _ value: String) {
@@ -255,6 +261,52 @@ enum PrinterLink {
             DeckPrinter(id: o["id"] as? String ?? "", name: o["name"] as? String ?? "", label: o["label"] as? String ?? "",
                         kind: o["kind"] as? String ?? "fdm", path: o["url"] as? String ?? "")
         }
+    }
+
+    /// The root of a deck address, and the path of a printer of the deck:
+    /// "http://deck/printers/p1" is ("http://deck", "/printers/p1").
+    nonisolated static func deckSplit(_ u: String) -> (root: String, path: String) {
+        var s = u.trimmingCharacters(in: .whitespaces)
+        while s.hasSuffix("/") { s.removeLast() }
+        if let r = s.range(of: "/printers/", options: .backwards) {
+            let id = s[r.upperBound...]
+            let ok = !id.isEmpty && id.allSatisfy { $0.isLetter || $0.isNumber || "._~-".contains($0) }
+            if ok { return (String(s[..<r.lowerBound]), String(s[r.lowerBound...])) }
+        }
+        return (s, "")
+    }
+
+    /// Before a send to a printdeck (web/app/link.js checkDeckTarget): the
+    /// list of the deck at its root (/slicer/printer.json). With 2 or more
+    /// printers, the send stops when the path of the address is not in the
+    /// list, when the saved deck name differs from the printer at that
+    /// path, or when the name of the user's printer names another printer
+    /// of the deck. A list that does not read lets the send go. Returns
+    /// why it stops, or nil.
+    @MainActor static func checkDeckTarget(_ p: Printer) async -> String? {
+        let (root, path) = deckSplit(p.url.isEmpty ? p.https : p.url)
+        var probe = Printer(name: p.name, kind: .printdeck, url: root)
+        probe.https = p.https.isEmpty ? "" : deckSplit(p.https).root
+        guard let (d, r) = try? await request(probe, "/slicer/printer.json", apiKey: p.apiKey), (200 ..< 300).contains(r.statusCode),
+              let j = (try? JSONSerialization.jsonObject(with: d)) as? [String: Any],
+              let list = j["printers"] as? [[String: Any]], list.count >= 2 else { return nil }
+        func norm(_ v: Any?) -> String { ((v as? String) ?? "").trimmingCharacters(in: .whitespaces).lowercased() }
+        guard let at = list.first(where: { ($0["url"] as? String ?? "") == path }) else {
+            return "The deck has no printer at \(path.isEmpty ? "its own address" : path). Nothing was sent. Add the printer again from the deck."
+        }
+        let atName = norm(at["name"])
+        let shown = at["name"] as? String ?? ""
+        if !p.deckName.isEmpty, norm(p.deckName) != atName {
+            return "This address leads to \(shown) on the deck, not to \(p.deckName). Nothing was sent. Add the printer again from the deck."
+        }
+        let mine = norm(p.name)
+        let other = list.first { q in
+            (q["url"] as? String ?? "") != path && (norm(q["name"]) == mine || norm(q["label"]) == mine || (!norm(q["name"]).isEmpty && mine.hasPrefix(norm(q["name"]) + " (")))
+        }
+        if let other, atName != mine {
+            return "\(p.name) is at \(other["url"] as? String ?? "") on the deck, but this printer's address leads to \(shown). Nothing was sent. Add \(p.name) again from the deck."
+        }
+        return nil
     }
 
     /// The camera of a printer, read once: GET each path of
