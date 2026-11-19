@@ -102,6 +102,8 @@ final class Workspace {
     @ObservationIgnored var testPrinter: Printer?
     /// The sheet of the printer picker shows.
     var pickerOpen = false
+    /// The printer of the sheet that gets its key (PairSheet), or nil.
+    var pairing: UUID?
 
     // The tools (Tools.swift).
     var tool = Tool.select
@@ -518,6 +520,11 @@ final class Workspace {
                 }
             }
         }
+        // ZSLICE_PAGE_CLOSE=s closes the Printers page after s seconds (a
+        // test that its cameras stop).
+        if let t = env["ZSLICE_PAGE_CLOSE"].flatMap(Double.init) {
+            DispatchQueue.main.asyncAfter(deadline: .now() + t) { [weak self] in self?.farmOpen = false }
+        }
         // ZSLICE_FLEET=path adds the printers of a fleet file (the farm
         // simulator writes one).
         if let f = env["ZSLICE_FLEET"] { FarmMonitor.shared.addFleet(URL(fileURLWithPath: f)) }
@@ -818,6 +825,13 @@ final class Workspace {
         }
         // ZSLICE_PICKER=1 opens the printer picker.
         if env["ZSLICE_PICKER"] != nil { pickerOpen = true }
+        // ZSLICE_PAIR=url: a printdeck at url with no key, and the sheet
+        // that gets its key.
+        if let url = env["ZSLICE_PAIR"] {
+            let p = Printer(name: "Test Deck", kind: .printdeck, url: url)
+            PrinterStore.shared.add(p)
+            pairing = p.id
+        }
         // ZSLICE_RECORD=path.mov records the demo of Recorder.swift.
         if let path = env["ZSLICE_RECORD"] {
             Task { @MainActor in await Recorder.record(self, to: URL(fileURLWithPath: path)) }

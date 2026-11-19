@@ -317,6 +317,9 @@ struct DocumentWindow: View {
         }
         .sheet(isPresented: Bindable(workspace).shortcutsOpen) { ShortcutSheet() }
         .sheet(isPresented: Bindable(workspace).pickerOpen) { PrinterPicker(workspace: workspace) }
+        .sheet(isPresented: Binding(get: { workspace.pairing != nil && !workspace.pickerOpen }, set: { if !$0 { workspace.pairing = nil } })) {
+            if let id = workspace.pairing { PairSheet(workspace: workspace, printerID: id) }
+        }
         .inspector(isPresented: Binding(get: { workspace.showSettings && !workspace.farmOpen }, set: { workspace.showSettings = $0 })) {
             InspectorPanel(workspace: workspace)
                 .inspectorColumnWidth(min: 320, ideal: 400, max: 560)

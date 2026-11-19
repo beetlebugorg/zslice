@@ -17,6 +17,10 @@
 //! which become the notifications. The farm never sends by itself: a send
 //! is a proposal that the user confirms.
 //!
+//! The camera of each printer is read once, after its first answer
+//! (PrinterLink.camera). A Bambu Lab printer has its camera from its
+//! address and access code.
+//!
 //! A fleet file (tools/farm_sim/farm_sim.py writes one) adds many printers
 //! at once: File > Add Printers from a Fleet File, or ZSLICE_FLEET=path.
 //!
@@ -37,6 +41,9 @@ final class FarmMonitor {
     private(set) var silent: Set<UUID> = []
     private(set) var updated: Date?
     private(set) var refreshing = false
+    /// The camera of each printer that has one.
+    private(set) var cameras: [UUID: CameraSource] = [:]
+    @ObservationIgnored private var cameraRead: Set<UUID> = []
     /// The Printers pages that show: they read every 10 s.
     var watchers = 0 {
         didSet { if watchers > oldValue { Task { await refresh() } } }
@@ -83,10 +90,33 @@ final class FarmMonitor {
                 let st = await PrinterLink.status(p)
                 status[p.id] = st
                 if st == nil { silent.insert(p.id) } else { silent.remove(p.id) }
+                if st != nil || p.kind == .bambu { await readCamera(p) }
             }
         }
         for ask in asks { await ask.value }
         feedFarm()
+    }
+
+    /// The camera of a printer, read once (again after its key changes).
+    private func readCamera(_ p: Printer) async {
+        let tag = p.id
+        guard !cameraRead.contains(tag) else { return }
+        cameraRead.insert(tag)
+        cameras[tag] = await PrinterLink.camera(p)
+    }
+
+    /// Reads the camera and the status again: a new key, for one.
+    func forget(_ p: Printer) {
+        cameraRead.remove(p.id)
+        cameras[p.id] = nil
+        Task { await refresh() }
+    }
+
+    /// A printdeck or OctoPrint printer that answers 401 or 403: it has no
+    /// key, or it refuses the key. A printer out of reach is offline.
+    func needsKey(_ p: Printer) -> Bool {
+        guard p.kind == .printdeck || p.kind == .octoprint, status[p.id] == nil else { return false }
+        return PrinterLink.refused.contains(p.id)
     }
 
     // MARK: - the farm

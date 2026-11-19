@@ -138,6 +138,7 @@ The app uses the system parts of macOS where it can:
 - The menus of a Mac app, with Command keys, and Settings in the app menu.
 - Materials (vibrancy), system fonts, and the accent color for the cards.
 - The Keychain for the API keys of printers.
+- URLSession for the printer cameras. It reads a `multipart/x-mixed-replace` stream by itself: one response for the envelope, then one response and its data for each JPEG part (`StreamReader` in `Core/Camera.swift`). ImageIO decodes each frame off the main thread, with one frame on its way at a time. The Bambu Lab camera of port 6000 uses `TLSStream` of `Bambu.swift` with the pin of the printer, and the core cuts its frames (`zs_bambu_jpeg_reader`). RTSPS (port 322) does not play: AVFoundation has no RTSP.
 - `UndoManager`, wired to the history of the core.
 
 ## Development hooks
@@ -156,7 +157,8 @@ Like the GTK shell, the app reads some environment variables for development and
 - `ZSLICE_DOC_SAVE=path` and `ZSLICE_DOC_AUTOSAVE=1` change the wall count of an opened file, then undo and redo, and save or autosave through the NSDocument, with a log line for each step.
 - `ZSLICE_TEST_PRINT=path` writes the test print of layers 10 to 12 (zs_app_debug_gcode).
 - `ZSLICE_BAMBU=address:serial:code` (with an optional fourth field, the library id of the model, such as `bambu-lab-p1s`) runs the Bambu link (Bambu.swift) on the plate: the upload, the start, the status, the test, and a wrong code, with a log line for each. `ZSLICE_BAMBU_FTP_PORT` sets the FTPS port, for a test server that cannot have port 990. `macos/tools/fake_bambu.py` is such a server: FTPS and MQTT over TLS with a self-signed certificate.
-- `ZSLICE_FARM="url;bambu:address:serial:code"` adds printers in a fresh run, for the Printers page (`ZSLICE_PAGE=printers`). `ZSLICE_SNAPSHOT_DELAY=s` waits s more seconds before the snapshot, for pages that wait on the network.
+- `ZSLICE_FARM="url;bambu:address:serial:code"` adds printers in a fresh run, for the Printers page (`ZSLICE_PAGE=printers`). `ZSLICE_PAGE_CLOSE=s` closes that page after s seconds, to check that its cameras stop. `ZSLICE_BAMBU_CAMERA_PORT` sets the port of the Bambu camera (6000), for a test server. A copy of `macos/tools/fake_bambu.py` with JPEG files in place of ffmpeg frames serves the camera with no ffmpeg.
+- `ZSLICE_PAIR=url` adds a printdeck at url with no key and opens the sheet that gets its key (PairSheet). `ZSLICE_PAIR_ADD=1` then adds the other printers of the deck. The farm simulator answers with `--appkeys-allow-after 4 --deck-printers 3`. `ZSLICE_SNAPSHOT_DELAY=s` waits s more seconds before the snapshot, for pages that wait on the network.
 - `ZSLICE_EDIT=kind` edits the selected line (0: do not print it; 1: 90 % plastic), `ZSLICE_EDIT_UNDO=1` undoes it 3 s later, and each slice logs the edits.
 - `ZSLICE_TOOL=support ZSLICE_CLICKS="x,y;..." ZSLICE_SUPPORT_CLOSE=1` draws a support area with the clicks and closes it.
 - `ZSLICE_FLEET=path` adds the printers of a fleet file (tools/farm_sim writes fleet.json). `ZSLICE_ASSIGN="plate:printer;..."` assigns plates to printers.

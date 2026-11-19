@@ -18,6 +18,12 @@
 //! printdeck, in the web page of OctoPrint), and the app gets a key of its
 //! own after "Allow". The printer keeps a request for 2 minutes.
 //!
+//! The camera: GET each path of zs_printer_camera_paths with the key, and
+//! the core reads the MJPEG stream and the snapshot from the replies
+//! (zs_printer_status_camera). Their addresses can be relative to the
+//! printer. A printdeck with more printers lists them in its
+//! /slicer/printer.json (deckPrinters).
+//!
 //! SPDX-License-Identifier: AGPL-3.0-or-later
 
 import CZslice
@@ -32,6 +38,9 @@ struct LinkResult {
 enum PrinterLink {
     /// The address that answered last for each printer, in this session.
     @MainActor private static var worked: [UUID: String] = [:]
+    /// The printers whose last status read got 401 or 403: the key is
+    /// missing or wrong.
+    @MainActor static var refused: Set<UUID> = []
 
     /// The addresses to try, best first: the one that answered last, the
     /// https address, then the http address.
@@ -177,8 +186,10 @@ enum PrinterLink {
         }
         let start = Date()
         while Date().timeIntervalSince(start) < 125 {
+            if Task.isCancelled { return LinkResult(ok: false, message: "Cancelled.") }
             wait(Int(Date().timeIntervalSince(start)))
             try? await Task.sleep(for: .seconds(1))
+            if Task.isCancelled { return LinkResult(ok: false, message: "Cancelled.") }
             do {
                 let (d, r) = try await request(p, "\(base)/\(token.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed) ?? token)", key: false)
                 if r.statusCode == 202 { continue }
@@ -193,6 +204,49 @@ enum PrinterLink {
             }
         }
         return LinkResult(ok: false, message: "No answer on the printer in 2 minutes.")
+    }
+
+    /// The printers of a printdeck (GET /slicer/printer.json with the key).
+    /// A deck with more than one printer lists them, each with the path of
+    /// its API under the deck: "" for the first, "/printers/<id>" for
+    /// another. nil if the deck does not answer.
+    @MainActor static func deckPrinters(_ p: Printer) async -> [DeckPrinter]? {
+        guard let (d, r) = try? await request(p, "/slicer/printer.json"), (200 ..< 300).contains(r.statusCode),
+              let j = (try? JSONSerialization.jsonObject(with: d)) as? [String: Any] else { return nil }
+        return (j["printers"] as? [[String: Any]] ?? []).map { o in
+            DeckPrinter(id: o["id"] as? String ?? "", name: o["name"] as? String ?? "", label: o["label"] as? String ?? "",
+                        kind: o["kind"] as? String ?? "fdm", path: o["url"] as? String ?? "")
+        }
+    }
+
+    /// The camera of a printer, read once: GET each path of
+    /// zs_printer_camera_paths with the key. nil: no camera, or no answer.
+    @MainActor static func camera(_ p: Printer) async -> CameraSource? {
+        if p.kind == .bambu {
+            let kind = zs_bambu_camera_kind(p.model)
+            return CameraSource(bambu: BambuLink.host(p), code: p.apiKey, serial: p.serial, kind: Int(kind))
+        }
+        let kind = coreKind(p.kind)
+        let paths = coreText(zs_printer_camera_paths(kind)).split(separator: "\n").map(String.init)
+        guard !paths.isEmpty, let s = zs_printer_status_new() else { return nil }
+        defer { zs_printer_status_free(s) }
+        for path in paths {
+            guard let (d, r) = try? await request(p, path), (200 ..< 300).contains(r.statusCode) else { continue }
+            _ = d.withUnsafeBytes { zs_printer_status_feed(s, kind, path, $0.bindMemory(to: CChar.self).baseAddress, $0.count) }
+        }
+        var c = zs_printer_camera()
+        guard zs_printer_status_camera(s, &c) == 0 else { return nil }
+        // The addresses can be relative to the printer.
+        let base = worked[p.id] ?? p.url
+        func abs(_ u: UnsafePointer<CChar>?) -> URL? {
+            let t = coreText(u)
+            guard !t.isEmpty else { return nil }
+            if t.contains("://") { return URL(string: t) }
+            return url(base, t.hasPrefix("/") ? t : "/" + t)
+        }
+        let src = CameraSource(stream: abs(c.stream), snapshot: abs(c.snapshot), key: p.apiKey, printdeck: p.kind == .printdeck,
+                               flipH: c.flip_h != 0, flipV: c.flip_v != 0, rotation: Int(c.rotation))
+        return src.stream == nil && src.snapshot == nil ? nil : src
     }
 
     /// The https address of a printdeck, from its /slicer/printer.json, or nil.
@@ -222,6 +276,30 @@ struct PrinterStatus: Equatable {
     /// The state for the farm (enum zs_farm_printer_state), the same for
     /// each kind of printer (zs_printer_status_farm_state).
     var farmState: Int32 = 1
+    /// The temperatures in °C (zs_printer_status_heat), NaN when not known.
+    var nozzleC = Double.nan, nozzleTarget = Double.nan
+    var bedC = Double.nan, bedTarget = Double.nan
+    var chamberC = Double.nan
+
+    /// "Nozzle 215 / 215 °C    Bed 60 / 60 °C", or "".
+    var heat: String {
+        var parts: [String] = []
+        func part(_ name: String, _ v: Double, _ target: Double) {
+            guard !v.isNaN else { return }
+            parts.append(target > 0 ? String(format: "%@ %.0f / %.0f °C", name, v, target) : String(format: "%@ %.0f °C", name, v))
+        }
+        part("Nozzle", nozzleC, nozzleTarget)
+        part("Bed", bedC, bedTarget)
+        part("Chamber", chamberC, 0)
+        return parts.joined(separator: "    ")
+    }
+
+    static func == (a: PrinterStatus, b: PrinterStatus) -> Bool {
+        a.state == b.state && a.job == b.job && a.progress == b.progress && a.timeLeft == b.timeLeft && a.layer == b.layer
+            && a.layers == b.layers && a.material == b.material && a.roll == b.roll && a.rollLeft == b.rollLeft && a.bedX == b.bedX
+            && a.bedY == b.bedY && a.height == b.height && a.nozzle == b.nozzle && a.why == b.why && a.farmState == b.farmState
+            && a.heat == b.heat
+    }
 
     /// One line for the print card: "Operational · Gray, 818 g left", or
     /// the job and its progress.
@@ -239,6 +317,19 @@ struct PrinterStatus: Equatable {
     }
 }
 
+/// A printer of a printdeck (its /slicer/printer.json). path: "" for the
+/// deck itself, else "/printers/<id>" under the address of the deck.
+struct DeckPrinter: Identifiable, Hashable {
+    var id: String
+    var name: String
+    var label: String
+    var kind: String
+    var path: String
+
+    /// "Prusa MK4 (left)", or the name.
+    var title: String { label.isEmpty || label == name ? name : "\(name) (\(label))" }
+}
+
 /// The estimate of a printdeck: its own time for the G-code, from its past
 /// prints (the start macro, and how its moves compare with the plan).
 struct PrinterEstimate: Equatable {
@@ -247,7 +338,7 @@ struct PrinterEstimate: Equatable {
 }
 
 extension PrinterLink {
-    private static func coreKind(_ k: Printer.Kind) -> Int32 {
+    static func coreKind(_ k: Printer.Kind) -> Int32 {
         switch k {
         case .octoprint: 1
         case .printdeck: 2
@@ -266,7 +357,11 @@ extension PrinterLink {
         guard kind > 0, let s = zs_printer_status_new() else { return nil }
         let paths = coreText(zs_printer_status_paths(kind)).split(separator: "\n").map(String.init)
         for (i, path) in paths.enumerated() {
-            guard let (d, r) = try? await request(p, path), (200 ..< 300).contains(r.statusCode) else {
+            let answer = try? await request(p, path)
+            if i == 0 {
+                if let r = answer?.1, r.statusCode == 401 || r.statusCode == 403 { refused.insert(p.id) } else { refused.remove(p.id) }
+            }
+            guard let (d, r) = answer, (200 ..< 300).contains(r.statusCode) else {
                 if i == 0 {
                     zs_printer_status_free(s)
                     return nil
@@ -285,11 +380,20 @@ extension PrinterLink {
         defer { zs_printer_status_free(s) }
         var info = zs_printer_info()
         guard zs_printer_status_get(s, &info) == 0 else { return nil }
-        return PrinterStatus(state: coreText(info.state), job: coreText(info.job), progress: info.progress, timeLeft: info.time_left,
-                             layer: Int(info.layer), layers: Int(info.layers), material: coreText(info.material),
-                             roll: coreText(info.spool.name), rollLeft: info.spool.left,
-                             bedX: info.bed_x, bedY: info.bed_y, height: info.height, nozzle: info.nozzle,
-                             why: coreText(zs_printer_status_message(s)), farmState: zs_printer_status_farm_state(s))
+        var st = PrinterStatus(state: coreText(info.state), job: coreText(info.job), progress: info.progress, timeLeft: info.time_left,
+                               layer: Int(info.layer), layers: Int(info.layers), material: coreText(info.material),
+                               roll: coreText(info.spool.name), rollLeft: info.spool.left,
+                               bedX: info.bed_x, bedY: info.bed_y, height: info.height, nozzle: info.nozzle,
+                               why: coreText(zs_printer_status_message(s)), farmState: zs_printer_status_farm_state(s))
+        var h = zs_printer_heat()
+        if zs_printer_status_heat(s, &h) == 0 {
+            st.nozzleC = h.nozzle
+            st.nozzleTarget = h.nozzle_target
+            st.bedC = h.bed
+            st.bedTarget = h.bed_target
+            st.chamberC = h.chamber
+        }
+        return st
     }
 
     /// The estimate of a printdeck for the G-code: POST it with gzip to

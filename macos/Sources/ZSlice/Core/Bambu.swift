@@ -155,6 +155,16 @@ final class TLSStream: @unchecked Sendable {
         }
     }
 
+    /// The bytes that come next, at least one; empty at the end of the
+    /// stream.
+    func some(timeout: Double = 8) async throws -> Data {
+        if !buffer.isEmpty {
+            defer { buffer.removeAll() }
+            return buffer
+        }
+        return try await receiveSome(timeout: timeout)
+    }
+
     /// Exactly n bytes.
     func read(_ n: Int, timeout: Double = 8) async throws -> Data {
         while buffer.count < n {

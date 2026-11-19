@@ -29,6 +29,8 @@ struct FarmPage: View {
     let workspace: Workspace
     @State private var busy: Set<UUID> = []
     @State private var filter: Look?
+    /// The printer whose camera shows large.
+    @State private var large: Printer?
 
     private var monitor: FarmMonitor { FarmMonitor.shared }
     private var printers: [Printer] { PrinterStore.shared.printers.filter { $0.kind != .none } }
@@ -51,22 +53,27 @@ struct FarmPage: View {
                 ScrollView {
                     VStack(alignment: .leading, spacing: 22) {
                         summary
+                        queue
                         upNext
                         let shown = printers.filter { filter == nil || look($0) == filter }.sorted { look($0).order < look($1).order }
-                        LazyVGrid(columns: [GridItem(.adaptive(minimum: 250, maximum: 340), spacing: 12, alignment: .top)],
+                        LazyVGrid(columns: [GridItem(.adaptive(minimum: 260, maximum: 360), spacing: 12, alignment: .top)],
                                   alignment: .leading, spacing: 12) {
                             ForEach(shown) { tile($0) }
                         }
-                        queue
                     }
                     .padding(20)
                     .frame(maxWidth: 1400, alignment: .leading)
                 }
             }
         }
+        // It covers the window, also with no printers.
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
         .background(Color(nsColor: .windowBackgroundColor))
         .onAppear { monitor.watchers += 1 }
         .onDisappear { monitor.watchers -= 1 }
+        .sheet(item: $large) { p in
+            if let cam = monitor.cameras[p.id] { LargeCamera(printer: p, source: cam) }
+        }
     }
 
     // MARK: - the header and the summary
@@ -166,107 +173,172 @@ struct FarmPage: View {
         return FarmMonitor.printing(st) ? .printing : .free
     }
 
+    /// The words of the badge of a card.
+    private func badge(_ l: Look) -> String {
+        switch l {
+        case .failed: "Failed"
+        case .ready: "Done: clear the bed"
+        case .paused: "Paused"
+        case .printing: "Printing"
+        case .free: "Ready"
+        case .unknown: "Reading"
+        case .silent: "Offline"
+        }
+    }
+
+    /// One card: the camera, the name and a state badge, the job with its
+    /// progress, why it failed or paused, the temperatures, the roll, the
+    /// plates that it prints, and "Print the Plate" with a menu of the rare
+    /// actions.
     private func tile(_ p: Printer) -> some View {
         let st = monitor.status[p.id]
         let l = look(p)
-        return VStack(alignment: .leading, spacing: 8) {
-            HStack(spacing: 8) {
-                Circle().fill(l.color).frame(width: 9, height: 9)
-                Text(p.name).font(.headline).lineLimit(1)
-                Spacer(minLength: 4)
-                Text(p.kind == .bambu ? "Bambu Lab" : p.kind.title)
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-                    .lineLimit(1)
+        let needsKey = monitor.needsKey(p)
+        return VStack(alignment: .leading, spacing: 0) {
+            if let cam = monitor.cameras[p.id] {
+                CameraView(source: cam)
+                    .frame(height: 160)
+                    .frame(maxWidth: .infinity)
+                    .contentShape(Rectangle())
+                    .onTapGesture { large = p }
+                    .help("Show the camera large")
+                    .accessibilityAddTraits(.isButton)
+                    .accessibilityLabel("The camera of \(p.name)")
             }
-            switch l {
-            case .unknown:
-                Text("Reading…").foregroundStyle(.secondary)
-            case .silent:
-                VStack(alignment: .leading, spacing: 4) {
-                    Text("Not answering").foregroundStyle(.secondary)
-                    SettingsLink { Text("Printer Settings…") }
-                        .buttonStyle(.link)
-                        .font(.caption)
-                        .help("No answer, or the printer refused the key: check its address and its key in Settings > Printers")
+            VStack(alignment: .leading, spacing: 6) {
+                HStack(alignment: .top, spacing: 8) {
+                    VStack(alignment: .leading, spacing: 1) {
+                        Text(p.name).font(.headline).lineLimit(1)
+                        Text(p.kind == .bambu ? "Bambu Lab" : p.kind.title).font(.caption).foregroundStyle(.secondary).lineLimit(1)
+                    }
+                    Spacer(minLength: 4)
+                    Text(needsKey ? "Needs a key" : badge(l))
+                        .font(.caption.weight(.semibold))
+                        .multilineTextAlignment(.center)
+                        .foregroundStyle(l == .unknown || l == .silent ? Color.secondary : l.color)
+                        .padding(.horizontal, 8)
+                        .padding(.vertical, 3)
+                        .background((l == .unknown || l == .silent ? Color.secondary : l.color).opacity(0.15), in: Capsule())
+                        .fixedSize()
                 }
-            case .ready:
-                VStack(alignment: .leading, spacing: 2) {
-                    Label("Ready to collect", systemImage: "checkmark.circle.fill").foregroundStyle(.green).font(.callout.weight(.semibold))
-                    if let st, !st.job.isEmpty { Text(st.job).lineLimit(1) }
-                    Text("Take the print off the bed\(p.kind == .printdeck ? ", then press Print on the deck for the next one" : "").")
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-                        .fixedSize(horizontal: false, vertical: true)
-                    Button("Collected, Bed Clear") { monitor.collected(p) }
-                        .controlSize(.small)
-                        .help("You took the print off the bed: the printer is free for the next job of the queue")
-                }
-            case .failed:
-                VStack(alignment: .leading, spacing: 2) {
-                    Label("Failed", systemImage: "xmark.octagon.fill").foregroundStyle(.red).font(.callout.weight(.semibold))
-                    if let st, !st.job.isEmpty { Text(st.job).lineLimit(1) }
-                    Text(st.map { $0.why.isEmpty ? "" : $0.why + ". " } ?? "")
-                        .font(.caption)
-                        .foregroundStyle(.red)
-                        .fixedSize(horizontal: false, vertical: true)
-                    Text("Check the printer, then clear the bed.").font(.caption).foregroundStyle(.secondary)
-                }
-            case .printing, .paused:
-                if let st {
-                    VStack(alignment: .leading, spacing: 4) {
-                        HStack {
-                            Text(st.job.isEmpty ? st.state : st.job).lineLimit(1)
-                            if l == .paused { Text("Paused").font(.caption.weight(.semibold)).foregroundStyle(.orange) }
-                        }
-                        ProgressView(value: min(max(st.progress, 0), 1)).progressViewStyle(.linear).tint(l.color)
-                        HStack {
-                            Text("\(Int((st.progress * 100).rounded())) %")
-                            Spacer()
-                            if st.timeLeft > 0 { Text("\(duration(st.timeLeft)) left") }
-                        }
-                        .font(.caption.monospacedDigit())
-                        .foregroundStyle(.secondary)
+                // The job and its progress.
+                if let st, !st.job.isEmpty, [.printing, .paused, .ready, .failed].contains(l) {
+                    let f = l == .ready ? 1 : min(max(st.progress, 0), 1)
+                    VStack(alignment: .leading, spacing: 3) {
+                        Text(st.job).font(.callout.weight(.medium)).lineLimit(1)
+                        ProgressView(value: f).progressViewStyle(.linear).tint(l.color)
+                        Text(jobFacts(st, l, f)).font(.caption.monospacedDigit()).foregroundStyle(.secondary)
                     }
                 }
-            case .free:
-                VStack(alignment: .leading, spacing: 2) {
-                    Text("Free")
-                    if let st, !st.roll.isEmpty || !st.material.isEmpty {
-                        Text(st.roll.isEmpty ? st.material : st.roll + (st.rollLeft > 0 ? " · \(Int(st.rollLeft.rounded())) g left" : ""))
-                            .font(.caption)
-                            .foregroundStyle(.secondary)
-                            .lineLimit(1)
-                    }
+                // Why it failed, paused, or does not answer.
+                if needsKey {
+                    Text(p.apiKey.isEmpty ? "zslice has no key for this printer." : "The printer refused the key of zslice.")
+                        .font(.caption).foregroundStyle(.orange).fixedSize(horizontal: false, vertical: true)
+                } else if l == .silent {
+                    Text("No answer. Check its address, and that it is on.").font(.caption).foregroundStyle(.secondary)
+                } else if let st, l == .failed || l == .paused, !st.why.isEmpty {
+                    Text(st.why).font(.caption).foregroundStyle(l == .failed ? .red : .orange).fixedSize(horizontal: false, vertical: true)
                 }
-            }
-            // What it prints (a plate sent from here), and its plates to come.
-            let now = workspace.printing[p.id].flatMap { id in model.plates.firstIndex { $0.id == id } }
-            let next = model.plates.indices.filter { k in workspace.assigned(plate: k)?.id == p.id && k != now && workspace.sentPlates[model.plates[k].id] == nil }
-            if now != nil || !next.isEmpty {
-                HStack(spacing: 6) {
-                    if let now { PlatePreview(workspace: workspace, plate: now, size: 40).help("Plate \(now + 1), sent here") }
-                    if !next.isEmpty {
-                        Text(now == nil ? "Up next:" : "Next:").font(.caption).foregroundStyle(.secondary)
-                        ForEach(next.prefix(4), id: \.self) { k in
-                            PlatePreview(workspace: workspace, plate: k, size: 28).help("Plate \(k + 1), for \(p.name)")
+                if let st, !st.heat.isEmpty {
+                    Text(st.heat).font(.caption.monospacedDigit()).foregroundStyle(.secondary).lineLimit(2)
+                }
+                if let st, !st.roll.isEmpty || !st.material.isEmpty {
+                    Text(rollText(st)).font(.caption).foregroundStyle(.secondary).lineLimit(1)
+                }
+                // What it prints (a plate sent from here), and its plates to come.
+                let now = workspace.printing[p.id].flatMap { id in model.plates.firstIndex { $0.id == id } }
+                let next = model.plates.indices.filter { k in workspace.assigned(plate: k)?.id == p.id && k != now && workspace.sentPlates[model.plates[k].id] == nil }
+                if now != nil || !next.isEmpty {
+                    HStack(spacing: 6) {
+                        if let now { PlatePreview(workspace: workspace, plate: now, size: 40).help("Plate \(now + 1), sent here") }
+                        if !next.isEmpty {
+                            Text(now == nil ? "Up next:" : "Next:").font(.caption).foregroundStyle(.secondary)
+                            ForEach(next.prefix(4), id: \.self) { k in
+                                PlatePreview(workspace: workspace, plate: k, size: 28).help("Plate \(k + 1), for \(p.name)")
+                            }
+                            if next.count > 4 { Text("+\(next.count - 4)").font(.caption).foregroundStyle(.secondary) }
                         }
-                        if next.count > 4 { Text("+\(next.count - 4)").font(.caption).foregroundStyle(.secondary) }
                     }
                 }
+                Spacer(minLength: 0)
+                actions(p, l, needsKey)
             }
-            Spacer(minLength: 0)
-            if busy.contains(p.id) {
-                HStack(spacing: 6) { ProgressView().controlSize(.small); Text("Sending…").font(.caption) }
-            }
+            .padding(12)
         }
-        .padding(12)
-        .frame(maxWidth: .infinity, minHeight: 110, alignment: .topLeading)
-        .background(Color(nsColor: .controlBackgroundColor), in: RoundedRectangle(cornerRadius: 10))
+        .frame(maxWidth: .infinity, minHeight: 150, alignment: .topLeading)
+        .background(Color(nsColor: .controlBackgroundColor))
+        .clipShape(RoundedRectangle(cornerRadius: 10))
         .overlay(RoundedRectangle(cornerRadius: 10).strokeBorder(l == .failed || l == .ready || l == .printing ? l.color.opacity(0.6) : Color(nsColor: .separatorColor),
                                                                  lineWidth: l == .failed || l == .ready ? 2 : 1))
-        .opacity(l == .silent ? 0.7 : 1)
+        .opacity(l == .silent ? 0.75 : 1)
         .accessibilityElement(children: .contain)
+    }
+
+    /// "50 % · 1 h 5 min left · layer 20 of 80".
+    private func jobFacts(_ st: PrinterStatus, _ l: Look, _ f: Double) -> String {
+        var s = "\(Int((f * 100).rounded())) %"
+        if l == .printing || l == .paused {
+            if st.timeLeft > 0 { s += " · \(duration(st.timeLeft)) left" }
+            if st.layers > 0 { s += " · layer \(st.layer) of \(st.layers)" }
+        }
+        return s
+    }
+
+    /// "Galaxy Black (PLA), 818 g left", or the material.
+    private func rollText(_ st: PrinterStatus) -> String {
+        guard !st.roll.isEmpty else { return st.material }
+        var s = st.roll
+        if !st.material.isEmpty { s += " (\(st.material))" }
+        if st.rollLeft > 0 { s += ", \(Int(st.rollLeft.rounded())) g left" }
+        return s
+    }
+
+    /// The main action of a card, and the menu of the rare ones.
+    private func actions(_ p: Printer, _ l: Look, _ needsKey: Bool) -> some View {
+        let active = model.active
+        let sliced = model.plates.indices.contains(active) && model.plates[active].status == ZS_PLATE_STATUS_DONE.rawValue
+        let page = p.kind != .bambu ? URL(string: (p.https.isEmpty ? p.url : p.https).contains("://") ? (p.https.isEmpty ? p.url : p.https) : "http://" + p.url) : nil
+        return HStack(spacing: 6) {
+            if busy.contains(p.id) {
+                ProgressView().controlSize(.small)
+                Text("Sending…").font(.caption)
+                Spacer()
+            } else if needsKey {
+                Button { workspace.pairing = p.id } label: { Text("Get a Key").frame(maxWidth: .infinity) }
+                    .buttonStyle(.borderedProminent)
+                    .help(p.kind == .printdeck ? "Connect zslice: tap Allow on the screen of the printdeck" : "Connect zslice: allow it in the web page of OctoPrint")
+            } else if l == .ready {
+                Button { monitor.collected(p) } label: { Text("Collected, Bed Clear").frame(maxWidth: .infinity) }
+                    .help("You took the print off the bed: the printer is free for the next job of the queue")
+            } else {
+                Button { send(plate: active, to: p) } label: { Text("Print the Plate").frame(maxWidth: .infinity) }
+                    .buttonStyle(.borderedProminent)
+                    .disabled(!sliced || l != .free)
+                    .help(!sliced ? "Slice the plate first."
+                        : l != .free ? "The printer is busy, or does not answer."
+                        : "Send the G-code of plate \(active + 1), and start it after you confirm that the bed is clear")
+            }
+            Menu {
+                Button("Upload the Plate Only") { send(plate: active, to: p, print: false) }
+                    .disabled(!sliced || p.kind == .bambu)
+                Button("Show the Camera Large") { large = p }
+                    .disabled(monitor.cameras[p.id] == nil)
+                Button("Open the Page of the Printer") { if let page { NSWorkspace.shared.open(page) } }
+                    .disabled(page == nil)
+                if p.kind == .printdeck || p.kind == .octoprint {
+                    Button("Get a New Key…") { workspace.pairing = p.id }
+                }
+                Divider()
+                SettingsLink { Text("Printer Settings…") }
+            } label: {
+                Image(systemName: "ellipsis")
+            }
+            .menuStyle(.borderlessButton)
+            .menuIndicator(.hidden)
+            .fixedSize()
+            .help("More")
+        }
+        .controlSize(.regular)
     }
 
     /// Free (or a printdeck, which queues) before busy, busy before not
@@ -444,7 +516,7 @@ struct FarmPage: View {
 
     // MARK: - the send
 
-    private func send(plate i: Int, to p: Printer, from ws: Workspace? = nil, job: UInt32? = nil) {
+    private func send(plate i: Int, to p: Printer, from ws: Workspace? = nil, job: UInt32? = nil, print: Bool = true) {
         let workspace = ws ?? self.workspace
         let model = workspace.model
         guard let data = model.gcode(plate: i) else {
@@ -456,8 +528,9 @@ struct FarmPage: View {
         // A fresh confirmation each time. G-code for another printer can
         // have another bed, nozzle, or temperatures: say so.
         let a = NSAlert()
-        a.messageText = "Send \"\(title)\" to \(p.name)?"
-        var info = "Is the bed of \(p.name) clear? The print starts when the file is there."
+        a.messageText = print ? "Send \"\(title)\" to \(p.name)?" : "Upload \"\(title)\" to \(p.name)?"
+        var info = !print ? "The file waits on the printer. It does not start."
+            : "Is the bed of \(p.name) clear? The print starts when the file is there."
             + (deck ? " A deck set to ask waits for a press of Print on it." : "")
         if let current = workspace.assigned(plate: i) ?? PrinterStore.shared.current, current.id != p.id {
             info = "The plate is sliced for \(current.name), not for \(p.name). Choose \(p.name) for the plate to slice it for that printer first.\n\n" + info
@@ -465,18 +538,18 @@ struct FarmPage: View {
         if let app = zs_set_app(model.set, i), zs_app_plate_fits(app) == 0 {
             info = "A part is off the bed or on another part. The printer can hit its frame or the other part.\n\n" + info
         }
-        if busyNow(p), !deck { info = "\(p.name) looks busy now (\(busyText(p))).\n\n" + info }
+        if busyNow(p), !deck, print { info = "\(p.name) looks busy now (\(busyText(p))).\n\n" + info }
         if p.kind == .bambu { info += " (Bambu support is untested with a real printer.)" }
         a.informativeText = info
-        a.addButton(withTitle: "The Bed Is Clear: Send")
+        a.addButton(withTitle: print ? "The Bed Is Clear: Send" : "Upload")
         a.addButton(withTitle: "Cancel")
         guard a.runModal() == .alertFirstButtonReturn else { return }
         busy.insert(p.id)
         Task { @MainActor in
-            let r = await workspace.transfer(data, title: title, to: p, print: true)
+            let r = await workspace.transfer(data, title: title, to: p, print: print)
             busy.remove(p.id)
             if r.ok, let job { monitor.sent(job: job, to: p) }
-            if r.ok, model.plates.indices.contains(i) {
+            if r.ok, print, model.plates.indices.contains(i) {
                 let time = Date().formatted(date: .omitted, time: .shortened)
                 workspace.sentPlates[model.plates[i].id] = "Sent to \(p.name) at \(time)"
                 workspace.printing[p.id] = model.plates[i].id
