@@ -1781,10 +1781,16 @@ pub const View = struct {
     }
 
     pub fn bedPoint(v: *const View, px: f32, py: f32) ?[2]f64 {
+        return v.planePoint(px, py, 0);
+    }
+
+    /// The point under a pixel on the level plane at height z (mm): the
+    /// place of a hand that carries a part (zs_app_grab_move).
+    pub fn planePoint(v: *const View, px: f32, py: f32, z: f64) ?[2]f64 {
         const cam = v.camera();
         const dir = v.pixelRay(cam, px, py);
         if (@abs(dir[2]) < 1e-6) return null;
-        const t = -cam.eye[2] / dir[2];
+        const t = (@as(f32, @floatCast(z)) - cam.eye[2]) / dir[2];
         if (t <= 0) return null;
         return .{ cam.eye[0] + dir[0] * t, cam.eye[1] + dir[1] * t };
     }

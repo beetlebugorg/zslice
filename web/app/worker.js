@@ -795,6 +795,22 @@ const ops = {
     return { started: rc === 1, held };
   },
 
+  // The hand (zs_app_grab_*): take part `index` at the bed point (x, y, z),
+  // move the hand, and let go. The frames are those of the fall.
+  grabStart({ index, x, y, z }) {
+    return { ok: core.w.x.zs_app_grab_start(core.app, index, x, y, z) === 1 };
+  },
+
+  grabMove({ x, y, z }) {
+    core.w.x.zs_app_grab_move(core.app, x, y, z);
+    return {};
+  },
+
+  grabEnd() {
+    core.w.x.zs_app_grab_end(core.app);
+    return {};
+  },
+
   // One frame of the fall: the turn, the pivot, and the move for the view,
   // and done when the part rests (then a slice of its new place).
   fallStep({ dt }) {

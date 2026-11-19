@@ -281,6 +281,17 @@ export fn zs_view_bed_point(view: ?*const View, px: f32, py: f32, x: ?*f64, y: ?
     return 1;
 }
 
+/// The point under the pixel on the level plane at height z (mm): the place
+/// of the hand that carries a part. 0 if the plane is not under the pixel.
+export fn zs_view_plane_point(view: ?*const View, px: f32, py: f32, z: f64, x: ?*f64, y: ?*f64) c_int {
+    if (!render_on) return 0;
+    const v = view orelse return 0;
+    const p = v.planePoint(px, py, z) orelse return 0;
+    if (x) |o| o.* = p[0];
+    if (y) |o| o.* = p[1];
+    return 1;
+}
+
 /// The point of the print under the pixel, for the measure tape (see
 /// View.surfacePoint): out gets x, y, z in mm. With snap, the end of a line
 /// near the pixel. 0 if the pixel shows neither the print nor the bed.

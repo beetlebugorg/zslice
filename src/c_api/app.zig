@@ -1695,6 +1695,29 @@ export fn zs_app_fall_pending(a: ?*App) isize {
     return @intCast(i);
 }
 
+/// The hand takes part i at the bed point (x, y, z) mm on its surface: the
+/// part follows the hand as a real object (a soft spring pulls that point
+/// to the hand). Then zs_app_grab_move for each move of the pointer, and
+/// zs_app_fall_step each frame, as for a fall. 1 if it took the part.
+export fn zs_app_grab_start(a: ?*App, i: usize, x: f64, y: f64, z: f64) c_int {
+    const app = a orelse return -@as(c_int, @intFromEnum(Status.invalid_argument));
+    const ok_ = app.grabStart(i, .{ x, y, z }) catch |e| return -@as(c_int, status(e));
+    return @intFromBool(ok_);
+}
+
+/// The hand moves to the bed point (x, y, z) mm.
+export fn zs_app_grab_move(a: ?*App, x: f64, y: f64, z: f64) void {
+    const app = a orelse return;
+    app.grabMove(.{ x, y, z });
+}
+
+/// The hand lets go: the part keeps its speed, falls, and rests; the steps
+/// of zs_app_fall_step end it on the plate.
+export fn zs_app_grab_end(a: ?*App) void {
+    const app = a orelse return;
+    app.grabEnd();
+}
+
 /// Ends a fall with no change of the plate.
 export fn zs_app_fall_cancel(a: ?*App) void {
     const app = a orelse return;

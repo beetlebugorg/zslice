@@ -751,6 +751,15 @@ void zs_app_fall_cancel(zs_app *app);
  * Call it after a change of a setting or of the plate (support turned off
  * under a turned part), and start its fall. */
 ptrdiff_t zs_app_fall_pending(zs_app *app);
+/* The hand: zs_app_grab_start takes part i at a bed point on its surface
+ * (1 if it did), zs_app_grab_move moves the hand, and zs_app_grab_end lets
+ * go. The part follows the hand as a real object (it swings and turns
+ * about the point held), and on release it keeps its speed, falls, and
+ * rests flush on the plate. Run zs_app_fall_step each frame from the
+ * start, as for a fall. */
+int zs_app_grab_start(zs_app *app, size_t part, double x, double y, double z);
+void zs_app_grab_move(zs_app *app, double x, double y, double z);
+void zs_app_grab_end(zs_app *app);
 int zs_app_part_stands(zs_app *app, size_t i);
 /* "This side on the bed": the side of the part nearest to the bed point
  * (x, y, z), for example a picked line, goes down. */
@@ -1064,6 +1073,9 @@ void zs_view_pan(zs_view *view, float dx, float dy);
 void zs_view_part_box(zs_view *view, double x0, double y0, double x1, double y1);
 /* The point of the bed under the pixel (px, py) of a 3D view. 0 if none. */
 int zs_view_bed_point(const zs_view *view, float px, float py, double *x, double *y);
+/* The point under the pixel on the level plane at height z (mm), for the
+ * hand that carries a part (zs_app_grab_move). 0 if not under the pixel. */
+int zs_view_plane_point(const zs_view *view, float px, float py, double z, double *x, double *y);
 /* The point of the print under the pixel (px, py), for a measure tape: on
  * the surface of the first line that the pixel shows, else on the bed. With
  * snap, the end of a line within 12 pixels. out gets x, y, z (mm). 0 if

@@ -648,6 +648,52 @@ var turnRings = new TurnRings({
 // (zs_app_fall_step) and turns the beads of the part to its place
 // (zs_view_part_preview). At rest, the core puts the part flush on its new
 // face, and the plate slices; the new beads end the preview.
+// ---- the hand: grab a part, and move it as a real object ----
+//
+// A press on a part takes it at the point under the pointer
+// (zs_app_grab_start). The hand moves on a level plane 15 mm over that
+// point (zs_view_plane_point), and the part follows it each frame as a
+// rigid body on a soft spring (the steps of the fall). On release it keeps
+// its speed, falls, and rests flush on the plate; then the plate slices.
+const hand = { on: false, h: 0, index: -1 };
+
+async function grabStart(px, py) {
+  if (falling) return false;
+  const part = await tools.partAt(px, py);
+  if (!part) return false;
+  const c = view.w.cell;
+  if (!view.x.zs_view_surface_point(view.v, px, py, 0, c)) return false;
+  const p = [view.w.f64(c), view.w.f64(c + 8), view.w.f64(c + 16)];
+  const r = await client.call("grabStart", { index: part.index, x: p[0], y: p[1], z: p[2] });
+  if (!r.ok) return false;
+  hand.on = true;
+  hand.index = part.index;
+  hand.h = p[2] + 15;
+  grabMove(px, py);
+  canvas.style.cursor = "grabbing";
+  falling = true;
+  // The frames of the hand and of the fall after it.
+  runFall(part.index).finally(() => {
+    falling = false;
+    hand.on = false;
+    canvas.style.cursor = tools.tool === "grab" ? "grab" : "";
+  });
+  return true;
+}
+
+function grabMove(px, py) {
+  if (!hand.on) return;
+  const c = view.w.cell;
+  if (!view.x.zs_view_plane_point(view.v, px, py, hand.h, c, c + 8)) return;
+  client.call("grabMove", { x: view.w.f64(c), y: view.w.f64(c + 8), z: hand.h });
+}
+
+function grabEnd() {
+  if (!hand.on) return;
+  hand.on = false;
+  client.call("grabEnd");
+}
+
 let falling = false;
 async function settleSelected(index = tools.part?.index) {
   if (index === undefined || index < 0 || falling) return;
@@ -665,6 +711,12 @@ async function fall(index) {
     if (r.held) toast("This part could not stand like that on its own. Support is on, so the support holds it in place.");
     return;
   }
+  if (await runFall(index)) toast("The part could not stand like that, and fell over. Turn on support to hold it in place.");
+}
+
+// The frames of a fall (or of the hand): the body steps in the core, and
+// the beads of the part follow it. True when the part rests.
+async function runFall(index) {
   let last = performance.now();
   for (;;) {
     const now = await new Promise((res) => requestAnimationFrame(res));
@@ -676,11 +728,9 @@ async function fall(index) {
     // fall (into the bed).
     if (!f.done) view.x.zs_view_part_preview(view.v, index, f.q[0], f.q[1], f.q[2], f.q[3], f.pivot[0], f.pivot[1], f.pivot[2], f.move[0], f.move[1], f.move[2], 0);
     requestFrame();
-    if (f.done) {
-      toast("The part could not stand like that, and fell over. Turn on support to hold it in place.");
-      break;
-    }
+    if (f.done) return true;
   }
+  return false;
 }
 
 // The keys of a part move and turn it at once; the slice waits for a pause
@@ -1448,6 +1498,7 @@ function onPreviewKey(e) {
       e.preventDefault();
       return;
     case "m": case "M": tools.set("move"); e.preventDefault(); return;
+    case "h": case "H": tools.set("grab"); e.preventDefault(); return;
     case "t": case "T": tools.set("measure"); e.preventDefault(); return;
     case "g": case "G": if (!$("gaps").disabled) $("gaps").click(); e.preventDefault(); return;
     case "c": case "C":
@@ -1720,7 +1771,7 @@ const inspector = new Inspector($("page-selected"), {
 var tools = new Tools({ // var: drawFrame can run before this line
   partSelected: (part) => partCard?.show(part),
   client, view, canvas, view2d,
-  buttons: { select: $("tool-select"), move: $("tool-move"), turn: $("tool-turn"), measure: $("tool-measure"), support: $("tool-support") },
+  buttons: { select: $("tool-select"), move: $("tool-move"), turn: $("tool-turn"), grab: $("tool-grab"), measure: $("tool-measure"), support: $("tool-support") },
   again: (t) => { if (t === "support") supportTool?.togglePane(); },
   toolChanged: (tool) => supportTool?.setActive(tool === "support"),
   readout: $("measure-readout"),
@@ -1745,7 +1796,7 @@ var supportTool = new SupportTool({ // var: tools can call it before this line
 
 // ---- the mouse, the touch screen, and the wheel over the view ----
 
-attachViewInput(canvas, { app, view, view2d, tools, supportTool, requestFrame, pickAt, hitAt, select, showContextMenu, activatePlate });
+attachViewInput(canvas, { app, view, view2d, tools, supportTool, requestFrame, pickAt, hitAt, select, showContextMenu, activatePlate, grab: { start: grabStart, move: grabMove, end: grabEnd } });
 
 // ---- gaps ----
 
@@ -3104,7 +3155,7 @@ window.zslice = {
   turnRings,
   supportTool,
   app, view, view2d, layers, browser, client, gl, inspector, gaps, history, undoRedo, tools, store, managePrinters, openPrinterSettings, loadProfile, setSetting, pickAt, topLayerPoint, openCheck, frameTimes,
-  select, showPage, showTab, hitAt, showContextMenu, step, bench, benchPick, settleSelected,
+  select, showPage, showTab, hitAt, showContextMenu, step, bench, benchPick, settleSelected, grabStart, grabMove, grabEnd,
   get frameCount() { return frameCount; },
   get pickMs() { return pickMs; },
   requestFrame,

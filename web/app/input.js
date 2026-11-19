@@ -16,7 +16,7 @@
 //        py), select(path, seg, picked), showContextMenu(x, y),
 //        activatePlate(i, frame) }
 export function attachViewInput(canvas, ctx) {
-  const { app, view, view2d, tools, supportTool, requestFrame, pickAt, hitAt, select, showContextMenu, activatePlate } = ctx;
+  const { app, view, view2d, tools, supportTool, requestFrame, pickAt, hitAt, select, showContextMenu, activatePlate, grab } = ctx;
   let drag = null;
   const dpr = () => window.devicePixelRatio || 1;
 
@@ -91,6 +91,17 @@ export function attachViewInput(canvas, ctx) {
         return;
       }
     }
+    // The Grab tool in 3D: a press on a part takes it in the hand.
+    if (e.button === 0 && app.page === "3d" && view.loaded && tools.tool === "grab" && grab) {
+      const d = drag;
+      d.hand = "pending";
+      const r = canvas.getBoundingClientRect();
+      grab.start((e.clientX - r.left) * dpr(), (e.clientY - r.top) * dpr()).then((ok) => {
+        if (drag === d) d.hand = ok ? "on" : null;
+        else if (ok) grab.end();
+      });
+      return;
+    }
     // The move tool, or Ctrl, in 3D: a left drag on a part moves it.
     if (e.button === 0 && app.page === "3d" && view.loaded && (tools.tool === "move" || e.ctrlKey)) {
       const d = drag;
@@ -119,6 +130,13 @@ export function attachViewInput(canvas, ctx) {
       tools.moveTo((e.clientX - r.left) * dpr(), (e.clientY - r.top) * dpr());
       return;
     }
+    if (drag.hand) {
+      if (drag.hand === "on") {
+        const r = canvas.getBoundingClientRect();
+        grab.move((e.clientX - r.left) * dpr(), (e.clientY - r.top) * dpr());
+      }
+      return;
+    }
     if (drag.part === "pending") return;
     // A left drag orbits. A right drag (two fingers pressed down on a
     // touchpad) and a middle drag pan, as Shift with a left drag does.
@@ -130,6 +148,10 @@ export function attachViewInput(canvas, ctx) {
   canvas.addEventListener("pointerup", (e) => {
     const d = drag;
     endDrag();
+    if (d?.hand) {
+      grab.end();
+      return;
+    }
     if (d?.part === "moving") {
       tools.moveEnd();
       return;

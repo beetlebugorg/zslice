@@ -787,6 +787,38 @@ pub const App = struct {
         const part = &app.plate.parts.items[i];
         const st = try zs.physics.settle(app.gpa, &part.mesh);
         if (st.rolls == 0) return false;
+        try app.bodyOf(i);
+        return true;
+    }
+
+    /// The hand takes part i at the bed point `at` (on its surface): the
+    /// part follows the hand as a real object does (rigid.Grab), and the
+    /// steps of fallStep move it. False: a fall runs.
+    pub fn grabStart(app: *App, i: usize, at: [3]f64) Allocator.Error!bool {
+        if (app.fall != null or i >= app.plate.count()) return false;
+        try app.bodyOf(i);
+        app.fall.?.body.grabAt(at, at);
+        return true;
+    }
+
+    /// The hand moves to `target` (bed point, mm).
+    pub fn grabMove(app: *App, target: [3]f64) void {
+        const f = &(app.fall orelse return);
+        if (f.body.grab) |*g| g.target = .{ target[0], target[1], @max(target[2], 0) };
+        f.body.wake();
+    }
+
+    /// The hand lets go: the part keeps its speed, falls, and rests (the
+    /// steps of fallStep end the fall on the plate).
+    pub fn grabEnd(app: *App) void {
+        const f = &(app.fall orelse return);
+        f.body.grab = null;
+        f.body.wake();
+    }
+
+    /// The body of part i as it is on the bed, as the fall.
+    fn bodyOf(app: *App, i: usize) Allocator.Error!void {
+        const part = &app.plate.parts.items[i];
         // The mesh in the frame of the bed.
         var m = try part.mesh.clone(app.gpa);
         defer m.deinit(app.gpa);
@@ -803,7 +835,6 @@ pub const App = struct {
         }
         const body = try zs.rigid.Body.init(app.gpa, &m);
         app.fall = .{ .part = i, .body = body, .start = body.pos };
-        return true;
     }
 
     /// Runs the fall for dt seconds (fixed steps, at most 1/8 s). Null: no
@@ -813,7 +844,8 @@ pub const App = struct {
         const steps: usize = @intFromFloat(@ceil(std.math.clamp(dt, 0, 0.125) / zs.rigid.step_dt));
         for (0..@max(steps, 1)) |_| {
             f.body.step(zs.rigid.step_dt);
-            f.time += zs.rigid.step_dt;
+            // The time limit counts from the release of the hand.
+            f.time = if (f.body.grab != null) 0 else f.time + zs.rigid.step_dt;
         }
         const b = f.body;
         const frame: FallFrame = .{
@@ -3599,4 +3631,38 @@ test "app: support turned off under a part that cannot stand: it is the unstable
     try testing.expect(try app.unstablePart() == null);
     try app.setSetting("project.support", "off");
     try testing.expectEqual(@as(?usize, 0), try app.unstablePart());
+}
+
+test "app: the hand carries a part, lets go, and it rests on the plate" {
+    const gpa = testing.allocator;
+    var b: zs.mesh.Builder = .init(gpa);
+    try zs.mesh.shapes.addBox(&b, 0, 0, 0, 30, 20, 10);
+    var mesh = try b.finish();
+    var bytes: std.Io.Writer.Allocating = .init(gpa);
+    defer bytes.deinit();
+    try mesh.writeStl(&bytes.writer);
+    mesh.deinit(gpa);
+    const app = try App.create(gpa, null, null);
+    defer app.destroy();
+    try app.loadStl("box.stl", bytes.written());
+    const p = app.plate.parts.items[0];
+    // Take a top corner, lift it, and carry it 40 mm in x.
+    const fp = p.footprint();
+    try testing.expect(try app.grabStart(0, .{ fp[2], fp[3], 10 }));
+    var k: usize = 0;
+    while (k < 120) : (k += 1) {
+        const t: f64 = @as(f64, @floatFromInt(k)) / 120.0;
+        app.grabMove(.{ fp[2] - 40 * t, fp[3], 25 });
+        _ = try app.fallStep(1.0 / 60.0);
+    }
+    app.grabEnd();
+    var frames: usize = 0;
+    while (try app.fallStep(1.0 / 60.0)) |fr| {
+        frames += 1;
+        if (fr.done) break;
+    }
+    try testing.expect(app.fall == null);
+    try testing.expect(frames < 60 * 9);
+    const st = try zs.physics.settle(gpa, &app.plate.parts.items[0].mesh);
+    try testing.expectEqual(@as(usize, 0), st.rolls);
 }
