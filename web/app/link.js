@@ -436,6 +436,25 @@ export async function checkDeckTarget(printer) {
 // API under the deck ("" for the first, "/printers/<id>" for another).
 // Returns { ok, name, https, printers: [{ id, name, label, color, kind,
 // url }], message }.
+// The filaments that a deck printer has loaded (GET /api/plugin/printdeck,
+// "filaments"): [{ slot ("A1", "Ext"), index, tray, nozzle, material,
+// color ("#rrggbb"), name, remain }], in the order of the printer. Empty
+// trays are not in the list.
+export async function loadedFilaments(printer) {
+  if (printer?.kind !== "printdeck") return { ok: false, message: "Only a printdeck printer tells its filaments." };
+  try {
+    const r = await request(printer, "/api/plugin/printdeck", { headers: headers(printer) });
+    if (r.status === 401 || r.status === 403) return { ok: false, message: "The deck refused the key." };
+    if (!r.ok) return { ok: false, message: `The deck answered ${r.status}.` };
+    const j = await r.json();
+    const list = Array.isArray(j.filaments) ? j.filaments.filter((f) => f && typeof f.material === "string" && f.material) : [];
+    if (list.length === 0) return { ok: false, message: "The printer tells no loaded filaments. Update the deck, or load a spool." };
+    return { ok: true, list };
+  } catch (e) {
+    return { ok: false, message: explain(e, printer) };
+  }
+}
+
 export async function deckPrinters(printer) {
   try {
     const r = await request(printer, "/slicer/printer.json", { headers: headers(printer) });

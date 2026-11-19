@@ -74,7 +74,7 @@ import { attachViewInput } from "./input.js";
 import { FarmPage } from "./farm.js";
 import { Tools } from "./tools.js";
 import { SupportTool } from "./support.js";
-import { KINDS, send as sendToPrinter, test as testPrinter, requestKey, trustText, status as printerStatus, camera as printerCamera, detectKind, deckPrinters, deckAddress, plainName } from "./link.js";
+import { KINDS, send as sendToPrinter, test as testPrinter, requestKey, trustText, status as printerStatus, camera as printerCamera, detectKind, deckPrinters, deckAddress, plainName, loadedFilaments } from "./link.js";
 import { CameraView } from "./camera.js";
 import { signGcode, keyId as signingKeyId, supported as canSign, UNSUPPORTED as NO_SIGNATURES } from "./signing.js";
 import { contextItems } from "./context-menu.js";
@@ -1346,6 +1346,23 @@ $("filament-menu").onclick = () => {
     ? `${store.printer || "This printer"} changes the filament by itself. Add the filaments it has, then give a part or layers a filament (right click, or the card of a part).`
     : "Add a filament to print in more colors: the print pauses at each change.";
   box.append(list.node, note);
+  // The filaments that the printer has loaded (a printdeck printer).
+  const pr = currentPrinter();
+  if (pr?.kind === "printdeck") {
+    const use = document.createElement("button");
+    use.className = "fil-use";
+    use.textContent = `Use the filaments of ${pr.name}`;
+    use.title = "Read the spools that the printer has loaded (the AMS trays and the external spool), and make the filaments of the plate the same: count, material, and color";
+    use.onclick = async () => {
+      use.disabled = true;
+      use.textContent = "Reading the printer…";
+      const r = await useLoadedFilaments(pr);
+      use.disabled = false;
+      use.textContent = `Use the filaments of ${pr.name}`;
+      toast(r.message);
+    };
+    box.insertBefore(use, note);
+  }
   const now = value("filament.material").toLowerCase();
   const mats = document.createElement("div");
   mats.className = "fil-pop-mats";
@@ -1373,6 +1390,41 @@ $("filament-menu").onclick = () => {
   box.append(mats);
   openPopover($("filament-menu"), box);
 };
+
+// Makes the filaments of the plate the loaded filaments of printer `pr`:
+// the same count, then the material and the color of each, in the order
+// of the printer (filament k prints from its spool k). A material that
+// zslice does not know keeps the material of the filament.
+async function useLoadedFilaments(pr) {
+  const r = await loadedFilaments(pr);
+  if (!r.ok) return r;
+  const want = r.list.slice(0, 16);
+  let have = filaments().length;
+  while (have < want.length) {
+    const a = await client.call("filamentAdd", {});
+    if (a.list) setFilaments(a.list);
+    if (!(a.index >= 0)) break;
+    have++;
+  }
+  while (have > want.length) {
+    const a = await client.call("filamentRemove", { index: have - 1 });
+    if (a.list) setFilaments(a.list);
+    have--;
+  }
+  for (let k = 0; k < Math.min(have, want.length); k++) {
+    const f = want[k];
+    const m = await client.call("filamentSet", { index: k, name: "filament.material", value: f.material.toUpperCase() });
+    if (m.list) setFilaments(m.list);
+    if (k === 0 && !m.error) applySettings(m);
+    if (/^#[0-9a-f]{6}$/i.test(f.color ?? "")) {
+      const c = await client.call("filamentSet", { index: k, name: "filament.color", value: f.color });
+      if (c.list) setFilaments(c.list);
+      if (k === 0) applySettings(c);
+    }
+  }
+  const words = want.map((f) => `${f.slot || "roll"} ${f.material}`).join(", ");
+  return { ok: true, message: `${want.length} ${want.length === 1 ? "filament" : "filaments"} from ${pr.name}: ${words}.` };
+}
 
 // The filament button: a dot in the color of each filament of the plate,
 // and the name of the filament, or the count of filaments.

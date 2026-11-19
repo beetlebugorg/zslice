@@ -8,7 +8,7 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
 import { createServer } from "node:http";
-import { checkDeckTarget, deckAddress, fetchOptions, plainName, test, webAddress } from "./link.js";
+import { checkDeckTarget, loadedFilaments, deckAddress, fetchOptions, plainName, test, webAddress } from "./link.js";
 
 function check(ok, what) {
   if (!ok) throw new Error(`failed: ${what}`);
@@ -77,6 +77,23 @@ check(!v.ok, "a path that leads to another deck printer is refused");
 v = await checkDeckTarget({ name: "Mine", kind: "printdeck", url: `${deckUrl}/printers/gone`, apiKey: "k" });
 check(!v.ok, "a path that the deck does not have is refused");
 deck.close();
+
+// The loaded filaments of a deck printer, in the order of the printer.
+const spools = await listen((req, res) => {
+  res.writeHead(200, { "Content-Type": "application/json", "Access-Control-Allow-Origin": "*" });
+  if (req.url !== "/printers/x2d/api/plugin/printdeck") return res.end("{}");
+  res.end(JSON.stringify({ printer_id: "x2d", filaments: [
+    { slot: "A1", index: 0, tray: 0, material: "PLA", color: "#898989", name: "Bambu PLA Basic", remain: 0.8 },
+    { slot: "A3", index: 1, tray: 2, nozzle: "main", material: "PETG", color: "#161616", remain: null },
+    { slot: "Ext", index: 2, tray: 255, nozzle: "aux", material: "PLA", color: "#dcdcdc", remain: null },
+  ] }));
+});
+const spoolsUrl = `http://127.0.0.1:${spools.address().port}`;
+let lf = await loadedFilaments({ name: "X2D", kind: "printdeck", url: `${spoolsUrl}/printers/x2d`, apiKey: "k" });
+check(lf.ok && lf.list.length === 3 && lf.list[1].material === "PETG" && lf.list[2].slot === "Ext", "the three spools of the X2D");
+lf = await loadedFilaments({ name: "TAZ", kind: "printdeck", url: spoolsUrl, apiKey: "k" });
+check(!lf.ok, "a deck that tells no spools");
+spools.close();
 
 printer.close();
 other.close();

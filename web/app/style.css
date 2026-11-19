@@ -1061,3 +1061,4 @@ button.destructive { background: #c01c28; color: #fff; }
 .fil-pop-matrow { display: flex; flex-wrap: wrap; gap: 4px; }
 .fil-pop-matrow button { width: auto; flex: none; padding: 3px 10px; min-height: 26px; border-radius: 13px; border: 1px solid rgba(127, 127, 127, 0.35); }
 .fil-pop-matrow button.checked { background: var(--accent-bg); color: #fff; border-color: transparent; }
+.fil-use { align-self: flex-start; padding: 4px 12px; min-height: 28px; border-radius: 14px; border: 1px solid rgba(127, 127, 127, 0.45); }
