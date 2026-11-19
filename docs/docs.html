@@ -80,16 +80,28 @@
   <a class="btn" href="https://github.com/beetlebugorg/zslice">Source on GitHub</a>
 </p>
 <figure class="shot"><img src="img/hero.webp" alt="The zslice web app: a 3DBenchy, sliced, in the colors of its features"></figure>
+<p><strong>zslice is an experimental slicer.</strong> It has three goals:</p>
+<ul><li><strong>Very fast slicing:</strong> a change of a setting shows in the view at once, at 60 frames a second.</li><li><strong>New ways to use a slicer:</strong> trials of new UI and UX models, for example the slice as the whole UI, a click on a line to see why it prints as it does, and direct edits in the 3D view.</li><li><strong>Feature ideas:</strong> for example a physical simulation of the plastic, so that the real sag of the filament shows before you print, fitted to measured test prints.</li></ul>
+<p>Expect changes and rough edges. Check each print in the view before you send it to a printer.</p>
 <h2 id="the-best-of-it">The best of it</h2>
+<h3 id="speed">Speed</h3>
+<img class="side side-right" src="img/line-card.webp" alt="A click on a line of the 3DBenchy: the card of the line, with its speed, flow, and the settings that change it">
+<p>The view runs at 60 frames a second, and a slice keeps up with your edits. On a 3DBenchy (8 cores):</p>
+<ul><li>A full slice: about 0.3 s.</li><li>A change of a speed, the fan, a temperature, or the flow: about 15 ms. The paths stay; only the G-code is made again.</li><li>A change of the infill: about 30 ms. A change of the walls: about 0.2 s.</li><li>A drag of a part, a tree branch, or a setting slider shows the result as you move.</li></ul>
+<p>zslice keeps the work of the last slice, and makes again only what a change touches. A new change stops a slice that runs in under 15 ms.</p>
+<div class="side-clear"></div>
 <h3 id="the-print-as-it-forms">The print as it forms</h3>
-<figure class="shot"><img src="img/sim-forms.webp" alt="A bridge 80 mm long prints and sags. Then a slab prints over the air on each side of a post, and its plastic falls in strands" loading="lazy"></figure>
-<p>zslice simulates the plastic as it leaves the nozzle. It cools with the fan, and it sags or falls where no plastic holds it. A bridge sags. A slab over the air falls in strands, and the next layers print on them.</p>
+<img class="side side-left" src="img/sim-forms.webp" alt="A bridge 80 mm long prints and sags. Then a slab prints over the air on each side of a post, and its plastic falls in strands">
+<p>zslice simulates the plastic as it leaves the nozzle. It cools with the fan, and it sags or falls where no plastic holds it. A bridge sags. A slab over the air falls in strands, and the next layers print on them. The physics is fitted to measured test prints, and it runs after each slice.</p>
+<div class="side-clear"></div>
 <h3 id="parts-with-real-physics">Parts with real physics</h3>
-<figure class="shot"><img src="img/fall.webp" alt="A board stands on its thin edge. A turn tips it, and it falls over onto its wide face" loading="lazy"></figure>
-<p>A part that cannot stand falls over onto a face, as on a real bed. With the Grab tool, pick a part up and move it. Let go, and it rests flat.</p>
+<img class="side side-right" src="img/fall.webp" alt="A board stands on its thin edge. A turn tips it, and it falls over onto its wide face">
+<p>A part that cannot stand falls over onto a face, as on a real bed. A brim holds a tall part up. With the Grab tool, pick a part up and move it. Let go, and it rests flat.</p>
+<div class="side-clear"></div>
 <h3 id="a-support-editor">A support editor</h3>
-<figure class="shot"><img src="img/support-tree.webp" alt="Tree support under a shelf, with the nodes of the trees as dots to drag" loading="lazy"></figure>
-<p>Click an overhang to put support under it. Drag the dots of tree support to move the branches. zslice keeps each branch within the rules.</p>
+<img class="side side-left" src="img/support-tree.webp" alt="Tree support under a shelf, with the nodes of the trees as dots to drag">
+<p>Click an overhang to put support under it. Drag the dots of tree support to move the branches. Change a support from grid to tree or a pad with one click. zslice keeps each branch within the rules.</p>
+<div class="side-clear"></div>
 <p>All features: <a href="user/features/">The best features</a>.</p>
 
 <h2 id="docs">The guide</h2>

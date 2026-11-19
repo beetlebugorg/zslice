@@ -41,7 +41,8 @@ function freePort() {
 export async function serve(extra = {}) {
   const app = path.join(ROOT, "zig-out/web/app");
   const dir = await mkdtemp(path.join(tmpdir(), "zslice-docs-"));
-  for (const f of await readdir(app)) await symlink(path.join(app, f), path.join(dir, f));
+  // A file of `extra` wins over a file of the same name in the build.
+  for (const f of await readdir(app)) if (!(f in extra)) await symlink(path.join(app, f), path.join(dir, f));
   for (const [name, file] of Object.entries(extra)) await symlink(path.resolve(file), path.join(dir, name));
   const port = await freePort();
   const py = spawn("python3", [path.join(ROOT, "web/app/serve.py"), dir, "--port", String(port)], { stdio: "ignore" });

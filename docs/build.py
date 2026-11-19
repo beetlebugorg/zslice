@@ -473,6 +473,14 @@ footer a { color: inherit; }
 h1 .num { display: inline-block; background: var(--ink); color: var(--paper); border-radius: 6px; padding: 0 10px 2px;
   margin-right: 14px; box-shadow: inset 0 -4px 0 var(--orange); }
 figure.shot { margin: 18px 0 28px; max-width: 980px; }
+/* The side pictures of the home page (from the README): beside the text,
+   on each side in turn; full width on a narrow screen. */
+img.side { width: 340px; max-width: 45%; border-radius: 10px; margin: 4px 0 14px; }
+img.side-right { float: right; margin-left: 22px; }
+img.side-left { float: left; margin-right: 22px; }
+.side-clear { clear: both; }
+h3 { clear: both; }
+@media (max-width: 720px) { img.side { float: none; width: 100%; max-width: 100%; margin: 8px 0; } }
 figure.shot img { display: block; width: 100%; border: 4px solid var(--ink); border-radius: 12px; box-shadow: 6px 6px 0 var(--edge);
   background: var(--plate); }
 figure.shot figcaption { margin-top: 12px; font: 600 13px/1.4 var(--mono); color: var(--dim); max-width: 76ch; }
@@ -604,9 +612,32 @@ def landing():
     text = re.sub(r"^# .*\n", "", read(src))
     # The README picture under the title: the page shows it as the hero.
     text = re.sub(r"^\s*!\[[^\]]*\]\([^)]*\)\s*\n", "", text, count=1)
+    text = re.sub(r"^\s*<img [^>]*>\s*\n", "", text, count=1)
+    # The pictures of the README (HTML img, for their size and side) point
+    # at docs/ from the root of the repo; the page is in docs/.
+    text = text.replace('src="docs/', 'src="')
+    # The note of the README (a quote with a list): plain text here.
+    text = re.sub(r"(?m)^> ?", "", text)
+    # The side pictures and their clears pass through as HTML: a token
+    # each, put back after the Markdown.
+    raw = []
+
+    def keep(m):
+        tag = m.group(0).strip()
+        side = re.search(r'align="(left|right)"', tag)
+        if side:
+            tag = re.sub(r'\s(align|width)="[^"]*"', "", tag).replace("<img", f'<img class="side side-{side.group(1)}"', 1)
+        elif tag.startswith("<br"):
+            tag = '<div class="side-clear"></div>'
+        raw.append(tag)
+        return f"\nZSRAW{len(raw) - 1}\n"
+
+    text = re.sub(r"(?m)^\s*(<img [^>]*>|<br clear=\"\w+\">)\s*$", keep, text)
     conv = Markdown("", root)
     conv.ids.update({"docs"})
     html_body = conv.convert(text)
+    for k, tag in enumerate(raw):
+        html_body = html_body.replace(f"<p>ZSRAW{k}</p>", tag)
     paras = re.match(r"<p>(.*?)</p>\n?", html_body, re.S)
     lede, rest = paras.group(1), html_body[paras.end():]
     # The map of the guide goes after the best features, before the start and the links.

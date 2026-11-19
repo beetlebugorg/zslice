@@ -1,28 +1,56 @@
 # zslice
 
-![The zslice web app: a 3DBenchy, sliced, in the colors of its features](docs/img/hero.webp)
+<img width="720" src="docs/img/hero.webp" alt="The zslice web app: a 3DBenchy, sliced, in the colors of its features">
 
 zslice is a slicer for FDM 3D printers, written from scratch in Zig. It shows the print as the plastic forms it, before you print. It runs in your browser: **[open zslice.beetlebug.org](https://zslice.beetlebug.org/)**. No install is necessary, and your files stay on your computer.
 
+> **zslice is an experimental slicer.** It has three goals:
+> - **Very fast slicing:** a change of a setting shows in the view at once, at 60 frames a second.
+> - **New ways to use a slicer:** trials of new UI and UX models, for example the slice as the whole UI, a click on a line to see why it prints as it does, and direct edits in the 3D view.
+> - **Feature ideas:** for example a physical simulation of the plastic, so that the real sag of the filament shows before you print, fitted to measured test prints.
+>
+> Expect changes and rough edges. Check each print in the view before you send it to a printer.
+
 ## The best of it
+
+### Speed
+
+<img align="right" width="360" src="docs/img/line-card.webp" alt="A click on a line of the 3DBenchy: the card of the line, with its speed, flow, and the settings that change it">
+
+The view runs at 60 frames a second, and a slice keeps up with your edits. On a 3DBenchy (8 cores):
+
+- A full slice: about 0.3 s.
+- A change of a speed, the fan, a temperature, or the flow: about 15 ms. The paths stay; only the G-code is made again.
+- A change of the infill: about 30 ms. A change of the walls: about 0.2 s.
+- A drag of a part, a tree branch, or a setting slider shows the result as you move.
+
+zslice keeps the work of the last slice, and makes again only what a change touches. A new change stops a slice that runs in under 15 ms.
+
+<br clear="right">
 
 ### The print as it forms
 
-![A bridge 80 mm long prints and sags. Then a slab prints over the air on each side of a post, and its plastic falls in strands](docs/img/sim-forms.webp)
+<img align="left" width="360" src="docs/img/sim-forms.webp" alt="A bridge 80 mm long prints and sags. Then a slab prints over the air on each side of a post, and its plastic falls in strands">
 
-zslice simulates the plastic as it leaves the nozzle. It cools with the fan, and it sags or falls where no plastic holds it. A bridge sags. A slab over the air falls in strands, and the next layers print on them.
+zslice simulates the plastic as it leaves the nozzle. It cools with the fan, and it sags or falls where no plastic holds it. A bridge sags. A slab over the air falls in strands, and the next layers print on them. The physics is fitted to measured test prints, and it runs after each slice.
+
+<br clear="left">
 
 ### Parts with real physics
 
-![A board stands on its thin edge. A turn tips it, and it falls over onto its wide face](docs/img/fall.webp)
+<img align="right" width="360" src="docs/img/fall.webp" alt="A board stands on its thin edge. A turn tips it, and it falls over onto its wide face">
 
-A part that cannot stand falls over onto a face, as on a real bed. With the Grab tool, pick a part up and move it. Let go, and it rests flat.
+A part that cannot stand falls over onto a face, as on a real bed. A brim holds a tall part up. With the Grab tool, pick a part up and move it. Let go, and it rests flat.
+
+<br clear="right">
 
 ### A support editor
 
-![Tree support under a shelf, with the nodes of the trees as dots to drag](docs/img/support-tree.webp)
+<img align="left" width="360" src="docs/img/support-tree.webp" alt="Tree support under a shelf, with the nodes of the trees as dots to drag">
 
-Click an overhang to put support under it. Drag the dots of tree support to move the branches. zslice keeps each branch within the rules.
+Click an overhang to put support under it. Drag the dots of tree support to move the branches. Change a support from grid to tree or a pad with one click. zslice keeps each branch within the rules.
+
+<br clear="left">
 
 All features: [The best features](docs/user/features.md).
 
