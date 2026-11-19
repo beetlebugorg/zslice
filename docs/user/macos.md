@@ -123,6 +123,8 @@ The first search of the network asks for the permission to find devices on the l
 
 A plate can print with more than one filament. The print card lists the filaments of the plate: the color, the material, and the grams of each in the last slice, and the number of filament changes. Add a Filament adds one, and × removes one (its parts and layers print with filament 1). The part card and the card of a range of layers have a row of color chips: a click prints the part or the layers with that filament. A Bambu Lab printer gets a .gcode.3mf on Export, with the filaments of the print in it.
 
+The Paint tool (P) paints filaments on the surface of a part. It shows the mesh of the part in the colors of its paint, in place of the print. Smart Select lights the region under the pointer, and a click paints it with the filament of the card: a part of the mesh that stands out of its surface (a raised letter: its top and its sides) or sinks into it, else a flat or smooth face. Shift and a click add regions; a chip of another filament then paints all of them. Brush paints a sphere of its size along a drag, and splits the triangles on its edge for a clean border. A right drag turns the view. Each click or stroke slices again, and each painted region prints as its own part of the layer, with its walls and infill. Remove All Paint gives the part its own filament again. Esc, P, or another tool closes it.
+
 The Filament and Quality menus sit beside the printer menu in the toolbar. They list the built-in profiles and your own, and have Save as Profile. The Quality menu shows a dot when this print has changes on top of the quality. Your profiles are in `~/Library/Application Support/zslice/profiles/filament` and `profiles/project`.
 
 ## A farm

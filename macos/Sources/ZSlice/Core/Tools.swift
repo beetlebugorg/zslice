@@ -33,7 +33,7 @@ import AppKit
 import CZslice
 
 enum Tool: String, CaseIterable {
-    case select, move, turn, grab, measure, support
+    case select, move, turn, grab, measure, support, paint
 
     var key: String {
         switch self {
@@ -43,6 +43,7 @@ enum Tool: String, CaseIterable {
         case .grab: "h"
         case .measure: "t"
         case .support: "s"
+        case .paint: "p"
         }
     }
 
@@ -59,6 +60,7 @@ enum Tool: String, CaseIterable {
         case .grab: "Grab"
         case .measure: "Measure"
         case .support: "Support"
+        case .paint: "Paint"
         }
     }
 
@@ -70,6 +72,7 @@ enum Tool: String, CaseIterable {
         case .grab: "hand.raised"
         case .measure: "ruler"
         case .support: "pencil.and.outline"
+        case .paint: "paintbrush.pointed"
         }
     }
 
@@ -81,6 +84,7 @@ enum Tool: String, CaseIterable {
         case .grab: "Grab (H): click a part to pick it up, and move the pointer to carry it as a real object. Option and a move turn it (Shift: 15° steps), and the wheel lifts it. Click again, or press Esc, to let go: it keeps its speed, falls, and rests flat on the plate."
         case .measure: "Measure (T): click two points of the print or the bed. A click on a circle or an arc measures from its center. Shift: no snap. Esc clears."
         case .support: "Support (S): click points on the part to draw an area of support, or of no support. Click the first point or press Return to close it. Click an outline to select an area, and drag its points."
+        case .paint: "Paint (P): paint filaments on the surface of a part. Click a raised letter, a logo, or a face to paint it (Shift: add more), or drag the brush. A right drag turns the view."
         }
     }
 }
@@ -120,6 +124,9 @@ extension Workspace {
             supportPaneOpen.toggle()
             return
         }
+        // The Paint tool shows the mesh of the part; another tool, the beads.
+        if t == .paint, was != .paint, !openPaint() { return }
+        if t != .paint, was == .paint { closePaint() }
         tool = t
         if (was == .support) != (t == .support) { supportToolChanged(on: t == .support) }
         if t != .measure { clearTape() }
@@ -232,6 +239,7 @@ extension Workspace {
     /// A press: the Move tool or Command on a part starts a move, and the
     /// Measure tool on an end of the tape starts a drag of that end.
     func press(_ p: CGPoint, _ flags: NSEvent.ModifierFlags) -> Bool {
+        if tool == .paint, flags.isDisjoint(with: [.command, .control, .option]) { return paintPress(p, flags) }
         if supportPress(p) { return true }
         // The Select tool: a press on a dot of a picked support tree drags it.
         if tool == .select, page == .threeD, supportPick?.tree == true, flags.isDisjoint(with: [.shift, .command, .option]), treePress(p) {
@@ -293,6 +301,10 @@ extension Workspace {
     }
 
     func drag(_ p: CGPoint, _ flags: NSEvent.ModifierFlags) {
+        if tool == .paint {
+            paintDrag(p)
+            return
+        }
         if grabbing, let v = canvas.view {
             // Option and a drag: turn the part in the hand (0.5° a point):
             // left and right about the vertical, up and down about the
@@ -373,6 +385,10 @@ extension Workspace {
     /// Select tool, which is a click.
     @discardableResult
     func release(_ p: CGPoint) -> Bool {
+        if tool == .paint {
+            paintRelease()
+            return true
+        }
         if rangeDrag != nil { return rangeReleased() }
         // The hand keeps the part after the click: the pointer carries it,
         // and the next click (or Esc) lets go.

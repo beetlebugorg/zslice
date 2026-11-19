@@ -32,6 +32,7 @@ struct ShortcutSheet: View {
             ("T", "Measure: click two points (Shift: no snap)"),
             ("H", "Grab: click a part to pick it up, move to carry it (⌥: turn, ⇧: 15°, wheel: lift), click or Esc to let go"),
             ("S or U", "Support: draw an area of support (S again: show or hide its card)"),
+            ("P", "Paint: click a region of a part to paint it with a filament (Shift: add more), or drag the brush; Esc closes"),
             ("⌘-drag", "Move a part in any tool"),
             ("⌘-scroll", "Turn the selected part by 15°"),
             ("Esc", "Clear the measure, the selection, or close a card"),

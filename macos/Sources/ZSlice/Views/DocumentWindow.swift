@@ -238,8 +238,16 @@ struct DocumentWindow: View {
                             .padding(.top, 50)
                             .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
                     }
-                    // The Turn and Grab tools work on the part itself: no card.
-                    if let i = workspace.selectedPart, workspace.tool != .turn, workspace.tool != .grab {
+                    if let p = workspace.paint, workspace.page == .threeD {
+                        // At the left, next to the tools, so it never covers the part.
+                        PaintCard(workspace: workspace, paint: p)
+                            .fixedSize()
+                            .padding(.leading, 95)
+                            .padding(.top, 50)
+                            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+                    }
+                    // The Turn, Grab, and Paint tools work on the part itself: no card.
+                    if let i = workspace.selectedPart, workspace.tool != .turn, workspace.tool != .grab, workspace.tool != .paint {
                         PartCard(workspace: workspace, index: i, area: geo.size)
                             .id(i)
                     }

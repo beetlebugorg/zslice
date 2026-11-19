@@ -261,6 +261,21 @@ final class MetalSliceView: NSView {
         requestFrame()
     }
 
+    /// The mesh of the Paint tool: drawn in place of the beads (nil: off).
+    var paintMesh: PaintMesh? {
+        get { renderer?.paint }
+        set {
+            renderer?.paint = newValue
+            requestFrame()
+        }
+    }
+
+    /// A new mesh for the Paint tool (6 floats for each vertex).
+    func makePaintMesh(posnorm: [Float]) -> PaintMesh? {
+        guard let renderer else { return nil }
+        return PaintMesh(device: renderer.device, posnorm: posnorm)
+    }
+
     func requestFrame() {
         needsFrame = true
         link?.isPaused = false
