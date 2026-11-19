@@ -70,6 +70,8 @@ typedef struct {
     GtkWidget *root;
     gboolean scrub_quiet;
     GtkWidget *colors;
+    /* The colors button of the tool strip, and its choices (by mode). */
+    GtkWidget *colors_button, *color_choices[6];
     GtkWidget *legend;
     GtkWidget *play;
     GtkWidget *speed;
@@ -661,6 +663,16 @@ static void on_color_mode(GObject *dd, GParamSpec *pspec, gpointer data) {
     /* A color mode is for the 3D view. */
     gtk_stack_set_visible_child_name(GTK_STACK(p->stack), "3d");
     show_legend(p);
+    /* The button of the tool strip names the colors, and its menu marks
+     * them. */
+    static const char *names[] = {"Filament", "Feature", "Speed", "Flow", "Layer time", "Line width"};
+    if (p->colors_button && mode < 6) {
+        char *tip = g_strdup_printf("The colors of the lines: %s", names[mode]);
+        gtk_widget_set_tooltip_text(p->colors_button, tip);
+        g_free(tip);
+        if (!gtk_check_button_get_active(GTK_CHECK_BUTTON(p->color_choices[mode])))
+            gtk_check_button_set_active(GTK_CHECK_BUTTON(p->color_choices[mode]), TRUE);
+    }
     /* The menu is in the header bar: the focus goes back to the view, for
      * its keys. */
     GtkRoot *root = p->root ? gtk_widget_get_root(p->root) : NULL;
@@ -925,6 +937,7 @@ static void preview_free(gpointer data) {
     /* The view bar is in the header bar, and can live on: its signals
      * stop here. The preview keeps a reference to it. */
     g_signal_handlers_disconnect_by_data(p->colors, p);
+    g_object_unref(p->colors);
     g_object_unref(p->view_bar);
     g_signal_handlers_disconnect_by_data(p->model, p);
     free_paths(p);
@@ -1360,7 +1373,8 @@ static void on_mark_activated(ZgLayerRange *range, guint index, gpointer data);
 
 /* The glyph of a tool, in the color of the text: 0 an arrow (select), 1 a
  * cross of arrows (move), 2 a ruler (measure), 3 an arc (turn), 4 gaps,
- * 5 a check mark, 6 a shelf on posts (support), 7 a hand (grab). */
+ * 5 a check mark, 6 a shelf on posts (support), 7 a hand (grab), 8 a
+ * palette (the colors of the lines). */
 static void draw_tool(GtkDrawingArea *a, cairo_t *cr, int w, int h, gpointer data) {
     int kind = GPOINTER_TO_INT(data);
     GdkRGBA c;
@@ -1447,6 +1461,23 @@ static void draw_tool(GtkDrawingArea *a, cairo_t *cr, int w, int h, gpointer dat
         cairo_arc(cr, 3.6, 9.35, 1.2, 2.567, 5.707);
         cairo_line_to(cr, 6, 10.4);
         cairo_stroke(cr);
+    } else if (kind == 8) {
+        /* Colors: a palette with three dots of paint. */
+        cairo_set_line_width(cr, 1.4);
+        cairo_arc_negative(cr, 9, 9, 6.5, -G_PI / 2, G_PI / 2);
+        cairo_curve_to(cr, 10, 15.5, 10.5, 14.9, 10.5, 14.2);
+        cairo_curve_to(cr, 10.5, 13.2, 9.6, 13, 9.6, 12.2);
+        cairo_curve_to(cr, 9.6, 11.4, 10.2, 11, 11, 11);
+        cairo_line_to(cr, 12.6, 11);
+        cairo_arc_negative(cr, 12.6, 8.1, 2.9, G_PI / 2, 0);
+        cairo_curve_to(cr, 15.5, 5, 12.6, 2.5, 9, 2.5);
+        cairo_close_path(cr);
+        cairo_stroke(cr);
+        const double dots[][2] = {{5.6, 8.4}, {7.6, 5.4}, {11, 5.4}};
+        for (int k = 0; k < 3; k++) {
+            cairo_arc(cr, dots[k][0], dots[k][1], 1, 0, 2 * G_PI);
+            cairo_fill(cr);
+        }
     } else if (kind == 5) {
         /* Check: a check mark in a circle. */
         cairo_arc(cr, 9, 9, 7, 0, 2 * G_PI);
@@ -1558,6 +1589,49 @@ static GtkWidget *strip_button(GtkWidget *b, int glyph_kind, const char *key, co
     return b;
 }
 
+static void on_color_choice(GtkCheckButton *b, gpointer data) {
+    Preview *p = data;
+    if (!gtk_check_button_get_active(b)) return;
+    guint mode = (guint)GPOINTER_TO_INT(g_object_get_data(G_OBJECT(b), "zg-mode"));
+    if (gtk_drop_down_get_selected(GTK_DROP_DOWN(p->colors)) != mode) gtk_drop_down_set_selected(GTK_DROP_DOWN(p->colors), mode);
+    gtk_menu_button_popdown(GTK_MENU_BUTTON(p->colors_button));
+}
+
+/* The colors of the lines: a button of the tool strip, with a menu of the
+ * modes. */
+static GtkWidget *colors_button(Preview *p) {
+    static const char *names[] = {"Filament: as the print will look", "Feature: one color for each", "Speed", "Flow",
+                                  "Layer time (red: short layers, which cool badly)", "Line width"};
+    p->colors_button = strip_button(gtk_menu_button_new(), 8, NULL, "The colors of the lines");
+    gtk_menu_button_set_direction(GTK_MENU_BUTTON(p->colors_button), GTK_ARROW_RIGHT);
+    GtkWidget *box = gtk_box_new(GTK_ORIENTATION_VERTICAL, 2);
+    GtkWidget *title = gtk_label_new("The colors of the lines");
+    gtk_widget_add_css_class(title, "heading");
+    gtk_label_set_xalign(GTK_LABEL(title), 0);
+    gtk_box_append(GTK_BOX(box), title);
+    GtkWidget *note = gtk_label_new("Speed, flow, layer time, and line width: a ramp from blue (low) to red (high).");
+    gtk_widget_add_css_class(note, "dim-label");
+    gtk_widget_add_css_class(note, "caption");
+    gtk_label_set_xalign(GTK_LABEL(note), 0);
+    gtk_label_set_wrap(GTK_LABEL(note), TRUE);
+    gtk_label_set_max_width_chars(GTK_LABEL(note), 36);
+    guint mode = gtk_drop_down_get_selected(GTK_DROP_DOWN(p->colors));
+    for (int i = 0; i < 6; i++) {
+        GtkWidget *c = gtk_check_button_new_with_label(names[i]);
+        if (i > 0) gtk_check_button_set_group(GTK_CHECK_BUTTON(c), GTK_CHECK_BUTTON(p->color_choices[0]));
+        gtk_check_button_set_active(GTK_CHECK_BUTTON(c), (guint)i == mode);
+        g_object_set_data(G_OBJECT(c), "zg-mode", GINT_TO_POINTER(i));
+        g_signal_connect(c, "toggled", G_CALLBACK(on_color_choice), p);
+        p->color_choices[i] = c;
+        gtk_box_append(GTK_BOX(box), c);
+    }
+    gtk_box_append(GTK_BOX(box), note);
+    GtkWidget *pop = gtk_popover_new();
+    gtk_popover_set_child(GTK_POPOVER(pop), box);
+    gtk_menu_button_set_popover(GTK_MENU_BUTTON(p->colors_button), pop);
+    return p->colors_button;
+}
+
 /* The tool strip at the left of the view: the tools of the mouse (Select,
  * Move, Turn, Support, Grab, Measure), then the line tools (Gaps, Check). Each button
  * shows its key. */
@@ -1585,6 +1659,7 @@ static GtkWidget *tool_strip(Preview *p) {
     }
     gtk_toggle_button_set_active(GTK_TOGGLE_BUTTON(p->tools[zg_model_tool(p->model)]), TRUE);
     gtk_box_append(GTK_BOX(box), gtk_separator_new(GTK_ORIENTATION_HORIZONTAL));
+    gtk_box_append(GTK_BOX(box), colors_button(p));
     /* The gaps of the top layer: areas that should be solid that no bead
      * covers (see zs_app_layer_gaps). */
     p->gaps = strip_button(gtk_toggle_button_new(), 4, "G",
@@ -1803,8 +1878,10 @@ GtkWidget *zg_preview_new(ZgModel *model) {
     gtk_widget_set_focus_on_click(b2d, FALSE);
     gtk_widget_set_focus_on_click(b3d, FALSE);
     gtk_box_append(GTK_BOX(bar), switcher);
-    gtk_box_append(GTK_BOX(bar), colors);
     gtk_box_append(GTK_BOX(bar), p->legend);
+    /* The colors are a button of the tool strip; the drop-down keeps the
+     * mode. */
+    g_object_ref_sink(colors);
     p->view_bar = g_object_ref_sink(bar);
     GtkWidget *strip = tool_strip(p);
     p->gap_count = gtk_label_new("");
