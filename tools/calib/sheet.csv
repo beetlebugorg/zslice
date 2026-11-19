@@ -35,10 +35,10 @@ bridge,80 mm,deck thickness at the middle,mm,calipers across the deck at the mid
 bridge,80 mm,loose strands under the deck,yes/no,look under the deck,no,no,"user photos 2026-11-19: clean lines pier to pier, decks look flat"
 ledge,5 mm,tip thickness,mm,"calipers on the slab, 1 mm from its end",strands,,
 ledge,5 mm,height of the tip bottom,mm,calipers depth rod from the bed to the bottom of the tip,on the bed,,
-ledge,5 mm,falls in strands,yes/no,look at the slab,yes,,
+ledge,5 mm,falls in strands,yes/no,look at the slab,yes,no,"user photo 2026-11-19: the slab forms, flat on top; its first layers sag into strands, small loops hang under the tip"
 ledge,10 mm,tip thickness,mm,"calipers on the slab, 1 mm from its end",strands,,
 ledge,10 mm,height of the tip bottom,mm,calipers depth rod from the bed to the bottom of the tip,on the bed,,
-ledge,10 mm,falls in strands,yes/no,look at the slab,yes,,
+ledge,10 mm,falls in strands,yes/no,look at the slab,yes,no,"user photo 2026-11-19: the slab forms, flat on top; its first layers sag into strands, loops hang under the slab"
 ledge,20 mm,tip thickness,mm,"calipers on the slab, 1 mm from its end",strands,,
 ledge,20 mm,height of the tip bottom,mm,calipers depth rod from the bed to the bottom of the tip,on the bed,,
-ledge,20 mm,falls in strands,yes/no,look at the slab,yes,,
+ledge,20 mm,falls in strands,yes/no,look at the slab,yes,no,"user photo 2026-11-19: the slab forms, flat on top; its first layers sag into strands, long loops hang several mm under the slab"
