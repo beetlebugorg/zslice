@@ -338,7 +338,8 @@ pub fn main(init: std.process.Init) !void {
 
     const t0 = Io.Clock.awake.now(io);
     // One slice: the memos need not stay (see Job.keep_memos).
-    var job = zslice.PlateJob.init(gpa, settings, part_inputs.items, .{ .keep_memos = false }) catch |e| fail(err, "slice failed: {s}\n", .{@errorName(e)});
+    // No island search: the G-code does not use the islands.
+    var job = zslice.PlateJob.init(gpa, settings, part_inputs.items, .{ .keep_memos = false, .islands = false }) catch |e| fail(err, "slice failed: {s}\n", .{@errorName(e)});
     defer job.deinit();
     const pass1 = t0.untilNow(io, .awake);
 

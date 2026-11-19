@@ -368,6 +368,9 @@ pub const Job = struct {
         /// `trees_dropped`.
         trees: ?*const skel_mod.Skeleton = null,
         trees_layers: u64 = 0,
+        /// False: no search for the islands (`islands` stays empty). The
+        /// G-code does not use them.
+        islands: bool = true,
     };
 
     /// Steps 1 to 4.
@@ -407,7 +410,7 @@ pub const Job = struct {
         var outline_overrides: std.ArrayList(settings_mod.Override) = .empty;
         defer outline_overrides.deinit(gpa);
         for (overrides) |o| if (isOutlineSetting(o.name)) try outline_overrides.append(gpa, o);
-        var job = try initBase(gpa, mesh, settings, outline_overrides.items, opts.marks, opts.monitor, opts.old, opts.offset, opts.trees, opts.trees_layers);
+        var job = try initBase(gpa, mesh, settings, outline_overrides.items, opts.marks, opts.monitor, opts.old, opts.offset, opts.trees, opts.trees_layers, opts.islands);
         errdefer job.deinit();
         job.rings = opts.rings;
         if (overrides.len > 0) try job.resolveLayers(settings, overrides);
@@ -522,7 +525,7 @@ pub const Job = struct {
         self.layer_resolved = try list.toOwnedSlice(gpa);
     }
 
-    fn initBase(gpa: Allocator, mesh: *const Mesh, settings: Settings, outline_overrides: []const settings_mod.Override, marks: []const support_mod.Mark, monitor: Monitor, old: ?*Job, offset: ?[2]f64, trees: ?*const skel_mod.Skeleton, trees_layers: u64) Error!Job {
+    fn initBase(gpa: Allocator, mesh: *const Mesh, settings: Settings, outline_overrides: []const settings_mod.Override, marks: []const support_mod.Mark, monitor: Monitor, old: ?*Job, offset: ?[2]f64, trees: ?*const skel_mod.Skeleton, trees_layers: u64, find_islands: bool) Error!Job {
         // Step 1.
         const r = settings.resolve() catch return error.InvalidSettings;
         const threads = parallel.threadCount(settings.engine.threads);
@@ -626,6 +629,7 @@ pub const Job = struct {
             job.trees_dropped = true;
         }
         job.support = support_mod.computeTrees(gpa, job.outlines, job.layers, &r, threads, marks, &job.support_cache, .{ .user = user, .out = &job.trees }) catch |e| return @as(Error, @errorCast(e));
+        if (!find_islands) return job;
         const grow = @divTrunc(geom.fromMm(r.line_width), 4);
         job.islands_key = islandsKey(job.support, grow);
         if (old) |o| if (o.outline_key == key and o.islands_key == job.islands_key and o.islands_key != 0) {

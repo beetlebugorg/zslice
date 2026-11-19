@@ -140,6 +140,9 @@ pub const Options = struct {
     old: ?*PlateJob = null,
     /// See Job.keep_memos.
     keep_memos: bool = true,
+    /// False: no search for the shapes that start in the air (`islands`
+    /// stays empty). The G-code does not use them; a CLI slice needs none.
+    islands: bool = true,
     /// Not null: the job keeps a move stream of each level (see
     /// `PlateJob.streams`), and gets the streams of the old job if the
     /// inputs of the plans are the same. The value is a hash of the
@@ -269,6 +272,7 @@ pub const PlateJob = struct {
                 .rings = parts.len == 1,
                 .trees = p.trees,
                 .trees_layers = p.trees_layers,
+                .islands = opts.islands,
             });
             errdefer job.deinit();
             // The scaled monitor lives only in this call.
@@ -1141,4 +1145,31 @@ test "plate job: support keeps out of the brim of the plate" {
     try testing.expect(support > 0 and brim > 0);
     const r = try s.resolve();
     try testing.expect(leastGap(&lp, .support, .skirt) >= r.first_layer_line_width * 0.99);
+}
+
+test "plate job: no island search when the caller needs none, and the same G-code" {
+    const gpa = testing.allocator;
+    // A box, and a block in the air beside it, held by a bridge at the
+    // top: the block starts in the air (an island) with support off.
+    var b: mesh_mod.Builder = .init(gpa);
+    try mesh_mod.shapes.addBox(&b, 50, 50, 0, 60, 60, 10);
+    try mesh_mod.shapes.addBox(&b, 70, 50, 6, 80, 60, 10);
+    try mesh_mod.shapes.addBox(&b, 60, 50, 9, 70, 60, 10);
+    var mesh = try b.finish();
+    defer mesh.deinit(gpa);
+    var s: Settings = .{};
+    s.engine.threads = 1;
+    s.project.placement = .file;
+    const parts = [_]PartInput{.{ .mesh = &mesh, .part = 0 }};
+    var with = try PlateJob.init(gpa, s, &parts, .{});
+    defer with.deinit();
+    var without = try PlateJob.init(gpa, s, &parts, .{ .islands = false });
+    defer without.deinit();
+    try testing.expect(with.islands.len > 0);
+    try testing.expectEqual(@as(usize, 0), without.islands.len);
+    const a = try gcodeOf(&with);
+    defer gpa.free(a);
+    const c = try gcodeOf(&without);
+    defer gpa.free(c);
+    try testing.expectEqualStrings(a, c);
 }
