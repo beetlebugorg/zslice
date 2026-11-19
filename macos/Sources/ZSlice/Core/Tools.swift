@@ -344,7 +344,12 @@ extension Workspace {
             f.then?()
             return false
         }
-        if let v = canvas.view {
+        // Only while the part falls (rc 1). The frame of the rest is not
+        // shown: the core has the part at its new place already, and the
+        // new beads of its slice end the preview. A preview after that
+        // drew the new beads with the whole move of the fall, sunk into
+        // the bed (the bottom layers went missing).
+        if rc == 1, falling != nil, let v = canvas.view {
             let o = out.map(Float.init)
             zs_view_part_preview(v, Int32(f.part), o[0], o[1], o[2], o[3], o[4], o[5], o[6], o[7], o[8], o[9], 0)
         }
