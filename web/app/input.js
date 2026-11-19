@@ -204,7 +204,9 @@ export function attachViewInput(canvas, ctx) {
     }
     if (d.button === 0 && tools.tool === "support" && app.page === "3d") supportTool.click(px, py, e.shiftKey, e.altKey);
     else if (d.button === 0 && tools.tool === "measure") tools.measureClick(px, py, e.shiftKey);
-    else if (d.button === 0 && app.page === "3d" && (tools.tool === "move" || tools.tool === "turn" || e.ctrlKey)) tools.pickPart(px, py);
+    // Shift or Ctrl with a click selects the part under the pointer (in
+    // the Select tool too).
+    else if (d.button === 0 && app.page === "3d" && (tools.tool === "move" || tools.tool === "turn" || e.ctrlKey || e.shiftKey)) tools.pickPart(px, py);
     else if (d.button === 0) pickAt(px, py, true);
     else if (d.button === 2) {
       // A right click: the line there, then the menu.

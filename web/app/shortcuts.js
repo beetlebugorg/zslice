@@ -57,7 +57,7 @@ export const SHORTCUTS = [
       ["D", "Duplicate the selected part"],
       ["Delete (a selected line)", "Take the line out of the print: an edit, kept across slices (Ctrl+Z undoes it)"],
       ["Delete", "Remove the selected part"],
-      ["Shift+click", "Add a line to the selection"],
+      ["Shift+click, Ctrl+click", "Select the part under the pointer"],
       ["Shift (measure, support)", "No snap"],
     ],
   },
