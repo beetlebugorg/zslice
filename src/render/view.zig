@@ -2843,8 +2843,44 @@ pub const View = struct {
     /// and height in `key`) to `preview_hull`, and empties `run`.
     fn flushHull(v: *View, run: *std.ArrayList([2]f32), key: [2]f32, r2: f32) Error!void {
         defer run.clearRetainingCapacity();
-        const pts = run.items;
+        var pts = run.items;
         if (pts.len == 0) return;
+        // First leave out the points strictly inside the polygon of the
+        // extreme points in 8 directions (Akl and Toussaint): they are not
+        // corners of the hull, and the sort of all points of a layer was a
+        // 60 ms stall at the pickup of a large part.
+        if (pts.len > 32) {
+            var ext: [8][2]f32 = @splat(pts[0]);
+            for (pts) |q| {
+                if (q[1] < ext[0][1]) ext[0] = q;
+                if (q[0] - q[1] > ext[1][0] - ext[1][1]) ext[1] = q;
+                if (q[0] > ext[2][0]) ext[2] = q;
+                if (q[0] + q[1] > ext[3][0] + ext[3][1]) ext[3] = q;
+                if (q[1] > ext[4][1]) ext[4] = q;
+                if (q[0] - q[1] < ext[5][0] - ext[5][1]) ext[5] = q;
+                if (q[0] < ext[6][0]) ext[6] = q;
+                if (q[0] + q[1] < ext[7][0] + ext[7][1]) ext[7] = q;
+            }
+            var kept: usize = 0;
+            for (pts) |q| {
+                var inside = true;
+                var edges: usize = 0;
+                for (0..8) |e| {
+                    const a = ext[e];
+                    const b = ext[(e + 1) % 8];
+                    if (a[0] == b[0] and a[1] == b[1]) continue;
+                    edges += 1;
+                    if ((b[0] - a[0]) * (q[1] - a[1]) - (b[1] - a[1]) * (q[0] - a[0]) <= 0) {
+                        inside = false;
+                        break;
+                    }
+                }
+                if (inside and edges >= 3) continue;
+                pts[kept] = q;
+                kept += 1;
+            }
+            pts = pts[0..kept];
+        }
         std.mem.sort([2]f32, pts, {}, struct {
             fn lt(_: void, a: [2]f32, b: [2]f32) bool {
                 return a[0] < b[0] or (a[0] == b[0] and a[1] < b[1]);

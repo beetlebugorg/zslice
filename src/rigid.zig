@@ -271,16 +271,50 @@ pub const Body = struct {
         var seen: std.AutoHashMapUnmanaged(u32, void) = .empty;
         var pts: std.ArrayList(V) = .empty;
         const vs = mesh.vertices.items;
-        for (dirs) |d| {
-            var best: u32 = 0;
-            var best_d = -std.math.inf(f64);
-            for (vs, 0..) |v, i| {
-                const e = d[0] * v.x + d[1] * v.y + d[2] * v.z;
-                if (e > best_d) {
-                    best_d = e;
-                    best = @intCast(i);
-                }
+        // The farthest vertex in each direction: the vertices in the outer
+        // loop, and 8 directions at a time in vectors. One direction at a
+        // time over all vertices of a large part (an STL has 3 vertices
+        // for each face) was a 30 ms stall at each grab.
+        const lanes = 8;
+        const VF = @Vector(lanes, f32);
+        const VU = @Vector(lanes, u32);
+        const groups = (dirs.len + lanes - 1) / lanes;
+        const dx = try a.alloc(VF, groups);
+        const dy = try a.alloc(VF, groups);
+        const dz = try a.alloc(VF, groups);
+        const best_d = try a.alloc(VF, groups);
+        const best_i = try a.alloc(VU, groups);
+        for (0..groups) |g| {
+            var x: [lanes]f32 = @splat(0);
+            var y: [lanes]f32 = @splat(0);
+            var z: [lanes]f32 = @splat(0);
+            for (0..lanes) |k| if (g * lanes + k < dirs.len) {
+                const d = dirs[g * lanes + k];
+                x[k] = @floatCast(d[0]);
+                y[k] = @floatCast(d[1]);
+                z[k] = @floatCast(d[2]);
+            };
+            dx[g] = x;
+            dy[g] = y;
+            dz[g] = z;
+            best_d[g] = @splat(-std.math.inf(f32));
+            best_i[g] = @splat(0);
+        }
+        for (vs, 0..) |v, i| {
+            const vx: VF = @splat(@floatCast(v.x));
+            const vy: VF = @splat(@floatCast(v.y));
+            const vz: VF = @splat(@floatCast(v.z));
+            const iv: VU = @splat(@intCast(i));
+            for (0..groups) |g| {
+                const e = dx[g] * vx + dy[g] * vy + dz[g] * vz;
+                const more = e > best_d[g];
+                best_d[g] = @select(f32, more, e, best_d[g]);
+                best_i[g] = @select(u32, more, iv, best_i[g]);
             }
+        }
+        for (0..dirs.len) |di| {
+            const row: [lanes]u32 = best_i[di / lanes];
+            const best = row[di % lanes];
             if ((try seen.getOrPut(a, best)).found_existing) continue;
             const v = vs[best];
             try pts.append(a, sub(.{ v.x, v.y, v.z }, m.center));
