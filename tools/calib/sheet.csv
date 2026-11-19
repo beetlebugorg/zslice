@@ -33,12 +33,12 @@ bridge,60 mm,deck thickness at the middle,mm,calipers across the deck at the mid
 bridge,60 mm,loose strands under the deck,yes/no,look under the deck,no,no,"user photos 2026-11-19: clean lines pier to pier, decks look flat"
 bridge,80 mm,deck thickness at the middle,mm,calipers across the deck at the middle of the span,2.50,3.18,"user calipers 2026-11-19, top to the lowest point under the deck"
 bridge,80 mm,loose strands under the deck,yes/no,look under the deck,no,no,"user photos 2026-11-19: clean lines pier to pier, decks look flat"
-ledge,5 mm,tip thickness,mm,"calipers on the slab, 1 mm from its end",strands,,
+ledge,5 mm,tip thickness,mm,"calipers on the slab, 1 mm from its end",strands,4.25,user calipers 2026-11-19 at the tip: from the top of the slab to the lowest hanging loop (slab 1.6 mm)
 ledge,5 mm,height of the tip bottom,mm,calipers depth rod from the bed to the bottom of the tip,on the bed,,
 ledge,5 mm,falls in strands,yes/no,look at the slab,yes,no,"user photo 2026-11-19: the slab forms, flat on top; its first layers sag into strands, small loops hang under the tip"
-ledge,10 mm,tip thickness,mm,"calipers on the slab, 1 mm from its end",strands,,
+ledge,10 mm,tip thickness,mm,"calipers on the slab, 1 mm from its end",strands,5.63,user calipers 2026-11-19 at the tip: from the top of the slab to the lowest hanging loop (slab 1.6 mm)
 ledge,10 mm,height of the tip bottom,mm,calipers depth rod from the bed to the bottom of the tip,on the bed,,
 ledge,10 mm,falls in strands,yes/no,look at the slab,yes,no,"user photo 2026-11-19: the slab forms, flat on top; its first layers sag into strands, loops hang under the slab"
-ledge,20 mm,tip thickness,mm,"calipers on the slab, 1 mm from its end",strands,,
-ledge,20 mm,height of the tip bottom,mm,calipers depth rod from the bed to the bottom of the tip,on the bed,about 2 (loops),"user 2026-11-19: the lowest loops under the tip hang down to about 2 mm above the bed; the top of the slab at the tip is 9.36 mm above the bed (model 9.6), so the slab itself stays nearly level"
+ledge,20 mm,tip thickness,mm,"calipers on the slab, 1 mm from its end",strands,9.36,user calipers 2026-11-19 at the tip: from the top of the slab to the lowest hanging loop (slab 1.6 mm)
+ledge,20 mm,height of the tip bottom,mm,calipers depth rod from the bed to the bottom of the tip,on the bed,about 2 (loops),user 2026-11-19: the lowest loops hang to about 2 mm above the bed
 ledge,20 mm,falls in strands,yes/no,look at the slab,yes,no,"user photo 2026-11-19: the slab forms, flat on top; its first layers sag into strands, long loops hang several mm under the slab"
