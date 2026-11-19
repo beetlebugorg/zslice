@@ -36,7 +36,15 @@
 //!
 //! References (see REFERENCES.md): winding numbers and fill rules, the
 //! uniform grid with the Amanatides-Woo walk and a radix sort, the half-edge structure
-//! (DCEL), iterated snap rounding, the slab index, and the CSR layout.
+//! (DCEL), iterated snap rounding, snap rounding with hot pixels, the slab
+//! index, and the CSR layout.
+//!
+//! Step 2 rounds each crossing point to the grid, and a rounded point can
+//! make a new crossing. So the code repeats steps 2 and 3 until a pass
+//! finds no split points. Edges that are nearly parallel can cross again
+//! in each pass. If the passes stop at `max_passes`, the code starts again
+//! with snap rounding: each point also splits the edges that go through
+//! its "hot pixel" (the unit square around it).
 //!
 //! Known limit: a crossing point is rounded to the nearest micrometer. The
 //! rounded point can move an edge by up to 0.7 micrometers, and in rare
@@ -160,21 +168,48 @@ fn arrange(arena: Allocator, subject: Paths, clip: Paths) Allocator.Error![]Merg
     // is rounded to the grid, and the rounded point can make a new crossing.
     // So the code repeats the steps on the result until a pass finds no
     // split points ("iterated snap rounding"). Most inputs need one or two
-    // passes. A later pass only tests the pairs with a new edge: two edges
-    // that did not change were tested in the pass before.
+    // passes.
     //
-    // A crossing point is between the end points of its edges, so the
-    // points of all passes stay in the range of the input.
+    // Edges that are nearly parallel can cross again after each pass: each
+    // rounded crossing point makes new crossings. If the passes stop at
+    // `max_passes` with edges that still cross, the winding numbers are
+    // wrong, and the result can lose a large area. Then the code starts
+    // again with snap rounding (see `splitsAt`). Snap rounding adds points
+    // to edges near other points, so the code uses it only in this case.
     const narrow = isNarrow(subject) and isNarrow(clip);
-    var cur: []InEdge = edges.items;
+    var merged = try splitPasses(narrow, arena, edges.items, false);
+    if (merged.crossed) merged = try splitPasses(narrow, arena, edges.items, true);
+    if (merged.edges.len == 0) return merged.edges;
+
+    // Step 4: winding numbers on each side of each edge.
+    if (narrow) try computeWinding(true, arena, merged.edges) else try computeWinding(false, arena, merged.edges);
+    return merged.edges;
+}
+
+/// The result of `splitPasses`.
+const Passes = struct {
+    edges: []Merged,
+    /// True if the last pass still found split points: some edges can
+    /// cross.
+    crossed: bool,
+};
+
+/// Steps 2 and 3 of `arrange`: the passes of split and merge. With `snap`,
+/// the first pass uses snap rounding (see `splitsAt`). A later pass only
+/// tests the pairs with a new edge: two edges that did not change were
+/// tested in the pass before. A crossing point is between the end points
+/// of its edges, so the points of all passes stay in the range of the
+/// input.
+fn splitPasses(narrow: bool, arena: Allocator, edges: []InEdge, snap: bool) Allocator.Error!Passes {
+    var cur: []InEdge = edges;
     var merged: []Merged = &.{};
     var pass: usize = 0;
     while (true) : (pass += 1) {
         var splits: std.ArrayList(Split) = .empty;
         if (narrow) {
-            try findIntersections(true, arena, cur, &splits);
+            try findIntersections(true, arena, cur, &splits, snap and pass == 0);
         } else {
-            try findIntersections(false, arena, cur, &splits);
+            try findIntersections(false, arena, cur, &splits, snap and pass == 0);
         }
         // A later pass with no split points: the edges of the pass before
         // are the result. They are already split, merged, and in order.
@@ -184,15 +219,12 @@ fn arrange(arena: Allocator, subject: Paths, clip: Paths) Allocator.Error![]Merg
         } else {
             merged = try splitAndMerge(false, arena, cur, splits.items, pass > 0);
         }
-        if (splits.items.len == 0 or pass == max_passes) break;
+        if (splits.items.len == 0) break;
+        if (pass == max_passes) return .{ .edges = merged, .crossed = true };
         cur = try arena.alloc(InEdge, merged.len);
         for (merged, cur) |m, *e| e.* = .{ .a = m.lo, .b = m.hi, .d = m.d, .fresh = m.fresh };
     }
-    if (merged.len == 0) return merged;
-
-    // Step 4: winding numbers on each side of each edge.
-    if (narrow) try computeWinding(true, arena, merged) else try computeWinding(false, arena, merged);
-    return merged;
+    return .{ .edges = merged, .crossed = false };
 }
 
 /// Steps 5 and 6: the output loops of an operation. With `swap`, the
@@ -303,7 +335,7 @@ const Split = struct { edge: u32, p: Point, exact: bool };
 ///
 /// A pair that shares more than one cell is tested more than once. The
 /// split step removes the repeated points.
-noinline fn findIntersections(comptime narrow: bool, arena: Allocator, edges: []const InEdge, splits: *std.ArrayList(Split)) !void {
+noinline fn findIntersections(comptime narrow: bool, arena: Allocator, edges: []const InEdge, splits: *std.ArrayList(Split), snap: bool) !void {
     if (edges.len < 2) return;
     var box = geom.Box.empty;
     var total: f64 = 0;
@@ -373,9 +405,9 @@ noinline fn findIntersections(comptime narrow: bool, arena: Allocator, edges: []
     try radixSortByCell(arena, entries.items, grid.rows * grid.cols);
 
     if (narrow and box_lanes > 1) {
-        try testCellsWide(arena, edges, entries.items, grid.origin, splits);
+        try testCellsWide(arena, edges, entries.items, &grid, splits, snap);
     } else {
-        try testCells(narrow, arena, edges, entries.items, splits);
+        try testCells(narrow, arena, edges, entries.items, &grid, splits, snap);
     }
 }
 
@@ -391,7 +423,8 @@ const box_lanes: comptime_int = if (std.simd.suggestVectorLength(i32)) |n| @min(
 ///
 /// A coordinate less the grid origin is less than 2^31, because both are
 /// within `narrow_limit`.
-noinline fn testCellsWide(arena: Allocator, edges: []const InEdge, items: []const CellEntry, origin: Point, splits: *std.ArrayList(Split)) !void {
+noinline fn testCellsWide(arena: Allocator, edges: []const InEdge, items: []const CellEntry, grid: *const Grid, splits: *std.ArrayList(Split), snap: bool) !void {
+    const origin = grid.origin;
     const lanes = box_lanes;
     const V = @Vector(lanes, i32);
     const Bits = std.meta.Int(.unsigned, lanes);
@@ -414,6 +447,7 @@ noinline fn testCellsWide(arena: Allocator, edges: []const InEdge, items: []cons
     while (i < n) {
         var j = i + 1;
         while (j < n and items[j].cell == items[i].cell) : (j += 1) {}
+        const start = splits.items.len;
         var x = i;
         while (x < j) : (x += 1) {
             if (x > i and items[x].edge == items[x - 1].edge) continue;
@@ -444,13 +478,14 @@ noinline fn testCellsWide(arena: Allocator, edges: []const InEdge, items: []cons
                     // The crossing point is rounded along the first edge,
                     // so the edge with the lower index always goes first.
                     if (ei < fi) {
-                        try intersectPair(true, arena, splits, ei, e, fi, f);
+                        try intersectPair(true, arena, splits, ei, e, fi, f, snap);
                     } else {
-                        try intersectPair(true, arena, splits, fi, f, ei, e);
+                        try intersectPair(true, arena, splits, fi, f, ei, e, snap);
                     }
                 }
             }
         }
+        if (snap) try snapCell(true, arena, edges, items, i, j, grid, .{ .x0 = x0, .x1 = x1, .y0 = y0, .y1 = y1 }, splits, start);
         i = j;
     }
 }
@@ -460,11 +495,12 @@ noinline fn testCellsWide(arena: Allocator, edges: []const InEdge, items: []cons
 /// The loop is in its own function, and it reads the edges through
 /// pointers: the compiler of a wasm host keeps the values of a small loop
 /// in registers, and a copy of each edge costs six loads and stores.
-noinline fn testCells(comptime narrow: bool, arena: Allocator, edges: []const InEdge, items: []const CellEntry, splits: *std.ArrayList(Split)) !void {
+noinline fn testCells(comptime narrow: bool, arena: Allocator, edges: []const InEdge, items: []const CellEntry, grid: *const Grid, splits: *std.ArrayList(Split), snap: bool) !void {
     var i: usize = 0;
     while (i < items.len) {
         var j = i + 1;
         while (j < items.len and items[j].cell == items[i].cell) : (j += 1) {}
+        const start = splits.items.len;
         // The edges in this cell: items[i..j]. The entries of one edge are
         // next to each other. In a later pass, the fresh edges come first.
         var x = i;
@@ -488,14 +524,77 @@ noinline fn testCells(comptime narrow: bool, arena: Allocator, edges: []const In
                 // The crossing point is rounded along the first edge, so
                 // the edge with the lower index always goes first.
                 if (ei < fi) {
-                    try intersectPair(narrow, arena, splits, ei, e, fi, f);
+                    try intersectPair(narrow, arena, splits, ei, e, fi, f, snap);
                 } else {
-                    try intersectPair(narrow, arena, splits, fi, f, ei, e);
+                    try intersectPair(narrow, arena, splits, fi, f, ei, e, snap);
                 }
             }
         }
+        if (snap) try snapCell(narrow, arena, edges, items, i, j, grid, null, splits, start);
         i = j;
     }
+}
+
+/// The bounding boxes of the cell entries of `testCellsWide`, relative to
+/// the grid origin, with room for one full step of `box_lanes` after the
+/// last entry.
+const EntryBoxes = struct { x0: []const i32, x1: []const i32, y0: []const i32, y1: []const i32 };
+
+/// Snap rounding for the crossing points of one cell (see `splitsAt`):
+/// each edge of the cell through the hot pixel of a rounded crossing point
+/// also splits at that point. The pair test only finds the two edges of a
+/// crossing. Without this step, a third edge near the rounded point can
+/// cross the new pieces, and so on in each pass. `items[i..j]` has the
+/// edges of one cell, and the splits from `start` on are the splits of
+/// that cell. Only the cell that holds a point tests it, so each point gets
+/// one test. An edge through the pixel has the point in its bounding box
+/// (all coordinates are integers). With `boxes`, a vector test finds the
+/// boxes that hold the point.
+noinline fn snapCell(comptime narrow: bool, arena: Allocator, edges: []const InEdge, items: []const CellEntry, i: usize, j: usize, grid: *const Grid, boxes: ?EntryBoxes, splits: *std.ArrayList(Split), start: usize) !void {
+    const end = splits.items.len;
+    const key = items[i].cell;
+    for (start..end) |k| {
+        const sp = splits.items[k];
+        if (sp.exact) continue;
+        const p = sp.p;
+        // The two splits of one crossing have the same point.
+        if (k > start and splits.items[k - 1].p.eql(p)) continue;
+        if (grid.key((p.x - grid.origin.x) >> grid.shift, (p.y - grid.origin.y) >> grid.shift) != key) continue;
+        if (boxes) |bx| {
+            const lanes = box_lanes;
+            const V = @Vector(lanes, i32);
+            const Bits = std.meta.Int(.unsigned, lanes);
+            const px: V = @splat(@intCast(p.x - grid.origin.x));
+            const py: V = @splat(@intCast(p.y - grid.origin.y));
+            var y = i;
+            while (y < j) : (y += lanes) {
+                var bits: Bits = @as(Bits, @bitCast(bx.x0[y..][0..lanes].* <= px)) & @as(Bits, @bitCast(bx.x1[y..][0..lanes].* >= px)) &
+                    @as(Bits, @bitCast(bx.y0[y..][0..lanes].* <= py)) & @as(Bits, @bitCast(bx.y1[y..][0..lanes].* >= py));
+                if (j - y < lanes) bits &= (@as(Bits, 1) << @intCast(j - y)) - 1;
+                while (bits != 0) {
+                    const at = y + @ctz(bits);
+                    bits &= bits - 1;
+                    if (at > i and items[at].edge == items[at - 1].edge) continue;
+                    try snapEdge(narrow, arena, edges, items[at].edge, p, splits);
+                }
+            }
+        } else {
+            for (i..j) |at| {
+                if (at > i and items[at].edge == items[at - 1].edge) continue;
+                const f = &edges[items[at].edge];
+                if (p.x < @min(f.a.x, f.b.x) or p.x > @max(f.a.x, f.b.x)) continue;
+                if (p.y < @min(f.a.y, f.b.y) or p.y > @max(f.a.y, f.b.y)) continue;
+                try snapEdge(narrow, arena, edges, items[at].edge, p, splits);
+            }
+        }
+    }
+}
+
+/// Splits edge `fi` at p if it goes through the hot pixel of p.
+inline fn snapEdge(comptime narrow: bool, arena: Allocator, edges: []const InEdge, fi: u32, p: Point, splits: *std.ArrayList(Split)) !void {
+    const f = &edges[fi];
+    const d = Arith(narrow).cross(f.a, f.b, p);
+    if (splitsAt(narrow, f.a, f.b, d, p, true)) try splits.append(arena, .{ .edge = fi, .p = p, .exact = d == 0 });
 }
 
 const CellEntry = struct { cell: u32, edge: u32 };
@@ -618,7 +717,25 @@ fn strictlyBetween(comptime narrow: bool, a: Point, b: Point, p: Point) bool {
     return A.dot(a, b, p) > 0 and A.dot(b, a, p) > 0;
 }
 
-fn intersectPair(comptime narrow: bool, arena: Allocator, splits: *std.ArrayList(Split), ei: u32, e: *const InEdge, fi: u32, f: *const InEdge) !void {
+/// True if the edge from a to b splits at p: p is not an end point, and
+/// the edge goes through p (d is 0), or, with `snap`, through the "hot
+/// pixel" of p (the unit square with p at its center). `d` is the cross
+/// product of the edge and p (see `Arith.cross`).
+///
+/// The line goes through the square if 2 |d| <= |dx| + |dy|: at the
+/// corners p + (sx, sy) / 2, the cross product is d + (dx sy - dy sx) / 2.
+/// A point in the bounding box of the edge with the line through its pixel
+/// has the edge through its pixel.
+inline fn splitsAt(comptime narrow: bool, a: Point, b: Point, d: Arith(narrow).W, p: Point, snap: bool) bool {
+    if (d != 0) {
+        if (!snap) return false;
+        if (2 * @abs(d) > @abs(b.x - a.x) + @abs(b.y - a.y)) return false;
+    }
+    if (p.eql(a) or p.eql(b)) return false;
+    return p.x >= @min(a.x, b.x) and p.x <= @max(a.x, b.x) and p.y >= @min(a.y, b.y) and p.y <= @max(a.y, b.y);
+}
+
+fn intersectPair(comptime narrow: bool, arena: Allocator, splits: *std.ArrayList(Split), ei: u32, e: *const InEdge, fi: u32, f: *const InEdge, snap: bool) !void {
     const A = Arith(narrow);
     const p1 = e.a;
     const p2 = e.b;
@@ -644,10 +761,13 @@ fn intersectPair(comptime narrow: bool, arena: Allocator, splits: *std.ArrayList
     // Each end point that is on the other edge (but not at its ends) splits
     // the other edge. This covers "T" junctions and edges that overlap on
     // one line.
-    if (d1 == 0 and strictlyBetween(narrow, q1, q2, p1)) try splits.append(arena, .{ .edge = fi, .p = p1, .exact = true });
-    if (d2 == 0 and strictlyBetween(narrow, q1, q2, p2)) try splits.append(arena, .{ .edge = fi, .p = p2, .exact = true });
-    if (d3 == 0 and strictlyBetween(narrow, p1, p2, q1)) try splits.append(arena, .{ .edge = ei, .p = q1, .exact = true });
-    if (d4 == 0 and strictlyBetween(narrow, p1, p2, q2)) try splits.append(arena, .{ .edge = ei, .p = q2, .exact = true });
+    //
+    // With `snap`, an end point also splits an edge that goes through its
+    // hot pixel (see `splitsAt`, `snapCell`, and `arrange`).
+    if (splitsAt(narrow, q1, q2, d1, p1, snap)) try splits.append(arena, .{ .edge = fi, .p = p1, .exact = d1 == 0 });
+    if (splitsAt(narrow, q1, q2, d2, p2, snap)) try splits.append(arena, .{ .edge = fi, .p = p2, .exact = d2 == 0 });
+    if (splitsAt(narrow, p1, p2, d3, q1, snap)) try splits.append(arena, .{ .edge = ei, .p = q1, .exact = d3 == 0 });
+    if (splitsAt(narrow, p1, p2, d4, q2, snap)) try splits.append(arena, .{ .edge = ei, .p = q2, .exact = d4 == 0 });
 
     // A proper crossing: the ends of each edge are on opposite sides of the
     // other edge.
@@ -1620,8 +1740,8 @@ test "the 64-bit and the 128-bit products give the same splits" {
         const f: InEdge = .{ .a = pts[2], .b = pts[3], .d = .{ 0, 1 } };
         var a: std.ArrayList(Split) = .empty;
         var b: std.ArrayList(Split) = .empty;
-        try intersectPair(true, arena, &a, 0, &e, 1, &f);
-        try intersectPair(false, arena, &b, 0, &e, 1, &f);
+        try intersectPair(true, arena, &a, 0, &e, 1, &f, false);
+        try intersectPair(false, arena, &b, 0, &e, 1, &f, false);
         try std.testing.expectEqual(a.items.len, b.items.len);
         for (a.items, b.items) |x, y| {
             try std.testing.expectEqual(x.edge, y.edge);
@@ -1693,5 +1813,46 @@ test "radixSort gives the order of a stable sort" {
                 try std.testing.expectEqual(y.i, x.i);
             }
         }
+    }
+}
+
+test "union of thin slivers along one edge (snap rounding)" {
+    // Thin parts of the top surfaces of a few layers, nearly parallel. The
+    // rounded crossing points made new crossings in each pass, and after
+    // `max_passes` the edges still crossed. Then the winding numbers were
+    // wrong: the union was empty, or only the hole of a large part.
+    const gpa = testing.allocator;
+    const cases = [_][]const []const Point{
+        &.{
+            &.{ .{ .x = 164009, .y = 184826 }, .{ .x = 163216, .y = 184905 }, .{ .x = 162148, .y = 184962 } },
+            &.{ .{ .x = 163027, .y = 184916 }, .{ .x = 163776, .y = 184853 }, .{ .x = 163765, .y = 184855 } },
+            &.{ .{ .x = 162917, .y = 184925 }, .{ .x = 163765, .y = 184855 }, .{ .x = 162926, .y = 184925 } },
+        },
+        &.{
+            &.{ .{ .x = 163950, .y = 119800 }, .{ .x = 166662, .y = 183724 }, .{ .x = 166504, .y = 183902 }, .{ .x = 112401, .y = 159150 } },
+            &.{ .{ .x = 148656, .y = 153668 }, .{ .x = 148569, .y = 154007 }, .{ .x = 148517, .y = 154352 } },
+            &.{ .{ .x = 166556, .y = 183844 }, .{ .x = 166637, .y = 183752 }, .{ .x = 166613, .y = 183784 } },
+            &.{ .{ .x = 166450, .y = 183953 }, .{ .x = 166614, .y = 183782 }, .{ .x = 166452, .y = 183952 } },
+        },
+    };
+    for (cases) |polys| {
+        var in: Paths = .empty;
+        defer in.deinit(gpa);
+        var outer: i128 = 0;
+        var hole: i128 = 0;
+        for (polys) |poly| {
+            try in.append(gpa, poly);
+            const a = geom.area2(poly);
+            if (a > 0) outer = @max(outer, a) else hole += a;
+        }
+        var u = try unionAll(gpa, in, .non_zero);
+        defer u.deinit(gpa);
+        var area: i128 = 0;
+        for (0..u.count()) |k| area += geom.area2(u.get(k));
+        // The union holds the largest part, less the hole. The clockwise
+        // triangle is a hole in the large part. Snap rounding moves the
+        // edges by up to a half unit, so the area can change a little.
+        try testing.expect(area >= outer + hole - 100_000);
+        try testing.expect(area <= outer + 100_000);
     }
 }

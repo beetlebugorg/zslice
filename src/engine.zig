@@ -2386,6 +2386,81 @@ test "a layer height span: the top skin has its thickness in thin layers" {
     try testing.expect(infill_below > 0);
 }
 
+/// A cup around (0, 0): radius 15, height 5, with a floor up to z = 1.5.
+/// The hole has a small draft: radius 11 at the floor and 11.01 at the
+/// top. So each layer above the floor has a thin top surface along the
+/// hole, nearly parallel to the edge of the floor top.
+fn cupMesh(gpa: Allocator) !Mesh {
+    const r_out = 15.0;
+    const r_floor = 11.0;
+    const r_top = 11.01;
+    const floor = 1.5;
+    const height = 5.0;
+    const segments = 180;
+    var b: mesh_mod.Builder = .init(gpa);
+    errdefer b.deinit();
+    const P = struct {
+        fn at(r: f64, i: usize, z: f64) mesh_mod.Vec3 {
+            const a = 2 * std.math.pi * @as(f64, @floatFromInt(i % segments)) / segments;
+            return .{ .x = @floatCast(r * @cos(a)), .y = @floatCast(r * @sin(a)), .z = @floatCast(z) };
+        }
+    };
+    const bottom_center: mesh_mod.Vec3 = .{ .x = 0, .y = 0, .z = 0 };
+    const floor_center: mesh_mod.Vec3 = .{ .x = 0, .y = 0, .z = floor };
+    for (0..segments) |i| {
+        try b.addQuad(P.at(r_out, i, 0), P.at(r_out, i + 1, 0), P.at(r_out, i + 1, height), P.at(r_out, i, height));
+        try b.addTriangle(bottom_center, P.at(r_out, i + 1, 0), P.at(r_out, i, 0));
+        try b.addQuad(P.at(r_out, i, height), P.at(r_out, i + 1, height), P.at(r_top, i + 1, height), P.at(r_top, i, height));
+        try b.addQuad(P.at(r_floor, i + 1, floor), P.at(r_floor, i, floor), P.at(r_top, i, height), P.at(r_top, i + 1, height));
+        try b.addTriangle(floor_center, P.at(r_floor, i, floor), P.at(r_floor, i + 1, floor));
+    }
+    return b.finish();
+}
+
+test "top skin: the floor of a cup with a draft has its full top skin" {
+    const gpa = testing.allocator;
+    var mesh = try cupMesh(gpa);
+    defer mesh.deinit(gpa);
+    var s: Settings = .{};
+    s.project.layer_height = 0.1;
+    var job = try Job.init(gpa, &mesh, s);
+    defer job.deinit();
+    // The center of the cup on the bed, from the outer wall of layer 0.
+    var first = try job.planLayer(0);
+    defer first.deinit();
+    var lo: [2]f64 = .{ std.math.inf(f64), std.math.inf(f64) };
+    var hi: [2]f64 = .{ -std.math.inf(f64), -std.math.inf(f64) };
+    for (first.paths.items, 0..) |p, k| if (p.feature == .outer_wall) {
+        for (first.points.get(k)) |q| {
+            lo = .{ @min(lo[0], geom.toMm(q.x)), @min(lo[1], geom.toMm(q.y)) };
+            hi = .{ @max(hi[0], geom.toMm(q.x)), @max(hi[1], geom.toMm(q.y)) };
+        }
+    };
+    const cx = (lo[0] + hi[0]) / 2;
+    const cy = (lo[1] + hi[1]) / 2;
+    // The 8 layers under the top of the floor (0.8 mm of top skin) have
+    // no sparse infill under the hole: no infill line has its middle
+    // there. The skin of these layers comes from a union of the floor top
+    // and the thin surfaces above it.
+    var floor_top: usize = 0;
+    for (job.layers, 0..) |l, i| if (l.z < 1.5 + 1e-6) {
+        floor_top = i;
+    };
+    try testing.expect(floor_top >= 7);
+    for (floor_top - 7..floor_top + 1) |i| {
+        var lp = try job.planLayer(i);
+        defer lp.deinit();
+        for (lp.paths.items, 0..) |p, k| if (p.feature == .infill) {
+            const pts = lp.points.get(k);
+            for (pts[0 .. pts.len - 1], pts[1..]) |a, b| {
+                const dx = geom.toMm(@divTrunc(a.x + b.x, 2)) - cx;
+                const dy = geom.toMm(@divTrunc(a.y + b.y, 2)) - cy;
+                try testing.expect(dx * dx + dy * dy > 10 * 10);
+            }
+        };
+    }
+}
+
 test "an XY offset override changes the outlines of its layers" {
     const gpa = testing.allocator;
     var mesh = try mesh_mod.shapes.demo(gpa);
