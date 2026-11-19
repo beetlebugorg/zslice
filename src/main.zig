@@ -601,9 +601,25 @@ fn benchTree(app: *zslice.app.App, io: Io, err: *Io.Writer, times: []Sample) !vo
         _ = try st.moveNode(app, 0, k, x0 + dx, y0);
         const ms = @as(f64, @floatFromInt(t0.untilNow(io, .awake).toNanoseconds())) / 1e6;
         edits[i] = .{ .wall = ms, .cpu = ms, .faults = 0 };
+        const plans = zslice.plate_job.plans_made.load(.monotonic);
         t.* = try benchSlice(app, io);
+        if (i + 1 == times.len) try err.print("tree slice: {d} layer plans\n", .{zslice.plate_job.plans_made.load(.monotonic) - plans});
     }
     if (app.job) |*pj| try err.print("tree layers made again: {d} of {d}\n", .{ pj.groups[0].job.support_cache.tree_layers.made, pj.groups[0].job.layers.len });
+    // The G-code after the edits against a new app with the same trees
+    // (from the 3MF of the plate).
+    {
+        const gpa = app.gpa;
+        const file = try app.write3mfAlloc(gpa);
+        defer gpa.free(file);
+        const fresh = try zslice.app.App.create(gpa, null, null);
+        defer fresh.destroy();
+        fresh.settings = app.settings;
+        try fresh.loadStl("tree.3mf", file);
+        _ = try benchSlice(fresh, io);
+        const same = std.mem.eql(u8, app.gcode().?, fresh.gcode().?);
+        try err.print("tree G-code against a new slice: {s}\n", .{if (same) "same" else "OTHER"});
+    }
     try printTimes(err, "tree edit", edits[0..times.len]);
     try printTimes(err, "tree slice", times);
     _ = st.reset(app, 0);

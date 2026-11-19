@@ -177,6 +177,11 @@ pub const PlateJob = struct {
     /// needs no plan: the G-code comes from the stream and the settings
     /// of this job. Empty without Options.streams.
     streams: []stream_mod.Stream = &.{},
+    /// The key of the support of each level when its stream was made (see
+    /// `supportKey`): the stamp leaves the support out, so an edit of the
+    /// support (a tree, a mark, an area) plans only the levels whose
+    /// support changed, and the level after each one.
+    stream_support: []u64 = &.{},
     /// A hash of all inputs of the layer plans (see `planStamp`).
     stamp: u64 = 0,
 
@@ -282,12 +287,20 @@ pub const PlateJob = struct {
             pj.stamp = planStamp(settings, parts, opts.overrides, keys, boxes, extra);
             const old_streams: ?*PlateJob = if (opts.old) |o| (if (o.stamp == pj.stamp and o.streams.len == pj.levels.len) o else null) else null;
             if (old_streams) |o| {
-                // The same inputs of the plans: the streams are still right.
+                // The same inputs of the plans: the streams are still right,
+                // but for the levels whose support changed (writeRange).
                 pj.streams = o.streams;
                 o.streams = &.{};
+                pj.stream_support = o.stream_support;
+                o.stream_support = &.{};
             } else {
                 pj.streams = try gpa.alloc(stream_mod.Stream, pj.levels.len);
                 @memset(pj.streams, .{});
+            }
+            if (pj.stream_support.len != pj.levels.len) {
+                gpa.free(pj.stream_support);
+                pj.stream_support = try gpa.alloc(u64, pj.levels.len);
+                @memset(pj.stream_support, 0);
             }
         }
         return pj;
@@ -314,6 +327,7 @@ pub const PlateJob = struct {
         gpa.free(self.islands);
         for (self.streams) |*s| s.deinit(gpa);
         gpa.free(self.streams);
+        gpa.free(self.stream_support);
         self.* = undefined;
     }
 
@@ -593,8 +607,47 @@ pub const PlateJob = struct {
         return self.writeRange(out, null, @min(lo, self.levels.len), @min(@max(hi, lo + 1), self.levels.len));
     }
 
+    /// A hash of the support of level i: the support areas of each layer
+    /// of each part on it.
+    fn supportKey(self: *const PlateJob, i: usize) u64 {
+        var h = std.hash.Wyhash.init(0x5a9);
+        const lv = self.levels[i];
+        for (self.entries[lv.first..lv.end]) |e| {
+            const inst = self.instances[e.instance];
+            const sup = self.groups[inst.group].job.support;
+            h.update(std.mem.asBytes(&[_]u64{ inst.group, e.layer }));
+            if (e.layer >= sup.len) continue;
+            const sl = sup[e.layer];
+            h.update(std.mem.asBytes(&@as(u8, @intFromBool(sl.hollow))));
+            for ([_]*const geom.Paths{ &sl.body, &sl.interface, &sl.filled }) |ps| {
+                h.update(std.mem.asBytes(&@as(u64, ps.count())));
+                for (0..ps.count()) |k| h.update(std.mem.sliceAsBytes(ps.get(k)));
+            }
+        }
+        return h.final();
+    }
+
+    /// The streams of the levels whose support changed since their stream
+    /// was made go, and so does the stream of the level after each one (it
+    /// starts where that level ends).
+    fn dropChangedSupport(self: *const PlateJob) void {
+        if (self.streams.len != self.levels.len or self.stream_support.len != self.levels.len) return;
+        var drop_next = false;
+        for (self.streams, self.stream_support, 0..) |*st, *key, i| {
+            const now = self.supportKey(i);
+            const changed = key.* != now;
+            if (st.valid and (changed or drop_next)) {
+                st.deinit(self.gpa);
+                st.* = .{};
+            }
+            drop_next = changed;
+            key.* = now;
+        }
+    }
+
     fn writeRange(self: *const PlateJob, out: *Writer, sink: ?Job.LayerSink, lo: usize, hi: usize) Error!engine.Stats {
         const gpa = self.gpa;
+        if (lo == 0 and hi == self.levels.len) self.dropChangedSupport();
         // The drop of the levels: level lo prints at its own height above
         // the bed.
         const drop = if (lo == 0 or lo >= self.levels.len) 0 else self.levels[lo].z - self.levels[lo].height;
@@ -721,9 +774,9 @@ fn planStamp(settings: Settings, parts: []const PartInput, overrides: []const se
             hv(&h, m.order);
             changes(&h, m.changes);
         }
-        hv(&h, p.marks);
-        hv(&h, if (p.trees) |t| t.hash() else 0);
-        hv(&h, p.trees_layers);
+        // The marks and the trees change only the support: the support
+        // key of each level (supportKey) covers them, so an edit of them
+        // keeps the streams of the levels with the same support.
     }
     return h.final();
 }
