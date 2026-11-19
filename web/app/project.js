@@ -239,6 +239,23 @@ export class ProjectPage {
     return !!this.state?.setLoaded && this.state?.source?.kind === "github";
   }
 
+  // The tag of a session of the plates of this project, or null if the
+  // plates are not of a project. A session with this tag has the plates
+  // as the user left them: removed plates, moved parts, and changes.
+  sessionTag() {
+    if (!this.state?.setLoaded) return null;
+    return JSON.stringify([this.state.source, this.planKey()]);
+  }
+
+  // The plates came back from a session with the tag of this project
+  // (app.js): they are the set of the project, and do not load again.
+  adopt() {
+    this.loaded = this.planKey();
+    this.setMap = Array.isArray(this.state.setMap) ? this.state.setMap : null;
+    this.adopted = true;
+    this.render();
+  }
+
   // After the worker starts (app.js): the plan of the saved project, and
   // its plates on the view again.
   start() {
@@ -250,7 +267,7 @@ export class ProjectPage {
   // project; a folder must be opened again). The active plate stays.
   async restoreSet() {
     await this.reopened;
-    if (!this.state?.setLoaded || !this.source) return;
+    if (this.adopted || !this.state?.setLoaded || !this.source) return;
     await this.planned;
     if (!this.plan || this.plan.error || this.plan.plates.length === 0) return;
     const i = Math.max(0, this.plan.plates.findIndex((p) => plateKey(this.plan, p) === this.state.active));
@@ -275,12 +292,25 @@ export class ProjectPage {
     save(this.state);
   }
 
+  // Closes the project. Its plates stay on the view as plates of the
+  // user, and a reload keeps them (the session).
   close() {
     this.source = null;
     this.plan = null;
     this.state = null;
+    this.loaded = null;
+    this.setMap = null;
+    this.adopted = false;
     save(null);
     this.render();
+    this.ctx.closed?.();
+  }
+
+  // The name of the open project, or null.
+  openName() {
+    if (!this.state) return null;
+    const s = this.state.source;
+    return this.plan?.name || (s.kind === "github" ? `${s.owner}/${s.repo}` : s.name);
   }
 
   async replan() {
@@ -351,6 +381,7 @@ export class ProjectPage {
       this.loaded = this.planKey();
       // The plan plate of each plate of the set.
       this.setMap = plates.map((_, k) => k);
+      this.state.setMap = this.setMap;
       this.state.setLoaded = true;
       save(this.state);
       const bad = r.results.map((x, k) => (x.error ? `Plate ${k + 1}: ${x.error}` : x.fits === false ? x.message : "")).filter(Boolean);
@@ -399,6 +430,10 @@ export class ProjectPage {
   // Plate i of the set was removed. Its print status stays in the plan.
   removed(i) {
     if (this.setMap && i < this.setMap.length) this.setMap.splice(i, 1);
+    if (this.state) {
+      this.state.setMap = this.setMap;
+      save(this.state);
+    }
     this.render();
   }
 
@@ -440,7 +475,7 @@ export class ProjectPage {
     const title = el("div", "proj-title", this.plan?.name || (s.kind === "github" ? `${s.owner}/${s.repo}` : s.name));
     const from = el("div", "dim", s.kind === "github" ? `GitHub ${s.owner}/${s.repo} @ ${s.sha.slice(0, 7)}` : `Folder ${s.name}`);
     const closeBtn = el("button", "flat", "Close");
-    closeBtn.title = "Close the project. The status of its plates goes too.";
+    closeBtn.title = "Close the project. Its plates stay, and the print status of its plates goes.";
     closeBtn.onclick = () => this.close();
     head.append(box("", title, from), closeBtn);
     page.append(head);

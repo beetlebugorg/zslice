@@ -1163,6 +1163,19 @@ $("quality-menu").onclick = () => {
   openMenu($("quality-menu"), items);
 };
 
+// "Close the project", in a menu when a project is open.
+function closeProjectItem() {
+  const name = project.openName();
+  return name ? [{ label: `Close the project ${name}`, action: () => closeProject() }] : [];
+}
+
+// Closes the project: its plates stay on the view as the user's plates.
+function closeProject() {
+  const name = project.openName();
+  project.close();
+  if (name) toast(`The project ${name} is closed. Its plates stay.`);
+}
+
 $("main-menu").onclick = () => openMenu($("main-menu"), [
   { label: "Open…", action: () => $("file").click() },
   { label: "Add models to this plate…", disabled: app.state === "empty", action: () => addModels() },
@@ -1171,6 +1184,7 @@ $("main-menu").onclick = () => openMenu($("main-menu"), [
   { label: "Remove this plate", action: () => removePlate(app.activePlate) },
   { sep: true },
   { label: "Open a project…", action: () => showTab("project") },
+  ...closeProjectItem(),
   { label: "Printers", action: () => showFarm(true) },
   { label: "History", action: () => toggleHistory(true) },
   { sep: true },
@@ -1909,6 +1923,11 @@ const history = new HistoryPage($("page-history"), {
 var project = new ProjectPage( // var: the plate labels can ask before this line
   $("page-project"), {
   statusChanged: () => updatePlateLabels(),
+  // The project closed: the session keeps its plates as the user's.
+  closed: () => {
+    keepSoon();
+    updatePlateLabels();
+  },
   client,
   applySettings: (r) => applySettings(r),
   toast,
@@ -2613,7 +2632,7 @@ function keepSoon() {
   keepTimer = setTimeout(async () => {
     try {
       const r = await client.call("sessionWrite", { camera: cameraNow() });
-      if (r.bytes) await saveSession(r.bytes);
+      if (r.bytes) await saveSession(r.bytes, project.sessionTag());
     } catch {
       // The next change tries again.
     }
@@ -2926,6 +2945,7 @@ $("open").onclick = () => openMenu($("open"), [
   { label: "Open a model…", action: () => $("file").click() },
   { label: "Add models to this plate…", disabled: app.state === "empty", action: () => addModels() },
   { label: "Open a project…", action: () => showTab("project") },
+  ...closeProjectItem(),
   { label: "Save project…", disabled: app.state === "empty", action: () => saveProject() },
 ]);
 // + adds models to the active plate; Open replaces the active plate.
@@ -2979,6 +2999,7 @@ const search = new SearchOverlay({
     { label: "3D view", run: () => showPage("3d") },
     { label: "Manage printers…", run: () => managePrinters() },
     { label: "Open a project", hint: "printdeck.yml from GitHub or a folder", run: () => showTab("project") },
+    ...(project.openName() ? [{ label: "Close the project", hint: `${project.openName()}: its plates stay`, run: () => closeProject() }] : []),
     { label: "History", hint: "the changes, undo one change", run: () => showTab("history") },
     { label: "Keyboard shortcuts", keys: "?", run: () => shortcuts.show() },
     { label: "All settings", keys: "N", hint: "the panel of the settings", run: () => showTab("settings") },
@@ -3061,8 +3082,6 @@ applySettings(init);
 history.refresh();
 updateSummary();
 resize();
-// The saved printdeck.yml project: its plan, and its plates again.
-project.start();
 
 
 // The session of the last visit (keep.js), when the page has no model to
@@ -3070,15 +3089,19 @@ project.start();
 // camera, the layers, the panel, the scroll, and the focus.
 const modelUrl = new URLSearchParams(location.search).get("model");
 let restored = false;
-if (!modelUrl && !project.willRestore()) {
+if (!modelUrl) {
+  // With a project, only a session of its plates (they keep the user's
+  // changes); else the plates load from the project again.
   const s = await loadSession();
-  if (s?.bytes) {
+  const tag = project.sessionTag();
+  if (s?.bytes && (!project.willRestore() || s.tag === tag)) {
     try {
       const r = await client.call("sessionRead", { bytes: s.bytes });
       applySettings(r);
       $("empty").hidden = true;
       app.state = "ready";
       restored = true;
+      if (project.willRestore()) project.adopt();
       const name = app.plates[r.index]?.name || app.plates[0]?.name || "";
       if (name) {
         app.modelName = name;
@@ -3091,6 +3114,9 @@ if (!modelUrl && !project.willRestore()) {
     }
   }
 }
+// The saved printdeck.yml project: its plan, and its plates again if no
+// session of them came back.
+project.start();
 // The UI state of the page, after the plates are back.
 async function restoreUi(camera) {
   const u = loadUi();

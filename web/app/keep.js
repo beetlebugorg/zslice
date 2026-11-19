@@ -63,9 +63,10 @@ export async function clearPlate() {
 // The session of the core (zs_session_write): all plates, their last
 // scenes, and the camera, as one file. A browser that refuses storage
 // keeps nothing.
-export async function saveSession(bytes) {
+// `tag`: the project of the plates (project.js sessionTag), or null.
+export async function saveSession(bytes, tag = null) {
   try {
-    await run("readwrite", (s) => s.put({ bytes, time: Date.now() }, "session"));
+    await run("readwrite", (s) => s.put({ bytes, time: Date.now(), tag }, "session"));
   } catch {
     // A private window: no session.
   }
