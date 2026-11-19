@@ -3762,3 +3762,33 @@ test "app: the simulated print of a shelf with no support shows the plastic that
     app.stopWorkerForTest();
     try testing.expectError(error.NoResult, app.showSimulated(true));
 }
+
+test "app: a part thrown past the edge of the bed stops at the edge" {
+    const gpa = testing.allocator;
+    var b: zs.mesh.Builder = .init(gpa);
+    try zs.mesh.shapes.addBox(&b, 0, 0, 0, 100, 60, 10);
+    var mesh = try b.finish();
+    var bytes: std.Io.Writer.Allocating = .init(gpa);
+    defer bytes.deinit();
+    try mesh.writeStl(&bytes.writer);
+    mesh.deinit(gpa);
+    const app = try App.create(gpa, null, null);
+    defer app.destroy();
+    try app.loadStl("plate.stl", bytes.written());
+    const p0 = app.plate.parts.items[0];
+    const fp = p0.footprint();
+    try testing.expect(try app.grabStart(0, .{ (fp[0] + fp[2]) / 2, (fp[1] + fp[3]) / 2, 10 }));
+    // Carry it 100 mm to +x: past the edge of a 220 mm bed.
+    var k: usize = 0;
+    while (k < 120) : (k += 1) {
+        const t: f64 = @as(f64, @floatFromInt(k)) / 120.0;
+        app.grabMove(.{ (fp[0] + fp[2]) / 2 + 100 * t, (fp[1] + fp[3]) / 2, 15 });
+        _ = try app.fallStep(1.0 / 60.0);
+    }
+    app.grabEnd();
+    while (try app.fallStep(1.0 / 60.0)) |fr| if (fr.done) break;
+    const q = app.plate.parts.items[0];
+    // At the edge: well right of the start, and on the bed.
+    try testing.expect(q.x > p0.x + 40);
+    try testing.expect(q.footprint()[2] <= app.bedSize()[0]);
+}

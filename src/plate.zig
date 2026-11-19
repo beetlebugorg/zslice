@@ -551,7 +551,9 @@ pub const Plate = struct {
     pub fn clampOnBed(self: *Plate, i: usize, bed: [2]f64, gap: f64) void {
         if (i >= self.parts.items.len) return;
         const p = &self.parts.items[i];
-        const m = @min(gap, 2);
+        // The same gap as `fits`, so a clamped part fits, and keepOnBed
+        // keeps it there (a part off by a hair went to the center).
+        const m = gap + 1e-6;
         for (0..2) |k| {
             const lo = p.half[k] + m;
             const hi = bed[k] - p.half[k] - m;
