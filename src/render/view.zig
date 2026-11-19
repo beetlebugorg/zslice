@@ -259,6 +259,11 @@ pub const View = struct {
     width: u32,
     height: u32,
     target: [3]f32 = .{ 110, 110, 0 },
+    /// The point that an orbit turns about, and the target and distance
+    /// that the last orbit left (see `orbit`).
+    pivot: [3]f32 = .{ 0, 0, 0 },
+    pivot_target: [3]f32 = .{ std.math.nan(f32), 0, 0 },
+    pivot_dist: f32 = 0,
     /// The target of `reset`: the center of the part.
     home: [3]f32 = .{ 110, 110, 0 },
     extent: f32 = 100,
@@ -1661,13 +1666,36 @@ pub const View = struct {
     /// world, and an up or down drag tilts. The bed stays level (no roll),
     /// and the tilt stops at 89 degrees over the top and under the bed, so
     /// the view never goes upside down.
+    /// Turns the camera about the print: the pivot is the point of the
+    /// print under the center of the view when the orbit starts, or the
+    /// center of the print if none is there (after a
+    /// zoom or a pan, the target can be far from the print, and an orbit
+    /// about it swings the print away). The eye and the target turn about
+    /// the pivot, so the view does not jump.
     pub fn orbit(v: *View, dx: f32, dy: f32) void {
         const before = v.pose();
         defer v.carryGoal(before);
+        const same = v.pivot_dist == v.dist and std.mem.eql(f32, &v.pivot_target, &v.target);
+        if (!same) {
+            const cx = @as(f32, @floatFromInt(v.width)) / 2;
+            const cy = @as(f32, @floatFromInt(v.height)) / 2;
+            if (v.rayHit(cx, cy, 1.6)) |h| {
+                const cam = v.camera();
+                const dir = v.pixelRay(cam, cx, cy);
+                v.pivot = .{ cam.eye[0] + dir[0] * h.t, cam.eye[1] + dir[1] * h.t, cam.eye[2] + dir[2] * h.t };
+            } else v.pivot = if (v.layer_end.items.len > 0) v.home else v.target;
+        }
         const b = qrotate(v.rot, .{ 0, 0, 1 });
         const yaw = std.math.atan2(b[1], b[0]) - dx * drag_angle;
         const pitch = std.math.asin(std.math.clamp(b[2], -1, 1)) + dy * drag_angle;
+        const old_rot = v.rot;
         v.setAngles(yaw, std.math.clamp(pitch, -max_pitch, max_pitch));
+        // The target turns about the pivot by the turn of the camera.
+        const delta = qmul(v.rot, qconj(old_rot));
+        const r = qrotate(delta, .{ v.target[0] - v.pivot[0], v.target[1] - v.pivot[1], v.target[2] - v.pivot[2] });
+        v.target = .{ v.pivot[0] + r[0], v.pivot[1] + r[1], v.pivot[2] + r[2] };
+        v.pivot_target = v.target;
+        v.pivot_dist = v.dist;
     }
 
     /// Turns the camera freely by a drag of dx, dy pixels: around the up
