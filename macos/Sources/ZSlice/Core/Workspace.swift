@@ -541,15 +541,19 @@ final class Workspace {
             NSLog("zslice key remove: key before %d, after %d", before ? 1 : 0, Keychain.read(account: p.id.uuidString) == nil ? 0 : 1)
         }
         // ZSLICE_SEND_TO=k[:print] (tests only) sends the active plate to
-        // printer k of the store 4 s after the start, with no question,
-        // and logs the result.
-        if let spec = env["ZSLICE_SEND_TO"], let k = Int(spec.split(separator: ":").first ?? "") {
+        // printer k of the store (or "all": each one in turn) 4 s after the
+        // start, with no question, and logs each result.
+        if let spec = env["ZSLICE_SEND_TO"] {
             DispatchQueue.main.asyncAfter(deadline: .now() + 4) { [weak self] in
-                guard let self, PrinterStore.shared.printers.indices.contains(k), let data = model.gcode(plate: model.active) else { return }
-                let p = PrinterStore.shared.printers[k]
+                guard let self, let data = model.gcode(plate: model.active) else { return }
+                let all = PrinterStore.shared.printers
+                let first = spec.split(separator: ":").first.map(String.init) ?? ""
+                let list = first == "all" ? all : Int(first).flatMap { all.indices.contains($0) ? [all[$0]] : nil } ?? []
                 Task { @MainActor in
-                    let r = await self.transfer(data, title: self.model.gcodeName(plate: self.model.active), to: p, print: spec.hasSuffix(":print"))
-                    NSLog("zslice send to %@ (deck bambu %d): %d %@", p.name, p.bambuDeck ? 1 : 0, r.ok ? 1 : 0, r.message)
+                    for p in list {
+                        let r = await self.transfer(data, title: self.model.gcodeName(plate: self.model.active), to: p, print: spec.hasSuffix(":print"))
+                        NSLog("zslice send to %@ (deck bambu %d): %d %@", p.name, p.bambuDeck ? 1 : 0, r.ok ? 1 : 0, r.message)
+                    }
                 }
             }
         }
@@ -1928,6 +1932,16 @@ extension Workspace {
         func focus() -> String {
             guard let t = w.firstResponder as? NSTextView else { return "none" }
             return "\"\(t.string)\" selected \(t.selectedRange().length)"
+        }
+        // A test app that macOS did not let come to the front has no focus
+        // in its window: the search field takes it, as a click would.
+        if !(w.firstResponder is NSTextView) {
+            func find(_ v: NSView) -> NSTextField? {
+                if let f = v as? NSTextField, f.isEditable, f.placeholderString == "Search settings and actions" { return f }
+                for c in v.subviews { if let f = find(c) { return f } }
+                return nil
+            }
+            if let root = w.contentView, let f = find(root) { w.makeFirstResponder(f) }
         }
         NSLog("zslice search enter: start, focus %@", focus())
         returnKey()
