@@ -34,7 +34,7 @@ Tab and Shift+Tab select the next part. Esc clears the selection.
 
 ![A board stands on its thin edge. A turn tips it, and it falls over onto its wide face](../img/fall.webp "A part that cannot stand falls over onto a face.")
 
-After a turn, zslice checks if the part can stand. If its center of mass is past its foot, the part falls onto a face, as on a real bed. A note says so. With support on, the support holds the part, and it stays as you turned it.
+After a turn, zslice checks if the part can stand while it prints. The first layer and the brim stick to the bed, and the nozzle pushes on the top of the part from the side. If the bond of the first layer cannot hold the part against this push and its weight, the part falls onto a face, as on a real bed. A note says so. A brim makes the bond larger: a tall thin part that falls with no brim can stand with one, and the Check list says that the brim holds it. With support on, the support holds the part, and it stays as you turned it.
 
 ## Grab a part
 

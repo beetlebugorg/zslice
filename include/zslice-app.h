@@ -873,8 +873,9 @@ int zs_app_part_turn(zs_app *app, size_t i, int axis, double degrees);
  * slice of a part while a turn ring drags; the full slice comes after the
  * drag. ZS_OUT_OF_RANGE for no such part. */
 int zs_app_set_coarse_part(zs_app *app, int part);
-/* Physics: part i falls over if it cannot stand as it is (its center of
- * mass past the area it stands on), and rolls onto a face until it rests.
+/* Physics: part i falls over if it cannot stand as it is (the bond of its
+ * first layer and its brim to the bed does not hold it against its weight
+ * and the push of the nozzle), and rolls onto a face until it rests.
  * With support on, the support holds it, and it stays. Call it when a turn
  * ends (the release of a ring, a turn key). Returns the angle of the fall in
  * degrees (0: it stands; an app can animate the fall), or -status. */

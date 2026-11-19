@@ -886,6 +886,15 @@ pub const App = struct {
         return (try app.bondOf(i)).stand;
     }
 
+    /// True if the bond of the first layer of part i (and its brim) holds
+    /// it as it is, whatever the support setting.
+    pub fn standsOnBed(app: *App, i: usize) Allocator.Error!bool {
+        return switch ((try app.bondOf(i)).stand) {
+            .stands, .weak => true,
+            .rolls, .knocked => false,
+        };
+    }
+
     /// The options of the bond test (bond.zig) from the settings.
     fn bondOptions(app: *const App) zs.bond.Options {
         const p = app.settings.project;

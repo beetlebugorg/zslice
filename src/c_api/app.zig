@@ -2010,15 +2010,14 @@ export fn zs_app_fall_cancel(a: ?*App) void {
     app.fallCancel();
 }
 
-/// 1 if part i can stand as it is on the bed (its center of mass over the
-/// area it stands on), 0 if it would fall over, whatever the support
-/// setting. With support on, zs_app_part_settle keeps such a part in place:
-/// an app can say that the support holds it.
+/// 1 if part i can stand as it is on the bed (the bond of its first layer
+/// and its brim holds it, see bond.zig), 0 if it falls over, whatever the
+/// support setting. With support on, zs_app_part_settle keeps such a part
+/// in place: an app can say that the support holds it.
 export fn zs_app_part_stands(a: ?*App, i: usize) c_int {
     const app = a orelse return 1;
     if (i >= app.plate.count()) return 1;
-    const s = zs.physics.settle(app.gpa, &app.plate.parts.items[i].mesh) catch return 1;
-    return @intFromBool(s.rolls == 0);
+    return @intFromBool(app.standsOnBed(i) catch return 1);
 }
 
 export fn zs_app_part_turn(a: ?*App, i: usize, axis: c_int, degrees: f64) c_int {
