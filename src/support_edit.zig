@@ -11,9 +11,11 @@
 //!   smaller gap under an overhang, as in the plan. A node that the edit
 //!   puts in the part moves out from the nearest edge.
 //! - The lean. A segment leans at most the branch angle from vertical:
-//!   its run is at most tan(angle) times its rise. A node that the edit
-//!   puts too far goes to the nearest place that each of its segments
-//!   allows (the discs around its neighbors, in turns, until they agree).
+//!   its run is at most tan(angle) times its rise. A moved node pulls the
+//!   nodes of its branch along as a rope does: each next node moves only
+//!   as far as its segment needs. A tip stays under its overhang, a root
+//!   on the part stays, and the other branches stay; where they stop the
+//!   rope, the move stops at the angle.
 //! - The radius. A node is at least as wide as the rules of the plan need
 //!   (5. in the header of tree_support.zig: the bend rule, the buckling
 //!   rule, and `min_r` under the tip layers), and at most `max_r`.
@@ -183,15 +185,6 @@ fn outward(f: geom.EdgeIndex, x: f64, y: f64) ?[2]f64 {
     return null;
 }
 
-/// The neighbors of node i: its down node and the nodes over it.
-fn neighbors(sk: *const Skeleton, a: Allocator, i: u32) Allocator.Error![]u32 {
-    var out: std.ArrayList(u32) = .empty;
-    const nd = sk.nodes.items[i];
-    if (nd.down != none) try out.append(a, nd.down);
-    for (sk.nodes.items, 0..) |o, k| if (o.down == i) try out.append(a, @intCast(k));
-    return out.toOwnedSlice(a);
-}
-
 fn dist(ax: f64, ay: f64, bx: f64, by: f64) f64 {
     return @sqrt((ax - bx) * (ax - bx) + (ay - by) * (ay - by));
 }
@@ -212,60 +205,149 @@ fn tipClear(c: *const Ctx) f64 {
 }
 
 /// Moves node i to (x, y) (relative to the origin), within the rules.
-/// Returns the Clamp bits.
+/// The nodes of its branch follow as a rope does: a node next to a moved
+/// node moves only as far as its segment needs to keep the angle. A tip
+/// stays under its overhang, a root on the part stays, and the nodes of
+/// the other branches stay. Returns the Clamp bits.
 pub fn moveNode(c: *Ctx, sk: *Skeleton, i: u32, x: f64, y: f64) Error!u32 {
     if (i >= sk.nodes.items.len) return error.NoNode;
     if (!std.math.isFinite(x) or !std.math.isFinite(y)) return error.NoNode;
+    const br = try sk.branchOf(c.a, i);
+    const idx = std.mem.indexOfScalar(u32, br, i).?;
+    var st = try State.init(c, sk, br);
     const nd = sk.nodes.items[i];
-    const nb = try neighbors(sk, c.a, i);
-    // The limit of each segment: its reach, or its run now if it is over.
-    const lim = try c.a.alloc(f64, nb.len);
-    for (nb, lim) |k, *l| {
-        const o = sk.nodes.items[k];
-        l.* = @max(c.reach(@min(o.layer, nd.layer), @max(o.layer, nd.layer)), dist(o.x, o.y, nd.x, nd.y));
-    }
-    var bits: u32 = 0;
     var p = [2]f64{ x, y };
-    if (try leanFit(sk, nb, lim, &p)) bits |= Clamp.lean;
-    // Out of the part, unless the node was in it before.
-    const was = try c.clearance(nd.x, nd.y, nd.layer, nd.tip);
-    const want = @min(tipClear(c), was);
-    if (try c.clearance(p[0], p[1], nd.layer, nd.tip) < want - 1) {
-        bits |= Clamp.part;
-        if (!try c.pushOut(&p, nd.layer, nd.tip, want)) p = .{ nd.x, nd.y };
-        // The way out can break a lean: then the node stays.
-        for (nb, lim) |k, l| {
-            const o = sk.nodes.items[k];
-            if (dist(o.x, o.y, p[0], p[1]) > l + 1) {
-                p = .{ nd.x, nd.y };
-                bits |= Clamp.lean;
-                break;
-            }
+    rope(c, sk, br, idx, &st, p);
+    var bits = try st.broken(c, sk);
+    if (bits == 0) return 0;
+    if (bits & Clamp.part != 0) {
+        // Out of the part: the node slides out from the nearest edge.
+        var q = p;
+        if (try c.pushOut(&q, nd.layer, nd.tip, @min(tipClear(c), st.clear0[idx]))) {
+            rope(c, sk, br, idx, &st, q);
+            if (try st.broken(c, sk) == 0) return bits;
         }
     }
-    sk.nodes.items[i].x = p[0];
-    sk.nodes.items[i].y = p[1];
+    // The largest part of the move that keeps the rules.
+    var lo: f64 = 0;
+    var hi: f64 = 1;
+    const o = st.x0[idx];
+    for (0..12) |_| {
+        const mid = (lo + hi) / 2;
+        p = .{ o[0] + (x - o[0]) * mid, o[1] + (y - o[1]) * mid };
+        rope(c, sk, br, idx, &st, p);
+        if (try st.broken(c, sk) == 0) lo = mid else hi = mid;
+    }
+    p = .{ o[0] + (x - o[0]) * lo, o[1] + (y - o[1]) * lo };
+    rope(c, sk, br, idx, &st, p);
+    bits = try st.brokenAt(c, sk, .{ x, y }, idx);
     return bits;
 }
 
-/// Moves p into the disc of radius lim[k] around each neighbor nb[k], in
-/// turns. Returns true if it moved p.
-fn leanFit(sk: *const Skeleton, nb: []const u32, lim: []const f64, p: *[2]f64) Allocator.Error!bool {
-    var moved = false;
-    for (0..16) |_| {
-        var all = true;
-        for (nb, lim) |k, l| {
-            const o = sk.nodes.items[k];
-            const d = dist(o.x, o.y, p[0], p[1]);
-            if (d <= l + 0.5) continue;
-            all = false;
-            moved = true;
-            p[0] = o.x + (p[0] - o.x) * l / d;
-            p[1] = o.y + (p[1] - o.y) * l / d;
+/// The state of a branch before an edit: the place of each node, the
+/// run of each segment over its limit, and the clearance of each node.
+/// A rule holds after the edit if it is no worse than before.
+const State = struct {
+    br: []const u32,
+    x0: [][2]f64,
+    clear0: []f64,
+    /// The segments of the branch and the segments to the other nodes.
+    links: [][2]u32,
+    lean0: []f64,
+
+    fn init(c: *Ctx, sk: *const Skeleton, br: []const u32) Allocator.Error!State {
+        const items = sk.nodes.items;
+        const in_br = try c.a.alloc(bool, items.len);
+        @memset(in_br, false);
+        for (br) |k| in_br[k] = true;
+        var links: std.ArrayList([2]u32) = .empty;
+        for (items, 0..) |nd, k| {
+            if (nd.down == none) continue;
+            if (in_br[k] or in_br[nd.down]) try links.append(c.a, .{ @intCast(k), nd.down });
         }
-        if (all) break;
+        const x0 = try c.a.alloc([2]f64, br.len);
+        const clear0 = try c.a.alloc(f64, br.len);
+        for (br, x0, clear0) |k, *p, *cl| {
+            const nd = items[k];
+            p.* = .{ nd.x, nd.y };
+            cl.* = try c.clearance(nd.x, nd.y, nd.layer, nd.tip);
+        }
+        const lean0 = try c.a.alloc(f64, links.items.len);
+        for (links.items, lean0) |l, *v| v.* = overLean(c, sk, l[0], l[1]);
+        return .{ .br = br, .x0 = x0, .clear0 = clear0, .links = links.items, .lean0 = lean0 };
     }
-    return moved;
+
+    /// The rules that the branch breaks now (worse than before).
+    fn broken(st: *const State, c: *Ctx, sk: *const Skeleton) Allocator.Error!u32 {
+        var bad: u32 = 0;
+        for (st.links, st.lean0) |l, v| if (overLean(c, sk, l[0], l[1]) > v + 1) {
+            bad |= Clamp.lean;
+        };
+        for (st.br, st.x0, st.clear0) |k, p, cl| {
+            const nd = sk.nodes.items[k];
+            if (nd.x == p[0] and nd.y == p[1]) continue;
+            if (try c.clearance(nd.x, nd.y, nd.layer, nd.tip) < @min(tipClear(c), cl) - 1) bad |= Clamp.part;
+        }
+        return bad;
+    }
+
+    /// The rules that clamped a move of node br[idx] to `want`: the rules
+    /// that the full move breaks. The branch is back where it is now
+    /// after the call.
+    fn brokenAt(st: *const State, c: *Ctx, sk: *Skeleton, want: [2]f64, idx: usize) Allocator.Error!u32 {
+        const br = st.br;
+        const keep = try c.a.alloc([2]f64, br.len);
+        for (br, keep) |k, *p| p.* = .{ sk.nodes.items[k].x, sk.nodes.items[k].y };
+        rope(c, sk, br, idx, st, want);
+        const bad = try st.broken(c, sk);
+        for (br, keep) |k, p| {
+            sk.nodes.items[k].x = p[0];
+            sk.nodes.items[k].y = p[1];
+        }
+        return if (bad == 0) Clamp.lean else bad;
+    }
+};
+
+/// Puts node br[idx] at p, and moves the nodes of the branch over it and
+/// under it from their places before (st.x0) as far as each segment
+/// needs: the limit of a segment is its reach, or its run before if that
+/// is more. A tip (other than the moved node) and a root on the part stay.
+fn rope(c: *const Ctx, sk: *Skeleton, br: []const u32, idx: usize, st: *const State, p: [2]f64) void {
+    const items = sk.nodes.items;
+    for (br, st.x0) |k, q| {
+        items[k].x = q[0];
+        items[k].y = q[1];
+    }
+    items[br[idx]].x = p[0];
+    items[br[idx]].y = p[1];
+    const fixed = struct {
+        fn f(nd: skel.Node) bool {
+            return nd.tip or (nd.down == none and nd.layer > 0);
+        }
+    }.f;
+    // Up to the top of the branch, then down to its bottom.
+    var j = idx;
+    while (j > 0) : (j -= 1) {
+        if (!follow(c, items, br[j - 1], br[j], st.x0[j - 1], st.x0[j], fixed(items[br[j - 1]]))) break;
+    }
+    j = idx;
+    while (j + 1 < br.len) : (j += 1) {
+        if (!follow(c, items, br[j + 1], br[j], st.x0[j + 1], st.x0[j], fixed(items[br[j + 1]]))) break;
+    }
+}
+
+/// Moves node k toward node m (moved) until their segment keeps its limit.
+/// False if k did not move (or must stay): the rope stops there.
+fn follow(c: *const Ctx, items: []skel.Node, k: u32, m: u32, k0: [2]f64, m0: [2]f64, stay: bool) bool {
+    if (stay) return false;
+    const a = items[k];
+    const b = items[m];
+    const lim = @max(c.reach(@min(a.layer, b.layer), @max(a.layer, b.layer)), dist(k0[0], k0[1], m0[0], m0[1]));
+    const d = dist(a.x, a.y, b.x, b.y);
+    if (d <= lim) return false;
+    items[k].x = b.x + (a.x - b.x) * lim / d;
+    items[k].y = b.y + (a.y - b.y) * lim / d;
+    return true;
 }
 
 /// Sets the radius of node i (µm), within the rules. Returns the Clamp
@@ -530,27 +612,36 @@ test "add a branch: from the bed to the shelf, out of the part, in reach" {
     try testing.expectError(error.NoRoom, addBranch(testing.allocator, c, &sk, 0, 0, 10_000, 25_000, 400));
 }
 
-test "move a node: the lean and the part clamp it" {
+test "move a node: the branch follows, and the tip, the angle, and the part clamp it" {
     var t: TestPart = undefined;
     try t.init();
     defer t.deinit();
     const c = &t.ctx;
     var sk: Skeleton = .{};
     defer sk.deinit(testing.allocator);
-    // A node on layer 20 (4.2 mm) at y = 22 mm, over a foot at y = 22 mm.
+    // A tip on layer 22, a node on layer 20, and a foot, at y = 22 mm.
     try sk.nodes.appendSlice(testing.allocator, &.{
         .{ .x = 10_000, .y = 22_000, .layer = 20, .r = 1000, .down = 1 },
         .{ .x = 10_000, .y = 22_000, .layer = 0, .r = 2500 },
+        .{ .x = 10_000, .y = 22_000, .layer = 22, .r = 400, .down = 0, .tip = true },
     });
-    // A small move keeps.
-    try testing.expectEqual(@as(u32, 0), try moveNode(c, &sk, 0, 10_000, 23_000));
-    try testing.expectEqual(@as(f64, 23_000), sk.nodes.items[0].y);
-    // Far out: the segment leans at most the angle.
+    // A small move keeps, and the foot stays.
+    try testing.expectEqual(@as(u32, 0), try moveNode(c, &sk, 0, 10_000, 22_300));
+    try testing.expectEqual(@as(f64, 22_300), sk.nodes.items[0].y);
+    try testing.expectEqual(@as(f64, 22_000), sk.nodes.items[1].y);
+    // Far out: the tip stays, so the segment under it leans at most the
+    // angle.
     try testing.expect(try moveNode(c, &sk, 0, 10_000, 60_000) & Clamp.lean != 0);
-    try testing.expect(overLean(c, &sk, 0, 1) < 1);
-    // Into the box: the node stays out of the part and its XY gap.
-    try testing.expect(try moveNode(c, &sk, 0, 10_000, 21_000) & Clamp.part != 0);
-    try testing.expect(try c.clearance(sk.nodes.items[0].x, sk.nodes.items[0].y, 20, false) >= c.params.tip - 2);
+    try testing.expect(overLean(c, &sk, 2, 0) < 1);
+    try testing.expect(sk.nodes.items[0].y > 22_300);
+    try testing.expectEqual(@as(f64, 22_000), sk.nodes.items[2].y);
+    // The tip moves, and pulls the node and the foot with it.
+    try testing.expectEqual(@as(u32, 0), try moveNode(c, &sk, 2, 10_000, 30_000));
+    try testing.expect(overLean(c, &sk, 2, 0) < 1 and overLean(c, &sk, 0, 1) < 1);
+    try testing.expect(sk.nodes.items[1].y > 22_000);
+    // The foot into the box: it stays out of the part and its XY gap.
+    try testing.expect(try moveNode(c, &sk, 1, 10_000, 20_800) & Clamp.part != 0);
+    try testing.expect(try c.clearance(sk.nodes.items[1].x, sk.nodes.items[1].y, 0, false) >= c.params.tip - 2);
     // The radius: at least the rules, at most the largest.
     try testing.expectEqual(Clamp.radius_min, try setRadius(c, &sk, 0, 10));
     try testing.expectEqual(try c.minRadius(&sk, 0), sk.nodes.items[0].r);
