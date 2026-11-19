@@ -40,6 +40,13 @@ python3 -I tools/farm_sim/farm_sim.py --printers 50 --speed 60
 - **Web pages.** A page on this computer (an origin of 127.0.0.1 or
   localhost, at any port) can read the printers: they send the CORS
   headers for it. `--allow-origin ORIGIN` adds another origin.
+- **App Keys.** An app asks a printer for a key (`POST
+  /plugin/appkeys/request`, then a poll). A person allows it with `POST
+  /farm/<id>/allow` of the control API (or `/deny`), or
+  `--appkeys-allow-after S` allows each request after S seconds.
+- **A deck with many printers.** `--deck-printers N`: the first printer is
+  a printdeck that drives the first N printers. `/slicer/printer.json`
+  lists them, and `/printers/p<i>/...` goes to printer i.
 
 ## Use it with the macOS app
 
@@ -61,4 +68,5 @@ On 127.0.0.1:8800 (`--control`). It answers only a client on this computer: the 
 | `POST /farm/<id>/press` | A person presses Print on the deck. |
 | `POST /farm/<id>/fail` | The print fails now. |
 | `POST /farm/<id>/pause`, `/resume` | A runout, and the new roll. |
+| `POST /farm/<id>/allow`, `/deny` | A person allows (or denies) the App Keys requests that wait at the printer. |
 | `POST /farm/speed?x=120` | The speed of the clock. |

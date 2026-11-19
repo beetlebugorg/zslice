@@ -54,6 +54,17 @@
 # the apps. The frames are a test pattern of ffmpeg, made once at the start;
 # with no ffmpeg, the printers have no camera.
 #
+# App Keys (OctoPrint and printdeck): POST /plugin/appkeys/request gives a
+# token, and GET /plugin/appkeys/request/<token> answers 202 until a person
+# at the printer allows the app (POST /farm/<id>/allow of the control API,
+# or --appkeys-allow-after seconds), then 200 with the key (--key). POST
+# /farm/<id>/deny, or 2 minutes, end it with 404.
+#
+# A deck with many printers (--deck-printers N): the first printer is a
+# printdeck that drives the first N printers. /slicer/printer.json lists
+# them, and the paths under /printers/p<i>/ go to printer i, as on a
+# printdeck with many printers.
+#
 # CORS: a web page on this computer (an Origin of 127.0.0.1 or localhost,
 # any port; --allow-origin adds others) can read the printers, as a printer
 # that allows the page does (printdeck WEB_ORIGINS, OctoPrint "Allow Cross
@@ -103,6 +114,8 @@ FAILURES = ["Nozzle clog: no plastic for 30 s", "Spaghetti: the print came off t
 
 LOCK = threading.Lock()
 FARM_ARGS = None
+# The App Keys requests: token -> {printer, at, state}.
+APPKEYS = {}
 # The JPEG frames of the cameras (make_frames), shared by all printers.
 FRAMES = []
 LOCAL_ORIGIN = re.compile(r"^https?://(127\.0\.0\.1|localhost|\[::1\])(:\d+)?$")
@@ -581,11 +594,62 @@ def printer_handler(farm, p):
                 return False
             return True
 
+        def other(self):
+            """The handler of printer i for /printers/p<i>/... of a deck
+            with many printers, with self.path cut; or None."""
+            m = re.match(r"/printers/p(\d+)(/.*)$", self.path)
+            n = farm.args.deck_printers
+            if not m or p.id != 0 or n < 2 or int(m.group(1)) >= min(n, len(farm.printers)):
+                return None
+            self.path = m.group(2)
+            return printer_handler(farm, farm.printers[int(m.group(1))])
+
+        def appkeys(self, path):
+            """The App Keys flow, or False for another path."""
+            if self.command == "POST" and path == "/plugin/appkeys/request":
+                tok = "%016x" % random.getrandbits(64)
+                with LOCK:
+                    APPKEYS[tok] = {"printer": p.id, "at": time.time(), "state": "wait"}
+                    farm.event(p, "App Keys: an app asks for a key; allow it at the printer (POST /farm/%d/allow)" % p.id)
+                self.send(201, {"app_token": tok, "auth_dialog": ""})
+                return True
+            m = re.match(r"/plugin/appkeys/request/([0-9a-f]+)$", path)
+            if self.command == "GET" and m:
+                with LOCK:
+                    r = APPKEYS.get(m.group(1))
+                    if r and r["state"] == "wait" and farm.args.appkeys_allow_after >= 0 and time.time() - r["at"] >= farm.args.appkeys_allow_after:
+                        r["state"] = "allowed"
+                    if not r or r["printer"] != p.id or r["state"] == "denied" or time.time() - r["at"] > 120:
+                        self.send(404, {"error": "No such request"})
+                    elif r["state"] == "allowed":
+                        self.send(200, {"api_key": farm.args.key})
+                    else:
+                        self.send(202)
+                return True
+            return False
+
         def do_GET(self):
             if p.offline:
                 self.close_connection = True
                 return
+            h = self.other()
+            if h:
+                # The handler of that printer serves this request.
+                self.__class__ = h
+                return self.do_GET()
             path = self.path.split("?")[0]
+            if self.appkeys(path):
+                return
+            if path == "/slicer/printer.json" and p.deck:
+                if not self.authed():
+                    return
+                n = min(farm.args.deck_printers, len(farm.printers)) if p.id == 0 else 0
+                out = {"name": p.name, "kind": "printdeck", "url": "", "https": ""}
+                if n >= 2:
+                    out["printers"] = [{"id": "p%d" % q.id, "name": q.name, "label": q.model, "color": "#%06x" % (0x3366cc + 0x1f2f3f * q.id & 0xffffff),
+                                        "kind": "resin" if q.resin else "fdm", "url": "" if q.id == 0 else "/printers/p%d" % q.id}
+                                       for q in farm.printers[:n]]
+                return self.send(200, out)
             if path == "/api/version":
                 return self.send(200, {"api": "0.1", "server": "1.9.0", "text": f"printdeck sim ({p.brand} {p.model})"})
             if path == "/server/info" and p.kind == "moonraker":
@@ -626,6 +690,12 @@ def printer_handler(farm, p):
         def do_POST(self):
             if p.offline:
                 self.close_connection = True
+                return
+            h = self.other()
+            if h:
+                self.__class__ = h
+                return self.do_POST()
+            if self.appkeys(self.path.split("?")[0]):
                 return
             if not self.authed():
                 return
@@ -735,6 +805,15 @@ def control_handler(farm):
         def do_POST(self):
             if not self.local():
                 return
+            m = re.match(r"/farm/(\d+)/(allow|deny)", self.path)
+            if m:
+                with LOCK:
+                    n = 0
+                    for r in APPKEYS.values():
+                        if r["printer"] == int(m.group(1)) and r["state"] == "wait":
+                            r["state"] = "allowed" if m.group(2) == "allow" else "denied"
+                            n += 1
+                return self.send(200, {"requests": n})
             m = re.match(r"/farm/(\d+)/(clear|fail|pause|resume|press)", self.path)
             with LOCK:
                 if m:
@@ -776,6 +855,9 @@ def main():
     ap.add_argument("--fleet", default="fleet.json", help="where to write the list of the printers")
     ap.add_argument("--allow-origin", action="append", metavar="ORIGIN",
                     help="a web page origin that may read the printers (CORS); pages on 127.0.0.1 and localhost always may")
+    ap.add_argument("--deck-printers", type=int, default=0, help="the first printer is a printdeck that drives the first N printers")
+    ap.add_argument("--appkeys-allow-after", type=float, default=-1,
+                    help="a person allows each App Keys request after this many seconds (-1: only POST /farm/<id>/allow)")
     ap.add_argument("--no-cameras", dest="cameras", action="store_false", help="no webcams (no ffmpeg run at the start)")
     args = ap.parse_args()
 
