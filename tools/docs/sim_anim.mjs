@@ -9,8 +9,8 @@
 //    piers. The bridge sags.
 // 2. tee.stl of parts.mjs: a slab that sticks out 20 mm into the air on
 //    each side of a post. The plastic over the air falls, and the next
-//    layers print on it. (The cantilever of gen.py cannot stand on its
-//    own: the app tips it over onto a face when it loads.)
+//    layers print on it. (The cantilever of gen.py hangs out on one
+//    side only. The bond of its post to the bed holds it up.)
 //
 // Each clip ends on a still frame. Run it again after a change of the
 // physics (src/print_sim.zig):

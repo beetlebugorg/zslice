@@ -260,6 +260,8 @@ pub const App = struct {
     undo: history.History = .{},
     /// The fall of a part that runs now, step by step (see fallStart).
     fall: ?Fall = null,
+    /// The last bond test of each part (see bondOf).
+    bond_memo: std.ArrayList(BondMemo) = .empty,
     /// The edits of the user on the lines of the slice (app/edits.zig).
     edits: edits_mod.Edits = .{},
 
@@ -271,6 +273,7 @@ pub const App = struct {
 
     pub fn destroy(app: *App) void {
         app.fallCancel();
+        app.bond_memo.deinit(app.gpa);
         if (app.inspect_arena) |*a| a.deinit();
         app.stopWorker();
         app.clearResults();
@@ -799,18 +802,30 @@ pub const App = struct {
         try app.plateChanged();
     }
 
-    /// Physics: part i falls over if it cannot stand as it is (its center
-    /// of mass past the area it stands on), and rolls until it rests (see
-    /// physics.zig). With support on, the support holds it, and it stays.
-    /// Returns the angle of the fall in degrees (0: it stands).
+    /// Physics: part i falls over if it cannot stand as it is (see
+    /// `standOf`), and rolls until it rests (see physics.zig). With support
+    /// on, the support holds it, and it stays. Returns the angle of the
+    /// fall in degrees (0: it stands).
     pub fn settlePart(app: *App, i: usize) Allocator.Error!f64 {
+        const deg = try app.fallNow(i);
+        if (deg > 0) try app.plateChanged();
+        return deg;
+    }
+
+    /// Turns part i at once onto the side that it falls onto, with no
+    /// plateChanged. Returns the angle of the fall in degrees (0: it
+    /// stands).
+    fn fallNow(app: *App, i: usize) Allocator.Error!f64 {
         if (i >= app.plate.count()) return 0;
-        if (try app.standsUp(i)) return 0;
-        const s = try zs.physics.settle(app.gpa, &app.plate.parts.items[i].mesh);
+        const mesh = &app.plate.parts.items[i].mesh;
+        const s = switch (try app.standOf(i)) {
+            .stands, .weak => return 0,
+            .rolls => try zs.physics.settle(app.gpa, mesh),
+            .knocked => |dir| try zs.physics.knock(app.gpa, mesh, dir),
+        };
         if (s.rolls == 0) return 0;
         try app.plate.putDown(app.gpa, i, zs.physics.downOf(s));
         app.plate.keepOnBed(i, app.bedSize(), app.partGap());
-        try app.plateChanged();
         return s.degrees;
     }
 
@@ -835,25 +850,125 @@ pub const App = struct {
         return null;
     }
 
-    /// True if part i stands as it is: on its own with support off, on
-    /// the support trees of the user if it has them (see
-    /// support_trees.holds), and always with planned support.
+    /// True if part i stands as it is (see `standOf`).
     fn standsUp(app: *App, i: usize) Allocator.Error!bool {
+        return switch (try app.standOf(i)) {
+            .stands, .weak => true,
+            .rolls, .knocked => false,
+        };
+    }
+
+    /// How part i stands while it prints.
+    pub const Stand = union(enum) {
+        /// It stands: the bond of its first layer (and its brim) holds it,
+        /// or support holds it.
+        stands,
+        /// It tips over, but no side that it can fall onto stands either
+        /// (a ball, say). It stays, and the check warns.
+        weak,
+        /// Its weight tips it over: it rolls (physics.settle).
+        rolls,
+        /// The push of the nozzle tips it over toward this direction (in
+        /// the frame of its mesh), and then it stands on its side
+        /// (physics.knock).
+        knocked: [2]f64,
+    };
+
+    /// How part i stands: on the support trees of the user if it has
+    /// them (see support_trees.holds), always with planned support, and
+    /// else on the bond of its first layer to the bed (bond.zig).
+    pub fn standOf(app: *App, i: usize) Allocator.Error!Stand {
         const p = &app.plate.parts.items[i];
         // Trees that no longer fit the part go first.
         if (p.trees != null) support_trees.check(app);
-        if (p.trees != null) return support_trees.holds(app, i);
-        if (app.settings.project.support != .off) return true;
-        const st = try zs.physics.settle(app.gpa, &p.mesh);
-        return st.rolls == 0;
+        if (p.trees != null) return if (try support_trees.holds(app, i)) .stands else .rolls;
+        if (app.settings.project.support != .off) return .stands;
+        return (try app.bondOf(i)).stand;
+    }
+
+    /// The options of the bond test (bond.zig) from the settings.
+    fn bondOptions(app: *const App) zs.bond.Options {
+        const p = app.settings.project;
+        const f = app.settings.filament;
+        return .{
+            // No setting names the bed surface: smooth PEI, the usual one.
+            .strength = zs.bond.strength(zs.bond.materialOf(f.material), .smooth_pei),
+            .density = f.density,
+            .first_layer_height = p.first_layer_height,
+            .brim_width = p.brim_width,
+            .brim_outside = p.brim_location != .inside,
+            .brim_inside = p.brim_location != .outside,
+        };
+    }
+
+    /// The bond test of part i and how it stands. The memo keeps the last
+    /// result of each part for the same pose and options.
+    pub const BondMemo = struct { key: u64, result: zs.bond.Result, stand: Stand };
+
+    fn bondOf(app: *App, i: usize) Allocator.Error!BondMemo {
+        const p = &app.plate.parts.items[i];
+        const o = app.bondOptions();
+        var h = std.hash.Wyhash.init(0);
+        h.update(std.mem.asBytes(&p.pose));
+        h.update(std.mem.asBytes(&p.scale));
+        h.update(std.mem.asBytes(&p.mesh.vertices.items.len));
+        h.update(std.mem.asBytes(&p.mesh.faces.items.len));
+        const ptr = @intFromPtr(p.mesh.vertices.items.ptr);
+        h.update(std.mem.asBytes(&ptr));
+        inline for (.{ o.strength, o.density, o.first_layer_height, o.push, o.brim_width, o.brim_outside, o.brim_inside }) |f| h.update(std.mem.asBytes(&f));
+        const key = h.final();
+        if (i < app.bond_memo.items.len and app.bond_memo.items[i].key == key) return app.bond_memo.items[i];
+        const r = try zs.bond.check(app.gpa, &p.mesh, o);
+        var m: BondMemo = .{ .key = key, .result = r, .stand = .stands };
+        if (!r.stands) m.stand = try app.fallOf(&p.mesh, r.dir, o);
+        while (app.bond_memo.items.len <= i) try app.bond_memo.append(app.gpa, .{ .key = 0, .result = .{}, .stand = .stands });
+        app.bond_memo.items[i] = m;
+        return m;
+    }
+
+    /// How a part that the bond does not hold falls. Its weight rolls it,
+    /// or the push of the nozzle knocks it over toward `dir`. A knock
+    /// counts only if the part stands on the side that it falls onto.
+    fn fallOf(app: *App, mesh: *const zs.Mesh, dir: [2]f64, o: zs.bond.Options) Allocator.Error!Stand {
+        if ((try zs.physics.settle(app.gpa, mesh)).rolls > 0) return .rolls;
+        const k = try zs.physics.knock(app.gpa, mesh, dir);
+        if (k.rolls == 0) return .weak;
+        var after = try mesh.clone(app.gpa);
+        defer after.deinit(app.gpa);
+        for (after.vertices.items) |*v| {
+            const x: f64 = v.x;
+            const y: f64 = v.y;
+            const z: f64 = v.z;
+            const r = k.rot;
+            v.* = .{
+                .x = @floatCast(r[0][0] * x + r[0][1] * y + r[0][2] * z),
+                .y = @floatCast(r[1][0] * x + r[1][1] * y + r[1][2] * z),
+                .z = @floatCast(r[2][0] * x + r[2][1] * y + r[2][2] * z),
+            };
+        }
+        return if ((try zs.bond.check(app.gpa, &after, o)).stands) .{ .knocked = dir } else .weak;
     }
 
     /// Starts the fall of part i if it cannot stand as it is (see
-    /// `standsUp`). False: it stands, or support holds it, or a fall runs.
+    /// `standOf`). False: it stands, or support holds it, or a fall runs.
     pub fn fallStart(app: *App, i: usize) Allocator.Error!bool {
         if (app.fall != null or i >= app.plate.count()) return false;
-        if (try app.standsUp(i)) return false;
+        const st = try app.standOf(i);
+        switch (st) {
+            .stands, .weak => return false,
+            .rolls, .knocked => {},
+        }
         try app.bodyOf(i);
+        switch (st) {
+            .knocked => |d| {
+                // The push of the nozzle: a spin toward the side that it
+                // falls to, with the direction turned from the mesh to the
+                // bed.
+                const t = app.plate.parts.items[i].transform();
+                app.fall.?.body.tip(.{ d[0] * t[0] + d[1] * t[3], d[0] * t[1] + d[1] * t[4] });
+            },
+            else => {},
+        }
         return true;
     }
 
@@ -974,12 +1089,7 @@ pub const App = struct {
     /// caller does it). True if it fell. The Turn tool of a shell turns in
     /// steps and calls settlePart after the last step.
     fn settleNew(app: *App, i: usize) Allocator.Error!bool {
-        if (i >= app.plate.count() or try app.standsUp(i)) return false;
-        const st = try zs.physics.settle(app.gpa, &app.plate.parts.items[i].mesh);
-        if (st.rolls == 0) return false;
-        try app.plate.putDown(app.gpa, i, zs.physics.downOf(st));
-        app.plate.keepOnBed(i, app.bedSize(), app.partGap());
-        return true;
+        return (try app.fallNow(i)) > 0;
     }
 
     fn settleFrom(app: *App, first: usize) Allocator.Error!void {
@@ -3026,20 +3136,19 @@ pub const patch_values = [_][2][]const u8{
     .{ "filament.bed_temp", "63" },           .{ "filament.fan_speed", "0.7" },
     .{ "filament.fan_off_layers", "3" },      .{ "filament.fan_max_speed", "0.9" },
     .{ "filament.fan_ramp_layers", "2" },     .{ "machine.chamber_temp", "40" },
-    .{ "machine.part_fan_air", "8" },
-    .{ "filament.fan_boost_time", "12" },     .{ "filament.min_layer_time", "9" },
-    .{ "filament.min_speed", "12" },          .{ "filament.flow_ratio", "0.97" },
-    .{ "filament.max_flow", "9" },            .{ "filament.density", "1.3" },
-    .{ "filament.price_per_kg", "31" },       .{ "project.bridge_speed", "0.3" },
-    .{ "project.bridge_flow", "0.9" },        .{ "project.bridge_fan", "0.8" },
-    .{ "project.infill_flow", "1.05" },       .{ "project.ironing_flow", "0.2" },
-    .{ "project.ironing_speed", "0.2" },      .{ "project.outer_wall_speed", "0.4" },
-    .{ "project.inner_wall_speed", "0.6" },   .{ "project.skin_speed", "0.45" },
-    .{ "project.infill_speed", "0.8" },       .{ "project.first_layer_speed", "0.25" },
-    .{ "project.slow_layers", "3" },          .{ "project.outer_wall_accel", "700" },
-    .{ "project.inner_wall_accel", "900" },   .{ "project.skin_accel", "800" },
-    .{ "project.infill_accel", "1100" },      .{ "project.first_layer_accel", "400" },
-    .{ "project.path_rules", "speed = {speed} * 0.9" },
+    .{ "machine.part_fan_air", "8" },         .{ "filament.fan_boost_time", "12" },
+    .{ "filament.min_layer_time", "9" },      .{ "filament.min_speed", "12" },
+    .{ "filament.flow_ratio", "0.97" },       .{ "filament.max_flow", "9" },
+    .{ "filament.density", "1.3" },           .{ "filament.price_per_kg", "31" },
+    .{ "project.bridge_speed", "0.3" },       .{ "project.bridge_flow", "0.9" },
+    .{ "project.bridge_fan", "0.8" },         .{ "project.infill_flow", "1.05" },
+    .{ "project.ironing_flow", "0.2" },       .{ "project.ironing_speed", "0.2" },
+    .{ "project.outer_wall_speed", "0.4" },   .{ "project.inner_wall_speed", "0.6" },
+    .{ "project.skin_speed", "0.45" },        .{ "project.infill_speed", "0.8" },
+    .{ "project.first_layer_speed", "0.25" }, .{ "project.slow_layers", "3" },
+    .{ "project.outer_wall_accel", "700" },   .{ "project.inner_wall_accel", "900" },
+    .{ "project.skin_accel", "800" },         .{ "project.infill_accel", "1100" },
+    .{ "project.first_layer_accel", "400" },  .{ "project.path_rules", "speed = {speed} * 0.9" },
 };
 
 /// Slices `stl` with `base`, then changes the patch settings in groups of
@@ -3090,8 +3199,8 @@ fn checkPatches(gpa: Allocator, stl: []const u8, base: []const [2][]const u8, st
 const patch_bases = [_][]const [2][]const u8{
     &.{},
     &.{
-        .{ "project.support", "everywhere" },     .{ "project.support_style", "tree" },
-        .{ "project.retract_wipe", "true" },      .{ "project.z_hop", "0.4" },
+        .{ "project.support", "everywhere" },       .{ "project.support_style", "tree" },
+        .{ "project.retract_wipe", "true" },        .{ "project.z_hop", "0.4" },
         .{ "project.z_hop_only_crossing", "true" },
     },
 };
@@ -3831,6 +3940,90 @@ test "app: the facts of a state, a change in the history, and its revert" {
     try std.testing.expect(std.mem.startsWith(u8, third, "layers:2.0000:5.0000\tproject.infill_density"));
     try app.revertChange(third);
     try std.testing.expectEqual(@as(usize, 0), app.overrides.items.len);
+}
+
+/// An app with support off, a brim of `brim` mm, and the boxes as one
+/// part, loaded from an STL.
+fn appWithBoxes(gpa: Allocator, brim: []const u8, boxes: []const [6]f64) !*App {
+    var b: zs.mesh.Builder = .init(gpa);
+    for (boxes) |x| try zs.mesh.shapes.addBox(&b, x[0], x[1], x[2], x[3], x[4], x[5]);
+    var mesh = try b.finish();
+    defer mesh.deinit(gpa);
+    var bytes: std.Io.Writer.Allocating = .init(gpa);
+    defer bytes.deinit();
+    try mesh.writeStl(&bytes.writer);
+    const app = try App.create(gpa, null, null);
+    errdefer app.destroy();
+    try app.setSetting("project.brim_width", brim);
+    try app.loadStl("part.stl", bytes.written());
+    return app;
+}
+
+fn partHeight(app: *App) f64 {
+    const bb = app.plate.parts.items[0].mesh.bounds();
+    return bb.max[2] - bb.min[2];
+}
+
+test "app: a thin pin falls over on the load with no brim, and stands with a brim" {
+    const gpa = testing.allocator;
+    // A pin of 4 x 4 x 40 mm: the push of the nozzle at its top is more
+    // than its bare foot holds, and less than an 8 mm brim holds.
+    const pin = [_][6]f64{.{ 0, 0, 0, 4, 4, 40 }};
+    {
+        const app = try appWithBoxes(gpa, "0", &pin);
+        defer app.destroy();
+        try testing.expectApproxEqAbs(@as(f64, 4), partHeight(app), 0.01);
+    }
+    const app = try appWithBoxes(gpa, "8", &pin);
+    defer app.destroy();
+    try testing.expectApproxEqAbs(@as(f64, 40), partHeight(app), 0.01);
+    try testing.expect(try app.unstablePart() == null);
+    try testing.expect(!try app.fallStart(0));
+    // The brim goes: the pin falls over, step by step, onto its side.
+    try app.setSetting("project.brim_width", "0");
+    try testing.expectEqual(@as(?usize, 0), try app.unstablePart());
+    try testing.expect(try app.fallStart(0));
+    var frames: usize = 0;
+    while (try app.fallStep(1.0 / 60.0)) |fr| {
+        frames += 1;
+        if (fr.done) break;
+        try testing.expect(frames < 60 * 9);
+    }
+    try testing.expectApproxEqAbs(@as(f64, 4), partHeight(app), 0.01);
+    try testing.expect(try app.unstablePart() == null);
+}
+
+test "app: a tall thin pin falls over even with a brim" {
+    const gpa = testing.allocator;
+    // A pin of 2 x 2 x 120 mm: the push makes 36 N mm, and a 2 mm brim
+    // holds about 7 N mm.
+    const app = try appWithBoxes(gpa, "2", &.{.{ 0, 0, 0, 2, 2, 120 }});
+    defer app.destroy();
+    try testing.expectApproxEqAbs(@as(f64, 2), partHeight(app), 0.01);
+}
+
+test "app: a box stands with and without a brim" {
+    const gpa = testing.allocator;
+    for ([_][]const u8{ "0", "8" }) |brim| {
+        const app = try appWithBoxes(gpa, brim, &.{.{ 0, 0, 0, 20, 20, 20 }});
+        defer app.destroy();
+        try testing.expectApproxEqAbs(@as(f64, 20), partHeight(app), 0.01);
+        try testing.expect(try app.unstablePart() == null);
+        try testing.expect(!try app.fallStart(0));
+    }
+}
+
+test "app: the bond of the first layer holds the cantilever up with no brim" {
+    const gpa = testing.allocator;
+    // The cantilever of tools/stress/gen.py: its center of mass is 3.6 mm
+    // past the post, but the post holds 14 times the load.
+    const app = try appWithBoxes(gpa, "0", &.{ .{ 0, 0, 0, 10, 10, 20 }, .{ 0, 0, 20, 50, 10, 23 } });
+    defer app.destroy();
+    try testing.expectApproxEqAbs(@as(f64, 23), partHeight(app), 0.01);
+    // It is as in the file: the post on the bed, so its weight alone
+    // tips it (upside down, the slab holds it).
+    try testing.expect((try zs.physics.settle(gpa, &app.plate.parts.items[0].mesh)).rolls > 0);
+    try testing.expect(try app.unstablePart() == null);
 }
 
 test "app: a part that loads on an edge falls over and rests" {

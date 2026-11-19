@@ -368,6 +368,43 @@ pub const Body = struct {
         b.still = 0;
     }
 
+    /// Tips the body over toward `dir` (a unit vector on the bed), as a
+    /// push from the side does: a spin about the edge of its foot on that
+    /// side. The spin has 1.2 times the speed that just lifts the center
+    /// of mass over the edge (its energy m g h equals the lift).
+    pub fn tip(b: *Body, dir: [2]f64) void {
+        const r = quatMat(b.rot);
+        var zmin: f64 = std.math.inf(f64);
+        for (b.points) |p| zmin = @min(zmin, b.pos[2] + dot(r[2], p));
+        // The pivot: the lowest point farthest toward dir.
+        var o: V = b.pos;
+        var far: f64 = -std.math.inf(f64);
+        for (b.points) |p| {
+            const w = add(b.pos, mulMV(r, p));
+            if (w[2] > zmin + margin + 0.05) continue;
+            const e = w[0] * dir[0] + w[1] * dir[1];
+            if (e > far) {
+                far = e;
+                o = .{ w[0], w[1], zmin };
+            }
+        }
+        // The axis: a turn about k moves the top toward dir.
+        const k: V = .{ -dir[1], dir[0], 0 };
+        const arm = sub(b.pos, o);
+        const across = sub(arm, scale(k, dot(arm, k)));
+        const lift = len(across) - across[2];
+        // The moment of inertia about the edge: about the center of
+        // mass, plus m d².
+        const m = 1 / b.inv_mass;
+        const inertia = inverse(b.invInertiaWorld()) orelse return;
+        const i_edge = dot(k, mulMV(inertia, k)) + m * dot(across, across);
+        if (!(i_edge > 0)) return;
+        const w = 1.2 * @sqrt(2 * m * gravity * @max(lift, 0) / i_edge);
+        b.ang = scale(k, w);
+        b.vel = cross(b.ang, arm);
+        b.wake();
+    }
+
     pub fn step(b: *Body, dt: f64) void {
         if (b.asleep) return;
         b.vel[2] -= gravity * dt;
@@ -611,6 +648,21 @@ test "rigid: a tall block tipped past its balance falls; short of it, it stands"
         const on_bottom = dot(d, bottom) > 0.999;
         try testing.expectEqual(!c.falls, on_bottom);
     }
+}
+
+test "rigid: a pin tipped toward +x falls over that way and lies flat" {
+    const gpa = testing.allocator;
+    var m = try box(gpa, 0, 0, 0, 4, 4, 40);
+    defer m.deinit(gpa);
+    var b = try Body.init(gpa, &m);
+    defer b.deinit(gpa);
+    b.tip(.{ 1, 0 });
+    _ = settle(&b, 8);
+    try testing.expect(b.asleep);
+    // It lies on a long face, toward +x.
+    try testing.expectApproxEqAbs(@as(f64, 0), b.down()[2], 1e-3);
+    try testing.expect(b.pos[2] < 2.1);
+    try testing.expect(b.pos[0] > 15);
 }
 
 test "rigid: the same run gives the same result" {
