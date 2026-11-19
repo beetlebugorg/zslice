@@ -545,6 +545,15 @@ typedef struct zs_inspect {
      * short segments. */
     int slow_reason;
     const char *slow_text; /* the sentence of slow_reason, or "" */
+    double fan;            /* the part fan of the line, 0 (off) to 1 (full) */
+    double layer_time;     /* the print time of its layer, s */
+    double max_flow;       /* the flow limit, mm^3/s (filament.max_flow) */
+    int flow_limited;      /* 1 if the flow limit, not the machine, sets the
+                              planned speed */
+    /* For a support line: the layer and the feature (enum zs_feature) of
+     * the part line that it holds up. ZS_NO_PATH and -1: none. */
+    uint32_t holds_layer;
+    int holds_feature;
 } zs_inspect;
 
 /* The measurements of a path at its segment seg (src/app/measure.zig):

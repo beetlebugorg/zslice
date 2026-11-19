@@ -3183,6 +3183,46 @@ test "app: combined infill shows its height, and the inspector says why" {
     try testing.expect(std.mem.indexOf(u8, r, "Combined: 2 layers, 0.40 mm") != null);
 }
 
+test "app: the inspector gives the fan, the layer time, and what support holds up" {
+    const gpa = testing.allocator;
+    // A mushroom: a 4 mm post and a 20 mm cap from z 5 to 7.
+    var b: zs.mesh.Builder = .init(gpa);
+    try zs.mesh.shapes.addBox(&b, 8, 8, 0, 12, 12, 5);
+    try zs.mesh.shapes.addBox(&b, 0, 0, 5, 20, 20, 7);
+    var mesh = try b.finish();
+    var bytes: std.Io.Writer.Allocating = .init(gpa);
+    defer bytes.deinit();
+    try mesh.writeStl(&bytes.writer);
+    mesh.deinit(gpa);
+    const app = try App.create(gpa, null, null);
+    defer app.destroy();
+    try app.settings.set("project.support", "everywhere");
+    try app.loadStl("mushroom.stl", bytes.written());
+    try app.startSlice();
+    app.stopWorkerForTest();
+    const t = app.allToolpaths().?;
+    var support: ?usize = null;
+    var wall: ?usize = null;
+    for (t.path_features.items, 0..) |f, i| {
+        const feature: zs.settings.Feature = @enumFromInt(f);
+        if (support == null and feature == .support) support = i;
+        if (wall == null and feature == .outer_wall and t.layerOfPath(i).? > 3) wall = i;
+    }
+    // A wall: the fan is on above the first layers, and the layer takes
+    // some time.
+    const w = try app.inspect(wall.?);
+    try testing.expect(w.fan > 0 and w.fan <= 1);
+    try testing.expect(w.layer_time > 0);
+    try testing.expect(w.max_flow > 0);
+    try testing.expect(w.holds == null);
+    // A support line under the cap holds up a line of the cap, above z 5.
+    const s = try app.inspect(support.?);
+    const held = s.holds.?;
+    try testing.expect(held.layer > s.layer);
+    try testing.expect(t.layer_z.items[held.layer] > 5);
+    try testing.expect(held.feature != .support and held.feature != .support_interface);
+}
+
 test "app: a 3MF file keeps the parts, the places, and the changes" {
     const gpa = std.testing.allocator;
     const app = try App.create(gpa, null, null);

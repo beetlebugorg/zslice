@@ -31,7 +31,7 @@ pub fn slowText(reason: u8) [:0]const u8 {
 
 /// The main settings of each feature (settings.Feature), best first.
 const by_feature = [_][]const [:0]const u8{
-    &.{ "project.outer_wall_speed", "project.seam", "project.wall_count", "project.outer_wall_accel" },
+    &.{ "project.outer_wall_speed", "project.wall_count", "project.outer_wall_accel", "project.seam" },
     &.{ "project.wall_count", "project.inner_wall_speed", "project.wall_thickness", "project.infill_overlap" },
     &.{ "project.top_thickness", "project.bottom_thickness", "project.solid_infill_width", "project.skin_pattern", "project.skin_speed" },
     &.{ "project.infill_density", "project.infill_pattern", "project.infill_speed", "project.infill_angle" },

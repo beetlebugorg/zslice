@@ -38,6 +38,23 @@ pub const Inspection = struct {
     /// cooling slow-down (minimum layer time), 2 the acceleration on short
     /// segments.
     slow_reason: u8 = 0,
+    /// The part fan of the line, from 0 (off) to 1 (full).
+    fan: f64 = 0,
+    /// The print time of the layer of the line, s.
+    layer_time: f64 = 0,
+    /// The flow limit of the filament, mm\u{b3}/s (filament.max_flow).
+    max_flow: f64 = 0,
+    /// True if the flow limit, not the machine, sets the planned speed.
+    flow_limited: bool = false,
+    /// For a support line: the line of the part that it holds up (the
+    /// first line above it that is not support), or null.
+    holds: ?Held = null,
+};
+
+/// The part line that a support line holds up.
+pub const Held = struct {
+    layer: usize,
+    feature: zs.settings.Feature,
 };
 
 pub const Error = error{ OutOfRange, OutOfMemory, WriteFailed };
@@ -209,7 +226,16 @@ pub fn inspect(arena: Allocator, t: *const Toolpaths, pj: *const zs.PlateJob, pa
         try fw.print("\n\nCombined: {d} layers, {d:.2} mm ({{{{project.infill_layers}}}}). The bead is as tall as the {d} layers, so it has more plastic for each mm, and the flow limit gives a lower speed.", .{ group_n, h, group_n });
     }
 
+    const flow_limited = feature != .ironing and feature != .slope_ironing and
+        s.filament.max_flow / zs.flow.beadArea(w, h) < s.machine.max_speed;
+    const holds: ?Held = if (feature == .support or feature == .support_interface) heldBy(t, path, layer, w) else null;
+
     return .{
+        .fan = if (path < t.path_fan.items.len) @as(f64, @floatFromInt(t.path_fan.items[path])) / 255 else 0,
+        .layer_time = layerTime(t, layer),
+        .max_flow = s.filament.max_flow,
+        .flow_limited = flow_limited,
+        .holds = holds,
         .feature = feature,
         .layer = layer,
         .path = path,
@@ -231,6 +257,75 @@ pub fn inspect(arena: Allocator, t: *const Toolpaths, pj: *const zs.PlateJob, pa
         .why_real = try arena.dupeZ(u8, wr.written()),
         .why_flow = try arena.dupeZ(u8, wf.written()),
     };
+}
+
+/// The print time of layer `layer`: from the end of the layer below (or
+/// the start of the first path) to the end of its last path.
+fn layerTime(t: *const Toolpaths, layer: usize) f64 {
+    const end = t.layer_ends.items[layer];
+    const start: usize = if (layer == 0) 0 else t.layer_ends.items[layer - 1];
+    if (end <= start) return 0;
+    const t0: f64 = if (start == 0) t.path_start_time.items[0] else t.path_end_time.items[start - 1];
+    return @as(f64, t.path_end_time.items[end - 1]) - t0;
+}
+
+/// The distance from (x, y) to path `path`, mm: to its nearest segment.
+fn pathDistance(t: *const Toolpaths, path: usize, x: f64, y: f64) f64 {
+    const pts = t.points.items;
+    const start = t.pathStart(path);
+    const end: usize = t.path_ends.items[path];
+    var best = std.math.inf(f64);
+    var k = start;
+    while (k < end) : (k += 1) {
+        const ax: f64 = pts[2 * k];
+        const ay: f64 = pts[2 * k + 1];
+        const j = if (k + 1 < end) k + 1 else k;
+        const dx = @as(f64, pts[2 * j]) - ax;
+        const dy = @as(f64, pts[2 * j + 1]) - ay;
+        const len2 = dx * dx + dy * dy;
+        const u = if (len2 > 0) std.math.clamp(((x - ax) * dx + (y - ay) * dy) / len2, 0, 1) else 0;
+        best = @min(best, std.math.hypot(ax + u * dx - x, ay + u * dy - y));
+    }
+    return best;
+}
+
+/// The part line that support path `path` holds up: up from its layer,
+/// the first layer where no support passes over the middle of the path
+/// and a part line does. The z gap of the support can leave some layers
+/// with neither. Null if the support goes to the top with no part above.
+fn heldBy(t: *const Toolpaths, path: usize, layer: usize, w: f64) ?Held {
+    const start = t.pathStart(path);
+    const end: usize = t.path_ends.items[path];
+    if (end <= start) return null;
+    const mid = start + (end - start) / 2;
+    const x: f64 = t.points.items[2 * mid];
+    const y: f64 = t.points.items[2 * mid + 1];
+    const near = @max(w, 0.2);
+    var l = layer + 1;
+    while (l < t.layerCount()) : (l += 1) {
+        const first: usize = t.layer_ends.items[l - 1];
+        var support = false;
+        var part: ?zs.settings.Feature = null;
+        var part_d = std.math.inf(f64);
+        for (first..t.layer_ends.items[l]) |p| {
+            const f: zs.settings.Feature = @enumFromInt(t.path_features.items[p]);
+            const d = pathDistance(t, p, x, y);
+            if (f == .support or f == .support_interface) {
+                if (d <= near) {
+                    support = true;
+                    break;
+                }
+            } else if (f != .skirt and d < part_d) {
+                part_d = d;
+                part = f;
+            }
+        }
+        if (support) continue;
+        // The line over the support: within a few line widths, as the
+        // support is a grid or a tree under the part.
+        if (part != null and part_d <= 4 * near) return .{ .layer = l, .feature = part.? };
+    }
+    return null;
 }
 
 fn hours(t: f64) u64 {

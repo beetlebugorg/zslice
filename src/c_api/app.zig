@@ -1304,6 +1304,18 @@ pub const Inspect = extern struct {
     slow_reason: c_int,
     /// The sentence of slow_reason, or "".
     slow_text: [*:0]const u8,
+    /// The part fan of the line, 0 (off) to 1 (full).
+    fan: f64,
+    /// The print time of the layer of the line, s.
+    layer_time: f64,
+    /// The flow limit of the filament, mm^3/s (filament.max_flow).
+    max_flow: f64,
+    /// 1 if the flow limit, not the machine, sets the planned speed.
+    flow_limited: c_int,
+    /// For a support line: the layer and the feature of the part line
+    /// that it holds up. ZS_NO_PATH and -1: none.
+    holds_layer: u32,
+    holds_feature: c_int,
 };
 
 /// The printability check of the last slice: the issues, the worst
@@ -1439,6 +1451,12 @@ export fn zs_app_inspect(a: ?*App, path: usize, out: ?*Inspect) c_int {
         .slow_reason = i.slow_reason,
         .settings = i.settings.ptr,
         .slow_text = app_mod.inspect_picks.slowText(i.slow_reason).ptr,
+        .fan = i.fan,
+        .layer_time = i.layer_time,
+        .max_flow = i.max_flow,
+        .flow_limited = @intFromBool(i.flow_limited),
+        .holds_layer = if (i.holds) |h| @intCast(h.layer) else 0xffffffff,
+        .holds_feature = if (i.holds) |h| @intFromEnum(h.feature) else -1,
     };
     return ok;
 }
