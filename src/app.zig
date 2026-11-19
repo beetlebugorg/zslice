@@ -769,7 +769,7 @@ pub const App = struct {
     /// Returns the angle of the fall in degrees (0: it stands).
     pub fn settlePart(app: *App, i: usize) Allocator.Error!f64 {
         if (i >= app.plate.count()) return 0;
-        if (app.settings.project.support != .off) return 0;
+        if (try app.standsUp(i)) return 0;
         const s = try zs.physics.settle(app.gpa, &app.plate.parts.items[i].mesh);
         if (s.rolls == 0) return 0;
         try app.plate.putDown(app.gpa, i, zs.physics.downOf(s));
@@ -804,6 +804,8 @@ pub const App = struct {
     /// support_trees.holds), and always with planned support.
     fn standsUp(app: *App, i: usize) Allocator.Error!bool {
         const p = &app.plate.parts.items[i];
+        // Trees that no longer fit the part go first.
+        if (p.trees != null) support_trees.check(app);
         if (p.trees != null) return support_trees.holds(app, i);
         if (app.settings.project.support != .off) return true;
         const st = try zs.physics.settle(app.gpa, &p.mesh);

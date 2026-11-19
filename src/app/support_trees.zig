@@ -64,6 +64,70 @@ pub fn view(app: *App, part: usize) ?View {
     return .{ .sk = &j.job.trees, .dx = j.dx, .dy = j.dy, .job = j.job, .edited = false };
 }
 
+/// One node of the trees of a part for a shell (see `nodes`).
+pub const NodeInfo = struct {
+    /// The center on the plate, and the top z of its layer (mm).
+    x: f64,
+    y: f64,
+    z: f64,
+    /// The radius, and the least radius that the rules allow (mm).
+    r: f64,
+    r_min: f64,
+    /// The next node toward the bed, or -1.
+    down: i32,
+    layer: u32,
+    /// The branch of the node (see support_skeleton.Skeleton.branches).
+    branch: u32,
+    flags: u32,
+
+    pub const tip: u32 = 1;
+    /// The root of a tree on the bed.
+    pub const foot: u32 = 2;
+    /// The root of a tree that rests on the part.
+    pub const rests: u32 = 4;
+};
+
+/// The nodes of the trees of part i that the view shows, in `out` (at
+/// most out.len). Returns the count of all nodes, or null with no slice.
+pub fn nodes(app: *App, part: usize, out: []NodeInfo) Allocator.Error!?usize {
+    const v = view(app, part) orelse return null;
+    const items = v.sk.nodes.items;
+    if (out.len == 0) return items.len;
+    var arena = std.heap.ArenaAllocator.init(app.gpa);
+    defer arena.deinit();
+    const a = arena.allocator();
+    const ids = try v.sk.branches(a);
+    const tops = try v.sk.topTips(a);
+    const job = v.job;
+    const r = &job.resolved;
+    const n = job.layers.len;
+    const z = try a.alloc(f64, n);
+    const h = try a.alloc(f64, n);
+    for (job.layers, z, h) |l, *zz, *hh| {
+        zz.* = l.z * 1000;
+        hh.* = l.height * 1000;
+    }
+    const c: edit.Ctx = .{ .a = a, .params = zs.support.treeParams(r), .z = z, .h = h, .outlines = job.outlines, .xy = 0, .xy_under = 0, .tips_below = 0 };
+    for (items[0..@min(items.len, out.len)], out[0..@min(items.len, out.len)], 0..) |nd, *o, k| {
+        const layer = @min(nd.layer, @as(u32, @intCast(n -| 1)));
+        var flags: u32 = 0;
+        if (nd.tip) flags |= NodeInfo.tip;
+        if (nd.down == skel.none) flags |= if (nd.layer == 0) NodeInfo.foot else NodeInfo.rests;
+        o.* = .{
+            .x = (v.dx + nd.x) / 1000,
+            .y = (v.dy + nd.y) / 1000,
+            .z = if (n > 0) job.layers[layer].z else 0,
+            .r = nd.r / 1000,
+            .r_min = if (n > 0) c.ruleRadius(@min(@max(tops[k], layer), @as(u32, @intCast(n - 1))), layer) / 1000 else 0,
+            .down = if (nd.down == skel.none) -1 else @intCast(nd.down),
+            .layer = nd.layer,
+            .branch = ids[k],
+            .flags = flags,
+        };
+    }
+    return items.len;
+}
+
 /// Drops the trees of the user that no longer fit their part, with a
 /// note. The shape needs no slice; the layers need the last slice.
 pub fn check(app: *App) void {

@@ -852,6 +852,133 @@ export fn zs_app_support_area_get(a: ?*const App, i: usize, kind: ?*c_int, point
     return ok;
 }
 
+// ---- The support trees (the support editor of tree support) ----
+
+/// One node of the support trees of a part (zs_tree_node).
+pub const TreeNode = extern struct {
+    x: f64,
+    y: f64,
+    z: f64,
+    r: f64,
+    r_min: f64,
+    down: i32,
+    layer: u32,
+    branch: u32,
+    flags: u32,
+};
+
+const trees = app_mod.support_trees;
+
+fn treeStatus(e: anyerror) c_int {
+    return switch (e) {
+        error.NoNode, error.NoPart => @intFromEnum(Status.out_of_range),
+        error.NoRoom => @intFromEnum(Status.invalid_value),
+        error.Busy => @intFromEnum(Status.busy),
+        else => status(e),
+    };
+}
+
+/// The nodes of the support trees of part `part`: the trees of the user
+/// if they are edited, else the trees of the last slice. Writes at most
+/// cap nodes to `out` (NULL: none) and returns the count of all nodes, or
+/// -status (ZS_BUSY with no slice result).
+export fn zs_app_support_tree_nodes(a: ?*App, part: usize, out: ?[*]TreeNode, cap: usize) isize {
+    const app = a orelse return -@as(isize, @intFromEnum(Status.invalid_argument));
+    if (part >= app.plate.count()) return -@as(isize, @intFromEnum(Status.out_of_range));
+    const k = if (out != null) cap else 0;
+    const buf = gpa.alloc(trees.NodeInfo, k) catch return -@as(isize, @intFromEnum(Status.out_of_memory));
+    defer gpa.free(buf);
+    const n = (trees.nodes(app, part, buf) catch return -@as(isize, @intFromEnum(Status.out_of_memory))) orelse return -@as(isize, @intFromEnum(Status.busy));
+    if (out) |o| for (buf[0..@min(n, k)], 0..) |x, i| {
+        o[i] = .{ .x = x.x, .y = x.y, .z = x.z, .r = x.r, .r_min = x.r_min, .down = x.down, .layer = x.layer, .branch = x.branch, .flags = x.flags };
+    };
+    return @intCast(n);
+}
+
+/// 1 if part `part` has support trees of the user, else 0.
+export fn zs_app_support_tree_edited(a: ?*const App, part: usize) c_int {
+    const app = a orelse return 0;
+    if (part >= app.plate.count()) return 0;
+    return @intFromBool(app.plate.parts.items[part].trees != null);
+}
+
+/// Moves node `node` of the trees of part `part` to (x, y) on the plate
+/// (mm). *clamp (can be NULL) gets the rules that limited it (enum
+/// zs_tree_clamp). One history step; hold the slice of the plate during
+/// a drag.
+export fn zs_app_support_tree_move_node(a: ?*App, part: usize, node: u32, x: f64, y: f64, clamp: ?*u32) c_int {
+    const app = a orelse return @intFromEnum(Status.invalid_argument);
+    const bits = trees.moveNode(app, part, node, x, y) catch |e| return treeStatus(e);
+    if (clamp) |o| o.* = bits;
+    noted(app, null, true);
+    return ok;
+}
+
+/// Sets the radius (mm) of node `node`: the width of its branch there.
+export fn zs_app_support_tree_set_radius(a: ?*App, part: usize, node: u32, r: f64, clamp: ?*u32) c_int {
+    const app = a orelse return @intFromEnum(Status.invalid_argument);
+    const bits = trees.setRadius(app, part, node, r) catch |e| return treeStatus(e);
+    if (clamp) |o| o.* = bits;
+    noted(app, null, true);
+    return ok;
+}
+
+/// Moves the branch of node `node` by (dx, dy) mm: as far as the rules
+/// allow.
+export fn zs_app_support_tree_move_branch(a: ?*App, part: usize, node: u32, dx: f64, dy: f64, clamp: ?*u32) c_int {
+    const app = a orelse return @intFromEnum(Status.invalid_argument);
+    const bits = trees.moveBranch(app, part, node, dx, dy) catch |e| return treeStatus(e);
+    if (clamp) |o| o.* = bits;
+    noted(app, null, true);
+    return ok;
+}
+
+/// Deletes the branch of node `node` and the branches over it. Returns
+/// the count of nodes that went, or -status.
+export fn zs_app_support_tree_delete_branch(a: ?*App, part: usize, node: u32) isize {
+    const app = a orelse return -@as(isize, @intFromEnum(Status.invalid_argument));
+    const n = trees.deleteBranch(app, part, node) catch |e| return -@as(isize, treeStatus(e));
+    noted(app, null, true);
+    return @intCast(n);
+}
+
+/// Adds a branch from the bed point (fx, fy) to the point (tx, ty, tz) of
+/// the part that needs support (mm, on the plate). Returns the tip node
+/// of the new branch, or -status (ZS_INVALID_VALUE: no room for a branch
+/// there).
+export fn zs_app_support_tree_add_branch(a: ?*App, part: usize, fx: f64, fy: f64, tx: f64, ty: f64, tz: f64, clamp: ?*u32) isize {
+    const app = a orelse return -@as(isize, @intFromEnum(Status.invalid_argument));
+    const got = trees.addBranch(app, part, fx, fy, tx, ty, tz) catch |e| return -@as(isize, treeStatus(e));
+    if (clamp) |o| o.* = got.clamp;
+    noted(app, null, true);
+    return @intCast(got.tip);
+}
+
+/// The planned trees again for part `part`. Returns 1 if it had trees of
+/// the user, else 0.
+export fn zs_app_support_tree_reset(a: ?*App, part: usize) c_int {
+    const app = a orelse return 0;
+    if (!trees.reset(app, part)) return 0;
+    noted(app, null, true);
+    return 1;
+}
+
+/// The note of the last drop of the trees of the user (a turn or a scale
+/// of the part, or other layers): the app planned them again. Copies it
+/// to buf (at most cap bytes with a 0 at the end) and returns its length,
+/// or 0 with no note. The note goes after the call.
+export fn zs_app_support_tree_note(a: ?*App, buf: ?[*]u8, cap: usize) usize {
+    const app = a orelse return 0;
+    trees.check(app);
+    const t = trees.takeNote(app) orelse return 0;
+    if (buf) |b| if (cap > 0) {
+        const k = @min(t.len, cap - 1);
+        @memcpy(b[0..k], t[0..k]);
+        b[k] = 0;
+    };
+    return t.len;
+}
+
 export fn zs_app_write_3mf(a: ?*App, out: ?*?[*]const u8, out_len: ?*usize) c_int {
     const app = a orelse return @intFromEnum(Status.invalid_argument);
     const o = out orelse return @intFromEnum(Status.invalid_argument);
@@ -2865,4 +2992,69 @@ test "C API: the undo list keeps at most max_steps steps and max_plate_bytes of 
     }
     // Before the step now: one plate file is left.
     try t.expectEqual(@as(usize, 1), zs_app_history_current(app));
+}
+
+test "C API: the support trees: list, edit, undo, and reset" {
+    const t = std.testing;
+    var a: ?*App = null;
+    try t.expectEqual(ok, zs_app_new(null, null, &a));
+    defer zs_app_free(a);
+    // A mushroom: a post and a cap from z 5 to 7.
+    var b: zs.mesh.Builder = .init(gpa);
+    try zs.mesh.shapes.addBox(&b, 8, 8, 0, 12, 12, 5);
+    try zs.mesh.shapes.addBox(&b, 0, 0, 5, 20, 20, 7);
+    var mesh = try b.finish();
+    defer mesh.deinit(gpa);
+    var stl: Writer.Allocating = .init(gpa);
+    defer stl.deinit();
+    try mesh.writeStl(&stl.writer);
+    try t.expectEqual(ok, zs_app_setting_set(a, "project.support", "everywhere"));
+    try t.expectEqual(ok, zs_app_setting_set(a, "project.support_style", "tree"));
+    try t.expectEqual(ok, zs_app_load_stl(a, "mushroom.stl", stl.written().ptr, stl.written().len));
+    // No slice yet: busy.
+    try t.expectEqual(-@as(isize, @intFromEnum(Status.busy)), zs_app_support_tree_nodes(a, 0, null, 0));
+    try t.expectEqual(ok, zs_app_slice(a));
+    a.?.stopWorkerForTest();
+    try t.expectEqual(@as(c_int, 0), zs_app_history_commit(a, 0));
+    const n: usize = @intCast(zs_app_support_tree_nodes(a, 0, null, 0));
+    try t.expect(n > 0);
+    const nodes = try gpa.alloc(TreeNode, n);
+    defer gpa.free(nodes);
+    try t.expectEqual(@as(isize, @intCast(n)), zs_app_support_tree_nodes(a, 0, nodes.ptr, n));
+    try t.expectEqual(@as(c_int, 0), zs_app_support_tree_edited(a, 0));
+    // A node under the cap, and its tree on the bed.
+    var tip: u32 = 0;
+    while (nodes[tip].flags & 1 == 0) tip += 1;
+    try t.expect(nodes[tip].z > 3 and nodes[tip].z < 5);
+    try t.expect(nodes[tip].r >= nodes[tip].r_min);
+    // A radius under the rules: clamped.
+    var clamp: u32 = 0;
+    const root: u32 = @intCast(for (nodes, 0..) |nd, k| {
+        if (nd.flags & 2 != 0) break k;
+    } else unreachable);
+    try t.expectEqual(ok, zs_app_support_tree_set_radius(a, 0, root, 0.01, &clamp));
+    try t.expectEqual(@as(u32, 4), clamp);
+    try t.expectEqual(@as(c_int, 1), zs_app_support_tree_edited(a, 0));
+    try t.expectEqual(@as(c_int, 1), zs_app_history_commit(a, 1000));
+    // A node out of range.
+    try t.expectEqual(@as(c_int, @intFromEnum(Status.out_of_range)), zs_app_support_tree_move_node(a, 0, 1_000_000, 0, 0, null));
+    // Delete a tree, and add a branch.
+    try t.expect(zs_app_support_tree_delete_branch(a, 0, root) > 0);
+    const box = a.?.plate.parts.items[0].footprint();
+    const cx = (box[0] + box[2]) / 2;
+    const cy = (box[1] + box[3]) / 2;
+    const got = zs_app_support_tree_add_branch(a, 0, cx + 7, cy, cx + 7, cy, 5, &clamp);
+    try t.expect(got >= 0);
+    try t.expectEqual(@as(u32, 0), clamp);
+    try t.expectEqual(@as(c_int, 1), zs_app_history_commit(a, 2000));
+    // Undo the add and the delete, then the radius: the plan again.
+    try t.expect(zs_app_history_undo(a, 3000) != 0);
+    try t.expect(zs_app_history_undo(a, 4000) != 0);
+    try t.expectEqual(@as(c_int, 0), zs_app_support_tree_edited(a, 0));
+    try t.expect(zs_app_history_redo(a, 5000) != 0);
+    try t.expectEqual(@as(c_int, 1), zs_app_support_tree_edited(a, 0));
+    try t.expectEqual(@as(c_int, 1), zs_app_support_tree_reset(a, 0));
+    try t.expectEqual(@as(c_int, 0), zs_app_support_tree_reset(a, 0));
+    var note: [128]u8 = undefined;
+    try t.expectEqual(@as(usize, 0), zs_app_support_tree_note(a, &note, note.len));
 }

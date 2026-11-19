@@ -305,6 +305,72 @@ size_t zs_app_support_area_count(const zs_app *app);
  * points gets at most cap of them (3 values each). Any output can be NULL. */
 int zs_app_support_area_get(const zs_app *app, size_t i, int *kind, double *points, size_t cap, size_t *n, double *z_lo, double *z_hi);
 
+/* Support trees (the support editor of tree support). A slice plans the
+ * trees of each part. The first edit of a part copies them into the trees
+ * of the user of that part; from then on its slices use those trees,
+ * until zs_app_support_tree_reset. The trees of the user move with the
+ * part, and go into the 3MF, the history, and the session. A turn or a
+ * scale of the part, or other layers, drops them (see
+ * zs_app_support_tree_note). Each edit keeps the rules of the planner and
+ * reports in *clamp (can be NULL) the rules that limited it: the node
+ * stays out of the part and its XY gap, a segment leans at most the
+ * support tree angle, and a radius is at least what the bend, buckling,
+ * and least-radius rules need. Each edit is one history step; slice again
+ * after it, and call zs_app_fall_pending (a part may lose what held it).
+ * During a drag, hold the slice of the plate (zs_set_changed_held). The
+ * edits need a slice result: else they return ZS_BUSY. */
+typedef struct zs_tree_node {
+    double x, y, z; /* the center on the plate, and the top z of its layer (mm) */
+    double r;       /* the radius (mm) */
+    double r_min;   /* the least radius that the rules allow (mm) */
+    int32_t down;   /* the next node toward the bed, or -1 */
+    uint32_t layer;
+    uint32_t branch; /* the branch: the nodes between two joins */
+    uint32_t flags;  /* enum zs_tree_node_flag */
+} zs_tree_node;
+
+enum zs_tree_node_flag {
+    ZS_TREE_TIP = 1,   /* the top of a branch, under an overhang */
+    ZS_TREE_FOOT = 2,  /* the root of a tree on the bed */
+    ZS_TREE_RESTS = 4, /* the root of a tree that rests on the part */
+};
+
+enum zs_tree_clamp {
+    ZS_TREE_CLAMP_PART = 1,       /* the node stays out of the part */
+    ZS_TREE_CLAMP_LEAN = 2,       /* a segment leans at most the angle */
+    ZS_TREE_CLAMP_RADIUS_MIN = 4, /* the radius is at least r_min */
+    ZS_TREE_CLAMP_RADIUS_MAX = 8, /* the radius is at most the largest */
+    ZS_TREE_CLAMP_REACH = 16,     /* a new foot moved nearer to its tip */
+};
+
+/* The nodes of the trees of part `part` (the trees of the user, or of the
+ * last slice). A segment goes from each node to its down node. Writes at
+ * most cap nodes to out (NULL: none); returns the count of all nodes, or
+ * -status. */
+ptrdiff_t zs_app_support_tree_nodes(zs_app *app, size_t part, zs_tree_node *out, size_t cap);
+/* 1 if part `part` has trees of the user. */
+int zs_app_support_tree_edited(const zs_app *app, size_t part);
+/* Moves node `node` to (x, y) on the plate (mm). */
+int zs_app_support_tree_move_node(zs_app *app, size_t part, uint32_t node, double x, double y, uint32_t *clamp);
+/* Sets the radius of node `node` (mm): wider or narrower there. */
+int zs_app_support_tree_set_radius(zs_app *app, size_t part, uint32_t node, double r, uint32_t *clamp);
+/* Moves the branch of node `node` by (dx, dy) mm, as far as the rules
+ * allow. */
+int zs_app_support_tree_move_branch(zs_app *app, size_t part, uint32_t node, double dx, double dy, uint32_t *clamp);
+/* Deletes the branch of node `node` and the branches over it. Returns the
+ * count of nodes that went, or -status. */
+ptrdiff_t zs_app_support_tree_delete_branch(zs_app *app, size_t part, uint32_t node);
+/* Adds a branch from the bed point (fx, fy) to the point (tx, ty, tz) of
+ * the part that needs support (mm): a planned branch, sized by the rules.
+ * Returns its tip node, or -status (ZS_INVALID_VALUE: no room there). */
+ptrdiff_t zs_app_support_tree_add_branch(zs_app *app, size_t part, double fx, double fy, double tx, double ty, double tz, uint32_t *clamp);
+/* The planned trees again for part `part`: 1 if it had trees of the user. */
+int zs_app_support_tree_reset(zs_app *app, size_t part);
+/* The note of the last drop of the trees of the user, with a 0 at the end
+ * (at most cap bytes). Returns its length, or 0 with no note. The note
+ * goes after the call. */
+size_t zs_app_support_tree_note(zs_app *app, char *buf, size_t cap);
+
 int zs_app_write_3mf(zs_app *app, const uint8_t **out, size_t *out_len);
 /* A debug print: the G-code of the layers lo to hi - 1 of the last slice
  * alone, lowered so that layer lo prints on the bed ("print this layer":
@@ -776,9 +842,10 @@ double zs_app_part_settle(zs_app *app, size_t i);
 int zs_app_fall_start(zs_app *app, size_t part);
 int zs_app_fall_step(zs_app *app, double dt, double *out);
 void zs_app_fall_cancel(zs_app *app);
-/* The first part that cannot stand as it is while support is off, or -1.
- * Call it after a change of a setting or of the plate (support turned off
- * under a turned part), and start its fall. */
+/* The first part that cannot stand as it is, or -1: with support off, or
+ * on the support trees of the user that it has (their tips on the bed
+ * hold it). Call it after a change of a setting or of the plate (support
+ * turned off under a turned part, a branch deleted), and start its fall. */
 ptrdiff_t zs_app_fall_pending(zs_app *app);
 /* The hand: zs_app_grab_start takes part i at a bed point on its surface
  * (1 if it did), zs_app_grab_move moves the hand, and zs_app_grab_end lets
