@@ -48,7 +48,7 @@ The bar at the top of the Settings page picks what the editors change: This Prin
 
 ## A part falls over
 
-When you turn a part (the rings of the Turn tool, or its keys) so that it cannot stand, it falls over onto a side that holds it, and a note says so. With support on, it stays where you put it: the support holds it, and the note says that instead.
+When you turn a part (the rings of the Turn tool, or its keys) so that it cannot stand, it falls over in the view onto a side that holds it, and a note says so. With support on, it stays where you put it: the support holds it, and the note says that instead.
 
 ## Edit one line
 

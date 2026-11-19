@@ -290,6 +290,15 @@ final class FrameRenderer {
             enc.setRenderPipelineState(f.box.params.2 != 0 ? r.boxFocus : r.boxOpaque)
             setPush(f.box)
             drawList(first: min(f.box_first, f.box_count))
+            // A part that turns in the view only (zs_view_part_preview: a
+            // fall, a turn): its beads with its own matrix.
+            if f.part_draws_count > 0 {
+                setPush(f.part)
+                for d in r.draws(f.part_draws, f.part_draws_count) {
+                    drawBeads(first: Int(d.first), count: Int(d.count), lod: Int(d.lod))
+                }
+                setPush(f.box)
+            }
             drawBeads(first: Int(f.mark_first), count: Int(f.mark_count))
             drawPlates(ghost: nil)
             // With a focus: the beads out of it, as ghosts (params.w = 2).

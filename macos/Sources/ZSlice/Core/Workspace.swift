@@ -111,6 +111,11 @@ final class Workspace {
     @ObservationIgnored var tapeDrag: Int?
     /// A drag of a ring of the Turn tool: its axis, and the degrees sent.
     @ObservationIgnored var ringDrag: (axis: Int, sent: Double)?
+    /// A part that falls in the view (Tools.swift, settle), and what comes
+    /// at its rest.
+    @ObservationIgnored var falling: (part: Int, then: (() -> Void)?)?
+    @ObservationIgnored var fallClock = 0.0
+    @ObservationIgnored var fallFrame = 0
     /// The label of a ring drag ("+30° about Z") and its place.
     var ringLabel: (text: String, at: CGPoint)?
     @ObservationIgnored let wheelSlice = Throttle(.milliseconds(300))
@@ -572,7 +577,7 @@ final class Workspace {
             // still come).
             if env["ZSLICE_DESELECT"] != nil { setTool(.select) }
             Task { @MainActor in
-                try? await Task.sleep(for: .seconds(1.2))
+                try? await Task.sleep(for: .seconds(3))
                 var p = zs_part()
                 _ = zs_app_part_get(self.model.core, i, &p)
                 NSLog("zslice turn keys: support %@, size z %.1f, note %@", self.model.setting("project.support"), p.size_z, self.note ?? "none")
@@ -1449,7 +1454,10 @@ extension Workspace: SliceViewDelegate {
     }
     func sliceViewDoubleClick(_ p: CGPoint) -> Bool { lookAtSide(p) }
 
-    func sliceViewTick(_ dt: Double) -> Bool { stepReplay(dt) }
+    func sliceViewTick(_ dt: Double) -> Bool {
+        // A fall, else the replay.
+        falling != nil ? fallTick(dt) : stepReplay(dt)
+    }
 
     func sliceViewAppearanceChanged() {
         if model.state == .done { canvas.load(model.core); applyRange() }

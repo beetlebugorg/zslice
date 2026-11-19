@@ -243,8 +243,7 @@ extension Workspace {
             // The turn slices once, at the end of the drag, after the part
             // fell over if it cannot stand like that.
             if r.sent != 0 {
-                settle(part: selectedPart)
-                model.release()
+                settle(part: selectedPart) { [weak self] in self?.model.release() }
             }
             canvas.requestFrame()
             return
@@ -294,9 +293,10 @@ extension Workspace {
         settleTask = Task { @MainActor [weak self] in
             try? await Task.sleep(for: .milliseconds(600))
             guard let self, !Task.isCancelled else { return }
-            settle(part: i)
-            model.settingsChanged()
-            model.release()
+            settle(part: i) { [weak self] in
+                self?.model.settingsChanged()
+                self?.model.release()
+            }
         }
         return true
     }
@@ -306,17 +306,73 @@ extension Workspace {
     /// which (zs_app_part_stands), so a part that stays is no surprise.
     /// part: the part that turned (by default the selected one). A turn
     /// settles its own part, also when the selection moved on meanwhile.
-    func settle(part: Int? = nil) {
-        guard let i = part ?? selectedPart, i < zs_app_part_count(model.core) else { return }
-        let deg = zs_app_part_settle(model.core, i)
-        if deg == 0, zs_app_part_stands(model.core, i) == 0 {
-            showNote("This part could not stand like that on its own. Support is on, so the support holds it in place.", seconds: 7)
+    /// The fall shows in the view: each frame runs the rigid body of the
+    /// core (zs_app_fall_step, src/rigid.zig) and turns the beads of the
+    /// part to its place (zs_view_part_preview). At rest the core puts the
+    /// part flush on its new face (one history step), and `then` runs: the
+    /// plate slices, and the new beads end the preview.
+    func settle(part: Int? = nil, then: (() -> Void)? = nil) {
+        guard let i = part ?? selectedPart, i < zs_app_part_count(model.core) else {
+            then?()
             return
         }
-        guard deg > 0.5 else { return }
-        selectPart(i)
+        if falling != nil { zs_app_fall_cancel(model.core) }
+        guard zs_app_fall_start(model.core, i) == 1 else {
+            falling = nil
+            if zs_app_part_stands(model.core, i) == 0 {
+                showNote("This part could not stand like that on its own. Support is on, so the support holds it in place.", seconds: 7)
+            }
+            then?()
+            return
+        }
+        falling = (i, then)
+        canvas.startTicking()
+    }
+
+    /// One frame of a fall. Returns true while the part falls.
+    func fallTick(_ dt: Double) -> Bool {
+        guard let f = falling else { return false }
+        var out = [Double](repeating: 0, count: 10)
+        let rc = zs_app_fall_step(model.core, dt, &out)
+        if rc < 0 {
+            falling = nil
+            if let v = canvas.view { zs_view_part_preview(v, -1, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0, 0) }
+            f.then?()
+            return false
+        }
+        if let v = canvas.view {
+            let o = out.map(Float.init)
+            zs_view_part_preview(v, Int32(f.part), o[0], o[1], o[2], o[3], o[4], o[5], o[6], o[7], o[8], o[9], 0)
+        }
+        // For tests: ZSLICE_FALL_FRAMES=dir writes a frame of the fall each
+        // 0.15 s.
+        if let dir = ProcessInfo.processInfo.environment["ZSLICE_FALL_FRAMES"] {
+            fallClock += dt
+            if fallClock >= 0.15 {
+                fallClock = 0
+                fallFrame += 1
+                let n = fallFrame
+                Task { @MainActor in
+                    guard let img = await canvas.captureWindow(),
+                          let d = CGImageDestinationCreateWithURL(URL(fileURLWithPath: dir).appendingPathComponent("fall\(n).png") as CFURL, "public.png" as CFString, 1, nil) else { return }
+                    CGImageDestinationAddImage(d, img, nil)
+                    CGImageDestinationFinalize(d)
+                }
+            }
+        }
+        guard rc == 0 else { return true }
+        // At rest: the part is at its new place.
+        falling = nil
+        if selectedPart == f.part { selectPart(f.part) }
         model.changedHeld()
-        showNote("The part could not stand like that, and fell over (\(Int(deg.rounded()))°). Turn on support to hold it in place.", seconds: 7)
+        showNote("The part could not stand like that, and fell over. Turn on support to hold it in place.", seconds: 7)
+        if ProcessInfo.processInfo.environment["ZSLICE_FALL_LOG"] != nil {
+            var p = zs_part()
+            _ = zs_app_part_get(model.core, f.part, &p)
+            NSLog("zslice fall: at rest, size z %.1f", p.size_z)
+        }
+        f.then?()
+        return false
     }
 
     // MARK: - the measure tape

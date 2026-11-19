@@ -158,6 +158,7 @@ Like the GTK shell, the app reads some environment variables for development and
 - `ZSLICE_DECK_JSON=path` logs the printers that a printer.json of a printdeck with more than one printer gives.
 - `ZSLICE_PICKER=1` opens the printer picker.
 - `ZSLICE_TURN_KEYS=n` presses the Up arrow n times in the Turn tool on the selected part, and logs its height and the note 1.2 s later. `ZSLICE_DESELECT=1` picks the Select tool at once, as a click elsewhere does: the part must still fall.
+- `ZSLICE_FALL_LOG=1` logs the height of a part when its fall comes to rest, and `ZSLICE_FALL_FRAMES=dir` writes a frame of the fall each 0.15 s.
 - `ZSLICE_TURN=deg` turns the selected part about X, lets it settle, and logs the note. `ZSLICE_SUPPORT=1` turns support on first. Select the part with `ZSLICE_TOOL=move ZSLICE_CLICKS=center`.
 - `ZSLICE_SESSION=dir` keeps the session in that folder, also with `ZSLICE_FRESH` (which turns the session off without it). `ZSLICE_QUIT_AFTER=s` quits as Command-Q does, after s seconds. With `ZSLICE_TIMING=1`, the app logs the session reads and writes, and the time of the first frame with beads.
 - `ZSLICE_REFINE=path` keeps the store of refinements in that file, also with `ZSLICE_FRESH`. `ZSLICE_DETAILS=1` opens the details of the print, and `ZSLICE_REFINE_APPLY=1` applies the first suggestion and logs it.
@@ -267,3 +268,7 @@ In the Support tool, the view tracks the pointer (`sliceViewHover`). At most onc
 ## The bead shader
 
 The view draws each bead exactly as it will print: no coarser meshes while it moves (the core uses its coarse mesh only for beads under 7 px wide, where it is exact to 1 px). The plain beads use `box_fragment`, which has no `discard_fragment`, so the GPU tests the depth before the fragment runs. The focus and the see-through passes use `box_fragment_focus`. Zoomed in on deck_body during an orbit: 15.4 ms of GPU time a frame, against 16.8 ms with a discard.
+
+## The fall of a part
+
+After the Turn tool (the release of a ring, or 0.6 s after the last turn key), `settle(part:then:)` starts the fall of the part that turned (`zs_app_fall_start`, the rigid body of src/rigid.zig). Each frame of the display link runs `zs_app_fall_step` with the frame time, and gives its turn, pivot, and move to `zs_view_part_preview`; the renderer draws the beads of that part with its own push constants (`part_draws`). At rest the core puts the part flush on its face (one history step), and `then` slices the plate; the new beads end the preview. A part that stands, or that support holds, does not fall, and a note says which.
