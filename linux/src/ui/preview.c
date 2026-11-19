@@ -62,8 +62,7 @@ typedef struct {
     GtkWidget *empty;
     /* The dock: one bar at the bottom of the preview with three groups
      * (the plates, the replay, the history), and the lines between them. */
-    GtkWidget *dock, *dock_seps[2];
-    guint dock_idle;
+    GtkWidget *dock;
     /* The print card at the bottom right (zg_preview_set_card). */
     GtkWidget *card;
     /* The view buttons for the header bar (zg_preview_view_bar). */
@@ -768,6 +767,9 @@ static void make_plate_bar(Preview *p) {
     gtk_box_append(GTK_BOX(p->plates), p->plate_next);
     gtk_box_append(GTK_BOX(p->plates), add);
     gtk_box_append(GTK_BOX(p->plates), remove);
+    /* Flat buttons in the dock, as on the web. */
+    for (GtkWidget *c = gtk_widget_get_first_child(p->plates); c; c = gtk_widget_get_next_sibling(c))
+        if (GTK_IS_BUTTON(c)) gtk_widget_add_css_class(c, "flat");
 }
 
 /* The text of the bar, and a tooltip with the name and the status of
@@ -947,7 +949,6 @@ static void preview_free(gpointer data) {
     Preview *p = data;
     /* The 3D view can be gone already (its tick callback with it). */
     if (p->tick && GTK_IS_WIDGET(p->view3d)) gtk_widget_remove_tick_callback(p->view3d, p->tick);
-    if (p->dock_idle) g_source_remove(p->dock_idle);
     if (p->keys_timer) g_source_remove(p->keys_timer);
     /* The view bar is in the header bar, and can live on: its signals
      * stop here. The preview keeps a reference to it. */
@@ -1692,100 +1693,28 @@ static GtkWidget *tool_strip(Preview *p) {
     return box;
 }
 
-/* ---- the bottom of the view: the dock, the print card, and the layer
- * slider ----
+/* ---- the bottom of the view: the dock and the layer slider ----
  *
- * The dock starts at the left edge, and ends where the print card starts.
- * With no room beside the card, the dock takes the whole width, and the
- * card goes over it. With no room for one row, the groups of the dock go
- * in a column. The layer slider stays in the middle of the right edge, and
- * moves up when the card or the dock is in its way. */
+ * The dock is one bar, the full width of the view, at its bottom, as on
+ * the web: the plates and the history in the first row, the replay in the
+ * second, and the print at the right of both. The layer slider stays in
+ * the middle of the right edge, and moves up when the dock is in its way. */
 
-enum { EDGE = 10, CARD_EDGE = 12, GAP = 8, DOCK_PAD = 16 };
-
-typedef struct {
-    GdkRectangle dock, card, slider;
-    gboolean vertical;
-} BottomPlaces;
-
-/* The width of the dock in one row: the smallest widths of its groups and
- * its lines, the spaces between them, and the padding (the zg-dock style). */
-static int dock_row_width(Preview *p) {
-    int sum = 0, n = 0;
-    for (GtkWidget *c = gtk_widget_get_first_child(p->dock); c; c = gtk_widget_get_next_sibling(c)) {
-        if (!gtk_widget_get_visible(c)) continue;
-        int min = 0;
-        gtk_widget_measure(c, GTK_ORIENTATION_HORIZONTAL, -1, &min, NULL, NULL, NULL);
-        sum += min;
-        n++;
-    }
-    return sum + MAX(n - 1, 0) * gtk_box_get_spacing(GTK_BOX(p->dock)) + DOCK_PAD;
-}
-
-static void place_bottom(Preview *p, BottomPlaces *l) {
-    int W = gtk_widget_get_width(p->root), H = gtk_widget_get_height(p->root);
-    int row = dock_row_width(p);
-    gboolean card = p->card && gtk_widget_get_visible(p->card);
-    int cw = 0, ch = 0;
-    if (card) {
-        int min = 0, nat = 0;
-        gtk_widget_measure(p->card, GTK_ORIENTATION_HORIZONTAL, -1, &min, &nat, NULL, NULL);
-        cw = MAX(min, MIN(nat, W - 2 * EDGE));
-        gtk_widget_measure(p->card, GTK_ORIENTATION_VERTICAL, cw, NULL, &ch, NULL, NULL);
-    }
-    int side = W - EDGE - cw - CARD_EDGE - GAP;
-    gboolean beside = card && side >= row;
-    int dw = MAX(beside ? side : W - 2 * EDGE, 1);
-    l->vertical = dw < row;
-    int dmin = 0, dh = 0;
-    gtk_widget_measure(p->dock, GTK_ORIENTATION_HORIZONTAL, -1, &dmin, NULL, NULL, NULL);
-    dw = MAX(dw, dmin);
-    gtk_widget_measure(p->dock, GTK_ORIENTATION_VERTICAL, dw, NULL, &dh, NULL, NULL);
-    l->dock = (GdkRectangle){EDGE, H - EDGE - dh, dw, dh};
-    int top = l->dock.y;
-    if (card) {
-        int y = beside ? H - CARD_EDGE - ch : l->dock.y - GAP - ch;
-        l->card = (GdkRectangle){W - CARD_EDGE - cw, MAX(y, 0), cw, ch};
-        top = l->card.y;
-    }
-    int sw = 0, sh = 0;
-    gtk_widget_measure(p->slider_box, GTK_ORIENTATION_HORIZONTAL, -1, NULL, &sw, NULL, NULL);
-    gtk_widget_measure(p->slider_box, GTK_ORIENTATION_VERTICAL, sw, NULL, &sh, NULL, NULL);
-    int sy = (H - sh) / 2;
-    if (sy + sh > top - GAP) sy = MAX(EDGE, top - GAP - sh);
-    l->slider = (GdkRectangle){W - 8 - sw, sy, sw, sh};
-}
-
-/* Turns the dock to a row or a column, after the layout. */
-static gboolean turn_dock(gpointer data) {
-    Preview *p = data;
-    p->dock_idle = 0;
-    BottomPlaces l;
-    place_bottom(p, &l);
-    GtkOrientation o = l.vertical ? GTK_ORIENTATION_VERTICAL : GTK_ORIENTATION_HORIZONTAL;
-    if (gtk_orientable_get_orientation(GTK_ORIENTABLE(p->dock)) == o) return G_SOURCE_REMOVE;
-    gtk_orientable_set_orientation(GTK_ORIENTABLE(p->dock), o);
-    for (int k = 0; k < 2; k++) {
-        gtk_orientable_set_orientation(GTK_ORIENTABLE(p->dock_seps[k]),
-                                       l.vertical ? GTK_ORIENTATION_HORIZONTAL : GTK_ORIENTATION_VERTICAL);
-    }
-    return G_SOURCE_REMOVE;
-}
+enum { EDGE = 10, GAP = 8 };
 
 static gboolean on_bottom_position(GtkOverlay *overlay, GtkWidget *child, GdkRectangle *alloc, gpointer data) {
     Preview *p = data;
-    if (child != p->dock && child != p->slider_box && (!p->card || child != p->card)) return FALSE;
-    BottomPlaces l;
-    place_bottom(p, &l);
-    if (child == p->dock) {
-        *alloc = l.dock;
-        gboolean vertical = gtk_orientable_get_orientation(GTK_ORIENTABLE(p->dock)) == GTK_ORIENTATION_VERTICAL;
-        if (vertical != l.vertical && !p->dock_idle) p->dock_idle = g_idle_add(turn_dock, p);
-    } else if (child == p->card) {
-        *alloc = l.card;
-    } else {
-        *alloc = l.slider;
-    }
+    if (child != p->slider_box) return FALSE;
+    int W = gtk_widget_get_width(p->root), H = gtk_widget_get_height(p->root);
+    int dh = 0;
+    if (gtk_widget_get_visible(p->dock)) gtk_widget_measure(p->dock, GTK_ORIENTATION_VERTICAL, W, NULL, &dh, NULL, NULL);
+    int sw = 0, sh = 0;
+    gtk_widget_measure(p->slider_box, GTK_ORIENTATION_HORIZONTAL, -1, NULL, &sw, NULL, NULL);
+    gtk_widget_measure(p->slider_box, GTK_ORIENTATION_VERTICAL, sw, NULL, &sh, NULL, NULL);
+    int top = H - dh;
+    int sy = (H - sh) / 2;
+    if (sy + sh > top - GAP) sy = MAX(EDGE, top - GAP - sh);
+    *alloc = (GdkRectangle){W - 8 - sw, sy, sw, MIN(sh, MAX(top - GAP - EDGE, 1))};
     return TRUE;
 }
 
@@ -1919,8 +1848,7 @@ GtkWidget *zg_preview_new(ZgModel *model) {
     gtk_popover_set_child(GTK_POPOVER(pop), check_scroll);
     g_signal_connect(pop, "show", G_CALLBACK(on_check_shown), p);
     gtk_menu_button_set_popover(GTK_MENU_BUTTON(p->check), pop);
-    p->plates = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 0);
-    gtk_widget_add_css_class(p->plates, "linked");
+    p->plates = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 2);
     gtk_widget_set_halign(p->plates, GTK_ALIGN_START);
     make_plate_bar(p);
     /* The gap count last: it shows and hides. */
@@ -1955,8 +1883,7 @@ GtkWidget *zg_preview_new(ZgModel *model) {
     gtk_overlay_set_child(GTK_OVERLAY(box), stack);
     /* The cards over the view (float.h) have places of their own. */
     zg_float_install(box);
-    /* The dock, the print card, and the layer slider share the bottom
-     * right corner: place_bottom gives each its place. */
+    /* The layer slider keeps over the dock (on_bottom_position). */
     g_signal_connect(box, "get-child-position", G_CALLBACK(on_bottom_position), p);
     p->root = box;
     gtk_overlay_add_overlay(GTK_OVERLAY(box), strip);
@@ -1982,18 +1909,18 @@ GtkWidget *zg_preview_new(ZgModel *model) {
     gtk_box_append(GTK_BOX(p->scrub_box), p->speed);
     gtk_box_append(GTK_BOX(p->scrub_box), p->scrub);
     gtk_box_append(GTK_BOX(p->scrub_box), p->scrub_label);
-    /* The dock: the plates, the replay, and the history
-     * (zg_preview_set_timeline), with a thin line between the groups. */
-    p->dock = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 4);
-    gtk_widget_add_css_class(p->dock, "osd");
+    /* The dock: the plates, then the history (zg_preview_set_timeline);
+     * the replay under them; and the print at the right of both
+     * (zg_preview_set_card). */
+    p->dock = gtk_grid_new();
     gtk_widget_add_css_class(p->dock, "zg-dock");
-    gtk_box_append(GTK_BOX(p->dock), p->plates);
-    for (int k = 0; k < 2; k++) {
-        p->dock_seps[k] = gtk_separator_new(GTK_ORIENTATION_VERTICAL);
-        gtk_widget_add_css_class(p->dock_seps[k], "zg-dock-sep");
-    }
-    gtk_box_append(GTK_BOX(p->dock), p->dock_seps[0]);
-    gtk_box_append(GTK_BOX(p->dock), p->scrub_box);
+    gtk_grid_set_column_spacing(GTK_GRID(p->dock), 12);
+    gtk_grid_set_row_spacing(GTK_GRID(p->dock), 2);
+    gtk_widget_set_halign(p->dock, GTK_ALIGN_FILL);
+    gtk_widget_set_valign(p->dock, GTK_ALIGN_END);
+    gtk_widget_set_valign(p->plates, GTK_ALIGN_CENTER);
+    gtk_grid_attach(GTK_GRID(p->dock), p->plates, 0, 0, 1, 1);
+    gtk_grid_attach(GTK_GRID(p->dock), p->scrub_box, 0, 1, 2, 1);
     gtk_overlay_add_overlay(GTK_OVERLAY(box), p->dock);
     /* The readout of the measure tape, at the top of the view. */
     p->measure_label = gtk_label_new("");
@@ -2199,7 +2126,6 @@ void zg_preview_refresh(GtkWidget *preview) {
     gboolean empty = state == ZS_STATE_EMPTY;
     gtk_widget_set_visible(p->empty, empty);
     gtk_widget_set_visible(p->scrub_box, !empty);
-    gtk_widget_set_visible(p->dock_seps[0], !empty);
     gtk_widget_set_visible(p->slider_box, !empty);
     if (state == ZS_STATE_EMPTY) {
         p->fitted = FALSE;
@@ -2262,16 +2188,22 @@ void zg_preview_set_timeline(GtkWidget *preview, GtkWidget *timeline) {
     if (!p || !p->dock) return;
     /* The dock paints the background. */
     gtk_widget_remove_css_class(timeline, "osd");
+    gtk_widget_add_css_class(timeline, "zg-dock-group");
     gtk_widget_set_halign(timeline, GTK_ALIGN_START);
-    gtk_box_append(GTK_BOX(p->dock), p->dock_seps[1]);
-    gtk_box_append(GTK_BOX(p->dock), timeline);
+    gtk_widget_set_valign(timeline, GTK_ALIGN_CENTER);
+    gtk_widget_set_hexpand(timeline, TRUE);
+    gtk_grid_attach(GTK_GRID(p->dock), timeline, 1, 0, 1, 1);
 }
 
 void zg_preview_set_card(GtkWidget *preview, GtkWidget *card) {
     Preview *p = g_object_get_data(G_OBJECT(preview), "zg-preview");
     if (!p) return;
     p->card = card;
-    gtk_overlay_add_overlay(GTK_OVERLAY(preview), card);
+    /* In the dock, at the right of its two rows: no card of its own. */
+    gtk_widget_remove_css_class(card, "zg-card");
+    gtk_widget_add_css_class(card, "zg-dock-summary");
+    gtk_widget_set_valign(card, GTK_ALIGN_CENTER);
+    gtk_grid_attach(GTK_GRID(p->dock), card, 2, 0, 1, 2);
 }
 
 GtkWidget *zg_preview_view_bar(GtkWidget *preview) {

@@ -128,10 +128,16 @@ static const char *ZG_CSS =
     /* The dock: one bar at the bottom of the preview. Its groups (the
      * plates, the replay, the history) have no background of their own,
      * and a thin line separates them. */
-    ".zg-dock { padding: 3px 8px; border-radius: 14px; }"
-    ".zg-dock separator.zg-dock-sep { min-width: 1px; min-height: 1px; margin: 6px 6px; background: alpha(currentColor, 0.2); }"
-    ".zg-dock separator.zg-dock-sep.horizontal { margin: 2px 6px; }"
+    /* The dock: one bar, the full width of the view, at its bottom (as on
+     * the web): the plates and the history, the replay under them, and
+     * the print at the right, with a thin line before each group. */
+    ".zg-dock { padding: 5px 12px 6px; background: alpha(@theme_bg_color, 0.96);"
+    "  border-top: 1px solid alpha(currentColor, 0.12); box-shadow: 0 -2px 10px rgba(0, 0, 0, 0.25); }"
     ".zg-dock button { min-height: 28px; }"
+    ".zg-dock-group { border-left: 1px solid alpha(currentColor, 0.15); padding-left: 8px; }"
+    ".zg-dock-summary { border-left: 1px solid alpha(currentColor, 0.15); padding-left: 12px; }"
+    ".zg-dock-summary .zg-summary-time { font-size: 1.3em; }"
+    ".zg-dock-summary .zg-sum-head > grid > label.dim-label { font-size: 0.8em; }"
     ".zg-scrub-label { font-size: 0.8em; font-feature-settings: 'tnum'; }"
     /* The view buttons in the middle of the header bar. */
     ".zg-view-bar .zg-keycap { margin-left: 4px; }"

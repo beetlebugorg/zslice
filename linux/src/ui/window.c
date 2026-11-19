@@ -542,8 +542,13 @@ static void update_summary(Window *w, int state) {
         per_g = g_ascii_strtod(v, NULL) / 1000;
         g_free(v);
     }
+    /* The cost: the filament, and the time of the printer (as on the web). */
+    char *rate = zg_model_get(w->model, "machine.hour_rate");
+    double per_h = rate ? g_ascii_strtod(rate, NULL) : 0;
+    g_free(rate);
+    double c = st.filament_g * MAX(per_g, 0) + st.print_time_s / 3600 * MAX(per_h, 0);
     char cost[32] = "";
-    if (per_g > 0) g_snprintf(cost, sizeof cost, " · %.2f", st.filament_g * per_g);
+    if (c > 0) g_snprintf(cost, sizeof cost, " · cost %.2f", c);
     char *detail = g_strdup_printf("%.1f g · %.2f m%s · %u layers", st.filament_g, st.filament_mm / 1000.0, cost, st.layer_count);
     gtk_label_set_text(GTK_LABEL(w->sum_detail), detail);
     g_free(detail);
@@ -2206,8 +2211,6 @@ GtkWindow *zg_window_new(GtkApplication *app, ZgModel *model) {
     w->sum_detail = gtk_label_new("");
     gtk_widget_add_css_class(w->sum_detail, "dim-label");
     gtk_label_set_xalign(GTK_LABEL(w->sum_detail), 0);
-    gtk_label_set_wrap(GTK_LABEL(w->sum_detail), TRUE);
-    gtk_label_set_wrap_mode(GTK_LABEL(w->sum_detail), PANGO_WRAP_WORD);
     w->sum_deck = gtk_label_new("");
     gtk_widget_add_css_class(w->sum_deck, "dim-label");
     gtk_widget_add_css_class(w->sum_deck, "caption");
@@ -2222,12 +2225,12 @@ GtkWindow *zg_window_new(GtkApplication *app, ZgModel *model) {
     gtk_widget_add_css_class(w->facts, "zg-facts");
     gtk_widget_set_margin_bottom(w->facts, 4);
     /* The buttons: print (with its menu: upload only, export), or export
-     * with no printer. They fill the width of the card. */
+     * with no printer, at the right of the head of the print. */
     GtkWidget *actions = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 0);
-    gtk_widget_set_margin_top(actions, 8);
-    gtk_widget_set_hexpand(send_box, TRUE);
+    gtk_widget_set_valign(actions, GTK_ALIGN_CENTER);
+    gtk_widget_set_size_request(send_box, 150, -1);
     gtk_widget_set_hexpand(w->send_button, TRUE);
-    gtk_widget_set_hexpand(w->export_button, TRUE);
+    gtk_widget_set_size_request(w->export_button, 150, -1);
     gtk_box_append(GTK_BOX(actions), send_box);
     gtk_box_append(GTK_BOX(actions), w->export_button);
     /* The state of the slice, and messages (an upload, an error). */
@@ -2314,9 +2317,12 @@ GtkWindow *zg_window_new(GtkApplication *app, ZgModel *model) {
     gtk_popover_set_position(GTK_POPOVER(w->sum_pop), GTK_POS_TOP);
     gtk_widget_set_parent(w->sum_pop, w->sum_more);
     g_signal_connect_swapped(w->sum_more, "clicked", G_CALLBACK(gtk_popover_popup), w->sum_pop);
-    gtk_box_append(GTK_BOX(w->sum_box), w->sum_more);
+    /* The head and the buttons in a row, and the progress under them. */
+    GtkWidget *sum_row = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 10);
+    gtk_box_append(GTK_BOX(sum_row), w->sum_more);
+    gtk_box_append(GTK_BOX(sum_row), actions);
+    gtk_box_append(GTK_BOX(w->sum_box), sum_row);
     gtk_box_append(GTK_BOX(w->sum_box), w->progress);
-    gtk_box_append(GTK_BOX(w->sum_box), actions);
     GtkWidget *panel = gtk_box_new(GTK_ORIENTATION_VERTICAL, 0);
     gtk_box_append(GTK_BOX(panel), settings);
     gtk_widget_add_css_class(panel, "zg-panel");
@@ -2347,7 +2353,6 @@ GtkWindow *zg_window_new(GtkApplication *app, ZgModel *model) {
     w->timeline = zg_timeline_new(model);
     zg_preview_set_timeline(w->preview, w->timeline);
     /* The print card over the view, at its bottom right. */
-    gtk_widget_set_size_request(w->sum_box, 260, -1);
     zg_preview_set_card(w->preview, w->sum_box);
     /* The card of a selected line, next to the click. */
     gtk_overlay_add_overlay(GTK_OVERLAY(w->preview), zg_line_card_new(model, w->preview));
