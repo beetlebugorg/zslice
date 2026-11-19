@@ -623,8 +623,8 @@ pub fn write(gpa: Allocator, out: *std.Io.Writer, plate: *const plate_mod.Plate,
 // binary entry with the objects ("objects.bin": the name, the metadata,
 // the transform of the build item, and the index of the mesh, with each
 // length first), and the overrides text. A move or a turn changes only the
-// transforms: the mesh entries keep their bytes, so the zip writer finds
-// them in its cache and does not deflate them again. A 3MF file spends
+// transforms. The mesh entries are stored with no deflate: a snapshot
+// stays in memory, and a step must not wait. A 3MF file spends
 // most of its time on the text of the vertices and on the deflate (300
 // ms for a 3DBenchy). The snapshot loads to the same `Loaded` as `read`.
 
@@ -682,7 +682,10 @@ pub fn writeSnapshot(gpa: Allocator, out: *std.Io.Writer, plate: *const plate_mo
             }
             try ow.writeAll(std.mem.sliceAsBytes(&t));
             try putU32(ow, k);
-            try entries.append(a, .{ .name = try std.fmt.allocPrint(a, "mesh-{d}.bin", .{k}), .data = try meshBytes(a, mesh) });
+            // Stored, with no deflate: a snapshot stays in memory, and the
+            // first step after a load does not wait for a deflate of the
+            // mesh (220 ms for a 3DBenchy).
+            try entries.append(a, .{ .name = try std.fmt.allocPrint(a, "mesh-{d}.bin", .{k}), .data = try meshBytes(a, mesh), .store = true });
             k += 1;
         }
     }

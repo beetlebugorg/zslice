@@ -564,6 +564,11 @@ fn bench(backing: std.mem.Allocator, io: Io, err: *Io.Writer, name: []const u8, 
                 t.* = .{ .wall = ms, .cpu = ms, .faults = 0 };
             }
             try printTimes(err, "snapshot write", times);
+            {
+                const f = try app.writeSnapshotAlloc(gpa);
+                defer gpa.free(f);
+                try err.print("snapshot size: {d} kB\n", .{f.len / 1024});
+            }
             continue;
         }
         if (c.name.len == 0) {
