@@ -2957,7 +2957,9 @@ pub const View = struct {
         const n = v.layer_end.items.len;
         if (n == 0 or v.lite.layers() != n or v.beads.items.len == 0) return null;
         if (v.time != null or v.highlight[1] > v.highlight[0] or v.seg_bead != null or v.more.items.len > 0) return null;
-        if (v.preview != null) return null;
+        // A moving part uses the light levels only when it is the whole
+        // plate: the light beads have no part.
+        if (v.preview != null and !v.previewIsPlate()) return null;
         var lo = [3]f32{ std.math.inf(f32), std.math.inf(f32), std.math.inf(f32) };
         var hi = [3]f32{ -std.math.inf(f32), -std.math.inf(f32), -std.math.inf(f32) };
         for (v.layer_boxes.items) |b| if (b.lo[0] <= b.hi[0]) for (0..3) |k| {
@@ -2973,6 +2975,12 @@ pub const View = struct {
         // longer than a driver allows (a reset of the context).
         const near: ?usize = if (v.beads.items.len > large_plate) 0 else null;
         return plates_mod.levelFor(h * px_per_mm / @max(boxDistance(eye, lo, hi), 1e-3)) orelse near;
+    }
+
+    /// True if the part of the preview has all beads of the plate.
+    fn previewIsPlate(v: *const View) bool {
+        const r = v.preview_ranges.items;
+        return r.len == 1 and r[0][0] == 0 and r[0][1] == v.beads.items.len;
     }
 
     /// The bead count of a large plate (see `activeLevel`).
@@ -3133,7 +3141,11 @@ pub const View = struct {
         v.plate_frames.clearRetainingCapacity();
         v.plate_draws.clearRetainingCapacity();
         if (frame_backend) {
-            if (v.activeLevel(eye)) |level| {
+            // A moving part that is the whole plate: its light beads draw
+            // with the matrix and the push data of the part (flag_part).
+            const moving = v.preview != null and v.gcode == null;
+            const level_eye = if (moving) previewLocal(v.preview.?, eye) else eye;
+            if (v.activeLevel(level_eye)) |level| {
                 const n = v.layer_end.items.len;
                 const hi = @min(v.layer, n - 1);
                 const lo = @min(v.layer_lo, hi);
@@ -3146,8 +3158,9 @@ pub const View = struct {
                     const r = v.lite.range(level, lo, split - 1);
                     first = @max(first, v.layer_end.items[split - 1]);
                     v.plate_draws.append(gpa, .{ .first = r[0], .count = r[1] - r[0], .lod = v.liteLod() }) catch return error.OutOfMemory;
+                    const lm = if (moving) mul(mvp, v.preview.?.m) else mvp;
                     v.plate_frames.append(gpa, .{
-                        .mvp = mvp,
+                        .mvp = lm,
                         .bed_mvp = mvp,
                         .instances = @intFromPtr(v.lite.beads.items.ptr),
                         .instance_count = @intCast(v.lite.beads.items.len),
@@ -3155,7 +3168,7 @@ pub const View = struct {
                         .draws_first = 0,
                         .draws_count = 1,
                         .fade = 0,
-                        .flags = PlateFrame.flag_active,
+                        .flags = if (moving) PlateFrame.flag_part else PlateFrame.flag_active,
                         .slot = @intCast(v.active),
                     }) catch return error.OutOfMemory;
                 }

@@ -568,7 +568,7 @@ export class GlRenderer {
   }
 
   // The beads of the other plates, and the light beads of the active
-  // plate (flag 2): each with its matrix, its fade, and its draws. With
+  // plate (flag 2, or flag 4 while its part moves): each with its matrix, its fade, and its draws. With
   // `ghost` (the push data of the ghost pass of a focus): only the light
   // beads of the active plate, as ghosts.
   drawPlates(f, ghost = null) {
@@ -585,7 +585,11 @@ export class GlRenderer {
       const s = this.slots.get(m[q + 39]);
       if (!s) continue;
       if (ghost && !(m[q + 38] & 2)) continue;
-      if (m[q + 38] & 2) {
+      if (m[q + 38] & 4) {
+        // The light beads of a part that moves in the view only: the push
+        // data of the part (its matrix and its turned light).
+        this.setPush(f.part);
+      } else if (m[q + 38] & 2) {
         this.setPush(ghost ?? f.box);
       } else {
         // The push data of the frame, with the matrix of the plate, no

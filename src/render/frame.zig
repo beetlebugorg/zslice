@@ -69,6 +69,9 @@ pub const PlateFrame = extern struct {
     pub const flag_bed: u32 = 1;
     /// The light beads of the active plate: draw them with Frame.box.
     pub const flag_active: u32 = 2;
+    /// The light beads of the active plate while its one part moves in
+    /// the view only (a hold, a fall, a turn): draw them with Frame.part.
+    pub const flag_part: u32 = 4;
 };
 
 pub const Frame = struct {
