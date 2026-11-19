@@ -144,6 +144,15 @@ static int request_slice(ZgModel *self) {
 static void undo_commit(ZgModel *self);
 static void fall_check(ZgModel *self);
 
+/* A slice during a drag (the support follows a tree edit live): the held
+ * change slices now, and the step of the history stays open until the
+ * release (zg_model_hold). */
+void zg_model_slice_now(ZgModel *self) {
+    if (!self->held) return;
+    self->slice_start = g_get_monotonic_time();
+    zs_set_release(self->set);
+}
+
 void zg_model_hold(ZgModel *self, gboolean hold) {
     if (self->held == hold) return;
     self->held = hold;

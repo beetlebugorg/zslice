@@ -356,6 +356,9 @@ const char *zg_status_text(int status);
  * a support area): each change marks the plate, and one slice starts when
  * hold goes back to FALSE. The changes of the hold are one history step. */
 void zg_model_hold(ZgModel *self, gboolean hold);
+/* During a hold: the changes so far slice now; the history step stays
+ * open until the release. */
+void zg_model_slice_now(ZgModel *self);
 
 /* The fall of a part, and the hand (zs_app_fall_*, zs_app_grab_*): the
  * view runs zg_model_fall_step each frame until it returns 0 (at rest: the

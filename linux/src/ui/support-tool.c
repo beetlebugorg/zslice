@@ -126,8 +126,8 @@ struct ZgSupport {
     double td_z, td_start[2], td_applied[2], want_r, want_dx, want_dy;
     GArray *td_branch; /* guint32 */
     GArray *td_orig;   /* double x, y */
-    gboolean td_moved, td_dirty;
-    gint64 td_sent;
+    gboolean td_moved, td_dirty, td_releasing;
+    gint64 td_sent, td_live;
     guint td_timer;
     /* The card of the trees: Add a branch, Reset support, Delete branch,
      * and the text. */
@@ -410,7 +410,11 @@ static void show(ZgSupport *s) {
 }
 
 static void reload(ZgSupport *s) {
-    if (s->drag_area >= 0 || s->td) return;
+    /* During a drag the copy leads: the view gets it again. */
+    if (s->drag_area >= 0 || s->td) {
+        show(s);
+        return;
+    }
     read_areas(s);
     read_trees(s);
     show(s);
@@ -755,8 +759,8 @@ static gboolean tree_press(ZgSupport *s, double x, double y) {
     s->td_node = node;
     s->td_z = z;
     s->td_applied[0] = s->td_applied[1] = 0;
-    s->td_moved = s->td_dirty = FALSE;
-    s->td_sent = 0;
+    s->td_moved = s->td_dirty = s->td_releasing = FALSE;
+    s->td_sent = s->td_live = g_get_monotonic_time();
     /* The drag selects the branch of the node. */
     s->tsel_part = (gint64)part;
     s->tsel_node = node;
@@ -800,11 +804,19 @@ static gboolean tree_send(ZgSupport *s) {
         /* A branch: the core moves it from where it is now. */
         rc = zs_app_support_tree_move_branch(core, s->td_part, s->td_node, s->want_dx - s->td_applied[0], s->want_dy - s->td_applied[1], &clamp);
     }
-    s->td_dirty = FALSE;
     s->td_sent = g_get_monotonic_time();
+    /* A slice runs: the edit goes again a moment later. */
+    if (rc == ZS_BUSY) return FALSE;
+    s->td_dirty = FALSE;
     s->tclamp = clamp;
     if (rc != ZS_OK) return FALSE;
     zg_model_support_trees_changed(s->model);
+    /* The support follows the drag: a slice at most each 150 ms, with the
+     * step of the history still open. */
+    if (!s->td_releasing && s->td_sent - s->td_live > 150000) {
+        s->td_live = s->td_sent;
+        zg_model_slice_now(s->model);
+    }
     read_tree(s, s->td_part);
     if (s->td == TD_SEG && s->td_branch->len > 0) {
         zs_tree_node *q = node_of(s, s->td_part, g_array_index(s->td_branch, guint32, 0));
@@ -816,17 +828,25 @@ static gboolean tree_send(ZgSupport *s) {
     return TRUE;
 }
 
+static void tree_finish(ZgSupport *s);
+
 static gboolean on_tree_timer(gpointer data) {
     ZgSupport *s = data;
     s->td_timer = 0;
+    if (s->td_releasing) {
+        tree_finish(s);
+        return G_SOURCE_REMOVE;
+    }
     if (s->td && s->td_dirty) {
         tree_send(s);
+        if (s->td_dirty) s->td_timer = g_timeout_add(30, on_tree_timer, s);
         show(s);
     }
     return G_SOURCE_REMOVE;
 }
 
 static void tree_drag(ZgSupport *s, double x, double y) {
+    if (s->td_releasing) return;
     double p[2];
     if (!plane_point(s, x, y, s->td_z, p)) return;
     s->td_moved = TRUE;
@@ -846,17 +866,29 @@ static void tree_drag(ZgSupport *s, double x, double y) {
     show(s);
 }
 
-/* The end of the drag: the last edit, then the slice that waited starts,
- * the step of the history ends, and the fall check runs (the hold). */
-static void tree_release(ZgSupport *s) {
-    if (!s->td) return;
-    if (s->td_timer) g_source_remove(s->td_timer);
-    s->td_timer = 0;
-    if (s->td_moved) tree_send(s);
+/* The end of the drag: the last edit (again a moment later while a slice
+ * runs), then the slice that waited starts, the step of the history ends,
+ * and the fall check runs (the hold). */
+static void tree_finish(ZgSupport *s) {
+    if (s->td_moved && s->td_dirty && !tree_send(s) && s->td_dirty) {
+        if (!s->td_timer) s->td_timer = g_timeout_add(30, on_tree_timer, s);
+        return;
+    }
     s->td = TD_NONE;
+    s->td_releasing = FALSE;
     zg_model_hold(s->model, FALSE);
     read_trees(s);
     show(s);
+}
+
+static void tree_release(ZgSupport *s) {
+    if (!s->td || s->td_releasing) return;
+    if (s->td_timer) g_source_remove(s->td_timer);
+    s->td_timer = 0;
+    s->td_releasing = TRUE;
+    /* The last place of the pointer goes to the core. */
+    if (s->td_moved) s->td_dirty = TRUE;
+    tree_finish(s);
 }
 
 /* ---- picks ---- */
