@@ -47,6 +47,8 @@ typedef struct {
     /* The tools (select, move, turn, measure, support), and the readout
      * of the measure tape. */
     GtkWidget *tools[ZG_TOOL_COUNT]; /* by ZgTool */
+    /* The keys that move or turn a part hold the slice until a pause. */
+    guint keys_timer;
     GtkWidget *measure_label;
     /* The gaps view: the toggle, and the number of gaps of the layer. */
     GtkWidget *gaps, *gap_count;
@@ -919,6 +921,7 @@ static void preview_free(gpointer data) {
     /* The 3D view can be gone already (its tick callback with it). */
     if (p->tick && GTK_IS_WIDGET(p->view3d)) gtk_widget_remove_tick_callback(p->view3d, p->tick);
     if (p->dock_idle) g_source_remove(p->dock_idle);
+    if (p->keys_timer) g_source_remove(p->keys_timer);
     /* The view bar is in the header bar, and can live on: its signals
      * stop here. The preview keeps a reference to it. */
     g_signal_handlers_disconnect_by_data(p->colors, p);
@@ -1081,6 +1084,23 @@ gboolean zg_preview_is_cut(GtkWidget *preview) {
  * Right turn it on the bed (about Z), Up and Down about X, Page Up and
  * Page Down about Y, 15 degrees (Shift: 5). Returns TRUE for a key of a
  * part. */
+/* The pause after the last key: one slice, and a turned part that cannot
+ * stand falls (zg_model_hold). */
+static gboolean on_keys_pause(gpointer data) {
+    Preview *p = data;
+    p->keys_timer = 0;
+    zg_model_hold(p->model, FALSE);
+    return G_SOURCE_REMOVE;
+}
+
+/* The keys of a part move and turn it at once; the slice waits for a
+ * pause of 0.6 s in the keys. */
+static void hold_for_keys(Preview *p) {
+    zg_model_hold(p->model, TRUE);
+    if (p->keys_timer) g_source_remove(p->keys_timer);
+    p->keys_timer = g_timeout_add(600, on_keys_pause, p);
+}
+
 static gboolean part_key(Preview *p, guint key, GdkModifierType mods) {
     zs_app *core = zg_model_core(p->model);
     size_t n = zs_app_part_count(core);
@@ -1129,10 +1149,12 @@ static gboolean part_key(Preview *p, guint key, GdkModifierType mods) {
     case GDK_KEY_Page_Up:
     case GDK_KEY_Page_Down:
         if (zg_model_tool(p->model) != ZG_TOOL_TURN) return FALSE;
+        hold_for_keys(p);
         zg_model_part_turn(p->model, (size_t)i, 1, (shift ? 5 : 15) * (key == GDK_KEY_Page_Up ? 1 : -1));
         return TRUE;
     default: return FALSE;
     }
+    hold_for_keys(p);
     if (zg_model_tool(p->model) == ZG_TOOL_TURN) {
         double deg = shift ? 5 : 15;
         if (dx != 0) zg_model_part_rotate(p->model, (size_t)i, part.rotation - dx * deg);
