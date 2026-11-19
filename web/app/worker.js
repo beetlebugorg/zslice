@@ -231,6 +231,12 @@ function postSimScene(c, on) {
 // messages, so it holds up no call. A change slices again, and the new
 // slice drops it; the simulation of the new slice starts after it.
 let simTimer = 0;
+// The time of the last change of a live drag (a call with hold). While a
+// drag goes on, a finished simulation waits: else the view flips between
+// the plan and the plastic under the pointer. It shows after a pause of
+// SIM_HOLD_MS, or with the slice after the release.
+let lastHold = -1e9;
+const SIM_HOLD_MS = 400;
 
 function startSim(i) {
   clearTimeout(simTimer);
@@ -247,11 +253,23 @@ function simPiece(i) {
   do {
     if (w.x.zs_app_sim_advance(c.app, 16, w.cell) !== 0) return;
     if (w.i32(w.cell) === 1) {
-      postSimScene(c, true);
+      showSimWhenStill(c, i);
       return;
     }
   } while (performance.now() - t0 < 8);
   simTimer = setTimeout(() => simPiece(i), 0);
+}
+
+function showSimWhenStill(c, i) {
+  const wait = lastHold + SIM_HOLD_MS - performance.now();
+  if (wait > 0) {
+    simTimer = setTimeout(() => {
+      // A new slice of the plate drops this simulation.
+      if (i === activeIndex() && wasm.x.zs_set_next(set) < 0) showSimWhenStill(c, i);
+    }, wait);
+    return;
+  }
+  postSimScene(c, true);
 }
 
 function schedule() {
@@ -1427,6 +1445,7 @@ self.onmessage = async (e) => {
   const { id, op, ...args } = e.data;
   try {
     // The first op of a drag ends the step of the changes before it.
+    if (args.hold) lastHold = performance.now();
     if (args.hold && !histHolding) commitPending();
     const result = await ops[op](args);
     // The first step of a plate: its state at the start. The core notes
