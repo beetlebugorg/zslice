@@ -27,6 +27,7 @@
 //! SPDX-License-Identifier: AGPL-3.0-or-later
 
 import AppKit
+import QuartzCore
 import CZslice
 import Observation
 import SwiftUI
@@ -87,7 +88,12 @@ final class History {
         timer?.cancel()
         timer = nil
         let before = current
-        if zs_app_history_commit(core, now) != 0 {
+        let t = CACurrentMediaTime()
+        let rc = zs_app_history_commit(core, now)
+        if ProcessInfo.processInfo.environment["ZSLICE_TIMING"] != nil, rc != 0 {
+            NSLog("zslice timing: history commit %.1f ms", (CACurrentMediaTime() - t) * 1000)
+        }
+        if rc != 0 {
             listChanged(from: before)
             if ProcessInfo.processInfo.environment["ZSLICE_FRESH"] == nil { SavedSettings.save(from: core) }
         }

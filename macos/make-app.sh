@@ -15,6 +15,11 @@ if [ -n "$missing" ]; then
     exit 1
 fi
 CONFIG=${CONFIG:-release}
+# The Command Line Tools have no SwiftUI macro plugin (@State), so the
+# build uses Xcode when it is there.
+if [ -z "${DEVELOPER_DIR:-}" ] && [ -d /Applications/Xcode.app ]; then
+    export DEVELOPER_DIR=/Applications/Xcode.app/Contents/Developer
+fi
 swift build -c "$CONFIG" --arch arm64 --arch x86_64 2>/dev/null || swift build -c "$CONFIG"
 bin=$(swift build -c "$CONFIG" --show-bin-path)
 app=build/zslice.app
