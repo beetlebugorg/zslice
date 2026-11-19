@@ -263,6 +263,9 @@ struct DocumentWindow: View {
                     if workspace.cardOpen, let info = workspace.lineInfo {
                         LineCard(workspace: workspace, info: info, area: geo.size)
                     }
+                    if let c = workspace.historyCard {
+                        HistoryCard(workspace: workspace, state: c, origin: workspace.cardsOrigin, area: geo.size)
+                    }
                 }
                 .ignoresSafeArea()
                 .onGeometryChange(for: CGPoint.self) { $0.frame(in: .global).origin } action: { o in
@@ -731,7 +734,7 @@ struct BottomBar: View {
                 HStack(spacing: 10) {
                     PlateBar(workspace: workspace, bare: true)
                     Spacer(minLength: 8)
-                    Timeline(history: model.history, bare: true) { workspace.historyOpen = true }
+                    Timeline(history: model.history, bare: true, workspace: workspace) { workspace.historyOpen = true }
                         .popover(isPresented: Bindable(workspace).historyOpen, arrowEdge: .top) {
                             HistoryPage(history: model.history, workspace: workspace)
                                 .frame(width: 400, height: 480)

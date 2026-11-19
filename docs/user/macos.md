@@ -53,7 +53,7 @@ After each slice, zslice simulates the plastic of the print in the background (i
 
 ## The drawer
 
-The drawer is the inspector at the right of the window, and it has only the settings. It always sits beside the view, so it has no Pin. Its header has one back button (Command-[), when there is a page to go back to. The history is a popover: click History in the dock, or View > History (Command-Y). An open project is a sheet: File > Show Project.
+The drawer is the inspector at the right of the window, and it has only the settings. It always sits beside the view, so it has no Pin. Its header has one back button (Command-[), when there is a page to go back to. The history is a popover: click History in the dock, or View > History (Command-Y). The dock shows a bubble for each step, in the color of its kind with its glyph; the step now is larger. Hold the pointer on a bubble to see its card: the changes in words, and an editor for each setting of the plate that the step changed, with its value now. A change there is a new step. Go to This Step (or a click on the bubble) goes back to it. An open project is a sheet: File > Show Project.
 
 The bar at the top of the Settings page picks what the editors change: This Print, Global (your settings for all prints, in `global.toml`), one part (with more than one part on the plate), or a layer profile. With a part or a profile, a change goes only there, the bar is in the accent color, and Done goes back to the print. New Profile from Here Up (or Down) in the context menu of a line makes a layer profile, and Part Settings on the part card opens the settings of the part. The editors of the search and of the print card follow the same bar.
 

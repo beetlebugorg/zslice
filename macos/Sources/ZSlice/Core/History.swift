@@ -99,8 +99,12 @@ final class History {
         }
     }
 
+    /// The setting whose editor has the focus, or nil.
+    private(set) var focusKey: String?
+
     /// The setting whose editor has the focus (nil: none).
     func setFocus(_ key: String?) {
+        focusKey = key
         let before = current
         if zs_app_history_set_focus(core, key, now) != 0 { listChanged(from: before) }
     }

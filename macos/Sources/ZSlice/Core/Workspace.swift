@@ -134,6 +134,12 @@ final class Workspace {
     var rangeCard: (lo: Int, hi: Int)?
     /// The Paint tool (PaintTool.swift), while it is on.
     var paint: PaintSession?
+    /// The card of a history step over its bubble (HistoryCard.swift).
+    var historyCard: HistoryCardState?
+    @ObservationIgnored var historyCardTask: Task<Void, Never>?
+    @ObservationIgnored var historyCardHovered = false
+    /// The frame of each bubble of the timeline (global), for the card.
+    @ObservationIgnored var historyBubbles: [Int: CGRect] = [:]
     /// The panels over the view (global frames), and the global origin of
     /// the layer of the cards: a card keeps out of each panel.
     var panelFrames: [CGRect] = []
@@ -548,6 +554,15 @@ final class Workspace {
             let before = Keychain.read(account: p.id.uuidString) != nil
             PrinterStore.shared.remove(p.id)
             NSLog("zslice key remove: key before %d, after %d", before ? 1 : 0, Keychain.read(account: p.id.uuidString) == nil ? 0 : 1)
+        }
+        // ZSLICE_HISTORY_CARD=i opens the card of history step i over its
+        // bubble, 4 s after the start (after ZSLICE_SET makes the steps).
+        if let i = env["ZSLICE_HISTORY_CARD"].flatMap(Int.init) {
+            DispatchQueue.main.asyncAfter(deadline: .now() + 4) { [weak self] in
+                guard let self else { return }
+                historyCard = HistoryCardState(step: i, anchor: historyBubbles[i] ?? .zero)
+                NSLog("zslice history card: step %ld of %ld, keys %@, changes %@", i, model.history.count, historyCardKeys(i).joined(separator: ","), model.history.step(i)?.changes.joined(separator: " / ") ?? "-")
+            }
         }
         // ZSLICE_FILAMENT_LOG=1 logs the filaments of the plate and their
         // grams, 5 s after the start (a painted file that opens).
