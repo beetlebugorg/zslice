@@ -111,6 +111,9 @@ install_data('data/org.beetlebug.Zslice.desktop', install_dir: get_option('datad
 # linux/build`. They need no core and no display.
 test('key header', executable('key-header-test', 'tests/key-header-test.c', 'src/net/key-header.c',
                               dependencies: [soup_dep]))
+test('deck target', executable('deck-target-test', 'tests/deck-target-test.c', 'src/net/printer-link.c', 'src/net/key-header.c',
+                               'src/net/signing.c', 'src/prefs/printers.c', core[1], core[2], link_with: core[0],
+                               dependencies: [gtk_dep, thread_dep, m_dep, soup_dep, json_dep]))
 test('bambu pin', executable('bambu-pin-test', 'tests/bambu-pin-test.c', 'src/net/bambu-link.c', 'src/prefs/printers.c',
                              core[1], core[2], link_with: core[0],
                              dependencies: [gtk_dep, thread_dep, m_dep]))

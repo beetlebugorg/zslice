@@ -758,6 +758,7 @@ typedef struct {
 
 static void upload_free(Upload *u) {
     g_free(u->p.id);
+    g_free(u->p.name);
     g_free(u->p.url);
     g_free(u->p.api_key);
     g_free(u->filename);
@@ -808,6 +809,103 @@ static void on_pin_reply(GObject *source, GAsyncResult *res, gpointer data) {
     upload_now(u);
 }
 
+/* The upload, after the checks: on https, a small request first for the
+ * check of the certificate before the file goes out. */
+static void send_start(Upload *u) {
+    const ZgPrinter *p = &u->p;
+    char *url = join_url(p, "");
+    gboolean https = g_str_has_prefix(url, "https://");
+    g_free(url);
+    if (!https) {
+        upload_now(u);
+        return;
+    }
+    SoupMessage *msg = request(p, "GET", p->kind == ZG_LINK_MOONRAKER ? "/server/info" : "/api/version");
+    if (!msg) {
+        u->done(FALSE, "The address of the printer is not valid.", u->data);
+        upload_free(u);
+        return;
+    }
+    soup_session_send_and_read_async(session(), msg, G_PRIORITY_DEFAULT, u->cancel, on_pin_reply, u);
+    g_object_unref(msg);
+}
+
+/* The path of a deck printer in `url` ("/printers/<id>", or "" for the
+ * deck itself), and the length of the root before it. */
+static const char *deck_path(const char *url, size_t *root_len) {
+    const char *at = strstr(url, "/printers/");
+    size_t n = strlen(url);
+    while (n > 0 && url[n - 1] == '/') n--;
+    if (!at || (size_t)(at - url) >= n) {
+        *root_len = n;
+        return "";
+    }
+    *root_len = (size_t)(at - url);
+    return at;
+}
+
+static gboolean same_name(const char *a, const char *b) {
+    if (!a || !b) return FALSE;
+    char *x = g_utf8_casefold(a, -1);
+    char *y = g_utf8_casefold(b, -1);
+    g_strstrip(x);
+    g_strstrip(y);
+    gboolean eq = g_strcmp0(x, y) == 0;
+    g_free(x);
+    g_free(y);
+    return eq;
+}
+
+/* The answer of the deck list for a send: on a deck of more printers, the
+ * address must be one of its printers, and the user's printer must not
+ * have the name of another one. A print once went to the first printer of
+ * a deck (its own address) in place of the one that the user picked. A
+ * deck with no list cannot be checked: the send goes on. */
+static void on_deck_check(GPtrArray *list, const char *error, gpointer data) {
+    (void)error;
+    Upload *u = data;
+    if (!list || list->len < 2) {
+        send_start(u);
+        return;
+    }
+    size_t root_len = 0;
+    char *path = g_strdup(deck_path(u->p.url, &root_len));
+    size_t pl = strlen(path);
+    while (pl > 0 && path[pl - 1] == '/') path[--pl] = 0;
+    const ZgDeckPrinter *at = NULL, *other = NULL;
+    for (guint i = 0; i < list->len; i++) {
+        const ZgDeckPrinter *d = g_ptr_array_index(list, i);
+        if (g_strcmp0(d->path, path) == 0) at = d;
+    }
+    for (guint i = 0; i < list->len; i++) {
+        const ZgDeckPrinter *d = g_ptr_array_index(list, i);
+        if (d != at && (same_name(d->name, u->p.name) || same_name(d->label, u->p.name))) other = d;
+    }
+    char *why = NULL;
+    if (!at) {
+        why = g_strdup_printf("The deck has no printer at %s. Nothing was sent. Add the printer again from the deck.", path[0] ? path : "its own address");
+    } else if (other && !same_name(at->name, u->p.name)) {
+        why = g_strdup_printf("%s is at %s on the deck, but the address of this printer leads to %s. Nothing was sent. Add %s again from the deck.", u->p.name, other->path, at->name, u->p.name);
+    }
+    g_free(path);
+    if (why) {
+        u->done(FALSE, why, u->data);
+        g_free(why);
+        upload_free(u);
+        return;
+    }
+    send_start(u);
+}
+
+static void deck_check(Upload *u) {
+    size_t root_len = 0;
+    deck_path(u->p.url, &root_len);
+    ZgPrinter root = u->p;
+    root.url = g_strndup(u->p.url, root_len);
+    zg_link_deck_printers(&root, u->cancel, on_deck_check, u);
+    g_free(root.url);
+}
+
 void zg_link_send(const ZgPrinter *p, const char *filename, GBytes *gcode, gboolean print, GCancellable *cancel,
                   ZgProgressFn progress, ZgDoneFn done, gpointer data) {
     if (p->kind == ZG_LINK_NONE) {
@@ -835,23 +933,14 @@ void zg_link_send(const ZgPrinter *p, const char *filename, GBytes *gcode, gbool
     u->cancel = cancel ? g_object_ref(cancel) : NULL;
     u->done = done;
     u->data = data;
-    char *url = join_url(p, "");
-    gboolean https = g_str_has_prefix(url, "https://");
-    g_free(url);
-    if (!https) {
-        upload_now(u);
+    u->p.name = g_strdup(p->name);
+    /* A deck that drives more printers: first the check that the address
+     * leads to the printer that the user picked. */
+    if (p->kind == ZG_LINK_PRINTDECK) {
+        deck_check(u);
         return;
     }
-    /* https: a small request first, for the check of the certificate
-     * before the file goes out. */
-    SoupMessage *msg = request(p, "GET", p->kind == ZG_LINK_MOONRAKER ? "/server/info" : "/api/version");
-    if (!msg) {
-        done(FALSE, "The address of the printer is not valid.", data);
-        upload_free(u);
-        return;
-    }
-    soup_session_send_and_read_async(session(), msg, G_PRIORITY_DEFAULT, u->cancel, on_pin_reply, u);
-    g_object_unref(msg);
+    send_start(u);
 }
 
 /* ---- USB: a serial port ---- */
