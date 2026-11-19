@@ -20,12 +20,20 @@
 
 const MAX_EXTRAS = 4096; // max_extras in src/render/frame.zig
 const STRIDE = 32; // the size of one instance (zs_web_instance)
+// The depth pass costs a second run of the vertex shader. It pays off
+// with many large beads on the screen, where the hidden pixels are most
+// of the work: on an Intel HD 530, 86 000 full beads go from 133 ms to
+// 50 ms, and 25 000 get slower.
+const DEPTH_PASS_BEADS = 30000;
 
 const boxVert = `#version 300 es
 // A port of src/render/shaders/box.vert. One bead of plastic for each
 // toolpath segment (instanced).
 precision highp float;
 precision highp int;
+
+// The depth pass and the color pass must give the same depth to the bit.
+invariant gl_Position;
 
 layout(location = 0) in vec4 tv;
 layout(location = 2) in vec4 seg;
@@ -460,7 +468,14 @@ export class GlRenderer {
     // with no focus and no ribbons. The other draws a focus and ribbons.
     this.boxAll = compile(gl, boxVert, boxFrag);
     this.boxSolid = compile(gl, boxVert, boxFrag.replace("#version 300 es\n", "#version 300 es\n#define SOLID\n"));
+    // The depth pass (see `draw`): the same vertex shader, no color.
+    this.boxDepth = compile(gl, boxVert, "#version 300 es\nprecision mediump float;\nout vec4 frag;\nvoid main() { frag = vec4(0.0); }\n");
     this.box = this.boxAll;
+    this.depthPass = true;
+    // A bead is a closed mesh, wound the same way: its back faces are
+    // always behind its front faces. Culling them halves the pixels of
+    // both passes, with the same picture.
+    this.cull = gl.BACK;
     this.grid = compile(gl, gridVert, gridFrag);
     this.bedProg = compile(gl, bedVert, bedFrag);
     this.bedVbo = gl.createBuffer();
@@ -541,6 +556,33 @@ export class GlRenderer {
     gl.uniform4fv(u.light, push, 16, 4);
     gl.uniform4fv(u.eye, push, 20, 4);
     gl.uniform4fv(u.params, push, 24, 4);
+  }
+
+  // The beads of the draw list with the full mesh: the near ones, which
+  // cover the most pixels.
+  fullBeads(f) {
+    let n = 0;
+    const d = f.draws;
+    for (let i = 0; i < f.drawsCount; i++) if (d[3 * i + 2] === 0) n += d[3 * i + 1];
+    return n;
+  }
+
+  // The opaque beads of a frame: the draw list, the marks, a part that
+  // turns in the view only, and the other plates.
+  beadPass(f, first) {
+    const gl = this.gl;
+    gl.uniform1f(this.box.u.fade, 0);
+    this.setPush(f.box);
+    this.drawList(f, first);
+    this.drawBeads(f.markFirst, f.markCount);
+    // A part that turns in the view only, with its own matrix.
+    if (f.partDrawsCount > 0) {
+      this.setPush(f.part);
+      const d = f.partDraws;
+      for (let i = 0; i < f.partDrawsCount; i++) this.drawBeads(d[3 * i], d[3 * i + 1], d[3 * i + 2]);
+      this.setPush(f.box);
+    }
+    this.drawPlates(f);
   }
 
   // Draws the beads first .. first + count with the full mesh, or with
@@ -778,22 +820,30 @@ export class GlRenderer {
     }
     // The solid program with no focus (see the constructor). The web view
     // has no ribbons (zs_view_set_ribbons stays off).
-    this.box = f.box[26] === 0 ? this.boxSolid : this.boxAll;
-    gl.useProgram(this.box.prog);
-    gl.bindVertexArray(this.boxVao);
-    gl.uniform1f(this.box.u.fade, 0);
-    this.setPush(f.box);
+    const solid = f.box[26] === 0;
     const first = Math.min(f.boxFirst, f.boxCount);
-    this.drawList(f, first);
-    this.drawBeads(f.markFirst, f.markCount);
-    // A part that turns in the view only, with its own matrix.
-    if (f.partDrawsCount > 0) {
-      this.setPush(f.part);
-      const d = f.partDraws;
-      for (let i = 0; i < f.partDrawsCount; i++) this.drawBeads(d[3 * i], d[3 * i + 1], d[3 * i + 2]);
-      this.setPush(f.box);
+    gl.bindVertexArray(this.boxVao);
+    // Zoomed in, the beads behind the front ones cover the screen many
+    // times, and the light of each pixel is most of the frame time. So
+    // first a pass with depth only, then the color pass shades only the
+    // front pixel of each place (the depth test drops the rest before
+    // the fragment shader). The depth of the two passes is the same, so
+    // the picture is the same.
+    if (this.cull) {
+      gl.enable(gl.CULL_FACE);
+      gl.cullFace(this.cull);
     }
-    this.drawPlates(f);
+    if (solid && this.depthPass && this.fullBeads(f) >= DEPTH_PASS_BEADS) {
+      this.box = this.boxDepth;
+      gl.useProgram(this.box.prog);
+      gl.colorMask(false, false, false, false);
+      this.beadPass(f, first);
+      gl.colorMask(true, true, true, true);
+    }
+    this.box = solid ? this.boxSolid : this.boxAll;
+    gl.useProgram(this.box.prog);
+    this.beadPass(f, first);
+    gl.disable(gl.CULL_FACE);
     // With a focus: the beads out of it, as ghosts (params.w = 2).
     if (f.box[26] !== 0) {
       const ghost = this.push2;
