@@ -1110,6 +1110,7 @@ function pairPrinter(name) {
                 https: deckAddress(httpsBase, q.url), color: q.color || "", label: q.label || "",
                 // The name of the printer on the deck: a send checks it.
                 deckName: q.name,
+                files: q.files || "", model: q.model || "",
               };
             }
             saveStore();
@@ -2662,7 +2663,7 @@ async function sendGcode(print) {
   sending = true;
   updateSummary();
   try {
-    const res = await sendToPrinter(pr, `${base}.gcode`, new Uint8Array(r.bytes), print);
+    const res = await sendToPrinter(pr, `${base}.gcode`, new Uint8Array(r.bytes), print, bambuWrap(pr, base));
     toast(res.message);
     await warnUnsigned();
     if (res.ok && print) project.sent();
@@ -2692,17 +2693,30 @@ var farm = new FarmPage({
     const r = await client.call("plateGcode", { index: i });
     if (!r.bytes) return { ok: false, message: "No G-code: the plate has no slice yet." };
     const base = r.fileName || (r.name || `plate-${i + 1}`).replace(/\.(stl|3mf)$/i, "");
-    return sendToPrinter(pr, `${base}.gcode`, new Uint8Array(r.bytes), true);
+    return sendToPrinter(pr, `${base}.gcode`, new Uint8Array(r.bytes), true, bambuWrap(pr, base));
   },
   toast: (t) => toast(t),
   send: async (pr, print) => {
     const r = await client.call("gcode", { plate: app.activePlate, plates: app.plates.length });
     if (!r.bytes) return { ok: false, message: "No G-code: slice first." };
-    const res = await sendToPrinter(pr, `${gcodeFileName(r)}.gcode`, new Uint8Array(r.bytes), print);
+    const res = await sendToPrinter(pr, `${gcodeFileName(r)}.gcode`, new Uint8Array(r.bytes), print, bambuWrap(pr, gcodeFileName(r)));
     if (res.ok && print) project.sent();
     return res;
   },
 });
+
+// A printer that prints .gcode.3mf files (a Bambu Lab printer, alone or
+// behind a deck): the deck says so in its printer list ("files"), or the
+// printer has a Bambu Lab machine. The options of the send that wrap the
+// signed G-code, or none.
+function bambuWrap(pr, base) {
+  const bambu = pr?.files === "gcode.3mf" || (!pr?.files && /^bambu-lab/.test(String(store.printers?.[pr?.name]?.profile ?? "")));
+  if (!bambu) return {};
+  return {
+    filename: `${base}.gcode.3mf`,
+    wrap: async (signed) => (await client.call("bambuFileGcode", { gcode: signed.buffer.slice(signed.byteOffset, signed.byteOffset + signed.byteLength), title: base })).bytes,
+  };
+}
 $("send-menu").onclick = () => openMenu($("send-menu"), [
   { label: "Upload only", tip: "Upload the G-code to the printer, and do not start it.", action: () => sendGcode(false) },
   { label: "Export G-code…", action: exportGcode },
@@ -3497,6 +3511,8 @@ async function hostPrinter() {
         color: q.color || had?.color || "",
         label: q.label || "",
         deckName: q.name,
+        files: q.files || "",
+        model: q.model || "",
       };
     }
   }

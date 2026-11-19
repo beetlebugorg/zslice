@@ -1608,6 +1608,21 @@ const ops = {
     return { bytes };
   },
 
+  // The .gcode.3mf file around G-code that the page signed
+  // (zs_app_bambu_file_gcode): a send to a Bambu Lab printer.
+  bambuFileGcode({ gcode, title }) {
+    const w = core.w;
+    const c = w.cell;
+    const g = new Uint8Array(gcode);
+    const rc = w.withBytes(g, (gp, gn) => w.withString(title || "zslice", (t) => w.x.zs_app_bambu_file_gcode(core.app, gp, gn, t, c, c + 4)));
+    if (rc !== 0) return { bytes: null };
+    const p = w.u32(c);
+    const n = w.u32(c + 4);
+    const bytes = w.x.memory.buffer.slice(p, p + n);
+    w.x.zs_buffer_free(p, n);
+    return { bytes };
+  },
+
   gcode({ plate, plates } = {}) {
     const bytes = core.gcode();
     const w = core.w;

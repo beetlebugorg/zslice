@@ -205,7 +205,9 @@ function explain(e, printer) {
 
 // Sends `bytes` (the G-code) as `filename`; print: start the print.
 // Returns { ok, message }.
-export async function send(printer, filename, bytes, print) {
+// opts.wrap(signed bytes) -> bytes: the file around the signed G-code,
+// with opts.filename (a .gcode.3mf for a Bambu Lab printer).
+export async function send(printer, filename, bytes, print, opts = {}) {
   if ((!printer?.url && !printer?.https) || !printer.kind || printer.kind === "none") return { ok: false, message: "This printer has no connection." };
   // A deck that drives more printers: the address must lead to the
   // printer that the user picked. A print once went to the first printer
@@ -216,6 +218,12 @@ export async function send(printer, filename, bytes, print) {
   }
   // Each file that goes out has the signature of this browser (signing.js).
   bytes = await signGcode(bytes);
+  if (opts.wrap) {
+    const wrapped = await opts.wrap(bytes);
+    if (!wrapped) return { ok: false, message: "zslice could not make the .gcode.3mf file of the plate." };
+    bytes = wrapped;
+    filename = opts.filename ?? filename;
+  }
   const form = new FormData();
   form.append("file", new Blob([bytes], { type: "application/octet-stream" }), filename);
   form.append("print", print ? "true" : "false");
