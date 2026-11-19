@@ -246,6 +246,9 @@ pub const Params = struct {
     /// The step (s), and the step of the falling strands.
     dt: f32 = 0.002,
     dt_free: f32 = 0.001,
+    /// The step (s) while no soft mass swings or falls: the runs only hang
+    /// in their closed form, which is stable at any step.
+    dt_hang: f32 = 0.002,
     /// The Gauss-Seidel passes of a run that fell.
     iterations: u32 = 8,
     /// The share of the follow-the-leader correction that goes back into
@@ -569,11 +572,15 @@ const Sim = struct {
     scratch: std.ArrayList(V) = .empty,
     weights: std.ArrayList(f64) = .empty,
     route: std.ArrayList(RoutePoint) = .empty,
+    /// The cached disks of `disk`.
+    disks: [2]struct { r: f32 = -1, offsets: std.ArrayList([2]f32) = .empty } = .{ .{}, .{} },
     time: f64 = 0,
     fan: f32 = 0,
     /// The soft masses, and if the newest one is soft (the nozzle holds it).
     soft: usize = 0,
     head_soft: bool = false,
+    /// The soft masses that swung or fell.
+    fell_soft: usize = 0,
     set_t: f32,
     rho_g: f32,
     ranges: [][2]u32,
@@ -593,6 +600,7 @@ const Sim = struct {
         s.scratch.deinit(s.gpa);
         s.weights.deinit(s.gpa);
         s.route.deinit(s.gpa);
+        for (&s.disks) |*d| d.offsets.deinit(s.gpa);
         s.field.deinit(s.gpa);
         s.pos.deinit(s.gpa);
         s.want.deinit(s.gpa);
@@ -624,28 +632,21 @@ const Sim = struct {
     /// reach k, gives k + 1 up to `side_reach` (the end of a bridge line
     /// welds to the wall). So a skin over air grows only a few lines from
     /// the plastic that an earlier layer holds.
-    fn supported(s: *const Sim, layer: u32, b: Bead, p: V, dir: [2]f32) u8 {
+    fn supported(s: *Sim, layer: u32, b: Bead, p: V, dir: [2]f32) Allocator.Error!u8 {
         const bottom = p[2] - b.half_h;
         const tol = b.reach;
         if (bottom <= tol) return 0;
         const top = p[2] + b.half_h;
-        const r = 0.5 * b.width;
-        const cell = s.field.cell;
-        const k: i32 = @intFromFloat(@ceil(r / cell));
-        var dy = -k;
-        while (dy <= k) : (dy += 1) {
-            var dx = -k;
-            while (dx <= k) : (dx += 1) {
-                const ox = @as(f32, @floatFromInt(dx)) * cell;
-                const oy = @as(f32, @floatFromInt(dy)) * cell;
-                if (ox * ox + oy * oy > r * r) continue;
-                const q = s.field.at(p[0] + ox, p[1] + oy);
-                if (q.layer == none) continue;
-                // Plastic of an earlier layer under the bead, or a heap
-                // above the nozzle that the nozzle plows into.
-                const base = if (q.layer == layer) q.under else q.top;
-                if (base >= bottom - tol or q.top > top + tol) return 0;
-            }
+        // The cells under the bead, the nearest first: most beads have
+        // plastic under their middle, and the first such cell ends the
+        // search.
+        for (try s.disk(0, 0.5 * b.width)) |o| {
+            const q = s.field.at(p[0] + o[0], p[1] + o[1]);
+            if (q.layer == none) continue;
+            // Plastic of an earlier layer under the bead, or a heap
+            // above the nozzle that the nozzle plows into.
+            const base = if (q.layer == layer) q.under else q.top;
+            if (base >= bottom - tol or q.top > top + tol) return 0;
         }
         // A bead beside it: on each side, across the path. The strand
         // before it in the path is behind it, and holds it only by its
@@ -662,10 +663,20 @@ const Sim = struct {
     /// Writes the bead of a solid mass into the height field, with its
     /// reach (see Field).
     fn deposit(s: *Sim, layer: u32, b: Bead, p: V, reach: u8) Allocator.Error!void {
-        const r = 0.45 * b.width;
+        const top = p[2] + b.half_h;
+        for (try s.disk(1, 0.45 * b.width)) |o| try s.field.raise(p[0] + o[0], p[1] + o[1], top, layer, reach);
+    }
+
+    /// The offsets (mm) of the cells of the height field in a disk of
+    /// radius r, the nearest first. Two disks stay in a cache (`slot`): the
+    /// support test and the deposit of a bead.
+    fn disk(s: *Sim, slot: usize, r: f32) Allocator.Error![]const [2]f32 {
+        const d = &s.disks[slot];
+        if (d.r == r) return d.offsets.items;
+        d.r = r;
+        d.offsets.clearRetainingCapacity();
         const cell = s.field.cell;
         const k: i32 = @intFromFloat(@ceil(r / cell));
-        const top = p[2] + b.half_h;
         var dy = -k;
         while (dy <= k) : (dy += 1) {
             var dx = -k;
@@ -673,9 +684,18 @@ const Sim = struct {
                 const ox = @as(f32, @floatFromInt(dx)) * cell;
                 const oy = @as(f32, @floatFromInt(dy)) * cell;
                 if (ox * ox + oy * oy > r * r) continue;
-                try s.field.raise(p[0] + ox, p[1] + oy, top, layer, reach);
+                d.offsets.append(s.gpa, .{ ox, oy }) catch |e| {
+                    d.r = -1;
+                    return e;
+                };
             }
         }
+        std.mem.sort([2]f32, d.offsets.items, {}, struct {
+            fn lt(_: void, a: [2]f32, b: [2]f32) bool {
+                return a[0] * a[0] + a[1] * a[1] < b[0] * b[0] + b[1] * b[1];
+            }
+        }.lt);
+        return d.offsets.items;
     }
 
     fn setSolid(s: *Sim, c: *Chain, k: usize) Allocator.Error!void {
@@ -683,6 +703,7 @@ const Sim = struct {
         n.soft = false;
         n.prev = n.pos;
         n.set_at = @floatCast(s.time);
+        if (n.fell) s.fell_soft -= 1;
         c.soft -= 1;
         s.soft -= 1;
         try s.deposit(c.layer, s.bead(n.path), n.pos, Field.hung);
@@ -715,7 +736,7 @@ const Sim = struct {
             s.head_soft = false;
         }
         try c.nodes.append(s.gpa, .{ .pos = p, .prev = p, .want = p, .temp = s.p.nozzle_t, .rest = rest, .mass = 0.5 * rest * mass_per_mm, .path = pi, .set_at = @floatCast(s.time), .soft = true });
-        const reach = s.supported(c.layer, b, p, dir);
+        const reach = try s.supported(c.layer, b, p, dir);
         if (reach != Field.hung) {
             c.nodes.items[k].soft = false;
             try s.deposit(c.layer, b, p, reach);
@@ -737,7 +758,8 @@ const Sim = struct {
                 s.time = t;
                 break;
             }
-            const dt: f32 = @floatCast(@min(@as(f64, s.p.dt), t - s.time));
+            const step_dt = if (s.fell_soft > 0) s.p.dt else s.p.dt_hang;
+            const dt: f32 = @floatCast(@min(@as(f64, step_dt), t - s.time));
             if (!(dt > 1e-9)) {
                 s.time = t;
                 break;
@@ -1042,7 +1064,10 @@ const Sim = struct {
                 nodes[link].rest *= 1 + @min(rate * dt, 0.1);
             }
         }
-        for (nodes[k .. j + 1]) |*n| n.fell = true;
+        for (nodes[k .. j + 1]) |*n| if (!n.fell) {
+            n.fell = true;
+            s.fell_soft += 1;
+        };
     }
 
     /// Prints one path: its masses come out along it at their times.
