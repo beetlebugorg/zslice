@@ -709,13 +709,26 @@ export class GlRenderer {
     gl.bindTexture(gl.TEXTURE_2D, this.bedTex);
     gl.uniform1i(u.tex, 0);
     gl.bindVertexArray(this.bedVao);
-    gl.enable(gl.BLEND);
-    gl.blendFunc(gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA);
+    // Two passes, so each pixel blends once, with the nearest surface of
+    // the bed model: first the depth only, then the color where the depth
+    // is that depth. In one pass, the see-through faces (alpha 0.3) that
+    // lie over each other added up in the order of the triangles, and the
+    // triangles of the mesh showed.
+    const count = Math.min(f.bedVertices, this.bedVertexCount);
     gl.enable(gl.POLYGON_OFFSET_FILL);
     gl.polygonOffset(2, 4);
-    gl.drawArrays(gl.TRIANGLES, 0, Math.min(f.bedVertices, this.bedVertexCount));
-    gl.disable(gl.POLYGON_OFFSET_FILL);
+    gl.colorMask(false, false, false, false);
+    gl.drawArrays(gl.TRIANGLES, 0, count);
+    gl.colorMask(true, true, true, true);
+    gl.depthFunc(gl.EQUAL);
+    gl.depthMask(false);
+    gl.enable(gl.BLEND);
+    gl.blendFunc(gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA);
+    gl.drawArrays(gl.TRIANGLES, 0, count);
     gl.disable(gl.BLEND);
+    gl.depthMask(true);
+    gl.depthFunc(gl.LEQUAL);
+    gl.disable(gl.POLYGON_OFFSET_FILL);
   }
 
   // Draws one frame of view.js (View3D.frame).
