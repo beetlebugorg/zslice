@@ -6,19 +6,22 @@ Click any line of the print. A card says what the line is, how fast it really pr
 
 ## The card of a line
 
-Use the Select tool (V), and click a line in the 2D or the 3D view. The line turns yellow. The card shows:
+Use the Select tool (V), and click a line in the 2D or the 3D view. The line turns yellow. The card opens in a corner of the view, away from the line, so it covers no part of the line. It stays in that corner from click to click. It moves only when the next line is under it. The card shows:
 
-- the feature and the layer, for example "Outer wall · layer 201";
-- the planned speed, the real speed, and the flow;
-- why the line is slow, in plain words;
-- the size: the segment, the loop, and the radius of an arc;
-- the settings that matter for this line, each with its field. Change one, and the part slices at once.
+- the feature, the layer, and the z, for example "Outer wall" and "Layer 201 · z 40.30 mm";
+- the speed, and the planned speed when the line is slower;
+- the flow, and how much of the flow limit of the filament it uses;
+- the line width and height, the time of the layer, and the fan;
+- why the line is slow, in plain words: a short layer, short segments, or the flow limit;
+- a warning of the check at the line, for example a bridge or an overhang, after the check has run;
+- for a support line: the part line that it holds up, and how many layers up;
+- the settings that matter for this line, each with its field. Change one, and the part slices at once. Click the name of a setting to show it in the panel.
 
 | Button | What it does |
 |---|---|
 | **Fade the others** | Shows the line solid and the other lines as faint ghosts. |
 | **All settings…** | Opens the long form of the line in the panel: each number, and how it comes about. |
-| **Don't print this line** | Takes the line out of the print. Delete does the same. |
+| **Don't print** | Takes the line out of the print. Delete does the same. |
 | **−10 % plastic**, **+10 % plastic** | Gives the line less or more plastic. |
 
 Esc, ×, or a click on no line closes the card. Drag the top row of the card to move it.

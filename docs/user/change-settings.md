@@ -23,6 +23,8 @@ Press `/`, type a few letters, and drag the slider. The print slices again while
 2. Click a section, then a setting. The › at the end of a row opens the page of the setting.
 3. Click **Pin** to put the panel beside the view. Drag the splitter to change its width.
 
+The sections come in the order of use. The part starts with the layers, the walls, the skin, the infill, the support, the skirt and brim, and the speed. The filament starts with the temperatures and the cooling. In each section, the settings that most people change come first, and the expert settings come last. The search (`/`) finds each setting.
+
 The page of a setting gives its value, its default (with **Reset**), what it does, and the lines that it changes. While a setting is open, the view shows only its lines. The other lines become ghosts.
 
 To change a number:

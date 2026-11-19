@@ -56,7 +56,7 @@ Each plate is one `App` (`zs_app`), with its own settings, profiles, parts, slic
 | Top center of the view | The settings search (`/`): settings and actions. A setting shows its control in the result, for the plate or for the selected part. |
 | Left of the view | The tool strip. Part tools: Select, Move, Turn (all axes), Scale, Lay flat, Cut, Duplicate, Draw supports. Then the line tools: Measure, Gaps, Check, Edit lines. Each tool shows its key on hover. |
 | Next to a selected part | The part card: name, size, Lay flat, Duplicate, Cut, and the settings of the part ("+ Add a setting for this part" opens the search for the part). |
-| Next to a line under the pointer | The line card: the feature, the width, the speed, the length, and a link to the setting that controls it. |
+| In a corner of the view, away from a selected line | The line card: the feature, the layer and z, the speed and the flow and what slows them, the width and height, the layer time, the fan, a warning of the check there, what a support line holds up, and the settings that control the line, with a jump to each. |
 | On the tape | The measure readout. |
 | Right edge of the view | The layer slider of the active plate. |
 | Over each plate | Its label: name, printer and material, status (To print, Printing, Printed, Failed, or "Resin: not yet"). |
@@ -70,7 +70,7 @@ Each plate is one `App` (`zs_app`), with its own settings, profiles, parts, slic
 - The settings search (`/`) with live controls in the results, which the user can move (search.js).
 - The sheet of the keyboard shortcuts (`?`, shortcuts.js).
 - The panel as a drawer: hidden, over the view, or pinned (`N`, the sliders button, Pin). The print card floats over the view.
-- The line card next to a selected line, with the three numbers and live editors of its first settings (linecard.js).
+- The line card in a corner of the view, away from the selected line, with the numbers of the line and live editors of its first settings (linecard.js).
 - The tool strip at the left of the view (Select, Move, Measure), with the key of each tool.
 - The part card (partcard.js): duplicate (core: `zs_app_part_duplicate`), best orientation, less support, reset, remove, and the settings of the part, with a search for the part.
 - The cards move with a drag of their head (drag.js).
