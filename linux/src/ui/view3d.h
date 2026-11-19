@@ -59,6 +59,9 @@ gboolean zg_view3d_pixel_of(GtkWidget *view, double x, double y, double z, doubl
 /* The box of path `path` on the screen, in points of the view (x0, y0,
  * x1, y1). FALSE if the 3D view does not show it. */
 gboolean zg_view3d_path_rect(GtkWidget *view, gint64 path, double out[4]);
+/* The hand of the Grab tool lets go of its part (Esc). FALSE if it holds
+ * no part. */
+gboolean zg_view3d_hand_release(GtkWidget *view);
 /* The plane of a cut in the view (zs_view_set_cut); a box with no area
  * hides it. */
 void zg_view3d_set_cut(GtkWidget *view, double x0, double y0, double x1, double y1, double z);

@@ -1192,6 +1192,7 @@ static gboolean on_preview_key(GtkEventControllerKey *c, guint key, guint code, 
     case GDK_KEY_s: case GDK_KEY_S: case GDK_KEY_u: case GDK_KEY_U: zg_model_set_tool(p->model, ZG_TOOL_SUPPORT); return TRUE;
     case GDK_KEY_g: case GDK_KEY_G: zg_model_set_gaps(p->model, !zg_model_gaps(p->model)); return TRUE;
     case GDK_KEY_Escape:
+        if (zg_view3d_hand_release(p->view3d)) return TRUE;
         if (zg_model_selected_part(p->model) >= 0) {
             zg_model_select_part(p->model, -1);
             return TRUE;
@@ -1566,7 +1567,7 @@ static GtkWidget *tool_strip(Preview *p) {
         {ZG_TOOL_MOVE, 1, "M", "Move (M): drag a part to move it, and scroll over it to turn it. The same as Ctrl in the other tools. Tab: the next part."},
         {ZG_TOOL_TURN, 3, "R", "Turn (R): click a part, then drag a ring to turn it about X, Y, or Z, in 15° steps (Shift: 5°). Keys: Left and Right (Z), Up and Down (X), Page Up and Page Down (Y)."},
         {ZG_TOOL_SUPPORT, 6, "S", "Support (S): click points on the part to draw an area, and click the first point (or press Enter) to close it. Support grows under the area, or Block keeps support out. Click an outline to select it, and drag its points. Shift: no snap."},
-        {ZG_TOOL_GRAB, 7, "H", "Grab (H): press on a part and move it as a real object. The wheel lifts it; Alt and a drag turn it (Shift: steps of 15°). Let go: with support off it falls and rests flat; with support on it keeps its turn, and support holds it."},
+        {ZG_TOOL_GRAB, 7, "H", "Grab (H): click a part to pick it up; move the pointer to carry it. The wheel lifts it; Alt and a move turn it (Shift: steps of 15°). Click again, or press Esc, to let go: with support off it falls and rests flat; with support on it keeps its turn, and support holds it."},
         {ZG_TOOL_MEASURE, 2, "T", "Measure (T): click two points of the print. The ends of the lines snap; Shift turns the snap off. Esc clears."},
     };
     GtkWidget *box = gtk_box_new(GTK_ORIENTATION_VERTICAL, 2);

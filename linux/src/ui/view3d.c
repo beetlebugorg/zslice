@@ -100,11 +100,13 @@ typedef struct {
      * runs the rigid body (zg_model_fall_step). */
     guint fall_tick;
     gint64 fall_part, fall_last;
-    /* The hand (the Grab tool): its height over the bed (mm), its last
-     * pointer, and the turn of an Alt drag (degrees: the sum, and the part
-     * sent). */
-    gboolean hand;
-    double hand_h, hand_px, hand_py;
+    /* The hand (the Grab tool) is sticky: a click picks a part up, and
+     * the hand keeps it with no button held, until the next click or Esc.
+     * Its height over the bed (mm), its last pointer, the pointer of an
+     * Alt move, and the turn of the Alt moves (degrees: the sum, and the
+     * part sent). hand_click: the press of that click (no orbit). */
+    gboolean hand, hand_click, turning;
+    double hand_h, hand_px, hand_py, turn_x, turn_y;
     double yaw, tilt, yaw_sent, tilt_sent;
 } View3d;
 
@@ -118,6 +120,7 @@ typedef struct {
 static void queue_frame(View3d *v);
 static void compute_rings(View3d *v);
 static void fall_finish(View3d *v);
+static void set_cursor(View3d *v, const char *name);
 
 static gboolean retry_frame(gpointer data) {
     View3d *v = data;
@@ -862,6 +865,40 @@ static void hand_turn(View3d *v, double dx, double dy, gboolean snap) {
     v->tilt_sent += tilt;
 }
 
+/* The hand lets go: the part keeps its speed, falls, and rests. */
+static gboolean hand_release(View3d *v) {
+    if (!v->hand) return FALSE;
+    zg_model_grab_end(v->model);
+    v->hand = FALSE;
+    set_cursor(v, zg_model_tool(v->model) == ZG_TOOL_GRAB ? "grab" : NULL);
+    return TRUE;
+}
+
+gboolean zg_view3d_hand_release(GtkWidget *view) {
+    View3d *v = g_object_get_data(G_OBJECT(view), "zg-view3d");
+    return v && hand_release(v);
+}
+
+/* A move of the pointer with the part in the hand: Alt turns it, else it
+ * goes along. */
+static void hand_pointer(View3d *v, double x, double y, GdkModifierType mods) {
+    if (mods & GDK_ALT_MASK) {
+        if (!v->turning) {
+            v->turning = TRUE;
+            v->yaw = v->tilt = v->yaw_sent = v->tilt_sent = 0;
+            v->turn_x = x;
+            v->turn_y = y;
+        }
+        hand_turn(v, x - v->turn_x, y - v->turn_y, (mods & GDK_SHIFT_MASK) != 0);
+        v->turn_x = x;
+        v->turn_y = y;
+        return;
+    }
+    /* After a turn, the hand moves on from here: no jump. */
+    v->turning = FALSE;
+    hand_move(v, x, y);
+}
+
 /* The wheel lifts the part in the hand (mm), from the bed to 200 mm. */
 static void hand_lift(View3d *v, double mm) {
     v->hand_h = CLAMP(v->hand_h + mm, 1, 200);
@@ -902,8 +939,7 @@ static gboolean grab_step(gpointer data) {
     if (d->f[4] != 0) hand_turn(v, d->f[4] / 12 * 2, 0, FALSE);
     hand_move(v, d->f[0] + (d->f[2] - d->f[0]) * t, d->f[1] + (d->f[3] - d->f[1]) * t);
     if (d->step < 12) return G_SOURCE_CONTINUE;
-    zg_model_grab_end(v->model);
-    v->hand = FALSE;
+    hand_release(v);
     g_timeout_add_once(3000, grab_log, v);
     g_free(d);
     return G_SOURCE_REMOVE;
@@ -974,6 +1010,7 @@ static void tool_cursor(View3d *v) {
 
 static void on_tool_changed(ZgModel *model, gpointer data) {
     View3d *v = data;
+    if (zg_model_tool(model) != ZG_TOOL_GRAB) hand_release(v);
     tool_cursor(v);
     /* The Support tool: the support lines faint, or solid again. */
     apply_focus(v);
@@ -1023,10 +1060,19 @@ static void on_drag_begin(GtkGestureDrag *g, double x, double y, gpointer data) 
             return;
         }
     }
-    /* The Grab tool: a press on a part takes it in the hand. */
-    if (v->view && mode0 == DRAG_ORBIT && zg_model_tool(v->model) == ZG_TOOL_GRAB && hand_start(v, x, y)) {
-        set_cursor(v, "grabbing");
-        return;
+    /* The Grab tool: a click on a part picks it up; the next click lets
+     * go. */
+    if (v->view && mode0 == DRAG_ORBIT && zg_model_tool(v->model) == ZG_TOOL_GRAB) {
+        if (hand_release(v)) {
+            v->hand_click = TRUE;
+            return;
+        }
+        if (hand_start(v, x, y)) {
+            v->hand_click = TRUE;
+            v->turning = FALSE;
+            set_cursor(v, "grabbing");
+            return;
+        }
     }
     /* The Support tool: a press on a point of an area drags it. */
     if (v->view && mode0 == DRAG_ORBIT && zg_model_tool(v->model) == ZG_TOOL_SUPPORT && zg_support_press(v->support, x, y)) {
@@ -1060,9 +1106,11 @@ static void on_drag_end(GtkGestureDrag *g, double dx, double dy, gpointer data) 
     View3d *v = data;
     v->moving = -1;
     v->tape_end = -1;
-    /* The hand lets go: the part keeps its speed, falls, and rests. */
-    if (v->hand) zg_model_grab_end(v->model);
-    v->hand = FALSE;
+    /* The hand keeps the part after the release of its click. */
+    if (v->hand_click) {
+        v->hand_click = FALSE;
+        return;
+    }
     ring_release(v);
     zg_support_release(v->support);
     tool_cursor(v);
@@ -1088,18 +1136,8 @@ static void on_drag_update(GtkGestureDrag *g, double dx, double dy, gpointer dat
         v->drag_y = dy;
         return;
     }
-    if (v->hand) {
-        GdkModifierType mods = gtk_event_controller_get_current_event_state(GTK_EVENT_CONTROLLER(g));
-        if (mods & GDK_ALT_MASK) hand_turn(v, ddx, ddy, (mods & GDK_SHIFT_MASK) != 0);
-        else {
-            double sx, sy;
-            gtk_gesture_drag_get_start_point(g, &sx, &sy);
-            hand_move(v, sx + dx, sy + dy);
-        }
-        v->drag_x = dx;
-        v->drag_y = dy;
-        return;
-    }
+    /* The click of the hand: the pointer moves carry the part. */
+    if (v->hand_click) return;
     if (zg_support_dragging(v->support)) {
         double sx, sy;
         gtk_gesture_drag_get_start_point(g, &sx, &sy);
@@ -1146,6 +1184,10 @@ static void on_motion(GtkEventControllerMotion *c, double x, double y, gpointer 
     View3d *v = data;
     v->pointer_x = x;
     v->pointer_y = y;
+    if (v->hand) {
+        hand_pointer(v, x, y, gtk_event_controller_get_current_event_state(GTK_EVENT_CONTROLLER(c)));
+        return;
+    }
     /* The Support tool: a hand over a point of an area. */
     GdkModifierType mods = gtk_event_controller_get_current_event_state(GTK_EVENT_CONTROLLER(c));
     gboolean pressed = (mods & (GDK_BUTTON1_MASK | GDK_BUTTON2_MASK | GDK_BUTTON3_MASK)) != 0;
