@@ -2481,8 +2481,11 @@ pub const App = struct {
         store.gpa = app.gpa;
         store.z_hop = @floatCast(part.project.z_hop);
         const sink: zs.engine.Job.LayerSink = .{ .ctx = &store, .func = Toolpaths.addLayer };
-        // The pictures for the screen of the printer, first.
-        writeThumbnails(app.gpa, app.slice_parts, part.machine.thumbnails, part.filament.color, &out.writer) catch {};
+        // The pictures for the screen of the printer, first. A Bambu Lab
+        // printer has them in its .gcode.3mf, and its G-code starts with
+        // the header block of Bambu Studio.
+        if (zs.printers.bambu(part.machine.model) == null)
+            writeThumbnails(app.gpa, app.slice_parts, part.machine.thumbnails, part.filament.color, &out.writer) catch {};
         const stats = job.writeGcodeWith(&out.writer, sink) catch |e| {
             store.deinit(app.gpa);
             out.deinit();
@@ -2492,6 +2495,12 @@ pub const App = struct {
         // The buffer can be larger than the text. It stays, for the next
         // slice.
         const bytes = out.written();
+        // The times and the filament in the header of a Bambu Lab G-code.
+        {
+            const lvl = job.levels;
+            const top = if (lvl.len > 0) lvl[lvl.len - 1].z else 0;
+            zs.gcode.Emitter.finishBambuHeader(bytes, stats, job.slots.len, job.resolved.filament_area, top);
+        }
         const buf = out.writer.buffer;
 
         app.part_box = job.bounds() orelse .{ 0, 0, 0, 0 };

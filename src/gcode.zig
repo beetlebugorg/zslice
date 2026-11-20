@@ -865,6 +865,60 @@ pub const Emitter = struct {
         return text;
     }
 
+    const blank16 = "0" ++ " " ** 15;
+    const blank64 = "0" ++ " " ** 63;
+
+    /// Fills in the fields of the header block of a Bambu Lab G-code (see
+    /// bambuBlocks) with the stats of the print: the print time, the
+    /// filament of each slot, and the top z. In place: each field keeps its
+    /// width, with spaces after the value. A text with no header block
+    /// stays.
+    pub fn finishBambuHeader(text: []u8, st: Stats, slots: usize, filament_area: f64, max_z: f64) void {
+        if (!std.mem.startsWith(u8, text, "; HEADER_BLOCK_START\n")) return;
+        const head_end = std.mem.indexOf(u8, text, "; HEADER_BLOCK_END") orelse return;
+        const head = text[0..head_end];
+        const put = struct {
+            fn f(h: []u8, key: []const u8, comptime width: usize, comptime fmt: []const u8, args: anytype) void {
+                const pos = std.mem.indexOf(u8, h, key) orelse return;
+                const field = h[pos + key.len ..][0..width];
+                @memset(field, ' ');
+                _ = std.fmt.bufPrint(field, fmt, args) catch {};
+            }
+        }.f;
+        var tbuf: [16]u8 = undefined;
+        const t = clockText(&tbuf, st.print_time_s);
+        put(head, "; model printing time: ", 16, "{s}", .{t});
+        put(head, "; total estimated time: ", 16, "{s}", .{t});
+        put(head, "; max_z_height: ", 16, "{d:.2}", .{max_z});
+        const n = @max(@min(slots, filaments.max_slots), 1);
+        var lb: [64]u8 = undefined;
+        var vb: [64]u8 = undefined;
+        var wb: [64]u8 = undefined;
+        var lw: Writer = .fixed(&lb);
+        var vw: Writer = .fixed(&vb);
+        var ww: Writer = .fixed(&wb);
+        for (0..n) |k| {
+            const mm = if (slots < 2) st.filament_mm else st.slot_mm[k];
+            const g = if (slots < 2) st.filament_g else st.slot_g[k];
+            const sep = if (k > 0) "," else "";
+            lw.print("{s}{d:.2}", .{ sep, mm }) catch {};
+            vw.print("{s}{d:.2}", .{ sep, mm * filament_area / 1000 }) catch {};
+            ww.print("{s}{d:.2}", .{ sep, g }) catch {};
+        }
+        put(head, "; total filament length [mm] : ", 64, "{s}", .{lw.buffered()});
+        put(head, "; total filament volume [cm^3] : ", 64, "{s}", .{vw.buffered()});
+        put(head, "; total filament weight [g] : ", 64, "{s}", .{ww.buffered()});
+    }
+
+    /// "1h 12m 43s", as Bambu Studio writes a time.
+    fn clockText(buf: []u8, seconds: f64) []const u8 {
+        const s: u64 = @intFromFloat(@max(0, @round(seconds)));
+        const h = s / 3600;
+        const m = (s % 3600) / 60;
+        const sec = s % 60;
+        return (if (h > 0) std.fmt.bufPrint(buf, "{d}h {d}m {d}s", .{ h, m, sec }) else if (m > 0) std.fmt.bufPrint(buf, "{d}m {d}s", .{ m, sec }) else std.fmt.bufPrint(buf, "{d}s", .{sec})) catch "0s";
+    }
+
     /// For a Bambu Lab printer: the header block and the config block of
     /// Bambu Studio at the top of the G-code. Its firmware reads them, and
     /// it compares the hotends of the config block with its own (a print
@@ -887,7 +941,14 @@ pub const Emitter = struct {
             }
         }.f;
         try w.writeAll("; HEADER_BLOCK_START\n; zslice\n");
+        // The times and the filament of the print come after the slice: a
+        // field of fixed width here, that finishBambuHeader fills in.
+        try w.writeAll("; model printing time: " ++ blank16 ++ "; total estimated time: " ++ blank16 ++ "\n");
         try w.print("; total layer number: {d}\n", .{layer_count});
+        try w.writeAll("; total filament length [mm] : " ++ blank64 ++ "\n");
+        try w.writeAll("; total filament volume [cm^3] : " ++ blank64 ++ "\n");
+        try w.writeAll("; total filament weight [g] : " ++ blank64 ++ "\n");
+        try w.writeAll("; max_z_height: " ++ blank16 ++ "\n");
         try w.writeAll("; filament_diameter: ");
         for (fils, 0..) |f, k| try w.print("{s}{d}", .{ if (k > 0) "," else "", f.diameter });
         try w.writeAll("\n; filament_density: ");
@@ -2992,4 +3053,22 @@ test "maker template: an old X2D start G-code of a profile becomes the current o
     try std.testing.expectEqualStrings(mine, Emitter.makerTemplate("bambu-lab-x2d", mine, .start));
     // Another printer: as it is.
     try std.testing.expectEqualStrings(old, Emitter.makerTemplate("creality-ender-3", old, .start));
+}
+
+test "bambu header: the times, the filament, and the top fill their fields" {
+    const gpa = std.testing.allocator;
+    const head = "; HEADER_BLOCK_START\n; zslice\n; model printing time: " ++ Emitter.blank16 ++ "; total estimated time: " ++ Emitter.blank16 ++ "\n; total layer number: 10\n; total filament length [mm] : " ++ Emitter.blank64 ++ "\n; total filament volume [cm^3] : " ++ Emitter.blank64 ++ "\n; total filament weight [g] : " ++ Emitter.blank64 ++ "\n; max_z_height: " ++ Emitter.blank16 ++ "\n; HEADER_BLOCK_END\n";
+    const text = try gpa.dupe(u8, head);
+    defer gpa.free(text);
+    var st: Stats = .{};
+    st.print_time_s = 4363;
+    st.slot_mm[0] = 12491.95;
+    st.slot_mm[1] = 227.74;
+    st.slot_g[0] = 37.26;
+    st.slot_g[1] = 0.68;
+    Emitter.finishBambuHeader(text, st, 2, 2.405, 31.08);
+    try std.testing.expectEqual(head.len, text.len);
+    try std.testing.expect(std.mem.indexOf(u8, text, "; model printing time: 1h 12m 43s") != null);
+    try std.testing.expect(std.mem.indexOf(u8, text, "; total filament weight [g] : 37.26,0.68 ") != null);
+    try std.testing.expect(std.mem.indexOf(u8, text, "; max_z_height: 31.08 ") != null);
 }
