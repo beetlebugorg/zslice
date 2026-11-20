@@ -21,6 +21,7 @@
 
 import { Wasm, statusText } from "./wasm.js";
 import { Core, STATE } from "./core.js";
+import { saveSession } from "./keep.js";
 
 let wasm = null;
 let set = 0; // the zs_set
@@ -1500,6 +1501,16 @@ const ops = {
     } finally {
       if (cam) w.free(cam, 32);
     }
+  },
+
+  // Writes the session (sessionWrite) and keeps it in IndexedDB (keep.js),
+  // with the tag and the map of the page. The put copies the bytes on the
+  // thread that calls it: in a profile of nine Benchies on the page,
+  // the put held the main thread for 0.5 s after each slice.
+  async sessionKeep({ camera, tag, map }) {
+    const { bytes } = ops.sessionWrite({ camera });
+    await saveSession(bytes, tag, map);
+    return {};
   },
 
   // Puts a session back: the plates, with their last scenes at once, and

@@ -51,7 +51,7 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
 import { Wasm } from "./wasm.js";
-import { savePlate, loadPlate, clearPlate, saveSession, loadSession } from "./keep.js";
+import { savePlate, loadPlate, clearPlate, loadSession } from "./keep.js";
 import { Client } from "./client.js";
 import { View3D, MODES } from "./view.js";
 import { GlRenderer } from "./gl.js";
@@ -3348,8 +3348,9 @@ function keepSoon() {
       // write waits for a slice, and a plate can go meanwhile).
       const tag = project.sessionTag();
       const map = project.setMap ? [...project.setMap] : null;
-      const r = await client.call("sessionWrite", { camera: cameraNow() });
-      if (r.bytes) await saveSession(r.bytes, tag, map);
+      // The worker writes the session and keeps it: the bytes stay off
+      // the main thread.
+      await client.call("sessionKeep", { camera: cameraNow(), tag, map });
     } catch {
       // The next change tries again.
     }
